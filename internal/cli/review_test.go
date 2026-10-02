@@ -83,7 +83,7 @@ func TestReviewQueue(t *testing.T) {
 	}
 
 	// A member sees the decide bead; herdr and unrouted stages are not human.
-	items, err := reviewQueue(ctx, st, "mckean")
+	items, err := reviewQueue(ctx, st, "mckean", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,18 +94,22 @@ func TestReviewQueue(t *testing.T) {
 		t.Errorf("groups = %+v", items)
 	}
 	// Anyone else only sees the member-less group's beads.
-	items, err = reviewQueue(ctx, st, "yard-21-new")
+	items, err = reviewQueue(ctx, st, "yard-21-new", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got, want := ids(items), []string{approvedOld.ID, approvedNew.ID}; !slices.Equal(got, want) {
 		t.Fatalf("non-member queue = %v, want %v", got, want)
 	}
+	// --group narrows to the named groups.
+	if items, _ = reviewQueue(ctx, st, "mckean", []string{"deciders"}); !slices.Equal(ids(items), []string{question.ID}) {
+		t.Fatalf("deciders only = %v", ids(items))
+	}
 	// Closed beads drop out.
 	if _, err := st.AdvanceNote(ctx, approvedOld.ID, "merged", "", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if items, _ = reviewQueue(ctx, st, "yard-21-new"); !slices.Equal(ids(items), []string{approvedNew.ID}) {
+	if items, _ = reviewQueue(ctx, st, "yard-21-new", nil); !slices.Equal(ids(items), []string{approvedNew.ID}) {
 		t.Fatalf("after merge = %v", ids(items))
 	}
 }

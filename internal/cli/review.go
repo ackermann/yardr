@@ -46,8 +46,9 @@ type reviewAction struct {
 // reviewQueue lists the open beads waiting on actor in human stages, the
 // longest untouched first. A bead's group is the one working it, else the
 // one its routes send it to; a group with members only shows its beads to
-// them, mirroring Advance's check.
-func reviewQueue(ctx context.Context, st store.API, actor string) ([]reviewItem, error) {
+// them, mirroring Advance's check. only, if set, keeps those groups'
+// beads (placeholder stages such as backlog are manual too).
+func reviewQueue(ctx context.Context, st store.API, actor string, only []string) ([]reviewItem, error) {
 	beads, err := st.ListBeads(ctx, store.BeadFilter{})
 	if err != nil {
 		return nil, err
@@ -80,7 +81,7 @@ func reviewQueue(ctx context.Context, st store.API, actor string) ([]reviewItem,
 			name = r.Group
 		}
 		g, ok := byName[name]
-		if !ok || g.Runner != "manual" {
+		if !ok || g.Runner != "manual" || (len(only) > 0 && !slices.Contains(only, g.Name)) {
 			continue
 		}
 		if len(g.Members) > 0 && !slices.Contains(g.Members, actor) {
@@ -225,6 +226,7 @@ func lastNotes(notes []store.Note, n int) string {
 }
 
 func (a *app) reviewCmd() *cobra.Command {
+	var only []string
 	cmd := &cobra.Command{
 		Use:   "review",
 		Short: "Work through beads waiting on you in human stages, one form per bead",
@@ -240,7 +242,7 @@ For scripts: yard review list, and yard bead advance <id> --to <stage> --note <t
 			if err != nil {
 				return err
 			}
-			items, err := reviewQueue(c.Context(), st, a.who())
+			items, err := reviewQueue(c.Context(), st, a.who(), only)
 			if err != nil {
 				return err
 			}
@@ -257,7 +259,7 @@ For scripts: yard review list, and yard bead advance <id> --to <stage> --note <t
 			if err != nil {
 				return err
 			}
-			items, err := reviewQueue(c.Context(), st, a.who())
+			items, err := reviewQueue(c.Context(), st, a.who(), only)
 			if err != nil {
 				return err
 			}
@@ -277,6 +279,7 @@ For scripts: yard review list, and yard bead advance <id> --to <stage> --note <t
 			})
 		},
 	}
+	cmd.PersistentFlags().StringSliceVarP(&only, "group", "g", nil, "only these manual groups' beads")
 	cmd.AddCommand(list)
 	return cmd
 }

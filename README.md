@@ -164,6 +164,7 @@ route uses. "Open diff" pages the full diff through `$PAGER`; Skip leaves it.
 
 ```sh
 yard review                    # the form
+yard review -g decisions       # only some groups' beads (backlog is manual too)
 yard review list               # the same queue for scripts (--json for actions)
 yard bead advance <id> --to <stage> [--note <text>]
 ```
