@@ -9,14 +9,18 @@
 package runner
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
@@ -141,6 +145,57 @@ func writeEpic(b *strings.Builder, job dispatch.Job) {
 	}
 	fmt.Fprintf(b, " The whole change is `%s..%s` (`git log %[1]s..%[2]s`, `git diff %[1]s...%[2]s`): work on it as a whole, not child by child.\n\n", BaseOf(job), branch)
 	fmt.Fprintf(b, "An epic sent back to `open` waits there only while a child is open: before sending it back, add the fix as a child (`yardr bead create ... -r <rig>`, then `yardr dep add %s <child> -k parent`), or it is integrated again unchanged.\n\n", job.Bead.ID)
+	if url, _ := job.Bead.Metadata["pr_url"].(string); url != "" {
+		writePR(b, job, url)
+	}
+}
+
+// checksTimeout bounds gh pr checks: a brief is written while the agent's
+// pane waits, and GitHub being slow must not hold the session up.
+var checksTimeout = 20 * time.Second
+
+// writePR is the part of an epic's brief for an epic that lands through a
+// pull request (integrate-epic stored its pr_url): the PR, its CI as GitHub
+// sees it now, and that the review is posted there. The reviewer may push
+// its fix-forward commits to the epic's branch, which pr-epic pushes again
+// anyway; it never merges, which is pr-merge's after approval.
+func writePR(b *strings.Builder, job dispatch.Job, url string) {
+	branch := Branch(job.Bead)
+	fmt.Fprintf(b, "## Pull request\n\nThis epic lands through the pull request %s.", url)
+	fmt.Fprintf(b, " For this bead you may push to `%s` (`git push --force-with-lease origin %[1]s`, after fixing forward), and you must post your review on the pull request with `gh pr review %s` (`--approve`, `--request-changes` or `--comment`, `--body-file` your note). Never merge it: it is merged after approval.\n\n", branch, url)
+	fmt.Fprintf(b, "CI on the pull request when this brief was written (`gh pr checks %s`):\n\n```\n%s\n```\n\n", url, prChecks(rigPath(job.Rig), url))
+}
+
+// prChecks is gh pr checks' table for the pull request at url, or
+// "checks: unavailable" with the reason. gh exits non-zero when a check
+// failed (1) or is pending (8) and still prints the table, so output wins
+// over the exit status; only no output at all counts as unavailable.
+func prChecks(dir, url string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), checksTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "gh", "pr", "checks", url)
+	cmd.Dir = dir
+	// gh must not wait on a prompt nobody sees.
+	cmd.Env = append(os.Environ(), "GH_PROMPT_DISABLED=1")
+	var out, errb bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	err := cmd.Run()
+	if text := strings.TrimSpace(out.String()); text != "" && ctx.Err() == nil {
+		return text
+	}
+	reason := strings.TrimSpace(errb.String())
+	switch {
+	case ctx.Err() != nil:
+		reason = fmt.Sprintf("gh pr checks took longer than %s", checksTimeout)
+	case reason == "" && err != nil:
+		reason = err.Error()
+	case reason == "":
+		reason = "gh pr checks printed nothing"
+	}
+	if i := strings.IndexByte(reason, '\n'); i >= 0 {
+		reason = reason[:i]
+	}
+	return "checks: unavailable (" + reason + ")"
 }
 
 // readPrompt reads a group's prompt file. An absolute path is read as is. A

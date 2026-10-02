@@ -85,6 +85,116 @@ func TestBriefForAnEpic(t *testing.T) {
 	}
 }
 
+// fakeGh puts a gh on PATH that records its argv in calls and runs script
+// (sh) for it, so a brief's gh pr checks needs no GitHub.
+func fakeGh(t *testing.T, script string) (calls string) {
+	t.Helper()
+	bin := t.TempDir()
+	calls = filepath.Join(bin, "calls")
+	body := "#!/bin/sh\necho \"$*\" >>" + calls + "\n" + script + "\n"
+	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return calls
+}
+
+// An epic landing through a pull request (pr_url set by integrate-epic)
+// has the PR, its checks as gh prints them and the review-on-GitHub rules
+// in its brief. gh exits 8 while checks are pending and still prints the
+// table, which is pasted, not reported as unavailable.
+func TestBriefForAnEpicWithAPullRequest(t *testing.T) {
+	const url = "https://github.com/o/r/pull/7"
+	calls := fakeGh(t, "printf 'gate\\tpass\\t1m\\nlint\\tpending\\t0\\n'; exit 8")
+	job := dispatch.Job{
+		Bead: store.Bead{ID: "web-e", Title: "Login", Type: store.TypeEpic, Stage: "review",
+			Metadata: map[string]any{"pr_url": url}},
+		Group:   store.Group{Name: "web/reviewers"},
+		Rig:     &store.Rig{Name: "web", Base: "main", Path: t.TempDir()},
+		Session: store.Session{ID: "s1"},
+		Base:    "main",
+	}
+	b, err := Brief(job, "a", "/wt/web-e", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"## Pull request", "lands through the pull request " + url,
+		"gate\tpass\t1m\nlint\tpending\t0", "git push --force-with-lease origin yard/web-e",
+		"gh pr review " + url, "--approve", "--request-changes", "--comment", "Never merge"} {
+		if !strings.Contains(b, want) {
+			t.Errorf("brief missing %q:\n%s", want, b)
+		}
+	}
+	if strings.Contains(b, "unavailable") {
+		t.Errorf("pending checks reported as unavailable:\n%s", b)
+	}
+	if got, _ := os.ReadFile(calls); strings.TrimSpace(string(got)) != "pr checks "+url {
+		t.Errorf("gh calls = %q, want one pr checks %s", got, url)
+	}
+
+	// gh failing without a table: the brief still has the PR and says why
+	// the checks are missing.
+	fakeGh(t, "echo 'HTTP 502: Bad Gateway' >&2; exit 1")
+	b, err = Brief(job, "a", "/wt/web-e", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"lands through the pull request " + url, "checks: unavailable (HTTP 502: Bad Gateway)"} {
+		if !strings.Contains(b, want) {
+			t.Errorf("brief missing %q:\n%s", want, b)
+		}
+	}
+}
+
+// gh pr checks is bounded: a gh that hangs leaves the checks unavailable
+// rather than holding the session's start up.
+func TestBriefPullRequestChecksTimeOut(t *testing.T) {
+	fakeGh(t, "exec sleep 30")
+	defer func(d time.Duration) { checksTimeout = d }(checksTimeout)
+	checksTimeout = 100 * time.Millisecond
+	start := time.Now()
+	got := prChecks(t.TempDir(), "https://github.com/o/r/pull/7")
+	if !strings.HasPrefix(got, "checks: unavailable (gh pr checks took longer than") {
+		t.Errorf("prChecks = %q", got)
+	}
+	if d := time.Since(start); d > 10*time.Second {
+		t.Errorf("prChecks took %s", d)
+	}
+}
+
+// An epic without pr_url lands locally: its brief is the same as before
+// pull requests, and gh is never run.
+func TestBriefForAnEpicWithoutAPullRequest(t *testing.T) {
+	calls := fakeGh(t, "exit 1")
+	job := dispatch.Job{
+		Bead:     store.Bead{ID: "web-e", Title: "Login", Type: store.TypeEpic, Stage: "review"},
+		Group:    store.Group{Name: "web/reviewers"},
+		Rig:      &store.Rig{Name: "web", Base: "main"},
+		Session:  store.Session{ID: "s1"},
+		Base:     "main",
+		Children: []string{"web-1"},
+	}
+	b, err := Brief(job, "a", "/wt/web-e", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "This bead is an epic. Its branch `yard/web-e` holds the work of its children, each landed on it after its own review; it lands on `main` as one unit." +
+		" Children: web-1. The whole change is `main..yard/web-e` (`git log main..yard/web-e`, `git diff main...yard/web-e`): work on it as a whole, not child by child.\n\n" +
+		"An epic sent back to `open` waits there only while a child is open: before sending it back, add the fix as a child (`yardr bead create ... -r <rig>`, then `yardr dep add web-e <child> -k parent`), or it is integrated again unchanged.\n\n" +
+		"## Login"
+	if !strings.Contains(b, want) {
+		t.Errorf("epic part of the brief is not the local-landing one:\n%s", b)
+	}
+	for _, not := range []string{"Pull request", "gh pr", "force-with-lease"} {
+		if strings.Contains(b, not) {
+			t.Errorf("brief without pr_url mentions %q:\n%s", not, b)
+		}
+	}
+	if _, err := os.Stat(calls); err == nil {
+		t.Error("gh was run for an epic without pr_url")
+	}
+}
+
 // A relative prompt the rig does not have is read from the yard's home, so
 // the quick start's prompt=roles/reviewer.md works on a fresh rig from
 // ~/.yardr/roles/reviewer.md; the rig's own copy wins when it has one.
