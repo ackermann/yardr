@@ -9,6 +9,11 @@
 //	bead type      https://work.example/types/<t> for BDP's reference types,
 //	dep kind       else <scope>types/<t>, as BDP's bd adapter does
 //
+// Journals and memories (store.NotWork) are not served: they are knowledge,
+// not work, and a bd-style client computes readiness from open status and
+// blockers alone, so it would list a resident's open journal as ready work.
+// Links touching them are left out with them.
+//
 // Bead properties are bd's JSON row (id, title, status, priority,
 // issue_type, created_at, created_by, updated_at, dependencies and their
 // counts) plus yard's own fields, so clients written for bd read yard too.
@@ -122,11 +127,22 @@ func BuildGraph(scope string, snap *store.Snapshot) *Graph {
 		types[workTypes+t] = TypeSummary{ID: workTypes + t, Name: name, Describes: "link"}
 	}
 
+	hidden := map[string]bool{}
+	for i := range snap.Beads {
+		if store.NotWork[snap.Beads[i].Type] {
+			hidden[snap.Beads[i].ID] = true
+		}
+	}
+	served := func(d *store.SnapDep) bool { return !hidden[d.From] && !hidden[d.To] }
+
 	// bd lists a bead's dependencies (its outbound edges) in its row.
 	deps := map[string][]any{}
 	dependents := map[string]int{}
 	for i := range snap.Deps {
 		d := &snap.Deps[i]
+		if !served(d) {
+			continue
+		}
 		deps[d.To] = append(deps[d.To], map[string]any{
 			"issue_id": d.To, "depends_on_id": d.From, "type": d.Kind,
 			"created_at": instant(d.CreatedAt), "created_by": deref(d.CreatedBy), "metadata": "{}",
@@ -145,6 +161,9 @@ func BuildGraph(scope string, snap *store.Snapshot) *Graph {
 
 	for i := range snap.Beads {
 		b := &snap.Beads[i]
+		if hidden[b.ID] {
+			continue
+		}
 		props := beadProperties(&b.Bead)
 		props["dependencies"] = nonNilAny(deps[b.ID])
 		props["dependency_count"] = len(deps[b.ID])
@@ -162,6 +181,9 @@ func BuildGraph(scope string, snap *store.Snapshot) *Graph {
 	}
 	for i := range snap.Deps {
 		d := &snap.Deps[i]
+		if !served(d) {
+			continue
+		}
 		r := &Record{
 			ID:          g.Scope + "links/" + EncodeSegment(d.ID),
 			Type:        g.linkType(d.Kind, types),

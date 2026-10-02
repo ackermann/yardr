@@ -312,6 +312,41 @@ func TestLinksFollowBDPDirection(t *testing.T) {
 	}
 }
 
+// Journals and memories are open beads in the store, but not work: a bd-style
+// client computes readiness from status and blockers, so serving them would
+// list a resident's journal as ready. They are not served, nor their links.
+func TestJournalsAndMemoriesAreNotServed(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	work := f.bead("real work", "task")
+	journal := f.bead("Journal of mayor", store.TypeJournal)
+	memory := f.bead("how we deploy", store.TypeMemory)
+	if err := f.st.AddDep(ctx, work.ID, memory.ID, "related", "tester"); err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for next := "beads/?limit=5"; next != ""; {
+		page := f.get(next).json(t)
+		for _, it := range page["items"].([]any) {
+			ids = append(ids, it.(map[string]any)["id"].(string))
+		}
+		next, _ = page["next"].(string)
+	}
+	if !slices.Equal(ids, []string{scope + "beads/" + work.ID}) {
+		t.Fatalf("beads served = %v, want only the task", ids)
+	}
+	for _, id := range []string{journal.ID, memory.ID} {
+		f.get("beads/"+id).problem(t, 404, "resource-not-found")
+	}
+	if links := f.get("links/").json(t)["items"].([]any); len(links) != 0 {
+		t.Fatalf("links to a memory served: %v", links)
+	}
+	props := f.get("beads/" + work.ID + "?view=properties").json(t)
+	if props["dependent_count"] != float64(0) {
+		t.Fatalf("task counts the memory as a dependent: %v", props)
+	}
+}
+
 func TestPaginationIsOneSnapshot(t *testing.T) {
 	f := newFixture(t)
 	var beads []*store.Bead

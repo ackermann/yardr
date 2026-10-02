@@ -7,9 +7,15 @@ become yard's. Every membership, direction, readiness and ordering
 expectation is bd's, re-sorted where ids changed. Capabilities yard does not
 claim (external endpoints, content-derived revisions) are dropped.
 
+demo-a's properties and the attributions are pinned here, not read from the
+server under test, so the suite catches a change in what yard serves. Only
+values minted at run time are taken from the server, each after its shape is
+checked: link ids and revisions (opaque, looked up by source, target and
+type), demo-a's uuid and its timestamps.
+
 usage: make-yard-fixture.py <bdpbd-fixture.json> <scope> <dial host:port> <out.json>
 """
-import base64, copy, http.client, json, sys
+import base64, copy, http.client, json, re, sys
 from urllib.parse import urlsplit
 
 src, scope, dial, out = sys.argv[1:5]
@@ -105,10 +111,39 @@ inv = {v: k for k, v in idmap.items()}
 for t in o["collections"]["link-records"]:
     t[2] = revmap[inv[t[0]]]
 
+UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+INSTANT = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z$")
+REVISION = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")  # a ULID
+
+
+def minted(value, shape, what):
+    """A run-time value from the server, refused unless it has its shape."""
+    if not (isinstance(value, str) and shape.match(value)):
+        sys.exit(f"{what}: {value!r} is not the expected shape")
+    return value
+
+
+for t in o["collections"]["link-records"]:
+    minted(t[2], REVISION, f"revision of {t[0]}")
+
+# demo-a as yard serves it: bd's row without bd's owner (yard has none),
+# plus yard's own fields.
 a = get("beads/demo-a")
-o["resources"]["bead.demo-a"]["properties"] = a["properties"]
-link = get(o["resources"]["link.demo-b-a"]["id"])
-o["attribution"] = {"bead": a["attribution"], "link": link["attribution"]}
+served = a["properties"]
+want = {k: v for k, v in f["oracles"]["resources"]["bead.demo-a"]["properties"].items() if k != "owner"}
+want.update({"uuid": minted(served.get("uuid"), UUID, "demo-a uuid"),
+             "stage": "new", "labels": [], "hold": False,
+             "created_at": minted(served.get("created_at"), INSTANT, "demo-a created_at"),
+             "updated_at": minted(served.get("updated_at"), INSTANT, "demo-a updated_at")})
+deps = served.get("dependencies") or []
+if len(deps) != len(want["dependencies"]):
+    sys.exit(f"demo-a dependencies: served {deps!r}, want {want['dependencies']!r}")
+want["dependencies"] = [dict(d, created_at=minted(s.get("created_at"), INSTANT, "demo-a dependency created_at"))
+                        for d, s in zip(want["dependencies"], deps)]
+o["resources"]["bead.demo-a"]["properties"] = want
+# seed.py acts as bdp-conformance; yard claims the actor of the last change.
+o["attribution"] = {"bead": {"principal": "bdp-conformance", "status": "claimed"},
+                    "link": {"principal": "bdp-conformance", "status": "claimed"}}
 
 json.dump(y, open(out, "w"), indent=2, ensure_ascii=False)
 print(f"wrote {out}: {len(idmap)} link ids mapped, {len(unmapped)} left (external endpoints)")

@@ -19,8 +19,14 @@ How it works:
    (`read-bdpbd-v1.json`). Only implementation-specific literals change: bd's
    link ids become yard's, bd's content hashes become yard's revisions, and
    demo-a's property body and attribution become yard's. Every membership,
-   direction, readiness and ordering expectation stays bd's.
+   direction, readiness and ordering expectation stays bd's. Yard's demo-a
+   row and attributions are pinned in the script, not copied from the server
+   under test; only run-time values (link ids and revisions, demo-a's uuid
+   and timestamps) are read from it, each checked for its shape.
 4. `external-read.test.mts` runs the suite against the live server.
+
+Journals and memories are not served, nor links touching them: they are not
+work, and a bd client would count an open one as ready.
 
 What yard does not claim, so the suite marks it not-applicable: external or
 pinned link endpoints, content-derived revisions, aliases, owned links,

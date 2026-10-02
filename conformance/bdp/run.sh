@@ -18,6 +18,10 @@ scope=https://scope.example/acme/
 port=${BDP_PORT:-18899}
 
 export YARDR_HOME=$work/home
+# Run from inside a yardr session (an agent's pane), the session's variables
+# would make every seeded move a stale move of that session's bead.
+for v in BEAD SESSION STAGE GROUP ACTOR; do unset "YARDR_$v" "YARD_$v"; done
+unset YARD_HOME
 cleanup() {
   [[ -n ${serve_pid:-} ]] && kill "$serve_pid" 2>/dev/null || true
   "$work/yardr" server stop >/dev/null 2>&1 || true
