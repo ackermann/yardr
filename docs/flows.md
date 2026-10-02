@@ -10,7 +10,7 @@ backlog -> new
 new -> review | backlog
 review -> approved | new
 approved -> merged | merge | new
-merge -> approved
+merge -> review | new | decide
 decide -> backlog
 merged terminal
 ```
@@ -161,7 +161,9 @@ bead back to the builders or closes it with `bead close` once merged. A
 `merged` terminal stage arrives with the real refinery (yard-23). Once the
 mergers are wired ([pipeline.md](pipeline.md#5-merge-a-merger-resolves-conflicts)),
 a conflict goes to `merge` instead: `approved -> new | merge` and
-`merge -> approved | new | decide`.
+`merge -> review | new | decide`. The merger sends a resolved rebase to
+`review`, where the reviewer checks only its conflict resolution before
+returning it to `approved`.
 
 Decision beads follow their own type flow: a human decides, and entering
 `decided` closes the bead.

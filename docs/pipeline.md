@@ -6,11 +6,12 @@ This page follows a bead through the pipeline yardr itself is built with
 
 ```
 backlog ──mayor shapes──▶ new ──builder──▶ review ──Codex──▶ approved ──refinery──▶ merged on main
-   ▲                       ▲                 │                │   ▲
-   │                       └──── changes ────┘                │   │ resolved
-   │                       └───────────────── red check ──────┘   │
-   │                       └── can't keep both ── merge ◀─────────┘
-   │                                              (merger) ◀── conflict
+   ▲                       ▲                 │                  │
+   │                       └──── changes ────┘                  │
+   │                       └───────────────── red check ────────┘
+   │                       └── can't keep both ── merge ── merger ──▶ review
+   │                                              ▲           │
+   │                                              └─ conflict ┘
    └──────── decide (Christopher) ◀── a question from backlog, new, review or merge
 ```
 
@@ -50,6 +51,15 @@ before merge, so it fixes what it can on the branch (commits starting
   the builders, in the same worktree. After two send-backs it holds the bead
   instead of a third, so the mayor looks;
 - **asks**: a question only Christopher can answer goes `--to decide`.
+
+When a merger sends a bead back for a `merge re-review`, the reviewer records
+the old tip from the merger's note and runs
+`git range-diff <base>...<old-tip> <base>...HEAD`. It checks only the
+conflict-resolution changes: that both sides' intent was kept, the merger's
+note names every conflicting file, and the gate result is credible. It does
+not redo the original feature review. If the resolution is sound, it notes
+the range-diff and advances to `approved`; otherwise it sends the bead to
+`new` or `decide` with a concrete finding.
 
 ## 4. Approved: the refinery lands it on main
 
@@ -97,12 +107,14 @@ clean) and:
    its notes on one side and the base's commits on the file
    (`git log -p <merge-base>..main -- <file>`) on the other;
 3. runs the gate, `yardr rig check yard --dir .`;
-4. leaves one note on how each conflict was resolved and advances to
-   `approved`.
+4. leaves one `merge re-review:` note naming the old tip, each conflict and
+   its resolution, and advances to `review`.
 
-The refinery then picks the bead up again: `main` no longer moved past the
-branch, so it runs the checks and fast-forwards. If `main` moved again in the
-meantime and conflicts again, the bead goes back to `merge`.
+The reviewer then checks only the resolution with a range-diff and advances
+the bead to `approved`. The refinery picks it up again: `main` no longer
+moved past the branch, so it runs the checks and fast-forwards. If `main`
+moved again in the meantime and conflicts again, the bead goes back to
+`merge`.
 
 When both intents cannot be kept, or keeping them needs a real design choice,
 the merger aborts the rebase, notes why, and advances to `new` (the builders
@@ -128,7 +140,7 @@ is unchanged):
 
 ```
 approved -> new | merge
-merge -> approved | new | decide
+merge -> review | new | decide
 ```
 
 and the refinery script sends a conflicting bead to `merge` instead of `new`.

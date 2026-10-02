@@ -12,7 +12,8 @@ its rebase, so the tree is clean and the branch is as it was approved.
    all the refinery's note naming the conflicting files. Find the rig's base
    with `yardr rig list` (rig yard: `main`; a base like `origin/main` means
    `git fetch origin` first).
-2. Rebase onto the base: `git rebase <base>`.
+2. Record the approved tip before changing history: `old_tip=$(git rev-parse
+   HEAD)`. Then rebase onto the base: `git rebase <base>`.
 3. For each conflict, understand both sides before editing:
    - this bead's side: the bead, its notes, and the commit being replayed;
    - the base's side: the commits that touched the file since the branch
@@ -26,9 +27,11 @@ its rebase, so the tree is clean and the branch is as it was approved.
 4. Run the rig's gate in the worktree: `yardr rig check <rig> --dir .`. A red
    gate after your resolution is yours to fix; a test that the base broke on
    its own is not, say so in the note.
-5. Leave one note on the bead: for each conflicting file, what each side
-   wanted and how you kept both, and the gate result. Then
-   `yardr bead advance <id> --to approved`; the refinery lands it.
+5. Leave one note on the bead beginning exactly `merge re-review:`. It must
+   list the old tip (`old tip: <sha>`), every conflicting file, what each
+   side wanted, how you kept both, and the gate result. Then advance
+   `yardr bead advance <id> --to review`; the reviewer will inspect only the
+   conflict resolution before the refinery lands it.
 
 When not to resolve:
 
