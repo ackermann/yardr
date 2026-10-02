@@ -244,7 +244,7 @@ func TestBeadWatchEndsOnClose(t *testing.T) {
 // A watch on a bead that is already closed would end before it began.
 func TestWatchOnClosedBeadRefused(t *testing.T) {
 	s, ctx, b := yardrRig(t, "mayor")
-	if _, err := s.CloseBead(ctx, b.ID, "done", "jane"); err != nil {
+	if _, err := s.CloseBead(ctx, b.ID, "done", store.Expect{}, "jane"); err != nil {
 		t.Fatal(err)
 	}
 	err := s.AddSubscription(ctx, "mayor", yardrSub(store.ScopeAll, "bead="+b.ID, "state=done"), "me")
