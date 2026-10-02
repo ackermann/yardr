@@ -1,0 +1,441 @@
+package store_test
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"slices"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/mckean/yard/internal/store"
+	"github.com/mckean/yard/internal/storetest"
+)
+
+func TestMain(m *testing.M) { storetest.Main(m) }
+
+func ids(bs []store.Bead) []string {
+	out := make([]string, len(bs))
+	for i, b := range bs {
+		out[i] = b.ID
+	}
+	return out
+}
+
+func TestCreateAndGetBead(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	if err := s.PutRig(ctx, store.Rig{Name: "web", Path: "/tmp/web", Base: "origin/main"}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "fix login", Rig: "web", Labels: []string{"ui", "ui"}}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.ID != "web-1" || b.Stage != "new" || b.Status != "open" || b.Type != "task" {
+		t.Fatalf("unexpected bead: %+v", b)
+	}
+	if !slices.Equal(b.Labels, []string{"ui"}) {
+		t.Fatalf("labels not deduped: %v", b.Labels)
+	}
+	if b.Rig == nil || *b.Rig != "web" {
+		t.Fatalf("rig = %v", b.Rig)
+	}
+	b2, err := s.CreateBead(ctx, store.NewBead{Title: "second"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b2.ID != "yd-1" {
+		t.Fatalf("id = %s, want yd-1", b2.ID)
+	}
+	if _, err := s.GetBead(ctx, "nope-1"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("missing bead err = %v", err)
+	}
+}
+
+func TestReadyRespectsBlocksHoldAndClose(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	a, _ := s.CreateBead(ctx, store.NewBead{Title: "a"}, "me")
+	b, _ := s.CreateBead(ctx, store.NewBead{Title: "b"}, "me")
+	c, _ := s.CreateBead(ctx, store.NewBead{Title: "c"}, "me")
+	if err := s.AddDep(ctx, a.ID, b.ID, "blocks", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddDep(ctx, a.ID, c.ID, "related", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddDep(ctx, a.ID, b.ID, "blocks", "me"); err == nil {
+		t.Fatal("duplicate edge accepted")
+	}
+	if err := s.AddDep(ctx, a.ID, "yd-99", "blocks", "me"); err == nil {
+		t.Fatal("edge to missing bead accepted")
+	}
+	ready, _ := s.Ready(ctx)
+	if got := ids(ready); !slices.Equal(got, []string{"yd-1", "yd-3"}) {
+		t.Fatalf("ready = %v", got)
+	}
+	if _, err := s.SetHold(ctx, c.ID, true, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CloseBead(ctx, a.ID, "done", "me"); err != nil {
+		t.Fatal(err)
+	}
+	ready, _ = s.Ready(ctx)
+	if got := ids(ready); !slices.Equal(got, []string{"yd-2"}) {
+		t.Fatalf("ready after close+hold = %v", got)
+	}
+}
+
+func TestClaimIsExclusive(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	if err := s.PutGroup(ctx, store.Group{Name: "web/fixers", Runner: "fake", Limit: 5}); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	wins, taken := 0, 0
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := s.Claim(ctx, b.ID, "web/fixers", "new", "yard")
+			mu.Lock()
+			defer mu.Unlock()
+			switch {
+			case err == nil:
+				wins++
+			case errors.Is(err, store.ErrTaken):
+				taken++
+			default:
+				t.Errorf("claim: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+	if wins != 1 || taken != 7 {
+		t.Fatalf("wins=%d taken=%d", wins, taken)
+	}
+	ss, _ := s.Sessions(ctx, true)
+	if len(ss) != 1 {
+		t.Fatalf("losing claims left %d sessions", len(ss))
+	}
+	// Stage must match: a bead that moved on cannot be claimed for its old stage.
+	b2, _ := s.CreateBead(ctx, store.NewBead{Title: "y", Stage: "review"}, "me")
+	if _, err := s.Claim(ctx, b2.ID, "web/fixers", "new", "yard"); !errors.Is(err, store.ErrTaken) {
+		t.Fatalf("stale-stage claim err = %v", err)
+	}
+}
+
+func TestSessionLifecycle(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	_ = s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"})
+	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
+
+	sess, err := s.Claim(ctx, b.ID, "g", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkRunning(ctx, sess.ID, map[string]any{"agent": "x"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.GetBead(ctx, b.ID)
+	if got.Group == nil || *got.Group != "g" || got.Session == nil || *got.Session != sess.ID {
+		t.Fatalf("bead not owned: %+v", got)
+	}
+
+	// Advancing ends the session and frees the bead for the next stage.
+	if _, err := s.Advance(ctx, b.ID, "review", "agent"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = s.GetBead(ctx, b.ID)
+	if got.Stage != "review" || got.Group != nil || got.Session != nil {
+		t.Fatalf("after advance: %+v", got)
+	}
+	ss, _ := s.GetSession(ctx, sess.ID)
+	if ss.State != "done" || ss.EndedAt == nil {
+		t.Fatalf("session after advance: %+v", ss)
+	}
+	un, _ := s.Unstopped(ctx)
+	if len(un) != 1 {
+		t.Fatalf("unstopped = %d", len(un))
+	}
+	_ = s.MarkStopped(ctx, sess.ID)
+	if un, _ = s.Unstopped(ctx); len(un) != 0 {
+		t.Fatalf("unstopped after stop = %d", len(un))
+	}
+
+	// A dead session hands its bead back.
+	sess2, err := s.Claim(ctx, b.ID, "g", "review", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EndSession(ctx, sess2.ID, "died", "pane exited"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = s.GetBead(ctx, b.ID)
+	if got.Group != nil || got.Stage != "review" {
+		t.Fatalf("after death: %+v", got)
+	}
+	// Ending twice is a no-op, not a second event.
+	_ = s.EndSession(ctx, sess2.ID, "died", "again")
+	evs, _ := s.Events(ctx, b.ID, 100)
+	kinds := make([]string, len(evs))
+	for i, e := range evs {
+		kinds[i] = e.Kind
+	}
+	want := []string{"created", "claimed", "started", "advanced", "claimed", "session_died"}
+	if !slices.Equal(kinds, want) {
+		t.Fatalf("events = %v, want %v", kinds, want)
+	}
+}
+
+func TestRoutesAndUpdate(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	if _, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "missing"}); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("route to missing group err = %v", err)
+	}
+	_ = s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: map[string]any{"kind": "claude"}})
+	typ := "bug"
+	r, err := s.AddRoute(ctx, store.Route{Stage: "new", Type: &typ, Group: "g", Priority: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs, _ := s.Routes(ctx)
+	if len(rs) != 1 || rs[0].ID != r.ID || *rs[0].Type != "bug" || rs[0].Rig != nil {
+		t.Fatalf("routes = %+v", rs)
+	}
+	g, _ := s.GetGroup(ctx, "g")
+	if g.Config["kind"] != "claude" || g.Limit != 1 {
+		t.Fatalf("group = %+v", g)
+	}
+
+	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x", Labels: []string{"a"}}, "me")
+	title := "y"
+	b, err = s.UpdateBead(ctx, b.ID, store.BeadPatch{Title: &title, AddLabels: []string{"b"},
+		RemoveLabel: []string{"a"}, Metadata: map[string]any{"pr": 12}}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Title != "y" || !slices.Equal(b.Labels, []string{"b"}) || b.Metadata["pr"] == nil {
+		t.Fatalf("after update: %+v", b)
+	}
+	if _, err := s.UpdateBead(ctx, "yd-404", store.BeadPatch{Title: &title}, "me"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("update missing err = %v", err)
+	}
+}
+
+func TestWakeAndTail(t *testing.T) {
+	s := storetest.New(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	wake, err := s.Wake(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tail, err := s.TailEvents(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-wake:
+	case <-time.After(3 * time.Second):
+		t.Fatal("no wake after bead create")
+	}
+	select {
+	case e := <-tail:
+		if e.Kind != "created" || e.Bead == nil || *e.Bead != "yd-1" {
+			t.Fatalf("tail event = %+v", e)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no tailed event")
+	}
+}
+
+// Many CLI processes open the store at once, the first ones against an empty
+// database; none may fail on schema setup, and concurrent writes must land.
+func TestConcurrentOpenAndWrites(t *testing.T) {
+	name := storetest.FreshName()
+	var wg sync.WaitGroup
+	errs := make(chan error, 20)
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := storetest.TryOpen(t, name)
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent open: %v", err)
+		}
+	}
+
+	s := storetest.Open(t, name)
+	ctx := context.Background()
+	b, _ := s.CreateBead(ctx, store.NewBead{Title: "busy"}, "me")
+	errs = make(chan error, 20)
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- s.AddNote(ctx, b.ID, "note", "me")
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if notes, _ := s.Notes(ctx, b.ID); len(notes) != 20 {
+		t.Fatalf("notes = %d", len(notes))
+	}
+}
+
+func TestRevisionsFollowBDPRules(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "A"}, "me")
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(err)
+	seen := map[string]bool{b.Revision: true}
+	if b.Revision == "" {
+		t.Fatal("created bead has no revision")
+	}
+
+	// A no-op write mints nothing and writes no event.
+	same := "A"
+	nb, err := s.UpdateBead(ctx, b.ID, store.BeadPatch{Title: &same}, "me")
+	must(err)
+	if nb.Revision != b.Revision || !nb.UpdatedAt.Equal(b.UpdatedAt) {
+		t.Fatalf("no-op changed revision/updated_at: %s -> %s", b.Revision, nb.Revision)
+	}
+	_, err = s.SetHold(ctx, b.ID, false, "me") // already unheld
+	must(err)
+
+	// A -> B -> A: three distinct revisions.
+	rev := b.Revision
+	for _, title := range []string{"B", "A"} {
+		nb, err = s.UpdateBead(ctx, b.ID, store.BeadPatch{Title: &title}, "me")
+		must(err)
+		if seen[nb.Revision] {
+			t.Fatalf("revision %s reused after changing title to %s", nb.Revision, title)
+		}
+		seen[nb.Revision] = true
+		rev = nb.Revision
+	}
+	// Lifecycle moves mint too.
+	nb, err = s.CloseBead(ctx, b.ID, "done", "me")
+	must(err)
+	if nb.Revision == rev || seen[nb.Revision] {
+		t.Fatal("close did not mint a fresh revision")
+	}
+	// Closing again is a no-op.
+	again, err := s.CloseBead(ctx, b.ID, "done", "me")
+	must(err)
+	if again.Revision != nb.Revision {
+		t.Fatal("re-closing minted a revision")
+	}
+	evs, _ := s.Events(ctx, b.ID, 100)
+	var kinds []string
+	for _, e := range evs {
+		kinds = append(kinds, e.Kind)
+	}
+	if want := []string{"created", "updated", "updated", "closed"}; !slices.Equal(kinds, want) {
+		t.Fatalf("events = %v, want %v (no-ops must not log)", kinds, want)
+	}
+}
+
+func TestExplicitIDs(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "a", ID: "demo-a"}, "me")
+	if err != nil || b.ID != "demo-a" {
+		t.Fatalf("explicit id: %v %v", b, err)
+	}
+	if _, err := s.CreateBead(ctx, store.NewBead{Title: "again", ID: "demo-a"}, "me"); err == nil {
+		t.Fatal("reused an existing id")
+	}
+	if _, err := s.CreateBead(ctx, store.NewBead{Title: "bad", ID: "a/b"}, "me"); err == nil {
+		t.Fatal("accepted an id with a slash")
+	}
+}
+
+// Guards the SurrealDB 3.2 LIMIT-in-subquery workaround: every record in a
+// snapshot carries the actor of its latest version.
+func TestLastActorOnEveryRow(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	for i := 0; i < 4; i++ {
+		b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, fmt.Sprintf("actor-%d", i))
+		if i > 0 {
+			if err := s.AddDep(ctx, "yd-1", b.ID, "blocks", "linker"); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	snap, err := s.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range snap.Beads {
+		if b.LastActor == nil || *b.LastActor == "" {
+			t.Fatalf("bead %s has no last actor", b.ID)
+		}
+	}
+	if len(snap.Deps) != 3 {
+		t.Fatalf("deps = %d", len(snap.Deps))
+	}
+	for _, d := range snap.Deps {
+		if d.LastActor == nil || *d.LastActor != "linker" {
+			t.Fatalf("dep %s last actor = %v", d.ID, d.LastActor)
+		}
+	}
+}
+
+func TestNotesAndEdgesMintTheBeadsTheyChange(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	a, _ := s.CreateBead(ctx, store.NewBead{Title: "a"}, "me")
+	b, _ := s.CreateBead(ctx, store.NewBead{Title: "b"}, "me")
+	if err := s.AddNote(ctx, a.ID, "hello", "me"); err != nil {
+		t.Fatal(err)
+	}
+	a2, _ := s.GetBead(ctx, a.ID)
+	if a2.Revision == a.Revision {
+		t.Fatal("a note did not mint the bead")
+	}
+	if err := s.AddDep(ctx, a.ID, b.ID, "blocks", "me"); err != nil {
+		t.Fatal(err)
+	}
+	a3, _ := s.GetBead(ctx, a.ID)
+	b3, _ := s.GetBead(ctx, b.ID)
+	if a3.Revision == a2.Revision || b3.Revision == b.Revision {
+		t.Fatal("an edge did not mint both beads")
+	}
+	snap, _ := s.Snapshot(ctx)
+	for _, sb := range snap.Beads {
+		if want := map[string]int{a.ID: 1, b.ID: 0}[sb.ID]; sb.Notes != want {
+			t.Fatalf("%s notes = %d, want %d", sb.ID, sb.Notes, want)
+		}
+	}
+}
