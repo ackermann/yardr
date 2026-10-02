@@ -4,12 +4,15 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
-// fake is a "binary" whose contents are its revision.
+// fake is a "binary" whose contents are its revision; each install is
+// stamped a second after the last, so mtime orders them.
 func fake(t *testing.T, running string) (*Binary, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "yardr")
@@ -18,16 +21,18 @@ func fake(t *testing.T, running string) (*Binary, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b.ReadRevision = func(p string) (string, error) {
+	b.ReadBuild = func(p string) (Build, error) {
 		data, err := os.ReadFile(p)
 		if err != nil || len(data) == 0 {
-			return "", errors.New("not a binary")
+			return Build{}, errors.New("not a binary")
 		}
-		return string(data), nil
+		return Build{Revision: string(data)}, nil
 	}
 	b.Exec = func(string, []string, []string) error { return nil }
 	return b, path
 }
+
+var installed = time.Now()
 
 // install replaces the file the way go install does: a new inode renamed
 // over the old path.
@@ -35,6 +40,10 @@ func install(t *testing.T, path, rev string) {
 	t.Helper()
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, []byte(rev), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	installed = installed.Add(time.Second)
+	if err := os.Chtimes(tmp, installed, installed); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Rename(tmp, path); err != nil {
@@ -65,11 +74,123 @@ func TestReplacement(t *testing.T) {
 	}
 }
 
-func TestModifiedBuildAlwaysCounts(t *testing.T) {
-	b, path := fake(t, "aaaa-modified")
-	install(t, path, "aaaa-modified")
-	if _, ok := b.Replacement(); !ok {
-		t.Fatal("two -modified builds cannot be told apart; a change must count")
+func TestSameCommitDirtyOrNotIsNeverAReplacement(t *testing.T) {
+	// A go install from a bead worktree on the running commit must not
+	// deploy its unreviewed changes (yard-r4z9).
+	for _, c := range []struct{ running, installed string }{
+		{"aaaa-modified", "aaaa-modified"},
+		{"aaaa", "aaaa-modified"},
+		{"aaaa-modified", "aaaa"},
+	} {
+		b, path := fake(t, c.running)
+		var skipped []string
+		b.Skipped = func(rev, reason string) { skipped = append(skipped, rev+": "+reason) }
+		install(t, path, c.installed)
+		if _, ok := b.Replacement(); ok {
+			t.Errorf("running %s, installed %s: offered", c.running, c.installed)
+		}
+		b.Replacement()
+		if len(skipped) != 1 || !strings.Contains(skipped[0], "same revision aaaa") {
+			t.Errorf("running %s, installed %s: skipped %q; want one same-revision report", c.running, c.installed, skipped)
+		}
+	}
+}
+
+func TestOlderInstallIsSkippedOnce(t *testing.T) {
+	b, path := fake(t, "aaaa")
+	var skipped []string
+	b.Skipped = func(rev, reason string) { skipped = append(skipped, rev+": "+reason) }
+	install(t, path, "bbbb")
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		if _, ok := b.Replacement(); ok {
+			t.Fatal("an older build was offered")
+		}
+	}
+	if len(skipped) != 1 || !strings.HasPrefix(skipped[0], "bbbb: built ") {
+		t.Fatalf("skipped = %q; want one report naming the build time", skipped)
+	}
+	install(t, path, "cccc")
+	if rev, ok := b.Replacement(); !ok || rev != "cccc" {
+		t.Fatalf("a newer install after a skipped one: %q, %v", rev, ok)
+	}
+}
+
+// info is a fake buildinfo for a build of commit rev at t.
+func info(rev string, t time.Time, modified bool) *debug.BuildInfo {
+	return &debug.BuildInfo{Main: debug.Module{Path: "yardr.dev/yardr", Version: "(devel)"}, Settings: []debug.BuildSetting{
+		{Key: "vcs", Value: "git"},
+		{Key: "vcs.revision", Value: rev},
+		{Key: "vcs.time", Value: t.Format(time.RFC3339)},
+		{Key: "vcs.modified", Value: map[bool]string{true: "true", false: "false"}[modified]},
+	}}
+}
+
+func TestOnlyANewerBuildInfoIsNewer(t *testing.T) {
+	t0 := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	running := buildOf(info("1111111111111111111111111111111111111111", t0, false))
+	if running.Revision != "111111111111" || !running.Time.Equal(t0) {
+		t.Fatalf("buildOf = %+v", running)
+	}
+	for _, c := range []struct {
+		name  string
+		cand  *debug.BuildInfo
+		newer bool
+	}{
+		{"older", info("0000000000000000000000000000000000000000", t0.Add(-time.Hour), false), false},
+		{"same", info("1111111111111111111111111111111111111111", t0, false), false},
+		{"same, dirty", info("1111111111111111111111111111111111111111", t0, true), false},
+		{"same time, other commit", info("2222222222222222222222222222222222222222", t0, false), false},
+		{"newer", info("3333333333333333333333333333333333333333", t0.Add(time.Hour), false), true},
+		{"newer, dirty", info("3333333333333333333333333333333333333333", t0.Add(time.Hour), true), true},
+	} {
+		reason := Newer(running, buildOf(c.cand))
+		if (reason == "") != c.newer {
+			t.Errorf("%s: Newer = %q; want newer=%v", c.name, reason, c.newer)
+		}
+	}
+}
+
+func TestModuleVersionInstallsAreCompared(t *testing.T) {
+	// go install yardr.dev/yardr/cmd/yardr@<version> stamps no vcs settings.
+	mod := func(v string) *debug.BuildInfo {
+		return &debug.BuildInfo{Main: debug.Module{Path: "yardr.dev/yardr", Version: v}}
+	}
+	t0 := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	running := buildOf(info("abcdefabcdef0000000000000000000000000000", t0, false))
+
+	same := buildOf(mod("v0.0.0-20261002120000-abcdefabcdef"))
+	if same.Revision != "abcdefabcdef" || !same.Time.Equal(t0) {
+		t.Fatalf("pseudo-version read as %+v", same)
+	}
+	if Newer(running, same) == "" {
+		t.Error("an @pseudo-version install of the running commit is newer")
+	}
+	if r := Newer(running, buildOf(mod("v1.2.4-0.20261002130000-123456123456"))); r != "" {
+		t.Errorf("a later pseudo-version is not newer: %s", r)
+	}
+	if Newer(running, buildOf(mod("v0.0.0-20261002110000-123456123456"))) == "" {
+		t.Error("an earlier pseudo-version is newer")
+	}
+
+	v120 := buildOf(mod("v1.2.0"))
+	v130 := buildOf(mod("v1.3.0"))
+	if v120.Revision != "v1.2.0" {
+		t.Fatalf("release read as %+v", v120)
+	}
+	// Releases are ordered by version, whatever their files' times.
+	v120.Time, v130.Time = t0.Add(time.Hour), t0
+	if r := Newer(v120, v130); r != "" {
+		t.Errorf("v1.3.0 not newer than v1.2.0: %s", r)
+	}
+	if Newer(v130, v120) == "" || Newer(v130, buildOf(mod("v1.3.0-rc.1"))) == "" {
+		t.Error("an older release is newer")
+	}
+	if buildOf(mod("(devel)")) != (Build{}) {
+		t.Error("(devel) read as a version")
 	}
 }
 

@@ -1,7 +1,9 @@
 package store
 
 import (
+	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -19,18 +21,46 @@ var (
 	bCounters = []byte("counters") // retired with version 1
 )
 
+// ErrNewerSchema means the store was written by a newer yardr: its
+// migrations only run forwards, so an older build must not touch it.
+var ErrNewerSchema = errors.New("store schema is newer than this yardr knows")
+
+// checkSchema refuses a store stamped with a schema this build does not
+// know, before any migration or bucket creation writes to it.
+func checkSchema(db *bolt.DB) error {
+	return db.View(func(tx *bolt.Tx) error {
+		m := tx.Bucket(bMeta)
+		if m == nil {
+			return nil
+		}
+		v := m.Get(kSchema)
+		if v == nil {
+			return nil
+		}
+		if len(v) != 8 {
+			return fmt.Errorf("schema stamp %x is not a version", v)
+		}
+		if n := binary.BigEndian.Uint64(v); n > schemaVersion {
+			return fmt.Errorf("%w: schema %d, this build knows up to %d; run the yardr that wrote it (or newer)",
+				ErrNewerSchema, n, schemaVersion)
+		}
+		return nil
+	})
+}
+
 // setSchema stamps a store that needs no migration (a new one, or one just
-// migrated) and drops what version 1 left behind.
+// migrated) with this build's schema and drops what version 1 left behind.
 func setSchema(tx *bolt.Tx) error {
 	if tx.Bucket(bCounters) != nil {
 		if err := tx.DeleteBucket(bCounters); err != nil {
 			return err
 		}
 	}
-	if tx.Bucket(bMeta).Get(kSchema) != nil {
+	stamp := binary.BigEndian.AppendUint64(nil, schemaVersion)
+	if bytes.Equal(tx.Bucket(bMeta).Get(kSchema), stamp) {
 		return nil
 	}
-	return tx.Bucket(bMeta).Put(kSchema, binary.BigEndian.AppendUint64(nil, schemaVersion))
+	return tx.Bucket(bMeta).Put(kSchema, stamp)
 }
 
 // upgrade migrates a version 1 store that holds beads, once, after copying

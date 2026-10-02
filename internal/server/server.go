@@ -113,6 +113,17 @@ func (r *runner) serve(ctx context.Context) (string, error) {
 		}
 	}
 
+	if r.bin != nil {
+		// Both the backstop and a client's skew land here; the mayor sees
+		// in events why a build installed over ours was not taken.
+		r.bin.Skipped = func(rev, reason string) {
+			log.Warn("not replacing the yardr server", "candidate", version.Show(rev), "reason", reason)
+			if err := st.LogEvent(context.Background(), "", "replace_skipped", "yard",
+				map[string]any{"process": "server", "running": version.Show(r.rev), "candidate": version.Show(rev), "reason": reason}); err != nil {
+				log.Warn("replace_skipped event", "err", err)
+			}
+		}
+	}
 	replace := make(chan string, 1)
 	offer := func(clientRevision string) bool {
 		if r.bin == nil {

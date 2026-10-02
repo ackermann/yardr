@@ -153,7 +153,26 @@ Exec commands also get `YARDR_SESSION`, `YARDR_STAGE` and `YARDR_GROUP`
 
 `go install` is enough. The server and the daemon each remember the binary
 they were started from and replace themselves (`exec`, same pid) once a
-different build is installed over it:
+newer build is installed over it. A build is newer when:
+
+- its revision differs from the running one, ignoring `-modified` (a dirty
+  build of the running commit, say from a bead worktree, never counts), and
+- it was built from a later commit: `vcs.time` from its build info, or for
+  `go install …@<pseudo-version>` the time in that version. Two
+  `@vX.Y.Z` releases are compared by version instead. A build that says
+  neither falls back to the file's mtime against the running binary's.
+
+Any other build installed over the binary (older, the same commit, a
+reinstall) is skipped once per install, logged and recorded as a
+`replace_skipped` event with the `running` and `candidate` revisions and the
+`reason`; stop the server (`yardr server stop`) to run it anyway. Builders
+never `go install` from their worktrees; the mayor installs after merge.
+
+The store is stamped with its schema version on open, and a yardr whose
+schema is older than the store's refuses to open it (`store schema is newer
+than this yardr knows`) rather than run its migrations over it.
+
+How a newer build takes over:
 
 - the server notices when a client of another build calls, or within about
   10 seconds anyway. It refuses that one call (the client retries), stops
@@ -167,7 +186,8 @@ different build is installed over it:
 
 Each replace is logged in `server.log` (or the daemon's output) and as a
 `server_replaced` or `daemon_replaced` event with `from` and `to` revisions.
-An older client never makes a server exec anything. If the server cannot
+An older client never makes a server exec anything, and neither does an
+older build installed over the binary. If the server cannot
 replace itself (the binary is gone, the exec fails, or it is newer than the
 client), a call it does not understand fails with
 ``the yardr server (pid N, built <rev>) differs from this yardr (<rev>); run `yardr server stop` ``;

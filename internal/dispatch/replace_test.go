@@ -25,17 +25,23 @@ func fakeBinary(t *testing.T, rev string, exec func(env []string) error) (*versi
 	if err != nil {
 		t.Fatal(err)
 	}
-	b.ReadRevision = func(p string) (string, error) {
+	b.ReadBuild = func(p string) (version.Build, error) {
 		data, err := os.ReadFile(p)
-		return string(data), err
+		return version.Build{Revision: string(data)}, err
 	}
 	b.Exec = func(_ string, _, env []string) error { return exec(env) }
 	return b, path
 }
 
+var installed = time.Now()
+
+// installRev installs a build a second after the last one, so mtime
+// orders them: only a newer build replaces.
 func installRev(t *testing.T, path, rev string) {
 	t.Helper()
 	must(t, os.WriteFile(path+".tmp", []byte(rev), 0o755))
+	installed = installed.Add(time.Second)
+	must(t, os.Chtimes(path+".tmp", installed, installed))
 	must(t, os.Rename(path+".tmp", path))
 }
 
@@ -122,6 +128,42 @@ func TestDaemonUnchangedOrFailedExecRunsOn(t *testing.T) {
 	}
 	cancel()
 	must(t, <-done)
+}
+
+func TestDaemonSkipsAnOlderBuildAndLogsIt(t *testing.T) {
+	s, _, d := setup(t)
+	var calls atomic.Int32
+	bin, path := fakeBinary(t, "new", func([]string) error { calls.Add(1); return nil })
+	d.Binary = bin
+	d.Interval = 10 * time.Millisecond
+	d.CheckBinary = 10 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	head, err := s.Head(ctx)
+	must(t, err)
+
+	installRev(t, path, "old")
+	past := time.Now().Add(-time.Hour)
+	must(t, os.Chtimes(path, past, past))
+	done := make(chan error, 1)
+	go func() { done <- d.Run(ctx) }()
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+	must(t, <-done)
+	if calls.Load() != 0 {
+		t.Fatal("the daemon exec'd an older build")
+	}
+	evs, err := s.EventsSince(context.Background(), head, 0)
+	must(t, err)
+	var skipped []store.Event
+	for _, e := range evs {
+		if e.Kind == "replace_skipped" {
+			skipped = append(skipped, e)
+		}
+	}
+	if len(skipped) != 1 || skipped[0].Data["process"] != "daemon" || skipped[0].Data["candidate"] != "old" {
+		t.Fatalf("replace_skipped events = %+v; want one, from the daemon", skipped)
+	}
 }
 
 func TestReplacedDaemonLogsIt(t *testing.T) {

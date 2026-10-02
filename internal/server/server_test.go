@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -34,11 +35,19 @@ func home(t *testing.T) *config.Config {
 	return &config.Config{Home: dir}
 }
 
+var installed = time.Now()
+
 // install puts a "binary" whose contents are its revision at path, the way
-// go install does: a new file renamed over the old one.
+// go install does: a new file renamed over the old one. Each install is
+// stamped a second after the last, so mtime orders them: only a newer build
+// replaces.
 func install(t *testing.T, path, rev string) {
 	t.Helper()
 	if err := os.WriteFile(path+".tmp", []byte(rev), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	installed = installed.Add(time.Second)
+	if err := os.Chtimes(path+".tmp", installed, installed); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Rename(path+".tmp", path); err != nil {
@@ -68,9 +77,9 @@ func binary(t *testing.T, rev string, exec func(env []string) error) (*version.B
 	if err != nil {
 		t.Fatal(err)
 	}
-	b.ReadRevision = func(p string) (string, error) {
+	b.ReadBuild = func(p string) (version.Build, error) {
 		data, err := os.ReadFile(p)
-		return string(data), err
+		return version.Build{Revision: string(data)}, err
 	}
 	b.Exec = func(_ string, _, env []string) error { return exec(env) }
 	return b, path
@@ -226,6 +235,41 @@ func TestOlderClientDoesNotTriggerAnUpgrade(t *testing.T) {
 	newer.Retry = 0
 	if _, err := newer.Head(context.Background()); err == nil || !strings.Contains(err.Error(), "replacing") {
 		t.Fatalf("newer client did not trigger replacement: %v", err)
+	}
+}
+
+func TestOlderInstallIsSkippedAndLogged(t *testing.T) {
+	// A go install of an older checkout (a stale bead worktree, say) over
+	// the running server must not downgrade it, even when the caller is
+	// that older build (yard-r4z9).
+	c := home(t)
+	var ex atomic.Int32
+	bin, path := binary(t, "new", func([]string) error { ex.Add(1); return nil })
+	start(t, &runner{c: c, bin: bin, rev: "new", check: 20 * time.Millisecond})
+	head, err := client(c, "new").Head(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	install(t, path, "old")
+	past := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(path, past, past); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client(c, "old").Head(context.Background()); err != nil {
+		t.Fatalf("the older client should be served: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond) // several backstop checks
+	if ex.Load() != 0 {
+		t.Fatal("an older build was exec'd")
+	}
+	evs, err := client(c, "new").EventsSince(context.Background(), head, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 || evs[0].Kind != "replace_skipped" || evs[0].Data["candidate"] != "old" ||
+		!strings.HasPrefix(fmt.Sprint(evs[0].Data["reason"]), "built ") {
+		t.Fatalf("events = %+v; want one replace_skipped naming why", evs)
 	}
 }
 

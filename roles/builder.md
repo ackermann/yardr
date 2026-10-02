@@ -16,7 +16,10 @@ branch yard/<bead>.
    XDG_CONFIG_HOME and XDG_STATE_HOME in a short temp dir), never Christopher's
    herdr session. Keep YARDR_HOME short in tests (unix socket path limit).
    Stop processes by pid, never with pkill -f.
-5. Commit on your branch. Do not push, do not merge.
+5. Commit on your branch. Do not push, do not merge. Never run `go install`
+   or otherwise install yardr from a worktree: the running server and daemon
+   replace themselves with what is installed, so the mayor installs after
+   merge. Test with `go build -o` into a temp dir, or `go test`.
 6. Leave a note on the bead: what changed, what you verified (exact commands),
    what you did not verify. Then finish with `yardr bead done <id>`; the flow
    picks the next stage. Your brief lists the outcomes the stage offers.

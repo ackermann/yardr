@@ -2,7 +2,9 @@ package store_test
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -260,4 +262,50 @@ func uuidMillis(t *testing.T, u string) int64 {
 		ms = ms<<4 | int64(strings.IndexRune("0123456789abcdef", c))
 	}
 	return ms
+}
+
+func TestNewerSchemaStoreRefusesToOpen(t *testing.T) {
+	// An older yardr (a downgrade) must not run its migrations over a store
+	// a newer one wrote (yard-r4z9).
+	path := filepath.Join(t.TempDir(), "yard.db")
+	s, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	db, err := bolt.Open(path, 0o600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stamped uint64
+	err = db.Update(func(tx *bolt.Tx) error {
+		m := tx.Bucket([]byte("meta"))
+		stamped = binary.BigEndian.Uint64(m.Get([]byte("schema")))
+		return m.Put([]byte("schema"), binary.BigEndian.AppendUint64(nil, stamped+1))
+	})
+	db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stamped == 0 {
+		t.Fatal("a new store was not stamped with its schema")
+	}
+
+	_, err = store.Open(path)
+	if !errors.Is(err, store.ErrNewerSchema) || !strings.Contains(err.Error(), fmt.Sprintf("schema %d", stamped+1)) {
+		t.Fatalf("Open = %v; want ErrNewerSchema naming the schema", err)
+	}
+	db, err = bolt.Open(path, 0o600, &bolt.Options{ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.View(func(tx *bolt.Tx) error {
+		if v := binary.BigEndian.Uint64(tx.Bucket([]byte("meta")).Get([]byte("schema"))); v != stamped+1 {
+			t.Errorf("refused store's schema rewritten to %d", v)
+		}
+		return nil
+	})
 }

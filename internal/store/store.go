@@ -69,13 +69,18 @@ type Store struct {
 }
 
 // Open opens (creating if needed) the store file. It fails with ErrLocked
-// if another process holds it.
+// if another process holds it, and with ErrNewerSchema if a newer yardr
+// wrote it.
 func Open(path string) (*Store, error) {
 	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: time.Second})
 	if errors.Is(err, bolt.ErrTimeout) {
 		return nil, fmt.Errorf("%s: %w", path, ErrLocked)
 	} else if err != nil {
 		return nil, err
+	}
+	if err := checkSchema(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	if err := upgrade(db, path); err != nil {
 		db.Close()
