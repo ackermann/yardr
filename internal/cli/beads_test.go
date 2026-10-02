@@ -97,3 +97,39 @@ func TestBrokenFlowStillShown(t *testing.T) {
 		}
 	}
 }
+
+// dep add -k parent adds the child's blocks edge to its epic too, and says
+// so; dep rm -k parent takes both away.
+func TestDepAddParentPairsBlocks(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	if err := st.PutRig(ctx, store.Rig{Name: "yard", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	for _, nb := range []store.NewBead{
+		{ID: "yard-e", Title: "epic", Type: store.TypeEpic, Rig: "yard"},
+		{ID: "yard-1", Title: "child", Rig: "yard"},
+	} {
+		if _, err := st.CreateBead(ctx, nb, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := &app{st: st, actor: "me"}
+
+	out, err := run(t, a.depCmd(), "add", "yard-e", "yard-1", "-k", "parent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "yard-e -parent-> yard-1\nyard-1 -blocks-> yard-e\n"; out != want {
+		t.Fatalf("dep add printed %q, want %q", out, want)
+	}
+	if bs, _ := st.OpenBlockers(ctx, "yard-e"); len(bs) != 1 || bs[0] != "yard-1" {
+		t.Fatalf("epic blocked by %v, want yard-1", bs)
+	}
+	if _, err := run(t, a.depCmd(), "rm", "yard-e", "yard-1", "-k", "parent"); err != nil {
+		t.Fatal(err)
+	}
+	if ds, _ := st.Deps(ctx, "yard-e"); len(ds) != 0 {
+		t.Fatalf("edges left after dep rm -k parent: %+v", ds)
+	}
+}

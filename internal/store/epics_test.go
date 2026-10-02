@@ -141,3 +141,64 @@ func TestOnlyEpicParentsCount(t *testing.T) {
 		t.Fatalf("two epic parents: err = %v", err)
 	}
 }
+
+// A parent edge makes the child a blocker of its epic in the same write, so
+// the epic is not ready (and nothing routes it) until its last child
+// closes; a blocks edge already there is not doubled. Removing the parent
+// edge removes the blocks edge with it.
+func TestParentEdgeBlocksTheEpic(t *testing.T) {
+	s, ctx := epicRig(t)
+	if err := s.AddDep(ctx, "web-2", "web-e", store.DepBlocks, "me"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []string{"web-1", "web-2"} {
+		if err := s.AddDep(ctx, "web-e", c, store.DepParent, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	blockers := func() []string {
+		t.Helper()
+		bs, err := s.OpenBlockers(ctx, "web-e")
+		if err != nil {
+			t.Fatal(err)
+		}
+		slices.Sort(bs)
+		return bs
+	}
+	if got := blockers(); !slices.Equal(got, []string{"web-1", "web-2"}) {
+		t.Fatalf("epic blocked by %v, want web-1 and web-2 once each", got)
+	}
+	ds, err := s.Deps(ctx, "web-e")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kinds []string
+	for _, d := range ds {
+		kinds = append(kinds, d.From+" "+d.Kind+" "+d.To)
+	}
+	slices.Sort(kinds)
+	want := []string{"web-1 blocks web-e", "web-2 blocks web-e", "web-e parent web-1", "web-e parent web-2"}
+	if !slices.Equal(kinds, want) {
+		t.Fatalf("edges %q, want %q", kinds, want)
+	}
+
+	if _, err := s.CloseBead(ctx, "web-1", "merged", store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if got := blockers(); !slices.Equal(got, []string{"web-2"}) {
+		t.Fatalf("after web-1 closed: blocked by %v, want web-2", got)
+	}
+	if err := s.RemoveDep(ctx, "web-e", "web-2", store.DepParent, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if got := blockers(); len(got) != 0 {
+		t.Fatalf("web-2 is no longer a child, epic still blocked by %v", got)
+	}
+	ready, err := s.Ready(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(ready, func(b store.Bead) bool { return b.ID == "web-e" }) {
+		t.Fatal("the epic is not ready once no open child is left")
+	}
+}

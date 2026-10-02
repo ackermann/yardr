@@ -126,9 +126,13 @@ func (y *yard) commit(dir, file, content string) string {
 
 // refinery runs merge-local through the exec runner, as group refinery
 // would, and waits for it to exit.
-func (y *yard) refinery() {
+func (y *yard) refinery() { y.exec("merge-local", "refinery", "r-1") }
+
+// exec runs script (in this directory) for bead id through the exec
+// runner, as the group would whose cmd it is, and waits for it to exit.
+func (y *yard) exec(script, group, id string) {
 	y.t.Helper()
-	script, err := filepath.Abs("merge-local")
+	script, err := filepath.Abs(script)
 	if err != nil {
 		y.t.Fatal(err)
 	}
@@ -137,7 +141,7 @@ func (y *yard) refinery() {
 	if _, err := os.ReadFile(script); err != nil {
 		y.t.Fatal(err)
 	}
-	logPath := filepath.Join(y.home, "refinery.log")
+	logPath := filepath.Join(y.home, group+".log")
 	cmd := script
 	if y.push != "" {
 		cmd = "YARDR_PUSH=" + y.push + " " + script
@@ -153,14 +157,15 @@ func (y *yard) refinery() {
 	ctx := context.Background()
 	// The epic and base as the dispatcher passes them, read the way bead
 	// show --json shows them.
-	fam := y.family()
+	b, fam := y.beadOf(id), y.familyOf(id)
 	h, err := e.Start(ctx, dispatch.Job{
-		Bead:    store.Bead{ID: "r-1", Stage: "approved"},
-		Group:   store.Group{Name: "refinery", Config: map[string]any{"cmd": cmd, "log": logPath}},
-		Rig:     &store.Rig{Name: "r", Path: y.repo, Base: "main"},
-		Session: y.claim(ctx),
-		Epic:    fam.Epic,
-		Base:    fam.Base,
+		Bead:     store.Bead{ID: id, Stage: b.Stage, Type: b.Type},
+		Group:    store.Group{Name: group, Config: map[string]any{"cmd": cmd, "log": logPath}},
+		Rig:      &store.Rig{Name: "r", Path: y.repo, Base: "main"},
+		Session:  y.claimFor(ctx, group, id),
+		Epic:     fam.Epic,
+		Base:     fam.Base,
+		Children: fam.Children,
 	})
 	if err != nil {
 		y.t.Fatal(err)
@@ -171,47 +176,52 @@ func (y *yard) refinery() {
 		}
 		if time.Now().After(deadline) {
 			_ = e.Stop(ctx, h)
-			y.t.Fatal("refinery did not finish")
+			y.t.Fatalf("%s did not finish", script)
 		}
 	}
-	b, _ := os.ReadFile(logPath)
-	y.t.Logf("refinery log:\n%s", b)
+	out, _ := os.ReadFile(logPath)
+	y.t.Logf("%s log:\n%s", group, out)
+	_ = os.Remove(logPath)
 }
 
-// claim gives the bead to group refinery, as the dispatcher would, so the
+// claimFor gives bead id to group, as the dispatcher would, so the
 // script's moves carry a session that owns it (a move from a session that
 // does not is refused as stale). A bead an earlier run left owned (held,
 // or not moved) keeps its session.
-func (y *yard) claim(ctx context.Context) store.Session {
+func (y *yard) claimFor(ctx context.Context, group, id string) store.Session {
 	y.t.Helper()
 	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
-	if err := st.PutGroup(ctx, store.Group{Name: "refinery", Runner: "exec"}); err != nil {
+	if err := st.PutGroup(ctx, store.Group{Name: group, Runner: "exec"}); err != nil {
 		y.t.Fatal(err)
 	}
-	b := y.bead()
+	b := y.beadOf(id)
 	if b.Session != nil {
 		return store.Session{ID: *b.Session}
 	}
-	sess, err := st.Claim(ctx, b.ID, "refinery", b.Stage, "yard")
+	sess, err := st.Claim(ctx, b.ID, group, b.Stage, "yard")
 	if err != nil {
 		y.t.Fatal(err)
 	}
 	return *sess
 }
 
-func (y *yard) bead() store.Bead {
+func (y *yard) bead() store.Bead { return y.beadOf("r-1") }
+
+func (y *yard) beadOf(id string) store.Bead {
 	y.t.Helper()
 	var b store.Bead
-	if err := json.Unmarshal([]byte(y.yardr("bead", "show", "r-1", "--json")), &b); err != nil {
+	if err := json.Unmarshal([]byte(y.yardr("bead", "show", id, "--json")), &b); err != nil {
 		y.t.Fatal(err)
 	}
 	return b
 }
 
-func (y *yard) family() store.Family {
+func (y *yard) family() store.Family { return y.familyOf("r-1") }
+
+func (y *yard) familyOf(id string) store.Family {
 	y.t.Helper()
 	var f store.Family
-	if err := json.Unmarshal([]byte(y.yardr("bead", "show", "r-1", "--json")), &f); err != nil {
+	if err := json.Unmarshal([]byte(y.yardr("bead", "show", id, "--json")), &f); err != nil {
 		y.t.Fatal(err)
 	}
 	return f

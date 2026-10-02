@@ -442,9 +442,19 @@ func (a *app) depCmd() *cobra.Command {
 			}
 			return a.out(store.Dep{From: from.ID, To: to.ID, Kind: kind}, func() {
 				fmt.Printf("%s -%s-> %s\n", from.ID, kind, to.ID)
+				// The store pairs a parent edge with the child blocking its
+				// epic; say so, since it changes when the epic is ready.
+				if kind == store.DepParent {
+					fmt.Printf("%s -%s-> %s\n", to.ID, store.DepBlocks, from.ID)
+				}
 			})
 		},
 	}
+	add.Long = `Relate two beads. With kind blocks (the default), <from> must close before
+<to> is ready. With kind parent, <from> is an epic and <to> becomes its
+child: the child's branch starts from the epic's and lands on it, and the
+child also blocks the epic (one command adds both edges), so the epic is
+not ready until its last child closes. dep rm -k parent removes both.`
 	add.Flags().StringVarP(&kind, "kind", "k", "blocks", "edge kind (blocks, related, parent, ...)")
 	var rmKind string
 	rm := &cobra.Command{

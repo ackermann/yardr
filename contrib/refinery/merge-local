@@ -14,10 +14,10 @@
 #
 # For each bead it rebases the branch onto the base if the base moved, runs
 # the rig's gate on exactly what will land, fast-forwards the base and
-# advances the bead to merged. A conflict goes to merge, a red gate to new,
-# and a gate that cannot run, or anything it cannot land without touching a
-# dirty tree, is held. It never
-# forces and never pushes anything but a fast-forward.
+# advances the bead to merged. A conflict goes to merge, a red gate back
+# (outcome failed: new, or open for an epic), and a gate that cannot run,
+# or anything it cannot land without touching a dirty tree, is held. It
+# never forces and never pushes anything but a fast-forward.
 #
 # Every outcome ends in an advance, a close or a hold: exiting without one
 # counts as a failed session, and three of those hold the bead.
@@ -40,13 +40,20 @@ echo "== $(date -Is) refinery $RIG $BEAD ($BR onto $BASE)"
 # together. Advancing ends this session (the daemon stops the script), so it
 # is always the last thing done.
 to() { echo "== $BEAD -> $1"; printf '%s\n' "refinery: $2" | "$Y" bead advance "$BEAD" --to "$1" --note -; exit 0; }
+# Back to whoever fixes the branch: the flow's "failed" outcome where it
+# names one (new for a bead, open for an epic, see docs/flows.md), else new.
+back() {
+  echo "== $BEAD failed"
+  printf '%s\n' "refinery: $1" | "$Y" bead done "$BEAD" --outcome failed --note - && exit 0
+  to new "$1"
+}
 hold() { echo "== hold $BEAD: $1"; "$Y" bead note "$BEAD" "refinery: $1"; "$Y" bead hold "$BEAD"; exit 0; }
 # A conflict goes to the mergers; if the flow has no merge stage the advance
 # is refused and the bead goes back to the builders.
 conflict() {
   echo "== $BEAD conflicts"
   printf '%s\n' "refinery: $1" | "$Y" bead advance "$BEAD" --to merge --note - && exit 0
-  to new "$1"
+  back "$1"
 }
 
 git -C "$REPO" rev-parse --verify -q "refs/heads/$BASE" >/dev/null ||
@@ -79,7 +86,7 @@ case $rc in
 0) ;;
 2) hold "the gate could not run on $BR:
 $out" ;;
-*) to new "the gate failed on $BR rebased onto $BASE:
+*) back "the gate failed on $BR rebased onto $BASE:
 $out" ;;
 esac
 
@@ -91,9 +98,9 @@ co=$(git -C "$REPO" worktree list --porcelain |
 if [ -n "$co" ]; then
   [ -z "$(git -C "$co" status --porcelain)" ] ||
     hold "$BASE is checked out in $co with uncommitted changes; not landing. Commit or clean it, then unhold."
-  git -C "$co" merge --ff-only "$BR" || to new "fast-forward of $BASE in $co failed"
+  git -C "$co" merge --ff-only "$BR" || back "fast-forward of $BASE in $co failed"
 else
-  git -C "$REPO" fetch . "$BR:$BASE" || to new "fast-forward of $BASE failed (not a fast-forward?)"
+  git -C "$REPO" fetch . "$BR:$BASE" || back "fast-forward of $BASE failed (not a fast-forward?)"
 fi
 sha=$(git -C "$REPO" rev-parse --short "$BASE")
 echo "== landed $BEAD on $BASE at $sha"

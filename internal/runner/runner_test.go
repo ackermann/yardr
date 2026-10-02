@@ -60,6 +60,33 @@ func TestBriefIncludesPromptAndCommands(t *testing.T) {
 
 // A relative prompt the rig does not have is read from the yard's home, so
 // the quick start's prompt=roles/reviewer.md works on a fresh rig from
+
+// An epic's brief says it is one, names its children and gives the range
+// to review against the rig's base, not the last child's diff.
+func TestBriefForAnEpic(t *testing.T) {
+	job := dispatch.Job{
+		Bead:     store.Bead{ID: "web-e", Title: "Login", Type: store.TypeEpic, Stage: "review"},
+		Group:    store.Group{Name: "web/reviewers"},
+		Rig:      &store.Rig{Name: "web", Base: "main"},
+		Session:  store.Session{ID: "s1"},
+		Base:     "main",
+		Children: []string{"web-1", "web-2"},
+	}
+	b, err := Brief(job, "a", "/wt/web-e", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"This bead is an epic", "Children: web-1, web-2.", "`main..yard/web-e`",
+		"git diff main...yard/web-e", "lands on `main` as one unit"} {
+		if !strings.Contains(b, want) {
+			t.Errorf("brief missing %q:\n%s", want, b)
+		}
+	}
+	job.Bead.Type = "feature"
+	if b, _ := Brief(job, "a", "", ""); strings.Contains(b, "is an epic") {
+		t.Errorf("a feature's brief calls it an epic:\n%s", b)
+	}
+}
 // ~/.yardr/roles/reviewer.md; the rig's own copy wins when it has one.
 func TestBriefFindsPromptInHome(t *testing.T) {
 	rig, home := t.TempDir(), t.TempDir()

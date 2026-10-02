@@ -117,8 +117,9 @@ the session and the daemon stops the script, so it is the script's last step.
    moved; on a conflict it aborts the rebase and advances to `merge` with the
    conflicting files (section 5), or to `new` if the flow has no `merge`;
 2. runs the gate on exactly what will land, every time, including after a
-   merger's rebase; red (exit 1) advances to `new` with the last 200 lines
-   of output, and a gate that could not run at all (exit 2: git, the base,
+   merger's rebase; red (exit 1) reports the outcome `failed` (to `new`; to
+   `open` for an epic), or advances to `new` in a flow without outcomes,
+   with the last 200 lines of output, and a gate that could not run at all (exit 2: git, the base,
    the rig) holds the bead, since no builder can fix that;
 3. lands by fast-forward only. Where the base is checked out it fast-forwards
    that checkout, only when it is clean; a dirty one is someone's work in
@@ -312,8 +313,55 @@ not an epic keeps the rig's base. A bead that is a child of two epics
 anyway (a type changed to `epic` later) is not dispatched; yardr logs
 `bad_epic` until one parent edge is removed.
 
-Integrating the epic branch, reviewing the epic as a whole and landing it
-on main is the epic's own flow (yard-3fy2).
+`dep add <epic> <child> -k parent` also adds `<child> -blocks-> <epic>`, so
+one command makes the child and keeps the epic from being ready until the
+child closes; `dep rm <epic> <child> -k parent` removes both edges.
+
+### The epic's own flow
+
+An epic follows `yard.epic` ([flows.md](flows.md#worked-example-rig-yard)):
+
+1. **backlog**: the mayor shapes the epic and adds its children, then
+   advances it to `open`.
+2. **open**: the epic waits while any child is open (they block it). When
+   the last child closes it is ready, and the route for type `epic` in
+   `open` sends it to `yard-integrators`, an exec group running
+   [`contrib/refinery/integrate-epic`](../contrib/refinery/integrate-epic).
+   The integrator fetches the base when it is a remote's, rebases
+   `yard/<epic>` onto the rig's base in the epic's worktree, runs the gate
+   on it (`yardr rig check yard --dir <worktree>`, the gate read from main),
+   pushes the rebased branch when `YARDR_PUSH` is set (replacing the remote
+   branch only when everything on it was in what it rebased), and reports
+   `done`, to review. A red gate reports `failed`, back to `open`, with the
+   gate's tail in the note, after adding a child in `backlog` to fix it
+   ("Fix the gate on epic <id>", type bug, the tail in its body): the child
+   blocks the epic, so it is not integrated again until the fix has landed
+   on its branch. A rebase that conflicts, a gate that could not run (exit
+   2) or a branch it cannot work on (missing, dirty, nothing ahead of the
+   base) holds the epic with a note.
+3. **review**: `yard-codex-review` reviews the whole diff, `<base>..yard/<epic>`:
+   the epic's brief says it is an epic, names its children and gives the
+   range. Changes go back to `open` (`--outcome changes`) after adding the
+   fix as a child; without one the epic would be integrated again unchanged.
+4. **approved**: `yard-refinery` and merge-local land `yard/<epic>` on the
+   rig's base exactly as a bead's branch: BaseOf(epic) is the rig's base. A
+   red gate there reports the flow's `failed` outcome, which for an epic is
+   `open` (merge-local falls back to `new` only for flows without it).
+5. **merge**: the mergers handle a conflict as for any bead.
+
+### Setup
+
+```sh
+install contrib/refinery/integrate-epic ~/.yardr/scripts/   # from main
+yardr rig flow yard --type epic yard.epic                    # the repo's .yardr/flows/yard.epic.flow
+yardr group add yard-integrators --runner exec --limit 1 \
+  --set cmd='YARDR_PUSH=origin ~/.yardr/scripts/integrate-epic' \
+  --set log="$HOME/.yardr/logs/integrator.log"
+yardr route add --stage open --type epic --rig yard --group yard-integrators --priority 10
+```
+
+The reviewer's prompt (`~/.yardr/roles/reviewer.md`) has a short section on
+reviewing an epic as a whole.
 
 ## Planned changes to this pipeline
 

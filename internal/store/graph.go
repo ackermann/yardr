@@ -9,6 +9,10 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
+// DepBlocks is the edge kind that keeps its target from being ready until
+// its source closes.
+const DepBlocks = "blocks"
+
 type Dep struct {
 	From      string    `json:"from"` // must close first (for kind 'blocks')
 	To        string    `json:"to"`
@@ -30,8 +34,11 @@ type depRow struct {
 
 // AddDep relates from -> to. For kind 'blocks', `to` is not ready until
 // `from` closes. Kind 'parent' makes `to` a child of epic `from` (see
-// checkParent). The edge gets its own revision, and both beads, whose
-// representations list or count it, are re-minted.
+// checkParent) and, in the same write, a blocker of it (`to -blocks->
+// from`, unless that edge is there already): an epic is not ready while a
+// child is open, so nothing routes it until its last child closes. The edge
+// gets its own revision, and both beads, whose representations list or
+// count it, are re-minted.
 func (s *Store) AddDep(ctx context.Context, fromRef, toRef, kind, actor string) error {
 	if err := checkName("dep kind", kind); err != nil {
 		return err
@@ -45,8 +52,7 @@ func (s *Store) AddDep(ctx context.Context, fromRef, toRef, kind, actor string) 
 		if err != nil {
 			return err
 		}
-		from, to := fromRow.UUID, toRow.UUID
-		if from == to {
+		if fromRow.UUID == toRow.UUID {
 			return fmt.Errorf("a bead cannot depend on itself")
 		}
 		if kind == DepParent {
@@ -54,34 +60,50 @@ func (s *Store) AddDep(ctx context.Context, fromRef, toRef, kind, actor string) 
 				return err
 			}
 		}
-		for _, k := range keys(w.Tx, bDepFrom, from+"\x00") {
-			var d depRow
-			if _, err := get(w.Tx, bDeps, k[len(from)+1:], &d); err != nil {
-				return err
-			}
-			if d.To == to && d.Kind == kind {
-				return fmt.Errorf("%s already %s %s", fromRow.ID, kind, toRow.ID)
-			}
+		if hasEdge(w.Tx, fromRow.UUID, toRow.UUID, kind) {
+			return fmt.Errorf("%s already %s %s", fromRow.ID, kind, toRow.ID)
 		}
-		// Ids are never reused: a removed edge's id stays retired.
-		d := &depRow{ID: newEdgeID(), From: from, To: to, Kind: kind, CreatedAt: now(), CreatedBy: actor}
-		if err := w.mintDep(d, actor); err != nil {
+		if err := w.addDep(fromRow, toRow, kind, actor); err != nil {
 			return err
 		}
-		if err := w.Bucket(bDepFrom).Put([]byte(join(from, d.ID)), []byte{}); err != nil {
-			return err
+		if kind == DepParent && !hasEdge(w.Tx, toRow.UUID, fromRow.UUID, DepBlocks) {
+			return w.addDep(toRow, fromRow, DepBlocks, actor)
 		}
-		if err := w.Bucket(bDepTo).Put([]byte(join(to, d.ID)), []byte{}); err != nil {
-			return err
-		}
-		if err := w.mintTouched(from, actor); err != nil {
-			return err
-		}
-		if err := w.mintTouched(to, actor); err != nil {
-			return err
-		}
-		return w.event(to, "dep_added", actor, map[string]any{"from": fromRow.ID, "kind": kind})
+		return nil
 	})
+}
+
+// hasEdge reports whether the edge from -kind-> to (bead UUIDs) exists.
+func hasEdge(tx *bolt.Tx, from, to, kind string) bool {
+	for _, d := range edges(tx, bDepFrom, from, kind) {
+		if d.To == to {
+			return true
+		}
+	}
+	return false
+}
+
+// addDep stores the edge from -kind-> to and logs dep_added on to.
+func (w *wtx) addDep(fromRow, toRow *beadRow, kind, actor string) error {
+	from, to := fromRow.UUID, toRow.UUID
+	// Ids are never reused: a removed edge's id stays retired.
+	d := &depRow{ID: newEdgeID(), From: from, To: to, Kind: kind, CreatedAt: now(), CreatedBy: actor}
+	if err := w.mintDep(d, actor); err != nil {
+		return err
+	}
+	if err := w.Bucket(bDepFrom).Put([]byte(join(from, d.ID)), []byte{}); err != nil {
+		return err
+	}
+	if err := w.Bucket(bDepTo).Put([]byte(join(to, d.ID)), []byte{}); err != nil {
+		return err
+	}
+	if err := w.mintTouched(from, actor); err != nil {
+		return err
+	}
+	if err := w.mintTouched(to, actor); err != nil {
+		return err
+	}
+	return w.event(to, "dep_added", actor, map[string]any{"from": fromRow.ID, "kind": kind})
 }
 
 func (w *wtx) mintDep(d *depRow, actor string) error {
@@ -101,7 +123,9 @@ func newEdgeID() string {
 }
 
 // RemoveDep deletes the edge; the dep_removed event is its record.
-// Removing an edge that does not exist is a no-op.
+// Removing an edge that does not exist is a no-op. Removing a child from
+// its epic (kind parent) removes the blocks edge AddDep paired with it, so
+// the epic no longer waits on a bead that is not its child.
 func (s *Store) RemoveDep(ctx context.Context, fromRef, toRef, kind, actor string) error {
 	return s.write(func(w *wtx) error {
 		fromRow, err := w.loadBead(fromRef)
@@ -112,38 +136,49 @@ func (s *Store) RemoveDep(ctx context.Context, fromRef, toRef, kind, actor strin
 		if err != nil {
 			return err
 		}
-		from, to := fromRow.UUID, toRow.UUID
-		removed := false
-		for _, k := range keys(w.Tx, bDepFrom, from+"\x00") {
-			id := k[len(from)+1:]
-			var d depRow
-			if _, err := get(w.Tx, bDeps, id, &d); err != nil {
-				return err
-			}
-			if d.To != to || d.Kind != kind {
-				continue
-			}
-			for _, del := range []struct {
-				b   []byte
-				key string
-			}{{bDeps, id}, {bDepFrom, join(from, id)}, {bDepTo, join(to, id)}} {
-				if err := w.Bucket(del.b).Delete([]byte(del.key)); err != nil {
-					return err
-				}
-			}
-			removed = true
-		}
-		if !removed {
-			return nil
-		}
-		if err := w.mintTouched(from, actor); err != nil {
+		removed, err := w.removeDep(fromRow, toRow, kind, actor)
+		if err != nil || !removed || kind != DepParent || fromRow.Type != TypeEpic {
 			return err
 		}
-		if err := w.mintTouched(to, actor); err != nil {
-			return err
-		}
-		return w.event(to, "dep_removed", actor, map[string]any{"from": fromRow.ID, "kind": kind})
+		_, err = w.removeDep(toRow, fromRow, DepBlocks, actor)
+		return err
 	})
+}
+
+// removeDep deletes the edges from -kind-> to and logs dep_removed on to;
+// it reports whether there was one.
+func (w *wtx) removeDep(fromRow, toRow *beadRow, kind, actor string) (bool, error) {
+	from, to := fromRow.UUID, toRow.UUID
+	removed := false
+	for _, k := range keys(w.Tx, bDepFrom, from+"\x00") {
+		id := k[len(from)+1:]
+		var d depRow
+		if _, err := get(w.Tx, bDeps, id, &d); err != nil {
+			return false, err
+		}
+		if d.To != to || d.Kind != kind {
+			continue
+		}
+		for _, del := range []struct {
+			b   []byte
+			key string
+		}{{bDeps, id}, {bDepFrom, join(from, id)}, {bDepTo, join(to, id)}} {
+			if err := w.Bucket(del.b).Delete([]byte(del.key)); err != nil {
+				return false, err
+			}
+		}
+		removed = true
+	}
+	if !removed {
+		return false, nil
+	}
+	if err := w.mintTouched(from, actor); err != nil {
+		return false, err
+	}
+	if err := w.mintTouched(to, actor); err != nil {
+		return false, err
+	}
+	return true, w.event(to, "dep_removed", actor, map[string]any{"from": fromRow.ID, "kind": kind})
 }
 
 // Deps returns every edge touching the bead, in either direction.

@@ -1,0 +1,132 @@
+#!/bin/sh
+# integrate-epic: brings an epic's branch up to date with its rig's base
+# and gates it, once its last child has landed on it, so the epic goes to
+# review as exactly what would land. Run it as the cmd of an exec group
+# routed for the epic flow's open stage (type epic); limit 1 on the group
+# integrates one epic at a time. See docs/pipeline.md, section Epics.
+#
+# It reads everything from the environment the exec runner gives it, as
+# merge-local does: YARDR_BEAD (the epic), YARDR_RIG, YARDR_RIG_PATH,
+# YARDR_BASE (the rig's base), YARDR_BRANCH (yard/<epic>), YARDR_WORKTREE
+# and YARDR_BIN. Options, set in the group's cmd:
+#
+#   YARDR_PUSH     a remote to push the epic branch to; off when empty
+#   YARDR_NOTIFY   resident mailed when that push fails (default mayor)
+#
+# It fetches the base when it is a remote's, rebases the epic branch onto
+# the base, runs the rig's gate on the result and reports done (-> review).
+# A red gate reports failed (-> open) with the gate's tail, after adding a
+# child to fix it: the child blocks the epic, so it is not integrated again
+# until the fix has landed on its branch. A rebase that conflicts, a gate
+# that cannot run, or a branch it cannot work on is held for a human.
+#
+# Every outcome ends in a report or a hold: exiting without one counts as a
+# failed session, and three of those hold the bead.
+set -u
+: "${YARDR_BEAD:?not run by an exec group}" "${YARDR_RIG:?bead has no rig}"
+: "${YARDR_RIG_PATH:?}" "${YARDR_BASE:?}"
+Y=${YARDR_BIN:-yardr}
+EPIC=$YARDR_BEAD
+RIG=$YARDR_RIG
+REPO=$YARDR_RIG_PATH
+BASE=$YARDR_BASE
+BR=${YARDR_BRANCH:-yard/$EPIC}
+WT=${YARDR_WORKTREE:-${YARDR_HOME:-$HOME/.yardr}/worktrees/$RIG/$EPIC}
+PUSH=${YARDR_PUSH:-}
+NOTIFY=${YARDR_NOTIFY:-mayor}
+TAIL=200
+echo "== $(date -Is) integrate $RIG $EPIC ($BR onto $BASE)"
+
+# Reporting ends this session (the daemon stops the script), so it is
+# always the last thing done.
+hold() { echo "== hold $EPIC: $1"; "$Y" bead note "$EPIC" "integrator: $1"; "$Y" bead hold "$EPIC"; exit 0; }
+report() {
+  echo "== $EPIC $1"
+  printf '%s\n' "integrator: $2" | "$Y" bead done "$EPIC" --outcome "$1" --note - && exit 0
+  hold "could not report $1 (does the epic's flow name it for its stage?): $2"
+}
+
+git -C "$REPO" rev-parse --verify -q "refs/heads/$BR" >/dev/null ||
+  hold "branch $BR does not exist: no child has landed on it yet. Add children (yardr dep add $EPIC <child> -k parent), then unhold."
+
+# Fetch the base when it is a remote's (origin/main), as the herdr runner
+# does before a bead branches from it; a fetch that fails or hangs leaves the
+# base as it is. A local base is what the refinery lands on: nothing to fetch.
+remote=${BASE%%/*}
+if [ "$remote" != "$BASE" ] && git -C "$REPO" remote | grep -qx "$remote"; then
+  to=; command -v timeout >/dev/null && to="timeout 60"
+  GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true SSH_ASKPASS=true $to git -C "$REPO" fetch --quiet "$remote" ||
+    echo "== fetching $remote failed; integrating onto $BASE as it is"
+fi
+git -C "$REPO" rev-parse --verify -q "$BASE^{commit}" >/dev/null || hold "base $BASE does not resolve in $REPO"
+
+if [ ! -d "$WT" ]; then
+  git -C "$REPO" worktree add "$WT" "$BR" || hold "cannot check out $BR at $WT"
+fi
+[ "$(git -C "$WT" symbolic-ref -q HEAD)" = "refs/heads/$BR" ] || hold "$WT is not on $BR"
+[ -z "$(git -C "$WT" status --porcelain)" ] || hold "worktree $WT has uncommitted changes"
+[ -n "$(git -C "$REPO" rev-list -n 1 "$BASE..$BR")" ] ||
+  hold "$BR has nothing $BASE lacks: no child's work to land"
+
+# Rebase onto the base when it moved since the epic branched. A conflict
+# here is between the epic as a whole and main, which no single child owns:
+# a human (or a merger, by hand) rebases the branch, then unholds.
+was=$(git -C "$REPO" rev-parse "$BR")
+if ! git -C "$REPO" merge-base --is-ancestor "$BASE" "$BR"; then
+  if ! git -C "$WT" rebase "$BASE"; then
+    files=$(git -C "$WT" diff --name-only --diff-filter=U | tr '\n' ' ')
+    git -C "$WT" rebase --abort
+    hold "rebasing $BR onto $BASE conflicts in: $files
+Rebase $BR onto $BASE in $WT keeping both sides' intent, then unhold: the integrator gates it again."
+  fi
+fi
+
+# The gate runs on exactly what goes to review and then lands: the rig's
+# check, read from the base, run in the epic's worktree. Exit 2 means the
+# gate could not run at all, which no child can fix.
+out=$("$Y" rig check "$RIG" --dir "$WT" --tail "$TAIL" 2>&1) && rc=0 || rc=$?
+printf '%s\n' "$out"
+case $rc in
+0) ;;
+2) hold "the gate could not run on $BR:
+$out" ;;
+*)
+  # The fix is a child: it lands on the epic branch through the usual flow,
+  # and blocks the epic until it closes, so the epic is not integrated again
+  # unchanged. It starts in backlog, for the mayor to shape.
+  msg="the gate failed on $BR rebased onto $BASE:
+$out"
+  fix=$(printf '%s\n' "The gate failed on epic $EPIC's branch $BR, rebased onto $BASE. Make it pass on $BR.
+
+$out" | "$Y" bead create "Fix the gate on epic $EPIC" -r "$RIG" -t bug -s backlog -b -) &&
+    "$Y" dep add "$EPIC" "$fix" -k parent ||
+    hold "$msg
+(adding a child to fix it failed; add one, then unhold)"
+  report failed "$msg
+Added child $fix to fix it; the epic is integrated again once it lands."
+  ;;
+esac
+sha=$(git -C "$REPO" rev-parse --short "$BR")
+msg="integrated $BR at $sha onto $BASE; gate passed. Review $BASE..$BR."
+
+# Publish the rebased branch, before reporting. A rebase rewrote it, so the
+# push may replace the remote's branch, but only when everything there is in
+# what was integrated (it holds landed children, never anything else).
+if [ -n "$PUSH" ]; then
+  theirs=$(git -C "$REPO" ls-remote "$PUSH" "refs/heads/$BR" | cut -f1)
+  if [ -n "$theirs" ] && ! git -C "$REPO" merge-base --is-ancestor "$theirs" "$was" 2>/dev/null; then
+    why="$PUSH/$BR has commits $BR did not have before the rebase"
+  elif git -C "$REPO" push --force-with-lease="refs/heads/$BR:$theirs" "$PUSH" "$BR" 2>&1; then
+    echo "== pushed $BR to $PUSH"
+    why=
+  else
+    why="pushing $BR to $PUSH failed"
+  fi
+  if [ -n "$why" ]; then
+    msg="$msg $why (not forced)."
+    "$Y" mail "$NOTIFY" "integrator: $EPIC integrated at $sha but $why. Not forced; check $PUSH/$BR." ||
+      echo "== could not mail $NOTIFY"
+  fi
+fi
+
+report done "$msg"

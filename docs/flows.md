@@ -191,10 +191,10 @@ follows the rig's flow. `yardr flow show <rig>` lists the rig's flow first,
 then one per type, and warns about non-terminal stages no route sends
 anywhere: beads there wait for a human.
 
-Type `epic` will get its own flow, for integrating an epic's branch and
-landing it on main (yard-3fy2). Its children follow the rig's flow like any
-bead; what an epic changes for them is only their base, see
-[pipeline.md](pipeline.md#epics).
+Type `epic` has its own flow in rig yard, `yard.epic` (below), for
+integrating an epic's branch and landing it on main. Its children follow the
+rig's flow like any bead; what an epic changes for them is only their base,
+see [pipeline.md](pipeline.md#epics).
 
 ## Terminal stages
 
@@ -248,5 +248,36 @@ Decision beads follow their own type flow: a human decides, and entering
 decide -> decided
 decided terminal
 ```
+
+Epics follow `yard.epic`, which the repository carries as
+[`.yardr/flows/yard.epic.flow`](../.yardr/flows/yard.epic.flow) (a named
+repo flow, read from main; `yardr rig flow yard --type epic yard.epic`
+points the type at it):
+
+```
+# yard.epic.flow
+backlog -> open
+open -> review on done | open on failed | backlog
+review -> approved on done | open on changes | decide on question
+approved -> merged on done | open on failed | merge on conflict
+merge -> review on done | open on rework | decide on question
+decide -> open | backlog
+merged terminal
+```
+
+| stage | group | runner |
+|---|---|---|
+| backlog | `backlog` | manual (the mayor adds children, then advances to open) |
+| open | `yard-integrators` (route `--type epic`, priority 10) | exec, limit 1, [`contrib/refinery/integrate-epic`](../contrib/refinery/integrate-epic) |
+| review | `yard-codex-review` | as for any bead; the brief says it is an epic and gives the range |
+| approved | `yard-refinery` | merge-local, as for any bead |
+| merge | `mergers` | as for any bead |
+| decide | `decisions` | manual |
+
+An epic waits in `open` while any child is open: each child blocks it
+(`dep add -k parent` adds that edge too), and routes only send ready beads.
+Where `new` is a bead's way back to its builders, `open` is an epic's: the
+fix is a new child, which blocks the epic until it lands. The details are
+in [pipeline.md](pipeline.md#epics).
 
 How beads actually move through these stages is in [pipeline.md](pipeline.md).

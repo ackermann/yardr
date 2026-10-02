@@ -97,6 +97,9 @@ func Brief(job dispatch.Job, actor, workdir, home string) (string, error) {
 		fmt.Fprintf(&b, "This bead is a child of epic %s: your branch starts from `%s` and your work lands on that branch, not on the rig's base.\n\n",
 			job.Epic, BaseOf(job))
 	}
+	if bead.Type == store.TypeEpic {
+		writeEpic(&b, job)
+	}
 	fmt.Fprintf(&b, "## %s\n\n%s\n\n", bead.Title, strings.TrimSpace(bead.Body))
 	advance := "- When your part is done, hand the bead to the next stage: `yardr bead advance " + bead.ID + " --to <stage>`\n"
 	ends := "Advancing, closing or holding ends your session; nothing else does."
@@ -125,6 +128,19 @@ Your environment already names you to yardr (YARDR_ACTOR=%[1]s, YARDR_BEAD, YARD
 		writeNext(&b, bead.ID, bead.Stage, job.Next)
 	}
 	return b.String(), nil
+}
+
+// writeEpic says what an epic's branch is: its children's work, landed on
+// it one by one, which goes to the rig's base as one unit. Whoever works the
+// epic (a reviewer, above all) looks at the whole range, not one child.
+func writeEpic(b *strings.Builder, job dispatch.Job) {
+	branch := Branch(job.Bead)
+	fmt.Fprintf(b, "This bead is an epic. Its branch `%s` holds the work of its children, each landed on it after its own review; it lands on `%s` as one unit.", branch, BaseOf(job))
+	if len(job.Children) > 0 {
+		fmt.Fprintf(b, " Children: %s.", strings.Join(job.Children, ", "))
+	}
+	fmt.Fprintf(b, " The whole change is `%s..%s` (`git log %[1]s..%[2]s`, `git diff %[1]s...%[2]s`): work on it as a whole, not child by child.\n\n", BaseOf(job), branch)
+	fmt.Fprintf(b, "An epic sent back to `open` waits there only while a child is open: before sending it back, add the fix as a child (`yardr bead create ... -r <rig>`, then `yardr dep add %s <child> -k parent`), or it is integrated again unchanged.\n\n", job.Bead.ID)
 }
 
 // readPrompt reads a group's prompt file. An absolute path is read as is. A
