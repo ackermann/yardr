@@ -289,7 +289,8 @@ func (s Session) live() bool { return s.State == "starting" || s.State == "runni
 
 // Claim atomically assigns an unowned bead to group and opens a session.
 // It returns ErrTaken if the bead is missing, owned, in another stage, or
-// blocked or held: anything that changed since the caller read it.
+// blocked or held: anything that changed since the caller read it; and
+// ErrAtLimit if the group already has as many live sessions as its limit.
 func (s *Store) Claim(ctx context.Context, beadID, group, stage, actor string) (*Session, error) {
 	var sess *Session
 	err := s.write(func(w *wtx) error {
@@ -305,6 +306,21 @@ func (s *Store) Claim(ctx context.Context, beadID, group, stage, actor string) (
 			return err
 		} else if !ok {
 			return fmt.Errorf("group %s: %w", group, ErrNotFound)
+		}
+		// The limit is checked here, in the claim's own transaction, so two
+		// dispatchers (or a dispatcher and a stale in-memory count) cannot
+		// both take the last slot. The dispatcher's own count is a fast path.
+		live := 0
+		if err := each(w.Tx, bSessions, "", func(_ []byte, sess *Session) error {
+			if sess.Group == group && sess.live() {
+				live++
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+		if live >= max(g.Limit, 1) {
+			return fmt.Errorf("group %s runs %d of %d: %w", group, live, max(g.Limit, 1), ErrAtLimit)
 		}
 		stored := Session{ID: newEdgeID(), Bead: row.UUID, Group: group, Stage: stage, Runner: g.Runner,
 			State: "starting", StartedAt: now()}

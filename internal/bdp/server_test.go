@@ -337,7 +337,7 @@ func TestPaginationIsOneSnapshot(t *testing.T) {
 		}
 	}
 	title := "changed"
-	if _, err := f.st.UpdateBead(context.Background(), later.ID, store.BeadPatch{Title: &title}, "x"); err != nil {
+	if _, err := f.st.UpdateBead(context.Background(), later.ID, store.BeadPatch{Title: &title}, store.Expect{}, "x"); err != nil {
 		t.Fatal(err)
 	}
 	f.bead("f", "task")

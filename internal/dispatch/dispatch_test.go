@@ -290,7 +290,7 @@ func TestDeadSessionIsRetriedThenHeld(t *testing.T) {
 
 	// A human un-holds: attempts reset, so one failed start is retried.
 	time.Sleep(10 * time.Millisecond)
-	_, err := s.SetHold(ctx, b.ID, false, "human")
+	_, err := s.SetHold(ctx, b.ID, false, store.Expect{}, "human")
 	must(t, err)
 	f.failNext = errors.New("boom")
 	must(t, d.Reconcile(ctx)) // start fails (attempt 1 since unhold)

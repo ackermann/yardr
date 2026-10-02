@@ -94,6 +94,9 @@ func (c *Config) Socket() string  { return filepath.Join(c.Home, "yard.sock") }
 func (c *Config) PIDFile() string { return filepath.Join(c.Home, "server.pid") }
 func (c *Config) LogFile() string { return filepath.Join(c.Home, "server.log") }
 
+// DaemonLock is the file the daemon holds a flock on while it runs.
+func (c *Config) DaemonLock() string { return filepath.Join(c.Home, "daemon.lock") }
+
 // Actor names who is acting: YARDR_ACTOR, else the OS user.
 func Actor() string {
 	if a := Getenv("ACTOR"); a != "" {

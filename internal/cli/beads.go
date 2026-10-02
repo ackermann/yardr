@@ -162,6 +162,15 @@ func (a *app) beadCmd() *cobra.Command {
 	lf2.StringVarP(&lf.Label, "label", "l", "", "filter by label")
 	lf2.StringVarP(&lf.Group, "group", "g", "", "filter by owning group")
 
+	// rev is --revision: the bead's revision as the caller last read it
+	// (bead show --json). A write is refused if the bead changed since.
+	var rev string
+	revFlag := func(cs ...*cobra.Command) {
+		for _, c := range cs {
+			c.Flags().StringVar(&rev, "revision", "", "refuse unless the bead is still at this revision (from bead show --json)")
+		}
+	}
+
 	var up struct {
 		title, body, typ, rig string
 		pri                   int
@@ -204,7 +213,7 @@ func (a *app) beadCmd() *cobra.Command {
 					return err
 				}
 			}
-			b, err := st.UpdateBead(c.Context(), args[0], p, a.who())
+			b, err := st.UpdateBead(c.Context(), args[0], p, store.Expect{Revision: rev}, a.who())
 			if err != nil {
 				return err
 			}
@@ -265,7 +274,7 @@ func (a *app) beadCmd() *cobra.Command {
 					return err
 				}
 			}
-			b, err := st.AdvanceNote(c.Context(), args[0], to, advNote, a.expect(), a.who())
+			b, err := st.AdvanceNote(c.Context(), args[0], to, advNote, a.expect(rev), a.who())
 			if err != nil {
 				return err
 			}
@@ -294,7 +303,7 @@ yardr prime --bead lists the stage's outcomes.`,
 					return err
 				}
 			}
-			b, err := st.Done(c.Context(), args[0], outcome, doneNote, a.expect(), a.who())
+			b, err := st.Done(c.Context(), args[0], outcome, doneNote, a.expect(rev), a.who())
 			if err != nil {
 				return err
 			}
@@ -314,7 +323,7 @@ yardr prime --bead lists the stage's outcomes.`,
 			if err != nil {
 				return err
 			}
-			b, err := st.CloseBead(c.Context(), args[0], reason, a.expect(), a.who())
+			b, err := st.CloseBead(c.Context(), args[0], reason, a.expect(rev), a.who())
 			if err != nil {
 				return err
 			}
@@ -343,10 +352,10 @@ yardr prime --bead lists the stage's outcomes.`,
 		return st.Reopen(c.Context(), id, a.who())
 	})
 	hold := simple("hold", "Stop routing a bead (a running session continues)", func(c *cobra.Command, st store.API, id string) (*store.Bead, error) {
-		return st.SetHold(c.Context(), id, true, a.who())
+		return st.SetHold(c.Context(), id, true, a.expect(rev), a.who())
 	})
 	unhold := simple("unhold", "Resume routing a held bead", func(c *cobra.Command, st store.API, id string) (*store.Bead, error) {
-		return st.SetHold(c.Context(), id, false, a.who())
+		return st.SetHold(c.Context(), id, false, a.expect(rev), a.who())
 	})
 	var relReason string
 	release := simple("release", "Take a bead from its group so it is routed again", func(c *cobra.Command, st store.API, id string) (*store.Bead, error) {
@@ -354,6 +363,7 @@ yardr prime --bead lists the stage's outcomes.`,
 	})
 	release.Flags().StringVar(&relReason, "reason", "", "why")
 
+	revFlag(update, done, advance, closeCmd, hold, unhold)
 	cmd.AddCommand(create, show, list, update, note, done, advance, closeCmd, reopen, hold, unhold, release)
 	cmd.AddCommand(a.watchCmds()...)
 	return cmd

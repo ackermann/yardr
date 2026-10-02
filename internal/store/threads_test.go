@@ -133,7 +133,7 @@ func TestFollowThread(t *testing.T) {
 	if got := threads(t, s, "noid-inv"); len(got) != 1 {
 		t.Fatalf("after redefine: %v", got)
 	}
-	if err := s.DeleteResident(ctx, "noid-inv", "me"); err != nil {
+	if err := s.DeleteResident(ctx, "noid-inv", "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	resident(t, s, "noid-inv", true, store.Subscription{Source: "linear", Scope: store.ScopeInvolved})

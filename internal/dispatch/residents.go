@@ -124,7 +124,7 @@ func (d *Dispatcher) residentRunning(ctx context.Context, runner Runner, r store
 			}
 			return d.Store.MarkRotationAsked(ctx, r.Name)
 		case r.RotationAskedAt != nil && time.Since(*r.RotationAskedAt) > grace:
-			return d.Store.RequestRestart(ctx, r.Name, "rotation (no handoff within grace)", "yard")
+			return d.Store.RequestRestart(ctx, r.Name, "rotation (no handoff within grace)", "", "yard")
 		}
 	}
 	if !idle {

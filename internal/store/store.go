@@ -32,6 +32,11 @@ var (
 	ErrNotFound = errors.New("not found")
 	// ErrTaken means another session already owns the bead.
 	ErrTaken = errors.New("bead already claimed")
+	// ErrAtLimit means the group already runs as many sessions as its limit.
+	ErrAtLimit = errors.New("group at its session limit")
+	// ErrConflict means the record changed since the caller read it (see
+	// Expect); it errs as "stale".
+	ErrConflict = errors.New("stale")
 	// ErrLocked means another process owns the store file.
 	ErrLocked = errors.New("store is in use by another process")
 )

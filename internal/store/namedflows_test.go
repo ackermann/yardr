@@ -129,7 +129,7 @@ func TestFlowResolutionOrder(t *testing.T) {
 	}
 
 	// Pin beats store.
-	if _, err := s.UpdateBead(ctx, task.ID, store.BeadPatch{Metadata: map[string]any{"flow": "alt"}}, "me"); err != nil {
+	if _, err := s.UpdateBead(ctx, task.ID, store.BeadPatch{Metadata: map[string]any{"flow": "alt"}}, store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if name, src := governing(t, s, task.ID); name != "alt" || src != "pin, from repo@"+sha {
@@ -430,7 +430,7 @@ func TestRepoFlowsGitErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	plain := "plain"
-	if _, err := s.UpdateBead(ctx, b.ID, store.BeadPatch{Rig: &plain}, "me"); err != nil {
+	if _, err := s.UpdateBead(ctx, b.ID, store.BeadPatch{Rig: &plain}, store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.NextStages(ctx, b.ID); err == nil || !strings.Contains(err.Error(), "not a git repository") {

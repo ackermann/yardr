@@ -116,6 +116,10 @@ func (c *Client) callOnce(ctx context.Context, method string, out any, body []by
 			return wrapped{r.Error.Message, store.ErrNotFound}
 		case "taken":
 			return store.ErrTaken
+		case "at-limit":
+			return wrapped{r.Error.Message, store.ErrAtLimit}
+		case "conflict":
+			return wrapped{r.Error.Message, store.ErrConflict}
 		case "ambiguous":
 			return wrapped{r.Error.Message, store.ErrAmbiguous}
 		case "replacing":
@@ -174,8 +178,8 @@ func (c *Client) Ready(ctx context.Context) ([]store.Bead, error) {
 func (c *Client) Dispatchable(ctx context.Context) ([]store.Bead, error) {
 	return callV[[]store.Bead](c, ctx, "Dispatchable")
 }
-func (c *Client) UpdateBead(ctx context.Context, id string, p store.BeadPatch, actor string) (*store.Bead, error) {
-	return callV[*store.Bead](c, ctx, "UpdateBead", id, p, actor)
+func (c *Client) UpdateBead(ctx context.Context, id string, p store.BeadPatch, exp store.Expect, actor string) (*store.Bead, error) {
+	return callV[*store.Bead](c, ctx, "UpdateBead", id, p, exp, actor)
 }
 func (c *Client) Advance(ctx context.Context, id, stage, actor string) (*store.Bead, error) {
 	return callV[*store.Bead](c, ctx, "Advance", id, stage, actor)
@@ -192,8 +196,8 @@ func (c *Client) CloseBead(ctx context.Context, id, reason string, exp store.Exp
 func (c *Client) Reopen(ctx context.Context, id, actor string) (*store.Bead, error) {
 	return callV[*store.Bead](c, ctx, "Reopen", id, actor)
 }
-func (c *Client) SetHold(ctx context.Context, id string, hold bool, actor string) (*store.Bead, error) {
-	return callV[*store.Bead](c, ctx, "SetHold", id, hold, actor)
+func (c *Client) SetHold(ctx context.Context, id string, hold bool, exp store.Expect, actor string) (*store.Bead, error) {
+	return callV[*store.Bead](c, ctx, "SetHold", id, hold, exp, actor)
 }
 func (c *Client) Release(ctx context.Context, id, reason, actor string) (*store.Bead, error) {
 	return callV[*store.Bead](c, ctx, "Release", id, reason, actor)
@@ -336,11 +340,11 @@ func (c *Client) Residents(ctx context.Context) ([]store.Resident, error) {
 func (c *Client) GetResident(ctx context.Context, name string) (*store.Resident, error) {
 	return callV[*store.Resident](c, ctx, "GetResident", name)
 }
-func (c *Client) DeleteResident(ctx context.Context, name, actor string) error {
-	return c.call(ctx, "DeleteResident", nil, name, actor)
+func (c *Client) DeleteResident(ctx context.Context, name, rev, actor string) error {
+	return c.call(ctx, "DeleteResident", nil, name, rev, actor)
 }
-func (c *Client) SetResidentEnabled(ctx context.Context, name string, enabled bool, actor string) error {
-	return c.call(ctx, "SetResidentEnabled", nil, name, enabled, actor)
+func (c *Client) SetResidentEnabled(ctx context.Context, name string, enabled bool, rev, actor string) error {
+	return c.call(ctx, "SetResidentEnabled", nil, name, enabled, rev, actor)
 }
 func (c *Client) ResidentStarted(ctx context.Context, name string, handle map[string]any) error {
 	return c.call(ctx, "ResidentStarted", nil, name, handle)
@@ -354,8 +358,8 @@ func (c *Client) ResidentStopped(ctx context.Context, name, reason string) error
 func (c *Client) ResidentStartFailed(ctx context.Context, name, reason string, backoff time.Duration) error {
 	return c.call(ctx, "ResidentStartFailed", nil, name, reason, backoff)
 }
-func (c *Client) RequestRestart(ctx context.Context, name, reason, actor string) error {
-	return c.call(ctx, "RequestRestart", nil, name, reason, actor)
+func (c *Client) RequestRestart(ctx context.Context, name, reason, rev, actor string) error {
+	return c.call(ctx, "RequestRestart", nil, name, reason, rev, actor)
 }
 func (c *Client) MarkRotationAsked(ctx context.Context, name string) error {
 	return c.call(ctx, "MarkRotationAsked", nil, name)

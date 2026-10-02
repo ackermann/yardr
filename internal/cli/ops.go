@@ -92,6 +92,21 @@ func (a *app) daemonCmd() *cobra.Command {
 		RunE: func(c *cobra.Command, _ []string) error {
 			ctx, stop := signal.NotifyContext(c.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			// One daemon per yard: a second would route the same beads and
+			// supervise the same sessions. The lock is taken before the
+			// store is touched and held until this process ends. A
+			// self-replace keeps the pid but execs a new image: the lock's
+			// descriptor is close-on-exec, so the exec releases it and the
+			// new build takes it here again, after the old image is gone.
+			unlock, err := lockDaemon(cfg.DaemonLock(), time.Second)
+			if err != nil {
+				return err
+			}
+			defer unlock()
 			st, err := a.store(ctx)
 			if err != nil {
 				return err

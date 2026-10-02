@@ -183,10 +183,10 @@ func TestResidentStartFailureBacksOffAndDisableStops(t *testing.T) {
 	if f.n != 0 || r.Failures != 1 || r.RetryAfter == nil {
 		t.Fatalf("starts %d resident %+v", f.n, r)
 	}
-	must(t, s.SetResidentEnabled(ctx, "mayor", true, "me")) // clears the backoff
+	must(t, s.SetResidentEnabled(ctx, "mayor", true, "", "me")) // clears the backoff
 	must(t, d.Reconcile(ctx))
 	agentOf(t, s)
-	must(t, s.SetResidentEnabled(ctx, "mayor", false, "me"))
+	must(t, s.SetResidentEnabled(ctx, "mayor", false, "", "me"))
 	must(t, d.Reconcile(ctx))
 	if r, _ = s.GetResident(ctx, "mayor"); r.Live() || f.stops != 1 {
 		t.Fatalf("disable did not stop it: %+v stops %d", r, f.stops)

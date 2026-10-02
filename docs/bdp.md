@@ -19,6 +19,14 @@ yardr bdp serve --addr :8765 --scope https://beads.example/team/
   names match, else `<scope>types/<name>`.
 - Every real change mints an opaque revision (a no-op mints none), served
   as the ETag; listings page over one consistent snapshot.
+- The revision is the compare-and-swap token a BDP write profile will take
+  (`If-Match`). It is the bead's `revision` in `yardr bead show --json`, and
+  the store already enforces it: `bead update`, `hold`/`unhold`, `advance`,
+  `done` and `close` take `--revision <rev>` (in Go, `store.Expect.Revision`)
+  and refuse with a `stale` conflict, changing nothing, when the bead has
+  changed since that revision was read. Residents carry their own `revision`
+  (`yardr resident show --json`) for `resident add`, `start`, `stop`,
+  `restart` and `rm`.
 - BDP's own conformance suite passes against it (31/31 runnable Read
   scenarios), and BDP's `bdp bd ready` client computes the same ready set
   from yardr as `yardr ready`. See [conformance/bdp](../conformance/bdp).

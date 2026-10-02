@@ -39,6 +39,10 @@ type Resident struct {
 	HandoffGrace string         `json:"handoff_grace"` // how long a requested handoff may take
 	Enabled      bool           `json:"enabled"`
 	Journal      string         `json:"journal"` // journal bead handle
+	// Revision changes on every write to the resident. Given to PutResident
+	// (or as rev to the writes that take one) it is the revision the caller
+	// read, and the write is refused with ErrConflict if it moved since.
+	Revision string `json:"revision,omitempty"`
 
 	// Who it is in each source (by source name), and which hook events it
 	// hears about. Kept when the definition is replaced.
@@ -76,6 +80,9 @@ func (s *Store) PutResident(ctx context.Context, def Resident, actor string) (*R
 		if err != nil {
 			return err
 		}
+		if err := checkResidentRev(def.Name, r.Revision, def.Revision); err != nil {
+			return err
+		}
 		if !ok {
 			// A new resident starts reading the inbox from now, not history.
 			head := uint64(0)
@@ -108,6 +115,7 @@ func (s *Store) PutResident(ctx context.Context, def Resident, actor string) (*R
 				}
 			}
 		}
+		r.Revision = newRevision()
 		if err := put(w.Tx, bResidents, r.Name, r); err != nil {
 			return err
 		}
@@ -144,8 +152,9 @@ func (s *Store) GetResident(ctx context.Context, name string) (*Resident, error)
 }
 
 // DeleteResident removes the resident; its journal bead is kept as history.
-func (s *Store) DeleteResident(ctx context.Context, name, actor string) error {
-	return s.changeResident(name, func(w *wtx, r *Resident) error {
+// A rev other than "" must be the resident's current revision.
+func (s *Store) DeleteResident(ctx context.Context, name, rev, actor string) error {
+	return s.changeResidentAt(name, rev, func(w *wtx, r *Resident) error {
 		if err := w.Bucket(bResidents).Delete([]byte(name)); err != nil {
 			return err
 		}
@@ -156,9 +165,16 @@ func (s *Store) DeleteResident(ctx context.Context, name, actor string) error {
 	}, true)
 }
 
-// changeResident applies fn to the stored resident and saves it, unless
-// deleted is set (fn removed it).
+// changeResident applies fn to the stored resident and saves it under a
+// fresh revision, unless deleted is set (fn removed it). The daemon's own
+// bookkeeping writes through it unchecked.
 func (s *Store) changeResident(name string, fn func(*wtx, *Resident) error, deleted ...bool) error {
+	return s.changeResidentAt(name, "", fn, deleted...)
+}
+
+// changeResidentAt is changeResident refusing with ErrConflict unless the
+// resident is at rev ("" expects nothing).
+func (s *Store) changeResidentAt(name, rev string, fn func(*wtx, *Resident) error, deleted ...bool) error {
 	return s.write(func(w *wtx) error {
 		var r Resident
 		ok, err := get(w.Tx, bResidents, name, &r)
@@ -168,20 +184,38 @@ func (s *Store) changeResident(name string, fn func(*wtx, *Resident) error, dele
 		if !ok {
 			return fmt.Errorf("resident %s: %w", name, ErrNotFound)
 		}
+		if err := checkResidentRev(name, r.Revision, rev); err != nil {
+			return err
+		}
 		if err := fn(w, &r); err != nil {
 			return err
 		}
 		if len(deleted) > 0 && deleted[0] {
 			return nil
 		}
+		r.Revision = newRevision()
 		return put(w.Tx, bResidents, name, r)
 	})
 }
 
+// checkResidentRev refuses a write that expected revision want of a
+// resident now at have. A resident stored before revisions existed has
+// none, so any expectation of it is stale: the caller read something else.
+func checkResidentRev(name, have, want string) error {
+	if want == "" || want == have {
+		return nil
+	}
+	if have == "" {
+		have = "none"
+	}
+	return fmt.Errorf("%w: resident %s is at revision %s, not %s; read it again", ErrConflict, name, have, want)
+}
+
 // SetResidentEnabled starts (true) or stops (false) keeping it alive. Enabling
-// also clears a failure streak.
-func (s *Store) SetResidentEnabled(ctx context.Context, name string, enabled bool, actor string) error {
-	return s.changeResident(name, func(w *wtx, r *Resident) error {
+// also clears a failure streak. A rev other than "" must be the resident's
+// current revision.
+func (s *Store) SetResidentEnabled(ctx context.Context, name string, enabled bool, rev, actor string) error {
+	return s.changeResidentAt(name, rev, func(w *wtx, r *Resident) error {
 		r.Enabled = enabled
 		if enabled {
 			r.Failures, r.RetryAfter = 0, nil
@@ -246,9 +280,10 @@ func (s *Store) ResidentStartFailed(ctx context.Context, name, reason string, ba
 }
 
 // RequestRestart asks the daemon for a fresh session once the current one
-// is idle (or the handoff grace has passed).
-func (s *Store) RequestRestart(ctx context.Context, name, reason, actor string) error {
-	return s.changeResident(name, func(w *wtx, r *Resident) error {
+// is idle (or the handoff grace has passed). A rev other than "" must be
+// the resident's current revision.
+func (s *Store) RequestRestart(ctx context.Context, name, reason, rev, actor string) error {
+	return s.changeResidentAt(name, rev, func(w *wtx, r *Resident) error {
 		t := now()
 		r.RestartRequested, r.RestartRequestedAt = reason, &t
 		return w.event(r.Journal, "resident_restart_requested", actor, map[string]any{"resident": name, "reason": reason})

@@ -73,12 +73,13 @@ func (a *app) who() string {
 }
 
 // expect is what a move made from this process expects of the bead: that
-// the session yardr started it for ($YARDR_SESSION) still owns it. An
-// agent kept or orphaned after its bead moved on is then refused rather
-// than ending the session that owns the bead now. Outside a session it
+// the session yardr started it for ($YARDR_SESSION) still owns it, and that
+// it is still at rev (--revision) when one is given. An agent kept or
+// orphaned after its bead moved on is then refused rather than ending the
+// session that owns the bead now. Outside a session, and without rev, it
 // expects nothing.
-func (a *app) expect() store.Expect {
-	return store.Expect{Session: config.Getenv("SESSION")}
+func (a *app) expect(rev string) store.Expect {
+	return store.Expect{Session: config.Getenv("SESSION"), Revision: rev}
 }
 
 // store connects to the yardr server, starting it on first use.

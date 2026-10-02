@@ -84,6 +84,7 @@ next session starts from that handoff (forced after --handoff-grace).`,
 	f.StringSliceVar(&def.On, "on", defaultOn, "event kinds delivered to its inbox (mail always is)")
 	f.StringVar(&def.MaxAge, "max-age", "", "ask for a handoff after this long, e.g. 6h (default: never)")
 	f.StringVar(&def.HandoffGrace, "handoff-grace", "15m", "how long a requested handoff may take before a forced restart")
+	f.StringVar(&def.Revision, "revision", "", "refuse unless the resident is still at this revision (from resident show --json)")
 
 	list := &cobra.Command{
 		Use: "list", Short: "List residents", Args: cobra.NoArgs,
@@ -172,21 +173,29 @@ next session starts from that handoff (forced after --handoff-grace).`,
 				return a.out(map[string]string{"resident": args[0], use: "ok"}, func() { fmt.Printf("%s: %s\n", args[0], use) })
 			}}
 	}
+	// rev is --revision: the resident's revision as the caller last read
+	// it (resident show --json); the write is refused if it moved since.
+	var rev string
 	rm := simple("rm", "Delete a resident (its journal is kept)", func(ctx context.Context, st store.API, n string) error {
-		if err := st.SetResidentEnabled(ctx, n, false, a.who()); err != nil {
+		// The disable checks rev; it mints a new one, so the delete
+		// right after it does not.
+		if err := st.SetResidentEnabled(ctx, n, false, rev, a.who()); err != nil {
 			return err
 		}
-		return st.DeleteResident(ctx, n, a.who())
+		return st.DeleteResident(ctx, n, "", a.who())
 	})
 	start := simple("start", "Keep the resident running (clears a failure streak)", func(ctx context.Context, st store.API, n string) error {
-		return st.SetResidentEnabled(ctx, n, true, a.who())
+		return st.SetResidentEnabled(ctx, n, true, rev, a.who())
 	})
 	stop := simple("stop", "Stop the resident and keep it stopped", func(ctx context.Context, st store.API, n string) error {
-		return st.SetResidentEnabled(ctx, n, false, a.who())
+		return st.SetResidentEnabled(ctx, n, false, rev, a.who())
 	})
 	restart := simple("restart", "Start a fresh session once the current one is idle", func(ctx context.Context, st store.API, n string) error {
-		return st.RequestRestart(ctx, n, "requested by "+a.who(), a.who())
+		return st.RequestRestart(ctx, n, "requested by "+a.who(), rev, a.who())
 	})
+	for _, c := range []*cobra.Command{rm, start, stop, restart} {
+		c.Flags().StringVar(&rev, "revision", "", "refuse unless the resident is still at this revision (from resident show --json)")
+	}
 
 	entry := func(kind, short string) *cobra.Command {
 		return &cobra.Command{Use: kind + " <name> <text|->", Short: short, Args: cobra.ExactArgs(2),
@@ -572,6 +581,10 @@ func (a *app) residentForm(ctx context.Context, st store.API) error {
 		for _, r := range rs {
 			if r.Name == pick {
 				def, editing = r, true
+				// The daemon's bookkeeping (nudges, handles) re-mints the
+				// revision while the form is open; holding the form to it
+				// would refuse most edits of a running resident.
+				def.Revision = ""
 			}
 		}
 	}

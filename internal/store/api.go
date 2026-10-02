@@ -13,13 +13,13 @@ type API interface {
 	ListBeads(ctx context.Context, f BeadFilter) ([]Bead, error)
 	Ready(ctx context.Context) ([]Bead, error)
 	Dispatchable(ctx context.Context) ([]Bead, error)
-	UpdateBead(ctx context.Context, id string, p BeadPatch, actor string) (*Bead, error)
+	UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expect, actor string) (*Bead, error)
 	Advance(ctx context.Context, id, stage, actor string) (*Bead, error)
 	AdvanceNote(ctx context.Context, id, stage, note string, exp Expect, actor string) (*Bead, error)
 	Done(ctx context.Context, id, outcome, note string, exp Expect, actor string) (*Bead, error)
 	CloseBead(ctx context.Context, id, reason string, exp Expect, actor string) (*Bead, error)
 	Reopen(ctx context.Context, id, actor string) (*Bead, error)
-	SetHold(ctx context.Context, id string, hold bool, actor string) (*Bead, error)
+	SetHold(ctx context.Context, id string, hold bool, exp Expect, actor string) (*Bead, error)
 	Release(ctx context.Context, id, reason, actor string) (*Bead, error)
 
 	AddDep(ctx context.Context, from, to, kind, actor string) error
@@ -72,13 +72,13 @@ type API interface {
 	PutResident(ctx context.Context, def Resident, actor string) (*Resident, error)
 	Residents(ctx context.Context) ([]Resident, error)
 	GetResident(ctx context.Context, name string) (*Resident, error)
-	DeleteResident(ctx context.Context, name, actor string) error
-	SetResidentEnabled(ctx context.Context, name string, enabled bool, actor string) error
+	DeleteResident(ctx context.Context, name, rev, actor string) error
+	SetResidentEnabled(ctx context.Context, name string, enabled bool, rev, actor string) error
 	ResidentStarted(ctx context.Context, name string, handle map[string]any) error
 	ResidentStopped(ctx context.Context, name, reason string) error
 	SetResidentHandle(ctx context.Context, name string, handle map[string]any) error
 	ResidentStartFailed(ctx context.Context, name, reason string, backoff time.Duration) error
-	RequestRestart(ctx context.Context, name, reason, actor string) error
+	RequestRestart(ctx context.Context, name, reason, rev, actor string) error
 	MarkRotationAsked(ctx context.Context, name string) error
 	MarkNotified(ctx context.Context, name string, seq uint64) error
 	Journal(ctx context.Context, name, kind, text, actor string) error

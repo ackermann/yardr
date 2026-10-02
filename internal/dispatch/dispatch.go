@@ -515,7 +515,7 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		}
 		if fails >= d.MaxAttempts {
 			d.Log.Warn("holding bead after repeated failures", "bead", b.ID, "stage", b.Stage, "failures", fails)
-			if _, err := d.Store.SetHold(ctx, b.ID, true, actor); err != nil {
+			if _, err := d.Store.SetHold(ctx, b.ID, true, store.Expect{}, actor); err != nil {
 				return err
 			}
 			_ = d.Store.LogDispatch(ctx, b.ID, "gave_up", actor, map[string]any{
@@ -544,7 +544,9 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		}
 
 		sess, err := d.Store.Claim(ctx, b.ID, g.Name, b.Stage, actor)
-		if errors.Is(err, store.ErrTaken) {
+		if errors.Is(err, store.ErrTaken) || errors.Is(err, store.ErrAtLimit) {
+			// ErrAtLimit: another dispatcher, or a session this pass could
+			// not see, holds the group's last slot.
 			continue
 		} else if err != nil {
 			return err

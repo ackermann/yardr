@@ -301,7 +301,8 @@ type BeadPatch struct {
 	Metadata    map[string]any // merged
 }
 
-func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, actor string) (*Bead, error) {
+// UpdateBead applies p. A stale exp refuses it (see Expect).
+func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expect, actor string) (*Bead, error) {
 	// A new pin must name a flow that exists: one naming nothing would
 	// only fail later, when dispatch or a move resolves it.
 	pin := PinnedFlow(&Bead{Metadata: p.Metadata})
@@ -323,6 +324,9 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, actor st
 		}
 	}
 	return s.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
+		if err := exp.check(b); err != nil {
+			return "", nil, err
+		}
 		changed := map[string]any{}
 		if p.Title != nil {
 			b.Title, changed["title"] = *p.Title, *p.Title
@@ -479,6 +483,14 @@ func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor 
 	}
 	var result *Bead
 	err = s.write(func(w *wtx) error {
+		// Checked before the note, which re-mints the bead's revision.
+		cur, err := w.loadBead(id)
+		if err != nil {
+			return err
+		}
+		if err := exp.check(cur); err != nil {
+			return err
+		}
 		if strings.TrimSpace(note) != "" {
 			if err := w.addNote(id, NoteNote, note, actor); err != nil {
 				return err
@@ -487,9 +499,6 @@ func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor 
 		var stage string
 		var terminal bool
 		b, err := w.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
-			if err := exp.check(b); err != nil {
-				return "", nil, err
-			}
 			f, _, err := resolveFlow(w.Tx, b.Rig, b.Type, PinnedFlow(&b.Bead), repo)
 			if err != nil {
 				return "", nil, changedMeanwhile(err)
@@ -535,22 +544,30 @@ func (s *Store) CloseBead(ctx context.Context, id, reason string, exp Expect, ac
 	})
 }
 
-// Expect is what a caller believes about a bead it moves or closes: the
-// session that owns it and the stage it is in. A move made on a stale view
-// is refused and changes nothing, so an agent kept or orphaned after its
-// bead moved on cannot end the session that owns the bead now, and a review
-// form opened before someone else decided cannot apply its decision on top.
-// An empty field expects nothing: a person acting outside any session (the
-// mayor, Christopher at a shell) is not checked.
+// Expect is what a caller believes about a bead it changes: the session
+// that owns it, the stage it is in, and its revision. A write made on a
+// stale view is refused with ErrConflict and changes nothing, so an agent
+// kept or orphaned after its bead moved on cannot end the session that owns
+// the bead now, a review form opened before someone else decided cannot
+// apply its decision on top, and two writers that read the same revision
+// cannot both apply what they read it for (compare-and-swap). An empty
+// field expects nothing: a person acting outside any session (the mayor,
+// Christopher at a shell) is not checked.
 type Expect struct {
 	Session string `json:"session,omitempty"`
 	Stage   string `json:"stage,omitempty"`
+	// Revision is the bead's revision as the caller read it (Bead.Revision,
+	// the BDP ETag). Any real change since mints another.
+	Revision string `json:"revision,omitempty"`
 }
 
 func (e Expect) check(b *beadRow) error {
 	owner := ""
 	if b.Session != nil {
 		owner = *b.Session
+	}
+	if e.Revision != "" && e.Revision != b.Revision {
+		return fmt.Errorf("%w: bead %s is at revision %s, not %s; read it again", ErrConflict, b.ID, b.Revision, e.Revision)
 	}
 	if (e.Session == "" || e.Session == owner) && (e.Stage == "" || e.Stage == b.Stage) {
 		return nil
@@ -562,7 +579,7 @@ func (e Expect) check(b *beadRow) error {
 	if b.Status == "closed" {
 		state = " (closed)"
 	}
-	return fmt.Errorf("stale: bead %s is now in %s%s owned by %s; expected %s", b.ID, b.Stage, state, owner, e)
+	return fmt.Errorf("%w: bead %s is now in %s%s owned by %s; expected %s", ErrConflict, b.ID, b.Stage, state, owner, e)
 }
 
 // String names what e expected, for the stale error.
@@ -609,9 +626,12 @@ func (s *Store) Reopen(ctx context.Context, id, actor string) (*Bead, error) {
 }
 
 // SetHold pauses (or resumes) routing for a bead. Holding does not stop a
-// session already working it.
-func (s *Store) SetHold(ctx context.Context, id string, hold bool, actor string) (*Bead, error) {
+// session already working it. A stale exp refuses it (see Expect).
+func (s *Store) SetHold(ctx context.Context, id string, hold bool, exp Expect, actor string) (*Bead, error) {
 	return s.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
+		if err := exp.check(b); err != nil {
+			return "", nil, err
+		}
 		b.Hold = hold
 		if hold {
 			return "held", nil, nil

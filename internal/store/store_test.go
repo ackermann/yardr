@@ -91,7 +91,7 @@ func TestReadyRespectsBlocksHoldAndClose(t *testing.T) {
 	if got := ids(ready); !slices.Equal(got, []string{a.ID, c.ID}) {
 		t.Fatalf("ready = %v", got)
 	}
-	if _, err := s.SetHold(ctx, c.ID, true, "me"); err != nil {
+	if _, err := s.SetHold(ctx, c.ID, true, store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.CloseBead(ctx, a.ID, "done", store.Expect{}, "me"); err != nil {
@@ -294,14 +294,14 @@ func TestRoutesAndUpdate(t *testing.T) {
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x", Labels: []string{"a"}}, "me")
 	title := "y"
 	b, err = s.UpdateBead(ctx, b.ID, store.BeadPatch{Title: &title, AddLabels: []string{"b"},
-		RemoveLabel: []string{"a"}, Metadata: map[string]any{"pr": 12}}, "me")
+		RemoveLabel: []string{"a"}, Metadata: map[string]any{"pr": 12}}, store.Expect{}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if b.Title != "y" || !slices.Equal(b.Labels, []string{"b"}) || b.Metadata["pr"] == nil {
 		t.Fatalf("after update: %+v", b)
 	}
-	if _, err := s.UpdateBead(ctx, "yd-404", store.BeadPatch{Title: &title}, "me"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.UpdateBead(ctx, "yd-404", store.BeadPatch{Title: &title}, store.Expect{}, "me"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("update missing err = %v", err)
 	}
 }
@@ -386,18 +386,18 @@ func TestRevisionsFollowBDPRules(t *testing.T) {
 
 	// A no-op write mints nothing and writes no event.
 	same := "A"
-	nb, err := s.UpdateBead(ctx, b.ID, store.BeadPatch{Title: &same}, "me")
+	nb, err := s.UpdateBead(ctx, b.ID, store.BeadPatch{Title: &same}, store.Expect{}, "me")
 	must(err)
 	if nb.Revision != b.Revision || !nb.UpdatedAt.Equal(b.UpdatedAt) {
 		t.Fatalf("no-op changed revision/updated_at: %s -> %s", b.Revision, nb.Revision)
 	}
-	_, err = s.SetHold(ctx, b.ID, false, "me") // already unheld
+	_, err = s.SetHold(ctx, b.ID, false, store.Expect{}, "me") // already unheld
 	must(err)
 
 	// A -> B -> A: three distinct revisions.
 	rev := b.Revision
 	for _, title := range []string{"B", "A"} {
-		nb, err = s.UpdateBead(ctx, b.ID, store.BeadPatch{Title: &title}, "me")
+		nb, err = s.UpdateBead(ctx, b.ID, store.BeadPatch{Title: &title}, store.Expect{}, "me")
 		must(err)
 		if seen[nb.Revision] {
 			t.Fatalf("revision %s reused after changing title to %s", nb.Revision, title)
