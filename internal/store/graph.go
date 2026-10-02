@@ -77,10 +77,7 @@ func (s *Store) AddDep(ctx context.Context, fromRef, toRef, kind, actor string) 
 
 func (w *wtx) mintDep(d *depRow, actor string) error {
 	d.Revision, d.LastActor = newRevision(), actor
-	if err := put(w.Tx, bDeps, d.ID, d); err != nil {
-		return err
-	}
-	return w.version("dep", d.ID, d.Revision, actor, d, false)
+	return put(w.Tx, bDeps, d.ID, d)
 }
 
 // newEdgeID is 20 lowercase alphanumerics from a fresh ULID's randomness.
@@ -94,8 +91,8 @@ func newEdgeID() string {
 	return string(r[6:])
 }
 
-// RemoveDep deletes the edge, leaving a tombstone version that cites its
-// final revision. Removing an edge that does not exist is a no-op.
+// RemoveDep deletes the edge; the dep_removed event is its record.
+// Removing an edge that does not exist is a no-op.
 func (s *Store) RemoveDep(ctx context.Context, fromRef, toRef, kind, actor string) error {
 	return s.write(func(w *wtx) error {
 		fromRow, err := w.loadBead(fromRef)
@@ -116,9 +113,6 @@ func (s *Store) RemoveDep(ctx context.Context, fromRef, toRef, kind, actor strin
 			}
 			if d.To != to || d.Kind != kind {
 				continue
-			}
-			if err := w.version("dep", id, newRevision(), actor, d, true); err != nil {
-				return err
 			}
 			for _, del := range []struct {
 				b   []byte

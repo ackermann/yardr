@@ -16,8 +16,10 @@
 package bdp
 
 import (
+	"context"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"yardr.dev/yardr/internal/store"
@@ -331,4 +333,43 @@ func titleCase(s string) string {
 		return s
 	}
 	return strings.Join(words, " ")
+}
+
+// Source is the store as CachedLoader reads it.
+type Source interface {
+	Head(ctx context.Context) (uint64, error)
+	Snapshot(ctx context.Context) (*store.Snapshot, error)
+}
+
+// CachedLoader is a load function for NewServer that builds the Graph from
+// a snapshot only when the store's head has moved since the last build.
+// Every write that changes a bead or an edge logs an event in the same
+// transaction, so an unmoved head means an unchanged graph, and a request
+// then costs one small Head call instead of a full snapshot over RPC.
+// A Graph is never changed once built, so requests may share it.
+func CachedLoader(scope string, src Source) func(ctx context.Context) (*Graph, error) {
+	var (
+		mu    sync.Mutex
+		head  uint64
+		graph *Graph
+	)
+	return func(ctx context.Context) (*Graph, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		// The head is read before the snapshot: a write in between leaves
+		// the graph newer than its key, and the next request rebuilds.
+		h, err := src.Head(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if graph != nil && h == head {
+			return graph, nil
+		}
+		snap, err := src.Snapshot(ctx)
+		if err != nil {
+			return nil, err
+		}
+		head, graph = h, BuildGraph(scope, snap)
+		return graph, nil
+	}
 }

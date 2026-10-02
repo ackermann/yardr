@@ -562,3 +562,48 @@ func TestGroupRmReleasesClaimedBeadsToTheNewRoute(t *testing.T) {
 		t.Fatalf("group rm counted as %d failure(s)", fails)
 	}
 }
+
+// pruneCounter records the retentions the dispatcher prunes with.
+type pruneCounter struct {
+	store.API
+	mu    sync.Mutex
+	calls []store.Retention
+}
+
+func (p *pruneCounter) Prune(ctx context.Context, keep store.Retention, actor string) (*store.PruneResult, error) {
+	p.mu.Lock()
+	p.calls = append(p.calls, keep)
+	p.mu.Unlock()
+	return p.API.Prune(ctx, keep, actor)
+}
+
+func (p *pruneCounter) count() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.calls)
+}
+
+// The daemon prunes on start and every PruneEvery, and not at all without
+// a retention.
+func TestRunPrunesOnATimer(t *testing.T) {
+	for _, keep := range []store.Retention{{}, store.DefaultRetention} {
+		s, _, d := setup(t)
+		pc := &pruneCounter{API: s}
+		d.Store, d.Retention, d.PruneEvery, d.Interval = pc, keep, 50*time.Millisecond, time.Hour
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error)
+		go func() { done <- d.Run(ctx) }()
+		time.Sleep(300 * time.Millisecond)
+		cancel()
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+		n := pc.count()
+		if keep == (store.Retention{}) && n != 0 {
+			t.Fatalf("pruned %d times without a retention", n)
+		}
+		if keep != (store.Retention{}) && (n < 2 || pc.calls[0] != keep) {
+			t.Fatalf("pruned %d times with %+v, want at least 2 with %+v", n, pc.calls, keep)
+		}
+	}
+}

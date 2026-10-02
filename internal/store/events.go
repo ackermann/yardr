@@ -134,6 +134,11 @@ func (s *Store) LogDispatch(ctx context.Context, bead, kind, actor string, data 
 	return s.LogEvent(ctx, bead, kind, actor, data)
 }
 
+// backlogPage bounds the events one read transaction of a Subscribe
+// backlog decodes, so a subscriber far behind does not pin the file's pages
+// for the whole replay.
+const backlogPage = 1000
+
 // Subscribe streams every event with Seq > after, in order, with no gaps or
 // duplicates: first the retained backlog, then live events as they commit.
 // The channel closes when ctx ends, the store closes, or the subscriber
@@ -142,7 +147,9 @@ func (s *Store) Subscribe(ctx context.Context, after uint64) (<-chan Event, erro
 	// Register before reading the backlog, so nothing committed in between
 	// is missed; duplicates are dropped by Seq below.
 	sub := s.hub.add(4096)
-	backlog, err := s.EventsSince(ctx, after, 0)
+	// The first page is read here so a failing store errs to the caller;
+	// the rest is read page by page as the subscriber takes it.
+	page, err := s.EventsSince(ctx, after, backlogPage)
 	if err != nil {
 		s.hub.remove(sub)
 		return nil, err
@@ -164,9 +171,17 @@ func (s *Store) Subscribe(ctx context.Context, after uint64) (<-chan Event, erro
 				return false
 			}
 		}
-		for _, e := range backlog {
-			if !send(e) {
-				return
+		for len(page) > 0 {
+			for _, e := range page {
+				if !send(e) {
+					return
+				}
+			}
+			if len(page) < backlogPage {
+				break
+			}
+			if page, err = s.EventsSince(ctx, last, backlogPage); err != nil {
+				return // the subscriber resubscribes from last
 			}
 		}
 		for {

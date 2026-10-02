@@ -39,7 +39,7 @@ func Execute() int {
 	root.AddCommand(a.serverCmd(), a.daemonCmd(), a.rigCmd(), a.beadCmd(), a.readyCmd(),
 		a.depCmd(), a.groupCmd(), a.routeCmd(), a.flowCmd(), a.sessionCmd(), a.eventsCmd(), a.watchCmd(), a.primeCmd(),
 		a.bdpCmd(), a.residentCmd(), a.inboxCmd(), a.mailCmd(), a.rememberCmd(), a.recallCmd(), a.hookCmd(),
-		a.subscribeCmd(), a.unsubscribeCmd(), a.threadCmd(), a.reviewCmd())
+		a.subscribeCmd(), a.unsubscribeCmd(), a.threadCmd(), a.reviewCmd(), a.storeCmd())
 	err := root.ExecuteContext(context.Background())
 	if a.st != nil {
 		_ = a.st.Close(context.Background())

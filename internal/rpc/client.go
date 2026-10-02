@@ -330,6 +330,9 @@ func (c *Client) LogDispatch(ctx context.Context, bead, kind, actor string, data
 func (c *Client) Snapshot(ctx context.Context) (*store.Snapshot, error) {
 	return callV[*store.Snapshot](c, ctx, "Snapshot")
 }
+func (c *Client) Prune(ctx context.Context, keep store.Retention, actor string) (*store.PruneResult, error) {
+	return callV[*store.PruneResult](c, ctx, "Prune", keep, actor)
+}
 
 func (c *Client) PutResident(ctx context.Context, def store.Resident, actor string) (*store.Resident, error) {
 	return callV[*store.Resident](c, ctx, "PutResident", def, actor)

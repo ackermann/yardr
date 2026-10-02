@@ -68,6 +68,7 @@ type API interface {
 	Head(ctx context.Context) (uint64, error)
 	LogDispatch(ctx context.Context, bead, kind, actor string, data map[string]any) error
 	Snapshot(ctx context.Context) (*Snapshot, error)
+	Prune(ctx context.Context, keep Retention, actor string) (*PruneResult, error)
 
 	PutResident(ctx context.Context, def Resident, actor string) (*Resident, error)
 	Residents(ctx context.Context) ([]Resident, error)

@@ -221,28 +221,12 @@ func migrateToUUIDs(tx *bolt.Tx) error {
 				return err
 			}
 		}
+		// The indexes exist (created above), so Open will not build them.
+		if err := index(tx, *e); err != nil {
+			return err
+		}
 	}
 
-	// Retained bead versions move under the UUID; their snapshots are
-	// history and keep the shape they were written in.
-	type kv struct{ k, v []byte }
-	var versions []kv
-	c := tx.Bucket(bVersions).Cursor()
-	for k, v := c.Seek([]byte("bead/")); k != nil && string(k[:min(len(k), 5)]) == "bead/"; k, v = c.Next() {
-		versions = append(versions, kv{append([]byte(nil), k...), append([]byte(nil), v...)})
-	}
-	for _, e := range versions {
-		if err := tx.Bucket(bVersions).Delete(e.k); err != nil {
-			return err
-		}
-	}
-	for _, e := range versions {
-		// <kind>/<id>\x00<8-byte seq>
-		id, seq := string(e.k[len("bead/"):len(e.k)-9]), e.k[len(e.k)-8:]
-		if err := tx.Bucket(bVersions).Put([]byte(join("bead/"+uuid(id), string(seq))), e.v); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 

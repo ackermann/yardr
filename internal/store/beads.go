@@ -108,10 +108,7 @@ func (w *wtx) mintBead(row *beadRow, actor string) error {
 	row.Revision = newRevision()
 	row.UpdatedAt = now()
 	row.LastActor = actor
-	if err := put(w.Tx, bBeads, row.UUID, row); err != nil {
-		return err
-	}
-	return w.version("bead", row.UUID, row.Revision, actor, row, false)
+	return put(w.Tx, bBeads, row.UUID, row)
 }
 
 // mintTouched re-mints a bead whose representation changed through another

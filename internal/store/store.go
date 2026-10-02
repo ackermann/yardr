@@ -12,6 +12,17 @@
 // go through db.Batch so a burst shares one fsync. Batch may re-run a write
 // function, so a function's only effects are inside its transaction;
 // notification happens after the commit.
+//
+// The file is kept bounded. Past states of beads and deps are not retained:
+// the event log is their history, and a "versions" bucket that once kept a
+// full snapshot per change (read by nothing but a migration) is dropped on
+// open. The log itself is pruned by age (see Prune), never past what a
+// resident has yet to read nor past the oldest live session, and a pruned
+// file shrinks only when compacted (Compact) while no server holds it.
+//
+// Reads that serve one resident or follow the log page through indexes
+// written at ingest (inbox, events_by_kind) rather than scanning the log
+// in one read transaction.
 package store
 
 import (
@@ -22,7 +33,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
@@ -49,7 +62,8 @@ var (
 	bNotes    = []byte("notes")    // <bead>\x00<seq>
 	bEvents   = []byte("events")   // <seq>
 	bEventsBy = []byte("events_by_bead")
-	bVersions = []byte("versions") // <kind>/<id>\x00<seq>
+	bInbox    = []byte("inbox")          // <resident>\x00<seq>: mail to it, or delivered to it by a subscription
+	bEventsKd = []byte("events_by_kind") // <kind>\x00<seq>
 	bSessions = []byte("sessions")
 	bGroups   = []byte("groups")
 	bRoutes   = []byte("routes")
@@ -59,7 +73,11 @@ var (
 	bMeta     = []byte("meta")          // schema version
 )
 
-var allBuckets = [][]byte{bBeads, bHandles, bDeps, bDepFrom, bDepTo, bNotes, bEvents, bEventsBy, bVersions,
+// bVersions kept a snapshot of every bead and dep state; retired (see the
+// package comment) and deleted on open.
+var bVersions = []byte("versions")
+
+var allBuckets = [][]byte{bBeads, bHandles, bDeps, bDepFrom, bDepTo, bNotes, bEvents, bEventsBy, bInbox, bEventsKd,
 	bSessions, bGroups, bRoutes, bRigs, bFlows, bFlowPtrs, bMeta}
 
 type Store struct {
@@ -69,6 +87,9 @@ type Store struct {
 	// mentions holds each resident's compiled @mention pattern, so matching
 	// an event under the write lock compiles a pattern once per resident.
 	mentions mentionCache
+	// inboxReads counts the events Inbox decoded, so a test can tell it
+	// read only the resident's own.
+	inboxReads atomic.Int64
 
 	// pump publishes committed events in seq order; writers only nudge it.
 	nudge  chan struct{}
@@ -95,6 +116,14 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("%s: upgrade: %w", path, err)
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
+		if tx.Bucket(bVersions) != nil {
+			if err := tx.DeleteBucket(bVersions); err != nil {
+				return err
+			}
+		}
+		if err := indexEvents(tx); err != nil {
+			return err
+		}
 		for _, b := range allBuckets {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
@@ -266,30 +295,55 @@ func (w *wtx) event(bead, kind, actor string, data map[string]any) error {
 			return err
 		}
 	}
+	if err := index(w.Tx, e); err != nil {
+		return err
+	}
 	return put(w.Tx, bEvents, seqKey(seq), e)
 }
 
-// Version is one retained state of a bead or dep.
-type Version struct {
-	Revision string          `json:"revision"`
-	Actor    string          `json:"actor"`
-	At       time.Time       `json:"at"`
-	Deleted  bool            `json:"deleted,omitempty"`
-	Snapshot json.RawMessage `json:"snapshot"`
+// inboxOf lists the residents e is addressed to: whom mail is for, and
+// whom a subscription delivered it to. What reaches an inbox through a
+// resident's --on kinds is found through events_by_kind instead, since
+// those are checked when the inbox is read.
+func inboxOf(e Event) []string {
+	var out []string
+	if e.Kind == "mail" {
+		if to, _ := e.Data["to"].(string); to != "" {
+			out = append(out, to)
+		}
+	}
+	d, _ := e.Data["deliveries"].(map[string]any)
+	for name := range d {
+		if !slices.Contains(out, name) {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
-// version retains state under its revision.
-func (w *wtx) version(kind, id, rev, actor string, state any, deleted bool) error {
-	seq, err := w.Bucket(bVersions).NextSequence()
-	if err != nil {
-		return err
+// index writes e's inbox and kind index entries.
+func index(tx *bolt.Tx, e Event) error {
+	k := seqKey(e.Seq)
+	for _, name := range inboxOf(e) {
+		if err := tx.Bucket(bInbox).Put([]byte(join(name, k)), []byte{}); err != nil {
+			return err
+		}
 	}
-	snap, err := json.Marshal(state)
-	if err != nil {
-		return err
+	return tx.Bucket(bEventsKd).Put([]byte(join(e.Kind, k)), []byte{})
+}
+
+// indexEvents builds the inbox and kind indexes, once, for a store whose
+// log predates them.
+func indexEvents(tx *bolt.Tx) error {
+	if tx.Bucket(bInbox) != nil || tx.Bucket(bEvents) == nil {
+		return nil
 	}
-	return put(w.Tx, bVersions, join(kind+"/"+id, seqKey(seq)),
-		Version{Revision: rev, Actor: actor, At: now(), Deleted: deleted, Snapshot: snap})
+	for _, b := range [][]byte{bInbox, bEventsKd} {
+		if _, err := tx.CreateBucketIfNotExists(b); err != nil {
+			return err
+		}
+	}
+	return each(tx, bEvents, "", func(_ []byte, e *Event) error { return index(tx, *e) })
 }
 
 // now is UTC truncated to microseconds, so values survive a JSON round trip

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 )
 
 func TestGetenvPrefersNewName(t *testing.T) {
@@ -73,5 +74,32 @@ func TestLoadHome(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(u, ".yardr")); err == nil {
 		t.Fatal("Load created ~/.yardr next to the legacy home")
+	}
+}
+
+func TestParseRetention(t *testing.T) {
+	for in, want := range map[string]time.Duration{
+		"90d": 90 * 24 * time.Hour, "720h": 720 * time.Hour, "off": 0, "0": 0, "0d": 0,
+	} {
+		if got, err := ParseRetention(in); err != nil || got != want {
+			t.Errorf("ParseRetention(%q) = %v %v, want %v", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"", "x", "-1d", "-5h", "1.5d"} {
+		if _, err := ParseRetention(in); err == nil {
+			t.Errorf("ParseRetention(%q) accepted", in)
+		}
+	}
+	t.Setenv("YARDR_EVENT_RETENTION", "")
+	if got, err := Retention("EVENT_RETENTION", time.Hour); err != nil || got != time.Hour {
+		t.Fatalf("unset: %v %v", got, err)
+	}
+	t.Setenv("YARDR_EVENT_RETENTION", "7d")
+	if got, err := Retention("EVENT_RETENTION", time.Hour); err != nil || got != 7*24*time.Hour {
+		t.Fatalf("7d: %v %v", got, err)
+	}
+	t.Setenv("YARDR_EVENT_RETENTION", "soon")
+	if _, err := Retention("EVENT_RETENTION", time.Hour); err == nil {
+		t.Fatal("bad value accepted")
 	}
 }

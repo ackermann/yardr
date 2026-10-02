@@ -4,10 +4,14 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/user"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
 )
 
 // The tool was called yard before it became yardr. For one release its
@@ -106,4 +110,37 @@ func Actor() string {
 		return u.Username
 	}
 	return "unknown"
+}
+
+// ParseRetention reads how long something is kept: a number of days
+// ("90d"), a Go duration ("720h"), or "off" or "0" to keep it for good (0).
+func ParseRetention(v string) (time.Duration, error) {
+	if v == "off" || v == "0" {
+		return 0, nil
+	}
+	if days, ok := strings.CutSuffix(v, "d"); ok {
+		n, err := strconv.Atoi(days)
+		if err != nil || n < 0 {
+			return 0, fmt.Errorf("retention %q: use a number of days (90d), a duration (720h) or off", v)
+		}
+		return time.Duration(n) * 24 * time.Hour, nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d < 0 {
+		return 0, fmt.Errorf("retention %q: use a number of days (90d), a duration (720h) or off", v)
+	}
+	return d, nil
+}
+
+// Retention reads YARDR_<name> with ParseRetention, def when unset.
+func Retention(name string, def time.Duration) (time.Duration, error) {
+	v := Getenv(name)
+	if v == "" {
+		return def, nil
+	}
+	d, err := ParseRetention(v)
+	if err != nil {
+		return 0, fmt.Errorf("%s%s: %w", prefix, name, err)
+	}
+	return d, nil
 }

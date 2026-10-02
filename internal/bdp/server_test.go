@@ -410,3 +410,56 @@ func TestCompareIDsUsesUTF16(t *testing.T) {
 }
 
 func itoa(n int) string { b, _ := json.Marshal(n); return string(b) }
+
+// countingSource counts the snapshots CachedLoader takes.
+type countingSource struct {
+	store.API
+	snapshots int
+}
+
+func (c *countingSource) Snapshot(ctx context.Context) (*store.Snapshot, error) {
+	c.snapshots++
+	return c.API.Snapshot(ctx)
+}
+
+// Requests share one built graph until the store's head moves.
+func TestCachedLoaderSnapshotsOnlyWhenTheHeadMoves(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "one"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := &countingSource{API: st}
+	srv, err := bdp.NewServer(scope, bdp.CachedLoader(scope, src), bdp.DefaultLimits, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+	get := func(path string) {
+		t.Helper()
+		r, err := http.Get(ts.URL + "/acme/" + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		io.Copy(io.Discard, r.Body)
+		r.Body.Close()
+		if r.StatusCode != 200 {
+			t.Fatalf("GET %s: %d", path, r.StatusCode)
+		}
+	}
+	get("beads/" + b.ID)
+	get("beads/" + b.ID + "?view=properties")
+	if src.snapshots != 1 {
+		t.Fatalf("%d snapshots across two requests, want 1", src.snapshots)
+	}
+	b2, err := st.CreateBead(ctx, store.NewBead{Title: "two"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	get("beads/" + b2.ID)
+	if src.snapshots != 2 {
+		t.Fatalf("%d snapshots after a write, want 2", src.snapshots)
+	}
+}

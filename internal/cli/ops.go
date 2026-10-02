@@ -120,6 +120,10 @@ func (a *app) daemonCmd() *cobra.Command {
 					log.Warn("runner events", "err", err)
 				}
 			}
+			keep, err := retention()
+			if err != nil {
+				return err
+			}
 			bin, err := version.Self()
 			if err != nil {
 				log.Warn("cannot watch the yardr binary; the daemon will not replace itself", "err", err)
@@ -131,6 +135,7 @@ func (a *app) daemonCmd() *cobra.Command {
 				Interval:    interval,
 				MaxAttempts: attempts,
 				Binary:      bin,
+				Retention:   keep,
 			}
 			log.Info("yardr daemon started", "store", a.cfg.DBPath(), "reconcile", interval)
 			return d.Run(ctx)

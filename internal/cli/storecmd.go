@@ -1,0 +1,105 @@
+package cli
+
+import (
+	"errors"
+	"fmt"
+
+	"github.com/spf13/cobra"
+
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/store"
+)
+
+// retention is how long the store keeps events and webhook bodies:
+// YARDR_EVENT_RETENTION and YARDR_HOOK_PAYLOAD_RETENTION, else
+// store.DefaultRetention.
+func retention() (store.Retention, error) {
+	ev, err := config.Retention("EVENT_RETENTION", store.DefaultRetention.Events)
+	if err != nil {
+		return store.Retention{}, err
+	}
+	hp, err := config.Retention("HOOK_PAYLOAD_RETENTION", store.DefaultRetention.HookPayloads)
+	if err != nil {
+		return store.Retention{}, err
+	}
+	return store.Retention{Events: ev, HookPayloads: hp}, nil
+}
+
+func (a *app) storeCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "store", Short: "The store file: prune old events, compact"}
+	var events, payloads string
+	prune := &cobra.Command{
+		Use:   "prune",
+		Short: "Remove events and webhook bodies past their retention",
+		Long: `Remove events older than the event retention and webhook bodies older than
+the hook payload retention (defaults 90d and 30d, or YARDR_EVENT_RETENTION and
+YARDR_HOOK_PAYLOAD_RETENTION). The daemon does this every hour.
+
+An event a resident has not read yet, the newest event, and anything since the
+oldest live session started are kept whatever their age. The file does not
+shrink until it is compacted (yardr store compact).`,
+		Example: `  yardr store prune
+  yardr store prune --events 30d --hook-payloads 7d
+  yardr store prune --hook-payloads off            # keep every webhook body`,
+		Args: cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			keep, err := retention()
+			if err != nil {
+				return err
+			}
+			if events != "" {
+				if keep.Events, err = config.ParseRetention(events); err != nil {
+					return err
+				}
+			}
+			if payloads != "" {
+				if keep.HookPayloads, err = config.ParseRetention(payloads); err != nil {
+					return err
+				}
+			}
+			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			res, err := st.Prune(c.Context(), keep, a.who())
+			if err != nil {
+				return err
+			}
+			return a.out(res, func() {
+				fmt.Printf("pruned %d events, %d webhook bodies\n", res.Events, res.HookPayloads)
+				if res.HeldBy != "" {
+					fmt.Printf("older events kept: %s\n", res.HeldBy)
+				}
+			})
+		},
+	}
+	prune.Flags().StringVar(&events, "events", "", "keep events this long: 90d, 720h, or off (default $YARDR_EVENT_RETENTION, else 90d)")
+	prune.Flags().StringVar(&payloads, "hook-payloads", "", "keep webhook bodies this long (default $YARDR_HOOK_PAYLOAD_RETENTION, else 30d)")
+
+	compact := &cobra.Command{
+		Use:   "compact",
+		Short: "Rewrite the store file without its free space (server stopped)",
+		Long: `Rewrite yard.db without the free pages pruning leaves, so the file shrinks.
+It needs the file to itself: stop the daemon and the server first (the daemon
+would start the server again). The rewrite replaces the file only once it is
+complete.`,
+		Args: cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			res, err := store.Compact(cfg.DBPath())
+			if errors.Is(err, store.ErrLocked) {
+				return fmt.Errorf("%w: stop the daemon, then `yardr server stop`, and compact again", err)
+			} else if err != nil {
+				return err
+			}
+			return a.out(res, func() {
+				fmt.Printf("%s: %d -> %d bytes\n", cfg.DBPath(), res.Before, res.After)
+			})
+		},
+	}
+	cmd.AddCommand(prune, compact)
+	return cmd
+}

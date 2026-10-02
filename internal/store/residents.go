@@ -1,8 +1,10 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -372,27 +374,69 @@ type InboxPage struct {
 	Last   uint64  `json:"last"`   // seq of the newest unacknowledged event
 }
 
-// Inbox returns up to limit unacknowledged events for the resident.
+// Inbox returns up to limit unacknowledged events for the resident. It
+// reads only the resident's own index entries and those of its --on kinds
+// after its cursor, never the rest of the log.
 func (s *Store) Inbox(ctx context.Context, name string, limit int) (*InboxPage, error) {
-	r, err := s.GetResident(ctx, name)
-	if err != nil {
-		return nil, err
-	}
-	all, err := s.EventsSince(ctx, r.Cursor, 0)
-	if err != nil {
-		return nil, err
-	}
 	page := &InboxPage{Events: []Event{}}
-	for _, e := range all {
-		if forResident(r, e) {
-			page.Total++
-			page.Last = e.Seq
-			if limit <= 0 || len(page.Events) < limit {
-				page.Events = append(page.Events, e)
+	err := s.read(func(tx *bolt.Tx) error {
+		r := new(Resident)
+		if ok, err := get(tx, bResidents, name, r); err != nil {
+			return err
+		} else if !ok {
+			return fmt.Errorf("resident %s: %w", name, ErrNotFound)
+		}
+		var evs []Event
+		for _, k := range inboxKeys(tx, r) {
+			var e Event
+			if ok, err := get(tx, bEvents, k, &e); err != nil {
+				return err
+			} else if ok {
+				evs = append(evs, e)
+			}
+		}
+		s.inboxReads.Add(int64(len(evs)))
+		named(tx, evs) // forResident compares handles
+		for _, e := range evs {
+			if forResident(r, e) {
+				page.Total++
+				page.Last = e.Seq
+				if limit <= 0 || len(page.Events) < limit {
+					page.Events = append(page.Events, e)
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return page, nil
+}
+
+// inboxKeys are the event keys after r's cursor that may be in its inbox,
+// in seq order: its inbox index entries and those of the kinds it hears of
+// through --on.
+func inboxKeys(tx *bolt.Tx, r *Resident) []string {
+	from := seqKey(r.Cursor + 1)
+	seen := map[string]bool{}
+	var out []string
+	scan := func(b []byte, prefix string) {
+		c := tx.Bucket(b).Cursor()
+		p := []byte(prefix + "\x00")
+		for k, _ := c.Seek([]byte(prefix + "\x00" + from)); k != nil && bytes.HasPrefix(k, p); k, _ = c.Next() {
+			if sk := string(k[len(p):]); !seen[sk] {
+				seen[sk] = true
+				out = append(out, sk)
 			}
 		}
 	}
-	return page, nil
+	scan(bInbox, r.Name)
+	for _, kind := range r.On {
+		scan(bEventsKd, kind)
+	}
+	slices.Sort(out) // big-endian seqs sort as numbers
+	return out
 }
 
 // AckInbox marks the inbox read through seq.
@@ -462,19 +506,30 @@ func (s *Store) ResidentPrime(ctx context.Context, name string) (*Prime, error) 
 		if r.LastHandoffAt != nil {
 			from = *r.LastHandoffAt
 		}
-		evs, err := s.EventsSince(ctx, 0, 0)
+		p.NoHandoff, p.EventCounts = true, map[string]int{}
+		// Newest first, back to where that session began: the log before
+		// it is never read.
+		err := s.read(func(tx *bolt.Tx) error {
+			c := tx.Bucket(bEvents).Cursor()
+			for k, raw := c.Last(); k != nil; k, raw = c.Prev() {
+				var e Event
+				if err := json.Unmarshal(raw, &e); err != nil {
+					return err
+				}
+				if !e.At.After(from) {
+					break
+				}
+				p.EventCounts[e.Kind]++
+				if len(p.Recent) < PrimeFallback {
+					p.Recent = append(p.Recent, e)
+				}
+			}
+			slices.Reverse(p.Recent)
+			named(tx, p.Recent)
+			return nil
+		})
 		if err != nil {
 			return nil, err
-		}
-		p.NoHandoff, p.EventCounts = true, map[string]int{}
-		for _, e := range evs {
-			if e.At.After(from) {
-				p.EventCounts[e.Kind]++
-				p.Recent = append(p.Recent, e)
-			}
-		}
-		if len(p.Recent) > PrimeFallback {
-			p.Recent = p.Recent[len(p.Recent)-PrimeFallback:]
 		}
 	}
 	return p, nil

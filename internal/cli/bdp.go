@@ -41,13 +41,7 @@ listen address (behind a proxy, or a fixed name for tests).`,
 				scope = "http://" + addr + "/yard/"
 			}
 			log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-			srv, err := bdp.NewServer(scope, func(ctx context.Context) (*bdp.Graph, error) {
-				snap, err := st.Snapshot(ctx)
-				if err != nil {
-					return nil, err
-				}
-				return bdp.BuildGraph(scope, snap), nil
-			}, bdp.DefaultLimits, log)
+			srv, err := bdp.NewServer(scope, bdp.CachedLoader(scope, st), bdp.DefaultLimits, log)
 			if err != nil {
 				return err
 			}

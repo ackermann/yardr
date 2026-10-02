@@ -206,10 +206,45 @@ Environment variables yardr reads:
 | `YARDR_BEAD`, `YARDR_RESIDENT` | defaults for `prime` and resident commands; set for the sessions yardr starts |
 | `YARDR_SESSION` | the session yardr started this process for; `bead done`, `advance` and `close` refuse to move a bead that session no longer owns ([pipeline.md](pipeline.md#2-new-a-builder-implements-it)) |
 | `YARDR_HOOK_ADDR` | TCP address the server takes webhooks on, e.g. `127.0.0.1:8790` |
+| `YARDR_EVENT_RETENTION`, `YARDR_HOOK_PAYLOAD_RETENTION` | how long the daemon and `yardr store prune` keep events and webhook bodies ([below](#retention-keeping-yarddb-bounded)) |
 | `YARDR_TEST_RPC` | tests: run the store suites through the unix-socket client |
 
 Exec commands and herdr bead agents also get `YARDR_SESSION`, `YARDR_STAGE`
 and `YARDR_GROUP` (see [groups.md](groups.md)).
+
+### Retention: keeping `yard.db` bounded
+
+The event log and the raw webhook bodies beside it are pruned by age. The
+daemon prunes when it starts and every hour; `yardr store prune` does it on
+demand (`--events` and `--hook-payloads` override the knobs for one run).
+
+| variable | default | what it keeps |
+|---|---|---|
+| `YARDR_EVENT_RETENTION` | `90d` | events, with their index entries |
+| `YARDR_HOOK_PAYLOAD_RETENTION` | `30d` | raw webhook bodies (up to 1 MiB each), read only by `yardr hook show`; the `hook` event keeps the envelope routing reads |
+
+Values are days (`90d`), Go durations (`720h`), or `off` (or `0`) to keep
+everything. Whatever its age, an event is kept when:
+
+- it is the newest event (sequences continue from it);
+- it is in a resident's inbox and not yet acknowledged, and so is every
+  event after it; a resident with nothing unread holds nothing back;
+- it was logged after the oldest live bead session or running resident
+  session started.
+
+A prune that held events back says why (`held_by`, also on its
+`store_pruned` event). Beads, notes and deps are state, not log, and are
+never pruned; a bead's own event history shortens with the log.
+
+bbolt reuses the pages pruning frees but never returns them to the
+filesystem. To shrink the file, stop the daemon and the server
+(`yardr server stop`) and run `yardr store compact`; it writes a compacted
+copy and swaps it in only once it is complete, and refuses while anything
+holds the store.
+
+The store no longer keeps a snapshot of every bead and dep state: the event
+log is their history, and the `versions` bucket older builds wrote is
+dropped on open.
 
 ### Upgrading
 

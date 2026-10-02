@@ -81,6 +81,11 @@ type Dispatcher struct {
 	Binary *version.Binary
 	// CheckBinary is how often Binary is checked between passes (default 10s).
 	CheckBinary time.Duration
+	// Retention is how long the store keeps events and webhook bodies; the
+	// daemon prunes on start and every PruneEvery (default 1h). Zero keeps
+	// everything and never prunes.
+	Retention  store.Retention
+	PruneEvery time.Duration
 
 	retryAfter map[string]time.Time
 	reported   map[string]string  // bead -> last unroutable reason, to log once
@@ -141,6 +146,9 @@ func (d *Dispatcher) defaults() {
 	}
 	if d.CheckBinary == 0 {
 		d.CheckBinary = 10 * time.Second
+	}
+	if d.PruneEvery == 0 {
+		d.PruneEvery = time.Hour
 	}
 	if d.Log == nil {
 		d.Log = slog.Default()
@@ -261,6 +269,13 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 		defer t.Stop()
 		check = t.C
 	}
+	var prune <-chan time.Time
+	if d.Retention != (store.Retention{}) {
+		d.prune(ctx)
+		t := time.NewTicker(d.PruneEvery)
+		defer t.Stop()
+		prune = t.C
+	}
 	tick := time.NewTicker(d.Interval)
 	defer tick.Stop()
 	for {
@@ -282,6 +297,8 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 				if d.replace() {
 					return nil
 				}
+			case <-prune:
+				d.prune(ctx)
 			case <-tick.C:
 				break wait
 			case <-wake:
@@ -301,6 +318,18 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 // replace execs a new build of the daemon if one is installed. It is only
 // called between passes; it returns true only when a test's fake exec
 // "succeeded". A failed exec is logged and the old build carries on.
+// prune keeps the store's log within d.Retention (see store.Prune).
+func (d *Dispatcher) prune(ctx context.Context) {
+	res, err := d.Store.Prune(ctx, d.Retention, actor)
+	if err != nil {
+		d.Log.Warn("prune store", "err", err)
+		return
+	}
+	if res.Events+res.HookPayloads > 0 {
+		d.Log.Info("pruned store", "events", res.Events, "hook_payloads", res.HookPayloads, "held_by", res.HeldBy)
+	}
+}
+
 func (d *Dispatcher) replace() bool {
 	if d.Binary == nil {
 		return false
