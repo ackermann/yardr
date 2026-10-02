@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -44,17 +45,35 @@ type runner struct {
 	bin   *version.Binary // nil: never replace
 	rev   string          // the revision this process runs
 	check time.Duration   // how often the binary is checked without a client asking
-	wrap  func(http.Handler) http.Handler
+	// grace bounds the wait for connections to go idle when shutting down
+	// (default 5s); settle then bounds the wait for handlers still running
+	// after that (default 10s), so the store is not closed under a call that
+	// has it in hand.
+	grace, settle time.Duration
+	wrap          func(http.Handler) http.Handler
 }
 
 func (r *runner) run(ctx context.Context) error {
 	if len(r.c.Socket()) > 100 {
 		return fmt.Errorf("socket path %s is too long for a unix socket; use a shorter YARDR_HOME", r.c.Socket())
 	}
+	if r.grace == 0 {
+		r.grace = 5 * time.Second
+	}
+	if r.settle == 0 {
+		r.settle = 10 * time.Second
+	}
 	for {
 		to, err := r.serve(ctx)
 		if err != nil || to == "" {
 			return err
+		}
+		if ctx.Err() != nil {
+			// Told to stop while draining for the replace: stop, rather than
+			// come back up as the new build. serve has already returned "" in
+			// this case; this covers a stop that lands just after it.
+			r.log.Info("yardr server stopped during a replace; not starting the new build", "to", version.Show(to))
+			return nil
 		}
 		r.log.Info("replacing the yardr server", "from", version.Show(r.rev), "to", version.Show(to), "binary", r.bin.Path)
 		// The new build logs server_replaced once it owns the store.
@@ -145,7 +164,16 @@ func (r *runner) serve(ctx context.Context) (string, error) {
 	}
 	streams, stopStreams := context.WithCancel(context.Background())
 	defer stopStreams()
-	srv := &http.Server{Handler: r.handler(st, offer, streams), ReadHeaderTimeout: 10 * time.Second}
+	// inflight counts handlers running, which Shutdown stops waiting for at
+	// its deadline and Close does not wait for at all.
+	var inflight sync.WaitGroup
+	h := r.handler(st, offer, streams)
+	counted := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		inflight.Add(1)
+		defer inflight.Done()
+		h.ServeHTTP(w, req)
+	})
+	srv := &http.Server{Handler: counted, ReadHeaderTimeout: 10 * time.Second}
 	// Streams (events, wake) never finish on their own; end them when
 	// shutdown starts so it only waits for calls in flight.
 	srv.RegisterOnShutdown(stopStreams)
@@ -165,6 +193,8 @@ func (r *runner) serve(ctx context.Context) (string, error) {
 		defer t.Stop()
 		check = t.C
 	}
+	var serveErr error
+	stopped := false // Serve has returned
 wait:
 	for {
 		select {
@@ -174,26 +204,50 @@ wait:
 			break wait
 		case <-check:
 			offer("")
-		case err := <-served:
-			if hookSrv != nil {
-				hookSrv.Close()
-			}
-			if errors.Is(err, http.ErrServerClosed) {
-				err = nil
-			}
-			return "", err
+		case serveErr = <-served:
+			stopped = true
+			break wait
 		}
 	}
 	if hookSrv != nil {
 		hookSrv.Close()
 	}
-	sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	sctx, cancel := context.WithTimeout(context.Background(), r.grace)
 	defer cancel()
 	if srv.Shutdown(sctx) != nil {
+		log.Warn("calls still running at shutdown; closing their connections", "after", r.grace)
 		srv.Close()
 	}
-	<-served
-	return to, nil
+	if !stopped {
+		serveErr = <-served
+	}
+	r.settleHandlers(&inflight)
+	if ctx.Err() != nil {
+		to = "" // a stop during the replace drain wins over the replace
+	}
+	if errors.Is(serveErr, http.ErrServerClosed) {
+		serveErr = nil
+	}
+	if serveErr != nil {
+		to = ""
+	}
+	return to, serveErr
+}
+
+// settleHandlers waits, up to r.settle, for handlers still running after
+// shutdown, so the deferred store close does not pull the store from under
+// them.
+func (r *runner) settleHandlers(inflight *sync.WaitGroup) {
+	settled := make(chan struct{})
+	go func() {
+		inflight.Wait()
+		close(settled)
+	}()
+	select {
+	case <-settled:
+	case <-time.After(r.settle):
+		r.log.Warn("closing the store with calls still running", "waited", r.settle)
+	}
 }
 
 // handler serves the store API, stamps replies with this build, and offers

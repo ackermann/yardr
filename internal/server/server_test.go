@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -90,6 +91,14 @@ var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))
 // start runs a server for c until the test ends; it returns run's result.
 func start(t *testing.T, r *runner) <-chan error {
 	t.Helper()
+	done, _ := startStoppable(t, r)
+	return done
+}
+
+// startStoppable is start, also returning the cancel that stops the server
+// the way SIGTERM does.
+func startStoppable(t *testing.T, r *runner) (<-chan error, context.CancelFunc) {
+	t.Helper()
 	if r.log == nil {
 		r.log = quiet
 	}
@@ -109,7 +118,7 @@ func start(t *testing.T, r *runner) <-chan error {
 		}
 	})
 	waitUp(t, r.c)
-	return done
+	return done, cancel
 }
 
 func waitUp(t *testing.T, c *config.Config) {
@@ -421,5 +430,127 @@ func TestConnectWaitsForAServerBetweenBuilds(t *testing.T) {
 	}()
 	if _, err := Connect(context.Background(), c); err != nil {
 		t.Fatalf("Connect: %v", err)
+	}
+}
+
+// slowCall wraps the server's handler so a call marked X-Slow waits for
+// release before it reaches the store, and reports through answered whether
+// the store answered it (the client's connection may be gone by then).
+func slowCall(started, release chan struct{}, answered chan<- bool) func(http.Handler) http.Handler {
+	return func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("X-Slow") == "" {
+				h.ServeHTTP(w, r)
+				return
+			}
+			close(started)
+			<-release
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, r)
+			var reply struct {
+				Result *uint64 `json:"result"`
+				Error  any     `json:"error"`
+			}
+			_ = json.Unmarshal(rec.Body.Bytes(), &reply)
+			answered <- reply.Result != nil && reply.Error == nil
+			for k, v := range rec.Header() {
+				w.Header()[k] = v
+			}
+			w.WriteHeader(rec.Code)
+			_, _ = w.Write(rec.Body.Bytes())
+		})
+	}
+}
+
+// sendSlow starts a slow Head call on c's socket; its result is not waited for.
+func sendSlow(c *config.Config) {
+	go func() {
+		hc := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", c.Socket())
+		}}}
+		req, _ := http.NewRequest(http.MethodPost, "http://yard/call/Head", strings.NewReader("[]"))
+		req.Header.Set("X-Slow", "1")
+		if resp, err := hc.Do(req); err == nil {
+			resp.Body.Close()
+		}
+	}()
+}
+
+// A call still running when the shutdown grace runs out keeps the store until
+// it finishes (bounded by settle): the store is not closed under it.
+func TestStoreOutlivesCallsPastTheShutdownGrace(t *testing.T) {
+	c := home(t)
+	started, release, answered := make(chan struct{}), make(chan struct{}), make(chan bool, 1)
+	done, stop := startStoppable(t, &runner{c: c, rev: "old", grace: 50 * time.Millisecond, settle: 5 * time.Second,
+		wrap: slowCall(started, release, answered)})
+	sendSlow(c)
+	<-started
+	stop()
+	select {
+	case err := <-done:
+		t.Fatalf("server returned (%v) with a call still running", err)
+	case <-time.After(300 * time.Millisecond): // well past the grace
+	}
+	close(release)
+	if !<-answered {
+		t.Fatal("the in-flight call found the store closed")
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("server did not stop once the call finished")
+	}
+}
+
+// A stop that arrives while the server drains for a replace stops it: the
+// new build is not exec'd, and the socket and pidfile go.
+func TestStopDuringReplaceDrainIsHonoured(t *testing.T) {
+	c := home(t)
+	var execd atomic.Bool
+	bin, path := binary(t, "old", func([]string) error {
+		execd.Store(true)
+		return nil
+	})
+	started, release, answered := make(chan struct{}), make(chan struct{}), make(chan bool, 1)
+	done, stop := startStoppable(t, &runner{c: c, bin: bin, rev: "old", wrap: slowCall(started, release, answered)})
+	sendSlow(c)
+	<-started
+
+	install(t, path, "new")
+	newer := client(c, "new")
+	newer.Retry = 0
+	if _, err := newer.Head(context.Background()); err == nil || !strings.Contains(err.Error(), "replacing") {
+		t.Fatalf("newer client's call: %v", err)
+	}
+	// Draining: the listener is closed while the slow call runs.
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		conn, err := net.Dial("unix", c.Socket())
+		if err != nil {
+			break
+		}
+		conn.Close()
+		if time.Now().After(deadline) {
+			t.Fatal("server kept accepting after the replace began")
+		}
+	}
+	stop()
+	close(release)
+	<-answered
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("server did not stop")
+	}
+	if execd.Load() {
+		t.Fatal("exec'd the new build after being told to stop")
+	}
+	if _, err := os.Stat(c.PIDFile()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("pidfile left behind: %v", err)
 	}
 }
