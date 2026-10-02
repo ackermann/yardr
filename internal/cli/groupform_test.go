@@ -47,6 +47,25 @@ func TestGroupFormNotify(t *testing.T) {
 	}
 }
 
+func TestGroupFormMembers(t *testing.T) {
+	g := store.Group{Name: "humans", Runner: "manual", Limit: 1, Config: map[string]any{}, Members: []string{"mckean", "mayor"}}
+	a := answersFrom(g)
+	if a.Members != "mckean, mayor" {
+		t.Fatalf("members answer = %q", a.Members)
+	}
+	if back := a.group(); !reflect.DeepEqual(back, g) {
+		t.Fatalf("group = %+v, want %+v", back, g)
+	}
+	// Leaving manual drops members: only manual groups may have them.
+	a.Runner, a.Kind = "herdr", "claude"
+	if back := a.group(); back.Members != nil {
+		t.Fatalf("herdr group kept members %v", back.Members)
+	}
+	if got := describe(g); got != "manual · members mckean,mayor · limit 1" {
+		t.Fatalf("describe = %q", got)
+	}
+}
+
 func TestDescribe(t *testing.T) {
 	g := store.Group{Runner: "herdr", Limit: 1, Config: map[string]any{"kind": "codex", "model": "gpt-x"}}
 	if got := describe(g); got != "herdr · codex · gpt-x · limit 1" {

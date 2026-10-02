@@ -218,7 +218,8 @@ With a name, the group is replaced by exactly what the flags say.`,
 		Example: `  yard group add                     # interactive
   yard group add webapp/builders --runner herdr --limit 2 --set kind=claude --set prompt=roles/builder.md
   yard group add webapp/merger --runner exec --set cmd='make merge-bead'
-  yard group add humans --runner manual --set notify=true   # herdr notification per waiting bead`,
+  yard group add humans --runner manual --set notify=true   # herdr notification per waiting bead
+  yard group add approvers --runner manual --members mckean,mayor   # only they may advance beads it holds`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			if len(args) == 0 {
@@ -257,12 +258,13 @@ With a name, the group is replaced by exactly what the flags say.`,
 			if err != nil {
 				return err
 			}
-			return a.out(saved, func() { fmt.Printf("group %s (%s, limit %d)\n", saved.Name, saved.Runner, saved.Limit) })
+			return a.out(saved, func() { fmt.Printf("group %s (%s)\n", saved.Name, describe(*saved)) })
 		},
 	}
 	add.Flags().StringVar(&g.Runner, "runner", "", "runner: manual, exec, herdr")
 	add.Flags().IntVar(&g.Limit, "limit", 1, "max concurrent sessions")
 	add.Flags().StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable)")
+	add.Flags().StringSliceVar(&g.Members, "members", nil, "manual groups: actors who may move a bead out of its stages (comma-separated)")
 
 	list := &cobra.Command{
 		Use: "list", Short: "List groups", Args: cobra.NoArgs,
@@ -278,9 +280,9 @@ With a name, the group is replaced by exactly what the flags say.`,
 			return a.out(gs, func() {
 				rows := [][]string{}
 				for _, g := range gs {
-					rows = append(rows, []string{g.Name, g.Runner, strconv.Itoa(g.Limit), fmtConfig(g.Config)})
+					rows = append(rows, []string{g.Name, g.Runner, strconv.Itoa(g.Limit), or(strings.Join(g.Members, ","), "-"), fmtConfig(g.Config)})
 				}
-				table("NAME\tRUNNER\tLIMIT\tCONFIG", rows)
+				table("NAME\tRUNNER\tLIMIT\tMEMBERS\tCONFIG", rows)
 			})
 		},
 	}

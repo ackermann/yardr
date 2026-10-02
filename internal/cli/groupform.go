@@ -28,6 +28,7 @@ type groupAnswers struct {
 	Prompt   string
 	Cmd, Dir string // exec
 	Notify   bool   // manual: herdr notification when a bead arrives
+	Members  string // manual: comma-separated actors who may move beads on
 	Limit    string
 	Other    map[string]any // config keys the form does not edit, kept as is
 }
@@ -64,8 +65,12 @@ func (a groupAnswers) group() store.Group {
 			cfg["notify"] = true
 		}
 	}
+	var members []string
+	if a.Runner == "manual" {
+		members = splitMembers(a.Members)
+	}
 	limit, _ := strconv.Atoi(a.Limit)
-	return store.Group{Name: a.Name, Runner: a.Runner, Config: cfg, Limit: max(limit, 1)}
+	return store.Group{Name: a.Name, Runner: a.Runner, Config: cfg, Limit: max(limit, 1), Members: members}
 }
 
 func answersFrom(g store.Group) groupAnswers {
@@ -80,6 +85,7 @@ func answersFrom(g store.Group) groupAnswers {
 	}
 	a.Kind, a.Model, a.Prompt, a.Cmd, a.Dir = str("kind"), str("model"), str("prompt"), str("cmd"), str("dir")
 	a.Notify = g.Config["notify"] == true || str("notify") == "true"
+	a.Members = strings.Join(g.Members, ", ")
 	var args []string
 	if list, ok := g.Config["args"].([]any); ok {
 		for _, v := range list {
@@ -196,7 +202,10 @@ func (a *app) groupForm(ctx context.Context, st store.API) error {
 	case "manual":
 		if err := ask(huh.NewConfirm().Title("Notify in herdr when a bead arrives?").
 			Description("Once per bead and stage. Leave off for placeholder stages such as backlog.").
-			Value(&ans.Notify)); err != nil {
+			Value(&ans.Notify),
+			huh.NewInput().Title("Members").Placeholder("mckean, mayor").
+				Description("Optional, comma-separated actors (YARD_ACTOR). If set, only they may advance beads out of this group's stages.").
+				Value(&ans.Members)); err != nil {
 			return err
 		}
 	}
@@ -345,6 +354,14 @@ func nonEmpty(s string) error {
 	return nil
 }
 
+// splitMembers reads a comma- or space-separated member list; none is nil.
+func splitMembers(s string) []string {
+	if out := strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' }); len(out) > 0 {
+		return out
+	}
+	return nil
+}
+
 // describe is a one-line summary of a group for lists.
 func describe(g store.Group) string {
 	parts := []string{g.Runner}
@@ -353,6 +370,9 @@ func describe(g store.Group) string {
 	}
 	if m, _ := g.Config["model"].(string); m != "" {
 		parts = append(parts, m)
+	}
+	if len(g.Members) > 0 {
+		parts = append(parts, "members "+strings.Join(g.Members, ","))
 	}
 	return strings.Join(parts, " · ") + fmt.Sprintf(" · limit %d", g.Limit)
 }

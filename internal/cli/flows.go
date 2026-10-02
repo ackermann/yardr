@@ -71,7 +71,7 @@ A flow file has one rule per line (# starts a comment):
 
 	show := &cobra.Command{
 		Use:   "show <rig>",
-		Short: "Show a rig's flows: each stage's group, allowed next stages and open beads",
+		Short: "Show a rig's flows: each stage's group (and its members), allowed next stages and open beads",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
@@ -100,9 +100,13 @@ A flow file has one rule per line (# starts a comment):
 						case len(s.Next) == 0:
 							next = "(no transitions: any stage)"
 						}
-						rows = append(rows, []string{s.Stage, or(s.Group, "-"), strconv.Itoa(s.Open), next})
+						members := "-"
+						if s.Human {
+							members = or(strings.Join(s.Members, ","), "anyone")
+						}
+						rows = append(rows, []string{s.Stage, or(s.Group, "-"), members, strconv.Itoa(s.Open), next})
 					}
-					table("STAGE\tGROUP\tOPEN\tNEXT", rows)
+					table("STAGE\tGROUP\tMEMBERS\tOPEN\tNEXT", rows)
 					for _, w := range v.Warnings {
 						fmt.Printf("warning: %s\n", w)
 					}
@@ -136,7 +140,9 @@ type flowView struct {
 
 type stageView struct {
 	Stage    string   `json:"stage"`
-	Group    string   `json:"group,omitempty"` // the route a bead of the flow's type in the rig would take
+	Group    string   `json:"group,omitempty"`   // the route a bead of the flow's type in the rig would take
+	Human    bool     `json:"human,omitempty"`   // Group is a manual group
+	Members  []string `json:"members,omitempty"` // who may move a bead on from a human stage; none = anyone
 	Next     []string `json:"next"`
 	Terminal bool     `json:"terminal,omitempty"`
 	Open     int      `json:"open"` // open beads in the stage that this flow governs
@@ -158,6 +164,10 @@ func flowViews(ctx context.Context, st store.API, rig string) ([]flowView, error
 		return nil, err
 	}
 	dispatch.SortRoutes(routes)
+	groups, err := st.Groups(ctx)
+	if err != nil {
+		return nil, err
+	}
 	beads, err := st.ListBeads(ctx, store.BeadFilter{Rig: rig})
 	if err != nil {
 		return nil, err
@@ -178,6 +188,9 @@ func flowViews(ctx context.Context, st store.API, rig string) ([]flowView, error
 			probe := store.Bead{Stage: s, Type: or(f.Type, "task"), Rig: &rig}
 			if r := dispatch.Match(routes, probe); r != nil {
 				sv.Group = r.Group
+				if i := slices.IndexFunc(groups, func(g store.Group) bool { return g.Name == r.Group }); i >= 0 && groups[i].Runner == "manual" {
+					sv.Human, sv.Members = true, groups[i].Members
+				}
 			} else if !sv.Terminal {
 				v.Warnings = append(v.Warnings, fmt.Sprintf("stage %s has no route: beads there wait for a human", s))
 			}

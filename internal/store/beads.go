@@ -400,7 +400,8 @@ func (w *wtx) endSession(b *beadRow, state string) error {
 // Advance moves a bead to the next stage and frees it for routing. When the
 // bead's rig has a flow, the move must be one the flow allows, and entering
 // a terminal stage closes the bead, with the stage as reason, in the same
-// transaction.
+// transaction. When the group the bead answers to in its stage has members,
+// only they may move it.
 func (s *Store) Advance(ctx context.Context, id, stage, actor string) (*Bead, error) {
 	var result *Bead
 	err := s.write(func(w *wtx) error {
@@ -411,6 +412,13 @@ func (s *Store) Advance(ctx context.Context, id, stage, actor string) (*Bead, er
 				return "", nil, err
 			}
 			if err := checkAdvance(f, b.ID, b.Stage, stage); err != nil {
+				return "", nil, err
+			}
+			g, err := stageGroup(w.Tx, b)
+			if err != nil {
+				return "", nil, err
+			}
+			if err := checkMembers(g, b.ID, b.Stage, actor); err != nil {
 				return "", nil, err
 			}
 			terminal = f != nil && f.IsTerminal(stage)

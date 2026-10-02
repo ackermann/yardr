@@ -3,7 +3,9 @@ package store
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
@@ -16,6 +18,10 @@ type Group struct {
 	Runner string         `json:"runner"`
 	Config map[string]any `json:"config"`
 	Limit  int            `json:"limit"`
+	// Members are the actors who may move a bead out of a stage this group
+	// works (see Advance). Only manual groups have them; none means anyone.
+	// A guardrail against mistakes, not security: anyone can set YARD_ACTOR.
+	Members []string `json:"members,omitempty"`
 }
 
 func (s *Store) PutGroup(ctx context.Context, g Group) error {
@@ -24,6 +30,10 @@ func (s *Store) PutGroup(ctx context.Context, g Group) error {
 	}
 	if g.Limit < 1 {
 		g.Limit = 1
+	}
+	g.Members = dedupeOrdered(g.Members)
+	if len(g.Members) > 0 && g.Runner != "manual" {
+		return fmt.Errorf("group %s: members are only for manual groups (this one is %s)", g.Name, g.Runner)
 	}
 	return s.write(func(w *wtx) error { return put(w.Tx, bGroups, g.Name, g) })
 }
@@ -118,6 +128,90 @@ func (s *Store) Routes(ctx context.Context) ([]Route, error) {
 		return out[i].Priority > out[j].Priority
 	})
 	return out, err
+}
+
+// SortRoutes orders routes so the first match wins: higher priority first,
+// then the more specific route (more filters set), then by id for stability.
+func SortRoutes(rs []Route) {
+	spec := func(r Route) int {
+		n := 0
+		for _, p := range []*string{r.Type, r.Rig, r.Label} {
+			if p != nil {
+				n++
+			}
+		}
+		return n
+	}
+	sort.SliceStable(rs, func(i, j int) bool {
+		if rs[i].Priority != rs[j].Priority {
+			return rs[i].Priority > rs[j].Priority
+		}
+		if si, sj := spec(rs[i]), spec(rs[j]); si != sj {
+			return si > sj
+		}
+		return rs[i].ID < rs[j].ID
+	})
+}
+
+// MatchRoute returns the first route (in SortRoutes order) that applies to b.
+func MatchRoute(sorted []Route, b Bead) *Route {
+	for i := range sorted {
+		r := &sorted[i]
+		if r.Stage != b.Stage {
+			continue
+		}
+		if r.Type != nil && *r.Type != b.Type {
+			continue
+		}
+		if r.Rig != nil && (b.Rig == nil || *r.Rig != *b.Rig) {
+			continue
+		}
+		if r.Label != nil && !slices.Contains(b.Labels, *r.Label) {
+			continue
+		}
+		return r
+	}
+	return nil
+}
+
+// stageGroup is the group a bead answers to in its stage: the group working
+// it, else the one the routes would send it to (a manual group at its limit
+// leaves beads waiting unclaimed). Nil when neither exists.
+func stageGroup(tx *bolt.Tx, b *beadRow) (*Group, error) {
+	name := ""
+	if b.Group != nil {
+		name = *b.Group
+	} else {
+		var routes []Route
+		if err := each(tx, bRoutes, "", func(_ []byte, r *Route) error {
+			routes = append(routes, *r)
+			return nil
+		}); err != nil {
+			return nil, err
+		}
+		SortRoutes(routes)
+		if r := MatchRoute(routes, b.Bead); r != nil {
+			name = r.Group
+		}
+	}
+	if name == "" {
+		return nil, nil
+	}
+	g := new(Group)
+	if ok, err := get(tx, bGroups, name, g); err != nil || !ok {
+		return nil, err
+	}
+	return g, nil
+}
+
+// checkMembers refuses moving a bead out of a stage whose group has members
+// unless actor is one of them, naming who may.
+func checkMembers(g *Group, id, stage, actor string) error {
+	if g == nil || len(g.Members) == 0 || slices.Contains(g.Members, actor) {
+		return nil
+	}
+	return fmt.Errorf("bead %s: only members of group %s may move it out of stage %s: %s (you are %q)",
+		id, g.Name, stage, strings.Join(g.Members, ", "), actor)
 }
 
 func (s *Store) DeleteRoute(ctx context.Context, id string) error {

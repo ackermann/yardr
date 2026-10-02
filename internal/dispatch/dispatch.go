@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sort"
 	"time"
 
 	"github.com/mckean/yard/internal/store"
@@ -469,58 +468,11 @@ func (d *Dispatcher) reportOnce(ctx context.Context, b store.Bead, kind, reason 
 	_ = d.Store.LogEvent(ctx, b.ID, kind, actor, map[string]any{"stage": b.Stage, "reason": reason})
 }
 
-// SortRoutes orders routes so the first match wins: higher priority first,
-// then the more specific route (more filters set), then by id for stability.
-func SortRoutes(rs []store.Route) {
-	spec := func(r store.Route) int {
-		n := 0
-		for _, p := range []*string{r.Type, r.Rig, r.Label} {
-			if p != nil {
-				n++
-			}
-		}
-		return n
-	}
-	sort.SliceStable(rs, func(i, j int) bool {
-		if rs[i].Priority != rs[j].Priority {
-			return rs[i].Priority > rs[j].Priority
-		}
-		if si, sj := spec(rs[i]), spec(rs[j]); si != sj {
-			return si > sj
-		}
-		return rs[i].ID < rs[j].ID
-	})
-}
+// SortRoutes orders routes so the first match wins; see store.SortRoutes.
+func SortRoutes(rs []store.Route) { store.SortRoutes(rs) }
 
 // Match returns the first route (in SortRoutes order) that applies to b.
-func Match(sorted []store.Route, b store.Bead) *store.Route {
-	for i := range sorted {
-		r := &sorted[i]
-		if r.Stage != b.Stage {
-			continue
-		}
-		if r.Type != nil && *r.Type != b.Type {
-			continue
-		}
-		if r.Rig != nil && (b.Rig == nil || *r.Rig != *b.Rig) {
-			continue
-		}
-		if r.Label != nil && !contains(b.Labels, *r.Label) {
-			continue
-		}
-		return r
-	}
-	return nil
-}
-
-func contains(xs []string, x string) bool {
-	for _, v := range xs {
-		if v == x {
-			return true
-		}
-	}
-	return false
-}
+func Match(sorted []store.Route, b store.Bead) *store.Route { return store.MatchRoute(sorted, b) }
 
 func withoutPending(h map[string]any) map[string]any {
 	out := make(map[string]any, len(h))
