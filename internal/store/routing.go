@@ -20,7 +20,7 @@ type Group struct {
 	Limit  int            `json:"limit"`
 	// Members are the actors who may move a bead out of a stage this group
 	// works (see Advance). Only manual groups have them; none means anyone.
-	// A guardrail against mistakes, not security: anyone can set YARD_ACTOR.
+	// A guardrail against mistakes, not security: anyone can set YARDR_ACTOR.
 	Members []string `json:"members,omitempty"`
 }
 

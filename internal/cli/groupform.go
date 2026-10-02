@@ -12,8 +12,8 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/huh/spinner"
 
-	"github.com/mckean/yard/internal/agents"
-	"github.com/mckean/yard/internal/store"
+	"yardr.dev/yardr/internal/agents"
+	"yardr.dev/yardr/internal/store"
 )
 
 // groupAnswers is the form's state; group() and answersFrom() convert to
@@ -193,7 +193,7 @@ func (a *app) groupForm(ctx context.Context, st store.API) error {
 		}
 	case "exec":
 		if err := ask(
-			huh.NewText().Title("Command").Description("Runs with sh -c in the rig, with $YARD_BEAD set. It should advance or close the bead.").
+			huh.NewText().Title("Command").Description("Runs with sh -c in the rig, with $YARDR_BEAD set. It should advance or close the bead.").
 				Value(&ans.Cmd).Validate(nonEmpty),
 			huh.NewInput().Title("Directory").Description("Optional; defaults to the bead's rig.").Value(&ans.Dir),
 		); err != nil {
@@ -204,7 +204,7 @@ func (a *app) groupForm(ctx context.Context, st store.API) error {
 			Description("Once per bead and stage. Leave off for placeholder stages such as backlog.").
 			Value(&ans.Notify),
 			huh.NewInput().Title("Members").Placeholder("mckean, mayor").
-				Description("Optional, comma-separated actors (YARD_ACTOR). If set, only they may advance beads out of this group's stages.").
+				Description("Optional, comma-separated actors (YARDR_ACTOR). If set, only they may advance beads out of this group's stages.").
 				Value(&ans.Members)); err != nil {
 			return err
 		}
@@ -224,7 +224,7 @@ func (a *app) groupForm(ctx context.Context, st store.API) error {
 	if editing && oldRunner != ans.Runner {
 		if live, _ := st.Sessions(ctx, false); slices.ContainsFunc(live, func(s store.Session) bool { return s.Group == g.Name }) {
 			summary += fmt.Sprintf("\n\nThis group has running sessions; they keep their %s runner. "+
-				"`yard bead release <bead>` hands one to the new runner.", oldRunner)
+				"`yardr bead release <bead>` hands one to the new runner.", oldRunner)
 		}
 	}
 	save := true

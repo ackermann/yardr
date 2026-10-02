@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/mckean/yard/internal/store"
+	"yardr.dev/yardr/internal/store"
 )
 
 // Client is store.API over the owner's unix socket.
@@ -55,7 +55,7 @@ func (c *Client) call(ctx context.Context, method string, out any, args ...any) 
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("yard server: %w", err)
+		return fmt.Errorf("yardr server: %w", err)
 	}
 	defer resp.Body.Close()
 	var r struct {
@@ -63,7 +63,7 @@ func (c *Client) call(ctx context.Context, method string, out any, args ...any) 
 		Error  *wireError      `json:"error"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
-		return fmt.Errorf("yard server reply: %w", err)
+		return fmt.Errorf("yardr server reply: %w", err)
 	}
 	if r.Error != nil {
 		switch r.Error.Code {
@@ -384,11 +384,11 @@ func streamOf[T any](c *Client, ctx context.Context, path string) (<-chan T, err
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://yard"+path, nil)
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("yard server: %w", err)
+		return nil, fmt.Errorf("yardr server: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
-		return nil, fmt.Errorf("yard server: %s", resp.Status)
+		return nil, fmt.Errorf("yardr server: %s", resp.Status)
 	}
 	out := make(chan T)
 	go func() {

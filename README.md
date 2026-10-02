@@ -1,4 +1,4 @@
-# yard
+# yardr
 
 Route beads of work to whoever works them.
 
@@ -8,8 +8,8 @@ herdr, a shell command, or nobody — a human). Whoever works the bead advances
 it to the next stage or closes it, and the next route takes over. Roles are
 not built in: "builder" or "reviewer" is just a group plus a prompt file.
 
-The yard lives in one file (`~/.yard/yard.db`, bbolt) owned by one process,
-the yard server, which every other yard process reaches over a unix socket.
+The yard lives in one file (`~/.yardr/yard.db`, bbolt) owned by one process,
+the yardr server, which every other yardr process reaches over a unix socket.
 Every change is committed together with its event; events carry a sequence
 number, so subscribers get every change pushed in order and resume from where
 they stopped. Nothing polls: the dispatcher wakes on each committed write,
@@ -19,46 +19,53 @@ and a restart is just another pass.
 ## Quick start
 
 ```sh
-go build -o ~/.local/bin/yard .        # one static binary; nothing else to install
+go install .                            # one static binary, yardr; nothing else to install
+alias yd=yardr                          # the short form, if you like it
 
-yard rig add webapp ~/projects/webapp --base origin/main
+yardr rig add webapp ~/projects/webapp --base origin/main
 
 # who does the work
-yard group add webapp/builders  --runner herdr --limit 2 \
+yardr group add webapp/builders  --runner herdr --limit 2 \
     --set kind=claude --set prompt=roles/builder.md
-yard group add webapp/reviewers --runner herdr --set kind=codex --set prompt=roles/reviewer.md
-yard group add webapp/merger    --runner exec  --set cmd='scripts/merge-bead.sh'
-yard group add mckean           --runner manual
+yardr group add webapp/reviewers --runner herdr --set kind=codex --set prompt=roles/reviewer.md
+yardr group add webapp/merger    --runner exec  --set cmd='scripts/merge-bead.sh'
+yardr group add mckean           --runner manual
 
 # which stage goes where
-yard route add --stage new      --rig webapp --group webapp/builders
-yard route add --stage review   --rig webapp --group webapp/reviewers
-yard route add --stage approved --rig webapp --group webapp/merger
-yard route add --stage blocked  --group mckean
+yardr route add --stage new      --rig webapp --group webapp/builders
+yardr route add --stage review   --rig webapp --group webapp/reviewers
+yardr route add --stage approved --rig webapp --group webapp/merger
+yardr route add --stage blocked  --group mckean
 
-yard daemon &                          # routes and supervises
-yard watch                             # live event stream
+yardr daemon &                          # routes and supervises
+yardr watch                             # live event stream
 
-yard bead create "Add login page" --rig webapp -t feature -b "Use the OAuth flow"
+yardr bead create "Add login page" --rig webapp -t feature -b "Use the OAuth flow"
 ```
 
-The yard server starts on first use, in the background, and owns
-`~/.yard/yard.db` (`yard server status|stop`; `YARD_HOME` moves everything).
+The yardr server starts on first use, in the background, and owns
+`~/.yardr/yard.db` (`yardr server status|stop`; `YARDR_HOME` moves everything).
 Back up by copying `yard.db` while the server is stopped.
 
-`yard watch` streams every event as it commits. Each line starts with the
-event's sequence number; `yard watch --after <seq>` resumes from there with no
+yardr was called yard. For one release it still reads each `YARDR_*` variable
+under its old name (the R dropped) when the new one is unset, and sets both
+for the agents and commands it starts. If `~/.yardr` does not exist but
+`~/.yard` does, it keeps using `~/.yard` (the server log says so); move it
+once no server, agent or worktree uses it.
+
+`yardr watch` streams every event as it commits. Each line starts with the
+event's sequence number; `yardr watch --after <seq>` resumes from there with no
 gaps or duplicates, and a running watch rides out a server restart.
 
 ## Rigs
 
 A rig is a git repository beads are worked in. Register an existing clone,
-or let yard clone it:
+or let yardr clone it:
 
 ```sh
-yard rig add webapp ~/projects/webapp                       # existing clone
-yard rig add webapp --clone git@github.com:me/webapp.git    # → ~/.yard/rigs/webapp
-yard rig add legacy ~/src/legacy --base origin/master       # base must resolve
+yardr rig add webapp ~/projects/webapp                       # existing clone
+yardr rig add webapp --clone git@github.com:me/webapp.git    # → ~/.yardr/rigs/webapp
+yardr rig add legacy ~/src/legacy --base origin/master       # base must resolve
 ```
 
 Bead branches (`yard/<bead>`) start from the rig's base, fetched before each
@@ -68,21 +75,21 @@ group prompt paths are resolved inside it.
 ## Working a bead (humans and agents alike)
 
 ```sh
-yard prime --bead webapp-3                  # bead, edges, notes
-yard bead note webapp-3 "tests green: ..."  # evidence
-yard bead advance webapp-3 --to review      # hand to the next stage
-yard bead advance webapp-3 --to new --note "rename the flag"  # note and move in one write
-yard bead close webapp-3 --reason "merged"
-yard bead hold webapp-3                     # stop routing; a human looks
+yardr prime --bead webapp-3                  # bead, edges, notes
+yardr bead note webapp-3 "tests green: ..."  # evidence
+yardr bead advance webapp-3 --to review      # hand to the next stage
+yardr bead advance webapp-3 --to new --note "rename the flag"  # note and move in one write
+yardr bead close webapp-3 --reason "merged"
+yardr bead hold webapp-3                     # stop routing; a human looks
 ```
 
-Every command takes `--json`. Set `YARD_ACTOR` so the event log shows who
+Every command takes `--json`. Set `YARDR_ACTOR` so the event log shows who
 acted.
 
 ### Bead ids
 
 Every bead has two names. Its **handle** (`webapp-k3f9`: the rig, or
-`--prefix`, then random base32) is what yard prints and what branches
+`--prefix`, then random base32) is what yardr prints and what branches
 (`yard/<handle>`), worktrees and herdr labels are built from; it is chosen
 once and never changes. Its **UUID** (a UUIDv7) is its identity: the store
 is keyed by it, so ids need no central counter. `--json` shows both
@@ -119,42 +126,42 @@ merged terminal
 ```
 
 ```sh
-yard flow set yard -f flows/yard.flow                  # the rig's flow (replaces)
-yard flow set yard --type decision -f flows/decision.flow  # wins for that type
-yard flow show yard                                    # stage, group, open beads, next
-yard flow rm yard [--type decision]
+yardr flow set yard -f flows/yard.flow                  # the rig's flow (replaces)
+yardr flow set yard --type decision -f flows/decision.flow  # wins for that type
+yardr flow show yard                                    # stage, group, open beads, next
+yardr flow rm yard [--type decision]
 ```
 
 With a flow in place:
 
-- `yard bead advance` refuses a move the flow does not allow and lists the
+- `yardr bead advance` refuses a move the flow does not allow and lists the
   allowed next stages (`allowed next: approved, new`).
 - Entering a **terminal** stage closes the bead in the same write, with the
   stage as close reason (`closed: merged`).
-- `yard bead create -s <stage>` must name a non-terminal stage of the flow
+- `yardr bead create -s <stage>` must name a non-terminal stage of the flow
   (the default `new` too).
 - A bead in a stage the flow has no way out of (a stage the flow does not
-  know, or a terminal stage after `yard bead reopen`) may move to any stage
+  know, or a terminal stage after `yardr bead reopen`) may move to any stage
   of the flow, so it is never stuck.
-- `yard prime --bead` prints the allowed next stages; the store API exposes
+- `yardr prime --bead` prints the allowed next stages; the store API exposes
   them as `NextStages`.
 
 A type-specific flow governs that type's beads in the rig; every other type
 follows the rig's flow. Beads without a rig, journals and memories are never
-governed. `yard flow show` warns about non-terminal stages no route sends
+governed. `yardr flow show` warns about non-terminal stages no route sends
 anywhere: beads there wait for a human.
 
 ## Groups, interactively
 
-`yard group add` with no name opens a form: pick an existing group to edit or
+`yardr group add` with no name opens a form: pick an existing group to edit or
 create one, choose the runner, and for herdr the agent (Claude Code, Codex,
 Grok, Kimi, opencode, pi, or any other herdr agent), a model read live from
 that agent (press `/` to search long lists), and its permission flags. With a
-name, `yard group add <name> --runner … --set …` stays scriptable.
+name, `yardr group add <name> --runner … --set …` stays scriptable.
 
 ## Review: beads waiting on you
 
-`yard review` walks the open beads in stages routed to manual groups (only
+`yardr review` walks the open beads in stages routed to manual groups (only
 groups that list you as a member, if they list members), longest untouched
 first. Each bead shows its stage, description, last notes and
 `git diff --stat <base>...yard/<bead>` from the rig. Pick where it goes next:
@@ -163,10 +170,10 @@ asks for a note; a terminal stage closes it), or without a flow any stage a
 route uses. "Open diff" pages the full diff through `$PAGER`; Skip leaves it.
 
 ```sh
-yard review                    # the form
-yard review -g decisions       # only some groups' beads (backlog is manual too)
-yard review list               # the same queue for scripts (--json for actions)
-yard bead advance <id> --to <stage> [--note <text>]
+yardr review                    # the form
+yardr review -g decisions       # only some groups' beads (backlog is manual too)
+yardr review list               # the same queue for scripts (--json for actions)
+yardr bead advance <id> --to <stage> [--note <text>]
 ```
 
 ## Residents: always-on sessions (a mayor)
@@ -176,40 +183,40 @@ running in its directory, nudges it when its inbox has something new and it is
 idle, and rotates it through handoffs instead of letting its context degrade.
 
 ```sh
-yard resident add                     # interactive: agent, model, permissions, dir, inbox, rotation
-yard resident add mayor --set kind=claude --set 'args=["--permission-mode","auto"]' \
+yardr resident add                     # interactive: agent, model, permissions, dir, inbox, rotation
+yardr resident add mayor --set kind=claude --set 'args=["--permission-mode","auto"]' \
   --set prompt=roles/mayor.md --dir ~/projects --max-age 6h
-yard mail mayor "Deploys are frozen until Friday"
-yard resident show mayor              # state, unread inbox, recent journal
+yardr mail mayor "Deploys are frozen until Friday"
+yardr resident show mayor              # state, unread inbox, recent journal
 ```
 
 - **Inbox:** events of the kinds in `--on` (default: things that went wrong or
   need a decision: `gave_up`, `session_blocked`, `unrouted`, …) plus mail.
-  Read with `yard inbox`, mark handled with `yard inbox --ack`; the cursor is
+  Read with `yardr inbox`, mark handled with `yardr inbox --ack`; the cursor is
   stored, so nothing is lost or repeated across restarts.
-- **Hook subscriptions:** webhook deliveries (`yard hook`) reach a resident only
-  through `yard subscribe <name> --source linear --scope all|mentions|involved
-  [--where team=ENG ...]`. `yard resident identity <name> --source linear --id
+- **Hook subscriptions:** webhook deliveries (`yardr hook`) reach a resident only
+  through `yardr subscribe <name> --source linear --scope all|mentions|involved
+  [--where team=ENG ...]`. `yardr resident identity <name> --source linear --id
   <user id> --key <profile key>` says who it is there, so it can be mentioned
   or assigned, and never hears of its own actions. Once it acts in a thread (a
   Linear issue), it participates there, and `involved` also delivers what
-  others do in it; `yard thread follow|unfollow <name> --source linear <id>`
-  and `yard thread list <name>` manage that by hand. Matching happens when a
+  others do in it; `yardr thread follow|unfollow <name> --source linear <id>`
+  and `yardr thread list <name>` manage that by hand. Matching happens when a
   delivery arrives; each delivery records why (all, mentioned, assigned,
-  participant) and `yard inbox` shows it.
-- **Journal:** one bead per resident (`<name>-journal`). `yard resident journal`
-  keeps decisions (≤4 KB); `yard resident handoff` ends the session (≤16 KB) and
+  participant) and `yardr inbox` shows it.
+- **Journal:** one bead per resident (`<name>-journal`). `yardr resident journal`
+  keeps decisions (≤4 KB); `yardr resident handoff` ends the session (≤16 KB) and
   the next session starts from it. At `--max-age` the resident is asked for a
-  handoff when idle; after `--handoff-grace` yard restarts it regardless.
-- **Prime:** a new session reads `yard prime --resident <name>`: its role, the
+  handoff when idle; after `--handoff-grace` yardr restarts it regardless.
+- **Prime:** a new session reads `yardr prime --resident <name>`: its role, the
   latest handoff, journal entries since, its inbox and its memories' titles,
   bounded in size. If the last session ended without a handoff, it gets a
   summary of what happened since instead.
-- **Memories:** `yard remember "title" -b … [--expires 7d] [--scope all]` and
-  `yard recall [query]`: lasting knowledge as beads, listed by title in primes,
+- **Memories:** `yardr remember "title" -b … [--expires 7d] [--scope all]` and
+  `yardr recall [query]`: lasting knowledge as beads, listed by title in primes,
   retired automatically when they expire.
 
-Agents are told to run yard by absolute path: a shell may find an older yard
+Agents are told to run yardr by absolute path: a shell may find an older yardr
 first on its PATH, and the prime warns about it.
 
 ## Runners
@@ -217,27 +224,27 @@ first on its PATH, and the prime warns about it.
 | runner | starts | config |
 |---|---|---|
 | `manual` | nothing; the bead waits on the group | — |
-| `exec` | `sh -c cmd` in the rig, with `YARD_BEAD`, `YARD_SESSION`, `YARD_STAGE`, `YARD_GROUP`, `YARD_ACTOR` | `cmd`, `dir`, `log` |
-| `herdr` | a herdr worktree workspace on branch `yard/<bead>` at `~/.yard/worktrees/<rig>/<bead>` (reopened for later stages, one tab per stage), an agent in it, prompted with a brief in `<worktree>/.yard/` | `kind`, `prompt`, `args`, `keep`, `worktrees` |
+| `exec` | `sh -c cmd` in the rig, with `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_ACTOR` | `cmd`, `dir`, `log` |
+| `herdr` | a herdr worktree workspace on branch `yard/<bead>` at `~/.yardr/worktrees/<rig>/<bead>` (reopened for later stages, one tab per stage), an agent in it, prompted with a brief in `<worktree>/.yard/` | `kind`, `prompt`, `args`, `keep`, `worktrees` |
 
 A session ends when the bead is advanced, closed or released. If the runner
 reports the work gone (process exited, herdr agent gone) the session is marked
 `died` and the bead is routed again after a backoff; after 3 failures in one
-stage the bead is held (`yard bead unhold` grants fresh attempts).
+stage the bead is held (`yardr bead unhold` grants fresh attempts).
 
 ### herdr setup
 
 - **Folder trust.** Claude Code asks to trust each new project, and every bead's
   worktree is its own git root, so trusting a parent folder does not cover them:
   each builder stops at the trust dialog until someone answers it in its pane.
-  yard keeps such a session (`session_blocked` in `yard watch`) and sends its
+  yardr keeps such a session (`session_blocked` in `yardr watch`) and sends its
   first prompt once it is answered. Starting without the dialog is yard-16.
 - **Decide what agents may run unattended.** Anything outside `args`'
   permissions blocks the agent on a prompt. Pass what the role needs, e.g.
-  `--set 'args=["--permission-mode","acceptEdits","--allowedTools","Bash(yard:*),Bash(git:*)"]'`;
+  `--set 'args=["--permission-mode","acceptEdits","--allowedTools","Bash(yardr:*),Bash(git:*)"]'`;
   compound shell commands still prompt unless allowed or auto mode is on.
 - **Blocked agents are reported.** When herdr sees an agent waiting on a
-  prompt, yard writes a `session_blocked` event (visible in `yard watch`);
+  prompt, yardr writes a `session_blocked` event (visible in `yardr watch`);
   answer it in herdr and the session carries on.
 - **Worktrees are cleaned up when the bead closes**, not when a stage ends,
   so later stages reuse them. A worktree with uncommitted or untracked changes
@@ -249,12 +256,12 @@ stage the bead is held (`yard bead unhold` grants fresh attempts).
 
 ## BDP (Bead Protocol)
 
-`yard bdp serve` serves the yard over the [BDP](https://github.com/gastownhall/bdp)
-Read profile, so any BDP client reads yard's beads and dependency links over
+`yardr bdp serve` serves the yard over the [BDP](https://github.com/gastownhall/bdp)
+Read profile, so any BDP client reads yardr's beads and dependency links over
 HTTP:
 
 ```sh
-yard bdp serve --addr :8765 --scope https://beads.example/team/
+yardr bdp serve --addr :8765 --scope https://beads.example/team/
 ```
 
 - Beads are `<scope>beads/<handle>`; dependencies are Links whose source is
@@ -263,14 +270,14 @@ yard bdp serve --addr :8765 --scope https://beads.example/team/
   scoped), and it is what bd and humans use; the UUID is the `uuid`
   property. Listings follow BDP's canonical id order, not creation order.
 - Bead properties are bd's JSON row (dependencies, counts, `created_by`, …)
-  plus yard's own fields; a held bead reads as `deferred`. Types use BDP's
+  plus yardr's own fields; a held bead reads as `deferred`. Types use BDP's
   reference vocabulary (`https://work.example/types/task`, `…/blocks`) where
   names match, else `<scope>types/<name>`.
 - Every real change mints an opaque revision (a no-op mints none), served
   as the ETag; listings page over one consistent snapshot.
 - BDP's own conformance suite passes against it (31/31 runnable Read
   scenarios), and BDP's `bdp bd ready` client computes the same ready set
-  from yard as `yard ready`. See [conformance/bdp](conformance/bdp).
+  from yardr as `yardr ready`. See [conformance/bdp](conformance/bdp).
 
 ## Layout
 
@@ -285,5 +292,5 @@ internal/cli        cobra commands
 ```
 
 `go test ./...` runs everything against throwaway store files;
-`YARD_TEST_RPC=1 go test ./...` runs the same suites through the unix-socket
+`YARDR_TEST_RPC=1 go test ./...` runs the same suites through the unix-socket
 client, so the wire is tested by the same assertions.

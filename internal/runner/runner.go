@@ -1,7 +1,7 @@
 // Package runner holds the built-in Runner implementations.
 //
 //	manual  nothing is started; a human or outside agent picks the bead up
-//	        with `yard bead list --group <name>` and advances it. With
+//	        with `yardr bead list --group <name>` and advances it. With
 //	        config notify=true a herdr notification says a bead is waiting.
 //	exec    runs config.cmd through sh -c in the rig (or config.dir).
 //	herdr   opens a worktree per bead in herdr and starts an agent in it.
@@ -12,10 +12,12 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
-	"github.com/mckean/yard/internal/dispatch"
-	"github.com/mckean/yard/internal/store"
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/store"
 )
 
 // All returns every built-in runner keyed by the name groups refer to.
@@ -30,15 +32,16 @@ func All(home string, st store.API, log *slog.Logger, onError func(error)) map[s
 	}
 }
 
-// Env is the environment every started process gets.
+// Env is the environment every started process gets, under the yardr names
+// and the old yard ones (see config.Env).
 func Env(job dispatch.Job, actor string) []string {
-	return []string{
-		"YARD_BEAD=" + job.Bead.ID,
-		"YARD_SESSION=" + job.Session.ID,
-		"YARD_STAGE=" + job.Bead.Stage,
-		"YARD_GROUP=" + job.Group.Name,
-		"YARD_ACTOR=" + actor,
-	}
+	return slices.Concat(
+		config.Env("BEAD", job.Bead.ID),
+		config.Env("SESSION", job.Session.ID),
+		config.Env("STAGE", job.Bead.Stage),
+		config.Env("GROUP", job.Group.Name),
+		config.Env("ACTOR", actor),
+	)
 }
 
 func str(cfg map[string]any, key, def string) string {
@@ -84,25 +87,25 @@ func Brief(job dispatch.Job, actor, workdir string) (string, error) {
 		b.WriteString("\n\n---\n\n")
 	}
 	bead := job.Bead
-	fmt.Fprintf(&b, "# yard session %s\n\n", job.Session.ID)
+	fmt.Fprintf(&b, "# yardr session %s\n\n", job.Session.ID)
 	fmt.Fprintf(&b, "You are `%s`, working bead **%s** (%s, stage `%s`) for group `%s`.\n\n",
 		actor, bead.ID, bead.Type, bead.Stage, job.Group.Name)
 	if workdir != "" {
 		fmt.Fprintf(&b, "Work in `%s` (branch `%s`). Commit and push your work there.\n\n", workdir, Branch(bead))
 	}
 	fmt.Fprintf(&b, "## %s\n\n%s\n\n", bead.Title, strings.TrimSpace(bead.Body))
-	advance := "- When your part is done, hand the bead to the next stage: `yard bead advance " + bead.ID + " --to <stage>`\n"
+	advance := "- When your part is done, hand the bead to the next stage: `yardr bead advance " + bead.ID + " --to <stage>`\n"
 	if job.Next != nil {
 		advance = "- When your part is done, advance to one of the next stages below.\n"
 	}
 	fmt.Fprintf(&b, `## Reporting back
 
-Run every yard command with YARD_ACTOR=%[1]s set (export it once).
+Run every yardr command with YARDR_ACTOR=%[1]s set (export it once).
 
-- Read the bead, its notes and dependencies: `+"`yard prime --bead %[2]s`"+`
-- Leave evidence as you go: `+"`yard bead note %[2]s \"...\"`"+`
-%[3]s- Or, if the work is finished entirely: `+"`yard bead close %[2]s --reason \"...\"`"+`
-- If you are stuck and need a human: `+"`yard bead note %[2]s \"...\" && yard bead hold %[2]s`"+`
+- Read the bead, its notes and dependencies: `+"`yardr prime --bead %[2]s`"+`
+- Leave evidence as you go: `+"`yardr bead note %[2]s \"...\"`"+`
+%[3]s- Or, if the work is finished entirely: `+"`yardr bead close %[2]s --reason \"...\"`"+`
+- If you are stuck and need a human: `+"`yardr bead note %[2]s \"...\" && yardr bead hold %[2]s`"+`
 
 Advancing or closing ends your session; nothing else does.
 `, actor, bead.ID, advance)
@@ -123,7 +126,7 @@ func writeNext(b *strings.Builder, id, stage string, next []dispatch.NextStage) 
 	}
 	fmt.Fprintf(b, "The flow allows these moves out of `%s`:\n\n", stage)
 	for _, n := range next {
-		fmt.Fprintf(b, "- `%s`: %s\n  `yard bead advance %s --to %s`\n", n.Stage, nextWhen(n), id, n.Stage)
+		fmt.Fprintf(b, "- `%s`: %s\n  `yardr bead advance %s --to %s`\n", n.Stage, nextWhen(n), id, n.Stage)
 	}
 }
 

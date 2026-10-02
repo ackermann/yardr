@@ -20,11 +20,11 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/mckean/yard/internal/config"
-	"github.com/mckean/yard/internal/dispatch"
-	"github.com/mckean/yard/internal/runner"
-	"github.com/mckean/yard/internal/server"
-	"github.com/mckean/yard/internal/store"
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/runner"
+	"yardr.dev/yardr/internal/server"
+	"yardr.dev/yardr/internal/store"
 )
 
 func (a *app) serverCmd() *cobra.Command {
@@ -51,7 +51,7 @@ func (a *app) serverCmd() *cobra.Command {
 				return err
 			}
 			return a.out(map[string]string{"store": cfg.DBPath(), "socket": cfg.Socket()}, func() {
-				fmt.Printf("yard server running (store %s)\n", cfg.DBPath())
+				fmt.Printf("yardr server running (store %s)\n", cfg.DBPath())
 			})
 		},
 	}, &cobra.Command{
@@ -109,7 +109,7 @@ func (a *app) daemonCmd() *cobra.Command {
 				Interval:    interval,
 				MaxAttempts: attempts,
 			}
-			log.Info("yard daemon started", "store", a.cfg.DBPath(), "reconcile", interval)
+			log.Info("yardr daemon started", "store", a.cfg.DBPath(), "reconcile", interval)
 			return d.Run(ctx)
 		},
 	}
@@ -124,9 +124,9 @@ func (a *app) rigCmd() *cobra.Command {
 	add := &cobra.Command{
 		Use:   "add <name> [path]",
 		Short: "Register (or update) a rig: an existing clone, or --clone a URL",
-		Example: `  yard rig add webapp ~/projects/webapp                 # existing clone
-  yard rig add webapp --clone git@github.com:me/webapp.git   # clones to ~/.yard/rigs/webapp
-  yard rig add legacy ~/src/legacy --base origin/master`,
+		Example: `  yardr rig add webapp ~/projects/webapp                 # existing clone
+  yardr rig add webapp --clone git@github.com:me/webapp.git   # clones to ~/.yardr/rigs/webapp
+  yardr rig add legacy ~/src/legacy --base origin/master`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
@@ -178,7 +178,7 @@ func (a *app) rigCmd() *cobra.Command {
 		},
 	}
 	add.Flags().StringVar(&base, "base", "origin/main", "ref bead branches start from")
-	add.Flags().StringVar(&clone, "clone", "", "clone this URL first (into [path] or ~/.yard/rigs/<name>)")
+	add.Flags().StringVar(&clone, "clone", "", "clone this URL first (into [path] or ~/.yardr/rigs/<name>)")
 	list := &cobra.Command{
 		Use: "list", Short: "List rigs", Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
@@ -216,11 +216,11 @@ offers the agent (Claude Code, Codex, Grok, Kimi, opencode, pi, or any other
 herdr agent), a model read live from that agent, and its permission flags.
 
 With a name, the group is replaced by exactly what the flags say.`,
-		Example: `  yard group add                     # interactive
-  yard group add webapp/builders --runner herdr --limit 2 --set kind=claude --set prompt=roles/builder.md
-  yard group add webapp/merger --runner exec --set cmd='make merge-bead'
-  yard group add humans --runner manual --set notify=true   # herdr notification per waiting bead
-  yard group add approvers --runner manual --members mckean,mayor   # only they may advance beads it holds`,
+		Example: `  yardr group add                     # interactive
+  yardr group add webapp/builders --runner herdr --limit 2 --set kind=claude --set prompt=roles/builder.md
+  yardr group add webapp/merger --runner exec --set cmd='make merge-bead'
+  yardr group add humans --runner manual --set notify=true   # herdr notification per waiting bead
+  yardr group add approvers --runner manual --members mckean,mayor   # only they may advance beads it holds`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			if len(args) == 0 {
@@ -350,9 +350,9 @@ func (a *app) routeCmd() *cobra.Command {
 	add := &cobra.Command{
 		Use:   "add --stage <stage> --group <group>",
 		Short: "Send open, unblocked beads in a stage to a group",
-		Example: `  yard route add --stage new --group webapp/builders --rig webapp
-  yard route add --stage review --group webapp/reviewers
-  yard route add --stage new --type video --group herald --priority 10`,
+		Example: `  yardr route add --stage new --group webapp/builders --rig webapp
+  yardr route add --stage review --group webapp/reviewers
+  yardr route add --stage new --type video --group herald --priority 10`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			if r.Stage == "" || r.Group == "" {
@@ -533,7 +533,7 @@ func (a *app) watchCmd() *cobra.Command {
 		Short: "Stream events as they happen (pushed, not polled)",
 		Long: `Stream events as they are committed. Each event carries a sequence number
 (seq); --after resumes a stream from where a previous consumer stopped, with
-no gaps and no duplicates. If the yard server restarts, watch reconnects and
+no gaps and no duplicates. If the yardr server restarts, watch reconnects and
 continues from the last event it printed.`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {

@@ -1,4 +1,4 @@
-module github.com/mckean/yard
+module yardr.dev/yardr
 
 go 1.27.1
 

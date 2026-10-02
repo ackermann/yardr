@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mckean/yard/internal/store"
-	"github.com/mckean/yard/internal/storetest"
+	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
 // yardFlow is the example lifecycle from the yard-18 bead.

@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mckean/yard/internal/dispatch"
-	"github.com/mckean/yard/internal/store"
-	"github.com/mckean/yard/internal/storetest"
+	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
 func TestAgentName(t *testing.T) {
@@ -45,7 +45,7 @@ func TestBriefIncludesPromptAndCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"You build things.", "Add login", "Use OAuth.", "/wt/web-3",
-		"yard bead advance web-3 --to", "YARD_ACTOR=web-3-new"} {
+		"yardr bead advance web-3 --to", "YARDR_ACTOR=web-3-new"} {
 		if !strings.Contains(b, want) {
 			t.Errorf("brief missing %q:\n%s", want, b)
 		}
@@ -68,7 +68,7 @@ func TestBriefListsNextStages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(plain, "hand the bead to the next stage: `yard bead advance web-3 --to <stage>`") ||
+	if !strings.Contains(plain, "hand the bead to the next stage: `yardr bead advance web-3 --to <stage>`") ||
 		strings.Contains(plain, "## Next stages") {
 		t.Fatalf("brief without a flow changed:\n%s", plain)
 	}
@@ -89,12 +89,12 @@ func TestBriefListsNextStages(t *testing.T) {
 		"## Next stages",
 		"moves out of `new`",
 		"- `review`: an agent in `reviewers` picks it up",
-		"  `yard bead advance web-3 --to review`",
+		"  `yardr bead advance web-3 --to review`",
 		"- `signoff`: a human in `humans` picks it up",
 		"- `lint`: `ci` runs its command on it",
 		"- `backlog`: no group works this stage",
 		"- `dropped`: closes the bead",
-		"  `yard bead advance web-3 --to dropped`",
+		"  `yardr bead advance web-3 --to dropped`",
 	} {
 		if !strings.Contains(b, want) {
 			t.Errorf("brief missing %q:\n%s", want, b)
@@ -117,7 +117,7 @@ func TestExecLifecycle(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "out")
 	job := dispatch.Job{
 		Bead:    store.Bead{ID: "yd-1", Stage: "new"},
-		Group:   store.Group{Name: "g", Config: map[string]any{"cmd": "echo $YARD_BEAD $YARD_STAGE > " + out + "; sleep 30"}},
+		Group:   store.Group{Name: "g", Config: map[string]any{"cmd": "echo $YARDR_BEAD $YARDR_STAGE > " + out + "; sleep 30"}},
 		Session: store.Session{ID: "s1"},
 	}
 	h, err := e.Start(ctx, job)

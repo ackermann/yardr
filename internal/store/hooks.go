@@ -93,7 +93,7 @@ func (s *Store) DeleteHook(ctx context.Context, name, actor string) error {
 // RecordHook logs an accepted delivery as one `hook` event carrying the
 // normalized envelope, and keeps the raw payload beside it under the
 // event's seq. The envelope is what routing reads; the payload is there
-// for `yard hook show` when the envelope is not enough. Which residents it
+// for `yardr hook show` when the envelope is not enough. Which residents it
 // reaches, and why, is decided here against their subscriptions as they
 // are now, and kept on the event as "deliveries". A resident that is the
 // delivery's actor becomes a participant in its thread from then on.

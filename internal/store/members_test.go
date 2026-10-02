@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mckean/yard/internal/store"
+	"yardr.dev/yardr/internal/store"
 )
 
 func TestGroupMembersOnlyOnManual(t *testing.T) {

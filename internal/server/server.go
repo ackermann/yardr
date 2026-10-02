@@ -17,20 +17,20 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/mckean/yard/internal/config"
-	"github.com/mckean/yard/internal/hooks"
-	"github.com/mckean/yard/internal/rpc"
-	"github.com/mckean/yard/internal/store"
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/rpc"
+	"yardr.dev/yardr/internal/store"
 )
 
 // Run owns the store and serves it until ctx ends.
 func Run(ctx context.Context, c *config.Config, log *slog.Logger) error {
 	if len(c.Socket()) > 100 {
-		return fmt.Errorf("socket path %s is too long for a unix socket; use a shorter YARD_HOME", c.Socket())
+		return fmt.Errorf("socket path %s is too long for a unix socket; use a shorter YARDR_HOME", c.Socket())
 	}
 	st, err := store.Open(c.DBPath())
 	if errors.Is(err, store.ErrLocked) {
-		return fmt.Errorf("another yard server owns %s", c.DBPath())
+		return fmt.Errorf("another yardr server owns %s", c.DBPath())
 	} else if err != nil {
 		return err
 	}
@@ -68,7 +68,12 @@ func Run(ctx context.Context, c *config.Config, log *slog.Logger) error {
 			srv.Close()
 		}
 	}()
-	log.Info("yard server ready", "store", c.DBPath(), "socket", c.Socket())
+	log.Info("yardr server ready", "store", c.DBPath(), "socket", c.Socket())
+	if c.IsLegacyHome() {
+		// Said here, once per server, rather than on every command.
+		log.Warn("using the old home because ~/.yardr does not exist; "+
+			"once no server, agent or worktree uses it, it can be moved there", "home", c.Home)
+	}
 	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
@@ -123,7 +128,7 @@ func ping(ctx context.Context, client *rpc.Client) bool {
 	return client.Ping(ctx) == nil
 }
 
-// Start launches `yard server run` detached and waits until it answers.
+// Start launches `yardr server run` detached and waits until it answers.
 func Start(ctx context.Context, c *config.Config) error {
 	self, err := os.Executable()
 	if err != nil {
@@ -135,7 +140,7 @@ func Start(ctx context.Context, c *config.Config) error {
 	}
 	defer logf.Close()
 	cmd := exec.Command(self, "server", "run")
-	cmd.Env = append(os.Environ(), "YARD_HOME="+c.Home)
+	cmd.Env = append(os.Environ(), config.Env("HOME", c.Home)...)
 	cmd.Stdout, cmd.Stderr = logf, logf
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
@@ -155,18 +160,18 @@ func Start(ctx context.Context, c *config.Config) error {
 			if ping(ctx, client) {
 				return nil
 			}
-			return fmt.Errorf("yard server exited during startup; see %s", c.LogFile())
+			return fmt.Errorf("yardr server exited during startup; see %s", c.LogFile())
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
-	return fmt.Errorf("yard server did not answer within 10s; see %s", c.LogFile())
+	return fmt.Errorf("yardr server did not answer within 10s; see %s", c.LogFile())
 }
 
 // Stop terminates the server recorded in the pidfile.
 func Stop(c *config.Config) error {
 	b, err := os.ReadFile(c.PIDFile())
 	if errors.Is(err, os.ErrNotExist) {
-		return errors.New("no yard server is running")
+		return errors.New("no yardr server is running")
 	} else if err != nil {
 		return err
 	}
@@ -181,7 +186,7 @@ func Stop(c *config.Config) error {
 		time.Sleep(50 * time.Millisecond)
 	}
 	if syscall.Kill(pid, 0) == nil {
-		return fmt.Errorf("yard server (pid %d) did not stop", pid)
+		return fmt.Errorf("yardr server (pid %d) did not stop", pid)
 	}
 	return nil
 }

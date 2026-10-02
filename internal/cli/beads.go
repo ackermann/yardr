@@ -9,7 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/mckean/yard/internal/store"
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/store"
 )
 
 func beadRows(bs []store.Bead) [][]string {
@@ -411,7 +412,7 @@ func (a *app) primeCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			if resident == "" && id == "" {
-				resident = os.Getenv("YARD_RESIDENT")
+				resident = config.Getenv("RESIDENT")
 			}
 			if resident != "" {
 				st, err := a.store(c.Context())
@@ -421,10 +422,10 @@ func (a *app) primeCmd() *cobra.Command {
 				return a.primeResident(c.Context(), st, resident)
 			}
 			if id == "" {
-				id = os.Getenv("YARD_BEAD")
+				id = config.Getenv("BEAD")
 			}
 			if id == "" {
-				return fmt.Errorf("--bead or --resident is required (or set YARD_BEAD / YARD_RESIDENT)")
+				return fmt.Errorf("--bead or --resident is required (or set YARDR_BEAD / YARDR_RESIDENT)")
 			}
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -479,8 +480,8 @@ func (a *app) primeCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&id, "bead", "", "bead id (default $YARD_BEAD)")
-	cmd.Flags().StringVar(&resident, "resident", "", "resident name (default $YARD_RESIDENT)")
+	cmd.Flags().StringVar(&id, "bead", "", "bead id (default $YARDR_BEAD)")
+	cmd.Flags().StringVar(&resident, "resident", "", "resident name (default $YARDR_RESIDENT)")
 	return cmd
 }
 

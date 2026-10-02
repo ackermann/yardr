@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mckean/yard/internal/store"
+	"yardr.dev/yardr/internal/store"
 )
 
 // Remembering delivery ids: longer than any timestamp window, so a replay

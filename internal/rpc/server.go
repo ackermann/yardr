@@ -18,7 +18,7 @@ import (
 	"reflect"
 	"strconv"
 
-	"github.com/mckean/yard/internal/store"
+	"yardr.dev/yardr/internal/store"
 )
 
 // streams and lifecycle methods are not callable through /call.

@@ -1,6 +1,6 @@
 // Package storetest opens throwaway stores for tests.
 //
-// With YARD_TEST_RPC=1, New returns an rpc.Client talking to the store over
+// With YARDR_TEST_RPC=1, New returns an rpc.Client talking to the store over
 // a real unix socket, so every suite that uses New also tests the wire.
 package storetest
 
@@ -12,8 +12,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/mckean/yard/internal/rpc"
-	"github.com/mckean/yard/internal/store"
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/rpc"
+	"yardr.dev/yardr/internal/store"
 )
 
 // Main runs the package's tests (kept so test packages need no changes).
@@ -23,7 +24,7 @@ func Main(m *testing.M) { os.Exit(m.Run()) }
 func New(t testing.TB) store.API {
 	t.Helper()
 	s := Open(t, filepath.Join(t.TempDir(), "yard.db"))
-	if os.Getenv("YARD_TEST_RPC") == "" {
+	if config.Getenv("TEST_RPC") == "" {
 		return s
 	}
 	// Unix socket paths are limited to ~108 bytes; t.TempDir is too long.

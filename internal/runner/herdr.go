@@ -10,11 +10,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
-	"github.com/mckean/yard/internal/dispatch"
-	"github.com/mckean/yard/internal/store"
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/store"
 )
 
 // Herdr runs each bead in its own git worktree (branch yard/<bead>) opened as
@@ -232,9 +234,9 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 		args = append(append(args, "--"), extra...)
 	}
 	rel, _ := filepath.Rel(wt.Worktree.Path, briefPath)
-	prompt := fmt.Sprintf("Read %s and follow it. Start with `export YARD_ACTOR=%s`.", rel, name)
+	prompt := fmt.Sprintf("Read %s and follow it. Start with `export YARDR_ACTOR=%s`.", rel, name)
 	if h.YardBin != "" {
-		prompt += fmt.Sprintf(" Run yard as %s.", h.YardBin)
+		prompt += fmt.Sprintf(" Run yardr as %s.", h.YardBin)
 	}
 	return h.startAgent(ctx, args, name, prompt, handle)
 }
@@ -426,10 +428,13 @@ func (h *Herdr) StartResident(ctx context.Context, r store.Resident) (map[string
 		return nil, fmt.Errorf("resident directory %q does not exist", dir)
 	}
 	name := AgentName(r.Name, "")
-	args := []string{"workspace", "create", "--cwd", dir, "--label", r.Name, "--no-focus",
-		"--env", "YARD_RESIDENT=" + r.Name, "--env", "YARD_ACTOR=" + r.Name}
+	args := []string{"workspace", "create", "--cwd", dir, "--label", r.Name, "--no-focus"}
+	env := slices.Concat(config.Env("RESIDENT", r.Name), config.Env("ACTOR", r.Name))
 	if h.YardHome != "" {
-		args = append(args, "--env", "YARD_HOME="+h.YardHome)
+		env = append(env, config.Env("HOME", h.YardHome)...)
+	}
+	for _, e := range env {
+		args = append(args, "--env", e)
 	}
 	raw, err := h.run(ctx, args...)
 	if err != nil {
@@ -446,7 +451,7 @@ func (h *Herdr) StartResident(ctx context.Context, r store.Resident) (map[string
 	if extra := agentArgs(r.Config, ""); len(extra) > 0 {
 		start = append(append(start, "--"), extra...)
 	}
-	prompt := fmt.Sprintf("You are the yard resident %q. Run `%s prime --resident %s` and follow it.",
+	prompt := fmt.Sprintf("You are the yardr resident %q. Run `%s prime --resident %s` and follow it.",
 		r.Name, h.yard(), r.Name)
 	return h.startAgent(ctx, start, name, prompt, handle)
 }
@@ -465,5 +470,5 @@ func (h *Herdr) yard() string {
 	if h.YardBin != "" {
 		return h.YardBin
 	}
-	return "yard"
+	return "yardr"
 }

@@ -16,7 +16,8 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/mckean/yard/internal/store"
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/store"
 )
 
 // defaultOn are the events a new resident hears about: work that needs a
@@ -41,8 +42,8 @@ func (a *app) residentCmd() *cobra.Command {
 it running in its directory, nudges it when its inbox has something new and it
 is idle, and rotates it: at --max-age it is asked to write a handoff, and its
 next session starts from that handoff (forced after --handoff-grace).`,
-		Example: `  yard resident add                       # interactive
-  yard resident add mayor --set kind=claude --set model=opus \
+		Example: `  yardr resident add                       # interactive
+  yardr resident add mayor --set kind=claude --set model=opus \
     --set 'args=["--permission-mode","auto"]' --set prompt=roles/mayor.md \
     --dir ~/projects --max-age 6h`,
 		Args: cobra.MaximumNArgs(1),
@@ -205,7 +206,7 @@ next session starts from that handoff (forced after --handoff-grace).`,
 				}
 				return a.out(map[string]string{"resident": args[0], "written": kind}, func() {
 					if kind == store.NoteHandoff {
-						fmt.Println("handoff written; yard starts a fresh session from it once this one is idle")
+						fmt.Println("handoff written; yardr starts a fresh session from it once this one is idle")
 					}
 				})
 			}}
@@ -257,16 +258,16 @@ func absDir(d string) (string, error) {
 	return d, nil
 }
 
-// currentResident is --resident, else $YARD_RESIDENT (set in a resident's
+// currentResident is --resident, else $YARDR_RESIDENT (set in a resident's
 // own session).
 func currentResident(flag string) (string, error) {
 	if flag != "" {
 		return flag, nil
 	}
-	if r := os.Getenv("YARD_RESIDENT"); r != "" {
+	if r := config.Getenv("RESIDENT"); r != "" {
 		return r, nil
 	}
-	return "", fmt.Errorf("--resident is required (or set YARD_RESIDENT)")
+	return "", fmt.Errorf("--resident is required (or set YARDR_RESIDENT)")
 }
 
 func (a *app) inboxCmd() *cobra.Command {
@@ -313,7 +314,7 @@ func (a *app) inboxCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&resident, "resident", "", "resident (default $YARD_RESIDENT)")
+	cmd.Flags().StringVar(&resident, "resident", "", "resident (default $YARDR_RESIDENT)")
 	cmd.Flags().BoolVar(&ack, "ack", false, "mark the events shown as handled")
 	cmd.Flags().IntVarP(&limit, "limit", "n", 20, "how many to show")
 	return cmd
@@ -360,8 +361,8 @@ func (a *app) rememberCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "remember <title>",
 		Short: "Keep a piece of knowledge as a memory (listed by title in primes)",
-		Example: `  yard remember "Deploy freeze" -b "No webapp deploys until Fri 10-09" --expires 7d
-  yard remember "Reviewers want screenshots on UI beads" --scope all`,
+		Example: `  yardr remember "Deploy freeze" -b "No webapp deploys until Fri 10-09" --expires 7d
+  yardr remember "Reviewers want screenshots on UI beads" --scope all`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
@@ -376,7 +377,7 @@ func (a *app) rememberCmd() *cobra.Command {
 			}
 			if m.Scope == "" {
 				m.Scope = "all"
-				if r := os.Getenv("YARD_RESIDENT"); r != "" {
+				if r := config.Getenv("RESIDENT"); r != "" {
 					m.Scope = "resident:" + r
 				}
 			}
@@ -405,7 +406,7 @@ func (a *app) recallCmd() *cobra.Command {
 	var scope string
 	cmd := &cobra.Command{
 		Use:   "recall [query]",
-		Short: "List live memories (titles); yard bead show <id> reads one",
+		Short: "List live memories (titles); yardr bead show <id> reads one",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
@@ -413,7 +414,7 @@ func (a *app) recallCmd() *cobra.Command {
 				return err
 			}
 			if scope == "" {
-				if r := os.Getenv("YARD_RESIDENT"); r != "" {
+				if r := config.Getenv("RESIDENT"); r != "" {
 					scope = "resident:" + r
 				}
 			}
@@ -477,9 +478,9 @@ func (a *app) primeResident(ctx context.Context, st store.API, name string) erro
 		role = strings.TrimSpace(string(b))
 	}
 	return a.out(map[string]any{"prime": p, "role": role}, func() {
-		fmt.Printf("# yard resident: %s\n\n", name)
+		fmt.Printf("# yardr resident: %s\n\n", name)
 		fmt.Printf("You are `%s`, an always-on resident of this yard, working in %s. ", name, or(r.Dir, "the yard home"))
-		fmt.Printf("Your yard commands are attributed to you (YARD_ACTOR=%s).\n\n", name)
+		fmt.Printf("Your yardr commands are attributed to you (YARDR_ACTOR=%s).\n\n", name)
 		if role != "" {
 			fmt.Printf("## Your role\n\n%s\n\n", role)
 		}
@@ -492,7 +493,7 @@ func (a *app) primeResident(ctx context.Context, st store.API, name string) erro
 		if len(p.Since) > 0 {
 			fmt.Printf("## Journal since then (%d", len(p.Since))
 			if p.Omitted > 0 {
-				fmt.Printf("; %d earlier not shown: yard bead show %s", p.Omitted, r.Journal)
+				fmt.Printf("; %d earlier not shown: yardr bead show %s", p.Omitted, r.Journal)
 			}
 			fmt.Print(")\n\n")
 			for _, n := range p.Since {
@@ -521,7 +522,7 @@ func (a *app) primeResident(ctx context.Context, st store.API, name string) erro
 			fmt.Println()
 		}
 		if len(p.Memories) > 0 {
-			fmt.Print("## Memories (titles; yard bead show <id> reads one)\n\n")
+			fmt.Print("## Memories (titles; yardr bead show <id> reads one)\n\n")
 			for _, m := range p.Memories {
 				exp := ""
 				if m.Expires != nil {
@@ -536,16 +537,16 @@ func (a *app) primeResident(ctx context.Context, st store.API, name string) erro
 		}
 		fmt.Printf(`## How you work
 
-- yard inbox / yard inbox --ack: your events and mail; ack what you have handled.
-  yard nudges you when something new arrives and you are idle.
-- yard resident journal %[1]s "...": keep decisions and context worth keeping (max 4 KB).
-- yard resident handoff %[1]s "...": end your session. Write what you are doing, what is
-  next and what to watch (max 16 KB); yard starts your next session from it.
-- yard remember "title" -b "..." [--expires 7d] / yard recall [query]: lasting knowledge.
-- yard mail <resident> "...": message another resident.
-- The yard itself: yard ready, yard bead list|show|create|update|advance|close|hold|unhold|release,
-  yard dep add, yard prime --bead <id>, yard events, yard group list, yard route list, yard session list.
-  Do not run yard watch: it never returns.
+- yardr inbox / yardr inbox --ack: your events and mail; ack what you have handled.
+  yardr nudges you when something new arrives and you are idle.
+- yardr resident journal %[1]s "...": keep decisions and context worth keeping (max 4 KB).
+- yardr resident handoff %[1]s "...": end your session. Write what you are doing, what is
+  next and what to watch (max 16 KB); yardr starts your next session from it.
+- yardr remember "title" -b "..." [--expires 7d] / yardr recall [query]: lasting knowledge.
+- yardr mail <resident> "...": message another resident.
+- The yard itself: yardr ready, yardr bead list|show|create|update|advance|close|hold|unhold|release,
+  yardr dep add, yardr prime --bead <id>, yardr events, yardr group list, yardr route list, yardr session list.
+  Do not run yardr watch: it never returns.
 `, name)
 	})
 }
@@ -642,8 +643,8 @@ func (a *app) residentForm(ctx context.Context, st store.API) error {
 	return nil
 }
 
-// yardSkew warns when the yard on PATH is not the binary running now: an
-// agent typing "yard" would get a different (likely older) version.
+// yardSkew warns when the yardr on PATH is not the binary running now: an
+// agent typing "yardr" would get a different (likely older) version.
 func yardSkew() string {
 	self, err := os.Executable()
 	if err != nil {
@@ -652,7 +653,7 @@ func yardSkew() string {
 	if r, err := filepath.EvalSymlinks(self); err == nil {
 		self = r
 	}
-	onPath, err := exec.LookPath("yard")
+	onPath, err := exec.LookPath("yardr")
 	if err == nil {
 		if r, err := filepath.EvalSymlinks(onPath); err == nil {
 			onPath = r
@@ -664,6 +665,6 @@ func yardSkew() string {
 	if onPath == "" {
 		onPath = "nothing"
 	}
-	return fmt.Sprintf("`yard` on your PATH is %s, not this yard. Run every yard command below as %s instead of yard.",
+	return fmt.Sprintf("`yardr` on your PATH is %s, not this yardr. Run every yardr command below as %s instead of yardr.",
 		onPath, self)
 }

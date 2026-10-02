@@ -12,7 +12,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/mckean/yard/internal/store"
+	"yardr.dev/yardr/internal/store"
 )
 
 // Job is everything a runner needs to start work on one bead.
@@ -428,7 +428,7 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 				return err
 			}
 			_ = d.Store.LogEvent(ctx, b.ID, "gave_up", actor, map[string]any{
-				"stage": b.Stage, "failures": fails, "hint": "fix the cause, then `yard bead unhold`"})
+				"stage": b.Stage, "failures": fails, "hint": "fix the cause, then `yardr bead unhold`"})
 			continue
 		}
 

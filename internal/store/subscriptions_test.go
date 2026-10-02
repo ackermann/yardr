@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/mckean/yard/internal/hooks"
-	"github.com/mckean/yard/internal/store"
-	"github.com/mckean/yard/internal/storetest"
+	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
 // resident creates a resident with a linear identity (id "<name>-id", key

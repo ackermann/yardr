@@ -13,7 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/mckean/yard/internal/bdp"
+	"yardr.dev/yardr/internal/bdp"
 )
 
 func (a *app) bdpCmd() *cobra.Command {
@@ -27,8 +27,8 @@ func (a *app) bdpCmd() *cobra.Command {
 The Scope URL is the canonical public address of this yard: every Bead and Link
 id is minted under it, and it is what BDP clients use. It may differ from the
 listen address (behind a proxy, or a fixed name for tests).`,
-		Example: `  yard bdp serve                                  # http://127.0.0.1:8765/yard/
-  yard bdp serve --addr :8080 --scope https://beads.example/team/`,
+		Example: `  yardr bdp serve                                  # http://127.0.0.1:8765/yard/
+  yardr bdp serve --addr :8080 --scope https://beads.example/team/`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			ctx, stop := signal.NotifyContext(c.Context(), os.Interrupt, syscall.SIGTERM)

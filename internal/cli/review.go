@@ -13,8 +13,8 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
-	"github.com/mckean/yard/internal/runner"
-	"github.com/mckean/yard/internal/store"
+	"yardr.dev/yardr/internal/runner"
+	"yardr.dev/yardr/internal/store"
 )
 
 // reviewItem is a bead waiting on a human: open, in a stage a manual group
@@ -235,7 +235,7 @@ group has you as a member, if it lists members), longest untouched first.
 Each shows its notes and the diff of its branch against the rig's base;
 pick where it goes next, open the full diff, or skip it.
 
-For scripts: yard review list, and yard bead advance <id> --to <stage> --note <text>.`,
+For scripts: yardr review list, and yardr bead advance <id> --to <stage> --note <text>.`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			st, err := a.store(c.Context())
@@ -253,7 +253,7 @@ For scripts: yard review list, and yard bead advance <id> --to <stage> --note <t
 		},
 	}
 	list := &cobra.Command{
-		Use: "list", Short: "List the beads yard review would show, with the moves each allows", Args: cobra.NoArgs,
+		Use: "list", Short: "List the beads yardr review would show, with the moves each allows", Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -340,7 +340,7 @@ func (a *app) reviewForm(ctx context.Context, st store.API, items []reviewItem) 
 			ac := it.Actions[pick]
 			if ac.Kind == actDiff {
 				if err := pageDiff(ctx, st, b); err != nil {
-					fmt.Fprintln(os.Stderr, "yard:", err)
+					fmt.Fprintln(os.Stderr, "yardr:", err)
 				}
 				continue
 			}
@@ -349,7 +349,7 @@ func (a *app) reviewForm(ctx context.Context, st store.API, items []reviewItem) 
 					if errors.Is(err, huh.ErrUserAborted) {
 						continue
 					}
-					fmt.Fprintln(os.Stderr, "yard:", err)
+					fmt.Fprintln(os.Stderr, "yardr:", err)
 					continue
 				}
 			}

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mckean/yard/internal/store"
+	"yardr.dev/yardr/internal/store"
 )
 
 func TestShowNumbers(t *testing.T) {

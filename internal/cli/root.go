@@ -13,9 +13,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/mckean/yard/internal/config"
-	"github.com/mckean/yard/internal/server"
-	"github.com/mckean/yard/internal/store"
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/server"
+	"yardr.dev/yardr/internal/store"
 )
 
 type app struct {
@@ -29,13 +29,13 @@ type app struct {
 func Execute() int {
 	a := &app{}
 	root := &cobra.Command{
-		Use:           "yard",
+		Use:           "yardr",
 		Short:         "Route beads of work to whoever works them",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
 	root.PersistentFlags().BoolVar(&a.json, "json", false, "print JSON")
-	root.PersistentFlags().StringVar(&a.actor, "actor", "", "who is acting (default $YARD_ACTOR, else $USER)")
+	root.PersistentFlags().StringVar(&a.actor, "actor", "", "who is acting (default $YARDR_ACTOR, else $USER)")
 	root.AddCommand(a.serverCmd(), a.daemonCmd(), a.rigCmd(), a.beadCmd(), a.readyCmd(),
 		a.depCmd(), a.groupCmd(), a.routeCmd(), a.flowCmd(), a.sessionCmd(), a.eventsCmd(), a.watchCmd(), a.primeCmd(),
 		a.bdpCmd(), a.residentCmd(), a.inboxCmd(), a.mailCmd(), a.rememberCmd(), a.recallCmd(), a.hookCmd(),
@@ -48,7 +48,7 @@ func Execute() int {
 		if a.json {
 			_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"error": err.Error()})
 		} else {
-			fmt.Fprintln(os.Stderr, "yard:", err)
+			fmt.Fprintln(os.Stderr, "yardr:", err)
 		}
 		if errors.Is(err, store.ErrNotFound) {
 			return 3
@@ -65,7 +65,7 @@ func (a *app) who() string {
 	return config.Actor()
 }
 
-// store connects to the yard server, starting it on first use.
+// store connects to the yardr server, starting it on first use.
 func (a *app) store(ctx context.Context) (store.API, error) {
 	if a.st != nil {
 		return a.st, nil

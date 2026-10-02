@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mckean/yard/internal/store"
+	"yardr.dev/yardr/internal/store"
 )
 
 const workTypes = "https://work.example/types/"
@@ -193,7 +193,7 @@ func (g *Graph) beadType(t string, seen map[string]TypeSummary) string {
 		// Like bd's adapter, a minted type claims no conformance.
 		conforms := []string{}
 		g.descriptors[id] = &TypeDescriptor{ID: id, Name: titleCase(t), Describes: "bead", ConformsTo: conforms,
-			Description: "yard bead type " + t}
+			Description: "yardr bead type " + t}
 		g.conforms[id] = conforms
 	}
 	seen[id] = TypeSummary{ID: id, Name: titleCase(t), Describes: "bead"}
@@ -210,7 +210,7 @@ func (g *Graph) linkType(kind string, seen map[string]TypeSummary) string {
 	if _, ok := g.descriptors[id]; !ok {
 		conforms := []string{}
 		g.descriptors[id] = &TypeDescriptor{ID: id, Name: titleCase(kind), Describes: "link", ConformsTo: conforms,
-			Description: "yard dependency kind " + kind,
+			Description: "yardr dependency kind " + kind,
 			Source:      &EndpointRule{ConformsTo: []string{}}, Target: &EndpointRule{ConformsTo: []string{}}}
 		g.conforms[id] = conforms
 	}
@@ -279,7 +279,7 @@ func beadProperties(b *store.Bead) map[string]any {
 }
 
 // status is bd's vocabulary: a held open bead is "deferred", not workable
-// now, so BDP readiness clients skip it just as `yard ready` does.
+// now, so BDP readiness clients skip it just as `yardr ready` does.
 func status(b *store.Bead) string {
 	if b.Status == "open" && b.Hold {
 		return "deferred"

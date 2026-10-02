@@ -10,8 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/mckean/yard/internal/dispatch"
-	"github.com/mckean/yard/internal/store"
+	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/store"
 )
 
 func (a *app) flowCmd() *cobra.Command {
@@ -20,8 +20,8 @@ func (a *app) flowCmd() *cobra.Command {
 	set := &cobra.Command{
 		Use:   "set <rig> -f <file>",
 		Short: "Set (replace) a rig's flow, or the flow for one bead type in the rig",
-		Example: `  yard flow set yard -f flows/yard.flow
-  yard flow set yard --type decide -f flows/decide.flow
+		Example: `  yardr flow set yard -f flows/yard.flow
+  yardr flow set yard --type decide -f flows/decide.flow
 
 A flow file has one rule per line (# starts a comment):
 

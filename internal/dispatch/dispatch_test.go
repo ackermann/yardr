@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mckean/yard/internal/dispatch"
-	"github.com/mckean/yard/internal/store"
-	"github.com/mckean/yard/internal/storetest"
+	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
 func TestMain(m *testing.M) { storetest.Main(m) }

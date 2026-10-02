@@ -11,8 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/mckean/yard/internal/hooks"
-	"github.com/mckean/yard/internal/store"
+	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/store"
 )
 
 func (a *app) hookCmd() *cobra.Command {
@@ -22,17 +22,17 @@ func (a *app) hookCmd() *cobra.Command {
 	add := &cobra.Command{
 		Use:   "add <name>",
 		Short: "Create or replace a webhook endpoint POST /hooks/<name>",
-		Long: `A hook receives webhooks from one source on the yard server's hook listener,
-which runs only when YARD_HOOK_ADDR (e.g. 127.0.0.1:8790) is set in the
+		Long: `A hook receives webhooks from one source on the yardr server's hook listener,
+which runs only when YARDR_HOOK_ADDR (e.g. 127.0.0.1:8790) is set in the
 environment the server starts in. The listener serves POST /hooks/<name> and
 nothing else. Each verified delivery becomes one 'hook' event; its raw body is
-kept for 'yard hook show <seq>'.
+kept for 'yardr hook show <seq>'.
 
 The secret stays in --secret-file and is read on every delivery, so rotating it
 is rewriting the file. Sources:
   linear  the webhook's signing secret (Linear-Signature HMAC)
   token   a shared bearer token (Authorization: Bearer <token>)`,
-		Example: `  yard hook add linear --source linear --secret-file ~/.config/yard/linear.secret`,
+		Example: `  yardr hook add linear --source linear --secret-file ~/.config/yardr/linear.secret`,
 		Args:    cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			if _, ok := hooks.Adapters[h.Source]; !ok {
@@ -54,7 +54,7 @@ is rewriting the file. Sources:
 			return a.out(saved, func() {
 				fmt.Printf("hook %s saved: POST /hooks/%s (%s)\n", saved.Name, saved.Name, saved.Source)
 				if a.cfg != nil && a.cfg.HookAddr == "" {
-					fmt.Println("note: YARD_HOOK_ADDR is not set here; the server receives hooks only if it was started with it")
+					fmt.Println("note: YARDR_HOOK_ADDR is not set here; the server receives hooks only if it was started with it")
 				}
 			})
 		},

@@ -14,9 +14,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mckean/yard/internal/bdp"
-	"github.com/mckean/yard/internal/store"
-	"github.com/mckean/yard/internal/storetest"
+	"yardr.dev/yardr/internal/bdp"
+	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
 func TestMain(m *testing.M) { storetest.Main(m) }

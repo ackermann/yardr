@@ -4,7 +4,7 @@ fixture, yard = sys.argv[1], sys.argv[2]
 f = json.load(open(fixture))
 def y(*args):
     r = subprocess.run([yard, *args, "--json", "--actor", "bdp-conformance"], capture_output=True, text=True)
-    if r.returncode: sys.exit(f"yard {' '.join(args)}: {r.stdout}{r.stderr}")
+    if r.returncode: sys.exit(f"yardr {' '.join(args)}: {r.stdout}{r.stderr}")
     return json.loads(r.stdout) if r.stdout.strip() else None
 for b in f["beads"]:
     p = b["properties"]; bid = b["localId"].split("/", 1)[1]

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mckean/yard/internal/store"
-	"github.com/mckean/yard/internal/storetest"
+	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
 const reviewFlow = `

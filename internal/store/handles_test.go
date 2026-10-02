@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mckean/yard/internal/store"
-	"github.com/mckean/yard/internal/storetest"
 	bolt "go.etcd.io/bbolt"
+	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
 func TestMintedBeadsHaveUUIDAndHandle(t *testing.T) {

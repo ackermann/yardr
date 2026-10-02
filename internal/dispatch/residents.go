@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mckean/yard/internal/store"
+	"yardr.dev/yardr/internal/store"
 )
 
 // ResidentRunner starts always-on sessions that are not tied to a bead.
@@ -118,8 +118,8 @@ func (d *Dispatcher) residentRunning(ctx context.Context, runner Runner, r store
 		switch {
 		case r.RotationAskedAt == nil && idle:
 			if err := d.nudge(ctx, runner, r, fmt.Sprintf(
-				"Your session is due for rotation. Write your handoff now: yard resident handoff %s \"<what you are doing, what is next, what to watch>\". "+
-					"yard then starts your next session from it.", r.Name)); err != nil {
+				"Your session is due for rotation. Write your handoff now: yardr resident handoff %s \"<what you are doing, what is next, what to watch>\". "+
+					"yardr then starts your next session from it.", r.Name)); err != nil {
 				return err
 			}
 			return d.Store.MarkRotationAsked(ctx, r.Name)
@@ -144,7 +144,7 @@ func (d *Dispatcher) residentRunning(ctx context.Context, runner Runner, r store
 	if page.Total > len(page.Events) {
 		more = ", …"
 	}
-	msg := fmt.Sprintf("yard: %d new in your inbox (%s%s). Run yard inbox to read them, and yard inbox --ack when handled.",
+	msg := fmt.Sprintf("yardr: %d new in your inbox (%s%s). Run yardr inbox to read them, and yardr inbox --ack when handled.",
 		page.Total, strings.Join(kinds, ", "), more)
 	if err := d.nudge(ctx, runner, r, msg); err != nil {
 		return err

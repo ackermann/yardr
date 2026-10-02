@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/mckean/yard/internal/hooks"
-	"github.com/mckean/yard/internal/store"
-	"github.com/mckean/yard/internal/storetest"
+	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
 // threads lists the resident's threads as "source/thread how".

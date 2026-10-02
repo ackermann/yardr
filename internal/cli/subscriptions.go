@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/mckean/yard/internal/hooks"
-	"github.com/mckean/yard/internal/store"
+	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/store"
 )
 
 func checkSource(src string) error {
@@ -31,9 +31,9 @@ the assignee is its --id, and never hears of deliveries it is the actor of.
 
 In Linear, --id is the user id and --key the profile URL key
 (https://linear.app/<org>/profiles/<key>): markdown mentions carry only the key.`,
-		Example: `  yard resident identity mayor --source linear --id 4d3a2b1c-... --key mayor
-  yard resident identity mayor
-  yard resident identity mayor --source linear --rm`,
+		Example: `  yardr resident identity mayor --source linear --id 4d3a2b1c-... --key mayor
+  yardr resident identity mayor
+  yardr resident identity mayor --source linear --rm`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
@@ -104,17 +104,17 @@ func (a *app) subscribeCmd() *cobra.Command {
 		Short: "Deliver a source's hook events to a resident's inbox",
 		Long: `Which hook deliveries reach the resident, decided when each arrives:
   all       every delivery from the source
-  mentions  deliveries that mention it (needs yard resident identity)
+  mentions  deliveries that mention it (needs yardr resident identity)
   involved  deliveries that mention it or assign it, or are in a thread it
-            participates in (it acted there, or yard thread follow)
+            participates in (it acted there, or yardr thread follow)
 
 --where narrows a subscription by exact matches, all of which must hold, on
 ` + strings.Join(store.WhereKeys, ", ") + `. Linear exposes team (key or name),
 project and label (any of the issue's labels). Each delivery records why it
 reached the resident: all, mentioned, assigned or participant. Deliveries a resident is
 the actor of never reach it.`,
-		Example: `  yard subscribe mayor --source linear --scope involved
-  yard subscribe triage --source linear --scope all --where type=issue --where action=create --where team=ENG`,
+		Example: `  yardr subscribe mayor --source linear --scope involved
+  yardr subscribe triage --source linear --scope all --where type=issue --where action=create --where team=ENG`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			if err := checkSource(sub.Source); err != nil {
@@ -139,7 +139,7 @@ the actor of never reach it.`,
 			return a.out(r.Subscriptions, func() {
 				fmt.Printf("%s subscribed: %s\n", r.Name, sub)
 				if _, ok := r.Identities[sub.Source]; !ok && sub.Scope != store.ScopeAll {
-					fmt.Printf("note: %s has no %s identity, so it is never mentioned or assigned: yard resident identity %s --source %s --id ...\n",
+					fmt.Printf("note: %s has no %s identity, so it is never mentioned or assigned: yardr resident identity %s --source %s --id ...\n",
 						r.Name, sub.Source, r.Name, sub.Source)
 				}
 			})
@@ -231,7 +231,7 @@ func (a *app) threadCmd() *cobra.Command {
 		Use:   "thread",
 		Short: "Threads a resident participates in",
 		Long: `A resident participates in a source's thread (in Linear, an issue) once a hook
-delivery shows it acting there under its identity, or after yard thread
+delivery shows it acting there under its identity, or after yardr thread
 follow. An involved subscription then also delivers what others do in the
 thread, with reason participant. Unfollowing stops that until the resident
 acts in the thread again.`,
@@ -251,7 +251,7 @@ acts in the thread again.`,
 	follow := &cobra.Command{
 		Use:     "follow <resident> <thread-id>",
 		Short:   "Make a resident a participant in a thread",
-		Example: `  yard thread follow mayor --source linear 539068e2-ae88-4d09-bd75-22eb4a59612f`,
+		Example: `  yardr thread follow mayor --source linear 539068e2-ae88-4d09-bd75-22eb4a59612f`,
 		Args:    threadArgs(&source),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())

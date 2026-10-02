@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mckean/yard/internal/dispatch"
-	"github.com/mckean/yard/internal/store"
+	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/store"
 )
 
 // Notified is the event logged on a bead once a human was told it waits in
@@ -144,8 +144,8 @@ func AlreadyNotified(ctx context.Context, st store.API, bead, stage string) (boo
 
 // NotificationText names the bead, its title and stage, and how to act.
 func NotificationText(bead, beadTitle, stage, group string) (title, body string) {
-	title = fmt.Sprintf("yard: %s needs you (%s)", bead, stage)
-	body = fmt.Sprintf("%s\nstage %s · group %s\nyard bead show %s", beadTitle, stage, group, bead)
+	title = fmt.Sprintf("yardr: %s needs you (%s)", bead, stage)
+	body = fmt.Sprintf("%s\nstage %s · group %s\nyardr bead show %s", beadTitle, stage, group, bead)
 	return title, body
 }
 

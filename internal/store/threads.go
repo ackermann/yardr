@@ -17,7 +17,7 @@ func init() { allBuckets = append(allBuckets, bThreads) }
 // How a resident came to participate in a thread.
 const (
 	ParticipantActed    = "acted"    // a hook delivery showed it acting there
-	ParticipantFollowed = "followed" // yard thread follow
+	ParticipantFollowed = "followed" // yardr thread follow
 )
 
 // Participation is a resident taking part in a source's thread (in Linear,

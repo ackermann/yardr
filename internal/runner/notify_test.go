@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mckean/yard/internal/dispatch"
-	"github.com/mckean/yard/internal/store"
-	"github.com/mckean/yard/internal/storetest"
+	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
 type shown struct{ titles, bodies []string }
@@ -55,7 +55,7 @@ func TestManualNotifiesOncePerBeadAndStage(t *testing.T) {
 		t.Fatalf("notifications after first claim = %d, want 1", len(s.titles))
 	}
 	if !strings.Contains(s.titles[0], b.ID) || !strings.Contains(s.titles[0], "review") ||
-		!strings.Contains(s.bodies[0], "Add login") || !strings.Contains(s.bodies[0], "yard bead show "+b.ID) {
+		!strings.Contains(s.bodies[0], "Add login") || !strings.Contains(s.bodies[0], "yardr bead show "+b.ID) {
 		t.Fatalf("notification lacks bead, stage, title or action: %q / %q", s.titles[0], s.bodies[0])
 	}
 

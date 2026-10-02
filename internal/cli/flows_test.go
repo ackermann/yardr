@@ -5,8 +5,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/mckean/yard/internal/store"
-	"github.com/mckean/yard/internal/storetest"
+	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
 func TestFlowViews(t *testing.T) {

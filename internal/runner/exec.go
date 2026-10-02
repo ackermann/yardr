@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"syscall"
 
-	"github.com/mckean/yard/internal/dispatch"
+	"yardr.dev/yardr/internal/dispatch"
 )
 
 // Exec runs config.cmd with sh -c, detached, logging to config.log or
