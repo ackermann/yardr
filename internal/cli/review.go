@@ -167,7 +167,8 @@ func lookActions() []reviewAction {
 }
 
 // diffRange is the bead branch against the rig's base, as git diff takes
-// it, and the rig checkout to run it in.
+// it, and the rig checkout to run it in. A dir rig has no branches: its
+// beads' outputs are files in the directory, named in their notes.
 func diffRange(ctx context.Context, st store.API, b store.Bead) (dir, rng string, err error) {
 	if b.Rig == nil {
 		return "", "", fmt.Errorf("bead %s has no rig", b.ID)
@@ -175,6 +176,9 @@ func diffRange(ctx context.Context, st store.API, b store.Bead) (dir, rng string
 	rig, err := st.GetRig(ctx, *b.Rig)
 	if err != nil {
 		return "", "", err
+	}
+	if rig.IsDir() {
+		return "", "", fmt.Errorf("no diff in dir rig %s: the outputs are in %s, as the notes name them", rig.Name, rig.Path)
 	}
 	branch := runner.Branch(b)
 	if err := exec.CommandContext(ctx, "git", "-C", rig.Path, "rev-parse", "--verify", "--quiet", branch+"^{commit}").Run(); err != nil {
@@ -240,8 +244,9 @@ func (a *app) reviewCmd() *cobra.Command {
 		Short: "Work through beads waiting on you in human stages, one form per bead",
 		Long: `Walks the open beads in stages routed to manual groups (only those whose
 group has you as a member, if it lists members), longest untouched first.
-Each shows its notes and the diff of its branch against the rig's base;
-pick where it goes next, open the full diff, or skip it.
+Each shows its notes and the diff of its branch against the rig's base (for
+a dir rig's bead, where its outputs are); pick where it goes next, open the
+full diff, or skip it.
 
 For scripts: yardr review list, and yardr bead done <id> --outcome <outcome>
 --note <text> (or yardr bead advance <id> --to <stage> where the stage

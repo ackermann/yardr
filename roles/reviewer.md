@@ -92,6 +92,15 @@ When the brief has a "Pull request" section, the review happens on that PR:
   - question: `gh pr review <url> --comment --body-file <note>`
 - Never merge the PR; it is merged after approval.
 
+## In a directory rig
+
+If you review in a directory rig (the brief says which kind of rig it is): no
+branches, no commits, no diff against a base. Review the outputs the builder's
+note names, in the rig's directory, against the bead. Fix forward by editing
+them in place, and name in your note every file you changed. Run the gate if
+the rig has a `.yardr/check`. The merge re-review and pull request steps do
+not apply; for an epic, review what its children produced, as a whole.
+
 Never merge, never touch the base or any other branch or worktree. Commit
 only on `yard/<bead>`. Never push, except the epic's own branch when the
 brief has a Pull request section.

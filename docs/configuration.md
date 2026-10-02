@@ -381,7 +381,7 @@ of its own (`yardr daemon`).
 
 ### Seeding a rig: `yardr rig init`
 
-`yardr rig init <rig> [--operator <name>] [--mayor <name>]` writes a
+`yardr rig init <rig> [--operator <name>] [--mayor <name>] [--with-mayor]` writes a
 registered rig's starting configuration into its checkout:
 
 | file | content |
@@ -393,9 +393,15 @@ registered rig's starting configuration into its checkout:
 The flow is `default.flow`, not a named one, so it governs the rig without a
 pointer (a store pointer, as `yardr rig flow` sets, still wins).
 
+A dir rig (`--kind dir`) gets builder and reviewer roles only (no merger, as nothing merges;
+the mayor's with `--with-mayor`), no `.yardr/check` (a dir rig has no gate until one
+adds it), and two flows: `default.flow` (backlog, new, review, done, decide)
+and `type/epic.flow` (the same with `open` for `new`). They apply at once,
+read from the directory; [dir-rigs.md](dir-rigs.md) walks through them.
+
 It never overwrites a file that is there, so a second run changes nothing, and
-it commits nothing: roles, the gate and flows are read from the rig's base
-branch, so they take effect once the operator (or the mayor, with their OK)
+it commits nothing. In a git rig roles, the gate and flows are read from the
+base branch, so they take effect once the operator (or the mayor, with their OK)
 commits them there. It prints what it wrote and the commit to make.
 
 ### Settings

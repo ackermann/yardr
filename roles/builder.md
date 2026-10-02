@@ -35,3 +35,12 @@ sees held beads.
    `yardr dep add`.
 3. It is a question about the bead itself (an unclear goal, a design
    choice): note it and `yardr bead done <id> --outcome question`, as above.
+
+## In a directory rig
+
+If you work in a directory rig (the brief says which kind of rig it is): no
+branches, no commits. You work in the rig's directory itself, where other
+beads may be at work too, so touch only the files and folders your bead names.
+Name your outputs: your note lists every file you wrote or changed, by path.
+The gate is the rig's `.yardr/check` if it has one (`yardr rig check <rig>`
+passes with "no gate" otherwise); steps 3 and 5 apply only as far as that.

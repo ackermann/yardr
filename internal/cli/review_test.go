@@ -235,6 +235,24 @@ func TestDiffStat(t *testing.T) {
 	}
 }
 
+// A dir rig's bead has no branch to diff: review says where its outputs are
+// rather than that a branch is missing.
+func TestDiffStatDirRig(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	if err := st.PutRig(ctx, store.Rig{Name: "invoices", Path: dir, Kind: store.RigDir}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "x", Rig: "invoices", Stage: "review"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := diffStat(ctx, st, *b); got != "no diff in dir rig invoices: the outputs are in "+dir+", as the notes name them" {
+		t.Fatalf("dir rig: %q", got)
+	}
+}
+
 // Off a terminal yardr review lists the queue instead of opening a form that
 // nobody can answer.
 func TestReviewListsWhenNotATerminal(t *testing.T) {

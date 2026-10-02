@@ -30,10 +30,37 @@ decide -> backlog | new
 merged terminal
 `
 
+// dirFlow is the flow rig init seeds in a dir rig: nothing merges there,
+// so a reviewed bead is done, and done closes it.
+const dirFlow = `# The rig's flow, written by yardr rig init for a directory rig. yardr reads
+# it from the directory as it is; see docs/dir-rigs.md.
+backlog -> new | decide
+new -> review on done | decide on question | backlog
+review -> done on done | new on changes | decide on question
+decide -> backlog | new
+done terminal
+`
+
+// dirEpicFlow governs a dir rig's epics. They only group their children,
+// which work in the same directory: there is no epic branch to integrate,
+// so once the children are closed the epic is reviewed as a whole. Its open
+// stage goes to the rig's reviewers by a route the operator adds.
+const dirEpicFlow = `# The flow of the rig's epics, written by yardr rig init for a directory rig.
+# An epic waits in open while its children are open (each child blocks it);
+# then a route for open (--type epic) hands it to the rig's reviewers, who
+# look at what the children produced as a whole. See docs/dir-rigs.md.
+backlog -> open
+open -> review on done | backlog
+review -> done on done | open on changes | decide on question
+decide -> open | backlog
+done terminal
+`
+
 // rigInitResult is what rig init wrote into a rig's checkout.
 type rigInitResult struct {
 	Rig      string   `json:"rig"`
 	Path     string   `json:"path"`
+	Kind     string   `json:"kind"`
 	Base     string   `json:"base"`
 	Operator string   `json:"operator"`
 	Mayor    string   `json:"mayor"`   // the resident the roles tell agents to mail
@@ -44,8 +71,9 @@ type rigInitResult struct {
 
 func (a *app) rigInitCmd() *cobra.Command {
 	var operator, mayor string
+	var withMayor bool
 	cmd := &cobra.Command{
-		Use:   "init <rig> [--operator <name>] [--mayor <name>]",
+		Use:   "init <rig> [--operator <name>] [--mayor <name>] [--with-mayor]",
 		Short: "Seed a rig's repo with starter roles, a gate and a flow under .yardr/",
 		Long: `Write a rig's starting configuration into its checkout:
 
@@ -60,9 +88,20 @@ script runs it, anything else passes with a TODO. Read it before relying on it.
 
 A file already there is never overwritten. Nothing is committed: yardr reads
 roles, the gate and flows from the rig's base branch, so commit the files
-there before they take effect.`,
+there before they take effect.
+
+A dir rig gets less, since nothing merges there (see docs/dir-rigs.md):
+
+  .yardr/roles/{builder,reviewer}.md                plus mayor.md with --with-mayor
+  .yardr/flows/default.flow                         backlog, new, review, done, decide
+  .yardr/flows/type/epic.flow                       the epics': backlog, open, review, done, decide
+
+and no check: a dir rig has no gate unless one adds .yardr/check. The files
+apply at once, as yardr reads a dir rig's .yardr/ from the directory.`,
 		Example: `  yardr rig init webapp
-  yardr rig init webapp --operator Jo --mayor boss`,
+  yardr rig init webapp --operator Jo --mayor boss
+  yardr rig init invoices          # a dir rig
+  yardr rig init invoices --with-mayor`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
@@ -79,7 +118,7 @@ there before they take effect.`,
 			if mayor == "" {
 				mayor = yardMayor(c.Context(), st)
 			}
-			res, err := rigInit(*rig, operator, mayor)
+			res, err := rigInit(*rig, operator, mayor, withMayor)
 			if err != nil {
 				return err
 			}
@@ -88,6 +127,7 @@ there before they take effect.`,
 	}
 	cmd.Flags().StringVar(&operator, "operator", "", "who the roles name (default: the yard's operator setting, else $USER)")
 	cmd.Flags().StringVar(&mayor, "mayor", "", "the mayor the roles tell agents to mail (default: the yard's mayor setting, else its one resident, else mayor)")
+	cmd.Flags().BoolVar(&withMayor, "with-mayor", false, "dir rigs: write mayor.md too (a git rig always gets it)")
 	return cmd
 }
 
@@ -114,24 +154,40 @@ func yardMayor(ctx context.Context, st store.API) string {
 }
 
 // rigInit writes the starter files into rig's checkout, keeping any already
-// there.
-func rigInit(rig store.Rig, operator, mayor string) (*rigInitResult, error) {
-	res := &rigInitResult{Rig: rig.Name, Path: rig.Path, Base: rig.Base, Operator: operator, Mayor: mayor}
-	written, kept, err := installRoles(filepath.Join(rig.Path, ".yardr", "roles"), operator, mayor)
+// there. A dir rig gets no merger, the mayor's role only when asked
+// (withMayor), no check and the dir flows.
+func rigInit(rig store.Rig, operator, mayor string, withMayor bool) (*rigInitResult, error) {
+	res := &rigInitResult{Rig: rig.Name, Path: rig.Path, Kind: rig.Kind, Base: rig.Base, Operator: operator, Mayor: mayor}
+	type file struct {
+		path string
+		body string
+		mode fs.FileMode
+	}
+	var only []string
+	var files []file
+	if rig.IsDir() {
+		only = []string{"builder.md", "reviewer.md"}
+		if withMayor {
+			only = append(only, "mayor.md")
+		}
+		files = []file{
+			{filepath.Join(".yardr", "flows", "default.flow"), dirFlow, 0o644},
+			{filepath.Join(".yardr", "flows", "type", "epic.flow"), dirEpicFlow, 0o644},
+		}
+	} else {
+		gate, script := guessGate(rig)
+		res.Gate = gate
+		files = []file{
+			{rigcheck.RepoPath, script, 0o755},
+			{filepath.Join(".yardr", "flows", "default.flow"), starterFlow, 0o644},
+		}
+	}
+	written, kept, err := installRoles(filepath.Join(rig.Path, ".yardr", "roles"), operator, mayor, only...)
 	if err != nil {
 		return nil, err
 	}
 	res.Written, res.Kept = relAll(rig.Path, written), relAll(rig.Path, kept)
-	gate, script := guessGate(rig)
-	res.Gate = gate
-	for _, f := range []struct {
-		path string
-		body string
-		mode fs.FileMode
-	}{
-		{rigcheck.RepoPath, script, 0o755},
-		{filepath.Join(".yardr", "flows", "default.flow"), starterFlow, 0o644},
-	} {
+	for _, f := range files {
 		ok, err := writeNew(filepath.Join(rig.Path, f.path), f.body, f.mode)
 		if err != nil {
 			return nil, err
@@ -233,6 +289,10 @@ func (r *rigInitResult) print() {
 	for _, p := range r.Kept {
 		fmt.Printf("  %s (already there, kept)\n", p)
 	}
+	if r.Kind == store.RigDir {
+		r.printDir()
+		return
+	}
 	fmt.Printf("\nThe roles name %s, and %s as the mayor.", r.Operator, r.Mayor)
 	if r.Gate != "" {
 		fmt.Printf(" The gate runs %s (a guess from the repo: check it).\n", r.Gate)
@@ -242,4 +302,13 @@ func (r *rigInitResult) print() {
 	fmt.Printf("\nNothing is committed. yardr reads roles, the gate and the flow from %s,\n"+
 		"so the operator (or the mayor, with their OK) commits them there:\n\n"+
 		"  git -C %s add .yardr && git -C %s commit -m 'yardr: starter roles, gate and flow'\n", r.Base, r.Path, r.Path)
+}
+
+func (r *rigInitResult) printDir() {
+	fmt.Printf("\nThe roles name %s, and %s as the mayor. A dir rig has no gate unless one adds %s:\n"+
+		"until then yardr rig check passes with \"no gate\", as nothing merges.\n", r.Operator, r.Mayor, rigcheck.RepoPath)
+	fmt.Printf("\nThey apply as they are: yardr reads a dir rig's .yardr/ from %s.\n"+
+		"Route new to the builders and review to the reviewers (or a manual group,\n"+
+		"for yardr review); for epics, route open --type epic to the reviewers.\n"+
+		"See docs/dir-rigs.md.\n", r.Path)
 }

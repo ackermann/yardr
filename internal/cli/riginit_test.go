@@ -235,3 +235,135 @@ func snapshot(t *testing.T, dir string) map[string]string {
 	}
 	return m
 }
+
+// rig init on a dir rig writes the builder and reviewer roles, no merger, no
+// check, and the dir flows, which govern the rig's tasks and epics from the
+// directory without a pointer; the mayor's role only with --with-mayor.
+func TestRigInitDir(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	if err := st.PutRig(ctx, store.Rig{Name: "invoices", Path: dir, Kind: store.RigDir}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, actor: "me"}
+	out, err := run(t, a.rigCmd(), "init", "invoices", "--operator", "Jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{".yardr/flows/default.flow", ".yardr/flows/type/epic.flow", ".yardr/roles/builder.md", ".yardr/roles/reviewer.md"}
+	var got []string
+	for p := range snapshot(t, dir) {
+		got = append(got, strings.TrimPrefix(p, dir+"/"))
+	}
+	if slices.Sort(got); !slices.Equal(got, want) {
+		t.Fatalf("files = %v; want %v", got, want)
+	}
+	for _, s := range []string{"no gate", ".yardr/check", "docs/dir-rigs.md", "open --type epic"} {
+		if !strings.Contains(out, s) {
+			t.Errorf("output lacks %q:\n%s", s, out)
+		}
+	}
+	if strings.Contains(out, "git -C") || strings.Contains(out, "Nothing is committed") {
+		t.Errorf("a dir rig has nothing to commit:\n%s", out)
+	}
+	tmpl, _ := roles.FS.ReadFile("builder.md")
+	if got, _ := os.ReadFile(filepath.Join(dir, ".yardr", "roles", "builder.md")); !bytes.Equal(got, fillRole(tmpl, "Jo", "mayor")) {
+		t.Fatalf("builder.md:\n%s", got)
+	}
+	for path, body := range map[string]string{"default.flow": dirFlow, "type/epic.flow": dirEpicFlow} {
+		if got, _ := os.ReadFile(filepath.Join(dir, ".yardr", "flows", path)); string(got) != body {
+			t.Errorf("%s:\n%s", path, got)
+		}
+	}
+
+	// The flows govern as they are: no pointer in the store, the epic's from
+	// its type file.
+	if ptrs, err := st.FlowPointers(ctx); err != nil || len(ptrs) != 0 {
+		t.Fatalf("pointers = %v, %v", ptrs, err)
+	}
+	for typ, want := range map[string]string{"task": "default (repo (directory))", store.TypeEpic: "type/epic (repo (directory), type epic)"} {
+		b, err := st.CreateBead(ctx, store.NewBead{Title: typ, Rig: "invoices", Type: typ, Stage: "backlog"}, "me")
+		if err != nil {
+			t.Fatal(err)
+		}
+		next, err := st.NextStages(ctx, b.ID)
+		if err != nil || next.Flow == nil {
+			t.Fatalf("%s: %+v, %v", typ, next, err)
+		}
+		if got := next.Flow.Name + " (" + next.Source.String() + ")"; got != want {
+			t.Errorf("%s is governed by %s; want %s", typ, got, want)
+		}
+	}
+
+	// --with-mayor adds the mayor's role and keeps the rest.
+	out, err = run(t, a.rigCmd(), "init", "invoices", "--with-mayor")
+	if err != nil || !strings.Contains(out, ".yardr/roles/mayor.md\n") || !strings.Contains(out, "builder.md (already there, kept)") {
+		t.Fatalf("--with-mayor: %v\n%s", err, out)
+	}
+	snap := snapshot(t, dir)
+	if _, ok := snap[filepath.Join(dir, ".yardr/roles/merger.md")]; ok {
+		t.Fatal("a dir rig got the merger's role")
+	}
+	out, err = run(t, a.rigCmd(), "init", "invoices", "--with-mayor")
+	if err != nil || !strings.Contains(out, "nothing written") || !maps.Equal(snap, snapshot(t, dir)) {
+		t.Fatalf("third run: %v\n%s", err, out)
+	}
+}
+
+// The dir flows, walked: a task is built, reviewed (sent back once, asked
+// about once) and done, which closes it; an epic waits in open, is reviewed
+// as a whole and done.
+func TestDirRigFlowsWalk(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	rig := store.Rig{Name: "invoices", Path: t.TempDir(), Kind: store.RigDir}
+	if err := st.PutRig(ctx, rig, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rigInit(rig, "Jo", "boss", false); err != nil {
+		t.Fatal(err)
+	}
+	walk := func(typ string, steps [][2]string) *store.Bead {
+		t.Helper()
+		b, err := st.CreateBead(ctx, store.NewBead{Title: typ, Rig: "invoices", Type: typ, Stage: "backlog"}, "me")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range steps {
+			move, want := s[0], s[1]
+			if to, ok := strings.CutPrefix(move, "->"); ok {
+				b, err = st.Advance(ctx, b.ID, to, "me")
+			} else {
+				b, err = st.Done(ctx, b.ID, move, "", store.Expect{}, "me")
+			}
+			if err != nil || b.Stage != want {
+				t.Fatalf("%s: %s from %v: %v; want %s", typ, move, b, err, want)
+			}
+		}
+		return b
+	}
+	task := walk("task", [][2]string{
+		{"->new", "new"}, {"done", "review"}, {"changes", "new"}, {"done", "review"},
+		{"question", "decide"}, {"->new", "new"}, {"done", "review"}, {"done", "done"},
+	})
+	if task.Status != "closed" {
+		t.Fatalf("a done task is %s", task.Status)
+	}
+	epic := walk(store.TypeEpic, [][2]string{
+		{"->open", "open"}, {"done", "review"}, {"changes", "open"}, {"done", "review"},
+		{"question", "decide"}, {"->open", "open"}, {"done", "review"}, {"done", "done"},
+	})
+	if epic.Status != "closed" {
+		t.Fatalf("a done epic is %s", epic.Status)
+	}
+
+	// Neither flow has the git stages: nothing merges in a dir rig.
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "x", Rig: "invoices"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Advance(ctx, b.ID, "approved", "me"); err == nil {
+		t.Fatal("a dir rig's task reached approved")
+	}
+}

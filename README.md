@@ -119,6 +119,9 @@ bead types and dependency kinds, are lowercase letters, digits, `.`, `_` and
 `-`. `rig rm` removes a rig with its routes and flow pointers, and is refused
 while the rig has open beads or live sessions; it touches nothing on disk.
 
+A rig can also be a plain directory, a folder of documents or invoices with no
+git (`--kind dir`): see [docs/dir-rigs.md](docs/dir-rigs.md) for a worked example.
+
 ## Working a bead (humans and agents alike)
 
 ```sh
