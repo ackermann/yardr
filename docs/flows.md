@@ -127,8 +127,9 @@ anywhere: beads there wait for a human.
 A line `<stage> terminal` marks a stage that ends the bead: advancing into it
 closes the bead with the stage name as its reason, in one write. A terminal
 stage has no outgoing rules and needs no route. `yardr bead close` still
-works without one, for beads that end outside the flow (the interim
-refinery closes beads this way, see [pipeline.md](pipeline.md)).
+works without one, for beads that end outside the flow (the reference
+refinery falls back to it when the flow has no `merged`, see
+[pipeline.md](pipeline.md#4-approved-the-refinery-lands-it-on-main)).
 
 ## Worked example: rig yard
 
@@ -145,7 +146,9 @@ backlog -> new | decide
 new -> review | backlog | decide
 decide -> backlog | new
 review -> approved | new | decide
-approved -> new
+approved -> merged | merge | new
+merge -> review | new | decide
+merged terminal
 ```
 
 | stage | group | runner |
@@ -153,17 +156,15 @@ approved -> new
 | backlog | `backlog` | manual (humans; the mayor shapes beads here) |
 | new | `yard-builders` | herdr, Claude Code, `prompt=roles/builder.md` |
 | review | `yard-codex-review` | herdr, Codex, reviewer prompt in `~/.yardr/roles/` |
-| approved | `yard-refinery` | exec, limit 1, the interim merge script |
+| approved | `yard-refinery` | exec, limit 1, [`contrib/refinery/merge-local`](../contrib/refinery/merge-local) |
+| merge | `mergers` | herdr, Claude Code (Sonnet), limit 1, `prompt=roles/merger.md` |
 | decide | `decisions` | manual (Christopher) |
 
-`approved` has only `new` as a way on: the interim refinery either sends a
-bead back to the builders or closes it with `bead close` once merged. A
-`merged` terminal stage arrives with the real refinery (yard-23). Once the
-mergers are wired ([pipeline.md](pipeline.md#5-merge-a-merger-resolves-conflicts)),
-a conflict goes to `merge` instead: `approved -> new | merge` and
-`merge -> review | new | decide`. The merger sends a resolved rebase to
-`review`, where the reviewer checks only its conflict resolution before
-returning it to `approved`.
+The refinery lands an approved bead and advances it to `merged`, which
+closes it; a red gate sends it back to `new`, a conflict to `merge`. The
+merger sends a resolved rebase to `review`, where the reviewer checks only
+its conflict resolution before returning it to `approved`
+([pipeline.md](pipeline.md#5-merge-a-merger-resolves-conflicts)).
 
 Decision beads follow their own type flow: a human decides, and entering
 `decided` closes the bead.

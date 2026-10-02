@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -148,6 +149,55 @@ func TestExecLifecycle(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("still alive after stop")
+}
+
+// A refinery script lands a bead from its environment alone: rig, base,
+// branch, worktree and this yardr, with the group as actor.
+func TestExecEnvNamesTheBeadsWork(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	out := filepath.Join(dir, "env")
+	e := &Exec{Home: "/yh", Bin: "/bin/yardr"}
+	vars := "YARDR_BEAD YARDR_ACTOR YARDR_RIG YARDR_RIG_PATH YARDR_BASE YARDR_BRANCH YARDR_WORKTREE YARDR_BIN YARDR_HOME YARD_WORKTREE"
+	job := dispatch.Job{
+		Bead:    store.Bead{ID: "yd-7", Stage: "approved"},
+		Group:   store.Group{Name: "refinery", Config: map[string]any{"cmd": "printenv " + vars + " > " + out}},
+		Rig:     &store.Rig{Name: "web", Path: dir, Base: "main"},
+		Session: store.Session{ID: "s1"},
+	}
+	if _, err := e.Start(ctx, job); err != nil {
+		t.Fatal(err)
+	}
+	want := "yd-7 refinery web " + dir + " main yard/yd-7 /yh/worktrees/web/yd-7 /bin/yardr /yh /yh/worktrees/web/yd-7"
+	var got string
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		b, _ := os.ReadFile(out)
+		if got = strings.Join(strings.Fields(string(b)), " "); got == want {
+			return
+		}
+	}
+	t.Fatalf("env = %q, want %q", got, want)
+}
+
+// config.worktrees moves the worktree as it does for herdr groups.
+func TestExecEnvWorktreesConfig(t *testing.T) {
+	e := &Exec{Home: "/yh"}
+	job := dispatch.Job{
+		Bead:  store.Bead{ID: "yd-7"},
+		Group: store.Group{Name: "refinery", Config: map[string]any{"worktrees": "/wt"}},
+		Rig:   &store.Rig{Name: "web", Path: "/r", Base: "main"},
+	}
+	if env := e.env(job); !slices.Contains(env, "YARDR_WORKTREE=/wt/web/yd-7") {
+		t.Fatalf("config.worktrees ignored: %v", env)
+	}
+	// Without a rig there is no worktree, but the branch is still known.
+	job.Rig = nil
+	env := e.env(job)
+	if !slices.Contains(env, "YARDR_BRANCH=yard/yd-7") || slices.ContainsFunc(env, func(s string) bool {
+		return strings.HasPrefix(s, "YARDR_WORKTREE=")
+	}) {
+		t.Fatalf("env without a rig: %v", env)
+	}
 }
 
 // fakeHerdrBin writes a script that answers like herdr: results on stdout,

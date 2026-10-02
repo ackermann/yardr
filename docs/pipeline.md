@@ -63,27 +63,85 @@ the range-diff and advances to `approved`; otherwise it sends the bead to
 
 ## 4. Approved: the refinery lands it on main
 
-`approved` is routed to `yard-refinery`. Today this is an **interim
-refinery**: an `exec` group with limit 1 (so a serial merge queue) whose
-`cmd` is a script outside the repo, `~/.yardr/scripts/refinery-local.sh`,
-logging to `~/.yardr/logs/refinery.log`. For each bead it:
+yardr takes no position on how work lands: a PR per bead, a shared PR
+several beads funnel into, or a direct merge. The refinery is not built in;
+it is a composition. A stage (`approved`) is routed to an `exec` group whose
+script does the landing, and `--limit 1` on the group makes it a serial merge
+queue. yardr provides the mechanism and ships one reference script,
+[`contrib/refinery/merge-local`](../contrib/refinery/merge-local); rig yard
+uses it to merge directly to `main`.
 
-1. rebases `yard/<bead>` onto `main` if `main` moved; on a conflict it aborts
-   the rebase and sends the bead to `merge` with the conflicting files
-   (section 5);
-2. runs the checks on exactly what will land; red sends the bead back to
-   `new` with the tail of the output;
-3. fast-forwards `main` (never forcing, never touching a dirty checkout: if
-   `main` is checked out with uncommitted changes, it holds the bead) and
-   closes the bead with `merged <sha>`.
+**The mechanism.** The exec runner starts the script in the rig with
+everything it needs in its environment ([groups.md](groups.md#runners)):
+`YARDR_BEAD`, `YARDR_RIG`, `YARDR_RIG_PATH`, `YARDR_BASE`, `YARDR_BRANCH`
+(`yard/<bead>`), `YARDR_WORKTREE`, `YARDR_BIN` (this yardr), and
+`YARDR_ACTOR` set to the group. The gate is `yardr rig check "$YARDR_RIG"
+--dir "$YARDR_WORKTREE"`: `.yardr/check` as it is on the base, or the rig's
+`--check`. The script finishes by moving the bead, with a note:
+`yardr bead advance "$YARDR_BEAD" --to <stage> --note -`. A script that
+exits without advancing, closing or holding counts as a failed session, like
+an agent that gives up, and after 3 of those the bead is held. Advancing ends
+the session and the daemon stops the script, so it is the script's last step.
 
-It hard-codes rig yard, `main`, the worktree path and the checks. The real
-refinery (*planned, yard-23*) replaces it: the exec runner passes rig, base,
-branch, worktree and check through the environment, a reference script is
-versioned in `contrib/refinery/`, and a `merged` terminal stage joins the
-flow. yardr takes no position on how work lands: a PR, a
-shared PR or a direct merge are all just a different script in the same
-exec group. Rig yard merges directly to `main`.
+**merge-local.** For each bead it:
+
+1. rebases `yard/<bead>` onto the base in the bead's worktree, if the base
+   moved; on a conflict it aborts the rebase and advances to `merge` with the
+   conflicting files (section 5), or to `new` if the flow has no `merge`;
+2. runs the gate on exactly what will land, every time, including after a
+   merger's rebase; red advances to `new` with the last 200 lines of output;
+3. lands by fast-forward only. Where the base is checked out it fast-forwards
+   that checkout, only when it is clean; a dirty one is someone's work in
+   progress, so the bead is held with a note saying so and the tree is never
+   touched. Where the base is checked out nowhere it moves the ref alone
+   (`git fetch . yard/<bead>:<base>`), which works whatever state the rig's
+   checkout is in: keep the base checked out nowhere and a dirty checkout
+   never blocks the queue;
+4. pushes the base if `YARDR_PUSH` names a remote (off by default, never
+   forced). A failed push leaves the bead merged; the next landing's push
+   carries it, and `YARDR_NOTIFY` (default `mayor`) is mailed;
+5. advances to the terminal stage `merged` with the note `merged <sha>`,
+   which closes the bead; in a flow without `merged` it closes the bead with
+   that reason.
+
+It never forces, and a base that is not a local branch (`origin/main`) is
+held: merge-local lands only on local branches.
+
+### Setup
+
+```sh
+install contrib/refinery/merge-local ~/.yardr/scripts/    # from main
+yardr group add yard-refinery --runner exec --limit 1 \
+  --set cmd='YARDR_PUSH=origin ~/.yardr/scripts/merge-local' \
+  --set log="$HOME/.yardr/logs/refinery.log"
+yardr route add --stage approved --group yard-refinery --rig yard
+```
+
+The script is installed from `main` rather than run from a checkout: a bead
+branch must not change how it is landed. The flow gains `merged`:
+
+```
+approved -> merged | merge | new
+merged terminal
+```
+
+**A PR-based variant** is the same group and route with another script. In
+place of steps 3 to 5, it pushes the branch and opens (or updates) a PR, and
+parks the bead until the PR is merged:
+
+```sh
+git -C "$YARDR_WORKTREE" push --force-with-lease origin "$YARDR_BRANCH"
+url=$(gh pr create --head "$YARDR_BRANCH" --base "$YARDR_BASE" --fill 2>/dev/null ||
+  gh pr view "$YARDR_BRANCH" --json url -q .url)
+echo "PR $url" | "$YARDR_BIN" bead advance "$YARDR_BEAD" --to in-pr --note -
+```
+
+with the flow rules `approved -> in-pr | merge | new` and
+`in-pr -> merged | new`, and `in-pr` routed to a manual group, or to nothing
+with a subscription on the forge's merge webhook
+([hook sources](subscriptions.md#hook-sources)) advancing the bead to
+`merged`. Beads funneling into a shared PR push to one integration branch
+instead of their own.
 
 After a merge, `go install` on `main` is the whole upgrade: the running
 server and daemon replace themselves with the new build within seconds, and
@@ -139,22 +197,12 @@ The flow gains two rules (the rest of [`yard.flow`](flows.md#worked-example-rig-
 is unchanged):
 
 ```
-approved -> new | merge
+approved -> merged | merge | new
 merge -> review | new | decide
 ```
 
-and the refinery script sends a conflicting bead to `merge` instead of `new`.
-In `refinery-local.sh`, next to `back`:
-
-```sh
-# A conflict goes to the mergers; without a merge stage in the flow the
-# advance is refused and the bead goes back to the builders as before.
-conflict() { note "$1"; "$Y" bead advance "$BEAD" --to merge ||
-  "$Y" bead advance "$BEAD" --to new; exit 0; }
-```
-
-and the rebase branch calls `conflict "rebase onto $BASE conflicts in:
-$files"` after `git rebase --abort`, where it called `back`.
+and the refinery sends a conflicting bead to `merge` (merge-local does; it
+falls back to `new` when the flow has no `merge` stage).
 
 ## Holds
 
@@ -166,7 +214,8 @@ A held bead is never routed; it waits until someone runs
 - by an agent that is stuck or finds the bead unclear: it notes the question
   and runs `yardr bead hold`;
 - by the reviewer, instead of a third send-back;
-- by the refinery, when it cannot land without touching a dirty tree.
+- by the refinery, when it cannot land without touching a dirty tree (the
+  base checked out with uncommitted changes, or the bead's worktree dirty).
 
 The mayor watches held beads, finds out why, and either fixes the cause and
 unholds, reshapes the bead, or sends it to `decide`.
@@ -188,7 +237,3 @@ repo/store split in [configuration.md](configuration.md), is one.
 - Agents report an outcome (`yardr bead done`, `--outcome changes`,
   `--outcome question`) and the flow picks the stage, instead of agents naming
   stages (*planned, yard-qexg*).
-- The refinery script calls `yardr rig check` instead of hard-coding the
-  checks, so `.yardr/check` (built, read from `main` so a bead cannot weaken
-  it) is the one gate both the builder and the refinery run.
-- The refinery becomes a versioned script (*planned, yard-23*).

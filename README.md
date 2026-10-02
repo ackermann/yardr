@@ -141,6 +141,7 @@ internal/rpc        the store API over the server's unix socket
 internal/server     the store-owning server process; started on first use
 internal/version    build revisions; notices a new binary installed over a running one
 internal/cli        cobra commands
+contrib/refinery    merge-local, a reference refinery script for an exec group
 ```
 
 `go test ./...` runs everything against throwaway store files;

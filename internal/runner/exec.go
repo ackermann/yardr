@@ -7,16 +7,31 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"syscall"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
 )
 
 // Exec runs config.cmd with sh -c, detached, logging to config.log or
 // <workdir>/.yard-<session>.log. The command is expected to advance or close
 // the bead itself; exiting without doing so ends the session as died.
-type Exec struct{}
+//
+// Besides Env, the command gets what a script needs to land or test a bead's
+// work without hard-coding the rig (see contrib/refinery/merge-local):
+//
+//	YARDR_RIG, YARDR_RIG_PATH, YARDR_BASE   the bead's rig, when it has one
+//	YARDR_BRANCH    the bead's branch, yard/<bead>
+//	YARDR_WORKTREE  where the herdr runner keeps that branch checked out
+//	                (<worktrees>/<rig>/<bead>; config.worktrees as for herdr)
+//	YARDR_BIN       this yardr, so the script's yardr commands reach it
+//	YARDR_HOME      this yardr's state directory
+type Exec struct {
+	Home string // state directory; bead worktrees default to <Home>/worktrees
+	Bin  string // this yardr's executable
+}
 
 func NewExec() *Exec { return &Exec{} }
 
@@ -41,7 +56,7 @@ func (e *Exec) Start(ctx context.Context, job dispatch.Job) (map[string]any, err
 
 	cmd := exec.Command("sh", "-c", cmdline)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), Env(job, job.Group.Name)...)
+	cmd.Env = slices.Concat(os.Environ(), Env(job, job.Group.Name), e.env(job))
 	cmd.Stdout, cmd.Stderr = logf, logf
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
@@ -52,6 +67,30 @@ func (e *Exec) Start(ctx context.Context, job dispatch.Job) (map[string]any, err
 	// would make Alive report it running forever.
 	go func() { _ = cmd.Wait() }()
 	return map[string]any{"pid": pid, "log": logPath}, nil
+}
+
+// env is the exec-only part of the command's environment.
+func (e *Exec) env(job dispatch.Job) []string {
+	var env []string
+	if e.Home != "" {
+		env = append(env, config.Env("HOME", e.Home)...)
+	}
+	if e.Bin != "" {
+		env = append(env, config.Env("BIN", e.Bin)...)
+	}
+	env = append(env, config.Env("BRANCH", Branch(job.Bead))...)
+	if rig := job.Rig; rig != nil {
+		env = slices.Concat(env, config.Env("RIG", rig.Name), config.Env("RIG_PATH", rig.Path),
+			config.Env("BASE", rig.Base))
+		root := str(job.Group.Config, "worktrees", "")
+		if root == "" && e.Home != "" {
+			root = filepath.Join(e.Home, "worktrees")
+		}
+		if root != "" {
+			env = append(env, config.Env("WORKTREE", filepath.Join(root, rig.Name, job.Bead.ID))...)
+		}
+	}
+	return env
 }
 
 func (e *Exec) Alive(_ context.Context, h map[string]any) (bool, error) {

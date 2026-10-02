@@ -3,7 +3,8 @@
 //	manual  nothing is started; a human or outside agent picks the bead up
 //	        with `yardr bead list --group <name>` and advances it. With
 //	        config notify=true a herdr notification says a bead is waiting.
-//	exec    runs config.cmd through sh -c in the rig (or config.dir).
+//	exec    runs config.cmd through sh -c in the rig (or config.dir), with the
+//	        rig, base, branch and worktree in its environment.
 //	herdr   opens a worktree per bead in herdr and starts an agent in it.
 package runner
 
@@ -26,7 +27,7 @@ import (
 func All(home string, st store.API, log *slog.Logger, onError func(error)) map[string]dispatch.Runner {
 	return map[string]dispatch.Runner{
 		"manual": &Manual{Store: st, Show: HerdrNotifier("herdr"), Log: log},
-		"exec":   NewExec(),
+		"exec":   &Exec{Home: home, Bin: self()},
 		"herdr": &Herdr{Bin: "herdr", WorktreeRoot: filepath.Join(home, "worktrees"), YardHome: home,
 			YardBin: self(), OnError: onError},
 	}
