@@ -49,7 +49,7 @@ same with the stage: it refuses a decision on a bead that left the stage
 the form showed it in.
 
 The builder implements the change, runs the gate (`yardr rig check yard
---dir <worktree>`, which runs `.yardr/check` from `origin/main`, fetched:
+--dir <worktree>`, which runs `.yardr/check` from fetched `origin/main`:
 `go vet`, `go test -race`, the RPC suites), commits on its branch (never
 pushes or merges), leaves a note with what it changed and verified, and
 advances to `review`.
