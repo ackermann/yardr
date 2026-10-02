@@ -544,10 +544,11 @@ func (s *Store) Unstopped(ctx context.Context) ([]Session, error) {
 }
 
 // ClosedWithWorkspace lists stopped sessions of closed beads whose runner
-// left something on disk (handle.worktree) that has not been cleaned up.
+// left something on disk that has not been cleaned up: a worktree
+// (handle.worktree), or a brief in a dir rig's directory (handle.dir).
 func (s *Store) ClosedWithWorkspace(ctx context.Context) ([]Session, error) {
 	return s.sessionsWhere(func(tx *bolt.Tx, sess *Session) bool {
-		if sess.Cleaned || !sess.Stopped || sess.Handle["worktree"] == nil {
+		if sess.Cleaned || !sess.Stopped || (sess.Handle["worktree"] == nil && sess.Handle["dir"] == nil) {
 			return false
 		}
 		var b beadRow

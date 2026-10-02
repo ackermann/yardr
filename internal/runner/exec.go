@@ -14,6 +14,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/store"
 )
 
 // Exec runs config.cmd with sh -c, detached, logging to config.log or
@@ -24,6 +25,8 @@ import (
 // work without hard-coding the rig (see contrib/refinery/merge-local):
 //
 //	YARDR_RIG, YARDR_RIG_PATH   the bead's rig, when it has one
+//	YARDR_RIG_KIND  git, or dir for a plain directory: a dir rig's bead gets
+//	                none of the three below, and runs in the rig's directory
 //	YARDR_BASE      what the bead lands on: its epic's branch for a child of
 //	                an epic, else the rig's base (see BaseOf)
 //	YARDR_BRANCH    the bead's branch, yard/<bead>
@@ -61,7 +64,7 @@ func (e *Exec) Start(ctx context.Context, job dispatch.Job) (map[string]any, err
 
 	cmd := exec.Command("sh", "-c", cmdline)
 	cmd.Dir = dir
-	cmd.Env = slices.Concat(os.Environ(), Env(job, job.Group.Name), e.env(job))
+	cmd.Env = slices.Concat(inherited(job), Env(job, job.Group.Name), e.env(job))
 	cmd.Stdout, cmd.Stderr = logf, logf
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
@@ -85,6 +88,23 @@ func (e *Exec) Start(ctx context.Context, job dispatch.Job) (map[string]any, err
 	return h, nil
 }
 
+// inherited is this process's environment as the command inherits it. For
+// a dir rig's bead, which has no base, branch or worktree, any the daemon
+// was itself started with are dropped, so they cannot read as the bead's.
+func inherited(job dispatch.Job) []string {
+	env := os.Environ()
+	if job.Rig == nil || !job.Rig.IsDir() {
+		return env
+	}
+	var drop []string // "YARDR_BASE=", "YARD_BASE=", ...
+	for _, name := range []string{"BASE", "BRANCH", "WORKTREE"} {
+		drop = append(drop, config.Env(name, "")...)
+	}
+	return slices.DeleteFunc(env, func(kv string) bool {
+		return slices.ContainsFunc(drop, func(p string) bool { return strings.HasPrefix(kv, p) })
+	})
+}
+
 // env is the exec-only part of the command's environment.
 func (e *Exec) env(job dispatch.Job) []string {
 	var env []string
@@ -94,10 +114,16 @@ func (e *Exec) env(job dispatch.Job) []string {
 	if e.Bin != "" {
 		env = append(env, config.Env("BIN", e.Bin)...)
 	}
+	if rig := job.Rig; rig != nil && rig.IsDir() {
+		// A dir rig's bead has no branch, base or worktree: it is worked in
+		// the rig's directory itself.
+		return slices.Concat(env, config.Env("RIG", rig.Name), config.Env("RIG_PATH", rig.Path),
+			config.Env("RIG_KIND", rig.Kind))
+	}
 	env = append(env, config.Env("BRANCH", Branch(job.Bead))...)
 	if rig := job.Rig; rig != nil {
 		env = slices.Concat(env, config.Env("RIG", rig.Name), config.Env("RIG_PATH", rig.Path),
-			config.Env("BASE", BaseOf(job)))
+			config.Env("RIG_KIND", store.RigGit), config.Env("BASE", BaseOf(job)))
 		root := str(job.Group.Config, "worktrees", "")
 		if root == "" && e.Home != "" {
 			root = filepath.Join(e.Home, "worktrees")

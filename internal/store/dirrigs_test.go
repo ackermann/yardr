@@ -217,3 +217,44 @@ func TestDirRigEpics(t *testing.T) {
 		t.Fatalf("epic's family = %+v, %v", f, err)
 	}
 }
+
+// A session of a dir rig's bead leaves a brief in the rig's directory, not
+// a worktree: once the bead closes it is still found for cleanup.
+func TestClosedWithWorkspaceDirRig(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	if err := s.PutRig(ctx, store.Rig{Name: "docs", Path: "/d", Kind: store.RigDir}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "herdr"}); err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]string{}
+	for name, handle := range map[string]map[string]any{
+		"dir":  {"agent": "a", "dir": "/d", "brief": "/d/.yardr/briefs/brief-s.md"},
+		"none": {"agent": "b"},
+	} {
+		b, err := s.CreateBead(ctx, store.NewBead{Title: name, Rig: "docs", Stage: "new"}, "me")
+		if err != nil {
+			t.Fatal(err)
+		}
+		sess, err := s.Claim(ctx, b.ID, "g", "new", "yard")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.MarkRunning(ctx, sess.ID, handle); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.CloseBead(ctx, b.ID, "done", store.Expect{}, "me"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.MarkStopped(ctx, sess.ID); err != nil {
+			t.Fatal(err)
+		}
+		ids[name] = sess.ID
+	}
+	ws, err := s.ClosedWithWorkspace(ctx)
+	if err != nil || len(ws) != 1 || ws[0].ID != ids["dir"] {
+		t.Fatalf("closed with workspace = %+v, %v; want only %s", ws, err, ids["dir"])
+	}
+}

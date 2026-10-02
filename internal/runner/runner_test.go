@@ -107,6 +107,33 @@ func TestBriefForAnEpic(t *testing.T) {
 	}
 }
 
+// An epic in a dir rig only groups its children: its brief names them and
+// the directory, and no branch, range or landing.
+func TestBriefForADirRigEpic(t *testing.T) {
+	job := dispatch.Job{
+		Bead:     store.Bead{ID: "docs-e", Title: "September", Type: store.TypeEpic, Stage: "open"},
+		Group:    store.Group{Name: "docs-reviewers"},
+		Rig:      &store.Rig{Name: "docs", Path: "/d", Kind: store.RigDir},
+		Session:  store.Session{ID: "s1"},
+		Children: []string{"docs-1", "docs-2"},
+	}
+	b, err := Brief(job, "a", "/d", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"epic in the dir rig `docs`", "worked in `/d`", "Children: docs-1, docs-2.",
+		"Work in `/d` directly", "dep add docs-e <child> -k parent"} {
+		if !strings.Contains(b, want) {
+			t.Errorf("brief missing %q:\n%s", want, b)
+		}
+	}
+	for _, not := range []string{"yard/docs-e", "git diff", "integrated again", "branch `"} {
+		if strings.Contains(b, not) {
+			t.Errorf("dir rig epic's brief says %q:\n%s", not, b)
+		}
+	}
+}
+
 // fakeGh puts a gh on PATH that records its argv in calls and runs script
 // (sh) for it, so a brief's gh pr checks needs no GitHub.
 func fakeGh(t *testing.T, script string) (calls string) {
@@ -589,7 +616,11 @@ func TestHerdrFinishRemovesOnlyCleanWorktrees(t *testing.T) {
 	add := func(bead string) string {
 		path := filepath.Join(root, bead)
 		gitT(t, repo, "worktree", "add", "-q", "-b", "yard/"+bead, path)
-		if _, err := writeBrief(ctx, path, "s", "brief"); err != nil {
+		dir, err := BriefDir(ctx, path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := writeBrief(dir, "s", "brief"); err != nil {
 			t.Fatal(err)
 		}
 		// a pre-yardr brief dir, ignored by its own .gitignore
@@ -1129,5 +1160,237 @@ func TestDirRigRoles(t *testing.T) {
 		if text, err := readPrompt("builder.md", rig, home); err != nil || string(text) != want {
 			t.Fatalf("dir rig role: %q, %v; want %q", text, err, want)
 		}
+	}
+}
+
+// dirHerdr is a fake herdr for a dir rig's beads: workspace list and pane
+// list answer with what the files ws and panes in state hold, workspace
+// create opens w1, and every call is logged to log.
+func dirHerdr(t *testing.T, log, state string) string {
+	return fakeHerdrBin(t, `printf '%s\n' "$*" >> `+log+`
+case "$1 $2" in
+  "workspace list") cat `+filepath.Join(state, "ws")+` ;;
+  "pane list") cat `+filepath.Join(state, "panes")+` ;;
+  "workspace create") echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"}}}' ;;
+  "tab create") echo '{"result":{"tab":{"tab_id":"t2"},"root_pane":{"pane_id":"p2"}}}' ;;
+  "worktree "*) echo '{"error":{"code":"not_a_repo","message":"no git here"}}' >&2; exit 1 ;;
+  *) echo '{"result":{"type":"ok"}}' ;;
+esac`)
+}
+
+// A dir rig's bead is worked in the rig's directory itself: no worktree
+// and no branch, an epic's child included (no epic_branched); the agent's
+// workspace and tab open in the directory, its env names the directory and
+// no base, and its brief goes under the directory's .yardr/briefs. A later
+// stage reuses the bead's workspace while it is open, and Finish removes the
+// brief and closes the workspace, leaving the directory's files alone.
+func TestHerdrDirRig(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "invoice.pdf"), []byte("%PDF"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := storetest.New(t)
+	rig := store.Rig{Name: "docs", Path: dir, Kind: store.RigDir}
+	if err := s.PutRig(ctx, rig, "me"); err != nil {
+		t.Fatal(err)
+	}
+	for _, nb := range []store.NewBead{
+		{ID: "docs-e", Title: "September", Type: store.TypeEpic, Rig: "docs"},
+		{ID: "docs-1", Title: "Sum the invoices", Body: "Write summary.md.", Rig: "docs"},
+	} {
+		if _, err := s.CreateBead(ctx, nb, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.AddDep(ctx, "docs-e", "docs-1", store.DepParent, "me"); err != nil {
+		t.Fatal(err)
+	}
+	state, log := t.TempDir(), filepath.Join(t.TempDir(), "calls")
+	setState := func(ws, panes string) {
+		t.Helper()
+		for name, v := range map[string]string{"ws": ws, "panes": panes} {
+			if err := os.WriteFile(filepath.Join(state, name), []byte(v), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	root := t.TempDir()
+	h := &Herdr{Bin: dirHerdr(t, log, state), WorktreeRoot: root, Store: s, YardHome: "/y", YardBin: "/bin/yardr"}
+	start := func(stage string, group store.Group) (map[string]any, string) {
+		t.Helper()
+		b, err := s.GetBead(ctx, "docs-1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		b.Stage = stage
+		fam, err := s.Family(ctx, "docs-1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.Remove(log)
+		handle, err := h.Start(ctx, dispatch.Job{Bead: *b, Group: group, Rig: &rig,
+			Session: store.Session{ID: "s-" + stage}, Epic: fam.Epic, Base: fam.Base})
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := os.ReadFile(log)
+		return handle, string(raw)
+	}
+	tabCall := func(calls string) string {
+		for _, l := range strings.Split(calls, "\n") {
+			if strings.HasPrefix(l, "tab create ") {
+				return l + " "
+			}
+		}
+		return ""
+	}
+
+	// First stage: no workspace for the bead yet; one with its label in
+	// another directory is someone else's.
+	setState(`{"result":{"workspaces":[{"workspace_id":"w9","label":"builders [e] 1"},{"workspace_id":"w8","label":"builders 1","worktree":{"checkout_path":"`+dir+`"}}]}}`,
+		`{"result":{"panes":[{"pane_id":"w9:p1","workspace_id":"w9","cwd":"/elsewhere"},{"pane_id":"w8:p1","workspace_id":"w8","cwd":"`+dir+`"}]}}`)
+	handle, calls := start("new", store.Group{Name: "docs-builders"})
+	if strings.Contains(calls, "worktree ") {
+		t.Fatalf("a dir rig's bead made a worktree:\n%s", calls)
+	}
+	if entries, _ := os.ReadDir(root); len(entries) != 0 {
+		t.Fatalf("worktree root holds %v", entries)
+	}
+	if !strings.Contains(calls, "workspace create --cwd "+dir+" --label builders [e] 1 --no-focus\n") {
+		t.Fatalf("workspace not opened in the directory:\n%s", calls)
+	}
+	tab := tabCall(calls)
+	if !strings.Contains(tab, "tab create --workspace w1 --cwd "+dir+" --label new [e] 1 ") {
+		t.Fatalf("agent's tab not in the directory: %s", tab)
+	}
+	for _, e := range []string{"YARDR_RIG_PATH=" + dir, "YARDR_RIG=docs", "YARDR_ACTOR=docs-1-new", "YARDR_HOME=/y"} {
+		if !strings.Contains(tab, " --env "+e+" ") {
+			t.Errorf("tab env lacks %s: %s", e, tab)
+		}
+	}
+	for _, e := range []string{"YARDR_BASE=", "YARDR_BRANCH=", "YARDR_WORKTREE=", "YARD_BASE="} {
+		if strings.Contains(tab, " --env "+e) {
+			t.Errorf("tab env has %s for a dir rig: %s", e, tab)
+		}
+	}
+	if !strings.Contains(calls, "tab close t1\n") {
+		t.Errorf("new workspace's idle root tab kept:\n%s", calls)
+	}
+	brief, _ := handle["brief"].(string)
+	if want := filepath.Join(dir, ".yardr", "briefs", "brief-s-new.md"); brief != want {
+		t.Fatalf("brief at %q, want %q", brief, want)
+	}
+	text, err := os.ReadFile(brief)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Work in `" + dir + "` directly", "Commit nothing", "what you produced, by path",
+		"outside what the bead names", "child of epic docs-e, which only groups it", "Write summary.md."} {
+		if !strings.Contains(string(text), want) {
+			t.Errorf("brief lacks %q:\n%s", want, text)
+		}
+	}
+	for _, not := range []string{"branch `", "lands on that branch", "push"} {
+		if strings.Contains(string(text), not) {
+			t.Errorf("brief for a dir rig says %q:\n%s", not, text)
+		}
+	}
+	if !strings.Contains(calls, "agent prompt docs-1-new Read "+brief+" and follow it.") {
+		t.Errorf("agent not pointed at the brief:\n%s", calls)
+	}
+	if _, ok := handle["worktree"]; ok || handle["dir"] != dir || handle["workspace"] != "w1" {
+		t.Fatalf("handle = %v", handle)
+	}
+	for _, id := range []string{"docs-e", "docs-1"} {
+		evs, _ := s.Events(ctx, id, 0)
+		for _, e := range evs {
+			if e.Kind == "epic_branched" {
+				t.Fatalf("epic_branched logged for a dir rig: %+v", e)
+			}
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".git")); !os.IsNotExist(err) {
+		t.Fatal("a dir rig was made a repository")
+	}
+
+	// A later stage: the bead's workspace is open in the directory (a pane
+	// of it there), so it is reused and relabelled, its root tab kept.
+	setState(`{"result":{"workspaces":[{"workspace_id":"w9","label":"builders [e] 1"},{"workspace_id":"w1","label":"builders [e] 1"}]}}`,
+		`{"result":{"panes":[{"pane_id":"w9:p1","workspace_id":"w9","cwd":"/elsewhere"},{"pane_id":"w1:p2","workspace_id":"w1","cwd":"`+dir+`"}]}}`)
+	_, calls = start("review", store.Group{Name: "docs-review", Config: map[string]any{"label": "review"}})
+	if strings.Contains(calls, "workspace create") || !strings.Contains(calls, "workspace rename w1 review [e] 1\n") {
+		t.Fatalf("later stage did not reuse the bead's workspace:\n%s", calls)
+	}
+	if !strings.Contains(tabCall(calls), "tab create --workspace w1 --cwd "+dir+" ") || strings.Contains(calls, "tab close") {
+		t.Fatalf("later stage's tab:\n%s", calls)
+	}
+
+	// Finish after close: the brief goes, the workspace closes, the
+	// directory's own files stay; a second session finds nothing left.
+	os.Remove(log)
+	if err := h.Finish(ctx, handle); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(brief); !os.IsNotExist(err) {
+		t.Fatal("brief not removed")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "invoice.pdf")); err != nil {
+		t.Fatal("Finish touched the directory's files")
+	}
+	raw, _ := os.ReadFile(log)
+	if !strings.Contains(string(raw), "workspace close w1\n") || strings.Contains(string(raw), "close w9") {
+		t.Fatalf("workspace close calls wrong:\n%s", raw)
+	}
+	if err := h.Finish(ctx, handle); !errors.Is(err, dispatch.ErrNothingLeft) {
+		t.Fatalf("second finish: %v", err)
+	}
+}
+
+// An exec group's command for a dir rig's bead runs in the rig's directory
+// and gets the rig, its path and its kind, but no base, branch or worktree,
+// not even ones the daemon was started with.
+func TestExecEnvDirRig(t *testing.T) {
+	ctx := context.Background()
+	for _, k := range []string{"YARDR_BASE", "YARD_BASE", "YARDR_BRANCH", "YARDR_WORKTREE"} {
+		t.Setenv(k, "from-the-daemon")
+	}
+	dir := t.TempDir()
+	out := filepath.Join(t.TempDir(), "env")
+	e := &Exec{Home: "/yh", Bin: "/bin/yardr"}
+	job := dispatch.Job{
+		Bead:    store.Bead{ID: "docs-7", Stage: "new"},
+		Group:   store.Group{Name: "sum", Config: map[string]any{"cmd": "{ pwd; env; } > " + out}},
+		Rig:     &store.Rig{Name: "docs", Path: dir, Kind: store.RigDir},
+		Session: store.Session{ID: "s1"},
+		Epic:    "docs-e",
+	}
+	if _, err := e.Start(ctx, job); err != nil {
+		t.Fatal(err)
+	}
+	var got string
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if b, _ := os.ReadFile(out); strings.Contains(string(b), "YARDR_BEAD=") {
+			got = string(b)
+			break
+		}
+	}
+	lines := strings.Split(got, "\n")
+	if real, _ := filepath.EvalSymlinks(dir); lines[0] != dir && lines[0] != real {
+		t.Errorf("cwd %q, want %s", lines[0], dir)
+	}
+	for _, want := range []string{"YARDR_RIG=docs", "YARDR_RIG_PATH=" + dir, "YARDR_RIG_KIND=dir", "YARDR_BEAD=docs-7", "YARDR_BIN=/bin/yardr"} {
+		if !slices.Contains(lines, want) {
+			t.Errorf("env lacks %s:\n%s", want, got)
+		}
+	}
+	for _, not := range []string{"YARDR_BASE=", "YARDR_BRANCH=", "YARDR_WORKTREE=", "YARD_BRANCH="} {
+		if slices.ContainsFunc(lines, func(l string) bool { return strings.HasPrefix(l, not) }) {
+			t.Errorf("env has %s for a dir rig:\n%s", not, got)
+		}
+	}
+	// A git rig's command is told its kind too.
+	if env := e.env(dispatch.Job{Bead: job.Bead, Rig: &store.Rig{Name: "web", Path: "/r", Base: "main"}}); !slices.Contains(env, "YARDR_RIG_KIND=git") {
+		t.Errorf("git rig env: %v", env)
 	}
 }

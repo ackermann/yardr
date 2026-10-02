@@ -22,7 +22,9 @@ import (
 )
 
 // Herdr runs each bead in its own git worktree (branch yard/<bead>) opened as
-// a herdr workspace, with one tab per stage and an agent started in it.
+// a herdr workspace, with one tab per stage and an agent started in it. A
+// dir rig's bead has no branch: its workspace is opened in the rig's
+// directory itself (see startDir).
 //
 // Group config:
 //
@@ -228,7 +230,9 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 		return nil, fmt.Errorf("herdr runner needs the bead to have a rig")
 	}
 	rig := job.Rig
-	kind := str(job.Group.Config, "kind", "claude")
+	if rig.IsDir() {
+		return h.startDir(ctx, job)
+	}
 	branch := Branch(job.Bead)
 	name := AgentName(job.Bead.ID, job.Bead.Stage)
 	handle := map[string]any{"agent": name, "branch": branch, "repo": rig.Path}
@@ -318,17 +322,27 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 		_, _ = h.run(ctx, "tab", "close", wt.Tab.ID)
 	}
 
-	brief, err := Brief(job, name, wt.Worktree.Path, h.YardHome)
+	dir, err := BriefDir(ctx, wt.Worktree.Path)
+	if err != nil {
+		return handle, fmt.Errorf("brief dir for %s: %w", wt.Worktree.Path, err)
+	}
+	return h.brief(ctx, job, name, wt.Worktree.Path, dir, pane, handle)
+}
+
+// brief writes the job's brief into dir, then starts the agent in pane and
+// points it at the brief.
+func (h *Herdr) brief(ctx context.Context, job dispatch.Job, name, workdir, dir, pane string, handle map[string]any) (map[string]any, error) {
+	brief, err := Brief(job, name, workdir, h.YardHome)
 	if err != nil {
 		return handle, err
 	}
-	briefPath, err := writeBrief(ctx, wt.Worktree.Path, job.Session.ID, brief)
+	briefPath, err := writeBrief(dir, job.Session.ID, brief)
 	if err != nil {
 		return handle, err
 	}
 	handle["brief"] = briefPath
 
-	args := []string{"agent", "start", name, "--kind", kind, "--pane", pane}
+	args := []string{"agent", "start", name, "--kind", str(job.Group.Config, "kind", "claude"), "--pane", pane}
 	if extra := AgentArgs(job); len(extra) > 0 {
 		args = append(append(args, "--"), extra...)
 	}
@@ -337,6 +351,153 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 		prompt += fmt.Sprintf(" Run yardr as %s.", h.YardBin)
 	}
 	return h.startAgent(ctx, args, name, prompt, handle)
+}
+
+// startDir starts a bead of a dir rig. There is no branch and no worktree:
+// the agent works in the rig's directory itself, in a workspace opened
+// there for the bead (reused by its later stages), and its brief goes under
+// the directory's .yardr/briefs/. An epic's child is no different: an epic
+// in a dir rig only groups, so no epic branch is made either.
+func (h *Herdr) startDir(ctx context.Context, job dispatch.Job) (map[string]any, error) {
+	rig := job.Rig
+	name := AgentName(job.Bead.ID, job.Bead.Stage)
+	if st, err := os.Stat(rig.Path); err != nil || !st.IsDir() {
+		return nil, fmt.Errorf("rig %s: directory %q does not exist", rig.Name, rig.Path)
+	}
+	secrets, err := h.envFile(job.Group.Config, "group "+job.Group.Name)
+	if err != nil {
+		return nil, err
+	}
+	label := WorkspaceLabel(rig.Name, job.Group, job.Epic, job.Bead.ID)
+	ws, err := h.dirWorkspace(ctx, rig, job.Bead.ID, label)
+	if err != nil {
+		return nil, err
+	}
+	handle := map[string]any{"agent": name, "dir": rig.Path, "rig": rig.Name, "bead": job.Bead.ID,
+		"workspace": ws.Workspace.ID}
+
+	tabArgs := []string{"tab", "create", "--workspace", ws.Workspace.ID,
+		"--cwd", rig.Path, "--label", TabLabel(rig.Name, job.Bead.Stage, job.Epic, job.Bead.ID)}
+	for _, e := range withEnvFile(h.agentEnv(job, name), secrets) {
+		tabArgs = append(tabArgs, "--env", e)
+	}
+	raw, err := h.run(ctx, tabArgs...)
+	if err != nil {
+		return handle, err
+	}
+	var t herdrResult
+	if err := json.Unmarshal(raw, &t); err != nil {
+		return handle, fmt.Errorf("tab result: %w", err)
+	}
+	pane := t.RootPane.ID
+	handle["tab"], handle["pane"] = t.Tab.ID, pane
+	if !ws.AlreadyOpen && ws.Tab.ID != "" {
+		// As for a worktree: the new workspace's root tab is an idle shell.
+		_, _ = h.run(ctx, "tab", "close", ws.Tab.ID)
+	}
+
+	dir := DirBriefDir(rig.Path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return handle, err
+	}
+	// A dir rig may still be inside a checkout; its briefs are no change.
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("*\n"), 0o600); err != nil {
+		return handle, err
+	}
+	return h.brief(ctx, job, name, rig.Path, dir, pane, handle)
+}
+
+// dirWorkspace opens the herdr workspace a dir rig's bead works in: the one
+// an earlier stage opened, while it is still open, else a new one in the
+// rig's directory. herdr reports no checkout for a plain directory, so the
+// earlier one is found by its label, which ends in the bead's id, and a
+// pane in it that sits in the rig's directory. A reused workspace is
+// relabelled for the current group.
+func (h *Herdr) dirWorkspace(ctx context.Context, rig *store.Rig, bead, label string) (herdrResult, error) {
+	var ws herdrResult
+	id, err := h.findDirWorkspace(ctx, rig, bead)
+	if err != nil {
+		return ws, err
+	}
+	if id != "" {
+		_, _ = h.run(ctx, "workspace", "rename", id, label) // cosmetic, as for a worktree
+		ws.Workspace.ID, ws.AlreadyOpen = id, true
+		return ws, nil
+	}
+	raw, err := h.run(ctx, "workspace", "create", "--cwd", rig.Path, "--label", label, "--no-focus")
+	if err != nil {
+		return ws, fmt.Errorf("workspace for %s in %s: %w", bead, rig.Path, err)
+	}
+	if err := json.Unmarshal(raw, &ws); err != nil {
+		return ws, fmt.Errorf("workspace result: %w", err)
+	}
+	return ws, nil
+}
+
+// findDirWorkspace is the id of the open workspace of bead in the dir rig,
+// or "" when there is none (see dirWorkspace).
+func (h *Herdr) findDirWorkspace(ctx context.Context, rig *store.Rig, bead string) (string, error) {
+	raw, err := h.run(ctx, "workspace", "list")
+	if err != nil {
+		return "", err
+	}
+	var wl struct {
+		Workspaces []struct {
+			ID       string          `json:"workspace_id"`
+			Label    string          `json:"label"`
+			Worktree json.RawMessage `json:"worktree"`
+		} `json:"workspaces"`
+	}
+	if err := json.Unmarshal(raw, &wl); err != nil {
+		return "", fmt.Errorf("workspace list: %w", err)
+	}
+	short := ShortID(rig.Name, bead)
+	var ids []string
+	for _, w := range wl.Workspaces {
+		f := strings.Fields(w.Label)
+		if len(w.Worktree) == 0 && len(f) > 0 && f[len(f)-1] == short {
+			ids = append(ids, w.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return "", nil
+	}
+	raw, err = h.run(ctx, "pane", "list")
+	if err != nil {
+		return "", err
+	}
+	var pl struct {
+		Panes []struct {
+			Workspace string `json:"workspace_id"`
+			Cwd       string `json:"cwd"`
+		} `json:"panes"`
+	}
+	if err := json.Unmarshal(raw, &pl); err != nil {
+		return "", fmt.Errorf("pane list: %w", err)
+	}
+	for _, id := range ids {
+		for _, p := range pl.Panes {
+			if p.Workspace == id && sameDir(p.Cwd, rig.Path) {
+				return id, nil
+			}
+		}
+	}
+	return "", nil
+}
+
+// sameDir reports whether a and b name the same directory, symlinks
+// resolved where they can be.
+func sameDir(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	real := func(p string) string {
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			return r
+		}
+		return filepath.Clean(p)
+	}
+	return real(a) == real(b)
 }
 
 // FetchTimeout bounds the fetch of a rig's base before a bead branches
@@ -403,10 +564,14 @@ func (h *Herdr) epicBranch(ctx context.Context, job dispatch.Job) error {
 
 // agentEnv is the environment of a bead agent's tab: what every started
 // process gets (see Env), with the agent as actor, plus this yard's home and
-// binary so its yardr commands reach this yard.
+// binary so its yardr commands reach this yard. A bead of a git rig gets
+// what it lands on (YARDR_BASE); one of a dir rig, which has no base or
+// branch, gets the directory it works in (YARDR_RIG, YARDR_RIG_PATH).
 func (h *Herdr) agentEnv(job dispatch.Job, name string) []string {
 	env := Env(job, name)
-	if base := BaseOf(job); base != "" {
+	if rig := job.Rig; rig != nil && rig.IsDir() {
+		env = slices.Concat(env, config.Env("RIG", rig.Name), config.Env("RIG_PATH", rig.Path))
+	} else if base := BaseOf(job); base != "" {
 		env = append(env, config.Env("BASE", base)...)
 	}
 	if h.YardHome != "" {
@@ -426,11 +591,16 @@ func BriefDir(ctx context.Context, worktree string) (string, error) {
 	return rigcheck.GitPath(ctx, worktree, "yardr")
 }
 
-func writeBrief(ctx context.Context, worktree, session, brief string) (string, error) {
-	dir, err := BriefDir(ctx, worktree)
-	if err != nil {
-		return "", fmt.Errorf("brief dir for %s: %w", worktree, err)
-	}
+// DirBriefDir is where briefs for a bead of the dir rig at path go:
+// .yardr/briefs/ in the directory itself, since there is no git directory
+// to hide them in. The folder ignores itself, for a dir rig that happens to
+// be a checkout.
+func DirBriefDir(path string) string {
+	return filepath.Join(path, ".yardr", "briefs")
+}
+
+// writeBrief writes a session's brief into dir, which it creates.
+func writeBrief(dir, session, brief string) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
@@ -519,8 +689,12 @@ func (h *Herdr) Stop(ctx context.Context, handle map[string]any) error {
 
 // Finish removes the bead's worktree once the bead is closed. It never
 // forces: uncommitted or untracked changes keep the worktree in place, and
-// the branch is always kept, so committed work survives either way.
+// the branch is always kept, so committed work survives either way. A dir
+// rig's bead has no worktree (see finishDir).
 func (h *Herdr) Finish(ctx context.Context, handle map[string]any) error {
+	if dir, _ := handle["dir"].(string); dir != "" {
+		return h.finishDir(ctx, handle)
+	}
 	path, _ := handle["worktree"].(string)
 	repo, _ := handle["repo"].(string)
 	if path == "" {
@@ -549,6 +723,37 @@ func (h *Herdr) Finish(ctx context.Context, handle map[string]any) error {
 	}
 	if err := git(ctx, repo, "worktree", "remove", path); err != nil {
 		return err
+	}
+	return nil
+}
+
+// finishDir cleans up after a closed bead of a dir rig: its session's
+// brief is removed and the bead's workspace closed, if still open. The
+// directory itself is the rig's and is left as it is; there is no worktree
+// to keep or remove.
+func (h *Herdr) finishDir(ctx context.Context, handle map[string]any) error {
+	brief, _ := handle["brief"].(string)
+	removed := false
+	if brief != "" {
+		switch err := os.Remove(brief); {
+		case err == nil:
+			removed = true
+		case !os.IsNotExist(err):
+			return err
+		}
+	}
+	dir, _ := handle["dir"].(string)
+	rig, _ := handle["rig"].(string)
+	bead, _ := handle["bead"].(string)
+	if bead != "" {
+		// Found as a later stage would find it, so a workspace id herdr
+		// handed out again since is never closed.
+		if id, err := h.findDirWorkspace(ctx, &store.Rig{Name: rig, Path: dir, Kind: store.RigDir}, bead); err == nil && id != "" {
+			_, _ = h.run(ctx, "workspace", "close", id)
+		}
+	}
+	if !removed {
+		return dispatch.ErrNothingLeft
 	}
 	return nil
 }

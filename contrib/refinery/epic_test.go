@@ -8,7 +8,9 @@ package refinery
 
 import (
 	"context"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -261,5 +263,30 @@ func TestMergeLocalRedGateSendsAnEpicToOpen(t *testing.T) {
 	}
 	if got := y.git(y.repo, "rev-parse", "main"); got != main {
 		t.Fatal("main moved on a red gate")
+	}
+}
+
+// The refinery's scripts work on branches, which a dir rig has none of: an
+// exec group routed one by mistake refuses it as could not run (exit 2),
+// before any yardr or git call.
+func TestScriptsRefuseDirRigs(t *testing.T) {
+	dir := t.TempDir()
+	calls := filepath.Join(t.TempDir(), "calls")
+	bin := filepath.Join(t.TempDir(), "yardr")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho \"$@\" >> "+calls+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, script := range []string{"integrate-epic", "pr-epic", "pr-merge", "merge-local"} {
+		cmd := exec.Command("sh", script)
+		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "YARDR_BEAD=d-e", "YARDR_RIG=d", "YARDR_RIG_PATH=" + dir,
+			"YARDR_RIG_KIND=dir", "YARDR_BIN=" + bin, "YARDR_HOME=" + t.TempDir()}
+		out, err := cmd.CombinedOutput()
+		var ee *exec.ExitError
+		if !errors.As(err, &ee) || ee.ExitCode() != 2 || !strings.Contains(string(out), "dir rig") {
+			t.Errorf("%s on a dir rig: %v\n%s", script, err, out)
+		}
+	}
+	if b, err := os.ReadFile(calls); err == nil {
+		t.Fatalf("scripts called yardr for a dir rig:\n%s", b)
 	}
 }

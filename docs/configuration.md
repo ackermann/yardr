@@ -275,6 +275,10 @@ agent at it by absolute path. Nothing generated per session sits next to
 committed files, so `.yardr/` holds only config. (Worktrees from before
 this kept a `.yard/` that ignores itself; it is harmless.)
 
+A dir rig has no git directory to hide a brief in, so its briefs go to
+`<dir>/.yardr/briefs/brief-<session>.md`, a folder that ignores itself
+(for a dir rig inside a checkout); each is removed once its bead closes.
+
 ## yardr's own state
 
 Everything yardr keeps for itself lives in one directory, **`YARDR_HOME`**

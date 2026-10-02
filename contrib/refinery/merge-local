@@ -22,6 +22,13 @@
 # Every outcome ends in an advance, a close or a hold: exiting without one
 # counts as a failed session, and three of those hold the bead.
 set -u
+# A dir rig (YARDR_RIG_KIND=dir) has no branches: there is nothing here to
+# land, integrate or open a pull request for. A route that hands one over is
+# a mistake in the rig's flow, so refuse to run (exit 2) rather than guess.
+if [ "${YARDR_RIG_KIND:-git}" = dir ]; then
+  echo "merge-local: rig ${YARDR_RIG:-?} is a dir rig, with no branch to work on; route its stages to other groups" >&2
+  exit 2
+fi
 : "${YARDR_BEAD:?not run by an exec group}" "${YARDR_RIG:?bead has no rig}"
 : "${YARDR_RIG_PATH:?}" "${YARDR_BASE:?}"
 Y=${YARDR_BIN:-yardr}

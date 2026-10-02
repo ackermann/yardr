@@ -4,8 +4,10 @@
 //	        with `yardr bead list --group <name>` and advances it. With
 //	        config notify=true a herdr notification says a bead is waiting.
 //	exec    runs config.cmd through sh -c in the rig (or config.dir), with the
-//	        rig, base, branch and worktree in its environment.
-//	herdr   opens a worktree per bead in herdr and starts an agent in it.
+//	        rig, base, branch and worktree in its environment (a dir rig's
+//	        bead has no base, branch or worktree).
+//	herdr   opens a worktree per bead in herdr and starts an agent in it; a
+//	        dir rig's bead is worked in the rig's directory itself.
 package runner
 
 import (
@@ -95,14 +97,24 @@ func Brief(job dispatch.Job, actor, workdir, home string) (string, error) {
 	fmt.Fprintf(&b, "# yardr session %s\n\n", job.Session.ID)
 	fmt.Fprintf(&b, "You are `%s`, working bead **%s** (%s, stage `%s`) for group `%s`.\n\n",
 		actor, bead.ID, bead.Type, bead.Stage, job.Group.Name)
-	if workdir != "" {
+	dirRig := job.Rig != nil && job.Rig.IsDir()
+	switch {
+	case dirRig && workdir != "":
+		fmt.Fprintf(&b, "Work in `%s` directly: it is a plain directory (dir rig `%s`), with no branch to work on. Commit nothing. Do not touch files outside what the bead names. When you report, say in your note what you produced, by path.\n\n", workdir, job.Rig.Name)
+	case workdir != "":
 		fmt.Fprintf(&b, "Work in `%s` (branch `%s`). Commit and push your work there.\n\n", workdir, Branch(bead))
 	}
-	if job.Epic != "" {
+	switch {
+	case job.Epic != "" && dirRig:
+		fmt.Fprintf(&b, "This bead is a child of epic %s, which only groups it with its siblings: they all work in the same directory.\n\n", job.Epic)
+	case job.Epic != "":
 		fmt.Fprintf(&b, "This bead is a child of epic %s: your branch starts from `%s` and your work lands on that branch, not on the rig's base.\n\n",
 			job.Epic, BaseOf(job))
 	}
-	if bead.Type == store.TypeEpic {
+	switch {
+	case bead.Type == store.TypeEpic && dirRig:
+		writeDirEpic(&b, job)
+	case bead.Type == store.TypeEpic:
 		writeEpic(&b, job)
 	}
 	fmt.Fprintf(&b, "## %s\n\n%s\n\n", bead.Title, strings.TrimSpace(bead.Body))
@@ -157,6 +169,18 @@ func writeEpic(b *strings.Builder, job dispatch.Job) {
 	if url, _ := job.Bead.Metadata["pr_url"].(string); url != "" {
 		writePR(b, job, url)
 	}
+}
+
+// writeDirEpic says what an epic is in a dir rig: a group of children, all
+// worked in the rig's directory, with no branch that lands. Whoever works
+// the epic looks at what its children produced as a whole.
+func writeDirEpic(b *strings.Builder, job dispatch.Job) {
+	fmt.Fprintf(b, "This bead is an epic in the dir rig `%s`: it has no branch and lands nowhere; it groups its children, who worked in `%s`.", job.Rig.Name, job.Rig.Path)
+	if len(job.Children) > 0 {
+		fmt.Fprintf(b, " Children: %s.", strings.Join(job.Children, ", "))
+	}
+	fmt.Fprintf(b, " Their notes say what each produced, by path: work on that as a whole, not child by child.\n\n")
+	fmt.Fprintf(b, "An epic sent back to `open` waits there only while a child is open: before sending it back, add the fix as a child (`yardr bead create ... -r %s`, then `yardr dep add %s <child> -k parent`).\n\n", job.Rig.Name, job.Bead.ID)
 }
 
 // checksTimeout bounds gh pr checks: a brief is written while the agent's

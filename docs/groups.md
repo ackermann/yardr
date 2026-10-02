@@ -18,8 +18,30 @@ name, `yardr group add <name> --runner … --set …` stays scriptable.
 | runner | starts | config |
 |---|---|---|
 | `manual` | nothing; the bead waits on the group | — |
-| `exec` | `sh -c cmd` in the rig, with `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_ACTOR` (the group); for a bead with a rig also `YARDR_RIG`, `YARDR_RIG_PATH`, `YARDR_BASE` (what the bead lands on: the rig's base, or its epic's branch, see [pipeline.md](pipeline.md#epics)), `YARDR_BRANCH` (`yard/<bead>`), `YARDR_WORKTREE` (where herdr groups check that branch out); and `YARDR_BIN`, `YARDR_HOME` for the script's own `yardr` commands. A refinery is one ([pipeline.md](pipeline.md#4-approved-the-refinery-lands-it-on-main)), and so is rig yard's `yard-integrators`, which integrates an epic's branch once its children have landed ([pipeline.md](pipeline.md#the-epics-own-flow)) | `cmd`, `dir`, `log`, `worktrees` |
-| `herdr` | a herdr worktree workspace on branch `yard/<bead>` (from the bead's base) at `~/.yardr/worktrees/<rig>/<bead>` (reopened for later stages, one tab per stage), an agent in it, in a tab of its own with `YARDR_ACTOR` (the agent), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_BASE` (what it branches from: the rig's base, or its epic's branch), `YARDR_HOME` and `YARDR_BIN` in its environment, prompted with a brief in the worktree's git dir (`git rev-parse --git-path yardr`) | `kind`, `prompt`, `args`, `keep`, `worktrees`, `idle`, `max_age`, `grace`, `label`, `env_file` |
+| `exec` | `sh -c cmd` in the rig, with `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_ACTOR` (the group); for a bead with a rig also `YARDR_RIG`, `YARDR_RIG_PATH`, `YARDR_BASE` (what the bead lands on: the rig's base, or its epic's branch, see [pipeline.md](pipeline.md#epics)), `YARDR_BRANCH` (`yard/<bead>`), `YARDR_WORKTREE` (where herdr groups check that branch out); and `YARDR_BIN`, `YARDR_HOME` for the script's own `yardr` commands; `YARDR_RIG_KIND` is `git`, or `dir` for a dir rig, whose beads get no base, branch or worktree. A refinery is one ([pipeline.md](pipeline.md#4-approved-the-refinery-lands-it-on-main)), and so is rig yard's `yard-integrators`, which integrates an epic's branch once its children have landed ([pipeline.md](pipeline.md#the-epics-own-flow)) | `cmd`, `dir`, `log`, `worktrees` |
+| `herdr` | a herdr worktree workspace on branch `yard/<bead>` (from the bead's base) at `~/.yardr/worktrees/<rig>/<bead>` (reopened for later stages, one tab per stage), an agent in it, in a tab of its own with `YARDR_ACTOR` (the agent), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_BASE` (what it branches from: the rig's base, or its epic's branch), `YARDR_HOME` and `YARDR_BIN` in its environment, prompted with a brief in the worktree's git dir (`git rev-parse --git-path yardr`); a dir rig's bead works in the directory itself (see [Dir rigs](#dir-rigs)) | `kind`, `prompt`, `args`, `keep`, `worktrees`, `idle`, `max_age`, `grace`, `label`, `env_file` |
+
+### Dir rigs
+
+A dir rig ([configuration.md](configuration.md#rig-kinds-git-and-dir)) is a plain directory,
+with no git, base or branches, so its beads are worked in the directory
+itself. A herdr group opens a workspace there for the bead (`herdr
+workspace create --cwd <dir>`, labelled as any bead's; later stages reuse
+it while it is open), a tab per stage with `YARDR_RIG` and `YARDR_RIG_PATH`
+in place of `YARDR_BASE`, and writes the brief to `<dir>/.yardr/briefs/`.
+The brief says to work in the directory directly, commit nothing, touch
+only what the bead names and say in the note what was produced, by path.
+Once the bead closes its briefs are removed and its workspace closed; the
+directory is left as it is, so there is nothing to `keep`. An exec group
+runs in the directory with `YARDR_RIG_KIND=dir` and no `YARDR_BASE`,
+`YARDR_BRANCH` or `YARDR_WORKTREE` (not even ones the daemon inherited).
+Epics there only group: no epic branch is made and children work in the
+same directory. The integrator, refinery and pull request scripts in
+`contrib/refinery` work on branches, so a dir rig's flow must not route to
+them (routes are per rig): its epic flow sends `open` to reviewers instead,
+and each script refuses a dir rig's bead with exit 2 as a guard. Several
+beads may work the same directory at once; the group's `limit` is the only
+control, so set it to 1 where their files could collide.
 
 A session ends when the bead is advanced, closed or released. If the runner
 reports the work gone (process exited, herdr agent gone) the session is marked
