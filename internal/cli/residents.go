@@ -47,7 +47,7 @@ next session starts from that handoff (forced after --handoff-grace).
 Without --set kind, a herdr resident gets the yard's default_kind.`,
 		Example: `  yardr resident add                       # interactive
   yardr resident add mayor --set kind=claude --set model=opus \
-    --set 'args=["--permission-mode","auto"]' --set prompt=roles/mayor.md \
+    --set 'args=["--permission-mode","auto"]' --set prompt=$HOME/.yardr/roles/mayor.md \
     --dir ~/projects --max-age 6h`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {

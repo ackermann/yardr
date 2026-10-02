@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"yardr.dev/yardr/internal/config"
@@ -198,15 +199,73 @@ func prChecks(dir, url string) string {
 	return "checks: unavailable (" + reason + ")"
 }
 
-// readPrompt reads a group's prompt file. An absolute path is read as is. A
-// relative one is looked up in the rig first, then in the yard's home, so
-// prompt=roles/reviewer.md finds the rig's own roles/reviewer.md or, when the
-// rig has none, ~/.yardr/roles/reviewer.md: a new rig works from the
-// operator's prompts until it commits its own.
+// readPrompt reads a group's prompt file. An absolute path is read as is.
+//
+// A role, prompt=roles/<name>.md or bare <name>.md, is looked up where roles
+// live, in order: the rig's own .yardr/roles/<name>.md (a rig's repo says how
+// it is worked, next to .yardr/flows and .yardr/check), the rig's
+// roles/<name>.md (the older place, still read, with a warning), then the
+// yard's home, ~/.yardr/roles/<name>.md: the generic roles `yardr init`
+// installed, so a new rig works until it commits its own.
+//
+// A rig's roles are read like its gate: from the tip of the rig's base, not
+// from the bead's branch, so a bead cannot rewrite the prompt of the reviewer
+// that judges it; a role edit counts once it has landed. A file the base does
+// not have yet (or a rig that is not a git checkout) is read from the rig's
+// working tree instead.
+//
+// Any other relative path is looked up in the rig's working tree, then in
+// the home.
 func readPrompt(p string, rig *store.Rig, home string) ([]byte, error) {
 	if filepath.IsAbs(p) {
 		return os.ReadFile(p)
 	}
+	name, isRole := roleName(p)
+	if !isRole {
+		return readPlain(p, rig, home)
+	}
+	var tried []string
+	if rig != nil && rig.Path != "" {
+		for _, rel := range []string{filepath.Join(".yardr", "roles", name), filepath.Join("roles", name)} {
+			text, where, err := readRigFile(rig, rel)
+			if err == nil {
+				if strings.HasPrefix(rel, "roles") {
+					warnRigRootRole(rig, rel)
+				}
+				return text, nil
+			} else if !errors.Is(err, fs.ErrNotExist) {
+				return nil, err
+			}
+			tried = append(tried, where)
+		}
+	}
+	if home != "" {
+		path := filepath.Join(home, "roles", name)
+		text, err := os.ReadFile(path)
+		if err == nil || !errors.Is(err, fs.ErrNotExist) {
+			return text, err
+		}
+		tried = append(tried, path)
+	}
+	if len(tried) == 0 {
+		return os.ReadFile(p)
+	}
+	return nil, fmt.Errorf("%s not found (looked in %s)", p, strings.Join(tried, ", "))
+}
+
+// roleName is the file name of a role prompt: roles/<name>.md or <name>.md.
+func roleName(p string) (string, bool) {
+	p = filepath.Clean(p)
+	dir, file := filepath.Split(p)
+	if filepath.Ext(file) != ".md" || (dir != "" && dir != "roles"+string(filepath.Separator)) {
+		return "", false
+	}
+	return file, true
+}
+
+// readPlain reads a relative prompt that is not a role from the rig's
+// working tree, else the home.
+func readPlain(p string, rig *store.Rig, home string) ([]byte, error) {
 	var tried []string
 	for _, dir := range []string{rigPath(rig), home} {
 		if dir == "" {
@@ -223,6 +282,74 @@ func readPrompt(p string, rig *store.Rig, home string) ([]byte, error) {
 		return os.ReadFile(p)
 	}
 	return nil, fmt.Errorf("%s not found (looked in %s)", p, strings.Join(tried, ", "))
+}
+
+// gitTimeout bounds each git call reading a role from a rig's base: a
+// brief is written while the agent's pane waits.
+var gitTimeout = 30 * time.Second
+
+// readRigFile reads rel at the tip of the rig's base (rig.Base, which a
+// bead's start has just fetched when it is a remote's), or from the rig's
+// working tree when the base has no such file or does not resolve. where
+// names the place looked, for the not-found error. A file absent from both
+// is fs.ErrNotExist.
+func readRigFile(rig *store.Rig, rel string) (text []byte, where string, err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	git := func(args ...string) ([]byte, error) {
+		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", rig.Path}, args...)...)
+		cmd.WaitDelay = time.Second
+		var errb bytes.Buffer
+		cmd.Stderr = &errb
+		out, err := cmd.Output()
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, fmt.Errorf("git %s: %w", strings.Join(args, " "), ctx.Err())
+			}
+			return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(errb.String()))
+		}
+		return out, nil
+	}
+	gitPath := filepath.ToSlash(rel)
+	if rig.Base != "" {
+		// A rig that is not a repo, or whose base does not resolve, has no
+		// base to read from: its working tree is all there is.
+		if out, err := git("rev-parse", "--verify", "--quiet", rig.Base+"^{commit}"); err == nil {
+			sha := strings.TrimSpace(string(out))
+			// ls-tree tells "not on the base yet" apart from a failing git.
+			out, err := git("ls-tree", "--name-only", sha, "--", gitPath)
+			if err != nil {
+				return nil, "", err
+			}
+			if strings.TrimSpace(string(out)) != "" {
+				text, err := git("show", sha+":"+gitPath)
+				return text, rig.Base + ":" + gitPath, err
+			}
+		} else if ctx.Err() != nil {
+			return nil, "", err
+		}
+	}
+	path := filepath.Join(rig.Path, rel)
+	text, err = os.ReadFile(path)
+	return text, path, err
+}
+
+// warnedRigRoots holds the rig-root roles already warned about, so a
+// group's every session does not repeat it.
+var warnedRigRoots sync.Map
+
+// warn reports a deprecated rig-root role; tests replace it.
+var warn = func(msg string, args ...any) { slog.Warn(msg, args...) }
+
+// warnRigRootRole says, once per file, that a rig keeps a role at the
+// repo's root, the older place, rather than in .yardr/roles/.
+func warnRigRootRole(rig *store.Rig, rel string) {
+	key := filepath.Join(rig.Path, rel)
+	if _, done := warnedRigRoots.LoadOrStore(key, true); done {
+		return
+	}
+	warn("role prompt at the rig's root is deprecated; move it to .yardr/roles/",
+		"rig", rig.Name, "file", key, "to", filepath.Join(rig.Path, ".yardr", "roles", filepath.Base(rel)))
 }
 
 func rigPath(rig *store.Rig) string {

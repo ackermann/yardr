@@ -336,7 +336,7 @@ func (a *app) agentFields(ctx context.Context, ans *groupAnswers) error {
 	}
 
 	return ask(
-		huh.NewInput().Title("Prompt file").Description("Optional; relative to the rig, e.g. roles/builder.md.").
+		huh.NewInput().Title("Prompt file").Description("Optional; roles/builder.md reads the rig's .yardr/roles/builder.md, else ~/.yardr/roles/.").
 			Value(&ans.Prompt),
 		huh.NewInput().Title("Extra agent arguments").Description("Optional, space-separated.").Value(&ans.Extra),
 	)

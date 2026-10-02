@@ -30,6 +30,16 @@ a failure of the bead: the group backs off and logs `runtime_down` once.
 Groups can also limit how long a session sits idle or runs (`idle`,
 `max_age`, `grace`; [configuration.md](configuration.md#session-limits-and-outages)).
 
+### The prompt
+
+A herdr group's `prompt` is the role its agents start from, at the head of
+their brief. `--set prompt=roles/builder.md` reads the rig's own
+`.yardr/roles/builder.md` as it is on the rig's base branch (a bead cannot
+change its own reviewer's prompt), else the generic
+`~/.yardr/roles/builder.md` that `yardr init` installed; an absolute path is
+read as is. The order and the older rig-root `roles/` are in
+[configuration.md](configuration.md#role-prompts).
+
 ### Outbound credentials
 
 A herdr group whose agents need a credential to act outside the yard (a

@@ -32,21 +32,28 @@ func TestInitHarnessClaude(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	a := &app{st: st, actor: "me"}
-	out, err := run(t, a.rootCmd(), "init", "--harness", "claude")
+	out, err := run(t, a.rootCmd(), "init", "--harness", "claude", "--operator", "Jo")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// The default roles, as embedded.
+	// The default roles, as embedded, naming the operator.
 	for _, name := range []string{"mayor.md", "builder.md", "merger.md", "reviewer.md"} {
-		want, err := roles.FS.ReadFile(name)
+		tmpl, err := roles.FS.ReadFile(name)
 		if err != nil {
 			t.Fatalf("%s not embedded: %v", name, err)
 		}
+		want := bytes.ReplaceAll(tmpl, []byte("{{operator}}"), []byte("Jo"))
 		got, err := os.ReadFile(filepath.Join(home, "roles", name))
 		if err != nil || !bytes.Equal(got, want) {
 			t.Fatalf("%s installed: %v", name, err)
 		}
+		if bytes.Contains(got, []byte("{{")) {
+			t.Errorf("%s keeps a placeholder:\n%s", name, got)
+		}
+	}
+	if b, _ := os.ReadFile(filepath.Join(home, "roles", "mayor.md")); !bytes.Contains(b, []byte("bring to Jo")) {
+		t.Errorf("mayor.md does not name Jo:\n%s", b)
 	}
 	// The mayor, on the harness with its unattended flags.
 	r, err := st.GetResident(ctx, "mayor")
@@ -62,7 +69,7 @@ func TestInitHarnessClaude(t *testing.T) {
 	if got, _ := st.Settings(ctx); got["default_kind"] != "claude" {
 		t.Fatalf("settings = %v", got)
 	}
-	for _, s := range []string{"harness  claude", "yardr daemon", "yardr rig add", "yardr group add", "yardr route add"} {
+	for _, s := range []string{"harness  claude", "naming Jo", ".yardr/roles/", "yardr daemon", "yardr rig add", "yardr group add", "yardr route add"} {
 		if !strings.Contains(out, s) {
 			t.Errorf("summary lacks %q:\n%s", s, out)
 		}
@@ -103,6 +110,18 @@ func TestInitHarnessClaude(t *testing.T) {
 	}
 	if _, err := st.GetResident(ctx, "x"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("refused init left a resident: %v", err)
+	}
+}
+
+// Without --operator the roles name the login user.
+func TestInitOperatorDefaultsToUser(t *testing.T) {
+	home := newHome(t)
+	t.Setenv("USER", "kim")
+	if _, err := run(t, (&app{st: storetest.New(t)}).rootCmd(), "init", "--harness", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(home, "roles", "builder.md")); !bytes.Contains(b, []byte("never kim's own session")) {
+		t.Fatalf("builder.md does not name $USER:\n%s", b)
 	}
 }
 

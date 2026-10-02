@@ -16,7 +16,7 @@ in yard-9cza, the merge gate in yard-p2y7.
 |---|---|---|
 | flows | the rig's default and type flows, named flows: `.yardr/flows/` (built) | named flows, and rig and type pointers to them (built) |
 | merge gate | `.yardr/check` (built) | a per-rig override, `rig add --check` (built) |
-| roles | codebase role prompts, e.g. this repo's `roles/builder.md` (built: any repo path, named by a group's `prompt`) | prompts outside any repo: relative paths not in the rig resolve in `~/.yardr`, or an absolute path (built) |
+| roles | the rig's own role prompts: `.yardr/roles/<name>.md`, read from the base (built) | the generic roles `yardr init` installed in `~/.yardr/roles/`, the fallback; residents' prompts, by absolute path (built) |
 | groups | | runner, limit, members, subscriptions (manual), agent kind, model, args, cmd, worktree settings (built) |
 | routes | | which group works which stage, by rig, type, label (built) |
 | rigs | | path, clone, base branch (built) |
@@ -52,27 +52,41 @@ describe one installation, not the codebase:
 - **Live.** Pausing a group, adding a member, rerouting a stage or switching
   a model happen while beads are in flight, without a commit or a merge.
 
-A role prompt can live on either side: a prompt about the codebase belongs
-in the repo, and a group names it by its path inside the rig
-(`--set prompt=roles/builder.md`); a prompt that is the operator's own stays
-out of the repo, in `~/.yardr/roles/` (rig yard's reviewers read the installed
-`~/.yardr/roles/reviewer.md` by its absolute path; the repo's
-`roles/reviewer.md` is only the default `yardr init` installs).
+A role prompt says how a rig is worked (its language, its tools, its gate,
+who decides), so a rig's own roles live in its repo, in `.yardr/roles/` next
+to `.yardr/flows/` and `.yardr/check`, and a group names them by role:
+`--set prompt=roles/builder.md`. The roles built into yardr (the repo's
+`roles/`, which `yardr init` installs in `~/.yardr/roles/`) are generic
+starting points that name no person, rig or language; a rig without its own
+works from them.
 
 ### Role prompts
 
 A group's `prompt` is read when a session starts:
 
 - an absolute path is read as is;
-- a relative path is looked up in the bead's rig first, then in the yard's
-  home (`YARDR_HOME`, default `~/.yardr`). `prompt=roles/reviewer.md` reads
-  the rig's `roles/reviewer.md` when the repo has one, and
-  `~/.yardr/roles/reviewer.md` otherwise.
+- a role, `roles/<name>.md` or bare `<name>.md`, is looked up in order:
+  1. the rig's `.yardr/roles/<name>.md`;
+  2. the rig's `roles/<name>.md`, the older place: still read, with a
+     warning (once per file) in the daemon's log to move it;
+  3. the yard's home, `~/.yardr/roles/<name>.md` (`YARDR_HOME`).
+- any other relative path is looked up in the rig's working tree, then in
+  the home.
 
-So a fresh rig works from the operator's prompts in `~/.yardr/roles/` until
-it commits its own, and committing one overrides the home copy for that rig
-only. A prompt found in neither place fails the session start with both paths
-in the error; three such failures hold the bead.
+A rig's roles are read like its gate: from the tip of the rig's base branch
+(`git show <base>:.yardr/roles/<name>.md`), not from the bead's branch or
+worktree, so a bead cannot rewrite the prompt of the reviewer that judges it;
+an edit to a role counts once it has landed. A role the base does not have
+yet, or a rig that is not a git checkout, is read from the rig's working tree.
+
+So a fresh rig works from the generic roles in `~/.yardr/roles/` until it
+commits its own, and committing one overrides the home copy for that rig
+only. A prompt found nowhere fails the session start with every path tried in
+the error; three such failures hold the bead.
+
+Residents have no rig: give a resident's `prompt` as an absolute path (a
+relative one is read from its directory), e.g. a rig's
+`/path/to/repo/.yardr/roles/mayor.md`.
 
 ## Session limits and outages
 
@@ -215,7 +229,7 @@ Everything yardr keeps for itself lives in one directory, **`YARDR_HOME`**
 | `server.pid`, `server.log` | the running server |
 | `worktrees/<rig>/<bead>` | herdr bead worktrees |
 | `rigs/<name>` | rigs registered with `rig add --clone` |
-| `roles/` | role prompts `yardr init` installed (mayor, builder, merger, reviewer); yours to edit |
+| `roles/` | the generic role prompts `yardr init` installed (mayor, builder, merger, reviewer), the fallback for rigs without their own; yours to edit |
 
 Set `YARDR_HOME` to run a separate yard (tests do, with a short path: unix
 socket paths are limited to about 100 bytes, and yardr refuses a home whose
@@ -229,15 +243,20 @@ when it has a terminal: the default harness (every kind herdr starts, marked
 installed when its executable is on PATH, the first installed one
 preselected), the mayor's name (default `mayor`), the directory its shell
 lives in (default the home's parent, so `~` for `~/.yardr`), and an optional
-model. Without a terminal it prints how to initialize and exits 2.
+model, and your name for the role prompts. Without a terminal it prints how
+to initialize and exits 2.
 `yardr server`, `yardr init` and `yardr help` never ask.
 
-`yardr init --harness <kind> [--mayor <name>] [--dir <path>] [--model <m>]`
-does the same without the form, for scripts and tests. Either way yardr:
+`yardr init --harness <kind> [--mayor <name>] [--dir <path>] [--model <m>]
+[--operator <name>]` does the same without the form, for scripts and tests.
+Either way yardr:
 
 1. writes the default role prompts, built into the binary from this repo's
    `roles/`, to `<home>/roles/`, keeping any file already there (the mayor
-   edits its own copy);
+   edits its own copy). They are generic: where they say `{{operator}}`, the
+   person agents bring decisions to, init writes the operator's name (the
+   form's "Your name", `--operator`, default `$USER`). A rig's own roles go
+   in its repo under `.yardr/roles/` ([role prompts](#role-prompts));
 2. sets `default_kind` to the harness;
 3. adds the mayor resident: `kind=<harness>`, `prompt=<home>/roles/mayor.md`,
    the model if given, the harness's unattended flags as `args`, rotating

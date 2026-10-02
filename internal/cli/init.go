@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -95,19 +96,23 @@ type initOptions struct {
 	Mayor   string // the mayor resident's name
 	Dir     string // where the mayor works; "" is the home's parent
 	Model   string // "" is the harness's default
+	// Operator is the person the role prompts name, where the templates say
+	// {{operator}}; "" is $USER.
+	Operator string
 }
 
 // initResult is what initYard did.
 type initResult struct {
-	Home    string   `json:"home"`
-	Harness string   `json:"harness"`
-	Mayor   string   `json:"mayor"`
-	Dir     string   `json:"dir"`
-	Args    []string `json:"args"`
-	Roles   string   `json:"roles"`
-	Written []string `json:"written"` // role files installed now
-	Kept    []string `json:"kept"`    // role files already there, left as they were
-	Daemon  bool     `json:"daemon"`  // a daemon runs on this home
+	Home     string   `json:"home"`
+	Harness  string   `json:"harness"`
+	Mayor    string   `json:"mayor"`
+	Dir      string   `json:"dir"`
+	Operator string   `json:"operator"`
+	Args     []string `json:"args"`
+	Roles    string   `json:"roles"`
+	Written  []string `json:"written"` // role files installed now
+	Kept     []string `json:"kept"`    // role files already there, left as they were
+	Daemon   bool     `json:"daemon"`  // a daemon runs on this home
 }
 
 // initYard creates the yard: the store, the default roles in the home, the
@@ -138,8 +143,9 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 		return nil, err
 	}
 	res := &initResult{Home: cfg.Home, Harness: o.Harness, Mayor: o.Mayor, Dir: dir,
-		Args: agents.UnattendedArgs(o.Harness), Roles: filepath.Join(cfg.Home, "roles")}
-	if res.Written, res.Kept, err = installRoles(res.Roles); err != nil {
+		Operator: or(o.Operator, defaultOperator()),
+		Args:     agents.UnattendedArgs(o.Harness), Roles: filepath.Join(cfg.Home, "roles")}
+	if res.Written, res.Kept, err = installRoles(res.Roles, res.Operator); err != nil {
 		return nil, err
 	}
 	if err := st.SetSetting(ctx, "default_kind", o.Harness, a.who()); err != nil {
@@ -164,9 +170,15 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 	return res, nil
 }
 
-// installRoles writes the embedded role prompts into dir, keeping any file
-// already there.
-func installRoles(dir string) (written, kept []string, err error) {
+// defaultOperator is who the role prompts name when the onboarding was not
+// told: the login name, or a neutral phrase without one.
+func defaultOperator() string {
+	return or(os.Getenv("USER"), "the operator")
+}
+
+// installRoles writes the embedded role prompts into dir, naming operator
+// where the templates say {{operator}}, and keeps any file already there.
+func installRoles(dir, operator string) (written, kept []string, err error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, nil, err
 	}
@@ -187,7 +199,7 @@ func installRoles(dir string) (written, kept []string, err error) {
 		} else if err != nil {
 			return nil, nil, err
 		}
-		_, err = out.Write(body)
+		_, err = out.Write(bytes.ReplaceAll(body, []byte("{{operator}}"), []byte(operator)))
 		if cerr := out.Close(); err == nil {
 			err = cerr
 		}
@@ -228,7 +240,9 @@ func (r *initResult) print() {
 	if len(r.Kept) > 0 {
 		fmt.Printf(" (%d already there, kept)", len(r.Kept))
 	}
-	fmt.Print("\n           edit them to fit your yard; the mayor's prompt is mayor.md\n\n")
+	fmt.Printf("\n           starting points naming %s: edit them to fit your yard; the mayor's prompt is mayor.md.\n"+
+		"           A rig's own roles go in its repo under .yardr/roles/, which a group's\n"+
+		"           prompt=roles/<name>.md reads first (from the rig's base branch).\n\n", r.Operator)
 	if r.Daemon {
 		fmt.Printf("The daemon is running; it starts %s shortly.\n\n", r.Mayor)
 	} else {
@@ -272,7 +286,7 @@ func harnessOptions() ([]huh.Option[string], string) {
 // working yard.
 func onboardForm(home string) (initOptions, error) {
 	opts, def := harnessOptions()
-	o := initOptions{Harness: def, Mayor: "mayor", Dir: filepath.Dir(home)}
+	o := initOptions{Harness: def, Mayor: "mayor", Dir: filepath.Dir(home), Operator: defaultOperator()}
 	fmt.Printf("No yard in %s yet. This sets one up: a default agent harness, and a mayor on it.\n\n", home)
 	if err := ask(huh.NewSelect[string]().Title("Harness").
 		Description("The agent yardr starts by default, for the mayor and for groups that name none.").
@@ -291,12 +305,15 @@ func onboardForm(home string) (initOptions, error) {
 			Description("Where the mayor's shell lives: its session starts there, and relative paths it uses resolve from there.").
 			Value(&o.Dir).Validate(func(s string) error { _, err := absDir(s); return err }),
 		huh.NewInput().Title("Model").Description("Optional; blank uses "+o.Harness+"'s default.").Value(&o.Model),
+		huh.NewInput().Title("Your name").
+			Description("How the role prompts name you: the person agents bring decisions to.").
+			Value(&o.Operator),
 	); err != nil {
 		return o, err
 	}
 	create := true
-	summary := fmt.Sprintf("harness %s\nmayor %s in %s\nmodel %s\nroles %s", o.Harness, o.Mayor, o.Dir,
-		or(o.Model, "the harness's default"), filepath.Join(home, "roles"))
+	summary := fmt.Sprintf("harness %s\nmayor %s in %s\nmodel %s\noperator %s\nroles %s (starting points; a rig's own go in its repo's .yardr/roles/)",
+		o.Harness, o.Mayor, o.Dir, or(o.Model, "the harness's default"), or(o.Operator, defaultOperator()), filepath.Join(home, "roles"))
 	if err := ask(huh.NewConfirm().Title("Create this yard?").Description(summary).Value(&create)); err != nil {
 		return o, err
 	}
@@ -313,7 +330,9 @@ func (a *app) initCmd() *cobra.Command {
 		Short: "Create the yard: default harness, roles and the mayor (what the onboarding does)",
 		Long: `Create the yard in YARDR_HOME (default ~/.yardr) without the onboarding form,
 for scripts and tests. It writes the default role prompts to <home>/roles/
-(keeping any already there), stores --harness as the yard's default_kind, and
+(keeping any already there), naming --operator as the person they bring
+decisions to. They are generic starting points: a rig's own roles belong in
+its repo under .yardr/roles/, which groups find first. It stores --harness as the yard's default_kind, and
 adds the mayor resident on that harness with its unattended flags, rotating
 every 6h. The daemon starts the mayor.
 
@@ -321,7 +340,7 @@ Run any yardr command in a terminal on a home with no yard to get the same as
 a form. Unattended flags per harness:
 ` + agents.UnattendedHelp(),
 		Example: `  yardr init --harness claude
-  YARDR_HOME=/tmp/y1 yardr init --harness codex --mayor boss --dir ~/projects --model gpt-5.5`,
+  YARDR_HOME=/tmp/y1 yardr init --harness codex --mayor boss --dir ~/projects --model gpt-5.5 --operator Jo`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			cfg, err := config.Load()
@@ -339,6 +358,7 @@ a form. Unattended flags per harness:
 	cmd.Flags().StringVar(&o.Mayor, "mayor", "mayor", "the mayor resident's name")
 	cmd.Flags().StringVar(&o.Dir, "dir", "", "where the mayor works (default: the home's parent)")
 	cmd.Flags().StringVar(&o.Model, "model", "", "the mayor's model (default: the harness's own)")
+	cmd.Flags().StringVar(&o.Operator, "operator", "", "your name, as the role prompts use it (default: $USER)")
 	_ = cmd.MarkFlagRequired("harness")
 	return cmd
 }

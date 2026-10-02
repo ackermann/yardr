@@ -7,10 +7,14 @@ idle, and rotates it through handoffs instead of letting its context degrade.
 ```sh
 yardr resident add                     # interactive: agent, model, permissions, dir, inbox, rotation
 yardr resident add mayor --set kind=claude --set 'args=["--permission-mode","auto"]' \
-  --set prompt=roles/mayor.md --dir ~/projects --max-age 6h
+  --set prompt=$HOME/projects/webapp/.yardr/roles/mayor.md --dir ~/projects --max-age 6h
 yardr mail mayor "Deploys are frozen until Friday"
 yardr resident show mayor              # state, unread inbox, recent journal
 ```
+
+A resident has no rig, so its `prompt` is an absolute path (a relative one is
+read from its `--dir`): a rig's own `.yardr/roles/mayor.md`, or the generic
+`~/.yardr/roles/mayor.md` that `yardr init` installs and points the mayor at.
 
 - **Inbox:** mail, plus what its subscriptions deliver. Read with `yardr
   inbox`, mark handled with `yardr inbox --ack`; the cursor is stored, so
@@ -98,6 +102,6 @@ in the thread at once (`yardr thread list`, how `replied`) and a `replied`
 event (source, thread, url) lands on its journal; the webhook's echo of the
 reply is its own action and does not reach its inbox.
 
-What to say, and whether to, is the resident's role: see
-[roles/mayor.md](../roles/mayor.md). Setting a source up end to end is in
+What to say, and whether to, is the resident's role: see the generic
+[roles/mayor.md](../roles/mayor.md) that `yardr init` installs. Setting a source up end to end is in
 [subscriptions.md](subscriptions.md#setting-up-linear).

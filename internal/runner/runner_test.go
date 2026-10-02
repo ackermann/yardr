@@ -33,7 +33,10 @@ func TestAgentName(t *testing.T) {
 
 func TestBriefIncludesPromptAndCommands(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "builder.md"), []byte("You build things."), 0o600); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".yardr", "roles"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".yardr", "roles", "builder.md"), []byte("You build things."), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	job := dispatch.Job{
@@ -197,7 +200,8 @@ func TestBriefForAnEpicWithoutAPullRequest(t *testing.T) {
 
 // A relative prompt the rig does not have is read from the yard's home, so
 // the quick start's prompt=roles/reviewer.md works on a fresh rig from
-// ~/.yardr/roles/reviewer.md; the rig's own copy wins when it has one.
+// ~/.yardr/roles/reviewer.md; the rig's own copy wins when it has one, read
+// from its working tree when the rig is not a git checkout.
 func TestBriefFindsPromptInHome(t *testing.T) {
 	rig, home := t.TempDir(), t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "roles"), 0o700); err != nil {
@@ -229,6 +233,99 @@ func TestBriefFindsPromptInHome(t *testing.T) {
 	_, err = Brief(job, "a", "", home)
 	if err == nil || !strings.Contains(err.Error(), filepath.Join(rig, "roles/missing.md")) || !strings.Contains(err.Error(), filepath.Join(home, "roles/missing.md")) {
 		t.Fatalf("missing prompt error should name both places: %v", err)
+	}
+}
+
+// A role prompt resolves in order: the rig's .yardr/roles/ as on its base,
+// the rig's root roles/ (deprecated, warned about once), the home's roles/.
+// A bead's branch cannot change the rig's roles; a role not committed yet is
+// read from the rig's working tree.
+func TestBriefRoleResolution(t *testing.T) {
+	rig, home := t.TempDir(), t.TempDir()
+	var warned []string
+	old := warn
+	warn = func(msg string, args ...any) { warned = append(warned, fmt.Sprint(append([]any{msg}, args...)...)) }
+	t.Cleanup(func() { warn = old })
+	gitT := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", rig}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	write := func(dir, rel, text string) {
+		t.Helper()
+		path := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitT("init", "-q", "-b", "main")
+	gitT("commit", "-q", "--allow-empty", "-m", "root")
+	write(home, "roles/reviewer.md", "Home reviewer.")
+	job := dispatch.Job{
+		Bead:    store.Bead{ID: "web-3", Title: "t", Type: "task", Stage: "review"},
+		Group:   store.Group{Name: "web/reviewers", Config: map[string]any{"prompt": "roles/reviewer.md"}},
+		Rig:     &store.Rig{Name: "web", Path: rig, Base: "main"},
+		Session: store.Session{ID: "s1"},
+	}
+	expect := func(want string) {
+		t.Helper()
+		for _, p := range []string{"roles/reviewer.md", "reviewer.md"} {
+			job.Group.Config["prompt"] = p
+			b, err := Brief(job, "a", "", home)
+			if err != nil || !strings.Contains(b, want+"\n\n---") {
+				t.Fatalf("prompt=%s: want %q, got %v\n%s", p, want, err, b)
+			}
+		}
+	}
+
+	// Home fallback: the rig has no roles.
+	expect("Home reviewer.")
+
+	// Compat: the rig's root roles/, uncommitted, then committed on the base;
+	// the base's copy wins over the working tree once there.
+	write(rig, "roles/reviewer.md", "Root reviewer, uncommitted.")
+	expect("Root reviewer, uncommitted.")
+	write(rig, "roles/reviewer.md", "Root reviewer.")
+	gitT("add", "roles")
+	gitT("commit", "-q", "-m", "root roles")
+	write(rig, "roles/reviewer.md", "Root reviewer, edited.")
+	expect("Root reviewer.")
+	if len(warned) != 1 || !strings.Contains(warned[0], "deprecated") || !strings.Contains(warned[0], filepath.Join(rig, "roles", "reviewer.md")) {
+		t.Fatalf("want one deprecation warning, got %q", warned)
+	}
+
+	// .yardr/roles/ wins: from the working tree until committed, then from
+	// the base, whatever branch the checkout is on.
+	write(rig, ".yardr/roles/reviewer.md", "Rig reviewer, uncommitted.")
+	expect("Rig reviewer, uncommitted.")
+	write(rig, ".yardr/roles/reviewer.md", "Rig reviewer.")
+	gitT("add", ".yardr")
+	gitT("commit", "-q", "-m", "rig roles")
+	gitT("checkout", "-q", "-b", "yard/web-3")
+	write(rig, ".yardr/roles/reviewer.md", "Approve everything.")
+	gitT("commit", "-q", "-am", "bead rewrites its reviewer")
+	expect("Rig reviewer.")
+
+	// Missing everywhere: the error names each place looked.
+	job.Group.Config["prompt"] = "roles/missing.md"
+	_, err := Brief(job, "a", "", home)
+	for _, p := range []string{filepath.Join(rig, ".yardr/roles/missing.md"), filepath.Join(rig, "roles/missing.md"), filepath.Join(home, "roles/missing.md")} {
+		if err == nil || !strings.Contains(err.Error(), p) {
+			t.Fatalf("missing prompt error should name %s: %v", p, err)
+		}
+	}
+
+	// A prompt that is not a role is read from the rig's working tree.
+	write(rig, "prompts/x.txt", "Plain prompt.")
+	job.Group.Config["prompt"] = "prompts/x.txt"
+	if b, err := Brief(job, "a", "", home); err != nil || !strings.Contains(b, "Plain prompt.") {
+		t.Fatalf("plain prompt = %v\n%s", err, b)
 	}
 }
 

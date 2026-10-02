@@ -229,7 +229,7 @@ merged terminal
 |---|---|---|
 | backlog | `backlog` | manual (humans; the mayor shapes beads here) |
 | new | `yard-builders` | herdr, Claude Code, `prompt=roles/builder.md` |
-| review | `yard-codex-review` | herdr, Codex, reviewer prompt in `~/.yardr/roles/` |
+| review | `yard-codex-review` | herdr, Codex, `prompt=roles/reviewer.md` |
 | approved | `yard-refinery` | exec, limit 1, [`contrib/refinery/merge-local`](../contrib/refinery/merge-local) |
 | merge | `mergers` | herdr, Claude Code (Sonnet), limit 1, `prompt=roles/merger.md` |
 | decide | `decisions` | manual (Christopher) |

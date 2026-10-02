@@ -18,8 +18,8 @@ backlog ──mayor shapes──▶ new ──builder──▶ review ──Code
 ## 1. Backlog: the mayor shapes the bead
 
 New ideas land in stage `backlog`, routed to the manual group `backlog`. The
-mayor (a resident, see [residents.md](residents.md), prompt
-`roles/mayor.md`) reads them and shapes each one until a builder could finish
+mayor (a resident, see [residents.md](residents.md), prompt this repo's
+`.yardr/roles/mayor.md`) reads them and shapes each one until a builder could finish
 it without asking: a goal, where to look, what "done" means and how to test
 it. Large beads are split, and `yardr dep add` orders them: a bead is only
 ready once its blockers are closed.
@@ -30,7 +30,8 @@ Christopher can do the same from `yardr review -g backlog`.
 ## 2. New: a builder implements it
 
 `new` is routed to `yard-builders`: a herdr group running Claude Code with
-`prompt=roles/builder.md`, at most 2 at a time. The daemon opens a worktree
+`prompt=roles/builder.md` (this repo's `.yardr/roles/builder.md`, as on
+main), at most 2 at a time. The daemon opens a worktree
 on branch `yard/<bead>`, starts the agent in it and hands it a brief: the
 role prompt, the bead, and the stages it may move to next.
 

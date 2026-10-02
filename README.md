@@ -30,13 +30,14 @@ yardr                                   # first run: the onboarding
 The first yardr command on a home with no yard runs the onboarding: pick the
 agent harness yardr starts by default (each herdr kind, marked installed or
 not), then name the mayor, the always-on resident that coordinates the yard,
-and the directory its shell lives in. It installs the default role prompts in
-`~/.yardr/roles/` (mayor, builder, merger, reviewer; edit them to fit), stores
+and the directory its shell lives in. It installs generic role prompts in
+`~/.yardr/roles/` (mayor, builder, merger, reviewer, naming you as the one who
+decides; starting points, edit them to fit), stores
 the harness as the yard's `default_kind`, and adds the mayor on it. The daemon
 starts the mayor. Scripts do the same without the form:
 
 ```sh
-yardr init --harness claude [--mayor mayor] [--dir ~/projects] [--model opus]
+yardr init --harness claude [--mayor mayor] [--dir ~/projects] [--model opus] [--operator Jo]
 ```
 
 Without a terminal, a command on a home with no yard says so and exits 2. To
@@ -54,7 +55,8 @@ Then the work itself:
 ```sh
 yardr rig add webapp ~/projects/webapp --base origin/main
 
-# role prompts: the rig's own roles/*.md, else ~/.yardr/roles/*.md
+# role prompts: prompt=roles/<name>.md reads the rig's own .yardr/roles/<name>.md
+# (as on its base branch), else the generic ~/.yardr/roles/<name>.md
 
 # who does the work (--set kind defaults to the yard's default_kind)
 yardr group add webapp/builders  --runner herdr --limit 2 --set prompt=roles/builder.md
@@ -105,8 +107,9 @@ yardr rig add legacy ~/src/legacy --base origin/master       # base must resolve
 
 Bead branches (`yard/<bead>`) start from the rig's base, fetched before each
 new worktree. Give beads a rig with `--rig`; routes can match on it, and
-a group's relative prompt path is looked up inside it first, then in
-`~/.yardr` ([details](docs/configuration.md#role-prompts)). Rig names, like
+a group's `prompt=roles/<name>.md` reads the rig's `.yardr/roles/<name>.md`
+from its base, then `~/.yardr/roles/<name>.md`
+([details](docs/configuration.md#role-prompts)). Rig names, like
 bead types and dependency kinds, are lowercase letters, digits, `.`, `_` and
 `-`.
 
