@@ -28,14 +28,15 @@ func (i Identity) is(v string) bool { return v != "" && (v == i.ID || v == i.Key
 const (
 	ScopeAll      = "all"      // every delivery from the source
 	ScopeMentions = "mentions" // deliveries that mention the resident
-	ScopeInvolved = "involved" // mentioned or assigned
+	ScopeInvolved = "involved" // mentioned, assigned, or in a thread it participates in
 )
 
 // Delivery reasons, recorded per resident on a hook event.
 const (
-	ReasonAll       = "all"
-	ReasonMentioned = "mentioned"
-	ReasonAssigned  = "assigned"
+	ReasonAll         = "all"
+	ReasonMentioned   = "mentioned"
+	ReasonAssigned    = "assigned"
+	ReasonParticipant = "participant"
 )
 
 // WhereKeys are what --where may filter on: envelope fields, then source
@@ -140,14 +141,16 @@ func (s *Store) RemoveSubscriptions(ctx context.Context, name, source, scope str
 
 // hookDeliveries decides, at ingest, which residents a hook event reaches
 // and why: resident name -> reason. A resident never hears of its own
-// actions in the source, and without an identity there it can only match
-// a scope=all subscription.
+// actions in the source. Without an identity there it is never mentioned
+// or assigned, but it can still participate in threads it follows by hand.
 func hookDeliveries(tx *bolt.Tx, data map[string]any) (map[string]any, error) {
 	source, _ := data["source"].(string)
 	actor, _ := data["actor"].(map[string]any)
 	actorID, _ := actor["id"].(string)
 	assignee, _ := data["assignee"].(string)
 	mentions := strs(data["mentions"])
+	thread, _ := data["thread"].(map[string]any)
+	threadID, _ := thread["id"].(string)
 	out := map[string]any{}
 	err := each(tx, bResidents, "", func(_ []byte, r *Resident) error {
 		id, known := r.Identities[source]
@@ -156,6 +159,7 @@ func hookDeliveries(tx *bolt.Tx, data map[string]any) (map[string]any, error) {
 		}
 		mentioned := known && slices.ContainsFunc(mentions, id.is)
 		assigned := known && id.is(assignee)
+		participant := participates(tx, r.Name, source, threadID)
 		best := ""
 		for _, sub := range r.Subscriptions {
 			if sub.Source != source || !whereMatches(sub.Where, data) {
@@ -167,6 +171,8 @@ func hookDeliveries(tx *bolt.Tx, data map[string]any) (map[string]any, error) {
 				reason = ReasonMentioned
 			case assigned && sub.Scope != ScopeMentions:
 				reason = ReasonAssigned
+			case participant && sub.Scope != ScopeMentions:
+				reason = ReasonParticipant
 			case sub.Scope == ScopeAll:
 				reason = ReasonAll
 			}
@@ -184,9 +190,10 @@ func hookDeliveries(tx *bolt.Tx, data map[string]any) (map[string]any, error) {
 
 // rank orders reasons so the most specific one is recorded when several
 // subscriptions match: being mentioned says more than being assigned,
-// which says more than hearing everything.
+// which says more than taking part in the thread, which says more than
+// hearing everything.
 func rank(reason string) int {
-	return map[string]int{ReasonAll: 1, ReasonAssigned: 2, ReasonMentioned: 3}[reason]
+	return map[string]int{ReasonAll: 1, ReasonParticipant: 2, ReasonAssigned: 3, ReasonMentioned: 4}[reason]
 }
 
 // whereMatches ANDs exact matches: type and action against the envelope,

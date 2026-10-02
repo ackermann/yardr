@@ -173,9 +173,12 @@ yard resident show mayor              # state, unread inbox, recent journal
   through `yard subscribe <name> --source linear --scope all|mentions|involved
   [--where team=ENG ...]`. `yard resident identity <name> --source linear --id
   <user id> --key <profile key>` says who it is there, so it can be mentioned
-  or assigned, and never hears of its own actions. Matching happens when a
-  delivery arrives; each delivery records why (all, mentioned, assigned) and
-  `yard inbox` shows it.
+  or assigned, and never hears of its own actions. Once it acts in a thread (a
+  Linear issue), it participates there, and `involved` also delivers what
+  others do in it; `yard thread follow|unfollow <name> --source linear <id>`
+  and `yard thread list <name>` manage that by hand. Matching happens when a
+  delivery arrives; each delivery records why (all, mentioned, assigned,
+  participant) and `yard inbox` shows it.
 - **Journal:** one bead per resident (`<name>-journal`). `yard resident journal`
   keeps decisions (≤4 KB); `yard resident handoff` ends the session (≤16 KB) and
   the next session starts from it. At `--max-age` the resident is asked for a

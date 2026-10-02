@@ -95,7 +95,8 @@ func (s *Store) DeleteHook(ctx context.Context, name, actor string) error {
 // event's seq. The envelope is what routing reads; the payload is there
 // for `yard hook show` when the envelope is not enough. Which residents it
 // reaches, and why, is decided here against their subscriptions as they
-// are now, and kept on the event as "deliveries".
+// are now, and kept on the event as "deliveries". A resident that is the
+// delivery's actor becomes a participant in its thread from then on.
 func (s *Store) RecordHook(ctx context.Context, name string, envelope map[string]any, payload []byte) (uint64, error) {
 	if len(payload) > MaxHookPayload {
 		return 0, fmt.Errorf("hook %s: payload of %d bytes exceeds %d", name, len(payload), MaxHookPayload)
@@ -111,6 +112,9 @@ func (s *Store) RecordHook(ctx context.Context, name string, envelope map[string
 			return err
 		}
 		data["deliveries"] = deliveries
+		if err := recordParticipation(w.Tx, data); err != nil {
+			return err
+		}
 		if err := w.event("", "hook", "hook:"+name, data); err != nil {
 			return err
 		}

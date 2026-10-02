@@ -86,6 +86,9 @@ type API interface {
 	SetIdentity(ctx context.Context, name, source string, id Identity, actor string) error
 	AddSubscription(ctx context.Context, name string, sub Subscription, actor string) error
 	RemoveSubscriptions(ctx context.Context, name, source, scope string, where map[string]string, actor string) (int, error)
+	FollowThread(ctx context.Context, name, source, thread, actor string) error
+	UnfollowThread(ctx context.Context, name, source, thread, actor string) error
+	Threads(ctx context.Context, name string) ([]Participation, error)
 
 	PutHook(ctx context.Context, h Hook, actor string) (*Hook, error)
 	Hooks(ctx context.Context) ([]Hook, error)

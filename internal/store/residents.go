@@ -149,6 +149,9 @@ func (s *Store) DeleteResident(ctx context.Context, name, actor string) error {
 		if err := w.Bucket(bResidents).Delete([]byte(name)); err != nil {
 			return err
 		}
+		if err := dropThreads(w.Tx, name); err != nil {
+			return err
+		}
 		return w.event(r.Journal, "resident_deleted", actor, map[string]any{"resident": name})
 	}, true)
 }

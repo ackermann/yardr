@@ -316,6 +316,15 @@ func (c *Client) AddSubscription(ctx context.Context, name string, sub store.Sub
 func (c *Client) RemoveSubscriptions(ctx context.Context, name, source, scope string, where map[string]string, actor string) (int, error) {
 	return callV[int](c, ctx, "RemoveSubscriptions", name, source, scope, where, actor)
 }
+func (c *Client) FollowThread(ctx context.Context, name, source, thread, actor string) error {
+	return c.call(ctx, "FollowThread", nil, name, source, thread, actor)
+}
+func (c *Client) UnfollowThread(ctx context.Context, name, source, thread, actor string) error {
+	return c.call(ctx, "UnfollowThread", nil, name, source, thread, actor)
+}
+func (c *Client) Threads(ctx context.Context, name string) ([]store.Participation, error) {
+	return callV[[]store.Participation](c, ctx, "Threads", name)
+}
 
 func (c *Client) PutHook(ctx context.Context, h store.Hook, actor string) (*store.Hook, error) {
 	return callV[*store.Hook](c, ctx, "PutHook", h, actor)

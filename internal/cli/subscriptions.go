@@ -105,12 +105,13 @@ func (a *app) subscribeCmd() *cobra.Command {
 		Long: `Which hook deliveries reach the resident, decided when each arrives:
   all       every delivery from the source
   mentions  deliveries that mention it (needs yard resident identity)
-  involved  deliveries that mention it or assign it
+  involved  deliveries that mention it or assign it, or are in a thread it
+            participates in (it acted there, or yard thread follow)
 
 --where narrows a subscription by exact matches, all of which must hold, on
 ` + strings.Join(store.WhereKeys, ", ") + `. Linear exposes team (key or name),
 project and label (any of the issue's labels). Each delivery records why it
-reached the resident: all, mentioned or assigned. Deliveries a resident is
+reached the resident: all, mentioned, assigned or participant. Deliveries a resident is
 the actor of never reach it.`,
 		Example: `  yard subscribe mayor --source linear --scope involved
   yard subscribe triage --source linear --scope all --where type=issue --where action=create --where team=ENG`,
@@ -223,4 +224,92 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	slices.Sort(out)
 	return out
+}
+
+func (a *app) threadCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "thread",
+		Short: "Threads a resident participates in",
+		Long: `A resident participates in a source's thread (in Linear, an issue) once a hook
+delivery shows it acting there under its identity, or after yard thread
+follow. An involved subscription then also delivers what others do in the
+thread, with reason participant. Unfollowing stops that until the resident
+acts in the thread again.`,
+	}
+	threadArgs := func(source *string) func(*cobra.Command, []string) error {
+		return func(c *cobra.Command, args []string) error {
+			if err := cobra.ExactArgs(2)(c, args); err != nil {
+				return err
+			}
+			if *source == "" {
+				return fmt.Errorf("--source is required")
+			}
+			return checkSource(*source)
+		}
+	}
+	var source string
+	follow := &cobra.Command{
+		Use:     "follow <resident> <thread-id>",
+		Short:   "Make a resident a participant in a thread",
+		Example: `  yard thread follow mayor --source linear 539068e2-ae88-4d09-bd75-22eb4a59612f`,
+		Args:    threadArgs(&source),
+		RunE: func(c *cobra.Command, args []string) error {
+			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			if err := st.FollowThread(c.Context(), args[0], source, args[1], a.who()); err != nil {
+				return err
+			}
+			return a.out(map[string]any{"resident": args[0], "source": source, "thread": args[1]}, func() {
+				fmt.Printf("%s follows %s thread %s\n", args[0], source, args[1])
+			})
+		},
+	}
+	unfollow := &cobra.Command{
+		Use:   "unfollow <resident> <thread-id>",
+		Short: "End a resident's participation in a thread",
+		Args:  threadArgs(&source),
+		RunE: func(c *cobra.Command, args []string) error {
+			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			if err := st.UnfollowThread(c.Context(), args[0], source, args[1], a.who()); err != nil {
+				return err
+			}
+			return a.out(map[string]any{"resident": args[0], "source": source, "thread": args[1]}, func() {
+				fmt.Printf("%s unfollowed %s thread %s\n", args[0], source, args[1])
+			})
+		},
+	}
+	for _, c := range []*cobra.Command{follow, unfollow} {
+		c.Flags().StringVar(&source, "source", "", "source: "+strings.Join(hooks.Sources(), ", "))
+		_ = c.MarkFlagRequired("source")
+	}
+	list := &cobra.Command{
+		Use:   "list <resident>",
+		Short: "List the threads a resident participates in",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			ps, err := st.Threads(c.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return a.out(ps, func() {
+				rows := [][]string{}
+				for _, p := range ps {
+					rows = append(rows, []string{p.Source, p.Thread, p.How, p.Since.Local().Format("01-02 15:04"),
+						or(p.Title, "-")})
+				}
+				table("SOURCE\tTHREAD\tHOW\tSINCE\tTITLE", rows)
+			})
+		},
+	}
+	cmd.AddCommand(follow, unfollow, list)
+	return cmd
 }
