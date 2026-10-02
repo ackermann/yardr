@@ -158,7 +158,10 @@ approved -> new
 
 `approved` has only `new` as a way on: the interim refinery either sends a
 bead back to the builders or closes it with `bead close` once merged. A
-`merged` terminal stage arrives with the real refinery (yard-23).
+`merged` terminal stage arrives with the real refinery (yard-23). Once the
+mergers are wired ([pipeline.md](pipeline.md#5-merge-a-merger-resolves-conflicts)),
+a conflict goes to `merge` instead: `approved -> new | merge` and
+`merge -> approved | new | decide`.
 
 Decision beads follow their own type flow: a human decides, and entering
 `decided` closes the bead.
