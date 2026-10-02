@@ -47,11 +47,8 @@ The yardr server starts on first use, in the background, and owns
 `~/.yardr/yard.db` (`yardr server status|stop`; `YARDR_HOME` moves everything).
 Back up by copying `yard.db` while the server is stopped.
 
-yardr was called yard. For one release it still reads each `YARDR_*` variable
-under its old name (the R dropped) when the new one is unset, and sets both
-for the agents and commands it starts. If `~/.yardr` does not exist but
-`~/.yard` does, it keeps using `~/.yard` (the server log says so); move it
-once no server, agent or worktree uses it.
+yardr was called yard; for one release it still reads `YARD_*` variables and
+`~/.yard` ([details](docs/configuration.md#the-rename-from-yard)).
 
 `yardr watch` streams every event as it commits. Each line starts with the
 event's sequence number; `yardr watch --after <seq>` resumes from there with no
@@ -108,176 +105,25 @@ copying it to `yard.db.pre-uuid-<time>`: each bead keeps its old id
 (`webapp-3`) as its handle, so existing branches and worktrees stay valid,
 and gets a UUID built from its creation time.
 
-## Flows: a rig's lifecycle
+## A short tour
 
-Routes say who works a stage; a **flow** says where a bead may go next. A rig
-without a flow lets a bead move to any stage, exactly as before. A flow file
-has one rule per line:
+The rest of the documentation is in [docs/](docs/README.md):
 
-```
-# flows/yard.flow
-backlog -> new
-new -> review | backlog
-review -> approved | new
-approved -> merged | merge | new
-merge -> approved
-decide -> backlog
-merged terminal
-```
-
-```sh
-yardr flow set yard -f flows/yard.flow                  # the rig's flow (replaces)
-yardr flow set yard --type decision -f flows/decision.flow  # wins for that type
-yardr flow show yard                                    # stage, group, open beads, next
-yardr flow rm yard [--type decision]
-```
-
-With a flow in place:
-
-- `yardr bead advance` refuses a move the flow does not allow and lists the
-  allowed next stages (`allowed next: approved, new`).
-- Entering a **terminal** stage closes the bead in the same write, with the
-  stage as close reason (`closed: merged`).
-- `yardr bead create -s <stage>` must name a non-terminal stage of the flow
-  (the default `new` too).
-- A bead in a stage the flow has no way out of (a stage the flow does not
-  know, or a terminal stage after `yardr bead reopen`) may move to any stage
-  of the flow, so it is never stuck.
-- `yardr prime --bead` prints the allowed next stages; the store API exposes
-  them as `NextStages`.
-
-A type-specific flow governs that type's beads in the rig; every other type
-follows the rig's flow. Beads without a rig, journals and memories are never
-governed. `yardr flow show` warns about non-terminal stages no route sends
-anywhere: beads there wait for a human.
-
-## Groups, interactively
-
-`yardr group add` with no name opens a form: pick an existing group to edit or
-create one, choose the runner, and for herdr the agent (Claude Code, Codex,
-Grok, Kimi, opencode, pi, or any other herdr agent), a model read live from
-that agent (press `/` to search long lists), and its permission flags. With a
-name, `yardr group add <name> --runner … --set …` stays scriptable.
-
-## Review: beads waiting on you
-
-`yardr review` walks the open beads in stages routed to manual groups (only
-groups that list you as a member, if they list members), longest untouched
-first. Each bead shows its stage, description, last notes and
-`git diff --stat <base>...yard/<bead>` from the rig. Pick where it goes next:
-the stages its flow allows (a stage earlier in the flow sends it back and
-asks for a note; a terminal stage closes it), or without a flow any stage a
-route uses. "Open diff" pages the full diff through `$PAGER`; Skip leaves it.
-
-```sh
-yardr review                    # the form
-yardr review -g decisions       # only some groups' beads (backlog is manual too)
-yardr review list               # the same queue for scripts (--json for actions)
-yardr bead advance <id> --to <stage> [--note <text>]
-```
-
-## Residents: always-on sessions (a mayor)
-
-A resident is an agent session that is not tied to a bead. The daemon keeps it
-running in its directory, nudges it when its inbox has something new and it is
-idle, and rotates it through handoffs instead of letting its context degrade.
-
-```sh
-yardr resident add                     # interactive: agent, model, permissions, dir, inbox, rotation
-yardr resident add mayor --set kind=claude --set 'args=["--permission-mode","auto"]' \
-  --set prompt=roles/mayor.md --dir ~/projects --max-age 6h
-yardr mail mayor "Deploys are frozen until Friday"
-yardr resident show mayor              # state, unread inbox, recent journal
-```
-
-- **Inbox:** events of the kinds in `--on` (default: things that went wrong or
-  need a decision: `gave_up`, `session_blocked`, `unrouted`, …) plus mail.
-  Read with `yardr inbox`, mark handled with `yardr inbox --ack`; the cursor is
-  stored, so nothing is lost or repeated across restarts.
-- **Hook subscriptions:** webhook deliveries (`yardr hook`) reach a resident only
-  through `yardr subscribe <name> --source linear --scope all|mentions|involved
-  [--where team=ENG ...]`. `yardr resident identity <name> --source linear --id
-  <user id> --key <profile key>` says who it is there, so it can be mentioned
-  or assigned, and never hears of its own actions. Once it acts in a thread (a
-  Linear issue), it participates there, and `involved` also delivers what
-  others do in it; `yardr thread follow|unfollow <name> --source linear <id>`
-  and `yardr thread list <name>` manage that by hand. Matching happens when a
-  delivery arrives; each delivery records why (all, mentioned, assigned,
-  participant) and `yardr inbox` shows it.
-- **Journal:** one bead per resident (`<name>-journal`). `yardr resident journal`
-  keeps decisions (≤4 KB); `yardr resident handoff` ends the session (≤16 KB) and
-  the next session starts from it. At `--max-age` the resident is asked for a
-  handoff when idle; after `--handoff-grace` yardr restarts it regardless.
-- **Prime:** a new session reads `yardr prime --resident <name>`: its role, the
-  latest handoff, journal entries since, its inbox and its memories' titles,
-  bounded in size. If the last session ended without a handoff, it gets a
-  summary of what happened since instead.
-- **Memories:** `yardr remember "title" -b … [--expires 7d] [--scope all]` and
-  `yardr recall [query]`: lasting knowledge as beads, listed by title in primes,
-  retired automatically when they expire.
-
-Agents are told to run yardr by absolute path: a shell may find an older yardr
-first on its PATH, and the prime warns about it.
-
-## Runners
-
-| runner | starts | config |
-|---|---|---|
-| `manual` | nothing; the bead waits on the group | — |
-| `exec` | `sh -c cmd` in the rig, with `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_ACTOR` | `cmd`, `dir`, `log` |
-| `herdr` | a herdr worktree workspace on branch `yard/<bead>` at `~/.yardr/worktrees/<rig>/<bead>` (reopened for later stages, one tab per stage), an agent in it, prompted with a brief in `<worktree>/.yard/` | `kind`, `prompt`, `args`, `keep`, `worktrees` |
-
-A session ends when the bead is advanced, closed or released. If the runner
-reports the work gone (process exited, herdr agent gone) the session is marked
-`died` and the bead is routed again after a backoff; after 3 failures in one
-stage the bead is held (`yardr bead unhold` grants fresh attempts).
-
-### herdr setup
-
-- **Folder trust.** Claude Code asks to trust each new project, and every bead's
-  worktree is its own git root, so trusting a parent folder does not cover them:
-  each builder stops at the trust dialog until someone answers it in its pane.
-  yardr keeps such a session (`session_blocked` in `yardr watch`) and sends its
-  first prompt once it is answered. Starting without the dialog is yard-16.
-- **Decide what agents may run unattended.** Anything outside `args`'
-  permissions blocks the agent on a prompt. Pass what the role needs, e.g.
-  `--set 'args=["--permission-mode","acceptEdits","--allowedTools","Bash(yardr:*),Bash(git:*)"]'`;
-  compound shell commands still prompt unless allowed or auto mode is on.
-- **Blocked agents are reported.** When herdr sees an agent waiting on a
-  prompt, yardr writes a `session_blocked` event (visible in `yardr watch`);
-  answer it in herdr and the session carries on.
-- **Worktrees are cleaned up when the bead closes**, not when a stage ends,
-  so later stages reuse them. A worktree with uncommitted or untracked changes
-  is kept (a `workspace_kept` event says why) and `yard/<bead>` branches are
-  never deleted. Set `--set cleanup=false` on a group to keep its worktrees.
-  Reopening a bead checks its branch out again.
-- The daemon subscribes to herdr's event stream, so an agent that exits is
-  noticed within a second; the reconcile timer remains the fallback.
-
-## BDP (Beads Protocol)
-
-`yardr bdp serve` serves the yard over the [BDP](https://github.com/gastownhall/bdp)
-Read profile, so any BDP client reads yardr's beads and dependency links over
-HTTP:
-
-```sh
-yardr bdp serve --addr :8765 --scope https://beads.example/team/
-```
-
-- Beads are `<scope>beads/<handle>`; dependencies are Links whose source is
-  the waiting bead and target its blocker, as in bd. The handle is the BDP
-  id because it never changes and is unique within a yard (BDP ids are
-  scoped), and it is what bd and humans use; the UUID is the `uuid`
-  property. Listings follow BDP's canonical id order, not creation order.
-- Bead properties are bd's JSON row (dependencies, counts, `created_by`, …)
-  plus yardr's own fields; a held bead reads as `deferred`. Types use BDP's
-  reference vocabulary (`https://work.example/types/task`, `…/blocks`) where
-  names match, else `<scope>types/<name>`.
-- Every real change mints an opaque revision (a no-op mints none), served
-  as the ETag; listings page over one consistent snapshot.
-- BDP's own conformance suite passes against it (31/31 runnable Read
-  scenarios), and BDP's `bdp bd ready` client computes the same ready set
-  from yardr as `yardr ready`. See [conformance/bdp](conformance/bdp).
+- **[Configuration](docs/configuration.md):** what a repo's `.yardr/` holds
+  (what the work is: flows, the check gate, roles) and what the store holds
+  (who, where and how: groups, runners, routes, residents), which wins, and
+  where yardr keeps its own state.
+- **[Flows](docs/flows.md):** a rig's lifecycle. Which stages a bead may move
+  to next, per rig and per bead type, and terminal stages that close it.
+- **[The pipeline](docs/pipeline.md):** how a bead moves in practice, from
+  backlog through builders, review and the refinery to main, using the rig
+  yardr is built with.
+- **[Groups and runners](docs/groups.md):** `manual`, `exec` and `herdr`
+  runners, the interactive `group add`, and setting up herdr agents.
+- **[Review](docs/review.md):** `yardr review`, a form for beads waiting on you.
+- **[Residents](docs/residents.md):** always-on sessions such as a mayor, with
+  inbox, webhook subscriptions, journal, handoffs and memories.
+- **[BDP](docs/bdp.md):** serving the yard over the Beads Protocol.
 
 ## Layout
 
