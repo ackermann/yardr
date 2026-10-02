@@ -58,9 +58,6 @@ func TestBriefIncludesPromptAndCommands(t *testing.T) {
 	}
 }
 
-// A relative prompt the rig does not have is read from the yard's home, so
-// the quick start's prompt=roles/reviewer.md works on a fresh rig from
-
 // An epic's brief says it is one, names its children and gives the range
 // to review against the rig's base, not the last child's diff.
 func TestBriefForAnEpic(t *testing.T) {
@@ -87,6 +84,9 @@ func TestBriefForAnEpic(t *testing.T) {
 		t.Errorf("a feature's brief calls it an epic:\n%s", b)
 	}
 }
+
+// A relative prompt the rig does not have is read from the yard's home, so
+// the quick start's prompt=roles/reviewer.md works on a fresh rig from
 // ~/.yardr/roles/reviewer.md; the rig's own copy wins when it has one.
 func TestBriefFindsPromptInHome(t *testing.T) {
 	rig, home := t.TempDir(), t.TempDir()

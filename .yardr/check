@@ -3,6 +3,13 @@
 # yardr reads this file from the base branch, so editing it on a bead branch
 # changes nothing until the edit has landed.
 set -e
+# gofmt first: CI fails on it, so the gate must too.
+out=$(gofmt -l .)
+if [ -n "$out" ]; then
+  echo "gofmt needed on:"
+  echo "$out"
+  exit 1
+fi
 go vet ./...
 go test -race ./...
 # The same suites through the unix-socket client.
