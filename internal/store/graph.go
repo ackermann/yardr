@@ -256,10 +256,22 @@ type Rig struct {
 	// Check overrides the repo's .yardr/check as the rig's merge gate: a
 	// command run with sh -c in the bead's worktree (see package rigcheck).
 	Check string `json:"check,omitempty"`
+	// AllowNoCheck lets a rig with neither Check nor .yardr/check pass its
+	// gate; without it, no gate fails.
+	AllowNoCheck bool `json:"allow_no_check,omitempty"`
 }
 
-func (s *Store) PutRig(ctx context.Context, r Rig) error {
-	return s.write(func(w *wtx) error { return put(w.Tx, bRigs, r.Name, r) })
+// PutRig adds or replaces a rig, and logs rig_updated with what it now
+// holds: a --check override replaces the repo's gate, so it must not change
+// unseen.
+func (s *Store) PutRig(ctx context.Context, r Rig, actor string) error {
+	return s.write(func(w *wtx) error {
+		if err := put(w.Tx, bRigs, r.Name, r); err != nil {
+			return err
+		}
+		return w.event("", "rig_updated", actor, map[string]any{
+			"rig": r.Name, "path": r.Path, "base": r.Base, "check": r.Check, "allow_no_check": r.AllowNoCheck})
+	})
 }
 
 func (s *Store) Rigs(ctx context.Context) ([]Rig, error) {

@@ -67,7 +67,7 @@ func repoRig(t *testing.T) (store.API, context.Context, string) {
 	})
 	s := storetest.New(t)
 	ctx := context.Background()
-	if err := s.PutRig(ctx, store.Rig{Name: "web", Path: dir, Base: "main"}); err != nil {
+	if err := s.PutRig(ctx, store.Rig{Name: "web", Path: dir, Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	return s, ctx, dir
@@ -154,7 +154,7 @@ func TestFlowResolutionOrder(t *testing.T) {
 
 	// None: a rig whose repository has no flows, without pointers.
 	empty := gitRepo(t, map[string]string{"README": "x"})
-	if err := s.PutRig(ctx, store.Rig{Name: "bare", Path: empty, Base: "main"}); err != nil {
+	if err := s.PutRig(ctx, store.Rig{Name: "bare", Path: empty, Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "b", Rig: "bare", Stage: "anything"}, "me")
@@ -166,7 +166,7 @@ func TestFlowResolutionOrder(t *testing.T) {
 	}
 	// A rig whose path is no checkout is not "no flows": git failing there
 	// says nothing about the base, so the bead is refused, not ungoverned.
-	if err := s.PutRig(ctx, store.Rig{Name: "gone", Path: filepath.Join(empty, "missing"), Base: "main"}); err != nil {
+	if err := s.PutRig(ctx, store.Rig{Name: "gone", Path: filepath.Join(empty, "missing"), Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.CreateBead(ctx, store.NewBead{Title: "g", Rig: "gone", Stage: "anything"}, "me"); err == nil || !strings.Contains(err.Error(), "resolving base main") {
@@ -283,7 +283,7 @@ func TestDeleteFlowRefusedWhileUsed(t *testing.T) {
 // One named flow shared by two rigs: an edit applies to both.
 func TestNamedFlowShared(t *testing.T) {
 	s, ctx := flowRig(t)
-	if err := s.PutRig(ctx, store.Rig{Name: "webapp", Base: "origin/main"}); err != nil {
+	if err := s.PutRig(ctx, store.Rig{Name: "webapp", Base: "origin/main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	putNamed(t, s, "code", "new -> review\nreview -> new\n")
@@ -407,7 +407,7 @@ func TestRepoFlowsGitErrors(t *testing.T) {
 		{Name: "nopath"},
 	}
 	for _, r := range rigs {
-		if err := s.PutRig(ctx, r); err != nil {
+		if err := s.PutRig(ctx, r, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}

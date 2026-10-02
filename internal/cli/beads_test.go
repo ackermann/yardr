@@ -26,7 +26,7 @@ func run(t *testing.T, c *cobra.Command, args ...string) (string, error) {
 func TestBeadUpdateRejectsUnknownPin(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
-	if err := st.PutRig(ctx, store.Rig{Name: "yard"}); err != nil {
+	if err := st.PutRig(ctx, store.Rig{Name: "yard"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	f, err := store.ParseFlow("new -> review\n")
@@ -74,7 +74,7 @@ func TestBrokenFlowStillShown(t *testing.T) {
 	if err := st.SetFlowPointer(ctx, "yard", "", "", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.PutRig(ctx, store.Rig{Name: "yard", Path: t.TempDir(), Base: "main"}); err != nil {
+	if err := st.PutRig(ctx, store.Rig{Name: "yard", Path: t.TempDir(), Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	a := &app{st: st, actor: "mckean"}

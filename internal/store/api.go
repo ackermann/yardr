@@ -29,7 +29,7 @@ type API interface {
 	AddNote(ctx context.Context, id, text, actor string) error
 	Notes(ctx context.Context, id string) ([]Note, error)
 
-	PutRig(ctx context.Context, r Rig) error
+	PutRig(ctx context.Context, r Rig, actor string) error
 	Rigs(ctx context.Context) ([]Rig, error)
 	GetRig(ctx context.Context, name string) (*Rig, error)
 

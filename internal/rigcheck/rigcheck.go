@@ -6,6 +6,14 @@
 // rig's base branch. It is never read from the bead's branch or worktree, so
 // a bead cannot lower its own bar; an edit to .yardr/check counts only once
 // it has landed on the base.
+//
+// When the base has a remote, the check is read from the remote-tracking
+// ref after fetching it, not from the local branch: refs are shared by every
+// worktree of the rig, so a bead could `git update-ref` the local base to a
+// commit of its own choosing. A rig without a remote reads the local base.
+//
+// A rig with no gate at all fails ("no gate") unless it opts out with
+// allow_no_check: a missing file must not read as a passing one.
 package rigcheck
 
 import (
@@ -17,6 +25,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"yardr.dev/yardr/internal/store"
 )
@@ -24,18 +33,25 @@ import (
 // RepoPath is where a rig keeps its check, relative to the repo root.
 const RepoPath = ".yardr/check"
 
+// FetchTimeout bounds the fetch of the base before the check is read: a
+// dead remote must not hang the gate, and with it the merge queue.
+var FetchTimeout = 60 * time.Second
+
 // Check is a rig's gate as resolved right now.
 type Check struct {
 	// Source says where the gate came from: "store", "repo@<sha>" (the base
 	// commit it was read from), or "" when the rig has none.
 	Source string `json:"source"`
+	// From says which ref the repo's check was read from and how, e.g.
+	// "origin/main (fetched)" or "main (no remote)".
+	From string `json:"from,omitempty"`
 	// Cmd is the store override, run with sh -c.
 	Cmd string `json:"cmd,omitempty"`
 	// Script is the content of .yardr/check at the base.
 	Script []byte `json:"-"`
 }
 
-// None reports whether the rig has no gate: nothing blocks the merge.
+// None reports whether the rig has no gate.
 func (c *Check) None() bool { return c.Source == "" }
 
 // Resolve finds the rig's gate. The store override wins; otherwise
@@ -45,23 +61,114 @@ func Resolve(ctx context.Context, rig store.Rig) (*Check, error) {
 	if rig.Check != "" {
 		return &Check{Source: "store", Cmd: rig.Check}, nil
 	}
-	sha, err := git(ctx, rig.Path, "rev-parse", "--verify", "--quiet", rig.Base+"^{commit}")
+	ref, from, err := BaseRef(ctx, rig)
 	if err != nil {
-		return nil, fmt.Errorf("rig %s: base %q does not resolve: %w", rig.Name, rig.Base, err)
+		return nil, err
+	}
+	sha, err := git(ctx, rig.Path, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+	if err != nil {
+		return nil, fmt.Errorf("rig %s: base %q does not resolve: %w", rig.Name, ref, err)
 	}
 	sha = strings.TrimSpace(sha)
 	// ls-tree tells "no check" apart from a failing git: an absent file is
-	// not an error, the rig simply has no gate.
+	// no gate, which Run decides about, not a broken one.
 	if out, err := git(ctx, rig.Path, "ls-tree", "--name-only", sha, "--", RepoPath); err != nil {
 		return nil, err
 	} else if strings.TrimSpace(out) == "" {
-		return &Check{}, nil
+		return &Check{From: from}, nil
 	}
 	script, err := git(ctx, rig.Path, "show", sha+":"+RepoPath)
 	if err != nil {
 		return nil, err
 	}
-	return &Check{Source: "repo@" + sha[:min(12, len(sha))], Script: []byte(script)}, nil
+	return &Check{Source: "repo@" + sha[:min(12, len(sha))], From: from, Script: []byte(script)}, nil
+}
+
+// BaseRef is the ref the rig's repo config is read from, and a note on how
+// it was chosen. When the base has a remote (rig.Base is "<remote>/<branch>",
+// or a local branch whose upstream, or else origin, has it) the
+// remote-tracking ref is fetched, bounded by FetchTimeout, with a forced
+// refspec, so a tracking ref moved by hand is put back. A fetch that fails
+// leaves the tracking ref as last fetched, and the note says so; only a rig
+// with no remote, or whose remote lacks the branch, reads the local base.
+func BaseRef(ctx context.Context, rig store.Rig) (ref, from string, err error) {
+	remote, branch := remoteOf(ctx, rig)
+	if remote == "" {
+		return rig.Base, rig.Base + " (no remote)", nil
+	}
+	tracking := remote + "/" + branch
+	ferr := fetch(ctx, rig.Path, remote, "+refs/heads/"+branch+":refs/remotes/"+tracking)
+	if _, err := git(ctx, rig.Path, "rev-parse", "--verify", "--quiet", "refs/remotes/"+tracking+"^{commit}"); err != nil {
+		if tracking == rig.Base {
+			return "", "", fmt.Errorf("rig %s: base %q does not resolve (fetch: %v)", rig.Name, rig.Base, ferr)
+		}
+		return rig.Base, fmt.Sprintf("%s (%s has no %s)", rig.Base, remote, branch), nil
+	}
+	if ferr != nil {
+		return "refs/remotes/" + tracking, fmt.Sprintf("%s (fetch failed, as last fetched: %v)", tracking, ferr), nil
+	}
+	return "refs/remotes/" + tracking, tracking + " (fetched)", nil
+}
+
+// remoteOf names the remote and branch the rig's base tracks, or "" when it
+// has none.
+func remoteOf(ctx context.Context, rig store.Rig) (remote, branch string) {
+	out, err := git(ctx, rig.Path, "remote")
+	if err != nil {
+		return "", ""
+	}
+	remotes := strings.Fields(out)
+	has := func(r string) bool {
+		for _, x := range remotes {
+			if x == r {
+				return true
+			}
+		}
+		return false
+	}
+	// A remote-tracking base: origin/main.
+	if r, b, ok := strings.Cut(rig.Base, "/"); ok && has(r) {
+		return r, b
+	}
+	// A local branch: its upstream's remote, else origin.
+	if _, err := git(ctx, rig.Path, "rev-parse", "--verify", "--quiet", "refs/heads/"+rig.Base); err != nil {
+		return "", ""
+	}
+	if out, err := git(ctx, rig.Path, "config", "--get", "branch."+rig.Base+".remote"); err == nil {
+		r := strings.TrimSpace(out)
+		b := rig.Base
+		if m, err := git(ctx, rig.Path, "config", "--get", "branch."+rig.Base+".merge"); err == nil {
+			b = strings.TrimPrefix(strings.TrimSpace(m), "refs/heads/")
+		}
+		if has(r) {
+			return r, b
+		}
+	}
+	if has("origin") {
+		return "origin", rig.Base
+	}
+	return "", ""
+}
+
+func fetch(ctx context.Context, repo, remote, refspec string) error {
+	ctx, cancel := context.WithTimeout(ctx, FetchTimeout)
+	defer cancel()
+	var stderr bytes.Buffer
+	cmd := exec.CommandContext(ctx, "git", "-C", repo, "fetch", "--quiet", "--no-tags", remote, refspec)
+	// A remote asking for credentials fails at once instead of waiting on a
+	// terminal nobody watches.
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=true", "SSH_ASKPASS=true")
+	cmd.Stderr = &stderr
+	// git may leave a child (ssh) holding its output open after it is
+	// killed; do not wait on that past the deadline.
+	cmd.WaitDelay = time.Second
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return fmt.Errorf("timed out after %s", FetchTimeout)
+		}
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
 }
 
 // Result is one run of a check.
@@ -69,6 +176,7 @@ type Result struct {
 	Rig    string `json:"rig"`
 	Dir    string `json:"dir"`
 	Source string `json:"source"`
+	From   string `json:"from,omitempty"`
 	Pass   bool   `json:"pass"`
 	// ExitCode is the check's exit status (-1 when it was killed).
 	ExitCode int    `json:"exit_code"`
@@ -77,7 +185,8 @@ type Result struct {
 
 // Run resolves the rig's gate and runs it in dir (a bead's worktree, or the
 // rig itself when dir is empty). A failing check is a Result with Pass
-// false, not an error; errors mean the check could not be run at all.
+// false, not an error; errors mean the check could not be run at all. A rig
+// with no gate fails too, unless it sets AllowNoCheck.
 func Run(ctx context.Context, rig store.Rig, dir string) (*Result, error) {
 	if dir == "" {
 		dir = rig.Path
@@ -86,9 +195,13 @@ func Run(ctx context.Context, rig store.Rig, dir string) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	res := &Result{Rig: rig.Name, Dir: dir, Source: c.Source}
+	res := &Result{Rig: rig.Name, Dir: dir, Source: c.Source, From: c.From}
 	if c.None() {
-		res.Pass = true
+		res.Pass = rig.AllowNoCheck
+		if !res.Pass {
+			res.ExitCode = 1
+			res.Output = fmt.Sprintf("no gate: rig %s has no --check and no %s on %s; add one, or set allow_no_check\n", rig.Name, RepoPath, c.From)
+		}
 		return res, nil
 	}
 	var cmd *exec.Cmd

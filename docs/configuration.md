@@ -105,15 +105,16 @@ pin on the bead  >  store  >  repo .yardr/  >  none
   type pointing at a named flow (`yardr rig flow`), or `rig add --check`
   (built).
 - **Repo `.yardr/`** (built): the default that ships with the code.
-- **None**: no flow means a bead may move to any stage; no check means
-  nothing gates the merge.
+- **None**: no flow means a bead may move to any stage. No check fails the
+  gate ("no gate") unless the rig was added with `--allow-no-check`.
 
 Within one source a type-specific flow wins over the rig's flow; a source
 wins as a whole, so a rig pointer in the store overrides the repo's type
 files too (see [flows.md](flows.md)). `yardr bead show` and `prime` say
 which flow governs a bead and where it came from: `pin`, `store`,
 `repo@<sha>`, and the type when a type's flow matched. For the check the
-rule is: the rig's `--check`, else `.yardr/check` on the base, else none.
+rule is: the rig's `--check`, else `.yardr/check` on the base, else no
+gate, which fails unless the rig allows it.
 
 ## Repo config comes from the base branch
 
@@ -125,6 +126,19 @@ and landed on the base, like any other code, and then applies to every bead
 after it. yardr resolves the base on every check and re-reads the files
 when its commit moves.
 
+For the gate, "the base" is the remote's copy when there is one. Refs are
+shared by every worktree of a rig, so a bead could `git update-ref` the
+local `main` to a commit whose `.yardr/check` passes. When the base has a
+remote (`--base origin/main`, or a local branch whose upstream, or else
+`origin`, has it), `yardr rig check` fetches that branch into its
+remote-tracking ref first (forced, bounded to 60s, never prompting) and
+reads `.yardr/check` from `origin/main`, not from the local branch. A fetch
+that fails leaves `origin/main` as last fetched; only a rig with no remote,
+or whose remote lacks the branch, reads the local base. The result says
+which was used (`--json`: `from`, e.g. `origin/main (fetched)`, `main (no
+remote)`). A gate change therefore applies once it is on the remote: with
+merge-local that is when `YARDR_PUSH` has pushed it.
+
 ### The merge gate: `.yardr/check`
 
 `.yardr/check` is a script; exit 0 means green. yardr writes the base's copy
@@ -132,7 +146,13 @@ to a temporary file under the rig's git directory and runs it in the
 directory being checked (a script without `#!` runs with `sh`; the rig's
 name is in `$YARDR_RIG`). A store override, `yardr rig add <rig> <path>
 --check '<cmd>'`, runs with `sh -c` instead. Re-running `rig add` without
-`--check` drops the override.
+`--check` drops the override. Every `rig add` logs a `rig_updated` event
+with the rig's check and `allow_no_check`, so an override never changes
+unseen, and `yardr rig show <rig>` prints it.
+
+A rig with neither fails its gate with "no gate": a missing file must not
+read as a passing one. `rig add ... --allow-no-check` opts a rig out, for a
+repo that has nothing to check.
 
 ```
 yardr rig check yard                                      # in the rig
@@ -141,9 +161,16 @@ yardr rig check yard --dir ~/.yardr/worktrees/yard/yard-12   # in a bead's workt
 
 prints the tail of the output (`--tail N`, default 40) and pass or FAIL,
 and exits 1 on a failing gate; `--json` gives the full output, the exit code
-and the source (`store`, `repo@<sha>`, or empty for a rig with no gate,
-which passes). Builders run it before handing on, and the refinery runs it
-on what will land.
+and the source (`store`, `repo@<sha>`, or empty for a rig with no gate).
+Builders run it before handing on, and the refinery runs it too:
+[`contrib/refinery/merge-local`](../contrib/refinery/merge-local) runs
+`yardr rig check` on exactly what will land, after any rebase, and sends a
+red gate back to `new` (see [pipeline.md](pipeline.md#4-approved-the-refinery-lands-it-on-main)).
+
+The gate runs the branch's own code, tests included: it is fixed by the
+base, but what it runs is not. A branch that deletes or weakens its tests
+passes vacuously. That is the accepted model for now; the reviewer is the
+one who catches it (see [pipeline.md](pipeline.md#what-the-gate-does-not-catch)).
 
 ## Briefs are not config
 

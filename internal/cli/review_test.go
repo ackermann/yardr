@@ -32,7 +32,7 @@ func reviewYard(t *testing.T, rigPath string) (store.API, context.Context) {
 			t.Fatal(err)
 		}
 	}
-	must(st.PutRig(ctx, store.Rig{Name: "yard", Path: rigPath, Base: "main"}))
+	must(st.PutRig(ctx, store.Rig{Name: "yard", Path: rigPath, Base: "main"}, "me"))
 	must(st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}))
 	must(st.PutGroup(ctx, store.Group{Name: "approved", Runner: "manual", Limit: 1}))
 	must(st.PutGroup(ctx, store.Group{Name: "deciders", Runner: "manual", Members: []string{"mckean", "mayor"}}))

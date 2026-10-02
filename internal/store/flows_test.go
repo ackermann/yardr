@@ -27,7 +27,7 @@ func flowRig(t *testing.T) (store.API, context.Context) {
 	t.Helper()
 	s := storetest.New(t)
 	ctx := context.Background()
-	if err := s.PutRig(ctx, store.Rig{Name: "yard", Base: "origin/main"}); err != nil {
+	if err := s.PutRig(ctx, store.Rig{Name: "yard", Base: "origin/main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	return s, ctx
@@ -141,7 +141,7 @@ func TestNoFlowPassesThrough(t *testing.T) {
 	s, ctx := flowRig(t)
 	// A rig without a flow, and a bead without a rig while flows exist
 	// elsewhere, move anywhere and start in any stage.
-	if err := s.PutRig(ctx, store.Rig{Name: "other", Base: "origin/main"}); err != nil {
+	if err := s.PutRig(ctx, store.Rig{Name: "other", Base: "origin/main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	putFlow(t, s, "other", "", yardFlow)

@@ -222,8 +222,8 @@ func (c *Client) Notes(ctx context.Context, id string) ([]store.Note, error) {
 	return callV[[]store.Note](c, ctx, "Notes", id)
 }
 
-func (c *Client) PutRig(ctx context.Context, r store.Rig) error {
-	return c.call(ctx, "PutRig", nil, r)
+func (c *Client) PutRig(ctx context.Context, r store.Rig, actor string) error {
+	return c.call(ctx, "PutRig", nil, r, actor)
 }
 func (c *Client) Rigs(ctx context.Context) ([]store.Rig, error) {
 	return callV[[]store.Rig](c, ctx, "Rigs")

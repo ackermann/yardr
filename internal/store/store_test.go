@@ -28,7 +28,7 @@ func ids(bs []store.Bead) []string {
 func TestCreateAndGetBead(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
-	if err := s.PutRig(ctx, store.Rig{Name: "web", Base: "origin/main"}); err != nil {
+	if err := s.PutRig(ctx, store.Rig{Name: "web", Base: "origin/main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "fix login", Rig: "web", Labels: []string{"ui", "ui"}}, "me")
@@ -60,12 +60,33 @@ func TestCreateAndGetBead(t *testing.T) {
 func TestRigKeepsCheckOverride(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
-	if err := s.PutRig(ctx, store.Rig{Name: "web", Path: "/tmp/web", Base: "main", Check: "make test"}); err != nil {
+	if err := s.PutRig(ctx, store.Rig{Name: "web", Path: "/tmp/web", Base: "main", Check: "make test"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	r, err := s.GetRig(ctx, "web")
 	if err != nil || r.Check != "make test" {
 		t.Fatalf("rig = %+v, %v", r, err)
+	}
+	// The override replaces the repo's gate, so setting or dropping it is
+	// an event, with who did it.
+	if err := s.PutRig(ctx, store.Rig{Name: "web", Path: "/tmp/web", Base: "main", AllowNoCheck: true}, "op"); err != nil {
+		t.Fatal(err)
+	}
+	if r, err = s.GetRig(ctx, "web"); err != nil || r.Check != "" || !r.AllowNoCheck {
+		t.Fatalf("rig = %+v, %v", r, err)
+	}
+	evs, err := s.Events(ctx, "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, e := range evs {
+		if e.Kind == "rig_updated" {
+			got = append(got, fmt.Sprintf("%s %v %v %v", e.Actor, e.Data["rig"], e.Data["check"], e.Data["allow_no_check"]))
+		}
+	}
+	if want := []string{"me web make test false", "op web  true"}; strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("rig_updated events = %q, want %q", got, want)
 	}
 }
 

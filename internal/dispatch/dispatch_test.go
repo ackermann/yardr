@@ -126,7 +126,7 @@ func TestPipelineThroughStages(t *testing.T) {
 func TestJobCarriesNextStages(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()
-	must(t, s.PutRig(ctx, store.Rig{Name: "web", Path: "/tmp/web"}))
+	must(t, s.PutRig(ctx, store.Rig{Name: "web", Path: "/tmp/web"}, "me"))
 	flow, err := store.ParseFlow("new -> review on done | backlog | dropped on abandoned\nreview -> merged\ndropped terminal\nmerged terminal\n")
 	must(t, err)
 	flow.Name = "web"
@@ -194,7 +194,7 @@ func TestBadFlowSkipsOnlyThatBead(t *testing.T) {
 	must(t, os.WriteFile(filepath.Join(repo, ".yardr/flows/alt.flow"), []byte("new -> review\n"), 0o644))
 	git("add", "-A")
 	git("commit", "-q", "-m", "alt flow")
-	must(t, s.PutRig(ctx, store.Rig{Name: "web", Path: repo, Base: "main"}))
+	must(t, s.PutRig(ctx, store.Rig{Name: "web", Path: repo, Base: "main"}, "me"))
 	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
 	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
 	must(t, err)

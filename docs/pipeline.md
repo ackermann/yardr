@@ -49,9 +49,20 @@ same with the stage: it refuses a decision on a bead that left the stage
 the form showed it in.
 
 The builder implements the change, runs the gate (`yardr rig check yard
---dir <worktree>`, which runs `.yardr/check` from `main`: `go vet`,
-`go test -race`, the RPC suites), commits on its branch (never pushes or merges), leaves a
-note with what it changed and verified, and advances to `review`.
+--dir <worktree>`, which runs `.yardr/check` from `origin/main`, fetched:
+`go vet`, `go test -race`, the RPC suites), commits on its branch (never
+pushes or merges), leaves a note with what it changed and verified, and
+advances to `review`.
+
+### What the gate does not catch
+
+The gate's script comes from the base, so a branch cannot change what is
+run, but it runs in the branch's worktree, against the branch's code and
+the branch's tests. A branch that deletes a test, skips it or makes it
+trivially true passes the gate vacuously. That is the accepted model for
+now: the reviewer reads the diff and is the one who catches a weakened
+test, not the gate. Both the builder's run and the refinery's run of the
+gate are this same check.
 
 ## 3. Review: Codex reviews forward
 
@@ -89,9 +100,12 @@ uses it to merge directly to `main`.
 everything it needs in its environment ([groups.md](groups.md#runners)):
 `YARDR_BEAD`, `YARDR_RIG`, `YARDR_RIG_PATH`, `YARDR_BASE`, `YARDR_BRANCH`
 (`yard/<bead>`), `YARDR_WORKTREE`, `YARDR_BIN` (this yardr), and
-`YARDR_ACTOR` set to the group. The gate is `yardr rig check "$YARDR_RIG"
---dir "$YARDR_WORKTREE"`: `.yardr/check` as it is on the base, or the rig's
-`--check`. The script finishes by moving the bead, with a note:
+`YARDR_ACTOR` set to the group. The refinery runs the gate itself, whatever
+the builder reported: `yardr rig check "$YARDR_RIG" --dir
+"$YARDR_WORKTREE"`, i.e. `.yardr/check` as it is on the base (the fetched
+`origin/main` when the base has a remote), or the rig's `--check`; a rig
+with neither fails with "no gate" unless it allows that
+([configuration.md](configuration.md#the-merge-gate-yardrcheck)). The script finishes by moving the bead, with a note:
 `yardr bead advance "$YARDR_BEAD" --to <stage> --note -`. A script that
 exits without advancing, closing or holding counts as a failed session, like
 an agent that gives up, and after 3 of those the bead is held. Advancing ends

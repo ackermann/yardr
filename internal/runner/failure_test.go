@@ -32,7 +32,7 @@ func TestHerdrMissingHoldsNoBead(t *testing.T) {
 	h := &Herdr{Bin: "herdr", WorktreeRoot: t.TempDir()}
 	d := &dispatch.Dispatcher{Store: st, Runners: map[string]dispatch.Runner{"herdr": h},
 		Backoff: time.Nanosecond, RuntimeBackoff: time.Nanosecond, MaxAttempts: 1}
-	mustT(t, st.PutRig(ctx, store.Rig{Name: "r", Path: repo, Base: "main"}))
+	mustT(t, st.PutRig(ctx, store.Rig{Name: "r", Path: repo, Base: "main"}, "me"))
 	for _, g := range []string{"builders", "reviewers"} {
 		mustT(t, st.PutGroup(ctx, store.Group{Name: g, Runner: "herdr", Limit: 2}))
 	}

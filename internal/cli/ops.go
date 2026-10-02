@@ -144,13 +144,15 @@ func (a *app) daemonCmd() *cobra.Command {
 func (a *app) rigCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "rig", Short: "Repositories beads are worked in"}
 	var base, clone, check string
+	var allowNoCheck bool
 	add := &cobra.Command{
 		Use:   "add <name> [path]",
 		Short: "Register (or update) a rig: an existing clone, or --clone a URL",
 		Example: `  yardr rig add webapp ~/projects/webapp                 # existing clone
   yardr rig add webapp --clone git@github.com:me/webapp.git   # clones to ~/.yardr/rigs/webapp
   yardr rig add legacy ~/src/legacy --base origin/master
-  yardr rig add webapp ~/projects/webapp --check 'make test'   # overrides .yardr/check`,
+  yardr rig add webapp ~/projects/webapp --check 'make test'   # overrides .yardr/check
+  yardr rig add scratch ~/src/scratch --allow-no-check         # no gate passes`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
@@ -194,21 +196,40 @@ func (a *app) rigCmd() *cobra.Command {
 				return fmt.Errorf("base %q does not resolve in %s (found: %s); pass --base",
 					base, path, strings.Join(strings.Fields(string(refs)), ", "))
 			}
-			r := store.Rig{Name: name, Path: path, Base: base, Check: check}
-			if err := st.PutRig(c.Context(), r); err != nil {
+			r := store.Rig{Name: name, Path: path, Base: base, Check: check, AllowNoCheck: allowNoCheck}
+			if err := st.PutRig(c.Context(), r, a.who()); err != nil {
 				return err
 			}
 			return a.out(r, func() {
 				fmt.Printf("rig %s → %s (base %s)\n", r.Name, r.Path, r.Base)
-				if r.Check != "" {
-					fmt.Printf("check: %s (overrides %s)\n", r.Check, rigcheck.RepoPath)
-				}
+				fmt.Printf("check: %s\n", rigCheckLine(r))
 			})
 		},
 	}
 	add.Flags().StringVar(&base, "base", "origin/main", "ref bead branches start from")
 	add.Flags().StringVar(&clone, "clone", "", "clone this URL first (into [path] or ~/.yardr/rigs/<name>)")
 	add.Flags().StringVar(&check, "check", "", "merge gate command (sh -c), overriding the repo's "+rigcheck.RepoPath)
+	add.Flags().BoolVar(&allowNoCheck, "allow-no-check", false, "let the gate pass when the rig has no check at all (default: no gate fails)")
+	show := &cobra.Command{
+		Use: "show <rig>", Short: "Show a rig: path, base, flow and gate", Args: cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			r, err := st.GetRig(c.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return a.out(r, func() {
+				fmt.Printf("rig %s\n", r.Name)
+				fmt.Printf("  path:  %s\n", r.Path)
+				fmt.Printf("  base:  %s\n", r.Base)
+				fmt.Printf("  flow:  %s\n", rigFlow(c.Context(), st, r.Name))
+				fmt.Printf("  check: %s\n", rigCheckLine(*r))
+			})
+		},
+	}
 	list := &cobra.Command{
 		Use: "list", Short: "List rigs", Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
@@ -271,7 +292,7 @@ overrides the repository's default.flow and type/<type>.flow.`,
 	}
 	flow.Flags().StringVarP(&flowType, "type", "t", "", "only the rig's beads of this type")
 	flow.Flags().BoolVar(&clear, "clear", false, "remove the pointer")
-	cmd.AddCommand(add, list, flow, a.rigCheckCmd())
+	cmd.AddCommand(add, list, show, flow, a.rigCheckCmd())
 	return cmd
 }
 
@@ -284,7 +305,10 @@ func (a *app) rigCheckCmd() *cobra.Command {
 		Long: `Run the rig's merge gate: the store's --check override if set, else
 ` + rigcheck.RepoPath + ` as it is at the tip of the rig's base branch. The gate
 is never read from the directory it runs in, so a bead branch that edits
-` + rigcheck.RepoPath + ` does not change its own gate. A rig with neither passes.
+` + rigcheck.RepoPath + ` does not change its own gate. When the base has a remote
+the file is read from the remote-tracking ref after a fetch (origin/main),
+not from the local branch, which any worktree can move. A rig with neither
+fails ("no gate") unless it was added with --allow-no-check.
 
 Exits 0 when the gate passes, 1 when it fails.`,
 		Example: `  yardr rig check yard                                   # in the rig itself
@@ -309,16 +333,23 @@ Exits 0 when the gate passes, 1 when it fails.`,
 				return err
 			}
 			if err := a.out(res, func() {
-				if out := rigcheck.Tail(res.Output, tail); strings.TrimSpace(out) != "" {
+				// No gate has only yardr's own message, said below.
+				if out := rigcheck.Tail(res.Output, tail); strings.TrimSpace(out) != "" && res.Source != "" {
 					fmt.Println(out)
 				}
+				src := res.Source
+				if res.From != "" {
+					src += " from " + res.From
+				}
 				switch {
+				case res.Source == "" && res.Pass:
+					fmt.Printf("rig %s has no check (no --check, no %s on %s), allowed by allow_no_check: pass\n", res.Rig, rigcheck.RepoPath, res.From)
 				case res.Source == "":
-					fmt.Printf("rig %s has no check (no --check, no %s on %s): pass\n", res.Rig, rigcheck.RepoPath, rig.Base)
+					fmt.Printf("rig %s has no check (no --check, no %s on %s): FAIL (no gate)\n", res.Rig, rigcheck.RepoPath, res.From)
 				case res.Pass:
-					fmt.Printf("check %s (%s) in %s: pass\n", res.Rig, res.Source, res.Dir)
+					fmt.Printf("check %s (%s) in %s: pass\n", res.Rig, src, res.Dir)
 				default:
-					fmt.Printf("check %s (%s) in %s: FAIL (exit %d)\n", res.Rig, res.Source, res.Dir, res.ExitCode)
+					fmt.Printf("check %s (%s) in %s: FAIL (exit %d)\n", res.Rig, src, res.Dir, res.ExitCode)
 				}
 			}); err != nil {
 				return err
@@ -332,6 +363,19 @@ Exits 0 when the gate passes, 1 when it fails.`,
 	cmd.Flags().StringVar(&dir, "dir", "", "directory to run it in (default: the rig)")
 	cmd.Flags().IntVar(&tail, "tail", 40, "lines of output to show")
 	return cmd
+}
+
+// rigCheckLine says what gates a rig's merges, as the store has it: the
+// --check override if set, else the repo's file on the base.
+func rigCheckLine(r store.Rig) string {
+	line := rigcheck.RepoPath + " on " + r.Base
+	if r.Check != "" {
+		line = r.Check + " (store override of " + rigcheck.RepoPath + ")"
+	}
+	if r.AllowNoCheck {
+		line += "; allow_no_check: no gate passes"
+	}
+	return line
 }
 
 // rigFlow names the flow governing rig's beads (pins and types aside) and
