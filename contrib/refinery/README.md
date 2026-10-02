@@ -25,8 +25,11 @@ the gate on it. Green pushes the rebased branch when `YARDR_PUSH` is set
 (replacing the remote branch only if everything on it was in what it
 rebased) and reports `done`, to review. Red adds a child in `backlog`, "Fix
 the gate on epic <id>", which blocks the epic, and reports `failed`, back to
-`open`. A rebase conflict, a gate that could not run, or a branch it cannot
-work on (missing, dirty, nothing ahead of the base) holds the epic.
+`open`. A rebase conflict aborts the rebase, reports `conflict` to `merge`
+with the conflicting files and both tips, and leaves the branch for the
+mergers; after they report done, the epic returns to `open` for integration.
+A gate that could not run, or a branch it cannot work on (missing, dirty,
+nothing ahead of the base), holds the epic.
 
 With `YARDR_PR=1` (and `YARDR_PUSH`), integrate-epic also opens a pull
 request for the pushed branch against the base, or replaces the body of the
