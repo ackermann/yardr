@@ -34,7 +34,7 @@ type API interface {
 	PutGroup(ctx context.Context, g Group) error
 	Groups(ctx context.Context) ([]Group, error)
 	GetGroup(ctx context.Context, name string) (*Group, error)
-	DeleteGroup(ctx context.Context, name string) error
+	DeleteGroup(ctx context.Context, name, actor string) (int, error)
 	AddRoute(ctx context.Context, r Route) (*Route, error)
 	Routes(ctx context.Context) ([]Route, error)
 	DeleteRoute(ctx context.Context, id string) error

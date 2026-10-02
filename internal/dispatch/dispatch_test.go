@@ -450,3 +450,47 @@ func TestSessionKeepsItsRunnerWhenGroupSwitches(t *testing.T) {
 		t.Fatalf("a was not re-dispatched to the new runner: %v", nu.starts())
 	}
 }
+
+// Deleting a group must not strand the beads its sessions hold: once its
+// route is gone, nothing would ever claim them again (yard-30).
+func TestGroupRmReleasesClaimedBeadsToTheNewRoute(t *testing.T) {
+	s, f, d := setup(t)
+	ctx := context.Background()
+	must(t, s.PutGroup(ctx, store.Group{Name: "approvers", Runner: "fake"}))
+	must(t, s.PutGroup(ctx, store.Group{Name: "refinery", Runner: "fake"}))
+	r, err := s.AddRoute(ctx, store.Route{Stage: "approved", Group: "approvers"})
+	must(t, err)
+	b, _ := s.CreateBead(ctx, store.NewBead{Title: "ship it", Stage: "approved"}, "me")
+	must(t, d.Reconcile(ctx))
+	got, _ := s.GetBead(ctx, b.ID)
+	if got.Group == nil || *got.Group != "approvers" {
+		t.Fatalf("not claimed by approvers: %+v", got)
+	}
+	old := *got.Session
+
+	// Re-route: the claimed bead keeps its group.
+	must(t, s.DeleteRoute(ctx, r.ID))
+	_, err = s.AddRoute(ctx, store.Route{Stage: "approved", Group: "refinery"})
+	must(t, err)
+	must(t, d.Reconcile(ctx))
+	if got, _ := s.GetBead(ctx, b.ID); got.Group == nil || *got.Group != "approvers" {
+		t.Fatalf("re-route took a claimed bead: %+v", got)
+	}
+
+	n, err := s.DeleteGroup(ctx, "approvers", "mayor")
+	must(t, err)
+	if n != 1 {
+		t.Fatalf("released = %d, want 1", n)
+	}
+	must(t, d.Reconcile(ctx))
+	got, _ = s.GetBead(ctx, b.ID)
+	if got.Group == nil || *got.Group != "refinery" {
+		t.Fatalf("not routed to refinery after group rm: %+v", got)
+	}
+	if !slices.Contains(f.stopped, old) {
+		t.Fatalf("deleted group's session not stopped: %v", f.stopped)
+	}
+	if fails, _ := s.FailureCount(ctx, b.ID, "approved"); fails != 0 {
+		t.Fatalf("group rm counted as %d failure(s)", fails)
+	}
+}

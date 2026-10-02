@@ -169,8 +169,8 @@ func (c *Client) Groups(ctx context.Context) ([]store.Group, error) {
 func (c *Client) GetGroup(ctx context.Context, name string) (*store.Group, error) {
 	return callV[*store.Group](c, ctx, "GetGroup", name)
 }
-func (c *Client) DeleteGroup(ctx context.Context, name string) error {
-	return c.call(ctx, "DeleteGroup", nil, name)
+func (c *Client) DeleteGroup(ctx context.Context, name, actor string) (int, error) {
+	return callV[int](c, ctx, "DeleteGroup", name, actor)
 }
 func (c *Client) AddRoute(ctx context.Context, r store.Route) (*store.Route, error) {
 	return callV[*store.Route](c, ctx, "AddRoute", r)

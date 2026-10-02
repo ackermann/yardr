@@ -64,9 +64,15 @@ func (s *Store) GetGroup(ctx context.Context, name string) (*Group, error) {
 	return g, nil
 }
 
-// DeleteGroup removes the group and the routes that send work to it.
-func (s *Store) DeleteGroup(ctx context.Context, name string) error {
-	return s.write(func(w *wtx) error {
+// DeleteGroup removes the group and the routes that send work to it. Its
+// live sessions end as released and their beads go back to routing in the
+// same transaction: a bead owned by a deleted group would otherwise sit in
+// its stage until released by hand, since no route can claim it. The
+// dispatcher's teardown stops the runner resources. It reports how many
+// beads it released.
+func (s *Store) DeleteGroup(ctx context.Context, name, actor string) (int, error) {
+	released := 0
+	err := s.write(func(w *wtx) error {
 		var drop []string
 		if err := each(w.Tx, bRoutes, "", func(k []byte, r *Route) error {
 			if r.Group == name {
@@ -81,8 +87,41 @@ func (s *Store) DeleteGroup(ctx context.Context, name string) error {
 				return err
 			}
 		}
+		var live []Session
+		if err := each(w.Tx, bSessions, "", func(_ []byte, sess *Session) error {
+			if sess.Group == name && sess.live() {
+				live = append(live, *sess)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+		reason := "group " + name + " deleted"
+		for _, sess := range live {
+			owned := false
+			if _, err := w.changeBead(sess.Bead, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
+				if b.Session == nil || *b.Session != sess.ID {
+					return "", nil, nil
+				}
+				owned = true
+				return "released", map[string]any{"reason": reason}, w.endSession(b, "released")
+			}); err != nil {
+				return err
+			}
+			if owned {
+				released++
+				continue
+			}
+			// The bead moved on without this session; end it so it is not live.
+			t := now()
+			sess.State, sess.Error, sess.EndedAt = "released", &reason, &t
+			if err := put(w.Tx, bSessions, sess.ID, sess); err != nil {
+				return err
+			}
+		}
 		return w.Bucket(bGroups).Delete([]byte(name))
 	})
+	return released, err
 }
 
 // Route sends open, unblocked beads in Stage to Group. Nil fields match any.

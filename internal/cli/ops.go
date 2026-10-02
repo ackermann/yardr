@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -287,13 +288,21 @@ With a name, the group is replaced by exactly what the flags say.`,
 		},
 	}
 	rm := &cobra.Command{
-		Use: "rm <name>", Short: "Delete a group and its routes", Args: cobra.ExactArgs(1),
+		Use: "rm <name>", Short: "Delete a group and its routes, releasing beads its live sessions hold", Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
 			}
-			return st.DeleteGroup(c.Context(), args[0])
+			n, err := st.DeleteGroup(c.Context(), args[0], a.who())
+			if err != nil {
+				return err
+			}
+			return a.out(map[string]any{"group": args[0], "released": n}, func() {
+				if n > 0 {
+					fmt.Printf("deleted group %s; ended its %d live session(s) and released their beads for routing\n", args[0], n)
+				}
+			})
 		},
 	}
 	cmd.AddCommand(add, list, rm)
@@ -407,7 +416,36 @@ func (a *app) routeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return st.DeleteRoute(c.Context(), args[0])
+			rs, err := st.Routes(c.Context())
+			if err != nil {
+				return err
+			}
+			if err := st.DeleteRoute(c.Context(), args[0]); err != nil {
+				return err
+			}
+			i := slices.IndexFunc(rs, func(r store.Route) bool { return r.ID == args[0] })
+			if i < 0 {
+				return a.out(map[string]any{"route": args[0], "claimed": []string{}}, func() {})
+			}
+			r := rs[i]
+			// Beads already claimed through the route stay with its group until
+			// their sessions end; only new claims follow the remaining routes.
+			ss, err := st.Sessions(c.Context(), false)
+			if err != nil {
+				return err
+			}
+			claimed := []string{}
+			for _, s := range ss {
+				if s.Group == r.Group && s.Stage == r.Stage {
+					claimed = append(claimed, s.Bead)
+				}
+			}
+			return a.out(map[string]any{"route": r.ID, "claimed": claimed}, func() {
+				if len(claimed) > 0 {
+					fmt.Printf("%d bead(s) in %s already claimed by %s keep it until their sessions end: %s\n",
+						len(claimed), r.Stage, r.Group, strings.Join(claimed, " "))
+				}
+			})
 		},
 	}
 	cmd.AddCommand(add, list, rm)

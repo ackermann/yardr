@@ -197,6 +197,66 @@ func TestSessionLifecycle(t *testing.T) {
 	}
 }
 
+// Deleting a group releases the beads its live sessions hold, in the same
+// transaction, so no bead is left owned by a group that no longer exists.
+func TestDeleteGroupReleasesClaimedBeads(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	_ = s.PutGroup(ctx, store.Group{Name: "gone", Runner: "manual"})
+	_ = s.PutGroup(ctx, store.Group{Name: "kept", Runner: "manual"})
+	if _, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "gone"}); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := s.CreateBead(ctx, store.NewBead{Title: "a"}, "me")
+	b, _ := s.CreateBead(ctx, store.NewBead{Title: "b"}, "me")
+	sa, err := s.Claim(ctx, a.ID, "gone", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sb, err := s.Claim(ctx, b.ID, "kept", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := s.DeleteGroup(ctx, "gone", "mayor")
+	if err != nil || n != 1 {
+		t.Fatalf("DeleteGroup = %d, %v; want 1", n, err)
+	}
+	if _, err := s.GetGroup(ctx, "gone"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("group still there: %v", err)
+	}
+	if rs, _ := s.Routes(ctx); len(rs) != 0 {
+		t.Fatalf("routes left: %+v", rs)
+	}
+	got, _ := s.GetBead(ctx, a.ID)
+	if got.Group != nil || got.Session != nil || got.Stage != "new" {
+		t.Fatalf("bead still owned: %+v", got)
+	}
+	ss, _ := s.GetSession(ctx, sa.ID)
+	if ss.State != "released" || ss.EndedAt == nil {
+		t.Fatalf("session after group rm: %+v", ss)
+	}
+	if un, _ := s.Unstopped(ctx); len(un) != 1 || un[0].ID != sa.ID {
+		t.Fatalf("unstopped = %+v, want the released session for teardown", un)
+	}
+	evs, _ := s.Events(ctx, a.ID, 100)
+	last := evs[len(evs)-1]
+	if last.Kind != "released" || last.Actor != "mayor" || last.Data["reason"] != "group gone deleted" {
+		t.Fatalf("last event = %+v", last)
+	}
+
+	// Other groups' claims are untouched.
+	got, _ = s.GetBead(ctx, b.ID)
+	if got.Session == nil || *got.Session != sb.ID {
+		t.Fatalf("other group's bead released: %+v", got)
+	}
+
+	// Deleting a group with nothing claimed releases nothing.
+	if n, err := s.DeleteGroup(ctx, "gone", "mayor"); err != nil || n != 0 {
+		t.Fatalf("second DeleteGroup = %d, %v", n, err)
+	}
+}
+
 func TestRoutesAndUpdate(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
