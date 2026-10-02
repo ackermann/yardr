@@ -1,14 +1,18 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
+	"sync"
 	"syscall"
 
 	"yardr.dev/yardr/internal/config"
@@ -31,6 +35,8 @@ import (
 type Exec struct {
 	Home string // state directory; bead worktrees default to <Home>/worktrees
 	Bin  string // this yardr's executable
+
+	noReap bool // tests: start without the reaper, as after a daemon replace
 }
 
 func NewExec() *Exec { return &Exec{} }
@@ -63,10 +69,18 @@ func (e *Exec) Start(ctx context.Context, job dispatch.Job) (map[string]any, err
 		return nil, err
 	}
 	pid := cmd.Process.Pid
-	// Reap in the background so the child never lingers as a zombie, which
-	// would make Alive report it running forever.
-	go func() { _ = cmd.Wait() }()
-	return map[string]any{"pid": pid, "log": logPath}, nil
+	h := map[string]any{"pid": pid, "log": logPath}
+	// The start time tells this process apart from a later one that reuses
+	// its pid. It is set at fork, so reading it before the exec is fine.
+	if st, err := procStat(pid); err == nil {
+		h["start"] = st.start
+	}
+	// Reap in the background so the child does not linger as a zombie. This
+	// goroutine dies when the daemon replaces itself; Alive reaps then.
+	if !e.noReap {
+		go func() { _ = cmd.Wait() }()
+	}
+	return h, nil
 }
 
 // env is the exec-only part of the command's environment.
@@ -93,25 +107,121 @@ func (e *Exec) env(job dispatch.Job) []string {
 	return env
 }
 
+// Alive reports whether the session's process still runs. A zombie is
+// reaped and counts as gone: after a daemon replace nothing else waits for
+// it, and kill(pid, 0) alone would call it running forever. A pid that now
+// belongs to a process started later than the session's is gone too.
 func (e *Exec) Alive(_ context.Context, h map[string]any) (bool, error) {
 	pid, err := pidOf(h)
 	if err != nil {
 		return false, err
 	}
-	err = syscall.Kill(pid, 0)
-	return err == nil || errors.Is(err, syscall.EPERM), nil
+	if !hasProc() {
+		if wpid, _ := syscall.Wait4(pid, nil, syscall.WNOHANG, nil); wpid == pid {
+			return false, nil
+		}
+		err = syscall.Kill(pid, 0)
+		return err == nil || errors.Is(err, syscall.EPERM), nil
+	}
+	st, err := procStat(pid)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !owns(h, st) {
+		return false, nil
+	}
+	if st.state == 'Z' {
+		// Checked before waiting so a reused pid's exit status, which some
+		// other cmd.Wait in this daemon expects, is never taken. ECHILD
+		// means it is not our child; it is gone either way.
+		_, _ = syscall.Wait4(pid, nil, syscall.WNOHANG, nil)
+		return false, nil
+	}
+	return true, nil
 }
 
+// Stop signals the session's process group, unless its pid now belongs to
+// another process. A leader that is gone entirely still gets the signal:
+// while any of its group lives the kernel does not hand its pid out again,
+// so -pid can only reach what the session left behind.
 func (e *Exec) Stop(_ context.Context, h map[string]any) error {
 	pid, err := pidOf(h)
 	if err != nil {
 		return nil // nothing was started
+	}
+	if hasProc() {
+		if st, err := procStat(pid); err == nil && !owns(h, st) {
+			return nil
+		}
 	}
 	// The process runs in its own session; signal the whole group.
 	if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
 		return err
 	}
 	return nil
+}
+
+// owns reports whether st is the process the handle started. Handles from
+// before start times were recorded trust the pid.
+func owns(h map[string]any, st stat) bool {
+	want, ok := uintOf(h["start"])
+	return !ok || want == st.start
+}
+
+type stat struct {
+	state byte   // R, S, Z, ...
+	start uint64 // clock ticks after boot
+}
+
+var procOnce = sync.OnceValue(func() bool {
+	_, err := os.Stat("/proc/self/stat")
+	return err == nil
+})
+
+// hasProc is false where there is no /proc; liveness falls back to kill(0).
+func hasProc() bool { return procOnce() }
+
+// procStat reads state and start time from /proc/<pid>/stat.
+func procStat(pid int) (stat, error) {
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return stat{}, err
+	}
+	// The command name may hold spaces and parentheses; fields resume after
+	// the last ')'. State is field 3, starttime field 22.
+	i := bytes.LastIndexByte(b, ')')
+	if i < 0 {
+		return stat{}, fmt.Errorf("pid %d: unexpected stat %q", pid, b)
+	}
+	f := strings.Fields(string(b[i+1:]))
+	if len(f) < 20 {
+		return stat{}, fmt.Errorf("pid %d: unexpected stat %q", pid, b)
+	}
+	start, err := strconv.ParseUint(f[19], 10, 64)
+	if err != nil {
+		return stat{}, fmt.Errorf("pid %d: start time: %w", pid, err)
+	}
+	return stat{state: f[0][0], start: start}, nil
+}
+
+func uintOf(v any) (uint64, bool) {
+	switch v := v.(type) {
+	case uint64:
+		return v, true
+	case int:
+		return uint64(v), true
+	case int64:
+		return uint64(v), true
+	case float64:
+		return uint64(v), true
+	case string:
+		n, err := strconv.ParseUint(v, 10, 64)
+		return n, err == nil
+	}
+	return 0, false
 }
 
 func pidOf(h map[string]any) (int, error) {
