@@ -150,7 +150,7 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 		// taken.
 		d.Binary.Skipped = func(rev, reason string) {
 			d.Log.Warn("not replacing the yardr daemon", "candidate", version.Show(rev), "reason", reason)
-			if err := d.Store.LogEvent(context.Background(), "", "replace_skipped", actor,
+			if err := d.Store.LogDispatch(context.Background(), "", "replace_skipped", actor,
 				map[string]any{"process": "daemon", "running": version.Show(d.Binary.Running), "candidate": version.Show(rev), "reason": reason}); err != nil {
 				d.Log.Warn("replace_skipped event", "err", err)
 			}
