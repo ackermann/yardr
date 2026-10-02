@@ -148,13 +148,19 @@ func (a *app) daemonCmd() *cobra.Command {
 }
 
 func (a *app) rigCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "rig", Short: "Repositories beads are worked in"}
-	var base, clone, check string
+	cmd := &cobra.Command{Use: "rig", Short: "Repositories (or plain directories) beads are worked in"}
+	var base, clone, check, kind string
 	var allowNoCheck bool
 	add := &cobra.Command{
 		Use:   "add <name> [path]",
-		Short: "Register (or update) a rig: an existing clone, or --clone a URL",
+		Short: "Register (or update) a rig: an existing clone, --clone a URL, or a directory",
+		Long: `Register (or update) a rig. A git rig is a repository: beads work on
+branches in worktrees and land on its --base. A dir rig is a plain directory
+(documents, images, invoices): beads are worked in it as it is, and it has no
+base. Without --kind, a path git sees as a checkout is a git rig and any
+other directory a dir rig; rig add says which it took.`,
 		Example: `  yardr rig add webapp ~/projects/webapp                 # existing clone
+  yardr rig add invoices ~/Documents/invoices --kind dir # a folder, no git
   yardr rig add webapp --clone git@github.com:me/webapp.git   # clones to ~/.yardr/rigs/webapp
   yardr rig add legacy ~/src/legacy --base origin/master
   yardr rig add webapp ~/projects/webapp --check 'make test'   # overrides .yardr/check
@@ -178,6 +184,12 @@ func (a *app) rigCmd() *cobra.Command {
 			if path, err = filepath.Abs(path); err != nil {
 				return err
 			}
+			if kind != "" && kind != store.RigGit && kind != store.RigDir {
+				return fmt.Errorf("--kind %s: give %s or %s", kind, store.RigGit, store.RigDir)
+			}
+			if clone != "" && kind == store.RigDir {
+				return fmt.Errorf("--clone makes a git rig; drop --kind dir")
+			}
 			if clone != "" {
 				if _, err := os.Stat(path); err == nil {
 					return fmt.Errorf("%s already exists; drop --clone to register it as is", path)
@@ -189,10 +201,31 @@ func (a *app) rigCmd() *cobra.Command {
 					return fmt.Errorf("git clone: %w", err)
 				}
 			}
+			if info, err := os.Stat(path); err != nil {
+				return err
+			} else if !info.IsDir() {
+				return fmt.Errorf("%s is not a directory", path)
+			}
+			if kind == "" {
+				kind = detectRigKind(path)
+			}
+			if kind == store.RigDir {
+				if c.Flags().Changed("base") {
+					return fmt.Errorf("a dir rig has no base; drop --base, or register a git checkout")
+				}
+				r := store.Rig{Name: name, Path: path, Kind: store.RigDir, Check: check, AllowNoCheck: allowNoCheck}
+				if err := st.PutRig(c.Context(), r, a.who()); err != nil {
+					return err
+				}
+				return a.out(r, func() {
+					fmt.Printf("rig %s → %s (dir: no git, no base)\n", r.Name, r.Path)
+					fmt.Printf("check: %s\n", rigCheckLine(r))
+				})
+			}
 			if out, err := exec.Command("git", "-C", path, "rev-parse", "--show-toplevel").Output(); err != nil {
-				return fmt.Errorf("%s is not a git checkout", path)
+				return fmt.Errorf("%s is not a git checkout; --kind dir registers it as a plain directory", path)
 			} else if top, real := strings.TrimSpace(string(out)), resolve(path); top != real {
-				return fmt.Errorf("%s is inside the repository at %s; register the top level", path, top)
+				return fmt.Errorf("%s is inside the repository at %s; register the top level (or --kind dir)", path, top)
 			}
 			// Branches for beads start from base, so it has to resolve.
 			if err := exec.Command("git", "-C", path, "rev-parse", "--verify", "--quiet", base+"^{commit}").Run(); err != nil {
@@ -202,22 +235,23 @@ func (a *app) rigCmd() *cobra.Command {
 				return fmt.Errorf("base %q does not resolve in %s (found: %s); pass --base",
 					base, path, strings.Join(strings.Fields(string(refs)), ", "))
 			}
-			r := store.Rig{Name: name, Path: path, Base: base, Check: check, AllowNoCheck: allowNoCheck}
+			r := store.Rig{Name: name, Path: path, Kind: store.RigGit, Base: base, Check: check, AllowNoCheck: allowNoCheck}
 			if err := st.PutRig(c.Context(), r, a.who()); err != nil {
 				return err
 			}
 			return a.out(r, func() {
-				fmt.Printf("rig %s → %s (base %s)\n", r.Name, r.Path, r.Base)
+				fmt.Printf("rig %s → %s (git, base %s)\n", r.Name, r.Path, r.Base)
 				fmt.Printf("check: %s\n", rigCheckLine(r))
 			})
 		},
 	}
-	add.Flags().StringVar(&base, "base", "origin/main", "ref bead branches start from")
+	add.Flags().StringVar(&base, "base", "origin/main", "ref bead branches start from (git rigs)")
+	add.Flags().StringVar(&kind, "kind", "", "git or dir (default: git when the path is a git checkout, else dir)")
 	add.Flags().StringVar(&clone, "clone", "", "clone this URL first (into [path] or ~/.yardr/rigs/<name>)")
 	add.Flags().StringVar(&check, "check", "", "merge gate command (sh -c), overriding the repo's "+rigcheck.RepoPath)
 	add.Flags().BoolVar(&allowNoCheck, "allow-no-check", false, "let the gate pass when the rig has no check at all (default: no gate fails)")
 	show := &cobra.Command{
-		Use: "show <rig>", Short: "Show a rig: path, base, flow and gate", Args: cobra.ExactArgs(1),
+		Use: "show <rig>", Short: "Show a rig: path, kind, base, flow and gate", Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -230,7 +264,12 @@ func (a *app) rigCmd() *cobra.Command {
 			return a.out(r, func() {
 				fmt.Printf("rig %s\n", r.Name)
 				fmt.Printf("  path:  %s\n", r.Path)
-				fmt.Printf("  base:  %s\n", r.Base)
+				fmt.Printf("  kind:  %s\n", r.Kind)
+				if r.IsDir() {
+					fmt.Printf("  base:  none (a dir rig)\n")
+				} else {
+					fmt.Printf("  base:  %s\n", r.Base)
+				}
 				fmt.Printf("  flow:  %s\n", rigFlow(c.Context(), st, r.Name))
 				fmt.Printf("  check: %s\n", rigCheckLine(*r))
 			})
@@ -250,9 +289,9 @@ func (a *app) rigCmd() *cobra.Command {
 			return a.out(rs, func() {
 				rows := [][]string{}
 				for _, r := range rs {
-					rows = append(rows, []string{r.Name, r.Path, r.Base, rigFlow(c.Context(), st, r.Name)})
+					rows = append(rows, []string{r.Name, r.Kind, r.Path, or(r.Base, "-"), rigFlow(c.Context(), st, r.Name)})
 				}
-				table("NAME\tPATH\tBASE\tFLOW", rows)
+				table("NAME\tKIND\tPATH\tBASE\tFLOW", rows)
 			})
 		},
 	}
@@ -353,6 +392,10 @@ the file is read from the remote-tracking ref after a fetch (origin/main),
 not from the local branch, which any worktree can move. A rig with neither
 fails ("no gate") unless it was added with --allow-no-check.
 
+A dir rig has no base: its ` + rigcheck.RepoPath + ` is read from the rig's directory
+and run in --dir (default the rig's directory). A dir rig without one passes
+("no gate"): nothing of it merges anywhere.
+
 The check is killed, with everything it started, once it has run for
 --timeout, which fails the gate; each git call that finds the gate is bounded
 too.
@@ -388,6 +431,8 @@ setup.`,
 					src += " from " + res.From
 				}
 				switch {
+				case res.Source == "" && res.Kind == store.RigDir:
+					fmt.Printf("rig %s is a dir rig with no check (no --check, no %s in %s): pass (no gate)\n", res.Rig, rigcheck.RepoPath, res.Dir)
 				case res.Source == "" && res.Pass:
 					fmt.Printf("rig %s has no check (no --check, no %s on %s), allowed by allow_no_check: pass\n", res.Rig, rigcheck.RepoPath, res.From)
 				case res.Source == "":
@@ -442,6 +487,9 @@ func (a *app) runRigCheck(ctx context.Context, rigName, dir string, timeout time
 // --check override if set, else the repo's file on the base.
 func rigCheckLine(r store.Rig) string {
 	line := rigcheck.RepoPath + " on " + r.Base
+	if r.IsDir() {
+		line = rigcheck.RepoPath + " in the directory, if any (none: no gate, passes)"
+	}
 	if r.Check != "" {
 		line = r.Check + " (store override of " + rigcheck.RepoPath + ")"
 	}
@@ -862,4 +910,13 @@ func or(v, def string) string {
 		return def
 	}
 	return v
+}
+
+// detectRigKind is the kind of rig a path makes when rig add is given no
+// --kind: git when git sees a repository there, else a plain directory.
+func detectRigKind(path string) string {
+	if exec.Command("git", "-C", path, "rev-parse", "--git-dir").Run() == nil {
+		return store.RigGit
+	}
+	return store.RigDir
 }

@@ -410,7 +410,7 @@ func (s *Store) SetFlowPointer(ctx context.Context, rig, typ, flow, actor string
 				return err
 			}
 			if repo.find(flow, "") == nil {
-				return fmt.Errorf("flow %s: %w (not in the store, nor in rig %s's %s at %s)", flow, ErrNotFound, rig, RepoFlowDir, repo.Base)
+				return fmt.Errorf("flow %s: %w (not in the store, nor in rig %s's %s %s)", flow, ErrNotFound, rig, RepoFlowDir, repo.where())
 			}
 			inRepo = true
 		} else if err != nil {
@@ -468,15 +468,18 @@ type FlowSource struct {
 	Kind string `json:"kind"`           // pin, store or repo
 	Type string `json:"type,omitempty"` // the bead type whose pointer or file matched; "" for the rig's
 	// Commit is the base commit a repository flow was read at, also when a
-	// pin or pointer names a flow found only in the repository.
+	// pin or pointer names a flow found only in the repository. A dir
+	// rig's flows have none: they are read from its directory.
 	Commit string `json:"commit,omitempty"`
 	Path   string `json:"path,omitempty"` // the file in the repository
 }
 
 func (s FlowSource) String() string {
 	out := s.Kind
-	if s.Kind == "repo" {
+	if s.Kind == "repo" && s.Commit != "" {
 		out += "@" + shortSHA(s.Commit)
+	} else if s.Kind == "repo" {
+		out += " (directory)"
 	}
 	if s.Type != "" {
 		out += ", type " + s.Type
@@ -523,7 +526,7 @@ func resolveFlow(tx *bolt.Tx, rig *string, typ, pin string, repo *RepoFlows) (*F
 		}
 		rf := repo.find(name, "")
 		if rf == nil {
-			return nil, nil, fmt.Errorf("flow %s: %w (not in the store, nor in rig %s's %s at %s)", name, ErrNotFound, *rig, RepoFlowDir, repo.Base)
+			return nil, nil, fmt.Errorf("flow %s: %w (not in the store, nor in rig %s's %s %s)", name, ErrNotFound, *rig, RepoFlowDir, repo.where())
 		}
 		src.Commit, src.Path = repo.Commit, rf.Path
 		f, err := rf.flow()

@@ -21,6 +21,10 @@
 // nor past the oldest live session, and a pruned file shrinks only when
 // compacted (Compact) while no server holds it.
 //
+// Rigs stored before rig kinds existed (git or dir) are stamped "git" on
+// open (migrateRigKinds): every rig until then was a repository. The
+// stamp needs no schema bump, an older yardr reads past the field.
+//
 // Reads that serve one resident or follow the log page through indexes
 // written at ingest (inbox, events_by_kind) rather than scanning the log
 // in one read transaction, and what needs the live sessions (a claim, the
@@ -140,6 +144,9 @@ func Open(path string) (*Store, error) {
 			}
 		}
 		if err := migrateFlows(tx); err != nil {
+			return err
+		}
+		if err := migrateRigKinds(tx); err != nil {
 			return err
 		}
 		if err := migrateSettings(tx); err != nil {

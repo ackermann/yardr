@@ -220,7 +220,8 @@ func prChecks(dir, url string) string {
 // from the bead's branch, so a bead cannot rewrite the prompt of the reviewer
 // that judges it; a role edit counts once it has landed. A file the base does
 // not have yet (or a rig that is not a git checkout) is read from the rig's
-// working tree instead.
+// working tree instead. A dir rig has no base: its roles are read from its
+// directory as they are.
 //
 // Any other relative path is looked up in the rig's working tree, then in
 // the home.
@@ -319,7 +320,7 @@ func readRigFile(rig *store.Rig, rel string) (text []byte, where string, err err
 		return out, nil
 	}
 	gitPath := filepath.ToSlash(rel)
-	if rig.Base != "" {
+	if rig.Base != "" && !rig.IsDir() {
 		// A rig that is not a repo, or whose base does not resolve, has no
 		// base to read from: its working tree is all there is.
 		if out, err := git("rev-parse", "--verify", "--quiet", rig.Base+"^{commit}"); err == nil {

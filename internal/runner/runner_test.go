@@ -1104,3 +1104,30 @@ func TestHerdrEpicBranchFromFetchedBase(t *testing.T) {
 		t.Fatalf("epic branch tracks %s; it is not a copy of the base", up)
 	}
 }
+
+// A dir rig's roles are read from its directory as it is: there is no base
+// to read them from, and no git to ask.
+func TestDirRigRoles(t *testing.T) {
+	dir, home := t.TempDir(), t.TempDir()
+	rig := &store.Rig{Name: "docs", Path: dir, Kind: store.RigDir}
+	if err := os.MkdirAll(filepath.Join(home, "roles"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "roles", "builder.md"), []byte("Home builder."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if text, err := readPrompt("roles/builder.md", rig, home); err != nil || string(text) != "Home builder." {
+		t.Fatalf("no rig role: %q, %v; want the home's", text, err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".yardr", "roles"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Dir builder.", "Dir builder, edited."} {
+		if err := os.WriteFile(filepath.Join(dir, ".yardr", "roles", "builder.md"), []byte(want), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if text, err := readPrompt("builder.md", rig, home); err != nil || string(text) != want {
+			t.Fatalf("dir rig role: %q, %v; want %q", text, err, want)
+		}
+	}
+}

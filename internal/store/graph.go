@@ -288,9 +288,22 @@ func (s *Store) Notes(ctx context.Context, ref string) ([]Note, error) {
 	return out, err
 }
 
+// Rig kinds. A git rig is a repository: beads work on branches in
+// worktrees, start from Base and land on it, and the rig's .yardr/ is read
+// from the base. A dir rig is a plain directory (documents, images, a small
+// business's files): work happens in the directory itself, there is no
+// base, and .yardr/ is read from the directory as it is.
+const (
+	RigGit = "git"
+	RigDir = "dir"
+)
+
 type Rig struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
+	// Kind is RigGit or RigDir. Rigs stored before kinds existed are git
+	// rigs (migrateRigKinds).
+	Kind string `json:"kind"`
 	Base string `json:"base"`
 	// Check overrides the repo's .yardr/check as the rig's merge gate: a
 	// command run with sh -c in the bead's worktree (see package rigcheck).
@@ -300,19 +313,33 @@ type Rig struct {
 	AllowNoCheck bool `json:"allow_no_check,omitempty"`
 }
 
+// IsDir reports whether the rig is a directory, not a repository.
+func (r *Rig) IsDir() bool { return r.Kind == RigDir }
+
 // PutRig adds or replaces a rig, and logs rig_updated with what it now
 // holds: a --check override replaces the repo's gate, so it must not change
-// unseen.
+// unseen. A rig given no kind is a git rig.
 func (s *Store) PutRig(ctx context.Context, r Rig, actor string) error {
 	if err := checkName("rig name", r.Name); err != nil {
 		return err
+	}
+	switch r.Kind {
+	case "":
+		r.Kind = RigGit
+	case RigGit:
+	case RigDir:
+		if r.Base != "" {
+			return fmt.Errorf("rig %s is a directory rig: it has no base (got %q)", r.Name, r.Base)
+		}
+	default:
+		return fmt.Errorf("rig %s: kind %q is neither %s nor %s", r.Name, r.Kind, RigGit, RigDir)
 	}
 	return s.write(func(w *wtx) error {
 		if err := put(w.Tx, bRigs, r.Name, r); err != nil {
 			return err
 		}
 		return w.event("", "rig_updated", actor, map[string]any{
-			"rig": r.Name, "path": r.Path, "base": r.Base, "check": r.Check, "allow_no_check": r.AllowNoCheck})
+			"rig": r.Name, "path": r.Path, "kind": r.Kind, "base": r.Base, "check": r.Check, "allow_no_check": r.AllowNoCheck})
 	})
 }
 

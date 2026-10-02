@@ -18,6 +18,11 @@
 //
 // A rig with no gate at all fails ("no gate") unless it opts out with
 // allow_no_check: a missing file must not read as a passing one.
+//
+// A dir rig is not a repository and has no base: its .yardr/check is read
+// from the rig's directory as it is, and run in place. Without one a dir rig
+// passes ("no gate"), the opposite of a git rig on purpose: nothing of a dir
+// rig's merges anywhere, so there is no bar to lower.
 package rigcheck
 
 import (
@@ -25,6 +30,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -54,7 +60,8 @@ const DefaultTimeout = 30 * time.Minute
 // Check is a rig's gate as resolved right now.
 type Check struct {
 	// Source says where the gate came from: "store", "repo@<sha>" (the base
-	// commit it was read from), or "" when the rig has none.
+	// commit it was read from), "dir" (a dir rig's own file), or "" when
+	// the rig has none.
 	Source string `json:"source"`
 	// From says which ref the repo's check was read from and how, e.g.
 	// "origin/main (fetched)" or "main (no remote)".
@@ -63,6 +70,8 @@ type Check struct {
 	Cmd string `json:"cmd,omitempty"`
 	// Script is the content of .yardr/check at the base.
 	Script []byte `json:"-"`
+	// File is a dir rig's .yardr/check, run where it is.
+	File string `json:"file,omitempty"`
 }
 
 // None reports whether the rig has no gate.
@@ -74,6 +83,9 @@ func (c *Check) None() bool { return c.Source == "" }
 func Resolve(ctx context.Context, rig store.Rig) (*Check, error) {
 	if rig.Check != "" {
 		return &Check{Source: "store", Cmd: rig.Check}, nil
+	}
+	if rig.IsDir() {
+		return resolveDir(rig)
 	}
 	ref, from, err := BaseRef(ctx, rig)
 	if err != nil {
@@ -96,6 +108,25 @@ func Resolve(ctx context.Context, rig store.Rig) (*Check, error) {
 		return nil, err
 	}
 	return &Check{Source: "repo@" + sha[:min(12, len(sha))], From: from, Script: []byte(script)}, nil
+}
+
+// resolveDir finds a dir rig's .yardr/check in its directory.
+func resolveDir(rig store.Rig) (*Check, error) {
+	file := filepath.Join(rig.Path, filepath.FromSlash(RepoPath))
+	info, err := os.Stat(file)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return &Check{}, nil
+	case err != nil:
+		return nil, fmt.Errorf("rig %s: %w", rig.Name, err)
+	case info.IsDir():
+		return nil, fmt.Errorf("rig %s: %s is a directory, not a check", rig.Name, file)
+	}
+	script, err := os.ReadFile(file)
+	if err != nil {
+		return nil, fmt.Errorf("rig %s: %w", rig.Name, err)
+	}
+	return &Check{Source: "dir", Script: script, File: file}, nil
 }
 
 // BaseRef is the ref the rig's repo config is read from, and a note on how
@@ -188,6 +219,7 @@ func fetch(ctx context.Context, repo, remote, refspec string) error {
 // Result is one run of a check.
 type Result struct {
 	Rig    string `json:"rig"`
+	Kind   string `json:"kind,omitempty"` // the rig's: git or dir
 	Dir    string `json:"dir"`
 	Source string `json:"source"`
 	From   string `json:"from,omitempty"`
@@ -203,7 +235,7 @@ type Result struct {
 // Run resolves the rig's gate and runs it in dir (a bead's worktree, or the
 // rig itself when dir is empty). A failing check is a Result with Pass
 // false, not an error; errors mean the check could not be run at all. A rig
-// with no gate fails too, unless it sets AllowNoCheck. A check still running
+// with no gate fails too, unless it sets AllowNoCheck or is a dir rig. A check still running
 // at ctx's deadline is killed and fails (TimedOut); finding the gate past
 // the deadline is an error.
 func Run(ctx context.Context, rig store.Rig, dir string) (*Result, error) {
@@ -214,9 +246,9 @@ func Run(ctx context.Context, rig store.Rig, dir string) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	res := &Result{Rig: rig.Name, Dir: dir, Source: c.Source, From: c.From}
+	res := &Result{Rig: rig.Name, Kind: rig.Kind, Dir: dir, Source: c.Source, From: c.From}
 	if c.None() {
-		res.Pass = rig.AllowNoCheck
+		res.Pass = rig.AllowNoCheck || rig.IsDir()
 		if !res.Pass {
 			res.ExitCode = 1
 			res.Output = fmt.Sprintf("no gate: rig %s has no --check and no %s on %s; add one, or set allow_no_check\n", rig.Name, RepoPath, c.From)
@@ -224,9 +256,18 @@ func Run(ctx context.Context, rig store.Rig, dir string) (*Result, error) {
 		return res, nil
 	}
 	var cmd *exec.Cmd
-	if c.Cmd != "" {
+	switch {
+	case c.Cmd != "":
 		cmd = exec.CommandContext(ctx, "sh", "-c", c.Cmd)
-	} else {
+	case c.File != "":
+		// A dir rig's check is a file already, with no git directory to
+		// copy it to: run it in place, with sh unless it is executable.
+		if info, err := os.Stat(c.File); err == nil && bytes.HasPrefix(c.Script, []byte("#!")) && info.Mode()&0o111 != 0 {
+			cmd = exec.CommandContext(ctx, c.File)
+		} else {
+			cmd = exec.CommandContext(ctx, "sh", c.File)
+		}
+	default:
 		// The script is a blob in git, not a file: write it out to run it.
 		// It goes under the rig's git dir, not /tmp, which may be noexec,
 		// and not the worktree, where it would show up as a change.

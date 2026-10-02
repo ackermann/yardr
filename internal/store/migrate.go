@@ -333,6 +333,27 @@ func migrateFlows(tx *bolt.Tx) error {
 	return (&wtx{Tx: tx}).event("", "flows_migrated", "yardr", map[string]any{"flows": names})
 }
 
+// migrateRigKinds stamps every rig stored without a kind as a git rig,
+// which every rig was before dir rigs. It writes nothing once each has one.
+func migrateRigKinds(tx *bolt.Tx) error {
+	var old []*Rig
+	if err := each(tx, bRigs, "", func(_ []byte, r *Rig) error {
+		if r.Kind == "" {
+			old = append(old, r)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	for _, r := range old {
+		r.Kind = RigGit
+		if err := put(tx, bRigs, r.Name, r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // migrateSettings gives a yard from before the onboarding (yard-p01r) the
 // default_kind setting that marks a home set up: a store with rigs, groups
 // or residents but no default_kind is in use, and without it every command

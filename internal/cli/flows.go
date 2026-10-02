@@ -223,9 +223,13 @@ func flowList(ctx context.Context, st store.API) ([]flowRow, error) {
 			fmt.Fprintf(os.Stderr, "warning: rig %s: %v\n", r.Name, err)
 			continue
 		}
+		src := fmt.Sprintf("repo %s@%.7s", r.Name, repo.Commit)
+		if repo.Dir != "" {
+			src = "dir " + r.Name
+		}
 		for _, f := range repo.Flows {
 			row := flowRow{Name: strings.TrimSuffix(strings.TrimPrefix(f.Path, store.RepoFlowDir+"/"), ".flow"),
-				Source: fmt.Sprintf("repo %s@%.7s", r.Name, repo.Commit), Error: f.Error,
+				Source: src, Error: f.Error,
 				Governs: governs["repo:"+r.Name+":"+f.Path]}
 			if f.Flow != nil {
 				row.Stages = len(f.Flow.Stages)

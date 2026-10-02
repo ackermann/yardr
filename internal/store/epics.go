@@ -28,7 +28,8 @@ type Family struct {
 	Epic string `json:"epic,omitempty"`
 	// Base is BaseOf(bead): what its branch starts from and lands on.
 	// Branch(Epic) for a child of an epic; for everything else, the epic
-	// itself included, the rig's base ("" without a rig).
+	// itself included, the rig's base ("" without a rig, and always "" in
+	// a dir rig, which has no branches).
 	Base string `json:"base,omitempty"`
 	// Children are an epic's children, oldest edge first.
 	Children []string `json:"children,omitempty"`
@@ -56,13 +57,22 @@ func familyOf(tx *bolt.Tx, row *beadRow) (*Family, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", row.ID, err)
 	}
-	if epic != nil {
-		f.Epic, f.Base = epic.ID, Branch(epic.ID)
-	} else if row.Rig != nil {
-		var r Rig
+	var r Rig
+	if row.Rig != nil {
 		if _, err := get(tx, bRigs, *row.Rig, &r); err != nil {
 			return nil, err
 		}
+	}
+	switch {
+	case r.IsDir():
+		// A dir rig has no branches: an epic only groups its children,
+		// who work in the rig's directory like any bead.
+		if epic != nil {
+			f.Epic = epic.ID
+		}
+	case epic != nil:
+		f.Epic, f.Base = epic.ID, Branch(epic.ID)
+	default:
 		f.Base = r.Base
 	}
 	if row.Type == TypeEpic {

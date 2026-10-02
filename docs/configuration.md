@@ -19,7 +19,7 @@ in yard-9cza, the merge gate in yard-p2y7.
 | roles | the rig's own role prompts: `.yardr/roles/<name>.md`, read from the base (built) | the generic roles `yardr init` installed in `~/.yardr/roles/`, the fallback; residents' prompts, by absolute path (built) |
 | groups | | runner, limit, members, subscriptions (manual), agent kind, model, args, cmd, worktree settings (built) |
 | routes | | which group works which stage, by rig, type, label (built) |
-| rigs | | path, clone, base branch; `rig add` registers, `rig rm` removes (built) |
+| rigs | | path, kind (`git` or `dir`), clone, base branch; `rig add` registers, `rig rm` removes (built) |
 | residents | | agent, directory, inbox kinds, rotation, subscriptions, identities (built) |
 | settings | | the yard's defaults: `default_kind`, `operator`, `mayor` (built) |
 
@@ -138,6 +138,39 @@ so a dead remote cannot stall the daemon; every other git call a start or a
 cleanup makes (`worktree add`, `branch`, `worktree remove`) is cut off after
 2 minutes on the same terms.
 
+## Rig kinds: git and dir
+
+A rig is one of two kinds, shown by `yardr rig show` and `rig list`:
+
+- **git** (the default, and every rig registered before kinds existed): a
+  repository. Beads work on branches in worktrees, start from the rig's
+  base and land on it. `.yardr/` is read from the tip of the base, as the
+  rest of this page describes.
+- **dir**: a plain directory, a folder of documents, images or invoices.
+  There is no repository, no branch and no base: beads are worked in the
+  directory itself. `.yardr/` is read from the directory as it is on disk,
+  so an edit to a flow, a role or the check applies at once (flows are
+  reread when a file under `.yardr/flows/` is added, removed or changes
+  mtime or size). Nothing reviews `.yardr/` there before it applies; the
+  bar is the operator's, not a landed commit's.
+
+`yardr rig add <name> <path>` detects the kind: if `git -C <path> rev-parse
+--git-dir` succeeds the path is a git rig, otherwise a dir rig, and it
+prints which it took. `--kind git|dir` says so instead; `--kind dir`
+registers even a checkout as a plain directory. A dir rig refuses `--base`
+and `--clone`.
+
+| `.yardr/` | git rig | dir rig |
+|---|---|---|
+| `flows/` | at the tip of the base (`repo@<sha>`) | in the directory (`repo (directory)`) |
+| `roles/<name>.md` | at the tip of the base, else the working tree | in the directory |
+| `check` | at the tip of the (fetched) base, written out and run | in the directory, run in place |
+| no `check` | fails ("no gate") unless `--allow-no-check` | passes ("no gate"): nothing merges |
+
+Epics on a dir rig only group their children: no epic branch, and a
+child's base (`bead show`, `$YARDR_BASE`) is empty, as is every bead's in
+a dir rig.
+
 ## Precedence
 
 Where both sides can define something, the most specific source wins:
@@ -153,7 +186,8 @@ pin on the bead  >  store  >  repo .yardr/  >  none
   (built).
 - **Repo `.yardr/`** (built): the default that ships with the code.
 - **None**: no flow means a bead may move to any stage. No check fails the
-  gate ("no gate") unless the rig was added with `--allow-no-check`.
+  gate ("no gate") unless the rig was added with `--allow-no-check`, or is
+  a dir rig.
 
 Within one source a type-specific flow wins over the rig's flow; a source
 wins as a whole, so a rig pointer in the store overrides the repo's type
@@ -164,6 +198,9 @@ rule is: the rig's `--check`, else `.yardr/check` on the base, else no
 gate, which fails unless the rig allows it.
 
 ## Repo config comes from the base branch
+
+This section is about git rigs; a dir rig has no base and reads `.yardr/`
+from its directory (see [Rig kinds](#rig-kinds-git-and-dir)).
 
 yardr reads `.yardr/` from the tip of the rig's base branch
 (`git show <base>:.yardr/...`), never from the bead's branch or worktree
@@ -201,6 +238,11 @@ A rig with neither fails its gate with "no gate": a missing file must not
 read as a passing one. `rig add ... --allow-no-check` opts a rig out, for a
 repo that has nothing to check.
 
+A dir rig's `.yardr/check` is read from its directory and run where it is
+(as is when executable with `#!`, otherwise with `sh`), in `--dir`, which
+defaults to the rig's directory. A dir rig without one passes with "no
+gate": nothing of it merges anywhere, so there is no bar to lower.
+
 ```
 yardr rig check yard                                      # in the rig
 yardr rig check yard --dir ~/.yardr/worktrees/yard/yard-12   # in a bead's worktree
@@ -209,7 +251,7 @@ yardr rig check yard --dir ~/.yardr/worktrees/yard/yard-12   # in a bead's workt
 prints the tail of the output (`--tail N`, default 40; a red gate whose
 tail is empty says so, or how many lines it hid) and pass or FAIL; `--json`
 gives the full output, the exit code and the source (`store`, `repo@<sha>`,
-or empty for a rig with no gate). It exits 0 on a green gate, 1 on a red one
+`dir` for a dir rig's own file, or empty for a rig with no gate). It exits 0 on a green gate, 1 on a red one
 (no gate and a timeout included), and 2 when the gate could not run at all:
 an unknown rig, a base that does not resolve, git failing. The check is
 killed, with every process it started, after `--timeout` (default 30m), and

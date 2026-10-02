@@ -246,3 +246,47 @@ func TestGitCallsAreBounded(t *testing.T) {
 		t.Fatalf("Run with git timing out = %v", err)
 	}
 }
+
+// A dir rig's gate is its directory's .yardr/check, run in place; without
+// one it passes, unlike a git rig: there is nothing to merge.
+func TestCheckDirRig(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	rig := store.Rig{Name: "docs", Path: dir, Kind: store.RigDir}
+	res, err := Run(ctx, rig, "")
+	if err != nil || !res.Pass || res.Source != "" || res.Dir != dir || res.Kind != store.RigDir {
+		t.Fatalf("dir rig without a check must pass with no gate: %+v %v", res, err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".yardr"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(script string, mode os.FileMode) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, RepoPath), []byte(script), mode); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(filepath.Join(dir, RepoPath), mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Not executable, no #!: run with sh, in the directory given.
+	write("pwd; echo $YARDR_RIG; exit 3\n", 0o644)
+	sub := filepath.Join(dir, "2025-09")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	res, err = Run(ctx, rig, sub)
+	if err != nil || res.Pass || res.ExitCode != 3 || res.Source != "dir" || !strings.Contains(res.Output, sub+"\ndocs") {
+		t.Fatalf("failing dir check: %+v %v", res, err)
+	}
+	// Executable with #!: run as is, edits count at once.
+	write("#!/bin/sh\necho shebang\n", 0o755)
+	if res, err = Run(ctx, rig, ""); err != nil || !res.Pass || !strings.Contains(res.Output, "shebang") || res.Dir != dir {
+		t.Fatalf("passing dir check: %+v %v", res, err)
+	}
+	// The store override wins here too.
+	rig.Check = "exit 7"
+	if res, err = Run(ctx, rig, ""); err != nil || res.Pass || res.Source != "store" || res.ExitCode != 7 {
+		t.Fatalf("override on a dir rig: %+v %v", res, err)
+	}
+}
