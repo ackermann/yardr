@@ -33,6 +33,9 @@ type depRow struct {
 // checkParent). The edge gets its own revision, and both beads, whose
 // representations list or count it, are re-minted.
 func (s *Store) AddDep(ctx context.Context, fromRef, toRef, kind, actor string) error {
+	if err := checkName("dep kind", kind); err != nil {
+		return err
+	}
 	return s.write(func(w *wtx) error {
 		fromRow, err := w.loadBead(fromRef)
 		if err != nil {
@@ -265,6 +268,9 @@ type Rig struct {
 // holds: a --check override replaces the repo's gate, so it must not change
 // unseen.
 func (s *Store) PutRig(ctx context.Context, r Rig, actor string) error {
+	if err := checkName("rig name", r.Name); err != nil {
+		return err
+	}
 	return s.write(func(w *wtx) error {
 		if err := put(w.Tx, bRigs, r.Name, r); err != nil {
 			return err

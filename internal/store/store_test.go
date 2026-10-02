@@ -56,6 +56,44 @@ func TestCreateAndGetBead(t *testing.T) {
 	}
 }
 
+// Rig names, bead types and dep kinds end up in paths, type URLs and route
+// matches, so a slash, whitespace or capitals are refused where they enter.
+func TestNamesAreValidated(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	for _, bad := range []string{"", "a/b", "my rig", "Web", "-x", ".hidden", "tab\tx"} {
+		if err := s.PutRig(ctx, store.Rig{Name: bad, Base: "main"}, "me"); err == nil {
+			t.Errorf("rig name %q accepted", bad)
+		}
+		if bad == "" {
+			continue // an empty type is the default, task
+		}
+		if _, err := s.CreateBead(ctx, store.NewBead{Title: "x", Type: bad}, "me"); err == nil {
+			t.Errorf("bead type %q accepted", bad)
+		}
+	}
+	if err := s.PutRig(ctx, store.Rig{Name: "web.v2_x-1", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	a, err := s.CreateBead(ctx, store.NewBead{Title: "a", Type: "tech-debt"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := s.CreateBead(ctx, store.NewBead{Title: "b"}, "me")
+	bug := "Bug"
+	if _, err := s.UpdateBead(ctx, b.ID, store.BeadPatch{Type: &bug}, store.Expect{}, "me"); err == nil {
+		t.Error("bead update to type Bug accepted")
+	}
+	for _, bad := range []string{"", "depends on", "Blocks", "x/y"} {
+		if err := s.AddDep(ctx, a.ID, b.ID, bad, "me"); err == nil {
+			t.Errorf("dep kind %q accepted", bad)
+		}
+	}
+	if err := s.AddDep(ctx, a.ID, b.ID, "discovered-from", "me"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // A rig's --check override survives the store (and the RPC client).
 func TestRigKeepsCheckOverride(t *testing.T) {
 	s := storetest.New(t)

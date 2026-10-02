@@ -64,6 +64,18 @@ type NewBead struct {
 
 var validID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
+// validName is the shape of rig names, bead types and dep kinds. They end up
+// in paths (rig clones, flow files), BDP type URLs and route matches, so no
+// slash or whitespace, and one case so "Bug" and "bug" are not two types.
+var validName = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+
+func checkName(what, name string) error {
+	if !validName.MatchString(name) {
+		return fmt.Errorf("%s %q: use lowercase letters, digits, '.', '_' or '-' (starting with a letter or digit)", what, name)
+	}
+	return nil
+}
+
 // loadBead reads the bead ref names (see resolve).
 func (w *wtx) loadBead(ref string) (*beadRow, error) {
 	return loadBead(w.Tx, ref)
@@ -138,6 +150,9 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 		prefix = "yd"
 	}
 	typ, stage := or(nb.Type, "task"), or(nb.Stage, "new")
+	if err := checkName("bead type", typ); err != nil {
+		return nil, err
+	}
 	var rig *string
 	if nb.Rig != "" {
 		rig = &nb.Rig
@@ -302,6 +317,11 @@ type BeadPatch struct {
 func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expect, actor string) (*Bead, error) {
 	// A new pin must name a flow that exists: one naming nothing would
 	// only fail later, when dispatch or a move resolves it.
+	if p.Type != nil {
+		if err := checkName("bead type", *p.Type); err != nil {
+			return nil, err
+		}
+	}
 	pin := PinnedFlow(&Bead{Metadata: p.Metadata})
 	var repo *RepoFlows
 	if pin != "" {

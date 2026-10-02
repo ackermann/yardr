@@ -76,7 +76,9 @@ yardr rig add legacy ~/src/legacy --base origin/master       # base must resolve
 Bead branches (`yard/<bead>`) start from the rig's base, fetched before each
 new worktree. Give beads a rig with `--rig`; routes can match on it, and
 a group's relative prompt path is looked up inside it first, then in
-`~/.yardr` ([details](docs/configuration.md#role-prompts)).
+`~/.yardr` ([details](docs/configuration.md#role-prompts)). Rig names, like
+bead types and dependency kinds, are lowercase letters, digits, `.`, `_` and
+`-`.
 
 ## Working a bead (humans and agents alike)
 
