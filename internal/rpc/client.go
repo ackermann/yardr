@@ -190,11 +190,23 @@ func (c *Client) PutFlow(ctx context.Context, f store.Flow, actor string) (*stor
 func (c *Client) Flows(ctx context.Context) ([]store.Flow, error) {
 	return callV[[]store.Flow](c, ctx, "Flows")
 }
-func (c *Client) GetFlow(ctx context.Context, rig, typ string) (*store.Flow, error) {
-	return callV[*store.Flow](c, ctx, "GetFlow", rig, typ)
+func (c *Client) GetFlow(ctx context.Context, name string) (*store.Flow, error) {
+	return callV[*store.Flow](c, ctx, "GetFlow", name)
 }
-func (c *Client) DeleteFlow(ctx context.Context, rig, typ, actor string) error {
-	return c.call(ctx, "DeleteFlow", nil, rig, typ, actor)
+func (c *Client) DeleteFlow(ctx context.Context, name, actor string) error {
+	return c.call(ctx, "DeleteFlow", nil, name, actor)
+}
+func (c *Client) SetFlowPointer(ctx context.Context, rig, typ, flow, actor string) error {
+	return c.call(ctx, "SetFlowPointer", nil, rig, typ, flow, actor)
+}
+func (c *Client) FlowPointers(ctx context.Context) ([]store.FlowPointer, error) {
+	return callV[[]store.FlowPointer](c, ctx, "FlowPointers")
+}
+func (c *Client) RepoFlows(ctx context.Context, rig string) (*store.RepoFlows, error) {
+	return callV[*store.RepoFlows](c, ctx, "RepoFlows", rig)
+}
+func (c *Client) RigFlows(ctx context.Context, rig string) ([]store.RigFlow, error) {
+	return callV[[]store.RigFlow](c, ctx, "RigFlows", rig)
 }
 func (c *Client) NextStages(ctx context.Context, id string) (*store.NextStages, error) {
 	return callV[*store.NextStages](c, ctx, "NextStages", id)

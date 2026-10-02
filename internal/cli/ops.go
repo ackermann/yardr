@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -193,14 +194,69 @@ func (a *app) rigCmd() *cobra.Command {
 			return a.out(rs, func() {
 				rows := [][]string{}
 				for _, r := range rs {
-					rows = append(rows, []string{r.Name, r.Path, r.Base})
+					rows = append(rows, []string{r.Name, r.Path, r.Base, rigFlow(c.Context(), st, r.Name)})
 				}
-				table("NAME\tPATH\tBASE", rows)
+				table("NAME\tPATH\tBASE\tFLOW", rows)
 			})
 		},
 	}
-	cmd.AddCommand(add, list)
+
+	var flowType string
+	var clear bool
+	flow := &cobra.Command{
+		Use:   "flow <rig> [--type <type>] (<flow> | --clear)",
+		Short: "Point a rig, or its beads of one type, at a named flow",
+		Example: `  yardr rig flow yard code                   # the rig's flow
+  yardr rig flow yard --type decision decide  # wins for decisions
+  yardr rig flow yard --type decision --clear # decisions follow the rig's flow again
+
+The flow is a named flow in the store (yardr flow set) or one in the rig's
+repository (.yardr/flows/<name>.flow on the base branch). A pointer
+overrides the repository's default.flow and type/<type>.flow.`,
+		Args: cobra.RangeArgs(1, 2),
+		RunE: func(c *cobra.Command, args []string) error {
+			name := ""
+			switch {
+			case clear && len(args) == 2:
+				return fmt.Errorf("give a flow or --clear, not both")
+			case !clear && len(args) == 1:
+				return fmt.Errorf("give a flow, or --clear to remove the pointer")
+			case len(args) == 2:
+				name = args[1]
+			}
+			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			if err := st.SetFlowPointer(c.Context(), args[0], flowType, name, a.who()); err != nil {
+				return err
+			}
+			who := store.FlowPointer{Rig: args[0], Type: flowType}.String()
+			if clear {
+				fmt.Printf("%s points at no flow now; it follows %s\n", who, rigFlow(c.Context(), st, args[0]))
+				return nil
+			}
+			fmt.Printf("%s → flow %s\n", who, name)
+			return nil
+		},
+	}
+	flow.Flags().StringVarP(&flowType, "type", "t", "", "only the rig's beads of this type")
+	flow.Flags().BoolVar(&clear, "clear", false, "remove the pointer")
+	cmd.AddCommand(add, list, flow)
 	return cmd
+}
+
+// rigFlow names the flow governing rig's beads (pins and types aside) and
+// where it comes from, for listings.
+func rigFlow(ctx context.Context, st store.API, rig string) string {
+	rfs, err := st.RigFlows(ctx, rig)
+	if err != nil {
+		return "error: " + err.Error()
+	}
+	if len(rfs) == 0 || rfs[0].Type != "" {
+		return "-"
+	}
+	return rfs[0].Flow.Name + " (" + rfs[0].Source.String() + ")"
 }
 
 func (a *app) groupCmd() *cobra.Command {

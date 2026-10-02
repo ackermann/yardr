@@ -229,3 +229,50 @@ func recreate(tx *bolt.Tx, name []byte) error {
 	}
 	return b.SetSequence(seq)
 }
+
+// bLegacyFlows held flows before they had names (yard-9cza): one per rig
+// and one per type in a rig, keyed <rig>\x00<type>.
+var bLegacyFlows = []byte("flows")
+
+// migrateFlows turns each rig's flow into the named flow <rig> and each
+// type flow into <rig>.<type>, with the rig and type pointing at them, so
+// every bead keeps the lifecycle it had. It runs once: the old bucket goes.
+func migrateFlows(tx *bolt.Tx) error {
+	if tx.Bucket(bLegacyFlows) == nil {
+		return nil
+	}
+	type legacy struct {
+		Flow
+		Rig  string `json:"rig"`
+		Type string `json:"type"`
+	}
+	var rows []*legacy
+	if err := each(tx, bLegacyFlows, "", func(_ []byte, l *legacy) error {
+		rows = append(rows, l)
+		return nil
+	}); err != nil {
+		return err
+	}
+	var names []string
+	for _, l := range rows {
+		f := l.Flow
+		f.Name = l.Rig
+		if l.Type != "" {
+			f.Name += "." + l.Type
+		}
+		if err := put(tx, bFlows, f.Name, f); err != nil {
+			return err
+		}
+		if err := put(tx, bFlowPtrs, join(l.Rig, l.Type), FlowPointer{Rig: l.Rig, Type: l.Type, Flow: f.Name}); err != nil {
+			return err
+		}
+		names = append(names, f.Name)
+	}
+	if err := tx.DeleteBucket(bLegacyFlows); err != nil {
+		return err
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	return (&wtx{Tx: tx}).event("", "flows_migrated", "yardr", map[string]any{"flows": names})
+}

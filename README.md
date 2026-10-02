@@ -113,8 +113,9 @@ The rest of the documentation is in [docs/](docs/README.md):
   (what the work is: flows, the check gate, roles) and what the store holds
   (who, where and how: groups, runners, routes, residents), which wins, and
   where yardr keeps its own state.
-- **[Flows](docs/flows.md):** a rig's lifecycle. Which stages a bead may move
-  to next, per rig and per bead type, and terminal stages that close it.
+- **[Flows](docs/flows.md):** bead lifecycles. Named flows rigs and types
+  point at, flows in the repo's `.yardr/flows/` read from the base branch,
+  which stages a bead may move to next, and terminal stages that close it.
 - **[The pipeline](docs/pipeline.md):** how a bead moves in practice, from
   backlog through builders, review and the refinery to main, using the rig
   yardr is built with.

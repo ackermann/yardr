@@ -42,9 +42,10 @@ func reviewYard(t *testing.T, rigPath string) (store.API, context.Context) {
 	}
 	f, err := store.ParseFlow(reviewFlow)
 	must(err)
-	f.Rig = "yard"
+	f.Name = "yard"
 	_, err = st.PutFlow(ctx, *f, "me")
 	must(err)
+	must(st.SetFlowPointer(ctx, "yard", "", "yard", "me"))
 	return st, ctx
 }
 
@@ -119,7 +120,7 @@ func TestReviewActions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.Rig = "yard"
+	f.Name = "yard"
 	rig := "yard"
 	routes := []store.Route{{Stage: "new"}, {Stage: "approved"}, {Stage: "decide"}, {Stage: "new"}}
 
@@ -163,25 +164,6 @@ func TestReviewActions(t *testing.T) {
 	want = append([]act{{kind: actAdvance, stage: "decide"}, {kind: actAdvance, stage: "new"}}, tail...)
 	if !slices.Equal(flat(got), want) {
 		t.Fatalf("no-flow actions = %+v, want %+v", flat(got), want)
-	}
-}
-
-func TestFlowOf(t *testing.T) {
-	flows := []store.Flow{{Rig: "yard"}, {Rig: "yard", Type: "decision"}, {Rig: "other"}}
-	rig, none := "yard", "none"
-	cases := []struct {
-		b    store.Bead
-		want *store.Flow
-	}{
-		{store.Bead{Type: "task", Rig: &rig}, &flows[0]},
-		{store.Bead{Type: "decision", Rig: &rig}, &flows[1]},
-		{store.Bead{Type: "task", Rig: &none}, nil},
-		{store.Bead{Type: "task"}, nil},
-	}
-	for _, c := range cases {
-		if got := flowOf(flows, c.b); got != c.want {
-			t.Errorf("flowOf(%s in %v) = %+v, want %+v", c.b.Type, c.b.Rig, got, c.want)
-		}
 	}
 }
 

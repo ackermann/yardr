@@ -28,7 +28,11 @@ func beadRows(bs []store.Bead) [][]string {
 
 const beadHeader = "ID\tPRI\tTYPE\tSTAGE\tSTATUS\tGROUP\tRIG\tTITLE"
 
-func (a *app) printBead(b *store.Bead) error {
+func (a *app) printBead(b *store.Bead) error { return a.printBeadFlow(b, nil) }
+
+// printBeadFlow is printBead naming the flow that governs the bead and
+// where it comes from, when next is given.
+func (a *app) printBeadFlow(b *store.Bead, next *store.NextStages) error {
 	return a.out(b, func() {
 		fmt.Printf("%s  %s\n", b.ID, b.Title)
 		fmt.Printf("  type %s · stage %s · %s · P%d", b.Type, b.Stage, b.Status, b.Priority)
@@ -38,6 +42,9 @@ func (a *app) printBead(b *store.Bead) error {
 		fmt.Println()
 		if b.Rig != nil {
 			fmt.Printf("  rig %s\n", *b.Rig)
+		}
+		if next != nil && next.Flow != nil {
+			fmt.Printf("  flow %s (%s)\n", next.Flow.Name, next.Source)
 		}
 		if b.Group != nil {
 			fmt.Printf("  owned by %s (session %s)\n", *b.Group, deref(b.Session))
@@ -118,7 +125,14 @@ func (a *app) beadCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.printBead(b)
+			if a.json {
+				return a.printBead(b)
+			}
+			next, err := st.NextStages(c.Context(), b.ID)
+			if err != nil {
+				return err
+			}
+			return a.printBeadFlow(b, next)
 		},
 	}
 
@@ -454,7 +468,7 @@ func (a *app) primeCmd() *cobra.Command {
 			}
 			v := map[string]any{"bead": b, "notes": notes, "deps": deps, "open_blockers": blockers, "next": next}
 			return a.out(v, func() {
-				_ = a.printBead(b)
+				_ = a.printBeadFlow(b, next)
 				if next.Flow != nil {
 					line := strings.Join(next.Stages, ", ")
 					if len(next.Terminal) > 0 {

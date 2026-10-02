@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -15,13 +16,14 @@ import (
 )
 
 func (a *app) flowCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "flow", Short: "A rig's bead lifecycle: allowed stage transitions and terminal stages"}
-	var typ, file string
+	cmd := &cobra.Command{Use: "flow", Short: "Bead lifecycles: named flows of allowed stage transitions and terminal stages"}
+	var file string
 	set := &cobra.Command{
-		Use:   "set <rig> -f <file>",
-		Short: "Set (replace) a rig's flow, or the flow for one bead type in the rig",
-		Example: `  yardr flow set yard -f flows/yard.flow
-  yardr flow set yard --type decide -f flows/decide.flow
+		Use:   "set <name> -f <file>",
+		Short: "Set (replace) a named flow; rigs and types point at it with 'yardr rig flow'",
+		Example: `  yardr flow set code -f flows/code.flow
+  yardr rig flow yard code                   # rig yard's beads follow it
+  yardr rig flow webapp code                 # and webapp's, from the same flow
 
 A flow file has one rule per line (# starts a comment):
 
@@ -54,7 +56,7 @@ A flow file has one rule per line (# starts a comment):
 			if err != nil {
 				return err
 			}
-			f.Rig, f.Type = args[0], typ
+			f.Name = args[0]
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
@@ -63,20 +65,22 @@ A flow file has one rule per line (# starts a comment):
 			if err != nil {
 				return err
 			}
-			return a.out(saved, func() { fmt.Printf("flow %s: %d stages\n", flowName(*saved), len(saved.Stages)) })
+			return a.out(saved, func() { fmt.Printf("flow %s: %d stages\n", saved.Name, len(saved.Stages)) })
 		},
 	}
-	set.Flags().StringVarP(&typ, "type", "t", "", "only beads of this type (wins over the rig's flow)")
 	set.Flags().StringVarP(&file, "file", "f", "", "flow file (- reads stdin)")
 
 	show := &cobra.Command{
-		Use:   "show <rig>",
-		Short: "Show a rig's flows: each stage's group (and its members), allowed next stages and open beads",
+		Use:   "show <rig|flow>",
+		Short: "Show the flows governing a rig (each stage's group, members, open beads, next), or one named flow",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
+			}
+			if _, err := st.GetRig(c.Context(), args[0]); errors.Is(err, store.ErrNotFound) {
+				return a.showNamedFlow(c.Context(), st, args[0])
 			}
 			views, err := flowViews(c.Context(), st, args[0])
 			if err != nil {
@@ -90,7 +94,7 @@ A flow file has one rule per line (# starts a comment):
 					if i > 0 {
 						fmt.Println()
 					}
-					fmt.Printf("flow %s\n", flowName(v.Flow))
+					fmt.Printf("flow %s (%s)\n", v.Flow.Name, v.Source)
 					rows := [][]string{}
 					for _, s := range v.Stages {
 						next := strings.Join(s.Next, " | ")
@@ -115,27 +119,131 @@ A flow file has one rule per line (# starts a comment):
 		},
 	}
 
+	list := &cobra.Command{
+		Use:   "list",
+		Short: "List named flows in the store and flows in rigs' repositories, with what each governs",
+		Args:  cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			rows, err := flowList(c.Context(), st)
+			if err != nil {
+				return err
+			}
+			return a.out(rows, func() {
+				var out [][]string
+				for _, r := range rows {
+					out = append(out, []string{r.Name, r.Source, strconv.Itoa(r.Stages), or(strings.Join(r.Governs, ", "), "-")})
+				}
+				table("NAME\tSOURCE\tSTAGES\tGOVERNS", out)
+			})
+		},
+	}
+
 	rm := &cobra.Command{
-		Use:   "rm <rig>",
-		Short: "Remove a rig's flow (or, with --type, the flow for one bead type)",
+		Use:   "rm <name>",
+		Short: "Remove a named flow (refused while a rig, type or open bead uses it)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
 			}
-			return st.DeleteFlow(c.Context(), args[0], typ, a.who())
+			return st.DeleteFlow(c.Context(), args[0], a.who())
 		},
 	}
-	rm.Flags().StringVarP(&typ, "type", "t", "", "the flow for this bead type")
-	cmd.AddCommand(set, show, rm)
+	cmd.AddCommand(set, show, list, rm)
 	return cmd
 }
 
+// showNamedFlow prints a named flow from the store and the rigs and types
+// pointing at it.
+func (a *app) showNamedFlow(ctx context.Context, st store.API, name string) error {
+	f, err := st.GetFlow(ctx, name)
+	if errors.Is(err, store.ErrNotFound) {
+		return fmt.Errorf("%s is neither a rig nor a named flow: %w", name, store.ErrNotFound)
+	} else if err != nil {
+		return err
+	}
+	ptrs, err := st.FlowPointers(ctx)
+	if err != nil {
+		return err
+	}
+	users := []string{}
+	for _, p := range ptrs {
+		if p.Flow == name {
+			users = append(users, p.String())
+		}
+	}
+	v := map[string]any{"flow": f, "pointed_at_by": users}
+	return a.out(v, func() {
+		fmt.Printf("flow %s: %d stages, pointed at by %s\n\n%s", f.Name, len(f.Stages), or(strings.Join(users, ", "), "nothing"), f)
+	})
+}
+
+type flowRow struct {
+	Name    string   `json:"name"`
+	Source  string   `json:"source"` // store, or repo <rig>@<sha> <path>
+	Stages  int      `json:"stages"`
+	Error   string   `json:"error,omitempty"`
+	Governs []string `json:"governs"` // rigs and types it governs (pins aside)
+}
+
+// flowList is every named flow in the store, then every flow file in each
+// rig's repository, with what each one governs now.
+func flowList(ctx context.Context, st store.API) ([]flowRow, error) {
+	flows, err := st.Flows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rigs, err := st.Rigs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	governs := map[string][]string{} // store:<name> or repo:<rig>:<path>
+	var rows []flowRow
+	var repoRows []flowRow
+	for _, r := range rigs {
+		rfs, err := st.RigFlows(ctx, r.Name)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: rig %s: %v\n", r.Name, err)
+		}
+		for _, rf := range rfs {
+			k := "store:" + rf.Flow.Name
+			if rf.Source.Path != "" {
+				k = "repo:" + r.Name + ":" + rf.Source.Path
+			}
+			governs[k] = append(governs[k], store.FlowPointer{Rig: r.Name, Type: rf.Type}.String())
+		}
+		repo, err := st.RepoFlows(ctx, r.Name)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: rig %s: %v\n", r.Name, err)
+			continue
+		}
+		for _, f := range repo.Flows {
+			row := flowRow{Name: strings.TrimSuffix(strings.TrimPrefix(f.Path, store.RepoFlowDir+"/"), ".flow"),
+				Source: fmt.Sprintf("repo %s@%.7s", r.Name, repo.Commit), Error: f.Error,
+				Governs: governs["repo:"+r.Name+":"+f.Path]}
+			if f.Flow != nil {
+				row.Stages = len(f.Flow.Stages)
+			}
+			repoRows = append(repoRows, row)
+		}
+	}
+	for _, f := range flows {
+		rows = append(rows, flowRow{Name: f.Name, Source: "store", Stages: len(f.Stages), Governs: governs["store:"+f.Name]})
+	}
+	return append(rows, repoRows...), nil
+}
+
 type flowView struct {
-	Flow     store.Flow  `json:"flow"`
-	Stages   []stageView `json:"stages"`
-	Warnings []string    `json:"warnings,omitempty"`
+	Flow     store.Flow       `json:"flow"`
+	Type     string           `json:"type,omitempty"` // the bead type it governs; "" for the rig's own
+	Source   store.FlowSource `json:"source"`
+	Stages   []stageView      `json:"stages"`
+	Warnings []string         `json:"warnings,omitempty"`
 }
 
 type stageView struct {
@@ -148,17 +256,15 @@ type stageView struct {
 	Open     int      `json:"open"` // open beads in the stage that this flow governs
 }
 
-// flowViews describes rig's flows, the rig's own first.
+// flowViews describes the flows governing rig's beads, the rig's own first.
 func flowViews(ctx context.Context, st store.API, rig string) ([]flowView, error) {
 	if _, err := st.GetRig(ctx, rig); err != nil {
 		return nil, err
 	}
-	all, err := st.Flows(ctx)
+	all, err := st.RigFlows(ctx, rig)
 	if err != nil {
 		return nil, err
 	}
-	all = slices.DeleteFunc(all, func(f store.Flow) bool { return f.Rig != rig })
-	slices.SortFunc(all, func(x, y store.Flow) int { return strings.Compare(x.Type, y.Type) })
 	routes, err := st.Routes(ctx)
 	if err != nil {
 		return nil, err
@@ -173,19 +279,20 @@ func flowViews(ctx context.Context, st store.API, rig string) ([]flowView, error
 		return nil, err
 	}
 	typed := map[string]bool{}
-	for _, f := range all {
-		typed[f.Type] = f.Type != ""
+	for _, rf := range all {
+		typed[rf.Type] = rf.Type != ""
 	}
 	views := []flowView{}
-	for _, f := range all {
-		v := flowView{Flow: f}
+	for _, rf := range all {
+		f := rf.Flow
+		v := flowView{Flow: *f, Type: rf.Type, Source: rf.Source}
 		for _, s := range f.Stages {
 			sv := stageView{Stage: s, Next: []string{}, Terminal: f.IsTerminal(s)}
 			if next := f.Transitions[s]; len(next) > 0 {
 				sv.Next = next
 			}
 			// Routes may match on type; a rig flow is shown for the default type.
-			probe := store.Bead{Stage: s, Type: or(f.Type, "task"), Rig: &rig}
+			probe := store.Bead{Stage: s, Type: or(rf.Type, "task"), Rig: &rig}
 			if r := dispatch.Match(routes, probe); r != nil {
 				sv.Group = r.Group
 				if i := slices.IndexFunc(groups, func(g store.Group) bool { return g.Name == r.Group }); i >= 0 && groups[i].Runner == "manual" {
@@ -195,7 +302,8 @@ func flowViews(ctx context.Context, st store.API, rig string) ([]flowView, error
 				v.Warnings = append(v.Warnings, fmt.Sprintf("stage %s has no route: beads there wait for a human", s))
 			}
 			for _, b := range beads {
-				governed := b.Type == f.Type || (f.Type == "" && !typed[b.Type])
+				// A bead that pins its flow follows that one instead.
+				governed := store.PinnedFlow(&b) == "" && (b.Type == rf.Type || (rf.Type == "" && !typed[b.Type]))
 				if governed && b.Stage == s {
 					sv.Open++
 				}
@@ -205,11 +313,4 @@ func flowViews(ctx context.Context, st store.API, rig string) ([]flowView, error
 		views = append(views, v)
 	}
 	return views, nil
-}
-
-func flowName(f store.Flow) string {
-	if f.Type != "" {
-		return f.Rig + " (type " + f.Type + ")"
-	}
-	return f.Rig
 }

@@ -125,9 +125,10 @@ func TestJobCarriesNextStages(t *testing.T) {
 	must(t, s.PutRig(ctx, store.Rig{Name: "web", Path: "/tmp/web"}))
 	flow, err := store.ParseFlow("new -> review | backlog | dropped\nreview -> merged\ndropped terminal\nmerged terminal\n")
 	must(t, err)
-	flow.Rig = "web"
+	flow.Name = "web"
 	_, err = s.PutFlow(ctx, *flow, "me")
 	must(t, err)
+	must(t, s.SetFlowPointer(ctx, "web", "", "web", "me"))
 	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 2}))
 	must(t, s.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "manual"}))
 	_, err = s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})

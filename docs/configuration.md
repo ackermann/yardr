@@ -8,14 +8,14 @@ yardr reads its configuration from two places:
   and how. Live state, changed with `yardr` commands, no commit needed.
 
 The split was decided in yard-17 (2026-10-02). Parts of the repo side are not
-built yet; each is marked **planned** with the bead that builds it. Until
-then the store holds everything yardr reads.
+built yet; each is marked **planned** with the bead that builds it. Flows
+are built on both sides (yard-9cza).
 
 ## What lives where
 
 | | repo `.yardr/` (what the work is) | store (who / where / how) |
 |---|---|---|
-| flows | default flows for the rig (*planned, yard-9cza*) | rig and type flows (built); named flows and pointers (*planned, yard-9cza*) |
+| flows | the rig's default and type flows, named flows: `.yardr/flows/` (built) | named flows, and rig and type pointers to them (built) |
 | merge gate | `.yardr/check` (*planned, yard-p2y7*) | a per-rig override, `rig add --check` (*planned, yard-p2y7*) |
 | roles | codebase role prompts, e.g. this repo's `roles/builder.md` (built: any repo path, named by a group's `prompt`) | prompts outside any repo, by absolute path (built) |
 | groups | | runner, limit, members, subscriptions (manual), agent kind, model, args, cmd, worktree settings (built) |
@@ -66,33 +66,32 @@ Where both sides can define something, the most specific source wins:
 pin on the bead  >  store  >  repo .yardr/  >  none
 ```
 
-- **Pin on the bead** (*planned, yard-9cza*): the bead names its flow itself
-  (`meta flow=<name>`), for the odd bead that needs a different lifecycle.
+- **Pin on the bead**: the bead names its flow itself (`meta flow=<name>`),
+  for the odd bead that needs a different lifecycle.
 - **Store**: the operator's override for this installation, e.g. a rig or
-  type flow set with `yardr flow set`, or `rig add --check` (*planned,
-  yard-p2y7*).
-- **Repo `.yardr/`** (*planned, yard-9cza for flows, yard-p2y7 for the
-  check*): the default that ships with the code.
+  type pointing at a named flow (`yardr rig flow`), or `rig add --check`
+  (*planned, yard-p2y7*).
+- **Repo `.yardr/`** (built for flows; *planned, yard-p2y7* for the
+  check): the default that ships with the code.
 - **None**: no flow means a bead may move to any stage; no check means
   nothing gates the merge.
 
-Within one source a type-specific flow wins over the rig's flow (built, see
-[flows.md](flows.md)). `yardr bead show` and `prime` will say which flow
-governs a bead and where it came from: pin, store, `repo@<sha>` or type
-(*planned, yard-9cza*).
-
-Today only the store exists for flows, so the rule reduces to: the type's
-flow, else the rig's flow, else none.
+Within one source a type-specific flow wins over the rig's flow; a source
+wins as a whole, so a rig pointer in the store overrides the repo's type
+files too (see [flows.md](flows.md)). `yardr bead show` and `prime` say
+which flow governs a bead and where it came from: `pin`, `store`,
+`repo@<sha>`, and the type when a type's flow matched.
 
 ## Repo config comes from the base branch
 
 yardr reads `.yardr/` from the tip of the rig's base branch
 (`git show <base>:.yardr/...`), never from the bead's branch or worktree
-(*planned, yard-9cza and yard-p2y7*). A bead therefore cannot lower its own
-bar: a builder who edits `.yardr/check` or a flow on `yard/<bead>` changes
+(built for flows; *planned, yard-p2y7* for the check). A bead therefore
+cannot lower its own bar: a builder who edits `.yardr/check` or a flow on `yard/<bead>` changes
 nothing for that bead. The edit takes effect only once it has been reviewed
 and landed on the base, like any other code, and then applies to every bead
-after it. yardr re-reads the files when the base moves.
+after it. yardr resolves the base on every check and re-reads the files
+when its commit moves.
 
 ## Briefs are not config
 

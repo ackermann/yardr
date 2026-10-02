@@ -49,16 +49,18 @@ var (
 	bGroups   = []byte("groups")
 	bRoutes   = []byte("routes")
 	bRigs     = []byte("rigs")
-	bFlows    = []byte("flows") // <rig>\x00<type>
-	bMeta     = []byte("meta")  // schema version
+	bFlows    = []byte("named_flows")   // <name>
+	bFlowPtrs = []byte("flow_pointers") // <rig>\x00<type>
+	bMeta     = []byte("meta")          // schema version
 )
 
 var allBuckets = [][]byte{bBeads, bHandles, bDeps, bDepFrom, bDepTo, bNotes, bEvents, bEventsBy, bVersions,
-	bSessions, bGroups, bRoutes, bRigs, bFlows, bMeta}
+	bSessions, bGroups, bRoutes, bRigs, bFlows, bFlowPtrs, bMeta}
 
 type Store struct {
-	db  *bolt.DB
-	hub hub
+	db    *bolt.DB
+	hub   hub
+	repos repoCache
 
 	// pump publishes committed events in seq order; writers only nudge it.
 	nudge  chan struct{}
@@ -84,6 +86,9 @@ func Open(path string) (*Store, error) {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
 			}
+		}
+		if err := migrateFlows(tx); err != nil {
+			return err
 		}
 		return setSchema(tx)
 	})

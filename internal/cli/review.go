@@ -66,10 +66,6 @@ func reviewQueue(ctx context.Context, st store.API, actor string, only []string)
 	for _, g := range groups {
 		byName[g.Name] = g
 	}
-	flows, err := st.Flows(ctx)
-	if err != nil {
-		return nil, err
-	}
 	items := []reviewItem{}
 	for _, b := range beads {
 		name := deref(b.Group)
@@ -87,8 +83,12 @@ func reviewQueue(ctx context.Context, st store.API, actor string, only []string)
 		if len(g.Members) > 0 && !slices.Contains(g.Members, actor) {
 			continue
 		}
+		next, err := st.NextStages(ctx, b.ID)
+		if err != nil {
+			return nil, err
+		}
 		items = append(items, reviewItem{Bead: b, Group: g.Name, Members: g.Members,
-			Actions: reviewActions(b, flowOf(flows, b), routes)})
+			Actions: reviewActions(b, next.Flow, routes)})
 	}
 	slices.SortStableFunc(items, func(x, y reviewItem) int {
 		if c := x.Bead.UpdatedAt.Compare(y.Bead.UpdatedAt); c != 0 {
@@ -97,28 +97,6 @@ func reviewQueue(ctx context.Context, st store.API, actor string, only []string)
 		return strings.Compare(x.Bead.ID, y.Bead.ID)
 	})
 	return items, nil
-}
-
-// flowOf is the flow governing b: its type's flow in its rig, else the
-// rig's; nil when neither exists (the store's flowFor, from a listing).
-func flowOf(flows []store.Flow, b store.Bead) *store.Flow {
-	if b.Rig == nil {
-		return nil
-	}
-	var rigFlow *store.Flow
-	for i := range flows {
-		f := &flows[i]
-		if f.Rig != *b.Rig {
-			continue
-		}
-		if f.Type == b.Type {
-			return f
-		}
-		if f.Type == "" {
-			rigFlow = f
-		}
-	}
-	return rigFlow
 }
 
 // reviewActions is what a reviewer may do with b. Under a flow: each stage

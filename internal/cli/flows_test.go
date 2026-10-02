@@ -2,7 +2,9 @@ package cli
 
 import (
 	"context"
+	"maps"
 	"slices"
+	"strings"
 	"testing"
 
 	"yardr.dev/yardr/internal/store"
@@ -29,14 +31,16 @@ func TestFlowViews(t *testing.T) {
 
 	f, err := store.ParseFlow("new -> review\nreview -> merged | new\nmerged terminal")
 	must(err)
-	f.Rig = "yard"
+	f.Name = "code"
 	_, err = st.PutFlow(ctx, *f, "me")
 	must(err)
+	must(st.SetFlowPointer(ctx, "yard", "", "code", "me"))
 	d, err := store.ParseFlow("open -> done\ndone terminal")
 	must(err)
-	d.Rig, d.Type = "yard", "decision"
+	d.Name = "decision"
 	_, err = st.PutFlow(ctx, *d, "me")
 	must(err)
+	must(st.SetFlowPointer(ctx, "yard", "decision", "decision", "me"))
 
 	for _, nb := range []store.NewBead{
 		{Title: "a", Rig: "yard"}, {Title: "b", Rig: "yard"}, {Title: "c", Rig: "yard", Stage: "review"},
@@ -48,7 +52,7 @@ func TestFlowViews(t *testing.T) {
 
 	views, err := flowViews(ctx, st, "yard")
 	must(err)
-	if len(views) != 2 || views[0].Flow.Type != "" || views[1].Flow.Type != "decision" {
+	if len(views) != 2 || views[0].Type != "" || views[1].Type != "decision" || views[1].Source.String() != "store, type decision" {
 		t.Fatalf("views = %+v", views)
 	}
 	rv := views[0]
@@ -83,5 +87,22 @@ func TestFlowViews(t *testing.T) {
 
 	if _, err := flowViews(ctx, st, "nope"); err == nil {
 		t.Error("unknown rig accepted")
+	}
+
+	// flow list: each named flow with what it governs; unused ones govern nothing.
+	unused, err := store.ParseFlow("a -> b")
+	must(err)
+	unused.Name = "spare"
+	_, err = st.PutFlow(ctx, *unused, "me")
+	must(err)
+	rows, err := flowList(ctx, st)
+	must(err)
+	got := map[string]string{}
+	for _, r := range rows {
+		got[r.Name] = r.Source + ": " + strings.Join(r.Governs, ", ")
+	}
+	wantRows := map[string]string{"code": "store: rig yard", "decision": "store: rig yard type decision", "spare": "store: "}
+	if !maps.Equal(got, wantRows) {
+		t.Errorf("flow list = %v, want %v", got, wantRows)
 	}
 }

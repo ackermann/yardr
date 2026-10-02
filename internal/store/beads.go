@@ -140,29 +140,34 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 	if prefix == "" {
 		prefix = "yd"
 	}
+	typ, stage := or(nb.Type, "task"), or(nb.Stage, "new")
+	var rig *string
+	if nb.Rig != "" {
+		rig = &nb.Rig
+	}
+	pin := PinnedFlow(&Bead{Metadata: nb.Metadata})
+	repo, err := s.repoFor(ctx, rig, typ, pin)
+	if err != nil {
+		return nil, err
+	}
 	var created *Bead
-	err := s.write(func(w *wtx) error {
+	err = s.write(func(w *wtx) error {
 		if nb.Rig != "" && w.Bucket(bRigs).Get([]byte(nb.Rig)) == nil {
 			return fmt.Errorf("rig %s: %w", nb.Rig, ErrNotFound)
 		}
-		typ, stage := or(nb.Type, "task"), or(nb.Stage, "new")
-		if nb.Rig != "" {
-			f, err := flowFor(w.Tx, &nb.Rig, typ)
-			if err != nil {
-				return err
-			}
-			if err := checkCreateStage(f, stage); err != nil {
-				return err
-			}
+		f, _, err := resolveFlow(w.Tx, rig, typ, pin, repo)
+		if err != nil {
+			return changedMeanwhile(err)
+		}
+		if err := checkCreateStage(f, stage); err != nil {
+			return err
 		}
 		row := &beadRow{Bead: Bead{
 			Title: nb.Title, Body: nb.Body, Type: typ, Stage: stage,
 			Status: "open", Priority: nb.Priority, Labels: dedupe(nb.Labels), CreatedAt: now(), CreatedBy: &actor,
 			Metadata: nb.Metadata,
 		}}
-		if nb.Rig != "" {
-			row.Rig = &nb.Rig
-		}
+		row.Rig = rig
 		if err := w.insertBead(row, prefix, nb.ID, actor); err != nil {
 			return err
 		}
@@ -397,8 +402,8 @@ func (w *wtx) endSession(b *beadRow, state string) error {
 	return nil
 }
 
-// Advance moves a bead to the next stage and frees it for routing. When the
-// bead's rig has a flow, the move must be one the flow allows, and entering
+// Advance moves a bead to the next stage and frees it for routing. When a
+// flow governs the bead (see resolveFlow), the move must be one the flow allows, and entering
 // a terminal stage closes the bead, with the stage as reason, in the same
 // transaction. When the group the bead answers to in its stage has members,
 // only they may move it.
@@ -411,8 +416,16 @@ func (s *Store) Advance(ctx context.Context, id, stage, actor string) (*Bead, er
 // next stage already sees it (a reviewer's requested changes). An empty
 // note adds none.
 func (s *Store) AdvanceNote(ctx context.Context, id, stage, note, actor string) (*Bead, error) {
+	pre, err := s.GetBead(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	repo, err := s.repoFor(ctx, pre.Rig, pre.Type, PinnedFlow(pre))
+	if err != nil {
+		return nil, err
+	}
 	var result *Bead
-	err := s.write(func(w *wtx) error {
+	err = s.write(func(w *wtx) error {
 		if strings.TrimSpace(note) != "" {
 			if err := w.addNote(id, NoteNote, note, actor); err != nil {
 				return err
@@ -420,9 +433,9 @@ func (s *Store) AdvanceNote(ctx context.Context, id, stage, note, actor string) 
 		}
 		var terminal bool
 		b, err := w.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
-			f, err := flowFor(w.Tx, b.Rig, b.Type)
+			f, _, err := resolveFlow(w.Tx, b.Rig, b.Type, PinnedFlow(&b.Bead), repo)
 			if err != nil {
-				return "", nil, err
+				return "", nil, changedMeanwhile(err)
 			}
 			if err := checkAdvance(f, b.ID, b.Stage, stage); err != nil {
 				return "", nil, err

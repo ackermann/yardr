@@ -42,8 +42,12 @@ type API interface {
 
 	PutFlow(ctx context.Context, f Flow, actor string) (*Flow, error)
 	Flows(ctx context.Context) ([]Flow, error)
-	GetFlow(ctx context.Context, rig, typ string) (*Flow, error)
-	DeleteFlow(ctx context.Context, rig, typ, actor string) error
+	GetFlow(ctx context.Context, name string) (*Flow, error)
+	DeleteFlow(ctx context.Context, name, actor string) error
+	SetFlowPointer(ctx context.Context, rig, typ, flow, actor string) error
+	FlowPointers(ctx context.Context) ([]FlowPointer, error)
+	RepoFlows(ctx context.Context, rig string) (*RepoFlows, error)
+	RigFlows(ctx context.Context, rig string) ([]RigFlow, error)
 	NextStages(ctx context.Context, id string) (*NextStages, error)
 
 	Claim(ctx context.Context, beadID, group, stage, actor string) (*Session, error)

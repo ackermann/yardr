@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -12,28 +13,29 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// Flow is a rig's bead lifecycle: which stages exist, which moves between
-// them are allowed, and which stages end the bead. Routes still decide who
-// works a stage; a flow only decides where a bead may go next. A flow with a
-// Type governs only beads of that type and wins over the rig's flow; a rig
-// without a flow lets beads move to any stage.
+// Flow is a bead lifecycle: which stages exist, which moves between them
+// are allowed, and which stages end the bead. Routes still decide who works
+// a stage; a flow only decides where a bead may go next. Flows are stored
+// once under a name and rigs point at them (FlowPointer), or come from the
+// rig's repository (RepoFlows); resolveFlow decides which one governs a
+// bead. A bead no flow governs may move to any stage.
 type Flow struct {
-	Rig         string              `json:"rig"`
-	Type        string              `json:"type,omitempty"`
+	Name        string              `json:"name"`
 	Stages      []string            `json:"stages"` // in the order they were written
 	Transitions map[string][]string `json:"transitions"`
 	// Terminal stages close the bead on entry, with the stage as reason.
 	Terminal []string `json:"terminal,omitempty"`
 }
 
+// validFlowName keeps names usable as file names (.yardr/flows/<name>.flow)
+// and in the migrated <rig>.<type> form.
+var validFlowName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
 var validStage = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
 
 // normalize fills Stages from the transitions and terminal stages (keeping
 // any order already given) and checks the flow is well formed.
 func (f *Flow) normalize() error {
-	if f.Rig == "" {
-		return fmt.Errorf("flow: rig is required")
-	}
 	if f.Transitions == nil {
 		f.Transitions = map[string][]string{}
 	}
@@ -100,16 +102,7 @@ func (f *Flow) Allows(from, to string) bool { return slices.Contains(f.Next(from
 
 func (f *Flow) IsTerminal(stage string) bool { return slices.Contains(f.Terminal, stage) }
 
-func (f *Flow) name() string {
-	if f.Type != "" {
-		return f.Rig + "/" + f.Type
-	}
-	return f.Rig
-}
-
-func flowKey(rig, typ string) string { return join(rig, typ) }
-
-// ParseFlow reads a flow file: JSON (a Flow without rig and type), or one
+// ParseFlow reads a flow file: JSON (a Flow without its name), or one
 // rule per line:
 //
 //	backlog -> new
@@ -172,19 +165,20 @@ func (f *Flow) String() string {
 	return b.String()
 }
 
-// PutFlow saves (replacing) the flow for f.Rig, or for f.Rig and f.Type.
+// PutFlow saves (replacing) the named flow f.Name. Every rig and type that
+// points at the name follows the new version at once.
 func (s *Store) PutFlow(ctx context.Context, f Flow, actor string) (*Flow, error) {
+	if !validFlowName.MatchString(f.Name) {
+		return nil, fmt.Errorf("flow name %q: use letters, digits, '.', '_' or '-'", f.Name)
+	}
 	if err := f.normalize(); err != nil {
 		return nil, err
 	}
 	err := s.write(func(w *wtx) error {
-		if w.Bucket(bRigs).Get([]byte(f.Rig)) == nil {
-			return fmt.Errorf("rig %s: %w", f.Rig, ErrNotFound)
-		}
-		if err := put(w.Tx, bFlows, flowKey(f.Rig, f.Type), f); err != nil {
+		if err := put(w.Tx, bFlows, f.Name, f); err != nil {
 			return err
 		}
-		return w.event("", "flow_set", actor, map[string]any{"rig": f.Rig, "type": f.Type})
+		return w.event("", "flow_set", actor, map[string]any{"flow": f.Name})
 	})
 	if err != nil {
 		return nil, err
@@ -192,7 +186,7 @@ func (s *Store) PutFlow(ctx context.Context, f Flow, actor string) (*Flow, error
 	return &f, nil
 }
 
-// Flows lists every flow, rig flows before their type-specific ones.
+// Flows lists the named flows in the store, by name.
 func (s *Store) Flows(ctx context.Context) ([]Flow, error) {
 	out := []Flow{}
 	err := s.read(func(tx *bolt.Tx) error {
@@ -204,14 +198,13 @@ func (s *Store) Flows(ctx context.Context) ([]Flow, error) {
 	return out, err
 }
 
-// GetFlow returns the flow saved for exactly rig and typ ("" for the rig's
-// own flow), without falling back.
-func (s *Store) GetFlow(ctx context.Context, rig, typ string) (*Flow, error) {
+// GetFlow returns the named flow from the store (not the repository).
+func (s *Store) GetFlow(ctx context.Context, name string) (*Flow, error) {
 	f := new(Flow)
 	err := s.read(func(tx *bolt.Tx) error {
-		ok, err := get(tx, bFlows, flowKey(rig, typ), f)
+		ok, err := get(tx, bFlows, name, f)
 		if err == nil && !ok {
-			err = fmt.Errorf("flow %s: %w", (&Flow{Rig: rig, Type: typ}).name(), ErrNotFound)
+			err = fmt.Errorf("flow %s: %w", name, ErrNotFound)
 		}
 		return err
 	})
@@ -221,34 +214,302 @@ func (s *Store) GetFlow(ctx context.Context, rig, typ string) (*Flow, error) {
 	return f, nil
 }
 
-func (s *Store) DeleteFlow(ctx context.Context, rig, typ, actor string) error {
+// DeleteFlow removes a named flow. It refuses while a rig or type points at
+// it, or an open bead pins it, and names them: removing the flow would
+// silently change their lifecycle.
+func (s *Store) DeleteFlow(ctx context.Context, name, actor string) error {
 	return s.write(func(w *wtx) error {
-		k := []byte(flowKey(rig, typ))
+		k := []byte(name)
 		if w.Bucket(bFlows).Get(k) == nil {
-			return fmt.Errorf("flow %s: %w", (&Flow{Rig: rig, Type: typ}).name(), ErrNotFound)
+			return fmt.Errorf("flow %s: %w", name, ErrNotFound)
+		}
+		users, err := flowUsers(w.Tx, name)
+		if err != nil {
+			return err
+		}
+		if len(users) > 0 {
+			return fmt.Errorf("flow %s is in use by %s; point them at another flow first", name, strings.Join(users, ", "))
 		}
 		if err := w.Bucket(bFlows).Delete(k); err != nil {
 			return err
 		}
-		return w.event("", "flow_removed", actor, map[string]any{"rig": rig, "type": typ})
+		return w.event("", "flow_removed", actor, map[string]any{"flow": name})
 	})
 }
 
-// flowFor returns the flow governing beads of typ in rig: the type's flow,
-// else the rig's, else nil. Beads without a rig and knowledge beads
-// (journals, memories) are never governed.
-func flowFor(tx *bolt.Tx, rig *string, typ string) (*Flow, error) {
-	if rig == nil || NotWork[typ] {
-		return nil, nil
+// flowUsers names what depends on the named flow: rigs and types pointing
+// at it, and open beads pinning it.
+func flowUsers(tx *bolt.Tx, name string) ([]string, error) {
+	var out []string
+	err := each(tx, bFlowPtrs, "", func(_ []byte, p *FlowPointer) error {
+		if p.Flow == name {
+			out = append(out, p.String())
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	for _, t := range []string{typ, ""} {
-		f := new(Flow)
-		ok, err := get(tx, bFlows, flowKey(*rig, t), f)
-		if err != nil || ok {
-			return f, err
+	err = each(tx, bBeads, "", func(_ []byte, r *beadRow) error {
+		if r.Status != "closed" && PinnedFlow(&r.Bead) == name {
+			out = append(out, "bead "+r.ID)
+		}
+		return nil
+	})
+	return out, err
+}
+
+// FlowPointer says which named flow governs a rig's beads, or, with Type,
+// the rig's beads of that type.
+type FlowPointer struct {
+	Rig  string `json:"rig"`
+	Type string `json:"type,omitempty"`
+	Flow string `json:"flow"`
+}
+
+func (p FlowPointer) String() string {
+	if p.Type != "" {
+		return "rig " + p.Rig + " type " + p.Type
+	}
+	return "rig " + p.Rig
+}
+
+// SetFlowPointer points rig, or with typ its beads of that type, at the
+// named flow; an empty flow clears the pointer. The flow must exist, in the
+// store or in the rig's repository.
+func (s *Store) SetFlowPointer(ctx context.Context, rig, typ, flow, actor string) error {
+	inRepo := false
+	if flow != "" {
+		if _, err := s.GetFlow(ctx, flow); errors.Is(err, ErrNotFound) {
+			repo, err := s.RepoFlows(ctx, rig)
+			if err != nil {
+				return err
+			}
+			if repo.find(flow, "") == nil {
+				return fmt.Errorf("flow %s: %w (not in the store, nor in rig %s's %s at %s)", flow, ErrNotFound, rig, RepoFlowDir, repo.Base)
+			}
+			inRepo = true
+		} else if err != nil {
+			return err
 		}
 	}
-	return nil, nil
+	p := FlowPointer{Rig: rig, Type: typ, Flow: flow}
+	return s.write(func(w *wtx) error {
+		if w.Bucket(bRigs).Get([]byte(rig)) == nil {
+			return fmt.Errorf("rig %s: %w", rig, ErrNotFound)
+		}
+		k := []byte(join(rig, typ))
+		data := map[string]any{"rig": rig, "type": typ}
+		if flow == "" {
+			if w.Bucket(bFlowPtrs).Get(k) == nil {
+				return fmt.Errorf("%s points at no flow: %w", p, ErrNotFound)
+			}
+			if err := w.Bucket(bFlowPtrs).Delete(k); err != nil {
+				return err
+			}
+			return w.event("", "flow_pointer_cleared", actor, data)
+		}
+		// Checked again here: the flow may have been removed meanwhile.
+		if !inRepo && w.Bucket(bFlows).Get([]byte(flow)) == nil {
+			return fmt.Errorf("flow %s: %w", flow, ErrNotFound)
+		}
+		if err := put(w.Tx, bFlowPtrs, string(k), p); err != nil {
+			return err
+		}
+		data["flow"] = flow
+		return w.event("", "flow_pointer_set", actor, data)
+	})
+}
+
+// FlowPointers lists every rig's pointers, the rig's own before its types'.
+func (s *Store) FlowPointers(ctx context.Context) ([]FlowPointer, error) {
+	out := []FlowPointer{}
+	err := s.read(func(tx *bolt.Tx) error {
+		return each(tx, bFlowPtrs, "", func(_ []byte, p *FlowPointer) error {
+			out = append(out, *p)
+			return nil
+		})
+	})
+	return out, err
+}
+
+// PinnedFlow is the flow a bead names itself (metadata flow=<name>), or "".
+func PinnedFlow(b *Bead) string {
+	v, _ := b.Metadata["flow"].(string)
+	return strings.TrimSpace(v)
+}
+
+// FlowSource says where the flow governing a bead came from.
+type FlowSource struct {
+	Kind string `json:"kind"`           // pin, store or repo
+	Type string `json:"type,omitempty"` // the bead type whose pointer or file matched; "" for the rig's
+	// Commit is the base commit a repository flow was read at, also when a
+	// pin or pointer names a flow found only in the repository.
+	Commit string `json:"commit,omitempty"`
+	Path   string `json:"path,omitempty"` // the file in the repository
+}
+
+func (s FlowSource) String() string {
+	out := s.Kind
+	if s.Kind == "repo" {
+		out += "@" + shortSHA(s.Commit)
+	}
+	if s.Type != "" {
+		out += ", type " + s.Type
+	}
+	if s.Kind != "repo" && s.Commit != "" {
+		out += ", from repo@" + shortSHA(s.Commit)
+	}
+	return out
+}
+
+func shortSHA(sha string) string { return sha[:min(len(sha), 7)] }
+
+// errNeedRepo means the answer depends on the rig's repository flows,
+// which are read before the transaction: git must not run inside one.
+var errNeedRepo = errors.New("flow resolution needs the rig's repository")
+
+// resolveFlow finds the flow governing a bead of typ in rig that pins
+// pin ("" for none):
+//
+//	pin on the bead > store pointer > repo .yardr/flows > none
+//
+// Within the store and within the repository the type's flow wins over
+// the rig's. A name, pinned or pointed at, is looked up in the store, then
+// in the rig's repository. repo is nil until loaded; when the answer
+// depends on it, resolveFlow returns errNeedRepo. Knowledge beads are never
+// governed, and beads without a rig only by a pin.
+func resolveFlow(tx *bolt.Tx, rig *string, typ, pin string, repo *RepoFlows) (*Flow, *FlowSource, error) {
+	if NotWork[typ] {
+		return nil, nil, nil
+	}
+	if repo != nil && (rig == nil || repo.Rig != *rig) {
+		return nil, nil, errNeedRepo // loaded for another rig
+	}
+	byName := func(name string, src FlowSource) (*Flow, *FlowSource, error) {
+		f := new(Flow)
+		if ok, err := get(tx, bFlows, name, f); err != nil || ok {
+			return f, &src, err
+		}
+		if rig == nil {
+			return nil, nil, fmt.Errorf("flow %s: %w", name, ErrNotFound)
+		}
+		if repo == nil {
+			return nil, nil, errNeedRepo
+		}
+		rf := repo.find(name, "")
+		if rf == nil {
+			return nil, nil, fmt.Errorf("flow %s: %w (not in the store, nor in rig %s's %s at %s)", name, ErrNotFound, *rig, RepoFlowDir, repo.Base)
+		}
+		src.Commit, src.Path = repo.Commit, rf.Path
+		f, err := rf.flow()
+		return f, &src, err
+	}
+	if pin != "" {
+		f, src, err := byName(pin, FlowSource{Kind: "pin"})
+		if errors.Is(err, ErrNotFound) {
+			err = fmt.Errorf("the bead pins %w", err)
+		}
+		return f, src, err
+	}
+	if rig == nil {
+		return nil, nil, nil
+	}
+	types := []string{typ, ""}
+	for _, t := range types {
+		p := new(FlowPointer)
+		if ok, err := get(tx, bFlowPtrs, join(*rig, t), p); err != nil {
+			return nil, nil, err
+		} else if ok {
+			f, src, err := byName(p.Flow, FlowSource{Kind: "store", Type: t})
+			if errors.Is(err, ErrNotFound) {
+				err = fmt.Errorf("%s points at %w", p, err)
+			}
+			return f, src, err
+		}
+	}
+	if repo == nil {
+		return nil, nil, errNeedRepo
+	}
+	for _, t := range types {
+		if rf := repo.find("default", t); rf != nil {
+			f, err := rf.flow()
+			return f, &FlowSource{Kind: "repo", Type: t, Commit: repo.Commit, Path: rf.Path}, err
+		}
+	}
+	return nil, nil, nil
+}
+
+// repoFor reads the rig's repository flows when resolving the flow of a
+// bead of typ in rig pinning pin depends on them; nil when it does not.
+func (s *Store) repoFor(ctx context.Context, rig *string, typ, pin string) (*RepoFlows, error) {
+	need := false
+	_ = s.read(func(tx *bolt.Tx) error {
+		_, _, err := resolveFlow(tx, rig, typ, pin, nil)
+		need = errors.Is(err, errNeedRepo)
+		return nil // any other error surfaces when resolving for real
+	})
+	if !need {
+		return nil, nil
+	}
+	return s.RepoFlows(ctx, *rig)
+}
+
+// changedMeanwhile explains an errNeedRepo met inside a write: the flow
+// configuration or the bead changed between reading the repository and
+// the transaction.
+func changedMeanwhile(err error) error {
+	if errors.Is(err, errNeedRepo) {
+		return fmt.Errorf("the bead's flow configuration changed meanwhile; try again")
+	}
+	return err
+}
+
+// RigFlow is a flow governing a rig's beads: the rig's own (Type "") or
+// the one for its beads of Type.
+type RigFlow struct {
+	Type   string     `json:"type,omitempty"`
+	Flow   *Flow      `json:"flow"`
+	Source FlowSource `json:"source"`
+}
+
+// RigFlows lists the flows that govern rig's beads (pins aside): the rig's
+// own first, then one per type that has its own, by type.
+func (s *Store) RigFlows(ctx context.Context, rig string) ([]RigFlow, error) {
+	repo, err := s.RepoFlows(ctx, rig)
+	if err != nil {
+		return nil, err
+	}
+	out := []RigFlow{}
+	err = s.read(func(tx *bolt.Tx) error {
+		var types []string
+		if err := each(tx, bFlowPtrs, join(rig, ""), func(_ []byte, p *FlowPointer) error {
+			if p.Rig == rig && p.Type != "" {
+				types = append(types, p.Type)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+		for _, rf := range repo.Flows {
+			if rf.Type != "" {
+				types = append(types, rf.Type)
+			}
+		}
+		slices.Sort(types)
+		for _, t := range append([]string{""}, slices.Compact(types)...) {
+			f, src, err := resolveFlow(tx, &rig, t, "", repo)
+			if err != nil {
+				return err
+			}
+			// A type's file shadowed by a rig pointer in the store does not govern.
+			if f != nil && src.Type == t {
+				out = append(out, RigFlow{Type: t, Flow: f, Source: *src})
+			}
+		}
+		return nil
+	})
+	return out, err
 }
 
 // NextStages is where a bead may go from its current stage.
@@ -256,25 +517,35 @@ type NextStages struct {
 	Bead  string `json:"bead"`
 	Stage string `json:"stage"`
 	// Flow governs the bead; nil means no flow, and any stage is allowed.
-	Flow     *Flow    `json:"flow,omitempty"`
-	Stages   []string `json:"stages"`             // allowed next stages (empty without a flow)
-	Terminal []string `json:"terminal,omitempty"` // those of Stages that close the bead
+	Flow     *Flow       `json:"flow,omitempty"`
+	Source   *FlowSource `json:"source,omitempty"`   // where Flow came from
+	Stages   []string    `json:"stages"`             // allowed next stages (empty without a flow)
+	Terminal []string    `json:"terminal,omitempty"` // those of Stages that close the bead
 }
 
-// NextStages reports the stages bead id may be advanced to.
+// NextStages reports the flow governing bead id and the stages it may be
+// advanced to.
 func (s *Store) NextStages(ctx context.Context, id string) (*NextStages, error) {
+	b, err := s.GetBead(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	repo, err := s.repoFor(ctx, b.Rig, b.Type, PinnedFlow(b))
+	if err != nil {
+		return nil, err
+	}
 	var out *NextStages
-	err := s.read(func(tx *bolt.Tx) error {
+	err = s.read(func(tx *bolt.Tx) error {
 		row, err := loadBead(tx, id)
 		if err != nil {
 			return err
 		}
 		out = &NextStages{Bead: row.ID, Stage: row.Stage, Stages: []string{}}
-		f, err := flowFor(tx, row.Rig, row.Type)
+		f, src, err := resolveFlow(tx, row.Rig, row.Type, PinnedFlow(&row.Bead), repo)
 		if err != nil || f == nil {
-			return err
+			return changedMeanwhile(err)
 		}
-		out.Flow, out.Stages = f, f.Next(row.Stage)
+		out.Flow, out.Source, out.Stages = f, src, f.Next(row.Stage)
 		for _, st := range out.Stages {
 			if f.IsTerminal(st) {
 				out.Terminal = append(out.Terminal, st)
@@ -293,10 +564,10 @@ func checkCreateStage(f *Flow, stage string) error {
 		return nil
 	}
 	if !slices.Contains(f.Stages, stage) {
-		return fmt.Errorf("stage %s is not in flow %s; stages: %s", stage, f.name(), strings.Join(f.Stages, ", "))
+		return fmt.Errorf("stage %s is not in flow %s; stages: %s", stage, f.Name, strings.Join(f.Stages, ", "))
 	}
 	if f.IsTerminal(stage) {
-		return fmt.Errorf("stage %s is terminal in flow %s; create the bead in an earlier stage", stage, f.name())
+		return fmt.Errorf("stage %s is terminal in flow %s; create the bead in an earlier stage", stage, f.Name)
 	}
 	return nil
 }
@@ -308,7 +579,7 @@ func checkAdvance(f *Flow, id, from, to string) error {
 		return nil
 	}
 	return fmt.Errorf("bead %s: flow %s does not allow %s -> %s; allowed next: %s",
-		id, f.name(), from, to, strings.Join(f.Next(from), ", "))
+		id, f.Name, from, to, strings.Join(f.Next(from), ", "))
 }
 
 // dedupeOrdered drops empty and repeated stages, keeping the first of each.
