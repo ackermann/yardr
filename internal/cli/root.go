@@ -37,7 +37,7 @@ func Execute() int {
 	root.PersistentFlags().BoolVar(&a.json, "json", false, "print JSON")
 	root.PersistentFlags().StringVar(&a.actor, "actor", "", "who is acting (default $YARD_ACTOR, else $USER)")
 	root.AddCommand(a.serverCmd(), a.daemonCmd(), a.rigCmd(), a.beadCmd(), a.readyCmd(),
-		a.depCmd(), a.groupCmd(), a.routeCmd(), a.sessionCmd(), a.eventsCmd(), a.watchCmd(), a.primeCmd(),
+		a.depCmd(), a.groupCmd(), a.routeCmd(), a.flowCmd(), a.sessionCmd(), a.eventsCmd(), a.watchCmd(), a.primeCmd(),
 		a.bdpCmd(), a.residentCmd(), a.inboxCmd(), a.mailCmd(), a.rememberCmd(), a.recallCmd(), a.hookCmd())
 	err := root.ExecuteContext(context.Background())
 	if a.st != nil {

@@ -140,9 +140,19 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 		if nb.Rig != "" && w.Bucket(bRigs).Get([]byte(nb.Rig)) == nil {
 			return fmt.Errorf("rig %s: %w", nb.Rig, ErrNotFound)
 		}
+		typ, stage := or(nb.Type, "task"), or(nb.Stage, "new")
+		if nb.Rig != "" {
+			f, err := flowFor(w.Tx, &nb.Rig, typ)
+			if err != nil {
+				return err
+			}
+			if err := checkCreateStage(f, stage); err != nil {
+				return err
+			}
+		}
 		t := now()
 		row := &beadRow{Bead: Bead{
-			ID: id, Title: nb.Title, Body: nb.Body, Type: or(nb.Type, "task"), Stage: or(nb.Stage, "new"),
+			ID: id, Title: nb.Title, Body: nb.Body, Type: typ, Stage: stage,
 			Status: "open", Priority: nb.Priority, Labels: dedupe(nb.Labels), CreatedAt: t, CreatedBy: &actor,
 			Metadata: nb.Metadata,
 		}}
@@ -320,27 +330,32 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, actor st
 func (s *Store) changeBead(id, actor string, fn func(*wtx, *beadRow) (string, map[string]any, error)) (*Bead, error) {
 	var result *Bead
 	err := s.write(func(w *wtx) error {
-		old, err := w.loadBead(id)
-		if err != nil {
-			return err
-		}
-		row := cloneRow(old)
-		kind, data, err := fn(w, row)
-		if err != nil {
-			return err
-		}
-		wrote, err := w.saveBead(old, row, actor)
-		if err != nil {
-			return err
-		}
-		result = &row.Bead
-		if !wrote {
-			result = &old.Bead
-			return nil
-		}
-		return w.event(id, kind, actor, data)
+		b, err := w.changeBead(id, actor, fn)
+		result = b
+		return err
 	})
 	return result, err
+}
+
+// changeBead is changeBead inside a caller's transaction.
+func (w *wtx) changeBead(id, actor string, fn func(*wtx, *beadRow) (string, map[string]any, error)) (*Bead, error) {
+	old, err := w.loadBead(id)
+	if err != nil {
+		return nil, err
+	}
+	row := cloneRow(old)
+	kind, data, err := fn(w, row)
+	if err != nil {
+		return nil, err
+	}
+	wrote, err := w.saveBead(old, row, actor)
+	if err != nil {
+		return nil, err
+	}
+	if !wrote {
+		return &old.Bead, nil
+	}
+	return &row.Bead, w.event(id, kind, actor, data)
 }
 
 func cloneRow(r *beadRow) *beadRow {
@@ -371,20 +386,46 @@ func (w *wtx) endSession(b *beadRow, state string) error {
 	return nil
 }
 
-// Advance moves a bead to the next stage and frees it for routing.
+// Advance moves a bead to the next stage and frees it for routing. When the
+// bead's rig has a flow, the move must be one the flow allows, and entering
+// a terminal stage closes the bead, with the stage as reason, in the same
+// transaction.
 func (s *Store) Advance(ctx context.Context, id, stage, actor string) (*Bead, error) {
-	return s.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
-		from := b.Stage
-		if err := w.endSession(b, "done"); err != nil {
-			return "", nil, err
+	var result *Bead
+	err := s.write(func(w *wtx) error {
+		var terminal bool
+		b, err := w.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
+			f, err := flowFor(w.Tx, b.Rig, b.Type)
+			if err != nil {
+				return "", nil, err
+			}
+			if err := checkAdvance(f, id, b.Stage, stage); err != nil {
+				return "", nil, err
+			}
+			terminal = f != nil && f.IsTerminal(stage)
+			from := b.Stage
+			if err := w.endSession(b, "done"); err != nil {
+				return "", nil, err
+			}
+			b.Stage = stage
+			return "advanced", map[string]any{"from": from, "to": stage}, nil
+		})
+		result = b
+		if err != nil || !terminal {
+			return err
 		}
-		b.Stage = stage
-		return "advanced", map[string]any{"from": from, "to": stage}, nil
+		result, err = w.changeBead(id, actor, closeWith(stage))
+		return err
 	})
+	return result, err
 }
 
 func (s *Store) CloseBead(ctx context.Context, id, reason, actor string) (*Bead, error) {
-	return s.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
+	return s.changeBead(id, actor, closeWith(reason))
+}
+
+func closeWith(reason string) func(*wtx, *beadRow) (string, map[string]any, error) {
+	return func(w *wtx, b *beadRow) (string, map[string]any, error) {
 		if err := w.endSession(b, "done"); err != nil {
 			return "", nil, err
 		}
@@ -394,7 +435,7 @@ func (s *Store) CloseBead(ctx context.Context, id, reason, actor string) (*Bead,
 		}
 		b.Status, b.CloseReason = "closed", &reason
 		return "closed", map[string]any{"reason": reason}, nil
-	})
+	}
 }
 
 func (s *Store) Reopen(ctx context.Context, id, actor string) (*Bead, error) {

@@ -427,9 +427,20 @@ func (a *app) primeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			v := map[string]any{"bead": b, "notes": notes, "deps": deps, "open_blockers": blockers}
+			next, err := st.NextStages(c.Context(), id)
+			if err != nil {
+				return err
+			}
+			v := map[string]any{"bead": b, "notes": notes, "deps": deps, "open_blockers": blockers, "next": next}
 			return a.out(v, func() {
 				_ = a.printBead(b)
+				if next.Flow != nil {
+					line := strings.Join(next.Stages, ", ")
+					if len(next.Terminal) > 0 {
+						line += " (" + strings.Join(next.Terminal, ", ") + " closes the bead)"
+					}
+					fmt.Printf("\nNEXT STAGES: %s\n", line)
+				}
 				if len(blockers) > 0 {
 					fmt.Printf("\nBLOCKED BY (open): %s\n", strings.Join(blockers, ", "))
 				}

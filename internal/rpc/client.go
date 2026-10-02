@@ -179,6 +179,21 @@ func (c *Client) Routes(ctx context.Context) ([]store.Route, error) {
 func (c *Client) DeleteRoute(ctx context.Context, id string) error {
 	return c.call(ctx, "DeleteRoute", nil, id)
 }
+func (c *Client) PutFlow(ctx context.Context, f store.Flow, actor string) (*store.Flow, error) {
+	return callV[*store.Flow](c, ctx, "PutFlow", f, actor)
+}
+func (c *Client) Flows(ctx context.Context) ([]store.Flow, error) {
+	return callV[[]store.Flow](c, ctx, "Flows")
+}
+func (c *Client) GetFlow(ctx context.Context, rig, typ string) (*store.Flow, error) {
+	return callV[*store.Flow](c, ctx, "GetFlow", rig, typ)
+}
+func (c *Client) DeleteFlow(ctx context.Context, rig, typ, actor string) error {
+	return c.call(ctx, "DeleteFlow", nil, rig, typ, actor)
+}
+func (c *Client) NextStages(ctx context.Context, id string) (*store.NextStages, error) {
+	return callV[*store.NextStages](c, ctx, "NextStages", id)
+}
 
 func (c *Client) Claim(ctx context.Context, beadID, group, stage, actor string) (*store.Session, error) {
 	return callV[*store.Session](c, ctx, "Claim", beadID, group, stage, actor)

@@ -50,10 +50,11 @@ var (
 	bRoutes   = []byte("routes")
 	bRigs     = []byte("rigs")
 	bCounters = []byte("counters")
+	bFlows    = []byte("flows") // <rig>\x00<type>
 )
 
 var allBuckets = [][]byte{bBeads, bDeps, bDepFrom, bDepTo, bNotes, bEvents, bEventsBy, bVersions,
-	bSessions, bGroups, bRoutes, bRigs, bCounters}
+	bSessions, bGroups, bRoutes, bRigs, bCounters, bFlows}
 
 type Store struct {
 	db  *bolt.DB

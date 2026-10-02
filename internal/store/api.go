@@ -39,6 +39,12 @@ type API interface {
 	Routes(ctx context.Context) ([]Route, error)
 	DeleteRoute(ctx context.Context, id string) error
 
+	PutFlow(ctx context.Context, f Flow, actor string) (*Flow, error)
+	Flows(ctx context.Context) ([]Flow, error)
+	GetFlow(ctx context.Context, rig, typ string) (*Flow, error)
+	DeleteFlow(ctx context.Context, rig, typ, actor string) error
+	NextStages(ctx context.Context, id string) (*NextStages, error)
+
 	Claim(ctx context.Context, beadID, group, stage, actor string) (*Session, error)
 	MarkRunning(ctx context.Context, sessionID string, handle map[string]any) error
 	EndSession(ctx context.Context, sessionID, state, reason string) error

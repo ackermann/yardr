@@ -78,6 +78,49 @@ yard bead hold webapp-3                     # stop routing; a human looks
 Every command takes `--json`. Set `YARD_ACTOR` so the event log shows who
 acted.
 
+## Flows: a rig's lifecycle
+
+Routes say who works a stage; a **flow** says where a bead may go next. A rig
+without a flow lets a bead move to any stage, exactly as before. A flow file
+has one rule per line:
+
+```
+# flows/yard.flow
+backlog -> new
+new -> review | backlog
+review -> approved | new
+approved -> merged | merge | new
+merge -> approved
+decide -> backlog
+merged terminal
+```
+
+```sh
+yard flow set yard -f flows/yard.flow                  # the rig's flow (replaces)
+yard flow set yard --type decision -f flows/decision.flow  # wins for that type
+yard flow show yard                                    # stage, group, open beads, next
+yard flow rm yard [--type decision]
+```
+
+With a flow in place:
+
+- `yard bead advance` refuses a move the flow does not allow and lists the
+  allowed next stages (`allowed next: approved, new`).
+- Entering a **terminal** stage closes the bead in the same write, with the
+  stage as close reason (`closed: merged`).
+- `yard bead create -s <stage>` must name a non-terminal stage of the flow
+  (the default `new` too).
+- A bead in a stage the flow has no way out of (a stage the flow does not
+  know, or a terminal stage after `yard bead reopen`) may move to any stage
+  of the flow, so it is never stuck.
+- `yard prime --bead` prints the allowed next stages; the store API exposes
+  them as `NextStages`.
+
+A type-specific flow governs that type's beads in the rig; every other type
+follows the rig's flow. Beads without a rig, journals and memories are never
+governed. `yard flow show` warns about non-terminal stages no route sends
+anywhere: beads there wait for a human.
+
 ## Groups, interactively
 
 `yard group add` with no name opens a form: pick an existing group to edit or
