@@ -195,7 +195,8 @@ and `mentions`, so a resident's github identity is its login in lowercase.
 `@org/team` mentions, email addresses and mentions in code are not mentions.
 Where keys, besides `type`, `action`, `repo` and `label`: `event`, `number`,
 `state` (the issue's or pull request's, or the review's), `merged`,
-`conclusion`, `head_branch`, `head_sha`, `base`, and `epic`: the yardr epic
+`conclusion`, `workflow` (a run's workflow, or a check suite's app),
+`head_branch`, `head_sha`, `base`, and `epic`: the yardr epic
 when the head branch is `yard/<epic>`, so `--where epic=yard-sv6b` follows an
 epic's pull request and CI without parsing branch names.
 

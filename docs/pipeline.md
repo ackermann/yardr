@@ -385,8 +385,8 @@ groups (limit 1 each) and two type routes do it, besides the integrators:
 - **in-pr**, `decisions` (members mckean, mayor): a manual stage. Look at
   the PR and its checks; `yardr bead done <epic>` means "merge it" (to
   `land`), `--outcome changes` sends it back to `open` (add the fix as a
-  child first), `--outcome question` to `decide`. A later child of the PR
-  epic makes the daemon report `done` here when CI is green.
+  child first), `--outcome question` to `decide`. With a GitHub hook, the
+  daemon does this itself when CI is green (below).
 - **land**, `yard-pr-merge`
   ([`contrib/refinery/pr-merge`](../contrib/refinery/pr-merge)): runs `gh
   pr merge <pr_url> --rebase --delete-branch`, then `git fetch` and `git
@@ -395,6 +395,61 @@ groups (limit 1 each) and two type routes do it, besides the integrators:
   (checks pending, review required, conflicts) reports `failed`, to `open`,
   with gh's message, once. The checkout must be on the base and clean, or
   the epic is held before anything is merged.
+
+### GitHub events
+
+With a github hook ([subscriptions.md](subscriptions.md#github)) on the
+repository, the daemon moves an epic on what GitHub reports about its pull
+request, so a PR that is green and approved waits on no one. It reads every
+`hook` event from the github adapter whose `epic` field (the head branch is
+`yard/<epic>`) names an open epic, in seq order, and applies four rules:
+
+1. **CI green** (`ci_green`): a `workflow_run` or `check_suite` completed
+   with conclusion `success` on the PR's head commit, epic in `in-pr`: the
+   daemon advances it to `land` with the note "CI green on <sha>: <run
+   url>", and yard-pr-merge merges it, in the same pass.
+2. **CI red** (`ci_red`): conclusion `failure`, `cancelled` or `timed_out`
+   on the head, epic in `in-pr` or `review`: it adds a child "Fix CI on
+   epic <id>: <workflow>" (type bug, in `backlog`, the run's URL and
+   conclusion in its body), which blocks the epic, and moves an epic in
+   `in-pr` to `open`. There is one fix child per head commit, its handle
+   `<epic>-ci-<sha7>`: a second failed run or suite on the same commit adds
+   none.
+3. **PR merged** (`pr_merged`): `pull_request` `closed` with `merged`
+   true. From `land` the epic is reported `done`, to `merged`; from `in-pr`
+   (merged by hand) it goes `land` then `merged`; from `approved` by the
+   bare edge to `merged`. An epic in `land` whose yard-pr-merge session is
+   still running is left to it, as it has the rig's checkout to fast-forward.
+   Merged by hand, the checkout catches up at the next fetch. **PR closed
+   unmerged** (`pr_closed`): an epic in `in-pr` or `review` goes to `decide`
+   with the question "PR closed unmerged: reopen, or drop the epic?".
+4. **Changes requested** (`changes_requested`): a `pull_request_review`
+   with state `changes_requested` by a human (a login ending in `[bot]` is
+   not one; the yard posts no reviews, as pr-epic writes its review into the
+   PR's body), epic in `review`, `approved`, `in-pr` or `land` (with no session):
+   the review goes into a note and the epic to `open`, where the mayor files
+   the fix as a child. Comments (`issue_comment`) are not the daemon's: a
+   resident subscribed to github with `--scope mentions` gets them.
+
+The head commit is the one the last `pull_request` event (opened,
+synchronize, ...) or review for the epic carried, kept in the epic's
+metadata as `pr_head`; without one the daemon asks `gh pr view` for
+`headRefOid`. A conclusion on another commit (a run a later push
+superseded) is ignored. Each rule acts only on the stage it names: one that
+finds the epic elsewhere, past it or not there yet, does nothing. Each event
+judged for an epic is recorded in its metadata (`github_seq`), so a daemon
+that restarts and reads the log again from the start does nothing twice.
+Every action, every event ignored because of the stage, and every refused
+move is logged as a `github_rule` dispatch event on the epic, with the rule,
+epic, sha and the hook event's seq.
+
+The daemon acts as `yard`, so the group holding `in-pr` must list it among
+its members (below); otherwise its moves out of `in-pr` are refused, and the
+`github_rule` event says so. The first green run on the head lands the
+epic: a repository with several workflows should make them all required
+checks of the base branch, so GitHub refuses the merge while one is still
+running (pr-merge then reports `failed`, to `open`, and the next
+integration tries again).
 
 `gh` (logged in as the operator) and `jq` must be on the scripts' PATH.
 Without `YARDR_PR`, route `approved` for epics to `yard-refinery` (or leave
@@ -426,6 +481,7 @@ yardr group add yard-pr-merge --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin ~/.yardr/scripts/pr-merge' \
   --set log="$HOME/.yardr/logs/pr-merge.log"
 yardr route add --stage approved --type epic --rig yard --group yard-pr --priority 10
+yardr group add decisions --runner manual --limit 50 --members mckean,mayor,yard   # yard: the github rules
 yardr route add --stage in-pr --type epic --rig yard --group decisions
 yardr route add --stage land --type epic --rig yard --group yard-pr-merge
 ```

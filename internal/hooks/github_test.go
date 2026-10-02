@@ -150,9 +150,9 @@ func TestGitHubNormalize(t *testing.T) {
 			Fields: map[string][]string{"event": {"issues"}, "action": {action}, "repo": {repo}, "number": {"23"},
 				"state": {state}, "label": {"bug"}}}
 	}
-	suite := func(event, conclusion, text, url string, number ...string) hooks.Envelope {
+	suite := func(event, workflow, conclusion, text, url string, number ...string) hooks.Envelope {
 		f := map[string][]string{"event": {event}, "action": {"completed"}, "repo": {repo}, "conclusion": {conclusion},
-			"head_branch": {"yard/yard-sv6b"}, "head_sha": {sha}, "epic": {"yard-sv6b"}}
+			"workflow": {workflow}, "head_branch": {"yard/yard-sv6b"}, "head_sha": {sha}, "epic": {"yard-sv6b"}}
 		e := hooks.Envelope{Source: "github", Type: event, Action: "completed", Actor: jane, Mentions: []string{},
 			Text: text, URL: url, Fields: f}
 		if len(number) > 0 {
@@ -190,11 +190,11 @@ func TestGitHubNormalize(t *testing.T) {
 		{"issues_opened", "issues", issue("opened", "open")},
 		{"issues_closed", "issues", issue("closed", "closed")},
 		{"issues_edited", "issues", issue("edited", "open")},
-		{"workflow_run_success", "workflow_run", suite("workflow_run", "success", "ci success on yard/yard-sv6b",
+		{"workflow_run_success", "workflow_run", suite("workflow_run", "ci", "success", "ci success on yard/yard-sv6b",
 			"https://github.com/acme/yardr/actions/runs/5", "17")},
-		{"workflow_run_failure", "workflow_run", suite("workflow_run", "failure", "ci failure on yard/yard-sv6b",
+		{"workflow_run_failure", "workflow_run", suite("workflow_run", "ci", "failure", "ci failure on yard/yard-sv6b",
 			"https://github.com/acme/yardr/actions/runs/5")},
-		{"check_suite_cancelled", "check_suite", suite("check_suite", "cancelled",
+		{"check_suite_cancelled", "check_suite", suite("check_suite", "GitHub Actions", "cancelled",
 			"GitHub Actions cancelled on yard/yard-sv6b", "https://github.com/acme/yardr/commit/"+sha, "17")},
 		// Other events carry what every delivery has, and no thread.
 		{"push", "push", hooks.Envelope{Source: "github", Type: "push", Actor: mayor, Mentions: []string{},

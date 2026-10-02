@@ -92,6 +92,11 @@ type Dispatcher struct {
 	// everything and never prunes.
 	Retention  store.Retention
 	PruneEvery time.Duration
+	// PRHead tells the head commit of an epic's pull request when no
+	// pull_request event has (see github.go); nil asks gh.
+	PRHead func(ctx context.Context, q PRQuery) (string, error)
+
+	ghCursor uint64 // the last event the github rules read
 
 	retryAfter map[string]time.Time
 	reported   map[string]string  // bead -> last unroutable reason, to log once
@@ -374,7 +379,8 @@ func (d *Dispatcher) noteReplaced(ctx context.Context) {
 }
 
 // Reconcile performs one idempotent pass: reap dead sessions, tear down
-// finished ones, then route and start unowned ready beads.
+// finished ones, apply the github rules to new hook events, then route and
+// start unowned ready beads.
 func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	d.defaults()
 	groups, err := d.Store.Groups(ctx)
@@ -397,6 +403,11 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 		return err
 	}
 	if err := d.residents(ctx); err != nil {
+		return err
+	}
+	// Before routing, so an epic the rules move to land is dispatched to
+	// its merger in this pass.
+	if err := d.github(ctx); err != nil {
 		return err
 	}
 	return d.route(ctx, byName, active)

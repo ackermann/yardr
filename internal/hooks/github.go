@@ -186,6 +186,7 @@ func (GitHub) Normalize(h http.Header, body []byte) (*Envelope, error) {
 		if name == "" && s.App != nil {
 			name = s.App.Name
 		}
+		f.set("workflow", name)
 		words := nonEmpty(name, firstOf(s.Conclusion, s.Status))
 		if s.HeadBranch != "" {
 			words = append(words, "on", s.HeadBranch)

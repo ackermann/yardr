@@ -50,7 +50,7 @@ var WhereKeys = []string{"type", "action", "team", "project", "repo", "label"}
 // GitHubWhereKeys are what --where may filter a github subscription on
 // besides WhereKeys: the fields the github hook adapter sets, epic among
 // them (the yardr epic whose branch a pull request or CI run is on).
-var GitHubWhereKeys = []string{"event", "number", "state", "merged", "conclusion", "head_branch", "head_sha", "base", "epic"}
+var GitHubWhereKeys = []string{"event", "number", "state", "merged", "conclusion", "workflow", "head_branch", "head_sha", "base", "epic"}
 
 // whereKeys are the keys a subscription to source may filter on.
 func whereKeys(source string) []string {
