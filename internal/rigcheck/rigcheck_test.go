@@ -126,6 +126,9 @@ func TestTail(t *testing.T) {
 	if got := Tail("a\nb\nc\n", 2); got != "b\nc" {
 		t.Fatalf("Tail = %q", got)
 	}
+	if got := Tail("a\n", -1); got != "" {
+		t.Fatalf("Tail with a negative count = %q", got)
+	}
 	if got := Tail("a\n", 5); got != "a" {
 		t.Fatalf("Tail = %q", got)
 	}

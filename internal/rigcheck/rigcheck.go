@@ -165,6 +165,9 @@ func GitPath(ctx context.Context, dir, name string) (string, error) {
 
 // Tail is the last n lines of s.
 func Tail(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
 	if len(lines) > n {
 		lines = lines[len(lines)-n:]
