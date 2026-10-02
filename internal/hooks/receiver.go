@@ -137,7 +137,9 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 		rc.reject(w, name, "store", http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"seq": seq})
+	// Linear treats any non-200 response as a failed delivery and retries it.
+	// The event is already durable here, so acknowledge it with 200.
+	writeJSON(w, http.StatusOK, map[string]any{"seq": seq})
 }
 
 func (rc *Receiver) reject(w http.ResponseWriter, name, reason string, code int, err error) {

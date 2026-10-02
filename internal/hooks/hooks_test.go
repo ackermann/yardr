@@ -132,7 +132,7 @@ func TestLinearSignature(t *testing.T) {
 		t.Fatalf("rejected deliveries left %d events", n)
 	}
 
-	if code := r.linear(t, body, secret, "d-1"); code != http.StatusAccepted {
+	if code := r.linear(t, body, secret, "d-1"); code != http.StatusOK {
 		t.Fatalf("good signature: %d", code)
 	}
 	evs := r.hookEvents(t)
@@ -164,7 +164,7 @@ func TestLinearStaleTimestamp(t *testing.T) {
 		}
 	}
 	r.now = sent.Add(59 * time.Second)
-	if code := r.linear(t, body, secret, ""); code != http.StatusAccepted {
+	if code := r.linear(t, body, secret, ""); code != http.StatusOK {
 		t.Fatalf("within window: %d", code)
 	}
 	// Signed but without webhookTimestamp: cannot be placed in time.
@@ -181,13 +181,13 @@ func TestLinearDuplicateDelivery(t *testing.T) {
 	r := newRig(t)
 	body := fixture(t, "linear_comment_create.json")
 	r.now = sentAt(t, body)
-	for i, want := range []int{http.StatusAccepted, http.StatusOK, http.StatusOK} {
+	for i, want := range []int{http.StatusOK, http.StatusOK, http.StatusOK} {
 		if code := r.linear(t, body, secret, "dup-1"); code != want {
 			t.Fatalf("delivery %d: %d, want %d", i, code, want)
 		}
 	}
 	// A different delivery id of the same body is a different delivery.
-	if code := r.linear(t, body, secret, "dup-2"); code != http.StatusAccepted {
+	if code := r.linear(t, body, secret, "dup-2"); code != http.StatusOK {
 		t.Fatalf("second delivery: %d", code)
 	}
 	if n := len(r.hookEvents(t)); n != 2 {
@@ -199,14 +199,14 @@ func TestLinearDuplicateDelivery(t *testing.T) {
 	// Remembering is bounded in time: past the TTL the id is forgotten
 	// (only reachable by a source whose window outlasts it).
 	r.now = r.now.Add(hooks.DedupeTTL + time.Second)
-	if code := r.post(t, "/hooks/adhoc", []byte("x"), map[string]string{"Authorization": "Bearer " + secret, "Yard-Delivery": "t"}); code != http.StatusAccepted {
+	if code := r.post(t, "/hooks/adhoc", []byte("x"), map[string]string{"Authorization": "Bearer " + secret, "Yard-Delivery": "t"}); code != http.StatusOK {
 		t.Fatalf("token delivery: %d", code)
 	}
 	if code := r.post(t, "/hooks/adhoc", []byte("x"), map[string]string{"Authorization": "Bearer " + secret, "Yard-Delivery": "t"}); code != http.StatusOK {
 		t.Fatalf("token duplicate: %d", code)
 	}
 	r.now = r.now.Add(hooks.DedupeTTL + time.Second)
-	if code := r.post(t, "/hooks/adhoc", []byte("x"), map[string]string{"Authorization": "Bearer " + secret, "Yard-Delivery": "t"}); code != http.StatusAccepted {
+	if code := r.post(t, "/hooks/adhoc", []byte("x"), map[string]string{"Authorization": "Bearer " + secret, "Yard-Delivery": "t"}); code != http.StatusOK {
 		t.Fatalf("token delivery after TTL: %d", code)
 	}
 }
@@ -221,7 +221,7 @@ func TestRefusedDeliveryIsNotRemembered(t *testing.T) {
 		t.Fatalf("payload without type: %d", code)
 	}
 	fixed := []byte(`{"action":"create","type":"Issue","data":{"id":"i"},"webhookTimestamp":1791018843600}`)
-	if code := r.linear(t, fixed, secret, "retry-1"); code != http.StatusAccepted {
+	if code := r.linear(t, fixed, secret, "retry-1"); code != http.StatusOK {
 		t.Fatalf("retry after refusal: %d", code)
 	}
 }
@@ -275,10 +275,10 @@ func TestTokenSource(t *testing.T) {
 			t.Fatalf("auth %q: %d", auth, code)
 		}
 	}
-	if code := r.post(t, "/hooks/adhoc", body, map[string]string{"Authorization": "Bearer " + secret}); code != http.StatusAccepted {
+	if code := r.post(t, "/hooks/adhoc", body, map[string]string{"Authorization": "Bearer " + secret}); code != http.StatusOK {
 		t.Fatalf("good token: %d", code)
 	}
-	if code := r.post(t, "/hooks/adhoc", []byte("plain words"), map[string]string{"Authorization": "Bearer " + secret}); code != http.StatusAccepted {
+	if code := r.post(t, "/hooks/adhoc", []byte("plain words"), map[string]string{"Authorization": "Bearer " + secret}); code != http.StatusOK {
 		t.Fatalf("plain body: %d", code)
 	}
 	evs := r.hookEvents(t)
@@ -312,7 +312,7 @@ func TestEmptySecretFailsClosed(t *testing.T) {
 	if err := os.WriteFile(empty, []byte("now-set"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code := r.post(t, "/hooks/open", []byte("hi"), map[string]string{"Authorization": "Bearer now-set"}); code != http.StatusAccepted {
+	if code := r.post(t, "/hooks/open", []byte("hi"), map[string]string{"Authorization": "Bearer now-set"}); code != http.StatusOK {
 		t.Fatalf("after setting secret: %d", code)
 	}
 	if n := len(r.hookEvents(t)); n != 1 {
