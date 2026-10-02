@@ -86,6 +86,9 @@ func (s *Store) GetGroup(ctx context.Context, name string) (*Group, error) {
 func (s *Store) DeleteGroup(ctx context.Context, name, actor string) (int, error) {
 	released := 0
 	err := s.write(func(w *wtx) error {
+		// Batch reruns this closure when another call in the batch fails, so
+		// the count starts over with each attempt.
+		released = 0
 		var drop []string
 		if err := each(w.Tx, bRoutes, "", func(k []byte, r *Route) error {
 			if r.Group == name {
