@@ -30,9 +30,10 @@ work on (missing, dirty, nothing ahead of the base) holds the epic.
 
 **Environment.** Both read what the exec runner sets: `YARDR_BEAD`,
 `YARDR_RIG`, `YARDR_RIG_PATH`, `YARDR_BASE`, `YARDR_BRANCH` (default
-`yard/<bead>`), `YARDR_WORKTREE` and `YARDR_BIN`. Options go in the group's
-`cmd`: `YARDR_PUSH`, a remote to push to (off when empty), and
-`YARDR_NOTIFY`, the resident mailed when that push fails (default `mayor`).
+`yard/<bead>`), `YARDR_WORKTREE`, `YARDR_BIN` and `YARDR_HOME` (used for the
+default worktree path). Options go in the group's `cmd`: `YARDR_PUSH`, a
+remote to push to (off when empty), and `YARDR_NOTIFY`, the resident mailed
+when that push fails (default `mayor`).
 
 **Setup** (from docs/pipeline.md):
 
