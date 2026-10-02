@@ -78,6 +78,28 @@ yard bead hold webapp-3                     # stop routing; a human looks
 Every command takes `--json`. Set `YARD_ACTOR` so the event log shows who
 acted.
 
+### Bead ids
+
+Every bead has two names. Its **handle** (`webapp-k3f9`: the rig, or
+`--prefix`, then random base32) is what yard prints and what branches
+(`yard/<handle>`), worktrees and herdr labels are built from; it is chosen
+once and never changes. Its **UUID** (a UUIDv7) is its identity: the store
+is keyed by it, so ids need no central counter. `--json` shows both
+(`id` is the handle, `uuid` the UUID); `--id` on create picks the handle.
+
+Commands accept the UUID, the handle, or a unique prefix of the handle
+with at least 4 characters after the `-` (`webapp-k3f`... is too short; an
+ambiguous prefix lists its candidates).
+
+A UUIDv7 starts with its creation time, so the store's key order is
+creation order, and listings use it. Handles are random and carry no
+order: never sort by handle.
+
+A store from before UUIDs is migrated once when the server opens it, after
+copying it to `yard.db.pre-uuid-<time>`: each bead keeps its old id
+(`webapp-3`) as its handle, so existing branches and worktrees stay valid,
+and gets a UUID built from its creation time.
+
 ## Flows: a rig's lifecycle
 
 Routes say who works a stage; a **flow** says where a bead may go next. A rig
@@ -214,8 +236,11 @@ HTTP:
 yard bdp serve --addr :8765 --scope https://beads.example/team/
 ```
 
-- Beads are `<scope>beads/<id>`; dependencies are Links whose source is the
-  waiting bead and target its blocker, as in bd.
+- Beads are `<scope>beads/<handle>`; dependencies are Links whose source is
+  the waiting bead and target its blocker, as in bd. The handle is the BDP
+  id because it never changes and is unique within a yard (BDP ids are
+  scoped), and it is what bd and humans use; the UUID is the `uuid`
+  property. Listings follow BDP's canonical id order, not creation order.
 - Bead properties are bd's JSON row (dependencies, counts, `created_by`, …)
   plus yard's own fields; a held bead reads as `deferred`. Types use BDP's
   reference vocabulary (`https://work.example/types/task`, `…/blocks`) where

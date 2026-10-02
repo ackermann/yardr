@@ -126,7 +126,7 @@ func (s *Store) DeleteRoute(ctx context.Context, id string) error {
 
 type Session struct {
 	ID        string         `json:"id"`
-	Bead      string         `json:"bead"`
+	Bead      string         `json:"bead"` // stored as the UUID, returned as the handle
 	Group     string         `json:"group"`
 	Stage     string         `json:"stage"`
 	Runner    string         `json:"runner,omitempty"` // the group's runner when it started
@@ -160,16 +160,18 @@ func (s *Store) Claim(ctx context.Context, beadID, group, stage, actor string) (
 		} else if !ok {
 			return fmt.Errorf("group %s: %w", group, ErrNotFound)
 		}
-		sess = &Session{ID: newEdgeID(), Bead: beadID, Group: group, Stage: stage, Runner: g.Runner,
+		stored := Session{ID: newEdgeID(), Bead: row.UUID, Group: group, Stage: stage, Runner: g.Runner,
 			State: "starting", StartedAt: now()}
-		if err := put(w.Tx, bSessions, sess.ID, sess); err != nil {
+		if err := put(w.Tx, bSessions, stored.ID, stored); err != nil {
 			return err
 		}
-		row.Group, row.Session = &group, &sess.ID
+		row.Group, row.Session = &group, &stored.ID
 		if err := w.mintBead(row, actor); err != nil {
 			return err
 		}
-		return w.event(beadID, "claimed", actor, map[string]any{"group": group, "stage": stage, "session": sess.ID})
+		sess = &stored
+		sess.Bead = row.ID
+		return w.event(row.UUID, "claimed", actor, map[string]any{"group": group, "stage": stage, "session": stored.ID})
 	})
 	return sess, err
 }
@@ -263,6 +265,9 @@ func (s *Store) GetSession(ctx context.Context, id string) (*Session, error) {
 		if err == nil && !ok {
 			err = fmt.Errorf("session %s: %w", id, ErrNotFound)
 		}
+		if ok {
+			sess.Bead = handlesIn(tx).of(sess.Bead)
+		}
 		return err
 	})
 	if err != nil {
@@ -271,11 +276,15 @@ func (s *Store) GetSession(ctx context.Context, id string) (*Session, error) {
 	return sess, nil
 }
 
+// sessionsWhere returns matching sessions by start time. match sees the
+// session as stored, naming its bead by UUID.
 func (s *Store) sessionsWhere(match func(*bolt.Tx, *Session) bool) ([]Session, error) {
 	out := []Session{}
 	err := s.read(func(tx *bolt.Tx) error {
+		h := handlesIn(tx)
 		return each(tx, bSessions, "", func(_ []byte, sess *Session) error {
 			if match(tx, sess) {
+				sess.Bead = h.of(sess.Bead)
 				out = append(out, *sess)
 			}
 			return nil
@@ -310,7 +319,12 @@ func (s *Store) ClosedWithWorkspace(ctx context.Context) ([]Session, error) {
 
 // FailureCount counts failed or died sessions for bead in stage since a
 // human last un-held it, so un-holding grants fresh attempts.
-func (s *Store) FailureCount(ctx context.Context, bead, stage string) (int, error) {
+func (s *Store) FailureCount(ctx context.Context, ref, stage string) (int, error) {
+	b, err := s.GetBead(ctx, ref)
+	if err != nil {
+		return 0, err
+	}
+	bead := b.UUID
 	var since time.Time
 	evs, err := s.Events(ctx, bead, 1<<30)
 	if err != nil {

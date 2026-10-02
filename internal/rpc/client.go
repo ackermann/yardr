@@ -71,6 +71,8 @@ func (c *Client) call(ctx context.Context, method string, out any, args ...any) 
 			return wrapped{r.Error.Message, store.ErrNotFound}
 		case "taken":
 			return store.ErrTaken
+		case "ambiguous":
+			return wrapped{r.Error.Message, store.ErrAmbiguous}
 		}
 		return fmt.Errorf("%s", r.Error.Message)
 	}

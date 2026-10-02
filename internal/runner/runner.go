@@ -88,7 +88,7 @@ func Brief(job dispatch.Job, actor, workdir string) (string, error) {
 	fmt.Fprintf(&b, "You are `%s`, working bead **%s** (%s, stage `%s`) for group `%s`.\n\n",
 		actor, bead.ID, bead.Type, bead.Stage, job.Group.Name)
 	if workdir != "" {
-		fmt.Fprintf(&b, "Work in `%s` (branch `yard/%s`). Commit and push your work there.\n\n", workdir, bead.ID)
+		fmt.Fprintf(&b, "Work in `%s` (branch `%s`). Commit and push your work there.\n\n", workdir, Branch(bead))
 	}
 	fmt.Fprintf(&b, "## %s\n\n%s\n\n", bead.Title, strings.TrimSpace(bead.Body))
 	fmt.Fprintf(&b, `## Reporting back

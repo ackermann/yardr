@@ -13,7 +13,7 @@ import (
 type Event struct {
 	Seq   uint64         `json:"seq"`
 	ID    string         `json:"id"`
-	Bead  *string        `json:"bead,omitempty"`
+	Bead  *string        `json:"bead,omitempty"` // stored as the UUID, returned as the handle
 	Kind  string         `json:"kind"`
 	Actor string         `json:"actor"`
 	Data  map[string]any `json:"data,omitempty"`
@@ -27,6 +27,13 @@ func (s *Store) Events(ctx context.Context, bead string, limit int) ([]Event, er
 	}
 	var out []Event
 	err := s.read(func(tx *bolt.Tx) error {
+		if bead != "" {
+			u, err := resolve(tx, bead)
+			if err != nil {
+				return err
+			}
+			bead = u
+		}
 		evs := tx.Bucket(bEvents)
 		if bead == "" {
 			c := evs.Cursor()
@@ -47,6 +54,7 @@ func (s *Store) Events(ctx context.Context, bead string, limit int) ([]Event, er
 				out = append(out, e)
 			}
 		}
+		named(tx, out)
 		return nil
 	})
 	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
@@ -67,9 +75,21 @@ func (s *Store) EventsSince(ctx context.Context, after uint64, limit int) ([]Eve
 			}
 			out = append(out, e)
 		}
+		named(tx, out)
 		return nil
 	})
 	return out, err
+}
+
+// named replaces the bead UUIDs events are stored with by handles.
+func named(tx *bolt.Tx, evs []Event) {
+	h := handlesIn(tx)
+	for i := range evs {
+		if evs[i].Bead != nil {
+			v := h.of(*evs[i].Bead)
+			evs[i].Bead = &v
+		}
+	}
 }
 
 // Head is the sequence of the newest event (0 when there are none).

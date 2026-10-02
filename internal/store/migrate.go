@@ -1,0 +1,229 @@
+package store
+
+import (
+	"encoding/binary"
+	"fmt"
+	"sort"
+	"time"
+
+	bolt "go.etcd.io/bbolt"
+)
+
+// schemaVersion 2 keys beads by UUID with handles (yard-29). Version 1 is
+// every store before it: beads keyed by counter ids (yard-1) minted from
+// the counters bucket.
+const schemaVersion = 2
+
+var (
+	kSchema   = []byte("schema")
+	bCounters = []byte("counters") // retired with version 1
+)
+
+// setSchema stamps a store that needs no migration (a new one, or one just
+// migrated) and drops what version 1 left behind.
+func setSchema(tx *bolt.Tx) error {
+	if tx.Bucket(bCounters) != nil {
+		if err := tx.DeleteBucket(bCounters); err != nil {
+			return err
+		}
+	}
+	if tx.Bucket(bMeta).Get(kSchema) != nil {
+		return nil
+	}
+	return tx.Bucket(bMeta).Put(kSchema, binary.BigEndian.AppendUint64(nil, schemaVersion))
+}
+
+// upgrade migrates a version 1 store that holds beads, once, after copying
+// the file to <path>.pre-uuid-<time> so the old state can be restored.
+func upgrade(db *bolt.DB, path string) error {
+	legacy := false
+	err := db.View(func(tx *bolt.Tx) error {
+		if m := tx.Bucket(bMeta); m != nil && m.Get(kSchema) != nil {
+			return nil
+		}
+		if b := tx.Bucket(bBeads); b != nil {
+			k, _ := b.Cursor().First()
+			legacy = k != nil
+		}
+		return nil
+	})
+	if err != nil || !legacy {
+		return err
+	}
+	backup := fmt.Sprintf("%s.pre-uuid-%s", path, time.Now().UTC().Format("20060102T150405Z"))
+	if err := db.View(func(tx *bolt.Tx) error { return tx.CopyFile(backup, 0o600) }); err != nil {
+		return fmt.Errorf("backup before migration: %w", err)
+	}
+	return db.Update(func(tx *bolt.Tx) error {
+		for _, b := range allBuckets {
+			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
+				return err
+			}
+		}
+		if err := migrateToUUIDs(tx); err != nil {
+			return err
+		}
+		return setSchema(tx)
+	})
+}
+
+// migrateToUUIDs gives every bead a UUIDv7 built from its created_at, so
+// old and new beads interleave in creation order, and keeps its counter id
+// as its handle, so branches, worktrees and labels built from it stay
+// valid. Every record that names a bead is rewritten to its UUID.
+//
+// bbolt cursors must not see their bucket change, so each bucket is read
+// whole before it is rewritten.
+func migrateToUUIDs(tx *bolt.Tx) error {
+	var rows []*beadRow
+	if err := each(tx, bBeads, "", func(k []byte, r *beadRow) error {
+		r.ID = string(k)
+		rows = append(rows, r)
+		return nil
+	}); err != nil {
+		return err
+	}
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].CreatedAt.Before(rows[j].CreatedAt) })
+	ids := map[string]string{} // counter id -> uuid
+	prev := ""
+	for _, r := range rows {
+		r.UUID = formatUUID(after(prev, uuidAt(r.CreatedAt)))
+		prev, ids[r.ID] = r.UUID, r.UUID
+	}
+	uuid := func(id string) string {
+		if u, ok := ids[id]; ok {
+			return u
+		}
+		return id // a dangling reference stays as it was
+	}
+	for _, r := range rows {
+		if err := tx.Bucket(bBeads).Delete([]byte(r.ID)); err != nil {
+			return err
+		}
+	}
+	for _, r := range rows {
+		if err := put(tx, bBeads, r.UUID, r); err != nil {
+			return err
+		}
+		if err := tx.Bucket(bHandles).Put([]byte(r.ID), []byte(r.UUID)); err != nil {
+			return err
+		}
+	}
+
+	var notes []*Note
+	if err := each(tx, bNotes, "", func(_ []byte, n *Note) error {
+		notes = append(notes, n)
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := recreate(tx, bNotes); err != nil {
+		return err
+	}
+	for _, n := range notes {
+		n.Bead = uuid(n.Bead)
+		if err := put(tx, bNotes, join(n.Bead, seqKey(n.Seq)), n); err != nil {
+			return err
+		}
+	}
+
+	var deps []*depRow
+	if err := each(tx, bDeps, "", func(_ []byte, d *depRow) error {
+		deps = append(deps, d)
+		return nil
+	}); err != nil {
+		return err
+	}
+	for _, b := range [][]byte{bDepFrom, bDepTo} {
+		if err := recreate(tx, b); err != nil {
+			return err
+		}
+	}
+	for _, d := range deps {
+		d.From, d.To = uuid(d.From), uuid(d.To)
+		if err := put(tx, bDeps, d.ID, d); err != nil {
+			return err
+		}
+		if err := tx.Bucket(bDepFrom).Put([]byte(join(d.From, d.ID)), []byte{}); err != nil {
+			return err
+		}
+		if err := tx.Bucket(bDepTo).Put([]byte(join(d.To, d.ID)), []byte{}); err != nil {
+			return err
+		}
+	}
+
+	var sessions []*Session
+	if err := each(tx, bSessions, "", func(_ []byte, s *Session) error {
+		sessions = append(sessions, s)
+		return nil
+	}); err != nil {
+		return err
+	}
+	for _, s := range sessions {
+		s.Bead = uuid(s.Bead)
+		if err := put(tx, bSessions, s.ID, s); err != nil {
+			return err
+		}
+	}
+
+	// Event payloads keep the ids they were written with: those are the
+	// handles now, and they never change.
+	var events []*Event
+	if err := each(tx, bEvents, "", func(_ []byte, e *Event) error {
+		if e.Bead != nil {
+			events = append(events, e)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := recreate(tx, bEventsBy); err != nil {
+		return err
+	}
+	for _, e := range events {
+		u := uuid(*e.Bead)
+		e.Bead = &u
+		if err := put(tx, bEvents, seqKey(e.Seq), e); err != nil {
+			return err
+		}
+		if err := tx.Bucket(bEventsBy).Put([]byte(join(u, seqKey(e.Seq))), []byte{}); err != nil {
+			return err
+		}
+	}
+
+	// Retained bead versions move under the UUID; their snapshots are
+	// history and keep the shape they were written in.
+	type kv struct{ k, v []byte }
+	var versions []kv
+	c := tx.Bucket(bVersions).Cursor()
+	for k, v := c.Seek([]byte("bead/")); k != nil && string(k[:min(len(k), 5)]) == "bead/"; k, v = c.Next() {
+		versions = append(versions, kv{append([]byte(nil), k...), append([]byte(nil), v...)})
+	}
+	for _, e := range versions {
+		if err := tx.Bucket(bVersions).Delete(e.k); err != nil {
+			return err
+		}
+	}
+	for _, e := range versions {
+		// <kind>/<id>\x00<8-byte seq>
+		id, seq := string(e.k[len("bead/"):len(e.k)-9]), e.k[len(e.k)-8:]
+		if err := tx.Bucket(bVersions).Put([]byte(join("bead/"+uuid(id), string(seq))), e.v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// recreate empties a bucket, keeping its sequence: note seqs come from it,
+// and a reset would make the next note overwrite the first.
+func recreate(tx *bolt.Tx, name []byte) error {
+	seq := tx.Bucket(name).Sequence()
+	if err := tx.DeleteBucket(name); err != nil {
+		return err
+	}
+	b, err := tx.CreateBucket(name)
+	if err != nil {
+		return err
+	}
+	return b.SetSequence(seq)
+}

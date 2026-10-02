@@ -38,7 +38,7 @@ type Resident struct {
 	MaxAge       string         `json:"max_age"`       // e.g. "6h"; "" never rotates
 	HandoffGrace string         `json:"handoff_grace"` // how long a requested handoff may take
 	Enabled      bool           `json:"enabled"`
-	Journal      string         `json:"journal"` // journal bead id
+	Journal      string         `json:"journal"` // journal bead handle
 
 	// Who it is in each source (by source name), and which hook events it
 	// hears about. Kept when the definition is replaced.
@@ -84,12 +84,11 @@ func (s *Store) PutResident(ctx context.Context, def Resident, actor string) (*R
 			}
 			r = Resident{Name: def.Name, State: "stopped", Enabled: true, Cursor: head, Notified: head,
 				Journal: journalID(def.Name)}
-			if w.Bucket(bBeads).Get([]byte(r.Journal)) == nil {
-				t := now()
-				jr := &beadRow{Bead: Bead{ID: r.Journal, Title: "Journal of " + def.Name, Type: TypeJournal,
+			if w.Bucket(bHandles).Get([]byte(r.Journal)) == nil {
+				jr := &beadRow{Bead: Bead{Title: "Journal of " + def.Name, Type: TypeJournal,
 					Stage: "journal", Status: "open", Labels: []string{"resident:" + def.Name},
-					CreatedAt: t, CreatedBy: &actor}}
-				if err := w.mintBead(jr, actor); err != nil {
+					CreatedAt: now(), CreatedBy: &actor}}
+				if err := w.insertBead(jr, "", r.Journal, actor); err != nil {
 					return err
 				}
 				if err := w.event(r.Journal, "created", actor, map[string]any{"title": jr.Title}); err != nil {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -34,7 +35,7 @@ func TestCreateAndGetBead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b.ID != "web-1" || b.Stage != "new" || b.Status != "open" || b.Type != "task" {
+	if !strings.HasPrefix(b.ID, "web-") || len(b.ID) != len("web-")+store.MinPrefix || b.Stage != "new" || b.Status != "open" || b.Type != "task" {
 		t.Fatalf("unexpected bead: %+v", b)
 	}
 	if !slices.Equal(b.Labels, []string{"ui"}) {
@@ -47,8 +48,8 @@ func TestCreateAndGetBead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b2.ID != "yd-1" {
-		t.Fatalf("id = %s, want yd-1", b2.ID)
+	if !strings.HasPrefix(b2.ID, "yd-") {
+		t.Fatalf("id = %s, want yd-<random>", b2.ID)
 	}
 	if _, err := s.GetBead(ctx, "nope-1"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("missing bead err = %v", err)
@@ -74,7 +75,7 @@ func TestReadyRespectsBlocksHoldAndClose(t *testing.T) {
 		t.Fatal("edge to missing bead accepted")
 	}
 	ready, _ := s.Ready(ctx)
-	if got := ids(ready); !slices.Equal(got, []string{"yd-1", "yd-3"}) {
+	if got := ids(ready); !slices.Equal(got, []string{a.ID, c.ID}) {
 		t.Fatalf("ready = %v", got)
 	}
 	if _, err := s.SetHold(ctx, c.ID, true, "me"); err != nil {
@@ -84,7 +85,7 @@ func TestReadyRespectsBlocksHoldAndClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	ready, _ = s.Ready(ctx)
-	if got := ids(ready); !slices.Equal(got, []string{"yd-2"}) {
+	if got := ids(ready); !slices.Equal(got, []string{b.ID}) {
 		t.Fatalf("ready after close+hold = %v", got)
 	}
 }
@@ -244,7 +245,8 @@ func TestWakeAndTail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me"); err != nil {
+	x, err := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
+	if err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -254,7 +256,7 @@ func TestWakeAndTail(t *testing.T) {
 	}
 	select {
 	case e := <-tail:
-		if e.Kind != "created" || e.Bead == nil || *e.Bead != "yd-1" {
+		if e.Kind != "created" || e.Bead == nil || *e.Bead != x.ID {
 			t.Fatalf("tail event = %+v", e)
 		}
 	case <-time.After(3 * time.Second):
@@ -372,10 +374,13 @@ func TestExplicitIDs(t *testing.T) {
 func TestLastActorOnEveryRow(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
+	var first string
 	for i := 0; i < 4; i++ {
 		b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, fmt.Sprintf("actor-%d", i))
-		if i > 0 {
-			if err := s.AddDep(ctx, "yd-1", b.ID, "blocks", "linker"); err != nil {
+		if i == 0 {
+			first = b.ID
+		} else {
+			if err := s.AddDep(ctx, first, b.ID, "blocks", "linker"); err != nil {
 				t.Fatal(err)
 			}
 		}

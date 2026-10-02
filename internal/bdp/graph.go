@@ -240,9 +240,12 @@ func (g *Graph) ConformsTo(t, c string) bool {
 	return walk(t)
 }
 
+// beadProperties is bd's row shape. A bead's BDP id is its handle, which
+// never changes and is unique in the Scope; its UUID rides along.
 func beadProperties(b *store.Bead) map[string]any {
 	p := map[string]any{
 		"id":         b.ID,
+		"uuid":       b.UUID,
 		"title":      b.Title,
 		"status":     status(b),
 		"priority":   b.Priority,

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
@@ -313,8 +314,9 @@ func TestLinksFollowBDPDirection(t *testing.T) {
 
 func TestPaginationIsOneSnapshot(t *testing.T) {
 	f := newFixture(t)
+	var beads []*store.Bead
 	for _, title := range []string{"a", "b", "c", "d", "e"} {
-		f.bead(title, "task")
+		beads = append(beads, f.bead(title, "task"))
 	}
 	first := f.get("beads/").json(t) // default page size 2
 	items := first["items"].([]any)
@@ -322,17 +324,24 @@ func TestPaginationIsOneSnapshot(t *testing.T) {
 	if len(items) != 2 || next == "" {
 		t.Fatalf("first page = %v", first)
 	}
-	// Change the yard mid-listing: later pages still show the old state.
-	title := "changed"
-	if _, err := f.st.UpdateBead(context.Background(), "yd-3", store.BeadPatch{Title: &title}, "x"); err != nil {
-		t.Fatal(err)
-	}
-	f.bead("f", "task")
-
 	var all []string
 	for _, it := range items {
 		all = append(all, it.(map[string]any)["id"].(string))
 	}
+	// Change the yard mid-listing: later pages still show the old state.
+	// Handles are random, so pick a bead the first page did not list.
+	later := beads[0]
+	for _, b := range beads {
+		if !slices.Contains(all, scope+"beads/"+b.ID) {
+			later = b
+		}
+	}
+	title := "changed"
+	if _, err := f.st.UpdateBead(context.Background(), later.ID, store.BeadPatch{Title: &title}, "x"); err != nil {
+		t.Fatal(err)
+	}
+	f.bead("f", "task")
+
 	for next != "" {
 		page := f.get(next).json(t)
 		for _, it := range page["items"].([]any) {

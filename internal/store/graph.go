@@ -16,7 +16,7 @@ type Dep struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// depRow is a stored edge: from -kind-> to.
+// depRow is a stored edge: from -kind-> to, both bead UUIDs.
 type depRow struct {
 	ID        string    `json:"id"`
 	From      string    `json:"from"`
@@ -31,15 +31,19 @@ type depRow struct {
 // AddDep relates from -> to. For kind 'blocks', `to` is not ready until
 // `from` closes. The edge gets its own revision, and both beads, whose
 // representations list or count it, are re-minted.
-func (s *Store) AddDep(ctx context.Context, from, to, kind, actor string) error {
-	if from == to {
-		return fmt.Errorf("a bead cannot depend on itself")
-	}
+func (s *Store) AddDep(ctx context.Context, fromRef, toRef, kind, actor string) error {
 	return s.write(func(w *wtx) error {
-		for _, id := range []string{from, to} {
-			if _, err := w.loadBead(id); err != nil {
-				return err
-			}
+		fromRow, err := w.loadBead(fromRef)
+		if err != nil {
+			return err
+		}
+		toRow, err := w.loadBead(toRef)
+		if err != nil {
+			return err
+		}
+		from, to := fromRow.UUID, toRow.UUID
+		if from == to {
+			return fmt.Errorf("a bead cannot depend on itself")
 		}
 		for _, k := range keys(w.Tx, bDepFrom, from+"\x00") {
 			var d depRow
@@ -47,7 +51,7 @@ func (s *Store) AddDep(ctx context.Context, from, to, kind, actor string) error 
 				return err
 			}
 			if d.To == to && d.Kind == kind {
-				return fmt.Errorf("%s already %s %s", from, kind, to)
+				return fmt.Errorf("%s already %s %s", fromRow.ID, kind, toRow.ID)
 			}
 		}
 		// Ids are never reused: a removed edge's id stays retired.
@@ -67,7 +71,7 @@ func (s *Store) AddDep(ctx context.Context, from, to, kind, actor string) error 
 		if err := w.mintTouched(to, actor); err != nil {
 			return err
 		}
-		return w.event(to, "dep_added", actor, map[string]any{"from": from, "kind": kind})
+		return w.event(to, "dep_added", actor, map[string]any{"from": fromRow.ID, "kind": kind})
 	})
 }
 
@@ -92,8 +96,17 @@ func newEdgeID() string {
 
 // RemoveDep deletes the edge, leaving a tombstone version that cites its
 // final revision. Removing an edge that does not exist is a no-op.
-func (s *Store) RemoveDep(ctx context.Context, from, to, kind, actor string) error {
+func (s *Store) RemoveDep(ctx context.Context, fromRef, toRef, kind, actor string) error {
 	return s.write(func(w *wtx) error {
+		fromRow, err := w.loadBead(fromRef)
+		if err != nil {
+			return err
+		}
+		toRow, err := w.loadBead(toRef)
+		if err != nil {
+			return err
+		}
+		from, to := fromRow.UUID, toRow.UUID
 		removed := false
 		for _, k := range keys(w.Tx, bDepFrom, from+"\x00") {
 			id := k[len(from)+1:]
@@ -126,21 +139,26 @@ func (s *Store) RemoveDep(ctx context.Context, from, to, kind, actor string) err
 		if err := w.mintTouched(to, actor); err != nil {
 			return err
 		}
-		return w.event(to, "dep_removed", actor, map[string]any{"from": from, "kind": kind})
+		return w.event(to, "dep_removed", actor, map[string]any{"from": fromRow.ID, "kind": kind})
 	})
 }
 
 // Deps returns every edge touching the bead, in either direction.
-func (s *Store) Deps(ctx context.Context, id string) ([]Dep, error) {
+func (s *Store) Deps(ctx context.Context, ref string) ([]Dep, error) {
 	out := []Dep{}
 	err := s.read(func(tx *bolt.Tx) error {
+		id, err := resolve(tx, ref)
+		if err != nil {
+			return err
+		}
+		h := handlesIn(tx)
 		for _, b := range [][]byte{bDepFrom, bDepTo} {
 			for _, k := range keys(tx, b, id+"\x00") {
 				var d depRow
 				if _, err := get(tx, bDeps, k[len(id)+1:], &d); err != nil {
 					return err
 				}
-				out = append(out, Dep{From: d.From, To: d.To, Kind: d.Kind, CreatedAt: d.CreatedAt})
+				out = append(out, Dep{From: h.of(d.From), To: h.of(d.To), Kind: d.Kind, CreatedAt: d.CreatedAt})
 			}
 		}
 		return nil
@@ -149,11 +167,18 @@ func (s *Store) Deps(ctx context.Context, id string) ([]Dep, error) {
 	return out, err
 }
 
-// OpenBlockers lists beads that block id and are not closed.
-func (s *Store) OpenBlockers(ctx context.Context, id string) ([]string, error) {
+// OpenBlockers lists the handles of beads that block ref and are not closed.
+func (s *Store) OpenBlockers(ctx context.Context, ref string) ([]string, error) {
 	var out []string
 	err := s.read(func(tx *bolt.Tx) error {
-		out = openBlockers(tx, id)
+		id, err := resolve(tx, ref)
+		if err != nil {
+			return err
+		}
+		h := handlesIn(tx)
+		for _, u := range openBlockers(tx, id) {
+			out = append(out, h.of(u))
+		}
 		return nil
 	})
 	if out == nil {
@@ -170,7 +195,7 @@ const (
 )
 
 type Note struct {
-	Bead   string    `json:"bead"`
+	Bead   string    `json:"bead"`           // stored as the UUID, returned as the handle
 	Kind   string    `json:"kind,omitempty"` // "" or note, journal, handoff
 	Author string    `json:"author"`
 	Text   string    `json:"text"`
@@ -191,8 +216,8 @@ func (w *wtx) addNote(id, kind, text, actor string) error {
 	if err != nil {
 		return err
 	}
-	n := Note{Bead: id, Kind: kind, Author: actor, Text: text, At: now(), Seq: seq}
-	if err := put(w.Tx, bNotes, join(id, seqKey(seq)), n); err != nil {
+	n := Note{Bead: row.UUID, Kind: kind, Author: actor, Text: text, At: now(), Seq: seq}
+	if err := put(w.Tx, bNotes, join(row.UUID, seqKey(seq)), n); err != nil {
 		return err
 	}
 	// The bead's representation counts its notes (bd's comment_count).
@@ -204,13 +229,18 @@ func (w *wtx) addNote(id, kind, text, actor string) error {
 	if kind == NoteJournal || kind == NoteHandoff {
 		evKind = kind
 	}
-	return w.event(id, evKind, actor, nil)
+	return w.event(row.UUID, evKind, actor, nil)
 }
 
-func (s *Store) Notes(ctx context.Context, id string) ([]Note, error) {
+func (s *Store) Notes(ctx context.Context, ref string) ([]Note, error) {
 	out := []Note{}
 	err := s.read(func(tx *bolt.Tx) error {
-		return each(tx, bNotes, id+"\x00", func(_ []byte, n *Note) error {
+		row, err := loadBead(tx, ref)
+		if err != nil {
+			return err
+		}
+		return each(tx, bNotes, row.UUID+"\x00", func(_ []byte, n *Note) error {
+			n.Bead = row.ID
 			out = append(out, *n)
 			return nil
 		})
@@ -255,7 +285,8 @@ func (s *Store) GetRig(ctx context.Context, name string) (*Rig, error) {
 }
 
 // SnapBead and SnapDep are the full records the BDP server serves, with the
-// actor of their latest version for attribution.
+// actor of their latest version for attribution. Edges name beads by
+// handle, like everything else the store returns.
 type SnapBead struct {
 	Bead
 	LastActor *string `json:"last_actor"`
@@ -289,8 +320,9 @@ func (s *Store) Snapshot(ctx context.Context) (*Snapshot, error) {
 		}); err != nil {
 			return err
 		}
+		h := handlesIn(tx)
 		return each(tx, bDeps, "", func(_ []byte, d *depRow) error {
-			snap.Deps = append(snap.Deps, SnapDep{ID: d.ID, From: d.From, To: d.To, Kind: d.Kind,
+			snap.Deps = append(snap.Deps, SnapDep{ID: d.ID, From: h.of(d.From), To: h.of(d.To), Kind: d.Kind,
 				Revision: d.Revision, CreatedAt: d.CreatedAt, CreatedBy: ptr(d.CreatedBy), LastActor: ptr(d.LastActor)})
 			return nil
 		})

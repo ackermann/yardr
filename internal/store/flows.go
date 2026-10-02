@@ -265,15 +265,11 @@ type NextStages struct {
 func (s *Store) NextStages(ctx context.Context, id string) (*NextStages, error) {
 	var out *NextStages
 	err := s.read(func(tx *bolt.Tx) error {
-		row := new(beadRow)
-		ok, err := get(tx, bBeads, id, row)
+		row, err := loadBead(tx, id)
 		if err != nil {
 			return err
 		}
-		if !ok {
-			return fmt.Errorf("bead %s: %w", id, ErrNotFound)
-		}
-		out = &NextStages{Bead: id, Stage: row.Stage, Stages: []string{}}
+		out = &NextStages{Bead: row.ID, Stage: row.Stage, Stages: []string{}}
 		f, err := flowFor(tx, row.Rig, row.Type)
 		if err != nil || f == nil {
 			return err

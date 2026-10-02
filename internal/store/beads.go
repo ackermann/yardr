@@ -15,7 +15,11 @@ import (
 )
 
 type Bead struct {
-	ID          string         `json:"id"`
+	// ID is the bead's handle (yard-k3f9): what people, branches and every
+	// other record returned by the store call it. It never changes.
+	ID string `json:"id"`
+	// UUID is the bead's identity, a UUIDv7 the store is keyed by.
+	UUID        string         `json:"uuid"`
 	Title       string         `json:"title"`
 	Body        string         `json:"body,omitempty"`
 	Type        string         `json:"type"`
@@ -53,21 +57,30 @@ type NewBead struct {
 	Priority int
 	Rig      string
 	Labels   []string
-	Prefix   string // id prefix; defaults to the rig name, else "yd"
-	ID       string // explicit id (imports); must be unused
+	Prefix   string // handle prefix; defaults to the rig name, else "yd"
+	ID       string // explicit handle (imports, journals); must be unused
 	Metadata map[string]any
 }
 
 var validID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
-func (w *wtx) loadBead(id string) (*beadRow, error) {
+// loadBead reads the bead ref names (see resolve).
+func (w *wtx) loadBead(ref string) (*beadRow, error) {
+	return loadBead(w.Tx, ref)
+}
+
+func loadBead(tx *bolt.Tx, ref string) (*beadRow, error) {
+	u, err := resolve(tx, ref)
+	if err != nil {
+		return nil, err
+	}
 	row := new(beadRow)
-	ok, err := get(w.Tx, bBeads, id, row)
+	ok, err := get(tx, bBeads, u, row)
 	if err != nil {
 		return nil, err
 	}
 	if !ok {
-		return nil, fmt.Errorf("bead %s: %w", id, ErrNotFound)
+		return nil, fmt.Errorf("bead %s: %w", ref, ErrNotFound)
 	}
 	return row, nil
 }
@@ -95,10 +108,10 @@ func (w *wtx) mintBead(row *beadRow, actor string) error {
 	row.Revision = newRevision()
 	row.UpdatedAt = now()
 	row.LastActor = actor
-	if err := put(w.Tx, bBeads, row.ID, row); err != nil {
+	if err := put(w.Tx, bBeads, row.UUID, row); err != nil {
 		return err
 	}
-	return w.version("bead", row.ID, row.Revision, actor, row, false)
+	return w.version("bead", row.UUID, row.Revision, actor, row, false)
 }
 
 // mintTouched re-mints a bead whose representation changed through another
@@ -111,11 +124,14 @@ func (w *wtx) mintTouched(id, actor string) error {
 	return w.mintBead(row, actor)
 }
 
-// CreateBead mints a short id (<prefix>-<n>), or uses nb.ID, and creates
-// the bead.
+// CreateBead mints a UUID and a handle (<prefix>-<random>), or uses nb.ID
+// as the handle, and creates the bead.
 func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead, error) {
 	if nb.ID != "" && !validID.MatchString(nb.ID) {
 		return nil, fmt.Errorf("bead id %q: use letters, digits, '.', '_' or '-'", nb.ID)
+	}
+	if isUUID(nb.ID) {
+		return nil, fmt.Errorf("bead id %q: a handle cannot look like a UUID", nb.ID)
 	}
 	prefix := nb.Prefix
 	if prefix == "" {
@@ -126,17 +142,6 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 	}
 	var created *Bead
 	err := s.write(func(w *wtx) error {
-		id := nb.ID
-		if id == "" {
-			n, err := w.nextCounter(prefix)
-			if err != nil {
-				return err
-			}
-			id = fmt.Sprintf("%s-%d", prefix, n)
-		}
-		if w.Bucket(bBeads).Get([]byte(id)) != nil {
-			return fmt.Errorf("bead %s already exists", id)
-		}
 		if nb.Rig != "" && w.Bucket(bRigs).Get([]byte(nb.Rig)) == nil {
 			return fmt.Errorf("rig %s: %w", nb.Rig, ErrNotFound)
 		}
@@ -150,46 +155,55 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 				return err
 			}
 		}
-		t := now()
 		row := &beadRow{Bead: Bead{
-			ID: id, Title: nb.Title, Body: nb.Body, Type: typ, Stage: stage,
-			Status: "open", Priority: nb.Priority, Labels: dedupe(nb.Labels), CreatedAt: t, CreatedBy: &actor,
+			Title: nb.Title, Body: nb.Body, Type: typ, Stage: stage,
+			Status: "open", Priority: nb.Priority, Labels: dedupe(nb.Labels), CreatedAt: now(), CreatedBy: &actor,
 			Metadata: nb.Metadata,
 		}}
 		if nb.Rig != "" {
 			row.Rig = &nb.Rig
 		}
-		if err := w.mintBead(row, actor); err != nil {
+		if err := w.insertBead(row, prefix, nb.ID, actor); err != nil {
 			return err
 		}
 		created = &row.Bead
-		return w.event(id, "created", actor, map[string]any{"title": nb.Title})
+		return w.event(row.UUID, "created", actor, map[string]any{"title": nb.Title})
 	})
 	return created, err
 }
 
-func (w *wtx) nextCounter(prefix string) (uint64, error) {
-	var n uint64
-	if _, err := get(w.Tx, bCounters, prefix, &n); err != nil {
-		return 0, err
-	}
-	n++
-	return n, put(w.Tx, bCounters, prefix, n)
-}
-
-func (s *Store) GetBead(ctx context.Context, id string) (*Bead, error) {
-	var b *Bead
-	err := s.read(func(tx *bolt.Tx) error {
-		row := new(beadRow)
-		ok, err := get(tx, bBeads, id, row)
+// insertBead gives a new bead its UUID, from its creation time and after
+// every key already stored, and its handle: handle when given, else one
+// minted under prefix. Then it mints the bead.
+func (w *wtx) insertBead(row *beadRow, prefix, handle, actor string) error {
+	last, _ := w.Bucket(bBeads).Cursor().Last()
+	u := after(string(last), uuidAt(row.CreatedAt))
+	if handle == "" {
+		h, err := mintHandle(w.Tx, prefix, u)
 		if err != nil {
 			return err
 		}
-		if !ok {
-			return fmt.Errorf("bead %s: %w", id, ErrNotFound)
+		handle = h
+	} else if w.Bucket(bHandles).Get([]byte(handle)) != nil {
+		return fmt.Errorf("bead %s already exists", handle)
+	}
+	row.ID, row.UUID = handle, formatUUID(u)
+	if err := w.Bucket(bHandles).Put([]byte(row.ID), []byte(row.UUID)); err != nil {
+		return err
+	}
+	return w.mintBead(row, actor)
+}
+
+// GetBead returns the bead ref names: its UUID, its handle, or a unique
+// handle prefix.
+func (s *Store) GetBead(ctx context.Context, ref string) (*Bead, error) {
+	var b *Bead
+	err := s.read(func(tx *bolt.Tx) error {
+		row, err := loadBead(tx, ref)
+		if err == nil {
+			b = &row.Bead
 		}
-		b = &row.Bead
-		return nil
+		return err
 	})
 	return b, err
 }
@@ -235,15 +249,16 @@ const (
 )
 
 func ready(tx *bolt.Tx, b *Bead) bool {
-	return !NotWork[b.Type] && b.Status == "open" && !b.Hold && len(openBlockers(tx, b.ID)) == 0
+	return !NotWork[b.Type] && b.Status == "open" && !b.Hold && len(openBlockers(tx, b.UUID)) == 0
 }
 
-// openBlockers lists beads that block id (kind blocks) and are not closed.
-func openBlockers(tx *bolt.Tx, id string) []string {
+// openBlockers lists the UUIDs of beads that block the bead with UUID u
+// (kind blocks) and are not closed.
+func openBlockers(tx *bolt.Tx, u string) []string {
 	var out []string
-	for _, k := range keys(tx, bDepTo, id+"\x00") {
+	for _, k := range keys(tx, bDepTo, u+"\x00") {
 		var d depRow
-		if ok, _ := get(tx, bDeps, k[len(id)+1:], &d); !ok || d.Kind != "blocks" {
+		if ok, _ := get(tx, bDeps, k[len(u)+1:], &d); !ok || d.Kind != "blocks" {
 			continue
 		}
 		var blocker beadRow
@@ -254,7 +269,8 @@ func openBlockers(tx *bolt.Tx, id string) []string {
 	return out
 }
 
-// beadsWhere returns matching beads by priority, then creation time.
+// beadsWhere returns matching beads by priority, then creation time: the
+// order of the beads bucket, whose UUIDv7 keys start with it.
 func (s *Store) beadsWhere(match func(*bolt.Tx, *Bead) bool) ([]Bead, error) {
 	out := []Bead{}
 	err := s.read(func(tx *bolt.Tx) error {
@@ -265,12 +281,7 @@ func (s *Store) beadsWhere(match func(*bolt.Tx, *Bead) bool) ([]Bead, error) {
 			return nil
 		})
 	})
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Priority != out[j].Priority {
-			return out[i].Priority < out[j].Priority
-		}
-		return out[i].CreatedAt.Before(out[j].CreatedAt)
-	})
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Priority < out[j].Priority })
 	return out, err
 }
 
@@ -355,7 +366,7 @@ func (w *wtx) changeBead(id, actor string, fn func(*wtx, *beadRow) (string, map[
 	if !wrote {
 		return &old.Bead, nil
 	}
-	return &row.Bead, w.event(id, kind, actor, data)
+	return &row.Bead, w.event(row.UUID, kind, actor, data)
 }
 
 func cloneRow(r *beadRow) *beadRow {
@@ -399,7 +410,7 @@ func (s *Store) Advance(ctx context.Context, id, stage, actor string) (*Bead, er
 			if err != nil {
 				return "", nil, err
 			}
-			if err := checkAdvance(f, id, b.Stage, stage); err != nil {
+			if err := checkAdvance(f, b.ID, b.Stage, stage); err != nil {
 				return "", nil, err
 			}
 			terminal = f != nil && f.IsTerminal(stage)
@@ -414,7 +425,7 @@ func (s *Store) Advance(ctx context.Context, id, stage, actor string) (*Bead, er
 		if err != nil || !terminal {
 			return err
 		}
-		result, err = w.changeBead(id, actor, closeWith(stage))
+		result, err = w.changeBead(b.UUID, actor, closeWith(stage))
 		return err
 	})
 	return result, err

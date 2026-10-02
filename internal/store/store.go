@@ -49,12 +49,12 @@ var (
 	bGroups   = []byte("groups")
 	bRoutes   = []byte("routes")
 	bRigs     = []byte("rigs")
-	bCounters = []byte("counters")
 	bFlows    = []byte("flows") // <rig>\x00<type>
+	bMeta     = []byte("meta")  // schema version
 )
 
-var allBuckets = [][]byte{bBeads, bDeps, bDepFrom, bDepTo, bNotes, bEvents, bEventsBy, bVersions,
-	bSessions, bGroups, bRoutes, bRigs, bCounters, bFlows}
+var allBuckets = [][]byte{bBeads, bHandles, bDeps, bDepFrom, bDepTo, bNotes, bEvents, bEventsBy, bVersions,
+	bSessions, bGroups, bRoutes, bRigs, bFlows, bMeta}
 
 type Store struct {
 	db  *bolt.DB
@@ -75,13 +75,17 @@ func Open(path string) (*Store, error) {
 	} else if err != nil {
 		return nil, err
 	}
+	if err := upgrade(db, path); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("%s: upgrade: %w", path, err)
+	}
 	err = db.Update(func(tx *bolt.Tx) error {
 		for _, b := range allBuckets {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
 			}
 		}
-		return nil
+		return setSchema(tx)
 	})
 	if err != nil {
 		db.Close()
@@ -213,8 +217,16 @@ func join(parts ...string) string {
 	return b.String()
 }
 
-// event appends an event in this transaction.
+// event appends an event in this transaction. bead is any reference
+// resolve accepts; the event records the bead's UUID.
 func (w *wtx) event(bead, kind, actor string, data map[string]any) error {
+	if bead != "" {
+		u, err := resolve(w.Tx, bead)
+		if err != nil {
+			return err
+		}
+		bead = u
+	}
 	seq, err := w.Bucket(bEvents).NextSequence()
 	if err != nil {
 		return err

@@ -125,7 +125,7 @@ type reply struct {
 }
 
 type wireError struct {
-	Code    string `json:"code"` // not-found, taken, error
+	Code    string `json:"code"` // not-found, taken, ambiguous, error
 	Message string `json:"message"`
 }
 
@@ -136,6 +136,8 @@ func toWire(err error) *wireError {
 		code = "not-found"
 	case errors.Is(err, store.ErrTaken):
 		code = "taken"
+	case errors.Is(err, store.ErrAmbiguous):
+		code = "ambiguous"
 	}
 	return &wireError{Code: code, Message: err.Error()}
 }

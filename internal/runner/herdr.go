@@ -102,6 +102,11 @@ var nameUnsafe = regexp.MustCompile(`[^a-z0-9_-]+`)
 
 // AgentName derives a herdr agent name ([a-z][a-z0-9_-]{0,31}) from the bead
 // and stage, so `herdr agent list` reads like the yard.
+// Branch is the git branch a bead is worked on. It is built from the
+// handle, which never changes (a migrated bead keeps its old id as handle),
+// so a bead's branch and worktree stay valid for its whole life.
+func Branch(b store.Bead) string { return "yard/" + b.ID }
+
 func AgentName(bead, stage string) string {
 	n := nameUnsafe.ReplaceAllString(strings.ToLower(bead+"-"+stage), "-")
 	n = strings.Trim(n, "-")
@@ -129,7 +134,7 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	}
 	rig := job.Rig
 	kind := str(job.Group.Config, "kind", "claude")
-	branch := "yard/" + job.Bead.ID
+	branch := Branch(job.Bead)
 	name := AgentName(job.Bead.ID, job.Bead.Stage)
 	handle := map[string]any{"agent": name, "branch": branch, "repo": rig.Path}
 	// herdr shows the workspace label, so lead with who is working on the

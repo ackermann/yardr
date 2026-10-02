@@ -100,7 +100,7 @@ func (a *app) beadCmd() *cobra.Command {
 	f.StringVarP(&nb.Rig, "rig", "r", "", "rig the work happens in")
 	f.StringSliceVarP(&nb.Labels, "label", "l", nil, "labels")
 	f.StringVar(&nb.Prefix, "prefix", "", "id prefix (default rig name, else yd)")
-	f.StringVar(&nb.ID, "id", "", "explicit bead id (for imports; must be unused)")
+	f.StringVar(&nb.ID, "id", "", "explicit handle instead of a minted one (imports; must be unused)")
 	f.StringArrayVar(&createMeta, "meta", nil, "metadata key=value (repeatable), e.g. model=opus")
 	f.StringSliceVar(&blockedBy, "blocked-by", nil, "beads that must close first")
 
@@ -220,10 +220,14 @@ func (a *app) beadCmd() *cobra.Command {
 					return err
 				}
 			}
-			if err := st.AddNote(c.Context(), args[0], text, a.who()); err != nil {
+			b, err := st.GetBead(c.Context(), args[0])
+			if err != nil {
 				return err
 			}
-			return a.out(map[string]string{"bead": args[0], "noted": "ok"}, func() {})
+			if err := st.AddNote(c.Context(), b.ID, text, a.who()); err != nil {
+				return err
+			}
+			return a.out(map[string]string{"bead": b.ID, "noted": "ok"}, func() {})
 		},
 	}
 
@@ -334,11 +338,20 @@ func (a *app) depCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := st.AddDep(c.Context(), args[0], args[1], kind, a.who()); err != nil {
+			// Echo handles, whatever form of id was typed.
+			from, err := st.GetBead(c.Context(), args[0])
+			if err != nil {
 				return err
 			}
-			return a.out(store.Dep{From: args[0], To: args[1], Kind: kind}, func() {
-				fmt.Printf("%s -%s-> %s\n", args[0], kind, args[1])
+			to, err := st.GetBead(c.Context(), args[1])
+			if err != nil {
+				return err
+			}
+			if err := st.AddDep(c.Context(), from.ID, to.ID, kind, a.who()); err != nil {
+				return err
+			}
+			return a.out(store.Dep{From: from.ID, To: to.ID, Kind: kind}, func() {
+				fmt.Printf("%s -%s-> %s\n", from.ID, kind, to.ID)
 			})
 		},
 	}
