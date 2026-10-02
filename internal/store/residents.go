@@ -513,7 +513,7 @@ func (s *Store) ExpireMemories(ctx context.Context) (int, error) {
 	n := 0
 	for _, m := range mems {
 		if m.Expires != nil && time.Now().After(*m.Expires) {
-			if _, err := s.CloseBead(ctx, m.ID, "expired", "yard"); err != nil {
+			if _, err := s.CloseBead(ctx, m.ID, "expired", Expect{}, "yard"); err != nil {
 				return n, err
 			}
 			n++

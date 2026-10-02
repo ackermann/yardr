@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/version"
 )
 
@@ -45,7 +46,7 @@ func TestSkewMessage(t *testing.T) {
 	})
 	c := NewClient(sock)
 	c.Revision = "ba9876543210"
-	_, err := c.AdvanceNote(context.Background(), "b", "review", "n", "me")
+	_, err := c.AdvanceNote(context.Background(), "b", "review", "n", store.Expect{}, "me")
 	want := "the yardr server (pid 4242, built 0123456789ab) differs from this yardr (ba9876543210); " +
 		"run `yardr server stop` (no such method AdvanceNote)"
 	if err == nil || err.Error() != want {
@@ -59,7 +60,7 @@ func TestSkewMessage(t *testing.T) {
 	})
 	c = NewClient(sock)
 	c.Revision = "ba9876543210"
-	_, err = c.AdvanceNote(context.Background(), "b", "review", "n", "me")
+	_, err = c.AdvanceNote(context.Background(), "b", "review", "n", store.Expect{}, "me")
 	want = "the yardr server (pid unknown, built unknown) differs from this yardr (ba9876543210); " +
 		"run `yardr server stop` (no such method AdvanceNote)"
 	if err == nil || err.Error() != want {
@@ -75,7 +76,7 @@ func TestSameBuildKeepsPlainError(t *testing.T) {
 	})
 	c := NewClient(sock)
 	c.Revision = "0123456789ab"
-	_, err := c.AdvanceNote(context.Background(), "b", "review", "n", "me")
+	_, err := c.AdvanceNote(context.Background(), "b", "review", "n", store.Expect{}, "me")
 	if err == nil || err.Error() != "no such method AdvanceNote" {
 		t.Fatalf("err = %v", err)
 	}

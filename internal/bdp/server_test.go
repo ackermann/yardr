@@ -372,7 +372,7 @@ func TestSelector(t *testing.T) {
 	f := newFixture(t)
 	f.bead("open one", "task")
 	b := f.bead("closed one", "bug")
-	if _, err := f.st.CloseBead(context.Background(), b.ID, "done", "x"); err != nil {
+	if _, err := f.st.CloseBead(context.Background(), b.ID, "done", store.Expect{}, "x"); err != nil {
 		t.Fatal(err)
 	}
 	sel := func(s string) string { return "beads/?limit=5&selector=" + url.QueryEscape(s) }

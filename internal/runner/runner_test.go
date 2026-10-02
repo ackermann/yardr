@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -441,8 +442,11 @@ esac`)}
 	if !strings.Contains(calls, "worktree create ") || !strings.Contains(calls, "--label builders yard-13\n") {
 		t.Fatalf("first stage not labelled group first:\n%s", calls)
 	}
-	if strings.Contains(calls, "workspace rename") || strings.Contains(calls, "tab create") {
-		t.Fatalf("first stage relabelled or opened a tab:\n%s", calls)
+	if strings.Contains(calls, "workspace rename") {
+		t.Fatalf("first stage relabelled:\n%s", calls)
+	}
+	if !strings.Contains(calls, "tab create --workspace w1 --cwd "+wt+" --label builders new --env ") {
+		t.Fatalf("first stage tab not labelled group first:\n%s", calls)
 	}
 
 	exists := `echo '{"error":{"code":"worktree_exists","message":"branch exists"}}' >&2; exit 1`
@@ -450,7 +454,7 @@ esac`)}
 	for _, want := range []string{
 		"worktree open --cwd ",
 		"workspace rename w1 codex-review yard-13\n",
-		"tab create --workspace w1 --cwd " + wt + " --label codex-review review\n",
+		"tab create --workspace w1 --cwd " + wt + " --label codex-review review --env ",
 	} {
 		if !strings.Contains(calls, want) {
 			t.Errorf("later stage missing %q:\n%s", want, calls)
@@ -473,6 +477,7 @@ func TestHerdrBriefOutsideTheTree(t *testing.T) {
 	h := &Herdr{Bin: fakeHerdrBin(t, `printf '%s\n' "$*" >> `+log+`
 case "$1 $2" in
   "worktree create") echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"},"worktree":{"path":"`+wt+`"}}}' ;;
+  "tab create") echo '{"result":{"tab":{"tab_id":"t2"},"root_pane":{"pane_id":"p2"}}}' ;;
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)}
 	job := dispatch.Job{
@@ -500,8 +505,64 @@ esac`)}
 		t.Fatal("still writes .yard/ into the worktree")
 	}
 	calls, _ := os.ReadFile(log)
-	if !strings.Contains(string(calls), "agent prompt yard-13-new Read "+brief+" and follow it.") {
+	if !strings.Contains(string(calls), "agent prompt yard-13-new Read "+brief+" and follow it.\n") {
 		t.Fatalf("agent not pointed at the brief by its path:\n%s", calls)
+	}
+}
+
+// A bead agent's identity is in its environment, set by herdr on the tab
+// it runs in, not in an export the prompt asks for: its yardr calls are
+// attributed to it, reach this yard, and carry its session.
+func TestHerdrStartPutsAgentEnvOnItsTab(t *testing.T) {
+	ctx := context.Background()
+	wt := t.TempDir()
+	gitT(t, wt, "init", "-q", "-b", "main")
+	for _, open := range []bool{false, true} {
+		log := filepath.Join(t.TempDir(), "calls")
+		h := &Herdr{YardHome: "/y", YardBin: "/bin/yardr", Bin: fakeHerdrBin(t, `printf '%s\n' "$*" >> `+log+`
+case "$1 $2" in
+  "worktree create") echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"},"worktree":{"path":"`+wt+`"},"already_open":`+fmt.Sprint(open)+`}}' ;;
+  "tab create") echo '{"result":{"tab":{"tab_id":"t2"},"root_pane":{"pane_id":"p2"}}}' ;;
+  *) echo '{"result":{"type":"ok"}}' ;;
+esac`)}
+		job := dispatch.Job{
+			Bead:    store.Bead{ID: "yard-13", Stage: "new"},
+			Group:   store.Group{Name: "yard-builders"},
+			Rig:     &store.Rig{Name: "yard", Path: t.TempDir(), Base: "main"},
+			Session: store.Session{ID: "s1"},
+		}
+		handle, err := h.Start(ctx, job)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if handle["tab"] != "t2" || handle["pane"] != "p2" {
+			t.Fatalf("agent not in the tab created with its env: %v", handle)
+		}
+		raw, _ := os.ReadFile(log)
+		calls := string(raw)
+		var tabCall string
+		for _, l := range strings.Split(calls, "\n") {
+			if strings.HasPrefix(l, "tab create ") {
+				tabCall = l + " "
+			}
+		}
+		for _, e := range []string{"YARDR_ACTOR=yard-13-new", "YARDR_HOME=/y", "YARDR_BEAD=yard-13",
+			"YARDR_SESSION=s1", "YARDR_BIN=/bin/yardr", "YARD_ACTOR=yard-13-new"} {
+			if !strings.Contains(tabCall, " --env "+e+" ") {
+				t.Errorf("already_open=%v: tab create lacks --env %s:\n%s", open, e, tabCall)
+			}
+		}
+		if !strings.Contains(calls, "agent start yard-13-new --kind claude --pane p2") {
+			t.Errorf("agent not started in the env tab's pane:\n%s", calls)
+		}
+		if strings.Contains(calls, "export") {
+			t.Errorf("prompt still asks for an export:\n%s", calls)
+		}
+		// A workspace opened for this stage has an idle root tab, closed;
+		// an already open one's root tab is someone else's and kept.
+		if closed := strings.Contains(calls, "tab close t1\n"); closed == open {
+			t.Errorf("already_open=%v: root tab closed=%v:\n%s", open, closed, calls)
+		}
 	}
 }
 

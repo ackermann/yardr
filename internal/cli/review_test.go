@@ -107,7 +107,7 @@ func TestReviewQueue(t *testing.T) {
 		t.Fatalf("deciders only = %v", ids(items))
 	}
 	// Closed beads drop out.
-	if _, err := st.AdvanceNote(ctx, approvedOld.ID, "merged", "", "me"); err != nil {
+	if _, err := st.AdvanceNote(ctx, approvedOld.ID, "merged", "", store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if items, _ = reviewQueue(ctx, st, "yard-21-new", nil); !slices.Equal(ids(items), []string{approvedNew.ID}) {

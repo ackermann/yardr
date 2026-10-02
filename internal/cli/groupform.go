@@ -342,8 +342,8 @@ func (a *app) agentFields(ctx context.Context, ans *groupAnswers) error {
 	)
 }
 
-// ask runs fields as one form page.
-func ask(fields ...huh.Field) error {
+// ask runs fields as one form page. Tests replace it to answer forms.
+var ask = func(fields ...huh.Field) error {
 	return huh.NewForm(huh.NewGroup(fields...)).Run()
 }
 

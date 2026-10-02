@@ -211,7 +211,7 @@ func TestMigrateCounterIDs(t *testing.T) {
 		t.Fatalf("global event lost during migration: %+v %v", allEvents, err)
 	}
 	// The workspace of the closed bead is still found through its session.
-	if _, err := s.CloseBead(ctx, "yard-2", "done", "me"); err != nil {
+	if _, err := s.CloseBead(ctx, "yard-2", "done", store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if ws, err := s.ClosedWithWorkspace(ctx); err != nil || len(ws) != 1 || ws[0].ID != "s1" {

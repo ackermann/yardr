@@ -264,7 +264,7 @@ func TestDeleteFlowRefusedWhileUsed(t *testing.T) {
 		t.Fatalf("refused rm removed the flow: %v", err)
 	}
 	// A closed bead's pin and cleared pointers no longer hold it.
-	if _, err := s.CloseBead(ctx, pinned.ID, "done", "me"); err != nil {
+	if _, err := s.CloseBead(ctx, pinned.ID, "done", store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	for _, typ := range []string{"", "bug"} {

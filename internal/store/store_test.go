@@ -94,7 +94,7 @@ func TestReadyRespectsBlocksHoldAndClose(t *testing.T) {
 	if _, err := s.SetHold(ctx, c.ID, true, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CloseBead(ctx, a.ID, "done", "me"); err != nil {
+	if _, err := s.CloseBead(ctx, a.ID, "done", store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	ready, _ = s.Ready(ctx)
@@ -406,13 +406,13 @@ func TestRevisionsFollowBDPRules(t *testing.T) {
 		rev = nb.Revision
 	}
 	// Lifecycle moves mint too.
-	nb, err = s.CloseBead(ctx, b.ID, "done", "me")
+	nb, err = s.CloseBead(ctx, b.ID, "done", store.Expect{}, "me")
 	must(err)
 	if nb.Revision == rev || seen[nb.Revision] {
 		t.Fatal("close did not mint a fresh revision")
 	}
 	// Closing again is a no-op.
-	again, err := s.CloseBead(ctx, b.ID, "done", "me")
+	again, err := s.CloseBead(ctx, b.ID, "done", store.Expect{}, "me")
 	must(err)
 	if again.Revision != nb.Revision {
 		t.Fatal("re-closing minted a revision")

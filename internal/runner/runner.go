@@ -106,7 +106,7 @@ func Brief(job dispatch.Job, actor, workdir string) (string, error) {
 	}
 	fmt.Fprintf(&b, `## Reporting back
 
-Run every yardr command with YARDR_ACTOR=%[1]s set (export it once).
+Your environment already names you to yardr (YARDR_ACTOR=%[1]s, YARDR_BEAD, YARDR_SESSION): your commands are attributed to you and carry your session, so leave those set. Once the bead has moved on, a move or close from this session is refused as stale.
 
 - Read the bead, its notes and dependencies: `+"`yardr prime --bead %[2]s`"+`
 - Leave evidence as you go: `+"`yardr bead note %[2]s \"...\"`"+`

@@ -391,12 +391,16 @@ func (a *app) reviewAdvance(ctx context.Context, st store.API, b store.Bead, ac 
 	if err := ask(field); err != nil {
 		return err
 	}
+	// b is the form's snapshot from when it started: if the bead has moved
+	// since (an agent finished, someone else decided), the store refuses
+	// this decision instead of applying it to a stage it was not made for.
+	exp := store.Expect{Stage: b.Stage}
 	var moved *store.Bead
 	var err error
 	if ac.Kind == actDone {
-		moved, err = st.Done(ctx, b.ID, ac.Outcome, note, a.who())
+		moved, err = st.Done(ctx, b.ID, ac.Outcome, note, exp, a.who())
 	} else {
-		moved, err = st.AdvanceNote(ctx, b.ID, ac.Stage, note, a.who())
+		moved, err = st.AdvanceNote(ctx, b.ID, ac.Stage, note, exp, a.who())
 	}
 	if err != nil {
 		return err

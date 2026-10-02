@@ -132,7 +132,7 @@ func TestDone(t *testing.T) {
 	}
 
 	// No --outcome means done.
-	got, err := s.Done(ctx, b.ID, "", "built it", "builder")
+	got, err := s.Done(ctx, b.ID, "", "built it", store.Expect{}, "builder")
 	if err != nil || got.Stage != "review" {
 		t.Fatalf("done from new = %+v, %v", got, err)
 	}
@@ -146,13 +146,13 @@ func TestDone(t *testing.T) {
 	}
 
 	// An explicit outcome picks its edge.
-	if got, err = s.Done(ctx, b.ID, "changes", "rename the flag", "reviewer"); err != nil || got.Stage != "new" {
+	if got, err = s.Done(ctx, b.ID, "changes", "rename the flag", store.Expect{}, "reviewer"); err != nil || got.Stage != "new" {
 		t.Fatalf("changes from review = %+v, %v", got, err)
 	}
 
 	// An unknown outcome is refused, names the stage's outcomes, and
 	// leaves neither a move nor a note behind.
-	_, err = s.Done(ctx, b.ID, "approved", "lgtm", "me")
+	_, err = s.Done(ctx, b.ID, "approved", "lgtm", store.Expect{}, "me")
 	if err == nil {
 		t.Fatal("unknown outcome accepted")
 	}
@@ -169,10 +169,10 @@ func TestDone(t *testing.T) {
 	}
 
 	// A stage with several bare edges has no outcomes: advance --to.
-	if _, err := s.Done(ctx, b.ID, "question", "", "me"); err != nil {
+	if _, err := s.Done(ctx, b.ID, "question", "", store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	_, err = s.Done(ctx, b.ID, "", "", "me")
+	_, err = s.Done(ctx, b.ID, "", "", store.Expect{}, "me")
 	if err == nil || !strings.Contains(err.Error(), "names no outcomes for stage decide") || !strings.Contains(err.Error(), "advance --to") {
 		t.Fatalf("done from decide err = %v", err)
 	}
@@ -185,18 +185,18 @@ func TestDone(t *testing.T) {
 	}
 
 	// A single way out gets done implicitly.
-	if got, err = s.Done(ctx, b.ID, "", "", "me"); err != nil || got.Stage != "new" {
+	if got, err = s.Done(ctx, b.ID, "", "", store.Expect{}, "me"); err != nil || got.Stage != "new" {
 		t.Fatalf("implicit done from backlog = %+v, %v", got, err)
 	}
 
 	// An edge without an outcome is reachable by advance only, even when
 	// it leads to a terminal stage; entering it still closes the bead.
 	for _, o := range []string{"", "done"} {
-		if _, err := s.Done(ctx, b.ID, o, "", "me"); err != nil {
+		if _, err := s.Done(ctx, b.ID, o, "", store.Expect{}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := s.Done(ctx, b.ID, "merged", "", "me"); err == nil || !strings.Contains(err.Error(), "outcomes: failed") {
+	if _, err := s.Done(ctx, b.ID, "merged", "", store.Expect{}, "me"); err == nil || !strings.Contains(err.Error(), "outcomes: failed") {
 		t.Fatalf("done --outcome merged err = %v", err)
 	}
 	if got, err = s.Advance(ctx, b.ID, "merged", "refinery"); err != nil || got.Status != "closed" {
@@ -211,7 +211,7 @@ func TestDoneWithoutFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = s.Done(ctx, b.ID, "", "", "me")
+	_, err = s.Done(ctx, b.ID, "", "", store.Expect{}, "me")
 	if err == nil || !strings.Contains(err.Error(), "no flow governs it") || !strings.Contains(err.Error(), "yardr bead advance "+b.ID+" --to") {
 		t.Fatalf("done without a flow err = %v", err)
 	}
@@ -228,7 +228,7 @@ func TestDoneIntoTerminalCloses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.Done(ctx, b.ID, "", "", "me")
+	got, err := s.Done(ctx, b.ID, "", "", store.Expect{}, "me")
 	if err != nil || got.Status != "closed" || got.CloseReason == nil || *got.CloseReason != "merged" {
 		t.Fatalf("done into terminal = %+v, %v", got, err)
 	}

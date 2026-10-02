@@ -265,7 +265,7 @@ func (a *app) beadCmd() *cobra.Command {
 					return err
 				}
 			}
-			b, err := st.AdvanceNote(c.Context(), args[0], to, advNote, a.who())
+			b, err := st.AdvanceNote(c.Context(), args[0], to, advNote, a.expect(), a.who())
 			if err != nil {
 				return err
 			}
@@ -294,7 +294,7 @@ yardr prime --bead lists the stage's outcomes.`,
 					return err
 				}
 			}
-			b, err := st.Done(c.Context(), args[0], outcome, doneNote, a.who())
+			b, err := st.Done(c.Context(), args[0], outcome, doneNote, a.expect(), a.who())
 			if err != nil {
 				return err
 			}
@@ -314,7 +314,7 @@ yardr prime --bead lists the stage's outcomes.`,
 			if err != nil {
 				return err
 			}
-			b, err := st.CloseBead(c.Context(), args[0], reason, a.who())
+			b, err := st.CloseBead(c.Context(), args[0], reason, a.expect(), a.who())
 			if err != nil {
 				return err
 			}

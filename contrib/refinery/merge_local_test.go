@@ -17,6 +17,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
@@ -154,7 +155,7 @@ func (y *yard) refinery() {
 		Bead:    store.Bead{ID: "r-1", Stage: "approved"},
 		Group:   store.Group{Name: "refinery", Config: map[string]any{"cmd": cmd, "log": logPath}},
 		Rig:     &store.Rig{Name: "r", Path: y.repo, Base: "main"},
-		Session: store.Session{ID: "s1"},
+		Session: y.claim(ctx),
 	})
 	if err != nil {
 		y.t.Fatal(err)
@@ -170,6 +171,27 @@ func (y *yard) refinery() {
 	}
 	b, _ := os.ReadFile(logPath)
 	y.t.Logf("refinery log:\n%s", b)
+}
+
+// claim gives the bead to group refinery, as the dispatcher would, so the
+// script's moves carry a session that owns it (a move from a session that
+// does not is refused as stale). A bead an earlier run left owned (held,
+// or not moved) keeps its session.
+func (y *yard) claim(ctx context.Context) store.Session {
+	y.t.Helper()
+	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
+	if err := st.PutGroup(ctx, store.Group{Name: "refinery", Runner: "exec"}); err != nil {
+		y.t.Fatal(err)
+	}
+	b := y.bead()
+	if b.Session != nil {
+		return store.Session{ID: *b.Session}
+	}
+	sess, err := st.Claim(ctx, b.ID, "refinery", b.Stage, "yard")
+	if err != nil {
+		y.t.Fatal(err)
+	}
+	return *sess
 }
 
 func (y *yard) bead() store.Bead {

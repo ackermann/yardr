@@ -113,7 +113,7 @@ func TestPipelineThroughStages(t *testing.T) {
 	}
 
 	// Closing ends it; nothing more is dispatched.
-	_, err = s.CloseBead(ctx, b.ID, "merged", "reviewer")
+	_, err = s.CloseBead(ctx, b.ID, "merged", store.Expect{}, "reviewer")
 	must(t, err)
 	must(t, d.Reconcile(ctx))
 	if n := len(f.starts()); n != 2 {
@@ -251,8 +251,8 @@ func TestLimitsBlockersAndRouteSpecificity(t *testing.T) {
 	if got := f.starts(); !slices.Equal(got, []string{t1.ID, b1.ID}) {
 		t.Fatalf("starts = %v", got)
 	}
-	_, _ = s.CloseBead(ctx, b1.ID, "done", "me")
-	_, _ = s.CloseBead(ctx, t1.ID, "done", "me")
+	_, _ = s.CloseBead(ctx, b1.ID, "done", store.Expect{}, "me")
+	_, _ = s.CloseBead(ctx, t1.ID, "done", store.Expect{}, "me")
 	must(t, d.Reconcile(ctx))
 	if got := f.starts(); !slices.Equal(got, []string{t1.ID, b1.ID, t2.ID, b2.ID}) {
 		t.Fatalf("starts after closes = %v", got)
@@ -461,7 +461,7 @@ func TestWorkspaceCleanedWhenBeadClosesLater(t *testing.T) {
 		t.Fatalf("cleaned up while the bead is open: %v", agents.finished)
 	}
 	// The human closes it; the builders' worktree goes, once.
-	_, err := s.CloseBead(ctx, b.ID, "done", "me")
+	_, err := s.CloseBead(ctx, b.ID, "done", store.Expect{}, "me")
 	must(t, err)
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))

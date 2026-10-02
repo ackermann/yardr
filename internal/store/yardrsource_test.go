@@ -149,7 +149,7 @@ func TestYardrDoneOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := s.CloseBead(ctx, b.ID, "merged abc123", "refinery"); err != nil {
+	if _, err := s.CloseBead(ctx, b.ID, "merged abc123", store.Expect{}, "refinery"); err != nil {
 		t.Fatal(err)
 	}
 	wantHeard(t, s, b.ID, "done", "closed:done")
@@ -158,13 +158,13 @@ func TestYardrDoneOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CloseBead(ctx, direct.ID, "merged def456", "refinery"); err != nil {
+	if _, err := s.CloseBead(ctx, direct.ID, "merged def456", store.Expect{}, "refinery"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Reopen(ctx, direct.ID, "jane"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CloseBead(ctx, direct.ID, "again", "jane"); err != nil {
+	if _, err := s.CloseBead(ctx, direct.ID, "again", store.Expect{}, "jane"); err != nil {
 		t.Fatal(err)
 	}
 	wantHeard(t, s, direct.ID, "done", "closed:done")
@@ -190,7 +190,7 @@ func TestYardrInvolved(t *testing.T) {
 	if _, err := s.Advance(ctx, b.ID, "review", "someone"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CloseBead(ctx, b.ID, "done", "someone"); err != nil {
+	if _, err := s.CloseBead(ctx, b.ID, "done", store.Expect{}, "someone"); err != nil {
 		t.Fatal(err)
 	}
 	wantHeard(t, s, b.ID, "jane", "noted:participant", "noted:participant", "advanced:participant", "closed:participant")
@@ -208,7 +208,7 @@ func TestBeadWatchEndsOnClose(t *testing.T) {
 	if err != nil || r.Subscriptions[0].Where["bead"] != b.ID {
 		t.Fatalf("subscriptions = %v, %v", r.Subscriptions, err)
 	}
-	if _, err := s.CloseBead(ctx, b.ID, "done", "jane"); err != nil {
+	if _, err := s.CloseBead(ctx, b.ID, "done", store.Expect{}, "jane"); err != nil {
 		t.Fatal(err)
 	}
 	wantHeard(t, s, b.ID, "mayor", "closed:done")
@@ -260,7 +260,7 @@ func TestGroupSubscriptionDeliversToMemberResidents(t *testing.T) {
 	if g, _ := s.GetGroup(ctx, "approvers"); len(g.Subscriptions) != 1 {
 		t.Fatalf("group subscriptions after redefine: %v", g.Subscriptions)
 	}
-	if _, err := s.CloseBead(ctx, b.ID, "done", "jane"); err != nil {
+	if _, err := s.CloseBead(ctx, b.ID, "done", store.Expect{}, "jane"); err != nil {
 		t.Fatal(err)
 	}
 	wantHeard(t, s, b.ID, "mayor", "closed:done via approvers")

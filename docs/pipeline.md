@@ -34,6 +34,20 @@ Christopher can do the same from `yardr review -g backlog`.
 on branch `yard/<bead>`, starts the agent in it and hands it a brief: the
 role prompt, the bead, and the stages it may move to next.
 
+**How agents are attributed.** The agent runs in a herdr tab created with
+its identity in the environment: `YARDR_ACTOR` (the agent's name,
+`<bead>-<stage>`), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`,
+`YARDR_GROUP`, `YARDR_HOME` and `YARDR_BIN`. Nothing depends on the agent
+exporting anything: every event its `yardr` commands log names it as actor.
+`yardr bead done`, `advance` and `close` also send `YARDR_SESSION`, and the
+store refuses the move unless that session still owns the bead
+(`stale: bead <id> is now in <stage> owned by <session>`). An agent kept
+open, or orphaned by a restart, after its bead moved on therefore cannot
+end the session that owns the bead now; nothing changes. A person at a
+shell has no `YARDR_SESSION` and is not checked. `yardr review` does the
+same with the stage: it refuses a decision on a bead that left the stage
+the form showed it in.
+
 The builder implements the change, runs the gate (`yardr rig check yard
 --dir <worktree>`, which runs `.yardr/check` from `main`: `go vet`,
 `go test -race`, the RPC suites), commits on its branch (never pushes or merges), leaves a

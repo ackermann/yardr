@@ -195,21 +195,33 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	}
 	handle["workspace"], handle["worktree"] = wt.Workspace.ID, wt.Worktree.Path
 
-	tab, pane := wt.Tab.ID, wt.RootPane.ID
-	if wt.AlreadyOpen {
-		// The root pane may still hold the previous stage's agent.
-		raw, err := h.run(ctx, "tab", "create", "--workspace", wt.Workspace.ID,
-			"--cwd", wt.Worktree.Path, "--label", WorkspaceLabel(rig.Name, job.Group.Name, job.Bead.Stage))
-		if err != nil {
-			return handle, err
-		}
-		var t herdrResult
-		if err := json.Unmarshal(raw, &t); err != nil {
-			return handle, fmt.Errorf("tab result: %w", err)
-		}
-		tab, pane = t.Tab.ID, t.RootPane.ID
+	// The agent gets a tab of its own, created with its identity in the
+	// environment: herdr's agent start takes none, and the pane a worktree
+	// opens with has none. So the agent's yardr calls are attributed to it
+	// and carry its session (a stale one is refused) without the agent
+	// having to export anything. On a later stage the root pane may also
+	// still hold the previous stage's agent.
+	tabArgs := []string{"tab", "create", "--workspace", wt.Workspace.ID,
+		"--cwd", wt.Worktree.Path, "--label", WorkspaceLabel(rig.Name, job.Group.Name, job.Bead.Stage)}
+	for _, e := range h.agentEnv(job, name) {
+		tabArgs = append(tabArgs, "--env", e)
 	}
+	raw, err = h.run(ctx, tabArgs...)
+	if err != nil {
+		return handle, err
+	}
+	var t herdrResult
+	if err := json.Unmarshal(raw, &t); err != nil {
+		return handle, fmt.Errorf("tab result: %w", err)
+	}
+	tab, pane := t.Tab.ID, t.RootPane.ID
 	handle["tab"], handle["pane"] = tab, pane
+	if !wt.AlreadyOpen && wt.Tab.ID != "" {
+		// The workspace was opened for this stage, so its root tab is an
+		// idle shell. Close it, so that Stop closing the agent's tab still
+		// leaves no workspace behind. Best effort: it is only clutter.
+		_, _ = h.run(ctx, "tab", "close", wt.Tab.ID)
+	}
 
 	brief, err := Brief(job, name, wt.Worktree.Path)
 	if err != nil {
@@ -225,11 +237,25 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	if extra := AgentArgs(job); len(extra) > 0 {
 		args = append(append(args, "--"), extra...)
 	}
-	prompt := fmt.Sprintf("Read %s and follow it. Start with `export YARDR_ACTOR=%s`.", briefPath, name)
+	prompt := fmt.Sprintf("Read %s and follow it.", briefPath)
 	if h.YardBin != "" {
 		prompt += fmt.Sprintf(" Run yardr as %s.", h.YardBin)
 	}
 	return h.startAgent(ctx, args, name, prompt, handle)
+}
+
+// agentEnv is the environment of a bead agent's tab: what every started
+// process gets (see Env), with the agent as actor, plus this yard's home and
+// binary so its yardr commands reach this yard.
+func (h *Herdr) agentEnv(job dispatch.Job, name string) []string {
+	env := Env(job, name)
+	if h.YardHome != "" {
+		env = append(env, config.Env("HOME", h.YardHome)...)
+	}
+	if h.YardBin != "" {
+		env = append(env, config.Env("BIN", h.YardBin)...)
+	}
+	return env
 }
 
 // BriefDir is where briefs for the worktree at path go: yardr/ in the

@@ -433,15 +433,15 @@ func (w *wtx) endSession(b *beadRow, state string) error {
 // transaction. When the group the bead answers to in its stage has members,
 // only they may move it.
 func (s *Store) Advance(ctx context.Context, id, stage, actor string) (*Bead, error) {
-	return s.AdvanceNote(ctx, id, stage, "", actor)
+	return s.AdvanceNote(ctx, id, stage, "", Expect{}, actor)
 }
 
 // AdvanceNote is Advance with a note attached in the same transaction, so
 // a refused move leaves no note behind and whoever picks the bead up in the
 // next stage already sees it (a reviewer's requested changes). An empty
-// note adds none.
-func (s *Store) AdvanceNote(ctx context.Context, id, stage, note, actor string) (*Bead, error) {
-	return s.advance(ctx, id, note, actor, func(f *Flow, b *beadRow, data map[string]any) (string, error) {
+// note adds none. A stale exp refuses the move (see Expect).
+func (s *Store) AdvanceNote(ctx context.Context, id, stage, note string, exp Expect, actor string) (*Bead, error) {
+	return s.advance(ctx, id, note, exp, actor, func(f *Flow, b *beadRow, data map[string]any) (string, error) {
 		return stage, checkAdvance(f, b.ID, b.Stage, stage)
 	})
 }
@@ -450,9 +450,9 @@ func (s *Store) AdvanceNote(ctx context.Context, id, stage, note, actor string) 
 // its flow sends that outcome ("" is done), with an optional note, in one
 // write like AdvanceNote. The outcome is recorded on the advanced event.
 // A bead no flow governs has no outcomes: it is moved with Advance.
-func (s *Store) Done(ctx context.Context, id, outcome, note, actor string) (*Bead, error) {
+func (s *Store) Done(ctx context.Context, id, outcome, note string, exp Expect, actor string) (*Bead, error) {
 	outcome = or(strings.TrimSpace(outcome), DefaultOutcome)
-	return s.advance(ctx, id, note, actor, func(f *Flow, b *beadRow, data map[string]any) (string, error) {
+	return s.advance(ctx, id, note, exp, actor, func(f *Flow, b *beadRow, data map[string]any) (string, error) {
 		if f == nil {
 			return "", fmt.Errorf("bead %s: no flow governs it, so it has no outcomes; move it with yardr bead advance %s --to <stage>", b.ID, b.ID)
 		}
@@ -468,7 +468,7 @@ func (s *Store) Done(ctx context.Context, id, outcome, note, actor string) (*Bea
 // advance is the move AdvanceNote and Done share: pick names the stage
 // under the bead's flow (nil without one), may add to the event's data,
 // and refuses by returning an error.
-func (s *Store) advance(ctx context.Context, id, note, actor string, pick func(f *Flow, b *beadRow, data map[string]any) (string, error)) (*Bead, error) {
+func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor string, pick func(f *Flow, b *beadRow, data map[string]any) (string, error)) (*Bead, error) {
 	pre, err := s.GetBead(ctx, id)
 	if err != nil {
 		return nil, err
@@ -487,6 +487,9 @@ func (s *Store) advance(ctx context.Context, id, note, actor string, pick func(f
 		var stage string
 		var terminal bool
 		b, err := w.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
+			if err := exp.check(b); err != nil {
+				return "", nil, err
+			}
 			f, _, err := resolveFlow(w.Tx, b.Rig, b.Type, PinnedFlow(&b.Bead), repo)
 			if err != nil {
 				return "", nil, changedMeanwhile(err)
@@ -520,8 +523,58 @@ func (s *Store) advance(ctx context.Context, id, note, actor string, pick func(f
 	return result, err
 }
 
-func (s *Store) CloseBead(ctx context.Context, id, reason, actor string) (*Bead, error) {
-	return s.changeBead(id, actor, closeWith(reason))
+// CloseBead closes the bead, ending its session. A stale exp refuses it
+// (see Expect).
+func (s *Store) CloseBead(ctx context.Context, id, reason string, exp Expect, actor string) (*Bead, error) {
+	close := closeWith(reason)
+	return s.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
+		if err := exp.check(b); err != nil {
+			return "", nil, err
+		}
+		return close(w, b)
+	})
+}
+
+// Expect is what a caller believes about a bead it moves or closes: the
+// session that owns it and the stage it is in. A move made on a stale view
+// is refused and changes nothing, so an agent kept or orphaned after its
+// bead moved on cannot end the session that owns the bead now, and a review
+// form opened before someone else decided cannot apply its decision on top.
+// An empty field expects nothing: a person acting outside any session (the
+// mayor, Christopher at a shell) is not checked.
+type Expect struct {
+	Session string `json:"session,omitempty"`
+	Stage   string `json:"stage,omitempty"`
+}
+
+func (e Expect) check(b *beadRow) error {
+	owner := ""
+	if b.Session != nil {
+		owner = *b.Session
+	}
+	if (e.Session == "" || e.Session == owner) && (e.Stage == "" || e.Stage == b.Stage) {
+		return nil
+	}
+	if owner == "" {
+		owner = "no session"
+	}
+	state := ""
+	if b.Status == "closed" {
+		state = " (closed)"
+	}
+	return fmt.Errorf("stale: bead %s is now in %s%s owned by %s; expected %s", b.ID, b.Stage, state, owner, e)
+}
+
+// String names what e expected, for the stale error.
+func (e Expect) String() string {
+	var parts []string
+	if e.Stage != "" {
+		parts = append(parts, "stage "+e.Stage)
+	}
+	if e.Session != "" {
+		parts = append(parts, "session "+e.Session)
+	}
+	return strings.Join(parts, " and ")
 }
 
 func closeWith(reason string) func(*wtx, *beadRow) (string, map[string]any, error) {
