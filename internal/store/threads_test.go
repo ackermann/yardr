@@ -141,3 +141,55 @@ func TestFollowThread(t *testing.T) {
 		t.Fatalf("recreated resident inherits threads: %v", got)
 	}
 }
+
+// A reply makes the resident a participant at once, with a replied event
+// on its journal; the webhook's echo of the reply changes nothing.
+func TestReplied(t *testing.T) {
+	s, own := storetest.NewOwned(t)
+	ctx := context.Background()
+	resident(t, s, "inv", false, store.Subscription{Source: "linear", Scope: store.ScopeInvolved})
+	rp := store.Reply{Source: "linear", Thread: "T", Title: "Issue T", ThreadURL: "https://l/T", URL: "https://l/T#c-1"}
+	if err := s.Replied(ctx, "inv", rp, "inv"); err != nil {
+		t.Fatal(err)
+	}
+	if got := threads(t, s, "inv"); len(got) != 1 || got[0] != "linear/T replied" {
+		t.Fatalf("threads: %v", got)
+	}
+	ps, _ := s.Threads(ctx, "inv")
+	if ps[0].Title != "Issue T" || ps[0].URL != "https://l/T" {
+		t.Fatalf("participation: %+v", ps[0])
+	}
+	evs, err := s.EventsSince(ctx, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got *store.Event
+	for i := range evs {
+		if evs[i].Kind == "replied" {
+			got = &evs[i]
+		}
+	}
+	r, _ := s.GetResident(ctx, "inv")
+	if got == nil || got.Actor != "inv" || got.Bead == nil || *got.Bead != r.Journal ||
+		got.Data["source"] != "linear" || got.Data["thread"] != "T" || got.Data["url"] != "https://l/T#c-1" {
+		t.Fatalf("replied event: %+v", got)
+	}
+	// The echo, and a second reply, keep how it joined.
+	deliveries(t, s, own, hooks.Envelope{Source: "linear", Type: "comment", Actor: hooks.Party{ID: "inv-id"}, Thread: hooks.Thread{ID: "T"}})
+	if err := s.Replied(ctx, "inv", rp, "inv"); err != nil {
+		t.Fatal(err)
+	}
+	if got := threads(t, s, "inv"); len(got) != 1 || got[0] != "linear/T replied" {
+		t.Fatalf("threads after echo: %v", got)
+	}
+	if got := deliveries(t, s, own, hooks.Envelope{Source: "linear", Type: "comment", Actor: hooks.Party{ID: "jane"},
+		Thread: hooks.Thread{ID: "T"}}); got["inv"] != "participant" {
+		t.Fatalf("after reply: %v", got)
+	}
+	if err := s.Replied(ctx, "ghost", rp, "ghost"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("unknown resident: %v", err)
+	}
+	if err := s.Replied(ctx, "inv", store.Reply{Source: "linear"}, "inv"); err == nil {
+		t.Fatal("replied without a thread")
+	}
+}

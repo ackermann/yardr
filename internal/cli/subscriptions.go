@@ -314,10 +314,10 @@ func sortedKeys[V any](m map[string]V) []string {
 func (a *app) threadCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "thread",
-		Short: "Threads a resident participates in",
+		Short: "Threads a resident participates in, and what is said in them",
 		Long: `A resident participates in a source's thread (in Linear, an issue) once a hook
-delivery shows it acting there under its identity, or after yardr thread
-follow. An involved subscription then also delivers what others do in the
+delivery shows it acting there under its identity, once it answers there
+with yardr reply, or after yardr thread follow. An involved subscription then also delivers what others do in the
 thread, with reason participant. Unfollowing stops that until the resident
 acts in the thread again.`,
 	}
@@ -395,7 +395,7 @@ acts in the thread again.`,
 			})
 		},
 	}
-	cmd.AddCommand(follow, unfollow, list)
+	cmd.AddCommand(follow, unfollow, list, a.threadShowCmd())
 	return cmd
 }
 

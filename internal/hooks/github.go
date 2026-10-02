@@ -91,6 +91,7 @@ type githubRef struct {
 
 // githubText is a comment or a review.
 type githubText struct {
+	ID      int64  `json:"id"`
 	Body    string `json:"body"`
 	HTMLURL string `json:"html_url"`
 	State   string `json:"state"`
@@ -163,6 +164,9 @@ func (GitHub) Normalize(h http.Header, body []byte) (*Envelope, error) {
 		item = p.Issue
 		if p.Comment != nil {
 			text, e.URL = p.Comment.Body, p.Comment.HTMLURL
+			if p.Comment.ID != 0 {
+				e.Message = strconv.FormatInt(p.Comment.ID, 10)
+			}
 		}
 	case "pull_request_review":
 		item = p.PullRequest

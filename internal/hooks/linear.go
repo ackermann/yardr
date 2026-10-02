@@ -82,6 +82,7 @@ type linearData struct {
 	UserID      string          `json:"userId"`
 	User        *linearUser     `json:"user"`
 	IssueID     string          `json:"issueId"`
+	ParentID    string          `json:"parentId"`
 	Issue       *linearData     `json:"issue"`
 	AssigneeID  string          `json:"assigneeId"`
 	Assignee    *linearUser     `json:"assignee"`
@@ -130,6 +131,7 @@ func (Linear) Normalize(_ http.Header, body []byte) (*Envelope, error) {
 		}
 		e.Text = truncate(d.Body)
 		e.Mentions = linearMentions(d.Body, d.BodyData)
+		e.Message, e.Parent = d.ID, d.ParentID
 	case "issue":
 		e.Fields = linearFields(&d)
 		e.Thread = Thread{ID: d.ID, Title: d.Title, URL: firstOf(d.URL, p.URL)}

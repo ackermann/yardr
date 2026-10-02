@@ -480,8 +480,9 @@ func TestLinearNormalize(t *testing.T) {
 			Mentions: []string{"mayor", "jane.doe"},
 			Text: "https://linear.app/company/profiles/mayor can you take a look? Also cc https://linear.app/company/profiles/jane.doe, " +
 				"and again https://linear.app/company/profiles/mayor.",
-			URL:    "https://linear.app/company/issue/ENG-42/webhook-receiver-drops-retries#comment-2174add1",
-			Fields: map[string][]string{"team": {"ENG", "Engineering"}},
+			URL:     "https://linear.app/company/issue/ENG-42/webhook-receiver-drops-retries#comment-2174add1",
+			Message: "2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9",
+			Fields:  map[string][]string{"team": {"ENG", "Engineering"}},
 		}},
 		{"linear_comment_bodydata.json", hooks.Envelope{
 			Source: "linear", Type: "comment", Action: "update",
@@ -491,6 +492,8 @@ func TestLinearNormalize(t *testing.T) {
 			Mentions: []string{"4d3a2b1c-0000-4000-8000-00000000mayr", "mayor"},
 			Text:     "@mayor please check",
 			URL:      "https://linear.app/company/issue/ENG-42#comment-8f1e0c55",
+			Message:  "8f1e0c55-1b6f-4a1e-9e7a-2d4c1f0b9a10",
+			Parent:   "2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9",
 		}},
 		{"linear_comment_plain_mention.json", hooks.Envelope{
 			Source: "linear", Type: "comment", Action: "create",
@@ -500,6 +503,7 @@ func TestLinearNormalize(t *testing.T) {
 			Mentions: []string{"mayor"},
 			Text:     "testing @mayor hello",
 			URL:      "https://linear.app/company/issue/ENG-498/testing-local-yardr-setup#comment-3a486010",
+			Message:  "3a486010-d638-49dc-bcc0-800c16e08441",
 			Fields:   map[string][]string{"team": {"ENG", "Engineering"}},
 		}},
 		{"linear_issue_create.json", hooks.Envelope{

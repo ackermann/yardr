@@ -7,6 +7,7 @@
     "body": "@mayor please check",
     "bodyData": "{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"suggestion_userMentions\",\"attrs\":{\"id\":\"4d3a2b1c-0000-4000-8000-00000000mayr\",\"label\":\"mayor\"}},{\"type\":\"text\",\"text\":\" please check\"}]}]}",
     "issueId": "539068e2-ae88-4d09-bd75-22eb4a59612f",
+    "parentId": "2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9",
     "userId": "aacdca22-6266-4c0a-ab3c-8fa70a26765c"
   },
   "updatedFrom": {"body": "@mayor check", "updatedAt": "2026-10-02T09:19:00.000Z"},

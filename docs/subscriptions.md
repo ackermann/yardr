@@ -147,8 +147,8 @@ yardr thread list mayor
 
 Where keys: `type`, `action` (the envelope), and `team`, `project`, `repo`,
 `label` (fields the adapter exposes; any value may match). Once a resident
-acts in a thread (a Linear issue), it participates there, and `involved` also
-delivers what others do in it.
+acts in a thread (a Linear issue), or answers there with `yardr reply`, it
+participates there, and `involved` also delivers what others do in it.
 
 An issue's description is re-sent whole with every update, so a mention there
 counts once: yardr keeps who each issue's description mentioned and treats
@@ -157,6 +157,39 @@ still mentions `@mayor` does not reach `mayor` as `mentioned` again (it can
 still reach it as `assigned`, `participant` or `all`). The event keeps the
 full list in `mentions`; `new_mentions` is what routing used. Comments are new
 text each time, so every mention in one counts.
+
+### Setting up Linear
+
+What runs today, from nothing to a resident answering in Linear:
+
+1. **The resident's own Linear user.** Create a Linear OAuth application for
+   the resident and take its developer token: the token acts as the app's
+   own user (the mayor's is called Yardr). A personal API key works too, but
+   then the resident speaks as that person.
+2. **The token in its env_file**, never in the store:
+   `LINEAR_API_KEY=…` in `~/.config/yardr/residents/<name>.env`, `chmod
+   600`, `yardr resident add <name> --set env_file=…` (see
+   [residents.md](residents.md#outbound-credentials)). Restart the resident
+   after changing it.
+3. **Its identity**: the app user's id and profile key, so mentions,
+   assignments and its own actions are recognized:
+   `yardr resident identity <name> --source linear --id <user id> --key <profile key>`.
+4. **A subscription**: `yardr subscribe <name> linear --scope involved`.
+5. **The hook**: start the server with `YARDR_HOOK_ADDR=127.0.0.1:8790` and
+   `yardr hook add linear --source linear --secret-file ~/.config/yardr/linear.secret`.
+   One hook serves every resident.
+6. **The webhook**: in Linear, Settings → API → Webhooks, URL
+   `https://<public host>/hooks/linear`, events Issues and Comments; put its
+   signing secret in the secret file.
+7. **The funnel**: something public in front of the hook listener. Ours is
+   Tailscale Funnel (`tailscale funnel --bg 8790`), which serves
+   `https://<machine>.<tailnet>.ts.net` to the listener and nothing else.
+
+A comment mentioning the resident then lands in its inbox (`mentioned`), and
+it answers with `yardr reply <seq>` and reads the thread with `yardr thread
+show <seq>` ([residents.md](residents.md#speaking-in-sources)). GitHub is
+the same with a `GITHUB_TOKEN` (or the pane's `gh` login), its login as
+identity and the webhook below.
 
 ### GitHub
 

@@ -18,6 +18,7 @@ func init() { allBuckets = append(allBuckets, bThreads) }
 const (
 	ParticipantActed    = "acted"    // a hook delivery showed it acting there
 	ParticipantFollowed = "followed" // yardr thread follow
+	ParticipantReplied  = "replied"  // yardr reply
 )
 
 // Participation is a resident taking part in a source's thread (in Linear,
@@ -84,6 +85,40 @@ func (s *Store) FollowThread(ctx context.Context, name, source, thread, actor st
 			return err
 		}
 		return w.event(r.Journal, "thread_followed", actor, map[string]any{"resident": name, "source": source, "thread": thread})
+	})
+}
+
+// Reply is what a resident posted in a source's thread with yardr reply.
+type Reply struct {
+	Source    string `json:"source"`
+	Thread    string `json:"thread"`
+	Title     string `json:"title,omitempty"`
+	ThreadURL string `json:"thread_url,omitempty"`
+	URL       string `json:"url,omitempty"` // of the reply
+}
+
+// Replied records that the resident answered in a source's thread: a
+// `replied` event on its journal, and participation in the thread from
+// now on. The source's webhook echoes the reply later, but the resident
+// takes part as soon as it has spoken. A thread it already takes part in
+// keeps how and since it joined.
+func (s *Store) Replied(ctx context.Context, name string, rp Reply, actor string) error {
+	if rp.Source == "" || rp.Thread == "" {
+		return fmt.Errorf("replied: source and thread are required")
+	}
+	return s.changeResident(name, func(w *wtx, r *Resident) error {
+		if !participates(w.Tx, name, rp.Source, rp.Thread) {
+			p := Participation{Resident: name, Source: rp.Source, Thread: rp.Thread, Title: rp.Title, URL: rp.ThreadURL,
+				How: ParticipantReplied, Since: now()}
+			if err := put(w.Tx, bThreads, threadKey(name, rp.Source, rp.Thread), p); err != nil {
+				return err
+			}
+		}
+		data := map[string]any{"resident": name, "source": rp.Source, "thread": rp.Thread, "url": rp.URL}
+		if rp.Title != "" {
+			data["title"] = rp.Title
+		}
+		return w.event(r.Journal, "replied", actor, data)
 	})
 }
 

@@ -39,7 +39,7 @@ first on its PATH, and the prime warns about it.
 ## Outbound credentials
 
 What a resident uses to act outside the yard (the mayor's Linear developer
-token or OAuth app, a GitHub token) goes in an env file of its own, never in
+token, a GitHub token) goes in an env file of its own, never in
 the store: BDP serves the store, backups copy it and every builder can read
 it. Inbound is separate: webhooks arrive through one shared hook and its
 secret file (`yardr hook add linear --source linear --secret-file …`); outbound is per
@@ -48,8 +48,10 @@ resident.
 ```sh
 mkdir -p ~/.config/yardr/residents
 cat > ~/.config/yardr/residents/mayor.env <<'END'
-# Linear, as the mayor
-LINEAR_API_KEY=lin_api_…
+# Linear, as the mayor: its app's developer token (or a personal API key)
+LINEAR_API_KEY=lin_oauth_…
+# GitHub, as the mayor (else `gh auth token` in its pane is used)
+GITHUB_TOKEN=github_pat_…
 END
 chmod 600 ~/.config/yardr/residents/mayor.env
 yardr resident add mayor --set env_file=~/.config/yardr/residents/mayor.env …
@@ -70,3 +72,32 @@ yardr resident show mayor     # env_file …/mayor.env (LINEAR_API_KEY)
 - The file is read at each start, so a new token takes effect on the next
   restart (`yardr resident restart mayor`). Values are never logged, put on
   the session's handle or shown; `yardr resident show` lists the key names.
+
+## Speaking in sources
+
+A resident answers what reached its inbox where it came from, as itself:
+
+```sh
+yardr inbox                                   #   4211 10-03 09:14  hook (mentioned) linear comment create by Jane on "Retries": @mayor can you look?
+yardr thread show 4211                        # the whole thread, read from Linear: ids, parents, authors, times, bodies
+yardr reply 4211 "Filed as yard-k3f9; I'll post here when it lands."
+yardr reply 4211 --to <message id> - < answer.md   # under another conversation of the thread
+```
+
+`<seq>` is the number an inbox line starts with; only `hook` events from a
+source with a replier (`linear`, `github`) can be answered. In Linear the
+reply goes under the conversation of the delivered comment (Linear threads
+one level deep, so under its root), or a new comment for an issue
+delivery; in GitHub it is a comment on the issue or pull request.
+
+yardr only types. The call is made by the CLI in the resident's pane with
+the credential its `env_file` put there (`LINEAR_API_KEY`, `GITHUB_TOKEN`,
+else `gh auth token`); the server is asked only for the event, and never
+sees, stores or sends a credential. After posting, the resident takes part
+in the thread at once (`yardr thread list`, how `replied`) and a `replied`
+event (source, thread, url) lands on its journal; the webhook's echo of the
+reply is its own action and does not reach its inbox.
+
+What to say, and whether to, is the resident's role: see
+[roles/mayor.md](../roles/mayor.md). Setting a source up end to end is in
+[subscriptions.md](subscriptions.md#setting-up-linear).

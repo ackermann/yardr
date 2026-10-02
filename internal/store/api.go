@@ -99,6 +99,7 @@ type API interface {
 	FollowThread(ctx context.Context, name, source, thread, actor string) error
 	UnfollowThread(ctx context.Context, name, source, thread, actor string) error
 	Threads(ctx context.Context, name string) ([]Participation, error)
+	Replied(ctx context.Context, name string, rp Reply, actor string) error
 
 	PutHook(ctx context.Context, h Hook, actor string) (*Hook, error)
 	Hooks(ctx context.Context) ([]Hook, error)

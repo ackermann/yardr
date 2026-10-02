@@ -1,9 +1,11 @@
 // Package hooks receives webhooks from the tools humans use and turns each
 // delivery into one `hook` event carrying a source-neutral Envelope.
 //
-// yard only receives here: nothing is routed, answered or linked. Each
-// source has an Adapter that proves a delivery came from that source and
-// normalizes it; adding a source (Jira) is adding an Adapter.
+// Receiving is all the server does here: nothing is routed, answered or
+// linked. Each source has an Adapter that proves a delivery came from that
+// source and normalizes it; adding a source (Jira) is adding an Adapter. A
+// source a resident can answer in also has a Replier (reply.go), which the
+// resident's own CLI calls with its own credential.
 package hooks
 
 import (
@@ -41,6 +43,12 @@ type Envelope struct {
 	Text     string   `json:"text,omitempty"`
 	URL      string   `json:"url,omitempty"`
 	Delivery string   `json:"delivery,omitempty"`
+	// Message is the source's id of the message the delivery is (a
+	// comment), and Parent the message it answers in a threaded source, so
+	// a reply lands in the same conversation. Empty for what is not a
+	// message (an issue, a CI run).
+	Message string `json:"message,omitempty"`
+	Parent  string `json:"parent,omitempty"`
 	// Entity is the id of what the delivery's text belongs to when that
 	// text persists across deliveries (an issue's description), so routing
 	// counts only the mentions the entity did not carry before. Empty when
