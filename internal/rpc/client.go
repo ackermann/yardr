@@ -5,28 +5,41 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
+	"syscall"
 	"time"
 
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/version"
 )
 
 // Client is store.API over the owner's unix socket.
 type Client struct {
 	http *http.Client
+	// Revision is the build this client runs (version.Current), sent with
+	// every call.
+	Revision string
+	// Retry is how long a call keeps retrying while no server listens, as
+	// while one execs a new build of itself.
+	Retry time.Duration
 }
 
 var _ store.API = (*Client)(nil)
 
 func NewClient(socket string) *Client {
-	return &Client{http: &http.Client{Transport: &http.Transport{
+	return &Client{Revision: version.Current(), Retry: 5 * time.Second, http: &http.Client{Transport: &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			var d net.Dialer
 			return d.DialContext(ctx, "unix", socket)
 		},
+		// A fresh connection per call: a server draining for a replace
+		// closes idle ones, and a POST on a closed one is not retried.
+		DisableKeepAlives: true,
 	}}}
 }
 
@@ -49,13 +62,45 @@ func (c *Client) call(ctx context.Context, method string, out any, args ...any) 
 	if err != nil {
 		return err
 	}
+	deadline := time.Now().Add(c.Retry)
+	for {
+		err := c.callOnce(ctx, method, out, body)
+		var retry retryable
+		if !errors.As(err, &retry) {
+			return err
+		}
+		if time.Now().After(deadline) {
+			return retry.err
+		}
+		select {
+		case <-ctx.Done():
+			return retry.err
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
+// retryable is a call the server never ran: nothing listened, or it refused
+// the call because it is replacing itself.
+type retryable struct{ err error }
+
+func (e retryable) Error() string { return e.err.Error() }
+
+func (c *Client) callOnce(ctx context.Context, method string, out any, body []byte) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://yard/call/"+method, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
+	if c.Revision != "" {
+		req.Header.Set(version.Header, c.Revision)
+	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("yardr server: %w", err)
+		err = fmt.Errorf("yardr server: %w", err)
+		if errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENOENT) {
+			return retryable{err}
+		}
+		return err
 	}
 	defer resp.Body.Close()
 	var r struct {
@@ -73,6 +118,16 @@ func (c *Client) call(ctx context.Context, method string, out any, args ...any) 
 			return store.ErrTaken
 		case "ambiguous":
 			return wrapped{r.Error.Message, store.ErrAmbiguous}
+		case "replacing":
+			return retryable{fmt.Errorf("%s", r.Error.Message)}
+		}
+		if theirs := resp.Header.Get(version.Header); theirs != c.Revision && skewed(r.Error.Message) {
+			pid := resp.Header.Get(PIDHeader)
+			if pid == "" {
+				pid = "unknown"
+			}
+			return fmt.Errorf("the yardr server (pid %s, built %s) differs from this yardr (%s); run `yardr server stop` (%s)",
+				pid, version.Show(theirs), version.Show(c.Revision), r.Error.Message)
 		}
 		return fmt.Errorf("%s", r.Error.Message)
 	}
@@ -80,6 +135,13 @@ func (c *Client) call(ctx context.Context, method string, out any, args ...any) 
 		return json.Unmarshal(r.Result, out)
 	}
 	return nil
+}
+
+// skewed reports whether a server error means the call did not match the
+// server's API, which a different build explains.
+func skewed(msg string) bool {
+	return strings.HasPrefix(msg, "no such method ") || strings.HasPrefix(msg, "want ") ||
+		strings.HasPrefix(msg, "argument")
 }
 
 // wrapped keeps the owner's message while matching errors.Is(err, base).

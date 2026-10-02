@@ -45,7 +45,9 @@ yardr bead create "Add login page" --rig webapp -t feature -b "Use the OAuth flo
 
 The yardr server starts on first use, in the background, and owns
 `~/.yardr/yard.db` (`yardr server status|stop`; `YARDR_HOME` moves everything).
-Back up by copying `yard.db` while the server is stopped.
+Back up by copying `yard.db` while the server is stopped. To upgrade, `go
+install` again: the server and daemon replace themselves with the new build
+([details](docs/configuration.md#upgrading)).
 
 yardr was called yard; for one release it still reads `YARD_*` variables and
 `~/.yard` ([details](docs/configuration.md#the-rename-from-yard)).
@@ -137,6 +139,7 @@ internal/runner     manual, exec, herdr
 internal/bdp        the BDP Read server (protocol rules, selector, paging)
 internal/rpc        the store API over the server's unix socket
 internal/server     the store-owning server process; started on first use
+internal/version    build revisions; notices a new binary installed over a running one
 internal/cli        cobra commands
 ```
 

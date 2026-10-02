@@ -12,7 +12,9 @@ import (
 	"log/slog"
 	"time"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/version"
 )
 
 // Job is everything a runner needs to start work on one bead.
@@ -58,6 +60,12 @@ type Dispatcher struct {
 	MaxAttempts int
 	// Backoff before re-dispatching a bead whose session failed (default 30s).
 	Backoff time.Duration
+	// Binary, when set, is the daemon's own executable: when a new build is
+	// installed over it, Run finishes its pass and execs that build. The
+	// sessions live in the store, so the new daemon carries on.
+	Binary *version.Binary
+	// CheckBinary is how often Binary is checked between passes (default 10s).
+	CheckBinary time.Duration
 
 	retryAfter map[string]time.Time
 	reported   map[string]string // bead -> last unroutable reason, to log once
@@ -76,6 +84,9 @@ func (d *Dispatcher) defaults() {
 	}
 	if d.Backoff == 0 {
 		d.Backoff = 30 * time.Second
+	}
+	if d.CheckBinary == 0 {
+		d.CheckBinary = 10 * time.Second
 	}
 	if d.Log == nil {
 		d.Log = slog.Default()
@@ -175,6 +186,13 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 			go forward(ch)
 		}
 	}
+	d.noteReplaced(ctx)
+	var check <-chan time.Time
+	if d.Binary != nil {
+		t := time.NewTicker(d.CheckBinary)
+		defer t.Stop()
+		check = t.C
+	}
 	tick := time.NewTicker(d.Interval)
 	defer tick.Stop()
 	for {
@@ -184,19 +202,71 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 			}
 			d.Log.Error("reconcile", "err", err)
 		}
-		select {
-		case <-ctx.Done():
+		if d.replace() {
 			return nil
-		case <-tick.C:
-		case <-wake:
-			// Let a burst of writes (a transaction touching several tables)
-			// settle into one pass.
-			time.Sleep(100 * time.Millisecond)
+		}
+	wait:
+		for {
 			select {
+			case <-ctx.Done():
+				return nil
+			case <-check:
+				if d.replace() {
+					return nil
+				}
+			case <-tick.C:
+				break wait
 			case <-wake:
-			default:
+				// Let a burst of writes (a transaction touching several tables)
+				// settle into one pass.
+				time.Sleep(100 * time.Millisecond)
+				select {
+				case <-wake:
+				default:
+				}
+				break wait
 			}
 		}
+	}
+}
+
+// replace execs a new build of the daemon if one is installed. It is only
+// called between passes; it returns true only when a test's fake exec
+// "succeeded". A failed exec is logged and the old build carries on.
+func (d *Dispatcher) replace() bool {
+	if d.Binary == nil {
+		return false
+	}
+	to, ok := d.Binary.Replacement()
+	if !ok {
+		return false
+	}
+	from := version.Show(d.Binary.Running)
+	d.Log.Info("replacing the yardr daemon", "from", from, "to", version.Show(to), "binary", d.Binary.Path)
+	// The new build logs daemon_replaced once it runs.
+	if err := d.Binary.Replace(config.Env("REPLACED_FROM", from)...); err != nil {
+		d.Log.Error("cannot replace the yardr daemon; running on", "binary", d.Binary.Path, "err", err)
+		return false
+	}
+	return true
+}
+
+// noteReplaced logs daemon_replaced when this process is the build a
+// previous daemon exec'd.
+func (d *Dispatcher) noteReplaced(ctx context.Context) {
+	from := config.Getenv("REPLACED_FROM")
+	if from == "" {
+		return
+	}
+	config.Unsetenv("REPLACED_FROM")
+	to := ""
+	if d.Binary != nil {
+		to = d.Binary.Running
+	}
+	d.Log.Info("yardr daemon replaced", "from", from, "to", version.Show(to))
+	if err := d.Store.LogEvent(ctx, "", "daemon_replaced", actor,
+		map[string]any{"from": from, "to": version.Show(to)}); err != nil {
+		d.Log.Warn("daemon_replaced event", "err", err)
 	}
 }
 

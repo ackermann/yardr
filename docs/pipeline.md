@@ -73,6 +73,11 @@ and conflicts go to a `merge` stage where a merger agent resolves them
 shared PR or a direct merge are all just a different script in the same
 exec group. Rig yard merges directly to `main`.
 
+After a merge, `go install` on `main` is the whole upgrade: the running
+server and daemon replace themselves with the new build within seconds, and
+builders keep advancing beads through it
+([configuration.md](configuration.md#upgrading)).
+
 ## Holds
 
 A held bead is never routed; it waits until someone runs

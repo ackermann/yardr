@@ -6,6 +6,10 @@
 //	GET  /events?after=N  NDJSON stream of events with seq > N, then live
 //	GET  /wake            a newline after every committed write
 //	GET  /ping            liveness
+//
+// Requests carry the caller's build revision and replies the server's, plus
+// its pid, so a server can replace itself for a newer client and a client
+// can explain a server it cannot talk to (see internal/version).
 package rpc
 
 import (
@@ -20,6 +24,17 @@ import (
 
 	"yardr.dev/yardr/internal/store"
 )
+
+// PIDHeader carries the server's pid on every reply.
+const PIDHeader = "X-Yardr-Pid"
+
+// WriteReplacing refuses a call without running it because the server is
+// about to exec a newer build; the client retries against that build.
+func WriteReplacing(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusServiceUnavailable)
+	_ = json.NewEncoder(w).Encode(reply{Error: &wireError{Code: "replacing", Message: "yardr server is replacing itself"}})
+}
 
 // streams and lifecycle methods are not callable through /call.
 var notCallable = map[string]bool{"Subscribe": true, "TailEvents": true, "Wake": true, "Close": true}
@@ -125,7 +140,7 @@ type reply struct {
 }
 
 type wireError struct {
-	Code    string `json:"code"` // not-found, taken, ambiguous, error
+	Code    string `json:"code"` // not-found, taken, ambiguous, replacing, error
 	Message string `json:"message"`
 }
 

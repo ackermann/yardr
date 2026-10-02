@@ -33,6 +33,13 @@ func Env(name, value string) []string {
 	return []string{prefix + name + "=" + value, oldPrefix + name + "=" + value}
 }
 
+// Unsetenv removes YARDR_<name> and the old YARD_<name>, so children do not
+// inherit a value meant only for this process.
+func Unsetenv(name string) {
+	os.Unsetenv(prefix + name)
+	os.Unsetenv(oldPrefix + name)
+}
+
 type Config struct {
 	Home string // state directory: yard.db, yard.sock, logs, worktrees
 	// HookAddr is the TCP address the server receives webhooks on

@@ -129,6 +129,31 @@ Environment variables yardr reads:
 Exec commands also get `YARDR_SESSION`, `YARDR_STAGE` and `YARDR_GROUP`
 (see [groups.md](groups.md)).
 
+### Upgrading
+
+`go install` is enough. The server and the daemon each remember the binary
+they were started from and replace themselves (`exec`, same pid) once a
+different build is installed over it:
+
+- the server notices when a client of another build calls, or within about
+  10 seconds anyway. It refuses that one call (the client retries), stops
+  accepting, answers the calls in flight, closes the store and execs the
+  new build. Clients retry for a few seconds meanwhile, and one that finds
+  no answer but a live pid in `server.pid` waits rather than starting a
+  second server;
+- the daemon checks between passes, at least every 10 seconds; it finishes
+  the pass it is in, then execs. Sessions live in the store, so the new
+  daemon carries on with them.
+
+Each replace is logged in `server.log` (or the daemon's output) and as a
+`server_replaced` or `daemon_replaced` event with `from` and `to` revisions.
+An older client never makes a server exec anything. If the server cannot
+replace itself (the binary is gone, the exec fails, or it is newer than the
+client), a call it does not understand fails with
+``the yardr server (pid N, built <rev>) differs from this yardr (<rev>); run `yardr server stop` ``;
+once it is stopped, the next command starts a server of its own build. A server from before
+this mechanism has to be stopped by hand once.
+
 ### The rename from yard
 
 yardr was called yard. For one release:
