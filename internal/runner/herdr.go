@@ -302,6 +302,12 @@ func (h *Herdr) epicBranch(ctx context.Context, job dispatch.Job) error {
 	// not a local copy of the base. Without -f git refuses to replace a
 	// branch made meanwhile.
 	if err := git(ctx, rig.Path, "branch", "--no-track", epic, rig.Base); err != nil {
+		// Another child of the same epic may have created the branch after
+		// our check. Treat that race like the already-existed case, but do
+		// not hide failures that left no branch behind.
+		if _, verifyErr := gitOut(ctx, rig.Path, "rev-parse", "--verify", "-q", "refs/heads/"+epic); verifyErr == nil {
+			return nil
+		}
 		return fmt.Errorf("epic branch %s from %s: %w", epic, rig.Base, err)
 	}
 	commit, err := gitOut(ctx, rig.Path, "rev-parse", "refs/heads/"+epic)
