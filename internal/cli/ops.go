@@ -1,9 +1,10 @@
 package cli
 
 import (
-	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -14,7 +15,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/mckean/yard/internal/config"
 	"github.com/mckean/yard/internal/dispatch"
@@ -24,23 +27,34 @@ import (
 )
 
 func (a *app) serverCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "server", Short: "Manage the local SurrealDB server"}
+	cmd := &cobra.Command{Use: "server", Short: "The process that owns the yard's store (started on first use)"}
 	cmd.AddCommand(&cobra.Command{
-		Use: "start", Short: "Start the server if it is not running", Args: cobra.NoArgs,
+		Use: "run", Short: "Own the store and serve it in the foreground", Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			cfg, err := config.Load()
 			if err != nil {
 				return err
 			}
-			if err := server.Ensure(c.Context(), cfg); err != nil {
+			ctx, stop := signal.NotifyContext(c.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			return server.Run(ctx, cfg, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+		},
+	}, &cobra.Command{
+		Use: "start", Short: "Start the server in the background if it is not running", Args: cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			cfg, err := config.Load()
+			if err != nil {
 				return err
 			}
-			return a.out(map[string]string{"addr": cfg.Addr, "data": cfg.DataDir()}, func() {
-				fmt.Printf("surreal running on %s (data %s)\n", cfg.Addr, cfg.DataDir())
+			if _, err := server.Connect(c.Context(), cfg); err != nil {
+				return err
+			}
+			return a.out(map[string]string{"store": cfg.DBPath(), "socket": cfg.Socket()}, func() {
+				fmt.Printf("yard server running (store %s)\n", cfg.DBPath())
 			})
 		},
 	}, &cobra.Command{
-		Use: "stop", Short: "Stop the server yard started", Args: cobra.NoArgs,
+		Use: "stop", Short: "Stop the background server", Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			cfg, err := config.Load()
 			if err != nil {
@@ -55,9 +69,9 @@ func (a *app) serverCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ok := server.Healthy(c.Context(), cfg)
-			return a.out(map[string]any{"addr": cfg.Addr, "healthy": ok}, func() {
-				fmt.Printf("%s healthy=%v\n", cfg.Addr, ok)
+			ok := server.Running(c.Context(), cfg)
+			return a.out(map[string]any{"store": cfg.DBPath(), "running": ok}, func() {
+				fmt.Printf("%s running=%v\n", cfg.DBPath(), ok)
 			})
 		},
 	})
@@ -94,7 +108,7 @@ func (a *app) daemonCmd() *cobra.Command {
 				Interval:    interval,
 				MaxAttempts: attempts,
 			}
-			log.Info("yard daemon started", "store", a.cfg.Addr, "reconcile", interval)
+			log.Info("yard daemon started", "store", a.cfg.DBPath(), "reconcile", interval)
 			return d.Run(ctx)
 		},
 	}
@@ -193,13 +207,35 @@ func (a *app) groupCmd() *cobra.Command {
 	var g store.Group
 	var sets []string
 	add := &cobra.Command{
-		Use:   "add <name> --runner <manual|exec|herdr>",
-		Short: "Create or replace a group",
-		Example: `  yard group add webapp/builders --runner herdr --limit 2 --set kind=claude --set prompt=roles/builder.md
+		Use:   "add [<name> --runner <manual|exec|herdr>]",
+		Short: "Create or replace a group (no name: an interactive form)",
+		Long: `Create or replace a group. With no name, in a terminal, an interactive form
+lists the existing groups to edit or creates a new one, and for herdr groups
+offers the agent (Claude Code, Codex, Grok, Kimi, opencode, pi, or any other
+herdr agent), a model read live from that agent, and its permission flags.
+
+With a name, the group is replaced by exactly what the flags say.`,
+		Example: `  yard group add                     # interactive
+  yard group add webapp/builders --runner herdr --limit 2 --set kind=claude --set prompt=roles/builder.md
   yard group add webapp/merger --runner exec --set cmd='make merge-bead'
   yard group add humans --runner manual`,
-		Args: cobra.ExactArgs(1),
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
+					return fmt.Errorf("give a group name and --runner, or run in a terminal for the interactive form")
+				}
+				st, err := a.store(c.Context())
+				if err != nil {
+					return err
+				}
+				if err := a.groupForm(c.Context(), st); errors.Is(err, huh.ErrUserAborted) {
+					fmt.Println("cancelled")
+					return nil
+				} else {
+					return err
+				}
+			}
 			if g.Runner == "" {
 				return fmt.Errorf("--runner is required")
 			}
@@ -270,9 +306,30 @@ func fmtConfig(m map[string]any) string {
 	sort.Strings(keys)
 	parts := make([]string, len(keys))
 	for i, k := range keys {
-		parts[i] = fmt.Sprintf("%s=%v", k, m[k])
+		parts[i] = k + "=" + show(m[k])
 	}
 	return strings.Join(parts, " ")
+}
+
+// show prints a decoded JSON value for humans. JSON numbers arrive as
+// float64, which %v prints as 2.366465e+06; whole numbers print as integers.
+func show(v any) string {
+	switch x := v.(type) {
+	case float64:
+		if x == math.Trunc(x) && math.Abs(x) < 1e15 {
+			return strconv.FormatInt(int64(x), 10)
+		}
+		return strconv.FormatFloat(x, 'f', -1, 64)
+	case map[string]any:
+		return "{" + fmtConfig(x) + "}"
+	case []any:
+		parts := make([]string, len(x))
+		for i, e := range x {
+			parts[i] = show(e)
+		}
+		return "[" + strings.Join(parts, " ") + "]"
+	}
+	return fmt.Sprint(v)
 }
 
 func (a *app) routeCmd() *cobra.Command {
@@ -372,13 +429,17 @@ func (a *app) sessionCmd() *cobra.Command {
 			return a.out(ss, func() {
 				rows := [][]string{}
 				for _, s := range ss {
-					agent := ""
-					if v, ok := s.Handle["agent"]; ok {
-						agent = fmt.Sprint(v)
-					} else if v, ok := s.Handle["pid"]; ok {
-						agent = fmt.Sprintf("pid %v", v)
+					// Which runner owns it, and what it is running there.
+					runner := s.Runner
+					if runner == "" && s.Handle["manual"] != nil {
+						runner = "manual"
 					}
-					rows = append(rows, []string{s.ID, s.Bead, s.Stage, s.Group, s.State, agent,
+					if v, ok := s.Handle["agent"]; ok {
+						runner = strings.TrimSpace(or(runner, "herdr") + " " + show(v))
+					} else if v, ok := s.Handle["pid"]; ok {
+						runner = strings.TrimSpace(or(runner, "exec") + " pid " + show(v))
+					}
+					rows = append(rows, []string{s.ID, s.Bead, s.Stage, s.Group, s.State, or(runner, "-"),
 						s.StartedAt.Local().Format("01-02 15:04")})
 				}
 				table("ID\tBEAD\tSTAGE\tGROUP\tSTATE\tRUNNER\tSTARTED", rows)
@@ -395,7 +456,7 @@ func printEvent(e store.Event) {
 	if len(e.Data) > 0 {
 		data = fmtConfig(e.Data)
 	}
-	fmt.Printf("%s  %-8s %-14s %-12s %s\n", e.At.Local().Format("01-02 15:04:05"), deref(e.Bead), e.Kind, e.Actor, data)
+	fmt.Printf("%6d %s  %-8s %-14s %-12s %s\n", e.Seq, e.At.Local().Format("01-02 15:04:05"), deref(e.Bead), e.Kind, e.Actor, data)
 }
 
 func (a *app) eventsCmd() *cobra.Command {
@@ -425,10 +486,16 @@ func (a *app) eventsCmd() *cobra.Command {
 }
 
 func (a *app) watchCmd() *cobra.Command {
-	return &cobra.Command{
+	var after uint64
+	var fromStart bool
+	cmd := &cobra.Command{
 		Use:   "watch",
 		Short: "Stream events as they happen (pushed, not polled)",
-		Args:  cobra.NoArgs,
+		Long: `Stream events as they are committed. Each event carries a sequence number
+(seq); --after resumes a stream from where a previous consumer stopped, with
+no gaps and no duplicates. If the yard server restarts, watch reconnects and
+continues from the last event it printed.`,
+		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			ctx, stop := signal.NotifyContext(c.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
@@ -436,27 +503,42 @@ func (a *app) watchCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ch, err := st.TailEvents(ctx)
-			if err != nil {
-				return err
-			}
-			for e := range ch {
-				if a.json {
-					_ = a.out(e, nil)
-				} else {
-					printEvent(e)
+			last := after
+			if !fromStart && !c.Flags().Changed("after") {
+				if last, err = st.Head(ctx); err != nil {
+					return err
 				}
 			}
-			return contextErr(ctx)
+			for ctx.Err() == nil {
+				ch, err := st.Subscribe(ctx, last)
+				if err == nil {
+					for e := range ch {
+						last = e.Seq
+						if a.json {
+							_ = a.out(e, nil)
+						} else {
+							printEvent(e)
+						}
+					}
+				}
+				if ctx.Err() != nil {
+					break
+				}
+				// The server went away (or dropped us as too slow). Wait for
+				// it to come back (any yard command starts it; watch never
+				// does, so a deliberate stop stays stopped) and resume after
+				// the last event.
+				select {
+				case <-ctx.Done():
+				case <-time.After(500 * time.Millisecond):
+				}
+			}
+			return nil
 		},
 	}
-}
-
-func contextErr(ctx context.Context) error {
-	if ctx.Err() != nil {
-		return nil // interrupted by the user
-	}
-	return fmt.Errorf("event stream closed")
+	cmd.Flags().Uint64Var(&after, "after", 0, "resume after this event seq")
+	cmd.Flags().BoolVar(&fromStart, "all", false, "replay every retained event first")
+	return cmd
 }
 
 // resolve follows symlinks so paths compare the way git reports them.
@@ -465,4 +547,11 @@ func resolve(p string) string {
 		return r
 	}
 	return p
+}
+
+func or(v, def string) string {
+	if v == "" {
+		return def
+	}
+	return v
 }

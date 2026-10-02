@@ -182,3 +182,29 @@ esac`)}
 		t.Fatalf("workspace close calls wrong:\n%s", calls)
 	}
 }
+
+func TestAgentArgsModel(t *testing.T) {
+	job := func(groupCfg, beadMeta map[string]any) dispatch.Job {
+		return dispatch.Job{Group: store.Group{Config: groupCfg}, Bead: store.Bead{Metadata: beadMeta}}
+	}
+	args := []any{"--permission-mode", "auto", "--model", "sonnet"}
+	cases := []struct {
+		name string
+		job  dispatch.Job
+		want []string
+	}{
+		{"group args only", job(map[string]any{"args": args}, nil),
+			[]string{"--permission-mode", "auto", "--model", "sonnet"}},
+		{"bead overrides group args", job(map[string]any{"args": args}, map[string]any{"model": "opus"}),
+			[]string{"--permission-mode", "auto", "--model", "opus"}},
+		{"group model key", job(map[string]any{"model": "haiku"}, nil), []string{"--model", "haiku"}},
+		{"bead beats group key", job(map[string]any{"model": "haiku"}, map[string]any{"model": "opus"}),
+			[]string{"--model", "opus"}},
+		{"nothing", job(map[string]any{}, nil), nil},
+	}
+	for _, c := range cases {
+		if got := AgentArgs(c.job); strings.Join(got, " ") != strings.Join(c.want, " ") {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
+	}
+}

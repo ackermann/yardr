@@ -24,6 +24,8 @@ import (
 //	kind       agent kind herdr knows (claude, codex, ...); default claude
 //	prompt     prompt file, relative to the rig or absolute
 //	args    extra agent arguments (list or space-separated string)
+//	model      agent model (passed as --model); a bead's metadata.model
+//	           overrides it for that bead
 //	keep       true to leave the tab open after the session ends
 //	worktrees  root for bead worktrees (default Herdr.WorktreeRoot)
 //
@@ -192,7 +194,7 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	handle["brief"] = briefPath
 
 	args := []string{"agent", "start", name, "--kind", kind, "--pane", pane}
-	if extra := strs(job.Group.Config, "args"); len(extra) > 0 {
+	if extra := AgentArgs(job); len(extra) > 0 {
 		args = append(append(args, "--"), extra...)
 	}
 	// A pane created a moment ago may not have its shell prompt up yet.
@@ -328,4 +330,29 @@ func (h *Herdr) workspaceAt(ctx context.Context, ws, path string) bool {
 		return false
 	}
 	return filepath.Clean(r.Workspace.Worktree.CheckoutPath) == filepath.Clean(path)
+}
+
+// AgentArgs are the agent's own arguments: the group's args, then --model
+// from the bead's metadata.model, else the group's config.model. A model
+// already in args is replaced, so a bead can override a group default.
+func AgentArgs(job dispatch.Job) []string {
+	args := strs(job.Group.Config, "args")
+	model := str(job.Group.Config, "model", "")
+	if m, ok := job.Bead.Metadata["model"].(string); ok && m != "" {
+		model = m
+	}
+	if model == "" {
+		return args
+	}
+	out := make([]string, 0, len(args)+2)
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--model" && i+1 < len(args):
+			i++ // drop the group's --model <x>
+		case strings.HasPrefix(args[i], "--model="):
+		default:
+			out = append(out, args[i])
+		}
+	}
+	return append(out, "--model", model)
 }

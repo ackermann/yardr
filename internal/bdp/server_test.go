@@ -24,7 +24,7 @@ const scope = "https://beads.test/acme/"
 
 type fixture struct {
 	t  *testing.T
-	st *store.Store
+	st store.API
 	ts *httptest.Server
 }
 

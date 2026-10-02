@@ -4,18 +4,18 @@
 #   BDP_REPO=~/src/bdp conformance/bdp/run.sh
 #
 # BDP_REPO is a gastownhall/bdp clone after `pnpm install && pnpm build`.
-# Needs go, surreal, python3 and pnpm. Everything runs in a temp dir on
-# loopback; your ~/.yard is never touched.
+# Needs go, python3 and pnpm. Everything runs in a temp dir on loopback;
+# your ~/.yard is never touched.
 set -euo pipefail
 : "${BDP_REPO:?set BDP_REPO to a built gastownhall/bdp clone}"
 BDP_REPO=$(cd "$BDP_REPO" && pwd)
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
-work=$(mktemp -d)
+work=$(mktemp -d)   # short path: the yard server's unix socket lives here
 scope=https://scope.example/acme/
 port=${BDP_PORT:-18899}
 
-export YARD_HOME=$work/home YARD_ADDR=127.0.0.1:${YARD_STORE_PORT:-19899}
+export YARD_HOME=$work/home
 cleanup() {
   [[ -n ${serve_pid:-} ]] && kill "$serve_pid" 2>/dev/null || true
   "$work/yard" server stop >/dev/null 2>&1 || true

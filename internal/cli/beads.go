@@ -57,7 +57,7 @@ func (a *app) beadCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "bead", Short: "Create, inspect and move beads"}
 
 	var nb store.NewBead
-	var blockedBy []string
+	var blockedBy, createMeta []string
 	create := &cobra.Command{
 		Use:   "create <title>",
 		Short: "Create a bead",
@@ -68,6 +68,11 @@ func (a *app) beadCmd() *cobra.Command {
 				return err
 			}
 			nb.Title = args[0]
+			if len(createMeta) > 0 {
+				if nb.Metadata, err = parseSets(createMeta); err != nil {
+					return err
+				}
+			}
 			if nb.Body == "-" {
 				b, err := readAllStdin()
 				if err != nil {
@@ -96,6 +101,7 @@ func (a *app) beadCmd() *cobra.Command {
 	f.StringSliceVarP(&nb.Labels, "label", "l", nil, "labels")
 	f.StringVar(&nb.Prefix, "prefix", "", "id prefix (default rig name, else yd)")
 	f.StringVar(&nb.ID, "id", "", "explicit bead id (for imports; must be unused)")
+	f.StringArrayVar(&createMeta, "meta", nil, "metadata key=value (repeatable), e.g. model=opus")
 	f.StringSliceVar(&blockedBy, "blocked-by", nil, "beads that must close first")
 
 	show := &cobra.Command{
@@ -262,7 +268,7 @@ func (a *app) beadCmd() *cobra.Command {
 	}
 	closeCmd.Flags().StringVar(&reason, "reason", "", "why it is closed")
 
-	simple := func(use, short string, fn func(c *cobra.Command, st *store.Store, id string) (*store.Bead, error)) *cobra.Command {
+	simple := func(use, short string, fn func(c *cobra.Command, st store.API, id string) (*store.Bead, error)) *cobra.Command {
 		return &cobra.Command{
 			Use: use + " <id>", Short: short, Args: cobra.ExactArgs(1),
 			RunE: func(c *cobra.Command, args []string) error {
@@ -278,17 +284,17 @@ func (a *app) beadCmd() *cobra.Command {
 			},
 		}
 	}
-	reopen := simple("reopen", "Reopen a closed bead", func(c *cobra.Command, st *store.Store, id string) (*store.Bead, error) {
+	reopen := simple("reopen", "Reopen a closed bead", func(c *cobra.Command, st store.API, id string) (*store.Bead, error) {
 		return st.Reopen(c.Context(), id, a.who())
 	})
-	hold := simple("hold", "Stop routing a bead (a running session continues)", func(c *cobra.Command, st *store.Store, id string) (*store.Bead, error) {
+	hold := simple("hold", "Stop routing a bead (a running session continues)", func(c *cobra.Command, st store.API, id string) (*store.Bead, error) {
 		return st.SetHold(c.Context(), id, true, a.who())
 	})
-	unhold := simple("unhold", "Resume routing a held bead", func(c *cobra.Command, st *store.Store, id string) (*store.Bead, error) {
+	unhold := simple("unhold", "Resume routing a held bead", func(c *cobra.Command, st store.API, id string) (*store.Bead, error) {
 		return st.SetHold(c.Context(), id, false, a.who())
 	})
 	var relReason string
-	release := simple("release", "Take a bead from its group so it is routed again", func(c *cobra.Command, st *store.Store, id string) (*store.Bead, error) {
+	release := simple("release", "Take a bead from its group so it is routed again", func(c *cobra.Command, st store.API, id string) (*store.Bead, error) {
 		return st.Release(c.Context(), id, relReason, a.who())
 	})
 	release.Flags().StringVar(&relReason, "reason", "", "why")

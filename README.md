@@ -8,14 +8,18 @@ herdr, a shell command, or nobody — a human). Whoever works the bead advances
 it to the next stage or closes it, and the next route takes over. Roles are
 not built in: "builder" or "reviewer" is just a group plus a prompt file.
 
-The store is SurrealDB. The daemon is woken by live queries, so nothing polls;
-each wake-up re-reads state and acts idempotently, so a missed notification
-only costs a delay and a restart is just another pass.
+The yard lives in one file (`~/.yard/yard.db`, bbolt) owned by one process,
+the yard server, which every other yard process reaches over a unix socket.
+Every change is committed together with its event; events carry a sequence
+number, so subscribers get every change pushed in order and resume from where
+they stopped. Nothing polls: the dispatcher wakes on each committed write,
+re-reads state and acts idempotently, so a missed wake-up only costs a delay
+and a restart is just another pass.
 
 ## Quick start
 
 ```sh
-go build -o ~/.local/bin/yard .        # needs `surreal` (3.x) on PATH
+go build -o ~/.local/bin/yard .        # one static binary; nothing else to install
 
 yard rig add webapp ~/projects/webapp --base origin/main
 
@@ -38,9 +42,13 @@ yard watch                             # live event stream
 yard bead create "Add login page" --rig webapp -t feature -b "Use the OAuth flow"
 ```
 
-The SurrealDB server starts on first use (`~/.yard/data`, `127.0.0.1:19875`,
-random root password in `~/.yard/credentials`). Override with `YARD_HOME`,
-`YARD_ADDR`, `YARD_USER`/`YARD_PASS`.
+The yard server starts on first use, in the background, and owns
+`~/.yard/yard.db` (`yard server status|stop`; `YARD_HOME` moves everything).
+Back up by copying `yard.db` while the server is stopped.
+
+`yard watch` streams every event as it commits. Each line starts with the
+event's sequence number; `yard watch --after <seq>` resumes from there with no
+gaps or duplicates, and a running watch rides out a server restart.
 
 ## Rigs
 
@@ -69,6 +77,14 @@ yard bead hold webapp-3                     # stop routing; a human looks
 
 Every command takes `--json`. Set `YARD_ACTOR` so the event log shows who
 acted.
+
+## Groups, interactively
+
+`yard group add` with no name opens a form: pick an existing group to edit or
+create one, choose the runner, and for herdr the agent (Claude Code, Codex,
+Grok, Kimi, opencode, pi, or any other herdr agent), a model read live from
+that agent (press `/` to search long lists), and its permission flags. With a
+name, `yard group add <name> --runner … --set …` stays scriptable.
 
 ## Runners
 
@@ -128,13 +144,15 @@ yard bdp serve --addr :8765 --scope https://beads.example/team/
 ## Layout
 
 ```
-internal/store      SurrealDB schema and every query; events written in the same transaction
+internal/store      the bbolt store: records, indexes, revisions, event log and push hub
 internal/dispatch   routing, claims, liveness, teardown (the only control loop)
 internal/runner     manual, exec, herdr
 internal/bdp        the BDP Read server (protocol rules, selector, paging)
-internal/server     starts/stops the local surreal process
+internal/rpc        the store API over the server's unix socket
+internal/server     the store-owning server process; started on first use
 internal/cli        cobra commands
 ```
 
-`go test ./...` starts a throwaway in-memory SurrealDB (skipped if `surreal`
-is not installed).
+`go test ./...` runs everything against throwaway store files;
+`YARD_TEST_RPC=1 go test ./...` runs the same suites through the unix-socket
+client, so the wire is tested by the same assertions.

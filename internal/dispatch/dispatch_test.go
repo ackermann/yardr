@@ -22,6 +22,7 @@ type fakeRunner struct {
 	dead     map[string]bool
 	stopped  []string
 	failNext error
+	asked    int // Alive calls
 }
 
 func (f *fakeRunner) Start(_ context.Context, j dispatch.Job) (map[string]any, error) {
@@ -38,6 +39,7 @@ func (f *fakeRunner) Start(_ context.Context, j dispatch.Job) (map[string]any, e
 func (f *fakeRunner) Alive(_ context.Context, h map[string]any) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.asked++
 	return !f.dead[h["session"].(string)], nil
 }
 
@@ -54,7 +56,7 @@ func (f *fakeRunner) starts() []string {
 	return slices.Clone(f.started)
 }
 
-func setup(t *testing.T) (*store.Store, *fakeRunner, *dispatch.Dispatcher) {
+func setup(t *testing.T) (store.API, *fakeRunner, *dispatch.Dispatcher) {
 	s := storetest.New(t)
 	f := &fakeRunner{dead: map[string]bool{}}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f},
@@ -359,5 +361,44 @@ func TestWorkspaceCleanedWhenBeadClosesLater(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("workspace_removed events = %d, want 1", n)
+	}
+}
+
+// A session is judged by the runner that started it, even after its group
+// switches runners; new work then goes to the new runner.
+func TestSessionKeepsItsRunnerWhenGroupSwitches(t *testing.T) {
+	s := storetest.New(t)
+	old := &fakeRunner{dead: map[string]bool{}}
+	nu := &fakeRunner{dead: map[string]bool{}}
+	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"old": old, "new": nu},
+		Backoff: time.Nanosecond}
+	ctx := context.Background()
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "old", Limit: 5}))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	a, _ := s.CreateBead(ctx, store.NewBead{Title: "a"}, "me")
+	must(t, d.Reconcile(ctx)) // a starts on old
+
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "new", Limit: 5}))
+	b, _ := s.CreateBead(ctx, store.NewBead{Title: "b"}, "me")
+	must(t, d.Reconcile(ctx))
+	if !slices.Equal(old.starts(), []string{a.ID}) || !slices.Equal(nu.starts(), []string{b.ID}) {
+		t.Fatalf("starts: old %v, new %v", old.starts(), nu.starts())
+	}
+	sess, _ := s.Sessions(ctx, false)
+	if len(sess) != 2 {
+		t.Fatalf("live sessions = %d", len(sess))
+	}
+	if old.asked == 0 {
+		t.Fatal("the old runner was never asked about its session")
+	}
+	// The old runner, not the new one, decides that a's session ended.
+	got, _ := s.GetBead(ctx, a.ID)
+	old.dead[*got.Session] = true
+	must(t, d.Reconcile(ctx))
+	if live, _ := s.Sessions(ctx, false); len(live) != 2 { // a died, then was re-dispatched on new
+		t.Fatalf("live sessions after a died = %d", len(live))
+	}
+	if !slices.Equal(nu.starts(), []string{b.ID, a.ID}) {
+		t.Fatalf("a was not re-dispatched to the new runner: %v", nu.starts())
 	}
 }

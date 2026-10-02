@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
@@ -261,33 +262,19 @@ func TestWakeAndTail(t *testing.T) {
 	}
 }
 
-// Many CLI processes open the store at once, the first ones against an empty
-// database; none may fail on schema setup, and concurrent writes must land.
-func TestConcurrentOpenAndWrites(t *testing.T) {
-	name := storetest.FreshName()
-	var wg sync.WaitGroup
-	errs := make(chan error, 20)
-	for i := 0; i < 20; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_, err := storetest.TryOpen(t, name)
-			errs <- err
-		}()
+// One process owns the store: a second open fails fast, and concurrent
+// writes through the owner all land.
+func TestSingleOwnerAndConcurrentWrites(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "yard.db")
+	s := storetest.Open(t, path)
+	if _, err := store.Open(path); !errors.Is(err, store.ErrLocked) {
+		t.Fatalf("second open err = %v, want ErrLocked", err)
 	}
-	wg.Wait()
-	close(errs)
-	for err := range errs {
-		if err != nil {
-			t.Fatalf("concurrent open: %v", err)
-		}
-	}
-
-	s := storetest.Open(t, name)
 	ctx := context.Background()
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "busy"}, "me")
-	errs = make(chan error, 20)
-	for i := 0; i < 20; i++ {
+	var wg sync.WaitGroup
+	errs := make(chan error, 40)
+	for i := 0; i < 40; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -301,7 +288,7 @@ func TestConcurrentOpenAndWrites(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if notes, _ := s.Notes(ctx, b.ID); len(notes) != 20 {
+	if notes, _ := s.Notes(ctx, b.ID); len(notes) != 40 {
 		t.Fatalf("notes = %d", len(notes))
 	}
 }
@@ -380,8 +367,8 @@ func TestExplicitIDs(t *testing.T) {
 	}
 }
 
-// Guards the SurrealDB 3.2 LIMIT-in-subquery workaround: every record in a
-// snapshot carries the actor of its latest version.
+// Every record in a snapshot carries the actor of its latest version
+// (once broken by a SurrealDB LIMIT-in-subquery bug; kept as a guard).
 func TestLastActorOnEveryRow(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
@@ -436,6 +423,113 @@ func TestNotesAndEdgesMintTheBeadsTheyChange(t *testing.T) {
 	for _, sb := range snap.Beads {
 		if want := map[string]int{a.ID: 1, b.ID: 0}[sb.ID]; sb.Notes != want {
 			t.Fatalf("%s notes = %d, want %d", sb.ID, sb.Notes, want)
+		}
+	}
+}
+
+func TestSubscribeResumesWithoutGapsOrDuplicates(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	for i := 0; i < 5; i++ {
+		if _, err := s.CreateBead(ctx, store.NewBead{Title: fmt.Sprint(i)}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Subscribe from 2: backlog 3..5, then live events, in order.
+	sctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	ch, err := s.Subscribe(sctx, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		for i := 0; i < 3; i++ {
+			_, _ = s.CreateBead(ctx, store.NewBead{Title: "live"}, "me")
+		}
+	}()
+	var got []uint64
+	for e := range ch {
+		got = append(got, e.Seq)
+		if len(got) == 6 {
+			cancel()
+			break
+		}
+	}
+	if !slices.Equal(got, []uint64{3, 4, 5, 6, 7, 8}) {
+		t.Fatalf("seqs = %v", got)
+	}
+
+	// A subscriber that went away resumes from its last seq: nothing lost.
+	_, _ = s.CreateBead(ctx, store.NewBead{Title: "while away"}, "me")
+	ch2, _ := s.Subscribe(ctx, got[len(got)-1])
+	select {
+	case e := <-ch2:
+		if e.Seq != 9 || e.Kind != "created" {
+			t.Fatalf("resumed at %+v", e)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("resume delivered nothing")
+	}
+}
+
+func TestSlowSubscriberIsDroppedNotBlocking(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	ch, _ := s.Subscribe(ctx, 0) // never read
+	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
+	for i := 0; i < 5000; i++ { // more than the subscriber buffer
+		if err := s.LogEvent(ctx, b.ID, "tick", "me", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Writers were never blocked; the subscriber's stream ends after what
+	// it had buffered, and it resumes from its last seq.
+	n := 0
+	for range ch {
+		n++
+	}
+	if n == 0 || n >= 5001 {
+		t.Fatalf("slow subscriber received %d events; want a truncated stream", n)
+	}
+}
+
+// Batched writers commit together but return in any order; subscribers
+// must still see every event exactly once, in seq order.
+func TestSubscribeOrderUnderConcurrentWriters(t *testing.T) {
+	s := storetest.New(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me") // seq 1
+	ch, err := s.Subscribe(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const writers = 50
+	var wg sync.WaitGroup
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = s.LogEvent(ctx, b.ID, "tick", "me", nil)
+		}()
+	}
+	wg.Wait()
+	var got []uint64
+	timeout := time.After(5 * time.Second)
+	for len(got) < writers {
+		select {
+		case e, ok := <-ch:
+			if !ok {
+				t.Fatalf("stream closed after %v", got)
+			}
+			got = append(got, e.Seq)
+		case <-timeout:
+			t.Fatalf("got %d of %d events: %v", len(got), writers, got)
+		}
+	}
+	for i, seq := range got {
+		if seq != uint64(i+2) {
+			t.Fatalf("event %d has seq %d; stream = %v", i, seq, got)
 		}
 	}
 }

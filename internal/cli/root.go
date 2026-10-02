@@ -22,7 +22,7 @@ type app struct {
 	json  bool
 	actor string
 	cfg   *config.Config
-	st    *store.Store
+	st    store.API
 }
 
 // Execute runs the CLI and returns the process exit code.
@@ -64,8 +64,8 @@ func (a *app) who() string {
 	return config.Actor()
 }
 
-// store opens the store, starting the local server on first use.
-func (a *app) store(ctx context.Context) (*store.Store, error) {
+// store connects to the yard server, starting it on first use.
+func (a *app) store(ctx context.Context) (store.API, error) {
 	if a.st != nil {
 		return a.st, nil
 	}
@@ -74,11 +74,7 @@ func (a *app) store(ctx context.Context) (*store.Store, error) {
 		return nil, err
 	}
 	a.cfg = cfg
-	if err := server.Ensure(ctx, cfg); err != nil {
-		return nil, err
-	}
-	st, err := store.Open(ctx, store.Options{Endpoint: cfg.Endpoint(), User: cfg.User, Pass: cfg.Pass,
-		Namespace: config.Namespace, Database: config.Database})
+	st, err := server.Connect(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}

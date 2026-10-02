@@ -37,7 +37,7 @@ type Runner interface {
 }
 
 type Dispatcher struct {
-	Store   *store.Store
+	Store   store.API
 	Runners map[string]Runner
 	Log     *slog.Logger
 	// Interval is the safety-net reconcile period (default 30s).
@@ -51,6 +51,7 @@ type Dispatcher struct {
 	retryAfter map[string]time.Time
 	reported   map[string]string // bead -> last unroutable reason, to log once
 	status     map[string]string // session -> last runner status
+	unknown    map[string]string // session -> last liveness error logged
 }
 
 const actor = "yard"
@@ -72,6 +73,7 @@ func (d *Dispatcher) defaults() {
 		d.retryAfter = map[string]time.Time{}
 		d.reported = map[string]string{}
 		d.status = map[string]string{}
+		d.unknown = map[string]string{}
 	}
 }
 
@@ -105,11 +107,13 @@ type Waker interface {
 // and every Interval.
 func (d *Dispatcher) Run(ctx context.Context) error {
 	d.defaults()
-	storeWake, err := d.Store.Wake(ctx)
-	if err != nil {
-		return err
-	}
 	wake := make(chan struct{}, 1)
+	poke := func() {
+		select {
+		case wake <- struct{}{}:
+		default:
+		}
+	}
 	forward := func(src <-chan struct{}) {
 		for {
 			select {
@@ -126,7 +130,24 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 			}
 		}
 	}
-	go forward(storeWake)
+	// The store's wake stream ends if its server restarts: reconnect, and
+	// wake once afterwards since changes may have been missed meanwhile.
+	go func() {
+		for first := true; ctx.Err() == nil; first = false {
+			if ch, err := d.Store.Wake(ctx); err == nil {
+				if !first {
+					poke()
+				}
+				forward(ch)
+			} else if first {
+				d.Log.Warn("store wake-ups unavailable; retrying", "err", err)
+			}
+			select {
+			case <-ctx.Done():
+			case <-time.After(time.Second):
+			}
+		}
+	}()
 	for name, r := range d.Runners {
 		if w, ok := r.(Waker); ok {
 			ch, err := w.Wake(ctx)
@@ -197,10 +218,9 @@ func (d *Dispatcher) reap(ctx context.Context, groups map[string]store.Group) (m
 	}
 	active := map[string]int{}
 	for _, s := range sessions {
-		g, ok := groups[s.Group]
-		r := d.Runners[g.Runner]
+		r := d.runnerFor(s, groups)
 		switch {
-		case !ok || r == nil:
+		case r == nil:
 			active[s.Group]++ // cannot judge; leave it alone
 		case s.State == "starting":
 			// Start runs inside a pass; a 'starting' session seen by a later
@@ -213,10 +233,15 @@ func (d *Dispatcher) reap(ctx context.Context, groups map[string]store.Group) (m
 		default:
 			alive, err := d.alive(ctx, r, s)
 			if err != nil {
-				d.Log.Warn("liveness unknown", "session", s.ID, "err", err)
+				// Say it once per session and cause, not on every pass.
+				if msg := err.Error(); d.unknown[s.ID] != msg {
+					d.unknown[s.ID] = msg
+					d.Log.Warn("liveness unknown", "session", s.ID, "err", err)
+				}
 				active[s.Group]++
 				continue
 			}
+			delete(d.unknown, s.ID)
 			if alive {
 				active[s.Group]++
 				continue
@@ -225,6 +250,26 @@ func (d *Dispatcher) reap(ctx context.Context, groups map[string]store.Group) (m
 		}
 	}
 	return active, nil
+}
+
+// runnerFor is the runner that started s, so a session is always judged by
+// its own runner even after its group switches to another. Sessions from
+// before sessions recorded their runner are recognized by their handle.
+func (d *Dispatcher) runnerFor(s store.Session, groups map[string]store.Group) Runner {
+	name := s.Runner
+	if name == "" {
+		switch {
+		case s.Handle["manual"] != nil:
+			name = "manual"
+		case s.Handle["pid"] != nil:
+			name = "exec"
+		case s.Handle["agent"] != nil:
+			name = "herdr"
+		default:
+			name = groups[s.Group].Runner
+		}
+	}
+	return d.Runners[name]
 }
 
 // alive asks the runner about s and reports blocked agents once per episode.
@@ -267,7 +312,7 @@ func (d *Dispatcher) teardown(ctx context.Context, groups map[string]store.Group
 	}
 	for _, s := range ended {
 		g := groups[s.Group]
-		if r := d.Runners[g.Runner]; r != nil && g.Config["keep"] != true && len(s.Handle) > 0 {
+		if r := d.runnerFor(s, groups); r != nil && g.Config["keep"] != true && len(s.Handle) > 0 {
 			if err := r.Stop(ctx, s.Handle); err != nil {
 				d.Log.Warn("stop", "session", s.ID, "err", err)
 				continue
@@ -289,7 +334,7 @@ func (d *Dispatcher) cleanup(ctx context.Context, groups map[string]store.Group)
 	}
 	for _, s := range done {
 		g := groups[s.Group]
-		if f, ok := d.Runners[g.Runner].(Finisher); ok && g.Config["cleanup"] != false {
+		if f, ok := d.runnerFor(s, groups).(Finisher); ok && g.Config["cleanup"] != false {
 			if err := f.Finish(ctx, s.Handle); errors.Is(err, ErrNothingLeft) {
 				// another stage's session already handled it
 			} else if err != nil {
