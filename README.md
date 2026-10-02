@@ -51,9 +51,9 @@ yardr bead create "Add login page" --rig webapp -t feature -b "Use the OAuth flo
 
 The yardr server starts on first use, in the background, and owns
 `~/.yardr/yard.db` (`yardr server status|stop`; `YARDR_HOME` moves everything).
-Back up by copying `yard.db` while the server is stopped. To upgrade, `go
-install` again: the server and daemon replace themselves with the new build
-([details](docs/configuration.md#upgrading)).
+Back up with `yardr store backup <path>`, which copies it while the server
+keeps serving. To upgrade, `go install` again: the server and daemon replace
+themselves with the new build ([details](docs/configuration.md#upgrading)).
 
 yardr was called yard; for one release it still reads `YARD_*` variables and
 `~/.yard` ([details](docs/configuration.md#the-rename-from-yard)).

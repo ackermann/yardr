@@ -202,7 +202,7 @@ Everything yardr keeps for itself lives in one directory, **`YARDR_HOME`**
 
 | path | what |
 |---|---|
-| `yard.db` | the store (bbolt); back it up by copying it while the server is stopped |
+| `yard.db` | the store (bbolt); back it up with `yardr store backup <path>` while it serves (one read transaction, so the copy is the store as of one commit); restore by stopping the daemon and the server and copying the backup over it |
 | `yard.sock` | the server's unix socket |
 | `server.pid`, `server.log` | the running server |
 | `worktrees/<rig>/<bead>` | herdr bead worktrees |

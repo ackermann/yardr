@@ -338,6 +338,10 @@ func (c *Client) Prune(ctx context.Context, keep store.Retention, actor string) 
 	return callV[*store.PruneResult](c, ctx, "Prune", keep, actor)
 }
 
+func (c *Client) Backup(ctx context.Context, path string) (*store.BackupResult, error) {
+	return callV[*store.BackupResult](c, ctx, "Backup", path)
+}
+
 func (c *Client) PutResident(ctx context.Context, def store.Resident, actor string) (*store.Resident, error) {
 	return callV[*store.Resident](c, ctx, "PutResident", def, actor)
 }

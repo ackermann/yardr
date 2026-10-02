@@ -70,6 +70,7 @@ type API interface {
 	LogDispatch(ctx context.Context, bead, kind, actor string, data map[string]any) error
 	Snapshot(ctx context.Context) (*Snapshot, error)
 	Prune(ctx context.Context, keep Retention, actor string) (*PruneResult, error)
+	Backup(ctx context.Context, path string) (*BackupResult, error)
 
 	PutResident(ctx context.Context, def Resident, actor string) (*Resident, error)
 	Residents(ctx context.Context) ([]Resident, error)

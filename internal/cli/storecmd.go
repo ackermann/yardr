@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -26,7 +27,7 @@ func retention() (store.Retention, error) {
 }
 
 func (a *app) storeCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "store", Short: "The store file: prune old events, compact"}
+	cmd := &cobra.Command{Use: "store", Short: "The store file: back up, prune old events, compact"}
 	var events, payloads string
 	prune := &cobra.Command{
 		Use:   "prune",
@@ -100,6 +101,37 @@ complete.`,
 			})
 		},
 	}
-	cmd.AddCommand(prune, compact)
+	backup := &cobra.Command{
+		Use:   "backup <path>",
+		Short: "Write a consistent copy of the store to path while it keeps serving",
+		Long: `Write a copy of yard.db to path through the running server: one read
+transaction copies the store as of a single commit while writes go on, so
+nothing needs stopping. The copy lands beside path and is renamed into place
+once complete; an existing file at path is replaced.
+
+Restore by stopping the daemon and the server and copying the backup over
+yard.db.`,
+		Example: `  yardr store backup ~/backups/yard-$(date +%F).db`,
+		Args:    cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			// The server writes the file, from its own working directory.
+			path, err := filepath.Abs(args[0])
+			if err != nil {
+				return err
+			}
+			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			res, err := st.Backup(c.Context(), path)
+			if err != nil {
+				return err
+			}
+			return a.out(res, func() {
+				fmt.Printf("%s: %d bytes, events up to %d\n", res.Path, res.Bytes, res.Head)
+			})
+		},
+	}
+	cmd.AddCommand(backup, prune, compact)
 	return cmd
 }
