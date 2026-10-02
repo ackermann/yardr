@@ -121,13 +121,11 @@ func AgentName(bead, stage string) string {
 
 // WorkspaceLabel is the herdr label for a group's work on name (a bead or a
 // stage): the group first, then name. herdr already nests workspaces under
-// the rig's repo, so a leading "<rig>-" on either is noise that only gets the
-// label truncated in the sidebar: rig yard labels "yard-builders yard-27" as
-// "builders 27". Names without the prefix stay as they are.
+// the rig's repo, so a leading "<rig>-" on the group is noise that only gets
+// the label truncated in the sidebar. The bead or stage name stays unchanged.
 func WorkspaceLabel(rig, group, name string) string {
 	if rig != "" {
 		group = strings.TrimPrefix(group, rig+"-")
-		name = strings.TrimPrefix(name, rig+"-")
 	}
 	if group == "" {
 		return name

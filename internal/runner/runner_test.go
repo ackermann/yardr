@@ -290,14 +290,14 @@ esac`)}
 
 func TestWorkspaceLabel(t *testing.T) {
 	cases := []struct{ rig, group, name, want string }{
-		{"yard", "yard-codex-review", "yard-29", "codex-review 29"},
-		{"yard", "yard-builders", "yard-20", "builders 20"},
-		{"webapp", "builders", "webapp-1", "builders 1"},
+		{"yard", "yard-codex-review", "yard-29", "codex-review yard-29"},
+		{"yard", "yard-builders", "yard-20", "builders yard-20"},
+		{"webapp", "builders", "webapp-1", "builders webapp-1"},
 		{"webapp", "yard-builders", "yard-3", "yard-builders yard-3"},
 		{"yard", "builders", "review", "builders review"},
 		// Only a leading "<rig>-" goes: not the bare rig, not a longer word.
-		{"yard", "yardstick", "yard", "yardstick yard"},
-		{"yard", "", "yard-7", "7"},
+		{"yard", "yardstick", "yard-29", "yardstick yard-29"},
+		{"yard", "", "yard-7", "yard-7"},
 		{"yard", "", "new", "new"},
 		{"", "yard-builders", "yard-7", "yard-builders yard-7"},
 	}
@@ -342,7 +342,7 @@ esac`)}
 
 	created := `echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"},"worktree":{"path":"` + wt + `"}}}'`
 	calls := start(t, created, "new", "yard-builders")
-	if !strings.Contains(calls, "worktree create ") || !strings.Contains(calls, "--label builders 13\n") {
+	if !strings.Contains(calls, "worktree create ") || !strings.Contains(calls, "--label builders yard-13\n") {
 		t.Fatalf("first stage not labelled group first:\n%s", calls)
 	}
 	if strings.Contains(calls, "workspace rename") || strings.Contains(calls, "tab create") {
@@ -353,7 +353,7 @@ esac`)}
 	calls = start(t, exists, "review", "yard-codex-review")
 	for _, want := range []string{
 		"worktree open --cwd ",
-		"workspace rename w1 codex-review 13\n",
+		"workspace rename w1 codex-review yard-13\n",
 		"tab create --workspace w1 --cwd " + wt + " --label codex-review review\n",
 	} {
 		if !strings.Contains(calls, want) {
