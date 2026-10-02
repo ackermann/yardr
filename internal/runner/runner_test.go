@@ -42,7 +42,7 @@ func TestBriefIncludesPromptAndCommands(t *testing.T) {
 		Rig:     &store.Rig{Name: "web", Path: dir},
 		Session: store.Session{ID: "s1"},
 	}
-	b, err := Brief(job, "web-3-new", "/wt/web-3")
+	b, err := Brief(job, "web-3-new", "/wt/web-3", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,8 +53,45 @@ func TestBriefIncludesPromptAndCommands(t *testing.T) {
 		}
 	}
 	job.Group.Config["prompt"] = "missing.md"
-	if _, err := Brief(job, "x", ""); err == nil {
+	if _, err := Brief(job, "x", "", ""); err == nil {
 		t.Fatal("missing prompt file not reported")
+	}
+}
+
+// A relative prompt the rig does not have is read from the yard's home, so
+// the quick start's prompt=roles/reviewer.md works on a fresh rig from
+// ~/.yardr/roles/reviewer.md; the rig's own copy wins when it has one.
+func TestBriefFindsPromptInHome(t *testing.T) {
+	rig, home := t.TempDir(), t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "roles"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "roles", "reviewer.md"), []byte("Home reviewer."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	job := dispatch.Job{
+		Bead:    store.Bead{ID: "web-3", Title: "t", Type: "task", Stage: "review"},
+		Group:   store.Group{Name: "web/reviewers", Config: map[string]any{"prompt": "roles/reviewer.md"}},
+		Rig:     &store.Rig{Name: "web", Path: rig},
+		Session: store.Session{ID: "s1"},
+	}
+	b, err := Brief(job, "a", "", home)
+	if err != nil || !strings.Contains(b, "Home reviewer.") {
+		t.Fatalf("brief from home = %v\n%s", err, b)
+	}
+	if err := os.MkdirAll(filepath.Join(rig, "roles"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rig, "roles", "reviewer.md"), []byte("Rig reviewer."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if b, err = Brief(job, "a", "", home); err != nil || !strings.Contains(b, "Rig reviewer.") || strings.Contains(b, "Home reviewer.") {
+		t.Fatalf("rig prompt should win = %v\n%s", err, b)
+	}
+	job.Group.Config["prompt"] = "roles/missing.md"
+	_, err = Brief(job, "a", "", home)
+	if err == nil || !strings.Contains(err.Error(), filepath.Join(rig, "roles/missing.md")) || !strings.Contains(err.Error(), filepath.Join(home, "roles/missing.md")) {
+		t.Fatalf("missing prompt error should name both places: %v", err)
 	}
 }
 
@@ -66,7 +103,7 @@ func TestBriefListsNextStages(t *testing.T) {
 		Group:   store.Group{Name: "builders"},
 		Session: store.Session{ID: "s1"},
 	}
-	plain, err := Brief(job, "a", "")
+	plain, err := Brief(job, "a", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +119,7 @@ func TestBriefListsNextStages(t *testing.T) {
 		{Stage: "backlog"},
 		{Stage: "dropped", Terminal: true},
 	}
-	b, err := Brief(job, "a", "")
+	b, err := Brief(job, "a", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +144,7 @@ func TestBriefListsNextStages(t *testing.T) {
 	}
 
 	job.Next = []dispatch.NextStage{}
-	b, _ = Brief(job, "a", "")
+	b, _ = Brief(job, "a", "", "")
 	if !strings.Contains(b, "allows no move out of `new`") {
 		t.Errorf("empty next stages not explained:\n%s", b)
 	}
@@ -130,7 +167,7 @@ func TestBriefListsOutcomes(t *testing.T) {
 			{Outcome: "question", NextStage: dispatch.NextStage{Stage: "decide", Group: "deciders", Runner: "manual"}},
 		},
 	}
-	b, err := Brief(job, "a", "")
+	b, err := Brief(job, "a", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -599,7 +636,7 @@ func TestMigratedBeadKeepsItsBranch(t *testing.T) {
 	if got := Branch(*b); got != "yard/yard-2" {
 		t.Fatalf("branch = %s, want yard/yard-2", got)
 	}
-	brief, err := Brief(dispatch.Job{Bead: *b, Session: store.Session{ID: "s"}, Group: store.Group{Name: "g"}}, "a", "/w/yard-2")
+	brief, err := Brief(dispatch.Job{Bead: *b, Session: store.Session{ID: "s"}, Group: store.Group{Name: "g"}}, "a", "/w/yard-2", "")
 	if err != nil || !strings.Contains(brief, "branch `yard/yard-2`") {
 		t.Fatalf("brief names another branch:\n%s", brief)
 	}

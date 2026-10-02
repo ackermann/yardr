@@ -26,6 +26,10 @@ alias yd=yardr                          # the short form, if you like it
 
 yardr rig add webapp ~/projects/webapp --base origin/main
 
+# role prompts: the rig's own roles/*.md, else ~/.yardr/roles/*.md
+mkdir -p ~/.yardr/roles
+$EDITOR ~/.yardr/roles/builder.md ~/.yardr/roles/reviewer.md
+
 # who does the work
 yardr group add webapp/builders  --runner herdr --limit 2 \
     --set kind=claude --set prompt=roles/builder.md
@@ -71,7 +75,8 @@ yardr rig add legacy ~/src/legacy --base origin/master       # base must resolve
 
 Bead branches (`yard/<bead>`) start from the rig's base, fetched before each
 new worktree. Give beads a rig with `--rig`; routes can match on it, and
-group prompt paths are resolved inside it.
+a group's relative prompt path is looked up inside it first, then in
+`~/.yardr` ([details](docs/configuration.md#role-prompts)).
 
 ## Working a bead (humans and agents alike)
 

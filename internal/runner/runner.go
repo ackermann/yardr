@@ -9,7 +9,9 @@
 package runner
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -73,14 +75,11 @@ func strs(cfg map[string]any, key string) []string {
 
 // Brief renders the instructions an agent session starts from: the group's
 // prompt file followed by the bead and the yard commands to report back.
-func Brief(job dispatch.Job, actor, workdir string) (string, error) {
+// home is the yard's home, where relative prompts not in the rig are found.
+func Brief(job dispatch.Job, actor, workdir, home string) (string, error) {
 	var b strings.Builder
 	if p := str(job.Group.Config, "prompt", ""); p != "" {
-		path := p
-		if !filepath.IsAbs(path) && job.Rig != nil {
-			path = filepath.Join(job.Rig.Path, p)
-		}
-		text, err := os.ReadFile(path)
+		text, err := readPrompt(p, job.Rig, home)
 		if err != nil {
 			return "", fmt.Errorf("group %s prompt: %w", job.Group.Name, err)
 		}
@@ -126,6 +125,40 @@ Your environment already names you to yardr (YARDR_ACTOR=%[1]s, YARDR_BEAD, YARD
 		writeNext(&b, bead.ID, bead.Stage, job.Next)
 	}
 	return b.String(), nil
+}
+
+// readPrompt reads a group's prompt file. An absolute path is read as is. A
+// relative one is looked up in the rig first, then in the yard's home, so
+// prompt=roles/reviewer.md finds the rig's own roles/reviewer.md or, when the
+// rig has none, ~/.yardr/roles/reviewer.md: a new rig works from the
+// operator's prompts until it commits its own.
+func readPrompt(p string, rig *store.Rig, home string) ([]byte, error) {
+	if filepath.IsAbs(p) {
+		return os.ReadFile(p)
+	}
+	var tried []string
+	for _, dir := range []string{rigPath(rig), home} {
+		if dir == "" {
+			continue
+		}
+		path := filepath.Join(dir, p)
+		text, err := os.ReadFile(path)
+		if err == nil || !errors.Is(err, fs.ErrNotExist) {
+			return text, err
+		}
+		tried = append(tried, path)
+	}
+	if len(tried) == 0 {
+		return os.ReadFile(p)
+	}
+	return nil, fmt.Errorf("%s not found (looked in %s)", p, strings.Join(tried, ", "))
+}
+
+func rigPath(rig *store.Rig) string {
+	if rig == nil {
+		return ""
+	}
+	return rig.Path
 }
 
 // writeNext lists the stages the bead's flow allows from stage, each with

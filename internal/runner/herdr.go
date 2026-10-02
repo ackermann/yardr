@@ -239,7 +239,7 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 		_, _ = h.run(ctx, "tab", "close", wt.Tab.ID)
 	}
 
-	brief, err := Brief(job, name, wt.Worktree.Path)
+	brief, err := Brief(job, name, wt.Worktree.Path, h.YardHome)
 	if err != nil {
 		return handle, err
 	}

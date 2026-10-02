@@ -16,7 +16,7 @@ in yard-9cza, the merge gate in yard-p2y7.
 |---|---|---|
 | flows | the rig's default and type flows, named flows: `.yardr/flows/` (built) | named flows, and rig and type pointers to them (built) |
 | merge gate | `.yardr/check` (built) | a per-rig override, `rig add --check` (built) |
-| roles | codebase role prompts, e.g. this repo's `roles/builder.md` (built: any repo path, named by a group's `prompt`) | prompts outside any repo, by absolute path (built) |
+| roles | codebase role prompts, e.g. this repo's `roles/builder.md` (built: any repo path, named by a group's `prompt`) | prompts outside any repo: relative paths not in the rig resolve in `~/.yardr`, or an absolute path (built) |
 | groups | | runner, limit, members, subscriptions (manual), agent kind, model, args, cmd, worktree settings (built) |
 | routes | | which group works which stage, by rig, type, label (built) |
 | rigs | | path, clone, base branch (built) |
@@ -54,8 +54,22 @@ describe one installation, not the codebase:
 A role prompt can live on either side: a prompt about the codebase belongs
 in the repo, and a group names it by its path inside the rig
 (`--set prompt=roles/builder.md`); a prompt that is the operator's own (rig
-yard's reviewer prompt in `~/.yardr/roles/`) is named by absolute path and
-stays out of the repo.
+yard's reviewer prompt in `~/.yardr/roles/`) stays out of the repo.
+
+### Role prompts
+
+A group's `prompt` is read when a session starts:
+
+- an absolute path is read as is;
+- a relative path is looked up in the bead's rig first, then in the yard's
+  home (`YARDR_HOME`, default `~/.yardr`). `prompt=roles/reviewer.md` reads
+  the rig's `roles/reviewer.md` when the repo has one, and
+  `~/.yardr/roles/reviewer.md` otherwise.
+
+So a fresh rig works from the operator's prompts in `~/.yardr/roles/` until
+it commits its own, and committing one overrides the home copy for that rig
+only. A prompt found in neither place fails the session start with both paths
+in the error; three such failures hold the bead.
 
 ## Session limits and outages
 
