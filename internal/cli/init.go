@@ -26,7 +26,12 @@ import (
 // A yard is initialized once yardr init (or the onboarding) has stored its
 // default_kind. The store file alone does not say so: the server creates it
 // on the first command that connects, whatever that command was, so a home
-// can hold a store nobody set up.
+// can hold a store nobody set up. A store without default_kind that already
+// holds rigs, groups, residents or beads is a yard from before the
+// onboarding, in use, and counts as set up too: onboarding it would refuse
+// its agents' commands and the daemon (yard-w6np). Opening the store writes
+// default_kind into such a yard (store.migrateSettings); this check is the
+// belt to those braces, for a store a server of an older build still holds.
 func (a *app) initialized(ctx context.Context, cfg *config.Config) (bool, error) {
 	if a.st == nil {
 		// No store file: nothing to connect to, and connecting would create one.
@@ -41,7 +46,26 @@ func (a *app) initialized(ctx context.Context, cfg *config.Config) (bool, error)
 	if defaultKind(ctx, st) != "" {
 		return true, nil
 	}
-	return false, nil
+	rigs, err := st.Rigs(ctx)
+	if err != nil {
+		return false, err
+	}
+	groups, err := st.Groups(ctx)
+	if err != nil {
+		return false, err
+	}
+	residents, err := st.Residents(ctx)
+	if err != nil {
+		return false, err
+	}
+	if len(rigs)+len(groups)+len(residents) > 0 {
+		return true, nil
+	}
+	beads, err := st.ListBeads(ctx, store.BeadFilter{All: true})
+	if err != nil {
+		return false, err
+	}
+	return len(beads) > 0, nil
 }
 
 // notInitialized is a command run on a home with no yard yet and no
@@ -62,9 +86,11 @@ var interactive = func() bool {
 var lookPath = exec.LookPath
 
 // noOnboarding are the top-level commands that run on a home with no yard:
-// the server (Connect starts it to create the store), init itself, and the
-// ones that never touch the store.
-var noOnboarding = []string{"server", "init", "version", "help", "completion",
+// the server (Connect starts it to create the store), init itself, the ones
+// that never touch the store, the daemon (it has no terminal, and a refusal
+// after it replaced itself would end it: yard-w6np) and settings, the way
+// out when the check is wrong about a yard.
+var noOnboarding = []string{"server", "init", "daemon", "settings", "version", "help", "completion",
 	cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd}
 
 // firstRun runs before every command: on a home with no yard yet it runs the
@@ -378,9 +404,10 @@ adds the mayor resident on that harness with its unattended flags, rotating
 every 6h. The daemon starts the mayor.
 
 Run yardr in a terminal on a home with no yard to get the same as a form. A
-home counts as set up once init has stored default_kind; the store file alone
-does not, since the server creates it on any first command. Init again keeps
-an existing mayor.
+home counts as set up once init has stored default_kind, or once its store
+has rigs, groups, residents or beads (a yard from before the onboarding); the
+store file alone does not, since the server creates it on any first command.
+Init again keeps an existing mayor.
 
 After init the mayor sets up the rest in conversation. For scripts, the same
 by hand:

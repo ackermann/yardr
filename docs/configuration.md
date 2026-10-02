@@ -237,10 +237,16 @@ socket paths are limited to about 100 bytes, and yardr refuses a home whose
 
 ### Creating a yard: the onboarding and `yardr init`
 
-A home is initialized once its store has the `default_kind` setting, which
-init writes last. The store file alone is no marker: the server creates
-`yard.db` on the first command that connects, whatever it was, so a home can
-hold an empty store nobody set up. Any yardr command on a home that is not set
+A home is set up once its store has the `default_kind` setting, which init
+writes last, or once it has any rig, group, resident or bead: a yard from
+before the onboarding is in use, and onboarding it would refuse its agents'
+commands. Opening such a store writes `default_kind` for it, from the first
+herdr group's kind, else the first herdr resident's, else `claude`, with the
+event `settings_migrated` (the `operator` setting stays unset; installed role
+prompts keep the name they have). Only an empty store onboards. The store
+file alone is no marker: the server creates `yard.db` on the first command
+that connects, whatever it was, so a home can hold an empty store nobody set
+up. Any yardr command on a home that is not set
 up, bare `yardr` included (help otherwise; `--help` is always help), runs the
 onboarding when it has a terminal: the default harness (every kind herdr starts, marked
 installed when its executable is on PATH, the first installed one
@@ -248,7 +254,8 @@ preselected), the mayor's name (default `mayor`), the directory its shell
 lives in (default the home's parent, so `~` for `~/.yardr`), and an optional
 model, and your name for the role prompts. Without a terminal it prints how
 to initialize and exits 2.
-`yardr server`, `yardr init` and `yardr help` never ask.
+`yardr server`, `yardr init`, `yardr daemon`, `yardr settings` and
+`yardr help` never ask.
 
 `yardr init --harness <kind> [--mayor <name>] [--dir <path>] [--model <m>]
 [--operator <name>]` does the same without the form, for scripts and tests.

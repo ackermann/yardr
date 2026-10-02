@@ -132,6 +132,9 @@ func Open(path string) (*Store, error) {
 		if err := migrateFlows(tx); err != nil {
 			return err
 		}
+		if err := migrateSettings(tx); err != nil {
+			return err
+		}
 		return setSchema(tx)
 	})
 	if err != nil {

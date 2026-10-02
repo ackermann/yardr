@@ -207,7 +207,10 @@ func TestMigrateCounterIDs(t *testing.T) {
 		t.Fatalf("dep_added event = %+v", evs[1])
 	}
 	allEvents, err := s.Events(ctx, "", 0)
-	if err != nil || len(allEvents) != 6 || allEvents[4].Kind != "mail" || allEvents[4].Bead != nil {
+	// The legacy yard has a rig and no default_kind: opening it also wrote
+	// settings_migrated (yard-w6np).
+	if err != nil || len(allEvents) != 7 || allEvents[4].Kind != "mail" || allEvents[4].Bead != nil ||
+		allEvents[5].Kind != "settings_migrated" {
 		t.Fatalf("global event lost during migration: %+v %v", allEvents, err)
 	}
 	// The workspace of the closed bead is still found through its session.

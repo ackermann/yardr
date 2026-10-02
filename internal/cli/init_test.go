@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/huh"
 
@@ -188,7 +189,8 @@ func TestFirstRunWithoutTerminal(t *testing.T) {
 
 // A home is set up once init stored default_kind: not by its store file,
 // which the server creates on any first command, and not by an empty store.
-// A store already in use without the setting still needs onboarding.
+// A store already in use without the setting (a yard from before the
+// onboarding) is set up too (yard-w6np).
 func TestInitialized(t *testing.T) {
 	newHome(t)
 	cfg, err := config.Load()
@@ -217,8 +219,95 @@ func TestInitialized(t *testing.T) {
 	if err := old.PutRig(ctx, store.Rig{Name: "r", Path: "/x", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if ok, err := (&app{st: old}).initialized(ctx, cfg); ok || err != nil {
-		t.Fatalf("store in use without default_kind: %v %v", ok, err)
+	if ok, err := (&app{st: old}).initialized(ctx, cfg); !ok || err != nil {
+		t.Fatalf("store with a rig, without default_kind: %v %v", ok, err)
+	}
+	for name, fill := range map[string]func(store.API) error{
+		"group": func(st store.API) error { return st.PutGroup(ctx, store.Group{Name: "g", Runner: "manual"}) },
+		"resident": func(st store.API) error {
+			_, err := st.PutResident(ctx, store.Resident{Name: "m", Runner: "herdr"}, "me")
+			return err
+		},
+		"bead": func(st store.API) error {
+			_, err := st.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
+			return err
+		},
+	} {
+		st := storetest.New(t)
+		if err := fill(st); err != nil {
+			t.Fatal(err)
+		}
+		if ok, err := (&app{st: st}).initialized(ctx, cfg); !ok || err != nil {
+			t.Fatalf("store with a %s, without default_kind: %v %v", name, ok, err)
+		}
+	}
+}
+
+// A yard from before the onboarding (one rig, no settings) keeps working
+// without a terminal: its commands run and bare yardr is help. Only an
+// empty store refuses (yard-w6np: an upgrade locked ~/.yardr out).
+func TestOldYardIsNotOnboarded(t *testing.T) {
+	newHome(t)
+	setInteractive(t, false)
+	ctx := context.Background()
+	st := storetest.New(t)
+	if err := st.PutRig(ctx, store.Rig{Name: "r", Path: "/x", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, (&app{st: st}).rootCmd(), "session", "list"); err != nil {
+		t.Fatalf("session list: %v", err)
+	}
+	if out, err := run(t, (&app{st: st}).rootCmd()); err != nil || !strings.Contains(out, "Usage:") {
+		t.Fatalf("bare yardr: %v\n%s", err, out)
+	}
+	if _, err := run(t, (&app{st: storetest.New(t)}).rootCmd(), "session", "list"); exitCode(err) != 2 {
+		t.Fatalf("empty store: %v", err)
+	}
+}
+
+// The escape hatch is never behind the gate it unlocks: settings works on a
+// store the check calls not set up, and setting default_kind sets it up.
+func TestSettingsWithoutYard(t *testing.T) {
+	newHome(t)
+	setInteractive(t, false)
+	st := storetest.New(t)
+	if _, err := run(t, (&app{st: st}).rootCmd(), "settings", "set", "default_kind", "codex"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, (&app{st: st}).rootCmd(), "session", "list"); err != nil {
+		t.Fatalf("after settings set: %v", err)
+	}
+}
+
+// The daemon runs on a store without default_kind, empty even, and without a
+// terminal: after it replaced itself into a build with the onboarding check
+// it was refused and ended (yard-w6np).
+func TestDaemonWithoutYard(t *testing.T) {
+	newHome(t)
+	setInteractive(t, false)
+	// herdr is not running in an empty config dir: the daemon only warns.
+	xdg, err := os.MkdirTemp("", "yw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(xdg) })
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(xdg, "c"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(xdg, "s"))
+	t.Setenv("HERDR_SOCKET_PATH", "")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: storetest.New(t), cfg: cfg}
+	root := a.rootCmd()
+	root.SetArgs([]string{"daemon", "--interval", "50ms"})
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	err = root.ExecuteContext(ctx)
+	if errors.As(err, new(notInitialized)) || time.Since(start) < 400*time.Millisecond {
+		t.Fatalf("daemon ended after %v: %v", time.Since(start), err)
 	}
 }
 
