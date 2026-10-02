@@ -24,6 +24,9 @@ type reviewItem struct {
 	Group   string         `json:"group"`
 	Members []string       `json:"members,omitempty"` // none = anyone
 	Actions []reviewAction `json:"actions"`
+	// FlowError says why the bead's flow does not resolve; every move is
+	// refused until it is fixed, so only diff and skip are offered.
+	FlowError string `json:"flow_error,omitempty"`
 }
 
 // Action kinds. advance moves the bead to Stage; done reports Outcome,
@@ -87,12 +90,13 @@ func reviewQueue(ctx context.Context, st store.API, actor string, only []string)
 		if len(g.Members) > 0 && !slices.Contains(g.Members, actor) {
 			continue
 		}
-		next, err := st.NextStages(ctx, b.ID)
-		if err != nil {
-			return nil, err
+		it := reviewItem{Bead: b, Group: g.Name, Members: g.Members}
+		if next, err := st.NextStages(ctx, b.ID); err != nil {
+			it.FlowError, it.Actions = err.Error(), lookActions()
+		} else {
+			it.Actions = reviewActions(b, next.Flow, routes)
 		}
-		items = append(items, reviewItem{Bead: b, Group: g.Name, Members: g.Members,
-			Actions: reviewActions(b, next.Flow, routes)})
+		items = append(items, it)
 	}
 	slices.SortStableFunc(items, func(x, y reviewItem) int {
 		if c := x.Bead.UpdatedAt.Compare(y.Bead.UpdatedAt); c != 0 {
@@ -150,9 +154,15 @@ func reviewActions(b store.Bead, f *store.Flow, routes []store.Route) []reviewAc
 			out = append(out, reviewAction{Kind: actAdvance, Stage: s, Label: "Move to " + s})
 		}
 	}
-	return append(out,
-		reviewAction{Kind: actDiff, Label: "Open diff"},
-		reviewAction{Kind: actSkip, Label: "Skip"})
+	return append(out, lookActions()...)
+}
+
+// lookActions are offered for every bead: they leave it where it is.
+func lookActions() []reviewAction {
+	return []reviewAction{
+		{Kind: actDiff, Label: "Open diff"},
+		{Kind: actSkip, Label: "Skip"},
+	}
 }
 
 // diffRange is the bead branch against the rig's base, as git diff takes
@@ -274,8 +284,12 @@ names no outcomes).`,
 							next = append(next, ac.Outcome+":"+ac.Stage)
 						}
 					}
+					nextCol := or(strings.Join(next, " | "), "-")
+					if it.FlowError != "" {
+						nextCol = "flow error: " + it.FlowError
+					}
 					rows = append(rows, []string{it.Bead.ID, it.Bead.Stage, it.Group, age(it.Bead.UpdatedAt),
-						or(strings.Join(next, " | "), "-"), it.Bead.Title})
+						nextCol, it.Bead.Title})
 				}
 				table("ID\tSTAGE\tGROUP\tWAITING\tNEXT\tTITLE", rows)
 			})
@@ -314,6 +328,9 @@ func (a *app) reviewForm(ctx context.Context, st store.API, items []reviewItem) 
 		desc := fmt.Sprintf("stage %s · group %s · %s · P%d · waiting %s", b.Stage, it.Group, b.Type, b.Priority, age(b.UpdatedAt))
 		if b.Hold {
 			desc += " · HELD"
+		}
+		if it.FlowError != "" {
+			desc += "\n\nFlow error (moves are refused until it is fixed): " + it.FlowError
 		}
 		if body := strings.TrimSpace(b.Body); body != "" {
 			desc += "\n\n" + clip(body, 12)

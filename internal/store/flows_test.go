@@ -27,7 +27,7 @@ func flowRig(t *testing.T) (store.API, context.Context) {
 	t.Helper()
 	s := storetest.New(t)
 	ctx := context.Background()
-	if err := s.PutRig(ctx, store.Rig{Name: "yard", Path: "/tmp/yard", Base: "origin/main"}); err != nil {
+	if err := s.PutRig(ctx, store.Rig{Name: "yard", Base: "origin/main"}); err != nil {
 		t.Fatal(err)
 	}
 	return s, ctx
@@ -141,7 +141,7 @@ func TestNoFlowPassesThrough(t *testing.T) {
 	s, ctx := flowRig(t)
 	// A rig without a flow, and a bead without a rig while flows exist
 	// elsewhere, move anywhere and start in any stage.
-	if err := s.PutRig(ctx, store.Rig{Name: "other", Path: "/tmp/o", Base: "origin/main"}); err != nil {
+	if err := s.PutRig(ctx, store.Rig{Name: "other", Base: "origin/main"}); err != nil {
 		t.Fatal(err)
 	}
 	putFlow(t, s, "other", "", yardFlow)
@@ -280,16 +280,18 @@ func TestFlowTerminalStageCloses(t *testing.T) {
 	if !slices.Equal(kinds, []string{"advanced", "closed"}) || evs[1].Data["reason"] != "merged" {
 		t.Fatalf("events = %v (%+v)", kinds, evs)
 	}
-	// A reopened bead in a terminal stage is not stuck: it may re-enter any
-	// stage of the flow, but not one outside it.
+	// A reopened bead in a terminal stage is not stuck: it may re-enter the
+	// flow at its first stage, but not further on nor outside it.
 	if _, err := s.Reopen(ctx, b.ID, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Advance(ctx, b.ID, "elsewhere", "me"); err == nil {
-		t.Fatal("reopened bead left the flow")
+	for _, to := range []string{"elsewhere", "new"} {
+		if _, err := s.Advance(ctx, b.ID, to, "me"); err == nil {
+			t.Fatalf("reopened bead moved to %s", to)
+		}
 	}
-	if b, err = s.Advance(ctx, b.ID, "new", "me"); err != nil || b.Status != "open" {
-		t.Fatalf("reopened bead back to new: %v %+v", err, b)
+	if b, err = s.Advance(ctx, b.ID, "backlog", "me"); err != nil || b.Status != "open" {
+		t.Fatalf("reopened bead back to backlog: %v %+v", err, b)
 	}
 }
 
@@ -301,15 +303,34 @@ func TestFlowStageUnknownToFlowCanRejoin(t *testing.T) {
 		t.Fatal(err)
 	}
 	putFlow(t, s, "yard", "", yardFlow)
-	next, _ := s.NextStages(ctx, b.ID)
-	if len(next.Stages) != 7 {
-		t.Fatalf("next from unknown stage = %v, want every flow stage", next.Stages)
+	// It rejoins at the flow's first stage only: from an unknown stage any
+	// stage would let it skip review and land as approved or merged.
+	next, err := s.NextStages(ctx, b.ID)
+	if err != nil || !slices.Equal(next.Stages, []string{"backlog"}) {
+		t.Fatalf("next from unknown stage = %+v, %v; want only backlog", next, err)
 	}
-	if _, err := s.Advance(ctx, b.ID, "elsewhere", "me"); err == nil {
-		t.Fatal("moved to a stage outside the flow")
+	for _, to := range []string{"elsewhere", "review", "approved", "merged"} {
+		if _, err := s.Advance(ctx, b.ID, to, "me"); err == nil || !strings.Contains(err.Error(), "allowed next: backlog") {
+			t.Fatalf("unknown stage -> %s: err = %v", to, err)
+		}
 	}
-	if _, err := s.Advance(ctx, b.ID, "review", "me"); err != nil {
+	if _, err := s.Advance(ctx, b.ID, "backlog", "me"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The first stage itself, when the flow gives it no way out, offers nothing
+// rather than itself.
+func TestFlowNextFromDeadFirstStage(t *testing.T) {
+	f, err := store.ParseFlow("only terminal\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next := f.Next("only"); len(next) != 0 {
+		t.Fatalf("next = %v", next)
+	}
+	if next := f.Next("unknown"); !slices.Equal(next, []string{"only"}) {
+		t.Fatalf("next from unknown = %v", next)
 	}
 }
 

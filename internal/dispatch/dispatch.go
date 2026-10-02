@@ -523,9 +523,13 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 			}
 		}
 
+		// A bead whose flow does not resolve (a pin naming nothing, a broken
+		// repo flow, a rig checkout git cannot read) stays put until fixed;
+		// the beads after it still dispatch.
 		next, outcomes, err := d.nextStages(ctx, b, routes, groups)
 		if err != nil {
-			return err
+			d.reportOnce(ctx, b, "bad_flow", err.Error())
+			continue
 		}
 
 		sess, err := d.Store.Claim(ctx, b.ID, g.Name, b.Stage, actor)

@@ -302,6 +302,26 @@ type BeadPatch struct {
 }
 
 func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, actor string) (*Bead, error) {
+	// A new pin must name a flow that exists: one naming nothing would
+	// only fail later, when dispatch or a move resolves it.
+	pin := PinnedFlow(&Bead{Metadata: p.Metadata})
+	var repo *RepoFlows
+	if pin != "" {
+		pre, err := s.GetBead(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		rig, typ := pre.Rig, pre.Type
+		if p.Rig != nil {
+			rig = p.Rig
+		}
+		if p.Type != nil {
+			typ = *p.Type
+		}
+		if repo, err = s.repoFor(ctx, rig, typ, pin); err != nil {
+			return nil, err
+		}
+	}
 	return s.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
 		changed := map[string]any{}
 		if p.Title != nil {
@@ -336,6 +356,11 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, actor st
 				b.Metadata[k] = v
 			}
 			changed["metadata"] = p.Metadata
+		}
+		if pin != "" {
+			if _, _, err := resolveFlow(w.Tx, b.Rig, b.Type, pin, repo); err != nil {
+				return "", nil, changedMeanwhile(err)
+			}
 		}
 		return "updated", changed, nil
 	})

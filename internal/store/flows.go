@@ -181,12 +181,17 @@ func (f *Flow) Resolve(stage, outcome string) (string, error) {
 
 // Next lists the stages a bead in stage may move to. A stage with no way
 // out (one the flow does not know, or a terminal stage after a reopen) may
-// move to any stage of the flow, so such a bead is never stuck.
+// move to the flow's first stage only, so such a bead is never stuck but
+// cannot skip the flow either: from anywhere else it would jump straight
+// to approved or merged.
 func (f *Flow) Next(stage string) []string {
 	if next := f.Transitions[stage]; len(next) > 0 {
 		return slices.Clone(next)
 	}
-	return slices.DeleteFunc(slices.Clone(f.Stages), func(s string) bool { return s == stage })
+	if len(f.Stages) == 0 || f.Stages[0] == stage {
+		return []string{}
+	}
+	return []string{f.Stages[0]}
 }
 
 // Allows reports whether a bead in from may move to to.

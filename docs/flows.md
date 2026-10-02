@@ -60,12 +60,27 @@ yardr reads them from the tip of the rig's **base branch**
 or the checkout's working tree: a builder who edits a flow on `yard/<bead>`
 changes nothing for that bead. The edit applies once it has been reviewed
 and landed on the base. yardr resolves the base on every check and re-reads
-the files when its commit moves (it caches them by commit). A rig whose path
-is not a checkout, or whose base does not resolve, has no repo flows.
+the files when its commit moves (it caches them by commit). A rig without a
+path, or whose base does not exist in its checkout (`git rev-parse --verify
+--quiet` finds nothing), has no repo flows. Any other git failure, such as a
+path that is not a checkout, is an error for the beads that need the repo's
+flows, not "no flows".
 
 A file that does not parse is shown by `yardr flow list` with its error;
 a bead it would govern cannot be created or moved until the base is fixed,
 rather than silently running without its flow.
+
+## A flow that does not resolve
+
+A pin naming a flow that is gone, a repo flow that does not parse, or a
+checkout git cannot read leaves the bead where it is, never ungoverned:
+
+- its moves (`advance`, `done`) are refused with the error;
+- the dispatcher records one `bad_flow` event for it (again only if the
+  reason changes), does not claim it, and goes on dispatching every other
+  bead;
+- `yardr bead show` and `yardr prime --bead` print `flow error: ...` in place
+  of the flow, and `yardr review` shows the error with only diff and skip.
 
 ## Which flow governs a bead
 
@@ -75,8 +90,10 @@ pin on the bead  >  store pointer  >  repo .yardr/flows  >  none
 
 - **Pin**: the bead names its flow in its metadata
   (`yardr bead update <id> --meta flow=<name>`, or `bead create --meta`).
-  The pin governs even a bead without a rig. A pin naming no flow refuses
-  the bead's moves.
+  The pin governs even a bead without a rig. `create` and `update` refuse a
+  pin naming no flow (`the bead pins flow ghost: not found`); a pin that
+  stops resolving later, say a repo flow removed from the base, refuses the
+  bead's moves (see above).
 - **Store pointer**: the type's pointer, else the rig's (`yardr rig flow`).
 - **Repo**: `type/<type>.flow`, else `default.flow`, on the base branch.
 - **None**: any stage is allowed.
@@ -109,8 +126,9 @@ With a flow in place:
 - `yardr bead create -s <stage>` must name a non-terminal stage of the flow
   (the default `new` too).
 - A bead in a stage the flow has no way out of (a stage the flow does not
-  know, or a terminal stage after `yardr bead reopen`) may move to any stage
-  of the flow, so it is never stuck.
+  know, or a terminal stage after `yardr bead reopen`) may move only to the
+  flow's first stage (`backlog` in the example), so it is never stuck but
+  cannot skip ahead to `approved` or `merged`.
 - `yardr prime --bead` prints the stage's outcomes, or the allowed next
   stages when it has none; the store API exposes both as `NextStages`.
   Agents' briefs list them the same way, with the exact command for each.

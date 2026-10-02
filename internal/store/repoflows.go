@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"path"
@@ -39,8 +40,10 @@ func (rf *RepoFlow) flow() (*Flow, error) {
 }
 
 // RepoFlows is what a rig's repository says about flows at the tip of its
-// base branch. Commit is empty when the rig's path is not a checkout or
-// its base does not resolve there: then the repository has no flows.
+// base branch. Commit is empty when the rig has no path or its base does
+// not exist in the checkout: then the repository has no flows. Any other
+// git failure (the path is not a checkout, git is missing) is an error, so
+// a broken checkout does not silently leave its beads without their flow.
 type RepoFlows struct {
 	Rig    string     `json:"rig"`
 	Base   string     `json:"base"`
@@ -78,9 +81,14 @@ func (s *Store) RepoFlows(ctx context.Context, rig string) (*RepoFlows, error) {
 func (c *repoCache) load(ctx context.Context, r Rig) (*RepoFlows, error) {
 	base := or(r.Base, "origin/main")
 	out := &RepoFlows{Rig: r.Name, Base: base, Flows: []RepoFlow{}}
+	if r.Path == "" {
+		return out, nil // git -C "" would read whatever the server runs in
+	}
 	sha, err := git(ctx, r.Path, "rev-parse", "--verify", "--quiet", base+"^{commit}")
-	if err != nil {
+	if errors.Is(err, errGitNotFound) {
 		return out, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("rig %s: resolving base %s in %s: %w", r.Name, base, r.Path, err)
 	}
 	out.Commit = strings.TrimSpace(string(sha))
 	key := join(r.Path, base)
@@ -137,13 +145,22 @@ func (c *repoCache) load(ctx context.Context, r Rig) (*RepoFlows, error) {
 	return &cp, nil
 }
 
+// errGitNotFound is a git command that exited 1 without a word on stderr:
+// how `rev-parse --verify --quiet` says the revision does not exist.
+var errGitNotFound = errors.New("git: not found")
+
 func git(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	var stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+		msg := strings.TrimSpace(stderr.String())
+		var exit *exec.ExitError
+		if msg == "" && errors.As(err, &exit) && exit.ExitCode() == 1 && ctx.Err() == nil {
+			return nil, fmt.Errorf("git %s: %w", args[0], errGitNotFound)
+		}
+		if msg != "" {
 			return nil, fmt.Errorf("git %s: %w: %s", args[0], err, msg)
 		}
 		return nil, fmt.Errorf("git %s: %w", args[0], err)

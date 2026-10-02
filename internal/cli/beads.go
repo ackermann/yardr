@@ -28,11 +28,13 @@ func beadRows(bs []store.Bead) [][]string {
 
 const beadHeader = "ID\tPRI\tTYPE\tSTAGE\tSTATUS\tGROUP\tRIG\tTITLE"
 
-func (a *app) printBead(b *store.Bead) error { return a.printBeadFlow(b, nil) }
+func (a *app) printBead(b *store.Bead) error { return a.printBeadFlow(b, nil, nil) }
 
 // printBeadFlow is printBead naming the flow that governs the bead and
 // where it comes from, when next is given.
-func (a *app) printBeadFlow(b *store.Bead, next *store.NextStages) error {
+// printBeadFlow prints b with the flow governing it; flowErr, when the
+// flow does not resolve, is shown in its place rather than hide the bead.
+func (a *app) printBeadFlow(b *store.Bead, next *store.NextStages, flowErr error) error {
 	return a.out(b, func() {
 		fmt.Printf("%s  %s\n", b.ID, b.Title)
 		fmt.Printf("  type %s · stage %s · %s · P%d", b.Type, b.Stage, b.Status, b.Priority)
@@ -43,7 +45,9 @@ func (a *app) printBeadFlow(b *store.Bead, next *store.NextStages) error {
 		if b.Rig != nil {
 			fmt.Printf("  rig %s\n", *b.Rig)
 		}
-		if next != nil && next.Flow != nil {
+		if flowErr != nil {
+			fmt.Printf("  flow error: %v\n", flowErr)
+		} else if next != nil && next.Flow != nil {
 			fmt.Printf("  flow %s (%s)\n", next.Flow.Name, next.Source)
 		}
 		if b.Group != nil {
@@ -129,10 +133,7 @@ func (a *app) beadCmd() *cobra.Command {
 				return a.printBead(b)
 			}
 			next, err := st.NextStages(c.Context(), b.ID)
-			if err != nil {
-				return err
-			}
-			return a.printBeadFlow(b, next)
+			return a.printBeadFlow(b, next, err)
 		},
 	}
 
@@ -491,14 +492,16 @@ func (a *app) primeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			next, err := st.NextStages(c.Context(), id)
-			if err != nil {
-				return err
-			}
+			next, flowErr := st.NextStages(c.Context(), id)
 			v := map[string]any{"bead": b, "notes": notes, "deps": deps, "open_blockers": blockers, "next": next}
+			if flowErr != nil {
+				v["flow_error"] = flowErr.Error()
+			}
 			return a.out(v, func() {
-				_ = a.printBeadFlow(b, next)
-				if len(next.Outcomes) > 0 {
+				_ = a.printBeadFlow(b, next, flowErr)
+				if flowErr != nil {
+					fmt.Println("\nOUTCOMES: none until the flow is fixed; every move is refused")
+				} else if len(next.Outcomes) > 0 {
 					fmt.Println("\nOUTCOMES:")
 					for _, o := range next.Outcomes {
 						fmt.Printf("  %-12s -> %-12s %s\n", o.Name, o.To, doneCommand(b.ID, o.Name))

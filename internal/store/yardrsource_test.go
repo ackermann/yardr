@@ -101,7 +101,7 @@ func TestYardrPerBeadAndPerStage(t *testing.T) {
 
 func TestYardrLabelRigTypeFilters(t *testing.T) {
 	s, ctx, b := yardrRig(t, "ui", "yard", "bugs")
-	if err := s.PutRig(ctx, store.Rig{Name: "web", Path: "/tmp/web", Base: "origin/main"}); err != nil {
+	if err := s.PutRig(ctx, store.Rig{Name: "web", Base: "origin/main"}); err != nil {
 		t.Fatal(err)
 	}
 	web, err := s.CreateBead(ctx, store.NewBead{Title: "web", Rig: "web", Type: "bug", Labels: []string{"ui"}}, "jane")

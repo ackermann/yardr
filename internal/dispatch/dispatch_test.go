@@ -3,7 +3,11 @@ package dispatch_test
 import (
 	"context"
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -169,6 +173,61 @@ func TestJobCarriesNextStages(t *testing.T) {
 	}
 	if j, ok := jobs[free.ID]; !ok || j.Next != nil || j.Outcomes != nil {
 		t.Fatalf("bead without a flow: started %v, next %+v, outcomes %+v", ok, j.Next, j.Outcomes)
+	}
+}
+
+// A bead whose flow does not resolve is reported once and left where it
+// is; it does not stop the pass, so the beads after it still dispatch.
+func TestBadFlowSkipsOnlyThatBead(t *testing.T) {
+	s, f, d := setup(t)
+	ctx := context.Background()
+	repo := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q", "-b", "main")
+	must(t, os.MkdirAll(filepath.Join(repo, ".yardr/flows"), 0o755))
+	must(t, os.WriteFile(filepath.Join(repo, ".yardr/flows/alt.flow"), []byte("new -> review\n"), 0o644))
+	git("add", "-A")
+	git("commit", "-q", "-m", "alt flow")
+	must(t, s.PutRig(ctx, store.Rig{Name: "web", Path: repo, Base: "main"}))
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
+	must(t, err)
+
+	// Pinned to a repo flow that then leaves the base: the pin names nothing.
+	bad, err := s.CreateBead(ctx, store.NewBead{Title: "pinned", Rig: "web", Metadata: map[string]any{"flow": "alt"}}, "me")
+	must(t, err)
+	git("rm", "-q", ".yardr/flows/alt.flow")
+	git("commit", "-q", "-m", "drop alt")
+	good, err := s.CreateBead(ctx, store.NewBead{Title: "free"}, "me")
+	must(t, err)
+
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	if got := f.starts(); !slices.Equal(got, []string{good.ID}) {
+		t.Fatalf("starts = %v, want only %s", got, good.ID)
+	}
+	if got, _ := s.GetBead(ctx, bad.ID); got.Group != nil || got.Stage != "new" || got.Hold {
+		t.Fatalf("bad bead moved: %+v", got)
+	}
+	evs, err := s.Events(ctx, bad.ID, 0)
+	must(t, err)
+	var reports []store.Event
+	for _, e := range evs {
+		if e.Kind == "bad_flow" {
+			reports = append(reports, e)
+		}
+	}
+	if len(reports) != 1 {
+		t.Fatalf("bad_flow events = %+v, want exactly one", reports)
+	}
+	if r, _ := reports[0].Data["reason"].(string); !strings.Contains(r, "pins flow alt") {
+		t.Fatalf("bad_flow reason = %q", r)
 	}
 }
 

@@ -28,7 +28,7 @@ func ids(bs []store.Bead) []string {
 func TestCreateAndGetBead(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
-	if err := s.PutRig(ctx, store.Rig{Name: "web", Path: "/tmp/web", Base: "origin/main"}); err != nil {
+	if err := s.PutRig(ctx, store.Rig{Name: "web", Base: "origin/main"}); err != nil {
 		t.Fatal(err)
 	}
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "fix login", Rig: "web", Labels: []string{"ui", "ui"}}, "me")

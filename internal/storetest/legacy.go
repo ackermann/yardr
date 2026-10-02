@@ -55,7 +55,7 @@ func LegacyDB(t testing.TB, path string) {
 		return e
 	}
 	put := map[string]map[string]any{
-		"rigs": {"yard": map[string]any{"name": "yard", "path": "/tmp/yard", "base": "origin/main"}},
+		"rigs": {"yard": map[string]any{"name": "yard", "path": "", "base": "origin/main"}},
 		"beads": {
 			"yard-1":        bead("yard-1", "first", "task", 0, 0),
 			"mayor-journal": bead("mayor-journal", "Journal of mayor", "journal", 30*time.Minute, 0),

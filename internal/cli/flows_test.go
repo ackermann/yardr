@@ -20,7 +20,7 @@ func TestFlowViews(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(st.PutRig(ctx, store.Rig{Name: "yard", Path: "/tmp/yard"}))
+	must(st.PutRig(ctx, store.Rig{Name: "yard"}))
 	must(st.PutGroup(ctx, store.Group{Name: "builders", Runner: "manual"}))
 	must(st.PutGroup(ctx, store.Group{Name: "deciders", Runner: "manual", Members: []string{"mckean", "mayor"}}))
 	rig, decision := "yard", "decision"

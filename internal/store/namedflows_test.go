@@ -164,12 +164,13 @@ func TestFlowResolutionOrder(t *testing.T) {
 	if name, _ := governing(t, s, b.ID); name != "" {
 		t.Fatalf("bare rig governed by %s", name)
 	}
-	// So is a rig whose path is no checkout.
+	// A rig whose path is no checkout is not "no flows": git failing there
+	// says nothing about the base, so the bead is refused, not ungoverned.
 	if err := s.PutRig(ctx, store.Rig{Name: "gone", Path: filepath.Join(empty, "missing"), Base: "main"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateBead(ctx, store.NewBead{Title: "g", Rig: "gone", Stage: "anything"}, "me"); err != nil {
-		t.Fatal(err)
+	if _, err := s.CreateBead(ctx, store.NewBead{Title: "g", Rig: "gone", Stage: "anything"}, "me"); err == nil || !strings.Contains(err.Error(), "resolving base main") {
+		t.Fatalf("create in a rig without a checkout: %v", err)
 	}
 
 	rfs, err := s.RigFlows(ctx, "web")
@@ -282,7 +283,7 @@ func TestDeleteFlowRefusedWhileUsed(t *testing.T) {
 // One named flow shared by two rigs: an edit applies to both.
 func TestNamedFlowShared(t *testing.T) {
 	s, ctx := flowRig(t)
-	if err := s.PutRig(ctx, store.Rig{Name: "webapp", Path: "/tmp/webapp", Base: "origin/main"}); err != nil {
+	if err := s.PutRig(ctx, store.Rig{Name: "webapp", Base: "origin/main"}); err != nil {
 		t.Fatal(err)
 	}
 	putNamed(t, s, "code", "new -> review\nreview -> new\n")
@@ -391,5 +392,51 @@ func TestMigrateFlows(t *testing.T) {
 	}
 	if err := s2.DeleteFlow(ctx, "yard", "me"); err == nil || !strings.Contains(err.Error(), "rig yard") {
 		t.Fatalf("rm of a migrated rig flow: %v", err)
+	}
+}
+
+// Reading repo flows fails closed: only a base that does not exist in the
+// checkout means "no repo flows"; a path git cannot read is an error.
+func TestRepoFlowsGitErrors(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	repo := gitRepo(t, map[string]string{".yardr/flows/default.flow": "new -> done\n"})
+	rigs := []store.Rig{
+		{Name: "nobase", Path: repo, Base: "origin/main"}, // never fetched
+		{Name: "plain", Path: t.TempDir(), Base: "main"},  // not a checkout
+		{Name: "nopath"},
+	}
+	for _, r := range rigs {
+		if err := s.PutRig(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, rig := range []string{"nobase", "nopath"} {
+		rf, err := s.RepoFlows(ctx, rig)
+		if err != nil || rf.Commit != "" || len(rf.Flows) != 0 {
+			t.Fatalf("%s: repo flows = %+v, %v; want none", rig, rf, err)
+		}
+	}
+	if rf, err := s.RepoFlows(ctx, "plain"); err == nil || !strings.Contains(err.Error(), "not a git repository") {
+		t.Fatalf("plain: repo flows = %+v, %v; want the git error", rf, err)
+	}
+	// The error reaches the bead: it cannot be created ungoverned, and an
+	// existing one cannot be moved.
+	if _, err := s.CreateBead(ctx, store.NewBead{Title: "p", Rig: "plain"}, "me"); err == nil || !strings.Contains(err.Error(), "not a git repository") {
+		t.Fatalf("create in plain: %v", err)
+	}
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "p", Rig: "nopath"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain := "plain"
+	if _, err := s.UpdateBead(ctx, b.ID, store.BeadPatch{Rig: &plain}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.NextStages(ctx, b.ID); err == nil || !strings.Contains(err.Error(), "not a git repository") {
+		t.Fatalf("next stages in plain: %v", err)
+	}
+	if _, err := s.Advance(ctx, b.ID, "review", "me"); err == nil || !strings.Contains(err.Error(), "not a git repository") {
+		t.Fatalf("advance in plain: %v", err)
 	}
 }
