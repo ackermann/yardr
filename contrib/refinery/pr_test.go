@@ -1,0 +1,307 @@
+package refinery
+
+// An epic landing through a pull request: integrate-epic with YARDR_PR=1
+// opens the PR (and updates it when the epic is integrated again), pr-epic
+// pushes the reviewed branch and updates the PR, and pr-merge merges it and
+// fast-forwards the rig's base. GitHub is a fake gh on PATH that records
+// its argv and keeps one pull request's state in a directory.
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+const prURL = "https://github.com/o/r/pull/7"
+
+// fakeGh is gh as far as the scripts use it. Its state, in $FAKE_GH: calls
+// (one argv per line), url (the open PR, once created), body (its body),
+// and files a test writes to make it fail: fail-create, refuse (gh pr
+// merge's error), mergeable. Merging pushes the PR's branch onto origin's
+// main and deletes it there, as GitHub would (minus the rebase).
+const fakeGh = `#!/bin/sh
+d=$FAKE_GH
+echo "$*" >>"$d/calls"
+case "$1 $2" in
+"pr list") cat "$d/url" 2>/dev/null || true ;;
+"pr create")
+  if [ -e "$d/fail-create" ]; then echo "HTTP 502: Bad Gateway" >&2; exit 1; fi
+  cat >"$d/body"
+  echo "Creating pull request for yard/r-e into main" >&2
+  echo ` + prURL + ` | tee "$d/url" ;;
+"pr edit") cat >"$d/body" ;;
+"pr view")
+  case "$*" in
+  *mergeable*) cat "$d/mergeable" 2>/dev/null || echo MERGEABLE ;;
+  *) cat "$d/state" 2>/dev/null || echo OPEN ;;
+  esac ;;
+"pr merge")
+  if [ -e "$d/refuse" ]; then cat "$d/refuse" >&2; exit 1; fi
+  head=$(git rev-parse yard/r-e) || exit 1
+  git push -q origin "$head:refs/heads/main" && git push -q origin :refs/heads/yard/r-e || exit 1
+  echo MERGED >"$d/state" ;;
+*) echo "fake gh: unexpected $*" >&2; exit 1 ;;
+esac
+`
+
+// withFakeGh puts the fake gh first on PATH for the scripts the exec runner
+// starts, and returns its state directory.
+func withFakeGh(t *testing.T) string {
+	t.Helper()
+	bin, state := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(fakeGh), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("FAKE_GH", state)
+	return state
+}
+
+// ghCalls is the fake gh's argv, one call per line.
+func ghCalls(t *testing.T, state string) []string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(state, "calls"))
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	return strings.Split(strings.TrimSpace(string(b)), "\n")
+}
+
+// countCalls counts the calls starting with prefix.
+func countCalls(t *testing.T, state, prefix string) int {
+	n := 0
+	for _, c := range ghCalls(t, state) {
+		if strings.HasPrefix(c, prefix) {
+			n++
+		}
+	}
+	return n
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func TestEpicThroughPullRequest(t *testing.T) {
+	gh := withFakeGh(t)
+	y := newEpicYard(t, "test ! -e RED")
+	y.opts = "YARDR_PR=1"
+	y.exec("merge-local", "refinery", "r-1")
+	y.exec("merge-local", "refinery", "r-2")
+
+	// Integrated: the PR is opened, once, with the epic's children.
+	y.exec("integrate-epic", "yard-integrators", "r-e")
+	if e := y.beadOf("r-e"); e.Stage != "review" || e.Metadata["pr_url"] != prURL {
+		t.Fatalf("epic in %s with metadata %v, want review with pr_url %s", e.Stage, e.Metadata, prURL)
+	}
+	if n := countCalls(t, gh, "pr create --base main --head yard/r-e --title the epic (r-e) --body-file -"); n != 1 {
+		t.Fatalf("gh pr create called %d times, want once:\n%v", n, ghCalls(t, gh))
+	}
+	body := readFile(t, filepath.Join(gh, "body"))
+	for _, want := range []string{"## Children", "- r-1 child", "- r-2 child", "Epic: r-e"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("PR body lacks %q:\n%s", want, body)
+		}
+	}
+	if !strings.HasSuffix(strings.TrimSpace(body), "Epic: r-e") {
+		t.Fatalf("PR body does not end in its trailer:\n%s", body)
+	}
+	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "Opened pull request "+prURL) {
+		t.Fatalf("no note with the PR:\n%s", notes)
+	}
+
+	// Sent back and integrated again: the open PR is edited, not opened again.
+	y.yardr("bead", "done", "r-e", "--outcome", "changes")
+	y.exec("integrate-epic", "yard-integrators", "r-e")
+	if e := y.beadOf("r-e"); e.Stage != "review" {
+		t.Fatalf("epic in %s after integrating again, want review", e.Stage)
+	}
+	if n := countCalls(t, gh, "pr create"); n != 1 {
+		t.Fatalf("gh pr create called %d times, want once:\n%v", n, ghCalls(t, gh))
+	}
+	if n := countCalls(t, gh, "pr edit "+prURL+" --body-file -"); n != 1 {
+		t.Fatalf("gh pr edit called %d times, want once:\n%v", n, ghCalls(t, gh))
+	}
+
+	// The reviewer commits a fix on the branch and approves with a note.
+	wt := filepath.Join(y.home, "worktrees", "r", "r-e")
+	tip := y.commit(wt, "fix.txt", "the reviewer's fix\n")
+	y.yardr("bead", "done", "r-e", "--note", "Approved: the children fit together; fixed a typo in fix.txt.")
+
+	// pr-epic pushes it and puts the review on the PR.
+	y.exec("pr-epic", "yard-pr", "r-e")
+	if e := y.beadOf("r-e"); e.Stage != "in-pr" {
+		t.Fatalf("epic in %s after pr-epic, want in-pr", e.Stage)
+	}
+	if pushed := y.git(y.repo, "ls-remote", "origin", "refs/heads/yard/r-e"); !strings.HasPrefix(pushed, tip) {
+		t.Fatalf("origin yard/r-e is %q, want the reviewer's %s", pushed, tip)
+	}
+	if n := countCalls(t, gh, "pr edit "+prURL); n != 2 {
+		t.Fatalf("gh pr edit called %d times, want twice:\n%v", n, ghCalls(t, gh))
+	}
+	body = readFile(t, filepath.Join(gh, "body"))
+	review := strings.Index(body, "## Review\n\nApproved: the children fit together")
+	if review < 0 || !strings.Contains(body, "- r-2 child") || review > strings.Index(body, "Epic: r-e") {
+		t.Fatalf("PR body lacks the review before its trailer:\n%s", body)
+	}
+
+	// A human says "merge it"; pr-merge merges and brings main up.
+	y.yardr("bead", "done", "r-e")
+	if e := y.beadOf("r-e"); e.Stage != "land" {
+		t.Fatalf("epic in %s after in-pr, want land", e.Stage)
+	}
+	y.exec("pr-merge", "yard-pr-merge", "r-e")
+	if e := y.beadOf("r-e"); e.Stage != "merged" || e.Status != "closed" {
+		t.Fatalf("epic %s/%s after pr-merge, want merged and closed", e.Stage, e.Status)
+	}
+	if n := countCalls(t, gh, "pr merge "+prURL+" --rebase --delete-branch"); n != 1 {
+		t.Fatalf("gh pr merge called %d times, want once:\n%v", n, ghCalls(t, gh))
+	}
+	if got := y.git(y.repo, "rev-parse", "main"); got != tip {
+		t.Fatalf("local main at %s, want the merged %s", got, tip)
+	}
+	if y.git(y.repo, "status", "--porcelain") != "" {
+		t.Fatal("the rig's checkout is not clean after the fast-forward")
+	}
+	if _, err := os.Stat(filepath.Join(y.repo, "fix.txt")); err != nil {
+		t.Fatalf("checkout of main lacks the reviewer's fix: %v", err)
+	}
+}
+
+// gh failing to open the PR is reported failed, back to open, not held: the
+// next integration tries again.
+func TestIntegrateEpicPRFailureGoesBackToOpen(t *testing.T) {
+	gh := withFakeGh(t)
+	if err := os.WriteFile(filepath.Join(gh, "fail-create"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	y := newEpicYard(t, "test ! -e RED")
+	y.opts = "YARDR_PR=1"
+	y.exec("merge-local", "refinery", "r-1")
+	y.exec("merge-local", "refinery", "r-2")
+
+	y.exec("integrate-epic", "yard-integrators", "r-e")
+
+	if e := y.beadOf("r-e"); e.Stage != "open" || e.Hold || e.Metadata["pr_url"] != nil {
+		t.Fatalf("epic %s hold=%v metadata %v, want back in open, not held, no pr_url", e.Stage, e.Hold, e.Metadata)
+	}
+	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "HTTP 502: Bad Gateway") {
+		t.Fatalf("no note with gh's error:\n%s", notes)
+	}
+}
+
+// landYard is an epic yard whose epic r-e is integrated and pushed, with
+// its PR open (pr_url stored), in stage land.
+func landYard(t *testing.T) (*yard, string) {
+	t.Helper()
+	gh := withFakeGh(t)
+	y := newEpicYard(t, "test ! -e RED")
+	y.opts = "YARDR_PR=1"
+	y.exec("merge-local", "refinery", "r-1")
+	y.exec("merge-local", "refinery", "r-2")
+	y.exec("integrate-epic", "yard-integrators", "r-e")
+	y.yardr("bead", "done", "r-e")
+	y.exec("pr-epic", "yard-pr", "r-e")
+	y.yardr("bead", "done", "r-e")
+	if e := y.beadOf("r-e"); e.Stage != "land" {
+		t.Fatalf("epic in %s, want land", e.Stage)
+	}
+	return y, gh
+}
+
+// A merge GitHub refuses goes back to open with gh's message, after one
+// attempt; neither main moves.
+func TestPRMergeRefusedGoesBackToOpen(t *testing.T) {
+	y, gh := landYard(t)
+	msg := "X Pull request o/r#7 is not mergeable: the base branch policy prohibits the merge."
+	if err := os.WriteFile(filepath.Join(gh, "refuse"), []byte(msg+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	main := y.git(y.repo, "rev-parse", "main")
+
+	y.exec("pr-merge", "yard-pr-merge", "r-e")
+
+	if e := y.beadOf("r-e"); e.Stage != "open" || e.Hold {
+		t.Fatalf("epic %s hold=%v, want back in open", e.Stage, e.Hold)
+	}
+	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "base branch policy prohibits") {
+		t.Fatalf("no note with gh's message:\n%s", notes)
+	}
+	if n := countCalls(t, gh, "pr merge"); n != 1 {
+		t.Fatalf("gh pr merge called %d times, want once", n)
+	}
+	if got := y.git(y.repo, "rev-parse", "main"); got != main {
+		t.Fatal("local main moved")
+	}
+	if got := y.git(y.repo, "ls-remote", "origin", "refs/heads/main"); !strings.HasPrefix(got, main) {
+		t.Fatal("origin main moved")
+	}
+}
+
+// A dirty rig checkout holds the epic in land before anything is merged.
+func TestPRMergeDirtyCheckoutHolds(t *testing.T) {
+	y, gh := landYard(t)
+	if err := os.WriteFile(filepath.Join(y.repo, "a.txt"), []byte("someone's work\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	y.exec("pr-merge", "yard-pr-merge", "r-e")
+
+	if e := y.beadOf("r-e"); !e.Hold || e.Stage != "land" {
+		t.Fatalf("epic %s hold=%v, want held in land", e.Stage, e.Hold)
+	}
+	if n := countCalls(t, gh, "pr merge"); n != 0 {
+		t.Fatal("merged under a dirty checkout")
+	}
+}
+
+// pr-epic on an epic with no PR, and on one GitHub finds conflicting, sends
+// it back to open for the integrator.
+func TestPREpicNoPRGoesBackToOpen(t *testing.T) {
+	gh := withFakeGh(t)
+	y := newEpicYard(t, "test ! -e RED")
+	y.exec("merge-local", "refinery", "r-1")
+	y.exec("merge-local", "refinery", "r-2")
+	y.exec("integrate-epic", "yard-integrators", "r-e") // no YARDR_PR: no PR
+	y.yardr("bead", "done", "r-e")
+
+	y.exec("pr-epic", "yard-pr", "r-e")
+
+	if e := y.beadOf("r-e"); e.Stage != "open" || e.Hold {
+		t.Fatalf("epic %s hold=%v, want back in open", e.Stage, e.Hold)
+	}
+	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "no pull request for yard/r-e") {
+		t.Fatalf("no note on the missing PR:\n%s", notes)
+	}
+	if n := countCalls(t, gh, "pr edit"); n != 0 {
+		t.Fatal("edited a PR that does not exist")
+	}
+}
+
+func TestPREpicConflictingGoesBackToOpen(t *testing.T) {
+	gh := withFakeGh(t)
+	y := newEpicYard(t, "test ! -e RED")
+	y.opts = "YARDR_PR=1"
+	y.exec("merge-local", "refinery", "r-1")
+	y.exec("merge-local", "refinery", "r-2")
+	y.exec("integrate-epic", "yard-integrators", "r-e")
+	y.yardr("bead", "done", "r-e")
+	if err := os.WriteFile(filepath.Join(gh, "mergeable"), []byte("CONFLICTING\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	y.exec("pr-epic", "yard-pr", "r-e")
+
+	if e := y.beadOf("r-e"); e.Stage != "open" || e.Hold {
+		t.Fatalf("epic %s hold=%v, want back in open", e.Stage, e.Hold)
+	}
+	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "conflicts with main") {
+		t.Fatalf("no note on the conflict:\n%s", notes)
+	}
+}

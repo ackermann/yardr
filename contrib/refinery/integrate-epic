@@ -12,6 +12,9 @@
 #
 #   YARDR_PUSH     a remote to push the epic branch to; off when empty
 #   YARDR_NOTIFY   resident mailed when that push fails (default mayor)
+#   YARDR_PR       1: open a pull request for the pushed branch against the
+#                  base, or update the one open for it (needs YARDR_PUSH,
+#                  and gh and jq on PATH, gh logged in as the operator)
 #
 # It fetches the base when it is a remote's, rebases the epic branch onto
 # the base, runs the rig's gate on the result and reports done (-> review).
@@ -34,6 +37,7 @@ BR=${YARDR_BRANCH:-yard/$EPIC}
 WT=${YARDR_WORKTREE:-${YARDR_HOME:-$HOME/.yardr}/worktrees/$RIG/$EPIC}
 PUSH=${YARDR_PUSH:-}
 NOTIFY=${YARDR_NOTIFY:-mayor}
+PR=${YARDR_PR:-}
 TAIL=200
 echo "== $(date -Is) integrate $RIG $EPIC ($BR onto $BASE)"
 
@@ -46,6 +50,8 @@ report() {
   hold "could not report $1 (does the epic's flow name it for its stage?): $2"
 }
 
+[ -z "$PR" ] || [ -n "$PUSH" ] ||
+  hold "YARDR_PR is set without YARDR_PUSH: a pull request needs the branch on a remote. Set both in the group's cmd, then unhold."
 git -C "$REPO" rev-parse --verify -q "refs/heads/$BR" >/dev/null ||
   hold "branch $BR does not exist: no child has landed on it yet. Add children (yardr dep add $EPIC <child> -k parent), then unhold."
 
@@ -59,6 +65,9 @@ if [ "$remote" != "$BASE" ] && git -C "$REPO" remote | grep -qx "$remote"; then
     echo "== fetching $remote failed; integrating onto $BASE as it is"
 fi
 git -C "$REPO" rev-parse --verify -q "$BASE^{commit}" >/dev/null || hold "base $BASE does not resolve in $REPO"
+# The branch a pull request targets: the base without its remote.
+prbase=$BASE
+[ "$remote" != "$BASE" ] && git -C "$REPO" remote | grep -qx "$remote" && prbase=${BASE#*/}
 
 if [ ! -d "$WT" ]; then
   git -C "$REPO" worktree add "$WT" "$BR" || hold "cannot check out $BR at $WT"
@@ -122,11 +131,52 @@ if [ -n "$PUSH" ]; then
   else
     why="pushing $BR to $PUSH failed"
   fi
+  if [ -n "$why" ] && [ -n "$PR" ]; then
+    # A pull request of a branch the remote does not have as integrated
+    # would be reviewed and merged as something else.
+    case $why in
+    *"did not have"*) hold "$msg But $why: not forced, and no pull request opened. Check $PUSH/$BR, then unhold." ;;
+    *) report failed "$msg But $why, so no pull request was opened or updated; the next integration retries." ;;
+    esac
+  fi
   if [ -n "$why" ]; then
     msg="$msg $why (not forced)."
     "$Y" mail "$NOTIFY" "integrator: $EPIC integrated at $sha but $why. Not forced; check $PUSH/$BR." ||
       echo "== could not mail $NOTIFY"
   fi
+fi
+
+# The pull request, once the branch it shows is on the remote. Run from the
+# rig so gh finds the GitHub repository from its remote.
+if [ -n "$PR" ]; then
+  epic=$("$Y" bead show "$EPIC" --json) || report failed "$msg But reading $EPIC for the pull request failed."
+  title=$(printf '%s' "$epic" | jq -r .title)
+  body=$(
+    printf '%s' "$epic" | jq -r '.body // ""'
+    printf '\n## Children\n\n'
+    for c in $(printf '%s' "$epic" | jq -r '.children[]?'); do
+      printf -- '- %s %s\n' "$c" "$("$Y" bead show "$c" --json | jq -r .title)"
+    done
+    printf '\nEpic: %s\n' "$EPIC"
+  )
+  # stderr apart, so a warning gh prints is not taken for the URL.
+  errf=$(mktemp) && trap 'rm -f "$errf"' EXIT
+  url=$(cd "$REPO" && gh pr list --head "$BR" --base "$prbase" --state open --json url --jq '.[0].url // empty' 2>"$errf") ||
+    report failed "$msg But looking up the pull request for $BR failed: $(cat "$errf")"
+  if [ -n "$url" ]; then
+    out=$(cd "$REPO" && printf '%s\n' "$body" | gh pr edit "$url" --body-file - 2>&1) ||
+      report failed "$msg But updating pull request $url failed: $out"
+    msg="$msg Updated pull request $url."
+  else
+    out=$(cd "$REPO" && printf '%s\n' "$body" |
+      gh pr create --base "$prbase" --head "$BR" --title "$title ($EPIC)" --body-file - 2>&1) ||
+      report failed "$msg But opening a pull request for $BR failed: $out"
+    url=$(printf '%s\n' "$out" | grep -o 'https://[^[:space:]]*' | tail -n 1)
+    [ -n "$url" ] || report failed "$msg But gh pr create printed no URL: $out"
+    msg="$msg Opened pull request $url."
+  fi
+  "$Y" bead update "$EPIC" --meta "pr_url=$url" >/dev/null ||
+    report failed "$msg But storing pr_url on $EPIC failed."
 fi
 
 report done "$msg"

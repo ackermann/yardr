@@ -63,6 +63,7 @@ type yard struct {
 	home, repo, wt string
 	env            []string
 	push           string // YARDR_PUSH for the run
+	opts           string // more assignments for the script's cmd, e.g. YARDR_PR=1
 }
 
 func newYard(t *testing.T) *yard {
@@ -145,6 +146,9 @@ func (y *yard) exec(script, group, id string) {
 	cmd := script
 	if y.push != "" {
 		cmd = "YARDR_PUSH=" + y.push + " " + script
+	}
+	if y.opts != "" {
+		cmd = y.opts + " " + cmd
 	}
 	// The runner hands its own environment on: git's identity. YARDR_HOME
 	// and YARDR_BIN come from the runner itself.

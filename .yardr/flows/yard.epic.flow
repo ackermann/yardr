@@ -1,12 +1,17 @@
 # yard.epic: the flow of rig yard's epics (yardr rig flow yard --type epic
 # yard.epic). An epic waits in open while its children are open (each child
 # blocks it); once the last closes, yard-integrators rebases its branch onto
-# main and gates it, Codex reviews the whole diff, and the refinery lands it
-# on main as one fast-forward. See docs/pipeline.md#epics.
+# main and gates it, Codex reviews the whole diff, and the epic lands on main
+# either through a pull request (approved -> in-pr -> land, with YARDR_PR)
+# or locally, where the refinery fast-forwards main and advances it straight
+# to merged (the bare edge, which no outcome offers). See
+# docs/pipeline.md#epics.
 backlog -> open
 open -> review on done | open on failed | backlog
 review -> approved on done | open on changes | decide on question
-approved -> merged on done | open on failed | merge on conflict
+approved -> in-pr on done | open on failed | merge on conflict | merged
+in-pr -> land on done | open on changes | decide on question
+land -> merged on done | open on failed
 merge -> review on done | open on rework | decide on question
 decide -> open | backlog
 merged terminal

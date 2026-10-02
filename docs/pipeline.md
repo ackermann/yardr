@@ -353,11 +353,53 @@ An epic follows `yard.epic` ([flows.md](flows.md#worked-example-rig-yard)):
    the epic's brief says it is an epic, names its children and gives the
    range. Changes go back to `open` (`--outcome changes`) after adding the
    fix as a child; without one the epic would be integrated again unchanged.
-4. **approved**: `yard-refinery` and merge-local land `yard/<epic>` on the
-   rig's base exactly as a bead's branch: BaseOf(epic) is the rig's base. A
+4. **approved**: the epic lands, through a pull request (below) or
+   locally: `yard-refinery` and merge-local land `yard/<epic>` on the rig's
+   base exactly as a bead's branch (BaseOf(epic) is the rig's base) and
+   advance it to `merged` by the flow's bare `approved -> merged` edge. A
    red gate there reports the flow's `failed` outcome, which for an epic is
    `open` (merge-local falls back to `new` only for flows without it).
 5. **merge**: the mergers handle a conflict as for any bead.
+
+### Through a pull request
+
+With `YARDR_PR=1` in the integrators' cmd, an epic goes to main as a pull
+request against the rig's base instead of a local fast-forward. Three exec
+groups (limit 1 each) and two type routes do it, besides the integrators:
+
+- **open**, `yard-integrators`: after pushing the rebased branch (it needs
+  `YARDR_PUSH`; set without it, the epic is held), integrate-epic opens a
+  PR for `yard/<epic>`, titled `<epic title> (<id>)`, its body the epic's
+  body, a "Children" list (ids and titles) and the trailer `Epic: <id>`; if
+  one is open for the branch already it replaces that PR's body. The URL
+  goes into the note and the epic's metadata (`pr_url`). A push or `gh` that
+  fails reports `failed`, back to `open`, so the next integration retries;
+  a remote branch with commits the epic lacks is held.
+- **approved**, `yard-pr`
+  ([`contrib/refinery/pr-epic`](../contrib/refinery/pr-epic)): pushes
+  `yard/<epic>`, which may carry the reviewer's commits (with a lease: a
+  remote branch with commits of its own is never overwritten), replaces the
+  PR's body with the latest review note under "Review", and reports `done`,
+  to `in-pr`. No PR, a refused push, or a PR GitHub reports as conflicting
+  with the base reports `failed`, to `open`, for the integrator.
+- **in-pr**, `decisions` (members mckean, mayor): a manual stage. Look at
+  the PR and its checks; `yardr bead done <epic>` means "merge it" (to
+  `land`), `--outcome changes` sends it back to `open` (add the fix as a
+  child first), `--outcome question` to `decide`. A later child of the PR
+  epic makes the daemon report `done` here when CI is green.
+- **land**, `yard-pr-merge`
+  ([`contrib/refinery/pr-merge`](../contrib/refinery/pr-merge)): runs `gh
+  pr merge <pr_url> --rebase --delete-branch`, then `git fetch` and `git
+  merge --ff-only <remote>/<base>` in the rig's checkout, and reports
+  `done`, to `merged`, which closes the epic. A merge GitHub refuses
+  (checks pending, review required, conflicts) reports `failed`, to `open`,
+  with gh's message, once. The checkout must be on the base and clean, or
+  the epic is held before anything is merged.
+
+`gh` (logged in as the operator) and `jq` must be on the scripts' PATH.
+Without `YARDR_PR`, route `approved` for epics to `yard-refinery` (or leave
+the stage route alone) and nothing else changes: merge-local lands the epic
+locally and advances it to `merged`, the bare edge kept for it.
 
 ### Setup
 
@@ -368,6 +410,24 @@ yardr group add yard-integrators --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin ~/.yardr/scripts/integrate-epic' \
   --set log="$HOME/.yardr/logs/integrator.log"
 yardr route add --stage open --type epic --rig yard --group yard-integrators --priority 10
+```
+
+Through pull requests, the integrators' cmd gains `YARDR_PR=1`, and:
+
+```sh
+install contrib/refinery/pr-epic contrib/refinery/pr-merge ~/.yardr/scripts/   # from main
+yardr group add yard-integrators --runner exec --limit 1 \
+  --set cmd='YARDR_PUSH=origin YARDR_PR=1 ~/.yardr/scripts/integrate-epic' \
+  --set log="$HOME/.yardr/logs/integrator.log"
+yardr group add yard-pr --runner exec --limit 1 \
+  --set cmd='YARDR_PUSH=origin ~/.yardr/scripts/pr-epic' \
+  --set log="$HOME/.yardr/logs/pr.log"
+yardr group add yard-pr-merge --runner exec --limit 1 \
+  --set cmd='YARDR_PUSH=origin ~/.yardr/scripts/pr-merge' \
+  --set log="$HOME/.yardr/logs/pr-merge.log"
+yardr route add --stage approved --type epic --rig yard --group yard-pr --priority 10
+yardr route add --stage in-pr --type epic --rig yard --group decisions
+yardr route add --stage land --type epic --rig yard --group yard-pr-merge
 ```
 
 The reviewer's prompt (`~/.yardr/roles/reviewer.md`) has a short section on

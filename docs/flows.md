@@ -259,7 +259,9 @@ points the type at it):
 backlog -> open
 open -> review on done | open on failed | backlog
 review -> approved on done | open on changes | decide on question
-approved -> merged on done | open on failed | merge on conflict
+approved -> in-pr on done | open on failed | merge on conflict | merged
+in-pr -> land on done | open on changes | decide on question
+land -> merged on done | open on failed
 merge -> review on done | open on rework | decide on question
 decide -> open | backlog
 merged terminal
@@ -270,14 +272,25 @@ merged terminal
 | backlog | `backlog` | manual (the mayor adds children, then advances to open) |
 | open | `yard-integrators` (route `--type epic`, priority 10) | exec, limit 1, [`contrib/refinery/integrate-epic`](../contrib/refinery/integrate-epic) |
 | review | `yard-codex-review` | as for any bead; the brief says it is an epic and gives the range |
-| approved | `yard-refinery` | merge-local, as for any bead |
+| approved | `yard-pr` (route `--type epic`, priority 10) | exec, limit 1, [`contrib/refinery/pr-epic`](../contrib/refinery/pr-epic); without it, `yard-refinery` and merge-local as for any bead |
+| in-pr | `decisions` (route `--type epic`) | manual: `yardr bead done <epic>` means "merge it" |
+| land | `yard-pr-merge` (route `--type epic`) | exec, limit 1, [`contrib/refinery/pr-merge`](../contrib/refinery/pr-merge) |
 | merge | `mergers` | as for any bead |
 | decide | `decisions` | manual |
 
 An epic waits in `open` while any child is open: each child blocks it
 (`dep add -k parent` adds that edge too), and routes only send ready beads.
 Where `new` is a bead's way back to its builders, `open` is an epic's: the
-fix is a new child, which blocks the epic until it lands. The details are
+fix is a new child, which blocks the epic until it lands.
+
+An epic lands one of two ways from `approved`. Through a pull request
+(integrate-epic with `YARDR_PR=1`): pr-epic pushes the reviewed branch and
+updates the PR, reporting `done` to `in-pr`; a human there reports `done`
+to `land`, and pr-merge merges the PR with a rebase and reports `done` to
+`merged`. Locally (no `YARDR_PR`, `approved` routed to `yard-refinery`):
+merge-local fast-forwards main and advances the epic straight to `merged`
+by the bare edge, which no outcome offers, so an agent reporting `done` in
+`approved` always means the PR path. The details are
 in [pipeline.md](pipeline.md#epics).
 
 How beads actually move through these stages is in [pipeline.md](pipeline.md).

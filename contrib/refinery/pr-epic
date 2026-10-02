@@ -1,0 +1,99 @@
+#!/bin/sh
+# pr-epic: brings an approved epic's pull request up to date, so what is
+# merged is what was reviewed. Run it as the cmd of an exec group (yard-pr,
+# limit 1) routed for the epic flow's approved stage (type epic), when
+# epics land through pull requests (integrate-epic with YARDR_PR=1). See
+# docs/pipeline.md, section Epics.
+#
+# It reads the environment the exec runner gives it, as integrate-epic
+# does: YARDR_BEAD (the epic), YARDR_RIG_PATH, YARDR_BASE, YARDR_BRANCH,
+# YARDR_WORKTREE and YARDR_BIN. Options, set in the group's cmd:
+#
+#   YARDR_PUSH     the remote the pull request's branch is on (default origin)
+#
+# It pushes yard/<epic>, which may have gained the reviewer's commits, and
+# replaces the PR's body with the epic's, its children, the latest review
+# note under "Review" and the trailer "Epic: <id>", then reports done
+# (-> in-pr). A push the remote refuses, a remote branch with commits the
+# epic lacks, a PR GitHub finds conflicting with the base, or no PR at all
+# reports failed (-> open): the integrator rebases and opens it again. A
+# branch it cannot work on (missing, dirty) is held. Needs gh, logged in
+# as the operator, and jq on PATH.
+#
+# Every outcome ends in a report or a hold: exiting without one counts as a
+# failed session, and three of those hold the bead.
+set -u
+: "${YARDR_BEAD:?not run by an exec group}" "${YARDR_RIG_PATH:?bead has no rig}" "${YARDR_BASE:?}"
+Y=${YARDR_BIN:-yardr}
+EPIC=$YARDR_BEAD
+REPO=$YARDR_RIG_PATH
+BASE=$YARDR_BASE
+BR=${YARDR_BRANCH:-yard/$EPIC}
+WT=${YARDR_WORKTREE:-}
+PUSH=${YARDR_PUSH:-origin}
+echo "== $(date -Is) pr $EPIC ($BR)"
+
+# Reporting ends this session (the daemon stops the script), so it is
+# always the last thing done.
+hold() { echo "== hold $EPIC: $1"; "$Y" bead note "$EPIC" "pr: $1"; "$Y" bead hold "$EPIC"; exit 0; }
+report() {
+  echo "== $EPIC $1"
+  printf '%s\n' "pr: $2" | "$Y" bead done "$EPIC" --outcome "$1" --note - && exit 0
+  hold "could not report $1 (does the epic's flow name it for its stage?): $2"
+}
+errf=$(mktemp) && trap 'rm -f "$errf"' EXIT
+
+git -C "$REPO" rev-parse --verify -q "refs/heads/$BR" >/dev/null || hold "branch $BR does not exist"
+if [ -n "$WT" ] && [ -d "$WT" ]; then
+  [ -z "$(git -C "$WT" status --porcelain)" ] ||
+    hold "worktree $WT has uncommitted changes; commit them on $BR (or drop them), then unhold"
+fi
+prbase=$BASE
+remote=${BASE%%/*}
+[ "$remote" != "$BASE" ] && git -C "$REPO" remote | grep -qx "$remote" && prbase=${BASE#*/}
+
+epic=$("$Y" prime --bead "$EPIC" --json) || hold "reading $EPIC failed"
+url=$(printf '%s' "$epic" | jq -r '.bead.metadata.pr_url // empty')
+if [ -z "$url" ]; then
+  url=$(cd "$REPO" && gh pr list --head "$BR" --base "$prbase" --state open --json url --jq '.[0].url // empty' 2>"$errf") ||
+    report failed "looking up the pull request for $BR failed: $(cat "$errf")"
+fi
+[ -n "$url" ] || report failed "no pull request for $BR: integrating the epic again opens one"
+
+# The push carries what the reviewer committed on the branch. The lease is
+# what the remote has now, and only when all of it is in the branch: a
+# remote branch with commits of its own is not overwritten.
+theirs=$(git -C "$REPO" ls-remote "$PUSH" "refs/heads/$BR" 2>"$errf") ||
+  report failed "reading $PUSH/$BR failed: $(cat "$errf")"
+theirs=$(printf '%s' "$theirs" | cut -f1)
+if [ -n "$theirs" ] && ! git -C "$REPO" merge-base --is-ancestor "$theirs" "$BR" 2>/dev/null; then
+  report failed "$PUSH/$BR has commits $BR lacks; not forced. Bring them into $BR (or drop them on $PUSH); the integrator rebases it again."
+fi
+out=$(git -C "$REPO" push --force-with-lease="refs/heads/$BR:$theirs" "$PUSH" "$BR" 2>&1) ||
+  report failed "pushing $BR to $PUSH failed: $out"
+sha=$(git -C "$REPO" rev-parse --short "$BR")
+
+# GitHub's view of whether the PR merges: CONFLICTING means the base moved
+# under it, which the integrator's rebase resolves or holds for a human.
+mergeable=$(cd "$REPO" && gh pr view "$url" --json mergeable --jq .mergeable 2>"$errf") ||
+  report failed "reading pull request $url failed: $(cat "$errf")"
+[ "$mergeable" != CONFLICTING ] ||
+  report failed "pull request $url conflicts with $prbase; the integrator rebases $BR again"
+
+# The body as integrate-epic writes it, with the review before the trailer.
+# The latest review note is the latest one no script wrote.
+review=$(printf '%s' "$epic" |
+  jq -r '[.notes[]? | select(.text | test("^(integrator|refinery|pr): ") | not)] | last | .text // empty')
+body=$(
+  printf '%s' "$epic" | jq -r '.bead.body // ""'
+  printf '\n## Children\n\n'
+  for c in $(printf '%s' "$epic" | jq -r '.family.children[]?'); do
+    printf -- '- %s %s\n' "$c" "$("$Y" bead show "$c" --json | jq -r .title)"
+  done
+  [ -z "$review" ] || printf '\n## Review\n\n%s\n' "$review"
+  printf '\nEpic: %s\n' "$EPIC"
+)
+out=$(cd "$REPO" && printf '%s\n' "$body" | gh pr edit "$url" --body-file - 2>&1) ||
+  report failed "updating pull request $url failed: $out"
+
+report done "pushed $BR at $sha to $PUSH; pull request $url is up to date with the review."

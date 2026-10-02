@@ -1,0 +1,86 @@
+#!/bin/sh
+# pr-merge: lands an epic by merging its pull request on GitHub with a
+# rebase, then brings the rig's local base up to it. Run it as the cmd of an
+# exec group (yard-pr-merge, limit 1) routed for the epic flow's land stage
+# (type epic). An epic reaches land from in-pr, where a human (or, later,
+# the daemon on a green CI) says "merge it". See docs/pipeline.md, section
+# Epics.
+#
+# It reads the environment the exec runner gives it: YARDR_BEAD (the epic),
+# YARDR_RIG_PATH, YARDR_BASE, YARDR_BRANCH and YARDR_BIN. Options, set in
+# the group's cmd:
+#
+#   YARDR_PUSH     the remote the pull request is on (default origin)
+#
+# It runs gh pr merge <pr_url> --rebase --delete-branch, then fetches the
+# remote and fast-forwards the base in the rig's checkout, and reports done
+# (-> merged, which closes the epic). A merge GitHub refuses (checks
+# pending, review required, conflicts) reports failed (-> open) with gh's
+# message, once: nothing here retries. The rig's checkout must be on the
+# base and clean, or the epic is held before anything is merged; a base
+# that will not fast-forward after the merge is held too, as the PR is
+# merged by then. Needs gh, logged in as the operator, and jq on PATH.
+#
+# Every outcome ends in a report or a hold: exiting without one counts as a
+# failed session, and three of those hold the bead.
+set -u
+: "${YARDR_BEAD:?not run by an exec group}" "${YARDR_RIG_PATH:?bead has no rig}" "${YARDR_BASE:?}"
+Y=${YARDR_BIN:-yardr}
+EPIC=$YARDR_BEAD
+REPO=$YARDR_RIG_PATH
+BASE=$YARDR_BASE
+BR=${YARDR_BRANCH:-yard/$EPIC}
+PUSH=${YARDR_PUSH:-origin}
+echo "== $(date -Is) pr-merge $EPIC ($BR)"
+
+# Reporting ends this session (the daemon stops the script), so it is
+# always the last thing done.
+hold() { echo "== hold $EPIC: $1"; "$Y" bead note "$EPIC" "pr: $1"; "$Y" bead hold "$EPIC"; exit 0; }
+report() {
+  echo "== $EPIC $1"
+  printf '%s\n' "pr: $2" | "$Y" bead done "$EPIC" --outcome "$1" --note - && exit 0
+  hold "could not report $1 (does the epic's flow name it for its stage?): $2"
+}
+errf=$(mktemp) && trap 'rm -f "$errf"' EXIT
+
+# The base branch, without its remote: what the PR merged into and what the
+# rig's checkout must be on.
+prbase=$BASE
+remote=${BASE%%/*}
+[ "$remote" != "$BASE" ] && git -C "$REPO" remote | grep -qx "$remote" && prbase=${BASE#*/}
+
+# The checkout is checked before merging: once GitHub has merged, a
+# checkout that cannot follow would leave the epic merged there but not here.
+[ "$(git -C "$REPO" symbolic-ref -q --short HEAD)" = "$prbase" ] ||
+  hold "$REPO is not on $prbase; not merging. Check out $prbase there, then unhold."
+[ -z "$(git -C "$REPO" status --porcelain)" ] ||
+  hold "$REPO has uncommitted changes; not merging. Commit or clean them, then unhold."
+
+url=$("$Y" bead show "$EPIC" --json | jq -r '.metadata.pr_url // empty')
+if [ -z "$url" ]; then
+  url=$(cd "$REPO" && gh pr list --head "$BR" --base "$prbase" --state open --json url --jq '.[0].url // empty' 2>"$errf") ||
+    report failed "looking up the pull request for $BR failed: $(cat "$errf")"
+fi
+[ -n "$url" ] || report failed "no pull request for $BR: integrating the epic again opens one"
+
+# gh can merge and still exit non-zero (deleting a local branch a worktree
+# has checked out, say): what GitHub says the PR is decides.
+out=$(cd "$REPO" && gh pr merge "$url" --rebase --delete-branch 2>&1) && rc=0 || rc=$?
+printf '%s\n' "$out"
+if [ "$rc" != 0 ]; then
+  state=$(cd "$REPO" && gh pr view "$url" --json state --jq .state 2>/dev/null)
+  [ "$state" = MERGED ] || report failed "GitHub did not merge $url: $out"
+  echo "== gh exited $rc but $url is merged"
+fi
+
+# Bring the local base up to what GitHub merged. Fast-forward only: the
+# base gains nothing locally that is not on the remote.
+out=$(git -C "$REPO" fetch "$PUSH" 2>&1) ||
+  hold "merged $url, but fetching $PUSH failed: $out
+Fast-forward $prbase in $REPO to $PUSH/$prbase, then advance the epic to merged."
+out=$(git -C "$REPO" merge --ff-only "$PUSH/$prbase" 2>&1) ||
+  hold "merged $url, but $prbase in $REPO does not fast-forward to $PUSH/$prbase: $out
+Bring $prbase up to $PUSH/$prbase, then advance the epic to merged."
+sha=$(git -C "$REPO" rev-parse --short HEAD)
+
+report done "merged $url with a rebase; $prbase at $sha"

@@ -1,6 +1,6 @@
 # contrib/refinery
 
-Two shell scripts, each run as the `cmd` of an `exec` group with `--limit 1`
+Four shell scripts, each run as the `cmd` of an `exec` group with `--limit 1`
 (one bead at a time). They are how rig yard lands work; the flow they sit in
 is described in [docs/pipeline.md](../../docs/pipeline.md), sections 4 and
 Epics. Install them from `main`, not a checkout, so a branch cannot change
@@ -28,12 +28,34 @@ the gate on epic <id>", which blocks the epic, and reports `failed`, back to
 `open`. A rebase conflict, a gate that could not run, or a branch it cannot
 work on (missing, dirty, nothing ahead of the base) holds the epic.
 
-**Environment.** Both read what the exec runner sets: `YARDR_BEAD`,
+With `YARDR_PR=1` (and `YARDR_PUSH`), integrate-epic also opens a pull
+request for the pushed branch against the base, or replaces the body of the
+one open for it: the epic's body, a "Children" list and the trailer
+`Epic: <id>`. It stores the URL on the epic (`--meta pr_url=<url>`) and in
+the note. A push or `gh` that fails reports `failed`, back to `open`, so the
+next integration retries.
+
+**pr-epic** is routed for the epic flow's `approved` stage (type `epic`)
+when epics land through pull requests. It pushes `yard/<epic>` with a lease
+(it may carry the reviewer's commits; a remote branch with commits of its
+own is not overwritten), replaces the PR's body with the latest review note
+under "Review", and reports `done`, to `in-pr`. No PR, a refused push or a
+PR GitHub reports as conflicting reports `failed`, to `open`.
+
+**pr-merge** is routed for `land` (type `epic`). It runs `gh pr merge
+<pr_url> --rebase --delete-branch`, fetches the remote, fast-forwards the
+base in the rig's checkout and reports `done`, to `merged`. A merge GitHub
+refuses reports `failed`, to `open`, with gh's message; it is not retried.
+A rig checkout that is not on the base or not clean is held before merging.
+Both need `gh`, logged in as the operator, and `jq` on PATH.
+
+**Environment.** All four read what the exec runner sets: `YARDR_BEAD`,
 `YARDR_RIG`, `YARDR_RIG_PATH`, `YARDR_BASE`, `YARDR_BRANCH` (default
 `yard/<bead>`), `YARDR_WORKTREE`, `YARDR_BIN` and `YARDR_HOME` (used for the
 default worktree path). Options go in the group's `cmd`: `YARDR_PUSH`, a
-remote to push to (off when empty), and `YARDR_NOTIFY`, the resident mailed
-when that push fails (default `mayor`).
+remote to push to (off when empty; pr-epic and pr-merge default to
+`origin`), `YARDR_NOTIFY`, the resident mailed when that push fails (default
+`mayor`), and `YARDR_PR=1` for integrate-epic.
 
 **Setup** (from docs/pipeline.md):
 
@@ -50,3 +72,8 @@ yardr group add yard-integrators --runner exec --limit 1 \
   --set log="$HOME/.yardr/logs/integrator.log"
 yardr route add --stage open --type epic --rig yard --group yard-integrators --priority 10
 ```
+
+Landing epics through pull requests adds `YARDR_PR=1` to the integrators'
+cmd and the groups `yard-pr` and `yard-pr-merge`, routed for `approved`
+and `land` (type `epic`); docs/pipeline.md, "Through a pull request", has
+the commands.

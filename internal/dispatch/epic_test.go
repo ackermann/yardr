@@ -28,7 +28,9 @@ func TestEpicFlowOutcomes(t *testing.T) {
 	want := map[string][]store.Outcome{
 		"open":     {{Name: "done", To: "review"}, {Name: "failed", To: "open"}},
 		"review":   {{Name: "done", To: "approved"}, {Name: "changes", To: "open"}, {Name: "question", To: "decide"}},
-		"approved": {{Name: "done", To: "merged"}, {Name: "failed", To: "open"}, {Name: "conflict", To: "merge"}},
+		"approved": {{Name: "done", To: "in-pr"}, {Name: "failed", To: "open"}, {Name: "conflict", To: "merge"}},
+		"in-pr":    {{Name: "done", To: "land"}, {Name: "changes", To: "open"}, {Name: "question", To: "decide"}},
+		"land":     {{Name: "done", To: "merged"}, {Name: "failed", To: "open"}},
 		"merge":    {{Name: "done", To: "review"}, {Name: "rework", To: "open"}, {Name: "question", To: "decide"}},
 	}
 	for stage, outs := range want {
@@ -36,8 +38,11 @@ func TestEpicFlowOutcomes(t *testing.T) {
 			t.Errorf("%s outcomes = %+v, want %+v", stage, got, outs)
 		}
 	}
-	// backlog's single way out is its implicit done.
-	for stage, to := range map[string][]string{"backlog": {"open"}, "open": {"backlog"}, "decide": {"open", "backlog"}} {
+	// backlog's single way out is its implicit done. approved -> merged is
+	// bare: merge-local advances an epic there when it lands it locally
+	// (YARDR_PR unset), and no agent is offered it as an outcome.
+	for stage, to := range map[string][]string{"backlog": {"open"}, "open": {"backlog"}, "decide": {"open", "backlog"},
+		"approved": {"merged"}} {
 		for _, s := range to {
 			if !slices.Contains(f.Transitions[stage], s) {
 				t.Errorf("%s -> %s missing: %v", stage, s, f.Transitions[stage])
