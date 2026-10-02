@@ -187,9 +187,15 @@ func linearFields(d *linearData) map[string][]string {
 // as the user's profile URL, which Linear renders as @name.
 var linearProfile = regexp.MustCompile(`https://linear\.app/[^/\s]+/profiles/([A-Za-z0-9][A-Za-z0-9._-]*)`)
 
+// linearAt matches a mention as Linear's webhooks and API render it in
+// markdown: @<profile key>, with no profile URL. It must not follow a word
+// character or a slash, so an email address or a URL path is not one.
+var linearAt = regexp.MustCompile(`(?:^|[^A-Za-z0-9_/])@([A-Za-z0-9][A-Za-z0-9._-]*)`)
+
 // linearMentions lists who a body mentions: user ids from the rich-text
 // document (bodyData, when the payload has it) and profile keys from
-// markdown profile URLs (the url key, not the id: the markdown has no ids).
+// markdown, as profile URLs or as @key (the key, not the id: the markdown
+// has no ids). An @key is lowercased; identities match keys in any case.
 func linearMentions(md string, doc json.RawMessage) []string {
 	var out []string
 	seen := map[string]bool{}
@@ -204,6 +210,10 @@ func linearMentions(md string, doc json.RawMessage) []string {
 	}
 	for _, m := range linearProfile.FindAllStringSubmatch(md, -1) {
 		add(strings.TrimRight(m[1], ".")) // a sentence may end right after it
+	}
+	// Code is shown as written and notifies no one.
+	for _, m := range linearAt.FindAllStringSubmatch(githubCode.ReplaceAllString(md, " "), -1) {
+		add(strings.ToLower(strings.TrimRight(m[1], ".,:;!?")))
 	}
 	return out
 }

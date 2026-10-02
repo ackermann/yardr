@@ -21,8 +21,11 @@ type Identity struct {
 
 func (i Identity) zero() bool { return i.ID == "" && i.Key == "" }
 
-// is reports whether v names this identity.
-func (i Identity) is(v string) bool { return v != "" && (v == i.ID || v == i.Key) }
+// is reports whether v names this identity. Keys are names people type
+// (@Mayor is @mayor), so they match in any case; ids match exactly.
+func (i Identity) is(v string) bool {
+	return v != "" && (v == i.ID || strings.EqualFold(v, i.Key))
+}
 
 // Subscription scopes, from widest to narrowest.
 const (

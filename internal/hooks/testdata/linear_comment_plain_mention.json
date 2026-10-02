@@ -1,0 +1,47 @@
+{
+  "action": "create",
+  "actor": {
+    "id": "aacdca22-6266-4c0a-ab3c-8fa70a26765c",
+    "name": "Jane Doe",
+    "email": "jane@example.com",
+    "avatarUrl": "https://public.linear.app/dc844923-f9a4-40a3-825c-dea7747e57d6/avatar",
+    "url": "https://linear.app/company/profiles/jane.doe",
+    "type": "user"
+  },
+  "createdAt": "2026-10-02T22:06:21.663Z",
+  "url": "https://linear.app/company/issue/ENG-498/testing-local-yardr-setup#comment-3a486010",
+  "type": "Comment",
+  "organizationId": "dc844923-f9a4-40a3-825c-dea7747e57d6",
+  "data": {
+    "id": "3a486010-d638-49dc-bcc0-800c16e08441",
+    "createdAt": "2026-10-02T22:06:21.663Z",
+    "updatedAt": "2026-10-02T22:06:21.634Z",
+    "body": "testing @mayor hello",
+    "issueId": "b3f17ab3-91e6-4c9a-b083-358fd8c98b19",
+    "userId": "aacdca22-6266-4c0a-ab3c-8fa70a26765c",
+    "reactionData": [],
+    "isArtificialAgentSessionRoot": false,
+    "botActor": null,
+    "user": {
+      "id": "aacdca22-6266-4c0a-ab3c-8fa70a26765c",
+      "name": "Jane Doe",
+      "email": "jane@example.com",
+      "avatarUrl": "https://public.linear.app/dc844923-f9a4-40a3-825c-dea7747e57d6/avatar",
+      "url": "https://linear.app/company/profiles/jane.doe"
+    },
+    "issue": {
+      "id": "b3f17ab3-91e6-4c9a-b083-358fd8c98b19",
+      "title": "Testing local yardr setup",
+      "teamId": "72b2a2dc-6f4f-4423-9d34-24b5bd10634a",
+      "team": {
+        "id": "72b2a2dc-6f4f-4423-9d34-24b5bd10634a",
+        "key": "ENG",
+        "name": "Engineering"
+      },
+      "identifier": "ENG-498",
+      "url": "https://linear.app/company/issue/ENG-498/testing-local-yardr-setup"
+    }
+  },
+  "webhookTimestamp": 1790978781844,
+  "webhookId": "000042e3-d123-4980-b49f-8e140eef9329"
+}

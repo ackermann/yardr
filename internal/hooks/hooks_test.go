@@ -488,9 +488,19 @@ func TestLinearNormalize(t *testing.T) {
 			Actor: hooks.Party{ID: "aacdca22-6266-4c0a-ab3c-8fa70a26765c", Name: "Jane Doe"},
 			Thread: hooks.Thread{ID: "539068e2-ae88-4d09-bd75-22eb4a59612f",
 				URL: "https://linear.app/company/issue/ENG-42"},
-			Mentions: []string{"4d3a2b1c-0000-4000-8000-00000000mayr"},
+			Mentions: []string{"4d3a2b1c-0000-4000-8000-00000000mayr", "mayor"},
 			Text:     "@mayor please check",
 			URL:      "https://linear.app/company/issue/ENG-42#comment-8f1e0c55",
+		}},
+		{"linear_comment_plain_mention.json", hooks.Envelope{
+			Source: "linear", Type: "comment", Action: "create",
+			Actor: hooks.Party{ID: "aacdca22-6266-4c0a-ab3c-8fa70a26765c", Name: "Jane Doe"},
+			Thread: hooks.Thread{ID: "b3f17ab3-91e6-4c9a-b083-358fd8c98b19", Title: "Testing local yardr setup",
+				URL: "https://linear.app/company/issue/ENG-498/testing-local-yardr-setup"},
+			Mentions: []string{"mayor"},
+			Text:     "testing @mayor hello",
+			URL:      "https://linear.app/company/issue/ENG-498/testing-local-yardr-setup#comment-3a486010",
+			Fields:   map[string][]string{"team": {"ENG", "Engineering"}},
 		}},
 		{"linear_issue_create.json", hooks.Envelope{
 			Source: "linear", Type: "issue", Action: "create",
@@ -527,6 +537,38 @@ func TestLinearNormalize(t *testing.T) {
 	}
 }
 
+// Linear's webhooks and API render a user mention in markdown as a plain
+// @<profile key>; one that is part of an email address, a URL or code is
+// not a mention.
+func TestLinearPlainMentions(t *testing.T) {
+	for _, c := range []struct {
+		body string
+		want []string
+	}{
+		{"@mayor can you look?", []string{"mayor"}},
+		{"testing @mayor hello", []string{"mayor"}},
+		{"over to @mayor", []string{"mayor"}},
+		{"thanks @mayor.", []string{"mayor"}},
+		{"@mayor, @jane.doe: and @mayor!", []string{"mayor", "jane.doe"}},
+		{"(@mayor?)\n@ops_bot;", []string{"mayor", "ops_bot"}},
+		{"ask @Mayor", []string{"mayor"}},
+		{"mail x@mayor.com", []string{}},
+		{"see https://example.com/@mayor/posts", []string{}},
+		{"run `yardr ask @mayor` or\n```\n@mayor\n```", []string{}},
+		{"a lone @ sign, @-dash and @.dot", []string{}},
+		{"https://linear.app/company/profiles/mayor and @mayor", []string{"mayor"}},
+	} {
+		body, _ := json.Marshal(map[string]any{"type": "Comment", "action": "create", "data": map[string]any{"body": c.body}})
+		e, err := hooks.Linear{}.Normalize(nil, body)
+		if err != nil {
+			t.Fatalf("%q: %v", c.body, err)
+		}
+		if !reflect.DeepEqual(e.Mentions, c.want) {
+			t.Errorf("%q: mentions %q, want %q", c.body, e.Mentions, c.want)
+		}
+	}
+}
+
 func TestTextIsTruncated(t *testing.T) {
 	long := strings.Repeat("é", hooks.MaxText*3)
 	body, _ := json.Marshal(map[string]any{"type": "Comment", "action": "create", "data": map[string]any{"body": long}})
@@ -540,7 +582,8 @@ func TestTextIsTruncated(t *testing.T) {
 }
 
 // A Linear comment reaches a subscribed resident's inbox with its reason:
-// by profile key from markdown, by user id from bodyData.
+// by profile key from markdown (a profile URL or a plain @key), by user id
+// from bodyData.
 func TestLinearMentionReachesInbox(t *testing.T) {
 	r := newRig(t)
 	ctx := context.Background()
@@ -555,7 +598,8 @@ func TestLinearMentionReachesInbox(t *testing.T) {
 		Where: map[string]string{"type": "comment"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []string{"linear_comment_create.json", "linear_comment_bodydata.json", "linear_issue_create.json"} {
+	for _, f := range []string{"linear_comment_create.json", "linear_comment_bodydata.json", "linear_issue_create.json",
+		"linear_comment_plain_mention.json"} {
 		body := fixture(t, f)
 		r.now = sentAt(t, body)
 		if code := r.linear(t, body, secret, f); code != http.StatusOK {
@@ -563,7 +607,7 @@ func TestLinearMentionReachesInbox(t *testing.T) {
 		}
 	}
 	page, err := r.st.Inbox(ctx, "mayor", 0)
-	if err != nil || page.Total != 2 {
+	if err != nil || page.Total != 3 {
 		t.Fatalf("inbox: %+v %v", page, err)
 	}
 	for _, e := range page.Events {
