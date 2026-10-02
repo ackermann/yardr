@@ -21,7 +21,8 @@ func All(home string, onError func(error)) map[string]dispatch.Runner {
 	return map[string]dispatch.Runner{
 		"manual": Manual{},
 		"exec":   NewExec(),
-		"herdr":  &Herdr{Bin: "herdr", WorktreeRoot: filepath.Join(home, "worktrees"), OnError: onError},
+		"herdr": &Herdr{Bin: "herdr", WorktreeRoot: filepath.Join(home, "worktrees"), YardHome: home,
+			YardBin: self(), OnError: onError},
 	}
 }
 
@@ -99,4 +100,16 @@ Run every yard command with YARD_ACTOR=%[1]s set (export it once).
 Advancing or closing ends your session; nothing else does.
 `, actor, bead.ID)
 	return b.String(), nil
+}
+
+// self is this yard's executable, so agents run the same version.
+func self() string {
+	p, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return p
 }

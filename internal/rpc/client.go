@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/mckean/yard/internal/store"
 )
@@ -227,6 +228,64 @@ func (c *Client) LogEvent(ctx context.Context, bead, kind, actor string, data ma
 }
 func (c *Client) Snapshot(ctx context.Context) (*store.Snapshot, error) {
 	return callV[*store.Snapshot](c, ctx, "Snapshot")
+}
+
+func (c *Client) PutResident(ctx context.Context, def store.Resident, actor string) (*store.Resident, error) {
+	return callV[*store.Resident](c, ctx, "PutResident", def, actor)
+}
+func (c *Client) Residents(ctx context.Context) ([]store.Resident, error) {
+	return callV[[]store.Resident](c, ctx, "Residents")
+}
+func (c *Client) GetResident(ctx context.Context, name string) (*store.Resident, error) {
+	return callV[*store.Resident](c, ctx, "GetResident", name)
+}
+func (c *Client) DeleteResident(ctx context.Context, name, actor string) error {
+	return c.call(ctx, "DeleteResident", nil, name, actor)
+}
+func (c *Client) SetResidentEnabled(ctx context.Context, name string, enabled bool, actor string) error {
+	return c.call(ctx, "SetResidentEnabled", nil, name, enabled, actor)
+}
+func (c *Client) ResidentStarted(ctx context.Context, name string, handle map[string]any) error {
+	return c.call(ctx, "ResidentStarted", nil, name, handle)
+}
+func (c *Client) ResidentStopped(ctx context.Context, name, reason string) error {
+	return c.call(ctx, "ResidentStopped", nil, name, reason)
+}
+func (c *Client) ResidentStartFailed(ctx context.Context, name, reason string, backoff time.Duration) error {
+	return c.call(ctx, "ResidentStartFailed", nil, name, reason, backoff)
+}
+func (c *Client) RequestRestart(ctx context.Context, name, reason, actor string) error {
+	return c.call(ctx, "RequestRestart", nil, name, reason, actor)
+}
+func (c *Client) MarkRotationAsked(ctx context.Context, name string) error {
+	return c.call(ctx, "MarkRotationAsked", nil, name)
+}
+func (c *Client) MarkNotified(ctx context.Context, name string, seq uint64) error {
+	return c.call(ctx, "MarkNotified", nil, name, seq)
+}
+func (c *Client) Journal(ctx context.Context, name, kind, text, actor string) error {
+	return c.call(ctx, "Journal", nil, name, kind, text, actor)
+}
+func (c *Client) Mail(ctx context.Context, to, text, actor string) error {
+	return c.call(ctx, "Mail", nil, to, text, actor)
+}
+func (c *Client) Inbox(ctx context.Context, name string, limit int) (*store.InboxPage, error) {
+	return callV[*store.InboxPage](c, ctx, "Inbox", name, limit)
+}
+func (c *Client) AckInbox(ctx context.Context, name string, through uint64) error {
+	return c.call(ctx, "AckInbox", nil, name, through)
+}
+func (c *Client) ResidentPrime(ctx context.Context, name string) (*store.Prime, error) {
+	return callV[*store.Prime](c, ctx, "ResidentPrime", name)
+}
+func (c *Client) Remember(ctx context.Context, m store.NewMemory, actor string) (*store.Bead, error) {
+	return callV[*store.Bead](c, ctx, "Remember", m, actor)
+}
+func (c *Client) Recall(ctx context.Context, scope, query string) ([]store.MemoryInfo, error) {
+	return callV[[]store.MemoryInfo](c, ctx, "Recall", scope, query)
+}
+func (c *Client) ExpireMemories(ctx context.Context) (int, error) {
+	return callV[int](c, ctx, "ExpireMemories")
 }
 
 // Subscribe streams events with seq > after. The channel closes if the

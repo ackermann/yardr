@@ -385,17 +385,27 @@ func (a *app) depCmd() *cobra.Command {
 }
 
 func (a *app) primeCmd() *cobra.Command {
-	var id string
+	var id, resident string
 	cmd := &cobra.Command{
 		Use:   "prime",
-		Short: "Print everything an agent needs to work a bead",
+		Short: "Print everything an agent needs to work a bead, or to run as a resident",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
+			if resident == "" && id == "" {
+				resident = os.Getenv("YARD_RESIDENT")
+			}
+			if resident != "" {
+				st, err := a.store(c.Context())
+				if err != nil {
+					return err
+				}
+				return a.primeResident(c.Context(), st, resident)
+			}
 			if id == "" {
 				id = os.Getenv("YARD_BEAD")
 			}
 			if id == "" {
-				return fmt.Errorf("--bead is required (or set YARD_BEAD)")
+				return fmt.Errorf("--bead or --resident is required (or set YARD_BEAD / YARD_RESIDENT)")
 			}
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -440,6 +450,7 @@ func (a *app) primeCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&id, "bead", "", "bead id (default $YARD_BEAD)")
+	cmd.Flags().StringVar(&resident, "resident", "", "resident name (default $YARD_RESIDENT)")
 	return cmd
 }
 

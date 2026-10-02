@@ -86,6 +86,39 @@ Grok, Kimi, opencode, pi, or any other herdr agent), a model read live from
 that agent (press `/` to search long lists), and its permission flags. With a
 name, `yard group add <name> --runner … --set …` stays scriptable.
 
+## Residents: always-on sessions (a mayor)
+
+A resident is an agent session that is not tied to a bead. The daemon keeps it
+running in its directory, nudges it when its inbox has something new and it is
+idle, and rotates it through handoffs instead of letting its context degrade.
+
+```sh
+yard resident add                     # interactive: agent, model, permissions, dir, inbox, rotation
+yard resident add mayor --set kind=claude --set 'args=["--permission-mode","auto"]' \
+  --set prompt=roles/mayor.md --dir ~/projects --max-age 6h
+yard mail mayor "Deploys are frozen until Friday"
+yard resident show mayor              # state, unread inbox, recent journal
+```
+
+- **Inbox:** events of the kinds in `--on` (default: things that went wrong or
+  need a decision: `gave_up`, `session_blocked`, `unrouted`, …) plus mail.
+  Read with `yard inbox`, mark handled with `yard inbox --ack`; the cursor is
+  stored, so nothing is lost or repeated across restarts.
+- **Journal:** one bead per resident (`<name>-journal`). `yard resident journal`
+  keeps decisions (≤4 KB); `yard resident handoff` ends the session (≤16 KB) and
+  the next session starts from it. At `--max-age` the resident is asked for a
+  handoff when idle; after `--handoff-grace` yard restarts it regardless.
+- **Prime:** a new session reads `yard prime --resident <name>`: its role, the
+  latest handoff, journal entries since, its inbox and its memories' titles,
+  bounded in size. If the last session ended without a handoff, it gets a
+  summary of what happened since instead.
+- **Memories:** `yard remember "title" -b … [--expires 7d] [--scope all]` and
+  `yard recall [query]`: lasting knowledge as beads, listed by title in primes,
+  retired automatically when they expire.
+
+Agents are told to run yard by absolute path: a shell may find an older yard
+first on its PATH, and the prime warns about it.
+
 ## Runners
 
 | runner | starts | config |

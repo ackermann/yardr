@@ -162,33 +162,49 @@ func (s *Store) OpenBlockers(ctx context.Context, id string) ([]string, error) {
 	return out, err
 }
 
+// Note kinds: plain evidence on a bead, and a resident's journal entries.
+const (
+	NoteNote    = "note"
+	NoteJournal = "journal"
+	NoteHandoff = "handoff"
+)
+
 type Note struct {
 	Bead   string    `json:"bead"`
+	Kind   string    `json:"kind,omitempty"` // "" or note, journal, handoff
 	Author string    `json:"author"`
 	Text   string    `json:"text"`
 	At     time.Time `json:"at"`
+	Seq    uint64    `json:"seq"` // order of notes, store-wide
 }
 
 func (s *Store) AddNote(ctx context.Context, id, text, actor string) error {
-	return s.write(func(w *wtx) error {
-		row, err := w.loadBead(id)
-		if err != nil {
-			return err
-		}
-		seq, err := w.Bucket(bNotes).NextSequence()
-		if err != nil {
-			return err
-		}
-		if err := put(w.Tx, bNotes, join(id, seqKey(seq)), Note{Bead: id, Author: actor, Text: text, At: now()}); err != nil {
-			return err
-		}
-		// The bead's representation counts its notes (bd's comment_count).
-		row.Notes++
-		if err := w.mintBead(row, actor); err != nil {
-			return err
-		}
-		return w.event(id, "noted", actor, nil)
-	})
+	return s.write(func(w *wtx) error { return w.addNote(id, NoteNote, text, actor) })
+}
+
+func (w *wtx) addNote(id, kind, text, actor string) error {
+	row, err := w.loadBead(id)
+	if err != nil {
+		return err
+	}
+	seq, err := w.Bucket(bNotes).NextSequence()
+	if err != nil {
+		return err
+	}
+	n := Note{Bead: id, Kind: kind, Author: actor, Text: text, At: now(), Seq: seq}
+	if err := put(w.Tx, bNotes, join(id, seqKey(seq)), n); err != nil {
+		return err
+	}
+	// The bead's representation counts its notes (bd's comment_count).
+	row.Notes++
+	if err := w.mintBead(row, actor); err != nil {
+		return err
+	}
+	evKind := "noted"
+	if kind == NoteJournal || kind == NoteHandoff {
+		evKind = kind
+	}
+	return w.event(id, evKind, actor, nil)
 }
 
 func (s *Store) Notes(ctx context.Context, id string) ([]Note, error) {

@@ -197,7 +197,8 @@ func (s *Store) ListBeads(ctx context.Context, f BeadFilter) ([]Bead, error) {
 	return s.beadsWhere(func(tx *bolt.Tx, b *Bead) bool {
 		return (f.All || b.Status == "open") &&
 			(f.Stage == "" || b.Stage == f.Stage) &&
-			(f.Type == "" || b.Type == f.Type) &&
+			// Journals and memories are listed only when asked for by type.
+			((f.Type == "" && !NotWork[b.Type]) || b.Type == f.Type) &&
 			(f.Rig == "" || (b.Rig != nil && *b.Rig == f.Rig)) &&
 			(f.Label == "" || slices.Contains(b.Labels, f.Label)) &&
 			(f.Group == "" || (b.Group != nil && *b.Group == f.Group))
@@ -214,8 +215,17 @@ func (s *Store) Dispatchable(ctx context.Context) ([]Bead, error) {
 	return s.beadsWhere(func(tx *bolt.Tx, b *Bead) bool { return b.Group == nil && ready(tx, b) })
 }
 
+// NotWork lists bead types that carry knowledge, not work: they are never
+// ready and never routed.
+var NotWork = map[string]bool{TypeJournal: true, TypeMemory: true}
+
+const (
+	TypeJournal = "journal"
+	TypeMemory  = "memory"
+)
+
 func ready(tx *bolt.Tx, b *Bead) bool {
-	return b.Status == "open" && !b.Hold && len(openBlockers(tx, b.ID)) == 0
+	return !NotWork[b.Type] && b.Status == "open" && !b.Hold && len(openBlockers(tx, b.ID)) == 0
 }
 
 // openBlockers lists beads that block id (kind blocks) and are not closed.

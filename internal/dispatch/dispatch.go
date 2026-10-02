@@ -206,6 +206,9 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	if err := d.cleanup(ctx, byName); err != nil {
 		return err
 	}
+	if err := d.residents(ctx); err != nil {
+		return err
+	}
 	return d.route(ctx, byName, active)
 }
 

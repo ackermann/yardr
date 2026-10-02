@@ -1,6 +1,9 @@
 package store
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // API is everything the rest of yard uses. *Store implements it in the
 // owning process; rpc.Client implements it for every other process.
@@ -53,6 +56,26 @@ type API interface {
 	Head(ctx context.Context) (uint64, error)
 	LogEvent(ctx context.Context, bead, kind, actor string, data map[string]any) error
 	Snapshot(ctx context.Context) (*Snapshot, error)
+
+	PutResident(ctx context.Context, def Resident, actor string) (*Resident, error)
+	Residents(ctx context.Context) ([]Resident, error)
+	GetResident(ctx context.Context, name string) (*Resident, error)
+	DeleteResident(ctx context.Context, name, actor string) error
+	SetResidentEnabled(ctx context.Context, name string, enabled bool, actor string) error
+	ResidentStarted(ctx context.Context, name string, handle map[string]any) error
+	ResidentStopped(ctx context.Context, name, reason string) error
+	ResidentStartFailed(ctx context.Context, name, reason string, backoff time.Duration) error
+	RequestRestart(ctx context.Context, name, reason, actor string) error
+	MarkRotationAsked(ctx context.Context, name string) error
+	MarkNotified(ctx context.Context, name string, seq uint64) error
+	Journal(ctx context.Context, name, kind, text, actor string) error
+	Mail(ctx context.Context, to, text, actor string) error
+	Inbox(ctx context.Context, name string, limit int) (*InboxPage, error)
+	AckInbox(ctx context.Context, name string, through uint64) error
+	ResidentPrime(ctx context.Context, name string) (*Prime, error)
+	Remember(ctx context.Context, m NewMemory, actor string) (*Bead, error)
+	Recall(ctx context.Context, scope, query string) ([]MemoryInfo, error)
+	ExpireMemories(ctx context.Context) (int, error)
 
 	// Streams: closed when ctx ends or the connection to the owner drops.
 	Subscribe(ctx context.Context, after uint64) (<-chan Event, error)

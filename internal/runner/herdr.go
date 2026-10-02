@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/mckean/yard/internal/dispatch"
+	"github.com/mckean/yard/internal/store"
 )
 
 // Herdr runs each bead in its own git worktree (branch yard/<bead>) opened as
@@ -35,7 +36,11 @@ import (
 type Herdr struct {
 	Bin          string
 	WorktreeRoot string
-	Socket       string // API socket; empty means SocketPath's default
+	YardHome     string // passed to residents, so their yard commands reach this yard
+	// YardBin is this yard's executable. Agents are told to use it by path:
+	// an agent's shell may find an older yard first on its PATH.
+	YardBin string
+	Socket  string // API socket; empty means SocketPath's default
 	// OnError reports event-stream failures (herdr down, reconnecting).
 	OnError func(error)
 }
@@ -211,6 +216,9 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	}
 	rel, _ := filepath.Rel(wt.Worktree.Path, briefPath)
 	prompt := fmt.Sprintf("Read %s and follow it. Start with `export YARD_ACTOR=%s`.", rel, name)
+	if h.YardBin != "" {
+		prompt += fmt.Sprintf(" Run yard as %s.", h.YardBin)
+	}
 	if _, err := h.run(ctx, "agent", "prompt", name, prompt); err != nil {
 		return handle, err
 	}
@@ -336,10 +344,15 @@ func (h *Herdr) workspaceAt(ctx context.Context, ws, path string) bool {
 // from the bead's metadata.model, else the group's config.model. A model
 // already in args is replaced, so a bead can override a group default.
 func AgentArgs(job dispatch.Job) []string {
-	args := strs(job.Group.Config, "args")
-	model := str(job.Group.Config, "model", "")
-	if m, ok := job.Bead.Metadata["model"].(string); ok && m != "" {
-		model = m
+	model, _ := job.Bead.Metadata["model"].(string)
+	return agentArgs(job.Group.Config, model)
+}
+
+func agentArgs(cfg map[string]any, override string) []string {
+	args := strs(cfg, "args")
+	model := str(cfg, "model", "")
+	if override != "" {
+		model = override
 	}
 	if model == "" {
 		return args
@@ -355,4 +368,72 @@ func AgentArgs(job dispatch.Job) []string {
 		}
 	}
 	return append(out, "--model", model)
+}
+
+// StartResident opens a herdr workspace in the resident's directory, with
+// its identity in the environment, starts its agent and points it at its
+// prime. The agent is named after the resident.
+func (h *Herdr) StartResident(ctx context.Context, r store.Resident) (map[string]any, error) {
+	dir := r.Dir
+	if dir == "" {
+		dir = h.YardHome
+	}
+	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+		return nil, fmt.Errorf("resident directory %q does not exist", dir)
+	}
+	name := AgentName(r.Name, "")
+	args := []string{"workspace", "create", "--cwd", dir, "--label", r.Name, "--no-focus",
+		"--env", "YARD_RESIDENT=" + r.Name, "--env", "YARD_ACTOR=" + r.Name}
+	if h.YardHome != "" {
+		args = append(args, "--env", "YARD_HOME="+h.YardHome)
+	}
+	raw, err := h.run(ctx, args...)
+	if err != nil {
+		return nil, fmt.Errorf("workspace for %s: %w", r.Name, err)
+	}
+	var ws herdrResult
+	if err := json.Unmarshal(raw, &ws); err != nil {
+		return nil, fmt.Errorf("workspace result: %w", err)
+	}
+	handle := map[string]any{"agent": name, "workspace": ws.Workspace.ID, "tab": ws.Tab.ID,
+		"pane": ws.RootPane.ID, "dir": dir}
+
+	start := []string{"agent", "start", name, "--kind", str(r.Config, "kind", "claude"), "--pane", ws.RootPane.ID}
+	if extra := agentArgs(r.Config, ""); len(extra) > 0 {
+		start = append(append(start, "--"), extra...)
+	}
+	for attempt := 0; ; attempt++ {
+		_, err = h.run(ctx, start...)
+		var herr *herdrError
+		if err == nil || attempt == 20 || !errors.As(err, &herr) || herr.Code != "agent_pane_busy" {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if err != nil {
+		return handle, err
+	}
+	prompt := fmt.Sprintf("You are the yard resident %q. Run `%s prime --resident %s` and follow it.",
+		r.Name, h.yard(), r.Name)
+	if _, err := h.run(ctx, "agent", "prompt", name, prompt); err != nil {
+		return handle, err
+	}
+	return handle, nil
+}
+
+// Nudge sends text to the session's agent as its next prompt.
+func (h *Herdr) Nudge(ctx context.Context, handle map[string]any, text string) error {
+	name, _ := handle["agent"].(string)
+	if name == "" {
+		return fmt.Errorf("handle has no agent")
+	}
+	_, err := h.run(ctx, "agent", "prompt", name, text)
+	return err
+}
+
+func (h *Herdr) yard() string {
+	if h.YardBin != "" {
+		return h.YardBin
+	}
+	return "yard"
 }
