@@ -231,7 +231,7 @@ func (a *app) beadCmd() *cobra.Command {
 		},
 	}
 
-	var to string
+	var to, advNote string
 	advance := &cobra.Command{
 		Use:   "advance <id> --to <stage>",
 		Short: "Finish the current stage and hand the bead to the next",
@@ -244,7 +244,12 @@ func (a *app) beadCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			b, err := st.Advance(c.Context(), args[0], to, a.who())
+			if advNote == "-" {
+				if advNote, err = readAllStdin(); err != nil {
+					return err
+				}
+			}
+			b, err := st.AdvanceNote(c.Context(), args[0], to, advNote, a.who())
 			if err != nil {
 				return err
 			}
@@ -252,6 +257,7 @@ func (a *app) beadCmd() *cobra.Command {
 		},
 	}
 	advance.Flags().StringVar(&to, "to", "", "next stage")
+	advance.Flags().StringVar(&advNote, "note", "", "attach a note with the move, e.g. the changes asked for (- reads stdin)")
 
 	var reason string
 	closeCmd := &cobra.Command{

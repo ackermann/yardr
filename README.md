@@ -71,6 +71,7 @@ group prompt paths are resolved inside it.
 yard prime --bead webapp-3                  # bead, edges, notes
 yard bead note webapp-3 "tests green: ..."  # evidence
 yard bead advance webapp-3 --to review      # hand to the next stage
+yard bead advance webapp-3 --to new --note "rename the flag"  # note and move in one write
 yard bead close webapp-3 --reason "merged"
 yard bead hold webapp-3                     # stop routing; a human looks
 ```
@@ -150,6 +151,22 @@ create one, choose the runner, and for herdr the agent (Claude Code, Codex,
 Grok, Kimi, opencode, pi, or any other herdr agent), a model read live from
 that agent (press `/` to search long lists), and its permission flags. With a
 name, `yard group add <name> --runner … --set …` stays scriptable.
+
+## Review: beads waiting on you
+
+`yard review` walks the open beads in stages routed to manual groups (only
+groups that list you as a member, if they list members), longest untouched
+first. Each bead shows its stage, description, last notes and
+`git diff --stat <base>...yard/<bead>` from the rig. Pick where it goes next:
+the stages its flow allows (a stage earlier in the flow sends it back and
+asks for a note; a terminal stage closes it), or without a flow any stage a
+route uses. "Open diff" pages the full diff through `$PAGER`; Skip leaves it.
+
+```sh
+yard review                    # the form
+yard review list               # the same queue for scripts (--json for actions)
+yard bead advance <id> --to <stage> [--note <text>]
+```
 
 ## Residents: always-on sessions (a mayor)
 

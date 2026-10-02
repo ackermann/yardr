@@ -1,0 +1,390 @@
+package cli
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/charmbracelet/huh"
+	"github.com/spf13/cobra"
+
+	"github.com/mckean/yard/internal/runner"
+	"github.com/mckean/yard/internal/store"
+)
+
+// reviewItem is a bead waiting on a human: open, in a stage a manual group
+// works, and movable on by the actor.
+type reviewItem struct {
+	Bead    store.Bead     `json:"bead"`
+	Group   string         `json:"group"`
+	Members []string       `json:"members,omitempty"` // none = anyone
+	Actions []reviewAction `json:"actions"`
+}
+
+// Action kinds. advance moves the bead to Stage; diff and skip leave it.
+const (
+	actAdvance = "advance"
+	actDiff    = "diff"
+	actSkip    = "skip"
+)
+
+type reviewAction struct {
+	Kind  string `json:"kind"`
+	Label string `json:"label"`
+	Stage string `json:"stage,omitempty"`
+	// NoteRequired: sending a bead back needs a note saying what to change,
+	// or whoever picks it up next has nothing to go on.
+	NoteRequired bool `json:"note_required,omitempty"`
+	Terminal     bool `json:"terminal,omitempty"` // entering Stage closes the bead
+}
+
+// reviewQueue lists the open beads waiting on actor in human stages, the
+// longest untouched first. A bead's group is the one working it, else the
+// one its routes send it to; a group with members only shows its beads to
+// them, mirroring Advance's check.
+func reviewQueue(ctx context.Context, st store.API, actor string) ([]reviewItem, error) {
+	beads, err := st.ListBeads(ctx, store.BeadFilter{})
+	if err != nil {
+		return nil, err
+	}
+	routes, err := st.Routes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	store.SortRoutes(routes)
+	groups, err := st.Groups(ctx)
+	if err != nil {
+		return nil, err
+	}
+	byName := map[string]store.Group{}
+	for _, g := range groups {
+		byName[g.Name] = g
+	}
+	flows, err := st.Flows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := []reviewItem{}
+	for _, b := range beads {
+		name := deref(b.Group)
+		if b.Group == nil {
+			r := store.MatchRoute(routes, b)
+			if r == nil {
+				continue
+			}
+			name = r.Group
+		}
+		g, ok := byName[name]
+		if !ok || g.Runner != "manual" {
+			continue
+		}
+		if len(g.Members) > 0 && !slices.Contains(g.Members, actor) {
+			continue
+		}
+		items = append(items, reviewItem{Bead: b, Group: g.Name, Members: g.Members,
+			Actions: reviewActions(b, flowOf(flows, b), routes)})
+	}
+	slices.SortStableFunc(items, func(x, y reviewItem) int {
+		if c := x.Bead.UpdatedAt.Compare(y.Bead.UpdatedAt); c != 0 {
+			return c
+		}
+		return strings.Compare(x.Bead.ID, y.Bead.ID)
+	})
+	return items, nil
+}
+
+// flowOf is the flow governing b: its type's flow in its rig, else the
+// rig's; nil when neither exists (the store's flowFor, from a listing).
+func flowOf(flows []store.Flow, b store.Bead) *store.Flow {
+	if b.Rig == nil {
+		return nil
+	}
+	var rigFlow *store.Flow
+	for i := range flows {
+		f := &flows[i]
+		if f.Rig != *b.Rig {
+			continue
+		}
+		if f.Type == b.Type {
+			return f
+		}
+		if f.Type == "" {
+			rigFlow = f
+		}
+	}
+	return rigFlow
+}
+
+// reviewActions is what a reviewer may do with b. Under a flow: each stage
+// it allows next, where a stage earlier in the flow sends the bead back and
+// needs a note. Without one: any stage a route uses. Then always open diff
+// and skip.
+func reviewActions(b store.Bead, f *store.Flow, routes []store.Route) []reviewAction {
+	var out []reviewAction
+	if f != nil {
+		here := slices.Index(f.Stages, b.Stage)
+		for _, s := range f.Next(b.Stage) {
+			a := reviewAction{Kind: actAdvance, Stage: s, Terminal: f.IsTerminal(s)}
+			switch {
+			case a.Terminal:
+				a.Label = "Finish as " + s + " (closes the bead)"
+			case here >= 0 && slices.Index(f.Stages, s) < here:
+				a.Label, a.NoteRequired = "Send back to "+s+" (note required)", true
+			default:
+				a.Label = "Move to " + s
+			}
+			out = append(out, a)
+		}
+	} else {
+		var stages []string
+		for _, r := range routes {
+			if r.Stage != b.Stage && !slices.Contains(stages, r.Stage) {
+				stages = append(stages, r.Stage)
+			}
+		}
+		slices.Sort(stages)
+		for _, s := range stages {
+			out = append(out, reviewAction{Kind: actAdvance, Stage: s, Label: "Move to " + s})
+		}
+	}
+	return append(out,
+		reviewAction{Kind: actDiff, Label: "Open diff"},
+		reviewAction{Kind: actSkip, Label: "Skip"})
+}
+
+// diffRange is the bead branch against the rig's base, as git diff takes
+// it, and the rig checkout to run it in.
+func diffRange(ctx context.Context, st store.API, b store.Bead) (dir, rng string, err error) {
+	if b.Rig == nil {
+		return "", "", fmt.Errorf("bead %s has no rig", b.ID)
+	}
+	rig, err := st.GetRig(ctx, *b.Rig)
+	if err != nil {
+		return "", "", err
+	}
+	branch := runner.Branch(b)
+	if err := exec.CommandContext(ctx, "git", "-C", rig.Path, "rev-parse", "--verify", "--quiet", branch+"^{commit}").Run(); err != nil {
+		return "", "", fmt.Errorf("no branch %s in %s", branch, rig.Path)
+	}
+	return rig.Path, or(rig.Base, "origin/main") + "..." + branch, nil
+}
+
+// diffStat summarises the bead's branch, or says why there is nothing to show.
+func diffStat(ctx context.Context, st store.API, b store.Bead) string {
+	dir, rng, err := diffRange(ctx, st, b)
+	if err != nil {
+		return err.Error()
+	}
+	out, err := exec.CommandContext(ctx, "git", "-C", dir, "diff", "--stat", rng).CombinedOutput()
+	if err != nil {
+		return fmt.Sprintf("git diff --stat %s: %v: %s", rng, err, strings.TrimSpace(string(out)))
+	}
+	if s := strings.TrimRight(string(out), "\n"); s != "" {
+		return s
+	}
+	return "no changes against " + rng
+}
+
+// pageDiff shows the full diff through $PAGER (less -R if unset).
+func pageDiff(ctx context.Context, st store.API, b store.Bead) error {
+	dir, rng, err := diffRange(ctx, st, b)
+	if err != nil {
+		return err
+	}
+	git := exec.CommandContext(ctx, "git", "-C", dir, "diff", "--color=always", rng)
+	pager := exec.CommandContext(ctx, "sh", "-c", or(os.Getenv("PAGER"), "less -R"))
+	if pager.Stdin, err = git.StdoutPipe(); err != nil {
+		return err
+	}
+	git.Stderr = os.Stderr
+	pager.Stdout, pager.Stderr = os.Stdout, os.Stderr
+	if err := git.Start(); err != nil {
+		return err
+	}
+	perr := pager.Run()
+	// A pager quit early closes the pipe; git's broken-pipe exit is not news.
+	_ = git.Wait()
+	return perr
+}
+
+// lastNotes formats the bead's newest n notes, oldest first.
+func lastNotes(notes []store.Note, n int) string {
+	if len(notes) > n {
+		notes = notes[len(notes)-n:]
+	}
+	var sb strings.Builder
+	for _, nt := range notes {
+		fmt.Fprintf(&sb, "[%s %s]\n%s\n\n", nt.At.Local().Format("2006-01-02 15:04"), nt.Author, strings.TrimSpace(nt.Text))
+	}
+	return strings.TrimSpace(sb.String())
+}
+
+func (a *app) reviewCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "review",
+		Short: "Work through beads waiting on you in human stages, one form per bead",
+		Long: `Walks the open beads in stages routed to manual groups (only those whose
+group has you as a member, if it lists members), longest untouched first.
+Each shows its notes and the diff of its branch against the rig's base;
+pick where it goes next, open the full diff, or skip it.
+
+For scripts: yard review list, and yard bead advance <id> --to <stage> --note <text>.`,
+		Args: cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			items, err := reviewQueue(c.Context(), st, a.who())
+			if err != nil {
+				return err
+			}
+			if a.json {
+				return a.out(items, nil)
+			}
+			return a.reviewForm(c.Context(), st, items)
+		},
+	}
+	list := &cobra.Command{
+		Use: "list", Short: "List the beads yard review would show, with the moves each allows", Args: cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			items, err := reviewQueue(c.Context(), st, a.who())
+			if err != nil {
+				return err
+			}
+			return a.out(items, func() {
+				rows := [][]string{}
+				for _, it := range items {
+					var next []string
+					for _, ac := range it.Actions {
+						if ac.Kind == actAdvance {
+							next = append(next, ac.Stage)
+						}
+					}
+					rows = append(rows, []string{it.Bead.ID, it.Bead.Stage, it.Group, age(it.Bead.UpdatedAt),
+						or(strings.Join(next, " | "), "-"), it.Bead.Title})
+				}
+				table("ID\tSTAGE\tGROUP\tWAITING\tNEXT\tTITLE", rows)
+			})
+		},
+	}
+	cmd.AddCommand(list)
+	return cmd
+}
+
+// age is how long ago t was, coarsely.
+func age(t time.Time) string {
+	d := time.Since(t)
+	switch {
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 48*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
+	}
+}
+
+// reviewForm asks, bead by bead, what to do with each item.
+func (a *app) reviewForm(ctx context.Context, st store.API, items []reviewItem) error {
+	if len(items) == 0 {
+		fmt.Println("nothing waiting on you")
+		return nil
+	}
+	for i, it := range items {
+		b := it.Bead
+		notes, err := st.Notes(ctx, b.ID)
+		if err != nil {
+			return err
+		}
+		desc := fmt.Sprintf("stage %s · group %s · %s · P%d · waiting %s", b.Stage, it.Group, b.Type, b.Priority, age(b.UpdatedAt))
+		if b.Hold {
+			desc += " · HELD"
+		}
+		if body := strings.TrimSpace(b.Body); body != "" {
+			desc += "\n\n" + clip(body, 12)
+		}
+		if n := lastNotes(notes, 3); n != "" {
+			desc += "\n\nNotes:\n" + n
+		}
+		desc += "\n\nDiff:\n" + clip(diffStat(ctx, st, b), 15)
+
+		for {
+			pick := 0
+			opts := make([]huh.Option[int], len(it.Actions))
+			for j, ac := range it.Actions {
+				opts[j] = huh.NewOption(ac.Label, j)
+			}
+			err := ask(
+				huh.NewNote().Title(fmt.Sprintf("[%d/%d] %s  %s", i+1, len(items), b.ID, b.Title)).Description(desc),
+				huh.NewSelect[int]().Title("Action").Options(opts...).Value(&pick),
+			)
+			if errors.Is(err, huh.ErrUserAborted) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			ac := it.Actions[pick]
+			if ac.Kind == actDiff {
+				if err := pageDiff(ctx, st, b); err != nil {
+					fmt.Fprintln(os.Stderr, "yard:", err)
+				}
+				continue
+			}
+			if ac.Kind == actAdvance {
+				if err := a.reviewAdvance(ctx, st, b, ac); err != nil {
+					if errors.Is(err, huh.ErrUserAborted) {
+						continue
+					}
+					fmt.Fprintln(os.Stderr, "yard:", err)
+					continue
+				}
+			}
+			break
+		}
+	}
+	return nil
+}
+
+// reviewAdvance asks for the move's note and makes the move.
+func (a *app) reviewAdvance(ctx context.Context, st store.API, b store.Bead, ac reviewAction) error {
+	var note string
+	field := huh.NewText().Title("Note for " + b.ID).Value(&note)
+	if ac.NoteRequired {
+		field = field.Description("What should change? It is added to the bead before it moves to " + ac.Stage + ".").Validate(nonEmpty)
+	} else {
+		field = field.Description("Optional; added to the bead with the move to " + ac.Stage + ".")
+	}
+	if err := ask(field); err != nil {
+		return err
+	}
+	moved, err := st.AdvanceNote(ctx, b.ID, ac.Stage, note, a.who())
+	if err != nil {
+		return err
+	}
+	if moved.Status == "closed" {
+		fmt.Printf("%s → %s (closed)\n", moved.ID, moved.Stage)
+	} else {
+		fmt.Printf("%s → %s\n", moved.ID, moved.Stage)
+	}
+	return nil
+}
+
+// clip keeps the first n lines of s.
+func clip(s string, n int) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) <= n {
+		return s
+	}
+	return strings.Join(lines[:n], "\n") + fmt.Sprintf("\n… %d more lines", len(lines)-n)
+}

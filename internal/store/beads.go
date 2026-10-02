@@ -403,8 +403,21 @@ func (w *wtx) endSession(b *beadRow, state string) error {
 // transaction. When the group the bead answers to in its stage has members,
 // only they may move it.
 func (s *Store) Advance(ctx context.Context, id, stage, actor string) (*Bead, error) {
+	return s.AdvanceNote(ctx, id, stage, "", actor)
+}
+
+// AdvanceNote is Advance with a note attached in the same transaction, so
+// a refused move leaves no note behind and whoever picks the bead up in the
+// next stage already sees it (a reviewer's requested changes). An empty
+// note adds none.
+func (s *Store) AdvanceNote(ctx context.Context, id, stage, note, actor string) (*Bead, error) {
 	var result *Bead
 	err := s.write(func(w *wtx) error {
+		if strings.TrimSpace(note) != "" {
+			if err := w.addNote(id, NoteNote, note, actor); err != nil {
+				return err
+			}
+		}
 		var terminal bool
 		b, err := w.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
 			f, err := flowFor(w.Tx, b.Rig, b.Type)

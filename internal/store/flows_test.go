@@ -328,3 +328,34 @@ func TestFlowTypeOverridesRig(t *testing.T) {
 		t.Fatalf("flows = %+v", all)
 	}
 }
+
+func TestAdvanceNote(t *testing.T) {
+	s, ctx := flowRig(t)
+	putFlow(t, s, "yard", "", yardFlow)
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard", Stage: "review"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A move the flow refuses leaves no note behind.
+	if _, err := s.AdvanceNote(ctx, b.ID, "merged", "ship it", "me"); err == nil {
+		t.Fatal("review -> merged allowed")
+	}
+	if notes, _ := s.Notes(ctx, b.ID); len(notes) != 0 {
+		t.Fatalf("refused move left notes: %+v", notes)
+	}
+	got, err := s.AdvanceNote(ctx, b.ID, "new", "rename the flag", "reviewer")
+	if err != nil || got.Stage != "new" {
+		t.Fatalf("advance = %+v, %v", got, err)
+	}
+	notes, err := s.Notes(ctx, b.ID)
+	if err != nil || len(notes) != 1 || notes[0].Text != "rename the flag" || notes[0].Author != "reviewer" {
+		t.Fatalf("notes = %+v, %v", notes, err)
+	}
+	// An empty note adds none.
+	if _, err := s.AdvanceNote(ctx, b.ID, "review", "  ", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if notes, _ := s.Notes(ctx, b.ID); len(notes) != 1 {
+		t.Fatalf("empty note stored: %+v", notes)
+	}
+}
