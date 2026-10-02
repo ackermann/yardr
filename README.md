@@ -62,6 +62,11 @@ yardr was called yard; for one release it still reads `YARD_*` variables and
 event's sequence number; `yardr watch --after <seq>` resumes from there with no
 gaps or duplicates, and a running watch rides out a server restart.
 
+Work that spans several beads is an epic: `yardr bead create -t epic`, then
+`yardr dep add <epic> <child> -k parent` for each child. Children branch from
+and land on the epic's branch, and the epic itself is integrated, reviewed as a
+whole and landed on main through its own flow ([details](docs/pipeline.md#epics)).
+
 ## Rigs
 
 A rig is a git repository beads are worked in. Register an existing clone,
