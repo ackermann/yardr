@@ -209,7 +209,10 @@ func linearMentions(md string, doc json.RawMessage) []string {
 		add(id)
 	}
 	for _, m := range linearProfile.FindAllStringSubmatch(md, -1) {
-		add(strings.TrimRight(m[1], ".")) // a sentence may end right after it
+		// Profile keys and plain @keys share the same case-insensitive
+		// namespace; canonicalize both so a key mentioned through both
+		// markdown forms is still emitted only once.
+		add(strings.ToLower(strings.TrimRight(m[1], "."))) // a sentence may end right after it
 	}
 	// Code is shown as written and notifies no one.
 	for _, m := range linearAt.FindAllStringSubmatch(githubCode.ReplaceAllString(md, " "), -1) {

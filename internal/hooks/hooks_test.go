@@ -557,6 +557,7 @@ func TestLinearPlainMentions(t *testing.T) {
 		{"run `yardr ask @mayor` or\n```\n@mayor\n```", []string{}},
 		{"a lone @ sign, @-dash and @.dot", []string{}},
 		{"https://linear.app/company/profiles/mayor and @mayor", []string{"mayor"}},
+		{"https://linear.app/company/profiles/Mayor and @mayor", []string{"mayor"}},
 	} {
 		body, _ := json.Marshal(map[string]any{"type": "Comment", "action": "create", "data": map[string]any{"body": c.body}})
 		e, err := hooks.Linear{}.Normalize(nil, body)
