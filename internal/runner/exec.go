@@ -66,6 +66,9 @@ func (e *Exec) Start(ctx context.Context, job dispatch.Job) (map[string]any, err
 	cmd.Stdout, cmd.Stderr = logf, logf
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return nil, dispatch.Runtime(err) // no shell: no bead can start
+		}
 		return nil, err
 	}
 	pid := cmd.Process.Pid

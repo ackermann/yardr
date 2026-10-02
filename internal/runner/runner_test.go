@@ -136,7 +136,7 @@ func TestBriefListsOutcomes(t *testing.T) {
 	}
 	for _, want := range []string{
 		"report how it ended with one of the outcomes below; the flow picks the next stage",
-		"Reporting an outcome or closing ends your session",
+		"Reporting an outcome, closing or holding ends your session",
 		"## Outcomes",
 		"Report how your work in `new` ended",
 		"- `done` (to `review`): an agent in `reviewers` picks it up",

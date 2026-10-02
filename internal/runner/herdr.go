@@ -44,6 +44,8 @@ type Herdr struct {
 	// an agent's shell may find an older yard first on its PATH.
 	YardBin string
 	Socket  string // API socket; empty means SocketPath's default
+	// FetchTimeout overrides the package FetchTimeout (tests).
+	FetchTimeout time.Duration
 	// OnError reports event-stream failures (herdr down, reconnecting).
 	OnError func(error)
 }
@@ -94,11 +96,13 @@ func (h *Herdr) run(ctx context.Context, args ...string) (json.RawMessage, error
 			return resp.Result, nil
 		}
 	}
+	// No error object: herdr is missing, down or not answering. That is the
+	// runtime's failure, not the bead's (see dispatch.RuntimeError).
 	if runErr != nil {
-		return nil, fmt.Errorf("herdr %s: %w: %s", strings.Join(args[:min(2, len(args))], " "), runErr,
-			strings.TrimSpace(stderr.String()+" "+stdout.String()))
+		return nil, dispatch.Runtime(fmt.Errorf("herdr %s: %w: %s", strings.Join(args[:min(2, len(args))], " "), runErr,
+			strings.TrimSpace(stderr.String()+" "+stdout.String())))
 	}
-	return nil, fmt.Errorf("herdr %s: unparseable output: %s", strings.Join(args[:min(2, len(args))], " "), stdout.String())
+	return nil, dispatch.Runtime(fmt.Errorf("herdr %s: unparseable output: %s", strings.Join(args[:min(2, len(args))], " "), stdout.String()))
 }
 
 var nameUnsafe = regexp.MustCompile(`[^a-z0-9_-]+`)
@@ -149,10 +153,7 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	// bead: "builders 27" reads better than the bare bead id.
 	label := WorkspaceLabel(rig.Name, job.Group.Name, job.Bead.ID)
 
-	// Best effort: the base ref should be current before branching from it.
-	if remote, _, ok := strings.Cut(rig.Base, "/"); ok {
-		_ = exec.CommandContext(ctx, "git", "-C", rig.Path, "fetch", "--quiet", remote).Run()
-	}
+	h.fetchBase(ctx, rig)
 
 	// First stage creates the worktree; later stages reopen it.
 	root := str(job.Group.Config, "worktrees", h.WorktreeRoot)
@@ -242,6 +243,34 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 		prompt += fmt.Sprintf(" Run yardr as %s.", h.YardBin)
 	}
 	return h.startAgent(ctx, args, name, prompt, handle)
+}
+
+// FetchTimeout bounds the fetch of a rig's base before a bead branches
+// from it. Start runs inside the dispatcher's pass, so a fetch hanging on a
+// dead remote would stall every group.
+const FetchTimeout = 60 * time.Second
+
+// fetchBase brings the rig's base ref up to date, best effort: a fetch that
+// fails or times out leaves the bead branching from the base as it is. A
+// remote asking for credentials fails at once instead of waiting on a
+// terminal nobody watches.
+func (h *Herdr) fetchBase(ctx context.Context, rig *store.Rig) {
+	remote, _, ok := strings.Cut(rig.Base, "/")
+	if !ok {
+		return
+	}
+	timeout := h.FetchTimeout
+	if timeout == 0 {
+		timeout = FetchTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", rig.Path, "fetch", "--quiet", remote)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=true", "SSH_ASKPASS=true")
+	// git may leave a child (ssh, a credential helper) holding its output
+	// open after it is killed; do not wait on that past the deadline.
+	cmd.WaitDelay = time.Second
+	_ = cmd.Run()
 }
 
 // agentEnv is the environment of a bead agent's tab: what every started

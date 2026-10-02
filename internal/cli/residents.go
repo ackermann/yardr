@@ -23,10 +23,11 @@ import (
 // defaultOn are the events a new resident hears about: work that needs a
 // decision, and anything that went wrong.
 var defaultOn = []string{"gave_up", "session_blocked", "unrouted", "no_runner", "workspace_kept",
-	"resident_gave_up"}
+	"resident_gave_up", "runtime_down", "session_idle", "session_aged"}
 
 // knownKinds are offered in the interactive form.
 var knownKinds = []string{"gave_up", "session_blocked", "session_died", "session_failed", "unrouted",
+	"runtime_down", "runtime_up", "session_idle", "session_aged",
 	"no_runner", "workspace_kept", "resident_gave_up", "created", "claimed", "advanced", "closed",
 	"held", "released", "noted", "dep_added"}
 

@@ -19,12 +19,16 @@ name, `yardr group add <name> --runner … --set …` stays scriptable.
 |---|---|---|
 | `manual` | nothing; the bead waits on the group | — |
 | `exec` | `sh -c cmd` in the rig, with `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_ACTOR` (the group); for a bead with a rig also `YARDR_RIG`, `YARDR_RIG_PATH`, `YARDR_BASE`, `YARDR_BRANCH` (`yard/<bead>`), `YARDR_WORKTREE` (where herdr groups check that branch out); and `YARDR_BIN`, `YARDR_HOME` for the script's own `yardr` commands. A refinery is one ([pipeline.md](pipeline.md#4-approved-the-refinery-lands-it-on-main)) | `cmd`, `dir`, `log`, `worktrees` |
-| `herdr` | a herdr worktree workspace on branch `yard/<bead>` at `~/.yardr/worktrees/<rig>/<bead>` (reopened for later stages, one tab per stage), an agent in it, in a tab of its own with `YARDR_ACTOR` (the agent), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_HOME` and `YARDR_BIN` in its environment, prompted with a brief in the worktree's git dir (`git rev-parse --git-path yardr`) | `kind`, `prompt`, `args`, `keep`, `worktrees` |
+| `herdr` | a herdr worktree workspace on branch `yard/<bead>` at `~/.yardr/worktrees/<rig>/<bead>` (reopened for later stages, one tab per stage), an agent in it, in a tab of its own with `YARDR_ACTOR` (the agent), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_HOME` and `YARDR_BIN` in its environment, prompted with a brief in the worktree's git dir (`git rev-parse --git-path yardr`) | `kind`, `prompt`, `args`, `keep`, `worktrees`, `idle`, `max_age`, `grace` |
 
 A session ends when the bead is advanced, closed or released. If the runner
 reports the work gone (process exited, herdr agent gone) the session is marked
 `died` and the bead is routed again after a backoff; after 3 failures in one
 stage the bead is held (`yardr bead unhold` grants fresh attempts).
+A runner that cannot start anything (herdr missing or down) is an outage, not
+a failure of the bead: the group backs off and logs `runtime_down` once.
+Groups can also limit how long a session sits idle or runs (`idle`,
+`max_age`, `grace`; [configuration.md](configuration.md#session-limits-and-outages)).
 
 ### herdr setup
 

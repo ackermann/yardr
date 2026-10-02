@@ -276,7 +276,7 @@ type Session struct {
 	Group     string         `json:"group"`
 	Stage     string         `json:"stage"`
 	Runner    string         `json:"runner,omitempty"` // the group's runner when it started
-	State     string         `json:"state"`            // starting running done released died failed
+	State     string         `json:"state"`            // starting running done released held died failed aborted
 	Handle    map[string]any `json:"handle,omitempty"`
 	Error     *string        `json:"error,omitempty"`
 	Stopped   bool           `json:"stopped"`
@@ -368,10 +368,12 @@ func (s *Store) MarkRunning(ctx context.Context, sessionID string, handle map[st
 }
 
 // EndSession ends a live session as 'died' or 'failed' and, if the bead is
-// still owned by it, returns the bead for routing. Ending an ended session
+// still owned by it, returns the bead for routing. 'aborted' is a start the
+// runtime could not make (herdr down): it returns the bead the same way but
+// is no failure of the bead's, so FailureCount does not count it. Ending an ended session
 // is a no-op.
 func (s *Store) EndSession(ctx context.Context, sessionID, state, reason string) error {
-	if state != "died" && state != "failed" {
+	if state != "died" && state != "failed" && state != "aborted" {
 		return fmt.Errorf("EndSession: state %q not allowed", state)
 	}
 	return s.changeSession(sessionID, func(w *wtx, sess *Session) error {

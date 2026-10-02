@@ -96,11 +96,11 @@ func Brief(job dispatch.Job, actor, workdir string) (string, error) {
 	}
 	fmt.Fprintf(&b, "## %s\n\n%s\n\n", bead.Title, strings.TrimSpace(bead.Body))
 	advance := "- When your part is done, hand the bead to the next stage: `yardr bead advance " + bead.ID + " --to <stage>`\n"
-	ends := "Advancing or closing ends your session; nothing else does."
+	ends := "Advancing, closing or holding ends your session; nothing else does."
 	switch {
 	case len(job.Outcomes) > 0:
 		advance = "- When your part is done, report how it ended with one of the outcomes below; the flow picks the next stage.\n"
-		ends = "Reporting an outcome or closing ends your session; nothing else does."
+		ends = "Reporting an outcome, closing or holding ends your session; nothing else does."
 	case job.Next != nil:
 		advance = "- When your part is done, advance to one of the next stages below.\n"
 	}

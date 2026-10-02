@@ -224,7 +224,10 @@ falls back to `new` when the flow has no `merge` stage).
 ## Holds
 
 A held bead is never routed; it waits until someone runs
-`yardr bead unhold`. Beads get held:
+`yardr bead unhold`, which routes it again from its stage (with fresh
+attempts). Holding a bead ends the session working it (state `held`, not a
+failure), so the daemon closes the agent's tab and the group's slot goes to
+the next ready bead at once; the worktree and its branch stay. Beads get held:
 
 - by yardr, after 3 failed sessions in one stage (an agent that died or
   exited without advancing);
@@ -236,6 +239,13 @@ A held bead is never routed; it waits until someone runs
 
 The mayor watches held beads, finds out why, and either fixes the cause and
 unholds, reshapes the bead, or sends it to `decide`.
+
+Not every failure is the bead's. If herdr is missing or down, no bead is
+held for it: the group logs one `runtime_down`, backs off (30s, doubling to
+5m) and its beads wait untouched until a start works again (`runtime_up`).
+A session that sits idle 30m or runs 4h raises `session_idle` or
+`session_aged` in the mayor's inbox, and with a group `grace` set it is then
+stopped; see [configuration.md](configuration.md#session-limits-and-outages).
 
 ## Decide
 

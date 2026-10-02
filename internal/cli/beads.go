@@ -351,7 +351,7 @@ yardr prime --bead lists the stage's outcomes.`,
 	reopen := simple("reopen", "Reopen a closed bead", func(c *cobra.Command, st store.API, id string) (*store.Bead, error) {
 		return st.Reopen(c.Context(), id, a.who())
 	})
-	hold := simple("hold", "Stop routing a bead (a running session continues)", func(c *cobra.Command, st store.API, id string) (*store.Bead, error) {
+	hold := simple("hold", "Stop routing a bead and end its session, freeing the slot", func(c *cobra.Command, st store.API, id string) (*store.Bead, error) {
 		return st.SetHold(c.Context(), id, true, a.expect(rev), a.who())
 	})
 	unhold := simple("unhold", "Resume routing a held bead", func(c *cobra.Command, st store.API, id string) (*store.Bead, error) {

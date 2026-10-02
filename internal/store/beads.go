@@ -411,7 +411,7 @@ func cloneRow(r *beadRow) *beadRow {
 }
 
 // endSession marks the bead's current session ended with state and clears
-// ownership. Shared by Advance, Close and Release.
+// ownership. Shared by Advance, Close, Release and SetHold.
 func (w *wtx) endSession(b *beadRow, state string) error {
 	if b.Session != nil {
 		var sess Session
@@ -625,8 +625,11 @@ func (s *Store) Reopen(ctx context.Context, id, actor string) (*Bead, error) {
 	})
 }
 
-// SetHold pauses (or resumes) routing for a bead. Holding does not stop a
-// session already working it. A stale exp refuses it (see Expect).
+// SetHold pauses (or resumes) routing for a bead. Holding ends the session
+// working it (state 'held', which is no failure) and frees its group's slot:
+// a held bead waits on a human, and a session kept for it would only hold a
+// slot other beads could use. Unholding routes it again from its stage. A
+// stale exp refuses it (see Expect).
 func (s *Store) SetHold(ctx context.Context, id string, hold bool, exp Expect, actor string) (*Bead, error) {
 	return s.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
 		if err := exp.check(b); err != nil {
@@ -634,7 +637,11 @@ func (s *Store) SetHold(ctx context.Context, id string, hold bool, exp Expect, a
 		}
 		b.Hold = hold
 		if hold {
-			return "held", nil, nil
+			var data map[string]any
+			if b.Session != nil {
+				data = map[string]any{"session": *b.Session}
+			}
+			return "held", data, w.endSession(b, "held")
 		}
 		return "unheld", nil, nil
 	})

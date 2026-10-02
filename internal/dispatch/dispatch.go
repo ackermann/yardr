@@ -70,6 +70,11 @@ type Dispatcher struct {
 	MaxAttempts int
 	// Backoff before re-dispatching a bead whose session failed (default 30s).
 	Backoff time.Duration
+	// RuntimeBackoff is how long a group whose runtime is down (a Start
+	// failed with a RuntimeError) is left alone before the next try
+	// (default 30s); it doubles on every further outage, up to
+	// RuntimeBackoffMax (default 5m).
+	RuntimeBackoff, RuntimeBackoffMax time.Duration
 	// Binary, when set, is the daemon's own executable: when a new build is
 	// installed over it, Run finishes its pass and execs that build. The
 	// sessions live in the store, so the new daemon carries on.
@@ -78,9 +83,42 @@ type Dispatcher struct {
 	CheckBinary time.Duration
 
 	retryAfter map[string]time.Time
-	reported   map[string]string // bead -> last unroutable reason, to log once
-	status     map[string]string // session -> last runner status
-	unknown    map[string]string // session -> last liveness error logged
+	reported   map[string]string  // bead -> last unroutable reason, to log once
+	status     map[string]string  // session -> last runner status
+	unknown    map[string]string  // session -> last liveness error logged
+	down       map[string]*outage // group -> its runtime's current outage
+	idleSince  map[string]time.Time
+	idleTold   map[string]bool // session -> session_idle raised this idle spell
+}
+
+// outage is a group whose runner could not start anything: the runtime is
+// down, so its beads wait, untouched, until the next try.
+type outage struct {
+	until time.Time
+	delay time.Duration
+}
+
+// RuntimeError marks a Start error as the runtime's (herdr missing or down,
+// a workspace it could not create), not the bead's. Every bead of the group
+// would fail the same way, so the dispatcher does not count it against the
+// bead: it reports the group's runtime down and backs off instead.
+type RuntimeError struct{ Err error }
+
+func (e *RuntimeError) Error() string { return e.Err.Error() }
+func (e *RuntimeError) Unwrap() error { return e.Err }
+
+// Runtime wraps err as a RuntimeError; nil stays nil.
+func Runtime(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &RuntimeError{Err: err}
+}
+
+// IsRuntime reports whether err is, or wraps, a RuntimeError.
+func IsRuntime(err error) bool {
+	var re *RuntimeError
+	return errors.As(err, &re)
 }
 
 const actor = "yard"
@@ -95,6 +133,12 @@ func (d *Dispatcher) defaults() {
 	if d.Backoff == 0 {
 		d.Backoff = 30 * time.Second
 	}
+	if d.RuntimeBackoff == 0 {
+		d.RuntimeBackoff = 30 * time.Second
+	}
+	if d.RuntimeBackoffMax == 0 {
+		d.RuntimeBackoffMax = 5 * time.Minute
+	}
 	if d.CheckBinary == 0 {
 		d.CheckBinary = 10 * time.Second
 	}
@@ -106,6 +150,9 @@ func (d *Dispatcher) defaults() {
 		d.reported = map[string]string{}
 		d.status = map[string]string{}
 		d.unknown = map[string]string{}
+		d.down = map[string]*outage{}
+		d.idleSince = map[string]time.Time{}
+		d.idleTold = map[string]bool{}
 	}
 }
 
@@ -353,9 +400,12 @@ func (d *Dispatcher) reap(ctx context.Context, groups map[string]store.Group) (m
 				continue
 			}
 			delete(d.unknown, s.ID)
-			if alive {
+			if alive && d.limits(ctx, r, s, groups[s.Group]) {
 				active[s.Group]++
 				continue
+			}
+			if alive {
+				continue // stopped by limits, which ended it
 			}
 			d.end(ctx, s, "died", "runner reports the work is gone")
 		}
@@ -424,6 +474,15 @@ func (d *Dispatcher) end(ctx context.Context, s store.Session, state, reason str
 		d.Log.Error("end session", "session", s.ID, "err", err)
 	}
 	d.retryAfter[s.Bead] = time.Now().Add(d.Backoff)
+	d.forget(s.ID)
+}
+
+// forget drops what the dispatcher remembers about an ended session.
+func (d *Dispatcher) forget(id string) {
+	delete(d.status, id)
+	delete(d.unknown, id)
+	delete(d.idleSince, id)
+	delete(d.idleTold, id)
 }
 
 // teardown stops runner resources for sessions that ended, unless the group
@@ -509,6 +568,9 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		if active[g.Name] >= g.Limit {
 			continue
 		}
+		if o := d.down[g.Name]; o != nil && time.Now().Before(o.until) {
+			continue
+		}
 		fails, err := d.Store.FailureCount(ctx, b.ID, b.Stage)
 		if err != nil {
 			return err
@@ -556,6 +618,20 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		d.Log.Info("dispatching", "bead", b.ID, "stage", b.Stage, "group", g.Name, "session", sess.ID)
 
 		handle, err := runner.Start(ctx, Job{Bead: b, Group: g, Rig: rig, Session: *sess, Next: next, Outcomes: outcomes})
+		if IsRuntime(err) {
+			// Not the bead's fault: abort the session (no failure), leave
+			// the bead for the next try and stop trying the group a while.
+			d.runtimeDown(ctx, g, err)
+			if err := d.Store.EndSession(ctx, sess.ID, "aborted", err.Error()); err != nil {
+				d.Log.Error("end session", "session", sess.ID, "err", err)
+			}
+			d.forget(sess.ID)
+			active[g.Name]--
+			if len(handle) > 0 {
+				_ = d.Store.SetHandle(ctx, sess.ID, handle)
+			}
+			continue
+		}
 		if err != nil {
 			d.end(ctx, *sess, "failed", err.Error())
 			active[g.Name]--
@@ -565,11 +641,43 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 			}
 			continue
 		}
+		d.runtimeUp(ctx, g)
 		if err := d.Store.MarkRunning(ctx, sess.ID, handle); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// runtimeDown notes that g's runtime could not start anything. The first
+// failure of an outage is logged as runtime_down for the group, so the mayor
+// hears of it once; later ones only lengthen the wait, doubling up to
+// RuntimeBackoffMax.
+func (d *Dispatcher) runtimeDown(ctx context.Context, g store.Group, err error) {
+	o := d.down[g.Name]
+	if o == nil {
+		o = &outage{delay: d.RuntimeBackoff}
+		d.down[g.Name] = o
+		d.Log.Warn("runtime down; the group's beads wait", "group", g.Name, "runner", g.Runner, "err", err)
+		if lerr := d.Store.LogDispatch(ctx, "", "runtime_down", actor, map[string]any{
+			"group": g.Name, "runner": g.Runner, "reason": err.Error()}); lerr != nil {
+			d.Log.Warn("runtime_down event", "err", lerr)
+		}
+	} else {
+		o.delay = min(2*o.delay, d.RuntimeBackoffMax)
+	}
+	o.until = time.Now().Add(o.delay)
+}
+
+// runtimeUp ends g's outage, if it had one, once a Start got past the
+// runtime.
+func (d *Dispatcher) runtimeUp(ctx context.Context, g store.Group) {
+	if d.down[g.Name] == nil {
+		return
+	}
+	delete(d.down, g.Name)
+	d.Log.Info("runtime back", "group", g.Name, "runner", g.Runner)
+	_ = d.Store.LogDispatch(ctx, "", "runtime_up", actor, map[string]any{"group": g.Name, "runner": g.Runner})
 }
 
 // nextStages is where b's flow lets it go next, and the outcomes its stage

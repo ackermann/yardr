@@ -57,6 +57,40 @@ in the repo, and a group names it by its path inside the rig
 yard's reviewer prompt in `~/.yardr/roles/`) is named by absolute path and
 stays out of the repo.
 
+## Session limits and outages
+
+A stuck bead session should surface, not run forever. Each group can set,
+with `yardr group add <name> ... --set key=value`:
+
+| key | default | meaning |
+|---|---|---|
+| `idle` | `30m` | the agent sat idle (herdr status `idle` or `done`) this long: a `session_idle` event, once per idle spell |
+| `max_age` | `4h` | the session ran this long: a `session_aged` event, once per session |
+| `grace` | unset | when set, a session still idle (or still running) this long past its limit is stopped and counted as a failed session; `0` stops it at once. Unset, sessions are only reported |
+
+Durations are Go durations (`45m`, `2h`) or a number of seconds; `off` or
+`0` turns `idle` or `max_age` off. The defaults apply to runners that report
+an agent's status (herdr). For `exec` and `manual` groups only what the group
+sets applies, and `idle` never does, since they cannot tell idle from busy.
+The idle clock is the daemon's: one that replaces itself starts it again,
+while the age is counted from the session's start and reported only once.
+
+These events and `runtime_down` (below) are in a new resident's default
+`--on`, so the mayor's inbox gets them; a resident made before them needs
+them added to its `--on` (`runtime_down` is about no bead, so a `yardr`
+subscription does not deliver it).
+
+**Outages are not failures.** When a runner cannot start anything at all
+(herdr missing from `PATH`, herdr down, `sh` not found), the session is
+ended as `aborted`, which does not count toward the 3 failures that hold a
+bead, and the bead waits where it is. The group gets one `runtime_down`
+event per outage and is not tried again for 30s, doubling up to 5m while it
+stays down; the first start that works logs `runtime_up`. Errors that are
+the bead's own (no rig, a bad brief, a worktree that cannot be made) still
+count. The fetch of a rig's base before a bead branches from it gives up
+after 60s and never waits on a credential prompt (`GIT_TERMINAL_PROMPT=0`),
+so a dead remote cannot stall the daemon.
+
 ## Precedence
 
 Where both sides can define something, the most specific source wins:

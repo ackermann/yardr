@@ -117,7 +117,8 @@ func (s *Store) LogEvent(ctx context.Context, bead, kind, actor string, data map
 // runners report about the work they supervise, none of which changes state.
 var DispatchKinds = []string{
 	"daemon_replaced", "replace_skipped",
-	"session_prompted", "session_blocked", "session_unblocked",
+	"session_prompted", "session_blocked", "session_unblocked", "session_idle", "session_aged",
+	"runtime_down", "runtime_up",
 	"workspace_kept", "workspace_removed",
 	"gave_up", "unrouted", "no_runner", "bad_rig", "bad_flow",
 	"resident_blocked", "human_notified",
