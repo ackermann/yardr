@@ -457,6 +457,15 @@ esac`)}
 }
 
 func TestWorkspaceLabel(t *testing.T) {
+	if got := WorkspaceLabel("", "yard-2cet"); got != "yard-2cet" {
+		t.Errorf("plain bead labelled %q, want yard-2cet", got)
+	}
+	if got := WorkspaceLabel("yard-sv6b", "yard-2cet"); got != "[yard-sv6b] yard-2cet" {
+		t.Errorf("child labelled %q, want [yard-sv6b] yard-2cet", got)
+	}
+}
+
+func TestTabLabel(t *testing.T) {
 	cases := []struct{ rig, group, name, want string }{
 		{"yard", "yard-codex-review", "yard-29", "codex-review yard-29"},
 		{"yard", "yard-builders", "yard-20", "builders yard-20"},
@@ -470,19 +479,21 @@ func TestWorkspaceLabel(t *testing.T) {
 		{"", "yard-builders", "yard-7", "yard-builders yard-7"},
 	}
 	for _, c := range cases {
-		if got := WorkspaceLabel(c.rig, c.group, c.name); got != c.want {
-			t.Errorf("WorkspaceLabel(%q, %q, %q) = %q, want %q", c.rig, c.group, c.name, got, c.want)
+		if got := TabLabel(c.rig, c.group, c.name); got != c.want {
+			t.Errorf("TabLabel(%q, %q, %q) = %q, want %q", c.rig, c.group, c.name, got, c.want)
 		}
 	}
 }
 
-// herdr shows workspace and tab labels; both lead with the group, on the
-// first stage (worktree created) and on a later one (worktree reopened).
-func TestHerdrStartLabelsGroupFirst(t *testing.T) {
+// herdr shows workspace and tab labels: the workspace is the bead, behind
+// its epic for a child of one, and each stage's tab leads with the group;
+// on the first stage (worktree created) and on a later one (worktree
+// reopened, and relabelled).
+func TestHerdrStartLabels(t *testing.T) {
 	ctx := context.Background()
 	wt := t.TempDir()
 	gitT(t, wt, "init", "-q", "-b", "main")
-	start := func(t *testing.T, createScript, stage, group string) string {
+	start := func(t *testing.T, createScript, stage, group, epic string) string {
 		t.Helper()
 		log := filepath.Join(t.TempDir(), "calls")
 		h := &Herdr{Bin: fakeHerdrBin(t, `printf '%s\n' "$*" >> `+log+`
@@ -497,6 +508,12 @@ esac`)}
 			Group:   store.Group{Name: group},
 			Rig:     &store.Rig{Name: "yard", Path: t.TempDir(), Base: "main"},
 			Session: store.Session{ID: "s-" + stage},
+			Epic:    epic,
+		}
+		if epic != "" {
+			// Start makes the epic's branch from the base, so give it one.
+			gitT(t, job.Rig.Path, "init", "-q", "-b", "main")
+			gitT(t, job.Rig.Path, "commit", "-q", "--allow-empty", "-m", "init")
 		}
 		handle, err := h.Start(ctx, job)
 		if err != nil {
@@ -510,9 +527,9 @@ esac`)}
 	}
 
 	created := `echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"},"worktree":{"path":"` + wt + `"}}}'`
-	calls := start(t, created, "new", "yard-builders")
-	if !strings.Contains(calls, "worktree create ") || !strings.Contains(calls, "--label builders yard-13\n") {
-		t.Fatalf("first stage not labelled group first:\n%s", calls)
+	calls := start(t, created, "new", "yard-builders", "")
+	if !strings.Contains(calls, "worktree create ") || !strings.Contains(calls, "--label yard-13\n") {
+		t.Fatalf("first stage workspace not labelled with the bead:\n%s", calls)
 	}
 	if strings.Contains(calls, "workspace rename") {
 		t.Fatalf("first stage relabelled:\n%s", calls)
@@ -522,15 +539,29 @@ esac`)}
 	}
 
 	exists := `echo '{"error":{"code":"worktree_exists","message":"branch exists"}}' >&2; exit 1`
-	calls = start(t, exists, "review", "yard-codex-review")
+	calls = start(t, exists, "review", "yard-codex-review", "")
 	for _, want := range []string{
 		"worktree open --cwd ",
-		"workspace rename w1 codex-review yard-13\n",
+		"workspace rename w1 yard-13\n",
 		"tab create --workspace w1 --cwd " + wt + " --label codex-review review --env ",
 	} {
 		if !strings.Contains(calls, want) {
 			t.Errorf("later stage missing %q:\n%s", want, calls)
 		}
+	}
+
+	// A child of an epic: the workspace reads the epic, the tab and the
+	// agent name are as for any bead.
+	calls = start(t, created, "new", "yard-builders", "yard-12")
+	if !strings.Contains(calls, "worktree create ") || !strings.Contains(calls, "--label [yard-12] yard-13\n") {
+		t.Fatalf("child's workspace not labelled with its epic:\n%s", calls)
+	}
+	if !strings.Contains(calls, "--label builders new --env ") {
+		t.Fatalf("child's tab label changed:\n%s", calls)
+	}
+	calls = start(t, exists, "review", "yard-codex-review", "yard-12")
+	if !strings.Contains(calls, "workspace rename w1 [yard-12] yard-13\n") {
+		t.Fatalf("child's reopened workspace not relabelled with its epic:\n%s", calls)
 	}
 }
 

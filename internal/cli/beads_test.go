@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -131,5 +133,134 @@ func TestDepAddParentPairsBlocks(t *testing.T) {
 	}
 	if ds, _ := st.Deps(ctx, "yard-e"); len(ds) != 0 {
 		t.Fatalf("edges left after dep rm -k parent: %+v", ds)
+	}
+}
+
+// bead list, ready and session list show each bead's epic in an EPIC
+// column after the bead, and in --json; bead list --epic lists one epic's
+// family; bead show --json still carries the epic.
+func TestListingsShowTheEpic(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	if err := st.PutRig(ctx, store.Rig{Name: "yard", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	for _, nb := range []store.NewBead{
+		{ID: "yard-e", Title: "epic", Type: store.TypeEpic, Rig: "yard"},
+		{ID: "yard-1", Title: "child", Rig: "yard"},
+		{ID: "yard-2", Title: "loose", Rig: "yard"},
+	} {
+		if _, err := st.CreateBead(ctx, nb, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.AddDep(ctx, "yard-e", "yard-1", store.DepParent, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 2}); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"yard-1", "yard-2"} {
+		if _, err := st.Claim(ctx, id, "builders", "new", "yard"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := &app{st: st, actor: "me"}
+
+	// fields are the whitespace-separated cells of out's row for id.
+	fields := func(out, id string) []string {
+		for _, l := range strings.Split(out, "\n") {
+			if f := strings.Fields(l); len(f) > 1 && slices.Contains(f[:2], id) {
+				return f
+			}
+		}
+		t.Fatalf("no row for %s in:\n%s", id, out)
+		return nil
+	}
+	out, err := run(t, a.beadCmd(), "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h := strings.Fields(out); !slices.Equal(h[:3], []string{"ID", "EPIC", "PRI"}) {
+		t.Fatalf("bead list header:\n%s", out)
+	}
+	if f := fields(out, "yard-1"); f[1] != "yard-e" {
+		t.Fatalf("bead list child row %v, want epic yard-e second", f)
+	}
+	if f := fields(out, "yard-2"); f[1] != "P0" {
+		t.Fatalf("bead list plain row %v, want an empty epic", f)
+	}
+	out, err = run(t, a.readyCmd())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f := fields(out, "yard-1"); f[1] != "yard-e" {
+		t.Fatalf("ready child row %v", f)
+	}
+	out, err = run(t, a.sessionCmd(), "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h := strings.Fields(out); !slices.Equal(h[:4], []string{"ID", "BEAD", "EPIC", "STAGE"}) {
+		t.Fatalf("session list header:\n%s", out)
+	}
+	if f := fields(out, "yard-1"); f[2] != "yard-e" {
+		t.Fatalf("session list child row %v", f)
+	}
+	if f := fields(out, "yard-2"); f[2] != "new" {
+		t.Fatalf("session list plain row %v, want an empty epic", f)
+	}
+
+	out, err = run(t, a.beadCmd(), "list", "--epic", "yard-e")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, l := range strings.Split(strings.TrimSpace(out), "\n")[1:] {
+		ids = append(ids, strings.Fields(l)[0])
+	}
+	if !slices.Equal(ids, []string{"yard-e", "yard-1"}) {
+		t.Fatalf("bead list --epic yard-e = %v:\n%s", ids, out)
+	}
+
+	a.json = true
+	for _, c := range []struct {
+		cmd  *cobra.Command
+		args []string
+	}{{a.beadCmd(), []string{"list"}}, {a.readyCmd(), nil}, {a.sessionCmd(), []string{"list"}}} {
+		out, err := run(t, c.cmd, c.args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var rows []struct{ ID, Bead, Epic string }
+		if err := json.Unmarshal([]byte(out), &rows); err != nil {
+			t.Fatalf("%s: %v\n%s", c.args, err, out)
+		}
+		got := map[string]string{}
+		for _, r := range rows {
+			got[r.ID+r.Bead] = r.Epic // sessions: ID is the session's, so key by both
+		}
+		n := 0
+		for k, v := range got {
+			if strings.HasSuffix(k, "yard-1") || k == "yard-1" {
+				n++
+				if v != "yard-e" {
+					t.Fatalf("%s --json: yard-1 epic %q:\n%s", c.args, v, out)
+				}
+			} else if v != "" {
+				t.Fatalf("%s --json: %s has epic %q", c.args, k, v)
+			}
+		}
+		if n != 1 {
+			t.Fatalf("%s --json: no yard-1 row:\n%s", c.args, out)
+		}
+	}
+	out, err = run(t, a.beadCmd(), "show", "yard-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var shown struct{ ID, Epic, Base, Revision string }
+	if err := json.Unmarshal([]byte(out), &shown); err != nil || shown.Epic != "yard-e" || shown.Base != "yard/yard-e" || shown.Revision == "" {
+		t.Fatalf("bead show --json = %+v, %v:\n%s", shown, err, out)
 	}
 }

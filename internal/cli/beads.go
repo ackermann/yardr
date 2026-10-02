@@ -20,13 +20,13 @@ func beadRows(bs []store.Bead) [][]string {
 		if b.Hold {
 			flags += ",hold"
 		}
-		rows[i] = []string{b.ID, "P" + strconv.Itoa(b.Priority), b.Type, b.Stage, flags,
+		rows[i] = []string{b.ID, b.Epic, "P" + strconv.Itoa(b.Priority), b.Type, b.Stage, flags,
 			deref(b.Group), deref(b.Rig), b.Title}
 	}
 	return rows
 }
 
-const beadHeader = "ID\tPRI\tTYPE\tSTAGE\tSTATUS\tGROUP\tRIG\tTITLE"
+const beadHeader = "ID\tEPIC\tPRI\tTYPE\tSTAGE\tSTATUS\tGROUP\tRIG\tTITLE"
 
 func (a *app) printBead(b *store.Bead) error { return a.printBeadFlow(b, nil, nil, nil) }
 
@@ -154,11 +154,18 @@ func (a *app) beadCmd() *cobra.Command {
 			}
 			if a.json {
 				// The bead's own fields stay at the top level, so readers of
-				// bead show --json (its revision) are unaffected.
+				// bead show --json (its revision) are unaffected. Bead and
+				// Family both have an epic field, and encoding/json drops a
+				// name two embedded structs share, so it is given once here.
+				var epic string
+				if fam != nil {
+					epic = fam.Epic
+				}
 				return a.out(struct {
 					*store.Bead
 					*store.Family
-				}{b, fam}, nil)
+					Epic string `json:"epic,omitempty"`
+				}{b, fam, epic}, nil)
 			}
 			next, err := st.NextStages(c.Context(), b.ID)
 			return a.printBeadFlow(b, next, err, fam)
@@ -189,6 +196,7 @@ func (a *app) beadCmd() *cobra.Command {
 	lf2.StringVarP(&lf.Rig, "rig", "r", "", "filter by rig")
 	lf2.StringVarP(&lf.Label, "label", "l", "", "filter by label")
 	lf2.StringVarP(&lf.Group, "group", "g", "", "filter by owning group")
+	lf2.StringVar(&lf.Epic, "epic", "", "only this epic and its children, the epic first")
 
 	// rev is --revision: the bead's revision as the caller last read it
 	// (bead show --json). A write is refused if the bead changed since.

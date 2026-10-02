@@ -313,6 +313,14 @@ not an epic keeps the rig's base. A bead that is a child of two epics
 anyway (a type changed to `epic` later) is not dispatched; yardr logs
 `bad_epic` until one parent edge is removed.
 
+`yardr bead list`, `yardr ready` and `yardr session list` show each
+bead's epic in an EPIC column after the bead (empty for a bead with no
+epic), and their `--json` rows carry it as `epic`. `yardr bead list --epic
+<epic>` lists only that epic, first, and its children. In herdr, a child's
+workspace is labelled `[<epic>] <bead>` (e.g. `[yard-sv6b] yard-2cet`) and
+any other bead's `<bead>`; the workspace is reused across stages, and each
+stage's tab is labelled with the group and the stage.
+
 `dep add <epic> <child> -k parent` also adds `<child> -blocks-> <epic>`, so
 one command makes the child and keeps the epic from being ready until the
 child closes; `dep rm <epic> <child> -k parent` removes both edges.

@@ -286,6 +286,9 @@ type Session struct {
 	Cleaned   bool           `json:"cleaned,omitempty"`
 	StartedAt time.Time      `json:"started_at"`
 	EndedAt   *time.Time     `json:"ended_at,omitempty"`
+	// Epic is the handle of the epic the session's bead is a child of, set
+	// on listed sessions (see Bead.Epic); never stored.
+	Epic string `json:"epic,omitempty"`
 }
 
 func (s Session) live() bool { return s.State == "starting" || s.State == "running" }
@@ -451,6 +454,7 @@ func (s *Store) sessionsWhere(match func(*bolt.Tx, *Session) bool) ([]Session, e
 		h := handlesIn(tx)
 		return each(tx, bSessions, "", func(_ []byte, sess *Session) error {
 			if match(tx, sess) {
+				sess.Epic = epicOf(tx, sess.Bead)
 				sess.Bead = h.of(sess.Bead)
 				out = append(out, *sess)
 			}

@@ -39,6 +39,12 @@ type Bead struct {
 	CreatedBy   *string        `json:"created_by,omitempty"`
 	// Revision is an opaque token that changes on every real state change.
 	Revision string `json:"revision"`
+	// Epic is the handle of the epic the bead is a child of (see Family),
+	// set on the beads a listing returns (ListBeads, Ready, Dispatchable)
+	// so a table of them can show it without a lookup per row. It is
+	// derived from the parent edges, never stored; "" for no epic, and on a
+	// bead returned by anything other than a listing.
+	Epic string `json:"epic,omitempty"`
 }
 
 // beadRow is what the beads bucket holds: the bead plus bookkeeping that is
@@ -120,6 +126,7 @@ func (w *wtx) mintBead(row *beadRow, actor string) error {
 	row.Revision = newRevision()
 	row.UpdatedAt = now()
 	row.LastActor = actor
+	row.Epic = "" // derived on listing, never stored
 	return put(w.Tx, bBeads, row.UUID, row)
 }
 
@@ -232,11 +239,32 @@ type BeadFilter struct {
 	Rig   string
 	Label string
 	Group string
+	// Epic keeps the epic (a handle or UUID) and its children, the epic
+	// first.
+	Epic string
 }
 
 func (s *Store) ListBeads(ctx context.Context, f BeadFilter) ([]Bead, error) {
-	return s.beadsWhere(func(tx *bolt.Tx, b *Bead) bool {
+	epic := ""
+	if f.Epic != "" {
+		err := s.read(func(tx *bolt.Tx) error {
+			row, err := loadBead(tx, f.Epic)
+			if err != nil {
+				return err
+			}
+			if row.Type != TypeEpic {
+				return fmt.Errorf("%s is a %s, not an epic", row.ID, row.Type)
+			}
+			epic = row.ID
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	bs, err := s.beadsWhere(func(tx *bolt.Tx, b *Bead) bool {
 		return (f.All || b.Status == "open") &&
+			(epic == "" || b.ID == epic || b.Epic == epic) &&
 			(f.Stage == "" || b.Stage == f.Stage) &&
 			// Journals and memories are listed only when asked for by type.
 			((f.Type == "" && !NotWork[b.Type]) || b.Type == f.Type) &&
@@ -244,6 +272,16 @@ func (s *Store) ListBeads(ctx context.Context, f BeadFilter) ([]Bead, error) {
 			(f.Label == "" || slices.Contains(b.Labels, f.Label)) &&
 			(f.Group == "" || (b.Group != nil && *b.Group == f.Group))
 	})
+	if epic != "" {
+		// The epic heads its children, whatever its priority.
+		i := slices.IndexFunc(bs, func(b Bead) bool { return b.ID == epic })
+		if i > 0 {
+			e := bs[i]
+			copy(bs[1:i+1], bs[:i])
+			bs[0] = e
+		}
+	}
+	return bs, err
 }
 
 // Ready lists open, unheld beads whose blockers are all closed, assigned or not.
@@ -287,11 +325,13 @@ func openBlockers(tx *bolt.Tx, u string) []string {
 }
 
 // beadsWhere returns matching beads by priority, then creation time: the
-// order of the beads bucket, whose UUIDv7 keys start with it.
+// order of the beads bucket, whose UUIDv7 keys start with it. match sees
+// each bead with its Epic set.
 func (s *Store) beadsWhere(match func(*bolt.Tx, *Bead) bool) ([]Bead, error) {
 	out := []Bead{}
 	err := s.read(func(tx *bolt.Tx) error {
 		return each(tx, bBeads, "", func(_ []byte, r *beadRow) error {
+			r.Epic = epicOf(tx, r.UUID)
 			if match(tx, &r.Bead) {
 				out = append(out, r.Bead)
 			}

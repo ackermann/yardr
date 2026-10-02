@@ -703,10 +703,10 @@ func (a *app) sessionCmd() *cobra.Command {
 					} else if v, ok := s.Handle["pid"]; ok {
 						runner = strings.TrimSpace(or(runner, "exec") + " pid " + show(v))
 					}
-					rows = append(rows, []string{s.ID, s.Bead, s.Stage, s.Group, s.State, or(runner, "-"),
+					rows = append(rows, []string{s.ID, s.Bead, s.Epic, s.Stage, s.Group, s.State, or(runner, "-"),
 						s.StartedAt.Local().Format("01-02 15:04")})
 				}
-				table("ID\tBEAD\tSTAGE\tGROUP\tSTATE\tRUNNER\tSTARTED", rows)
+				table("ID\tBEAD\tEPIC\tSTAGE\tGROUP\tSTATE\tRUNNER\tSTARTED", rows)
 			})
 		},
 	}

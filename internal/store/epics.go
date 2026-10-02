@@ -93,6 +93,15 @@ func parentEpic(tx *bolt.Tx, u string) (*beadRow, error) {
 	return epic, nil
 }
 
+// epicOf is the handle of the epic bead u is a child of, for listings: ""
+// for none, and also for a bead in two epics, which Family reports.
+func epicOf(tx *bolt.Tx, u string) string {
+	if epic, err := parentEpic(tx, u); err == nil && epic != nil {
+		return epic.ID
+	}
+	return ""
+}
+
 // edges are bead u's edges of kind in one direction (bDepFrom: from u,
 // bDepTo: to u), oldest first.
 func edges(tx *bolt.Tx, index []byte, u, kind string) []depRow {

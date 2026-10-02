@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -200,5 +201,111 @@ func TestParentEdgeBlocksTheEpic(t *testing.T) {
 	}
 	if !slices.ContainsFunc(ready, func(b store.Bead) bool { return b.ID == "web-e" }) {
 		t.Fatal("the epic is not ready once no open child is left")
+	}
+}
+
+// Listings carry each bead's epic (and each session's bead's), worked out
+// from the parent edges when listed, so a table needs no lookup per row.
+func TestListingsCarryTheEpic(t *testing.T) {
+	s, ctx := epicRig(t)
+	if err := s.AddDep(ctx, "web-e", "web-1", store.DepParent, "me"); err != nil {
+		t.Fatal(err)
+	}
+	epics := func(bs []store.Bead) map[string]string {
+		m := map[string]string{}
+		for _, b := range bs {
+			m[b.ID] = b.Epic
+		}
+		return m
+	}
+	want := map[string]string{"web-e": "", "web-1": "web-e", "web-2": ""}
+	listed, err := s.ListBeads(ctx, store.BeadFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := epics(listed); !maps.Equal(got, want) {
+		t.Fatalf("bead list epics = %v, want %v", got, want)
+	}
+	ready, err := s.Ready(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The epic is blocked by its child, so not ready.
+	if got := epics(ready); !maps.Equal(got, map[string]string{"web-1": "web-e", "web-2": ""}) {
+		t.Fatalf("ready epics = %v", got)
+	}
+	disp, err := s.Dispatchable(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := epics(disp); got["web-1"] != "web-e" {
+		t.Fatalf("dispatchable epics = %v", got)
+	}
+
+	if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 2}); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"web-1", "web-2"} {
+		if _, err := s.Claim(ctx, id, "builders", "new", "yard"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ss, err := s.Sessions(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, sess := range ss {
+		got[sess.Bead] = sess.Epic
+	}
+	if !maps.Equal(got, map[string]string{"web-1": "web-e", "web-2": ""}) {
+		t.Fatalf("session epics = %v", got)
+	}
+
+	// Derived, not stored: removing the edge clears it from the next listing.
+	if err := s.RemoveDep(ctx, "web-e", "web-1", store.DepParent, "me"); err != nil {
+		t.Fatal(err)
+	}
+	listed, err = s.ListBeads(ctx, store.BeadFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := epics(listed); got["web-1"] != "" {
+		t.Fatalf("after removing the edge: %v", got)
+	}
+}
+
+// bead list --epic: the epic first, whatever its priority, then its
+// children; nothing else.
+func TestListBeadsByEpic(t *testing.T) {
+	s, ctx := epicRig(t)
+	for _, c := range []string{"web-1", "web-2"} {
+		if err := s.AddDep(ctx, "web-e", c, store.DepParent, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.CreateBead(ctx, store.NewBead{ID: "web-3", Title: "three", Rig: "web"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	low := 4
+	if _, err := s.UpdateBead(ctx, "web-e", store.BeadPatch{Priority: &low}, store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	bs, err := s.ListBeads(ctx, store.BeadFilter{Epic: "web-e"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, b := range bs {
+		ids = append(ids, b.ID)
+	}
+	if !slices.Equal(ids, []string{"web-e", "web-1", "web-2"}) {
+		t.Fatalf("bead list --epic web-e = %v, want web-e, web-1, web-2", ids)
+	}
+	if _, err := s.ListBeads(ctx, store.BeadFilter{Epic: "web-3"}); err == nil || !strings.Contains(err.Error(), "not an epic") {
+		t.Fatalf("--epic of a plain bead: %v, want not an epic", err)
+	}
+	if _, err := s.ListBeads(ctx, store.BeadFilter{Epic: "web-nope"}); err == nil {
+		t.Fatal("--epic of a missing bead listed")
 	}
 }
