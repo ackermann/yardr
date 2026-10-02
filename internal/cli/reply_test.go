@@ -82,8 +82,8 @@ func replyYard(t *testing.T) (*app, store.API, map[string]string) {
 	seqs := map[string]string{
 		"bead": strconv.FormatUint(head, 10),
 		"linear": record("linear", hooks.Envelope{Source: "linear", Type: "comment", Action: "create",
-			Actor:  hooks.Party{ID: "u-ann", Name: "Ann"},
-			Thread: hooks.Thread{ID: "issue-1", Title: "Retries", URL: "https://linear.app/acme/issue/ENG-1"},
+			Actor:   hooks.Party{ID: "u-ann", Name: "Ann"},
+			Thread:  hooks.Thread{ID: "issue-1", Title: "Retries", URL: "https://linear.app/acme/issue/ENG-1"},
 			Message: "c2", Parent: "c1"}),
 		"token": record("cron", hooks.Envelope{Source: "token", Type: "message", Text: "backup ok"}),
 	}
