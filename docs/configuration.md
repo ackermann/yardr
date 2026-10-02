@@ -7,9 +7,8 @@ yardr reads its configuration from two places:
 - **the store** (`yard.db`, owned by the yardr server): who works it, where
   and how. Live state, changed with `yardr` commands, no commit needed.
 
-The split was decided in yard-17 (2026-10-02). Parts of the repo side are not
-built yet; each is marked **planned** with the bead that builds it. Flows
-are built on both sides (yard-9cza).
+The split was decided in yard-17 (2026-10-02). Both sides are built: flows
+in yard-9cza, the merge gate in yard-p2y7.
 
 ## What lives where
 
