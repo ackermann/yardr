@@ -1,5 +1,7 @@
 # yardr
 
+[![ci](https://github.com/McKean/yardr/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/McKean/yardr/actions/workflows/ci.yml)
+
 Route beads of work to whoever works them.
 
 A **bead** is a durable unit of work. **Routes** send open, unblocked beads in

@@ -1,0 +1,78 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      # go-version-file pins the toolchain go.mod names; cache keeps the
+      # module and build caches keyed on go.sum.
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: gofmt
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "gofmt needed on:"
+            echo "$out"
+            exit 1
+          fi
+      # The merge gate yardr runs before a bead moves on: go vet, go test
+      # -race over every package, and the store/dispatch/bdp suites again
+      # through the unix-socket client. Running the script itself keeps CI
+      # and the gate from drifting apart.
+      - name: rig gate (.yardr/check)
+        run: sh .yardr/check
+      # What the gate leaves out: the plain (non-race) build, and every
+      # package, not just three, through the unix-socket client.
+      - name: go test
+        run: go test ./...
+      - name: go test (rpc)
+        run: YARDR_TEST_RPC=1 go test ./...
+
+  conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # The BDP commit conformance/bdp/README.md records as last verified.
+      # Moving it is a deliberate change, made together with the README.
+      BDP_REF: 182f1fcf8a01d896976bff3c9e3fb87c596c6ca6
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: gastownhall/bdp
+          ref: ${{ env.BDP_REF }}
+          path: bdp
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: bdp/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: bdp/.nvmrc
+          cache: pnpm
+          cache-dependency-path: bdp/pnpm-lock.yaml
+      - name: build bdp
+        working-directory: bdp
+        run: pnpm install --frozen-lockfile && pnpm build
+      - name: BDP read conformance
+        run: BDP_REPO=$GITHUB_WORKSPACE/bdp conformance/bdp/run.sh
