@@ -317,9 +317,11 @@ func (a *app) threadCmd() *cobra.Command {
 		Short: "Threads a resident participates in, and what is said in them",
 		Long: `A resident participates in a source's thread (in Linear, an issue) once a hook
 delivery shows it acting there under its identity, once it answers there
-with yardr reply, or after yardr thread follow. An involved subscription then also delivers what others do in the
-thread, with reason participant. Unfollowing stops that until the resident
-acts in the thread again.`,
+with yardr reply, or after yardr thread follow. An involved subscription
+then also delivers what others do in the thread, with reason participant.
+Unfollowing stops that until the resident acts in the thread again.
+
+yardr thread show <seq> reads the source thread of a hook delivery.`,
 	}
 	threadArgs := func(source *string) func(*cobra.Command, []string) error {
 		return func(c *cobra.Command, args []string) error {
