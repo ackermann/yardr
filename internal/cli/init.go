@@ -26,10 +26,7 @@ import (
 // A yard is initialized once yardr init (or the onboarding) has stored its
 // default_kind. The store file alone does not say so: the server creates it
 // on the first command that connects, whatever that command was, so a home
-// can hold a store nobody set up. A store with no default_kind that already
-// holds rigs, groups or residents is a yard from before the onboarding, in
-// use, and counts as initialized too: onboarding it would ask its operator
-// to start over, and refuse its agents' commands.
+// can hold a store nobody set up.
 func (a *app) initialized(ctx context.Context, cfg *config.Config) (bool, error) {
 	if a.st == nil {
 		// No store file: nothing to connect to, and connecting would create one.
@@ -44,19 +41,7 @@ func (a *app) initialized(ctx context.Context, cfg *config.Config) (bool, error)
 	if defaultKind(ctx, st) != "" {
 		return true, nil
 	}
-	rigs, err := st.Rigs(ctx)
-	if err != nil {
-		return false, err
-	}
-	groups, err := st.Groups(ctx)
-	if err != nil {
-		return false, err
-	}
-	residents, err := st.Residents(ctx)
-	if err != nil {
-		return false, err
-	}
-	return len(rigs)+len(groups)+len(residents) > 0, nil
+	return false, nil
 }
 
 // notInitialized is a command run on a home with no yard yet and no
@@ -393,9 +378,9 @@ adds the mayor resident on that harness with its unattended flags, rotating
 every 6h. The daemon starts the mayor.
 
 Run yardr in a terminal on a home with no yard to get the same as a form. A
-home counts as set up once init has stored default_kind (or its store already
-has rigs, groups or residents); the store file alone does not, since the
-server creates it on any first command. Init again keeps an existing mayor.
+home counts as set up once init has stored default_kind; the store file alone
+does not, since the server creates it on any first command. Init again keeps
+an existing mayor.
 
 After init the mayor sets up the rest in conversation. For scripts, the same
 by hand:

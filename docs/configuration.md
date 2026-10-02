@@ -240,11 +240,9 @@ socket paths are limited to about 100 bytes, and yardr refuses a home whose
 A home is initialized once its store has the `default_kind` setting, which
 init writes last. The store file alone is no marker: the server creates
 `yard.db` on the first command that connects, whatever it was, so a home can
-hold an empty store nobody set up. A store without `default_kind` that already
-has rigs, groups or residents is a yard from before the onboarding and counts
-as set up too. Any yardr command on a home that is not set up, bare `yardr`
-included (help otherwise; `--help` is always help), runs the onboarding when
-it has a terminal: the default harness (every kind herdr starts, marked
+hold an empty store nobody set up. Any yardr command on a home that is not set
+up, bare `yardr` included (help otherwise; `--help` is always help), runs the
+onboarding when it has a terminal: the default harness (every kind herdr starts, marked
 installed when its executable is on PATH, the first installed one
 preselected), the mayor's name (default `mayor`), the directory its shell
 lives in (default the home's parent, so `~` for `~/.yardr`), and an optional

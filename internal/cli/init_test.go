@@ -188,8 +188,7 @@ func TestFirstRunWithoutTerminal(t *testing.T) {
 
 // A home is set up once init stored default_kind: not by its store file,
 // which the server creates on any first command, and not by an empty store.
-// A store already in use without the setting (a yard from before the
-// onboarding) counts as set up.
+// A store already in use without the setting still needs onboarding.
 func TestInitialized(t *testing.T) {
 	newHome(t)
 	cfg, err := config.Load()
@@ -218,7 +217,7 @@ func TestInitialized(t *testing.T) {
 	if err := old.PutRig(ctx, store.Rig{Name: "r", Path: "/x", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if ok, err := (&app{st: old}).initialized(ctx, cfg); !ok || err != nil {
+	if ok, err := (&app{st: old}).initialized(ctx, cfg); ok || err != nil {
 		t.Fatalf("store in use without default_kind: %v %v", ok, err)
 	}
 }
