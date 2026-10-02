@@ -138,34 +138,53 @@ func AgentName(bead, stage string) string {
 
 // WorkspaceLabel is the herdr label for a bead's workspace: the group
 // working on it first, then "[<epic>] " for a child of an epic, so the tab
-// bar shows which epic it belongs to, then the bead ("builders [yard-sv6b]
-// yard-2cet", or "builders yard-jtyz" for a bead with no epic). The workspace
-// is reused across stages and relabelled on each reopen, so the group in it
-// is always the current one.
-func WorkspaceLabel(rig, group, epic, bead string) string {
+// bar shows which epic it belongs to, then the bead ("builders [sv6b] 2cet",
+// or "builders jtyz" for a bead with no epic). The workspace is reused
+// across stages and relabelled on each reopen, so the group in it is always
+// the current one.
+func WorkspaceLabel(rig string, group store.Group, epic, bead string) string {
+	return joinLabel(GroupLabel(rig, group), rig, epic, bead)
+}
+
+// TabLabel is the herdr label for a stage's tab: the workspace's label with
+// the stage in place of the group ("review [sv6b] 2cet"). The group is not
+// repeated, since the workspace above the tab names it.
+func TabLabel(rig, stage, epic, bead string) string {
+	return joinLabel(stage, rig, epic, bead)
+}
+
+// GroupLabel is the name a group goes by in herdr labels: its `label`
+// config when set, else its name. herdr already nests workspaces under the
+// rig's repo, so a leading "<rig>-" on the name is noise that only gets the
+// label truncated in the sidebar.
+func GroupLabel(rig string, group store.Group) string {
+	if l := str(group.Config, "label", ""); l != "" {
+		return l
+	}
+	return ShortID(rig, group.Name)
+}
+
+// ShortID drops the leading "<rig>-" from an id for a herdr label, where
+// the rig is already the node above. An id without it stays whole; ids
+// anywhere else in yardr stay full.
+func ShortID(rig, id string) string {
+	if rig == "" {
+		return id
+	}
+	return strings.TrimPrefix(id, rig+"-")
+}
+
+// joinLabel is "<head> [<epic>] <bead>", the parts that are empty left out
+// and the ids shortened.
+func joinLabel(head, rig, epic, bead string) string {
+	var parts []string
+	if head != "" {
+		parts = append(parts, head)
+	}
 	if epic != "" {
-		bead = "[" + epic + "] " + bead
+		parts = append(parts, "["+ShortID(rig, epic)+"]")
 	}
-	return groupFirst(rig, group, bead)
-}
-
-// TabLabel is the herdr label for a group's tab in a stage: the group
-// first, then the stage. The stage name stays unchanged.
-func TabLabel(rig, group, name string) string {
-	return groupFirst(rig, group, name)
-}
-
-// groupFirst puts the group in front of name. herdr already nests
-// workspaces under the rig's repo, so a leading "<rig>-" on the group is
-// noise that only gets the label truncated in the sidebar.
-func groupFirst(rig, group, name string) string {
-	if rig != "" {
-		group = strings.TrimPrefix(group, rig+"-")
-	}
-	if group == "" {
-		return name
-	}
-	return group + " " + name
+	return strings.Join(append(parts, ShortID(rig, bead)), " ")
 }
 
 func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, error) {
@@ -177,7 +196,7 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	branch := Branch(job.Bead)
 	name := AgentName(job.Bead.ID, job.Bead.Stage)
 	handle := map[string]any{"agent": name, "branch": branch, "repo": rig.Path}
-	label := WorkspaceLabel(rig.Name, job.Group.Name, job.Epic, job.Bead.ID)
+	label := WorkspaceLabel(rig.Name, job.Group, job.Epic, job.Bead.ID)
 
 	h.fetchBase(ctx, rig)
 	if job.Epic != "" {
@@ -235,7 +254,7 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	// having to export anything. On a later stage the root pane may also
 	// still hold the previous stage's agent.
 	tabArgs := []string{"tab", "create", "--workspace", wt.Workspace.ID,
-		"--cwd", wt.Worktree.Path, "--label", TabLabel(rig.Name, job.Group.Name, job.Bead.Stage)}
+		"--cwd", wt.Worktree.Path, "--label", TabLabel(rig.Name, job.Bead.Stage, job.Epic, job.Bead.ID)}
 	for _, e := range h.agentEnv(job, name) {
 		tabArgs = append(tabArgs, "--env", e)
 	}

@@ -566,53 +566,52 @@ esac`)}
 	}
 }
 
-func TestWorkspaceLabel(t *testing.T) {
-	cases := []struct{ rig, group, epic, bead, want string }{
-		{"yard", "yard-builders", "yard-sv6b", "yard-2cet", "builders [yard-sv6b] yard-2cet"},
-		{"yard", "yard-builders", "", "yard-jtyz", "builders yard-jtyz"},
-		// A group without the rig prefix stays whole.
-		{"yard", "builders", "yard-sv6b", "yard-2cet", "builders [yard-sv6b] yard-2cet"},
-		{"yard", "builders", "", "yard-jtyz", "builders yard-jtyz"},
-		{"yard", "", "yard-sv6b", "yard-2cet", "[yard-sv6b] yard-2cet"},
-		{"yard", "", "", "yard-jtyz", "yard-jtyz"},
-	}
-	for _, c := range cases {
-		if got := WorkspaceLabel(c.rig, c.group, c.epic, c.bead); got != c.want {
-			t.Errorf("WorkspaceLabel(%q, %q, %q, %q) = %q, want %q", c.rig, c.group, c.epic, c.bead, got, c.want)
-		}
-	}
-}
-
-func TestTabLabel(t *testing.T) {
-	cases := []struct{ rig, group, name, want string }{
-		{"yard", "yard-codex-review", "yard-29", "codex-review yard-29"},
-		{"yard", "yard-builders", "yard-20", "builders yard-20"},
-		{"webapp", "builders", "webapp-1", "builders webapp-1"},
-		{"webapp", "yard-builders", "yard-3", "yard-builders yard-3"},
-		{"yard", "builders", "review", "builders review"},
+func TestHerdrLabels(t *testing.T) {
+	builders := store.Group{Name: "yard-builders"}
+	codex := store.Group{Name: "yard-codex-review", Config: map[string]any{"label": "codex"}}
+	cases := []struct {
+		name              string
+		rig               string
+		group             store.Group
+		stage, epic, bead string
+		workspace, tab    string
+	}{
+		{"child", "yard", builders, "new", "yard-sv6b", "yard-p4cv", "builders [sv6b] p4cv", "new [sv6b] p4cv"},
+		{"plain bead", "yard", builders, "new", "", "yard-cbdc", "builders cbdc", "new cbdc"},
+		{"group label set", "yard", codex, "review", "yard-sv6b", "yard-p4cv", "codex [sv6b] p4cv", "review [sv6b] p4cv"},
+		{"group label set, plain bead", "yard", codex, "review", "", "yard-cbdc", "codex cbdc", "review cbdc"},
+		// The label is used as it is, prefix or not.
+		{"group label with the prefix", "yard", store.Group{Name: "yard-x", Config: map[string]any{"label": "yard-x"}}, "new", "", "yard-1", "yard-x 1", "new 1"},
+		{"empty group label", "yard", store.Group{Name: "yard-builders", Config: map[string]any{"label": ""}}, "new", "", "yard-1", "builders 1", "new 1"},
+		{"group without the rig prefix", "yard", store.Group{Name: "builders"}, "new", "yard-sv6b", "yard-p4cv", "builders [sv6b] p4cv", "new [sv6b] p4cv"},
 		// Only a leading "<rig>-" goes: not the bare rig, not a longer word.
-		{"yard", "yardstick", "yard-29", "yardstick yard-29"},
-		{"yard", "", "yard-7", "yard-7"},
-		{"yard", "", "new", "new"},
-		{"", "yard-builders", "yard-7", "yard-builders yard-7"},
+		{"group with a longer word", "yard", store.Group{Name: "yardstick"}, "new", "", "yard-29", "yardstick 29", "new 29"},
+		{"ids without the rig prefix", "yard", builders, "new", "web-12", "web-13", "builders [web-12] web-13", "new [web-12] web-13"},
+		{"id that is a longer word", "yard", builders, "new", "", "yardstick-1", "builders yardstick-1", "new yardstick-1"},
+		{"another rig", "webapp", store.Group{Name: "yard-builders"}, "new", "", "webapp-1", "yard-builders 1", "new 1"},
+		{"no rig", "", builders, "new", "yard-sv6b", "yard-p4cv", "yard-builders [yard-sv6b] yard-p4cv", "new [yard-sv6b] yard-p4cv"},
+		{"no group", "yard", store.Group{}, "new", "yard-sv6b", "yard-p4cv", "[sv6b] p4cv", "new [sv6b] p4cv"},
 	}
 	for _, c := range cases {
-		if got := TabLabel(c.rig, c.group, c.name); got != c.want {
-			t.Errorf("TabLabel(%q, %q, %q) = %q, want %q", c.rig, c.group, c.name, got, c.want)
+		if got := WorkspaceLabel(c.rig, c.group, c.epic, c.bead); got != c.workspace {
+			t.Errorf("%s: WorkspaceLabel = %q, want %q", c.name, got, c.workspace)
+		}
+		if got := TabLabel(c.rig, c.stage, c.epic, c.bead); got != c.tab {
+			t.Errorf("%s: TabLabel = %q, want %q", c.name, got, c.tab)
 		}
 	}
 }
 
 // herdr shows workspace and tab labels: the workspace is the group and the
 // bead, with the epic between them for a child of one, and each stage's
-// tab leads with the group;
+// tab the same with the stage in place of the group, ids without the rig;
 // on the first stage (worktree created) and on a later one (worktree
 // reopened, and relabelled).
 func TestHerdrStartLabels(t *testing.T) {
 	ctx := context.Background()
 	wt := t.TempDir()
 	gitT(t, wt, "init", "-q", "-b", "main")
-	start := func(t *testing.T, createScript, stage, group, epic string) string {
+	start := func(t *testing.T, createScript, stage string, group store.Group, epic string) string {
 		t.Helper()
 		log := filepath.Join(t.TempDir(), "calls")
 		h := &Herdr{Bin: fakeHerdrBin(t, `printf '%s\n' "$*" >> `+log+`
@@ -624,7 +623,7 @@ case "$1 $2" in
 esac`)}
 		job := dispatch.Job{
 			Bead:    store.Bead{ID: "yard-13", Stage: stage},
-			Group:   store.Group{Name: group},
+			Group:   group,
 			Rig:     &store.Rig{Name: "yard", Path: t.TempDir(), Base: "main"},
 			Session: store.Session{ID: "s-" + stage},
 			Epic:    epic,
@@ -645,24 +644,26 @@ esac`)}
 		return string(calls)
 	}
 
+	builders := store.Group{Name: "yard-builders"}
+	codex := store.Group{Name: "yard-codex-review", Config: map[string]any{"label": "codex"}}
 	created := `echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"},"worktree":{"path":"` + wt + `"}}}'`
-	calls := start(t, created, "new", "yard-builders", "")
-	if !strings.Contains(calls, "worktree create ") || !strings.Contains(calls, "--label builders yard-13\n") {
+	calls := start(t, created, "new", builders, "")
+	if !strings.Contains(calls, "worktree create ") || !strings.Contains(calls, "--label builders 13\n") {
 		t.Fatalf("first stage workspace not labelled with the group and the bead:\n%s", calls)
 	}
 	if strings.Contains(calls, "workspace rename") {
 		t.Fatalf("first stage relabelled:\n%s", calls)
 	}
-	if !strings.Contains(calls, "tab create --workspace w1 --cwd "+wt+" --label builders new --env ") {
-		t.Fatalf("first stage tab not labelled group first:\n%s", calls)
+	if !strings.Contains(calls, "tab create --workspace w1 --cwd "+wt+" --label new 13 --env ") {
+		t.Fatalf("first stage tab not labelled stage first:\n%s", calls)
 	}
 
 	exists := `echo '{"error":{"code":"worktree_exists","message":"branch exists"}}' >&2; exit 1`
-	calls = start(t, exists, "review", "yard-codex-review", "")
+	calls = start(t, exists, "review", codex, "")
 	for _, want := range []string{
 		"worktree open --cwd ",
-		"workspace rename w1 codex-review yard-13\n",
-		"tab create --workspace w1 --cwd " + wt + " --label codex-review review --env ",
+		"workspace rename w1 codex 13\n",
+		"tab create --workspace w1 --cwd " + wt + " --label review 13 --env ",
 	} {
 		if !strings.Contains(calls, want) {
 			t.Errorf("later stage missing %q:\n%s", want, calls)
@@ -670,16 +671,16 @@ esac`)}
 	}
 
 	// A child of an epic: the workspace reads the epic after the group, the
-	// tab and the agent name are as for any bead.
-	calls = start(t, created, "new", "yard-builders", "yard-12")
-	if !strings.Contains(calls, "worktree create ") || !strings.Contains(calls, "--label builders [yard-12] yard-13\n") {
+	// tab the same after the stage, and the agent name is as for any bead.
+	calls = start(t, created, "new", builders, "yard-12")
+	if !strings.Contains(calls, "worktree create ") || !strings.Contains(calls, "--label builders [12] 13\n") {
 		t.Fatalf("child's workspace not labelled with its epic:\n%s", calls)
 	}
-	if !strings.Contains(calls, "--label builders new --env ") {
-		t.Fatalf("child's tab label changed:\n%s", calls)
+	if !strings.Contains(calls, "--label new [12] 13 --env ") {
+		t.Fatalf("child's tab not labelled with its epic:\n%s", calls)
 	}
-	calls = start(t, exists, "review", "yard-codex-review", "yard-12")
-	if !strings.Contains(calls, "workspace rename w1 codex-review [yard-12] yard-13\n") {
+	calls = start(t, exists, "review", codex, "yard-12")
+	if !strings.Contains(calls, "workspace rename w1 codex [12] 13\n") {
 		t.Fatalf("child's reopened workspace not relabelled with its epic:\n%s", calls)
 	}
 }
