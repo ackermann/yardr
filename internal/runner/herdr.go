@@ -136,22 +136,29 @@ func AgentName(bead, stage string) string {
 	return n
 }
 
-// WorkspaceLabel is the herdr label for a bead's workspace: "[<epic>] <bead>"
-// for a child of an epic, so the tab bar shows which epic it belongs to, and
-// the bead alone otherwise. The group is left out: the workspace is reused
-// across stages, and each stage's tab carries the group (TabLabel).
-func WorkspaceLabel(epic, bead string) string {
-	if epic == "" {
-		return bead
+// WorkspaceLabel is the herdr label for a bead's workspace: the group
+// working on it first, then "[<epic>] " for a child of an epic, so the tab
+// bar shows which epic it belongs to, then the bead ("builders [yard-sv6b]
+// yard-2cet", or "builders yard-jtyz" for a bead with no epic). The workspace
+// is reused across stages and relabelled on each reopen, so the group in it
+// is always the current one.
+func WorkspaceLabel(rig, group, epic, bead string) string {
+	if epic != "" {
+		bead = "[" + epic + "] " + bead
 	}
-	return "[" + epic + "] " + bead
+	return groupFirst(rig, group, bead)
 }
 
 // TabLabel is the herdr label for a group's tab in a stage: the group
-// first, then the stage. herdr already nests workspaces under the rig's
-// repo, so a leading "<rig>-" on the group is noise that only gets the
-// label truncated in the sidebar. The stage name stays unchanged.
+// first, then the stage. The stage name stays unchanged.
 func TabLabel(rig, group, name string) string {
+	return groupFirst(rig, group, name)
+}
+
+// groupFirst puts the group in front of name. herdr already nests
+// workspaces under the rig's repo, so a leading "<rig>-" on the group is
+// noise that only gets the label truncated in the sidebar.
+func groupFirst(rig, group, name string) string {
 	if rig != "" {
 		group = strings.TrimPrefix(group, rig+"-")
 	}
@@ -170,7 +177,7 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	branch := Branch(job.Bead)
 	name := AgentName(job.Bead.ID, job.Bead.Stage)
 	handle := map[string]any{"agent": name, "branch": branch, "repo": rig.Path}
-	label := WorkspaceLabel(job.Epic, job.Bead.ID)
+	label := WorkspaceLabel(rig.Name, job.Group.Name, job.Epic, job.Bead.ID)
 
 	h.fetchBase(ctx, rig)
 	if job.Epic != "" {
@@ -214,9 +221,9 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 		return nil, fmt.Errorf("worktree result: %w", err)
 	}
 	if reopened {
-		// An open workspace keeps the label it was opened with, which may
-		// predate the bead joining an epic (or this labelling), so relabel
-		// it. Best effort: a label is cosmetic.
+		// An open workspace keeps the label it was opened with, which names
+		// the previous stage's group and may predate the bead joining an
+		// epic (or this labelling), so relabel it. Best effort: a label is cosmetic.
 		_, _ = h.run(ctx, "workspace", "rename", wt.Workspace.ID, label)
 	}
 	handle["workspace"], handle["worktree"] = wt.Workspace.ID, wt.Worktree.Path

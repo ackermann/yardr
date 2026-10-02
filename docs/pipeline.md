@@ -317,9 +317,11 @@ anyway (a type changed to `epic` later) is not dispatched; yardr logs
 bead's epic in an EPIC column after the bead (empty for a bead with no
 epic), and their `--json` rows carry it as `epic`. `yardr bead list --epic
 <epic>` lists only that epic, first, and its children. In herdr, a child's
-workspace is labelled `[<epic>] <bead>` (e.g. `[yard-sv6b] yard-2cet`) and
-any other bead's `<bead>`; the workspace is reused across stages, and each
-stage's tab is labelled with the group and the stage.
+workspace is labelled `<group> [<epic>] <bead>` (e.g. `builders [yard-sv6b]
+yard-2cet`) and any other bead's `<group> <bead>`, with the rig prefix
+trimmed from the group; the workspace is reused across stages and relabelled
+with the current group on each, and each stage's tab is labelled with the
+group and the stage.
 
 `dep add <epic> <child> -k parent` also adds `<child> -blocks-> <epic>`, so
 one command makes the child and keeps the epic from being ready until the
