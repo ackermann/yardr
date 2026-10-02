@@ -19,6 +19,7 @@ func TestMain(m *testing.M) { storetest.Main(m) }
 type fakeRunner struct {
 	mu       sync.Mutex
 	started  []string // bead ids
+	jobs     []dispatch.Job
 	dead     map[string]bool
 	stopped  []string
 	failNext error
@@ -33,6 +34,7 @@ func (f *fakeRunner) Start(_ context.Context, j dispatch.Job) (map[string]any, e
 		return nil, err
 	}
 	f.started = append(f.started, j.Bead.ID)
+	f.jobs = append(f.jobs, j)
 	return map[string]any{"session": j.Session.ID}, nil
 }
 
@@ -112,6 +114,52 @@ func TestPipelineThroughStages(t *testing.T) {
 	must(t, d.Reconcile(ctx))
 	if n := len(f.starts()); n != 2 {
 		t.Fatalf("starts = %d, want 2", n)
+	}
+}
+
+// A bead under a flow starts with the stages it may move to and who works
+// each, so its brief can list them; a bead without a flow gets none.
+func TestJobCarriesNextStages(t *testing.T) {
+	s, f, d := setup(t)
+	ctx := context.Background()
+	must(t, s.PutRig(ctx, store.Rig{Name: "web", Path: "/tmp/web"}))
+	flow, err := store.ParseFlow("new -> review | backlog | dropped\nreview -> merged\ndropped terminal\nmerged terminal\n")
+	must(t, err)
+	flow.Rig = "web"
+	_, err = s.PutFlow(ctx, *flow, "me")
+	must(t, err)
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 2}))
+	must(t, s.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "manual"}))
+	_, err = s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
+	must(t, err)
+	_, err = s.AddRoute(ctx, store.Route{Stage: "review", Group: "reviewers"})
+	must(t, err)
+	// A route for a terminal stage is moot: entering it closes the bead.
+	_, err = s.AddRoute(ctx, store.Route{Stage: "dropped", Group: "reviewers"})
+	must(t, err)
+
+	inFlow, err := s.CreateBead(ctx, store.NewBead{Title: "flowed", Rig: "web"}, "me")
+	must(t, err)
+	free, err := s.CreateBead(ctx, store.NewBead{Title: "free"}, "me")
+	must(t, err)
+	must(t, d.Reconcile(ctx))
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	jobs := map[string]dispatch.Job{}
+	for _, j := range f.jobs {
+		jobs[j.Bead.ID] = j
+	}
+	want := []dispatch.NextStage{
+		{Stage: "review", Group: "reviewers", Runner: "manual"},
+		{Stage: "backlog"},
+		{Stage: "dropped", Terminal: true},
+	}
+	if got := jobs[inFlow.ID].Next; !slices.Equal(got, want) {
+		t.Fatalf("next = %+v, want %+v", got, want)
+	}
+	if j, ok := jobs[free.ID]; !ok || j.Next != nil {
+		t.Fatalf("bead without a flow: started %v, next %+v", ok, j.Next)
 	}
 }
 

@@ -56,6 +56,61 @@ func TestBriefIncludesPromptAndCommands(t *testing.T) {
 	}
 }
 
+// With a flow the brief lists the allowed next stages, when to use each and
+// the exact command; without one it keeps the generic advance line.
+func TestBriefListsNextStages(t *testing.T) {
+	job := dispatch.Job{
+		Bead:    store.Bead{ID: "web-3", Title: "Add login", Type: "task", Stage: "new"},
+		Group:   store.Group{Name: "builders"},
+		Session: store.Session{ID: "s1"},
+	}
+	plain, err := Brief(job, "a", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(plain, "hand the bead to the next stage: `yard bead advance web-3 --to <stage>`") ||
+		strings.Contains(plain, "## Next stages") {
+		t.Fatalf("brief without a flow changed:\n%s", plain)
+	}
+
+	job.Next = []dispatch.NextStage{
+		{Stage: "review", Group: "reviewers", Runner: "herdr"},
+		{Stage: "signoff", Group: "humans", Runner: "manual"},
+		{Stage: "lint", Group: "ci", Runner: "exec"},
+		{Stage: "backlog"},
+		{Stage: "dropped", Terminal: true},
+	}
+	b, err := Brief(job, "a", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"advance to one of the next stages below",
+		"## Next stages",
+		"moves out of `new`",
+		"- `review`: an agent in `reviewers` picks it up",
+		"  `yard bead advance web-3 --to review`",
+		"- `signoff`: a human in `humans` picks it up",
+		"- `lint`: `ci` runs its command on it",
+		"- `backlog`: no group works this stage",
+		"- `dropped`: closes the bead",
+		"  `yard bead advance web-3 --to dropped`",
+	} {
+		if !strings.Contains(b, want) {
+			t.Errorf("brief missing %q:\n%s", want, b)
+		}
+	}
+	if strings.Contains(b, "--to <stage>") {
+		t.Errorf("brief with a flow still offers any stage:\n%s", b)
+	}
+
+	job.Next = []dispatch.NextStage{}
+	b, _ = Brief(job, "a", "")
+	if !strings.Contains(b, "allows no move out of `new`") {
+		t.Errorf("empty next stages not explained:\n%s", b)
+	}
+}
+
 func TestExecLifecycle(t *testing.T) {
 	e := NewExec()
 	ctx := context.Background()

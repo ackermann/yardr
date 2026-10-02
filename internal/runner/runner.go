@@ -91,19 +91,58 @@ func Brief(job dispatch.Job, actor, workdir string) (string, error) {
 		fmt.Fprintf(&b, "Work in `%s` (branch `%s`). Commit and push your work there.\n\n", workdir, Branch(bead))
 	}
 	fmt.Fprintf(&b, "## %s\n\n%s\n\n", bead.Title, strings.TrimSpace(bead.Body))
+	advance := "- When your part is done, hand the bead to the next stage: `yard bead advance " + bead.ID + " --to <stage>`\n"
+	if job.Next != nil {
+		advance = "- When your part is done, advance to one of the next stages below.\n"
+	}
 	fmt.Fprintf(&b, `## Reporting back
 
 Run every yard command with YARD_ACTOR=%[1]s set (export it once).
 
 - Read the bead, its notes and dependencies: `+"`yard prime --bead %[2]s`"+`
 - Leave evidence as you go: `+"`yard bead note %[2]s \"...\"`"+`
-- When your part is done, hand the bead to the next stage: `+"`yard bead advance %[2]s --to <stage>`"+`
-- Or, if the work is finished entirely: `+"`yard bead close %[2]s --reason \"...\"`"+`
+%[3]s- Or, if the work is finished entirely: `+"`yard bead close %[2]s --reason \"...\"`"+`
 - If you are stuck and need a human: `+"`yard bead note %[2]s \"...\" && yard bead hold %[2]s`"+`
 
 Advancing or closing ends your session; nothing else does.
-`, actor, bead.ID)
+`, actor, bead.ID, advance)
+	if job.Next != nil {
+		writeNext(&b, bead.ID, bead.Stage, job.Next)
+	}
 	return b.String(), nil
+}
+
+// writeNext lists the stages the bead's flow allows from stage, each with
+// what choosing it leads to and the exact command, so role prompts need not
+// hard-code a next stage.
+func writeNext(b *strings.Builder, id, stage string, next []dispatch.NextStage) {
+	fmt.Fprintf(b, "\n## Next stages\n\n")
+	if len(next) == 0 {
+		fmt.Fprintf(b, "The flow allows no move out of `%s`; close the bead or hold it for a human.\n", stage)
+		return
+	}
+	fmt.Fprintf(b, "The flow allows these moves out of `%s`:\n\n", stage)
+	for _, n := range next {
+		fmt.Fprintf(b, "- `%s`: %s\n  `yard bead advance %s --to %s`\n", n.Stage, nextWhen(n), id, n.Stage)
+	}
+}
+
+// nextWhen says in one line when to pick a next stage, from what happens to
+// the bead there: a terminal stage closes it, otherwise the routed group's
+// runner decides who picks it up.
+func nextWhen(n dispatch.NextStage) string {
+	switch {
+	case n.Terminal:
+		return "closes the bead; use it when nothing is left to do."
+	case n.Group == "":
+		return "no group works this stage; use it to park the bead until someone moves it on."
+	case n.Runner == "manual":
+		return fmt.Sprintf("a human in `%s` picks it up; use it when a person must act next.", n.Group)
+	case n.Runner == "exec":
+		return fmt.Sprintf("`%s` runs its command on it; use it when your part is ready for that step.", n.Group)
+	default:
+		return fmt.Sprintf("an agent in `%s` picks it up; use it when your part is ready for them.", n.Group)
+	}
 }
 
 // self is this yard's executable, so agents run the same version.

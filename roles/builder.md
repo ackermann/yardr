@@ -17,7 +17,7 @@ branch yard/<bead>.
    Stop processes by pid, never with pkill -f.
 5. Commit on your branch. Do not push, do not merge.
 6. Leave a note on the bead: what changed, what you verified (exact commands),
-   what you did not verify. Then `yard bead advance <id> --to review`.
+   what you did not verify. Then advance to the next stage your brief lists.
 
 If you are stuck or the bead is unclear: note the question on the bead and
 `yard bead hold <id>`. The mayor sees held beads.

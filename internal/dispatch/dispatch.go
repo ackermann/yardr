@@ -21,6 +21,18 @@ type Job struct {
 	Group   store.Group
 	Rig     *store.Rig // nil when the bead has no rig
 	Session store.Session
+	// Next lists where the bead may go from its stage when a flow governs
+	// it; nil without a flow, where any stage is allowed.
+	Next []NextStage
+}
+
+// NextStage is one stage a flow allows the bead to move to, with who would
+// pick it up there, so a brief can say when to choose it.
+type NextStage struct {
+	Stage    string
+	Terminal bool   // entering it closes the bead
+	Group    string // the group routed for the stage; "" when none is
+	Runner   string // that group's runner
 }
 
 // Runner starts and supervises whatever works a bead: an agent, a process,
@@ -431,6 +443,11 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 			}
 		}
 
+		next, err := d.nextStages(ctx, b, routes, groups)
+		if err != nil {
+			return err
+		}
+
 		sess, err := d.Store.Claim(ctx, b.ID, g.Name, b.Stage, actor)
 		if errors.Is(err, store.ErrTaken) {
 			continue
@@ -441,7 +458,7 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		active[g.Name]++
 		d.Log.Info("dispatching", "bead", b.ID, "stage", b.Stage, "group", g.Name, "session", sess.ID)
 
-		handle, err := runner.Start(ctx, Job{Bead: b, Group: g, Rig: rig, Session: *sess})
+		handle, err := runner.Start(ctx, Job{Bead: b, Group: g, Rig: rig, Session: *sess, Next: next})
 		if err != nil {
 			d.end(ctx, *sess, "failed", err.Error())
 			active[g.Name]--
@@ -456,6 +473,26 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		}
 	}
 	return nil
+}
+
+// nextStages is where b's flow lets it go next, each with the group that
+// would work it there; nil when no flow governs b.
+func (d *Dispatcher) nextStages(ctx context.Context, b store.Bead, routes []store.Route, groups map[string]store.Group) ([]NextStage, error) {
+	ns, err := d.Store.NextStages(ctx, b.ID)
+	if err != nil || ns.Flow == nil {
+		return nil, err
+	}
+	out := make([]NextStage, 0, len(ns.Stages))
+	for _, st := range ns.Stages {
+		n := NextStage{Stage: st, Terminal: ns.Flow.IsTerminal(st)}
+		moved := b
+		moved.Stage = st
+		if r := Match(routes, moved); r != nil && !n.Terminal {
+			n.Group, n.Runner = r.Group, groups[r.Group].Runner
+		}
+		out = append(out, n)
+	}
+	return out, nil
 }
 
 func (d *Dispatcher) reportOnce(ctx context.Context, b store.Bead, kind, reason string) {
