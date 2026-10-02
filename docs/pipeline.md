@@ -166,7 +166,8 @@ clean) and:
    (`git log -p <merge-base>..main -- <file>`) on the other;
 3. runs the gate, `yardr rig check yard --dir .`;
 4. leaves one `merge re-review:` note naming the old tip, each conflict and
-   its resolution, and advances to `review`.
+   its resolution, and reports `yardr bead done`, which the flow sends to
+   `review`.
 
 The reviewer then checks only the resolution with a range-diff and advances
 the bead to `approved`. The refinery picks it up again: `main` no longer
@@ -175,8 +176,9 @@ moved again in the meantime and conflicts again, the bead goes back to
 `merge`.
 
 When both intents cannot be kept, or keeping them needs a real design choice,
-the merger aborts the rebase, notes why, and advances to `new` (the builders
-rework the bead) or `decide` (Christopher chooses). It never touches `main`,
+the merger aborts the rebase, notes why, and reports `--outcome rework` (to
+`new`: the builders rework the bead) or `--outcome question` (to `decide`:
+Christopher chooses). It never touches `main`,
 never pushes, and never forces anything but its own branch.
 
 A red gate (not a conflict) still sends the bead to `new`: the change, not
@@ -194,11 +196,12 @@ yardr route add --stage merge --group mergers --rig yard
 ```
 
 The flow gains two rules (the rest of [`yard.flow`](flows.md#worked-example-rig-yard)
-is unchanged):
+is unchanged), with outcomes so the merger reports how the merge ended
+instead of naming stages:
 
 ```
-approved -> merged | merge | new
-merge -> review | new | decide
+approved -> merged on done | new on failed | merge on conflict
+merge -> review on done | new on rework | decide on question
 ```
 
 and the refinery sends a conflicting bead to `merge` (merge-local does; it

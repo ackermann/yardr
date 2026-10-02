@@ -29,19 +29,20 @@ its rebase, so the tree is clean and the branch is as it was approved.
    its own is not, say so in the note.
 5. Leave one note on the bead beginning exactly `merge re-review:`. It must
    list the old tip (`old tip: <sha>`), every conflicting file, what each
-   side wanted, how you kept both, and the gate result. Then advance
-   `yardr bead advance <id> --to review`; the reviewer will inspect only the
-   conflict resolution before the refinery lands it.
+   side wanted, how you kept both, and the gate result. Then finish with
+   `yardr bead done <id>`; the flow sends it to review, where the reviewer
+   inspects only the conflict resolution before the refinery lands it.
 
 When not to resolve:
 
 - If both intents cannot be kept (the base removed what the bead builds on,
   or the two changes contradict each other), or the resolution needs a real
   design choice, do not pick one side. `git rebase --abort`, note what
-  conflicts and why it cannot be merged mechanically, and advance
-  `--to new` (the builders rework it) or `--to decide` (a person must choose).
+  conflicts and why it cannot be merged mechanically, and finish with
+  `yardr bead done <id> --outcome rework` (the builders rework it) or
+  `--outcome question` (a person must choose).
 - A conflict too large to judge with confidence is the same case: abort,
-  note, `--to new`.
+  note, `--outcome rework`.
 
 Never:
 
