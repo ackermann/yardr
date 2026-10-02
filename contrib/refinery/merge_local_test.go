@@ -131,6 +131,11 @@ func (y *yard) refinery() {
 	if err != nil {
 		y.t.Fatal(err)
 	}
+	// Reading the script makes it an input of the test cache: go test does
+	// not see files a test only executes, and would keep a stale pass.
+	if _, err := os.ReadFile(script); err != nil {
+		y.t.Fatal(err)
+	}
 	logPath := filepath.Join(y.home, "refinery.log")
 	cmd := script
 	if y.push != "" {
