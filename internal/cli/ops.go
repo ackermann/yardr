@@ -304,6 +304,7 @@ overrides the repository's default.flow and type/<type>.flow.`,
 func (a *app) rigCheckCmd() *cobra.Command {
 	var dir string
 	var tail int
+	var timeout time.Duration
 	cmd := &cobra.Command{
 		Use:   "check <rig>",
 		Short: "Run the rig's merge gate in a directory and report pass or fail",
@@ -315,32 +316,35 @@ the file is read from the remote-tracking ref after a fetch (origin/main),
 not from the local branch, which any worktree can move. A rig with neither
 fails ("no gate") unless it was added with --allow-no-check.
 
-Exits 0 when the gate passes, 1 when it fails.`,
+The check is killed, with everything it started, once it has run for
+--timeout, which fails the gate; each git call that finds the gate is bounded
+too.
+
+Exits 0 when the gate passes, 1 when it fails (including no gate and a
+timeout), 2 when it could not be run at all (unknown rig, base that does not
+resolve, git failing), so a merge script can tell a red branch from a broken
+setup.`,
 		Example: `  yardr rig check yard                                   # in the rig itself
   yardr rig check yard --dir ~/.yardr/worktrees/yard/yard-12   # in a bead's worktree`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			st, err := a.store(c.Context())
+			res, err := a.runRigCheck(c.Context(), args[0], dir, timeout)
 			if err != nil {
-				return err
-			}
-			rig, err := st.GetRig(c.Context(), args[0])
-			if err != nil {
-				return err
-			}
-			if dir != "" {
-				if dir, err = filepath.Abs(dir); err != nil {
-					return err
-				}
-			}
-			res, err := rigcheck.Run(c.Context(), *rig, dir)
-			if err != nil {
-				return err
+				return checkNotRun{err}
 			}
 			if err := a.out(res, func() {
 				// No gate has only yardr's own message, said below.
-				if out := rigcheck.Tail(res.Output, tail); strings.TrimSpace(out) != "" && res.Source != "" {
+				out := rigcheck.Tail(res.Output, tail)
+				switch {
+				case res.Source == "":
+				case strings.TrimSpace(out) != "":
 					fmt.Println(out)
+				case !res.Pass && strings.TrimSpace(res.Output) == "":
+					fmt.Println("(the check printed nothing)")
+				case !res.Pass:
+					// A red gate always says where to look, even with --tail 0.
+					fmt.Printf("(%d lines of output not shown; --tail to see them, or --json for all)\n",
+						strings.Count(strings.TrimRight(res.Output, "\n"), "\n")+1)
 				}
 				src := res.Source
 				if res.From != "" {
@@ -353,6 +357,8 @@ Exits 0 when the gate passes, 1 when it fails.`,
 					fmt.Printf("rig %s has no check (no --check, no %s on %s): FAIL (no gate)\n", res.Rig, rigcheck.RepoPath, res.From)
 				case res.Pass:
 					fmt.Printf("check %s (%s) in %s: pass\n", res.Rig, src, res.Dir)
+				case res.TimedOut:
+					fmt.Printf("check %s (%s) in %s: FAIL (timed out after %s)\n", res.Rig, src, res.Dir, timeout)
 				default:
 					fmt.Printf("check %s (%s) in %s: FAIL (exit %d)\n", res.Rig, src, res.Dir, res.ExitCode)
 				}
@@ -367,7 +373,32 @@ Exits 0 when the gate passes, 1 when it fails.`,
 	}
 	cmd.Flags().StringVar(&dir, "dir", "", "directory to run it in (default: the rig)")
 	cmd.Flags().IntVar(&tail, "tail", 40, "lines of output to show")
+	cmd.Flags().DurationVar(&timeout, "timeout", rigcheck.DefaultTimeout, "kill the check and fail after this long")
 	return cmd
+}
+
+// runRigCheck runs rig's gate in dir within timeout; an error means it could
+// not be run, as opposed to a failing Result.
+func (a *app) runRigCheck(ctx context.Context, rigName, dir string, timeout time.Duration) (*rigcheck.Result, error) {
+	st, err := a.store(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rig, err := st.GetRig(ctx, rigName)
+	if err != nil {
+		return nil, err
+	}
+	if dir != "" {
+		if dir, err = filepath.Abs(dir); err != nil {
+			return nil, err
+		}
+	}
+	if timeout <= 0 {
+		return nil, fmt.Errorf("--timeout must be positive")
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	return rigcheck.Run(ctx, *rig, dir)
 }
 
 // rigCheckLine says what gates a rig's merges, as the store has it: the

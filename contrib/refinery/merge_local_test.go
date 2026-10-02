@@ -317,6 +317,34 @@ func TestMergeLocalRedGate(t *testing.T) {
 	}
 }
 
+// A gate that cannot run at all (rig check exits 2) is no builder's to fix:
+// the bead is held where it is, not sent back to new.
+func TestMergeLocalGateNotRunHolds(t *testing.T) {
+	y := newYard(t)
+	main := y.git(y.repo, "rev-parse", "main")
+	y.commit(y.wt, "b.txt", "bead\n")
+	// The store's rig now points at a directory that is no repository and
+	// has no --check: finding the gate fails, while the script still works
+	// on the real repo it is given.
+	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
+	if err := st.PutRig(context.Background(), store.Rig{Name: "r", Path: t.TempDir(), Base: "main"}, "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	y.refinery()
+
+	b := y.bead()
+	if !b.Hold || b.Stage != "approved" {
+		t.Fatalf("bead %s hold=%v, want held in approved", b.Stage, b.Hold)
+	}
+	if !strings.Contains(y.notes(), "the gate could not run") {
+		t.Fatalf("no note on the hold:\n%s", y.notes())
+	}
+	if got := y.git(y.repo, "rev-parse", "main"); got != main {
+		t.Fatal("main moved without a gate")
+	}
+}
+
 func TestMergeLocalDirtyCheckoutHolds(t *testing.T) {
 	y := newYard(t)
 	main := y.git(y.repo, "rev-parse", "main")

@@ -173,9 +173,14 @@ yardr rig check yard                                      # in the rig
 yardr rig check yard --dir ~/.yardr/worktrees/yard/yard-12   # in a bead's worktree
 ```
 
-prints the tail of the output (`--tail N`, default 40) and pass or FAIL,
-and exits 1 on a failing gate; `--json` gives the full output, the exit code
-and the source (`store`, `repo@<sha>`, or empty for a rig with no gate).
+prints the tail of the output (`--tail N`, default 40; a red gate whose
+tail is empty says so, or how many lines it hid) and pass or FAIL; `--json`
+gives the full output, the exit code and the source (`store`, `repo@<sha>`,
+or empty for a rig with no gate). It exits 0 on a green gate, 1 on a red one
+(no gate and a timeout included), and 2 when the gate could not run at all:
+an unknown rig, a base that does not resolve, git failing. The check is
+killed, with every process it started, after `--timeout` (default 30m), and
+each git call that finds it is bounded (30s; the fetch, 60s).
 Builders run it before handing on, and the refinery runs it too:
 [`contrib/refinery/merge-local`](../contrib/refinery/merge-local) runs
 `yardr rig check` on exactly what will land, after any rebase, and sends a

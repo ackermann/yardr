@@ -29,6 +29,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"yardr.dev/yardr/internal/store"
@@ -40,6 +41,15 @@ const RepoPath = ".yardr/check"
 // FetchTimeout bounds the fetch of the base before the check is read: a
 // dead remote must not hang the gate, and with it the merge queue.
 var FetchTimeout = 60 * time.Second
+
+// GitTimeout bounds each other git call made to find the gate, so a wedged
+// repository (a stale lock, a hung filesystem) fails the run instead of
+// hanging it.
+var GitTimeout = 30 * time.Second
+
+// DefaultTimeout bounds a check run when the caller sets no deadline of its
+// own (yardr rig check --timeout).
+const DefaultTimeout = 30 * time.Minute
 
 // Check is a rig's gate as resolved right now.
 type Check struct {
@@ -183,14 +193,19 @@ type Result struct {
 	From   string `json:"from,omitempty"`
 	Pass   bool   `json:"pass"`
 	// ExitCode is the check's exit status (-1 when it was killed).
-	ExitCode int    `json:"exit_code"`
+	ExitCode int `json:"exit_code"`
+	// TimedOut: the check ran past the caller's deadline and was killed,
+	// with everything it started. That fails the gate.
+	TimedOut bool   `json:"timed_out,omitempty"`
 	Output   string `json:"output"` // stdout and stderr, interleaved
 }
 
 // Run resolves the rig's gate and runs it in dir (a bead's worktree, or the
 // rig itself when dir is empty). A failing check is a Result with Pass
 // false, not an error; errors mean the check could not be run at all. A rig
-// with no gate fails too, unless it sets AllowNoCheck.
+// with no gate fails too, unless it sets AllowNoCheck. A check still running
+// at ctx's deadline is killed and fails (TimedOut); finding the gate past
+// the deadline is an error.
 func Run(ctx context.Context, rig store.Rig, dir string) (*Result, error) {
 	if dir == "" {
 		dir = rig.Path
@@ -230,12 +245,23 @@ func Run(ctx context.Context, rig store.Rig, dir string) (*Result, error) {
 	cmd.Dir = dir
 	cmd.Stdout, cmd.Stderr = &out, &out
 	cmd.Env = append(os.Environ(), "YARDR_RIG="+rig.Name)
+	// The check runs in its own process group, killed whole at the
+	// deadline: killing only sh would leave go test and its test binaries
+	// running, holding the output open.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = 5 * time.Second
 	err = cmd.Run()
 	res.Output = out.String()
 	var exitErr *exec.ExitError
 	switch {
 	case err == nil:
 		res.Pass = true
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		res.ExitCode, res.TimedOut = -1, true
+		res.Output += "\nyardr: the check ran past its deadline and was killed\n"
+	case ctx.Err() != nil:
+		return nil, fmt.Errorf("run check: %w", ctx.Err())
 	case errors.As(err, &exitErr):
 		res.ExitCode = exitErr.ExitCode()
 	default:
@@ -293,10 +319,16 @@ func Tail(s string, n int) string {
 }
 
 func git(ctx context.Context, dir string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, GitTimeout)
+	defer cancel()
 	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	cmd.WaitDelay = time.Second
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), ctx.Err())
+		}
 		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return stdout.String(), nil

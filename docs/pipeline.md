@@ -117,7 +117,9 @@ the session and the daemon stops the script, so it is the script's last step.
    moved; on a conflict it aborts the rebase and advances to `merge` with the
    conflicting files (section 5), or to `new` if the flow has no `merge`;
 2. runs the gate on exactly what will land, every time, including after a
-   merger's rebase; red advances to `new` with the last 200 lines of output;
+   merger's rebase; red (exit 1) advances to `new` with the last 200 lines
+   of output, and a gate that could not run at all (exit 2: git, the base,
+   the rig) holds the bead, since no builder can fix that;
 3. lands by fast-forward only. Where the base is checked out it fast-forwards
    that checkout, only when it is clean; a dirty one is someone's work in
    progress, so the bead is held with a note saying so and the tree is never

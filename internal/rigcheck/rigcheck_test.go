@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/store"
 )
@@ -211,5 +212,37 @@ func TestTail(t *testing.T) {
 	}
 	if got := Tail("a\n", 5); got != "a" {
 		t.Fatalf("Tail = %q", got)
+	}
+}
+
+// A check past its deadline is killed with everything it started (a child
+// holding the output open included) and fails as timed out.
+func TestCheckDeadlineKillsTheGroup(t *testing.T) {
+	rig := store.Rig{Name: "r", Path: t.TempDir(), Check: "echo started; sleep 30 & sleep 30"}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	began := time.Now()
+	res, err := Run(ctx, rig, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(began); took > 3*time.Second {
+		t.Fatalf("Run took %s past a 300ms deadline", took)
+	}
+	if res.Pass || !res.TimedOut || res.ExitCode != -1 || !strings.Contains(res.Output, "started") ||
+		!strings.Contains(res.Output, "deadline") {
+		t.Fatalf("result = %+v", res)
+	}
+}
+
+// Each git call finding the gate is bounded: a wedged git fails the run
+// instead of hanging it.
+func TestGitCallsAreBounded(t *testing.T) {
+	rig, wt := rigWithBead(t, "#!/bin/sh\nexit 0\n")
+	old := GitTimeout
+	GitTimeout = time.Nanosecond
+	defer func() { GitTimeout = old }()
+	if _, err := Run(context.Background(), rig, wt); err == nil || !strings.Contains(err.Error(), "deadline") {
+		t.Fatalf("Run with git timing out = %v", err)
 	}
 }

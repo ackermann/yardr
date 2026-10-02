@@ -15,7 +15,8 @@
 # For each bead it rebases the branch onto the base if the base moved, runs
 # the rig's gate on exactly what will land, fast-forwards the base and
 # advances the bead to merged. A conflict goes to merge, a red gate to new,
-# and anything it cannot land without touching a dirty tree is held. It never
+# and a gate that cannot run, or anything it cannot land without touching a
+# dirty tree, is held. It never
 # forces and never pushes anything but a fast-forward.
 #
 # Every outcome ends in an advance, a close or a hold: exiting without one
@@ -70,12 +71,17 @@ fi
 # The gate runs on exactly what will land, every time, including after a
 # merger's rebase: the rig's check, read from the base so a bead cannot
 # weaken it.
-if ! out=$("$Y" rig check "$RIG" --dir "$WT" --tail "$TAIL" 2>&1); then
-  printf '%s\n' "$out"
-  to new "the gate failed on $BR rebased onto $BASE:
-$out"
-fi
+# Exit 1 is a red gate, the branch's to fix; exit 2 means the gate could not
+# run at all (git, the base, the rig), which no builder can fix: hold.
+out=$("$Y" rig check "$RIG" --dir "$WT" --tail "$TAIL" 2>&1) && rc=0 || rc=$?
 printf '%s\n' "$out"
+case $rc in
+0) ;;
+2) hold "the gate could not run on $BR:
+$out" ;;
+*) to new "the gate failed on $BR rebased onto $BASE:
+$out" ;;
+esac
 
 # Land: fast-forward only. Where the base is checked out, only when that
 # checkout is clean (a dirty one is someone's work in progress: hold rather

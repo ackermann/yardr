@@ -44,26 +44,43 @@ func Execute() int {
 	if a.st != nil {
 		_ = a.st.Close(context.Background())
 	}
-	if errors.Is(err, errCheckFailed) {
-		return 1 // the command has reported the failure itself
-	}
-	if err != nil {
+	if err != nil && !errors.Is(err, errCheckFailed) { // a red check has reported itself
 		if a.json {
 			_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"error": err.Error()})
 		} else {
 			fmt.Fprintln(os.Stderr, "yardr:", err)
 		}
-		if errors.Is(err, store.ErrNotFound) {
-			return 3
-		}
-		return 1
 	}
-	return 0
+	return exitCode(err)
+}
+
+// exitCode is the process status for a command's error: 1 for a red check
+// or most errors, 2 for a check that could not run, 3 for something not
+// found.
+func exitCode(err error) int {
+	switch {
+	case err == nil:
+		return 0
+	case errors.Is(err, errCheckFailed):
+		return 1
+	case errors.As(err, new(checkNotRun)):
+		return 2
+	case errors.Is(err, store.ErrNotFound):
+		return 3
+	}
+	return 1
 }
 
 // errCheckFailed ends a command that has already printed its failing result
 // (a red merge gate): exit 1 without a second message.
 var errCheckFailed = errors.New("check failed")
+
+// checkNotRun is a check that could not be run at all (exit 2), told apart
+// from a red one (exit 1) so a merge script does not send a bead back to its
+// builder for a broken setup.
+type checkNotRun struct{ error }
+
+func (e checkNotRun) Unwrap() error { return e.error }
 
 func (a *app) who() string {
 	if a.actor != "" {
