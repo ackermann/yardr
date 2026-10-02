@@ -59,13 +59,13 @@ func TestHookCRUD(t *testing.T) {
 }
 
 func TestRecordHookKeepsPayload(t *testing.T) {
-	s := storetest.New(t)
+	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	if err := s.LogEvent(ctx, "", "noise", "me", nil); err != nil {
+	if err := s.LogDispatch(ctx, "", "daemon_replaced", "me", nil); err != nil {
 		t.Fatal(err)
 	}
 	payload := []byte("{\"type\":\"Comment\",\"bin\":\"\x00\xff\"}")
-	seq, err := s.RecordHook(ctx, "linear", map[string]any{"source": "linear", "type": "comment"}, payload)
+	seq, _, err := own.RecordHook(ctx, "linear", map[string]any{"source": "linear", "type": "comment"}, payload, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestRecordHookKeepsPayload(t *testing.T) {
 	if _, err := s.HookPayload(ctx, seq-1); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("payload of a non-hook event: %v", err)
 	}
-	if _, err := s.RecordHook(ctx, "linear", nil, make([]byte, store.MaxHookPayload+1)); err == nil {
+	if _, _, err := own.RecordHook(ctx, "linear", nil, make([]byte, store.MaxHookPayload+1), nil); err == nil {
 		t.Fatal("oversize payload stored")
 	}
 }

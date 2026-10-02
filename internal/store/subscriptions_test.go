@@ -30,15 +30,23 @@ func resident(t *testing.T, s store.API, name string, noID bool, subs ...store.S
 	}
 }
 
-// deliveries records e as a hook delivery and returns who it reached, why.
-func deliveries(t *testing.T, s store.API, e hooks.Envelope) map[string]string {
+// record records e as the receiver does: on the store itself, since
+// RecordHook is not on the API.
+func record(t *testing.T, own *store.Store, e hooks.Envelope) uint64 {
 	t.Helper()
-	ctx := context.Background()
-	seq, err := s.RecordHook(ctx, "linear", e.Map(), []byte("{}"))
-	if err != nil {
-		t.Fatal(err)
+	seq, dup, err := own.RecordHook(context.Background(), "linear", e.Map(), []byte("{}"), nil)
+	if err != nil || dup {
+		t.Fatalf("record: %v (duplicate %v)", err, dup)
 	}
-	evs, err := s.EventsSince(ctx, seq-1, 1)
+	return seq
+}
+
+// deliveries records e as a hook delivery and returns who it reached, why,
+// reading the event back through s.
+func deliveries(t *testing.T, s store.API, own *store.Store, e hooks.Envelope) map[string]string {
+	t.Helper()
+	seq := record(t, own, e)
+	evs, err := s.EventsSince(context.Background(), seq-1, 1)
 	if err != nil || len(evs) != 1 {
 		t.Fatalf("event %d: %v %v", seq, evs, err)
 	}
@@ -64,7 +72,7 @@ func same(a, b map[string]string) bool {
 }
 
 func TestHookScopes(t *testing.T) {
-	s := storetest.New(t)
+	s, own := storetest.NewOwned(t)
 	sub := func(scope string) store.Subscription { return store.Subscription{Source: "linear", Scope: scope} }
 	resident(t, s, "all", false, sub(store.ScopeAll))
 	resident(t, s, "noid", true, sub(store.ScopeAll))
@@ -100,14 +108,14 @@ func TestHookScopes(t *testing.T) {
 		{"other source", hooks.Envelope{Source: "token", Type: "message", Actor: jane, Mentions: []string{"ment"}},
 			map[string]string{}},
 	} {
-		if got := deliveries(t, s, c.env); !same(got, c.want) {
+		if got := deliveries(t, s, own, c.env); !same(got, c.want) {
 			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
 		}
 	}
 }
 
 func TestHookWhere(t *testing.T) {
-	s := storetest.New(t)
+	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	resident(t, s, "all", false, store.Subscription{Source: "linear", Scope: store.ScopeAll,
 		Where: map[string]string{"type": "comment", "team": "ENG"}})
@@ -147,14 +155,14 @@ func TestHookWhere(t *testing.T) {
 			Mentions: []string{"inv"}, Fields: ops},
 			map[string]string{}},
 	} {
-		if got := deliveries(t, s, c.env); !same(got, c.want) {
+		if got := deliveries(t, s, own, c.env); !same(got, c.want) {
 			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
 		}
 	}
 }
 
 func TestHookDeliveryInInbox(t *testing.T) {
-	s := storetest.New(t)
+	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	// "hook" in On must not widen delivery past the subscriptions.
 	if _, err := s.PutResident(ctx, store.Resident{Name: "mayor", On: []string{"hook"}}, "me"); err != nil {
@@ -167,15 +175,9 @@ func TestHookDeliveryInInbox(t *testing.T) {
 	if err := s.AddSubscription(ctx, "mayor", store.Subscription{Source: "linear", Scope: store.ScopeMentions}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.RecordHook(ctx, "linear", (&hooks.Envelope{Source: "linear", Type: "comment",
-		Text: "unrelated"}).Map(), []byte("{}")); err != nil {
-		t.Fatal(err)
-	}
-	seq, err := s.RecordHook(ctx, "linear", (&hooks.Envelope{Source: "linear", Type: "comment",
-		Mentions: []string{"mayor"}, Text: "can you look?"}).Map(), []byte("{}"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	record(t, own, hooks.Envelope{Source: "linear", Type: "comment", Text: "unrelated"})
+	seq := record(t, own, hooks.Envelope{Source: "linear", Type: "comment",
+		Mentions: []string{"mayor"}, Text: "can you look?"})
 	page, err := s.Inbox(ctx, "mayor", 0)
 	if err != nil || page.Total != 1 || page.Events[0].Seq != seq || page.Last != seq {
 		t.Fatalf("inbox: %+v %v", page, err)

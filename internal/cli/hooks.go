@@ -26,7 +26,8 @@ func (a *app) hookCmd() *cobra.Command {
 which runs only when YARDR_HOOK_ADDR (e.g. 127.0.0.1:8790) is set in the
 environment the server starts in. The listener serves POST /hooks/<name> and
 nothing else. Each verified delivery becomes one 'hook' event; its raw body is
-kept for 'yardr hook show <seq>'.
+kept for 'yardr hook show <seq>'. A redelivery (the same Linear body, or a
+repeated Linear-Delivery or Yard-Delivery id) is answered 200 and dropped.
 
 The secret stays in --secret-file and is read on every delivery, so rotating it
 is rewriting the file. Sources:

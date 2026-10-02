@@ -70,9 +70,9 @@ func TestInboxFilteringAndAck(t *testing.T) {
 	ctx := context.Background()
 	mayor(t, s)
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
-	_ = s.LogEvent(ctx, b.ID, "gave_up", "yard", nil)          // subscribed
-	_ = s.LogEvent(ctx, b.ID, "tick", "yard", nil)             // not subscribed
-	_ = s.LogEvent(ctx, b.ID, "session_blocked", "mayor", nil) // its own action
+	_ = s.LogDispatch(ctx, b.ID, "gave_up", "yard", nil)          // subscribed
+	_ = s.LogDispatch(ctx, b.ID, "unrouted", "yard", nil)         // not subscribed
+	_ = s.LogDispatch(ctx, b.ID, "session_blocked", "mayor", nil) // its own action
 	_ = s.Mail(ctx, "mayor", "deploy freeze until Friday", "chris")
 	if err := s.Mail(ctx, "nobody", "hi", "chris"); err == nil {
 		t.Fatal("mail to an unknown resident accepted")

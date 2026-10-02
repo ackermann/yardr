@@ -1,17 +1,20 @@
 package hooks_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -49,6 +52,7 @@ func sign(key string, body []byte) string {
 
 type rig struct {
 	st  store.API
+	own *store.Store // what the receiver records on: it runs in the owning process
 	rc  *hooks.Receiver
 	srv *httptest.Server
 	now time.Time
@@ -56,7 +60,7 @@ type rig struct {
 
 func newRig(t *testing.T) *rig {
 	t.Helper()
-	st := storetest.New(t)
+	st, own := storetest.NewOwned(t)
 	dir := t.TempDir()
 	for name, src := range map[string]string{"linear": "linear", "adhoc": "token"} {
 		f := filepath.Join(dir, name+".secret")
@@ -67,7 +71,7 @@ func newRig(t *testing.T) *rig {
 			t.Fatal(err)
 		}
 	}
-	r := &rig{st: st, rc: hooks.NewReceiver(st, nil)}
+	r := &rig{st: st, own: own, rc: hooks.NewReceiver(own, nil)}
 	r.rc.SetClock(func() time.Time { return r.now })
 	r.srv = httptest.NewServer(r.rc.Handler())
 	t.Cleanup(r.srv.Close)
@@ -181,33 +185,176 @@ func TestLinearDuplicateDelivery(t *testing.T) {
 	r := newRig(t)
 	body := fixture(t, "linear_comment_create.json")
 	r.now = sentAt(t, body)
-	for i, want := range []int{http.StatusOK, http.StatusOK, http.StatusOK} {
-		if code := r.linear(t, body, secret, "dup-1"); code != want {
-			t.Fatalf("delivery %d: %d, want %d", i, code, want)
+	for i := 0; i < 3; i++ {
+		if code := r.linear(t, body, secret, "dup-1"); code != http.StatusOK {
+			t.Fatalf("delivery %d: %d", i, code)
 		}
 	}
-	// A different delivery id of the same body is a different delivery.
+	// Linear signs a timestamp into every body, so the same body under
+	// another delivery id is the same delivery sent again.
 	if code := r.linear(t, body, secret, "dup-2"); code != http.StatusOK {
-		t.Fatalf("second delivery: %d", code)
+		t.Fatalf("redelivery: %d", code)
 	}
-	if n := len(r.hookEvents(t)); n != 2 {
-		t.Fatalf("want 2 hook events, got %d", n)
+	// So is the same delivery id with another body.
+	other := fixture(t, "linear_comment_bodydata.json")
+	r.now = sentAt(t, other)
+	if code := r.linear(t, other, secret, "dup-1"); code != http.StatusOK {
+		t.Fatalf("reused id: %d", code)
 	}
-	if got := r.rc.Rejected()["duplicate"]; got != 2 {
+	if n := len(r.hookEvents(t)); n != 1 {
+		t.Fatalf("want 1 hook event, got %d", n)
+	}
+	if got := r.rc.Rejected()["duplicate"]; got != 4 {
 		t.Fatalf("duplicate count %d", got)
 	}
-	// Remembering is bounded in time: past the TTL the id is forgotten
-	// (only reachable by a source whose window outlasts it).
-	r.now = r.now.Add(hooks.DedupeTTL + time.Second)
-	if code := r.post(t, "/hooks/adhoc", []byte("x"), map[string]string{"Authorization": "Bearer " + secret, "Yard-Delivery": "t"}); code != http.StatusOK {
-		t.Fatalf("token delivery: %d", code)
+	// What was recorded is in the store, not the receiver: a receiver
+	// started later (a server restart) still drops the redelivery.
+	r.rc = hooks.NewReceiver(r.own, nil)
+	r.rc.SetClock(func() time.Time { return r.now })
+	r.srv.Config.Handler = r.rc.Handler()
+	r.now = sentAt(t, body)
+	if code := r.linear(t, body, secret, "dup-3"); code != http.StatusOK {
+		t.Fatalf("after restart: %d", code)
 	}
-	if code := r.post(t, "/hooks/adhoc", []byte("x"), map[string]string{"Authorization": "Bearer " + secret, "Yard-Delivery": "t"}); code != http.StatusOK {
-		t.Fatalf("token duplicate: %d", code)
+	if n := len(r.hookEvents(t)); n != 1 || r.rc.Rejected()["duplicate"] != 1 {
+		t.Fatalf("after restart: %d events, %v", n, r.rc.Rejected())
 	}
-	r.now = r.now.Add(hooks.DedupeTTL + time.Second)
-	if code := r.post(t, "/hooks/adhoc", []byte("x"), map[string]string{"Authorization": "Bearer " + secret, "Yard-Delivery": "t"}); code != http.StatusOK {
-		t.Fatalf("token delivery after TTL: %d", code)
+}
+
+// Regression: two copies of one delivery arriving together must not both
+// pass the duplicate check before either is recorded.
+func TestConcurrentRedeliveryRecordsOnce(t *testing.T) {
+	r := newRig(t)
+	body := fixture(t, "linear_comment_create.json")
+	r.now = sentAt(t, body)
+	const copies = 8
+	codes := make(chan int, copies)
+	var wg sync.WaitGroup
+	for i := 0; i < copies; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// Linear gives each retry its own delivery id; only the body ties them.
+			req, _ := http.NewRequest(http.MethodPost, r.srv.URL+"/hooks/linear", bytes.NewReader(body))
+			req.Header.Set("Linear-Signature", sign(secret, body))
+			req.Header.Set("Linear-Delivery", fmt.Sprint("c-", i))
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				codes <- 0
+				return
+			}
+			resp.Body.Close()
+			codes <- resp.StatusCode
+		}()
+	}
+	wg.Wait()
+	close(codes)
+	for code := range codes {
+		if code != http.StatusOK {
+			t.Fatalf("delivery answered %d", code)
+		}
+	}
+	if n := len(r.hookEvents(t)); n != 1 {
+		t.Fatalf("want 1 hook event, got %d", n)
+	}
+	if got := r.rc.Rejected()["duplicate"]; got != copies-1 {
+		t.Fatalf("duplicate count %d, want %d", got, copies-1)
+	}
+}
+
+// A token sender may repeat a body on purpose; only a repeated
+// Yard-Delivery is a redelivery.
+func TestTokenDedupesOnDeliveryIDOnly(t *testing.T) {
+	r := newRig(t)
+	r.now = time.Now()
+	send := func(body, id string) {
+		t.Helper()
+		hdr := map[string]string{"Authorization": "Bearer " + secret}
+		if id != "" {
+			hdr["Yard-Delivery"] = id
+		}
+		if code := r.post(t, "/hooks/adhoc", []byte(body), hdr); code != http.StatusOK {
+			t.Fatalf("%q %q: %d", body, id, code)
+		}
+	}
+	send("backup ok", "")
+	send("backup ok", "") // same body again: recorded
+	send("deploy", "t-1")
+	send("deploy", "t-1")   // same id: dropped
+	send("rollback", "t-1") // same id, other body: dropped
+	send("deploy", "t-2")   // same body, new id: recorded
+	if n := len(r.hookEvents(t)); n != 4 {
+		t.Fatalf("want 4 hook events, got %d", n)
+	}
+}
+
+// An issue update re-sends the whole description; a resident it already
+// mentioned is not told again, one newly mentioned is.
+func TestIssueUpdateDeliversOnlyNewMentions(t *testing.T) {
+	r := newRig(t)
+	ctx := context.Background()
+	for name, id := range map[string]store.Identity{
+		"mayor": {ID: "4d3a2b1c-0000-4000-8000-00000000mayr", Key: "mayor"},
+		"jane":  {ID: "jane-id", Key: "jane.doe"},
+	} {
+		if _, err := r.st.PutResident(ctx, store.Resident{Name: name}, "me"); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.st.SetIdentity(ctx, name, "linear", id, "me"); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.st.AddSubscription(ctx, name, store.Subscription{Source: "linear", Scope: store.ScopeMentions}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	create := fixture(t, "linear_issue_create.json")
+	var p map[string]any
+	if err := json.Unmarshal(create, &p); err != nil {
+		t.Fatal(err)
+	}
+	// update is the issue changed at +n seconds, with desc as its description.
+	update := func(n int64, desc string) []byte {
+		p["action"] = "update"
+		p["updatedFrom"] = map[string]any{"stateId": "s-" + fmt.Sprint(n)}
+		p["webhookTimestamp"] = 1791014400100 + n*1000
+		data := p["data"].(map[string]any)
+		if desc != "" {
+			data["description"] = desc
+		}
+		b, _ := json.Marshal(p)
+		return b
+	}
+	desc := p["data"].(map[string]any)["description"].(string)
+	inbox := func(name string) int {
+		t.Helper()
+		page, err := r.st.Inbox(ctx, name, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return page.Total
+	}
+	for i, c := range []struct {
+		body        []byte
+		mayor, jane int
+	}{
+		{create, 1, 0},        // mentions @mayor
+		{update(1, ""), 1, 0}, // status change, still mentions @mayor
+		{update(2, desc+" cc https://linear.app/company/profiles/jane.doe"), 1, 1}, // adds @jane
+		{update(3, ""), 1, 1}, // both still mentioned
+	} {
+		r.now = sentAt(t, c.body)
+		if code := r.linear(t, c.body, secret, fmt.Sprint("i-", i)); code != http.StatusOK {
+			t.Fatalf("delivery %d: %d", i, code)
+		}
+		if m, j := inbox("mayor"), inbox("jane"); m != c.mayor || j != c.jane {
+			t.Fatalf("after delivery %d: mayor %d, jane %d; want %d, %d", i, m, j, c.mayor, c.jane)
+		}
+	}
+	// The event still carries everyone the description mentions.
+	evs := r.hookEvents(t)
+	last := evs[len(evs)-1].Data
+	if len(evs) != 4 || fmt.Sprint(last["mentions"]) != "[mayor jane.doe]" || fmt.Sprint(last["new_mentions"]) != "[]" {
+		t.Fatalf("last event: mentions %v, new %v (%d events)", last["mentions"], last["new_mentions"], len(evs))
 	}
 }
 
@@ -356,6 +503,7 @@ func TestLinearNormalize(t *testing.T) {
 			URL:      "https://linear.app/company/issue/ENG-42/webhook-receiver-drops-retries",
 			Fields: map[string][]string{"team": {"ENG", "Engineering"}, "project": {"Webhooks"},
 				"label": {"Bug"}},
+			Entity: "539068e2-ae88-4d09-bd75-22eb4a59612f",
 		}},
 		{"linear_issue_update.json", hooks.Envelope{
 			Source: "linear", Type: "issue", Action: "update",
@@ -366,6 +514,7 @@ func TestLinearNormalize(t *testing.T) {
 			Assignee: "aacdca22-6266-4c0a-ab3c-8fa70a26765c",
 			Text:     "changed assigneeId, stateId",
 			URL:      "https://linear.app/company/issue/ENG-42/webhook-receiver-drops-retries",
+			Entity:   "539068e2-ae88-4d09-bd75-22eb4a59612f",
 		}},
 	} {
 		got, err := hooks.Linear{}.Normalize(fixture(t, c.file))

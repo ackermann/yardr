@@ -320,8 +320,8 @@ func (c *Client) EventsSince(ctx context.Context, after uint64, limit int) ([]st
 func (c *Client) Head(ctx context.Context) (uint64, error) {
 	return callV[uint64](c, ctx, "Head")
 }
-func (c *Client) LogEvent(ctx context.Context, bead, kind, actor string, data map[string]any) error {
-	return c.call(ctx, "LogEvent", nil, bead, kind, actor, data)
+func (c *Client) LogDispatch(ctx context.Context, bead, kind, actor string, data map[string]any) error {
+	return c.call(ctx, "LogDispatch", nil, bead, kind, actor, data)
 }
 func (c *Client) Snapshot(ctx context.Context) (*store.Snapshot, error) {
 	return callV[*store.Snapshot](c, ctx, "Snapshot")
@@ -420,9 +420,6 @@ func (c *Client) GetHook(ctx context.Context, name string) (*store.Hook, error) 
 }
 func (c *Client) DeleteHook(ctx context.Context, name, actor string) error {
 	return c.call(ctx, "DeleteHook", nil, name, actor)
-}
-func (c *Client) RecordHook(ctx context.Context, name string, envelope map[string]any, payload []byte) (uint64, error) {
-	return callV[uint64](c, ctx, "RecordHook", name, envelope, payload)
 }
 func (c *Client) HookPayload(ctx context.Context, seq uint64) ([]byte, error) {
 	return callV[[]byte](c, ctx, "HookPayload", seq)

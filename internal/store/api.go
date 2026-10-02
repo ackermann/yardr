@@ -66,7 +66,7 @@ type API interface {
 	Events(ctx context.Context, bead string, limit int) ([]Event, error)
 	EventsSince(ctx context.Context, after uint64, limit int) ([]Event, error)
 	Head(ctx context.Context) (uint64, error)
-	LogEvent(ctx context.Context, bead, kind, actor string, data map[string]any) error
+	LogDispatch(ctx context.Context, bead, kind, actor string, data map[string]any) error
 	Snapshot(ctx context.Context) (*Snapshot, error)
 
 	PutResident(ctx context.Context, def Resident, actor string) (*Resident, error)
@@ -101,7 +101,6 @@ type API interface {
 	Hooks(ctx context.Context) ([]Hook, error)
 	GetHook(ctx context.Context, name string) (*Hook, error)
 	DeleteHook(ctx context.Context, name, actor string) error
-	RecordHook(ctx context.Context, name string, envelope map[string]any, payload []byte) (uint64, error)
 	HookPayload(ctx context.Context, seq uint64) ([]byte, error)
 
 	// Streams: closed when ctx ends or the connection to the owner drops.

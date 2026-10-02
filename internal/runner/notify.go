@@ -90,7 +90,7 @@ func (m *Manual) notify(ctx context.Context, sess string, h map[string]any) {
 		if err := m.Show(ctx, title, body); err != nil {
 			return err
 		}
-		return m.Store.LogEvent(ctx, bead, Notified, "yard", map[string]any{
+		return m.Store.LogDispatch(ctx, bead, Notified, "yard", map[string]any{
 			"stage": stage, "group": group, "session": sess})
 	}()
 	if err == nil || errors.Is(err, ErrNotifyOff) {

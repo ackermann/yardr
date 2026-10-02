@@ -7,6 +7,8 @@
 package hooks
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,6 +41,11 @@ type Envelope struct {
 	Text     string   `json:"text,omitempty"`
 	URL      string   `json:"url,omitempty"`
 	Delivery string   `json:"delivery,omitempty"`
+	// Entity is the id of what the delivery's text belongs to when that
+	// text persists across deliveries (an issue's description), so routing
+	// counts only the mentions the entity did not carry before. Empty when
+	// every delivery is new text (a comment, a message).
+	Entity string `json:"entity,omitempty"`
 	// Fields are what the source says about where the delivery belongs,
 	// for subscriptions to filter on (--where team=ENG): team, project,
 	// repo, label. A field may hold several values (labels, or a team's
@@ -79,6 +86,28 @@ type Adapter interface {
 	Verify(r *http.Request, body, secret []byte, now time.Time) (delivery string, err error)
 	// Normalize turns a verified body into an Envelope.
 	Normalize(body []byte) (*Envelope, error)
+	// UniqueBodies reports whether no two deliveries from the source share
+	// a body (Linear signs a timestamp into each), so a body seen before is
+	// a redelivery. A source whose senders may repeat a body on purpose
+	// (a cron job's "backup ok") dedupes on delivery ids alone.
+	UniqueBodies() bool
+}
+
+// DedupeKeys identify a verified delivery to hook name from src: the
+// sha256 of its body, under the source, when bodies are unique; and the
+// source's delivery id, under the hook, when it sent one (ids are chosen
+// per endpoint by token senders). The store drops a delivery any of whose
+// keys it has recorded.
+func DedupeKeys(name, src string, ad Adapter, body []byte, delivery string) []string {
+	var keys []string
+	if ad.UniqueBodies() {
+		sum := sha256.Sum256(body)
+		keys = append(keys, "body\x00"+src+"\x00"+hex.EncodeToString(sum[:]))
+	}
+	if delivery != "" {
+		keys = append(keys, "delivery\x00"+name+"\x00"+delivery)
+	}
+	return keys
 }
 
 // Adapters by source name.

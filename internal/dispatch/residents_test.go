@@ -116,7 +116,7 @@ func TestResidentKeptAliveAndInboxNudgedWhenIdle(t *testing.T) {
 	}
 	// Something new: nudged again.
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
-	must(t, s.LogEvent(ctx, b.ID, "gave_up", "yard", nil))
+	must(t, s.LogDispatch(ctx, b.ID, "gave_up", "yard", nil))
 	must(t, d.Reconcile(ctx))
 	if len(f.nudges) != 2 {
 		t.Fatalf("nudges = %v", f.nudges)

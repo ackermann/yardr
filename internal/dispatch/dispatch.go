@@ -285,7 +285,7 @@ func (d *Dispatcher) noteReplaced(ctx context.Context) {
 		to = d.Binary.Running
 	}
 	d.Log.Info("yardr daemon replaced", "from", from, "to", version.Show(to))
-	if err := d.Store.LogEvent(ctx, "", "daemon_replaced", actor,
+	if err := d.Store.LogDispatch(ctx, "", "daemon_replaced", actor,
 		map[string]any{"from": from, "to": version.Show(to)}); err != nil {
 		d.Log.Warn("daemon_replaced event", "err", err)
 	}
@@ -403,16 +403,16 @@ func (d *Dispatcher) alive(ctx context.Context, r Runner, s store.Session) (bool
 		if err := d.Store.SetHandle(ctx, s.ID, h); err != nil {
 			return true, err
 		}
-		_ = d.Store.LogEvent(ctx, s.Bead, "session_prompted", actor, map[string]any{"session": s.ID})
+		_ = d.Store.LogDispatch(ctx, s.Bead, "session_prompted", actor, map[string]any{"session": s.ID})
 	}
 	if prev := d.status[s.ID]; status != prev {
 		d.status[s.ID] = status
 		if status == "blocked" {
 			d.Log.Warn("session blocked; needs a human", "session", s.ID, "bead", s.Bead)
-			_ = d.Store.LogEvent(ctx, s.Bead, "session_blocked", actor, map[string]any{
+			_ = d.Store.LogDispatch(ctx, s.Bead, "session_blocked", actor, map[string]any{
 				"session": s.ID, "handle": s.Handle})
 		} else if prev == "blocked" {
-			_ = d.Store.LogEvent(ctx, s.Bead, "session_unblocked", actor, map[string]any{"session": s.ID})
+			_ = d.Store.LogDispatch(ctx, s.Bead, "session_unblocked", actor, map[string]any{"session": s.ID})
 		}
 	}
 	return true, nil
@@ -462,10 +462,10 @@ func (d *Dispatcher) cleanup(ctx context.Context, groups map[string]store.Group)
 				// another stage's session already handled it
 			} else if err != nil {
 				d.Log.Warn("workspace kept", "bead", s.Bead, "session", s.ID, "err", err)
-				_ = d.Store.LogEvent(ctx, s.Bead, "workspace_kept", actor, map[string]any{
+				_ = d.Store.LogDispatch(ctx, s.Bead, "workspace_kept", actor, map[string]any{
 					"session": s.ID, "worktree": s.Handle["worktree"], "reason": err.Error()})
 			} else {
-				_ = d.Store.LogEvent(ctx, s.Bead, "workspace_removed", actor, map[string]any{
+				_ = d.Store.LogDispatch(ctx, s.Bead, "workspace_removed", actor, map[string]any{
 					"session": s.ID, "worktree": s.Handle["worktree"]})
 			}
 		}
@@ -518,7 +518,7 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 			if _, err := d.Store.SetHold(ctx, b.ID, true, actor); err != nil {
 				return err
 			}
-			_ = d.Store.LogEvent(ctx, b.ID, "gave_up", actor, map[string]any{
+			_ = d.Store.LogDispatch(ctx, b.ID, "gave_up", actor, map[string]any{
 				"stage": b.Stage, "failures": fails, "hint": "fix the cause, then `yardr bead unhold`"})
 			continue
 		}
@@ -605,7 +605,7 @@ func (d *Dispatcher) reportOnce(ctx context.Context, b store.Bead, kind, reason 
 	}
 	d.reported[b.ID] = key
 	d.Log.Warn(kind, "bead", b.ID, "reason", reason)
-	_ = d.Store.LogEvent(ctx, b.ID, kind, actor, map[string]any{"stage": b.Stage, "reason": reason})
+	_ = d.Store.LogDispatch(ctx, b.ID, kind, actor, map[string]any{"stage": b.Stage, "reason": reason})
 }
 
 // SortRoutes orders routes so the first match wins; see store.SortRoutes.

@@ -15,17 +15,12 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// Remembering delivery ids: longer than any timestamp window, so a replay
-// is either stale or remembered; bounded so a flood cannot grow it.
-const (
-	DedupeTTL  = 10 * time.Minute
-	DedupeKeep = 100_000
-)
-
-// Store is what the receiver needs of the yard.
+// Store is what the receiver needs of the yard: the store itself, in the
+// process that owns it. RecordHook is not on the socket, so only the
+// receiver records deliveries.
 type Store interface {
 	GetHook(ctx context.Context, name string) (*store.Hook, error)
-	RecordHook(ctx context.Context, name string, envelope map[string]any, payload []byte) (uint64, error)
+	RecordHook(ctx context.Context, name string, envelope map[string]any, payload []byte, dedupe []string) (seq uint64, duplicate bool, err error)
 }
 
 // Receiver serves POST /hooks/<name> and nothing else. It is meant for its
@@ -36,21 +31,14 @@ type Receiver struct {
 	now func() time.Time
 
 	mu       sync.Mutex
-	seen     map[string]time.Time
-	order    []seenID // insertion order, for expiry and the bound
 	rejected map[string]int
-}
-
-type seenID struct {
-	key string
-	at  time.Time
 }
 
 func NewReceiver(st Store, log *slog.Logger) *Receiver {
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	return &Receiver{st: st, log: log, now: time.Now, seen: map[string]time.Time{}, rejected: map[string]int{}}
+	return &Receiver{st: st, log: log, now: time.Now, rejected: map[string]int{}}
 }
 
 // SetClock replaces the clock (tests).
@@ -116,25 +104,24 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 		rc.reject(w, name, reason, code, err)
 		return
 	}
-	// Dedupe after Verify, so only the source can claim a delivery id.
-	key := name + "\x00" + delivery
-	if delivery != "" && !rc.remember(key) {
-		rc.count("duplicate")
-		rc.log.Info("hook delivery dropped as duplicate", "hook", name, "delivery", delivery)
-		writeJSON(w, http.StatusOK, map[string]any{"duplicate": true})
-		return
-	}
 	env, err := ad.Normalize(body)
 	if err != nil {
-		rc.forget(key)
 		rc.reject(w, name, "bad_request", http.StatusBadRequest, err)
 		return
 	}
 	env.Delivery = delivery
-	seq, err := rc.st.RecordHook(r.Context(), name, env.Map(), body)
+	// Dedupe after Verify, so only the source can claim a body or a
+	// delivery id; the store checks and records the keys in the write that
+	// records the delivery, so a concurrent redelivery cannot slip through.
+	seq, dup, err := rc.st.RecordHook(r.Context(), name, env.Map(), body, DedupeKeys(name, h.Source, ad, body, delivery))
 	if err != nil {
-		rc.forget(key) // not recorded, so a retry must get through
 		rc.reject(w, name, "store", http.StatusInternalServerError, err)
+		return
+	}
+	if dup {
+		rc.count("duplicate")
+		rc.log.Info("hook delivery dropped as duplicate", "hook", name, "delivery", delivery, "seq", seq)
+		writeJSON(w, http.StatusOK, map[string]any{"duplicate": true, "seq": seq})
 		return
 	}
 	// Linear treats any non-200 response as a failed delivery and retries it.
@@ -151,32 +138,6 @@ func (rc *Receiver) reject(w http.ResponseWriter, name, reason string, code int,
 func (rc *Receiver) count(reason string) {
 	rc.mu.Lock()
 	rc.rejected[reason]++
-	rc.mu.Unlock()
-}
-
-// remember records key and reports whether it was new.
-func (rc *Receiver) remember(key string) bool {
-	rc.mu.Lock()
-	defer rc.mu.Unlock()
-	t := rc.now()
-	for len(rc.order) > 0 && (len(rc.order) >= DedupeKeep || t.Sub(rc.order[0].at) > DedupeTTL) {
-		old := rc.order[0]
-		rc.order = rc.order[1:]
-		if rc.seen[old.key] == old.at {
-			delete(rc.seen, old.key)
-		}
-	}
-	if _, dup := rc.seen[key]; dup {
-		return false
-	}
-	rc.seen[key] = t
-	rc.order = append(rc.order, seenID{key, t})
-	return true
-}
-
-func (rc *Receiver) forget(key string) {
-	rc.mu.Lock()
-	delete(rc.seen, key)
 	rc.mu.Unlock()
 }
 

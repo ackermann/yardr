@@ -52,6 +52,10 @@ func (Linear) Verify(r *http.Request, body, secret []byte, now time.Time) (strin
 	return r.Header.Get("Linear-Delivery"), nil
 }
 
+// UniqueBodies is true: every body carries the webhookTimestamp it was
+// signed with, so two events never share one and a repeat is a replay.
+func (Linear) UniqueBodies() bool { return true }
+
 // linearPayload is the part of a Linear data-change webhook we read.
 type linearPayload struct {
 	Action      string          `json:"action"`
@@ -139,6 +143,9 @@ func (Linear) Normalize(body []byte) (*Envelope, error) {
 			e.Text = truncate(d.Description)
 		}
 		e.Mentions = linearMentions(d.Description, nil)
+		// The description outlives this delivery: an update re-sends it
+		// whole, so mentions are counted against the last one seen.
+		e.Entity = d.ID
 	default:
 		// Other entities pass through with what every payload has, so a
 		// subscription on them needs no adapter change.

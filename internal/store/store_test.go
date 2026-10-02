@@ -556,7 +556,7 @@ func TestSlowSubscriberIsDroppedNotBlocking(t *testing.T) {
 	ch, _ := s.Subscribe(ctx, 0) // never read
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
 	for i := 0; i < 5000; i++ { // more than the subscriber buffer
-		if err := s.LogEvent(ctx, b.ID, "tick", "me", nil); err != nil {
+		if err := s.LogDispatch(ctx, b.ID, "session_prompted", "me", nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -588,7 +588,7 @@ func TestSubscribeOrderUnderConcurrentWriters(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = s.LogEvent(ctx, b.ID, "tick", "me", nil)
+			_ = s.LogDispatch(ctx, b.ID, "session_prompted", "me", nil)
 		}()
 	}
 	wg.Wait()

@@ -103,7 +103,7 @@ func (d *Dispatcher) residentRunning(ctx context.Context, runner Runner, r store
 			if d.status["resident:"+r.Name] != "waiting" {
 				d.status["resident:"+r.Name] = "waiting"
 				d.Log.Warn("resident waiting for a human before it can start", "resident", r.Name)
-				_ = d.Store.LogEvent(ctx, r.Journal, "resident_blocked", actor, map[string]any{
+				_ = d.Store.LogDispatch(ctx, r.Journal, "resident_blocked", actor, map[string]any{
 					"resident": r.Name, "reason": "not ready at startup; answer it in its pane"})
 			}
 			return nil

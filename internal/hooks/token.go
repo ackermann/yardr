@@ -26,6 +26,10 @@ func (Token) Verify(r *http.Request, body, secret []byte, now time.Time) (string
 	return r.Header.Get("Yard-Delivery"), nil
 }
 
+// UniqueBodies is false: a token sender may send the same body again on
+// purpose, and only a repeated Yard-Delivery marks a redelivery.
+func (Token) UniqueBodies() bool { return false }
+
 func (Token) Normalize(body []byte) (*Envelope, error) {
 	e := &Envelope{Source: "token", Type: "message", Mentions: []string{}}
 	var p struct {

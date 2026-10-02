@@ -286,6 +286,9 @@ func hookDeliveries(tx *bolt.Tx, data map[string]any) (map[string]any, error) {
 	actorID, _ := actor["id"].(string)
 	assignee, _ := data["assignee"].(string)
 	mentions := strs(data["mentions"])
+	if fresh, ok := data["new_mentions"]; ok {
+		mentions = strs(fresh) // see freshMentions
+	}
 	thread, _ := data["thread"].(map[string]any)
 	threadID, _ := thread["id"].(string)
 	out := map[string]any{}

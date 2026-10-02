@@ -129,6 +129,36 @@ Where keys: `type`, `action` (the envelope), and `team`, `project`, `repo`,
 acts in a thread (a Linear issue), it participates there, and `involved` also
 delivers what others do in it.
 
+An issue's description is re-sent whole with every update, so a mention there
+counts once: yardr keeps who each issue's description mentioned and treats
+only newly added names as mentions. A status or label change on an issue that
+still mentions `@mayor` does not reach `mayor` as `mentioned` again (it can
+still reach it as `assigned`, `participant` or `all`). The event keeps the
+full list in `mentions`; `new_mentions` is what routing used. Comments are new
+text each time, so every mention in one counts.
+
+### Redeliveries
+
+A delivery is recorded at most once, also across server restarts and when
+copies arrive at the same time: the store checks and records its keys in the
+write that records the delivery. The keys, checked only after the delivery is
+verified:
+
+- **Linear:** the sha256 of the raw body. Every body carries the
+  `webhookTimestamp` it was signed with, so a body seen before is the same
+  delivery again, whatever its `Linear-Delivery` header says. A repeated
+  `Linear-Delivery` id is dropped as well.
+- **token:** the `Yard-Delivery` header, per hook, when the sender sets one.
+  The body is not a key: a cron job may send `backup ok` every hour.
+
+A duplicate is answered 200 with `{"duplicate": true, "seq": <first>}`, so the
+sender stops retrying, and leaves no event.
+
+Only the server's webhook listener records deliveries. The store socket has no
+method to record one, nor to log an event of an arbitrary kind: clients log
+dispatch decisions (`gave_up`, `session_blocked`, …) through a method that
+accepts those kinds only.
+
 ## Planned
 
 - `outcome` as a where key, once beads carry outcomes (*planned, yard-qexg*).

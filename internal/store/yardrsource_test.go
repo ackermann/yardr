@@ -282,7 +282,7 @@ func TestOnMatchesKindSubscription(t *testing.T) {
 		t.Fatal(err)
 	}
 	subscribe(t, s, "subbed", yardrSub(store.ScopeAll, "kind=gave_up"))
-	if err := s.LogEvent(ctx, b.ID, "gave_up", "yard", map[string]any{"stage": "new"}); err != nil {
+	if err := s.LogDispatch(ctx, b.ID, "gave_up", "yard", map[string]any{"stage": "new"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AddNote(ctx, b.ID, "noise", "jane"); err != nil {

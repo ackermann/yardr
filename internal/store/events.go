@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
+	"slices"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
@@ -104,10 +106,31 @@ func (s *Store) Head(ctx context.Context) (uint64, error) {
 	return head, err
 }
 
-// LogEvent records an event that has no accompanying state change, such as
-// a dispatcher decision.
+// LogEvent records an event that has no accompanying state change, of any
+// kind. It is not on the API, so only the process that owns the store can
+// write arbitrary kinds (a `hook` among them); clients use LogDispatch.
 func (s *Store) LogEvent(ctx context.Context, bead, kind, actor string, data map[string]any) error {
 	return s.write(func(w *wtx) error { return w.event(bead, kind, actor, data) })
+}
+
+// DispatchKinds are the events LogDispatch accepts: what the daemon and its
+// runners report about the work they supervise, none of which changes state.
+var DispatchKinds = []string{
+	"daemon_replaced",
+	"session_prompted", "session_blocked", "session_unblocked",
+	"workspace_kept", "workspace_removed",
+	"gave_up", "unrouted", "no_runner", "bad_rig", "bad_flow",
+	"resident_blocked", "human_notified",
+}
+
+// LogDispatch records a dispatcher or runner decision. It accepts only
+// DispatchKinds, so a client on the socket cannot pass off an event of
+// another kind (a webhook delivery, a state change) as the yard's own.
+func (s *Store) LogDispatch(ctx context.Context, bead, kind, actor string, data map[string]any) error {
+	if !slices.Contains(DispatchKinds, kind) {
+		return fmt.Errorf("event kind %q is not a dispatch event", kind)
+	}
+	return s.LogEvent(ctx, bead, kind, actor, data)
 }
 
 // Subscribe streams every event with Seq > after, in order, with no gaps or
