@@ -191,6 +191,11 @@ follows the rig's flow. `yardr flow show <rig>` lists the rig's flow first,
 then one per type, and warns about non-terminal stages no route sends
 anywhere: beads there wait for a human.
 
+Type `epic` will get its own flow, for integrating an epic's branch and
+landing it on main (yard-3fy2). Its children follow the rig's flow like any
+bead; what an epic changes for them is only their base, see
+[pipeline.md](pipeline.md#epics).
+
 ## Terminal stages
 
 A line `<stage> terminal` marks a stage that ends the bead: advancing into it

@@ -440,6 +440,12 @@ func TestOnMatchesKindSubscription(t *testing.T) {
 
 func TestYardrEpicAndGroupKeys(t *testing.T) {
 	s, ctx, epic := yardrRig(t, "epic", "builders")
+	// Only an epic can be a parent.
+	typ := store.TypeEpic
+	epic, err := s.UpdateBead(ctx, epic.ID, store.BeadPatch{Type: &typ}, store.Expect{}, "jane")
+	if err != nil {
+		t.Fatal(err)
+	}
 	child, err := s.CreateBead(ctx, store.NewBead{Title: "child", Rig: "yard"}, "jane")
 	if err != nil {
 		t.Fatal(err)

@@ -26,7 +26,9 @@ import (
 // Besides Env, the command gets what a script needs to land or test a bead's
 // work without hard-coding the rig (see contrib/refinery/merge-local):
 //
-//	YARDR_RIG, YARDR_RIG_PATH, YARDR_BASE   the bead's rig, when it has one
+//	YARDR_RIG, YARDR_RIG_PATH   the bead's rig, when it has one
+//	YARDR_BASE      what the bead lands on: its epic's branch for a child of
+//	                an epic, else the rig's base (see BaseOf)
 //	YARDR_BRANCH    the bead's branch, yard/<bead>
 //	YARDR_WORKTREE  where the herdr runner keeps that branch checked out
 //	                (<worktrees>/<rig>/<bead>; config.worktrees as for herdr)
@@ -98,7 +100,7 @@ func (e *Exec) env(job dispatch.Job) []string {
 	env = append(env, config.Env("BRANCH", Branch(job.Bead))...)
 	if rig := job.Rig; rig != nil {
 		env = slices.Concat(env, config.Env("RIG", rig.Name), config.Env("RIG_PATH", rig.Path),
-			config.Env("BASE", rig.Base))
+			config.Env("BASE", BaseOf(job)))
 		root := str(job.Group.Config, "worktrees", "")
 		if root == "" && e.Home != "" {
 			root = filepath.Join(e.Home, "worktrees")

@@ -273,6 +273,46 @@ created straight into `decide`; their type flow has one move, to the terminal
 stage `decided`, which closes the bead. yard-17, which settled the
 repo/store split in [configuration.md](configuration.md), is one.
 
+## Epics
+
+An epic is work that spans several beads and must land on main as one
+unit. It is a bead of type `epic`; its children are the beads with a
+`parent` edge from it:
+
+```sh
+yardr bead create "Epics" -t epic -r yard
+yardr dep add <epic> <child> -k parent
+```
+
+- **Branch(b)** is `yard/<id>` for every bead; the epic's branch is
+  Branch(epic).
+- **BaseOf(b)** is Branch(parent epic) for a child of an epic, and the rig's
+  base for everything else, the epic itself included. `yardr bead show`
+  prints it as `base` (and `epic`, and an epic's `children`; the same
+  fields are in `--json`).
+
+A child goes through the same flow, groups and gate as any bead; only its
+base differs. When a child is first started and the epic's branch does not
+exist yet, the herdr runner creates it from the rig's base tip (fetched
+first when the base is a remote's) and logs `epic_branched` on the epic
+with the commit. An existing epic branch is never recreated or moved. The
+child's worktree is branched from the epic's branch, and `YARDR_BASE` in
+the agent's and the refinery's environment is BaseOf(b), so merge-local
+rebases the child onto the epic's branch, lands it there and pushes that
+branch; main does not move. The gate is still read from the rig's base
+(main), not from the epic's branch, so neither an epic nor its children can
+change the bar they land under; it runs on the child's branch as before.
+
+`dep add -k parent` refuses a parent that is not an epic, a child already
+in another epic, an epic as a child (epics do not nest) and a child in
+another rig. Only parent edges from an epic count: a bead whose parent is
+not an epic keeps the rig's base. A bead that is a child of two epics
+anyway (a type changed to `epic` later) is not dispatched; yardr logs
+`bad_epic` until one parent edge is removed.
+
+Integrating the epic branch, reviewing the epic as a whole and landing it
+on main is the epic's own flow (yard-3fy2).
+
 ## Planned changes to this pipeline
 
 - The rig's flow names outcomes (`new -> review on done | decide on

@@ -48,6 +48,9 @@ type Herdr struct {
 	FetchTimeout time.Duration
 	// OnError reports event-stream failures (herdr down, reconnecting).
 	OnError func(error)
+	// Store, if set, records epic_branched when Start creates an epic's
+	// branch.
+	Store store.API
 }
 
 type herdrResult struct {
@@ -107,13 +110,20 @@ func (h *Herdr) run(ctx context.Context, args ...string) (json.RawMessage, error
 
 var nameUnsafe = regexp.MustCompile(`[^a-z0-9_-]+`)
 
+// Branch is the git branch a bead is worked on (see store.Branch).
+func Branch(b store.Bead) string { return store.Branch(b.ID) }
+
+// BaseOf is what the job's bead branches from and lands on: its epic's
+// branch for a child of an epic, else the rig's base.
+func BaseOf(job dispatch.Job) string {
+	if job.Base != "" || job.Rig == nil {
+		return job.Base
+	}
+	return job.Rig.Base
+}
+
 // AgentName derives a herdr agent name ([a-z][a-z0-9_-]{0,31}) from the bead
 // and stage, so `herdr agent list` reads like the yard.
-// Branch is the git branch a bead is worked on. It is built from the
-// handle, which never changes (a migrated bead keeps its old id as handle),
-// so a bead's branch and worktree stay valid for its whole life.
-func Branch(b store.Bead) string { return "yard/" + b.ID }
-
 func AgentName(bead, stage string) string {
 	n := nameUnsafe.ReplaceAllString(strings.ToLower(bead+"-"+stage), "-")
 	n = strings.Trim(n, "-")
@@ -154,11 +164,16 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	label := WorkspaceLabel(rig.Name, job.Group.Name, job.Bead.ID)
 
 	h.fetchBase(ctx, rig)
+	if job.Epic != "" {
+		if err := h.epicBranch(ctx, job); err != nil {
+			return nil, err
+		}
+	}
 
 	// First stage creates the worktree; later stages reopen it.
 	root := str(job.Group.Config, "worktrees", h.WorktreeRoot)
 	createArgs := []string{"worktree", "create", "--cwd", rig.Path, "--branch", branch,
-		"--base", rig.Base, "--label", label}
+		"--base", BaseOf(job), "--label", label}
 	if root != "" {
 		createArgs = append(createArgs, "--path", filepath.Join(root, rig.Name, job.Bead.ID))
 	}
@@ -273,11 +288,42 @@ func (h *Herdr) fetchBase(ctx context.Context, rig *store.Rig) {
 	_ = cmd.Run()
 }
 
+// epicBranch makes sure the branch of the job's epic exists before a child
+// branches from it: when it does not yet, it is created from the rig's base
+// tip (just fetched, when the base is a remote's) and epic_branched is
+// logged on the epic. An existing epic branch is never recreated or moved:
+// it holds the children that already landed.
+func (h *Herdr) epicBranch(ctx context.Context, job dispatch.Job) error {
+	rig, epic := job.Rig, store.Branch(job.Epic)
+	if _, err := gitOut(ctx, rig.Path, "rev-parse", "--verify", "-q", "refs/heads/"+epic); err == nil {
+		return nil
+	}
+	// --no-track: the epic branch lands on the base later as a unit; it is
+	// not a local copy of the base. Without -f git refuses to replace a
+	// branch made meanwhile.
+	if err := git(ctx, rig.Path, "branch", "--no-track", epic, rig.Base); err != nil {
+		return fmt.Errorf("epic branch %s from %s: %w", epic, rig.Base, err)
+	}
+	commit, err := gitOut(ctx, rig.Path, "rev-parse", "refs/heads/"+epic)
+	if err != nil {
+		return err
+	}
+	if h.Store != nil {
+		// Best effort: the branch is made; the event only reports it.
+		_ = h.Store.LogDispatch(ctx, job.Epic, "epic_branched", "yard", map[string]any{
+			"branch": epic, "from": rig.Base, "commit": commit, "child": job.Bead.ID})
+	}
+	return nil
+}
+
 // agentEnv is the environment of a bead agent's tab: what every started
 // process gets (see Env), with the agent as actor, plus this yard's home and
 // binary so its yardr commands reach this yard.
 func (h *Herdr) agentEnv(job dispatch.Job, name string) []string {
 	env := Env(job, name)
+	if base := BaseOf(job); base != "" {
+		env = append(env, config.Env("BASE", base)...)
+	}
 	if h.YardHome != "" {
 		env = append(env, config.Env("HOME", h.YardHome)...)
 	}

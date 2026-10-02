@@ -23,6 +23,10 @@ type Job struct {
 	Group   store.Group
 	Rig     *store.Rig // nil when the bead has no rig
 	Session store.Session
+	// Epic is the epic the bead is a child of ("" for none), and Base what
+	// its branch starts from and lands on: the epic's branch for a child,
+	// else the rig's base (see store.Family).
+	Epic, Base string
 	// Next lists where the bead may go from its stage when a flow governs
 	// it; nil without a flow, where any stage is allowed.
 	Next []NextStage
@@ -634,6 +638,14 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 			continue
 		}
 
+		// A child of two epics (possible only when a type changed to epic
+		// later) has no base until a parent edge goes.
+		fam, err := d.Store.Family(ctx, b.ID)
+		if err != nil {
+			d.reportOnce(ctx, b, "bad_epic", err.Error())
+			continue
+		}
+
 		sess, err := d.Store.Claim(ctx, b.ID, g.Name, b.Stage, actor)
 		if errors.Is(err, store.ErrTaken) || errors.Is(err, store.ErrAtLimit) {
 			// ErrAtLimit: another dispatcher, or a session this pass could
@@ -646,7 +658,8 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		active[g.Name]++
 		d.Log.Info("dispatching", "bead", b.ID, "stage", b.Stage, "group", g.Name, "session", sess.ID)
 
-		handle, err := runner.Start(ctx, Job{Bead: b, Group: g, Rig: rig, Session: *sess, Next: next, Outcomes: outcomes})
+		handle, err := runner.Start(ctx, Job{Bead: b, Group: g, Rig: rig, Session: *sess, Epic: fam.Epic, Base: fam.Base,
+			Next: next, Outcomes: outcomes})
 		if IsRuntime(err) {
 			// Not the bead's fault: abort the session (no failure), leave
 			// the bead for the next try and stop trying the group a while.

@@ -26,6 +26,7 @@ type API interface {
 	RemoveDep(ctx context.Context, from, to, kind, actor string) error
 	Deps(ctx context.Context, id string) ([]Dep, error)
 	OpenBlockers(ctx context.Context, id string) ([]string, error)
+	Family(ctx context.Context, id string) (*Family, error)
 	AddNote(ctx context.Context, id, text, actor string) error
 	Notes(ctx context.Context, id string) ([]Note, error)
 

@@ -28,13 +28,14 @@ func beadRows(bs []store.Bead) [][]string {
 
 const beadHeader = "ID\tPRI\tTYPE\tSTAGE\tSTATUS\tGROUP\tRIG\tTITLE"
 
-func (a *app) printBead(b *store.Bead) error { return a.printBeadFlow(b, nil, nil) }
+func (a *app) printBead(b *store.Bead) error { return a.printBeadFlow(b, nil, nil, nil) }
 
 // printBeadFlow is printBead naming the flow that governs the bead and
 // where it comes from, when next is given.
 // printBeadFlow prints b with the flow governing it; flowErr, when the
 // flow does not resolve, is shown in its place rather than hide the bead.
-func (a *app) printBeadFlow(b *store.Bead, next *store.NextStages, flowErr error) error {
+// fam, when given, adds where the bead stands among epics.
+func (a *app) printBeadFlow(b *store.Bead, next *store.NextStages, flowErr error, fam *store.Family) error {
 	return a.out(b, func() {
 		fmt.Printf("%s  %s\n", b.ID, b.Title)
 		fmt.Printf("  type %s · stage %s · %s · P%d", b.Type, b.Stage, b.Status, b.Priority)
@@ -50,6 +51,9 @@ func (a *app) printBeadFlow(b *store.Bead, next *store.NextStages, flowErr error
 		} else if next != nil && next.Flow != nil {
 			fmt.Printf("  flow %s (%s)\n", next.Flow.Name, next.Source)
 		}
+		if fam != nil {
+			printFamily(fam)
+		}
 		if b.Group != nil {
 			fmt.Printf("  owned by %s (session %s)\n", *b.Group, deref(b.Session))
 		}
@@ -63,6 +67,20 @@ func (a *app) printBeadFlow(b *store.Bead, next *store.NextStages, flowErr error
 			fmt.Printf("\n%s\n", b.Body)
 		}
 	})
+}
+
+// printFamily adds where a bead stands among epics to bead show's text:
+// what it lands on, its epic, and an epic's children.
+func printFamily(f *store.Family) {
+	if f.Base != "" {
+		fmt.Printf("  base %s\n", f.Base)
+	}
+	if f.Epic != "" {
+		fmt.Printf("  child of epic %s\n", f.Epic)
+	}
+	if len(f.Children) > 0 {
+		fmt.Printf("  children %s\n", strings.Join(f.Children, ", "))
+	}
 }
 
 func (a *app) beadCmd() *cobra.Command {
@@ -129,11 +147,21 @@ func (a *app) beadCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// A bead whose epic is ambiguous is still shown, with why.
+			fam, err := st.Family(c.Context(), b.ID)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+			}
 			if a.json {
-				return a.printBead(b)
+				// The bead's own fields stay at the top level, so readers of
+				// bead show --json (its revision) are unaffected.
+				return a.out(struct {
+					*store.Bead
+					*store.Family
+				}{b, fam}, nil)
 			}
 			next, err := st.NextStages(c.Context(), b.ID)
-			return a.printBeadFlow(b, next, err)
+			return a.printBeadFlow(b, next, err, fam)
 		},
 	}
 
@@ -502,13 +530,18 @@ func (a *app) primeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			fam, err := st.Family(c.Context(), id)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+			}
 			next, flowErr := st.NextStages(c.Context(), id)
-			v := map[string]any{"bead": b, "notes": notes, "deps": deps, "open_blockers": blockers, "next": next}
+			v := map[string]any{"bead": b, "notes": notes, "deps": deps, "open_blockers": blockers, "next": next,
+				"family": fam}
 			if flowErr != nil {
 				v["flow_error"] = flowErr.Error()
 			}
 			return a.out(v, func() {
-				_ = a.printBeadFlow(b, next, flowErr)
+				_ = a.printBeadFlow(b, next, flowErr, fam)
 				if flowErr != nil {
 					fmt.Println("\nOUTCOMES: none until the flow is fixed; every move is refused")
 				} else if len(next.Outcomes) > 0 {

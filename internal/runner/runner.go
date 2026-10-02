@@ -29,7 +29,7 @@ func All(home string, st store.API, log *slog.Logger, onError func(error)) map[s
 		"manual": &Manual{Store: st, Show: HerdrNotifier("herdr"), Log: log},
 		"exec":   &Exec{Home: home, Bin: self()},
 		"herdr": &Herdr{Bin: "herdr", WorktreeRoot: filepath.Join(home, "worktrees"), YardHome: home,
-			YardBin: self(), OnError: onError},
+			YardBin: self(), OnError: onError, Store: st},
 	}
 }
 
@@ -93,6 +93,10 @@ func Brief(job dispatch.Job, actor, workdir string) (string, error) {
 		actor, bead.ID, bead.Type, bead.Stage, job.Group.Name)
 	if workdir != "" {
 		fmt.Fprintf(&b, "Work in `%s` (branch `%s`). Commit and push your work there.\n\n", workdir, Branch(bead))
+	}
+	if job.Epic != "" {
+		fmt.Fprintf(&b, "This bead is a child of epic %s: your branch starts from `%s` and your work lands on that branch, not on the rig's base.\n\n",
+			job.Epic, BaseOf(job))
 	}
 	fmt.Fprintf(&b, "## %s\n\n%s\n\n", bead.Title, strings.TrimSpace(bead.Body))
 	advance := "- When your part is done, hand the bead to the next stage: `yardr bead advance " + bead.ID + " --to <stage>`\n"

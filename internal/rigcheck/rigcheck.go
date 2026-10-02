@@ -12,6 +12,10 @@
 // worktree of the rig, so a bead could `git update-ref` the local base to a
 // commit of its own choosing. A rig without a remote reads the local base.
 //
+// A child of an epic lands on the epic's branch, not the base, but its gate
+// is still the base's: read from the base exactly as above, and run on the
+// child's branch. So an epic cannot change the bar its children land under.
+//
 // A rig with no gate at all fails ("no gate") unless it opts out with
 // allow_no_check: a missing file must not read as a passing one.
 package rigcheck

@@ -29,7 +29,8 @@ type depRow struct {
 }
 
 // AddDep relates from -> to. For kind 'blocks', `to` is not ready until
-// `from` closes. The edge gets its own revision, and both beads, whose
+// `from` closes. Kind 'parent' makes `to` a child of epic `from` (see
+// checkParent). The edge gets its own revision, and both beads, whose
 // representations list or count it, are re-minted.
 func (s *Store) AddDep(ctx context.Context, fromRef, toRef, kind, actor string) error {
 	return s.write(func(w *wtx) error {
@@ -44,6 +45,11 @@ func (s *Store) AddDep(ctx context.Context, fromRef, toRef, kind, actor string) 
 		from, to := fromRow.UUID, toRow.UUID
 		if from == to {
 			return fmt.Errorf("a bead cannot depend on itself")
+		}
+		if kind == DepParent {
+			if err := checkParent(w.Tx, fromRow, toRow); err != nil {
+				return err
+			}
 		}
 		for _, k := range keys(w.Tx, bDepFrom, from+"\x00") {
 			var d depRow

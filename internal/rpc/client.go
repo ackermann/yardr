@@ -215,6 +215,10 @@ func (c *Client) Deps(ctx context.Context, id string) ([]store.Dep, error) {
 func (c *Client) OpenBlockers(ctx context.Context, id string) ([]string, error) {
 	return callV[[]string](c, ctx, "OpenBlockers", id)
 }
+
+func (c *Client) Family(ctx context.Context, id string) (*store.Family, error) {
+	return callV[*store.Family](c, ctx, "Family", id)
+}
 func (c *Client) AddNote(ctx context.Context, id, text, actor string) error {
 	return c.call(ctx, "AddNote", nil, id, text, actor)
 }

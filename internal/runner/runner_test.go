@@ -233,6 +233,14 @@ func TestExecEnvWorktreesConfig(t *testing.T) {
 	if env := e.env(job); !slices.Contains(env, "YARDR_WORKTREE=/wt/web/yd-7") {
 		t.Fatalf("config.worktrees ignored: %v", env)
 	}
+	// A child of an epic lands on the epic's branch, not the rig's base.
+	if env := e.env(job); !slices.Contains(env, "YARDR_BASE=main") {
+		t.Fatalf("no epic: %v", env)
+	}
+	job.Epic, job.Base = "yd-e", "yard/yd-e"
+	if env := e.env(job); !slices.Contains(env, "YARDR_BASE=yard/yd-e") {
+		t.Fatalf("child of an epic: %v", env)
+	}
 	// Without a rig there is no worktree, but the branch is still known.
 	job.Rig = nil
 	env := e.env(job)
@@ -594,5 +602,173 @@ func TestMigratedBeadKeepsItsBranch(t *testing.T) {
 	brief, err := Brief(dispatch.Job{Bead: *b, Session: store.Session{ID: "s"}, Group: store.Group{Name: "g"}}, "a", "/w/yard-2")
 	if err != nil || !strings.Contains(brief, "branch `yard/yard-2`") {
 		t.Fatalf("brief names another branch:\n%s", brief)
+	}
+}
+
+// worktreeHerdr is a fake herdr whose worktree create really makes the
+// worktree, from --base, as herdr does; every call is logged to log.
+func worktreeHerdr(t *testing.T, log string) string {
+	return fakeHerdrBin(t, `printf '%s\n' "$*" >> `+log+`
+case "$1 $2" in
+  "worktree create")
+    shift 2
+    while [ $# -gt 1 ]; do
+      case "$1" in --cwd) cwd=$2 ;; --branch) br=$2 ;; --base) base=$2 ;; --path) p=$2 ;; esac
+      shift 2
+    done
+    git -C "$cwd" worktree add -q -b "$br" "$p" "$base" >&2 || exit 1
+    echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"},"worktree":{"path":"'"$p"'"}}}' ;;
+  "tab create") echo '{"result":{"tab":{"tab_id":"t2"},"root_pane":{"pane_id":"p2"}}}' ;;
+  *) echo '{"result":{"type":"ok"}}' ;;
+esac`)
+}
+
+// A child of an epic branches from the epic's branch, made from the rig's
+// base the first time a child needs it and never moved after; YARDR_BASE
+// and the brief name that branch. A bead with no epic is as before.
+func TestHerdrChildBranchesFromItsEpic(t *testing.T) {
+	ctx := context.Background()
+	repo := t.TempDir()
+	gitT(t, repo, "init", "-q", "-b", "main")
+	gitT(t, repo, "commit", "-q", "--allow-empty", "-m", "A")
+	a := gitOutT(t, repo, "rev-parse", "main")
+
+	s := storetest.New(t)
+	rig := store.Rig{Name: "r", Path: repo, Base: "main"}
+	if err := s.PutRig(ctx, rig, "me"); err != nil {
+		t.Fatal(err)
+	}
+	for _, nb := range []store.NewBead{
+		{ID: "r-e", Title: "epic", Type: store.TypeEpic, Rig: "r"},
+		{ID: "r-1", Title: "child one", Rig: "r"},
+		{ID: "r-2", Title: "child two", Rig: "r"},
+		{ID: "r-3", Title: "plain", Rig: "r"},
+	} {
+		if _, err := s.CreateBead(ctx, nb, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, c := range []string{"r-1", "r-2"} {
+		if err := s.AddDep(ctx, "r-e", c, store.DepParent, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	log := filepath.Join(t.TempDir(), "calls")
+	h := &Herdr{Bin: worktreeHerdr(t, log), WorktreeRoot: t.TempDir(), Store: s}
+	// start runs bead id as the dispatcher would, and returns the tab
+	// create call (with the agent's env) and the brief.
+	start := func(id string) (tabCall, brief string) {
+		t.Helper()
+		b, err := s.GetBead(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fam, err := s.Family(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.Remove(log)
+		handle, err := h.Start(ctx, dispatch.Job{Bead: *b, Group: store.Group{Name: "builders"}, Rig: &rig,
+			Session: store.Session{ID: "s-" + id}, Epic: fam.Epic, Base: fam.Base})
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := os.ReadFile(log)
+		for _, l := range strings.Split(string(raw), "\n") {
+			if strings.HasPrefix(l, "tab create ") {
+				tabCall = l + " "
+			}
+		}
+		text, _ := os.ReadFile(handle["brief"].(string))
+		return tabCall, string(text)
+	}
+	branched := func() []store.Event {
+		t.Helper()
+		evs, err := s.Events(ctx, "r-e", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []store.Event
+		for _, e := range evs {
+			if e.Kind == "epic_branched" {
+				out = append(out, e)
+			}
+		}
+		return out
+	}
+
+	tab, brief := start("r-1")
+	if got := gitOutT(t, repo, "rev-parse", "yard/r-e"); got != a {
+		t.Fatalf("epic branch at %s, want main's tip %s", got, a)
+	}
+	if got := gitOutT(t, repo, "rev-parse", "yard/r-1"); got != a {
+		t.Fatalf("child branched at %s, want %s", got, a)
+	}
+	if !strings.Contains(tab, " --env YARDR_BASE=yard/r-e ") {
+		t.Errorf("child's env lacks YARDR_BASE=yard/r-e:\n%s", tab)
+	}
+	if !strings.Contains(brief, "child of epic r-e") || !strings.Contains(brief, "lands on that branch") {
+		t.Errorf("brief does not say the bead is a child of r-e:\n%s", brief)
+	}
+	evs := branched()
+	if len(evs) != 1 || evs[0].Data["commit"] != a || evs[0].Data["child"] != "r-1" {
+		t.Fatalf("epic_branched events = %+v, want one at %s for r-1", evs, a)
+	}
+
+	// main moves on and a child lands on the epic branch: the next child
+	// starts from the epic branch as it is, which is neither recreated nor
+	// moved to main.
+	gitT(t, repo, "commit", "-q", "--allow-empty", "-m", "B")
+	wt := filepath.Join(h.WorktreeRoot, "r", "r-1")
+	gitT(t, wt, "commit", "-q", "--allow-empty", "-m", "C")
+	gitT(t, repo, "branch", "-f", "yard/r-e", "yard/r-1")
+	c := gitOutT(t, repo, "rev-parse", "yard/r-1")
+	start("r-2")
+	if got := gitOutT(t, repo, "rev-parse", "yard/r-e"); got != c {
+		t.Fatalf("epic branch moved to %s, want it kept at %s", got, c)
+	}
+	if got := gitOutT(t, repo, "rev-parse", "yard/r-2"); got != c {
+		t.Fatalf("second child branched at %s, want the epic's tip %s", got, c)
+	}
+	if n := len(branched()); n != 1 {
+		t.Fatalf("%d epic_branched events, want the first only", n)
+	}
+
+	// A bead with no epic branches from main and is told so.
+	b := gitOutT(t, repo, "rev-parse", "main")
+	tab, brief = start("r-3")
+	if got := gitOutT(t, repo, "rev-parse", "yard/r-3"); got != b {
+		t.Fatalf("plain bead branched at %s, want main %s", got, b)
+	}
+	if !strings.Contains(tab, " --env YARDR_BASE=main ") || strings.Contains(brief, "epic") {
+		t.Errorf("plain bead: env %s\nbrief:\n%s", tab, brief)
+	}
+}
+
+// With a remote base the epic branch is made from the base as just
+// fetched, not from a stale remote-tracking ref.
+func TestHerdrEpicBranchFromFetchedBase(t *testing.T) {
+	ctx := context.Background()
+	origin := t.TempDir()
+	gitT(t, origin, "init", "-q", "-b", "main")
+	gitT(t, origin, "commit", "-q", "--allow-empty", "-m", "A")
+	repo := filepath.Join(t.TempDir(), "repo")
+	gitT(t, ".", "clone", "-q", origin, repo)
+	gitT(t, origin, "commit", "-q", "--allow-empty", "-m", "B")
+	b := gitOutT(t, origin, "rev-parse", "main")
+
+	rig := store.Rig{Name: "r", Path: repo, Base: "origin/main"}
+	h := &Herdr{Bin: worktreeHerdr(t, filepath.Join(t.TempDir(), "calls")), WorktreeRoot: t.TempDir()}
+	_, err := h.Start(ctx, dispatch.Job{Bead: store.Bead{ID: "r-1", Stage: "new"}, Group: store.Group{Name: "g"},
+		Rig: &rig, Session: store.Session{ID: "s"}, Epic: "r-e", Base: "yard/r-e"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := gitOutT(t, repo, "rev-parse", "yard/r-e"); got != b {
+		t.Fatalf("epic branch at %s, want origin's fetched tip %s", got, b)
+	}
+	if up, err := gitOut(ctx, repo, "rev-parse", "--abbrev-ref", "yard/r-e@{upstream}"); err == nil {
+		t.Fatalf("epic branch tracks %s; it is not a copy of the base", up)
 	}
 }
