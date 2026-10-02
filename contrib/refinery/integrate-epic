@@ -20,8 +20,10 @@
 # the base, runs the rig's gate on the result and reports done (-> review).
 # A red gate reports failed (-> open) with the gate's tail, after adding a
 # child to fix it: the child blocks the epic, so it is not integrated again
-# until the fix has landed on its branch. A rebase that conflicts, a gate
-# that cannot run, or a branch it cannot work on is held for a human.
+# until the fix has landed on its branch. A rebase that conflicts reports
+# conflict (-> merge), as merge-local does for a bead: the mergers rebase the
+# branch and send the epic back to open, where it is integrated again. A
+# gate that cannot run, or a branch it cannot work on, is held for a human.
 #
 # Every outcome ends in a report or a hold: exiting without one counts as a
 # failed session, and three of those hold the bead.
@@ -79,14 +81,16 @@ fi
 
 # Rebase onto the base when it moved since the epic branched. A conflict
 # here is between the epic as a whole and main, which no single child owns:
-# a human (or a merger, by hand) rebases the branch, then unholds.
+# it goes to the mergers like any other, who rebase the branch in its
+# worktree and report done (-> open), so the integrator gates it again.
 was=$(git -C "$REPO" rev-parse "$BR")
 if ! git -C "$REPO" merge-base --is-ancestor "$BASE" "$BR"; then
   if ! git -C "$WT" rebase "$BASE"; then
     files=$(git -C "$WT" diff --name-only --diff-filter=U | tr '\n' ' ')
     git -C "$WT" rebase --abort
-    hold "rebasing $BR onto $BASE conflicts in: $files
-Rebase $BR onto $BASE in $WT keeping both sides' intent, then unhold: the integrator gates it again."
+    report conflict "rebase of $BR onto $BASE conflicts in: $files
+$BR is at $(git -C "$REPO" rev-parse --short "$BR"), $BASE at $(git -C "$REPO" rev-parse --short "$BASE").
+Rebase $BR onto $BASE in $WT keeping both sides' intent, and do not push it: back in open, the integrator gates and pushes it."
   fi
 fi
 

@@ -257,12 +257,12 @@ points the type at it):
 ```
 # yard.epic.flow
 backlog -> open
-open -> review on done | open on failed | backlog
+open -> review on done | open on failed | merge on conflict | backlog
 review -> approved on done | open on changes | decide on question
 approved -> in-pr on done | open on failed | merge on conflict | merged
 in-pr -> land on done | open on changes | decide on question
 land -> merged on done | open on failed
-merge -> review on done | open on rework | decide on question
+merge -> open on done | open on rework | decide on question
 decide -> open | backlog
 merged terminal
 ```
@@ -275,7 +275,7 @@ merged terminal
 | approved | `yard-pr` (route `--type epic`, priority 10) | exec, limit 1, [`contrib/refinery/pr-epic`](../contrib/refinery/pr-epic); without it, `yard-refinery` and merge-local as for any bead |
 | in-pr | `decisions` (route `--type epic`) | manual: `yardr bead done <epic>` means "merge it" |
 | land | `yard-pr-merge` (route `--type epic`) | exec, limit 1, [`contrib/refinery/pr-merge`](../contrib/refinery/pr-merge) |
-| merge | `mergers` | as for any bead |
+| merge | `mergers` | as for any bead, on branch `yard/<epic>`; `done` goes back to `open`, where the integrator gates and pushes it again |
 | decide | `decisions` | manual |
 
 An epic waits in `open` while any child is open: each child blocks it

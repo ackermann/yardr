@@ -198,9 +198,11 @@ func TestEpicRedGateGoesBackToOpen(t *testing.T) {
 	}
 }
 
-// A rebase of the epic onto main that conflicts is no child's to fix: the
-// epic is held in open with the files, and neither branch moves.
-func TestEpicRebaseConflictHolds(t *testing.T) {
+// A rebase of the epic onto main that conflicts is no child's to fix: like
+// a bead's, it goes to the mergers (open -> merge on conflict) with the files
+// and both tips, and neither branch moves. The merger's done sends it back
+// to open, where the integrator rebases it cleanly and sends it to review.
+func TestEpicRebaseConflictGoesToTheMergers(t *testing.T) {
 	y := newEpicYard(t, "test ! -e RED")
 	y.exec("merge-local", "refinery", "r-1")
 	y.exec("merge-local", "refinery", "r-2")
@@ -210,17 +212,36 @@ func TestEpicRebaseConflictHolds(t *testing.T) {
 	y.exec("integrate-epic", "yard-integrators", "r-e")
 
 	e := y.beadOf("r-e")
-	if !e.Hold || e.Stage != "open" {
-		t.Fatalf("epic %s hold=%v, want held in open", e.Stage, e.Hold)
+	if e.Hold || e.Stage != "merge" || e.Status != "open" {
+		t.Fatalf("epic %s/%s hold=%v, want in merge, not held", e.Stage, e.Status, e.Hold)
 	}
-	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "conflicts in: child1.txt") {
-		t.Fatalf("no note naming the conflict:\n%s", notes)
+	notes := y.yardr("prime", "--bead", "r-e")
+	for _, want := range []string{"rebase of yard/r-e onto main conflicts in: child1.txt",
+		"yard/r-e is at " + epic[:7], "main at " + main[:7], "do not push it"} {
+		if !strings.Contains(notes, want) {
+			t.Fatalf("conflict note lacks %q:\n%s", want, notes)
+		}
 	}
 	if got := y.git(y.repo, "rev-parse", "yard/r-e"); got != epic {
 		t.Fatal("the epic branch was left rebased")
 	}
 	if got := y.git(y.repo, "rev-parse", "main"); got != main {
 		t.Fatal("main moved")
+	}
+
+	// The merger rebases the branch onto main in its worktree (here by
+	// hand: main's child1.txt, r-2's commit replayed) and reports done: the
+	// epic is back in open for the integrator.
+	wt := filepath.Join(y.home, "worktrees", "r", "r-e")
+	y.git(wt, "reset", "-q", "--hard", "main")
+	y.commit(wt, "child2.txt", "r-2\n")
+	y.yardr("bead", "done", "r-e")
+	if e := y.beadOf("r-e"); e.Stage != "open" || e.Hold {
+		t.Fatalf("resolved epic %s hold=%v, want back in open", e.Stage, e.Hold)
+	}
+	y.exec("integrate-epic", "yard-integrators", "r-e")
+	if e := y.beadOf("r-e"); e.Stage != "review" {
+		t.Fatalf("re-integrated epic in %s, want review", e.Stage)
 	}
 }
 

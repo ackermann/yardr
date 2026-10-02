@@ -4,14 +4,16 @@
 # main and gates it, Codex reviews the whole diff, and the epic lands on main
 # either through a pull request (approved -> in-pr -> land, with YARDR_PR)
 # or locally, where the refinery fast-forwards main and advances it straight
-# to merged (the bare edge, which no outcome offers). See
+# to merged (the bare edge, which no outcome offers). A rebase onto main
+# that conflicts, in open or in approved, goes to the mergers; a resolved
+# epic goes back to open, where it is integrated (and reviewed) again. See
 # docs/pipeline.md#epics.
 backlog -> open
-open -> review on done | open on failed | backlog
+open -> review on done | open on failed | merge on conflict | backlog
 review -> approved on done | open on changes | decide on question
 approved -> in-pr on done | open on failed | merge on conflict | merged
 in-pr -> land on done | open on changes | decide on question
 land -> merged on done | open on failed
-merge -> review on done | open on rework | decide on question
+merge -> open on done | open on rework | decide on question
 decide -> open | backlog
 merged terminal

@@ -350,9 +350,11 @@ An epic follows `yard.epic` ([flows.md](flows.md#worked-example-rig-yard)):
    gate's tail in the note, after adding a child in `backlog` to fix it
    ("Fix the gate on epic <id>", type bug, the tail in its body): the child
    blocks the epic, so it is not integrated again until the fix has landed
-   on its branch. A rebase that conflicts, a gate that could not run (exit
-   2) or a branch it cannot work on (missing, dirty, nothing ahead of the
-   base) holds the epic with a note.
+   on its branch. A rebase that conflicts aborts it and reports
+   `conflict`, to `merge`, with the conflicting files and both tips in the
+   note (step 5). A gate that could not run (exit 2) or a branch it cannot
+   work on (missing, dirty, nothing ahead of the base) holds the epic with
+   a note.
 3. **review**: `yard-codex-review` reviews the whole diff, `<base>..yard/<epic>`:
    the epic's brief says it is an epic, names its children and gives the
    range. Changes go back to `open` (`--outcome changes`) after adding the
@@ -363,7 +365,17 @@ An epic follows `yard.epic` ([flows.md](flows.md#worked-example-rig-yard)):
    advance it to `merged` by the flow's bare `approved -> merged` edge. A
    red gate there reports the flow's `failed` outcome, which for an epic is
    `open` (merge-local falls back to `new` only for flows without it).
-5. **merge**: the mergers handle a conflict as for any bead.
+5. **merge**: a conflict between the epic's branch and the rig's base,
+   from the integrator in `open` or from merge-local or pr-epic in
+   `approved`, goes to the mergers as any bead's does. The merger rebases
+   `yard/<epic>` onto the base in the epic's worktree, keeping both sides'
+   intent, runs the gate, and does not push (the integrator pushes, with a
+   lease); the brief says the branch and what happens next. Its `done`
+   sends the epic back to `open`, not to review: with no child open it is
+   ready, so the integrator takes it again, rebases it (a no-op unless the
+   base moved again), gates it, pushes it and opens or updates its pull request, and the
+   epic goes to review as what will land. `rework` also goes to `open`
+   (add the fix as a child first), `question` to `decide`.
 
 ### Through a pull request
 

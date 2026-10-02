@@ -26,12 +26,12 @@ func epicFlow(t *testing.T) *store.Flow {
 func TestEpicFlowOutcomes(t *testing.T) {
 	f := epicFlow(t)
 	want := map[string][]store.Outcome{
-		"open":     {{Name: "done", To: "review"}, {Name: "failed", To: "open"}},
+		"open":     {{Name: "done", To: "review"}, {Name: "failed", To: "open"}, {Name: "conflict", To: "merge"}},
 		"review":   {{Name: "done", To: "approved"}, {Name: "changes", To: "open"}, {Name: "question", To: "decide"}},
 		"approved": {{Name: "done", To: "in-pr"}, {Name: "failed", To: "open"}, {Name: "conflict", To: "merge"}},
 		"in-pr":    {{Name: "done", To: "land"}, {Name: "changes", To: "open"}, {Name: "question", To: "decide"}},
 		"land":     {{Name: "done", To: "merged"}, {Name: "failed", To: "open"}},
-		"merge":    {{Name: "done", To: "review"}, {Name: "rework", To: "open"}, {Name: "question", To: "decide"}},
+		"merge":    {{Name: "done", To: "open"}, {Name: "rework", To: "open"}, {Name: "question", To: "decide"}},
 	}
 	for stage, outs := range want {
 		if got := f.Outcomes[stage]; !slices.Equal(got, outs) {
@@ -115,7 +115,52 @@ func TestEpicWaitsForItsChildren(t *testing.T) {
 	for _, o := range job.Outcomes {
 		outs = append(outs, o.Outcome+">"+o.Stage)
 	}
-	if want := []string{"done>review", "failed>open"}; !slices.Equal(outs, want) {
+	if want := []string{"done>review", "failed>open", "conflict>merge"}; !slices.Equal(outs, want) {
 		t.Fatalf("outcomes %v, want %v", outs, want)
+	}
+}
+
+// An epic whose rebase onto main conflicted goes to the mergers, and once
+// they report done it is back in open with no child open, so the integrators
+// take it again: they rebase it cleanly, gate it and send it to review.
+func TestEpicConflictGoesToTheMergersAndBack(t *testing.T) {
+	s, f, d := setup(t)
+	ctx := context.Background()
+	must(t, s.PutRig(ctx, store.Rig{Name: "yard", Base: "main"}, "me"))
+	_, err := s.PutFlow(ctx, *epicFlow(t), "me")
+	must(t, err)
+	must(t, s.SetFlowPointer(ctx, "yard", store.TypeEpic, "yard.epic", "me"))
+	must(t, s.PutGroup(ctx, store.Group{Name: "yard-integrators", Runner: "fake", Limit: 1}))
+	must(t, s.PutGroup(ctx, store.Group{Name: "mergers", Runner: "fake", Limit: 1}))
+	rig, epic := "yard", store.TypeEpic
+	_, err = s.AddRoute(ctx, store.Route{Stage: "open", Type: &epic, Rig: &rig, Group: "yard-integrators", Priority: 10})
+	must(t, err)
+	_, err = s.AddRoute(ctx, store.Route{Stage: "merge", Group: "mergers"})
+	must(t, err)
+	_, err = s.CreateBead(ctx, store.NewBead{ID: "yard-e", Title: "epic", Type: store.TypeEpic, Rig: "yard", Stage: "open"}, "me")
+	must(t, err)
+
+	must(t, d.Reconcile(ctx))
+	if b, _ := s.GetBead(ctx, "yard-e"); b.Group == nil || *b.Group != "yard-integrators" {
+		t.Fatalf("epic in open not taken by the integrators: %+v", b)
+	}
+	if _, err := s.Done(ctx, "yard-e", "conflict", "integrator: conflicts in: a.go", store.Expect{}, "integrator"); err != nil {
+		t.Fatalf("open has no conflict outcome: %v", err)
+	}
+	must(t, d.Reconcile(ctx))
+	b, _ := s.GetBead(ctx, "yard-e")
+	if b.Stage != "merge" || b.Group == nil || *b.Group != "mergers" {
+		t.Fatalf("epic %s with %v after a conflict, want merge with the mergers", b.Stage, b.Group)
+	}
+	if _, err := s.Done(ctx, "yard-e", "done", "merge re-review: rebased", store.Expect{}, "merger"); err != nil {
+		t.Fatal(err)
+	}
+	must(t, d.Reconcile(ctx))
+	b, _ = s.GetBead(ctx, "yard-e")
+	if b.Stage != "open" || b.Group == nil || *b.Group != "yard-integrators" {
+		t.Fatalf("resolved epic %s with %v, want open with the integrators again", b.Stage, b.Group)
+	}
+	if got := f.starts(); !slices.Equal(got, []string{"yard-e", "yard-e", "yard-e"}) {
+		t.Fatalf("starts = %v, want integrator, merger, integrator", got)
 	}
 }

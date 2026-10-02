@@ -82,6 +82,25 @@ func TestBriefForAnEpic(t *testing.T) {
 			t.Errorf("brief missing %q:\n%s", want, b)
 		}
 	}
+	if strings.Contains(b, "do not push it") {
+		t.Errorf("a review brief tells the reviewer about the merger's rebase:\n%s", b)
+	}
+
+	// In merge, done goes back to open: the brief says the branch to rebase
+	// and that the integrator re-runs after.
+	job.Bead.Stage = "merge"
+	job.Outcomes = []dispatch.NextOutcome{{Outcome: "done", NextStage: dispatch.NextStage{Stage: "open", Group: "yard-integrators", Runner: "exec"}},
+		{Outcome: "rework", NextStage: dispatch.NextStage{Stage: "open"}}}
+	b, err = Brief(job, "a", "/wt/web-e", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"rebase `yard/web-e` onto `main` in its worktree", "do not push it",
+		"Reporting `done` sends the epic back to `open`, where the integrator takes it again", "gates it, pushes it"} {
+		if !strings.Contains(b, want) {
+			t.Errorf("merge brief missing %q:\n%s", want, b)
+		}
+	}
 	job.Bead.Type = "feature"
 	if b, _ := Brief(job, "a", "", ""); strings.Contains(b, "is an epic") {
 		t.Errorf("a feature's brief calls it an epic:\n%s", b)

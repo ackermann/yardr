@@ -33,6 +33,15 @@ its rebase, so the tree is clean and the branch is as it was approved.
    `yardr bead done <id>`; the flow sends it to review, where the reviewer
    inspects only the conflict resolution before the refinery lands it.
 
+An epic (the brief says "This bead is an epic") is merged the same way,
+on its own branch, `yard/<epic>`, in the epic's worktree, rebased onto the
+rig's base, keeping both sides' intent exactly as for a bead. The conflict
+is between the epic as a whole and what landed on the base, so read its
+children's beads for its side. Do not push the epic's branch: whatever
+integrates the epic pushes it. Finish with `yardr bead done <id>` as usual;
+the flow sends the epic back to be integrated and gated again before its
+review.
+
 When not to resolve:
 
 - If both intents cannot be kept (the base removed what the bead builds on,
