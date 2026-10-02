@@ -120,8 +120,15 @@ func AgentName(bead, stage string) string {
 }
 
 // WorkspaceLabel is the herdr label for a group's work on name (a bead or a
-// stage): the group first, then name.
-func WorkspaceLabel(group, name string) string {
+// stage): the group first, then name. herdr already nests workspaces under
+// the rig's repo, so a leading "<rig>-" on either is noise that only gets the
+// label truncated in the sidebar: rig yard labels "yard-builders yard-27" as
+// "builders 27". Names without the prefix stay as they are.
+func WorkspaceLabel(rig, group, name string) string {
+	if rig != "" {
+		group = strings.TrimPrefix(group, rig+"-")
+		name = strings.TrimPrefix(name, rig+"-")
+	}
 	if group == "" {
 		return name
 	}
@@ -138,8 +145,8 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	name := AgentName(job.Bead.ID, job.Bead.Stage)
 	handle := map[string]any{"agent": name, "branch": branch, "repo": rig.Path}
 	// herdr shows the workspace label, so lead with who is working on the
-	// bead: "yard-builders yard-27" reads better than the bare bead id.
-	label := WorkspaceLabel(job.Group.Name, job.Bead.ID)
+	// bead: "builders 27" reads better than the bare bead id.
+	label := WorkspaceLabel(rig.Name, job.Group.Name, job.Bead.ID)
 
 	// Best effort: the base ref should be current before branching from it.
 	if remote, _, ok := strings.Cut(rig.Base, "/"); ok {
@@ -191,7 +198,7 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	if wt.AlreadyOpen {
 		// The root pane may still hold the previous stage's agent.
 		raw, err := h.run(ctx, "tab", "create", "--workspace", wt.Workspace.ID,
-			"--cwd", wt.Worktree.Path, "--label", WorkspaceLabel(job.Group.Name, job.Bead.Stage))
+			"--cwd", wt.Worktree.Path, "--label", WorkspaceLabel(rig.Name, job.Group.Name, job.Bead.Stage))
 		if err != nil {
 			return handle, err
 		}

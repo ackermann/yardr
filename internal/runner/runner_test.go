@@ -288,6 +288,26 @@ esac`)}
 	}
 }
 
+func TestWorkspaceLabel(t *testing.T) {
+	cases := []struct{ rig, group, name, want string }{
+		{"yard", "yard-codex-review", "yard-29", "codex-review 29"},
+		{"yard", "yard-builders", "yard-20", "builders 20"},
+		{"webapp", "builders", "webapp-1", "builders 1"},
+		{"webapp", "yard-builders", "yard-3", "yard-builders yard-3"},
+		{"yard", "builders", "review", "builders review"},
+		// Only a leading "<rig>-" goes: not the bare rig, not a longer word.
+		{"yard", "yardstick", "yard", "yardstick yard"},
+		{"yard", "", "yard-7", "7"},
+		{"yard", "", "new", "new"},
+		{"", "yard-builders", "yard-7", "yard-builders yard-7"},
+	}
+	for _, c := range cases {
+		if got := WorkspaceLabel(c.rig, c.group, c.name); got != c.want {
+			t.Errorf("WorkspaceLabel(%q, %q, %q) = %q, want %q", c.rig, c.group, c.name, got, c.want)
+		}
+	}
+}
+
 // herdr shows workspace and tab labels; both lead with the group, on the
 // first stage (worktree created) and on a later one (worktree reopened).
 func TestHerdrStartLabelsGroupFirst(t *testing.T) {
@@ -322,7 +342,7 @@ esac`)}
 
 	created := `echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"},"worktree":{"path":"` + wt + `"}}}'`
 	calls := start(t, created, "new", "yard-builders")
-	if !strings.Contains(calls, "worktree create ") || !strings.Contains(calls, "--label yard-builders yard-13\n") {
+	if !strings.Contains(calls, "worktree create ") || !strings.Contains(calls, "--label builders 13\n") {
 		t.Fatalf("first stage not labelled group first:\n%s", calls)
 	}
 	if strings.Contains(calls, "workspace rename") || strings.Contains(calls, "tab create") {
@@ -333,8 +353,8 @@ esac`)}
 	calls = start(t, exists, "review", "yard-codex-review")
 	for _, want := range []string{
 		"worktree open --cwd ",
-		"workspace rename w1 yard-codex-review yard-13\n",
-		"tab create --workspace w1 --cwd " + wt + " --label yard-codex-review review\n",
+		"workspace rename w1 codex-review 13\n",
+		"tab create --workspace w1 --cwd " + wt + " --label codex-review review\n",
 	} {
 		if !strings.Contains(calls, want) {
 			t.Errorf("later stage missing %q:\n%s", want, calls)
