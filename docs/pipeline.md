@@ -234,6 +234,9 @@ repo/store split in [configuration.md](configuration.md), is one.
 
 ## Planned changes to this pipeline
 
-- Agents report an outcome (`yardr bead done`, `--outcome changes`,
-  `--outcome question`) and the flow picks the stage, instead of agents naming
-  stages (*planned, yard-qexg*).
+- The rig's flow names outcomes (`new -> review on done | decide on
+  question`, see [flows.md](flows.md#outcomes-agents-say-how-the-work-ended)),
+  so builders, the reviewer and the refinery report `yardr bead done`
+  (`--outcome changes`, `--outcome question`) instead of naming stages.
+  `bead done` and outcomes are built (yard-qexg); the live flow, the reviewer
+  prompt and the refinery script move to them once it lands.

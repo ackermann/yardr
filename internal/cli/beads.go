@@ -274,6 +274,35 @@ func (a *app) beadCmd() *cobra.Command {
 	advance.Flags().StringVar(&to, "to", "", "next stage")
 	advance.Flags().StringVar(&advNote, "note", "", "attach a note with the move, e.g. the changes asked for (- reads stdin)")
 
+	var outcome, doneNote string
+	done := &cobra.Command{
+		Use:   "done <id> [--outcome <outcome>]",
+		Short: "Report how the work in the bead's stage ended; its flow picks the next stage",
+		Long: `Reports an outcome for the bead's current stage (done unless --outcome
+says otherwise) and moves the bead to the stage its flow names for it, as
+advance would. A stage with a single way out offers done for it.
+yardr prime --bead lists the stage's outcomes.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			if doneNote == "-" {
+				if doneNote, err = readAllStdin(); err != nil {
+					return err
+				}
+			}
+			b, err := st.Done(c.Context(), args[0], outcome, doneNote, a.who())
+			if err != nil {
+				return err
+			}
+			return a.out(b, func() { fmt.Printf("%s → %s\n", b.ID, b.Stage) })
+		},
+	}
+	done.Flags().StringVar(&outcome, "outcome", store.DefaultOutcome, "how the work ended, one of the stage's outcomes")
+	done.Flags().StringVar(&doneNote, "note", "", "attach a note with the move (- reads stdin)")
+
 	var reason string
 	closeCmd := &cobra.Command{
 		Use:   "close <id>",
@@ -324,7 +353,7 @@ func (a *app) beadCmd() *cobra.Command {
 	})
 	release.Flags().StringVar(&relReason, "reason", "", "why")
 
-	cmd.AddCommand(create, show, list, update, note, advance, closeCmd, reopen, hold, unhold, release)
+	cmd.AddCommand(create, show, list, update, note, done, advance, closeCmd, reopen, hold, unhold, release)
 	cmd.AddCommand(a.watchCmds()...)
 	return cmd
 }
@@ -469,7 +498,12 @@ func (a *app) primeCmd() *cobra.Command {
 			v := map[string]any{"bead": b, "notes": notes, "deps": deps, "open_blockers": blockers, "next": next}
 			return a.out(v, func() {
 				_ = a.printBeadFlow(b, next)
-				if next.Flow != nil {
+				if len(next.Outcomes) > 0 {
+					fmt.Println("\nOUTCOMES:")
+					for _, o := range next.Outcomes {
+						fmt.Printf("  %-12s -> %-12s %s\n", o.Name, o.To, doneCommand(b.ID, o.Name))
+					}
+				} else if next.Flow != nil {
 					line := strings.Join(next.Stages, ", ")
 					if len(next.Terminal) > 0 {
 						line += " (" + strings.Join(next.Terminal, ", ") + " closes the bead)"
@@ -498,6 +532,14 @@ func (a *app) primeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&id, "bead", "", "bead id (default $YARDR_BEAD)")
 	cmd.Flags().StringVar(&resident, "resident", "", "resident name (default $YARDR_RESIDENT)")
 	return cmd
+}
+
+// doneCommand is the command that reports outcome for bead id.
+func doneCommand(id, outcome string) string {
+	if outcome == store.DefaultOutcome {
+		return "yardr bead done " + id
+	}
+	return "yardr bead done " + id + " --outcome " + outcome
 }
 
 func readAllStdin() (string, error) {

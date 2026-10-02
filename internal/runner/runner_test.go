@@ -112,6 +112,48 @@ func TestBriefListsNextStages(t *testing.T) {
 	}
 }
 
+// With outcomes the brief lists them instead of stage names: one line each
+// saying where the flow sends the bead, and the exact bead done command.
+func TestBriefListsOutcomes(t *testing.T) {
+	job := dispatch.Job{
+		Bead:    store.Bead{ID: "web-3", Title: "Add login", Type: "task", Stage: "new"},
+		Group:   store.Group{Name: "builders"},
+		Session: store.Session{ID: "s1"},
+		Next: []dispatch.NextStage{
+			{Stage: "review", Group: "reviewers", Runner: "herdr"},
+			{Stage: "decide", Group: "deciders", Runner: "manual"},
+			{Stage: "backlog"},
+		},
+		Outcomes: []dispatch.NextOutcome{
+			{Outcome: "done", NextStage: dispatch.NextStage{Stage: "review", Group: "reviewers", Runner: "herdr"}},
+			{Outcome: "question", NextStage: dispatch.NextStage{Stage: "decide", Group: "deciders", Runner: "manual"}},
+		},
+	}
+	b, err := Brief(job, "a", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"report how it ended with one of the outcomes below; the flow picks the next stage",
+		"Reporting an outcome or closing ends your session",
+		"## Outcomes",
+		"Report how your work in `new` ended",
+		"- `done` (to `review`): an agent in `reviewers` picks it up",
+		"  `yardr bead done web-3`\n",
+		"- `question` (to `decide`): a human in `deciders` picks it up",
+		"  `yardr bead done web-3 --outcome question`",
+	} {
+		if !strings.Contains(b, want) {
+			t.Errorf("brief missing %q:\n%s", want, b)
+		}
+	}
+	for _, not := range []string{"## Next stages", "yardr bead advance", "backlog"} {
+		if strings.Contains(b, not) {
+			t.Errorf("brief with outcomes still offers %q:\n%s", not, b)
+		}
+	}
+}
+
 func TestExecLifecycle(t *testing.T) {
 	e := NewExec()
 	ctx := context.Background()

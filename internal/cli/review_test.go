@@ -153,10 +153,37 @@ func TestReviewActions(t *testing.T) {
 		t.Fatalf("review actions = %+v, want %+v", flat(got), want)
 	}
 	// decide is written after backlog in the flow, so decide -> backlog is
-	// a move back too: the answer goes in the note.
+	// a move back too: the answer goes in the note. Its single way out is
+	// offered as the done outcome.
 	got = reviewActions(store.Bead{Stage: "decide", Rig: &rig}, f, routes)
-	if want := append([]act{{actAdvance, "backlog", true, false}}, tail...); !slices.Equal(flat(got), want) {
+	if want := append([]act{{actDone, "backlog", true, false}}, tail...); !slices.Equal(flat(got), want) {
 		t.Fatalf("decide actions = %+v, want %+v", flat(got), want)
+	}
+	if got[0].Outcome != "done" || got[0].Label != "done: send back to backlog (note required)" {
+		t.Errorf("decide done action = %+v", got[0])
+	}
+
+	// A stage with outcomes offers them, not its stages: a bare edge is
+	// left to advance --to.
+	of, err := store.ParseFlow("new -> review\nreview -> approved on done | new on changes | decide on question | backlog\napproved -> merged on done\nmerged terminal\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = reviewActions(store.Bead{Stage: "review", Rig: &rig}, of, routes)
+	want = append([]act{{actDone, "approved", false, false}, {actDone, "new", true, false}, {actDone, "decide", false, false}}, tail...)
+	if !slices.Equal(flat(got), want) {
+		t.Fatalf("review outcome actions = %+v, want %+v", flat(got), want)
+	}
+	var labels []string
+	for _, a := range got[:3] {
+		labels = append(labels, a.Outcome+"|"+a.Label)
+	}
+	if wantL := []string{"done|done: move to approved", "changes|changes: send back to new (note required)", "question|question: move to decide"}; !slices.Equal(labels, wantL) {
+		t.Errorf("labels = %q, want %q", labels, wantL)
+	}
+	got = reviewActions(store.Bead{Stage: "approved", Rig: &rig}, of, routes)
+	if got[0].Kind != actDone || !got[0].Terminal || got[0].Label != "done: finish as merged (closes the bead)" {
+		t.Errorf("terminal outcome action = %+v", got[0])
 	}
 
 	// No flow: the stages routes use, other than the bead's own, once each.

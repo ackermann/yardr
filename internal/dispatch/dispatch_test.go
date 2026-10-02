@@ -123,7 +123,7 @@ func TestJobCarriesNextStages(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()
 	must(t, s.PutRig(ctx, store.Rig{Name: "web", Path: "/tmp/web"}))
-	flow, err := store.ParseFlow("new -> review | backlog | dropped\nreview -> merged\ndropped terminal\nmerged terminal\n")
+	flow, err := store.ParseFlow("new -> review on done | backlog | dropped on abandoned\nreview -> merged\ndropped terminal\nmerged terminal\n")
 	must(t, err)
 	flow.Name = "web"
 	_, err = s.PutFlow(ctx, *flow, "me")
@@ -159,8 +159,16 @@ func TestJobCarriesNextStages(t *testing.T) {
 	if got := jobs[inFlow.ID].Next; !slices.Equal(got, want) {
 		t.Fatalf("next = %+v, want %+v", got, want)
 	}
-	if j, ok := jobs[free.ID]; !ok || j.Next != nil {
-		t.Fatalf("bead without a flow: started %v, next %+v", ok, j.Next)
+	// Outcomes carry the same view of where they lead.
+	wantOut := []dispatch.NextOutcome{
+		{Outcome: "done", NextStage: want[0]},
+		{Outcome: "abandoned", NextStage: want[2]},
+	}
+	if got := jobs[inFlow.ID].Outcomes; !slices.Equal(got, wantOut) {
+		t.Fatalf("outcomes = %+v, want %+v", got, wantOut)
+	}
+	if j, ok := jobs[free.ID]; !ok || j.Next != nil || j.Outcomes != nil {
+		t.Fatalf("bead without a flow: started %v, next %+v, outcomes %+v", ok, j.Next, j.Outcomes)
 	}
 }
 

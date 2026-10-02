@@ -96,7 +96,12 @@ func Brief(job dispatch.Job, actor, workdir string) (string, error) {
 	}
 	fmt.Fprintf(&b, "## %s\n\n%s\n\n", bead.Title, strings.TrimSpace(bead.Body))
 	advance := "- When your part is done, hand the bead to the next stage: `yardr bead advance " + bead.ID + " --to <stage>`\n"
-	if job.Next != nil {
+	ends := "Advancing or closing ends your session; nothing else does."
+	switch {
+	case len(job.Outcomes) > 0:
+		advance = "- When your part is done, report how it ended with one of the outcomes below; the flow picks the next stage.\n"
+		ends = "Reporting an outcome or closing ends your session; nothing else does."
+	case job.Next != nil:
 		advance = "- When your part is done, advance to one of the next stages below.\n"
 	}
 	fmt.Fprintf(&b, `## Reporting back
@@ -108,9 +113,12 @@ Run every yardr command with YARDR_ACTOR=%[1]s set (export it once).
 %[3]s- Or, if the work is finished entirely: `+"`yardr bead close %[2]s --reason \"...\"`"+`
 - If you are stuck and need a human: `+"`yardr bead note %[2]s \"...\" && yardr bead hold %[2]s`"+`
 
-Advancing or closing ends your session; nothing else does.
-`, actor, bead.ID, advance)
-	if job.Next != nil {
+%[4]s
+`, actor, bead.ID, advance, ends)
+	switch {
+	case len(job.Outcomes) > 0:
+		writeOutcomes(&b, bead.ID, bead.Stage, job.Outcomes)
+	case job.Next != nil:
 		writeNext(&b, bead.ID, bead.Stage, job.Next)
 	}
 	return b.String(), nil
@@ -128,6 +136,21 @@ func writeNext(b *strings.Builder, id, stage string, next []dispatch.NextStage) 
 	fmt.Fprintf(b, "The flow allows these moves out of `%s`:\n\n", stage)
 	for _, n := range next {
 		fmt.Fprintf(b, "- `%s`: %s\n  `yardr bead advance %s --to %s`\n", n.Stage, nextWhen(n), id, n.Stage)
+	}
+}
+
+// writeOutcomes lists the outcomes the bead's stage offers, each with where
+// the flow sends the bead for it and the exact command, so agents report
+// how their work ended instead of choosing a stage.
+func writeOutcomes(b *strings.Builder, id, stage string, outcomes []dispatch.NextOutcome) {
+	fmt.Fprintf(b, "\n## Outcomes\n\n")
+	fmt.Fprintf(b, "Report how your work in `%s` ended; the flow moves the bead on. Add `--note \"...\"` to attach a note with the move.\n\n", stage)
+	for _, o := range outcomes {
+		cmd := "yardr bead done " + id
+		if o.Outcome != store.DefaultOutcome {
+			cmd += " --outcome " + o.Outcome
+		}
+		fmt.Fprintf(b, "- `%s` (to `%s`): %s\n  `%s`\n", o.Outcome, o.Stage, nextWhen(o.NextStage), cmd)
 	}
 }
 

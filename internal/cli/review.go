@@ -26,9 +26,11 @@ type reviewItem struct {
 	Actions []reviewAction `json:"actions"`
 }
 
-// Action kinds. advance moves the bead to Stage; diff and skip leave it.
+// Action kinds. advance moves the bead to Stage; done reports Outcome,
+// which the flow sends to Stage; diff and skip leave it.
 const (
 	actAdvance = "advance"
+	actDone    = "done"
 	actDiff    = "diff"
 	actSkip    = "skip"
 )
@@ -37,6 +39,8 @@ type reviewAction struct {
 	Kind  string `json:"kind"`
 	Label string `json:"label"`
 	Stage string `json:"stage,omitempty"`
+	// Outcome is the outcome a done action reports.
+	Outcome string `json:"outcome,omitempty"`
 	// NoteRequired: sending a bead back needs a note saying what to change,
 	// or whoever picks it up next has nothing to go on.
 	NoteRequired bool `json:"note_required,omitempty"`
@@ -99,25 +103,40 @@ func reviewQueue(ctx context.Context, st store.API, actor string, only []string)
 	return items, nil
 }
 
-// reviewActions is what a reviewer may do with b. Under a flow: each stage
-// it allows next, where a stage earlier in the flow sends the bead back and
-// needs a note. Without one: any stage a route uses. Then always open diff
-// and skip.
+// reviewActions is what a reviewer may do with b. Under a flow that names
+// outcomes for b's stage: those outcomes. Under a flow without: each stage
+// it allows next. Either way a stage earlier in the flow sends the bead
+// back and needs a note. Without a flow: any stage a route uses. Then
+// always open diff and skip.
 func reviewActions(b store.Bead, f *store.Flow, routes []store.Route) []reviewAction {
 	var out []reviewAction
 	if f != nil {
 		here := slices.Index(f.Stages, b.Stage)
-		for _, s := range f.Next(b.Stage) {
+		// move describes going to s; its label starts lower-case to follow an outcome.
+		move := func(s string) reviewAction {
 			a := reviewAction{Kind: actAdvance, Stage: s, Terminal: f.IsTerminal(s)}
 			switch {
 			case a.Terminal:
-				a.Label = "Finish as " + s + " (closes the bead)"
+				a.Label = "finish as " + s + " (closes the bead)"
 			case here >= 0 && slices.Index(f.Stages, s) < here:
-				a.Label, a.NoteRequired = "Send back to "+s+" (note required)", true
+				a.Label, a.NoteRequired = "send back to "+s+" (note required)", true
 			default:
-				a.Label = "Move to " + s
+				a.Label = "move to " + s
 			}
-			out = append(out, a)
+			return a
+		}
+		if outcomes := f.OutcomesFrom(b.Stage); len(outcomes) > 0 {
+			for _, o := range outcomes {
+				a := move(o.To)
+				a.Kind, a.Outcome, a.Label = actDone, o.Name, o.Name+": "+a.Label
+				out = append(out, a)
+			}
+		} else {
+			for _, s := range f.Next(b.Stage) {
+				a := move(s)
+				a.Label = strings.ToUpper(a.Label[:1]) + a.Label[1:]
+				out = append(out, a)
+			}
 		}
 	} else {
 		var stages []string
@@ -213,7 +232,9 @@ group has you as a member, if it lists members), longest untouched first.
 Each shows its notes and the diff of its branch against the rig's base;
 pick where it goes next, open the full diff, or skip it.
 
-For scripts: yardr review list, and yardr bead advance <id> --to <stage> --note <text>.`,
+For scripts: yardr review list, and yardr bead done <id> --outcome <outcome>
+--note <text> (or yardr bead advance <id> --to <stage> where the stage
+names no outcomes).`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			st, err := a.store(c.Context())
@@ -246,8 +267,11 @@ For scripts: yardr review list, and yardr bead advance <id> --to <stage> --note 
 				for _, it := range items {
 					var next []string
 					for _, ac := range it.Actions {
-						if ac.Kind == actAdvance {
+						switch ac.Kind {
+						case actAdvance:
 							next = append(next, ac.Stage)
+						case actDone:
+							next = append(next, ac.Outcome+":"+ac.Stage)
 						}
 					}
 					rows = append(rows, []string{it.Bead.ID, it.Bead.Stage, it.Group, age(it.Bead.UpdatedAt),
@@ -322,7 +346,7 @@ func (a *app) reviewForm(ctx context.Context, st store.API, items []reviewItem) 
 				}
 				continue
 			}
-			if ac.Kind == actAdvance {
+			if ac.Kind == actAdvance || ac.Kind == actDone {
 				if err := a.reviewAdvance(ctx, st, b, ac); err != nil {
 					if errors.Is(err, huh.ErrUserAborted) {
 						continue
@@ -337,7 +361,8 @@ func (a *app) reviewForm(ctx context.Context, st store.API, items []reviewItem) 
 	return nil
 }
 
-// reviewAdvance asks for the move's note and makes the move.
+// reviewAdvance asks for the move's note and makes the move: reporting the
+// outcome for a done action, advancing for the others.
 func (a *app) reviewAdvance(ctx context.Context, st store.API, b store.Bead, ac reviewAction) error {
 	var note string
 	field := huh.NewText().Title("Note for " + b.ID).Value(&note)
@@ -349,7 +374,13 @@ func (a *app) reviewAdvance(ctx context.Context, st store.API, b store.Bead, ac 
 	if err := ask(field); err != nil {
 		return err
 	}
-	moved, err := st.AdvanceNote(ctx, b.ID, ac.Stage, note, a.who())
+	var moved *store.Bead
+	var err error
+	if ac.Kind == actDone {
+		moved, err = st.Done(ctx, b.ID, ac.Outcome, note, a.who())
+	} else {
+		moved, err = st.AdvanceNote(ctx, b.ID, ac.Stage, note, a.who())
+	}
 	if err != nil {
 		return err
 	}

@@ -97,7 +97,8 @@ A flow file has one rule per line (# starts a comment):
 					fmt.Printf("flow %s (%s)\n", v.Flow.Name, v.Source)
 					rows := [][]string{}
 					for _, s := range v.Stages {
-						next := strings.Join(s.Next, " | ")
+						// Edges names the outcome that takes each move, if any.
+						next := strings.Join(v.Flow.Edges(s.Stage), " | ")
 						switch {
 						case s.Terminal:
 							next = "(terminal: closes the bead)"

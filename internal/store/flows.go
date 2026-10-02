@@ -25,13 +25,30 @@ type Flow struct {
 	Transitions map[string][]string `json:"transitions"`
 	// Terminal stages close the bead on entry, with the stage as reason.
 	Terminal []string `json:"terminal,omitempty"`
+	// Outcomes name, per stage, how work there can end and where each
+	// ending sends the bead (`new -> review on done`), so agents report an
+	// outcome and the flow picks the stage. Every outcome's stage is also a
+	// transition; a transition no outcome names is left to explicit moves.
+	Outcomes map[string][]Outcome `json:"outcomes,omitempty"`
 }
+
+// Outcome is one way work in a stage can end, and the stage it leads to.
+type Outcome struct {
+	Name string `json:"name"`
+	To   string `json:"to"`
+}
+
+// DefaultOutcome is what `yardr bead done` reports without --outcome, and
+// what a stage with a single way out offers without naming it.
+const DefaultOutcome = "done"
 
 // validFlowName keeps names usable as file names (.yardr/flows/<name>.flow)
 // and in the migrated <rig>.<type> form.
 var validFlowName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 var validStage = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
+
+var validOutcome = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 // normalize fills Stages from the transitions and terminal stages (keeping
 // any order already given) and checks the flow is well formed.
@@ -72,6 +89,9 @@ func (f *Flow) normalize() error {
 			}
 		}
 	}
+	if err := f.normalizeOutcomes(add); err != nil {
+		return err
+	}
 	f.Terminal = dedupeOrdered(f.Terminal)
 	for _, s := range f.Terminal {
 		if err := add(s); err != nil {
@@ -85,6 +105,78 @@ func (f *Flow) normalize() error {
 		return fmt.Errorf("flow: no stages")
 	}
 	return nil
+}
+
+// normalizeOutcomes checks each stage's outcomes are named and unique, and
+// makes their stages transitions (a JSON flow may give only the outcome).
+// It runs before the terminal check, so a terminal stage with outcomes is
+// refused like one with transitions.
+func (f *Flow) normalizeOutcomes(add func(string) error) error {
+	from := make([]string, 0, len(f.Outcomes))
+	for s := range f.Outcomes {
+		from = append(from, s)
+	}
+	slices.Sort(from)
+	for _, s := range from {
+		if len(f.Outcomes[s]) == 0 {
+			delete(f.Outcomes, s)
+			continue
+		}
+		if err := add(s); err != nil {
+			return err
+		}
+		var seen []string
+		for _, o := range f.Outcomes[s] {
+			if !validOutcome.MatchString(o.Name) {
+				return fmt.Errorf("flow: outcome %q of stage %s: use letters, digits, '.', '_' or '-'", o.Name, s)
+			}
+			if slices.Contains(seen, o.Name) {
+				return fmt.Errorf("flow: stage %s has outcome %s twice; an outcome leads to one stage", s, o.Name)
+			}
+			seen = append(seen, o.Name)
+			if err := add(o.To); err != nil {
+				return err
+			}
+			if !slices.Contains(f.Transitions[s], o.To) {
+				f.Transitions[s] = append(f.Transitions[s], o.To)
+			}
+		}
+	}
+	return nil
+}
+
+// OutcomesFrom lists how work in stage can end, in the order written. A
+// stage that names no outcomes but has exactly one way out offers done for
+// it; otherwise a stage without outcomes is left by explicit moves only.
+func (f *Flow) OutcomesFrom(stage string) []Outcome {
+	if out := f.Outcomes[stage]; len(out) > 0 {
+		return slices.Clone(out)
+	}
+	if next := f.Transitions[stage]; len(next) == 1 {
+		return []Outcome{{Name: DefaultOutcome, To: next[0]}}
+	}
+	return nil
+}
+
+// Resolve is the stage outcome sends a bead in stage to; "" means done.
+// The error names the outcomes the stage has, or says it has none.
+func (f *Flow) Resolve(stage, outcome string) (string, error) {
+	outcome = or(strings.TrimSpace(outcome), DefaultOutcome)
+	outs := f.OutcomesFrom(stage)
+	for _, o := range outs {
+		if o.Name == outcome {
+			return o.To, nil
+		}
+	}
+	if len(outs) == 0 {
+		return "", fmt.Errorf("flow %s names no outcomes for stage %s; move the bead with advance --to (allowed next: %s)",
+			f.Name, stage, strings.Join(f.Next(stage), ", "))
+	}
+	names := make([]string, len(outs))
+	for i, o := range outs {
+		names[i] = o.Name
+	}
+	return "", fmt.Errorf("flow %s has no outcome %s for stage %s; outcomes: %s", f.Name, outcome, stage, strings.Join(names, ", "))
 }
 
 // Next lists the stages a bead in stage may move to. A stage with no way
@@ -106,10 +198,11 @@ func (f *Flow) IsTerminal(stage string) bool { return slices.Contains(f.Terminal
 // rule per line:
 //
 //	backlog -> new
-//	new -> review | backlog
+//	new -> review on done | decide on question | backlog
 //	merged terminal
 //
-// Blank lines and lines starting with # are ignored.
+// "on <outcome>" names the outcome that takes the edge. Blank lines and
+// lines starting with # are ignored.
 func ParseFlow(text string) (*Flow, error) {
 	f := &Flow{Transitions: map[string][]string{}}
 	if t := strings.TrimSpace(text); strings.HasPrefix(t, "{") {
@@ -130,13 +223,21 @@ func ParseFlow(text string) (*Flow, error) {
 				return nil, fmt.Errorf("flow line %d: missing stage before ->", n)
 			}
 			f.Stages = append(f.Stages, from)
-			for _, s := range strings.Split(to, "|") {
-				s = strings.TrimSpace(s)
-				if s == "" {
+			for _, edge := range strings.Split(to, "|") {
+				fields := strings.Fields(edge)
+				switch {
+				case len(fields) == 0:
 					return nil, fmt.Errorf("flow line %d: empty stage after ->", n)
+				case len(fields) == 3 && fields[1] == "on":
+					if f.Outcomes == nil {
+						f.Outcomes = map[string][]Outcome{}
+					}
+					f.Outcomes[from] = append(f.Outcomes[from], Outcome{Name: fields[2], To: fields[0]})
+				case len(fields) != 1:
+					return nil, fmt.Errorf("flow line %d: want 'stage' or 'stage on outcome', got %q", n, strings.TrimSpace(edge))
 				}
-				f.Transitions[from] = append(f.Transitions[from], s)
-				f.Stages = append(f.Stages, s)
+				f.Transitions[from] = append(f.Transitions[from], fields[0])
+				f.Stages = append(f.Stages, fields[0])
 			}
 			continue
 		}
@@ -146,7 +247,7 @@ func ParseFlow(text string) (*Flow, error) {
 			f.Stages = append(f.Stages, fields[0])
 			continue
 		}
-		return nil, fmt.Errorf("flow line %d: want 'stage -> next | other' or 'stage terminal', got %q", n, line)
+		return nil, fmt.Errorf("flow line %d: want 'stage -> next on outcome | other' or 'stage terminal', got %q", n, line)
 	}
 	return f, sc.Err()
 }
@@ -156,13 +257,31 @@ func (f *Flow) String() string {
 	var b strings.Builder
 	for _, s := range f.Stages {
 		if next := f.Transitions[s]; len(next) > 0 {
-			fmt.Fprintf(&b, "%s -> %s\n", s, strings.Join(next, " | "))
+			fmt.Fprintf(&b, "%s -> %s\n", s, strings.Join(f.Edges(s), " | "))
 		}
 	}
 	for _, s := range f.Terminal {
 		fmt.Fprintf(&b, "%s terminal\n", s)
 	}
 	return b.String()
+}
+
+// Edges renders stage's transitions as a flow file writes them: "<to> on
+// <outcome>" once per outcome that leads there, a bare "<to>" when none does.
+func (f *Flow) Edges(stage string) []string {
+	out := make([]string, 0, len(f.Transitions[stage]))
+	for _, to := range f.Transitions[stage] {
+		named := false
+		for _, o := range f.Outcomes[stage] {
+			if o.To == to {
+				out, named = append(out, to+" on "+o.Name), true
+			}
+		}
+		if !named {
+			out = append(out, to)
+		}
+	}
+	return out
 }
 
 // PutFlow saves (replacing) the named flow f.Name. Every rig and type that
@@ -521,6 +640,9 @@ type NextStages struct {
 	Source   *FlowSource `json:"source,omitempty"`   // where Flow came from
 	Stages   []string    `json:"stages"`             // allowed next stages (empty without a flow)
 	Terminal []string    `json:"terminal,omitempty"` // those of Stages that close the bead
+	// Outcomes are how work in the stage can end, for `yardr bead done`;
+	// empty when the flow leaves the stage to explicit moves.
+	Outcomes []Outcome `json:"outcomes,omitempty"`
 }
 
 // NextStages reports the flow governing bead id and the stages it may be
@@ -546,6 +668,7 @@ func (s *Store) NextStages(ctx context.Context, id string) (*NextStages, error) 
 			return changedMeanwhile(err)
 		}
 		out.Flow, out.Source, out.Stages = f, src, f.Next(row.Stage)
+		out.Outcomes = f.OutcomesFrom(row.Stage)
 		for _, st := range out.Stages {
 			if f.IsTerminal(st) {
 				out.Terminal = append(out.Terminal, st)

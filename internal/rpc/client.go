@@ -183,6 +183,9 @@ func (c *Client) Advance(ctx context.Context, id, stage, actor string) (*store.B
 func (c *Client) AdvanceNote(ctx context.Context, id, stage, note, actor string) (*store.Bead, error) {
 	return callV[*store.Bead](c, ctx, "AdvanceNote", id, stage, note, actor)
 }
+func (c *Client) Done(ctx context.Context, id, outcome, note, actor string) (*store.Bead, error) {
+	return callV[*store.Bead](c, ctx, "Done", id, outcome, note, actor)
+}
 func (c *Client) CloseBead(ctx context.Context, id, reason, actor string) (*store.Bead, error) {
 	return callV[*store.Bead](c, ctx, "CloseBead", id, reason, actor)
 }

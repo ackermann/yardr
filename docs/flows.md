@@ -111,9 +111,60 @@ With a flow in place:
 - A bead in a stage the flow has no way out of (a stage the flow does not
   know, or a terminal stage after `yardr bead reopen`) may move to any stage
   of the flow, so it is never stuck.
-- `yardr prime --bead` prints the allowed next stages; the store API exposes
-  them as `NextStages`. Agents' briefs list them with the exact
-  `yardr bead advance` command for each.
+- `yardr prime --bead` prints the stage's outcomes, or the allowed next
+  stages when it has none; the store API exposes both as `NextStages`.
+  Agents' briefs list them the same way, with the exact command for each.
+
+## Outcomes: agents say how the work ended
+
+Agents should not choose stages: they report how their work ended, and the
+flow decides where the bead goes. An edge may carry an **outcome** with
+`on <outcome>`:
+
+```
+new      -> review on done | decide on question | backlog
+review   -> approved on done | new on changes | decide on question
+approved -> new on failed | merged
+```
+
+```sh
+yardr bead done <id>                          # outcome done
+yardr bead done <id> --outcome question       # the edge "on question"
+yardr bead done <id> --outcome changes --note "rename the flag"
+```
+
+`yardr bead done` resolves the outcome for the bead's current stage under
+the flow that governs it and makes the same move `advance` would (members
+checked, session ended, a terminal stage closes the bead, the note added in
+the same write). The `advanced` event records the outcome (`"outcome":
+"changes"`).
+
+- **Implicit done.** A stage that names no outcomes but has exactly one way
+  out offers `done` for it: `backlog -> new` needs no `on done`. A single edge
+  that names its outcome (`approved -> new on failed`) offers only that one.
+- **Bare edges** (no `on`) are not outcomes: `review -> backlog` or
+  `approved -> merged` above are reachable only by an explicit
+  `yardr bead advance --to`, for humans and the mayor. `advance --to` still
+  works for every edge and is still checked against the flow.
+- **Unique per stage.** A stage may name each outcome once (two outcomes may
+  lead to the same stage); `flow set`, and a repo flow, refuse duplicates and
+  outcomes on terminal stages. Outcome names use letters, digits, `.`, `_`
+  and `-`.
+- **Errors.** An unknown outcome is refused with the stage's outcomes
+  (`outcomes: done, question`); a stage without outcomes, or a bead no flow
+  governs, is refused with a pointer to `advance --to`.
+
+In JSON a flow carries them per stage, in order:
+`"outcomes": {"review": [{"name": "done", "to": "approved"}, ...]}`; an
+outcome's stage becomes a transition if it is not one already.
+
+Agents' briefs list the stage's outcomes, one line each saying where the
+bead goes and who picks it up there, with the exact `yardr bead done`
+command, instead of stage names; `yardr prime --bead` prints them under
+`OUTCOMES:`. `yardr review` offers a stage's outcomes as its actions
+(`changes: send back to new (note required)`). `yardr flow show` writes each
+edge with its outcome. A stage without outcomes keeps listing its next
+stages, so flows without outcomes behave as before.
 
 ## Type flows
 
@@ -176,20 +227,3 @@ decided terminal
 ```
 
 How beads actually move through these stages is in [pipeline.md](pipeline.md).
-
-## Planned
-
-- **Outcomes and `yardr bead done`** (*planned, yard-qexg*). Agents report
-  how their work ended and the flow picks the stage, instead of agents naming
-  stages. An edge may carry an outcome:
-
-  ```
-  new      -> review on done | decide on question
-  review   -> approved on done | new on changes | decide on question
-  approved -> new on failed
-  ```
-
-  `yardr bead done <id> [--outcome <o>]` resolves the edge for the bead's
-  stage; a stage with one outgoing edge gets `done` implicitly; an edge
-  without `on` is reachable only by an explicit `advance --to` (humans, the
-  mayor). Briefs and `yardr review` offer outcomes instead of stage names.

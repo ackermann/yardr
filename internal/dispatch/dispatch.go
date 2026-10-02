@@ -26,6 +26,10 @@ type Job struct {
 	// Next lists where the bead may go from its stage when a flow governs
 	// it; nil without a flow, where any stage is allowed.
 	Next []NextStage
+	// Outcomes are how the work in the bead's stage can end, each with the
+	// stage its flow sends it to; empty when the flow names none, and the
+	// agent then picks from Next.
+	Outcomes []NextOutcome
 }
 
 // NextStage is one stage a flow allows the bead to move to, with who would
@@ -35,6 +39,12 @@ type NextStage struct {
 	Terminal bool   // entering it closes the bead
 	Group    string // the group routed for the stage; "" when none is
 	Runner   string // that group's runner
+}
+
+// NextOutcome is one outcome the bead's stage offers and where it leads.
+type NextOutcome struct {
+	Outcome string
+	NextStage
 }
 
 // Runner starts and supervises whatever works a bead: an agent, a process,
@@ -513,7 +523,7 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 			}
 		}
 
-		next, err := d.nextStages(ctx, b, routes, groups)
+		next, outcomes, err := d.nextStages(ctx, b, routes, groups)
 		if err != nil {
 			return err
 		}
@@ -528,7 +538,7 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		active[g.Name]++
 		d.Log.Info("dispatching", "bead", b.ID, "stage", b.Stage, "group", g.Name, "session", sess.ID)
 
-		handle, err := runner.Start(ctx, Job{Bead: b, Group: g, Rig: rig, Session: *sess, Next: next})
+		handle, err := runner.Start(ctx, Job{Bead: b, Group: g, Rig: rig, Session: *sess, Next: next, Outcomes: outcomes})
 		if err != nil {
 			d.end(ctx, *sess, "failed", err.Error())
 			active[g.Name]--
@@ -545,24 +555,32 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 	return nil
 }
 
-// nextStages is where b's flow lets it go next, each with the group that
-// would work it there; nil when no flow governs b.
-func (d *Dispatcher) nextStages(ctx context.Context, b store.Bead, routes []store.Route, groups map[string]store.Group) ([]NextStage, error) {
+// nextStages is where b's flow lets it go next, and the outcomes its stage
+// offers, each with the group that would work it there; nil when no flow
+// governs b.
+func (d *Dispatcher) nextStages(ctx context.Context, b store.Bead, routes []store.Route, groups map[string]store.Group) ([]NextStage, []NextOutcome, error) {
 	ns, err := d.Store.NextStages(ctx, b.ID)
 	if err != nil || ns.Flow == nil {
-		return nil, err
+		return nil, nil, err
 	}
-	out := make([]NextStage, 0, len(ns.Stages))
-	for _, st := range ns.Stages {
+	at := func(st string) NextStage {
 		n := NextStage{Stage: st, Terminal: ns.Flow.IsTerminal(st)}
 		moved := b
 		moved.Stage = st
 		if r := Match(routes, moved); r != nil && !n.Terminal {
 			n.Group, n.Runner = r.Group, groups[r.Group].Runner
 		}
-		out = append(out, n)
+		return n
 	}
-	return out, nil
+	next := make([]NextStage, 0, len(ns.Stages))
+	for _, st := range ns.Stages {
+		next = append(next, at(st))
+	}
+	var outcomes []NextOutcome
+	for _, o := range ns.Outcomes {
+		outcomes = append(outcomes, NextOutcome{Outcome: o.Name, NextStage: at(o.To)})
+	}
+	return next, outcomes, nil
 }
 
 func (d *Dispatcher) reportOnce(ctx context.Context, b store.Bead, kind, reason string) {

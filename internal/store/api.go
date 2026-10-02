@@ -16,6 +16,7 @@ type API interface {
 	UpdateBead(ctx context.Context, id string, p BeadPatch, actor string) (*Bead, error)
 	Advance(ctx context.Context, id, stage, actor string) (*Bead, error)
 	AdvanceNote(ctx context.Context, id, stage, note, actor string) (*Bead, error)
+	Done(ctx context.Context, id, outcome, note, actor string) (*Bead, error)
 	CloseBead(ctx context.Context, id, reason, actor string) (*Bead, error)
 	Reopen(ctx context.Context, id, actor string) (*Bead, error)
 	SetHold(ctx context.Context, id string, hold bool, actor string) (*Bead, error)

@@ -416,6 +416,34 @@ func (s *Store) Advance(ctx context.Context, id, stage, actor string) (*Bead, er
 // next stage already sees it (a reviewer's requested changes). An empty
 // note adds none.
 func (s *Store) AdvanceNote(ctx context.Context, id, stage, note, actor string) (*Bead, error) {
+	return s.advance(ctx, id, note, actor, func(f *Flow, b *beadRow, data map[string]any) (string, error) {
+		return stage, checkAdvance(f, b.ID, b.Stage, stage)
+	})
+}
+
+// Done reports how the work in the bead's stage ended and moves it where
+// its flow sends that outcome ("" is done), with an optional note, in one
+// write like AdvanceNote. The outcome is recorded on the advanced event.
+// A bead no flow governs has no outcomes: it is moved with Advance.
+func (s *Store) Done(ctx context.Context, id, outcome, note, actor string) (*Bead, error) {
+	outcome = or(strings.TrimSpace(outcome), DefaultOutcome)
+	return s.advance(ctx, id, note, actor, func(f *Flow, b *beadRow, data map[string]any) (string, error) {
+		if f == nil {
+			return "", fmt.Errorf("bead %s: no flow governs it, so it has no outcomes; move it with yardr bead advance %s --to <stage>", b.ID, b.ID)
+		}
+		to, err := f.Resolve(b.Stage, outcome)
+		if err != nil {
+			return "", fmt.Errorf("bead %s: %w", b.ID, err)
+		}
+		data["outcome"] = outcome
+		return to, nil
+	})
+}
+
+// advance is the move AdvanceNote and Done share: pick names the stage
+// under the bead's flow (nil without one), may add to the event's data,
+// and refuses by returning an error.
+func (s *Store) advance(ctx context.Context, id, note, actor string, pick func(f *Flow, b *beadRow, data map[string]any) (string, error)) (*Bead, error) {
 	pre, err := s.GetBead(ctx, id)
 	if err != nil {
 		return nil, err
@@ -431,15 +459,18 @@ func (s *Store) AdvanceNote(ctx context.Context, id, stage, note, actor string) 
 				return err
 			}
 		}
+		var stage string
 		var terminal bool
 		b, err := w.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
 			f, _, err := resolveFlow(w.Tx, b.Rig, b.Type, PinnedFlow(&b.Bead), repo)
 			if err != nil {
 				return "", nil, changedMeanwhile(err)
 			}
-			if err := checkAdvance(f, b.ID, b.Stage, stage); err != nil {
+			data := withGroup(b, map[string]any{"from": b.Stage})
+			if stage, err = pick(f, b, data); err != nil {
 				return "", nil, err
 			}
+			data["to"] = stage
 			g, err := stageGroup(w.Tx, b)
 			if err != nil {
 				return "", nil, err
@@ -448,7 +479,6 @@ func (s *Store) AdvanceNote(ctx context.Context, id, stage, note, actor string) 
 				return "", nil, err
 			}
 			terminal = f != nil && f.IsTerminal(stage)
-			data := withGroup(b, map[string]any{"from": b.Stage, "to": stage})
 			if err := w.endSession(b, "done"); err != nil {
 				return "", nil, err
 			}

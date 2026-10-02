@@ -18,7 +18,10 @@ branch yard/<bead>.
    Stop processes by pid, never with pkill -f.
 5. Commit on your branch. Do not push, do not merge.
 6. Leave a note on the bead: what changed, what you verified (exact commands),
-   what you did not verify. Then advance to the next stage your brief lists.
+   what you did not verify. Then finish with `yardr bead done <id>`; the flow
+   picks the next stage. Your brief lists the outcomes the stage offers.
 
 If you are stuck or the bead is unclear: note the question on the bead and
-`yardr bead hold <id>`. The mayor sees held beads.
+`yardr bead done <id> --outcome question`, which sends it to a human. If the
+stage offers no `question` outcome, `yardr bead hold <id>` instead; the mayor
+sees held beads.

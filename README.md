@@ -118,6 +118,9 @@ The rest of the documentation is in [docs/](docs/README.md):
 - **[Flows](docs/flows.md):** bead lifecycles. Named flows rigs and types
   point at, flows in the repo's `.yardr/flows/` read from the base branch,
   which stages a bead may move to next, and terminal stages that close it.
+  Edges may carry outcomes (`new -> review on done | decide on question`):
+  agents finish with `yardr bead done <id> [--outcome <o>]` and the flow
+  picks the stage; edges without one are left to `bead advance --to`.
 - **[The pipeline](docs/pipeline.md):** how a bead moves in practice, from
   backlog through builders, review and the refinery to main, using the rig
   yardr is built with.
