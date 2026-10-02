@@ -114,6 +114,15 @@ func AgentName(bead, stage string) string {
 	return n
 }
 
+// WorkspaceLabel is the herdr label for a group's work on name (a bead or a
+// stage): the group first, then name.
+func WorkspaceLabel(group, name string) string {
+	if group == "" {
+		return name
+	}
+	return group + " " + name
+}
+
 func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, error) {
 	if job.Rig == nil {
 		return nil, fmt.Errorf("herdr runner needs the bead to have a rig")
@@ -123,6 +132,9 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	branch := "yard/" + job.Bead.ID
 	name := AgentName(job.Bead.ID, job.Bead.Stage)
 	handle := map[string]any{"agent": name, "branch": branch, "repo": rig.Path}
+	// herdr shows the workspace label, so lead with who is working on the
+	// bead: "yard-builders yard-27" reads better than the bare bead id.
+	label := WorkspaceLabel(job.Group.Name, job.Bead.ID)
 
 	// Best effort: the base ref should be current before branching from it.
 	if remote, _, ok := strings.Cut(rig.Base, "/"); ok {
@@ -132,18 +144,19 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	// First stage creates the worktree; later stages reopen it.
 	root := str(job.Group.Config, "worktrees", h.WorktreeRoot)
 	createArgs := []string{"worktree", "create", "--cwd", rig.Path, "--branch", branch,
-		"--base", rig.Base, "--label", job.Bead.ID}
+		"--base", rig.Base, "--label", label}
 	if root != "" {
 		createArgs = append(createArgs, "--path", filepath.Join(root, rig.Name, job.Bead.ID))
 	}
 	raw, err := h.run(ctx, createArgs...)
+	reopened := false
 	if err != nil {
 		var herr *herdrError
 		if !errors.As(err, &herr) {
 			return nil, err
 		}
 		createErr := err
-		raw, err = h.run(ctx, "worktree", "open", "--cwd", rig.Path, "--branch", branch, "--label", job.Bead.ID)
+		raw, err = h.run(ctx, "worktree", "open", "--cwd", rig.Path, "--branch", branch, "--label", label)
 		if err != nil && root != "" {
 			// The branch exists but its worktree was cleaned up (a reopened
 			// bead): check the branch out again and open that.
@@ -151,15 +164,21 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 			if gerr := git(ctx, rig.Path, "worktree", "add", path, branch); gerr != nil {
 				return nil, fmt.Errorf("worktree for %s: create: %v; open: %v; re-add: %w", branch, createErr, err, gerr)
 			}
-			raw, err = h.run(ctx, "worktree", "open", "--cwd", rig.Path, "--path", path, "--label", job.Bead.ID)
+			raw, err = h.run(ctx, "worktree", "open", "--cwd", rig.Path, "--path", path, "--label", label)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("worktree for %s: create: %v; open: %w", branch, createErr, err)
 		}
+		reopened = true
 	}
 	var wt herdrResult
 	if err := json.Unmarshal(raw, &wt); err != nil {
 		return nil, fmt.Errorf("worktree result: %w", err)
+	}
+	if reopened {
+		// An open workspace keeps the label of the stage that opened it, so
+		// relabel it for this stage's group. Best effort: a label is cosmetic.
+		_, _ = h.run(ctx, "workspace", "rename", wt.Workspace.ID, label)
 	}
 	handle["workspace"], handle["worktree"] = wt.Workspace.ID, wt.Worktree.Path
 
@@ -167,7 +186,7 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	if wt.AlreadyOpen {
 		// The root pane may still hold the previous stage's agent.
 		raw, err := h.run(ctx, "tab", "create", "--workspace", wt.Workspace.ID,
-			"--cwd", wt.Worktree.Path, "--label", job.Bead.Stage)
+			"--cwd", wt.Worktree.Path, "--label", WorkspaceLabel(job.Group.Name, job.Bead.Stage))
 		if err != nil {
 			return handle, err
 		}

@@ -231,3 +231,57 @@ esac`)}
 		t.Fatalf("prompted an agent that was not ready:\n%s", calls)
 	}
 }
+
+// herdr shows workspace and tab labels; both lead with the group, on the
+// first stage (worktree created) and on a later one (worktree reopened).
+func TestHerdrStartLabelsGroupFirst(t *testing.T) {
+	ctx := context.Background()
+	wt := t.TempDir()
+	start := func(t *testing.T, createScript, stage, group string) string {
+		t.Helper()
+		log := filepath.Join(t.TempDir(), "calls")
+		h := &Herdr{Bin: fakeHerdrBin(t, `printf '%s\n' "$*" >> `+log+`
+case "$1 $2" in
+  "worktree create") `+createScript+` ;;
+  "worktree open") echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"},"worktree":{"path":"`+wt+`"},"already_open":true}}' ;;
+  "tab create") echo '{"result":{"tab":{"tab_id":"t2"},"root_pane":{"pane_id":"p2"}}}' ;;
+  *) echo '{"result":{"type":"ok"}}' ;;
+esac`)}
+		job := dispatch.Job{
+			Bead:    store.Bead{ID: "yard-13", Stage: stage},
+			Group:   store.Group{Name: group},
+			Rig:     &store.Rig{Name: "yard", Path: t.TempDir(), Base: "main"},
+			Session: store.Session{ID: "s-" + stage},
+		}
+		handle, err := h.Start(ctx, job)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if handle["agent"] != AgentName("yard-13", stage) {
+			t.Fatalf("agent name changed: %v", handle["agent"])
+		}
+		calls, _ := os.ReadFile(log)
+		return string(calls)
+	}
+
+	created := `echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"},"worktree":{"path":"` + wt + `"}}}'`
+	calls := start(t, created, "new", "yard-builders")
+	if !strings.Contains(calls, "worktree create ") || !strings.Contains(calls, "--label yard-builders yard-13\n") {
+		t.Fatalf("first stage not labelled group first:\n%s", calls)
+	}
+	if strings.Contains(calls, "workspace rename") || strings.Contains(calls, "tab create") {
+		t.Fatalf("first stage relabelled or opened a tab:\n%s", calls)
+	}
+
+	exists := `echo '{"error":{"code":"worktree_exists","message":"branch exists"}}' >&2; exit 1`
+	calls = start(t, exists, "review", "yard-codex-review")
+	for _, want := range []string{
+		"worktree open --cwd ",
+		"workspace rename w1 yard-codex-review yard-13\n",
+		"tab create --workspace w1 --cwd " + wt + " --label yard-codex-review review\n",
+	} {
+		if !strings.Contains(calls, want) {
+			t.Errorf("later stage missing %q:\n%s", want, calls)
+		}
+	}
+}
