@@ -21,6 +21,7 @@
     "subscriberIds": ["aacdca22-6266-4c0a-ab3c-8fa70a26765c"],
     "state": {"id": "e4b1c7a2-0b6c-4f10-9b62-0a6d7d1a0c11", "name": "Todo", "color": "#e2e2e2", "type": "unstarted"},
     "team": {"id": "72b2a2dc-6f4f-4423-9d34-24b5bd10634a", "key": "ENG", "name": "Engineering"},
+    "project": {"id": "5b1d9a0e-2c3f-4d5e-8f60-71829304a5b6", "name": "Webhooks"},
     "labels": [{"id": "0c9a5b0e-7a4b-4b38-a0a1-5c5b1c9f6e01", "name": "Bug", "color": "#eb5757"}],
     "assignee": {"id": "4d3a2b1c-0000-4000-8000-00000000mayr", "name": "mayor"}
   },

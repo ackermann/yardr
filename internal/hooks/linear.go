@@ -81,6 +81,14 @@ type linearData struct {
 	Issue       *linearData     `json:"issue"`
 	AssigneeID  string          `json:"assigneeId"`
 	Assignee    *linearUser     `json:"assignee"`
+	Team        *linearNamed    `json:"team"`
+	Project     *linearNamed    `json:"project"`
+	Labels      []linearNamed   `json:"labels"`
+}
+
+type linearNamed struct {
+	Key  string `json:"key"`
+	Name string `json:"name"`
 }
 
 func (Linear) Normalize(body []byte) (*Envelope, error) {
@@ -103,6 +111,9 @@ func (Linear) Normalize(body []byte) (*Envelope, error) {
 	}
 	switch e.Type {
 	case "comment":
+		if d.Issue != nil {
+			e.Fields = linearFields(d.Issue)
+		}
 		e.Thread = Thread{ID: d.IssueID, URL: stripFragment(p.URL)}
 		if d.Issue != nil {
 			e.Thread = Thread{ID: d.Issue.ID, Title: d.Issue.Title, URL: d.Issue.URL}
@@ -116,6 +127,7 @@ func (Linear) Normalize(body []byte) (*Envelope, error) {
 		e.Text = truncate(d.Body)
 		e.Mentions = linearMentions(d.Body, d.BodyData)
 	case "issue":
+		e.Fields = linearFields(&d)
 		e.Thread = Thread{ID: d.ID, Title: d.Title, URL: firstOf(d.URL, p.URL)}
 		e.Assignee = d.AssigneeID
 		if e.Assignee == "" && d.Assignee != nil {
@@ -136,6 +148,32 @@ func (Linear) Normalize(body []byte) (*Envelope, error) {
 		e.Mentions = []string{}
 	}
 	return e, nil
+}
+
+// linearFields exposes an issue's team (key and name), project and labels
+// for subscription filters. Payloads only carry them when Linear includes
+// the nested objects; ids alone are not useful to filter on by hand.
+func linearFields(d *linearData) map[string][]string {
+	f := map[string][]string{}
+	if d.Team != nil {
+		for _, v := range []string{d.Team.Key, d.Team.Name} {
+			if v != "" {
+				f["team"] = append(f["team"], v)
+			}
+		}
+	}
+	if d.Project != nil && d.Project.Name != "" {
+		f["project"] = []string{d.Project.Name}
+	}
+	for _, l := range d.Labels {
+		if l.Name != "" {
+			f["label"] = append(f["label"], l.Name)
+		}
+	}
+	if len(f) == 0 {
+		return nil
+	}
+	return f
 }
 
 // linearProfile matches a mention in Linear markdown: mentions are written

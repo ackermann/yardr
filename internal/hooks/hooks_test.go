@@ -333,7 +333,8 @@ func TestLinearNormalize(t *testing.T) {
 			Mentions: []string{"mayor", "jane.doe"},
 			Text: "https://linear.app/company/profiles/mayor can you take a look? Also cc https://linear.app/company/profiles/jane.doe, " +
 				"and again https://linear.app/company/profiles/mayor.",
-			URL: "https://linear.app/company/issue/ENG-42/webhook-receiver-drops-retries#comment-2174add1",
+			URL:    "https://linear.app/company/issue/ENG-42/webhook-receiver-drops-retries#comment-2174add1",
+			Fields: map[string][]string{"team": {"ENG", "Engineering"}},
 		}},
 		{"linear_comment_bodydata.json", hooks.Envelope{
 			Source: "linear", Type: "comment", Action: "update",
@@ -353,6 +354,8 @@ func TestLinearNormalize(t *testing.T) {
 			Assignee: "4d3a2b1c-0000-4000-8000-00000000mayr",
 			Text:     "Retries from the sender arrive after the window. https://linear.app/company/profiles/mayor owns triage.",
 			URL:      "https://linear.app/company/issue/ENG-42/webhook-receiver-drops-retries",
+			Fields: map[string][]string{"team": {"ENG", "Engineering"}, "project": {"Webhooks"},
+				"label": {"Bug"}},
 		}},
 		{"linear_issue_update.json", hooks.Envelope{
 			Source: "linear", Type: "issue", Action: "update",
@@ -384,5 +387,39 @@ func TestTextIsTruncated(t *testing.T) {
 	}
 	if n := len([]rune(e.Text)); n != hooks.MaxText || !strings.HasSuffix(e.Text, "…") {
 		t.Fatalf("text of %d runes", n)
+	}
+}
+
+// A Linear comment reaches a subscribed resident's inbox with its reason:
+// by profile key from markdown, by user id from bodyData.
+func TestLinearMentionReachesInbox(t *testing.T) {
+	r := newRig(t)
+	ctx := context.Background()
+	if _, err := r.st.PutResident(ctx, store.Resident{Name: "mayor"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.st.SetIdentity(ctx, "mayor", "linear",
+		store.Identity{ID: "4d3a2b1c-0000-4000-8000-00000000mayr", Key: "mayor"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.st.AddSubscription(ctx, "mayor", store.Subscription{Source: "linear", Scope: store.ScopeMentions,
+		Where: map[string]string{"type": "comment"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"linear_comment_create.json", "linear_comment_bodydata.json", "linear_issue_create.json"} {
+		body := fixture(t, f)
+		r.now = sentAt(t, body)
+		if code := r.linear(t, body, secret, f); code != http.StatusOK {
+			t.Fatalf("%s: %d", f, code)
+		}
+	}
+	page, err := r.st.Inbox(ctx, "mayor", 0)
+	if err != nil || page.Total != 2 {
+		t.Fatalf("inbox: %+v %v", page, err)
+	}
+	for _, e := range page.Events {
+		if why := store.HookReason(e, "mayor"); why != store.ReasonMentioned || e.Data["type"] != "comment" {
+			t.Errorf("event %d: %s, reason %q", e.Seq, e.Data["type"], why)
+		}
 	}
 }

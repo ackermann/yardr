@@ -40,6 +40,11 @@ type Resident struct {
 	Enabled      bool           `json:"enabled"`
 	Journal      string         `json:"journal"` // journal bead id
 
+	// Who it is in each source (by source name), and which hook events it
+	// hears about. Kept when the definition is replaced.
+	Identities    map[string]Identity `json:"identities,omitempty"`
+	Subscriptions []Subscription      `json:"subscriptions,omitempty"`
+
 	// Runtime, maintained by the daemon.
 	State              string         `json:"state"` // stopped running failed
 	Handle             map[string]any `json:"handle,omitempty"`
@@ -304,14 +309,18 @@ func (s *Store) Mail(ctx context.Context, to, text, actor string) error {
 	})
 }
 
-// forResident reports whether e belongs in r's inbox: mail to it, or a kind
-// it subscribes to, never its own actions.
+// forResident reports whether e belongs in r's inbox: mail to it, a hook
+// delivery matched to it at ingest, or a kind it subscribes to, never its
+// own actions.
 func forResident(r *Resident, e Event) bool {
 	if e.Actor == r.Name {
 		return false
 	}
-	if e.Kind == "mail" {
+	switch e.Kind {
+	case "mail":
 		return e.Data["to"] == r.Name
+	case "hook":
+		return HookReason(e, r.Name) != ""
 	}
 	return slices.Contains(r.On, e.Kind)
 }

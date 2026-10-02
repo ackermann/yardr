@@ -141,6 +141,14 @@ next session starts from that handoff (forced after --handoff-grace).`,
 				if r.MaxAge != "" {
 					fmt.Printf("  rotates after %s (handoff grace %s)\n", r.MaxAge, or(r.HandoffGrace, "15m"))
 				}
+				for _, src := range sortedKeys(r.Identities) {
+					id := r.Identities[src]
+					fmt.Printf("  %s identity: %s\n", src, strings.Join(slices.DeleteFunc([]string{id.ID, id.Key},
+						func(s string) bool { return s == "" }), " / "))
+				}
+				for _, sub := range r.Subscriptions {
+					fmt.Printf("  subscribed: %s\n", sub)
+				}
 				fmt.Printf("  journal %s (%d entries)\n", r.Journal, len(notes))
 				for _, n := range notes[max(0, len(notes)-5):] {
 					fmt.Printf("    [%s %s %s] %s\n", n.At.Local().Format("01-02 15:04"), or(n.Kind, "note"), n.Author,
@@ -205,7 +213,7 @@ next session starts from that handoff (forced after --handoff-grace).`,
 	journal := entry(store.NoteJournal, "Keep a decision or piece of context in the journal (≤4 KB)")
 	handoff := entry(store.NoteHandoff, "End this session: write where things stand; the next session starts from it (≤16 KB)")
 
-	cmd.AddCommand(add, list, show, rm, start, stop, restart, journal, handoff)
+	cmd.AddCommand(add, list, show, rm, start, stop, restart, journal, handoff, a.identityCmd())
 	return cmd
 }
 
@@ -294,7 +302,7 @@ func (a *app) inboxCmd() *cobra.Command {
 					return
 				}
 				for _, e := range page.Events {
-					printInboxEvent(e)
+					printInboxEvent(e, name)
 				}
 				if rest := page.Total - len(page.Events); rest > 0 {
 					fmt.Printf("… %d more\n", rest)
@@ -311,12 +319,15 @@ func (a *app) inboxCmd() *cobra.Command {
 	return cmd
 }
 
-func printInboxEvent(e store.Event) {
-	if e.Kind == "mail" {
+func printInboxEvent(e store.Event, resident string) {
+	switch e.Kind {
+	case "mail":
 		fmt.Printf("%6d %s  mail from %s: %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), e.Actor, show(e.Data["text"]))
-		return
+	case "hook":
+		printHookDelivery(e, resident)
+	default:
+		printEvent(e)
 	}
-	printEvent(e)
 }
 
 func (a *app) mailCmd() *cobra.Command {
@@ -504,7 +515,7 @@ func (a *app) primeResident(ctx context.Context, st store.API, name string) erro
 		}
 		fmt.Printf("## Inbox: %d unread\n\n", p.InboxTotal)
 		for _, e := range p.Inbox {
-			printInboxEvent(e)
+			printInboxEvent(e, name)
 		}
 		if p.InboxTotal > 0 {
 			fmt.Println()

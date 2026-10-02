@@ -305,6 +305,15 @@ func (c *Client) Recall(ctx context.Context, scope, query string) ([]store.Memor
 func (c *Client) ExpireMemories(ctx context.Context) (int, error) {
 	return callV[int](c, ctx, "ExpireMemories")
 }
+func (c *Client) SetIdentity(ctx context.Context, name, source string, id store.Identity, actor string) error {
+	return c.call(ctx, "SetIdentity", nil, name, source, id, actor)
+}
+func (c *Client) AddSubscription(ctx context.Context, name string, sub store.Subscription, actor string) error {
+	return c.call(ctx, "AddSubscription", nil, name, sub, actor)
+}
+func (c *Client) RemoveSubscriptions(ctx context.Context, name, source, scope string, where map[string]string, actor string) (int, error) {
+	return callV[int](c, ctx, "RemoveSubscriptions", name, source, scope, where, actor)
+}
 
 func (c *Client) PutHook(ctx context.Context, h store.Hook, actor string) (*store.Hook, error) {
 	return callV[*store.Hook](c, ctx, "PutHook", h, actor)

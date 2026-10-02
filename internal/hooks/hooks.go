@@ -39,6 +39,11 @@ type Envelope struct {
 	Text     string   `json:"text,omitempty"`
 	URL      string   `json:"url,omitempty"`
 	Delivery string   `json:"delivery,omitempty"`
+	// Fields are what the source says about where the delivery belongs,
+	// for subscriptions to filter on (--where team=ENG): team, project,
+	// repo, label. A field may hold several values (labels, or a team's
+	// key and name); a filter matches any of them.
+	Fields map[string][]string `json:"fields,omitempty"`
 }
 
 type Party struct {
