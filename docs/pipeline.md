@@ -118,7 +118,8 @@ The mayor wires this in the store; nothing in `~/.yardr` is versioned:
 
 ```sh
 yardr group add mergers --runner herdr --limit 1 \
-  --set kind=claude --set model=sonnet --set prompt=roles/merger.md
+  --set kind=claude --set model=sonnet --set prompt=roles/merger.md \
+  --set args='--permission-mode auto'      # as yard-builders: it works unattended
 yardr route add --stage merge --group mergers --rig yard
 ```
 
