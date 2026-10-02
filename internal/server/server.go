@@ -114,18 +114,23 @@ func (r *runner) serve(ctx context.Context) (string, error) {
 	}
 
 	replace := make(chan string, 1)
-	offer := func() bool {
+	offer := func(clientRevision string) bool {
 		if r.bin == nil {
 			return false
 		}
 		rev, ok := r.bin.Replacement()
-		if ok {
+		// Replacing is only safe when the caller is the build installed at
+		// our executable path. An older or unrelated client must not be able
+		// to make the server upgrade (or otherwise turn a failed upgrade into
+		// a downgrade decision).
+		matched := ok && (clientRevision == "" || clientRevision == rev)
+		if matched {
 			select {
 			case replace <- rev:
 			default:
 			}
 		}
-		return ok
+		return matched
 	}
 	streams, stopStreams := context.WithCancel(context.Background())
 	defer stopStreams()
@@ -157,7 +162,7 @@ wait:
 		case to = <-replace:
 			break wait
 		case <-check:
-			offer()
+			offer("")
 		case err := <-served:
 			if hookSrv != nil {
 				hookSrv.Close()
@@ -182,7 +187,7 @@ wait:
 
 // handler serves the store API, stamps replies with this build, and offers
 // a replace when a client of another build calls.
-func (r *runner) handler(st *store.Store, offer func() bool, streams context.Context) http.Handler {
+func (r *runner) handler(st *store.Store, offer func(string) bool, streams context.Context) http.Handler {
 	h := rpc.Handler(st, r.log)
 	if r.wrap != nil {
 		h = r.wrap(h)
@@ -201,7 +206,7 @@ func (r *runner) handler(st *store.Store, offer func() bool, streams context.Con
 		// if so, refuse its call (it retries) and hand over to that build.
 		// An older client finds the binary unchanged and is served as is.
 		if theirs := req.Header.Get(version.Header); theirs != "" && theirs != r.rev &&
-			strings.HasPrefix(req.URL.Path, "/call/") && offer() {
+			strings.HasPrefix(req.URL.Path, "/call/") && offer(theirs) {
 			rpc.WriteReplacing(w)
 			return
 		}

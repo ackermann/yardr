@@ -208,6 +208,27 @@ func TestOlderClientDoesNotReplace(t *testing.T) {
 	}
 }
 
+func TestOlderClientDoesNotTriggerAnUpgrade(t *testing.T) {
+	c := home(t)
+	var ex atomic.Int32
+	bin, path := binary(t, "old", func([]string) error { ex.Add(1); return nil })
+	start(t, &runner{c: c, bin: bin, rev: "old"})
+
+	install(t, path, "new")
+	if _, err := client(c, "older").Head(context.Background()); err != nil {
+		t.Fatalf("older client should still be served: %v", err)
+	}
+	if ex.Load() != 0 {
+		t.Fatal("an older client triggered an upgrade")
+	}
+
+	newer := client(c, "new")
+	newer.Retry = 0
+	if _, err := newer.Head(context.Background()); err == nil || !strings.Contains(err.Error(), "replacing") {
+		t.Fatalf("newer client did not trigger replacement: %v", err)
+	}
+}
+
 func TestInFlightCallCompletesAcrossReplace(t *testing.T) {
 	c := home(t)
 	release := make(chan struct{})
