@@ -10,6 +10,9 @@ import (
 
 type Config struct {
 	Home string // state directory: yard.db, yard.sock, logs, worktrees
+	// HookAddr is the TCP address the server receives webhooks on
+	// (YARD_HOOK_ADDR, e.g. 127.0.0.1:8790); empty means no receiver.
+	HookAddr string
 }
 
 // Load resolves YARD_HOME (default ~/.yard), creating it on first use.
@@ -25,7 +28,7 @@ func Load() (*Config, error) {
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		return nil, err
 	}
-	return &Config{Home: home}, nil
+	return &Config{Home: home, HookAddr: os.Getenv("YARD_HOOK_ADDR")}, nil
 }
 
 func (c *Config) DBPath() string  { return filepath.Join(c.Home, "yard.db") }

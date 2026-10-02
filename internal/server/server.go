@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/mckean/yard/internal/config"
+	"github.com/mckean/yard/internal/hooks"
 	"github.com/mckean/yard/internal/rpc"
 	"github.com/mckean/yard/internal/store"
 )
@@ -53,8 +54,12 @@ func Run(ctx context.Context, c *config.Config, log *slog.Logger) error {
 	defer os.Remove(c.PIDFile())
 
 	srv := &http.Server{Handler: rpc.Handler(st, log), ReadHeaderTimeout: 10 * time.Second}
+	hookSrv := serveHooks(c, st, log)
 	go func() {
 		<-ctx.Done()
+		if hookSrv != nil {
+			hookSrv.Close()
+		}
 		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		// Streams (events, wake) never finish on their own; Shutdown waits
@@ -68,6 +73,30 @@ func Run(ctx context.Context, c *config.Config, log *slog.Logger) error {
 		return err
 	}
 	return nil
+}
+
+// serveHooks starts the webhook receiver on its own TCP listener when
+// configured. It is a separate server with only the receiver's handler, so
+// a port opened to the internet never reaches the store API or BDP. A
+// receiver that cannot listen is logged, not fatal: the yard itself works.
+func serveHooks(c *config.Config, st *store.Store, log *slog.Logger) *http.Server {
+	if c.HookAddr == "" {
+		return nil
+	}
+	ln, err := net.Listen("tcp", c.HookAddr)
+	if err != nil {
+		log.Error("hook receiver not started", "addr", c.HookAddr, "err", err)
+		return nil
+	}
+	srv := &http.Server{Handler: hooks.NewReceiver(st, log).Handler(),
+		ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second}
+	go func() {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error("hook receiver stopped", "err", err)
+		}
+	}()
+	log.Info("hook receiver ready", "addr", ln.Addr().String())
+	return srv
 }
 
 // Connect returns a client for the running server, starting one if none

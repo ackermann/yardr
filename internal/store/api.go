@@ -78,6 +78,13 @@ type API interface {
 	Recall(ctx context.Context, scope, query string) ([]MemoryInfo, error)
 	ExpireMemories(ctx context.Context) (int, error)
 
+	PutHook(ctx context.Context, h Hook, actor string) (*Hook, error)
+	Hooks(ctx context.Context) ([]Hook, error)
+	GetHook(ctx context.Context, name string) (*Hook, error)
+	DeleteHook(ctx context.Context, name, actor string) error
+	RecordHook(ctx context.Context, name string, envelope map[string]any, payload []byte) (uint64, error)
+	HookPayload(ctx context.Context, seq uint64) ([]byte, error)
+
 	// Streams: closed when ctx ends or the connection to the owner drops.
 	Subscribe(ctx context.Context, after uint64) (<-chan Event, error)
 	TailEvents(ctx context.Context) (<-chan Event, error)

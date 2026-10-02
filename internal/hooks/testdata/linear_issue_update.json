@@ -1,0 +1,25 @@
+{
+  "action": "update",
+  "actor": {"id": "aacdca22-6266-4c0a-ab3c-8fa70a26765c", "type": "user", "name": "Jane Doe"},
+  "createdAt": "2026-10-02T08:30:00.000Z",
+  "data": {
+    "id": "539068e2-ae88-4d09-bd75-22eb4a59612f",
+    "title": "Webhook receiver drops retries",
+    "description": "Retries from the sender arrive after the window.",
+    "identifier": "ENG-42",
+    "url": "https://linear.app/company/issue/ENG-42/webhook-receiver-drops-retries",
+    "teamId": "72b2a2dc-6f4f-4423-9d34-24b5bd10634a",
+    "stateId": "6a8f4d2e-3c1b-4e0a-8d7f-1b2c3d4e5f60",
+    "assigneeId": "aacdca22-6266-4c0a-ab3c-8fa70a26765c"
+  },
+  "updatedFrom": {
+    "updatedAt": "2026-10-02T08:00:00.000Z",
+    "stateId": "e4b1c7a2-0b6c-4f10-9b62-0a6d7d1a0c11",
+    "assigneeId": "4d3a2b1c-0000-4000-8000-00000000mayr"
+  },
+  "type": "Issue",
+  "url": "https://linear.app/company/issue/ENG-42/webhook-receiver-drops-retries",
+  "organizationId": "dc844923-f9a4-40a3-825c-dea7747e57d6",
+  "webhookTimestamp": 1791016200000,
+  "webhookId": "000042e3-d123-4980-b49f-8e140eef9329"
+}

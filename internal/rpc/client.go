@@ -291,6 +291,25 @@ func (c *Client) ExpireMemories(ctx context.Context) (int, error) {
 	return callV[int](c, ctx, "ExpireMemories")
 }
 
+func (c *Client) PutHook(ctx context.Context, h store.Hook, actor string) (*store.Hook, error) {
+	return callV[*store.Hook](c, ctx, "PutHook", h, actor)
+}
+func (c *Client) Hooks(ctx context.Context) ([]store.Hook, error) {
+	return callV[[]store.Hook](c, ctx, "Hooks")
+}
+func (c *Client) GetHook(ctx context.Context, name string) (*store.Hook, error) {
+	return callV[*store.Hook](c, ctx, "GetHook", name)
+}
+func (c *Client) DeleteHook(ctx context.Context, name, actor string) error {
+	return c.call(ctx, "DeleteHook", nil, name, actor)
+}
+func (c *Client) RecordHook(ctx context.Context, name string, envelope map[string]any, payload []byte) (uint64, error) {
+	return callV[uint64](c, ctx, "RecordHook", name, envelope, payload)
+}
+func (c *Client) HookPayload(ctx context.Context, seq uint64) ([]byte, error) {
+	return callV[[]byte](c, ctx, "HookPayload", seq)
+}
+
 // Subscribe streams events with seq > after. The channel closes if the
 // connection drops; resubscribe from the last seq seen.
 func (c *Client) Subscribe(ctx context.Context, after uint64) (<-chan store.Event, error) {
