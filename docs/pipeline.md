@@ -31,9 +31,9 @@ Christopher can do the same from `yardr review -g backlog`.
 on branch `yard/<bead>`, starts the agent in it and hands it a brief: the
 role prompt, the bead, and the stages it may move to next.
 
-The builder implements the change, runs the checks (today written out in the
-role prompt: `go vet`, `go test -race`, the RPC suites; `.yardr/check` once
-yard-p2y7 lands), commits on its branch (never pushes or merges), leaves a
+The builder implements the change, runs the gate (`yardr rig check yard
+--dir <worktree>`, which runs `.yardr/check` from `main`: `go vet`,
+`go test -race`, the RPC suites), commits on its branch (never pushes or merges), leaves a
 note with what it changed and verified, and advances to `review`.
 
 ## 3. Review: Codex reviews forward
@@ -110,7 +110,8 @@ repo/store split in [configuration.md](configuration.md), is one.
 - Agents report an outcome (`yardr bead done`, `--outcome changes`,
   `--outcome question`) and the flow picks the stage, instead of agents naming
   stages (*planned, yard-qexg*).
-- `.yardr/check` is the one gate both the builder and the refinery run, read
-  from `main` so a bead cannot weaken it (*planned, yard-p2y7*).
+- The refinery script calls `yardr rig check` instead of hard-coding the
+  checks, so `.yardr/check` (built, read from `main` so a bead cannot weaken
+  it) is the one gate both the builder and the refinery run.
 - The refinery becomes a versioned script with a `merge` stage
   (*planned, yard-23, yard-24*).

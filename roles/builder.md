@@ -6,10 +6,11 @@ branch yard/<bead>.
 1. Read the bead first (`yardr prime --bead <id>`): its goal, notes and edges.
 2. Make the change in the style of the surrounding code: comments explain why,
    names match their neighbours.
-3. Tests must pass before you hand on:
-   - `go vet ./... && go test -race ./...`
-   - `YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/`
-     (the same suites through the unix-socket client)
+3. The rig's gate must pass before you hand on: run
+   `yardr rig check yard --dir <your worktree>` after your last commit.
+   It runs `.yardr/check` as it is on main (go vet, go test -race, and the
+   store/dispatch/bdp suites again through the unix-socket client), so
+   editing `.yardr/check` on your branch does not change what you must pass.
    Every bug you find or fix gets a regression test.
 4. Anything that starts agents is tested in an isolated herdr server (own
    XDG_CONFIG_HOME and XDG_STATE_HOME in a short temp dir), never Christopher's

@@ -197,7 +197,10 @@ func TestHerdrFinishRemovesOnlyCleanWorktrees(t *testing.T) {
 	add := func(bead string) string {
 		path := filepath.Join(root, bead)
 		gitT(t, repo, "worktree", "add", "-q", "-b", "yard/"+bead, path)
-		// yard's brief dir, ignored by its own .gitignore
+		if _, err := writeBrief(ctx, path, "s", "brief"); err != nil {
+			t.Fatal(err)
+		}
+		// a pre-yardr brief dir, ignored by its own .gitignore
 		os.MkdirAll(filepath.Join(path, ".yard"), 0o700)
 		os.WriteFile(filepath.Join(path, ".yard", ".gitignore"), []byte("*\n"), 0o600)
 		os.WriteFile(filepath.Join(path, ".yard", "brief-s.md"), []byte("brief"), 0o600)
@@ -313,6 +316,7 @@ func TestWorkspaceLabel(t *testing.T) {
 func TestHerdrStartLabelsGroupFirst(t *testing.T) {
 	ctx := context.Background()
 	wt := t.TempDir()
+	gitT(t, wt, "init", "-q", "-b", "main")
 	start := func(t *testing.T, createScript, stage, group string) string {
 		t.Helper()
 		log := filepath.Join(t.TempDir(), "calls")
@@ -360,6 +364,62 @@ esac`)}
 			t.Errorf("later stage missing %q:\n%s", want, calls)
 		}
 	}
+}
+
+// The brief goes into the worktree's git dir, outside the tracked tree:
+// nothing in the checkout changes, so .yardr/ there can be committed config,
+// and the agent is pointed at the brief by its absolute path.
+func TestHerdrBriefOutsideTheTree(t *testing.T) {
+	ctx := context.Background()
+	repo := t.TempDir()
+	gitT(t, repo, "init", "-q", "-b", "main")
+	gitT(t, repo, "commit", "-q", "--allow-empty", "-m", "init")
+	wt := filepath.Join(t.TempDir(), "yard-13")
+	gitT(t, repo, "worktree", "add", "-q", "-b", "yard/yard-13", wt)
+
+	log := filepath.Join(t.TempDir(), "calls")
+	h := &Herdr{Bin: fakeHerdrBin(t, `printf '%s\n' "$*" >> `+log+`
+case "$1 $2" in
+  "worktree create") echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"},"worktree":{"path":"`+wt+`"}}}' ;;
+  *) echo '{"result":{"type":"ok"}}' ;;
+esac`)}
+	job := dispatch.Job{
+		Bead:    store.Bead{ID: "yard-13", Title: "Gate", Stage: "new"},
+		Group:   store.Group{Name: "builders"},
+		Rig:     &store.Rig{Name: "yard", Path: repo, Base: "main"},
+		Session: store.Session{ID: "s1"},
+	}
+	handle, err := h.Start(ctx, job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	brief, _ := handle["brief"].(string)
+	gitDir := gitOutT(t, wt, "rev-parse", "--absolute-git-dir")
+	if !filepath.IsAbs(brief) || filepath.Dir(brief) != filepath.Join(gitDir, "yardr") {
+		t.Fatalf("brief at %q, want it under %s/yardr", brief, gitDir)
+	}
+	if b, err := os.ReadFile(brief); err != nil || !strings.Contains(string(b), "Gate") {
+		t.Fatalf("brief not written: %v\n%s", err, b)
+	}
+	if st := gitOutT(t, wt, "status", "--porcelain", "--ignored"); st != "" {
+		t.Fatalf("brief left files in the worktree:\n%s", st)
+	}
+	if _, err := os.Stat(filepath.Join(wt, ".yard")); !os.IsNotExist(err) {
+		t.Fatal("still writes .yard/ into the worktree")
+	}
+	calls, _ := os.ReadFile(log)
+	if !strings.Contains(string(calls), "agent prompt yard-13-new Read "+brief+" and follow it.") {
+		t.Fatalf("agent not pointed at the brief by its path:\n%s", calls)
+	}
+}
+
+func gitOutT(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	out, err := gitOut(context.Background(), dir, args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
 }
 
 // A bead migrated from counter ids keeps its branch: the old id became its

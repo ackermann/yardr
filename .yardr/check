@@ -1,0 +1,9 @@
+#!/bin/sh
+# yard's merge gate, run by `yardr rig check yard` in a bead's worktree.
+# yardr reads this file from the base branch, so editing it on a bead branch
+# changes nothing until the edit has landed.
+set -e
+go vet ./...
+go test -race ./...
+# The same suites through the unix-socket client.
+YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/

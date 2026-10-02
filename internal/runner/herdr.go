@@ -16,6 +16,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -214,17 +215,8 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	if err != nil {
 		return handle, err
 	}
-	// The brief goes inside the worktree: agents may read their working
-	// directory without asking. .yard/ ignores itself so it is never committed.
-	briefDir := filepath.Join(wt.Worktree.Path, ".yard")
-	if err := os.MkdirAll(briefDir, 0o700); err != nil {
-		return handle, err
-	}
-	if err := os.WriteFile(filepath.Join(briefDir, ".gitignore"), []byte("*\n"), 0o600); err != nil {
-		return handle, err
-	}
-	briefPath := filepath.Join(briefDir, "brief-"+job.Session.ID+".md")
-	if err := os.WriteFile(briefPath, []byte(brief), 0o600); err != nil {
+	briefPath, err := writeBrief(ctx, wt.Worktree.Path, job.Session.ID, brief)
+	if err != nil {
 		return handle, err
 	}
 	handle["brief"] = briefPath
@@ -233,12 +225,34 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	if extra := AgentArgs(job); len(extra) > 0 {
 		args = append(append(args, "--"), extra...)
 	}
-	rel, _ := filepath.Rel(wt.Worktree.Path, briefPath)
-	prompt := fmt.Sprintf("Read %s and follow it. Start with `export YARDR_ACTOR=%s`.", rel, name)
+	prompt := fmt.Sprintf("Read %s and follow it. Start with `export YARDR_ACTOR=%s`.", briefPath, name)
 	if h.YardBin != "" {
 		prompt += fmt.Sprintf(" Run yardr as %s.", h.YardBin)
 	}
 	return h.startAgent(ctx, args, name, prompt, handle)
+}
+
+// BriefDir is where briefs for the worktree at path go: yardr/ in the
+// worktree's own git directory (.git/worktrees/<name>/yardr for a linked
+// worktree). That is outside the tracked tree, so a brief never shows up as
+// a change, and .yardr/ in the tree is left for committed config.
+func BriefDir(ctx context.Context, worktree string) (string, error) {
+	return rigcheck.GitPath(ctx, worktree, "yardr")
+}
+
+func writeBrief(ctx context.Context, worktree, session, brief string) (string, error) {
+	dir, err := BriefDir(ctx, worktree)
+	if err != nil {
+		return "", fmt.Errorf("brief dir for %s: %w", worktree, err)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, "brief-"+session+".md")
+	if err := os.WriteFile(path, []byte(brief), 0o600); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 // startAgent starts the agent and gives it its first prompt. An agent that
@@ -330,8 +344,9 @@ func (h *Herdr) Finish(ctx context.Context, handle map[string]any) error {
 		_ = git(ctx, repo, "worktree", "prune")
 		return dispatch.ErrNothingLeft
 	}
-	// yard's own scratch (.yard/brief-*.md) is ignored, so it does not count
-	// as a change; anything else does.
+	// Briefs live in the worktree's git dir, so they do not count as a
+	// change (nor does a pre-yardr .yard/, which ignores itself); anything
+	// else does. `worktree remove` deletes the git dir, briefs with it.
 	if out, err := gitOut(ctx, path, "status", "--porcelain"); err != nil {
 		return fmt.Errorf("inspect %s: %w", path, err)
 	} else if out != "" {

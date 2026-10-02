@@ -19,7 +19,7 @@ name, `yardr group add <name> --runner … --set …` stays scriptable.
 |---|---|---|
 | `manual` | nothing; the bead waits on the group | — |
 | `exec` | `sh -c cmd` in the rig, with `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_ACTOR` | `cmd`, `dir`, `log` |
-| `herdr` | a herdr worktree workspace on branch `yard/<bead>` at `~/.yardr/worktrees/<rig>/<bead>` (reopened for later stages, one tab per stage), an agent in it, prompted with a brief in `<worktree>/.yard/` | `kind`, `prompt`, `args`, `keep`, `worktrees` |
+| `herdr` | a herdr worktree workspace on branch `yard/<bead>` at `~/.yardr/worktrees/<rig>/<bead>` (reopened for later stages, one tab per stage), an agent in it, prompted with a brief in the worktree's git dir (`git rev-parse --git-path yardr`) | `kind`, `prompt`, `args`, `keep`, `worktrees` |
 
 A session ends when the bead is advanced, closed or released. If the runner
 reports the work gone (process exited, herdr agent gone) the session is marked

@@ -44,6 +44,9 @@ func Execute() int {
 	if a.st != nil {
 		_ = a.st.Close(context.Background())
 	}
+	if errors.Is(err, errCheckFailed) {
+		return 1 // the command has reported the failure itself
+	}
 	if err != nil {
 		if a.json {
 			_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"error": err.Error()})
@@ -57,6 +60,10 @@ func Execute() int {
 	}
 	return 0
 }
+
+// errCheckFailed ends a command that has already printed its failing result
+// (a red merge gate): exit 1 without a second message.
+var errCheckFailed = errors.New("check failed")
 
 func (a *app) who() string {
 	if a.actor != "" {

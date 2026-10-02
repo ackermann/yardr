@@ -252,6 +252,9 @@ type Rig struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
 	Base string `json:"base"`
+	// Check overrides the repo's .yardr/check as the rig's merge gate: a
+	// command run with sh -c in the bead's worktree (see package rigcheck).
+	Check string `json:"check,omitempty"`
 }
 
 func (s *Store) PutRig(ctx context.Context, r Rig) error {

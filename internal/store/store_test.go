@@ -56,6 +56,19 @@ func TestCreateAndGetBead(t *testing.T) {
 	}
 }
 
+// A rig's --check override survives the store (and the RPC client).
+func TestRigKeepsCheckOverride(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	if err := s.PutRig(ctx, store.Rig{Name: "web", Path: "/tmp/web", Base: "main", Check: "make test"}); err != nil {
+		t.Fatal(err)
+	}
+	r, err := s.GetRig(ctx, "web")
+	if err != nil || r.Check != "make test" {
+		t.Fatalf("rig = %+v, %v", r, err)
+	}
+}
+
 func TestReadyRespectsBlocksHoldAndClose(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
