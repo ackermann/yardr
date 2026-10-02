@@ -161,6 +161,42 @@ func TestHookWhere(t *testing.T) {
 	}
 }
 
+// github subscriptions filter on the fields its adapter sets, state among
+// them; other hook sources still refuse those keys, and yardr still takes
+// only state=done.
+func TestGitHubWhereKeys(t *testing.T) {
+	s, own := storetest.NewOwned(t)
+	ctx := context.Background()
+	resident(t, s, "all", false, store.Subscription{Source: "github", Scope: store.ScopeAll,
+		Where: map[string]string{"epic": "yard-sv6b", "state": "approved"}})
+	for _, bad := range []store.Subscription{
+		{Source: "linear", Scope: "all", Where: map[string]string{"epic": "yard-sv6b"}},
+		{Source: "github", Scope: "all", Where: map[string]string{"stage": "review"}},
+		{Source: store.SourceYardr, Scope: "all", Where: map[string]string{"state": "approved"}},
+	} {
+		if err := s.AddSubscription(ctx, "all", bad, "me"); err == nil {
+			t.Errorf("accepted %s --where %v", bad.Source, bad.Where)
+		}
+	}
+	review := func(epic, state string) hooks.Envelope {
+		return hooks.Envelope{Source: "github", Type: "pull_request_review", Action: "submitted",
+			Fields: map[string][]string{"epic": {epic}, "state": {state}}}
+	}
+	for _, c := range []struct {
+		name string
+		env  hooks.Envelope
+		want map[string]string
+	}{
+		{"approved on the epic", review("yard-sv6b", "approved"), map[string]string{"all": "all"}},
+		{"changes requested", review("yard-sv6b", "changes_requested"), map[string]string{}},
+		{"other epic", review("yard-xxxx", "approved"), map[string]string{}},
+	} {
+		if got := deliveries(t, s, own, c.env); !same(got, c.want) {
+			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
 func TestHookDeliveryInInbox(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()

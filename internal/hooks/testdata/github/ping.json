@@ -1,0 +1,12 @@
+{
+ "zen": "Keep it logically awesome.",
+ "hook_id": 1,
+ "repository": {
+  "full_name": "acme/yardr",
+  "html_url": "https://github.com/acme/yardr"
+ },
+ "sender": {
+  "login": "jane-doe",
+  "type": "User"
+ }
+}

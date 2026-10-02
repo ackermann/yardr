@@ -1,0 +1,28 @@
+{
+ "action": "opened",
+ "issue": {
+  "number": 23,
+  "title": "Hook listener logs the secret path",
+  "html_url": "https://github.com/acme/yardr/issues/23",
+  "state": "open",
+  "body": "Seen on startup. @mayor can you look?",
+  "user": {
+   "login": "jane-doe",
+   "type": "User"
+  },
+  "assignee": null,
+  "labels": [
+   {
+    "name": "bug"
+   }
+  ]
+ },
+ "repository": {
+  "full_name": "acme/yardr",
+  "html_url": "https://github.com/acme/yardr"
+ },
+ "sender": {
+  "login": "jane-doe",
+  "type": "User"
+ }
+}

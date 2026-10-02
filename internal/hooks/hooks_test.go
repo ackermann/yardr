@@ -62,7 +62,7 @@ func newRig(t *testing.T) *rig {
 	t.Helper()
 	st, own := storetest.NewOwned(t)
 	dir := t.TempDir()
-	for name, src := range map[string]string{"linear": "linear", "adhoc": "token"} {
+	for name, src := range map[string]string{"linear": "linear", "adhoc": "token", "gh": "github"} {
 		f := filepath.Join(dir, name+".secret")
 		if err := os.WriteFile(f, []byte(secret+"\n"), 0o600); err != nil {
 			t.Fatal(err)
@@ -517,7 +517,7 @@ func TestLinearNormalize(t *testing.T) {
 			Entity:   "539068e2-ae88-4d09-bd75-22eb4a59612f",
 		}},
 	} {
-		got, err := hooks.Linear{}.Normalize(fixture(t, c.file))
+		got, err := hooks.Linear{}.Normalize(nil, fixture(t, c.file))
 		if err != nil {
 			t.Fatalf("%s: %v", c.file, err)
 		}
@@ -530,7 +530,7 @@ func TestLinearNormalize(t *testing.T) {
 func TestTextIsTruncated(t *testing.T) {
 	long := strings.Repeat("é", hooks.MaxText*3)
 	body, _ := json.Marshal(map[string]any{"type": "Comment", "action": "create", "data": map[string]any{"body": long}})
-	e, err := hooks.Linear{}.Normalize(body)
+	e, err := hooks.Linear{}.Normalize(nil, body)
 	if err != nil {
 		t.Fatal(err)
 	}

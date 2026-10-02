@@ -139,7 +139,9 @@ The scope defaults to involved for a hook source and to all for yardr.
 
 --where narrows a subscription by exact matches, all of which must hold.
 Hook sources: ` + strings.Join(store.WhereKeys, ", ") + `. Linear exposes team
-(key or name), project and label (any of the issue's labels).
+(key or name), project and label (any of the issue's labels). GitHub exposes
+repo (owner/name) and label, and also ` + strings.Join(store.GitHubWhereKeys, ", ") + `
+(epic: the yardr epic whose yard/<epic> branch a pull request or CI run is on).
 yardr: ` + strings.Join(store.YardrWhereKeys, ", ") + `:
   bead, rig, type, label  the bead's (label: any of its labels)
   kind    the event: created, advanced, noted, held, unheld, closed,
@@ -160,6 +162,7 @@ reach it. A resident's --on kinds work as implicit "yardr all kind=<k>"
 subscriptions (and also cover events not about a bead).`,
 		Example: `  yardr subscribe mayor linear --scope involved
   yardr subscribe triage linear --scope all --where type=issue --where action=create --where team=ENG
+  yardr subscribe mayor github --scope all --where epic=yard-sv6b --where conclusion=failure
   yardr subscribe mayor yardr --done
   yardr subscribe mayor yardr --done --where rig=yard --where label=ui
   yardr subscribe approvers yardr --where stage=approved`,

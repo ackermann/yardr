@@ -95,7 +95,7 @@ type linearNamed struct {
 	Name string `json:"name"`
 }
 
-func (Linear) Normalize(body []byte) (*Envelope, error) {
+func (Linear) Normalize(_ http.Header, body []byte) (*Envelope, error) {
 	var p linearPayload
 	if err := json.Unmarshal(body, &p); err != nil {
 		return nil, bad("linear payload: %v", err)

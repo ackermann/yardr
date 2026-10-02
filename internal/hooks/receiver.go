@@ -104,7 +104,7 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 		rc.reject(w, name, reason, code, err)
 		return
 	}
-	env, err := ad.Normalize(body)
+	env, err := ad.Normalize(r.Header, body)
 	if err != nil {
 		rc.reject(w, name, "bad_request", http.StatusBadRequest, err)
 		return

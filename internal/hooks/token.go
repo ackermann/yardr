@@ -30,7 +30,7 @@ func (Token) Verify(r *http.Request, body, secret []byte, now time.Time) (string
 // purpose, and only a repeated Yard-Delivery marks a redelivery.
 func (Token) UniqueBodies() bool { return false }
 
-func (Token) Normalize(body []byte) (*Envelope, error) {
+func (Token) Normalize(_ http.Header, body []byte) (*Envelope, error) {
 	e := &Envelope{Source: "token", Type: "message", Mentions: []string{}}
 	var p struct {
 		Type   string `json:"type"`

@@ -1,0 +1,42 @@
+{
+ "action": "opened",
+ "number": 17,
+ "pull_request": {
+  "number": 17,
+  "title": "PR flow: open, review and land epics",
+  "html_url": "https://github.com/acme/yardr/pull/17",
+  "state": "open",
+  "draft": false,
+  "merged": false,
+  "body": "Lands the epic. @Mayor please review; cc @jane-doe and @acme/core. Mail ops@example.com.",
+  "user": {
+   "login": "Jane-Doe",
+   "type": "User"
+  },
+  "assignee": {
+   "login": "Mayor",
+   "type": "User"
+  },
+  "labels": [
+   {
+    "name": "pr-flow"
+   }
+  ],
+  "head": {
+   "ref": "yard/yard-sv6b",
+   "sha": "4f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b"
+  },
+  "base": {
+   "ref": "main",
+   "sha": "0a1b2c3d4e5f60718293a4b5c6d7e8f901234567"
+  }
+ },
+ "repository": {
+  "full_name": "acme/yardr",
+  "html_url": "https://github.com/acme/yardr"
+ },
+ "sender": {
+  "login": "Jane-Doe",
+  "type": "User"
+ }
+}

@@ -5,7 +5,7 @@ always lands there. Everything else arrives because something subscribed it:
 
 | source | what it delivers | how a resident subscribes |
 |---|---|---|
-| a hook source (`linear`, `token`) | webhook deliveries taken by `yardr hook` | `yardr subscribe <name> linear …` |
+| a hook source (`github`, `linear`, `token`) | webhook deliveries taken by `yardr hook` | `yardr subscribe <name> linear …` |
 | `yardr` | yardr's own bead events: created, advanced, noted, closed, … | `yardr subscribe <name> yardr …`, `yardr bead watch` |
 | `--on` on the resident | event kinds, every bead, and events not about a bead | `yardr resident add --on …` |
 
@@ -158,6 +158,47 @@ still reach it as `assigned`, `participant` or `all`). The event keeps the
 full list in `mentions`; `new_mentions` is what routing used. Comments are new
 text each time, so every mention in one counts.
 
+### GitHub
+
+```sh
+yardr hook add gh --source github --secret-file ~/.config/yardr/github.secret
+yardr resident identity mayor --source github --key mayor   # its login, lowercase
+yardr subscribe mayor github --scope involved
+yardr subscribe mayor github --scope all --where epic=yard-sv6b --where conclusion=failure
+```
+
+On GitHub, in the repository's **Settings → Webhooks → Add webhook**:
+
+- **Payload URL:** `https://<your host>/hooks/gh`, the hook listener
+  (`YARDR_HOOK_ADDR`) behind whatever exposes it.
+- **Content type:** `application/json`. The form-encoded type is refused.
+- **Secret:** the contents of the `--secret-file`. Each delivery is checked
+  against `X-Hub-Signature-256` (HMAC-SHA256 of the body).
+- **Events:** *Let me select individual events*, then tick Pull requests,
+  Pull request reviews, Issue comments, Issues, Workflow runs and Check
+  suites. Other events are recorded too, but with only `event`, `action` and
+  `repo` and no thread.
+
+The envelope's `type` is the GitHub event and `action` the body's action:
+
+| event | actions | thread | text, mentions |
+|---|---|---|---|
+| `pull_request` | `opened`, `synchronize`, `reopened`, `ready_for_review`, `closed` (`merged` true or false), … | the pull request | its description |
+| `pull_request_review` | `submitted` (`state` `approved`, `changes_requested`, `commented`) | the pull request | the review's body |
+| `issue_comment` | `created`, … (on a pull request or an issue) | the pull request or issue | the comment |
+| `issues` | `opened`, `closed`, `edited`, … | the issue | its description |
+| `workflow_run`, `check_suite` | `completed` (`conclusion` `success`, `failure`, `cancelled`, …) | the pull request GitHub lists for the run, if any | `<workflow> <conclusion> on <branch>` |
+
+A thread (and, for a description, the entity whose mentions are diffed) is
+`<owner>/<repo>#<number>`. Logins are lowercased in `actor.id`, `assignee`
+and `mentions`, so a resident's github identity is its login in lowercase.
+`@org/team` mentions, email addresses and mentions in code are not mentions.
+Where keys, besides `type`, `action`, `repo` and `label`: `event`, `number`,
+`state` (the issue's or pull request's, or the review's), `merged`,
+`conclusion`, `head_branch`, `head_sha`, `base`, and `epic`: the yardr epic
+when the head branch is `yard/<epic>`, so `--where epic=yard-sv6b` follows an
+epic's pull request and CI without parsing branch names.
+
 ### Redeliveries
 
 A delivery is recorded at most once, also across server restarts and when
@@ -169,6 +210,8 @@ verified:
   `webhookTimestamp` it was signed with, so a body seen before is the same
   delivery again, whatever its `Linear-Delivery` header says. A repeated
   `Linear-Delivery` id is dropped as well.
+- **GitHub:** the `X-GitHub-Delivery` header, per hook. A redelivery keeps
+  its id; bodies carry no timestamp, so the body is not a key.
 - **token:** the `Yard-Delivery` header, per hook, when the sender sets one.
   The body is not a key: a cron job may send `backup ok` every hour.
 

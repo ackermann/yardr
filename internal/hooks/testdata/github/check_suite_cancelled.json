@@ -1,0 +1,32 @@
+{
+ "action": "completed",
+ "check_suite": {
+  "id": 6,
+  "status": "completed",
+  "conclusion": "cancelled",
+  "head_branch": "yard/yard-sv6b",
+  "head_sha": "4f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b",
+  "app": {
+   "name": "GitHub Actions"
+  },
+  "pull_requests": [
+   {
+    "number": 17,
+    "head": {
+     "ref": "yard/yard-sv6b"
+    },
+    "base": {
+     "ref": "main"
+    }
+   }
+  ]
+ },
+ "repository": {
+  "full_name": "acme/yardr",
+  "html_url": "https://github.com/acme/yardr"
+ },
+ "sender": {
+  "login": "jane-doe",
+  "type": "User"
+ }
+}

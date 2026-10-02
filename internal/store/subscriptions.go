@@ -43,13 +43,22 @@ const (
 
 // WhereKeys are what --where may filter on for a hook source: envelope
 // fields, then source fields an adapter may expose. Exact matches only,
-// ANDed. The yardr source has its own (YardrWhereKeys).
+// ANDed. The yardr source has its own (YardrWhereKeys), and github adds
+// the pull request fields its adapter exposes (GitHubWhereKeys).
 var WhereKeys = []string{"type", "action", "team", "project", "repo", "label"}
+
+// GitHubWhereKeys are what --where may filter a github subscription on
+// besides WhereKeys: the fields the github hook adapter sets, epic among
+// them (the yardr epic whose branch a pull request or CI run is on).
+var GitHubWhereKeys = []string{"event", "number", "state", "merged", "conclusion", "head_branch", "head_sha", "base", "epic"}
 
 // whereKeys are the keys a subscription to source may filter on.
 func whereKeys(source string) []string {
-	if source == SourceYardr {
+	switch source {
+	case SourceYardr:
 		return YardrWhereKeys
+	case "github":
+		return append(slices.Clone(WhereKeys), GitHubWhereKeys...)
 	}
 	return WhereKeys
 }
@@ -119,7 +128,9 @@ func (s *Store) AddSubscription(ctx context.Context, name string, sub Subscripti
 			return fmt.Errorf("subscribe: empty value for %s", k)
 		}
 	}
-	if st, ok := sub.Where["state"]; ok && st != StateDone {
+	// A yardr bead is only ever filtered on becoming done; a github
+	// state is the pull request's or review's own (open, approved, ...).
+	if st, ok := sub.Where["state"]; ok && sub.Source == SourceYardr && st != StateDone {
 		return fmt.Errorf("subscribe: state %q: only %s", st, StateDone)
 	}
 	if len(sub.Where) == 0 {

@@ -3,7 +3,7 @@
 //
 // yard only receives here: nothing is routed, answered or linked. Each
 // source has an Adapter that proves a delivery came from that source and
-// normalizes it; adding a source (GitHub, Jira) is adding an Adapter.
+// normalizes it; adding a source (Jira) is adding an Adapter.
 package hooks
 
 import (
@@ -84,8 +84,10 @@ type Adapter interface {
 	// delivery id, used to drop redeliveries ("" when the source has none).
 	// Errors wrap ErrUnauthorized or ErrBadRequest.
 	Verify(r *http.Request, body, secret []byte, now time.Time) (delivery string, err error)
-	// Normalize turns a verified body into an Envelope.
-	Normalize(body []byte) (*Envelope, error)
+	// Normalize turns a verified body into an Envelope. The headers are
+	// those of the delivery: some sources name the event only there
+	// (X-GitHub-Event).
+	Normalize(h http.Header, body []byte) (*Envelope, error)
 	// UniqueBodies reports whether no two deliveries from the source share
 	// a body (Linear signs a timestamp into each), so a body seen before is
 	// a redelivery. A source whose senders may repeat a body on purpose
@@ -112,6 +114,7 @@ func DedupeKeys(name, src string, ad Adapter, body []byte, delivery string) []st
 
 // Adapters by source name.
 var Adapters = map[string]Adapter{
+	"github": GitHub{},
 	"linear": Linear{},
 	"token":  Token{},
 }
