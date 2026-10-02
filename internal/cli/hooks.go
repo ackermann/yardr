@@ -37,7 +37,7 @@ is rewriting the file. Sources:
   token   a shared bearer token (Authorization: Bearer <token>)`,
 		Example: `  yardr hook add linear --source linear --secret-file ~/.config/yardr/linear.secret
   yardr hook add gh --source github --secret-file ~/.config/yardr/github.secret`,
-		Args:    cobra.ExactArgs(1),
+		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			if _, ok := hooks.Adapters[h.Source]; !ok {
 				return fmt.Errorf("--source %q: one of %s", h.Source, strings.Join(hooks.Sources(), ", "))
