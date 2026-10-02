@@ -12,20 +12,15 @@ yardr mail mayor "Deploys are frozen until Friday"
 yardr resident show mayor              # state, unread inbox, recent journal
 ```
 
-- **Inbox:** events of the kinds in `--on` (default: things that went wrong or
-  need a decision: `gave_up`, `session_blocked`, `unrouted`, …) plus mail.
-  Read with `yardr inbox`, mark handled with `yardr inbox --ack`; the cursor is
-  stored, so nothing is lost or repeated across restarts.
-- **Hook subscriptions:** webhook deliveries (`yardr hook`) reach a resident only
-  through `yardr subscribe <name> --source linear --scope all|mentions|involved
-  [--where team=ENG ...]`. `yardr resident identity <name> --source linear --id
-  <user id> --key <profile key>` says who it is there, so it can be mentioned
-  or assigned, and never hears of its own actions. Once it acts in a thread (a
-  Linear issue), it participates there, and `involved` also delivers what
-  others do in it; `yardr thread follow|unfollow <name> --source linear <id>`
-  and `yardr thread list <name>` manage that by hand. Matching happens when a
-  delivery arrives; each delivery records why (all, mentioned, assigned,
-  participant) and `yardr inbox` shows it.
+- **Inbox:** mail, plus what its subscriptions deliver. Read with `yardr
+  inbox`, mark handled with `yardr inbox --ack`; the cursor is stored, so
+  nothing is lost or repeated across restarts.
+- **Subscriptions:** `--on` kinds (default: things that went wrong or need a
+  decision: `gave_up`, `session_blocked`, `unrouted`, …), webhook deliveries
+  (`yardr subscribe <name> linear --scope involved`), and yardr's own bead
+  events (`yardr subscribe <name> yardr --done`, `yardr bead watch <id>`).
+  Each delivery records why it reached the resident, and `yardr inbox` shows
+  it. See [subscriptions.md](subscriptions.md).
 - **Journal:** one bead per resident (`<name>-journal`). `yardr resident journal`
   keeps decisions (≤4 KB); `yardr resident handoff` ends the session (≤16 KB) and
   the next session starts from it. At `--max-age` the resident is asked for a

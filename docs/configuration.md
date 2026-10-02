@@ -18,7 +18,7 @@ then the store holds everything yardr reads.
 | flows | default flows for the rig (*planned, yard-9cza*) | rig and type flows (built); named flows and pointers (*planned, yard-9cza*) |
 | merge gate | `.yardr/check` (*planned, yard-p2y7*) | a per-rig override, `rig add --check` (*planned, yard-p2y7*) |
 | roles | codebase role prompts, e.g. this repo's `roles/builder.md` (built: any repo path, named by a group's `prompt`) | prompts outside any repo, by absolute path (built) |
-| groups | | runner, limit, members, agent kind, model, args, cmd, worktree settings (built) |
+| groups | | runner, limit, members, subscriptions (manual), agent kind, model, args, cmd, worktree settings (built) |
 | routes | | which group works which stage, by rig, type, label (built) |
 | rigs | | path, clone, base branch (built) |
 | residents | | agent, directory, inbox kinds, rotation, subscriptions, identities (built) |

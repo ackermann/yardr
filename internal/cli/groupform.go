@@ -374,5 +374,8 @@ func describe(g store.Group) string {
 	if len(g.Members) > 0 {
 		parts = append(parts, "members "+strings.Join(g.Members, ","))
 	}
+	for _, sub := range g.Subscriptions {
+		parts = append(parts, "subscribed "+sub.String())
+	}
 	return strings.Join(parts, " · ") + fmt.Sprintf(" · limit %d", g.Limit)
 }

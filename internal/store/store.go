@@ -218,7 +218,8 @@ func join(parts ...string) string {
 }
 
 // event appends an event in this transaction. bead is any reference
-// resolve accepts; the event records the bead's UUID.
+// resolve accepts; the event records the bead's UUID, and who its yardr
+// subscriptions deliver it to.
 func (w *wtx) event(bead, kind, actor string, data map[string]any) error {
 	if bead != "" {
 		u, err := resolve(w.Tx, bead)
@@ -237,6 +238,11 @@ func (w *wtx) event(bead, kind, actor string, data map[string]any) error {
 	e := Event{Seq: seq, ID: fmt.Sprint(seq), Kind: kind, Actor: actor, Data: data, At: now()}
 	if bead != "" {
 		e.Bead = &bead
+		// Before the event is indexed under its bead, so it can tell a
+		// first close from a later one.
+		if err := w.deliver(&e); err != nil {
+			return err
+		}
 		if err := w.Bucket(bEventsBy).Put([]byte(join(bead, seqKey(seq))), []byte{}); err != nil {
 			return err
 		}

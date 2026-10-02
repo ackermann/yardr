@@ -311,6 +311,7 @@ func (a *app) beadCmd() *cobra.Command {
 	release.Flags().StringVar(&relReason, "reason", "", "why")
 
 	cmd.AddCommand(create, show, list, update, note, advance, closeCmd, reopen, hold, unhold, release)
+	cmd.AddCommand(a.watchCmds()...)
 	return cmd
 }
 

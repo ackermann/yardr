@@ -11,6 +11,7 @@ go deeper.
 | [groups.md](groups.md) | groups and runners (manual, exec, herdr), herdr setup |
 | [review.md](review.md) | `yardr review`: working through beads waiting on humans |
 | [residents.md](residents.md) | always-on sessions (a mayor): inbox, hooks, journal, prime, memories |
+| [subscriptions.md](subscriptions.md) | subscriptions and notifications: hook sources, yardr's own bead events, `--done`, bead watch, groups, `--on` |
 | [bdp.md](bdp.md) | serving the yard over the Beads Protocol |
 
 Pages mark features that are not built yet as **planned**, with the bead

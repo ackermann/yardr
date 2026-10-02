@@ -327,7 +327,7 @@ func printInboxEvent(e store.Event, resident string) {
 	case "hook":
 		printHookDelivery(e, resident)
 	default:
-		printEvent(e)
+		printBeadDelivery(e, resident)
 	}
 }
 

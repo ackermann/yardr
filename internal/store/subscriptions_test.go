@@ -44,7 +44,7 @@ func deliveries(t *testing.T, s store.API, e hooks.Envelope) map[string]string {
 	}
 	out := map[string]string{}
 	for _, r := range []string{"all", "noid", "ment", "inv", "noid-inv"} {
-		if why := store.HookReason(evs[0], r); why != "" {
+		if why := store.Reason(evs[0], r); why != "" {
 			out[r] = why
 		}
 	}
@@ -180,7 +180,7 @@ func TestHookDeliveryInInbox(t *testing.T) {
 	if err != nil || page.Total != 1 || page.Events[0].Seq != seq || page.Last != seq {
 		t.Fatalf("inbox: %+v %v", page, err)
 	}
-	if why := store.HookReason(page.Events[0], "mayor"); why != store.ReasonMentioned {
+	if why := store.Reason(page.Events[0], "mayor"); why != store.ReasonMentioned {
 		t.Fatalf("reason %q", why)
 	}
 	if page, _ := s.Inbox(ctx, "other", 0); page.Total != 2 {

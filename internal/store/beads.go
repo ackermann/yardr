@@ -435,12 +435,12 @@ func (s *Store) AdvanceNote(ctx context.Context, id, stage, note, actor string) 
 				return "", nil, err
 			}
 			terminal = f != nil && f.IsTerminal(stage)
-			from := b.Stage
+			data := withGroup(b, map[string]any{"from": b.Stage, "to": stage})
 			if err := w.endSession(b, "done"); err != nil {
 				return "", nil, err
 			}
 			b.Stage = stage
-			return "advanced", map[string]any{"from": from, "to": stage}, nil
+			return "advanced", data, nil
 		})
 		result = b
 		if err != nil || !terminal {
@@ -458,6 +458,7 @@ func (s *Store) CloseBead(ctx context.Context, id, reason, actor string) (*Bead,
 
 func closeWith(reason string) func(*wtx, *beadRow) (string, map[string]any, error) {
 	return func(w *wtx, b *beadRow) (string, map[string]any, error) {
+		data := withGroup(b, map[string]any{"reason": reason})
 		if err := w.endSession(b, "done"); err != nil {
 			return "", nil, err
 		}
@@ -466,8 +467,17 @@ func closeWith(reason string) func(*wtx, *beadRow) (string, map[string]any, erro
 			b.ClosedAt = &t
 		}
 		b.Status, b.CloseReason = "closed", &reason
-		return "closed", map[string]any{"reason": reason}, nil
+		return "closed", data, nil
 	}
+}
+
+// withGroup names in data the group that owns b, before ending its
+// session frees it, so the event says whose work ended.
+func withGroup(b *beadRow, data map[string]any) map[string]any {
+	if b.Group != nil {
+		data["group"] = *b.Group
+	}
+	return data
 }
 
 func (s *Store) Reopen(ctx context.Context, id, actor string) (*Bead, error) {

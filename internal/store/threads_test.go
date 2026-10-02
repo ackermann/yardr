@@ -109,7 +109,7 @@ func TestFollowThread(t *testing.T) {
 		t.Fatalf("after follow: %v", got)
 	}
 	page, err := s.Inbox(ctx, "noid-inv", 0)
-	if err != nil || page.Total != 1 || store.HookReason(page.Events[0], "noid-inv") != store.ReasonParticipant {
+	if err != nil || page.Total != 1 || store.Reason(page.Events[0], "noid-inv") != store.ReasonParticipant {
 		t.Fatalf("inbox: %+v %v", page, err)
 	}
 

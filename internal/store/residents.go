@@ -34,7 +34,7 @@ type Resident struct {
 	Runner       string         `json:"runner"`
 	Config       map[string]any `json:"config"`
 	Dir          string         `json:"dir"`
-	On           []string       `json:"on"`            // event kinds delivered to the inbox (mail always is)
+	On           []string       `json:"on"`            // event kinds delivered to the inbox (mail always is), as if subscribed to yardr all kind=<k>
 	MaxAge       string         `json:"max_age"`       // e.g. "6h"; "" never rotates
 	HandoffGrace string         `json:"handoff_grace"` // how long a requested handoff may take
 	Enabled      bool           `json:"enabled"`
@@ -312,8 +312,10 @@ func (s *Store) Mail(ctx context.Context, to, text, actor string) error {
 }
 
 // forResident reports whether e belongs in r's inbox: mail to it, a hook
-// delivery matched to it at ingest, or a kind it subscribes to, never its
-// own actions.
+// or bead event its subscriptions delivered to it when logged, or a kind
+// it hears of through --on, never its own actions. --on works as implicit
+// "yardr all kind=<k>" subscriptions, checked when the inbox is read, and
+// also covers events not about a bead.
 func forResident(r *Resident, e Event) bool {
 	if e.Actor == r.Name {
 		return false
@@ -322,9 +324,9 @@ func forResident(r *Resident, e Event) bool {
 	case "mail":
 		return e.Data["to"] == r.Name
 	case "hook":
-		return HookReason(e, r.Name) != ""
+		return Reason(e, r.Name) != ""
 	}
-	return slices.Contains(r.On, e.Kind)
+	return Reason(e, r.Name) != "" || slices.Contains(r.On, e.Kind)
 }
 
 // InboxPage is the start of a resident's unacknowledged events.

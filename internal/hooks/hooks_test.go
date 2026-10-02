@@ -418,7 +418,7 @@ func TestLinearMentionReachesInbox(t *testing.T) {
 		t.Fatalf("inbox: %+v %v", page, err)
 	}
 	for _, e := range page.Events {
-		if why := store.HookReason(e, "mayor"); why != store.ReasonMentioned || e.Data["type"] != "comment" {
+		if why := store.Reason(e, "mayor"); why != store.ReasonMentioned || e.Data["type"] != "comment" {
 			t.Errorf("event %d: %s, reason %q", e.Seq, e.Data["type"], why)
 		}
 	}

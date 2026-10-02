@@ -22,6 +22,9 @@ type Group struct {
 	// works (see Advance). Only manual groups have them; none means anyone.
 	// A guardrail against mistakes, not security: anyone can set YARDR_ACTOR.
 	Members []string `json:"members,omitempty"`
+	// Subscriptions deliver events to each member that is a resident. Kept
+	// when the group is redefined.
+	Subscriptions []Subscription `json:"subscriptions,omitempty"`
 }
 
 func (s *Store) PutGroup(ctx context.Context, g Group) error {
@@ -35,7 +38,17 @@ func (s *Store) PutGroup(ctx context.Context, g Group) error {
 	if len(g.Members) > 0 && g.Runner != "manual" {
 		return fmt.Errorf("group %s: members are only for manual groups (this one is %s)", g.Name, g.Runner)
 	}
-	return s.write(func(w *wtx) error { return put(w.Tx, bGroups, g.Name, g) })
+	return s.write(func(w *wtx) error {
+		var old Group
+		if _, err := get(w.Tx, bGroups, g.Name, &old); err != nil {
+			return err
+		}
+		g.Subscriptions = old.Subscriptions
+		if len(g.Subscriptions) > 0 && g.Runner != "manual" {
+			return fmt.Errorf("group %s has subscriptions, which only manual groups may: unsubscribe it first", g.Name)
+		}
+		return put(w.Tx, bGroups, g.Name, g)
+	})
 }
 
 func (s *Store) Groups(ctx context.Context) ([]Group, error) {
