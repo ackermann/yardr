@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -275,5 +276,42 @@ func TestBlockedBeadSessionGetsItsPromptWhenIdle(t *testing.T) {
 	sess, _ := s.GetSession(ctx, *got.Session)
 	if sess.Handle[dispatch.PendingPrompt] != nil || sess.State != "running" {
 		t.Fatalf("session after prompt: %+v", sess)
+	}
+}
+
+// A resident whose env_file is refused (missing, open to others) does not
+// start, and resident_blocked tells the mayor why, once while the reason
+// stays the same.
+func TestResidentBlockedByItsConfig(t *testing.T) {
+	s, f, d := residentSetup(t, store.Resident{})
+	ctx := context.Background()
+	refuse := dispatch.Blocked(errors.New("resident mayor: env_file /x/mayor.env is open to others (mode 0644); chmod 600 it"))
+	for range 2 {
+		f.failNext = refuse
+		must(t, s.SetResidentEnabled(ctx, "mayor", true, "", "me")) // clears the backoff
+		must(t, d.Reconcile(ctx))
+	}
+	r, _ := s.GetResident(ctx, "mayor")
+	if r.Live() || f.n != 0 {
+		t.Fatalf("blocked resident started: %+v", r)
+	}
+	evs, _ := s.Events(ctx, r.Journal, 100)
+	var reasons []string
+	for _, e := range evs {
+		if e.Kind == "resident_blocked" {
+			reasons = append(reasons, fmt.Sprint(e.Data["reason"]))
+		}
+	}
+	if len(reasons) != 1 || !strings.Contains(reasons[0], "env_file") {
+		t.Fatalf("resident_blocked = %q, want one naming the env_file", reasons)
+	}
+	// An ordinary failure is not a block.
+	f.failNext = errors.New("herdr down")
+	must(t, s.SetResidentEnabled(ctx, "mayor", true, "", "me"))
+	must(t, d.Reconcile(ctx))
+	if evs, _ = s.Events(ctx, r.Journal, 100); slices.ContainsFunc(evs[len(evs)-1:], func(e store.Event) bool {
+		return e.Kind == "resident_blocked"
+	}) {
+		t.Fatal("herdr down reported as resident_blocked")
 	}
 }

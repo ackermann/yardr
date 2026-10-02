@@ -137,6 +137,30 @@ func IsRuntime(err error) bool {
 	return errors.As(err, &re)
 }
 
+// BlockedError marks a Start error as the session's own configuration
+// refusing it (an env_file that is missing or open to others): no retry
+// fixes it until a human does, and every session of the same group or
+// resident would fail alike, so it is reported rather than counted against
+// a bead.
+type BlockedError struct{ Err error }
+
+func (e *BlockedError) Error() string { return e.Err.Error() }
+func (e *BlockedError) Unwrap() error { return e.Err }
+
+// Blocked wraps err as a BlockedError; nil stays nil.
+func Blocked(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &BlockedError{Err: err}
+}
+
+// IsBlocked reports whether err is, or wraps, a BlockedError.
+func IsBlocked(err error) bool {
+	var be *BlockedError
+	return errors.As(err, &be)
+}
+
 const actor = "yard"
 
 func (d *Dispatcher) defaults() {
@@ -673,9 +697,11 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 
 		handle, err := runner.Start(ctx, Job{Bead: b, Group: g, Rig: rig, Session: *sess, Epic: fam.Epic, Base: fam.Base,
 			Children: fam.Children, Next: next, Outcomes: outcomes})
-		if IsRuntime(err) {
+		if IsRuntime(err) || IsBlocked(err) {
 			// Not the bead's fault: abort the session (no failure), leave
 			// the bead for the next try and stop trying the group a while.
+			// A blocked group (its env_file refused) is reported the same
+			// way, with the reason, until someone fixes the file.
 			d.runtimeDown(ctx, g, err)
 			if err := d.Store.EndSession(ctx, sess.ID, "aborted", err.Error()); err != nil {
 				d.Log.Error("end session", "session", sess.ID, "err", err)

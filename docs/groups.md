@@ -19,7 +19,7 @@ name, `yardr group add <name> --runner … --set …` stays scriptable.
 |---|---|---|
 | `manual` | nothing; the bead waits on the group | — |
 | `exec` | `sh -c cmd` in the rig, with `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_ACTOR` (the group); for a bead with a rig also `YARDR_RIG`, `YARDR_RIG_PATH`, `YARDR_BASE` (what the bead lands on: the rig's base, or its epic's branch, see [pipeline.md](pipeline.md#epics)), `YARDR_BRANCH` (`yard/<bead>`), `YARDR_WORKTREE` (where herdr groups check that branch out); and `YARDR_BIN`, `YARDR_HOME` for the script's own `yardr` commands. A refinery is one ([pipeline.md](pipeline.md#4-approved-the-refinery-lands-it-on-main)), and so is rig yard's `yard-integrators`, which integrates an epic's branch once its children have landed ([pipeline.md](pipeline.md#the-epics-own-flow)) | `cmd`, `dir`, `log`, `worktrees` |
-| `herdr` | a herdr worktree workspace on branch `yard/<bead>` (from the bead's base) at `~/.yardr/worktrees/<rig>/<bead>` (reopened for later stages, one tab per stage), an agent in it, in a tab of its own with `YARDR_ACTOR` (the agent), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_BASE` (what it branches from: the rig's base, or its epic's branch), `YARDR_HOME` and `YARDR_BIN` in its environment, prompted with a brief in the worktree's git dir (`git rev-parse --git-path yardr`) | `kind`, `prompt`, `args`, `keep`, `worktrees`, `idle`, `max_age`, `grace`, `label` |
+| `herdr` | a herdr worktree workspace on branch `yard/<bead>` (from the bead's base) at `~/.yardr/worktrees/<rig>/<bead>` (reopened for later stages, one tab per stage), an agent in it, in a tab of its own with `YARDR_ACTOR` (the agent), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_BASE` (what it branches from: the rig's base, or its epic's branch), `YARDR_HOME` and `YARDR_BIN` in its environment, prompted with a brief in the worktree's git dir (`git rev-parse --git-path yardr`) | `kind`, `prompt`, `args`, `keep`, `worktrees`, `idle`, `max_age`, `grace`, `label`, `env_file` |
 
 A session ends when the bead is advanced, closed or released. If the runner
 reports the work gone (process exited, herdr agent gone) the session is marked
@@ -29,6 +29,27 @@ A runner that cannot start anything (herdr missing or down) is an outage, not
 a failure of the bead: the group backs off and logs `runtime_down` once.
 Groups can also limit how long a session sits idle or runs (`idle`,
 `max_age`, `grace`; [configuration.md](configuration.md#session-limits-and-outages)).
+
+### Outbound credentials
+
+A herdr group whose agents need a credential to act outside the yard (a
+review bot's GitHub token, say) names an env file with `--set
+env_file=~/.config/yardr/groups/<group>.env`. The rules are the residents'
+([residents.md](residents.md#outbound-credentials)): `KEY=VALUE` lines, `#`
+comments, no expansion, mode `0600` or stricter, and the store never holds
+the values (BDP serves it, backups copy it, every builder reads it). Each
+entry joins the agent's tab environment next to `YARDR_ACTOR` and the rest;
+a key yardr sets itself is ignored.
+
+```sh
+yardr group add yard-codex-review --runner herdr --set kind=codex … \
+  --set env_file=~/.config/yardr/groups/codex-review.env
+```
+
+A file that is missing, not a regular file or open to others stops the
+group, not the bead: nothing is created, the session is aborted without
+counting against the bead, and the group backs off and logs `runtime_down`
+once with the reason, as for a runtime outage, until the file is fixed.
 
 ### herdr setup
 

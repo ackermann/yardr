@@ -80,7 +80,7 @@ next session starts from that handoff (forced after --handoff-grace).`,
 	}
 	f := add.Flags()
 	f.StringVar(&def.Runner, "runner", "herdr", "runner (herdr)")
-	f.StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable): kind, model, args, prompt")
+	f.StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable): kind, model, args, prompt, env_file")
 	f.StringVar(&def.Dir, "dir", "", "directory the resident works in (default: the yard home)")
 	f.StringSliceVar(&def.On, "on", defaultOn, "event kinds delivered to its inbox (mail always is)")
 	f.StringVar(&def.MaxAge, "max-age", "", "ask for a handoff after this long, e.g. 6h (default: never)")
@@ -138,8 +138,23 @@ next session starts from that handoff (forced after --handoff-grace).`,
 			if err != nil {
 				return err
 			}
-			return a.out(map[string]any{"resident": r, "inbox": inbox.Total, "journal": notes}, func() {
+			out := map[string]any{"resident": r, "inbox": inbox.Total, "journal": notes}
+			env := envFileSummary(r.Config)
+			if env != nil {
+				out["env_file"] = env
+			}
+			return a.out(out, func() {
 				fmt.Printf("%s  %s · %s · %s\n", r.Name, r.State, residentAgent(*r), r.Dir)
+				if env != nil {
+					fmt.Printf("  env_file %s", env["path"])
+					if keys, _ := env["keys"].([]string); len(keys) > 0 {
+						fmt.Printf(" (%s)", strings.Join(keys, ", "))
+					}
+					if e, _ := env["error"].(string); e != "" {
+						fmt.Printf(": %s", e)
+					}
+					fmt.Println()
+				}
 				fmt.Printf("  inbox %d unread · on %s\n", inbox.Total, strings.Join(r.On, ","))
 				if r.MaxAge != "" {
 					fmt.Printf("  rotates after %s (handoff grace %s)\n", r.MaxAge, or(r.HandoffGrace, "15m"))
@@ -235,6 +250,27 @@ func residentAgent(r store.Resident) string {
 		parts = append(parts, m)
 	}
 	return strings.Join(parts, " · ")
+}
+
+// envFileSummary is what a session started from cfg would load from its
+// env_file: the path and key names, or why the runner would refuse it. Never
+// a value. nil when cfg names no env_file.
+func envFileSummary(cfg map[string]any) map[string]any {
+	path, _ := cfg["env_file"].(string)
+	if path == "" {
+		return nil
+	}
+	out := map[string]any{"path": path}
+	if p, err := config.ExpandPath(path); err == nil {
+		out["path"] = p
+	}
+	f, err := config.ReadEnvFile(path)
+	if err != nil {
+		out["error"] = err.Error()
+		return out
+	}
+	out["keys"] = f.Keys()
+	return out
 }
 
 func firstLine(s string) string {

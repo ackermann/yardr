@@ -35,3 +35,38 @@ yardr resident show mayor              # state, unread inbox, recent journal
 
 Agents are told to run yardr by absolute path: a shell may find an older yardr
 first on its PATH, and the prime warns about it.
+
+## Outbound credentials
+
+What a resident uses to act outside the yard (the mayor's Linear developer
+token or OAuth app, a GitHub token) goes in an env file of its own, never in
+the store: BDP serves the store, backups copy it and every builder can read
+it. Inbound is separate: webhooks arrive through one shared hook and its
+secret file (`yardr hook add linear --source linear --secret-file …`); outbound is per
+resident.
+
+```sh
+mkdir -p ~/.config/yardr/residents
+cat > ~/.config/yardr/residents/mayor.env <<'END'
+# Linear, as the mayor
+LINEAR_API_KEY=lin_api_…
+END
+chmod 600 ~/.config/yardr/residents/mayor.env
+yardr resident add mayor --set env_file=~/.config/yardr/residents/mayor.env …
+yardr resident show mayor     # env_file …/mayor.env (LINEAR_API_KEY)
+```
+
+- Lines are `KEY=VALUE`; blank lines and `#` comments are skipped. Nothing is
+  expanded: the value is the rest of the line as written. `~` in the
+  `env_file` path is the daemon user's home.
+- Each entry joins the pane environment next to `YARDR_RESIDENT`,
+  `YARDR_ACTOR` and `YARDR_HOME`. A key yardr sets itself is ignored, so a
+  credentials file cannot change who the agent is.
+- The file must be a regular file that only its owner can read or write
+  (mode `0600` or stricter). Missing, not a regular file or open to others,
+  the resident does not start: the start fails with the reason (backed off
+  as any failed start) and a `resident_blocked` event in its journal says
+  so, once per reason.
+- The file is read at each start, so a new token takes effect on the next
+  restart (`yardr resident restart mayor`). Values are never logged, put on
+  the session's handle or shown; `yardr resident show` lists the key names.

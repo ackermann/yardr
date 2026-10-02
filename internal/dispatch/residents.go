@@ -85,12 +85,20 @@ func (d *Dispatcher) resident(ctx context.Context, r store.Resident) error {
 	if err != nil {
 		backoff := min(30*time.Second<<min(r.Failures, 5), 10*time.Minute)
 		d.Log.Warn("resident start failed", "resident", r.Name, "err", err, "retry_in", backoff)
+		if IsBlocked(err) && d.status["resident:"+r.Name] != "blocked: "+err.Error() {
+			// Its configuration refuses it (an env_file missing or open to
+			// others): a human has to act, so say so, once per reason.
+			d.status["resident:"+r.Name] = "blocked: " + err.Error()
+			_ = d.Store.LogDispatch(ctx, r.Journal, "resident_blocked", actor, map[string]any{
+				"resident": r.Name, "reason": err.Error()})
+		}
 		if len(handle) > 0 {
 			_ = runner.Stop(ctx, handle)
 		}
 		return d.Store.ResidentStartFailed(ctx, r.Name, err.Error(), backoff)
 	}
 	d.Log.Info("resident started", "resident", r.Name)
+	delete(d.status, "resident:"+r.Name)
 	return d.Store.ResidentStarted(ctx, r.Name, handle)
 }
 

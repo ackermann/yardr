@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,6 +33,9 @@ import (
 //	           overrides it for that bead
 //	keep       true to leave the tab open after the session ends
 //	worktrees  root for bead worktrees (default Herdr.WorktreeRoot)
+//	env_file   KEY=VALUE file (mode 0600 or stricter) whose entries go into
+//	           the agent's pane environment: outbound credentials, which
+//	           never belong in the store (see config.ReadEnvFile)
 //
 // Worktrees live at <root>/<rig>/<bead>. Agents such as Claude Code ask to
 // trust every new folder but inherit trust from a parent, so trust the root
@@ -51,6 +55,8 @@ type Herdr struct {
 	// Store, if set, records epic_branched when Start creates an epic's
 	// branch.
 	Store store.API
+	// Log, if set, gets the key names (never the values) an env_file loads.
+	Log *slog.Logger
 }
 
 type herdrResult struct {
@@ -197,6 +203,12 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	name := AgentName(job.Bead.ID, job.Bead.Stage)
 	handle := map[string]any{"agent": name, "branch": branch, "repo": rig.Path}
 	label := WorkspaceLabel(rig.Name, job.Group, job.Epic, job.Bead.ID)
+	// Before anything is made: a group whose env_file is refused starts
+	// nothing until it is fixed.
+	secrets, err := h.envFile(job.Group.Config, "group "+job.Group.Name)
+	if err != nil {
+		return nil, err
+	}
 
 	h.fetchBase(ctx, rig)
 	if job.Epic != "" {
@@ -255,7 +267,7 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	// still hold the previous stage's agent.
 	tabArgs := []string{"tab", "create", "--workspace", wt.Workspace.ID,
 		"--cwd", wt.Worktree.Path, "--label", TabLabel(rig.Name, job.Bead.Stage, job.Epic, job.Bead.ID)}
-	for _, e := range h.agentEnv(job, name) {
+	for _, e := range withEnvFile(h.agentEnv(job, name), secrets) {
 		tabArgs = append(tabArgs, "--env", e)
 	}
 	raw, err = h.run(ctx, tabArgs...)
@@ -585,13 +597,17 @@ func (h *Herdr) StartResident(ctx context.Context, r store.Resident) (map[string
 	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
 		return nil, fmt.Errorf("resident directory %q does not exist", dir)
 	}
+	secrets, err := h.envFile(r.Config, "resident "+r.Name)
+	if err != nil {
+		return nil, err
+	}
 	name := AgentName(r.Name, "")
 	args := []string{"workspace", "create", "--cwd", dir, "--label", r.Name, "--no-focus"}
 	env := slices.Concat(config.Env("RESIDENT", r.Name), config.Env("ACTOR", r.Name))
 	if h.YardHome != "" {
 		env = append(env, config.Env("HOME", h.YardHome)...)
 	}
-	for _, e := range env {
+	for _, e := range withEnvFile(env, secrets) {
 		args = append(args, "--env", e)
 	}
 	raw, err := h.run(ctx, args...)
@@ -612,6 +628,44 @@ func (h *Herdr) StartResident(ctx context.Context, r store.Resident) (map[string
 	prompt := fmt.Sprintf("You are the yardr resident %q. Run `%s prime --resident %s` and follow it.",
 		r.Name, h.yard(), r.Name)
 	return h.startAgent(ctx, start, name, prompt, handle)
+}
+
+// envFile reads the env_file cfg names, if any, for the pane environment of
+// who ("resident mayor", "group builders"). A file that is missing, not a
+// regular file or open to others is refused as Blocked: the session must
+// not start without its credentials, nor with credentials others can read.
+// Only key names are logged.
+func (h *Herdr) envFile(cfg map[string]any, who string) ([]string, error) {
+	path := str(cfg, "env_file", "")
+	if path == "" {
+		return nil, nil
+	}
+	f, err := config.ReadEnvFile(path)
+	if err != nil {
+		return nil, dispatch.Blocked(fmt.Errorf("%s: %w", who, err))
+	}
+	if h.Log != nil {
+		h.Log.Debug("env_file loaded", "for", who, "path", f.Path, "keys", f.Keys())
+	}
+	return f.Env, nil
+}
+
+// withEnvFile is env with the env file's entries added. A key yardr sets
+// itself (the session's identity, the yard's home) is left out of the file's
+// entries, so a credentials file cannot make an agent someone else.
+func withEnvFile(env, file []string) []string {
+	set := make(map[string]bool, len(env))
+	for _, e := range env {
+		k, _, _ := strings.Cut(e, "=")
+		set[k] = true
+	}
+	out := slices.Clone(env)
+	for _, e := range file {
+		if k, _, _ := strings.Cut(e, "="); !set[k] {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // Nudge sends text to the session's agent as its next prompt.

@@ -35,7 +35,7 @@ func All(home string, st store.API, log *slog.Logger, onError func(error)) map[s
 		"manual": &Manual{Store: st, Show: HerdrNotifier("herdr"), Log: log},
 		"exec":   &Exec{Home: home, Bin: self()},
 		"herdr": &Herdr{Bin: "herdr", WorktreeRoot: filepath.Join(home, "worktrees"), YardHome: home,
-			YardBin: self(), OnError: onError, Store: st},
+			YardBin: self(), OnError: onError, Store: st, Log: log},
 	}
 }
 

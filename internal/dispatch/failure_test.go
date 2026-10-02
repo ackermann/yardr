@@ -313,3 +313,36 @@ func TestAgedSessionIsReportedOnce(t *testing.T) {
 		t.Fatalf("aged session state = %s after grace, want failed", st.State)
 	}
 }
+
+// blockedRunner refuses every Start as the herdr runner does when its
+// group's env_file is refused.
+type blockedRunner struct{ *fakeRunner }
+
+func (r *blockedRunner) Start(context.Context, dispatch.Job) (map[string]any, error) {
+	return nil, dispatch.Blocked(errors.New("group builders: env_file /x/b.env is open to others (mode 0644); chmod 600 it"))
+}
+
+// A group blocked by its own config is not the bead's failure: the bead is
+// neither counted nor held, and the group reports why once.
+func TestBlockedGroupHoldsNoBead(t *testing.T) {
+	s := storetest.New(t)
+	r := &blockedRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}}
+	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r},
+		Backoff: time.Nanosecond, RuntimeBackoff: time.Nanosecond, MaxAttempts: 2}
+	ctx := context.Background()
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 1}))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "b", Stage: "new"}, "me")
+	must(t, err)
+	for range 4 {
+		must(t, d.Reconcile(ctx))
+		time.Sleep(time.Millisecond)
+	}
+	got, _ := s.GetBead(ctx, b.ID)
+	if n, _ := s.FailureCount(ctx, b.ID, b.Stage); got.Hold || n != 0 {
+		t.Fatalf("blocked group failed the bead: hold=%v failures=%d", got.Hold, n)
+	}
+	if got := groupEvents(t, s, "runtime_down"); got["builders"] != 1 {
+		t.Fatalf("runtime_down = %v, want one for builders", got)
+	}
+}
