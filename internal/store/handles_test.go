@@ -204,6 +204,10 @@ func TestMigrateCounterIDs(t *testing.T) {
 	if evs[1].Kind != "dep_added" || evs[1].Data["from"] != "yard-1" {
 		t.Fatalf("dep_added event = %+v", evs[1])
 	}
+	allEvents, err := s.Events(ctx, "", 0)
+	if err != nil || len(allEvents) != 6 || allEvents[4].Kind != "mail" || allEvents[4].Bead != nil {
+		t.Fatalf("global event lost during migration: %+v %v", allEvents, err)
+	}
 	// The workspace of the closed bead is still found through its session.
 	if _, err := s.CloseBead(ctx, "yard-2", "done", "me"); err != nil {
 		t.Fatal(err)

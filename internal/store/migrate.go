@@ -170,9 +170,7 @@ func migrateToUUIDs(tx *bolt.Tx) error {
 	// handles now, and they never change.
 	var events []*Event
 	if err := each(tx, bEvents, "", func(_ []byte, e *Event) error {
-		if e.Bead != nil {
-			events = append(events, e)
-		}
+		events = append(events, e)
 		return nil
 	}); err != nil {
 		return err
@@ -181,13 +179,17 @@ func migrateToUUIDs(tx *bolt.Tx) error {
 		return err
 	}
 	for _, e := range events {
-		u := uuid(*e.Bead)
-		e.Bead = &u
+		if e.Bead != nil {
+			u := uuid(*e.Bead)
+			e.Bead = &u
+		}
 		if err := put(tx, bEvents, seqKey(e.Seq), e); err != nil {
 			return err
 		}
-		if err := tx.Bucket(bEventsBy).Put([]byte(join(u, seqKey(e.Seq))), []byte{}); err != nil {
-			return err
+		if e.Bead != nil {
+			if err := tx.Bucket(bEventsBy).Put([]byte(join(*e.Bead, seqKey(e.Seq))), []byte{}); err != nil {
+				return err
+			}
 		}
 	}
 
