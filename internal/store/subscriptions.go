@@ -101,7 +101,8 @@ func (s *Store) SetIdentity(ctx context.Context, name, source string, id Identit
 
 // AddSubscription subscribes the resident, or else the manual group,
 // called name; an identical subscription is kept once. A yardr
-// subscription's bead and epic are stored as handles.
+// subscription's bead and epic are stored as handles; one for a closed
+// bead is refused, as its watch would already have ended.
 func (s *Store) AddSubscription(ctx context.Context, name string, sub Subscription, actor string) error {
 	if sub.Source == "" {
 		return fmt.Errorf("subscribe: source is required")
@@ -131,6 +132,11 @@ func (s *Store) AddSubscription(ctx context.Context, name string, sub Subscripti
 					row, err := w.loadBead(ref)
 					if err != nil {
 						return fmt.Errorf("subscribe: %s: %w", k, err)
+					}
+					// A watch ends when its bead closes; on a closed bead
+					// it would end before it began.
+					if k == "bead" && row.Status == "closed" {
+						return fmt.Errorf("subscribe: bead %s is closed: nothing to watch", row.ID)
 					}
 					sub.Where[k] = row.ID
 				}

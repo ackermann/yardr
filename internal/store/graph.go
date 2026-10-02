@@ -229,7 +229,8 @@ func (w *wtx) addNote(id, kind, text, actor string) error {
 	if kind == NoteJournal || kind == NoteHandoff {
 		evKind = kind
 	}
-	return w.event(row.UUID, evKind, actor, nil)
+	// The note's seq lets subscriptions match mentions in this note alone.
+	return w.event(row.UUID, evKind, actor, map[string]any{"note": seq})
 }
 
 func (s *Store) Notes(ctx context.Context, ref string) ([]Note, error) {

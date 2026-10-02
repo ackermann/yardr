@@ -14,12 +14,15 @@ Every subscription has the same shape: a **source**, a **scope** (`all`,
 must hold). Matching happens once, when the event is logged, against the
 subscriptions as they are then. The event records who it reached and why
 (`deliveries`), and `yardr inbox` shows that reason next to each event. A
-resident never hears of its own actions.
+resident never hears of its own actions, nor of what happens on its own
+journal bead (its session starting and stopping, its journal entries and
+handoffs, its subscriptions changing), whoever logged it; a plain note
+someone else leaves on its journal still reaches it.
 
 ```sh
 yardr subscribe mayor yardr --done                         # every bead that becomes done
 yardr subscribe mayor yardr --done --where rig=yard --where label=ui
-yardr subscribe mayor yardr --scope involved               # beads it created, advanced, noted, or is @mentioned in
+yardr subscribe mayor yardr --scope involved               # beads it created, advanced or noted, and events @mentioning it
 yardr bead watch yard-k3f9 --resident mayor --done         # this one bead, until it closes
 yardr subscribe mayor linear --scope involved              # Linear issues it is mentioned in, assigned, or works on
 yardr resident show mayor                                  # lists its subscriptions
@@ -33,8 +36,8 @@ The source can be the second argument or `--source`.
 | scope | hook source | yardr |
 |---|---|---|
 | `all` | every delivery | every bead event |
-| `mentions` | deliveries that mention its identity | `@<name>` in the bead's body or any note |
-| `involved` | mentions, plus deliveries that assign it, plus threads it participates in | mentions, plus beads it created, advanced or noted |
+| `mentions` | deliveries that mention its identity | `@<name>` in the event itself (see below) |
+| `involved` | mentions, plus deliveries that assign it, plus threads it participates in | mentions, plus events on beads it created, advanced or noted |
 
 The default is `involved` for a hook source and `all` for yardr, where the
 where filters usually do the narrowing.
@@ -45,7 +48,23 @@ match, the most specific reason is recorded.
 
 ## The yardr source
 
-Bead events from the event log, with these where keys:
+Bead events from the event log.
+
+**Mentions count in the event that makes them.** `@<name>` is looked for in
+what the event itself says: the note it added (`noted`, `journal`,
+`handoff`), the body of the bead it created, and its own fields (a close or
+hold reason). A note that said `@b` once does not make every later event on
+that bead mention `b`, so two residents mentioning each other in their
+journals nudge each other once per mention, not forever. A `state=done`
+subscription is the exception: it hears of a bead once, so for it a mention
+anywhere on the bead (body or any note) counts.
+
+**Journals and memories are out of the source** unless a subscription names
+them with `bead=` or `type=` (`--where type=journal`, `--where
+bead=mayor-journal`). A resident subscribed to `all` does not hear every
+other resident's journal entries; a mention of it in one still reaches it.
+
+Where keys:
 
 | key | matches |
 |---|---|
@@ -82,7 +101,9 @@ yardr bead unwatch <id> [--resident <name>]
 `$YARDR_RESIDENT`, so a resident's own session can watch without naming
 itself. When the bead closes, the close is delivered first, then every
 subscription with `bead=<id>` ends (the `closed` event lists whose in
-`watches_ended`). A reopened bead is not watched any more.
+`watches_ended`). A reopened bead is not watched any more. Watching (any
+subscription with `bead=`) a bead that is already closed is refused: its
+watch would have ended already.
 
 ## Groups as subscribers
 

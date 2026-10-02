@@ -1,8 +1,12 @@
 package store
 
 import (
+	"maps"
 	"regexp"
 	"slices"
+	"strings"
+	"sync"
+	"sync/atomic"
 
 	bolt "go.etcd.io/bbolt"
 )
@@ -34,39 +38,82 @@ var YardrWhereKeys = []string{"bead", "rig", "type", "label", "stage", "from", "
 // through yardr subscriptions and why, and records that on the event as
 // "deliveries". A closed event then ends the subscriptions watching that
 // bead, after they heard of the close, and lists whose in "watches_ended".
+//
+// A mention is "@name" in this event alone (see eventText), never in what
+// the bead said before, so a journal that once said "@B" does not reach B
+// with every later entry. Journal and memory beads are left out of the
+// source unless a subscription names them (bead= or type=); a mention in
+// one still reaches whoever it names.
 func (w *wtx) deliver(e *Event) error {
 	row := new(beadRow)
 	if ok, err := get(w.Tx, bBeads, *e.Bead, row); err != nil || !ok {
 		return err
 	}
-	var fields map[string][]string // worked out for the first yardr subscription
-	out := map[string]any{}
+	// Collected first: whether the bead is a resident's journal is only
+	// known once every resident has been read.
+	type cand struct {
+		r    *Resident
+		subs []boundSub
+	}
+	var cands []cand
+	private := NotWork[row.Type]
 	err := subscribers(w.Tx, func(r *Resident, subs []boundSub) error {
-		if e.Actor == r.Name { // never its own actions
-			return nil
+		private = private || r.Journal == row.ID
+		if e.Actor != r.Name && !aboutItself(r, row.ID, e.Kind) &&
+			slices.ContainsFunc(subs, func(s boundSub) bool { return s.Source == SourceYardr }) {
+			cands = append(cands, cand{r, subs})
 		}
-		inv := lazyInvolvement(w.Tx, row, r.Name)
+		return nil
+	})
+	if err != nil || len(cands) == 0 {
+		return w.endWatchesOn(e, row, err)
+	}
+	text := eventText(w.Tx, e, row)
+	need := map[string]bool{} // the where keys any candidate filters on
+	for _, c := range cands {
+		for _, sub := range c.subs {
+			if sub.Source == SourceYardr {
+				for k := range sub.Where {
+					need[k] = true
+				}
+			}
+		}
+	}
+	var fields map[string][]string // worked out for the first subscription that filters
+	out := map[string]any{}
+	for _, c := range cands {
+		mentioned := text != "" && w.mentions.pattern(c.r.Name).MatchString(text)
+		participant := lazy(func() bool { return participated(w.Tx, row, c.r.Name) })
+		// A done subscription hears of a bead once, so it may look at the
+		// whole bead: mentioned anywhere on it counts.
+		onBead := lazy(func() bool { return mentionedOnBead(w.Tx, row, w.mentions.pattern(c.r.Name)) })
 		got := ""
-		for _, sub := range subs {
+		for _, sub := range c.subs {
 			if sub.Source != SourceYardr {
 				continue
 			}
-			if fields == nil {
-				fields = beadFields(w.Tx, e, row)
-			}
-			if !fieldsMatch(sub.Where, fields) {
+			named := sub.Where["bead"] != "" || sub.Where["type"] != ""
+			if private && !named && !mentioned {
 				continue
 			}
+			if len(sub.Where) > 0 {
+				if fields == nil {
+					fields = beadFields(w.Tx, e, row, need)
+				}
+				if !fieldsMatch(sub.Where, fields) {
+					continue
+				}
+			}
 			reason := ""
-			switch why := inv(); {
+			switch {
 			case sub.Where["state"] == StateDone:
-				if sub.Scope == ScopeAll || why == ReasonMentioned || (why != "" && sub.Scope == ScopeInvolved) {
+				if sub.Scope == ScopeAll || mentioned || onBead() || (sub.Scope == ScopeInvolved && participant()) {
 					reason = ReasonDone
 				}
-			case why == ReasonMentioned: // every scope covers a mention
-				reason = why
-			case why == ReasonParticipant && sub.Scope != ScopeMentions:
-				reason = why
+			case mentioned: // every scope covers a mention
+				reason = ReasonMentioned
+			case sub.Scope == ScopeInvolved && participant():
+				reason = ReasonParticipant
 			case sub.Scope == ScopeAll:
 				reason = ReasonAll
 			}
@@ -75,31 +122,67 @@ func (w *wtx) deliver(e *Event) error {
 			}
 		}
 		if got != "" {
-			out[r.Name] = got
+			out[c.r.Name] = got
 		}
-		return nil
-	})
-	if err != nil {
-		return err
 	}
 	if len(out) > 0 {
 		e.Data["deliveries"] = out
 	}
-	if e.Kind == "closed" {
-		ended, err := endWatches(w.Tx, row.ID)
-		if err != nil {
-			return err
-		}
-		if len(ended) > 0 {
-			e.Data["watches_ended"] = ended
-		}
+	return w.endWatchesOn(e, row, nil)
+}
+
+// endWatchesOn ends, when e is a close, the watches on its bead (see
+// endWatches), passing err through.
+func (w *wtx) endWatchesOn(e *Event, row *beadRow, err error) error {
+	if err != nil || e.Kind != "closed" {
+		return err
+	}
+	ended, err := endWatches(w.Tx, row.ID)
+	if err != nil {
+		return err
+	}
+	if len(ended) > 0 {
+		e.Data["watches_ended"] = ended
 	}
 	return nil
 }
 
+// aboutItself reports whether an event of kind on the bead with handle
+// bead is yardr telling the resident about itself, which never reaches it
+// whoever the actor (the daemon logs starts and stops as "yard"): anything
+// on its own journal (its session starting and stopping, its journal
+// entries and handoffs, its subscriptions changing) but a plain note
+// someone left there.
+func aboutItself(r *Resident, bead, kind string) bool {
+	return bead == r.Journal && kind != "noted"
+}
+
+// eventText is what the event itself says, where a mention counts: the
+// note it added, the body of a bead it created, and its own string fields
+// (a close or hold reason, a title).
+func eventText(tx *bolt.Tx, e *Event, row *beadRow) string {
+	var b strings.Builder
+	for _, k := range slices.Sorted(maps.Keys(e.Data)) {
+		if s, ok := e.Data[k].(string); ok {
+			b.WriteString(s + "\n")
+		}
+	}
+	if seq, ok := e.Data["note"].(uint64); ok {
+		var n Note
+		if ok, _ := get(tx, bNotes, join(row.UUID, seqKey(seq)), &n); ok {
+			b.WriteString(n.Text + "\n")
+		}
+	}
+	if e.Kind == "created" {
+		b.WriteString(row.Body)
+	}
+	return b.String()
+}
+
 // beadFields are the values a yardr subscription's where keys match, each
-// a set any of whose values may match.
-func beadFields(tx *bolt.Tx, e *Event, row *beadRow) map[string][]string {
+// a set any of whose values may match. Those that read more of the store
+// (state, epic) are worked out only when need has them.
+func beadFields(tx *bolt.Tx, e *Event, row *beadRow, need map[string]bool) map[string][]string {
 	str := func(k string) string { s, _ := e.Data[k].(string); return s }
 	f := map[string][]string{
 		"bead": {row.ID}, "type": {row.Type}, "label": row.Labels, "kind": {e.Kind}, "actor": {e.Actor},
@@ -113,7 +196,7 @@ func beadFields(tx *bolt.Tx, e *Event, row *beadRow) map[string][]string {
 	case "advanced":
 		f["stage"], f["from"] = []string{str("to")}, []string{str("from")}
 	case "closed":
-		if firstClose(tx, row.UUID) {
+		if need["state"] && firstClose(tx, row.UUID) {
 			f["state"] = []string{StateDone}
 		}
 	}
@@ -123,6 +206,9 @@ func beadFields(tx *bolt.Tx, e *Event, row *beadRow) map[string][]string {
 		f["group"] = []string{g}
 	} else if row.Group != nil {
 		f["group"] = []string{*row.Group}
+	}
+	if !need["epic"] {
+		return f
 	}
 	f["epic"] = []string{row.ID}
 	for _, k := range keys(tx, bDepTo, row.UUID+"\x00") {
@@ -160,45 +246,75 @@ func firstClose(tx *bolt.Tx, u string) bool {
 	return true
 }
 
-// lazyInvolvement returns how the resident is involved in the bead
-// (ReasonMentioned, ReasonParticipant or ""), worked out once, when first
-// asked: only subscriptions whose filters pass need it.
-func lazyInvolvement(tx *bolt.Tx, row *beadRow, name string) func() string {
-	done, why := false, ""
-	return func() string {
+// lazy returns f's result, worked out once, when first asked: only
+// subscriptions whose filters pass need it.
+func lazy(f func() bool) func() bool {
+	done, v := false, false
+	return func() bool {
 		if !done {
-			done, why = true, involvement(tx, row, name)
+			done, v = true, f()
 		}
-		return why
+		return v
 	}
 }
 
-// involvement: mentioned when "@name" is in the bead's body or a note;
-// a participant when it created, advanced or noted the bead.
-func involvement(tx *bolt.Tx, row *beadRow, name string) string {
-	mention := regexp.MustCompile(`(^|[^A-Za-z0-9_.-])@` + regexp.QuoteMeta(name) + `($|[^A-Za-z0-9_-])`)
+// mentionedOnBead reports whether mention is in the bead's body or a note.
+func mentionedOnBead(tx *bolt.Tx, row *beadRow, mention *regexp.Regexp) bool {
 	if mention.MatchString(row.Body) {
-		return ReasonMentioned
+		return true
 	}
 	mentioned := false
 	_ = each(tx, bNotes, row.UUID+"\x00", func(_ []byte, n *Note) error {
 		mentioned = mentioned || mention.MatchString(n.Text)
 		return nil
 	})
-	if mentioned {
-		return ReasonMentioned
-	}
+	return mentioned
+}
+
+// participated reports whether the resident created, advanced or noted the
+// bead.
+func participated(tx *bolt.Tx, row *beadRow, name string) bool {
 	if row.CreatedBy != nil && *row.CreatedBy == name {
-		return ReasonParticipant
+		return true
 	}
 	for _, k := range keys(tx, bEventsBy, row.UUID+"\x00") {
 		var e Event
 		if ok, _ := get(tx, bEvents, k[len(row.UUID)+1:], &e); ok && e.Actor == name &&
 			(e.Kind == "created" || e.Kind == "advanced" || e.Kind == "noted") {
-			return ReasonParticipant
+			return true
 		}
 	}
-	return ""
+	return false
+}
+
+// mentionCache holds a compiled "@name" pattern per resident name. Names
+// are few and patterns small, so entries are never dropped.
+type mentionCache struct {
+	mu       sync.Mutex
+	byName   map[string]*regexp.Regexp
+	compiled atomic.Int64 // patterns compiled, for tests
+}
+
+// pattern matches "@name" as a whole word. A nil cache compiles each time.
+func (c *mentionCache) pattern(name string) *regexp.Regexp {
+	compile := func() *regexp.Regexp {
+		return regexp.MustCompile(`(^|[^A-Za-z0-9_.-])@` + regexp.QuoteMeta(name) + `($|[^A-Za-z0-9_-])`)
+	}
+	if c == nil {
+		return compile()
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	re, ok := c.byName[name]
+	if !ok {
+		if c.byName == nil {
+			c.byName = map[string]*regexp.Regexp{}
+		}
+		re = compile()
+		c.byName[name] = re
+		c.compiled.Add(1)
+	}
+	return re
 }
 
 // endWatches drops every subscription watching the bead with handle h

@@ -66,6 +66,9 @@ type Store struct {
 	db    *bolt.DB
 	hub   hub
 	repos repoCache
+	// mentions holds each resident's compiled @mention pattern, so matching
+	// an event under the write lock compiles a pattern once per resident.
+	mentions mentionCache
 
 	// pump publishes committed events in seq order; writers only nudge it.
 	nudge  chan struct{}
@@ -151,12 +154,13 @@ func (s *Store) pump(published uint64) {
 // wtx is one write transaction.
 type wtx struct {
 	*bolt.Tx
+	mentions *mentionCache // nil outside Store.write: compiled per use
 }
 
 // write runs fn in a batched write transaction, then nudges the pump to
 // publish what was committed and wakes wakers.
 func (s *Store) write(fn func(*wtx) error) error {
-	err := s.db.Batch(func(tx *bolt.Tx) error { return fn(&wtx{Tx: tx}) })
+	err := s.db.Batch(func(tx *bolt.Tx) error { return fn(&wtx{Tx: tx, mentions: &s.mentions}) })
 	if err != nil {
 		return err
 	}

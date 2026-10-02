@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
 // yardrSub is a subscription to yardr's own bead events.
@@ -195,7 +196,9 @@ func TestYardrInvolved(t *testing.T) {
 	}
 	wantHeard(t, s, b.ID, "jane", "noted:participant", "noted:participant", "advanced:participant", "closed:participant")
 	wantHeard(t, s, b.ID, "noter", "advanced:participant", "closed:participant") // not its own notes
-	wantHeard(t, s, b.ID, "mentioned", "noted:mentioned", "advanced:mentioned", "closed:done")
+	// The mention is in one note: the advance after it does not mention
+	// anyone, but the done subscription looks at the whole bead.
+	wantHeard(t, s, b.ID, "mentioned", "noted:mentioned", "closed:done")
 	wantHeard(t, s, b.ID, "bystander")
 }
 
@@ -235,6 +238,145 @@ func TestBeadWatchEndsOnClose(t *testing.T) {
 	}
 	if _, err := s.Unwatch(ctx, "mayor", b.ID, "me"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("second unwatch err = %v", err)
+	}
+}
+
+// A watch on a bead that is already closed would end before it began.
+func TestWatchOnClosedBeadRefused(t *testing.T) {
+	s, ctx, b := yardrRig(t, "mayor")
+	if _, err := s.CloseBead(ctx, b.ID, "done", "jane"); err != nil {
+		t.Fatal(err)
+	}
+	err := s.AddSubscription(ctx, "mayor", yardrSub(store.ScopeAll, "bead="+b.ID, "state=done"), "me")
+	if err == nil || !strings.Contains(err.Error(), "closed") {
+		t.Fatalf("watch on closed bead err = %v", err)
+	}
+	if r, _ := s.GetResident(ctx, "mayor"); len(r.Subscriptions) != 0 {
+		t.Fatalf("subscriptions = %v", r.Subscriptions)
+	}
+	// An epic filter is not a watch: a closed epic still gathers its children.
+	subscribe(t, s, "mayor", yardrSub(store.ScopeAll, "epic="+b.ID))
+}
+
+// deliveredTo counts the events in the whole log that reached resident
+// through its subscriptions.
+func deliveredTo(t *testing.T, s store.API, resident string) int {
+	t.Helper()
+	evs, err := s.EventsSince(context.Background(), 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, e := range evs {
+		if store.Reason(e, resident) != "" {
+			n++
+		}
+	}
+	return n
+}
+
+// Two residents subscribed to everything can mention each other in their
+// journals without nudging each other forever: a mention counts in the
+// entry that makes it, not in every later entry on the same journal.
+func TestYardrJournalMentionsDoNotPingPong(t *testing.T) {
+	s, ctx, _ := yardrRig(t, "a", "b")
+	subscribe(t, s, "a", yardrSub(store.ScopeAll))
+	subscribe(t, s, "b", yardrSub(store.ScopeAll))
+	journal := func(who, text string) {
+		t.Helper()
+		if err := s.Journal(ctx, who, store.NoteJournal, text, who); err != nil {
+			t.Fatal(err)
+		}
+	}
+	journal("a", "@b can you take the review?")
+	if got := deliveredTo(t, s, "b"); got != 1 {
+		t.Fatalf("b reached %d times after a's mention, want 1", got)
+	}
+	journal("b", "@a on it")
+	if got := deliveredTo(t, s, "a"); got != 1 {
+		t.Fatalf("a reached %d times after b's reply, want 1", got)
+	}
+	for range 5 { // each acting on its nudge, mentioning no one
+		journal("a", "noted, carrying on")
+		journal("b", "reviewing")
+	}
+	if a, b := deliveredTo(t, s, "a"), deliveredTo(t, s, "b"); a != 1 || b != 1 {
+		t.Fatalf("after 10 more entries a reached %d, b %d times, want 1 and 1", a, b)
+	}
+	evs, _ := s.Events(ctx, "a-journal", 100)
+	for _, e := range evs {
+		if why := store.Reason(e, "b"); why != "" && why != store.ReasonMentioned {
+			t.Fatalf("b heard %s on a's journal as %q", e.Kind, why)
+		}
+	}
+	// Naming the journal brings it back into the source.
+	subscribe(t, s, "b", yardrSub(store.ScopeAll, "bead=a-journal"))
+	journal("a", "plain entry")
+	if got := deliveredTo(t, s, "b"); got != 2 {
+		t.Fatalf("b subscribed to a's journal reached %d times, want 2", got)
+	}
+}
+
+// Memory beads are knowledge, not events to hear about, unless asked for.
+func TestYardrMemoryOutOfSource(t *testing.T) {
+	s, ctx, _ := yardrRig(t, "all", "memories")
+	subscribe(t, s, "all", yardrSub(store.ScopeAll))
+	subscribe(t, s, "memories", yardrSub(store.ScopeAll, "type="+store.TypeMemory))
+	m, err := s.CreateBead(ctx, store.NewBead{Title: "lesson", Type: store.TypeMemory, Stage: "memory"}, "jane")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantHeard(t, s, m.ID, "all")
+	wantHeard(t, s, m.ID, "memories", "created:all")
+}
+
+// A resident never hears of its own session starting or stopping, nor its
+// own journal entries, whoever logs them (the daemon acts as "yard"), not
+// even when it subscribes to its journal or has the kind in --on.
+func TestResidentDoesNotHearOfItself(t *testing.T) {
+	s, ctx, _ := yardrRig(t, "other")
+	if _, err := s.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr",
+		On: []string{"resident_started", "resident_stopped"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []string{"mayor", "other"} {
+		subscribe(t, s, r, yardrSub(store.ScopeAll, "type="+store.TypeJournal))
+	}
+	subscribe(t, s, "mayor", yardrSub(store.ScopeAll, "bead=mayor-journal"))
+	if err := s.ResidentStarted(ctx, "mayor", map[string]any{"pane": "p1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Journal(ctx, "mayor", store.NoteJournal, "starting on the queue", "mayor-session"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ResidentStopped(ctx, "mayor", "test"); err != nil {
+		t.Fatal(err)
+	}
+	wantHeard(t, s, "mayor-journal", "mayor")
+	wantHeard(t, s, "mayor-journal", "other", "subscribed:all", "resident_started:all", "journal:all", "resident_stopped:all")
+	ownJournal := func() []string {
+		t.Helper()
+		page, err := s.Inbox(ctx, "mayor", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var kinds []string
+		for _, e := range page.Events {
+			if e.Bead != nil && *e.Bead == "mayor-journal" {
+				kinds = append(kinds, e.Kind)
+			}
+		}
+		return kinds
+	}
+	if got := ownJournal(); len(got) != 0 {
+		t.Fatalf("mayor's inbox has %v from its own journal", got)
+	}
+	// Someone else noting on its journal still reaches it.
+	if err := s.AddNote(ctx, "mayor-journal", "@mayor see yard-1", "jane"); err != nil {
+		t.Fatal(err)
+	}
+	if got := ownJournal(); !slices.Equal(got, []string{"noted"}) {
+		t.Fatalf("mayor's inbox after a note has %v from its journal", got)
 	}
 }
 
@@ -334,4 +476,37 @@ func TestYardrEpicAndGroupKeys(t *testing.T) {
 	}
 	wantHeard(t, s, child.ID, "builders", "advanced:all")
 	wantHeard(t, s, stranger.ID, "builders")
+}
+
+// Matching runs under the write lock, so it compiles each resident's
+// mention pattern once, not once per event.
+func TestYardrMentionPatternCompiledOncePerResident(t *testing.T) {
+	s, owned := storetest.NewOwned(t)
+	ctx := context.Background()
+	if err := s.PutRig(ctx, store.Rig{Name: "yard", Base: "origin/main"}); err != nil {
+		t.Fatal(err)
+	}
+	names := []string{"a", "b", "c"}
+	for _, r := range names {
+		if _, err := s.PutResident(ctx, store.Resident{Name: r, Runner: "herdr"}, "me"); err != nil {
+			t.Fatal(err)
+		}
+		subscribe(t, s, r, yardrSub(store.ScopeMentions))
+	}
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "work", Rig: "yard", Stage: "new"}, "jane")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const n = 20
+	for i := range n {
+		if err := s.AddNote(ctx, b.ID, "@"+names[i%len(names)]+" ping", "jane"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := owned.MentionCompiles(); got != int64(len(names)) {
+		t.Fatalf("%d patterns compiled over %d events, want %d (one per resident)", got, n+1, len(names))
+	}
+	if got := deliveredTo(t, s, "a"); got != 7 {
+		t.Fatalf("a reached %d times, want 7", got)
+	}
 }

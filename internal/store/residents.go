@@ -348,11 +348,12 @@ func (s *Store) Mail(ctx context.Context, to, text, actor string) error {
 
 // forResident reports whether e belongs in r's inbox: mail to it, a hook
 // or bead event its subscriptions delivered to it when logged, or a kind
-// it hears of through --on, never its own actions. --on works as implicit
+// it hears of through --on, never its own actions nor yardr telling of
+// itself (aboutItself). --on works as implicit
 // "yardr all kind=<k>" subscriptions, checked when the inbox is read, and
 // also covers events not about a bead.
 func forResident(r *Resident, e Event) bool {
-	if e.Actor == r.Name {
+	if e.Actor == r.Name || (e.Bead != nil && aboutItself(r, *e.Bead, e.Kind)) {
 		return false
 	}
 	switch e.Kind {
