@@ -21,7 +21,7 @@ in yard-9cza, the merge gate in yard-p2y7.
 | routes | | which group works which stage, by rig, type, label (built) |
 | rigs | | path, clone, base branch (built) |
 | residents | | agent, directory, inbox kinds, rotation, subscriptions, identities (built) |
-| settings | | the yard's defaults: `default_kind` (built) |
+| settings | | the yard's defaults: `default_kind`, `operator` (built) |
 
 ### Why the repo holds what the work is
 
@@ -237,9 +237,14 @@ socket paths are limited to about 100 bytes, and yardr refuses a home whose
 
 ### Creating a yard: the onboarding and `yardr init`
 
-A home is initialized once its store, `yard.db`, exists; there is no other
-marker. The first yardr command on a home without one runs the onboarding
-when it has a terminal: the default harness (every kind herdr starts, marked
+A home is initialized once its store has the `default_kind` setting, which
+init writes last. The store file alone is no marker: the server creates
+`yard.db` on the first command that connects, whatever it was, so a home can
+hold an empty store nobody set up. A store without `default_kind` that already
+has rigs, groups or residents is a yard from before the onboarding and counts
+as set up too. Any yardr command on a home that is not set up, bare `yardr`
+included (help otherwise; `--help` is always help), runs the onboarding when
+it has a terminal: the default harness (every kind herdr starts, marked
 installed when its executable is on PATH, the first installed one
 preselected), the mayor's name (default `mayor`), the directory its shell
 lives in (default the home's parent, so `~` for `~/.yardr`), and an optional
@@ -257,10 +262,21 @@ Either way yardr:
    person agents bring decisions to, init writes the operator's name (the
    form's "Your name", `--operator`, default `$USER`). A rig's own roles go
    in its repo under `.yardr/roles/` ([role prompts](#role-prompts));
-2. sets `default_kind` to the harness;
+2. sets `operator` to the operator's name;
 3. adds the mayor resident: `kind=<harness>`, `prompt=<home>/roles/mayor.md`,
    the model if given, the harness's unattended flags as `args`, rotating
-   every 6h. A resident of that name already there is never replaced.
+   every 6h. A resident of that name already there is kept as it is, so
+   init runs again on a yard without harm;
+4. sets `default_kind` to the harness, which marks the yard set up.
+
+The summary ends with the daemon: it starts the mayor, whose role begins with
+a first-run checklist. While `yardr rig list` is empty the mayor sets the
+yard up with the operator in its pane: the repository and its base branch
+(`yardr rig add`), `yardr rig init` ([below](#seeding-a-rig-yardr-rig-init)),
+the builder and reviewer groups on the default harness, how approved beads
+land (a refinery or a manual group), routes for `new`, `review` and
+`approved`, and a first bead to try the pipeline. `yardr init --help` lists
+the same as commands, for scripts.
 
 The unattended flags keep an agent nobody watches from stopping at a
 permission prompt: claude `--permission-mode auto`, codex
@@ -269,6 +285,25 @@ gets none and may ask (`yardr group add --help` lists them too). The daemon
 starts the mayor; init does not start a daemon, which runs in a terminal pane
 of its own (`yardr daemon`).
 
+### Seeding a rig: `yardr rig init`
+
+`yardr rig init <rig> [--operator <name>]` writes a registered rig's starting
+configuration into its checkout:
+
+| file | content |
+|---|---|
+| `.yardr/roles/{mayor,builder,reviewer,merger}.md` | the generic roles, `{{operator}}` filled with `--operator`, default the yard's `operator` setting, else `$USER` |
+| `.yardr/check` | the merge gate, executable, with a comment saying so; its command is a guess from the repo: `go.mod` gives `go vet ./... && go test ./...`, a `package.json` with a real `test` script gives `npm test` (`pnpm`/`yarn` by lockfile), anything else `exit 0` with a TODO |
+| `.yardr/flows/default.flow` | the standard stages: backlog, new, review, approved, merged (terminal), decide, with the outcomes `done`, `question`, `changes` and `failed` |
+
+The flow is `default.flow`, not a named one, so it governs the rig without a
+pointer (a store pointer, as `yardr rig flow` sets, still wins).
+
+It never overwrites a file that is there, so a second run changes nothing, and
+it commits nothing: roles, the gate and flows are read from the rig's base
+branch, so they take effect once the operator (or the mayor, with their OK)
+commits them there. It prints what it wrote and the commit to make.
+
 ### Settings
 
 `yardr settings get [<key>]` and `yardr settings set <key> <value>` (an empty
@@ -276,7 +311,8 @@ value unsets) keep the yard's own defaults in the store:
 
 | key | meaning |
 |---|---|
-| `default_kind` | the agent kind a herdr group or resident gets when `group add` or `resident add` is given no `--set kind`; also the kind their forms start at. One of the kinds herdr starts. |
+| `default_kind` | the agent kind a herdr group or resident gets when `group add` or `resident add` is given no `--set kind`; also the kind their forms start at. One of the kinds herdr starts. Its presence marks the yard set up. |
+| `operator` | the person the role prompts name, agents bring decisions to; `yardr init` stores it (`--operator`, the form's "Your name") and `yardr rig init` fills roles with it. |
 
 Environment variables yardr reads:
 

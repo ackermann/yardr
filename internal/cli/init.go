@@ -23,12 +23,40 @@ import (
 	"yardr.dev/yardr/roles"
 )
 
-// A yard is initialized once its store exists: the store file is the only
-// marker, so a home that ever ran yardr counts, and there is no second
-// marker to drift from it.
-func initialized(cfg *config.Config) bool {
-	_, err := os.Stat(cfg.DBPath())
-	return !errors.Is(err, fs.ErrNotExist)
+// A yard is initialized once yardr init (or the onboarding) has stored its
+// default_kind. The store file alone does not say so: the server creates it
+// on the first command that connects, whatever that command was, so a home
+// can hold a store nobody set up. A store with no default_kind that already
+// holds rigs, groups or residents is a yard from before the onboarding, in
+// use, and counts as initialized too: onboarding it would ask its operator
+// to start over, and refuse its agents' commands.
+func (a *app) initialized(ctx context.Context, cfg *config.Config) (bool, error) {
+	if a.st == nil {
+		// No store file: nothing to connect to, and connecting would create one.
+		if _, err := os.Stat(cfg.DBPath()); errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+	}
+	st, err := a.store(ctx)
+	if err != nil {
+		return false, err
+	}
+	if defaultKind(ctx, st) != "" {
+		return true, nil
+	}
+	rigs, err := st.Rigs(ctx)
+	if err != nil {
+		return false, err
+	}
+	groups, err := st.Groups(ctx)
+	if err != nil {
+		return false, err
+	}
+	residents, err := st.Residents(ctx)
+	if err != nil {
+		return false, err
+	}
+	return len(rigs)+len(groups)+len(residents) > 0, nil
 }
 
 // notInitialized is a command run on a home with no yard yet and no
@@ -69,8 +97,8 @@ func (a *app) firstRun(c *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	if initialized(cfg) {
-		return nil
+	if ok, err := a.initialized(c.Context(), cfg); err != nil || ok {
+		return err
 	}
 	if !interactive() {
 		return notInitialized{cfg.Home}
@@ -113,12 +141,16 @@ type initResult struct {
 	Written  []string `json:"written"` // role files installed now
 	Kept     []string `json:"kept"`    // role files already there, left as they were
 	Daemon   bool     `json:"daemon"`  // a daemon runs on this home
+	// MayorKept: a resident of the mayor's name was there already and is
+	// left as it was.
+	MayorKept bool `json:"mayor_kept"`
 }
 
 // initYard creates the yard: the store, the default roles in the home, the
-// default_kind setting and the mayor resident. Inputs are checked before
-// anything is created; roles already installed are kept (the mayor edits its
-// own), and an existing resident of the mayor's name is never replaced.
+// operator and default_kind settings and the mayor resident. Inputs are
+// checked before anything is created; roles already installed are kept (the
+// mayor edits its own), and an existing resident of the mayor's name is never
+// replaced, so init runs again on a yard without harm.
 func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (*initResult, error) {
 	if !agents.IsKind(o.Harness) {
 		return nil, fmt.Errorf("unknown harness %q; herdr starts: %s", o.Harness, strings.Join(agents.Kinds(), ", "))
@@ -137,19 +169,39 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 	if err != nil {
 		return nil, err
 	}
-	if _, err := st.GetResident(ctx, o.Mayor); err == nil {
-		return nil, fmt.Errorf("resident %s already exists; change it with `yardr resident add`", o.Mayor)
-	} else if !errors.Is(err, store.ErrNotFound) {
+	// Init again on a yard is no harm: an existing resident of the mayor's
+	// name is kept as it is, never replaced.
+	_, err = st.GetResident(ctx, o.Mayor)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return nil, err
 	}
+	mayorKept := err == nil
 	res := &initResult{Home: cfg.Home, Harness: o.Harness, Mayor: o.Mayor, Dir: dir,
 		Operator: or(o.Operator, defaultOperator()),
 		Args:     agents.UnattendedArgs(o.Harness), Roles: filepath.Join(cfg.Home, "roles")}
 	if res.Written, res.Kept, err = installRoles(res.Roles, res.Operator); err != nil {
 		return nil, err
 	}
+	res.MayorKept = mayorKept
+	if err := st.SetSetting(ctx, "operator", res.Operator, a.who()); err != nil {
+		return nil, err
+	}
+	if err := a.putMayor(ctx, st, o, res); err != nil {
+		return nil, err
+	}
+	// default_kind last: it marks the yard initialized, so an init cut
+	// short onboards again.
 	if err := st.SetSetting(ctx, "default_kind", o.Harness, a.who()); err != nil {
 		return nil, err
+	}
+	res.Daemon = daemonRunning(cfg.DaemonLock())
+	return res, nil
+}
+
+// putMayor adds the mayor resident res describes, unless one is kept.
+func (a *app) putMayor(ctx context.Context, st store.API, o initOptions, res *initResult) error {
+	if res.MayorKept {
+		return nil
 	}
 	conf := map[string]any{"kind": o.Harness, "prompt": filepath.Join(res.Roles, "mayor.md")}
 	if o.Model != "" {
@@ -162,12 +214,9 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 		}
 		conf["args"] = list
 	}
-	if _, err := st.PutResident(ctx, store.Resident{Name: o.Mayor, Runner: "herdr", Config: conf, Dir: dir,
-		On: defaultOn, MaxAge: "6h", HandoffGrace: "15m"}, a.who()); err != nil {
-		return nil, err
-	}
-	res.Daemon = daemonRunning(cfg.DaemonLock())
-	return res, nil
+	_, err := st.PutResident(ctx, store.Resident{Name: o.Mayor, Runner: "herdr", Config: conf, Dir: res.Dir,
+		On: defaultOn, MaxAge: "6h", HandoffGrace: "15m"}, a.who())
+	return err
 }
 
 // defaultOperator is who the role prompts name when the onboarding was not
@@ -227,14 +276,22 @@ func daemonRunning(lock string) bool {
 }
 
 func (r *initResult) print() {
-	fmt.Printf("yard created in %s\n\n", r.Home)
-	fmt.Printf("  harness  %s (the yard's default_kind: groups and residents get it when --set kind is omitted)\n", r.Harness)
-	fmt.Printf("  mayor    %s, working in %s, rotating every 6h\n", r.Mayor, r.Dir)
-	if len(r.Args) > 0 {
-		fmt.Printf("           runs with %s so it does not stop to ask\n", strings.Join(r.Args, " "))
+	if r.MayorKept {
+		fmt.Printf("yard in %s set up again\n\n", r.Home)
 	} else {
-		fmt.Printf("           runs with no unattended flags: %s may stop to ask; give it its own with\n"+
-			"           yardr resident add %s --set 'args=[...]' (see yardr group add --help)\n", r.Harness, r.Mayor)
+		fmt.Printf("yard created in %s\n\n", r.Home)
+	}
+	fmt.Printf("  harness  %s (the yard's default_kind: groups and residents get it when --set kind is omitted)\n", r.Harness)
+	if r.MayorKept {
+		fmt.Printf("  mayor    %s, already a resident: kept as it was\n", r.Mayor)
+	} else {
+		fmt.Printf("  mayor    %s, working in %s, rotating every 6h\n", r.Mayor, r.Dir)
+		if len(r.Args) > 0 {
+			fmt.Printf("           runs with %s so it does not stop to ask\n", strings.Join(r.Args, " "))
+		} else {
+			fmt.Printf("           runs with no unattended flags: %s may stop to ask; give it its own with\n"+
+				"           yardr resident add %s --set 'args=[...]' (see yardr group add --help)\n", r.Harness, r.Mayor)
+		}
 	}
 	fmt.Printf("  roles    %s", r.Roles)
 	if len(r.Kept) > 0 {
@@ -244,16 +301,15 @@ func (r *initResult) print() {
 		"           A rig's own roles go in its repo under .yardr/roles/, which a group's\n"+
 		"           prompt=roles/<name>.md reads first (from the rig's base branch).\n\n", r.Operator)
 	if r.Daemon {
-		fmt.Printf("The daemon is running; it starts %s shortly.\n\n", r.Mayor)
+		fmt.Printf("The daemon is running; it starts %s shortly.\n", r.Mayor)
 	} else {
-		fmt.Printf("Start the daemon in a terminal pane of its own; %s starts when it does:\n\n  yardr daemon\n\n", r.Mayor)
+		fmt.Printf("Start the daemon in a terminal pane of its own; %s starts when it does:\n\n  yardr daemon\n", r.Mayor)
 	}
-	fmt.Print(`Next: a rig to work in, a group to work it, a route from a stage to the group:
-
-  yardr rig add webapp ~/projects/webapp --base origin/main
-  yardr group add webapp/builders --runner herdr --limit 2 --set prompt=roles/builder.md
-  yardr route add --stage new --rig webapp --group webapp/builders
-`)
+	// The rest of the setup is a conversation: the mayor's role has a first
+	// run checklist (rig, starter files, groups, routes). The commands for
+	// scripts are in yardr init --help.
+	fmt.Printf("\n%s sets up the rest with you in its pane: the repository to work in, who\n"+
+		"builds and reviews, and a first bead to try it on.\n", r.Mayor)
 }
 
 // harnessOptions are the kinds herdr starts, each marked with whether its
@@ -336,8 +392,20 @@ its repo under .yardr/roles/, which groups find first. It stores --harness as th
 adds the mayor resident on that harness with its unattended flags, rotating
 every 6h. The daemon starts the mayor.
 
-Run any yardr command in a terminal on a home with no yard to get the same as
-a form. Unattended flags per harness:
+Run yardr in a terminal on a home with no yard to get the same as a form. A
+home counts as set up once init has stored default_kind (or its store already
+has rigs, groups or residents); the store file alone does not, since the
+server creates it on any first command. Init again keeps an existing mayor.
+
+After init the mayor sets up the rest in conversation. For scripts, the same
+by hand:
+
+  yardr rig add webapp ~/projects/webapp --base origin/main
+  yardr rig init webapp        # starter roles, gate and flow; commit them on the base
+  yardr group add webapp/builders --runner herdr --limit 2 --set prompt=roles/builder.md
+  yardr route add --stage new --rig webapp --group webapp/builders
+
+Unattended flags per harness:
 ` + agents.UnattendedHelp(),
 		Example: `  yardr init --harness claude
   YARDR_HOME=/tmp/y1 yardr init --harness codex --mayor boss --dir ~/projects --model gpt-5.5 --operator Jo`,
@@ -368,6 +436,8 @@ var settings = map[string]struct {
 	help  string
 	check func(string) error
 }{
+	"operator": {"who the role prompts name, the person agents bring decisions to (yardr rig init's default)",
+		func(string) error { return nil }},
 	"default_kind": {"the agent kind of herdr groups and residents whose config names none", func(v string) error {
 		if !agents.IsKind(v) {
 			return fmt.Errorf("default_kind %q: herdr starts %s", v, strings.Join(agents.Kinds(), ", "))
@@ -377,7 +447,7 @@ var settings = map[string]struct {
 }
 
 func (a *app) settingsCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "settings", Short: "The yard's own defaults (default_kind)"}
+	cmd := &cobra.Command{Use: "settings", Short: "The yard's own defaults (default_kind, operator)"}
 	known := func(key string) error {
 		if _, ok := settings[key]; !ok {
 			return fmt.Errorf("no setting %q; there is: %s", key, strings.Join(sortedKeys(settings), ", "))

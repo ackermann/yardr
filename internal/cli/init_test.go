@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -66,22 +67,35 @@ func TestInitHarnessClaude(t *testing.T) {
 		r.Dir != filepath.Dir(home) || !reflect.DeepEqual(r.On, defaultOn) {
 		t.Fatalf("mayor = %+v", r)
 	}
-	if got, _ := st.Settings(ctx); got["default_kind"] != "claude" {
+	if got, _ := st.Settings(ctx); got["default_kind"] != "claude" || got["operator"] != "Jo" {
 		t.Fatalf("settings = %v", got)
 	}
-	for _, s := range []string{"harness  claude", "naming Jo", ".yardr/roles/", "yardr daemon", "yardr rig add", "yardr group add", "yardr route add"} {
+	// The mayor takes it from here; the commands are in init --help.
+	for _, s := range []string{"harness  claude", "naming Jo", ".yardr/roles/", "yardr daemon", "sets up the rest with you in its pane"} {
 		if !strings.Contains(out, s) {
 			t.Errorf("summary lacks %q:\n%s", s, out)
 		}
 	}
+	if strings.Contains(out, "yardr route add") {
+		t.Errorf("summary still lists the setup commands:\n%s", out)
+	}
+	if help, _ := run(t, a.rootCmd(), "init", "--help"); !strings.Contains(help, "yardr rig init webapp") ||
+		!strings.Contains(help, "yardr route add") {
+		t.Errorf("init --help lacks the commands for scripts:\n%s", help)
+	}
 
-	// Again: the mayor is not replaced, and roles the operator edited are kept.
+	// Again: init is idempotent; the mayor is not replaced, and roles the
+	// operator edited are kept.
 	mayor := filepath.Join(home, "roles", "mayor.md")
 	if err := os.WriteFile(mayor, []byte("mine"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := run(t, a.rootCmd(), "init", "--harness", "codex"); err == nil || !strings.Contains(err.Error(), "already exists") {
-		t.Fatalf("second init: %v", err)
+	if out, err := run(t, a.rootCmd(), "init", "--harness", "claude", "--operator", "Jo"); err != nil ||
+		!strings.Contains(out, "already a resident: kept") {
+		t.Fatalf("second init: %v\n%s", err, out)
+	}
+	if again, _ := st.GetResident(ctx, "mayor"); !reflect.DeepEqual(again, r) {
+		t.Fatalf("second init changed the mayor:\n%+v\n%+v", again, r)
 	}
 	if _, err := run(t, a.rootCmd(), "init", "--harness", "kimi", "--mayor", "boss", "--model", "k2", "--dir", home); err != nil {
 		t.Fatal(err)
@@ -172,21 +186,87 @@ func TestFirstRunWithoutTerminal(t *testing.T) {
 	}
 }
 
-// On a home with a store, nothing asks.
-func TestInitializedIsTheStore(t *testing.T) {
+// A home is set up once init stored default_kind: not by its store file,
+// which the server creates on any first command, and not by an empty store.
+// A store already in use without the setting (a yard from before the
+// onboarding) counts as set up.
+func TestInitialized(t *testing.T) {
 	newHome(t)
 	cfg, err := config.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if initialized(cfg) {
-		t.Fatal("empty home initialized")
+	ctx := context.Background()
+	if ok, err := (&app{}).initialized(ctx, cfg); ok || err != nil {
+		t.Fatalf("empty home: %v %v", ok, err)
 	}
-	if err := os.WriteFile(cfg.DBPath(), nil, 0o600); err != nil {
+	if _, err := os.Stat(cfg.DBPath()); err == nil {
+		t.Fatal("asking created a store")
+	}
+	st := storetest.New(t)
+	a := &app{st: st}
+	if ok, err := a.initialized(ctx, cfg); ok || err != nil {
+		t.Fatalf("store without default_kind: %v %v", ok, err)
+	}
+	if err := st.SetSetting(ctx, "default_kind", "claude", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if !initialized(cfg) {
-		t.Fatal("home with a store not initialized")
+	if ok, err := a.initialized(ctx, cfg); !ok || err != nil {
+		t.Fatalf("store with default_kind: %v %v", ok, err)
+	}
+	old := storetest.New(t)
+	if err := old.PutRig(ctx, store.Rig{Name: "r", Path: "/x", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := (&app{st: old}).initialized(ctx, cfg); !ok || err != nil {
+		t.Fatalf("store in use without default_kind: %v %v", ok, err)
+	}
+}
+
+// Bare yardr on a store nobody set up (the server made it) runs the
+// onboarding; on a set-up home, and with --help anywhere, it is help.
+func TestBareYardr(t *testing.T) {
+	newHome(t)
+	setInteractive(t, true)
+	stubLookPath(t, "claude")
+	asked := 0
+	stubAsk(t, func(...huh.Field) error { asked++; return nil })
+	ctx := context.Background()
+
+	// --help on a home that would onboard: help, nothing asked.
+	st := storetest.New(t)
+	for _, h := range []string{"--help", "-h"} {
+		out, err := run(t, (&app{st: st}).rootCmd(), h)
+		if err != nil || asked != 0 || !strings.Contains(out, "Usage:") {
+			t.Fatalf("%s: asked %d, %v\n%s", h, asked, err, out)
+		}
+	}
+
+	out, err := run(t, (&app{st: st}).rootCmd())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asked != 3 || !strings.Contains(out, "yard created") || strings.Contains(out, "Usage:") {
+		t.Fatalf("store without default_kind: asked %d\n%s", asked, out)
+	}
+	if _, err := st.GetResident(ctx, "mayor"); err != nil {
+		t.Fatalf("no mayor: %v", err)
+	}
+
+	asked = 0
+	out, err = run(t, (&app{st: st}).rootCmd())
+	if err != nil || asked != 0 || !strings.Contains(out, "Usage:") {
+		t.Fatalf("set-up home: asked %d, %v\n%s", asked, err, out)
+	}
+}
+
+// With no terminal, a store nobody set up refuses like a home with none.
+func TestStoreWithoutSettingWithoutTerminal(t *testing.T) {
+	newHome(t)
+	setInteractive(t, false)
+	_, err := run(t, (&app{st: storetest.New(t)}).rootCmd(), "bead", "list")
+	if exitCode(err) != 2 || !strings.Contains(fmt.Sprint(err), "yardr init --harness") {
+		t.Fatalf("err = %v (exit %d)", err, exitCode(err))
 	}
 }
 

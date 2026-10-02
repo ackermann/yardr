@@ -21,6 +21,9 @@ func TestTemplatesAreGeneric(t *testing.T) {
 			// "this yard" and "the yard" are yardr's word for the installation,
 			// not a rig's name.
 			l := regexp.MustCompile(`(?i)\b(this|the) yard\b`).ReplaceAllString(line, "")
+			// The mayor's setup names the runner group add needs; the
+			// herdr rules that are one yard's are what this keeps out.
+			l = strings.ReplaceAll(l, "--runner herdr", "")
 			if m := specific.FindString(l); m != "" {
 				t.Errorf("%s:%d names %q: %s", name, i+1, m, line)
 			}

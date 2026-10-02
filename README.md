@@ -21,39 +21,43 @@ and a restart is just another pass.
 ## Quick start
 
 ```sh
-go install .                            # one static binary, yardr; nothing else to install
-alias yd=yardr                          # the short form, if you like it
-
-yardr                                   # first run: the onboarding
+go install .        # 1. one static binary, yardr; nothing else to install
+yardr               # 2. the onboarding: answer the form
+yardr daemon        # 3. in a pane of its own; it starts the mayor
+                    # 4. talk to the mayor in its pane: it sets up the rest
 ```
 
-The first yardr command on a home with no yard runs the onboarding: pick the
-agent harness yardr starts by default (each herdr kind, marked installed or
-not), then name the mayor, the always-on resident that coordinates the yard,
-and the directory its shell lives in. It installs generic role prompts in
-`~/.yardr/roles/` (mayor, builder, merger, reviewer, naming you as the one who
-decides; starting points, edit them to fit), stores
-the harness as the yard's `default_kind`, and adds the mayor on it. The daemon
-starts the mayor. Scripts do the same without the form:
+The onboarding asks for the agent harness yardr starts by default (each herdr
+kind, marked installed or not), the mayor's name (the always-on resident that
+coordinates the yard), the directory its shell lives in, and your name. It
+installs generic role prompts in `~/.yardr/roles/` (mayor, builder, merger,
+reviewer, naming you as the one who decides), stores the harness as the
+yard's `default_kind` and your name as its `operator`, and adds the mayor.
 
-```sh
-yardr init --harness claude [--mayor mayor] [--dir ~/projects] [--model opus] [--operator Jo]
-```
+The mayor's first job is the setup, as a conversation with you: it asks for
+the repository and its base branch, registers the rig, seeds it with
+`yardr rig init` (starter roles, gate and flow under `.yardr/`, which you
+commit on the base branch), creates the groups and routes, and offers a first
+bead to try the pipeline. It asks before anything outward, such as a commit.
 
-Without a terminal, a command on a home with no yard says so and exits 2. To
-try the onboarding without touching your yard, give it a home of its own; keep
-it short, since the server's unix socket lives in it (a home too long for one
-is refused):
+A home counts as set up once its store has `default_kind`; a store the server
+created on some earlier command, with nothing in it, still onboards. Without a
+terminal, a command on a home with no yard says so and exits 2. To try the
+onboarding without touching your yard, give it a home of its own; keep it
+short, since the server's unix socket lives in it (a home too long for one is
+refused):
 
 ```sh
 YARDR_HOME=/tmp/y1 yardr                          # the form
 YARDR_HOME=/tmp/y1 yardr init --harness claude    # the scripted path
 ```
 
-Then the work itself:
+Scripts skip the form and the mayor's conversation (`yardr init --help`):
 
 ```sh
+yardr init --harness claude [--mayor mayor] [--dir ~/projects] [--model opus] [--operator Jo]
 yardr rig add webapp ~/projects/webapp --base origin/main
+yardr rig init webapp                   # .yardr/roles, .yardr/check, .yardr/flows/default.flow; commit them
 
 # role prompts: prompt=roles/<name>.md reads the rig's own .yardr/roles/<name>.md
 # (as on its base branch), else the generic ~/.yardr/roles/<name>.md

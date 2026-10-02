@@ -298,7 +298,7 @@ overrides the repository's default.flow and type/<type>.flow.`,
 	}
 	flow.Flags().StringVarP(&flowType, "type", "t", "", "only the rig's beads of this type")
 	flow.Flags().BoolVar(&clear, "clear", false, "remove the pointer")
-	cmd.AddCommand(add, list, show, flow, a.rigCheckCmd())
+	cmd.AddCommand(add, list, show, flow, a.rigCheckCmd(), a.rigInitCmd())
 	return cmd
 }
 
