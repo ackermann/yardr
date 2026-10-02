@@ -64,6 +64,7 @@ type API interface {
 	SetResidentEnabled(ctx context.Context, name string, enabled bool, actor string) error
 	ResidentStarted(ctx context.Context, name string, handle map[string]any) error
 	ResidentStopped(ctx context.Context, name, reason string) error
+	SetResidentHandle(ctx context.Context, name string, handle map[string]any) error
 	ResidentStartFailed(ctx context.Context, name, reason string, backoff time.Duration) error
 	RequestRestart(ctx context.Context, name, reason, actor string) error
 	MarkRotationAsked(ctx context.Context, name string) error

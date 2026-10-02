@@ -202,6 +202,21 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	if extra := AgentArgs(job); len(extra) > 0 {
 		args = append(append(args, "--"), extra...)
 	}
+	rel, _ := filepath.Rel(wt.Worktree.Path, briefPath)
+	prompt := fmt.Sprintf("Read %s and follow it. Start with `export YARD_ACTOR=%s`.", rel, name)
+	if h.YardBin != "" {
+		prompt += fmt.Sprintf(" Run yard as %s.", h.YardBin)
+	}
+	return h.startAgent(ctx, args, name, prompt, handle)
+}
+
+// startAgent starts the agent and gives it its first prompt. An agent that
+// is not ready yet (blocked on a trust or permission question a human must
+// answer, or just slow) is not a failure: the session is kept and the
+// prompt is left on the handle as pending, for the dispatcher to deliver
+// once the agent is idle.
+func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt string, handle map[string]any) (map[string]any, error) {
+	var err error
 	// A pane created a moment ago may not have its shell prompt up yet.
 	for attempt := 0; ; attempt++ {
 		_, err = h.run(ctx, args...)
@@ -211,13 +226,13 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
+	var herr *herdrError
+	if errors.As(err, &herr) && herr.Code == "agent_not_ready" {
+		handle[dispatch.PendingPrompt] = prompt
+		return handle, nil
+	}
 	if err != nil {
 		return handle, err
-	}
-	rel, _ := filepath.Rel(wt.Worktree.Path, briefPath)
-	prompt := fmt.Sprintf("Read %s and follow it. Start with `export YARD_ACTOR=%s`.", rel, name)
-	if h.YardBin != "" {
-		prompt += fmt.Sprintf(" Run yard as %s.", h.YardBin)
 	}
 	if _, err := h.run(ctx, "agent", "prompt", name, prompt); err != nil {
 		return handle, err
@@ -402,23 +417,9 @@ func (h *Herdr) StartResident(ctx context.Context, r store.Resident) (map[string
 	if extra := agentArgs(r.Config, ""); len(extra) > 0 {
 		start = append(append(start, "--"), extra...)
 	}
-	for attempt := 0; ; attempt++ {
-		_, err = h.run(ctx, start...)
-		var herr *herdrError
-		if err == nil || attempt == 20 || !errors.As(err, &herr) || herr.Code != "agent_pane_busy" {
-			break
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	if err != nil {
-		return handle, err
-	}
 	prompt := fmt.Sprintf("You are the yard resident %q. Run `%s prime --resident %s` and follow it.",
 		r.Name, h.yard(), r.Name)
-	if _, err := h.run(ctx, "agent", "prompt", name, prompt); err != nil {
-		return handle, err
-	}
-	return handle, nil
+	return h.startAgent(ctx, start, name, prompt, handle)
 }
 
 // Nudge sends text to the session's agent as its next prompt.

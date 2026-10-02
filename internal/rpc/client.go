@@ -248,6 +248,9 @@ func (c *Client) SetResidentEnabled(ctx context.Context, name string, enabled bo
 func (c *Client) ResidentStarted(ctx context.Context, name string, handle map[string]any) error {
 	return c.call(ctx, "ResidentStarted", nil, name, handle)
 }
+func (c *Client) SetResidentHandle(ctx context.Context, name string, handle map[string]any) error {
+	return c.call(ctx, "SetResidentHandle", nil, name, handle)
+}
 func (c *Client) ResidentStopped(ctx context.Context, name, reason string) error {
 	return c.call(ctx, "ResidentStopped", nil, name, reason)
 }

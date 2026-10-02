@@ -134,9 +134,11 @@ stage the bead is held (`yard bead unhold` grants fresh attempts).
 
 ### herdr setup
 
-- **Trust the worktree root once.** Claude Code (and similar agents) ask to
-  trust every new folder but inherit trust from a parent. Run `claude` once in
-  `~/.yard/worktrees` and accept, or every bead's agent stops at that prompt.
+- **Folder trust.** Claude Code asks to trust each new project, and every bead's
+  worktree is its own git root, so trusting a parent folder does not cover them:
+  each builder stops at the trust dialog until someone answers it in its pane.
+  yard keeps such a session (`session_blocked` in `yard watch`) and sends its
+  first prompt once it is answered. Starting without the dialog is yard-16.
 - **Decide what agents may run unattended.** Anything outside `args`'
   permissions blocks the agent on a prompt. Pass what the role needs, e.g.
   `--set 'args=["--permission-mode","acceptEdits","--allowedTools","Bash(yard:*),Bash(git:*)"]'`;

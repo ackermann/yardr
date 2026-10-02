@@ -94,8 +94,26 @@ func (d *Dispatcher) resident(ctx context.Context, r store.Resident) error {
 	return d.Store.ResidentStarted(ctx, r.Name, handle)
 }
 
-// residentRunning handles a healthy session: rotation, then the inbox.
+// residentRunning handles a healthy session: a first prompt still to
+// deliver, then rotation, then the inbox.
 func (d *Dispatcher) residentRunning(ctx context.Context, runner Runner, r store.Resident, idle bool, grace time.Duration) error {
+	if p, ok := r.Handle[PendingPrompt].(string); ok {
+		if !idle {
+			// Waiting on a human (e.g. a trust prompt): say so once.
+			if d.status["resident:"+r.Name] != "waiting" {
+				d.status["resident:"+r.Name] = "waiting"
+				d.Log.Warn("resident waiting for a human before it can start", "resident", r.Name)
+				_ = d.Store.LogEvent(ctx, r.Journal, "resident_blocked", actor, map[string]any{
+					"resident": r.Name, "reason": "not ready at startup; answer it in its pane"})
+			}
+			return nil
+		}
+		if err := d.nudge(ctx, runner, r, p); err != nil {
+			return nil // try again next pass
+		}
+		delete(d.status, "resident:"+r.Name)
+		return d.Store.SetResidentHandle(ctx, r.Name, withoutPending(r.Handle))
+	}
 	if maxAge := durationOr(r.MaxAge, 0); maxAge > 0 && r.StartedAt != nil && time.Since(*r.StartedAt) > maxAge {
 		switch {
 		case r.RotationAskedAt == nil && idle:

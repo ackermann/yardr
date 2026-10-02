@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -22,6 +23,7 @@ type residentRunner struct {
 	nudges   []string
 	stops    int
 	failNext error
+	blocked  bool // next start blocks before the agent is ready (a trust prompt)
 }
 
 func (f *residentRunner) StartResident(_ context.Context, r store.Resident) (map[string]any, error) {
@@ -34,6 +36,11 @@ func (f *residentRunner) StartResident(_ context.Context, r store.Resident) (map
 	f.n++
 	agent := fmt.Sprintf("%s-%d", r.Name, f.n)
 	f.status[agent] = "idle"
+	if f.blocked {
+		f.blocked = false
+		f.status[agent] = "blocked"
+		return map[string]any{"agent": agent, dispatch.PendingPrompt: "prime yourself"}, nil
+	}
 	return map[string]any{"agent": agent}, nil
 }
 func (f *residentRunner) Start(context.Context, dispatch.Job) (map[string]any, error) {
@@ -183,5 +190,90 @@ func TestResidentStartFailureBacksOffAndDisableStops(t *testing.T) {
 	must(t, d.Reconcile(ctx))
 	if r, _ = s.GetResident(ctx, "mayor"); r.Live() || f.stops != 1 {
 		t.Fatalf("disable did not stop it: %+v stops %d", r, f.stops)
+	}
+}
+
+// Found live: a resident whose agent stops at Claude's trust prompt was
+// treated as a failed start, its tab closed and retried in a loop, so the
+// human could never answer. A blocked start is kept and its first prompt
+// delivered once the agent is idle.
+func TestBlockedStartWaitsForHumanThenPrompts(t *testing.T) {
+	s, f, d := residentSetup(t, store.Resident{})
+	ctx := context.Background()
+	f.blocked = true
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	r, _ := s.GetResident(ctx, "mayor")
+	if !r.Live() || f.stops != 0 || f.n != 1 || r.Failures != 0 {
+		t.Fatalf("blocked start was not kept: %+v stops %d starts %d", r, f.stops, f.n)
+	}
+	if len(f.nudges) != 0 {
+		t.Fatalf("prompted a blocked agent: %v", f.nudges)
+	}
+	evs, _ := s.Events(ctx, r.Journal, 100)
+	blocked := 0
+	for _, e := range evs {
+		if e.Kind == "resident_blocked" {
+			blocked++
+		}
+	}
+	if blocked != 1 {
+		t.Fatalf("resident_blocked logged %d times", blocked)
+	}
+	// The human answers in the pane; the agent becomes idle.
+	f.set(agentOf(t, s), "idle")
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	if len(f.nudges) != 1 || !strings.HasSuffix(f.nudges[0], "prime yourself") {
+		t.Fatalf("pending prompt delivered %v", f.nudges)
+	}
+	if r, _ = s.GetResident(ctx, "mayor"); r.Handle[dispatch.PendingPrompt] != nil {
+		t.Fatal("pending prompt not cleared")
+	}
+}
+
+// nudgeRunner is a bead runner whose agents can be blocked and prompted.
+type nudgeRunner struct {
+	*fakeRunner
+	status string
+	nudges []string
+}
+
+func (n *nudgeRunner) Start(ctx context.Context, j dispatch.Job) (map[string]any, error) {
+	h, err := n.fakeRunner.Start(ctx, j)
+	if h != nil {
+		h[dispatch.PendingPrompt] = "read your brief"
+	}
+	return h, err
+}
+func (n *nudgeRunner) Status(context.Context, map[string]any) (string, error) { return n.status, nil }
+func (n *nudgeRunner) Nudge(_ context.Context, _ map[string]any, text string) error {
+	n.nudges = append(n.nudges, text)
+	return nil
+}
+
+func TestBlockedBeadSessionGetsItsPromptWhenIdle(t *testing.T) {
+	s := storetest.New(t)
+	r := &nudgeRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "blocked"}
+	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}}
+	ctx := context.Background()
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	if len(r.nudges) != 0 {
+		t.Fatal("prompted while blocked")
+	}
+	r.status = "idle"
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	if len(r.nudges) != 1 || r.nudges[0] != "read your brief" {
+		t.Fatalf("nudges = %v", r.nudges)
+	}
+	got, _ := s.GetBead(ctx, b.ID)
+	sess, _ := s.GetSession(ctx, *got.Session)
+	if sess.Handle[dispatch.PendingPrompt] != nil || sess.State != "running" {
+		t.Fatalf("session after prompt: %+v", sess)
 	}
 }

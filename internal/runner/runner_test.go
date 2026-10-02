@@ -208,3 +208,26 @@ func TestAgentArgsModel(t *testing.T) {
 		}
 	}
 }
+
+// herdr reports an agent stuck at a startup question as agent_not_ready;
+// the session must be kept with its first prompt pending, not failed.
+func TestStartAgentKeepsNotReadyAgents(t *testing.T) {
+	log := filepath.Join(t.TempDir(), "calls")
+	h := &Herdr{Bin: fakeHerdrBin(t, `echo "$@" >> `+log+`
+case "$1 $2" in
+  "agent start") echo '{"error":{"code":"agent_not_ready","message":"agent mayor is blocked during startup and is not ready for prompts"},"id":"x"}' >&2; exit 1 ;;
+  *) echo '{"result":{"type":"ok"}}' ;;
+esac`)}
+	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "mayor"}, "mayor", "prime yourself",
+		map[string]any{"agent": "mayor"})
+	if err != nil {
+		t.Fatalf("not-ready agent treated as a failure: %v", err)
+	}
+	if handle[dispatch.PendingPrompt] != "prime yourself" {
+		t.Fatalf("handle = %v", handle)
+	}
+	calls, _ := os.ReadFile(log)
+	if strings.Contains(string(calls), "agent prompt") {
+		t.Fatalf("prompted an agent that was not ready:\n%s", calls)
+	}
+}

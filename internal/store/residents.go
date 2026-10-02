@@ -203,6 +203,15 @@ func (s *Store) ResidentStarted(ctx context.Context, name string, handle map[str
 	})
 }
 
+// SetResidentHandle replaces the running session's handle (e.g. once its
+// pending first prompt was delivered).
+func (s *Store) SetResidentHandle(ctx context.Context, name string, handle map[string]any) error {
+	return s.changeResident(name, func(_ *wtx, r *Resident) error {
+		r.Handle = handle
+		return nil
+	})
+}
+
 // ResidentStopped records that the session ended (stopped by yard, or died).
 func (s *Store) ResidentStopped(ctx context.Context, name, reason string) error {
 	return s.changeResident(name, func(w *wtx, r *Resident) error {

@@ -77,6 +77,12 @@ func (d *Dispatcher) defaults() {
 	}
 }
 
+// PendingPrompt is a handle key: the first prompt a runner could not deliver
+// because the agent was not ready (often blocked on a question a human must
+// answer, such as trusting a folder). The dispatcher delivers it once the
+// agent is idle.
+const PendingPrompt = "pending_prompt"
+
 // Statuser is implemented by runners that can tell more than alive/dead.
 // A session whose status turns "blocked" (the agent waits on a permission
 // prompt or a question) gets a session_blocked event so a human can step in.
@@ -284,6 +290,18 @@ func (d *Dispatcher) alive(ctx context.Context, r Runner, s store.Session) (bool
 	status, err := st.Status(ctx, s.Handle)
 	if err != nil || status == "" {
 		return false, err
+	}
+	if p, ok := s.Handle[PendingPrompt].(string); ok && (status == "idle" || status == "done") {
+		if n, ok := r.(Nudger); ok {
+			if err := n.Nudge(ctx, s.Handle, p); err != nil {
+				return true, nil // try again next pass
+			}
+		}
+		h := withoutPending(s.Handle)
+		if err := d.Store.SetHandle(ctx, s.ID, h); err != nil {
+			return true, err
+		}
+		_ = d.Store.LogEvent(ctx, s.Bead, "session_prompted", actor, map[string]any{"session": s.ID})
 	}
 	if prev := d.status[s.ID]; status != prev {
 		d.status[s.ID] = status
@@ -502,4 +520,14 @@ func contains(xs []string, x string) bool {
 		}
 	}
 	return false
+}
+
+func withoutPending(h map[string]any) map[string]any {
+	out := make(map[string]any, len(h))
+	for k, v := range h {
+		if k != PendingPrompt {
+			out[k] = v
+		}
+	}
+	return out
 }
