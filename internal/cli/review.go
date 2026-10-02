@@ -12,6 +12,7 @@ import (
 
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
@@ -258,6 +259,13 @@ names no outcomes).`,
 			if a.json {
 				return a.out(items, nil)
 			}
+			// The form needs a terminal; piped or scripted, list instead of
+			// failing on a prompt nobody can answer.
+			if len(items) > 0 && (!term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd()))) {
+				printReviewList(items)
+				fmt.Fprintln(os.Stderr, "not a terminal: listed instead of the form; move beads with yardr bead done or yardr bead advance")
+				return nil
+			}
 			return a.reviewForm(c.Context(), st, items)
 		},
 	}
@@ -272,32 +280,36 @@ names no outcomes).`,
 			if err != nil {
 				return err
 			}
-			return a.out(items, func() {
-				rows := [][]string{}
-				for _, it := range items {
-					var next []string
-					for _, ac := range it.Actions {
-						switch ac.Kind {
-						case actAdvance:
-							next = append(next, ac.Stage)
-						case actDone:
-							next = append(next, ac.Outcome+":"+ac.Stage)
-						}
-					}
-					nextCol := or(strings.Join(next, " | "), "-")
-					if it.FlowError != "" {
-						nextCol = "flow error: " + it.FlowError
-					}
-					rows = append(rows, []string{it.Bead.ID, it.Bead.Stage, it.Group, age(it.Bead.UpdatedAt),
-						nextCol, it.Bead.Title})
-				}
-				table("ID\tSTAGE\tGROUP\tWAITING\tNEXT\tTITLE", rows)
-			})
+			return a.out(items, func() { printReviewList(items) })
 		},
 	}
 	cmd.PersistentFlags().StringSliceVarP(&only, "group", "g", nil, "only these manual groups' beads")
 	cmd.AddCommand(list)
 	return cmd
+}
+
+// printReviewList prints the review queue as a table, one bead per row with
+// the moves it allows.
+func printReviewList(items []reviewItem) {
+	rows := [][]string{}
+	for _, it := range items {
+		var next []string
+		for _, ac := range it.Actions {
+			switch ac.Kind {
+			case actAdvance:
+				next = append(next, ac.Stage)
+			case actDone:
+				next = append(next, ac.Outcome+":"+ac.Stage)
+			}
+		}
+		nextCol := or(strings.Join(next, " | "), "-")
+		if it.FlowError != "" {
+			nextCol = "flow error: " + it.FlowError
+		}
+		rows = append(rows, []string{it.Bead.ID, it.Bead.Stage, it.Group, age(it.Bead.UpdatedAt),
+			nextCol, it.Bead.Title})
+	}
+	table("ID\tSTAGE\tGROUP\tWAITING\tNEXT\tTITLE", rows)
 }
 
 // age is how long ago t was, coarsely.

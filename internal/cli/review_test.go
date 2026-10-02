@@ -234,3 +234,18 @@ func TestDiffStat(t *testing.T) {
 		t.Fatalf("stat = %q", got)
 	}
 }
+
+// Off a terminal yardr review lists the queue instead of opening a form that
+// nobody can answer.
+func TestReviewListsWhenNotATerminal(t *testing.T) {
+	st, ctx := reviewYard(t, t.TempDir())
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "which way", Rig: "yard", Stage: "decide"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, actor: "mckean"}
+	out, err := run(t, a.reviewCmd())
+	if err != nil || !strings.Contains(out, "ID") || !strings.Contains(out, b.ID) || !strings.Contains(out, "which way") {
+		t.Fatalf("review off a terminal = %q, %v", out, err)
+	}
+}
