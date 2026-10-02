@@ -21,6 +21,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/rigcheck"
@@ -439,7 +440,13 @@ lists the existing groups to edit or creates a new one, and for herdr groups
 offers the agent (Claude Code, Codex, Grok, Kimi, opencode, pi, or any other
 herdr agent), a model read live from that agent, and its permission flags.
 
-With a name, the group is replaced by exactly what the flags say.`,
+With a name, the group is replaced by exactly what the flags say, except that
+a herdr group without --set kind gets the yard's default_kind (yardr settings
+get default_kind).
+
+An agent nobody watches stops at every permission prompt. These flags keep it
+going (pass them as --set 'args=[...]'; yardr init gives them to the mayor):
+` + agents.UnattendedHelp(),
 		Example: `  yardr group add                     # interactive
   yardr group add webapp/builders --runner herdr --limit 2 --set kind=claude --set prompt=roles/builder.md
   yardr group add webapp/merger --runner exec --set cmd='make merge-bead'
@@ -475,6 +482,7 @@ With a name, the group is replaced by exactly what the flags say.`,
 			if g.Config, err = parseSets(sets); err != nil {
 				return err
 			}
+			withDefaultKind(c.Context(), st, g.Runner, g.Config)
 			g.Name = args[0]
 			if err := st.PutGroup(c.Context(), g); err != nil {
 				return err

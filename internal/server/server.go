@@ -54,7 +54,7 @@ type runner struct {
 }
 
 func (r *runner) run(ctx context.Context) error {
-	if len(r.c.Socket()) > 100 {
+	if len(r.c.Socket()) > config.MaxSocket {
 		return fmt.Errorf("socket path %s is too long for a unix socket; use a shorter YARDR_HOME", r.c.Socket())
 	}
 	if r.grace == 0 {

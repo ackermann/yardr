@@ -1,0 +1,318 @@
+package cli
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/charmbracelet/huh"
+
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
+	"yardr.dev/yardr/roles"
+)
+
+// newHome points YARDR_HOME at a fresh directory with no yard in it.
+func newHome(t *testing.T) string {
+	t.Helper()
+	home := filepath.Join(t.TempDir(), "y")
+	t.Setenv("YARDR_HOME", home)
+	return home
+}
+
+func TestInitHarnessClaude(t *testing.T) {
+	home := newHome(t)
+	st := storetest.New(t)
+	ctx := context.Background()
+	a := &app{st: st, actor: "me"}
+	out, err := run(t, a.rootCmd(), "init", "--harness", "claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The default roles, as embedded.
+	for _, name := range []string{"mayor.md", "builder.md", "merger.md", "reviewer.md"} {
+		want, err := roles.FS.ReadFile(name)
+		if err != nil {
+			t.Fatalf("%s not embedded: %v", name, err)
+		}
+		got, err := os.ReadFile(filepath.Join(home, "roles", name))
+		if err != nil || !bytes.Equal(got, want) {
+			t.Fatalf("%s installed: %v", name, err)
+		}
+	}
+	// The mayor, on the harness with its unattended flags.
+	r, err := st.GetResident(ctx, "mayor")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{"kind": "claude", "prompt": filepath.Join(home, "roles", "mayor.md"),
+		"args": []any{"--permission-mode", "auto"}}
+	if !reflect.DeepEqual(r.Config, want) || r.Runner != "herdr" || r.MaxAge != "6h" ||
+		r.Dir != filepath.Dir(home) || !reflect.DeepEqual(r.On, defaultOn) {
+		t.Fatalf("mayor = %+v", r)
+	}
+	if got, _ := st.Settings(ctx); got["default_kind"] != "claude" {
+		t.Fatalf("settings = %v", got)
+	}
+	for _, s := range []string{"harness  claude", "yardr daemon", "yardr rig add", "yardr group add", "yardr route add"} {
+		if !strings.Contains(out, s) {
+			t.Errorf("summary lacks %q:\n%s", s, out)
+		}
+	}
+
+	// Again: the mayor is not replaced, and roles the operator edited are kept.
+	mayor := filepath.Join(home, "roles", "mayor.md")
+	if err := os.WriteFile(mayor, []byte("mine"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.rootCmd(), "init", "--harness", "codex"); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("second init: %v", err)
+	}
+	if _, err := run(t, a.rootCmd(), "init", "--harness", "kimi", "--mayor", "boss", "--model", "k2", "--dir", home); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(mayor); string(b) != "mine" {
+		t.Fatalf("edited mayor.md overwritten: %q", b)
+	}
+	boss, err := st.GetResident(ctx, "boss")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if boss.Config["model"] != "k2" || boss.Dir != home || !reflect.DeepEqual(boss.Config["args"], []any{"--yolo"}) {
+		t.Fatalf("boss = %+v", boss)
+	}
+
+	// Bad input is refused before anything is written.
+	for _, args := range [][]string{
+		{"init", "--harness", "nope", "--mayor", "x"},
+		{"init", "--harness", "pi", "--mayor", "x", "--dir", filepath.Join(home, "missing")},
+		{"init", "--harness", "pi", "--mayor", "bad name"},
+		{"init"},
+	} {
+		if _, err := run(t, a.rootCmd(), args...); err == nil {
+			t.Errorf("%v accepted", args)
+		}
+	}
+	if _, err := st.GetResident(ctx, "x"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("refused init left a resident: %v", err)
+	}
+}
+
+// A harness without unattended flags gets none, and the summary says so.
+func TestInitHarnessWithoutUnattendedFlags(t *testing.T) {
+	newHome(t)
+	st := storetest.New(t)
+	out, err := run(t, (&app{st: st}).rootCmd(), "init", "--harness", "gemini")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, _ := st.GetResident(context.Background(), "mayor")
+	if _, ok := r.Config["args"]; ok || r.Config["kind"] != "gemini" {
+		t.Fatalf("mayor config = %v", r.Config)
+	}
+	if !strings.Contains(out, "gemini may stop to ask") {
+		t.Fatalf("summary:\n%s", out)
+	}
+}
+
+// With no terminal, a first run prints how to initialize and exits 2,
+// creating nothing; the commands that never need a yard still run.
+func TestFirstRunWithoutTerminal(t *testing.T) {
+	home := newHome(t)
+	setInteractive(t, false)
+	var errs bytes.Buffer
+	old := stderr
+	stderr = &errs
+	t.Cleanup(func() { stderr = old })
+
+	if code := execute(&app{}, []string{"bead", "list"}); code != 2 {
+		t.Fatalf("exit %d", code)
+	}
+	if got := errs.String(); strings.Count(got, "\n") != 1 || !strings.Contains(got, "yardr init --harness") ||
+		!strings.Contains(got, home) {
+		t.Fatalf("stderr = %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(home, "yard.db")); err == nil {
+		t.Fatal("a store was created")
+	}
+	errs.Reset()
+	for _, args := range [][]string{{"help"}, {"init", "--help"}, {"server", "--help"}} {
+		var code int
+		capture(t, func() { code = execute(&app{}, args) })
+		if code != 0 {
+			t.Errorf("%v: exit %d: %s", args, code, errs.String())
+		}
+	}
+}
+
+// On a home with a store, nothing asks.
+func TestInitializedIsTheStore(t *testing.T) {
+	newHome(t)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if initialized(cfg) {
+		t.Fatal("empty home initialized")
+	}
+	if err := os.WriteFile(cfg.DBPath(), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !initialized(cfg) {
+		t.Fatal("home with a store not initialized")
+	}
+}
+
+// The onboarding form, answered with its defaults, creates the yard on the
+// first installed harness and then runs the command asked for.
+func TestOnboardingForm(t *testing.T) {
+	home := newHome(t)
+	setInteractive(t, true)
+	stubLookPath(t, "codex")
+	asked := 0
+	stubAsk(t, func(...huh.Field) error { asked++; return nil })
+	st := storetest.New(t)
+	ctx := context.Background()
+
+	out, err := run(t, (&app{st: st}).rootCmd(), "resident", "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asked != 3 {
+		t.Fatalf("%d form pages", asked)
+	}
+	r, err := st.GetResident(ctx, "mayor")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Config["kind"] != "codex" || r.Dir != filepath.Dir(home) ||
+		!reflect.DeepEqual(r.Config["args"], []any{"--dangerously-bypass-approvals-and-sandbox"}) {
+		t.Fatalf("mayor = %+v", r)
+	}
+	if got, _ := st.Settings(ctx); got["default_kind"] != "codex" {
+		t.Fatalf("settings = %v", got)
+	}
+	if !strings.Contains(out, "yard created") || !strings.Contains(out, "herdr · codex") {
+		t.Fatalf("output:\n%s", out)
+	}
+}
+
+func TestOnboardingCancelled(t *testing.T) {
+	newHome(t)
+	setInteractive(t, true)
+	stubLookPath(t)
+	stubAsk(t, func(...huh.Field) error { return huh.ErrUserAborted })
+	st := storetest.New(t)
+	_, err := run(t, (&app{st: st}).rootCmd(), "bead", "list")
+	if err == nil || !strings.Contains(err.Error(), "cancelled") {
+		t.Fatalf("err = %v", err)
+	}
+	if rs, _ := st.Residents(context.Background()); len(rs) != 0 {
+		t.Fatalf("residents = %v", rs)
+	}
+}
+
+// The harness list marks what is installed and defaults to the first of it.
+func TestHarnessOptions(t *testing.T) {
+	stubLookPath(t, "kimi", "cursor-agent")
+	opts, def := harnessOptions()
+	if def != "kimi" {
+		t.Fatalf("default = %s", def)
+	}
+	labels := map[string]string{}
+	for _, o := range opts {
+		labels[o.Value] = o.Key
+	}
+	if !strings.HasSuffix(labels["kimi"], "installed") || !strings.HasSuffix(labels["cursor"], "installed") ||
+		!strings.HasSuffix(labels["claude"], "not on PATH") {
+		t.Fatalf("labels = %v", labels)
+	}
+	stubLookPath(t)
+	if _, def := harnessOptions(); def != "claude" {
+		t.Fatalf("nothing installed: default %s", def)
+	}
+}
+
+// group add and resident add without --set kind take the default_kind.
+func TestDefaultKind(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	a := &app{st: st, actor: "me"}
+	if _, err := run(t, a.settingsCmd(), "set", "default_kind", "nope"); err == nil {
+		t.Fatal("unknown kind accepted")
+	}
+	if _, err := run(t, a.settingsCmd(), "get", "default_kind"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("unset get: %v", err)
+	}
+	if _, err := run(t, a.settingsCmd(), "set", "default_kind", "kimi"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := run(t, a.settingsCmd(), "get", "default_kind"); err != nil || out != "kimi\n" {
+		t.Fatalf("get = %q %v", out, err)
+	}
+	if _, err := run(t, a.settingsCmd(), "get", "nope"); err == nil {
+		t.Fatal("unknown key read")
+	}
+
+	if _, err := run(t, a.groupCmd(), "add", "b", "--runner", "herdr"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.groupCmd(), "add", "c", "--runner", "herdr", "--set", "kind=claude"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.groupCmd(), "add", "m", "--runner", "manual"); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]any{"b": "kimi", "c": "claude", "m": nil} {
+		if g, _ := st.GetGroup(ctx, name); g.Config["kind"] != want {
+			t.Errorf("group %s kind = %v, want %v", name, g.Config["kind"], want)
+		}
+	}
+	if _, err := run(t, a.residentCmd(), "add", "r"); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := st.GetResident(ctx, "r"); r.Config["kind"] != "kimi" {
+		t.Fatalf("resident config = %v", r.Config)
+	}
+
+	if _, err := run(t, a.settingsCmd(), "set", "default_kind", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := st.Settings(ctx); len(got) != 0 {
+		t.Fatalf("unset left %v", got)
+	}
+}
+
+func setInteractive(t *testing.T, v bool) {
+	old := interactive
+	interactive = func() bool { return v }
+	t.Cleanup(func() { interactive = old })
+}
+
+func stubAsk(t *testing.T, fn func(...huh.Field) error) {
+	old := ask
+	ask = fn
+	t.Cleanup(func() { ask = old })
+}
+
+// stubLookPath finds only the named executables.
+func stubLookPath(t *testing.T, found ...string) {
+	old := lookPath
+	lookPath = func(name string) (string, error) {
+		for _, f := range found {
+			if f == name {
+				return "/bin/" + name, nil
+			}
+		}
+		return "", exec.ErrNotFound
+	}
+	t.Cleanup(func() { lookPath = old })
+}

@@ -342,6 +342,13 @@ func (c *Client) Backup(ctx context.Context, path string) (*store.BackupResult, 
 	return callV[*store.BackupResult](c, ctx, "Backup", path)
 }
 
+func (c *Client) Settings(ctx context.Context) (map[string]string, error) {
+	return callV[map[string]string](c, ctx, "Settings")
+}
+func (c *Client) SetSetting(ctx context.Context, key, value, actor string) error {
+	return c.call(ctx, "SetSetting", nil, key, value, actor)
+}
+
 func (c *Client) PutResident(ctx context.Context, def store.Resident, actor string) (*store.Resident, error) {
 	return callV[*store.Resident](c, ctx, "PutResident", def, actor)
 }

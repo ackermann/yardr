@@ -51,3 +51,26 @@ func TestPresetsAreHerdrKinds(t *testing.T) {
 		}
 	}
 }
+
+func TestUnattendedArgs(t *testing.T) {
+	for kind, want := range map[string][]string{
+		"claude": {"--permission-mode", "auto"},
+		"codex":  {"--dangerously-bypass-approvals-and-sandbox"},
+		"kimi":   {"--yolo"},
+		"pi":     nil,
+	} {
+		if got := UnattendedArgs(kind); !slices.Equal(got, want) {
+			t.Errorf("%s: %v, want %v", kind, got, want)
+		}
+	}
+	// Every kind is offered once, presets first.
+	kinds := Kinds()
+	if len(kinds) != len(HerdrKinds) || kinds[0] != "claude" || !IsKind("gemini") || IsKind("nope") {
+		t.Fatalf("kinds = %v", kinds)
+	}
+	for _, p := range Presets {
+		if !IsKind(p.Kind) {
+			t.Errorf("preset %s is not a herdr kind", p.Kind)
+		}
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -23,23 +24,20 @@ type app struct {
 	actor string
 	cfg   *config.Config
 	st    store.API
+	// onboarded is set once this run has created the yard (see firstRun).
+	onboarded bool
 }
 
+// stderr is where Execute reports an error; tests replace it.
+var stderr io.Writer = os.Stderr
+
 // Execute runs the CLI and returns the process exit code.
-func Execute() int {
-	a := &app{}
-	root := &cobra.Command{
-		Use:           "yardr",
-		Short:         "Route beads of work to whoever works them",
-		SilenceUsage:  true,
-		SilenceErrors: true,
-	}
-	root.PersistentFlags().BoolVar(&a.json, "json", false, "print JSON")
-	root.PersistentFlags().StringVar(&a.actor, "actor", "", "who is acting (default $YARDR_ACTOR, else $USER)")
-	root.AddCommand(a.serverCmd(), a.daemonCmd(), a.rigCmd(), a.beadCmd(), a.readyCmd(),
-		a.depCmd(), a.groupCmd(), a.routeCmd(), a.flowCmd(), a.sessionCmd(), a.eventsCmd(), a.watchCmd(), a.primeCmd(),
-		a.bdpCmd(), a.residentCmd(), a.inboxCmd(), a.mailCmd(), a.rememberCmd(), a.recallCmd(), a.hookCmd(),
-		a.subscribeCmd(), a.unsubscribeCmd(), a.threadCmd(), a.replyCmd(), a.reviewCmd(), a.storeCmd())
+func Execute() int { return execute(&app{}, os.Args[1:]) }
+
+// execute runs args on a and returns the exit code.
+func execute(a *app, args []string) int {
+	root := a.rootCmd()
+	root.SetArgs(args)
 	err := root.ExecuteContext(context.Background())
 	if a.st != nil {
 		_ = a.st.Close(context.Background())
@@ -48,22 +46,49 @@ func Execute() int {
 		if a.json {
 			_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"error": err.Error()})
 		} else {
-			fmt.Fprintln(os.Stderr, "yardr:", err)
+			fmt.Fprintln(stderr, "yardr:", err)
 		}
 	}
 	return exitCode(err)
 }
 
+func (a *app) rootCmd() *cobra.Command {
+	root := &cobra.Command{
+		Use:           "yardr",
+		Short:         "Route beads of work to whoever works them",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		Args:          cobra.NoArgs,
+		// Bare yardr: the onboarding on a home with no yard yet (run by
+		// firstRun), help otherwise.
+		RunE: func(c *cobra.Command, _ []string) error {
+			if a.onboarded {
+				return nil
+			}
+			return c.Help()
+		},
+		PersistentPreRunE: func(c *cobra.Command, _ []string) error { return a.firstRun(c) },
+	}
+	root.PersistentFlags().BoolVar(&a.json, "json", false, "print JSON")
+	root.PersistentFlags().StringVar(&a.actor, "actor", "", "who is acting (default $YARDR_ACTOR, else $USER)")
+	root.AddCommand(a.serverCmd(), a.daemonCmd(), a.rigCmd(), a.beadCmd(), a.readyCmd(),
+		a.depCmd(), a.groupCmd(), a.routeCmd(), a.flowCmd(), a.sessionCmd(), a.eventsCmd(), a.watchCmd(), a.primeCmd(),
+		a.bdpCmd(), a.residentCmd(), a.inboxCmd(), a.mailCmd(), a.rememberCmd(), a.recallCmd(), a.hookCmd(),
+		a.subscribeCmd(), a.unsubscribeCmd(), a.threadCmd(), a.replyCmd(), a.reviewCmd(), a.storeCmd(),
+		a.initCmd(), a.settingsCmd())
+	return root
+}
+
 // exitCode is the process status for a command's error: 1 for a red check
-// or most errors, 2 for a check that could not run, 3 for something not
-// found.
+// or most errors, 2 for a check that could not run or a home with no yard
+// yet, 3 for something not found.
 func exitCode(err error) int {
 	switch {
 	case err == nil:
 		return 0
 	case errors.Is(err, errCheckFailed):
 		return 1
-	case errors.As(err, new(checkNotRun)):
+	case errors.As(err, new(checkNotRun)), errors.As(err, new(notInitialized)):
 		return 2
 	case errors.Is(err, store.ErrNotFound):
 		return 3

@@ -24,15 +24,40 @@ and a restart is just another pass.
 go install .                            # one static binary, yardr; nothing else to install
 alias yd=yardr                          # the short form, if you like it
 
+yardr                                   # first run: the onboarding
+```
+
+The first yardr command on a home with no yard runs the onboarding: pick the
+agent harness yardr starts by default (each herdr kind, marked installed or
+not), then name the mayor, the always-on resident that coordinates the yard,
+and the directory its shell lives in. It installs the default role prompts in
+`~/.yardr/roles/` (mayor, builder, merger, reviewer; edit them to fit), stores
+the harness as the yard's `default_kind`, and adds the mayor on it. The daemon
+starts the mayor. Scripts do the same without the form:
+
+```sh
+yardr init --harness claude [--mayor mayor] [--dir ~/projects] [--model opus]
+```
+
+Without a terminal, a command on a home with no yard says so and exits 2. To
+try the onboarding without touching your yard, give it a home of its own; keep
+it short, since the server's unix socket lives in it (a home too long for one
+is refused):
+
+```sh
+YARDR_HOME=/tmp/y1 yardr                          # the form
+YARDR_HOME=/tmp/y1 yardr init --harness claude    # the scripted path
+```
+
+Then the work itself:
+
+```sh
 yardr rig add webapp ~/projects/webapp --base origin/main
 
 # role prompts: the rig's own roles/*.md, else ~/.yardr/roles/*.md
-mkdir -p ~/.yardr/roles
-$EDITOR ~/.yardr/roles/builder.md ~/.yardr/roles/reviewer.md
 
-# who does the work
-yardr group add webapp/builders  --runner herdr --limit 2 \
-    --set kind=claude --set prompt=roles/builder.md
+# who does the work (--set kind defaults to the yard's default_kind)
+yardr group add webapp/builders  --runner herdr --limit 2 --set prompt=roles/builder.md
 yardr group add webapp/reviewers --runner herdr --set kind=codex --set prompt=roles/reviewer.md
 yardr group add webapp/merger    --runner exec  --set cmd='scripts/merge-bead.sh'
 yardr group add mckean           --runner manual
@@ -43,7 +68,7 @@ yardr route add --stage review   --rig webapp --group webapp/reviewers
 yardr route add --stage approved --rig webapp --group webapp/merger
 yardr route add --stage blocked  --group mckean
 
-yardr daemon &                          # routes and supervises
+yardr daemon &                          # routes and supervises; starts the mayor
 yardr watch                             # live event stream
 
 yardr bead create "Add login page" --rig webapp -t feature -b "Use the OAuth flow"

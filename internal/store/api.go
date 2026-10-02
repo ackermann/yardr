@@ -72,6 +72,9 @@ type API interface {
 	Prune(ctx context.Context, keep Retention, actor string) (*PruneResult, error)
 	Backup(ctx context.Context, path string) (*BackupResult, error)
 
+	Settings(ctx context.Context) (map[string]string, error)
+	SetSetting(ctx context.Context, key, value, actor string) error
+
 	PutResident(ctx context.Context, def Resident, actor string) (*Resident, error)
 	Residents(ctx context.Context) ([]Resident, error)
 	GetResident(ctx context.Context, name string) (*Resident, error)

@@ -30,6 +30,8 @@ cleanup() {
 trap cleanup EXIT
 
 (cd "$root" && go build -o "$work/yardr" .)
+# A fresh home has no yard yet, and nothing here has a terminal to onboard in.
+"$work/yardr" init --harness claude --dir "$work" >/dev/null
 # The graph BDP's bd-backed conformance lane seeds (seedBdWorkspace).
 python3 "$here/seed.py" "$BDP_REPO/packages/conformance/fixtures/read-reference-v1.json" "$work/yardr" >/dev/null
 "$work/yardr" bdp serve --addr "127.0.0.1:$port" --scope "$scope" >"$work/serve.log" 2>&1 &

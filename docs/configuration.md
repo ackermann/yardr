@@ -21,6 +21,7 @@ in yard-9cza, the merge gate in yard-p2y7.
 | routes | | which group works which stage, by rig, type, label (built) |
 | rigs | | path, clone, base branch (built) |
 | residents | | agent, directory, inbox kinds, rotation, subscriptions, identities (built) |
+| settings | | the yard's defaults: `default_kind` (built) |
 
 ### Why the repo holds what the work is
 
@@ -53,8 +54,10 @@ describe one installation, not the codebase:
 
 A role prompt can live on either side: a prompt about the codebase belongs
 in the repo, and a group names it by its path inside the rig
-(`--set prompt=roles/builder.md`); a prompt that is the operator's own (rig
-yard's reviewer prompt in `~/.yardr/roles/`) stays out of the repo.
+(`--set prompt=roles/builder.md`); a prompt that is the operator's own stays
+out of the repo, in `~/.yardr/roles/` (rig yard's reviewers read the installed
+`~/.yardr/roles/reviewer.md` by its absolute path; the repo's
+`roles/reviewer.md` is only the default `yardr init` installs).
 
 ### Role prompts
 
@@ -212,9 +215,49 @@ Everything yardr keeps for itself lives in one directory, **`YARDR_HOME`**
 | `server.pid`, `server.log` | the running server |
 | `worktrees/<rig>/<bead>` | herdr bead worktrees |
 | `rigs/<name>` | rigs registered with `rig add --clone` |
+| `roles/` | role prompts `yardr init` installed (mayor, builder, merger, reviewer); yours to edit |
 
 Set `YARDR_HOME` to run a separate yard (tests do, with a short path: unix
-socket paths are limited to about 100 bytes).
+socket paths are limited to about 100 bytes, and yardr refuses a home whose
+`yard.sock` would be longer).
+
+### Creating a yard: the onboarding and `yardr init`
+
+A home is initialized once its store, `yard.db`, exists; there is no other
+marker. The first yardr command on a home without one runs the onboarding
+when it has a terminal: the default harness (every kind herdr starts, marked
+installed when its executable is on PATH, the first installed one
+preselected), the mayor's name (default `mayor`), the directory its shell
+lives in (default the home's parent, so `~` for `~/.yardr`), and an optional
+model. Without a terminal it prints how to initialize and exits 2.
+`yardr server`, `yardr init` and `yardr help` never ask.
+
+`yardr init --harness <kind> [--mayor <name>] [--dir <path>] [--model <m>]`
+does the same without the form, for scripts and tests. Either way yardr:
+
+1. writes the default role prompts, built into the binary from this repo's
+   `roles/`, to `<home>/roles/`, keeping any file already there (the mayor
+   edits its own copy);
+2. sets `default_kind` to the harness;
+3. adds the mayor resident: `kind=<harness>`, `prompt=<home>/roles/mayor.md`,
+   the model if given, the harness's unattended flags as `args`, rotating
+   every 6h. A resident of that name already there is never replaced.
+
+The unattended flags keep an agent nobody watches from stopping at a
+permission prompt: claude `--permission-mode auto`, codex
+`--dangerously-bypass-approvals-and-sandbox`, kimi `--yolo`; any other kind
+gets none and may ask (`yardr group add --help` lists them too). The daemon
+starts the mayor; init does not start a daemon, which runs in a terminal pane
+of its own (`yardr daemon`).
+
+### Settings
+
+`yardr settings get [<key>]` and `yardr settings set <key> <value>` (an empty
+value unsets) keep the yard's own defaults in the store:
+
+| key | meaning |
+|---|---|
+| `default_kind` | the agent kind a herdr group or resident gets when `group add` or `resident add` is given no `--set kind`; also the kind their forms start at. One of the kinds herdr starts. |
 
 Environment variables yardr reads:
 

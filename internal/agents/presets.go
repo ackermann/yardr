@@ -236,3 +236,65 @@ func uniq(in []string) []string {
 	}
 	return out
 }
+
+// unattended are the flags an agent yardr starts runs with by default, so
+// it does not stop at a prompt nobody is watching: what `yardr init` gives
+// the mayor and what `group add --help` suggests. A kind not listed runs
+// with none and may ask; its own permission flags are the operator's call.
+var unattended = map[string][]string{
+	"claude": {"--permission-mode", "auto"},
+	"codex":  {"--dangerously-bypass-approvals-and-sandbox"},
+	"kimi":   {"--yolo"},
+}
+
+// UnattendedArgs are kind's unattended flags (see unattended); nil when it
+// has none.
+func UnattendedArgs(kind string) []string { return unattended[kind] }
+
+// UnattendedHelp lists the unattended flags per kind, one line each, for
+// command help.
+func UnattendedHelp() string {
+	var b strings.Builder
+	for _, k := range Kinds() {
+		if args := unattended[k]; args != nil {
+			b.WriteString("  " + k + ": " + strings.Join(args, " ") + "\n")
+		}
+	}
+	b.WriteString("  any other kind: none; it may stop to ask")
+	return b.String()
+}
+
+// Kinds are the herdr kinds, presets first in their display order.
+func Kinds() []string {
+	var out []string
+	for _, p := range Presets {
+		out = append(out, p.Kind)
+	}
+	for _, k := range HerdrKinds {
+		if _, ok := Lookup(k); !ok {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// IsKind reports whether herdr can start kind.
+func IsKind(kind string) bool {
+	for _, k := range HerdrKinds {
+		if k == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// executables are the kinds whose command is not named after the kind.
+var executables = map[string]string{"cursor": "cursor-agent"}
+
+// Executable is the command herdr runs for kind.
+func Executable(kind string) string {
+	if e, ok := executables[kind]; ok {
+		return e
+	}
+	return kind
+}

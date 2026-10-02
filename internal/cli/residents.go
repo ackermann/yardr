@@ -42,7 +42,9 @@ func (a *app) residentCmd() *cobra.Command {
 		Long: `A resident is an always-on agent session, such as a mayor. The daemon keeps
 it running in its directory, nudges it when its inbox has something new and it
 is idle, and rotates it: at --max-age it is asked to write a handoff, and its
-next session starts from that handoff (forced after --handoff-grace).`,
+next session starts from that handoff (forced after --handoff-grace).
+
+Without --set kind, a herdr resident gets the yard's default_kind.`,
 		Example: `  yardr resident add                       # interactive
   yardr resident add mayor --set kind=claude --set model=opus \
     --set 'args=["--permission-mode","auto"]' --set prompt=roles/mayor.md \
@@ -68,6 +70,7 @@ next session starts from that handoff (forced after --handoff-grace).`,
 			if def.Config, err = parseSets(sets); err != nil {
 				return err
 			}
+			withDefaultKind(c.Context(), st, def.Runner, def.Config)
 			if def.Dir, err = absDir(def.Dir); err != nil {
 				return err
 			}
@@ -602,7 +605,8 @@ func (a *app) residentForm(ctx context.Context, st store.API) error {
 	if err != nil {
 		return err
 	}
-	def := store.Resident{Runner: "herdr", On: defaultOn, HandoffGrace: "15m", Config: map[string]any{"kind": "claude"}}
+	kind := or(defaultKind(ctx, st), "claude")
+	def := store.Resident{Runner: "herdr", On: defaultOn, HandoffGrace: "15m", Config: map[string]any{"kind": kind}}
 	editing := false
 	if len(rs) > 0 {
 		pick := newGroup
@@ -637,7 +641,7 @@ func (a *app) residentForm(ctx context.Context, st store.API) error {
 	// The agent questions work on group answers; translate both ways.
 	ga := answersFrom(store.Group{Name: def.Name, Runner: "herdr", Config: def.Config, Limit: 1})
 	if ga.Kind == "" {
-		ga.Kind = "claude"
+		ga.Kind = kind
 	}
 	if err := a.agentFields(ctx, &ga); err != nil {
 		return err

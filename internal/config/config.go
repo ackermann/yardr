@@ -51,7 +51,13 @@ type Config struct {
 	HookAddr string
 }
 
+// MaxSocket bounds the socket path: a unix socket's path must fit in
+// sun_path, 108 bytes on Linux and 104 on macOS, so with room to spare.
+const MaxSocket = 100
+
 // Load resolves YARDR_HOME (default DefaultHome), creating it on first use.
+// A home whose socket path would not fit a unix socket is refused before
+// anything is created in it.
 func Load() (*Config, error) {
 	home := Getenv("HOME")
 	if home == "" {
@@ -61,10 +67,15 @@ func Load() (*Config, error) {
 		}
 		home = DefaultHome(h)
 	}
+	c := &Config{Home: home, HookAddr: Getenv("HOOK_ADDR")}
+	if n := len(c.Socket()); n > MaxSocket {
+		return nil, fmt.Errorf("yardr home %s is too long: its socket %s would be %d bytes, and a unix socket path "+
+			"allows %d; set YARDR_HOME to a shorter directory, such as /tmp/y1", home, c.Socket(), n, MaxSocket)
+	}
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		return nil, err
 	}
-	return &Config{Home: home, HookAddr: Getenv("HOOK_ADDR")}, nil
+	return c, nil
 }
 
 // DefaultHome is <userHome>/.yardr, unless only the old <userHome>/.yard

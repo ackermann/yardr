@@ -50,6 +50,9 @@ func newEpicYard(t *testing.T, check string) *yard {
 	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test", "GIT_CONFIG_GLOBAL=/dev/null",
 		"GIT_CONFIG_NOSYSTEM=1", "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t",
 		"GIT_COMMITTER_EMAIL=t@t")
+	// A fresh home has no yard; without a terminal yardr refuses to work
+	// in it until it is initialized.
+	y.yardr("init", "--harness", "claude", "--dir", home)
 	y.git(".", "init", "-q", "-b", "main", y.repo)
 	y.commit(y.repo, "a.txt", "one\n")
 	remote := filepath.Join(t.TempDir(), "origin.git")

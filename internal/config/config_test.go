@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -101,5 +102,26 @@ func TestParseRetention(t *testing.T) {
 	t.Setenv("YARDR_EVENT_RETENTION", "soon")
 	if _, err := Retention("EVENT_RETENTION", time.Hour); err == nil {
 		t.Fatal("bad value accepted")
+	}
+}
+
+// A home whose socket would not fit a unix socket path is refused, and
+// nothing is created for it.
+func TestLoadRefusesALongHome(t *testing.T) {
+	home := filepath.Join(t.TempDir(), strings.Repeat("h", MaxSocket))
+	t.Setenv("YARDR_HOME", home)
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "too long") || !strings.Contains(err.Error(), "YARDR_HOME") {
+		t.Fatalf("Load = %v", err)
+	}
+	if _, err := os.Stat(home); err == nil {
+		t.Fatal("the refused home was created")
+	}
+	// Exactly at the bound is fine.
+	short := t.TempDir()
+	home = short + "/" + strings.Repeat("h", MaxSocket-len(short)-len("/yard.sock")-1)
+	t.Setenv("YARDR_HOME", home)
+	if c, err := Load(); err != nil || len(c.Socket()) != MaxSocket {
+		t.Fatalf("Load at the bound: %v %v", c, err)
 	}
 }
