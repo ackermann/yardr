@@ -146,3 +146,23 @@ func TestBeadRevisionFlag(t *testing.T) {
 		t.Fatalf("a refused command changed the bead: %+v", got)
 	}
 }
+
+func TestResidentRemoveStaleRevisionDoesNotDelete(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	r, err := st.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MarkNotified(ctx, "mayor", 1); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, actor: "me"}
+	_, err = run(t, a.residentCmd(), "rm", "mayor", "--revision", r.Revision)
+	if !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("stale resident rm: %v, want a conflict", err)
+	}
+	if _, err := st.GetResident(ctx, "mayor"); err != nil {
+		t.Fatalf("stale resident rm deleted resident: %v", err)
+	}
+}

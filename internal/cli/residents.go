@@ -177,12 +177,10 @@ next session starts from that handoff (forced after --handoff-grace).`,
 	// it (resident show --json); the write is refused if it moved since.
 	var rev string
 	rm := simple("rm", "Delete a resident (its journal is kept)", func(ctx context.Context, st store.API, n string) error {
-		// The disable checks rev; it mints a new one, so the delete
-		// right after it does not.
-		if err := st.SetResidentEnabled(ctx, n, false, rev, a.who()); err != nil {
-			return err
-		}
-		return st.DeleteResident(ctx, n, "", a.who())
+		// Delete directly so the revision check and removal happen in one
+		// transaction. Disabling first would mint a new revision and the
+		// subsequent unchecked delete could erase a concurrent update.
+		return st.DeleteResident(ctx, n, rev, a.who())
 	})
 	start := simple("start", "Keep the resident running (clears a failure streak)", func(ctx context.Context, st store.API, n string) error {
 		return st.SetResidentEnabled(ctx, n, true, rev, a.who())
