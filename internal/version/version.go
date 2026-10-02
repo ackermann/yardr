@@ -277,10 +277,42 @@ func compareSemver(a, b string) (int, bool) {
 		return 1, true
 	case pb.pre == "":
 		return -1, true
-	case pa.pre < pb.pre:
-		return -1, true
+	default:
+		return comparePrerelease(pa.pre, pb.pre), true
 	}
-	return 1, true
+}
+
+func comparePrerelease(a, b string) int {
+	aa, bb := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(aa) && i < len(bb); i++ {
+		x, y := aa[i], bb[i]
+		xn, xerr := strconv.Atoi(x)
+		yn, yerr := strconv.Atoi(y)
+		switch {
+		case xerr == nil && yerr == nil:
+			if xn < yn {
+				return -1
+			}
+			if xn > yn {
+				return 1
+			}
+		case xerr == nil:
+			return -1
+		case yerr == nil:
+			return 1
+		case x < y:
+			return -1
+		case x > y:
+			return 1
+		}
+	}
+	if len(aa) < len(bb) {
+		return -1
+	}
+	if len(aa) > len(bb) {
+		return 1
+	}
+	return 0
 }
 
 type semver struct {

@@ -189,6 +189,9 @@ func TestModuleVersionInstallsAreCompared(t *testing.T) {
 	if Newer(v130, v120) == "" || Newer(v130, buildOf(mod("v1.3.0-rc.1"))) == "" {
 		t.Error("an older release is newer")
 	}
+	if Newer(buildOf(mod("v1.3.0-rc.9")), buildOf(mod("v1.3.0-rc.10"))) != "" {
+		t.Error("rc.10 should be newer than rc.9")
+	}
 	if buildOf(mod("(devel)")) != (Build{}) {
 		t.Error("(devel) read as a version")
 	}
