@@ -163,7 +163,7 @@ time and body. The delivered message is marked with *.`,
 				fmt.Printf("\n%d message(s)\n", len(ms))
 				for _, m := range ms {
 					mark := " "
-					if m.ID == env.Message {
+					if m.ID == env.Message || env.Message == "" && delivered(env, m) {
 						mark = "*"
 					}
 					fmt.Printf("\n%s %s  %s  %s", mark, m.ID, m.At.Local().Format("2006-01-02 15:04"), or(m.Author.Name, "-"))
@@ -181,4 +181,11 @@ time and body. The delivered message is marked with *.`,
 			})
 		},
 	}
+}
+
+// delivered is whether m is the comment an envelope that does not carry
+// its id names in its URL (one recorded before envelopes carried ids).
+func delivered(env hooks.Envelope, m hooks.Message) bool {
+	_, frag, _ := strings.Cut(env.URL, "#comment-")
+	return frag != "" && strings.HasPrefix(m.ID, frag)
 }

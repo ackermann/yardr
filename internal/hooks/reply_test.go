@@ -108,6 +108,12 @@ func linearComment(id, parent string) hooks.Envelope {
 	return hooks.Envelope{Source: "linear", Type: "comment", Thread: hooks.Thread{ID: fakeIssue}, Message: id, Parent: parent}
 }
 
+// oldLinearComment is a comment delivery as envelopes were before they
+// carried the comment's id and parent: only its URL names it.
+func oldLinearComment(url string) hooks.Envelope {
+	return hooks.Envelope{Source: "linear", Type: "comment", Thread: hooks.Thread{ID: fakeIssue}, URL: url}
+}
+
 // A reply goes under the root of the conversation it answers: a top-level
 // comment is its own root, a reply's root is its parent, and --to resolves
 // the root of the message it names through the API.
@@ -126,6 +132,11 @@ func TestLinearReplyUnderRoot(t *testing.T) {
 		{"to a reply", linearComment("c3", ""), "c2", "c1"},
 		{"to a top-level comment", linearComment("c2", "c1"), "c3", "c3"},
 		{"issue", hooks.Envelope{Source: "linear", Type: "issue", Thread: hooks.Thread{ID: fakeIssue}}, "", nil},
+		// Recorded before envelopes carried the comment's id: the comment
+		// is found by its URL's fragment, even after the issue's slug
+		// changed (yard-npq6).
+		{"old reply", oldLinearComment("https://linear.app/x/issue/ENG-1-renamed#comment-c2"), "", "c1"},
+		{"old top-level comment", oldLinearComment("https://linear.app/x/issue/ENG-1#comment-c3"), "", "c3"},
 	} {
 		n := len(f.created)
 		url, err := hooks.Linear{}.Reply(ctx, c.env, c.to, "answer: "+c.name, "lin_api_k")
@@ -167,6 +178,17 @@ func TestLinearReplyErrors(t *testing.T) {
 	odd := hooks.Envelope{Source: "linear", Type: "comment", Thread: hooks.Thread{ID: "c9"}, Message: "c9"}
 	if _, err := (hooks.Linear{}).Reply(ctx, odd, "", "x", "k"); err == nil || !strings.Contains(err.Error(), "not on an issue") {
 		t.Fatalf("comment off an issue: %v", err)
+	}
+	// An old comment delivery whose comment cannot be told is refused, not
+	// answered at the top level.
+	for url, want := range map[string]string{
+		"https://linear.app/x/issue/ENG-1":            "names no comment",
+		"https://linear.app/x/issue/ENG-1#comment-c9": "0 comments of the issue match",
+		"https://linear.app/x/issue/ENG-1#comment-c":  "3 comments of the issue match",
+	} {
+		if _, err := (hooks.Linear{}).Reply(ctx, oldLinearComment(url), "", "x", "k"); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: %v, want %q", url, err, want)
+		}
 	}
 	if len(f.created) != 0 {
 		t.Fatalf("posted %v", f.created)

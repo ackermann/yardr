@@ -192,8 +192,17 @@ func (Linear) Reply(ctx context.Context, env Envelope, to, body, cred string) (s
 		if q.Comment.Parent != nil && q.Comment.Parent.ID != "" {
 			root = q.Comment.Parent.ID
 		}
-	case env.Type == "comment":
+	case env.Type == "comment" && env.Message != "":
 		root = firstOf(env.Parent, env.Message)
+	case env.Type == "comment":
+		// A delivery recorded before envelopes carried the comment's id
+		// still names it in its URL; without the id the reply would land
+		// at the top level, outside the conversation it answers.
+		m, err := linearDelivered(ctx, env, cred)
+		if err != nil {
+			return "", err
+		}
+		root = firstOf(m.Parent, m.ID)
 	}
 	input := map[string]any{"issueId": issue, "body": body}
 	if root != "" {
@@ -216,6 +225,30 @@ func (Linear) Reply(ctx context.Context, env Envelope, to, body, cred string) (s
 		return "", fmt.Errorf("linear: commentCreate did not succeed")
 	}
 	return m.CommentCreate.Comment.URL, nil
+}
+
+// linearDelivered finds the delivered comment of an envelope that does not
+// carry its id among its issue's comments, by the URL's #comment-<id
+// prefix> fragment (the slug before it changes with the issue's title).
+func linearDelivered(ctx context.Context, env Envelope, cred string) (Message, error) {
+	_, frag, _ := strings.Cut(env.URL, "#comment-")
+	if frag == "" {
+		return Message{}, fmt.Errorf("this linear comment delivery names no comment (url %q): answer with --to <message-id> (ids from yardr thread show)", env.URL)
+	}
+	ms, err := Linear{}.Thread(ctx, env, cred)
+	if err != nil {
+		return Message{}, err
+	}
+	var found []Message
+	for _, m := range ms {
+		if strings.HasPrefix(m.ID, frag) {
+			found = append(found, m)
+		}
+	}
+	if len(found) != 1 {
+		return Message{}, fmt.Errorf("linear comment %s: %d comments of the issue match, not one: answer with --to <message-id> (ids from yardr thread show)", frag, len(found))
+	}
+	return found[0], nil
 }
 
 // Thread lists the comments of the delivery's issue, every conversation,

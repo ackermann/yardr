@@ -44,8 +44,9 @@ func fakeLinearAPI(t *testing.T) *[]map[string]any {
 			data = map[string]any{"issue": map[string]any{"comments": map[string]any{
 				"nodes": []any{
 					map[string]any{"id": "c1", "body": "@mayor can you look?\nit drops retries", "createdAt": "2026-10-03T10:00:00Z",
-						"user": map[string]any{"id": "u-jane", "name": "Jane"}},
+						"url": "https://linear.app/acme/issue/ENG-1#comment-c1", "user": map[string]any{"id": "u-jane", "name": "Jane"}},
 					map[string]any{"id": "c2", "body": "ping", "createdAt": "2026-10-03T10:05:00Z",
+						"url":    "https://linear.app/acme/issue/ENG-1#comment-c2",
 						"parent": map[string]any{"id": "c1"}, "user": map[string]any{"id": "u-ann", "name": "Ann"}},
 				},
 				"pageInfo": map[string]any{"hasNextPage": false}}}}
@@ -86,6 +87,13 @@ func replyYard(t *testing.T) (*app, store.API, map[string]string) {
 			Thread:  hooks.Thread{ID: "issue-1", Title: "Retries", URL: "https://linear.app/acme/issue/ENG-1"},
 			Message: "c2", Parent: "c1"}),
 		"token": record("cron", hooks.Envelope{Source: "token", Type: "message", Text: "backup ok"}),
+		"top": record("linear", hooks.Envelope{Source: "linear", Type: "comment", Action: "create",
+			Thread: hooks.Thread{ID: "issue-1", Title: "Retries"}, Message: "c1"}),
+		"issue": record("linear", hooks.Envelope{Source: "linear", Type: "issue", Action: "create",
+			Thread: hooks.Thread{ID: "issue-1", Title: "Retries"}}),
+		// c2 as delivered before envelopes carried the comment's id.
+		"old": record("linear", hooks.Envelope{Source: "linear", Type: "comment", Action: "create",
+			Thread: hooks.Thread{ID: "issue-1", Title: "Retries"}, URL: "https://linear.app/acme/issue/ENG-1-retries#comment-c2"}),
 	}
 	return &app{st: st, actor: "yard-10-new"}, st, seqs
 }
@@ -138,6 +146,37 @@ func TestReply(t *testing.T) {
 	var res map[string]any
 	if json.Unmarshal([]byte(out), &res) != nil || res["url"] != "https://linear.app/acme/issue/ENG-1#comment-c9" || res["resident"] != "mayor" {
 		t.Fatalf("json %q", out)
+	}
+}
+
+// Without --to a reply lands under the conversation of the delivered
+// comment: a reply's parent, a top-level comment itself, nothing for an
+// issue. An event recorded before envelopes carried the comment's id
+// placed its reply at the top level (yard-npq6).
+func TestReplyPlacement(t *testing.T) {
+	created := fakeLinearAPI(t)
+	a, _, seqs := replyYard(t)
+	t.Setenv("LINEAR_API_KEY", "lin_api_mayor")
+	t.Setenv("YARDR_RESIDENT", "mayor")
+	for _, c := range []struct {
+		event string
+		want  any
+	}{
+		{"linear", "c1"},
+		{"top", "c1"},
+		{"old", "c1"},
+		{"issue", nil},
+	} {
+		n := len(*created)
+		if _, err := run(t, a.replyCmd(), seqs[c.event], "answer"); err != nil {
+			t.Fatalf("%s: %v", c.event, err)
+		}
+		if len(*created) != n+1 {
+			t.Fatalf("%s: created %v", c.event, *created)
+		}
+		if in := (*created)[n]; in["parentId"] != c.want || in["issueId"] != "issue-1" {
+			t.Errorf("%s: commentCreate input %v, want parentId %v", c.event, in, c.want)
+		}
 	}
 }
 
@@ -242,6 +281,14 @@ func TestThreadShow(t *testing.T) {
 	t.Setenv("LINEAR_API_KEY", "")
 	if _, err := run(t, a.threadCmd(), "show", seqs["linear"]); err == nil || !strings.Contains(err.Error(), "LINEAR_API_KEY") {
 		t.Errorf("no key: %v", err)
+	}
+	// An event recorded before envelopes carried the comment's id marks
+	// the comment its URL names.
+	t.Setenv("LINEAR_API_KEY", "lin_api_mayor")
+	a.json = false
+	out, err = run(t, a.threadCmd(), "show", seqs["old"])
+	if err != nil || !strings.Contains(out, "* c2  ") || strings.Contains(out, "* c1") {
+		t.Errorf("old event: %v\n%s", err, out)
 	}
 	if _, err := run(t, a.threadCmd(), "show", "9999"); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("unknown seq: %v", err)
