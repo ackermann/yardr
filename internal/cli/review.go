@@ -261,7 +261,7 @@ names no outcomes).`,
 			}
 			// The form needs a terminal; piped or scripted, list instead of
 			// failing on a prompt nobody can answer.
-			if len(items) > 0 && (!term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd()))) {
+			if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
 				printReviewList(items)
 				fmt.Fprintln(os.Stderr, "not a terminal: listed instead of the form; move beads with yardr bead done or yardr bead advance")
 				return nil

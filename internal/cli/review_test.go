@@ -249,3 +249,12 @@ func TestReviewListsWhenNotATerminal(t *testing.T) {
 		t.Fatalf("review off a terminal = %q, %v", out, err)
 	}
 }
+
+func TestReviewListsEmptyQueueWhenNotATerminal(t *testing.T) {
+	st, _ := reviewYard(t, t.TempDir())
+	a := &app{st: st, actor: "mckean"}
+	out, err := run(t, a.reviewCmd())
+	if err != nil || !strings.Contains(out, "ID") {
+		t.Fatalf("empty review queue off a terminal = %q, %v", out, err)
+	}
+}
