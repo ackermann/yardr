@@ -92,6 +92,29 @@ func DefaultHome(userHome string) string {
 	return home
 }
 
+// IsDefaultHome reports whether home is the one yardr uses when YARDR_HOME
+// is not set, so a command for it needs no variable. Paths are compared
+// resolved: YARDR_HOME=~/.yardr/ or a symlink to it is the default too.
+func IsDefaultHome(home string) bool {
+	h, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	return resolve(home) == resolve(DefaultHome(h))
+}
+
+// resolve is p made absolute with its symlinks followed, or as clean as it
+// gets where it does not exist.
+func resolve(p string) string {
+	if abs, err := filepath.Abs(p); err == nil {
+		p = abs
+	}
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return filepath.Clean(p)
+}
+
 // LegacyHome is where yard kept its state before the rename.
 func LegacyHome(userHome string) string { return filepath.Join(userHome, ".yard") }
 

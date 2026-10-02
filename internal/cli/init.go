@@ -73,8 +73,27 @@ func (a *app) initialized(ctx context.Context, cfg *config.Config) (bool, error)
 type notInitialized struct{ home string }
 
 func (e notInitialized) Error() string {
-	return fmt.Sprintf("no yard in %s yet: create one with `yardr init --harness <kind>` "+
-		"(or run yardr in a terminal for the onboarding)", e.home)
+	return fmt.Sprintf("no yard in %s yet: create one with `%syardr init --harness <kind>` "+
+		"(or run yardr in a terminal for the onboarding)", e.home, homeEnv(e.home))
+}
+
+// homeEnv is what a command for home needs in front of it: nothing for the
+// default home, YARDR_HOME=<home> and a space for any other, since without it
+// the command would go to ~/.yardr (yard-0wys).
+func homeEnv(home string) string {
+	if config.IsDefaultHome(home) {
+		return ""
+	}
+	return "YARDR_HOME=" + shellQuote(home) + " "
+}
+
+// shellQuote is s as one shell word: as it is when nothing in it is special,
+// single-quoted otherwise.
+func shellQuote(s string) string {
+	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-+:,@%=") == "" {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // interactive reports whether the onboarding form can run; tests replace it.
@@ -287,6 +306,7 @@ func daemonRunning(lock string) bool {
 }
 
 func (r *initResult) print() {
+	env := homeEnv(r.Home)
 	if r.MayorKept {
 		fmt.Printf("yard in %s set up again\n\n", r.Home)
 	} else {
@@ -301,7 +321,7 @@ func (r *initResult) print() {
 			fmt.Printf("           runs with %s so it does not stop to ask\n", strings.Join(r.Args, " "))
 		} else {
 			fmt.Printf("           runs with no unattended flags: %s may stop to ask; give it its own with\n"+
-				"           yardr resident add %s --set 'args=[...]' (see yardr group add --help)\n", r.Harness, r.Mayor)
+				"           %syardr resident add %s --set 'args=[...]' (see yardr group add --help)\n", r.Harness, env, r.Mayor)
 		}
 	}
 	fmt.Printf("  roles    %s", r.Roles)
@@ -311,10 +331,16 @@ func (r *initResult) print() {
 	fmt.Printf("\n           starting points naming %s: edit them to fit your yard; the mayor's prompt is mayor.md.\n"+
 		"           A rig's own roles go in its repo under .yardr/roles/, which a group's\n"+
 		"           prompt=roles/<name>.md reads first (from the rig's base branch).\n\n", r.Operator)
+	if env != "" {
+		// Not the default home: without the variable a command goes to
+		// ~/.yardr, the daemon's first of all (yard-0wys).
+		fmt.Printf("This yard is not in the default home: every yardr command for it needs\n"+
+			"YARDR_HOME=%s in front of it, or exported.\n", shellQuote(r.Home))
+	}
 	if r.Daemon {
 		fmt.Printf("The daemon is running; it starts %s shortly.\n", r.Mayor)
 	} else {
-		fmt.Printf("Start the daemon in a terminal pane of its own; %s starts when it does:\n\n  yardr daemon\n", r.Mayor)
+		fmt.Printf("Start the daemon in a terminal pane of its own; %s starts when it does:\n\n  %syardr daemon\n", r.Mayor, env)
 	}
 	// The rest of the setup is a conversation: the mayor's role has a first
 	// run checklist (rig, starter files, groups, routes). The commands for

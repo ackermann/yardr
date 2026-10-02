@@ -157,6 +157,48 @@ func TestInitHarnessWithoutUnattendedFlags(t *testing.T) {
 	}
 }
 
+// A yard outside the default home gets YARDR_HOME=<home> in front of every
+// command its summary prints, and the default home gets none (yard-0wys).
+func TestInitSummaryNamesTheHome(t *testing.T) {
+	home := newHome(t)
+	out, err := run(t, (&app{st: storetest.New(t)}).rootCmd(), "init", "--harness", "gemini")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := "YARDR_HOME=" + home + " "
+	for _, s := range []string{"\n  " + env + "yardr daemon\n", env + "yardr resident add mayor",
+		"every yardr command for it needs\nYARDR_HOME=" + home + " in front of it, or exported"} {
+		if !strings.Contains(out, s) {
+			t.Errorf("summary lacks %q:\n%s", s, out)
+		}
+	}
+
+	// The default home, named with a trailing slash: no variable.
+	user := t.TempDir()
+	t.Setenv("HOME", user)
+	t.Setenv("YARDR_HOME", filepath.Join(user, ".yardr")+"/")
+	out, err = run(t, (&app{st: storetest.New(t)}).rootCmd(), "init", "--harness", "gemini")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "YARDR_HOME") || !strings.Contains(out, "\n  yardr daemon\n") ||
+		!strings.Contains(out, " yardr resident add mayor") {
+		t.Errorf("default home summary:\n%s", out)
+	}
+	if got := (notInitialized{filepath.Join(user, ".yardr")}).Error(); strings.Contains(got, "YARDR_HOME") {
+		t.Errorf("default home hint = %q", got)
+	}
+}
+
+func TestShellQuote(t *testing.T) {
+	for in, want := range map[string]string{"/tmp/y3": "/tmp/y3", "/tmp/my yard": "'/tmp/my yard'",
+		"/tmp/it's": `'/tmp/it'\''s'`, "": "''"} {
+		if got := shellQuote(in); got != want {
+			t.Errorf("shellQuote(%q) = %s, want %s", in, got, want)
+		}
+	}
+}
+
 // With no terminal, a first run prints how to initialize and exits 2,
 // creating nothing; the commands that never need a yard still run.
 func TestFirstRunWithoutTerminal(t *testing.T) {
@@ -170,8 +212,7 @@ func TestFirstRunWithoutTerminal(t *testing.T) {
 	if code := execute(&app{}, []string{"bead", "list"}); code != 2 {
 		t.Fatalf("exit %d", code)
 	}
-	if got := errs.String(); strings.Count(got, "\n") != 1 || !strings.Contains(got, "yardr init --harness") ||
-		!strings.Contains(got, home) {
+	if got := errs.String(); strings.Count(got, "\n") != 1 || !strings.Contains(got, "`YARDR_HOME="+home+" yardr init --harness") {
 		t.Fatalf("stderr = %q", got)
 	}
 	if _, err := os.Stat(filepath.Join(home, "yard.db")); err == nil {

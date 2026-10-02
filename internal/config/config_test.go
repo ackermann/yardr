@@ -125,3 +125,35 @@ func TestLoadRefusesALongHome(t *testing.T) {
 		t.Fatalf("Load at the bound: %v %v", c, err)
 	}
 }
+
+// The default home is compared resolved: a trailing slash, a symlink to it
+// and the old ~/.yard where only that exists all count (yard-0wys).
+func TestIsDefaultHome(t *testing.T) {
+	user := t.TempDir()
+	t.Setenv("HOME", user)
+	legacy := filepath.Join(user, ".yard")
+	if err := os.Mkdir(legacy, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if !IsDefaultHome(legacy) || IsDefaultHome(filepath.Join(user, ".yardr")) {
+		t.Fatal("only ~/.yard exists: it is the default, ~/.yardr is not")
+	}
+	home := filepath.Join(user, ".yardr")
+	if err := os.Mkdir(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "l")
+	if err := os.Symlink(home, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range []string{home, home + "/", link, filepath.Join(user, "x", "..", ".yardr")} {
+		if !IsDefaultHome(h) {
+			t.Errorf("%s is not the default home", h)
+		}
+	}
+	for _, h := range []string{legacy, filepath.Join(t.TempDir(), "y3"), "/tmp/y3"} {
+		if IsDefaultHome(h) {
+			t.Errorf("%s is the default home", h)
+		}
+	}
+}
