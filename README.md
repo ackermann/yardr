@@ -254,7 +254,7 @@ stage the bead is held (`yardr bead unhold` grants fresh attempts).
 - The daemon subscribes to herdr's event stream, so an agent that exits is
   noticed within a second; the reconcile timer remains the fallback.
 
-## BDP (Bead Protocol)
+## BDP (Beads Protocol)
 
 `yardr bdp serve` serves the yard over the [BDP](https://github.com/gastownhall/bdp)
 Read profile, so any BDP client reads yardr's beads and dependency links over
