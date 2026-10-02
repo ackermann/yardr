@@ -27,6 +27,7 @@ type groupAnswers struct {
 	Extra    string // further agent args, space-separated
 	Prompt   string
 	Cmd, Dir string // exec
+	Notify   bool   // manual: herdr notification when a bead arrives
 	Limit    string
 	Other    map[string]any // config keys the form does not edit, kept as is
 }
@@ -58,6 +59,10 @@ func (a groupAnswers) group() store.Group {
 		if a.Dir != "" {
 			cfg["dir"] = a.Dir
 		}
+	case "manual":
+		if a.Notify {
+			cfg["notify"] = true
+		}
 	}
 	limit, _ := strconv.Atoi(a.Limit)
 	return store.Group{Name: a.Name, Runner: a.Runner, Config: cfg, Limit: max(limit, 1)}
@@ -68,12 +73,13 @@ func answersFrom(g store.Group) groupAnswers {
 	str := func(k string) string { s, _ := g.Config[k].(string); return s }
 	for k, v := range g.Config {
 		switch k {
-		case "kind", "model", "prompt", "args", "cmd", "dir":
+		case "kind", "model", "prompt", "args", "cmd", "dir", "notify":
 		default:
 			a.Other[k] = v
 		}
 	}
 	a.Kind, a.Model, a.Prompt, a.Cmd, a.Dir = str("kind"), str("model"), str("prompt"), str("cmd"), str("dir")
+	a.Notify = g.Config["notify"] == true || str("notify") == "true"
 	var args []string
 	if list, ok := g.Config["args"].([]any); ok {
 		for _, v := range list {
@@ -185,6 +191,12 @@ func (a *app) groupForm(ctx context.Context, st store.API) error {
 				Value(&ans.Cmd).Validate(nonEmpty),
 			huh.NewInput().Title("Directory").Description("Optional; defaults to the bead's rig.").Value(&ans.Dir),
 		); err != nil {
+			return err
+		}
+	case "manual":
+		if err := ask(huh.NewConfirm().Title("Notify in herdr when a bead arrives?").
+			Description("Once per bead and stage. Leave off for placeholder stages such as backlog.").
+			Value(&ans.Notify)); err != nil {
 			return err
 		}
 	}

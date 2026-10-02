@@ -103,7 +103,7 @@ func (a *app) daemonCmd() *cobra.Command {
 			}
 			d := &dispatch.Dispatcher{
 				Store:       st,
-				Runners:     runner.All(a.cfg.Home, onError),
+				Runners:     runner.All(a.cfg.Home, st, log, onError),
 				Log:         log,
 				Interval:    interval,
 				MaxAttempts: attempts,
@@ -218,7 +218,7 @@ With a name, the group is replaced by exactly what the flags say.`,
 		Example: `  yard group add                     # interactive
   yard group add webapp/builders --runner herdr --limit 2 --set kind=claude --set prompt=roles/builder.md
   yard group add webapp/merger --runner exec --set cmd='make merge-bead'
-  yard group add humans --runner manual`,
+  yard group add humans --runner manual --set notify=true   # herdr notification per waiting bead`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			if len(args) == 0 {
@@ -239,7 +239,7 @@ With a name, the group is replaced by exactly what the flags say.`,
 			if g.Runner == "" {
 				return fmt.Errorf("--runner is required")
 			}
-			if _, ok := runner.All("", nil)[g.Runner]; !ok {
+			if _, ok := runner.All("", nil, nil, nil)[g.Runner]; !ok {
 				return fmt.Errorf("unknown runner %q", g.Runner)
 			}
 			st, err := a.store(c.Context())

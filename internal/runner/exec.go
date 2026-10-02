@@ -13,16 +13,6 @@ import (
 	"github.com/mckean/yard/internal/dispatch"
 )
 
-// Manual starts nothing. The bead waits on its group until someone advances
-// or closes it.
-type Manual struct{}
-
-func (Manual) Start(context.Context, dispatch.Job) (map[string]any, error) {
-	return map[string]any{"manual": true}, nil
-}
-func (Manual) Alive(context.Context, map[string]any) (bool, error) { return true, nil }
-func (Manual) Stop(context.Context, map[string]any) error          { return nil }
-
 // Exec runs config.cmd with sh -c, detached, logging to config.log or
 // <workdir>/.yard-<session>.log. The command is expected to advance or close
 // the bead itself; exiting without doing so ends the session as died.

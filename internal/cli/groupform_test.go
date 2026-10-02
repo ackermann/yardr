@@ -32,6 +32,21 @@ func TestGroupFormRoundTrip(t *testing.T) {
 	}
 }
 
+func TestGroupFormNotify(t *testing.T) {
+	g := store.Group{Name: "humans", Runner: "manual", Limit: 1, Config: map[string]any{"notify": true}}
+	a := answersFrom(g)
+	if !a.Notify || a.Other["notify"] != nil {
+		t.Fatalf("answers = %+v", a)
+	}
+	if back := a.group(); !reflect.DeepEqual(back, g) {
+		t.Fatalf("group = %+v, want %+v", back, g)
+	}
+	a.Notify = false
+	if back := a.group(); back.Config["notify"] != nil {
+		t.Fatalf("notify off still stored: %v", back.Config)
+	}
+}
+
 func TestDescribe(t *testing.T) {
 	g := store.Group{Runner: "herdr", Limit: 1, Config: map[string]any{"kind": "codex", "model": "gpt-x"}}
 	if got := describe(g); got != "herdr · codex · gpt-x · limit 1" {

@@ -1,25 +1,29 @@
 // Package runner holds the built-in Runner implementations.
 //
 //	manual  nothing is started; a human or outside agent picks the bead up
-//	        with `yard bead list --group <name>` and advances it.
+//	        with `yard bead list --group <name>` and advances it. With
+//	        config notify=true a herdr notification says a bead is waiting.
 //	exec    runs config.cmd through sh -c in the rig (or config.dir).
 //	herdr   opens a worktree per bead in herdr and starts an agent in it.
 package runner
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/mckean/yard/internal/dispatch"
+	"github.com/mckean/yard/internal/store"
 )
 
 // All returns every built-in runner keyed by the name groups refer to.
-// onError, if set, receives background errors (herdr event stream down).
-func All(home string, onError func(error)) map[string]dispatch.Runner {
+// st and log, if set, let manual groups notify humans; onError, if set,
+// receives background errors (herdr event stream down).
+func All(home string, st store.API, log *slog.Logger, onError func(error)) map[string]dispatch.Runner {
 	return map[string]dispatch.Runner{
-		"manual": Manual{},
+		"manual": &Manual{Store: st, Show: HerdrNotifier("herdr"), Log: log},
 		"exec":   NewExec(),
 		"herdr": &Herdr{Bin: "herdr", WorktreeRoot: filepath.Join(home, "worktrees"), YardHome: home,
 			YardBin: self(), OnError: onError},
