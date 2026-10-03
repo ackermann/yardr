@@ -147,7 +147,7 @@ func writeEpic(b *strings.Builder, job dispatch.Job) {
 	fmt.Fprintf(b, " The whole change is `%s..%s` (`git log %[1]s..%[2]s`, `git diff %[1]s...%[2]s`): work on it as a whole, not child by child.\n\n", BaseOf(job), branch)
 	fmt.Fprintf(b, "An epic sent back to `open` waits there only while a child is open: before sending it back, add the fix as a child (`yardr bead create ... -r <rig>`, then `yardr dep add %s <child> -k parent`), or it is integrated again unchanged.\n\n", job.Bead.ID)
 	// Where done itself goes back to open (merge -> open on done in
-	// yard.epic), the work is on the branch, not a child: say who takes it
+	// yardr.epic), the work is on the branch, not a child: say who takes it
 	// from there, so the merger leaves the pushing to the integrator.
 	for _, o := range job.Outcomes {
 		if o.Outcome == store.DefaultOutcome && o.Stage == "open" && job.Bead.Stage != "open" {

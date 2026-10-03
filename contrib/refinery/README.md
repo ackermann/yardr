@@ -69,7 +69,7 @@ yardr group add yard-refinery --runner exec --limit 1 \
   --set log="$HOME/.yardr/logs/refinery.log"
 yardr route add --stage approved --group yard-refinery --rig yard
 
-yardr rig flow yard --type epic yard.epic
+yardr rig flow yardr --type epic yardr.epic                  # the repo's .yardr/flows/yardr.epic.flow
 yardr group add yard-integrators --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin ~/.yardr/scripts/integrate-epic' \
   --set log="$HOME/.yardr/logs/integrator.log"

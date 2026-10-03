@@ -333,7 +333,7 @@ child closes; `dep rm <epic> <child> -k parent` removes both edges.
 
 ### The epic's own flow
 
-An epic follows `yard.epic` ([flows.md](flows.md#worked-example-rig-yard)):
+An epic follows `yardr.epic` ([flows.md](flows.md#worked-example-rig-yard)):
 
 1. **backlog**: the mayor shapes the epic and adds its children, then
    advances it to `open`.
