@@ -31,6 +31,11 @@ const trustYes = "Yes, I trust this folder"
 // shorten it.
 var trustWait = 20 * time.Second
 
+// trustRedrawWait bounds waiting for Claude Code to repaint the dialog after
+// a cursor key. A terminal redraw can be delayed under load; sending another
+// key against the old screen could move the cursor back to "No, exit".
+const trustRedrawWait = 2 * time.Second
+
 // trusts reports whether yardr answers the folder-trust dialog for an agent
 // with this config: only Claude Code's, whose dialog it knows, and not when
 // the group or resident says `trust=false`.
@@ -71,7 +76,7 @@ func (h *Herdr) acceptTrust(ctx context.Context, pane string) bool {
 		// `down` sent meanwhile wraps the cursor back to "No, exit". So the
 		// next key waits for the screen to change.
 		before := screen
-		for deadline := time.Now().Add(trustWait / 10); screen == before && err == nil; {
+		for deadline := time.Now().Add(trustRedrawWait); screen == before && err == nil; {
 			if time.Now().After(deadline) {
 				return false
 			}
