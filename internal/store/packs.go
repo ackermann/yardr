@@ -31,9 +31,13 @@ type PackImport struct {
 	Commit string `json:"commit,omitempty"`
 	Dirty  bool   `json:"dirty,omitempty"`
 	// Flow is the pack's flow the rig follows, by the pack's name for it.
-	Flow string    `json:"flow,omitempty"`
-	At   time.Time `json:"at"`
-	By   string    `json:"by"`
+	Flow string `json:"flow,omitempty"`
+	// RigRoles says the import was told to leave a group or resident its
+	// rig's own role (--rig-roles); otherwise the pack's roles were set, the
+	// default. The next import repeats the choice unless told anew.
+	RigRoles bool      `json:"rig_roles,omitempty"`
+	At       time.Time `json:"at"`
+	By       string    `json:"by"`
 	// Groups and Residents map the pack's names to the yard's.
 	Groups    map[string]string `json:"groups"`
 	Residents map[string]string `json:"residents"`
@@ -46,6 +50,9 @@ type PackObject struct {
 	Kind string `json:"kind"` // file group flow pointer route subscription
 	// Name is the file's path, or the group's or flow's name.
 	Name string `json:"name,omitempty"`
+	// SHA256 is a file's content as the import installed it: a copy that
+	// differs was edited by hand since. Records older than the field lack it.
+	SHA256 string `json:"sha256,omitempty"`
 	// A route's stage, type and group; a pointer's type and flow.
 	Stage string `json:"stage,omitempty"`
 	Type  string `json:"type,omitempty"`

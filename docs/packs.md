@@ -111,7 +111,7 @@ packs/mine/pack.yaml:7: flows.default.stages.decide.group: no group deciders is 
 ## yardr pack check
 
 ```sh
-yardr pack check <dir> --rig <rig> [--resident <pack's>=<yard's>]… [--flow <flow>] [--pack-roles] [--json]
+yardr pack check <dir> --rig <rig> [--resident <pack's>=<yard's>]… [--flow <flow>] [--rig-roles] [--json]
 ```
 
 It prints what an import into the rig would do, object by object, and
@@ -124,7 +124,9 @@ writes nothing, neither to the store nor under the home:
 | `unchanged` | it has one and nothing would change |
 | `not in the pack` | the yard has it, the pack does not, and no import of this pack brought it: an import leaves it alone |
 | `no longer in it` | an earlier import of this pack into the rig brought it and the pack has dropped it since: left alone unless the import is told to prune ([Pruning](#pruning)) |
-| `kept: …` under an object | something the pack carries and the import leaves as the yard has it, with the reason: a prompt, where the rig has its own role |
+| `shadows …` under an object | a file of the rig that is not used while the object is as the pack sets it: the rig's own `.yardr/roles/builder.md`, under a group prompted from the pack's copy |
+| `kept: …` under an object | something the pack carries and the import leaves as the yard has it, with the reason: a prompt, where the rig has its own role and the import was given `--rig-roles` |
+| `edited by hand since the last import: …` under a file | the installed copy is neither what the last import installed nor what the pack has now: `pack apply` overwrites it only with `--yes` ([below](#yardr-pack-apply)) |
 
 then what an import would ask, which flow would govern the rig afterwards,
 what each subscribed source has and lacks, and notes. `--json` prints the
@@ -143,17 +145,32 @@ bead's branch can change, as with the home's own roles
 ([configuration.md](configuration.md#role-prompts)). Files of the pack that
 nothing in `pack.yaml` names are not copied.
 
-**A rig's own role wins.** Where the rig has `.yardr/roles/<name>.md` on its
-base branch (in its directory, for a dir rig) and the pack's role is
-`roles/<name>.md`, the import does not point the group at the pack's copy:
-a group that exists keeps its prompt as it is, a new group gets
-`roles/<name>.md`, which yardr resolves to the rig's file, and the plan says
-`kept: prompt roles/builder.md: the rig has its own .yardr/roles/builder.md`.
-A resident that has a prompt keeps it the same way. The pack's copy is
-installed all the same, for rigs without their own. To switch a rig to the
-pack's role on purpose, import with `--pack-roles`, which sets the pack's
-copy on every group and resident, or remove the rig's file from its base
-branch and import again.
+**The pack's roles win.** An import gives the rig the pack's way of working
+whole, its roles as its flow. Every agent group and resident the pack names
+is pointed at the pack's copied role, also where the rig has
+`.yardr/roles/<name>.md` on its base branch (in its directory, for a dir
+rig) and the pack's role is `roles/<name>.md`. The rig's file stays where it
+is and is read by nothing; the plan shows the `change` of `prompt` and names
+the file under the object:
+
+```
+  change           web-builders
+                     shadows .yardr/roles/builder.md
+                     prompt: roles/builder.md -> /Users/me/.yardr/packs/starter/roles/builder.md
+```
+
+`--rig-roles` is the opposite choice. A group whose rig has its own role
+keeps its prompt as it is; a new group, and one the pack's copy was set on
+before, gets `roles/<name>.md`, which yardr resolves to the rig's file; and
+the plan says `kept: prompt roles/builder.md: the rig has its own
+.yardr/roles/builder.md`. A resident that has a prompt of its own keeps it
+the same way. Groups and residents whose role the rig lacks get the pack's
+copy either way, and every copy is installed all the same.
+
+The record remembers which of the two was chosen (`roles` in `yardr pack
+list`), and an import without the flag repeats it. `--pack-roles` chooses
+the pack's roles again after an import with `--rig-roles`; it is the default
+otherwise, and says so in one line.
 
 **Groups.** An agent or script group is the rig's, named `<rig>-<group>`
 (`yardr-builders`); a people group keeps its name and is the yard's, shared
@@ -234,7 +251,7 @@ the yard has and lacks to hear it and answer in it:
 ```sh
 yardr pack apply <dir> --rig <rig> [--yes] [--prune]
     [--bind <group>=<kind>[:<model>][,<preset>]]… [--members <group>=a,b]…
-    [--resident <pack's>=<yard's>]… [--flow <flow>] [--pack-roles] [--json]
+    [--resident <pack's>=<yard's>]… [--flow <flow>] [--rig-roles] [--json]
 ```
 
 It makes the plan `pack check` shows, prints it with what the flags answer
@@ -298,8 +315,24 @@ touched, whatever `--bind` says.
 
 **Twice is once.** Applying a pack that is already applied writes no object
 and logs one event, `pack_unchanged`. It needs no flag and no `--yes`: the
-record says which resident took each of the pack's and which flow the rig
-follows.
+record says which resident took each of the pack's, which flow the rig
+follows and whose roles were chosen.
+
+**A copy edited by hand is not overwritten silently.** The record holds the
+content of each file as the import installed it. A copy under
+`<home>/packs/<pack>/` that is neither that nor what the pack has now was
+edited in the yard; the plan marks it, and the import stops before it writes
+anything, in a terminal too:
+
+```
+nothing was changed: /Users/me/.yardr/packs/starter/roles/builder.md was edited by hand since the last import, and the import would overwrite it: the edit belongs in the pack's source (/Users/me/yardr/packs/starter/roles/builder.md); --yes overwrites it
+```
+
+Make the edit in the pack and apply again, or give `--yes` to drop it. The
+rigs a pack is imported into share its copies, so a copy that is as the
+import into any of them left it counts as not edited. A record written
+before yardr kept the content says nothing, and such a copy is overwritten
+as before.
 
 **All or nothing, as far as the store allows.** Before the first write the
 import checks that the plan is not refused, that every question has a usable
@@ -333,6 +366,7 @@ $ yardr pack list
 starter in rig web  2026-10-03 18:40 by mckean
   source     /Users/me/yardr/packs/starter at 8562e43c1f0a
   flow       default (stored as starter.default)
+  roles      the pack's
   groups     backlog -> backlog, builders -> web-builders, decisions -> decisions, refinery -> web-refinery, reviewers -> web-reviewers
   residents  mayor -> yardmaster
   objects    4 files, 5 groups, 1 flows, 1 flow pointers, 5 routes, 3 subscriptions
@@ -345,8 +379,9 @@ starter in rig web  2026-10-03 18:40 by mckean
 | `commit`, `dirty` | that directory's git commit when it is in a repository, and whether it held changes the commit does not |
 | `at`, `by` | when, and the actor who applied it |
 | `flow` | the pack's flow the rig follows |
+| `rig_roles` | `true` when the import was given `--rig-roles`; absent when the pack's roles were set |
 | `groups`, `residents` | pack name -> yard name |
-| `objects` | the files, groups, flows, pointers, routes and subscriptions that are the pack's |
+| `objects` | the files, groups, flows, pointers, routes and subscriptions that are the pack's; a file with the `sha256` of its content as installed |
 
 An import that changes nothing leaves the record as it is, its commit and
 time included: it is the record of the last import that did something. The
@@ -391,10 +426,10 @@ id, an `args` answer being the arguments the new agent got, space-separated):
 ```json
 {
   "pack": "starter", "dir": "/…/packs/starter", "rig": "yardr",
-  "flow": "default", "groups": {"builders": "yardr-builders"}, "residents": {"mayor": "yardmaster"},
+  "flow": "default", "rig_roles": false, "groups": {"builders": "yardr-builders"}, "residents": {"mayor": "yardmaster"},
   "install": "/Users/me/.yardr/packs/starter",
   "objects": [
-    {"kind": "group", "name": "yardr-builders", "action": "change",
+    {"kind": "group", "name": "yardr-builders", "action": "change", "shadows": [".yardr/roles/builder.md"],
      "changes": [{"field": "prompt", "old": "roles/builder.md", "new": "/Users/me/.yardr/packs/starter/roles/builder.md"}],
      "group": {"name": "yardr-builders", "runner": "herdr", "config": {"kind": "claude", "prompt": "/Users/me/…"}, "limit": 5}}
   ],
@@ -422,7 +457,10 @@ prune removes), under its kind:
 | `subscription` | `resident`, `add`, and `remove` when a scope changes |
 
 An object's `asks` are the ids of the questions whose answers it still
-needs, and its `keeps` what the import leaves as the yard has it. A dropped
+needs, its `keeps` what the import leaves as the yard has it, and its
+`shadows` the rig's files the pack's role stands in front of. A file has
+`edited: true` when its installed copy was edited by hand. `rig_roles` says
+whose roles the plan sets. A dropped
 object has `owned`, the record's entry for it, and `held` when not even a
 prune removes it. The question `pack.flow` belongs to no object: it is
 asked when the pack has several flows a rig could follow. A plan with

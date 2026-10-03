@@ -479,13 +479,11 @@ func TestRunningResidentIsNotRestarted(t *testing.T) {
 	}
 }
 
-// A rig's own role wins over the pack's: where the rig has
-// .yardr/roles/<name>.md, a group's prompt stays as it is (a new group
-// gets the role by the name the rig's file is found under) and the plan
-// says it was kept. The pack's copy is installed all the same, and
-// PackRoles sets it on purpose.
-func TestRigsOwnRoleIsKept(t *testing.T) {
-	st, o := yard(t)
+// rigWithRoles is the yard's rig web as a directory that has its own
+// builder.md and mayor.md, a builders group and a mayor prompted as a yard
+// set up by hand has them.
+func rigWithRoles(t *testing.T, st store.API) {
+	t.Helper()
 	rigDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(rigDir, ".yardr", "roles"), 0o755); err != nil {
 		t.Fatal(err)
@@ -498,17 +496,89 @@ func TestRigsOwnRoleIsKept(t *testing.T) {
 	if err := st.PutRig(ctx, store.Rig{Name: "web", Path: rigDir, Kind: store.RigDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.PutGroup(ctx, store.Group{Name: "web-reviewers", Runner: "herdr", Config: map[string]any{"kind": "codex", "prompt": "roles/reviewer.md"}}); err != nil {
+	if err := st.PutGroup(ctx, store.Group{Name: "web-builders", Runner: "herdr", Config: map[string]any{"kind": "claude", "prompt": "roles/builder.md"}, Limit: 5}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr", Config: map[string]any{"kind": "claude", "prompt": "/home/roles/mayor.md"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// record is the yard's record of the starter pack in rig web.
+func record(t *testing.T, st store.API) store.PackImport {
+	t.Helper()
+	recs, err := st.Packs(ctx)
+	if err != nil || len(recs) != 1 {
+		t.Fatalf("records = %+v, %v", recs, err)
+	}
+	return recs[0]
+}
+
+// The pack's roles win by default, as its flow does: a group and a resident
+// are pointed at the pack's copied role though the rig has its own
+// .yardr/roles/<name>.md, the plan shows the change of prompt and names the
+// rig's file that stops being used, and a second import changes nothing.
+func TestPacksRolesWinOverTheRigsOwn(t *testing.T) {
+	st, o := yard(t)
+	rigWithRoles(t, st)
 	install := filepath.Join(o.Home, "packs", "starter")
 
 	plan := build(t, st, load(t, starter), o)
 	b := find(t, plan, "group", "web-builders")
-	if b.Group.Config["prompt"] != "roles/builder.md" || !slices.Equal(b.Keeps, []string{"prompt roles/builder.md: the rig has its own .yardr/roles/builder.md"}) {
+	want := []pack.Diff{{Field: "prompt", Old: "roles/builder.md", New: filepath.Join(install, "roles", "builder.md")}}
+	if b.Action != pack.Change || !reflect.DeepEqual(b.Changes, want) || len(b.Keeps) != 0 || !slices.Equal(b.Shadows, []string{".yardr/roles/builder.md"}) {
+		t.Fatalf("web-builders = %+v", b)
+	}
+	// The rig has no reviewer.md of its own: nothing is shadowed there.
+	if r := find(t, plan, "group", "web-reviewers"); len(r.Shadows) != 0 || r.Group.Config["prompt"] != filepath.Join(install, "roles", "reviewer.md") {
+		t.Fatalf("web-reviewers = %+v", r)
+	}
+	m := find(t, plan, "resident", "mayor")
+	want = []pack.Diff{{Field: "prompt", Old: "/home/roles/mayor.md", New: filepath.Join(install, "roles", "mayor.md")}}
+	if m.Action != pack.Change || !slices.Equal(m.Shadows, []string{".yardr/roles/mayor.md"}) || len(m.Keeps) != 0 || !reflect.DeepEqual(m.Changes[:1], want) {
+		t.Fatalf("mayor = %+v", m)
+	}
+	apply(t, st, plan, nil)
+	g, _ := st.GetGroup(ctx, "web-builders")
+	r, _ := st.GetResident(ctx, "mayor")
+	if g.Config["prompt"] != filepath.Join(install, "roles", "builder.md") || r.Config["prompt"] != filepath.Join(install, "roles", "mayor.md") {
+		t.Fatalf("after the import: builders %v, mayor %v", g.Config["prompt"], r.Config["prompt"])
+	}
+	if rec := record(t, st); rec.RigRoles {
+		t.Fatalf("the record says the rig's roles were kept: %+v", rec)
+	}
+
+	// Again, with no flag: nothing to write, the shadowed file still named.
+	plan = build(t, st, load(t, starter), o)
+	if got := append(actions(plan, pack.Change), actions(plan, pack.Create)...); len(got) != 0 {
+		t.Fatalf("a second import would write %v", got)
+	}
+	if b := find(t, plan, "group", "web-builders"); !slices.Equal(b.Shadows, []string{".yardr/roles/builder.md"}) {
+		t.Fatalf("web-builders, second plan = %+v", b)
+	}
+	if res := apply(t, st, plan, nil); res.Wrote() || res.Recorded {
+		t.Fatalf("the second import: %+v", res)
+	}
+}
+
+// RigRoles is the opposite choice: a group or resident whose rig has its
+// own role keeps it. The record remembers the choice, so the next import
+// repeats it without the flag and changes nothing; PackRoles undoes it, and
+// RigRoles after that takes a group off the pack's copy again.
+func TestRigRolesKeepsTheRigsOwnAndIsRemembered(t *testing.T) {
+	st, o := yard(t)
+	rigWithRoles(t, st)
+	// The builders group is new here: it gets the role by the rig's name for it.
+	if _, err := st.DeleteGroup(ctx, "web-builders", "me"); err != nil {
+		t.Fatal(err)
+	}
+	install := filepath.Join(o.Home, "packs", "starter")
+
+	o.RigRoles = true
+	plan := build(t, st, load(t, starter), o)
+	b := find(t, plan, "group", "web-builders")
+	if !plan.RigRoles || b.Action != pack.Create || b.Group.Config["prompt"] != "roles/builder.md" || len(b.Shadows) != 0 ||
+		!slices.Equal(b.Keeps, []string{"prompt roles/builder.md: the rig has its own .yardr/roles/builder.md"}) {
 		t.Fatalf("web-builders = %+v, prompt %v", b, b.Group.Config["prompt"])
 	}
 	// The rig has no reviewer.md of its own, so that group gets the pack's.
@@ -516,32 +586,110 @@ func TestRigsOwnRoleIsKept(t *testing.T) {
 		t.Fatalf("web-reviewers = %+v", r)
 	}
 	m := find(t, plan, "resident", "mayor")
-	if m.Resident.Prompt != "/home/roles/mayor.md" || len(m.Keeps) != 1 || slices.ContainsFunc(m.Changes, func(d pack.Diff) bool { return d.Field == "prompt" }) {
+	if m.Resident.Prompt != "/home/roles/mayor.md" || len(m.Keeps) != 1 || len(m.Shadows) != 0 || slices.ContainsFunc(m.Changes, func(d pack.Diff) bool { return d.Field == "prompt" }) {
 		t.Fatalf("mayor = %+v", m)
 	}
 	// Installed all the same, for rigs without their own.
 	if f := find(t, plan, "file", "roles/builder.md"); f.Action != pack.Create {
 		t.Fatalf("builder.md = %+v", f)
 	}
-	apply(t, st, plan, answers)
+	apply(t, st, plan, nil)
 	g, _ := st.GetGroup(ctx, "web-builders")
 	r, _ := st.GetResident(ctx, "mayor")
 	if g.Config["prompt"] != "roles/builder.md" || r.Config["prompt"] != "/home/roles/mayor.md" {
 		t.Fatalf("after the import: builders %v, mayor %v", g.Config["prompt"], r.Config["prompt"])
 	}
-	if got := actions(build(t, st, load(t, starter), o), pack.Change); len(got) != 0 {
-		t.Fatalf("a second import would change %v", got)
+	if rec := record(t, st); !rec.RigRoles {
+		t.Fatalf("the record does not say the rig's roles were kept: %+v", rec)
 	}
 
+	// No flag: the recorded choice, so nothing changes.
+	o.RigRoles = false
+	plan = build(t, st, load(t, starter), o)
+	if got := append(actions(plan, pack.Change), actions(plan, pack.Create)...); !plan.RigRoles || len(got) != 0 {
+		t.Fatalf("a second import, rig roles %v, would write %v", plan.RigRoles, got)
+	}
+	if res := apply(t, st, plan, nil); res.Wrote() || res.Recorded {
+		t.Fatalf("the second import: %+v", res)
+	}
+
+	// Told anew: the pack's roles, and the record says so afterwards.
 	o.PackRoles = true
 	plan = build(t, st, load(t, starter), o)
 	b = find(t, plan, "group", "web-builders")
 	want := []pack.Diff{{Field: "prompt", Old: "roles/builder.md", New: filepath.Join(install, "roles", "builder.md")}}
-	if len(b.Keeps) != 0 || !reflect.DeepEqual(b.Changes, want) {
+	if plan.RigRoles || len(b.Keeps) != 0 || !reflect.DeepEqual(b.Changes, want) || !slices.Equal(b.Shadows, []string{".yardr/roles/builder.md"}) {
 		t.Fatalf("with PackRoles: %+v", b)
 	}
 	if m := find(t, plan, "resident", "mayor"); m.Resident.Prompt != filepath.Join(install, "roles", "mayor.md") {
 		t.Fatalf("with PackRoles: mayor %+v", m.Resident)
+	}
+	apply(t, st, plan, nil)
+	if rec := record(t, st); rec.RigRoles {
+		t.Fatalf("the record after PackRoles: %+v", rec)
+	}
+
+	// And back: a group on the pack's copy gets the rig's role by name.
+	o.PackRoles, o.RigRoles = false, true
+	b = find(t, build(t, st, load(t, starter), o), "group", "web-builders")
+	want = []pack.Diff{{Field: "prompt", Old: filepath.Join(install, "roles", "builder.md"), New: "roles/builder.md"}}
+	if !reflect.DeepEqual(b.Changes, want) {
+		t.Fatalf("back to RigRoles: %+v", b)
+	}
+
+	o.PackRoles = true
+	if _, err := pack.Build(ctx, st, load(t, starter), o); err == nil || !strings.Contains(err.Error(), "opposite choices") {
+		t.Fatalf("both choices at once: %v", err)
+	}
+}
+
+// An installed copy edited by hand is not overwritten silently: the plan
+// marks it, and the import refuses it, naming the file and where the edit
+// belongs, unless told to overwrite. A copy that differs only because the
+// pack moved on is no edit.
+func TestHandEditedInstalledFileIsRefused(t *testing.T) {
+	st, o := yard(t)
+	dir := copyStarter(t)
+	apply(t, st, build(t, st, load(t, dir), o), nil)
+	to := filepath.Join(o.Home, "packs", "starter", "roles", "builder.md")
+	from := filepath.Join(dir, "roles", "builder.md")
+
+	// The pack changes, the copy is as installed: an ordinary change.
+	if err := os.WriteFile(from, []byte("the pack's, second edition\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := build(t, st, load(t, dir), o)
+	if f := find(t, plan, "file", "roles/builder.md"); f.Action != pack.Change || f.Edited || len(plan.EditedFiles()) != 0 {
+		t.Fatalf("builder.md after a change of the pack = %+v", f)
+	}
+	apply(t, st, plan, nil)
+
+	if err := os.WriteFile(to, []byte("edited in the yard\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan = build(t, st, load(t, dir), o)
+	if f := find(t, plan, "file", "roles/builder.md"); f.Action != pack.Change || !f.Edited {
+		t.Fatalf("builder.md after a hand edit = %+v", f)
+	}
+	before := head(t, st)
+	_, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Actor: "me"})
+	if err == nil || !strings.Contains(err.Error(), "nothing was changed") || !strings.Contains(err.Error(), to+" was edited by hand") ||
+		!strings.Contains(err.Error(), "the edit belongs in the pack's source ("+from+")") {
+		t.Fatalf("applying over a hand edit: %v", err)
+	}
+	if text, _ := os.ReadFile(to); string(text) != "edited in the yard\n" || len(kinds(t, st, before)) != 0 {
+		t.Fatalf("the refused import wrote: %q, events %v", text, kinds(t, st, before))
+	}
+
+	res, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Actor: "me", Overwrite: true})
+	if err != nil || res.Changed != 1 {
+		t.Fatalf("told to overwrite: %+v, %v", res, err)
+	}
+	if text, _ := os.ReadFile(to); string(text) != "the pack's, second edition\n" {
+		t.Fatalf("after the overwrite: %q", text)
+	}
+	if got := actions(build(t, st, load(t, dir), o), pack.Change); len(got) != 0 {
+		t.Fatalf("an import after the overwrite would change %v", got)
 	}
 }
 

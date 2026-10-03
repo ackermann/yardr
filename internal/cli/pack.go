@@ -29,7 +29,9 @@ func (f *packFlags) register(c *cobra.Command, verb string) {
 	c.Flags().StringVar(&f.opts.Rig, "rig", "", "the rig the pack "+verb+" imported into")
 	c.Flags().StringVar(&f.opts.Flow, "flow", "", "the pack's flow the rig follows (default: the one it was given by the last import, else the pack's first flow without a type)")
 	c.Flags().StringArrayVar(&f.residents, "resident", nil, "<pack's name>=<yard's resident>: which resident takes a resident of the pack (repeatable; default: as at the last import)")
-	c.Flags().BoolVar(&f.opts.PackRoles, "pack-roles", false, "set the pack's roles even where the rig has its own .yardr/roles/<name>.md, which otherwise wins")
+	c.Flags().BoolVar(&f.opts.RigRoles, "rig-roles", false, "leave a group or resident its rig's own .yardr/roles/<name>.md where the rig has one, instead of setting the pack's role (default: as at the last import, else the pack's)")
+	c.Flags().BoolVar(&f.opts.PackRoles, "pack-roles", false, "set the pack's roles everywhere: the default now, needed only to undo an earlier --rig-roles")
+	c.MarkFlagsMutuallyExclusive("rig-roles", "pack-roles")
 	_ = c.MarkFlagRequired("rig")
 }
 
@@ -51,6 +53,10 @@ func (a *app) loadPack(dir string) (*pack.Pack, error) {
 // packOptions completes f's options for this yard and returns its store
 // and configuration.
 func (a *app) packOptions(ctx context.Context, f *packFlags) (store.API, *config.Config, error) {
+	if f.opts.PackRoles {
+		// To stderr: --json's output stays the plan alone.
+		fmt.Fprintln(os.Stderr, "--pack-roles: the pack's roles are the default now; the flag is only needed to undo an earlier --rig-roles")
+	}
 	f.opts.Residents = map[string]string{}
 	for _, kv := range f.residents {
 		from, to, ok := strings.Cut(kv, "=")
@@ -88,6 +94,10 @@ the pack (an earlier import brought it, the pack has dropped it since, and
 pack apply --prune removes it). Then what an import would ask, which flow
 would govern the rig, and what each source a resident subscribes to still
 lacks. Nothing is written.
+
+The pack's role is set on every agent group and resident it names, also
+where the rig has its own .yardr/roles/<name>.md: the plan names that file
+as shadowed. --rig-roles keeps the rig's own role instead.
 
 It exits 1 on a pack that is not valid, naming every mistake by file, line
 and key, and on a plan an import would refuse (open beads in a stage the
@@ -137,6 +147,13 @@ added a second time, and keeps what the pack does not carry (a group's
 agent, model, arguments and members; a resident's identity and directory).
 Applying the same pack again changes nothing and logs one pack_unchanged
 event.
+
+The pack's roles win: a group or resident gets the pack's copied role also
+where the rig has its own .yardr/roles/<name>.md, which the plan names as
+shadowed. --rig-roles keeps the rig's own role instead; the import records
+the choice and the next one repeats it. A copy under <home>/packs/<pack>/
+that was edited by hand is overwritten only with --yes: the edit belongs in
+the pack's source.
 
 What it asks, and the flag that answers instead:
   the agent and model of a group the yard lacks   --bind <group>=<kind>[:<model>][,<preset>]
@@ -209,6 +226,11 @@ says so. The import is recorded (yardr pack list). See docs/packs.md.`,
 			if !a.json {
 				printPlan(plan, answers)
 			}
+			// A copy someone edited is not overwritten on a confirmation
+			// alone: the edit is lost for good, and its place is the pack.
+			if edited := plan.EditedFiles(); len(edited) > 0 && !yes {
+				return fmt.Errorf("nothing was changed: %s; --yes overwrites it", strings.Join(edited, "; "))
+			}
 			if missing := plan.Missing(answers); len(missing) > 0 {
 				if !asking {
 					return fmt.Errorf("pack apply cannot ask without a terminal: %s", strings.Join(flagsFor(plan, missing), "; "))
@@ -238,7 +260,7 @@ says so. The import is recorded (yardr pack list). See docs/packs.md.`,
 					return nil
 				}
 			}
-			res, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: answers, Prune: prune, Actor: a.who()})
+			res, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: answers, Prune: prune, Overwrite: yes, Actor: a.who()})
 			if res != nil {
 				if oerr := a.out(map[string]any{"plan": plan, "answers": answers, "result": res}, func() { printResult(plan, res, prune, answers) }); oerr != nil {
 					return oerr
@@ -250,7 +272,7 @@ says so. The import is recorded (yardr pack list). See docs/packs.md.`,
 	af.register(apply, "is")
 	apply.Flags().StringArrayVar(&binds, "bind", nil, "<group>=<kind>[:<model>][,<preset>]: the agent, model and permission preset of a group the yard lacks; resident:<name>=… for a resident (repeatable)")
 	apply.Flags().StringArrayVar(&members, "members", nil, "<group>=a,b: the members of a people group the yard lacks; empty for anyone (repeatable)")
-	apply.Flags().BoolVar(&yes, "yes", false, "apply without asking for confirmation")
+	apply.Flags().BoolVar(&yes, "yes", false, "apply without asking for confirmation, and overwrite an installed file that was edited by hand")
 	apply.Flags().BoolVar(&prune, "prune", false, "remove what an earlier import of this pack brought and the pack has dropped since")
 
 	list := &cobra.Command{
@@ -568,6 +590,11 @@ func printRecord(r store.PackImport) {
 		}
 		return or(strings.Join(out, ", "), "none")
 	}
+	roles := "the pack's"
+	if r.RigRoles {
+		roles = "the rig's own where it has them (--rig-roles)"
+	}
+	fmt.Printf("  roles      %s\n", roles)
 	fmt.Printf("  groups     %s\n", pairs(r.Groups))
 	fmt.Printf("  residents  %s\n", pairs(r.Residents))
 	count := map[string]int{}
@@ -620,8 +647,14 @@ func printPlan(p *pack.Plan, answers pack.Answers) {
 				line += " (an earlier import brought it; left alone unless --prune)"
 			}
 			fmt.Println(line)
+			if o.Edited {
+				fmt.Printf("  %-15s    edited by hand since the last import: overwritten only with --yes; the edit belongs in the pack's source\n", "")
+			}
 			for _, k := range o.Keeps {
 				fmt.Printf("  %-15s    kept: %s\n", "", k)
+			}
+			for _, s := range o.Shadows {
+				fmt.Printf("  %-15s    shadows %s\n", "", s)
 			}
 			for _, d := range o.Changes {
 				fmt.Printf("  %-15s    %s: %s -> %s\n", "", d.Field, planValue(d.Old), planValue(d.New))

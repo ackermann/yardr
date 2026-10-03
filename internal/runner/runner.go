@@ -314,8 +314,8 @@ func readPrompt(p string, rig *store.Rig, home string) ([]byte, error) {
 
 // RigRole reports whether the rig has its own role prompt called name
 // (builder.md): .yardr/roles/<name> where readPrompt looks for it, at the
-// tip of the rig's base. A pack's import asks, since a rig's own role wins
-// over the pack's.
+// tip of the rig's base. A pack's import asks: it names the file its role
+// shadows, or keeps the rig's role when told to.
 func RigRole(rig *store.Rig, name string) (bool, error) {
 	if rig == nil || rig.Path == "" {
 		return false, nil

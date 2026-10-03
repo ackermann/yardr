@@ -26,7 +26,10 @@ type ApplyOptions struct {
 	Answers Answers
 	// Prune removes the plan's dropped objects, those not held.
 	Prune bool
-	Actor string
+	// Overwrite lets the import replace an installed file that was edited
+	// by hand since the last import; without it such a plan is refused.
+	Overwrite bool
+	Actor     string
 }
 
 // Result is what applying a plan did.
@@ -71,8 +74,9 @@ func (p *Plan) Missing(a Answers) []Question {
 //
 // It checks everything it can before the first write: that the plan is not
 // refused, that every question has an answer and the answers are usable,
-// that the pack's files are still the ones the plan was made from, and that
-// no group would be given a runner the store refuses. Past that the store
+// that the pack's files are still the ones the plan was made from, that no
+// installed file edited by hand is overwritten unasked, and that no group
+// would be given a runner the store refuses. Past that the store
 // has no transaction spanning its calls, so a write that fails stops the
 // import where it is: the objects written so far stay, no record is
 // written, and since every object is matched by name, applying again
@@ -114,7 +118,7 @@ func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result,
 	if abs, err := filepath.Abs(dir); err == nil {
 		dir = abs
 	}
-	rec := store.PackImport{Pack: p.Pack, Rig: p.Rig, Source: dir, Flow: p.Flow, Groups: p.Groups, Residents: p.Residents}
+	rec := store.PackImport{Pack: p.Pack, Rig: p.Rig, Source: dir, Flow: p.Flow, RigRoles: p.RigRoles, Groups: p.Groups, Residents: p.Residents}
 	rec.Commit, rec.Dirty = Commit(dir)
 	for _, obj := range p.Objects {
 		po, ok := Ident(obj)
@@ -147,6 +151,9 @@ func check(p *Plan, o ApplyOptions) (map[string][]byte, error) {
 	// what the plan was made with needs a new plan, not this one.
 	if v := o.Answers[FlowQuestion]; v != "" && v != p.Flow {
 		problems = append(problems, fmt.Sprintf("the plan is for flow %s, not %s: make it again with that flow", p.Flow, v))
+	}
+	if !o.Overwrite {
+		problems = append(problems, p.EditedFiles()...)
 	}
 	files := map[string][]byte{}
 	for _, obj := range p.Objects {

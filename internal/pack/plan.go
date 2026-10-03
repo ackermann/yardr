@@ -47,8 +47,10 @@ type Options struct {
 	// Residents says which resident of the yard takes each of the pack's:
 	// pack name -> yard name.
 	Residents map[string]string
-	// PackRoles sets the pack's role on a group or resident even where the
-	// rig has its own role of that name, which otherwise wins.
+	// RigRoles leaves a group or resident its rig's own role where the rig
+	// has one of that name; PackRoles sets the pack's role everywhere, which
+	// is the default. With neither, the choice is the last import's.
+	RigRoles  bool
 	PackRoles bool
 	// HookAddr is YARDR_HOOK_ADDR as this process sees it. The server's
 	// own value is not known to its clients.
@@ -67,6 +69,9 @@ type Plan struct {
 	Rig  string `json:"rig"`
 	// Flow is the pack's flow the rig would follow, by the pack's name.
 	Flow string `json:"flow,omitempty"`
+	// RigRoles says a rig's own role is kept where it has one, instead of
+	// the pack's being set.
+	RigRoles bool `json:"rig_roles"`
 	// Groups and Residents map the pack's names to the yard's.
 	Groups    map[string]string `json:"groups"`
 	Residents map[string]string `json:"residents"`
@@ -95,8 +100,15 @@ type Object struct {
 	Changes []Diff   `json:"changes,omitempty"`
 	Asks    []string `json:"asks,omitempty"` // question ids
 	// Keeps says what the import leaves as the yard has it though the pack
-	// carries it, and why: a prompt, where the rig has its own role.
+	// carries it, and why: a prompt, where the rig has its own role and the
+	// import was told to keep those.
 	Keeps []string `json:"keeps,omitempty"`
+	// Shadows are the rig's files that are not used while the object is as
+	// the pack sets it: the rig's own role, under a prompt from the pack.
+	Shadows []string `json:"shadows,omitempty"`
+	// Edited says an installed file was changed by hand since the last
+	// import and this one would overwrite it.
+	Edited bool `json:"edited,omitempty"`
 	// Of a dropped object: Owned is the earlier import's record of it, and
 	// Held, when set, why not even a prune removes it.
 	Owned *store.PackObject `json:"owned,omitempty"`
@@ -247,6 +259,11 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 	if i := slices.IndexFunc(b.all, func(r store.PackImport) bool { return r.Pack == p.Name && r.Rig == o.Rig }); i >= 0 {
 		b.rec = &b.all[i]
 	}
+	if o.RigRoles && o.PackRoles {
+		return nil, errors.New("--rig-roles and --pack-roles are opposite choices: give one")
+	}
+	// Whose roles, as at the last import unless told anew.
+	b.plan.RigRoles = o.RigRoles || (!o.PackRoles && b.rec != nil && b.rec.RigRoles)
 	for name := range o.Residents {
 		if !slices.ContainsFunc(p.Residents, func(r Resident) bool { return r.Name == name }) {
 			return nil, fmt.Errorf("--resident %s=%s: the pack has no resident %s", name, o.Residents[name], name)
@@ -368,15 +385,20 @@ func (b *planner) files() error {
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
+		edited := false
 		if exists {
 			if !bytes.Equal(have, text) {
 				changes = append(changes, Diff{"content", "sha256 " + sum(have)[:12], "sha256 " + op.SHA256[:12]})
+				// Not what the last import installed either: someone edited
+				// the copy, and the import would undo that.
+				was := b.installedSums(to)
+				edited = len(was) > 0 && !slices.Contains(was, sum(have))
 			}
 			if hi, err := os.Stat(to); err == nil && (hi.Mode().Perm()&0o111 != 0) != (op.Mode == "0755") {
 				changes = append(changes, Diff{"mode", fmt.Sprintf("%04o", hi.Mode().Perm()), op.Mode})
 			}
 		}
-		b.add(Object{Kind: "file", Name: rel, Action: action(exists, changes), Changes: changes, File: op})
+		b.add(Object{Kind: "file", Name: rel, Action: action(exists, changes), Changes: changes, File: op, Edited: edited})
 	}
 	// What an earlier import left there and this pack no longer names.
 	_ = filepath.WalkDir(b.plan.Install, func(path string, d fs.DirEntry, err error) error {
@@ -388,6 +410,37 @@ func (b *planner) files() error {
 		return nil
 	})
 	return nil
+}
+
+// installedSums are the contents the imports of this pack recorded for the
+// installed file to, one per rig it was imported into: the rigs share the
+// copy, so the last import into any of them may have written it. Empty when
+// no record says, as those older than the field do not.
+func (b *planner) installedSums(to string) []string {
+	var out []string
+	for _, r := range b.all {
+		if r.Pack != b.p.Name {
+			continue
+		}
+		for _, po := range r.Objects {
+			if po.Kind == "file" && po.Name == to && po.SHA256 != "" {
+				out = append(out, po.SHA256)
+			}
+		}
+	}
+	return out
+}
+
+// EditedFiles are the installed files the plan would overwrite though they
+// were edited by hand since the last import, each with why that is refused.
+func (p *Plan) EditedFiles() []string {
+	var out []string
+	for _, o := range p.Objects {
+		if o.Kind == "file" && o.Edited && o.File != nil {
+			out = append(out, fmt.Sprintf("%s was edited by hand since the last import, and the import would overwrite it: the edit belongs in the pack's source (%s)", o.File.To, o.File.From))
+		}
+	}
+	return out
 }
 
 func sum(b []byte) string {
@@ -434,16 +487,20 @@ func (b *planner) groups() error {
 			if err != nil {
 				return err
 			}
-			if own != "" {
-				// The rig's own role wins: an existing prompt stays, and a
-				// new group gets the role by the name the rig's file is
-				// found under.
+			switch {
+			case own == "":
+			case b.plan.RigRoles:
+				// Told to keep the rig's own role: an existing prompt stays,
+				// and a new group, or one the pack's copy was set on, gets
+				// the role by the name the rig's file is found under.
 				prompt, _ := old.Config[field].(string)
-				if prompt == "" {
+				if prompt == "" || prompt == b.installed(g.Agent) {
 					prompt = g.Agent
 				}
 				want.Config[field] = prompt
 				o.Keeps = append(o.Keeps, fmt.Sprintf("prompt %s: the rig has its own %s", prompt, own))
+			default:
+				o.Shadows = append(o.Shadows, own)
 			}
 			if !exists {
 				b.ask(&o, "kind", "which agent runs group "+name+" (claude, codex, ...)?", settings["default_kind"])
@@ -843,9 +900,13 @@ func (b *planner) residents() error {
 			if err != nil {
 				return err
 			}
-			if own != "" && prompt != "" {
+			switch {
+			case own == "":
+			case !b.plan.RigRoles:
+				o.Shadows = append(o.Shadows, own)
+			case prompt != "" && prompt != op.Prompt:
 				// A resident is the yard's, not the rig's, so only one that
-				// has a prompt keeps it; a new one gets the pack's.
+				// has a prompt of its own keeps it; a new one gets the pack's.
 				op.Prompt = prompt
 				o.Keeps = append(o.Keeps, fmt.Sprintf("prompt %s: the rig has its own %s", prompt, own))
 			}
@@ -994,12 +1055,11 @@ func (b *planner) needs(source, resident string, exists bool, r store.Resident) 
 
 // rigRole names the rig's own role file that stands in for the pack's role
 // rel (roles/builder.md -> .yardr/roles/builder.md), or "" when the rig has
-// none, the pack's file is no role by yardr's naming (roles/<name>.md), or
-// the import was told to use the pack's roles. A rig's own role wins: its
-// repository says how it is worked.
+// none or the pack's file is no role by yardr's naming (roles/<name>.md).
+// The pack's role is set over it unless the import keeps the rig's roles.
 func (b *planner) rigRole(rel string) (string, error) {
 	dir, name := filepath.Split(filepath.FromSlash(rel))
-	if b.o.PackRoles || filepath.Clean(dir) != "roles" || filepath.Ext(name) != ".md" {
+	if filepath.Clean(dir) != "roles" || filepath.Ext(name) != ".md" {
 		return "", nil
 	}
 	has, err := runner.RigRole(b.rig, name)
@@ -1027,7 +1087,7 @@ func Ident(o Object) (po store.PackObject, ok bool) {
 	}
 	switch {
 	case o.Kind == "file" && o.File != nil:
-		return store.PackObject{Kind: o.Kind, Name: o.File.To}, true
+		return store.PackObject{Kind: o.Kind, Name: o.File.To, SHA256: o.File.SHA256}, true
 	case o.Kind == "group" || o.Kind == "flow":
 		return store.PackObject{Kind: o.Kind, Name: o.Name}, true
 	case o.Kind == "pointer" && o.Pointer != nil:

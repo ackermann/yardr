@@ -513,3 +513,101 @@ func TestPackApplyPrune(t *testing.T) {
 		t.Fatalf("boss subscriptions = %v", boss.Subscriptions)
 	}
 }
+
+// The roles choice at the command: the plan names the rig's file a pack's
+// role shadows, --rig-roles keeps the rig's own and pack list says which was
+// chosen, a later apply without the flag repeats it, and --pack-roles, the
+// default now, says so and undoes it.
+func TestPackApplyRolesChoice(t *testing.T) {
+	a := packApp(t)
+	setInteractive(t, false)
+	ctx := context.Background()
+	rigDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(rigDir, ".yardr", "roles"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rigDir, ".yardr", "roles", "builder.md"), []byte("the rig's own\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.st.PutRig(ctx, store.Rig{Name: "web", Path: rigDir, Kind: store.RigDir}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	copied := filepath.Join(a.cfg.Home, "packs", "starter", "roles", "builder.md")
+	prompt := func() any {
+		g, err := a.st.GetGroup(ctx, "web-builders")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return g.Config["prompt"]
+	}
+	args := append([]string{"apply", "../../packs/starter", "--rig", "web", "--yes"}, starterFlags...)
+
+	out, err := run(t, a.packCmd(), append(args, "--rig-roles")...)
+	if err != nil || !strings.Contains(out, "kept: prompt roles/builder.md: the rig has its own .yardr/roles/builder.md\n") || prompt() != "roles/builder.md" {
+		t.Fatalf("--rig-roles: %v, prompt %v\n%s", err, prompt(), out)
+	}
+	if out, err = run(t, a.packCmd(), "list"); err != nil || !strings.Contains(out, "  roles      the rig's own where it has them (--rig-roles)\n") {
+		t.Fatalf("pack list after --rig-roles: %v\n%s", err, out)
+	}
+	// No flag: the recorded choice, so nothing changes.
+	if out, err = run(t, a.packCmd(), "apply", "../../packs/starter", "--rig", "web"); err != nil || !strings.Contains(out, "nothing changed") || prompt() != "roles/builder.md" {
+		t.Fatalf("apply without flags after --rig-roles: %v, prompt %v\n%s", err, prompt(), out)
+	}
+
+	out, err = run(t, a.packCmd(), "check", "../../packs/starter", "--rig", "web", "--pack-roles")
+	if err != nil || !strings.Contains(out, "  change           web-builders\n                     shadows .yardr/roles/builder.md\n                     prompt: roles/builder.md -> "+copied+"\n") {
+		t.Fatalf("check --pack-roles: %v\n%s", err, out)
+	}
+	if out, err = run(t, a.packCmd(), append(args, "--pack-roles")...); err != nil || prompt() != copied {
+		t.Fatalf("--pack-roles: %v, prompt %v\n%s", err, prompt(), out)
+	}
+	if out, err = run(t, a.packCmd(), "list"); err != nil || !strings.Contains(out, "  roles      the pack's\n") {
+		t.Fatalf("pack list after --pack-roles: %v\n%s", err, out)
+	}
+	if out, err = run(t, a.packCmd(), "apply", "../../packs/starter", "--rig", "web"); err != nil || !strings.Contains(out, "nothing changed") || prompt() != copied {
+		t.Fatalf("apply without flags after --pack-roles: %v, prompt %v\n%s", err, prompt(), out)
+	}
+	if _, err = run(t, a.packCmd(), "check", "../../packs/starter", "--rig", "web", "--pack-roles", "--rig-roles"); err == nil {
+		t.Fatal("--pack-roles with --rig-roles was accepted")
+	}
+}
+
+// A copy under the home that was edited by hand is marked in the plan and
+// not overwritten on a plain apply: the error names the file and says where
+// the edit belongs. --yes overwrites it.
+func TestPackApplyRefusesAHandEditedCopy(t *testing.T) {
+	a := packApp(t)
+	setInteractive(t, false)
+	args := append([]string{"apply", "../../packs/starter", "--rig", "web"}, starterFlags...)
+	if out, err := run(t, a.packCmd(), append(args, "--yes")...); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	copied := filepath.Join(a.cfg.Home, "packs", "starter", "roles", "builder.md")
+	if err := os.WriteFile(copied, []byte("edited in the yard\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, a.packCmd(), "check", "../../packs/starter", "--rig", "web")
+	if err != nil || !strings.Contains(out, "edited by hand since the last import: overwritten only with --yes; the edit belongs in the pack's source\n") {
+		t.Fatalf("check over a hand edit: %v\n%s", err, out)
+	}
+	// Refused in a terminal too: a confirmation is not enough to lose an edit.
+	for _, tty := range []bool{false, true} {
+		setInteractive(t, tty)
+		out, err = run(t, a.packCmd(), args...)
+		if err == nil || !strings.Contains(err.Error(), copied+" was edited by hand") || !strings.Contains(err.Error(), "the edit belongs in the pack's source (") ||
+			!strings.Contains(err.Error(), "--yes overwrites it") {
+			t.Fatalf("apply over a hand edit (terminal %v): %v\n%s", tty, err, out)
+		}
+		if text, _ := os.ReadFile(copied); string(text) != "edited in the yard\n" {
+			t.Fatalf("the refused apply wrote %q", text)
+		}
+	}
+	setInteractive(t, false)
+	if out, err = run(t, a.packCmd(), append(args, "--yes")...); err != nil || !strings.Contains(out, "1 changed") {
+		t.Fatalf("apply --yes over a hand edit: %v\n%s", err, out)
+	}
+	want, _ := os.ReadFile("../../packs/starter/roles/builder.md")
+	if text, _ := os.ReadFile(copied); string(text) != string(want) {
+		t.Fatalf("after --yes the copy is %q", text)
+	}
+}
