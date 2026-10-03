@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,7 +14,14 @@ import (
 // fakeHerdr accepts subscriptions and lets the test push lines to the
 // current connection.
 func fakeHerdr(t *testing.T) (sock string, conns <-chan net.Conn) {
-	sock = filepath.Join(t.TempDir(), "h.sock")
+	// Not under t.TempDir: with the test's name in it the socket path is
+	// exactly at macOS's limit (TMPDIR there is ~50 bytes already).
+	dir, err := os.MkdirTemp("", "yh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	sock = filepath.Join(dir, "h.sock")
 	l, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)
