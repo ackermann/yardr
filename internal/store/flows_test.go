@@ -151,8 +151,10 @@ func TestJSONFlowStageOrder(t *testing.T) {
 		t.Fatalf("one straggler = %v, %v", f.Stages, err)
 	}
 	// Not listed, two sources: ambiguous, so refused rather than sorted.
+	// A plain chain counts too: nothing says it starts at zeta.
 	for _, text := range []string{
 		`{"transitions": {"zeta": ["alpha"], "alpha": ["zeta"]}}`,
+		`{"transitions": {"zeta": ["alpha"], "alpha": ["omega"]}}`,
 		`{"stages": ["zeta"], "transitions": {"zeta": ["omega"], "alpha": ["zeta"], "beta": ["zeta"]}}`,
 	} {
 		_, err := save(text)

@@ -73,8 +73,11 @@ rules reach them from the listed ones (each stage's next stages, in
 order). Two or more source stages that no listed or reached stage leads
 to have no order, and `yardr flow set` refuses the flow rather than sort
 it (`the order of stages alpha, zeta is ambiguous ... list every stage
-under "stages" in order`). A JSON flow with a single source stage needs no
-list.
+under "stages" in order`). That includes a plain chain (`a` to `b`, `b` to
+`c`) when no stage is listed: nothing says the flow starts at `a`. A JSON
+flow with a single source stage needs no list. A JSON flow file in a
+repository is held to the same rule; an ambiguous one counts as a file
+that does not parse (below).
 
 Flow names use letters, digits, `.`, `_` and `-`. Stores from before named
 flows were migrated when the server first opened them: each rig's flow

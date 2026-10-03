@@ -247,6 +247,16 @@ func TestRepoFlowsReadFromBase(t *testing.T) {
 	if i < 0 || repo.Flows[i].Error == "" || repo.Flows[i].Flow != nil {
 		t.Fatalf("repo flows = %+v", repo.Flows)
 	}
+	// A JSON flow file whose stage order is ambiguous is broken the same
+	// way, never sorted into an order.
+	commitFiles(t, dir, map[string]string{".yardr/flows/default.flow": `{"transitions": {"new": ["review"], "review": ["done"]}, "terminal": ["done"]}`})
+	if repo, err = s.RepoFlows(ctx, "web"); err != nil {
+		t.Fatal(err)
+	}
+	i = slices.IndexFunc(repo.Flows, func(f store.RepoFlow) bool { return f.Name == "default" })
+	if i < 0 || !strings.Contains(repo.Flows[i].Error, "ambiguous") || repo.Flows[i].Flow != nil {
+		t.Fatalf("repo flows with an ambiguous JSON flow = %+v", repo.Flows)
+	}
 }
 
 func TestDeleteFlowRefusedWhileUsed(t *testing.T) {
