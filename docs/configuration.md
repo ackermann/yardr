@@ -299,6 +299,7 @@ Everything yardr keeps for itself lives in one directory, **`YARDR_HOME`**
 | `worktrees/<rig>/<bead>` | herdr bead worktrees |
 | `rigs/<name>` | rigs registered with `rig add --clone`; `rig rm` leaves the clone here |
 | `roles/` | the generic role prompts `yardr init` installed (mayor, builder, merger, reviewer), the fallback for rigs without their own; yours to edit. `.shipped.json` there records each file's hash as init wrote it, so init again can tell an edited prompt (kept) from an untouched one (refreshed) |
+| `linear.secret`, `github.secret`, `residents/<name>.env`, `groups/<group>.env` | credential files, if you keep them here as the examples do ([residents.md](residents.md#outbound-credentials)): yours, yardr creates none of them and reads only the paths a hook, resident or group names |
 
 Set `YARDR_HOME` to run a separate yard (tests do, with a short path: unix
 socket paths are limited to about 100 bytes, and yardr refuses a home whose

@@ -180,7 +180,7 @@ What runs today, from nothing to a resident answering in Linear:
    own user (the mayor's is called Yardr). A personal API key works too, but
    then the resident speaks as that person.
 2. **The token in its env_file**, never in the store:
-   `LINEAR_API_KEY=…` in `~/.config/yardr/residents/<name>.env`, `chmod
+   `LINEAR_API_KEY=…` in `~/.yardr/residents/<name>.env`, `chmod
    600`, `yardr resident add <name> --set env_file=…` (see
    [residents.md](residents.md#outbound-credentials)). Restart the resident
    after changing it.
@@ -189,7 +189,7 @@ What runs today, from nothing to a resident answering in Linear:
    `yardr resident identity <name> --source linear --id <user id> --key <profile key>`.
 4. **A subscription**: `yardr subscribe <name> linear --scope involved`.
 5. **The hook**: start the server with `YARDR_HOOK_ADDR=127.0.0.1:8790` and
-   `yardr hook add linear --source linear --secret-file ~/.config/yardr/linear.secret`.
+   `yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret`.
    One hook serves every resident.
 6. **The webhook**: in Linear, Settings → API → Webhooks, URL
    `https://<public host>/hooks/linear`, events Issues and Comments; put its
@@ -207,7 +207,7 @@ identity and the webhook below.
 ### GitHub
 
 ```sh
-yardr hook add gh --source github --secret-file ~/.config/yardr/github.secret
+yardr hook add gh --source github --secret-file ~/.yardr/github.secret
 yardr resident identity mayor --source github --key mayor   # its login, lowercase
 yardr subscribe mayor github --scope involved
 yardr subscribe mayor github --scope all --where epic=yard-sv6b --where conclusion=failure

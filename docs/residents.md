@@ -81,26 +81,31 @@ Its journal, inbox position and runtime state are kept across the replace.
 What a resident uses to act outside the yard (the mayor's Linear developer
 token, a GitHub token) goes in an env file of its own, never in
 the store: BDP serves the store, backups copy it and every builder can read
-it. Inbound is separate: webhooks arrive through one shared hook and its
+it. That is the one rule. The examples keep such files in the yard's home
+(`YARDR_HOME`, `~/.yardr` unless set), next to everything else of the yard:
+a file beside `yard.db` is not in it, and neither BDP, `yardr store backup`
+nor pruning touches anything in the home but the store file. Any other path
+works as well. Inbound is separate: webhooks arrive through one shared hook and its
 secret file (`yardr hook add linear --source linear --secret-file …`); outbound is per
 resident.
 
 ```sh
-mkdir -p ~/.config/yardr/residents
-cat > ~/.config/yardr/residents/mayor.env <<'END'
+mkdir -p ~/.yardr/residents
+cat > ~/.yardr/residents/mayor.env <<'END'
 # Linear, as the mayor: its app's developer token (or a personal API key)
 LINEAR_API_KEY=lin_oauth_…
 # GitHub, as the mayor (else `gh auth token` in its pane is used)
 GITHUB_TOKEN=github_pat_…
 END
-chmod 600 ~/.config/yardr/residents/mayor.env
-yardr resident add mayor --set env_file=~/.config/yardr/residents/mayor.env …
+chmod 600 ~/.yardr/residents/mayor.env
+yardr resident add mayor --set env_file=~/.yardr/residents/mayor.env …
 yardr resident show mayor     # env_file …/mayor.env (LINEAR_API_KEY)
 ```
 
 - Lines are `KEY=VALUE`; blank lines and `#` comments are skipped. Nothing is
   expanded: the value is the rest of the line as written. `~` in the
-  `env_file` path is the daemon user's home.
+  `env_file` path is the daemon user's home; a variable is not expanded
+  there, so a yard with its own `YARDR_HOME` writes the path out.
 - Each entry joins the pane environment next to `YARDR_RESIDENT`,
   `YARDR_ACTOR` and `YARDR_HOME`. A key yardr sets itself is ignored, so a
   credentials file cannot change who the agent is.

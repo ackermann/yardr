@@ -128,7 +128,7 @@ read as is. The order and the older rig-root `roles/` are in
 
 A herdr group whose agents need a credential to act outside the yard (a
 review bot's GitHub token, say) names an env file with `--set
-env_file=~/.config/yardr/groups/<group>.env`. The rules are the residents'
+env_file=~/.yardr/groups/<group>.env`. The rules are the residents'
 ([residents.md](residents.md#outbound-credentials)): `KEY=VALUE` lines, `#`
 comments, no expansion, mode `0600` or stricter, and the store never holds
 the values (BDP serves it, backups copy it, every builder reads it). Each
@@ -137,7 +137,7 @@ a key yardr sets itself is ignored.
 
 ```sh
 yardr group add yard-codex-review --runner herdr --set kind=codex … \
-  --set env_file=~/.config/yardr/groups/codex-review.env
+  --set env_file=~/.yardr/groups/codex-review.env
 ```
 
 A file that is missing, not a regular file or open to others stops the
