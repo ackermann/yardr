@@ -242,7 +242,7 @@ type starterStage struct {
 
 // starterStageFiles are the stage files rig init writes beside the starter
 // flow named flow, whose text is body: one for every stage that is not
-// terminal, in the flow's order. A stage without a template is a bug in this
+// terminal, in the order the flow first names them. A stage without a template is a bug in this
 // build, not the rig's, and an error.
 func starterStageFiles(rig store.Rig, flow, body, operator, mayor string) ([]starterStage, error) {
 	f, err := store.ParseFlow(body)
@@ -253,11 +253,14 @@ func starterStageFiles(rig store.Rig, flow, body, operator, mayor string) ([]sta
 	if rig.IsDir() {
 		kind = "dir"
 	}
+	// A parsed flow lists a stage once for every rule naming it.
 	var out []starterStage
+	seen := map[string]bool{}
 	for _, s := range f.Stages {
-		if f.IsTerminal(s) {
+		if f.IsTerminal(s) || seen[s] {
 			continue
 		}
+		seen[s] = true
 		tmpl, err := roles.Stages.ReadFile("stages/" + kind + "/" + flow + "/" + s + ".md")
 		if err != nil {
 			return nil, fmt.Errorf("starter flow %s has no stage file for %s: %w", flow, s, err)

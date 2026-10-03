@@ -415,8 +415,9 @@ func TestRigInitStageFiles(t *testing.T) {
 				continue
 			}
 			got = append(got, rel)
-			if !strings.Contains(out, "  .yardr/flows/"+rel+"\n") {
-				t.Errorf("%s: the listing does not name %s:\n%s", kind, rel, out)
+			// Once, as written: a stage several rules name is one file.
+			if n := strings.Count(out, ".yardr/flows/"+rel); n != 1 || !strings.Contains(out, "  .yardr/flows/"+rel+"\n") {
+				t.Errorf("%s: the listing names %s %d times, or not as written:\n%s", kind, rel, n, out)
 			}
 			if strings.Contains(body, "{{") || strings.TrimSpace(body) == "" {
 				t.Errorf("%s: %s is empty or keeps a placeholder:\n%s", kind, rel, body)
