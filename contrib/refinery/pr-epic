@@ -20,10 +20,11 @@
 # replaces the PR's body with the epic's, its children, the latest review
 # note under "Review" and the trailer "Epic: <id>", then reports done
 # (-> in-pr). A push the remote refuses, a remote branch with commits the
-# epic lacks, a PR GitHub finds conflicting with the base, or no PR at all
-# reports failed (-> open): the integrator rebases and opens it again. A
-# branch it cannot work on (missing, dirty) is held. Needs gh, logged in
-# as the operator, and jq on PATH.
+# epic lacks, a PR GitHub finds conflicting with the base, or no PR bound
+# to the epic reports failed (-> open): the integrator rebases and opens it
+# again. A branch it cannot work on (missing, dirty) is held, as is an epic
+# whose pull request is not the one it is bound to (another number, head
+# repository or branch). Needs gh, logged in as the operator, and jq on PATH.
 #
 # Every outcome ends in a report or a hold: exiting without one counts as a
 # failed session, and three of those hold the bead.
@@ -71,12 +72,20 @@ remote=${BASE%%/*}
 [ "$remote" != "$BASE" ] && git -C "$REPO" remote | grep -qx "$remote" && prbase=${BASE#*/}
 
 epic=$("$Y" prime --bead "$EPIC" --json) || hold "reading $EPIC failed"
+# The epic's pull request is the one integrate-epic bound it to, by number
+# and head repository, never one looked up by the branch's name: a fork's
+# pull request can carry the same name. What GitHub says of it must match
+# the binding, or it is not the epic's to push for.
 url=$(printf '%s' "$epic" | jq -r '.bead.metadata.pr_url // empty')
-if [ -z "$url" ]; then
-  url=$(cd "$REPO" && gh pr list --head "$BR" --base "$prbase" --state open --json url --jq '.[0].url // empty' 2>"$errf") ||
-    report failed "looking up the pull request for $BR failed: $(cat "$errf")"
-fi
-[ -n "$url" ] || report failed "no pull request for $BR: integrating the epic again opens one"
+num=$(printf '%s' "$epic" | jq -r '.bead.metadata.pr_number // empty')
+headrepo=$(printf '%s' "$epic" | jq -r '.bead.metadata.pr_head_repo // empty')
+[ -n "$url" ] && [ -n "$num" ] && [ -n "$headrepo" ] ||
+  report failed "no pull request bound to $EPIC (pr_url, pr_number, pr_head_repo): integrating the epic again opens one, or binds the one in pr_url"
+pr=$(cd "$REPO" && gh pr view "$url" --json number,state,headRefName,headRepositoryOwner,headRepository 2>"$errf") ||
+  report failed "reading pull request $url failed: $(cat "$errf")"
+is="#$(printf '%s' "$pr" | jq -r .number) from $(printf '%s' "$pr" | jq -r 'if .headRepositoryOwner.login and .headRepository.name then .headRepositoryOwner.login + "/" + .headRepository.name else empty end'):$(printf '%s' "$pr" | jq -r .headRefName)"
+[ "$is" = "#$num from $headrepo:$BR" ] ||
+  hold "pull request $url is $is, but $EPIC is bound to #$num from $headrepo:$BR. Not touched. Correct the epic's pr_url, pr_number and pr_head_repo, then unhold."
 
 # The push carries what the reviewer committed on the branch. The lease is
 # what the remote has now, and only when all of it is in the branch: a

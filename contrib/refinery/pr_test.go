@@ -7,6 +7,7 @@ package refinery
 // its argv and keeps one pull request's state in a directory.
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,23 +18,33 @@ const prURL = "https://github.com/o/r/pull/7"
 
 // fakeGh is gh as far as the scripts use it. Its state, in $FAKE_GH: calls
 // (one argv per line), url (the open PR, once created), body (its body),
-// and files a test writes to make it fail: fail-create, refuse (gh pr
-// merge's error), mergeable. Merging pushes the PR's branch onto origin's
-// main and deletes it there, as GitHub would (minus the rebase).
+// state (OPEN once created), and files a test writes to make it fail or
+// answer otherwise: fail-create, exists (gh pr create's error when a PR is
+// open for the branch), refuse (gh pr merge's error), mergeable, and
+// head-owner (the owner of the PR's head repository, o unless a fork's).
+// It has no pr list: the scripts never look a PR up by its branch.
+// Merging pushes the PR's branch onto origin's main and deletes it there,
+// as GitHub would (minus the rebase).
 const fakeGh = `#!/bin/sh
 d=$FAKE_GH
 echo "$*" >>"$d/calls"
 case "$1 $2" in
-"pr list") cat "$d/url" 2>/dev/null || true ;;
 "pr create")
   if [ -e "$d/fail-create" ]; then echo "HTTP 502: Bad Gateway" >&2; exit 1; fi
+  if [ -e "$d/exists" ]; then
+    printf 'a pull request for branch "yard/r-e" into branch "main" already exists:\n%s\n' ` + prURL + ` >&2; exit 1
+  fi
   cat >"$d/body"
+  echo OPEN >"$d/state"
   echo "Creating pull request for yard/r-e into main" >&2
   echo ` + prURL + ` | tee "$d/url" ;;
 "pr edit") cat >"$d/body" ;;
 "pr view")
   case "$*" in
   *mergeable*) cat "$d/mergeable" 2>/dev/null || echo MERGEABLE ;;
+  *headRepository*)
+    printf '{"number":7,"state":"%s","headRefName":"yard/r-e","headRepositoryOwner":{"login":"%s"},"headRepository":{"name":"r"}}\n' \
+      "$(cat "$d/state" 2>/dev/null || echo OPEN)" "$(cat "$d/head-owner" 2>/dev/null || echo o)" ;;
   *) cat "$d/state" 2>/dev/null || echo OPEN ;;
   esac ;;
 "pr merge")
@@ -97,8 +108,9 @@ func TestEpicThroughPullRequest(t *testing.T) {
 
 	// Integrated: the PR is opened, once, with the epic's children.
 	y.exec("integrate-epic", "yard-integrators", "r-e")
-	if e := y.beadOf("r-e"); e.Stage != "review" || e.Metadata["pr_url"] != prURL {
-		t.Fatalf("epic in %s with metadata %v, want review with pr_url %s", e.Stage, e.Metadata, prURL)
+	if e := y.beadOf("r-e"); e.Stage != "review" || e.Metadata["pr_url"] != prURL ||
+		fmt.Sprint(e.Metadata["pr_number"]) != "7" || e.Metadata["pr_head_repo"] != "o/r" {
+		t.Fatalf("epic in %s with metadata %v, want review, bound to %s: number 7, head repository o/r", e.Stage, e.Metadata, prURL)
 	}
 	if n := countCalls(t, gh, "pr create --base main --head yard/r-e --title the epic (r-e) --body-file -"); n != 1 {
 		t.Fatalf("gh pr create called %d times, want once:\n%v", n, ghCalls(t, gh))
@@ -172,6 +184,81 @@ func TestEpicThroughPullRequest(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(y.repo, "fix.txt")); err != nil {
 		t.Fatalf("checkout of main lacks the reviewer's fix: %v", err)
 	}
+	// From open to merged the PR was found by what the epic stores, never
+	// by its branch's name, which a fork's pull request can carry too.
+	if n := countCalls(t, gh, "pr list"); n != 0 {
+		t.Fatalf("gh pr list called %d times, want never:\n%v", n, ghCalls(t, gh))
+	}
+}
+
+// No script looks the pull request up by the epic's branch.
+func TestScriptsNeverListPullRequestsByBranch(t *testing.T) {
+	for _, name := range []string{"integrate-epic", "pr-epic", "pr-merge"} {
+		if s := readFile(t, name); strings.Contains(s, "pr list") {
+			t.Errorf("%s runs gh pr list: the PR is the one bound to the epic, by number", name)
+		}
+	}
+}
+
+// A pull request already open for the branch that the epic is not bound to
+// (opened by hand, or by a fork) is not adopted: the epic is held for a
+// human. Once they bind it by its URL, integrating stores its number and
+// head repository.
+func TestIntegrateEpicDoesNotAdoptAnUnboundPR(t *testing.T) {
+	gh := withFakeGh(t)
+	if err := os.WriteFile(filepath.Join(gh, "exists"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	y := newEpicYard(t, "test ! -e RED")
+	y.opts = "YARDR_PR=1"
+	y.exec("merge-local", "refinery", "r-1")
+	y.exec("merge-local", "refinery", "r-2")
+
+	y.exec("integrate-epic", "yard-integrators", "r-e")
+
+	if e := y.beadOf("r-e"); !e.Hold || e.Stage != "open" || e.Metadata["pr_url"] != nil || e.Metadata["pr_number"] != nil {
+		t.Fatalf("epic %s hold=%v metadata %v, want held in open, bound to nothing", e.Stage, e.Hold, e.Metadata)
+	}
+	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "is open that r-e is not bound to") {
+		t.Fatalf("no note on the unbound PR:\n%s", notes)
+	}
+	if n := countCalls(t, gh, "pr edit"); n != 0 {
+		t.Fatalf("edited a PR the epic is not bound to:\n%v", ghCalls(t, gh))
+	}
+
+	y.yardr("bead", "update", "r-e", "--meta", "pr_url="+prURL)
+	y.yardr("bead", "unhold", "r-e")
+	y.exec("integrate-epic", "yard-integrators", "r-e")
+	if e := y.beadOf("r-e"); e.Stage != "review" || fmt.Sprint(e.Metadata["pr_number"]) != "7" || e.Metadata["pr_head_repo"] != "o/r" {
+		t.Fatalf("epic in %s with metadata %v, want review, bound to number 7 from o/r", e.Stage, e.Metadata)
+	}
+	if n := countCalls(t, gh, "pr edit "+prURL); n != 1 {
+		t.Fatalf("gh pr edit called %d times, want once:\n%v", n, ghCalls(t, gh))
+	}
+}
+
+// An epic whose bound pull request was closed gets a new one when it is
+// integrated again, not an edit of the closed one.
+func TestIntegrateEpicOpensANewPRWhenTheBoundOneIsClosed(t *testing.T) {
+	gh := withFakeGh(t)
+	y := newEpicYard(t, "test ! -e RED")
+	y.opts = "YARDR_PR=1"
+	y.exec("merge-local", "refinery", "r-1")
+	y.exec("merge-local", "refinery", "r-2")
+	y.exec("integrate-epic", "yard-integrators", "r-e")
+	if err := os.WriteFile(filepath.Join(gh, "state"), []byte("CLOSED\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	y.yardr("bead", "done", "r-e", "--outcome", "changes")
+	y.exec("integrate-epic", "yard-integrators", "r-e")
+
+	if e := y.beadOf("r-e"); e.Stage != "review" {
+		t.Fatalf("epic in %s, want review", e.Stage)
+	}
+	if c, e := countCalls(t, gh, "pr create"), countCalls(t, gh, "pr edit"); c != 2 || e != 0 {
+		t.Fatalf("gh pr create called %d times and pr edit %d, want 2 and 0:\n%v", c, e, ghCalls(t, gh))
+	}
 }
 
 // gh failing to open the PR is reported failed, back to open, not held: the
@@ -197,7 +284,7 @@ func TestIntegrateEpicPRFailureGoesBackToOpen(t *testing.T) {
 }
 
 // landYard is an epic yard whose epic r-e is integrated and pushed, with
-// its PR open (pr_url stored), in stage land.
+// its PR open (the epic bound to it), in stage land.
 func landYard(t *testing.T) (*yard, string) {
 	t.Helper()
 	gh := withFakeGh(t)
@@ -244,6 +331,80 @@ func TestPRMergeRefusedGoesBackToOpen(t *testing.T) {
 	}
 }
 
+// The epic's pr_url names a pull request whose head is in a fork, not the
+// repository the epic is bound to: pr-merge holds the epic and merges
+// nothing, and pr-epic pushes nothing for it either.
+func TestPRScriptsHoldOnAPRFromAnotherHeadRepository(t *testing.T) {
+	y, gh := landYard(t)
+	if err := os.WriteFile(filepath.Join(gh, "head-owner"), []byte("mallory\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	main := y.git(y.repo, "rev-parse", "main")
+
+	y.exec("pr-merge", "yard-pr-merge", "r-e")
+
+	if e := y.beadOf("r-e"); !e.Hold || e.Stage != "land" {
+		t.Fatalf("epic %s hold=%v, want held in land", e.Stage, e.Hold)
+	}
+	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "is #7 from mallory/r:yard/r-e, but r-e is bound to #7 from o/r:yard/r-e") {
+		t.Fatalf("no note on the other head repository:\n%s", notes)
+	}
+	if n := countCalls(t, gh, "pr merge"); n != 0 {
+		t.Fatal("merged a pull request from another head repository")
+	}
+	if got := y.git(y.repo, "ls-remote", "origin", "refs/heads/main"); !strings.HasPrefix(got, main) {
+		t.Fatal("origin main moved")
+	}
+}
+
+func TestPREpicHoldsOnAPRFromAnotherHeadRepository(t *testing.T) {
+	gh := withFakeGh(t)
+	y := newEpicYard(t, "test ! -e RED")
+	y.opts = "YARDR_PR=1"
+	y.exec("merge-local", "refinery", "r-1")
+	y.exec("merge-local", "refinery", "r-2")
+	y.exec("integrate-epic", "yard-integrators", "r-e")
+	integrated := y.git(y.repo, "rev-parse", "yard/r-e")
+	y.commit(filepath.Join(y.home, "worktrees", "r", "r-e"), "fix.txt", "the reviewer's fix\n")
+	y.yardr("bead", "done", "r-e")
+	if err := os.WriteFile(filepath.Join(gh, "head-owner"), []byte("mallory\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	edits := countCalls(t, gh, "pr edit")
+
+	y.exec("pr-epic", "yard-pr", "r-e")
+
+	if e := y.beadOf("r-e"); !e.Hold || e.Stage != "approved" {
+		t.Fatalf("epic %s hold=%v, want held in approved", e.Stage, e.Hold)
+	}
+	if pushed := y.git(y.repo, "ls-remote", "origin", "refs/heads/yard/r-e"); !strings.HasPrefix(pushed, integrated) {
+		t.Fatalf("origin yard/r-e is %q, want it left at the integrated %s", pushed, integrated)
+	}
+	if n := countCalls(t, gh, "pr edit"); n != edits {
+		t.Fatal("edited a pull request from another head repository")
+	}
+}
+
+// An epic with a pr_url but no number or head repository (bound before
+// they were stored) is not merged on the URL alone: back to open, where
+// integrating binds it.
+func TestPRMergeNeedsTheBinding(t *testing.T) {
+	y, gh := landYard(t)
+	y.yardr("bead", "update", "r-e", "--meta", "pr_number=", "--meta", "pr_head_repo=")
+
+	y.exec("pr-merge", "yard-pr-merge", "r-e")
+
+	if e := y.beadOf("r-e"); e.Stage != "open" || e.Hold {
+		t.Fatalf("epic %s hold=%v, want back in open", e.Stage, e.Hold)
+	}
+	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "no pull request bound to r-e") {
+		t.Fatalf("no note on the missing binding:\n%s", notes)
+	}
+	if n := countCalls(t, gh, "pr merge"); n != 0 {
+		t.Fatal("merged a pull request the epic is not bound to")
+	}
+}
+
 // A dirty rig checkout holds the epic in land before anything is merged.
 func TestPRMergeDirtyCheckoutHolds(t *testing.T) {
 	y, gh := landYard(t)
@@ -277,7 +438,7 @@ func TestPREpicNoPRGoesBackToOpen(t *testing.T) {
 	if e := y.beadOf("r-e"); e.Stage != "open" || e.Hold {
 		t.Fatalf("epic %s hold=%v, want back in open", e.Stage, e.Hold)
 	}
-	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "no pull request for yard/r-e") {
+	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "no pull request bound to r-e") {
 		t.Fatalf("no note on the missing PR:\n%s", notes)
 	}
 	if n := countCalls(t, gh, "pr edit"); n != 0 {

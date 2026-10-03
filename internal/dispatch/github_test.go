@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -50,7 +51,19 @@ func newGHRig(t *testing.T, members ...string) *ghRig {
 	return &ghRig{api: api, own: own, d: d, f: f}
 }
 
+// epic adds an epic bound to the fixtures' pull request, acme/yardr#17 with
+// its head in acme/yardr, as integrate-epic binds one.
 func (r *ghRig) epic(t *testing.T, id, stage string) {
+	t.Helper()
+	r.unboundEpic(t, id, stage)
+	_, err := r.api.UpdateBead(context.Background(), id, store.BeadPatch{Metadata: map[string]any{
+		"pr_url": "https://github.com/acme/yardr/pull/17", "pr_number": "17", "pr_head_repo": "acme/yardr"}},
+		store.Expect{}, "me")
+	must(t, err)
+}
+
+// unboundEpic adds an epic with no pull request stored on it.
+func (r *ghRig) unboundEpic(t *testing.T, id, stage string) {
 	t.Helper()
 	_, err := r.api.CreateBead(context.Background(), store.NewBead{ID: id, Title: "epic " + id, Type: store.TypeEpic,
 		Rig: "yard", Stage: stage}, "me")
@@ -227,7 +240,7 @@ func TestGitHubCIGreenNeedsThePRHead(t *testing.T) {
 	if st := r.stageOf(t, "yard-c"); st != "land" {
 		t.Fatalf("yard-c in %s, want land", st)
 	}
-	if asked != (dispatch.PRQuery{Epic: "yard-c", Repo: "acme/yardr", Number: "17"}) {
+	if asked != (dispatch.PRQuery{Epic: "yard-c", URL: "https://github.com/acme/yardr/pull/17", Repo: "acme/yardr", Number: "17"}) {
 		t.Fatalf("asked gh about %+v", asked)
 	}
 }
@@ -504,32 +517,28 @@ func TestGitHubIgnoresOtherEvents(t *testing.T) {
 	wantRules(t, r.rules(t, "yard-t"))
 }
 
-// An epic bound to a pull request (pr_url) is judged on that pull request
-// only: events for a branch of the same name in another repository, or for
-// another pull request of the branch, move nothing and set no head.
+// An epic is judged on the pull request it is bound to only: events for a
+// branch of the same name in another repository, or for another pull
+// request of the branch, move nothing and set no head.
 func TestGitHubRulesJudgeTheEpicsOwnPR(t *testing.T) {
 	r := newGHRig(t)
-	ctx := context.Background()
 	r.epic(t, "yard-a", "in-pr")
-	_, err := r.api.UpdateBead(ctx, "yard-a", store.BeadPatch{Metadata: map[string]any{"pr_url": "https://github.com/acme/yardr/pull/17"}},
-		store.Expect{}, "me")
-	must(t, err)
-	fork := func(s string) string { return strings.ReplaceAll(s, "acme/yardr", "fork/yardr") }
+	elsewhere := func(s string) string { return strings.ReplaceAll(s, "acme/yardr", "other/yardr") }
 	otherPR := func(s string) string { return strings.ReplaceAll(s, `"number": 17`, `"number": 18`) }
 	old := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
-	// A fork's PR and another PR of the branch, at another commit, say
-	// nothing of the epic's head; their green runs land nothing.
-	r.deliverEdited(t, "pull_request", "pull_request_synchronize", "yard-a", old, fork)
+	// A PR in another repository and another PR of the branch, at another
+	// commit, say nothing of the epic's head; their green runs land nothing.
+	r.deliverEdited(t, "pull_request", "pull_request_synchronize", "yard-a", old, elsewhere)
 	r.deliverEdited(t, "pull_request", "pull_request_synchronize", "yard-a", old, otherPR)
-	r.deliverEdited(t, "workflow_run", "workflow_run_success", "yard-a", "", fork)
+	r.deliverEdited(t, "workflow_run", "workflow_run_success", "yard-a", "", elsewhere)
 	r.deliverEdited(t, "workflow_run", "workflow_run_success", "yard-a", "", otherPR)
 	r.pass(t)
 	if b := r.bead(t, "yard-a"); b.Stage != "in-pr" || b.Metadata["pr_head"] != nil {
 		t.Fatalf("yard-a in %s with pr_head %v after events for other PRs", b.Stage, b.Metadata["pr_head"])
 	}
 	wantRules(t, r.rules(t, "yard-a"),
-		"ci_green ignored: event is in fork/yardr, not the epic's PR acme/yardr#17",
+		"ci_green ignored: event is in other/yardr, not the epic's PR acme/yardr#17",
 		"ci_green ignored: event is for acme/yardr#18, not the epic's PR acme/yardr#17")
 
 	// The epic's own PR: its head is recorded and green on it lands.
@@ -540,12 +549,115 @@ func TestGitHubRulesJudgeTheEpicsOwnPR(t *testing.T) {
 		t.Fatalf("yard-a in %s with pr_head %v, want land at %s", b.Stage, b.Metadata["pr_head"], fixtureSHA)
 	}
 
-	// Without pr_url the branch name is all there is, as before.
-	r.epic(t, "yard-b", "in-pr")
-	r.deliverEdited(t, "pull_request", "pull_request_synchronize", "yard-b", "", fork)
-	r.deliverEdited(t, "workflow_run", "workflow_run_success", "yard-b", "", fork)
+	// An epic bound before pr_number and pr_head_repo were stored has its
+	// pr_url, which names the same pull request.
+	r.unboundEpic(t, "yard-b", "in-pr")
+	_, err := r.api.UpdateBead(context.Background(), "yard-b", store.BeadPatch{Metadata: map[string]any{
+		"pr_url": "https://github.com/acme/yardr/pull/17"}}, store.Expect{}, "me")
+	must(t, err)
+	r.deliverEdited(t, "workflow_run", "workflow_run_success", "yard-b", "", otherPR)
+	r.deliver(t, "pull_request", "pull_request_synchronize", "yard-b", "")
+	r.deliver(t, "workflow_run", "workflow_run_success", "yard-b", "")
 	r.pass(t)
 	if st := r.stageOf(t, "yard-b"); st != "land" {
-		t.Fatalf("unbound yard-b in %s", st)
+		t.Fatalf("yard-b, bound by pr_url alone, in %s, want land", st)
+	}
+	wantRules(t, r.rules(t, "yard-b"),
+		"ci_green ignored: event is for acme/yardr#18, not the epic's PR acme/yardr#17", "ci_green in-pr -> land")
+}
+
+// A fork's pull request from a branch of the epic's name is in the epic's
+// repository and carries its epic field, as its CI does: neither its head,
+// its green run nor its merge is the epic's. This is the round-three
+// finding (yardr-ca0d): the branch name is anyone's to use.
+func TestGitHubIgnoresAForksPRWithTheEpicsBranch(t *testing.T) {
+	r := newGHRig(t)
+	r.epic(t, "yard-a", "in-pr")
+	forkSHA := "cccccccccccccccccccccccccccccccccccccccc"
+	// What GitHub sends for a fork's PR: the repository is the base's, the
+	// head repository the fork's, the number its own.
+	forkPR := func(s string) string {
+		s = strings.ReplaceAll(s, `"number": 17`, `"number": 18`)
+		return strings.Replace(s, `"repo": {
+    "full_name": "acme/yardr"`, `"repo": {
+    "full_name": "mallory/yardr"`, 1)
+	}
+	// A run on a fork's branch lists no pull request; only its head
+	// repository tells it from a run on the epic's branch.
+	forkRun := func(s string) string {
+		s = strings.Replace(s, `"head_repository": {
+   "full_name": "acme/yardr"`, `"head_repository": {
+   "full_name": "mallory/yardr"`, 1)
+		a, b := strings.Index(s, `"pull_requests": [`), strings.Index(s, ` "repository"`)
+		return s[:a] + `"pull_requests": []` + "\n }," + "\n" + s[b:]
+	}
+
+	r.deliverEdited(t, "pull_request", "pull_request_opened", "yard-a", forkSHA, forkPR)
+	r.deliverEdited(t, "workflow_run", "workflow_run_success", "yard-a", forkSHA, forkRun)
+	r.deliverEdited(t, "pull_request", "pull_request_closed_merged", "yard-a", forkSHA, forkPR)
+	r.pass(t)
+	if b := r.bead(t, "yard-a"); b.Stage != "in-pr" || b.Metadata["pr_head"] != nil {
+		t.Fatalf("yard-a in %s with pr_head %v after a fork's PR, want in-pr and no head", b.Stage, b.Metadata["pr_head"])
+	}
+	wantRules(t, r.rules(t, "yard-a"),
+		"ci_green ignored: event's head is in mallory/yardr, not acme/yardr, the head repository of the epic's PR acme/yardr#17",
+		"pr_merged ignored: event is for acme/yardr#18, not the epic's PR acme/yardr#17")
+
+	// The fork's run at the very commit the epic's PR has is still the
+	// fork's: its workflows are not the epic's CI.
+	r.deliver(t, "pull_request", "pull_request_synchronize", "yard-a", "")
+	r.deliverEdited(t, "workflow_run", "workflow_run_success", "yard-a", "", forkRun)
+	r.pass(t)
+	if st := r.stageOf(t, "yard-a"); st != "in-pr" {
+		t.Fatalf("a fork's green run on the PR's head moved yard-a to %s", st)
+	}
+
+	// A number that matches is not enough when the head repository does
+	// not: the epic is bound to both.
+	sameNumber := func(s string) string {
+		return strings.Replace(s, `"repo": {
+    "full_name": "acme/yardr"`, `"repo": {
+    "full_name": "mallory/yardr"`, 1)
+	}
+	r.deliverEdited(t, "pull_request", "pull_request_closed_merged", "yard-a", "", sameNumber)
+	r.pass(t)
+	if st := r.stageOf(t, "yard-a"); st != "in-pr" {
+		t.Fatalf("a merged event with another head repository moved yard-a to %s", st)
+	}
+}
+
+// A merged event for a pull request the epic is not bound to does nothing,
+// in any stage a merge would move: neither for a bound epic and another
+// number, nor for an epic bound to no pull request at all, whose branch
+// name is all the event has.
+func TestGitHubForgedMergeForAnUnknownPRDoesNothing(t *testing.T) {
+	r := newGHRig(t)
+	unknown := func(s string) string { return strings.ReplaceAll(s, `"number": 17`, `"number": 99`) }
+	for i, stage := range []string{"land", "in-pr", "approved"} {
+		bound, unbound := "yard-b"+strconv.Itoa(i), "yard-u"+strconv.Itoa(i)
+		r.epic(t, bound, stage)
+		r.unboundEpic(t, unbound, stage)
+		r.deliverEdited(t, "pull_request", "pull_request_closed_merged", bound, "", unknown)
+		r.deliverEdited(t, "pull_request", "pull_request_closed_merged", unbound, "", unknown)
+		r.deliver(t, "pull_request", "pull_request_closed_merged", unbound, "")
+		r.pass(t)
+		for _, id := range []string{bound, unbound} {
+			if b := r.bead(t, id); b.Stage != stage || b.Status == "closed" || b.Metadata["pr_head"] != nil {
+				t.Fatalf("%s is %s/%s with pr_head %v after a forged merge, want it left in %s", id, b.Stage, b.Status, b.Metadata["pr_head"], stage)
+			}
+		}
+		wantRules(t, r.rules(t, bound), "pr_merged ignored: event is for acme/yardr#99, not the epic's PR acme/yardr#17")
+		wantRules(t, r.rules(t, unbound),
+			"pr_merged ignored: epic is bound to no pull request", "pr_merged ignored: epic is bound to no pull request")
+	}
+
+	// An unbound epic's green run lands nothing either, and no head is
+	// taken from a pull request it was never bound to.
+	r.unboundEpic(t, "yard-g", "in-pr")
+	r.deliver(t, "pull_request", "pull_request_synchronize", "yard-g", "")
+	r.deliver(t, "workflow_run", "workflow_run_success", "yard-g", "")
+	r.pass(t)
+	if b := r.bead(t, "yard-g"); b.Stage != "in-pr" || b.Metadata["pr_head"] != nil {
+		t.Fatalf("unbound yard-g in %s with pr_head %v", b.Stage, b.Metadata["pr_head"])
 	}
 }

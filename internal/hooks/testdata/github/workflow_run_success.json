@@ -9,6 +9,9 @@
   "conclusion": "success",
   "head_branch": "yard/yard-sv6b",
   "head_sha": "4f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b",
+  "head_repository": {
+   "full_name": "acme/yardr"
+  },
   "html_url": "https://github.com/acme/yardr/actions/runs/5",
   "pull_requests": [
    {

@@ -17,7 +17,8 @@ import (
 // that nothing waits on a human for a PR that is green and approved (see
 // docs/pipeline.md#epics). They read the `hook` events the github adapter
 // records (internal/hooks), in seq order, and act only on those whose epic
-// field names an open epic:
+// field names an open epic, and only when the event is about the one pull
+// request the epic is bound to (boundPR):
 //
 //	ci_green           a run or suite on the PR head succeeded, epic in in-pr: to land
 //	ci_red             it failed or timed out, epic in in-pr or review: a fix child, in-pr to open
@@ -52,11 +53,20 @@ const (
 	// pull_request (or review) event for it gave it: what CI must have run
 	// on for its conclusion to count.
 	metaPRHead = "pr_head"
+
+	// metaPRURL, metaPRNumber and metaPRHeadRepo bind the epic to one pull
+	// request: its URL, its number, and the repository its head branch is
+	// in (owner/name). integrate-epic stores all three when it opens the
+	// pull request.
+	metaPRURL      = "pr_url"
+	metaPRNumber   = "pr_number"
+	metaPRHeadRepo = "pr_head_repo"
 )
 
 // PRQuery names the pull request whose head PRHead asks GitHub for: by its
-// URL (the epic's pr_url) when known, else by number in repo, else by the
-// epic's branch in the rig's checkout.
+// URL (the epic's pr_url) when known, else by the number the epic is bound
+// to, in repo or, with no repo known, in the rig's checkout. Never by the
+// epic's branch, which a fork's pull request has too.
 type PRQuery struct {
 	Epic   string
 	URL    string
@@ -74,7 +84,7 @@ func ghPRHead(ctx context.Context, q PRQuery) (string, error) {
 	case q.Repo != "" && q.Number != "":
 		args = append(args, q.Number, "-R", q.Repo)
 	default:
-		args = append(args, store.Branch(q.Epic))
+		args = append(args, q.Number)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -97,6 +107,7 @@ type ghEvent struct {
 	conclusion, workflow string
 	sha, epic, merged    string
 	state, repo, number  string
+	headRepo             string
 }
 
 func readGHEvent(e store.Event) ghEvent {
@@ -120,7 +131,7 @@ func readGHEvent(e store.Event) ghEvent {
 		actor: str(actor["id"]), url: str(e.Data["url"]), text: str(e.Data["text"]),
 		conclusion: field("conclusion"), workflow: field("workflow"), sha: field("head_sha"),
 		epic: field("epic"), merged: field("merged"), state: field("state"),
-		repo: field("repo"), number: field("number")}
+		repo: field("repo"), number: field("number"), headRepo: field("head_repo")}
 }
 
 // rule is the rule ev falls under, "" for none. head reports whether ev
@@ -199,14 +210,13 @@ func (d *Dispatcher) githubEvent(ctx context.Context, ev ghEvent) {
 	if epic.Type != store.TypeEpic || epic.Status == "closed" || ev.seq <= metaSeq(epic.Metadata[metaGitHubSeq]) {
 		return
 	}
-	// An epic bound to a pull request (pr_url, stored by integrate-epic) is
-	// judged on that pull request only: a branch of the same name in a fork
-	// or another repository, or another PR for the branch, says nothing
-	// about it, and its head is not the epic's PR head either.
-	elsewhere := ""
-	if url, _ := epic.Metadata["pr_url"].(string); url != "" {
-		elsewhere = otherPR(url, ev)
-	}
+	// An epic is judged on the pull request it is bound to only: a branch
+	// of the same name in a fork or another repository, or another PR for
+	// the branch, says nothing about it, and its head is not the epic's PR
+	// head either. An epic bound to none is moved by no event: the branch
+	// name is anyone's to use.
+	pr := boundPR(epic)
+	elsewhere := pr.other(ev)
 	if rule != "" {
 		var res ruleResult
 		if elsewhere != "" {
@@ -240,20 +250,66 @@ func (d *Dispatcher) githubEvent(ctx context.Context, ev ghEvent) {
 	}
 }
 
-// otherPR says why ev is not about the pull request at url
-// (https://github.com/<owner>/<repo>/pull/<n>): its repository or number
-// differ. "" when it is, or when ev names no pull request number (a run
-// GitHub lists no PR for) in the PR's repository.
-func otherPR(url string, ev ghEvent) string {
-	repo, number := parsePRURL(url)
-	if repo == "" {
-		return fmt.Sprintf("pr_url %s is not a pull request URL", url)
+// prBinding is the pull request an epic is bound to: number in repo
+// (owner/name, the repository the PR is in), its head branch in headRepo.
+type prBinding struct {
+	url, repo, number, headRepo string
+}
+
+// boundPR reads the epic's binding from its metadata. An epic bound before
+// integrate-epic stored pr_number and pr_head_repo has only pr_url: its
+// number is the URL's, and its head is taken to be in the PR's own
+// repository, as it is for every pull request integrate-epic opens from the
+// remote it pushed to.
+func boundPR(epic *store.Bead) prBinding {
+	pr := prBinding{url: metaString(epic.Metadata[metaPRURL]), number: metaString(epic.Metadata[metaPRNumber]),
+		headRepo: metaString(epic.Metadata[metaPRHeadRepo])}
+	var urlNumber string
+	pr.repo, urlNumber = parsePRURL(pr.url)
+	if pr.number == "" {
+		pr.number = urlNumber
 	}
+	if pr.headRepo == "" {
+		pr.headRepo = pr.repo
+	}
+	return pr
+}
+
+// other says why ev is not about the bound pull request: the epic is bound
+// to none, or the event's repository, number or head repository differ. ""
+// when it is about it. An event that names no pull request number (a run
+// GitHub lists no PR for, as for every run on a fork's branch) passes on
+// its repositories alone; one that names no head repository (a check
+// suite, whose head_branch GitHub leaves empty for a fork) on the rest.
+func (pr prBinding) other(ev ghEvent) string {
+	if pr.number == "" {
+		if pr.url != "" {
+			return fmt.Sprintf("pr_url %s is not a pull request URL", pr.url)
+		}
+		return "epic is bound to no pull request (integrate-epic stores pr_number and pr_head_repo)"
+	}
+	name := pr.repo + "#" + pr.number
 	switch {
-	case ev.repo != "" && !strings.EqualFold(ev.repo, repo):
-		return fmt.Sprintf("event is in %s, not the epic's PR %s#%s", ev.repo, repo, number)
-	case ev.number != "" && ev.number != number:
-		return fmt.Sprintf("event is for %s#%s, not the epic's PR %s#%s", repo, ev.number, repo, number)
+	case pr.repo != "" && ev.repo != "" && !strings.EqualFold(ev.repo, pr.repo):
+		return fmt.Sprintf("event is in %s, not the epic's PR %s", ev.repo, name)
+	case ev.number != "" && ev.number != pr.number:
+		return fmt.Sprintf("event is for %s#%s, not the epic's PR %s", pr.repo, ev.number, name)
+	case pr.headRepo != "" && ev.headRepo != "" && !strings.EqualFold(ev.headRepo, pr.headRepo):
+		return fmt.Sprintf("event's head is in %s, not %s, the head repository of the epic's PR %s", ev.headRepo, pr.headRepo, name)
+	}
+	return ""
+}
+
+// metaString reads a string kept in metadata; a number (pr_number set
+// through the API as one) is written as its digits.
+func metaString(v any) string {
+	switch x := v.(type) {
+	case string:
+		return x
+	case float64:
+		return strconv.FormatInt(int64(x), 10)
+	case int:
+		return strconv.Itoa(x)
 	}
 	return ""
 }
@@ -402,8 +458,8 @@ func (d *Dispatcher) applyRule(ctx context.Context, rule string, ev ghEvent, epi
 func (d *Dispatcher) onHead(ctx context.Context, ev ghEvent, epic *store.Bead) (ruleResult, bool) {
 	head, _ := epic.Metadata[metaPRHead].(string)
 	if head == "" {
-		q := PRQuery{Epic: epic.ID, Repo: ev.repo, Number: ev.number}
-		q.URL, _ = epic.Metadata["pr_url"].(string)
+		pr := boundPR(epic)
+		q := PRQuery{Epic: epic.ID, URL: pr.url, Repo: pr.repo, Number: pr.number}
 		if epic.Rig != nil {
 			if rig, err := d.Store.GetRig(ctx, *epic.Rig); err == nil {
 				q.Dir = rig.Path

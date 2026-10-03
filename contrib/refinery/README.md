@@ -38,9 +38,12 @@ nothing ahead of the base), holds the epic.
 
 With `YARDR_PR=1` (and `YARDR_PUSH`), integrate-epic also opens a pull
 request for the pushed branch against the base, or replaces the body of the
-one open for it: the epic's body, a "Children" list and the trailer
-`Epic: <id>`. It stores the URL on the epic (`--meta pr_url=<url>`) and in
-the note. A push or `gh` that fails reports `failed`, back to `open`, so the
+open one the epic is bound to: the epic's body, a "Children" list and the
+trailer `Epic: <id>`. It binds the epic to that pull request (`--meta
+pr_url=<url>`, `pr_number`, and `pr_head_repo`, the repository its head is
+in) and puts the URL in the note. No script finds a PR by the branch's
+name, which a fork's can carry: one open for the branch that the epic is
+not bound to holds the epic. A push or `gh` that fails reports `failed`, back to `open`, so the
 next integration retries; the daemon waits longer before each retry in a
 row (docs/pipeline.md, "The epic's own flow").
 
@@ -49,22 +52,24 @@ through merge-local unless `YARDR_PR=1` is in the cmd of integrate-epic,
 pr-epic and pr-merge alike. Without it pr-epic and pr-merge hold the epic
 with a note naming the switch and touch neither the remote nor GitHub.
 docs/pipeline.md, "Through a pull request", lists what the path does not
-yet guarantee (the PR is matched by branch name, so a fork's can be taken
-for the epic's; the head merged is not pinned to the reviewed commit; the
+yet guarantee (the head merged is not pinned to the reviewed commit; the
 first green workflow counts as CI green).
 
 **pr-epic** is routed for the epic flow's `approved` stage (type `epic`)
 when epics land through pull requests. It pushes `yard/<epic>` with a lease
 (it may carry the reviewer's commits; a remote branch with commits of its
 own is not overwritten), replaces the PR's body with the latest review note
-under "Review", and reports `done`, to `in-pr`. No PR, a refused push or a
-PR GitHub reports as conflicting reports `failed`, to `open`.
+under "Review", and reports `done`, to `in-pr`. No bound PR, a refused push
+or a PR GitHub reports as conflicting reports `failed`, to `open`.
 
 **pr-merge** is routed for `land` (type `epic`). It runs `gh pr merge
 <pr_url> --rebase --delete-branch`, fetches the remote, fast-forwards the
 base in the rig's checkout and reports `done`, to `merged`. A merge GitHub
 refuses reports `failed`, to `open`, with gh's message; it is not retried.
 A rig checkout that is not on the base or not clean is held before merging.
+Both read the PR the epic is bound to and hold the epic, touching nothing,
+when its number, head repository or head branch on GitHub differ from the
+binding.
 Both need `gh`, logged in as the operator, and `jq` on PATH.
 
 **Environment.** All four read what the exec runner sets: `YARDR_BEAD`,

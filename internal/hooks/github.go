@@ -84,9 +84,13 @@ type githubLabel struct {
 	Name string `json:"name"`
 }
 
+// githubRef is a pull request's head or base. Repo is the repository the
+// branch is in: for a head, the fork when the pull request comes from one,
+// and null once that fork is deleted.
 type githubRef struct {
-	Ref string `json:"ref"`
-	SHA string `json:"sha"`
+	Ref  string      `json:"ref"`
+	SHA  string      `json:"sha"`
+	Repo *githubRepo `json:"repo"`
 }
 
 // githubText is a comment or a review.
@@ -106,7 +110,10 @@ type githubSuite struct {
 	Conclusion   string `json:"conclusion"`
 	HeadBranch   string `json:"head_branch"`
 	HeadSHA      string `json:"head_sha"`
-	App          *struct {
+	// HeadRepository is the repository the commit was pushed to, a fork for
+	// a run on a fork's branch. Only a workflow run names it.
+	HeadRepository *githubRepo `json:"head_repository"`
+	App            *struct {
 		Name string `json:"name"`
 	} `json:"app"`
 	PullRequests []struct {
@@ -193,6 +200,9 @@ func (GitHub) Normalize(h http.Header, body []byte) (*Envelope, error) {
 		f.set("conclusion", s.Conclusion)
 		f.set("head_branch", s.HeadBranch)
 		f.set("head_sha", s.HeadSHA)
+		if s.HeadRepository != nil {
+			f.set("head_repo", s.HeadRepository.FullName)
+		}
 		f.set("epic", epicOf(s.HeadBranch))
 		name := firstOf(s.Name, s.DisplayTitle)
 		if name == "" && s.App != nil {
@@ -229,6 +239,12 @@ func (GitHub) Normalize(h http.Header, body []byte) (*Envelope, error) {
 		if item.Head != nil {
 			f.set("head_branch", item.Head.Ref)
 			f.set("head_sha", item.Head.SHA)
+			// The branch name alone does not tell whose branch it is: a
+			// fork's pull request has the same head_branch, and so the same
+			// epic, as the yard's own. head_repo is what tells them apart.
+			if item.Head.Repo != nil {
+				f.set("head_repo", item.Head.Repo.FullName)
+			}
 			f.set("epic", epicOf(item.Head.Ref))
 		}
 		if item.Base != nil {

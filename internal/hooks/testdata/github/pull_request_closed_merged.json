@@ -24,7 +24,10 @@
   ],
   "head": {
    "ref": "yard/yard-sv6b",
-   "sha": "4f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b"
+   "sha": "4f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b",
+   "repo": {
+    "full_name": "acme/yardr"
+   }
   },
   "base": {
    "ref": "main",

@@ -124,7 +124,7 @@ func TestGitHubNormalize(t *testing.T) {
 	prFields := func(action, state, merged string, extra ...string) map[string][]string {
 		f := map[string][]string{"event": {"pull_request"}, "action": {action}, "repo": {repo}, "number": {"17"},
 			"state": {state}, "merged": {merged}, "head_branch": {"yard/yard-sv6b"}, "head_sha": {sha},
-			"epic": {"yard-sv6b"}, "base": {"main"}, "label": {"pr-flow"}}
+			"head_repo": {repo}, "epic": {"yard-sv6b"}, "base": {"main"}, "label": {"pr-flow"}}
 		for i := 0; i+1 < len(extra); i += 2 {
 			f[extra[i]] = []string{extra[i+1]}
 		}
@@ -156,6 +156,9 @@ func TestGitHubNormalize(t *testing.T) {
 			"workflow": {workflow}, "head_branch": {"yard/yard-sv6b"}, "head_sha": {sha}, "epic": {"yard-sv6b"}}
 		e := hooks.Envelope{Source: "github", Type: event, Action: "completed", Actor: jane, Mentions: []string{},
 			Text: text, URL: url, Fields: f}
+		if event == "workflow_run" {
+			f["head_repo"] = []string{repo}
+		}
 		if len(number) > 0 {
 			f["number"] = number
 			e.Thread = hooks.Thread{ID: pr}

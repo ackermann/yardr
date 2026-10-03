@@ -24,7 +24,10 @@
 # message, once: nothing here retries. The rig's checkout must be on the
 # base and clean, or the epic is held before anything is merged; a base
 # that will not fast-forward after the merge is held too, as the PR is
-# merged by then. Needs gh, logged in as the operator, and jq on PATH.
+# merged by then. The PR is the one the epic is bound to (pr_number,
+# pr_head_repo, stored by integrate-epic): an epic bound to none reports
+# failed, and one whose pr_url is another pull request is held, unmerged.
+# Needs gh, logged in as the operator, and jq on PATH.
 #
 # Every outcome ends in a report or a hold: exiting without one counts as a
 # failed session, and three of those hold the bead.
@@ -73,12 +76,21 @@ remote=${BASE%%/*}
 [ -z "$(git -C "$REPO" status --porcelain)" ] ||
   hold "$REPO has uncommitted changes; not merging. Commit or clean them, then unhold."
 
-url=$("$Y" bead show "$EPIC" --json | jq -r '.metadata.pr_url // empty')
-if [ -z "$url" ]; then
-  url=$(cd "$REPO" && gh pr list --head "$BR" --base "$prbase" --state open --json url --jq '.[0].url // empty' 2>"$errf") ||
-    report failed "looking up the pull request for $BR failed: $(cat "$errf")"
-fi
-[ -n "$url" ] || report failed "no pull request for $BR: integrating the epic again opens one"
+epic=$("$Y" bead show "$EPIC" --json) || hold "reading $EPIC failed"
+# The epic's pull request is the one integrate-epic bound it to, by number
+# and head repository, never one looked up by the branch's name: a fork's
+# pull request can carry the same name. What GitHub says of it must match
+# the binding, or it is not the epic's to merge.
+url=$(printf '%s' "$epic" | jq -r '.metadata.pr_url // empty')
+num=$(printf '%s' "$epic" | jq -r '.metadata.pr_number // empty')
+headrepo=$(printf '%s' "$epic" | jq -r '.metadata.pr_head_repo // empty')
+[ -n "$url" ] && [ -n "$num" ] && [ -n "$headrepo" ] ||
+  report failed "no pull request bound to $EPIC (pr_url, pr_number, pr_head_repo): integrating the epic again opens one, or binds the one in pr_url"
+pr=$(cd "$REPO" && gh pr view "$url" --json number,state,headRefName,headRepositoryOwner,headRepository 2>"$errf") ||
+  report failed "reading pull request $url failed: $(cat "$errf")"
+is="#$(printf '%s' "$pr" | jq -r .number) from $(printf '%s' "$pr" | jq -r 'if .headRepositoryOwner.login and .headRepository.name then .headRepositoryOwner.login + "/" + .headRepository.name else empty end'):$(printf '%s' "$pr" | jq -r .headRefName)"
+[ "$is" = "#$num from $headrepo:$BR" ] ||
+  hold "pull request $url is $is, but $EPIC is bound to #$num from $headrepo:$BR. Not touched. Correct the epic's pr_url, pr_number and pr_head_repo, then unhold."
 
 # gh can merge and still exit non-zero (deleting a local branch a worktree
 # has checked out, say): what GitHub says the PR is decides.

@@ -13,8 +13,10 @@
 #   YARDR_PUSH     a remote to push the epic branch to; off when empty
 #   YARDR_NOTIFY   resident mailed when that push fails (default mayor)
 #   YARDR_PR       1: open a pull request for the pushed branch against the
-#                  base, or update the one open for it (needs YARDR_PUSH,
-#                  and gh and jq on PATH, gh logged in as the operator)
+#                  base, or update the one the epic is bound to, and bind
+#                  the epic to it (pr_url, pr_number, pr_head_repo in its
+#                  metadata); needs YARDR_PUSH, and gh and jq on PATH, gh
+#                  logged in as the operator
 #
 # It fetches the base when it is a remote's, rebases the epic branch onto
 # the base, runs the rig's gate on the result and reports done (-> review).
@@ -168,7 +170,9 @@ if [ -n "$PUSH" ]; then
 fi
 
 # The pull request, once the branch it shows is on the remote. Run from the
-# rig so gh finds the GitHub repository from its remote.
+# rig so gh finds the GitHub repository from its remote. The epic's PR is
+# the one stored on it, never one looked up by the branch's name: a fork's
+# pull request can carry the same name.
 if [ -n "$PR" ]; then
   epic=$("$Y" bead show "$EPIC" --json) || report failed "$msg But reading $EPIC for the pull request failed."
   title=$(printf '%s' "$epic" | jq -r .title)
@@ -182,22 +186,45 @@ if [ -n "$PR" ]; then
   )
   # stderr apart, so a warning gh prints is not taken for the URL.
   errf=$(mktemp) && trap 'rm -f "$errf"' EXIT
-  url=$(cd "$REPO" && gh pr list --head "$BR" --base "$prbase" --state open --json url --jq '.[0].url // empty' 2>"$errf") ||
-    report failed "$msg But looking up the pull request for $BR failed: $(cat "$errf")"
+  prview() { (cd "$REPO" && gh pr view "$1" --json number,state,headRefName,headRepositoryOwner,headRepository 2>"$errf"); }
+  url=$(printf '%s' "$epic" | jq -r '.metadata.pr_url // empty')
+  pr=
+  if [ -n "$url" ]; then
+    pr=$(prview "$url") || report failed "$msg But reading pull request $url failed: $(cat "$errf")"
+    # Closed or merged, it is not where this integration goes: a new one is
+    # opened and the epic bound to that.
+    [ "$(printf '%s' "$pr" | jq -r .state)" = OPEN ] || { url=; pr=; }
+  fi
   if [ -n "$url" ]; then
     out=$(cd "$REPO" && printf '%s\n' "$body" | gh pr edit "$url" --body-file - 2>&1) ||
       report failed "$msg But updating pull request $url failed: $out"
     msg="$msg Updated pull request $url."
   else
     out=$(cd "$REPO" && printf '%s\n' "$body" |
-      gh pr create --base "$prbase" --head "$BR" --title "$title ($EPIC)" --body-file - 2>&1) ||
+      gh pr create --base "$prbase" --head "$BR" --title "$title ($EPIC)" --body-file - 2>&1) || {
+      # One is open for the branch that the epic is not bound to (opened by
+      # hand, or by an integration that could not store it). Whether it is
+      # the epic's is a human's call, and no retry changes it.
+      case $out in
+      *"already exists"*) hold "$msg But a pull request for $BR is open that $EPIC is not bound to: $out
+If it is the epic's, bind it (yardr bead update $EPIC --meta pr_url=<its url>) and unhold; the next integration stores its number and head repository. Otherwise close it, then unhold." ;;
+      esac
       report failed "$msg But opening a pull request for $BR failed: $out"
+    }
     url=$(printf '%s\n' "$out" | grep -o 'https://[^[:space:]]*' | tail -n 1)
     [ -n "$url" ] || report failed "$msg But gh pr create printed no URL: $out"
     msg="$msg Opened pull request $url."
   fi
-  "$Y" bead update "$EPIC" --meta "pr_url=$url" >/dev/null ||
-    report failed "$msg But storing pr_url on $EPIC failed."
+  # Bind the epic to this pull request: its number and the repository its
+  # head is in are what pr-epic, pr-merge and the daemon's github rules
+  # hold every later lookup and event against.
+  [ -n "$pr" ] || pr=$(prview "$url") || report failed "$msg But reading pull request $url failed: $(cat "$errf")"
+  num=$(printf '%s' "$pr" | jq -r '.number // empty')
+  headrepo=$(printf '%s' "$pr" | jq -r 'if .headRepositoryOwner.login and .headRepository.name then .headRepositoryOwner.login + "/" + .headRepository.name else empty end')
+  [ -n "$num" ] && [ -n "$headrepo" ] ||
+    report failed "$msg But pull request $url has no number or head repository: $pr"
+  "$Y" bead update "$EPIC" --meta "pr_url=$url" --meta "pr_number=$num" --meta "pr_head_repo=$headrepo" >/dev/null ||
+    report failed "$msg But binding $EPIC to pull request $url failed."
 fi
 
 report done "$msg"

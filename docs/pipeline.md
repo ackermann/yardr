@@ -436,11 +436,6 @@ route or a move by hand does not start the path: nothing reports `done` in
 Do not switch it on for a repository others can open pull requests
 against. The path does not yet guarantee:
 
-- **That the pull request is the epic's.** An epic is bound to a branch
-  name, not to one pull request: the scripts look the PR up with `gh pr
-  list --head yard/<epic>`, with no owner, and the hook adapter matches
-  events by head branch, so a fork's pull request from a branch of the same
-  name can be taken for the epic's, approved and merged.
 - **That what is merged is what was reviewed.** pr-merge merges whatever
   the PR's head is at that moment, not the commit the reviewer approved or
   CI ran on.
@@ -450,14 +445,28 @@ against. The path does not yet guarantee:
 
 With `YARDR_PR=1` set, an epic goes to main as a pull
 request against the rig's base instead of a local fast-forward. Three exec
-groups (limit 1 each) and two type routes do it, besides the integrators:
+groups (limit 1 each) and two type routes do it, besides the integrators.
+
+An epic is bound to one pull request, not to its branch's name, which a
+fork's pull request can carry too. integrate-epic stores the binding in the
+epic's metadata when it opens the PR: `pr_url`, `pr_number` and
+`pr_head_repo` (owner/name of the repository the head branch is in). No
+script looks a PR up by branch: pr-epic and pr-merge read the bound one
+and compare what GitHub says of it (number, head repository, head branch)
+with the binding; a difference holds the epic, untouched. An epic bound to
+none reports `failed`, to `open`, where integrating binds it.
 
 - **open**, `yard-integrators`: after pushing the rebased branch (it needs
   `YARDR_PUSH`; set without it, the epic is held), integrate-epic opens a
   PR for `yard/<epic>`, titled `<epic title> (<id>)`, its body the epic's
   body, a "Children" list (ids and titles) and the trailer `Epic: <id>`; if
-  one is open for the branch already it replaces that PR's body. The URL
-  goes into the note and the epic's metadata (`pr_url`). A push or `gh` that
+  the epic is bound to an open PR already it replaces that PR's body, and a
+  bound PR that was closed or merged gives way to a new one. The URL goes
+  into the note, and the binding (`pr_url`, `pr_number`, `pr_head_repo`)
+  into the epic's metadata. A PR open for the branch that the epic is not
+  bound to (opened by hand, say) is not adopted: the epic is held until
+  someone binds it (`yardr bead update <epic> --meta pr_url=<url>`; the
+  next integration stores the rest) or closes that PR. A push or `gh` that
   fails reports `failed`, back to `open`, so the next integration retries,
   each time after a longer wait (step 2 above); a remote branch with
   commits the epic lacks is held.
@@ -467,8 +476,8 @@ groups (limit 1 each) and two type routes do it, besides the integrators:
   `yard/<epic>`, which may carry the reviewer's commits (with a lease: a
   remote branch with commits of its own is never overwritten), replaces the
   PR's body with the latest review note under "Review", and reports `done`,
-  to `in-pr`. No PR, a refused push, or a PR GitHub reports as conflicting
-  with the base reports `failed`, to `open`, for the integrator.
+  to `in-pr`. No bound PR, a refused push, or a PR GitHub reports as
+  conflicting with the base reports `failed`, to `open`, for the integrator.
 - **in-pr**, `decisions` (members mckean, mayor): a manual stage. Look at
   the PR and its checks; `yardr bead done <epic>` means "merge it" (to
   `land`), `--outcome changes` sends it back to `open` (add the fix as a
@@ -490,7 +499,8 @@ With a github hook ([subscriptions.md](subscriptions.md#github)) on the
 repository, the daemon moves an epic on what GitHub reports about its pull
 request, so a PR that is green and approved waits on no one. It reads every
 `hook` event from the github adapter whose `epic` field (the head branch is
-`yard/<epic>`) names an open epic, in seq order, and applies four rules. A
+`yard/<epic>`) names an open epic, in seq order, and applies four rules to
+those that are about the pull request the epic is bound to (below). A
 held epic is a human's: every rule leaves it where it is (the event is
 judged, and logged as ignored because the epic is held) until it is
 un-held, after which the next event moves it.
@@ -528,11 +538,23 @@ The head commit is the one the last `pull_request` event (opened,
 synchronize, ...) or review for the epic carried, kept in the epic's
 metadata as `pr_head`; without one the daemon asks `gh pr view` for
 `headRefOid`. A conclusion on another commit (a run a later push
-superseded) is ignored. An epic bound to a pull request (`pr_url`, which
-integrate-epic stores) is judged on that pull request only: an event in
-another repository (a fork with a branch of the same name) or for another
-pull request of the branch is ignored, logged as such, and sets no
-`pr_head`; an epic without `pr_url` is matched by its branch name alone.
+superseded) is ignored. `gh` is asked about the bound pull request, by
+its URL or number, never by the branch.
+
+The branch name only finds the epic; the bound pull request (`pr_url`,
+`pr_number`, `pr_head_repo`, which integrate-epic stores) decides whether
+the event counts. An event is ignored, logged as such, and sets no
+`pr_head` when it is in another repository than the PR's, names another
+pull request number, or has its head in another repository than
+`pr_head_repo`: a fork's pull request from a branch of the same name has
+its own number and head repository, and a workflow run on a fork's branch,
+for which GitHub lists no pull request, still names the fork as its head
+repository. A merged event for a number the epic is not bound to therefore
+does nothing. An epic bound to no pull request is moved by no event, and
+one bound before the number and head repository were stored (`pr_url`
+alone) is held to the URL's repository and number, its head taken to be in
+that repository.
+
 Each rule acts only on the stage it names: one that
 finds the epic elsewhere, past it or not there yet, does nothing. Each event
 judged for an epic is recorded in its metadata (`github_seq`), so a daemon
