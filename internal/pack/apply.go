@@ -137,8 +137,9 @@ func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result,
 }
 
 // check is everything Apply can know to be wrong before it writes. It
-// returns the pack's files as read, by destination, so what is written is
-// what was checked.
+// returns the pack's files as they are installed (a role or stage file with
+// the plan's names filled in), by destination, so what is written is what
+// was checked.
 func check(p *Plan, o ApplyOptions) (map[string][]byte, error) {
 	if len(p.Refused) > 0 {
 		return nil, fmt.Errorf("the import is refused: %s", strings.Join(p.Refused, "; "))
@@ -170,6 +171,9 @@ func check(p *Plan, o ApplyOptions) (map[string][]byte, error) {
 		case obj.Action != Create && obj.Action != Change:
 		case obj.Kind == "file":
 			text, err := os.ReadFile(obj.File.From)
+			if obj.File.Fill {
+				text = Fill(text, p.Fill)
+			}
 			if err != nil {
 				problems = append(problems, err.Error())
 			} else if sum(text) != obj.File.SHA256 {

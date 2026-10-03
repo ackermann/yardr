@@ -888,7 +888,7 @@ func TestStageFilesGoWhereTheYardReadsThem(t *testing.T) {
 	plan := build(t, st, load(t, dir), o)
 	to := filepath.Join(o.Home, "flows", "starter.default", "new.md")
 	f := find(t, plan, "file", "flows/default/new.md")
-	if want := (pack.FileOp{From: filepath.Join(dir, "flows", "default", "new.md"), To: to, Mode: "0644", SHA256: f.File.SHA256, Flow: "starter.default", Stage: "new"}); f.Action != pack.Create || *f.File != want {
+	if want := (pack.FileOp{From: filepath.Join(dir, "flows", "default", "new.md"), To: to, Mode: "0644", SHA256: f.File.SHA256, Fill: true, Flow: "starter.default", Stage: "new"}); f.Action != pack.Create || *f.File != want {
 		t.Fatalf("new.md = %+v, file %+v\nwant %+v", f, f.File, want)
 	}
 	apply(t, st, plan, answers)
@@ -1081,5 +1081,127 @@ func TestPruneLeavesTheStageFilesOfAFlowItCouldNotRemove(t *testing.T) {
 	// The record keeps both, so the next prune tries again.
 	if got := actions(build(t, st, load(t, dir), o), pack.Dropped); !slices.Equal(got, []string{"file flows/starter.short/new.md", "flow starter.short"}) {
 		t.Fatalf("dropped after the prune = %v", got)
+	}
+}
+
+// An import fills the placeholders of the pack's roles and stage files with
+// the yard's names: the operator, and for each resident of the pack the
+// yard's resident that takes it. A script is copied as it is. The record
+// holds the filled text, so a second import changes nothing and only a real
+// hand edit of the filled copy is refused.
+func TestImportFillsThePlaceholders(t *testing.T) {
+	st, o := yard(t)
+	o.Operator, o.Residents = "Jo", map[string]string{"mayor": "yardmaster"}
+	dir := copyStarter(t)
+	script := filepath.Join(dir, "scripts", "merge-local")
+	text, _ := os.ReadFile(script)
+	if err := os.WriteFile(script, append(text, "# {{operator}} {{anything}}\n"...), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plan := build(t, st, load(t, dir), o)
+	if want := map[string]string{"operator": "Jo", "mayor": "yardmaster"}; !reflect.DeepEqual(plan.Fill, want) {
+		t.Fatalf("fill = %v, want %v", plan.Fill, want)
+	}
+	if f := find(t, plan, "file", "roles/builder.md"); !f.File.Fill || find(t, plan, "file", "scripts/merge-local").File.Fill {
+		t.Fatalf("a role is filled and a script is not: builder.md %+v", f.File)
+	}
+	apply(t, st, plan, answers)
+
+	builder := filepath.Join(o.Home, "packs", "starter", "roles", "builder.md")
+	got, _ := os.ReadFile(builder)
+	for _, want := range []string{"never Jo's own session", "`yardr mail yardmaster \"<bead id>: <one line>\"`"} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("the installed builder.md lacks %q", want)
+		}
+	}
+	stage, _ := os.ReadFile(filepath.Join(o.Home, "flows", "starter.default", "decide.md"))
+	if !strings.Contains(string(stage), "Jo decides") {
+		t.Errorf("the installed decide.md does not name the operator:\n%s", stage)
+	}
+	for _, f := range plan.Objects {
+		if f.Kind != "file" || !f.File.Fill {
+			continue
+		}
+		if text, _ := os.ReadFile(f.File.To); strings.Contains(string(text), "{{") {
+			t.Errorf("%s is installed with a placeholder left", f.File.To)
+		}
+	}
+	if text, _ := os.ReadFile(filepath.Join(o.Home, "packs", "starter", "scripts", "merge-local")); !strings.HasSuffix(string(text), "# {{operator}} {{anything}}\n") {
+		t.Error("the script was not copied as it is")
+	}
+	// The record holds what was installed, not the pack's text.
+	for _, po := range record(t, st).Objects {
+		if po.Kind == "file" && po.Name == builder && po.SHA256 != find(t, plan, "file", "roles/builder.md").File.SHA256 {
+			t.Errorf("the record of builder.md has %s, the plan installed %s", po.SHA256, find(t, plan, "file", "roles/builder.md").File.SHA256)
+		}
+	}
+
+	// Again: nothing to write, and nothing marked edited.
+	again := build(t, st, load(t, dir), pack.Options{Rig: o.Rig, Home: o.Home, Operator: "Jo"})
+	if got := append(actions(again, pack.Create), actions(again, pack.Change)...); len(got) != 0 || len(again.EditedFiles()) != 0 {
+		t.Fatalf("a second import would write %v, edited %v", got, again.EditedFiles())
+	}
+	if res := apply(t, st, again, nil); res.Wrote() {
+		t.Fatalf("the second import wrote: %+v", res)
+	}
+
+	// Another resident takes mayor: the files that name it change, and that
+	// is no hand edit.
+	o.Residents = map[string]string{"mayor": "boss"}
+	moved := build(t, st, load(t, dir), o)
+	if f := find(t, moved, "file", "roles/builder.md"); f.Action != pack.Change || f.Edited {
+		t.Fatalf("builder.md under another resident = %+v", f)
+	}
+	if f := find(t, moved, "file", "roles/mayor.md"); f.Action != pack.Unchanged {
+		t.Fatalf("mayor.md names no resident, yet = %+v", f)
+	}
+	if len(moved.EditedFiles()) != 0 {
+		t.Fatalf("a changed mapping counts as a hand edit: %v", moved.EditedFiles())
+	}
+
+	// A hand edit of the filled copy is still refused.
+	if err := os.WriteFile(builder, append(got, "edited in the yard\n"...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	edited := build(t, st, load(t, dir), pack.Options{Rig: o.Rig, Home: o.Home, Operator: "Jo"})
+	if f := find(t, edited, "file", "roles/builder.md"); f.Action != pack.Change || !f.Edited {
+		t.Fatalf("builder.md after a hand edit = %+v", f)
+	}
+	if _, err := pack.Apply(ctx, st, edited, pack.ApplyOptions{Actor: "me"}); err == nil || !strings.Contains(err.Error(), builder+" was edited by hand") {
+		t.Fatalf("applying over a hand edit of a filled copy: %v", err)
+	}
+}
+
+// Without an operator given, the yard's operator setting is who the files
+// name; a yard without one gets "the operator".
+func TestOperatorIsTheYardsSetting(t *testing.T) {
+	st, o := yard(t)
+	if got := build(t, st, load(t, starter), o).Fill["operator"]; got != "the operator" {
+		t.Fatalf("operator in a yard without the setting = %q", got)
+	}
+	if err := st.SetSetting(ctx, "operator", "Jo", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if got := build(t, st, load(t, starter), o).Fill["operator"]; got != "Jo" {
+		t.Fatalf("operator = %q, want the setting", got)
+	}
+}
+
+// What is installed is what the plan was made from: a source that changed
+// since is refused, compared as filled.
+func TestFilledFileChangedSinceThePlanIsRefused(t *testing.T) {
+	st, o := yard(t)
+	dir := copyStarter(t)
+	plan := build(t, st, load(t, dir), o)
+	from := filepath.Join(dir, "roles", "builder.md")
+	if err := os.WriteFile(from, []byte("another {{operator}}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a := pack.Answers{}
+	for _, q := range plan.Questions {
+		a[q.ID] = "claude"
+	}
+	if _, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: a, Actor: "me"}); err == nil || !strings.Contains(err.Error(), from+" changed since the plan was made") {
+		t.Fatalf("applying a plan whose source changed: %v", err)
 	}
 }

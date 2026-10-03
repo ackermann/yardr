@@ -90,6 +90,23 @@ two stages may name the same one; the starter keeps them as
 `flows/<flow>/<stage>.md`, the layout a rig's repository and the yard's home
 use.
 
+**Placeholders.** A pack names no person and no resident of a yard, so its
+role and stage files say who they mean in double braces, and the import
+puts the yard's names there:
+
+| placeholder | filled with |
+|---|---|
+| `{{operator}}` | the yard's operator: its `operator` setting, the name `yardr init` and `yardr rig init` put in the roles they write |
+| `{{<resident>}}`, for a key of `residents` | the yard's resident that takes it: `{{mayor}}` reads `yardmaster` under `--resident mayor=yardmaster`. A pack whose resident is called `lead` writes `{{lead}}` |
+
+So the starter's builder is told to run ``yardr mail {{mayor}} "…"`` and an
+agent prompted from the installed copy reads `yardr mail yardmaster "…"`.
+Nothing else is filled: any other `{{…}}` in a role or stage file the pack
+names, `{{ operator }}` with spaces included, is a mistake of the pack that
+`pack check` names by file and line. `{{operator}}` is the operator also in
+a pack with a resident called `operator`. A script is copied as it is, so
+braces in it are its own.
+
 ### What a pack is refused for
 
 `yardr pack check` reads the whole file and names every mistake with its
@@ -113,6 +130,11 @@ packs/mine/pack.yaml:7: flows.default.stages.decide.group: no group deciders is 
 - a group that is not exactly one of agent, script, people;
 - a role, script or stage file that is missing, absolute or outside the
   pack, a script that is not executable, or a stage file that is empty;
+- a placeholder in a role or stage file that an import does not fill
+  ([Placeholders](#packyaml)), named by that file and its line:
+  `packs/mine/roles/builder.md:44: placeholder {{lead}}: an import fills
+  {{operator}}, {{mayor}} (the operator and the pack's residents) and
+  nothing else`;
 - `hears.stages` naming a stage no flow of the pack has;
 - a `subscribe` source this yardr has no adapter for, or an unknown scope.
 
@@ -153,14 +175,24 @@ bead's branch can change, as with the home's own roles
 ([configuration.md](configuration.md#role-prompts)). Files of the pack that
 nothing in `pack.yaml` names are not copied.
 
+A role is installed with its placeholders filled ([above](#packyaml)), so
+the copy differs from the pack's file where that names the operator or a
+resident; a script is copied byte for byte. The plan says what it would
+fill in (`in its roles and stage files {{operator}} would read Jo,
+{{mayor}} would read yardmaster`), and compares, hashes and records the
+filled text: a fresh import shows no change. The rigs a pack is imported
+into share its copies, so when another resident takes one of the pack's
+(`--resident mayor=boss`), the files naming it show as `change` and are
+written again.
+
 **Stage files.** A flow of the pack is a flow in the store, and a store
 flow's stage files are read from the yard's home. So the file a stage names
 is copied to `<home>/flows/<pack>.<flow>/<stage>.md`
 (`~/.yardr/flows/starter.default/review.md`), under the stage's name
 whatever the file is called in the pack. The plan lists each with the
 pack's other files, as `flows/default/review.md -> <where it goes>`; only
-the flows the import uses have theirs copied. They are recorded, checked
-for hand edits and pruned as roles and scripts are. Every rig following the
+the flows the import uses have theirs copied. They are filled, recorded,
+checked for hand edits and pruned as roles are. Every rig following the
 flow reads the same copies. A stage file in that directory the pack does
 not carry (one written by hand for a stage the pack names no file for)
 shows as `not in the pack`, by its path under the home
@@ -358,7 +390,7 @@ record says which resident took each of the pack's, which flow the rig
 follows and whose roles were chosen.
 
 **A copy edited by hand is not overwritten silently.** The record holds the
-content of each file as the import installed it. A copy under
+content of each file as the import installed it, placeholders filled. A copy under
 `<home>/packs/<pack>/`, or a stage file under `<home>/flows/<pack>.<flow>/`,
 that is neither that nor what the pack has now was edited in the yard; the plan marks it, and the import stops before it writes
 anything, in a terminal too:
@@ -420,7 +452,7 @@ starter in rig web  2026-10-03 18:40 by mckean
 | `flow` | the pack's flow the rig follows |
 | `rig_roles` | `true` when the import was given `--rig-roles`; absent when the pack's roles were set |
 | `groups`, `residents` | pack name -> yard name |
-| `objects` | the files, groups, flows, pointers, routes and subscriptions that are the pack's; a file with the `sha256` of its content as installed |
+| `objects` | the files, groups, flows, pointers, routes and subscriptions that are the pack's; a file with the `sha256` of its content as installed, placeholders filled |
 
 An import that changes nothing leaves the record as it is, its commit and
 time included: it is the record of the last import that did something. The
@@ -475,6 +507,7 @@ id, an `args` answer being the arguments the new agent got, space-separated):
 {
   "pack": "starter", "dir": "/…/packs/starter", "rig": "yardr",
   "flow": "default", "rig_roles": false, "groups": {"builders": "yardr-builders"}, "residents": {"mayor": "yardmaster"},
+  "fill": {"operator": "Jo", "mayor": "yardmaster"},
   "install": "/Users/me/.yardr/packs/starter", "stage_files": "/Users/me/.yardr/flows",
   "objects": [
     {"kind": "group", "name": "yardr-builders", "action": "change", "shadows": [".yardr/roles/builder.md"],
@@ -490,7 +523,8 @@ id, an `args` answer being the arguments the new agent got, space-separated):
 
 `install` is where roles and scripts are copied, `stage_files` the
 directory under which each flow's stage files are
-(`<stage_files>/<pack>.<flow>/<stage>.md`).
+(`<stage_files>/<pack>.<flow>/<stage>.md`). `fill` is what the import puts
+for each placeholder, by its name.
 
 Objects come in the order an import does them: files (roles and scripts,
 then stage files), groups, flows,
@@ -501,7 +535,7 @@ prune removes), under its kind:
 
 | kind | carries |
 |---|---|
-| `file` | `from`, `to`, `mode`, `sha256`; a stage file also `flow`, the store flow it belongs to, and `stage` |
+| `file` | `from`, `to`, `mode`, `sha256` (of the content as installed), and `fill: true` on a role or stage file, whose placeholders are filled; a stage file also `flow`, the store flow it belongs to, and `stage` |
 | `group` | the whole group as it would be stored, what the yard keeps included |
 | `flow` | the whole flow, its stages in order |
 | `pointer` | `rig`, `type`, `flow` |

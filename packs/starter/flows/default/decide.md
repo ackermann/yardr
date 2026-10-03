@@ -1,4 +1,4 @@
-A bead here waits for a person: the operator decides. No agent works this
+A bead here waits for a person: {{operator}} decides. No agent works this
 stage. The bead carries the question and the options, written by whoever sent
 it here; if it does not, ask them before deciding.
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -77,6 +78,8 @@ func (a *app) packOptions(ctx context.Context, f *packFlags) (store.API, *config
 		}
 	}
 	f.opts.Home, f.opts.HookAddr = cfg.Home, cfg.HookAddr
+	// Whom yardr init and rig init name in the roles they write.
+	f.opts.Operator = yardOperator(ctx, st)
 	return st, cfg, nil
 }
 
@@ -99,6 +102,10 @@ lacks. Nothing is written.
 The pack's role is set on every agent group and resident it names, also
 where the rig has its own .yardr/roles/<name>.md: the plan names that file
 as shadowed. --rig-roles keeps the rig's own role instead.
+
+A role or stage file is installed with {{operator}} filled with the yard's
+operator and {{<resident>}} with the yard's resident that takes that
+resident of the pack; any other {{...}} in one makes the pack invalid.
 
 It exits 1 on a pack that is not valid, naming every mistake by file, line
 and key, and on a plan an import would refuse (open beads in a stage the
@@ -611,6 +618,21 @@ func printRecord(r store.PackImport) {
 	fmt.Printf("  objects    %s\n", or(strings.Join(parts, ", "), "none"))
 }
 
+// fills says what a plan puts for each placeholder, the operator first.
+func fills(fill map[string]string) string {
+	names := []string{pack.Operator}
+	for _, name := range slices.Sorted(maps.Keys(fill)) {
+		if name != pack.Operator {
+			names = append(names, name)
+		}
+	}
+	parts := make([]string, len(names))
+	for i, name := range names {
+		parts[i] = fmt.Sprintf("{{%s}} would read %s", name, fill[name])
+	}
+	return strings.Join(parts, ", ")
+}
+
 // planKinds are the kinds of object in a plan, in its order, with the
 // heading each is printed under.
 var planKinds = [][2]string{{"file", "files"}, {"group", "groups"}, {"flow", "flows"}, {"pointer", "flow pointers"},
@@ -624,6 +646,9 @@ func printPlan(p *pack.Plan, answers pack.Answers) {
 	fmt.Printf("its roles and scripts would be copied to %s\n", p.Install)
 	if slices.ContainsFunc(p.Objects, func(o pack.Object) bool { return o.File != nil && o.File.Stage != "" }) {
 		fmt.Printf("its stage files would be copied to %s\n", filepath.Join(p.StageFiles, p.Pack+".<flow>"))
+	}
+	if slices.ContainsFunc(p.Objects, func(o pack.Object) bool { return o.File != nil && o.File.Fill }) {
+		fmt.Printf("in its roles and stage files %s\n", fills(p.Fill))
 	}
 	count := map[string]int{}
 	label := map[string]string{pack.Create: "create", pack.Change: "change", pack.Unchanged: "unchanged", pack.NotInPack: "not in the pack", pack.Dropped: "no longer in it"}

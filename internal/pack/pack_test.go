@@ -298,11 +298,10 @@ func TestNoPackFile(t *testing.T) {
 }
 
 // The starter's roles and its merge-local are copies of the roles yardr
-// embeds (roles/*.md) and of the reference refinery. Until one is read
-// from the other, a change to either must be made to both. Its stage files
-// are the ones rig init writes for a git rig, with the one difference that
-// a pack names no person: an import fills in no name, so where rig init
-// puts the operator's, the pack says "the operator".
+// embeds (roles/*.md) and of the reference refinery, and its stage files of
+// the ones rig init writes for a git rig, placeholders included: an import
+// fills them as rig init does. Until one is read from the other, a change to
+// either must be made to both.
 func TestStarterMatchesItsSources(t *testing.T) {
 	pairs := map[string]string{"scripts/merge-local": "../../contrib/refinery/merge-local"}
 	roles, err := filepath.Glob("../../roles/*.md")
@@ -337,11 +336,8 @@ func TestStarterMatchesItsSources(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if string(got) != strings.ReplaceAll(string(want), "{{operator}}", "the operator") {
-			t.Errorf("packs/starter/%s differs from %s with {{operator}} as \"the operator\": change both", in, strings.TrimPrefix(source, "../../"))
-		}
-		if strings.Contains(string(got), "{{") {
-			t.Errorf("packs/starter/%s has a placeholder, which an import leaves as it is", in)
+		if string(got) != string(want) {
+			t.Errorf("packs/starter/%s differs from %s: change both", in, strings.TrimPrefix(source, "../../"))
 		}
 	}
 	if have, _ := filepath.Glob(filepath.Join(starter, "flows", "default", "*.md")); len(have) != len(stages) {
@@ -374,5 +370,57 @@ func TestStageFileIsRead(t *testing.T) {
 	// A stage file is no role or script: it goes with its flow.
 	if slices.Contains(p.Files(), "flows/review.md") {
 		t.Fatalf("files = %v", p.Files())
+	}
+}
+
+// A role or stage file may name the operator and the pack's residents in
+// double braces, and nothing else: an import fills those, so any other
+// placeholder would reach an agent as written. Each is named by file and
+// line. A script is copied as it is, so its braces are its own.
+func TestUnknownPlaceholderIsRefused(t *testing.T) {
+	files := smallFiles(strings.Replace(small, "new:    { group: builders,", "new:    { group: builders, file: flows/new.md,", 1))
+	files["roles/builder.md"] = "ask {{operator}}\nmail {{mayor}}\n"
+	files["flows/new.md"] = "{{operator}} decides\n"
+	files["scripts/land"] = "#!/bin/sh\necho {{.Branch}} {{lead}}\n"
+	dir := writePack(t, files)
+	if _, err := pack.Load(dir); err != nil {
+		t.Fatalf("a pack using only its own placeholders: %v", err)
+	}
+
+	files["roles/builder.md"] = "ask {{operator}}\nmail {{lead}}, or {{ operator }}\n"
+	files["flows/new.md"] = "one\ntwo\n{{boss}} decides\n"
+	dir = writePack(t, files)
+	_, err := pack.Load(dir)
+	var errs pack.Errors
+	if !errors.As(err, &errs) || len(errs) != 3 {
+		t.Fatalf("Load = %v, want three errors", err)
+	}
+	for i, want := range []pack.Error{
+		{File: filepath.Join(dir, "roles", "builder.md"), Line: 2, Msg: "placeholder {{lead}}: an import fills {{operator}}, {{mayor}} (the operator and the pack's residents) and nothing else"},
+		{File: filepath.Join(dir, "roles", "builder.md"), Line: 2, Msg: "placeholder {{ operator }}: an import fills {{operator}}, {{mayor}} (the operator and the pack's residents) and nothing else"},
+		{File: filepath.Join(dir, "flows", "new.md"), Line: 3, Msg: "placeholder {{boss}}: an import fills {{operator}}, {{mayor}} (the operator and the pack's residents) and nothing else"},
+	} {
+		if errs[i] != want {
+			t.Errorf("error %d = %+v\nwant      %+v", i, errs[i], want)
+		}
+	}
+	if want := filepath.Join(dir, "roles", "builder.md") + ":2: placeholder {{lead}}"; !strings.HasPrefix(err.Error(), want) {
+		t.Errorf("printed %q, want it to start %q", err.Error(), want)
+	}
+}
+
+// The starter uses the placeholders it may: its roles name the operator and
+// its resident, which is what an import fills.
+func TestStarterNamesItsPlaceholders(t *testing.T) {
+	p, err := pack.Load(starter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := p.Placeholders(), []string{"operator", "mayor"}; !slices.Equal(got, want) {
+		t.Fatalf("placeholders = %v, want %v", got, want)
+	}
+	text, _ := os.ReadFile(filepath.Join(starter, "roles", "builder.md"))
+	if !strings.Contains(string(text), "{{operator}}") || !strings.Contains(string(text), "yardr mail {{mayor}} ") {
+		t.Fatal("packs/starter/roles/builder.md no longer names {{operator}} and {{mayor}}")
 	}
 }

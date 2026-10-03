@@ -3,9 +3,10 @@
 The pack yardr ships: the way of working of the yard that builds yardr
 itself. Its roles are copies of `roles/*.md` and its `scripts/merge-local`
 of `contrib/refinery/merge-local`, and its stage files are the ones `yardr
-rig init` writes for a git rig (`roles/stages/git/default/*.md`), saying
-"the operator" where rig init fills in a name; a test fails when they drift. The format
-and how a pack maps to a yard are in [docs/packs.md](../../docs/packs.md).
+rig init` writes for a git rig (`roles/stages/git/default/*.md`); a test
+fails when they drift. Where they say `{{operator}}` and `{{mayor}}`, an
+import puts the yard's operator and the resident that takes `mayor`. The
+format and how a pack maps to a yard are in [docs/packs.md](../../docs/packs.md).
 
 `yardr pack check packs/starter --rig <rig>` shows what importing it would
 change, and `yardr pack apply packs/starter --rig <rig>` imports it.

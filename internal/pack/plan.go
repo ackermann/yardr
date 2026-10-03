@@ -52,6 +52,9 @@ type Options struct {
 	// is the default. With neither, the choice is the last import's.
 	RigRoles  bool
 	PackRoles bool
+	// Operator is who the pack's roles and stage files name where they say
+	// {{operator}}; "" is the yard's operator setting.
+	Operator string
 	// HookAddr is YARDR_HOOK_ADDR as this process sees it. The server's
 	// own value is not known to its clients.
 	HookAddr string
@@ -75,6 +78,10 @@ type Plan struct {
 	// Groups and Residents map the pack's names to the yard's.
 	Groups    map[string]string `json:"groups"`
 	Residents map[string]string `json:"residents"`
+	// Fill is what the import puts where a role or stage file of the pack
+	// has a placeholder: operator -> the yard's operator, and each of the
+	// pack's residents -> the yard's resident that takes it.
+	Fill map[string]string `json:"fill"`
 	// Install is where the pack's roles and scripts would be copied.
 	Install string `json:"install"`
 	// StageFiles is where the yard keeps the stage files of its store flows,
@@ -135,12 +142,15 @@ type Diff struct {
 
 // FileOp copies a pack's file under the yard's home. Flow and Stage are set
 // on a stage file: the store flow it belongs to, where that flow's stage
-// files are read from, and the stage it is named after there.
+// files are read from, and the stage it is named after there. Fill says the
+// copy has the plan's names in place of the file's placeholders, as a role
+// and a stage file do; SHA256 is of the copy, so of the filled text then.
 type FileOp struct {
 	From   string `json:"from"`
 	To     string `json:"to"`
 	Mode   string `json:"mode"` // 0644, or 0755 for a script
 	SHA256 string `json:"sha256"`
+	Fill   bool   `json:"fill,omitempty"`
 	Flow   string `json:"flow,omitempty"`
 	Stage  string `json:"stage,omitempty"`
 }
@@ -246,6 +256,9 @@ type planner struct {
 	// there was none; all are the records of every import.
 	rec *store.PackImport
 	all []store.PackImport
+	// told are the pack's residents whose taker a flag or the last import
+	// named; the others go by their own name.
+	told map[string]bool
 }
 
 // Build plans the import of p. It only reads: the store, the pack and the
@@ -257,7 +270,7 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 	}
 	b := &planner{ctx: ctx, st: st, p: p, o: o, rig: rig, plan: &Plan{
 		Pack: p.Name, Dir: p.Dir, Rig: o.Rig, Install: filepath.Join(o.Home, "packs", p.Name), StageFiles: filepath.Join(o.Home, "flows"),
-		Groups: map[string]string{}, Residents: map[string]string{},
+		Groups: map[string]string{}, Residents: map[string]string{}, Fill: map[string]string{},
 		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, Notes: []string{}, Refused: []string{},
 	}}
 	if b.all, err = st.Packs(ctx); err != nil {
@@ -280,6 +293,9 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 	if err != nil {
 		return nil, err
 	}
+	if err := b.names(); err != nil {
+		return nil, err
+	}
 	for _, step := range []func() error{
 		func() error { return b.files(flows) },
 		b.groups,
@@ -293,6 +309,39 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 		}
 	}
 	return b.plan, nil
+}
+
+// names settles which resident of the yard takes each of the pack's and who
+// the operator is, before the files: a role or stage file is installed with
+// those names in it.
+func (b *planner) names() error {
+	b.told = map[string]bool{}
+	for _, pr := range b.p.Residents {
+		name, told := b.o.Residents[pr.Name]
+		if !told && b.rec != nil {
+			// Whoever took it at the last import, unless told anew.
+			name, told = b.rec.Residents[pr.Name]
+		}
+		if !told {
+			name = pr.Name
+		}
+		b.plan.Residents[pr.Name], b.told[pr.Name] = name, told
+		b.plan.Fill[pr.Name] = name
+	}
+	operator := b.o.Operator
+	if operator == "" {
+		settings, err := b.st.Settings(b.ctx)
+		if err != nil {
+			return err
+		}
+		if operator = settings["operator"]; operator == "" {
+			operator = "the operator"
+		}
+	}
+	// Last: {{operator}} is the operator also in a pack with a resident of
+	// that name.
+	b.plan.Fill[Operator] = operator
+	return nil
 }
 
 // installed is where a pack's file would be in the yard: an absolute path
@@ -374,7 +423,7 @@ func (b *planner) chosen() ([]Flow, error) {
 func (b *planner) files(flows []Flow) error {
 	want := map[string]bool{}
 	for _, rel := range b.p.Files() {
-		op := &FileOp{To: b.installed(rel)}
+		op := &FileOp{To: b.installed(rel), Fill: b.p.Filled(rel)}
 		want[op.To] = true
 		if err := b.file(rel, op); err != nil {
 			return err
@@ -389,7 +438,7 @@ func (b *planner) files(flows []Flow) error {
 			if s.File == "" {
 				continue
 			}
-			op := &FileOp{To: filepath.Join(dir, s.Name+".md"), Flow: name, Stage: s.Name}
+			op := &FileOp{To: filepath.Join(dir, s.Name+".md"), Flow: name, Stage: s.Name, Fill: b.p.Filled(s.File)}
 			want[op.To] = true
 			if err := b.file(s.File, op); err != nil {
 				return err
@@ -409,12 +458,19 @@ func stageFileName(flow, rel string) string {
 	return "flows/" + flow + "/" + filepath.ToSlash(rel)
 }
 
-// file plans the copy of the pack's file rel to op.To.
+// file plans the copy of the pack's file rel to op.To. What is compared
+// with the installed copy, and hashed for the record, is the text as it
+// would be installed: filled, for a role or stage file. So an import just
+// made shows no change, and a copy counts as edited by hand only when it
+// differs from what an import wrote.
 func (b *planner) file(rel string, op *FileOp) error {
 	op.From = filepath.Join(b.p.Dir, filepath.FromSlash(rel))
 	text, err := os.ReadFile(op.From)
 	if err != nil {
 		return err
+	}
+	if op.Fill {
+		text = Fill(text, b.plan.Fill)
 	}
 	info, err := os.Stat(op.From)
 	if err != nil {
@@ -955,15 +1011,7 @@ func (b *planner) residents() error {
 	}
 	var subs []Object
 	for _, pr := range b.p.Residents {
-		name, told := b.o.Residents[pr.Name]
-		if !told && b.rec != nil {
-			// Whoever took it at the last import, unless told anew.
-			name, told = b.rec.Residents[pr.Name]
-		}
-		if !told {
-			name = pr.Name
-		}
-		b.plan.Residents[pr.Name] = name
+		name, told := b.plan.Residents[pr.Name], b.told[pr.Name]
 		i := slices.IndexFunc(have, func(r store.Resident) bool { return r.Name == name })
 		exists := i >= 0
 		var old store.Resident

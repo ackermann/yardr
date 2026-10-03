@@ -9,6 +9,6 @@ orders the parts: a bead is only ready once its blockers are closed.
 The stage has no outcomes; whoever shapes the bead moves it:
 
 - to `new`, once the above holds: `yardr bead advance <id> --to new`;
-- to `decide`, when what the bead should be is the operator's to decide: the
+- to `decide`, when what the bead should be is {{operator}}'s to decide: the
   question and the options go into the bead first
   (`yardr bead advance <id> --to decide`).

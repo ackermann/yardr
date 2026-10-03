@@ -38,6 +38,7 @@ func TestPackCheckPrintsThePlan(t *testing.T) {
 	for _, want := range []string{
 		"into rig web\n",
 		"its roles and scripts would be copied to " + install + "\n",
+		"in its roles and stage files {{operator}} would read " + defaultOperator() + ", {{mayor}} would read boss\n",
 		"  create           roles/builder.md -> " + filepath.Join(install, "roles", "builder.md") + "\n",
 		"  create           web-builders\n                     asks: group.web-builders.kind\n",
 		"  create           rig web stage approved -> web-refinery\n",
@@ -608,8 +609,34 @@ func TestPackApplyRefusesAHandEditedCopy(t *testing.T) {
 	if out, err = run(t, a.packCmd(), append(args, "--yes")...); err != nil || !strings.Contains(out, "1 changed") {
 		t.Fatalf("apply --yes over a hand edit: %v\n%s", err, out)
 	}
+	// The pack's text, with the yard's names where it has placeholders.
 	want, _ := os.ReadFile("../../packs/starter/roles/builder.md")
-	if text, _ := os.ReadFile(copied); string(text) != string(want) {
+	want = pack.Fill(want, map[string]string{"operator": defaultOperator(), "mayor": "boss"})
+	if text, _ := os.ReadFile(copied); string(text) != string(want) || strings.Contains(string(text), "{{") {
 		t.Fatalf("after --yes the copy is %q", text)
+	}
+}
+
+// pack check refuses a pack whose role has a placeholder no import fills,
+// naming the file and the line.
+func TestPackCheckRefusesAnUnknownPlaceholder(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.CopyFS(dir, os.DirFS("../../packs/starter")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(dir, "scripts", "merge-local"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	role := filepath.Join(dir, "roles", "reviewer.md")
+	if err := os.WriteFile(role, []byte("# Reviewer\n\nAsk {{operator}}, or {{lead}}.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a := packApp(t)
+	_, err := run(t, a.packCmd(), "check", dir, "--rig", "web")
+	if err == nil || exitCode(err) != 1 || !strings.Contains(err.Error(), role+":3: placeholder {{lead}}: an import fills {{operator}}, {{mayor}}") {
+		t.Fatalf("check of a pack with an unknown placeholder: %v (exit %d)", err, exitCode(err))
+	}
+	if _, err := os.Stat(filepath.Join(a.cfg.Home, "packs")); err == nil {
+		t.Fatal("the refused pack was installed")
 	}
 }
