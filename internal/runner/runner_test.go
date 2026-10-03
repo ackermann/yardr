@@ -1205,6 +1205,7 @@ case "$1 $2" in
   "pane list") cat `+filepath.Join(state, "panes")+` ;;
   "workspace create") echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"}}}' ;;
   "tab create") echo '{"result":{"tab":{"tab_id":"t2"},"root_pane":{"pane_id":"p2"}}}' ;;
+  "pane process-info") echo '{"result":{"process_info":{"pane_id":"p2","shell_pid":`+fmt.Sprint(os.Getpid())+`}}}' ;;
   "worktree "*) echo '{"error":{"code":"not_a_repo","message":"no git here"}}' >&2; exit 1 ;;
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)
@@ -1308,6 +1309,11 @@ func TestHerdrDirRig(t *testing.T) {
 	}
 	if !strings.Contains(calls, "tab close t1\n") {
 		t.Errorf("new workspace's idle root tab kept:\n%s", calls)
+	}
+	// As in a worktree: the tab's shell is on the handle, so the store
+	// knows the session's calls by the process tree (store.Expect).
+	if handle["shell_pid"] != os.Getpid() || !strings.Contains(calls, "pane process-info --pane p2\n") {
+		t.Fatalf("shell_pid = %v, want this process %d:\n%s", handle["shell_pid"], os.Getpid(), calls)
 	}
 	brief, _ := handle["brief"].(string)
 	if want := filepath.Join(dir, ".yardr", "briefs", "brief-s-new.md"); brief != want {

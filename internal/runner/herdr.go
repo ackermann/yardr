@@ -316,19 +316,7 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	}
 	tab, pane := t.Tab.ID, t.RootPane.ID
 	handle["tab"], handle["pane"] = tab, pane
-	// The pane's shell is what the agent, and every yardr command it
-	// runs, descends from: with its pid on the handle the store recognises
-	// the session's calls by the process tree, whatever their environment
-	// says (store.Expect). Best effort: a herdr without process-info
-	// leaves the session checked by its environment alone.
-	if pid := h.shellPID(ctx, pane); pid > 0 {
-		handle["shell_pid"] = pid
-		// Its start time tells it from a later process with its pid once
-		// the session has ended (see store.Expect).
-		if st, err := peer.Describe(pid); err == nil {
-			handle["shell_start"] = st.Start
-		}
-	}
+	h.shellOn(ctx, pane, handle)
 	if !wt.AlreadyOpen && wt.Tab.ID != "" {
 		// The workspace was opened for this stage, so its root tab is an
 		// idle shell. Close it, so that Stop closing the agent's tab still
@@ -405,6 +393,7 @@ func (h *Herdr) startDir(ctx context.Context, job dispatch.Job) (map[string]any,
 	}
 	pane := t.RootPane.ID
 	handle["tab"], handle["pane"] = t.Tab.ID, pane
+	h.shellOn(ctx, pane, handle)
 	if !ws.AlreadyOpen && ws.Tab.ID != "" {
 		// As for a worktree: the new workspace's root tab is an idle shell.
 		_, _ = h.run(ctx, "tab", "close", ws.Tab.ID)
@@ -595,6 +584,24 @@ func (h *Herdr) agentEnv(job dispatch.Job, name string) []string {
 		env = append(env, config.Env("BIN", h.YardBin)...)
 	}
 	return env
+}
+
+// shellOn puts the pid of pane's shell on handle. The shell is what the
+// agent, and every yardr command it runs, descends from: with its pid on
+// the handle the store recognises the session's calls by the process tree,
+// whatever their environment says (store.Expect). Best effort: a herdr
+// without process-info leaves the session checked by its environment alone.
+func (h *Herdr) shellOn(ctx context.Context, pane string, handle map[string]any) {
+	pid := h.shellPID(ctx, pane)
+	if pid <= 0 {
+		return
+	}
+	handle["shell_pid"] = pid
+	// Its start time tells it from a later process with its pid (see
+	// store.Expect).
+	if st, err := peer.Describe(pid); err == nil {
+		handle["shell_start"] = st.Start
+	}
 }
 
 // shellPID is the pid of the shell in pane, 0 when herdr does not tell.
