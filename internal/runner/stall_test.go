@@ -27,7 +27,7 @@ const stalledPane = `
 
 
 ────────────────
-❯   
+❯
 ────────────────
   ⏵⏵ auto mode on (shift+tab to cycle)
 
