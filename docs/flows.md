@@ -270,10 +270,10 @@ These are the flows yardr itself is built with (`yardr flow show yardr`, as of
 2026-10-03):
 
 ```
-flow default (repo@77a3a8f)
+flow default (repo@2c2a589)
 STAGE     GROUP            MEMBERS            OPEN  NEXT
-backlog   backlog          mckean,yardmaster  3     new | decide
-new       yardr-builders   -                  1     review on done | decide on question | backlog
+backlog   backlog          mckean,yardmaster  4     new | decide
+new       yardr-builders   -                  2     review on done | decide on question | backlog
 decide    decisions        mckean,yardmaster  0     backlog | new
 review    yardr-reviewers  -                  0     approved on done | new on changes | decide on question
 approved  yardr-refinery   -                  0     merged on done | new on failed | decide on question
@@ -320,7 +320,7 @@ Epics follow `yardr.epic`, which the repository carries as
 [`.yardr/flows/yardr.epic.flow`](../.yardr/flows/yardr.epic.flow) (a named
 repo flow, read from main; `yardr rig flow yardr --type epic yardr.epic`
 points the type at it, which `flow show` prints as `flow yardr.epic (store,
-type epic, from repo@77a3a8f)`):
+type epic, from repo@2c2a589)`):
 
 ```
 # yardr.epic.flow
