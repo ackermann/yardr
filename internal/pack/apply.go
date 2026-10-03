@@ -164,8 +164,8 @@ func check(p *Plan, o ApplyOptions) (map[string][]byte, error) {
 		asks := func(field string) bool { return slices.Contains(obj.Asks, obj.Kind+"."+obj.Name+"."+field) }
 		switch {
 		case obj.Action == Dropped && obj.Kind == "file":
-			if rel, err := filepath.Rel(p.Install, obj.File.To); err != nil || !filepath.IsLocal(rel) {
-				problems = append(problems, fmt.Sprintf("file %s is outside %s: it is not removed", obj.File.To, p.Install))
+			if !p.Removable(obj.File.To) {
+				problems = append(problems, fmt.Sprintf("file %s is neither under %s nor a stage file of the pack's flows under %s: it is not removed", obj.File.To, p.Install, p.StageFiles))
 			}
 		case obj.Action != Create && obj.Action != Change:
 		case obj.Kind == "file":
@@ -336,25 +336,30 @@ func install(op *FileOp, text []byte) error {
 }
 
 // pruneOrder is the order dropped objects are removed in: a route before
-// the group it leads to, a pointer before the flow it points at.
+// the group it leads to, a pointer before the flow it points at, a flow
+// before its stage files.
 var pruneOrder = []string{"route", "pointer", "flow", "group", "subscription", "file"}
 
 // prune removes the plan's dropped objects, or with no prune asked for
 // only lists them as left. It returns the keys of those removed.
 func prune(ctx context.Context, st store.API, p *Plan, o ApplyOptions, res *Result) map[string]bool {
 	gone := map[string]bool{}
+	// kept are the flows whose removal failed: their stage files stay with
+	// them, for the beads that still follow the flow.
+	kept := map[string]bool{}
 	for _, kind := range pruneOrder {
 		for _, obj := range p.Objects {
 			if obj.Action != Dropped || obj.Kind != kind {
 				continue
 			}
 			what := obj.Kind + " " + obj.Name
-			if !o.Prune || obj.Held != "" {
+			if !o.Prune || obj.Held != "" || (obj.Kind == "file" && obj.File != nil && kept[obj.File.Flow]) {
 				res.Left = append(res.Left, what)
 				continue
 			}
 			note, err := remove(ctx, st, obj, o.Actor)
 			if err != nil {
+				kept[obj.Name] = obj.Kind == "flow"
 				res.Left = append(res.Left, what)
 				res.PruneErrors = append(res.PruneErrors, what+": "+err.Error())
 				continue

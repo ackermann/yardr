@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -621,6 +622,9 @@ var planKinds = [][2]string{{"file", "files"}, {"group", "groups"}, {"flow", "fl
 func printPlan(p *pack.Plan, answers pack.Answers) {
 	fmt.Printf("pack %s (%s) into rig %s\n", p.Pack, p.Dir, p.Rig)
 	fmt.Printf("its roles and scripts would be copied to %s\n", p.Install)
+	if slices.ContainsFunc(p.Objects, func(o pack.Object) bool { return o.File != nil && o.File.Stage != "" }) {
+		fmt.Printf("its stage files would be copied to %s\n", filepath.Join(p.StageFiles, p.Pack+".<flow>"))
+	}
 	count := map[string]int{}
 	label := map[string]string{pack.Create: "create", pack.Change: "change", pack.Unchanged: "unchanged", pack.NotInPack: "not in the pack", pack.Dropped: "no longer in it"}
 	for _, kind := range planKinds {

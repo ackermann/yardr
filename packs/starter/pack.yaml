@@ -11,17 +11,19 @@ name: starter
 # Each flow lists the stages a bead passes through; the first is where a new
 # bead starts.
 #   group:   who works the stage (declared below)
+#   file:    the stage file: what the stage is for, what must be true to leave
+#            it and when each outcome applies, shown to whoever works a bead there
 #   outcomes: outcome reported -> next stage
 #   manual:  stages a person or a resident may move the bead to by hand
 #   end:     the bead closes here
 flows:
   default:
     stages:
-      backlog:  { group: backlog,   manual: [new, decide] }
-      new:      { group: builders,  outcomes: { done: review, question: decide }, manual: [backlog] }
-      review:   { group: reviewers, outcomes: { done: approved, changes: new, question: decide } }
-      approved: { group: refinery,  outcomes: { done: merged, failed: new, question: decide } }
-      decide:   { group: decisions, manual: [backlog, new] }
+      backlog:  { group: backlog,   file: flows/default/backlog.md,  manual: [new, decide] }
+      new:      { group: builders,  file: flows/default/new.md,      outcomes: { done: review, question: decide }, manual: [backlog] }
+      review:   { group: reviewers, file: flows/default/review.md,   outcomes: { done: approved, changes: new, question: decide } }
+      approved: { group: refinery,  file: flows/default/approved.md, outcomes: { done: merged, failed: new, question: decide } }
+      decide:   { group: decisions, file: flows/default/decide.md,   manual: [backlog, new] }
       merged:   { end: true }
 
 # A group is exactly one of: an agent with a role, a script, or people.

@@ -88,6 +88,16 @@ func TestStarterPackLoads(t *testing.T) {
 	if want := []string{"roles/builder.md", "roles/mayor.md", "roles/reviewer.md", "scripts/merge-local"}; !reflect.DeepEqual(p.Files(), want) {
 		t.Fatalf("files = %v, want %v", p.Files(), want)
 	}
+	// Every stage a bead is worked in has its stage file.
+	for _, s := range f.Stages {
+		want := "flows/default/" + s.Name + ".md"
+		if s.End {
+			want = ""
+		}
+		if s.File != want {
+			t.Errorf("stage %s names the stage file %q, want %q", s.Name, s.File, want)
+		}
+	}
 	m := p.Residents[0]
 	if m.Name != "mayor" || m.Role != "roles/mayor.md" || !m.Done || !reflect.DeepEqual(m.Stages, []string{"decide"}) ||
 		!reflect.DeepEqual(m.Subscribe, []pack.Source{{Name: "linear", Scope: "involved"}}) || len(m.Events) != 13 {
@@ -183,6 +193,10 @@ func TestStrictness(t *testing.T) {
 		{name: "missing script", files: map[string]string{"scripts/land": ""}, key: "groups.refinery.run", msg: "script scripts/land is missing", line: 11},
 		{name: "absolute path", old: "agent: roles/builder.md", new: "agent: /etc/passwd", key: "groups.builders.agent", msg: "relative to its directory, not absolute", line: 10},
 		{name: "path leaving the pack", old: "agent: roles/builder.md", new: "agent: roles/../../builder.md", key: "groups.builders.agent", msg: "leaves the pack's directory", line: 10},
+		{name: "missing stage file", old: "review: { group: refinery,", new: "review: { group: refinery, file: flows/review.md,", key: "flows.default.stages.review.file", msg: "stage file flows/review.md is missing", line: 6},
+		{name: "empty stage file", old: "review: { group: refinery,", new: "review: { group: refinery, file: flows/review.md,", files: map[string]string{"flows/review.md": " \n"}, key: "flows.default.stages.review.file", msg: "stage file flows/review.md is empty", line: 6},
+		{name: "stage file outside the pack", old: "review: { group: refinery,", new: "review: { group: refinery, file: ../review.md,", key: "flows.default.stages.review.file", msg: "leaves the pack's directory", line: 6},
+		{name: "stage file of an end stage", old: "merged: { end: true }", new: "merged: { end: true, file: roles/mayor.md }", key: "flows.default.stages.merged", msg: "so it has no file", line: 8},
 		{name: "stage no flow has", old: "stages: [decide]", new: "stages: [triage]", key: "residents.mayor.hears.stages", msg: "no flow of this pack has a stage triage", line: 18},
 		{name: "source without an adapter", old: "linear: involved", new: "slack: involved", key: "residents.mayor.subscribe.slack", msg: "no adapter for source slack", line: 21},
 		{name: "unknown scope", old: "linear: involved", new: "linear: everything", key: "residents.mayor.subscribe.linear", msg: "one of involved, mentions, all", line: 21},
@@ -285,7 +299,10 @@ func TestNoPackFile(t *testing.T) {
 
 // The starter's roles and its merge-local are copies of the roles yardr
 // embeds (roles/*.md) and of the reference refinery. Until one is read
-// from the other, a change to either must be made to both.
+// from the other, a change to either must be made to both. Its stage files
+// are the ones rig init writes for a git rig, with the one difference that
+// a pack names no person: an import fills in no name, so where rig init
+// puts the operator's, the pack says "the operator".
 func TestStarterMatchesItsSources(t *testing.T) {
 	pairs := map[string]string{"scripts/merge-local": "../../contrib/refinery/merge-local"}
 	roles, err := filepath.Glob("../../roles/*.md")
@@ -309,6 +326,27 @@ func TestStarterMatchesItsSources(t *testing.T) {
 			t.Errorf("packs/starter/%s differs from %s: change both", in, strings.TrimPrefix(source, "../../"))
 		}
 	}
+	stages, err := filepath.Glob("../../roles/stages/git/default/*.md")
+	if err != nil || len(stages) == 0 {
+		t.Fatalf("no roles/stages/git/default/*.md: %v", err)
+	}
+	for _, source := range stages {
+		in := "flows/default/" + filepath.Base(source)
+		got, _ := os.ReadFile(filepath.Join(starter, filepath.FromSlash(in)))
+		want, err := os.ReadFile(source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != strings.ReplaceAll(string(want), "{{operator}}", "the operator") {
+			t.Errorf("packs/starter/%s differs from %s with {{operator}} as \"the operator\": change both", in, strings.TrimPrefix(source, "../../"))
+		}
+		if strings.Contains(string(got), "{{") {
+			t.Errorf("packs/starter/%s has a placeholder, which an import leaves as it is", in)
+		}
+	}
+	if have, _ := filepath.Glob(filepath.Join(starter, "flows", "default", "*.md")); len(have) != len(stages) {
+		t.Errorf("packs/starter/flows/default has %d stage files, roles/stages/git/default has %d", len(have), len(stages))
+	}
 	have, _ := filepath.Glob(filepath.Join(starter, "roles", "*.md"))
 	if len(have) != len(roles) {
 		t.Errorf("packs/starter/roles has %d roles, roles/ has %d", len(have), len(roles))
@@ -316,5 +354,25 @@ func TestStarterMatchesItsSources(t *testing.T) {
 	info, err := os.Stat(filepath.Join(starter, "scripts", "merge-local"))
 	if err != nil || info.Mode().Perm()&0o111 == 0 {
 		t.Errorf("packs/starter/scripts/merge-local must be executable: %v", err)
+	}
+}
+
+// A stage's file is read as the pack's other paths are: relative to its
+// directory, cleaned, and a stage without the key has none.
+func TestStageFileIsRead(t *testing.T) {
+	files := smallFiles(strings.Replace(small, "review: { group: refinery,", "review: { group: refinery, file: ./flows/review.md,", 1))
+	files["flows/review.md"] = "review it\n"
+	p, err := pack.Load(writePack(t, files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range p.Flows[0].Stages {
+		if want := map[string]string{"review": "flows/review.md"}[s.Name]; s.File != want {
+			t.Errorf("stage %s names the stage file %q, want %q", s.Name, s.File, want)
+		}
+	}
+	// A stage file is no role or script: it goes with its flow.
+	if slices.Contains(p.Files(), "flows/review.md") {
+		t.Fatalf("files = %v", p.Files())
 	}
 }

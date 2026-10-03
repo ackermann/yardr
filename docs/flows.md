@@ -327,7 +327,9 @@ rig:
 
 The store holds no prose, as with role prompts. Every rig that follows the
 flow reads the same files, as they are on disk when the brief is written,
-and no bead's branch can change them. The rig's repository is not asked: a
+and no bead's branch can change them. A pack's import copies the stage
+files of its flows there ([packs.md](packs.md#how-a-pack-maps-to-the-yard)).
+The rig's repository is not asked: a
 `.yardr/flows/code/review.md` in a rig that follows the store flow `code` is
 shown to nobody (and fails the rig's check, below). A name that a pin or a
 pointer finds only in the rig's repository is a repository flow.

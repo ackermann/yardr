@@ -1,8 +1,9 @@
 # Packs
 
 A pack is one yard's way of working as a directory: the flows a bead passes
-through, the groups that work their stages, the role prompts and scripts
-those groups run, and what an always-on resident hears. A yard imports a
+through and what each of their stages is for, the groups that work the
+stages, the role prompts and scripts those groups run, and what an always-on
+resident hears. A yard imports a
 pack into a rig; the pack names no agent product, model, argument, rig,
 person, secret or identity, which are the yard's and stay in it.
 
@@ -12,14 +13,15 @@ imported. Fetching a pack from a git URL is **planned**; until then a pack
 is a directory on this machine.
 
 The pack yardr ships is [`packs/starter`](../packs/starter): the flow `yardr
-rig init` writes, the roles yardr embeds and the reference refinery, as one
-pack.
+rig init` writes with its stage files, the roles yardr embeds and the
+reference refinery, as one pack.
 
 ```
 packs/starter/
   pack.yaml         flows, groups, residents
   roles/*.md        role prompts
   scripts/*         what a script group runs
+  flows/<flow>/*.md stage files
 ```
 
 ## pack.yaml
@@ -30,11 +32,11 @@ name: starter
 flows:
   default:
     stages:
-      backlog:  { group: backlog,   manual: [new, decide] }
-      new:      { group: builders,  outcomes: { done: review, question: decide }, manual: [backlog] }
-      review:   { group: reviewers, outcomes: { done: approved, changes: new, question: decide } }
-      approved: { group: refinery,  outcomes: { done: merged, failed: new, question: decide } }
-      decide:   { group: decisions, manual: [backlog, new] }
+      backlog:  { group: backlog,   file: flows/default/backlog.md,  manual: [new, decide] }
+      new:      { group: builders,  file: flows/default/new.md,      outcomes: { done: review, question: decide }, manual: [backlog] }
+      review:   { group: reviewers, file: flows/default/review.md,   outcomes: { done: approved, changes: new, question: decide } }
+      approved: { group: refinery,  file: flows/default/approved.md, outcomes: { done: merged, failed: new, question: decide } }
+      decide:   { group: decisions, file: flows/default/decide.md,   manual: [backlog, new] }
       merged:   { end: true }
 
 groups:
@@ -61,9 +63,10 @@ residents:
 | `flows.<flow>.stages` | the flow's stages, **in file order**: the first is where a bead starts |
 | `flows.<flow>.type` | optional: the flow is for beads of this type, beside the rig's flow (an epic flow beside the task flow). A type follows one flow |
 | `…stages.<stage>.group` | who works the stage: a key of `groups`. A stage without one is routed to nobody |
+| `…stages.<stage>.file` | optional: the stage's stage file in the pack, markdown saying what the stage is for, what must be true to leave it and when each outcome applies ([flows.md](flows.md)). Whoever works a bead in the stage is shown it. A stage without the key has none |
 | `…stages.<stage>.outcomes` | outcome reported (`yardr bead done --outcome`) -> next stage, in file order |
 | `…stages.<stage>.manual` | stages the bead may be moved to by hand (`yardr bead advance --to`); no outcome leads there |
-| `…stages.<stage>.end` | `true`: entering the stage closes the bead. Such a stage has no group, outcomes or manual moves, and a flow has at least one |
+| `…stages.<stage>.end` | `true`: entering the stage closes the bead. Such a stage has no group, stage file, outcomes or manual moves, and a flow has at least one |
 | `groups.<group>` | exactly one of `agent: <role file>`, `run: <script>`, `people: true` |
 | `groups.<group>.limit` | optional: how many beads the group works at once |
 | `residents.<name>.role` | the resident's role file |
@@ -78,10 +81,14 @@ above is `new -> review on done | decide on question | backlog`. The store's
 rule for a stage without outcomes holds here too: with exactly one way out
 (`manual: [new]`), `yardr bead done` takes it.
 
-**Paths.** A role or script is always relative to the pack's directory, so
-a pack works wherever it is cloned. An absolute path, a path leaving the
-directory (`..`) and a file that is not a regular file there (a link) are
-errors, and a script must be executable.
+**Paths.** A role, script or stage file is always relative to the pack's
+directory, so a pack works wherever it is cloned. An absolute path, a path
+leaving the directory (`..`) and a file that is not a regular file there (a
+link) are errors, a script must be executable, and a stage file must have
+something in it. Where a stage file is in the pack is the pack's choice, and
+two stages may name the same one; the starter keeps them as
+`flows/<flow>/<stage>.md`, the layout a rig's repository and the yard's home
+use.
 
 ### What a pack is refused for
 
@@ -101,10 +108,11 @@ packs/mine/pack.yaml:7: flows.default.stages.decide.group: no group deciders is 
 - a boolean that is not `true` or `false` (`end: yes`);
 - a stage naming a group that is not declared, or an outcome or manual move
   to a stage the flow lacks;
-- a flow without an `end` stage; an `end` stage with a group or a way out;
+- a flow without an `end` stage; an `end` stage with a group, a stage file or
+  a way out;
 - a group that is not exactly one of agent, script, people;
-- a role or script that is missing, absolute, outside the pack, or a script
-  that is not executable;
+- a role, script or stage file that is missing, absolute or outside the
+  pack, a script that is not executable, or a stage file that is empty;
 - `hears.stages` naming a stage no flow of the pack has;
 - a `subscribe` source this yardr has no adapter for, or an unknown scope.
 
@@ -144,6 +152,21 @@ and referred to by that absolute path. A group's prompt is then no file a
 bead's branch can change, as with the home's own roles
 ([configuration.md](configuration.md#role-prompts)). Files of the pack that
 nothing in `pack.yaml` names are not copied.
+
+**Stage files.** A flow of the pack is a flow in the store, and a store
+flow's stage files are read from the yard's home. So the file a stage names
+is copied to `<home>/flows/<pack>.<flow>/<stage>.md`
+(`~/.yardr/flows/starter.default/review.md`), under the stage's name
+whatever the file is called in the pack. The plan lists each with the
+pack's other files, as `flows/default/review.md -> <where it goes>`; only
+the flows the import uses have theirs copied. They are recorded, checked
+for hand edits and pruned as roles and scripts are. Every rig following the
+flow reads the same copies. A stage file in that directory the pack does
+not carry (one written by hand for a stage the pack names no file for)
+shows as `not in the pack`, by its path under the home
+(`flows/starter.default/<stage>.md`), and is left alone. The stage files in
+a rig's repository are not touched; like its flow files, they are not read
+while the rig's pointer is at the pack's flow.
 
 **The pack's roles win.** An import gives the rig the pack's way of working
 whole, its roles as its flow. Every agent group and resident the pack names
@@ -336,8 +359,8 @@ follows and whose roles were chosen.
 
 **A copy edited by hand is not overwritten silently.** The record holds the
 content of each file as the import installed it. A copy under
-`<home>/packs/<pack>/` that is neither that nor what the pack has now was
-edited in the yard; the plan marks it, and the import stops before it writes
+`<home>/packs/<pack>/`, or a stage file under `<home>/flows/<pack>.<flow>/`,
+that is neither that nor what the pack has now was edited in the yard; the plan marks it, and the import stops before it writes
 anything, in a terminal too:
 
 ```
@@ -385,7 +408,7 @@ starter in rig web  2026-10-03 18:40 by mckean
   roles      the pack's
   groups     backlog -> backlog, builders -> web-builders, decisions -> decisions, refinery -> web-refinery, reviewers -> web-reviewers
   residents  mayor -> yardmaster
-  objects    4 files, 5 groups, 1 flows, 1 flow pointers, 5 routes, 3 subscriptions
+  objects    9 files, 5 groups, 1 flows, 1 flow pointers, 5 routes, 3 subscriptions
 ```
 
 | field (`--json`) | meaning |
@@ -411,7 +434,8 @@ A resident is in the mapping and not among the objects: it is the yard's.
 
 An object the last import brought and the pack no longer carries (a group
 it dropped, the route of a stage it lost, a role file nothing names any
-more, a subscription to a stage a resident no longer hears) shows in the
+more, the stage file of a stage that lost its `file`, a subscription to a
+stage a resident no longer hears) shows in the
 plan as `no longer in it`. An import leaves it in the yard and lists it;
 `--prune` removes it. Only what the record names is ever pruned: a group
 or route made by hand stays `not in the pack`, and so does everything in a
@@ -426,7 +450,15 @@ yard no pack was imported into.
 - A resident is never removed. One that no longer takes a resident of the
   pack keeps its role and `--on` kinds as the import left them; its
   subscriptions that came from the pack are pruned like any other object.
-- A file is removed only under `<home>/packs/<pack>/`.
+- A file is removed only under `<home>/packs/<pack>/`, or as a stage file
+  of one of the pack's flows, `<home>/flows/<pack>.<flow>/<stage>.md`. A
+  dropped stage file is named by that path under the home.
+- A flow's stage files stay while the flow does: with a flow that is held,
+  and with one the store refused to remove.
+- The stage file of a stage the flow lost is named after no stage of the
+  flow any more, which `yardr rig check` reports as a stray file in the
+  yard's home ([flows.md](flows.md#stage-files-what-a-stage-is-for)) until
+  it is pruned.
 
 Pruning happens after the import, before the record. A removal the store
 refuses (a flow an open bead still pins) does not undo the rest: what could
@@ -443,7 +475,7 @@ id, an `args` answer being the arguments the new agent got, space-separated):
 {
   "pack": "starter", "dir": "/…/packs/starter", "rig": "yardr",
   "flow": "default", "rig_roles": false, "groups": {"builders": "yardr-builders"}, "residents": {"mayor": "yardmaster"},
-  "install": "/Users/me/.yardr/packs/starter",
+  "install": "/Users/me/.yardr/packs/starter", "stage_files": "/Users/me/.yardr/flows",
   "objects": [
     {"kind": "group", "name": "yardr-builders", "action": "change", "shadows": [".yardr/roles/builder.md"],
      "changes": [{"field": "prompt", "old": "roles/builder.md", "new": "/Users/me/.yardr/packs/starter/roles/builder.md"}],
@@ -456,7 +488,12 @@ id, an `args` answer being the arguments the new agent got, space-separated):
 }
 ```
 
-Objects come in the order an import does them: files, groups, flows,
+`install` is where roles and scripts are copied, `stage_files` the
+directory under which each flow's stage files are
+(`<stage_files>/<pack>.<flow>/<stage>.md`).
+
+Objects come in the order an import does them: files (roles and scripts,
+then stage files), groups, flows,
 pointers, routes, residents, subscriptions; dropped objects come last.
 `action` is `create`, `change`, `unchanged`, `not_in_pack` or `dropped`.
 Each object carries what the import would write (for a dropped one, what a
@@ -464,7 +501,7 @@ prune removes), under its kind:
 
 | kind | carries |
 |---|---|
-| `file` | `from`, `to`, `mode`, `sha256` |
+| `file` | `from`, `to`, `mode`, `sha256`; a stage file also `flow`, the store flow it belongs to, and `stage` |
 | `group` | the whole group as it would be stored, what the yard keeps included |
 | `flow` | the whole flow, its stages in order |
 | `pointer` | `rig`, `type`, `flow` |

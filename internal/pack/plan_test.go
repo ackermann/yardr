@@ -112,6 +112,7 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 	install := filepath.Join(o.Home, "packs", "starter")
 	want := []string{
 		"file roles/builder.md", "file roles/mayor.md", "file roles/reviewer.md", "file scripts/merge-local",
+		"file flows/default/backlog.md", "file flows/default/new.md", "file flows/default/review.md", "file flows/default/approved.md", "file flows/default/decide.md",
 		"group web-builders", "group web-reviewers", "group web-refinery", "group backlog", "group decisions",
 		"flow starter.default",
 		"pointer rig web -> starter.default",
@@ -205,7 +206,7 @@ func TestSecondImportChangesNothing(t *testing.T) {
 	if c, ch, n := actions(plan, pack.Create), actions(plan, pack.Change), actions(plan, pack.NotInPack); len(c)+len(ch)+len(n) != 0 {
 		t.Fatalf("a second import would create %v, change %v, and finds %v not in the pack", c, ch, n)
 	}
-	if len(plan.Objects) != 20 || len(plan.Questions) != 0 {
+	if len(plan.Objects) != 25 || len(plan.Questions) != 0 {
 		t.Fatalf("%d objects, questions %v", len(plan.Objects), plan.Questions)
 	}
 	if g := plan.Governs; len(g) != 1 || g[0].Now != "starter.default (store)" {
@@ -254,7 +255,7 @@ func TestSecondImportChangesNothing(t *testing.T) {
 	// And applying those two brings the yard level again.
 	apply(t, st, plan, nil)
 	plan = build(t, st, load(t, dir), o)
-	if got := actions(plan, pack.Unchanged); len(got) != 20 {
+	if got := actions(plan, pack.Unchanged); len(got) != 25 {
 		t.Fatalf("after applying the change: %d unchanged of %d", len(got), len(plan.Objects))
 	}
 }

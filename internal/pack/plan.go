@@ -76,9 +76,12 @@ type Plan struct {
 	Groups    map[string]string `json:"groups"`
 	Residents map[string]string `json:"residents"`
 	// Install is where the pack's roles and scripts would be copied.
-	Install   string     `json:"install"`
-	Objects   []Object   `json:"objects"`
-	Questions []Question `json:"questions"`
+	Install string `json:"install"`
+	// StageFiles is where the yard keeps the stage files of its store flows,
+	// <home>/flows: the pack's go to <StageFiles>/<pack>.<flow>/<stage>.md.
+	StageFiles string     `json:"stage_files"`
+	Objects    []Object   `json:"objects"`
+	Questions  []Question `json:"questions"`
 	// Governs says which flow would govern the rig's beads afterwards.
 	Governs []Governs `json:"governs"`
 	// Sources says, for each outside source a resident would subscribe to,
@@ -130,12 +133,16 @@ type Diff struct {
 	New   any    `json:"new"`
 }
 
-// FileOp copies a pack's file under the yard's home.
+// FileOp copies a pack's file under the yard's home. Flow and Stage are set
+// on a stage file: the store flow it belongs to, where that flow's stage
+// files are read from, and the stage it is named after there.
 type FileOp struct {
 	From   string `json:"from"`
 	To     string `json:"to"`
 	Mode   string `json:"mode"` // 0644, or 0755 for a script
 	SHA256 string `json:"sha256"`
+	Flow   string `json:"flow,omitempty"`
+	Stage  string `json:"stage,omitempty"`
 }
 
 // RouteOp is the route state a rig's stage (and type) would have. The store
@@ -249,7 +256,7 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 		return nil, err
 	}
 	b := &planner{ctx: ctx, st: st, p: p, o: o, rig: rig, plan: &Plan{
-		Pack: p.Name, Dir: p.Dir, Rig: o.Rig, Install: filepath.Join(o.Home, "packs", p.Name),
+		Pack: p.Name, Dir: p.Dir, Rig: o.Rig, Install: filepath.Join(o.Home, "packs", p.Name), StageFiles: filepath.Join(o.Home, "flows"),
 		Groups: map[string]string{}, Residents: map[string]string{},
 		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, Notes: []string{}, Refused: []string{},
 	}}
@@ -274,7 +281,7 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 		return nil, err
 	}
 	for _, step := range []func() error{
-		b.files,
+		func() error { return b.files(flows) },
 		b.groups,
 		func() error { return b.flows(flows) },
 		func() error { return b.routes(flows) },
@@ -361,55 +368,127 @@ func (b *planner) chosen() ([]Flow, error) {
 	return out, nil
 }
 
-func (b *planner) files() error {
+// files are the pack's roles and scripts, copied under Install, and the
+// stage files of the flows the import uses, copied to where the yard reads
+// a store flow's: <home>/flows/<pack>.<flow>/<stage>.md.
+func (b *planner) files(flows []Flow) error {
 	want := map[string]bool{}
 	for _, rel := range b.p.Files() {
-		from := filepath.Join(b.p.Dir, filepath.FromSlash(rel))
-		to := b.installed(rel)
-		want[to] = true
-		text, err := os.ReadFile(from)
-		if err != nil {
+		op := &FileOp{To: b.installed(rel)}
+		want[op.To] = true
+		if err := b.file(rel, op); err != nil {
 			return err
 		}
-		info, err := os.Stat(from)
-		if err != nil {
-			return err
-		}
-		op := &FileOp{From: from, To: to, Mode: "0644", SHA256: sum(text)}
-		if info.Mode().Perm()&0o111 != 0 {
-			op.Mode = "0755"
-		}
-		var changes []Diff
-		have, err := os.ReadFile(to)
-		exists := err == nil
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
-		edited := false
-		if exists {
-			if !bytes.Equal(have, text) {
-				changes = append(changes, Diff{"content", "sha256 " + sum(have)[:12], "sha256 " + op.SHA256[:12]})
-				// Not what the last import installed either: someone edited
-				// the copy, and the import would undo that.
-				was := b.installedSums(to)
-				edited = len(was) > 0 && !slices.Contains(was, sum(have))
-			}
-			if hi, err := os.Stat(to); err == nil && (hi.Mode().Perm()&0o111 != 0) != (op.Mode == "0755") {
-				changes = append(changes, Diff{"mode", fmt.Sprintf("%04o", hi.Mode().Perm()), op.Mode})
-			}
-		}
-		b.add(Object{Kind: "file", Name: rel, Action: action(exists, changes), Changes: changes, File: op, Edited: edited})
 	}
 	// What an earlier import left there and this pack no longer names.
-	_ = filepath.WalkDir(b.plan.Install, func(path string, d fs.DirEntry, err error) error {
+	b.otherFiles(b.plan.Install, "", want, "")
+	for _, f := range flows {
+		name := FlowName(b.p.Name, f.Name)
+		dir := store.HomeStageDir(b.o.Home, name)
+		for _, s := range f.Stages {
+			if s.File == "" {
+				continue
+			}
+			op := &FileOp{To: filepath.Join(dir, s.Name+".md"), Flow: name, Stage: s.Name}
+			want[op.To] = true
+			if err := b.file(s.File, op); err != nil {
+				return err
+			}
+		}
+		// The flow's other stage files: written by hand for a stage the pack
+		// has no file for, or left by an earlier import.
+		b.otherFiles(dir, stageFileName(name, ""), want, name)
+	}
+	return nil
+}
+
+// stageFileName is what a plan calls a stage file of store flow that the
+// pack does not carry: its path under the yard's home, since no path in the
+// pack names it.
+func stageFileName(flow, rel string) string {
+	return "flows/" + flow + "/" + filepath.ToSlash(rel)
+}
+
+// file plans the copy of the pack's file rel to op.To.
+func (b *planner) file(rel string, op *FileOp) error {
+	op.From = filepath.Join(b.p.Dir, filepath.FromSlash(rel))
+	text, err := os.ReadFile(op.From)
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(op.From)
+	if err != nil {
+		return err
+	}
+	op.Mode, op.SHA256 = "0644", sum(text)
+	if info.Mode().Perm()&0o111 != 0 {
+		op.Mode = "0755"
+	}
+	var changes []Diff
+	have, err := os.ReadFile(op.To)
+	exists := err == nil
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	edited := false
+	if exists {
+		if !bytes.Equal(have, text) {
+			changes = append(changes, Diff{"content", "sha256 " + sum(have)[:12], "sha256 " + op.SHA256[:12]})
+			// Not what the last import installed either: someone edited
+			// the copy, and the import would undo that.
+			was := b.installedSums(op.To)
+			edited = len(was) > 0 && !slices.Contains(was, sum(have))
+		}
+		if hi, err := os.Stat(op.To); err == nil && (hi.Mode().Perm()&0o111 != 0) != (op.Mode == "0755") {
+			changes = append(changes, Diff{"mode", fmt.Sprintf("%04o", hi.Mode().Perm()), op.Mode})
+		}
+	}
+	b.add(Object{Kind: "file", Name: rel, Action: action(exists, changes), Changes: changes, File: op, Edited: edited})
+	return nil
+}
+
+// otherFiles adds the files under dir that the import does not write, as not
+// in the pack, named prefix and their path under dir; flow is the store flow
+// whose stage files dir holds, "" for the pack's own directory.
+func (b *planner) otherFiles(dir, prefix string, want map[string]bool, flow string) {
+	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || want[path] {
 			return nil
 		}
-		rel, _ := filepath.Rel(b.plan.Install, path)
-		b.add(Object{Kind: "file", Name: filepath.ToSlash(rel), Action: NotInPack, File: &FileOp{To: path}})
+		rel, _ := filepath.Rel(dir, path)
+		b.add(Object{Kind: "file", Name: prefix + filepath.ToSlash(rel), Action: NotInPack, File: &FileOp{To: path, Flow: flow}})
 		return nil
 	})
-	return nil
+}
+
+// stageFlow names the store flow whose stage file path is, when path is
+// where an import of this pack puts one: <StageFiles>/<pack>.<flow>/<stage>.md.
+func (p *Plan) stageFlow(path string) (flow string, ok bool) {
+	if p.StageFiles == "" {
+		return "", false
+	}
+	rel, err := filepath.Rel(p.StageFiles, path)
+	if err != nil || !filepath.IsLocal(rel) || filepath.Ext(rel) != ".md" {
+		return "", false
+	}
+	flow = filepath.Dir(rel)
+	if flow != filepath.Base(flow) || !strings.HasPrefix(flow, p.Pack+".") {
+		return "", false
+	}
+	return flow, true
+}
+
+// Removable reports whether path is one a prune may remove: a file under
+// the pack's own directory in the home, or a stage file of one of its
+// flows. The record says which files an import brought; this says where an
+// import could have put one, so a record naming a file elsewhere removes
+// nothing.
+func (p *Plan) Removable(path string) bool {
+	if rel, err := filepath.Rel(p.Install, path); err == nil && filepath.IsLocal(rel) {
+		return true
+	}
+	_, ok := p.stageFlow(path)
+	return ok
 }
 
 // installedSums are the contents the imports of this pack recorded for the
@@ -1137,7 +1216,7 @@ func (b *planner) dropped() error {
 		}
 		o.Action, o.Owned = Dropped, &po
 		b.plan.Objects = slices.DeleteFunc(b.plan.Objects, func(h Object) bool {
-			return h.Action == NotInPack && h.Kind == o.Kind && h.Name == o.Name
+			return h.Action == NotInPack && h.Kind == o.Kind && h.Name == o.Name && (o.File == nil || h.File == nil || h.File.To == o.File.To)
 		})
 		b.add(*o)
 	}
@@ -1154,6 +1233,19 @@ func (b *planner) dropped() error {
 			}
 		}
 	}
+	// A flow that stays keeps its stage files: whoever still follows it
+	// reads them.
+	for i := range b.plan.Objects {
+		file := &b.plan.Objects[i]
+		if file.Kind != "file" || file.Action != Dropped || file.File == nil || file.File.Flow == "" {
+			continue
+		}
+		for _, flow := range b.plan.Objects {
+			if flow.Kind == "flow" && flow.Action == Dropped && flow.Held != "" && flow.Name == file.File.Flow {
+				file.Held = "flow " + flow.Name + " is kept: " + flow.Held
+			}
+		}
+	}
 	return nil
 }
 
@@ -1164,14 +1256,22 @@ func (b *planner) dropped() error {
 func (b *planner) gone(po store.PackObject) (*Object, error) {
 	switch po.Kind {
 	case "file":
+		// Never a file outside the pack's own directory and its flows' stage
+		// files. A stage file is named by where it is in the home: the pack
+		// has no path for it any more.
 		rel, err := filepath.Rel(b.plan.Install, po.Name)
+		file := &FileOp{To: po.Name, From: filepath.Join(b.p.Dir, rel)}
 		if err != nil || !filepath.IsLocal(rel) {
-			return nil, nil // never a file outside the pack's own directory
+			flow, ok := b.plan.stageFlow(po.Name)
+			if !ok {
+				return nil, nil
+			}
+			rel = stageFileName(flow, filepath.Base(po.Name))
+			file = &FileOp{To: po.Name, From: b.p.Dir, Flow: flow}
 		}
 		if info, err := os.Lstat(po.Name); err != nil || !info.Mode().IsRegular() {
 			return nil, nil
 		}
-		file := &FileOp{To: po.Name, From: filepath.Join(b.p.Dir, rel)}
 		var edited bool
 		if have, err := os.ReadFile(po.Name); err == nil {
 			was := b.installedSums(po.Name)

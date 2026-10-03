@@ -1,5 +1,5 @@
 // Package pack reads a pack, a directory holding one yard's way of working
-// (pack.yaml, roles/, scripts/), and plans what importing it into a yard
+// (pack.yaml, roles/, scripts/, flows/), and plans what importing it into a yard
 // would change. It writes nothing: see docs/packs.md.
 package pack
 
@@ -50,6 +50,9 @@ type Stage struct {
 	Outcomes []store.Outcome `json:"outcomes,omitempty"`
 	Manual   []string        `json:"manual,omitempty"`
 	End      bool            `json:"end,omitempty"`
+	// File is the stage's stage file, a slash path relative to the pack's
+	// directory; "" for a stage the pack says nothing more about.
+	File string `json:"file,omitempty"`
 }
 
 // Group is exactly one of an agent with a role (Agent), a script (Run) or
@@ -406,6 +409,26 @@ func (r *reader) rel(n *yaml.Node, key, what string, executable bool) string {
 	return ""
 }
 
+// stageFile reads a stage file's path as rel does, and refuses a file with
+// nothing in it: the yard reads such a file as no stage file at all, so the
+// pack would name one and the stage would have none.
+func (r *reader) stageFile(n *yaml.Node, key string) string {
+	clean := r.rel(n, key, "stage file", false)
+	if clean == "" {
+		return ""
+	}
+	text, err := os.ReadFile(filepath.Join(r.dir, filepath.FromSlash(clean)))
+	switch {
+	case err != nil:
+		r.errf(n, key, "stage file %s: %v", clean, err)
+	case strings.TrimSpace(string(text)) == "":
+		r.errf(n, key, "stage file %s is empty: leave the key out for a stage without one", clean)
+	default:
+		return clean
+	}
+	return ""
+}
+
 func (r *reader) flow(e entry, groups []Group) Flow {
 	f := Flow{Name: e.key}
 	var stages *entry
@@ -450,8 +473,13 @@ func (r *reader) stage(e entry, stages []string, groups []Group) Stage {
 	}
 	var exits []string
 	badEnd := false
-	for _, k := range r.entries(e.v, e.path, "group", "outcomes", "manual", "end") {
+	for _, k := range r.entries(e.v, e.path, "group", "file", "outcomes", "manual", "end") {
 		switch k.key {
+		case "file":
+			// Nobody works a bead in a stage that closes it, so nobody would
+			// be shown the file: it is refused with the ways out.
+			exits = append(exits, k.key)
+			s.File = r.stageFile(k.v, k.path)
 		case "group":
 			exits = append(exits, k.key)
 			g, ok := r.str(k.v, k.path)
@@ -543,7 +571,9 @@ func hasStage(flows []Flow, stage string) bool {
 }
 
 // Files are the role and script files the pack's groups and residents
-// name, as slash paths relative to its directory, sorted, each once.
+// name, as slash paths relative to its directory, sorted, each once. Stage
+// files are not among them: they belong to a flow and go where the yard
+// reads that flow's (Stage.File).
 func (p *Pack) Files() []string {
 	var out []string
 	for _, g := range p.Groups {

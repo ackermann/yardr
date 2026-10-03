@@ -66,7 +66,7 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 	st, o := yard(t)
 	o.Residents = map[string]string{"mayor": "boss"}
 	res := apply(t, st, build(t, st, load(t, starter), o), answers)
-	if res.Created != 20 || res.Changed != 0 || res.Unchanged != 0 || !res.Recorded || !res.Wrote() {
+	if res.Created != 25 || res.Changed != 0 || res.Unchanged != 0 || !res.Recorded || !res.Wrote() {
 		t.Fatalf("first import = %+v", res)
 	}
 	g, err := st.GetGroup(ctx, "web-builders")
@@ -106,7 +106,7 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 		t.Fatalf("commit = %q", rec.Commit)
 	}
 	// Everything but the resident, which stays the yard's.
-	if len(rec.Objects) != 19 {
+	if len(rec.Objects) != 24 {
 		t.Fatalf("%d objects recorded: %+v", len(rec.Objects), rec.Objects)
 	}
 
@@ -114,11 +114,11 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 	before := head(t, st)
 	o.Residents = nil
 	plan := build(t, st, load(t, starter), o)
-	if len(plan.Questions) != 0 || len(actions(plan, pack.Unchanged)) != 20 {
+	if len(plan.Questions) != 0 || len(actions(plan, pack.Unchanged)) != 25 {
 		t.Fatalf("second plan: questions %v, unchanged %v", plan.Questions, actions(plan, pack.Unchanged))
 	}
 	res = apply(t, st, plan, nil)
-	if res.Wrote() || res.Recorded || res.Unchanged != 20 {
+	if res.Wrote() || res.Recorded || res.Unchanged != 25 {
 		t.Fatalf("second import = %+v", res)
 	}
 	if got := kinds(t, st, before); !slices.Equal(got, []string{"pack_unchanged"}) {
@@ -228,11 +228,13 @@ func TestDroppedObjectsAreReportedAndPrunedOnlyWhenAsked(t *testing.T) {
 	}
 	edit(t, dir,
 		"outcomes: { done: review, question: decide }", "outcomes: { done: approved, question: decide }",
-		"      review:   { group: reviewers, outcomes: { done: approved, changes: new, question: decide } }\n", "",
+		"      review:   { group: reviewers, file: flows/default/review.md,   outcomes: { done: approved, changes: new, question: decide } }\n", "",
 		"  reviewers: { agent: roles/reviewer.md, limit: 3 }\n", "")
 
 	plan := build(t, st, load(t, dir), o)
-	gone := []string{"file roles/reviewer.md", "group web-reviewers", "route rig web stage review -> web-reviewers"}
+	// The stage's file goes with it: named by where it is in the home, since
+	// the pack has no path for it any more.
+	gone := []string{"file flows/starter.default/review.md", "file roles/reviewer.md", "group web-reviewers", "route rig web stage review -> web-reviewers"}
 	if got := actions(plan, pack.Dropped); !slices.Equal(slices.Sorted(slices.Values(got)), gone) {
 		t.Fatalf("dropped = %v, want %v", got, gone)
 	}
@@ -248,12 +250,15 @@ func TestDroppedObjectsAreReportedAndPrunedOnlyWhenAsked(t *testing.T) {
 	if _, err := st.GetGroup(ctx, "web-reviewers"); err != nil {
 		t.Fatalf("web-reviewers was removed without --prune: %v", err)
 	}
-	if _, err := os.Stat(reviewer); err != nil {
-		t.Fatal(err)
+	stage := filepath.Join(o.Home, "flows", "starter.default", "review.md")
+	for _, f := range []string{reviewer, stage} {
+		if _, err := os.Stat(f); err != nil {
+			t.Fatal(err)
+		}
 	}
 	// Still reported the next time: the record keeps what was not pruned.
 	plan = build(t, st, load(t, dir), o)
-	if got := actions(plan, pack.Dropped); len(got) != 3 {
+	if got := actions(plan, pack.Dropped); len(got) != 4 {
 		t.Fatalf("dropped after an import without --prune = %v", got)
 	}
 
@@ -268,8 +273,14 @@ func TestDroppedObjectsAreReportedAndPrunedOnlyWhenAsked(t *testing.T) {
 	if _, err := st.GetGroup(ctx, "web-reviewers"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("web-reviewers after --prune: %v", err)
 	}
-	if _, err := os.Stat(reviewer); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("reviewer.md after --prune: %v", err)
+	for _, f := range []string{reviewer, stage} {
+		if _, err := os.Stat(f); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s after --prune: %v", f, err)
+		}
+	}
+	// The stages the pack still has keep their files.
+	if _, err := os.Stat(filepath.Join(filepath.Dir(stage), "new.md")); err != nil {
+		t.Fatalf("--prune removed the stage file of a stage the pack has: %v", err)
 	}
 	if _, err := st.GetGroup(ctx, "web-extra"); err != nil {
 		t.Fatalf("--prune removed a group the pack never had: %v", err)
@@ -302,7 +313,7 @@ func TestPruneHoldsAGroupAnotherRigUses(t *testing.T) {
 	apply(t, st, build(t, st, load(t, starter), other), answers)
 
 	edit(t, dir,
-		"      decide:   { group: decisions, manual: [backlog, new] }", "      decide:   { manual: [backlog, new] }",
+		"      decide:   { group: decisions, file: flows/default/decide.md,   manual: [backlog, new] }", "      decide:   { manual: [backlog, new] }",
 		"  decisions: { people: true }\n", "")
 	plan := build(t, st, load(t, dir), o)
 	g := find(t, plan, "group", "decisions")
@@ -444,8 +455,8 @@ func TestApplyAgainFinishesAnImportThatFailedHalfway(t *testing.T) {
 	if len(routes) != 5 || len(groups) != 5 {
 		t.Fatalf("after applying again: %d routes, %d groups", len(routes), len(groups))
 	}
-	if got := actions(build(t, st, load(t, starter), o), pack.Unchanged); len(got) != 20 {
-		t.Fatalf("%d unchanged, want 20", len(got))
+	if got := actions(build(t, st, load(t, starter), o), pack.Unchanged); len(got) != 25 {
+		t.Fatalf("%d unchanged, want 25", len(got))
 	}
 }
 
@@ -863,5 +874,212 @@ func TestApplyGivesNewAgentsTheirArguments(t *testing.T) {
 	}
 	if g, _ := st.GetGroup(ctx, "web-builders"); args(g.Config) != "[--permission-mode auto]" {
 		t.Fatalf("web-builders after a second apply = %+v", g)
+	}
+}
+
+// A pack's stage files are copied to where the yard reads a store flow's,
+// <home>/flows/<pack>.<flow>/<stage>.md, so after the import every stage a
+// bead is worked in has its file. They are recorded like the pack's other
+// files: a second import changes nothing, and a copy edited by hand is not
+// overwritten unasked.
+func TestStageFilesGoWhereTheYardReadsThem(t *testing.T) {
+	st, o := yard(t)
+	dir := copyStarter(t)
+	plan := build(t, st, load(t, dir), o)
+	to := filepath.Join(o.Home, "flows", "starter.default", "new.md")
+	f := find(t, plan, "file", "flows/default/new.md")
+	if want := (pack.FileOp{From: filepath.Join(dir, "flows", "default", "new.md"), To: to, Mode: "0644", SHA256: f.File.SHA256, Flow: "starter.default", Stage: "new"}); f.Action != pack.Create || *f.File != want {
+		t.Fatalf("new.md = %+v, file %+v\nwant %+v", f, f.File, want)
+	}
+	apply(t, st, plan, answers)
+
+	flow, err := st.GetFlow(ctx, "starter.default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	have, stray, err := store.HomeStageFiles(o.Home, flow)
+	if err != nil || len(stray) != 0 {
+		t.Fatalf("stage files: %v, stray %v", err, stray)
+	}
+	for _, s := range flow.Stages {
+		if (have[s] != "") == flow.IsTerminal(s) {
+			t.Errorf("stage %s (terminal %v) has the stage file %q", s, flow.IsTerminal(s), have[s])
+		}
+	}
+	want, _ := os.ReadFile(filepath.Join(dir, "flows", "default", "new.md"))
+	if sf, err := store.HomeStageFile(o.Home, "starter.default", "new"); err != nil || sf == nil || sf.Path != to || sf.Text != string(want) {
+		t.Fatalf("the yard reads %+v, %v for stage new", sf, err)
+	}
+	if rec := record(t, st); !slices.ContainsFunc(rec.Objects, func(po store.PackObject) bool {
+		return po.Kind == "file" && po.Name == to && po.SHA256 == f.File.SHA256
+	}) {
+		t.Fatalf("the record lacks %s: %+v", to, rec.Objects)
+	}
+	plan = build(t, st, load(t, dir), o)
+	if got := len(actions(plan, pack.Unchanged)); got != len(plan.Objects) {
+		t.Fatalf("a second import would create %v, change %v", actions(plan, pack.Create), actions(plan, pack.Change))
+	}
+
+	// A stage file written by hand beside them is the yard's.
+	own := filepath.Join(o.Home, "flows", "starter.default", "notes.md")
+	if err := os.WriteFile(own, []byte("ours\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(to, []byte("edited in the yard\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan = build(t, st, load(t, dir), o)
+	if got := actions(plan, pack.NotInPack); !slices.Equal(got, []string{"file flows/starter.default/notes.md"}) {
+		t.Fatalf("not in the pack = %v", got)
+	}
+	if f := find(t, plan, "file", "flows/default/new.md"); f.Action != pack.Change || !f.Edited {
+		t.Fatalf("new.md after a hand edit = %+v", f)
+	}
+	if _, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Actor: "me", Prune: true}); err == nil || !strings.Contains(err.Error(), to+" was edited by hand") {
+		t.Fatalf("applying over a hand edit: %v", err)
+	}
+	if _, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Actor: "me", Prune: true, Overwrite: true}); err != nil {
+		t.Fatal(err)
+	}
+	if text, _ := os.ReadFile(to); string(text) != string(want) {
+		t.Fatalf("after the overwrite: %q", text)
+	}
+	if text, _ := os.ReadFile(own); string(text) != "ours\n" {
+		t.Fatalf("the import touched a stage file it did not bring: %q", text)
+	}
+}
+
+// A pack that names no stage file brings none: the plan has only its roles
+// and scripts, and nothing is made under the home's flows.
+func TestPackWithoutStageFilesBringsNone(t *testing.T) {
+	st, o := yard(t)
+	plan := build(t, st, load(t, writePack(t, smallFiles(small))), o)
+	var files []string
+	for _, obj := range plan.Objects {
+		if obj.Kind == "file" {
+			files = append(files, obj.Name)
+		}
+	}
+	if want := []string{"roles/builder.md", "roles/mayor.md", "scripts/land"}; !slices.Equal(files, want) {
+		t.Fatalf("files = %v, want %v", files, want)
+	}
+	apply(t, st, plan, nil)
+	if _, err := os.Stat(filepath.Join(o.Home, "flows")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the import made %s: %v", filepath.Join(o.Home, "flows"), err)
+	}
+}
+
+// A stage that keeps its place in the pack and loses its file has the copy
+// reported, and removed by a prune. The prune removes a file only where an
+// import puts one: a record naming a file elsewhere removes nothing.
+func TestPruneRemovesAStageFileThePackDropped(t *testing.T) {
+	st, o := yard(t)
+	dir := copyStarter(t)
+	apply(t, st, build(t, st, load(t, dir), o), answers)
+	edit(t, dir, "file: flows/default/decide.md,   ", "")
+	to := filepath.Join(o.Home, "flows", "starter.default", "decide.md")
+
+	plan := build(t, st, load(t, dir), o)
+	if got := actions(plan, pack.Dropped); !slices.Equal(got, []string{"file flows/starter.default/decide.md"}) {
+		t.Fatalf("dropped = %v", got)
+	}
+	if res := apply(t, st, plan, nil); len(res.Pruned) != 0 || !slices.Equal(res.Left, []string{"file flows/starter.default/decide.md"}) {
+		t.Fatalf("without --prune: %+v", res)
+	}
+	if _, err := os.Stat(to); err != nil {
+		t.Fatal(err)
+	}
+	plan = build(t, st, load(t, dir), o)
+	res, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Prune: true, Actor: "me"})
+	if err != nil || !slices.Equal(res.Pruned, []string{"file flows/starter.default/decide.md"}) {
+		t.Fatalf("with --prune: %+v, %v", res, err)
+	}
+	if _, err := os.Stat(to); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("decide.md after --prune: %v", err)
+	}
+
+	for path, want := range map[string]bool{
+		filepath.Join(o.Home, "packs", "starter", "roles", "builder.md"): true,
+		filepath.Join(o.Home, "flows", "starter.default", "new.md"):      true,
+		// Another pack's flow, a flow made by hand, a role of the home, a
+		// directory below a flow's, and no markdown.
+		filepath.Join(o.Home, "flows", "other.default", "new.md"):        false,
+		filepath.Join(o.Home, "flows", "default", "new.md"):              false,
+		filepath.Join(o.Home, "roles", "builder.md"):                     false,
+		filepath.Join(o.Home, "flows", "starter.default", "x", "new.md"): false,
+		filepath.Join(o.Home, "flows", "starter.default", "new.txt"):     false,
+		filepath.Join(o.Home, "flows", "starter.default.md"):             false,
+	} {
+		if got := plan.Removable(path); got != want {
+			t.Errorf("Removable(%s) = %v, want %v", path, got, want)
+		}
+	}
+}
+
+// A flow the rig is moved off stays while another rig follows it, and its
+// stage files stay with it: that rig's beads are still shown them.
+func TestPruneHoldsTheStageFilesOfAFlowAnotherRigFollows(t *testing.T) {
+	st, o := yard(t)
+	if err := st.PutRig(ctx, store.Rig{Name: "api", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	dir := copyStarter(t)
+	edit(t, dir, "      merged:   { end: true }\n",
+		"      merged:   { end: true }\n  short:\n    stages:\n      new:    { group: builders, file: flows/default/new.md, outcomes: { done: merged } }\n      merged: { end: true }\n")
+	o.Flow = "default"
+	apply(t, st, build(t, st, load(t, dir), o), answers)
+	other := o
+	other.Rig = "api"
+	apply(t, st, build(t, st, load(t, dir), other), answers)
+
+	o.Flow = "short"
+	plan := build(t, st, load(t, dir), o)
+	f := find(t, plan, "file", "flows/starter.default/new.md")
+	if f.Action != pack.Dropped || !strings.Contains(f.Held, "flow starter.default is kept: rig api follows it") {
+		t.Fatalf("new.md of the flow rig api follows = %+v", f)
+	}
+	// The same file of the pack, under the flow the rig follows now.
+	if c := find(t, plan, "file", "flows/default/new.md"); c.Action != pack.Create || c.File.To != filepath.Join(o.Home, "flows", "starter.short", "new.md") {
+		t.Fatalf("new.md of flow short = %+v, %+v", c, c.File)
+	}
+	res, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Prune: true, Actor: "me"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(res.Left, "file flows/starter.default/new.md") || slices.ContainsFunc(res.Pruned, func(s string) bool { return strings.HasPrefix(s, "file ") }) {
+		t.Fatalf("result = %+v", res)
+	}
+	if sf, err := store.HomeStageFile(o.Home, "starter.default", "new"); err != nil || sf == nil {
+		t.Fatalf("rig api's stage file was pruned from under it: %+v, %v", sf, err)
+	}
+}
+
+// A flow the store refuses to remove (an open bead pins it) keeps its stage
+// files: the prune leaves them with the flow, for that bead.
+func TestPruneLeavesTheStageFilesOfAFlowItCouldNotRemove(t *testing.T) {
+	st, o := yard(t)
+	dir := copyStarter(t)
+	edit(t, dir, "      merged:   { end: true }\n",
+		"      merged:   { end: true }\n  short:\n    stages:\n      new:    { group: builders, file: flows/default/new.md, outcomes: { done: merged } }\n      merged: { end: true }\n")
+	o.Flow = "short"
+	apply(t, st, build(t, st, load(t, dir), o), answers)
+	if _, err := st.CreateBead(ctx, store.NewBead{Title: "pinned", Rig: "web", Stage: "new", Metadata: map[string]any{"flow": "starter.short"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+
+	o.Flow = "default"
+	res, err := pack.Apply(ctx, st, build(t, st, load(t, dir), o), pack.ApplyOptions{Answers: pack.Answers(answers), Prune: true, Actor: "me"})
+	if err == nil || len(res.PruneErrors) != 1 || !strings.HasPrefix(res.PruneErrors[0], "flow starter.short: ") {
+		t.Fatalf("res = %+v, %v", res, err)
+	}
+	if !slices.Contains(res.Left, "file flows/starter.short/new.md") {
+		t.Fatalf("left = %v, pruned %v", res.Left, res.Pruned)
+	}
+	if sf, err := store.HomeStageFile(o.Home, "starter.short", "new"); err != nil || sf == nil {
+		t.Fatalf("the pinned bead's stage file was pruned: %+v, %v", sf, err)
+	}
+	// The record keeps both, so the next prune tries again.
+	if got := actions(build(t, st, load(t, dir), o), pack.Dropped); !slices.Equal(got, []string{"file flows/starter.short/new.md", "flow starter.short"}) {
+		t.Fatalf("dropped after the prune = %v", got)
 	}
 }
