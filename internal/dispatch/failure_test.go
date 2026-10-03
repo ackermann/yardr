@@ -279,9 +279,13 @@ func TestIdleSessionIsReported(t *testing.T) {
 func TestAgedSessionIsReportedOnce(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()
-	// The hard cap without a grace is twice max_age (600ms here): the
-	// checks below must run before it, and a pass can take tens of ms.
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: map[string]any{"max_age": "300ms"}}))
+	// The hard cap without a grace is twice max_age (4s here): the three
+	// passes below must all run before it, and under -race with the rest
+	// of the suite alongside one pass has taken 300ms. The long backoff
+	// makes a cap that fires early fail loudly (no session) instead of
+	// passing on the fresh session the bead would otherwise restart on.
+	d.Backoff = time.Hour
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: map[string]any{"max_age": "2s"}}))
 	must(t, s.PutGroup(ctx, store.Group{Name: "plain", Runner: "fake"}))
 	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
 	_, _ = s.AddRoute(ctx, store.Route{Stage: "other", Group: "plain"})
@@ -289,7 +293,7 @@ func TestAgedSessionIsReportedOnce(t *testing.T) {
 	p, _ := s.CreateBead(ctx, store.NewBead{Title: "plain", Stage: "other"}, "me")
 
 	must(t, d.Reconcile(ctx))
-	time.Sleep(310 * time.Millisecond)
+	time.Sleep(2050 * time.Millisecond)
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
 	// A new daemon (no memory of the first) does not tell again.
@@ -299,7 +303,7 @@ func TestAgedSessionIsReportedOnce(t *testing.T) {
 	if len(aged) != 1 {
 		t.Fatalf("session_aged events = %d, want 1", len(aged))
 	}
-	if aged[0].Data["stop_after"] != "300ms" {
+	if aged[0].Data["stop_after"] != "2s" {
 		t.Fatalf("session_aged without a grace must say when the cap stops it: %v", aged[0].Data)
 	}
 	if n := len(eventKinds(t, s, p.ID, "session_aged")); n != 0 {
@@ -311,10 +315,9 @@ func TestAgedSessionIsReportedOnce(t *testing.T) {
 	}
 	sess := *got.Session
 
-	// With a grace it is stopped as failed (and, with no backoff here,
-	// routed again in the same pass to a fresh session).
+	// With a grace it is stopped as failed.
 	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake",
-		Config: map[string]any{"max_age": "300ms", "grace": "1ms"}}))
+		Config: map[string]any{"max_age": "2s", "grace": "1ms"}}))
 	must(t, d.Reconcile(ctx))
 	if st, _ := s.GetSession(ctx, sess); st.State != "failed" {
 		t.Fatalf("aged session state = %s after grace, want failed", st.State)
