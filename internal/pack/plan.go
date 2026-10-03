@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -28,6 +29,10 @@ const (
 	// NotInPack is an object of the yard the pack does not carry: an
 	// import leaves it alone.
 	NotInPack = "not_in_pack"
+	// Dropped is an object that came from this pack in an earlier import
+	// and is no longer in it: an import reports it, and removes it only
+	// when told to prune.
+	Dropped = "dropped"
 )
 
 // Options say where a pack would be imported.
@@ -42,6 +47,9 @@ type Options struct {
 	// Residents says which resident of the yard takes each of the pack's:
 	// pack name -> yard name.
 	Residents map[string]string
+	// PackRoles sets the pack's role on a group or resident even where the
+	// rig has its own role of that name, which otherwise wins.
+	PackRoles bool
 	// HookAddr is YARDR_HOOK_ADDR as this process sees it. The server's
 	// own value is not known to its clients.
 	HookAddr string
@@ -57,6 +65,11 @@ type Plan struct {
 	Pack string `json:"pack"`
 	Dir  string `json:"dir"`
 	Rig  string `json:"rig"`
+	// Flow is the pack's flow the rig would follow, by the pack's name.
+	Flow string `json:"flow,omitempty"`
+	// Groups and Residents map the pack's names to the yard's.
+	Groups    map[string]string `json:"groups"`
+	Residents map[string]string `json:"residents"`
 	// Install is where the pack's roles and scripts would be copied.
 	Install   string     `json:"install"`
 	Objects   []Object   `json:"objects"`
@@ -81,6 +94,13 @@ type Object struct {
 	Action  string   `json:"action"`
 	Changes []Diff   `json:"changes,omitempty"`
 	Asks    []string `json:"asks,omitempty"` // question ids
+	// Keeps says what the import leaves as the yard has it though the pack
+	// carries it, and why: a prompt, where the rig has its own role.
+	Keeps []string `json:"keeps,omitempty"`
+	// Of a dropped object: Owned is the earlier import's record of it, and
+	// Held, when set, why not even a prune removes it.
+	Owned *store.PackObject `json:"owned,omitempty"`
+	Held  string            `json:"held,omitempty"`
 
 	File         *FileOp            `json:"file,omitempty"`
 	Group        *store.Group       `json:"group,omitempty"`
@@ -126,6 +146,9 @@ type ResidentOp struct {
 	Resident string   `json:"resident"` // the yard's
 	Prompt   string   `json:"prompt,omitempty"`
 	On       []string `json:"on"`
+	// Restart says the resident is running and its role or what it hears
+	// would change: an import does not restart it.
+	Restart bool `json:"restart,omitempty"`
 }
 
 // SubscriptionOp subscribes a resident; Remove is the subscription it
@@ -180,6 +203,10 @@ var credentialKeys = map[string]string{"linear": "LINEAR_API_KEY", "github": "GI
 // may each have a flow called default.
 func FlowName(pack, flow string) string { return pack + "." + flow }
 
+// FlowQuestion is the id of the question a plan asks when the pack has
+// several flows a rig could follow and nothing says which.
+const FlowQuestion = "pack.flow"
+
 // GroupName is the name a pack's group has in the yard: agent and script
 // groups are the rig's, people groups the yard's.
 func GroupName(rig string, g Group) string {
@@ -195,18 +222,31 @@ type planner struct {
 	p    *Pack
 	o    Options
 	plan *Plan
+	rig  *store.Rig
+	// rec is the record of this pack's last import into the rig, nil when
+	// there was none; all are the records of every import.
+	rec *store.PackImport
+	all []store.PackImport
 }
 
 // Build plans the import of p. It only reads: the store, the pack and the
 // files under the yard's home.
 func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error) {
-	if _, err := st.GetRig(ctx, o.Rig); err != nil {
+	rig, err := st.GetRig(ctx, o.Rig)
+	if err != nil {
 		return nil, err
 	}
-	b := &planner{ctx: ctx, st: st, p: p, o: o, plan: &Plan{
+	b := &planner{ctx: ctx, st: st, p: p, o: o, rig: rig, plan: &Plan{
 		Pack: p.Name, Dir: p.Dir, Rig: o.Rig, Install: filepath.Join(o.Home, "packs", p.Name),
+		Groups: map[string]string{}, Residents: map[string]string{},
 		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, Notes: []string{}, Refused: []string{},
 	}}
+	if b.all, err = st.Packs(ctx); err != nil {
+		return nil, err
+	}
+	if i := slices.IndexFunc(b.all, func(r store.PackImport) bool { return r.Pack == p.Name && r.Rig == o.Rig }); i >= 0 {
+		b.rec = &b.all[i]
+	}
 	for name := range o.Residents {
 		if !slices.ContainsFunc(p.Residents, func(r Resident) bool { return r.Name == name }) {
 			return nil, fmt.Errorf("--resident %s=%s: the pack has no resident %s", name, o.Residents[name], name)
@@ -222,6 +262,7 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 		func() error { return b.flows(flows) },
 		func() error { return b.routes(flows) },
 		b.residents,
+		b.dropped,
 	} {
 		if err := step(); err != nil {
 			return nil, err
@@ -277,8 +318,19 @@ func (b *planner) chosen() ([]Flow, error) {
 			return nil, fmt.Errorf("--flow %s: the pack has no such flow for a rig (it has: %s)", b.o.Flow, strings.Join(names, ", "))
 		}
 		own[0], own[i] = own[i], own[0]
+	} else if i := slices.IndexFunc(own, func(f Flow) bool { return b.rec != nil && f.Name == b.rec.Flow }); i >= 0 {
+		// The flow the rig was given by the last import, unless told anew.
+		own[0], own[i] = own[i], own[0]
+	} else if len(own) > 1 {
+		names := make([]string, len(own))
+		for i, f := range own {
+			names[i] = f.Name
+		}
+		b.plan.Questions = append(b.plan.Questions, Question{ID: FlowQuestion, Object: "pack " + b.p.Name, Field: "flow",
+			Ask: fmt.Sprintf("which of the pack's flows does rig %s follow (--flow <name>)? It has: %s.", b.o.Rig, strings.Join(names, ", ")), Default: own[0].Name})
 	}
 	if len(own) > 0 {
+		b.plan.Flow = own[0].Name
 		out = append(out, own[0])
 		for _, f := range own[1:] {
 			b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("flow %s of the pack is not imported: rig %s would follow %s (--flow %s picks this one)", f.Name, b.o.Rig, own[0].Name, f.Name))
@@ -356,6 +408,7 @@ func (b *planner) groups() error {
 	for _, g := range b.p.Groups {
 		name := GroupName(b.o.Rig, g)
 		named[name] = true
+		b.plan.Groups[g.Name] = name
 		want := store.Group{Name: name, Config: map[string]any{}, Limit: 1}
 		i := slices.IndexFunc(have, func(h store.Group) bool { return h.Name == name })
 		exists := i >= 0
@@ -377,6 +430,21 @@ func (b *planner) groups() error {
 		case g.Agent != "":
 			want.Runner, field = "herdr", "prompt"
 			want.Config[field] = b.installed(g.Agent)
+			own, err := b.rigRole(g.Agent)
+			if err != nil {
+				return err
+			}
+			if own != "" {
+				// The rig's own role wins: an existing prompt stays, and a
+				// new group gets the role by the name the rig's file is
+				// found under.
+				prompt, _ := old.Config[field].(string)
+				if prompt == "" {
+					prompt = g.Agent
+				}
+				want.Config[field] = prompt
+				o.Keeps = append(o.Keeps, fmt.Sprintf("prompt %s: the rig has its own %s", prompt, own))
+			}
 			if !exists {
 				b.ask(&o, "kind", "which agent runs group "+name+" (claude, codex, ...)?", settings["default_kind"])
 				b.ask(&o, "model", "which model does group "+name+" run (empty: the agent's own default)?", "")
@@ -747,9 +815,14 @@ func (b *planner) residents() error {
 	var subs []Object
 	for _, pr := range b.p.Residents {
 		name, told := b.o.Residents[pr.Name]
+		if !told && b.rec != nil {
+			// Whoever took it at the last import, unless told anew.
+			name, told = b.rec.Residents[pr.Name]
+		}
 		if !told {
 			name = pr.Name
 		}
+		b.plan.Residents[pr.Name] = name
 		i := slices.IndexFunc(have, func(r store.Resident) bool { return r.Name == name })
 		exists := i >= 0
 		var old store.Resident
@@ -764,7 +837,18 @@ func (b *planner) residents() error {
 		var changes []Diff
 		if pr.Role != "" {
 			op.Prompt = b.installed(pr.Role)
-			if prompt, _ := old.Config["prompt"].(string); exists && prompt != op.Prompt {
+			prompt, _ := old.Config["prompt"].(string)
+			own, err := b.rigRole(pr.Role)
+			if err != nil {
+				return err
+			}
+			if own != "" && prompt != "" {
+				// A resident is the yard's, not the rig's, so only one that
+				// has a prompt keeps it; a new one gets the pack's.
+				op.Prompt = prompt
+				o.Keeps = append(o.Keeps, fmt.Sprintf("prompt %s: the rig has its own %s", prompt, own))
+			}
+			if exists && prompt != op.Prompt {
 				changes = append(changes, Diff{"prompt", prompt, op.Prompt})
 			}
 		}
@@ -801,6 +885,7 @@ func (b *planner) residents() error {
 			want = append(want, store.Subscription{Source: s.Name, Scope: s.Scope})
 		}
 		taken := make([]bool, len(old.Subscriptions))
+		hears := len(changes) > 0
 		for _, w := range want {
 			so := Object{Kind: "subscription", Name: name + " " + w.String(), Action: Create, Subscription: &SubscriptionOp{Resident: name, Add: &w}}
 			if j := slices.IndexFunc(old.Subscriptions, func(s store.Subscription) bool { return reflect.DeepEqual(s.Where, w.Where) && s.Source == w.Source }); j >= 0 {
@@ -812,7 +897,12 @@ func (b *planner) residents() error {
 					so.Action, so.Changes, so.Subscription.Remove = Change, []Diff{{"scope", have.Scope, w.Scope}}, &have
 				}
 			}
+			hears = hears || so.Action != Unchanged
 			subs = append(subs, so)
+		}
+		if old.Live() && hears {
+			op.Restart = true
+			b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("resident %s is running and its role or what it hears changes: the import does not restart it, so restart it afterwards (yardr resident restart %s)", name, name))
 		}
 		for j, s := range old.Subscriptions {
 			if !taken[j] {
@@ -897,4 +987,197 @@ func (b *planner) needs(source, resident string, exists bool, r store.Resident) 
 		out = append(out, Need{"listener", unknown, "YARDR_HOOK_ADDR is not set here; the server receives hooks only if it was started with it"})
 	}
 	return out, nil
+}
+
+// rigRole names the rig's own role file that stands in for the pack's role
+// rel (roles/builder.md -> .yardr/roles/builder.md), or "" when the rig has
+// none, the pack's file is no role by yardr's naming (roles/<name>.md), or
+// the import was told to use the pack's roles. A rig's own role wins: its
+// repository says how it is worked.
+func (b *planner) rigRole(rel string) (string, error) {
+	dir, name := filepath.Split(filepath.FromSlash(rel))
+	if b.o.PackRoles || filepath.Clean(dir) != "roles" || filepath.Ext(name) != ".md" {
+		return "", nil
+	}
+	has, err := runner.RigRole(b.rig, name)
+	if err != nil {
+		return "", fmt.Errorf("rig %s: looking for its own role %s: %w", b.rig.Name, name, err)
+	}
+	if !has {
+		return "", nil
+	}
+	return ".yardr/roles/" + name, nil
+}
+
+// Ident is the record of an object the pack carries: what a later import
+// finds it by. ok is false for what is not the pack's to own: a resident,
+// which stays the yard's, and an object the pack does not carry.
+func Ident(o Object) (po store.PackObject, ok bool) {
+	if o.Action == Dropped {
+		if o.Owned == nil {
+			return po, false
+		}
+		return *o.Owned, true
+	}
+	if o.Action == NotInPack {
+		return po, false
+	}
+	switch {
+	case o.Kind == "file" && o.File != nil:
+		return store.PackObject{Kind: o.Kind, Name: o.File.To}, true
+	case o.Kind == "group" || o.Kind == "flow":
+		return store.PackObject{Kind: o.Kind, Name: o.Name}, true
+	case o.Kind == "pointer" && o.Pointer != nil:
+		return store.PackObject{Kind: o.Kind, Type: o.Pointer.Type, Flow: o.Pointer.Flow}, true
+	case o.Kind == "route" && o.Route != nil:
+		return store.PackObject{Kind: o.Kind, Stage: o.Route.Stage, Type: o.Route.Type, Group: o.Route.Group}, true
+	case o.Kind == "subscription" && o.Subscription != nil && o.Subscription.Add != nil:
+		return store.PackObject{Kind: o.Kind, Resident: o.Subscription.Resident, Subscription: o.Subscription.Add}, true
+	}
+	return po, false
+}
+
+// dropped adds what the last import of this pack into the rig brought and
+// the pack no longer carries, as far as the yard still has it: a group the
+// pack dropped, the routes and subscriptions of a stage it lost, a file
+// nothing names any more. Each takes the place of the object's "not in the
+// pack" entry, if it had one. A prune removes them, except those held.
+func (b *planner) dropped() error {
+	if b.rec == nil {
+		return nil
+	}
+	carried := map[string]bool{}
+	for _, o := range b.plan.Objects {
+		if po, ok := Ident(o); ok {
+			carried[po.Key()] = true
+		}
+	}
+	for pk, name := range b.rec.Residents {
+		if now, ok := b.plan.Residents[pk]; !ok || now != name {
+			b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("resident %s took the pack's %s at the last import and no longer does: it is the yard's, so its role and the event kinds it hears stay as that import left them", name, pk))
+		}
+	}
+	for _, po := range b.rec.Objects {
+		if carried[po.Key()] {
+			continue
+		}
+		o, err := b.gone(po)
+		if err != nil {
+			return err
+		}
+		if o == nil {
+			continue // the yard no longer has it
+		}
+		o.Action, o.Owned = Dropped, &po
+		b.plan.Objects = slices.DeleteFunc(b.plan.Objects, func(h Object) bool {
+			return h.Action == NotInPack && h.Kind == o.Kind && h.Name == o.Name
+		})
+		b.add(*o)
+	}
+	return nil
+}
+
+// gone is the object an earlier import recorded as po, as the yard has it
+// now and with what removing it takes; nil when the yard no longer has it,
+// or has it in a state that import did not leave (a pointer since set by
+// hand to another flow).
+func (b *planner) gone(po store.PackObject) (*Object, error) {
+	switch po.Kind {
+	case "file":
+		rel, err := filepath.Rel(b.plan.Install, po.Name)
+		if err != nil || !filepath.IsLocal(rel) {
+			return nil, nil // never a file outside the pack's own directory
+		}
+		if info, err := os.Lstat(po.Name); err != nil || !info.Mode().IsRegular() {
+			return nil, nil
+		}
+		return &Object{Kind: po.Kind, Name: filepath.ToSlash(rel), File: &FileOp{To: po.Name}}, nil
+	case "group":
+		if _, err := b.st.GetGroup(b.ctx, po.Name); errors.Is(err, store.ErrNotFound) {
+			return nil, nil
+		} else if err != nil {
+			return nil, err
+		}
+		o := &Object{Kind: po.Kind, Name: po.Name}
+		// A people group is the yard's, shared by its rigs: it stays while
+		// another import or another rig's route still uses it.
+		for _, r := range b.all {
+			if (r.Pack != b.p.Name || r.Rig != b.o.Rig) && slices.ContainsFunc(r.Objects, func(x store.PackObject) bool { return x.Kind == "group" && x.Name == po.Name }) {
+				o.Held = fmt.Sprintf("pack %s in rig %s names it too", r.Pack, r.Rig)
+			}
+		}
+		routes, err := b.st.Routes(b.ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range routes {
+			if o.Held == "" && r.Group == po.Name && (r.Rig == nil || *r.Rig != b.o.Rig) {
+				o.Held = "a route outside rig " + b.o.Rig + " leads to it"
+			}
+		}
+		return o, nil
+	case "flow":
+		if _, err := b.st.GetFlow(b.ctx, po.Name); errors.Is(err, store.ErrNotFound) {
+			return nil, nil
+		} else if err != nil {
+			return nil, err
+		}
+		o := &Object{Kind: po.Kind, Name: po.Name}
+		ptrs, err := b.st.FlowPointers(b.ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range ptrs {
+			if p.Flow == po.Name && p.Rig != b.o.Rig {
+				o.Held = p.String() + " follows it"
+			}
+		}
+		return o, nil
+	case "pointer":
+		ptrs, err := b.st.FlowPointers(b.ctx)
+		if err != nil {
+			return nil, err
+		}
+		p := store.FlowPointer{Rig: b.o.Rig, Type: po.Type, Flow: po.Flow}
+		if !slices.Contains(ptrs, p) {
+			return nil, nil
+		}
+		return &Object{Kind: po.Kind, Name: p.String() + " -> " + p.Flow, Pointer: &p}, nil
+	case "route":
+		routes, err := b.st.Routes(b.ctx)
+		if err != nil {
+			return nil, err
+		}
+		op := &RouteOp{Stage: po.Stage, Rig: b.o.Rig, Type: po.Type, Group: po.Group}
+		for _, r := range routes {
+			if r.Stage == po.Stage && r.Rig != nil && *r.Rig == b.o.Rig && r.Label == nil && deref(r.Type) == po.Type && r.Group == po.Group {
+				op.Delete = append(op.Delete, r.ID)
+				op.Priority = r.Priority
+			}
+		}
+		if len(op.Delete) == 0 {
+			return nil, nil
+		}
+		name := "rig " + b.o.Rig + " stage " + po.Stage
+		if po.Type != "" {
+			name += " type " + po.Type
+		}
+		return &Object{Kind: po.Kind, Name: name + " -> " + po.Group, Route: op}, nil
+	case "subscription":
+		if po.Subscription == nil {
+			return nil, nil
+		}
+		r, err := b.st.GetResident(b.ctx, po.Resident)
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, nil
+		} else if err != nil {
+			return nil, err
+		}
+		sub := *po.Subscription
+		if !slices.ContainsFunc(r.Subscriptions, func(s store.Subscription) bool { return s.String() == sub.String() }) {
+			return nil, nil
+		}
+		return &Object{Kind: po.Kind, Name: po.Resident + " " + sub.String(), Subscription: &SubscriptionOp{Resident: po.Resident, Remove: &sub}}, nil
+	}
+	return nil, nil
 }

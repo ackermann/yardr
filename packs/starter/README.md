@@ -6,7 +6,7 @@ of `contrib/refinery/merge-local`; a test fails when they drift. The format
 and how a pack maps to a yard are in [docs/packs.md](../../docs/packs.md).
 
 `yardr pack check packs/starter --rig <rig>` shows what importing it would
-change. Importing itself is not built yet (yardr-48xe).
+change, and `yardr pack apply packs/starter --rig <rig>` imports it.
 
 - `pack.yaml`: the flows (stages), the groups that work them, and the residents.
 - `roles/`: the prompts.

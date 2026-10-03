@@ -1,0 +1,175 @@
+package store
+
+import (
+	"context"
+	"fmt"
+	"reflect"
+	"slices"
+	"time"
+
+	bolt "go.etcd.io/bbolt"
+)
+
+// bPacks holds what the yard imported, <rig>\x00<pack> -> PackImport: one
+// record per pack and rig, replaced by the next import of that pack there.
+var bPacks = []byte("packs")
+
+func init() { allBuckets = append(allBuckets, bPacks) }
+
+// PackImport is the yard's record of a pack imported into a rig: where it
+// came from, who imported it and when, how the pack's names map to the
+// yard's, and the objects that are the pack's, so a later import can tell
+// what the pack has dropped since. What a pack is, and how it maps to the
+// yard, is package pack's business; the store keeps the record.
+type PackImport struct {
+	Pack string `json:"pack"`
+	Rig  string `json:"rig"`
+	// Source is the directory the pack was read from; Commit its git commit
+	// when it is (in) a repository, Dirty whether it then had changes the
+	// commit does not hold.
+	Source string `json:"source"`
+	Commit string `json:"commit,omitempty"`
+	Dirty  bool   `json:"dirty,omitempty"`
+	// Flow is the pack's flow the rig follows, by the pack's name for it.
+	Flow string    `json:"flow,omitempty"`
+	At   time.Time `json:"at"`
+	By   string    `json:"by"`
+	// Groups and Residents map the pack's names to the yard's.
+	Groups    map[string]string `json:"groups"`
+	Residents map[string]string `json:"residents"`
+	Objects   []PackObject      `json:"objects"`
+}
+
+// PackObject is one object of the yard that came from a pack, with what it
+// takes to find it again.
+type PackObject struct {
+	Kind string `json:"kind"` // file group flow pointer route subscription
+	// Name is the file's path, or the group's or flow's name.
+	Name string `json:"name,omitempty"`
+	// A route's stage, type and group; a pointer's type and flow.
+	Stage string `json:"stage,omitempty"`
+	Type  string `json:"type,omitempty"`
+	Group string `json:"group,omitempty"`
+	Flow  string `json:"flow,omitempty"`
+	// A subscription and the resident it is of.
+	Resident     string        `json:"resident,omitempty"`
+	Subscription *Subscription `json:"subscription,omitempty"`
+}
+
+// Key identifies the object among those of one import, by what stays the
+// same when the pack changes it: a route by its stage and type whatever
+// group it leads to, a pointer by its type, a subscription by its source
+// and filters whatever its scope.
+func (o PackObject) Key() string {
+	switch o.Kind {
+	case "route":
+		return join(o.Kind, o.Stage, o.Type)
+	case "pointer":
+		return join(o.Kind, o.Type)
+	case "subscription":
+		s := Subscription{}
+		if o.Subscription != nil {
+			s = Subscription{Source: o.Subscription.Source, Where: o.Subscription.Where}
+		}
+		return join(o.Kind, o.Resident, s.String())
+	}
+	return join(o.Kind, o.Name)
+}
+
+// same reports whether two records say the same of the yard: when and by
+// whom, and where the pack was read from, aside.
+func (p PackImport) same(o PackImport) bool {
+	p.At, p.By, p.Source, p.Commit, p.Dirty = o.At, o.By, o.Source, o.Commit, o.Dirty
+	return reflect.DeepEqual(normalPack(p), normalPack(o))
+}
+
+// normalPack is p as it reads back from the store: empty maps and lists
+// are stored, and decoded, as such.
+func normalPack(p PackImport) PackImport {
+	if p.Groups == nil {
+		p.Groups = map[string]string{}
+	}
+	if p.Residents == nil {
+		p.Residents = map[string]string{}
+	}
+	p.Objects = slices.Clone(p.Objects)
+	if p.Objects == nil {
+		p.Objects = []PackObject{}
+	}
+	for i, o := range p.Objects {
+		if o.Subscription != nil && len(o.Subscription.Where) == 0 {
+			s := *o.Subscription
+			s.Where = nil
+			p.Objects[i].Subscription = &s
+		}
+	}
+	return p
+}
+
+// RecordPack ends an import of rec.Pack into rec.Rig. changed says whether
+// the import wrote anything. One that did, or whose record differs from the
+// stored one, is recorded under the time and actor of this call and logged
+// as pack_applied. One that changed nothing leaves the record as it is and
+// logs pack_unchanged, the only trace such an import leaves. It reports
+// whether the record was written.
+func (s *Store) RecordPack(ctx context.Context, rec PackImport, changed bool, actor string) (bool, error) {
+	if rec.Pack == "" || rec.Rig == "" {
+		return false, fmt.Errorf("pack record: pack and rig are required")
+	}
+	rec = normalPack(rec)
+	written := false
+	err := s.write(func(w *wtx) error {
+		written = false
+		if w.Bucket(bRigs).Get([]byte(rec.Rig)) == nil {
+			return fmt.Errorf("rig %s: %w", rec.Rig, ErrNotFound)
+		}
+		key := join(rec.Rig, rec.Pack)
+		var old PackImport
+		had, err := get(w.Tx, bPacks, key, &old)
+		if err != nil {
+			return err
+		}
+		data := map[string]any{"pack": rec.Pack, "rig": rec.Rig, "source": rec.Source}
+		if rec.Commit != "" {
+			data["commit"] = rec.Commit
+		}
+		if had && !changed && old.same(rec) {
+			return w.event("", "pack_unchanged", actor, data)
+		}
+		rec.At, rec.By = now(), actor
+		if err := put(w.Tx, bPacks, key, rec); err != nil {
+			return err
+		}
+		written = true
+		return w.event("", "pack_applied", actor, data)
+	})
+	return written, err
+}
+
+// Packs lists what the yard imported, by rig and pack.
+func (s *Store) Packs(ctx context.Context) ([]PackImport, error) {
+	out := []PackImport{}
+	err := s.read(func(tx *bolt.Tx) error {
+		return each(tx, bPacks, "", func(_ []byte, p *PackImport) error {
+			out = append(out, normalPack(*p))
+			return nil
+		})
+	})
+	return out, err
+}
+
+// RemoveSubscription drops exactly sub from the resident (or manual group)
+// name: the one with its source, scope and filters, and no other.
+// RemoveSubscriptions without filters takes every subscription of the
+// source and scope, filtered ones too.
+func (s *Store) RemoveSubscription(ctx context.Context, name string, sub Subscription, actor string) error {
+	return s.write(func(w *wtx) error {
+		return w.changeSubscriptions(name, actor, func(subs []Subscription) ([]Subscription, string, map[string]any, error) {
+			i := slices.IndexFunc(subs, sub.same)
+			if i < 0 {
+				return nil, "", nil, fmt.Errorf("%s has no subscription %s: %w", name, sub, ErrNotFound)
+			}
+			return slices.Delete(slices.Clone(subs), i, i+1), "unsubscribed", map[string]any{"subscriptions": []string{sub.String()}}, nil
+		})
+	})
+}

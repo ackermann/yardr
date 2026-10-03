@@ -99,6 +99,7 @@ type API interface {
 	SetIdentity(ctx context.Context, name, source string, id Identity, actor string) error
 	AddSubscription(ctx context.Context, name string, sub Subscription, actor string) error
 	RemoveSubscriptions(ctx context.Context, name, source, scope string, where map[string]string, actor string) (int, error)
+	RemoveSubscription(ctx context.Context, name string, sub Subscription, actor string) error
 	Unwatch(ctx context.Context, name, bead, actor string) (int, error)
 	FollowThread(ctx context.Context, name, source, thread, actor string) error
 	UnfollowThread(ctx context.Context, name, source, thread, actor string) error
@@ -111,6 +112,9 @@ type API interface {
 	GetHook(ctx context.Context, name string) (*Hook, error)
 	DeleteHook(ctx context.Context, name, actor string) error
 	HookPayload(ctx context.Context, seq uint64) ([]byte, error)
+
+	RecordPack(ctx context.Context, rec PackImport, changed bool, actor string) (bool, error)
+	Packs(ctx context.Context) ([]PackImport, error)
 
 	// Streams: closed when ctx ends or the connection to the owner drops.
 	Subscribe(ctx context.Context, after uint64) (<-chan Event, error)

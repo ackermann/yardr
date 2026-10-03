@@ -9,7 +9,7 @@ go deeper.
 | [flows.md](flows.md) | bead lifecycles: named flows rigs point at, repo flows on the base branch, which flow wins, type flows, terminal stages, outcomes and `bead done` |
 | [pipeline.md](pipeline.md) | how a bead moves in practice, using rig yard: backlog, mayor, builders, review, refinery |
 | [dir-rigs.md](dir-rigs.md) | rigs that are a plain directory, not a repository: `rig init` for them, their flows, a worked example (summarizing a folder of documents) |
-| [packs.md](packs.md) | packs: a yard's flows, groups, roles and residents as one directory; `yardr pack check` and how a pack maps to the yard |
+| [packs.md](packs.md) | packs: a yard's flows, groups, roles and residents as one directory; `yardr pack check`, `apply` and `list`, how a pack maps to the yard, the import record and pruning |
 | [groups.md](groups.md) | groups and runners (manual, exec, herdr), herdr setup |
 | [review.md](review.md) | `yardr review`: working through beads waiting on humans |
 | [residents.md](residents.md) | always-on sessions (a mayor): inbox, hooks, journal, prime, memories |

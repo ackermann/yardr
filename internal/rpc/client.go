@@ -431,6 +431,15 @@ func (c *Client) AddSubscription(ctx context.Context, name string, sub store.Sub
 func (c *Client) RemoveSubscriptions(ctx context.Context, name, source, scope string, where map[string]string, actor string) (int, error) {
 	return callV[int](c, ctx, "RemoveSubscriptions", name, source, scope, where, actor)
 }
+func (c *Client) RemoveSubscription(ctx context.Context, name string, sub store.Subscription, actor string) error {
+	return c.call(ctx, "RemoveSubscription", nil, name, sub, actor)
+}
+func (c *Client) RecordPack(ctx context.Context, rec store.PackImport, changed bool, actor string) (bool, error) {
+	return callV[bool](c, ctx, "RecordPack", rec, changed, actor)
+}
+func (c *Client) Packs(ctx context.Context) ([]store.PackImport, error) {
+	return callV[[]store.PackImport](c, ctx, "Packs")
+}
 func (c *Client) Unwatch(ctx context.Context, name, bead, actor string) (int, error) {
 	return callV[int](c, ctx, "Unwatch", name, bead, actor)
 }

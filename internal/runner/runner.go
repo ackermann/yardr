@@ -296,6 +296,21 @@ func readPrompt(p string, rig *store.Rig, home string) ([]byte, error) {
 	return nil, fmt.Errorf("%s not found (looked in %s)", p, strings.Join(tried, ", "))
 }
 
+// RigRole reports whether the rig has its own role prompt called name
+// (builder.md): .yardr/roles/<name> where readPrompt looks for it, at the
+// tip of the rig's base. A pack's import asks, since a rig's own role wins
+// over the pack's.
+func RigRole(rig *store.Rig, name string) (bool, error) {
+	if rig == nil || rig.Path == "" {
+		return false, nil
+	}
+	_, _, err := readRigFile(rig, filepath.Join(".yardr", "roles", name))
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 // roleName is the file name of a role prompt: roles/<name>.md or <name>.md.
 func roleName(p string) (string, bool) {
 	p = filepath.Clean(p)

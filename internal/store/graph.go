@@ -427,6 +427,13 @@ func (s *Store) DeleteRig(ctx context.Context, name, actor string) (*RigRemoval,
 				return err
 			}
 		}
+		// The record of what was imported into the rig goes with it: its
+		// routes and pointers just did.
+		for _, k := range keys(w.Tx, bPacks, name+"\x00") {
+			if err := w.Bucket(bPacks).Delete([]byte(k)); err != nil {
+				return err
+			}
+		}
 		if err := w.Bucket(bRigs).Delete([]byte(name)); err != nil {
 			return err
 		}

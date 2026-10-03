@@ -6,10 +6,10 @@ those groups run, and what an always-on resident hears. A yard imports a
 pack into a rig; the pack names no agent product, model, argument, rig,
 person, secret or identity, which are the yard's and stay in it.
 
-What is built: `yardr pack check`, which reads a pack and shows what
-importing it would change. Importing itself is **planned** (*planned,
-yardr-48xe*), as is fetching a pack from a git URL; until then a pack is a
-directory on this machine.
+`yardr pack check` reads a pack and shows what importing it would change;
+`yardr pack apply` imports it; `yardr pack list` shows what the yard
+imported. Fetching a pack from a git URL is **planned**; until then a pack
+is a directory on this machine.
 
 The pack yardr ships is [`packs/starter`](../packs/starter): the flow `yardr
 rig init` writes, the roles yardr embeds and the reference refinery, as one
@@ -48,7 +48,7 @@ residents:
   mayor:
     role: roles/mayor.md
     hears:
-      events: [gave_up, session_blocked, unrouted, held, session_idle, session_stalled]
+      events: [gave_up, session_blocked, unrouted, no_runner, workspace_kept, resident_gave_up, runtime_down, session_idle, session_aged, session_stalled, session_model_mismatch, held]
       stages: [decide]
       done: true
     subscribe:
@@ -111,7 +111,7 @@ packs/mine/pack.yaml:7: flows.default.stages.decide.group: no group deciders is 
 ## yardr pack check
 
 ```sh
-yardr pack check <dir> --rig <rig> [--resident <pack's>=<yard's>]… [--flow <flow>] [--json]
+yardr pack check <dir> --rig <rig> [--resident <pack's>=<yard's>]… [--flow <flow>] [--pack-roles] [--json]
 ```
 
 It prints what an import into the rig would do, object by object, and
@@ -122,7 +122,9 @@ writes nothing, neither to the store nor under the home:
 | `create` | the yard has no object of that name |
 | `change`, then `field: old -> new` per field | it has one that differs in what the pack carries |
 | `unchanged` | it has one and nothing would change |
-| `not in the pack` | the yard has it, the pack does not: an import leaves it alone (nothing is pruned) |
+| `not in the pack` | the yard has it, the pack does not, and no import of this pack brought it: an import leaves it alone |
+| `no longer in it` | an earlier import of this pack into the rig brought it and the pack has dropped it since: left alone unless the import is told to prune ([Pruning](#pruning)) |
+| `kept: …` under an object | something the pack carries and the import leaves as the yard has it, with the reason: a prompt, where the rig has its own role |
 
 then what an import would ask, which flow would govern the rig afterwards,
 what each subscribed source has and lacks, and notes. `--json` prints the
@@ -138,9 +140,20 @@ second time.
 copied to `<home>/packs/<pack>/…` (`~/.yardr/packs/starter/roles/builder.md`)
 and referred to by that absolute path. A group's prompt is then no file a
 bead's branch can change, as with the home's own roles
-([configuration.md](configuration.md#role-prompts)), and a rig's
-`.yardr/roles/` is not consulted for it. Files of the pack that nothing in
-`pack.yaml` names are not copied.
+([configuration.md](configuration.md#role-prompts)). Files of the pack that
+nothing in `pack.yaml` names are not copied.
+
+**A rig's own role wins.** Where the rig has `.yardr/roles/<name>.md` on its
+base branch (in its directory, for a dir rig) and the pack's role is
+`roles/<name>.md`, the import does not point the group at the pack's copy:
+a group that exists keeps its prompt as it is, a new group gets
+`roles/<name>.md`, which yardr resolves to the rig's file, and the plan says
+`kept: prompt roles/builder.md: the rig has its own .yardr/roles/builder.md`.
+A resident that has a prompt keeps it the same way. The pack's copy is
+installed all the same, for rigs without their own. To switch a rig to the
+pack's role on purpose, import with `--pack-roles`, which sets the pack's
+copy on every group and resident, or remove the rig's file from its base
+branch and import again.
 
 **Groups.** An agent or script group is the rig's, named `<rig>-<group>`
 (`yardr-builders`); a people group keeps its name and is the yard's, shared
@@ -189,14 +202,15 @@ routes for stages the pack lacks, are left alone.
 
 **Residents.** A resident of the pack is taken by a resident of the yard:
 `--resident mayor=yardmaster`. Without the flag it is the yard's resident
-of the same name, else a question. The pack sets three things and nothing
+of the same name, else whoever took it at the last import, else a question.
+The pack sets three things and nothing
 else (identity, `env_file`, args, model, directory and rotation are the
 yard's):
 
 | pack | resident |
 |---|---|
 | `role` | its `prompt`, the copied file |
-| `hears.events` | its `--on` kinds: the list is replaced |
+| `hears.events` | its `--on` kinds: the list is replaced, so a pack carries every kind its resident should hear |
 | `hears.stages` | one subscription per stage: `yardr all rig=<rig> stage=<stage>` |
 | `hears.done` | `yardr all rig=<rig> state=done` |
 | `subscribe.<source>: <scope>` | `<source> <scope>`; a subscription to the source without filters has its scope changed |
@@ -215,13 +229,142 @@ the yard has and lacks to hear it and answer in it:
 | `credential` | the name of the reply credential (`LINEAR_API_KEY`, `GITHUB_TOKEN`) is set in the resident's `env_file`; only names are read |
 | `listener` | `YARDR_HOOK_ADDR`. Only the server knows whether it listens, so this is `ok` when the variable is set where the command runs and `unknown` otherwise |
 
+## yardr pack apply
+
+```sh
+yardr pack apply <dir> --rig <rig> [--yes] [--prune]
+    [--bind <group>=<kind>[:<model>]]… [--members <group>=a,b]…
+    [--resident <pack's>=<yard's>]… [--flow <flow>] [--pack-roles] [--json]
+```
+
+It makes the plan `pack check` shows, prints it, asks for what the pack
+cannot say, and sets the yard to the pack's state. An object the yard has
+under the same name is overwritten in what the pack carries and keeps the
+rest; nothing is added a second time.
+
+**What it asks.** In a terminal it asks; each question has a flag that
+answers it instead:
+
+| question | flag |
+|---|---|
+| the agent and model of a group the yard lacks, picked from the list the installed agent gives, as in the group form | `--bind <group>=<kind>[:<model>]`; no model is the agent's own default |
+| the members of a people group the yard lacks | `--members <group>=a,b`; `--members <group>=` for anyone |
+| which resident of the yard takes a resident of the pack | `--resident <pack's>=<yard's>` |
+| the agent and model of a resident the yard lacks | `--bind resident:<pack's>=<kind>[:<model>]` |
+| which flow the rig follows, when the pack has several without a type | `--flow <name>` |
+
+`<group>` is the pack's name for the group (`builders`, not
+`web-builders`). A flag for a group or resident the yard already has
+answers nothing, since its binding is the yard's and is kept; that is not
+an error, so the same command can be run again. A resident the import
+creates works in the yard's home, as one made by `yardr resident add` does.
+
+Without a terminal, or with `--json`, nothing is asked: a question without
+its flag is an error that names the flag, never a default. `--yes` applies
+without the confirmation, and without a terminal it is required whenever
+there is something to write.
+
+**An agent group it creates has no arguments.** A pack names none and the
+import asks for none, so an unattended agent in a new group stops at every
+permission prompt until the group is given them
+([groups.md](groups.md#herdr-setup)); the output says so for each such
+group.
+
+**Twice is once.** Applying a pack that is already applied writes no object
+and logs one event, `pack_unchanged`. It needs no flag and no `--yes`: the
+record says which resident took each of the pack's and which flow the rig
+follows.
+
+**All or nothing, as far as the store allows.** Before the first write the
+import checks that the plan is not refused, that every question has a usable
+answer, that the pack's files are the ones the plan was made from, and that
+no group would be given a runner the store refuses. A failure there changes
+nothing. The store has no transaction over several objects, so a write that
+fails after that stops the import where it is: the objects written before it
+stay, no record is written, and since everything is matched by name,
+applying again finishes the import and repeats nothing. A route is added
+before the ones it replaces are deleted, so a stage is never left without a
+route; if a delete fails, the next import finds two routes for the stage and
+replaces both by one.
+
+**Refused** while open beads sit in a stage the pack's flow lacks: the plan
+is printed, the message names the beads, nothing is changed, and the exit
+code is 1. Advance or pin them, then apply again.
+
+**Running residents are not restarted.** A resident that is running and
+whose role, `--on` kinds or subscriptions the import changes keeps its
+session; the plan notes it and the output names it with the command
+(`yardr resident restart <name>`). The new role is read when its next
+session starts.
+
+### The record
+
+The yard records each import, one record per pack and rig, replaced by the
+next import that changes something:
+
+```
+$ yardr pack list
+starter in rig web  2026-10-03 18:40 by mckean
+  source     /Users/me/yardr/packs/starter at 8562e43c1f0a
+  flow       default (stored as starter.default)
+  groups     backlog -> backlog, builders -> web-builders, decisions -> decisions, refinery -> web-refinery, reviewers -> web-reviewers
+  residents  mayor -> yardmaster
+  objects    4 files, 5 groups, 1 flows, 1 flow pointers, 5 routes, 3 subscriptions
+```
+
+| field (`--json`) | meaning |
+|---|---|
+| `pack`, `rig` | what was imported into which rig |
+| `source` | the directory it was read from |
+| `commit`, `dirty` | that directory's git commit when it is in a repository, and whether it held changes the commit does not |
+| `at`, `by` | when, and the actor who applied it |
+| `flow` | the pack's flow the rig follows |
+| `groups`, `residents` | pack name -> yard name |
+| `objects` | the files, groups, flows, pointers, routes and subscriptions that are the pack's |
+
+An import that changes nothing leaves the record as it is, its commit and
+time included: it is the record of the last import that did something. The
+import is logged as `pack_applied` when the record was written and
+`pack_unchanged` when not, with pack, rig, source and commit. Removing a rig
+removes its records.
+
+A resident is in the mapping and not among the objects: it is the yard's.
+
+### Pruning
+
+An object the last import brought and the pack no longer carries (a group
+it dropped, the route of a stage it lost, a role file nothing names any
+more, a subscription to a stage a resident no longer hears) shows in the
+plan as `no longer in it`. An import leaves it in the yard and lists it;
+`--prune` removes it. Only what the record names is ever pruned: a group
+or route made by hand stays `not in the pack`, and so does everything in a
+yard no pack was imported into.
+
+- A group is removed as `yardr group rm` does: with the routes that lead to
+  it, releasing the beads its live sessions hold.
+- A people group is the yard's, shared by its rigs: one that another import
+  names, or that a route outside the rig leads to, is **held** and stays
+  even with `--prune`. So does a flow another rig follows. The plan says
+  why.
+- A resident is never removed. One that no longer takes a resident of the
+  pack keeps its role and `--on` kinds as the import left them; its
+  subscriptions that came from the pack are pruned like any other object.
+- A file is removed only under `<home>/packs/<pack>/`.
+
+Pruning happens after the import, before the record. A removal the store
+refuses (a flow an open bead still pins) does not undo the rest: what could
+be removed is, the record keeps the object so the next `--prune` tries
+again, and the command exits 1 naming it.
+
 ## The plan as data
 
-`--json` prints the plan an import will execute:
+`pack check --json` prints the plan an import executes (`pack apply --json`
+prints `{"plan": …, "result": …}`):
 
 ```json
 {
   "pack": "starter", "dir": "/…/packs/starter", "rig": "yardr",
+  "flow": "default", "groups": {"builders": "yardr-builders"}, "residents": {"mayor": "yardmaster"},
   "install": "/Users/me/.yardr/packs/starter",
   "objects": [
     {"kind": "group", "name": "yardr-builders", "action": "change",
@@ -236,9 +379,10 @@ the yard has and lacks to hear it and answer in it:
 ```
 
 Objects come in the order an import does them: files, groups, flows,
-pointers, routes, residents, subscriptions. `action` is `create`, `change`,
-`unchanged` or `not_in_pack`. Each object carries what the import would
-write, under its kind:
+pointers, routes, residents, subscriptions; dropped objects come last.
+`action` is `create`, `change`, `unchanged`, `not_in_pack` or `dropped`.
+Each object carries what the import would write (for a dropped one, what a
+prune removes), under its kind:
 
 | kind | carries |
 |---|---|
@@ -247,8 +391,12 @@ write, under its kind:
 | `flow` | the whole flow, its stages in order |
 | `pointer` | `rig`, `type`, `flow` |
 | `route` | `stage`, `rig`, `type`, `group`, `priority`, and `delete`: the ids of the routes it replaces |
-| `resident` | `pack` (its name in the pack), `resident` (in the yard), `prompt`, `on` |
+| `resident` | `pack` (its name in the pack), `resident` (in the yard), `prompt`, `on`, and `restart` when it is running and the import changes its role or what it hears |
 | `subscription` | `resident`, `add`, and `remove` when a scope changes |
 
 An object's `asks` are the ids of the questions whose answers it still
-needs. A plan with anything under `refused` must not be applied.
+needs, and its `keeps` what the import leaves as the yard has it. A dropped
+object has `owned`, the record's entry for it, and `held` when not even a
+prune removes it. The question `pack.flow` belongs to no object: it is
+asked when the pack has several flows a rig could follow. A plan with
+anything under `refused` must not be applied.

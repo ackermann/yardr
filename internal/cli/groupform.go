@@ -31,6 +31,9 @@ type groupAnswers struct {
 	Members  string // manual: comma-separated actors who may move beads on
 	Limit    string
 	Other    map[string]any // config keys the form does not edit, kept as is
+	// For goes into the titles of the agent questions when they are asked
+	// outside the group form, which has named its group already.
+	For string
 }
 
 func (a groupAnswers) group() store.Group {
@@ -245,6 +248,49 @@ func (a *app) groupForm(ctx context.Context, st store.API) error {
 // agentFields asks for the agent kind, model, permissions, prompt and
 // extra arguments of a herdr group.
 func (a *app) agentFields(ctx context.Context, ans *groupAnswers) error {
+	if err := a.agentKindModel(ctx, ans); err != nil {
+		return err
+	}
+	preset, _ := agents.Lookup(ans.Kind)
+
+	// Permissions: the agent's own flags.
+	permPick := noPerm
+	popts := []huh.Option[string]{huh.NewOption("None — the agent asks as usual", noPerm)}
+	for _, p := range preset.Permissions {
+		popts = append(popts, huh.NewOption(p.Label+" — "+p.Note, strings.Join(p.Args, " ")))
+		if slices.Equal(p.Args, ans.PermArgs) {
+			permPick = strings.Join(p.Args, " ")
+		}
+	}
+	popts = append(popts, huh.NewOption("Custom flags…", customPerm))
+	if err := ask(huh.NewSelect[string]().Title("Permissions").
+		Description("What the agent may do without asking. Unattended agents stop at every prompt.").
+		Options(popts...).Value(&permPick)); err != nil {
+		return err
+	}
+	switch permPick {
+	case noPerm:
+		ans.PermArgs = nil
+	case customPerm:
+		flags := strings.Join(ans.PermArgs, " ")
+		if err := ask(huh.NewInput().Title("Permission flags").Value(&flags)); err != nil {
+			return err
+		}
+		ans.PermArgs = strings.Fields(flags)
+	default:
+		ans.PermArgs = strings.Fields(permPick)
+	}
+
+	return ask(
+		huh.NewInput().Title("Prompt file").Description("Optional; roles/builder.md reads the rig's .yardr/roles/builder.md, else ~/.yardr/roles/.").
+			Value(&ans.Prompt),
+		huh.NewInput().Title("Extra agent arguments").Description("Optional, space-separated.").Value(&ans.Extra),
+	)
+}
+
+// agentKindModel asks for an agent kind and, from the list the installed
+// agent gives, its model: the binding a pack's import asks for too.
+func (a *app) agentKindModel(ctx context.Context, ans *groupAnswers) error {
 	kindPick := ans.Kind
 	if _, ok := agents.Lookup(ans.Kind); !ok && ans.Kind != "" {
 		kindPick = otherKind
@@ -254,7 +300,7 @@ func (a *app) agentFields(ctx context.Context, ans *groupAnswers) error {
 		opts = append(opts, huh.NewOption(p.Label, p.Kind))
 	}
 	opts = append(opts, huh.NewOption("Other herdr agent…", otherKind))
-	if err := ask(huh.NewSelect[string]().Title("Agent").Options(opts...).Value(&kindPick)); err != nil {
+	if err := ask(huh.NewSelect[string]().Title("Agent" + ans.For).Options(opts...).Value(&kindPick)); err != nil {
 		return err
 	}
 	if kindPick == otherKind {
@@ -294,7 +340,7 @@ func (a *app) agentFields(ctx context.Context, ans *groupAnswers) error {
 	if listErr != nil || len(models) == 0 {
 		desc = fmt.Sprintf("Could not list %s's models (%v); pick the default or type one.", ans.Kind, or(fmt.Sprint(listErr), "none listed"))
 	}
-	if err := ask(huh.NewSelect[string]().Title("Model").Description(desc).Options(mopts...).
+	if err := ask(huh.NewSelect[string]().Title("Model" + ans.For).Description(desc).Options(mopts...).
 		Height(min(len(mopts)+2, 14)).Value(&modelPick)); err != nil {
 		return err
 	}
@@ -306,40 +352,7 @@ func (a *app) agentFields(ctx context.Context, ans *groupAnswers) error {
 		}
 	}
 	ans.Model = modelPick
-
-	// Permissions: the agent's own flags.
-	permPick := noPerm
-	popts := []huh.Option[string]{huh.NewOption("None — the agent asks as usual", noPerm)}
-	for _, p := range preset.Permissions {
-		popts = append(popts, huh.NewOption(p.Label+" — "+p.Note, strings.Join(p.Args, " ")))
-		if slices.Equal(p.Args, ans.PermArgs) {
-			permPick = strings.Join(p.Args, " ")
-		}
-	}
-	popts = append(popts, huh.NewOption("Custom flags…", customPerm))
-	if err := ask(huh.NewSelect[string]().Title("Permissions").
-		Description("What the agent may do without asking. Unattended agents stop at every prompt.").
-		Options(popts...).Value(&permPick)); err != nil {
-		return err
-	}
-	switch permPick {
-	case noPerm:
-		ans.PermArgs = nil
-	case customPerm:
-		flags := strings.Join(ans.PermArgs, " ")
-		if err := ask(huh.NewInput().Title("Permission flags").Value(&flags)); err != nil {
-			return err
-		}
-		ans.PermArgs = strings.Fields(flags)
-	default:
-		ans.PermArgs = strings.Fields(permPick)
-	}
-
-	return ask(
-		huh.NewInput().Title("Prompt file").Description("Optional; roles/builder.md reads the rig's .yardr/roles/builder.md, else ~/.yardr/roles/.").
-			Value(&ans.Prompt),
-		huh.NewInput().Title("Extra agent arguments").Description("Optional, space-separated.").Value(&ans.Extra),
-	)
+	return nil
 }
 
 // ask runs fields as one form page. Tests replace it to answer forms.

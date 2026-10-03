@@ -66,84 +66,30 @@ func find(t *testing.T, p *pack.Plan, kind, name string) pack.Object {
 	return pack.Object{}
 }
 
-// apply does to the yard what the plan says, from the plan alone: what the
-// apply command will do, and the proof here that a plan carries enough to
-// be executed. answers are the questions' answers by id.
-func apply(t *testing.T, st store.API, p *pack.Plan, answers map[string]string) {
+// apply applies the plan as pack apply does. answers are the questions'
+// answers by id; a question without one gets an agent kind, a directory, or
+// the empty answer (the agent's own model, no members).
+func apply(t *testing.T, st store.API, p *pack.Plan, answers map[string]string) *pack.Result {
 	t.Helper()
-	must := func(err error) {
-		t.Helper()
-		if err != nil {
-			t.Fatal(err)
+	a := pack.Answers{}
+	for _, q := range p.Questions {
+		switch q.Field {
+		case "kind":
+			a[q.ID] = "claude"
+		case "dir":
+			a[q.ID] = t.TempDir()
+		default:
+			a[q.ID] = ""
 		}
 	}
-	for _, o := range p.Objects {
-		if o.Action == pack.Unchanged || o.Action == pack.NotInPack {
-			continue
-		}
-		answer := func(field string) string { return answers[o.Kind+"."+o.Name+"."+field] }
-		switch o.Kind {
-		case "file":
-			text, err := os.ReadFile(o.File.From)
-			must(err)
-			must(os.MkdirAll(filepath.Dir(o.File.To), 0o755))
-			mode := os.FileMode(0o644)
-			if o.File.Mode == "0755" {
-				mode = 0o755
-			}
-			must(os.WriteFile(o.File.To, text, mode))
-			must(os.Chmod(o.File.To, mode))
-		case "group":
-			g := *o.Group
-			if v := answer("kind"); v != "" {
-				g.Config["kind"] = v
-			}
-			if v := answer("model"); v != "" {
-				g.Config["model"] = v
-			}
-			if v := answer("members"); v != "" {
-				g.Members = strings.Split(v, ",")
-			}
-			must(st.PutGroup(ctx, g))
-		case "flow":
-			_, err := st.PutFlow(ctx, *o.Flow, "me")
-			must(err)
-		case "pointer":
-			must(st.SetFlowPointer(ctx, o.Pointer.Rig, o.Pointer.Type, o.Pointer.Flow, "me"))
-		case "route":
-			for _, id := range o.Route.Delete {
-				must(st.DeleteRoute(ctx, id))
-			}
-			if o.Route.Group == "" {
-				continue
-			}
-			r := store.Route{Stage: o.Route.Stage, Rig: &o.Route.Rig, Group: o.Route.Group, Priority: o.Route.Priority}
-			if o.Route.Type != "" {
-				r.Type = &o.Route.Type
-			}
-			_, err := st.AddRoute(ctx, r)
-			must(err)
-		case "resident":
-			def := store.Resident{Name: o.Resident.Resident, Runner: "herdr", Config: map[string]any{}}
-			if have, err := st.GetResident(ctx, def.Name); err == nil {
-				def = *have
-				def.Revision = ""
-			}
-			if o.Resident.Prompt != "" {
-				def.Config["prompt"] = o.Resident.Prompt
-			}
-			def.On = o.Resident.On
-			_, err := st.PutResident(ctx, def, "me")
-			must(err)
-		case "subscription":
-			s := o.Subscription
-			if s.Remove != nil {
-				_, err := st.RemoveSubscriptions(ctx, s.Resident, s.Remove.Source, s.Remove.Scope, s.Remove.Where, "me")
-				must(err)
-			}
-			must(st.AddSubscription(ctx, s.Resident, *s.Add, "me"))
-		}
+	for k, v := range answers {
+		a[k] = v
 	}
+	res, err := pack.Apply(ctx, st, p, pack.ApplyOptions{Answers: a, Actor: "me"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
 }
 
 // copyStarter is the starter pack in a directory the test may change.
@@ -218,7 +164,7 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 		t.Fatalf("flow stages = %v", got)
 	}
 	m := find(t, plan, "resident", "mayor").Resident
-	if m.Prompt != filepath.Join(install, "roles", "mayor.md") || len(m.On) != 6 {
+	if m.Prompt != filepath.Join(install, "roles", "mayor.md") || len(m.On) != 12 {
 		t.Fatalf("mayor = %+v", m)
 	}
 	if len(plan.Governs) != 1 || plan.Governs[0].Flow != "starter.default" || plan.Governs[0].Now != "none" || plan.Governs[0].Type != "" {
@@ -338,7 +284,8 @@ func TestYardSetUpByHand(t *testing.T) {
 	}
 	_, err := st.PutResident(ctx, store.Resident{Name: "boss", Runner: "herdr", Dir: "/home/boss", MaxAge: "6h",
 		Config: map[string]any{"kind": "claude", "prompt": "/old/roles/mayor.md", "env_file": "/nowhere.env"},
-		On:     []string{"held", "gave_up", "session_blocked", "unrouted", "session_idle", "session_stalled"}}, "me")
+		On: []string{"held", "gave_up", "session_blocked", "unrouted", "session_idle", "session_stalled",
+			"no_runner", "workspace_kept", "resident_gave_up", "runtime_down", "session_aged", "session_model_mismatch"}}, "me")
 	must(err)
 	must(st.AddSubscription(ctx, "boss", store.Subscription{Source: "linear", Scope: "all"}, "me"))
 	must(st.AddSubscription(ctx, "boss", store.Subscription{Source: "yardr", Scope: "all", Where: map[string]string{"label": "ui"}}, "me"))

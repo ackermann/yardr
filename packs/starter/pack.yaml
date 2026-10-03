@@ -48,7 +48,7 @@ residents:
   mayor:
     role: roles/mayor.md
     hears:
-      events: [gave_up, session_blocked, unrouted, held, session_idle, session_stalled]
+      events: [gave_up, session_blocked, unrouted, no_runner, workspace_kept, resident_gave_up, runtime_down, session_idle, session_aged, session_stalled, session_model_mismatch, held]
       stages: [decide]
       done: true
     subscribe:
