@@ -246,3 +246,38 @@ func TestRigSourcesStoreFlowAndHomeRole(t *testing.T) {
 		t.Errorf("a missing prompt: %s", last)
 	}
 }
+
+func TestRigSourcesIncludesAllPotentialRouteGroups(t *testing.T) {
+	a, _, _ := sourcesYard(t)
+	ctx := context.Background()
+	for _, name := range []string{"web-specialists", "yard-general", "yard-unlisted"} {
+		if err := a.st.PutGroup(ctx, store.Group{Name: name, Runner: "herdr", Config: map[string]any{"kind": "claude", "prompt": "roles/reviewer.md"}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rig := "web"
+	label := "special"
+	for _, r := range []store.Route{
+		// A label-specific route may win for beads that carry this label,
+		// even though the ordinary route also matches the review stage.
+		{Stage: "review", Rig: &rig, Label: &label, Group: "web-specialists", Priority: 10},
+		// Unscoped routes apply to beads in this rig too, including a stage
+		// outside the current flow.
+		{Stage: "review", Group: "yard-general"},
+		{Stage: "unlisted", Group: "yard-unlisted"},
+	} {
+		if _, err := a.st.AddRoute(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := run(t, a.rigSourcesCmd(), "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(sourceLines(t, out), "\n")
+	for _, name := range []string{"web-specialists", "yard-general", "yard-unlisted"} {
+		if !strings.Contains(got, "role "+name+" rig (.yardr/roles/reviewer.md@") {
+			t.Errorf("potential route group %s is missing:\n%s", name, got)
+		}
+	}
+}

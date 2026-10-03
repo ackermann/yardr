@@ -295,9 +295,17 @@ func (b *sourcer) flows() error {
 		claimed := map[string]bool{}
 		var stages []rigSource
 		for _, s := range f.Stages {
-			probe := store.Bead{Stage: s, Type: or(g.Type, "task"), Rig: &b.rig.Name}
-			if r := dispatch.Match(routes, probe); r != nil && !slices.Contains(b.staged, r.Group) {
-				b.staged = append(b.staged, r.Group)
+			for _, r := range routes {
+				if r.Stage != s || (r.Rig != nil && *r.Rig != b.rig.Name) ||
+					(g.Type != "" && r.Type != nil && *r.Type != g.Type) {
+					continue
+				}
+				// Labels and (for the rig's default flow) bead types are not
+				// known here. Every route matching the known selectors may be
+				// the one dispatch uses for some bead of this rig.
+				if !slices.Contains(b.staged, r.Group) {
+					b.staged = append(b.staged, r.Group)
+				}
 			}
 			if f.IsTerminal(s) {
 				continue
@@ -340,7 +348,7 @@ func (b *sourcer) flows() error {
 	// A route of the rig no stage of its flows uses still leads to a group.
 	var rest []string
 	for _, r := range routes {
-		if r.Rig != nil && *r.Rig == b.rig.Name && !slices.Contains(b.staged, r.Group) && !slices.Contains(rest, r.Group) {
+		if (r.Rig == nil || *r.Rig == b.rig.Name) && !slices.Contains(b.staged, r.Group) && !slices.Contains(rest, r.Group) {
 			rest = append(rest, r.Group)
 		}
 	}
