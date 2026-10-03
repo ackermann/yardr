@@ -464,6 +464,112 @@ func TestRepoFlowsGitErrors(t *testing.T) {
 	}
 }
 
+// Replacing a named flow is refused while an open bead that follows it, by
+// a rig's or type's pointer or by its own pin, sits in a stage the new
+// version lacks; the beads are named with what leads them to the flow and
+// the stored flow is kept. Closed beads, beads pinned elsewhere and beads
+// of a type with its own pointer do not stand in the way (yardr-wna2).
+func TestPutFlowRefusesStrays(t *testing.T) {
+	s, ctx := flowRig(t)
+	if err := s.PutRig(ctx, store.Rig{Name: "web", Base: "origin/main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	const old, dropped = "triage -> new\nnew -> done\ndone terminal\n", "new -> done\ndone terminal\n"
+	putNamed(t, s, "t", old)
+	putNamed(t, s, "other", old)
+	for _, p := range [][3]string{{"yard", "", "t"}, {"web", "bug", "t"}, {"yard", "chore", "other"}} {
+		if err := s.SetFlowPointer(ctx, p[0], p[1], p[2], "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk := func(nb store.NewBead) *store.Bead {
+		t.Helper()
+		nb.Stage = "triage"
+		b, err := s.CreateBead(ctx, nb, "me")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	stray := mk(store.NewBead{Title: "stray", Rig: "yard"})
+	bug := mk(store.NewBead{Title: "bug", Rig: "web", Type: "bug"})
+	pin := mk(store.NewBead{Title: "pin", Rig: "web", Metadata: map[string]any{"flow": "t"}})
+	// Not in the way: web's tasks follow no flow, yard's chores and the
+	// bead pinned to other follow other, and the closed bead is done.
+	task := mk(store.NewBead{Title: "task", Rig: "web"})
+	chore := mk(store.NewBead{Title: "chore", Rig: "yard", Type: "chore"})
+	elsewhere := mk(store.NewBead{Title: "elsewhere", Rig: "yard", Metadata: map[string]any{"flow": "other"}})
+	closed := mk(store.NewBead{Title: "closed", Rig: "yard"})
+	if _, err := s.CloseBead(ctx, closed.ID, "gone", store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+
+	replace := func() error {
+		f, err := store.ParseFlow(dropped)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.Name = "t"
+		_, err = s.PutFlow(ctx, *f, "me")
+		return err
+	}
+	err := replace()
+	if err == nil {
+		t.Fatal("flow t replaced over beads in triage")
+	}
+	for _, want := range []string{
+		"the new flow t lacks the stage of open beads",
+		"in rig yard: " + stray.ID + " (triage)",
+		"in rig web type bug: " + bug.ID + " (triage)",
+		"pinning it: " + pin.ID + " (triage)",
+		"--meta flow=",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error lacks %q: %v", want, err)
+		}
+	}
+	for _, b := range []*store.Bead{task, chore, elsewhere, closed} {
+		if strings.Contains(err.Error(), b.ID) {
+			t.Errorf("error names %s (%s), which the new version does not strand: %v", b.ID, b.Title, err)
+		}
+	}
+	if f, err := s.GetFlow(ctx, "t"); err != nil || !slices.Contains(f.Stages, "triage") {
+		t.Fatalf("refused version was kept: %+v, %v", f, err)
+	}
+	evs, _ := s.EventsSince(ctx, 0, 0)
+	sets := 0
+	for _, e := range evs {
+		if e.Kind == "flow_set" {
+			sets++
+		}
+	}
+	if sets != 2 {
+		t.Errorf("flow_set events = %d, want 2: the refused save left one", sets)
+	}
+
+	// Each bead out of the dropped stage, or pinned to a flow that has
+	// it, stops standing in the way; the last one still does.
+	if _, err := s.Advance(ctx, stray.ID, "new", store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpdateBead(ctx, bug.ID, store.BeadPatch{Metadata: map[string]any{"flow": "other"}}, store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	err = replace()
+	if err == nil || !strings.Contains(err.Error(), "open beads pinning it: "+pin.ID+" (triage)") || strings.Contains(err.Error(), stray.ID) || strings.Contains(err.Error(), bug.ID) {
+		t.Fatalf("replace with only the pinned bead in triage: %v", err)
+	}
+	if _, err := s.Advance(ctx, pin.ID, "new", store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := replace(); err != nil {
+		t.Fatalf("replace with no open bead in a dropped stage: %v", err)
+	}
+	if f, err := s.GetFlow(ctx, "t"); err != nil || slices.Contains(f.Stages, "triage") {
+		t.Fatalf("flow t after the replace: %+v, %v", f, err)
+	}
+}
+
 // Pointing a rig or type at a flow, or clearing the pointer, is refused
 // while an open bead it would hand to a new flow sits in a stage that flow
 // lacks; the beads are named, the pointer is not changed. Pinned beads,

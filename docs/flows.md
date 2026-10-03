@@ -36,7 +36,7 @@ yardr flow show yard                          # a rig: every flow governing it, 
 ```
 
 Changing a named flow with `flow set` changes it for every rig and type
-pointing at it, at once. `flow rm` names what still uses the flow (`rig
+pointing at it, and every bead pinning it, at once. `flow rm` names what still uses the flow (`rig
 yard`, `rig yard type decision`, `bead yard-x` for an open bead pinning it)
 and removes nothing until they point elsewhere.
 
@@ -58,15 +58,33 @@ Clearing a pointer checks against whatever would govern next (the rig's
 pointer, the repository's `type/<type>.flow` or `default.flow`), and
 names that flow per bead (`yard-x (triage, not in flow default)`). A rig
 whose flows would come from a checkout git cannot read is refused with
-git's error. Replacing a named flow with `flow set` is not checked: a bead
-left in a stage the new version lacks rejoins the flow at its first stage
-(see below).
+git's error.
+
+`flow set`, replacing a named flow, makes the same check for every open
+bead that follows the name: those a rig's or type's pointer at it reaches
+(as above), and those pinning it. A bead in a stage the new version lacks
+is named with what leads it to the flow, and the stored flow is kept:
+
+```
+the new flow code lacks the stage of open beads in rig yard: yard-x
+(triage); in rig webapp type bug: webapp-y (triage); pinning it: yard-z
+(triage); advance them to a stage it has, or pin them to another flow
+(yardr bead update <id> --meta flow=<name>), then set the flow again
+```
+
+A flow in a rig's repository has no such check, since no command changes
+it: when the base branch moves to a version of the file without a stage,
+an open bead in that stage stays there, and rejoins the flow at its first
+stage (see below).
 
 ### Stage order
 
 A flow's stages are ordered as its rules first name them, and the order
 matters: the **first stage** is where a bead in a stage the flow does not
-know may rejoin it, and `yardr flow show` lists stages in it. The line
+know may rejoin it, and `yardr flow show` lists stages in it. Such a bead
+comes from a repository flow that lost a stage on the base branch, or
+from before the rig had a flow: `flow set` and `rig flow` refuse a change
+that would leave one (above). The line
 format carries the order as written. A JSON flow lists it under
 `"stages"`, in full or in part; stages left out follow in the order the
 rules reach them from the listed ones (each stage's next stages, in

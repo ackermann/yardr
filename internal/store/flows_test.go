@@ -373,16 +373,21 @@ func TestFlowTerminalStageCloses(t *testing.T) {
 }
 
 func TestFlowStageUnknownToFlowCanRejoin(t *testing.T) {
-	s, ctx := flowRig(t)
-	// A bead in a stage the flow then loses: pointing the rig at a flow
-	// without the stage is refused (TestSetFlowPointerRefusesStrays), but
-	// replacing the named flow is not.
-	putFlow(t, s, "yard", "", "blocked -> new\n"+yardFlow)
+	// A bead in a stage the flow then loses. Pointing the rig at a flow
+	// without the stage, or replacing a named flow with one, is refused
+	// (TestSetFlowPointerRefusesStrays, TestPutFlowRefusesStrays); a flow
+	// in the rig's repository loses it when the base moves, which no
+	// command stands in front of.
+	dir := gitRepo(t, map[string]string{".yardr/flows/default.flow": "blocked -> new\n" + yardFlow})
+	s, ctx := storetest.New(t), context.Background()
+	if err := s.PutRig(ctx, store.Rig{Name: "yard", Path: dir, Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "old", Rig: "yard", Stage: "blocked"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
-	putNamed(t, s, "yard", yardFlow)
+	commitFiles(t, dir, map[string]string{".yardr/flows/default.flow": yardFlow})
 	// It rejoins at the flow's first stage only: from an unknown stage any
 	// stage would let it skip review and land as approved or merged.
 	next, err := s.NextStages(ctx, b.ID)

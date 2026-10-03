@@ -37,7 +37,12 @@ A flow file has one rule per line (# starts a comment):
 
 Stages are ordered as the rules first name them; the first stage is where a
 bead in a stage the flow does not know rejoins it. A JSON flow lists them
-under "stages", or is refused when two source stages have no order.`,
+under "stages", or is refused when two source stages have no order.
+
+Replacing a flow is refused, naming the beads, while an open bead that
+follows it (through a rig's or type's pointer, or its own pin) sits in a
+stage the new version lacks. Advance them to a stage it has, or pin them to
+another flow (yardr bead update <id> --meta flow=<name>), then set it again.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			if file == "" {

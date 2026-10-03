@@ -309,7 +309,12 @@ func (f *Flow) Edges(stage string) []string {
 }
 
 // PutFlow saves (replacing) the named flow f.Name. Every rig and type that
-// points at the name follows the new version at once.
+// points at the name, and every bead pinning it, follows the new version at
+// once, so the save is refused, naming the beads and what leads them to the
+// flow, while an open bead among them sits in a stage the new version lacks
+// (flowStrays). That is the check SetFlowPointer makes, for the same
+// reason: a configuration command does not move beads, nor leave one in a
+// stage nobody is routed to.
 func (s *Store) PutFlow(ctx context.Context, f Flow, actor string) (*Flow, error) {
 	if !validFlowName.MatchString(f.Name) {
 		return nil, fmt.Errorf("flow name %q: use letters, digits, '.', '_' or '-'", f.Name)
@@ -321,12 +326,64 @@ func (s *Store) PutFlow(ctx context.Context, f Flow, actor string) (*Flow, error
 		if err := put(w.Tx, bFlows, f.Name, f); err != nil {
 			return err
 		}
+		// With the new version in place, as in SetFlowPointer; an error
+		// here rolls the save back.
+		strays, err := flowStrays(w.Tx, f)
+		if err != nil {
+			return err
+		}
+		if len(strays) > 0 {
+			return fmt.Errorf("the new flow %s lacks the stage of open beads %s; advance them to a stage it has, or pin them to another flow (yardr bead update <id> --meta flow=<name>), then set the flow again",
+				f.Name, strings.Join(strays, "; "))
+		}
 		return w.event("", "flow_set", actor, map[string]any{"flow": f.Name})
 	})
 	if err != nil {
 		return nil, err
 	}
 	return &f, nil
+}
+
+// flowStrays names the open beads that follow the stored flow f.Name and
+// sit in a stage f lacks, grouped by what leads them to it: "in rig yard:
+// <id> (<stage>), ..." per pointer at the name, then "pinning it: ..." for
+// beads that name the flow themselves. It runs after f is saved, inside the
+// same transaction. A name is looked up in the store before any
+// repository, so the beads a pointer reaches resolve to f without the
+// rig's repository flows; that also covers a first save under a name the
+// pointers so far found in a repository.
+func flowStrays(tx *bolt.Tx, f Flow) ([]string, error) {
+	var out []string
+	var ptrs []FlowPointer
+	err := each(tx, bFlowPtrs, "", func(_ []byte, p *FlowPointer) error {
+		if p.Flow == f.Name {
+			ptrs = append(ptrs, *p)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range ptrs {
+		strays, err := strayBeads(tx, p.Rig, p.Type, false, nil, nil)
+		if err != nil {
+			return nil, err
+		}
+		if len(strays) > 0 {
+			out = append(out, "in "+p.String()+": "+strings.Join(strays, ", "))
+		}
+	}
+	var pinned []string
+	err = each(tx, bBeads, "", func(_ []byte, r *beadRow) error {
+		if r.Status != "closed" && !NotWork[r.Type] && PinnedFlow(&r.Bead) == f.Name && !slices.Contains(f.Stages, r.Stage) {
+			pinned = append(pinned, fmt.Sprintf("%s (%s)", r.ID, r.Stage))
+		}
+		return nil
+	})
+	if len(pinned) > 0 {
+		out = append(out, "pinning it: "+strings.Join(pinned, ", "))
+	}
+	return out, err
 }
 
 // Flows lists the named flows in the store, by name.
