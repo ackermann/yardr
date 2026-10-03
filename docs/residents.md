@@ -40,6 +40,19 @@ read from its `--dir`): a rig's own `.yardr/roles/mayor.md`, or the generic
 Agents are told to run yardr by absolute path: a shell may find an older yardr
 first on its PATH, and the prime warns about it.
 
+## Findings from builders and reviewers
+
+What an agent finds outside its bead reaches the mayor on two channels, as
+the builder and reviewer roles say ("Something outside your bead"). A finding
+that does not block the agent (a bug in another package, a stale doc, a flaky
+test) arrives as a bead in stage `backlog`, for the mayor to shape or close
+like any other. One that blocks it (a red gate on the base, a missing tool)
+arrives as that bead plus mail from the agent, `<bead id>: <one line>`, and
+the agent's own bead is held with a note naming the blocker when it cannot
+finish; the mayor orders the two with `yardr dep add <blocker> <bead>` and
+unholds. The roles mail the yard's `mayor` setting ([configuration.md](configuration.md#settings)),
+so a mayor added under another name is still the one addressed.
+
 ## Outbound credentials
 
 What a resident uses to act outside the yard (the mayor's Linear developer

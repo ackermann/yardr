@@ -34,4 +34,12 @@ func TestTemplatesAreGeneric(t *testing.T) {
 			t.Errorf("%s does not name {{operator}}", name)
 		}
 	}
+	// Builders and reviewers mail the mayor about what blocks them, and the
+	// mayor's name is the yard's, not a constant.
+	for _, name := range []string{"builder.md", "reviewer.md"} {
+		body, _ := FS.ReadFile(name)
+		if !strings.Contains(string(body), "## Something outside your bead") || !strings.Contains(string(body), "yardr mail {{mayor}} ") {
+			t.Errorf("%s does not tell agents to mail {{mayor}} about findings outside the bead", name)
+		}
+	}
 }

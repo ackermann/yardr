@@ -155,7 +155,7 @@ type initOptions struct {
 	Dir     string // where the mayor works; "" is the home's parent
 	Model   string // "" is the harness's default
 	// Operator is the person the role prompts name, where the templates say
-	// {{operator}}; "" is $USER.
+	// {{operator}}; "" is $USER. Mayor goes where they say {{mayor}}.
 	Operator string
 }
 
@@ -209,12 +209,15 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 	res := &initResult{Home: cfg.Home, Harness: o.Harness, Mayor: o.Mayor, Dir: dir,
 		Operator: or(o.Operator, defaultOperator()),
 		Args:     agents.UnattendedArgs(o.Harness), Roles: filepath.Join(cfg.Home, "roles")}
-	if res.Written, res.Kept, err = installRoles(res.Roles, res.Operator); err != nil {
+	if res.Written, res.Kept, err = installRoles(res.Roles, res.Operator, o.Mayor); err != nil {
 		return nil, err
 	}
 	res.MayorKept = mayorKept
-	if err := st.SetSetting(ctx, "operator", res.Operator, a.who()); err != nil {
-		return nil, err
+	// operator and mayor are what rig init fills the roles with later.
+	for k, v := range map[string]string{"operator": res.Operator, "mayor": o.Mayor} {
+		if err := st.SetSetting(ctx, k, v, a.who()); err != nil {
+			return nil, err
+		}
 	}
 	if err := a.putMayor(ctx, st, o, res); err != nil {
 		return nil, err
@@ -256,8 +259,9 @@ func defaultOperator() string {
 }
 
 // installRoles writes the embedded role prompts into dir, naming operator
-// where the templates say {{operator}}, and keeps any file already there.
-func installRoles(dir, operator string) (written, kept []string, err error) {
+// where the templates say {{operator}} and mayor where they say {{mayor}},
+// and keeps any file already there.
+func installRoles(dir, operator, mayor string) (written, kept []string, err error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, nil, err
 	}
@@ -278,7 +282,7 @@ func installRoles(dir, operator string) (written, kept []string, err error) {
 		} else if err != nil {
 			return nil, nil, err
 		}
-		_, err = out.Write(bytes.ReplaceAll(body, []byte("{{operator}}"), []byte(operator)))
+		_, err = out.Write(fillRole(body, operator, mayor))
 		if cerr := out.Close(); err == nil {
 			err = cerr
 		}
@@ -288,6 +292,12 @@ func installRoles(dir, operator string) (written, kept []string, err error) {
 		written = append(written, path)
 	}
 	return written, kept, nil
+}
+
+// fillRole puts the names into a role template's placeholders.
+func fillRole(body []byte, operator, mayor string) []byte {
+	body = bytes.ReplaceAll(body, []byte("{{operator}}"), []byte(operator))
+	return bytes.ReplaceAll(body, []byte("{{mayor}}"), []byte(mayor))
 }
 
 // daemonRunning reports whether a daemon holds the home's daemon lock,
@@ -476,6 +486,12 @@ var settings = map[string]struct {
 }{
 	"operator": {"who the role prompts name, the person agents bring decisions to (yardr rig init's default)",
 		func(string) error { return nil }},
+	"mayor": {"the mayor resident's name, whom the role prompts tell agents to mail (yardr rig init's default)", func(v string) error {
+		if !groupName.MatchString(v) {
+			return fmt.Errorf("mayor name %q: letters, digits, '.', '_', '-', '/'", v)
+		}
+		return nil
+	}},
 	"default_kind": {"the agent kind of herdr groups and residents whose config names none", func(v string) error {
 		if !agents.IsKind(v) {
 			return fmt.Errorf("default_kind %q: herdr starts %s", v, strings.Join(agents.Kinds(), ", "))
@@ -485,7 +501,7 @@ var settings = map[string]struct {
 }
 
 func (a *app) settingsCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "settings", Short: "The yard's own defaults (default_kind, operator)"}
+	cmd := &cobra.Command{Use: "settings", Short: "The yard's own defaults (default_kind, mayor, operator)"}
 	known := func(key string) error {
 		if _, ok := settings[key]; !ok {
 			return fmt.Errorf("no setting %q; there is: %s", key, strings.Join(sortedKeys(settings), ", "))

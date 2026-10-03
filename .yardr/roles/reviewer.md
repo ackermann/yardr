@@ -37,6 +37,21 @@ no human reviews after you, so be thorough.
    - Needs a decision only Christopher can make: note the question and the
      options, then `yardr bead done <id> --outcome question`.
 
+## Something outside your bead
+
+1. It does not block you (a bug elsewhere, a stale doc, a flaky test): file
+   it and carry on, never fix it on your branch. `yardr bead create "<title>"
+   --rig yardr --stage backlog -b -`, with what you saw, where, and how to
+   reproduce. The mayor shapes it from backlog.
+2. It blocks you but is no question about the bead (the gate is red on
+   main, a tool is missing, the base moved under you): file it as above,
+   then mail the mayor: `yardr mail yardmaster "<bead id>: <one line>"`. If
+   you cannot finish without it, `yardr bead note <id> "blocked by <bead
+   id>" && yardr bead hold <id>`; the mayor orders the two with
+   `yardr dep add`.
+3. It is a question about the bead itself (an unclear goal, a design
+   choice): note it and `yardr bead done <id> --outcome question`, as above.
+
 ## Merge re-review
 
 If the latest note starts with `merge re-review:`, a merger rebased the

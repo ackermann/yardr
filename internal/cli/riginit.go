@@ -36,23 +36,25 @@ type rigInitResult struct {
 	Path     string   `json:"path"`
 	Base     string   `json:"base"`
 	Operator string   `json:"operator"`
+	Mayor    string   `json:"mayor"`   // the resident the roles tell agents to mail
 	Gate     string   `json:"gate"`    // the guessed check command
 	Written  []string `json:"written"` // relative to Path
 	Kept     []string `json:"kept"`    // already there, left as they were
 }
 
 func (a *app) rigInitCmd() *cobra.Command {
-	var operator string
+	var operator, mayor string
 	cmd := &cobra.Command{
-		Use:   "init <rig> [--operator <name>]",
+		Use:   "init <rig> [--operator <name>] [--mayor <name>]",
 		Short: "Seed a rig's repo with starter roles, a gate and a flow under .yardr/",
 		Long: `Write a rig's starting configuration into its checkout:
 
-  .yardr/roles/{mayor,builder,reviewer,merger}.md   the generic roles, naming --operator
+  .yardr/roles/{mayor,builder,reviewer,merger}.md   the generic roles, naming --operator and --mayor
   ` + rigcheck.RepoPath + `                                       the merge gate, guessed from the repo
   .yardr/flows/default.flow                         backlog, new, review, approved, merged, decide
 
---operator defaults to the yard's operator setting (yardr init stores it). The
+--operator defaults to the yard's operator setting and --mayor to its mayor
+setting (yardr init stores both), else to the yard's one resident. The
 gate is a guess: go.mod runs go vet and go test, a package.json with a test
 script runs it, anything else passes with a TODO. Read it before relying on it.
 
@@ -60,7 +62,7 @@ A file already there is never overwritten. Nothing is committed: yardr reads
 roles, the gate and flows from the rig's base branch, so commit the files
 there before they take effect.`,
 		Example: `  yardr rig init webapp
-  yardr rig init webapp --operator Jo`,
+  yardr rig init webapp --operator Jo --mayor boss`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
@@ -74,7 +76,10 @@ there before they take effect.`,
 			if operator == "" {
 				operator = yardOperator(c.Context(), st)
 			}
-			res, err := rigInit(*rig, operator)
+			if mayor == "" {
+				mayor = yardMayor(c.Context(), st)
+			}
+			res, err := rigInit(*rig, operator, mayor)
 			if err != nil {
 				return err
 			}
@@ -82,6 +87,7 @@ there before they take effect.`,
 		},
 	}
 	cmd.Flags().StringVar(&operator, "operator", "", "who the roles name (default: the yard's operator setting, else $USER)")
+	cmd.Flags().StringVar(&mayor, "mayor", "", "the mayor the roles tell agents to mail (default: the yard's mayor setting, else its one resident, else mayor)")
 	return cmd
 }
 
@@ -94,11 +100,24 @@ func yardOperator(ctx context.Context, st store.API) string {
 	return or(all["operator"], defaultOperator())
 }
 
+// yardMayor is the mayor resident the roles tell agents to mail: the yard's
+// mayor setting, else the one resident of a yard from before the setting,
+// else init's default name.
+func yardMayor(ctx context.Context, st store.API) string {
+	if all, err := st.Settings(ctx); err == nil && all["mayor"] != "" {
+		return all["mayor"]
+	}
+	if rs, err := st.Residents(ctx); err == nil && len(rs) == 1 {
+		return rs[0].Name
+	}
+	return "mayor"
+}
+
 // rigInit writes the starter files into rig's checkout, keeping any already
 // there.
-func rigInit(rig store.Rig, operator string) (*rigInitResult, error) {
-	res := &rigInitResult{Rig: rig.Name, Path: rig.Path, Base: rig.Base, Operator: operator}
-	written, kept, err := installRoles(filepath.Join(rig.Path, ".yardr", "roles"), operator)
+func rigInit(rig store.Rig, operator, mayor string) (*rigInitResult, error) {
+	res := &rigInitResult{Rig: rig.Name, Path: rig.Path, Base: rig.Base, Operator: operator, Mayor: mayor}
+	written, kept, err := installRoles(filepath.Join(rig.Path, ".yardr", "roles"), operator, mayor)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +233,7 @@ func (r *rigInitResult) print() {
 	for _, p := range r.Kept {
 		fmt.Printf("  %s (already there, kept)\n", p)
 	}
-	fmt.Printf("\nThe roles name %s.", r.Operator)
+	fmt.Printf("\nThe roles name %s, and %s as the mayor.", r.Operator, r.Mayor)
 	if r.Gate != "" {
 		fmt.Printf(" The gate runs %s (a guess from the repo: check it).\n", r.Gate)
 	} else {

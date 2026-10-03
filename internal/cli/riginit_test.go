@@ -31,8 +31,10 @@ func TestRigInit(t *testing.T) {
 	if err := st.PutRig(ctx, store.Rig{Name: "web", Path: dir, Base: "origin/main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetSetting(ctx, "operator", "Jo", "me"); err != nil {
-		t.Fatal(err)
+	for k, v := range map[string]string{"operator": "Jo", "mayor": "boss"} {
+		if err := st.SetSetting(ctx, k, v, "me"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	a := &app{st: st, actor: "me"}
 	out, err := run(t, a.rigCmd(), "init", "web")
@@ -55,8 +57,11 @@ func TestRigInit(t *testing.T) {
 	for _, name := range []string{"mayor.md", "builder.md", "merger.md", "reviewer.md"} {
 		tmpl, _ := roles.FS.ReadFile(name)
 		got, err := os.ReadFile(filepath.Join(dir, ".yardr", "roles", name))
-		if err != nil || !bytes.Equal(got, bytes.ReplaceAll(tmpl, []byte("{{operator}}"), []byte("Jo"))) {
+		if err != nil || !bytes.Equal(got, fillRole(tmpl, "Jo", "boss")) {
 			t.Fatalf("%s: %v\n%s", name, err, got)
+		}
+		if bytes.Contains(got, []byte("{{")) {
+			t.Errorf("%s keeps a placeholder:\n%s", name, got)
 		}
 	}
 	check := filepath.Join(dir, ".yardr", "check")
@@ -114,6 +119,65 @@ func TestRigInitOperator(t *testing.T) {
 		if b, _ := os.ReadFile(filepath.Join(dir, ".yardr", "roles", "mayor.md")); !bytes.Contains(b, []byte("bring to "+name)) {
 			t.Errorf("mayor.md does not name %s", name)
 		}
+	}
+}
+
+// The mayor the roles tell agents to mail is the yard's: --mayor, else the
+// mayor setting yardr init stores, else the one resident of a yard from
+// before the setting, else init's default name. A yard with several
+// residents and no setting does not guess among them.
+func TestRigInitMayor(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	mailTo := func(t *testing.T, dir string) string {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join(dir, ".yardr", "roles", "builder.md"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, after, ok := strings.Cut(string(b), "yardr mail ")
+		if !ok {
+			t.Fatalf("builder.md does not mail the mayor:\n%s", b)
+		}
+		return strings.Fields(after)[0]
+	}
+	initRig := func(t *testing.T, name string, args ...string) string {
+		t.Helper()
+		dir := t.TempDir()
+		if err := st.PutRig(ctx, store.Rig{Name: name, Path: dir, Base: "main"}, "me"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := run(t, (&app{st: st}).rigCmd(), append([]string{"init", name}, args...)...); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	if got := mailTo(t, initRig(t, "empty")); got != "mayor" {
+		t.Errorf("empty yard: mail %s, want mayor", got)
+	}
+	if _, err := st.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "manual"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if got := mailTo(t, initRig(t, "one")); got != "yardmaster" {
+		t.Errorf("one resident: mail %s, want yardmaster", got)
+	}
+	if _, err := st.PutResident(ctx, store.Resident{Name: "scribe", Runner: "manual"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if got := mailTo(t, initRig(t, "two")); got != "mayor" {
+		t.Errorf("two residents, no setting: mail %s, want mayor", got)
+	}
+	if _, err := run(t, (&app{st: st}).settingsCmd(), "set", "mayor", "yardmaster"); err != nil {
+		t.Fatal(err)
+	}
+	if got := mailTo(t, initRig(t, "set")); got != "yardmaster" {
+		t.Errorf("mayor setting: mail %s, want yardmaster", got)
+	}
+	if got := mailTo(t, initRig(t, "flag", "--mayor", "boss")); got != "boss" {
+		t.Errorf("--mayor: mail %s, want boss", got)
+	}
+	if _, err := run(t, (&app{st: st}).settingsCmd(), "set", "mayor", "no spaces"); err == nil {
+		t.Error("settings set mayor accepted a name a resident cannot have")
 	}
 }
 

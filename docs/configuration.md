@@ -21,7 +21,7 @@ in yard-9cza, the merge gate in yard-p2y7.
 | routes | | which group works which stage, by rig, type, label (built) |
 | rigs | | path, clone, base branch; `rig add` registers, `rig rm` removes (built) |
 | residents | | agent, directory, inbox kinds, rotation, subscriptions, identities (built) |
-| settings | | the yard's defaults: `default_kind`, `operator` (built) |
+| settings | | the yard's defaults: `default_kind`, `operator`, `mayor` (built) |
 
 ### Why the repo holds what the work is
 
@@ -249,7 +249,7 @@ writes last, or once it has any rig, group, resident or bead: a yard from
 before the onboarding is in use, and onboarding it would refuse its agents'
 commands. Opening such a store writes `default_kind` for it, from the first
 herdr group's kind, else the first herdr resident's, else `claude`, with the
-event `settings_migrated` (the `operator` setting stays unset; installed role
+event `settings_migrated` (the `operator` and `mayor` settings stay unset; installed role
 prompts keep the name they have). Only an empty store onboards. The store
 file alone is no marker: the server creates `yard.db` on the first command
 that connects, whatever it was, so a home can hold an empty store nobody set
@@ -272,9 +272,11 @@ Either way yardr:
    `roles/`, to `<home>/roles/`, keeping any file already there (the mayor
    edits its own copy). They are generic: where they say `{{operator}}`, the
    person agents bring decisions to, init writes the operator's name (the
-   form's "Your name", `--operator`, default `$USER`). A rig's own roles go
-   in its repo under `.yardr/roles/` ([role prompts](#role-prompts));
-2. sets `operator` to the operator's name;
+   form's "Your name", `--operator`, default `$USER`), and where they say
+   `{{mayor}}`, the resident builders and reviewers mail about what blocks
+   them, the mayor's name. A rig's own roles go in its repo under
+   `.yardr/roles/` ([role prompts](#role-prompts));
+2. sets `operator` to the operator's name and `mayor` to the mayor's;
 3. adds the mayor resident: `kind=<harness>`, `prompt=<home>/roles/mayor.md`,
    the model if given, the harness's unattended flags as `args`, rotating
    every 6h. A resident of that name already there is kept as it is, so
@@ -299,12 +301,12 @@ of its own (`yardr daemon`).
 
 ### Seeding a rig: `yardr rig init`
 
-`yardr rig init <rig> [--operator <name>]` writes a registered rig's starting
-configuration into its checkout:
+`yardr rig init <rig> [--operator <name>] [--mayor <name>]` writes a
+registered rig's starting configuration into its checkout:
 
 | file | content |
 |---|---|
-| `.yardr/roles/{mayor,builder,reviewer,merger}.md` | the generic roles, `{{operator}}` filled with `--operator`, default the yard's `operator` setting, else `$USER` |
+| `.yardr/roles/{mayor,builder,reviewer,merger}.md` | the generic roles, `{{operator}}` filled with `--operator`, default the yard's `operator` setting, else `$USER`; `{{mayor}}` with `--mayor`, default the yard's `mayor` setting, else its one resident, else `mayor` |
 | `.yardr/check` | the merge gate, executable, with a comment saying so; its command is a guess from the repo: `go.mod` gives `go vet ./... && go test ./...`, a `package.json` with a real `test` script gives `npm test` (`pnpm`/`yarn` by lockfile), anything else `exit 0` with a TODO |
 | `.yardr/flows/default.flow` | the standard stages: backlog, new, review, approved, merged (terminal), decide, with the outcomes `done`, `question`, `changes` and `failed` |
 
@@ -325,6 +327,7 @@ value unsets) keep the yard's own defaults in the store:
 |---|---|
 | `default_kind` | the agent kind a herdr group or resident gets when `group add` or `resident add` is given no `--set kind`; also the kind their forms start at. One of the kinds herdr starts. Its presence marks the yard set up. |
 | `operator` | the person the role prompts name, agents bring decisions to; `yardr init` stores it (`--operator`, the form's "Your name") and `yardr rig init` fills roles with it. |
+| `mayor` | the mayor resident's name, whom the builder and reviewer roles tell agents to mail about what blocks them ([residents.md](residents.md#findings-from-builders-and-reviewers)); `yardr init` stores it (`--mayor`) and `yardr rig init` fills roles with it. A yard from before the setting has none: `rig init` then takes its one resident, else `mayor`. |
 
 Environment variables yardr reads:
 

@@ -58,7 +58,7 @@ func TestInitHarnessClaude(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s not embedded: %v", name, err)
 		}
-		want := bytes.ReplaceAll(tmpl, []byte("{{operator}}"), []byte("Jo"))
+		want := fillRole(tmpl, "Jo", "mayor")
 		got, err := os.ReadFile(filepath.Join(home, "roles", name))
 		if err != nil || !bytes.Equal(got, want) {
 			t.Fatalf("%s installed: %v", name, err)
@@ -81,7 +81,7 @@ func TestInitHarnessClaude(t *testing.T) {
 		r.Dir != filepath.Dir(home) || !reflect.DeepEqual(r.On, defaultOn) {
 		t.Fatalf("mayor = %+v", r)
 	}
-	if got, _ := st.Settings(ctx); got["default_kind"] != "claude" || got["operator"] != "Jo" {
+	if got, _ := st.Settings(ctx); got["default_kind"] != "claude" || got["operator"] != "Jo" || got["mayor"] != "mayor" {
 		t.Fatalf("settings = %v", got)
 	}
 	// The mayor takes it from here; the commands are in init --help.
