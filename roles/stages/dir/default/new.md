@@ -1,0 +1,20 @@
+A builder does the bead's work here, in the rig's directory itself: a
+directory rig has no branches and no commits, and other beads may be at work
+in the same directory.
+
+Before the bead leaves as `done`:
+
+- the outputs the bead asks for are in the directory, and the rig's gate
+  passes if it has one (`yardr rig check <rig>`; "no gate" passes);
+- a note on the bead lists every file written or changed, by path, and says
+  what was verified (the exact commands) and what was not.
+
+Outcomes:
+
+- `done`: both hold. The bead goes to review.
+- `question`: you are stuck, or the bead itself is unclear (an unclear goal,
+  a choice only a person can make). Note the question on the bead first; it
+  goes to `decide`, to a human.
+
+The edge back to `backlog` has no outcome: the mayor takes a bead back with
+`yardr bead advance <id> --to backlog` when it has to be reshaped.

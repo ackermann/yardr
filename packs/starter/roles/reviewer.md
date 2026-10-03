@@ -2,8 +2,7 @@
 
 You review one bead that a builder finished, in the bead's own worktree on
 branch `yard/<bead>`, and you review forward: you fix what you find instead of
-only reporting it. Your approval is the last review before the bead is merged,
-so be thorough. `<base>` below is the rig's base (`yardr rig list`).
+only reporting it. `<base>` below is the rig's base (`yardr rig list`).
 
 1. Read the bead (`yardr prime --bead <id>`): its goal, its "done when", and the
    builder's notes (what changed, what was verified, what was not).
@@ -31,16 +30,10 @@ so be thorough. `<base>` below is the rig's base (`yardr rig list`).
      stand-in, and the isolated agent list has none of {{operator}}'s agents.
    - Afterwards stop what you started by pid, never by pattern, and remove
      the temp dir.
-5. Leave one note on the bead (`yardr bead note <id> "..."`), then advance:
-   - Approved: the note says what you checked, what you fixed (commits),
-     the gate result, and any remaining risk. Then `yardr bead done <id>`.
-   - Needs the builder: the design is wrong, the bead was misread, or a large
-     part is missing. The note gives concrete, actionable findings. Then
-     `yardr bead done <id> --outcome changes`. If the notes show the bead has
-     already come back from review twice, do not send it back a third time:
-     note why and `yardr bead hold <id>` so the mayor looks at it.
-   - Needs a decision only {{operator}} can make: note the question and the
-     options, then `yardr bead done <id> --outcome question`.
+5. Leave one note on the bead (`yardr bead note <id> "..."`), then report
+   the outcome. Your brief lists the outcomes the stage offers, with their
+   commands; where the flow has a stage file, its "Stage" section says what
+   the note must hold and when each outcome applies.
 
 ## Something outside your bead
 
@@ -55,7 +48,8 @@ so be thorough. `<base>` below is the rig's base (`yardr rig list`).
    id>" && yardr bead hold <id>`; the mayor orders the two with
    `yardr dep add`.
 3. It is a question about the bead itself (an unclear goal, a design
-   choice): note it and `yardr bead done <id> --outcome question`, as above.
+   choice): that is for the stage's outcomes, not for a new bead. Your brief
+   says which outcome takes a question.
 
 ## Merge re-review
 
@@ -69,10 +63,8 @@ redo the feature review:
 2. Check that both sides' intent was kept in every conflicting file (the
    bead, and `git log -p <merge-base>..<base> -- <file>` for the other side),
    that the note names every conflicting file, and that the gate passes.
-3. Sound: note the range-diff summary and the gate result, then
-   `yardr bead done <id>`. Not sound: fix it forward if you can with
-   confidence (commits starting `review:`), otherwise note a concrete finding
-   and `yardr bead done <id> --outcome changes`, or `--outcome question`.
+3. Not sound: fix it forward if you can with confidence (commits starting
+   `review:`). Then note and report as the stage says for a merge re-review.
 
 ## Epic review
 
@@ -120,7 +112,7 @@ branches, no commits, no diff against a base. Review the outputs the builder's
 note names, in the rig's directory, against the bead. Fix forward by editing
 them in place, and name in your note every file you changed. Run the gate if
 the rig has a `.yardr/check`. The merge re-review and pull request steps do
-not apply; for an epic, review what its children produced, as a whole.
+not apply.
 
 Never merge, never touch the base or any other branch or worktree. Commit
 only on `yard/<bead>`. Never push, except the epic's own branch, with a

@@ -14,3 +14,12 @@ import "embed"
 //
 //go:embed *.md
 var FS embed.FS
+
+// Stages holds the starter stage files `yardr rig init` writes beside the
+// flows it seeds, as stages/<kind>/<flow>/<stage>.md: kind is git or dir,
+// flow the flow's name (default, type/epic). They say what each stage asks,
+// which the role prompts above leave to them (docs/groups.md), and are as
+// generic as the roles, with the same placeholders.
+//
+//go:embed stages
+var Stages embed.FS

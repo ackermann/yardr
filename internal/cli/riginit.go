@@ -14,6 +14,7 @@ import (
 
 	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/roles"
 )
 
 // starterFlow is the flow rig init seeds: the stages the mayor's setup
@@ -74,19 +75,25 @@ func (a *app) rigInitCmd() *cobra.Command {
 	var withMayor bool
 	cmd := &cobra.Command{
 		Use:   "init <rig> [--operator <name>] [--mayor <name>] [--with-mayor]",
-		Short: "Seed a rig's repo with starter roles, a gate and a flow under .yardr/",
+		Short: "Seed a rig's repo with starter roles, a gate, a flow and its stage files under .yardr/",
 		Long: `Write a rig's starting configuration into its checkout:
 
   .yardr/roles/{mayor,builder,reviewer,merger}.md   the generic roles, naming --operator and --mayor
   ` + rigcheck.RepoPath + `                                       the merge gate, guessed from the repo
   .yardr/flows/default.flow                         backlog, new, review, approved, merged, decide
+  .yardr/flows/default/<stage>.md                   a stage file for each stage but merged
+
+A stage file says what its stage is for, what must be true to leave it and
+when each outcome applies (docs/flows.md); the roles say how a group works.
 
 --operator defaults to the yard's operator setting and --mayor to its mayor
 setting (yardr init stores both), else to the yard's one resident. The
 gate is a guess: go.mod runs go vet and go test, a package.json with a test
 script runs it, anything else passes with a TODO. Read it before relying on it.
 
-A file already there is never overwritten. Nothing is committed: yardr reads
+A file already there is never overwritten, and a flow already there gets no
+stage files: they are written for the flows rig init writes, whose stages
+they name. Nothing is committed: yardr reads
 roles, the gate and flows from the rig's base branch, so commit the files
 there before they take effect.
 
@@ -95,6 +102,7 @@ A dir rig gets less, since nothing merges there (see docs/dir-rigs.md):
   .yardr/roles/{builder,reviewer}.md                plus mayor.md with --with-mayor
   .yardr/flows/default.flow                         backlog, new, review, done, decide
   .yardr/flows/type/epic.flow                       the epics': backlog, open, review, done, decide
+  .yardr/flows/{default,type/epic}/<stage>.md       a stage file for each stage but done
 
 and no check: a dir rig has no gate unless one adds .yardr/check. The files
 apply at once, as yardr reads a dir rig's .yardr/ from the directory.`,
@@ -162,6 +170,9 @@ func rigInit(rig store.Rig, operator, mayor string, withMayor bool) (*rigInitRes
 		path string
 		body string
 		mode fs.FileMode
+		// flow, for a flow file, is the flow's name: its starter stage
+		// files are written with it.
+		flow string
 	}
 	var only []string
 	var files []file
@@ -171,15 +182,15 @@ func rigInit(rig store.Rig, operator, mayor string, withMayor bool) (*rigInitRes
 			only = append(only, "mayor.md")
 		}
 		files = []file{
-			{filepath.Join(".yardr", "flows", "default.flow"), dirFlow, 0o644},
-			{filepath.Join(".yardr", "flows", "type", "epic.flow"), dirEpicFlow, 0o644},
+			{filepath.Join(".yardr", "flows", "default.flow"), dirFlow, 0o644, "default"},
+			{filepath.Join(".yardr", "flows", "type", "epic.flow"), dirEpicFlow, 0o644, "type/epic"},
 		}
 	} else {
 		gate, script := guessGate(rig)
 		res.Gate = gate
 		files = []file{
-			{rigcheck.RepoPath, script, 0o755},
-			{filepath.Join(".yardr", "flows", "default.flow"), starterFlow, 0o644},
+			{rigcheck.RepoPath, script, 0o755, ""},
+			{filepath.Join(".yardr", "flows", "default.flow"), starterFlow, 0o644, "default"},
 		}
 	}
 	// refresh is false: a rig's roles are the checkout's own, never rewritten.
@@ -193,13 +204,67 @@ func rigInit(rig store.Rig, operator, mayor string, withMayor bool) (*rigInitRes
 		if err != nil {
 			return nil, err
 		}
-		if ok {
-			res.Written = append(res.Written, f.path)
-		} else {
+		if !ok {
 			res.Kept = append(res.Kept, f.path)
+			continue
+		}
+		res.Written = append(res.Written, f.path)
+		if f.flow == "" {
+			continue
+		}
+		// Only beside a flow written now: a flow already there is the rig's
+		// own, and a file for a stage it lacks would fail the rig's check.
+		stages, err := starterStageFiles(rig, f.flow, f.body, operator, mayor)
+		if err != nil {
+			return nil, err
+		}
+		for _, sf := range stages {
+			ok, err := writeNew(filepath.Join(rig.Path, sf.path), sf.body, 0o644)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				res.Written = append(res.Written, sf.path)
+			} else {
+				res.Kept = append(res.Kept, sf.path)
+			}
 		}
 	}
 	return res, nil
+}
+
+// starterStage is one starter stage file: where it goes in the rig, and its
+// text with the names filled in.
+type starterStage struct {
+	path string
+	body string
+}
+
+// starterStageFiles are the stage files rig init writes beside the starter
+// flow named flow, whose text is body: one for every stage that is not
+// terminal, in the flow's order. A stage without a template is a bug in this
+// build, not the rig's, and an error.
+func starterStageFiles(rig store.Rig, flow, body, operator, mayor string) ([]starterStage, error) {
+	f, err := store.ParseFlow(body)
+	if err != nil {
+		return nil, fmt.Errorf("starter flow %s: %w", flow, err)
+	}
+	kind := "git"
+	if rig.IsDir() {
+		kind = "dir"
+	}
+	var out []starterStage
+	for _, s := range f.Stages {
+		if f.IsTerminal(s) {
+			continue
+		}
+		tmpl, err := roles.Stages.ReadFile("stages/" + kind + "/" + flow + "/" + s + ".md")
+		if err != nil {
+			return nil, fmt.Errorf("starter flow %s has no stage file for %s: %w", flow, s, err)
+		}
+		out = append(out, starterStage{filepath.FromSlash(store.StageFilePath(flow, s)), string(fillRole(tmpl, operator, mayor))})
+	}
+	return out, nil
 }
 
 // guessGate picks a check command from what the repo holds, and the script
@@ -300,9 +365,10 @@ func (r *rigInitResult) print() {
 	} else {
 		fmt.Printf(" The gate passes everything until its TODO is filled in.\n")
 	}
-	fmt.Printf("\nNothing is committed. yardr reads roles, the gate and the flow from %s,\n"+
+	fmt.Printf("\nNothing is committed. yardr reads roles, the gate, the flow and its stage\n"+
+		"files from %s,\n"+
 		"so the operator (or the mayor, with their OK) commits them there:\n\n"+
-		"  git -C %s add .yardr && git -C %s commit -m 'yardr: starter roles, gate and flow'\n", r.Base, r.Path, r.Path)
+		"  git -C %s add .yardr && git -C %s commit -m 'yardr: starter roles, gate, flow and stage files'\n", r.Base, r.Path, r.Path)
 }
 
 func (r *rigInitResult) printDir() {

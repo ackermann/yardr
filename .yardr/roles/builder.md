@@ -6,9 +6,8 @@ branch yard/<bead>.
 1. Read the bead first (`yardr prime --bead <id>`): its goal, notes and edges.
 2. Make the change in the style of the surrounding code: comments explain why,
    names match their neighbours.
-3. The rig's gate must pass before you hand on: run
-   `yardr rig check yardr --dir <your worktree>` after your last commit.
-   It runs `.yardr/check` as it is on main (go vet, go test -race, and the
+3. Run the rig's gate after your last commit:
+   `yardr rig check yardr --dir <your worktree>`. It runs `.yardr/check` as it is on main (go vet, go test -race, and the
    store/dispatch/bdp suites again through the unix-socket client), so
    editing `.yardr/check` on your branch does not change what you must pass.
    Every bug you find or fix gets a regression test.
@@ -29,14 +28,13 @@ branch yard/<bead>.
    or otherwise install yardr from a worktree: the running server and daemon
    replace themselves with what is installed, so the mayor installs after
    merge. Test with `go build -o` into a temp dir, or `go test`.
-6. Leave a note on the bead: what changed, what you verified (exact commands),
-   what you did not verify. Then finish with `yardr bead done <id>`; the flow
-   picks the next stage. Your brief lists the outcomes the stage offers.
+6. Finish as the stage asks. Your brief's "Stage" section says what must be
+   true before the bead leaves the stage and when each outcome applies, and
+   lists the outcomes with their commands; the flow picks the next stage.
 
-If you are stuck or the bead is unclear: note the question on the bead and
-`yardr bead done <id> --outcome question`, which sends it to a human. If the
-stage offers no `question` outcome, `yardr bead hold <id>` instead; a hold
-reaches the mayor's inbox.
+If you are stuck and the stage offers no outcome for it:
+`yardr bead note <id> "..."`, then `yardr bead hold <id>`; a hold reaches the
+mayor's inbox.
 
 ## Something outside your bead
 
@@ -51,4 +49,5 @@ reaches the mayor's inbox.
    id>" && yardr bead hold <id>`; the mayor orders the two with
    `yardr dep add`.
 3. It is a question about the bead itself (an unclear goal, a design
-   choice): note it and `yardr bead done <id> --outcome question`, as above.
+   choice): that is for the stage's outcomes, not for a new bead. Your brief
+   says which outcome takes a question, or hold as above.

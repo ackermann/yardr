@@ -1,0 +1,19 @@
+A builder implements the bead here, on branch `yard/<bead>` in the bead's own
+worktree.
+
+Before the bead leaves as `done`:
+
+- the work is committed on the branch, and the rig's gate passes on the last
+  commit (`yardr rig check <rig> --dir <worktree>`);
+- a note on the bead says what changed, what was verified (the exact
+  commands) and what was not verified.
+
+Outcomes:
+
+- `done`: both hold. The bead goes to review.
+- `question`: you are stuck, or the bead itself is unclear (an unclear goal,
+  a design choice). Note the question on the bead first; it goes to `decide`,
+  to a human.
+
+The edge back to `backlog` has no outcome: the mayor takes a bead back with
+`yardr bead advance <id> --to backlog` when it has to be reshaped.

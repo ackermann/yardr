@@ -41,9 +41,10 @@ writes, never overwriting a file that is there:
 
 | file | content |
 |---|---|
-| `.yardr/roles/builder.md`, `reviewer.md` | the generic roles, naming the yard's operator and mayor; each has a paragraph for dir rigs: no branches, no commits, name your outputs. No merger (nothing merges); the mayor's role only with `--with-mayor` |
+| `.yardr/roles/builder.md`, `reviewer.md` | the generic roles, naming the yard's operator and mayor; each has a paragraph for dir rigs: no branches, no commits. No merger (nothing merges); the mayor's role only with `--with-mayor` |
 | `.yardr/flows/default.flow` | the flow of the rig's beads, below |
 | `.yardr/flows/type/epic.flow` | the flow of its epics, below |
+| `.yardr/flows/default/<stage>.md`, `type/epic/<stage>.md` | a [stage file](flows.md#stage-files-what-a-stage-is-for) for each stage but `done`: what the stage asks before a bead leaves it (name your outputs, in `new`) and when each outcome applies |
 
 and no `.yardr/check`. Nothing needs committing: the files apply as they are.
 

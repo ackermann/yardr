@@ -418,6 +418,7 @@ registered rig's starting configuration into its checkout:
 | `.yardr/roles/{mayor,builder,reviewer,merger}.md` | the generic roles, `{{operator}}` filled with `--operator`, default the yard's `operator` setting, else `$USER`; `{{mayor}}` with `--mayor`, default the yard's `mayor` setting, else its one resident, else `mayor` |
 | `.yardr/check` | the merge gate, executable, with a comment saying so; its command is a guess from the repo: `go.mod` gives `go vet ./... && go test ./...`, a `package.json` with a real `test` script gives `npm test` (`pnpm`/`yarn` by lockfile), anything else `exit 0` with a TODO |
 | `.yardr/flows/default.flow` | the standard stages: backlog, new, review, approved, merged (terminal), decide, with the outcomes `done`, `question`, `changes` and `failed` |
+| `.yardr/flows/default/<stage>.md` | a starter [stage file](flows.md#stage-files-what-a-stage-is-for) for each stage but `merged`: what the stage is for, what must be true to leave it, when each outcome applies; the placeholders filled as in the roles |
 
 The flow is `default.flow`, not a named one, so it governs the rig without a
 pointer (a store pointer, as `yardr rig flow` sets, still wins).
@@ -425,11 +426,15 @@ pointer (a store pointer, as `yardr rig flow` sets, still wins).
 A dir rig (`--kind dir`) gets builder and reviewer roles only (no merger, as nothing merges;
 the mayor's with `--with-mayor`), no `.yardr/check` (a dir rig has no gate until one
 adds it), and two flows: `default.flow` (backlog, new, review, done, decide)
-and `type/epic.flow` (the same with `open` for `new`). They apply at once,
+and `type/epic.flow` (the same with `open` for `new`), each with a stage file
+for every stage but `done`. They apply at once,
 read from the directory; [dir-rigs.md](dir-rigs.md) walks through them.
 
 It never overwrites a file that is there, so a second run changes nothing, and
-it commits nothing. In a git rig roles, the gate and flows are read from the
+it commits nothing. Stage files are written only beside a flow it writes: a
+flow that was there is the rig's own, and a starter file for a stage it lacks
+would fail `yardr rig check`. A freshly seeded rig's check names no stage
+without a stage file. In a git rig roles, the gate, flows and stage files are read from the
 base branch, so they take effect once the operator (or the mayor, with their OK)
 commits them there. It prints what it wrote and the commit to make.
 

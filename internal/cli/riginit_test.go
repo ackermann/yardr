@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"io/fs"
 	"maps"
 	"os"
 	"os/exec"
@@ -43,7 +44,9 @@ func TestRigInit(t *testing.T) {
 	}
 
 	files := []string{".yardr/roles/builder.md", ".yardr/roles/mayor.md", ".yardr/roles/merger.md",
-		".yardr/roles/reviewer.md", ".yardr/check", ".yardr/flows/default.flow"}
+		".yardr/roles/reviewer.md", ".yardr/check", ".yardr/flows/default.flow",
+		".yardr/flows/default/backlog.md", ".yardr/flows/default/new.md", ".yardr/flows/default/review.md",
+		".yardr/flows/default/approved.md", ".yardr/flows/default/decide.md"}
 	for _, f := range files {
 		if !strings.Contains(out, f) {
 			t.Errorf("output does not name %s:\n%s", f, out)
@@ -251,7 +254,11 @@ func TestRigInitDir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{".yardr/flows/default.flow", ".yardr/flows/type/epic.flow", ".yardr/roles/builder.md", ".yardr/roles/reviewer.md"}
+	want := []string{".yardr/flows/default.flow",
+		".yardr/flows/default/backlog.md", ".yardr/flows/default/decide.md", ".yardr/flows/default/new.md", ".yardr/flows/default/review.md",
+		".yardr/flows/type/epic.flow",
+		".yardr/flows/type/epic/backlog.md", ".yardr/flows/type/epic/decide.md", ".yardr/flows/type/epic/open.md", ".yardr/flows/type/epic/review.md",
+		".yardr/roles/builder.md", ".yardr/roles/reviewer.md"}
 	var got []string
 	for p := range snapshot(t, dir) {
 		got = append(got, strings.TrimPrefix(p, dir+"/"))
@@ -365,5 +372,156 @@ func TestDirRigFlowsWalk(t *testing.T) {
 	}
 	if _, err := st.Advance(ctx, b.ID, "approved", store.Expect{}, "me"); err == nil {
 		t.Fatal("a dir rig's task reached approved")
+	}
+}
+
+// rig init writes a stage file for every stage of the flows it writes that
+// is not terminal, names each in its listing, and fills in the names; the
+// rig's check then has no stage to name as lacking one and no stray file,
+// for the git starter (once committed on the base) and the dir starter.
+func TestRigInitStageFiles(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	repo, folder := t.TempDir(), t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q", "-b", "main")
+	rigs := map[string]store.Rig{
+		"git": {Name: "web", Path: repo, Base: "main"},
+		"dir": {Name: "invoices", Path: folder, Kind: store.RigDir},
+	}
+	want := map[string][]string{
+		"git": {"default/approved.md", "default/backlog.md", "default/decide.md", "default/new.md", "default/review.md"},
+		"dir": {"default/backlog.md", "default/decide.md", "default/new.md", "default/review.md",
+			"type/epic/backlog.md", "type/epic/decide.md", "type/epic/open.md", "type/epic/review.md"},
+	}
+	a := &app{st: st, actor: "me"}
+	for kind, rig := range rigs {
+		if err := st.PutRig(ctx, rig, "me"); err != nil {
+			t.Fatal(err)
+		}
+		out, err := run(t, a.rigCmd(), "init", rig.Name, "--operator", "Jo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for p, body := range snapshot(t, rig.Path) {
+			rel, ok := strings.CutPrefix(p, filepath.Join(rig.Path, ".yardr", "flows")+"/")
+			if !ok || !strings.HasSuffix(rel, ".md") {
+				continue
+			}
+			got = append(got, rel)
+			if !strings.Contains(out, "  .yardr/flows/"+rel+"\n") {
+				t.Errorf("%s: the listing does not name %s:\n%s", kind, rel, out)
+			}
+			if strings.Contains(body, "{{") || strings.TrimSpace(body) == "" {
+				t.Errorf("%s: %s is empty or keeps a placeholder:\n%s", kind, rel, body)
+			}
+			if strings.HasSuffix(rel, "decide.md") && !strings.Contains(body, "Jo decides") {
+				t.Errorf("%s: %s does not name the operator:\n%s", kind, rel, body)
+			}
+		}
+		if slices.Sort(got); !slices.Equal(got, want[kind]) {
+			t.Errorf("%s: stage files = %v; want %v", kind, got, want[kind])
+		}
+		// Every embedded starter was written: none is for a stage no starter
+		// flow has.
+		var embedded int
+		if err := fs.WalkDir(roles.Stages, "stages/"+kind, func(_ string, d fs.DirEntry, err error) error {
+			if err == nil && !d.IsDir() {
+				embedded++
+			}
+			return err
+		}); err != nil || embedded != len(want[kind]) {
+			t.Errorf("%s: %d embedded stage files, %v; want %d", kind, embedded, err, len(want[kind]))
+		}
+	}
+	git("add", "-A")
+	git("commit", "-q", "-m", "starter")
+
+	for kind, rig := range rigs {
+		governing, err := st.RigFlows(ctx, rig.Name)
+		if wantFlows := map[string]int{"git": 1, "dir": 2}[kind]; err != nil || len(governing) != wantFlows {
+			t.Fatalf("%s: %d governing flows, %v; want %d", kind, len(governing), err, wantFlows)
+		}
+		notes, stray, strayHome, err := stageFileFindings(ctx, st, rig, rig.Path, t.TempDir())
+		if err != nil || len(notes)+len(stray)+len(strayHome) != 0 {
+			t.Errorf("%s: notes %v, stray %v, stray in home %v, %v; want none", kind, notes, stray, strayHome, err)
+		}
+		// Not for want of looking: a stage file removed is a stage named.
+		if err := os.Remove(filepath.Join(rig.Path, ".yardr", "flows", "default", "review.md")); err != nil {
+			t.Fatal(err)
+		}
+		notes, _, _, err = stageFileFindings(ctx, st, rig, rig.Path, t.TempDir())
+		if err != nil || len(notes) != 1 || !strings.Contains(notes[0], "flow default has no stage file for review ") {
+			t.Errorf("%s: without review.md: notes %v, %v", kind, notes, err)
+		}
+	}
+}
+
+// A flow already in the rig is the rig's own: rig init keeps it and writes
+// no starter stage files beside it, which could name stages it lacks and
+// fail the rig's check.
+func TestRigInitKeepsAFlowWithoutStageFiles(t *testing.T) {
+	st := storetest.New(t)
+	dir := t.TempDir()
+	rig := store.Rig{Name: "web", Path: dir, Base: "main"}
+	if err := st.PutRig(context.Background(), rig, "me"); err != nil {
+		t.Fatal(err)
+	}
+	flow := filepath.Join(dir, ".yardr", "flows", "default.flow")
+	if err := os.MkdirAll(filepath.Dir(flow), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(flow, []byte("todo -> shipped\nshipped terminal\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := rigInit(rig, "Jo", "boss", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(res.Kept, ".yardr/flows/default.flow") {
+		t.Fatalf("kept = %v", res.Kept)
+	}
+	for _, p := range slices.Concat(res.Written, res.Kept) {
+		if strings.HasPrefix(p, ".yardr/flows/default/") {
+			t.Errorf("stage file %s beside a flow that was kept", p)
+		}
+	}
+	tree, err := store.ReadFlowDir(dir)
+	if err != nil || len(tree.StageFiles) != 0 || len(tree.StrayStageFiles()) != 0 {
+		t.Fatalf("stage files = %v, stray %v, %v", tree.StageFiles, tree.StrayStageFiles(), err)
+	}
+}
+
+// This repository's own flows: every stage that is not terminal has a stage
+// file, and no stage file is an orphan, which is what yardr rig check yardr
+// reports of the tree.
+func TestThisRepoHasItsStageFiles(t *testing.T) {
+	tree, err := store.ReadFlowDir(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stray := tree.StrayStageFiles(); len(stray) > 0 {
+		t.Errorf("stage files that belong to no stage: %v", stray)
+	}
+	names := map[string]bool{}
+	for _, rf := range tree.Flows {
+		if rf.Flow == nil {
+			t.Fatalf("%s: %s", rf.Path, rf.Error)
+		}
+		names[rf.Flow.Name] = true
+		for _, s := range rf.Flow.Stages {
+			if !rf.Flow.IsTerminal(s) && tree.StageFile(rf.Flow.Name, s) == nil {
+				t.Errorf("flow %s has no stage file for %s", rf.Flow.Name, s)
+			}
+		}
+	}
+	if !names["default"] || !names["yardr.epic"] {
+		t.Fatalf("flows = %v", names)
 	}
 }

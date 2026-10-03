@@ -81,7 +81,9 @@ gate are this same check.
 ## 3. Review: Codex reviews forward
 
 `review` is routed to `yardr-reviewers`: Codex in the same worktree, with
-the reviewer prompt from this repo's `.yardr/roles/reviewer.md`. It is the last review
+the reviewer prompt from this repo's `.yardr/roles/reviewer.md` (how a
+reviewer works) and the stage file `.yardr/flows/default/review.md` (when
+each outcome applies). It is the last review
 before merge, so it fixes what it can on the branch (commits starting
 `review:`) rather than only reporting, re-runs the checks and then:
 
@@ -687,8 +689,9 @@ yardr route add --stage in-pr --type epic --rig yardr --group decisions
 yardr route add --stage land --type epic --rig yardr --group yardr-pr-merge
 ```
 
-The reviewer's prompt (`.yardr/roles/reviewer.md`) has a short section on
-reviewing an epic as a whole, and on reviewing it on its pull request: the
+The epic flow's stage file for review (`.yardr/flows/yardr.epic/review.md`,
+shown in the reviewer's brief) says how an epic is reviewed as a whole, and
+how it is reviewed on its pull request: the
 reviewer pushes its fix-forward commits to `yard/<epic>` with a lease (the
 one branch any role pushes; the merger does not push even that one, the
 integrator pushes its rebase), and posts its review on the PR. GitHub

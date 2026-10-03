@@ -36,7 +36,7 @@ yard's `default_kind` and your name as its `operator`, and adds the mayor.
 
 The mayor's first job is the setup, as a conversation with you: it asks for
 the repository and its base branch, registers the rig, seeds it with
-`yardr rig init` (starter roles, gate and flow under `.yardr/`, which you
+`yardr rig init` (starter roles, gate, flow and stage files under `.yardr/`, which you
 commit on the base branch), creates the groups and routes, and offers a first
 bead to try the pipeline. It asks before anything outward, such as a commit.
 
@@ -57,7 +57,7 @@ Scripts skip the form and the mayor's conversation (`yardr init --help`):
 ```sh
 yardr init --harness claude [--mayor mayor] [--dir ~/projects] [--model opus] [--operator Jo]
 yardr rig add webapp ~/projects/webapp --base origin/main
-yardr rig init webapp                   # .yardr/roles, .yardr/check, .yardr/flows/default.flow; commit them
+yardr rig init webapp                   # .yardr/roles, .yardr/check, .yardr/flows/default.flow and its stage files; commit them
 
 # role prompts: prompt=roles/<name>.md reads the rig's own .yardr/roles/<name>.md
 # (as on its base branch), else the generic ~/.yardr/roles/<name>.md

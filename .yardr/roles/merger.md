@@ -27,32 +27,19 @@ its rebase, so the tree is clean and the branch is as it was approved.
 4. Run the rig's gate in the worktree: `yardr rig check <rig> --dir .`. A red
    gate after your resolution is yours to fix; a test that the base broke on
    its own is not, say so in the note.
-5. Leave one note on the bead beginning exactly `merge re-review:`. It must
-   list the old tip (`old tip: <sha>`), every conflicting file, what each
-   side wanted, how you kept both, and the gate result. Then finish with
-   `yardr bead done <id>`; the flow sends it to review, where the reviewer
-   inspects only the conflict resolution before the refinery lands it.
+5. Leave one note on the bead, with the old tip (`old tip: <sha>`), and
+   report the outcome. Your brief's "Stage" section says what the note must
+   hold and how it begins, when each outcome applies and where the bead goes
+   next, and lists the outcomes with their commands.
 
 An epic (the brief says "This bead is an epic") is merged the same way, on
 its own branch: `yard/<epic>`, in the epic's worktree, rebased onto the
-rig's base (`main`), keeping both sides' intent exactly as for a bead. The
-conflict is between the epic as a whole and what landed on `main`, so read
-its children's beads for its side. Do not push `yard/<epic>`: the integrator
-pushes it, with a lease. Finish with `yardr bead done <id>` as usual; for an
-epic that sends it back to `open`, where the integrator rebases it again (a
-no-op unless `main` moved again), gates it, pushes it and opens or updates
-its pull request before it goes to review.
+rig's base (`main`), keeping both sides' intent exactly as for a bead.
 
-When not to resolve:
-
-- If both intents cannot be kept (the base removed what the bead builds on,
-  or the two changes contradict each other), or the resolution needs a real
-  design choice, do not pick one side. `git rebase --abort`, note what
-  conflicts and why it cannot be merged mechanically, and finish with
-  `yardr bead done <id> --outcome rework` (the builders rework it) or
-  `--outcome question` (a person must choose).
-- A conflict too large to judge with confidence is the same case: abort,
-  note, `--outcome rework`.
+When not to resolve: if both intents cannot be kept, or the resolution needs
+a real design choice, do not pick one side. `git rebase --abort`, and report
+the outcome the stage has for it, with its note. A conflict too large to
+judge with confidence is the same case.
 
 Never:
 

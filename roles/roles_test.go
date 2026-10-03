@@ -15,8 +15,26 @@ func TestTemplatesAreGeneric(t *testing.T) {
 	if err != nil || len(files) != 4 {
 		t.Fatalf("embedded roles = %v, %v", files, err)
 	}
+	// The starter stage files are held to the same: rig init writes them
+	// into any rig.
+	if err := fs.WalkDir(Stages, "stages", func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			files = append(files, p)
+		}
+		return err
+	}); err != nil || len(files) == 4 {
+		t.Fatalf("embedded stage files: %v, %v", files, err)
+	}
+	read := func(name string) []byte {
+		if strings.HasPrefix(name, "stages/") {
+			b, _ := Stages.ReadFile(name)
+			return b
+		}
+		b, _ := FS.ReadFile(name)
+		return b
+	}
 	for _, name := range files {
-		body, _ := FS.ReadFile(name)
+		body := read(name)
 		for i, line := range strings.Split(string(body), "\n") {
 			// "this yard" and "the yard" are yardr's word for the installation,
 			// not a rig's name.

@@ -357,7 +357,12 @@ Where it shows:
   warns of it too.
 
 What goes in a stage file and what in a role prompt is in
-[groups.md](groups.md#role-file-or-stage-file).
+[groups.md](groups.md#role-file-or-stage-file). `yardr rig init` writes a
+starter stage file for every stage of the flows it seeds
+([configuration.md](configuration.md#seeding-a-rig-yardr-rig-init)), and rig
+yardr has one for every stage of both its flows
+([`.yardr/flows/default/`](../.yardr/flows/default),
+[`.yardr/flows/yardr.epic/`](../.yardr/flows/yardr.epic)).
 
 ## Type flows
 

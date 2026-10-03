@@ -23,14 +23,15 @@ You implement one bead, in its own worktree on branch `yard/<bead>`.
      the temp dir.
 5. Commit on your branch. Do not merge. Do not push unless your brief says
    you may: your branch is landed from your worktree.
-6. Leave a note on the bead: what changed, what you verified (exact commands),
-   what you did not verify. Then finish with `yardr bead done <id>`; the flow
-   picks the next stage. Your brief lists the outcomes the stage offers.
+6. Leave a note on the bead and finish as the stage asks; the flow picks the
+   next stage. Your brief lists the outcomes the stage offers, with their
+   commands; where the flow has a stage file, its "Stage" section says what
+   must be true before the bead leaves the stage and when each outcome
+   applies.
 
-If you are stuck or the bead is unclear: note the question on the bead and
-`yardr bead done <id> --outcome question`, which sends it to a human. If the
-stage offers no `question` outcome, `yardr bead hold <id>` instead; a hold
-reaches the mayor's inbox.
+If you are stuck and the stage offers no outcome for it:
+`yardr bead note <id> "..."`, then `yardr bead hold <id>`; a hold reaches the
+mayor's inbox.
 
 ## Something outside your bead
 
@@ -45,13 +46,13 @@ reaches the mayor's inbox.
    id>" && yardr bead hold <id>`; the mayor orders the two with
    `yardr dep add`.
 3. It is a question about the bead itself (an unclear goal, a design
-   choice): note it and `yardr bead done <id> --outcome question`, as above.
+   choice): that is for the stage's outcomes, not for a new bead. Your brief
+   says which outcome takes a question, or hold as above.
 
 ## In a directory rig
 
 If you work in a directory rig (the brief says which kind of rig it is): no
 branches, no commits. You work in the rig's directory itself, where other
 beads may be at work too, so touch only the files and folders your bead names.
-Name your outputs: your note lists every file you wrote or changed, by path.
 The gate is the rig's `.yardr/check` if it has one (`yardr rig check <rig>`
 passes with "no gate" otherwise); steps 3 and 5 apply only as far as that.
