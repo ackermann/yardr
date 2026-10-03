@@ -124,7 +124,7 @@ func TestPaneIsCheckedAsItsSessionWhateverItSays(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	a, err := s.CreateBead(ctx, store.NewBead{Title: "a", Rig: "yard"}, "me")
+	a, err := s.CreateBead(ctx, store.NewBead{Title: "a", Rig: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestPaneIsFoundUpTheProcessTree(t *testing.T) {
 	if err := s.PutGroup(ctx, store.Group{Name: "integrators", Runner: "exec"}); err != nil {
 		t.Fatal(err)
 	}
-	a, err := s.CreateBead(ctx, store.NewBead{Title: "a", Rig: "yard"}, "me")
+	a, err := s.CreateBead(ctx, store.NewBead{Title: "a", Rig: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,7 +315,7 @@ func TestReusedPidIsNobodysPane(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	a, err := s.CreateBead(ctx, store.NewBead{Title: "a", Rig: "yard"}, "me")
+	a, err := s.CreateBead(ctx, store.NewBead{Title: "a", Rig: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
