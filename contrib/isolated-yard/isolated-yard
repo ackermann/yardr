@@ -74,6 +74,22 @@ up() {
   command -v lsof >/dev/null || { echo "isolated-yard: lsof not found (down needs it)" >&2; exit 2; }
   src=$(cd "$(dirname "$0")" && pwd)
   d=$(mktemp -d /tmp/iy.XXXXXX)
+  up_ok=0
+  cleanup_failed_up() {
+    status=$?
+    trap - 0
+    if [ "$up_ok" -ne 1 ] && [ -n "${d:-}" ]; then
+      if [ -x "$d/e" ]; then
+        if ! (down "$d") >&2; then
+          echo "isolated-yard: cleanup failed; inspect $d" >&2
+        fi
+      else
+        rm -rf "$d"
+      fi
+    fi
+    exit "$status"
+  }
+  trap cleanup_failed_up 0
   mkdir -p "$d/bin" "$d/c/herdr" "$d/s" "$d/y" "$d/h"
   go build -o "$d/bin/yardr" .
   (cd "$src/fake" && go build -o "$d/bin/claude" .)
@@ -127,6 +143,8 @@ WRAP
     exit 1
   fi
   echo "isolated yard: $d   (run commands as $d/e <command>; end with: $0 down $d)"
+  up_ok=1
+  trap - 0
 }
 
 case "${1:-}" in
