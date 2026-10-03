@@ -1,17 +1,16 @@
 package hooks
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"net/http"
-	"os"
 	"sync"
 	"time"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -20,6 +19,7 @@ import (
 // receiver records deliveries.
 type Store interface {
 	GetHook(ctx context.Context, name string) (*store.Hook, error)
+	BlockHook(ctx context.Context, name, reason string) error
 	RecordHook(ctx context.Context, name string, envelope map[string]any, payload []byte, dedupe []string) (seq uint64, duplicate bool, err error)
 }
 
@@ -85,14 +85,19 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 		rc.reject(w, name, "read", http.StatusBadRequest, err)
 		return
 	}
-	secret, err := os.ReadFile(h.SecretFile)
-	secret = bytes.TrimSpace(secret)
-	if err == nil && len(secret) == 0 {
-		// An empty key would verify anyone's signature.
-		err = errors.New("secret file is empty")
-	}
+	// The file is checked on every delivery, not only at `hook add`: it may
+	// have been loosened or replaced since. One that fails the rule is not
+	// used to verify anything.
+	secret, _, err := config.ReadSecretFile(h.SecretFile)
 	if err != nil {
-		rc.reject(w, name, "secret", http.StatusInternalServerError, err)
+		rc.block(r.Context(), h, err.Error())
+		rc.reject(w, name, "blocked", http.StatusServiceUnavailable, err)
+		return
+	}
+	rc.block(r.Context(), h, "")
+	if len(secret) == 0 {
+		// An empty key would verify anyone's signature.
+		rc.reject(w, name, "secret", http.StatusInternalServerError, errors.New("secret file is empty"))
 		return
 	}
 	delivery, err := ad.Verify(r, body, secret, rc.now())
@@ -127,6 +132,23 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 	// Linear treats any non-200 response as a failed delivery and retries it.
 	// The event is already durable here, so acknowledge it with 200.
 	writeJSON(w, http.StatusOK, map[string]any{"seq": seq})
+}
+
+// block records that the hook's secret file fails the rule (reason), or
+// passes it again (empty). The store is written only when that differs from
+// what the hook says, so a healthy hook costs no write per delivery and a
+// blocked one logs its event once.
+func (rc *Receiver) block(ctx context.Context, h *store.Hook, reason string) {
+	if h.Blocked == reason {
+		return
+	}
+	if err := rc.st.BlockHook(ctx, h.Name, reason); err != nil {
+		rc.log.Error("hook state not recorded", "hook", h.Name, "err", err)
+		return
+	}
+	if reason == "" {
+		rc.log.Info("hook unblocked", "hook", h.Name, "path", h.SecretFile)
+	}
 }
 
 func (rc *Receiver) reject(w http.ResponseWriter, name, reason string, code int, err error) {

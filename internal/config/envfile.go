@@ -2,11 +2,14 @@ package config
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 )
 
 // EnvFile is a resident's or group's env_file: outbound credentials (an API
@@ -50,26 +53,11 @@ func ExpandPath(p string) (string, error) {
 // but its owner can read or write (0600 or stricter), since it holds
 // secrets. Errors name the file and a line number, never a value.
 func ReadEnvFile(path string) (*EnvFile, error) {
-	p, err := ExpandPath(path)
+	f, p, err := openPrivate("env_file", path)
 	if err != nil {
-		return nil, fmt.Errorf("env_file %s: %w", path, err)
-	}
-	f, err := os.Open(p)
-	if err != nil {
-		return nil, fmt.Errorf("env_file %s: %w", p, err)
+		return nil, err
 	}
 	defer f.Close()
-	// Stat the open file, not the path, so what is checked is what is read.
-	st, err := f.Stat()
-	if err != nil {
-		return nil, fmt.Errorf("env_file %s: %w", p, err)
-	}
-	if !st.Mode().IsRegular() {
-		return nil, fmt.Errorf("env_file %s is not a regular file", p)
-	}
-	if perm := st.Mode().Perm(); perm&0o077 != 0 {
-		return nil, fmt.Errorf("env_file %s is open to others (mode %04o); chmod 600 it", p, perm)
-	}
 	out := &EnvFile{Path: p}
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -89,4 +77,53 @@ func ReadEnvFile(path string) (*EnvFile, error) {
 		return nil, fmt.Errorf("env_file %s: %w", p, err)
 	}
 	return out, nil
+}
+
+// ReadSecretFile reads the file holding one secret (a hook's --secret-file)
+// under the rule an env_file is read under, and returns what it holds
+// without surrounding whitespace, and the path it resolved to. Errors name
+// the file, never what is in it.
+func ReadSecretFile(path string) (secret []byte, resolved string, err error) {
+	f, p, err := openPrivate("secret file", path)
+	if err != nil {
+		return nil, p, err
+	}
+	defer f.Close()
+	b, err := io.ReadAll(f)
+	if err != nil {
+		return nil, p, fmt.Errorf("secret file %s: %w", p, err)
+	}
+	return bytes.TrimSpace(b), p, nil
+}
+
+// openPrivate opens the credential file at path (~ expanded) and returns it
+// with the path it resolved to. This is the one rule for every file yardr
+// reads a secret from: a regular file no one but its owner can read or
+// write (0600 or stricter). what names the kind of file in errors.
+func openPrivate(what, path string) (*os.File, string, error) {
+	p, err := ExpandPath(path)
+	if err != nil {
+		return nil, path, fmt.Errorf("%s %s: %w", what, path, err)
+	}
+	// Non-blocking, so a FIFO at the path is refused below instead of
+	// holding the caller until something writes to it.
+	f, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, p, fmt.Errorf("%s %s: %w", what, p, err)
+	}
+	// Stat the open file, not the path, so what is checked is what is read.
+	st, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, p, fmt.Errorf("%s %s: %w", what, p, err)
+	}
+	if !st.Mode().IsRegular() {
+		f.Close()
+		return nil, p, fmt.Errorf("%s %s is not a regular file", what, p)
+	}
+	if perm := st.Mode().Perm(); perm&0o077 != 0 {
+		f.Close()
+		return nil, p, fmt.Errorf("%s %s is open to others (mode %04o); chmod 600 it", what, p, perm)
+	}
+	return f, p, nil
 }

@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/store"
 )
@@ -31,7 +31,10 @@ or a repeated Linear-Delivery, X-GitHub-Delivery or Yard-Delivery id) is
 answered 200 and dropped.
 
 The secret stays in --secret-file and is read on every delivery, so rotating it
-is rewriting the file. Sources:
+is rewriting the file. It must be a regular file of mode 0600 or stricter, as
+an env_file must: a file that is not is refused here, and one that stops being
+so later blocks the hook (503 to the sender, 'blocked' in 'yardr hook list')
+until it is fixed. Sources:
   github  the webhook's secret (X-Hub-Signature-256 HMAC); content type application/json
   linear  the webhook's signing secret (Linear-Signature HMAC)
   token   a shared bearer token (Authorization: Bearer <token>)`,
@@ -82,9 +85,13 @@ is rewriting the file. Sources:
 			return a.out(hs, func() {
 				rows := [][]string{}
 				for _, h := range hs {
-					rows = append(rows, []string{h.Name, h.Source, "/hooks/" + h.Name, h.SecretFile})
+					state := "ok"
+					if h.Blocked != "" {
+						state = "blocked: " + h.Blocked
+					}
+					rows = append(rows, []string{h.Name, h.Source, "/hooks/" + h.Name, h.SecretFile, state})
 				}
-				table("NAME\tSOURCE\tPATH\tSECRET FILE", rows)
+				table("NAME\tSOURCE\tPATH\tSECRET FILE\tSTATE", rows)
 			})
 		},
 	}
@@ -139,29 +146,16 @@ is rewriting the file. Sources:
 	return cmd
 }
 
-// secretPath resolves the secret file and checks it holds something,
-// without ever showing what.
-func secretPath(p string) (string, error) {
-	if strings.HasPrefix(p, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		p = filepath.Join(home, p[2:])
-	}
-	p, err := filepath.Abs(p)
-	if err != nil {
-		return "", err
-	}
-	b, err := os.ReadFile(p)
+// secretPath resolves the secret file and checks it is one the receiver
+// will take (config.ReadSecretFile) and holds something, without ever
+// showing what.
+func secretPath(path string) (string, error) {
+	secret, p, err := config.ReadSecretFile(path)
 	if err != nil {
 		return "", fmt.Errorf("--secret-file: %w", err)
 	}
-	if len(bytes.TrimSpace(b)) == 0 {
+	if len(secret) == 0 {
 		return "", fmt.Errorf("--secret-file %s is empty", p)
-	}
-	if fi, err := os.Stat(p); err == nil && fi.Mode().Perm()&0o077 != 0 {
-		fmt.Fprintf(os.Stderr, "warning: %s is readable by others (mode %o); chmod 600 it\n", p, fi.Mode().Perm())
 	}
 	return p, nil
 }

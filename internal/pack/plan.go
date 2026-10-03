@@ -952,8 +952,9 @@ func (b *planner) needs(source, resident string, exists bool, r store.Resident) 
 	} else {
 		h := hs[i]
 		out = append(out, Need{"hook", ok, fmt.Sprintf("hook %s (POST /hooks/%s)", h.Name, h.Name)})
-		if info, err := os.Stat(h.SecretFile); err != nil || !info.Mode().IsRegular() {
-			out = append(out, Need{"secret_file", missing, h.SecretFile + " is not a readable file"})
+		// The rule the receiver holds the file to on every delivery.
+		if _, _, err := config.ReadSecretFile(h.SecretFile); err != nil {
+			out = append(out, Need{"secret_file", missing, err.Error()})
 		} else {
 			out = append(out, Need{"secret_file", ok, h.SecretFile})
 		}

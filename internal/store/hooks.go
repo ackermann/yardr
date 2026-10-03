@@ -34,10 +34,16 @@ type Hook struct {
 	Name       string `json:"name"`
 	Source     string `json:"source"` // adapter: linear, token
 	SecretFile string `json:"secret_file"`
+	// Blocked is why the receiver refuses this hook's deliveries (its
+	// secret file is missing or open to others), empty while it takes them.
+	// Only the receiver sets it, through BlockHook.
+	Blocked string `json:"blocked,omitempty"`
 }
 
-// PutHook creates or replaces a hook.
+// PutHook creates or replaces a hook. A replaced hook starts unblocked: the
+// receiver finds out again on the next delivery.
 func (s *Store) PutHook(ctx context.Context, h Hook, actor string) (*Hook, error) {
+	h.Blocked = ""
 	if !hookName.MatchString(h.Name) {
 		return nil, fmt.Errorf("hook name %q: use lowercase letters, digits, - and _", h.Name)
 	}
@@ -92,6 +98,37 @@ func (s *Store) DeleteHook(ctx context.Context, name, actor string) error {
 			return err
 		}
 		return w.event("", "hook_removed", actor, map[string]any{"hook": name})
+	})
+}
+
+// BlockHook records that the receiver refuses the hook's deliveries, and
+// why, or with an empty reason that it takes them again. One `hook_blocked`
+// event is logged when the state begins, not for every delivery refused
+// while it lasts; it carries the hook, the path and the reason, never what
+// the file holds.
+//
+// Like RecordHook it is not on the API: only the receiver sees the file as
+// the deliveries do.
+func (s *Store) BlockHook(ctx context.Context, name, reason string) error {
+	return s.write(func(w *wtx) error {
+		var h Hook
+		if ok, err := get(w.Tx, bHooks, name, &h); err != nil {
+			return err
+		} else if !ok {
+			return fmt.Errorf("hook %s: %w", name, ErrNotFound)
+		}
+		if h.Blocked == reason {
+			return nil
+		}
+		began := h.Blocked == ""
+		h.Blocked = reason
+		if err := put(w.Tx, bHooks, name, h); err != nil {
+			return err
+		}
+		if !began {
+			return nil
+		}
+		return w.event("", "hook_blocked", "hook:"+name, map[string]any{"hook": name, "path": h.SecretFile, "reason": reason})
 	})
 }
 

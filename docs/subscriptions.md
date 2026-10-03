@@ -272,6 +272,32 @@ verified:
 A duplicate is answered 200 with `{"duplicate": true, "seq": <first>}`, so the
 sender stops retrying, and leaves no event.
 
+### The secret file
+
+A hook's `--secret-file` is held to the rule an `env_file` is
+([residents.md](residents.md#outbound-credentials)): a regular file of mode
+0600 or stricter. `yardr hook add` refuses one that is not, saves nothing and
+says `chmod 600`.
+
+The receiver checks again on every delivery, since the file can be loosened
+or replaced after the hook was added. While the file fails the rule, or is
+missing, the hook is **blocked**: every delivery is answered 503 and is not
+verified against the file, so the sender retries as its own policy has it.
+A blocked hook shows in three places:
+
+- `yardr hook list`: its STATE column reads `blocked: <reason>` instead of
+  `ok`, e.g. `blocked: secret file /home/me/.yardr/linear.secret is open to
+  others (mode 0644); chmod 600 it`. The state is what the last delivery
+  found, so a file broken since then shows on the next one.
+- one `hook_blocked` event (`hook`, `path`, `reason`; never what the file
+  holds) when the block begins, not one per refused delivery.
+- the server log: `hook delivery rejected … reason=blocked status=503` for
+  every refused delivery, and `hook unblocked` when it ends.
+
+Fix the file and the next delivery clears the state; so does `yardr hook add`
+of the same hook again. A file that passes the rule but is empty is not a
+block: its deliveries are answered 500, as before.
+
 Only the server's webhook listener records deliveries. The store socket has no
 method to record one, nor to log an event of an arbitrary kind: clients log
 dispatch decisions (`gave_up`, `session_blocked`, …) through a method that

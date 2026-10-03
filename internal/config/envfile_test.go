@@ -66,3 +66,27 @@ func TestExpandPath(t *testing.T) {
 		t.Fatalf("~ not expanded: %s", got)
 	}
 }
+
+// A hook's secret file is read under the env_file rule.
+func TestReadSecretFile(t *testing.T) {
+	b, p, err := ReadSecretFile(writeEnv(t, "  s3cret\n", 0o600))
+	if err != nil || string(b) != "s3cret" || !filepath.IsAbs(p) {
+		t.Fatalf("ReadSecretFile = %q %q %v", b, p, err)
+	}
+	dir := t.TempDir()
+	for name, path := range map[string]string{
+		"missing":        filepath.Join(dir, "nope"),
+		"directory":      dir,
+		"group readable": writeEnv(t, "s3cret\n", 0o640),
+		"world readable": writeEnv(t, "s3cret\n", 0o644),
+	} {
+		b, _, err := ReadSecretFile(path)
+		if err == nil || b != nil {
+			t.Errorf("%s: accepted", name)
+			continue
+		}
+		if strings.Contains(err.Error(), "s3cret") {
+			t.Errorf("%s: error shows the secret: %v", name, err)
+		}
+	}
+}

@@ -685,3 +685,120 @@ func TestLinearMentionReachesInbox(t *testing.T) {
 		}
 	}
 }
+
+func (r *rig) eventsOfKind(t *testing.T, kind string) []store.Event {
+	t.Helper()
+	evs, err := r.st.Events(context.Background(), "", 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []store.Event
+	for _, e := range evs {
+		if e.Kind == kind {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// The secret file is held to the env_file rule on every delivery, not only
+// at `hook add`: one loosened afterwards blocks the hook (503, even for a
+// delivery the secret in it would verify), with one hook_blocked event for
+// the whole stretch, and fixing the file unblocks it. (yardr-7730)
+func TestSecretFileLoosenedAfterAddBlocksHook(t *testing.T) {
+	r := newRig(t)
+	ctx := context.Background()
+	h, err := r.st.GetHook(ctx, "adhoc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	good := map[string]string{"Authorization": "Bearer " + secret}
+	if code := r.post(t, "/hooks/adhoc", []byte("one"), good); code != http.StatusOK {
+		t.Fatalf("before loosening: %d", code)
+	}
+	if err := os.Chmod(h.SecretFile, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if code := r.post(t, "/hooks/adhoc", []byte("two"), good); code != http.StatusServiceUnavailable {
+			t.Fatalf("delivery %d against a 0644 secret file: %d", i, code)
+		}
+	}
+	if n := r.rc.Rejected()["blocked"]; n != 3 {
+		t.Fatalf("blocked count = %d", n)
+	}
+	evs := r.eventsOfKind(t, "hook_blocked")
+	if len(evs) != 1 {
+		t.Fatalf("want one hook_blocked event over three deliveries, got %d", len(evs))
+	}
+	d := evs[0].Data
+	reason, _ := d["reason"].(string)
+	if d["hook"] != "adhoc" || d["path"] != h.SecretFile || !strings.Contains(reason, "mode 0644") {
+		t.Fatalf("hook_blocked data: %+v", d)
+	}
+	if raw, _ := json.Marshal(evs[0]); strings.Contains(string(raw), secret) {
+		t.Fatalf("hook_blocked shows the secret: %s", raw)
+	}
+	if got, err := r.st.GetHook(ctx, "adhoc"); err != nil || got.Blocked != reason {
+		t.Fatalf("blocked hook reads %+v %v", got, err)
+	}
+	if n := len(r.hookEvents(t)); n != 1 {
+		t.Fatalf("a blocked delivery was recorded: %d hook events", n)
+	}
+
+	if err := os.Chmod(h.SecretFile, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := r.post(t, "/hooks/adhoc", []byte("three"), good); code != http.StatusOK {
+		t.Fatalf("after chmod 600: %d", code)
+	}
+	if got, err := r.st.GetHook(ctx, "adhoc"); err != nil || got.Blocked != "" {
+		t.Fatalf("fixed hook reads %+v %v", got, err)
+	}
+	// Blocked again is a new stretch, and a new event.
+	if err := os.Chmod(h.SecretFile, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if code := r.post(t, "/hooks/adhoc", []byte("four"), good); code != http.StatusServiceUnavailable {
+		t.Fatalf("0640: %d", code)
+	}
+	if n := len(r.eventsOfKind(t, "hook_blocked")); n != 2 {
+		t.Fatalf("want a second hook_blocked event, got %d", n)
+	}
+}
+
+// A hook whose secret file is gone is blocked the same way, and a file put
+// back takes deliveries again.
+func TestMissingSecretFileBlocksHook(t *testing.T) {
+	r := newRig(t)
+	ctx := context.Background()
+	h, err := r.st.GetHook(ctx, "adhoc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(h.SecretFile); err != nil {
+		t.Fatal(err)
+	}
+	good := map[string]string{"Authorization": "Bearer " + secret}
+	for i := 0; i < 2; i++ {
+		if code := r.post(t, "/hooks/adhoc", []byte("x"), good); code != http.StatusServiceUnavailable {
+			t.Fatalf("delivery %d with no secret file: %d", i, code)
+		}
+	}
+	evs := r.eventsOfKind(t, "hook_blocked")
+	if len(evs) != 1 || evs[0].Data["path"] != h.SecretFile {
+		t.Fatalf("hook_blocked events: %+v", evs)
+	}
+	if got, err := r.st.GetHook(ctx, "adhoc"); err != nil || !strings.Contains(got.Blocked, "no such file") {
+		t.Fatalf("blocked hook reads %+v %v", got, err)
+	}
+	if err := os.WriteFile(h.SecretFile, []byte(secret), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := r.post(t, "/hooks/adhoc", []byte("x"), good); code != http.StatusOK {
+		t.Fatalf("after restoring the file: %d", code)
+	}
+	if got, err := r.st.GetHook(ctx, "adhoc"); err != nil || got.Blocked != "" {
+		t.Fatalf("restored hook reads %+v %v", got, err)
+	}
+}
