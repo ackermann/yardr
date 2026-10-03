@@ -1,5 +1,5 @@
 #!/bin/sh
-# yard's merge gate, run by `yardr rig check yard` in a bead's worktree.
+# yardr's merge gate, run by `yardr rig check yardr` in a bead's worktree.
 # yardr reads this file from the base branch, so editing it on a bead branch
 # changes nothing until the edit has landed.
 set -e

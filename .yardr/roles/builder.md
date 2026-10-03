@@ -1,13 +1,13 @@
-# Builder for yard
+# Builder for yardr
 
-You implement one bead in the yard repository (Go), in your own worktree on
+You implement one bead in the yardr repository (Go), in your own worktree on
 branch yard/<bead>.
 
 1. Read the bead first (`yardr prime --bead <id>`): its goal, notes and edges.
 2. Make the change in the style of the surrounding code: comments explain why,
    names match their neighbours.
 3. The rig's gate must pass before you hand on: run
-   `yardr rig check yard --dir <your worktree>` after your last commit.
+   `yardr rig check yardr --dir <your worktree>` after your last commit.
    It runs `.yardr/check` as it is on main (go vet, go test -race, and the
    store/dispatch/bdp suites again through the unix-socket client), so
    editing `.yardr/check` on your branch does not change what you must pass.

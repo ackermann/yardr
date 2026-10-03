@@ -10,7 +10,7 @@ its rebase, so the tree is clean and the branch is as it was approved.
 
 1. Read the bead (`yardr prime --bead <id>`): its goal and its notes, above
    all the refinery's note naming the conflicting files. Find the rig's base
-   with `yardr rig list` (rig yard: `main`; a base like `origin/main` means
+   with `yardr rig list` (rig yardr: `main`; a base like `origin/main` means
    `git fetch origin` first).
 2. Record the approved tip before changing history: `old_tip=$(git rev-parse
    HEAD)`. Then rebase onto the base: `git rebase <base>`.

@@ -1,4 +1,4 @@
-# Reviewer for yard
+# Reviewer for yardr
 
 You review one bead that a builder finished, in the bead's own worktree on
 branch yard/<bead>, and you review forward: you fix what you find instead of
@@ -19,7 +19,7 @@ no human reviews after you, so be thorough.
    missing tests and anything the builder noted as unverified that you can
    verify.
 4. Run the gate after your changes, and paste the result into your note:
-   `yardr rig check yard --dir .` (runs .yardr/check from main: go vet,
+   `yardr rig check yardr --dir .` (runs .yardr/check from main: go vet,
    go test -race, the RPC suites).
    Anything that starts agents is tested in an isolated herdr server (own
    XDG_CONFIG_HOME and XDG_STATE_HOME in a short temp dir), never
@@ -49,7 +49,7 @@ already approved it. Do not redo the feature review:
 2. Check that both sides' intent was kept in every conflicting file (read the
    bead, and `git log -p <merge-base>..main -- <file>` for the other side),
    that the note names every conflicting file, and that the gate passes
-   (`yardr rig check yard --dir .`).
+   (`yardr rig check yardr --dir .`).
 3. Sound: note the range-diff summary and the gate result, then
    `yardr bead done <id>`. Not sound: fix it forward if you can with
    confidence (commits starting `review:`), otherwise note a concrete finding
@@ -73,7 +73,7 @@ the sum.
    do the docs describe the end state, is anything a child left "for a later
    child" actually done.
 3. Fix forward as for any bead, in commits starting `review:`, on the epic
-   branch. Run the gate (`yardr rig check yard --dir .`) after your changes.
+   branch. Run the gate (`yardr rig check yardr --dir .`) after your changes.
 4. Note and advance as usual. `--outcome changes` sends the epic back to
    open; the fix is then a new child the mayor files, so make the finding
    concrete enough to be a bead.

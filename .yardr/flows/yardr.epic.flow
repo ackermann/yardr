@@ -1,6 +1,6 @@
-# yard.epic: the flow of rig yard's epics (yardr rig flow yard --type epic
-# yard.epic). An epic waits in open while its children are open (each child
-# blocks it); once the last closes, yard-integrators rebases its branch onto
+# yardr.epic: the flow of rig yardr's epics (yardr rig flow yardr --type epic
+# yardr.epic). An epic waits in open while its children are open (each child
+# blocks it); once the last closes, yardr-integrators rebases its branch onto
 # main and gates it, Codex reviews the whole diff, and the epic lands on main
 # either through a pull request (approved -> in-pr -> land, with YARDR_PR)
 # or locally, where the refinery fast-forwards main and advances it straight
