@@ -21,10 +21,17 @@ no human reviews after you, so be thorough.
 4. Run the gate after your changes, and paste the result into your note:
    `yardr rig check yardr --dir .` (runs .yardr/check from main: go vet,
    go test -race, the RPC suites).
-   Anything that starts agents is tested in an isolated herdr server (own
-   XDG_CONFIG_HOME and XDG_STATE_HOME in a short temp dir), never
-   Christopher's herdr session. Keep YARDR_HOME short in tests (unix socket
-   path limit). Stop processes by pid, never with pkill -f.
+   Anything that starts agents is tested in an isolated yard, never
+   Christopher's herdr session or yard. From the worktree:
+   `contrib/isolated-yard/isolated-yard up` builds one in a directory D and
+   must print `command -v claude, in a pane: D/bin/claude` and an empty agent
+   list; if it does not, stop. Run every command of the test as
+   `D/e <command>` (`D/e yardr ...`, `D/e herdr ...`), never bare: `D/e` is
+   `env -i`, so your session's HERDR_SOCKET_PATH and YARDR_* cannot reach the
+   real herdr or yard. Agents are kind `claude` only: `D/bin/claude` is a
+   stand-in, and D/agents.log shows what each was started with. Afterwards
+   `contrib/isolated-yard/isolated-yard down D` stops everything by pid and
+   removes D. Never pkill -f.
 5. Leave one note on the bead (`yardr bead note <id> "..."`), then advance:
    - Approved: the note says what you checked, what you fixed (commits),
      the check results, and any remaining risk. Then

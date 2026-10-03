@@ -12,10 +12,17 @@ branch yard/<bead>.
    store/dispatch/bdp suites again through the unix-socket client), so
    editing `.yardr/check` on your branch does not change what you must pass.
    Every bug you find or fix gets a regression test.
-4. Anything that starts agents is tested in an isolated herdr server (own
-   XDG_CONFIG_HOME and XDG_STATE_HOME in a short temp dir), never Christopher's
-   herdr session. Keep YARDR_HOME short in tests (unix socket path limit).
-   Stop processes by pid, never with pkill -f.
+4. Anything that starts agents is tested in an isolated yard, never
+   Christopher's herdr session or yard. From your worktree:
+   `contrib/isolated-yard/isolated-yard up` builds one in a directory D and
+   must print `command -v claude, in a pane: D/bin/claude` and an empty agent
+   list; if it does not, stop. Run every command of the test as
+   `D/e <command>` (`D/e yardr ...`, `D/e herdr ...`), never bare: `D/e` is
+   `env -i`, so your session's HERDR_SOCKET_PATH and YARDR_* cannot reach the
+   real herdr or yard. Agents are kind `claude` only: `D/bin/claude` is a
+   stand-in, and D/agents.log shows what each was started with. Afterwards
+   `contrib/isolated-yard/isolated-yard down D` stops everything by pid and
+   removes D. Never pkill -f.
 5. Commit on your branch. Do not merge. Do not push unless your brief says
    you may (it never does for a bead of this rig: the refinery lands your
    branch from your worktree). Never run `go install`

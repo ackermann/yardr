@@ -10,7 +10,17 @@ You implement one bead, in its own worktree on branch `yard/<bead>`.
    base, so editing it on your branch does not change what you must pass.
    Every bug you find or fix gets a regression test.
 4. Test anything that starts agents or servers in an isolated environment,
-   never {{operator}}'s own session. Stop processes by pid, never by pattern.
+   never {{operator}}'s own session:
+   - Run it under `env -i` with only what it needs: its own home, config and
+     state directories in a short temp dir, and a PATH of that dir and the
+     system's. Your session's variables (every `YARDR_*`, the socket of the
+     agent runtime) lead back to the yard you work for.
+   - The agent is a stand-in on that PATH, and panes start non-login shells:
+     a login shell rebuilds PATH and finds the real agent first.
+   - Before the run, prove it: in a pane, `command -v <agent>` prints the
+     stand-in, and the isolated agent list has none of {{operator}}'s agents.
+   - Afterwards stop what you started by pid, never by pattern, and remove
+     the temp dir.
 5. Commit on your branch. Do not merge. Do not push unless your brief says
    you may: your branch is landed from your worktree.
 6. Leave a note on the bead: what changed, what you verified (exact commands),

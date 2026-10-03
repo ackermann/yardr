@@ -20,7 +20,17 @@ so be thorough. `<base>` below is the rig's base (`yardr rig list`).
    verify.
 4. Run the rig's gate after your changes, and paste the result into your note:
    `yardr rig check <rig> --dir .`. Test anything that starts agents or
-   servers in an isolated environment, never {{operator}}'s own session.
+   servers in an isolated environment, never {{operator}}'s own session:
+   - Run it under `env -i` with only what it needs: its own home, config and
+     state directories in a short temp dir, and a PATH of that dir and the
+     system's. Your session's variables (every `YARDR_*`, the socket of the
+     agent runtime) lead back to the yard you work for.
+   - The agent is a stand-in on that PATH, and panes start non-login shells:
+     a login shell rebuilds PATH and finds the real agent first.
+   - Before the run, prove it: in a pane, `command -v <agent>` prints the
+     stand-in, and the isolated agent list has none of {{operator}}'s agents.
+   - Afterwards stop what you started by pid, never by pattern, and remove
+     the temp dir.
 5. Leave one note on the bead (`yardr bead note <id> "..."`), then advance:
    - Approved: the note says what you checked, what you fixed (commits),
      the gate result, and any remaining risk. Then `yardr bead done <id>`.

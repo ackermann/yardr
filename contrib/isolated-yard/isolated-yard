@@ -1,0 +1,136 @@
+#!/bin/sh
+# isolated-yard: a throwaway yard with its own herdr server, for testing
+# anything that starts agents. It is built so that a real agent cannot start
+# and the caller's own herdr and yard cannot be reached:
+#
+#   isolated-yard up            builds it, proves it, prints its directory D
+#   D/e <command> ...           runs a command inside it (D/e yardr init ...)
+#   isolated-yard down D        stops everything in it by pid and removes D
+#
+# Run `up` from the worktree under test: D/bin/yardr is `go build` of the
+# current directory. What keeps a run isolated:
+#
+#   - D/e is `env -i`: nothing of the calling session is inherited, so no
+#     HERDR_SOCKET_PATH (which would reach the caller's herdr) and no YARDR_*.
+#     It sets HOME, XDG_CONFIG_HOME, XDG_STATE_HOME and YARDR_HOME under D,
+#     and PATH to D/bin and the system directories only.
+#   - The isolated herdr starts pane shells as /bin/sh, non-login. A login
+#     shell rebuilds PATH (macOS path_helper, the user's profile) and finds
+#     the real agent in Homebrew's bin ahead of any fake; a non-login shell
+#     keeps the server's PATH.
+#   - D/bin/claude is the stand-in from ./fake. Use kind claude for groups and
+#     residents (`yardr init --harness claude`): no other agent kind is on
+#     the pane's PATH, so any other kind fails to start instead of starting
+#     the real one. An agent kind "the machine does not have" is no
+#     protection: it may be installed tomorrow.
+#
+# `up` then checks, in a pane of the isolated herdr, that `command -v claude`
+# is D/bin/claude and that the isolated agent list is empty, and prints both.
+# If either fails it tears the yard down and exits 1.
+#
+# D is short (/tmp/iy.XXXXXX): a unix socket path has a length limit.
+set -eu
+
+usage() {
+  echo "usage: isolated-yard up | isolated-yard down <dir>" >&2
+  exit 2
+}
+
+# pids of the processes whose executable is a file in $1/bin: the herdr
+# server, the yard's server and daemon, the stand-in agents. lsof goes by the
+# file a process runs, not by its name (ps shows `claude` for the stand-in
+# and for the real one alike), and the directory is unique to one run.
+pids() {
+  lsof -t "$1"/bin/* 2>/dev/null | sort -u
+}
+
+down() {
+  d=$1
+  case "$d" in /tmp/iy.*|/private/tmp/iy.*) ;; *) echo "isolated-yard: $d is not an isolated yard" >&2; exit 2 ;; esac
+  [ -x "$d/e" ] || { echo "isolated-yard: no yard at $d" >&2; exit 2; }
+  d=$(cd "$d" && pwd -P | sed 's|^/private/tmp/|/tmp/|')
+  "$d/e" herdr server stop >/dev/null 2>&1 || true
+  for sig in TERM KILL; do
+    left=$(pids "$d")
+    [ -n "$left" ] || break
+    # shellcheck disable=SC2086
+    kill -"$sig" $left 2>/dev/null || true
+    sleep 1
+  done
+  left=$(pids "$d")
+  if [ -n "$left" ]; then
+    echo "isolated-yard: still running, $d kept:" $left >&2
+    exit 1
+  fi
+  if [ -f "$d/agents.log" ]; then
+    echo "stand-in agents started: $(grep -c ' start ' "$d/agents.log")"
+  fi
+  rm -rf "$d"
+  echo "stopped and removed $d"
+}
+
+up() {
+  herdr=$(command -v herdr) || { echo "isolated-yard: herdr not found" >&2; exit 2; }
+  command -v lsof >/dev/null || { echo "isolated-yard: lsof not found (down needs it)" >&2; exit 2; }
+  src=$(cd "$(dirname "$0")" && pwd)
+  d=$(mktemp -d /tmp/iy.XXXXXX)
+  mkdir -p "$d/bin" "$d/c/herdr" "$d/s" "$d/y" "$d/h"
+  go build -o "$d/bin/yardr" .
+  (cd "$src/fake" && go build -o "$d/bin/claude" .)
+  # A copy, not a link: its process then runs from D/bin, where down finds it.
+  cp "$herdr" "$d/bin/herdr"
+  cat >"$d/c/herdr/config.toml" <<CONF
+onboarding = false
+[terminal]
+default_shell = "/bin/sh"
+shell_mode = "non_login"
+CONF
+  # Commits in a test rig need an author; the caller's gitconfig is not read.
+  printf '[user]\n\tname = tester\n\temail = tester@example.invalid\n[init]\n\tdefaultBranch = main\n' >"$d/h/.gitconfig"
+  cat >"$d/e" <<WRAP
+#!/bin/sh
+exec /usr/bin/env -i HOME=$d/h PATH=$d/bin:/usr/bin:/bin:/usr/sbin:/sbin \\
+  XDG_CONFIG_HOME=$d/c XDG_STATE_HOME=$d/s YARDR_HOME=$d/y \\
+  TERM=xterm-256color SHELL=/bin/sh LANG=en_US.UTF-8 "\$@"
+WRAP
+  chmod +x "$d/e"
+
+  "$d/e" herdr server >"$d/herdr.log" 2>&1 &
+  i=0
+  until "$d/e" herdr status server 2>/dev/null | grep -q "$d/c/herdr/herdr.sock" &&
+    "$d/e" herdr agent list >/dev/null 2>&1; do
+    i=$((i + 1))
+    if [ "$i" -gt 50 ]; then
+      echo "isolated-yard: the herdr server did not come up, see $d/herdr.log" >&2
+      exit 1
+    fi
+    sleep 0.2
+  done
+
+  # The proof, from inside a pane: what a new pane's shell finds as `claude`.
+  pane=$("$d/e" herdr workspace create --cwd "$d/h" --label check --no-focus |
+    sed -n 's/.*"root_pane":{[^}]*"pane_id":"\([^"]*\)".*/\1/p')
+  found=
+  if [ -n "$pane" ]; then
+    "$d/e" herdr pane run "$pane" 'echo "agent=$(command -v claude)="' >/dev/null
+    "$d/e" herdr pane wait-output "$pane" --regex 'agent=[^$]*=' --timeout 10000 >/dev/null 2>&1 || true
+    found=$("$d/e" herdr pane read "$pane" --source recent-unwrapped --lines 20 |
+      sed -n 's/.*agent=\([^$=]*\)=.*/\1/p' | tail -1)
+    "$d/e" herdr pane close "$pane" >/dev/null 2>&1 || true
+  fi
+  agents=$("$d/e" herdr agent list)
+  echo "command -v claude, in a pane: ${found:-<nothing>}"
+  echo "herdr agent list: $agents"
+  if [ "$found" != "$d/bin/claude" ] || ! printf '%s' "$agents" | grep -q '"agents":\[\]'; then
+    echo "isolated-yard: not isolated, tearing down" >&2
+    down "$d" >&2
+    exit 1
+  fi
+  echo "isolated yard: $d   (run commands as $d/e <command>; end with: $0 down $d)"
+}
+
+case "${1:-}" in
+up) [ $# -eq 1 ] || usage; up ;;
+down) [ $# -eq 2 ] || usage; down "$2" ;;
+*) usage ;;
+esac
