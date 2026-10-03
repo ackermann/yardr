@@ -439,9 +439,13 @@ named in a note, which never fails the check.`,
 				case res.Source == "":
 				case strings.TrimSpace(out) != "":
 					fmt.Println(out)
-				case !res.Pass && strings.TrimSpace(res.Output) == "":
+				// Of the gate itself: what else fails the check (stranded
+				// beads, stray stage files) is said below, not laid on a gate
+				// that passed.
+				case gateGreen(res):
+				case strings.TrimSpace(res.Output) == "":
 					fmt.Println("(the check printed nothing)")
-				case !res.Pass:
+				default:
 					// A red gate always says where to look, even with --tail 0.
 					fmt.Printf("(%d lines of output not shown; --tail to see them, or --json for all)\n",
 						strings.Count(strings.TrimRight(res.Output, "\n"), "\n")+1)
@@ -456,7 +460,7 @@ named in a note, which never fails the check.`,
 				switch {
 				case res.Source == "" && res.Kind == store.RigDir:
 					fmt.Printf("rig %s is a dir rig with no check (no --check, no %s in %s): pass (no gate)\n", res.Rig, rigcheck.RepoPath, res.Dir)
-				case res.Source == "" && res.Pass:
+				case res.Source == "" && gateGreen(res):
 					fmt.Printf("rig %s has no check (no --check, no %s on %s), allowed by allow_no_check: pass\n", res.Rig, rigcheck.RepoPath, res.From)
 				case res.Source == "":
 					fmt.Printf("rig %s has no check (no --check, no %s on %s): FAIL (no gate)\n", res.Rig, rigcheck.RepoPath, res.From)

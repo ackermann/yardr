@@ -274,6 +274,21 @@ func TestRigCheckStageFiles(t *testing.T) {
 		!strings.Contains(out, "rig api: FAIL (stage files that belong to no stage: 1)") {
 		t.Fatalf("store flow, stray stage file: %q, %v (exit %d), want exit 2", out, err, exitCode(err))
 	}
+	// A gate that passed is not blamed for it: one that printed nothing is
+	// not said to have failed silently, and a rig allowed to have no gate
+	// is not said to fail for having none.
+	if err := a.st.PutRig(context.Background(), store.Rig{Name: "api", Path: t.TempDir(), Kind: store.RigDir, Check: "true"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err = run(t, a.rigCheckCmd(), "api"); exitCode(err) != 2 || strings.Contains(out, "the check printed nothing") || !strings.Contains(out, ": gate passed") {
+		t.Fatalf("silent green gate, stray stage file: %q, %v", out, err)
+	}
+	if err := a.st.PutRig(context.Background(), store.Rig{Name: "api", Path: repo, Base: "main", AllowNoCheck: true}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err = run(t, a.rigCheckCmd(), "api"); exitCode(err) != 2 || strings.Contains(out, "FAIL (no gate)") || !strings.Contains(out, "allowed by allow_no_check: pass") {
+		t.Fatalf("no gate allowed, stray stage file: %q, %v", out, err)
+	}
 	// It does not fail another rig, which does not follow the flow.
 	if out, err = run(t, a.rigCheckCmd(), "web"); exitCode(err) != 0 {
 		t.Fatalf("rig web with a stray file of another flow in the home: %q, %v", out, err)
