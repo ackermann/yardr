@@ -364,7 +364,7 @@ func (s *Store) DeleteRig(ctx context.Context, name, actor string) (*RigRemoval,
 		if w.Bucket(bRigs).Get([]byte(name)) == nil {
 			return fmt.Errorf("rig %s: %w", name, ErrNotFound)
 		}
-		users, err := rigUsers(w.Tx, name)
+		users, err := s.rigUsers(w.Tx, name)
 		if err != nil {
 			return err
 		}
@@ -418,7 +418,7 @@ func (s *Store) DeleteRig(ctx context.Context, name, actor string) (*RigRemoval,
 
 // rigUsers names what still needs the rig: its open beads, and the live
 // sessions working them.
-func rigUsers(tx *bolt.Tx, name string) ([]string, error) {
+func (s *Store) rigUsers(tx *bolt.Tx, name string) ([]string, error) {
 	var out []string
 	err := each(tx, bBeads, "", func(_ []byte, r *beadRow) error {
 		if r.Status != "closed" && r.Rig != nil && *r.Rig == name {
@@ -429,19 +429,19 @@ func rigUsers(tx *bolt.Tx, name string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = each(tx, bSessions, "", func(_ []byte, sess *Session) error {
-		if !sess.live() {
-			return nil
-		}
+	live, err := s.liveSessions(tx, "")
+	if err != nil {
+		return nil, err
+	}
+	for _, sess := range live {
 		var b beadRow
 		if ok, err := get(tx, bBeads, sess.Bead, &b); err != nil {
-			return err
+			return nil, err
 		} else if ok && b.Rig != nil && *b.Rig == name {
 			out = append(out, "session "+sess.ID+" (bead "+b.ID+")")
 		}
-		return nil
-	})
-	return out, err
+	}
+	return out, nil
 }
 
 // SnapBead and SnapDep are the full records the BDP server serves, with the

@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/binary"
 	"maps"
+	"strings"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
@@ -13,6 +14,41 @@ func (s *Store) MentionCompiles() int64 { return s.mentions.compiled.Load() }
 
 // InboxReads is how many events Inbox has decoded.
 func (s *Store) InboxReads() int64 { return s.inboxReads.Load() }
+
+// SessionReads is how many sessions were read through the live index.
+func (s *Store) SessionReads() int64 { return s.sessionReads.Load() }
+
+// BulkSessions stores n ended, stopped sessions of group for bead (a UUID)
+// in state that ended at ended, as a long-running yard leaves behind.
+func (s *Store) BulkSessions(n int, bead, group, state string, ended time.Time) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		for i := 0; i < n; i++ {
+			sess := Session{ID: newEdgeID(), Bead: bead, Group: group, Stage: "new", State: state,
+				Stopped: true, StartedAt: ended.Add(-time.Minute), EndedAt: &ended}
+			if err := putSession(tx, &sess); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// DropSessionIndex removes the live session index, as a store from before
+// it lacks it.
+func (s *Store) DropSessionIndex() error {
+	return s.db.Update(func(tx *bolt.Tx) error { return tx.DeleteBucket(bSessLive) })
+}
+
+// LiveIndex lists the session ids in the live index.
+func (s *Store) LiveIndex() (ids []string) {
+	_ = s.db.View(func(tx *bolt.Tx) error {
+		for _, k := range keys(tx, bSessLive, "") {
+			ids = append(ids, k[strings.LastIndexByte(k, 0)+1:])
+		}
+		return nil
+	})
+	return ids
+}
 
 // BulkEvents logs n events of kind in a few large transactions, for tests
 // that need a long log quickly.
@@ -55,7 +91,8 @@ func (s *Store) Backdate(first, last uint64, at time.Time) error {
 	})
 }
 
-// BackdateSession moves the start of session id to at.
+// BackdateSession moves the start of session id to at, and its end, if it
+// has ended, to a minute later.
 func (s *Store) BackdateSession(id string, at time.Time) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
 		var sess Session
@@ -63,7 +100,11 @@ func (s *Store) BackdateSession(id string, at time.Time) error {
 			return err
 		}
 		sess.StartedAt = at
-		return put(tx, bSessions, id, sess)
+		if sess.EndedAt != nil {
+			ended := at.Add(time.Minute)
+			sess.EndedAt = &ended
+		}
+		return putSession(tx, &sess)
 	})
 }
 

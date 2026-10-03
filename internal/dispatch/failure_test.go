@@ -346,3 +346,57 @@ func TestBlockedGroupHoldsNoBead(t *testing.T) {
 		t.Fatalf("runtime_down = %v, want one for builders", got)
 	}
 }
+
+// A bead held after repeated failures and then un-held is not held again
+// once the log that recorded the unhold is pruned: the attempts since the
+// unhold live on the bead, not in the event.
+func TestUnheldBeadSurvivesPruningTheUnheldEvent(t *testing.T) {
+	s := storetest.New(t)
+	f := &fakeRunner{dead: map[string]bool{}}
+	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f},
+		Backoff: time.Nanosecond, MaxAttempts: 2}
+	ctx := context.Background()
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	b, _ := s.CreateBead(ctx, store.NewBead{Title: "flaky"}, "me")
+	for range 2 {
+		must(t, d.Reconcile(ctx))
+		got, _ := s.GetBead(ctx, b.ID)
+		if got.Session == nil {
+			t.Fatalf("bead not started: %+v", got)
+		}
+		f.dead[*got.Session] = true
+		time.Sleep(time.Millisecond)
+	}
+	must(t, d.Reconcile(ctx))
+	if got, _ := s.GetBead(ctx, b.ID); !got.Hold {
+		t.Fatalf("bead not held after %d deaths: %+v", d.MaxAttempts, got)
+	}
+	_, err := s.SetHold(ctx, b.ID, false, store.Expect{}, "human")
+	must(t, err)
+	must(t, s.AddNote(ctx, b.ID, "cause fixed, retrying", "human")) // the newest event stays, so this one does
+
+	// Everything so far ages out at once: the unheld event and the dead
+	// sessions (stopped by the passes above) go.
+	time.Sleep(time.Millisecond)
+	res, err := s.Prune(ctx, store.Retention{Events: time.Nanosecond}, "me")
+	must(t, err)
+	if res.Sessions != 2 || res.HeldBy != "" {
+		t.Fatalf("prune = %+v, want both dead sessions gone", res)
+	}
+	if evs, _ := s.Events(ctx, b.ID, 0); len(evs) != 1 || evs[0].Kind != "noted" {
+		t.Fatalf("bead events after prune = %+v, want only the note", evs)
+	}
+
+	must(t, d.Reconcile(ctx))
+	got, _ := s.GetBead(ctx, b.ID)
+	if got.Hold || got.Session == nil {
+		t.Fatalf("un-held bead re-held without a new failure: %+v", got)
+	}
+	if n := len(f.starts()); n != 3 {
+		t.Fatalf("starts = %d, want 3", n)
+	}
+	if n, _ := s.FailureCount(ctx, b.ID, "new"); n != 0 {
+		t.Fatalf("failures after unhold and prune = %d, want 0", n)
+	}
+}

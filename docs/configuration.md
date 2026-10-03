@@ -338,7 +338,7 @@ Environment variables yardr reads:
 | `YARDR_BEAD`, `YARDR_RESIDENT` | defaults for `prime` and resident commands; set for the sessions yardr starts |
 | `YARDR_SESSION` | the session yardr started this process for; `bead done`, `advance`, `close` and `hold` refuse to move its bead (`YARDR_BEAD`) once that session no longer owns it, and any other bead a live session owns ([pipeline.md](pipeline.md#2-new-a-builder-implements-it)) |
 | `YARDR_HOOK_ADDR` | TCP address the server takes webhooks on, e.g. `127.0.0.1:8790` |
-| `YARDR_EVENT_RETENTION`, `YARDR_HOOK_PAYLOAD_RETENTION` | how long the daemon and `yardr store prune` keep events and webhook bodies ([below](#retention-keeping-yarddb-bounded)) |
+| `YARDR_EVENT_RETENTION`, `YARDR_HOOK_PAYLOAD_RETENTION`, `YARDR_INBOX_RETENTION` | how long the daemon and `yardr store prune` keep events, ended sessions and webhook bodies, and how long an unread inbox event holds the log back ([below](#retention-keeping-yarddb-bounded)) |
 | `YARDR_TEST_RPC` | tests: run the store suites through the unix-socket client |
 
 Exec commands and herdr bead agents also get `YARDR_SESSION`, `YARDR_STAGE`
@@ -346,27 +346,44 @@ and `YARDR_GROUP` (see [groups.md](groups.md)).
 
 ### Retention: keeping `yard.db` bounded
 
-The event log and the raw webhook bodies beside it are pruned by age. The
-daemon prunes when it starts and every hour; `yardr store prune` does it on
-demand (`--events` and `--hook-payloads` override the knobs for one run).
+The event log, the sessions that have ended and the raw webhook bodies
+beside them are pruned by age. The daemon prunes when it starts and every
+hour; `yardr store prune` does it on demand (`--events`, `--hook-payloads`
+and `--inbox` override the knobs for one run).
 
 | variable | default | what it keeps |
 |---|---|---|
-| `YARDR_EVENT_RETENTION` | `90d` | events, with their index entries |
+| `YARDR_EVENT_RETENTION` | `90d` | events, with their index entries, and ended sessions (`yardr session list --all`) |
 | `YARDR_HOOK_PAYLOAD_RETENTION` | `30d` | raw webhook bodies (up to 1 MiB each), read only by `yardr hook show`; the `hook` event keeps the envelope routing reads |
+| `YARDR_INBOX_RETENTION` | `180d` | how long an event a running resident has not read holds the log back |
 
 Values are days (`90d`), Go durations (`720h`), or `off` (or `0`) to keep
 everything. Whatever its age, an event is kept when:
 
 - it is the newest event (sequences continue from it);
-- it is in a resident's inbox and not yet acknowledged, and so is every
-  event after it; a resident with nothing unread holds nothing back;
+- it is in a *running* resident's inbox, not yet acknowledged and younger
+  than the inbox retention, and so is every event after it; a resident with
+  nothing unread holds nothing back, and neither does one that is stopped or
+  disabled, however much it has not read;
 - it was logged after the oldest live bead session or running resident
   session started.
 
+An unread inbox event past those bounds goes like any other; the prune
+reports how many each resident lost (`expired`) and logs `inbox_expired` on
+the resident's journal with the count, so the resident learns what it never
+read. An ended session goes with the events of its time once the daemon has
+stopped its runner resources and, when it left a worktree, cleaned up after
+the bead closed (`workspace_removed`); a live session is never pruned.
+
 A prune that held events back says why (`held_by`, also on its
 `store_pruned` event). Beads, notes and deps are state, not log, and are
-never pruned; a bead's own event history shortens with the log.
+never pruned; a bead's own event history shortens with the log. What
+pruning must not lose lives on the bead: its count of failed attempts in
+its stage (reset when it enters a stage or `yardr bead unhold` runs) is kept
+there, not read back from the `unheld` event or the ended sessions, so
+pruning them does not hold a bead again without new failures. Claims and
+the daemon's pass read the live sessions through an index of their own and
+do not slow down with the sessions the store still keeps.
 
 bbolt reuses the pages pruning frees but never returns them to the
 filesystem. To shrink the file, stop the daemon and the server

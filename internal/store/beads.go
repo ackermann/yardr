@@ -53,6 +53,12 @@ type beadRow struct {
 	Bead
 	LastActor string `json:"last_actor,omitempty"`
 	Notes     int    `json:"notes,omitempty"`
+	// Failures counts the sessions that died or failed in the bead's
+	// current stage since it entered the stage or was last un-held (see
+	// FailureCount). On the bead, so it survives the log and the ended
+	// sessions being pruned, and un-holding resets it rather than being
+	// read back from an event.
+	Failures int `json:"failures,omitempty"`
 }
 
 type NewBead struct {
@@ -450,6 +456,9 @@ func (w *wtx) changeBead(id, actor string, fn func(*wtx, *beadRow) (string, map[
 	if err != nil {
 		return nil, err
 	}
+	if row.Stage != old.Stage {
+		row.Failures = 0 // attempts are per stage
+	}
 	wrote, err := w.saveBead(old, row, actor)
 	if err != nil {
 		return nil, err
@@ -476,10 +485,10 @@ func (w *wtx) endSession(b *beadRow, state string) error {
 		if err != nil {
 			return err
 		}
-		if ok && (sess.State == "starting" || sess.State == "running") {
+		if ok && sess.live() {
 			t := now()
 			sess.State, sess.EndedAt = state, &t
-			if err := put(w.Tx, bSessions, sess.ID, sess); err != nil {
+			if err := putSession(w.Tx, &sess); err != nil {
 				return err
 			}
 		}
@@ -704,8 +713,9 @@ func (s *Store) Reopen(ctx context.Context, id, actor string) (*Bead, error) {
 // SetHold pauses (or resumes) routing for a bead. Holding ends the session
 // working it (state 'held', which is no failure) and frees its group's slot:
 // a held bead waits on a human, and a session kept for it would only hold a
-// slot other beads could use. Unholding routes it again from its stage. A
-// stale exp refuses it (see Expect).
+// slot other beads could use. Unholding routes it again from its stage with
+// fresh attempts (its failure count starts over). A stale exp refuses it
+// (see Expect).
 func (s *Store) SetHold(ctx context.Context, id string, hold bool, exp Expect, actor string) (*Bead, error) {
 	return s.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
 		if err := exp.check(b); err != nil {
@@ -719,6 +729,7 @@ func (s *Store) SetHold(ctx context.Context, id string, hold bool, exp Expect, a
 			}
 			return "held", data, w.endSession(b, "held")
 		}
+		b.Failures = 0
 		return "unheld", nil, nil
 	})
 }

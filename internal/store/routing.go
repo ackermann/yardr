@@ -103,13 +103,8 @@ func (s *Store) DeleteGroup(ctx context.Context, name, actor string) (int, error
 				return err
 			}
 		}
-		var live []Session
-		if err := each(w.Tx, bSessions, "", func(_ []byte, sess *Session) error {
-			if sess.Group == name && sess.live() {
-				live = append(live, *sess)
-			}
-			return nil
-		}); err != nil {
+		live, err := s.liveSessions(w.Tx, name)
+		if err != nil {
 			return err
 		}
 		reason := "group " + name + " deleted"
@@ -131,7 +126,7 @@ func (s *Store) DeleteGroup(ctx context.Context, name, actor string) (int, error
 			// The bead moved on without this session; end it so it is not live.
 			t := now()
 			sess.State, sess.Error, sess.EndedAt = "released", &reason, &t
-			if err := put(w.Tx, bSessions, sess.ID, sess); err != nil {
+			if err := putSession(w.Tx, &sess); err != nil {
 				return err
 			}
 		}
@@ -293,6 +288,61 @@ type Session struct {
 
 func (s Session) live() bool { return s.State == "starting" || s.State == "running" }
 
+// liveKey is the session's entry in the live index, under its group so a
+// claim counts a group's sessions by prefix.
+func (s Session) liveKey() []byte { return []byte(join(s.Group, s.ID)) }
+
+// putSession writes sess and keeps it in, or out of, the live index. Every
+// write of a session goes through here, so the index is exact.
+func putSession(tx *bolt.Tx, sess *Session) error {
+	if err := put(tx, bSessions, sess.ID, sess); err != nil {
+		return err
+	}
+	if sess.live() {
+		return tx.Bucket(bSessLive).Put(sess.liveKey(), []byte{})
+	}
+	return tx.Bucket(bSessLive).Delete(sess.liveKey())
+}
+
+// liveSessions reads the sessions that are starting or running, of one
+// group or ("") of all, through the live index: the store keeps every
+// session until it is pruned, and nothing on the dispatcher's path should
+// scale with that.
+func (s *Store) liveSessions(tx *bolt.Tx, group string) ([]Session, error) {
+	var out []Session
+	prefix := ""
+	if group != "" {
+		prefix = group + "\x00"
+	}
+	for _, k := range keys(tx, bSessLive, prefix) {
+		id := k[strings.LastIndexByte(k, 0)+1:]
+		var sess Session
+		if ok, err := get(tx, bSessions, id, &sess); err != nil {
+			return nil, err
+		} else if ok {
+			out = append(out, sess)
+		}
+	}
+	s.sessionReads.Add(int64(len(out)))
+	return out, nil
+}
+
+// indexSessions builds the live index, once, for a store from before it.
+func indexSessions(tx *bolt.Tx) error {
+	if tx.Bucket(bSessLive) != nil || tx.Bucket(bSessions) == nil {
+		return nil
+	}
+	if _, err := tx.CreateBucket(bSessLive); err != nil {
+		return err
+	}
+	return each(tx, bSessions, "", func(_ []byte, sess *Session) error {
+		if !sess.live() {
+			return nil
+		}
+		return tx.Bucket(bSessLive).Put(sess.liveKey(), []byte{})
+	})
+}
+
 // Claim atomically assigns an unowned bead to group and opens a session.
 // It returns ErrTaken if the bead is missing, owned, in another stage, or
 // blocked or held: anything that changed since the caller read it; and
@@ -316,21 +366,15 @@ func (s *Store) Claim(ctx context.Context, beadID, group, stage, actor string) (
 		// The limit is checked here, in the claim's own transaction, so two
 		// dispatchers (or a dispatcher and a stale in-memory count) cannot
 		// both take the last slot. The dispatcher's own count is a fast path.
-		live := 0
-		if err := each(w.Tx, bSessions, "", func(_ []byte, sess *Session) error {
-			if sess.Group == group && sess.live() {
-				live++
-			}
-			return nil
-		}); err != nil {
-			return err
-		}
+		// The live index answers it without reading the sessions that ended.
+		live := len(keys(w.Tx, bSessLive, group+"\x00"))
+		s.sessionReads.Add(int64(live))
 		if live >= max(g.Limit, 1) {
 			return fmt.Errorf("group %s runs %d of %d: %w", group, live, max(g.Limit, 1), ErrAtLimit)
 		}
 		stored := Session{ID: newEdgeID(), Bead: row.UUID, Group: group, Stage: stage, Runner: g.Runner,
 			State: "starting", StartedAt: now()}
-		if err := put(w.Tx, bSessions, stored.ID, stored); err != nil {
+		if err := putSession(w.Tx, &stored); err != nil {
 			return err
 		}
 		row.Group, row.Session = &group, &stored.ID
@@ -358,7 +402,7 @@ func (s *Store) changeSession(id string, fn func(*wtx, *Session) error) error {
 		if err := fn(w, &sess); err != nil {
 			return err
 		}
-		return put(w.Tx, bSessions, id, sess)
+		return putSession(w.Tx, &sess)
 	})
 }
 
@@ -374,10 +418,11 @@ func (s *Store) MarkRunning(ctx context.Context, sessionID string, handle map[st
 }
 
 // EndSession ends a live session as 'died' or 'failed' and, if the bead is
-// still owned by it, returns the bead for routing. 'aborted' is a start the
-// runtime could not make (herdr down): it returns the bead the same way but
-// is no failure of the bead's, so FailureCount does not count it. Ending an ended session
-// is a no-op.
+// still owned by it, returns the bead for routing. A death or failure in
+// the bead's current stage counts against it (see FailureCount). 'aborted'
+// is a start the runtime could not make (herdr down): it returns the bead
+// the same way but is no failure of the bead's, so it is not counted.
+// Ending an ended session is a no-op.
 func (s *Store) EndSession(ctx context.Context, sessionID, state, reason string) error {
 	if state != "died" && state != "failed" && state != "aborted" {
 		return fmt.Errorf("EndSession: state %q not allowed", state)
@@ -392,12 +437,15 @@ func (s *Store) EndSession(ctx context.Context, sessionID, state, reason string)
 		if err != nil {
 			return err
 		}
+		row := cloneRow(old)
 		if old.Session != nil && *old.Session == sessionID {
-			row := cloneRow(old)
 			row.Group, row.Session = nil, nil
-			if _, err := w.saveBead(old, row, "yard"); err != nil {
-				return err
-			}
+		}
+		if state != "aborted" && sess.Stage == row.Stage {
+			row.Failures++
+		}
+		if _, err := w.saveBead(old, row, "yard"); err != nil {
+			return err
 		}
 		return w.event(sess.Bead, "session_"+state, "yard", map[string]any{"session": sessionID, "reason": reason})
 	})
@@ -465,9 +513,29 @@ func (s *Store) sessionsWhere(match func(*bolt.Tx, *Session) bool) ([]Session, e
 	return out, err
 }
 
-// Sessions lists live sessions, or every session when all is set.
+// Sessions lists live sessions, or every session when all is set. The
+// live ones come from their index, so the dispatcher's pass does not read
+// every session the store keeps.
 func (s *Store) Sessions(ctx context.Context, all bool) ([]Session, error) {
-	return s.sessionsWhere(func(_ *bolt.Tx, sess *Session) bool { return all || sess.live() })
+	if all {
+		return s.sessionsWhere(func(_ *bolt.Tx, sess *Session) bool { return true })
+	}
+	out := []Session{}
+	err := s.read(func(tx *bolt.Tx) error {
+		live, err := s.liveSessions(tx, "")
+		if err != nil {
+			return err
+		}
+		h := handlesIn(tx)
+		for _, sess := range live {
+			sess.Epic = epicOf(tx, sess.Bead)
+			sess.Bead = h.of(sess.Bead)
+			out = append(out, sess)
+		}
+		return nil
+	})
+	sort.SliceStable(out, func(i, j int) bool { return out[i].StartedAt.Before(out[j].StartedAt) })
+	return out, err
 }
 
 // Unstopped lists ended sessions whose runner resources are still up.
@@ -488,27 +556,23 @@ func (s *Store) ClosedWithWorkspace(ctx context.Context) ([]Session, error) {
 	})
 }
 
-// FailureCount counts failed or died sessions for bead in stage since a
-// human last un-held it, so un-holding grants fresh attempts.
+// FailureCount is how many sessions have died or failed for the bead in
+// stage since it entered the stage or a human last un-held it, so
+// un-holding grants fresh attempts. The count lives on the bead (see
+// beadRow.Failures): it does not depend on the unheld event or the ended
+// sessions, which the log and the session table prune. It is 0 for any
+// stage but the bead's current one.
 func (s *Store) FailureCount(ctx context.Context, ref, stage string) (int, error) {
-	b, err := s.GetBead(ctx, ref)
-	if err != nil {
-		return 0, err
-	}
-	bead := b.UUID
-	var since time.Time
-	evs, err := s.Events(ctx, bead, 1<<30)
-	if err != nil {
-		return 0, err
-	}
-	for _, e := range evs {
-		if e.Kind == "unheld" {
-			since = e.At
+	n := 0
+	err := s.read(func(tx *bolt.Tx) error {
+		row, err := loadBead(tx, ref)
+		if err != nil {
+			return err
 		}
-	}
-	failed, err := s.sessionsWhere(func(_ *bolt.Tx, sess *Session) bool {
-		return sess.Bead == bead && sess.Stage == stage && (sess.State == "died" || sess.State == "failed") &&
-			sess.StartedAt.After(since)
+		if row.Stage == stage {
+			n = row.Failures
+		}
+		return nil
 	})
-	return len(failed), err
+	return n, err
 }

@@ -87,7 +87,8 @@ type Dispatcher struct {
 	Binary *version.Binary
 	// CheckBinary is how often Binary is checked between passes (default 10s).
 	CheckBinary time.Duration
-	// Retention is how long the store keeps events and webhook bodies; the
+	// Retention is how long the store keeps events, ended sessions and
+	// webhook bodies, and how long an unread inbox event holds them; the
 	// daemon prunes on start and every PruneEvery (default 1h). Zero keeps
 	// everything and never prunes.
 	Retention  store.Retention

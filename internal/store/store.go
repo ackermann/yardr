@@ -16,13 +16,16 @@
 // The file is kept bounded. Past states of beads and deps are not retained:
 // the event log is their history, and a "versions" bucket that once kept a
 // full snapshot per change (read by nothing but a migration) is dropped on
-// open. The log itself is pruned by age (see Prune), never past what a
-// resident has yet to read nor past the oldest live session, and a pruned
-// file shrinks only when compacted (Compact) while no server holds it.
+// open. The log and the ended sessions are pruned by age (see Prune), the
+// log never past what a running resident has yet to read (within a bound)
+// nor past the oldest live session, and a pruned file shrinks only when
+// compacted (Compact) while no server holds it.
 //
 // Reads that serve one resident or follow the log page through indexes
 // written at ingest (inbox, events_by_kind) rather than scanning the log
-// in one read transaction.
+// in one read transaction, and what needs the live sessions (a claim, the
+// dispatcher's pass) reads them through an index of their own rather than
+// every session ever stored.
 package store
 
 import (
@@ -65,6 +68,7 @@ var (
 	bInbox    = []byte("inbox")          // <resident>\x00<seq>: mail to it, or delivered to it by a subscription
 	bEventsKd = []byte("events_by_kind") // <kind>\x00<seq>
 	bSessions = []byte("sessions")
+	bSessLive = []byte("sessions_live") // <group>\x00<id>: the sessions that are starting or running
 	bGroups   = []byte("groups")
 	bRoutes   = []byte("routes")
 	bRigs     = []byte("rigs")
@@ -78,7 +82,7 @@ var (
 var bVersions = []byte("versions")
 
 var allBuckets = [][]byte{bBeads, bHandles, bDeps, bDepFrom, bDepTo, bNotes, bEvents, bEventsBy, bInbox, bEventsKd,
-	bSessions, bGroups, bRoutes, bRigs, bFlows, bFlowPtrs, bMeta}
+	bSessions, bSessLive, bGroups, bRoutes, bRigs, bFlows, bFlowPtrs, bMeta}
 
 type Store struct {
 	db    *bolt.DB
@@ -90,6 +94,9 @@ type Store struct {
 	// inboxReads counts the events Inbox decoded, so a test can tell it
 	// read only the resident's own.
 	inboxReads atomic.Int64
+	// sessionReads counts the sessions read through the live index, so a
+	// test can tell Claim never looked at an ended one.
+	sessionReads atomic.Int64
 
 	// pump publishes committed events in seq order; writers only nudge it.
 	nudge  chan struct{}
@@ -122,6 +129,9 @@ func Open(path string) (*Store, error) {
 			}
 		}
 		if err := migrateIndexes(tx, stampedSchema(tx)); err != nil {
+			return err
+		}
+		if err := indexSessions(tx); err != nil {
 			return err
 		}
 		for _, b := range allBuckets {

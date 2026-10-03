@@ -3,7 +3,9 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
+	"slices"
 
 	"github.com/spf13/cobra"
 
@@ -12,9 +14,10 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// retention is how long the store keeps events and webhook bodies:
-// YARDR_EVENT_RETENTION and YARDR_HOOK_PAYLOAD_RETENTION, else
-// store.DefaultRetention.
+// retention is how long the store keeps events (and ended sessions) and
+// webhook bodies, and how long an unread inbox event holds the log back:
+// YARDR_EVENT_RETENTION, YARDR_HOOK_PAYLOAD_RETENTION and
+// YARDR_INBOX_RETENTION, else store.DefaultRetention.
 func retention() (store.Retention, error) {
 	ev, err := config.Retention("EVENT_RETENTION", store.DefaultRetention.Events)
 	if err != nil {
@@ -24,25 +27,33 @@ func retention() (store.Retention, error) {
 	if err != nil {
 		return store.Retention{}, err
 	}
-	return store.Retention{Events: ev, HookPayloads: hp}, nil
+	ib, err := config.Retention("INBOX_RETENTION", store.DefaultRetention.Inbox)
+	if err != nil {
+		return store.Retention{}, err
+	}
+	return store.Retention{Events: ev, HookPayloads: hp, Inbox: ib}, nil
 }
 
 func (a *app) storeCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "store", Short: "The store file: back up, prune old events, compact"}
-	var events, payloads string
+	var events, payloads, inbox string
 	prune := &cobra.Command{
 		Use:   "prune",
-		Short: "Remove events and webhook bodies past their retention",
-		Long: `Remove events older than the event retention and webhook bodies older than
-the hook payload retention (defaults 90d and 30d, or YARDR_EVENT_RETENTION and
-YARDR_HOOK_PAYLOAD_RETENTION). The daemon does this every hour.
+		Short: "Remove events, ended sessions and webhook bodies past their retention",
+		Long: `Remove events and ended sessions older than the event retention and webhook
+bodies older than the hook payload retention (defaults 90d and 30d, or
+YARDR_EVENT_RETENTION and YARDR_HOOK_PAYLOAD_RETENTION). The daemon does this
+every hour.
 
-An event a resident has not read yet, the newest event, and anything since the
-oldest live session started are kept whatever their age. The file does not
-shrink until it is compacted (yardr store compact).`,
+The newest event and anything since the oldest live session started are kept
+whatever their age, and so is an event a running resident has not read yet,
+for up to the inbox retention (180d, or YARDR_INBOX_RETENTION); a stopped or
+disabled resident holds nothing back. The file does not shrink until it is
+compacted (yardr store compact).`,
 		Example: `  yardr store prune
   yardr store prune --events 30d --hook-payloads 7d
-  yardr store prune --hook-payloads off            # keep every webhook body`,
+  yardr store prune --hook-payloads off            # keep every webhook body
+  yardr store prune --inbox off                    # unread inbox events hold the log back for good`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			keep, err := retention()
@@ -59,6 +70,11 @@ shrink until it is compacted (yardr store compact).`,
 					return err
 				}
 			}
+			if inbox != "" {
+				if keep.Inbox, err = config.ParseRetention(inbox); err != nil {
+					return err
+				}
+			}
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
@@ -68,15 +84,19 @@ shrink until it is compacted (yardr store compact).`,
 				return err
 			}
 			return a.out(res, func() {
-				fmt.Printf("pruned %d events, %d webhook bodies\n", res.Events, res.HookPayloads)
+				fmt.Printf("pruned %d events, %d sessions, %d webhook bodies\n", res.Events, res.Sessions, res.HookPayloads)
 				if res.HeldBy != "" {
 					fmt.Printf("older events kept: %s\n", res.HeldBy)
+				}
+				for _, name := range slices.Sorted(maps.Keys(res.Expired)) {
+					fmt.Printf("resident %s: %d unread inbox events went with the log\n", name, res.Expired[name])
 				}
 			})
 		},
 	}
 	prune.Flags().StringVar(&events, "events", "", "keep events this long: 90d, 720h, or off (default $YARDR_EVENT_RETENTION, else 90d)")
 	prune.Flags().StringVar(&payloads, "hook-payloads", "", "keep webhook bodies this long (default $YARDR_HOOK_PAYLOAD_RETENTION, else 30d)")
+	prune.Flags().StringVar(&inbox, "inbox", "", "an unread inbox event holds the log back this long (default $YARDR_INBOX_RETENTION, else 180d)")
 
 	compact := &cobra.Command{
 		Use:   "compact",

@@ -15,44 +15,73 @@ import (
 // Retention is how long Prune keeps what it may remove; zero keeps it for
 // good.
 type Retention struct {
-	Events       time.Duration `json:"events"`        // the event log
+	Events       time.Duration `json:"events"`        // the event log, and the sessions that ended
 	HookPayloads time.Duration `json:"hook_payloads"` // raw webhook bodies, up to MaxHookPayload each
+	// Inbox bounds how long an event a running resident has not read holds
+	// the log back (see Prune); zero is forever.
+	Inbox time.Duration `json:"inbox"`
 }
 
 // DefaultRetention keeps events for 90 days and webhook bodies, which only
-// `yardr hook show` reads, for 30.
-var DefaultRetention = Retention{Events: 90 * 24 * time.Hour, HookPayloads: 30 * 24 * time.Hour}
+// `yardr hook show` reads, for 30; an unread inbox event holds the log back
+// for 180 days at most.
+var DefaultRetention = Retention{Events: 90 * 24 * time.Hour, HookPayloads: 30 * 24 * time.Hour, Inbox: 180 * 24 * time.Hour}
 
 // PruneResult is what one Prune removed, and what held the log back.
 type PruneResult struct {
 	Events       int    `json:"events"`
 	HookPayloads int    `json:"hook_payloads"`
+	Sessions     int    `json:"sessions"`
 	HeldBy       string `json:"held_by,omitempty"` // why events past their age were kept
+	// Expired counts, per resident, the unread inbox events (mail and
+	// deliveries) that went with the log; each resident's journal gets an
+	// inbox_expired event saying so.
+	Expired map[string]int `json:"expired,omitempty"`
 }
 
 // pruneBatch bounds the events one write transaction removes, so a first
 // prune of a large log does not hold the write lock for long.
 const pruneBatch = 1000
 
-// Prune removes events older than keep.Events and webhook bodies older
-// than keep.HookPayloads. It never removes the newest event (the head that
-// sequences continue from), an event in a resident's inbox it has yet to
-// read, nor any event after that, nor anything since the oldest live session or
-// resident session began (its prime and history read back to there).
+// Prune removes events older than keep.Events, the sessions that ended
+// before then, and webhook bodies older than keep.HookPayloads. It never
+// removes the newest event (the head that sequences continue from), an
+// event in a running resident's inbox it has yet to read (unless older than
+// keep.Inbox) nor any event after that, nor anything since the oldest live
+// session or running resident session began (its prime and history read
+// back to there). A stopped or disabled resident holds nothing back: what
+// it has not read in a retention's time goes, and its journal is told how
+// much (inbox_expired). An ended session goes once the daemon has stopped
+// its runner resources and, if it left a worktree, cleaned up after the
+// bead closed; its bead and the bead's notes stay, being state, not log.
 // Webhook bodies are not events: the event keeps the envelope that routing
 // reads, so a body goes by age alone. Logs a store_pruned event when
 // anything was removed.
 func (s *Store) Prune(ctx context.Context, keep Retention, actor string) (*PruneResult, error) {
-	res := &PruneResult{}
+	res := &PruneResult{Expired: map[string]int{}}
 	if keep.Events > 0 {
-		floor, cutoff, held, err := s.pruneFloor(now().Add(-keep.Events))
+		var unreadBound time.Time // zero: unread events hold back for good
+		if keep.Inbox > 0 {
+			unreadBound = now().Add(-keep.Inbox)
+		}
+		floor, cutoff, held, err := s.pruneFloor(now().Add(-keep.Events), unreadBound)
 		if err != nil {
 			return nil, err
 		}
 		res.HeldBy = held
 		for {
-			n, more, err := s.pruneEvents(floor, cutoff)
+			n, more, err := s.pruneEvents(floor, cutoff, res.Expired)
 			res.Events += n
+			if err != nil {
+				return res, err
+			}
+			if !more {
+				break
+			}
+		}
+		for {
+			n, more, err := s.pruneSessions(now().Add(-keep.Events))
+			res.Sessions += n
 			if err != nil {
 				return res, err
 			}
@@ -74,25 +103,45 @@ func (s *Store) Prune(ctx context.Context, keep Retention, actor string) (*Prune
 			}
 		}
 	}
-	if res.Events+res.HookPayloads == 0 {
+	if len(res.Expired) == 0 {
+		res.Expired = nil
+	}
+	for name, n := range res.Expired {
+		// The resident learns what it never read, in its own history.
+		r, err := s.GetResident(ctx, name)
+		if errors.Is(err, ErrNotFound) {
+			continue // deleted since its inbox entries were counted
+		} else if err != nil {
+			return res, err
+		}
+		if err := s.LogEvent(ctx, r.Journal, "inbox_expired", actor, map[string]any{"resident": name, "events": n}); err != nil {
+			return res, err
+		}
+	}
+	if res.Events+res.HookPayloads+res.Sessions == 0 {
 		return res, nil
 	}
-	data := map[string]any{"events": res.Events, "hook_payloads": res.HookPayloads}
+	data := map[string]any{"events": res.Events, "hook_payloads": res.HookPayloads, "sessions": res.Sessions}
 	if res.HeldBy != "" {
 		data["held_by"] = res.HeldBy
+	}
+	if res.Expired != nil {
+		data["expired"] = res.Expired
 	}
 	return res, s.LogEvent(ctx, "", "store_pruned", actor, data)
 }
 
-// firstUnread is the oldest event in r's inbox it has not acknowledged.
-// Only inbox events count: the cursor of a resident nothing was sent to
-// does not move, and must not pin the log.
-func firstUnread(tx *bolt.Tx, r *Resident) (uint64, bool, error) {
+// firstUnread is the oldest event in r's inbox it has not acknowledged and
+// that is not older than bound (a zero bound is no bound): what it has
+// left unread longer than that no longer holds the log back. Only inbox
+// events count: the cursor of a resident nothing was sent to does not
+// move, and must not pin the log.
+func firstUnread(tx *bolt.Tx, r *Resident, bound time.Time) (uint64, bool, error) {
 	for _, k := range inboxKeys(tx, r) {
 		var e Event
 		if ok, err := get(tx, bEvents, k, &e); err != nil {
 			return 0, false, err
-		} else if !ok {
+		} else if !ok || e.At.Before(bound) {
 			continue
 		}
 		evs := []Event{e}
@@ -106,10 +155,13 @@ func firstUnread(tx *bolt.Tx, r *Resident) (uint64, bool, error) {
 
 // pruneFloor works out what Prune must keep: every event from seq floor on,
 // and every event at or after cutoff, which moves back to the start of the
-// oldest live session. held says what, if anything, kept events older than
-// the asked-for cutoff. Cursors only move forward and new sessions start
-// after now, so the floor stays valid while Prune runs.
-func (s *Store) pruneFloor(cutoff time.Time) (floor uint64, _ time.Time, held string, err error) {
+// oldest live session. Only a running resident holds the log back, with
+// its unread inbox (within unreadBound) and its session's start: one that
+// is stopped or disabled would otherwise pin the log for as long as it
+// stays so. held says what, if anything, kept events older than the
+// asked-for cutoff. Cursors only move forward and new sessions start after
+// now, so the floor stays valid while Prune runs.
+func (s *Store) pruneFloor(cutoff, unreadBound time.Time) (floor uint64, _ time.Time, held string, err error) {
 	err = s.read(func(tx *bolt.Tx) error {
 		k, _ := tx.Bucket(bEvents).Cursor().Last()
 		if k == nil {
@@ -117,34 +169,50 @@ func (s *Store) pruneFloor(cutoff time.Time) (floor uint64, _ time.Time, held st
 		}
 		floor = binary.BigEndian.Uint64(k) // the head stays
 		if err := each(tx, bResidents, "", func(_ []byte, r *Resident) error {
-			if seq, ok, err := firstUnread(tx, r); err != nil {
+			if !r.Live() {
+				return nil
+			}
+			if seq, ok, err := firstUnread(tx, r, unreadBound); err != nil {
 				return err
 			} else if ok && seq < floor {
 				floor, held = seq, "resident "+r.Name+" has not read event "+fmt.Sprint(seq)
 			}
-			if r.Live() && r.StartedAt != nil && r.StartedAt.Before(cutoff) {
+			if r.StartedAt != nil && r.StartedAt.Before(cutoff) {
 				cutoff, held = *r.StartedAt, "resident "+r.Name+" has run since "+r.StartedAt.Format(time.RFC3339)
 			}
 			return nil
 		}); err != nil {
 			return err
 		}
-		return each(tx, bSessions, "", func(_ []byte, sess *Session) error {
-			if sess.live() && sess.StartedAt.Before(cutoff) {
+		live, err := s.liveSessions(tx, "")
+		if err != nil {
+			return err
+		}
+		for _, sess := range live {
+			if sess.StartedAt.Before(cutoff) {
 				cutoff, held = sess.StartedAt, "session "+sess.ID+" has run since "+sess.StartedAt.Format(time.RFC3339)
 			}
-			return nil
-		})
+		}
+		return nil
 	})
 	return floor, cutoff, held, err
 }
 
 // pruneEvents removes up to pruneBatch of the oldest events that are both
 // before floor and older than cutoff, with their index entries and webhook
-// bodies; more reports that a full batch went.
-func (s *Store) pruneEvents(floor uint64, cutoff time.Time) (n int, more bool, err error) {
+// bodies; more reports that a full batch went. An inbox entry a resident
+// had not read yet is counted against it in expired.
+func (s *Store) pruneEvents(floor uint64, cutoff time.Time, expired map[string]int) (n int, more bool, err error) {
+	var counted map[string]int
 	err = s.write(func(w *wtx) error {
-		n, more = 0, false // a batched write may run this twice
+		n, more, counted = 0, false, map[string]int{} // a batched write may run this twice
+		cursors := map[string]uint64{}
+		if err := each(w.Tx, bResidents, "", func(_ []byte, r *Resident) error {
+			cursors[r.Name] = r.Cursor
+			return nil
+		}); err != nil {
+			return err
+		}
 		var dead []Event
 		c := w.Bucket(bEvents).Cursor()
 		for k, raw := c.First(); k != nil && binary.BigEndian.Uint64(k) < floor; k, raw = c.Next() {
@@ -174,6 +242,9 @@ func (s *Store) pruneEvents(floor uint64, cutoff time.Time) (n int, more bool, e
 			}
 			for _, name := range inboxOf(e) {
 				del = append(del, entry{bInbox, join(name, k)})
+				if cursor, ok := cursors[name]; ok && e.Seq > cursor {
+					counted[name]++
+				}
 			}
 			for _, d := range del {
 				if err := w.Bucket(d.b).Delete([]byte(d.key)); err != nil {
@@ -205,8 +276,58 @@ func (s *Store) pruneEvents(floor uint64, cutoff time.Time) (n int, more bool, e
 		}
 		return nil
 	})
+	if err == nil {
+		for name, c := range counted {
+			expired[name] += c
+		}
+	}
 	return n, more, err
 }
+
+// pruneSessions removes up to pruneBatch of the sessions that ended before
+// cutoff and that the daemon is done with: their runner resources stopped
+// and, when they left a worktree, cleaned up (which waits for the bead to
+// close). A live session is never removed, whatever its age.
+func (s *Store) pruneSessions(cutoff time.Time) (n int, more bool, err error) {
+	err = s.write(func(w *wtx) error {
+		n, more = 0, false
+		var dead []Session
+		if err := each(w.Tx, bSessions, "", func(_ []byte, sess *Session) error {
+			if sess.live() || !sess.Stopped || (sess.Handle["worktree"] != nil && !sess.Cleaned) {
+				return nil
+			}
+			ended := sess.StartedAt
+			if sess.EndedAt != nil {
+				ended = *sess.EndedAt
+			}
+			if !ended.Before(cutoff) {
+				return nil
+			}
+			if len(dead) == pruneBatch {
+				more = true
+				return errStop
+			}
+			dead = append(dead, *sess)
+			return nil
+		}); err != nil && !errors.Is(err, errStop) {
+			return err
+		}
+		for _, sess := range dead {
+			if err := w.Bucket(bSessions).Delete([]byte(sess.ID)); err != nil {
+				return err
+			}
+			if err := w.Bucket(bSessLive).Delete(sess.liveKey()); err != nil {
+				return err
+			}
+		}
+		n = len(dead)
+		return nil
+	})
+	return n, more, err
+}
+
+// errStop ends an each early, without error.
+var errStop = errors.New("stop")
 
 // prunePayloads removes up to pruneBatch of the oldest webhook bodies whose
 // event is older than cutoff (or already pruned).
