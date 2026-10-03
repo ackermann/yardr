@@ -258,3 +258,58 @@ func TestClosedWithWorkspaceDirRig(t *testing.T) {
 		t.Fatalf("closed with workspace = %+v, %v; want only %s", ws, err, ids["dir"])
 	}
 }
+
+// rig rm works on a dir rig as on a git one: the rig, the routes that name
+// it and its flow pointers leave the store, and the directory, with its
+// .yardr/, stays as it is (there are no worktrees to speak of).
+func TestDeleteDirRig(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	flow := filepath.Join(dir, ".yardr", "flows", "default.flow")
+	if err := os.MkdirAll(filepath.Dir(flow), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(flow, []byte("new -> done\ndone terminal\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutRig(ctx, store.Rig{Name: "docs", Path: dir, Kind: store.RigDir}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "herdr"}); err != nil {
+		t.Fatal(err)
+	}
+	docs := "docs"
+	route, err := s.AddRoute(ctx, store.Route{Stage: "new", Rig: &docs, Group: "g"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := store.ParseFlow("new -> done\ndone terminal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Name = "named"
+	if _, err := s.PutFlow(ctx, *f, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetFlowPointer(ctx, "docs", "", "named", "me"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.DeleteRig(ctx, "docs", "me")
+	if err != nil || got.Rig != "docs" || len(got.Routes) != 1 || got.Routes[0] != route.ID ||
+		len(got.FlowPointers) != 1 || got.FlowPointers[0].String() != "rig docs" {
+		t.Fatalf("DeleteRig = %+v, %v", got, err)
+	}
+	if _, err := s.GetRig(ctx, "docs"); err == nil {
+		t.Fatal("dir rig still in the store")
+	}
+	if rs, _ := s.Routes(ctx); len(rs) != 0 {
+		t.Fatalf("routes left: %+v", rs)
+	}
+	if ps, _ := s.FlowPointers(ctx); len(ps) != 0 {
+		t.Fatalf("flow pointers left: %+v", ps)
+	}
+	if b, err := os.ReadFile(flow); err != nil || string(b) != "new -> done\ndone terminal\n" {
+		t.Fatalf("the directory's .yardr changed: %q, %v", b, err)
+	}
+}
