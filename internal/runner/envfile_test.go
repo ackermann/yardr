@@ -12,6 +12,7 @@ import (
 
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
 const envSecret = "lin_api_s3cret"
@@ -131,6 +132,40 @@ func TestEnvFileRefusedBlocksStart(t *testing.T) {
 		}
 		if strings.Contains(logs.String(), envSecret) {
 			t.Errorf("%s: logs show the value", name)
+		}
+	}
+}
+
+// A resident's herdr agent and workspace carry the yard's name, so two
+// yards on one machine (herdr lists their agents together, and refuses a
+// second "mayor") are told apart: the `name` setting, else the home's
+// directory name; a yard with neither names them after the resident alone.
+func TestStartResidentNamesTheYard(t *testing.T) {
+	for _, tc := range []struct {
+		home, setting, agent, label string
+	}{
+		{"/Users/jo/.yardr", "", "yardr-mayor", "yardr mayor"},
+		{"/tmp/y1", "", "y1-mayor", "y1 mayor"},
+		{"/tmp/y1", "Prod/Web", "prod-web-mayor", "Prod/Web mayor"},
+		{"", "", "mayor", "mayor"},
+	} {
+		h, calls, _ := envHerdr(t, "")
+		h.YardHome = tc.home
+		if tc.setting != "" {
+			st := storetest.New(t)
+			if err := st.SetSetting(context.Background(), "name", tc.setting, "me"); err != nil {
+				t.Fatal(err)
+			}
+			h.Store = st
+		}
+		handle, err := h.StartResident(context.Background(), store.Resident{Name: "mayor", Dir: t.TempDir()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := readCalls(t, calls)
+		if !strings.Contains(got, "--label "+tc.label+" --no-focus") || !strings.Contains(got, "\nagent start "+tc.agent+" --kind claude") ||
+			handle["agent"] != tc.agent {
+			t.Errorf("home %q, name %q: agent %v, calls:\n%s", tc.home, tc.setting, handle["agent"], got)
 		}
 	}
 }

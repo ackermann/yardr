@@ -34,6 +34,18 @@ func TestEnvSetsBothNames(t *testing.T) {
 	}
 }
 
+func TestIsVar(t *testing.T) {
+	for key, want := range map[string]bool{"YARDR_BEAD": true, "YARD_BEAD": true, "YARDR_SESSION": false,
+		"BEAD": false, "YARDR_": false, "PATH": false} {
+		if got := IsVar(key, "BEAD", "HOME"); got != want {
+			t.Errorf("IsVar(%q, BEAD, HOME) = %v", key, got)
+		}
+	}
+	if !IsVar("YARD_ANYTHING") || IsVar("YARDS_X") {
+		t.Error("IsVar with no names: any yardr variable")
+	}
+}
+
 func TestDefaultHome(t *testing.T) {
 	u := t.TempDir()
 	if got := DefaultHome(u); got != filepath.Join(u, ".yardr") {
@@ -107,6 +119,33 @@ func TestParseRetention(t *testing.T) {
 
 // A home whose socket would not fit a unix socket path is refused, and
 // nothing is created for it.
+// A relative YARDR_HOME is made absolute at load, once: the server, the
+// agents and the gate are started with it and run elsewhere, where the
+// relative path would name another directory (or none: exit 2).
+func TestLoadMakesHomeAbsolute(t *testing.T) {
+	// A short directory: the absolute socket path must fit MaxSocket.
+	dir, err := os.MkdirTemp("", "ych")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Chdir(dir)
+	t.Setenv("YARDR_HOME", "y1/")
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(dir, "y1"); c.Home != want {
+		t.Fatalf("Home = %q, want %q", c.Home, want)
+	}
+	if st, err := os.Stat(filepath.Join(dir, "y1")); err != nil || !st.IsDir() {
+		t.Fatalf("home not created where it was named: %v", err)
+	}
+	if !filepath.IsAbs(c.Socket()) {
+		t.Fatalf("Socket = %q", c.Socket())
+	}
+}
+
 func TestLoadRefusesALongHome(t *testing.T) {
 	home := filepath.Join(t.TempDir(), strings.Repeat("h", MaxSocket))
 	t.Setenv("YARDR_HOME", home)

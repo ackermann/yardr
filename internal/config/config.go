@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -37,6 +38,19 @@ func Env(name, value string) []string {
 	return []string{prefix + name + "=" + value, oldPrefix + name + "=" + value}
 }
 
+// IsVar reports whether key is one of the named yardr variables, under
+// the new prefix or the old (IsVar("YARD_BEAD", "BEAD", "SESSION")); with
+// no names, any of them.
+func IsVar(key string, names ...string) bool {
+	name, ok := strings.CutPrefix(key, prefix)
+	if !ok {
+		if name, ok = strings.CutPrefix(key, oldPrefix); !ok {
+			return false
+		}
+	}
+	return len(names) == 0 || slices.Contains(names, name)
+}
+
 // Unsetenv removes YARDR_<name> and the old YARD_<name>, so children do not
 // inherit a value meant only for this process.
 func Unsetenv(name string) {
@@ -57,7 +71,11 @@ const MaxSocket = 100
 
 // Load resolves YARDR_HOME (default DefaultHome), creating it on first use.
 // A home whose socket path would not fit a unix socket is refused before
-// anything is created in it.
+// anything is created in it. The home is made absolute here, once: every
+// process this one starts (the server, agents, the gate) gets it in its
+// environment and runs somewhere else, where a relative YARDR_HOME=y1
+// would name a different directory, or none, and exit 2 on the first
+// command.
 func Load() (*Config, error) {
 	home := Getenv("HOME")
 	if home == "" {
@@ -66,6 +84,10 @@ func Load() (*Config, error) {
 			return nil, err
 		}
 		home = DefaultHome(h)
+	}
+	home, err := filepath.Abs(home)
+	if err != nil {
+		return nil, err
 	}
 	c := &Config{Home: home, HookAddr: Getenv("HOOK_ADDR")}
 	if n := len(c.Socket()); n > MaxSocket {

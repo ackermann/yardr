@@ -249,7 +249,21 @@ Everything yardr keeps for itself lives in one directory, **`YARDR_HOME`**
 
 Set `YARDR_HOME` to run a separate yard (tests do, with a short path: unix
 socket paths are limited to about 100 bytes, and yardr refuses a home whose
-`yard.sock` would be longer).
+`yard.sock` would be longer). A relative `YARDR_HOME` is made absolute
+once, when the command loads its configuration, so the server, the agents
+and the gate it starts, which run elsewhere, get the directory it named and
+not one relative to their own.
+
+The server is started by the first command that connects to a yard with no
+server, and serves every command after it. It gets none of that command's
+environment or working directory: the first command is as often an
+agent's, in a pane holding the credentials its `env_file` set and in a
+worktree, as the operator's. It starts with `PATH`, `HOME`, the settings
+the server reads (`YARDR_HOOK_ADDR`, `YARDR_EVENT_RETENTION`,
+`YARDR_HOOK_PAYLOAD_RETENTION`, under the old `YARD_` names too) and
+`YARDR_HOME` set to the home it serves, and runs in that home. The daemon
+is not started this way: it runs in a pane of its own with that pane's
+environment.
 
 `yardr rig rm <name>` takes a rig out of the store with the routes that
 match it (`--rig <name>`) and its flow pointers, logging one `rig_removed`
@@ -280,9 +294,9 @@ to initialize and exits 2.
 `yardr server`, `yardr init`, `yardr daemon`, `yardr settings` and
 `yardr help` never ask.
 
-`yardr init --harness <kind> [--mayor <name>] [--dir <path>] [--model <m>]
-[--operator <name>]` does the same without the form, for scripts and tests.
-Either way yardr:
+`yardr init [--harness <kind>] [--mayor <name>] [--dir <path>] [--model <m>]
+[--operator <name>]` does the same without the form, for scripts and tests;
+`--harness` is required to create a yard. Either way yardr:
 
 1. writes the default role prompts, built into the binary from this repo's
    `roles/`, to `<home>/roles/`, keeping any file already there (the mayor
@@ -298,6 +312,14 @@ Either way yardr:
    every 6h. A resident of that name already there is kept as it is, so
    init runs again on a yard without harm;
 4. sets `default_kind` to the harness, which marks the yard set up.
+
+Init again on a yard that is set up changes only what its flags say: the
+`default_kind`, `operator` and `mayor` settings stand in for `--harness`,
+`--operator` and `--mayor` when those are not given, rather than being
+reset to the flags' defaults (the login name, `mayor`), and the summary
+lists what was kept (`kept default_kind claude, operator Jo, mayor mayor, as
+set before`). A resident of the mayor's name is kept as it is, and so are
+the role files already in `<home>/roles/`.
 
 The summary ends with the daemon: it starts the mayor, whose role begins with
 a first-run checklist. While `yardr rig list` is empty the mayor sets the
@@ -344,12 +366,13 @@ value unsets) keep the yard's own defaults in the store:
 | `default_kind` | the agent kind a herdr group or resident gets when `group add` or `resident add` is given no `--set kind`; also the kind their forms start at. One of the kinds herdr starts. Its presence marks the yard set up. |
 | `operator` | the person the role prompts name, agents bring decisions to; `yardr init` stores it (`--operator`, the form's "Your name") and `yardr rig init` fills roles with it. |
 | `mayor` | the mayor resident's name, whom the builder and reviewer roles tell agents to mail about what blocks them ([residents.md](residents.md#findings-from-builders-and-reviewers)); `yardr init` stores it (`--mayor`) and `yardr rig init` fills roles with it. A yard from before the setting has none: `rig init` then takes its one resident, else `mayor`. |
+| `name` | the yard's name, which its residents' herdr agents and workspaces carry (`<name>-mayor`, labelled `<name> mayor`), so two yards on one machine, whose agents herdr lists together, are told apart. Unset, the home's directory name: `yardr` for `~/.yardr`, `y1` for `/tmp/y1`. Changing it renames residents started from then on. |
 
 Environment variables yardr reads:
 
 | variable | meaning |
 |---|---|
-| `YARDR_HOME` | state directory (above) |
+| `YARDR_HOME` | state directory (above); a relative path is resolved against the command's directory, once |
 | `YARDR_ACTOR` | who is acting, for the event log (default: the OS user) |
 | `YARDR_BEAD`, `YARDR_RESIDENT` | defaults for `prime` and resident commands; set for the sessions yardr starts |
 | `YARDR_SESSION` | the session yardr started this process for; `bead done`, `advance`, `close` and `hold` refuse to move its bead (`YARDR_BEAD`) once that session no longer owns it, and any other bead a live session owns ([pipeline.md](pipeline.md#2-new-a-builder-implements-it)) |

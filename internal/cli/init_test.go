@@ -130,7 +130,6 @@ func TestInitHarnessClaude(t *testing.T) {
 		{"init", "--harness", "nope", "--mayor", "x"},
 		{"init", "--harness", "pi", "--mayor", "x", "--dir", filepath.Join(home, "missing")},
 		{"init", "--harness", "pi", "--mayor", "bad name"},
-		{"init"},
 	} {
 		if _, err := run(t, a.rootCmd(), args...); err == nil {
 			t.Errorf("%v accepted", args)
@@ -139,6 +138,67 @@ func TestInitHarnessClaude(t *testing.T) {
 	if _, err := st.GetResident(ctx, "x"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("refused init left a resident: %v", err)
 	}
+}
+
+// Init again on a set-up yard keeps default_kind, operator and mayor unless
+// the flags say otherwise, and says so; --harness is required only to
+// create a yard.
+func TestInitAgainKeepsSettings(t *testing.T) {
+	newHome(t)
+	st := storetest.New(t)
+	ctx := context.Background()
+	a := &app{st: st, actor: "me"}
+	t.Setenv("USER", "kim")
+	if _, err := run(t, a.rootCmd(), "init"); err == nil || !strings.Contains(err.Error(), "--harness") {
+		t.Fatalf("init without --harness on a fresh home: %v", err)
+	}
+	if _, err := run(t, a.rootCmd(), "init", "--harness", "codex", "--operator", "Jo", "--mayor", "boss"); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"default_kind": "codex", "operator": "Jo", "mayor": "boss"}
+	settings := func(step string) {
+		t.Helper()
+		got, _ := st.Settings(ctx)
+		for k, v := range want {
+			if got[k] != v {
+				t.Errorf("%s: %s = %q, want %q", step, k, got[k], v)
+			}
+		}
+	}
+	out, err := run(t, a.rootCmd(), "init")
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings("init again")
+	if !strings.Contains(out, "  kept     default_kind codex, operator Jo, mayor boss, as set before") ||
+		!strings.Contains(out, "harness  codex") || !strings.Contains(out, "boss, already a resident: kept") {
+		t.Errorf("init again does not say what it kept:\n%s", out)
+	}
+	if rs, _ := st.Residents(ctx); len(rs) != 1 {
+		t.Errorf("init again added a resident: %v", rs)
+	}
+	// A flag given changes its setting alone.
+	if out, err = run(t, a.rootCmd(), "init", "--operator", "Kim"); err != nil {
+		t.Fatal(err)
+	}
+	want["operator"] = "Kim"
+	settings("--operator")
+	if !strings.Contains(out, "  kept     default_kind codex, mayor boss, as set before") {
+		t.Errorf("--operator:\n%s", out)
+	}
+	if out, err = run(t, a.rootCmd(), "init", "--harness", "kimi"); err != nil {
+		t.Fatal(err)
+	}
+	want["default_kind"] = "kimi"
+	settings("--harness")
+	if !strings.Contains(out, "  kept     operator Kim, mayor boss, as set before") {
+		t.Errorf("--harness:\n%s", out)
+	}
+	// A bad harness is refused on a set-up yard as on a fresh one.
+	if _, err := run(t, a.rootCmd(), "init", "--harness", "nope"); err == nil {
+		t.Error("init --harness nope accepted")
+	}
+	settings("refused")
 }
 
 // Without --operator the roles name the login user.

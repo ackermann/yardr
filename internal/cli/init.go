@@ -169,6 +169,10 @@ type initOptions struct {
 	// Operator is the person the role prompts name, where the templates say
 	// {{operator}}; "" is $USER. Mayor goes where they say {{mayor}}.
 	Operator string
+	// Given names the flags the command line set (harness, operator,
+	// mayor). On a yard that is set up, a setting whose flag was not given
+	// is kept as it is. The form never runs on a set-up yard.
+	Given map[string]bool
 }
 
 // initResult is what initYard did.
@@ -186,14 +190,32 @@ type initResult struct {
 	// MayorKept: a resident of the mayor's name was there already and is
 	// left as it was.
 	MayorKept bool `json:"mayor_kept"`
+	// SettingsKept are the settings of a set-up yard this init left as they
+	// were ("operator Jo"), their flags not given.
+	SettingsKept []string `json:"settings_kept"`
 }
 
 // initYard creates the yard: the store, the default roles in the home, the
 // operator and default_kind settings and the mayor resident. Inputs are
 // checked before anything is created; roles already installed are kept (the
 // mayor edits its own), and an existing resident of the mayor's name is never
-// replaced, so init runs again on a yard without harm.
+// replaced, so init runs again on a yard without harm. On a yard that is
+// set up, the settings stored before stand in for the flags not given
+// (keepSettings): init again changes only what its flags say.
 func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (*initResult, error) {
+	setUp, err := a.initialized(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	var kept []string
+	if setUp {
+		if o, kept, err = a.keepSettings(ctx, o); err != nil {
+			return nil, err
+		}
+	}
+	if o.Harness == "" {
+		return nil, fmt.Errorf("--harness <kind> is required to create a yard; herdr starts: %s", strings.Join(agents.Kinds(), ", "))
+	}
 	if !agents.IsKind(o.Harness) {
 		return nil, fmt.Errorf("unknown harness %q; herdr starts: %s", o.Harness, strings.Join(agents.Kinds(), ", "))
 	}
@@ -224,7 +246,7 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 	if res.Written, res.Kept, err = installRoles(res.Roles, res.Operator, o.Mayor); err != nil {
 		return nil, err
 	}
-	res.MayorKept = mayorKept
+	res.MayorKept, res.SettingsKept = mayorKept, kept
 	// operator and mayor are what rig init fills the roles with later.
 	for k, v := range map[string]string{"operator": res.Operator, "mayor": o.Mayor} {
 		if err := st.SetSetting(ctx, k, v, a.who()); err != nil {
@@ -241,6 +263,32 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 	}
 	res.Daemon = daemonRunning(cfg.DaemonLock())
 	return res, nil
+}
+
+// keepSettings is o with the settings a set-up yard holds (default_kind,
+// operator, mayor) in place of the flags not given, so init again does not
+// reset them to the flags' defaults (the login name, "mayor"); it reports
+// which were kept, as "<setting> <value>".
+func (a *app) keepSettings(ctx context.Context, o initOptions) (initOptions, []string, error) {
+	st, err := a.store(ctx)
+	if err != nil {
+		return o, nil, err
+	}
+	all, err := st.Settings(ctx)
+	if err != nil {
+		return o, nil, err
+	}
+	var kept []string
+	for _, s := range []struct {
+		flag, key string
+		value     *string
+	}{{"harness", "default_kind", &o.Harness}, {"operator", "operator", &o.Operator}, {"mayor", "mayor", &o.Mayor}} {
+		if !o.Given[s.flag] && all[s.key] != "" {
+			*s.value = all[s.key]
+			kept = append(kept, s.key+" "+all[s.key])
+		}
+	}
+	return o, kept, nil
 }
 
 // putMayor adds the mayor resident res describes, unless one is kept.
@@ -335,6 +383,9 @@ func (r *initResult) print() {
 		fmt.Printf("yard created in %s\n\n", r.Home)
 	}
 	fmt.Printf("  harness  %s (the yard's default_kind: groups and residents get it when --set kind is omitted)\n", r.Harness)
+	if len(r.SettingsKept) > 0 {
+		fmt.Printf("  kept     %s, as set before: --harness, --operator and --mayor change them\n", strings.Join(r.SettingsKept, ", "))
+	}
 	if r.MayorKept {
 		fmt.Printf("  mayor    %s, already a resident: kept as it was\n", r.Mayor)
 	} else {
@@ -441,7 +492,7 @@ func onboardForm(home string) (initOptions, error) {
 func (a *app) initCmd() *cobra.Command {
 	var o initOptions
 	cmd := &cobra.Command{
-		Use:   "init --harness <kind>",
+		Use:   "init [--harness <kind>]",
 		Short: "Create the yard: default harness, roles and the mayor (what the onboarding does)",
 		Long: `Create the yard in YARDR_HOME (default ~/.yardr) without the onboarding form,
 for scripts and tests. It writes the default role prompts to <home>/roles/
@@ -456,7 +507,9 @@ Run yardr in a terminal on a home with no yard to get the same as a form. A
 home counts as set up once init has stored default_kind, or once its store
 has rigs, groups, residents or beads (a yard from before the onboarding); the
 store file alone does not, since the server creates it on any first command.
-Init again keeps an existing mayor.
+Init again on a yard keeps its default_kind, operator and mayor settings and
+an existing mayor resident; only the flags given change them, so --harness is
+required only to create a yard.
 
 After init the mayor sets up the rest in conversation. For scripts, the same
 by hand:
@@ -476,6 +529,10 @@ Unattended flags per harness:
 			if err != nil {
 				return err
 			}
+			o.Given = map[string]bool{}
+			for _, f := range []string{"harness", "operator", "mayor"} {
+				o.Given[f] = c.Flags().Changed(f)
+			}
 			res, err := a.initYard(c.Context(), cfg, o)
 			if err != nil {
 				return err
@@ -483,12 +540,12 @@ Unattended flags per harness:
 			return a.out(res, res.print)
 		},
 	}
-	cmd.Flags().StringVar(&o.Harness, "harness", "", "agent kind herdr starts: "+strings.Join(agents.Kinds(), ", "))
-	cmd.Flags().StringVar(&o.Mayor, "mayor", "mayor", "the mayor resident's name")
+	cmd.Flags().StringVar(&o.Harness, "harness", "", "agent kind herdr starts: "+strings.Join(agents.Kinds(), ", ")+
+		" (required to create a yard; a set-up yard keeps its default_kind)")
+	cmd.Flags().StringVar(&o.Mayor, "mayor", "mayor", "the mayor resident's name (a set-up yard keeps its mayor setting)")
 	cmd.Flags().StringVar(&o.Dir, "dir", "", "where the mayor works (default: the home's parent)")
 	cmd.Flags().StringVar(&o.Model, "model", "", "the mayor's model (default: the harness's own)")
-	cmd.Flags().StringVar(&o.Operator, "operator", "", "your name, as the role prompts use it (default: $USER)")
-	_ = cmd.MarkFlagRequired("harness")
+	cmd.Flags().StringVar(&o.Operator, "operator", "", "your name, as the role prompts use it (default: $USER; a set-up yard keeps its operator setting)")
 	return cmd
 }
 
@@ -511,10 +568,16 @@ var settings = map[string]struct {
 		}
 		return nil
 	}},
+	"name": {"the yard's name, which its residents' herdr agents and workspaces carry (<name>-mayor); default: the home's directory name", func(v string) error {
+		if !groupName.MatchString(v) {
+			return fmt.Errorf("yard name %q: letters, digits, '.', '_', '-', '/'", v)
+		}
+		return nil
+	}},
 }
 
 func (a *app) settingsCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "settings", Short: "The yard's own defaults (default_kind, mayor, operator)"}
+	cmd := &cobra.Command{Use: "settings", Short: "The yard's own defaults (default_kind, mayor, name, operator)"}
 	known := func(key string) error {
 		if _, ok := settings[key]; !ok {
 			return fmt.Errorf("no setting %q; there is: %s", key, strings.Join(sortedKeys(settings), ", "))

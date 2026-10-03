@@ -16,6 +16,13 @@ A resident has no rig, so its `prompt` is an absolute path (a relative one is
 read from its `--dir`): a rig's own `.yardr/roles/mayor.md`, or the generic
 `~/.yardr/roles/mayor.md` that `yardr init` installs and points the mayor at.
 
+In herdr a resident's agent is `<yard>-<name>` (`yardr-mayor` for a yard in
+`~/.yardr`, `y1-mayor` for one in `/tmp/y1`) and its workspace is labelled
+`<yard> <name>`: herdr lists every yard on the machine's agents together and
+refuses a second of one name, so two yards' mayors cannot both be `mayor`.
+The yard is its `name` setting, else the home's directory name
+([configuration.md](configuration.md#settings)).
+
 - **Inbox:** mail, plus what its subscriptions deliver. Read with `yardr
   inbox`, mark handled with `yardr inbox --ack`; the cursor is stored, so
   nothing is lost or repeated across restarts.

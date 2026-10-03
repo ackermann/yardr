@@ -145,8 +145,23 @@ func BaseOf(job dispatch.Job) string {
 
 // AgentName derives a herdr agent name ([a-z][a-z0-9_-]{0,31}) from the bead
 // and stage, so `herdr agent list` reads like the yard.
-func AgentName(bead, stage string) string {
-	n := nameUnsafe.ReplaceAllString(strings.ToLower(bead+"-"+stage), "-")
+func AgentName(bead, stage string) string { return agentName(bead + "-" + stage) }
+
+// ResidentAgentName is the herdr agent name of a yard's resident,
+// "<yard>-<resident>": herdr lists every yard on the machine's agents
+// together and refuses a second of one name, so two yards' mayors must not
+// both be "mayor". Without a yard name it is the resident's.
+func ResidentAgentName(yard, resident string) string { return agentName(yard + "-" + resident) }
+
+// ResidentLabel is the herdr label of a resident's workspace, "<yard>
+// <resident>", for the same reason.
+func ResidentLabel(yard, resident string) string {
+	return strings.TrimSpace(yard + " " + resident)
+}
+
+// agentName is raw as a herdr agent name.
+func agentName(raw string) string {
+	n := nameUnsafe.ReplaceAllString(strings.ToLower(raw), "-")
 	n = strings.Trim(n, "-")
 	if n == "" || n[0] < 'a' || n[0] > 'z' {
 		n = "y" + n
@@ -616,9 +631,22 @@ func agentArgs(cfg map[string]any, override string) []string {
 	return append(out, "--model", model)
 }
 
+// yardName is what tells this yard's residents from another yard's in
+// herdr, which lists every yard on the machine's agents together: the
+// `name` setting, else the home's directory name (~/.yardr reads as yardr).
+func (h *Herdr) yardName(ctx context.Context) string {
+	if h.Store != nil {
+		if all, err := h.Store.Settings(ctx); err == nil && all["name"] != "" {
+			return all["name"]
+		}
+	}
+	return strings.TrimLeft(filepath.Base(h.YardHome), ".")
+}
+
 // StartResident opens a herdr workspace in the resident's directory, with
 // its identity in the environment, starts its agent and points it at its
-// prime. The agent is named after the resident.
+// prime. The agent and the workspace are named after the yard and the
+// resident (ResidentAgentName).
 func (h *Herdr) StartResident(ctx context.Context, r store.Resident) (map[string]any, error) {
 	dir := r.Dir
 	if dir == "" {
@@ -631,8 +659,9 @@ func (h *Herdr) StartResident(ctx context.Context, r store.Resident) (map[string
 	if err != nil {
 		return nil, err
 	}
-	name := AgentName(r.Name, "")
-	args := []string{"workspace", "create", "--cwd", dir, "--label", r.Name, "--no-focus"}
+	yard := h.yardName(ctx)
+	name := ResidentAgentName(yard, r.Name)
+	args := []string{"workspace", "create", "--cwd", dir, "--label", ResidentLabel(yard, r.Name), "--no-focus"}
 	env := slices.Concat(config.Env("RESIDENT", r.Name), config.Env("ACTOR", r.Name))
 	if h.YardHome != "" {
 		env = append(env, config.Env("HOME", h.YardHome)...)

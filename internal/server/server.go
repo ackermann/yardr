@@ -346,9 +346,20 @@ func ping(ctx context.Context, client *rpc.Client) bool {
 	return client.Ping(ctx) == nil
 }
 
+// executable is the binary Start runs as the server; tests replace it.
+var executable = os.Executable
+
 // Start launches `yardr server run` detached and waits until it answers.
+//
+// The server outlives the command that started it and serves every later
+// one, so it gets none of that command's environment or working directory:
+// the first command on a yard is as often an agent's (whose pane holds its
+// credentials from an env_file) as the operator's, and a server holding a
+// resident's tokens, or a cwd in a worktree that is removed under it, would
+// be wrong for everyone else. It gets what it needs (ServerEnv) and runs
+// in the home.
 func Start(ctx context.Context, c *config.Config) error {
-	self, err := os.Executable()
+	self, err := executable()
 	if err != nil {
 		return err
 	}
@@ -358,7 +369,8 @@ func Start(ctx context.Context, c *config.Config) error {
 	}
 	defer logf.Close()
 	cmd := exec.Command(self, "server", "run")
-	cmd.Env = append(os.Environ(), config.Env("HOME", c.Home)...)
+	cmd.Env = ServerEnv(os.Environ(), c.Home)
+	cmd.Dir = c.Home
 	cmd.Stdout, cmd.Stderr = logf, logf
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
@@ -383,6 +395,27 @@ func Start(ctx context.Context, c *config.Config) error {
 		}
 	}
 	return fmt.Errorf("yardr server did not answer within 10s; see %s", c.LogFile())
+}
+
+// serverSettings are the yardr variables the server reads, passed on from
+// the starter's environment (under the old names too, while those are
+// read). Everything else that names the starter (its actor, bead, session,
+// branch) is the starter's, not the server's.
+var serverSettings = []string{"HOOK_ADDR", "EVENT_RETENTION", "HOOK_PAYLOAD_RETENTION"}
+
+// ServerEnv is the environment a detached server starts with, from the
+// starter's environ: PATH and HOME (git, which reads the rigs' .yardr/ from
+// their base, needs both), the serverSettings, and the home it serves,
+// under both names, in place of whatever YARDR_HOME said. Nothing else: no
+// credential, no identity, no agent's settings.
+func ServerEnv(environ []string, home string) []string {
+	var env []string
+	for _, kv := range environ {
+		if k, _, _ := strings.Cut(kv, "="); k == "PATH" || k == "HOME" || config.IsVar(k, serverSettings...) {
+			env = append(env, kv)
+		}
+	}
+	return append(env, config.Env("HOME", home)...)
 }
 
 // alive reports whether the pidfile names a running process.
