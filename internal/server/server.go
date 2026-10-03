@@ -120,7 +120,7 @@ func (r *runner) serve(ctx context.Context) (string, error) {
 		ln.Close()
 		return "", err
 	}
-	if err := os.WriteFile(c.PIDFile(), []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600); err != nil {
+	if err := writePID(c); err != nil {
 		ln.Close()
 		return "", err
 	}
@@ -416,6 +416,23 @@ func ServerEnv(environ []string, home string) []string {
 		}
 	}
 	return append(env, config.Env("HOME", home)...)
+}
+
+// writePID records this process in the pidfile, by renaming a finished file
+// over it. The build a server execs writes the same pid over the old
+// build's file while clients in Connect read it to see whether to wait;
+// written in place, the file is empty for a moment, the client takes the
+// server for gone and starts a second one.
+func writePID(c *config.Config) error {
+	tmp := c.PIDFile() + ".tmp"
+	if err := os.WriteFile(tmp, []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, c.PIDFile()); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // alive reports whether the pidfile names a running process.

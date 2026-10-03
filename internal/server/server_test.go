@@ -429,12 +429,59 @@ func TestConnectWaitsForAServerBetweenBuilds(t *testing.T) {
 	if err := os.WriteFile(c.PIDFile(), []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// The test ends only once start has seen its server up: Connect can
+	// return on the server's first answer, and a test that ended there
+	// stopped the server before start's own ping, which then failed the
+	// finished test five seconds later (yardr-ep5y).
+	started := make(chan struct{})
+	defer func() { <-started }()
 	go func() {
+		defer close(started)
 		time.Sleep(300 * time.Millisecond)
 		start(t, &runner{c: c, rev: "new"})
 	}()
 	if _, err := Connect(context.Background(), c); err != nil {
 		t.Fatalf("Connect: %v", err)
+	}
+}
+
+// The build a server execs writes its pid (the same one) over the old
+// build's pidfile while Connect reads it to decide between waiting and
+// starting a server. A reader must never find the file empty or half
+// written: that reads as no server, and Connect starts a second one
+// (yardr-ep5y).
+func TestPIDFileIsNeverSeenHalfWritten(t *testing.T) {
+	c := home(t)
+	if err := writePID(c); err != nil {
+		t.Fatal(err)
+	}
+	stop := make(chan struct{})
+	written := make(chan error, 1)
+	go func() {
+		for {
+			select {
+			case <-stop:
+				written <- nil
+				return
+			default:
+			}
+			if err := writePID(c); err != nil {
+				written <- err
+				return
+			}
+		}
+	}()
+	for i := 0; i < 20000; i++ {
+		if !alive(c) {
+			_, err := readPID(c)
+			close(stop)
+			<-written
+			t.Fatalf("read %d: the pidfile named no live process while it was rewritten (%v)", i, err)
+		}
+	}
+	close(stop)
+	if err := <-written; err != nil {
+		t.Fatal(err)
 	}
 }
 
