@@ -27,7 +27,7 @@ type app struct {
 	// onboarded is set once this run has created the yard (see firstRun).
 	onboarded bool
 	// self is who this run acts as, once asked (see identity).
-	self *identity
+	self *resolved
 }
 
 // stderr is where Execute reports an error; tests replace it.

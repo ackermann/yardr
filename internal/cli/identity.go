@@ -31,12 +31,19 @@ type identity struct {
 // no bead is a person's or a resident's, who act as themselves wherever
 // they stand.
 func (a *app) identity() identity {
-	if a.self != nil {
-		return *a.self
+	env := identity{actor: config.Getenv("ACTOR"), session: config.Getenv("SESSION"), bead: config.Getenv("BEAD")}
+	// Asked several times in a run (the actor, then the session): the
+	// worktree is looked at, and the line written, once per environment.
+	if a.self == nil || a.self.env != env {
+		a.self = &resolved{env: env, as: a.worktreeIdentity(env)}
 	}
-	id := a.worktreeIdentity(identity{actor: config.Getenv("ACTOR"), session: config.Getenv("SESSION"), bead: config.Getenv("BEAD")})
-	a.self = &id
-	return id
+	return a.self.as
+}
+
+// resolved is the identity a run acts as, for the environment it was
+// worked out from.
+type resolved struct {
+	env, as identity
 }
 
 // worktreeIdentity is env, or the session of the worktree this run is in
