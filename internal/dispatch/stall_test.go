@@ -34,7 +34,7 @@ func (a *agentRunner) Worked(context.Context, map[string]any) (bool, error) {
 
 const modelError = "There's an issue with the selected model (claude-nope-9). It may not exist or you may not have access to it."
 
-// stallSetup is a yard with one group of agents (limit 2, stall 30ms) and a
+// stallSetup is a yard with one group of agents (limit 2, stall 1m) and a
 // runner whose agents start in status.
 func stallSetup(t *testing.T, status string, cfg map[string]any) (store.API, *agentRunner, *dispatch.Dispatcher) {
 	t.Helper()
@@ -42,7 +42,7 @@ func stallSetup(t *testing.T, status string, cfg map[string]any) (store.API, *ag
 	r := &agentRunner{statusRunner: &statusRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: status},
 		tail: "❯ Read brief.md and follow it.\n⏺ " + modelError}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, Backoff: time.Nanosecond}
-	conf := map[string]any{"stall": "30ms", "model": "claude-nope-9"}
+	conf := map[string]any{"stall": "1m", "model": "claude-nope-9"}
 	for k, v := range cfg {
 		conf[k] = v
 	}
@@ -68,7 +68,7 @@ func TestStalledSessionIsReportedOnceWithItsPane(t *testing.T) {
 	if n := len(eventKinds(t, s, b.ID, "session_stalled")); n != 0 {
 		t.Fatalf("session_stalled before the limit: %d", n)
 	}
-	time.Sleep(40 * time.Millisecond)
+	later(d)
 	must(t, d.Reconcile(ctx))
 	evs := eventKinds(t, s, b.ID, "session_stalled")
 	if len(evs) != 1 {
@@ -83,7 +83,7 @@ func TestStalledSessionIsReportedOnceWithItsPane(t *testing.T) {
 
 	// The next bead of the group waits: its session would stall too.
 	b2, _ := s.CreateBead(ctx, store.NewBead{Title: "y"}, "me")
-	time.Sleep(40 * time.Millisecond)
+	later(d)
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
 	if got := r.starts(); !slices.Equal(got, []string{b.ID}) {
@@ -97,7 +97,7 @@ func TestStalledSessionIsReportedOnceWithItsPane(t *testing.T) {
 	// group back: the mark is on the session's handle.
 	d2 := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, Backoff: time.Nanosecond}
 	must(t, d2.Reconcile(ctx))
-	time.Sleep(40 * time.Millisecond)
+	later(d2)
 	must(t, d2.Reconcile(ctx))
 	if n := len(eventKinds(t, s, b.ID, "session_stalled")); n != 1 {
 		t.Fatalf("session_stalled events after a restart = %d, want 1", n)
@@ -130,7 +130,7 @@ func TestChangedModelStartsAgain(t *testing.T) {
 	ctx := context.Background()
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
 	must(t, d.Reconcile(ctx))
-	time.Sleep(40 * time.Millisecond)
+	later(d)
 	must(t, d.Reconcile(ctx))
 	if n := len(eventKinds(t, s, b.ID, "session_stalled")); n != 1 {
 		t.Fatalf("session_stalled events = %d, want 1", n)
@@ -141,7 +141,7 @@ func TestChangedModelStartsAgain(t *testing.T) {
 		t.Fatalf("starts = %v", got)
 	}
 	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 2,
-		Config: map[string]any{"stall": "30ms", "model": "opus"}}))
+		Config: map[string]any{"stall": "1m", "model": "opus"}}))
 	must(t, d.Reconcile(ctx))
 	if got := r.starts(); !slices.Equal(got, []string{b.ID, b2.ID}) {
 		t.Fatalf("starts = %v; the changed model did not start the waiting bead", got)
@@ -182,7 +182,7 @@ func TestWorkingSessionIsNotStalled(t *testing.T) {
 			r.status = "idle"
 			r.mu.Unlock()
 			must(t, d.Reconcile(ctx))
-			time.Sleep(40 * time.Millisecond)
+			later(d)
 			must(t, d.Reconcile(ctx))
 			must(t, d.Reconcile(ctx))
 			if n := len(eventKinds(t, s, b.ID, "session_stalled")); n != 0 {
@@ -207,7 +207,7 @@ func TestStallCountsFromThePendingPromptsDelivery(t *testing.T) {
 	ctx := context.Background()
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
 	must(t, d.Reconcile(ctx)) // starts with the prompt pending
-	time.Sleep(40 * time.Millisecond)
+	later(d)
 	must(t, d.Reconcile(ctx)) // blocked on the trust question: not stalled
 	if c := len(eventKinds(t, s, b.ID, "session_stalled")); c != 0 {
 		t.Fatalf("session_stalled while the prompt was pending: %d", c)
@@ -219,7 +219,7 @@ func TestStallCountsFromThePendingPromptsDelivery(t *testing.T) {
 	if c := len(eventKinds(t, s, b.ID, "session_stalled")); c != 0 {
 		t.Fatalf("session_stalled at the prompt's delivery: %d", c)
 	}
-	time.Sleep(40 * time.Millisecond)
+	later(d)
 	must(t, d.Reconcile(ctx))
 	if c := len(eventKinds(t, s, b.ID, "session_stalled")); c != 1 {
 		t.Fatalf("session_stalled events = %d, want 1 after the delivered prompt went nowhere", c)
@@ -239,3 +239,13 @@ func (n *pendingRunner) Start(ctx context.Context, j dispatch.Job) (map[string]a
 }
 
 func (n *pendingRunner) Nudge(context.Context, map[string]any, string) error { return nil }
+
+// later moves d's clock two minutes on, past the tests' stall limit.
+func later(d *dispatch.Dispatcher) {
+	skew[d] += 2 * time.Minute
+	by := skew[d]
+	dispatch.SetClock(d, func() time.Time { return time.Now().Add(by) })
+}
+
+// skew is how far later has moved each dispatcher's clock.
+var skew = map[*dispatch.Dispatcher]time.Duration{}

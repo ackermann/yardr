@@ -57,8 +57,9 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 	grace, stops := limit(g.Config, "grace", 0, false)
 	now := time.Now()
 
-	// Before the limits, so the mark it leaves on the handle is not lost to
-	// the one session_aged leaves below.
+	// Before the limits, so the marks these leave on the handle are not lost
+	// to the one session_aged leaves below.
+	d.model(ctx, r, s, g)
 	switch st := d.status[s.ID]; st {
 	case "idle", "done":
 		d.stall(ctx, r, s, g)

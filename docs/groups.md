@@ -21,40 +21,45 @@ it. Nothing but the agent's provider knows whether a model may be used: a
 name the agent lists may be refused for the account, and one it does not
 list may run. An agent given a model it may not use still starts; the
 refusal comes with its first request, in its pane, and it then sits idle.
-yardr checks at both ends.
+An agent may also run another model than the one asked for without saying
+so. The running session is the only place the truth shows, so yardr checks
+there, not when the model is set: no command asks an agent about a model.
 
-**When the model is set: the probe.** `yardr group add` and `yardr resident
-add` with a model (flags or form), and `yardr bead create --meta model=…`,
-make one short request with the agent's one-shot mode, `claude -p --model
-<m>` or `codex exec -m <m>`, and warn on stderr with the agent's last lines
-when it exits non-zero:
+**The model the agent reports.** Once a bead session's agent has answered
+its first prompt, the daemon reads the model the agent itself reports and
+keeps it on the session's handle as `model_reported`, next to `model_asked`
+(the bead's `metadata.model`, else the group's `model`; absent when neither
+is set): `yardr session list --json` shows both. The source is the agent's
+own session file, found by the session id herdr reports for the pane:
 
-```
-warning: group builders: claude did not answer with model "claude-nope-9" (claude -p --model claude-nope-9):
-    There's an issue with the selected model (claude-nope-9). It may not exist or you may not have access to it.
-  Saved as given: the probe also fails when the agent is offline or not logged in (--no-probe skips it). …
-```
+| kind | source |
+|---|---|
+| `claude` | `~/.claude/projects/<dir>/<session id>.jsonl` (or under `CLAUDE_CONFIG_DIR`): the `model` of the first assistant message, which is what the API answered with |
+| `codex` | `~/.codex/sessions/<y>/<m>/<d>/rollout-<time>-<session id>.jsonl` (or under `CODEX_HOME`): the `model` of the first `turn_context` |
+| any other | none known: nothing is recorded and nothing compared |
 
-It only warns, and the group, resident or bead is stored either way: the
-probe also fails for an agent that is offline or not logged in, runs as
-whoever typed the command, without the group's `env_file`, and on the
-machine the command runs on. An agent not installed there, or one that does
-not answer in 90s, is reported as "could not check". Kinds without a
-one-shot mode yardr knows (all but `claude` and `codex`) are not probed. A
-bead's model is tried with each agent kind among the herdr groups its
-routes can send it to, whatever the stage, so a claude model on a bead that
-a codex group reviews is warned about. `--no-probe` skips the request, which
-costs a few seconds and a few tokens.
+The daemon must run as the user whose agents these are, on their machine,
+as it does for herdr anyway. An agent is asked on each pass until it has
+answered, for the session's first 15 minutes.
 
-**When a session starts: `session_stalled`.** An agent that was given its
+**`session_model_mismatch`.** When the reported model is not the one asked
+for, one event per session says so at once, with `asked`, `reported`,
+`group` and `stage`. Names are compared by their words and numbers, case and
+punctuation aside, and match when all of one name's are among the other's:
+`claude-opus-5-5` matches `Opus 5.5` and `claude-opus-5-5-20260801`, an
+alias such as `opus` (or `opus[1m]`) matches any Opus, and `claude-opus-5-5`
+does not match `claude-fable-5-1` or `claude-opus-5-1`. The session is left
+running: the mayor decides whether the work of the other model stands.
+
+**`session_stalled`.** An agent that was given its
 first prompt, was idle every time the daemon looked since, and has left
 nothing behind (no note or move on its bead, no commit and no change in its
 worktree) for the group's `stall` (default `2m`) is reported at once, not at
 the `idle` limit: one `session_stalled` event per session, on the bead,
 with `model`, `group`, `stage` and `tail`, the last 20 lines of the agent's
 pane that say anything, where its error is. It is in a new resident's
-default `--on`, so it reaches the mayor's inbox
-([subscriptions.md](subscriptions.md#--on)). An agent seen working or
+default `--on`, as `session_model_mismatch` is, so both reach the mayor's
+inbox ([subscriptions.md](subscriptions.md#--on)). An agent seen working or
 blocked since its prompt is not judged, however long it idles later, and a
 prompt held back by a startup question counts from its delivery. Only the
 daemon that sent the prompt judges a session; one that replaced itself
@@ -67,9 +72,8 @@ The group goes on when the model is changed (`yardr group add` again) or
 when someone says to try again by ending the stalled session: `yardr bead
 release <bead>`, which also sends that bead to the group again. An agent
 that someone got going in its pane lifts the hold as well. `--set
-stall=off` turns the check off for a group. Only bead sessions are judged:
-a resident whose agent refuses its model is caught by the probe or not at
-all.
+stall=off` turns the check off for a group. Only bead sessions are judged,
+not a resident's.
 
 ## Runners
 

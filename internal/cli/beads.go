@@ -88,7 +88,6 @@ func (a *app) beadCmd() *cobra.Command {
 
 	var nb store.NewBead
 	var blockedBy, createMeta []string
-	var noProbe bool
 	create := &cobra.Command{
 		Use:   "create <title>",
 		Short: "Create a bead",
@@ -120,10 +119,6 @@ func (a *app) beadCmd() *cobra.Command {
 					return fmt.Errorf("created %s but blocking on %s failed: %w", b.ID, blocker, err)
 				}
 			}
-			// After the bead exists: the probe only warns.
-			if !noProbe {
-				warnBeadModel(c.Context(), st, b)
-			}
 			return a.out(b, func() { fmt.Println(b.ID) })
 		},
 	}
@@ -136,8 +131,7 @@ func (a *app) beadCmd() *cobra.Command {
 	f.StringSliceVarP(&nb.Labels, "label", "l", nil, "labels")
 	f.StringVar(&nb.Prefix, "prefix", "", "id prefix (default rig name, else yd)")
 	f.StringVar(&nb.ID, "id", "", "explicit handle instead of a minted one (imports; must be unused)")
-	f.StringArrayVar(&createMeta, "meta", nil, "metadata key=value (repeatable), e.g. model=opus (a model is tried once with each agent that may work the bead; a refusal is a warning)")
-	f.BoolVar(&noProbe, "no-probe", false, noProbeHelp)
+	f.StringArrayVar(&createMeta, "meta", nil, "metadata key=value (repeatable), e.g. model=opus")
 	f.StringSliceVar(&blockedBy, "blocked-by", nil, "beads that must close first")
 
 	show := &cobra.Command{

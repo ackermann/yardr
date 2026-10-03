@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/peer"
@@ -62,6 +61,9 @@ type Herdr struct {
 	Store store.API
 	// Log, if set, gets the key names (never the values) an env_file loads.
 	Log *slog.Logger
+	// ClaudeDir and CodexDir override where the agents keep their session
+	// files (tests); see Model.
+	ClaudeDir, CodexDir string
 }
 
 type herdrResult struct {
@@ -997,13 +999,28 @@ func (h *Herdr) Tail(ctx context.Context, handle map[string]any, lines int) (str
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("herdr pane read: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
-	tail := agents.Tail(stdout.String(), lines)
+	tail := lastLines(stdout.String(), lines)
 	// An event is no place for a screenful of one long line.
 	const maxTail = 4000
 	if len(tail) > maxTail {
 		tail = "…" + strings.ToValidUTF8(tail[len(tail)-maxTail:], "")
 	}
 	return tail, nil
+}
+
+// lastLines is the last n lines of text that say something: blank lines and
+// trailing space are dropped, since a TUI's screen is mostly both.
+func lastLines(text string, n int) string {
+	var lines []string
+	for _, l := range strings.Split(text, "\n") {
+		if l = strings.TrimRight(l, " \t\r"); strings.TrimSpace(l) != "" {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
 }
 
 // Worked reports whether the session changed anything in its worktree: a

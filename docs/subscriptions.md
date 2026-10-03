@@ -71,7 +71,7 @@ Where keys:
 | `bead` | the bead (stored as its handle; a UUID works too) |
 | `rig`, `type` | the bead's rig and type |
 | `label` | any of the bead's labels |
-| `kind` | the event: `created`, `advanced`, `noted`, `held`, `unheld`, `released`, `claimed`, `closed`, `reopened`, `gave_up`, `session_blocked`, `session_stalled`, … |
+| `kind` | the event: `created`, `advanced`, `noted`, `held`, `unheld`, `released`, `claimed`, `closed`, `reopened`, `gave_up`, `session_blocked`, `session_stalled`, `session_model_mismatch`, … |
 | `stage` | the stage entered: `advanced` events (its `to`) and `created` (the first stage). Other events have no stage, so `stage=…` delivers moves into the stage and nothing else |
 | `from` | the stage left (`advanced`) |
 | `group` | the group that owns the bead, or for `advanced` and `closed`, the group whose session the move ended |
@@ -121,20 +121,22 @@ Delivering subscriptions to humans waits for channels (*planned, yard-1*).
 ## `--on`
 
 A resident's `--on` kinds (default: `gave_up`, `session_blocked`,
-`session_stalled`, `unrouted`, …) keep working, as **implicit `yardr all kind=<k>`
+`session_stalled`, `session_model_mismatch`, `unrouted`, …) keep working, as **implicit `yardr all kind=<k>`
 subscriptions**. They are not migrated into stored subscriptions. They are
 checked when the inbox is read, not when the event is logged, so changing
 `--on` also changes which unread events are in the inbox. Unlike the yardr
 source they also cover events that are not about a bead. `yardr inbox` shows
 the reason `on` for them.
 
-`session_stalled` is one of them: a session whose agent sat idle after its
-first prompt and did nothing, most often because the agent refused its
-model. Its `tail` is the end of the agent's pane, so the inbox shows the
-agent's own error; the model probe that catches most of these earlier, when
-the model is set, and what the group does meanwhile are in
-[groups.md](groups.md#models). A bead subscription hears it too (`yardr
-subscribe <name> yardr --where kind=session_stalled`).
+Two of them are about a session's model ([groups.md](groups.md#models)).
+`session_stalled`: a session whose agent sat idle after its first prompt
+and did nothing, most often because the agent refused its model. Its `tail`
+is the end of the agent's pane, so the inbox shows the agent's own error,
+and the group starts no further session with that model meanwhile.
+`session_model_mismatch`: a session whose agent reports another model
+(`reported`) than it was asked for (`asked`). Both are bead events, so a
+bead subscription hears them too (`yardr subscribe <name> yardr --where
+kind=session_stalled`).
 
 To move a resident to subscriptions, add `yardr subscribe <name> yardr
 --where kind=<k>` for each kind and drop those kinds from its `--on`.

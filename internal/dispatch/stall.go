@@ -54,7 +54,7 @@ type Worker interface {
 // the sessions it inherited, which the idle limit still covers.
 func (d *Dispatcher) prompted(r Runner, id string) {
 	if _, ok := r.(Statuser); ok {
-		d.fresh[id] = time.Now()
+		d.fresh[id] = d.now()
 	}
 }
 
@@ -64,7 +64,8 @@ func (d *Dispatcher) prompted(r Runner, id string) {
 // updated with the mark it stores.
 func (d *Dispatcher) stall(ctx context.Context, r Runner, s *store.Session, g store.Group) {
 	since, ok := d.fresh[s.ID]
-	if !ok {
+	// A prompt still on the handle was delivered in this very pass.
+	if !ok || s.Handle[PendingPrompt] != nil {
 		return
 	}
 	lim, on := limit(g.Config, "stall", DefaultStallLimit, true)
@@ -72,7 +73,7 @@ func (d *Dispatcher) stall(ctx context.Context, r Runner, s *store.Session, g st
 		delete(d.fresh, s.ID)
 		return
 	}
-	idleFor := time.Since(since)
+	idleFor := d.now().Sub(since)
 	if idleFor < lim {
 		return
 	}
@@ -110,7 +111,7 @@ func (d *Dispatcher) stall(ctx context.Context, r Runner, s *store.Session, g st
 	if h == nil {
 		h = map[string]any{}
 	}
-	h[StalledAt], h[StalledModel] = time.Now().UTC().Format(time.RFC3339), model
+	h[StalledAt], h[StalledModel] = d.now().UTC().Format(time.RFC3339), model
 	if err := d.Store.SetHandle(ctx, s.ID, h); err != nil {
 		d.Log.Warn("mark session stalled", "session", s.ID, "err", err)
 		return

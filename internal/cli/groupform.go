@@ -137,9 +137,7 @@ const (
 )
 
 // groupForm walks through creating or editing a group interactively.
-// With probe, a herdr group's model is tried with its agent before the
-// form asks whether to save, and a refusal is shown there.
-func (a *app) groupForm(ctx context.Context, st store.API, probe bool) error {
+func (a *app) groupForm(ctx context.Context, st store.API) error {
 	groups, err := st.Groups(ctx)
 	if err != nil {
 		return err
@@ -228,9 +226,6 @@ func (a *app) groupForm(ctx context.Context, st store.API, probe bool) error {
 			summary += fmt.Sprintf("\n\nThis group has running sessions; they keep their %s runner. "+
 				"`yardr bead release <bead>` hands one to the new runner.", oldRunner)
 		}
-	}
-	if probe {
-		summary += formModelWarning(ctx, "group "+g.Name, g.Runner, g.Config)
 	}
 	save := true
 	if err := ask(huh.NewConfirm().Title("Save this group?").Description(summary).Value(&save)); err != nil {
@@ -383,20 +378,4 @@ func describe(g store.Group) string {
 		parts = append(parts, "subscribed "+sub.String())
 	}
 	return strings.Join(parts, " · ") + fmt.Sprintf(" · limit %d", g.Limit)
-}
-
-// formModelWarning is modelWarning for a form's summary: the probe runs
-// behind a spinner, and its warning, if any, follows the summary.
-func formModelWarning(ctx context.Context, who, runner string, cfg map[string]any) string {
-	model, _ := cfg["model"].(string)
-	if runner != "herdr" || model == "" {
-		return ""
-	}
-	var w string
-	_ = spinner.New().Title("Asking the agent whether it accepts " + model + "…").
-		Action(func() { w = modelWarning(ctx, who, runner, cfg) }).Run()
-	if w == "" {
-		return ""
-	}
-	return "\n\n" + w
 }
