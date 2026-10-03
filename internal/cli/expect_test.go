@@ -61,6 +61,57 @@ func TestBeadMovesCarryTheSession(t *testing.T) {
 	}
 }
 
+// A pane's session applies only to the bead it was started for
+// (YARDR_BEAD): another bead moved from it (a follow-up the agent filed) is
+// checked as the actor's, like a person at a shell, except that one owned by
+// a live session is refused.
+func TestSessionAppliesToTheOwnBeadOnly(t *testing.T) {
+	st, ctx := reviewYard(t, "/tmp/yard")
+	if err := st.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "herdr"}); err != nil {
+		t.Fatal(err)
+	}
+	a, err := st.CreateBead(ctx, store.NewBead{Title: "a", Rig: "yard"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "b", Rig: "yard"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := st.Claim(ctx, a.ID, "builders", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := &app{st: st, actor: "yard-a-new"}
+	t.Setenv("YARDR_SESSION", owner.ID)
+	t.Setenv("YARDR_BEAD", a.ID)
+
+	if _, err := run(t, app.beadCmd(), "advance", b.ID, "--to", "review"); err != nil {
+		t.Fatalf("advance of an unowned bead from a's pane: %v", err)
+	}
+	events, _ := st.Events(ctx, b.ID, 1)
+	if len(events) != 1 || events[0].Kind != "advanced" || events[0].Actor != "yard-a-new" {
+		t.Fatalf("the move is not the actor's: %+v", events)
+	}
+
+	other, err := st.Claim(ctx, b.ID, "reviewers", "review", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := st.GetBead(ctx, b.ID)
+	want := "stale: bead " + b.ID + " is now in review owned by " + other.ID
+	if _, err := run(t, app.beadCmd(), "advance", b.ID, "--to", "approved"); err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("advance of a bead another session owns: %v, want %q", err, want)
+	}
+	if cur, _ := st.GetBead(ctx, b.ID); cur.Revision != before.Revision {
+		t.Fatalf("a refused move changed the bead: %+v", cur)
+	}
+	// Its own bead the pane still moves.
+	if _, err := run(t, app.beadCmd(), "advance", a.ID, "--to", "review"); err != nil {
+		t.Fatalf("the pane's own advance: %v", err)
+	}
+}
+
 // The review form decides on the bead as it was when the form started; if
 // the bead has moved since, the decision is refused rather than applied.
 func TestReviewRefusesStaleDecision(t *testing.T) {

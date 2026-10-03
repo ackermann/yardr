@@ -40,14 +40,17 @@ its identity in the environment: `YARDR_ACTOR` (the agent's name,
 `<bead>-<stage>`), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`,
 `YARDR_GROUP`, `YARDR_HOME` and `YARDR_BIN`. Nothing depends on the agent
 exporting anything: every event its `yardr` commands log names it as actor.
-`yardr bead done`, `advance` and `close` also send `YARDR_SESSION`, and the
-store refuses the move unless that session still owns the bead
-(`stale: bead <id> is now in <stage> owned by <session>`). An agent kept
-open, or orphaned by a restart, after its bead moved on therefore cannot
-end the session that owns the bead now; nothing changes. A person at a
-shell has no `YARDR_SESSION` and is not checked. `yardr review` does the
-same with the stage: it refuses a decision on a bead that left the stage
-the form showed it in.
+`yardr bead done`, `advance`, `close` and `hold` also send `YARDR_SESSION`
+and `YARDR_BEAD`, and the store refuses a move of that bead unless the
+session still owns it (`stale: bead <id> is now in <stage> owned by
+<session>`). An agent kept open, or orphaned by a restart, after its bead
+moved on therefore cannot end the session that owns the bead now; nothing
+changes. Another bead moved from the same pane (a follow-up the agent
+filed and advances) is checked as the actor's, like a person at a shell,
+except that one owned by a live session is refused rather than taken from
+under its agent. A person at a shell has no `YARDR_SESSION` and is not
+checked. `yardr review` does the same with the stage: it refuses a
+decision on a bead that left the stage the form showed it in.
 
 The builder implements the change, runs the gate (`yardr rig check yard
 --dir <worktree>`, which runs `.yardr/check` from fetched `origin/main`:

@@ -610,8 +610,16 @@ func (s *Store) CloseBead(ctx context.Context, id, reason string, exp Expect, ac
 // cannot both apply what they read it for (compare-and-swap). An empty
 // field expects nothing: a person acting outside any session (the mayor,
 // Christopher at a shell) is not checked.
+//
+// Bead names the bead Session was started for ($YARDR_BEAD beside
+// $YARDR_SESSION). The session is expected to own that bead only; another
+// bead the same pane moves (a reviewer advancing a follow-up it filed) is
+// checked as anyone's would be, except that one owned by a live session is
+// refused rather than taken from under its agent. Without Bead, Session is
+// expected to own whichever bead is moved.
 type Expect struct {
 	Session string `json:"session,omitempty"`
+	Bead    string `json:"bead,omitempty"`
 	Stage   string `json:"stage,omitempty"`
 	// Revision is the bead's revision as the caller read it (Bead.Revision,
 	// the BDP ETag). Any real change since mints another.
@@ -626,7 +634,14 @@ func (e Expect) check(b *beadRow) error {
 	if e.Revision != "" && e.Revision != b.Revision {
 		return fmt.Errorf("%w: bead %s is at revision %s, not %s; read it again", ErrConflict, b.ID, b.Revision, e.Revision)
 	}
-	if (e.Session == "" || e.Session == owner) && (e.Stage == "" || e.Stage == b.Stage) {
+	// The session's own bead must still be owned by it; any other bead it
+	// moves must be owned by no session at all.
+	other := e.Session != "" && e.Bead != "" && e.Bead != b.ID
+	sessionOK := e.Session == "" || e.Session == owner
+	if other {
+		sessionOK = owner == ""
+	}
+	if sessionOK && (e.Stage == "" || e.Stage == b.Stage) {
 		return nil
 	}
 	if owner == "" {
@@ -636,16 +651,20 @@ func (e Expect) check(b *beadRow) error {
 	if b.Status == "closed" {
 		state = " (closed)"
 	}
-	return fmt.Errorf("%w: bead %s is now in %s%s owned by %s; expected %s", ErrConflict, b.ID, b.Stage, state, owner, e)
+	return fmt.Errorf("%w: bead %s is now in %s%s owned by %s; expected %s", ErrConflict, b.ID, b.Stage, state, owner, e.want(other))
 }
 
-// String names what e expected, for the stale error.
-func (e Expect) String() string {
+// want names what e expected, for the stale error; other says the bead is
+// not the session's own (see Bead).
+func (e Expect) want(other bool) string {
 	var parts []string
 	if e.Stage != "" {
 		parts = append(parts, "stage "+e.Stage)
 	}
-	if e.Session != "" {
+	switch {
+	case other:
+		parts = append(parts, "no session (session "+e.Session+" owns "+e.Bead+", not this bead)")
+	case e.Session != "":
 		parts = append(parts, "session "+e.Session)
 	}
 	return strings.Join(parts, " and ")
