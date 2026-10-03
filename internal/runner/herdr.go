@@ -17,6 +17,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/store"
 )
@@ -315,6 +316,19 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	}
 	tab, pane := t.Tab.ID, t.RootPane.ID
 	handle["tab"], handle["pane"] = tab, pane
+	// The pane's shell is what the agent, and every yardr command it
+	// runs, descends from: with its pid on the handle the store recognises
+	// the session's calls by the process tree, whatever their environment
+	// says (store.Expect). Best effort: a herdr without process-info
+	// leaves the session checked by its environment alone.
+	if pid := h.shellPID(ctx, pane); pid > 0 {
+		handle["shell_pid"] = pid
+		// Its start time tells it from a later process with its pid once
+		// the session has ended (see store.Expect).
+		if st, err := peer.Describe(pid); err == nil {
+			handle["shell_start"] = st.Start
+		}
+	}
 	if !wt.AlreadyOpen && wt.Tab.ID != "" {
 		// The workspace was opened for this stage, so its root tab is an
 		// idle shell. Close it, so that Stop closing the agent's tab still
@@ -581,6 +595,21 @@ func (h *Herdr) agentEnv(job dispatch.Job, name string) []string {
 		env = append(env, config.Env("BIN", h.YardBin)...)
 	}
 	return env
+}
+
+// shellPID is the pid of the shell in pane, 0 when herdr does not tell.
+func (h *Herdr) shellPID(ctx context.Context, pane string) int {
+	raw, err := h.run(ctx, "pane", "process-info", "--pane", pane)
+	if err != nil {
+		return 0
+	}
+	var info struct {
+		ProcessInfo struct {
+			ShellPID int `json:"shell_pid"`
+		} `json:"process_info"`
+	}
+	_ = json.Unmarshal(raw, &info)
+	return info.ProcessInfo.ShellPID
 }
 
 // BriefDir is where briefs for the worktree at path go: yardr/ in the

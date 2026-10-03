@@ -105,7 +105,7 @@ func TestFlowResolutionOrder(t *testing.T) {
 	if name, src := governing(t, s, q.ID); name != "type/decision" || src != "repo@"+sha+", type decision" {
 		t.Fatalf("decision: %s (%s)", name, src)
 	}
-	if _, err := s.Advance(ctx, task.ID, "done", "me"); err == nil || !strings.Contains(err.Error(), "allowed next: review") {
+	if _, err := s.Advance(ctx, task.ID, "done", store.Expect{}, "me"); err == nil || !strings.Contains(err.Error(), "allowed next: review") {
 		t.Fatalf("repo flow not enforced: %v", err)
 	}
 
@@ -135,7 +135,7 @@ func TestFlowResolutionOrder(t *testing.T) {
 	if name, src := governing(t, s, task.ID); name != "alt" || src != "pin, from repo@"+sha {
 		t.Fatalf("pinned task: %s (%s)", name, src)
 	}
-	if b, err := s.Advance(ctx, task.ID, "alt", "me"); err != nil || b.Status != "closed" {
+	if b, err := s.Advance(ctx, task.ID, "alt", store.Expect{}, "me"); err != nil || b.Status != "closed" {
 		t.Fatalf("pinned flow not enforced: %v %+v", err, b)
 	}
 	// A pin on a bead without a rig governs it too, from the store.
@@ -202,7 +202,7 @@ func TestRepoFlowsReadFromBase(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, ".yardr/flows/default.flow"), []byte("new -> shipped\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Advance(ctx, b.ID, "done", "me"); err == nil {
+	if _, err := s.Advance(ctx, b.ID, "done", store.Expect{}, "me"); err == nil {
 		t.Fatal("the bead branch's flow let the bead skip review")
 	}
 	next, err := s.NextStages(ctx, b.ID)
@@ -217,7 +217,7 @@ func TestRepoFlowsReadFromBase(t *testing.T) {
 	if err != nil || !slices.Equal(next.Stages, []string{"review", "done"}) || next.Source.Commit != sha {
 		t.Fatalf("after base moved: next = %+v, %v", next, err)
 	}
-	if b, err = s.Advance(ctx, b.ID, "done", "me"); err != nil || b.Status != "closed" {
+	if b, err = s.Advance(ctx, b.ID, "done", store.Expect{}, "me"); err != nil || b.Status != "closed" {
 		t.Fatalf("advance under the landed flow: %v %+v", err, b)
 	}
 
@@ -300,7 +300,7 @@ func TestNamedFlowShared(t *testing.T) {
 	}
 	putNamed(t, s, "code", "new -> review | backlog\nreview -> new\nbacklog -> new\n")
 	for _, b := range beads {
-		if _, err := s.Advance(ctx, b.ID, "backlog", "me"); err != nil {
+		if _, err := s.Advance(ctx, b.ID, "backlog", store.Expect{}, "me"); err != nil {
 			t.Fatalf("%s: %v", *b.Rig, err)
 		}
 	}
@@ -365,14 +365,14 @@ func TestMigrateFlows(t *testing.T) {
 	}
 	// Behaviour is unchanged.
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard"}, "me")
-	if _, err := s.Advance(ctx, b.ID, "decided", "me"); err == nil {
+	if _, err := s.Advance(ctx, b.ID, "decided", store.Expect{}, "me"); err == nil {
 		t.Fatal("task used the decision flow")
 	}
 	q, err := s.CreateBead(ctx, store.NewBead{Title: "q", Rig: "yard", Type: "decision", Stage: "decide"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if q, err = s.Advance(ctx, q.ID, "decided", "me"); err != nil || q.Status != "closed" {
+	if q, err = s.Advance(ctx, q.ID, "decided", store.Expect{}, "me"); err != nil || q.Status != "closed" {
 		t.Fatalf("decision: %v %+v", err, q)
 	}
 	evs, _ := s.EventsSince(ctx, 0, 0)
@@ -436,7 +436,7 @@ func TestRepoFlowsGitErrors(t *testing.T) {
 	if _, err := s.NextStages(ctx, b.ID); err == nil || !strings.Contains(err.Error(), "not a git repository") {
 		t.Fatalf("next stages in plain: %v", err)
 	}
-	if _, err := s.Advance(ctx, b.ID, "review", "me"); err == nil || !strings.Contains(err.Error(), "not a git repository") {
+	if _, err := s.Advance(ctx, b.ID, "review", store.Expect{}, "me"); err == nil || !strings.Contains(err.Error(), "not a git repository") {
 		t.Fatalf("advance in plain: %v", err)
 	}
 }

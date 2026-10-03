@@ -15,6 +15,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -205,6 +206,20 @@ func owns(h map[string]any, st stat) bool {
 type stat struct {
 	state byte   // R, S, Z, ...
 	start uint64 // the process's start time, compared for equality only
+}
+
+// haveProcStat is false where the OS reports no process state; liveness
+// then falls back to kill(0), and a handle's pid is trusted.
+func haveProcStat() bool { return peer.HaveStat() }
+
+// procStat reads a process's state and start time. A pid with no process
+// is fs.ErrNotExist.
+func procStat(pid int) (stat, error) {
+	st, err := peer.Describe(pid)
+	if err != nil {
+		return stat{}, err
+	}
+	return stat{state: st.State, start: st.Start}, nil
 }
 
 func uintOf(v any) (uint64, bool) {

@@ -385,7 +385,7 @@ yardr prime --bead lists the stage's outcomes.`,
 		}
 	}
 	reopen := simple("reopen", "Reopen a closed bead", func(c *cobra.Command, st store.API, id string) (*store.Bead, error) {
-		return st.Reopen(c.Context(), id, a.who())
+		return st.Reopen(c.Context(), id, a.expect(rev), a.who())
 	})
 	hold := simple("hold", "Stop routing a bead and end its session, freeing the slot", func(c *cobra.Command, st store.API, id string) (*store.Bead, error) {
 		return st.SetHold(c.Context(), id, true, a.expect(rev), a.who())
@@ -395,11 +395,11 @@ yardr prime --bead lists the stage's outcomes.`,
 	})
 	var relReason string
 	release := simple("release", "Take a bead from its group so it is routed again", func(c *cobra.Command, st store.API, id string) (*store.Bead, error) {
-		return st.Release(c.Context(), id, relReason, a.who())
+		return st.Release(c.Context(), id, relReason, a.expect(rev), a.who())
 	})
 	release.Flags().StringVar(&relReason, "reason", "", "why")
 
-	revFlag(update, done, advance, closeCmd, hold, unhold)
+	revFlag(update, done, advance, closeCmd, reopen, hold, unhold, release)
 	cmd.AddCommand(create, show, list, update, note, done, advance, closeCmd, reopen, hold, unhold, release)
 	cmd.AddCommand(a.watchCmds()...)
 	return cmd

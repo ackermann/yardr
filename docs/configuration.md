@@ -440,7 +440,7 @@ Environment variables yardr reads:
 | `YARDR_HOME` | state directory (above); a relative path is resolved against the command's directory, once |
 | `YARDR_ACTOR` | who is acting, for the event log (default: the OS user) |
 | `YARDR_BEAD`, `YARDR_RESIDENT` | defaults for `prime` and resident commands; set for the sessions yardr starts |
-| `YARDR_SESSION` | the session yardr started this process for; `bead done`, `advance`, `close` and `hold` refuse to move its bead (`YARDR_BEAD`) once that session no longer owns it, and any other bead a live session owns ([pipeline.md](pipeline.md#2-new-a-builder-implements-it)) |
+| `YARDR_SESSION` | the session yardr started this process for; every bead move (`bead done`, `advance`, `close`, `hold`, `release`, `reopen`) sends it, and the store refuses to move the session's own bead once the session no longer owns it, and any other bead a live session owns. A call from the session's pane is checked as it even with the variable unset ([pipeline.md](pipeline.md#2-new-a-builder-implements-it)) |
 | `YARDR_HOOK_ADDR` | TCP address the server takes webhooks on, e.g. `127.0.0.1:8790` |
 | `YARDR_EVENT_RETENTION`, `YARDR_HOOK_PAYLOAD_RETENTION`, `YARDR_INBOX_RETENTION` | how long the daemon and `yardr store prune` keep events, ended sessions and webhook bodies, and how long an unread inbox event holds the log back ([below](#retention-keeping-yarddb-bounded)) |
 | `YARDR_TEST_RPC` | tests: run the store suites through the unix-socket client |

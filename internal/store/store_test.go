@@ -341,7 +341,7 @@ func TestSessionLifecycle(t *testing.T) {
 	}
 
 	// Advancing ends the session and frees the bead for the next stage.
-	if _, err := s.Advance(ctx, b.ID, "review", "agent"); err != nil {
+	if _, err := s.Advance(ctx, b.ID, "review", store.Expect{}, "agent"); err != nil {
 		t.Fatal(err)
 	}
 	got, _ = s.GetBead(ctx, b.ID)

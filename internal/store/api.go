@@ -14,13 +14,13 @@ type API interface {
 	Ready(ctx context.Context) ([]Bead, error)
 	Dispatchable(ctx context.Context) ([]Bead, error)
 	UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expect, actor string) (*Bead, error)
-	Advance(ctx context.Context, id, stage, actor string) (*Bead, error)
+	Advance(ctx context.Context, id, stage string, exp Expect, actor string) (*Bead, error)
 	AdvanceNote(ctx context.Context, id, stage, note string, exp Expect, actor string) (*Bead, error)
 	Done(ctx context.Context, id, outcome, note string, exp Expect, actor string) (*Bead, error)
 	CloseBead(ctx context.Context, id, reason string, exp Expect, actor string) (*Bead, error)
-	Reopen(ctx context.Context, id, actor string) (*Bead, error)
+	Reopen(ctx context.Context, id string, exp Expect, actor string) (*Bead, error)
 	SetHold(ctx context.Context, id string, hold bool, exp Expect, actor string) (*Bead, error)
-	Release(ctx context.Context, id, reason, actor string) (*Bead, error)
+	Release(ctx context.Context, id, reason string, exp Expect, actor string) (*Bead, error)
 
 	AddDep(ctx context.Context, from, to, kind, actor string) error
 	RemoveDep(ctx context.Context, from, to, kind, actor string) error

@@ -75,6 +75,23 @@ func (r *ghRig) deliver(t *testing.T, event, name, epic, sha string) {
 	must(t, err)
 }
 
+// deliverEdited is deliver with the fixture's text edited first.
+func (r *ghRig) deliverEdited(t *testing.T, event, name, epic, sha string, edit func(string) string) {
+	t.Helper()
+	body, err := os.ReadFile("../hooks/testdata/github/" + name + ".json")
+	must(t, err)
+	s := edit(strings.ReplaceAll(string(body), "yard-sv6b", epic))
+	if sha != "" {
+		s = strings.ReplaceAll(s, fixtureSHA, sha)
+	}
+	h := http.Header{}
+	h.Set("X-GitHub-Event", event)
+	env, err := hooks.GitHub{}.Normalize(h, []byte(s))
+	must(t, err)
+	_, _, err = r.own.RecordHook(context.Background(), "gh", env.Map(), []byte(s), nil)
+	must(t, err)
+}
+
 func (r *ghRig) pass(t *testing.T) {
 	t.Helper()
 	must(t, r.d.Reconcile(context.Background()))
@@ -485,4 +502,50 @@ func TestGitHubIgnoresOtherEvents(t *testing.T) {
 	}
 	wantRules(t, r.rules(t, "yard-a"))
 	wantRules(t, r.rules(t, "yard-t"))
+}
+
+// An epic bound to a pull request (pr_url) is judged on that pull request
+// only: events for a branch of the same name in another repository, or for
+// another pull request of the branch, move nothing and set no head.
+func TestGitHubRulesJudgeTheEpicsOwnPR(t *testing.T) {
+	r := newGHRig(t)
+	ctx := context.Background()
+	r.epic(t, "yard-a", "in-pr")
+	_, err := r.api.UpdateBead(ctx, "yard-a", store.BeadPatch{Metadata: map[string]any{"pr_url": "https://github.com/acme/yardr/pull/17"}},
+		store.Expect{}, "me")
+	must(t, err)
+	fork := func(s string) string { return strings.ReplaceAll(s, "acme/yardr", "fork/yardr") }
+	otherPR := func(s string) string { return strings.ReplaceAll(s, `"number": 17`, `"number": 18`) }
+	old := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+	// A fork's PR and another PR of the branch, at another commit, say
+	// nothing of the epic's head; their green runs land nothing.
+	r.deliverEdited(t, "pull_request", "pull_request_synchronize", "yard-a", old, fork)
+	r.deliverEdited(t, "pull_request", "pull_request_synchronize", "yard-a", old, otherPR)
+	r.deliverEdited(t, "workflow_run", "workflow_run_success", "yard-a", "", fork)
+	r.deliverEdited(t, "workflow_run", "workflow_run_success", "yard-a", "", otherPR)
+	r.pass(t)
+	if b := r.bead(t, "yard-a"); b.Stage != "in-pr" || b.Metadata["pr_head"] != nil {
+		t.Fatalf("yard-a in %s with pr_head %v after events for other PRs", b.Stage, b.Metadata["pr_head"])
+	}
+	wantRules(t, r.rules(t, "yard-a"),
+		"ci_green ignored: event is in fork/yardr, not the epic's PR acme/yardr#17",
+		"ci_green ignored: event is for acme/yardr#18, not the epic's PR acme/yardr#17")
+
+	// The epic's own PR: its head is recorded and green on it lands.
+	r.deliver(t, "pull_request", "pull_request_synchronize", "yard-a", "")
+	r.deliver(t, "workflow_run", "workflow_run_success", "yard-a", "")
+	r.pass(t)
+	if b := r.bead(t, "yard-a"); b.Stage != "land" || b.Metadata["pr_head"] != fixtureSHA {
+		t.Fatalf("yard-a in %s with pr_head %v, want land at %s", b.Stage, b.Metadata["pr_head"], fixtureSHA)
+	}
+
+	// Without pr_url the branch name is all there is, as before.
+	r.epic(t, "yard-b", "in-pr")
+	r.deliverEdited(t, "pull_request", "pull_request_synchronize", "yard-b", "", fork)
+	r.deliverEdited(t, "workflow_run", "workflow_run_success", "yard-b", "", fork)
+	r.pass(t)
+	if st := r.stageOf(t, "yard-b"); st != "land" {
+		t.Fatalf("unbound yard-b in %s", st)
+	}
 }

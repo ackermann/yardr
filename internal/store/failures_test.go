@@ -94,7 +94,7 @@ func TestFailureCountOutlivesTheUnheldEvent(t *testing.T) {
 	if n := count("new"); n != 1 {
 		t.Fatalf("failures after a fresh death = %d, want 1", n)
 	}
-	if _, err := s.Advance(ctx, b.ID, "review", "me"); err != nil {
+	if _, err := s.Advance(ctx, b.ID, "review", store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if n := count("review"); n != 0 {

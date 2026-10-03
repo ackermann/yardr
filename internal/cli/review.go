@@ -409,9 +409,10 @@ func (a *app) reviewAdvance(ctx context.Context, st store.API, b store.Bead, ac 
 		return err
 	}
 	// b is the form's snapshot from when it started: if the bead has moved
-	// since (an agent finished, someone else decided), the store refuses
-	// this decision instead of applying it to a stage it was not made for.
-	exp := store.Expect{Stage: b.Stage}
+	// or changed since (an agent finished, someone else decided, a note
+	// came in), the store refuses this decision instead of applying it to
+	// a bead it was not made for.
+	exp := store.Expect{Stage: b.Stage, Revision: b.Revision}
 	var moved *store.Bead
 	var err error
 	if ac.Kind == actDone {

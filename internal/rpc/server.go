@@ -18,11 +18,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"reflect"
 	"strconv"
 	"time"
 
+	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -35,6 +37,18 @@ const StreamWriteTimeout = 10 * time.Second
 
 // PIDHeader carries the server's pid on every reply.
 const PIDHeader = "X-Yardr-Pid"
+
+// ConnContext is for the http.Server that serves Handler: it records on
+// every connection's context the pid of the process that opened it, so the
+// store can check a bead write as the session whose pane it came from (see
+// store.Expect). A connection whose peer the OS does not tell is served
+// with no caller.
+func ConnContext(ctx context.Context, c net.Conn) context.Context {
+	if pid, err := peer.PID(c); err == nil {
+		return store.WithCaller(ctx, pid)
+	}
+	return ctx
+}
 
 // WriteReplacing refuses a call without running it because the server is
 // about to exec a newer build; the client retries against that build.

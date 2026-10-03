@@ -84,11 +84,11 @@ func TestYardrPerBeadAndPerStage(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range []string{b.ID, other.ID} {
-		if _, err := s.Advance(ctx, id, "review", "jane"); err != nil {
+		if _, err := s.Advance(ctx, id, "review", store.Expect{}, "jane"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := s.Advance(ctx, b.ID, "approved", "jane"); err != nil {
+	if _, err := s.Advance(ctx, b.ID, "approved", store.Expect{}, "jane"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -146,7 +146,7 @@ func TestYardrDoneOnce(t *testing.T) {
 	subscribe(t, s, "done", yardrSub(store.ScopeAll, "state=done"))
 
 	for _, st := range []string{"review", "approved", "merged"} {
-		if _, err := s.Advance(ctx, b.ID, st, "jane"); err != nil {
+		if _, err := s.Advance(ctx, b.ID, st, store.Expect{}, "jane"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -162,7 +162,7 @@ func TestYardrDoneOnce(t *testing.T) {
 	if _, err := s.CloseBead(ctx, direct.ID, "merged def456", store.Expect{}, "refinery"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Reopen(ctx, direct.ID, "jane"); err != nil {
+	if _, err := s.Reopen(ctx, direct.ID, store.Expect{}, "jane"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.CloseBead(ctx, direct.ID, "again", store.Expect{}, "jane"); err != nil {
@@ -188,7 +188,7 @@ func TestYardrInvolved(t *testing.T) {
 	if err := s.AddNote(ctx, b.ID, "@mentioned can you look? (not @mentioned-not, mail@bystander)", "noter"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Advance(ctx, b.ID, "review", "someone"); err != nil {
+	if _, err := s.Advance(ctx, b.ID, "review", store.Expect{}, "someone"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.CloseBead(ctx, b.ID, "done", store.Expect{}, "someone"); err != nil {
@@ -224,7 +224,7 @@ func TestBeadWatchEndsOnClose(t *testing.T) {
 		t.Fatalf("after close: %v", r.Subscriptions)
 	}
 	// Reopened, it is no longer watched.
-	if _, err := s.Reopen(ctx, b.ID, "jane"); err != nil {
+	if _, err := s.Reopen(ctx, b.ID, store.Expect{}, "jane"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AddNote(ctx, b.ID, "back", "jane"); err != nil {
@@ -474,10 +474,10 @@ func TestYardrEpicAndGroupKeys(t *testing.T) {
 	if _, err := s.Claim(ctx, child.ID, "yard-builders", "new", "yard"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Advance(ctx, child.ID, "review", "yard-child-new"); err != nil {
+	if _, err := s.Advance(ctx, child.ID, "review", store.Expect{}, "yard-child-new"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Advance(ctx, stranger.ID, "review", "jane"); err != nil {
+	if _, err := s.Advance(ctx, stranger.ID, "review", store.Expect{}, "jane"); err != nil {
 		t.Fatal(err)
 	}
 	wantHeard(t, s, child.ID, "builders", "advanced:all")

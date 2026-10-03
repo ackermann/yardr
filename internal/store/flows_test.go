@@ -151,7 +151,7 @@ func TestNoFlowPassesThrough(t *testing.T) {
 			t.Fatalf("rig %q: create: %v", rig, err)
 		}
 		for _, to := range []string{"merged", "anything", "new"} {
-			if b, err = s.Advance(ctx, b.ID, to, "me"); err != nil {
+			if b, err = s.Advance(ctx, b.ID, to, store.Expect{}, "me"); err != nil {
 				t.Fatalf("rig %q: advance to %s: %v", rig, to, err)
 			}
 		}
@@ -191,10 +191,10 @@ func TestFlowAllowsAndRefusesTransitions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b, err = s.Advance(ctx, b.ID, "review", "me"); err != nil || b.Stage != "review" {
+	if b, err = s.Advance(ctx, b.ID, "review", store.Expect{}, "me"); err != nil || b.Stage != "review" {
 		t.Fatalf("new -> review: %v %+v", err, b)
 	}
-	_, err = s.Advance(ctx, b.ID, "merged", "me")
+	_, err = s.Advance(ctx, b.ID, "merged", store.Expect{}, "me")
 	if err == nil {
 		t.Fatal("review -> merged was allowed")
 	}
@@ -214,7 +214,7 @@ func TestFlowAllowsAndRefusesTransitions(t *testing.T) {
 	if next.Flow == nil || next.Flow.Name != "yard" || next.Source.String() != "store" || !slices.Equal(next.Stages, []string{"approved", "new"}) {
 		t.Fatalf("next = %+v", next)
 	}
-	if _, err := s.Advance(ctx, b.ID, "approved", "me"); err != nil {
+	if _, err := s.Advance(ctx, b.ID, "approved", store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	next, _ = s.NextStages(ctx, b.ID)
@@ -268,7 +268,7 @@ func TestFlowTerminalStageCloses(t *testing.T) {
 		t.Fatal(err)
 	}
 	head, _ := s.Head(ctx)
-	b, err = s.Advance(ctx, b.ID, "merged", "merger")
+	b, err = s.Advance(ctx, b.ID, "merged", store.Expect{}, "merger")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,15 +296,15 @@ func TestFlowTerminalStageCloses(t *testing.T) {
 	}
 	// A reopened bead in a terminal stage is not stuck: it may re-enter the
 	// flow at its first stage, but not further on nor outside it.
-	if _, err := s.Reopen(ctx, b.ID, "me"); err != nil {
+	if _, err := s.Reopen(ctx, b.ID, store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	for _, to := range []string{"elsewhere", "new"} {
-		if _, err := s.Advance(ctx, b.ID, to, "me"); err == nil {
+		if _, err := s.Advance(ctx, b.ID, to, store.Expect{}, "me"); err == nil {
 			t.Fatalf("reopened bead moved to %s", to)
 		}
 	}
-	if b, err = s.Advance(ctx, b.ID, "backlog", "me"); err != nil || b.Status != "open" {
+	if b, err = s.Advance(ctx, b.ID, "backlog", store.Expect{}, "me"); err != nil || b.Status != "open" {
 		t.Fatalf("reopened bead back to backlog: %v %+v", err, b)
 	}
 }
@@ -324,11 +324,11 @@ func TestFlowStageUnknownToFlowCanRejoin(t *testing.T) {
 		t.Fatalf("next from unknown stage = %+v, %v; want only backlog", next, err)
 	}
 	for _, to := range []string{"elsewhere", "review", "approved", "merged"} {
-		if _, err := s.Advance(ctx, b.ID, to, "me"); err == nil || !strings.Contains(err.Error(), "allowed next: backlog") {
+		if _, err := s.Advance(ctx, b.ID, to, store.Expect{}, "me"); err == nil || !strings.Contains(err.Error(), "allowed next: backlog") {
 			t.Fatalf("unknown stage -> %s: err = %v", to, err)
 		}
 	}
-	if _, err := s.Advance(ctx, b.ID, "backlog", "me"); err != nil {
+	if _, err := s.Advance(ctx, b.ID, "backlog", store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -360,23 +360,23 @@ func TestFlowTypeOverridesRig(t *testing.T) {
 	if q2, err := s.CreateBead(ctx, store.NewBead{Title: "q2", Rig: "yard", Type: "decision"}, "me"); err != nil || q2.Stage != "open" {
 		t.Fatalf("decision without a stage = %+v, %v; want the type flow's first stage", q2, err)
 	}
-	if _, err := s.Advance(ctx, d.ID, "review", "me"); err == nil || !strings.Contains(err.Error(), "allowed next: decided, dropped") {
+	if _, err := s.Advance(ctx, d.ID, "review", store.Expect{}, "me"); err == nil || !strings.Contains(err.Error(), "allowed next: decided, dropped") {
 		t.Fatalf("decision -> review err = %v", err)
 	}
 	next, _ := s.NextStages(ctx, d.ID)
 	if next.Flow == nil || next.Flow.Name != "yard.decision" || next.Source.String() != "store, type decision" {
 		t.Fatalf("decision governed by %+v", next.Flow)
 	}
-	if d, err = s.Advance(ctx, d.ID, "dropped", "me"); err != nil || d.Status != "closed" || *d.CloseReason != "dropped" {
+	if d, err = s.Advance(ctx, d.ID, "dropped", store.Expect{}, "me"); err != nil || d.Status != "closed" || *d.CloseReason != "dropped" {
 		t.Fatalf("dropped: %v %+v", err, d)
 	}
 
 	// Other types still follow the rig's flow.
 	f, _ := s.CreateBead(ctx, store.NewBead{Title: "feat", Rig: "yard", Type: "feature", Stage: "new"}, "me")
-	if _, err := s.Advance(ctx, f.ID, "decided", "me"); err == nil {
+	if _, err := s.Advance(ctx, f.ID, "decided", store.Expect{}, "me"); err == nil {
 		t.Fatal("feature used the decision flow")
 	}
-	if _, err := s.Advance(ctx, f.ID, "review", "me"); err != nil {
+	if _, err := s.Advance(ctx, f.ID, "review", store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
 

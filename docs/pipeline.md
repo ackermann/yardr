@@ -40,17 +40,27 @@ its identity in the environment: `YARDR_ACTOR` (the agent's name,
 `<bead>-<stage>`), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`,
 `YARDR_GROUP`, `YARDR_HOME` and `YARDR_BIN`. Nothing depends on the agent
 exporting anything: every event its `yardr` commands log names it as actor.
-`yardr bead done`, `advance`, `close` and `hold` also send `YARDR_SESSION`
-and `YARDR_BEAD`, and the store refuses a move of that bead unless the
-session still owns it (`stale: bead <id> is now in <stage> owned by
-<session>`). An agent kept open, or orphaned by a restart, after its bead
-moved on therefore cannot end the session that owns the bead now; nothing
-changes. Another bead moved from the same pane (a follow-up the agent
-filed and advances) is checked as the actor's, like a person at a shell,
-except that one owned by a live session is refused rather than taken from
-under its agent. A person at a shell has no `YARDR_SESSION` and is not
-checked. `yardr review` does the same with the stage: it refuses a
-decision on a bead that left the stage the form showed it in.
+Every move (`yardr bead done`, `advance`, `close`, `hold`, `release` and
+`reopen`) also sends `YARDR_SESSION`, which the store checks against its
+own session table: the id must be one the yard started, and the bead the
+session was started for comes from that record, not from the caller. A
+move of that bead is refused unless the session still owns it (`stale:
+bead <id> is now in <stage> owned by <session>`), so an agent kept open,
+or orphaned by a restart, after its bead moved on cannot end the session
+that owns the bead now; nothing changes. Another bead moved from the same
+pane (a follow-up the agent filed and advances) is checked as the actor's,
+like a person at a shell, except that one owned by a live session is
+refused rather than taken from under its agent. The store also knows the
+pane itself: the runner records the pid of the tab's shell (for an exec
+group, of its script) on the session, and a call whose process descends
+from it is checked as that session whatever its environment says, so
+unsetting `YARDR_SESSION` in the pane is not a way out, and naming another
+session from it is refused. A person at a shell of their own has no
+`YARDR_SESSION` and no pane the store knows, and is not checked. `yardr
+review` sends the stage and revision the form showed instead: it refuses a
+decision on a bead that moved or changed since. Every move takes
+`--revision <rev>` for the same compare-and-swap, as BDP writes take
+`If-Match`.
 
 The builder implements the change, runs the gate (`yardr rig check yard
 --dir <worktree>`, which runs `.yardr/check` from fetched `origin/main`:
@@ -486,7 +496,12 @@ The head commit is the one the last `pull_request` event (opened,
 synchronize, ...) or review for the epic carried, kept in the epic's
 metadata as `pr_head`; without one the daemon asks `gh pr view` for
 `headRefOid`. A conclusion on another commit (a run a later push
-superseded) is ignored. Each rule acts only on the stage it names: one that
+superseded) is ignored. An epic bound to a pull request (`pr_url`, which
+integrate-epic stores) is judged on that pull request only: an event in
+another repository (a fork with a branch of the same name) or for another
+pull request of the branch is ignored, logged as such, and sets no
+`pr_head`; an epic without `pr_url` is matched by its branch name alone.
+Each rule acts only on the stage it names: one that
 finds the epic elsewhere, past it or not there yet, does nothing. Each event
 judged for an epic is recorded in its metadata (`github_seq`), so a daemon
 that restarts and reads the log again from the start does nothing twice.

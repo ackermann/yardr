@@ -199,9 +199,19 @@ func (d *Dispatcher) githubEvent(ctx context.Context, ev ghEvent) {
 	if epic.Type != store.TypeEpic || epic.Status == "closed" || ev.seq <= metaSeq(epic.Metadata[metaGitHubSeq]) {
 		return
 	}
+	// An epic bound to a pull request (pr_url, stored by integrate-epic) is
+	// judged on that pull request only: a branch of the same name in a fork
+	// or another repository, or another PR for the branch, says nothing
+	// about it, and its head is not the epic's PR head either.
+	elsewhere := ""
+	if url, _ := epic.Metadata["pr_url"].(string); url != "" {
+		elsewhere = otherPR(url, ev)
+	}
 	if rule != "" {
 		var res ruleResult
-		if epic.Hold {
+		if elsewhere != "" {
+			res = ignored("%s", elsewhere)
+		} else if epic.Hold {
 			res = ignored("epic is held")
 		} else {
 			res = d.applyRule(ctx, rule, ev, epic)
@@ -222,12 +232,47 @@ func (d *Dispatcher) githubEvent(ctx context.Context, ev ghEvent) {
 		}
 	}
 	meta := map[string]any{metaGitHubSeq: ev.seq}
-	if head && ev.sha != "" {
+	if head && ev.sha != "" && elsewhere == "" {
 		meta[metaPRHead] = ev.sha
 	}
 	if _, err := d.Store.UpdateBead(ctx, epic.ID, store.BeadPatch{Metadata: meta}, store.Expect{}, actor); err != nil {
 		d.Log.Warn("github rule: marking the event seen", "epic", epic.ID, "seq", ev.seq, "err", err)
 	}
+}
+
+// otherPR says why ev is not about the pull request at url
+// (https://github.com/<owner>/<repo>/pull/<n>): its repository or number
+// differ. "" when it is, or when ev names no pull request number (a run
+// GitHub lists no PR for) in the PR's repository.
+func otherPR(url string, ev ghEvent) string {
+	repo, number := parsePRURL(url)
+	if repo == "" {
+		return fmt.Sprintf("pr_url %s is not a pull request URL", url)
+	}
+	switch {
+	case ev.repo != "" && !strings.EqualFold(ev.repo, repo):
+		return fmt.Sprintf("event is in %s, not the epic's PR %s#%s", ev.repo, repo, number)
+	case ev.number != "" && ev.number != number:
+		return fmt.Sprintf("event is for %s#%s, not the epic's PR %s#%s", repo, ev.number, repo, number)
+	}
+	return ""
+}
+
+// parsePRURL reads owner/repo and the number from a GitHub pull request
+// URL; "" when url is not one.
+func parsePRURL(url string) (repo, number string) {
+	rest, ok := strings.CutPrefix(strings.TrimSuffix(url, "/"), "https://github.com/")
+	if !ok {
+		return "", ""
+	}
+	parts := strings.Split(rest, "/")
+	if len(parts) != 4 || parts[2] != "pull" || parts[3] == "" {
+		return "", ""
+	}
+	if _, err := strconv.Atoi(parts[3]); err != nil {
+		return "", ""
+	}
+	return parts[0] + "/" + parts[1], parts[3]
 }
 
 // ruleResult is what a rule did: an action, or why it did nothing.

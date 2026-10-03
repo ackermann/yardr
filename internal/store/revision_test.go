@@ -118,7 +118,7 @@ func TestClaimRespectsGroupLimit(t *testing.T) {
 
 	// A freed slot is claimable again, and a refused claim left its bead
 	// unowned.
-	if _, err := s.Release(ctx, live[0].Bead, "", "me"); err != nil {
+	if _, err := s.Release(ctx, live[0].Bead, "", store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range beads {

@@ -46,7 +46,7 @@ func NewOwned(t testing.TB) (store.API, *store.Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := &http.Server{Handler: rpc.Handler(s, nil)}
+	srv := &http.Server{Handler: rpc.Handler(s, nil), ConnContext: rpc.ConnContext}
 	go srv.Serve(ln)
 	c := rpc.NewClient(sock)
 	t.Cleanup(func() {

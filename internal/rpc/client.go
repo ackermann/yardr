@@ -191,8 +191,8 @@ func (c *Client) Dispatchable(ctx context.Context) ([]store.Bead, error) {
 func (c *Client) UpdateBead(ctx context.Context, id string, p store.BeadPatch, exp store.Expect, actor string) (*store.Bead, error) {
 	return callV[*store.Bead](c, ctx, "UpdateBead", id, p, exp, actor)
 }
-func (c *Client) Advance(ctx context.Context, id, stage, actor string) (*store.Bead, error) {
-	return callV[*store.Bead](c, ctx, "Advance", id, stage, actor)
+func (c *Client) Advance(ctx context.Context, id, stage string, exp store.Expect, actor string) (*store.Bead, error) {
+	return callV[*store.Bead](c, ctx, "Advance", id, stage, exp, actor)
 }
 func (c *Client) AdvanceNote(ctx context.Context, id, stage, note string, exp store.Expect, actor string) (*store.Bead, error) {
 	return callV[*store.Bead](c, ctx, "AdvanceNote", id, stage, note, exp, actor)
@@ -203,14 +203,14 @@ func (c *Client) Done(ctx context.Context, id, outcome, note string, exp store.E
 func (c *Client) CloseBead(ctx context.Context, id, reason string, exp store.Expect, actor string) (*store.Bead, error) {
 	return callV[*store.Bead](c, ctx, "CloseBead", id, reason, exp, actor)
 }
-func (c *Client) Reopen(ctx context.Context, id, actor string) (*store.Bead, error) {
-	return callV[*store.Bead](c, ctx, "Reopen", id, actor)
+func (c *Client) Reopen(ctx context.Context, id string, exp store.Expect, actor string) (*store.Bead, error) {
+	return callV[*store.Bead](c, ctx, "Reopen", id, exp, actor)
 }
 func (c *Client) SetHold(ctx context.Context, id string, hold bool, exp store.Expect, actor string) (*store.Bead, error) {
 	return callV[*store.Bead](c, ctx, "SetHold", id, hold, exp, actor)
 }
-func (c *Client) Release(ctx context.Context, id, reason, actor string) (*store.Bead, error) {
-	return callV[*store.Bead](c, ctx, "Release", id, reason, actor)
+func (c *Client) Release(ctx context.Context, id, reason string, exp store.Expect, actor string) (*store.Bead, error) {
+	return callV[*store.Bead](c, ctx, "Release", id, reason, exp, actor)
 }
 
 func (c *Client) AddDep(ctx context.Context, from, to, kind, actor string) error {

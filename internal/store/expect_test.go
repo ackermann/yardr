@@ -1,9 +1,12 @@
 package store_test
 
 import (
+	"errors"
+	"os"
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -41,9 +44,12 @@ func TestStaleMovesRefused(t *testing.T) {
 	// (kept tab, orphaned agent) must not touch the reviewer's work.
 	old := store.Expect{Session: builder.ID}
 	stale := map[string]func() (*store.Bead, error){
-		"done":    func() (*store.Bead, error) { return s.Done(ctx, b.ID, "", "again", old, "builder") },
-		"advance": func() (*store.Bead, error) { return s.AdvanceNote(ctx, b.ID, "decide", "again", old, "builder") },
-		"close":   func() (*store.Bead, error) { return s.CloseBead(ctx, b.ID, "done", old, "builder") },
+		"done":          func() (*store.Bead, error) { return s.Done(ctx, b.ID, "", "again", old, "builder") },
+		"advance":       func() (*store.Bead, error) { return s.AdvanceNote(ctx, b.ID, "decide", "again", old, "builder") },
+		"close":         func() (*store.Bead, error) { return s.CloseBead(ctx, b.ID, "done", old, "builder") },
+		"plain advance": func() (*store.Bead, error) { return s.Advance(ctx, b.ID, "decide", old, "builder") },
+		"release":       func() (*store.Bead, error) { return s.Release(ctx, b.ID, "giving up", old, "builder") },
+		"reopen":        func() (*store.Bead, error) { return s.Reopen(ctx, b.ID, old, "builder") },
 		// A review form that snapshotted the bead in new.
 		"stage": func() (*store.Bead, error) {
 			return s.AdvanceNote(ctx, b.ID, "backlog", "", store.Expect{Stage: "new"}, "mckean")
@@ -84,10 +90,137 @@ func TestStaleMovesRefused(t *testing.T) {
 	if sess, _ := s.GetSession(ctx, third.ID); sess.EndedAt == nil {
 		t.Fatal("close did not end the owning session")
 	}
-	// Closing again from that ended session is stale too.
+	// Closing again, or reopening, from that ended session is stale too.
 	_, err = s.CloseBead(ctx, b.ID, "done", store.Expect{Session: third.ID}, "builder")
 	if err == nil || !strings.Contains(err.Error(), "is now in new (closed) owned by no session") {
 		t.Fatalf("close from an ended session: %v", err)
+	}
+	_, err = s.Reopen(ctx, b.ID, store.Expect{Session: third.ID}, "builder")
+	if err == nil || !strings.Contains(err.Error(), "is now in new (closed) owned by no session") {
+		t.Fatalf("reopen from an ended session: %v", err)
+	}
+	if cur, _ := s.GetBead(ctx, b.ID); cur.Status != "closed" {
+		t.Fatalf("a stale reopen opened the bead: %+v", cur)
+	}
+
+	// A session this yard never started is refused outright, owner or not.
+	_, err = s.Reopen(ctx, b.ID, store.Expect{Session: "forged"}, "builder")
+	if !errors.Is(err, store.ErrNotFound) || !strings.Contains(err.Error(), "session forged: not found") {
+		t.Fatalf("reopen from an unknown session: %v", err)
+	}
+}
+
+// A call from a session's pane is checked as that session whatever its
+// environment says: the store knows the pane by the pid its runner put on
+// the handle (a herdr tab's shell here), the call's process descends from
+// it, and the bead the session is expected to own comes from the store's
+// record of the session. Unsetting $YARDR_SESSION in the pane is therefore
+// not "no check", and naming another session there is refused.
+func TestPaneIsCheckedAsItsSessionWhateverItSays(t *testing.T) {
+	s, ctx := flowRig(t)
+	putFlow(t, s, "yard", "", outcomeFlow)
+	for _, g := range []string{"builders", "reviewers"} {
+		if err := s.PutGroup(ctx, store.Group{Name: g, Runner: "herdr"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a, err := s.CreateBead(ctx, store.NewBead{Title: "a", Rig: "yard"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "b", Rig: "yard", Stage: "review"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := s.Claim(ctx, a.ID, "builders", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := s.Claim(ctx, b.ID, "reviewers", "review", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// This test process is the shell of a's tab: in the owning process the
+	// caller is told to the store; over the socket the server sees it.
+	me := os.Getpid()
+	handle := map[string]any{"agent": "yard-a-new", "shell_pid": me}
+	if st, err := peer.Describe(me); err == nil {
+		handle["shell_start"] = st.Start
+	}
+	if err := s.MarkRunning(ctx, owner.ID, handle); err != nil {
+		t.Fatal(err)
+	}
+	pane := store.WithCaller(ctx, me)
+	unset := store.Expect{}
+
+	// With no session in its environment, the pane is still a's session:
+	// b, another live session's bead, is refused as not its own.
+	want := "stale: bead " + b.ID + " is now in review owned by " + other.ID + "; expected no session (session " + owner.ID + " owns " + a.ID
+	for name, move := range map[string]func() (*store.Bead, error){
+		"release": func() (*store.Bead, error) { return s.Release(pane, b.ID, "mine now", unset, "yard-a-new") },
+		"advance": func() (*store.Bead, error) { return s.Advance(pane, b.ID, "new", unset, "yard-a-new") },
+		"done":    func() (*store.Bead, error) { return s.Done(pane, b.ID, "", "", unset, "yard-a-new") },
+	} {
+		if _, err := move(); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s of another session's bead from a pane with no $YARDR_SESSION: %v, want %q", name, err, want)
+		}
+	}
+	if sess, _ := s.GetSession(ctx, other.ID); sess.EndedAt != nil {
+		t.Fatalf("a refused move ended the owner's session: %+v", sess)
+	}
+	// Naming b's session from a's pane does not make the pane b's.
+	_, err = s.Done(pane, b.ID, "", "", store.Expect{Session: other.ID}, "yard-a-new")
+	if err == nil || !strings.Contains(err.Error(), "this pane is session "+owner.ID+", not "+other.ID) {
+		t.Fatalf("another session named from the pane: %v", err)
+	}
+	// Its own bead the pane moves, with or without its environment.
+	if got, err := s.Done(pane, a.ID, "", "", unset, "yard-a-new"); err != nil || got.Stage != "review" {
+		t.Fatalf("the pane's own done = %+v, %v", got, err)
+	}
+	// The session has ended, its shell still runs (an agent kept open):
+	// the pane is still that session's, and its bead has moved on.
+	_, err = s.Release(pane, a.ID, "again", unset, "yard-a-new")
+	if err == nil || !strings.Contains(err.Error(), "stale: bead "+a.ID+" is now in review owned by no session; expected session "+owner.ID) {
+		t.Fatalf("release from the ended session's pane: %v", err)
+	}
+}
+
+// The pane's process may be far above the caller (shell, agent, a shell
+// the agent runs a command in): the store walks up the process tree. An
+// exec runner's script is found by the pid and start time it recorded.
+func TestPaneIsFoundUpTheProcessTree(t *testing.T) {
+	if len(peer.Ancestors(os.Getpid())) < 2 {
+		t.Skip("this OS does not tell a process's parent")
+	}
+	s, ctx := flowRig(t)
+	putFlow(t, s, "yard", "", outcomeFlow)
+	if err := s.PutGroup(ctx, store.Group{Name: "integrators", Runner: "exec"}); err != nil {
+		t.Fatal(err)
+	}
+	a, err := s.CreateBead(ctx, store.NewBead{Title: "a", Rig: "yard"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := s.Claim(ctx, a.ID, "integrators", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The script is this process's parent; this process is a command it runs.
+	script := os.Getppid()
+	handle := map[string]any{"pid": script}
+	if st, err := peer.Describe(script); err == nil {
+		handle["start"] = st.Start
+	}
+	if err := s.MarkRunning(ctx, owner.ID, handle); err != nil {
+		t.Fatal(err)
+	}
+	pane := store.WithCaller(ctx, os.Getpid())
+	if _, err := s.Done(pane, a.ID, "", "", store.Expect{}, "integrators"); err != nil {
+		t.Fatalf("the script's own done: %v", err)
+	}
+	_, err = s.Release(pane, a.ID, "again", store.Expect{}, "integrators")
+	if err == nil || !strings.Contains(err.Error(), "expected session "+owner.ID) {
+		t.Fatalf("release from the ended script's pane: %v", err)
 	}
 }
 
@@ -116,8 +249,9 @@ func TestSessionCheckIsForTheSessionsOwnBead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// What a's pane sends: its session, and the bead it was started for.
-	pane := store.Expect{Session: owner.ID, Bead: a.ID}
+	// What a's pane sends: its session; the bead it was started for the
+	// store knows from its own record of the session.
+	pane := store.Expect{Session: owner.ID}
 
 	// b is owned by no session: a's pane moves it, as the actor.
 	got, err := s.AdvanceNote(ctx, b.ID, "review", "filed from a", pane, "yard-a-new")

@@ -41,6 +41,9 @@ func TestBeadMovesCarryTheSession(t *testing.T) {
 		{"done", b.ID, "--note", "again"},
 		{"advance", b.ID, "--to", "new", "--note", "again"},
 		{"close", b.ID, "--reason", "again"},
+		{"release", b.ID, "--reason", "again"},
+		{"reopen", b.ID},
+		{"hold", b.ID},
 	} {
 		if _, err := run(t, a.beadCmd(), args...); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s from the old session: %v, want %q", args[0], err, want)
@@ -53,18 +56,27 @@ func TestBeadMovesCarryTheSession(t *testing.T) {
 		t.Fatalf("a stale command left a note: %+v", notes)
 	}
 
-	// Outside any session (Christopher at a shell) nothing is expected.
+	// Outside any session (Christopher at a shell) nothing is expected,
+	// except the revision when one is given.
 	t.Setenv("YARDR_SESSION", "")
 	a.actor = "mckean"
+	for _, args := range [][]string{
+		{"release", b.ID, "--revision", "01OLD"},
+		{"reopen", b.ID, "--revision", "01OLD"},
+	} {
+		if _, err := run(t, a.beadCmd(), args...); err == nil || !strings.Contains(err.Error(), "is at revision "+before.Revision+", not 01OLD") {
+			t.Errorf("%s with an old revision: %v", args[0], err)
+		}
+	}
 	if _, err := run(t, a.beadCmd(), "advance", b.ID, "--to", "approved"); err != nil {
 		t.Fatalf("advance outside a session: %v", err)
 	}
 }
 
-// A pane's session applies only to the bead it was started for
-// (YARDR_BEAD): another bead moved from it (a follow-up the agent filed) is
-// checked as the actor's, like a person at a shell, except that one owned by
-// a live session is refused.
+// A pane's session applies only to the bead it was started for, which the
+// store knows from its record of the session: another bead moved from it (a
+// follow-up the agent filed) is checked as the actor's, like a person at a
+// shell, except that one owned by a live session is refused.
 func TestSessionAppliesToTheOwnBeadOnly(t *testing.T) {
 	st, ctx := reviewYard(t, "/tmp/yard")
 	if err := st.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "herdr"}); err != nil {
@@ -84,7 +96,6 @@ func TestSessionAppliesToTheOwnBeadOnly(t *testing.T) {
 	}
 	app := &app{st: st, actor: "yard-a-new"}
 	t.Setenv("YARDR_SESSION", owner.ID)
-	t.Setenv("YARDR_BEAD", a.ID)
 
 	if _, err := run(t, app.beadCmd(), "advance", b.ID, "--to", "review"); err != nil {
 		t.Fatalf("advance of an unowned bead from a's pane: %v", err)

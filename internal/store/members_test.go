@@ -50,7 +50,7 @@ func TestAdvanceMembers(t *testing.T) {
 	// A non-member is refused, the error names the members, and the bead is
 	// left as it was.
 	b := claimed("approved", "approvers")
-	_, err = s.Advance(ctx, b.ID, "merged", "yard-19-new")
+	_, err = s.Advance(ctx, b.ID, "merged", store.Expect{}, "yard-19-new")
 	if err == nil || !strings.Contains(err.Error(), "mckean, mayor") || !strings.Contains(err.Error(), "approvers") {
 		t.Fatalf("non-member advance err = %v", err)
 	}
@@ -58,7 +58,7 @@ func TestAdvanceMembers(t *testing.T) {
 		t.Fatalf("refused advance changed the bead: %+v", got)
 	}
 	// A member may.
-	if got, err := s.Advance(ctx, b.ID, "new", "mayor"); err != nil || got.Stage != "new" {
+	if got, err := s.Advance(ctx, b.ID, "new", store.Expect{}, "mayor"); err != nil || got.Stage != "new" {
 		t.Fatalf("member advance: %v %+v", err, got)
 	}
 
@@ -66,20 +66,20 @@ func TestAdvanceMembers(t *testing.T) {
 	// limit, say), is guarded too.
 	u, err := s.CreateBead(ctx, store.NewBead{Title: "waiting", Rig: "yard", Stage: "approved"}, "me")
 	must(err)
-	if _, err := s.Advance(ctx, u.ID, "new", "yard-19-new"); err == nil {
+	if _, err := s.Advance(ctx, u.ID, "new", store.Expect{}, "yard-19-new"); err == nil {
 		t.Fatal("non-member moved an unclaimed bead out of a members stage")
 	}
-	if _, err := s.Advance(ctx, u.ID, "new", "mckean"); err != nil {
+	if _, err := s.Advance(ctx, u.ID, "new", store.Expect{}, "mckean"); err != nil {
 		t.Fatal(err)
 	}
 
 	// A group without members leaves advance as it was: anyone.
 	d := claimed("decide", "deciders")
-	if _, err := s.Advance(ctx, d.ID, "backlog", "anyone"); err != nil {
+	if _, err := s.Advance(ctx, d.ID, "backlog", store.Expect{}, "anyone"); err != nil {
 		t.Fatal(err)
 	}
 	// So does a stage with no group at all.
-	if _, err := s.Advance(ctx, d.ID, "new", "anyone"); err != nil {
+	if _, err := s.Advance(ctx, d.ID, "new", store.Expect{}, "anyone"); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -392,7 +392,7 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expe
 		}
 	}
 	return s.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
-		if err := exp.check(b); err != nil {
+		if err := w.check(ctx, exp, b); err != nil {
 			return "", nil, err
 		}
 		changed := map[string]any{}
@@ -506,9 +506,9 @@ func (w *wtx) endSession(b *beadRow, state string) error {
 // flow governs the bead (see resolveFlow), the move must be one the flow allows, and entering
 // a terminal stage closes the bead, with the stage as reason, in the same
 // transaction. When the group the bead answers to in its stage has members,
-// only they may move it.
-func (s *Store) Advance(ctx context.Context, id, stage, actor string) (*Bead, error) {
-	return s.AdvanceNote(ctx, id, stage, "", Expect{}, actor)
+// only they may move it. A stale exp refuses the move (see Expect).
+func (s *Store) Advance(ctx context.Context, id, stage string, exp Expect, actor string) (*Bead, error) {
+	return s.AdvanceNote(ctx, id, stage, "", exp, actor)
 }
 
 // AdvanceNote is Advance with a note attached in the same transaction, so
@@ -559,7 +559,7 @@ func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor 
 		if err != nil {
 			return err
 		}
-		if err := exp.check(cur); err != nil {
+		if err := w.check(ctx, exp, cur); err != nil {
 			return err
 		}
 		if strings.TrimSpace(note) != "" {
@@ -608,15 +608,15 @@ func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor 
 func (s *Store) CloseBead(ctx context.Context, id, reason string, exp Expect, actor string) (*Bead, error) {
 	close := closeWith(reason)
 	return s.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
-		if err := exp.check(b); err != nil {
+		if err := w.check(ctx, exp, b); err != nil {
 			return "", nil, err
 		}
 		return close(w, b)
 	})
 }
 
-// Expect is what a caller believes about a bead it changes: the session
-// that owns it, the stage it is in, and its revision. A write made on a
+// Expect is what a caller believes about a bead it changes: the session it
+// acts for, the stage the bead is in, and its revision. A write made on a
 // stale view is refused with ErrConflict and changes nothing, so an agent
 // kept or orphaned after its bead moved on cannot end the session that owns
 // the bead now, a review form opened before someone else decided cannot
@@ -625,37 +625,50 @@ func (s *Store) CloseBead(ctx context.Context, id, reason string, exp Expect, ac
 // field expects nothing: a person acting outside any session (the mayor,
 // Christopher at a shell) is not checked.
 //
-// Bead names the bead Session was started for ($YARDR_BEAD beside
-// $YARDR_SESSION). The session is expected to own that bead only; another
-// bead the same pane moves (a reviewer advancing a follow-up it filed) is
-// checked as anyone's would be, except that one owned by a live session is
-// refused rather than taken from under its agent. Without Bead, Session is
-// expected to own whichever bead is moved.
+// Session names the session the caller runs in ($YARDR_SESSION). It must be
+// one the store started (an id it does not know is refused), and what it
+// is expected to own comes from the store's own record of it, not from the
+// caller: the bead the session was started for must still be owned by it;
+// any other bead the same pane moves (a reviewer advancing a follow-up it
+// filed) is checked as anyone's would be, except that one owned by a live
+// session is refused rather than taken from under its agent. A call that
+// comes from a session's pane (WithCaller: the process tree above the
+// caller holds the pane's shell or the exec runner's script) is checked as
+// that session's whatever Session says, so a pane that unsets
+// $YARDR_SESSION is still checked, and one naming another session is
+// refused.
 type Expect struct {
 	Session string `json:"session,omitempty"`
-	Bead    string `json:"bead,omitempty"`
 	Stage   string `json:"stage,omitempty"`
 	// Revision is the bead's revision as the caller read it (Bead.Revision,
 	// the BDP ETag). Any real change since mints another.
 	Revision string `json:"revision,omitempty"`
 }
 
-func (e Expect) check(b *beadRow) error {
+// check refuses the write of b when e, resolved against the session table
+// and the caller's pane, no longer holds (see Expect).
+func (w *wtx) check(ctx context.Context, e Expect, b *beadRow) error {
+	sess, err := w.callerSession(ctx, e, b)
+	if err != nil {
+		return err
+	}
 	owner := ""
 	if b.Session != nil {
 		owner = *b.Session
 	}
-	if e.Revision != "" && e.Revision != b.Revision {
-		return fmt.Errorf("%w: bead %s is at revision %s, not %s; read it again", ErrConflict, b.ID, b.Revision, e.Revision)
-	}
 	// The session's own bead must still be owned by it; any other bead it
 	// moves must be owned by no session at all.
-	other := e.Session != "" && e.Bead != "" && e.Bead != b.ID
-	sessionOK := e.Session == "" || e.Session == owner
+	other := sess != nil && sess.Bead != b.UUID
+	sessionOK := sess == nil || sess.ID == owner
 	if other {
 		sessionOK = owner == ""
 	}
 	if sessionOK && (e.Stage == "" || e.Stage == b.Stage) {
+		// Said last: a bead that moved on says so, not only that it
+		// changed.
+		if e.Revision != "" && e.Revision != b.Revision {
+			return fmt.Errorf("%w: bead %s is at revision %s, not %s; read it again", ErrConflict, b.ID, b.Revision, e.Revision)
+		}
 		return nil
 	}
 	if owner == "" {
@@ -665,21 +678,48 @@ func (e Expect) check(b *beadRow) error {
 	if b.Status == "closed" {
 		state = " (closed)"
 	}
-	return fmt.Errorf("%w: bead %s is now in %s%s owned by %s; expected %s", ErrConflict, b.ID, b.Stage, state, owner, e.want(other))
+	return fmt.Errorf("%w: bead %s is now in %s%s owned by %s; expected %s", ErrConflict, b.ID, b.Stage, state, owner, w.want(e, sess, other))
+}
+
+// callerSession is the session the write of b is checked as: the one whose
+// pane the call came from when the store knows it, else the one e names,
+// which must exist. nil when neither names one.
+func (w *wtx) callerSession(ctx context.Context, e Expect, b *beadRow) (*Session, error) {
+	pane, err := paneSession(w.Tx, callerOf(ctx))
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case pane != nil && e.Session != "" && e.Session != pane.ID:
+		return nil, fmt.Errorf("%w: bead %s: this pane is session %s, not %s", ErrConflict, b.ID, pane.ID, e.Session)
+	case pane != nil:
+		return pane, nil
+	case e.Session == "":
+		return nil, nil
+	}
+	sess := new(Session)
+	ok, err := get(w.Tx, bSessions, e.Session, sess)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("bead %s: session %s: %w; a move is checked as the session $YARDR_SESSION names, which must be one this yard started", b.ID, e.Session, ErrNotFound)
+	}
+	return sess, nil
 }
 
 // want names what e expected, for the stale error; other says the bead is
-// not the session's own (see Bead).
-func (e Expect) want(other bool) string {
+// not the session's own (see Expect).
+func (w *wtx) want(e Expect, sess *Session, other bool) string {
 	var parts []string
 	if e.Stage != "" {
 		parts = append(parts, "stage "+e.Stage)
 	}
 	switch {
 	case other:
-		parts = append(parts, "no session (session "+e.Session+" owns "+e.Bead+", not this bead)")
-	case e.Session != "":
-		parts = append(parts, "session "+e.Session)
+		parts = append(parts, "no session (session "+sess.ID+" owns "+handlesIn(w.Tx).of(sess.Bead)+", not this bead)")
+	case sess != nil:
+		parts = append(parts, "session "+sess.ID)
 	}
 	return strings.Join(parts, " and ")
 }
@@ -708,8 +748,13 @@ func withGroup(b *beadRow, data map[string]any) map[string]any {
 	return data
 }
 
-func (s *Store) Reopen(ctx context.Context, id, actor string) (*Bead, error) {
+// Reopen opens a closed bead again, in the stage it was closed in. A stale
+// exp refuses it (see Expect).
+func (s *Store) Reopen(ctx context.Context, id string, exp Expect, actor string) (*Bead, error) {
 	return s.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
+		if err := w.check(ctx, exp, b); err != nil {
+			return "", nil, err
+		}
 		b.Status, b.CloseReason, b.ClosedAt = "open", nil, nil
 		return "reopened", nil, nil
 	})
@@ -723,7 +768,7 @@ func (s *Store) Reopen(ctx context.Context, id, actor string) (*Bead, error) {
 // (see Expect).
 func (s *Store) SetHold(ctx context.Context, id string, hold bool, exp Expect, actor string) (*Bead, error) {
 	return s.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
-		if err := exp.check(b); err != nil {
+		if err := w.check(ctx, exp, b); err != nil {
 			return "", nil, err
 		}
 		b.Hold = hold
@@ -740,9 +785,14 @@ func (s *Store) SetHold(ctx context.Context, id string, hold bool, exp Expect, a
 }
 
 // Release takes a bead away from its group so it is routed again, ending
-// the current session as 'released'.
-func (s *Store) Release(ctx context.Context, id, reason, actor string) (*Bead, error) {
+// the current session as 'released'. A stale exp refuses it (see Expect):
+// an agent orphaned by a restart cannot release the bead from under the
+// session that owns it now.
+func (s *Store) Release(ctx context.Context, id, reason string, exp Expect, actor string) (*Bead, error) {
 	return s.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
+		if err := w.check(ctx, exp, b); err != nil {
+			return "", nil, err
+		}
 		if err := w.endSession(b, "released"); err != nil {
 			return "", nil, err
 		}

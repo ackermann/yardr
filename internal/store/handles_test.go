@@ -136,7 +136,7 @@ func TestResolveBeadReferences(t *testing.T) {
 	if got, err := s.GetSession(ctx, sess.ID); err != nil || got.Bead != z.ID {
 		t.Fatalf("session = %+v %v", got, err)
 	}
-	if _, err := s.Advance(ctx, "pfx-abcd", "x", "me"); !errors.Is(err, store.ErrAmbiguous) {
+	if _, err := s.Advance(ctx, "pfx-abcd", "x", store.Expect{}, "me"); !errors.Is(err, store.ErrAmbiguous) {
 		t.Fatalf("advance on an ambiguous prefix: %v", err)
 	}
 }

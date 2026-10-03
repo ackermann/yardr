@@ -116,15 +116,15 @@ func (a *app) who() string {
 
 // expect is what a move made from this process expects of the bead: that
 // the session yardr started it for ($YARDR_SESSION) still owns the bead it
-// was started for ($YARDR_BEAD), and that the bead is still at rev
-// (--revision) when one is given. An agent kept or orphaned after its bead
-// moved on is then refused rather than ending the session that owns the
-// bead now. Another bead moved from the same pane (a follow-up the agent
-// filed) is checked as the actor's, like a person at a shell, except that
-// one owned by a live session is refused (see store.Expect). Outside a
-// session, and without rev, it expects nothing.
+// was started for, and that the bead is still at rev (--revision) when one
+// is given. An agent kept or orphaned after its bead moved on is then
+// refused rather than ending the session that owns the bead now. What the
+// session owns the store takes from its own record of it, and a call from
+// a pane the store knows is checked as that pane's session whatever this
+// says (see store.Expect). Outside a session, and without rev, it expects
+// nothing.
 func (a *app) expect(rev string) store.Expect {
-	return store.Expect{Session: config.Getenv("SESSION"), Bead: config.Getenv("BEAD"), Revision: rev}
+	return store.Expect{Session: config.Getenv("SESSION"), Revision: rev}
 }
 
 // store connects to the yardr server, starting it on first use.

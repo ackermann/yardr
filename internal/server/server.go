@@ -183,7 +183,7 @@ func (r *runner) serve(ctx context.Context) (string, error) {
 		defer inflight.Done()
 		h.ServeHTTP(w, req)
 	})
-	srv := &http.Server{Handler: counted, ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: counted, ConnContext: rpc.ConnContext, ReadHeaderTimeout: 10 * time.Second}
 	// Streams (events, wake) never finish on their own; end them when
 	// shutdown starts so it only waits for calls in flight.
 	srv.RegisterOnShutdown(stopStreams)

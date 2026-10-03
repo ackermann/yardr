@@ -177,10 +177,10 @@ func TestDone(t *testing.T) {
 		t.Fatalf("done from decide err = %v", err)
 	}
 	// advance --to still works and is still checked against the flow.
-	if _, err := s.Advance(ctx, b.ID, "approved", "me"); err == nil {
+	if _, err := s.Advance(ctx, b.ID, "approved", store.Expect{}, "me"); err == nil {
 		t.Fatal("decide -> approved allowed")
 	}
-	if got, err = s.Advance(ctx, b.ID, "backlog", "me"); err != nil || got.Stage != "backlog" {
+	if got, err = s.Advance(ctx, b.ID, "backlog", store.Expect{}, "me"); err != nil || got.Stage != "backlog" {
 		t.Fatalf("advance decide -> backlog = %+v, %v", got, err)
 	}
 
@@ -199,7 +199,7 @@ func TestDone(t *testing.T) {
 	if _, err := s.Done(ctx, b.ID, "merged", "", store.Expect{}, "me"); err == nil || !strings.Contains(err.Error(), "outcomes: failed") {
 		t.Fatalf("done --outcome merged err = %v", err)
 	}
-	if got, err = s.Advance(ctx, b.ID, "merged", "refinery"); err != nil || got.Status != "closed" {
+	if got, err = s.Advance(ctx, b.ID, "merged", store.Expect{}, "refinery"); err != nil || got.Status != "closed" {
 		t.Fatalf("advance to merged = %+v, %v", got, err)
 	}
 }

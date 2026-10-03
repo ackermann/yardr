@@ -61,7 +61,7 @@ func TestManualNotifiesOncePerBeadAndStage(t *testing.T) {
 
 	// The manual session is released and re-claimed by a restarted daemon:
 	// same bead, same stage, no second notification.
-	_, err = st.Release(ctx, b.ID, "restart", "t")
+	_, err = st.Release(ctx, b.ID, "restart", store.Expect{}, "t")
 	mustT(t, err)
 	mustT(t, daemon(st, s.show(nil)).Reconcile(ctx))
 	if live, _ := st.Sessions(ctx, false); len(live) != 1 {
@@ -72,9 +72,9 @@ func TestManualNotifiesOncePerBeadAndStage(t *testing.T) {
 	}
 
 	// Sent back and returning to review is a new arrival.
-	_, err = st.Advance(ctx, b.ID, "new", "t")
+	_, err = st.Advance(ctx, b.ID, "new", store.Expect{}, "t")
 	mustT(t, err)
-	_, err = st.Advance(ctx, b.ID, "review", "t")
+	_, err = st.Advance(ctx, b.ID, "review", store.Expect{}, "t")
 	mustT(t, err)
 	mustT(t, daemon(st, s.show(nil)).Reconcile(ctx))
 	if len(s.titles) != 2 {
@@ -114,7 +114,7 @@ func TestManualNotifyFailureKeepsClaim(t *testing.T) {
 	if len(live) != 1 || live[0].State != "running" {
 		t.Fatalf("claim failed with the notifier: %+v", live)
 	}
-	_, err = st.Release(ctx, b.ID, "retry", "t")
+	_, err = st.Release(ctx, b.ID, "retry", store.Expect{}, "t")
 	mustT(t, err)
 	mustT(t, daemon(st, s.show(nil)).Reconcile(ctx))
 	if len(s.titles) != 1 {

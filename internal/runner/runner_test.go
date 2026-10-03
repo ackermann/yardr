@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -913,6 +914,7 @@ func TestHerdrStartPutsAgentEnvOnItsTab(t *testing.T) {
 case "$1 $2" in
   "worktree create") echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"},"worktree":{"path":"`+wt+`"},"already_open":`+fmt.Sprint(open)+`}}' ;;
   "tab create") echo '{"result":{"tab":{"tab_id":"t2"},"root_pane":{"pane_id":"p2"}}}' ;;
+  "pane process-info") echo '{"result":{"process_info":{"pane_id":"p2","shell_pid":`+fmt.Sprint(os.Getpid())+`}}}' ;;
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)}
 		job := dispatch.Job{
@@ -927,6 +929,17 @@ esac`)}
 		}
 		if handle["tab"] != "t2" || handle["pane"] != "p2" {
 			t.Fatalf("agent not in the tab created with its env: %v", handle)
+		}
+		// The tab's shell, with its start time, so the store knows the
+		// session's calls by the process tree (store.Expect).
+		if handle["shell_pid"] != os.Getpid() {
+			t.Fatalf("shell_pid = %v, want this process %d", handle["shell_pid"], os.Getpid())
+		}
+		if st, err := peer.Describe(os.Getpid()); err == nil && handle["shell_start"] != st.Start {
+			t.Fatalf("shell_start = %v, want %d", handle["shell_start"], st.Start)
+		}
+		if !strings.Contains(string(mustRead(t, log)), "pane process-info --pane p2") {
+			t.Fatalf("the pane's process info was not asked for:\n%s", mustRead(t, log))
 		}
 		raw, _ := os.ReadFile(log)
 		calls := string(raw)
@@ -1412,4 +1425,13 @@ func TestExecEnvDirRig(t *testing.T) {
 	if env := e.env(dispatch.Job{Bead: job.Bead, Rig: &store.Rig{Name: "web", Path: "/r", Base: "main"}}); !slices.Contains(env, "YARDR_RIG_KIND=git") {
 		t.Errorf("git rig env: %v", env)
 	}
+}
+
+func mustRead(t *testing.T, path string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }

@@ -102,7 +102,7 @@ func TestPipelineThroughStages(t *testing.T) {
 	// The builder hands off; the next pass routes to reviewers and tears
 	// down the builder session.
 	firstSession := *got.Session
-	_, err = s.Advance(ctx, b.ID, "review", "builder")
+	_, err = s.Advance(ctx, b.ID, "review", store.Expect{}, "builder")
 	must(t, err)
 	must(t, d.Reconcile(ctx))
 	got, _ = s.GetBead(ctx, b.ID)
@@ -454,7 +454,7 @@ func TestWorkspaceCleanedWhenBeadClosesLater(t *testing.T) {
 	// build -> review -> back to fix -> review again
 	must(t, d.Reconcile(ctx))
 	for _, stage := range []string{"review", "fix", "review"} {
-		_, err := s.Advance(ctx, b.ID, stage, "someone")
+		_, err := s.Advance(ctx, b.ID, stage, store.Expect{}, "someone")
 		must(t, err)
 		must(t, d.Reconcile(ctx))
 	}
