@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -206,6 +207,63 @@ func TestYardNameSetting(t *testing.T) {
 	}
 	if r := f.get("/"); !strings.Contains(r.body, "This yard has no rig yet.") {
 		t.Errorf("an empty yard's page does not say so: %s", r.body)
+	}
+}
+
+// A rig whose repository flows cannot be read is still shown, and must not
+// hide the other rigs. Its open beads are counted under "off the flow".
+type failingRigFlows struct {
+	store.API
+	rig string
+}
+
+func (s failingRigFlows) RigFlows(ctx context.Context, rig string) ([]store.RigFlow, error) {
+	if rig == s.rig {
+		return nil, errors.New("repository is unavailable")
+	}
+	return s.API.RigFlows(ctx, rig)
+}
+
+func TestFlowReadErrorKeepsOtherRigs(t *testing.T) {
+	base := storetest.New(t)
+	ctx := context.Background()
+	for _, name := range []string{"broken", "healthy"} {
+		if err := base.PutRig(ctx, store.Rig{Name: name, Base: "origin/main"}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, rig := range []string{"broken", "healthy"} {
+		if _, err := base.CreateBead(ctx, store.NewBead{Title: rig + " bead", Type: "task", Stage: "new", Rig: rig}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	srv, err := web.NewServer(failingRigFlows{API: base, rig: "broken"}, t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "http://localhost/", nil)
+	req.Header.Set("Accept", "application/json")
+	srv.ServeHTTP(r, req)
+	if r.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", r.Code, r.Body)
+	}
+	var got web.Home
+	if err := json.Unmarshal(r.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Rigs) != 2 {
+		t.Fatalf("got rigs %+v, want broken and healthy", got.Rigs)
+	}
+	broken := got.Rigs[0]
+	if broken.Name != "broken" || broken.Error != "repository is unavailable" || len(broken.Flows) != 0 ||
+		!reflect.DeepEqual(broken.Elsewhere, []web.StageCount{{Stage: "new", Open: 1}}) {
+		t.Errorf("broken rig = %+v", broken)
+	}
+	healthy := got.Rigs[1]
+	if healthy.Name != "healthy" || healthy.Error != "" || healthy.Open != 1 ||
+		!reflect.DeepEqual(healthy.Elsewhere, []web.StageCount{{Stage: "new", Open: 1}}) {
+		t.Errorf("healthy rig = %+v", healthy)
 	}
 }
 
