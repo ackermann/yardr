@@ -145,6 +145,42 @@ group, not the bead: nothing is created, the session is aborted without
 counting against the bead, and the group backs off and logs `runtime_down`
 once with the reason, as for a runtime outage, until the file is fixed.
 
+### Codex
+
+Codex (seen with codex-cli 0.160.0) runs its shell commands in a background
+server shared by all of the user's Codex sessions (`codex app-server
+--managed-daemon`), which outlives the session that started it and keeps
+that session's environment. Every later session's `yardr` commands then
+carry the first one's `YARDR_ACTOR`, `YARDR_SESSION` and `YARDR_BEAD`:
+notes are attributed to another bead's agent, and `yardr bead done` is
+refused as stale, leaving the bead with an idle session. Two things hold
+against that:
+
+- **A `kind=codex` agent is started with `--no-daemon`**, bead agent and
+  resident alike, whatever the group's `args` say. Its commands then run
+  under its own pane, with the tab's environment, and the store recognises
+  them by the process tree as it does any agent's
+  ([pipeline.md](pipeline.md#2-new-a-builder-implements-it)). The installed
+  Codex must know the flag (`codex --help`).
+- **The worktree names its session.** A herdr group writes who it started
+  in a bead's worktree to `session.json` next to the brief (bead, session,
+  actor, stage, group; replaced by each stage). A `yardr` command whose
+  `YARDR_BEAD` names another bead than the worktree it runs in acts as the
+  worktree's session, not the environment's, and says so on stderr: its
+  note is that agent's and its move is checked as that session. So an
+  agent whose shell is shared all the same (a Codex started by hand, or
+  another kind that does the same) is not taken for another, as long as it
+  runs `yardr` from its worktree. Only another bead's environment gives
+  way: one naming the worktree's own bead is an earlier stage's agent left
+  open and stays refused as stale, and one naming no bead (a person, a
+  resident) acts as itself. A pane the store knows still wins: a call from
+  another session's own pane is refused, wherever it stands.
+
+A dir rig's beads share one directory, which names no session: there only
+`--no-daemon` holds. Sessions started before this (still on the shared
+server) keep the wrong environment until they end; spell the values out
+for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`.
+
 ### herdr setup
 
 - **Folder trust.** Claude Code asks to trust each new project, and every bead's

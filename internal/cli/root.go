@@ -26,6 +26,8 @@ type app struct {
 	st    store.API
 	// onboarded is set once this run has created the yard (see firstRun).
 	onboarded bool
+	// self is who this run acts as, once asked (see identity).
+	self *identity
 }
 
 // stderr is where Execute reports an error; tests replace it.
@@ -111,6 +113,9 @@ func (a *app) who() string {
 	if a.actor != "" {
 		return a.actor
 	}
+	if id := a.identity(); id.actor != "" {
+		return id.actor
+	}
 	return config.Actor()
 }
 
@@ -122,9 +127,10 @@ func (a *app) who() string {
 // session owns the store takes from its own record of it, and a call from
 // a pane the store knows is checked as that pane's session whatever this
 // says (see store.Expect). Outside a session, and without rev, it expects
-// nothing.
+// nothing. In a bead's worktree with another bead's session in the
+// environment, the session is the worktree's (see identity).
 func (a *app) expect(rev string) store.Expect {
-	return store.Expect{Session: config.Getenv("SESSION"), Revision: rev}
+	return store.Expect{Session: a.identity().session, Revision: rev}
 }
 
 // store connects to the yardr server, starting it on first use.

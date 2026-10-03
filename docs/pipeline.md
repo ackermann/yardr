@@ -55,7 +55,10 @@ pane itself: the runner records the pid of the tab's shell (for an exec
 group, of its script) on the session, and a call whose process descends
 from it is checked as that session whatever its environment says, so
 unsetting `YARDR_SESSION` in the pane is not a way out, and naming another
-session from it is refused. A person at a shell of their own has no
+session from it is refused. An agent whose commands run outside its pane
+with another session's environment (Codex's shared background server) is
+told apart by the worktree it runs in
+([groups.md](groups.md#codex)). A person at a shell of their own has no
 `YARDR_SESSION` and no pane the store knows, and is not checked. `yardr
 review` sends the stage and revision the form showed instead: it refuses a
 decision on a bead that moved or changed since. Every move takes

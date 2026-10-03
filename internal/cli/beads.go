@@ -523,7 +523,7 @@ func (a *app) primeCmd() *cobra.Command {
 				return a.primeResident(c.Context(), st, resident)
 			}
 			if id == "" {
-				id = config.Getenv("BEAD")
+				id = a.identity().bead
 			}
 			if id == "" {
 				return fmt.Errorf("--bead or --resident is required (or set YARDR_BEAD / YARDR_RESIDENT)")

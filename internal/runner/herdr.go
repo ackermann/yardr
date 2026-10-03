@@ -337,6 +337,9 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	if err != nil {
 		return handle, fmt.Errorf("brief dir for %s: %w", wt.Worktree.Path, err)
 	}
+	if err := writeWorktreeSession(dir, job, name); err != nil {
+		return handle, fmt.Errorf("session file for %s: %w", wt.Worktree.Path, err)
+	}
 	return h.brief(ctx, job, name, wt.Worktree.Path, dir, pane, handle)
 }
 
@@ -645,6 +648,61 @@ func DirBriefDir(path string) string {
 	return filepath.Join(path, ".yardr", "briefs")
 }
 
+// WorktreeSession is who works in a bead's worktree: the session a herdr
+// group last started there, as its tab's environment names it. It is kept
+// next to the briefs (see BriefDir) for a yardr command whose environment
+// is another session's: an agent whose commands run in a process that
+// outlives its pane (Codex's shared background server) hands them the
+// environment of whichever session started that process. The worktree a
+// command runs in is the one thing such a process does not get wrong.
+type WorktreeSession struct {
+	Bead    string `json:"bead"`
+	Session string `json:"session"`
+	Actor   string `json:"actor"`
+	Stage   string `json:"stage"`
+	Group   string `json:"group"`
+}
+
+const worktreeSessionFile = "session.json"
+
+// writeWorktreeSession records job's session as the one working the
+// worktree whose brief directory is dir, in place of an earlier stage's.
+func writeWorktreeSession(dir string, job dispatch.Job, actor string) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	raw, err := json.Marshal(WorktreeSession{Bead: job.Bead.ID, Session: job.Session.ID, Actor: actor,
+		Stage: job.Bead.Stage, Group: job.Group.Name})
+	if err != nil {
+		return err
+	}
+	// Renamed into place, so a command never reads half of one.
+	tmp := filepath.Join(dir, worktreeSessionFile+".tmp")
+	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, filepath.Join(dir, worktreeSessionFile))
+}
+
+// SessionOf is the session working the bead worktree that dir is in, nil
+// when dir is in none: outside a checkout, in one no herdr group started a
+// session in, or in a dir rig, whose beads share one directory.
+func SessionOf(ctx context.Context, dir string) *WorktreeSession {
+	briefs, err := BriefDir(ctx, dir)
+	if err != nil {
+		return nil
+	}
+	raw, err := os.ReadFile(filepath.Join(briefs, worktreeSessionFile))
+	if err != nil {
+		return nil
+	}
+	ws := new(WorktreeSession)
+	if json.Unmarshal(raw, ws) != nil || ws.Bead == "" || ws.Session == "" {
+		return nil
+	}
+	return ws
+}
+
 // writeBrief writes a session's brief into dir, which it creates.
 func writeBrief(dir, session, brief string) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -852,9 +910,14 @@ func (h *Herdr) workspaceAt(ctx context.Context, ws, path string) bool {
 	return filepath.Clean(r.Workspace.Worktree.CheckoutPath) == filepath.Clean(path)
 }
 
+// codexNoDaemon makes a Codex session run without the shared background
+// server, even one that is already running (codex --help).
+const codexNoDaemon = "--no-daemon"
+
 // AgentArgs are the agent's own arguments: the group's args, then --model
 // from the bead's metadata.model, else the group's config.model. A model
-// already in args is replaced, so a bead can override a group default.
+// already in args is replaced, so a bead can override a group default. A
+// Codex agent also gets --no-daemon (see agentArgs).
 func AgentArgs(job dispatch.Job) []string {
 	model, _ := job.Bead.Metadata["model"].(string)
 	return agentArgs(job.Group.Config, model)
@@ -862,6 +925,14 @@ func AgentArgs(job dispatch.Job) []string {
 
 func agentArgs(cfg map[string]any, override string) []string {
 	args := strs(cfg, "args")
+	// Codex otherwise runs its shell commands in one background server
+	// shared by all of the user's Codex sessions, with the environment of
+	// the session that started it: every later session's yardr commands
+	// would name that first session as actor and session, and descend from
+	// no pane the store knows.
+	if str(cfg, "kind", "claude") == "codex" && !slices.Contains(args, codexNoDaemon) {
+		args = append(args, codexNoDaemon)
+	}
 	model := str(cfg, "model", "")
 	if override != "" {
 		model = override
