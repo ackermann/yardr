@@ -97,7 +97,7 @@ if ! git -C "$REPO" merge-base --is-ancestor "$BASE" "$BR"; then
     git -C "$WT" rebase --abort
     report conflict "rebase of $BR onto $BASE conflicts in: $files
 $BR is at $(git -C "$REPO" rev-parse --short "$BR"), $BASE at $(git -C "$REPO" rev-parse --short "$BASE").
-Rebase $BR onto $BASE in $WT keeping both sides' intent, and do not push it: back in open, the integrator gates and pushes it."
+Rebase $BR onto $BASE in $WT keeping both sides' intent, and do not push it: back in open, the integrator gates and pushes it. Note the tip you start from (old tip: $(git -C "$REPO" rev-parse "$BR")), as the merger's note does: the push replaces $PUSH/$BR only when everything there is in that tip."
   fi
 fi
 
@@ -131,11 +131,21 @@ msg="integrated $BR at $sha onto $BASE; gate passed. Review $BASE..$BR."
 
 # Publish the rebased branch, before reporting. A rebase rewrote it, so the
 # push may replace the remote's branch, but only when everything there is in
-# what was integrated (it holds landed children, never anything else).
+# what was integrated: in $BR as it was before this rebase, or in a tip a
+# merger started from. A merger rebases the branch in its worktree without
+# pushing it (see roles/merger.md), so the remote still has the tip it
+# started from, which its note records as "old tip: <sha>"; those commits
+# are in the branch as rebased. Anything else on the remote is someone's
+# commits: never forced over.
 if [ -n "$PUSH" ]; then
+  tips=$was
+  for t in $("$Y" prime --bead "$EPIC" | grep -o 'old tip: [0-9a-f]\{7,40\}' | awk '{print $3}'); do
+    t=$(git -C "$REPO" rev-parse --verify -q "$t^{commit}") && tips="$tips $t"
+  done
+  within() { for t in $tips; do git -C "$REPO" merge-base --is-ancestor "$1" "$t" 2>/dev/null && return 0; done; return 1; }
   theirs=$(git -C "$REPO" ls-remote "$PUSH" "refs/heads/$BR" | cut -f1)
-  if [ -n "$theirs" ] && ! git -C "$REPO" merge-base --is-ancestor "$theirs" "$was" 2>/dev/null; then
-    why="$PUSH/$BR has commits $BR did not have before the rebase"
+  if [ -n "$theirs" ] && ! within "$theirs"; then
+    why="$PUSH/$BR has commits $BR did not have before the rebase (nor any old tip a merger noted)"
   elif git -C "$REPO" push --force-with-lease="refs/heads/$BR:$theirs" "$PUSH" "$BR" 2>&1; then
     echo "== pushed $BR to $PUSH"
     why=

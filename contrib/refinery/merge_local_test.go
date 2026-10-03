@@ -388,6 +388,41 @@ func TestMergeLocalDirtyCheckoutHolds(t *testing.T) {
 	}
 }
 
+// What lands is the commit the gate ran on, by its sha, never the branch by
+// name: a commit that reaches the branch while the gate runs has not been
+// gated, so nothing lands and the bead goes back (the flow's failed outcome)
+// to be gated again as it is now.
+func TestMergeLocalLandsOnlyWhatItGated(t *testing.T) {
+	y := newYard(t)
+	main := y.git(y.repo, "rev-parse", "main")
+	gated := y.commit(y.wt, "b.txt", "bead\n")
+	// The gate itself commits to the branch: the branch moves while it runs,
+	// as a push during the gate would move it.
+	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
+	if err := st.PutRig(context.Background(), store.Rig{Name: "r", Path: y.repo, Base: "main",
+		Check: "git commit -q --allow-empty -m during-the-gate"}, "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	y.refinery()
+
+	if b := y.bead(); b.Stage != "new" || b.Hold {
+		t.Fatalf("bead %s hold=%v, want back in new", b.Stage, b.Hold)
+	}
+	if got := y.git(y.repo, "rev-parse", "main"); got != main {
+		t.Fatalf("main moved to %s on a branch that moved during the gate", got)
+	}
+	if tip := y.git(y.wt, "rev-parse", "HEAD"); tip == gated {
+		t.Fatal("the gate did not move the branch; the test proves nothing")
+	}
+	notes := y.notes()
+	for _, want := range []string{"moved while the gate ran", "gated " + gated[:7], "Nothing landed"} {
+		if !strings.Contains(notes, want) {
+			t.Fatalf("note lacks %q:\n%s", want, notes)
+		}
+	}
+}
+
 // A child of an epic lands on the epic's branch, which is pushed; main does
 // not move, here or on the remote.
 func TestMergeLocalChildLandsOnItsEpic(t *testing.T) {

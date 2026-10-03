@@ -229,18 +229,69 @@ func TestEpicRebaseConflictGoesToTheMergers(t *testing.T) {
 	}
 
 	// The merger rebases the branch onto main in its worktree (here by
-	// hand: main's child1.txt, r-2's commit replayed) and reports done: the
-	// epic is back in open for the integrator.
+	// hand: main's child1.txt, r-2's commit replayed), notes the tip it
+	// started from, as its brief says, and reports done: the epic is back
+	// in open for the integrator.
 	wt := filepath.Join(y.home, "worktrees", "r", "r-e")
 	y.git(wt, "reset", "-q", "--hard", "main")
-	y.commit(wt, "child2.txt", "r-2\n")
+	resolved := y.commit(wt, "child2.txt", "r-2\n")
+	y.yardr("bead", "note", "r-e", "merge re-review: old tip: "+epic+"\nchild1.txt: kept main's")
 	y.yardr("bead", "done", "r-e")
 	if e := y.beadOf("r-e"); e.Stage != "open" || e.Hold {
 		t.Fatalf("resolved epic %s hold=%v, want back in open", e.Stage, e.Hold)
 	}
+	if pushed := y.git(y.repo, "ls-remote", "origin", "refs/heads/yard/r-e"); !strings.HasPrefix(pushed, epic) {
+		t.Fatalf("origin yard/r-e is %q before re-integration, want the old tip %s the children landed", pushed, epic)
+	}
 	y.exec("integrate-epic", "yard-integrators", "r-e")
 	if e := y.beadOf("r-e"); e.Stage != "review" {
 		t.Fatalf("re-integrated epic in %s, want review", e.Stage)
+	}
+	// The remote branch was the old tip, which the merger's rebase rewrote:
+	// everything on it is in the tip the merger noted, so the lease holds
+	// and the push replaces it with the resolved branch.
+	if pushed := y.git(y.repo, "ls-remote", "origin", "refs/heads/yard/r-e"); !strings.HasPrefix(pushed, resolved) {
+		t.Fatalf("origin yard/r-e is %q after re-integration, want the resolved %s", pushed, resolved)
+	}
+	if notes := y.yardr("prime", "--bead", "r-e"); strings.Contains(notes, "not forced") {
+		t.Fatalf("the push was refused:\n%s", notes)
+	}
+}
+
+// The integrator's lease: a remote branch is replaced only when everything
+// on it was in the branch before the rebase or in a tip a merger noted.
+// Commits on the remote that are in neither (someone pushed to the epic's
+// branch) are never forced over: the branch is integrated, the push is
+// refused with a note and the mayor is mailed.
+func TestEpicPushRefusesForeignRemoteCommits(t *testing.T) {
+	y := newEpicYard(t, "test ! -e RED")
+	y.exec("merge-local", "refinery", "r-1")
+	y.exec("merge-local", "refinery", "r-2")
+	epic := y.git(y.repo, "rev-parse", "yard/r-e")
+	y.commit(y.repo, "child1.txt", "main's own\n")
+	y.exec("integrate-epic", "yard-integrators", "r-e") // conflicts: to the mergers
+
+	wt := filepath.Join(y.home, "worktrees", "r", "r-e")
+	y.git(wt, "reset", "-q", "--hard", "main")
+	y.commit(wt, "child2.txt", "r-2\n")
+	y.yardr("bead", "note", "r-e", "merge re-review: old tip: "+epic)
+	y.yardr("bead", "done", "r-e")
+	// Meanwhile someone pushed a commit of their own on top of the remote
+	// branch: in no tip the integrator knows.
+	foreign := y.git(y.repo, "commit-tree", epic+"^{tree}", "-p", epic, "-m", "someone's push")
+	y.git(y.repo, "push", "-q", "origin", foreign+":refs/heads/yard/r-e")
+
+	y.exec("integrate-epic", "yard-integrators", "r-e")
+
+	if e := y.beadOf("r-e"); e.Stage != "review" || e.Hold {
+		t.Fatalf("epic %s hold=%v, want review (integrated, push refused)", e.Stage, e.Hold)
+	}
+	if pushed := y.git(y.repo, "ls-remote", "origin", "refs/heads/yard/r-e"); !strings.HasPrefix(pushed, foreign) {
+		t.Fatalf("origin yard/r-e is %q, want the foreign %s untouched", pushed, foreign)
+	}
+	notes := y.yardr("prime", "--bead", "r-e")
+	if !strings.Contains(notes, "did not have before the rebase") || !strings.Contains(notes, "not forced") {
+		t.Fatalf("no note on the refused push:\n%s", notes)
 	}
 }
 

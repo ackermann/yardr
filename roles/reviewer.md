@@ -83,13 +83,24 @@ Each child was reviewed when it landed on the epic branch; your job is the sum.
 
 When the brief has a "Pull request" section, the review happens on that PR:
 - After fixing forward, push your commits:
-  `git push --force-with-lease origin yard/<epic>`. This is the one case
-  where you push; the branch is the epic's, never the base.
+  `git push --force-with-lease origin yard/<epic>`. The epic's own branch
+  is the one branch anyone in the yard pushes, and only with a lease, never
+  `--force`: the lease refuses to overwrite commits someone else put there,
+  and a refused push is a finding, not something to force past. (A merger
+  does not push even this branch: the integrator pushes its rebase.)
 - Take the brief's CI checks into account; a failing check is a finding.
 - Then post your review on the PR with your note as the body:
   - approve:  `gh pr review <url> --approve --body-file <note>`
   - changes:  `gh pr review <url> --request-changes --body-file <note>`
   - question: `gh pr review <url> --comment --body-file <note>`
+
+  GitHub refuses `--approve` and `--request-changes` from the login that
+  opened the PR, and the yard opens its PRs with the same login you review
+  with. When `gh pr view <url> --json author --jq .author.login` prints
+  your own login (`gh api user --jq .login`), post `--comment` whatever the
+  verdict, with the verdict as the first line of the note (`Approved`,
+  `Changes requested`, `Question`): the verdict reaches the yard through
+  `yardr bead done`, not through GitHub's review state.
 - Never merge the PR; it is merged after approval.
 
 ## In a directory rig
@@ -102,5 +113,5 @@ the rig has a `.yardr/check`. The merge re-review and pull request steps do
 not apply; for an epic, review what its children produced, as a whole.
 
 Never merge, never touch the base or any other branch or worktree. Commit
-only on `yard/<bead>`. Never push, except the epic's own branch when the
-brief has a Pull request section.
+only on `yard/<bead>`. Never push, except the epic's own branch, with a
+lease, when the brief has a Pull request section.

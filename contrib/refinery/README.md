@@ -13,8 +13,10 @@ the bead to `merge` with the conflicting files (or reports `failed` if the
 flow has no `merge`). It then runs the rig's gate (`yardr rig check`, read from the
 base) on exactly what will land: red reports `failed` (back to `new`, or
 `open` for an epic), and a gate that could not run (exit 2) holds the bead.
-Green fast-forwards the base, only ever by fast-forward, and never in a
-dirty checkout (it holds instead). With `YARDR_PUSH` set it pushes the base,
+Green fast-forwards the base to the commit the gate ran on, by its sha,
+only ever by fast-forward, and never in a dirty checkout (it holds
+instead); a branch that moved while the gate ran reports `failed` with
+both commits, so nothing ungated lands. With `YARDR_PUSH` set it pushes the base,
 never forced; a failed push mails `YARDR_NOTIFY` and leaves the bead merged.
 Finally it advances the bead to `merged` with `merged <sha>`.
 
@@ -23,7 +25,9 @@ routed for the epic flow's `open` stage (type `epic`). It fetches the base
 when it is a remote's, rebases `yard/<epic>` onto the rig's base and runs
 the gate on it. Green pushes the rebased branch when `YARDR_PUSH` is set
 (replacing the remote branch only if everything on it was in what it
-rebased) and reports `done`, to review. Red adds a child in `backlog`, "Fix
+rebased, or in a tip a merger's note records as `old tip: <sha>`: the
+merger rebases without pushing, so the remote still has the tip it started
+from) and reports `done`, to review. Red adds a child in `backlog`, "Fix
 the gate on epic <id>", which blocks the epic, and reports `failed`, back to
 `open`. A rebase conflict aborts the rebase, reports `conflict` to `merge`
 with the conflicting files and both tips, and leaves the branch for the
@@ -36,7 +40,8 @@ request for the pushed branch against the base, or replaces the body of the
 one open for it: the epic's body, a "Children" list and the trailer
 `Epic: <id>`. It stores the URL on the epic (`--meta pr_url=<url>`) and in
 the note. A push or `gh` that fails reports `failed`, back to `open`, so the
-next integration retries.
+next integration retries; the daemon waits longer before each retry in a
+row (docs/pipeline.md, "The epic's own flow").
 
 **pr-epic** is routed for the epic flow's `approved` stage (type `epic`)
 when epics land through pull requests. It pushes `yard/<epic>` with a lease

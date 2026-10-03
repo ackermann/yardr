@@ -169,7 +169,8 @@ func TestBriefForAnEpicWithAPullRequest(t *testing.T) {
 	}
 	for _, want := range []string{"## Pull request", "lands through the pull request " + url,
 		"gate\tpass\t1m\nlint\tpending\t0", "git push --force-with-lease origin yard/web-e",
-		"gh pr review " + url, "--approve", "--request-changes", "--comment", "Never merge"} {
+		"gh pr review " + url, "--approve", "--request-changes", "--comment", "Never merge",
+		"gh pr view " + url + " --json author --jq .author.login", "gh api user --jq .login", "post `--comment` whatever the verdict"} {
 		if !strings.Contains(b, want) {
 			t.Errorf("brief missing %q:\n%s", want, b)
 		}

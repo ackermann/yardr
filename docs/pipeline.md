@@ -121,17 +121,20 @@ the session and the daemon stops the script, so it is the script's last step.
    moved; on a conflict it aborts the rebase and advances to `merge` with the
    conflicting files (section 5), or to `new` if the flow has no `merge`;
 2. runs the gate on exactly what will land, every time, including after a
-   merger's rebase; red (exit 1) reports the outcome `failed` (to `new`; to
-   `open` for an epic), or advances to `new` in a flow without outcomes,
-   with the last 200 lines of output, and a gate that could not run at all (exit 2: git, the base,
-   the rig) holds the bead, since no builder can fix that;
-3. lands by fast-forward only. Where the base is checked out it fast-forwards
-   that checkout, only when it is clean; a dirty one is someone's work in
-   progress, so the bead is held with a note saying so and the tree is never
-   touched. Where the base is checked out nowhere it moves the ref alone
-   (`git fetch . yard/<bead>:<base>`), which works whatever state the rig's
-   checkout is in: keep the base checked out nowhere and a dirty checkout
-   never blocks the queue;
+   merger's rebase, and records the commit it ran on; red (exit 1) reports
+   the outcome `failed` (to `new`; to `open` for an epic), or advances to
+   `new` in a flow without outcomes, with the last 200 lines of output, and
+   a gate that could not run at all (exit 2: git, the base, the rig) holds
+   the bead, since no builder can fix that. A branch that moved while the
+   gate ran (a commit pushed to it meanwhile) reports `failed` the same
+   way, with both commits in the note: nothing the gate did not see lands;
+3. lands that commit, by its sha, by fast-forward only. Where the base is
+   checked out it fast-forwards that checkout, only when it is clean; a
+   dirty one is someone's work in progress, so the bead is held with a note
+   saying so and the tree is never touched. Where the base is checked out
+   nowhere it moves the ref alone (`git fetch . <sha>:<base>`), which works
+   whatever state the rig's checkout is in: keep the base checked out
+   nowhere and a dirty checkout never blocks the queue;
 4. pushes the base if `YARDR_PUSH` names a remote (off by default, never
    forced). A failed push leaves the bead merged; the next landing's push
    carries it, and `YARDR_NOTIFY` (default `mayor`) is mailed;
@@ -312,9 +315,10 @@ branch; main does not move. The gate is still read from the rig's base
 (main), not from the epic's branch, so neither an epic nor its children can
 change the bar they land under; it runs on the child's branch as before.
 
-`dep add -k parent` refuses a parent that is not an epic, a child already
-in another epic, an epic as a child (epics do not nest) and a child in
-another rig. Only parent edges from an epic count: a bead whose parent is
+`dep add -k parent` refuses a parent that is not an epic, a closed epic
+(it has landed, or was dropped: a child added now would land on a branch
+nothing integrates again), a child already in another epic, an epic as a
+child (epics do not nest) and a child in another rig. Only parent edges from an epic count: a bead whose parent is
 not an epic keeps the rig's base. A bead that is a child of two epics
 anyway (a type changed to `epic` later) is not dispatched; yardr logs
 `bad_epic` until one parent edge is removed.
@@ -350,8 +354,8 @@ An epic follows `yardr.epic` ([flows.md](flows.md#worked-example-rig-yard)):
    `yard/<epic>` onto the rig's base in the epic's worktree, runs the gate
    on it (`yardr rig check yard --dir <worktree>`, the gate read from main),
    pushes the rebased branch when `YARDR_PUSH` is set (replacing the remote
-   branch only when everything on it was in what it rebased), and reports
-   `done`, to review. A red gate reports `failed`, back to `open`, with the
+   branch only when everything on it was in what it rebased, or in a tip a
+   merger noted; below), and reports `done`, to review. A red gate reports `failed`, back to `open`, with the
    gate's tail in the note, after adding a child in `backlog` to fix it
    ("Fix the gate on epic <id>", type bug, the tail in its body): the child
    blocks the epic, so it is not integrated again until the fix has landed
@@ -360,6 +364,16 @@ An epic follows `yardr.epic` ([flows.md](flows.md#worked-example-rig-yard)):
    note (step 5). A gate that could not run (exit 2) or a branch it cannot
    work on (missing, dirty, nothing ahead of the base) holds the epic with
    a note.
+
+   An epic reported `failed` back to `open` with no child to wait for (the
+   push or the pull request failed: GitHub down) is not integrated again on
+   the daemon's next pass. Each return to the stage it was in, in a row,
+   doubles the wait before the next try, from the daemon's backoff (30s) up
+   to an hour, so an outage is retried less and less often rather than on
+   every pass; the daemon logs each wait once on the epic as a `backoff`
+   event, with the count. The count is read from the epic's events, so a
+   restarted daemon keeps waiting; it starts over when the epic enters the
+   stage any other way or a human un-holds it.
 3. **review**: `yard-codex-review` reviews the whole diff, `<base>..yard/<epic>`:
    the epic's brief says it is an epic, names its children and gives the
    range. Changes go back to `open` (`--outcome changes`) after adding the
@@ -375,12 +389,19 @@ An epic follows `yardr.epic` ([flows.md](flows.md#worked-example-rig-yard)):
    `approved`, goes to the mergers as any bead's does. The merger rebases
    `yard/<epic>` onto the base in the epic's worktree, keeping both sides'
    intent, runs the gate, and does not push (the integrator pushes, with a
-   lease); the brief says the branch and what happens next. Its `done`
-   sends the epic back to `open`, not to review: with no child open it is
-   ready, so the integrator takes it again, rebases it (a no-op unless the
-   base moved again), gates it, pushes it and opens or updates its pull request, and the
-   epic goes to review as what will land. `rework` also goes to `open`
-   (add the fix as a child first), `question` to `decide`.
+   lease); the brief says the branch and what happens next. Its note
+   records the tip it started from (`old tip: <sha>`, as for any bead):
+   the remote still has that tip, which the rebase rewrote, and the
+   integrator's lease accepts a remote branch whose commits are all in the
+   branch as it was before its own rebase or in a tip a merger noted, so
+   the resolved branch replaces it. Without the line the push is refused
+   (never forced) and the epic held, or mailed about without a pull
+   request. Its `done` sends the epic back to `open`, not to review: with
+   no child open it is ready, so the integrator takes it again, rebases it
+   (a no-op unless the base moved again), gates it, pushes it and opens or
+   updates its pull request, and the epic goes to review as what will
+   land. `rework` also goes to `open` (add the fix as a child first),
+   `question` to `decide`.
 
 ### Through a pull request
 
@@ -394,8 +415,9 @@ groups (limit 1 each) and two type routes do it, besides the integrators:
   body, a "Children" list (ids and titles) and the trailer `Epic: <id>`; if
   one is open for the branch already it replaces that PR's body. The URL
   goes into the note and the epic's metadata (`pr_url`). A push or `gh` that
-  fails reports `failed`, back to `open`, so the next integration retries;
-  a remote branch with commits the epic lacks is held.
+  fails reports `failed`, back to `open`, so the next integration retries,
+  each time after a longer wait (step 2 above); a remote branch with
+  commits the epic lacks is held.
 - **approved**, `yard-pr`
   ([`contrib/refinery/pr-epic`](../contrib/refinery/pr-epic)): pushes
   `yard/<epic>`, which may carry the reviewer's commits (with a lease: a
@@ -423,19 +445,24 @@ With a github hook ([subscriptions.md](subscriptions.md#github)) on the
 repository, the daemon moves an epic on what GitHub reports about its pull
 request, so a PR that is green and approved waits on no one. It reads every
 `hook` event from the github adapter whose `epic` field (the head branch is
-`yard/<epic>`) names an open epic, in seq order, and applies four rules:
+`yard/<epic>`) names an open epic, in seq order, and applies four rules. A
+held epic is a human's: every rule leaves it where it is (the event is
+judged, and logged as ignored because the epic is held) until it is
+un-held, after which the next event moves it.
 
 1. **CI green** (`ci_green`): a `workflow_run` or `check_suite` completed
    with conclusion `success` on the PR's head commit, epic in `in-pr`: the
    daemon advances it to `land` with the note "CI green on <sha>: <run
    url>", and yard-pr-merge merges it, in the same pass.
-2. **CI red** (`ci_red`): conclusion `failure`, `cancelled` or `timed_out`
-   on the head, epic in `in-pr` or `review`: it adds a child "Fix CI on
-   epic <id>: <workflow>" (type bug, in `backlog`, the run's URL and
-   conclusion in its body), which blocks the epic, and moves an epic in
-   `in-pr` to `open`. There is one fix child per head commit, its handle
-   `<epic>-ci-<sha7>`: a second failed run or suite on the same commit adds
-   none.
+2. **CI red** (`ci_red`): conclusion `failure` or `timed_out` on the head,
+   epic in `in-pr` or `review`: it adds a child "Fix CI on epic <id>:
+   <workflow>" (type bug, in `backlog`, the run's URL and conclusion in its
+   body), which blocks the epic, and moves an epic in `in-pr` to `open`.
+   There is one fix child per head commit, its handle `<epic>-ci-<sha7>`:
+   a second failed run or suite on the same commit adds none. A
+   `cancelled` run or suite is neither green nor red: someone, or a newer
+   push, stopped it, so it says nothing about the commit, and the epic
+   waits for the next conclusion.
 3. **PR merged** (`pr_merged`): `pull_request` `closed` with `merged`
    true. From `land` the epic is reported `done`, to `merged`; from `in-pr`
    (merged by hand) it goes `land` then `merged`; from `approved` by the
@@ -508,7 +535,14 @@ yardr route add --stage land --type epic --rig yard --group yard-pr-merge
 ```
 
 The reviewer's prompt (`~/.yardr/roles/reviewer.md`) has a short section on
-reviewing an epic as a whole.
+reviewing an epic as a whole, and on reviewing it on its pull request: the
+reviewer pushes its fix-forward commits to `yard/<epic>` with a lease (the
+one branch any role pushes; the merger does not push even that one, the
+integrator pushes its rebase), and posts its review on the PR. GitHub
+refuses `--approve` and `--request-changes` from the login that opened the
+PR, which is the operator's, the same login the reviewer's `gh` uses: on
+its own PR the reviewer posts a `--comment` with the verdict in the note's
+first line, and the yard learns the verdict from `yardr bead done`.
 
 ## Planned changes to this pipeline
 

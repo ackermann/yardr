@@ -88,6 +88,12 @@ func TestParentEdgeRules(t *testing.T) {
 	if _, err := s.CreateBead(ctx, store.NewBead{ID: "api-1", Title: "elsewhere", Rig: "api"}, "me"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := s.CreateBead(ctx, store.NewBead{ID: "web-g", Title: "landed epic", Type: store.TypeEpic, Rig: "web"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CloseBead(ctx, "web-g", "merged", store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.AddDep(ctx, "web-e", "web-1", store.DepParent, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +102,8 @@ func TestParentEdgeRules(t *testing.T) {
 		{"web-f", "web-1", "already a child of epic web-e"}, // one epic parent at most
 		{"web-e", "web-f", "epics do not nest"},
 		{"web-e", "api-1", "a child must be in its epic's rig"},
-		{"web-e", "web-1", "already parent"}, // the same edge twice
+		{"web-e", "web-1", "already parent"},  // the same edge twice
+		{"web-g", "web-2", "web-g is closed"}, // a landed epic takes no more children
 	} {
 		err := s.AddDep(ctx, c.from, c.to, store.DepParent, "me")
 		if err == nil || !strings.Contains(err.Error(), c.want) {

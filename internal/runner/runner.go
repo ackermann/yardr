@@ -190,12 +190,16 @@ var checksTimeout = 20 * time.Second
 // writePR is the part of an epic's brief for an epic that lands through a
 // pull request (integrate-epic stored its pr_url): the PR, its CI as GitHub
 // sees it now, and that the review is posted there. The reviewer may push
-// its fix-forward commits to the epic's branch, which pr-epic pushes again
-// anyway; it never merges, which is pr-merge's after approval.
+// its fix-forward commits to the epic's branch, with a lease, which pr-epic
+// pushes again anyway; it never merges, which is pr-merge's after approval.
+// GitHub refuses approve and request-changes reviews from the PR's author,
+// and integrate-epic opens the PR as the operator, whose gh the reviewer
+// also uses: on its own PR the review is a comment, the verdict in its
+// first line, and the yard learns the verdict from bead done.
 func writePR(b *strings.Builder, job dispatch.Job, url string) {
 	branch := Branch(job.Bead)
 	fmt.Fprintf(b, "## Pull request\n\nThis epic lands through the pull request %s.", url)
-	fmt.Fprintf(b, " For this bead you may push to `%s` (`git push --force-with-lease origin %[1]s`, after fixing forward), and you must post your review on the pull request with `gh pr review %s` (`--approve`, `--request-changes` or `--comment`, `--body-file` your note). Never merge it: it is merged after approval.\n\n", branch, url)
+	fmt.Fprintf(b, " For this bead you may push to `%s` (`git push --force-with-lease origin %[1]s`, after fixing forward; with a lease only, never forced, and only this branch), and you must post your review on the pull request with `gh pr review %s` (`--approve`, `--request-changes` or `--comment`, `--body-file` your note). GitHub refuses `--approve` and `--request-changes` from the login that opened the pull request: when `gh pr view %[2]s --json author --jq .author.login` is your own login (`gh api user --jq .login`), post `--comment` whatever the verdict, with the verdict as the note's first line. Never merge it: it is merged after approval.\n\n", branch, url)
 	fmt.Fprintf(b, "CI on the pull request when this brief was written (`gh pr checks %s`):\n\n```\n%s\n```\n\n", url, prChecks(rigPath(job.Rig), url))
 }
 

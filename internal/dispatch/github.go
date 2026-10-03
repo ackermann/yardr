@@ -20,16 +20,21 @@ import (
 // field names an open epic:
 //
 //	ci_green           a run or suite on the PR head succeeded, epic in in-pr: to land
-//	ci_red             it failed or was cancelled, epic in in-pr or review: a fix child, in-pr to open
+//	ci_red             it failed or timed out, epic in in-pr or review: a fix child, in-pr to open
 //	pr_merged          the PR was merged: land (or in-pr, approved) to merged
 //	pr_closed          the PR was closed unmerged: in-pr or review to decide
 //	changes_requested  a human asked for changes: to open, for the mayor to file the fix
+//
+// A cancelled run or suite is neither green nor red: someone or a newer
+// push stopped it, so it says nothing about the commit, and the epic waits
+// for the next conclusion. A held epic is a human's: the rules leave it
+// where it is, whatever GitHub reports, until it is un-held.
 //
 // Each event an epic has been judged on is recorded on the epic
 // (metaGitHubSeq), so a restarted daemon that reads the log from the start
 // again skips what it already did; a rule that finds the epic past the stage
 // it would set does nothing. Every action, and every event ignored because
-// of the epic's stage, is logged as a github_rule event on the epic.
+// of the epic's stage or hold, is logged as a github_rule event on the epic.
 const (
 	ruleGreen   = "ci_green"
 	ruleRed     = "ci_red"
@@ -129,7 +134,7 @@ func (ev ghEvent) rule() (rule string, head bool) {
 		switch ev.conclusion {
 		case "success":
 			return ruleGreen, false
-		case "failure", "cancelled", "timed_out":
+		case "failure", "timed_out":
 			return ruleRed, false
 		}
 	case "pull_request":
@@ -195,7 +200,12 @@ func (d *Dispatcher) githubEvent(ctx context.Context, ev ghEvent) {
 		return
 	}
 	if rule != "" {
-		res := d.applyRule(ctx, rule, ev, epic)
+		var res ruleResult
+		if epic.Hold {
+			res = ignored("epic is held")
+		} else {
+			res = d.applyRule(ctx, rule, ev, epic)
+		}
 		data := map[string]any{"rule": rule, "epic": epic.ID, "sha": ev.sha, "seq": ev.seq, "stage": epic.Stage}
 		switch {
 		case res.err != nil:
@@ -342,8 +352,8 @@ func (d *Dispatcher) applyRule(ctx context.Context, rule string, ev ghEvent, epi
 
 // onHead reports whether ev's commit is the head of the epic's pull
 // request, as the last pull_request event gave it or, without one, as gh
-// says: a conclusion on an older commit (a run a push superseded and
-// cancelled) says nothing about what would be merged.
+// says: a conclusion on an older commit (a run a push superseded) says
+// nothing about what would be merged.
 func (d *Dispatcher) onHead(ctx context.Context, ev ghEvent, epic *store.Bead) (ruleResult, bool) {
 	head, _ := epic.Metadata[metaPRHead].(string)
 	if head == "" {

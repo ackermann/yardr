@@ -120,7 +120,7 @@ var DispatchKinds = []string{
 	"session_prompted", "session_blocked", "session_unblocked", "session_idle", "session_aged",
 	"runtime_down", "runtime_up",
 	"workspace_kept", "workspace_removed",
-	"gave_up", "unrouted", "no_runner", "bad_rig", "bad_flow",
+	"gave_up", "backoff", "unrouted", "no_runner", "bad_rig", "bad_flow",
 	"resident_blocked", "human_notified",
 	"epic_branched", "bad_epic", "github_rule",
 }

@@ -4,7 +4,9 @@ import (
 	"context"
 	"os"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
@@ -164,5 +166,92 @@ func TestEpicConflictGoesToTheMergersAndBack(t *testing.T) {
 	}
 	if got := f.starts(); !slices.Equal(got, []string{"yard-e", "yard-e", "yard-e"}) {
 		t.Fatalf("starts = %v, want integrator, merger, integrator", got)
+	}
+}
+
+// An epic its flow sends back to the stage it is in (open -> open on
+// failed: the integrator could not push or open the pull request) is not
+// integrated again on the next pass: each return in a row doubles the wait
+// before the next try, from Backoff up to BackoffMax, and the wait is read
+// from the bead's events, so it survives a restart. A human's un-hold
+// starts the count over.
+func TestReturnToTheSameStageBacksOff(t *testing.T) {
+	s, f, d := setup(t)
+	d.Backoff, d.BackoffMax = time.Minute, 5*time.Minute
+	var skew time.Duration
+	dispatch.SetClock(d, func() time.Time { return time.Now().Add(skew) })
+	ctx := context.Background()
+	must(t, s.PutRig(ctx, store.Rig{Name: "yard", Base: "main"}, "me"))
+	_, err := s.PutFlow(ctx, *epicFlow(t), "me")
+	must(t, err)
+	must(t, s.SetFlowPointer(ctx, "yard", store.TypeEpic, "yard.epic", "me"))
+	must(t, s.PutGroup(ctx, store.Group{Name: "yard-integrators", Runner: "fake", Limit: 1}))
+	rig, epic := "yard", store.TypeEpic
+	_, err = s.AddRoute(ctx, store.Route{Stage: "open", Type: &epic, Rig: &rig, Group: "yard-integrators", Priority: 10})
+	must(t, err)
+	_, err = s.CreateBead(ctx, store.NewBead{ID: "yard-e", Title: "epic", Type: store.TypeEpic, Rig: "yard", Stage: "open"}, "me")
+	must(t, err)
+	fail := func() {
+		t.Helper()
+		_, err := s.Done(ctx, "yard-e", "failed", "integrator: GitHub is down", store.Expect{}, "integrator")
+		must(t, err)
+	}
+	starts := func(want int) {
+		t.Helper()
+		if got := len(f.starts()); got != want {
+			t.Fatalf("at skew %s: %d starts, want %d", skew, got, want)
+		}
+	}
+	backoffs := func() []string {
+		t.Helper()
+		evs, err := s.Events(ctx, "yard-e", 200)
+		must(t, err)
+		var out []string
+		for _, e := range evs {
+			if e.Kind == "backoff" {
+				out = append(out, e.Data["reason"].(string))
+			}
+		}
+		return out
+	}
+
+	must(t, d.Reconcile(ctx))
+	starts(1)
+	// Returns 1..4: the wait doubles, 1m, 2m, 4m, then is capped at 5m.
+	for i, wait := range []time.Duration{time.Minute, 2 * time.Minute, 4 * time.Minute, 5 * time.Minute} {
+		skew = 0
+		fail()
+		must(t, d.Reconcile(ctx))
+		must(t, d.Reconcile(ctx)) // the wait is logged once, not per pass
+		starts(i + 1)
+		skew = wait - time.Second
+		must(t, d.Reconcile(ctx))
+		starts(i + 1)
+		skew = wait + time.Second
+		must(t, d.Reconcile(ctx))
+		starts(i + 2)
+	}
+	got := backoffs()
+	if len(got) != 4 || !strings.Contains(got[0], "sent back to open 1 times in a row") || !strings.Contains(got[3], "4 times in a row") {
+		t.Fatalf("backoff events %q, want one per return with its count", got)
+	}
+
+	// The daemon restarts: the count comes from the events, so it still
+	// waits. Then a human un-holds the epic: a fresh start, tried at once.
+	skew = 0
+	fail()
+	f2 := &fakeRunner{dead: map[string]bool{}}
+	d2 := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f2}, Backoff: time.Minute, BackoffMax: 5 * time.Minute}
+	must(t, d2.Reconcile(ctx))
+	if n := len(f2.starts()); n != 0 {
+		t.Fatalf("a restarted dispatcher retried at once: %d starts", n)
+	}
+	_, err = s.SetHold(ctx, "yard-e", true, store.Expect{}, "human")
+	must(t, err)
+	_, err = s.SetHold(ctx, "yard-e", false, store.Expect{}, "human")
+	must(t, err)
+	must(t, d2.Reconcile(ctx))
+	if n := len(f2.starts()); n != 1 {
+		t.Fatalf("not retried after an un-hold: %d starts", n)
 	}
 }

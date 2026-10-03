@@ -74,8 +74,14 @@ type Dispatcher struct {
 	// MaxAttempts failed or died sessions for one bead+stage before the bead
 	// is put on hold for a human (default 3).
 	MaxAttempts int
-	// Backoff before re-dispatching a bead whose session failed (default 30s).
-	Backoff time.Duration
+	// Backoff before re-dispatching a bead whose session failed (default
+	// 30s). It is also the first wait before a bead its flow sent back to
+	// the stage it was in (open -> open on failed) is dispatched there
+	// again; that wait doubles with each such return in a row, up to
+	// BackoffMax (default 1h), so an outage the stage's script keeps
+	// running into (GitHub down) is retried less and less often rather
+	// than on every pass.
+	Backoff, BackoffMax time.Duration
 	// RuntimeBackoff is how long a group whose runtime is down (a Start
 	// failed with a RuntimeError) is left alone before the next try
 	// (default 30s); it doubles on every further outage, up to
@@ -99,6 +105,7 @@ type Dispatcher struct {
 
 	ghCursor uint64 // the last event the github rules read
 
+	clock      func() time.Time // tests only; see now
 	retryAfter map[string]time.Time
 	reported   map[string]string  // bead -> last unroutable reason, to log once
 	status     map[string]string  // session -> last runner status
@@ -173,6 +180,9 @@ func (d *Dispatcher) defaults() {
 	}
 	if d.Backoff == 0 {
 		d.Backoff = 30 * time.Second
+	}
+	if d.BackoffMax == 0 {
+		d.BackoffMax = time.Hour
 	}
 	if d.RuntimeBackoff == 0 {
 		d.RuntimeBackoff = 30 * time.Second
@@ -547,8 +557,63 @@ func (d *Dispatcher) end(ctx context.Context, s store.Session, state, reason str
 	if err := d.Store.EndSession(ctx, s.ID, state, reason); err != nil {
 		d.Log.Error("end session", "session", s.ID, "err", err)
 	}
-	d.retryAfter[s.Bead] = time.Now().Add(d.Backoff)
+	d.retryAfter[s.Bead] = d.now().Add(d.Backoff)
 	d.forget(s.ID)
+}
+
+// returnsPage bounds the events backingOff reads per bead: the returns it
+// counts are the latest, and a bead with more events than this since it
+// last entered its stage otherwise is retried as if it had this many.
+const returnsPage = 200
+
+// backingOff reports whether b is to wait before being dispatched again:
+// its flow has sent it back to the stage it is in n times in a row (an
+// advance from and to b.Stage, as open -> open on failed when integrating
+// an epic fails for a reason no child fixes), and the last was less than
+// Backoff doubled n-1 times, up to BackoffMax, ago. The count is read from
+// the bead's events, so a restarted daemon keeps waiting, and it starts
+// over when the bead enters the stage any other way or a human un-holds
+// it. Each wait is logged once on the bead as a backoff event.
+func (d *Dispatcher) backingOff(ctx context.Context, b store.Bead) (bool, error) {
+	evs, err := d.Store.Events(ctx, b.ID, returnsPage)
+	if err != nil {
+		return false, err
+	}
+	n, last := 0, time.Time{}
+	for i := len(evs) - 1; i >= 0; i-- {
+		e := evs[i]
+		if e.Kind == "unheld" {
+			break
+		}
+		if e.Kind != "advanced" {
+			continue
+		}
+		if e.Data["from"] != b.Stage || e.Data["to"] != b.Stage {
+			break
+		}
+		if n == 0 {
+			last = e.At
+		}
+		n++
+	}
+	if n == 0 {
+		return false, nil
+	}
+	wait := min(d.Backoff<<min(n-1, 30), d.BackoffMax)
+	until := last.Add(wait)
+	if !d.now().Before(until) {
+		return false, nil
+	}
+	d.reportOnce(ctx, b, "backoff", fmt.Sprintf("sent back to %s %d times in a row; next try at %s", b.Stage, n, until.UTC().Format(time.RFC3339)))
+	return true, nil
+}
+
+// now is the dispatcher's clock, time.Now unless a test sets clock.
+func (d *Dispatcher) now() time.Time {
+	if d.clock != nil {
+		return d.clock()
+	}
+	return time.Now()
 }
 
 // forget drops what the dispatcher remembers about an ended session.
@@ -625,7 +690,12 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 	rigs := map[string]*store.Rig{}
 
 	for _, b := range beads {
-		if t, ok := d.retryAfter[b.ID]; ok && time.Now().Before(t) {
+		if t, ok := d.retryAfter[b.ID]; ok && d.now().Before(t) {
+			continue
+		}
+		if wait, err := d.backingOff(ctx, b); err != nil {
+			return err
+		} else if wait {
 			continue
 		}
 		r := Match(routes, b)

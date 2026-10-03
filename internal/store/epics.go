@@ -126,12 +126,17 @@ func edges(tx *bolt.Tx, index []byte, u, kind string) []depRow {
 }
 
 // checkParent refuses a parent edge from -> to that would not make to a
-// child of one epic: from must be an epic, to not already a child of one,
-// and both in the same rig (the child branches from the epic's branch in
-// that rig's repository).
+// child of one open epic: from must be an epic that is not closed (a
+// closed epic has landed, or was dropped; a child added now would branch
+// from and land on a branch nothing integrates again), to not already a
+// child of one, and both in the same rig (the child branches from the
+// epic's branch in that rig's repository).
 func checkParent(tx *bolt.Tx, from, to *beadRow) error {
 	if from.Type != TypeEpic {
 		return fmt.Errorf("%s is a %s, not an epic: only an epic can be a parent", from.ID, from.Type)
+	}
+	if from.Status == "closed" {
+		return fmt.Errorf("epic %s is closed: a closed epic takes no more children", from.ID)
 	}
 	if to.Type == TypeEpic {
 		return fmt.Errorf("%s is an epic: epics do not nest", to.ID)

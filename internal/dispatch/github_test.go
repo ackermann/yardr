@@ -240,7 +240,7 @@ func TestGitHubCIRedFilesAFix(t *testing.T) {
 	for _, e := range []string{"yard-a", "yard-b", "yard-c"} {
 		r.deliver(t, "pull_request", "pull_request_synchronize", e, "")
 		r.deliver(t, "workflow_run", "workflow_run_failure", e, "")
-		r.deliver(t, "check_suite", "check_suite_cancelled", e, "")
+		r.deliver(t, "workflow_run", "workflow_run_failure", e, "")
 	}
 	r.pass(t)
 
@@ -266,7 +266,7 @@ func TestGitHubCIRedFilesAFix(t *testing.T) {
 		t.Fatalf("yard-a blockers %v %v", bl, err)
 	}
 
-	// In review the epic stays; the cancelled suite on the same commit
+	// In review the epic stays; the second failed run on the same commit
 	// adds no second child.
 	if st := r.stageOf(t, "yard-b"); st != "review" {
 		t.Fatalf("yard-b in %s, want review", st)
@@ -296,6 +296,70 @@ func TestGitHubCIRedFilesAFix(t *testing.T) {
 	if !slices.Equal(fam.Children, []string{"yard-b-ci-4f2c9e1", "yard-b-ci-ccccccc"}) {
 		t.Fatalf("yard-b children %v", fam.Children)
 	}
+}
+
+// A cancelled run or suite is neither green nor red: it says nothing about
+// the commit (someone, or a newer push, stopped it), so the epic stays
+// where it is, with no fix child, until a run concludes.
+func TestGitHubCancelledIsNeitherGreenNorRed(t *testing.T) {
+	r := newGHRig(t)
+	ctx := context.Background()
+	r.epic(t, "yard-a", "in-pr")
+	r.deliver(t, "pull_request", "pull_request_synchronize", "yard-a", "")
+	r.deliver(t, "check_suite", "check_suite_cancelled", "yard-a", "")
+	r.pass(t)
+
+	if st := r.stageOf(t, "yard-a"); st != "in-pr" {
+		t.Fatalf("yard-a in %s after a cancelled suite, want in-pr", st)
+	}
+	wantRules(t, r.rules(t, "yard-a"))
+	if _, err := r.api.GetBead(ctx, "yard-a-ci-4f2c9e1"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a fix child for a cancelled suite: %v", err)
+	}
+	// The next conclusion on the head decides.
+	r.deliver(t, "workflow_run", "workflow_run_failure", "yard-a", "")
+	r.pass(t)
+	if st := r.stageOf(t, "yard-a"); st != "open" {
+		t.Fatalf("yard-a in %s after the failed run, want open", st)
+	}
+	wantRules(t, r.rules(t, "yard-a"), "ci_red added yard-a-ci-4f2c9e1; in-pr -> open")
+}
+
+// A held epic is a human's: the rules leave it where it is, whatever
+// GitHub reports, and say so in the github_rule event. The event is judged
+// (its seq recorded, the PR head kept), so an un-hold does not replay it;
+// the next conclusion after the un-hold moves the epic.
+func TestGitHubRulesSkipHeldEpics(t *testing.T) {
+	r := newGHRig(t)
+	ctx := context.Background()
+	r.epic(t, "yard-a", "in-pr")
+	_, err := r.api.SetHold(ctx, "yard-a", true, store.Expect{}, "human")
+	must(t, err)
+	r.deliver(t, "pull_request", "pull_request_synchronize", "yard-a", "")
+	r.deliver(t, "workflow_run", "workflow_run_success", "yard-a", "")
+	r.pass(t)
+
+	e := r.bead(t, "yard-a")
+	if e.Stage != "in-pr" || !e.Hold {
+		t.Fatalf("held yard-a %s hold=%v after CI green, want left in in-pr", e.Stage, e.Hold)
+	}
+	wantRules(t, r.rules(t, "yard-a"), "ci_green ignored: epic is held")
+	if e.Metadata["pr_head"] != fixtureSHA {
+		t.Fatalf("pr_head %v, want %s kept while held", e.Metadata["pr_head"], fixtureSHA)
+	}
+
+	_, err = r.api.SetHold(ctx, "yard-a", false, store.Expect{}, "human")
+	must(t, err)
+	r.pass(t)
+	if st := r.stageOf(t, "yard-a"); st != "in-pr" {
+		t.Fatalf("yard-a in %s after the un-hold, want in-pr: the green run was judged while held", st)
+	}
+	r.deliver(t, "workflow_run", "workflow_run_success", "yard-a", "")
+	r.pass(t)
+	if st := r.stageOf(t, "yard-a"); st != "land" {
+		t.Fatalf("yard-a in %s after CI green on the un-held epic, want land", st)
+	}
+	wantRules(t, r.rules(t, "yard-a"), "ci_green ignored: epic is held", "ci_green in-pr -> land")
 }
 
 // A merged PR closes the epic through the flow from land, in-pr and

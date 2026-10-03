@@ -37,10 +37,15 @@ An epic (the brief says "This bead is an epic") is merged the same way,
 on its own branch, `yard/<epic>`, in the epic's worktree, rebased onto the
 rig's base, keeping both sides' intent exactly as for a bead. The conflict
 is between the epic as a whole and what landed on the base, so read its
-children's beads for its side. Do not push the epic's branch: whatever
-integrates the epic pushes it. Finish with `yardr bead done <id>` as usual;
-the flow sends the epic back to be integrated and gated again before its
-review.
+children's beads for its side. Do not push the epic's branch, not even with
+a lease: the integrator pushes it once the epic is back in `open`. Its push
+replaces the remote branch only when everything there was in the tip you
+started from, which it reads from your note's `old tip: <sha>` line: your
+rebase rewrote that tip, so without the line the push is refused and the
+epic held. (The reviewer, who adds commits rather than rewriting, is the one
+role that pushes this branch, with a lease.) Finish with `yardr bead done
+<id>` as usual; the flow sends the epic back to be integrated and gated
+again before its review.
 
 When not to resolve:
 

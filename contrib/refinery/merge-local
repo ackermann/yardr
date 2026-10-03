@@ -13,9 +13,10 @@
 #   YARDR_NOTIFY   resident mailed when that push fails (default mayor)
 #
 # For each bead it rebases the branch onto the base if the base moved, runs
-# the rig's gate on exactly what will land, fast-forwards the base and
-# advances the bead to merged. A conflict goes to merge, a red gate back
-# (outcome failed: new, or open for an epic), and a gate that cannot run,
+# the rig's gate on exactly what will land, fast-forwards the base to the
+# commit it gated and advances the bead to merged. A conflict goes to
+# merge, a red gate back (outcome failed: new, or open for an epic), as
+# does a branch that moved while the gate ran, and a gate that cannot run,
 # or anything it cannot land without touching a dirty tree, is held. It
 # never forces and never pushes anything but a fast-forward.
 #
@@ -84,9 +85,12 @@ fi
 
 # The gate runs on exactly what will land, every time, including after a
 # merger's rebase: the rig's check, read from the base so a bead cannot
-# weaken it.
+# weaken it. The commit it runs on is recorded, and that commit is what
+# lands: a commit pushed to $BR while the gate ran would otherwise land by
+# the branch's name, ungated.
 # Exit 1 is a red gate, the branch's to fix; exit 2 means the gate could not
 # run at all (git, the base, the rig), which no builder can fix: hold.
+gated=$(git -C "$REPO" rev-parse "refs/heads/$BR") || hold "cannot read $BR"
 out=$("$Y" rig check "$RIG" --dir "$WT" --tail "$TAIL" 2>&1) && rc=0 || rc=$?
 printf '%s\n' "$out"
 case $rc in
@@ -97,17 +101,25 @@ $out" ;;
 $out" ;;
 esac
 
-# Land: fast-forward only. Where the base is checked out, only when that
-# checkout is clean (a dirty one is someone's work in progress: hold rather
-# than touch it); otherwise move the ref without touching any tree.
+# A branch that moved during the gate holds commits the gate did not see:
+# back to whoever fixes the branch, as a red gate, to be approved and gated
+# again as it is now.
+now=$(git -C "$REPO" rev-parse "refs/heads/$BR")
+[ "$now" = "$gated" ] ||
+  back "$BR moved while the gate ran: gated $(git -C "$REPO" rev-parse --short "$gated"), now $(git -C "$REPO" rev-parse --short "$now"). Nothing landed; the gate must run on what is there now."
+
+# Land the gated commit, by its sha, fast-forward only. Where the base is
+# checked out, only when that checkout is clean (a dirty one is someone's
+# work in progress: hold rather than touch it); otherwise move the ref
+# without touching any tree.
 co=$(git -C "$REPO" worktree list --porcelain |
   awk -v b="refs/heads/$BASE" '/^worktree /{w=substr($0,10)} $0=="branch "b{print w}')
 if [ -n "$co" ]; then
   [ -z "$(git -C "$co" status --porcelain)" ] ||
     hold "$BASE is checked out in $co with uncommitted changes; not landing. Commit or clean it, then unhold."
-  git -C "$co" merge --ff-only "$BR" || back "fast-forward of $BASE in $co failed"
+  git -C "$co" merge --ff-only "$gated" || back "fast-forward of $BASE in $co to $gated failed"
 else
-  git -C "$REPO" fetch . "$BR:$BASE" || back "fast-forward of $BASE failed (not a fast-forward?)"
+  git -C "$REPO" fetch . "$gated:$BASE" || back "fast-forward of $BASE to $gated failed (not a fast-forward?)"
 fi
 sha=$(git -C "$REPO" rev-parse --short "$BASE")
 echo "== landed $BEAD on $BASE at $sha"
