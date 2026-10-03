@@ -1,0 +1,145 @@
+#!/bin/sh
+# merge-local: a refinery that lands a bead's branch directly on its rig's
+# local base branch. Run it as the cmd of an exec group routed for the stage
+# beads wait to land in (approved); limit 1 on the group makes a serial merge
+# queue. See docs/pipeline.md, section 4.
+#
+# It reads everything from the environment the exec runner gives it:
+# YARDR_BEAD, YARDR_RIG, YARDR_RIG_PATH, YARDR_BASE, YARDR_BRANCH,
+# YARDR_WORKTREE and YARDR_BIN. Options, set in the group's cmd
+# (cmd='YARDR_PUSH=origin /path/to/merge-local'):
+#
+#   YARDR_PUSH     a remote to push the base to after landing; off when empty
+#   YARDR_NOTIFY   resident mailed when that push fails (default mayor)
+#
+# For each bead it rebases the branch onto the base if the base moved, runs
+# the rig's gate on exactly what will land, fast-forwards the base to the
+# commit it gated and advances the bead to merged. A conflict goes to
+# merge, a red gate back (outcome failed: new, or open for an epic), as
+# does a branch that moved while the gate ran, and a gate that cannot run,
+# or anything it cannot land without touching a dirty tree, is held. It
+# never forces and never pushes anything but a fast-forward.
+#
+# Every outcome ends in an advance, a close or a hold: exiting without one
+# counts as a failed session, and three of those hold the bead.
+set -u
+# A dir rig (YARDR_RIG_KIND=dir) has no branches: there is nothing here to
+# land, integrate or open a pull request for. A route that hands one over is
+# a mistake in the rig's flow, so refuse to run (exit 2) rather than guess.
+if [ "${YARDR_RIG_KIND:-git}" = dir ]; then
+  echo "merge-local: rig ${YARDR_RIG:-?} is a dir rig, with no branch to work on; route its stages to other groups" >&2
+  exit 2
+fi
+: "${YARDR_BEAD:?not run by an exec group}" "${YARDR_RIG:?bead has no rig}"
+: "${YARDR_RIG_PATH:?}" "${YARDR_BASE:?}"
+Y=${YARDR_BIN:-yardr}
+BEAD=$YARDR_BEAD
+RIG=$YARDR_RIG
+REPO=$YARDR_RIG_PATH
+BASE=$YARDR_BASE
+BR=${YARDR_BRANCH:-yard/$BEAD}
+WT=${YARDR_WORKTREE:-${YARDR_HOME:-$HOME/.yardr}/worktrees/$RIG/$BEAD}
+PUSH=${YARDR_PUSH:-}
+NOTIFY=${YARDR_NOTIFY:-mayor}
+TAIL=200
+echo "== $(date -Is) refinery $RIG $BEAD ($BR onto $BASE)"
+
+# Each outcome is one advance with its note, so the move and the reason land
+# together. Advancing ends this session (the daemon stops the script), so it
+# is always the last thing done.
+to() { echo "== $BEAD -> $1"; printf '%s\n' "refinery: $2" | "$Y" bead advance "$BEAD" --to "$1" --note -; exit 0; }
+# Back to whoever fixes the branch: the flow's "failed" outcome where it
+# names one (new for a bead, open for an epic, see docs/flows.md), else new.
+back() {
+  echo "== $BEAD failed"
+  printf '%s\n' "refinery: $1" | "$Y" bead done "$BEAD" --outcome failed --note - && exit 0
+  to new "$1"
+}
+hold() { echo "== hold $BEAD: $1"; "$Y" bead note "$BEAD" "refinery: $1"; "$Y" bead hold "$BEAD"; exit 0; }
+# A conflict goes to the mergers; if the flow has no merge stage the advance
+# is refused and the bead goes back to the builders.
+conflict() {
+  echo "== $BEAD conflicts"
+  printf '%s\n' "refinery: $1" | "$Y" bead advance "$BEAD" --to merge --note - && exit 0
+  back "$1"
+}
+
+git -C "$REPO" rev-parse --verify -q "refs/heads/$BASE" >/dev/null ||
+  hold "base $BASE is not a local branch of $REPO; merge-local lands only on local branches"
+git -C "$REPO" rev-parse --verify -q "refs/heads/$BR" >/dev/null || hold "branch $BR does not exist"
+if [ ! -d "$WT" ]; then
+  git -C "$REPO" worktree add "$WT" "$BR" || hold "cannot check out $BR at $WT"
+fi
+[ "$(git -C "$WT" symbolic-ref -q HEAD)" = "refs/heads/$BR" ] || hold "$WT is not on $BR"
+[ -z "$(git -C "$WT" status --porcelain)" ] || hold "worktree $WT has uncommitted changes"
+
+# Rebase onto the base when it moved since the branch was made.
+if ! git -C "$REPO" merge-base --is-ancestor "$BASE" "$BR"; then
+  if ! git -C "$WT" rebase "$BASE"; then
+    files=$(git -C "$WT" diff --name-only --diff-filter=U | tr '\n' ' ')
+    git -C "$WT" rebase --abort
+    conflict "rebase onto $BASE conflicts in: $files
+Rebase $BR onto $BASE, keep both changes' intent, re-run the gate."
+  fi
+fi
+
+# The gate runs on exactly what will land, every time, including after a
+# merger's rebase: the rig's check, read from the base so a bead cannot
+# weaken it. The commit it runs on is recorded, and that commit is what
+# lands: a commit pushed to $BR while the gate ran would otherwise land by
+# the branch's name, ungated.
+# Exit 1 is a red gate, the branch's to fix; exit 2 means the gate could not
+# run at all (git, the base, the rig), which no builder can fix: hold.
+gated=$(git -C "$REPO" rev-parse "refs/heads/$BR") || hold "cannot read $BR"
+out=$("$Y" rig check "$RIG" --dir "$WT" --tail "$TAIL" 2>&1) && rc=0 || rc=$?
+printf '%s\n' "$out"
+case $rc in
+0) ;;
+2) hold "the gate could not run on $BR:
+$out" ;;
+*) back "the gate failed on $BR rebased onto $BASE:
+$out" ;;
+esac
+
+# A branch that moved during the gate holds commits the gate did not see:
+# back to whoever fixes the branch, as a red gate, to be approved and gated
+# again as it is now.
+now=$(git -C "$REPO" rev-parse "refs/heads/$BR")
+[ "$now" = "$gated" ] ||
+  back "$BR moved while the gate ran: gated $(git -C "$REPO" rev-parse --short "$gated"), now $(git -C "$REPO" rev-parse --short "$now"). Nothing landed; the gate must run on what is there now."
+
+# Land the gated commit, by its sha, fast-forward only. Where the base is
+# checked out, only when that checkout is clean (a dirty one is someone's
+# work in progress: hold rather than touch it); otherwise move the ref
+# without touching any tree.
+co=$(git -C "$REPO" worktree list --porcelain |
+  awk -v b="refs/heads/$BASE" '/^worktree /{w=substr($0,10)} $0=="branch "b{print w}')
+if [ -n "$co" ]; then
+  [ -z "$(git -C "$co" status --porcelain)" ] ||
+    hold "$BASE is checked out in $co with uncommitted changes; not landing. Commit or clean it, then unhold."
+  git -C "$co" merge --ff-only "$gated" || back "fast-forward of $BASE in $co to $gated failed"
+else
+  git -C "$REPO" fetch . "$gated:$BASE" || back "fast-forward of $BASE to $gated failed (not a fast-forward?)"
+fi
+sha=$(git -C "$REPO" rev-parse --short "$BASE")
+echo "== landed $BEAD on $BASE at $sha"
+
+# Publish, before advancing: advancing ends this session and the daemon stops
+# the script with it. Never forced. A failed push (offline, the remote moved)
+# leaves the bead merged locally; the next landing's push carries it.
+msg="merged $sha"
+if [ -n "$PUSH" ]; then
+  if git -C "$REPO" push "$PUSH" "$BASE" 2>&1; then
+    echo "== pushed $BASE to $PUSH"
+  else
+    msg="$msg; pushing $BASE to $PUSH failed (not forced)"
+    "$Y" mail "$NOTIFY" "refinery: merged $BEAD at $sha but pushing $BASE to $PUSH failed. Not forced; check whether $PUSH/$BASE moved." ||
+      echo "== could not mail $NOTIFY"
+  fi
+fi
+
+# A flow with a merged terminal stage closes the bead on entering it; without
+# one, close it directly.
+printf '%s\n' "$msg" | "$Y" bead advance "$BEAD" --to merged --note - ||
+  "$Y" bead close "$BEAD" --reason "$msg"
+echo "== $msg"

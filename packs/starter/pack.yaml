@@ -1,0 +1,55 @@
+# Starter pack for yardr: one yard's way of working, as one file.
+# It names no agent product, model, rig, person or secret. Those are asked
+# for when the pack is imported and stay in the yard.
+
+name: starter
+
+# Flows, by name. A rig uses one of them; the import asks which, and the first
+# is the default. A flow with "type:" applies to beads of that type only, next
+# to the rig's flow (an epic flow beside the task flow, say).
+#
+# Each flow lists the stages a bead passes through; the first is where a new
+# bead starts.
+#   group:   who works the stage (declared below)
+#   outcomes: outcome reported -> next stage
+#   manual:  stages a person or a resident may move the bead to by hand
+#   end:     the bead closes here
+flows:
+  default:
+    stages:
+      backlog:  { group: backlog,   manual: [new, decide] }
+      new:      { group: builders,  outcomes: { done: review, question: decide }, manual: [backlog] }
+      review:   { group: reviewers, outcomes: { done: approved, changes: new, question: decide } }
+      approved: { group: refinery,  outcomes: { done: merged, failed: new, question: decide } }
+      decide:   { group: decisions, manual: [backlog, new] }
+      merged:   { end: true }
+
+# A group is exactly one of: an agent with a role, a script, or people.
+# limit is how many beads it works at once.
+groups:
+  builders:  { agent: roles/builder.md,  limit: 5 }
+  reviewers: { agent: roles/reviewer.md, limit: 3 }
+  refinery:  { run: scripts/merge-local, limit: 1 }
+  backlog:   { people: true }
+  decisions: { people: true }
+
+# Always-on sessions, by name. None is required; a yard may run without one,
+# with several, or under another name (the import asks which resident of the
+# yard takes each of these).
+#
+#   hears:      what it hears from the yard itself
+#     events:   kinds of event (something went wrong, a bead was held, ...)
+#     stages:   a bead enters one of these stages (must exist in a flow above)
+#     done:     a bead closed
+#   subscribe:  what it hears from outside sources, and how much:
+#               involved (mentioned, assigned, or already in the thread),
+#               mentions, or all
+residents:
+  mayor:
+    role: roles/mayor.md
+    hears:
+      events: [gave_up, session_blocked, unrouted, held, session_idle, session_stalled]
+      stages: [decide]
+      done: true
+    subscribe:
+      linear: involved
