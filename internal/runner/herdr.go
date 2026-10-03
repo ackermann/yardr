@@ -41,9 +41,10 @@ import (
 //	           never belong in the store (see config.ReadEnvFile) nor on a
 //	           command line (see call)
 //
-// Worktrees live at <root>/<rig>/<bead>. Agents such as Claude Code ask to
-// trust every new folder but inherit trust from a parent, so trust the root
-// once instead of answering a prompt per bead.
+//	trust      false to leave Claude Code's folder-trust dialog for a human;
+//	           by default yardr answers it (see acceptTrust)
+//
+// Worktrees live at <root>/<rig>/<bead>.
 type Herdr struct {
 	Bin          string
 	WorktreeRoot string
@@ -364,7 +365,7 @@ func (h *Herdr) brief(ctx context.Context, job dispatch.Job, name, workdir, dir,
 	if h.YardBin != "" {
 		prompt += fmt.Sprintf(" Run yardr as %s.", h.YardBin)
 	}
-	return h.startAgent(ctx, args, name, prompt, handle)
+	return h.startAgent(ctx, args, name, prompt, handle, trusts(job.Group.Config))
 }
 
 // startDir starts a bead of a dir rig. There is no branch and no worktree:
@@ -716,11 +717,12 @@ func writeBrief(dir, session, brief string) (string, error) {
 }
 
 // startAgent starts the agent and gives it its first prompt. An agent that
-// is not ready yet (blocked on a trust or permission question a human must
-// answer, or just slow) is not a failure: the session is kept and the
-// prompt is left on the handle as pending, for the dispatcher to deliver
-// once the agent is idle.
-func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt string, handle map[string]any) (map[string]any, error) {
+// is not ready yet (blocked on a question a human must answer, or just
+// slow) is not a failure: the session is kept and the prompt is left on the
+// handle as pending, for the dispatcher to deliver once the agent is idle.
+// With trust, the one question yardr answers itself is Claude Code's
+// folder-trust dialog (see acceptTrust); the handle then says so.
+func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt string, handle map[string]any, trust bool) (map[string]any, error) {
 	var err error
 	// A pane created a moment ago may not have its shell prompt up yet.
 	for attempt := 0; ; attempt++ {
@@ -733,10 +735,18 @@ func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt stri
 	}
 	var herr *herdrError
 	if errors.As(err, &herr) && herr.Code == "agent_not_ready" {
-		handle[dispatch.PendingPrompt] = prompt
-		return handle, nil
-	}
-	if err != nil {
+		pane, _ := handle["pane"].(string)
+		if !trust || pane == "" || !h.acceptTrust(ctx, pane) {
+			handle[dispatch.PendingPrompt] = prompt
+			return handle, nil
+		}
+		handle["trust_accepted"] = true
+		if !h.ready(ctx, handle) {
+			// Slow, or at a next question: the dispatcher takes it from here.
+			handle[dispatch.PendingPrompt] = prompt
+			return handle, nil
+		}
+	} else if err != nil {
 		return handle, err
 	}
 	if _, err := h.run(ctx, "agent", "prompt", name, prompt); err != nil {
@@ -1010,7 +1020,7 @@ func (h *Herdr) StartResident(ctx context.Context, r store.Resident) (map[string
 	}
 	prompt := fmt.Sprintf("You are the yardr resident %q. Run `%s prime --resident %s` and follow it.",
 		r.Name, h.yard(), r.Name)
-	return h.startAgent(ctx, start, name, prompt, handle)
+	return h.startAgent(ctx, start, name, prompt, handle, trusts(r.Config))
 }
 
 // envFile reads the env_file cfg names, if any, for the pane environment of
@@ -1059,18 +1069,12 @@ func (h *Herdr) Tail(ctx context.Context, handle map[string]any, lines int) (str
 	if pane == "" {
 		return "", fmt.Errorf("handle has no pane")
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	// pane read prints the terminal's text itself, not a JSON result. A TUI
-	// pads its screen with blank lines, so read well more than is kept.
-	var stdout, stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, h.Bin, "pane", "read", pane, "--source", "recent-unwrapped",
-		"--lines", fmt.Sprint(4*lines+40))
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("herdr pane read: %w: %s", err, strings.TrimSpace(stderr.String()))
+	// A TUI pads its screen with blank lines, so read well more than is kept.
+	text, err := h.readPane(ctx, pane, "recent-unwrapped", 4*lines+40)
+	if err != nil {
+		return "", err
 	}
-	tail := lastLines(stdout.String(), lines)
+	tail := lastLines(text, lines)
 	// An event is no place for a screenful of one long line.
 	const maxTail = 4000
 	if len(tail) > maxTail {

@@ -81,7 +81,7 @@ not a resident's.
 |---|---|---|
 | `manual` | nothing; the bead waits on the group | — |
 | `exec` | `sh -c cmd` in the rig, with `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_ACTOR` (the group); for a bead with a rig also `YARDR_RIG`, `YARDR_RIG_PATH`, `YARDR_BASE` (what the bead lands on: the rig's base, or its epic's branch, see [pipeline.md](pipeline.md#epics)), `YARDR_BRANCH` (`yard/<bead>`), `YARDR_WORKTREE` (where herdr groups check that branch out); and `YARDR_BIN`, `YARDR_HOME` for the script's own `yardr` commands; `YARDR_RIG_KIND` is `git`, or `dir` for a dir rig, whose beads get no base, branch or worktree. A refinery is one ([pipeline.md](pipeline.md#4-approved-the-refinery-lands-it-on-main)), and so is rig yard's `yard-integrators`, which integrates an epic's branch once its children have landed ([pipeline.md](pipeline.md#the-epics-own-flow)) | `cmd`, `dir`, `log`, `worktrees` |
-| `herdr` | a herdr worktree workspace on branch `yard/<bead>` (from the bead's base) at `~/.yardr/worktrees/<rig>/<bead>` (reopened for later stages, one tab per stage), an agent in it, in a tab of its own with `YARDR_ACTOR` (the agent), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_BASE` (what it branches from: the rig's base, or its epic's branch), `YARDR_HOME` and `YARDR_BIN` in its environment, prompted with a brief in the worktree's git dir (`git rev-parse --git-path yardr`); a dir rig's bead works in the directory itself (see [Dir rigs](#dir-rigs)) | `kind`, `prompt`, `args`, `model`, `keep`, `worktrees`, `idle`, `max_age`, `grace`, `stall`, `label`, `env_file` |
+| `herdr` | a herdr worktree workspace on branch `yard/<bead>` (from the bead's base) at `~/.yardr/worktrees/<rig>/<bead>` (reopened for later stages, one tab per stage), an agent in it, in a tab of its own with `YARDR_ACTOR` (the agent), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_BASE` (what it branches from: the rig's base, or its epic's branch), `YARDR_HOME` and `YARDR_BIN` in its environment, prompted with a brief in the worktree's git dir (`git rev-parse --git-path yardr`); a dir rig's bead works in the directory itself (see [Dir rigs](#dir-rigs)) | `kind`, `prompt`, `args`, `model`, `keep`, `worktrees`, `idle`, `max_age`, `grace`, `stall`, `label`, `env_file`, `trust` |
 
 ### Dir rigs
 
@@ -183,11 +183,19 @@ for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`
 
 ### herdr setup
 
-- **Folder trust.** Claude Code asks to trust each new project, and every bead's
-  worktree is its own git root, so trusting a parent folder does not cover them:
-  each builder stops at the trust dialog until someone answers it in its pane.
-  yardr keeps such a session (`session_blocked` in `yardr watch`) and sends its
-  first prompt once it is answered. Starting without the dialog is yard-16.
+- **Folder trust.** Claude Code asks whether it may trust a folder the first
+  time it is started in a repository or a plain directory, and has no flag or
+  setting that skips the question in an interactive session. yardr answers it:
+  when the agent stops at the dialog, yardr selects "Yes, I trust this folder"
+  in its pane and sends the first prompt as soon as the agent is ready. Making
+  a folder a rig (or a resident's directory) is what says you trust it. The
+  session's `started` event carries `trust_accepted: true` when this
+  happened. Claude Code records the answer against the repository, so it
+  comes up once per rig, not per worktree. Set `--set trust=false` on a group
+  (or resident) to answer it yourself: the session then waits as
+  `session_blocked` and gets its first prompt once you have. yardr answers
+  only this dialog, and only when its cursor is seen on the accepting answer;
+  anything else an agent asks is left to you.
 - **Decide what agents may run unattended.** Anything outside `args`'
   permissions blocks the agent on a prompt. Pass what the role needs, e.g.
   `--set 'args=["--permission-mode","acceptEdits","--allowedTools","Bash(yardr:*),Bash(git:*)"]'`;
