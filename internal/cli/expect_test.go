@@ -106,9 +106,10 @@ func TestSessionAppliesToTheOwnBeadOnly(t *testing.T) {
 	if cur, _ := st.GetBead(ctx, b.ID); cur.Revision != before.Revision {
 		t.Fatalf("a refused move changed the bead: %+v", cur)
 	}
-	// Its own bead the pane still moves.
-	if _, err := run(t, app.beadCmd(), "advance", a.ID, "--to", "review"); err != nil {
-		t.Fatalf("the pane's own advance: %v", err)
+	// Its own bead the pane still moves, named by UUID too: the own bead is
+	// matched on the resolved bead, not on the handle typed.
+	if _, err := run(t, app.beadCmd(), "advance", a.UUID, "--to", "review"); err != nil {
+		t.Fatalf("the pane's own advance by UUID: %v", err)
 	}
 }
 
