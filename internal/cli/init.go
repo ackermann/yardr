@@ -434,7 +434,8 @@ func (a *app) initCmd() *cobra.Command {
 		Long: `Create the yard in YARDR_HOME (default ~/.yardr) without the onboarding form,
 for scripts and tests. It writes the default role prompts to <home>/roles/
 (keeping any already there), naming --operator as the person they bring
-decisions to. They are generic starting points: a rig's own roles belong in
+decisions to and --mayor as the resident they mail about what blocks them.
+They are generic starting points: a rig's own roles belong in
 its repo under .yardr/roles/, which groups find first. It stores --harness as the yard's default_kind, and
 adds the mayor resident on that harness with its unattended flags, rotating
 every 6h. The daemon starts the mayor.
