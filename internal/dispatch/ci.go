@@ -185,6 +185,17 @@ func ghAPI(ctx context.Context, dir, path, jq string) ([]byte, error) {
 	return out, nil
 }
 
+// ghAPIOptional is for branch policy endpoints: GitHub returns 404 when a
+// branch has no protection (and when no ruleset applies), which means that
+// endpoint contributes no required checks. Other failures remain errors.
+func ghAPIOptional(ctx context.Context, dir, path, jq string) ([]byte, error) {
+	out, err := ghAPI(ctx, dir, path, jq)
+	if err != nil && strings.Contains(err.Error(), "HTTP 404") {
+		return nil, nil
+	}
+	return out, err
+}
+
 // ghCI asks gh for the pull request, what its base branch requires and the
 // checks on q.SHA.
 func ghCI(ctx context.Context, q CIQuery) (CIChecks, error) {
@@ -213,7 +224,7 @@ func ghCI(ctx context.Context, q CIQuery) (CIChecks, error) {
 		{repo + "/branches/" + branch, ".protection.required_status_checks.contexts[]?"},
 		{repo + "/rules/branches/" + branch, `.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context`},
 	} {
-		out, err := ghAPI(ctx, q.Dir, ask[0], ask[1])
+		out, err := ghAPIOptional(ctx, q.Dir, ask[0], ask[1])
 		if err != nil {
 			return c, err
 		}

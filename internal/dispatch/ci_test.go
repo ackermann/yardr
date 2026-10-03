@@ -344,3 +344,29 @@ esac
 		t.Fatalf("err %v, want gh's failure", err)
 	}
 }
+
+// GitHub uses 404 for branch policy endpoints when the branch has no
+// protection or applicable ruleset. That is an empty policy, not a failed
+// read (the caller then leaves an unrequired PR for a human).
+func TestGhCITreatsMissingBranchPoliciesAsEmpty(t *testing.T) {
+	bin := t.TempDir()
+	script := `#!/bin/sh
+case "$2" in
+repos/acme/yardr/pulls/17) echo '{"base":"main","head":"` + fixtureSHA + `","state":"open"}' ;;
+repos/acme/yardr/branches/main|repos/acme/yardr/rules/branches/main)
+	echo 'gh: HTTP 404: Branch not protected' >&2
+	exit 1 ;;
+repos/acme/yardr/commits/` + fixtureSHA + `/check-runs*) ;;
+repos/acme/yardr/commits/` + fixtureSHA + `/status*) ;;
+*) echo "unexpected $2" >&2; exit 1 ;;
+esac
+`
+	must(t, os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755))
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	got, err := dispatch.GhCI(context.Background(), dispatch.CIQuery{Repo: "acme/yardr", Number: "17", SHA: fixtureSHA})
+	must(t, err)
+	if len(got.Required) != 0 {
+		t.Fatalf("required checks %q, want none for unprotected base", got.Required)
+	}
+}
