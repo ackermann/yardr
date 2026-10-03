@@ -407,6 +407,33 @@ func TestYardSetUpByHand(t *testing.T) {
 	}
 }
 
+// A directory rig has no git base, but its repository flow still governs it
+// until the import points it at the pack's stored flow.
+func TestDirRigFlowIsReportedBeforeAndAfterImport(t *testing.T) {
+	dir := t.TempDir()
+	flowDir := filepath.Join(dir, ".yardr", "flows")
+	if err := os.MkdirAll(flowDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(flowDir, "default.flow"), []byte("new -> done\ndone terminal\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st := storetest.New(t)
+	if err := st.PutRig(ctx, store.Rig{Name: "web", Path: dir, Kind: store.RigDir}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	o := pack.Options{Rig: "web", Home: t.TempDir()}
+	plan := build(t, st, load(t, starter), o)
+	if len(plan.Governs) == 0 || plan.Governs[0].Now != "default (repo (directory))" || plan.Governs[0].Flow != "starter.default" || plan.Governs[0].Source != "store" {
+		t.Fatalf("flows governing dir rig = %+v", plan.Governs)
+	}
+	if !slices.ContainsFunc(plan.Notes, func(n string) bool {
+		return strings.Contains(n, ".yardr/flows/default.flow") && strings.Contains(n, "governs nothing until the pointer is cleared")
+	}) {
+		t.Fatalf("dir rig repository flow note missing: %v", plan.Notes)
+	}
+}
+
 // yardr route add mints an id per call, so a yard may hold two routes for
 // one rig and stage, and a route to another group cannot be changed in
 // place. The plan replaces them all by one.
