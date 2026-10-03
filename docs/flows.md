@@ -26,18 +26,18 @@ yardr flow list                               # store and repo flows, and what e
 yardr flow show code                          # one named flow and who points at it
 yardr flow rm code                            # refused while a rig, type or open bead uses it
 
-yardr rig flow yard code                      # rig yard's beads follow code
+yardr rig flow yardr code                     # rig yardr's beads follow code
 yardr rig flow webapp code                    # and webapp's
-yardr rig flow yard --type decision decide    # yard's decisions follow decide
-yardr rig flow yard --type decision --clear   # back to the rig's flow
+yardr rig flow yardr --type decision decide   # yardr's decisions follow decide
+yardr rig flow yardr --type decision --clear  # back to the rig's flow
 yardr rig list                                # shows each rig's flow and its source
 
-yardr flow show yard                          # a rig: every flow governing it, per stage
+yardr flow show yardr                         # a rig: every flow governing it, per stage
 ```
 
 Changing a named flow with `flow set` changes it for every rig and type
 pointing at it, and every bead pinning it, at once. `flow rm` names what still uses the flow (`rig
-yard`, `rig yard type decision`, `bead yard-x` for an open bead pinning it)
+yardr`, `rig yardr type decision`, `bead yardr-x` for an open bead pinning it)
 and removes nothing until they point elsewhere.
 
 `rig flow`, setting or clearing a pointer, checks every open bead the
@@ -48,15 +48,15 @@ refused, so a configuration command never moves a bead or leaves one in a
 stage nobody is routed to:
 
 ```
-flow code lacks the stage of open beads in rig yard: yard-x (triage),
-yard-y (triage); advance them to a stage the flow has, or pin them to the
+flow code lacks the stage of open beads in rig yardr: yardr-x (triage),
+yardr-y (triage); advance them to a stage the flow has, or pin them to the
 flow they follow now (yardr bead update <id> --meta flow=<name>), then
 point the rig again
 ```
 
 Clearing a pointer checks against whatever would govern next (the rig's
 pointer, the repository's `type/<type>.flow` or `default.flow`), and
-names that flow per bead (`yard-x (triage, not in flow default)`). A rig
+names that flow per bead (`yardr-x (triage, not in flow default)`). A rig
 whose flows would come from a checkout git cannot read is refused with
 git's error.
 
@@ -66,8 +66,8 @@ bead that follows the name: those a rig's or type's pointer at it reaches
 is named with what leads it to the flow, and the stored flow is kept:
 
 ```
-the new flow code lacks the stage of open beads in rig yard: yard-x
-(triage); in rig webapp type bug: webapp-y (triage); pinning it: yard-z
+the new flow code lacks the stage of open beads in rig yardr: yardr-x
+(triage); in rig webapp type bug: webapp-y (triage); pinning it: yardr-z
 (triage); advance them to a stage it has, or pin them to another flow
 (yardr bead update <id> --meta flow=<name>), then set the flow again
 ```
@@ -165,7 +165,7 @@ and where it came from:
 
 ```
   flow code (store)                       a store pointer for the rig
-  flow yard.decision (store, type decision)
+  flow decide (store, type decision)      a store pointer for the type
   flow default (repo@9bf658a)             the repo's default.flow at that base commit
   flow type/bug (repo@9bf658a, type bug)
   flow hotfix (pin)                       the bead's own pin
@@ -250,7 +250,7 @@ follows the rig's flow. `yardr flow show <rig>` lists the rig's flow first,
 then one per type, and warns about non-terminal stages no route sends
 anywhere: beads there wait for a human.
 
-Type `epic` has its own flow in rig yard, `yardr.epic` (below), for
+Type `epic` has its own flow in rig yardr, `yardr.epic` (below), for
 integrating an epic's branch and landing it on main. Its children follow the
 rig's flow like any bead; what an epic changes for them is only their base,
 see [pipeline.md](pipeline.md#epics).
@@ -264,54 +264,63 @@ works without one, for beads that end outside the flow (the reference
 refinery falls back to it when the flow has no `merged`, see
 [pipeline.md](pipeline.md#4-approved-the-refinery-lands-it-on-main)).
 
-## Worked example: rig yard
+## Worked example: rig yardr
 
-These are the flows yardr itself is built with (`yardr flow show yard`, as of
-2026-10-02). They live in the store as the named flows `yard` and
-`yard.decision` (migrated from the rig and type flows they were), with rig
-yard and its type `decision` pointing at them.
-
-The rig's flow, for code beads (tasks, features, bugs):
+These are the flows yardr itself is built with (`yardr flow show yardr`, as of
+2026-10-03):
 
 ```
-# yard.flow
+flow default (repo@77a3a8f)
+STAGE     GROUP            MEMBERS            OPEN  NEXT
+backlog   backlog          mckean,yardmaster  3     new | decide
+new       yardr-builders   -                  1     review on done | decide on question | backlog
+decide    decisions        mckean,yardmaster  0     backlog | new
+review    yardr-reviewers  -                  0     approved on done | new on changes | decide on question
+approved  yardr-refinery   -                  0     merged on done | new on failed | decide on question
+merged    -                -                  0     (terminal: closes the bead)
+```
+
+The rig's flow is the repository's
+[`.yardr/flows/default.flow`](../.yardr/flows/default.flow), read from main;
+no store pointer overrides it. It governs every bead that is not an epic
+(tasks, features, bugs):
+
+```
+# default.flow
 backlog -> new | decide
-new -> review | backlog | decide
+new -> review on done | decide on question | backlog
+review -> approved on done | new on changes | decide on question
+approved -> merged on done | new on failed | decide on question
 decide -> backlog | new
-review -> approved | new | decide
-approved -> merged | merge | new
-merge -> review | new | decide
 merged terminal
 ```
 
 | stage | group | runner |
 |---|---|---|
-| backlog | `backlog` | manual (humans; the mayor shapes beads here) |
-| new | `yard-builders` | herdr, Claude Code, `prompt=roles/builder.md` |
-| review | `yard-codex-review` | herdr, Codex, `prompt=roles/reviewer.md` |
-| approved | `yard-refinery` | exec, limit 1, [`contrib/refinery/merge-local`](../contrib/refinery/merge-local) |
-| merge | `mergers` | herdr, Claude Code (Sonnet), limit 1, `prompt=roles/merger.md` |
-| decide | `decisions` | manual (Christopher) |
+| backlog | `backlog` | manual (Christopher and the mayor, `yardmaster`, who shapes beads here) |
+| new | `yardr-builders` | herdr, Claude Code, limit 5, `prompt=roles/builder.md` |
+| review | `yardr-reviewers` | herdr, Codex, limit 3, `prompt=roles/reviewer.md` |
+| approved | `yardr-refinery` | exec, limit 1, [`contrib/refinery/merge-local`](../contrib/refinery/merge-local) |
+| decide | `decisions` | manual (Christopher and the mayor) |
 
 The refinery lands an approved bead and advances it to `merged`, which
-closes it; a red gate sends it back to `new`, a conflict to `merge`. The
-merger sends a resolved rebase to `review`, where the reviewer checks only
-its conflict resolution before returning it to `approved`
-([pipeline.md](pipeline.md#5-merge-a-merger-resolves-conflicts)).
+closes it; a red gate sends it back to `new`. The flow has no `merge`
+stage, so a rebase that conflicts goes back to `new` as well: merge-local
+falls back to the `failed` outcome when the flow refuses `merge`. A flow
+with a `merge` stage and a merger group resolves conflicts without a
+builder ([pipeline.md](pipeline.md#5-merge-a-merger-resolves-conflicts)).
 
-Decision beads follow their own type flow: a human decides, and entering
-`decided` closes the bead.
-
-```
-# yard.decision.flow
-decide -> decided
-decided terminal
-```
+Before the rename the rig was `yard`, and its flows lived in the store as
+the named flows `yard` and `yard.decision` (migrated from the rig and type
+flows they were), the second a type flow for decision beads (`decide ->
+decided`, `decided terminal`). Rig yardr has neither: a decision is a bead
+in `decide`, closed with the answer as its reason.
 
 Epics follow `yardr.epic`, which the repository carries as
 [`.yardr/flows/yardr.epic.flow`](../.yardr/flows/yardr.epic.flow) (a named
 repo flow, read from main; `yardr rig flow yardr --type epic yardr.epic`
-points the type at it):
+points the type at it, which `flow show` prints as `flow yardr.epic (store,
+type epic, from repo@77a3a8f)`):
 
 ```
 # yardr.epic.flow
@@ -326,15 +335,22 @@ decide -> open | backlog
 merged terminal
 ```
 
+Rig yardr has the flow but, as of 2026-10-03, only the rig's stage routes:
+an epic in `backlog`, `review`, `approved` or `decide` goes to the same
+group as any bead, and `open`, `merge`, `in-pr` and `land` have no route
+(`flow show` warns for each: beads there wait for a human). The groups in
+the table that the rig lacks are the ones
+[pipeline.md](pipeline.md#setup-2) sets up.
+
 | stage | group | runner |
 |---|---|---|
 | backlog | `backlog` | manual (the mayor adds children, then advances to open) |
-| open | `yard-integrators` (route `--type epic`, priority 10) | exec, limit 1, [`contrib/refinery/integrate-epic`](../contrib/refinery/integrate-epic) |
-| review | `yard-codex-review` | as for any bead; the brief says it is an epic and gives the range |
-| approved | `yard-pr` (route `--type epic`, priority 10) | exec, limit 1, [`contrib/refinery/pr-epic`](../contrib/refinery/pr-epic) with `YARDR_PR=1`; by default, `yard-refinery` and merge-local as for any bead |
-| in-pr | `decisions` (route `--type epic`), PR path only | manual: `yardr bead done <epic>` means "merge it" |
-| land | `yard-pr-merge` (route `--type epic`), PR path only | exec, limit 1, [`contrib/refinery/pr-merge`](../contrib/refinery/pr-merge) with `YARDR_PR=1` |
-| merge | `mergers` | as for any bead, on branch `yard/<epic>`; `done` goes back to `open`, where the integrator gates and pushes it again |
+| open | none yet; `yardr-integrators` (route `--type epic`, priority 10) | exec, limit 1, [`contrib/refinery/integrate-epic`](../contrib/refinery/integrate-epic) |
+| review | `yardr-reviewers` | as for any bead; the brief says it is an epic and gives the range |
+| approved | `yardr-refinery` | merge-local, as for any bead; on the PR path `yardr-pr` (route `--type epic`, priority 10): exec, limit 1, [`contrib/refinery/pr-epic`](../contrib/refinery/pr-epic) with `YARDR_PR=1` |
+| in-pr | none yet; `decisions` (route `--type epic`), PR path only | manual: `yardr bead done <epic>` means "merge it" |
+| land | none yet; `yardr-pr-merge` (route `--type epic`), PR path only | exec, limit 1, [`contrib/refinery/pr-merge`](../contrib/refinery/pr-merge) with `YARDR_PR=1` |
+| merge | none yet; `mergers` | herdr, Claude Code, `prompt=roles/merger.md`, on branch `yard/<epic>`; `done` goes back to `open`, where the integrator gates and pushes it again |
 | decide | `decisions` | manual |
 
 An epic waits in `open` while any child is open: each child blocks it
@@ -343,7 +359,7 @@ Where `new` is a bead's way back to its builders, `open` is an epic's: the
 fix is a new child, which blocks the epic until it lands.
 
 An epic lands one of two ways from `approved`. Locally, the default (no
-`YARDR_PR`, `approved` routed to `yard-refinery`): merge-local
+`YARDR_PR`, `approved` routed to `yardr-refinery`): merge-local
 fast-forwards main and advances the epic straight to `merged` by the bare
 edge, which no outcome offers, so an agent reporting `done` in `approved`
 always means the PR path. Through a pull request, experimental and off

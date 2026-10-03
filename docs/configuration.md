@@ -251,8 +251,8 @@ defaults to the rig's directory. A dir rig without one passes with "no
 gate": nothing of it merges anywhere, so there is no bar to lower.
 
 ```
-yardr rig check yard                                      # in the rig
-yardr rig check yard --dir ~/.yardr/worktrees/yard/yard-12   # in a bead's worktree
+yardr rig check yardr                                     # in the rig
+yardr rig check yardr --dir ~/.yardr/worktrees/yardr/yardr-k3f9   # in a bead's worktree
 ```
 
 prints the tail of the output (`--tail N`, default 40; a red gate whose
@@ -267,6 +267,11 @@ Builders run it before handing on, and the refinery runs it too:
 [`contrib/refinery/merge-local`](../contrib/refinery/merge-local) runs
 `yardr rig check` on exactly what will land, after any rebase, and sends a
 red gate back to `new` (see [pipeline.md](pipeline.md#4-approved-the-refinery-lands-it-on-main)).
+
+yardr's own CI (`.github/workflows/ci.yml`) runs the same script, on pushes
+to main and on pull requests. CI runs on ubuntu only; macOS is covered by
+the refinery's gate on the yard's own Mac at every landing (decided 3 Oct,
+see yardr-msjd).
 
 The gate runs the branch's own code, tests included: it is fixed by the
 base, but what it runs is not. A branch that deletes or weakens its tests

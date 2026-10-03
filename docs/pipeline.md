@@ -2,23 +2,20 @@
 
 yardr builds no pipeline in: stages, groups, routes and a flow compose one.
 This page follows a bead through the pipeline yardr itself is built with
-(rig yard, as of 2026-10-02). Its flows are in [flows.md](flows.md#worked-example-rig-yard).
+(rig yardr, as of 2026-10-03). Its flows are in [flows.md](flows.md#worked-example-rig-yardr).
 
 ```
 backlog ──mayor shapes──▶ new ──builder──▶ review ──Codex──▶ approved ──refinery──▶ merged on main
    ▲                       ▲                 │                  │
    │                       └──── changes ────┘                  │
-   │                       └───────────────── red check ────────┘
-   │                       └── can't keep both ── merge ── merger ──▶ review
-   │                                              ▲           │
-   │                                              └─ conflict ┘
-   └──────── decide (Christopher) ◀── a question from backlog, new, review or merge
+   │                       └────────── red check or conflict ───┘
+   └──────── decide (Christopher) ◀── a question from backlog, new, review or approved
 ```
 
 ## 1. Backlog: the mayor shapes the bead
 
 New ideas land in stage `backlog`, routed to the manual group `backlog`. The
-mayor (a resident, see [residents.md](residents.md), prompt this repo's
+mayor (the resident `yardmaster`, see [residents.md](residents.md), prompt this repo's
 `.yardr/roles/mayor.md`) reads them and shapes each one until a builder could finish
 it without asking: a goal, where to look, what "done" means and how to test
 it. Large beads are split, and `yardr dep add` orders them: a bead is only
@@ -29,11 +26,11 @@ Christopher can do the same from `yardr review -g backlog`.
 
 ## 2. New: a builder implements it
 
-`new` is routed to `yard-builders`: a herdr group running Claude Code with
+`new` is routed to `yardr-builders`: a herdr group running Claude Code with
 `prompt=roles/builder.md` (this repo's `.yardr/roles/builder.md`, as on
-main), at most 2 at a time. The daemon opens a worktree
+main), at most 5 at a time. The daemon opens a worktree
 on branch `yard/<bead>`, starts the agent in it and hands it a brief: the
-role prompt, the bead, and the stages it may move to next.
+role prompt, the bead, and the outcomes its stage offers.
 
 **How agents are attributed.** The agent runs in a herdr tab created with
 its identity in the environment: `YARDR_ACTOR` (the agent's name,
@@ -65,11 +62,11 @@ decision on a bead that moved or changed since. Every move takes
 `--revision <rev>` for the same compare-and-swap, as BDP writes take
 `If-Match`.
 
-The builder implements the change, runs the gate (`yardr rig check yard
+The builder implements the change, runs the gate (`yardr rig check yardr
 --dir <worktree>`, which runs `.yardr/check` from fetched `origin/main`:
 `go vet`, `go test -race`, the RPC suites), commits on its branch (never
 pushes or merges), leaves a note with what it changed and verified, and
-advances to `review`.
+reports `yardr bead done`, which the flow sends to `review`.
 
 ### What the gate does not catch
 
@@ -83,18 +80,22 @@ gate are this same check.
 
 ## 3. Review: Codex reviews forward
 
-`review` is routed to `yard-codex-review`: Codex in the same worktree, with
-the reviewer prompt from `~/.yardr/roles/reviewer.md`. It is the last review
+`review` is routed to `yardr-reviewers`: Codex in the same worktree, with
+the reviewer prompt from this repo's `.yardr/roles/reviewer.md`. It is the last review
 before merge, so it fixes what it can on the branch (commits starting
 `review:`) rather than only reporting, re-runs the checks and then:
 
-- **approves**: a note with what it checked and fixed, then `--to approved`;
-- **sends back**: concrete findings, then `--to new`; the bead returns to
+- **approves**: a note with what it checked and fixed, then `yardr bead
+  done` (to `approved`);
+- **sends back**: concrete findings, then `--outcome changes` (to `new`);
+  the bead returns to
   the builders, in the same worktree. After two send-backs it holds the bead
   instead of a third, so the mayor looks;
-- **asks**: a question only Christopher can answer goes `--to decide`.
+- **asks**: a question only Christopher can answer goes to `decide`
+  (`--outcome question`).
 
-When a merger sends a bead back for a `merge re-review`, the reviewer records
+In a flow with a `merge` stage (section 5; rig yardr's has none), when a
+merger sends a bead back for a `merge re-review`, the reviewer records
 the old tip from the merger's note and runs
 `git range-diff <base>...<old-tip> <base>...HEAD`. It checks only the
 conflict-resolution changes: that both sides' intent was kept, the merger's
@@ -110,7 +111,7 @@ several beads funnel into, or a direct merge. The refinery is not built in;
 it is a composition. A stage (`approved`) is routed to an `exec` group whose
 script does the landing, and `--limit 1` on the group makes it a serial merge
 queue. yardr provides the mechanism and ships one reference script,
-[`contrib/refinery/merge-local`](../contrib/refinery/merge-local); rig yard
+[`contrib/refinery/merge-local`](../contrib/refinery/merge-local); rig yardr
 uses it to merge directly to `main`.
 
 **The mechanism.** The exec runner starts the script in the rig with
@@ -132,7 +133,8 @@ the session and the daemon stops the script, so it is the script's last step.
 
 1. rebases `yard/<bead>` onto the base in the bead's worktree, if the base
    moved; on a conflict it aborts the rebase and advances to `merge` with the
-   conflicting files (section 5), or to `new` if the flow has no `merge`;
+   conflicting files (section 5), or to `new` if the flow has no `merge`,
+   as in rig yardr;
 2. runs the gate on exactly what will land, every time, including after a
    merger's rebase, and records the commit it ran on; red (exit 1) reports
    the outcome `failed` (to `new`; to `open` for an epic), or advances to
@@ -162,17 +164,17 @@ held: merge-local lands only on local branches.
 
 ```sh
 install contrib/refinery/merge-local ~/.yardr/scripts/    # from main
-yardr group add yard-refinery --runner exec --limit 1 \
-  --set cmd='YARDR_PUSH=origin ~/.yardr/scripts/merge-local' \
+yardr group add yardr-refinery --runner exec --limit 1 \
+  --set cmd='YARDR_PUSH=origin YARDR_NOTIFY=yardmaster ~/.yardr/scripts/merge-local' \
   --set log="$HOME/.yardr/logs/refinery.log"
-yardr route add --stage approved --group yard-refinery --rig yard
+yardr route add --stage approved --group yardr-refinery --rig yardr
 ```
 
 The script is installed from `main` rather than run from a checkout: a bead
 branch must not change how it is landed. The flow gains `merged`:
 
 ```
-approved -> merged | merge | new
+approved -> merged on done | new on failed | decide on question
 merged terminal
 ```
 
@@ -201,6 +203,12 @@ builders keep advancing beads through it
 
 ## 5. Merge: a merger resolves conflicts
 
+Rig yardr does not run this stage as of 2026-10-03: its flow has no
+`merge`, so a conflict goes back to `new`. The rig it was before the rename
+did, and the merger's role is still in the repository
+(`.yardr/roles/merger.md`); this section is how the stage works where it is
+set up.
+
 Two of the first 22 landings conflicted with what had landed since their
 branch was made. Sending those back to `new` cost a full builder and Codex
 cycle for what is usually a mechanical rebase, so a conflict goes to `merge`
@@ -215,7 +223,7 @@ clean) and:
 2. resolves each conflict keeping the intent of both sides, from the bead and
    its notes on one side and the base's commits on the file
    (`git log -p <merge-base>..main -- <file>`) on the other;
-3. runs the gate, `yardr rig check yard --dir .`;
+3. runs the gate, `yardr rig check yardr --dir .`;
 4. leaves one `merge re-review:` note naming the old tip, each conflict and
    its resolution, and reports `yardr bead done`, which the flow sends to
    `review`.
@@ -237,21 +245,21 @@ its placement on `main`, needs work.
 
 ### Setup
 
-The mayor wires this in the store; nothing in `~/.yardr` is versioned:
+The mayor would wire this in the store; nothing in `~/.yardr` is versioned:
 
 ```sh
 yardr group add mergers --runner herdr --limit 1 \
   --set kind=claude --set model=sonnet --set prompt=roles/merger.md \
-  --set args='--permission-mode auto'      # as yard-builders: it works unattended
-yardr route add --stage merge --group mergers --rig yard
+  --set args='--permission-mode auto'      # as yardr-builders: it works unattended
+yardr route add --stage merge --group mergers --rig yardr
 ```
 
-The flow gains two rules (the rest of [`yard.flow`](flows.md#worked-example-rig-yard)
+The flow gains two rules (the rest of [`default.flow`](flows.md#worked-example-rig-yardr)
 is unchanged), with outcomes so the merger reports how the merge ended
 instead of naming stages:
 
 ```
-approved -> merged on done | new on failed | merge on conflict
+approved -> merged on done | new on failed | merge on conflict | decide on question
 merge -> review on done | new on rework | decide on question
 ```
 
@@ -292,15 +300,16 @@ stopped anyway and the bead released with a note; see
 
 ## Decide
 
-`decide` is routed to the manual group `decisions`. Backlog, new and review may
+`decide` is routed to the manual group `decisions`. Backlog, new, review and approved may
 send a bead there with the question and the options written into the bead. Christopher
 answers in `yardr review -g decisions` (or with a note and
 `yardr bead advance`), and the bead goes back to `backlog` or `new`.
 
-Decisions that are not about one piece of code are beads of type `decision`,
-created straight into `decide`; their type flow has one move, to the terminal
-stage `decided`, which closes the bead. yard-17, which settled the
-repo/store split in [configuration.md](configuration.md), is one.
+Decisions that are not about one piece of code are beads created straight
+into `decide` and closed with the answer as the reason. The rig before the
+rename gave them a type of their own, `decision`, whose type flow had one
+move, to the terminal stage `decided`; yard-17, which settled the
+repo/store split in [configuration.md](configuration.md), was one.
 
 ## Epics
 
@@ -309,7 +318,7 @@ unit. It is a bead of type `epic`; its children are the beads with a
 `parent` edge from it:
 
 ```sh
-yardr bead create "Epics" -t epic -r yard
+yardr bead create "Epics" -t epic -r yardr
 yardr dep add <epic> <child> -k parent
 ```
 
@@ -346,7 +355,7 @@ bead's epic in an EPIC column after the bead (empty for a bead with no
 epic), and their `--json` rows carry it as `epic`. `yardr bead list --epic
 <epic>` lists only that epic, first, and its children. In herdr, a child's
 workspace is labelled `<group> [<epic>] <bead>` (e.g. `builders [sv6b]
-2cet` for `yard-2cet`) and any other bead's `<group> <bead>` (`builders
+2cet` for `yardr-2cet`) and any other bead's `<group> <bead>` (`builders
 cbdc`): the workspace sits under the rig's node, so the rig prefix is
 trimmed from the ids and the group, and the group goes by its `label`
 config when set ([groups.md](groups.md#herdr-setup)). The workspace is
@@ -360,17 +369,21 @@ child closes; `dep rm <epic> <child> -k parent` removes both edges.
 
 ### The epic's own flow
 
-An epic follows `yardr.epic` ([flows.md](flows.md#worked-example-rig-yard)):
+An epic follows `yardr.epic` ([flows.md](flows.md#worked-example-rig-yardr)).
+As of 2026-10-03 rig yardr has the flow but not the groups for it: `open`,
+`merge`, `in-pr` and `land` have no route, so an epic there waits for a
+human until the [setup below](#setup-2) is done. The steps describe the
+path with that setup:
 
 1. **backlog**: the mayor shapes the epic and adds its children, then
    advances it to `open`.
 2. **open**: the epic waits while any child is open (they block it). When
    the last child closes it is ready, and the route for type `epic` in
-   `open` sends it to `yard-integrators`, an exec group running
+   `open` sends it to `yardr-integrators`, an exec group running
    [`contrib/refinery/integrate-epic`](../contrib/refinery/integrate-epic).
    The integrator fetches the base when it is a remote's, rebases
    `yard/<epic>` onto the rig's base in the epic's worktree, runs the gate
-   on it (`yardr rig check yard --dir <worktree>`, the gate read from main),
+   on it (`yardr rig check yardr --dir <worktree>`, the gate read from main),
    pushes the rebased branch when `YARDR_PUSH` is set (replacing the remote
    branch only when everything on it was in what it rebased, or in a
    recorded old tip; step 5), and reports `done`, to review. A red gate
@@ -393,12 +406,12 @@ An epic follows `yardr.epic` ([flows.md](flows.md#worked-example-rig-yard)):
    event, with the count. The count is read from the epic's events, so a
    restarted daemon keeps waiting; it starts over when the epic enters the
    stage any other way or a human un-holds it.
-3. **review**: `yard-codex-review` reviews the whole diff, `<base>..yard/<epic>`:
+3. **review**: `yardr-reviewers` reviews the whole diff, `<base>..yard/<epic>`:
    the epic's brief says it is an epic, names its children and gives the
    range. Changes go back to `open` (`--outcome changes`) after adding the
    fix as a child; without one the epic would be integrated again unchanged.
 4. **approved**: the epic lands, through a pull request (below) or
-   locally: `yard-refinery` and merge-local land `yard/<epic>` on the rig's
+   locally: `yardr-refinery` and merge-local land `yard/<epic>` on the rig's
    base exactly as a bead's branch (BaseOf(epic) is the rig's base) and
    advance it to `merged` by the flow's bare `approved -> merged` edge. A
    red gate there reports the flow's `failed` outcome, which for an epic is
@@ -427,7 +440,7 @@ An epic follows `yardr.epic` ([flows.md](flows.md#worked-example-rig-yard)):
 
 **Experimental, and off by default.** An epic lands locally (step 4 above)
 unless `YARDR_PR=1` is in the cmd of every group on this path: the
-integrators, `yard-pr` and `yard-pr-merge`. Without it integrate-epic opens
+integrators, `yardr-pr` and `yardr-pr-merge`. Without it integrate-epic opens
 no pull request, and pr-epic and pr-merge hold the epic with a note naming
 the switch, before pushing, merging or asking GitHub anything, so a stray
 route or a move by hand does not start the path: nothing reports `done` in
@@ -469,7 +482,7 @@ commit, pushed after the review, is not merged, and the epic is held in
 `land` with a note naming both shas. CI is read for that commit too
 ([GitHub events](#github-events)).
 
-- **open**, `yard-integrators`: after pushing the rebased branch (it needs
+- **open**, `yardr-integrators`: after pushing the rebased branch (it needs
   `YARDR_PUSH`; set without it, the epic is held), integrate-epic opens a
   PR for `yard/<epic>`, titled `<epic title> (<id>)`, its body the epic's
   body, a "Children" list (ids and titles) and the trailer `Epic: <id>`; if
@@ -483,7 +496,7 @@ commit, pushed after the review, is not merged, and the epic is held in
   fails reports `failed`, back to `open`, so the next integration retries,
   each time after a longer wait (step 2 above); a remote branch with
   commits the epic lacks is held.
-- **approved**, `yard-pr`
+- **approved**, `yardr-pr`
   ([`contrib/refinery/pr-epic`](../contrib/refinery/pr-epic), with
   `YARDR_PR=1`; held without it): pushes
   `yard/<epic>`, which may carry the reviewer's commits (with a lease: a
@@ -492,13 +505,13 @@ commit, pushed after the review, is not merged, and the epic is held in
   commit as `pr_reviewed_sha`, and reports `done`,
   to `in-pr`. No bound PR, a refused push, or a PR GitHub reports as
   conflicting with the base reports `failed`, to `open`, for the integrator.
-- **in-pr**, `decisions` (members mckean, mayor): a manual stage. Look at
+- **in-pr**, `decisions` (members mckean, yardmaster): a manual stage. Look at
   the PR and its checks; `yardr bead done <epic>` means "merge it" (to
   `land`), `--outcome changes` sends it back to `open` (add the fix as a
   child first), `--outcome question` to `decide`. The daemon does this
   itself when the required checks of the reviewed commit are green
   (below).
-- **land**, `yard-pr-merge`
+- **land**, `yardr-pr-merge`
   ([`contrib/refinery/pr-merge`](../contrib/refinery/pr-merge), with
   `YARDR_PR=1`; held without it): runs `gh
   pr merge <pr_url> --rebase --delete-branch --match-head-commit
@@ -543,7 +556,7 @@ is held, and is read when it is un-held.
 3. **PR merged** (`pr_merged`): `pull_request` `closed` with `merged`
    true. From `land` the epic is reported `done`, to `merged`; from `in-pr`
    (merged by hand) it goes `land` then `merged`; from `approved` by the
-   bare edge to `merged`. An epic in `land` whose yard-pr-merge session is
+   bare edge to `merged`. An epic in `land` whose yardr-pr-merge session is
    still running is left to it, as it has the rig's checkout to fast-forward.
    Merged by hand, the checkout catches up at the next fetch. **PR closed
    unmerged** (`pr_closed`): an epic in `in-pr` or `review` goes to `decide`
@@ -573,7 +586,7 @@ statuses on that commit, the latest of each name. Then:
 - **green**, every required check is there and concluded `success`
   (`neutral` and `skipped` count as GitHub counts them): the epic goes to
   `land` with the note "CI green on <sha>: <checks> (the checks <base>
-  requires)", and yard-pr-merge merges it, in the same pass;
+  requires)", and yardr-pr-merge merges it, in the same pass;
 - **red**, a required check concluded `failure`, `timed_out` or
   `startup_failure`, also while others still run: a child "Fix CI on epic
   <id>: <checks>" as above (one per commit), and the epic goes to `open`;
@@ -639,7 +652,7 @@ reports `failed`, to `open`, and the next integration tries again).
 
 `gh` (logged in as the operator) and `jq` must be on the scripts' PATH.
 Without `YARDR_PR`, the default, route `approved` for epics to
-`yard-refinery` (or leave the stage route alone) and nothing else changes:
+`yardr-refinery` (or leave the stage route alone) and nothing else changes:
 merge-local lands the epic locally and advances it to `merged`, the bare
 edge kept for it.
 
@@ -648,10 +661,10 @@ edge kept for it.
 ```sh
 install contrib/refinery/integrate-epic ~/.yardr/scripts/   # from main
 yardr rig flow yardr --type epic yardr.epic                  # the repo's .yardr/flows/yardr.epic.flow
-yardr group add yard-integrators --runner exec --limit 1 \
+yardr group add yardr-integrators --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin ~/.yardr/scripts/integrate-epic' \
   --set log="$HOME/.yardr/logs/integrator.log"
-yardr route add --stage open --type epic --rig yard --group yard-integrators --priority 10
+yardr route add --stage open --type epic --rig yardr --group yardr-integrators --priority 10
 ```
 
 Through pull requests (experimental, see above), every cmd on the path
@@ -659,22 +672,22 @@ carries `YARDR_PR=1`:
 
 ```sh
 install contrib/refinery/pr-epic contrib/refinery/pr-merge ~/.yardr/scripts/   # from main
-yardr group add yard-integrators --runner exec --limit 1 \
+yardr group add yardr-integrators --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin YARDR_PR=1 ~/.yardr/scripts/integrate-epic' \
   --set log="$HOME/.yardr/logs/integrator.log"
-yardr group add yard-pr --runner exec --limit 1 \
+yardr group add yardr-pr --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin YARDR_PR=1 ~/.yardr/scripts/pr-epic' \
   --set log="$HOME/.yardr/logs/pr.log"
-yardr group add yard-pr-merge --runner exec --limit 1 \
+yardr group add yardr-pr-merge --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin YARDR_PR=1 ~/.yardr/scripts/pr-merge' \
   --set log="$HOME/.yardr/logs/pr-merge.log"
-yardr route add --stage approved --type epic --rig yard --group yard-pr --priority 10
-yardr group add decisions --runner manual --limit 50 --members mckean,mayor,yard   # yard: the github rules
-yardr route add --stage in-pr --type epic --rig yard --group decisions
-yardr route add --stage land --type epic --rig yard --group yard-pr-merge
+yardr route add --stage approved --type epic --rig yardr --group yardr-pr --priority 10
+yardr group add decisions --runner manual --limit 50 --members mckean,yardmaster,yard   # yard: the daemon, for the github rules
+yardr route add --stage in-pr --type epic --rig yardr --group decisions
+yardr route add --stage land --type epic --rig yardr --group yardr-pr-merge
 ```
 
-The reviewer's prompt (`~/.yardr/roles/reviewer.md`) has a short section on
+The reviewer's prompt (`.yardr/roles/reviewer.md`) has a short section on
 reviewing an epic as a whole, and on reviewing it on its pull request: the
 reviewer pushes its fix-forward commits to `yard/<epic>` with a lease (the
 one branch any role pushes; the merger does not push even that one, the
@@ -683,12 +696,3 @@ refuses `--approve` and `--request-changes` from the login that opened the
 PR, which is the operator's, the same login the reviewer's `gh` uses: on
 its own PR the reviewer posts a `--comment` with the verdict in the note's
 first line, and the yard learns the verdict from `yardr bead done`.
-
-## Planned changes to this pipeline
-
-- The rig's flow names outcomes (`new -> review on done | decide on
-  question`, see [flows.md](flows.md#outcomes-agents-say-how-the-work-ended)),
-  so builders, the reviewer and the refinery report `yardr bead done`
-  (`--outcome changes`, `--outcome question`) instead of naming stages.
-  `bead done` and outcomes are built (yard-qexg); the live flow, the reviewer
-  prompt and the refinery script move to them once it lands.

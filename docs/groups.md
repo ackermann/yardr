@@ -80,7 +80,7 @@ not a resident's.
 | runner | starts | config |
 |---|---|---|
 | `manual` | nothing; the bead waits on the group | — |
-| `exec` | `sh -c cmd` in the rig, with `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_ACTOR` (the group); for a bead with a rig also `YARDR_RIG`, `YARDR_RIG_PATH`, `YARDR_BASE` (what the bead lands on: the rig's base, or its epic's branch, see [pipeline.md](pipeline.md#epics)), `YARDR_BRANCH` (`yard/<bead>`), `YARDR_WORKTREE` (where herdr groups check that branch out); and `YARDR_BIN`, `YARDR_HOME` for the script's own `yardr` commands; `YARDR_RIG_KIND` is `git`, or `dir` for a dir rig, whose beads get no base, branch or worktree. A refinery is one ([pipeline.md](pipeline.md#4-approved-the-refinery-lands-it-on-main)), and so is rig yard's `yard-integrators`, which integrates an epic's branch once its children have landed ([pipeline.md](pipeline.md#the-epics-own-flow)) | `cmd`, `dir`, `log`, `worktrees` |
+| `exec` | `sh -c cmd` in the rig, with `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_ACTOR` (the group); for a bead with a rig also `YARDR_RIG`, `YARDR_RIG_PATH`, `YARDR_BASE` (what the bead lands on: the rig's base, or its epic's branch, see [pipeline.md](pipeline.md#epics)), `YARDR_BRANCH` (`yard/<bead>`), `YARDR_WORKTREE` (where herdr groups check that branch out); and `YARDR_BIN`, `YARDR_HOME` for the script's own `yardr` commands; `YARDR_RIG_KIND` is `git`, or `dir` for a dir rig, whose beads get no base, branch or worktree. A refinery is one ([pipeline.md](pipeline.md#4-approved-the-refinery-lands-it-on-main)), and so is an integrator such as `yardr-integrators`, which integrates an epic's branch once its children have landed ([pipeline.md](pipeline.md#the-epics-own-flow)) | `cmd`, `dir`, `log`, `worktrees` |
 | `herdr` | a herdr worktree workspace on branch `yard/<bead>` (from the bead's base) at `~/.yardr/worktrees/<rig>/<bead>` (reopened for later stages, one tab per stage), an agent in it, in a tab of its own with `YARDR_ACTOR` (the agent), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_BASE` (what it branches from: the rig's base, or its epic's branch), `YARDR_HOME` and `YARDR_BIN` in its environment, prompted with a brief in the worktree's git dir (`git rev-parse --git-path yardr`); a dir rig's bead works in the directory itself (see [Dir rigs](#dir-rigs)) | `kind`, `prompt`, `args`, `model`, `keep`, `worktrees`, `idle`, `max_age`, `grace`, `stall`, `label`, `env_file`, `trust` |
 
 ### Dir rigs
@@ -136,8 +136,8 @@ entry joins the agent's tab environment next to `YARDR_ACTOR` and the rest;
 a key yardr sets itself is ignored.
 
 ```sh
-yardr group add yard-codex-review --runner herdr --set kind=codex … \
-  --set env_file=~/.yardr/groups/codex-review.env
+yardr group add yardr-reviewers --runner herdr --set kind=codex … \
+  --set env_file=~/.yardr/groups/reviewers.env
 ```
 
 A file that is missing, not a regular file or open to others stops the
@@ -211,11 +211,11 @@ for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`
 - **Labels.** herdr nests each workspace under its rig's node, so labels
   leave the rig out: a bead's workspace is `<group> [<epic>] <bead>` (the
   epic only for a child of one) and its stage's tab `<stage> [<epic>]
-  <bead>`, with `yard-` trimmed from `yard-sv6b`: `builders [sv6b] p4cv`
+  <bead>`, with `yardr-` trimmed from `yardr-sv6b`: `builders [sv6b] p4cv`
   and `new [sv6b] p4cv`, or `builders cbdc` and `new cbdc`. An id that does
   not start with `<rig>-` stays whole, and ids everywhere else in yardr stay
   full. The group appears as its `label` config when set (`--set
-  label=codex` on `yard-codex-review` gives `codex [sv6b] p4cv`), else as
+  label=codex` on `yardr-reviewers` gives `codex [sv6b] p4cv`), else as
   its name without the `<rig>-` prefix. Residents' workspaces are labelled
   with the resident's name.
 - The daemon subscribes to herdr's event stream, so an agent that exits is

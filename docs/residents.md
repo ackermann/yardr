@@ -129,7 +129,7 @@ A resident answers what reached its inbox where it came from, as itself:
 ```sh
 yardr inbox                                   #   4211 10-03 09:14  hook (mentioned) linear comment create by Jane on "Retries": @mayor can you look?
 yardr thread show 4211                        # the whole thread, read from Linear: ids, parents, authors, times, bodies
-yardr reply 4211 "Filed as yard-k3f9; I'll post here when it lands."
+yardr reply 4211 "Filed as yardr-k3f9; I'll post here when it lands."
 yardr reply 4211 --to <message id> - < answer.md   # under another conversation of the thread
 ```
 

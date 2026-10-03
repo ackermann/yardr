@@ -21,9 +21,9 @@ someone else leaves on its journal still reaches it.
 
 ```sh
 yardr subscribe mayor yardr --done                         # every bead that becomes done
-yardr subscribe mayor yardr --done --where rig=yard --where label=ui
+yardr subscribe mayor yardr --done --where rig=yardr --where label=ui
 yardr subscribe mayor yardr --scope involved               # beads it created, advanced or noted, and events @mentioning it
-yardr bead watch yard-k3f9 --resident mayor --done         # this one bead, until it closes
+yardr bead watch yardr-k3f9 --resident mayor --done         # this one bead, until it closes
 yardr subscribe mayor linear --scope involved              # Linear issues it is mentioned in, assigned, or works on
 yardr resident show mayor                                  # lists its subscriptions
 yardr unsubscribe mayor yardr [--scope …] [--where …]
@@ -210,7 +210,7 @@ identity and the webhook below.
 yardr hook add gh --source github --secret-file ~/.yardr/github.secret
 yardr resident identity mayor --source github --key mayor   # its login, lowercase
 yardr subscribe mayor github --scope involved
-yardr subscribe mayor github --scope all --where epic=yard-sv6b --where conclusion=failure
+yardr subscribe mayor github --scope all --where epic=yardr-sv6b --where conclusion=failure
 ```
 
 On GitHub, in the repository's **Settings → Webhooks → Add webhook**:
@@ -247,7 +247,7 @@ Where keys, besides `type`, `action`, `repo` and `label`: `event`, `number`,
 `head_branch`, `head_sha`, `head_repo` (owner/name of the repository the
 head branch is in: a fork's for a fork's pull request or workflow run),
 `base`, and `epic`: the yardr epic
-when the head branch is `yard/<epic>`, so `--where epic=yard-sv6b` follows an
+when the head branch is `yard/<epic>`, so `--where epic=yardr-sv6b` follows an
 epic's pull request and CI without parsing branch names.
 
 ### Redeliveries
