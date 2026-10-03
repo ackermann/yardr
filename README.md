@@ -184,6 +184,7 @@ The rest of the documentation is in [docs/](docs/README.md):
 - **[Subscriptions](docs/subscriptions.md):** what reaches a resident's inbox:
   hook sources, yardr's own bead events (`--done`, `yardr bead watch`), groups.
 - **[BDP](docs/bdp.md):** serving the yard over the Beads Protocol.
+- **[Web view](docs/web.md):** `yardr web serve`, the yard in a browser, read-only.
 
 ## Layout
 
@@ -192,6 +193,7 @@ internal/store      the bbolt store: records, indexes, revisions, event log and 
 internal/dispatch   routing, claims, liveness, teardown (the only control loop)
 internal/runner     manual, exec, herdr
 internal/bdp        the BDP Read server (protocol rules, selector, paging)
+internal/web        the read-only web view (pages as HTML or JSON, embedded assets)
 internal/rpc        the store API over the server's unix socket
 internal/server     the store-owning server process; started on first use
 internal/version    build revisions; notices a new binary installed over a running one

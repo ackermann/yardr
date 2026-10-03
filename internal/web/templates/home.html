@@ -1,0 +1,40 @@
+{{define "content"}}
+{{- with .Data}}
+{{- range .Rigs}}
+<article class="item">
+  <header class="item-head">
+    <h2>{{.Name}}</h2>
+    <span class="label">{{.Kind}} rig</span>
+    <span class="item-count">{{.Open}} open{{if .Held}} · <span class="held">{{.Held}} held</span>{{end}}</span>
+  </header>
+  {{- if .Error}}
+  <p class="held">{{.Error}}</p>
+  {{- end}}
+  {{- range .Flows}}
+  <section class="flow">
+    <h3 class="label">flow {{.Name}}{{if .Type}} · {{.Type}} beads{{end}}</h3>
+    <ol class="stages">
+      {{- range .Stages}}
+      <li{{if not .Open}} class="zero"{{end}}><span class="num">{{.Open}}</span><span class="stage">{{.Stage}}</span></li>
+      {{- end}}
+    </ol>
+  </section>
+  {{- else}}
+  {{- if not .Error}}<p class="faint">No flow governs this rig.</p>{{end}}
+  {{- end}}
+  {{- if .Elsewhere}}
+  <section class="flow">
+    <h3 class="label">off the flow</h3>
+    <ol class="stages">
+      {{- range .Elsewhere}}
+      <li><span class="num">{{.Open}}</span><span class="stage">{{.Stage}}</span></li>
+      {{- end}}
+    </ol>
+  </section>
+  {{- end}}
+</article>
+{{- else}}
+<p class="item faint">This yard has no rig yet.</p>
+{{- end}}
+{{- end}}
+{{end}}

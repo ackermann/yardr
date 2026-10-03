@@ -1,0 +1,22 @@
+{{- /* The right column, and the line page that stands in for it on a phone. */ -}}
+{{define "aside"}}
+<section class="panel">
+  <h2 class="label">Waits for you</h2>
+  <p class="faint">Not built yet.</p>
+</section>
+<section class="panel">
+  <h2 class="label">The line</h2>
+  <dl class="figures">
+    <div><dt>open</dt><dd>{{.Open}}</dd></div>
+    <div><dt><span class="dot working"></span>working</dt><dd>{{.Working}}</dd></div>
+    <div><dt><span class="dot held"></span>held</dt><dd>{{.Held}}</dd></div>
+  </dl>
+  {{- if .Rigs}}
+  <ul class="rows">
+    {{- range .Rigs}}
+    <li><span>{{.Name}}</span><span class="num{{if not .Open}} zero{{end}}">{{.Open}}</span></li>
+    {{- end}}
+  </ul>
+  {{- end}}
+</section>
+{{end}}

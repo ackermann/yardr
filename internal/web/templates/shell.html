@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+{{- /* htmx would add a <style> of its own, which the page's policy refuses. */}}
+<meta name="htmx-config" content='{"includeIndicatorStyles":false,"allowEval":false}'>
+<title>{{.Title}} · {{.Yard}}</title>
+<link rel="stylesheet" href="{{asset "yard.css"}}">
+<script src="{{asset "htmx.min.js"}}" defer></script>
+<script src="{{asset "htmx-ext-sse.min.js"}}" defer></script>
+</head>
+<body>
+<div class="shell">
+  <nav class="menu" aria-label="Pages">
+    <a class="yard" href="/">{{.Yard}}</a>
+    <ul>
+      {{- range .Entries}}
+      <li{{if .Aside}} class="aside-entry"{{end}}><a href="{{.Path}}"{{if eq .Name $.Menu}} aria-current="page"{{end}}>{{.Label}}</a></li>
+      {{- end}}
+    </ul>
+  </nav>
+  <main class="centre" id="centre">
+    <header class="page-head"><h1>{{.Title}}</h1></header>
+    {{template "content" .}}
+  </main>
+  <aside class="right" aria-label="The line">
+    {{- if .Aside}}{{template "aside" .Aside}}{{end}}
+  </aside>
+</div>
+</body>
+</html>
