@@ -266,18 +266,19 @@ refinery falls back to it when the flow has no `merged`, see
 
 ## Worked example: rig yardr
 
-These are the flows yardr itself is built with (`yardr flow show yardr`, as of
-2026-10-03):
+This is the rig flow yardr reports in `yardr flow show yardr` (as of
+2026-10-03). The live `OPEN` counts are omitted because they change as beads
+move:
 
 ```
 flow default (repo@2c2a589)
-STAGE     GROUP            MEMBERS            OPEN  NEXT
-backlog   backlog          mckean,yardmaster  4     new | decide
-new       yardr-builders   -                  1     review on done | decide on question | backlog
-decide    decisions        mckean,yardmaster  0     backlog | new
-review    yardr-reviewers  -                  1     approved on done | new on changes | decide on question
-approved  yardr-refinery   -                  0     merged on done | new on failed | decide on question
-merged    -                -                  0     (terminal: closes the bead)
+STAGE     GROUP            MEMBERS            NEXT
+backlog   backlog          mckean,yardmaster  new | decide
+new       yardr-builders   -                  review on done | decide on question | backlog
+decide    decisions        mckean,yardmaster  backlog | new
+review    yardr-reviewers  -                  approved on done | new on changes | decide on question
+approved  yardr-refinery   -                  merged on done | new on failed | decide on question
+merged    -                -                  (terminal: closes the bead)
 ```
 
 The rig's flow is the repository's
