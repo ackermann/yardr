@@ -171,8 +171,16 @@ copy either way, and every copy is installed all the same.
 per flow, stage file and role, with where it comes from and the rig's file
 it shadows ([configuration.md](configuration.md#where-a-rigs-flows-stage-files-and-roles-come-from)).
 
+`yardr rig source <rig> role <group|resident> rig|pack` switches one of
+them afterwards, without a new import: it sets the prompt to the rig's role
+or to the pack's copy, prints the line as `rig sources` then has it, and
+refuses when the rig has no such role or no pack of the rig installed one
+([configuration.md](configuration.md#switching-one-of-them)).
+
 The record remembers which of the two was chosen (`roles` in `yardr pack
-list`), and an import without the flag repeats it. `--pack-roles` chooses
+list`), and an import without the flag repeats it, for every role: one
+switched the other way by `yardr rig source` is set back, and that command
+says so when it applies. `--pack-roles` chooses
 the pack's roles again after an import with `--rig-roles`; it is the default
 otherwise, and says so in one line.
 
@@ -202,7 +210,10 @@ init` writes) is governed by the pack's flow once the import has pointed it
 there, and its `type/<type>.flow` files stop governing too. The files stay
 and govern again when the pointer is cleared (`yardr rig flow <rig>
 --clear`). `yardr rig sources <rig>` names each of them, and the stage files
-beside them, as shadowed. The plan says which flow would govern the rig's beads and each
+beside them, as shadowed. `yardr rig source <rig> flow [--type <type>]
+rig|pack` moves the rig between the two: `rig` clears the pointer, `pack`
+points it at the pack's flow again, and either way the flow switches whole,
+its stage files with it. The plan says which flow would govern the rig's beads and each
 type's afterwards, and which does now. A type pointer the pack has no flow
 for is left alone.
 

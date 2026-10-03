@@ -378,7 +378,7 @@ the beads and sessions named: close or move the beads first.`,
 			})
 		},
 	}
-	cmd.AddCommand(add, list, show, flow, rm, a.rigCheckCmd(), a.rigInitCmd(), a.rigSourcesCmd())
+	cmd.AddCommand(add, list, show, flow, rm, a.rigCheckCmd(), a.rigInitCmd(), a.rigSourcesCmd(), a.rigSourceCmd())
 	return cmd
 }
 

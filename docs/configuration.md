@@ -256,9 +256,66 @@ the rig could take instead.
 
 `--json` prints the lines as data: `kind`, `name`, `flow`, `type`,
 `source`, `pack`, `path`, `commit`, `shadows`, `available`, `error`. The
-view changes nothing: `yardr rig flow` sets and clears the pointer, and
-`yardr pack apply --rig-roles` or `--pack-roles` chooses the roles
-([packs.md](packs.md#how-a-pack-maps-to-the-yard)).
+view changes nothing.
+
+#### Switching one of them
+
+`yardr rig source` switches one line between the rig's repository and the
+pack imported into the rig, and prints the line as it is afterwards:
+
+```
+$ yardr rig source yardr role yardr-reviewers rig
+KIND  NAME             SOURCE
+role  yardr-reviewers  rig (.yardr/roles/reviewer.md@add63e5)  pack starter has a copy
+note: the import of pack starter chose the pack's roles: the next yardr pack apply sets its role on yardr-reviewers again unless given --rig-roles
+
+$ yardr rig source yardr flow rig
+KIND   NAME    SOURCE
+flow   default rig (.yardr/flows/default.flow@add63e5)        pack starter has flow starter.default
+stage  new     rig (.yardr/flows/default/new.md@add63e5)
+stage  review  rig (.yardr/flows/default/review.md@add63e5)
+the flow switched whole: its stage files are the ones above now
+```
+
+| command | `rig` | `pack` |
+|---|---|---|
+| `yardr rig source <rig> role <group> rig\|pack` | the group's `prompt` becomes `roles/<name>.md`, which resolves to the rig's `.yardr/roles/<name>.md` on the base | it becomes the pack's installed copy, `<home>/packs/<pack>/roles/<name>.md` |
+| `yardr rig source <rig> role <resident> rig\|pack` | the resident's `prompt` becomes the absolute path of `.yardr/roles/<name>.md` in the rig's checkout | as for a group |
+| `yardr rig source <rig> flow [--type <type>] rig\|pack` | the pointer of the rig, or of the type, is cleared: `.yardr/flows/default.flow`, or `type/<type>.flow`, governs | the pointer is set to the flow the pack's import pointed it at |
+
+- The role is the one the prompt names now, by its file name (`builder.md`
+  of `roles/builder.md` or of `~/.yardr/packs/starter/roles/builder.md`). A
+  prompt that names no role is refused: set it yourself (`yardr group
+  add`, `yardr resident add`).
+- A resident is the yard's and reads its prompt as a path, never by a
+  lookup in a rig. Its rig's role is therefore the file in the rig's
+  checkout as it is on disk, not at the base commit, and the line has no
+  commit. A running resident keeps its session; the output names the
+  restart.
+- A flow switches whole: the stage files come from where the flow does, the
+  rig's from beside its flow file and the pack's from the yard's home. No
+  single stage file can be switched.
+- Refused, changing nothing, when the chosen source does not exist: the rig
+  has no such role or flow file on its base (in its directory, for a dir
+  rig), no pack is imported into the rig, or none has the role or a flow
+  for the rig or the type. A type's flow cannot be the rig's file while the
+  rig itself is pointed at a flow, since that pointer stands in front of
+  every flow file: switch the rig's flow first.
+- A flow change is refused as `yardr rig flow` is, naming the beads, while
+  an open bead sits in a stage the new flow lacks
+  ([flows.md](flows.md#named-flows-and-pointers)).
+- Switching to where the object already comes from says `unchanged`.
+  `--json` prints `{"rig", "changed", "lines", "notes"}`, the lines as
+  `rig sources --json` has them.
+- The pack's record still holds the import's choice of roles
+  ([packs.md](packs.md#how-a-pack-maps-to-the-yard)), so the next `yardr
+  pack apply` sets every role by it again. The output has a note when that
+  undoes the switch; give that import `--rig-roles` or `--pack-roles` to
+  make the choice the record's. An import also points the rig at the pack's
+  flow again.
+
+`yardr rig flow` points a rig at any named flow, not only a pack's, and
+`yardr pack apply --rig-roles` or `--pack-roles` chooses every role at once.
 
 ## Repo config comes from the base branch
 

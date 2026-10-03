@@ -81,8 +81,9 @@ while the line is as it is: the flow file behind a store pointer, the stage
 file of a repository flow that does not govern, the rig's own role behind a
 group prompted from elsewhere. yardr rig check names the same files in notes.
 
-This view changes nothing. yardr rig flow sets and clears the flow pointer,
-yardr pack apply --rig-roles or --pack-roles chooses the roles.`,
+This view changes nothing. yardr rig source switches one flow or role
+between the rig's and the pack's; yardr rig flow points the rig at any flow,
+and yardr pack apply --rig-roles or --pack-roles chooses every role at once.`,
 		Example: `  yardr rig sources yard
   yardr rig sources yard --json`,
 		Args: cobra.ExactArgs(1),
@@ -95,28 +96,31 @@ yardr pack apply --rig-roles or --pack-roles chooses the roles.`,
 			if err != nil {
 				return err
 			}
-			return a.out(lines, func() {
-				qualify := false
-				for _, l := range lines {
-					qualify = qualify || (l.Kind == "stage" && l.Type != "")
-				}
-				rows := [][]string{}
-				for _, l := range lines {
-					name := l.Name
-					if l.Kind == "stage" && qualify {
-						// A stage name alone does not say which flow's it is.
-						name = or(l.Type, "default") + ":" + name
-					}
-					row := []string{l.Kind, name, l.where()}
-					if aside := l.aside(); aside != "" {
-						row = append(row, aside)
-					}
-					rows = append(rows, row)
-				}
-				table("KIND\tNAME\tSOURCE", rows)
-			})
+			return a.out(lines, func() { sourceTable(lines) })
 		},
 	}
+}
+
+// sourceTable prints the lines as yardr rig sources lists them.
+func sourceTable(lines []rigSource) {
+	qualify := false
+	for _, l := range lines {
+		qualify = qualify || (l.Kind == "stage" && l.Type != "")
+	}
+	rows := [][]string{}
+	for _, l := range lines {
+		name := l.Name
+		if l.Kind == "stage" && qualify {
+			// A stage name alone does not say which flow's it is.
+			name = or(l.Type, "default") + ":" + name
+		}
+		row := []string{l.Kind, name, l.where()}
+		if aside := l.aside(); aside != "" {
+			row = append(row, aside)
+		}
+		rows = append(rows, row)
+	}
+	table("KIND\tNAME\tSOURCE", rows)
 }
 
 // where says the line's source the way the listing prints it.
@@ -431,21 +435,33 @@ func (b *sourcer) residents() error {
 // a copy of could be the pack's instead.
 func (b *sourcer) role(l *rigSource, src runner.PromptSource) error {
 	l.Path, l.Commit = src.Path, src.Commit
-	switch src.Kind {
-	case runner.PromptRig:
+	// The rig's own role name, which a pack of the rig may have a copy of.
+	rigRole := func(name string) error {
 		l.Source = sourceRig
-		if name, ok := strings.CutPrefix(filepath.ToSlash(src.Path), ".yardr/roles/"); ok {
-			for _, p := range b.packs {
-				if _, err := os.Stat(filepath.Join(b.home, "packs", p.Pack, "roles", name)); err == nil {
-					l.Available = append(l.Available, fmt.Sprintf("pack %s has a copy", p.Pack))
-				}
+		for _, p := range b.packs {
+			if _, err := os.Stat(filepath.Join(b.home, "packs", p.Pack, "roles", name)); err == nil {
+				l.Available = append(l.Available, fmt.Sprintf("pack %s has a copy", p.Pack))
 			}
 		}
+		return nil
+	}
+	switch src.Kind {
+	case runner.PromptRig:
+		if name, ok := strings.CutPrefix(filepath.ToSlash(src.Path), ".yardr/roles/"); ok {
+			return rigRole(name)
+		}
+		l.Source = sourceRig
 		return nil
 	case runner.PromptHome:
 		// Found in the home because the rig has no role of the name.
 		l.Source = sourceHome
 		return nil
+	}
+	// A file of the rig's checkout named by its path, as a resident reads
+	// the rig's role (yardr rig source): the rig's, at no commit.
+	if rel, err := filepath.Rel(b.rig.Path, src.Path); b.rig.Path != "" && err == nil && strings.HasPrefix(filepath.ToSlash(rel), ".yardr/roles/") {
+		l.Path = rel
+		return rigRole(filepath.Base(rel))
 	}
 	l.Source = sourceFile
 	if rel, err := filepath.Rel(b.home, src.Path); b.home != "" && err == nil && filepath.IsLocal(rel) {
