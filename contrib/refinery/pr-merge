@@ -17,9 +17,14 @@
 #   YARDR_PR       1: the switch for the pull-request path; held without it
 #   YARDR_PUSH     the remote the pull request is on (default origin)
 #
-# It runs gh pr merge <pr_url> --rebase --delete-branch, then fetches the
-# remote and fast-forwards the base in the rig's checkout, and reports done
-# (-> merged, which closes the epic). A merge GitHub refuses (checks
+# It runs gh pr merge <pr_url> --rebase --delete-branch --match-head-commit
+# <pr_reviewed_sha>, then fetches the remote and fast-forwards the base in
+# the rig's checkout, and reports done (-> merged, which closes the epic).
+# The sha is the commit pr-epic pushed and stored when the epic entered
+# in-pr: only what the reviewer approved is merged. A pull request whose
+# head is another commit, before the merge or when GitHub refuses it for
+# that, holds the epic, unmerged; an epic with no reviewed sha reports
+# failed. A merge GitHub refuses for anything else (checks
 # pending, review required, conflicts) reports failed (-> open) with gh's
 # message, once: nothing here retries. The rig's checkout must be on the
 # base and clean, or the epic is held before anything is merged; a base
@@ -86,19 +91,39 @@ num=$(printf '%s' "$epic" | jq -r '.metadata.pr_number // empty')
 headrepo=$(printf '%s' "$epic" | jq -r '.metadata.pr_head_repo // empty')
 [ -n "$url" ] && [ -n "$num" ] && [ -n "$headrepo" ] ||
   report failed "no pull request bound to $EPIC (pr_url, pr_number, pr_head_repo): integrating the epic again opens one, or binds the one in pr_url"
-pr=$(cd "$REPO" && gh pr view "$url" --json number,state,headRefName,headRepositoryOwner,headRepository 2>"$errf") ||
+pr=$(cd "$REPO" && gh pr view "$url" --json number,state,headRefName,headRefOid,headRepositoryOwner,headRepository 2>"$errf") ||
   report failed "reading pull request $url failed: $(cat "$errf")"
 is="#$(printf '%s' "$pr" | jq -r .number) from $(printf '%s' "$pr" | jq -r 'if .headRepositoryOwner.login and .headRepository.name then .headRepositoryOwner.login + "/" + .headRepository.name else empty end'):$(printf '%s' "$pr" | jq -r .headRefName)"
 [ "$is" = "#$num from $headrepo:$BR" ] ||
   hold "pull request $url is $is, but $EPIC is bound to #$num from $headrepo:$BR. Not touched. Correct the epic's pr_url, pr_number and pr_head_repo, then unhold."
 
-# gh can merge and still exit non-zero (deleting a local branch a worktree
-# has checked out, say): what GitHub says the PR is decides.
-out=$(cd "$REPO" && gh pr merge "$url" --rebase --delete-branch 2>&1) && rc=0 || rc=$?
+# Only the commit the reviewer approved is merged: the one pr-epic pushed
+# and stored when the epic entered in-pr. Commits pushed to the pull request
+# since were reviewed by no one, so a head that moved is held, not merged
+# and not sent round again by itself.
+reviewed=$(printf '%s' "$epic" | jq -r '.metadata.pr_reviewed_sha // empty')
+[ -n "$reviewed" ] ||
+  report failed "$EPIC has no reviewed commit (pr_reviewed_sha, which pr-epic stores as the epic enters in-pr); not merging. It is integrated and reviewed again."
+moved() {
+  hold "the head of pull request $url is $1, not the reviewed $reviewed (pr_reviewed_sha): it moved after review. Not merged. Look at what was pushed to $BR on $PUSH: to have it reviewed, bring it into $BR in the rig and send the epic back to open, where it is integrated and reviewed again; to drop it, put $PUSH/$BR back at $reviewed, then unhold."
+}
+head=$(printf '%s' "$pr" | jq -r '.headRefOid // empty')
+[ "$head" = "$reviewed" ] || moved "${head:-unknown}"
+
+# --match-head-commit closes the gap between the check above and the merge:
+# GitHub refuses when the head is no longer the reviewed commit. gh can
+# merge and still exit non-zero (deleting a local branch a worktree has
+# checked out, say): what GitHub says the PR is decides.
+out=$(cd "$REPO" && gh pr merge "$url" --rebase --delete-branch --match-head-commit "$reviewed" 2>&1) && rc=0 || rc=$?
 printf '%s\n' "$out"
 if [ "$rc" != 0 ]; then
   state=$(cd "$REPO" && gh pr view "$url" --json state --jq .state 2>/dev/null)
-  [ "$state" = MERGED ] || report failed "GitHub did not merge $url: $out"
+  if [ "$state" != MERGED ]; then
+    # Why GitHub refused is read from the head itself, not from gh's wording.
+    head=$(cd "$REPO" && gh pr view "$url" --json headRefOid --jq .headRefOid 2>/dev/null)
+    [ -z "$head" ] || [ "$head" = "$reviewed" ] || moved "$head"
+    report failed "GitHub did not merge $url: $out"
+  fi
   echo "== gh exited $rc but $url is merged"
 fi
 
@@ -112,4 +137,4 @@ out=$(git -C "$REPO" merge --ff-only "$PUSH/$prbase" 2>&1) ||
 Bring $prbase up to $PUSH/$prbase, then advance the epic to merged."
 sha=$(git -C "$REPO" rev-parse --short HEAD)
 
-report done "merged $url with a rebase; $prbase at $sha"
+report done "merged $url at the reviewed $reviewed with a rebase; $prbase at $sha"

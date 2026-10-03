@@ -20,11 +20,14 @@ const prURL = "https://github.com/o/r/pull/7"
 // (one argv per line), url (the open PR, once created), body (its body),
 // state (OPEN once created), and files a test writes to make it fail or
 // answer otherwise: fail-create, exists (gh pr create's error when a PR is
-// open for the branch), refuse (gh pr merge's error), mergeable, and
-// head-owner (the owner of the PR's head repository, o unless a fork's).
+// open for the branch), refuse (gh pr merge's error), mergeable,
+// head-owner (the owner of the PR's head repository, o unless a fork's),
+// and race (a commit pushed to the PR's branch as gh pr merge starts, after
+// the script last read the head). The PR's head is origin's yard/r-e.
 // It has no pr list: the scripts never look a PR up by its branch.
-// Merging pushes the PR's branch onto origin's main and deletes it there,
-// as GitHub would (minus the rebase).
+// Merging pushes the PR's head onto origin's main and deletes its branch
+// there, as GitHub would (minus the rebase); with --match-head-commit it
+// refuses, in GitHub's words, when the head is another commit.
 const fakeGh = `#!/bin/sh
 d=$FAKE_GH
 echo "$*" >>"$d/calls"
@@ -40,16 +43,28 @@ case "$1 $2" in
   echo ` + prURL + ` | tee "$d/url" ;;
 "pr edit") cat >"$d/body" ;;
 "pr view")
+  head=$(git ls-remote origin refs/heads/yard/r-e | cut -f1)
   case "$*" in
   *mergeable*) cat "$d/mergeable" 2>/dev/null || echo MERGEABLE ;;
   *headRepository*)
-    printf '{"number":7,"state":"%s","headRefName":"yard/r-e","headRepositoryOwner":{"login":"%s"},"headRepository":{"name":"r"}}\n' \
-      "$(cat "$d/state" 2>/dev/null || echo OPEN)" "$(cat "$d/head-owner" 2>/dev/null || echo o)" ;;
+    printf '{"number":7,"state":"%s","headRefName":"yard/r-e","headRefOid":"%s","headRepositoryOwner":{"login":"%s"},"headRepository":{"name":"r"}}\n' \
+      "$(cat "$d/state" 2>/dev/null || echo OPEN)" "$head" "$(cat "$d/head-owner" 2>/dev/null || echo o)" ;;
+  *headRefOid*) echo "$head" ;;
   *) cat "$d/state" 2>/dev/null || echo OPEN ;;
   esac ;;
 "pr merge")
   if [ -e "$d/refuse" ]; then cat "$d/refuse" >&2; exit 1; fi
-  head=$(git rev-parse yard/r-e) || exit 1
+  if [ -e "$d/race" ]; then git push -q origin "$(cat "$d/race"):refs/heads/yard/r-e" || exit 1; fi
+  head=$(git ls-remote origin refs/heads/yard/r-e | cut -f1)
+  [ -n "$head" ] || exit 1
+  match=
+  while [ $# -gt 0 ]; do
+    [ "$1" = --match-head-commit ] && match=$2
+    shift
+  done
+  if [ -n "$match" ] && [ "$match" != "$head" ]; then
+    echo "GraphQL: Head branch was modified. Review and try the merge again. (mergePullRequest)" >&2; exit 1
+  fi
   git push -q origin "$head:refs/heads/main" && git push -q origin :refs/heads/yard/r-e || exit 1
   echo MERGED >"$d/state" ;;
 *) echo "fake gh: unexpected $*" >&2; exit 1 ;;
@@ -148,8 +163,8 @@ func TestEpicThroughPullRequest(t *testing.T) {
 
 	// pr-epic pushes it and puts the review on the PR.
 	y.exec("pr-epic", "yard-pr", "r-e")
-	if e := y.beadOf("r-e"); e.Stage != "in-pr" {
-		t.Fatalf("epic in %s after pr-epic, want in-pr", e.Stage)
+	if e := y.beadOf("r-e"); e.Stage != "in-pr" || e.Metadata["pr_reviewed_sha"] != tip {
+		t.Fatalf("epic in %s after pr-epic with metadata %v, want in-pr with pr_reviewed_sha %s", e.Stage, e.Metadata, tip)
 	}
 	if pushed := y.git(y.repo, "ls-remote", "origin", "refs/heads/yard/r-e"); !strings.HasPrefix(pushed, tip) {
 		t.Fatalf("origin yard/r-e is %q, want the reviewer's %s", pushed, tip)
@@ -172,7 +187,7 @@ func TestEpicThroughPullRequest(t *testing.T) {
 	if e := y.beadOf("r-e"); e.Stage != "merged" || e.Status != "closed" {
 		t.Fatalf("epic %s/%s after pr-merge, want merged and closed", e.Stage, e.Status)
 	}
-	if n := countCalls(t, gh, "pr merge "+prURL+" --rebase --delete-branch"); n != 1 {
+	if n := countCalls(t, gh, "pr merge "+prURL+" --rebase --delete-branch --match-head-commit "+tip); n != 1 {
 		t.Fatalf("gh pr merge called %d times, want once:\n%v", n, ghCalls(t, gh))
 	}
 	if got := y.git(y.repo, "rev-parse", "main"); got != tip {
@@ -352,6 +367,94 @@ func TestPRMergeRefusedGoesBackToOpen(t *testing.T) {
 	}
 	if got := y.git(y.repo, "ls-remote", "origin", "refs/heads/main"); !strings.HasPrefix(got, main) {
 		t.Fatal("origin main moved")
+	}
+}
+
+// unmerged asserts that pr-merge left the epic held in land, open, with
+// the note want, and that neither main has the pull request's commits.
+func unmerged(t *testing.T, y *yard, main, want string) {
+	t.Helper()
+	if e := y.beadOf("r-e"); !e.Hold || e.Stage != "land" || e.Status == "closed" {
+		t.Fatalf("epic %s/%s hold=%v, want held in land, not closed", e.Stage, e.Status, e.Hold)
+	}
+	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, want) {
+		t.Fatalf("no note with %q:\n%s", want, notes)
+	}
+	if got := y.git(y.repo, "rev-parse", "main"); got != main {
+		t.Fatal("local main moved")
+	}
+	if got := y.git(y.repo, "ls-remote", "origin", "refs/heads/main"); !strings.HasPrefix(got, main) {
+		t.Fatal("origin main moved")
+	}
+}
+
+// unreviewed makes a commit on top of the epic's branch that no one
+// reviewed, without moving the branch, and returns its sha.
+func unreviewed(t *testing.T, y *yard) string {
+	t.Helper()
+	y.git(y.repo, "branch", "sneak", "yard/r-e")
+	wt := filepath.Join(t.TempDir(), "sneak")
+	y.git(y.repo, "worktree", "add", "-q", wt, "sneak")
+	return y.commit(wt, "sneak.txt", "pushed after the review\n")
+}
+
+// A commit pushed to the pull request after the review is not merged: the
+// head is no longer the reviewed sha, so the epic is held before gh pr
+// merge is run at all.
+func TestPRMergeHoldsWhenTheHeadMovedAfterReview(t *testing.T) {
+	y, gh := landYard(t)
+	reviewed := y.git(y.repo, "rev-parse", "yard/r-e")
+	if got := y.beadOf("r-e").Metadata["pr_reviewed_sha"]; got != reviewed {
+		t.Fatalf("pr_reviewed_sha is %v, want the pushed %s", got, reviewed)
+	}
+	main := y.git(y.repo, "rev-parse", "main")
+	sneak := unreviewed(t, y)
+	y.git(y.repo, "push", "-q", "origin", sneak+":refs/heads/yard/r-e")
+
+	y.exec("pr-merge", "yard-pr-merge", "r-e")
+
+	unmerged(t, y, main, "is "+sneak+", not the reviewed "+reviewed)
+	if n := countCalls(t, gh, "pr merge"); n != 0 {
+		t.Fatalf("gh pr merge called %d times on a head that moved, want never", n)
+	}
+}
+
+// The head moves between pr-merge's look at the pull request and the
+// merge: --match-head-commit makes GitHub refuse, and the epic is held,
+// not closed and not sent round as an ordinary refusal.
+func TestPRMergeHoldsWhenGitHubRefusesAMovedHead(t *testing.T) {
+	y, gh := landYard(t)
+	reviewed := y.git(y.repo, "rev-parse", "yard/r-e")
+	main := y.git(y.repo, "rev-parse", "main")
+	sneak := unreviewed(t, y)
+	if err := os.WriteFile(filepath.Join(gh, "race"), []byte(sneak+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	y.exec("pr-merge", "yard-pr-merge", "r-e")
+
+	unmerged(t, y, main, "is "+sneak+", not the reviewed "+reviewed)
+	if n := countCalls(t, gh, "pr merge "+prURL+" --rebase --delete-branch --match-head-commit "+reviewed); n != 1 {
+		t.Fatalf("gh pr merge with the reviewed sha called %d times, want once:\n%v", n, ghCalls(t, gh))
+	}
+}
+
+// An epic in land with no reviewed sha (moved there by hand, or in in-pr
+// since before pr-epic stored one) is not merged on its head as it is.
+func TestPRMergeNeedsTheReviewedSha(t *testing.T) {
+	y, gh := landYard(t)
+	y.yardr("bead", "update", "r-e", "--meta", "pr_reviewed_sha=")
+
+	y.exec("pr-merge", "yard-pr-merge", "r-e")
+
+	if e := y.beadOf("r-e"); e.Stage != "open" || e.Hold {
+		t.Fatalf("epic %s hold=%v, want back in open", e.Stage, e.Hold)
+	}
+	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "no reviewed commit (pr_reviewed_sha") {
+		t.Fatalf("no note on the missing reviewed sha:\n%s", notes)
+	}
+	if n := countCalls(t, gh, "pr merge"); n != 0 {
+		t.Fatal("merged a pull request with no reviewed sha")
 	}
 }
 

@@ -436,9 +436,6 @@ route or a move by hand does not start the path: nothing reports `done` in
 Do not switch it on for a repository others can open pull requests
 against. The path does not yet guarantee:
 
-- **That what is merged is what was reviewed.** pr-merge merges whatever
-  the PR's head is at that moment, not the commit the reviewer approved or
-  CI ran on.
 - **That CI is green.** `ci_green` fires on the first successful run or
   suite of any workflow on the head, once; other workflows may still be
   running or red (see the required-checks advice below).
@@ -455,6 +452,15 @@ script looks a PR up by branch: pr-epic and pr-merge read the bound one
 and compare what GitHub says of it (number, head repository, head branch)
 with the binding; a difference holds the epic, untouched. An epic bound to
 none reports `failed`, to `open`, where integrating binds it.
+
+What is merged is the reviewed commit and no other. As the epic enters
+`in-pr`, pr-epic stores the commit it pushed, the branch as the reviewer
+approved it with their own commits, in the epic's metadata as
+`pr_reviewed_sha`, beside the binding. pr-merge merges with
+`--match-head-commit <pr_reviewed_sha>`: a PR whose head is any other
+commit, pushed after the review, is not merged, and the epic is held in
+`land` with a note naming both shas. That CI ran on that commit is not
+checked here (see `ci_green` above).
 
 - **open**, `yard-integrators`: after pushing the rebased branch (it needs
   `YARDR_PUSH`; set without it, the epic is held), integrate-epic opens a
@@ -475,7 +481,8 @@ none reports `failed`, to `open`, where integrating binds it.
   `YARDR_PR=1`; held without it): pushes
   `yard/<epic>`, which may carry the reviewer's commits (with a lease: a
   remote branch with commits of its own is never overwritten), replaces the
-  PR's body with the latest review note under "Review", and reports `done`,
+  PR's body with the latest review note under "Review", stores the pushed
+  commit as `pr_reviewed_sha`, and reports `done`,
   to `in-pr`. No bound PR, a refused push, or a PR GitHub reports as
   conflicting with the base reports `failed`, to `open`, for the integrator.
 - **in-pr**, `decisions` (members mckean, mayor): a manual stage. Look at
@@ -486,9 +493,16 @@ none reports `failed`, to `open`, where integrating binds it.
 - **land**, `yard-pr-merge`
   ([`contrib/refinery/pr-merge`](../contrib/refinery/pr-merge), with
   `YARDR_PR=1`; held without it): runs `gh
-  pr merge <pr_url> --rebase --delete-branch`, then `git fetch` and `git
+  pr merge <pr_url> --rebase --delete-branch --match-head-commit
+  <pr_reviewed_sha>`, then `git fetch` and `git
   merge --ff-only <remote>/<base>` in the rig's checkout, and reports
-  `done`, to `merged`, which closes the epic. A merge GitHub refuses
+  `done`, to `merged`, which closes the epic. A PR whose head is not the
+  reviewed commit, when pr-merge looks or when GitHub refuses the merge for
+  it, holds the epic, unmerged: bring the new commits into the epic's
+  branch and send it back to `open` to have them reviewed, or put the
+  remote branch back at the reviewed commit and unhold. An epic with no
+  `pr_reviewed_sha` reports `failed`, to `open`. A merge GitHub refuses
+  for another reason
   (checks pending, review required, conflicts) reports `failed`, to `open`,
   with gh's message, once. The checkout must be on the base and clean, or
   the epic is held before anything is merged.

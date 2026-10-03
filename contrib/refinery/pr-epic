@@ -18,8 +18,9 @@
 #
 # It pushes yard/<epic>, which may have gained the reviewer's commits, and
 # replaces the PR's body with the epic's, its children, the latest review
-# note under "Review" and the trailer "Epic: <id>", then reports done
-# (-> in-pr). A push the remote refuses, a remote branch with commits the
+# note under "Review" and the trailer "Epic: <id>", stores the commit it
+# pushed as the epic's pr_reviewed_sha (the only head pr-merge will merge),
+# then reports done (-> in-pr). A push the remote refuses, a remote branch with commits the
 # epic lacks, a PR GitHub finds conflicting with the base, or no PR bound
 # to the epic reports failed (-> open): the integrator rebases and opens it
 # again. A branch it cannot work on (missing, dirty) is held, as is an epic
@@ -98,9 +99,12 @@ theirs=$(printf '%s' "$theirs" | cut -f1)
 if [ -n "$theirs" ] && ! git -C "$REPO" merge-base --is-ancestor "$theirs" "$BR" 2>/dev/null; then
   report failed "$PUSH/$BR has commits $BR lacks; not forced. Bring them into $BR (or drop them on $PUSH); the integrator rebases it again."
 fi
-out=$(git -C "$REPO" push --force-with-lease="refs/heads/$BR:$theirs" "$PUSH" "$BR" 2>&1) ||
+# Pushed by its sha, read once: the commit stored below as reviewed is the
+# one the remote got, even if the branch moves while this runs.
+reviewed=$(git -C "$REPO" rev-parse --verify -q "refs/heads/$BR^{commit}") || hold "branch $BR does not resolve"
+out=$(git -C "$REPO" push --force-with-lease="refs/heads/$BR:$theirs" "$PUSH" "$reviewed:refs/heads/$BR" 2>&1) ||
   report failed "pushing $BR to $PUSH failed: $out"
-sha=$(git -C "$REPO" rev-parse --short "$BR")
+sha=$(git -C "$REPO" rev-parse --short "$reviewed")
 
 # GitHub's view of whether the PR merges: CONFLICTING means the base moved
 # under it, which the integrator's rebase resolves or holds for a human.
@@ -125,4 +129,11 @@ body=$(
 out=$(cd "$REPO" && printf '%s\n' "$body" | gh pr edit "$url" --body-file - 2>&1) ||
   report failed "updating pull request $url failed: $out"
 
-report done "pushed $BR at $sha to $PUSH; pull request $url is up to date with the review."
+# The reviewed commit, beside the binding: what the reviewer approved, with
+# their own commits, and the only head pr-merge merges. Stored last, so an
+# epic never enters in-pr with the sha of an earlier round. Quoted, as
+# --meta reads JSON: a sha of digits alone would be stored as a number.
+"$Y" bead update "$EPIC" --meta "pr_reviewed_sha=\"$reviewed\"" >/dev/null ||
+  report failed "pushed $BR at $sha to $PUSH, but storing it as the reviewed commit (pr_reviewed_sha) failed."
+
+report done "pushed $BR at $sha to $PUSH; pull request $url is up to date with the review. Reviewed commit (pr_reviewed_sha): $reviewed."
