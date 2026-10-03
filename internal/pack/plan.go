@@ -160,7 +160,7 @@ type SubscriptionOp struct {
 }
 
 // Question is something an import must be told, since a pack names no
-// agent, model, person or directory.
+// agent, model, permission arguments, person or directory.
 type Question struct {
 	ID      string `json:"id"`
 	Object  string `json:"object"` // "<kind> <name>"
@@ -448,6 +448,7 @@ func (b *planner) groups() error {
 			if !exists {
 				b.ask(&o, "kind", "which agent runs group "+name+" (claude, codex, ...)?", settings["default_kind"])
 				b.ask(&o, "model", "which model does group "+name+" run (empty: the agent's own default)?", "")
+				b.ask(&o, "args", "which permission arguments does group "+name+"'s agent run with (empty: none, and it stops at every permission prompt)?", "")
 			}
 		case g.Run != "":
 			want.Runner, field = "exec", "cmd"
@@ -869,6 +870,7 @@ func (b *planner) residents() error {
 			}
 			b.ask(&o, "kind", "which agent runs resident "+name+" (claude, codex, ...)?", settings["default_kind"])
 			b.ask(&o, "model", "which model does resident "+name+" run (empty: the agent's own default)?", "")
+			b.ask(&o, "args", "which permission arguments does resident "+name+"'s agent run with (empty: none, and it stops at every permission prompt)?", "")
 			b.ask(&o, "dir", "which directory does resident "+name+" work in?", "")
 		}
 		o.Action, o.Changes = action(exists, changes), changes

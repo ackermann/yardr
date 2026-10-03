@@ -251,9 +251,20 @@ func (a *app) agentFields(ctx context.Context, ans *groupAnswers) error {
 	if err := a.agentKindModel(ctx, ans); err != nil {
 		return err
 	}
-	preset, _ := agents.Lookup(ans.Kind)
+	if err := a.agentPermissions(ans); err != nil {
+		return err
+	}
+	return ask(
+		huh.NewInput().Title("Prompt file").Description("Optional; roles/builder.md reads the rig's .yardr/roles/builder.md, else ~/.yardr/roles/.").
+			Value(&ans.Prompt),
+		huh.NewInput().Title("Extra agent arguments").Description("Optional, space-separated.").Value(&ans.Extra),
+	)
+}
 
-	// Permissions: the agent's own flags.
+// agentPermissions asks which of the agent's own permission flags it runs
+// with, ans.PermArgs preselected: the list a pack's import asks from too.
+func (a *app) agentPermissions(ans *groupAnswers) error {
+	preset, _ := agents.Lookup(ans.Kind)
 	permPick := noPerm
 	popts := []huh.Option[string]{huh.NewOption("None — the agent asks as usual", noPerm)}
 	for _, p := range preset.Permissions {
@@ -263,7 +274,7 @@ func (a *app) agentFields(ctx context.Context, ans *groupAnswers) error {
 		}
 	}
 	popts = append(popts, huh.NewOption("Custom flags…", customPerm))
-	if err := ask(huh.NewSelect[string]().Title("Permissions").
+	if err := ask(huh.NewSelect[string]().Title("Permissions" + ans.For).
 		Description("What the agent may do without asking. Unattended agents stop at every prompt.").
 		Options(popts...).Value(&permPick)); err != nil {
 		return err
@@ -280,12 +291,7 @@ func (a *app) agentFields(ctx context.Context, ans *groupAnswers) error {
 	default:
 		ans.PermArgs = strings.Fields(permPick)
 	}
-
-	return ask(
-		huh.NewInput().Title("Prompt file").Description("Optional; roles/builder.md reads the rig's .yardr/roles/builder.md, else ~/.yardr/roles/.").
-			Value(&ans.Prompt),
-		huh.NewInput().Title("Extra agent arguments").Description("Optional, space-separated.").Value(&ans.Extra),
-	)
+	return nil
 }
 
 // agentKindModel asks for an agent kind and, from the list the installed

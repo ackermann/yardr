@@ -3,6 +3,7 @@ package pack_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -634,5 +635,46 @@ func TestPruneHoldsTypePointerThatWouldStrandBeads(t *testing.T) {
 	ptrs, err := st.FlowPointers(ctx)
 	if err != nil || !slices.Contains(ptrs, store.FlowPointer{Rig: "web", Type: "task", Flow: "starter.task-flow"}) {
 		t.Fatalf("type flow pointer after prune = %v, %v", ptrs, err)
+	}
+}
+
+// A new agent group and a new resident get the permission arguments the
+// import was answered with; an empty answer is none. One the yard has keeps
+// its own: the plan does not even ask.
+func TestApplyGivesNewAgentsTheirArguments(t *testing.T) {
+	st, o := yard(t)
+	if err := st.PutGroup(ctx, store.Group{Name: "web-reviewers", Runner: "herdr", Limit: 1,
+		Config: map[string]any{"kind": "codex", "args": []any{"--mine"}}}); err != nil {
+		t.Fatal(err)
+	}
+	plan := build(t, st, load(t, copyStarter(t)), o)
+	for _, q := range plan.Questions {
+		if strings.HasPrefix(q.ID, "group.web-reviewers.") {
+			t.Fatalf("asks %s of a group the yard has", q.ID)
+		}
+	}
+	apply(t, st, plan, map[string]string{"group.web-builders.args": "--permission-mode  auto", "resident.mayor.args": ""})
+	args := func(cfg map[string]any) string {
+		if cfg["args"] == nil {
+			return ""
+		}
+		return fmt.Sprint(cfg["args"])
+	}
+	if g, err := st.GetGroup(ctx, "web-builders"); err != nil || args(g.Config) != "[--permission-mode auto]" {
+		t.Fatalf("web-builders = %+v, %v", g, err)
+	}
+	if g, err := st.GetGroup(ctx, "web-reviewers"); err != nil || args(g.Config) != "[--mine]" {
+		t.Fatalf("web-reviewers = %+v, %v", g, err)
+	}
+	if r, err := st.GetResident(ctx, "mayor"); err != nil || args(r.Config) != "" {
+		t.Fatalf("mayor = %+v, %v", r, err)
+	}
+	// Twice is once: the arguments are the yard's now.
+	plan = build(t, st, load(t, copyStarter(t)), o)
+	if res := apply(t, st, plan, map[string]string{"group.web-builders.args": "--other"}); res.Wrote() {
+		t.Fatalf("a second apply wrote: %+v", res)
+	}
+	if g, _ := st.GetGroup(ctx, "web-builders"); args(g.Config) != "[--permission-mode auto]" {
+		t.Fatalf("web-builders after a second apply = %+v", g)
 	}
 }

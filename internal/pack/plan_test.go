@@ -132,14 +132,15 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 		ids = append(ids, q.ID)
 	}
 	wantQ := []string{
-		"group.web-builders.kind", "group.web-builders.model", "group.web-reviewers.kind", "group.web-reviewers.model",
+		"group.web-builders.kind", "group.web-builders.model", "group.web-builders.args",
+		"group.web-reviewers.kind", "group.web-reviewers.model", "group.web-reviewers.args",
 		"group.backlog.members", "group.decisions.members",
-		"resident.mayor.resident", "resident.mayor.kind", "resident.mayor.model", "resident.mayor.dir",
+		"resident.mayor.resident", "resident.mayor.kind", "resident.mayor.model", "resident.mayor.args", "resident.mayor.dir",
 	}
 	if !reflect.DeepEqual(ids, wantQ) {
 		t.Fatalf("questions = %v\nwant %v", ids, wantQ)
 	}
-	if got := find(t, plan, "group", "web-builders").Asks; !reflect.DeepEqual(got, wantQ[:2]) {
+	if got := find(t, plan, "group", "web-builders").Asks; !reflect.DeepEqual(got, wantQ[:3]) {
 		t.Fatalf("web-builders asks %v", got)
 	}
 

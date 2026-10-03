@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 
 	"yardr.dev/yardr/internal/config"
@@ -64,7 +65,7 @@ func TestPackCheckPrintsThePlan(t *testing.T) {
 		t.Fatal(err)
 	}
 	var plan pack.Plan
-	if err := json.Unmarshal([]byte(out), &plan); err != nil || plan.Pack != "starter" || len(plan.Objects) != 20 || len(plan.Questions) != 10 {
+	if err := json.Unmarshal([]byte(out), &plan); err != nil || plan.Pack != "starter" || len(plan.Objects) != 20 || len(plan.Questions) != 13 {
 		t.Fatalf("json plan: %v\n%s", err, out)
 	}
 }
@@ -188,18 +189,34 @@ func TestPackApplyWithFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
+	// The plan says what each new agent gets, arguments included: nobody
+	// is given them silently.
 	for _, want := range []string{"pack starter (", "20 to create", "\napplied pack starter to rig web: 20 created, 0 changed, 0 unchanged\n",
-		"group web-builders is new and has no agent arguments"} {
+		"  create           web-builders\n                     agent: claude\n                     model: opus\n                     arguments: --permission-mode auto\n",
+		"  create           web-reviewers\n                     agent: codex\n                     model: the agent's own default\n                     arguments: --dangerously-bypass-approvals-and-sandbox\n",
+		"  create           backlog\n                     members: anyone\n",
+		"  create           boss\n                     agent: claude\n                     model: the agent's own default\n                     arguments: --permission-mode auto\n"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
 	}
+	// Every flag is given: nothing is open, so nothing is listed as asked,
+	// and no agent is left without arguments.
+	for _, not := range []string{"an import would ask", "asks: ", "has no agent arguments"} {
+		if strings.Contains(out, not) {
+			t.Errorf("output has %q:\n%s", not, out)
+		}
+	}
 	g, err := a.st.GetGroup(ctx, "web-builders")
-	if err != nil || g.Config["kind"] != "claude" || g.Config["model"] != "opus" {
+	if err != nil || g.Config["kind"] != "claude" || g.Config["model"] != "opus" || fmt.Sprint(g.Config["args"]) != "[--permission-mode auto]" {
 		t.Fatalf("web-builders = %+v, %v", g, err)
 	}
-	if g, _ := a.st.GetGroup(ctx, "web-reviewers"); g == nil || g.Config["kind"] != "codex" || g.Config["model"] != nil {
+	if g, _ := a.st.GetGroup(ctx, "web-reviewers"); g == nil || g.Config["kind"] != "codex" || g.Config["model"] != nil ||
+		fmt.Sprint(g.Config["args"]) != "[--dangerously-bypass-approvals-and-sandbox]" {
 		t.Fatalf("web-reviewers = %+v", g)
+	}
+	if g, _ := a.st.GetGroup(ctx, "web-refinery"); g == nil || g.Config["args"] != nil {
+		t.Fatalf("web-refinery, a script group, = %+v", g)
 	}
 	if g, _ := a.st.GetGroup(ctx, "backlog"); g == nil || len(g.Members) != 0 {
 		t.Fatalf("backlog = %+v", g)
@@ -208,7 +225,7 @@ func TestPackApplyWithFlags(t *testing.T) {
 		t.Fatalf("decisions = %+v", g)
 	}
 	boss, err := a.st.GetResident(ctx, "boss")
-	if err != nil || boss.Config["kind"] != "claude" || boss.Dir != a.cfg.Home {
+	if err != nil || boss.Config["kind"] != "claude" || boss.Dir != a.cfg.Home || fmt.Sprint(boss.Config["args"]) != "[--permission-mode auto]" {
 		t.Fatalf("boss = %+v, %v", boss, err)
 	}
 
@@ -279,8 +296,9 @@ func TestPackApplyAsksInATerminal(t *testing.T) {
 	if groups, _ := a.st.Groups(ctx); len(groups) != 0 {
 		t.Fatalf("groups after leaving the form: %v", groups)
 	}
-	// A select for the resident, an input per people group, the confirm.
-	if len(asked) != 4 {
+	// A select for the resident, one for the permissions of each new agent
+	// --bind named without a preset, an input per people group, the confirm.
+	if len(asked) != 7 {
 		t.Fatalf("asked %v", asked)
 	}
 
@@ -288,9 +306,143 @@ func TestPackApplyAsksInATerminal(t *testing.T) {
 	if out, err = run(t, a.packCmd(), args...); err != nil || !strings.Contains(out, "applied pack starter to rig web: 20 created") {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	// The select's default is a new resident under the pack's name.
-	if _, err := a.st.GetResident(ctx, "mayor"); err != nil {
+	// The select's default is a new resident under the pack's name, and
+	// the permissions' is the kind's unattended arguments.
+	mayor, err := a.st.GetResident(ctx, "mayor")
+	if err != nil || fmt.Sprint(mayor.Config["args"]) != "[--permission-mode auto]" {
+		t.Fatalf("mayor = %+v, %v", mayor, err)
+	}
+	if g, _ := a.st.GetGroup(ctx, "web-builders"); g == nil || fmt.Sprint(g.Config["args"]) != "[--permission-mode auto]" {
+		t.Fatalf("web-builders = %+v", g)
+	}
+}
+
+// A terminal offers the permissions the group form does, the kind's
+// unattended arguments preselected, and what is picked is what the new
+// group gets. A --bind with a preset is not asked about.
+func TestPackApplyAsksPermissionsInATerminal(t *testing.T) {
+	a := packApp(t)
+	setInteractive(t, true)
+	var titles []string
+	stubAsk(t, func(fields ...huh.Field) error {
+		for _, f := range fields {
+			sel, ok := f.(*huh.Select[string])
+			if !ok {
+				continue
+			}
+			title := strings.SplitN(sel.View(), "\n", 2)[0]
+			titles = append(titles, title)
+			if strings.Contains(title, "Permissions for group web-builders") {
+				if got := sel.GetValue(); got != "--permission-mode auto" {
+					t.Errorf("preselected %q, want claude's unattended arguments", got)
+				}
+				// Down twice, past accept edits, to bypass.
+				sel.WithKeyMap(huh.NewDefaultKeyMap())
+				sel.Focus()
+				sel.Update(tea.KeyMsg{Type: tea.KeyDown})
+				sel.Update(tea.KeyMsg{Type: tea.KeyDown})
+			}
+		}
+		return nil
+	})
+	args := []string{"apply", "../../packs/starter", "--rig", "web", "--resident", "mayor=boss", "--bind", "builders=claude",
+		"--bind", "reviewers=codex,approve-for-me", "--bind", "resident:mayor=claude,none", "--members", "backlog=", "--members", "decisions="}
+	out, err := run(t, a.packCmd(), args...)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if n := strings.Count(strings.Join(titles, "\n"), "Permissions"); n != 1 {
+		t.Fatalf("asked for permissions %d times, want once (web-builders): %q", n, titles)
+	}
+	ctx := context.Background()
+	if g, _ := a.st.GetGroup(ctx, "web-builders"); g == nil || fmt.Sprint(g.Config["args"]) != "[--dangerously-skip-permissions]" {
+		t.Fatalf("web-builders = %+v", g)
+	}
+	if g, _ := a.st.GetGroup(ctx, "web-reviewers"); g == nil || fmt.Sprint(g.Config["args"]) != "[--approve-for-me]" {
+		t.Fatalf("web-reviewers = %+v", g)
+	}
+	// The open question is listed, the answered ones are not.
+	if !strings.Contains(out, "an import would ask\n  group.web-builders.args: ") || strings.Contains(out, "\n  group.web-reviewers.") {
+		t.Errorf("the plan should list web-builders' arguments alone as open:\n%s", out)
+	}
+}
+
+// --bind may name a permission preset by its label; none is no arguments,
+// and the import then says the agent stops at prompts. A kind yardr knows
+// no unattended arguments for gets none and the same warning. An existing
+// group keeps its arguments whatever the flags say.
+func TestPackApplyPresets(t *testing.T) {
+	a := packApp(t)
+	setInteractive(t, false)
+	ctx := context.Background()
+	if err := a.st.PutGroup(ctx, store.Group{Name: "web-reviewers", Runner: "herdr", Limit: 1,
+		Config: map[string]any{"kind": "claude", "args": []any{"--mine"}}}); err != nil {
 		t.Fatal(err)
+	}
+	apply := func(binds ...string) (string, error) {
+		args := []string{"apply", "../../packs/starter", "--rig", "web", "--yes", "--resident", "mayor=boss", "--members", "backlog=", "--members", "decisions="}
+		for _, b := range binds {
+			args = append(args, "--bind", b)
+		}
+		return run(t, a.packCmd(), args...)
+	}
+
+	_, err := apply("builders=claude:opus,yolo", "resident:mayor=pi")
+	if err == nil || !strings.Contains(err.Error(), `claude has no permission preset "yolo" (it has: auto, accept-edits, bypass, none)`) {
+		t.Fatalf("an unknown preset: %v", err)
+	}
+	if _, err := a.st.GetGroup(ctx, "web-builders"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("an unknown preset still made the group: %v", err)
+	}
+
+	out, err := apply("builders=claude:opus,Accept Edits", "reviewers=codex,bypass", "resident:mayor=pi")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"  create           web-builders\n                     agent: claude\n                     model: opus\n                     arguments: --permission-mode acceptEdits\n",
+		"                     arguments: none; its agent stops at every permission prompt\n",
+		"resident boss is new and has no agent arguments: an unattended agent stops at every permission prompt",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "group web-builders is new and has no agent arguments") || strings.Contains(out, "an import would ask") {
+		t.Errorf("warns about a group that has arguments, or lists answered questions:\n%s", out)
+	}
+	if g, _ := a.st.GetGroup(ctx, "web-builders"); g == nil || fmt.Sprint(g.Config["args"]) != "[--permission-mode acceptEdits]" {
+		t.Fatalf("web-builders = %+v", g)
+	}
+	if g, _ := a.st.GetGroup(ctx, "web-reviewers"); g == nil || g.Config["kind"] != "claude" || fmt.Sprint(g.Config["args"]) != "[--mine]" {
+		t.Fatalf("web-reviewers, which the yard had, = %+v", g)
+	}
+	if r, _ := a.st.GetResident(ctx, "boss"); r == nil || r.Config["kind"] != "pi" || r.Config["args"] != nil {
+		t.Fatalf("boss = %+v", r)
+	}
+
+	// Again, with other presets: the groups are the yard's now and stay.
+	head, _ := a.st.Head(ctx)
+	out, err = apply("builders=claude,bypass", "reviewers=codex,bypass", "resident:mayor=claude")
+	if err != nil || !strings.Contains(out, "nothing changed") {
+		t.Fatalf("second apply: %v\n%s", err, out)
+	}
+	if evs, _ := a.st.EventsSince(ctx, head, 0); len(evs) != 1 || evs[0].Kind != "pack_unchanged" {
+		t.Fatalf("the second apply logged %+v", evs)
+	}
+	if g, _ := a.st.GetGroup(ctx, "web-builders"); g == nil || fmt.Sprint(g.Config["args"]) != "[--permission-mode acceptEdits]" {
+		t.Fatalf("web-builders after a second apply = %+v", g)
+	}
+
+	// none is honoured too, and warned about.
+	b := packApp(t)
+	out, err = run(t, b.packCmd(), "apply", "../../packs/starter", "--rig", "web", "--yes", "--resident", "mayor=boss", "--members", "backlog=", "--members", "decisions=",
+		"--bind", "builders=claude,none", "--bind", "reviewers=codex", "--bind", "resident:mayor=claude")
+	if err != nil || !strings.Contains(out, "group web-builders is new and has no agent arguments") || strings.Contains(out, "group web-reviewers is new and has no") {
+		t.Fatalf("none: %v\n%s", err, out)
+	}
+	if g, _ := b.st.GetGroup(ctx, "web-builders"); g == nil || g.Config["args"] != nil {
+		t.Fatalf("web-builders with none = %+v", g)
 	}
 }
 

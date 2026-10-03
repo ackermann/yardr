@@ -165,8 +165,8 @@ by every rig that imports a pack naming it.
 | `run: <script>` | runner `exec` | the command in `cmd` (the copied script), `limit` | the assignments before the command and the arguments after it (`YARDR_PUSH=origin … merge-local`), `log`, `dir` and the rest |
 | `people: true` | runner `manual` | `limit`, when the pack gives one | `members`, subscriptions |
 
-A group the yard lacks needs what a pack cannot say: the agent kind and
-model, or the members. These are the import's questions.
+A group the yard lacks needs what a pack cannot say: the agent kind, model
+and permission arguments, or the members. These are the import's questions.
 
 **Flows.** A flow is stored as the named flow `<pack>.<flow>`
 (`starter.default`), and the rig is pointed at it (`yardr rig flow`); a
@@ -233,12 +233,13 @@ the yard has and lacks to hear it and answer in it:
 
 ```sh
 yardr pack apply <dir> --rig <rig> [--yes] [--prune]
-    [--bind <group>=<kind>[:<model>]]… [--members <group>=a,b]…
+    [--bind <group>=<kind>[:<model>][,<preset>]]… [--members <group>=a,b]…
     [--resident <pack's>=<yard's>]… [--flow <flow>] [--pack-roles] [--json]
 ```
 
-It makes the plan `pack check` shows, prints it, asks for what the pack
-cannot say, and sets the yard to the pack's state. An object the yard has
+It makes the plan `pack check` shows, prints it with what the flags answer
+filled in, asks for what the pack cannot say, and sets the yard to the
+pack's state. An object the yard has
 under the same name is overwritten in what the pack carries and keeps the
 rest; nothing is added a second time.
 
@@ -248,9 +249,10 @@ answers it instead:
 | question | flag |
 |---|---|
 | the agent and model of a group the yard lacks, picked from the list the installed agent gives, as in the group form | `--bind <group>=<kind>[:<model>]`; no model is the agent's own default |
+| what that agent may do without asking, picked from the permission presets the group form shows | `,<preset>` at the end of its `--bind`; see below for what it gets without one |
 | the members of a people group the yard lacks | `--members <group>=a,b`; `--members <group>=` for anyone |
 | which resident of the yard takes a resident of the pack | `--resident <pack's>=<yard's>` |
-| the agent and model of a resident the yard lacks | `--bind resident:<pack's>=<kind>[:<model>]` |
+| the agent, model and permissions of a resident the yard lacks | `--bind resident:<pack's>=<kind>[:<model>][,<preset>]` |
 | which flow the rig follows, when the pack has several without a type | `--flow <name>` |
 
 `<group>` is the pack's name for the group (`builders`, not
@@ -260,15 +262,39 @@ an error, so the same command can be run again. A resident the import
 creates works in the yard's home, as one made by `yardr resident add` does.
 
 Without a terminal, or with `--json`, nothing is asked: a question without
-its flag is an error that names the flag, never a default. `--yes` applies
-without the confirmation, and without a terminal it is required whenever
-there is something to write.
+its flag is an error that names the flag, never a default, with the one
+exception of the permission arguments below. `--yes` applies without the
+confirmation, and without a terminal it is required whenever there is
+something to write.
 
-**An agent group it creates has no arguments.** A pack names none and the
-import asks for none, so an unattended agent in a new group stops at every
-permission prompt until the group is given them
-([groups.md](groups.md#herdr-setup)); the output says so for each such
-group.
+**A new agent gets permission arguments.** A pack names none, and an agent
+without them stops at every permission prompt, with nobody watching. So an
+agent group or resident the import creates is given some:
+
+- In a terminal the import asks, after agent and model, with the
+  permission list of the group form (`yardr group add`), the kind's
+  unattended arguments preselected.
+- Without a terminal, or with `--yes`, it gets the kind's unattended
+  arguments, the ones `yardr init` gives the mayor: claude
+  `--permission-mode auto`, codex
+  `--dangerously-bypass-approvals-and-sandbox`, kimi `--yolo`.
+- `--bind` may name another preset after a comma, by the label the group
+  form shows, in lower case with `-` for a space: claude has `auto`,
+  `accept-edits` and `bypass`, codex `approve-for-me` and `bypass`; `none`
+  is no arguments, for any kind. `--bind builders=claude:opus,bypass`,
+  `--bind reviewers=codex,approve-for-me`. A preset the kind lacks is an
+  error that lists the ones it has. It is a comma, not a third colon,
+  because a model's name may have colons of its own.
+- A kind yardr knows no unattended arguments for (pi, or any kind outside
+  the presets) gets none, as does `none`: the output then says, for each
+  such group and resident, that its agent stops at permission prompts
+  until it is given arguments ([groups.md](groups.md#herdr-setup)).
+
+The plan `pack apply` prints shows, under each group and resident it would
+create, the agent, model and arguments the flags give it, and lists under
+"an import would ask" only the questions still open. The arguments of a
+group or resident the yard already has are the yard's and are never
+touched, whatever `--bind` says.
 
 **Twice is once.** Applying a pack that is already applied writes no object
 and logs one event, `pack_unchanged`. It needs no flag and no `--yes`: the
@@ -359,7 +385,8 @@ again, and the command exits 1 naming it.
 ## The plan as data
 
 `pack check --json` prints the plan an import executes (`pack apply --json`
-prints `{"plan": …, "result": …}`):
+prints `{"plan": …, "answers": …, "result": …}`, the answers by question
+id, an `args` answer being the arguments the new agent got, space-separated):
 
 ```json
 {

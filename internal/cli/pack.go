@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
+	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/store"
@@ -107,7 +108,7 @@ pack's flow lacks). --json prints the plan as data. See docs/packs.md.`,
 			if err != nil {
 				return err
 			}
-			if err := a.out(plan, func() { printPlan(plan) }); err != nil {
+			if err := a.out(plan, func() { printPlan(plan, nil) }); err != nil {
 				return err
 			}
 			if len(plan.Refused) > 0 {
@@ -128,8 +129,9 @@ pack's flow lacks). --json prints the plan as data. See docs/packs.md.`,
 	apply := &cobra.Command{
 		Use:   "apply <dir> --rig <rig>",
 		Short: "Import a pack into a rig: set the yard to what the pack says",
-		Long: `Does what pack check shows: prints the plan, asks for what a pack cannot
-say, then sets the yard to the pack's state. Everything is matched by name,
+		Long: `Does what pack check shows: prints the plan, with what the flags answer
+filled in, asks for what a pack cannot say, then sets the yard to the pack's
+state. Everything is matched by name,
 so an object the yard has is overwritten in what the pack carries, never
 added a second time, and keeps what the pack does not carry (a group's
 agent, model, arguments and members; a resident's identity and directory).
@@ -137,14 +139,23 @@ Applying the same pack again changes nothing and logs one pack_unchanged
 event.
 
 What it asks, and the flag that answers instead:
-  the agent and model of a group the yard lacks   --bind <group>=<kind>[:<model>]
+  the agent and model of a group the yard lacks   --bind <group>=<kind>[:<model>][,<preset>]
   the members of a people group the yard lacks    --members <group>=a,b   (empty: anyone)
   which resident takes a resident of the pack     --resident <pack's>=<yard's>
-  the agent of a resident the yard lacks          --bind resident:<pack's>=<kind>[:<model>]
+  the agent of a resident the yard lacks          --bind resident:<pack's>=<kind>[:<model>][,<preset>]
   which flow, when the pack has several           --flow <name>
 <group> is the pack's name for it (builders). Without a terminal nothing is
 asked: a missing answer is an error, never a default, and --yes is needed
 to apply.
+
+The one answer with a default is what a new group's or resident's agent may
+do without asking. <preset> names one of the agent's permission presets by
+the label the group form shows (claude: auto, accept-edits, bypass; none
+for no arguments). Left out, a terminal asks with the same list; without a
+terminal, or with --yes, the agent gets the arguments yardr init gives it:
+` + agents.UnattendedHelp() + `
+The plan prints the arguments each new group and resident gets. Those of a
+group or resident the yard already has are never touched.
 
 Refused, changing nothing, while open beads sit in a stage the pack's flow
 lacks; the message names them. Objects an earlier import brought and the
@@ -153,7 +164,7 @@ resident whose role or subscriptions change is not restarted; the output
 says so. The import is recorded (yardr pack list). See docs/packs.md.`,
 		Example: `  yardr pack apply packs/starter --rig web
   yardr pack apply packs/starter --rig web --yes --resident mayor=yardmaster \
-    --bind builders=claude:opus --bind reviewers=codex --members backlog= --members decisions=mckean`,
+    --bind builders=claude:opus --bind reviewers=codex,approve-for-me --members backlog= --members decisions=mckean`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()
@@ -184,15 +195,19 @@ says so. The import is recorded (yardr pack list). See docs/packs.md.`,
 				}
 			}
 			if len(plan.Refused) > 0 {
-				_ = a.out(plan, func() { printPlan(plan) })
+				_ = a.out(plan, func() { printPlan(plan, nil) })
 				return errCheckFailed
 			}
-			if !a.json {
-				printPlan(plan)
-			}
-			answers, err := packAnswers(plan, binds, members, cfg.Home)
+			// The flags' answers go into the printed plan, so it shows what
+			// each new group and resident gets and lists only what is still
+			// open. Where nothing can be asked, or --yes says not to, a new
+			// agent gets its kind's unattended arguments.
+			answers, err := packAnswers(plan, binds, members, cfg.Home, !asking || yes)
 			if err != nil {
 				return err
+			}
+			if !a.json {
+				printPlan(plan, answers)
 			}
 			if missing := plan.Missing(answers); len(missing) > 0 {
 				if !asking {
@@ -225,7 +240,7 @@ says so. The import is recorded (yardr pack list). See docs/packs.md.`,
 			}
 			res, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: answers, Prune: prune, Actor: a.who()})
 			if res != nil {
-				if oerr := a.out(map[string]any{"plan": plan, "result": res}, func() { printResult(plan, res, prune) }); oerr != nil {
+				if oerr := a.out(map[string]any{"plan": plan, "answers": answers, "result": res}, func() { printResult(plan, res, prune, answers) }); oerr != nil {
 					return oerr
 				}
 			}
@@ -233,7 +248,7 @@ says so. The import is recorded (yardr pack list). See docs/packs.md.`,
 		},
 	}
 	af.register(apply, "is")
-	apply.Flags().StringArrayVar(&binds, "bind", nil, "<group>=<kind>[:<model>]: the agent and model of a group the yard lacks; resident:<name>=… for a resident (repeatable)")
+	apply.Flags().StringArrayVar(&binds, "bind", nil, "<group>=<kind>[:<model>][,<preset>]: the agent, model and permission preset of a group the yard lacks; resident:<name>=… for a resident (repeatable)")
 	apply.Flags().StringArrayVar(&members, "members", nil, "<group>=a,b: the members of a people group the yard lacks; empty for anyone (repeatable)")
 	apply.Flags().BoolVar(&yes, "yes", false, "apply without asking for confirmation")
 	apply.Flags().BoolVar(&prune, "prune", false, "remove what an earlier import of this pack brought and the pack has dropped since")
@@ -331,7 +346,9 @@ func flagsFor(p *pack.Plan, open []pack.Question) []string {
 // object the yard already has answers nothing, since the yard's binding is
 // kept, and is not an error, so the same command can be run again. A new
 // resident works in the yard's home, as one made by resident add does.
-func packAnswers(p *pack.Plan, binds, members []string, home string) (pack.Answers, error) {
+// With unattended, a new agent whose kind is answered and whose --bind names
+// no preset gets its kind's unattended arguments, as yardr init gives them.
+func packAnswers(p *pack.Plan, binds, members []string, home string, unattended bool) (pack.Answers, error) {
 	answers := pack.Answers{}
 	asked := map[string]bool{}
 	for _, q := range p.Questions {
@@ -347,9 +364,12 @@ func packAnswers(p *pack.Plan, binds, members []string, home string) (pack.Answe
 	}
 	for _, kv := range binds {
 		name, v, ok := strings.Cut(kv, "=")
+		// The preset goes after a comma, not a second colon: a model may
+		// have colons of its own (openrouter/…:free).
+		v, preset, hasPreset := strings.Cut(v, ",")
 		kind, model, _ := strings.Cut(v, ":")
 		if !ok || name == "" || kind == "" {
-			return nil, fmt.Errorf("--bind %q: want <group>=<kind>[:<model>]", kv)
+			return nil, fmt.Errorf("--bind %q: want <group>=<kind>[:<model>][,<preset>]", kv)
 		}
 		obj, names := "group", p.Groups
 		if rest, is := strings.CutPrefix(name, "resident:"); is {
@@ -361,6 +381,13 @@ func packAnswers(p *pack.Plan, binds, members []string, home string) (pack.Answe
 		}
 		set(obj+"."+yard+".kind", kind)
 		set(obj+"."+yard+".model", model)
+		if hasPreset {
+			args, err := presetArgs(kind, preset)
+			if err != nil {
+				return nil, fmt.Errorf("--bind %q: %w", kv, err)
+			}
+			set(obj+"."+yard+".args", strings.Join(args, " "))
+		}
 	}
 	for _, kv := range members {
 		name, v, ok := strings.Cut(kv, "=")
@@ -373,7 +400,37 @@ func packAnswers(p *pack.Plan, binds, members []string, home string) (pack.Answe
 		}
 		set("group."+yard+".members", v)
 	}
+	if unattended {
+		for _, q := range p.Questions {
+			kind, bound := answers[strings.TrimSuffix(q.ID, "args")+"kind"]
+			if _, done := answers[q.ID]; q.Field == "args" && bound && !done {
+				answers[q.ID] = strings.Join(agents.UnattendedArgs(kind), " ")
+			}
+		}
+	}
 	return answers, nil
+}
+
+// presetLabel is a permission preset's label as --bind takes it: one word.
+func presetLabel(label string) string {
+	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(label)), " ", "-")
+}
+
+// presetArgs are the arguments of kind's permission preset called label, as
+// the group form lists them; none is no arguments.
+func presetArgs(kind, label string) ([]string, error) {
+	want, have := presetLabel(label), []string{}
+	if want == "none" {
+		return nil, nil
+	}
+	preset, _ := agents.Lookup(kind)
+	for _, perm := range preset.Permissions {
+		if presetLabel(perm.Label) == want {
+			return perm.Args, nil
+		}
+		have = append(have, presetLabel(perm.Label))
+	}
+	return nil, fmt.Errorf("%s has no permission preset %q (it has: %s)", kind, label, strings.Join(append(have, "none"), ", "))
 }
 
 // askShape asks which flow the rig follows and which resident takes each
@@ -414,9 +471,9 @@ func (a *app) askShape(ctx context.Context, st store.API, p *pack.Pack, plan *pa
 	return nil
 }
 
-// askAnswers asks the plan's open questions, object by object: the agent
-// and model from the list the group form uses, the members of a people
-// group, the directory of a new resident.
+// askAnswers asks the plan's open questions, object by object: the agent,
+// model and permissions from the lists the group form uses, the members of
+// a people group.
 func (a *app) askAnswers(ctx context.Context, st store.API, plan *pack.Plan, answers pack.Answers) error {
 	for _, o := range plan.Objects {
 		id := func(field string) string { return o.Kind + "." + o.Name + "." + field }
@@ -431,6 +488,14 @@ func (a *app) askAnswers(ctx context.Context, st store.API, plan *pack.Plan, ans
 			}
 			answers[id("kind")], answers[id("model")] = ans.Kind, ans.Model
 		}
+		if open("args") {
+			ans := groupAnswers{Kind: answers[id("kind")], For: " for " + o.Kind + " " + o.Name}
+			ans.PermArgs = agents.UnattendedArgs(ans.Kind)
+			if err := a.agentPermissions(&ans); err != nil {
+				return err
+			}
+			answers[id("args")] = strings.Join(ans.PermArgs, " ")
+		}
 		if open("members") {
 			var v string
 			if err := ask(huh.NewInput().Title("Members of group " + o.Name).Placeholder("mckean, mayor").
@@ -444,7 +509,7 @@ func (a *app) askAnswers(ctx context.Context, st store.API, plan *pack.Plan, ans
 	return nil
 }
 
-func printResult(plan *pack.Plan, res *pack.Result, pruning bool) {
+func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.Answers) {
 	fmt.Println()
 	if res.Wrote() {
 		fmt.Printf("applied pack %s to rig %s: %d created, %d changed, %d unchanged", res.Pack, res.Rig, res.Created, res.Changed, res.Unchanged)
@@ -472,9 +537,11 @@ func printResult(plan *pack.Plan, res *pack.Result, pruning bool) {
 		fmt.Println("  not removed: " + e)
 	}
 	for _, o := range plan.Objects {
-		if o.Kind == "group" && o.Action == pack.Create && o.Group != nil && o.Group.Runner == "herdr" {
-			fmt.Printf("group %s is new and has no agent arguments: an unattended agent stops at every permission prompt until it is given them (yardr group add, the form)\n", o.Name)
+		id := o.Kind + "." + o.Name + ".args"
+		if !slices.Contains(o.Asks, id) || strings.TrimSpace(answers[id]) != "" {
+			continue
 		}
+		fmt.Printf("%s %s is new and has no agent arguments: an unattended agent stops at every permission prompt until it is given them (yardr %s add, the form)\n", o.Kind, o.Name, o.Kind)
 	}
 	for _, r := range res.Restart {
 		fmt.Printf("resident %s is running and was not restarted: its role or subscriptions changed, so restart it (yardr resident restart %s)\n", r, r)
@@ -521,7 +588,10 @@ func printRecord(r store.PackImport) {
 var planKinds = [][2]string{{"file", "files"}, {"group", "groups"}, {"flow", "flows"}, {"pointer", "flow pointers"},
 	{"route", "routes"}, {"resident", "residents"}, {"subscription", "subscriptions"}}
 
-func printPlan(p *pack.Plan) {
+// printPlan prints the plan. answers are those already given: an answered
+// question is printed as what its object gets, and only the open ones are
+// listed as what an import would ask.
+func printPlan(p *pack.Plan, answers pack.Answers) {
 	fmt.Printf("pack %s (%s) into rig %s\n", p.Pack, p.Dir, p.Rig)
 	fmt.Printf("its roles and scripts would be copied to %s\n", p.Install)
 	count := map[string]int{}
@@ -557,13 +627,17 @@ func printPlan(p *pack.Plan) {
 				fmt.Printf("  %-15s    %s: %s -> %s\n", "", d.Field, planValue(d.Old), planValue(d.New))
 			}
 			for _, id := range o.Asks {
-				fmt.Printf("  %-15s    asks: %s\n", "", id)
+				if v, ok := answers[id]; ok {
+					fmt.Printf("  %-15s    %s\n", "", answered(id, v))
+				} else {
+					fmt.Printf("  %-15s    asks: %s\n", "", id)
+				}
 			}
 		}
 	}
-	if len(p.Questions) > 0 {
+	if open := p.Missing(answers); len(open) > 0 {
 		fmt.Println("\nan import would ask")
-		for _, q := range p.Questions {
+		for _, q := range open {
 			line := fmt.Sprintf("  %s: %s", q.ID, q.Ask)
 			if q.Default != "" {
 				line += " [" + q.Default + "]"
@@ -608,6 +682,25 @@ func printPlan(p *pack.Plan) {
 		for _, r := range p.Refused {
 			fmt.Println("  " + r)
 		}
+	}
+}
+
+// answered prints the answer v to question id as what its object gets.
+func answered(id, v string) string {
+	v = strings.TrimSpace(v)
+	switch field := id[strings.LastIndex(id, ".")+1:]; field {
+	case "kind":
+		return "agent: " + v
+	case "model":
+		return "model: " + or(v, "the agent's own default")
+	case "args":
+		return "arguments: " + or(v, "none; its agent stops at every permission prompt")
+	case "members":
+		return "members: " + or(v, "anyone")
+	case "dir":
+		return "directory: " + v
+	default:
+		return field + ": " + v
 	}
 }
 

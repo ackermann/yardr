@@ -17,7 +17,8 @@ import (
 
 // Answers are the answers to a plan's questions, by question id. A
 // question counts as answered when its id is here, whatever the value: an
-// empty model is the agent's own default, empty members anyone.
+// empty model is the agent's own default, empty members anyone, empty args
+// (the agent's permission arguments, space-separated) none.
 type Answers map[string]string
 
 // ApplyOptions say how a plan is applied.
@@ -215,6 +216,9 @@ func write(ctx context.Context, st store.API, p *Plan, obj *Object, o ApplyOptio
 		if v, ok := answer("model"); ok && v != "" {
 			g.Config["model"] = v
 		}
+		if v, ok := answer("args"); ok && v != "" {
+			g.Config["args"] = argList(v)
+		}
 		if v, ok := answer("members"); ok {
 			g.Members = strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == ' ' })
 		}
@@ -264,6 +268,9 @@ func write(ctx context.Context, st store.API, p *Plan, obj *Object, o ApplyOptio
 			if v, ok := answer("model"); ok && v != "" {
 				def.Config["model"] = v
 			}
+			if v, ok := answer("args"); ok && v != "" {
+				def.Config["args"] = argList(v)
+			}
 			def.Dir, _ = answer("dir")
 		}
 		if op.Prompt != "" {
@@ -282,6 +289,15 @@ func write(ctx context.Context, st store.API, p *Plan, obj *Object, o ApplyOptio
 		return st.AddSubscription(ctx, s.Resident, *s.Add, o.Actor)
 	}
 	return fmt.Errorf("the plan has an object of unknown kind %q", obj.Kind)
+}
+
+// argList is an args answer as a group or resident stores its arguments.
+func argList(v string) []any {
+	var list []any
+	for _, s := range strings.Fields(v) {
+		list = append(list, s)
+	}
+	return list
 }
 
 // install writes a pack's file under the home: to a temporary file beside
