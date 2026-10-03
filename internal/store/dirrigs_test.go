@@ -172,7 +172,15 @@ func TestDirRigFlows(t *testing.T) {
 	if err := s.SetFlowPointer(ctx, "docs", "", "ghost", "me"); err == nil || !strings.Contains(err.Error(), "in "+dir) {
 		t.Fatalf("pointer to a missing dir flow: %v", err)
 	}
+	// The rig pointer would govern the decision too, whose stage ask the
+	// flow lacks: it is refused until the decision is out of the way.
 	writeFiles(t, dir, map[string]string{".yardr/flows/alt.flow": repoAlt})
+	if err := s.SetFlowPointer(ctx, "docs", "", "alt", "me"); err == nil || !strings.Contains(err.Error(), q.ID+" (ask)") {
+		t.Fatalf("rig pointer to a dir flow over a decision in ask: %v", err)
+	}
+	if q, err = s.Advance(ctx, q.ID, "answered", "me"); err != nil || q.Status != "closed" {
+		t.Fatalf("decision: %v %+v", err, q)
+	}
 	if err := s.SetFlowPointer(ctx, "docs", "", "alt", "me"); err != nil {
 		t.Fatal(err)
 	}

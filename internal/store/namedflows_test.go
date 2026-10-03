@@ -122,7 +122,9 @@ func TestFlowResolutionOrder(t *testing.T) {
 	if err := s.SetFlowPointer(ctx, "web", "", "code", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if q, err = s.CreateBead(ctx, store.NewBead{Title: "q", Rig: "web", Type: "decision"}, "me"); err != nil {
+	// In new, a stage flow alt has too, so the type pointer below is not
+	// refused over it.
+	if q, err = s.CreateBead(ctx, store.NewBead{Title: "q", Rig: "web", Type: "decision", Stage: "new"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if name, src := governing(t, s, task.ID); name != "code" || src != "store" {
