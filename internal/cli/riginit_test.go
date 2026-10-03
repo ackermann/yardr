@@ -333,7 +333,7 @@ func TestDirRigFlowsWalk(t *testing.T) {
 		for _, s := range steps {
 			move, want := s[0], s[1]
 			if to, ok := strings.CutPrefix(move, "->"); ok {
-				b, err = st.Advance(ctx, b.ID, to, "me")
+				b, err = st.Advance(ctx, b.ID, to, store.Expect{}, "me")
 			} else {
 				b, err = st.Done(ctx, b.ID, move, "", store.Expect{}, "me")
 			}
@@ -363,7 +363,7 @@ func TestDirRigFlowsWalk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.Advance(ctx, b.ID, "approved", "me"); err == nil {
+	if _, err := st.Advance(ctx, b.ID, "approved", store.Expect{}, "me"); err == nil {
 		t.Fatal("a dir rig's task reached approved")
 	}
 }

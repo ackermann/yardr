@@ -134,7 +134,7 @@ func TestDirRigFlows(t *testing.T) {
 	if err != nil || repo.Dir != dir || repo.Base != "" || repo.Commit != "" || len(repo.Flows) != 2 {
 		t.Fatalf("repo flows = %+v, %v", repo, err)
 	}
-	if _, err := s.Advance(ctx, b.ID, "done", "me"); err == nil {
+	if _, err := s.Advance(ctx, b.ID, "done", store.Expect{}, "me"); err == nil {
 		t.Fatal("dir flow not enforced")
 	}
 
