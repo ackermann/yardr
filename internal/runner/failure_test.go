@@ -74,30 +74,54 @@ func TestHerdrMissingHoldsNoBead(t *testing.T) {
 	}
 }
 
-// A fetch of the base that hangs (a dead remote, a credential prompt) is cut
-// off at the deadline, and git is told never to prompt.
-func TestFetchBaseHasADeadline(t *testing.T) {
+// hangingGit puts a fake git first on PATH and returns the file it writes
+// GIT_TERMINAL_PROMPT to. It exits at once unless FAKE_GIT_HANG is set, in
+// which case it sleeps well past any deadline a test sets. The two are apart
+// because a deadline short enough to test can pass before the script has run
+// its first line (process start under a full -race suite takes seconds), so
+// what git was told is read from a call nothing cuts off.
+func hangingGit(t *testing.T) (envOut string) {
+	t.Helper()
 	bin := t.TempDir()
-	envOut := filepath.Join(t.TempDir(), "env")
-	fake := "#!/bin/sh\nprintf '%s\\n' \"$GIT_TERMINAL_PROMPT\" > " + envOut + "\nexec sleep 30\n"
+	envOut = filepath.Join(t.TempDir(), "env")
+	fake := "#!/bin/sh\nprintf '%s\\n' \"$GIT_TERMINAL_PROMPT\" > " + envOut +
+		"\nif [ -n \"$FAKE_GIT_HANG\" ]; then exec sleep 30; fi\n"
 	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(fake), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	// Well short of the 30s sleep, but long enough for the fake's first
-	// exec: macOS takes well over 100ms to run a script it has just seen.
-	h := &Herdr{FetchTimeout: 2 * time.Second}
-	start := time.Now()
-	h.fetchBase(context.Background(), &store.Rig{Path: t.TempDir(), Base: "origin/main"})
-	if took := time.Since(start); took > 10*time.Second {
-		t.Fatalf("fetch returned after %s; the deadline did not hold", took)
-	}
+	return envOut
+}
+
+// noPrompt fails the test unless the fake git ran and was told never to
+// prompt.
+func noPrompt(t *testing.T, envOut string) {
+	t.Helper()
 	got, err := os.ReadFile(envOut)
 	if err != nil {
 		t.Fatalf("fake git never ran: %v", err)
 	}
 	if strings.TrimSpace(string(got)) != "0" {
 		t.Fatalf("GIT_TERMINAL_PROMPT = %q, want 0", got)
+	}
+}
+
+// A fetch of the base that hangs (a dead remote, a credential prompt) is cut
+// off at the deadline, and git is told never to prompt.
+func TestFetchBaseHasADeadline(t *testing.T) {
+	envOut := hangingGit(t)
+	rig := &store.Rig{Path: t.TempDir(), Base: "origin/main"}
+	(&Herdr{}).fetchBase(context.Background(), rig)
+	noPrompt(t, envOut)
+
+	// Well short of the 30s sleep. Whether the fake has started by then
+	// does not matter: the fetch is cut off either way.
+	t.Setenv("FAKE_GIT_HANG", "1")
+	h := &Herdr{FetchTimeout: 2 * time.Second}
+	start := time.Now()
+	h.fetchBase(context.Background(), rig)
+	if took := time.Since(start); took > 10*time.Second {
+		t.Fatalf("fetch returned after %s; the deadline did not hold", took)
 	}
 	if FetchTimeout != 60*time.Second {
 		t.Fatalf("FetchTimeout = %s", FetchTimeout)
@@ -172,13 +196,13 @@ func TestHerdrDownErrorObjectIsAnOutage(t *testing.T) {
 // Every git call Start and Finish make is cut off at a deadline, like the
 // fetch, and never waits on a credential prompt.
 func TestGitCallsHaveADeadline(t *testing.T) {
-	bin := t.TempDir()
-	envOut := filepath.Join(t.TempDir(), "env")
-	fake := "#!/bin/sh\nprintf '%s\\n' \"$GIT_TERMINAL_PROMPT\" > " + envOut + "\nexec sleep 30\n"
-	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(fake), 0o755); err != nil {
-		t.Fatal(err)
+	envOut := hangingGit(t)
+	if err := git(context.Background(), t.TempDir(), "worktree", "add", "x", "y"); err != nil {
+		t.Fatalf("fake git: %v", err)
 	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	noPrompt(t, envOut)
+
+	t.Setenv("FAKE_GIT_HANG", "1")
 	was := checkoutTimeout
 	checkoutTimeout = 2 * time.Second // see TestFetchBaseHasADeadline on the margin
 	t.Cleanup(func() { checkoutTimeout = was })
@@ -190,13 +214,6 @@ func TestGitCallsHaveADeadline(t *testing.T) {
 	}
 	if err == nil {
 		t.Fatal("a git call cut off at the deadline returned no error")
-	}
-	got, rerr := os.ReadFile(envOut)
-	if rerr != nil {
-		t.Fatalf("fake git never ran: %v", rerr)
-	}
-	if strings.TrimSpace(string(got)) != "0" {
-		t.Fatalf("GIT_TERMINAL_PROMPT = %q, want 0", got)
 	}
 	if was != 2*time.Minute {
 		t.Fatalf("checkoutTimeout = %s", was)
