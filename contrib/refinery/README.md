@@ -51,8 +51,8 @@ The pull-request path is experimental and off by default: an epic lands
 through merge-local unless `YARDR_PR=1` is in the cmd of integrate-epic,
 pr-epic and pr-merge alike. Without it pr-epic and pr-merge hold the epic
 with a note naming the switch and touch neither the remote nor GitHub.
-docs/pipeline.md, "Through a pull request", lists what the path does not
-yet guarantee (the first green workflow counts as CI green).
+docs/pipeline.md, "Through a pull request", lists its known limits (the
+daemon lands an epic on the base branch's required checks only).
 
 **pr-epic** is routed for the epic flow's `approved` stage (type `epic`)
 when epics land through pull requests. It pushes `yard/<epic>` with a lease

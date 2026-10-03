@@ -103,7 +103,17 @@ type Dispatcher struct {
 	// pull_request event has (see github.go); nil asks gh.
 	PRHead func(ctx context.Context, q PRQuery) (string, error)
 
+	// CI reads what GitHub says of the checks on a commit of an epic's
+	// pull request (see ci.go); nil asks gh.
+	CI func(ctx context.Context, q CIQuery) (CIChecks, error)
+
 	ghCursor uint64 // the last event the github rules read
+	// ciRead is epic in in-pr -> its revision when its CI was read and
+	// acted on; an event about the epic's pull request removes it, so the
+	// state is read again. ciWait is epic -> the wait after a read GitHub
+	// did not answer.
+	ciRead map[string]string
+	ciWait map[string]*outage
 
 	clock      func() time.Time // tests only; see now
 	retryAfter map[string]time.Time
@@ -424,8 +434,8 @@ func (d *Dispatcher) noteReplaced(ctx context.Context) {
 }
 
 // Reconcile performs one idempotent pass: reap dead sessions, tear down
-// finished ones, apply the github rules to new hook events, then route and
-// start unowned ready beads.
+// finished ones, apply the github rules to new hook events, read the CI of
+// epics in in-pr, then route and start unowned ready beads.
 func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	d.defaults()
 	groups, err := d.Store.Groups(ctx)
@@ -453,6 +463,9 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	// Before routing, so an epic the rules move to land is dispatched to
 	// its merger in this pass.
 	if err := d.github(ctx); err != nil {
+		return err
+	}
+	if err := d.ci(ctx); err != nil {
 		return err
 	}
 	return d.route(ctx, byName, active)

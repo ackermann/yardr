@@ -20,16 +20,17 @@ import (
 // field names an open epic, and only when the event is about the one pull
 // request the epic is bound to (boundPR):
 //
-//	ci_green           a run or suite on the PR head succeeded, epic in in-pr: to land
-//	ci_red             it failed or timed out, epic in in-pr or review: a fix child, in-pr to open
+//	ci_red             a run or suite on the PR head failed or timed out, epic in review: a fix child
 //	pr_merged          the PR was merged: land (or in-pr, approved) to merged
 //	pr_closed          the PR was closed unmerged: in-pr or review to decide
 //	changes_requested  a human asked for changes: to open, for the mayor to file the fix
 //
-// A cancelled run or suite is neither green nor red: someone or a newer
-// push stopped it, so it says nothing about the commit, and the epic waits
-// for the next conclusion. A held epic is a human's: the rules leave it
-// where it is, whatever GitHub reports, until it is un-held.
+// No rule takes CI's result from an event for an epic in in-pr: there a
+// run or suite, whatever its conclusion, and any event about the pull
+// request only has the state read again (see ci.go). A cancelled run or
+// suite is not red: someone or a newer push stopped it, so it says nothing
+// about the commit. A held epic is a human's: the rules leave it where it
+// is, whatever GitHub reports, until it is un-held.
 //
 // Each event an epic has been judged on is recorded on the epic
 // (metaGitHubSeq), so a restarted daemon that reads the log from the start
@@ -37,7 +38,6 @@ import (
 // it would set does nothing. Every action, and every event ignored because
 // of the epic's stage or hold, is logged as a github_rule event on the epic.
 const (
-	ruleGreen   = "ci_green"
 	ruleRed     = "ci_red"
 	ruleMerged  = "pr_merged"
 	ruleClosed  = "pr_closed"
@@ -142,10 +142,7 @@ func (ev ghEvent) rule() (rule string, head bool) {
 		if ev.action != "completed" {
 			return "", false
 		}
-		switch ev.conclusion {
-		case "success":
-			return ruleGreen, false
-		case "failure", "timed_out":
+		if ev.conclusion == "failure" || ev.conclusion == "timed_out" {
 			return ruleRed, false
 		}
 	case "pull_request":
@@ -167,6 +164,9 @@ func (ev ghEvent) rule() (rule string, head bool) {
 	}
 	return "", false
 }
+
+// ci reports whether ev is about a run of CI, whatever became of it.
+func (ev ghEvent) ci() bool { return ev.typ == "workflow_run" || ev.typ == "check_suite" }
 
 // githubPage bounds the events one read of the log returns.
 const githubPage = 500
@@ -197,7 +197,7 @@ func (d *Dispatcher) github(ctx context.Context) error {
 // it on.
 func (d *Dispatcher) githubEvent(ctx context.Context, ev ghEvent) {
 	rule, head := ev.rule()
-	if ev.epic == "" || (rule == "" && !head) {
+	if ev.epic == "" || (rule == "" && !head && !ev.ci()) {
 		return
 	}
 	epic, err := d.Store.GetBead(ctx, ev.epic)
@@ -217,6 +217,15 @@ func (d *Dispatcher) githubEvent(ctx context.Context, ev ghEvent) {
 	// name is anyone's to use.
 	pr := boundPR(epic)
 	elsewhere := pr.other(ev)
+	if elsewhere == "" {
+		// Something about the epic's pull request changed: its CI is read
+		// again, when it is in in-pr. An event elsewhere (a fork's run)
+		// has GitHub asked nothing.
+		d.ciAgain(epic.ID)
+	}
+	if rule == ruleRed && epic.Stage == "in-pr" {
+		rule = "" // read as state, by ci
+	}
 	if rule != "" {
 		var res ruleResult
 		if elsewhere != "" {
@@ -245,8 +254,14 @@ func (d *Dispatcher) githubEvent(ctx context.Context, ev ghEvent) {
 	if head && ev.sha != "" && elsewhere == "" {
 		meta[metaPRHead] = ev.sha
 	}
-	if _, err := d.Store.UpdateBead(ctx, epic.ID, store.BeadPatch{Metadata: meta}, store.Expect{}, actor); err != nil {
+	seen, err := d.Store.UpdateBead(ctx, epic.ID, store.BeadPatch{Metadata: meta}, store.Expect{}, actor)
+	if err != nil {
 		d.Log.Warn("github rule: marking the event seen", "epic", epic.ID, "seq", ev.seq, "err", err)
+	} else if elsewhere != "" && d.ciRead[epic.ID] == epic.Revision {
+		// Marking the event seen changed the epic, and nothing else did:
+		// an event that is not about its pull request is no reason to
+		// read its CI again (see ci).
+		d.ciRead[epic.ID] = seen.Revision
 	}
 }
 
@@ -350,22 +365,11 @@ func failed(err error) ruleResult { return ruleResult{err: err} }
 func (d *Dispatcher) applyRule(ctx context.Context, rule string, ev ghEvent, epic *store.Bead) ruleResult {
 	at := func(stage string) store.Expect { return store.Expect{Stage: stage} }
 	switch rule {
-	case ruleGreen:
-		if epic.Stage != "in-pr" {
-			return ignored("epic in %s, not in-pr", epic.Stage)
-		}
-		if r, ok := d.onHead(ctx, ev, epic); !ok {
-			return r
-		}
-		note := fmt.Sprintf("CI green on %s: %s", ev.sha, ev.url)
-		if _, err := d.Store.AdvanceNote(ctx, epic.ID, "land", note, at("in-pr"), actor); err != nil {
-			return failed(err)
-		}
-		return did("in-pr -> land")
-
 	case ruleRed:
-		if epic.Stage != "in-pr" && epic.Stage != "review" {
-			return ignored("epic in %s, not in-pr or review", epic.Stage)
+		// In review only: an epic in in-pr is judged on its required
+		// checks (ci.go), and gets its fix child there.
+		if epic.Stage != "review" {
+			return ignored("epic in %s, not review", epic.Stage)
 		}
 		if ev.sha == "" {
 			return ignored("no head_sha")
@@ -373,25 +377,14 @@ func (d *Dispatcher) applyRule(ctx context.Context, rule string, ev ghEvent, epi
 		if r, ok := d.onHead(ctx, ev, epic); !ok {
 			return r
 		}
-		fix, made, err := d.ciFix(ctx, ev, epic)
+		fix, made, err := d.ciFix(ctx, epic, ev.sha, or(ev.workflow, "CI"), ev.conclusion, ev.url)
 		if err != nil {
 			return failed(err)
 		}
-		if epic.Stage == "review" {
-			if !made {
-				return ignored("%s already fixes CI on %s", fix, ev.sha)
-			}
-			return did("added %s", fix)
-		}
-		note := fmt.Sprintf("CI %s on %s: %s\nAdded %s to fix it; the epic is integrated again once it lands.",
-			ev.conclusion, ev.sha, ev.url, fix)
-		if _, err := d.Store.AdvanceNote(ctx, epic.ID, "open", note, at("in-pr"), actor); err != nil {
-			return failed(err)
-		}
 		if !made {
-			return did("in-pr -> open (%s was there)", fix)
+			return ignored("%s already fixes CI on %s", fix, ev.sha)
 		}
-		return did("added %s; in-pr -> open", fix)
+		return did("added %s", fix)
 
 	case ruleMerged:
 		note := "PR merged: " + ev.url
@@ -453,8 +446,8 @@ func (d *Dispatcher) applyRule(ctx context.Context, rule string, ev ghEvent, epi
 
 // onHead reports whether ev's commit is the head of the epic's pull
 // request, as the last pull_request event gave it or, without one, as gh
-// says: a conclusion on an older commit (a run a push superseded) says
-// nothing about what would be merged.
+// says: a failure on an older commit (a run a push superseded) says
+// nothing about what is under review.
 func (d *Dispatcher) onHead(ctx context.Context, ev ghEvent, epic *store.Bead) (ruleResult, bool) {
 	head, _ := epic.Metadata[metaPRHead].(string)
 	if head == "" {
@@ -480,20 +473,20 @@ func (d *Dispatcher) onHead(ctx context.Context, ev ghEvent, epic *store.Bead) (
 	return ruleResult{}, true
 }
 
-// ciFix returns the child that fixes CI on ev's commit, adding it when
+// ciFix returns the child that fixes CI on commit sha, where name (a
+// workflow, or the failed checks) concluded conclusion, adding it when
 // there is none. Its handle is made from the epic and the commit, so there
-// is one per head_sha however many runs fail on it, also across restarts
+// is one per commit however many runs fail on it, also across restarts
 // that interrupted adding it.
-func (d *Dispatcher) ciFix(ctx context.Context, ev ghEvent, epic *store.Bead) (id string, made bool, err error) {
-	id = epic.ID + "-ci-" + ev.sha[:min(len(ev.sha), 7)]
+func (d *Dispatcher) ciFix(ctx context.Context, epic *store.Bead, sha, name, conclusion, url string) (id string, made bool, err error) {
+	id = epic.ID + "-ci-" + sha[:min(len(sha), 7)]
 	if _, err = d.Store.GetBead(ctx, id); errors.Is(err, store.ErrNotFound) {
-		name := or(ev.workflow, "CI")
 		rig := ""
 		if epic.Rig != nil {
 			rig = *epic.Rig
 		}
 		body := fmt.Sprintf("%s concluded %s on %s, the head of epic %s's pull request (%s): %s\n\nMake it pass on %s.",
-			name, ev.conclusion, ev.sha, epic.ID, store.Branch(epic.ID), ev.url, store.Branch(epic.ID))
+			name, conclusion, sha, epic.ID, store.Branch(epic.ID), url, store.Branch(epic.ID))
 		_, err = d.Store.CreateBead(ctx, store.NewBead{ID: id, Title: fmt.Sprintf("Fix CI on epic %s: %s", epic.ID, name),
 			Body: body, Type: "bug", Stage: "backlog", Priority: epic.Priority, Rig: rig}, actor)
 		made = err == nil

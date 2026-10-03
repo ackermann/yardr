@@ -434,11 +434,18 @@ route or a move by hand does not start the path: nothing reports `done` in
 `approved`, and the epic reaches `merged` only by merge-local's bare edge.
 
 Do not switch it on for a repository others can open pull requests
-against. The path does not yet guarantee:
+against while it is experimental. Its known limits:
 
-- **That CI is green.** `ci_green` fires on the first successful run or
-  suite of any workflow on the head, once; other workflows may still be
-  running or red (see the required-checks advice below).
+- **Green is the base branch's required checks.** The daemon lands an
+  epic when every check the base requires (branch protection or a
+  ruleset) is green on the reviewed commit
+  ([GitHub events](#github-events)). A base that requires none is never
+  green to it: a human says merge.
+- **A commit status sends no event.** A required check an external CI
+  reports as a commit status is read with the rest, but only
+  `workflow_run` and `check_suite` deliveries have the state read again;
+  an epic waiting on a status alone waits for a human, or for the next
+  event about its pull request.
 
 With `YARDR_PR=1` set, an epic goes to main as a pull
 request against the rig's base instead of a local fast-forward. Three exec
@@ -459,8 +466,8 @@ approved it with their own commits, in the epic's metadata as
 `pr_reviewed_sha`, beside the binding. pr-merge merges with
 `--match-head-commit <pr_reviewed_sha>`: a PR whose head is any other
 commit, pushed after the review, is not merged, and the epic is held in
-`land` with a note naming both shas. That CI ran on that commit is not
-checked here (see `ci_green` above).
+`land` with a note naming both shas. CI is read for that commit too
+([GitHub events](#github-events)).
 
 - **open**, `yard-integrators`: after pushing the rebased branch (it needs
   `YARDR_PUSH`; set without it, the epic is held), integrate-epic opens a
@@ -488,8 +495,9 @@ checked here (see `ci_green` above).
 - **in-pr**, `decisions` (members mckean, mayor): a manual stage. Look at
   the PR and its checks; `yardr bead done <epic>` means "merge it" (to
   `land`), `--outcome changes` sends it back to `open` (add the fix as a
-  child first), `--outcome question` to `decide`. With a GitHub hook, the
-  daemon does this itself when CI is green (below).
+  child first), `--outcome question` to `decide`. The daemon does this
+  itself when the required checks of the reviewed commit are green
+  (below).
 - **land**, `yard-pr-merge`
   ([`contrib/refinery/pr-merge`](../contrib/refinery/pr-merge), with
   `YARDR_PR=1`; held without it): runs `gh
@@ -517,21 +525,21 @@ request, so a PR that is green and approved waits on no one. It reads every
 those that are about the pull request the epic is bound to (below). A
 held epic is a human's: every rule leaves it where it is (the event is
 judged, and logged as ignored because the epic is held) until it is
-un-held, after which the next event moves it.
+un-held, after which the next event moves it; its CI is not read while it
+is held, and is read when it is un-held.
 
-1. **CI green** (`ci_green`): a `workflow_run` or `check_suite` completed
-   with conclusion `success` on the PR's head commit, epic in `in-pr`: the
-   daemon advances it to `land` with the note "CI green on <sha>: <run
-   url>", and yard-pr-merge merges it, in the same pass.
-2. **CI red** (`ci_red`): conclusion `failure` or `timed_out` on the head,
-   epic in `in-pr` or `review`: it adds a child "Fix CI on epic <id>:
-   <workflow>" (type bug, in `backlog`, the run's URL and conclusion in its
-   body), which blocks the epic, and moves an epic in `in-pr` to `open`.
-   There is one fix child per head commit, its handle `<epic>-ci-<sha7>`:
-   a second failed run or suite on the same commit adds none. A
-   `cancelled` run or suite is neither green nor red: someone, or a newer
-   push, stopped it, so it says nothing about the commit, and the epic
-   waits for the next conclusion.
+1. **CI, in `in-pr`** (`ci`): not a rule on an event. CI is state, read
+   from GitHub, and an event only has it read again (see "CI is read as
+   state" below).
+2. **CI red, in `review`** (`ci_red`): a `workflow_run` or `check_suite`
+   completed with conclusion `failure` or `timed_out` on the head, epic in
+   `review`: it adds a child "Fix CI on epic <id>: <workflow>" (type bug,
+   in `backlog`, the run's URL and conclusion in its body), which blocks
+   the epic; the epic stays in review. There is one fix child per head
+   commit, its handle `<epic>-ci-<sha7>`: a second failed run or suite on
+   the same commit adds none. A `cancelled` run or suite is not red:
+   someone, or a newer push, stopped it, so it says nothing about the
+   commit.
 3. **PR merged** (`pr_merged`): `pull_request` `closed` with `merged`
    true. From `land` the epic is reported `done`, to `merged`; from `in-pr`
    (merged by hand) it goes `land` then `merged`; from `approved` by the
@@ -548,12 +556,47 @@ un-held, after which the next event moves it.
    the fix as a child. Comments (`issue_comment`) are not the daemon's: a
    resident subscribed to github with `--scope mentions` gets them.
 
-The head commit is the one the last `pull_request` event (opened,
-synchronize, ...) or review for the epic carried, kept in the epic's
-metadata as `pr_head`; without one the daemon asks `gh pr view` for
-`headRefOid`. A conclusion on another commit (a run a later push
-superseded) is ignored. `gh` is asked about the bound pull request, by
-its URL or number, never by the branch.
+For `ci_red`, the head commit is the one the last `pull_request` event
+(opened, synchronize, ...) or review for the epic carried, kept in the
+epic's metadata as `pr_head`; without one the daemon asks `gh pr view` for
+`headRefOid`. A failure on another commit (a run a later push superseded)
+is ignored. `gh` is asked about the bound pull request, by its URL or
+number, never by the branch.
+
+**CI is read as state.** For an epic in `in-pr` the daemon takes no
+conclusion from an event. It asks GitHub (`gh api`) about the reviewed
+commit, `pr_reviewed_sha`: the pull request's head and base, the checks
+the base branch requires (its protection's required status checks and
+those of the rulesets that apply to it), and the check runs and commit
+statuses on that commit, the latest of each name. Then:
+
+- **green**, every required check is there and concluded `success`
+  (`neutral` and `skipped` count as GitHub counts them): the epic goes to
+  `land` with the note "CI green on <sha>: <checks> (the checks <base>
+  requires)", and yard-pr-merge merges it, in the same pass;
+- **red**, a required check concluded `failure`, `timed_out` or
+  `startup_failure`, also while others still run: a child "Fix CI on epic
+  <id>: <checks>" as above (one per commit), and the epic goes to `open`;
+- **pending**, a required check is queued or running, was `cancelled`,
+  waits for someone's approval, or has not been reported at all: nothing
+  moves. One green workflow among several required ones is pending.
+
+It asks when it first sees the epic in `in-pr`, so CI that finished while
+the epic was under review, or while the daemon was down, is seen without
+any new run; after that, a `workflow_run` or `check_suite` delivery of any
+action or conclusion, a `pull_request` event or a review about the bound
+pull request has it ask again, as does any change to the epic (a note, an
+un-hold). Between those nothing is polled. A read GitHub does not answer
+is tried again after 30s, doubling up to an hour.
+
+Checks that are not required are not counted, failed or not. A base that
+requires no checks has nothing the daemon can call green (a workflow that
+has not reported yet cannot be told from one that does not exist), so the
+epic stays for a human; a failed check on the commit still sends it back
+to `open`. A pull request whose head is no longer the reviewed commit is
+left alone: pr-merge would not merge that head. An epic with no
+`pr_reviewed_sha`, or bound to no pull request, is not asked about. A
+required check is matched by its name, whichever app reports it.
 
 The branch name only finds the epic; the bound pull request (`pr_url`,
 `pr_number`, `pr_head_repo`, which integrate-epic stores) decides whether
@@ -583,15 +626,16 @@ judged for an epic is recorded in its metadata (`github_seq`), so a daemon
 that restarts and reads the log again from the start does nothing twice.
 Every action, every event ignored because of the stage, and every refused
 move is logged as a `github_rule` dispatch event on the epic, with the rule,
-epic, sha and the hook event's seq.
+epic, sha and the hook event's seq. Every read of an epic's CI is logged
+the same way, as rule `ci` with no seq: what it did (`green: in-pr ->
+land`), or why it did nothing (`pending: waiting for <checks>`).
 
 The daemon acts as `yard`, so the group holding `in-pr` must list it among
 its members (below); otherwise its moves out of `in-pr` are refused, and the
-`github_rule` event says so. The first green run on the head lands the
-epic: a repository with several workflows should make them all required
-checks of the base branch, so GitHub refuses the merge while one is still
-running (pr-merge then reports `failed`, to `open`, and the next
-integration tries again).
+`github_rule` event says so. A repository should make every workflow that
+must pass a required check of the base branch: those are what the daemon
+waits for, and what GitHub refuses the merge without (pr-merge then
+reports `failed`, to `open`, and the next integration tries again).
 
 `gh` (logged in as the operator) and `jq` must be on the scripts' PATH.
 Without `YARDR_PR`, the default, route `approved` for epics to
