@@ -107,6 +107,7 @@ or let yardr clone it:
 yardr rig add webapp ~/projects/webapp                       # existing clone
 yardr rig add webapp --clone git@github.com:me/webapp.git    # → ~/.yardr/rigs/webapp
 yardr rig add legacy ~/src/legacy --base origin/master       # base must resolve
+yardr rig rm legacy                                          # store only; the clone stays
 ```
 
 Bead branches (`yard/<bead>`) start from the rig's base, fetched before each
@@ -115,7 +116,8 @@ a group's `prompt=roles/<name>.md` reads the rig's `.yardr/roles/<name>.md`
 from its base, then `~/.yardr/roles/<name>.md`
 ([details](docs/configuration.md#role-prompts)). Rig names, like
 bead types and dependency kinds, are lowercase letters, digits, `.`, `_` and
-`-`.
+`-`. `rig rm` removes a rig with its routes and flow pointers, and is refused
+while the rig has open beads or live sessions; it touches nothing on disk.
 
 ## Working a bead (humans and agents alike)
 

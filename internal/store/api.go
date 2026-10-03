@@ -33,6 +33,7 @@ type API interface {
 	PutRig(ctx context.Context, r Rig, actor string) error
 	Rigs(ctx context.Context) ([]Rig, error)
 	GetRig(ctx context.Context, name string) (*Rig, error)
+	DeleteRig(ctx context.Context, name, actor string) (*RigRemoval, error)
 
 	PutGroup(ctx context.Context, g Group) error
 	Groups(ctx context.Context) ([]Group, error)

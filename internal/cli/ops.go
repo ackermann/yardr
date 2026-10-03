@@ -298,7 +298,43 @@ overrides the repository's default.flow and type/<type>.flow.`,
 	}
 	flow.Flags().StringVarP(&flowType, "type", "t", "", "only the rig's beads of this type")
 	flow.Flags().BoolVar(&clear, "clear", false, "remove the pointer")
-	cmd.AddCommand(add, list, show, flow, a.rigCheckCmd(), a.rigInitCmd())
+	rm := &cobra.Command{
+		Use:   "rm <name>",
+		Short: "Remove a rig from the store with its routes and flow pointers (refused while it has open beads or live sessions)",
+		Example: `  yardr rig rm yard          # registered under the wrong name; nothing uses it
+  yardr rig rm legacy --json # what went with it: its routes and flow pointers
+
+Only the store changes. The clone, its worktrees and its .yardr/ stay where
+they are; remove them yourself if you want them gone. Closed beads keep the
+rig's name as history. A rig with open beads or live sessions is refused and
+the beads and sessions named: close or move the beads first.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			r, err := st.DeleteRig(c.Context(), args[0], a.who())
+			if err != nil {
+				return err
+			}
+			return a.out(r, func() {
+				ptrs := make([]string, 0, len(r.FlowPointers))
+				for _, p := range r.FlowPointers {
+					ptrs = append(ptrs, p.String())
+				}
+				fmt.Printf("removed rig %s; %d route(s) and %d flow pointer(s) went with it\n", r.Rig, len(r.Routes), len(ptrs))
+				if len(r.Routes) > 0 {
+					fmt.Printf("  routes: %s\n", strings.Join(r.Routes, " "))
+				}
+				if len(ptrs) > 0 {
+					fmt.Printf("  flow pointers: %s\n", strings.Join(ptrs, ", "))
+				}
+				fmt.Println("nothing on disk was touched")
+			})
+		},
+	}
+	cmd.AddCommand(add, list, show, flow, rm, a.rigCheckCmd(), a.rigInitCmd())
 	return cmd
 }
 

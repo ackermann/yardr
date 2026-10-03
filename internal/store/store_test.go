@@ -128,6 +128,123 @@ func TestRigKeepsCheckOverride(t *testing.T) {
 	}
 }
 
+// rig rm takes the rig's routes and flow pointers with it, leaves other rigs'
+// alone (web2 shares web's prefix), and is refused, with nothing deleted,
+// while an open bead or a live session still needs the rig.
+func TestDeleteRig(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, rig := range []string{"web", "web2"} {
+		must(s.PutRig(ctx, store.Rig{Name: rig, Path: "/tmp/" + rig, Base: "main"}, "me"))
+	}
+	must(s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
+	web, web2 := "web", "web2"
+	mine, err := s.AddRoute(ctx, store.Route{Stage: "new", Rig: &web, Group: "builders"})
+	must(err)
+	other, err := s.AddRoute(ctx, store.Route{Stage: "new", Rig: &web2, Group: "builders"})
+	must(err)
+	any, err := s.AddRoute(ctx, store.Route{Stage: "review", Group: "builders"})
+	must(err)
+	f, err := store.ParseFlow("new -> review\nreview -> done\ndone terminal")
+	must(err)
+	f.Name = "code"
+	_, err = s.PutFlow(ctx, *f, "me")
+	must(err)
+	must(s.SetFlowPointer(ctx, "web", "", "code", "me"))
+	must(s.SetFlowPointer(ctx, "web", "bug", "code", "me"))
+	must(s.SetFlowPointer(ctx, "web2", "", "code", "me"))
+
+	// A closed bead is history, not a user.
+	done, err := s.CreateBead(ctx, store.NewBead{Title: "done", Rig: "web"}, "me")
+	must(err)
+	_, err = s.CloseBead(ctx, done.ID, "merged", store.Expect{}, "me")
+	must(err)
+	// An open bead, and then a session working it, each refuse the removal.
+	open, err := s.CreateBead(ctx, store.NewBead{Title: "open", Rig: "web"}, "me")
+	must(err)
+	intact := func(step string) {
+		t.Helper()
+		if _, err := s.GetRig(ctx, "web"); err != nil {
+			t.Fatalf("%s: rig gone: %v", step, err)
+		}
+		rs, _ := s.Routes(ctx)
+		ps, _ := s.FlowPointers(ctx)
+		if len(rs) != 3 || len(ps) != 3 {
+			t.Fatalf("%s: routes %d, pointers %d; refused removal deleted something", step, len(rs), len(ps))
+		}
+	}
+	_, err = s.DeleteRig(ctx, "web", "me")
+	if err == nil || !strings.Contains(err.Error(), "rig web is in use by bead "+open.ID) || strings.Contains(err.Error(), done.ID) {
+		t.Fatalf("open bead: err = %v", err)
+	}
+	intact("open bead")
+	sess, err := s.Claim(ctx, open.ID, "builders", "new", "yard")
+	must(err)
+	_, err = s.DeleteRig(ctx, "web", "me")
+	if err == nil || !strings.Contains(err.Error(), "session "+sess.ID+" (bead "+open.ID+")") {
+		t.Fatalf("live session: err = %v", err)
+	}
+	intact("live session")
+	must(s.EndSession(ctx, sess.ID, "aborted", "test"))
+	if _, err := s.DeleteRig(ctx, "web", "me"); err == nil || !strings.Contains(err.Error(), "bead "+open.ID) || strings.Contains(err.Error(), "session "+sess.ID) {
+		t.Fatalf("ended session, bead still open: err = %v", err)
+	}
+	_, err = s.CloseBead(ctx, open.ID, "dropped", store.Expect{}, "me")
+	must(err)
+
+	got, err := s.DeleteRig(ctx, "web", "op")
+	must(err)
+	if got.Rig != "web" || !slices.Equal(got.Routes, []string{mine.ID}) || len(got.FlowPointers) != 2 ||
+		got.FlowPointers[0].String() != "rig web" || got.FlowPointers[1].String() != "rig web type bug" {
+		t.Fatalf("removal = %+v", got)
+	}
+	if _, err := s.GetRig(ctx, "web"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("rig after rm: %v", err)
+	}
+	rs, err := s.Rigs(ctx)
+	if err != nil || len(rs) != 1 || rs[0].Name != "web2" {
+		t.Fatalf("rigs = %+v, %v", rs, err)
+	}
+	routes, _ := s.Routes(ctx)
+	var left []string
+	for _, r := range routes {
+		left = append(left, r.ID)
+	}
+	slices.Sort(left)
+	want := []string{other.ID, any.ID}
+	slices.Sort(want)
+	if !slices.Equal(left, want) {
+		t.Fatalf("routes left = %v, want %v", left, want)
+	}
+	ptrs, _ := s.FlowPointers(ctx)
+	if len(ptrs) != 1 || ptrs[0].Rig != "web2" {
+		t.Fatalf("pointers left = %+v", ptrs)
+	}
+	// Closed beads keep their rig as history.
+	if b, err := s.GetBead(ctx, done.ID); err != nil || b.Rig == nil || *b.Rig != "web" {
+		t.Fatalf("closed bead after rm: %+v, %v", b, err)
+	}
+	evs, err := s.Events(ctx, "", 50)
+	must(err)
+	i := slices.IndexFunc(evs, func(e store.Event) bool { return e.Kind == "rig_removed" })
+	if i < 0 || evs[i].Actor != "op" || evs[i].Data["rig"] != "web" || fmt.Sprint(evs[i].Data["routes"]) != fmt.Sprintf("[%s]", mine.ID) ||
+		fmt.Sprint(evs[i].Data["flow_pointers"]) != "[rig web rig web type bug]" {
+		t.Fatalf("rig_removed event = %+v", evs)
+	}
+	if _, err := s.DeleteRig(ctx, "web", "me"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("second rm: %v", err)
+	}
+	if _, err := s.DeleteRig(ctx, "nope", "me"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("unknown rig: %v", err)
+	}
+}
+
 func TestReadyRespectsBlocksHoldAndClose(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()

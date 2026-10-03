@@ -19,7 +19,7 @@ in yard-9cza, the merge gate in yard-p2y7.
 | roles | the rig's own role prompts: `.yardr/roles/<name>.md`, read from the base (built) | the generic roles `yardr init` installed in `~/.yardr/roles/`, the fallback; residents' prompts, by absolute path (built) |
 | groups | | runner, limit, members, subscriptions (manual), agent kind, model, args, cmd, worktree settings (built) |
 | routes | | which group works which stage, by rig, type, label (built) |
-| rigs | | path, clone, base branch (built) |
+| rigs | | path, clone, base branch; `rig add` registers, `rig rm` removes (built) |
 | residents | | agent, directory, inbox kinds, rotation, subscriptions, identities (built) |
 | settings | | the yard's defaults: `default_kind`, `operator` (built) |
 
@@ -228,12 +228,19 @@ Everything yardr keeps for itself lives in one directory, **`YARDR_HOME`**
 | `yard.sock` | the server's unix socket |
 | `server.pid`, `server.log` | the running server |
 | `worktrees/<rig>/<bead>` | herdr bead worktrees |
-| `rigs/<name>` | rigs registered with `rig add --clone` |
+| `rigs/<name>` | rigs registered with `rig add --clone`; `rig rm` leaves the clone here |
 | `roles/` | the generic role prompts `yardr init` installed (mayor, builder, merger, reviewer), the fallback for rigs without their own; yours to edit |
 
 Set `YARDR_HOME` to run a separate yard (tests do, with a short path: unix
 socket paths are limited to about 100 bytes, and yardr refuses a home whose
 `yard.sock` would be longer).
+
+`yardr rig rm <name>` takes a rig out of the store with the routes that
+match it (`--rig <name>`) and its flow pointers, logging one `rig_removed`
+event. It is refused, naming them, while the rig has open beads or live
+sessions; closed beads keep the rig's name as history. Nothing on disk
+changes: the clone, its worktrees under `worktrees/<rig>/` and its `.yardr/`
+stay where they are for you to remove.
 
 ### Creating a yard: the onboarding and `yardr init`
 

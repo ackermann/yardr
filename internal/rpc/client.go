@@ -235,6 +235,9 @@ func (c *Client) Rigs(ctx context.Context) ([]store.Rig, error) {
 func (c *Client) GetRig(ctx context.Context, name string) (*store.Rig, error) {
 	return callV[*store.Rig](c, ctx, "GetRig", name)
 }
+func (c *Client) DeleteRig(ctx context.Context, name, actor string) (*store.RigRemoval, error) {
+	return callV[*store.RigRemoval](c, ctx, "DeleteRig", name, actor)
+}
 
 func (c *Client) PutGroup(ctx context.Context, g store.Group) error {
 	return c.call(ctx, "PutGroup", nil, g)

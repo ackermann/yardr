@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
@@ -339,6 +340,108 @@ func (s *Store) GetRig(ctx context.Context, name string) (*Rig, error) {
 		return nil, err
 	}
 	return r, nil
+}
+
+// RigRemoval is what DeleteRig took out of the store with the rig.
+type RigRemoval struct {
+	Rig          string        `json:"rig"`
+	Routes       []string      `json:"routes"`        // ids of the routes that matched --rig <name>
+	FlowPointers []FlowPointer `json:"flow_pointers"` // the rig's and its types' flow pointers
+}
+
+// DeleteRig removes a rig with the routes that match it and its flow
+// pointers, and logs rig_removed. It refuses while the rig has open beads
+// or live sessions, and names them: a bead whose rig is gone could not be
+// routed, worked or merged. Closed beads keep the rig's name as history.
+// Only the store changes: the clone, its worktrees and its .yardr/ are not
+// touched.
+func (s *Store) DeleteRig(ctx context.Context, name, actor string) (*RigRemoval, error) {
+	var out *RigRemoval
+	err := s.write(func(w *wtx) error {
+		// Batch reruns this closure when another call in the batch fails, so
+		// what was removed starts over with each attempt.
+		out = &RigRemoval{Rig: name, Routes: []string{}, FlowPointers: []FlowPointer{}}
+		if w.Bucket(bRigs).Get([]byte(name)) == nil {
+			return fmt.Errorf("rig %s: %w", name, ErrNotFound)
+		}
+		users, err := rigUsers(w.Tx, name)
+		if err != nil {
+			return err
+		}
+		if len(users) > 0 {
+			return fmt.Errorf("rig %s is in use by %s; close the beads and end the sessions first", name, strings.Join(users, ", "))
+		}
+		if err := each(w.Tx, bRoutes, "", func(k []byte, r *Route) error {
+			if r.Rig != nil && *r.Rig == name {
+				out.Routes = append(out.Routes, string(k))
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+		for _, k := range out.Routes {
+			if err := w.Bucket(bRoutes).Delete([]byte(k)); err != nil {
+				return err
+			}
+		}
+		// Pointer keys are <rig>\x00<type>, so the rig's own pointer and its
+		// types' share the prefix; another rig whose name extends this one
+		// (web, web2) does not.
+		var ptrKeys []string
+		if err := each(w.Tx, bFlowPtrs, name+"\x00", func(k []byte, p *FlowPointer) error {
+			ptrKeys = append(ptrKeys, string(k))
+			out.FlowPointers = append(out.FlowPointers, *p)
+			return nil
+		}); err != nil {
+			return err
+		}
+		for _, k := range ptrKeys {
+			if err := w.Bucket(bFlowPtrs).Delete([]byte(k)); err != nil {
+				return err
+			}
+		}
+		if err := w.Bucket(bRigs).Delete([]byte(name)); err != nil {
+			return err
+		}
+		ptrs := make([]string, 0, len(out.FlowPointers))
+		for _, p := range out.FlowPointers {
+			ptrs = append(ptrs, p.String())
+		}
+		return w.event("", "rig_removed", actor, map[string]any{
+			"rig": name, "routes": out.Routes, "flow_pointers": ptrs})
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// rigUsers names what still needs the rig: its open beads, and the live
+// sessions working them.
+func rigUsers(tx *bolt.Tx, name string) ([]string, error) {
+	var out []string
+	err := each(tx, bBeads, "", func(_ []byte, r *beadRow) error {
+		if r.Status != "closed" && r.Rig != nil && *r.Rig == name {
+			out = append(out, "bead "+r.ID)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	err = each(tx, bSessions, "", func(_ []byte, sess *Session) error {
+		if !sess.live() {
+			return nil
+		}
+		var b beadRow
+		if ok, err := get(tx, bBeads, sess.Bead, &b); err != nil {
+			return err
+		} else if ok && b.Rig != nil && *b.Rig == name {
+			out = append(out, "session "+sess.ID+" (bead "+b.ID+")")
+		}
+		return nil
+	})
+	return out, err
 }
 
 // SnapBead and SnapDep are the full records the BDP server serves, with the
