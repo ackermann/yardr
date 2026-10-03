@@ -178,7 +178,7 @@ func TestDirRigFlows(t *testing.T) {
 	if err := s.SetFlowPointer(ctx, "docs", "", "alt", "me"); err == nil || !strings.Contains(err.Error(), q.ID+" (ask)") {
 		t.Fatalf("rig pointer to a dir flow over a decision in ask: %v", err)
 	}
-	if q, err = s.Advance(ctx, q.ID, "answered", "me"); err != nil || q.Status != "closed" {
+	if q, err = s.Advance(ctx, q.ID, "answered", store.Expect{}, "me"); err != nil || q.Status != "closed" {
 		t.Fatalf("decision: %v %+v", err, q)
 	}
 	if err := s.SetFlowPointer(ctx, "docs", "", "alt", "me"); err != nil {

@@ -116,7 +116,7 @@ func TestFlowResolutionOrder(t *testing.T) {
 	if err := s.SetFlowPointer(ctx, "web", "", "code", "me"); err == nil || !strings.Contains(err.Error(), q.ID+" (ask)") {
 		t.Fatalf("rig pointer over a decision in ask: %v", err)
 	}
-	if q, err = s.Advance(ctx, q.ID, "answered", "me"); err != nil || q.Status != "closed" {
+	if q, err = s.Advance(ctx, q.ID, "answered", store.Expect{}, "me"); err != nil || q.Status != "closed" {
 		t.Fatalf("decision: %v %+v", err, q)
 	}
 	if err := s.SetFlowPointer(ctx, "web", "", "code", "me"); err != nil {
@@ -525,7 +525,7 @@ func TestSetFlowPointerRefusesStrays(t *testing.T) {
 	}
 	// Moved to a stage the flow has (no flow governs it yet, so any move
 	// goes), the pointer is accepted.
-	if _, err := s.Advance(ctx, stray.ID, "new", "me"); err != nil {
+	if _, err := s.Advance(ctx, stray.ID, "new", store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetFlowPointer(ctx, "yard", "", "code", "me"); err != nil {
@@ -590,7 +590,7 @@ func TestSetFlowPointerStraysAgainstRepo(t *testing.T) {
 	if err := s.SetFlowPointer(ctx, "web", "task", "alt", "me"); err == nil || !strings.Contains(err.Error(), b.ID+" (triage)") {
 		t.Fatalf("type pointer at repo flow alt: %v", err)
 	}
-	if _, err := s.Advance(ctx, b.ID, "new", "me"); err != nil {
+	if _, err := s.Advance(ctx, b.ID, "new", store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetFlowPointer(ctx, "web", "", "", "me"); err != nil {
