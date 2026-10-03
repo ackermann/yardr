@@ -33,7 +33,7 @@ type Family struct {
 	// itself included, the rig's base ("" without a rig, and always "" in
 	// a dir rig, which has no branches).
 	Base string `json:"base,omitempty"`
-	// Children are an epic's children, oldest edge first.
+	// Children are an epic's children, oldest edge first by CreatedAt, then id.
 	Children []string `json:"children,omitempty"`
 }
 

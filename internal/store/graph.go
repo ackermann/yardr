@@ -112,7 +112,8 @@ func (w *wtx) mintDep(d *depRow, actor string) error {
 	return put(w.Tx, bDeps, d.ID, d)
 }
 
-// newEdgeID is 20 lowercase alphanumerics from a fresh ULID's randomness.
+// newEdgeID is the last 20 lowercase alphanumerics of a fresh ULID: its last
+// 4 timestamp characters and 16 random characters.
 func newEdgeID() string {
 	r := []byte(newRevision())
 	for i, c := range r {

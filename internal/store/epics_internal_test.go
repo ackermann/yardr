@@ -62,7 +62,7 @@ func TestEdgesOldestFirstAcrossIDWrap(t *testing.T) {
 	for _, c := range children {
 		want = append(want, uuid[c])
 	}
-	_ = s.db.View(func(tx *bolt.Tx) error {
+	if err := s.db.View(func(tx *bolt.Tx) error {
 		var parents, blocks, ids []string
 		for _, d := range edges(tx, bDepFrom, uuid["web-e"], DepParent) {
 			parents, ids = append(parents, d.To), append(ids, d.ID)
@@ -79,7 +79,9 @@ func TestEdgesOldestFirstAcrossIDWrap(t *testing.T) {
 			t.Errorf("edge ids %v are in order: none is past the wrap, so this tests nothing", ids)
 		}
 		return nil
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // Edges made at the same moment are listed by id.
@@ -94,7 +96,10 @@ func TestEdgesOfOneMomentByID(t *testing.T) {
 	}
 	defer s.Close(context.Background())
 	ctx := context.Background()
-	a, _ := s.CreateBead(ctx, NewBead{Title: "a"}, "me")
+	a, err := s.CreateBead(ctx, NewBead{Title: "a"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
 	for i := 0; i < 8; i++ {
 		b, err := s.CreateBead(ctx, NewBead{Title: "b"}, "me")
 		if err != nil {
@@ -104,7 +109,7 @@ func TestEdgesOfOneMomentByID(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	_ = s.db.View(func(tx *bolt.Tx) error {
+	if err := s.db.View(func(tx *bolt.Tx) error {
 		var ids []string
 		for _, d := range edges(tx, bDepFrom, a.UUID, DepBlocks) {
 			ids = append(ids, d.ID)
@@ -113,5 +118,7 @@ func TestEdgesOfOneMomentByID(t *testing.T) {
 			t.Errorf("edge ids %v, want 8 in order", ids)
 		}
 		return nil
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 }
