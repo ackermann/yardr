@@ -27,12 +27,15 @@ func callerOf(ctx context.Context) int {
 // whose handle names pid or a process above it. An exec runner's handle
 // names its script's pid (pid, with its start time as start); a herdr
 // runner's names the shell of the agent's tab (shell_pid, shell_start); a
-// session whose runner recorded neither is not found this way. A live
-// session's pane counts as it is; an ended one's only while the recorded
-// process still runs (an agent kept open, or orphaned by a restart, after
-// its bead moved on), so a pid the kernel has since given to someone else
-// makes nobody that session. nil when pid is 0 or no session's pane holds
-// it.
+// session whose runner recorded neither is not found this way. The pane
+// counts only while the recorded process still runs, live session or
+// ended (an agent kept open, or orphaned by a restart, after its bead
+// moved on): a pid the kernel has since given to someone else makes nobody
+// that session, even while the session is still live (its shell closed
+// under it and the daemon has not noticed yet), so a person whose new
+// shell got the pid is not checked as it. Only a pane whose start time was
+// not recorded is trusted by pid alone, and only while its session lives.
+// nil when pid is 0 or no session's pane holds it.
 func paneSession(tx *bolt.Tx, pid int) (*Session, error) {
 	if pid <= 0 {
 		return nil, nil
@@ -64,7 +67,7 @@ func paneSession(tx *bolt.Tx, pid int) (*Session, error) {
 	}
 	for _, p := range peer.Ancestors(pid) {
 		pn, ok := panes[p]
-		if ok && (pn.sess.live() || pn.known && peer.Alive(p, pn.start)) {
+		if ok && (pn.known && peer.Alive(p, pn.start) || !pn.known && pn.sess.live()) {
 			return pn.sess, nil
 		}
 	}

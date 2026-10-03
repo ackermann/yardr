@@ -299,3 +299,59 @@ func TestSessionCheckIsForTheSessionsOwnBead(t *testing.T) {
 		t.Fatalf("done again from the ended session: %v", err)
 	}
 }
+
+// A pane is its session's only while the process the runner recorded still
+// runs: the pid of a shell that closed under a live session (before the
+// daemon noticed) may already be someone else's, and that someone is not
+// checked as the session.
+func TestReusedPidIsNobodysPane(t *testing.T) {
+	if !peer.HaveStat() {
+		t.Skip("this OS reports no process start time")
+	}
+	s, ctx := flowRig(t)
+	putFlow(t, s, "yard", "", outcomeFlow)
+	for _, g := range []string{"builders", "reviewers"} {
+		if err := s.PutGroup(ctx, store.Group{Name: g, Runner: "herdr"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a, err := s.CreateBead(ctx, store.NewBead{Title: "a", Rig: "yard"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "b", Rig: "yard", Stage: "review"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := s.Claim(ctx, a.ID, "builders", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Claim(ctx, b.ID, "reviewers", "review", "yard"); err != nil {
+		t.Fatal(err)
+	}
+	// a's live session recorded this pid as its shell, started at another
+	// time: this process is a later one with the pid, not the pane.
+	me := os.Getpid()
+	st, err := peer.Describe(me)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkRunning(ctx, owner.ID, map[string]any{"agent": "yard-a-new", "shell_pid": me, "shell_start": st.Start + 1}); err != nil {
+		t.Fatal(err)
+	}
+	// Naming the session is checked as it, pane or not: b is another live
+	// session's bead, not the named session's own.
+	pane := store.WithCaller(ctx, me)
+	_, err = s.Done(pane, b.ID, "", "", store.Expect{Session: owner.ID}, "mckean")
+	if err == nil || !strings.Contains(err.Error(), "expected no session (session "+owner.ID+" owns "+a.ID) {
+		t.Fatalf("naming the session from a process that is not its pane: %v", err)
+	}
+	// Naming none, the same move from a's pane would be refused the same
+	// way (TestPaneIsCheckedAsItsSessionWhateverItSays); from a process that
+	// only has the pane's old pid it is a person's, checked as the actor's
+	// alone.
+	if _, err := s.Release(pane, b.ID, "not that pane", store.Expect{}, "mckean"); err != nil {
+		t.Fatalf("release from a process with a dead pane's pid: %v", err)
+	}
+}
