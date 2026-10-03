@@ -76,7 +76,8 @@ func TestHerdrWorkedSeesCommitsAndEdits(t *testing.T) {
 	gitT(t, repo, "init", "-q", "-b", "main")
 	gitT(t, repo, "commit", "-q", "--allow-empty", "-m", "A")
 	rig := store.Rig{Name: "r", Path: repo, Base: "main"}
-	h := &Herdr{Bin: worktreeHerdr(t, filepath.Join(t.TempDir(), "calls")), WorktreeRoot: t.TempDir()}
+	log := filepath.Join(t.TempDir(), "calls")
+	h := &Herdr{Socket: fakeHerdrAPI(t, log), Bin: worktreeHerdr(t, log), WorktreeRoot: t.TempDir()}
 	handle, err := h.Start(ctx, dispatch.Job{Bead: store.Bead{ID: "r-1", Title: "x", Stage: "new"},
 		Group: store.Group{Name: "builders"}, Rig: &rig, Session: store.Session{ID: "s1"}})
 	if err != nil {
