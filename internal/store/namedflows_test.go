@@ -722,3 +722,70 @@ func TestSetFlowPointerStraysAgainstRepo(t *testing.T) {
 		t.Fatalf("clear on a rig without a readable checkout: %v", err)
 	}
 }
+
+// A repository flow that loses a stage on the base leaves the open beads in
+// it stranded: no command could refuse the commit, so Stranded names them,
+// with the flow and the commit that lacks their stage. Such a bead leaves
+// only by an explicit advance to the flow's first stage.
+func TestStrandedByRepoFlowChange(t *testing.T) {
+	s, ctx, dir := repoRig(t)
+	create := func(nb store.NewBead) *store.Bead {
+		t.Helper()
+		b, err := s.CreateBead(ctx, nb, "me")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	inReview := create(store.NewBead{Title: "in review", Rig: "web", Stage: "review"})
+	create(store.NewBead{Title: "in new", Rig: "web"})
+	pinned := create(store.NewBead{Title: "pins alt", Rig: "web", Metadata: map[string]any{"flow": "alt"}})
+	closed := create(store.NewBead{Title: "closed in review", Rig: "web", Stage: "review"})
+	if _, err := s.CloseBead(ctx, closed.ID, "dropped", store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.Stranded(ctx, "web"); err != nil || len(got) != 0 {
+		t.Fatalf("stranded before the flow changed = %+v, %v", got, err)
+	}
+
+	// The base drops review from the rig's flow, and new from the pinned one.
+	sha := commitFiles(t, dir, map[string]string{
+		".yardr/flows/default.flow": "new -> done\ndone terminal\n",
+		".yardr/flows/alt.flow":     "start -> alt\nalt terminal\n",
+	})
+	want := []store.StrandedBead{
+		{Bead: inReview.ID, Stage: "review", Flow: "default", Source: store.FlowSource{Kind: "repo", Commit: sha, Path: ".yardr/flows/default.flow"}},
+		{Bead: pinned.ID, Stage: "new", Flow: "alt", Source: store.FlowSource{Kind: "pin", Commit: sha, Path: ".yardr/flows/alt.flow"}},
+	}
+	slices.SortFunc(want, func(a, b store.StrandedBead) int { return strings.Compare(a.Bead, b.Bead) })
+	for _, rig := range []string{"web", ""} {
+		if got, err := s.Stranded(ctx, rig); err != nil || !slices.Equal(got, want) {
+			t.Fatalf("Stranded(%q) = %+v, %v; want %+v", rig, got, err, want)
+		}
+	}
+	if got, err := s.Stranded(ctx, "elsewhere"); err != nil || len(got) != 0 {
+		t.Fatalf("stranded in another rig = %+v, %v", got, err)
+	}
+	byRepo := want[slices.IndexFunc(want, func(sb store.StrandedBead) bool { return sb.Bead == inReview.ID })]
+	if text := byRepo.String(); text != inReview.ID+" is in stage review, which flow default (repo@"+sha[:7]+") lacks" {
+		t.Fatalf("StrandedBead text = %q", text)
+	}
+
+	// From a stage the flow does not know, the first stage is the way back;
+	// skipping ahead to a terminal stage is not.
+	if _, err := s.Advance(ctx, inReview.ID, "done", store.Expect{}, "me"); err == nil || !strings.Contains(err.Error(), "allowed next: new") {
+		t.Fatalf("advance from an unknown stage to done: %v", err)
+	}
+	if b, err := s.Advance(ctx, inReview.ID, "new", store.Expect{}, "me"); err != nil || b.Stage != "new" || b.Status != "open" {
+		t.Fatalf("advance from an unknown stage to the first: %+v, %v", b, err)
+	}
+	if got, err := s.Stranded(ctx, "web"); err != nil || len(got) != 1 || got[0].Bead != pinned.ID {
+		t.Fatalf("stranded after advancing = %+v, %v", got, err)
+	}
+
+	// A flow that does not resolve is bad_flow's to report, not stranded.
+	commitFiles(t, dir, map[string]string{".yardr/flows/default.flow": "new => done\n", ".yardr/flows/alt.flow": repoAlt})
+	if got, err := s.Stranded(ctx, "web"); err != nil || len(got) != 0 {
+		t.Fatalf("stranded under a flow that does not parse = %+v, %v", got, err)
+	}
+}

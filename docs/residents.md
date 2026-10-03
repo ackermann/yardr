@@ -51,7 +51,7 @@ up. yardr does not adopt the pane it found and does not end it for you.
   inbox`, mark handled with `yardr inbox --ack`; the cursor is stored, so
   nothing is lost or repeated across restarts.
 - **Subscriptions:** `--on` kinds (default: things that went wrong or need a
-  decision: `gave_up`, `session_blocked`, `session_stalled`, `session_model_mismatch`, `unrouted`, `held`, …; `yardr
+  decision: `gave_up`, `session_blocked`, `session_stalled`, `session_model_mismatch`, `unrouted`, `stranded`, `held`, …; `yardr
   resident add --help` lists them), webhook deliveries
   (`yardr subscribe <name> linear --scope involved`), and yardr's own bead
   events (`yardr subscribe <name> yardr --done`, `yardr bead watch <id>`).
@@ -95,7 +95,7 @@ its other flags and give `--on` the full list, e.g.
 yardr resident show mayor --json          # its config, dir, max_age and on today
 yardr resident add mayor --set kind=claude --set prompt=$HOME/.yardr/roles/mayor.md \
   --dir ~/projects --max-age 6h \
-  --on gave_up,session_blocked,unrouted,no_runner,workspace_kept,resident_gave_up,runtime_down,session_idle,session_aged,session_stalled,session_model_mismatch,held
+  --on gave_up,session_blocked,unrouted,stranded,no_runner,workspace_kept,resident_gave_up,runtime_down,session_idle,session_aged,session_stalled,session_model_mismatch,held
 ```
 
 Its journal, inbox position and runtime state are kept across the replace.

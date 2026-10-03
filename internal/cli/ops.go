@@ -408,7 +408,13 @@ too.
 Exits 0 when the gate passes, 1 when it fails (including no gate and a
 timeout), 2 when it could not be run at all (unknown rig, base that does not
 resolve, git failing), so a merge script can tell a red branch from a broken
-setup.`,
+setup.
+
+The check also fails while an open bead of the rig sits in a stage the flow
+governing it lacks (a repository flow lost the stage on the base), and names
+each: bead, stage, flow and the commit it was read at. No branch can fix
+that, so with a green gate it exits 2; advance the beads to a stage the flow
+has (yardr bead advance <id> --to <stage>).`,
 		Example: `  yardr rig check yard                                   # in the rig itself
   yardr rig check yard --dir ~/.yardr/worktrees/yard/yard-12   # in a bead's worktree`,
 		Args: cobra.ExactArgs(1),
@@ -446,16 +452,28 @@ setup.`,
 					fmt.Printf("check %s (%s) in %s: pass\n", res.Rig, src, res.Dir)
 				case res.TimedOut:
 					fmt.Printf("check %s (%s) in %s: FAIL (timed out after %s)\n", res.Rig, src, res.Dir, timeout)
+				case len(res.Stranded) > 0 && res.ExitCode == 0:
+					fmt.Printf("check %s (%s) in %s: gate passed\n", res.Rig, src, res.Dir)
 				default:
 					fmt.Printf("check %s (%s) in %s: FAIL (exit %d)\n", res.Rig, src, res.Dir, res.ExitCode)
+				}
+				for _, sb := range res.Stranded {
+					fmt.Printf("stranded: bead %s; advance it to a stage the flow has (yardr bead advance %s --to <stage>)\n", sb, sb.Bead)
+				}
+				if n := len(res.Stranded); n > 0 {
+					fmt.Printf("rig %s: FAIL (open beads in a stage their flow lacks: %d)\n", res.Rig, n)
 				}
 			}); err != nil {
 				return err
 			}
-			if !res.Pass {
-				return errCheckFailed
+			switch {
+			case res.Pass:
+				return nil
+			case gateGreen(res):
+				// Only stranded beads fail it: no branch's to fix.
+				return checkNotRun{errCheckFailed}
 			}
-			return nil
+			return errCheckFailed
 		},
 	}
 	cmd.Flags().StringVar(&dir, "dir", "", "directory to run it in (default: the rig)")
@@ -483,9 +501,28 @@ func (a *app) runRigCheck(ctx context.Context, rigName, dir string, timeout time
 	if timeout <= 0 {
 		return nil, fmt.Errorf("--timeout must be positive")
 	}
+	// Before the gate and outside its deadline: a gate that ran out of time
+	// must not hide the stranded beads.
+	stranded, err := st.Stranded(ctx, rig.Name)
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	return rigcheck.Run(ctx, *rig, dir)
+	res, err := rigcheck.Run(ctx, *rig, dir)
+	if err != nil {
+		return nil, err
+	}
+	if len(stranded) > 0 {
+		res.Stranded, res.Pass = stranded, false
+	}
+	return res, nil
+}
+
+// gateGreen reports whether the gate itself passed in res, whatever else
+// fails the check: it ran to exit 0, or the rig needs none.
+func gateGreen(res *rigcheck.Result) bool {
+	return res.ExitCode == 0 && !res.TimedOut
 }
 
 // rigCheckLine says what gates a rig's merges, as the store has it: the

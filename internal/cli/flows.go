@@ -326,5 +326,19 @@ func flowViews(ctx context.Context, st store.API, rig string) ([]flowView, error
 		}
 		views = append(views, v)
 	}
+	// Beads in a stage their flow lacks, under the flow that lacks it; a
+	// bead pinning a flow the rig does not follow is told under the rig's.
+	stranded, err := st.Stranded(ctx, rig)
+	if err != nil {
+		return nil, err
+	}
+	for _, sb := range stranded {
+		if len(views) == 0 {
+			break
+		}
+		i := max(0, slices.IndexFunc(views, func(v flowView) bool { return v.Flow.Name == sb.Flow && v.Source == sb.Source }))
+		views[i].Warnings = append(views[i].Warnings,
+			fmt.Sprintf("bead %s: it is not routed and waits until someone advances it (yardr bead advance %s --to <stage>)", sb, sb.Bead))
+	}
 	return views, nil
 }

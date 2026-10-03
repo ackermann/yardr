@@ -88,10 +88,12 @@ func exitCode(err error) int {
 	switch {
 	case err == nil:
 		return 0
-	case errors.Is(err, errCheckFailed):
-		return 1
+	// Before errCheckFailed: a check that failed for no branch's fault
+	// (stranded beads) is both.
 	case errors.As(err, new(checkNotRun)), errors.As(err, new(notInitialized)):
 		return 2
+	case errors.Is(err, errCheckFailed):
+		return 1
 	case errors.Is(err, store.ErrNotFound):
 		return 3
 	}

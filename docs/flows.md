@@ -73,15 +73,17 @@ the new flow code lacks the stage of open beads in rig yardr: yardr-x
 ```
 
 A flow in a rig's repository has no such check, since no command changes
-it: when the base branch moves to a version of the file without a stage,
-an open bead in that stage stays there, and rejoins the flow at its first
-stage (see below).
+it and yardr cannot refuse a commit on the base branch: when the base moves
+to a version of the file without a stage, an open bead in that stage stays
+there, **stranded**. yardr reports it instead (see
+[A base change that drops a stage](#a-base-change-that-drops-a-stage)).
 
 ### Stage order
 
 A flow's stages are ordered as its rules first name them, and the order
 matters: the **first stage** is where a bead in a stage the flow does not
-know may rejoin it, and `yardr flow show` lists stages in it. Such a bead
+know may rejoin it, by an explicit `yardr bead advance`, and `yardr flow
+show` lists stages in it. Such a bead
 comes from a repository flow that lost a stage on the base branch, or
 from before the rig had a flow: `flow set` and `rig flow` refuse a change
 that would leave one (above). The line
@@ -126,6 +128,49 @@ flows, not "no flows".
 A file that does not parse is shown by `yardr flow list` with its error;
 a bead it would govern cannot be created or moved until the base is fixed,
 rather than silently running without its flow.
+
+## A base change that drops a stage
+
+A commit on the base branch that removes a stage from a repository flow
+(`default.flow`, a type's file, or a named file a pin or pointer follows)
+takes effect as soon as yardr sees the base move. An open bead sitting in
+the removed stage is **stranded**: its stage is not in the flow that governs
+it. yardr does not move it and does not refuse the commit; it says so in
+three places until someone moves the bead:
+
+- `yardr rig check <rig>` names each stranded bead of the rig, with its
+  stage, the flow and the commit the flow was read at, and fails:
+
+  ```
+  stranded: bead yardr-x is in stage triage, which flow default (repo@9bf658a) lacks; advance it to a stage the flow has (yardr bead advance yardr-x --to <stage>)
+  rig yardr: FAIL (open beads in a stage their flow lacks: 1)
+  ```
+
+  With a red gate it exits 1 as before. With a green gate it exits 2, not
+  1: no branch can fix a stranded bead, so the refinery holds the bead it
+  was landing instead of sending it back to its builder. `--json` lists
+  them under `stranded`.
+- `yardr flow show <rig>` prints a warning per bead under the flow that
+  lacks its stage, next to "stage has no route".
+- The dispatcher logs one `stranded` event for the bead (`stage`, `flow`,
+  `source` with the commit), which a resident hears like `unrouted` (it is
+  in the default `--on` list and the starter pack's `hears.events`). It is
+  logged again only when the stage or the flow changes, not when the base
+  merely moves on, and once more after a daemon restart.
+
+A stranded bead is **not routed**: the removed stage's route usually still
+exists, and would hand the bead to its old group. No group claims it until
+someone advances it to the flow's first stage, the one move the flow
+allows from a stage it does not know
+(`yardr bead advance <id> --to <first stage>`, see
+[What a flow enforces](#what-a-flow-enforces)); from there it is routed
+like any bead. A bead a session already holds when the stage goes is left
+to that session: its `yardr bead done` is refused with the allowed move,
+and it is reported once the session ends.
+
+To drop a stage without stranding anything, move its beads out first, or
+keep the stage in the flow with only a way out (`triage -> new`) until it
+is empty.
 
 ## A flow that does not resolve
 

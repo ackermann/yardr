@@ -572,14 +572,14 @@ func strayBeads(tx *bolt.Tx, rig, typ string, cleared bool, repo *RepoFlows, rep
 		if typ == "" && tx.Bucket(bFlowPtrs).Get([]byte(join(rig, r.Type))) != nil {
 			return nil
 		}
-		f, _, err := resolveFlow(tx, r.Rig, r.Type, "", repo)
+		f, _, err := lacksStage(tx, r, repo)
 		if errors.Is(err, errNeedRepo) && repoErr != nil {
 			err = repoErr
 		}
 		if err != nil {
 			return fmt.Errorf("bead %s: %w", r.ID, err)
 		}
-		if f == nil || slices.Contains(f.Stages, r.Stage) {
+		if f == nil {
 			return nil
 		}
 		if cleared {
@@ -589,6 +589,87 @@ func strayBeads(tx *bolt.Tx, rig, typ string, cleared bool, repo *RepoFlows, rep
 		}
 		return nil
 	})
+	return out, err
+}
+
+// lacksStage returns the flow governing r, and where it came from, when r
+// is an open work bead in a stage that flow lacks; nil when its stage is in
+// the flow, or no flow governs it. It is the one test for a stranded bead:
+// strayBeads asks it of a change before the change is made, Stranded of the
+// store as it is.
+func lacksStage(tx *bolt.Tx, r *beadRow, repo *RepoFlows) (*Flow, *FlowSource, error) {
+	if r.Status == "closed" || NotWork[r.Type] {
+		return nil, nil, nil
+	}
+	f, src, err := resolveFlow(tx, r.Rig, r.Type, PinnedFlow(&r.Bead), repo)
+	if err != nil || f == nil || slices.Contains(f.Stages, r.Stage) {
+		return nil, nil, err
+	}
+	return f, src, nil
+}
+
+// StrandedBead is an open bead in a stage the flow governing it lacks.
+type StrandedBead struct {
+	Bead   string     `json:"bead"`
+	Stage  string     `json:"stage"`
+	Flow   string     `json:"flow"`
+	Source FlowSource `json:"source"` // where Flow came from, with its commit
+}
+
+func (b StrandedBead) String() string {
+	return fmt.Sprintf("%s is in stage %s, which flow %s (%s) lacks", b.Bead, b.Stage, b.Flow, b.Source)
+}
+
+// Stranded lists rig's open beads that sit in a stage the flow governing
+// them lacks, by id; with an empty rig, every such bead in the store. The
+// commands that change a flow refuse to leave one (PutFlow,
+// SetFlowPointer), so these come from a repository flow that lost a stage
+// when the base branch moved, which no command can refuse, or from before
+// the rig had a flow. A bead whose flow does not resolve is not listed: its
+// moves are refused and the dispatcher reports it as bad_flow.
+func (s *Store) Stranded(ctx context.Context, rig string) ([]StrandedBead, error) {
+	in := func(r *beadRow) bool { return rig == "" || (r.Rig != nil && *r.Rig == rig) }
+	// Which rigs' repositories the answer depends on, read before the
+	// transaction that answers: git must not run inside one.
+	var need []string
+	err := s.read(func(tx *bolt.Tx) error {
+		return each(tx, bBeads, "", func(_ []byte, r *beadRow) error {
+			if !in(r) || r.Rig == nil || slices.Contains(need, *r.Rig) {
+				return nil
+			}
+			if _, _, err := lacksStage(tx, r, nil); errors.Is(err, errNeedRepo) {
+				need = append(need, *r.Rig)
+			}
+			return nil
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	repos := map[string]*RepoFlows{}
+	for _, name := range need {
+		// A checkout git cannot read leaves its beads to bad_flow.
+		if rf, err := s.RepoFlows(ctx, name); err == nil {
+			repos[name] = rf
+		}
+	}
+	out := []StrandedBead{}
+	err = s.read(func(tx *bolt.Tx) error {
+		return each(tx, bBeads, "", func(_ []byte, r *beadRow) error {
+			if !in(r) {
+				return nil
+			}
+			var repo *RepoFlows
+			if r.Rig != nil {
+				repo = repos[*r.Rig]
+			}
+			if f, src, err := lacksStage(tx, r, repo); err == nil && f != nil {
+				out = append(out, StrandedBead{Bead: r.ID, Stage: r.Stage, Flow: f.Name, Source: *src})
+			}
+			return nil
+		})
+	})
+	slices.SortFunc(out, func(a, b StrandedBead) int { return strings.Compare(a.Bead, b.Bead) })
 	return out, err
 }
 

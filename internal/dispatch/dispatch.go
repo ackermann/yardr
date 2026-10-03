@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"yardr.dev/yardr/internal/config"
@@ -712,8 +713,20 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 	}
 	SortRoutes(routes)
 	rigs := map[string]*store.Rig{}
+	// Beads in a stage their flow lacks: a repository flow lost the stage on
+	// the base. The stage's route may well still be there, and would hand
+	// the bead to its old group with the flow's first stage as the only way
+	// on, so it is not routed at all until someone advances it.
+	lost, err := d.Store.Stranded(ctx, "")
+	if err != nil {
+		return err
+	}
 
 	for _, b := range beads {
+		if i := slices.IndexFunc(lost, func(sb store.StrandedBead) bool { return sb.Bead == b.ID }); i >= 0 {
+			d.reportStranded(ctx, b, lost[i])
+			continue
+		}
 		if t, ok := d.retryAfter[b.ID]; ok && d.now().Before(t) {
 			continue
 		}
@@ -908,6 +921,23 @@ func (d *Dispatcher) reportOnce(ctx context.Context, b store.Bead, kind, reason 
 	d.reported[b.ID] = key
 	d.Log.Warn(kind, "bead", b.ID, "reason", reason)
 	_ = d.Store.LogDispatch(ctx, b.ID, kind, actor, map[string]any{"stage": b.Stage, "reason": reason})
+}
+
+// reportStranded logs one stranded event for a bead in a stage its flow
+// lacks. The flow's commit is in the event but not in what makes it new:
+// the base moves with every landing, and a bead still stranded under the
+// same flow has nothing new to say.
+func (d *Dispatcher) reportStranded(ctx context.Context, b store.Bead, sb store.StrandedBead) {
+	key := "stranded|" + sb.Stage + "|" + sb.Flow
+	if d.reported[b.ID] == key {
+		return
+	}
+	d.reported[b.ID] = key
+	d.Log.Warn("stranded", "bead", b.ID, "stage", sb.Stage, "flow", sb.Flow, "source", sb.Source.String())
+	_ = d.Store.LogDispatch(ctx, b.ID, "stranded", actor, map[string]any{
+		"stage": sb.Stage, "flow": sb.Flow, "source": sb.Source.String(),
+		"reason": fmt.Sprintf("stage %q is not in flow %s (%s); the bead waits until it is advanced to a stage the flow has", sb.Stage, sb.Flow, sb.Source),
+		"hint":   fmt.Sprintf("yardr bead advance %s --to <stage>", b.ID)})
 }
 
 // SortRoutes orders routes so the first match wins; see store.SortRoutes.

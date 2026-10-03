@@ -3,6 +3,7 @@ package dispatch_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"os"
 	"os/exec"
@@ -655,5 +656,98 @@ func TestJobCarriesEpicAndBase(t *testing.T) {
 	}
 	if want := map[string][2]string{"r-1": {"r-e", "yard/r-e"}, "r-2": {"", "main"}}; !maps.Equal(got, want) {
 		t.Fatalf("jobs (epic, base) = %v, want %v", got, want)
+	}
+}
+
+// A repository flow that loses a stage on the base strands the open beads
+// in it. The stage's route is still there, so the bead used to be claimed
+// as before and its agent offered the flow's first stage as the only way on:
+// it rejoined the flow there without anyone deciding so. Now it is reported
+// once, claimed by nobody, and routed again once someone advances it to a
+// stage the flow has.
+func TestStrandedBeadIsReportedOnceAndNotRouted(t *testing.T) {
+	s, f, d := setup(t)
+	ctx := context.Background()
+	repo := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	flow := func(text, msg string) {
+		t.Helper()
+		must(t, os.MkdirAll(filepath.Join(repo, ".yardr/flows"), 0o755))
+		must(t, os.WriteFile(filepath.Join(repo, ".yardr/flows/default.flow"), []byte(text), 0o644))
+		git("add", "-A")
+		git("commit", "-q", "-m", msg)
+	}
+	git("init", "-q", "-b", "main")
+	flow("new -> triage | review\ntriage -> review\nreview -> merged\nmerged terminal\n", "flow with triage")
+	must(t, s.PutRig(ctx, store.Rig{Name: "web", Path: repo, Base: "main"}, "me"))
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
+	for _, st := range []string{"new", "triage"} {
+		_, err := s.AddRoute(ctx, store.Route{Stage: st, Group: "builders"})
+		must(t, err)
+	}
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "in triage", Rig: "web", Stage: "triage"}, "me")
+	must(t, err)
+
+	flow("new -> review\nreview -> merged\nmerged terminal\n", "drop triage")
+	for range 3 {
+		must(t, d.Reconcile(ctx))
+	}
+	if got := f.starts(); len(got) != 0 {
+		t.Fatalf("starts = %v, want none: the bead's stage is not in its flow", got)
+	}
+	if got, _ := s.GetBead(ctx, b.ID); got.Group != nil || got.Stage != "triage" || got.Hold {
+		t.Fatalf("stranded bead changed: stage %s group %v hold %v", got.Stage, got.Group, got.Hold)
+	}
+	evs, err := s.Events(ctx, b.ID, 0)
+	must(t, err)
+	var reports []store.Event
+	for _, e := range evs {
+		if e.Kind == "stranded" {
+			reports = append(reports, e)
+		}
+		if e.Kind == "unrouted" || e.Kind == "bad_flow" {
+			t.Errorf("stranded bead also reported as %s: %v", e.Kind, e.Data)
+		}
+	}
+	if len(reports) != 1 {
+		t.Fatalf("stranded events = %+v, want exactly one over three passes", reports)
+	}
+	if data := reports[0].Data; data["stage"] != "triage" || data["flow"] != "default" || !strings.HasPrefix(fmt.Sprint(data["source"]), "repo@") {
+		t.Fatalf("stranded event data = %v, want stage triage, flow default, source repo@<commit>", data)
+	}
+
+	// The base moving on without touching the flow's stages says nothing new.
+	must(t, os.WriteFile(filepath.Join(repo, "README"), []byte("x"), 0o644))
+	git("add", "-A")
+	git("commit", "-q", "-m", "unrelated")
+	must(t, d.Reconcile(ctx))
+	if evs, _ = s.Events(ctx, b.ID, 0); len(evs) == 0 {
+		t.Fatal("no events")
+	}
+	n := 0
+	for _, e := range evs {
+		if e.Kind == "stranded" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("stranded events after an unrelated base commit = %d, want 1", n)
+	}
+
+	// Someone advances it to a stage the flow has: it is routed again.
+	_, err = s.Advance(ctx, b.ID, "new", store.Expect{}, "me")
+	must(t, err)
+	must(t, d.Reconcile(ctx))
+	if got := f.starts(); !slices.Equal(got, []string{b.ID}) {
+		t.Fatalf("starts after advancing to new = %v, want %s", got, b.ID)
+	}
+	if got, _ := s.GetBead(ctx, b.ID); got.Group == nil || *got.Group != "builders" || got.Stage != "new" {
+		t.Fatalf("advanced bead: stage %s group %v", got.Stage, got.Group)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -150,5 +151,92 @@ func TestRigCheckDirRig(t *testing.T) {
 	}
 	if out, err = run(t, a.rigCheckCmd(), "docs", "--dir", sub); exitCode(err) != 0 || !strings.Contains(out, "check docs (dir) in "+sub+": pass") {
 		t.Fatalf("green dir check in --dir: %q, %v", out, err)
+	}
+}
+
+// A repository flow that drops a stage on the base strands the open beads
+// in it: rig check fails naming each, with exit 2 when the gate itself is
+// green (no branch can fix it) and 1 when the gate is red as well, and flow
+// show warns under the flow that lacks the stage.
+func TestRigCheckAndFlowShowReportStrandedBeads(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	repo := t.TempDir()
+	git := func(args ...string) string {
+		t.Helper()
+		out, err := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	flow := func(text string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Join(repo, ".yardr/flows"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(repo, ".yardr/flows/default.flow"), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		git("add", "-A")
+		git("commit", "-q", "-m", "flow")
+	}
+	put := func(check string) {
+		t.Helper()
+		if err := st.PutRig(ctx, store.Rig{Name: "web", Path: repo, Base: "main", Check: check}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git("init", "-q", "-b", "main")
+	flow("new -> triage | review\ntriage -> review\nreview -> merged\nmerged terminal\n")
+	put("echo gate ran")
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "in triage", Rig: "web", Stage: "triage"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, actor: "me"}
+	if out, err := run(t, a.rigCheckCmd(), "web"); exitCode(err) != 0 || strings.Contains(out, "stranded") {
+		t.Fatalf("before the flow changed: %q, %v", out, err)
+	}
+
+	flow("new -> review\nreview -> merged\nmerged terminal\n")
+	sha := git("rev-parse", "--short=7", "HEAD")
+	named := "bead " + b.ID + " is in stage triage, which flow default (repo@" + sha + ") lacks"
+	out, err := run(t, a.rigCheckCmd(), "web")
+	if exitCode(err) != 2 || !strings.Contains(out, "gate ran") || !strings.Contains(out, "stranded: "+named) ||
+		!strings.Contains(out, "yardr bead advance "+b.ID+" --to <stage>") || !strings.Contains(out, "rig web: FAIL") || strings.Contains(out, ": pass") {
+		t.Fatalf("green gate, stranded bead: %q, %v (exit %d), want exit 2 naming %s", out, err, exitCode(err), b.ID)
+	}
+	put("exit 3")
+	if out, err = run(t, a.rigCheckCmd(), "web"); exitCode(err) != 1 || !strings.Contains(out, "FAIL (exit 3)") || !strings.Contains(out, "stranded: "+named) {
+		t.Fatalf("red gate, stranded bead: %q, %v (exit %d), want exit 1", out, err, exitCode(err))
+	}
+	put("echo gate ran")
+	a.json = true
+	if out, err = run(t, a.rigCheckCmd(), "web"); exitCode(err) != 2 || !strings.Contains(out, `"pass": false`) || !strings.Contains(out, `"bead": "`+b.ID+`"`) {
+		t.Fatalf("--json: %q, %v", out, err)
+	}
+	a.json = false
+
+	views, err := flowViews(ctx, st, "web")
+	if err != nil || len(views) != 1 {
+		t.Fatalf("views = %+v, %v", views, err)
+	}
+	if !slices.ContainsFunc(views[0].Warnings, func(w string) bool { return strings.HasPrefix(w, named+": it is not routed") }) {
+		t.Fatalf("flow show warnings = %q, want one naming %s", views[0].Warnings, b.ID)
+	}
+	if out, err = run(t, a.flowCmd(), "show", "web"); err != nil || !strings.Contains(out, "warning: "+named) {
+		t.Fatalf("flow show: %q, %v", out, err)
+	}
+
+	// Advanced to a stage the flow has, nothing is left to report.
+	if _, err := st.Advance(ctx, b.ID, "new", store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err = run(t, a.rigCheckCmd(), "web"); exitCode(err) != 0 || strings.Contains(out, "stranded") {
+		t.Fatalf("after advancing: %q, %v", out, err)
+	}
+	if views, err = flowViews(ctx, st, "web"); err != nil || slices.ContainsFunc(views[0].Warnings, func(w string) bool { return strings.Contains(w, b.ID) }) {
+		t.Fatalf("flow show after advancing: %+v, %v", views, err)
 	}
 }

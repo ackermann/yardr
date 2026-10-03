@@ -89,6 +89,11 @@ func TestInitHarnessClaude(t *testing.T) {
 	if !slices.Contains(r.On, "held") {
 		t.Fatalf("mayor does not hear held: on = %v", r.On)
 	}
+	// A bead stranded by a flow change is routed to nobody: the mayor is
+	// the one who must hear of it, and the form must offer the kind.
+	if !slices.Contains(r.On, "stranded") || !slices.Contains(knownKinds, "stranded") || !slices.Contains(store.DispatchKinds, "stranded") {
+		t.Fatalf("stranded is not heard: on = %v", r.On)
+	}
 	if got, _ := st.Settings(ctx); got["default_kind"] != "claude" || got["operator"] != "Jo" || got["mayor"] != "mayor" {
 		t.Fatalf("settings = %v", got)
 	}

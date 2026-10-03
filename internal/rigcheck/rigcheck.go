@@ -230,6 +230,10 @@ type Result struct {
 	// with everything it started. That fails the gate.
 	TimedOut bool   `json:"timed_out,omitempty"`
 	Output   string `json:"output"` // stdout and stderr, interleaved
+	// Stranded are the rig's open beads in a stage their flow lacks, which
+	// fail the check whatever the gate said. The caller fills it in: Run
+	// has no store.
+	Stranded []store.StrandedBead `json:"stranded,omitempty"`
 }
 
 // Run resolves the rig's gate and runs it in dir (a bead's worktree, or the

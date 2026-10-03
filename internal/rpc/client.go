@@ -297,6 +297,9 @@ func (c *Client) RigFlows(ctx context.Context, rig string) ([]store.RigFlow, err
 func (c *Client) NextStages(ctx context.Context, id string) (*store.NextStages, error) {
 	return callV[*store.NextStages](c, ctx, "NextStages", id)
 }
+func (c *Client) Stranded(ctx context.Context, rig string) ([]store.StrandedBead, error) {
+	return callV[[]store.StrandedBead](c, ctx, "Stranded", rig)
+}
 
 func (c *Client) Claim(ctx context.Context, beadID, group, stage, actor string) (*store.Session, error) {
 	return callV[*store.Session](c, ctx, "Claim", beadID, group, stage, actor)
