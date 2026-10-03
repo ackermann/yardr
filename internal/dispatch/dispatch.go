@@ -358,8 +358,9 @@ func (d *Dispatcher) prune(ctx context.Context) {
 		d.Log.Warn("prune store", "err", err)
 		return
 	}
-	if res.Events+res.HookPayloads > 0 {
-		d.Log.Info("pruned store", "events", res.Events, "hook_payloads", res.HookPayloads, "held_by", res.HeldBy)
+	if res.Events+res.HookPayloads+res.Sessions > 0 {
+		d.Log.Info("pruned store", "events", res.Events, "sessions", res.Sessions, "hook_payloads", res.HookPayloads,
+			"held_by", res.HeldBy, "expired", res.Expired)
 	}
 }
 
