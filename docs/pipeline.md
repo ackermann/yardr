@@ -555,6 +555,14 @@ one bound before the number and head repository were stored (`pr_url`
 alone) is held to the URL's repository and number, its head taken to be in
 that repository.
 
+A delivery reaches the rules once. The hook listener drops, before any
+event is logged, a delivery whose body the hook has recorded (by its
+sha256) or whose `X-GitHub-Delivery` id it has: the id is a header the
+signature does not cover, so a captured delivery sent again under a new id
+is caught by its body, which is signed. Both keys are written in the
+transaction that records the delivery
+([subscriptions.md](subscriptions.md#redeliveries)).
+
 Each rule acts only on the stage it names: one that
 finds the epic elsewhere, past it or not there yet, does nothing. Each event
 judged for an epic is recorded in its metadata (`github_seq`), so a daemon

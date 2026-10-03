@@ -96,23 +96,40 @@ type Adapter interface {
 	// those of the delivery: some sources name the event only there
 	// (X-GitHub-Event).
 	Normalize(h http.Header, body []byte) (*Envelope, error)
-	// UniqueBodies reports whether no two deliveries from the source share
-	// a body (Linear signs a timestamp into each), so a body seen before is
-	// a redelivery. A source whose senders may repeat a body on purpose
-	// (a cron job's "backup ok") dedupes on delivery ids alone.
-	UniqueBodies() bool
+	// Bodies reports how far a body identifies a delivery, so that a body
+	// seen before is a redelivery. A source whose senders may repeat a body
+	// on purpose (a cron job's "backup ok") dedupes on delivery ids alone.
+	Bodies() BodyScope
 }
 
+// BodyScope is where a source's bodies are unique.
+type BodyScope int
+
+const (
+	// BodiesRepeat: a body may come again as a new delivery.
+	BodiesRepeat BodyScope = iota
+	// BodiesUniquePerSource: no two deliveries from the source share a
+	// body, whichever hook they reach (Linear signs a timestamp into each).
+	BodiesUniquePerSource
+	// BodiesUniquePerHook: no two deliveries to one hook share a body, but
+	// the source sends one event's body to every webhook that asked for it,
+	// so two hooks may each receive it (GitHub).
+	BodiesUniquePerHook
+)
+
 // DedupeKeys identify a verified delivery to hook name from src: the
-// sha256 of its body, under the source, when bodies are unique; and the
-// source's delivery id, under the hook, when it sent one (ids are chosen
-// per endpoint by token senders). The store drops a delivery any of whose
-// keys it has recorded.
+// sha256 of its body, under the source or the hook as the adapter's
+// Bodies says; and the source's delivery id, under the hook, when it sent
+// one (ids are chosen per endpoint by token senders). The store drops a
+// delivery any of whose keys it has recorded.
 func DedupeKeys(name, src string, ad Adapter, body []byte, delivery string) []string {
 	var keys []string
-	if ad.UniqueBodies() {
-		sum := sha256.Sum256(body)
+	sum := sha256.Sum256(body)
+	switch ad.Bodies() {
+	case BodiesUniquePerSource:
 		keys = append(keys, "body\x00"+src+"\x00"+hex.EncodeToString(sum[:]))
+	case BodiesUniquePerHook:
+		keys = append(keys, "body\x00"+src+"\x00"+name+"\x00"+hex.EncodeToString(sum[:]))
 	}
 	if delivery != "" {
 		keys = append(keys, "delivery\x00"+name+"\x00"+delivery)

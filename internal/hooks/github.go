@@ -18,7 +18,7 @@ import (
 // (https://docs.github.com/webhooks), sent as application/json:
 //
 //	X-Hub-Signature-256  "sha256=" + hex HMAC-SHA256 of the raw body with the secret
-//	X-GitHub-Delivery    GUID of the delivery, kept by a redelivery
+//	X-GitHub-Delivery    GUID of the delivery, kept by a redelivery; not signed
 //	X-GitHub-Event       the event (pull_request, issues, ...); the body has the action
 type GitHub struct{}
 
@@ -33,15 +33,22 @@ func (GitHub) Verify(r *http.Request, body, secret []byte, _ time.Time) (string,
 	if !hmac.Equal(sig, mac.Sum(nil)) {
 		return "", unauthorized("X-Hub-Signature-256 does not match")
 	}
-	// GitHub signs no timestamp, so a replay cannot be told by age; the
-	// delivery id it keeps across redeliveries is what drops one.
+	// GitHub signs no timestamp, so a replay cannot be told by age, and the
+	// delivery id is a header the signature does not cover: whoever holds a
+	// captured delivery can send it again under any id. The signed body is
+	// what drops a replay (Bodies).
 	return r.Header.Get("X-GitHub-Delivery"), nil
 }
 
-// UniqueBodies is false: a redelivery from GitHub's settings page sends the
-// same body under the same X-GitHub-Delivery, and nothing in a body makes it
-// unique, so only the delivery id marks a repeat.
-func (GitHub) UniqueBodies() bool { return false }
+// Bodies are unique per hook. The signature covers the body alone, so the
+// body is the only thing a replay cannot change, and a body seen before is
+// dropped whatever X-GitHub-Delivery it comes under. Two events do not share
+// one in practice: a body carries what the event changed and the updated_at
+// of what it is about, to the second. Should two do (a label added, removed
+// and added again within a second), the second says nothing the first did
+// not. Per hook, not per source: GitHub sends an event's body to every
+// webhook on the repository, and each hook records its own.
+func (GitHub) Bodies() BodyScope { return BodiesUniquePerHook }
 
 // githubPayload is the part of the events we normalize that we read.
 type githubPayload struct {

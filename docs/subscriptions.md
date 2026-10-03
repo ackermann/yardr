@@ -261,8 +261,11 @@ verified:
   `webhookTimestamp` it was signed with, so a body seen before is the same
   delivery again, whatever its `Linear-Delivery` header says. A repeated
   `Linear-Delivery` id is dropped as well.
-- **GitHub:** the `X-GitHub-Delivery` header, per hook. A redelivery keeps
-  its id; bodies carry no timestamp, so the body is not a key.
+- **GitHub:** the sha256 of the raw body, per hook, and the
+  `X-GitHub-Delivery` header, per hook. The signature covers the body alone,
+  so a captured delivery sent again under a new id is still the body seen
+  before, and is dropped. The key is per hook because GitHub sends one
+  event's body to every webhook on the repository.
 - **token:** the `Yard-Delivery` header, per hook, when the sender sets one.
   The body is not a key: a cron job may send `backup ok` every hour.
 

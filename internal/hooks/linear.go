@@ -52,9 +52,9 @@ func (Linear) Verify(r *http.Request, body, secret []byte, now time.Time) (strin
 	return r.Header.Get("Linear-Delivery"), nil
 }
 
-// UniqueBodies is true: every body carries the webhookTimestamp it was
+// Bodies are unique: every body carries the webhookTimestamp it was
 // signed with, so two events never share one and a repeat is a replay.
-func (Linear) UniqueBodies() bool { return true }
+func (Linear) Bodies() BodyScope { return BodiesUniquePerSource }
 
 // linearPayload is the part of a Linear data-change webhook we read.
 type linearPayload struct {

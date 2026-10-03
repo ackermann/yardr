@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -75,8 +77,8 @@ func TestGitHubSignature(t *testing.T) {
 	}
 }
 
-// GitHub keeps the delivery id when a delivery is redelivered; bodies are
-// not unique, so only the id drops a repeat.
+// GitHub keeps the delivery id when a delivery is redelivered, and the id
+// alone drops a repeat of it.
 func TestGitHubDuplicateDelivery(t *testing.T) {
 	r := newRig(t)
 	r.now = time.Now()
@@ -89,12 +91,13 @@ func TestGitHubDuplicateDelivery(t *testing.T) {
 	if n := len(r.hookEvents(t)); n != 1 || r.rc.Rejected()["duplicate"] != 2 {
 		t.Fatalf("%d events, %v", n, r.rc.Rejected())
 	}
-	// The same body under a new id is another delivery.
-	if code := r.github(t, "issue_comment", body, secret, "g-other"); code != http.StatusOK {
+	// Another body under a new id is another delivery.
+	other := ghFixture(t, "pull_request_opened")
+	if code := r.github(t, "pull_request", other, secret, "g-other"); code != http.StatusOK {
 		t.Fatalf("new id: %d", code)
 	}
 	if n := len(r.hookEvents(t)); n != 2 {
-		t.Fatalf("same body, new id: %d events", n)
+		t.Fatalf("new body, new id: %d events", n)
 	}
 	// The record is the store's: a receiver started later still drops it.
 	r.rc = hooks.NewReceiver(r.own, nil)
@@ -104,6 +107,63 @@ func TestGitHubDuplicateDelivery(t *testing.T) {
 	}
 	if n := len(r.hookEvents(t)); n != 2 || r.rc.Rejected()["duplicate"] != 1 {
 		t.Fatalf("after restart: %d events, %v", n, r.rc.Rejected())
+	}
+}
+
+// X-GitHub-Delivery is not covered by the signature, so a captured delivery
+// can be sent again under a fresh id. The body is signed, and a body the
+// hook has recorded is a duplicate whatever id or event it claims.
+func TestGitHubReplayUnderNewDeliveryID(t *testing.T) {
+	r := newRig(t)
+	r.now = time.Now()
+	f := filepath.Join(t.TempDir(), "gh2.secret")
+	if err := os.WriteFile(f, []byte(secret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.st.PutHook(context.Background(), store.Hook{Name: "gh2", Source: "github", SecretFile: f}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	body := ghFixture(t, "pull_request_opened")
+	if code := r.github(t, "pull_request", body, secret, "g-first"); code != http.StatusOK {
+		t.Fatalf("first delivery: %d", code)
+	}
+	first := r.hookEvents(t)
+	if len(first) != 1 {
+		t.Fatalf("want 1 hook event, got %d", len(first))
+	}
+	for _, h := range []map[string]string{
+		{"X-GitHub-Delivery": "g-replayed", "X-GitHub-Event": "pull_request"},
+		// The event is a header too: the same body claimed as another event.
+		{"X-GitHub-Delivery": "g-replayed-2", "X-GitHub-Event": "issues"},
+		{"X-GitHub-Event": "pull_request"},
+	} {
+		h["X-Hub-Signature-256"] = "sha256=" + sign(secret, body)
+		if code := r.post(t, "/hooks/gh", body, h); code != http.StatusOK {
+			t.Fatalf("replay %v: %d", h, code)
+		}
+	}
+	evs := r.hookEvents(t)
+	if len(evs) != 1 || evs[0].Seq != first[0].Seq || r.rc.Rejected()["duplicate"] != 3 {
+		t.Fatalf("replays: %d events, %v", len(evs), r.rc.Rejected())
+	}
+	// A receiver started later still drops it: the body's hash is in the
+	// store, written with the delivery.
+	r.rc = hooks.NewReceiver(r.own, nil)
+	r.srv.Config.Handler = r.rc.Handler()
+	if code := r.github(t, "pull_request", body, secret, "g-after-restart"); code != http.StatusOK {
+		t.Fatalf("after restart: %d", code)
+	}
+	if n := len(r.hookEvents(t)); n != 1 || r.rc.Rejected()["duplicate"] != 1 {
+		t.Fatalf("after restart: %d events, %v", n, r.rc.Rejected())
+	}
+	// GitHub sends an event's body to every webhook on the repository, so
+	// another hook records the same body as its own delivery.
+	if code := r.post(t, "/hooks/gh2", body, map[string]string{"X-Hub-Signature-256": "sha256=" + sign(secret, body),
+		"X-GitHub-Delivery": "g-second-hook", "X-GitHub-Event": "pull_request"}); code != http.StatusOK {
+		t.Fatalf("second hook: %d", code)
+	}
+	if n := len(r.hookEvents(t)); n != 2 {
+		t.Fatalf("same body at a second hook: %d events", n)
 	}
 }
 
