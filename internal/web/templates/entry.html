@@ -1,0 +1,16 @@
+{{- /* One event of the feed: on the home page, and alone as an event of the stream. */ -}}
+{{define "entry"}}
+<article class="item entry" id="e{{.Seq}}">
+  <header class="entry-head">
+    <span class="label">{{.Actor}}</span>
+    <time class="label" datetime="{{.At.UTC.Format "2006-01-02T15:04:05Z"}}">{{.Clock}}</time>
+  </header>
+  <p class="entry-what">{{if .Bead}}<span class="bead">{{.Bead}}</span> {{end}}<span{{if .Tone}} class="{{.Tone}}"{{end}}>{{.Text}}</span></p>
+  {{- if .Title}}
+  <p class="entry-title">{{.Title}}</p>
+  {{- end}}
+  {{- if .Note}}
+  <p class="entry-note">{{.Note}}</p>
+  {{- end}}
+</article>
+{{end}}

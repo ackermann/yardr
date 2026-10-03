@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -21,15 +22,17 @@ func (a *app) webCmd() *cobra.Command {
 	serve := &cobra.Command{
 		Use:   "serve",
 		Short: "Serve a read-only view of the yard over HTTP",
-		Long: `Serve the yard as web pages: its rigs and where their beads stand. The
-view reads the yard and changes nothing. Every page answers a request with
-"Accept: application/json" with the data it shows.
+		Long: `Serve the yard as web pages: its rigs, where their beads stand, and a feed
+of what happens, live. The view reads the yard and changes nothing. Every
+page answers a request with "Accept: application/json" with the data it
+shows, and /events streams the yard's events as server-sent events.
 
 There is no authentication yet, so it listens on loopback only: an address
 on any other interface is refused.`,
 		Example: `  yardr web serve                          # http://127.0.0.1:8791/
   yardr web serve --addr 127.0.0.1:9000
-  curl -H 'Accept: application/json' localhost:8791/`,
+  curl -H 'Accept: application/json' localhost:8791/
+  curl -N 'localhost:8791/events?format=json&after=0'   # every event, then live`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			// Before the store: a refused address must not start a server.
@@ -51,7 +54,10 @@ on any other interface is refused.`,
 			if err != nil {
 				return err
 			}
-			hs := &http.Server{Handler: srv, ReadHeaderTimeout: 10 * time.Second}
+			// Every request ends with ctx: an open event stream would
+			// otherwise hold Shutdown until its time ran out.
+			hs := &http.Server{Handler: srv, ReadHeaderTimeout: 10 * time.Second,
+				BaseContext: func(net.Listener) context.Context { return ctx }}
 			go func() {
 				<-ctx.Done()
 				sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -147,6 +147,11 @@ func TestHomeJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(r.body), &got); err != nil {
 		t.Fatalf("%v: %s", err, r.body)
 	}
+	// The feed has tests of its own (feed_test.go).
+	if len(got.Events) == 0 || got.Head == 0 {
+		t.Errorf("home has %d events and head %d, want the feed", len(got.Events), got.Head)
+	}
+	got.Feed = web.Feed{}
 	if !reflect.DeepEqual(got, wantHome) {
 		t.Errorf("home\n got %+v\nwant %+v", got, wantHome)
 	}

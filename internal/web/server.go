@@ -20,7 +20,10 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"yardr.dev/yardr/internal/store"
 )
@@ -56,11 +59,17 @@ type Server struct {
 	st store.API
 	// home is the yard's home directory, whose name is the yard's when the
 	// `name` setting is unset.
-	home   string
-	log    *slog.Logger
-	mux    *http.ServeMux
-	pages  map[string]*template.Template
-	assets map[string]asset
+	home  string
+	log   *slog.Logger
+	mux   *http.ServeMux
+	pages map[string]*template.Template
+	// partials are the templates that are part of a page and no page
+	// themselves; the stream renders one alone.
+	partials *template.Template
+	assets   map[string]asset
+	// streams counts the /events streams being written to.
+	streams     atomic.Int64
+	streamWrite time.Duration
 }
 
 // NewServer serves the yard behind st, whose home directory is home.
@@ -68,7 +77,7 @@ func NewServer(st store.API, home string, log *slog.Logger) (*Server, error) {
 	if log == nil {
 		log = slog.Default()
 	}
-	s := &Server{st: st, home: home, log: log, mux: http.NewServeMux()}
+	s := &Server{st: st, home: home, log: log, mux: http.NewServeMux(), streamWrite: streamWrite}
 	var err error
 	if s.assets, err = loadAssets(); err != nil {
 		return nil, err
@@ -80,12 +89,23 @@ func NewServer(st store.API, home string, log *slog.Logger) (*Server, error) {
 	return s, nil
 }
 
+// partial are the files of templates/ that define a part of a page, not a
+// page: every page is parsed with them.
+var partial = []string{"shell", "aside", "entry"}
+
 // loadPages parses every template of templates/ with the shell, one set per
 // page: each page defines "content", so two pages cannot share a set.
 func (s *Server) loadPages() (map[string]*template.Template, error) {
 	funcs := template.FuncMap{"asset": s.assetURL}
-	shell, err := template.New("shell.html").Funcs(funcs).ParseFS(templateFS, "templates/shell.html", "templates/aside.html")
+	var parts []string
+	for _, name := range partial {
+		parts = append(parts, "templates/"+name+".html")
+	}
+	shell, err := template.New("shell.html").Funcs(funcs).ParseFS(templateFS, parts...)
 	if err != nil {
+		return nil, err
+	}
+	if s.partials, err = shell.Clone(); err != nil {
 		return nil, err
 	}
 	files, err := fs.Glob(templateFS, "templates/*.html")
@@ -95,7 +115,7 @@ func (s *Server) loadPages() (map[string]*template.Template, error) {
 	pages := map[string]*template.Template{}
 	for _, f := range files {
 		name := strings.TrimSuffix(filepath.Base(f), ".html")
-		if name == "shell" || name == "aside" {
+		if slices.Contains(partial, name) {
 			continue
 		}
 		t, err := shell.Clone()
@@ -114,6 +134,7 @@ func (s *Server) loadPages() (map[string]*template.Template, error) {
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /{$}", s.handleHome)
 	s.mux.HandleFunc("GET /line", s.handleLine)
+	s.mux.HandleFunc("GET /events", s.handleEvents)
 	for _, name := range unbuilt {
 		s.mux.HandleFunc("GET /"+name, s.handleUnbuilt(name))
 	}

@@ -1,5 +1,7 @@
 {{define "content"}}
 {{- with .Data}}
+{{- /* Where the beads stand, above the first page of the feed only. */}}
+{{- if not .Before}}
 {{- range .Rigs}}
 <article class="item">
   <header class="item-head">
@@ -36,5 +38,19 @@
 {{- else}}
 <p class="item faint">This yard has no rig yet.</p>
 {{- end}}
+{{- end}}
+{{- /* The feed, newest first. On the first page the stream continues it
+       after the page's head: each event's entry goes on top. An older page
+       is a snapshot. */}}
+<section class="feed" id="feed" aria-label="What happened"
+  {{- if not .Before}} hx-ext="sse" sse-connect="/events?after={{.Head}}" sse-swap="message" hx-swap="afterbegin"{{end}}>
+  {{- range .Events}}{{template "entry" .}}{{end}}
+  <p class="item faint none">{{if .Before}}Nothing older.{{else}}Nothing has happened yet.{{end}}</p>
+  {{- if .Older}}
+  {{- /* The next page: a link, which htmx follows by itself once it scrolls
+         into view, putting that page's entries in the link's place. */}}
+  <a class="item older label" href="/?before={{.Older}}" hx-get="/?before={{.Older}}" hx-trigger="intersect once" hx-select="#feed > *" hx-target="this" hx-swap="outerHTML">Older</a>
+  {{- end}}
+</section>
 {{- end}}
 {{end}}

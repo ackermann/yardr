@@ -4,15 +4,17 @@ import (
 	"context"
 	"net/http"
 	"slices"
+	"strconv"
 
 	"yardr.dev/yardr/internal/store"
 )
 
-// Home is the overview: the yard, its rigs, and where each rig's open
-// beads stand.
+// Home is the yard's home page: its rigs and where each rig's open beads
+// stand, and the feed of what happened.
 type Home struct {
 	Yard string    `json:"yard"`
 	Rigs []HomeRig `json:"rigs"`
+	Feed
 }
 
 // HomeRig is one rig's open beads, counted per stage of the flows that
@@ -149,11 +151,28 @@ func count(counts []StageCount, stage string) bool {
 }
 
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
+	var before uint64
+	if v := r.URL.Query().Get("before"); v != "" {
+		var err error
+		if before, err = strconv.ParseUint(v, 10, 64); err != nil || before == 0 {
+			s.respond(w, r, Page{Status: http.StatusBadRequest, Template: "error", Title: "Bad request",
+				Data: errorData{Error: "before is an event's seq, not " + v}})
+			return
+		}
+	}
+	// The feed first: the line is read after it, so a bead the feed shows
+	// created is never missing from the counts beside it.
+	feed, err := s.feed(r.Context(), before)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	ov, err := s.overview(r.Context())
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
+	ov.Feed = *feed
 	s.respond(w, r, Page{Template: "home", Title: "Home", Menu: "home", Data: ov, line: ov.line()})
 }
 

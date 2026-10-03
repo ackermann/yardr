@@ -49,15 +49,17 @@ none: scripts and styles live in the asset files.
 
 | path | page | JSON |
 |---|---|---|
-| `/` | Home: the yard's name, its rigs, and per rig the open beads per stage of its flows | `Home` |
+| `/` | Home: the feed of what happened, newest first and live, under the yard's rigs with the open beads per stage of their flows | `Home` |
+| `/?before=<seq>` | an older page of the feed: the 50 entries under that seq | `Home` |
+| `/events` | the yard's events as they happen, as server-sent events ([The stream](#the-stream)) | `?format=json` |
 | `/line` | the right column as a page, for a window too narrow for the column | `Line` |
 | `/flows`, `/beads` | *planned, yardr-822r*: answers 501 with a "not built yet" page | `{"page": "beads", "built": false}` |
 | `/sessions`, `/residents` | *planned, yardr-68k3*: the same | the same |
 | `/assets/<file>` | the stylesheet and the two scripts | |
 
-The live feed on Home (server-sent events, no reload) is *planned,
-yardr-ardv*; what waits for a person, in the right column, is *planned,
-yardr-68k3*. Until then the page is a snapshot: reload it to see a change.
+What waits for a person, in the right column, is *planned, yardr-68k3*.
+The feed is live; the counts around it (the rigs' stages, the line) are a
+snapshot: reload the page to see them change.
 
 Home as JSON:
 
@@ -74,7 +76,17 @@ Home as JSON:
       ],
       "elsewhere": [{"stage": "inbox", "open": 1}]
     }
-  ]
+  ],
+  "events": [
+    {"seq": 1255, "at": "2026-10-03T23:40:12.129975Z", "kind": "closed", "actor": "yardr-refinery",
+     "bead": "yardr-tzzc", "title": "web: yardr web serve", "text": "landed in merged at 70dabcd",
+     "note": "refinery: merged 70dabcd", "commit": "70dabcd", "tone": "landed"},
+    {"seq": 1254, "at": "2026-10-03T23:40:12.129659Z", "kind": "advanced", "actor": "yardr-refinery",
+     "bead": "yardr-tzzc", "title": "web: yardr web serve", "text": "moved from approved to merged",
+     "note": "refinery: merged 70dabcd"}
+  ],
+  "head": 1255,
+  "older": 1204
 }
 ```
 
@@ -94,6 +106,15 @@ Home as JSON:
   cannot read). The rig's beads are then all in `elsewhere`, and the other
   rigs still show.
 
+- `events` is the feed, newest first: at most 50 entries, one per event
+  ([The feed](#the-feed) says what each field holds).
+- `head` is the yard's newest seq when the page was read. The first page
+  holds everything up to it, so `/events?after=<head>` continues the page
+  with no gap and no duplicate.
+- `older` is the seq to ask for the next page with (`/?before=<older>`);
+  it is absent when nothing older is retained. `before` repeats the seq an
+  older page was asked with.
+
 `/line` as JSON is `{"open", "working", "held", "rigs": [{"name", "open"}]}`,
 summed over the rigs.
 
@@ -107,6 +128,101 @@ weight than `text/html`; everything else gets the page, so a browser, plain
 Errors keep the form: a 404, a 501 or a 500 is the error page inside the
 shell for a browser and `{"error": "..."}` for a JSON client (an unbuilt
 page: `{"page": ..., "built": false}`).
+
+## The feed
+
+Home shows what happened in the yard, one entry per event, the newest on
+top. The first page holds the latest 50; the link under them (`Older`)
+is the next page, and htmx follows it by itself when it scrolls into view,
+so scrolling down goes back in time. Without scripts it is a plain link.
+
+An entry says its event in the yard's words:
+
+| event | `text` | `note` |
+|---|---|---|
+| `created` | created | |
+| `advanced` | moved from *A* to *B*, with the outcome when it had one: `moved from new to review (done)` | the note the move came with |
+| `closed`, on entering a terminal stage | landed in *stage*, with the commit: `landed in merged at 70dabcd` (`tone` `landed`, `commit`) | the note of the move that landed it |
+| `closed`, by hand | closed: *reason* | |
+| `held` | held (`tone` `held`) | the reason |
+| `unheld`, `reopened`, `released` | no longer held; reopened; released, to be routed again | for a release, its reason |
+| `noted` | noted | the note |
+| `claimed` | claimed by *group* for *stage* | |
+| `started` | session started, with the agent's name when the runner gives one | |
+| `session_<state>` (a session the dispatcher ended) | session ended: *state* (`tone` `held`) | the reason |
+| any other | the kind, spelled out: `setting changed` | its plain values: `key name · value north` |
+
+- A resident's journal entries and handoffs (`journal`, `handoff`) are left
+  out: they are its notes to itself.
+- The reason of a hold and the note of a move are the note their actor
+  left on the bead right before (`yardr bead note … && yardr bead hold`,
+  `yardr bead advance --note`): the bead's previous event must be that
+  actor's note. Anyone else's note, or an older one, is not shown as the
+  reason.
+- A landing's `commit` is the first commit hash in the note of the move
+  that landed the bead, which is where the refinery writes it (`merged
+  70dabcd`). The yard records a landing's commit nowhere else, so a merger
+  that writes no such note gives a landing without one.
+- `note` is cut at 280 bytes. `title` is the bead's title now, not when
+  the event happened.
+- The time on an entry is this machine's: the view is served on loopback,
+  to a browser on the same machine.
+
+## The stream
+
+`GET /events` is the yard's event log as server-sent events: one per
+event, in order, the event's `seq` as its `id`.
+
+```sh
+curl -N 'localhost:8791/events?format=json'            # from now on
+curl -N 'localhost:8791/events?format=json&after=0'    # every retained event, then live
+curl -N -H 'Last-Event-ID: 1255' localhost:8791/events # after 1255, as HTML fragments
+```
+
+**Where it starts.** After the seq in the `Last-Event-ID` header, else
+after `?after=<seq>`, else from now. From there it carries every event
+once, with no gap, as `yardr watch --after` does. A browser's
+`EventSource` sends `Last-Event-ID` by itself when it reconnects, and the
+header wins over the URL, which still says where the page first started.
+So:
+
+- stopping and starting `yardr web serve` under an open page loses and
+  repeats nothing: the browser reconnects (the stream tells it to retry
+  after half a second) and the new process goes on after the last event
+  the page got, including what happened while none was up;
+- a restart of the yardr server is ridden out inside the stream: the
+  connection to the browser stays open, and the stream resubscribes after
+  the last event it sent once the server is back.
+
+**What it carries.**
+
+- By default the `data` is the entry of [the feed](#the-feed) as an HTML
+  fragment, the page's own markup (`templates/entry.html`). Home's feed
+  names the stream (`sse-connect="/events?after=<head>"`) and htmx puts
+  each fragment on top. An event the feed leaves out is sent as its `id`
+  with no `data`: no message for the page, but its cursor passes it.
+- With `?format=json`, or an `Accept` that prefers JSON, the `data` is the
+  event itself, as `yardr watch --json` prints it
+  (`{"seq", "id", "bead", "kind", "actor", "data", "at"}`), and no event is
+  left out. `EventSource` cannot set `Accept`; the parameter is for it.
+
+```
+id: 1254
+data: {"seq":1254,"id":"1254","bead":"yardr-tzzc","kind":"advanced","actor":"yardr-refinery","data":{"from":"approved","to":"merged"},"at":"2026-10-03T23:40:12.129659Z"}
+```
+
+**Clients.** Each stream has its own subscription to the yard, so one
+client never waits on another. A write to a client waits 10 seconds at
+most: one that takes nothing for that long is dropped, and reconnects
+where it stopped if it still lives. A quiet stream gets a comment line
+every 20 seconds, which finds a client that went away without closing.
+
+One case repeats entries in the page: htmx's extension opens a new
+`EventSource` itself, with the page's first URL and no `Last-Event-ID`,
+when the browser gives the old one up, which a browser does when a
+reconnect is answered with anything but a stream (another program on the
+port, for one). The entries since the page was loaded then come again.
+Reload the page.
 
 ## Layout
 
@@ -173,6 +289,8 @@ Rules the stylesheet holds to, and a test checks the second:
 Classes a page builds from: `.item` (one entry of the centre feed, with a
 hairline under it), `.item-head`, `.label`, `.panel`, `.figures` and
 `.rows` (name and number pairs), `.stages` (a row of counted stages),
+`.feed` and `.entry` (the feed and one event of it, with `.entry-head`,
+`.entry-what`, `.entry-title`, `.entry-note`),
 `.num`, `.zero`, `.faint`, `.held`, `.landed`, `.dot`.
 
 ## Adding a page
@@ -215,6 +333,9 @@ A page is one template and one handler, in `internal/web`.
    page is checked for other hosts and inline styles once the menu or a
    page links to it; raise the page count it expects.
 6. **This file**: the row in Pages, and the JSON's shape.
+
+A template that is a part of a page and no page (`shell`, `aside`, `entry`)
+is named in `partial` (`server.go`), and every page is parsed with it.
 
 A page adds no script and no stylesheet. If it needs a new class, it goes
 in `yard.css` and uses the tokens.

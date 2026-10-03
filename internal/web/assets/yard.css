@@ -147,6 +147,17 @@ ul, ol { list-style: none; }
 .item > p { font-family: var(--sans); }
 .item .panel + .panel { margin-top: var(--gap); }
 
+/* The feed: one entry per event, the newest on top. */
+.entry-head { display: flex; justify-content: space-between; gap: 10px; }
+.entry-what { margin-top: 4px; overflow-wrap: anywhere; }
+.entry .entry-what { font-family: var(--mono); }
+.entry .bead { color: var(--accent); }
+.entry-title { color: var(--dim); overflow-wrap: anywhere; }
+.entry-note { margin-top: 6px; padding-left: 10px; border-left: 1px solid var(--hairline-strong); color: var(--faint); font-size: var(--small); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Said only by a feed with no entry. */
+.feed .none:not(:first-child) { display: none; }
+.older { display: block; text-align: center; }
+
 .flow { margin-top: var(--gap); }
 .stages { display: flex; flex-wrap: wrap; gap: 1px; margin-top: 8px; background: var(--hairline); border: 1px solid var(--hairline); }
 .stages li { flex: 1 1 88px; padding: 8px 10px; background: var(--panel); }
