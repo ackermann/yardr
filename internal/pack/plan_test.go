@@ -114,6 +114,9 @@ func apply(t *testing.T, st store.API, p *pack.Plan, answers map[string]string) 
 			for _, id := range o.Route.Delete {
 				must(st.DeleteRoute(ctx, id))
 			}
+			if o.Route.Group == "" {
+				continue
+			}
 			r := store.Route{Stage: o.Route.Stage, Rig: &o.Route.Rig, Group: o.Route.Group, Priority: o.Route.Priority}
 			if o.Route.Type != "" {
 				r.Type = &o.Route.Type
@@ -439,6 +442,47 @@ func TestRoutesAreReplacedNotAdded(t *testing.T) {
 	}
 	if n != 1 || len(routes) != 5 {
 		t.Fatalf("%d routes for new, %d in all; want 1 and 5", n, len(routes))
+	}
+}
+
+// A stage with no group replaces any existing route with no route. Leaving
+// the old route behind would keep sending beads to a group the pack removed.
+func TestStageWithoutGroupRemovesExistingRoute(t *testing.T) {
+	st, o := yard(t)
+	if err := st.PutGroup(ctx, store.Group{Name: "old", Runner: "manual"}); err != nil {
+		t.Fatal(err)
+	}
+	rig := "web"
+	old, err := st.AddRoute(ctx, store.Route{Stage: "triage", Rig: &rig, Group: "old"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	text := "name: hand\nflows:\n  default:\n    stages:\n      triage: { manual: [done] }\n      done: { end: true }\ngroups: {}\n"
+	if err := os.WriteFile(filepath.Join(dir, pack.File), []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := build(t, st, load(t, dir), o)
+	want := "rig web stage triage -> (no route)"
+	if got := actions(plan, pack.Change); !slices.Contains(got, "route "+want) {
+		t.Fatalf("changes = %v, want %q", got, "route "+want)
+	}
+	route := find(t, plan, "route", want)
+	if route.Route.Group != "" || !slices.Equal(route.Route.Delete, []string{old.ID}) || route.Changes[0].New != "(no route)" {
+		t.Fatalf("route operation = %+v", route)
+	}
+	if got := actions(plan, pack.NotInPack); slices.Contains(got, "route rig web stage triage -> old") {
+		t.Fatalf("old route also shown as left alone: %v", got)
+	}
+	apply(t, st, plan, nil)
+	routes, err := st.Routes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range routes {
+		if r.Stage == "triage" && r.Rig != nil && *r.Rig == rig {
+			t.Fatalf("route survived import: %+v", r)
+		}
 	}
 }
 

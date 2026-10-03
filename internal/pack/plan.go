@@ -106,10 +106,10 @@ type FileOp struct {
 	SHA256 string `json:"sha256"`
 }
 
-// RouteOp is the one route a rig's stage (and type) would have. The store
+// RouteOp is the route state a rig's stage (and type) would have. The store
 // mints an id per added route, so a route that changes is added anew and
-// the ones it stands in for, listed under Delete, are removed: two routes
-// for one rig and stage never remain.
+// the ones it stands in for, listed under Delete, are removed. An empty
+// Group with Delete means the pack leaves that stage without a route.
 type RouteOp struct {
 	Stage    string   `json:"stage"`
 	Rig      string   `json:"rig"`
@@ -647,6 +647,33 @@ func (b *planner) routes(flows []Flow) error {
 			if s.Group == "" {
 				if !s.End {
 					b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("stage %s of flow %s names no group: the pack routes it to nobody, and a bead there waits for a hand", s.Name, f.Name))
+				}
+				// A stage in the flow with no group still replaces the yard's
+				// route for that rig, stage and type. Leaving that route in
+				// place would make the stage look unassigned in the plan while
+				// beads continued going to its old group.
+				var old []store.Route
+				for _, r := range have {
+					if r.Stage == s.Name && r.Rig != nil && *r.Rig == b.o.Rig && r.Label == nil && deref(r.Type) == f.Type {
+						old = append(old, r)
+						taken[r.ID] = true
+					}
+				}
+				if len(old) > 0 {
+					name := "rig " + b.o.Rig + " stage " + s.Name
+					if f.Type != "" {
+						name += " type " + f.Type
+					}
+					var deletes []string
+					for _, r := range old {
+						deletes = append(deletes, r.ID)
+					}
+					changes := []Diff{{"group", old[0].Group, "(no route)"}}
+					if len(old) > 1 {
+						changes = append(changes, Diff{"routes", fmt.Sprintf("%d for this stage", len(old)), "0"})
+					}
+					b.add(Object{Kind: "route", Name: name + " -> (no route)", Action: Change, Changes: changes,
+						Route: &RouteOp{Stage: s.Name, Rig: b.o.Rig, Type: f.Type, Delete: deletes}})
 				}
 				continue
 			}

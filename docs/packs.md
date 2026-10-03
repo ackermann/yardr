@@ -182,8 +182,10 @@ group` (with the type, for a type's flow). A route the rig has for the
 stage is that route: unchanged when it leads to the same group, else
 replaced. `yardr route add` mints a new id per call, so a replacement is
 an add and a delete of every route the rig had for the stage; two routes
-for one rig and stage never remain. The route's priority is kept. Routes
-with a label, and routes for stages the pack lacks, are left alone.
+for one rig and stage never remain. A stage with no group clears the
+matching rig, stage and type routes, so its beads wait for a hand. The
+route's priority is kept when a stage has a group. Routes with a label, and
+routes for stages the pack lacks, are left alone.
 
 **Residents.** A resident of the pack is taken by a resident of the yard:
 `--resident mayor=yardmaster`. Without the flag it is the yard's resident
