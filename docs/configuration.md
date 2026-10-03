@@ -217,9 +217,9 @@ and what it shadows or what else is available.
 $ yardr rig sources yardr
 KIND   NAME            SOURCE
 flow   default         pack starter (store starter.default)                     shadows .yardr/flows/default.flow
-stage  new             none                                                     shadows .yardr/flows/default/new.md
+stage  new             pack starter (~/.yardr/flows/starter.default/new.md)     shadows .yardr/flows/default/new.md
 stage  review          pack starter (~/.yardr/flows/starter.default/review.md)  shadows .yardr/flows/default/review.md
-stage  decide          none
+stage  decide          pack starter (~/.yardr/flows/starter.default/decide.md)
 role   yardr-builders  rig (.yardr/roles/builder.md@add63e5)                    pack starter has a copy
 role   yardr-reviewers pack starter (~/.yardr/packs/starter/roles/reviewer.md)  shadows .yardr/roles/reviewer.md
 role   yardmaster      home (~/.yardr/roles/mayor.md)

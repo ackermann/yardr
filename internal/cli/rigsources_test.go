@@ -107,9 +107,13 @@ func TestRigSourcesAppliedPack(t *testing.T) {
 	if out, err := run(t, a.packCmd(), append([]string{"apply", "../../packs/starter", "--rig", "web", "--yes"}, starterFlags...)...); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	// A stage file of the pack's flow, in the yard's home.
-	stageFile := filepath.Join(home, "flows", "starter.default", "review.md")
-	writeFile(t, stageFile, "the yard's review\n")
+	// The pack's stage files are in the yard's home; one is taken away, so
+	// a stage of the pack's flow without a file is seen beside those with.
+	stages := filepath.Join(home, "flows", "starter.default")
+	stageFile := filepath.Join(stages, "review.md")
+	if err := os.Remove(filepath.Join(stages, "new.md")); err != nil {
+		t.Fatal(err)
+	}
 	packs := filepath.Join(home, "packs", "starter", "roles")
 
 	out, err := run(t, a.rigSourcesCmd(), "web")
@@ -118,11 +122,11 @@ func TestRigSourcesAppliedPack(t *testing.T) {
 	}
 	wantLines(t, out,
 		"flow default pack starter (store starter.default) shadows .yardr/flows/default.flow, .yardr/flows/type/decision.flow, .yardr/flows/type/decision/ask.md",
-		"stage backlog none",
+		"stage backlog pack starter ("+filepath.Join(stages, "backlog.md")+")",
 		"stage new none shadows .yardr/flows/default/new.md",
 		"stage review pack starter ("+stageFile+") shadows .yardr/flows/default/review.md",
-		"stage approved none",
-		"stage decide none",
+		"stage approved pack starter ("+filepath.Join(stages, "approved.md")+")",
+		"stage decide pack starter ("+filepath.Join(stages, "decide.md")+")",
 		"role web-builders pack starter ("+filepath.Join(packs, "builder.md")+") shadows .yardr/roles/builder.md",
 		"role web-reviewers pack starter ("+filepath.Join(packs, "reviewer.md")+") shadows .yardr/roles/reviewer.md",
 		"role boss pack starter ("+filepath.Join(packs, "mayor.md")+")",
@@ -169,17 +173,19 @@ func TestRigSourcesPackFlowRigRoles(t *testing.T) {
 	if out, err := run(t, a.packCmd(), append([]string{"apply", "../../packs/starter", "--rig", "web", "--yes", "--rig-roles"}, starterFlags...)...); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
+	// The pack's stage files come with its flow, whoever's the roles are.
+	stages := filepath.Join(home, "flows", "starter.default")
 	out, err := run(t, a.rigSourcesCmd(), "web")
 	if err != nil {
 		t.Fatal(err)
 	}
 	wantLines(t, out,
 		"flow default pack starter (store starter.default) shadows .yardr/flows/default.flow, .yardr/flows/type/decision.flow, .yardr/flows/type/decision/ask.md",
-		"stage backlog none",
-		"stage new none shadows .yardr/flows/default/new.md",
-		"stage review none shadows .yardr/flows/default/review.md",
-		"stage approved none",
-		"stage decide none",
+		"stage backlog pack starter ("+filepath.Join(stages, "backlog.md")+")",
+		"stage new pack starter ("+filepath.Join(stages, "new.md")+") shadows .yardr/flows/default/new.md",
+		"stage review pack starter ("+filepath.Join(stages, "review.md")+") shadows .yardr/flows/default/review.md",
+		"stage approved pack starter ("+filepath.Join(stages, "approved.md")+")",
+		"stage decide pack starter ("+filepath.Join(stages, "decide.md")+")",
 		"role web-builders rig (.yardr/roles/builder.md@"+sha+") pack starter has a copy",
 		"role web-reviewers rig (.yardr/roles/reviewer.md@"+sha+") pack starter has a copy",
 		"role boss pack starter ("+filepath.Join(home, "packs", "starter", "roles", "mayor.md")+")",
