@@ -422,7 +422,30 @@ An epic follows `yardr.epic` ([flows.md](flows.md#worked-example-rig-yard)):
 
 ### Through a pull request
 
-With `YARDR_PR=1` in the integrators' cmd, an epic goes to main as a pull
+**Experimental, and off by default.** An epic lands locally (step 4 above)
+unless `YARDR_PR=1` is in the cmd of every group on this path: the
+integrators, `yard-pr` and `yard-pr-merge`. Without it integrate-epic opens
+no pull request, and pr-epic and pr-merge hold the epic with a note naming
+the switch, before pushing, merging or asking GitHub anything, so a stray
+route or a move by hand does not start the path: nothing reports `done` in
+`approved`, and the epic reaches `merged` only by merge-local's bare edge.
+
+Do not switch it on for a repository others can open pull requests
+against. The path does not yet guarantee:
+
+- **That the pull request is the epic's.** An epic is bound to a branch
+  name, not to one pull request: the scripts look the PR up with `gh pr
+  list --head yard/<epic>`, with no owner, and the hook adapter matches
+  events by head branch, so a fork's pull request from a branch of the same
+  name can be taken for the epic's, approved and merged.
+- **That what is merged is what was reviewed.** pr-merge merges whatever
+  the PR's head is at that moment, not the commit the reviewer approved or
+  CI ran on.
+- **That CI is green.** `ci_green` fires on the first successful run or
+  suite of any workflow on the head, once; other workflows may still be
+  running or red (see the required-checks advice below).
+
+With `YARDR_PR=1` set, an epic goes to main as a pull
 request against the rig's base instead of a local fast-forward. Three exec
 groups (limit 1 each) and two type routes do it, besides the integrators:
 
@@ -436,7 +459,8 @@ groups (limit 1 each) and two type routes do it, besides the integrators:
   each time after a longer wait (step 2 above); a remote branch with
   commits the epic lacks is held.
 - **approved**, `yard-pr`
-  ([`contrib/refinery/pr-epic`](../contrib/refinery/pr-epic)): pushes
+  ([`contrib/refinery/pr-epic`](../contrib/refinery/pr-epic), with
+  `YARDR_PR=1`; held without it): pushes
   `yard/<epic>`, which may carry the reviewer's commits (with a lease: a
   remote branch with commits of its own is never overwritten), replaces the
   PR's body with the latest review note under "Review", and reports `done`,
@@ -448,7 +472,8 @@ groups (limit 1 each) and two type routes do it, besides the integrators:
   child first), `--outcome question` to `decide`. With a GitHub hook, the
   daemon does this itself when CI is green (below).
 - **land**, `yard-pr-merge`
-  ([`contrib/refinery/pr-merge`](../contrib/refinery/pr-merge)): runs `gh
+  ([`contrib/refinery/pr-merge`](../contrib/refinery/pr-merge), with
+  `YARDR_PR=1`; held without it): runs `gh
   pr merge <pr_url> --rebase --delete-branch`, then `git fetch` and `git
   merge --ff-only <remote>/<base>` in the rig's checkout, and reports
   `done`, to `merged`, which closes the epic. A merge GitHub refuses
@@ -522,9 +547,10 @@ running (pr-merge then reports `failed`, to `open`, and the next
 integration tries again).
 
 `gh` (logged in as the operator) and `jq` must be on the scripts' PATH.
-Without `YARDR_PR`, route `approved` for epics to `yard-refinery` (or leave
-the stage route alone) and nothing else changes: merge-local lands the epic
-locally and advances it to `merged`, the bare edge kept for it.
+Without `YARDR_PR`, the default, route `approved` for epics to
+`yard-refinery` (or leave the stage route alone) and nothing else changes:
+merge-local lands the epic locally and advances it to `merged`, the bare
+edge kept for it.
 
 ### Setup
 
@@ -537,7 +563,8 @@ yardr group add yard-integrators --runner exec --limit 1 \
 yardr route add --stage open --type epic --rig yard --group yard-integrators --priority 10
 ```
 
-Through pull requests, the integrators' cmd gains `YARDR_PR=1`, and:
+Through pull requests (experimental, see above), every cmd on the path
+carries `YARDR_PR=1`:
 
 ```sh
 install contrib/refinery/pr-epic contrib/refinery/pr-merge ~/.yardr/scripts/   # from main
@@ -545,10 +572,10 @@ yardr group add yard-integrators --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin YARDR_PR=1 ~/.yardr/scripts/integrate-epic' \
   --set log="$HOME/.yardr/logs/integrator.log"
 yardr group add yard-pr --runner exec --limit 1 \
-  --set cmd='YARDR_PUSH=origin ~/.yardr/scripts/pr-epic' \
+  --set cmd='YARDR_PUSH=origin YARDR_PR=1 ~/.yardr/scripts/pr-epic' \
   --set log="$HOME/.yardr/logs/pr.log"
 yardr group add yard-pr-merge --runner exec --limit 1 \
-  --set cmd='YARDR_PUSH=origin ~/.yardr/scripts/pr-merge' \
+  --set cmd='YARDR_PUSH=origin YARDR_PR=1 ~/.yardr/scripts/pr-merge' \
   --set log="$HOME/.yardr/logs/pr-merge.log"
 yardr route add --stage approved --type epic --rig yard --group yard-pr --priority 10
 yardr group add decisions --runner manual --limit 50 --members mckean,mayor,yard   # yard: the github rules

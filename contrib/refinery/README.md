@@ -44,6 +44,15 @@ the note. A push or `gh` that fails reports `failed`, back to `open`, so the
 next integration retries; the daemon waits longer before each retry in a
 row (docs/pipeline.md, "The epic's own flow").
 
+The pull-request path is experimental and off by default: an epic lands
+through merge-local unless `YARDR_PR=1` is in the cmd of integrate-epic,
+pr-epic and pr-merge alike. Without it pr-epic and pr-merge hold the epic
+with a note naming the switch and touch neither the remote nor GitHub.
+docs/pipeline.md, "Through a pull request", lists what the path does not
+yet guarantee (the PR is matched by branch name, so a fork's can be taken
+for the epic's; the head merged is not pinned to the reviewed commit; the
+first green workflow counts as CI green).
+
 **pr-epic** is routed for the epic flow's `approved` stage (type `epic`)
 when epics land through pull requests. It pushes `yard/<epic>` with a lease
 (it may carry the reviewer's commits; a remote branch with commits of its
@@ -64,7 +73,8 @@ Both need `gh`, logged in as the operator, and `jq` on PATH.
 default worktree path). Options go in the group's `cmd`: `YARDR_PUSH`, a
 remote to push to (off when empty; pr-epic and pr-merge default to
 `origin`), `YARDR_NOTIFY`, the resident mailed when that push fails (default
-`mayor`), and `YARDR_PR=1` for integrate-epic.
+`mayor`), and `YARDR_PR=1`, the switch for the pull-request path, read by
+integrate-epic, pr-epic and pr-merge.
 
 **Setup** (from docs/pipeline.md):
 
@@ -82,7 +92,7 @@ yardr group add yard-integrators --runner exec --limit 1 \
 yardr route add --stage open --type epic --rig yard --group yard-integrators --priority 10
 ```
 
-Landing epics through pull requests adds `YARDR_PR=1` to the integrators'
-cmd and the groups `yard-pr` and `yard-pr-merge`, routed for `approved`
-and `land` (type `epic`); docs/pipeline.md, "Through a pull request", has
+Landing epics through pull requests adds the groups `yard-pr` and
+`yard-pr-merge`, routed for `approved` and `land` (type `epic`), with
+`YARDR_PR=1` in their cmd and the integrators'; docs/pipeline.md, "Through a pull request", has
 the commands.

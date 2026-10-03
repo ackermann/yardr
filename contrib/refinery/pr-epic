@@ -5,10 +5,15 @@
 # epics land through pull requests (integrate-epic with YARDR_PR=1). See
 # docs/pipeline.md, section Epics.
 #
+# The pull-request path is experimental and off by default: without
+# YARDR_PR in the group's cmd, as for integrate-epic, the epic is held with
+# a note and nothing is pushed or asked of GitHub.
+#
 # It reads the environment the exec runner gives it, as integrate-epic
 # does: YARDR_BEAD (the epic), YARDR_RIG_PATH, YARDR_BASE, YARDR_BRANCH,
 # YARDR_WORKTREE and YARDR_BIN. Options, set in the group's cmd:
 #
+#   YARDR_PR       1: the switch for the pull-request path; held without it
 #   YARDR_PUSH     the remote the pull request's branch is on (default origin)
 #
 # It pushes yard/<epic>, which may have gained the reviewer's commits, and
@@ -49,6 +54,12 @@ report() {
   hold "could not report $1 (does the epic's flow name it for its stage?): $2"
 }
 errf=$(mktemp) && trap 'rm -f "$errf"' EXIT
+
+# Off unless switched on: a route that hands an epic here by accident must
+# not push or touch a pull request. Held, not failed: failed would send the
+# epic round through open and back here.
+[ -n "${YARDR_PR:-}" ] ||
+  hold "the pull-request path is experimental and off: YARDR_PR is not set in this group's cmd. Route approved for epics to the refinery (merge-local lands the epic locally), or set YARDR_PR=1 in the cmd of every group on the path, then unhold."
 
 git -C "$REPO" rev-parse --verify -q "refs/heads/$BR" >/dev/null || hold "branch $BR does not exist"
 if [ -n "$WT" ] && [ -d "$WT" ]; then

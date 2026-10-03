@@ -271,6 +271,7 @@ func TestPREpicNoPRGoesBackToOpen(t *testing.T) {
 	y.exec("integrate-epic", "yard-integrators", "r-e") // no YARDR_PR: no PR
 	y.yardr("bead", "done", "r-e")
 
+	y.opts = "YARDR_PR=1"
 	y.exec("pr-epic", "yard-pr", "r-e")
 
 	if e := y.beadOf("r-e"); e.Stage != "open" || e.Hold {
@@ -303,5 +304,78 @@ func TestPREpicConflictingGoesBackToOpen(t *testing.T) {
 	}
 	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "conflicts with main") {
 		t.Fatalf("no note on the conflict:\n%s", notes)
+	}
+}
+
+// Without YARDR_PR the pull-request path is off: pr-epic, handed an approved
+// epic by a stray route, holds it where it is with a note naming the
+// switch, pushing nothing and asking GitHub nothing, and the epic lands
+// through merge-local by the bare edge, never passing in-pr.
+func TestPREpicWithoutSwitchHoldsAndEpicLandsLocally(t *testing.T) {
+	gh := withFakeGh(t)
+	y := newEpicYard(t, "test ! -e RED")
+	y.exec("merge-local", "refinery", "r-1")
+	y.exec("merge-local", "refinery", "r-2")
+	y.exec("integrate-epic", "yard-integrators", "r-e")
+	integrated := y.git(y.repo, "rev-parse", "yard/r-e")
+	// The reviewer's commit is what pr-epic would push.
+	tip := y.commit(filepath.Join(y.home, "worktrees", "r", "r-e"), "fix.txt", "the reviewer's fix\n")
+	y.yardr("bead", "done", "r-e")
+
+	y.exec("pr-epic", "yard-pr", "r-e")
+
+	if e := y.beadOf("r-e"); !e.Hold || e.Stage != "approved" {
+		t.Fatalf("epic %s hold=%v after pr-epic without YARDR_PR, want held in approved", e.Stage, e.Hold)
+	}
+	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "YARDR_PR is not set") {
+		t.Fatalf("no note naming the switch:\n%s", notes)
+	}
+	if n := countCalls(t, gh, "pr "); n != 0 {
+		t.Fatalf("gh called without YARDR_PR:\n%v", ghCalls(t, gh))
+	}
+	if pushed := y.git(y.repo, "ls-remote", "origin", "refs/heads/yard/r-e"); !strings.HasPrefix(pushed, integrated) {
+		t.Fatalf("origin yard/r-e is %q, want it left at the integrated %s", pushed, integrated)
+	}
+
+	// Routed to the refinery instead, it lands as any epic does locally.
+	y.yardr("bead", "unhold", "r-e")
+	y.exec("merge-local", "refinery", "r-e")
+	if e := y.beadOf("r-e"); e.Stage != "merged" || e.Status != "closed" {
+		t.Fatalf("epic %s/%s after merge-local, want merged and closed", e.Stage, e.Status)
+	}
+	if got := y.git(y.repo, "rev-parse", "main"); got != tip {
+		t.Fatalf("main at %s, want the epic branch %s", got, tip)
+	}
+	if n := countCalls(t, gh, "pr "); n != 0 {
+		t.Fatalf("gh called on the local path:\n%v", ghCalls(t, gh))
+	}
+	if hist := y.yardr("prime", "--bead", "r-e"); strings.Contains(hist, "in-pr") {
+		t.Fatalf("the epic passed in-pr:\n%s", hist)
+	}
+}
+
+// pr-merge without YARDR_PR holds an epic that reached land, before
+// anything is merged: neither GitHub nor main is touched.
+func TestPRMergeWithoutSwitchHolds(t *testing.T) {
+	y, gh := landYard(t)
+	y.opts = ""
+	main := y.git(y.repo, "rev-parse", "main")
+
+	y.exec("pr-merge", "yard-pr-merge", "r-e")
+
+	if e := y.beadOf("r-e"); !e.Hold || e.Stage != "land" {
+		t.Fatalf("epic %s hold=%v after pr-merge without YARDR_PR, want held in land", e.Stage, e.Hold)
+	}
+	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "YARDR_PR is not set") {
+		t.Fatalf("no note naming the switch:\n%s", notes)
+	}
+	if n := countCalls(t, gh, "pr merge"); n != 0 {
+		t.Fatal("merged without YARDR_PR")
+	}
+	if got := y.git(y.repo, "rev-parse", "main"); got != main {
+		t.Fatal("local main moved")
+	}
+	if got := y.git(y.repo, "ls-remote", "origin", "refs/heads/main"); !strings.HasPrefix(got, main) {
+		t.Fatal("origin main moved")
 	}
 }

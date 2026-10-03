@@ -2,9 +2,11 @@
 # yardr.epic). An epic waits in open while its children are open (each child
 # blocks it); once the last closes, yardr-integrators rebases its branch onto
 # main and gates it, Codex reviews the whole diff, and the epic lands on main
-# either through a pull request (approved -> in-pr -> land, with YARDR_PR)
-# or locally, where the refinery fast-forwards main and advances it straight
-# to merged (the bare edge, which no outcome offers). A rebase onto main
+# locally, where the refinery fast-forwards main and advances it straight
+# to merged (the bare edge, which no outcome offers), or, experimentally,
+# through a pull request (approved -> in-pr -> land): only pr-epic reports
+# done in approved, and without YARDR_PR=1 in its cmd it holds the epic
+# instead, as pr-merge does in land. A rebase onto main
 # that conflicts, in open or in approved, goes to the mergers; a resolved
 # epic goes back to open, where it is integrated (and reviewed) again. See
 # docs/pipeline.md#epics.

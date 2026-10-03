@@ -6,10 +6,15 @@
 # the daemon on a green CI) says "merge it". See docs/pipeline.md, section
 # Epics.
 #
+# The pull-request path is experimental and off by default: without
+# YARDR_PR in the group's cmd, as for integrate-epic, the epic is held with
+# a note and nothing is merged.
+#
 # It reads the environment the exec runner gives it: YARDR_BEAD (the epic),
 # YARDR_RIG_PATH, YARDR_BASE, YARDR_BRANCH and YARDR_BIN. Options, set in
 # the group's cmd:
 #
+#   YARDR_PR       1: the switch for the pull-request path; held without it
 #   YARDR_PUSH     the remote the pull request is on (default origin)
 #
 # It runs gh pr merge <pr_url> --rebase --delete-branch, then fetches the
@@ -49,6 +54,11 @@ report() {
   hold "could not report $1 (does the epic's flow name it for its stage?): $2"
 }
 errf=$(mktemp) && trap 'rm -f "$errf"' EXIT
+
+# Off unless switched on: an epic that reached land by accident (a stray
+# route, a move by hand) must not be merged on GitHub.
+[ -n "${YARDR_PR:-}" ] ||
+  hold "the pull-request path is experimental and off: YARDR_PR is not set in this group's cmd; not merging. Set YARDR_PR=1 in the cmd of every group on the path, then unhold, or send the epic back to open and land it through the refinery (merge-local)."
 
 # The base branch, without its remote: what the PR merged into and what the
 # rig's checkout must be on.
