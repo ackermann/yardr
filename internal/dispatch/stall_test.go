@@ -115,7 +115,7 @@ func TestStalledSessionIsReportedOnceWithItsPane(t *testing.T) {
 
 	// Releasing the stalled bead says "try again": the group's own model
 	// starts sessions again.
-	_, err := s.Release(ctx, b.ID, "model fixed", "me")
+	_, err := s.Release(ctx, b.ID, "model fixed", store.Expect{}, "me")
 	must(t, err)
 	must(t, d2.Reconcile(ctx))
 	if got := r.starts(); len(got) != 3 || (got[2] != b.ID && got[2] != b2.ID) {
