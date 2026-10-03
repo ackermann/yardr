@@ -183,7 +183,7 @@ func TestRigSourceRoleRefusals(t *testing.T) {
 // The rig's flow switches to the repository's and back to the pack's, whole:
 // the stage files come with it, and the output says so.
 func TestRigSourceFlow(t *testing.T) {
-	a, _, sha := packedYard(t)
+	a, home, sha := packedYard(t)
 	out, err := run(t, a.rigSourceCmd(), "web", "flow", "rig")
 	if err != nil {
 		t.Fatal(err)
@@ -206,7 +206,7 @@ func TestRigSourceFlow(t *testing.T) {
 	}
 	got := sourceLines(t, out)
 	if len(got) != 7 || !strings.HasPrefix(got[0], "flow default pack starter (store starter.default) shadows .yardr/flows/default.flow") ||
-		got[2] != "stage new none shadows .yardr/flows/default/new.md" || !strings.HasPrefix(got[6], "the flow switched whole") {
+		got[2] != "stage new pack starter ("+filepath.Join(home, "flows", "starter.default", "new.md")+") shadows .yardr/flows/default/new.md" || !strings.HasPrefix(got[6], "the flow switched whole") {
 		t.Errorf("to the pack's:\n%s", out)
 	}
 	if got := sourcesLine(t, a, "flow default"); !strings.HasPrefix(got, "flow default pack starter ") {
