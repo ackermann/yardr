@@ -587,7 +587,7 @@ func TestPackApplyRefusesAHandEditedCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, err := run(t, a.packCmd(), "check", "../../packs/starter", "--rig", "web")
-	if err != nil || !strings.Contains(out, "edited by hand since the last import: overwritten only with --yes; the edit belongs in the pack's source\n") {
+	if err != nil || !strings.Contains(out, "edited by hand since the last import: overwritten or removed only with --yes; the edit belongs in the pack's source\n") {
 		t.Fatalf("check over a hand edit: %v\n%s", err, out)
 	}
 	// Refused in a terminal too: a confirmation is not enough to lose an edit.
@@ -595,7 +595,7 @@ func TestPackApplyRefusesAHandEditedCopy(t *testing.T) {
 		setInteractive(t, tty)
 		out, err = run(t, a.packCmd(), args...)
 		if err == nil || !strings.Contains(err.Error(), copied+" was edited by hand") || !strings.Contains(err.Error(), "the edit belongs in the pack's source (") ||
-			!strings.Contains(err.Error(), "--yes overwrites it") {
+			!strings.Contains(err.Error(), "--yes proceeds") {
 			t.Fatalf("apply over a hand edit (terminal %v): %v\n%s", tty, err, out)
 		}
 		if text, _ := os.ReadFile(copied); string(text) != "edited in the yard\n" {

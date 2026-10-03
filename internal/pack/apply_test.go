@@ -693,6 +693,45 @@ func TestHandEditedInstalledFileIsRefused(t *testing.T) {
 	}
 }
 
+// A hand-edited file the pack has dropped is protected from --prune too.
+func TestHandEditedDroppedFileIsRefusedByPrune(t *testing.T) {
+	st, o := yard(t)
+	dir := copyStarter(t)
+	apply(t, st, build(t, st, load(t, dir), o), nil)
+
+	to := filepath.Join(o.Home, "packs", "starter", "roles", "builder.md")
+	from := filepath.Join(dir, "roles", "builder.md")
+	if err := os.WriteFile(to, []byte("edited in the yard\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := filepath.Join(dir, "pack.yaml")
+	data, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = []byte(strings.Replace(string(data), "builders:  { agent: roles/builder.md", "builders:  { agent: roles/reviewer.md", 1))
+	if err := os.WriteFile(manifest, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := build(t, st, load(t, dir), o)
+	f := find(t, plan, "file", "roles/builder.md")
+	if f.Action != pack.Dropped || !f.Edited || !strings.Contains(strings.Join(plan.EditedFiles(), " "), "the edit belongs in the pack's source ("+from+")") {
+		t.Fatalf("dropped README.md = %+v; edits %v", f, plan.EditedFiles())
+	}
+	if _, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Actor: "me", Prune: true}); err == nil || !strings.Contains(err.Error(), to+" was edited by hand") {
+		t.Fatalf("pruning the edited file: %v", err)
+	}
+	if text, err := os.ReadFile(to); err != nil || string(text) != "edited in the yard\n" {
+		t.Fatalf("the refused prune changed the copy: %q, %v", text, err)
+	}
+	if _, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Actor: "me", Prune: true, Overwrite: true}); err != nil {
+		t.Fatalf("pruning with overwrite consent: %v", err)
+	}
+	if _, err := os.Stat(to); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the explicitly pruned copy remains: %v", err)
+	}
+}
+
 // Of several flows a rig could follow, the plan asks which; the import
 // remembers the answer, so the next one need not be told, and a flow the
 // rig is moved off is then reported as dropped.

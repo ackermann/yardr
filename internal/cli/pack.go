@@ -229,7 +229,7 @@ says so. The import is recorded (yardr pack list). See docs/packs.md.`,
 			// A copy someone edited is not overwritten on a confirmation
 			// alone: the edit is lost for good, and its place is the pack.
 			if edited := plan.EditedFiles(); len(edited) > 0 && !yes {
-				return fmt.Errorf("nothing was changed: %s; --yes overwrites it", strings.Join(edited, "; "))
+				return fmt.Errorf("nothing was changed: %s; --yes proceeds", strings.Join(edited, "; "))
 			}
 			if missing := plan.Missing(answers); len(missing) > 0 {
 				if !asking {
@@ -648,7 +648,7 @@ func printPlan(p *pack.Plan, answers pack.Answers) {
 			}
 			fmt.Println(line)
 			if o.Edited {
-				fmt.Printf("  %-15s    edited by hand since the last import: overwritten only with --yes; the edit belongs in the pack's source\n", "")
+				fmt.Printf("  %-15s    edited by hand since the last import: overwritten or removed only with --yes; the edit belongs in the pack's source\n", "")
 			}
 			for _, k := range o.Keeps {
 				fmt.Printf("  %-15s    kept: %s\n", "", k)

@@ -437,7 +437,11 @@ func (p *Plan) EditedFiles() []string {
 	var out []string
 	for _, o := range p.Objects {
 		if o.Kind == "file" && o.Edited && o.File != nil {
-			out = append(out, fmt.Sprintf("%s was edited by hand since the last import, and the import would overwrite it: the edit belongs in the pack's source (%s)", o.File.To, o.File.From))
+			verb := "overwrite"
+			if o.Action == Dropped {
+				verb = "remove"
+			}
+			out = append(out, fmt.Sprintf("%s was edited by hand since the last import, and the import would %s it: the edit belongs in the pack's source (%s)", o.File.To, verb, o.File.From))
 		}
 	}
 	return out
@@ -1167,7 +1171,13 @@ func (b *planner) gone(po store.PackObject) (*Object, error) {
 		if info, err := os.Lstat(po.Name); err != nil || !info.Mode().IsRegular() {
 			return nil, nil
 		}
-		return &Object{Kind: po.Kind, Name: filepath.ToSlash(rel), File: &FileOp{To: po.Name}}, nil
+		file := &FileOp{To: po.Name, From: filepath.Join(b.p.Dir, rel)}
+		var edited bool
+		if have, err := os.ReadFile(po.Name); err == nil {
+			was := b.installedSums(po.Name)
+			edited = len(was) > 0 && !slices.Contains(was, sum(have))
+		}
+		return &Object{Kind: po.Kind, Name: filepath.ToSlash(rel), File: file, Edited: edited}, nil
 	case "group":
 		if _, err := b.st.GetGroup(b.ctx, po.Name); errors.Is(err, store.ErrNotFound) {
 			return nil, nil
