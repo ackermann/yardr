@@ -385,6 +385,39 @@ func TestPREpicHoldsOnAPRFromAnotherHeadRepository(t *testing.T) {
 	}
 }
 
+// An approved epic cannot be sent back to in-pr for a closed PR: the
+// integrator must open a new one before review resumes.
+func TestPREpicClosedPRGoesBackToOpenWithoutPushing(t *testing.T) {
+	gh := withFakeGh(t)
+	y := newEpicYard(t, "test ! -e RED")
+	y.opts = "YARDR_PR=1"
+	y.exec("merge-local", "refinery", "r-1")
+	y.exec("merge-local", "refinery", "r-2")
+	y.exec("integrate-epic", "yard-integrators", "r-e")
+	integrated := y.git(y.repo, "rev-parse", "yard/r-e")
+	y.commit(filepath.Join(y.home, "worktrees", "r", "r-e"), "fix.txt", "the reviewer's fix\n")
+	y.yardr("bead", "done", "r-e")
+	if err := os.WriteFile(filepath.Join(gh, "state"), []byte("CLOSED\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	edits := countCalls(t, gh, "pr edit")
+
+	y.exec("pr-epic", "yard-pr", "r-e")
+
+	if e := y.beadOf("r-e"); e.Stage != "open" || e.Hold {
+		t.Fatalf("epic %s hold=%v, want back in open for a new PR", e.Stage, e.Hold)
+	}
+	if pushed := y.git(y.repo, "ls-remote", "origin", "refs/heads/yard/r-e"); !strings.HasPrefix(pushed, integrated) {
+		t.Fatalf("origin yard/r-e is %q, want it left at the integrated %s", pushed, integrated)
+	}
+	if n := countCalls(t, gh, "pr edit"); n != edits {
+		t.Fatal("edited a closed pull request")
+	}
+	if n := countCalls(t, gh, "pr merge"); n != 0 {
+		t.Fatal("merged a closed pull request")
+	}
+}
+
 // An epic with a pr_url but no number or head repository (bound before
 // they were stored) is not merged on the URL alone: back to open, where
 // integrating binds it.

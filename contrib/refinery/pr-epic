@@ -86,6 +86,8 @@ pr=$(cd "$REPO" && gh pr view "$url" --json number,state,headRefName,headReposit
 is="#$(printf '%s' "$pr" | jq -r .number) from $(printf '%s' "$pr" | jq -r 'if .headRepositoryOwner.login and .headRepository.name then .headRepositoryOwner.login + "/" + .headRepository.name else empty end'):$(printf '%s' "$pr" | jq -r .headRefName)"
 [ "$is" = "#$num from $headrepo:$BR" ] ||
   hold "pull request $url is $is, but $EPIC is bound to #$num from $headrepo:$BR. Not touched. Correct the epic's pr_url, pr_number and pr_head_repo, then unhold."
+[ "$(printf '%s' "$pr" | jq -r '.state // empty')" = OPEN ] ||
+  report failed "pull request $url is not open; integrating the epic again opens a new one"
 
 # The push carries what the reviewer committed on the branch. The lease is
 # what the remote has now, and only when all of it is in the branch: a
