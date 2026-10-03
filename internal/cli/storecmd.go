@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -82,13 +83,19 @@ shrink until it is compacted (yardr store compact).`,
 		Short: "Rewrite the store file without its free space (server stopped)",
 		Long: `Rewrite yard.db without the free pages pruning leaves, so the file shrinks.
 It needs the file to itself: stop the daemon and the server first (the daemon
-would start the server again). The rewrite replaces the file only once it is
+would start the server again). This is the one command on the store that
+does not start the server. The rewrite replaces the file only once it is
 complete.`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			cfg, err := config.Load()
 			if err != nil {
 				return err
+			}
+			// Said before the file is tried: a server holds it for as long
+			// as it runs, and ErrLocked alone does not say who has it.
+			if server.Running(c.Context(), cfg) {
+				return fmt.Errorf("the yardr server is running and holds %s: stop the daemon, then `yardr server stop`, and compact again", cfg.DBPath())
 			}
 			res, err := store.Compact(cfg.DBPath())
 			if errors.Is(err, store.ErrLocked) {

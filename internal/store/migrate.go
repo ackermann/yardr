@@ -11,10 +11,15 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// schemaVersion 2 keys beads by UUID with handles (yard-29). Version 1 is
-// every store before it: beads keyed by counter ids (yard-1) minted from
-// the counters bucket.
-const schemaVersion = 2
+// schemaVersion 3 has the inbox and events_by_kind indexes, written with
+// every event (migrateIndexes). Version 2 keys beads by UUID with handles
+// (yard-29). Version 1 is every store before it: beads keyed by counter ids
+// (yard-1) minted from the counters bucket.
+//
+// Bump this whenever a build starts writing something every write must
+// keep up (an index, a field a read relies on): the stamp is what stops an
+// older build from appending to the store without it.
+const schemaVersion = 3
 
 var (
 	kSchema   = []byte("schema")
@@ -46,6 +51,20 @@ func checkSchema(db *bolt.DB) error {
 		}
 		return nil
 	})
+}
+
+// stampedSchema is the schema the store was last opened by: 0 before any
+// build stamped it.
+func stampedSchema(tx *bolt.Tx) uint64 {
+	m := tx.Bucket(bMeta)
+	if m == nil {
+		return 0
+	}
+	v := m.Get(kSchema)
+	if len(v) != 8 {
+		return 0
+	}
+	return binary.BigEndian.Uint64(v)
 }
 
 // setSchema stamps a store that needs no migration (a new one, or one just
@@ -228,6 +247,29 @@ func migrateToUUIDs(tx *bolt.Tx) error {
 	}
 
 	return nil
+}
+
+// migrateIndexes builds the inbox and kind indexes (schema 3) for a store
+// written by a build before them, going by the stamp rather than by whether
+// the buckets exist: the indexes shipped before the schema was bumped, so a
+// schema-2 build without them may have appended events to a store that has
+// them, and only a full rebuild makes the indexes whole again. A rebuild
+// writes the same keys an ingest would, so running it twice is harmless.
+func migrateIndexes(tx *bolt.Tx, from uint64) error {
+	if from >= 3 || tx.Bucket(bEvents) == nil {
+		return nil
+	}
+	for _, b := range [][]byte{bInbox, bEventsKd} {
+		if tx.Bucket(b) != nil {
+			if err := tx.DeleteBucket(b); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.CreateBucket(b); err != nil {
+			return err
+		}
+	}
+	return each(tx, bEvents, "", func(_ []byte, e *Event) error { return index(tx, *e) })
 }
 
 // recreate empties a bucket, keeping its sequence: note seqs come from it,

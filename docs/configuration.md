@@ -371,8 +371,9 @@ never pruned; a bead's own event history shortens with the log.
 bbolt reuses the pages pruning frees but never returns them to the
 filesystem. To shrink the file, stop the daemon and the server
 (`yardr server stop`) and run `yardr store compact`; it writes a compacted
-copy and swaps it in only once it is complete, and refuses while anything
-holds the store.
+copy and swaps it in only once it is complete. It is the one store command
+that does not start the server, and it refuses while one runs (`the yardr
+server is running and holds …`) or anything else holds the file.
 
 The store no longer keeps a snapshot of every bead and dep state: the event
 log is their history, and the `versions` bucket older builds wrote is
@@ -399,19 +400,30 @@ never `go install` from their worktrees; the mayor installs after merge.
 
 The store is stamped with its schema version on open, and a yardr whose
 schema is older than the store's refuses to open it (`store schema is newer
-than this yardr knows`) rather than run its migrations over it.
+than this yardr knows`) rather than run its migrations over it. The schema
+is 3: version 3 added the inbox and kind indexes, which every event is
+written with, so a store at 2 is reindexed in full the first time a newer
+build opens it (and a build without the indexes can no longer append to it
+unindexed); version 2 keyed beads by UUID.
 
 How a newer build takes over:
 
 - the server notices when a client of another build calls, or within about
   10 seconds anyway. It refuses that one call (the client retries), stops
-  accepting, answers the calls in flight, closes the store and execs the
-  new build. Clients retry for a few seconds meanwhile, and one that finds
-  no answer but a live pid in `server.pid` waits rather than starting a
-  second server;
+  accepting, waits up to 5 seconds for connections to go idle and up to 10
+  more for calls still running, closes the store and execs the new build.
+  Clients keep retrying for 30 seconds meanwhile, longer than that drain and
+  the new build's start (and its migration, if the schema moved), so a
+  command issued during a replace is answered by the new build rather than
+  failed; a client that finds no answer but a live pid in `server.pid` waits
+  as long rather than starting a second server. Event and wake streams are
+  ended when the drain starts, and a stream whose reader has stopped taking
+  is closed once a write has waited 10 seconds, so it cannot hold the drain
+  up either;
 - the daemon checks between passes, at least every 10 seconds; it finishes
   the pass it is in, then execs. Sessions live in the store, so the new
-  daemon carries on with them.
+  daemon carries on with them. A daemon or server told to stop while a
+  replace is pending stops; the new build is not started.
 
 Each replace is logged in `server.log` (or the daemon's output) and as a
 `server_replaced` or `daemon_replaced` event with `from` and `to` revisions.

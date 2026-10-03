@@ -44,11 +44,19 @@ var installed = time.Now()
 // replaces.
 func install(t *testing.T, path, rev string) {
 	t.Helper()
+	installed = installed.Add(time.Second)
+	installAt(t, path, rev, installed)
+}
+
+// installAt is install with the build's mtime given. The time is set before
+// the rename, so a server checking its binary never sees the file with any
+// other.
+func installAt(t *testing.T, path, rev string, mtime time.Time) {
+	t.Helper()
 	if err := os.WriteFile(path+".tmp", []byte(rev), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	installed = installed.Add(time.Second)
-	if err := os.Chtimes(path+".tmp", installed, installed); err != nil {
+	if err := os.Chtimes(path+".tmp", mtime, mtime); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Rename(path+".tmp", path); err != nil {
@@ -260,11 +268,7 @@ func TestOlderInstallIsSkippedAndLogged(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	install(t, path, "old")
-	past := time.Now().Add(-time.Hour)
-	if err := os.Chtimes(path, past, past); err != nil {
-		t.Fatal(err)
-	}
+	installAt(t, path, "old", time.Now().Add(-time.Hour))
 	if _, err := client(c, "old").Head(context.Background()); err != nil {
 		t.Fatalf("the older client should be served: %v", err)
 	}
@@ -552,5 +556,99 @@ func TestStopDuringReplaceDrainIsHonoured(t *testing.T) {
 	}
 	if _, err := os.Stat(c.PIDFile()); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("pidfile left behind: %v", err)
+	}
+}
+
+// A client keeps retrying, and Connect keeps waiting for a live pid, for
+// longer than the server's drain can last, so a call issued during a
+// replace is answered by the new build rather than failed, and no second
+// server is started against a store the first still holds.
+func TestClientOutwaitsTheDrain(t *testing.T) {
+	retry := rpc.NewClient("").Retry
+	if drain := drainGrace + drainSettle; retry <= drain {
+		t.Fatalf("client retry %v does not outlast the drain (%v + %v)", retry, drainGrace, drainSettle)
+	}
+	if retry < 2*drainSettle {
+		t.Fatalf("client retry %v leaves the new build no time to start and migrate", retry)
+	}
+}
+
+// A call issued while the server drains for a replace (a slow call still
+// in flight past the shutdown grace) is answered by the new build, through
+// Connect, which waits for the live pid instead of starting a second server.
+func TestCallDuringReplaceLandsOnTheNewBuild(t *testing.T) {
+	c := home(t)
+	var ex execs
+	var next <-chan error
+	var path string
+	var bin *version.Binary
+	bin, path = binary(t, "old", func(env []string) error {
+		ex.mu.Lock()
+		ex.calls = append(ex.calls, env)
+		ex.mu.Unlock()
+		t.Setenv("YARDR_REPLACED_FROM", envOf(env, "YARDR_REPLACED_FROM"))
+		nb, _ := binary(t, "new", func([]string) error { return errors.New("no exec") })
+		next = start(t, &runner{c: c, bin: nb, rev: "new"})
+		return nil
+	})
+	started, release, answered := make(chan struct{}), make(chan struct{}), make(chan bool, 1)
+	done := start(t, &runner{c: c, bin: bin, rev: "old", grace: 50 * time.Millisecond,
+		wrap: slowCall(started, release, answered)})
+	head, err := client(c, "old").Head(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sendSlow(c)
+	<-started
+
+	install(t, path, "new")
+	newer := client(c, "new")
+	newer.Retry = 0
+	if _, err := newer.Head(context.Background()); err == nil || !strings.Contains(err.Error(), "replacing") {
+		t.Fatalf("newer client's call: %v", err)
+	}
+	// Draining, with the slow call holding the store past the grace.
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		conn, err := net.Dial("unix", c.Socket())
+		if err != nil {
+			break
+		}
+		conn.Close()
+		if time.Now().After(deadline) {
+			t.Fatal("server kept accepting after the replace began")
+		}
+	}
+	go func() {
+		time.Sleep(time.Second)
+		close(release)
+	}()
+	// What an agent's command does meanwhile: connect, then call.
+	cl, err := Connect(context.Background(), c)
+	if err != nil {
+		t.Fatalf("Connect during the drain: %v", err)
+	}
+	evs, err := cl.EventsSince(context.Background(), head, 0)
+	if err != nil {
+		t.Fatalf("call during the drain: %v", err)
+	}
+	if !<-answered {
+		t.Fatal("the slow call found the store closed")
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("old server: %v", err)
+	}
+	if ex.count() != 1 {
+		t.Fatalf("exec calls = %d", ex.count())
+	}
+	if len(evs) != 1 || evs[0].Kind != "server_replaced" {
+		t.Fatalf("the call was answered by %+v; want the new build's server_replaced", evs)
+	}
+	if _, err := os.Stat(c.LogFile()); err == nil {
+		t.Fatal("Connect started a second server")
+	}
+	select {
+	case err := <-next:
+		t.Fatalf("new server exited: %v", err)
+	default:
 	}
 }

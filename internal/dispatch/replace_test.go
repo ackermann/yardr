@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/version"
 )
@@ -196,5 +197,51 @@ func TestReplacedDaemonLogsIt(t *testing.T) {
 		if strings.HasPrefix(kv, "YARDR_REPLACED_FROM=") {
 			t.Fatal("YARDR_REPLACED_FROM left set; agents the daemon starts would inherit it")
 		}
+	}
+}
+
+// slowRunner is a fakeRunner whose Start waits to be released, so a test
+// can stop the daemon while a pass is running.
+type slowRunner struct {
+	*fakeRunner
+	started, release chan struct{}
+}
+
+func (r *slowRunner) Start(ctx context.Context, j dispatch.Job) (map[string]any, error) {
+	close(r.started)
+	<-r.release
+	return r.fakeRunner.Start(ctx, j)
+}
+
+// A daemon told to stop while a pass runs stops once the pass is over; it
+// does not exec the new build installed meanwhile.
+func TestDaemonStoppedDuringAPassDoesNotReplaceItself(t *testing.T) {
+	s, f, d := setup(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	_, _ = s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
+	slow := &slowRunner{fakeRunner: f, started: make(chan struct{}), release: make(chan struct{})}
+	d.Runners = map[string]dispatch.Runner{"fake": slow}
+	var execd atomic.Bool
+	bin, path := fakeBinary(t, "old", func([]string) error { execd.Store(true); return nil })
+	d.Binary = bin
+	d.Interval = time.Hour
+	installRev(t, path, "new")
+
+	done := make(chan error, 1)
+	go func() { done <- d.Run(ctx) }()
+	<-slow.started
+	cancel()
+	close(slow.release)
+	select {
+	case err := <-done:
+		must(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("daemon did not stop")
+	}
+	if execd.Load() {
+		t.Fatal("a daemon told to stop exec'd the new build instead")
 	}
 }

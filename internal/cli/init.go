@@ -104,13 +104,16 @@ var interactive = func() bool {
 // lookPath finds an agent's executable; tests replace it.
 var lookPath = exec.LookPath
 
-// noOnboarding are the top-level commands that run on a home with no yard:
-// the server (Connect starts it to create the store), init itself, the ones
-// that never touch the store, the daemon (it has no terminal, and a refusal
-// after it replaced itself would end it: yard-w6np) and settings, the way
-// out when the check is wrong about a yard.
+// noOnboarding are the commands that run on a home with no yard, by top-level
+// name or by path under yardr: the server (Connect starts it to create the
+// store), init itself, the ones that never touch the store, the daemon (it
+// has no terminal, and a refusal after it replaced itself would end it:
+// yard-w6np), settings, the way out when the check is wrong about a yard,
+// and store compact, which needs the file to itself: the check would connect
+// to the server, starting one, and the compaction would then always find
+// the store in use.
 var noOnboarding = []string{"server", "init", "daemon", "settings", "version", "help", "completion",
-	cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd}
+	cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd, "store compact"}
 
 // firstRun runs before every command: on a home with no yard yet it runs the
 // onboarding in a terminal, and refuses with how to initialize otherwise.
@@ -120,9 +123,18 @@ func (a *app) firstRun(c *cobra.Command) error {
 	for top.HasParent() && top.Parent().HasParent() {
 		top = top.Parent()
 	}
-	if top.HasParent() && slices.Contains(noOnboarding, top.Name()) {
+	if !top.HasParent() {
+		return a.onboard(c)
+	}
+	path := strings.TrimPrefix(c.CommandPath(), top.Parent().Name()+" ")
+	if slices.Contains(noOnboarding, top.Name()) || slices.Contains(noOnboarding, path) {
 		return nil
 	}
+	return a.onboard(c)
+}
+
+// onboard is firstRun for a command that needs a yard.
+func (a *app) onboard(c *cobra.Command) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err

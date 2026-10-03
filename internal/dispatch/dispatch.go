@@ -320,7 +320,7 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 			}
 			d.Log.Error("reconcile", "err", err)
 		}
-		if d.replace() {
+		if d.replace(ctx) {
 			return nil
 		}
 	wait:
@@ -329,7 +329,7 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 			case <-ctx.Done():
 				return nil
 			case <-check:
-				if d.replace() {
+				if d.replace(ctx) {
 					return nil
 				}
 			case <-prune:
@@ -350,9 +350,6 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 	}
 }
 
-// replace execs a new build of the daemon if one is installed. It is only
-// called between passes; it returns true only when a test's fake exec
-// "succeeded". A failed exec is logged and the old build carries on.
 // prune keeps the store's log within d.Retention (see store.Prune).
 func (d *Dispatcher) prune(ctx context.Context) {
 	res, err := d.Store.Prune(ctx, d.Retention, actor)
@@ -365,8 +362,13 @@ func (d *Dispatcher) prune(ctx context.Context) {
 	}
 }
 
-func (d *Dispatcher) replace() bool {
-	if d.Binary == nil {
+// replace execs a new build of the daemon if one is installed. It is only
+// called between passes, and never once ctx has ended: a daemon told to
+// stop while a pass ran stops, rather than come back up as the new build.
+// It returns true only when a test's fake exec "succeeded". A failed exec
+// is logged and the old build carries on.
+func (d *Dispatcher) replace(ctx context.Context) bool {
+	if d.Binary == nil || ctx.Err() != nil {
 		return false
 	}
 	to, ok := d.Binary.Replacement()

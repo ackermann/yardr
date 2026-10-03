@@ -18,6 +18,16 @@ import (
 	"yardr.dev/yardr/internal/version"
 )
 
+// ReplaceRetry is how long a call keeps retrying while no server answers,
+// the default Retry. A server replacing itself refuses the call, stops
+// listening, waits up to 15s for calls in flight (server.Run's grace and
+// settle), execs the new build and opens the store again, migrating it if
+// need be; a call issued meanwhile must outwait all of that, or every
+// replace fails the agents' commands, and a client that gives up sooner
+// than the server drains would start a second server that cannot take the
+// store.
+const ReplaceRetry = 30 * time.Second
+
 // Client is store.API over the owner's unix socket.
 type Client struct {
 	http *http.Client
@@ -25,14 +35,14 @@ type Client struct {
 	// every call.
 	Revision string
 	// Retry is how long a call keeps retrying while no server listens, as
-	// while one execs a new build of itself.
+	// while one execs a new build of itself (default ReplaceRetry).
 	Retry time.Duration
 }
 
 var _ store.API = (*Client)(nil)
 
 func NewClient(socket string) *Client {
-	return &Client{Revision: version.Current(), Retry: 5 * time.Second, http: &http.Client{Transport: &http.Transport{
+	return &Client{Revision: version.Current(), Retry: ReplaceRetry, http: &http.Client{Transport: &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			var d net.Dialer
 			return d.DialContext(ctx, "unix", socket)

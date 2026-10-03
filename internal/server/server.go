@@ -38,6 +38,18 @@ func Run(ctx context.Context, c *config.Config, log *slog.Logger) error {
 	return r.run(ctx)
 }
 
+// The drain, when the server stops or replaces itself: drainGrace bounds
+// the wait for connections to go idle, then drainSettle bounds the wait for
+// handlers still running after that, so the store is not closed under a
+// call that has it in hand. A client's retry (rpc.ReplaceRetry) must outlast
+// the two together and the new build's start, or a call made during a
+// replace fails and Connect starts a second server that cannot take the
+// store.
+const (
+	drainGrace  = 5 * time.Second
+	drainSettle = 10 * time.Second
+)
+
 // runner is one server process: it serves, and replaces itself when told.
 type runner struct {
 	c     *config.Config
@@ -45,10 +57,8 @@ type runner struct {
 	bin   *version.Binary // nil: never replace
 	rev   string          // the revision this process runs
 	check time.Duration   // how often the binary is checked without a client asking
-	// grace bounds the wait for connections to go idle when shutting down
-	// (default 5s); settle then bounds the wait for handlers still running
-	// after that (default 10s), so the store is not closed under a call that
-	// has it in hand.
+	// grace and settle are the drain's bounds (default drainGrace and
+	// drainSettle); tests shorten them.
 	grace, settle time.Duration
 	wrap          func(http.Handler) http.Handler
 }
@@ -58,10 +68,10 @@ func (r *runner) run(ctx context.Context) error {
 		return fmt.Errorf("socket path %s is too long for a unix socket; use a shorter YARDR_HOME", r.c.Socket())
 	}
 	if r.grace == 0 {
-		r.grace = 5 * time.Second
+		r.grace = drainGrace
 	}
 	if r.settle == 0 {
-		r.settle = 10 * time.Second
+		r.settle = drainSettle
 	}
 	for {
 		to, err := r.serve(ctx)
@@ -311,8 +321,9 @@ func Connect(ctx context.Context, c *config.Config) (*rpc.Client, error) {
 		return client, nil
 	}
 	// A live pid without an answer is a server between builds (it execs in
-	// place): wait for it rather than race a second one for the store.
-	for deadline := time.Now().Add(5 * time.Second); alive(c) && time.Now().Before(deadline); {
+	// place): wait for it, as long as a call keeps retrying, rather than
+	// race a second one for the store.
+	for deadline := time.Now().Add(client.Retry); alive(c) && time.Now().Before(deadline); {
 		time.Sleep(50 * time.Millisecond)
 		if ping(ctx, client) {
 			return client, nil

@@ -21,9 +21,17 @@ import (
 	"net/http"
 	"reflect"
 	"strconv"
+	"time"
 
 	"yardr.dev/yardr/internal/store"
 )
+
+// StreamWriteTimeout bounds each write on an event or wake stream. A reader
+// that has stopped taking (a watcher paused for good) fills the socket and
+// would otherwise hold the handler in Write forever: past a drain's settle,
+// so the store would close under calls that are still answered. The same
+// as the settle, so a stalled stream is gone by the time the settle gives up.
+const StreamWriteTimeout = 10 * time.Second
 
 // PIDHeader carries the server's pid on every reply.
 const PIDHeader = "X-Yardr-Pid"
@@ -41,6 +49,11 @@ var notCallable = map[string]bool{"Subscribe": true, "TailEvents": true, "Wake":
 
 // Handler serves st.
 func Handler(st *store.Store, log *slog.Logger) http.Handler {
+	return handler(st, log, StreamWriteTimeout)
+}
+
+// handler is Handler with the stream write timeout given, for tests.
+func handler(st *store.Store, log *slog.Logger, writeTimeout time.Duration) http.Handler {
 	api := reflect.TypeOf((*store.API)(nil)).Elem()
 	methods := map[string]reflect.Value{}
 	v := reflect.ValueOf(st)
@@ -76,33 +89,39 @@ func Handler(st *store.Store, log *slog.Logger) http.Handler {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		stream(w, r, func(enc *json.Encoder) bool {
+		stream(w, r, writeTimeout, func() (any, bool) {
 			e, ok := <-ch
-			return ok && enc.Encode(e) == nil
+			return e, ok
 		})
 	})
 	mux.HandleFunc("GET /wake", func(w http.ResponseWriter, r *http.Request) {
 		ch, _ := st.Wake(r.Context())
-		stream(w, r, func(enc *json.Encoder) bool {
+		stream(w, r, writeTimeout, func() (any, bool) {
 			_, ok := <-ch
-			return ok && enc.Encode(true) == nil
+			return true, ok
 		})
 	})
 	return mux
 }
 
-// stream writes NDJSON until next reports false or the client goes away.
-func stream(w http.ResponseWriter, r *http.Request, next func(*json.Encoder) bool) {
-	flusher, _ := w.(http.Flusher)
+// stream writes what next yields as NDJSON until next reports false, the
+// client goes away, or a write waits longer than writeTimeout on a reader
+// that has stopped taking. The deadline is set per write, once next has
+// yielded: a stream that is merely quiet is never cut off.
+func stream(w http.ResponseWriter, r *http.Request, writeTimeout time.Duration, next func() (any, bool)) {
+	rc := http.NewResponseController(w)
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	w.WriteHeader(http.StatusOK)
-	if flusher != nil {
-		flusher.Flush()
-	}
+	_ = rc.Flush()
 	enc := json.NewEncoder(w)
-	for r.Context().Err() == nil && next(enc) {
-		if flusher != nil {
-			flusher.Flush()
+	for r.Context().Err() == nil {
+		v, ok := next()
+		if !ok {
+			return
+		}
+		_ = rc.SetWriteDeadline(time.Now().Add(writeTimeout))
+		if enc.Encode(v) != nil || rc.Flush() != nil {
+			return
 		}
 	}
 }

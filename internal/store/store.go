@@ -121,7 +121,7 @@ func Open(path string) (*Store, error) {
 				return err
 			}
 		}
-		if err := indexEvents(tx); err != nil {
+		if err := migrateIndexes(tx, stampedSchema(tx)); err != nil {
 			return err
 		}
 		for _, b := range allBuckets {
@@ -333,20 +333,6 @@ func index(tx *bolt.Tx, e Event) error {
 		}
 	}
 	return tx.Bucket(bEventsKd).Put([]byte(join(e.Kind, k)), []byte{})
-}
-
-// indexEvents builds the inbox and kind indexes, once, for a store whose
-// log predates them.
-func indexEvents(tx *bolt.Tx) error {
-	if tx.Bucket(bInbox) != nil || tx.Bucket(bEvents) == nil {
-		return nil
-	}
-	for _, b := range [][]byte{bInbox, bEventsKd} {
-		if _, err := tx.CreateBucketIfNotExists(b); err != nil {
-			return err
-		}
-	}
-	return each(tx, bEvents, "", func(_ []byte, e *Event) error { return index(tx, *e) })
 }
 
 // now is UTC truncated to microseconds, so values survive a JSON round trip

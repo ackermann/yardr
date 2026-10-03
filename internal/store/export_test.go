@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/binary"
 	"maps"
 	"time"
 
@@ -82,8 +83,8 @@ func (s *Store) IndexEntries(seq uint64) (n int) {
 	return n
 }
 
-// DropIndexes removes the inbox and kind indexes, as a store from before
-// them lacks them.
+// DropIndexes makes the store what a build before the indexes wrote: no
+// inbox or kind index, and stamped with schema 2.
 func (s *Store) DropIndexes() error {
 	return s.db.Update(func(tx *bolt.Tx) error {
 		for _, b := range [][]byte{bInbox, bEventsKd} {
@@ -91,7 +92,7 @@ func (s *Store) DropIndexes() error {
 				return err
 			}
 		}
-		return nil
+		return tx.Bucket(bMeta).Put(kSchema, binary.BigEndian.AppendUint64(nil, 2))
 	})
 }
 
