@@ -188,12 +188,25 @@ if [ -n "$PR" ]; then
   errf=$(mktemp) && trap 'rm -f "$errf"' EXIT
   prview() { (cd "$REPO" && gh pr view "$1" --json number,state,headRefName,headRepositoryOwner,headRepository 2>"$errf"); }
   url=$(printf '%s' "$epic" | jq -r '.metadata.pr_url // empty')
+  bound_num=$(printf '%s' "$epic" | jq -r '.metadata.pr_number // empty')
+  bound_headrepo=$(printf '%s' "$epic" | jq -r '.metadata.pr_head_repo // empty')
   pr=
   if [ -n "$url" ]; then
     pr=$(prview "$url") || report failed "$msg But reading pull request $url failed: $(cat "$errf")"
     # Closed or merged, it is not where this integration goes: a new one is
     # opened and the epic bound to that.
     [ "$(printf '%s' "$pr" | jq -r .state)" = OPEN ] || { url=; pr=; }
+    if [ -n "$url" ]; then
+      actual_num=$(printf '%s' "$pr" | jq -r '.number // empty')
+      actual_headrepo=$(printf '%s' "$pr" | jq -r 'if .headRepositoryOwner.login and .headRepository.name then .headRepositoryOwner.login + "/" + .headRepository.name else empty end')
+      actual_branch=$(printf '%s' "$pr" | jq -r '.headRefName // empty')
+      [ -n "$actual_num" ] && [ -n "$actual_headrepo" ] && [ "$actual_branch" = "$BR" ] ||
+        hold "pull request $url no longer has the expected head $BR (GitHub reports #${actual_num:-?} from ${actual_headrepo:-?}:$actual_branch); not touched. Correct the epic's pr_url, pr_number and pr_head_repo, then unhold."
+      [ -z "$bound_num" ] || [ "$actual_num" = "$bound_num" ] ||
+        hold "pull request $url is #$actual_num, but $EPIC is bound to #$bound_num; not touched. Correct the epic's pr_url, pr_number and pr_head_repo, then unhold."
+      [ -z "$bound_headrepo" ] || [ "$actual_headrepo" = "$bound_headrepo" ] ||
+        hold "pull request $url is from $actual_headrepo, but $EPIC is bound to $bound_headrepo; not touched. Correct the epic's pr_url, pr_number and pr_head_repo, then unhold."
+    fi
   fi
   if [ -n "$url" ]; then
     out=$(cd "$REPO" && printf '%s\n' "$body" | gh pr edit "$url" --body-file - 2>&1) ||

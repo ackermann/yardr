@@ -237,6 +237,30 @@ func TestIntegrateEpicDoesNotAdoptAnUnboundPR(t *testing.T) {
 	}
 }
 
+// An open bound PR whose head repository changed is not silently rebound or
+// edited by integrate-epic; the human must correct the binding first.
+func TestIntegrateEpicHoldsWhenBoundPRHeadRepositoryChanges(t *testing.T) {
+	gh := withFakeGh(t)
+	y := newEpicYard(t, "test ! -e RED")
+	y.opts = "YARDR_PR=1"
+	y.exec("merge-local", "refinery", "r-1")
+	y.exec("merge-local", "refinery", "r-2")
+	y.exec("integrate-epic", "yard-integrators", "r-e")
+	if err := os.WriteFile(filepath.Join(gh, "head-owner"), []byte("mallory\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	y.yardr("bead", "done", "r-e", "--outcome", "changes")
+
+	y.exec("integrate-epic", "yard-integrators", "r-e")
+
+	if e := y.beadOf("r-e"); !e.Hold || e.Stage != "open" || e.Metadata["pr_head_repo"] != "o/r" {
+		t.Fatalf("epic %s hold=%v metadata %v, want held in open with original binding", e.Stage, e.Hold, e.Metadata)
+	}
+	if n := countCalls(t, gh, "pr edit "+prURL); n != 0 {
+		t.Fatalf("edited a PR after its head repository changed:\n%v", ghCalls(t, gh))
+	}
+}
+
 // An epic whose bound pull request was closed gets a new one when it is
 // integrated again, not an edit of the closed one.
 func TestIntegrateEpicOpensANewPRWhenTheBoundOneIsClosed(t *testing.T) {
