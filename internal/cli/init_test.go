@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -82,6 +83,11 @@ func TestInitHarnessClaude(t *testing.T) {
 	if !reflect.DeepEqual(r.Config, want) || r.Runner != "herdr" || r.MaxAge != "6h" ||
 		r.Dir != filepath.Dir(home) || !reflect.DeepEqual(r.On, defaultOn) {
 		t.Fatalf("mayor = %+v", r)
+	}
+	// The roles tell a stuck agent that a hold reaches the mayor's inbox, so
+	// the mayor must hear held, whatever else the default list carries.
+	if !slices.Contains(r.On, "held") {
+		t.Fatalf("mayor does not hear held: on = %v", r.On)
 	}
 	if got, _ := st.Settings(ctx); got["default_kind"] != "claude" || got["operator"] != "Jo" || got["mayor"] != "mayor" {
 		t.Fatalf("settings = %v", got)
