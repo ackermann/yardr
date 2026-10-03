@@ -491,10 +491,11 @@ func TestExecEnvNamesTheBeadsWork(t *testing.T) {
 	dir := t.TempDir()
 	out := filepath.Join(dir, "env")
 	e := &Exec{Home: "/yh", Bin: "/bin/yardr"}
-	vars := "YARDR_BEAD YARDR_ACTOR YARDR_RIG YARDR_RIG_PATH YARDR_BASE YARDR_BRANCH YARDR_WORKTREE YARDR_BIN YARDR_HOME YARD_WORKTREE"
+	// Through the shell, not printenv: macOS's prints the first name only.
+	vars := "$YARDR_BEAD $YARDR_ACTOR $YARDR_RIG $YARDR_RIG_PATH $YARDR_BASE $YARDR_BRANCH $YARDR_WORKTREE $YARDR_BIN $YARDR_HOME $YARD_WORKTREE"
 	job := dispatch.Job{
 		Bead:    store.Bead{ID: "yd-7", Stage: "approved"},
-		Group:   store.Group{Name: "refinery", Config: map[string]any{"cmd": "printenv " + vars + " > " + out}},
+		Group:   store.Group{Name: "refinery", Config: map[string]any{"cmd": "echo " + vars + " > " + out}},
 		Rig:     &store.Rig{Name: "web", Path: dir, Base: "main"},
 		Session: store.Session{ID: "s1"},
 	}

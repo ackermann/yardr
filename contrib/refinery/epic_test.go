@@ -18,6 +18,7 @@ import (
 	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
 // childFlow is rig yard's flow, with the outcomes merge-local reports.
@@ -64,12 +65,8 @@ func newEpicYard(t *testing.T, check string) *yard {
 	y.yardr("rig", "add", "r", y.repo, "--base", "main", "--check", check)
 	y.yardrIn(childFlow, "flow", "set", "code", "-f", "-")
 	y.yardr("rig", "flow", "r", "code")
-	// The epic flow exactly as the repo carries it.
-	epicFlow, err := filepath.Abs("../../.yardr/flows/yard.epic.flow")
-	if err != nil {
-		t.Fatal(err)
-	}
-	y.yardr("flow", "set", "yard.epic", "-f", epicFlow)
+	// The epic flow exactly as the repo carries it, under the test's name.
+	y.yardr("flow", "set", "yard.epic", "-f", storetest.RepoFlow(t, "yardr.epic"))
 	y.yardr("rig", "flow", "r", "--type", "epic", "yard.epic")
 
 	y.yardr("bead", "create", "the epic", "--id", "r-e", "-r", "r", "-t", "epic", "-s", "open")

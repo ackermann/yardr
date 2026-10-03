@@ -476,7 +476,7 @@ locally and advances it to `merged`, the bare edge kept for it.
 
 ```sh
 install contrib/refinery/integrate-epic ~/.yardr/scripts/   # from main
-yardr rig flow yard --type epic yard.epic                    # the repo's .yardr/flows/yard.epic.flow
+yardr rig flow yardr --type epic yardr.epic                  # the repo's .yardr/flows/yardr.epic.flow
 yardr group add yard-integrators --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin ~/.yardr/scripts/integrate-epic' \
   --set log="$HOME/.yardr/logs/integrator.log"

@@ -2,9 +2,9 @@ package runner
 
 import (
 	"context"
-	"os"
+	"errors"
+	"io/fs"
 	"os/exec"
-	"strconv"
 	"syscall"
 	"testing"
 	"time"
@@ -65,8 +65,8 @@ func TestExecZombieEndsTheSession(t *testing.T) {
 	if s.State != "died" {
 		t.Fatalf("session state = %q, want died", s.State)
 	}
-	if _, err := os.Stat("/proc/" + strconv.Itoa(pid)); err == nil {
-		t.Fatal("zombie not reaped")
+	if _, err := procStat(pid); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("zombie not reaped: %v", err)
 	}
 	if alive, err := e.Alive(ctx, s.Handle); alive || err != nil {
 		t.Fatalf("Alive = %v, %v after reaping", alive, err)

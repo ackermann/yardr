@@ -249,13 +249,13 @@ decide -> decided
 decided terminal
 ```
 
-Epics follow `yard.epic`, which the repository carries as
-[`.yardr/flows/yard.epic.flow`](../.yardr/flows/yard.epic.flow) (a named
-repo flow, read from main; `yardr rig flow yard --type epic yard.epic`
+Epics follow `yardr.epic`, which the repository carries as
+[`.yardr/flows/yardr.epic.flow`](../.yardr/flows/yardr.epic.flow) (a named
+repo flow, read from main; `yardr rig flow yardr --type epic yardr.epic`
 points the type at it):
 
 ```
-# yard.epic.flow
+# yardr.epic.flow
 backlog -> open
 open -> review on done | open on failed | merge on conflict | backlog
 review -> approved on done | open on changes | decide on question

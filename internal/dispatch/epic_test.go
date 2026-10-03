@@ -8,12 +8,14 @@ import (
 
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
-// epicFlow is the yard.epic flow exactly as the repository carries it.
+// epicFlow is the repository's epic flow exactly as it carries it, under
+// the name these tests use for it.
 func epicFlow(t *testing.T) *store.Flow {
 	t.Helper()
-	text, err := os.ReadFile("../../.yardr/flows/yard.epic.flow")
+	text, err := os.ReadFile(storetest.RepoFlow(t, "yardr.epic"))
 	must(t, err)
 	f, err := store.ParseFlow(string(text))
 	must(t, err)

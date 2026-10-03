@@ -83,10 +83,12 @@ func TestFetchBaseHasADeadline(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	h := &Herdr{FetchTimeout: 200 * time.Millisecond}
+	// Well short of the 30s sleep, but long enough for the fake's first
+	// exec: macOS takes well over 100ms to run a script it has just seen.
+	h := &Herdr{FetchTimeout: 2 * time.Second}
 	start := time.Now()
 	h.fetchBase(context.Background(), &store.Rig{Path: t.TempDir(), Base: "origin/main"})
-	if took := time.Since(start); took > 5*time.Second {
+	if took := time.Since(start); took > 10*time.Second {
 		t.Fatalf("fetch returned after %s; the deadline did not hold", took)
 	}
 	got, err := os.ReadFile(envOut)

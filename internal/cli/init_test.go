@@ -21,10 +21,23 @@ import (
 	"yardr.dev/yardr/roles"
 )
 
+// shortDir is a temp directory a yard's socket path fits in: a unix socket
+// path is at most config.MaxSocket bytes, and t.TempDir (TMPDIR plus the
+// test's name) is already past that on macOS.
+func shortDir(t *testing.T, prefix string) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", prefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return dir
+}
+
 // newHome points YARDR_HOME at a fresh directory with no yard in it.
 func newHome(t *testing.T) string {
 	t.Helper()
-	home := filepath.Join(t.TempDir(), "y")
+	home := filepath.Join(shortDir(t, "yh"), "y")
 	t.Setenv("YARDR_HOME", home)
 	return home
 }
@@ -174,7 +187,7 @@ func TestInitSummaryNamesTheHome(t *testing.T) {
 	}
 
 	// The default home, named with a trailing slash: no variable.
-	user := t.TempDir()
+	user := shortDir(t, "yu")
 	t.Setenv("HOME", user)
 	t.Setenv("YARDR_HOME", filepath.Join(user, ".yardr")+"/")
 	out, err = run(t, (&app{st: storetest.New(t)}).rootCmd(), "init", "--harness", "gemini")

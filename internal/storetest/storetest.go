@@ -57,6 +57,35 @@ func NewOwned(t testing.TB) (store.API, *store.Store) {
 	return c, s
 }
 
+// RepoFlow is the path of the repository's .yardr/flows/<name>.flow, for a
+// test that wants a flow exactly as the repo carries it. The repository is
+// found from the test's working directory, and a flow the repo no longer
+// carries fails naming the ones it does, so a rename shows up as such.
+func RepoFlow(t testing.TB, name string) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for ; ; dir = filepath.Dir(dir) {
+		if _, err := os.Stat(filepath.Join(dir, ".yardr", "flows")); err == nil {
+			break
+		}
+		if dir == filepath.Dir(dir) {
+			t.Fatal("no .yardr/flows above the test's working directory")
+		}
+	}
+	path := filepath.Join(dir, ".yardr", "flows", name+".flow")
+	if _, err := os.Stat(path); err != nil {
+		have, _ := filepath.Glob(filepath.Join(dir, ".yardr", "flows", "*.flow"))
+		for i, h := range have {
+			have[i] = filepath.Base(h)
+		}
+		t.Fatalf("the repository carries no flow %s (%v); it has %v", name, err, have)
+	}
+	return path
+}
+
 // Open opens the store at path, closing it when the test ends.
 func Open(t testing.TB, path string) *store.Store {
 	t.Helper()

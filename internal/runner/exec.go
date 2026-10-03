@@ -1,7 +1,6 @@
 package runner
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -11,8 +10,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
-	"strings"
-	"sync"
 	"syscall"
 
 	"yardr.dev/yardr/internal/config"
@@ -121,7 +118,7 @@ func (e *Exec) Alive(_ context.Context, h map[string]any) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if !hasProc() {
+	if !haveProcStat() {
 		if wpid, _ := syscall.Wait4(pid, nil, syscall.WNOHANG, nil); wpid == pid {
 			return false, nil
 		}
@@ -157,7 +154,7 @@ func (e *Exec) Stop(_ context.Context, h map[string]any) error {
 	if err != nil {
 		return nil // nothing was started
 	}
-	if hasProc() {
+	if haveProcStat() {
 		if st, err := procStat(pid); err == nil && !owns(h, st) {
 			return nil
 		}
@@ -176,40 +173,11 @@ func owns(h map[string]any, st stat) bool {
 	return !ok || want == st.start
 }
 
+// stat is what tells one process from another with the same pid: its
+// state and start time, as the OS reports them (see procStat).
 type stat struct {
 	state byte   // R, S, Z, ...
-	start uint64 // clock ticks after boot
-}
-
-var procOnce = sync.OnceValue(func() bool {
-	_, err := os.Stat("/proc/self/stat")
-	return err == nil
-})
-
-// hasProc is false where there is no /proc; liveness falls back to kill(0).
-func hasProc() bool { return procOnce() }
-
-// procStat reads state and start time from /proc/<pid>/stat.
-func procStat(pid int) (stat, error) {
-	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
-	if err != nil {
-		return stat{}, err
-	}
-	// The command name may hold spaces and parentheses; fields resume after
-	// the last ')'. State is field 3, starttime field 22.
-	i := bytes.LastIndexByte(b, ')')
-	if i < 0 {
-		return stat{}, fmt.Errorf("pid %d: unexpected stat %q", pid, b)
-	}
-	f := strings.Fields(string(b[i+1:]))
-	if len(f) < 20 {
-		return stat{}, fmt.Errorf("pid %d: unexpected stat %q", pid, b)
-	}
-	start, err := strconv.ParseUint(f[19], 10, 64)
-	if err != nil {
-		return stat{}, fmt.Errorf("pid %d: start time: %w", pid, err)
-	}
-	return stat{state: f[0][0], start: start}, nil
+	start uint64 // the process's start time, compared for equality only
 }
 
 func uintOf(v any) (uint64, bool) {
