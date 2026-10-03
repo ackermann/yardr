@@ -50,11 +50,26 @@ var validStage = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
 
 var validOutcome = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
-// normalize fills Stages from the transitions and terminal stages (keeping
-// any order already given) and checks the flow is well formed.
+// normalize fills Stages and checks the flow is well formed. The order
+// is the one the rules were written in: the stages listed first, then
+// every stage they lead to as its rule names it, by walking the
+// transitions from the listed stages. A source stage the walk does not
+// reach has no place in that order unless it is the only one left, since
+// Transitions and Outcomes are maps and their written order is gone by
+// now; with two or more such stages the flow is refused rather than
+// sorted. Sorting would make the first stage, where a bead the flow does
+// not know rejoins it, an accident of spelling. A flow file in the line
+// format lists its stages as it goes, so only a JSON flow, or a Flow
+// built in code, can be ambiguous; it gives "stages" in order.
 func (f *Flow) normalize() error {
 	if f.Transitions == nil {
 		f.Transitions = map[string][]string{}
+	}
+	if err := f.normalizeOutcomes(); err != nil {
+		return err
+	}
+	for s, next := range f.Transitions {
+		f.Transitions[s] = dedupeOrdered(next)
 	}
 	add := func(s string) error {
 		if !validStage.MatchString(s) {
@@ -72,25 +87,32 @@ func (f *Flow) normalize() error {
 			return err
 		}
 	}
-	// Map order is random; sort sources so derived stage order is stable.
-	from := make([]string, 0, len(f.Transitions))
-	for s := range f.Transitions {
-		from = append(from, s)
-	}
-	slices.Sort(from)
-	for _, s := range from {
-		if err := add(s); err != nil {
-			return err
-		}
-		f.Transitions[s] = dedupeOrdered(f.Transitions[s])
-		for _, to := range f.Transitions[s] {
-			if err := add(to); err != nil {
-				return err
+	for {
+		// The walk: each stage's next stages in the order its rule names
+		// them, including those of stages the walk itself added.
+		for i := 0; i < len(f.Stages); i++ {
+			for _, to := range f.Transitions[f.Stages[i]] {
+				if err := add(to); err != nil {
+					return err
+				}
 			}
 		}
-	}
-	if err := f.normalizeOutcomes(add); err != nil {
-		return err
+		var left []string
+		for s := range f.Transitions {
+			if !slices.Contains(f.Stages, s) {
+				left = append(left, s)
+			}
+		}
+		if len(left) == 0 {
+			break
+		}
+		if len(left) > 1 {
+			slices.Sort(left)
+			return fmt.Errorf("flow: the order of stages %s is ambiguous: none of them follows from a stage before it; list every stage under \"stages\" in order", strings.Join(left, ", "))
+		}
+		if err := add(left[0]); err != nil {
+			return err
+		}
 	}
 	f.Terminal = dedupeOrdered(f.Terminal)
 	for _, s := range f.Terminal {
@@ -111,19 +133,16 @@ func (f *Flow) normalize() error {
 // makes their stages transitions (a JSON flow may give only the outcome).
 // It runs before the terminal check, so a terminal stage with outcomes is
 // refused like one with transitions.
-func (f *Flow) normalizeOutcomes(add func(string) error) error {
+func (f *Flow) normalizeOutcomes() error {
 	from := make([]string, 0, len(f.Outcomes))
 	for s := range f.Outcomes {
 		from = append(from, s)
 	}
-	slices.Sort(from)
+	slices.Sort(from) // for a stable error, not a stage order
 	for _, s := range from {
 		if len(f.Outcomes[s]) == 0 {
 			delete(f.Outcomes, s)
 			continue
-		}
-		if err := add(s); err != nil {
-			return err
 		}
 		var seen []string
 		for _, o := range f.Outcomes[s] {
@@ -134,8 +153,8 @@ func (f *Flow) normalizeOutcomes(add func(string) error) error {
 				return fmt.Errorf("flow: stage %s has outcome %s twice; an outcome leads to one stage", s, o.Name)
 			}
 			seen = append(seen, o.Name)
-			if err := add(o.To); err != nil {
-				return err
+			if !validStage.MatchString(o.To) {
+				return fmt.Errorf("flow: outcome %s of stage %s leads to stage %q: use letters, digits, '.', '_', '/' or '-'", o.Name, s, o.To)
 			}
 			if !slices.Contains(f.Transitions[s], o.To) {
 				f.Transitions[s] = append(f.Transitions[s], o.To)
@@ -400,14 +419,23 @@ func (p FlowPointer) String() string {
 
 // SetFlowPointer points rig, or with typ its beads of that type, at the
 // named flow; an empty flow clears the pointer. The flow must exist, in the
-// store or in the rig's repository.
+// store or in the rig's repository. The change is refused, naming the
+// beads, while an open bead it would hand to a new flow sits in a stage
+// that flow lacks (strayBeads): such a bead could only rejoin the flow at
+// its first stage, and its stage, routed under the old flow, may be nobody's
+// under the new. Refusing keeps a configuration command from moving beads;
+// the operator moves them under the flow they still follow, or pins them
+// to it, and points the rig again.
 func (s *Store) SetFlowPointer(ctx context.Context, rig, typ, flow, actor string) error {
+	// Read before the transaction: git must not run inside one. A checkout
+	// git cannot read matters only when a flow is looked for in it, so the
+	// error waits until then.
+	repo, repoErr := s.RepoFlows(ctx, rig)
 	inRepo := false
 	if flow != "" {
 		if _, err := s.GetFlow(ctx, flow); errors.Is(err, ErrNotFound) {
-			repo, err := s.RepoFlows(ctx, rig)
-			if err != nil {
-				return err
+			if repoErr != nil {
+				return repoErr
 			}
 			if repo.find(flow, "") == nil {
 				return fmt.Errorf("flow %s: %w (not in the store, nor in rig %s's %s %s)", flow, ErrNotFound, rig, RepoFlowDir, repo.where())
@@ -424,6 +452,7 @@ func (s *Store) SetFlowPointer(ctx context.Context, rig, typ, flow, actor string
 		}
 		k := []byte(join(rig, typ))
 		data := map[string]any{"rig": rig, "type": typ}
+		kind := "flow_pointer_set"
 		if flow == "" {
 			if w.Bucket(bFlowPtrs).Get(k) == nil {
 				return fmt.Errorf("%s points at no flow: %w", p, ErrNotFound)
@@ -431,18 +460,79 @@ func (s *Store) SetFlowPointer(ctx context.Context, rig, typ, flow, actor string
 			if err := w.Bucket(bFlowPtrs).Delete(k); err != nil {
 				return err
 			}
-			return w.event("", "flow_pointer_cleared", actor, data)
+			kind = "flow_pointer_cleared"
+		} else {
+			// Checked again here: the flow may have been removed meanwhile.
+			if !inRepo && w.Bucket(bFlows).Get([]byte(flow)) == nil {
+				return fmt.Errorf("flow %s: %w", flow, ErrNotFound)
+			}
+			if err := put(w.Tx, bFlowPtrs, string(k), p); err != nil {
+				return err
+			}
+			data["flow"] = flow
 		}
-		// Checked again here: the flow may have been removed meanwhile.
-		if !inRepo && w.Bucket(bFlows).Get([]byte(flow)) == nil {
-			return fmt.Errorf("flow %s: %w", flow, ErrNotFound)
-		}
-		if err := put(w.Tx, bFlowPtrs, string(k), p); err != nil {
+		// With the change in place, every bead it affects resolves to the
+		// flow that would govern it; an error here rolls the change back.
+		strays, err := strayBeads(w.Tx, rig, typ, flow == "", repo, repoErr)
+		if err != nil {
 			return err
 		}
-		data["flow"] = flow
-		return w.event("", "flow_pointer_set", actor, data)
+		if len(strays) > 0 {
+			return fmt.Errorf("%s: %s; advance them to a stage the flow has, or pin them to the flow they follow now (yardr bead update <id> --meta flow=<name>), then point the rig again",
+				p.change(), strings.Join(strays, ", "))
+		}
+		return w.event("", kind, actor, data)
 	})
+}
+
+// change describes the pointer change for an error about it.
+func (p FlowPointer) change() string {
+	if p.Flow == "" {
+		return "clearing the flow of " + p.String() + " would leave open beads in stages their flow lacks"
+	}
+	return "flow " + p.Flow + " lacks the stage of open beads in " + p.String()
+}
+
+// strayBeads names the open beads a change to the pointer (rig, typ)
+// hands to a flow that lacks their stage, as "<id> (<stage>)". It runs
+// after the change, inside its transaction, so each bead resolves to the
+// flow that would govern it; cleared says the pointer was removed, which
+// may leave each type to its own flow, so the flow is named per bead. A
+// pinned bead follows its pin and a knowledge bead no flow, so neither is
+// affected; the rig's pointer does not reach beads whose type has its own
+// pointer. repo is the rig's repository flows, or nil with repoErr saying
+// why they could not be read; a bead whose flow would come from there
+// fails with it.
+func strayBeads(tx *bolt.Tx, rig, typ string, cleared bool, repo *RepoFlows, repoErr error) ([]string, error) {
+	var out []string
+	err := each(tx, bBeads, "", func(_ []byte, r *beadRow) error {
+		if r.Status == "closed" || r.Rig == nil || *r.Rig != rig || NotWork[r.Type] || PinnedFlow(&r.Bead) != "" {
+			return nil
+		}
+		if typ != "" && r.Type != typ {
+			return nil
+		}
+		if typ == "" && tx.Bucket(bFlowPtrs).Get([]byte(join(rig, r.Type))) != nil {
+			return nil
+		}
+		f, _, err := resolveFlow(tx, r.Rig, r.Type, "", repo)
+		if errors.Is(err, errNeedRepo) && repoErr != nil {
+			err = repoErr
+		}
+		if err != nil {
+			return fmt.Errorf("bead %s: %w", r.ID, err)
+		}
+		if f == nil || slices.Contains(f.Stages, r.Stage) {
+			return nil
+		}
+		if cleared {
+			out = append(out, fmt.Sprintf("%s (%s, not in flow %s)", r.ID, r.Stage, f.Name))
+		} else {
+			out = append(out, fmt.Sprintf("%s (%s)", r.ID, r.Stage))
+		}
+		return nil
+	})
+	return out, err
 }
 
 // FlowPointers lists every rig's pointers, the rig's own before its types'.

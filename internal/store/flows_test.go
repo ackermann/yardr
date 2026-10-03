@@ -109,6 +109,67 @@ func TestParseFlow(t *testing.T) {
 	}
 }
 
+// A JSON flow's stages come in the order listed, then as the rules reach
+// them; never alphabetically, which would make the first stage (where a
+// bead the flow does not know rejoins it) an accident of spelling. Without
+// a list, two source stages that no rule leads to have no order, and the
+// flow is refused.
+func TestJSONFlowStageOrder(t *testing.T) {
+	s, ctx := flowRig(t)
+	save := func(text string) (*store.Flow, error) {
+		f, err := store.ParseFlow(text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.Name = "j"
+		return s.PutFlow(ctx, *f, "me")
+	}
+	// Listed in full: kept as written.
+	f, err := save(`{"stages": ["zeta", "alpha", "omega"], "transitions": {"zeta": ["alpha"], "alpha": ["omega"]}, "terminal": ["omega"]}`)
+	if err != nil || !slices.Equal(f.Stages, []string{"zeta", "alpha", "omega"}) {
+		t.Fatalf("listed stages = %v, %v", f.Stages, err)
+	}
+	if next := f.Next("ghost"); !slices.Equal(next, []string{"zeta"}) {
+		t.Fatalf("rejoin from an unknown stage at %v, want zeta", next)
+	}
+	// Listed in part: the rest follow in the order the rules name them,
+	// targets before the next source, outcomes' stages among them.
+	f, err = save(`{"stages": ["zeta"], "transitions": {"zeta": ["mid", "alpha"], "alpha": ["omega"], "mid": ["alpha"]},
+		"outcomes": {"omega": [{"name": "done", "to": "end"}]}, "terminal": ["end"]}`)
+	if err != nil || !slices.Equal(f.Stages, []string{"zeta", "mid", "alpha", "omega", "end"}) {
+		t.Fatalf("partly listed stages = %v, %v", f.Stages, err)
+	}
+	// Not listed, one source: the only order there is.
+	f, err = save(`{"transitions": {"zeta": ["alpha", "omega"]}, "terminal": ["omega"]}`)
+	if err != nil || !slices.Equal(f.Stages, []string{"zeta", "alpha", "omega"}) {
+		t.Fatalf("single-source stages = %v, %v", f.Stages, err)
+	}
+	// A source the walk reaches last still has its place: alpha is the one
+	// stage left once zeta's rule is followed.
+	f, err = save(`{"stages": ["zeta"], "transitions": {"zeta": ["omega"], "alpha": ["zeta"]}}`)
+	if err != nil || !slices.Equal(f.Stages, []string{"zeta", "omega", "alpha"}) {
+		t.Fatalf("one straggler = %v, %v", f.Stages, err)
+	}
+	// Not listed, two sources: ambiguous, so refused rather than sorted.
+	for _, text := range []string{
+		`{"transitions": {"zeta": ["alpha"], "alpha": ["zeta"]}}`,
+		`{"stages": ["zeta"], "transitions": {"zeta": ["omega"], "alpha": ["zeta"], "beta": ["zeta"]}}`,
+	} {
+		_, err := save(text)
+		if err == nil || !strings.Contains(err.Error(), "ambiguous") || !strings.Contains(err.Error(), `"stages"`) {
+			t.Fatalf("%s: err = %v, want ambiguous order naming \"stages\"", text, err)
+		}
+	}
+	if _, err := save(`{"transitions": {"zeta": ["alpha"], "alpha": ["zeta"]}}`); !strings.Contains(err.Error(), "alpha, zeta") {
+		t.Fatalf("ambiguous error should name the stages: %v", err)
+	}
+	// The line format lists stages as it goes, so it is never ambiguous.
+	f, err = save("zeta -> alpha\nalpha -> zeta\n")
+	if err != nil || !slices.Equal(f.Stages, []string{"zeta", "alpha"}) {
+		t.Fatalf("line format stages = %v, %v", f.Stages, err)
+	}
+}
+
 func TestPutFlowValidates(t *testing.T) {
 	s, ctx := flowRig(t)
 	cases := map[string]store.Flow{
@@ -311,12 +372,15 @@ func TestFlowTerminalStageCloses(t *testing.T) {
 
 func TestFlowStageUnknownToFlowCanRejoin(t *testing.T) {
 	s, ctx := flowRig(t)
-	// A bead created before the flow, in a stage the flow does not know.
+	// A bead in a stage the flow then loses: pointing the rig at a flow
+	// without the stage is refused (TestSetFlowPointerRefusesStrays), but
+	// replacing the named flow is not.
+	putFlow(t, s, "yard", "", "blocked -> new\n"+yardFlow)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "old", Rig: "yard", Stage: "blocked"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
-	putFlow(t, s, "yard", "", yardFlow)
+	putNamed(t, s, "yard", yardFlow)
 	// It rejoins at the flow's first stage only: from an unknown stage any
 	// stage would let it skip review and land as approved or merged.
 	next, err := s.NextStages(ctx, b.ID)

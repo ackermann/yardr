@@ -33,7 +33,11 @@ A flow file has one rule per line (# starts a comment):
   approved -> merged | merge | new
   merge -> approved
   decide -> backlog
-  merged terminal`,
+  merged terminal
+
+Stages are ordered as the rules first name them; the first stage is where a
+bead in a stage the flow does not know rejoins it. A JSON flow lists them
+under "stages", or is refused when two source stages have no order.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			if file == "" {

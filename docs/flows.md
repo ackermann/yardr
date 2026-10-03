@@ -40,6 +40,42 @@ pointing at it, at once. `flow rm` names what still uses the flow (`rig
 yard`, `rig yard type decision`, `bead yard-x` for an open bead pinning it)
 and removes nothing until they point elsewhere.
 
+`rig flow`, setting or clearing a pointer, checks every open bead the
+change would hand to another flow: the rig's beads, or the type's, that
+are not pinned and, for the rig's pointer, whose type has no pointer of its
+own. A bead sitting in a stage the new flow lacks is named and the change
+refused, so a configuration command never moves a bead or leaves one in a
+stage nobody is routed to:
+
+```
+flow code lacks the stage of open beads in rig yard: yard-x (triage),
+yard-y (triage); advance them to a stage the flow has, or pin them to the
+flow they follow now (yardr bead update <id> --meta flow=<name>), then
+point the rig again
+```
+
+Clearing a pointer checks against whatever would govern next (the rig's
+pointer, the repository's `type/<type>.flow` or `default.flow`), and
+names that flow per bead (`yard-x (triage, not in flow default)`). A rig
+whose flows would come from a checkout git cannot read is refused with
+git's error. Replacing a named flow with `flow set` is not checked: a bead
+left in a stage the new version lacks rejoins the flow at its first stage
+(see below).
+
+### Stage order
+
+A flow's stages are ordered as its rules first name them, and the order
+matters: the **first stage** is where a bead in a stage the flow does not
+know may rejoin it, and `yardr flow show` lists stages in it. The line
+format carries the order as written. A JSON flow lists it under
+`"stages"`, in full or in part; stages left out follow in the order the
+rules reach them from the listed ones (each stage's next stages, in
+order). Two or more source stages that no listed or reached stage leads
+to have no order, and `yardr flow set` refuses the flow rather than sort
+it (`the order of stages alpha, zeta is ambiguous ... list every stage
+under "stages" in order`). A JSON flow with a single source stage needs no
+list.
+
 Flow names use letters, digits, `.`, `_` and `-`. Stores from before named
 flows were migrated when the server first opened them: each rig's flow
 became the named flow `<rig>`, each type flow `<rig>.<type>`, with the rig

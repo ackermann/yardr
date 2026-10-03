@@ -307,7 +307,12 @@ other directory a dir rig; rig add says which it took.`,
 
 The flow is a named flow in the store (yardr flow set) or one in the rig's
 repository (.yardr/flows/<name>.flow on the base branch). A pointer
-overrides the repository's default.flow and type/<type>.flow.`,
+overrides the repository's default.flow and type/<type>.flow.
+
+Setting or clearing a pointer is refused, naming the beads, while an open
+bead it would hand to another flow sits in a stage that flow lacks. Move
+them under the flow they follow now, or pin them to it (yardr bead update
+<id> --meta flow=<name>), then point the rig again.`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(c *cobra.Command, args []string) error {
 			name := ""

@@ -109,9 +109,20 @@ func TestFlowResolutionOrder(t *testing.T) {
 		t.Fatalf("repo flow not enforced: %v", err)
 	}
 
-	// Store beats repo: a rig pointer overrides both repo files.
+	// Store beats repo: a rig pointer overrides both repo files. It would
+	// govern the decision too, whose stage ask the flow lacks, so the
+	// pointer is refused until the decision is out of the way.
 	putNamed(t, s, "code", yardFlow)
+	if err := s.SetFlowPointer(ctx, "web", "", "code", "me"); err == nil || !strings.Contains(err.Error(), q.ID+" (ask)") {
+		t.Fatalf("rig pointer over a decision in ask: %v", err)
+	}
+	if q, err = s.Advance(ctx, q.ID, "answered", "me"); err != nil || q.Status != "closed" {
+		t.Fatalf("decision: %v %+v", err, q)
+	}
 	if err := s.SetFlowPointer(ctx, "web", "", "code", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if q, err = s.CreateBead(ctx, store.NewBead{Title: "q", Rig: "web", Type: "decision"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if name, src := governing(t, s, task.ID); name != "code" || src != "store" {
@@ -438,5 +449,158 @@ func TestRepoFlowsGitErrors(t *testing.T) {
 	}
 	if _, err := s.Advance(ctx, b.ID, "review", store.Expect{}, "me"); err == nil || !strings.Contains(err.Error(), "not a git repository") {
 		t.Fatalf("advance in plain: %v", err)
+	}
+}
+
+// Pointing a rig or type at a flow, or clearing the pointer, is refused
+// while an open bead it would hand to a new flow sits in a stage that flow
+// lacks; the beads are named, the pointer is not changed. Pinned beads,
+// closed beads and beads of a type with its own pointer are not affected,
+// so they do not stand in the way.
+func TestSetFlowPointerRefusesStrays(t *testing.T) {
+	s, ctx := flowRig(t)
+	putNamed(t, s, "code", yardFlow)
+	putNamed(t, s, "tri", "triage -> new\nnew -> done\ndone terminal\n")
+	// Without a flow any stage is allowed: beads stray before the rules.
+	stray, err := s.CreateBead(ctx, store.NewBead{Title: "stray", Rig: "yard", Stage: "triage"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fine, err := s.CreateBead(ctx, store.NewBead{Title: "fine", Rig: "yard", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pinned, err := s.CreateBead(ctx, store.NewBead{Title: "pinned", Rig: "yard", Stage: "triage", Metadata: map[string]any{"flow": "tri"}}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed, err := s.CreateBead(ctx, store.NewBead{Title: "closed", Rig: "yard", Stage: "triage"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CloseBead(ctx, closed.ID, "gone", store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	bug, err := s.CreateBead(ctx, store.NewBead{Title: "bug", Rig: "yard", Type: "bug", Stage: "triage"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = s.SetFlowPointer(ctx, "yard", "", "code", "me")
+	if err == nil {
+		t.Fatal("rig pointer set over beads in triage")
+	}
+	for _, want := range []string{"flow code lacks the stage of open beads in rig yard", stray.ID + " (triage)", bug.ID + " (triage)", "--meta flow="} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error lacks %q: %v", want, err)
+		}
+	}
+	for _, id := range []string{fine.ID, pinned.ID, closed.ID} {
+		if strings.Contains(err.Error(), id) {
+			t.Errorf("error names %s, which the change does not strand: %v", id, err)
+		}
+	}
+	if ptrs, _ := s.FlowPointers(ctx); len(ptrs) != 0 {
+		t.Fatalf("refused pointer was kept: %+v", ptrs)
+	}
+	// The type's own pointer takes its beads out of the rig's hands.
+	if err := s.SetFlowPointer(ctx, "yard", "bug", "tri", "me"); err != nil {
+		t.Fatal(err)
+	}
+	err = s.SetFlowPointer(ctx, "yard", "", "code", "me")
+	if err == nil || strings.Contains(err.Error(), bug.ID) || !strings.Contains(err.Error(), stray.ID) {
+		t.Fatalf("rig pointer with the bug under its type's flow: %v", err)
+	}
+	// Moved to a stage the flow has (no flow governs it yet, so any move
+	// goes), the pointer is accepted.
+	if _, err := s.Advance(ctx, stray.ID, "new", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetFlowPointer(ctx, "yard", "", "code", "me"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Clearing the type pointer would hand the bug to code, which lacks
+	// triage; the error names the flow it would fall under.
+	err = s.SetFlowPointer(ctx, "yard", "bug", "", "me")
+	if err == nil || !strings.Contains(err.Error(), "clearing the flow of rig yard type bug") || !strings.Contains(err.Error(), bug.ID+" (triage, not in flow code)") {
+		t.Fatalf("clearing the type pointer: %v", err)
+	}
+	if name, _ := governing(t, s, bug.ID); name != "tri" {
+		t.Fatalf("bug follows %s after a refused clear, want tri", name)
+	}
+	// Pinned to the flow it follows now, the bug is out of the way.
+	if _, err := s.UpdateBead(ctx, bug.ID, store.BeadPatch{Metadata: map[string]any{"flow": "tri"}}, store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetFlowPointer(ctx, "yard", "bug", "", "me"); err != nil {
+		t.Fatal(err)
+	}
+	// Clearing the rig's pointer leaves the rig without a flow (no repo):
+	// any stage goes, so nothing strays.
+	if err := s.SetFlowPointer(ctx, "yard", "", "", "me"); err != nil {
+		t.Fatal(err)
+	}
+	evs, _ := s.EventsSince(ctx, 0, 0)
+	var kinds []string
+	for _, e := range evs {
+		if strings.HasPrefix(e.Kind, "flow_pointer") {
+			kinds = append(kinds, e.Kind)
+		}
+	}
+	want := []string{"flow_pointer_set", "flow_pointer_set", "flow_pointer_cleared", "flow_pointer_cleared"}
+	if !slices.Equal(kinds, want) {
+		t.Fatalf("pointer events = %v, want %v (refused changes record none)", kinds, want)
+	}
+}
+
+// Clearing a pointer hands beads to the repository's flows, which are
+// checked the same way; a repository git cannot read is an error only for
+// a bead whose flow would come from it.
+func TestSetFlowPointerStraysAgainstRepo(t *testing.T) {
+	s, ctx, _ := repoRig(t)
+	putNamed(t, s, "tri", "triage -> new\nnew -> done\ndone terminal\n")
+	if err := s.SetFlowPointer(ctx, "web", "", "tri", "me"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "t", Rig: "web", Stage: "triage"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = s.SetFlowPointer(ctx, "web", "", "", "me")
+	if err == nil || !strings.Contains(err.Error(), b.ID+" (triage, not in flow default)") {
+		t.Fatalf("clear over the repo's default.flow: %v", err)
+	}
+	if name, src := governing(t, s, b.ID); name != "tri" || src != "store" {
+		t.Fatalf("after a refused clear: %s (%s)", name, src)
+	}
+	// A type pointer naming a repo flow is checked against that flow.
+	if err := s.SetFlowPointer(ctx, "web", "task", "alt", "me"); err == nil || !strings.Contains(err.Error(), b.ID+" (triage)") {
+		t.Fatalf("type pointer at repo flow alt: %v", err)
+	}
+	if _, err := s.Advance(ctx, b.ID, "new", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetFlowPointer(ctx, "web", "", "", "me"); err != nil {
+		t.Fatal(err)
+	}
+
+	// A rig whose checkout git cannot read: pointing it at a store flow
+	// still works for beads that never need the repository; clearing the
+	// pointer would, and fails with git's error rather than silently.
+	s2 := storetest.New(t)
+	if err := s2.PutRig(ctx, store.Rig{Name: "gone", Path: filepath.Join(t.TempDir(), "missing"), Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	putNamed(t, s2, "tri", "triage -> new\nnew -> done\ndone terminal\n")
+	if err := s2.SetFlowPointer(ctx, "gone", "", "tri", "me"); err != nil {
+		t.Fatalf("store pointer on a rig without a readable checkout: %v", err)
+	}
+	g, err := s2.CreateBead(ctx, store.NewBead{Title: "g", Rig: "gone", Stage: "triage"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s2.SetFlowPointer(ctx, "gone", "", "", "me"); err == nil || !strings.Contains(err.Error(), "resolving base main") || !strings.Contains(err.Error(), g.ID) {
+		t.Fatalf("clear on a rig without a readable checkout: %v", err)
 	}
 }
