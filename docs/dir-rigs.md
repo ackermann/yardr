@@ -74,8 +74,9 @@ done terminal
 An epic waits in `open` while its children are open (each child blocks it).
 There is no epic branch to integrate, so once the last child closes, the
 epic goes to the rig's reviewers, who look at what the children produced as
-a whole. That takes a route you add (below). Create epics with `-s open` or
-`-s backlog`: `new` is not one of their stages.
+a whole. That takes a route you add (below). An epic created without `-s`
+starts in `backlog`, its flow's first stage; `-s open` skips that. `new` is
+not one of an epic's stages.
 
 Both flows are `default.flow` and `type/epic.flow` rather than named flows,
 so they govern the rig without a pointer. A store pointer still wins
