@@ -354,13 +354,17 @@ func index(tx *bolt.Tx, e Event) error {
 
 // now is UTC truncated to microseconds, so values survive a JSON round trip
 // unchanged and compare equal.
-func now() time.Time { return time.Now().UTC().Truncate(time.Microsecond) }
+func now() time.Time { return clock().UTC().Truncate(time.Microsecond) }
+
+// clock is the time now and newRevision read; a test sets it to put writes
+// at chosen moments.
+var clock = time.Now
 
 // newRevision returns a ULID (48-bit milliseconds, 80 random bits) in
 // Crockford base32. Opaque to clients and unique per minted state.
 func newRevision() string {
 	var b [16]byte
-	ms := uint64(time.Now().UnixMilli())
+	ms := uint64(clock().UnixMilli())
 	for i := 5; i >= 0; i-- {
 		b[i] = byte(ms)
 		ms >>= 8

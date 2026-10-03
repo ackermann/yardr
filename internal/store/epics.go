@@ -1,8 +1,10 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 
 	bolt "go.etcd.io/bbolt"
 )
@@ -113,7 +115,10 @@ func epicOf(tx *bolt.Tx, u string) string {
 }
 
 // edges are bead u's edges of kind in one direction (bDepFrom: from u,
-// bDepTo: to u), oldest first.
+// bDepTo: to u), oldest first by CreatedAt, then by id. The index's key
+// order is not that: an edge id keeps only the last 4 characters of its
+// ULID's timestamp (see newEdgeID), which wrap every 2^20 ms, about 17.5
+// minutes.
 func edges(tx *bolt.Tx, index []byte, u, kind string) []depRow {
 	var out []depRow
 	for _, k := range keys(tx, index, u+"\x00") {
@@ -122,6 +127,9 @@ func edges(tx *bolt.Tx, index []byte, u, kind string) []depRow {
 			out = append(out, d)
 		}
 	}
+	slices.SortFunc(out, func(a, b depRow) int {
+		return cmp.Or(a.CreatedAt.Compare(b.CreatedAt), cmp.Compare(a.ID, b.ID))
+	})
 	return out
 }
 
