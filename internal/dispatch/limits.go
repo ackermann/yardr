@@ -18,8 +18,11 @@ import (
 //	max_age  how long a session may run before a session_aged event;
 //	         default 4h
 //	grace    when set, a session still idle (or still running) this long
-//	         after its event is stopped and counted as failed; unset, it is
-//	         only reported
+//	         after its event is stopped and counted as failed. Unset, an
+//	         idle session is only reported (an agent waiting on a human is
+//	         idle too), while a session that has run AgeCapFactor times
+//	         max_age is stopped anyway, since nothing a bead needs takes
+//	         that long, and the bead is released with a note saying so
 //
 // "off" or "0" turns a limit off. The defaults apply to runners that report
 // an agent's status (herdr); for others (exec, manual) a limit applies only
@@ -27,6 +30,9 @@ import (
 const (
 	DefaultIdleLimit = 30 * time.Minute
 	DefaultAgeLimit  = 4 * time.Hour
+	// AgeCapFactor times max_age is the hard cap on a session's age when
+	// the group sets no grace.
+	AgeCapFactor = 2
 )
 
 // AgedAt is a handle key: when session_aged was raised for the session. It
@@ -36,7 +42,8 @@ const AgedAt = "aged_at"
 
 // limits applies g's idle and age limits to the live session s, raising
 // session_idle and session_aged once each and stopping the session after
-// the grace period. It reports whether s is still live.
+// the grace period, or at the age cap when there is none. It reports
+// whether s is still live.
 func (d *Dispatcher) limits(ctx context.Context, r Runner, s store.Session, g store.Group) bool {
 	if s.State != "running" {
 		return true
@@ -75,9 +82,16 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s store.Session, g st
 
 	if ageOn {
 		ranFor := now.Sub(s.StartedAt)
+		hardCap := AgeCapFactor * age
 		if ranFor >= age && s.Handle[AgedAt] == nil {
 			d.Log.Warn("session aged", "session", s.ID, "bead", s.Bead, "age", round(ranFor))
-			d.limitEvent(ctx, s, "session_aged", "age", ranFor, age, grace, stops)
+			// An aged session is always stopped eventually: after the
+			// grace, else at the cap. The event says when.
+			stopAfter := grace
+			if !stops {
+				stopAfter = hardCap - age
+			}
+			d.limitEvent(ctx, s, "session_aged", "age", ranFor, age, stopAfter, true)
 			h := maps.Clone(s.Handle)
 			if h == nil {
 				h = map[string]any{}
@@ -90,6 +104,20 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s store.Session, g st
 		if stops && ranFor >= age+grace {
 			d.end(ctx, s, "failed", fmt.Sprintf("ran for %s (limit %s, grace %s)",
 				round(ranFor), age, grace))
+			return false
+		}
+		if !stops && ranFor >= hardCap {
+			// No grace to say when a long run becomes a stuck one, so a
+			// generous default does: the note tells the next agent (or the
+			// mayor, reading the bead) why its predecessor stopped.
+			reason := fmt.Sprintf("ran for %s, past the hard cap of %s (%d x max_age %s, no grace set)",
+				round(ranFor), hardCap, AgeCapFactor, age)
+			d.end(ctx, s, "failed", reason)
+			note := fmt.Sprintf("Session %s stopped by the yard: %s. The bead is released for another attempt; "+
+				"if the work needs longer, raise the group's max_age.", s.ID, reason)
+			if err := d.Store.AddNote(ctx, s.Bead, note, actor); err != nil {
+				d.Log.Warn("note on capped session", "session", s.ID, "bead", s.Bead, "err", err)
+			}
 			return false
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -278,7 +279,9 @@ func TestIdleSessionIsReported(t *testing.T) {
 func TestAgedSessionIsReportedOnce(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: map[string]any{"max_age": "20ms"}}))
+	// The hard cap without a grace is twice max_age (600ms here): the
+	// checks below must run before it, and a pass can take tens of ms.
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: map[string]any{"max_age": "300ms"}}))
 	must(t, s.PutGroup(ctx, store.Group{Name: "plain", Runner: "fake"}))
 	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
 	_, _ = s.AddRoute(ctx, store.Route{Stage: "other", Group: "plain"})
@@ -286,31 +289,77 @@ func TestAgedSessionIsReportedOnce(t *testing.T) {
 	p, _ := s.CreateBead(ctx, store.NewBead{Title: "plain", Stage: "other"}, "me")
 
 	must(t, d.Reconcile(ctx))
-	time.Sleep(30 * time.Millisecond)
+	time.Sleep(310 * time.Millisecond)
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
 	// A new daemon (no memory of the first) does not tell again.
 	d2 := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f}}
 	must(t, d2.Reconcile(ctx))
-	if n := len(eventKinds(t, s, b.ID, "session_aged")); n != 1 {
-		t.Fatalf("session_aged events = %d, want 1", n)
+	aged := eventKinds(t, s, b.ID, "session_aged")
+	if len(aged) != 1 {
+		t.Fatalf("session_aged events = %d, want 1", len(aged))
+	}
+	if aged[0].Data["stop_after"] != "300ms" {
+		t.Fatalf("session_aged without a grace must say when the cap stops it: %v", aged[0].Data)
 	}
 	if n := len(eventKinds(t, s, p.ID, "session_aged")); n != 0 {
 		t.Fatalf("status-less runner got the default age limit")
 	}
 	got, _ := s.GetBead(ctx, b.ID)
 	if got.Session == nil {
-		t.Fatal("aged session stopped without a grace")
+		t.Fatal("aged session stopped without a grace, before the cap")
 	}
 	sess := *got.Session
 
 	// With a grace it is stopped as failed (and, with no backoff here,
 	// routed again in the same pass to a fresh session).
 	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake",
-		Config: map[string]any{"max_age": "20ms", "grace": "1ms"}}))
+		Config: map[string]any{"max_age": "300ms", "grace": "1ms"}}))
 	must(t, d.Reconcile(ctx))
 	if st, _ := s.GetSession(ctx, sess); st.State != "failed" {
 		t.Fatalf("aged session state = %s after grace, want failed", st.State)
+	}
+}
+
+// With no grace set, a session that has run twice its max_age is stopped
+// anyway (failed, so repeats still hold the bead), and the bead is released
+// with a note saying why, so the next agent and the mayor see it.
+func TestAgedSessionIsCappedWithoutGrace(t *testing.T) {
+	s, _, d := setup(t)
+	d.Backoff = time.Hour // keep the bead released, not restarted, for the checks
+	ctx := context.Background()
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: map[string]any{"max_age": "20ms"}}))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	b, _ := s.CreateBead(ctx, store.NewBead{Title: "long"}, "me")
+
+	must(t, d.Reconcile(ctx))
+	got, _ := s.GetBead(ctx, b.ID)
+	sess := *got.Session
+	time.Sleep(50 * time.Millisecond)
+	must(t, d.Reconcile(ctx))
+
+	st, err := s.GetSession(ctx, sess)
+	must(t, err)
+	if st.State != "failed" || st.Error == nil || !strings.Contains(*st.Error, "hard cap") {
+		t.Fatalf("capped session = %s %v, want failed at the hard cap", st.State, st.Error)
+	}
+	got, _ = s.GetBead(ctx, b.ID)
+	if got.Session != nil || got.Group != nil || got.Hold {
+		t.Fatalf("bead not released: %+v", got)
+	}
+	notes, err := s.Notes(ctx, b.ID)
+	must(t, err)
+	var found bool
+	for _, n := range notes {
+		if strings.Contains(n.Text, sess) && strings.Contains(n.Text, "max_age") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no note on the bead names the capped session: %+v", notes)
+	}
+	if n := len(eventKinds(t, s, b.ID, "session_aged")); n != 1 {
+		t.Fatalf("session_aged events = %d, want 1", n)
 	}
 }
 

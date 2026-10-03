@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -120,5 +121,84 @@ esac`)}
 	missing := &Herdr{Bin: filepath.Join(t.TempDir(), "herdr")}
 	if _, err := missing.run(ctx, "agent", "list"); !dispatch.IsRuntime(err) {
 		t.Fatalf("missing herdr not a runtime error: %v", err)
+	}
+}
+
+// herdr's own error object for a server that is down or not ready
+// (server_not_running, server_unavailable) is a runtime outage like an
+// unreachable herdr, not the bead's failure, and Start gives up on it at
+// once instead of falling back to re-adding the worktree by hand.
+func TestHerdrDownErrorObjectIsAnOutage(t *testing.T) {
+	ctx := context.Background()
+	for _, code := range []string{"server_not_running", "server_unavailable"} {
+		h := &Herdr{Bin: fakeHerdrBin(t, `echo '{"id":"cli:x","error":{"code":"`+code+`","message":"no herdr server is running"}}' >&2; exit 1`)}
+		_, err := h.run(ctx, "agent", "list")
+		if !dispatch.IsRuntime(err) {
+			t.Fatalf("%s not a runtime error: %v", code, err)
+		}
+		var herr *herdrError
+		if !errors.As(err, &herr) || herr.Code != code {
+			t.Fatalf("%s: the herdr error is no longer in the chain: %v", code, err)
+		}
+		// Status must say "unknown" (an error), never "gone".
+		if _, err := h.Status(ctx, map[string]any{"agent": "a"}); err == nil {
+			t.Fatalf("%s: Status reported the agent gone", code)
+		}
+	}
+
+	// Through Start: no fallback to `git worktree add`, which would make a
+	// checkout herdr knows nothing about.
+	repo := t.TempDir()
+	gitT(t, repo, "init", "-q", "-b", "main")
+	gitT(t, repo, "commit", "-q", "--allow-empty", "-m", "init")
+	root := t.TempDir()
+	h := &Herdr{WorktreeRoot: root, Bin: fakeHerdrBin(t,
+		`echo '{"id":"cli:x","error":{"code":"server_not_running","message":"no herdr server is running"}}' >&2; exit 1`)}
+	job := dispatch.Job{
+		Bead:    store.Bead{ID: "r-1", Stage: "new"},
+		Group:   store.Group{Name: "builders"},
+		Rig:     &store.Rig{Name: "r", Path: repo, Base: "main"},
+		Session: store.Session{ID: "s1"},
+	}
+	_, err := h.Start(ctx, job)
+	if !dispatch.IsRuntime(err) {
+		t.Fatalf("Start with herdr down: %v, want a runtime error", err)
+	}
+	if _, serr := os.Stat(filepath.Join(root, "r", "r-1")); serr == nil {
+		t.Fatal("Start added a worktree by hand while herdr was down")
+	}
+}
+
+// Every git call Start and Finish make is cut off at a deadline, like the
+// fetch, and never waits on a credential prompt.
+func TestGitCallsHaveADeadline(t *testing.T) {
+	bin := t.TempDir()
+	envOut := filepath.Join(t.TempDir(), "env")
+	fake := "#!/bin/sh\nprintf '%s\\n' \"$GIT_TERMINAL_PROMPT\" > " + envOut + "\nexec sleep 30\n"
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(fake), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	was := checkoutTimeout
+	checkoutTimeout = 2 * time.Second // see TestFetchBaseHasADeadline on the margin
+	t.Cleanup(func() { checkoutTimeout = was })
+
+	start := time.Now()
+	err := git(context.Background(), t.TempDir(), "worktree", "add", "x", "y")
+	if took := time.Since(start); took > 10*time.Second {
+		t.Fatalf("git returned after %s; the deadline did not hold", took)
+	}
+	if err == nil {
+		t.Fatal("a git call cut off at the deadline returned no error")
+	}
+	got, rerr := os.ReadFile(envOut)
+	if rerr != nil {
+		t.Fatalf("fake git never ran: %v", rerr)
+	}
+	if strings.TrimSpace(string(got)) != "0" {
+		t.Fatalf("GIT_TERMINAL_PROMPT = %q, want 0", got)
+	}
+	if was != 2*time.Minute {
+		t.Fatalf("checkoutTimeout = %s", was)
 	}
 }

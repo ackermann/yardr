@@ -82,6 +82,18 @@ type herdrError struct {
 
 func (e *herdrError) Error() string { return e.Code + ": " + e.Message }
 
+// outage reports whether the error means herdr itself is down or not ready
+// to serve, as opposed to refusing this one request: the runtime's failure,
+// so every bead of the group would fail the same way (see dispatch.Runtime).
+func (e *herdrError) outage() bool {
+	switch e.Code {
+	case "server_not_running", // no server at the socket
+		"server_unavailable": // one that is starting or shutting down
+		return true
+	}
+	return false
+}
+
 func (h *Herdr) run(ctx context.Context, args ...string) (json.RawMessage, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
@@ -99,6 +111,9 @@ func (h *Herdr) run(ctx context.Context, args ...string) (json.RawMessage, error
 			continue
 		}
 		if resp.Error != nil {
+			if resp.Error.outage() {
+				return nil, dispatch.Runtime(resp.Error)
+			}
 			return nil, resp.Error
 		}
 		if runErr == nil && resp.Result != nil {
@@ -228,7 +243,8 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	reopened := false
 	if err != nil {
 		var herr *herdrError
-		if !errors.As(err, &herr) {
+		if dispatch.IsRuntime(err) || !errors.As(err, &herr) {
+			// herdr down, or not answering: nothing to fall back to.
 			return nil, err
 		}
 		createErr := err
@@ -522,15 +538,29 @@ func (h *Herdr) Finish(ctx context.Context, handle map[string]any) error {
 	return nil
 }
 
+// checkoutTimeout bounds every git call Start and Finish make on a rig (a
+// worktree added or removed, a branch made, a status). Like the fetch they
+// run inside the dispatcher's pass, so one hanging on a slow disk or a hook
+// would stall every group. Two minutes is herdr's own bound on the same
+// work; local operations normally take well under a second. A variable so
+// tests can shorten it (gitTimeout, in runner.go, is the role reads').
+var checkoutTimeout = 2 * time.Minute
+
 func git(ctx context.Context, dir string, args ...string) error {
 	_, err := gitOut(ctx, dir, args...)
 	return err
 }
 
 func gitOut(ctx context.Context, dir string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, checkoutTimeout)
+	defer cancel()
 	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	// Never wait on a terminal nobody watches, and do not wait past the
+	// deadline on a child (a hook, ssh) still holding git's output open.
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=true", "SSH_ASKPASS=true")
+	cmd.WaitDelay = time.Second
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}

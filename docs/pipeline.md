@@ -265,8 +265,10 @@ Not every failure is the bead's. If herdr is missing or down, no bead is
 held for it: the group logs one `runtime_down`, backs off (30s, doubling to
 5m) and its beads wait untouched until a start works again (`runtime_up`).
 A session that sits idle 30m or runs 4h raises `session_idle` or
-`session_aged` in the mayor's inbox, and with a group `grace` set it is then
-stopped; see [configuration.md](configuration.md#session-limits-and-outages).
+`session_aged` in the mayor's inbox; with a group `grace` set it is then
+stopped, and without one a session that has run twice its `max_age` is
+stopped anyway and the bead released with a note; see
+[configuration.md](configuration.md#session-limits-and-outages).
 
 ## Decide
 

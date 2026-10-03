@@ -97,7 +97,7 @@ with `yardr group add <name> ... --set key=value`:
 |---|---|---|
 | `idle` | `30m` | the agent sat idle (herdr status `idle` or `done`) this long: a `session_idle` event, once per idle spell |
 | `max_age` | `4h` | the session ran this long: a `session_aged` event, once per session |
-| `grace` | unset | when set, a session still idle (or still running) this long past its limit is stopped and counted as a failed session; `0` stops it at once. Unset, sessions are only reported |
+| `grace` | unset | when set, a session still idle (or still running) this long past its limit is stopped and counted as a failed session; `0` stops it at once. Unset, the defaults below apply |
 
 Durations are Go durations (`45m`, `2h`) or a number of seconds; `off` or
 `0` turns `idle` or `max_age` off. The defaults apply to runners that report
@@ -105,6 +105,18 @@ an agent's status (herdr). For `exec` and `manual` groups only what the group
 sets applies, and `idle` never does, since they cannot tell idle from busy.
 The idle clock is the daemon's: one that replaces itself starts it again,
 while the age is counted from the session's start and reported only once.
+
+**Defaults without a grace.** An idle session is only reported: an agent
+waiting on a human (a permission prompt, a question) is idle too, and
+stopping it would lose the answer. An aged session is reported at `max_age`
+and stopped anyway once it has run twice `max_age` (8h by default): nothing a
+bead needs takes that long, so a session still running is stuck. The stop
+counts as a failed session, so a bead whose agents keep running into the cap
+is held after three like any other repeat failure, and the bead is released
+with a note naming the session, the cap and the fix (raise the group's
+`max_age`), so the next agent and the mayor see why. The `session_aged`
+event's `stop_after` says how long after the event the session is stopped,
+with or without a grace.
 
 These events and `runtime_down` (below) are in a new resident's default
 `--on`, so the mayor's inbox gets them; a resident made before them needs
@@ -118,9 +130,13 @@ bead, and the bead waits where it is. The group gets one `runtime_down`
 event per outage and is not tried again for 30s, doubling up to 5m while it
 stays down; the first start that works logs `runtime_up`. Errors that are
 the bead's own (no rig, a bad brief, a worktree that cannot be made) still
-count. The fetch of a rig's base before a bead branches from it gives up
+count. herdr's own answer that its server is not running or not ready
+(`server_not_running`, `server_unavailable`) is an outage too, not a bead
+failure. The fetch of a rig's base before a bead branches from it gives up
 after 60s and never waits on a credential prompt (`GIT_TERMINAL_PROMPT=0`),
-so a dead remote cannot stall the daemon.
+so a dead remote cannot stall the daemon; every other git call a start or a
+cleanup makes (`worktree add`, `branch`, `worktree remove`) is cut off after
+2 minutes on the same terms.
 
 ## Precedence
 
