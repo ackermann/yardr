@@ -276,24 +276,56 @@ func prChecks(dir, url string) string {
 // Any other relative path is looked up in the rig's working tree, then in
 // the home.
 func readPrompt(p string, rig *store.Rig, home string) ([]byte, error) {
+	text, src, err := findPrompt(p, rig, home)
+	if err == nil && src.Kind == PromptRig && strings.HasPrefix(src.Path, "roles") {
+		warnRigRootRole(rig, src.Path)
+	}
+	return text, err
+}
+
+// Where a prompt is found (PromptSource.Kind).
+const (
+	PromptRig  = "rig"  // a file of the rig
+	PromptHome = "home" // a file under the yard's home, found by name
+	PromptFile = "file" // an absolute path, read as it is
+)
+
+// PromptSource says where readPrompt finds a prompt.
+type PromptSource struct {
+	Kind string
+	// Path is relative to the rig's root for a file of the rig, else
+	// absolute.
+	Path string
+	// Commit is the base commit a rig's file was read at; empty for one
+	// read from the rig's working tree or a dir rig's directory.
+	Commit string
+}
+
+// LocatePrompt says where the prompt p of a group working a bead of rig is
+// read from, by the lookup a brief makes: `yardr rig sources` shows it. An
+// error means a brief could not be written either.
+func LocatePrompt(p string, rig *store.Rig, home string) (PromptSource, error) {
+	_, src, err := findPrompt(p, rig, home)
+	return src, err
+}
+
+func findPrompt(p string, rig *store.Rig, home string) ([]byte, PromptSource, error) {
 	if filepath.IsAbs(p) {
-		return os.ReadFile(p)
+		text, err := os.ReadFile(p)
+		return text, PromptSource{Kind: PromptFile, Path: p}, err
 	}
 	name, isRole := roleName(p)
 	if !isRole {
-		return readPlain(p, rig, home)
+		return findPlain(p, rig, home)
 	}
 	var tried []string
 	if rig != nil && rig.Path != "" {
 		for _, rel := range []string{filepath.Join(".yardr", "roles", name), filepath.Join("roles", name)} {
-			text, where, err := readRigFile(rig, rel)
+			text, where, sha, err := readRigFile(rig, rel)
 			if err == nil {
-				if strings.HasPrefix(rel, "roles") {
-					warnRigRootRole(rig, rel)
-				}
-				return text, nil
+				return text, PromptSource{Kind: PromptRig, Path: rel, Commit: sha}, nil
 			} else if !errors.Is(err, fs.ErrNotExist) {
-				return nil, err
+				return nil, PromptSource{}, err
 			}
 			tried = append(tried, where)
 		}
@@ -302,14 +334,15 @@ func readPrompt(p string, rig *store.Rig, home string) ([]byte, error) {
 		path := filepath.Join(home, "roles", name)
 		text, err := os.ReadFile(path)
 		if err == nil || !errors.Is(err, fs.ErrNotExist) {
-			return text, err
+			return text, PromptSource{Kind: PromptHome, Path: path}, err
 		}
 		tried = append(tried, path)
 	}
 	if len(tried) == 0 {
-		return os.ReadFile(p)
+		text, err := os.ReadFile(p)
+		return text, PromptSource{Kind: PromptFile, Path: p}, err
 	}
-	return nil, fmt.Errorf("%s not found (looked in %s)", p, strings.Join(tried, ", "))
+	return nil, PromptSource{}, fmt.Errorf("%s not found (looked in %s)", p, strings.Join(tried, ", "))
 }
 
 // RigRole reports whether the rig has its own role prompt called name
@@ -320,7 +353,7 @@ func RigRole(rig *store.Rig, name string) (bool, error) {
 	if rig == nil || rig.Path == "" {
 		return false, nil
 	}
-	_, _, err := readRigFile(rig, filepath.Join(".yardr", "roles", name))
+	_, _, _, err := readRigFile(rig, filepath.Join(".yardr", "roles", name))
 	if errors.Is(err, fs.ErrNotExist) {
 		return false, nil
 	}
@@ -337,9 +370,9 @@ func roleName(p string) (string, bool) {
 	return file, true
 }
 
-// readPlain reads a relative prompt that is not a role from the rig's
+// findPlain reads a relative prompt that is not a role from the rig's
 // working tree, else the home.
-func readPlain(p string, rig *store.Rig, home string) ([]byte, error) {
+func findPlain(p string, rig *store.Rig, home string) ([]byte, PromptSource, error) {
 	var tried []string
 	for _, dir := range []string{rigPath(rig), home} {
 		if dir == "" {
@@ -348,14 +381,19 @@ func readPlain(p string, rig *store.Rig, home string) ([]byte, error) {
 		path := filepath.Join(dir, p)
 		text, err := os.ReadFile(path)
 		if err == nil || !errors.Is(err, fs.ErrNotExist) {
-			return text, err
+			src := PromptSource{Kind: PromptHome, Path: path}
+			if dir != home {
+				src = PromptSource{Kind: PromptRig, Path: p}
+			}
+			return text, src, err
 		}
 		tried = append(tried, path)
 	}
 	if len(tried) == 0 {
-		return os.ReadFile(p)
+		text, err := os.ReadFile(p)
+		return text, PromptSource{Kind: PromptFile, Path: p}, err
 	}
-	return nil, fmt.Errorf("%s not found (looked in %s)", p, strings.Join(tried, ", "))
+	return nil, PromptSource{}, fmt.Errorf("%s not found (looked in %s)", p, strings.Join(tried, ", "))
 }
 
 // gitTimeout bounds each git call reading a role from a rig's base: a
@@ -367,8 +405,9 @@ var gitTimeout = 30 * time.Second
 // does not have is fs.ErrNotExist, whatever the working tree holds: the
 // working tree is read only when the rig has no base that resolves (a
 // directory that is no git checkout) or is a dir rig. where names the
-// place looked, for the not-found error.
-func readRigFile(rig *store.Rig, rel string) (text []byte, where string, err error) {
+// place looked, for the not-found error, and sha the base commit read, empty
+// for the working tree.
+func readRigFile(rig *store.Rig, rel string) (text []byte, where, sha string, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
 	git := func(args ...string) ([]byte, error) {
@@ -390,25 +429,25 @@ func readRigFile(rig *store.Rig, rel string) (text []byte, where string, err err
 		// A rig that is not a repo, or whose base does not resolve, has no
 		// base to read from: its working tree is all there is.
 		if out, err := git("rev-parse", "--verify", "--quiet", rig.Base+"^{commit}"); err == nil {
-			sha := strings.TrimSpace(string(out))
+			sha = strings.TrimSpace(string(out))
 			// ls-tree tells "not on the base yet" apart from a failing git.
 			out, err := git("ls-tree", "--name-only", sha, "--", gitPath)
 			if err != nil {
-				return nil, "", err
+				return nil, "", "", err
 			}
 			where := rig.Base + ":" + gitPath
 			if strings.TrimSpace(string(out)) == "" {
-				return nil, where, fs.ErrNotExist
+				return nil, where, "", fs.ErrNotExist
 			}
 			text, err := git("show", sha+":"+gitPath)
-			return text, where, err
+			return text, where, sha, err
 		} else if ctx.Err() != nil {
-			return nil, "", err
+			return nil, "", "", err
 		}
 	}
 	path := filepath.Join(rig.Path, rel)
 	text, err = os.ReadFile(path)
-	return text, path, err
+	return text, path, "", err
 }
 
 // warnedRigRoots holds the rig-root roles already warned about, so a

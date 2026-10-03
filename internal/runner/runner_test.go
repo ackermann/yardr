@@ -1507,3 +1507,53 @@ func TestBriefShowsTheStageFile(t *testing.T) {
 		t.Errorf("brief with next stages:\n%s", b)
 	}
 }
+
+// LocatePrompt says where a brief reads a prompt: the rig's role at the
+// base commit, the home's when the rig has none, a path as it is.
+func TestLocatePrompt(t *testing.T) {
+	rigDir, home := t.TempDir(), t.TempDir()
+	git := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", rigDir}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	write := func(dir, rel string) string {
+		t.Helper()
+		path := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	git("init", "-q", "-b", "main")
+	write(rigDir, ".yardr/roles/builder.md")
+	git("add", "-A")
+	git("commit", "-q", "-m", "role")
+	sha := git("rev-parse", "HEAD")
+	// On no commit of the base: the home's copy serves.
+	write(rigDir, ".yardr/roles/reviewer.md")
+	homeRole := write(home, "roles/reviewer.md")
+	plain := write(rigDir, "docs/prompt.txt")
+	rig := &store.Rig{Name: "web", Path: rigDir, Base: "main"}
+	for p, want := range map[string]PromptSource{
+		"roles/builder.md": {Kind: PromptRig, Path: filepath.Join(".yardr", "roles", "builder.md"), Commit: sha},
+		"reviewer.md":      {Kind: PromptHome, Path: homeRole},
+		"docs/prompt.txt":  {Kind: PromptRig, Path: "docs/prompt.txt"},
+		plain:              {Kind: PromptFile, Path: plain},
+	} {
+		if got, err := LocatePrompt(p, rig, home); err != nil || got != want {
+			t.Errorf("LocatePrompt(%s) = %+v, %v; want %+v", p, got, err, want)
+		}
+	}
+	if _, err := LocatePrompt("roles/nobody.md", rig, home); err == nil {
+		t.Error("a role nobody has was located")
+	}
+}

@@ -239,6 +239,11 @@ type Result struct {
 	// home for a store flow. They never fail the check: stage files are
 	// optional. The caller fills them in, as it does StrayStageFiles.
 	StageNotes []string `json:"stage_notes,omitempty"`
+	// ShadowNotes name each file of the rig's repository that nothing reads
+	// while a flow in the store, or a prompt from a pack or the yard's home,
+	// stands in front of it. They never fail the check: shadowing is how a
+	// pack governs a rig. The caller fills them in.
+	ShadowNotes []string `json:"shadow_notes,omitempty"`
 	// StrayStageFiles are the stage files in Dir named after no stage of
 	// their flow, which fail the check whatever the gate said: nobody is
 	// ever shown one, so nobody else would see the typo.

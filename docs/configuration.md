@@ -206,6 +206,60 @@ which flow governs a bead and where it came from: `pin`, `store`,
 rule is: the rig's `--check`, else `.yardr/check` on the base, else no
 gate, which fails unless the rig allows it.
 
+### Where a rig's flows, stage files and roles come from
+
+The store decides per object: the rig's flow pointer, and the `prompt` of
+each group and resident. `yardr rig sources <rig>` shows all of it in one
+place, one line per object: the kind, the name, the source that governs,
+and what it shadows or what else is available.
+
+```
+$ yardr rig sources yardr
+KIND   NAME            SOURCE
+flow   default         pack starter (store starter.default)                     shadows .yardr/flows/default.flow
+stage  new             none                                                     shadows .yardr/flows/default/new.md
+stage  review          pack starter (~/.yardr/flows/starter.default/review.md)  shadows .yardr/flows/default/review.md
+stage  decide          none
+role   yardr-builders  rig (.yardr/roles/builder.md@add63e5)                    pack starter has a copy
+role   yardr-reviewers pack starter (~/.yardr/packs/starter/roles/reviewer.md)  shadows .yardr/roles/reviewer.md
+role   yardmaster      home (~/.yardr/roles/mayor.md)
+```
+
+- **flow**: each flow governing the rig, as `yardr flow show <rig>` resolves
+  them: the rig's own (`default`), then one per type (`type/<type>`). With
+  type flows, a stage is named `<type>:<stage>` (`default:<stage>` for the
+  rig's own).
+- **stage**: the stage file of each non-terminal stage of those flows.
+- **role**: the prompt of each agent group a stage or route of the rig leads
+  to, where a brief for a bead of the rig reads it, and of each resident a
+  pack imported into the rig names. Script and people groups have no role.
+
+| source | it is |
+|---|---|
+| `rig (<path>@<sha>)` | a file of the rig's repository, at that commit of the base (no commit: a dir rig's directory, or a working tree) |
+| `pack <name>` | the pack's flow in the store, a stage file of that flow in the home, or the pack's installed role |
+| `store` | a named flow in the store that no pack imported into the rig brought |
+| `home (<path>)` | a file under the yard's home: a role there, or a stage file of a store flow |
+| `file (<path>)` | any other path |
+| `none` | no flow governs, the stage has no file, the group no prompt; with `: <why>` after it, a prompt that names a file nobody has |
+
+`shadows <file>` names a file of the rig's repository that nothing reads
+while the line is as it is: the flow file behind a store pointer (and,
+behind the rig's pointer, every type's file, since the store wins as a
+whole), the stage file of a flow that does not govern, the rig's own role
+behind a group prompted from a pack or the home. Stage files of a shadowed
+flow that match no stage of the governing one are listed on the flow's
+line. `yardr rig check` names every shadowed file in a note
+(`note: .yardr/roles/reviewer.md is shadowed by …`), which never fails the
+check. `pack <name> has a copy` and `pack <name> has flow <flow>` say what
+the rig could take instead.
+
+`--json` prints the lines as data: `kind`, `name`, `flow`, `type`,
+`source`, `pack`, `path`, `commit`, `shadows`, `available`, `error`. The
+view changes nothing: `yardr rig flow` sets and clears the pointer, and
+`yardr pack apply --rig-roles` or `--pack-roles` chooses the roles
+([packs.md](packs.md#how-a-pack-maps-to-the-yard)).
+
 ## Repo config comes from the base branch
 
 This section is about git rigs; a dir rig has no base and reads `.yardr/`

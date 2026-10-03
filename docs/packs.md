@@ -167,6 +167,10 @@ the plan says `kept: prompt roles/builder.md: the rig has its own
 the same way. Groups and residents whose role the rig lacks get the pack's
 copy either way, and every copy is installed all the same.
 
+`yardr rig sources <rig>` shows the outcome for a rig as it is now: one line
+per flow, stage file and role, with where it comes from and the rig's file
+it shadows ([configuration.md](configuration.md#where-a-rigs-flows-stage-files-and-roles-come-from)).
+
 The record remembers which of the two was chosen (`roles` in `yardr pack
 list`), and an import without the flag repeats it. `--pack-roles` chooses
 the pack's roles again after an import with `--rig-roles`; it is the default
@@ -197,7 +201,8 @@ rig whose base branch carries `.yardr/flows/default.flow` (what `yardr rig
 init` writes) is governed by the pack's flow once the import has pointed it
 there, and its `type/<type>.flow` files stop governing too. The files stay
 and govern again when the pointer is cleared (`yardr rig flow <rig>
---clear`). The plan says which flow would govern the rig's beads and each
+--clear`). `yardr rig sources <rig>` names each of them, and the stage files
+beside them, as shadowed. The plan says which flow would govern the rig's beads and each
 type's afterwards, and which does now. A type pointer the pack has no flow
 for is left alone.
 

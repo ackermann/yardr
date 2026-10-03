@@ -355,6 +355,11 @@ Where it shows:
   the branch's to fix. A stray file of a store flow in the yard's home is no
   branch's to fix: exit 2 when nothing else fails, and `yardr flow show`
   warns of it too.
+- **`yardr rig sources <rig>`.** One line per non-terminal stage of the
+  flows governing the rig: where its stage file comes from, or `none`, and
+  the repository's stage file it shadows when a store flow governs
+  ([configuration.md](configuration.md#where-a-rigs-flows-stage-files-and-roles-come-from)).
+  `yardr rig check` names each shadowed file in a note.
 
 What goes in a stage file and what in a role prompt is in
 [groups.md](groups.md#role-file-or-stage-file). `yardr rig init` writes a

@@ -378,7 +378,7 @@ the beads and sessions named: close or move the beads first.`,
 			})
 		},
 	}
-	cmd.AddCommand(add, list, show, flow, rm, a.rigCheckCmd(), a.rigInitCmd())
+	cmd.AddCommand(add, list, show, flow, rm, a.rigCheckCmd(), a.rigInitCmd(), a.rigSourcesCmd())
 	return cmd
 }
 
@@ -423,7 +423,12 @@ fails the check (exit 1), as nobody would ever be shown it. A store flow's
 are in the yard's home (<home>/flows/<name>/<stage>.md): one named after no
 stage of its flow fails the check too, with exit 2 when nothing else does,
 as no branch can fix it. The non-terminal stages without a stage file are
-named in a note, which never fails the check.`,
+named in a note, which never fails the check.
+
+So is each file of the rig's repository that nothing reads because a flow in
+the store, or a prompt from a pack or the yard's home, stands in front of
+it: a note, never a failure. They are read on the base, as a brief reads
+them; yardr rig sources <rig> shows every source.`,
 		Example: `  yardr rig check yard                                   # in the rig itself
   yardr rig check yard --dir ~/.yardr/worktrees/yard/yard-12   # in a bead's worktree`,
 		Args: cobra.ExactArgs(1),
@@ -450,7 +455,7 @@ named in a note, which never fails the check.`,
 					fmt.Printf("(%d lines of output not shown; --tail to see them, or --json for all)\n",
 						strings.Count(strings.TrimRight(res.Output, "\n"), "\n")+1)
 				}
-				for _, n := range res.StageNotes {
+				for _, n := range slices.Concat(res.StageNotes, res.ShadowNotes) {
 					fmt.Printf("note: %s\n", n)
 				}
 				src := res.Source
@@ -544,6 +549,10 @@ func (a *app) runRigCheck(ctx context.Context, rigName, dir string, timeout time
 		res.Stranded, res.Pass = stranded, false
 	}
 	res.StageNotes = notes
+	// A rig whose sources do not resolve has other trouble; the notes wait.
+	if lines, err := rigSources(ctx, st, rig.Name, a.home()); err == nil {
+		res.ShadowNotes = shadowNotes(rig.Name, lines)
+	}
 	if len(stray) > 0 {
 		res.StrayStageFiles, res.Pass = stray, false
 	}
