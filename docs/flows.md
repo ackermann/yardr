@@ -273,9 +273,9 @@ These are the flows yardr itself is built with (`yardr flow show yardr`, as of
 flow default (repo@2c2a589)
 STAGE     GROUP            MEMBERS            OPEN  NEXT
 backlog   backlog          mckean,yardmaster  4     new | decide
-new       yardr-builders   -                  2     review on done | decide on question | backlog
+new       yardr-builders   -                  1     review on done | decide on question | backlog
 decide    decisions        mckean,yardmaster  0     backlog | new
-review    yardr-reviewers  -                  0     approved on done | new on changes | decide on question
+review    yardr-reviewers  -                  1     approved on done | new on changes | decide on question
 approved  yardr-refinery   -                  0     merged on done | new on failed | decide on question
 merged    -                -                  0     (terminal: closes the bead)
 ```
