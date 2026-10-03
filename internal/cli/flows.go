@@ -333,10 +333,13 @@ func flowViews(ctx context.Context, st store.API, rig string) ([]flowView, error
 		return nil, err
 	}
 	for _, sb := range stranded {
-		if len(views) == 0 {
-			break
+		i := slices.IndexFunc(views, func(v flowView) bool { return v.Flow.Name == sb.Flow && v.Source == sb.Source })
+		if i < 0 {
+			// A bead may pin a flow that does not otherwise govern this rig.
+			// Keep its warning visible even when there are no normal views.
+			views = append(views, flowView{Flow: store.Flow{Name: sb.Flow}, Source: sb.Source})
+			i = len(views) - 1
 		}
-		i := max(0, slices.IndexFunc(views, func(v flowView) bool { return v.Flow.Name == sb.Flow && v.Source == sb.Source }))
 		views[i].Warnings = append(views[i].Warnings,
 			fmt.Sprintf("bead %s: it is not routed and waits until someone advances it (yardr bead advance %s --to <stage>)", sb, sb.Bead))
 	}

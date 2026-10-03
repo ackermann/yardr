@@ -239,4 +239,31 @@ func TestRigCheckAndFlowShowReportStrandedBeads(t *testing.T) {
 	if views, err = flowViews(ctx, st, "web"); err != nil || slices.ContainsFunc(views[0].Warnings, func(w string) bool { return strings.Contains(w, b.ID) }) {
 		t.Fatalf("flow show after advancing: %+v, %v", views, err)
 	}
+
+	// A bead may pin a flow that is not one of the rig's normal views. Its
+	// warning still needs a visible heading under that flow.
+	altPath := filepath.Join(repo, ".yardr/flows/alt.flow")
+	if err := os.WriteFile(altPath, []byte("lost -> start\nstart -> finish\nfinish terminal\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", ".yardr/flows/alt.flow")
+	git("commit", "-q", "-m", "add pinned flow")
+	if err := st.PutRig(ctx, store.Rig{Name: "pin-only", Path: repo, Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	pinned, err := st.CreateBead(ctx, store.NewBead{Title: "pinned stranded", Rig: "pin-only", Stage: "lost", Metadata: map[string]any{"flow": "alt"}}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(altPath, []byte("start -> finish\nfinish terminal\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", ".yardr/flows/alt.flow")
+	git("commit", "-q", "-m", "drop pinned stage")
+	views, err = flowViews(ctx, st, "pin-only")
+	if err != nil || !slices.ContainsFunc(views, func(v flowView) bool {
+		return v.Flow.Name == "alt" && slices.ContainsFunc(v.Warnings, func(w string) bool { return strings.Contains(w, pinned.ID) })
+	}) {
+		t.Fatalf("flow show omitted pinned stranded bead: %+v, %v", views, err)
+	}
 }
