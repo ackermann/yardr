@@ -693,11 +693,6 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		if t, ok := d.retryAfter[b.ID]; ok && d.now().Before(t) {
 			continue
 		}
-		if wait, err := d.backingOff(ctx, b); err != nil {
-			return err
-		} else if wait {
-			continue
-		}
 		r := Match(routes, b)
 		if r == nil {
 			d.reportOnce(ctx, b, "unrouted", fmt.Sprintf("no route for stage %q type %q", b.Stage, b.Type))
@@ -713,6 +708,14 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 			continue
 		}
 		if o := d.down[g.Name]; o != nil && time.Now().Before(o.until) {
+			continue
+		}
+		// Last, since it reads the bead's events: only a bead that would
+		// otherwise dispatch now pays for it, not every ready bead in
+		// backlog on every pass.
+		if wait, err := d.backingOff(ctx, b); err != nil {
+			return err
+		} else if wait {
 			continue
 		}
 		fails, err := d.Store.FailureCount(ctx, b.ID, b.Stage)

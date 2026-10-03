@@ -318,8 +318,9 @@ change the bar they land under; it runs on the child's branch as before.
 `dep add -k parent` refuses a parent that is not an epic, a closed epic
 (it has landed, or was dropped: a child added now would land on a branch
 nothing integrates again), a child already in another epic, an epic as a
-child (epics do not nest) and a child in another rig. Only parent edges from an epic count: a bead whose parent is
-not an epic keeps the rig's base. A bead that is a child of two epics
+child (epics do not nest) and a child in another rig. Only parent edges
+from an epic count: a bead whose parent is not an epic keeps the rig's
+base. A bead that is a child of two epics
 anyway (a type changed to `epic` later) is not dispatched; yardr logs
 `bad_epic` until one parent edge is removed.
 
@@ -354,9 +355,10 @@ An epic follows `yardr.epic` ([flows.md](flows.md#worked-example-rig-yard)):
    `yard/<epic>` onto the rig's base in the epic's worktree, runs the gate
    on it (`yardr rig check yard --dir <worktree>`, the gate read from main),
    pushes the rebased branch when `YARDR_PUSH` is set (replacing the remote
-   branch only when everything on it was in what it rebased, or in a tip a
-   merger noted; below), and reports `done`, to review. A red gate reports `failed`, back to `open`, with the
-   gate's tail in the note, after adding a child in `backlog` to fix it
+   branch only when everything on it was in what it rebased, or in a
+   recorded old tip; step 5), and reports `done`, to review. A red gate
+   reports `failed`, back to `open`, with the gate's tail in the note,
+   after adding a child in `backlog` to fix it
    ("Fix the gate on epic <id>", type bug, the tail in its body): the child
    blocks the epic, so it is not integrated again until the fix has landed
    on its branch. A rebase that conflicts aborts it and reports
@@ -389,13 +391,14 @@ An epic follows `yardr.epic` ([flows.md](flows.md#worked-example-rig-yard)):
    `approved`, goes to the mergers as any bead's does. The merger rebases
    `yard/<epic>` onto the base in the epic's worktree, keeping both sides'
    intent, runs the gate, and does not push (the integrator pushes, with a
-   lease); the brief says the branch and what happens next. Its note
-   records the tip it started from (`old tip: <sha>`, as for any bead):
-   the remote still has that tip, which the rebase rewrote, and the
+   lease); the brief says the branch and what happens next. The tip the
+   merger starts from is recorded on the epic as `old tip: <sha>`, by the
+   integrator's conflict note and again by the merger's note (as for any
+   bead): the remote still has that tip, which the rebase rewrote, and the
    integrator's lease accepts a remote branch whose commits are all in the
-   branch as it was before its own rebase or in a tip a merger noted, so
-   the resolved branch replaces it. Without the line the push is refused
-   (never forced) and the epic held, or mailed about without a pull
+   branch as it was before its own rebase or in a recorded old tip, so the
+   resolved branch replaces it. A remote with commits in neither is never
+   forced over: the epic is held, or mailed about when there is no pull
    request. Its `done` sends the epic back to `open`, not to review: with
    no child open it is ready, so the integrator takes it again, rebases it
    (a no-op unless the base moved again), gates it, pushes it and opens or

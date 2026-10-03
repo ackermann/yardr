@@ -25,9 +25,10 @@ routed for the epic flow's `open` stage (type `epic`). It fetches the base
 when it is a remote's, rebases `yard/<epic>` onto the rig's base and runs
 the gate on it. Green pushes the rebased branch when `YARDR_PUSH` is set
 (replacing the remote branch only if everything on it was in what it
-rebased, or in a tip a merger's note records as `old tip: <sha>`: the
-merger rebases without pushing, so the remote still has the tip it started
-from) and reports `done`, to review. Red adds a child in `backlog`, "Fix
+rebased, or in a tip a note on the epic records as `old tip: <sha>`, which
+its own conflict note and the merger's note both do: the merger rebases
+without pushing, so the remote still has the tip it started from) and
+reports `done`, to review. Red adds a child in `backlog`, "Fix
 the gate on epic <id>", which blocks the epic, and reports `failed`, back to
 `open`. A rebase conflict aborts the rebase, reports `conflict` to `merge`
 with the conflicting files and both tips, and leaves the branch for the

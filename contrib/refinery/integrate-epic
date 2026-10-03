@@ -97,7 +97,7 @@ if ! git -C "$REPO" merge-base --is-ancestor "$BASE" "$BR"; then
     git -C "$WT" rebase --abort
     report conflict "rebase of $BR onto $BASE conflicts in: $files
 $BR is at $(git -C "$REPO" rev-parse --short "$BR"), $BASE at $(git -C "$REPO" rev-parse --short "$BASE").
-Rebase $BR onto $BASE in $WT keeping both sides' intent, and do not push it: back in open, the integrator gates and pushes it. Note the tip you start from (old tip: $(git -C "$REPO" rev-parse "$BR")), as the merger's note does: the push replaces $PUSH/$BR only when everything there is in that tip."
+Rebase $BR onto $BASE in $WT keeping both sides' intent, and do not push it: back in open, the integrator gates and pushes it. The tip you start from is old tip: $(git -C "$REPO" rev-parse "$BR"); note it too, as a merger's note does: the push replaces $PUSH/$BR only when everything there is in a tip noted this way."
   fi
 fi
 
@@ -134,9 +134,9 @@ msg="integrated $BR at $sha onto $BASE; gate passed. Review $BASE..$BR."
 # what was integrated: in $BR as it was before this rebase, or in a tip a
 # merger started from. A merger rebases the branch in its worktree without
 # pushing it (see roles/merger.md), so the remote still has the tip it
-# started from, which its note records as "old tip: <sha>"; those commits
-# are in the branch as rebased. Anything else on the remote is someone's
-# commits: never forced over.
+# started from, which the conflict note above and the merger's own note
+# record as "old tip: <sha>"; those commits are in the branch as rebased.
+# Anything else on the remote is someone's commits: never forced over.
 if [ -n "$PUSH" ]; then
   tips=$was
   for t in $("$Y" prime --bead "$EPIC" | grep -o 'old tip: [0-9a-f]\{7,40\}' | awk '{print $3}'); do

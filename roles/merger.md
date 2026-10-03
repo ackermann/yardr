@@ -39,13 +39,15 @@ rig's base, keeping both sides' intent exactly as for a bead. The conflict
 is between the epic as a whole and what landed on the base, so read its
 children's beads for its side. Do not push the epic's branch, not even with
 a lease: the integrator pushes it once the epic is back in `open`. Its push
-replaces the remote branch only when everything there was in the tip you
-started from, which it reads from your note's `old tip: <sha>` line: your
-rebase rewrote that tip, so without the line the push is refused and the
-epic held. (The reviewer, who adds commits rather than rewriting, is the one
-role that pushes this branch, with a lease.) Finish with `yardr bead done
-<id>` as usual; the flow sends the epic back to be integrated and gated
-again before its review.
+replaces the remote branch only when everything there was in a tip a note
+on the epic records as `old tip: <sha>`: the integrator's conflict note
+records the tip you start from, and your note repeats it (the reviewer's
+range-diff needs it too). Your rebase rewrote that tip, which is what the
+remote still has; a remote with commits in no recorded tip is never forced
+over, and the epic is held. (The reviewer, who adds commits rather than
+rewriting, is the one role that pushes this branch, with a lease.) Finish
+with `yardr bead done <id>` as usual; the flow sends the epic back to be
+integrated and gated again before its review.
 
 When not to resolve:
 
