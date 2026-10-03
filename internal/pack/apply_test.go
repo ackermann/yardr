@@ -586,3 +586,53 @@ func TestFlowChoiceIsAskedAndRemembered(t *testing.T) {
 		t.Fatalf("starter.short after the prune: %v", err)
 	}
 }
+
+// Pruning a pack's dropped type-flow pointer must not silently send its
+// open beads to the rig's default flow when that flow lacks their stage.
+func TestPruneHoldsTypePointerThatWouldStrandBeads(t *testing.T) {
+	st, o := yard(t)
+	dir := copyStarter(t)
+	text, err := os.ReadFile(filepath.Join(dir, "pack.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Add a type flow whose stage does not exist in the default flow.
+	withType := strings.Replace(string(text), "groups:\n", "  task-flow:\n    type: task\n    stages:\n      triage: { group: builders, outcomes: { done: merged } }\n      merged: { end: true }\ngroups:\n", 1)
+	if withType == string(text) {
+		t.Fatal("pack.yaml has no groups section")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pack.yaml"), []byte(withType), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	apply(t, st, build(t, st, load(t, dir), o), answers)
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "in triage", Rig: "web", Type: "task", Stage: "triage"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text = []byte(strings.Replace(string(withType), "  task-flow:\n    type: task\n    stages:\n      triage: { group: builders, outcomes: { done: merged } }\n      merged: { end: true }\n", "", 1))
+	if err := os.WriteFile(filepath.Join(dir, "pack.yaml"), text, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := build(t, st, load(t, dir), o)
+	var dropped pack.Object
+	for _, obj := range plan.Objects {
+		if obj.Kind == "pointer" && obj.Action == pack.Dropped && obj.Pointer != nil && obj.Pointer.Type == "task" {
+			dropped = obj
+			break
+		}
+	}
+	if dropped.Held == "" || !strings.Contains(dropped.Held, b.ID+" (triage)") {
+		t.Fatalf("type pointer = %+v, want held with the stranded bead", dropped)
+	}
+	res, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: pack.Answers(answers), Prune: true, Actor: "me"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(res.Left, "pointer rig web type task -> starter.task-flow") {
+		t.Fatalf("prune result = %+v", res)
+	}
+	ptrs, err := st.FlowPointers(ctx)
+	if err != nil || !slices.Contains(ptrs, store.FlowPointer{Rig: "web", Type: "task", Flow: "starter.task-flow"}) {
+		t.Fatalf("type flow pointer after prune = %v, %v", ptrs, err)
+	}
+}

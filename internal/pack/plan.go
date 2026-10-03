@@ -1074,6 +1074,19 @@ func (b *planner) dropped() error {
 		})
 		b.add(*o)
 	}
+	// A type-flow pointer held to protect its beads keeps the flow it points
+	// at too; otherwise pruning would report a store error for that flow.
+	for _, pointer := range b.plan.Objects {
+		if pointer.Kind != "pointer" || pointer.Action != Dropped || pointer.Held == "" || pointer.Pointer == nil {
+			continue
+		}
+		for i := range b.plan.Objects {
+			flow := &b.plan.Objects[i]
+			if flow.Kind == "flow" && flow.Action == Dropped && flow.Name == pointer.Pointer.Flow {
+				flow.Held = "a type-flow pointer is kept: " + pointer.Held
+			}
+		}
+	}
 	return nil
 }
 
@@ -1142,7 +1155,13 @@ func (b *planner) gone(po store.PackObject) (*Object, error) {
 		if !slices.Contains(ptrs, p) {
 			return nil, nil
 		}
-		return &Object{Kind: po.Kind, Name: p.String() + " -> " + p.Flow, Pointer: &p}, nil
+		held := ""
+		if p.Type != "" {
+			if held, err = b.strandedTypePointer(&p); err != nil {
+				return nil, err
+			}
+		}
+		return &Object{Kind: po.Kind, Name: p.String() + " -> " + p.Flow, Pointer: &p, Held: held}, nil
 	case "route":
 		routes, err := b.st.Routes(b.ctx)
 		if err != nil {
@@ -1180,4 +1199,42 @@ func (b *planner) gone(po store.PackObject) (*Object, error) {
 		return &Object{Kind: po.Kind, Name: po.Resident + " " + sub.String(), Subscription: &SubscriptionOp{Resident: po.Resident, Remove: &sub}}, nil
 	}
 	return nil, nil
+}
+
+// strandedTypePointer keeps a dropped type-flow pointer when clearing
+// it would make the type's open beads follow the rig's newly chosen default
+// flow at stages that flow lacks. Clearing a pointer does not itself check
+// for stranded beads, so the import has to protect them before pruning.
+func (b *planner) strandedTypePointer(p *store.FlowPointer) (string, error) {
+	var fallback string
+	for _, g := range b.plan.Governs {
+		if g.Type == "" {
+			fallback = g.Flow
+			break
+		}
+	}
+	if fallback == "" {
+		return "", nil
+	}
+	f, err := b.st.GetFlow(b.ctx, fallback)
+	if err != nil {
+		return "", err
+	}
+	beads, err := b.st.ListBeads(b.ctx, store.BeadFilter{})
+	if err != nil {
+		return "", err
+	}
+	var stranded []string
+	for _, bead := range beads {
+		if bead.Status == "closed" || bead.Rig == nil || *bead.Rig != p.Rig || bead.Type != p.Type || store.PinnedFlow(&bead) != "" {
+			continue
+		}
+		if !slices.Contains(f.Stages, bead.Stage) {
+			stranded = append(stranded, fmt.Sprintf("%s (%s)", bead.ID, bead.Stage))
+		}
+	}
+	if len(stranded) > 0 {
+		return fmt.Sprintf("clearing it would strand open beads under flow %s: %s", fallback, strings.Join(stranded, ", ")), nil
+	}
+	return "", nil
 }
