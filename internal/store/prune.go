@@ -160,7 +160,9 @@ func firstUnread(tx *bolt.Tx, r *Resident, bound time.Time) (uint64, bool, error
 // is stopped or disabled would otherwise pin the log for as long as it
 // stays so. held says what, if anything, kept events older than the
 // asked-for cutoff. Cursors only move forward and new sessions start after
-// now, so the floor stays valid while Prune runs.
+// now, so the floor stays valid while Prune runs; a resident that starts
+// between here and the batch is the one exception, and loses at most what
+// it left unread for a whole retention.
 func (s *Store) pruneFloor(cutoff, unreadBound time.Time) (floor uint64, _ time.Time, held string, err error) {
 	err = s.read(func(tx *bolt.Tx) error {
 		k, _ := tx.Bucket(bEvents).Cursor().Last()
