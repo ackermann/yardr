@@ -124,6 +124,28 @@ change its own reviewer's prompt), else the generic
 read as is. The order and the older rig-root `roles/` are in
 [configuration.md](configuration.md#role-prompts).
 
+### Role file or stage file
+
+A brief has two texts that are not about the bead: the group's role prompt
+and the stage's [stage file](flows.md#stage-files-what-a-stage-is-for). They
+answer different questions.
+
+- **The role file** says how this group works, in any stage it is routed
+  for: how a builder builds (style, the gate, never `go install`), how a
+  reviewer reads a diff, which tools to use and which to leave alone, what
+  to do with something outside the bead. It follows the group.
+- **The stage file** says what the stage is, for whoever works a bead
+  there: what it is for, what must be true before a bead leaves it, and when
+  each outcome applies (`changes` when the builder can fix it, `question`
+  when a person must decide). It follows the flow, so a person or a resident
+  in a manual stage reads the same text with `yardr prime --bead`, where no
+  role prompt reaches.
+
+If a sentence would still be true after another group took over the stage,
+it belongs in the stage file; if it would still be true after the group was
+routed to another stage, in the role file. Stages no agent works (`backlog`,
+`decide`) have no role to say it in, only a stage file.
+
 ### Outbound credentials
 
 A herdr group whose agents need a credential to act outside the yard (a

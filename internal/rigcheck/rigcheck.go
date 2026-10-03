@@ -234,6 +234,18 @@ type Result struct {
 	// fail the check whatever the gate said. The caller fills it in: Run
 	// has no store.
 	Stranded []store.StrandedBead `json:"stranded,omitempty"`
+	// StageNotes name, per flow governing the rig, the non-terminal stages
+	// without a stage file: in Dir for a repository flow, in the yard's
+	// home for a store flow. They never fail the check: stage files are
+	// optional. The caller fills them in, as it does StrayStageFiles.
+	StageNotes []string `json:"stage_notes,omitempty"`
+	// StrayStageFiles are the stage files in Dir named after no stage of
+	// their flow, which fail the check whatever the gate said: nobody is
+	// ever shown one, so nobody else would see the typo.
+	StrayStageFiles []string `json:"stray_stage_files,omitempty"`
+	// StrayHomeStageFiles are the same for the store flows governing the
+	// rig, whose stage files are in the yard's home: no branch's to fix.
+	StrayHomeStageFiles []string `json:"stray_home_stage_files,omitempty"`
 }
 
 // Run resolves the rig's gate and runs it in dir (a bead's worktree, or the

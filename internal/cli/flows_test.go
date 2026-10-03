@@ -50,7 +50,7 @@ func TestFlowViews(t *testing.T) {
 		must(err)
 	}
 
-	views, err := flowViews(ctx, st, "yard")
+	views, err := flowViews(ctx, st, "yard", "")
 	must(err)
 	if len(views) != 2 || views[0].Type != "" || views[1].Type != "decision" || views[1].Source.String() != "store, type decision" {
 		t.Fatalf("views = %+v", views)
@@ -85,7 +85,7 @@ func TestFlowViews(t *testing.T) {
 		t.Errorf("rig stages = %+v", rv.Stages)
 	}
 
-	if _, err := flowViews(ctx, st, "nope"); err == nil {
+	if _, err := flowViews(ctx, st, "nope", ""); err == nil {
 		t.Error("unknown rig accepted")
 	}
 

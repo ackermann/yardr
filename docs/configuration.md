@@ -15,6 +15,7 @@ in yard-9cza, the merge gate in yard-p2y7.
 | | repo `.yardr/` (what the work is) | store (who / where / how) |
 |---|---|---|
 | flows | the rig's default and type flows, named flows: `.yardr/flows/` (built) | named flows, and rig and type pointers to them (built) |
+| stage files | a repository flow's: `.yardr/flows/<name>/<stage>.md`, read from the base (built) | none in the store: a store flow's are files in the yard's home, `~/.yardr/flows/<name>/<stage>.md` (built; [flows.md](flows.md#stage-files-what-a-stage-is-for)) |
 | merge gate | `.yardr/check` (built) | a per-rig override, `rig add --check` (built) |
 | roles | the rig's own role prompts: `.yardr/roles/<name>.md`, read from the base (built) | the generic roles `yardr init` installed in `~/.yardr/roles/`, the fallback; residents' prompts, by absolute path (built) |
 | groups | | runner, limit, members, subscriptions (manual), agent kind, model, args, cmd, worktree settings (built) |
@@ -170,6 +171,7 @@ and `--clone`.
 | `.yardr/` | git rig | dir rig |
 |---|---|---|
 | `flows/` | at the tip of the base (`repo@<sha>`) | in the directory (`repo (directory)`) |
+| `flows/<name>/<stage>.md` | at the tip of the base, with the flow | in the directory |
 | `roles/<name>.md` | at the tip of the base, else the working tree | in the directory |
 | `check` | at the tip of the (fetched) base, written out and run | in the directory, run in place |
 | no `check` | fails ("no gate") unless `--allow-no-check` | passes ("no gate"): nothing merges |

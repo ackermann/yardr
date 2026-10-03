@@ -81,7 +81,8 @@ func strs(cfg map[string]any, key string) []string {
 }
 
 // Brief renders the instructions an agent session starts from: the group's
-// prompt file followed by the bead and the yard commands to report back.
+// prompt file followed by the bead, the yard commands to report back and,
+// when the bead's flow has one for its stage, the stage file.
 // home is the yard's home, where relative prompts not in the rig are found.
 func Brief(job dispatch.Job, actor, workdir, home string) (string, error) {
 	var b strings.Builder
@@ -143,6 +144,21 @@ Your environment already names you to yardr (YARDR_ACTOR=%[1]s, YARDR_BEAD, YARD
 
 %[4]s
 `, actor, bead.ID, advance, ends)
+	// What the flow says about this stage, for whoever works it, right
+	// before the ways out of it. The heading is the brief's, so the file
+	// itself needs none.
+	sf := job.StageFile
+	if sf == nil && job.StoreFlow != "" {
+		// A store flow's stage files are files in the yard's home, like
+		// the roles a rig does not carry.
+		var err error
+		if sf, err = store.HomeStageFile(home, job.StoreFlow, bead.Stage); err != nil {
+			return "", err
+		}
+	}
+	if sf != nil && strings.TrimSpace(sf.Text) != "" {
+		fmt.Fprintf(&b, "\n## Stage `%s`\n\n%s\n", bead.Stage, strings.TrimSpace(sf.Text))
+	}
 	switch {
 	case len(job.Outcomes) > 0:
 		writeOutcomes(&b, bead.ID, bead.Stage, job.Outcomes)

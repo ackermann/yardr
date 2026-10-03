@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -25,7 +26,44 @@ import (
 //
 // A dir rig has no base: its flows are read from the directory as it is,
 // <path>/.yardr/flows/, and reread when a file's mtime or size changes.
+//
+// Beside a flow file, a directory of its name holds the flow's stage files
+// (StageFile), read from the same place as the flow:
+//
+//	.yardr/flows/<name>/<stage>.md        for <name>.flow
+//	.yardr/flows/type/<type>/<stage>.md   for type/<type>.flow
+//
+// A flow in the store has its stage files in the yard's home instead
+// (HomeStageFile); the repository is not asked for those.
 const RepoFlowDir = ".yardr/flows"
+
+// StageFile is the markdown definition of one stage of one flow: what the
+// stage is for, what must be true to leave it, when each outcome applies.
+// Whoever works a bead in the stage reads it, whichever group they are in.
+// It is optional: a stage without one has only its name.
+type StageFile struct {
+	// Path is the file: in the rig's repository for a repository flow,
+	// absolute in the yard's home for a flow in the store.
+	Path string `json:"path"`
+	Text string `json:"text"`
+}
+
+// StageFilePath is where the stage file of flow's stage lives in a rig's
+// repository. flow is the flow's name: <name>, or type/<type> for a type's
+// file. The file belongs to the flow, not to the stage name: review in
+// default and review in yardr.epic are two files.
+func StageFilePath(flow, stage string) string {
+	return RepoFlowDir + "/" + flow + "/" + stage + ".md"
+}
+
+// stageFile reports whether p may be a stage file: markdown in a directory
+// under RepoFlowDir. Which flow and stage it belongs to is not read off the
+// path, since stage names may hold a slash: a flow asks for its stages' files
+// by path (StageFile), and StrayStageFiles names the files no flow asks for.
+func stageFile(p string) bool {
+	rel, ok := strings.CutPrefix(p, RepoFlowDir+"/")
+	return ok && strings.HasSuffix(rel, ".md") && strings.Contains(rel, "/")
+}
 
 // RepoFlow is one flow file in a rig's repository.
 type RepoFlow struct {
@@ -58,8 +96,11 @@ type RepoFlows struct {
 	// Commit are empty.
 	Dir   string     `json:"dir,omitempty"`
 	Flows []RepoFlow `json:"flows"`
-	// stamp is what a dir rig's cached flows were read at: each file's
-	// path, mtime and size.
+	// StageFiles are the markdown files in the flows' directories, read
+	// with the flows.
+	StageFiles []StageFile `json:"stage_files,omitempty"`
+	// stamp is what a dir rig's cached flows and stage files were read at:
+	// each file's path, mtime and size.
 	stamp string
 }
 
@@ -82,9 +123,134 @@ func (r *RepoFlows) find(name, typ string) *RepoFlow {
 	return nil
 }
 
+// StageFile is the stage file of the stage of the flow named flow, or nil
+// when the repository has none. A file with nothing in it says nothing
+// about the stage, and counts as none.
+func (r *RepoFlows) StageFile(flow, stage string) *StageFile {
+	want := StageFilePath(flow, stage)
+	for i := range r.StageFiles {
+		if sf := &r.StageFiles[i]; sf.Path == want && strings.TrimSpace(sf.Text) != "" {
+			return sf
+		}
+	}
+	return nil
+}
+
+// StrayStageFiles names the stage files in r that belong to no stage, each
+// as "<path>: <why>": a file in a flow's directory named after no stage of
+// that flow, or in a directory with no flow file beside it. Nobody would be
+// shown such a file, so it is a typo to report. A flow file that does not
+// parse cannot say what its stages are, so the files beside it are left
+// alone.
+func (r *RepoFlows) StrayStageFiles() []string {
+	flows := map[string]*Flow{} // by name; nil for a file that is no flow
+	for _, rf := range r.Flows {
+		flows[strings.TrimSuffix(strings.TrimPrefix(rf.Path, RepoFlowDir+"/"), ".flow")] = rf.Flow
+	}
+	var out []string
+	for _, sf := range r.StageFiles {
+		rel := strings.TrimSuffix(strings.TrimPrefix(sf.Path, RepoFlowDir+"/"), ".md")
+		// The flow is the longest directory prefix that names one, so
+		// type/epic/review is review of type/epic.flow before it is
+		// epic/review of a flow called type.
+		name, stage, found := "", "", false
+		for i := len(rel) - 1; i > 0; i-- {
+			if rel[i] != '/' {
+				continue
+			}
+			if _, ok := flows[rel[:i]]; ok {
+				name, stage, found = rel[:i], rel[i+1:], true
+				break
+			}
+		}
+		switch f := flows[name]; {
+		case !found && path.Dir(rel) == "type":
+			// Beside the type flows, in no flow's directory: a README.
+		case !found:
+			out = append(out, fmt.Sprintf("%s: there is no %s/%s.flow for it to belong to (a flow in the store has its stage files in the yard's home, <home>/flows/<name>/<stage>.md)", sf.Path, RepoFlowDir, path.Dir(rel)))
+		case f == nil:
+		case !slices.Contains(f.Stages, stage):
+			out = append(out, fmt.Sprintf("%s: flow %s has no stage %s; stages: %s", sf.Path, name, stage, strings.Join(f.Stages, ", ")))
+		}
+	}
+	return out
+}
+
+// HomeStageDir is where the stage files of the store flow named flow live:
+// plain files in the yard's home, <home>/flows/<name>/<stage>.md, the way
+// role prompts outside a rig are files under the home. The store holds no
+// prose. Every rig following the flow reads the same files, and they are in
+// no rig, so no bead's branch can change them.
+func HomeStageDir(home, flow string) string { return filepath.Join(home, "flows", flow) }
+
+// HomeStageFile reads the stage file of a store flow's stage from the
+// yard's home, as it is on disk; nil when there is none, or nothing in it.
+func HomeStageFile(home, flow, stage string) (*StageFile, error) {
+	rel := filepath.FromSlash(stage) + ".md"
+	// A stage name may hold dots and slashes: it must not lead out of the
+	// flow's directory.
+	if home == "" || !validFlowName.MatchString(flow) || !filepath.IsLocal(rel) {
+		return nil, nil
+	}
+	p := filepath.Join(HomeStageDir(home, flow), rel)
+	text, err := os.ReadFile(p)
+	if errors.Is(err, fs.ErrNotExist) || (err == nil && strings.TrimSpace(string(text)) == "") {
+		return nil, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("stage file of %s in flow %s: %w", stage, flow, err)
+	}
+	return &StageFile{Path: p, Text: string(text)}, nil
+}
+
+// HomeStageFiles looks at the stage files of store flow f in the yard's
+// home: have maps each stage that has one to its path, and stray names, as
+// "<path>: <why>", the markdown files in the flow's directory named after
+// no stage of it, which nobody would be shown.
+func HomeStageFiles(home string, f *Flow) (have map[string]string, stray []string, err error) {
+	have = map[string]string{}
+	if home == "" || !validFlowName.MatchString(f.Name) {
+		return have, nil, nil
+	}
+	for _, st := range f.Stages {
+		sf, err := HomeStageFile(home, f.Name, st)
+		if err != nil {
+			return nil, nil, err
+		}
+		if sf != nil {
+			have[st] = sf.Path
+		}
+	}
+	dir := HomeStageDir(home, f.Name)
+	err = filepath.WalkDir(dir, func(p string, e fs.DirEntry, err error) error {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil || e.IsDir() || filepath.Ext(p) != ".md" {
+			return err
+		}
+		rel, err := filepath.Rel(dir, p)
+		if err != nil {
+			return err
+		}
+		if stage := strings.TrimSuffix(filepath.ToSlash(rel), ".md"); !slices.Contains(f.Stages, stage) {
+			stray = append(stray, fmt.Sprintf("%s: flow %s has no stage %s; stages: %s", p, f.Name, stage, strings.Join(f.Stages, ", ")))
+		}
+		return nil
+	})
+	return have, stray, err
+}
+
+// ReadFlowDir reads the flows and stage files under dir/.yardr/flows as
+// they are on disk, whatever dir is: the gate asks it of the tree it runs
+// in, which is what would land.
+func ReadFlowDir(dir string) (*RepoFlows, error) {
+	return new(repoCache).loadDir(Rig{Kind: RigDir, Path: dir})
+}
+
 // repoCache keeps each rig checkout's flows by base commit, so resolving a
 // flow costs one rev-parse until the base moves, and each dir rig's by its
-// files' mtimes and sizes, so it costs a listing until a file changes.
+// files' mtimes and sizes, so it costs a listing until a file changes. The
+// flows' stage files are kept with them.
 type repoCache struct {
 	mu sync.Mutex
 	m  map[string]*RepoFlows // <path>\x00<base>, or <path>\x00\x00dir
@@ -130,52 +296,70 @@ func (c *repoCache) load(ctx context.Context, r Rig) (*RepoFlows, error) {
 		return nil, fmt.Errorf("rig %s: listing %s at %s: %w", r.Name, RepoFlowDir, base, err)
 	}
 	for _, p := range strings.Split(string(list), "\x00") {
-		rf, ok := flowFile(p)
-		if !ok {
+		rf, isFlow := flowFile(p)
+		if !isFlow && !stageFile(p) {
 			continue
 		}
 		text, err := git(ctx, r.Path, "cat-file", "blob", out.Commit+":"+p)
 		if err != nil {
 			return nil, fmt.Errorf("rig %s: reading %s at %s: %w", r.Name, p, base, err)
 		}
-		out.Flows = append(out.Flows, rf.parse(text))
+		if isFlow {
+			out.Flows = append(out.Flows, rf.parse(text))
+		} else {
+			out.StageFiles = append(out.StageFiles, StageFile{Path: p, Text: string(text)})
+		}
 	}
 	c.put(key, out)
 	cp := *out
 	return &cp, nil
 }
 
-// loadDir reads a dir rig's flows from <path>/.yardr/flows/ as they are on
-// disk. The cache holds them until a flow file is added, removed, or its
-// mtime or size changes; a missing directory is no flows.
+// loadDir reads a dir rig's flows and stage files from <path>/.yardr/flows/
+// as they are on disk. The cache holds them until one is added, removed, or
+// its mtime or size changes; a missing directory is no flows.
 func (c *repoCache) loadDir(r Rig) (*RepoFlows, error) {
 	out := &RepoFlows{Rig: r.Name, Dir: r.Path, Flows: []RepoFlow{}}
 	if r.Path == "" {
 		return out, nil
 	}
-	var files []RepoFlow
+	var files []string // flow and stage files, by their path in the rig
 	var stamp strings.Builder
-	for _, sub := range []string{"", "type/"} {
+	// A directory's files before its directories: the named flows, then
+	// type/, then each flow's stage files.
+	var list func(sub string) error
+	list = func(sub string) error {
 		ents, err := os.ReadDir(filepath.Join(r.Path, filepath.FromSlash(RepoFlowDir+"/"+sub)))
 		if errors.Is(err, fs.ErrNotExist) {
-			continue
+			return nil
 		} else if err != nil {
-			return nil, fmt.Errorf("rig %s: listing %s in %s: %w", r.Name, RepoFlowDir, r.Path, err)
+			return fmt.Errorf("rig %s: listing %s in %s: %w", r.Name, RepoFlowDir, r.Path, err)
 		}
 		for _, e := range ents {
-			rf, ok := flowFile(RepoFlowDir + "/" + sub + e.Name())
-			if !ok || e.IsDir() {
+			p := RepoFlowDir + "/" + sub + e.Name()
+			if _, ok := flowFile(p); (!ok && !stageFile(p)) || e.IsDir() {
 				continue
 			}
 			info, err := e.Info()
 			if errors.Is(err, fs.ErrNotExist) {
 				continue // removed since the listing
 			} else if err != nil {
-				return nil, fmt.Errorf("rig %s: %s: %w", r.Name, rf.Path, err)
+				return fmt.Errorf("rig %s: %s: %w", r.Name, p, err)
 			}
-			fmt.Fprintf(&stamp, "%s\x00%d\x00%d\x00", rf.Path, info.ModTime().UnixNano(), info.Size())
-			files = append(files, rf)
+			fmt.Fprintf(&stamp, "%s\x00%d\x00%d\x00", p, info.ModTime().UnixNano(), info.Size())
+			files = append(files, p)
 		}
+		for _, e := range ents {
+			if e.IsDir() {
+				if err := list(sub + e.Name() + "/"); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	if err := list(""); err != nil {
+		return nil, err
 	}
 	out.stamp = stamp.String()
 	key := join(r.Path, "\x00dir")
@@ -187,12 +371,16 @@ func (c *repoCache) loadDir(r Rig) (*RepoFlows, error) {
 		cp.Rig = r.Name
 		return &cp, nil
 	}
-	for _, rf := range files {
-		text, err := os.ReadFile(filepath.Join(r.Path, filepath.FromSlash(rf.Path)))
+	for _, p := range files {
+		text, err := os.ReadFile(filepath.Join(r.Path, filepath.FromSlash(p)))
 		if err != nil {
-			return nil, fmt.Errorf("rig %s: reading %s in %s: %w", r.Name, rf.Path, r.Path, err)
+			return nil, fmt.Errorf("rig %s: reading %s in %s: %w", r.Name, p, r.Path, err)
 		}
-		out.Flows = append(out.Flows, rf.parse(text))
+		if rf, ok := flowFile(p); ok {
+			out.Flows = append(out.Flows, rf.parse(text))
+		} else {
+			out.StageFiles = append(out.StageFiles, StageFile{Path: p, Text: string(text)})
+		}
 	}
 	c.put(key, out)
 	cp := *out

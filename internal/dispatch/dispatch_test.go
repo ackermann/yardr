@@ -751,3 +751,67 @@ func TestStrandedBeadIsReportedOnceAndNotRouted(t *testing.T) {
 		t.Fatalf("advanced bead: stage %s group %v", got.Stage, got.Group)
 	}
 }
+
+// A job carries what its brief needs for the stage file: a repository
+// flow's file as read from the base, or the name of the store flow, whose
+// stage files are in the yard's home.
+func TestJobCarriesTheStageFile(t *testing.T) {
+	s, f, d := setup(t)
+	ctx := context.Background()
+	repo := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q", "-b", "main")
+	for name, text := range map[string]string{
+		".yardr/flows/default.flow":   "new -> review\nreview -> merged\nmerged terminal\n",
+		".yardr/flows/default/new.md": "Build it.\n",
+		".yardr/flows/code/new.md":    "not the store flow's\n",
+	} {
+		must(t, os.MkdirAll(filepath.Dir(filepath.Join(repo, name)), 0o755))
+		must(t, os.WriteFile(filepath.Join(repo, name), []byte(text), 0o644))
+	}
+	git("add", "-A")
+	git("commit", "-q", "-m", "flow")
+	must(t, s.PutRig(ctx, store.Rig{Name: "web", Path: repo, Base: "main"}, "me"))
+	must(t, s.PutRig(ctx, store.Rig{Name: "api", Path: repo, Base: "main"}, "me"))
+	code, err := store.ParseFlow("new -> shipped\nshipped terminal\n")
+	must(t, err)
+	code.Name = "code"
+	_, err = s.PutFlow(ctx, *code, "me")
+	must(t, err)
+	must(t, s.SetFlowPointer(ctx, "api", "", "code", "me"))
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
+	_, err = s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
+	must(t, err)
+	inRepo, err := s.CreateBead(ctx, store.NewBead{Title: "repo flow", Rig: "web"}, "me")
+	must(t, err)
+	inStore, err := s.CreateBead(ctx, store.NewBead{Title: "store flow", Rig: "api"}, "me")
+	must(t, err)
+	none, err := s.CreateBead(ctx, store.NewBead{Title: "no flow"}, "me")
+	must(t, err)
+	must(t, d.Reconcile(ctx))
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	jobs := map[string]dispatch.Job{}
+	for _, j := range f.jobs {
+		jobs[j.Bead.ID] = j
+	}
+	if j := jobs[inRepo.ID]; j.StageFile == nil || j.StageFile.Text != "Build it.\n" || j.StoreFlow != "" {
+		t.Errorf("repository flow: stage file %+v, store flow %q", j.StageFile, j.StoreFlow)
+	}
+	if j := jobs[inStore.ID]; j.StageFile != nil || j.StoreFlow != "code" {
+		t.Errorf("store flow: stage file %+v, store flow %q", j.StageFile, j.StoreFlow)
+	}
+	if j := jobs[none.ID]; j.StageFile != nil || j.StoreFlow != "" {
+		t.Errorf("no flow: stage file %+v, store flow %q", j.StageFile, j.StoreFlow)
+	}
+	if len(jobs) != 3 {
+		t.Errorf("jobs = %d, want 3", len(jobs))
+	}
+}

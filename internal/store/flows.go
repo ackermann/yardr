@@ -702,6 +702,11 @@ type FlowSource struct {
 	Path   string `json:"path,omitempty"` // the file in the repository
 }
 
+// InStore reports whether the flow itself is in the store, rather than a
+// file in the rig's repository: its stage files are then in the yard's
+// home (HomeStageFile), not in the repository.
+func (s FlowSource) InStore() bool { return s.Path == "" }
+
 func (s FlowSource) String() string {
 	out := s.Kind
 	if s.Kind == "repo" && s.Commit != "" {
@@ -820,12 +825,42 @@ func changedMeanwhile(err error) error {
 	return err
 }
 
+// stageFileOf is the stage file of stage in f, which came from src: a
+// repository flow's is the file beside it in repo, read with it. A store
+// flow has none in any repository, whatever a rig holds under its name.
+func stageFileOf(f *Flow, src *FlowSource, repo *RepoFlows, stage string) *StageFile {
+	if src.InStore() {
+		return nil
+	}
+	return repo.StageFile(f.Name, stage)
+}
+
+// stageFilesOf maps each stage of f that has a stage file in repo to the
+// file's path.
+func stageFilesOf(f *Flow, src *FlowSource, repo *RepoFlows) map[string]string {
+	var out map[string]string
+	for _, st := range f.Stages {
+		if sf := stageFileOf(f, src, repo, st); sf != nil {
+			if out == nil {
+				out = map[string]string{}
+			}
+			out[st] = sf.Path
+		}
+	}
+	return out
+}
+
 // RigFlow is a flow governing a rig's beads: the rig's own (Type "") or
 // the one for its beads of Type.
 type RigFlow struct {
 	Type   string     `json:"type,omitempty"`
 	Flow   *Flow      `json:"flow"`
 	Source FlowSource `json:"source"`
+	// StageFiles maps each stage of a repository flow that has a stage
+	// file to the file's path in the rig's repository. A store flow's are
+	// files in the yard's home, which the store does not read
+	// (HomeStageFiles).
+	StageFiles map[string]string `json:"stage_files,omitempty"`
 }
 
 // RigFlows lists the flows that govern rig's beads (pins aside): the rig's
@@ -859,7 +894,7 @@ func (s *Store) RigFlows(ctx context.Context, rig string) ([]RigFlow, error) {
 			}
 			// A type's file shadowed by a rig pointer in the store does not govern.
 			if f != nil && src.Type == t {
-				out = append(out, RigFlow{Type: t, Flow: f, Source: *src})
+				out = append(out, RigFlow{Type: t, Flow: f, Source: *src, StageFiles: stageFilesOf(f, src, repo)})
 			}
 		}
 		return nil
@@ -879,10 +914,14 @@ type NextStages struct {
 	// Outcomes are how work in the stage can end, for `yardr bead done`;
 	// empty when the flow leaves the stage to explicit moves.
 	Outcomes []Outcome `json:"outcomes,omitempty"`
+	// StageFile is a repository flow's definition of Stage, when it has
+	// one. A store flow's is a file in the yard's home, which the store
+	// does not read: whoever knows the home asks HomeStageFile.
+	StageFile *StageFile `json:"stage_file,omitempty"`
 }
 
-// NextStages reports the flow governing bead id and the stages it may be
-// advanced to.
+// NextStages reports the flow governing bead id, the stages it may be
+// advanced to, and a repository flow's stage file of the stage it is in.
 func (s *Store) NextStages(ctx context.Context, id string) (*NextStages, error) {
 	b, err := s.GetBead(ctx, id)
 	if err != nil {
@@ -905,6 +944,7 @@ func (s *Store) NextStages(ctx context.Context, id string) (*NextStages, error) 
 		}
 		out.Flow, out.Source, out.Stages = f, src, f.Next(row.Stage)
 		out.Outcomes = f.OutcomesFrom(row.Stage)
+		out.StageFile = stageFileOf(f, src, repo, row.Stage)
 		for _, st := range out.Stages {
 			if f.IsTerminal(st) {
 				out.Terminal = append(out.Terminal, st)

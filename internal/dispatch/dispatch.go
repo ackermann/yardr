@@ -37,6 +37,12 @@ type Job struct {
 	// stage its flow sends it to; empty when the flow names none, and the
 	// agent then picks from Next.
 	Outcomes []NextOutcome
+	// StageFile is what the bead's flow says about the stage it is in, when
+	// the flow is in the rig's repository and has a stage file for it.
+	// StoreFlow names the flow when it is in the store instead: its stage
+	// files are in the yard's home, read when the brief is written.
+	StageFile *store.StageFile
+	StoreFlow string
 }
 
 // NextStage is one stage a flow allows the bead to move to, with who would
@@ -788,7 +794,7 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		// A bead whose flow does not resolve (a pin naming nothing, a broken
 		// repo flow, a rig checkout git cannot read) stays put until fixed;
 		// the beads after it still dispatch.
-		next, outcomes, err := d.nextStages(ctx, b, routes, groups)
+		next, outcomes, stage, err := d.nextStages(ctx, b, routes, groups)
 		if err != nil {
 			d.reportOnce(ctx, b, "bad_flow", err.Error())
 			continue
@@ -815,7 +821,7 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		d.Log.Info("dispatching", "bead", b.ID, "stage", b.Stage, "group", g.Name, "session", sess.ID)
 
 		handle, err := runner.Start(ctx, Job{Bead: b, Group: g, Rig: rig, Session: *sess, Epic: fam.Epic, Base: fam.Base,
-			Children: fam.Children, Next: next, Outcomes: outcomes})
+			Children: fam.Children, Next: next, Outcomes: outcomes, StageFile: stage.file, StoreFlow: stage.storeFlow})
 		if IsRuntime(err) || IsBlocked(err) {
 			// Not the bead's fault: abort the session (no failure), leave
 			// the bead for the next try and stop trying the group a while.
@@ -886,12 +892,12 @@ func (d *Dispatcher) runtimeUp(ctx context.Context, g store.Group) {
 }
 
 // nextStages is where b's flow lets it go next, and the outcomes its stage
-// offers, each with the group that would work it there; nil when no flow
-// governs b.
-func (d *Dispatcher) nextStages(ctx context.Context, b store.Bead, routes []store.Route, groups map[string]store.Group) ([]NextStage, []NextOutcome, error) {
+// offers, each with the group that would work it there, and where the
+// stage file of the stage it is in comes from; nil when no flow governs b.
+func (d *Dispatcher) nextStages(ctx context.Context, b store.Bead, routes []store.Route, groups map[string]store.Group) ([]NextStage, []NextOutcome, stageDoc, error) {
 	ns, err := d.Store.NextStages(ctx, b.ID)
 	if err != nil || ns.Flow == nil {
-		return nil, nil, err
+		return nil, nil, stageDoc{}, err
 	}
 	at := func(st string) NextStage {
 		n := NextStage{Stage: st, Terminal: ns.Flow.IsTerminal(st)}
@@ -910,7 +916,18 @@ func (d *Dispatcher) nextStages(ctx context.Context, b store.Bead, routes []stor
 	for _, o := range ns.Outcomes {
 		outcomes = append(outcomes, NextOutcome{Outcome: o.Name, NextStage: at(o.To)})
 	}
-	return next, outcomes, nil
+	doc := stageDoc{file: ns.StageFile}
+	if ns.Source.InStore() {
+		doc.storeFlow = ns.Flow.Name
+	}
+	return next, outcomes, doc, nil
+}
+
+// stageDoc is where a bead's stage file comes from: the repository flow's
+// file, or the store flow whose files are in the yard's home.
+type stageDoc struct {
+	file      *store.StageFile
+	storeFlow string
 }
 
 func (d *Dispatcher) reportOnce(ctx context.Context, b store.Bead, kind, reason string) {

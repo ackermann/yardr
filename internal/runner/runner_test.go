@@ -1434,3 +1434,76 @@ func mustRead(t *testing.T, path string) []byte {
 	}
 	return b
 }
+
+// A stage file is shown under a heading naming the stage, right before the
+// ways out of it: a repository flow's as the job carries it, a store flow's
+// read from the yard's home. Without one the brief is what it was.
+func TestBriefShowsTheStageFile(t *testing.T) {
+	job := dispatch.Job{
+		Bead:    store.Bead{ID: "web-3", Title: "Add login", Type: "task", Stage: "review"},
+		Group:   store.Group{Name: "reviewers"},
+		Session: store.Session{ID: "s1"},
+		Outcomes: []dispatch.NextOutcome{
+			{Outcome: "done", NextStage: dispatch.NextStage{Stage: "merged", Terminal: true}},
+			{Outcome: "changes", NextStage: dispatch.NextStage{Stage: "new", Group: "builders", Runner: "herdr"}},
+		},
+	}
+	home := t.TempDir()
+	brief := func(j dispatch.Job) string {
+		t.Helper()
+		b, err := Brief(j, "a", "", home)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	plain := brief(job)
+	if strings.Contains(plain, "## Stage") {
+		t.Fatalf("a brief without a stage file names one:\n%s", plain)
+	}
+	with := func(text string) string {
+		return strings.Replace(plain, "\n## Outcomes\n", "\n## Stage `review`\n\n"+text+"\n\n## Outcomes\n", 1)
+	}
+
+	repo := job
+	repo.StageFile = &store.StageFile{Path: ".yardr/flows/default/review.md", Text: "\nRead the whole diff.\n\n`changes` sends it back.\n\n"}
+	if got, want := brief(repo), with("Read the whole diff.\n\n`changes` sends it back."); got != want {
+		t.Errorf("brief with a repository stage file:\n%s\nwant:\n%s", got, want)
+	}
+
+	// A store flow with no file in the home, or an empty one, changes nothing.
+	inStore := job
+	inStore.StoreFlow = "code"
+	if got := brief(inStore); got != plain {
+		t.Errorf("a store flow without stage files changed the brief:\n%s", got)
+	}
+	dir := filepath.Join(home, "flows", "code")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "review.md"), []byte(" \n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := brief(inStore); got != plain {
+		t.Errorf("an empty stage file changed the brief:\n%s", got)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "review.md"), []byte("Review for every rig.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := brief(inStore), with("Review for every rig."); got != want {
+		t.Errorf("brief with a store flow's stage file:\n%s\nwant:\n%s", got, want)
+	}
+	// The file is the flow's, not the stage name's: another flow's review
+	// has none.
+	inStore.StoreFlow = "other"
+	if got := brief(inStore); got != plain {
+		t.Errorf("another flow's stage file was shown:\n%s", got)
+	}
+
+	// Next to the next stages too, in a flow without outcomes.
+	job.Outcomes, job.Next = nil, []dispatch.NextStage{{Stage: "merged", Terminal: true}}
+	job.StageFile = repo.StageFile
+	if b := brief(job); !strings.Contains(b, "\n## Stage `review`\n\nRead the whole diff.\n\n`changes` sends it back.\n\n## Next stages\n") {
+		t.Errorf("brief with next stages:\n%s", b)
+	}
+}

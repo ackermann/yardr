@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -42,7 +43,13 @@ under "stages", or is refused when two source stages have no order.
 Replacing a flow is refused, naming the beads, while an open bead that
 follows it (through a rig's or type's pointer, or its own pin) sits in a
 stage the new version lacks. Advance them to a stage it has, or pin them to
-another flow (yardr bead update <id> --meta flow=<name>), then set it again.`,
+another flow (yardr bead update <id> --meta flow=<name>), then set it again.
+
+The flow's stage files, markdown saying what each stage is for, are plain
+files in the yard's home: <home>/flows/<name>/<stage>.md. Whoever works a
+bead in the stage is shown it, in the brief and in yardr prime, in every rig
+that follows the flow; yardr flow show <name> says which stages have one. (A
+flow in a rig's repository has them beside it: ` + store.RepoFlowDir + `/<name>/<stage>.md.)`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			if file == "" {
@@ -81,7 +88,7 @@ another flow (yardr bead update <id> --meta flow=<name>), then set it again.`,
 
 	show := &cobra.Command{
 		Use:   "show <rig|flow>",
-		Short: "Show the flows governing a rig (each stage's group, members, open beads, next), or one named flow",
+		Short: "Show the flows governing a rig (each stage's group, members, open beads, stage file, next), or one named flow",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
@@ -91,7 +98,7 @@ another flow (yardr bead update <id> --meta flow=<name>), then set it again.`,
 			if _, err := st.GetRig(c.Context(), args[0]); errors.Is(err, store.ErrNotFound) {
 				return a.showNamedFlow(c.Context(), st, args[0])
 			}
-			views, err := flowViews(c.Context(), st, args[0])
+			views, err := flowViews(c.Context(), st, args[0], a.home())
 			if err != nil {
 				return err
 			}
@@ -118,9 +125,13 @@ another flow (yardr bead update <id> --meta flow=<name>), then set it again.`,
 						if s.Human {
 							members = or(strings.Join(s.Members, ","), "anyone")
 						}
-						rows = append(rows, []string{s.Stage, or(s.Group, "-"), members, strconv.Itoa(s.Open), next})
+						file := "-"
+						if s.StageFile != "" {
+							file = "yes"
+						}
+						rows = append(rows, []string{s.Stage, or(s.Group, "-"), members, strconv.Itoa(s.Open), file, next})
 					}
-					table("STAGE\tGROUP\tMEMBERS\tOPEN\tNEXT", rows)
+					table("STAGE\tGROUP\tMEMBERS\tOPEN\tFILE\tNEXT", rows)
 					for _, w := range v.Warnings {
 						fmt.Printf("warning: %s\n", w)
 					}
@@ -187,10 +198,40 @@ func (a *app) showNamedFlow(ctx context.Context, st store.API, name string) erro
 			users = append(users, p.String())
 		}
 	}
+	// The flow is in the store, so its stage files are in the yard's home.
+	have, stray, err := store.HomeStageFiles(a.home(), f)
+	if err != nil {
+		return err
+	}
 	v := map[string]any{"flow": f, "pointed_at_by": users}
+	if len(have) > 0 {
+		v["stage_files"] = have
+	}
+	if len(stray) > 0 {
+		v["stray_stage_files"] = stray
+	}
 	return a.out(v, func() {
-		fmt.Printf("flow %s: %d stages, pointed at by %s\n\n%s", f.Name, len(f.Stages), or(strings.Join(users, ", "), "nothing"), f)
+		var with []string
+		for _, s := range f.Stages {
+			if have[s] != "" {
+				with = append(with, s)
+			}
+		}
+		fmt.Printf("flow %s: %d stages, pointed at by %s\n", f.Name, len(f.Stages), or(strings.Join(users, ", "), "nothing"))
+		fmt.Printf("stage files: %s (%s)\n\n%s", or(strings.Join(with, ", "), "none"), filepath.Join(store.HomeStageDir(a.home(), f.Name), "<stage>.md"), f)
+		for _, s := range stray {
+			fmt.Printf("warning: stage file %s\n", s)
+		}
 	})
+}
+
+// home is the yard's home, where a store flow's stage files live; "" when
+// this run has none.
+func (a *app) home() string {
+	if a.cfg == nil {
+		return ""
+	}
+	return a.cfg.Home
 }
 
 type flowRow struct {
@@ -268,10 +309,14 @@ type stageView struct {
 	Next     []string `json:"next"`
 	Terminal bool     `json:"terminal,omitempty"`
 	Open     int      `json:"open"` // open beads in the stage that this flow governs
+	// StageFile is the stage's file, if it has one: in the rig's repository,
+	// or in the yard's home for a store flow.
+	StageFile string `json:"stage_file,omitempty"`
 }
 
 // flowViews describes the flows governing rig's beads, the rig's own first.
-func flowViews(ctx context.Context, st store.API, rig string) ([]flowView, error) {
+// home is the yard's home, where the stage files of a store flow are.
+func flowViews(ctx context.Context, st store.API, rig, home string) ([]flowView, error) {
 	if _, err := st.GetRig(ctx, rig); err != nil {
 		return nil, err
 	}
@@ -300,8 +345,18 @@ func flowViews(ctx context.Context, st store.API, rig string) ([]flowView, error
 	for _, rf := range all {
 		f := rf.Flow
 		v := flowView{Flow: *f, Type: rf.Type, Source: rf.Source}
+		files := rf.StageFiles
+		if rf.Source.InStore() {
+			var stray []string
+			if files, stray, err = store.HomeStageFiles(home, f); err != nil {
+				return nil, err
+			}
+			for _, s := range stray {
+				v.Warnings = append(v.Warnings, "stage file "+s)
+			}
+		}
 		for _, s := range f.Stages {
-			sv := stageView{Stage: s, Next: []string{}, Terminal: f.IsTerminal(s)}
+			sv := stageView{Stage: s, Next: []string{}, Terminal: f.IsTerminal(s), StageFile: files[s]}
 			if next := f.Transitions[s]; len(next) > 0 {
 				sv.Next = next
 			}

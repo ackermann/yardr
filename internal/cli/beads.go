@@ -553,6 +553,15 @@ func (a *app) primeCmd() *cobra.Command {
 				fmt.Fprintf(os.Stderr, "warning: %v\n", err)
 			}
 			next, flowErr := st.NextStages(c.Context(), id)
+			// A store flow's stage file is a file in the yard's home, which
+			// the store does not read.
+			if flowErr == nil && next.StageFile == nil && next.Flow != nil && next.Source.InStore() {
+				sf, err := store.HomeStageFile(a.home(), next.Flow.Name, b.Stage)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+				}
+				next.StageFile = sf
+			}
 			v := map[string]any{"bead": b, "notes": notes, "deps": deps, "open_blockers": blockers, "next": next,
 				"family": fam}
 			if flowErr != nil {
@@ -560,6 +569,12 @@ func (a *app) primeCmd() *cobra.Command {
 			}
 			return a.out(v, func() {
 				_ = a.printBeadFlow(b, next, flowErr, fam)
+				// What the flow says about the stage, for people and residents
+				// in manual stages, who get no brief.
+				if flowErr == nil && next.StageFile != nil {
+					fmt.Printf("\nSTAGE %s (%s):\n  %s\n", b.Stage, next.StageFile.Path,
+						strings.ReplaceAll(strings.TrimSpace(next.StageFile.Text), "\n", "\n  "))
+				}
 				if flowErr != nil {
 					fmt.Println("\nOUTCOMES: none until the flow is fixed; every move is refused")
 				} else if len(next.Outcomes) > 0 {

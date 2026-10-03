@@ -218,7 +218,7 @@ func TestRigCheckAndFlowShowReportStrandedBeads(t *testing.T) {
 	}
 	a.json = false
 
-	views, err := flowViews(ctx, st, "web")
+	views, err := flowViews(ctx, st, "web", "")
 	if err != nil || len(views) != 1 {
 		t.Fatalf("views = %+v, %v", views, err)
 	}
@@ -236,7 +236,7 @@ func TestRigCheckAndFlowShowReportStrandedBeads(t *testing.T) {
 	if out, err = run(t, a.rigCheckCmd(), "web"); exitCode(err) != 0 || strings.Contains(out, "stranded") {
 		t.Fatalf("after advancing: %q, %v", out, err)
 	}
-	if views, err = flowViews(ctx, st, "web"); err != nil || slices.ContainsFunc(views[0].Warnings, func(w string) bool { return strings.Contains(w, b.ID) }) {
+	if views, err = flowViews(ctx, st, "web", ""); err != nil || slices.ContainsFunc(views[0].Warnings, func(w string) bool { return strings.Contains(w, b.ID) }) {
 		t.Fatalf("flow show after advancing: %+v, %v", views, err)
 	}
 
@@ -260,7 +260,7 @@ func TestRigCheckAndFlowShowReportStrandedBeads(t *testing.T) {
 	}
 	git("add", ".yardr/flows/alt.flow")
 	git("commit", "-q", "-m", "drop pinned stage")
-	views, err = flowViews(ctx, st, "pin-only")
+	views, err = flowViews(ctx, st, "pin-only", "")
 	if err != nil || !slices.ContainsFunc(views, func(v flowView) bool {
 		return v.Flow.Name == "alt" && slices.ContainsFunc(v.Warnings, func(w string) bool { return strings.Contains(w, pinned.ID) })
 	}) {

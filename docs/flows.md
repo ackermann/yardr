@@ -288,6 +288,77 @@ command, instead of stage names; `yardr prime --bead` prints them under
 edge with its outcome. A stage without outcomes keeps listing its next
 stages, so flows without outcomes behave as before.
 
+## Stage files: what a stage is for
+
+A stage can carry a markdown **stage file**: what the stage is for, what
+must be true to leave it, and when each outcome applies. Whoever works a
+bead in the stage is shown it, whichever group they belong to: an agent in
+its brief, a person or a resident with `yardr prime --bead`. Stage files are
+optional; a stage without one behaves as it always did, and briefs and
+`prime` print exactly what they printed before.
+
+A stage file belongs to one flow, not to a stage name: `review` in `default`
+and `review` in `yardr.epic` are two files. It lives where its flow lives.
+
+**A flow in a rig's repository** has them beside the flow file, in a
+directory of the flow's name:
+
+```
+.yardr/flows/default.flow
+.yardr/flows/default/review.md         review, in the rig's flow
+.yardr/flows/type/epic.flow
+.yardr/flows/type/epic/review.md       review, in the flow of type epic
+.yardr/flows/<name>.flow
+.yardr/flows/<name>/<stage>.md
+```
+
+They are read like the flow itself: from the tip of the rig's base branch,
+never from a bead's branch or the working tree, so a bead cannot rewrite the
+definition of the stage it is in. An edit applies once it has landed on the
+base. A dir rig has no base and reads the directory as it is.
+
+**A flow in the store** (`yardr flow set <name>`, followed with `yardr rig
+flow <rig> <name>`) has them as plain files in the yard's home, outside any
+rig:
+
+```
+~/.yardr/flows/<name>/<stage>.md       e.g. ~/.yardr/flows/code/review.md
+```
+
+The store holds no prose, as with role prompts. Every rig that follows the
+flow reads the same files, as they are on disk when the brief is written,
+and no bead's branch can change them. The rig's repository is not asked: a
+`.yardr/flows/code/review.md` in a rig that follows the store flow `code` is
+shown to nobody (and fails the rig's check, below). A name that a pin or a
+pointer finds only in the rig's repository is a repository flow.
+
+A stage whose name holds a slash has its file a directory deeper
+(`default/qa/smoke.md` for `qa/smoke`). An empty file counts as none.
+
+Where it shows:
+
+- **The brief.** Under `## Stage <stage>`, after the role prompt and the
+  bead, right before the outcomes. The heading is the brief's, so the file
+  needs none; a file that uses headings should start at `###`.
+- **`yardr prime --bead <id>`.** As `STAGE <stage> (<path>):` before
+  `OUTCOMES:`, and in `--json` as `next.stage_file` (`path`, `text`).
+- **`yardr flow show <rig>`.** The `FILE` column says per stage whether it
+  has one (`stage_file`, the path, in `--json`). `yardr flow show <name>`
+  lists the stages of a store flow that have one and where the files live.
+- **`yardr rig check`.** A note names, per flow governing the rig, the
+  non-terminal stages without a stage file; it never fails the check. A
+  stage file named after no stage of its flow does fail it, since nobody
+  would otherwise see the typo: `default/reveiw.md`, or a file in a
+  directory with no flow file beside it. Repository stage files are checked
+  in the tree the gate runs in (`--dir`, a bead's worktree), not on the
+  base, so the typo is caught before it lands and its fix can pass: exit 1,
+  the branch's to fix. A stray file of a store flow in the yard's home is no
+  branch's to fix: exit 2 when nothing else fails, and `yardr flow show`
+  warns of it too.
+
+What goes in a stage file and what in a role prompt is in
+[groups.md](groups.md#role-file-or-stage-file).
+
 ## Type flows
 
 A type's flow governs that type's beads in the rig; every other type

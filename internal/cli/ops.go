@@ -414,7 +414,16 @@ The check also fails while an open bead of the rig sits in a stage the flow
 governing it lacks (a repository flow lost the stage on the base), and names
 each: bead, stage, flow and the commit it was read at. No branch can fix
 that, so with a green gate it exits 2; advance the beads to a stage the flow
-has (yardr bead advance <id> --to <stage>).`,
+has (yardr bead advance <id> --to <stage>).
+
+Stage files are checked too. A repository flow's (` + store.RepoFlowDir + `/<flow>/<stage>.md)
+are read in --dir as they are there, since that is what would land: one named
+after no stage of its flow, or in a directory with no flow file beside it,
+fails the check (exit 1), as nobody would ever be shown it. A store flow's
+are in the yard's home (<home>/flows/<name>/<stage>.md): one named after no
+stage of its flow fails the check too, with exit 2 when nothing else does,
+as no branch can fix it. The non-terminal stages without a stage file are
+named in a note, which never fails the check.`,
 		Example: `  yardr rig check yard                                   # in the rig itself
   yardr rig check yard --dir ~/.yardr/worktrees/yard/yard-12   # in a bead's worktree`,
 		Args: cobra.ExactArgs(1),
@@ -437,6 +446,9 @@ has (yardr bead advance <id> --to <stage>).`,
 					fmt.Printf("(%d lines of output not shown; --tail to see them, or --json for all)\n",
 						strings.Count(strings.TrimRight(res.Output, "\n"), "\n")+1)
 				}
+				for _, n := range res.StageNotes {
+					fmt.Printf("note: %s\n", n)
+				}
 				src := res.Source
 				if res.From != "" {
 					src += " from " + res.From
@@ -452,7 +464,7 @@ has (yardr bead advance <id> --to <stage>).`,
 					fmt.Printf("check %s (%s) in %s: pass\n", res.Rig, src, res.Dir)
 				case res.TimedOut:
 					fmt.Printf("check %s (%s) in %s: FAIL (timed out after %s)\n", res.Rig, src, res.Dir, timeout)
-				case len(res.Stranded) > 0 && res.ExitCode == 0:
+				case len(res.Stranded)+len(res.StrayStageFiles)+len(res.StrayHomeStageFiles) > 0 && res.ExitCode == 0:
 					fmt.Printf("check %s (%s) in %s: gate passed\n", res.Rig, src, res.Dir)
 				default:
 					fmt.Printf("check %s (%s) in %s: FAIL (exit %d)\n", res.Rig, src, res.Dir, res.ExitCode)
@@ -463,14 +475,21 @@ has (yardr bead advance <id> --to <stage>).`,
 				if n := len(res.Stranded); n > 0 {
 					fmt.Printf("rig %s: FAIL (open beads in a stage their flow lacks: %d)\n", res.Rig, n)
 				}
+				for _, s := range slices.Concat(res.StrayStageFiles, res.StrayHomeStageFiles) {
+					fmt.Printf("stage file: %s\n", s)
+				}
+				if n := len(res.StrayStageFiles) + len(res.StrayHomeStageFiles); n > 0 {
+					fmt.Printf("rig %s: FAIL (stage files that belong to no stage: %d)\n", res.Rig, n)
+				}
 			}); err != nil {
 				return err
 			}
 			switch {
 			case res.Pass:
 				return nil
-			case gateGreen(res):
-				// Only stranded beads fail it: no branch's to fix.
+			case gateGreen(res) && len(res.StrayStageFiles) == 0:
+				// Only stranded beads, or stage files in the yard's home, fail
+				// it: no branch's to fix.
 				return checkNotRun{errCheckFailed}
 			}
 			return errCheckFailed
@@ -507,6 +526,10 @@ func (a *app) runRigCheck(ctx context.Context, rigName, dir string, timeout time
 	if err != nil {
 		return nil, err
 	}
+	notes, stray, strayHome, err := stageFileFindings(ctx, st, *rig, or(dir, rig.Path), a.home())
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	res, err := rigcheck.Run(ctx, *rig, dir)
@@ -516,7 +539,70 @@ func (a *app) runRigCheck(ctx context.Context, rigName, dir string, timeout time
 	if len(stranded) > 0 {
 		res.Stranded, res.Pass = stranded, false
 	}
+	res.StageNotes = notes
+	if len(stray) > 0 {
+		res.StrayStageFiles, res.Pass = stray, false
+	}
+	if len(strayHome) > 0 {
+		res.StrayHomeStageFiles, res.Pass = strayHome, false
+	}
 	return res, nil
+}
+
+// stageFileFindings looks at the stage files of the flows governing rig.
+// A repository flow's are read in dir, the tree the gate runs in, as they
+// are on disk: read from the base like a brief's, a typo could only be found
+// after it landed, and its fix could not pass the gate. A store flow's are
+// in the yard's home. notes name, per flow, the non-terminal stages without
+// a stage file. stray are the files in dir that belong to no stage (see
+// store.RepoFlows.StrayStageFiles), which the branch can fix; strayHome are
+// those of a store flow in the home, which no branch can.
+func stageFileFindings(ctx context.Context, st store.API, rig store.Rig, dir, home string) (notes, stray, strayHome []string, err error) {
+	var tree *store.RepoFlows
+	if dir != "" {
+		if tree, err = store.ReadFlowDir(dir); err != nil {
+			return nil, nil, nil, err
+		}
+		stray = tree.StrayStageFiles()
+	}
+	// A rig whose flows do not resolve has other trouble; the notes wait.
+	governing, _ := st.RigFlows(ctx, rig.Name)
+	for _, g := range governing {
+		f := g.Flow
+		var has func(stage string) bool
+		var where string
+		switch {
+		case g.Source.InStore():
+			have, more, err := store.HomeStageFiles(home, f)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			strayHome = append(strayHome, more...)
+			has = func(s string) bool { return have[s] != "" }
+			where = filepath.Join(store.HomeStageDir(home, f.Name), "<stage>.md")
+		case tree == nil:
+			continue
+		default:
+			// A repository flow: the one in dir is the one that would land.
+			for _, rf := range tree.Flows {
+				if rf.Path == g.Source.Path && rf.Flow != nil {
+					f = rf.Flow
+				}
+			}
+			has = func(s string) bool { return tree.StageFile(f.Name, s) != nil }
+			where = store.StageFilePath(f.Name, "<stage>")
+		}
+		var missing []string
+		for _, s := range f.Stages {
+			if !f.IsTerminal(s) && !has(s) {
+				missing = append(missing, s)
+			}
+		}
+		if len(missing) > 0 {
+			notes = append(notes, fmt.Sprintf("flow %s has no stage file for %s (%s)", f.Name, strings.Join(missing, ", "), where))
+		}
+	}
+	return notes, stray, strayHome, nil
 }
 
 // gateGreen reports whether the gate itself passed in res, whatever else
