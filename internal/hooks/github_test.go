@@ -3,6 +3,7 @@ package hooks_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"reflect"
 	"strings"
@@ -142,7 +143,7 @@ func TestGitHubNormalize(t *testing.T) {
 		f["event"] = []string{"pull_request_review"}
 		return hooks.Envelope{Source: "github", Type: "pull_request_review", Action: "submitted",
 			Actor: mayor, Thread: prThread, Mentions: mentions, Assignee: "mayor", Text: text,
-			URL: prURL + "#pullrequestreview-1", Fields: f}
+			URL: prURL + "#pullrequestreview-1", Entity: "pullrequestreview-1", Fields: f}
 	}
 	issue := func(action, state string) hooks.Envelope {
 		return hooks.Envelope{Source: "github", Type: "issues", Action: action, Actor: jane, Thread: issThread,
@@ -179,12 +180,12 @@ func TestGitHubNormalize(t *testing.T) {
 		{"pull_request_review_commented", "pull_request_review", review("commented", "")},
 		{"issue_comment_pr", "issue_comment", hooks.Envelope{Source: "github", Type: "issue_comment", Action: "created",
 			Actor: jane, Thread: prThread, Mentions: []string{"yard-11-new", "mayor"},
-			Text: "@yard-11-new rebase please, then @mayor merges.", URL: prURL + "#issuecomment-9", Message: "9",
+			Text: "@yard-11-new rebase please, then @mayor merges.", URL: prURL + "#issuecomment-9", Message: "9", Entity: "issuecomment-9",
 			Fields: map[string][]string{"event": {"issue_comment"}, "action": {"created"}, "repo": {repo},
 				"number": {"17"}, "state": {"open"}}}},
 		{"issue_comment_issue", "issue_comment", hooks.Envelope{Source: "github", Type: "issue_comment", Action: "created",
 			Actor: hooks.Party{ID: "mayor", Name: "Mayor"}, Thread: issThread, Mentions: []string{},
-			Text: "Reproduced. `@mayor` is on it.", URL: issURL + "#issuecomment-10", Message: "10",
+			Text: "Reproduced. `@mayor` is on it.", URL: issURL + "#issuecomment-10", Message: "10", Entity: "issuecomment-10",
 			Fields: map[string][]string{"event": {"issue_comment"}, "action": {"created"}, "repo": {repo},
 				"number": {"23"}, "state": {"open"}, "label": {"bug"}}}},
 		{"issues_opened", "issues", issue("opened", "open")},
@@ -276,5 +277,64 @@ func TestGitHubMentionReachesInbox(t *testing.T) {
 	want := []string{"pull_request mentioned", "issue_comment mentioned", "workflow_run all"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("inbox %q, want %q", got, want)
+	}
+}
+
+// A comment's edit re-sends it whole: a resident it already mentioned is
+// not told again, one newly mentioned is, and a deleted comment tells no
+// one and is forgotten.
+func TestGitHubCommentEditDeliversOnlyNewMentions(t *testing.T) {
+	r := newRig(t)
+	ctx := context.Background()
+	for _, name := range []string{"mayor", "ops"} {
+		if _, err := r.st.PutResident(ctx, store.Resident{Name: name}, "me"); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.st.SetIdentity(ctx, name, "github", store.Identity{Key: name}, "me"); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.st.AddSubscription(ctx, name, store.Subscription{Source: "github", Scope: store.ScopeMentions}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var p map[string]any
+	if err := json.Unmarshal(ghFixture(t, "issue_comment_pr"), &p); err != nil {
+		t.Fatal(err)
+	}
+	// comment is the fixture's comment after action, saying body.
+	comment := func(action, body string) []byte {
+		p["action"] = action
+		p["comment"].(map[string]any)["body"] = body
+		b, _ := json.Marshal(p)
+		return b
+	}
+	inbox := func(name string) int {
+		t.Helper()
+		page, err := r.st.Inbox(ctx, name, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return page.Total
+	}
+	for i, c := range []struct {
+		body       []byte
+		mayor, ops int
+	}{
+		{comment("created", "@mayor merges."), 1, 0},
+		{comment("edited", "@mayor merges, please."), 1, 0},        // edited: still mentions mayor
+		{comment("edited", "@mayor merges; @ops deploys."), 1, 1},  // adds ops
+		{comment("deleted", "@mayor merges; @ops deploys."), 1, 1}, // deleted: no one told
+	} {
+		if code := r.github(t, "issue_comment", c.body, secret, fmt.Sprint("ic-", i)); code != http.StatusOK {
+			t.Fatalf("delivery %d: %d", i, code)
+		}
+		if m, o := inbox("mayor"), inbox("ops"); m != c.mayor || o != c.ops {
+			t.Fatalf("after delivery %d: mayor %d, ops %d; want %d, %d", i, m, o, c.mayor, c.ops)
+		}
+	}
+	evs := r.hookEvents(t)
+	last := evs[len(evs)-1].Data
+	if len(evs) != 4 || last["entity"] != "issuecomment-9" || fmt.Sprint(last["new_mentions"]) != "[]" {
+		t.Fatalf("last event: entity %v, new %v (%d events)", last["entity"], last["new_mentions"], len(evs))
 	}
 }

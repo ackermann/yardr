@@ -35,19 +35,36 @@ type Replier interface {
 	// calling process's environment (a resident's env_file sets it).
 	Credential(ctx context.Context) (string, error)
 	// Reply posts body in the thread of the delivery env, under the
-	// conversation of message to ("" for the delivery's own), and returns
-	// the URL of what it posted.
-	Reply(ctx context.Context, env Envelope, to, body, cred string) (url string, err error)
+	// conversation of message to ("" for the delivery's own), marked with
+	// key (a UUID v4 the store chose for this reply: the comment's own id
+	// where the source takes one, a marker in the body elsewhere), and
+	// returns what it posted: at least the source's id of it and its URL.
+	Reply(ctx context.Context, env Envelope, to, body, key, cred string) (Message, error)
+	// Posted finds the comment an earlier Reply with key left in the
+	// thread of env, or nil when there is none: a retry asks before it
+	// posts, so an attempt whose answer was lost is not posted twice.
+	Posted(ctx context.Context, env Envelope, key, cred string) (*Message, error)
 	// Thread lists the messages of the delivery's thread, oldest first.
 	Thread(ctx context.Context, env Envelope, cred string) ([]Message, error)
 }
+
+// ReplyTimeout bounds one call to a source. It is well past what a source
+// takes on a slow day: at the 30 s it was, a post Linear completed slowly
+// was reported as failed, and the resident posted it again. A call the
+// source itself gives up on fails there, within this.
+const ReplyTimeout = 2 * time.Minute
 
 // Where the outbound calls go; tests point them at fake servers.
 var (
 	LinearAPI  = "https://api.linear.app/graphql"
 	GitHubAPI  = "https://api.github.com"
-	HTTPClient = &http.Client{Timeout: 30 * time.Second}
+	HTTPClient = &http.Client{Timeout: ReplyTimeout}
 )
+
+// replyMarker is how a reply carries its key in a source that takes no
+// client-chosen id (GitHub): an HTML comment at the end of the body,
+// which renders as nothing and is found again by Posted.
+func replyMarker(key string) string { return "<!-- yardr-reply " + key + " -->" }
 
 // ReplierFor is the source's Replier, if it can be answered in.
 func ReplierFor(source string) (Replier, bool) {
@@ -160,11 +177,12 @@ func linearIssue(env Envelope) (string, error) {
 // the conversation. So a reply goes under the root of the message it
 // answers: the message's parent when it has one, else the message itself.
 // A delivery that is not a comment (the issue itself) gets a new
-// top-level comment.
-func (Linear) Reply(ctx context.Context, env Envelope, to, body, cred string) (string, error) {
+// top-level comment. The key becomes the comment's id, so Linear itself
+// refuses a second post with it.
+func (Linear) Reply(ctx context.Context, env Envelope, to, body, key, cred string) (Message, error) {
 	issue, err := linearIssue(env)
 	if err != nil {
-		return "", err
+		return Message{}, err
 	}
 	root := ""
 	switch {
@@ -183,10 +201,10 @@ func (Linear) Reply(ctx context.Context, env Envelope, to, body, cred string) (s
 		err := linearGraphQL(ctx, cred, `query($id: String!) { comment(id: $id) { id parent { id } issue { id } } }`,
 			map[string]any{"id": to}, &q)
 		if err != nil {
-			return "", err
+			return Message{}, err
 		}
 		if q.Comment.Issue == nil || q.Comment.Issue.ID != issue {
-			return "", fmt.Errorf("linear comment %s is not on the delivery's issue %s", to, issue)
+			return Message{}, fmt.Errorf("linear comment %s is not on the delivery's issue %s", to, issue)
 		}
 		root = q.Comment.ID
 		if q.Comment.Parent != nil && q.Comment.Parent.ID != "" {
@@ -200,7 +218,7 @@ func (Linear) Reply(ctx context.Context, env Envelope, to, body, cred string) (s
 		// at the top level, outside the conversation it answers.
 		m, err := linearDelivered(ctx, env, cred)
 		if err != nil {
-			return "", err
+			return Message{}, err
 		}
 		root = firstOf(m.Parent, m.ID)
 	}
@@ -208,10 +226,14 @@ func (Linear) Reply(ctx context.Context, env Envelope, to, body, cred string) (s
 	if root != "" {
 		input["parentId"] = root
 	}
+	if key != "" {
+		input["id"] = key
+	}
 	var m struct {
 		CommentCreate struct {
 			Success bool `json:"success"`
 			Comment struct {
+				ID  string `json:"id"`
 				URL string `json:"url"`
 			} `json:"comment"`
 		} `json:"commentCreate"`
@@ -219,12 +241,45 @@ func (Linear) Reply(ctx context.Context, env Envelope, to, body, cred string) (s
 	err = linearGraphQL(ctx, cred, `mutation($input: CommentCreateInput!) { commentCreate(input: $input) { success comment { id url } } }`,
 		map[string]any{"input": input}, &m)
 	if err != nil {
-		return "", err
+		return Message{}, err
 	}
 	if !m.CommentCreate.Success {
-		return "", fmt.Errorf("linear: commentCreate did not succeed")
+		return Message{}, fmt.Errorf("linear: commentCreate did not succeed")
 	}
-	return m.CommentCreate.Comment.URL, nil
+	return Message{ID: firstOf(m.CommentCreate.Comment.ID, key), Body: body, URL: m.CommentCreate.Comment.URL}, nil
+}
+
+// Posted looks the comment up by the key Reply made its id. Linear
+// answers a lookup of an id it has no comment for with an error naming
+// the entity, which is the "none" case; any other error is one.
+func (Linear) Posted(ctx context.Context, env Envelope, key, cred string) (*Message, error) {
+	issue, err := linearIssue(env)
+	if err != nil {
+		return nil, err
+	}
+	var q struct {
+		Comment struct {
+			ID        string    `json:"id"`
+			Body      string    `json:"body"`
+			URL       string    `json:"url"`
+			CreatedAt time.Time `json:"createdAt"`
+			Issue     *struct {
+				ID string `json:"id"`
+			} `json:"issue"`
+		} `json:"comment"`
+	}
+	err = linearGraphQL(ctx, cred, `query($id: String!) { comment(id: $id) { id body url createdAt issue { id } } }`,
+		map[string]any{"id": key}, &q)
+	if err != nil {
+		if strings.Contains(err.Error(), "Entity not found") {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if q.Comment.ID == "" || q.Comment.Issue == nil || q.Comment.Issue.ID != issue {
+		return nil, nil
+	}
+	return &Message{ID: q.Comment.ID, Body: q.Comment.Body, URL: q.Comment.URL, At: q.Comment.CreatedAt}, nil
 }
 
 // linearDelivered finds the delivered comment of an envelope that does not
@@ -358,20 +413,40 @@ type githubComment struct {
 }
 
 // Reply comments on the delivery's issue or pull request. GitHub's issue
-// comments are not threaded, so there is no conversation to pick.
-func (GitHub) Reply(ctx context.Context, env Envelope, to, body, cred string) (string, error) {
+// comments are not threaded, so there is no conversation to pick, and it
+// takes no client-chosen id, so the key goes into the body as a marker
+// (replyMarker) that renders as nothing.
+func (GitHub) Reply(ctx context.Context, env Envelope, to, body, key, cred string) (Message, error) {
 	if to != "" {
-		return "", fmt.Errorf("github comments are not threaded: reply without --to")
+		return Message{}, fmt.Errorf("github comments are not threaded: reply without --to")
 	}
 	url, err := githubComments(env)
 	if err != nil {
-		return "", err
+		return Message{}, err
+	}
+	if key != "" {
+		body += "\n\n" + replyMarker(key)
 	}
 	var c githubComment
 	if err := call(ctx, http.MethodPost, url, githubHeader(cred), map[string]string{"body": body}, &c); err != nil {
-		return "", fmt.Errorf("github: %w", err)
+		return Message{}, fmt.Errorf("github: %w", err)
 	}
-	return c.HTMLURL, nil
+	return Message{ID: fmt.Sprint(c.ID), Body: c.Body, URL: c.HTMLURL, At: c.CreatedAt,
+		Author: Party{ID: strings.ToLower(c.User.Login), Name: c.User.Login}}, nil
+}
+
+// Posted finds the comment carrying the key's marker among the thread's.
+func (GitHub) Posted(ctx context.Context, env Envelope, key, cred string) (*Message, error) {
+	ms, err := GitHub{}.Thread(ctx, env, cred)
+	if err != nil {
+		return nil, err
+	}
+	for _, m := range ms {
+		if strings.Contains(m.Body, replyMarker(key)) {
+			return &m, nil
+		}
+	}
+	return nil, nil
 }
 
 // Thread lists the comments of the delivery's issue or pull request,

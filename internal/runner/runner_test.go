@@ -782,11 +782,10 @@ func TestHerdrStartLabels(t *testing.T) {
 	start := func(t *testing.T, createScript, stage string, group store.Group, epic string) string {
 		t.Helper()
 		log := filepath.Join(t.TempDir(), "calls")
-		h := &Herdr{Bin: fakeHerdrBin(t, `printf '%s\n' "$*" >> `+log+`
+		h := &Herdr{Socket: fakeHerdrAPI(t, log), Bin: fakeHerdrBin(t, `printf '%s\n' "$*" >> `+log+`
 case "$1 $2" in
   "worktree create") `+createScript+` ;;
   "worktree open") echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"},"worktree":{"path":"`+wt+`"},"already_open":true}}' ;;
-  "tab create") echo '{"result":{"tab":{"tab_id":"t2"},"root_pane":{"pane_id":"p2"}}}' ;;
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)}
 		job := dispatch.Job{
@@ -822,8 +821,13 @@ esac`)}
 	if strings.Contains(calls, "workspace rename") {
 		t.Fatalf("first stage relabelled:\n%s", calls)
 	}
-	if !strings.Contains(calls, "tab create --workspace w1 --cwd "+wt+" --label new 13 --env ") {
-		t.Fatalf("first stage tab not labelled stage first:\n%s", calls)
+	// tab is the tab.create request's workspace, cwd and label.
+	tab := func(calls string) string {
+		p := apiCall(t, calls, "tab.create")
+		return fmt.Sprint(p["workspace_id"], " ", p["cwd"], " ", p["label"])
+	}
+	if got := tab(calls); got != "w1 "+wt+" new 13" {
+		t.Fatalf("first stage tab not labelled stage first: %q\n%s", got, calls)
 	}
 
 	exists := `echo '{"error":{"code":"worktree_exists","message":"branch exists"}}' >&2; exit 1`
@@ -831,11 +835,13 @@ esac`)}
 	for _, want := range []string{
 		"worktree open --cwd ",
 		"workspace rename w1 codex 13\n",
-		"tab create --workspace w1 --cwd " + wt + " --label review 13 --env ",
 	} {
 		if !strings.Contains(calls, want) {
 			t.Errorf("later stage missing %q:\n%s", want, calls)
 		}
+	}
+	if got := tab(calls); got != "w1 "+wt+" review 13" {
+		t.Errorf("later stage tab %q:\n%s", got, calls)
 	}
 
 	// A child of an epic: the workspace reads the epic after the group, the
@@ -844,8 +850,8 @@ esac`)}
 	if !strings.Contains(calls, "worktree create ") || !strings.Contains(calls, "--label builders [12] 13\n") {
 		t.Fatalf("child's workspace not labelled with its epic:\n%s", calls)
 	}
-	if !strings.Contains(calls, "--label new [12] 13 --env ") {
-		t.Fatalf("child's tab not labelled with its epic:\n%s", calls)
+	if got := tab(calls); got != "w1 "+wt+" new [12] 13" {
+		t.Fatalf("child's tab not labelled with its epic: %q\n%s", got, calls)
 	}
 	calls = start(t, exists, "review", codex, "yard-12")
 	if !strings.Contains(calls, "workspace rename w1 codex [12] 13\n") {
@@ -865,10 +871,9 @@ func TestHerdrBriefOutsideTheTree(t *testing.T) {
 	gitT(t, repo, "worktree", "add", "-q", "-b", "yard/yard-13", wt)
 
 	log := filepath.Join(t.TempDir(), "calls")
-	h := &Herdr{Bin: fakeHerdrBin(t, `printf '%s\n' "$*" >> `+log+`
+	h := &Herdr{Socket: fakeHerdrAPI(t, log), Bin: fakeHerdrBin(t, `printf '%s\n' "$*" >> `+log+`
 case "$1 $2" in
   "worktree create") echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"},"worktree":{"path":"`+wt+`"}}}' ;;
-  "tab create") echo '{"result":{"tab":{"tab_id":"t2"},"root_pane":{"pane_id":"p2"}}}' ;;
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)}
 	job := dispatch.Job{
@@ -910,10 +915,9 @@ func TestHerdrStartPutsAgentEnvOnItsTab(t *testing.T) {
 	gitT(t, wt, "init", "-q", "-b", "main")
 	for _, open := range []bool{false, true} {
 		log := filepath.Join(t.TempDir(), "calls")
-		h := &Herdr{YardHome: "/y", YardBin: "/bin/yardr", Bin: fakeHerdrBin(t, `printf '%s\n' "$*" >> `+log+`
+		h := &Herdr{YardHome: "/y", YardBin: "/bin/yardr", Socket: fakeHerdrAPI(t, log), Bin: fakeHerdrBin(t, `printf '%s\n' "$*" >> `+log+`
 case "$1 $2" in
   "worktree create") echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"},"worktree":{"path":"`+wt+`"},"already_open":`+fmt.Sprint(open)+`}}' ;;
-  "tab create") echo '{"result":{"tab":{"tab_id":"t2"},"root_pane":{"pane_id":"p2"}}}' ;;
   "pane process-info") echo '{"result":{"process_info":{"pane_id":"p2","shell_pid":`+fmt.Sprint(os.Getpid())+`}}}' ;;
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)}
@@ -943,17 +947,15 @@ esac`)}
 		}
 		raw, _ := os.ReadFile(log)
 		calls := string(raw)
-		var tabCall string
-		for _, l := range strings.Split(calls, "\n") {
-			if strings.HasPrefix(l, "tab create ") {
-				tabCall = l + " "
+		env := envOf(apiCall(t, calls, "tab.create"))
+		for k, v := range map[string]string{"YARDR_ACTOR": "yard-13-new", "YARDR_HOME": "/y", "YARDR_BEAD": "yard-13",
+			"YARDR_SESSION": "s1", "YARDR_BIN": "/bin/yardr", "YARD_ACTOR": "yard-13-new"} {
+			if env[k] != v {
+				t.Errorf("already_open=%v: tab.create env lacks %s=%s: %v", open, k, v, env)
 			}
 		}
-		for _, e := range []string{"YARDR_ACTOR=yard-13-new", "YARDR_HOME=/y", "YARDR_BEAD=yard-13",
-			"YARDR_SESSION=s1", "YARDR_BIN=/bin/yardr", "YARD_ACTOR=yard-13-new"} {
-			if !strings.Contains(tabCall, " --env "+e+" ") {
-				t.Errorf("already_open=%v: tab create lacks --env %s:\n%s", open, e, tabCall)
-			}
+		if cli := cliCalls(calls); strings.Contains(cli, "--env") {
+			t.Errorf("already_open=%v: the environment went on a command line:\n%s", open, cli)
 		}
 		if !strings.Contains(calls, "agent start yard-13-new --kind claude --pane p2") {
 			t.Errorf("agent not started in the env tab's pane:\n%s", calls)
@@ -1013,7 +1015,6 @@ case "$1 $2" in
     done
     git -C "$cwd" worktree add -q -b "$br" "$p" "$base" >&2 || exit 1
     echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"},"worktree":{"path":"'"$p"'"}}}' ;;
-  "tab create") echo '{"result":{"tab":{"tab_id":"t2"},"root_pane":{"pane_id":"p2"}}}' ;;
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)
 }
@@ -1050,10 +1051,10 @@ func TestHerdrChildBranchesFromItsEpic(t *testing.T) {
 	}
 
 	log := filepath.Join(t.TempDir(), "calls")
-	h := &Herdr{Bin: worktreeHerdr(t, log), WorktreeRoot: t.TempDir(), Store: s}
-	// start runs bead id as the dispatcher would, and returns the tab
-	// create call (with the agent's env) and the brief.
-	start := func(id string) (tabCall, brief string) {
+	h := &Herdr{Socket: fakeHerdrAPI(t, log), Bin: worktreeHerdr(t, log), WorktreeRoot: t.TempDir(), Store: s}
+	// start runs bead id as the dispatcher would, and returns the agent's
+	// environment (from the tab.create request) and the brief.
+	start := func(id string) (env map[string]string, brief string) {
 		t.Helper()
 		b, err := s.GetBead(ctx, id)
 		if err != nil {
@@ -1070,13 +1071,8 @@ func TestHerdrChildBranchesFromItsEpic(t *testing.T) {
 			t.Fatal(err)
 		}
 		raw, _ := os.ReadFile(log)
-		for _, l := range strings.Split(string(raw), "\n") {
-			if strings.HasPrefix(l, "tab create ") {
-				tabCall = l + " "
-			}
-		}
 		text, _ := os.ReadFile(handle["brief"].(string))
-		return tabCall, string(text)
+		return envOf(apiCall(t, string(raw), "tab.create")), string(text)
 	}
 	branched := func() []store.Event {
 		t.Helper()
@@ -1093,15 +1089,15 @@ func TestHerdrChildBranchesFromItsEpic(t *testing.T) {
 		return out
 	}
 
-	tab, brief := start("r-1")
+	env, brief := start("r-1")
 	if got := gitOutT(t, repo, "rev-parse", "yard/r-e"); got != a {
 		t.Fatalf("epic branch at %s, want main's tip %s", got, a)
 	}
 	if got := gitOutT(t, repo, "rev-parse", "yard/r-1"); got != a {
 		t.Fatalf("child branched at %s, want %s", got, a)
 	}
-	if !strings.Contains(tab, " --env YARDR_BASE=yard/r-e ") {
-		t.Errorf("child's env lacks YARDR_BASE=yard/r-e:\n%s", tab)
+	if env["YARDR_BASE"] != "yard/r-e" {
+		t.Errorf("child's env lacks YARDR_BASE=yard/r-e: %v", env)
 	}
 	if !strings.Contains(brief, "child of epic r-e") || !strings.Contains(brief, "lands on that branch") {
 		t.Errorf("brief does not say the bead is a child of r-e:\n%s", brief)
@@ -1132,12 +1128,12 @@ func TestHerdrChildBranchesFromItsEpic(t *testing.T) {
 
 	// A bead with no epic branches from main and is told so.
 	b := gitOutT(t, repo, "rev-parse", "main")
-	tab, brief = start("r-3")
+	env, brief = start("r-3")
 	if got := gitOutT(t, repo, "rev-parse", "yard/r-3"); got != b {
 		t.Fatalf("plain bead branched at %s, want main %s", got, b)
 	}
-	if !strings.Contains(tab, " --env YARDR_BASE=main ") || strings.Contains(brief, "epic") {
-		t.Errorf("plain bead: env %s\nbrief:\n%s", tab, brief)
+	if env["YARDR_BASE"] != "main" || strings.Contains(brief, "epic") {
+		t.Errorf("plain bead: env %v\nbrief:\n%s", env, brief)
 	}
 }
 
@@ -1154,7 +1150,8 @@ func TestHerdrEpicBranchFromFetchedBase(t *testing.T) {
 	b := gitOutT(t, origin, "rev-parse", "main")
 
 	rig := store.Rig{Name: "r", Path: repo, Base: "origin/main"}
-	h := &Herdr{Bin: worktreeHerdr(t, filepath.Join(t.TempDir(), "calls")), WorktreeRoot: t.TempDir()}
+	log := filepath.Join(t.TempDir(), "calls")
+	h := &Herdr{Socket: fakeHerdrAPI(t, log), Bin: worktreeHerdr(t, log), WorktreeRoot: t.TempDir()}
 	_, err := h.Start(ctx, dispatch.Job{Bead: store.Bead{ID: "r-1", Stage: "new"}, Group: store.Group{Name: "g"},
 		Rig: &rig, Session: store.Session{ID: "s"}, Epic: "r-e", Base: "yard/r-e"})
 	if err != nil {
@@ -1197,14 +1194,14 @@ func TestDirRigRoles(t *testing.T) {
 
 // dirHerdr is a fake herdr for a dir rig's beads: workspace list and pane
 // list answer with what the files ws and panes in state hold, workspace
-// create opens w1, and every call is logged to log.
+// create opens w1, and every call is logged to log. The agent's tab is not
+// its business: that goes over the socket (fakeHerdrAPI), with the env.
 func dirHerdr(t *testing.T, log, state string) string {
 	return fakeHerdrBin(t, `printf '%s\n' "$*" >> `+log+`
 case "$1 $2" in
   "workspace list") cat `+filepath.Join(state, "ws")+` ;;
   "pane list") cat `+filepath.Join(state, "panes")+` ;;
   "workspace create") echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"}}}' ;;
-  "tab create") echo '{"result":{"tab":{"tab_id":"t2"},"root_pane":{"pane_id":"p2"}}}' ;;
   "pane process-info") echo '{"result":{"process_info":{"pane_id":"p2","shell_pid":`+fmt.Sprint(os.Getpid())+`}}}' ;;
   "worktree "*) echo '{"error":{"code":"not_a_repo","message":"no git here"}}' >&2; exit 1 ;;
   *) echo '{"result":{"type":"ok"}}' ;;
@@ -1249,7 +1246,7 @@ func TestHerdrDirRig(t *testing.T) {
 		}
 	}
 	root := t.TempDir()
-	h := &Herdr{Bin: dirHerdr(t, log, state), WorktreeRoot: root, Store: s, YardHome: "/y", YardBin: "/bin/yardr"}
+	h := &Herdr{Bin: dirHerdr(t, log, state), Socket: fakeHerdrAPI(t, log), WorktreeRoot: root, Store: s, YardHome: "/y", YardBin: "/bin/yardr"}
 	start := func(stage string, group store.Group) (map[string]any, string) {
 		t.Helper()
 		b, err := s.GetBead(ctx, "docs-1")
@@ -1270,15 +1267,6 @@ func TestHerdrDirRig(t *testing.T) {
 		raw, _ := os.ReadFile(log)
 		return handle, string(raw)
 	}
-	tabCall := func(calls string) string {
-		for _, l := range strings.Split(calls, "\n") {
-			if strings.HasPrefix(l, "tab create ") {
-				return l + " "
-			}
-		}
-		return ""
-	}
-
 	// First stage: no workspace for the bead yet; one with its label in
 	// another directory is someone else's.
 	setState(`{"result":{"workspaces":[{"workspace_id":"w9","label":"builders [e] 1"},{"workspace_id":"w8","label":"builders 1","worktree":{"checkout_path":"`+dir+`"}}]}}`,
@@ -1293,19 +1281,24 @@ func TestHerdrDirRig(t *testing.T) {
 	if !strings.Contains(calls, "workspace create --cwd "+dir+" --label builders [e] 1 --no-focus\n") {
 		t.Fatalf("workspace not opened in the directory:\n%s", calls)
 	}
-	tab := tabCall(calls)
-	if !strings.Contains(tab, "tab create --workspace w1 --cwd "+dir+" --label new [e] 1 ") {
-		t.Fatalf("agent's tab not in the directory: %s", tab)
+	tab := apiCall(t, calls, "tab.create")
+	if tab["workspace_id"] != "w1" || tab["cwd"] != dir || tab["label"] != "new [e] 1" {
+		t.Fatalf("agent's tab not in the directory: %v", tab)
 	}
-	for _, e := range []string{"YARDR_RIG_PATH=" + dir, "YARDR_RIG=docs", "YARDR_ACTOR=docs-1-new", "YARDR_HOME=/y"} {
-		if !strings.Contains(tab, " --env "+e+" ") {
-			t.Errorf("tab env lacks %s: %s", e, tab)
+	env := envOf(tab)
+	for k, v := range map[string]string{"YARDR_RIG_PATH": dir, "YARDR_RIG": "docs", "YARDR_ACTOR": "docs-1-new", "YARDR_HOME": "/y"} {
+		if env[k] != v {
+			t.Errorf("tab env lacks %s=%s: %v", k, v, env)
 		}
 	}
-	for _, e := range []string{"YARDR_BASE=", "YARDR_BRANCH=", "YARDR_WORKTREE=", "YARD_BASE="} {
-		if strings.Contains(tab, " --env "+e) {
-			t.Errorf("tab env has %s for a dir rig: %s", e, tab)
+	for _, k := range []string{"YARDR_BASE", "YARDR_BRANCH", "YARDR_WORKTREE", "YARD_BASE"} {
+		if _, ok := env[k]; ok {
+			t.Errorf("tab env has %s for a dir rig: %v", k, env)
 		}
+	}
+	// As for a worktree's bead: the environment is on no command line.
+	if cli := cliCalls(calls); strings.Contains(cli, "--env") || strings.Contains(cli, "YARDR_ACTOR") {
+		t.Errorf("the environment went on a command line:\n%s", cli)
 	}
 	if !strings.Contains(calls, "tab close t1\n") {
 		t.Errorf("new workspace's idle root tab kept:\n%s", calls)
@@ -1360,7 +1353,7 @@ func TestHerdrDirRig(t *testing.T) {
 	if strings.Contains(calls, "workspace create") || !strings.Contains(calls, "workspace rename w1 review [e] 1\n") {
 		t.Fatalf("later stage did not reuse the bead's workspace:\n%s", calls)
 	}
-	if !strings.Contains(tabCall(calls), "tab create --workspace w1 --cwd "+dir+" ") || strings.Contains(calls, "tab close") {
+	if tab := apiCall(t, calls, "tab.create"); tab["workspace_id"] != "w1" || tab["cwd"] != dir || strings.Contains(calls, "tab close") {
 		t.Fatalf("later stage's tab:\n%s", calls)
 	}
 

@@ -19,10 +19,12 @@ import (
 
 // fakeLinear answers the GraphQL operations the Linear Replier sends, from
 // a fixed issue with a conversation (c1, answered by c2) and a lone c3.
+// Comments it creates are looked up by id afterwards, like Linear's.
 type fakeLinear struct {
 	mu      sync.Mutex
 	auth    []string
-	created []map[string]any // commentCreate inputs
+	created []map[string]any          // commentCreate inputs
+	posted  map[string]map[string]any // comments created, by id
 }
 
 const fakeIssue = "issue-1"
@@ -48,18 +50,36 @@ func (f *fakeLinear) serve(t *testing.T) {
 			f.mu.Lock()
 			f.created = append(f.created, in)
 			n := len(f.created)
+			// The client's id when it chose one, as Linear takes it.
+			id, _ := in["id"].(string)
+			if id == "" {
+				id = fmt.Sprint("new-", n)
+			}
+			c := map[string]any{"id": id, "body": in["body"], "url": fmt.Sprint("https://linear.app/x/issue/ENG-1#comment-new", n),
+				"createdAt": "2026-10-03T12:00:00Z", "parent": nil, "issue": map[string]any{"id": in["issueId"]}}
+			if f.posted == nil {
+				f.posted = map[string]map[string]any{}
+			}
+			f.posted[id] = c
 			f.mu.Unlock()
 			data = map[string]any{"commentCreate": map[string]any{"success": true,
-				"comment": map[string]any{"id": fmt.Sprint("new-", n), "url": fmt.Sprint("https://linear.app/x/issue/ENG-1#comment-new", n)}}}
+				"comment": map[string]any{"id": id, "url": c["url"]}}}
 		case strings.Contains(req.Query, "comment(id"):
 			parents := map[string]any{"c1": nil, "c2": map[string]any{"id": "c1"}, "c3": nil}
 			id, _ := req.Variables["id"].(string)
 			p, ok := parents[id]
-			if !ok {
-				json.NewEncoder(w).Encode(map[string]any{"errors": []any{map[string]any{"message": "Entity not found: Comment"}}})
+			f.mu.Lock()
+			c, posted := f.posted[id]
+			f.mu.Unlock()
+			switch {
+			case ok:
+				data = map[string]any{"comment": map[string]any{"id": id, "parent": p, "issue": map[string]any{"id": fakeIssue}}}
+			case posted:
+				data = map[string]any{"comment": c}
+			default:
+				json.NewEncoder(w).Encode(map[string]any{"errors": []any{map[string]any{"message": "Entity not found: Comment - Could not find referenced Comment."}}})
 				return
 			}
-			data = map[string]any{"comment": map[string]any{"id": id, "parent": p, "issue": map[string]any{"id": fakeIssue}}}
 		case strings.Contains(req.Query, "comments("):
 			if req.Variables["id"] != fakeIssue {
 				t.Errorf("thread asked for issue %v", req.Variables["id"])
@@ -139,10 +159,11 @@ func TestLinearReplyUnderRoot(t *testing.T) {
 		{"old top-level comment", oldLinearComment("https://linear.app/x/issue/ENG-1#comment-c3"), "", "c3"},
 	} {
 		n := len(f.created)
-		url, err := hooks.Linear{}.Reply(ctx, c.env, c.to, "answer: "+c.name, "lin_api_k")
+		m, err := hooks.Linear{}.Reply(ctx, c.env, c.to, "answer: "+c.name, "", "lin_api_k")
 		if err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
+		url := m.URL
 		if len(f.created) != n+1 {
 			t.Fatalf("%s: %d comments created", c.name, len(f.created)-n)
 		}
@@ -150,12 +171,12 @@ func TestLinearReplyUnderRoot(t *testing.T) {
 		if in["parentId"] != c.want || in["issueId"] != fakeIssue || in["body"] != "answer: "+c.name {
 			t.Errorf("%s: commentCreate input %v, want parentId %v", c.name, in, c.want)
 		}
-		if !strings.HasPrefix(url, "https://linear.app/x/issue/ENG-1#comment-new") {
-			t.Errorf("%s: url %q", c.name, url)
+		if !strings.HasPrefix(url, "https://linear.app/x/issue/ENG-1#comment-new") || m.ID != fmt.Sprint("new-", n+1) {
+			t.Errorf("%s: url %q, id %q", c.name, url, m.ID)
 		}
 	}
 	// A personal key goes as it is, anything else as a bearer token.
-	if _, err := (hooks.Linear{}).Reply(ctx, linearComment("c1", ""), "", "x", "oauth-tok"); err != nil {
+	if _, err := (hooks.Linear{}).Reply(ctx, linearComment("c1", ""), "", "x", "", "oauth-tok"); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.auth[len(f.auth)-1]; got != "Bearer oauth-tok" {
@@ -171,12 +192,12 @@ func TestLinearReplyErrors(t *testing.T) {
 	f := &fakeLinear{}
 	f.serve(t)
 	ctx := context.Background()
-	if _, err := (hooks.Linear{}).Reply(ctx, linearComment("c1", ""), "nope", "x", "k"); err == nil || !strings.Contains(err.Error(), "Entity not found") {
+	if _, err := (hooks.Linear{}).Reply(ctx, linearComment("c1", ""), "nope", "x", "", "k"); err == nil || !strings.Contains(err.Error(), "Entity not found") {
 		t.Fatalf("unknown --to: %v", err)
 	}
 	// A comment on something other than an issue is its own thread.
 	odd := hooks.Envelope{Source: "linear", Type: "comment", Thread: hooks.Thread{ID: "c9"}, Message: "c9"}
-	if _, err := (hooks.Linear{}).Reply(ctx, odd, "", "x", "k"); err == nil || !strings.Contains(err.Error(), "not on an issue") {
+	if _, err := (hooks.Linear{}).Reply(ctx, odd, "", "x", "", "k"); err == nil || !strings.Contains(err.Error(), "not on an issue") {
 		t.Fatalf("comment off an issue: %v", err)
 	}
 	// An old comment delivery whose comment cannot be told is refused, not
@@ -186,12 +207,48 @@ func TestLinearReplyErrors(t *testing.T) {
 		"https://linear.app/x/issue/ENG-1#comment-c9": "0 comments of the issue match",
 		"https://linear.app/x/issue/ENG-1#comment-c":  "3 comments of the issue match",
 	} {
-		if _, err := (hooks.Linear{}).Reply(ctx, oldLinearComment(url), "", "x", "k"); err == nil || !strings.Contains(err.Error(), want) {
+		if _, err := (hooks.Linear{}).Reply(ctx, oldLinearComment(url), "", "x", "", "k"); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: %v, want %q", url, err, want)
 		}
 	}
 	if len(f.created) != 0 {
 		t.Fatalf("posted %v", f.created)
+	}
+}
+
+// The key a reply is made with becomes the comment's id in Linear, and
+// Posted finds the comment by it afterwards: on the delivery's issue, or
+// not at all.
+func TestLinearReplyKey(t *testing.T) {
+	f := &fakeLinear{}
+	f.serve(t)
+	ctx := context.Background()
+	env := linearComment("c2", "c1")
+	const key = "9d4c3b2a-1f0e-4d5c-8b7a-6f5e4d3c2b1a"
+	if found, err := (hooks.Linear{}).Posted(ctx, env, key, "k"); err != nil || found != nil {
+		t.Fatalf("before posting: %+v, %v", found, err)
+	}
+	m, err := hooks.Linear{}.Reply(ctx, env, "", "answer", key, "k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.ID != key || f.created[0]["id"] != key || f.created[0]["parentId"] != "c1" {
+		t.Fatalf("reply %+v, created %v", m, f.created)
+	}
+	found, err := hooks.Linear{}.Posted(ctx, env, key, "k")
+	if err != nil || found == nil || found.ID != key || found.URL != m.URL || found.Body != "answer" {
+		t.Fatalf("after posting: %+v, %v", found, err)
+	}
+	// On another issue the comment is not this delivery's answer.
+	other := hooks.Envelope{Source: "linear", Type: "issue", Thread: hooks.Thread{ID: "issue-2"}}
+	if found, err := (hooks.Linear{}).Posted(ctx, other, key, "k"); err != nil || found != nil {
+		t.Fatalf("other issue: %+v, %v", found, err)
+	}
+	if _, err := (hooks.Linear{}).Posted(ctx, env, key, "lin_api_k"); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.auth[len(f.auth)-1]; got != "lin_api_k" {
+		t.Errorf("lookup auth header %q", got)
 	}
 }
 
@@ -260,12 +317,12 @@ func TestGitHubReplyAndThread(t *testing.T) {
 	ctx := context.Background()
 	env := hooks.Envelope{Source: "github", Type: "issue_comment", Thread: hooks.Thread{ID: "acme/yardr#23"}, Message: "10"}
 
-	url, err := hooks.GitHub{}.Reply(ctx, env, "", "On it.", "gh-tok")
+	m, err := hooks.GitHub{}.Reply(ctx, env, "", "On it.", "", "gh-tok")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if url != "https://github.com/acme/yardr/issues/23#issuecomment-101" || len(comments) != 2 || comments[1]["body"] != "On it." {
-		t.Fatalf("url %q, comments %v", url, comments)
+	if m.URL != "https://github.com/acme/yardr/issues/23#issuecomment-101" || m.ID != "101" || len(comments) != 2 || comments[1]["body"] != "On it." {
+		t.Fatalf("reply %+v, comments %v", m, comments)
 	}
 	got, err := hooks.GitHub{}.Thread(ctx, env, "gh-tok")
 	if err != nil {
@@ -278,18 +335,49 @@ func TestGitHubReplyAndThread(t *testing.T) {
 
 	// Comments are not threaded, a delivery without an issue or pull
 	// request has none, and what GitHub refuses is the error.
-	if _, err := (hooks.GitHub{}).Reply(ctx, env, "10", "x", "gh-tok"); err == nil || !strings.Contains(err.Error(), "not threaded") {
+	if _, err := (hooks.GitHub{}).Reply(ctx, env, "10", "x", "", "gh-tok"); err == nil || !strings.Contains(err.Error(), "not threaded") {
 		t.Errorf("--to: %v", err)
 	}
 	run := hooks.Envelope{Source: "github", Type: "workflow_run"}
-	if _, err := (hooks.GitHub{}).Reply(ctx, run, "", "x", "gh-tok"); err == nil || !strings.Contains(err.Error(), "not about an issue") {
+	if _, err := (hooks.GitHub{}).Reply(ctx, run, "", "x", "", "gh-tok"); err == nil || !strings.Contains(err.Error(), "not about an issue") {
 		t.Errorf("no thread: %v", err)
 	}
-	if _, err := (hooks.GitHub{}).Reply(ctx, env, "", "x", "wrong"); err == nil || !strings.Contains(err.Error(), "Bad credentials") {
+	if _, err := (hooks.GitHub{}).Reply(ctx, env, "", "x", "", "wrong"); err == nil || !strings.Contains(err.Error(), "Bad credentials") {
 		t.Errorf("bad token: %v", err)
 	}
 	if len(comments) != 2 {
 		t.Errorf("refused replies posted: %v", comments)
+	}
+}
+
+// GitHub takes no client-chosen id, so the key rides in the body as an
+// HTML comment, which renders as nothing, and Posted finds the comment by
+// it among the thread's.
+func TestGitHubReplyKey(t *testing.T) {
+	comments := []map[string]any{}
+	fakeGitHub(t, &comments)
+	ctx := context.Background()
+	env := hooks.Envelope{Source: "github", Type: "issue_comment", Thread: hooks.Thread{ID: "acme/yardr#23"}, Message: "10"}
+	const key = "9d4c3b2a-1f0e-4d5c-8b7a-6f5e4d3c2b1a"
+	if found, err := (hooks.GitHub{}).Posted(ctx, env, key, "gh-tok"); err != nil || found != nil {
+		t.Fatalf("before posting: %+v, %v", found, err)
+	}
+	m, err := hooks.GitHub{}.Reply(ctx, env, "", "On it.", key, "gh-tok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(comments) != 1 || comments[0]["body"] != "On it.\n\n<!-- yardr-reply "+key+" -->" || m.ID != "100" {
+		t.Fatalf("reply %+v, comments %v", m, comments)
+	}
+	found, err := hooks.GitHub{}.Posted(ctx, env, key, "gh-tok")
+	if err != nil || found == nil || found.ID != "100" || found.URL != m.URL {
+		t.Fatalf("after posting: %+v, %v", found, err)
+	}
+	if found, err := (hooks.GitHub{}).Posted(ctx, env, "another-key", "gh-tok"); err != nil || found != nil {
+		t.Fatalf("another key: %+v, %v", found, err)
+	}
+	if _, err := (hooks.GitHub{}).Posted(ctx, env, key, "wrong"); err == nil {
+		t.Error("lookup with a bad token: no error")
 	}
 }
 

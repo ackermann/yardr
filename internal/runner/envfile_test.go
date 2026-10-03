@@ -35,12 +35,11 @@ func envHerdr(t *testing.T, wt string) (*Herdr, string, *bytes.Buffer) {
 	calls := filepath.Join(t.TempDir(), "calls")
 	var logs bytes.Buffer
 	h := &Herdr{YardHome: "/y", YardBin: "/bin/yardr",
-		Log: slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		Log:    slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		Socket: fakeHerdrAPI(t, calls),
 		Bin: fakeHerdrBin(t, `printf '%s\n' "$*" >> `+calls+`
 case "$1 $2" in
-  "workspace create") echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"}}}' ;;
   "worktree create") echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"},"worktree":{"path":"`+wt+`"}}}' ;;
-  "tab create") echo '{"result":{"tab":{"tab_id":"t2"},"root_pane":{"pane_id":"p2"}}}' ;;
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)}
 	return h, calls, &logs
@@ -54,22 +53,22 @@ func readCalls(t *testing.T, path string) string {
 	return string(raw)
 }
 
-// checkEnvStart asserts the env file's entry reached the herdr call that
-// opens the pane, the identity was not overridden by the file, and the
+// checkEnvStart asserts the env file's entry reached the socket request
+// that opens the pane (paneCall: workspace.create or tab.create) and
+// nothing that went through the herdr binary, where a command line shows
+// in ps; that the identity was not overridden by the file; and that the
 // value shows in neither the handle nor the logs.
 func checkEnvStart(t *testing.T, calls, paneCall, actor string, handle map[string]any, logs string) {
 	t.Helper()
-	var call string
-	for _, l := range strings.Split(calls, "\n") {
-		if strings.HasPrefix(l, paneCall+" ") {
-			call = l + " "
-		}
+	env := envOf(apiCall(t, calls, paneCall))
+	if env["LINEAR_API_KEY"] != envSecret {
+		t.Errorf("%s lacks the env file's entry: %v", paneCall, env)
 	}
-	if !strings.Contains(call, " --env LINEAR_API_KEY="+envSecret+" ") {
-		t.Errorf("%s lacks the env file's entry:\n%s", paneCall, call)
+	if env["YARDR_ACTOR"] != actor || env["YARD_ACTOR"] != actor {
+		t.Errorf("env file overrode the identity: %v", env)
 	}
-	if !strings.Contains(call, " --env YARDR_ACTOR="+actor+" ") || strings.Contains(call, "someone-else") {
-		t.Errorf("env file overrode the identity:\n%s", call)
+	if cli := cliCalls(calls); strings.Contains(cli, "--env") || strings.Contains(cli, envSecret) || strings.Contains(cli, "LINEAR_API_KEY") {
+		t.Errorf("the pane environment went on a command line:\n%s", cli)
 	}
 	if h := fmt.Sprint(handle); strings.Contains(h, envSecret) {
 		t.Errorf("handle holds the value: %s", h)
@@ -89,7 +88,7 @@ func TestStartResidentLoadsEnvFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	checkEnvStart(t, readCalls(t, calls), "workspace create", "mayor", handle, logs.String())
+	checkEnvStart(t, readCalls(t, calls), "workspace.create", "mayor", handle, logs.String())
 }
 
 func TestHerdrStartLoadsGroupEnvFile(t *testing.T) {
@@ -106,7 +105,7 @@ func TestHerdrStartLoadsGroupEnvFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	checkEnvStart(t, readCalls(t, calls), "tab create", "yard-13-review", handle, logs.String())
+	checkEnvStart(t, readCalls(t, calls), "tab.create", "yard-13-review", handle, logs.String())
 }
 
 // A file others can read, or none at all, refuses the start before herdr is
@@ -163,7 +162,8 @@ func TestStartResidentNamesTheYard(t *testing.T) {
 			t.Fatal(err)
 		}
 		got := readCalls(t, calls)
-		if !strings.Contains(got, "--label "+tc.label+" --no-focus") || !strings.Contains(got, "\nagent start "+tc.agent+" --kind claude") ||
+		ws := apiCall(t, got, "workspace.create")
+		if ws["label"] != tc.label || ws["focus"] != false || !strings.Contains(got, "\nagent start "+tc.agent+" --kind claude") ||
 			handle["agent"] != tc.agent {
 			t.Errorf("home %q, name %q: agent %v, calls:\n%s", tc.home, tc.setting, handle["agent"], got)
 		}

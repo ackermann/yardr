@@ -38,7 +38,8 @@ import (
 //	worktrees  root for bead worktrees (default Herdr.WorktreeRoot)
 //	env_file   KEY=VALUE file (mode 0600 or stricter) whose entries go into
 //	           the agent's pane environment: outbound credentials, which
-//	           never belong in the store (see config.ReadEnvFile)
+//	           never belong in the store (see config.ReadEnvFile) nor on a
+//	           command line (see call)
 //
 // Worktrees live at <root>/<rig>/<bead>. Agents such as Claude Code ask to
 // trust every new folder but inherit trust from a parent, so trust the root
@@ -300,13 +301,13 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	// opens with has none. So the agent's yardr calls are attributed to it
 	// and carry its session (a stale one is refused) without the agent
 	// having to export anything. On a later stage the root pane may also
-	// still hold the previous stage's agent.
-	tabArgs := []string{"tab", "create", "--workspace", wt.Workspace.ID,
-		"--cwd", wt.Worktree.Path, "--label", TabLabel(rig.Name, job.Bead.Stage, job.Epic, job.Bead.ID)}
-	for _, e := range withEnvFile(h.agentEnv(job, name), secrets) {
-		tabArgs = append(tabArgs, "--env", e)
-	}
-	raw, err = h.run(ctx, tabArgs...)
+	// still hold the previous stage's agent. The environment goes over the
+	// socket, never on a command line (see call).
+	raw, err = h.call(ctx, "tab.create", map[string]any{
+		"workspace_id": wt.Workspace.ID, "cwd": wt.Worktree.Path,
+		"label": TabLabel(rig.Name, job.Bead.Stage, job.Epic, job.Bead.ID),
+		"env":   envMap(withEnvFile(h.agentEnv(job, name), secrets)),
+	})
 	if err != nil {
 		return handle, err
 	}
@@ -378,12 +379,13 @@ func (h *Herdr) startDir(ctx context.Context, job dispatch.Job) (map[string]any,
 	handle := map[string]any{"agent": name, "dir": rig.Path, "rig": rig.Name, "bead": job.Bead.ID,
 		"workspace": ws.Workspace.ID}
 
-	tabArgs := []string{"tab", "create", "--workspace", ws.Workspace.ID,
-		"--cwd", rig.Path, "--label", TabLabel(rig.Name, job.Bead.Stage, job.Epic, job.Bead.ID)}
-	for _, e := range withEnvFile(h.agentEnv(job, name), secrets) {
-		tabArgs = append(tabArgs, "--env", e)
-	}
-	raw, err := h.run(ctx, tabArgs...)
+	// As for a worktree: the environment goes over the socket, never on a
+	// command line (see call).
+	raw, err := h.call(ctx, "tab.create", map[string]any{
+		"workspace_id": ws.Workspace.ID, "cwd": rig.Path,
+		"label": TabLabel(rig.Name, job.Bead.Stage, job.Epic, job.Bead.ID),
+		"env":   envMap(withEnvFile(h.agentEnv(job, name), secrets)),
+	})
 	if err != nil {
 		return handle, err
 	}
@@ -902,15 +904,17 @@ func (h *Herdr) StartResident(ctx context.Context, r store.Resident) (map[string
 	}
 	yard := h.yardName(ctx)
 	name := ResidentAgentName(yard, r.Name)
-	args := []string{"workspace", "create", "--cwd", dir, "--label", ResidentLabel(yard, r.Name), "--no-focus"}
 	env := slices.Concat(config.Env("RESIDENT", r.Name), config.Env("ACTOR", r.Name))
 	if h.YardHome != "" {
 		env = append(env, config.Env("HOME", h.YardHome)...)
 	}
-	for _, e := range withEnvFile(env, secrets) {
-		args = append(args, "--env", e)
-	}
-	raw, err := h.run(ctx, args...)
+	// The environment goes over the socket, never on a command line (see
+	// call). The workspace is not focused: a resident starts in the
+	// background, under the daemon, not in front of whoever is at herdr.
+	raw, err := h.call(ctx, "workspace.create", map[string]any{
+		"cwd": dir, "label": ResidentLabel(yard, r.Name), "focus": false,
+		"env": envMap(withEnvFile(env, secrets)),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("workspace for %s: %w", r.Name, err)
 	}

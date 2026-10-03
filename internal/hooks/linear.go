@@ -132,6 +132,10 @@ func (Linear) Normalize(_ http.Header, body []byte) (*Envelope, error) {
 		e.Text = truncate(d.Body)
 		e.Mentions = linearMentions(d.Body, d.BodyData)
 		e.Message, e.Parent = d.ID, d.ParentID
+		// A comment's body outlives its delivery too: an edit re-sends it
+		// whole, so its mentions are counted against the last one seen,
+		// and a removal forgets it (see store.RecordHook).
+		e.Entity = d.ID
 	case "issue":
 		e.Fields = linearFields(&d)
 		e.Thread = Thread{ID: d.ID, Title: d.Title, URL: firstOf(d.URL, p.URL)}

@@ -155,8 +155,11 @@ counts once: yardr keeps who each issue's description mentioned and treats
 only newly added names as mentions. A status or label change on an issue that
 still mentions `@mayor` does not reach `mayor` as `mentioned` again (it can
 still reach it as `assigned`, `participant` or `all`). The event keeps the
-full list in `mentions`; `new_mentions` is what routing used. Comments are new
-text each time, so every mention in one counts.
+full list in `mentions`; `new_mentions` is what routing used. A comment is
+the same: its creation counts every mention in it, an edit (Linear `update`,
+GitHub `edited`) only the names it adds, and a deletion (`remove`,
+`deleted`) tells no one and forgets the comment. The envelope's `entity`
+names what is diffed: the issue or pull request, the comment, or a review.
 
 ### Setting up Linear
 
@@ -218,12 +221,14 @@ The envelope's `type` is the GitHub event and `action` the body's action:
 |---|---|---|---|
 | `pull_request` | `opened`, `synchronize`, `reopened`, `ready_for_review`, `closed` (`merged` true or false), … | the pull request | its description |
 | `pull_request_review` | `submitted` (`state` `approved`, `changes_requested`, `commented`) | the pull request | the review's body |
-| `issue_comment` | `created`, … (on a pull request or an issue) | the pull request or issue | the comment |
+| `issue_comment` | `created`, `edited`, `deleted` (on a pull request or an issue) | the pull request or issue | the comment |
 | `issues` | `opened`, `closed`, `edited`, … | the issue | its description |
 | `workflow_run`, `check_suite` | `completed` (`conclusion` `success`, `failure`, `cancelled`, …) | the pull request GitHub lists for the run, if any | `<workflow> <conclusion> on <branch>` |
 
-A thread (and, for a description, the entity whose mentions are diffed) is
-`<owner>/<repo>#<number>`. Logins are lowercased in `actor.id`, `assignee`
+A thread is `<owner>/<repo>#<number>`; so is the entity whose mentions are
+diffed for a description, while a comment's is `issuecomment-<id>` and a
+review's `pullrequestreview-<id>`, as GitHub's own URL fragments name them.
+Logins are lowercased in `actor.id`, `assignee`
 and `mentions`, so a resident's github identity is its login in lowercase.
 `@org/team` mentions, email addresses and mentions in code are not mentions.
 Where keys, besides `type`, `action`, `repo` and `label`: `event`, `number`,

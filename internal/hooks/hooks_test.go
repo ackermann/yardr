@@ -358,6 +358,67 @@ func TestIssueUpdateDeliversOnlyNewMentions(t *testing.T) {
 	}
 }
 
+// A comment's edit re-sends its body whole, as an issue update does the
+// description: a resident the comment already mentioned is not told
+// again, one newly mentioned is, and a removed comment is forgotten.
+func TestCommentEditDeliversOnlyNewMentions(t *testing.T) {
+	r := newRig(t)
+	ctx := context.Background()
+	for name, id := range map[string]store.Identity{"mayor": {ID: "u-mayor", Key: "mayor"}, "jane": {ID: "u-jane", Key: "jane.doe"}} {
+		if _, err := r.st.PutResident(ctx, store.Resident{Name: name}, "me"); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.st.SetIdentity(ctx, name, "linear", id, "me"); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.st.AddSubscription(ctx, name, store.Subscription{Source: "linear", Scope: store.ScopeMentions}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// comment is comment cm-1 on an issue after action, saying body, sent
+	// n seconds after the first.
+	comment := func(n int64, action, body string) []byte {
+		b, _ := json.Marshal(map[string]any{"type": "Comment", "action": action,
+			"url":              "https://linear.app/x/issue/ENG-1#comment-cm-1",
+			"actor":            map[string]any{"id": "u-ann", "name": "Ann"},
+			"data":             map[string]any{"id": "cm-1", "body": body, "issueId": "issue-1", "userId": "u-ann"},
+			"webhookTimestamp": 1791014400100 + n*1000})
+		return b
+	}
+	inbox := func(name string) int {
+		t.Helper()
+		page, err := r.st.Inbox(ctx, name, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return page.Total
+	}
+	for i, c := range []struct {
+		body        []byte
+		mayor, jane int
+	}{
+		{comment(0, "create", "@mayor look?"), 1, 0},
+		{comment(1, "update", "@mayor look? (typo fixed)"), 1, 0}, // edited: still mentions mayor
+		{comment(2, "update", "@mayor look? cc @jane.doe"), 1, 1}, // adds jane
+		{comment(3, "remove", "@mayor look? cc @jane.doe"), 1, 1}, // removed: no one told
+		{comment(4, "update", "@mayor look? cc @jane.doe"), 2, 2}, // forgotten: nothing held against the id
+		{comment(5, "update", "@mayor look? cc @jane.doe"), 2, 2}, // and remembered again
+	} {
+		r.now = sentAt(t, c.body)
+		if code := r.linear(t, c.body, secret, fmt.Sprint("c-", i)); code != http.StatusOK {
+			t.Fatalf("delivery %d: %d", i, code)
+		}
+		if m, j := inbox("mayor"), inbox("jane"); m != c.mayor || j != c.jane {
+			t.Fatalf("after delivery %d: mayor %d, jane %d; want %d, %d", i, m, j, c.mayor, c.jane)
+		}
+	}
+	evs := r.hookEvents(t)
+	last := evs[len(evs)-1].Data
+	if len(evs) != 6 || last["entity"] != "cm-1" || fmt.Sprint(last["mentions"]) != "[mayor jane.doe]" || fmt.Sprint(last["new_mentions"]) != "[]" {
+		t.Fatalf("last event: entity %v, mentions %v, new %v (%d events)", last["entity"], last["mentions"], last["new_mentions"], len(evs))
+	}
+}
+
 // Regression: a delivery refused after its id was remembered must not make
 // the corrected retry look like a duplicate.
 func TestRefusedDeliveryIsNotRemembered(t *testing.T) {
@@ -482,6 +543,7 @@ func TestLinearNormalize(t *testing.T) {
 				"and again https://linear.app/company/profiles/mayor.",
 			URL:     "https://linear.app/company/issue/ENG-42/webhook-receiver-drops-retries#comment-2174add1",
 			Message: "2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9",
+			Entity:  "2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9",
 			Fields:  map[string][]string{"team": {"ENG", "Engineering"}},
 		}},
 		{"linear_comment_bodydata.json", hooks.Envelope{
@@ -494,6 +556,7 @@ func TestLinearNormalize(t *testing.T) {
 			URL:      "https://linear.app/company/issue/ENG-42#comment-8f1e0c55",
 			Message:  "8f1e0c55-1b6f-4a1e-9e7a-2d4c1f0b9a10",
 			Parent:   "2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9",
+			Entity:   "8f1e0c55-1b6f-4a1e-9e7a-2d4c1f0b9a10",
 		}},
 		{"linear_comment_plain_mention.json", hooks.Envelope{
 			Source: "linear", Type: "comment", Action: "create",
@@ -504,6 +567,7 @@ func TestLinearNormalize(t *testing.T) {
 			Text:     "testing @mayor hello",
 			URL:      "https://linear.app/company/issue/ENG-498/testing-local-yardr-setup#comment-3a486010",
 			Message:  "3a486010-d638-49dc-bcc0-800c16e08441",
+			Entity:   "3a486010-d638-49dc-bcc0-800c16e08441",
 			Fields:   map[string][]string{"team": {"ENG", "Engineering"}},
 		}},
 		{"linear_issue_create.json", hooks.Envelope{

@@ -160,7 +160,8 @@ func (s *Store) RecordHook(ctx context.Context, name string, envelope map[string
 // freshMentions diffs the mentions of a delivery that names an entity
 // against those the entity's text carried last time, and keeps the new set.
 // Routing then reads "new_mentions", so a resident mentioned in an issue's
-// description is told once, not again on every status or label change.
+// description, or in a comment, is told once, not again on every status
+// or label change nor on every edit of the comment.
 func freshMentions(tx *bolt.Tx, data map[string]any) error {
 	entity, _ := data["entity"].(string)
 	source, _ := data["source"].(string)
@@ -183,7 +184,9 @@ func freshMentions(tx *bolt.Tx, data map[string]any) error {
 		}
 	}
 	data["new_mentions"] = fresh
-	if action, _ := data["action"].(string); action == "remove" {
+	// The entity is gone (Linear says remove, GitHub deleted): forget what
+	// it mentioned, so nothing is held against an id that comes back.
+	if action, _ := data["action"].(string); action == "remove" || action == "deleted" {
 		return b.Delete(key)
 	}
 	raw, err := json.Marshal(now)

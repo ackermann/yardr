@@ -104,6 +104,10 @@ yardr resident show mayor     # env_file …/mayor.env (LINEAR_API_KEY)
 - Each entry joins the pane environment next to `YARDR_RESIDENT`,
   `YARDR_ACTOR` and `YARDR_HOME`. A key yardr sets itself is ignored, so a
   credentials file cannot change who the agent is.
+- The environment reaches herdr over its API socket, in the request that
+  opens the pane, never as arguments of a `herdr` command: a command line
+  shows in `ps` to every user of the machine, the socket only to its owner.
+  The same goes for a group's `env_file` and a bead agent's tab.
 - The file must be a regular file that only its owner can read or write
   (mode `0600` or stricter). Missing, not a regular file or open to others,
   the resident does not start: the start fails with the reason (backed off
@@ -135,8 +139,30 @@ the credential its `env_file` put there (`LINEAR_API_KEY`, `GITHUB_TOKEN`,
 else `gh auth token`); the server is asked only for the event, and never
 sees, stores or sends a credential. After posting, the resident takes part
 in the thread at once (`yardr thread list`, how `replied`) and a `replied`
-event (source, thread, url) lands on its journal; the webhook's echo of the
-reply is its own action and does not reach its inbox.
+event (source, thread, url, the comment's id as `message`, the delivery's
+`seq`) lands on its journal; the webhook's echo of the reply is its own
+action and does not reach its inbox.
+
+**Who may speak as a resident.** `yardr reply --resident <name>` is taken
+from the resident's own session (the pane yardr started it in names it in
+`YARDR_RESIDENT` and `YARDR_ACTOR`) or from the operator (the yard's
+`operator` setting, else the user running the command, which is what a
+shell with no `YARDR_ACTOR` acts as). A bead's agent, or another resident,
+is refused: its credential, or the operator's `gh` login, would otherwise
+speak in the resident's name. Every agent still runs as one OS user, so
+this is a line, not a wall; it moves when yardr hosts more than one person.
+
+**A reply is posted once.** Before anything is sent, the reply is on record
+in the store with a key chosen for it (a UUID), under the delivery, the
+conversation and the text. The key goes with the post: in Linear as the
+comment's own id, which Linear refuses twice; on GitHub as an HTML comment
+at the end of the body, which renders as nothing. Run the same `yardr
+reply` again, after a timeout or a crash, and yardr answers from the
+record when the post is known to have landed, else asks the source for the
+comment that key made and records it, and only posts when there is none.
+Another text, or another `--to`, is another reply. A call to a source is
+bounded at two minutes, well past a slow day at Linear, so a post that
+landed slowly is not reported as failed and made again.
 
 What to say, and whether to, is the resident's role: see the generic
 [roles/mayor.md](../roles/mayor.md) that `yardr init` installs. Setting a source up end to end is in

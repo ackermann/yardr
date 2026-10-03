@@ -3,6 +3,8 @@ package store_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"regexp"
 	"testing"
 
 	"yardr.dev/yardr/internal/hooks"
@@ -139,6 +141,78 @@ func TestFollowThread(t *testing.T) {
 	resident(t, s, "noid-inv", true, store.Subscription{Source: "linear", Scope: store.ScopeInvolved})
 	if got := threads(t, s, "noid-inv"); len(got) != 0 {
 		t.Fatalf("recreated resident inherits threads: %v", got)
+	}
+}
+
+// A reply is on record before it is posted, under a key chosen for it (a
+// UUID v4, Linear's form of a client-chosen id): the same answer to the
+// same delivery gets the same record back, counted as another attempt;
+// another body, conversation or delivery gets its own. Replied marks it
+// posted with the comment's id, which the replied event carries too.
+func TestReplying(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	resident(t, s, "inv", false)
+	uuid4 := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+
+	rp, err := s.Replying(ctx, "inv", 7, "", "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !uuid4.MatchString(rp.Key) || rp.Attempts != 1 || rp.Posted || rp.Seq != 7 || rp.At.IsZero() {
+		t.Fatalf("first attempt: %+v", rp)
+	}
+	again, err := s.Replying(ctx, "inv", 7, "", "hello")
+	if err != nil || again.Key != rp.Key || again.Attempts != 2 || again.Posted {
+		t.Fatalf("second attempt: %+v, %v", again, err)
+	}
+	seen := map[string]bool{rp.Key: true}
+	for _, c := range []struct {
+		seq      uint64
+		to, body string
+	}{{7, "", "other"}, {7, "c1", "hello"}, {8, "", "hello"}} {
+		o, err := s.Replying(ctx, "inv", c.seq, c.to, c.body)
+		if err != nil || seen[o.Key] || o.Attempts != 1 {
+			t.Fatalf("%+v: %+v, %v", c, o, err)
+		}
+		seen[o.Key] = true
+	}
+
+	posted := store.Reply{Source: "linear", Thread: "T", URL: "https://l/T#c-1", Key: rp.Key, Message: "c-1", Seq: 7}
+	if err := s.Replied(ctx, "inv", posted, "inv"); err != nil {
+		t.Fatal(err)
+	}
+	done, err := s.Replying(ctx, "inv", 7, "", "hello")
+	if err != nil || !done.Posted || done.Message != "c-1" || done.URL != "https://l/T#c-1" || done.Key != rp.Key || done.Attempts != 3 ||
+		done.Source != "linear" || done.Thread != "T" {
+		t.Fatalf("after Replied: %+v, %v", done, err)
+	}
+	evs, err := s.EventsSince(ctx, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := evs[len(evs)-1]
+	if last.Kind != "replied" || last.Data["message"] != "c-1" || fmt.Sprint(last.Data["seq"]) != "7" {
+		t.Fatalf("replied event: %+v", last)
+	}
+
+	if _, err := s.Replying(ctx, "inv", 0, "", "hello"); err == nil {
+		t.Fatal("no seq")
+	}
+	if _, err := s.Replying(ctx, "inv", 7, "", ""); err == nil {
+		t.Fatal("no body")
+	}
+	if _, err := s.Replying(ctx, "ghost", 7, "", "hello"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("unknown resident: %v", err)
+	}
+	// A resident deleted and made again starts with no replies.
+	if err := s.DeleteResident(ctx, "inv", "", "me"); err != nil {
+		t.Fatal(err)
+	}
+	resident(t, s, "inv", false)
+	fresh, err := s.Replying(ctx, "inv", 7, "", "hello")
+	if err != nil || fresh.Key == rp.Key || fresh.Attempts != 1 {
+		t.Fatalf("after recreating the resident: %+v, %v", fresh, err)
 	}
 }
 

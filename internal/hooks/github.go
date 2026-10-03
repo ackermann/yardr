@@ -166,6 +166,11 @@ func (GitHub) Normalize(h http.Header, body []byte) (*Envelope, error) {
 			text, e.URL = p.Comment.Body, p.Comment.HTMLURL
 			if p.Comment.ID != 0 {
 				e.Message = strconv.FormatInt(p.Comment.ID, 10)
+				// An edit re-sends the comment whole, so its mentions are
+				// counted against the last one seen, and a deletion
+				// forgets it. Named as GitHub's own URL fragment does, apart
+				// from a review's id.
+				e.Entity = "issuecomment-" + e.Message
 			}
 		}
 	case "pull_request_review":
@@ -173,6 +178,9 @@ func (GitHub) Normalize(h http.Header, body []byte) (*Envelope, error) {
 		if p.Review != nil {
 			text, e.URL = p.Review.Body, p.Review.HTMLURL
 			f.set("state", strings.ToLower(p.Review.State))
+			if p.Review.ID != 0 {
+				e.Entity = "pullrequestreview-" + strconv.FormatInt(p.Review.ID, 10)
+			}
 		}
 	case "workflow_run", "check_suite":
 		s := p.WorkflowRun

@@ -440,6 +440,9 @@ func (c *Client) FollowThread(ctx context.Context, name, source, thread, actor s
 func (c *Client) UnfollowThread(ctx context.Context, name, source, thread, actor string) error {
 	return c.call(ctx, "UnfollowThread", nil, name, source, thread, actor)
 }
+func (c *Client) Replying(ctx context.Context, name string, seq uint64, to, body string) (*store.Reply, error) {
+	return callV[*store.Reply](c, ctx, "Replying", name, seq, to, body)
+}
 func (c *Client) Replied(ctx context.Context, name string, rp store.Reply, actor string) error {
 	return c.call(ctx, "Replied", nil, name, rp, actor)
 }

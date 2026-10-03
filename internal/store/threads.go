@@ -2,6 +2,10 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -12,7 +16,12 @@ import (
 // <resident>\x00<source>\x00<thread id> -> Participation.
 var bThreads = []byte("threads")
 
-func init() { allBuckets = append(allBuckets, bThreads) }
+// bReplies holds every reply a resident set out to post with yardr reply:
+// <resident>\x00<key> -> Reply, from Replying (before the post) through
+// Replied (after it).
+var bReplies = []byte("replies")
+
+func init() { allBuckets = append(allBuckets, bThreads, bReplies) }
 
 // How a resident came to participate in a thread.
 const (
@@ -88,20 +97,98 @@ func (s *Store) FollowThread(ctx context.Context, name, source, thread, actor st
 	})
 }
 
-// Reply is what a resident posted in a source's thread with yardr reply.
+// Reply is what a resident posts in a source's thread with yardr reply:
+// made by Replying before the post, completed by Replied after it.
 type Reply struct {
-	Source    string `json:"source"`
-	Thread    string `json:"thread"`
+	Source    string `json:"source,omitempty"`
+	Thread    string `json:"thread,omitempty"`
 	Title     string `json:"title,omitempty"`
 	ThreadURL string `json:"thread_url,omitempty"`
 	URL       string `json:"url,omitempty"` // of the reply
+	// Key is the id chosen for the reply before it is posted, a UUID v4:
+	// Linear takes it as the comment's own id, GitHub gets it as a marker
+	// in the body. Either way an attempt whose outcome was lost (a timeout
+	// after the source had taken the post) is found by it, not posted
+	// again.
+	Key string `json:"key,omitempty"`
+	// Seq is the delivery answered and Hash identifies the answer (its
+	// conversation and body), so a retry of the same reply gets the same
+	// key and a different reply to the same delivery a new one.
+	Seq  uint64 `json:"seq,omitempty"`
+	Hash string `json:"hash,omitempty"`
+	// Attempts counts the Replying calls: more than one means an earlier
+	// attempt did not get as far as Replied, so the source may hold the
+	// comment already.
+	Attempts int `json:"attempts,omitempty"`
+	// Message is the source's id of the comment once it is posted, and
+	// Posted says it is: a retry then has nothing left to do.
+	Message string    `json:"message,omitempty"`
+	Posted  bool      `json:"posted,omitempty"`
+	At      time.Time `json:"at"` // Replying first, then the post
 }
 
-// Replied records that the resident answered in a source's thread: a
-// `replied` event on its journal, and participation in the thread from
-// now on. The source's webhook echoes the reply later, but the resident
-// takes part as soon as it has spoken. A thread it already takes part in
-// keeps how and since it joined.
+func replyKey(resident, key string) string { return resident + "\x00" + key }
+
+// replyHash identifies one answer to a delivery: the conversation it goes
+// under and its body.
+func replyHash(to, body string) string {
+	sum := sha256.Sum256([]byte(to + "\x00" + body))
+	return hex.EncodeToString(sum[:])
+}
+
+// newReplyKey is a fresh UUID v4 (RFC 9562), the form Linear takes as a
+// client-chosen comment id.
+func newReplyKey() string {
+	var u [16]byte
+	if _, err := rand.Read(u[:]); err != nil {
+		panic(err)
+	}
+	u[6] = 0x40 | u[6]&0x0f // version 4
+	u[8] = 0x80 | u[8]&0x3f // variant 10
+	h := hex.EncodeToString(u[:])
+	return h[:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:]
+}
+
+// Replying is the resident about to answer delivery seq with body, under
+// the conversation to ("" for the delivery's own). It returns the Reply
+// for exactly that answer: a fresh one, with a key chosen now, or the one
+// an earlier attempt made, with Attempts counted up. The record is written
+// before anything is posted, so a reply the source took but the caller
+// never heard back about is still known by its key.
+func (s *Store) Replying(ctx context.Context, name string, seq uint64, to, body string) (*Reply, error) {
+	if seq == 0 || body == "" {
+		return nil, fmt.Errorf("replying: the delivery's seq and a body are required")
+	}
+	hash := replyHash(to, body)
+	var out *Reply
+	err := s.changeResident(name, func(w *wtx, r *Resident) error {
+		out = nil
+		err := each(w.Tx, bReplies, name+"\x00", func(_ []byte, rp *Reply) error {
+			if rp.Seq == seq && rp.Hash == hash {
+				out = rp
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		if out == nil {
+			out = &Reply{Key: newReplyKey(), Seq: seq, Hash: hash, At: now()}
+		}
+		out.Attempts++
+		return put(w.Tx, bReplies, replyKey(name, out.Key), out)
+	})
+	return out, err
+}
+
+// Replied records that the resident answered in a source's thread: the
+// reply made by Replying (rp.Key) is marked posted with the source's id
+// of the comment and its URL, a `replied` event goes on the resident's
+// journal, and it participates in the thread from now on. The source's
+// webhook echoes the reply later, but the resident takes part as soon as
+// it has spoken. A thread it already takes part in keeps how and since it
+// joined. Without a key (a caller that did not go through Replying) only
+// the event and the participation are recorded.
 func (s *Store) Replied(ctx context.Context, name string, rp Reply, actor string) error {
 	if rp.Source == "" || rp.Thread == "" {
 		return fmt.Errorf("replied: source and thread are required")
@@ -114,9 +201,28 @@ func (s *Store) Replied(ctx context.Context, name string, rp Reply, actor string
 				return err
 			}
 		}
+		if rp.Key != "" {
+			rec := Reply{Key: rp.Key, Seq: rp.Seq}
+			if raw := w.Bucket(bReplies).Get([]byte(replyKey(name, rp.Key))); raw != nil {
+				if err := json.Unmarshal(raw, &rec); err != nil {
+					return err
+				}
+			}
+			rec.Source, rec.Thread, rec.Title, rec.ThreadURL = rp.Source, rp.Thread, rp.Title, rp.ThreadURL
+			rec.URL, rec.Message, rec.Posted, rec.At = rp.URL, rp.Message, true, now()
+			if err := put(w.Tx, bReplies, replyKey(name, rp.Key), rec); err != nil {
+				return err
+			}
+		}
 		data := map[string]any{"resident": name, "source": rp.Source, "thread": rp.Thread, "url": rp.URL}
 		if rp.Title != "" {
 			data["title"] = rp.Title
+		}
+		if rp.Message != "" {
+			data["message"] = rp.Message
+		}
+		if rp.Seq != 0 {
+			data["seq"] = rp.Seq
 		}
 		return w.event(r.Journal, "replied", actor, data)
 	})
@@ -153,13 +259,15 @@ func (s *Store) Threads(ctx context.Context, name string) ([]Participation, erro
 	return out, err
 }
 
-// dropThreads forgets a deleted resident's participation, so a resident
-// later created under the name starts with none.
+// dropThreads forgets a deleted resident's participation and replies, so
+// a resident later created under the name starts with none.
 func dropThreads(tx *bolt.Tx, name string) error {
-	b := tx.Bucket(bThreads)
-	for _, k := range keys(tx, bThreads, name+"\x00") {
-		if err := b.Delete([]byte(k)); err != nil {
-			return err
+	for _, bucket := range [][]byte{bThreads, bReplies} {
+		b := tx.Bucket(bucket)
+		for _, k := range keys(tx, bucket, name+"\x00") {
+			if err := b.Delete([]byte(k)); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
