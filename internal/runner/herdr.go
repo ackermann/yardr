@@ -975,15 +975,71 @@ func (h *Herdr) yardName(ctx context.Context) string {
 	return strings.TrimLeft(filepath.Base(h.YardHome), ".")
 }
 
+// residentDir is where a resident's session runs: its dir, else the yard's
+// home.
+func (h *Herdr) residentDir(r store.Resident) string {
+	if r.Dir != "" {
+		return r.Dir
+	}
+	return h.YardHome
+}
+
+// LiveResident looks through herdr's agents for one that already is r
+// without being the session yardr recorded for it (see
+// dispatch.ResidentFinder): an agent under the resident's herdr name
+// (ResidentAgentName), or one under its bare name in its directory, which
+// is what a pane started by hand before the resident was defined looks
+// like. The recorded session itself (r.Handle's agent, in its pane) is not
+// counted: after a stop for a handoff herdr may list it a moment longer.
+func (h *Herdr) LiveResident(ctx context.Context, r store.Resident) (*dispatch.LiveAgent, error) {
+	raw, err := h.run(ctx, "agent", "list")
+	if err != nil {
+		return nil, err
+	}
+	var list struct {
+		Agents []struct {
+			Name string `json:"name"`
+			Cwd  string `json:"cwd"`
+			Pane string `json:"pane_id"`
+		} `json:"agents"`
+	}
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return nil, fmt.Errorf("agent list: %w", err)
+	}
+	full, bare := ResidentAgentName(h.yardName(ctx), r.Name), agentName(r.Name)
+	dir := realPath(h.residentDir(r))
+	own, _ := r.Handle["agent"].(string)
+	ownPane, _ := r.Handle["pane"].(string)
+	for _, a := range list.Agents {
+		if a.Name == "" || (a.Name == own && a.Pane == ownPane) {
+			continue
+		}
+		if a.Name == full || (a.Name == bare && dir != "" && realPath(a.Cwd) == dir) {
+			return &dispatch.LiveAgent{Name: a.Name, Pane: a.Pane}, nil
+		}
+	}
+	return nil, nil
+}
+
+// realPath is path with its symlinks resolved, as herdr reports a pane's
+// cwd (/tmp is /private/tmp on macOS); a path that cannot be resolved is
+// only cleaned.
+func realPath(path string) string {
+	if path == "" {
+		return ""
+	}
+	if p, err := filepath.EvalSymlinks(path); err == nil {
+		return p
+	}
+	return filepath.Clean(path)
+}
+
 // StartResident opens a herdr workspace in the resident's directory, with
 // its identity in the environment, starts its agent and points it at its
 // prime. The agent and the workspace are named after the yard and the
 // resident (ResidentAgentName).
 func (h *Herdr) StartResident(ctx context.Context, r store.Resident) (map[string]any, error) {
-	dir := r.Dir
-	if dir == "" {
-		dir = h.YardHome
-	}
+	dir := h.residentDir(r)
 	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
 		return nil, fmt.Errorf("resident directory %q does not exist", dir)
 	}

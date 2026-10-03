@@ -169,3 +169,148 @@ func TestStartResidentNamesTheYard(t *testing.T) {
 		}
 	}
 }
+
+// listHerdr is envHerdr whose `agent list` answers with the content of the
+// returned file: one agent per line, "<name> <cwd> <pane>".
+func listHerdr(t *testing.T) (h *Herdr, calls, agents string) {
+	h, calls, _ = envHerdr(t, "")
+	agents = filepath.Join(t.TempDir(), "agents")
+	h.YardHome = "/tmp/y1"
+	h.Bin = fakeHerdrBin(t, `printf '%s\n' "$*" >> `+calls+`
+if [ "$1 $2" = "agent list" ]; then
+  printf '{"result":{"type":"agent_list","agents":['
+  sep=
+  while read -r name cwd pane; do
+    printf '%s{"name":"%s","cwd":"%s","pane_id":"%s","agent_status":"idle"}' "$sep" "$name" "$cwd" "$pane"
+    sep=,
+  done < `+agents+`
+  echo ']}}'
+else
+  echo '{"result":{"type":"ok"}}'
+fi`)
+	setAgents(t, agents)
+	return h, calls, agents
+}
+
+func setAgents(t *testing.T, path string, lines ...string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(strings.Join(append(lines, ""), "\n")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Which of herdr's agents already is a resident: one under the resident's
+// herdr name wherever it runs, or one under its bare name in its directory
+// (herdr reports a cwd with its symlinks resolved). Not the session the
+// store recorded for it, not an agent of another name or of the bare name
+// somewhere else, and not an agent herdr detected but nobody named.
+func TestLiveResident(t *testing.T) {
+	real := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, dir); err != nil {
+		t.Fatal(err)
+	}
+	real, err := filepath.EvalSymlinks(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	own := map[string]any{"agent": "y1-mayor", "pane": "w1:p1"}
+	for name, tc := range map[string]struct {
+		agents []string
+		handle map[string]any
+		want   string // "<name> <pane>", "" for none
+	}{
+		"none":                         {nil, nil, ""},
+		"herdr name":                   {[]string{"y1-mayor /elsewhere w3:p1"}, nil, "y1-mayor w3:p1"},
+		"bare name in its dir":         {[]string{"other /x w2:p1", "mayor " + real + " w3:p1"}, nil, "mayor w3:p1"},
+		"bare name elsewhere":          {[]string{"mayor /elsewhere w3:p1"}, nil, ""},
+		"another yard's":               {[]string{"y2-mayor " + real + " w3:p1"}, nil, ""},
+		"unnamed":                      {[]string{" " + real + " w3:p1"}, nil, ""},
+		"its own recorded session":     {[]string{"y1-mayor " + real + " w1:p1"}, own, ""},
+		"its name in another pane":     {[]string{"y1-mayor " + real + " w9:p1"}, own, "y1-mayor w9:p1"},
+		"bare name beside its own":     {[]string{"y1-mayor " + real + " w1:p1", "mayor " + real + " w3:p1"}, own, "mayor w3:p1"},
+		"bare name, a stopped handle":  {[]string{"mayor " + real + " w3:p1"}, own, "mayor w3:p1"},
+		"herdr name, no handle's pane": {[]string{"y1-mayor " + real + " w3:p1"}, map[string]any{"agent": "y1-mayor"}, "y1-mayor w3:p1"},
+	} {
+		h, calls, agents := listHerdr(t)
+		setAgents(t, agents, tc.agents...)
+		got, err := h.LiveResident(context.Background(), store.Resident{Name: "mayor", Dir: dir, Handle: tc.handle})
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		found := ""
+		if got != nil {
+			found = got.Name + " " + got.Pane
+		}
+		if found != tc.want {
+			t.Errorf("%s: found %q, want %q", name, found, tc.want)
+		}
+		if c := readCalls(t, calls); strings.TrimSpace(c) != "agent list" {
+			t.Errorf("%s: looking did more than list agents:\n%s", name, c)
+		}
+	}
+	// A resident with no dir runs in the yard's home.
+	h, _, agents := listHerdr(t)
+	h.YardHome = dir
+	setAgents(t, agents, "mayor "+real+" w3:p1")
+	if got, err := h.LiveResident(context.Background(), store.Resident{Name: "mayor"}); err != nil || got == nil {
+		t.Errorf("bare name in the yard's home: %v %v", got, err)
+	}
+	// herdr down: an error, never "none".
+	down := &Herdr{Bin: fakeHerdrBin(t, `echo '{"error":{"code":"server_not_running","message":"no herdr server"}}' >&2; exit 1`)}
+	if got, err := down.LiveResident(context.Background(), store.Resident{Name: "mayor", Dir: dir}); got != nil || !dispatch.IsRuntime(err) {
+		t.Errorf("herdr down: %v %v, want a runtime error", got, err)
+	}
+}
+
+// Found live (2026-10-03): the daemon started yardr-yardmaster beside a
+// pane that had been the yardmaster since noon. Through the dispatcher,
+// under either name: the resident is refused without a workspace being
+// created or an agent started, one resident_blocked names agent and pane
+// however often it is tried, and the resident starts once the agent is
+// gone.
+func TestResidentNotStartedBesideALiveHerdrAgent(t *testing.T) {
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, foreign := range []string{"mayor " + dir + " w7:p1", "y1-mayor /elsewhere w7:p1"} {
+		agent, _, _ := strings.Cut(foreign, " ")
+		ctx := context.Background()
+		h, calls, agents := listHerdr(t)
+		st := storetest.New(t)
+		if _, err := st.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr", Dir: dir}, "me"); err != nil {
+			t.Fatal(err)
+		}
+		d := &dispatch.Dispatcher{Store: st, Runners: map[string]dispatch.Runner{"herdr": h}}
+		setAgents(t, agents, foreign)
+		for range 3 {
+			if err := d.Reconcile(ctx); err != nil {
+				t.Fatal(err)
+			}
+		}
+		r, _ := st.GetResident(ctx, "mayor")
+		got := readCalls(t, calls)
+		if r.Live() || r.Failures != 0 || strings.Contains(got, "workspace.create") || strings.Contains(got, "agent start") {
+			t.Fatalf("%s: started beside it: %+v\n%s", agent, r, got)
+		}
+		var reasons []string
+		evs, _ := st.Events(ctx, r.Journal, 100)
+		for _, e := range evs {
+			if e.Kind == "resident_blocked" {
+				reasons = append(reasons, fmt.Sprint(e.Data["reason"]))
+			}
+		}
+		if len(reasons) != 1 || !strings.Contains(reasons[0], `"`+agent+`"`) || !strings.Contains(reasons[0], "w7:p1") {
+			t.Fatalf("%s: resident_blocked = %q, want one naming agent and pane", agent, reasons)
+		}
+		setAgents(t, agents)
+		if err := d.Reconcile(ctx); err != nil {
+			t.Fatal(err)
+		}
+		r, _ = st.GetResident(ctx, "mayor")
+		if got := readCalls(t, calls); !r.Live() || r.Handle["agent"] != "y1-mayor" || !strings.Contains(got, "workspace.create") {
+			t.Fatalf("%s: not started once it was gone: %+v\n%s", agent, r, got)
+		}
+	}
+}

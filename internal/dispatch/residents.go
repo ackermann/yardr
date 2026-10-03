@@ -15,6 +15,20 @@ type ResidentRunner interface {
 	StartResident(ctx context.Context, r store.Resident) (handle map[string]any, err error)
 }
 
+// LiveAgent is an agent a runtime lists: its name there and the pane it
+// runs in.
+type LiveAgent struct{ Name, Pane string }
+
+// ResidentFinder is a ResidentRunner whose runtime lists its agents, so it
+// can tell when a session yardr did not start (a pane opened by hand under
+// the resident's name) already is a resident. One without an agent list
+// does not implement it, which reads as "none".
+type ResidentFinder interface {
+	// LiveResident is a live agent that already is r without being the
+	// session r.Handle names, nil when there is none.
+	LiveResident(ctx context.Context, r store.Resident) (*LiveAgent, error)
+}
+
 // Nudger delivers a short message to a running session (an idle agent
 // reads it as its next prompt).
 type Nudger interface {
@@ -81,25 +95,52 @@ func (d *Dispatcher) resident(ctx context.Context, r store.Resident) error {
 	if r.RetryAfter != nil && time.Now().Before(*r.RetryAfter) {
 		return nil
 	}
+	if finder, ok := runner.(ResidentFinder); ok {
+		other, err := finder.LiveResident(ctx, r)
+		if err != nil {
+			return d.residentStartFailed(ctx, runner, r, nil, err)
+		}
+		if other != nil {
+			// A second session under one name: both would act as the
+			// resident and neither would know of the other. Nothing is
+			// started and nothing counted as a failure, so the next pass
+			// starts it once a human has ended the other.
+			reason := fmt.Sprintf("agent %q in pane %s already is this resident; end it and the resident starts",
+				other.Name, other.Pane)
+			if d.status["resident:"+r.Name] != "blocked: "+reason {
+				d.status["resident:"+r.Name] = "blocked: " + reason
+				d.Log.Warn("resident not started", "resident", r.Name, "reason", reason)
+				_ = d.Store.LogDispatch(ctx, r.Journal, "resident_blocked", actor, map[string]any{
+					"resident": r.Name, "reason": reason, "agent": other.Name, "pane": other.Pane})
+			}
+			return nil
+		}
+	}
 	handle, err := starter.StartResident(ctx, r)
 	if err != nil {
-		backoff := min(30*time.Second<<min(r.Failures, 5), 10*time.Minute)
-		d.Log.Warn("resident start failed", "resident", r.Name, "err", err, "retry_in", backoff)
-		if IsBlocked(err) && d.status["resident:"+r.Name] != "blocked: "+err.Error() {
-			// Its configuration refuses it (an env_file missing or open to
-			// others): a human has to act, so say so, once per reason.
-			d.status["resident:"+r.Name] = "blocked: " + err.Error()
-			_ = d.Store.LogDispatch(ctx, r.Journal, "resident_blocked", actor, map[string]any{
-				"resident": r.Name, "reason": err.Error()})
-		}
-		if len(handle) > 0 {
-			_ = runner.Stop(ctx, handle)
-		}
-		return d.Store.ResidentStartFailed(ctx, r.Name, err.Error(), backoff)
+		return d.residentStartFailed(ctx, runner, r, handle, err)
 	}
 	d.Log.Info("resident started", "resident", r.Name)
 	delete(d.status, "resident:"+r.Name)
 	return d.Store.ResidentStarted(ctx, r.Name, handle)
+}
+
+// residentStartFailed counts a start that did not happen against the
+// resident and backs it off; handle is what the runner left behind.
+func (d *Dispatcher) residentStartFailed(ctx context.Context, runner Runner, r store.Resident, handle map[string]any, err error) error {
+	backoff := min(30*time.Second<<min(r.Failures, 5), 10*time.Minute)
+	d.Log.Warn("resident start failed", "resident", r.Name, "err", err, "retry_in", backoff)
+	if IsBlocked(err) && d.status["resident:"+r.Name] != "blocked: "+err.Error() {
+		// Its configuration refuses it (an env_file missing or open to
+		// others): a human has to act, so say so, once per reason.
+		d.status["resident:"+r.Name] = "blocked: " + err.Error()
+		_ = d.Store.LogDispatch(ctx, r.Journal, "resident_blocked", actor, map[string]any{
+			"resident": r.Name, "reason": err.Error()})
+	}
+	if len(handle) > 0 {
+		_ = runner.Stop(ctx, handle)
+	}
+	return d.Store.ResidentStartFailed(ctx, r.Name, err.Error(), backoff)
 }
 
 // residentRunning handles a healthy session: a first prompt still to

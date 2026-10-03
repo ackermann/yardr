@@ -23,6 +23,30 @@ refuses a second of one name, so two yards' mayors cannot both be `mayor`.
 The yard is its `name` setting, else the home's directory name
 ([configuration.md](configuration.md#settings)).
 
+**One session per resident.** Before it starts a resident, yardr asks herdr
+for its agents. If one of them already is that resident, nothing is started:
+no workspace, no second agent. An agent is the resident when it is not the
+session yardr itself recorded and either its name is `<yard>-<name>`, or its
+name is the resident's bare name (`mayor`) and it runs in the resident's
+directory, which is what a pane you started by hand before defining the
+resident looks like. Two sessions under one name would each act as the
+resident without knowing of the other: one gets the nudges, you talk to the
+other.
+
+The resident stays `stopped` and a `resident_blocked` event on its journal
+names the agent and its pane, once for as long as it is the same agent:
+
+```sh
+yardr resident list                  # mayor  stopped  …
+yardr events --bead mayor-journal    # … resident_blocked yard  agent=mayor pane=w1:p1 reason=agent "mayor" in pane w1:p1 already is this resident; end it and the resident starts
+```
+
+To clear it, end that agent: close its pane in herdr (`herdr pane close
+w1:p1`), or rename it (`herdr agent rename`) if you want to keep it as
+something else. yardr looks again on every pass and starts the resident once
+the agent is gone; this is not counted as a failed start, so it never gives
+up. yardr does not adopt the pane it found and does not end it for you.
+
 - **Inbox:** mail, plus what its subscriptions deliver. Read with `yardr
   inbox`, mark handled with `yardr inbox --ack`; the cursor is stored, so
   nothing is lost or repeated across restarts.

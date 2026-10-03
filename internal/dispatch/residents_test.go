@@ -24,7 +24,15 @@ type residentRunner struct {
 	nudges   []string
 	stops    int
 	failNext error
-	blocked  bool // next start blocks before the agent is ready (a trust prompt)
+	blocked  bool                // next start blocks before the agent is ready (a trust prompt)
+	foreign  *dispatch.LiveAgent // an agent yardr did not start that already is the resident
+	findErr  error               // the agent list cannot be read
+}
+
+func (f *residentRunner) LiveResident(context.Context, store.Resident) (*dispatch.LiveAgent, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.foreign, f.findErr
 }
 
 func (f *residentRunner) StartResident(_ context.Context, r store.Resident) (map[string]any, error) {
@@ -312,6 +320,75 @@ func TestResidentBlockedByItsConfig(t *testing.T) {
 	if evs, _ = s.Events(ctx, r.Journal, 100); slices.ContainsFunc(evs[len(evs)-1:], func(e store.Event) bool {
 		return e.Kind == "resident_blocked"
 	}) {
+		t.Fatal("herdr down reported as resident_blocked")
+	}
+}
+
+// Found live (2026-10-03): a pane started by hand was the yardmaster when
+// the resident was defined, and the daemon started a second one beside it.
+// A resident whose runner finds a live agent that already is it is not
+// started: resident_blocked names the agent and its pane, once while it is
+// the same agent, nothing counts as a failed start, and the resident starts
+// on the pass after the agent is gone.
+func TestResidentNotStartedBesideALiveAgent(t *testing.T) {
+	s, f, d := residentSetup(t, store.Resident{})
+	ctx := context.Background()
+	blocked := func() (reasons []string) {
+		evs, _ := s.Events(ctx, "mayor-journal", 100)
+		for _, e := range evs {
+			if e.Kind == "resident_blocked" {
+				reasons = append(reasons, fmt.Sprint(e.Data["reason"]))
+			}
+		}
+		return reasons
+	}
+	f.foreign = &dispatch.LiveAgent{Name: "mayor", Pane: "w1:p1"}
+	for range 3 {
+		must(t, d.Reconcile(ctx))
+	}
+	r, _ := s.GetResident(ctx, "mayor")
+	if r.Live() || f.n != 0 || r.Failures != 0 || r.RetryAfter != nil {
+		t.Fatalf("started, or counted as a failure: %+v starts %d", r, f.n)
+	}
+	if got := blocked(); len(got) != 1 || !strings.Contains(got[0], `"mayor"`) || !strings.Contains(got[0], "w1:p1") {
+		t.Fatalf("resident_blocked = %q, want one naming agent and pane", got)
+	}
+	// Another agent in its place is news.
+	f.foreign = &dispatch.LiveAgent{Name: "yardr-mayor", Pane: "w2:p1"}
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	if got := blocked(); len(got) != 2 || !strings.Contains(got[1], "yardr-mayor") || !strings.Contains(got[1], "w2:p1") {
+		t.Fatalf("resident_blocked = %q, want a second for the other agent", got)
+	}
+	// The human ends it: the next pass starts the resident.
+	f.foreign = nil
+	must(t, d.Reconcile(ctx))
+	if r, _ = s.GetResident(ctx, "mayor"); !r.Live() || f.n != 1 {
+		t.Fatalf("not started once the agent was gone: %+v starts %d", r, f.n)
+	}
+	// It dies while another agent is it again: said again, not restarted.
+	f.set(agentOf(t, s), "")
+	f.foreign = &dispatch.LiveAgent{Name: "mayor", Pane: "w1:p1"}
+	must(t, d.Reconcile(ctx))
+	if r, _ = s.GetResident(ctx, "mayor"); r.Live() || f.n != 1 || len(blocked()) != 3 {
+		t.Fatalf("restarted beside a live agent: %+v starts %d blocked %q", r, f.n, blocked())
+	}
+}
+
+// An agent list that cannot be read is a failed start like any other (herdr
+// down): counted and backed off, not reported as blocked, and nothing is
+// started blind.
+func TestResidentAgentListUnreadableIsAFailedStart(t *testing.T) {
+	s, f, d := residentSetup(t, store.Resident{})
+	ctx := context.Background()
+	f.findErr = errors.New("herdr: connection refused")
+	must(t, d.Reconcile(ctx))
+	r, _ := s.GetResident(ctx, "mayor")
+	if r.Live() || f.n != 0 || r.Failures != 1 || r.RetryAfter == nil {
+		t.Fatalf("resident after an unreadable agent list: %+v starts %d", r, f.n)
+	}
+	evs, _ := s.Events(ctx, r.Journal, 100)
+	if slices.ContainsFunc(evs, func(e store.Event) bool { return e.Kind == "resident_blocked" }) {
 		t.Fatal("herdr down reported as resident_blocked")
 	}
 }
