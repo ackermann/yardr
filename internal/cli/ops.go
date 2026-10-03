@@ -521,6 +521,7 @@ func (a *app) groupCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "group", Short: "Who works beads: agent pools, code steps, humans"}
 	var g store.Group
 	var sets []string
+	var noProbe bool
 	add := &cobra.Command{
 		Use:   "add [<name> --runner <manual|exec|herdr>]",
 		Short: "Create or replace a group (no name: an interactive form)",
@@ -532,6 +533,11 @@ herdr agent), a model read live from that agent, and its permission flags.
 With a name, the group is replaced by exactly what the flags say, except that
 a herdr group without --set kind gets the yard's default_kind (yardr settings
 get default_kind).
+
+A herdr group's model is tried once with the agent's one-shot mode (claude -p,
+codex exec): a model the agent refuses is only found out on a session's first
+request otherwise. A refusal is a warning, and the group is saved either way;
+--no-probe skips the request.
 
 An agent nobody watches stops at every permission prompt. These flags keep it
 going (pass them as --set 'args=[...]'; yardr init gives them to the mayor):
@@ -551,7 +557,7 @@ going (pass them as --set 'args=[...]'; yardr init gives them to the mayor):
 				if err != nil {
 					return err
 				}
-				if err := a.groupForm(c.Context(), st); errors.Is(err, huh.ErrUserAborted) {
+				if err := a.groupForm(c.Context(), st, !noProbe); errors.Is(err, huh.ErrUserAborted) {
 					fmt.Println("cancelled")
 					return nil
 				} else {
@@ -580,12 +586,17 @@ going (pass them as --set 'args=[...]'; yardr init gives them to the mayor):
 			if err != nil {
 				return err
 			}
+			// After the group is stored: the probe only warns.
+			if !noProbe {
+				warnModel(c.Context(), "group "+saved.Name, saved.Runner, saved.Config)
+			}
 			return a.out(saved, func() { fmt.Printf("group %s (%s)\n", saved.Name, describe(*saved)) })
 		},
 	}
 	add.Flags().StringVar(&g.Runner, "runner", "", "runner: manual, exec, herdr")
 	add.Flags().IntVar(&g.Limit, "limit", 1, "max concurrent sessions")
 	add.Flags().StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable)")
+	add.Flags().BoolVar(&noProbe, "no-probe", false, noProbeHelp)
 	add.Flags().StringSliceVar(&g.Members, "members", nil, "manual groups: actors who may move a bead out of its stages (comma-separated)")
 
 	list := &cobra.Command{

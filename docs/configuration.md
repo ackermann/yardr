@@ -101,10 +101,11 @@ with `yardr group add <name> ... --set key=value`:
 |---|---|---|
 | `idle` | `30m` | the agent sat idle (herdr status `idle` or `done`) this long: a `session_idle` event, once per idle spell |
 | `max_age` | `4h` | the session ran this long: a `session_aged` event, once per session |
+| `stall` | `2m` | the agent sat idle this long after its first prompt and did nothing (no note, no commit, no change in its worktree): a `session_stalled` event with the end of its pane, once per session, and the group starts no further session with that model meanwhile ([groups.md](groups.md#models)) |
 | `grace` | unset | when set, a session still idle (or still running) this long past its limit is stopped and counted as a failed session; `0` stops it at once. Unset, the defaults below apply |
 
 Durations are Go durations (`45m`, `2h`) or a number of seconds; `off` or
-`0` turns `idle` or `max_age` off. The defaults apply to runners that report
+`0` turns `idle`, `max_age` or `stall` off. The defaults apply to runners that report
 an agent's status (herdr). For `exec` and `manual` groups only what the group
 sets applies, and `idle` never does, since they cannot tell idle from busy.
 The idle clock is the daemon's: one that replaces itself starts it again,

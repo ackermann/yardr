@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/peer"
@@ -295,6 +296,11 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 		_, _ = h.run(ctx, "workspace", "rename", wt.Workspace.ID, label)
 	}
 	handle["workspace"], handle["worktree"] = wt.Workspace.ID, wt.Worktree.Path
+	// Where the branch stood when the session began, so Worked can tell a
+	// commit of this session's from the ones it started on.
+	if head, err := gitOut(ctx, wt.Worktree.Path, "rev-parse", "HEAD"); err == nil {
+		handle["head"] = head
+	}
 
 	// The agent gets a tab of its own, created with its identity in the
 	// environment: herdr's agent start takes none, and the pane a worktree
@@ -970,6 +976,56 @@ func withEnvFile(env, file []string) []string {
 		}
 	}
 	return out
+}
+
+// Tail is the last lines the session's agent printed in its pane, blank
+// lines left out: where an agent says why it does nothing (a model it may
+// not use, no login).
+func (h *Herdr) Tail(ctx context.Context, handle map[string]any, lines int) (string, error) {
+	pane, _ := handle["pane"].(string)
+	if pane == "" {
+		return "", fmt.Errorf("handle has no pane")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	// pane read prints the terminal's text itself, not a JSON result. A TUI
+	// pads its screen with blank lines, so read well more than is kept.
+	var stdout, stderr bytes.Buffer
+	cmd := exec.CommandContext(ctx, h.Bin, "pane", "read", pane, "--source", "recent-unwrapped",
+		"--lines", fmt.Sprint(4*lines+40))
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("herdr pane read: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	tail := agents.Tail(stdout.String(), lines)
+	// An event is no place for a screenful of one long line.
+	const maxTail = 4000
+	if len(tail) > maxTail {
+		tail = "…" + strings.ToValidUTF8(tail[len(tail)-maxTail:], "")
+	}
+	return tail, nil
+}
+
+// Worked reports whether the session changed anything in its worktree: a
+// commit since it started (its handle keeps the head it started on) or an
+// uncommitted change. A dir rig's bead has no checkout to ask; there only
+// the bead's events tell.
+func (h *Herdr) Worked(ctx context.Context, handle map[string]any) (bool, error) {
+	path, _ := handle["worktree"].(string)
+	if path == "" {
+		return false, nil
+	}
+	if start, _ := handle["head"].(string); start != "" {
+		head, err := gitOut(ctx, path, "rev-parse", "HEAD")
+		if err != nil {
+			return false, err
+		}
+		if head != start {
+			return true, nil
+		}
+	}
+	out, err := gitOut(ctx, path, "status", "--porcelain")
+	return out != "", err
 }
 
 // Nudge sends text to the session's agent as its next prompt.

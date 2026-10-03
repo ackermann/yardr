@@ -26,11 +26,11 @@ import (
 // A resident from before a kind joined this list does not get it: resident
 // add --on replaces the list, so name every kind wanted (docs/residents.md).
 var defaultOn = []string{"gave_up", "session_blocked", "unrouted", "no_runner", "workspace_kept",
-	"resident_gave_up", "runtime_down", "session_idle", "session_aged", "held"}
+	"resident_gave_up", "runtime_down", "session_idle", "session_aged", "session_stalled", "held"}
 
 // knownKinds are offered in the interactive form.
 var knownKinds = []string{"gave_up", "session_blocked", "session_died", "session_failed", "unrouted",
-	"runtime_down", "runtime_up", "session_idle", "session_aged",
+	"runtime_down", "runtime_up", "session_idle", "session_aged", "session_stalled",
 	"no_runner", "workspace_kept", "resident_gave_up", "created", "claimed", "advanced", "closed",
 	"held", "released", "noted", "dep_added"}
 
@@ -39,6 +39,7 @@ func (a *app) residentCmd() *cobra.Command {
 
 	var def store.Resident
 	var sets []string
+	var noProbe bool
 	add := &cobra.Command{
 		Use:   "add [<name>]",
 		Short: "Create or replace a resident (no name: an interactive form)",
@@ -47,7 +48,11 @@ it running in its directory, nudges it when its inbox has something new and it
 is idle, and rotates it: at --max-age it is asked to write a handoff, and its
 next session starts from that handoff (forced after --handoff-grace).
 
-Without --set kind, a herdr resident gets the yard's default_kind.`,
+Without --set kind, a herdr resident gets the yard's default_kind.
+
+A model given with --set model is tried once with the agent's one-shot mode
+(claude -p, codex exec); a refusal is a warning and the resident is saved
+either way. --no-probe skips the request.`,
 		Example: `  yardr resident add                       # interactive
   yardr resident add mayor --set kind=claude --set model=opus \
     --set 'args=["--permission-mode","auto"]' --set prompt=$HOME/.yardr/roles/mayor.md \
@@ -62,7 +67,7 @@ Without --set kind, a herdr resident gets the yard's default_kind.`,
 				if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
 					return fmt.Errorf("give a resident name, or run in a terminal for the interactive form")
 				}
-				if err := a.residentForm(c.Context(), st); errors.Is(err, huh.ErrUserAborted) {
+				if err := a.residentForm(c.Context(), st, !noProbe); errors.Is(err, huh.ErrUserAborted) {
 					fmt.Println("cancelled")
 					return nil
 				} else {
@@ -81,12 +86,17 @@ Without --set kind, a herdr resident gets the yard's default_kind.`,
 			if err != nil {
 				return err
 			}
+			// After the resident is stored: the probe only warns.
+			if !noProbe {
+				warnModel(c.Context(), "resident "+r.Name, r.Runner, r.Config)
+			}
 			return a.out(r, func() { fmt.Printf("resident %s saved; journal %s\n", r.Name, r.Journal) })
 		},
 	}
 	f := add.Flags()
 	f.StringVar(&def.Runner, "runner", "herdr", "runner (herdr)")
 	f.StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable): kind, model, args, prompt, env_file")
+	f.BoolVar(&noProbe, "no-probe", false, noProbeHelp)
 	f.StringVar(&def.Dir, "dir", "", "directory the resident works in (default: the yard home)")
 	f.StringSliceVar(&def.On, "on", defaultOn, "event kinds delivered to its inbox (mail always is); replaces the list, so name every kind wanted")
 	f.StringVar(&def.MaxAge, "max-age", "", "ask for a handoff after this long, e.g. 6h (default: never)")
@@ -603,7 +613,7 @@ func (a *app) primeResident(ctx context.Context, st store.API, name string) erro
 
 // residentForm creates or edits a resident interactively, reusing the
 // agent, model and permission questions of the group form.
-func (a *app) residentForm(ctx context.Context, st store.API) error {
+func (a *app) residentForm(ctx context.Context, st store.API, probe bool) error {
 	rs, err := st.Residents(ctx)
 	if err != nil {
 		return err
@@ -683,6 +693,9 @@ func (a *app) residentForm(ctx context.Context, st store.API) error {
 	save := true
 	summary := fmt.Sprintf("%s: %s in %s\ninbox: %s\nrotate after: %s", def.Name, residentAgent(def), def.Dir,
 		strings.Join(def.On, ", "), or(def.MaxAge, "never"))
+	if probe {
+		summary += formModelWarning(ctx, "resident "+def.Name, def.Runner, def.Config)
+	}
 	if err := ask(huh.NewConfirm().Title("Save this resident?").Description(summary).Value(&save)); err != nil {
 		return err
 	}

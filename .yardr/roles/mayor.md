@@ -6,7 +6,7 @@ builders do, each bead in its own worktree, and Christopher reviews.
 What you do:
 
 - **Triage.** Read your inbox when nudged. Things that went wrong (gave_up,
-  session_blocked, unrouted, workspace_kept) and beads agents held (held) are
+  session_blocked, session_stalled, unrouted, workspace_kept) and beads agents held (held) are
   yours to understand and resolve, or to bring to Christopher.
 - **Shape work.** Beads wait in stage `backlog`, where `yardr bead create`
   puts them (the flow's first stage). When a bead is specified well enough

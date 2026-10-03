@@ -113,6 +113,12 @@ type Dispatcher struct {
 	down       map[string]*outage // group -> its runtime's current outage
 	idleSince  map[string]time.Time
 	idleTold   map[string]bool // session -> session_idle raised this idle spell
+	// fresh is session -> when its agent got its first prompt, for the
+	// sessions seen idle on every pass since (see stall).
+	fresh map[string]time.Time
+	// paused is group -> model -> the live session that stalled with it, as
+	// of this pass: route starts no further session with that model.
+	paused map[string]map[string]string
 }
 
 // outage is a group whose runner could not start anything: the runtime is
@@ -207,6 +213,7 @@ func (d *Dispatcher) defaults() {
 		d.down = map[string]*outage{}
 		d.idleSince = map[string]time.Time{}
 		d.idleTold = map[string]bool{}
+		d.fresh = map[string]time.Time{}
 	}
 }
 
@@ -459,6 +466,7 @@ func (d *Dispatcher) reap(ctx context.Context, groups map[string]store.Group) (m
 		return nil, err
 	}
 	active := map[string]int{}
+	d.paused = map[string]map[string]string{}
 	for _, s := range sessions {
 		r := d.runnerFor(s, groups)
 		switch {
@@ -484,8 +492,9 @@ func (d *Dispatcher) reap(ctx context.Context, groups map[string]store.Group) (m
 				continue
 			}
 			delete(d.unknown, s.ID)
-			if alive && d.limits(ctx, r, s, groups[s.Group]) {
+			if alive && d.limits(ctx, r, &s, groups[s.Group]) {
 				active[s.Group]++
+				d.holdBack(s)
 				continue
 			}
 			if alive {
@@ -538,6 +547,7 @@ func (d *Dispatcher) alive(ctx context.Context, r Runner, s store.Session) (bool
 			return true, err
 		}
 		_ = d.Store.LogDispatch(ctx, s.Bead, "session_prompted", actor, map[string]any{"session": s.ID})
+		d.prompted(r, s.ID)
 	}
 	if prev := d.status[s.ID]; status != prev {
 		d.status[s.ID] = status
@@ -622,6 +632,7 @@ func (d *Dispatcher) forget(id string) {
 	delete(d.unknown, id)
 	delete(d.idleSince, id)
 	delete(d.idleTold, id)
+	delete(d.fresh, id)
 }
 
 // teardown stops runner resources for sessions that ended, unless the group
@@ -708,6 +719,11 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 			continue
 		}
 		if o := d.down[g.Name]; o != nil && time.Now().Before(o.until) {
+			continue
+		}
+		// A session of the group sits stalled with this model: another
+		// would stall the same way (see stall).
+		if _, held := d.paused[g.Name][modelFor(g, b)]; held {
 			continue
 		}
 		// Last, since it reads the bead's events: only a bead that would
@@ -802,6 +818,11 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		d.runtimeUp(ctx, g)
 		if err := d.Store.MarkRunning(ctx, sess.ID, handle); err != nil {
 			return err
+		}
+		// A prompt the runner could not deliver yet is watched from its
+		// delivery (see alive).
+		if handle[PendingPrompt] == nil {
+			d.prompted(runner, sess.ID)
 		}
 	}
 	return nil

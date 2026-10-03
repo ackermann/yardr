@@ -13,13 +13,71 @@ Grok, Kimi, opencode, pi, or any other herdr agent), a model read live from
 that agent (press `/` to search long lists), and its permission flags. With a
 name, `yardr group add <name> --runner … --set …` stays scriptable.
 
+## Models
+
+A herdr group's `model` goes to its agent as `--model`; a bead's
+`--meta model=…` replaces it for that bead, in every herdr group that works
+it. Nothing but the agent's provider knows whether a model may be used: a
+name the agent lists may be refused for the account, and one it does not
+list may run. An agent given a model it may not use still starts; the
+refusal comes with its first request, in its pane, and it then sits idle.
+yardr checks at both ends.
+
+**When the model is set: the probe.** `yardr group add` and `yardr resident
+add` with a model (flags or form), and `yardr bead create --meta model=…`,
+make one short request with the agent's one-shot mode, `claude -p --model
+<m>` or `codex exec -m <m>`, and warn on stderr with the agent's last lines
+when it exits non-zero:
+
+```
+warning: group builders: claude did not answer with model "claude-nope-9" (claude -p --model claude-nope-9):
+    There's an issue with the selected model (claude-nope-9). It may not exist or you may not have access to it.
+  Saved as given: the probe also fails when the agent is offline or not logged in (--no-probe skips it). …
+```
+
+It only warns, and the group, resident or bead is stored either way: the
+probe also fails for an agent that is offline or not logged in, runs as
+whoever typed the command, without the group's `env_file`, and on the
+machine the command runs on. An agent not installed there, or one that does
+not answer in 90s, is reported as "could not check". Kinds without a
+one-shot mode yardr knows (all but `claude` and `codex`) are not probed. A
+bead's model is tried with each agent kind among the herdr groups its
+routes can send it to, whatever the stage, so a claude model on a bead that
+a codex group reviews is warned about. `--no-probe` skips the request, which
+costs a few seconds and a few tokens.
+
+**When a session starts: `session_stalled`.** An agent that was given its
+first prompt, was idle every time the daemon looked since, and has left
+nothing behind (no note or move on its bead, no commit and no change in its
+worktree) for the group's `stall` (default `2m`) is reported at once, not at
+the `idle` limit: one `session_stalled` event per session, on the bead,
+with `model`, `group`, `stage` and `tail`, the last 20 lines of the agent's
+pane that say anything, where its error is. It is in a new resident's
+default `--on`, so it reaches the mayor's inbox
+([subscriptions.md](subscriptions.md#--on)). An agent seen working or
+blocked since its prompt is not judged, however long it idles later, and a
+prompt held back by a startup question counts from its delivery. Only the
+daemon that sent the prompt judges a session; one that replaced itself
+since leaves it to `idle`.
+
+The stalled session is kept, as an idle one is. While it sits idle the
+group starts no further session with the same model (a bead with another
+`--meta model` still starts), since each would stall alike and hold a slot.
+The group goes on when the model is changed (`yardr group add` again) or
+when someone says to try again by ending the stalled session: `yardr bead
+release <bead>`, which also sends that bead to the group again. An agent
+that someone got going in its pane lifts the hold as well. `--set
+stall=off` turns the check off for a group. Only bead sessions are judged:
+a resident whose agent refuses its model is caught by the probe or not at
+all.
+
 ## Runners
 
 | runner | starts | config |
 |---|---|---|
 | `manual` | nothing; the bead waits on the group | — |
 | `exec` | `sh -c cmd` in the rig, with `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_ACTOR` (the group); for a bead with a rig also `YARDR_RIG`, `YARDR_RIG_PATH`, `YARDR_BASE` (what the bead lands on: the rig's base, or its epic's branch, see [pipeline.md](pipeline.md#epics)), `YARDR_BRANCH` (`yard/<bead>`), `YARDR_WORKTREE` (where herdr groups check that branch out); and `YARDR_BIN`, `YARDR_HOME` for the script's own `yardr` commands; `YARDR_RIG_KIND` is `git`, or `dir` for a dir rig, whose beads get no base, branch or worktree. A refinery is one ([pipeline.md](pipeline.md#4-approved-the-refinery-lands-it-on-main)), and so is rig yard's `yard-integrators`, which integrates an epic's branch once its children have landed ([pipeline.md](pipeline.md#the-epics-own-flow)) | `cmd`, `dir`, `log`, `worktrees` |
-| `herdr` | a herdr worktree workspace on branch `yard/<bead>` (from the bead's base) at `~/.yardr/worktrees/<rig>/<bead>` (reopened for later stages, one tab per stage), an agent in it, in a tab of its own with `YARDR_ACTOR` (the agent), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_BASE` (what it branches from: the rig's base, or its epic's branch), `YARDR_HOME` and `YARDR_BIN` in its environment, prompted with a brief in the worktree's git dir (`git rev-parse --git-path yardr`); a dir rig's bead works in the directory itself (see [Dir rigs](#dir-rigs)) | `kind`, `prompt`, `args`, `keep`, `worktrees`, `idle`, `max_age`, `grace`, `label`, `env_file` |
+| `herdr` | a herdr worktree workspace on branch `yard/<bead>` (from the bead's base) at `~/.yardr/worktrees/<rig>/<bead>` (reopened for later stages, one tab per stage), an agent in it, in a tab of its own with `YARDR_ACTOR` (the agent), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_BASE` (what it branches from: the rig's base, or its epic's branch), `YARDR_HOME` and `YARDR_BIN` in its environment, prompted with a brief in the worktree's git dir (`git rev-parse --git-path yardr`); a dir rig's bead works in the directory itself (see [Dir rigs](#dir-rigs)) | `kind`, `prompt`, `args`, `model`, `keep`, `worktrees`, `idle`, `max_age`, `grace`, `stall`, `label`, `env_file` |
 
 ### Dir rigs
 

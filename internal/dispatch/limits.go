@@ -23,6 +23,9 @@ import (
 //	         idle too), while a session that has run AgeCapFactor times
 //	         max_age is stopped anyway, since nothing a bead needs takes
 //	         that long, and the bead is released with a note saying so
+//	stall    how long an agent may sit idle after its first prompt, having
+//	         done nothing, before a session_stalled event; default 2m (see
+//	         stall.go)
 //
 // "off" or "0" turns a limit off. The defaults apply to runners that report
 // an agent's status (herdr); for others (exec, manual) a limit applies only
@@ -44,7 +47,7 @@ const AgedAt = "aged_at"
 // session_idle and session_aged once each and stopping the session after
 // the grace period, or at the age cap when there is none. It reports
 // whether s is still live.
-func (d *Dispatcher) limits(ctx context.Context, r Runner, s store.Session, g store.Group) bool {
+func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g store.Group) bool {
 	if s.State != "running" {
 		return true
 	}
@@ -53,6 +56,17 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s store.Session, g st
 	age, ageOn := limit(g.Config, "max_age", DefaultAgeLimit, agent)
 	grace, stops := limit(g.Config, "grace", 0, false)
 	now := time.Now()
+
+	// Before the limits, so the mark it leaves on the handle is not lost to
+	// the one session_aged leaves below.
+	switch st := d.status[s.ID]; st {
+	case "idle", "done":
+		d.stall(ctx, r, s, g)
+	case "unknown":
+		// herdr cannot tell: neither idle nor going.
+	default:
+		delete(d.fresh, s.ID) // it got going
+	}
 
 	if idleOn && agent {
 		if st := d.status[s.ID]; st == "idle" || st == "done" {
@@ -67,10 +81,10 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s store.Session, g st
 			if idleFor >= idle && !d.idleTold[s.ID] {
 				d.idleTold[s.ID] = true
 				d.Log.Warn("session idle", "session", s.ID, "bead", s.Bead, "idle", round(idleFor))
-				d.limitEvent(ctx, s, "session_idle", "idle", idleFor, idle, grace, stops)
+				d.limitEvent(ctx, *s, "session_idle", "idle", idleFor, idle, grace, stops)
 			}
 			if stops && idleFor >= idle+grace {
-				d.end(ctx, s, "failed", fmt.Sprintf("idle for %s (limit %s, grace %s)",
+				d.end(ctx, *s, "failed", fmt.Sprintf("idle for %s (limit %s, grace %s)",
 					round(idleFor), idle, grace))
 				return false
 			}
@@ -91,7 +105,7 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s store.Session, g st
 			if !stops {
 				stopAfter = hardCap - age
 			}
-			d.limitEvent(ctx, s, "session_aged", "age", ranFor, age, stopAfter, true)
+			d.limitEvent(ctx, *s, "session_aged", "age", ranFor, age, stopAfter, true)
 			h := maps.Clone(s.Handle)
 			if h == nil {
 				h = map[string]any{}
@@ -102,7 +116,7 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s store.Session, g st
 			}
 		}
 		if stops && ranFor >= age+grace {
-			d.end(ctx, s, "failed", fmt.Sprintf("ran for %s (limit %s, grace %s)",
+			d.end(ctx, *s, "failed", fmt.Sprintf("ran for %s (limit %s, grace %s)",
 				round(ranFor), age, grace))
 			return false
 		}
@@ -112,7 +126,7 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s store.Session, g st
 			// mayor, reading the bead) why its predecessor stopped.
 			reason := fmt.Sprintf("ran for %s, past the hard cap of %s (%d x max_age %s, no grace set)",
 				round(ranFor), hardCap, AgeCapFactor, age)
-			d.end(ctx, s, "failed", reason)
+			d.end(ctx, *s, "failed", reason)
 			note := fmt.Sprintf("Session %s stopped by the yard: %s. The bead is released for another attempt; "+
 				"if the work needs longer, raise the group's max_age.", s.ID, reason)
 			if err := d.Store.AddNote(ctx, s.Bead, note, actor); err != nil {
