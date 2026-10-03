@@ -149,7 +149,7 @@ func TestDeleteRig(t *testing.T) {
 	must(err)
 	other, err := s.AddRoute(ctx, store.Route{Stage: "new", Rig: &web2, Group: "builders"})
 	must(err)
-	any, err := s.AddRoute(ctx, store.Route{Stage: "review", Group: "builders"})
+	anyRig, err := s.AddRoute(ctx, store.Route{Stage: "review", Group: "builders"})
 	must(err)
 	f, err := store.ParseFlow("new -> review\nreview -> done\ndone terminal")
 	must(err)
@@ -217,7 +217,7 @@ func TestDeleteRig(t *testing.T) {
 		left = append(left, r.ID)
 	}
 	slices.Sort(left)
-	want := []string{other.ID, any.ID}
+	want := []string{other.ID, anyRig.ID}
 	slices.Sort(want)
 	if !slices.Equal(left, want) {
 		t.Fatalf("routes left = %v, want %v", left, want)
