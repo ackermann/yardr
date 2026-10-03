@@ -125,7 +125,7 @@ func (a *app) beadCmd() *cobra.Command {
 	f := create.Flags()
 	f.StringVarP(&nb.Body, "body", "b", "", "description (- reads stdin)")
 	f.StringVarP(&nb.Type, "type", "t", "", "bead type (default task)")
-	f.StringVarP(&nb.Stage, "stage", "s", "", "initial stage (default new)")
+	f.StringVarP(&nb.Stage, "stage", "s", "", "initial stage (default: the flow's first stage, backlog in the starter flow; new without a flow)")
 	f.IntVarP(&nb.Priority, "priority", "p", 2, "priority, 0 is highest")
 	f.StringVarP(&nb.Rig, "rig", "r", "", "rig the work happens in")
 	f.StringSliceVarP(&nb.Labels, "label", "l", nil, "labels")

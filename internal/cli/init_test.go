@@ -3,8 +3,10 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -616,4 +618,122 @@ func stubLookPath(t *testing.T, found ...string) {
 		return "", exec.ErrNotFound
 	}
 	t.Cleanup(func() { lookPath = old })
+}
+
+// Init again refreshes a role the operator never touched to this build's
+// template and keeps an edited one, telling which: the manifest holds the
+// hash of each file as init wrote it. A file from before the manifest is
+// kept unless it already reads as this build's.
+func TestInitRefreshesUntouchedRoles(t *testing.T) {
+	home := newHome(t)
+	a := &app{st: storetest.New(t), actor: "me"}
+	if _, err := run(t, a.rootCmd(), "init", "--harness", "claude", "--operator", "Jo"); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, "roles")
+	manifest := func() map[string]string {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join(dir, shippedManifest))
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := map[string]string{}
+		if err := json.Unmarshal(b, &m); err != nil {
+			t.Fatalf("%s: %v\n%s", shippedManifest, err, b)
+		}
+		return m
+	}
+	m := manifest()
+	for _, name := range []string{"mayor.md", "builder.md", "merger.md", "reviewer.md"} {
+		b, _ := os.ReadFile(filepath.Join(dir, name))
+		if m[name] != digest(b) {
+			t.Fatalf("manifest %s = %q, file hashes to %q", name, m[name], digest(b))
+		}
+	}
+
+	// builder.md: as an older init wrote it (the manifest agrees with the
+	// file), so it is refreshed. mayor.md: edited, kept. merger.md: from
+	// before the manifest and not this build's, kept. reviewer.md: from
+	// before the manifest but already this build's, tracked from now on.
+	old := []byte("# Builder\n\nAn older template.\n")
+	if err := os.WriteFile(filepath.Join(dir, "builder.md"), old, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m["builder.md"] = digest(old)
+	if err := os.WriteFile(filepath.Join(dir, "mayor.md"), []byte("mine"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "merger.md"), []byte("theirs"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	delete(m, "merger.md")
+	delete(m, "reviewer.md")
+	mb, _ := json.Marshal(m)
+	if err := os.WriteFile(filepath.Join(dir, shippedManifest), mb, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, a.rootCmd(), "init", "--harness", "claude", "--operator", "Jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "builder.md refreshed to this build's; mayor.md, merger.md edited, kept") {
+		t.Fatalf("summary does not say which:\n%s", out)
+	}
+	tmpl, _ := roles.FS.ReadFile("builder.md")
+	if b, _ := os.ReadFile(filepath.Join(dir, "builder.md")); !bytes.Equal(b, fillRole(tmpl, "Jo", "mayor")) {
+		t.Fatalf("builder.md not refreshed:\n%s", b)
+	}
+	for name, want := range map[string]string{"mayor.md": "mine", "merger.md": "theirs"} {
+		if b, _ := os.ReadFile(filepath.Join(dir, name)); string(b) != want {
+			t.Fatalf("%s overwritten: %q", name, b)
+		}
+	}
+	m = manifest()
+	tmpl, _ = roles.FS.ReadFile("reviewer.md")
+	if m["reviewer.md"] != digest(fillRole(tmpl, "Jo", "mayor")) || m["merger.md"] != "" || m["mayor.md"] == digest([]byte("mine")) {
+		t.Fatalf("manifest after refresh = %v", m)
+	}
+	// --json names them too.
+	var res struct {
+		Refreshed []string `json:"refreshed"`
+		Kept      []string `json:"kept"`
+		Current   []string `json:"current"`
+	}
+	js, err := run(t, a.rootCmd(), "--json", "init", "--harness", "claude", "--operator", "Jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(js), &res); err != nil {
+		t.Fatalf("%v\n%s", err, js)
+	}
+	if len(res.Refreshed) != 0 || len(res.Kept) != 2 || len(res.Current) != 2 {
+		t.Fatalf("third init: %+v", res)
+	}
+}
+
+// A rig's .yardr/roles/ is never refreshed: the files are committed, and rig
+// init writes no manifest there.
+func TestRigInitWritesNoManifest(t *testing.T) {
+	st := storetest.New(t)
+	dir := t.TempDir()
+	if err := st.PutRig(context.Background(), store.Rig{Name: "web", Path: dir, Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, actor: "me"}
+	if _, err := run(t, a.rigCmd(), "init", "web"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".yardr", "roles", shippedManifest)); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("rig init wrote a manifest: %v", err)
+	}
+	old := []byte("older template, untouched")
+	if err := os.WriteFile(filepath.Join(dir, ".yardr", "roles", "builder.md"), old, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.rigCmd(), "init", "web"); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, ".yardr", "roles", "builder.md")); !bytes.Equal(b, old) {
+		t.Fatalf("rig init refreshed a committed role:\n%s", b)
+	}
 }

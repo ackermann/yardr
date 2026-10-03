@@ -115,12 +115,14 @@ beads touch separate files.
 ### 3. A bead
 
 ```sh
-yardr bead create "Summarize each PDF in 2025-09/ into 2025-09/summary.md" -r invoices
+yardr bead create "Summarize each PDF in 2025-09/ into 2025-09/summary.md" -r invoices -s new
 ```
 
 What happens, with the daemon running (`yardr daemon`):
 
-1. The bead is created in `new`; the route sends it to `invoices/workers`,
+1. The bead is created in `new` (`-s new`; without it a bead starts in the
+   flow's first stage, `backlog`, where the mayor shapes it and advances it);
+   the route sends it to `invoices/workers`,
    and the herdr runner starts an agent with its working directory set to
    `~/Documents/invoices` itself. There is no worktree or branch. The brief is
    written under `~/Documents/invoices/.yardr/briefs/` and removed when the

@@ -17,7 +17,7 @@ import (
 func TestStaleRevisionRefused(t *testing.T) {
 	s, ctx := flowRig(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard"}, "me")
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestClaimRespectsGroupLimit(t *testing.T) {
 	const n = 8
 	beads := make([]string, n)
 	for i := range beads {
-		b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard"}, "me")
+		b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard", Stage: "new"}, "me")
 		if err != nil {
 			t.Fatal(err)
 		}

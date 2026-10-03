@@ -74,15 +74,19 @@ A group's `prompt` is read when a session starts:
   the home.
 
 A rig's roles are read like its gate: from the tip of the rig's base branch
-(`git show <base>:.yardr/roles/<name>.md`), not from the bead's branch or
-worktree, so a bead cannot rewrite the prompt of the reviewer that judges it;
-an edit to a role counts once it has landed. A role the base does not have
-yet, or a rig that is not a git checkout, is read from the rig's working tree.
+(`git show <base>:.yardr/roles/<name>.md`) and from nowhere else in the rig.
+Not from the bead's branch or worktree, so a bead cannot rewrite the prompt
+of the reviewer that judges it, and not from the checkout's working tree or
+whatever branch it has out either: a role the base does not have is not the
+rig's, and the home's copy serves until the edit has landed. Only a rig that
+is not a git checkout, or whose base does not resolve, is read from its
+working tree.
 
 So a fresh rig works from the generic roles in `~/.yardr/roles/` until it
 commits its own, and committing one overrides the home copy for that rig
 only. A prompt found nowhere fails the session start with every path tried in
-the error; three such failures hold the bead.
+the error (the rig's as `<base>:.yardr/roles/<name>.md`); three such failures
+hold the bead.
 
 Residents have no rig: give a resident's `prompt` as an absolute path (a
 relative one is read from its directory), e.g. a rig's
@@ -118,10 +122,12 @@ with a note naming the session, the cap and the fix (raise the group's
 event's `stop_after` says how long after the event the session is stopped,
 with or without a grace.
 
-These events and `runtime_down` (below) are in a new resident's default
-`--on`, so the mayor's inbox gets them; a resident made before them needs
-them added to its `--on` (`runtime_down` is about no bead, so a `yardr`
-subscription does not deliver it).
+These events, `runtime_down` (below) and `held` (a stuck agent holds its
+bead for the mayor) are in a new resident's default `--on`, so the mayor's
+inbox gets them; a resident made before one of them joined the default needs
+it added to its `--on`, which `yardr resident add` replaces as a whole
+([residents.md](residents.md)). `runtime_down` is about no bead, so a `yardr`
+subscription does not deliver it.
 
 **Outages are not failures.** When a runner cannot start anything at all
 (herdr missing from `PATH`, herdr down, `sh` not found), the session is
@@ -291,7 +297,7 @@ Everything yardr keeps for itself lives in one directory, **`YARDR_HOME`**
 | `server.pid`, `server.log` | the running server |
 | `worktrees/<rig>/<bead>` | herdr bead worktrees |
 | `rigs/<name>` | rigs registered with `rig add --clone`; `rig rm` leaves the clone here |
-| `roles/` | the generic role prompts `yardr init` installed (mayor, builder, merger, reviewer), the fallback for rigs without their own; yours to edit |
+| `roles/` | the generic role prompts `yardr init` installed (mayor, builder, merger, reviewer), the fallback for rigs without their own; yours to edit. `.shipped.json` there records each file's hash as init wrote it, so init again can tell an edited prompt (kept) from an untouched one (refreshed) |
 
 Set `YARDR_HOME` to run a separate yard (tests do, with a short path: unix
 socket paths are limited to about 100 bytes, and yardr refuses a home whose
@@ -345,8 +351,15 @@ to initialize and exits 2.
 `--harness` is required to create a yard. Either way yardr:
 
 1. writes the default role prompts, built into the binary from this repo's
-   `roles/`, to `<home>/roles/`, keeping any file already there (the mayor
-   edits its own copy). They are generic: where they say `{{operator}}`, the
+   `roles/`, to `<home>/roles/`. A file already there is kept when it was
+   edited (the mayor edits its own copy) and replaced with this build's when
+   it still reads as init wrote it: `<home>/roles/.shipped.json` holds the
+   hash of each file as written, so init again after an upgrade refreshes
+   the untouched templates and the summary says which were refreshed and
+   which kept (`--json`: `written`, `refreshed`, `current`, `kept`). A file
+   from before the manifest counts as edited unless it already matches this
+   build's, which is when it starts being tracked; delete one to get this
+   build's copy. They are generic: where they say `{{operator}}`, the
    person agents bring decisions to, init writes the operator's name (the
    form's "Your name", `--operator`, default `$USER`), and where they say
    `{{mayor}}`, the resident builders and reviewers mail about what blocks
@@ -505,6 +518,12 @@ reinstall) is skipped once per install, logged and recorded as a
 `replace_skipped` event with the `running` and `candidate` revisions and the
 `reason`; stop the server (`yardr server stop`) to run it anyway. Builders
 never `go install` from their worktrees; the mayor installs after merge.
+
+The generic role prompts in `~/.yardr/roles/` are files, not code: a new
+build does not touch them. Run `yardr init` again (with the same `--harness`,
+`--operator` and `--mayor`, since init stores the last two) to refresh the
+ones nobody edited to the new build's templates; edited ones are kept, and
+the summary says which ([above](#creating-a-yard-the-onboarding-and-yardr-init)).
 
 The store is stamped with its schema version on open, and a yardr whose
 schema is older than the store's refuses to open it (`store schema is newer

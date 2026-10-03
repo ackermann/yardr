@@ -27,7 +27,8 @@ The yard is its `name` setting, else the home's directory name
   inbox`, mark handled with `yardr inbox --ack`; the cursor is stored, so
   nothing is lost or repeated across restarts.
 - **Subscriptions:** `--on` kinds (default: things that went wrong or need a
-  decision: `gave_up`, `session_blocked`, `unrouted`, …), webhook deliveries
+  decision: `gave_up`, `session_blocked`, `unrouted`, `held`, …; `yardr
+  resident add --help` lists them), webhook deliveries
   (`yardr subscribe <name> linear --scope involved`), and yardr's own bead
   events (`yardr subscribe <name> yardr --done`, `yardr bead watch <id>`).
   Each delivery records why it reached the resident, and `yardr inbox` shows
@@ -59,6 +60,21 @@ the agent's own bead is held with a note naming the blocker when it cannot
 finish; the mayor orders the two with `yardr dep add <blocker> <bead>` and
 unholds. The roles mail the yard's `mayor` setting ([configuration.md](configuration.md#settings)),
 so a mayor added under another name is still the one addressed.
+
+A hold reaches the mayor because `held` is among a new resident's default
+`--on` kinds. A resident made before `held` joined them (or before any kind
+the default gained since) does not hear it until its list is replaced:
+`yardr resident add` with the name writes the whole definition, so repeat
+its other flags and give `--on` the full list, e.g.
+
+```sh
+yardr resident show mayor --json          # its config, dir, max_age and on today
+yardr resident add mayor --set kind=claude --set prompt=$HOME/.yardr/roles/mayor.md \
+  --dir ~/projects --max-age 6h \
+  --on gave_up,session_blocked,unrouted,no_runner,workspace_kept,resident_gave_up,runtime_down,session_idle,session_aged,held
+```
+
+Its journal, inbox position and runtime state are kept across the replace.
 
 ## Outbound credentials
 

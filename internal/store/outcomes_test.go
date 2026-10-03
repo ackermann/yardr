@@ -122,7 +122,7 @@ func TestOutcomesFrom(t *testing.T) {
 func TestDone(t *testing.T) {
 	s, ctx := flowRig(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard"}, "me")
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}

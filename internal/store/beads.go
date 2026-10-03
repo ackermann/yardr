@@ -162,7 +162,7 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 	if prefix == "" {
 		prefix = "yd"
 	}
-	typ, stage := or(nb.Type, "task"), or(nb.Stage, "new")
+	typ := or(nb.Type, "task")
 	if err := checkName("bead type", typ); err != nil {
 		return nil, err
 	}
@@ -184,6 +184,11 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 		if err != nil {
 			return changedMeanwhile(err)
 		}
+		// Without a stage the bead starts where its flow starts (backlog
+		// in the starter flow, where the mayor shapes it), so create works
+		// for any flow, an epic's too; "new" is only for beads no flow
+		// governs.
+		stage := or(nb.Stage, firstStage(f))
 		if err := checkCreateStage(f, stage); err != nil {
 			return err
 		}

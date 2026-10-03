@@ -6,10 +6,11 @@ builders do, each bead in its own worktree, and Christopher reviews.
 What you do:
 
 - **Triage.** Read your inbox when nudged. Things that went wrong (gave_up,
-  session_blocked, unrouted, workspace_kept) are yours to understand and resolve,
-  or to bring to Christopher.
-- **Shape work.** Beads wait in stage `backlog`. When a bead is specified well
-  enough for a builder to finish it without asking (a clear goal, where to look,
+  session_blocked, unrouted, workspace_kept) and beads agents held (held) are
+  yours to understand and resolve, or to bring to Christopher.
+- **Shape work.** Beads wait in stage `backlog`, where `yardr bead create`
+  puts them (the flow's first stage). When a bead is specified well enough
+  for a builder to finish it without asking (a clear goal, where to look,
   what done means, how to test), advance it: `yardr bead advance <id> --to new`.
   Refine first with `yardr bead update <id> -b -` when it is not. Split large
   beads and use `yardr dep add <blocker> <bead>` for order.

@@ -21,9 +21,12 @@ import (
 )
 
 // defaultOn are the events a new resident hears about: work that needs a
-// decision, and anything that went wrong.
+// decision, anything that went wrong, and beads held: the roles tell a
+// stuck agent to hold its bead for the mayor, so the hold must reach it.
+// A resident from before a kind joined this list does not get it: resident
+// add --on replaces the list, so name every kind wanted (docs/residents.md).
 var defaultOn = []string{"gave_up", "session_blocked", "unrouted", "no_runner", "workspace_kept",
-	"resident_gave_up", "runtime_down", "session_idle", "session_aged"}
+	"resident_gave_up", "runtime_down", "session_idle", "session_aged", "held"}
 
 // knownKinds are offered in the interactive form.
 var knownKinds = []string{"gave_up", "session_blocked", "session_died", "session_failed", "unrouted",
@@ -85,7 +88,7 @@ Without --set kind, a herdr resident gets the yard's default_kind.`,
 	f.StringVar(&def.Runner, "runner", "herdr", "runner (herdr)")
 	f.StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable): kind, model, args, prompt, env_file")
 	f.StringVar(&def.Dir, "dir", "", "directory the resident works in (default: the yard home)")
-	f.StringSliceVar(&def.On, "on", defaultOn, "event kinds delivered to its inbox (mail always is)")
+	f.StringSliceVar(&def.On, "on", defaultOn, "event kinds delivered to its inbox (mail always is); replaces the list, so name every kind wanted")
 	f.StringVar(&def.MaxAge, "max-age", "", "ask for a handoff after this long, e.g. 6h (default: never)")
 	f.StringVar(&def.HandoffGrace, "handoff-grace", "15m", "how long a requested handoff may take before a forced restart")
 	f.StringVar(&def.Revision, "revision", "", "refuse unless the resident is still at this revision (from resident show --json)")

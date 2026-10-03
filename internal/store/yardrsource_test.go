@@ -446,11 +446,11 @@ func TestYardrEpicAndGroupKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	child, err := s.CreateBead(ctx, store.NewBead{Title: "child", Rig: "yard"}, "jane")
+	child, err := s.CreateBead(ctx, store.NewBead{Title: "child", Rig: "yard", Stage: "new"}, "jane")
 	if err != nil {
 		t.Fatal(err)
 	}
-	stranger, err := s.CreateBead(ctx, store.NewBead{Title: "stranger", Rig: "yard"}, "jane")
+	stranger, err := s.CreateBead(ctx, store.NewBead{Title: "stranger", Rig: "yard", Stage: "new"}, "jane")
 	if err != nil {
 		t.Fatal(err)
 	}

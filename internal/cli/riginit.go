@@ -182,11 +182,12 @@ func rigInit(rig store.Rig, operator, mayor string, withMayor bool) (*rigInitRes
 			{filepath.Join(".yardr", "flows", "default.flow"), starterFlow, 0o644},
 		}
 	}
-	written, kept, err := installRoles(filepath.Join(rig.Path, ".yardr", "roles"), operator, mayor, only...)
+	// refresh is false: a rig's roles are the checkout's own, never rewritten.
+	inst, err := installRoles(filepath.Join(rig.Path, ".yardr", "roles"), operator, mayor, false, only...)
 	if err != nil {
 		return nil, err
 	}
-	res.Written, res.Kept = relAll(rig.Path, written), relAll(rig.Path, kept)
+	res.Written, res.Kept = relAll(rig.Path, inst.Written), relAll(rig.Path, inst.Kept)
 	for _, f := range files {
 		ok, err := writeNew(filepath.Join(rig.Path, f.path), f.body, f.mode)
 		if err != nil {

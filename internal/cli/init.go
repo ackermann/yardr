@@ -3,6 +3,9 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -184,9 +187,8 @@ type initResult struct {
 	Operator string   `json:"operator"`
 	Args     []string `json:"args"`
 	Roles    string   `json:"roles"`
-	Written  []string `json:"written"` // role files installed now
-	Kept     []string `json:"kept"`    // role files already there, left as they were
-	Daemon   bool     `json:"daemon"`  // a daemon runs on this home
+	*roleInstall
+	Daemon bool `json:"daemon"` // a daemon runs on this home
 	// MayorKept: a resident of the mayor's name was there already and is
 	// left as it was.
 	MayorKept bool `json:"mayor_kept"`
@@ -197,11 +199,13 @@ type initResult struct {
 
 // initYard creates the yard: the store, the default roles in the home, the
 // operator and default_kind settings and the mayor resident. Inputs are
-// checked before anything is created; roles already installed are kept (the
-// mayor edits its own), and an existing resident of the mayor's name is never
-// replaced, so init runs again on a yard without harm. On a yard that is
-// set up, the settings stored before stand in for the flags not given
-// (keepSettings): init again changes only what its flags say.
+// checked before anything is created; roles already installed are kept when
+// edited (the mayor edits its own) and refreshed to this build's when not,
+// and an existing resident of the mayor's name is never replaced, so init
+// runs again on a yard without harm, and is how an upgrade reaches the
+// templates. On a yard that is set up, the settings stored before stand in
+// for the flags not given (keepSettings): init again changes only what its
+// flags say.
 func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (*initResult, error) {
 	setUp, err := a.initialized(ctx, cfg)
 	if err != nil {
@@ -243,7 +247,7 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 	res := &initResult{Home: cfg.Home, Harness: o.Harness, Mayor: o.Mayor, Dir: dir,
 		Operator: or(o.Operator, defaultOperator()),
 		Args:     agents.UnattendedArgs(o.Harness), Roles: filepath.Join(cfg.Home, "roles")}
-	if res.Written, res.Kept, err = installRoles(res.Roles, res.Operator, o.Mayor); err != nil {
+	if res.roleInstall, err = installRoles(res.Roles, res.Operator, o.Mayor, true); err != nil {
 		return nil, err
 	}
 	res.MayorKept, res.SettingsKept = mayorKept, kept
@@ -318,44 +322,123 @@ func defaultOperator() string {
 	return or(os.Getenv("USER"), "the operator")
 }
 
+// shippedManifest, in the home's roles directory, records the sha256 of
+// each role as init wrote it. Init again (after an upgrade, say) compares
+// each installed file with it: one still as written is an untouched copy of
+// an older template, and is refreshed to this build's; one that differs was
+// edited, and is kept. A file from before the manifest is kept too unless
+// it already reads as this build's, which is when it starts being tracked.
+// A rig's .yardr/roles/ gets no manifest: rig init never overwrites, and
+// those files are committed, not refreshed.
+const shippedManifest = ".shipped.json"
+
+// roleInstall is what installRoles did with each embedded role, by path.
+type roleInstall struct {
+	Written   []string `json:"written"`             // not there before, installed now
+	Refreshed []string `json:"refreshed,omitempty"` // untouched since installed, now this build's
+	Current   []string `json:"current,omitempty"`   // already this build's text
+	Kept      []string `json:"kept"`                // edited (or untracked), left as they are
+}
+
+// summary says what happened to the roles already there, for the init
+// summary; "" when there were none.
+func (r *roleInstall) summary() string {
+	var parts []string
+	if len(r.Refreshed) > 0 {
+		parts = append(parts, strings.Join(bases(r.Refreshed), ", ")+" refreshed to this build's")
+	}
+	if len(r.Kept) > 0 {
+		parts = append(parts, strings.Join(bases(r.Kept), ", ")+" edited, kept")
+	}
+	if len(parts) == 0 && len(r.Current) > 0 {
+		parts = append(parts, "already this build's")
+	}
+	return strings.Join(parts, "; ")
+}
+
+func bases(paths []string) []string {
+	out := make([]string, len(paths))
+	for i, p := range paths {
+		out[i] = filepath.Base(p)
+	}
+	return out
+}
+
 // installRoles writes the embedded role prompts into dir, naming operator
-// where the templates say {{operator}} and mayor where they say {{mayor}},
-// and keeps any file already there. With only, it writes just those files
-// (e.g. "builder.md").
-func installRoles(dir, operator, mayor string, only ...string) (written, kept []string, err error) {
+// where the templates say {{operator}} and mayor where they say {{mayor}}.
+// A file already there is kept, except that with refresh one the manifest
+// says was never edited is replaced with this build's (see shippedManifest).
+// With only, it writes just those files (e.g. "builder.md").
+func installRoles(dir, operator, mayor string, refresh bool, only ...string) (*roleInstall, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	files, err := fs.ReadDir(roles.FS, ".")
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
+	manifest := map[string]string{}
+	mpath := filepath.Join(dir, shippedManifest)
+	if refresh {
+		if b, err := os.ReadFile(mpath); err == nil {
+			if err := json.Unmarshal(b, &manifest); err != nil {
+				return nil, fmt.Errorf("%s: %w", mpath, err)
+			}
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return nil, err
+		}
+	}
+	res := &roleInstall{}
 	for _, f := range files {
 		if len(only) > 0 && !slices.Contains(only, f.Name()) {
 			continue
 		}
 		body, err := roles.FS.ReadFile(f.Name())
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
+		want := fillRole(body, operator, mayor)
 		path := filepath.Join(dir, f.Name())
-		out, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-		if errors.Is(err, fs.ErrExist) {
-			kept = append(kept, path)
+		have, err := os.ReadFile(path)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			res.Written = append(res.Written, path)
+		case err != nil:
+			return nil, err
+		case !refresh:
+			res.Kept = append(res.Kept, path)
 			continue
-		} else if err != nil {
-			return nil, nil, err
+		case bytes.Equal(have, want):
+			res.Current = append(res.Current, path)
+			manifest[f.Name()] = digest(want)
+			continue
+		case manifest[f.Name()] == digest(have):
+			res.Refreshed = append(res.Refreshed, path)
+		default:
+			res.Kept = append(res.Kept, path)
+			continue
 		}
-		_, err = out.Write(fillRole(body, operator, mayor))
-		if cerr := out.Close(); err == nil {
-			err = cerr
+		if err := os.WriteFile(path, want, 0o644); err != nil {
+			return nil, err
 		}
-		if err != nil {
-			return nil, nil, err
-		}
-		written = append(written, path)
+		manifest[f.Name()] = digest(want)
 	}
-	return written, kept, nil
+	if refresh {
+		b, err := json.MarshalIndent(manifest, "", "  ")
+		if err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(mpath, append(b, '\n'), 0o644); err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+// digest is the manifest's hash of a role file's bytes.
+func digest(b []byte) string {
+	sum := sha256.Sum256(b)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 // fillRole puts the names into a role template's placeholders.
@@ -402,8 +485,8 @@ func (r *initResult) print() {
 		}
 	}
 	fmt.Printf("  roles    %s", r.Roles)
-	if len(r.Kept) > 0 {
-		fmt.Printf(" (%d already there, kept)", len(r.Kept))
+	if s := r.summary(); s != "" {
+		fmt.Printf(" (%s)", s)
 	}
 	fmt.Printf("\n           starting points naming %s: edit them to fit your yard; the mayor's prompt is mayor.md.\n"+
 		"           A rig's own roles go in its repo under .yardr/roles/, which a group's\n"+
@@ -499,9 +582,12 @@ func (a *app) initCmd() *cobra.Command {
 		Use:   "init [--harness <kind>]",
 		Short: "Create the yard: default harness, roles and the mayor (what the onboarding does)",
 		Long: `Create the yard in YARDR_HOME (default ~/.yardr) without the onboarding form,
-for scripts and tests. It writes the default role prompts to <home>/roles/
-(keeping any already there), naming --operator as the person they bring
-decisions to and --mayor as the resident they mail about what blocks them.
+for scripts and tests. It writes the default role prompts to <home>/roles/,
+naming --operator as the person they bring decisions to and --mayor as the
+resident they mail about what blocks them. A prompt already there is kept
+when it was edited, and replaced with this build's when it still reads as
+init wrote it (<home>/roles/.shipped.json records what was written), so
+init again after an upgrade refreshes the templates; the summary says which.
 They are generic starting points: a rig's own roles belong in
 its repo under .yardr/roles/, which groups find first. It stores --harness as the yard's default_kind, and
 adds the mayor resident on that harness with its unattended flags, rotating

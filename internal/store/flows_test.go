@@ -187,7 +187,7 @@ func TestNoFlowPassesThrough(t *testing.T) {
 func TestFlowAllowsAndRefusesTransitions(t *testing.T) {
 	s, ctx := flowRig(t)
 	putFlow(t, s, "yard", "", yardFlow)
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard"}, "me")
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,6 +228,20 @@ func TestFlowCreateStage(t *testing.T) {
 	putFlow(t, s, "yard", "", yardFlow)
 	if _, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard", Stage: "backlog"}, "me"); err != nil {
 		t.Fatal(err)
+	}
+	// No stage: the flow's first, where the mayor shapes it; without a flow,
+	// new, as before flows.
+	if b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard"}, "me"); err != nil || b.Stage != "backlog" {
+		t.Fatalf("created without a stage = %+v, %v; want the flow's first stage", b, err)
+	}
+	if err := s.PutRig(ctx, store.Rig{Name: "free", Base: "origin/main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "free"}, "me"); err != nil || b.Stage != "new" {
+		t.Fatalf("created without a flow = %+v, %v; want new", b, err)
+	}
+	if b, err := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me"); err != nil || b.Stage != "new" {
+		t.Fatalf("created without a rig = %+v, %v; want new", b, err)
 	}
 	_, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard", Stage: "nope"}, "me")
 	if err == nil || !strings.Contains(err.Error(), "stages: backlog, new,") {
@@ -343,8 +357,8 @@ func TestFlowTypeOverridesRig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateBead(ctx, store.NewBead{Title: "q2", Rig: "yard", Type: "decision"}, "me"); err == nil {
-		t.Fatal("decision created in 'new', which only the rig flow has")
+	if q2, err := s.CreateBead(ctx, store.NewBead{Title: "q2", Rig: "yard", Type: "decision"}, "me"); err != nil || q2.Stage != "open" {
+		t.Fatalf("decision without a stage = %+v, %v; want the type flow's first stage", q2, err)
 	}
 	if _, err := s.Advance(ctx, d.ID, "review", "me"); err == nil || !strings.Contains(err.Error(), "allowed next: decided, dropped") {
 		t.Fatalf("decision -> review err = %v", err)
@@ -358,7 +372,7 @@ func TestFlowTypeOverridesRig(t *testing.T) {
 	}
 
 	// Other types still follow the rig's flow.
-	f, _ := s.CreateBead(ctx, store.NewBead{Title: "feat", Rig: "yard", Type: "feature"}, "me")
+	f, _ := s.CreateBead(ctx, store.NewBead{Title: "feat", Rig: "yard", Type: "feature", Stage: "new"}, "me")
 	if _, err := s.Advance(ctx, f.ID, "decided", "me"); err == nil {
 		t.Fatal("feature used the decision flow")
 	}

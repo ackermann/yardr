@@ -20,7 +20,7 @@ func TestStaleMovesRefused(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard"}, "me")
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,11 +104,11 @@ func TestSessionCheckIsForTheSessionsOwnBead(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	a, err := s.CreateBead(ctx, store.NewBead{Title: "a", Rig: "yard"}, "me")
+	a, err := s.CreateBead(ctx, store.NewBead{Title: "a", Rig: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "b", Rig: "yard"}, "me")
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "b", Rig: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}

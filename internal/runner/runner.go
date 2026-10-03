@@ -102,7 +102,12 @@ func Brief(job dispatch.Job, actor, workdir, home string) (string, error) {
 	case dirRig && workdir != "":
 		fmt.Fprintf(&b, "Work in `%s` directly: it is a plain directory (dir rig `%s`), with no branch to work on. Commit nothing. Do not touch files outside what the bead names. When you report, say in your note what you produced, by path.\n\n", workdir, job.Rig.Name)
 	case workdir != "":
-		fmt.Fprintf(&b, "Work in `%s` (branch `%s`). Commit and push your work there.\n\n", workdir, Branch(bead))
+		// Builders never push: the branch is landed from this worktree (the
+		// refinery reads it here; an epic's integrator pushes the epic's).
+		// The brief is the one place that says when a push is allowed, so
+		// the role prompts defer to it: a section below grants one when it
+		// says "you may push".
+		fmt.Fprintf(&b, "Work in `%s` (branch `%s`). Commit your work there. Do not push it unless a section below says you may: the branch is landed from this worktree.\n\n", workdir, Branch(bead))
 	}
 	switch {
 	case job.Epic != "" && dirRig:
@@ -244,12 +249,13 @@ func prChecks(dir, url string) string {
 // yard's home, ~/.yardr/roles/<name>.md: the generic roles `yardr init`
 // installed, so a new rig works until it commits its own.
 //
-// A rig's roles are read like its gate: from the tip of the rig's base, not
-// from the bead's branch, so a bead cannot rewrite the prompt of the reviewer
-// that judges it; a role edit counts once it has landed. A file the base does
-// not have yet (or a rig that is not a git checkout) is read from the rig's
-// working tree instead. A dir rig has no base: its roles are read from its
-// directory as they are.
+// A rig's roles are read like its gate: from the tip of the rig's base and
+// from nowhere else in the rig, so a bead cannot rewrite the prompt of the
+// reviewer that judges it, and a role in a checkout's working tree (or on
+// its current branch) counts once it has landed on the base; until then the
+// home's copy serves. Only a rig that is not a git checkout, or whose base
+// does not resolve, is read from its working tree. A dir rig has no base:
+// its roles are read from its directory as they are.
 //
 // Any other relative path is looked up in the rig's working tree, then in
 // the home.
@@ -326,10 +332,11 @@ func readPlain(p string, rig *store.Rig, home string) ([]byte, error) {
 var gitTimeout = 30 * time.Second
 
 // readRigFile reads rel at the tip of the rig's base (rig.Base, which a
-// bead's start has just fetched when it is a remote's), or from the rig's
-// working tree when the base has no such file or does not resolve. where
-// names the place looked, for the not-found error. A file absent from both
-// is fs.ErrNotExist.
+// bead's start has just fetched when it is a remote's). A file the base
+// does not have is fs.ErrNotExist, whatever the working tree holds: the
+// working tree is read only when the rig has no base that resolves (a
+// directory that is no git checkout) or is a dir rig. where names the
+// place looked, for the not-found error.
 func readRigFile(rig *store.Rig, rel string) (text []byte, where string, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
@@ -358,10 +365,12 @@ func readRigFile(rig *store.Rig, rel string) (text []byte, where string, err err
 			if err != nil {
 				return nil, "", err
 			}
-			if strings.TrimSpace(string(out)) != "" {
-				text, err := git("show", sha+":"+gitPath)
-				return text, rig.Base + ":" + gitPath, err
+			where := rig.Base + ":" + gitPath
+			if strings.TrimSpace(string(out)) == "" {
+				return nil, where, fs.ErrNotExist
 			}
+			text, err := git("show", sha+":"+gitPath)
+			return text, where, err
 		} else if ctx.Err() != nil {
 			return nil, "", err
 		}

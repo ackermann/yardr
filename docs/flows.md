@@ -123,8 +123,10 @@ With a flow in place:
   allowed next stages (`allowed next: approved, new`).
 - Entering a **terminal** stage closes the bead in the same write, with the
   stage as close reason (`closed: merged`).
-- `yardr bead create -s <stage>` must name a non-terminal stage of the flow
-  (the default `new` too).
+- `yardr bead create -s <stage>` must name a non-terminal stage of the flow.
+  Without `-s` a bead starts in the flow's first stage (`backlog` in the
+  example and in the starter flow, where the mayor shapes it before advancing
+  it to `new`); a bead no flow governs starts in `new`.
 - A bead in a stage the flow has no way out of (a stage the flow does not
   know, or a terminal stage after `yardr bead reopen`) may move only to the
   flow's first stage (`backlog` in the example), so it is never stuck but

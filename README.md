@@ -78,6 +78,7 @@ yardr daemon &                          # routes and supervises; starts the mayo
 yardr watch                             # live event stream
 
 yardr bead create "Add login page" --rig webapp -t feature -b "Use the OAuth flow"
+# it starts in the flow's first stage, backlog; the mayor shapes it and advances it to new
 ```
 
 The yardr server starts on first use, in the background, and owns

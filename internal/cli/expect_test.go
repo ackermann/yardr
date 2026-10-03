@@ -17,7 +17,7 @@ func TestBeadMovesCarryTheSession(t *testing.T) {
 	if err := st.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "herdr"}); err != nil {
 		t.Fatal(err)
 	}
-	b, err := st.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard"}, "me")
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,11 +70,11 @@ func TestSessionAppliesToTheOwnBeadOnly(t *testing.T) {
 	if err := st.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "herdr"}); err != nil {
 		t.Fatal(err)
 	}
-	a, err := st.CreateBead(ctx, store.NewBead{Title: "a", Rig: "yard"}, "me")
+	a, err := st.CreateBead(ctx, store.NewBead{Title: "a", Rig: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := st.CreateBead(ctx, store.NewBead{Title: "b", Rig: "yard"}, "me")
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "b", Rig: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}

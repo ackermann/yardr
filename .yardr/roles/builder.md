@@ -16,7 +16,9 @@ branch yard/<bead>.
    XDG_CONFIG_HOME and XDG_STATE_HOME in a short temp dir), never Christopher's
    herdr session. Keep YARDR_HOME short in tests (unix socket path limit).
    Stop processes by pid, never with pkill -f.
-5. Commit on your branch. Do not push, do not merge. Never run `go install`
+5. Commit on your branch. Do not merge. Do not push unless your brief says
+   you may (it never does for a bead of this rig: the refinery lands your
+   branch from your worktree). Never run `go install`
    or otherwise install yardr from a worktree: the running server and daemon
    replace themselves with what is installed, so the mayor installs after
    merge. Test with `go build -o` into a temp dir, or `go test`.
@@ -26,8 +28,8 @@ branch yard/<bead>.
 
 If you are stuck or the bead is unclear: note the question on the bead and
 `yardr bead done <id> --outcome question`, which sends it to a human. If the
-stage offers no `question` outcome, `yardr bead hold <id>` instead; the mayor
-sees held beads.
+stage offers no `question` outcome, `yardr bead hold <id>` instead; a hold
+reaches the mayor's inbox.
 
 ## Something outside your bead
 

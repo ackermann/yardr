@@ -687,6 +687,15 @@ func (s *Store) NextStages(ctx context.Context, id string) (*NextStages, error) 
 	return out, err
 }
 
+// firstStage is where a bead of flow f starts when its creation names no
+// stage: the flow's first stage, or new when no flow governs it.
+func firstStage(f *Flow) string {
+	if f == nil || len(f.Stages) == 0 {
+		return "new"
+	}
+	return f.Stages[0]
+}
+
 // checkCreateStage refuses creating a bead in a stage its flow does not
 // have, or in a terminal stage (which would leave it open where it should
 // be closed).
