@@ -164,6 +164,13 @@ func (a *app) onboard(c *cobra.Command) error {
 		return err
 	}
 	if res.Start != nil && res.Start.Running && !a.json {
+		// What the yard runs without, before the rest of its setup: the
+		// answers are the same wherever that goes on.
+		if err := a.offerServices(c.Context(), cfg); errors.Is(err, huh.ErrUserAborted) {
+			return nil
+		} else if err != nil {
+			return err
+		}
 		return a.handOff(c.Context(), cfg, res.Mayor, res.Start.Mayor)
 	}
 	return nil

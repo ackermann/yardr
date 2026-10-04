@@ -117,15 +117,16 @@ never a fault. Not printed on a home with no yard.
 
 | line | meaning |
 |---|---|
-| `not configured web view: nothing keeps it running; yardr web serve shows the yard in a browser while it runs (docs/web.md)` | always, until the web view can run as a service (*planned, yardr-h8rc*) |
+| `not configured web view: nothing keeps it running; yardr web serve shows the yard in a browser while it runs, yardr web install keeps it running from login on (docs/web.md)` | no login service for the web view is installed for this home. One started by hand (`yardr web serve`, `yardr web start`) is not looked for |
+| `configured web view: kept running as a login service at http://<addr>/ (<file>)` | `yardr web install` wrote `<file>` ([web.md](web.md#keeping-it-running)); whether the service manager has it loaded is not asked |
 | `not configured hooks: no source outside the yard reaches it; yardr hook add --help (docs/subscriptions.md)` | no hook |
 | `configured hooks: <name> (<source>), …` | |
 | `note hooks: hook <name> is blocked: <why>` | the receiver refuses its deliveries |
 | `note hooks: YARDR_HOOK_ADDR is not set in this environment: the server receives hooks only when it was started with it` | hooks exist, and the variable is not set where doctor runs |
 | `not configured packs: no pack is imported; yardr pack apply <dir> --rig <rig> (docs/packs.md)` | |
 | `configured packs: <pack> into <rig>, …` | |
-| `not configured login service: the daemon runs while its terminal or the session that started it does (yardr daemon, yardr init --start); it does not come back after a reboot` | always, until the daemon can run as a login service (*planned, yardr-h8rc*) |
-| `configured login service: the daemon starts at login` | *planned, yardr-h8rc* |
+| `not configured login service: the daemon runs while its terminal or the session that started it does (yardr daemon, yardr init --start); it does not come back after a reboot; yardr daemon install starts it at login` | no login service for the daemon is installed for this home |
+| `configured login service: the daemon starts at login (<file>)` | `yardr daemon install` wrote `<file>`, a launchd agent or a systemd user unit ([configuration.md](configuration.md#login-services)); `yardr daemon status` asks the service manager whether it is loaded |
 | `note login service: rig <rig> (<path>) is in a folder macOS protects (~/Desktop, ~/Documents, ~/Downloads): a launchd agent needs its own access there (System Settings, Privacy & Security, Files and Folders), which a daemon started in a terminal has from the terminal` | macOS, with the login service configured: one line per such rig |
 
 ### The last lines

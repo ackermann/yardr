@@ -419,6 +419,7 @@ Everything yardr keeps for itself lives in one directory, **`YARDR_HOME`**
 | `server.pid`, `server.log` | the running server |
 | `daemon.lock` | held by the running daemon, with its pid in it: one daemon per yard |
 | `daemon.log` | what a daemon started in the background prints (the onboarding's "Start the yard now?", `yardr init --start`); one in a pane of its own prints there instead |
+| `web.log` | what a web view no terminal runs prints: one started with `yardr web start`, or the login service's ([web.md](web.md#keeping-it-running)) |
 | `worktrees/<rig>/<bead>` | herdr bead worktrees |
 | `rigs/<name>` | rigs registered with `rig add --clone`; `rig rm` leaves the clone here |
 | `roles/` | the generic role prompts `yardr init` installed (mayor, builder, merger, reviewer), the fallback for rigs without their own; yours to edit. `.shipped.json` there records each file's hash as init wrote it, so init again can tell an edited prompt (kept) from an untouched one (refreshed) |
@@ -531,14 +532,17 @@ gets none and may ask (`yardr group add --help` lists them too).
 
 #### Starting the yard
 
-The daemon starts the mayor. There are three ways to a running daemon:
+The daemon starts the mayor. There are four ways to a running daemon:
 
 - the form's last question, "Start the yard now?", yes by default;
 - `yardr init --start`, the same without a terminal, on a new yard or one
   that is set up (init again changes nothing its flags do not name);
 - `yardr daemon` in a terminal pane of its own, where you watch what it
   does. The form's "No" and plain `yardr init` leave it at that and print
-  the command.
+  the command;
+- `yardr daemon install`, which has the system start it now and at every
+  login ([below](#login-services)). The other three do not come back after
+  a reboot.
 
 The first two start `yardr daemon` detached, in the home, logging to
 `<home>/daemon.log`, unless a daemon holds `<home>/daemon.lock` already: a
@@ -546,9 +550,14 @@ running daemon is left alone. Unlike the server, this daemon keeps the
 environment of the command that started it (herdr's socket, the PATH an exec
 group's command runs with, as a daemon in a pane has its pane's), without
 what names the starter (`YARDR_ACTOR`, `_BEAD`, `_SESSION`, `_STAGE`,
-`_GROUP`, `_RESIDENT`) and with `YARDR_HOME` set to the home. It has no
-`stop` command: `kill $(cat <home>/daemon.lock)` ends it, and the sessions it
-started carry on in herdr.
+`_GROUP`, `_RESIDENT`) and with `YARDR_HOME` set to the home.
+
+`yardr daemon stop` ends the daemon of the home, however it was started: it
+signals the pid in `<home>/daemon.lock` and waits (`--wait`, default 30s)
+until the lock is free, since the daemon finishes the pass it is in. The
+sessions it started carry on in herdr; nothing is dispatched until a daemon
+runs again. `yardr daemon status` says whether one runs, with its pid, and
+whether the login service is installed and loaded.
 
 They then wait for the mayor, up to `--wait` (default 2m; the form always
 waits that long), with a line that counts on a terminal and one line on
@@ -579,6 +588,99 @@ how to go on. `yardr init --start` then exits 1; the form goes on to the
 command it was started for. `--json` carries the same under `start`:
 `daemon_started`, `daemon_log`, `running`, `mayor` (`agent`, `workspace`,
 `workspace_id`, `tab`, `pane`), `pane`, `problem`, `known`, `next`.
+
+Once the mayor is up, the form asks two more questions before the rest of
+the setup, each starting at **no**: "Start the daemon at login?", which runs
+`yardr daemon install`, and "Start the web view now?", followed on a yes by
+"And at login?": yes runs `yardr web install`, no `yardr web start`. Each
+command is shown before it runs and prints what it did; the web view's
+prints its address. One that fails says so and the form goes on: the yard
+runs without either. On a system yardr writes no service for, only the web
+view is offered, for now. `yardr init --start` asks nothing; the commands
+are the same.
+
+#### Login services
+
+`yardr daemon install` makes the daemon a service of your login session, and
+`yardr web install` the web view ([web.md](web.md#keeping-it-running)):
+
+| system | what is written | where |
+|---|---|---|
+| macOS | a launchd agent, `dev.yardr.daemon.<home>.plist` (`dev.yardr.web.…`) | `~/Library/LaunchAgents/` |
+| Linux | a systemd user unit, `yardr-daemon-<home>.service` (`yardr-web-…`) | `$XDG_CONFIG_HOME/systemd/user/`, default `~/.config/systemd/user/` |
+| any other | nothing: the command says it is not supported and how to run the daemon by hand (`yardr daemon` in a terminal, `yardr init --start`) | |
+
+`<home>` is the home's directory name and the first 8 hex digits of the
+sha256 of its path (`yardr-3f9a1c0e`, say, for `~/.yardr`), so every yard
+has services of its own and two yards never share one.
+
+The file holds:
+
+- the yardr that ran the install, by its path, with `daemon` (or `web serve
+  --addr <addr>`). A yardr that moves needs the install again;
+- its whole environment besides what the manager sets: `YARDR_HOME`, `HOME`,
+  and the `PATH` of the shell the install ran in. herdr, git and every
+  harness have to be on that `PATH`; the install names the ones that are
+  not. Of the rest of that shell it takes the settings the server and the
+  daemon read (`YARDR_HOOK_ADDR` and the three `YARDR_*_RETENTION`) and
+  where herdr is when that is not the default (`HERDR_SOCKET_PATH`,
+  `XDG_CONFIG_HOME`), and nothing else: no credential, no identity. A
+  daemon in a pane has its pane's whole environment; what an exec group's
+  command or a `git fetch` took from there has to come from somewhere else
+  for the service (a group's `env_file`, a credential helper);
+- the home as working directory and `<home>/daemon.log` (`web.log`) for
+  what it prints;
+- that it starts when loaded and at every login, and is started again when
+  it ends with a failure, after 10 seconds at the earliest. An end without
+  one is left alone: after `yardr daemon stop` the daemon stays stopped
+  until the next login, or until you start one;
+- that only the service's own process is the manager's to stop
+  (`AbandonProcessGroup`, `KillMode=process`): the store's server, which the
+  daemon may have started, and what an exec group runs are not ended with
+  it.
+
+The install then loads the file: `launchctl bootstrap gui/<uid> <file>`, or
+`systemctl --user daemon-reload`, `enable` and `restart`. A daemon that runs
+already is stopped first, as `yardr daemon stop` does, because a yard has
+one daemon and the service's would end on the lock the other holds; the
+sessions carry on, and the service's daemon takes them over from the store.
+An install over an installed service unloads it, writes it again and loads
+it: that is how a changed `PATH` or a moved yardr reaches it.
+
+`yardr daemon uninstall` (`yardr web uninstall`) unloads the service
+(`launchctl bootout gui/<uid>/<label>`, `systemctl --user disable --now`),
+which stops what the service ran, and deletes the file. Nothing else was
+written, and nothing else is removed. A daemon started any other way is left
+running; with none, start one as [above](#starting-the-yard).
+
+`--file-only`, on install and uninstall, writes or deletes the file and
+leaves the manager alone, and prints the manager's command for the rest. On
+macOS a file in `~/Library/LaunchAgents` is loaded at the next login anyway;
+a systemd unit that is not enabled is not started at all.
+
+**After a reboot.** Nothing of the yard runs: no server, no daemon, and the
+panes of the sessions went with herdr. When you log in, the manager starts
+the daemon. The daemon's first call starts the server, and its first pass
+finds the mayor and the sessions it had without their panes and starts them
+again. That needs herdr, as any start does; while herdr cannot be reached
+the daemon logs it once and tries again every pass. With the web view
+installed too, the manager starts it at the same login, at the address it
+was installed with. A systemd user unit runs while you are logged in:
+`loginctl enable-linger <you>` makes that from boot to shutdown. A launchd
+agent belongs to the login session and has no such switch.
+
+**macOS: folders the service cannot read.** macOS keeps `~/Desktop`,
+`~/Documents` and `~/Downloads` from a program until it is granted access
+(System Settings, Privacy & Security). A daemon started in a terminal comes
+under the terminal's grant. One started by launchd is a program of its own
+and comes under none, so work in a rig under one of those folders can fail
+with `operation not permitted`. `yardr daemon install` names the rigs that
+are there, and [`yardr doctor`](doctor.md#optional) does while the service
+is installed. Keep rigs elsewhere, or grant yardr access: Full Disk Access
+(add the yardr binary the service names), or Files and Folders, once macOS
+has asked for the folder. What an upgrade does to that grant is
+[below](#upgrading). This is as reported from one Mac (Linear YRD-3):
+yardr's tests load nothing into launchd, so it is not reproduced by them.
 
 ### Seeding a rig: `yardr rig init`
 
@@ -745,6 +847,28 @@ How a newer build takes over:
 
 Each replace is logged in `server.log` (or the daemon's output) and as a
 `server_replaced` or `daemon_replaced` event with `from` and `to` revisions.
+
+A daemon that runs as a [login service](#login-services) upgrades the same
+way, and the service manager has no part in it: an `exec` keeps the pid, so
+launchd and systemd see one process that never ended, and start nothing. The
+service's file names the binary by its path, which `go install` writes the
+new build to, so the next login starts the new build too. When the `exec`
+fails, the daemon logs it and runs on as the old build, as it does without
+a service. The web view does not replace itself, service
+or not: it is a client of the server and keeps running the build it was
+started from until it is restarted (`yardr web install` again does that).
+
+On macOS an upgrade can cost the service its access to `~/Desktop`,
+`~/Documents` and `~/Downloads`. A yardr from `go install` is signed ad hoc
+(`codesign -dv` says `Signature=adhoc`, `flags=…(adhoc,linker-signed)`, no
+team): it has no identity but the hash of its code, so a new build is a new
+program to the privacy rules, and a grant given to the old one does not
+cover it. If a rig under one of those folders fails with `operation not
+permitted` after an upgrade, grant the new build again
+([above](#login-services)), or keep rigs out of those folders, which no
+upgrade touches. That the binary is signed ad hoc is checked; that the
+grant is lost is the rule for such a binary and was reported from one Mac,
+not reproduced.
 An older client never makes a server exec anything, and neither does an
 older build installed over the binary. If the server cannot
 replace itself (the binary is gone, the exec fails, or it is newer than the

@@ -43,7 +43,8 @@ other than the default) and runs that command.
 The last step, a first merged bead, has no page: it is the pipeline's to do.
 There the forms end and say where the first bead is and how to watch it:
 `yardr session list`, `yardr bead show <id>`, `yardr watch`, and
-`yardr web serve` for the yard in a browser ([web.md](web.md)). They also say
+`yardr web serve` for the yard in a browser ([web.md](web.md); once the web
+view is installed as a login service, its address instead). They also say
 so when no daemon is running, since nothing is dispatched then.
 
 ### Committing the rig's files

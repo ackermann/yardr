@@ -79,16 +79,14 @@ type optionalPart struct {
 // serverRunning reports whether the home's server answers; tests replace it.
 var serverRunning = server.Running
 
-// loginService reports whether the daemon runs as a login service (a
-// launchd agent on macOS) for the home. There is no such service yet: the
-// bead that adds it (yardr-h8rc) replaces this, and the checks that depend
-// on it (the rigs a launchd agent cannot read) start to apply.
-var loginService = func(*config.Config) bool { return false }
+// loginService reports whether the daemon is installed as a login service
+// for the home (yardr daemon install); tests replace it.
+var loginService = func(cfg *config.Config) bool { return serviceInstalled(cfg, svcDaemon) }
 
-// webService reports whether something keeps the web view running for the
-// home. Nothing does yet: `yardr web serve` runs while its terminal does.
-// It comes with the login service (yardr-h8rc).
-var webService = func(*config.Config) bool { return false }
+// webService reports whether the web view is installed as a login service
+// for the home (yardr web install): nothing else keeps it running. Tests
+// replace it.
+var webService = func(cfg *config.Config) bool { return serviceInstalled(cfg, svcWeb) }
 
 // userHomeDir is the person's home directory; tests replace it.
 var userHomeDir = os.UserHomeDir
@@ -233,9 +231,10 @@ func (a *app) doctor(ctx context.Context, cfg *config.Config) (*doctorReport, er
 func optionalParts(ctx context.Context, cfg *config.Config, st store.API) ([]optionalPart, error) {
 	env := homeEnv(cfg.Home)
 	web := optionalPart{Key: "web", Title: "web view",
-		Detail: fmt.Sprintf("nothing keeps it running; %syardr web serve shows the yard in a browser while it runs (docs/web.md)", env)}
+		Detail: fmt.Sprintf("nothing keeps it running; %syardr web serve shows the yard in a browser while it runs, "+
+			"%syardr web install keeps it running from login on (docs/web.md)", env, env)}
 	if webService(cfg) {
-		web.Configured, web.Detail = true, "kept running as a service"
+		web.Configured, web.Detail = true, "kept running as a login service"+at(webServiceAddr(cfg))+fileOf(cfg, svcWeb)
 	}
 	hooks, err := st.Hooks(ctx)
 	if err != nil {
@@ -273,9 +272,9 @@ func optionalParts(ctx context.Context, cfg *config.Config, st store.API) ([]opt
 	}
 	svc := optionalPart{Key: "login_service", Title: "login service",
 		Detail: fmt.Sprintf("the daemon runs while its terminal or the session that started it does (%syardr daemon, %syardr init --start); "+
-			"it does not come back after a reboot", env, env)}
+			"it does not come back after a reboot; %syardr daemon install starts it at login", env, env, env)}
 	if loginService(cfg) {
-		svc.Configured, svc.Detail = true, "the daemon starts at login"
+		svc.Configured, svc.Detail = true, "the daemon starts at login"+fileOf(cfg, svcDaemon)
 		rigs, err := st.Rigs(ctx)
 		if err != nil {
 			return nil, err
@@ -289,6 +288,23 @@ func optionalParts(ctx context.Context, cfg *config.Config, st store.API) ([]opt
 		}
 	}
 	return []optionalPart{web, hook, pack, svc}, nil
+}
+
+// at is " at http://<addr>/" for a web view's address, "" for none.
+func at(addr string) string {
+	if addr == "" {
+		return ""
+	}
+	return " at http://" + addr + "/"
+}
+
+// fileOf is " (<file>)" for the home's service of kind, once written.
+func fileOf(cfg *config.Config, kind string) string {
+	if !serviceInstalled(cfg, kind) {
+		return ""
+	}
+	_, _, path, _ := unitFile(cfg, kind)
+	return " (" + path + ")"
 }
 
 // The tags a line of the report starts with.

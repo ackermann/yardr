@@ -32,6 +32,25 @@ func TestMain(m *testing.M) {
 	}
 	focusAgent = func(context.Context, string) error { return errors.New("tests focus no pane") }
 	listModels = func(context.Context, string) ([]string, error) { return nil, errors.New("tests run no agent") }
+	// Nor does a test load a service into this machine's launchd or systemd,
+	// write into its LaunchAgents, start a web view, dial its port or signal a
+	// process: a
+	// test of the services replaces these (stubServices).
+	services, err := os.MkdirTemp("", "ysvc")
+	if err != nil {
+		panic(err)
+	}
+	serviceDir = func() (string, error) { return services, nil }
+	serviceCtl = func(context.Context, string, ...string) (string, error) {
+		return "", errors.New("tests ask no service manager")
+	}
+	signalDaemon = func(int) error { return errors.New("tests signal no process") }
+	spawnWeb = func(*config.Config, string) (int, <-chan error, error) {
+		return 0, nil, errors.New("tests start no web view")
+	}
+	answers = func(string) bool { return false }
 	pollEvery = 5 * time.Millisecond
-	os.Exit(m.Run())
+	code := m.Run()
+	os.RemoveAll(services)
+	os.Exit(code)
 }

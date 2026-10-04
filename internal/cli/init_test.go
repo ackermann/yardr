@@ -464,7 +464,8 @@ func TestBareYardr(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if asked != 5 || !strings.Contains(out, "yard created") || strings.Contains(out, "Usage:") {
+	// The form's five pages, and the two services it offers once the yard runs.
+	if asked != 7 || !strings.Contains(out, "yard created") || strings.Contains(out, "Usage:") {
 		t.Fatalf("store without default_kind: asked %d\n%s", asked, out)
 	}
 	if _, err := st.GetResident(ctx, "mayor"); err != nil {
@@ -506,7 +507,7 @@ func TestOnboardingForm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if asked != 5 {
+	if asked != 7 {
 		t.Fatalf("%d form pages", asked)
 	}
 	r, err := st.GetResident(ctx, "mayor")

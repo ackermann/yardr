@@ -703,7 +703,7 @@ func (g *guide) watch(ctx context.Context) error {
 	}
 	web := "serves the yard in a browser while it runs, at http://127.0.0.1:8791/"
 	if webService(g.cfg) {
-		web = "is kept running: the yard in a browser"
+		web = "runs as a login service already: the yard in a browser" + at(webServiceAddr(g.cfg))
 	}
 	fmt.Printf("\nTo watch it:\n\n"+
 		"  %syardr session list       # who works on what now\n"+

@@ -144,6 +144,7 @@ func (a *app) daemonCmd() *cobra.Command {
 	}
 	cmd.Flags().DurationVar(&interval, "interval", 30*time.Second, "safety-net reconcile period")
 	cmd.Flags().IntVar(&attempts, "max-attempts", 3, "failed sessions per bead+stage before holding it")
+	a.daemonService(cmd)
 	return cmd
 }
 

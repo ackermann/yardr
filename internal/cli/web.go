@@ -99,6 +99,7 @@ this machine. Both answers carry Retry-After.`,
 	serve.Flags().StringVar(&addr, "addr", "127.0.0.1:8791", "listen address, on loopback; "+webUnsafeAddr+" with --unsafe")
 	serve.Flags().BoolVar(&unsafe, "unsafe", false, "listen on every interface, or on any --addr; there is no authentication")
 	cmd.AddCommand(serve)
+	a.webServiceCmds(cmd)
 	return cmd
 }
 

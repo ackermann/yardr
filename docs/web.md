@@ -50,6 +50,40 @@ port can read the whole yard. The view stays read-only.
 - It logs one warning when it starts:
   `no authentication: anyone who can reach this machine on port 8791 can read the yard`.
 
+## Keeping it running
+
+`yardr web serve` runs while its terminal does. Two commands run it without
+one, both on loopback only (`--addr` takes a loopback address with a port,
+default `127.0.0.1:8791`; neither has `--unsafe`):
+
+```sh
+yardr web start                  # in the background, until it is killed or the machine restarts
+yardr web install                # as a login service: now, and at every login
+yardr web install --addr 127.0.0.1:9000
+yardr web uninstall
+```
+
+`yardr web start` starts `yardr web serve` detached, logging to
+`<home>/web.log`, waits until it listens and prints its address, its pid and
+how to stop it (`kill <pid>`). It refuses an address something listens on
+already.
+
+`yardr web install` writes the view as a login service of this user, a
+launchd agent on macOS and a systemd user unit on Linux, and loads it: the
+view is started now and at every login, and started again if it ends with a
+failure. It prints the address. The file, its name, `--file-only` and
+`yardr web uninstall` are as for the daemon
+([configuration.md](configuration.md#login-services)). Stop a view started
+with `yardr web start` before installing one on the same address: the
+service's cannot listen while the other does, and is tried again every 10
+seconds. The service keeps running the build it was started from; after an
+upgrade, `yardr web install` again restarts it on the new one.
+
+The onboarding offers both once the yard runs: "Start the web view now?"
+and, on a yes, "And at login?", each starting at no.
+[`yardr doctor`](doctor.md#optional) reports the view as configured once the
+service is installed, with its address.
+
 ## No other host
 
 The browser gets everything from this server: HTML rendered with

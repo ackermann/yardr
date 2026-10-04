@@ -44,7 +44,11 @@ output in its pane. Then it prints where the mayor is, as herdr names it
 (agent, workspace, tab, pane), how to get there (`herdr agent focus <agent>`
 in herdr, `herdr agent attach <agent>` from any other terminal), and asks how
 to go on with the rest of the setup: "Talk to the mayor", which brings its
-pane to the front in herdr, or "Keep going here", a short run of forms. When the
+pane to the front in herdr, or "Keep going here", a short run of forms. Before
+that it asks two things, both no by default: whether to start the daemon at
+login (`yardr daemon install`: a launchd agent on macOS, a systemd user unit
+on Linux), and whether to start the web view now, and at login
+(`yardr web start`, `yardr web install`). When the
 mayor does not come up it says what is known instead (herdr or the harness
 not on PATH, the last failed start, the last lines of the mayor's pane, where
 the daemon logs) and how to go on. No leaves the start to you: `yardr daemon`
