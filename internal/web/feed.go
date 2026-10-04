@@ -114,7 +114,7 @@ func (r *reader) noteOf(ctx context.Context, e store.Event) string {
 	return ""
 }
 
-// beadEvents bounds the events of one bead said looks through.
+// beadEvents bounds the events of one bead the reader looks through.
 const beadEvents = 200
 
 // said is the note the event's actor left on the bead just before it: the
@@ -126,11 +126,7 @@ func (r *reader) said(ctx context.Context, e store.Event) string {
 	if e.Bead == nil {
 		return ""
 	}
-	evs, ok := r.byBead[*e.Bead]
-	if !ok {
-		evs, _ = r.st.Events(ctx, *e.Bead, beadEvents)
-		r.byBead[*e.Bead] = evs
-	}
+	evs := r.eventsOf(ctx, *e.Bead)
 	for i := len(evs) - 1; i > 0; i-- {
 		if evs[i].Seq == e.Seq {
 			if p := evs[i-1]; p.Kind == "noted" && p.Actor == e.Actor {
@@ -140,6 +136,16 @@ func (r *reader) said(ctx context.Context, e store.Event) string {
 		}
 	}
 	return ""
+}
+
+// eventsOf are a bead's latest events, oldest first.
+func (r *reader) eventsOf(ctx context.Context, bead string) []store.Event {
+	evs, ok := r.byBead[bead]
+	if !ok {
+		evs, _ = r.st.Events(ctx, bead, beadEvents)
+		r.byBead[bead] = evs
+	}
+	return evs
 }
 
 // before is the event with the seq before e's, nil when it is not retained.

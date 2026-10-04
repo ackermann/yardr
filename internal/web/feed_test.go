@@ -225,7 +225,7 @@ func TestFeedPages(t *testing.T) {
 
 // The page is the same feed: each entry with its seq as id, the stream to
 // continue it after the page's head, and the next page as a link that
-// htmx follows when it scrolls into view. An older page has no stream.
+// htmx follows when it scrolls into view. An older page's feed is not live.
 func TestFeedHTML(t *testing.T) {
 	f := newFixture(t)
 	b := landing(t, f.st)
@@ -237,7 +237,8 @@ func TestFeedHTML(t *testing.T) {
 	h := homeJSON(t, f, "/")
 	text := squash(f.get("/").body)
 	for _, want := range []string{
-		fmt.Sprintf(`<section class="feed" id="feed" aria-label="What happened" hx-ext="sse" sse-connect="/events?after=%d" sse-swap="message" hx-swap="afterbegin">`, h.Head),
+		fmt.Sprintf(`<div class="shell" hx-ext="sse" sse-connect="/events?after=%d">`, h.Head),
+		`<section class="feed" id="feed" aria-label="What happened" sse-swap="message" hx-swap="afterbegin">`,
 		fmt.Sprintf(`<article class="item entry" id="e%d">`, h.Head),
 		fmt.Sprintf(`<a class="item older label" href="/?before=%d" hx-get="/?before=%[1]d" hx-trigger="intersect once" hx-select="#feed > *" hx-target="this" hx-swap="outerHTML">Older</a>`, h.Older),
 		"<h2>line</h2>",
@@ -263,7 +264,9 @@ func TestFeedHTML(t *testing.T) {
 			t.Errorf("the older page lacks %q", want)
 		}
 	}
-	for _, not := range []string{"sse-connect", "<h2>line</h2>", "dear diary", "hx-get"} {
+	// The shell's stream is there for the right column; the feed takes
+	// nothing from it.
+	for _, not := range []string{"sse-swap", "<h2>line</h2>", "dear diary", `hx-get="/?before`} {
 		if strings.Contains(old, not) {
 			t.Errorf("the older page, the last, has %q", not)
 		}

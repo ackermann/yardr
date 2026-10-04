@@ -12,7 +12,11 @@
 <script src="{{asset "htmx-ext-sse.min.js"}}" defer></script>
 </head>
 <body>
-<div class="shell">
+{{- /* One stream for the page (a browser allows a host few connections):
+       the right column reads itself again on every event of it, and a page
+       that is live hangs its own part on it. An error page has no column
+       and no stream. */}}
+<div class="shell"{{if .Aside}} hx-ext="sse" sse-connect="/events?after={{.Head}}"{{end}}>
   <nav class="menu" aria-label="Pages">
     <a class="yard" href="/">{{.Yard}}</a>
     <ul>
@@ -25,7 +29,7 @@
     <header class="page-head"><h1>{{.Title}}</h1></header>
     {{template "content" .}}
   </main>
-  <aside class="right" aria-label="The line">
+  <aside class="right" aria-label="The line"{{if .Aside}} hx-get="/line" hx-trigger="sse:message" hx-select="aside.right > *" hx-swap="innerHTML ignoreTitle:true"{{end}}>
     {{- if .Aside}}{{template "aside" .Aside}}{{end}}
   </aside>
 </div>

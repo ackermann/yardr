@@ -1,0 +1,25 @@
+{{define "content"}}
+{{- /* Read again on every event of the stream, as the sessions are. */}}
+<div id="live" hx-get="/residents" hx-trigger="sse:message" hx-select="#live > *" hx-swap="innerHTML ignoreTitle:true">
+  {{- range .Data.Residents}}
+  <article class="item">
+    <header class="item-head">
+      <h2>{{.Name}}</h2>
+      <span class="state">{{with .Dot}}<span class="dot {{.}}"></span>{{end}}<span{{if eq .State "failed"}} class="held"{{end}}>{{.State}}</span>{{if not .Enabled}} · disabled{{end}}</span>
+      <span class="item-count">{{if .Unread}}{{.Unread}} unread{{else}}<span class="zero">0 unread</span>{{end}}</span>
+    </header>
+    <dl class="figures">
+      <div><dt>agent</dt><dd>{{.Agent}}</dd></div>
+      {{- if .Since}}
+      <div><dt>running since</dt><dd><time datetime="{{.Since.UTC.Format "2006-01-02T15:04:05Z"}}">{{.Since.Local.Format "Jan 2 15:04"}}</time> · {{.Up}}</dd></div>
+      {{- end}}
+      {{- if .Restart}}
+      <div><dt>restart asked</dt><dd>{{.Restart}}</dd></div>
+      {{- end}}
+    </dl>
+  </article>
+  {{- else}}
+  <p class="item faint">This yard has no resident.</p>
+  {{- end}}
+</div>
+{{end}}

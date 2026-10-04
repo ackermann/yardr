@@ -52,7 +52,7 @@ type menuItem struct {
 // unbuilt are the menu's pages no child of the epic has built yet: each
 // answers with the "not built yet" page. A child that builds one removes it
 // here and registers its handler in routes.
-var unbuilt = []string{"flows", "beads", "sessions", "residents"}
+var unbuilt = []string{"flows", "beads"}
 
 // Server is the web view of one yard.
 type Server struct {
@@ -135,6 +135,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /{$}", s.handleHome)
 	s.mux.HandleFunc("GET /line", s.handleLine)
 	s.mux.HandleFunc("GET /events", s.handleEvents)
+	s.mux.HandleFunc("GET /sessions", s.handleSessions)
+	s.mux.HandleFunc("GET /residents", s.handleResidents)
 	for _, name := range unbuilt {
 		s.mux.HandleFunc("GET /"+name, s.handleUnbuilt(name))
 	}
@@ -189,6 +191,9 @@ type Page struct {
 	// line is the shell's line, for a handler that has read the yard
 	// already; respond reads it otherwise.
 	line *Line
+	// head is the yard's newest seq from before the handler read the yard,
+	// for a handler that read it; respond reads it otherwise.
+	head uint64
 }
 
 // errorData is the Data of every error page, so an error reads the same in
@@ -204,6 +209,9 @@ type view struct {
 	Yard    string
 	Entries []menuItem
 	Aside   *Line
+	// Head is the seq the page's stream starts after. It is read before
+	// what the page shows, so the stream brings everything the page lacks.
+	Head uint64
 }
 
 // respond answers r with p, as JSON or as HTML (see wantsJSON). Every
@@ -234,14 +242,17 @@ func (s *Server) respond(w http.ResponseWriter, r *http.Request, p Page) {
 		return
 	}
 	// The shell shows the yard's name and the line on every page.
-	v := view{Page: p, Entries: menu, Yard: s.yardName(r.Context()), Aside: p.line}
+	v := view{Page: p, Entries: menu, Yard: s.yardName(r.Context()), Aside: p.line, Head: p.head}
 	if v.Aside == nil {
-		ov, err := s.overview(r.Context())
-		if err != nil {
+		var err error
+		if v.Head, err = s.st.Head(r.Context()); err != nil {
 			s.fail(w, r, err)
 			return
 		}
-		v.Aside = ov.line()
+		if v.Aside, err = s.line(r.Context(), nil); err != nil {
+			s.fail(w, r, err)
+			return
+		}
 	}
 	// Rendered whole before the first byte: a template that fails halfway
 	// must not leave half a page under a 200.

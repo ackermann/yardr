@@ -307,7 +307,13 @@ func TestLine(t *testing.T) {
 	if err := json.Unmarshal([]byte(f.get("/line", "Accept", "application/json").body), &got); err != nil {
 		t.Fatal(err)
 	}
-	want := web.Line{Open: 5, Held: 1, Rigs: []web.LineRig{{Name: "line", Open: 4}, {Name: "loose", Open: 1}}}
+	want := web.Line{Open: 5, Held: 1, Rigs: []web.LineRig{{Name: "line", Open: 4}, {Name: "loose", Open: 1}},
+		Stages: []web.StageCount{{Stage: "backlog", Open: 2}, {Stage: "new", Open: 1}, {Stage: "triage", Open: 1}, {Stage: "inbox", Open: 1}}}
+	// What waits has tests of its own (line_test.go).
+	if len(got.Waits) != 1 {
+		t.Errorf("%d beads wait, want the held one: %+v", len(got.Waits), got.Waits)
+	}
+	got.Waits = nil
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("line\n got %+v\nwant %+v", got, want)
 	}
@@ -331,7 +337,7 @@ func TestMenuPages(t *testing.T) {
 		path := l[1]
 		r := f.get(path)
 		switch path {
-		case "/", "/line":
+		case "/", "/line", "/sessions", "/residents":
 			if r.status != 200 {
 				t.Errorf("%s: status %d", path, r.status)
 			}

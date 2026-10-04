@@ -1,0 +1,30 @@
+{{define "content"}}
+{{- /* Every event of the stream reads the page again and puts the list in
+       place: a session starts, ends or blocks with an event. */}}
+<div id="live" hx-get="/sessions" hx-trigger="sse:message" hx-select="#live > *" hx-swap="innerHTML ignoreTitle:true">
+  {{- range .Data.Sessions}}
+  <article class="item">
+    <header class="item-head">
+      <span class="state">{{with .Dot}}<span class="dot {{.}}"></span>{{end}}{{if .Blocked}}<span class="held">blocked</span>{{else}}{{.State}}{{end}}</span>
+      <span class="bead">{{.Bead}}</span>
+      <span class="item-count">{{.Age}}</span>
+    </header>
+    {{- if .Title}}
+    <p class="entry-title">{{.Title}}</p>
+    {{- end}}
+    <dl class="figures">
+      <div><dt>stage</dt><dd>{{.Stage}}</dd></div>
+      <div><dt>group</dt><dd>{{.Group}}</dd></div>
+      <div><dt>runner</dt><dd>{{.Runner}}</dd></div>
+      {{- if .Epic}}
+      <div><dt>epic</dt><dd>{{.Epic}}</dd></div>
+      {{- end}}
+      <div><dt>session</dt><dd>{{.ID}}</dd></div>
+      <div><dt>started</dt><dd><time datetime="{{.StartedAt.UTC.Format "2006-01-02T15:04:05Z"}}">{{.StartedAt.Local.Format "Jan 2 15:04"}}</time></dd></div>
+    </dl>
+  </article>
+  {{- else}}
+  <p class="item faint">No session is running.</p>
+  {{- end}}
+</div>
+{{end}}

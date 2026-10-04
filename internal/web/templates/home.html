@@ -39,11 +39,11 @@
 <p class="item faint">This yard has no rig yet.</p>
 {{- end}}
 {{- end}}
-{{- /* The feed, newest first. On the first page the stream continues it
-       after the page's head: each event's entry goes on top. An older page
-       is a snapshot. */}}
+{{- /* The feed, newest first. On the first page the shell's stream
+       continues it after the page's head: each event's entry goes on top.
+       An older page is a snapshot. */}}
 <section class="feed" id="feed" aria-label="What happened"
-  {{- if not .Before}} hx-ext="sse" sse-connect="/events?after={{.Head}}" sse-swap="message" hx-swap="afterbegin"{{end}}>
+  {{- if not .Before}} sse-swap="message" hx-swap="afterbegin"{{end}}>
   {{- range .Events}}{{template "entry" .}}{{end}}
   <p class="item faint none">{{if .Before}}Nothing older.{{else}}Nothing has happened yet.{{end}}</p>
   {{- if .Older}}

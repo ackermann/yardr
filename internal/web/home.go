@@ -50,30 +50,6 @@ type StageCount struct {
 	Open  int    `json:"open"`
 }
 
-// Line is the summary of the line the right column shows on every page.
-type Line struct {
-	Open    int       `json:"open"`
-	Working int       `json:"working"`
-	Held    int       `json:"held"`
-	Rigs    []LineRig `json:"rigs"`
-}
-
-type LineRig struct {
-	Name string `json:"name"`
-	Open int    `json:"open"`
-}
-
-func (h *Home) line() *Line {
-	l := &Line{Rigs: []LineRig{}}
-	for _, r := range h.Rigs {
-		l.Open += r.Open
-		l.Working += r.Working
-		l.Held += r.Held
-		l.Rigs = append(l.Rigs, LineRig{Name: r.Name, Open: r.Open})
-	}
-	return l
-}
-
 // overview reads the yard for the home page and for the shell's line.
 func (s *Server) overview(ctx context.Context) (*Home, error) {
 	rigs, err := s.st.Rigs(ctx)
@@ -173,19 +149,12 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ov.Feed = *feed
-	s.respond(w, r, Page{Template: "home", Title: "Home", Menu: "home", Data: ov, line: ov.line()})
-}
-
-// handleLine is the right column as a page of its own, for a window with no
-// room for the column.
-func (s *Server) handleLine(w http.ResponseWriter, r *http.Request) {
-	ov, err := s.overview(r.Context())
+	l, err := s.line(r.Context(), ov)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	l := ov.line()
-	s.respond(w, r, Page{Template: "line", Title: "Line", Menu: "line", Data: l, line: l})
+	s.respond(w, r, Page{Template: "home", Title: "Home", Menu: "home", Data: ov, line: l, head: feed.Head})
 }
 
 // Unbuilt is the Data of a menu page no child of the epic has built yet.

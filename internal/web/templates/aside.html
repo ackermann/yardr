@@ -2,7 +2,20 @@
 {{define "aside"}}
 <section class="panel">
   <h2 class="label">Waits for you</h2>
-  <p class="faint">Not built yet.</p>
+  {{- range .Waits}}
+  <article class="wait">
+    <header><span class="bead">{{.Bead}}</span><span class="label">{{.Stage}}</span></header>
+    <p class="wait-title">{{.Title}}</p>
+    {{- range .Why}}
+    <p class="why{{if .Alarm}} held{{end}}">{{.Text}}</p>
+    {{- if .Note}}
+    <p class="entry-note">{{.Note}}</p>
+    {{- end}}
+    {{- end}}
+  </article>
+  {{- else}}
+  <p class="faint">Nothing waits for you.</p>
+  {{- end}}
 </section>
 <section class="panel">
   <h2 class="label">The line</h2>
@@ -10,8 +23,18 @@
     <div><dt>open</dt><dd>{{.Open}}</dd></div>
     <div><dt><span class="dot working"></span>working</dt><dd>{{.Working}}</dd></div>
     <div><dt><span class="dot held"></span>held</dt><dd>{{.Held}}</dd></div>
+    <div><dt><span class="dot running"></span>sessions</dt><dd>{{.Sessions}}</dd></div>
   </dl>
+  {{- if .Stages}}
+  <h3 class="label">Open per stage</h3>
+  <ul class="rows">
+    {{- range .Stages}}
+    <li><span>{{.Stage}}</span><span class="num">{{.Open}}</span></li>
+    {{- end}}
+  </ul>
+  {{- end}}
   {{- if .Rigs}}
+  <h3 class="label">Open per rig</h3>
   <ul class="rows">
     {{- range .Rigs}}
     <li><span>{{.Name}}</span><span class="num{{if not .Open}} zero{{end}}">{{.Open}}</span></li>
