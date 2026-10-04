@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
@@ -501,9 +502,9 @@ func TestWebInstall(t *testing.T) {
 func stubWeb(t *testing.T) *[]string {
 	t.Helper()
 	var started []string
-	stub(t, &spawnWeb, func(_ *config.Config, addr string) (int, <-chan error, error) {
+	stub(t, &spawnWeb, func(_ *config.Config, addr string) (int, <-chan error, func() error, error) {
 		started = append(started, addr)
-		return 4242, nil, nil
+		return 4242, nil, func() error { return nil }, nil
 	})
 	stub(t, &answers, func(addr string) bool { return slices.Contains(started, addr) })
 	return &started
@@ -536,10 +537,22 @@ func TestWebStart(t *testing.T) {
 	// One that ends at once (its port taken between the look and the start).
 	gone := make(chan error, 1)
 	gone <- errors.New("exit status 1")
-	stub(t, &spawnWeb, func(*config.Config, string) (int, <-chan error, error) { return 1, gone, nil })
+	stub(t, &spawnWeb, func(*config.Config, string) (int, <-chan error, func() error, error) {
+		return 1, gone, func() error { return nil }, nil
+	})
 	stub(t, &answers, func(string) bool { return false })
 	if _, err := run(t, a().rootCmd(), "web", "start"); err == nil || !strings.Contains(err.Error(), "ended right after it started") {
 		t.Fatalf("err = %v", err)
+	}
+
+	// A child that never binds the address is stopped before start returns.
+	stopped := false
+	stub(t, &webStartWait, 10*time.Millisecond)
+	stub(t, &spawnWeb, func(*config.Config, string) (int, <-chan error, func() error, error) {
+		return 7, nil, func() error { stopped = true; return nil }, nil
+	})
+	if _, err := run(t, a().rootCmd(), "web", "start"); err == nil || !strings.Contains(err.Error(), "stopped it") || !stopped {
+		t.Fatalf("err = %v, stopped = %v", err, stopped)
 	}
 }
 

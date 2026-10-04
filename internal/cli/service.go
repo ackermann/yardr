@@ -806,14 +806,14 @@ func webLog(cfg *config.Config) string { return filepath.Join(cfg.Home, "web.log
 // terminal and logging to the home's web.log, as server.Start starts the
 // server and with as little of the starter's environment: the view reads
 // the store and nothing else. Tests replace it.
-var spawnWeb = func(cfg *config.Config, addr string) (pid int, exited <-chan error, err error) {
+var spawnWeb = func(cfg *config.Config, addr string) (pid int, exited <-chan error, stop func() error, err error) {
 	self, err := os.Executable()
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	logf, err := os.OpenFile(webLog(cfg), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	defer logf.Close()
 	cmd := exec.Command(self, "web", "serve", "--addr", addr)
@@ -822,11 +822,11 @@ var spawnWeb = func(cfg *config.Config, addr string) (pid int, exited <-chan err
 	cmd.Stdout, cmd.Stderr = logf, logf
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
-	return cmd.Process.Pid, done, nil
+	return cmd.Process.Pid, done, cmd.Process.Kill, nil
 }
 
 // answers reports whether something accepts connections on addr; tests
@@ -841,7 +841,7 @@ var answers = func(addr string) bool {
 }
 
 // webStartWait is how long a started web view gets to listen.
-const webStartWait = 10 * time.Second
+var webStartWait = 10 * time.Second
 
 // startWeb starts the web view in the background and returns once it
 // listens.
@@ -849,7 +849,7 @@ func startWeb(cfg *config.Config, addr string) (int, error) {
 	if answers(addr) {
 		return 0, fmt.Errorf("something listens on %s already: a web view that runs, perhaps (http://%s/). --addr takes another port", addr, addr)
 	}
-	pid, exited, err := spawnWeb(cfg, addr)
+	pid, exited, stop, err := spawnWeb(cfg, addr)
 	if err != nil {
 		return 0, err
 	}
@@ -863,7 +863,11 @@ func startWeb(cfg *config.Config, addr string) (int, error) {
 			return pid, nil
 		}
 	}
-	return 0, fmt.Errorf("the web view (pid %d) did not listen on %s within %s; see %s", pid, addr, webStartWait, webLog(cfg))
+	stopErr := stop()
+	if stopErr != nil && !errors.Is(stopErr, os.ErrProcessDone) {
+		return 0, fmt.Errorf("the web view (pid %d) did not listen on %s within %s; could not stop it: %v; see %s", pid, addr, webStartWait, stopErr, webLog(cfg))
+	}
+	return 0, fmt.Errorf("the web view (pid %d) did not listen on %s within %s; stopped it; see %s", pid, addr, webStartWait, webLog(cfg))
 }
 
 // webService adds install, uninstall and start to yardr web.
