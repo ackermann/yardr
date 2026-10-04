@@ -109,7 +109,7 @@ of the thread.`,
 					}
 				}
 				rec := store.Reply{Source: source, In: in, Thread: t.ID, Title: or(t.Title, title), ThreadURL: t.URL,
-					URL: t.URL, Key: rp.Key, Message: t.ID}
+					URL: t.URL, Key: rp.Key}
 				if err := st.Opened(ctx, name, rec, name); err != nil {
 					return fmt.Errorf("opened %s, but could not record it: %w", t.URL, err)
 				}

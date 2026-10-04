@@ -336,7 +336,7 @@ func TestOpening(t *testing.T) {
 		t.Fatalf("before it is opened: %v", got)
 	}
 	opened := store.Reply{Source: "linear", In: "YRD", Thread: rp.Key, Title: "Web view", ThreadURL: "https://l/YRD-9",
-		URL: "https://l/YRD-9", Key: rp.Key, Message: rp.Key}
+		URL: "https://l/YRD-9", Key: rp.Key}
 	if err := s.Opened(ctx, "inv", opened, "inv"); err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +346,7 @@ func TestOpening(t *testing.T) {
 	}
 	last := evs[len(evs)-1]
 	if last.Kind != "thread_opened" || last.Actor != "inv" || last.Data["thread"] != rp.Key || last.Data["in"] != "YRD" ||
-		last.Data["title"] != "Web view" || last.Data["url"] != "https://l/YRD-9" {
+		last.Data["title"] != "Web view" || last.Data["url"] != "https://l/YRD-9" || last.Data["message"] != nil {
 		t.Fatalf("thread_opened event: %+v", last)
 	}
 	if got := threads(t, s, "inv"); len(got) != 1 || got[0] != "linear/"+rp.Key+" opened" {
