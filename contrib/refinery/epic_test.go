@@ -351,8 +351,8 @@ func TestScriptsLogHeaderHasTheTime(t *testing.T) {
 	stamp := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{4}\n$`)
 	for _, script := range []string{"integrate-epic", "pr-epic", "pr-merge", "merge-local"} {
 		s := readFile(t, script)
-		if strings.Contains(s, "date -I") {
-			t.Errorf("%s runs date -I, which BSD date does not have", script)
+		if strings.Contains(s, "date -"+"I") {
+			t.Errorf("%s uses an unsupported date flag", script)
 		}
 		m := header.FindStringSubmatch(s)
 		if m == nil {
