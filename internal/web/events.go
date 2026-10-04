@@ -36,19 +36,24 @@ const (
 //
 // The data is an HTML fragment, the feed's entry, for htmx to put at the
 // top of the feed; an event the feed leaves out is sent as its id alone,
-// so the client's cursor still passes it. With ?format=json (or an Accept
-// that prefers JSON) the data is the event itself, and none is left out.
+// so the client's cursor still passes it. ?format= asks for something
+// else: json (also by an Accept that prefers JSON) is the event itself,
+// and none is left out; seq is the seq alone, for a page that reads
+// itself again when something happens; card is seq, and before it the
+// event's bead as /flows shows it, to be put in the section it now stands
+// in.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	asJSON := wantsJSON(r.Header.Values("Accept"))
-	switch q.Get("format") {
+	format := q.Get("format")
+	switch format {
 	case "":
-	case "json":
-		asJSON = true
-	case "html":
-		asJSON = false
+		format = "html"
+		if wantsJSON(r.Header.Values("Accept")) {
+			format = "json"
+		}
+	case "json", "html", "card", "seq":
 	default:
-		http.Error(w, "format is json or html, not "+q.Get("format"), http.StatusBadRequest)
+		http.Error(w, "format is json, html, card or seq, not "+format, http.StatusBadRequest)
 		return
 	}
 	ctx, cancel := context.WithCancel(r.Context())
@@ -113,7 +118,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 					err = errStreamEnded
 					continue
 				}
-				if !send(s.frame(ctx, e, asJSON)) {
+				if !send(s.frame(ctx, e, format)) {
 					return
 				}
 				last = e.Seq
@@ -130,26 +135,51 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 
 var errStreamEnded = fmt.Errorf("the subscription ended")
 
-// frame is e as one server-sent event.
-func (s *Server) frame(ctx context.Context, e store.Event, asJSON bool) []byte {
+// frame is e as server-sent events in format (html, json, card or seq, see
+// handleEvents): the last of them, and only it, has e's seq as its id. An
+// event the stream leaves out is its id alone: no message for the client,
+// but its cursor passes it.
+func (s *Server) frame(ctx context.Context, e store.Event, format string) []byte {
 	var b bytes.Buffer
-	fmt.Fprintf(&b, "id: %d\n", e.Seq)
 	switch {
-	case asJSON:
+	case format == "json":
 		// One line: json.Marshal escapes every newline in a string.
 		if data, err := json.Marshal(e); err == nil {
-			fmt.Fprintf(&b, "data: %s\n", data)
+			return message(&b, e.Seq, "", data)
 		}
+	case format == "card":
+		if p, ok := s.place(ctx, e); ok {
+			s.placed(&b, e.Seq, p)
+		}
+		fallthrough
+	case format == "seq":
+		return message(&b, e.Seq, "", strconv.AppendUint(nil, e.Seq, 10))
 	case inFeed(e):
 		var html bytes.Buffer
 		if err := s.partials.ExecuteTemplate(&html, "entry", s.newReader(nil).entry(ctx, e)); err != nil {
 			s.log.Error("web: /events", "seq", e.Seq, "err", err)
 			break
 		}
-		// A frame's data ends at a newline, so each line of the fragment
+		return message(&b, e.Seq, "", html.Bytes())
+	}
+	return message(&b, e.Seq, "", nil)
+}
+
+// message writes one server-sent event to b and returns b's bytes. id 0 is
+// no id: the client's cursor stays where it was. event "" is an unnamed
+// event, a browser's `message`.
+func message(b *bytes.Buffer, id uint64, event string, data []byte) []byte {
+	if id != 0 {
+		fmt.Fprintf(b, "id: %d\n", id)
+	}
+	if event != "" {
+		fmt.Fprintf(b, "event: %s\n", event)
+	}
+	if data != nil {
+		// A message's data ends at a newline, so each line of a fragment
 		// is a data line of its own.
-		for _, line := range strings.Split(strings.TrimSpace(html.String()), "\n") {
-			fmt.Fprintf(&b, "data: %s\n", line)
+		for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+			fmt.Fprintf(b, "data: %s\n", line)
 		}
 	}
 	b.WriteString("\n")

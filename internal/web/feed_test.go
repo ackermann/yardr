@@ -254,7 +254,7 @@ func TestFeedHTML(t *testing.T) {
 	old := squash(f.get(fmt.Sprintf("/?before=%d", h.Older)).body)
 	for _, want := range []string{
 		`<section class="feed" id="feed" aria-label="What happened">`,
-		`<span class="bead">` + b.ID + `</span><span class="landed">landed in merged at 70dabcd</span>`,
+		`<a class="bead" href="/beads/` + b.ID + `">` + b.ID + `</a><span class="landed">landed in merged at 70dabcd</span>`,
 		`<span class="held">held</span>`,
 		`<p class="entry-title">a door</p>`,
 		`<p class="entry-note">the hinge is missing</p>`,
@@ -294,10 +294,18 @@ func TestFeedEscapes(t *testing.T) {
 
 // --- the stream ---------------------------------------------------------
 
+// frame is what the stream sends for one event of the yard: the messages
+// up to and including the one that carries the event's seq.
 type frame struct {
-	id   uint64
+	id uint64
+	// data is the data of the message with the id.
 	data string
+	// msgs are the frame's messages that a browser would dispatch, in
+	// order: all but the card stream send one at most.
+	msgs []msg
 }
+
+type msg struct{ event, data string }
 
 // stream is a client of /events.
 type stream struct {
@@ -334,6 +342,7 @@ func openStream(t *testing.T, target string, headers ...string) *stream {
 		sc.Buffer(nil, 1<<24)
 		var fr frame
 		var data []string
+		var event string
 		var seen bool
 		for sc.Scan() {
 			line := sc.Text()
@@ -341,14 +350,22 @@ func openStream(t *testing.T, target string, headers ...string) *stream {
 			case strings.HasPrefix(line, "id: "):
 				fr.id, _ = strconv.ParseUint(line[4:], 10, 64)
 				seen = true
+			case strings.HasPrefix(line, "event: "):
+				event = line[7:]
 			case strings.HasPrefix(line, "data: "):
 				data = append(data, line[6:])
-			case line == "" && seen:
-				// As a browser does: a frame with no data moves the
-				// cursor and is no message.
-				fr.data = strings.Join(data, "\n")
-				s.frames <- fr
-				fr, data, seen = frame{}, nil, false
+			case line == "":
+				// As a browser does: a message with no data is none, and
+				// one with an id moves the cursor.
+				if len(data) > 0 {
+					fr.msgs = append(fr.msgs, msg{event, strings.Join(data, "\n")})
+				}
+				if seen {
+					fr.data = strings.Join(data, "\n")
+					s.frames <- fr
+					fr, seen = frame{}, false
+				}
+				data, event = nil, ""
 			}
 		}
 	}()
@@ -462,7 +479,7 @@ func TestEventsHTML(t *testing.T) {
 	fr := s.next(t)
 	entry := regexp.MustCompile(`(?s)<article class="item entry" id="e\d+">.*?</article>`)
 	if fr.id != head+1 || !strings.HasPrefix(fr.data, fmt.Sprintf(`<article class="item entry" id="e%d">`, fr.id)) ||
-		!strings.Contains(fr.data, `<span class="bead">`+b.ID+`</span> <span>created</span>`) ||
+		!strings.Contains(fr.data, `<a class="bead" href="/beads/`+b.ID+`">`+b.ID+`</a> <span>created</span>`) ||
 		!strings.Contains(fr.data, `<p class="entry-title">a door</p>`) {
 		t.Errorf("frame %d: %s", fr.id, fr.data)
 	}

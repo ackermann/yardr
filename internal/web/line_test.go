@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"reflect"
@@ -234,10 +236,13 @@ func TestColumnIsLive(t *testing.T) {
 	f.populate()
 	head, err := f.st.Head(context.Background())
 	must(t, err)
-	shell := `<div class="shell" hx-ext="sse" sse-connect="/events?after=` + itoa(head) + `">`
+	// A page says what its stream carries besides the unnamed message per
+	// event the column hears.
+	formats := map[string]string{"/flows": "&amp;format=card", "/beads": "&amp;format=seq", "/beads/" + f.byTitle()["three"].ID: "&amp;format=seq"}
 	column := `<aside class="right" aria-label="The line" hx-get="/line" hx-trigger="sse:message" hx-select="aside.right > *" hx-swap="innerHTML ignoreTitle:true">`
-	for _, path := range []string{"/", "/line", "/sessions", "/residents", "/beads", "/nowhere"} {
+	for _, path := range []string{"/", "/line", "/sessions", "/residents", "/flows", "/beads", "/beads/" + f.byTitle()["three"].ID, "/nowhere"} {
 		text := squash(f.get(path).body)
+		shell := `<div class="shell" hx-ext="sse" sse-connect="/events?after=` + itoa(head) + formats[path] + `">`
 		for _, part := range []string{shell, column} {
 			if !strings.Contains(text, part) {
 				t.Errorf("%s lacks %q", path, part)
@@ -431,5 +436,50 @@ func TestResidents(t *testing.T) {
 	must(t, f.st.AckInbox(ctx, "mayor", page.Last))
 	if text := squash(f.get("/residents").body); !strings.Contains(text, `<h2>mayor</h2>`) || strings.Contains(text, "2 unread") {
 		t.Error("the mayor read its inbox, and the page still counts 2 unread")
+	}
+}
+
+// busyStore is a yard in which something happens while a page reads it:
+// each time the rigs are listed, a bead gets a note.
+type busyStore struct {
+	store.API
+	bead string
+}
+
+func (s busyStore) Rigs(ctx context.Context) ([]store.Rig, error) {
+	if err := s.API.AddNote(ctx, s.bead, "meanwhile", "me"); err != nil {
+		return nil, err
+	}
+	return s.API.Rigs(ctx)
+}
+
+// A page's stream starts after the head its handler read before it read
+// the yard, not after one read once the page is built: an event that
+// happens in between is in neither the page nor a stream that starts
+// later, and a card that moved then would stay where it was.
+func TestStreamStartsBeforeThePageWasRead(t *testing.T) {
+	f := newFixture(t)
+	f.populate()
+	ctx := context.Background()
+	srv, err := web.NewServer(busyStore{API: f.st, bead: f.byTitle()["three"].ID}, f.home, nil)
+	must(t, err)
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+	for _, path := range []string{"/flows", "/beads", "/sessions", "/residents"} {
+		head, err := f.st.Head(ctx)
+		must(t, err)
+		res, err := http.Get(ts.URL + path)
+		must(t, err)
+		body, err := io.ReadAll(res.Body)
+		res.Body.Close()
+		must(t, err)
+		after, err := f.st.Head(ctx)
+		must(t, err)
+		if after == head {
+			t.Fatalf("%s: nothing happened while the page was read", path)
+		}
+		if want := `sse-connect="/events?after=` + itoa(head); !strings.Contains(string(body), want+`"`) && !strings.Contains(string(body), want+`&amp;`) {
+			t.Errorf("%s: the stream does not start after %d, the head before the page was read (now %d)", path, head, after)
+		}
 	}
 }

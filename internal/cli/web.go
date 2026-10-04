@@ -22,11 +22,12 @@ func (a *app) webCmd() *cobra.Command {
 	serve := &cobra.Command{
 		Use:   "serve",
 		Short: "Serve a read-only view of the yard over HTTP",
-		Long: `Serve the yard as web pages: its rigs, where their beads stand, a feed of
-what happens, what waits for a person, the running sessions and the
-residents, live. The view reads the yard and changes nothing. Every
-page answers a request with "Accept: application/json" with the data it
-shows, and /events streams the yard's events as server-sent events.
+		Long: `Serve the yard as web pages: a feed of what happens, the flows of its
+rigs with the beads in each stage, every bead, what waits for a person, the
+running sessions and the residents, live. The view reads the yard and
+changes nothing. Every page answers a request with "Accept:
+application/json" with the data it shows, and /events streams the yard's
+events as server-sent events.
 
 There is no authentication yet, so it listens on loopback only: an address
 on any other interface is refused.`,

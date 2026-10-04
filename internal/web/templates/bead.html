@@ -1,0 +1,111 @@
+{{define "content"}}
+{{- with .Data}}
+{{- /* The page reads itself again at every event of the yard: the shell's
+       stream carries their seqs and nothing else. The bead's body, its
+       notes and its stage file are text someone wrote: they are only ever
+       written as text. */}}
+<div id="bead" hx-get="{{.Self}}" hx-trigger="sse:message" hx-select="#bead > *" hx-swap="innerHTML ignoreTitle:true">
+  {{- with .Bead}}
+  <article class="item">
+    <header class="item-head">
+      <h2>{{.Title}}</h2>
+    </header>
+    <p class="label"><span class="dot{{if .Hold}} held{{else if .Session}} working{{end}}"></span>{{.Type}} · stage {{.Stage}} · {{.Status}}{{with .CloseReason}}: {{.}}{{end}} · P{{.Priority}}{{if .Hold}} · <span class="held">held</span>{{end}}</p>
+  </article>
+  {{- end}}
+  {{- range .Warnings}}
+  <p class="item held">{{.}}</p>
+  {{- end}}
+  <section class="item">
+    <dl class="facts">
+      {{- with .Bead.Rig}}<div><dt>rig</dt><dd>{{.}}</dd></div>{{end}}
+      <div><dt>flow</dt><dd>{{with .Flow}}{{.Name}} <span class="faint">({{.Source}})</span>{{else}}<span class="faint">none: it may move to any stage</span>{{end}}</dd></div>
+      {{- with .Base}}<div><dt>base</dt><dd>{{.}}</dd></div>{{end}}
+      {{- with .Epic}}<div><dt>epic</dt><dd><a class="bead" href="/beads/{{.ID}}">{{.ID}}</a> {{.Title}}</dd></div>{{end}}
+      {{- with .Bead.Group}}<div><dt>group</dt><dd>{{.}}</dd></div>{{end}}
+      {{- with .Bead.Session}}<div><dt>session</dt><dd>{{.}}</dd></div>{{end}}
+      {{- with .Bead.Labels}}<div><dt>labels</dt><dd>{{range $i, $l := .}}{{if $i}}, {{end}}{{$l}}{{end}}</dd></div>{{end}}
+      <div><dt>created</dt><dd>{{clock .Bead.CreatedAt}}{{with .Bead.CreatedBy}} by {{.}}{{end}}</dd></div>
+      <div><dt>changed</dt><dd>{{clock .Bead.UpdatedAt}}</dd></div>
+      {{- with .Bead.ClosedAt}}<div><dt>closed</dt><dd>{{clock .}}</dd></div>{{end}}
+    </dl>
+  </section>
+  {{- if .Blockers}}
+  <section class="item">
+    <h3 class="label">blocked by</h3>
+    <div class="cards">{{range .Blockers}}{{template "card" .}}{{end}}</div>
+  </section>
+  {{- end}}
+  {{- if .Children}}
+  <section class="item">
+    <h3 class="label">children</h3>
+    <div class="cards">{{range .Children}}{{template "card" .}}{{end}}</div>
+  </section>
+  {{- end}}
+  {{- if .Bead.Body}}
+  <section class="item">
+    <h3 class="label">body</h3>
+    <pre class="text">{{.Bead.Body}}</pre>
+  </section>
+  {{- end}}
+  {{- with .StageFile}}
+  <section class="item">
+    <h3 class="label">stage {{$.Data.Bead.Stage}} · {{.Path}}</h3>
+    <pre class="text">{{.Text}}</pre>
+  </section>
+  {{- end}}
+  {{- if eq .Bead.Status "open"}}
+  {{- if .Outcomes}}
+  <section class="item">
+    <h3 class="label">outcomes</h3>
+    <ul class="outcomes">
+      {{- range .Outcomes}}
+      <li><span>{{.Name}} <span class="faint">to {{.To}}</span></span><code>{{.Command}}</code></li>
+      {{- end}}
+    </ul>
+  </section>
+  {{- else if .Next}}
+  <section class="item">
+    <h3 class="label">next stages</h3>
+    <p>{{range $i, $s := .Next}}{{if $i}}, {{end}}{{$s}}{{end}}{{if .Terminal}} <span class="faint">({{range $i, $s := .Terminal}}{{if $i}}, {{end}}{{$s}}{{end}} closes the bead)</span>{{end}}</p>
+  </section>
+  {{- end}}
+  {{- end}}
+  {{- if .Deps}}
+  <section class="item">
+    <h3 class="label">edges</h3>
+    <ul class="edges">
+      {{- range .Deps}}
+      <li><a class="bead" href="/beads/{{.From}}">{{.From}}</a> <span class="faint">{{.Kind}}</span> <a class="bead" href="/beads/{{.To}}">{{.To}}</a></li>
+      {{- end}}
+    </ul>
+  </section>
+  {{- end}}
+  <section class="item" id="notes">
+    <h3 class="label">notes</h3>
+    {{- range .Notes}}
+    <article class="note">
+      <header class="entry-head"><span class="label">{{.Author}}{{if and .Kind (ne .Kind "note")}} · {{.Kind}}{{end}}</span><time class="label" datetime="{{.At.UTC.Format "2006-01-02T15:04:05Z"}}">{{clock .At}}</time></header>
+      <pre class="text">{{.Text}}</pre>
+    </article>
+    {{- else}}
+    <p class="faint">No note yet.</p>
+    {{- end}}
+  </section>
+  <section class="item" id="sessions">
+    <h3 class="label">sessions</h3>
+    {{- range .Sessions}}
+    <article class="note">
+      <header class="entry-head"><span class="label">{{.Group}} · stage {{.Stage}}{{with .Runner}} · {{.}}{{end}}</span><time class="label" datetime="{{.StartedAt.UTC.Format "2006-01-02T15:04:05Z"}}">{{clock .StartedAt}}</time></header>
+      <p><span class="dot{{if or (eq .State "starting") (eq .State "running")}} working{{else if or (eq .State "died") (eq .State "failed") (eq .State "held") (eq .State "aborted")}} held{{end}}"></span>{{.State}}{{with .EndedAt}} <span class="faint">at {{clock .}}</span>{{end}} <span class="faint">{{.ID}}</span></p>
+      {{- with .Error}}
+      <pre class="text held">{{.}}</pre>
+      {{- end}}
+    </article>
+    {{- else}}
+    <p class="faint">No session has worked it.</p>
+    {{- end}}
+  </section>
+</div>
+{{- end}}
+{{end}}

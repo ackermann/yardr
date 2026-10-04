@@ -11,8 +11,6 @@ curl -s localhost:8791/                                  # the page
 curl -s -H 'Accept: application/json' localhost:8791/    # the same data
 ```
 
-Parts not built yet are marked **planned**, with the bead that builds them.
-
 ## Loopback only
 
 There is no authentication yet, so the view listens on the loopback
@@ -53,14 +51,17 @@ none: scripts and styles live in the asset files.
 | `/?before=<seq>` | an older page of the feed: the 50 entries under that seq | `Home` |
 | `/events` | the yard's events as they happen, as server-sent events ([The stream](#the-stream)) | `?format=json` |
 | `/line` | the right column as a page, for a window too narrow for the column: what waits for a person, and the line in numbers ([The right column](#the-right-column)) | `Line` |
+| `/flows` | per rig, the flows that govern it: each stage a section with its group and the open beads in it as cards, which move as the beads do ([Flows](#flows)) | `Flows` |
+| `/beads` | the open beads, the newest change first ([Beads](#beads)) | `Beads` |
+| `/beads?rig=<rig>&stage=<stage>` | the same, of one rig, in one stage, or both | `Beads` |
+| `/beads/<id>` | one bead: what `yardr prime --bead <id>` knows, for a person ([One bead](#one-bead)) | `BeadPage` |
 | `/sessions` | the running sessions, the oldest first, with bead, stage, group, runner, state and age (`yardr session list`), live | `Sessions` |
 | `/residents` | each resident: whether it runs, since when, and its unread inbox count, live. Journals and handoffs are not shown | `Residents` |
-| `/flows`, `/beads` | *planned, yardr-822r*: answers 501 with a "not built yet" page | `{"page": "beads", "built": false}` |
 | `/assets/<file>` | the stylesheet and the two scripts | |
 
-The feed, the right column, the sessions and the residents are live
-([Live pages](#live-pages)). The rigs' stage counts above the feed are a
-snapshot: reload the page to see them change.
+The feed, the right column, `/flows`, `/beads`, a bead's page, the sessions
+and the residents are live ([Live pages](#live-pages)). The rigs' stage
+counts above the feed are a snapshot: reload the page to see them change.
 
 Home as JSON:
 
@@ -220,13 +221,20 @@ and per rig (`rigs`).
 Every page opens one stream: the shell names it
 (`sse-connect="/events?after=<head>"`), `head` being the yard's newest seq
 from before the page's data was read, so the stream brings everything the
-page lacks. Three things hang on it:
+page lacks. A page that needs more of it than the feed's entries says so
+(`Page.stream`) and the shell adds `&format=`: `card` on `/flows`, `seq` on
+`/beads` and a bead's page ([The stream](#the-stream)). Whatever the
+format, an event is one unnamed message, which is all the right column
+listens for. These hang on the stream:
 
 - the right column reads `/line` again on every event and puts the answer
   in its place (`hx-trigger="sse:message"`), and so does `/line`'s own copy
   of it. A bead that is held shows there with its reason as soon as the
   event arrives, and goes when it is unheld;
-- `/sessions` and `/residents` read themselves again the same way;
+- `/sessions`, `/residents`, `/beads` and a bead's page read themselves
+  again the same way;
+- on `/flows` each card and each section listens for the message named
+  after it ([Flows](#flows));
 - Home's feed takes each event's fragment on top ([The stream](#the-stream)).
 
 While one such read is under way, htmx keeps only the last of the events
@@ -277,6 +285,158 @@ An entry says its event in the yard's words:
 - The time on an entry is this machine's: the view is served on loopback,
   to a browser on the same machine.
 
+## Flows
+
+`/flows` shows, per rig, each flow that governs it, as `yardr flow show
+<rig>` does: the rig's own first, then one per bead type that has its own.
+A flow is one column: its stages in the flow's order, each a section with
+
+- the group a bead there is routed to (`by hand` with its members for a
+  manual group; `no route: waits for a person` when no route matches),
+- `stage file` when the stage has one,
+- the open beads in it as cards, the newest change first, and their count.
+
+A terminal stage is there too, to show where the flow ends; it holds a bead
+only when one was reopened. Under a rig's flows, `off the flow` holds the
+open beads in no stage of them: a bead that pins a flow of its own
+(`--meta flow=`), one a changed flow left behind, and every bead of a rig
+with no flow. It shows only while there is one.
+
+```json
+{
+  "rigs": [
+    {
+      "name": "yardr", "kind": "git",
+      "flows": [
+        {
+          "name": "default", "source": "repo@0f415ee",
+          "stages": [
+            {"stage": "new", "group": "yardr-builders", "stage_file": ".yardr/flows/default/new.md",
+             "next": ["review", "decide", "backlog"],
+             "beads": [{"id": "yardr-822r", "title": "web: flows and beads, live", "type": "task", "stage": "new",
+                        "status": "open", "rig": "yardr", "working": true, "group": "yardr-builders",
+                        "epic": "yardr-e3rg", "updated_at": "2026-10-04T00:09:51.2Z"}]},
+            {"stage": "decide", "group": "decisions", "human": true, "members": ["mckean"], "next": ["new"], "beads": []},
+            {"stage": "merged", "terminal": true, "next": [], "beads": []}
+          ]
+        },
+        {"name": "yardr.epic", "type": "epic", "source": "store, type epic, from repo@0f415ee", "stages": []}
+      ],
+      "elsewhere": []
+    }
+  ],
+  "head": 1301
+}
+```
+
+- A card (`beads`, `elsewhere`, and every list of beads on the other pages)
+  is `{"id", "title", "type", "stage", "status", "rig", "held", "working",
+  "group", "epic", "updated_at"}`: `held` is a bead on hold, `working` one a
+  session has claimed.
+- `source` is where the flow comes from, in `yardr flow show`'s words.
+- `error`, on a rig, is why its flows could not be read; its beads are then
+  all in `elsewhere`, and the other rigs still show.
+- `head` is the yard's newest seq when the page was read, read before the
+  beads: `/events?after=<head>&format=card` continues the page.
+
+**A bead that moves** leaves its section and enters the other without a
+reload. The page's stream is the shell's, with `format=card`
+([The stream](#the-stream)): at each event of a bead its card takes itself
+out of wherever the page has it, and the section the bead stands in now
+puts the card on top, which is where a reload would show it (the newest
+change first). A card that arrives because its bead was created, moved or
+reopened is seen arriving (`.card.arrived`, an animation of the
+stylesheet); a hold or a claim changes the card where it is. A bead that
+closes leaves the page. The count beside a stage's name is the
+stylesheet's, a CSS counter over the cards in the section, so it follows
+them with no message of its own.
+
+A section puts a card in with `hx-swap="afterbegin settle:0ms"`. Without
+`settle:0ms` htmx waits 20ms before the new card listens, and a second
+event of the bead in that time (a move, then the claim that follows it)
+would not take it out: the page would show the bead twice.
+
+A change to a flow itself (a new stage, another group) is no event of a
+bead: reload the page to see it.
+
+## Beads
+
+`/beads` lists the open beads, the newest change first. `?rig=` keeps one
+rig's, `?stage=` one stage's; the page offers both as links, each keeping
+the other. A rig or stage nobody has gives an empty list, not an error.
+
+```json
+{
+  "rig": "yardr", "stage": "new",
+  "beads": [{"id": "yardr-822r", "title": "web: flows and beads, live", "type": "task", "stage": "new",
+             "status": "open", "rig": "yardr", "working": true, "updated_at": "2026-10-04T00:09:51.2Z"}],
+  "rigs": ["yardr"],
+  "stages": ["backlog", "new", "review"],
+  "head": 1301
+}
+```
+
+`rigs` and `stages` are what the filters can be set to: the yard's rigs,
+and the stages that hold an open bead (of `rig`, when it is set). Journals
+and memories are not work and not listed, as in `yardr bead list`.
+
+The page is live by reading itself again: its stream is the shell's, with
+`format=seq`, and it asks for its own URL at each event, one request at a
+time.
+
+## One bead
+
+`/beads/<id>` is what `yardr prime --bead <id>` knows, for a person: title,
+type, stage, status and priority; its rig, the flow that governs it and
+where that comes from, its base, its epic; the open beads that block it; an
+epic's children; the body; the stage file of its stage; the outcomes the
+stage offers, each with the command that reports it (the next stages, for a
+stage with no outcome); its edges; its notes, the oldest first; the
+sessions that worked it. A closed bead has a page too. An unknown id is a
+404.
+
+```json
+{
+  "bead": {"id": "yardr-822r", "title": "web: flows and beads, live", "body": "Child 3 of epic …", "type": "task",
+           "stage": "new", "status": "open", "priority": 2, "rig": "yardr", "labels": [], "group": "yardr-builders",
+           "session": "vf0dsef5y990pzq0ybnh", "created_at": "…", "updated_at": "…", "revision": "…"},
+  "flow": {"name": "default", "source": "repo@0f415ee"},
+  "base": "yard/yardr-e3rg",
+  "epic": {"id": "yardr-e3rg", "title": "Web view of the yard: live and read-only", "type": "epic", "stage": "open", "status": "open"},
+  "blockers": [],
+  "deps": [{"from": "yardr-e3rg", "to": "yardr-822r", "kind": "parent", "created_at": "…"}],
+  "stage_file": {"path": ".yardr/flows/default/new.md", "text": "A builder implements the bead here…"},
+  "outcomes": [{"name": "done", "to": "review", "command": "yardr bead done yardr-822r"},
+               {"name": "question", "to": "decide", "command": "yardr bead done yardr-822r --outcome question"}],
+  "next": ["review", "decide", "backlog"],
+  "notes": [{"bead": "yardr-822r", "author": "yardr-822r-new", "text": "…", "at": "…", "seq": 412}],
+  "sessions": [{"id": "vf0dsef5y990pzq0ybnh", "bead": "yardr-822r", "group": "yardr-builders", "stage": "new",
+                "runner": "herdr", "state": "running", "stopped": false, "started_at": "…"}],
+  "head": 1301
+}
+```
+
+- `bead`, `deps`, `notes`, `sessions` and `stage_file` are the store's own
+  records, as `yardr bead show --json`, `yardr prime --json` and `yardr
+  session list --json` print them. `epic`, `children` and `blockers` are
+  cards.
+- `flow` is absent for a bead no flow governs: it may move to any stage.
+  `terminal` names those of `next` that close the bead.
+- `warnings` say what could not be read (a broken flow, an ambiguous
+  epic); the rest of the page still stands.
+
+**Live.** The page reads itself again at each event of the yard (the
+shell's stream, with `format=seq`), so a note added on the command line
+shows without a reload, and so does a blocker that closes or a child that
+moves.
+
+**Untrusted text.** A bead's title, body and notes and a stage file are
+text someone, or some agent, wrote. Every page writes them as text through
+`html/template`, in a `<pre class="text">` that keeps their lines; nothing
+renders them as markdown or HTML, so a `<script>` in a note is shown, not
+run. `TestBeadEscapes` feeds one through the title, the body, a note, a
+note's author and a stage file, on every page and in the card stream.
+
 ## The stream
 
 `GET /events` is the yard's event log as server-sent events: one per
@@ -303,21 +463,49 @@ So:
   connection to the browser stays open, and the stream resubscribes after
   the last event it sent once the server is back.
 
-**What it carries.**
+**What it carries.** `?format=` chooses; the feed's entries without it.
 
 - By default the `data` is the entry of [the feed](#the-feed) as an HTML
   fragment, the page's own markup (`templates/entry.html`). The shell
   names the stream (`sse-connect="/events?after=<head>"`) and htmx puts
-  each fragment on top of Home's feed ([Live pages](#live-pages)). An event the feed leaves out is sent as its `id`
-  with no `data`: no message for the page, but its cursor passes it.
+  each fragment on top of Home's feed ([Live pages](#live-pages)). An
+  event the feed leaves out is sent as its `id` with no `data`: no message
+  for the page, but its cursor passes it.
 - With `?format=json`, or an `Accept` that prefers JSON, the `data` is the
   event itself, as `yardr watch --json` prints it
   (`{"seq", "id", "bead", "kind", "actor", "data", "at"}`), and no event is
   left out. `EventSource` cannot set `Accept`; the parameter is for it.
+- With `?format=seq` the `data` is the event's seq and nothing else, for a
+  page that reads itself again when something happens (`/beads`, a bead's
+  page). No event is left out.
+- With `?format=card` every event is what `format=seq` sends, and an event
+  of a bead first moves the bead's card on `/flows`, in two messages named
+  after elements of the page, which listen for them (`sse-swap`): first
+  `event: bead/<id>`, at which the card the page has takes itself out,
+  then `event: at/<rig>/<type>/<stage>` (the section of that stage in the
+  rig's flow for that bead type, the type empty for the rig's own flow;
+  `off/<rig>` for a bead off the flow), whose `data` is the card as the
+  bead is now. A bead that closed gets the first alone. Only the last
+  message, the unnamed one with the seq, carries the `id`, so a browser cut
+  off between them is sent the whole move again. A note changes no card
+  and is sent as its seq alone. The names are the elements' ids, each part
+  escaped as a URL path segment.
 
 ```
 id: 1254
 data: {"seq":1254,"id":"1254","bead":"yardr-tzzc","kind":"advanced","actor":"yardr-refinery","data":{"from":"approved","to":"merged"},"at":"2026-10-03T23:40:12.129659Z"}
+```
+
+```
+event: bead/yardr-822r
+data: left
+
+event: at/yardr//review
+data: <article class="card arrived" id="bead/yardr-822r" sse-swap="bead/yardr-822r" hx-swap="delete">
+data: …
+
+id: 1302
+data: 1302
 ```
 
 **Clients.** Each stream has its own subscription to the yard, so one
@@ -400,8 +588,12 @@ hairline under it), `.item-head`, `.label`, `.panel`, `.figures` and
 `.rows` (name and number pairs), `.stages` (a row of counted stages),
 `.feed` and `.entry` (the feed and one event of it, with `.entry-head`,
 `.entry-what`, `.entry-title`, `.entry-note`), `.wait` (a bead that waits,
-with `.wait-title` and `.why`), `.bead` (a bead's handle), `.state` (a
-status dot and its word),
+with `.wait-title` and `.why`), `.card` (one bead in a list, the `card`
+template, with `.card-head`, `.card-title`, and `.arrived` for one the
+stream brought), `.cards` (a list of them), `.column` and `.stage` (a flow
+and one stage of it), `.filters`, `.facts` (name and value rows), `.text`
+(what someone wrote, lines kept), `.note`, `.outcomes`, `.bead` (a bead's
+id), `.state` (a status dot and its word),
 `.num`, `.zero`, `.faint`, `.held`, `.landed`, `.dot`.
 
 ## Adding a page
@@ -438,8 +630,9 @@ A page is one template and one handler, in `internal/web`.
    `Menu` is the menu entry to mark as current.
 
    A live page reads the yard's head before its data and gives it to the
-   page (`head`), and its template wraps what changes in an element that
-   reads the page again on every event (`templates/sessions.html`):
+   page (`head`; `respond` reads one itself only for a page that gives
+   none), and its template wraps what changes in an element that reads the
+   page again on every event (`templates/sessions.html`):
 
    ```html
    <div id="live" hx-get="/sessions" hx-trigger="sse:message" hx-select="#live > *" hx-swap="innerHTML ignoreTitle:true">
@@ -450,11 +643,22 @@ A page is one template and one handler, in `internal/web`.
 5. **Tests** in `web_test.go`, with `httptest`: the JSON and the HTML of the
    same request. `TestNoOtherHost` walks every link from Home, so a new
    page is checked for other hosts and inline styles once the menu or a
-   page links to it; raise the page count it expects.
+   page links to it; add the page to those the walk must reach.
 6. **This file**: the row in Pages, and the JSON's shape.
 
-A template that is a part of a page and no page (`shell`, `aside`, `entry`)
-is named in `partial` (`server.go`), and every page is parsed with it.
+A template that is a part of a page and no page (`shell`, `aside`, `entry`,
+`card`) is named in `partial` (`server.go`), and every page is parsed with
+it.
+
+A page that must follow the yard has two ways, both htmx's and neither a
+script of its own, and both on the shell's one stream: a page never opens
+a second. One that can simply be read again repeats its own request at
+each event, as `/beads` does (`hx-trigger="sse:message"`, with `hx-select`
+for the part to replace); `stream: "seq"` on its `Page` keeps the stream
+to the seqs. One where a single thing moves has the stream carry that
+thing, as the feed and `/flows` (`stream: "card"`) do. Either way the
+handler reads the head before the data and gives it to the `Page`, so
+nothing between the page and the stream is lost.
 
 A page adds no script and no stylesheet. If it needs a new class, it goes
 in `yard.css` and uses the tokens.

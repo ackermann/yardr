@@ -14,9 +14,10 @@
 <body>
 {{- /* One stream for the page (a browser allows a host few connections):
        the right column reads itself again on every event of it, and a page
-       that is live hangs its own part on it. An error page has no column
-       and no stream. */}}
-<div class="shell"{{if .Aside}} hx-ext="sse" sse-connect="/events?after={{.Head}}"{{end}}>
+       that is live hangs its own part on it, in the format it asks for
+       (Page.stream): each has an unnamed message per event, which is all
+       the column needs. An error page has no column and no stream. */}}
+<div class="shell"{{if .Aside}} hx-ext="sse" sse-connect="/events?after={{.Head}}{{with .Stream}}&amp;format={{.}}{{end}}"{{end}}>
   <nav class="menu" aria-label="Pages">
     <a class="yard" href="/">{{.Yard}}</a>
     <ul>

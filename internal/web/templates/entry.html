@@ -5,7 +5,7 @@
     <span class="label">{{.Actor}}</span>
     <time class="label" datetime="{{.At.UTC.Format "2006-01-02T15:04:05Z"}}">{{.Clock}}</time>
   </header>
-  <p class="entry-what">{{if .Bead}}<span class="bead">{{.Bead}}</span> {{end}}<span{{if .Tone}} class="{{.Tone}}"{{end}}>{{.Text}}</span></p>
+  <p class="entry-what">{{if .Bead}}<a class="bead" href="/beads/{{.Bead}}">{{.Bead}}</a> {{end}}<span{{if .Tone}} class="{{.Tone}}"{{end}}>{{.Text}}</span></p>
   {{- if .Title}}
   <p class="entry-title">{{.Title}}</p>
   {{- end}}

@@ -75,7 +75,7 @@ a { color: inherit; text-decoration: none; }
 a:hover, a:focus-visible { color: var(--accent); }
 :focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 
-h1, h2, h3, p, ul, ol, dl, dd { margin: 0; padding: 0; font: inherit; }
+h1, h2, h3, h4, p, ul, ol, dl, dd, pre { margin: 0; padding: 0; font: inherit; }
 ul, ol { list-style: none; }
 
 /* --- the shell ---------------------------------------------------------- */
@@ -165,6 +165,63 @@ ul, ol { list-style: none; }
 .stages .stage { display: block; color: var(--dim); font-size: var(--small); overflow-wrap: anywhere; }
 .stages .zero .num, .stages .zero .stage { color: var(--faint); }
 .stages .zero { background: var(--ground); }
+
+/* A bead as a list shows it. */
+.card-head { overflow-wrap: anywhere; }
+.card .card-title { color: var(--dim); font-family: var(--sans); overflow-wrap: anywhere; }
+.cards .card { padding: 8px 10px; background: var(--panel); border: 1px solid var(--hairline); }
+.cards .card + .card, .cards .card + .none { margin-top: 6px; }
+/* Said only by a section with no card. */
+.cards .none:not(:first-child) { display: none; }
+/* A card the stream brought into a stage: it is seen arriving. */
+.card.arrived { animation: arrive 2.4s ease-out; }
+@keyframes arrive {
+  from { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); transform: translateY(-8px); opacity: 0; }
+  15% { transform: none; opacity: 1; }
+  70% { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+  to { border-color: var(--hairline); box-shadow: inset 0 0 0 var(--accent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card.arrived { animation-duration: 0.01s; }
+}
+
+/* A flow: one column, its stages in order, each with the beads in it. */
+.column { margin-top: 8px; }
+.stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 10px;
+  padding: 10px 0 12px 12px;
+  border-left: 1px solid var(--hairline-strong);
+  counter-reset: cards;
+}
+.stage h4 { grid-column: 1; }
+.stage .count { grid-column: 2; grid-row: 1; color: var(--dim); }
+.stage .count::before { content: counter(cards); }
+.stage-who, .stage .cards { grid-column: 1 / -1; }
+.stage .cards { margin-top: 8px; }
+.stage .card { counter-increment: cards; }
+.stage.terminal h4 { color: var(--landed); }
+/* Shown only while a bead stands off its flow. */
+.off:not(:has(.card)) { display: none; }
+.off .cards { margin-top: 8px; }
+
+.filters p + p { margin-top: 6px; }
+.filters .label { display: inline-block; min-width: 56px; }
+.filters a { margin-right: 10px; color: var(--dim); overflow-wrap: anywhere; }
+.filters a[aria-current] { color: var(--accent); }
+
+/* A bead's own page. */
+.facts div { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 10px; padding: 2px 0; }
+.facts dt { color: var(--faint); }
+.facts dd, .edges li { overflow-wrap: anywhere; }
+/* What someone wrote, as they wrote it. */
+.text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.item > h3 + *, .item > .item-head + * { margin-top: 8px; }
+.note + .note { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--hairline); }
+.note .text, .note p { margin-top: 4px; }
+.outcomes li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 10px; padding: 3px 0; }
+code { font: inherit; color: var(--dim); overflow-wrap: anywhere; }
 
 .panel { padding: 12px; background: var(--panel); border: 1px solid var(--hairline); }
 .panel p { margin-top: 8px; font-family: var(--sans); }

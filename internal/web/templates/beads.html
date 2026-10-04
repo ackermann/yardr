@@ -1,0 +1,28 @@
+{{define "content"}}
+{{- with .Data}}
+{{- $d := .}}
+{{- /* The list reads itself again whenever something happens in the yard:
+       the shell's stream carries each event's seq and nothing else. */}}
+<div id="beads" hx-get="{{.Self}}" hx-trigger="sse:message" hx-select="#beads > *" hx-swap="innerHTML ignoreTitle:true">
+  <nav class="item filters" aria-label="Filters">
+    <p><span class="label">rig</span>
+      <a href="{{.Link "" .Stage}}"{{if not .Rig}} aria-current="true"{{end}}>all</a>
+      {{- range .Rigs}}
+      <a href="{{$d.Link . $d.Stage}}"{{if eq . $d.Rig}} aria-current="true"{{end}}>{{.}}</a>
+      {{- end}}
+    </p>
+    <p><span class="label">stage</span>
+      <a href="{{.Link .Rig ""}}"{{if not .Stage}} aria-current="true"{{end}}>all</a>
+      {{- range .Stages}}
+      <a href="{{$d.Link $d.Rig .}}"{{if eq . $d.Stage}} aria-current="true"{{end}}>{{.}}</a>
+      {{- end}}
+    </p>
+  </nav>
+  {{- range .Beads}}
+  <div class="item">{{template "card" .}}</div>
+  {{- else}}
+  <p class="item faint">No open bead{{if or .Rig .Stage}} matches{{end}}.</p>
+  {{- end}}
+</div>
+{{- end}}
+{{end}}

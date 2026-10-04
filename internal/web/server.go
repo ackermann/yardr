@@ -51,8 +51,9 @@ type menuItem struct {
 
 // unbuilt are the menu's pages no child of the epic has built yet: each
 // answers with the "not built yet" page. A child that builds one removes it
-// here and registers its handler in routes.
-var unbuilt = []string{"flows", "beads"}
+// here and registers its handler in routes. Every page of the menu is
+// built now; a new entry starts here.
+var unbuilt = []string{}
 
 // Server is the web view of one yard.
 type Server struct {
@@ -91,12 +92,12 @@ func NewServer(st store.API, home string, log *slog.Logger) (*Server, error) {
 
 // partial are the files of templates/ that define a part of a page, not a
 // page: every page is parsed with them.
-var partial = []string{"shell", "aside", "entry"}
+var partial = []string{"shell", "aside", "entry", "card"}
 
 // loadPages parses every template of templates/ with the shell, one set per
 // page: each page defines "content", so two pages cannot share a set.
 func (s *Server) loadPages() (map[string]*template.Template, error) {
-	funcs := template.FuncMap{"asset": s.assetURL}
+	funcs := template.FuncMap{"asset": s.assetURL, "clock": clock}
 	var parts []string
 	for _, name := range partial {
 		parts = append(parts, "templates/"+name+".html")
@@ -137,6 +138,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /events", s.handleEvents)
 	s.mux.HandleFunc("GET /sessions", s.handleSessions)
 	s.mux.HandleFunc("GET /residents", s.handleResidents)
+	s.mux.HandleFunc("GET /flows", s.handleFlows)
+	s.mux.HandleFunc("GET /beads", s.handleBeads)
+	s.mux.HandleFunc("GET /beads/{id}", s.handleBead)
 	for _, name := range unbuilt {
 		s.mux.HandleFunc("GET /"+name, s.handleUnbuilt(name))
 	}
@@ -194,6 +198,10 @@ type Page struct {
 	// head is the yard's newest seq from before the handler read the yard,
 	// for a handler that read it; respond reads it otherwise.
 	head uint64
+	// stream is the ?format= of the page's stream, for a page that hangs
+	// more on it than the shell does: card on /flows, seq on a page that
+	// only reads itself again. "" is the feed's entries.
+	stream string
 }
 
 // errorData is the Data of every error page, so an error reads the same in
@@ -212,6 +220,8 @@ type view struct {
 	// Head is the seq the page's stream starts after. It is read before
 	// what the page shows, so the stream brings everything the page lacks.
 	Head uint64
+	// Stream is the stream's ?format=, "" for the feed's entries.
+	Stream string
 }
 
 // respond answers r with p, as JSON or as HTML (see wantsJSON). Every
@@ -242,12 +252,16 @@ func (s *Server) respond(w http.ResponseWriter, r *http.Request, p Page) {
 		return
 	}
 	// The shell shows the yard's name and the line on every page.
-	v := view{Page: p, Entries: menu, Yard: s.yardName(r.Context()), Aside: p.line, Head: p.head}
+	v := view{Page: p, Entries: menu, Yard: s.yardName(r.Context()), Aside: p.line, Head: p.head, Stream: p.stream}
 	if v.Aside == nil {
 		var err error
-		if v.Head, err = s.st.Head(r.Context()); err != nil {
-			s.fail(w, r, err)
-			return
+		// A handler's own head stands: it is from before the handler read
+		// the yard, and one read here would skip what happened since.
+		if v.Head == 0 {
+			if v.Head, err = s.st.Head(r.Context()); err != nil {
+				s.fail(w, r, err)
+				return
+			}
 		}
 		if v.Aside, err = s.line(r.Context(), nil); err != nil {
 			s.fail(w, r, err)

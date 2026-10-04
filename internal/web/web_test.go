@@ -28,6 +28,8 @@ type fixture struct {
 	t  *testing.T
 	st store.API
 	ts *httptest.Server
+	// home is the yard's home, where a store flow's stage files are.
+	home string
 }
 
 // newFixture serves a yard whose home is .../.depot and that has no `name`
@@ -35,13 +37,14 @@ type fixture struct {
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	st := storetest.New(t)
-	srv, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
+	home := filepath.Join(t.TempDir(), ".depot")
+	srv, err := web.NewServer(st, home, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
-	return &fixture{t: t, st: st, ts: ts}
+	return &fixture{t: t, st: st, ts: ts, home: home}
 }
 
 type resp struct {
@@ -337,7 +340,7 @@ func TestMenuPages(t *testing.T) {
 		path := l[1]
 		r := f.get(path)
 		switch path {
-		case "/", "/line", "/sessions", "/residents":
+		case "/", "/line", "/flows", "/beads", "/sessions", "/residents":
 			if r.status != 200 {
 				t.Errorf("%s: status %d", path, r.status)
 			}
@@ -491,17 +494,23 @@ func TestNoOtherHost(t *testing.T) {
 			queue = append(queue, strings.ReplaceAll(m[1], "&amp;", "&"))
 		}
 	}
-	var assets, pages int
+	var assets int
+	var beadPage bool
 	for path := range seen {
 		if strings.HasPrefix(path, "/assets/") {
 			assets++
-		} else {
-			pages++
+		}
+		beadPage = beadPage || strings.HasPrefix(path, "/beads/")
+	}
+	// The walk must have reached what it is there to check: every page of
+	// the menu, a bead's own page, the error page.
+	for _, path := range []string{"/", "/line", "/flows", "/beads", "/sessions", "/residents", "/nowhere"} {
+		if !seen[path] {
+			t.Errorf("the walk did not reach %s: %v", path, seen)
 		}
 	}
-	// The walk must have reached what it is there to check.
-	if assets != 3 || pages != 7 {
-		t.Errorf("walked %d assets and %d pages, want 3 and 7: %v", assets, pages, seen)
+	if assets != 3 || !beadPage {
+		t.Errorf("walked %d assets, want 3, and a bead's page (%v): %v", assets, beadPage, seen)
 	}
 }
 

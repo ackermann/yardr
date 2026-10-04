@@ -37,16 +37,8 @@ type Entry struct {
 	Tone string `json:"tone,omitempty"`
 }
 
-// Clock is the entry's time as the page shows it: the time alone today,
-// with the day before that. It is this machine's time, which is the
-// reader's: the view is served on loopback.
-func (e Entry) Clock() string {
-	at, now := e.At.Local(), time.Now()
-	if at.Year() == now.Year() && at.YearDay() == now.YearDay() {
-		return at.Format("15:04:05")
-	}
-	return at.Format("Jan 2 15:04")
-}
+// Clock is the entry's time as the page shows it (see clock).
+func (e Entry) Clock() string { return clock(e.At) }
 
 // inFeed reports whether an event has an entry in the feed. A resident's
 // journal entries and handoffs are its own notes to itself, and there are
