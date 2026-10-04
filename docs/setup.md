@@ -30,6 +30,13 @@ One page per step. Each asks what its command needs, shows the command line
 as you would type it (after `$`, with `YARDR_HOME=<home>` in front for a home
 other than the default) and runs that command.
 
+On a yard whose `operator_style` is `guide`
+([configuration.md](configuration.md#how-agents-work-with-you)) the pages
+print no command lines: the questions and what each command prints say what
+happens, the group page's summary has no "As a command:", and the routes are
+asked in words (`stage new of webapp goes to webapp/builders`). The commands
+run are the same. With any other style, and with none, the pages show them.
+
 | step | the page asks | and runs |
 |---|---|---|
 | a rig | the repository's path (it starts at the directory you are in, when that is a checkout's top), the rig's name (the directory's, in lowercase), the base branch (the branch checked out) | `yardr rig add <rig> <path> --base <branch>`. A directory that is no git checkout is asked for no base and becomes a dir rig |

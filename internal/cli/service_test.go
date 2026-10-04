@@ -587,7 +587,7 @@ func TestOnboardingAsksForTheServices(t *testing.T) {
 	dir, m := stubServices(t, "darwin")
 	started := stubWeb(t)
 	out, keys := onboardTo(t, storetest.New(t), nil)
-	if !slices.Equal(keys, []string{"login", "web", "go"}) {
+	if !slices.Equal(keys, []string{"style", "about", "login", "web", "go"}) {
 		t.Fatalf("asked %q\n%s", keys, out)
 	}
 	if left, _ := os.ReadDir(dir); len(left) != 0 || len(m.calls) != 0 || len(*started) != 0 {
@@ -605,7 +605,7 @@ func TestOnboardingInstallsTheDaemonAndStartsTheWebView(t *testing.T) {
 	dir, m := stubServices(t, "darwin")
 	started := stubWeb(t)
 	out, keys := onboardTo(t, storetest.New(t), map[string]any{"login": true, "web": true})
-	if !slices.Equal(keys, []string{"login", "web", "web_login", "go"}) {
+	if !slices.Equal(keys, []string{"style", "about", "login", "web", "web_login", "go"}) {
 		t.Fatalf("asked %q\n%s", keys, out)
 	}
 	label := "dev.yardr.daemon." + homeID(home)
@@ -651,7 +651,7 @@ func TestOnboardingWithoutAServiceManager(t *testing.T) {
 	newHome(t)
 	stubServices(t, "freebsd")
 	out, keys := onboardTo(t, storetest.New(t), map[string]any{"web": true})
-	if !slices.Equal(keys, []string{"web", "go"}) {
+	if !slices.Equal(keys, []string{"style", "about", "web", "go"}) {
 		t.Fatalf("asked %q\n%s", keys, out)
 	}
 	wantText(t, out, "yardr: tests start no web view", "The yard runs without it", "mayor is running, in herdr")

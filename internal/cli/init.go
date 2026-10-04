@@ -86,6 +86,7 @@ func (a *app) storeIfAny(ctx context.Context, cfg *config.Config) (store.API, er
 type partYard struct {
 	roles           []string // the role prompts in <home>/roles
 	operator, mayor string   // the settings
+	style, note     string   // operator_style and operator_note, for the form to start at
 	residents       []string
 }
 
@@ -136,6 +137,7 @@ func (a *app) partYard(ctx context.Context, cfg *config.Config) (*partYard, erro
 			p.residents = append(p.residents, r.Name)
 		}
 		p.operator, p.mayor = all["operator"], all["mayor"]
+		p.style, p.note = all[styleSetting], all[noteSetting]
 	}
 	if len(p.found(cfg.Home)) == 0 {
 		return nil, nil
@@ -417,12 +419,16 @@ type initOptions struct {
 	// Operator is the person the role prompts name, where the templates say
 	// {{operator}}; "" is $USER. Mayor goes where they say {{mayor}}.
 	Operator string
+	// Style is how agents should work with the operator (workStyles), and
+	// About what they should know about them: the operator_style and
+	// operator_note settings. "" stores neither: only the form has a default.
+	Style, About string
 	// Start starts the daemon in the background after the yard is created
 	// and waits for the mayor's session, up to Wait (0 is mayorWait).
 	Start bool
 	Wait  time.Duration
 	// Given names the flags the command line set (harness, operator,
-	// mayor). On a yard that is set up, a setting whose flag was not given
+	// mayor, style, about). On a yard that is set up, a setting whose flag was not given
 	// is kept as it is. The form never runs on a set-up yard.
 	Given map[string]bool
 	// resumed: this init takes up an onboarding that did not reach its end
@@ -432,13 +438,17 @@ type initOptions struct {
 
 // initResult is what initYard did.
 type initResult struct {
-	Home     string   `json:"home"`
-	Harness  string   `json:"harness"`
-	Mayor    string   `json:"mayor"`
-	Dir      string   `json:"dir"`
-	Operator string   `json:"operator"`
-	Args     []string `json:"args"`
-	Roles    string   `json:"roles"`
+	Home     string `json:"home"`
+	Harness  string `json:"harness"`
+	Mayor    string `json:"mayor"`
+	Dir      string `json:"dir"`
+	Operator string `json:"operator"`
+	// Style and Note are the operator_style and operator_note settings as
+	// this init left them; absent on a yard that has none.
+	Style string   `json:"operator_style,omitempty"`
+	Note  string   `json:"operator_note,omitempty"`
+	Args  []string `json:"args"`
+	Roles string   `json:"roles"`
 	*roleInstall
 	Daemon bool `json:"daemon"` // a daemon runs on this home
 	// MayorKept: a resident of the mayor's name was there already and is
@@ -491,6 +501,15 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 	if !groupName.MatchString(o.Mayor) {
 		return nil, fmt.Errorf("mayor name %q: letters, digits, '.', '_', '-', '/'", o.Mayor)
 	}
+	o.About = strings.TrimSpace(o.About)
+	if o.Style != "" {
+		if err := checkStyle(o.Style); err != nil {
+			return nil, err
+		}
+	}
+	if err := checkNote(o.About); err != nil {
+		return nil, err
+	}
 	dir, err := absDir(or(o.Dir, filepath.Dir(cfg.Home)))
 	if err != nil {
 		return nil, err
@@ -507,14 +526,24 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 	}
 	mayorKept := err == nil
 	res := &initResult{Home: cfg.Home, Harness: o.Harness, Mayor: o.Mayor, Dir: dir,
-		Operator: or(o.Operator, defaultOperator()),
-		Args:     agents.UnattendedArgs(o.Harness), Roles: filepath.Join(cfg.Home, "roles")}
+		Operator: or(o.Operator, defaultOperator()), Style: o.Style, Note: o.About,
+		Args: agents.UnattendedArgs(o.Harness), Roles: filepath.Join(cfg.Home, "roles")}
 	if res.roleInstall, err = installRoles(res.Roles, res.Operator, o.Mayor, true); err != nil {
 		return nil, err
 	}
 	res.MayorKept, res.SettingsKept = mayorKept, kept
 	// operator and mayor are what rig init fills the roles with later.
 	for _, kv := range [][2]string{{"operator", res.Operator}, {"mayor", o.Mayor}} {
+		if err := st.SetSetting(ctx, kv[0], kv[1], a.who()); err != nil {
+			return nil, err
+		}
+	}
+	// How to work with the operator is stored only when it was said (or kept):
+	// a yard that was never asked has no style, and its primes none to give.
+	for _, kv := range [][2]string{{styleSetting, o.Style}, {noteSetting, o.About}} {
+		if kv[1] == "" {
+			continue
+		}
 		if err := st.SetSetting(ctx, kv[0], kv[1], a.who()); err != nil {
 			return nil, err
 		}
@@ -544,7 +573,7 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 }
 
 // keepSettings is o with the settings the home's store holds (default_kind,
-// operator, mayor) in place of the flags not given, so init again does not
+// operator, mayor, operator_style, operator_note) in place of the flags not given, so init again does not
 // reset them to the flags' defaults (the login name, "mayor"); it reports
 // which were kept, as "<setting> <value>". Where no default_kind is stored
 // and no harness given, the harness is the mayor resident's kind: an init
@@ -562,7 +591,8 @@ func (a *app) keepSettings(ctx context.Context, cfg *config.Config, o initOption
 	for _, s := range []struct {
 		flag, key string
 		value     *string
-	}{{"harness", "default_kind", &o.Harness}, {"operator", "operator", &o.Operator}, {"mayor", "mayor", &o.Mayor}} {
+	}{{"harness", "default_kind", &o.Harness}, {"operator", "operator", &o.Operator}, {"mayor", "mayor", &o.Mayor},
+		{"style", styleSetting, &o.Style}, {"about", noteSetting, &o.About}} {
 		if !o.Given[s.flag] && all[s.key] != "" {
 			*s.value = all[s.key]
 			kept = append(kept, s.key+" "+all[s.key])
@@ -795,7 +825,10 @@ func (r *initResult) printYard() {
 	}
 	fmt.Printf("  harness  %s (the yard's default_kind: groups and residents get it when --set kind is omitted)\n", r.Harness)
 	if len(r.SettingsKept) > 0 {
-		fmt.Printf("  kept     %s, as set before: --harness, --operator and --mayor change them\n", strings.Join(r.SettingsKept, ", "))
+		fmt.Printf("  kept     %s, as set before: --harness, --operator, --mayor, --style and --about change them\n", strings.Join(r.SettingsKept, ", "))
+	}
+	if s, ok := styleOf(r.Style); ok {
+		fmt.Printf("  operator %s, with whom agents work in the style %s (%q): every session reads it when it starts\n", r.Operator, s.key, s.label)
 	}
 	if r.MayorKept {
 		fmt.Printf("  mayor    %s, already a resident: kept as it was\n", r.Mayor)
@@ -874,19 +907,25 @@ func harnessOptions() ([]huh.Option[string], string) {
 }
 
 // onboardForm asks for the harness, the mayor's name, its directory and its
-// model, and whether to start the yard. Each answer starts at its default,
+// model, your name and how agents should work with you, and whether to
+// start the yard. Each answer starts at its default,
 // so accepting every page gives a working yard with its mayor running.
 //
 // part is what an earlier setup, cut short, left in the home: the form says
-// so, and the mayor's name and yours start at what that run stored.
+// so, and the mayor's name, yours and how agents work with you start at what
+// that run stored.
 func onboardForm(home string, part *partYard) (initOptions, error) {
 	opts, def := harnessOptions()
-	o := initOptions{Harness: def, Mayor: "mayor", Dir: filepath.Dir(home), Operator: defaultOperator(), Start: true,
+	o := initOptions{Harness: def, Mayor: "mayor", Dir: filepath.Dir(home), Operator: defaultOperator(), Style: defaultStyle, Start: true,
 		// The form's answers are given, whatever the store holds.
-		Given: map[string]bool{"harness": true, "operator": true, "mayor": true}}
+		Given: map[string]bool{"harness": true, "operator": true, "mayor": true, "style": true, "about": true}}
 	fmt.Printf("No yard in %s yet. This sets one up: a default agent harness, and a mayor on it.\n\n", home)
 	if part != nil {
 		o.Mayor, o.Operator = or(part.mayor, o.Mayor), or(part.operator, o.Operator)
+		if _, ok := styleOf(part.style); ok {
+			o.Style = part.style
+		}
+		o.About = part.note
 		fmt.Printf("An earlier setup of this home did not reach its end. It left %s.\n"+
 			"This one goes on from that, and says at its end what it added.\n\n", strings.Join(part.found(home), "; "))
 	}
@@ -916,9 +955,13 @@ func onboardForm(home string, part *partYard) (initOptions, error) {
 	); err != nil {
 		return o, err
 	}
+	if err := ask(styleFields(&o.Style, &o.About)...); err != nil {
+		return o, err
+	}
+	style, _ := styleOf(o.Style)
 	create := true
-	summary := fmt.Sprintf("harness %s\nmayor %s in %s\nmodel %s\noperator %s\nroles %s (starting points; a rig's own go in its repo's .yardr/roles/)",
-		o.Harness, o.Mayor, o.Dir, or(o.Model, "the harness's default"), or(o.Operator, defaultOperator()), filepath.Join(home, "roles"))
+	summary := fmt.Sprintf("harness %s\nmayor %s in %s\nmodel %s\noperator %s, with whom agents work in the style %s (%q)\nroles %s (starting points; a rig's own go in its repo's .yardr/roles/)",
+		o.Harness, o.Mayor, o.Dir, or(o.Model, "the harness's default"), or(o.Operator, defaultOperator()), style.key, style.label, filepath.Join(home, "roles"))
 	if err := ask(huh.NewConfirm().Title("Create this yard?").Description(summary).Value(&create)); err != nil {
 		return o, err
 	}
@@ -931,6 +974,24 @@ func onboardForm(home string, part *partYard) (initOptions, error) {
 		return o, err
 	}
 	return o, nil
+}
+
+// styleFields are the form page after "Your name": how agents should work
+// with you, each answer with its meaning, and what they should know about
+// you. What is chosen is stored and read by every session when it starts.
+func styleFields(style, about *string) []huh.Field {
+	opts := make([]huh.Option[string], len(workStyles))
+	for i, s := range workStyles {
+		opts[i] = huh.NewOption(fmt.Sprintf("%-13s %s", s.label, s.means), s.key)
+	}
+	return []huh.Field{
+		huh.NewSelect[string]().Key("style").Title("How should agents work with you?").
+			Description("Every agent reads this when its session starts. `yardr settings set " + styleSetting + " <choice>` changes it later.").
+			Options(opts...).Value(style),
+		huh.NewInput().Key("about").Title("Anything agents should know about you?").
+			Description("Optional, one line: it is read with the above. For example what you work in, or what you never want asked.").
+			Value(about).Validate(checkNote),
+	}
 }
 
 func (a *app) initCmd() *cobra.Command {
@@ -968,6 +1029,15 @@ Init again on a yard keeps its default_kind, operator and mayor settings and
 an existing mayor resident; only the flags given change them, so --harness is
 required only to create a yard.
 
+--style says how agents should work with you, and --about what they should
+know about you (one line). They are stored as the settings operator_style
+and operator_note, which every session reads when it starts: yardr prime
+prints them as instructions, so yardr settings set changes what the next
+session reads, with no init. Without --style a new yard has no style, and
+the primes say nothing about it; init again keeps both. The styles:
+
+` + styleHelp() + `
+
 A run that failed leaves what it made before the failure (the order is: the
 roles, the operator and mayor settings, the mayor, default_kind), and init
 again finishes from it. The settings stored stand in for the flags not given,
@@ -991,7 +1061,8 @@ Unattended flags per harness:
 ` + agents.UnattendedHelp(),
 		Example: `  yardr init --harness claude
   yardr init --harness claude --start              # and start the yard, waiting for the mayor
-  YARDR_HOME=/tmp/y1 yardr init --harness codex --mayor boss --dir ~/projects --model gpt-5.5 --operator Jo`,
+  YARDR_HOME=/tmp/y1 yardr init --harness codex --mayor boss --dir ~/projects --model gpt-5.5 --operator Jo
+  yardr init --harness claude --style work --about "I review every merge myself"`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			cfg, err := config.Load()
@@ -999,7 +1070,7 @@ Unattended flags per harness:
 				return err
 			}
 			o.Given = map[string]bool{}
-			for _, f := range []string{"harness", "operator", "mayor"} {
+			for _, f := range []string{"harness", "operator", "mayor", "style", "about"} {
 				o.Given[f] = c.Flags().Changed(f)
 			}
 			res, err := a.initYard(c.Context(), cfg, o)
@@ -1024,7 +1095,19 @@ Unattended flags per harness:
 	cmd.Flags().BoolVar(&o.Start, "start", false, "start the daemon in the background, unless one runs, and wait for the mayor's session")
 	cmd.Flags().DurationVar(&o.Wait, "wait", mayorWait, "with --start: how long to wait for the mayor")
 	cmd.Flags().StringVar(&o.Operator, "operator", "", "your name, as the role prompts use it (default: $USER; a set-up yard keeps its operator setting)")
+	cmd.Flags().StringVar(&o.Style, "style", "", "how agents should work with you: "+strings.Join(styleKeys(), ", ")+
+		" (default: none; a set-up yard keeps its operator_style setting)")
+	cmd.Flags().StringVar(&o.About, "about", "", "one line agents should know about you (a set-up yard keeps its operator_note setting)")
 	return cmd
+}
+
+// styleHelp lists the styles with their meanings, for help texts.
+func styleHelp() string {
+	var b strings.Builder
+	for _, s := range workStyles {
+		fmt.Fprintf(&b, "  %-7s %q: %s\n", s.key, s.label, s.means)
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // settings are the yard's settings: what each means and what it accepts.
@@ -1040,6 +1123,9 @@ var settings = map[string]struct {
 		}
 		return nil
 	}},
+	styleSetting: {"how agents should work with the operator, which every session reads when it starts (yardr prime): " +
+		strings.Join(styleKeys(), ", "), checkStyle},
+	noteSetting: {"one line agents should know about the operator, read with operator_style", checkNote},
 	"default_kind": {"the agent kind of herdr groups and residents whose config names none", func(v string) error {
 		if !agents.IsKind(v) {
 			return fmt.Errorf("default_kind %q: herdr starts %s", v, strings.Join(agents.Kinds(), ", "))
@@ -1055,7 +1141,16 @@ var settings = map[string]struct {
 }
 
 func (a *app) settingsCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "settings", Short: "The yard's own defaults (default_kind, mayor, name, operator)"}
+	cmd := &cobra.Command{Use: "settings", Short: "The yard's own defaults (default_kind, mayor, name, operator, operator_style, operator_note)",
+		Long: `The yard's own defaults. yardr settings get lists them with what each means.
+
+operator_style is how agents should work with the operator, and
+operator_note one line they should know about them. Every session reads both
+when it starts (yardr prime --bead and --resident print them as
+instructions), so a change reaches the next session; unset, the primes say
+nothing. The styles:
+
+` + styleHelp()}
 	known := func(key string) error {
 		if _, ok := settings[key]; !ok {
 			return fmt.Errorf("no setting %q; there is: %s", key, strings.Join(sortedKeys(settings), ", "))
@@ -1097,10 +1192,12 @@ func (a *app) settingsCmd() *cobra.Command {
 		},
 	}
 	set := &cobra.Command{
-		Use:     "set <key> <value>",
-		Short:   "Change a setting; an empty value unsets it",
-		Example: `  yardr settings set default_kind codex`,
-		Args:    cobra.ExactArgs(2),
+		Use:   "set <key> <value>",
+		Short: "Change a setting; an empty value unsets it",
+		Example: `  yardr settings set default_kind codex
+  yardr settings set operator_style report
+  yardr settings set operator_note ""        # unset`,
+		Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			if err := known(args[0]); err != nil {
 				return err

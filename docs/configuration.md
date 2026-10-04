@@ -22,7 +22,7 @@ in yard-9cza, the merge gate in yard-p2y7.
 | routes | | which group works which stage, by rig, type, label (built) |
 | rigs | | path, kind (`git` or `dir`), clone, base branch; `rig add` registers, `rig rm` removes (built) |
 | residents | | agent, directory, inbox kinds, rotation, subscriptions, identities (built) |
-| settings | | the yard's defaults: `default_kind`, `operator`, `mayor` (built) |
+| settings | | the yard's defaults: `default_kind`, `operator`, `mayor`, `name`, and how agents work with the operator: `operator_style`, `operator_note` (built) |
 
 ### Why the repo holds what the work is
 
@@ -469,7 +469,9 @@ onboarding when it has a terminal: the default harness (every kind herdr starts,
 installed when its executable is on PATH, the first installed one
 preselected), the mayor's name (default `mayor`), the directory its shell
 lives in (default the home's parent, so `~` for `~/.yardr`), and an optional
-model, and your name for the role prompts, then "Create this yard?" and
+model, and your name for the role prompts, then "How should agents work
+with you?" and "Anything agents should know about you?"
+([below](#how-agents-work-with-you)), then "Create this yard?" and
 "Start the yard now?" ([below](#starting-the-yard)). Before the first page,
 when `git` or `herdr` is not on PATH, it names each and what it is needed for
 (herdr starts every agent, the mayor first; a rig is a git repository) and
@@ -480,7 +482,8 @@ to initialize and exits 2.
 `yardr help` never ask.
 
 `yardr init [--harness <kind>] [--mayor <name>] [--dir <path>] [--model <m>]
-[--operator <name>] [--start [--wait <duration>]]` does the same without the
+[--operator <name>] [--style <choice>] [--about <text>]
+[--start [--wait <duration>]]` does the same without the
 form, for scripts and tests; `--harness` is required to create a yard, and
 nothing is started unless `--start` says so. Either way yardr:
 
@@ -499,7 +502,9 @@ nothing is started unless `--start` says so. Either way yardr:
    `{{mayor}}`, the resident builders and reviewers mail about what blocks
    them, the mayor's name. A rig's own roles go in its repo under
    `.yardr/roles/` ([role prompts](#role-prompts));
-2. sets `operator` to the operator's name and `mayor` to the mayor's;
+2. sets `operator` to the operator's name and `mayor` to the mayor's, and
+   `operator_style` and `operator_note` when they were said (the form's
+   answers, `--style`, `--about`);
 3. adds the mayor resident: `kind=<harness>`, `prompt=<home>/roles/mayor.md`,
    the model if given, the harness's unattended flags as `args`, rotating
    every 6h. A resident of that name already there is kept as it is, so
@@ -509,11 +514,55 @@ nothing is started unless `--start` says so. Either way yardr:
 Init again on a yard that is set up changes only what its flags say: the
 `default_kind`, `operator` and `mayor` settings stand in for `--harness`,
 `--operator` and `--mayor` when those are not given, rather than being
-reset to the flags' defaults (the login name, `mayor`), and the summary
+reset to the flags' defaults (the login name, `mayor`); `operator_style` and
+`operator_note` are kept the same way, changed only by `--style` and
+`--about`. The summary
 lists what was kept (`kept default_kind claude, operator Jo, mayor mayor, as
 set before`). A resident of the mayor's name is kept as it is, and so are
 the role files already in `<home>/roles/`. What a run that failed leaves,
 and how the next one finishes it, is [below](#a-run-that-did-not-finish).
+
+#### How agents work with you
+
+After "Your name" the form asks "How should agents work with you?", each
+choice with its meaning on the page, starting at "Show me":
+
+| choice | `operator_style` | what it tells an agent |
+|---|---|---|
+| Guide me | `guide` | Explain each step and why, in plain words, before taking it. Show no raw commands unless asked: say what a command does instead. Ask before anything done on the operator's behalf. |
+| Show me | `show` | Explain briefly. Show the command being run. Ask when there is a decision to make. |
+| Work with me | `work` | Be terse. Assume the operator reads code and git. Decide small things and say what was decided. |
+| Just report | `report` | Decide what is the agent's to decide. Lead with the result. Come to the operator only for decisions that are theirs. |
+
+and then, optionally, "Anything agents should know about you?": one line.
+`yardr init --style <choice> --about <text>` says the same without the form;
+a style that is none of the four is refused with their names, before
+anything is created. `yardr init` without `--style` stores no style: only
+the form has a default.
+
+The answers are the settings `operator_style` and `operator_note`
+([Settings](#settings)). They are read when a session starts and are not
+written into the role files: `yardr prime --bead <id>` prints them after
+the bead, as
+
+```
+OPERATOR Jo:
+  Jo asked agents to work with them in the style `work` ("Work with me"). In what you write to Jo and what you bring to them: Be terse. ...
+  What Jo wants agents to know: I review every merge myself
+```
+
+and `yardr prime --resident <name>` after the role, under `## The operator:
+Jo` (`--json`: `operator`, with `name`, `style`, `label`, `tells`, `note`).
+So `yardr settings set operator_style report` reaches every session that
+starts after it, with no init and no edit of a role a rig committed; a
+session that is running keeps what it read. The instructions are about what
+an agent writes to the operator and brings to them, not about how it does
+its own work in a pipeline.
+
+A yard without either setting, which is every yard from before them, primes
+as it did: no section, and no style assumed. With only the note set the
+section has the note and no style. `yardr setup` uses the style in one way:
+with `guide` its pages print no command lines ([setup.md](setup.md#the-pages)).
 
 The summary ends with the way to the mayor ([starting the
 yard](#starting-the-yard)), whose role begins with
@@ -817,6 +866,8 @@ value unsets) keep the yard's own defaults in the store:
 |---|---|
 | `default_kind` | the agent kind a herdr group or resident gets when `group add` or `resident add` is given no `--set kind`; also the kind their forms start at. One of the kinds herdr starts. Its presence marks the yard set up. |
 | `operator` | the person the role prompts name, agents bring decisions to; `yardr init` stores it (`--operator`, the form's "Your name") and `yardr rig init` fills roles with it. |
+| `operator_style` | how agents should work with the operator: `guide`, `show`, `work` or `report` ([what each tells an agent](#how-agents-work-with-you)). `yardr init` stores it (`--style`, the form's "How should agents work with you?"); both primes print it as instructions, so a change reaches the next session that starts. Unset, the primes say nothing about it. |
+| `operator_note` | one line agents should know about the operator (`--about`, the form's "Anything agents should know about you?"), printed by the primes with the style, or alone. |
 | `mayor` | the mayor resident's name, whom the builder and reviewer roles tell agents to mail about what blocks them ([residents.md](residents.md#findings-from-builders-and-reviewers)); `yardr init` stores it (`--mayor`) and `yardr rig init` fills roles with it. A yard from before the setting has none: `rig init` then takes its one resident, else `mayor`. |
 | `name` | the yard's name, which its residents' herdr agents and workspaces carry (`<name>-mayor`, labelled `<name> mayor`), so two yards on one machine, whose agents herdr lists together, are told apart. Unset, the home's directory name: `yardr` for `~/.yardr`, `y1` for `/tmp/y1`. Changing it renames residents started from then on. |
 

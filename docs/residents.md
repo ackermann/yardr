@@ -61,7 +61,9 @@ up. yardr does not adopt the pane it found and does not end it for you.
   keeps decisions (≤4 KB); `yardr resident handoff` ends the session (≤16 KB) and
   the next session starts from it. At `--max-age` the resident is asked for a
   handoff when idle; after `--handoff-grace` yardr restarts it regardless.
-- **Prime:** a new session reads `yardr prime --resident <name>`: its role, the
+- **Prime:** a new session reads `yardr prime --resident <name>`: its role, how
+  the operator wants agents to work with them when the yard says
+  ([configuration.md](configuration.md#how-agents-work-with-you)), the
   latest handoff, journal entries since, its inbox and its memories' titles,
   bounded in size. If the last session ended without a handoff, it gets a
   summary of what happened since instead.

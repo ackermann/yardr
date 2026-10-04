@@ -528,12 +528,23 @@ func (a *app) primeResident(ctx context.Context, st store.API, name string) erro
 		}
 		role = strings.TrimSpace(string(b))
 	}
-	return a.out(map[string]any{"prime": p, "role": role}, func() {
+	v := map[string]any{"prime": p, "role": role}
+	op, err := primeOperator(ctx, st)
+	if err != nil {
+		return err
+	}
+	if op != nil {
+		v["operator"] = op
+	}
+	return a.out(v, func() {
 		fmt.Printf("# yardr resident: %s\n\n", name)
 		fmt.Printf("You are `%s`, an always-on resident of this yard, working in %s. ", name, or(r.Dir, "the yard home"))
 		fmt.Printf("Your yardr commands are attributed to you (YARDR_ACTOR=%s).\n\n", name)
 		if role != "" {
 			fmt.Printf("## Your role\n\n%s\n\n", role)
+		}
+		if op != nil {
+			fmt.Printf("## The operator: %s\n\n%s\n\n", op.Name, strings.Join(op.lines(), "\n\n"))
 		}
 		if p.Handoff != nil {
 			fmt.Printf("## Your last handoff (%s, by %s)\n\n%s\n\n", p.Handoff.At.Local().Format("2006-01-02 15:04"),

@@ -272,7 +272,7 @@ func TestOnboardingAfterAFailedRun(t *testing.T) {
 			t.Errorf("output lacks %q:\n%s", s, out)
 		}
 	}
-	if *started != 1 || !slices.Equal(keysOf(f), []string{"login", "web", "go"}) {
+	if *started != 1 || !slices.Equal(keysOf(f), []string{"style", "about", "login", "web", "go"}) {
 		t.Fatalf("%d daemons started, asked %q", *started, keysOf(f))
 	}
 }
@@ -413,7 +413,7 @@ func TestOnboardingIsTakenUpWhereTheMayorDidNotComeUp(t *testing.T) {
 		!strings.Contains(out, "Once that is set right, run YARDR_HOME="+home+" yardr in this terminal again: it goes on from here.") {
 		t.Fatalf("form: %v\n%s", err, out)
 	}
-	if got := keysOf(f); len(got) != 0 {
+	if got := keysOf(f); !slices.Equal(got, []string{"style", "about"}) {
 		t.Fatalf("asked %q after a mayor that is not up", got)
 	}
 	if err := st.SetResidentEnabled(context.Background(), "mayor", true, "", "me"); err != nil {

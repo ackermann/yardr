@@ -564,11 +564,23 @@ func (a *app) primeCmd() *cobra.Command {
 			}
 			v := map[string]any{"bead": b, "notes": notes, "deps": deps, "open_blockers": blockers, "next": next,
 				"family": fam}
+			// How to work with the operator, on a yard that says: read here,
+			// at the session's start, so a change needs no new role file.
+			op, err := primeOperator(c.Context(), st)
+			if err != nil {
+				return err
+			}
+			if op != nil {
+				v["operator"] = op
+			}
 			if flowErr != nil {
 				v["flow_error"] = flowErr.Error()
 			}
 			return a.out(v, func() {
 				_ = a.printBeadFlow(b, next, flowErr, fam)
+				if op != nil {
+					fmt.Printf("\nOPERATOR %s:\n  %s\n", op.Name, strings.Join(op.lines(), "\n  "))
+				}
 				// What the flow says about the stage, for people and residents
 				// in manual stages, who get no brief.
 				if flowErr == nil && next.StageFile != nil {

@@ -317,8 +317,20 @@ func commandLine(home string, args []string) string {
 
 // do shows a yardr command line, then runs it.
 func (g *guide) do(ctx context.Context, args ...string) error {
-	fmt.Printf("\n  $ %s\n\n", commandLine(g.cfg.Home, args))
+	g.show(ctx, commandLine(g.cfg.Home, args))
 	return g.a.sub(ctx, args...)
+}
+
+// show prints the command line a page is about to run, except to an operator
+// who asked to be guided (operator_style guide): no raw commands unless
+// asked for. The page's questions and what the command prints say what
+// happens. It reads the setting each time, as the steps are read.
+func (g *guide) show(ctx context.Context, line string) {
+	if guided(ctx, g.st) {
+		fmt.Println()
+		return
+	}
+	fmt.Printf("\n  $ %s\n\n", line)
 }
 
 // sub runs a yardr command line in this process, as typed. The guided
@@ -451,7 +463,7 @@ func (g *guide) filesPage(ctx context.Context, step setupStep) (bool, error) {
 		fmt.Printf("Not committed. The files are in %s/.yardr; to commit them:\n\n  %s\n", rig.Path, byHand)
 		return false, nil
 	}
-	fmt.Printf("\n  $ %s\n\n", byHand)
+	g.show(ctx, byHand)
 	for _, args := range [][]string{{"add", ".yardr"}, {"commit", "-m", starterCommit, "--", ".yardr"}} {
 		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", rig.Path}, args...)...)
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
@@ -477,9 +489,13 @@ func (g *guide) groupPage(role string, limit int, what string) page {
 		fmt.Printf("%s\nThe form starts at a group on %s with the prompt %s (the rig's own\n"+
 			".yardr/roles/%s.md), which is what makes the group the %ss, and with the flags that keep\n"+
 			"%s from stopping to ask, where it has them. Change what you like.\n\n", what, kind, ans.Prompt, role, role, kind)
-		grp, err := g.a.askGroup(ctx, g.st, groups, ans, false, func(grp store.Group) string {
+		note := func(grp store.Group) string {
 			return "As a command:\n" + commandLine(g.cfg.Home, groupArgs(grp))
-		})
+		}
+		if guided(ctx, g.st) {
+			note = nil // the summary above it says the same in words
+		}
+		grp, err := g.a.askGroup(ctx, g.st, groups, ans, false, note)
 		if err != nil || grp == nil {
 			return false, err
 		}
@@ -624,6 +640,9 @@ func (g *guide) routesPage(ctx context.Context, step setupStep) (bool, error) {
 	lines := make([]string, len(step.args))
 	for i, args := range step.args {
 		lines[i] = commandLine(g.cfg.Home, args)
+		if guided(ctx, g.st) {
+			lines[i] = routeWords(args)
+		}
 	}
 	add := true
 	if err := ask(huh.NewConfirm().Key("routes").Title("Add these routes?").
@@ -640,6 +659,22 @@ func (g *guide) routesPage(ctx context.Context, step setupStep) (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+// routeWords is a yardr route add command line in words, for an operator who
+// asked for no raw commands: "stage new of web goes to web/builders".
+func routeWords(args []string) string {
+	flag := map[string]string{}
+	for i := 0; i+1 < len(args); i++ {
+		if name, ok := strings.CutPrefix(args[i], "--"); ok {
+			flag[name] = args[i+1]
+		}
+	}
+	rig := ""
+	if flag["rig"] != "" {
+		rig = " of " + flag["rig"]
+	}
+	return fmt.Sprintf("stage %s%s goes to %s", flag["stage"], rig, flag["group"])
 }
 
 // beadPage asks for a first bead's title and goal, creates it and advances

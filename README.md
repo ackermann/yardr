@@ -30,7 +30,11 @@ yardr               # 2. the onboarding: answer the form; it starts the yard
 
 The onboarding asks for the agent harness yardr starts by default (each herdr
 kind, marked installed or not), the mayor's name (the always-on resident that
-coordinates the yard), the directory its shell lives in, and your name. It
+coordinates the yard), the directory its shell lives in, your name, and how
+agents should work with you: "Guide me", "Show me" (the default), "Work with
+me" or "Just report", with a line of anything they should know about you.
+Every agent reads that answer when its session starts
+([configuration.md](docs/configuration.md#how-agents-work-with-you)). It
 installs generic role prompts in `~/.yardr/roles/` (mayor, builder, merger,
 reviewer, naming you as the one who decides), stores the harness as the
 yard's `default_kind` and your name as its `operator`, and adds the mayor.
@@ -112,7 +116,7 @@ YARDR_HOME=/tmp/y1 yardr init --harness claude    # the scripted path; add --sta
 Scripts skip the forms and the mayor's conversation (`yardr init --help`):
 
 ```sh
-yardr init --harness claude [--mayor mayor] [--dir ~/projects] [--model opus] [--operator Jo]
+yardr init --harness claude [--mayor mayor] [--dir ~/projects] [--model opus] [--operator Jo] [--style show] [--about "..."]
 yardr rig add webapp ~/projects/webapp --base origin/main
 yardr rig init webapp                   # .yardr/roles, .yardr/check, .yardr/flows/default.flow and its stage files; commit them
 
