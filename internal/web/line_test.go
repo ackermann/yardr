@@ -28,9 +28,14 @@ func lineJSON(t *testing.T, f *fixture) web.Line {
 }
 
 // waiting is what waits without its times, which no test can name.
-func waiting(l web.Line) []web.Waiting {
+func waiting(l web.Line) []web.Waiting { return timeless(l.Waits) }
+
+// parked is what is parked, likewise.
+func parked(l web.Line) []web.Waiting { return timeless(l.Parked) }
+
+func timeless(ws []web.Waiting) []web.Waiting {
 	out := []web.Waiting{}
-	for _, w := range l.Waits {
+	for _, w := range ws {
 		if w.Since.IsZero() {
 			w.Title += " (no since)"
 		}
@@ -94,8 +99,10 @@ func TestWaitsHeld(t *testing.T) {
 	}
 }
 
-// A bead in a stage routed to a manual group waits for that group, claimed
-// or not; one routed to an agent's group does not.
+// A bead in a stage routed to a manual group is parked for that group,
+// claimed or not: nothing went wrong with it, so it is listed apart from
+// what waits, and its claim is no session and no work in progress. One
+// routed to an agent's group is not listed at all.
 func TestWaitsManual(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -123,16 +130,191 @@ func TestWaitsManual(t *testing.T) {
 		{Bead: unclaimed.ID, Title: "which colour", Rig: "line", Stage: "decide", Why: why},
 	}
 	l := lineJSON(t, f)
-	if got := waiting(l); !reflect.DeepEqual(got, want) {
-		t.Errorf("manual\n got %+v\nwant %+v", got, want)
+	if got := parked(l); !reflect.DeepEqual(got, want) {
+		t.Errorf("parked\n got %+v\nwant %+v", got, want)
 	}
-	if l.Sessions != 1 || l.Working != 1 {
-		t.Errorf("the line has %d sessions and %d working, want 1 and 1", l.Sessions, l.Working)
+	if got := waiting(l); len(got) != 0 {
+		t.Errorf("nothing is held, blocked or stranded, and these wait: %+v", got)
 	}
-	if text := squash(f.get("/").body); !strings.Contains(text, `<p class="why">waits for decisions (anna, ben) in decide</p>`) ||
-		!strings.Contains(text, `<dt><span class="dot running"></span>sessions</dt><dd>1</dd>`) ||
-		!strings.Contains(text, `<li><span>decide</span><span class="num">2</span></li>`) {
-		t.Errorf("the column lacks the manual wait, the session count or the stage's count: %s", text)
+	if l.Sessions != 0 || l.Working != 0 {
+		t.Errorf("the line has %d sessions and %d working, want none: a manual claim runs nothing", l.Sessions, l.Working)
+	}
+	text := squash(f.get("/").body)
+	for _, part := range []string{
+		`<h2 class="label">Waits for you</h2><h3 class="label">Parked · 2</h3><div class="parked"><article class="wait"><header><span class="bead">` + claimed.ID + `</span>`,
+		`<p class="why">waits for decisions (anna, ben) in decide</p>`,
+		`<dt><span class="dot working"></span>working</dt><dd>0</dd>`,
+		`<dt><span class="dot running"></span>sessions</dt><dd>0</dd>`,
+		`<li><span>decide</span><span class="num">2</span></li>`,
+	} {
+		if !strings.Contains(text, part) {
+			t.Errorf("the column lacks %q", part)
+		}
+	}
+}
+
+// sessionsJSON is the sessions page's data.
+func sessionsJSON(t *testing.T, f *fixture) web.Sessions {
+	t.Helper()
+	r := f.get("/sessions", "Accept", "application/json")
+	var s web.Sessions
+	if err := json.Unmarshal([]byte(r.body), &s); err != nil || r.status != 200 {
+		t.Fatalf("/sessions: status %d, %v: %s", r.status, err, r.body)
+	}
+	return s
+}
+
+// backlogYard has a manual group backlog that claimed n beads of its stage,
+// as a dispatcher does for every bead a manual group has room for.
+func backlogYard(t *testing.T, f *fixture, n int) []*store.Bead {
+	t.Helper()
+	ctx := context.Background()
+	must(t, f.st.PutRig(ctx, store.Rig{Name: "line", Base: "origin/main"}, "me"))
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "backlog", Runner: "manual", Limit: n}))
+	_, err := f.st.AddRoute(ctx, store.Route{Stage: "backlog", Group: "backlog"})
+	must(t, err)
+	var beads []*store.Bead
+	for i := range n {
+		b, err := f.st.CreateBead(ctx, store.NewBead{Title: "idea " + string(rune('a'+i)), Stage: "backlog", Rig: "line"}, "me")
+		must(t, err)
+		sess, err := f.st.Claim(ctx, b.ID, "backlog", "backlog", "yard")
+		must(t, err)
+		must(t, f.st.MarkRunning(ctx, sess.ID, map[string]any{"manual": true}))
+		beads = append(beads, b)
+	}
+	return beads
+}
+
+// A yard where nothing is being built, its backlog claimed by a manual
+// group, shows no work in progress: no bead working, no session running,
+// nothing that waits. The claims are on the sessions page apart from the
+// running sessions, and the beads are parked. JSON and page agree.
+func TestManualClaimsOnly(t *testing.T) {
+	f := newFixture(t)
+	beads := backlogYard(t, f, 5)
+
+	l := lineJSON(t, f)
+	if l.Open != 5 || l.Working != 0 || l.Sessions != 0 || l.Held != 0 {
+		t.Errorf("the line: %d open, %d working, %d held, %d sessions, want 5, 0, 0, 0", l.Open, l.Working, l.Held, l.Sessions)
+	}
+	if len(l.Waits) != 0 || l.Waits == nil {
+		t.Errorf("waits %+v, want an empty list", l.Waits)
+	}
+	if got := parked(l); len(got) != 5 || got[0].Bead != beads[4].ID || got[4].Bead != beads[0].ID ||
+		!reflect.DeepEqual(got[0].Why, []web.Reason{{Kind: "manual", Text: "waits for backlog in backlog"}}) {
+		t.Errorf("parked %+v, want the five beads, the last claimed first", got)
+	}
+	if h := homeJSON(t, f, "/"); len(h.Rigs) != 1 || h.Rigs[0].Open != 5 || h.Rigs[0].Working != 0 {
+		t.Errorf("home: %+v, want one rig with 5 open and none working", h.Rigs)
+	}
+	s := sessionsJSON(t, f)
+	if len(s.Sessions) != 0 || s.Sessions == nil || len(s.Manual) != 5 {
+		t.Fatalf("sessions %+v, want no running session and five manual claims", s)
+	}
+	for i, row := range s.Manual {
+		if row.Bead != beads[i].ID || row.State != "claimed" || row.Runner != "manual" || row.Group != "backlog" || row.Blocked {
+			t.Errorf("manual claim %d: %+v", i, row)
+		}
+	}
+
+	for _, path := range []string{"/", "/line", "/sessions"} {
+		text := squash(f.get(path).body)
+		for _, part := range []string{
+			`<h2 class="label">Waits for you</h2><h3 class="label">Parked · 5</h3><div class="parked"><article class="wait"><header><span class="bead">` + beads[4].ID + `</span>`,
+			`<dt>open</dt><dd>5</dd>`,
+			`<dt><span class="dot working"></span>working</dt><dd>0</dd>`,
+			`<dt><span class="dot running"></span>sessions</dt><dd>0</dd>`,
+		} {
+			if !strings.Contains(text, part) {
+				t.Errorf("%s lacks %q", path, part)
+			}
+		}
+		if n := strings.Count(text, `<article class="wait">`); n != 5 && !(path == "/line" && n == 10) {
+			t.Errorf("%s lists %d beads in the column, want the five parked", path, n)
+		}
+		if strings.Contains(text, "Nothing waits for you.") {
+			t.Errorf("%s says nothing waits, over five parked beads", path)
+		}
+	}
+	text := squash(f.get("/sessions").body)
+	for _, part := range []string{
+		`<p class="item faint">No session is running.</p><h2 class="item label">Claimed by a manual group · 5</h2><article class="item"><header class="item-head"><span class="state">claimed</span><span class="bead">` + beads[0].ID + `</span>`,
+		`<dt>runner</dt><dd>manual</dd>`,
+	} {
+		if !strings.Contains(text, part) {
+			t.Errorf("/sessions lacks %q", part)
+		}
+	}
+	if strings.Contains(text, `<span class="dot running"></span>running`) || strings.Contains(text, `<span class="state">running</span>`) {
+		t.Error("/sessions shows a manual claim as running")
+	}
+}
+
+// In a yard with agents' sessions and manual claims, the numbers count the
+// agents' alone, and a parked bead something stops (a hold) waits with the
+// rest, with every reason, and is parked no longer.
+func TestManualClaimsMixed(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	beads := backlogYard(t, f, 3)
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
+	door, err := f.st.CreateBead(ctx, store.NewBead{Title: "a door", Stage: "new", Rig: "line"}, "me")
+	must(t, err)
+	sess, err := f.st.Claim(ctx, door.ID, "builders", "new", "yard")
+	must(t, err)
+	must(t, f.st.MarkRunning(ctx, sess.ID, map[string]any{"agent": "door-new"}))
+	// A session that is still starting counts too.
+	window, err := f.st.CreateBead(ctx, store.NewBead{Title: "a window", Stage: "new", Rig: "line"}, "me")
+	must(t, err)
+	_, err = f.st.Claim(ctx, window.ID, "builders", "new", "yard")
+	must(t, err)
+	_, err = f.st.SetHold(ctx, beads[1].ID, true, store.Expect{}, "me")
+	must(t, err)
+
+	l := lineJSON(t, f)
+	if l.Open != 5 || l.Working != 2 || l.Sessions != 2 || l.Held != 1 {
+		t.Errorf("the line: %d open, %d working, %d held, %d sessions, want 5, 2, 1, 2", l.Open, l.Working, l.Held, l.Sessions)
+	}
+	wantWaits := []web.Waiting{{Bead: beads[1].ID, Title: "idea b", Rig: "line", Stage: "backlog", Why: []web.Reason{
+		{Kind: "held", Text: "held by me"}, {Kind: "manual", Text: "waits for backlog in backlog"}}}}
+	if got := waiting(l); !reflect.DeepEqual(got, wantWaits) {
+		t.Errorf("waits\n got %+v\nwant %+v", got, wantWaits)
+	}
+	if got := parked(l); len(got) != 2 || got[0].Bead != beads[2].ID || got[1].Bead != beads[0].ID {
+		t.Errorf("parked %+v, want the two beads nothing stops", got)
+	}
+	if h := homeJSON(t, f, "/"); len(h.Rigs) != 1 || h.Rigs[0].Open != 5 || h.Rigs[0].Working != 2 || h.Rigs[0].Held != 1 {
+		t.Errorf("home: %+v, want one rig with 5 open, 2 working, 1 held", h.Rigs)
+	}
+	s := sessionsJSON(t, f)
+	if len(s.Sessions) != 2 || s.Sessions[0].Bead != door.ID || s.Sessions[0].State != "running" ||
+		s.Sessions[1].Bead != window.ID || s.Sessions[1].State != "starting" || len(s.Manual) != 2 {
+		t.Errorf("sessions %+v, want the two agents' sessions and two manual claims: a hold ends the claim", s)
+	}
+
+	for _, path := range []string{"/", "/sessions"} {
+		text := squash(f.get(path).body)
+		for _, part := range []string{
+			`<h2 class="label">Waits for you</h2><article class="wait"><header><span class="bead">` + beads[1].ID + `</span><span class="label">backlog</span></header>` +
+				`<p class="wait-title">idea b</p><p class="why held">held by me</p><p class="why">waits for backlog in backlog</p></article>` +
+				`<h3 class="label">Parked · 2</h3><div class="parked"><article class="wait"><header><span class="bead">` + beads[2].ID + `</span>`,
+			`<dt><span class="dot working"></span>working</dt><dd>2</dd>`,
+			`<dt><span class="dot held"></span>held</dt><dd>1</dd>`,
+			`<dt><span class="dot running"></span>sessions</dt><dd>2</dd>`,
+		} {
+			if !strings.Contains(text, part) {
+				t.Errorf("%s lacks %q", path, part)
+			}
+		}
+		if n := strings.Count(text, `<article class="wait">`); n != 3 {
+			t.Errorf("%s lists %d beads in the column, want one that waits and two parked", path, n)
+		}
+	}
+	text := squash(f.get("/sessions").body)
+	if !strings.Contains(text, `<h2 class="item label">Claimed by a manual group · 2</h2>`) ||
+		strings.Contains(text, "No session is running.") ||
+		strings.Index(text, `<span class="bead">`+door.ID) > strings.Index(text, "Claimed by a manual group") {
+		t.Error("/sessions does not list the agents' sessions above the two manual claims")
 	}
 }
 
@@ -269,8 +451,8 @@ func itoa(n uint64) string {
 }
 
 // The sessions page lists the running sessions with their bead, stage,
-// group, runner, state and age, as JSON and as the page; an ended session
-// is not on it.
+// group, runner, state and age, as JSON and as the page, and a manual
+// group's claim apart from them; an ended session is not on it.
 func TestSessions(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -303,18 +485,21 @@ func TestSessions(t *testing.T) {
 		if err := json.Unmarshal([]byte(r.body), &got); err != nil || r.status != 200 {
 			t.Fatalf("status %d, %v: %s", r.status, err, r.body)
 		}
-		for i := range got.Sessions {
-			s := &got.Sessions[i]
-			if s.StartedAt.IsZero() || s.Age == "" {
-				t.Errorf("session %s has no start or age: %+v", s.ID, s)
+		for _, rows := range [][]web.SessionRow{got.Sessions, got.Manual} {
+			for i := range rows {
+				s := &rows[i]
+				if s.StartedAt.IsZero() || s.Age == "" {
+					t.Errorf("session %s has no start or age: %+v", s.ID, s)
+				}
+				s.StartedAt, s.Age = time.Time{}, ""
 			}
-			s.StartedAt, s.Age = time.Time{}, ""
 		}
 		return got
 	}
 	want := web.Sessions{Sessions: []web.SessionRow{
 		{ID: sess.ID, Bead: b.ID, Title: "a door", Stage: "new", Group: "builders", Runner: "fake door-new", State: "running"},
-		{ID: manual.ID, Bead: other.ID, Title: "which <colour>", Stage: "decide", Group: "decisions", Runner: "manual", State: "running"},
+	}, Manual: []web.SessionRow{
+		{ID: manual.ID, Bead: other.ID, Title: "which <colour>", Stage: "decide", Group: "decisions", Runner: "manual", State: "claimed"},
 	}}
 	if got := read(); !reflect.DeepEqual(got, want) {
 		t.Errorf("sessions\n got %+v\nwant %+v", got, want)
@@ -322,7 +507,7 @@ func TestSessions(t *testing.T) {
 	text := squash(f.get("/sessions").body)
 	for _, part := range []string{
 		`<span class="state"><span class="dot running"></span>running</span><span class="bead">` + b.ID + `</span>`,
-		`<span class="state">running</span><span class="bead">` + other.ID + `</span>`,
+		`<h2 class="item label">Claimed by a manual group · 1</h2><article class="item"><header class="item-head"><span class="state">claimed</span><span class="bead">` + other.ID + `</span>`,
 		`<p class="entry-title">which &lt;colour&gt;</p>`,
 		`<dt>stage</dt><dd>new</dd>`, `<dt>group</dt><dd>builders</dd>`, `<dt>runner</dt><dd>fake door-new</dd>`,
 		`<dt>session</dt><dd>` + sess.ID + `</dd>`,

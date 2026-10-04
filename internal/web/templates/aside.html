@@ -1,8 +1,5 @@
 {{- /* The right column, and the line page that stands in for it on a phone. */ -}}
-{{define "aside"}}
-<section class="panel">
-  <h2 class="label">Waits for you</h2>
-  {{- range .Waits}}
+{{define "wait"}}
   <article class="wait">
     <header><span class="bead">{{.Bead}}</span><span class="label">{{.Stage}}</span></header>
     <p class="wait-title">{{.Title}}</p>
@@ -13,8 +10,23 @@
     {{- end}}
     {{- end}}
   </article>
+{{end}}
+{{define "aside"}}
+<section class="panel">
+  <h2 class="label">Waits for you</h2>
+  {{- range .Waits}}{{template "wait" .}}
   {{- else}}
+  {{- if not .Parked}}
   <p class="faint">Nothing waits for you.</p>
+  {{- end}}
+  {{- end}}
+  {{- /* Parked: nothing stops these, they sit in a stage that is a
+         person's by design. Apart, so what went wrong stays on top. */}}
+  {{- if .Parked}}
+  <h3 class="label">Parked · {{len .Parked}}</h3>
+  <div class="parked">
+    {{- range .Parked}}{{template "wait" .}}{{end}}
+  </div>
   {{- end}}
 </section>
 <section class="panel">

@@ -311,7 +311,7 @@ func TestLine(t *testing.T) {
 	if err := json.Unmarshal([]byte(f.get("/line", "Accept", "application/json").body), &got); err != nil {
 		t.Fatal(err)
 	}
-	want := web.Line{Open: 5, Held: 1, Rigs: []web.LineRig{{Name: "line", Open: 4}, {Name: "loose", Open: 1}},
+	want := web.Line{Open: 5, Held: 1, Parked: []web.Waiting{}, Rigs: []web.LineRig{{Name: "line", Open: 4}, {Name: "loose", Open: 1}},
 		Stages: []web.StageCount{{Stage: "backlog", Open: 2}, {Stage: "new", Open: 1}, {Stage: "triage", Open: 1}, {Stage: "inbox", Open: 1}}}
 	// What waits has tests of its own (line_test.go).
 	if len(got.Waits) != 1 {

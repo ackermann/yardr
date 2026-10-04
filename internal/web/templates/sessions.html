@@ -1,8 +1,4 @@
-{{define "content"}}
-{{- /* Every event of the stream reads the page again and puts the list in
-       place: a session starts, ends or blocks with an event. */}}
-<div id="live" hx-get="/sessions" hx-trigger="sse:message" hx-select="#live > *" hx-swap="innerHTML ignoreTitle:true">
-  {{- range .Data.Sessions}}
+{{define "session"}}
   <article class="item">
     <header class="item-head">
       <span class="state">{{with .Dot}}<span class="dot {{.}}"></span>{{end}}{{if .Blocked}}<span class="held">blocked</span>{{else}}{{.State}}{{end}}</span>
@@ -23,8 +19,20 @@
       <div><dt>started</dt><dd><time datetime="{{.StartedAt.UTC.Format "2006-01-02T15:04:05Z"}}">{{.StartedAt.Local.Format "Jan 2 15:04"}}</time></dd></div>
     </dl>
   </article>
+{{end}}
+{{define "content"}}
+{{- /* Every event of the stream reads the page again and puts the list in
+       place: a session starts, ends or blocks with an event. */}}
+<div id="live" hx-get="/sessions" hx-trigger="sse:message" hx-select="#live > *" hx-swap="innerHTML ignoreTitle:true">
+  {{- range .Data.Sessions}}{{template "session" .}}
   {{- else}}
   <p class="item faint">No session is running.</p>
+  {{- end}}
+  {{- /* A manual group's claim runs nothing: it is listed apart, under the
+         running ones. */}}
+  {{- if .Data.Manual}}
+  <h2 class="item label">Claimed by a manual group · {{len .Data.Manual}}</h2>
+  {{- range .Data.Manual}}{{template "session" .}}{{end}}
   {{- end}}
 </div>
 {{end}}

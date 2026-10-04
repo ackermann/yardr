@@ -75,7 +75,7 @@ none: scripts and styles live in the asset files.
 | `/beads` | the open beads, the newest change first ([Beads](#beads)) | `Beads` |
 | `/beads?rig=<rig>&stage=<stage>` | the same, of one rig, in one stage, or both | `Beads` |
 | `/beads/<id>` | one bead: what `yardr prime --bead <id>` knows, for a person ([One bead](#one-bead)) | `BeadPage` |
-| `/sessions` | the running sessions, the oldest first, with bead, stage, group, runner, state and age (`yardr session list`), live | `Sessions` |
+| `/sessions` | the running sessions, the oldest first, with bead, stage, group, runner, state and age (`yardr session list`), and under them the claims of manual groups, live | `Sessions` |
 | `/residents` | each resident: whether it runs, since when, and its unread inbox count, live. Journals and handoffs are not shown | `Residents` |
 | `/assets/<file>` | the stylesheet and the two scripts | |
 
@@ -114,8 +114,10 @@ Home as JSON:
 
 - `yard` is the `name` setting, else the home's directory name, as for
   residents ([configuration.md](configuration.md)).
-- `open` counts the rig's open beads, `working` those a session has
-  claimed, `held` those on hold.
+- `open` counts the rig's open beads, `working` those an agent's or a
+  command's session has claimed, `held` those on hold. A bead a manual
+  group has claimed is not `working`: it is a person's turn
+  ([Manual claims](#manual-claims)).
 - `flows` are the flows that govern the rig (`yardr flow show <rig>`): its
   own first, then one per bead type that has its own (`type`). A bead is
   counted under its type's flow when there is one, else under the rig's.
@@ -145,14 +147,27 @@ Home as JSON:
     {"id": "vkqehjw2rt151h7s0xy7", "bead": "yardr-68k3", "title": "web: what waits for a person",
      "epic": "yardr-e3rg", "stage": "new", "group": "yardr-builders", "runner": "herdr yardr-68k3-new",
      "state": "running", "blocked": true, "started_at": "2026-10-04T00:02:11Z", "age": "3h 4m"}
+  ],
+  "manual": [
+    {"id": "t0m3xq8c4k2v9d5h1w7a", "bead": "yardr-41ma", "title": "name the command",
+     "stage": "decide", "group": "decisions", "runner": "manual",
+     "state": "claimed", "started_at": "2026-10-03T23:58:07Z", "age": "3h 8m"}
   ]
 }
 ```
 
+- `sessions` are the sessions an agent or a command runs. `manual` are the
+  claims of manual groups, which `yardr session list` has among the
+  sessions: the page lists them under the running ones, headed "Claimed by
+  a manual group" with their count, with no status dot
+  ([Manual claims](#manual-claims)). "No session is running." is about
+  `sessions` alone.
 - `runner` is the runner that started the session and what it runs there,
   as `yardr session list` shows it: `herdr <agent>`, `exec pid <pid>`,
   `manual`.
-- `state` is `starting` or `running`: an ended session is not listed.
+- `state` is `starting` or `running`: an ended session is not listed. A
+  manual claim's is `claimed`: the store keeps it as a running session,
+  and nothing runs.
 - `blocked` is set while the session waits on a permission prompt or a
   question: the dispatcher's last word on it was `session_blocked`.
 - `age` is how long ago it started, in its two largest units, when the
@@ -199,19 +214,21 @@ has no room for it. As JSON (`/line`):
   "waits": [
     {"bead": "yardr-9c2k", "title": "pick the port", "rig": "yardr", "stage": "new",
      "since": "2026-10-04T00:31:40Z",
-     "why": [{"kind": "held", "text": "held by yardr-9c2k-new", "note": "8791 or 8080? the brief names both"}]},
+     "why": [{"kind": "held", "text": "held by yardr-9c2k-new", "note": "8791 or 8080? the brief names both"}]}
+  ],
+  "parked": [
     {"bead": "yardr-41ma", "title": "name the command", "rig": "yardr", "stage": "decide",
      "since": "2026-10-03T23:58:07Z",
      "why": [{"kind": "manual", "text": "waits for decisions (mckean) in decide"}]}
   ],
-  "open": 6, "working": 2, "held": 1, "sessions": 3,
+  "open": 6, "working": 2, "held": 1, "sessions": 2,
   "stages": [{"stage": "backlog", "open": 3}, {"stage": "new", "open": 2}, {"stage": "decide", "open": 1}],
   "rigs": [{"name": "yardr", "open": 6}]
 }
 ```
 
-`waits` are the open beads no agent will move, each with every reason
-(`why`) that holds for it:
+`waits` and `parked` are the open beads no agent will move, each with
+every reason (`why`) that holds for it:
 
 | `kind` | the bead | `text` |
 |---|---|---|
@@ -220,8 +237,14 @@ has no room for it. As JSON (`/line`):
 | `stranded` | sits in a stage its flow lacks (`yardr rig check`) | `stranded in <stage>, a stage flow <flow> lacks` |
 | `manual` | is in a stage of a manual group: the group that claimed it, else the one its stage is routed to | `waits for <group> (<members>) in <stage>` |
 
-- The bead that changed last is first; `since` is that change, about when
-  it began to wait.
+- A bead whose only reason is `manual` is in `parked`, every other one in
+  `waits`: nothing stops a parked bead, it sits in a stage that is a
+  person's by design (a backlog, a decision). The column lists the parked
+  under what waits, in a part headed "Parked" with their count; "Nothing
+  waits for you." shows when both are empty. A parked bead that is also
+  held or stranded is in `waits`, with its `manual` reason too.
+- In both, the bead that changed last is first; `since` is that change,
+  about when it began to wait.
 - Whether a session is blocked is kept nowhere but in the events: the
   latest `session_blocked` or `session_unblocked` among the bead's last
   200 that names the session decides. A session that left its prompt while
@@ -231,10 +254,26 @@ has no room for it. As JSON (`/line`):
   and the column shows the rest.
 
 Under them, the line in numbers, summed over the rigs: `open` beads,
-those a session has claimed (`working`), those on hold (`held`), the
-`sessions` running (a manual group's among them), and the open beads per
-stage (`stages`, in the order of the flows, a stage with none left out)
-and per rig (`rigs`).
+those an agent's or a command's session has claimed (`working`), those on
+hold (`held`), the `sessions` running, and the open beads per stage
+(`stages`, in the order of the flows, a stage with none left out) and per
+rig (`rigs`).
+
+### Manual claims
+
+A manual group runs nothing: the dispatcher claims a bead for it, and the
+store keeps the claim as a running session with the runner `manual` until
+a person moves the bead on. To the view that is no work in progress:
+
+- it does not count in `working` (Home, `/line`) or in `sessions`
+  (`/line`);
+- `/sessions` lists it under `manual`, apart from the running sessions,
+  with the state `claimed`;
+- its bead is `parked` in the column, as is an unclaimed bead in a stage
+  routed to a manual group, unless something else stops it.
+
+A session is manual when its runner is `manual`; one from before sessions
+recorded their runner, when its handle says so.
 
 ## Live pages
 
@@ -609,7 +648,7 @@ hairline under it), `.item-head`, `.label`, `.panel`, `.figures` and
 `.rows` (name and number pairs), `.stages` (a row of counted stages),
 `.feed` and `.entry` (the feed and one event of it, with `.entry-head`,
 `.entry-what`, `.entry-title`, `.entry-note`), `.wait` (a bead that waits,
-with `.wait-title` and `.why`), `.card` (one bead in a list, the `card`
+with `.wait-title` and `.why`; dimmed inside `.parked`), `.card` (one bead in a list, the `card`
 template, with `.card-head`, `.card-title`, and `.arrived` for one the
 stream brought), `.cards` (a list of them), `.column` and `.stage` (a flow
 and one stage of it), `.filters`, `.facts` (name and value rows), `.text`

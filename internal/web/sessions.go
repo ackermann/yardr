@@ -10,12 +10,17 @@ import (
 )
 
 // Sessions is the sessions page: the sessions running now, the oldest
-// first, as `yardr session list` has them.
+// first, as `yardr session list` has them, and apart from them the claims
+// of manual groups, which that list has too but which run nothing.
 type Sessions struct {
+	// Sessions are the sessions an agent or a command runs.
 	Sessions []SessionRow `json:"sessions"`
+	// Manual are the beads a manual group has claimed: a person's turn.
+	Manual []SessionRow `json:"manual"`
 }
 
-// SessionRow is one running session and the bead it works.
+// SessionRow is one running session, or one manual group's claim, and the
+// bead it works.
 type SessionRow struct {
 	ID    string `json:"id"`
 	Bead  string `json:"bead"`
@@ -26,7 +31,8 @@ type SessionRow struct {
 	// Runner is the runner that started it and what it runs there: "herdr
 	// yardr-68k3-new", "exec pid 4411", "manual".
 	Runner string `json:"runner"`
-	// State is starting or running.
+	// State is starting or running; claimed for a manual group's claim,
+	// which the store keeps as a running session.
 	State string `json:"state"`
 	// Blocked says the session waits on a permission prompt or a question.
 	Blocked   bool      `json:"blocked,omitempty"`
@@ -47,6 +53,10 @@ func (r SessionRow) Dot() string {
 	}
 	return "running"
 }
+
+// isManual reports whether a session is a manual group's claim: nothing
+// runs in it, a person works the bead.
+func isManual(s store.Session) bool { return runnerOf(s) == "manual" }
 
 // runnerOf is the runner that owns a session and what it runs there, as
 // `yardr session list` shows it. A session from before sessions recorded
@@ -98,13 +108,20 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rd := s.newReader(nil)
-	out := Sessions{Sessions: []SessionRow{}}
+	out := Sessions{Sessions: []SessionRow{}, Manual: []SessionRow{}}
 	for _, sess := range live {
-		out.Sessions = append(out.Sessions, SessionRow{
+		row := SessionRow{
 			ID: sess.ID, Bead: sess.Bead, Title: rd.title(ctx, sess.Bead), Epic: sess.Epic,
 			Stage: sess.Stage, Group: sess.Group, Runner: runnerOf(sess), State: sess.State,
-			Blocked: rd.blocked(ctx, sess), StartedAt: sess.StartedAt, Age: age(time.Since(sess.StartedAt)),
-		})
+			StartedAt: sess.StartedAt, Age: age(time.Since(sess.StartedAt)),
+		}
+		if isManual(sess) {
+			row.State = "claimed"
+			out.Manual = append(out.Manual, row)
+			continue
+		}
+		row.Blocked = rd.blocked(ctx, sess)
+		out.Sessions = append(out.Sessions, row)
 	}
 	s.respond(w, r, Page{Template: "sessions", Title: "Sessions", Menu: "sessions", Data: out, head: head})
 }

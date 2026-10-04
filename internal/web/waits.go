@@ -14,13 +14,19 @@ import (
 // Line is the right column, the same on every page: the beads that wait for
 // a person, and under them the line in numbers.
 type Line struct {
-	// Waits are the open beads no agent will move: a person has to. The one
-	// that began to wait last comes first.
-	Waits   []Waiting `json:"waits"`
-	Open    int       `json:"open"`
-	Working int       `json:"working"`
-	Held    int       `json:"held"`
-	// Sessions counts the sessions running, a manual group's among them.
+	// Waits are the open beads something stops: held, blocked on a prompt
+	// or stranded. The one that began to wait last comes first.
+	Waits []Waiting `json:"waits"`
+	// Parked are the open beads nothing stops but that no agent will move:
+	// their only reason is a stage of a manual group. In the same order.
+	Parked []Waiting `json:"parked"`
+	Open   int       `json:"open"`
+	// Working counts the beads an agent's or a command's session has
+	// claimed; a manual group's claim is not work in progress.
+	Working int `json:"working"`
+	Held    int `json:"held"`
+	// Sessions counts the sessions running: a manual group's claim is no
+	// process and is not among them.
 	Sessions int `json:"sessions"`
 	// Stages are the stages that hold an open bead, summed over the rigs, in
 	// the order of their flows.
@@ -46,7 +52,8 @@ type Waiting struct {
 
 // Reason is one cause a bead waits for a person.
 type Reason struct {
-	// Kind is held, blocked, stranded or manual.
+	// Kind is held, blocked, stranded or manual. A bead whose reasons are
+	// all manual is parked.
 	Kind string `json:"kind"`
 	// Text says it in the yard's words: "waits for decisions in decide".
 	Text string `json:"text"`
@@ -90,12 +97,13 @@ func (s *Server) line(ctx context.Context, ov *Home) (*Line, error) {
 		}
 		add(r.Elsewhere)
 	}
-	sessions, err := s.st.Sessions(ctx, false)
-	if err != nil {
-		return nil, err
+	for _, sess := range ov.sessions {
+		if !isManual(sess) {
+			l.Sessions++
+		}
 	}
-	l.Sessions = len(sessions)
-	if l.Waits, err = s.waits(ctx, sessions); err != nil {
+	var err error
+	if l.Waits, l.Parked, err = s.waits(ctx, ov.sessions); err != nil {
 		return nil, err
 	}
 	return l, nil
@@ -103,15 +111,17 @@ func (s *Server) line(ctx context.Context, ov *Home) (*Line, error) {
 
 // waits lists the open beads that wait for a person: held, in a session
 // that is blocked on a prompt, stranded in a stage their flow lacks, or in
-// a stage routed to a manual group. sessions are the live ones.
-func (s *Server) waits(ctx context.Context, sessions []store.Session) ([]Waiting, error) {
+// a stage routed to a manual group. Those with no reason but the last are
+// parked, and listed apart: nothing went wrong with them. sessions are the
+// live ones.
+func (s *Server) waits(ctx context.Context, sessions []store.Session) (waits, parked []Waiting, err error) {
 	beads, err := s.st.ListBeads(ctx, store.BeadFilter{})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	groups, err := s.st.Groups(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	manual := map[string]store.Group{}
 	for _, g := range groups {
@@ -121,7 +131,7 @@ func (s *Server) waits(ctx context.Context, sessions []store.Session) ([]Waiting
 	}
 	routes, err := s.st.Routes(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	store.SortRoutes(routes)
 	// A rig whose repository cannot be read must not take the column, and
@@ -129,12 +139,12 @@ func (s *Server) waits(ctx context.Context, sessions []store.Session) ([]Waiting
 	stranded, err := s.st.Stranded(ctx, "")
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		s.log.Error("web: stranded beads", "err", err)
 	}
 	rd := s.newReader(nil)
-	out := []Waiting{}
+	waits, parked = []Waiting{}, []Waiting{}
 	for _, b := range beads {
 		var why []Reason
 		if b.Hold {
@@ -171,10 +181,16 @@ func (s *Server) waits(ctx context.Context, sessions []store.Session) ([]Waiting
 		if b.Rig != nil {
 			w.Rig = *b.Rig
 		}
-		out = append(out, w)
+		if !slices.ContainsFunc(why, func(r Reason) bool { return r.Kind != "manual" }) {
+			parked = append(parked, w)
+			continue
+		}
+		waits = append(waits, w)
 	}
-	slices.SortStableFunc(out, func(a, b Waiting) int { return b.Since.Compare(a.Since) })
-	return out, nil
+	latest := func(a, b Waiting) int { return b.Since.Compare(a.Since) }
+	slices.SortStableFunc(waits, latest)
+	slices.SortStableFunc(parked, latest)
+	return waits, parked, nil
 }
 
 // held says why a bead is held: who held it, and the note they left right

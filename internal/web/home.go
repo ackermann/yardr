@@ -15,6 +15,9 @@ type Home struct {
 	Yard string    `json:"yard"`
 	Rigs []HomeRig `json:"rigs"`
 	Feed
+	// sessions are the live sessions the counts were made with, for the
+	// line, which counts them too.
+	sessions []store.Session
 }
 
 // HomeRig is one rig's open beads, counted per stage of the flows that
@@ -23,7 +26,8 @@ type HomeRig struct {
 	Name string `json:"name"`
 	Kind string `json:"kind"`
 	// Open, Working and Held count the rig's open beads: all of them,
-	// those a session has claimed, and those held.
+	// those an agent's or a command's session has claimed, and those held.
+	// A manual group's claim is a person's turn and no work in progress.
 	Open    int        `json:"open"`
 	Working int        `json:"working"`
 	Held    int        `json:"held"`
@@ -56,7 +60,17 @@ func (s *Server) overview(ctx context.Context) (*Home, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := &Home{Yard: s.yardName(ctx), Rigs: []HomeRig{}}
+	sessions, err := s.st.Sessions(ctx, false)
+	if err != nil {
+		return nil, err
+	}
+	out := &Home{Yard: s.yardName(ctx), Rigs: []HomeRig{}, sessions: sessions}
+	manual := map[string]bool{}
+	for _, sess := range sessions {
+		if isManual(sess) {
+			manual[sess.ID] = true
+		}
+	}
 	for _, rig := range rigs {
 		beads, err := s.st.ListBeads(ctx, store.BeadFilter{Rig: rig.Name})
 		if err != nil {
@@ -88,7 +102,7 @@ func (s *Server) overview(ctx context.Context) (*Home, error) {
 		}
 		for _, b := range beads {
 			hr.Open++
-			if b.Session != nil {
+			if b.Session != nil && !manual[*b.Session] {
 				hr.Working++
 			}
 			if b.Hold {

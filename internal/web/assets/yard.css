@@ -241,6 +241,8 @@ code { font: inherit; color: var(--dim); overflow-wrap: anywhere; }
 .wait .wait-title { color: var(--dim); }
 .wait .why { font-family: var(--mono); font-size: var(--small); }
 .wait .entry-note { margin-top: 4px; }
+/* Parked beads wait by design: the same rows, quieter. */
+.parked { color: var(--dim); }
 .state { color: var(--dim); }
 
 .dot { display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: var(--done); }
