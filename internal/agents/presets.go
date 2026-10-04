@@ -298,3 +298,41 @@ func Executable(kind string) string {
 	}
 	return kind
 }
+
+// versionArgs are the kinds whose harness prints its version and exits,
+// with the flag that makes it. Each was run against the installed tool; a
+// kind not listed was not, and is not asked (some agents open their
+// interface on an unknown flag instead of failing).
+var versionArgs = map[string][]string{
+	"claude":   {"--version"},
+	"codex":    {"--version"},
+	"grok":     {"--version"},
+	"kimi":     {"--version"},
+	"opencode": {"--version"},
+	"pi":       {"--version"},
+}
+
+// VersionArgs are the arguments that make kind's harness print its version
+// and exit; nil when none is known.
+func VersionArgs(kind string) []string { return versionArgs[kind] }
+
+// installHints say where to get a harness, for the kinds whose source is
+// known here. yardr prints them and never runs them.
+var installHints = map[string]string{
+	"claude":   "npm install -g @anthropic-ai/claude-code (https://claude.com/claude-code)",
+	"codex":    "npm install -g @openai/codex",
+	"opencode": "https://opencode.ai",
+}
+
+// InstallHint is where to get kind's harness: the command or page known for
+// it, else a pointer to the agent's own documentation.
+func InstallHint(kind string) string {
+	if h, ok := installHints[kind]; ok {
+		return h
+	}
+	name := kind
+	if p, ok := Lookup(kind); ok {
+		name = p.Label
+	}
+	return "see " + name + "'s own documentation; it must be on PATH as " + Executable(kind)
+}

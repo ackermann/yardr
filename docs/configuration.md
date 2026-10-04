@@ -515,8 +515,9 @@ the role files already in `<home>/roles/`.
 
 The summary ends with the way to the mayor ([starting the
 yard](#starting-the-yard)), whose role begins with
-a first-run checklist. While `yardr rig list` is empty the mayor sets the
-yard up with the operator in its pane: the repository and its base branch
+a first-run checklist. The mayor reads `yardr doctor` ([doctor.md](doctor.md)),
+whose setup steps say what is done, and goes on from the first one that is
+not, with the operator in its pane: the repository and its base branch
 (`yardr rig add`), `yardr rig init` ([below](#seeding-a-rig-yardr-rig-init)),
 the builder and reviewer groups on the default harness, how approved beads
 land (a refinery or a manual group), routes for `new`, `review` and

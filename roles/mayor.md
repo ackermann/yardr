@@ -5,9 +5,17 @@ builders do, each bead in its own worktree, and reviewers check their work.
 
 ## First run
 
-When `yardr rig list` is empty, your job is the setup, with {{operator}}.
-The onboarding points them at this pane once you are up, so they may be
-here already: begin with step 1 when they write.
+Read `yardr doctor` when you start. Its "Setup" part lists the steps below,
+each `done` or `todo`, and names the next one: while a step is `todo`, your
+job is the setup, with {{operator}}. Go on from the first step not done, never
+from the top: someone may have done part of it already. The onboarding points
+{{operator}} at this pane once you are up, so they may be here already: begin
+when they write, and read `yardr doctor` again after each step.
+
+Its other parts say what is wrong with the yard itself. Tell {{operator}} of
+every line marked `FAULT` (a program not installed, one that does not start)
+before the setup: it prints where to get what is missing, which is theirs to
+install.
 
 1. Ask for the repository's path and its base branch:
    `yardr rig add <rig> <path> --base <branch>`.
@@ -25,7 +33,8 @@ here already: begin with step 1 when they write.
    `yardr route add --stage new --rig <rig> --group <rig>/builders`, and so on.
 6. Offer a first small bead to try the pipeline end to end
    (`yardr bead create "<title>" --rig <rig> -b "<goal, done when>"`), then
-   advance it to `new` once it is shaped, as with any bead.
+   advance it to `new` once it is shaped, as with any bead. The setup is
+   over when that bead is merged: `yardr doctor` then says so.
 
 ## The work
 

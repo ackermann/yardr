@@ -33,8 +33,8 @@ coordinates the yard), the directory its shell lives in, and your name. It
 installs generic role prompts in `~/.yardr/roles/` (mayor, builder, merger,
 reviewer, naming you as the one who decides), stores the harness as the
 yard's `default_kind` and your name as its `operator`, and adds the mayor.
-Before its first page it says so when git or herdr is not on PATH, and what
-each is needed for; you stop there or go on.
+Before its first page it says so when git or herdr is not on PATH, what
+each is needed for and where to get it; you stop there or go on.
 
 Its last question is "Start the yard now?" (yes by default). Yes starts the
 daemon in the background, logging to `~/.yardr/daemon.log`, and waits up to
@@ -55,6 +55,14 @@ the repository and its base branch, registers the rig, seeds it with
 `yardr rig init` (starter roles, gate, flow and stage files under `.yardr/`, which you
 commit on the base branch), creates the groups and routes, and offers a first
 bead to try the pipeline. It asks before anything outward, such as a commit.
+
+`yardr doctor` says at any time what the yard has and what it lacks: git,
+herdr and each harness in use (on PATH, and answering its version flag),
+whether the server, the daemon and the mayor run, and the setup steps, each
+done or todo, with the command for the next one. It is read-only, runs on a
+home with no yard too, and exits 1 when something the yard needs is missing
+([docs/doctor.md](docs/doctor.md)). The mayor reads it to know where the
+setup stands.
 
 A home counts as set up once its store has `default_kind`; a store the server
 created on some earlier command, with nothing in it, still onboards. Without a

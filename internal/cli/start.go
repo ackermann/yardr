@@ -28,41 +28,25 @@ const mayorWait = 2 * time.Minute
 // pollEvery is how often the wait looks at the mayor; tests shorten it.
 var pollEvery = 500 * time.Millisecond
 
-// requirements are the programs a yard needs beside its harness, and what
-// for, as the onboarding says it when one is not on PATH.
-var requirements = []struct{ exe, need string }{
-	{"herdr", "it starts every agent in a pane of its own, the mayor first: without it nothing runs"},
-	{"git", "a rig is a git repository: beads are worked on branches, in worktrees"},
-}
-
-// missing are the requirements not on PATH, by executable.
-func missing() []string {
-	var out []string
-	for _, r := range requirements {
-		if _, err := lookPath(r.exe); err != nil {
-			out = append(out, r.exe)
+// preflight runs before the form's first page: it names what is not on
+// PATH and what it is needed for (basicNeeds, as yardr doctor does), and lets
+// the user stop or go on. The answer starts at "go on" only when herdr is
+// there: without herdr the yard this form creates cannot start its mayor.
+func preflight() error {
+	var gone []string
+	goOn := true
+	for _, n := range basicNeeds() {
+		if n.Found {
+			continue
+		}
+		fmt.Printf("%s is not on PATH: %s.\n  Get it: %s\n", n.Program, n.For, n.Get)
+		gone = append(gone, n.Program)
+		if n.Program == "herdr" {
+			goOn = false
 		}
 	}
-	return out
-}
-
-// preflight runs before the form's first page: it names what is not on
-// PATH and what it is needed for, and lets the user stop or go on. The
-// answer starts at "go on" only when herdr is there: without herdr the yard
-// this form creates cannot start its mayor.
-func preflight() error {
-	gone := missing()
 	if len(gone) == 0 {
 		return nil
-	}
-	goOn := true
-	for _, r := range requirements {
-		if _, err := lookPath(r.exe); err != nil {
-			fmt.Printf("%s is not on PATH: %s.\n", r.exe, r.need)
-			if r.exe == "herdr" {
-				goOn = false
-			}
-		}
 	}
 	fmt.Println()
 	if err := ask(huh.NewConfirm().Title("Go on without " + strings.Join(gone, " and ") + "?").

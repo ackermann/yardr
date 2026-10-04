@@ -1,0 +1,155 @@
+# yardr doctor
+
+`yardr doctor` says in one go what a yard has and what it lacks: the programs
+on this machine, what of the yard runs, and how far its setup is. It is the
+check to run after the onboarding, after an upgrade, and whenever the yard
+does nothing.
+
+```sh
+yardr doctor
+yardr doctor --json | jq -r '.next.next'   # the command for the next setup step
+```
+
+## Read-only
+
+Doctor installs nothing and changes nothing in the store. Where a program is
+missing it prints where to get it and never runs that. It starts no daemon.
+Two things it does do:
+
+- It runs each harness it finds with its version flag (`claude --version`),
+  for up to 5 seconds each, side by side. That runs a program and changes
+  nothing.
+- On a yard whose server is not running, it starts the server, as the first
+  command on a yard always does. It says so.
+
+On a home with no yard it says so, checks the machine, and creates nothing:
+no store, no server. It runs without a terminal too, where other commands
+are refused on such a home.
+
+## Exit status
+
+`1` when something the yard needs is missing or not working: every line
+marked `FAULT`. `0` otherwise. A setup step not done, a held bead, a mayor
+stopped on purpose and anything not configured are no fault.
+
+## The output
+
+The first line names the home:
+
+| line | when |
+|---|---|
+| `yardr doctor: the yard in <home>` | a yard is set up there |
+| ``yardr doctor: no yard in <home> yet. Create one with `yardr init --harness <kind>`, or run yardr in a terminal for the onboarding. Nothing was created.`` | no yard: only the first part and the steps follow, every step `todo` |
+
+Then up to four headed blocks. In the first two, a line is a tag (`ok`,
+`FAULT` or `note`), what it is about, and what was found.
+
+### Needed on this machine
+
+git, herdr, and a harness for each kind the yard runs on: its `default_kind`
+and every kind a herdr group or resident names. `<who>` lists them (`the
+yard's default, resident mayor, group web/builders`). On a home with no yard
+the harnesses are those that are installed, any of which a yard can be
+created on; they are then never a fault.
+
+| line | meaning |
+|---|---|
+| `ok git <path>`, `ok herdr <path>` | on PATH |
+| `FAULT <program> not on PATH: <what it is needed for>. Get it: <where>` | missing. For git and herdr the same words the onboarding uses before its first page. For a harness, `<where>` is its install command where yardr knows one (claude, codex, opencode), else a pointer to the agent's own documentation |
+| `FAULT a harness not on PATH: …` | a home with no yard, and no agent herdr starts is installed |
+| `ok <harness> <path>, the harness of <who>: answers its version flag (<its first line>)` | found, and it runs |
+| `FAULT <harness> <path>, the harness of <who>: on PATH, but its version flag fails: <error and its first line>` | found, and it does not run |
+| `FAULT <harness> <path>, the harness of <who>: on PATH, but it did not answer its version flag within 5s` | found, and it hangs. On macOS the line goes on: `On macOS that can be a quarantined binary waiting on a Gatekeeper dialog nobody sees: run <harness> once in a terminal and answer it` |
+| `ok <harness> <path>, the harness of <who>: not checked, yardr knows no version flag for <kind>` | found, and not run: the flag is known for claude, codex, grok, kimi, opencode and pi |
+| `note <harness> …` | the two failing lines above, for a harness nothing runs on yet (a home with no yard) |
+
+### The yard
+
+Not printed on a home with no yard.
+
+| line | meaning |
+|---|---|
+| `ok server running` | |
+| `ok server was not running; this command started it, as the first command on a yard does` | |
+| `FAULT server cannot be reached: <error>` | nothing else of the yard can be read; the block ends here and there are no steps |
+| `ok daemon running` | a daemon holds the home's lock |
+| `FAULT daemon not running: no bead is dispatched and no resident starts. Start it in a pane of its own (yardr daemon) or in the background (yardr init --start)` | |
+| `ok mayor <name> is running (herdr agent <agent>)` | the resident named by the `mayor` setting has a session |
+| `FAULT mayor no resident <name>: yardr init adds it` | |
+| `note mayor <name> is stopped (disabled). Let it run again: yardr resident start <name>` | stopped on purpose: no fault |
+| `FAULT mayor <name> is not running: <N> failed starts so far, the last with: <reason>. Once that is fixed: yardr resident start <name>` | its starts fail; `the daemon gave up after <N> tries` once it has |
+| `FAULT mayor <name> is not running: the daemon starts it` | no daemon |
+| `FAULT mayor <name> is not running, and no start has failed: the daemon may still be at it (yardr resident list)` | |
+| `FAULT resident <name> is not running: …` | another resident whose starts fail, as for the mayor |
+| `ok residents <N>, none failing to start` | |
+| `ok held no bead is held` | |
+| `note held <N> held, waiting for someone: <ids> (yardr bead show <id>; yardr bead unhold <id> resumes it)` | no fault: a held bead waits for a person |
+
+### Setup
+
+The steps from a yard to a first merged bead, in the order they are taken.
+Each line is `done` or `todo`, the step, and what in the store shows it done
+or what is lacking. The steps are read from the store and nothing else (the
+store reads a rig's flow from its base branch), by one function that the
+mayor's first run uses through this command, so whoever walks you through
+the setup can take over from anyone else.
+
+| step (`key` in JSON) | done when |
+|---|---|
+| `a rig` (`rig`) | the yard has a rig |
+| `the rig's .yardr files on its base` (`rig_files`) | every rig has a flow where yardr reads it: under `.yardr/flows/` on its base branch (written by `yardr rig init` and committed), in a dir rig's directory, or in the store when the rig follows a pack's flow |
+| `a group that builds` (`builders`) | a group has the role `builder.md` as its prompt, or a route for stage `new` |
+| `a group that reviews` (`reviewers`) | the same with `reviewer.md` and `review` |
+| `a group or person that lands approved beads` (`landing`) | a group has the role `merger.md`, is an exec group whose command merges (a refinery), or has a route for stage `approved`: people who merge by hand count once they are routed |
+| `routes for new, review and approved` (`routes`) | a route exists for each of the three stages |
+| `a first bead` (`first_bead`) | a bead exists in a rig (a resident's journal and memories do not count) |
+| `a first merged bead` (`merged_bead`) | a bead of a rig was closed by reaching its flow's terminal stage; one closed by hand does not count |
+
+A yard whose rigs are all dir rigs lands nothing: it has no landing step, its
+routes are `new and review`, and its last step reads `a first bead through to
+the flow's end`.
+
+### Optional
+
+What a yard runs without. Each line is `configured` or `not configured`,
+never a fault. Not printed on a home with no yard.
+
+| line | meaning |
+|---|---|
+| `not configured web view: nothing keeps it running; yardr web serve shows the yard in a browser while it runs (docs/web.md)` | always, until the web view can run as a service (*planned, yardr-h8rc*) |
+| `not configured hooks: no source outside the yard reaches it; yardr hook add --help (docs/subscriptions.md)` | no hook |
+| `configured hooks: <name> (<source>), …` | |
+| `note hooks: hook <name> is blocked: <why>` | the receiver refuses its deliveries |
+| `note hooks: YARDR_HOOK_ADDR is not set in this environment: the server receives hooks only when it was started with it` | hooks exist, and the variable is not set where doctor runs |
+| `not configured packs: no pack is imported; yardr pack apply <dir> --rig <rig> (docs/packs.md)` | |
+| `configured packs: <pack> into <rig>, …` | |
+| `not configured login service: the daemon runs while its terminal or the session that started it does (yardr daemon, yardr init --start); it does not come back after a reboot` | always, until the daemon can run as a login service (*planned, yardr-h8rc*) |
+| `configured login service: the daemon starts at login` | *planned, yardr-h8rc* |
+| `note login service: rig <rig> (<path>) is in a folder macOS protects (~/Desktop, ~/Documents, ~/Downloads): a launchd agent needs its own access there (System Settings, Privacy & Security, Files and Folders), which a daemon started in a terminal has from the terminal` | macOS, with the login service configured: one line per such rig |
+
+### The last lines
+
+| line | when |
+|---|---|
+| `Nothing the yard needs is missing.` | no fault |
+| `1 fault: something the yard needs is missing or not working (FAULT above).` | |
+| `<N> faults: things the yard needs are missing or not working (FAULT above).` | |
+| `Next step: <step>.` and, below it, the command | a yard, and a step is not done |
+| `The setup is complete.` | a yard, and every step is done |
+
+For a home other than the default, every command doctor prints carries
+`YARDR_HOME=<home>` in front. In JSON a step's `next` is the bare command.
+
+## JSON
+
+`--json` prints one object, with the same exit status:
+
+| field | |
+|---|---|
+| `home`, `yard` | the home; whether a yard is set up in it |
+| `machine` | the programs: `program`, `for`, `found`, `path`, `get` (when missing), `harness` (the kind, for a harness), `optional` (a harness nothing runs on yet), `version` with `state` (`answers`, `fails`, `hangs`, `not_checked`) and `output` |
+| `state` | `server` (`running`, `started`, `unreachable`), `server_error`, `daemon`, `mayor` (`name`, `resident`, `enabled`, `running`, `state`, `agent`, `failures`, `reason`), `residents`, `failing`, `held`; absent with no yard |
+| `steps` | each `key`, `title`, `done`, `detail`, and `next` (the command) when not done |
+| `next` | the first step not done; absent when all are |
+| `optional` | each `key` (`web`, `hooks`, `packs`, `login_service`), `title`, `configured`, `detail`, `notes` |
+| `faults` | the `FAULT` lines, one string each; empty when the exit status is 0 |
