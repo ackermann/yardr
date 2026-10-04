@@ -18,9 +18,10 @@ import (
 // <resident>\x00<source>\x00<thread id> -> Participation.
 var bThreads = []byte("threads")
 
-// bReplies holds every reply a resident set out to post with yardr reply:
-// <resident>\x00<key> -> Reply, from Replying (before the post) through
-// Replied (after it).
+// bReplies holds every post a resident set out to make in a source, a
+// reply (yardr reply) or a thread of its own (yardr thread open):
+// <resident>\x00<key> -> Reply, from Replying or Opening (before the post)
+// through Replied or Opened (after it).
 var bReplies = []byte("replies")
 
 func init() { allBuckets = append(allBuckets, bThreads, bReplies) }
