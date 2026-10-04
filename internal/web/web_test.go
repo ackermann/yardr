@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -395,34 +396,103 @@ func TestReadOnly(t *testing.T) {
 // why: there is no authentication yet.
 func TestRefusedAddress(t *testing.T) {
 	for _, addr := range []string{":8791", "0.0.0.0:8791", "192.168.1.10:8791", "[::]:8791", "example.com:80", "[2001:db8::1]:80"} {
-		err := web.CheckLoopback(addr)
+		err := web.CheckAddr(addr, false)
 		if err == nil {
 			t.Errorf("%s: accepted", addr)
 			continue
 		}
-		for _, want := range []string{addr, "refused", "no authentication", "loopback"} {
+		for _, want := range []string{addr, "refused", "no authentication", "loopback", "--unsafe"} {
 			if !strings.Contains(err.Error(), want) {
 				t.Errorf("%s: the refusal lacks %q: %v", addr, want, err)
 			}
 		}
-		if ln, err := web.Listen(addr); err == nil {
+		if ln, err := web.Listen(addr, false); err == nil {
 			ln.Close()
 			t.Errorf("%s: Listen opened it", addr)
 		}
 	}
 	for _, addr := range []string{"127.0.0.1:8791", "127.0.0.1:0", "[::1]:8791", "localhost:8791", "127.8.8.8:1"} {
-		if err := web.CheckLoopback(addr); err != nil {
+		if err := web.CheckAddr(addr, false); err != nil {
 			t.Errorf("%s: %v", addr, err)
 		}
 	}
-	if err := web.CheckLoopback("127.0.0.1"); err == nil || strings.Contains(err.Error(), "refused") {
+	if err := web.CheckAddr("127.0.0.1", false); err == nil || strings.Contains(err.Error(), "refused") {
 		t.Errorf("an address with no port: %v, want the parse error", err)
 	}
-	ln, err := web.Listen("127.0.0.1:0")
+	ln, err := web.Listen("127.0.0.1:0", false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ln.Close()
+}
+
+// --unsafe lets every address through, the ones on every interface too,
+// and Listen opens one; what is no address is still an error.
+func TestUnsafeAddress(t *testing.T) {
+	for _, addr := range []string{":9000", "0.0.0.0:9000", "[::]:9000", "192.168.178.90:8791", "127.0.0.1:8791", "example.com:80"} {
+		if err := web.CheckAddr(addr, true); err != nil {
+			t.Errorf("%s: %v", addr, err)
+		}
+	}
+	if err := web.CheckAddr("0.0.0.0", true); err == nil {
+		t.Error("an address with no port: accepted")
+	}
+	ln, err := web.Listen(":0", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	if tcp := ln.Addr().(*net.TCPAddr); !tcp.IP.IsUnspecified() {
+		t.Errorf(":0 listens on %s, want every interface", tcp)
+	}
+}
+
+// Under --unsafe a request names the machine by any IP or by its host
+// name; another site's name is still refused (DNS rebinding).
+func TestUnsafeHost(t *testing.T) {
+	st := storetest.New(t)
+	srv, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.AllowNetwork("AdventureTime.local")
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+	f := &fixture{t: t, st: st, ts: ts}
+	for _, host := range []string{"192.168.178.90:8791", "192.168.178.90", "10.0.0.1:1", "[2001:db8::1]:8791", "[fe80::1]",
+		"adventuretime", "adventuretime.local:8791", "ADVENTURETIME.LOCAL", "localhost:8791", "127.0.0.1:8791", "[::1]:8791"} {
+		if r := f.get("/", "Host", host); r.status != 200 {
+			t.Errorf("Host %s: status %d", host, r.status)
+		}
+	}
+	for _, host := range []string{"evil.example", "evil.example:8791", "192.168.178.90.evil.example", "adventuretime.evil.example",
+		"adventuretime.local.evil.example", "other.local", "local", ".local"} {
+		r := f.get("/", "Host", host)
+		if r.status != http.StatusMisdirectedRequest {
+			t.Errorf("Host %s: status %d, want 421", host, r.status)
+		}
+		if !strings.Contains(r.body, "adventuretime.local") {
+			t.Errorf("Host %s: the refusal does not say what to ask for: %q", host, r.body)
+		}
+	}
+
+	// A machine with no host name is reached by IP and by no name.
+	bare, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bare.AllowNetwork("")
+	bts := httptest.NewServer(bare)
+	t.Cleanup(bts.Close)
+	bf := &fixture{t: t, st: st, ts: bts}
+	if r := bf.get("/", "Host", "10.0.0.1"); r.status != 200 {
+		t.Errorf("no host name, Host 10.0.0.1: status %d", r.status)
+	}
+	for _, host := range []string{".local", "evil.example"} {
+		if r := bf.get("/", "Host", host); r.status != http.StatusMisdirectedRequest {
+			t.Errorf("no host name, Host %s: status %d, want 421", host, r.status)
+		}
+	}
 }
 
 // A request that reached the loopback listener under another host's name

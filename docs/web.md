@@ -14,7 +14,7 @@ curl -s -H 'Accept: application/json' localhost:8791/    # the same data
 ## Loopback only
 
 There is no authentication yet, so the view listens on the loopback
-interface and nowhere else:
+interface and nowhere else, unless `--unsafe` is given (below):
 
 - `--addr` takes `127.0.0.1`, `::1` or `localhost` with a port. Any other
   address, and one with no host (`:8791` listens on every interface), is
@@ -25,6 +25,26 @@ interface and nowhere else:
 
 To look at a yard on another machine, forward the port over ssh
 (`ssh -L 8791:127.0.0.1:8791 host`).
+
+### `--unsafe`: every interface
+
+`yardr web serve --unsafe` listens on `0.0.0.0:8791`, every interface, so
+that a phone on the same LAN can open `http://<this machine's IP>:8791/`.
+There is still no authentication: anyone who can reach this machine on that
+port can read the whole yard. The view stays read-only.
+
+- With `--unsafe`, `--addr` takes any address: `:9000`, `0.0.0.0:9000`, or
+  one LAN address (`192.168.178.90:9000`) to listen on that interface only.
+- Without `--unsafe` nothing changes, and the refusal of an address off
+  loopback names the flag.
+- A request is answered when its `Host` header is an IP address (any), a
+  loopback name, or this machine's host name as `os.Hostname` gives it,
+  with or without `.local`, in any case (`adventuretime` and
+  `adventuretime.local`). Every other name is still answered 421, so a page
+  on another site cannot read the yard through a visitor's browser by
+  pointing a name of its own at this machine.
+- It logs one warning when it starts:
+  `no authentication: anyone who can reach this machine on port 8791 can read the yard`.
 
 ## No other host
 
@@ -283,7 +303,8 @@ An entry says its event in the yard's words:
 - `note` is cut at 280 bytes. `title` is the bead's title now, not when
   the event happened.
 - The time on an entry is this machine's: the view is served on loopback,
-  to a browser on the same machine.
+  to a browser on the same machine (under `--unsafe`, a phone elsewhere
+  reads this machine's time too).
 
 ## Flows
 

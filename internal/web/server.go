@@ -71,6 +71,11 @@ type Server struct {
 	// streams counts the /events streams being written to.
 	streams     atomic.Int64
 	streamWrite time.Duration
+	// network is set when the view is served off loopback (--unsafe): a
+	// request may then name any IP in its Host header, or one of names,
+	// this machine's host names in lower case.
+	network bool
+	names   []string
 }
 
 // NewServer serves the yard behind st, whose home directory is home.
@@ -164,11 +169,16 @@ const policy = "default-src 'self'; base-uri 'none'; form-action 'none'; frame-a
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// A page on another site can make the browser ask this server under a
-	// name of its own that resolves to 127.0.0.1 (DNS rebinding) and read
-	// the answer, since there is no authentication. The Host header then
-	// carries that name, so anything but a loopback name is refused.
-	if !loopbackHost(r.Host) {
-		http.Error(w, "yardr web serves loopback only: ask for it as localhost or 127.0.0.1, not "+r.Host,
+	// name of its own that resolves to this machine (DNS rebinding) and
+	// read the answer, since there is no authentication. The Host header
+	// then carries that name, so a name that is not this machine's is
+	// refused.
+	if !s.knownHost(r.Host) {
+		as := "localhost or 127.0.0.1"
+		if s.network {
+			as = strings.Join(append([]string{"an IP address"}, s.names...), " or ")
+		}
+		http.Error(w, "yardr web does not answer to another host's name: ask for it as "+as+", not "+r.Host,
 			http.StatusMisdirectedRequest)
 		return
 	}
@@ -323,9 +333,10 @@ func (s *Server) yardName(ctx context.Context) string {
 
 // Listen opens addr for the web view, which has no authentication yet and
 // so listens on loopback only: any other address is refused, and so is a
-// name that turns out to listen elsewhere.
-func Listen(addr string) (net.Listener, error) {
-	if err := CheckLoopback(addr); err != nil {
+// name that turns out to listen elsewhere. With unsafe every address is
+// opened, the ones that listen on every interface too.
+func Listen(addr string, unsafe bool) (net.Listener, error) {
+	if err := CheckAddr(addr, unsafe); err != nil {
 		return nil, err
 	}
 	ln, err := net.Listen("tcp", addr)
@@ -333,19 +344,22 @@ func Listen(addr string) (net.Listener, error) {
 		return nil, err
 	}
 	// localhost is a name, and a hosts file may point it anywhere.
-	if tcp, ok := ln.Addr().(*net.TCPAddr); !ok || !tcp.IP.IsLoopback() {
+	if tcp, ok := ln.Addr().(*net.TCPAddr); !unsafe && (!ok || !tcp.IP.IsLoopback()) {
 		_ = ln.Close()
 		return nil, refused(addr, fmt.Sprintf("it listens on %s", ln.Addr()))
 	}
 	return ln, nil
 }
 
-// CheckLoopback refuses a listen address that is not on the loopback
-// interface, saying why.
-func CheckLoopback(addr string) error {
+// CheckAddr refuses a listen address that is not on the loopback
+// interface, saying why. With unsafe it refuses only what is no address.
+func CheckAddr(addr string, unsafe bool) error {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		return fmt.Errorf("--addr %s: %w", addr, err)
+	}
+	if unsafe {
+		return nil
 	}
 	switch ip := net.ParseIP(host); {
 	case host == "":
@@ -360,19 +374,32 @@ func CheckLoopback(addr string) error {
 
 func refused(addr, why string) error {
 	return fmt.Errorf("--addr %s refused: %s, and yardr web has no authentication yet, so whoever reaches it reads the whole yard. "+
-		"It listens on loopback only (127.0.0.1, ::1 or localhost)", addr, why)
+		"It listens on loopback only (127.0.0.1, ::1 or localhost) unless --unsafe is given", addr, why)
 }
 
-// loopbackHost reports whether a request's Host header names this machine's
-// loopback interface.
-func loopbackHost(hostport string) bool {
+// AllowNetwork is --unsafe for the requests: the view is served off
+// loopback, so a request may name the machine by any IP or by hostname,
+// its host name, with or without .local. Every other name is still
+// refused: one that resolves here is what DNS rebinding looks like, and an
+// IP literal cannot be rebound. Call it before the server serves.
+func (s *Server) AllowNetwork(hostname string) {
+	s.network = true
+	if name := strings.TrimSuffix(strings.ToLower(hostname), ".local"); name != "" {
+		s.names = []string{name, name + ".local"}
+	}
+}
+
+// knownHost reports whether a request's Host header names this machine's
+// loopback interface or, served off loopback, the machine itself: an IP
+// literal or one of its host names.
+func (s *Server) knownHost(hostport string) bool {
 	host := hostport
 	if h, _, err := net.SplitHostPort(hostport); err == nil {
 		host = h
 	}
 	host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
 	if ip := net.ParseIP(host); ip != nil {
-		return ip.IsLoopback()
+		return s.network || ip.IsLoopback()
 	}
-	return strings.EqualFold(host, "localhost")
+	return strings.EqualFold(host, "localhost") || s.network && slices.Contains(s.names, strings.ToLower(host))
 }
