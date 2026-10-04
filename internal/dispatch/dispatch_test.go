@@ -415,6 +415,49 @@ func TestBlockedSessionIsReportedOnce(t *testing.T) {
 	}
 }
 
+// A dispatcher's memory of a session's status ends with the daemon. A new
+// one takes the bead's events for it: a session that left its prompt
+// meanwhile is reported unblocked, once, and one still at its prompt is not
+// reported again.
+func TestBlockedSessionAcrossRestart(t *testing.T) {
+	for _, tc := range []struct {
+		name, status string
+		want         []string
+	}{
+		{"left its prompt", "working", []string{"created", "claimed", "started", "session_blocked", "session_unblocked"}},
+		{"still blocked", "blocked", []string{"created", "claimed", "started", "session_blocked"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := storetest.New(t)
+			r := &statusRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "working"}
+			runners := map[string]dispatch.Runner{"fake": r}
+			d := &dispatch.Dispatcher{Store: s, Runners: runners}
+			ctx := context.Background()
+			must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}))
+			_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+			b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
+
+			must(t, d.Reconcile(ctx)) // start
+			r.status = "blocked"
+			must(t, d.Reconcile(ctx))
+
+			r.status = tc.status
+			d = &dispatch.Dispatcher{Store: s, Runners: runners} // the daemon restarted
+			must(t, d.Reconcile(ctx))
+			must(t, d.Reconcile(ctx))
+
+			evs, _ := s.Events(ctx, b.ID, 100)
+			var kinds []string
+			for _, e := range evs {
+				kinds = append(kinds, e.Kind)
+			}
+			if !slices.Equal(kinds, tc.want) {
+				t.Fatalf("events = %v, want %v", kinds, tc.want)
+			}
+		})
+	}
+}
+
 // finishRunner is a fakeRunner that leaves a "worktree" behind.
 type finishRunner struct {
 	*fakeRunner

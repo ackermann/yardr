@@ -205,8 +205,8 @@ has no room for it. As JSON (`/line`):
 - Whether a session is blocked is kept nowhere but in the events: the
   latest `session_blocked` or `session_unblocked` among the bead's last
   200 that names the session decides. A session that left its prompt while
-  no daemon ran has no `session_unblocked`, and shows blocked until the
-  session ends.
+  no daemon ran gets its `session_unblocked` on the next daemon's first
+  pass, and shows blocked until then.
 - When the yard cannot say which beads are stranded, the error is logged
   and the column shows the rest.
 

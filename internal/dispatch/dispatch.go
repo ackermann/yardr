@@ -569,8 +569,12 @@ func (d *Dispatcher) alive(ctx context.Context, r Runner, s store.Session) (bool
 		_ = d.Store.LogDispatch(ctx, s.Bead, "session_prompted", actor, map[string]any{"session": s.ID})
 		d.prompted(r, s.ID)
 	}
-	if prev := d.status[s.ID]; status != prev {
-		d.status[s.ID] = status
+	prev, seen := d.status[s.ID]
+	if !seen && d.wasBlocked(ctx, s) {
+		prev = "blocked"
+	}
+	d.status[s.ID] = status
+	if status != prev {
 		if status == "blocked" {
 			d.Log.Warn("session blocked; needs a human", "session", s.ID, "bead", s.Bead)
 			_ = d.Store.LogDispatch(ctx, s.Bead, "session_blocked", actor, map[string]any{
@@ -580,6 +584,25 @@ func (d *Dispatcher) alive(ctx context.Context, r Runner, s store.Session) (bool
 		}
 	}
 	return true, nil
+}
+
+// wasBlocked reports whether the last the bead's events say of s is
+// session_blocked. d.status does not outlive the daemon, so a dispatcher
+// that sees a session for the first time asks the events: a session that
+// left its prompt while no daemon ran still gets its session_unblocked, and
+// one that is still at it is not reported a second time. Like the web view,
+// it reads the bead's latest returnsPage events.
+func (d *Dispatcher) wasBlocked(ctx context.Context, s store.Session) bool {
+	evs, err := d.Store.Events(ctx, s.Bead, returnsPage)
+	if err != nil {
+		return false
+	}
+	for i := len(evs) - 1; i >= 0; i-- {
+		if k := evs[i].Kind; (k == "session_blocked" || k == "session_unblocked") && evs[i].Data["session"] == s.ID {
+			return k == "session_blocked"
+		}
+	}
+	return false
 }
 
 func (d *Dispatcher) end(ctx context.Context, s store.Session, state, reason string) {
