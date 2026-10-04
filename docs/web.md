@@ -43,6 +43,10 @@ port can read the whole yard. The view stays read-only.
   `adventuretime.local`). Every other name is still answered 421, so a page
   on another site cannot read the yard through a visitor's browser by
   pointing a name of its own at this machine.
+- The event streams one address may hold open, and all addresses
+  together, are limited ([The stream](#the-stream), **How many**), so a
+  device on the network cannot hold streams open without end. Loopback's
+  are counted apart.
 - It logs one warning when it starts:
   `no authentication: anyone who can reach this machine on port 8791 can read the yard`.
 
@@ -304,6 +308,7 @@ does not log.
 
 One stream per page, because a browser allows a host six connections
 (HTTP/1.1) over all its tabs: a seventh page of the yard waits for one.
+The server limits them too, far above that ([The stream](#the-stream)).
 
 ## The feed
 
@@ -573,6 +578,36 @@ client never waits on another. A write to a client waits 10 seconds at
 most: one that takes nothing for that long is dropped, and reconnects
 where it stopped if it still lives. A quiet stream gets a comment line
 every 20 seconds, which finds a client that went away without closing.
+
+**How many.** The open streams are limited, since each holds a
+subscription of the yard and the view does not know whose it is:
+
+| | limit | past it |
+|---|---|---|
+| one address off loopback | 16 | `429 Too Many Requests` |
+| all addresses off loopback together | 128 | `503 Service Unavailable` |
+| loopback (127.0.0.0/8 and ::1, one client) | 128, counted apart | `503 Service Unavailable` |
+
+- Both answers carry `Retry-After: 5` and one line of text that says which
+  limit it was; nothing of the yard is read for them. An address at its own
+  limit is told that (429) even when the total is reached too.
+- A stream that ends frees its place at once.
+- Loopback is counted apart, so no number of machines on the network
+  (`--unsafe`) takes a stream from a page on this machine, and loopback has
+  no limit per address: it is one. That is also what every client is
+  behind an ssh forward or a proxy on this machine, whose
+  `X-Forwarded-For` is not read, since whoever asks writes it.
+- An IPv4 address is counted as itself, whatever the port; an IPv6 address
+  as its /64, of which one machine has every address.
+- Only streams are limited, not pages: a page whose stream is refused is
+  served and stands still. htmx's extension asks again by itself, after
+  half a second and then twice as long each time up to 64 seconds, and the
+  page is live again once a place is free (the next paragraph says what
+  then repeats).
+- The numbers are constants (`streamMax`, `streamPerAddr` in
+  `internal/web/events.go`), not flags. A browser opens six connections to
+  a host over all its tabs, so 16 is out of one person's reach, and it
+  takes eight addresses to fill 128.
 
 One case repeats entries in the page: htmx's extension opens a new
 `EventSource` itself, with the page's first URL and no `Last-Event-ID`,

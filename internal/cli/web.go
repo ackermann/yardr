@@ -38,7 +38,12 @@ which may then be any address), to open the view from another machine on
 the same network. There is still no authentication: anyone who can reach
 this machine on that port can read the whole yard. A request is answered
 when its Host header is an IP address, a loopback name or this machine's
-host name (with or without .local), and 421 under any other name.`,
+host name (with or without .local), and 421 under any other name.
+
+The open /events streams are limited: 16 from one address off loopback
+(then 429) and 128 from all of them together (then 503), and 128 from
+loopback, counted apart, so the network cannot take a stream from a page on
+this machine. Both answers carry Retry-After.`,
 		Example: `  yardr web serve                          # http://127.0.0.1:8791/
   yardr web serve --addr 127.0.0.1:9000
   yardr web serve --unsafe                 # http://<this machine's IP>:8791/

@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -68,9 +69,17 @@ type Server struct {
 	// themselves; the stream renders one alone.
 	partials *template.Template
 	assets   map[string]asset
-	// streams counts the /events streams being written to.
+	// streams counts the open /events streams.
 	streams     atomic.Int64
 	streamWrite time.Duration
+	// streamMu guards streamsBy, the open streams per address (streamKey),
+	// and streamsOff, those of them from off loopback; streamMax and
+	// streamPerAddr are what enter lets them come to.
+	streamMu      sync.Mutex
+	streamsBy     map[string]int
+	streamsOff    int
+	streamMax     int
+	streamPerAddr int
 	// network is set when the view is served off loopback (--unsafe): a
 	// request may then name any IP in its Host header, or one of names,
 	// this machine's host names in lower case.
@@ -83,7 +92,8 @@ func NewServer(st store.API, home string, log *slog.Logger) (*Server, error) {
 	if log == nil {
 		log = slog.Default()
 	}
-	s := &Server{st: st, home: home, log: log, mux: http.NewServeMux(), streamWrite: streamWrite}
+	s := &Server{st: st, home: home, log: log, mux: http.NewServeMux(), streamWrite: streamWrite,
+		streamsBy: map[string]int{}, streamMax: streamMax, streamPerAddr: streamPerAddr}
 	var err error
 	if s.assets, err = loadAssets(); err != nil {
 		return nil, err

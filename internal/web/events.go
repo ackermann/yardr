@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"time"
@@ -26,7 +27,88 @@ const (
 	// server again after losing it, and what it tells the browser to wait
 	// before reconnecting to this one.
 	streamRetry = 500 * time.Millisecond
+	// streamMax is how many streams are open at once from other machines,
+	// all together, and again how many from this one: each holds a
+	// subscription of the yard and a goroutine here, and the view has no
+	// authentication to say whose they are. Loopback is counted apart, so
+	// a network that fills its share leaves the pages on this machine
+	// their own.
+	streamMax = 128
+	// streamPerAddr is how many of them one address off loopback holds:
+	// more than a browser opens to one host over all its tabs, and few
+	// enough that it takes several machines to fill streamMax.
+	streamPerAddr = 16
+	// streamBusy is the Retry-After of a stream refused for want of a
+	// place, in seconds.
+	streamBusy = "5"
 )
+
+// loopback is the key all of this machine's own clients share in
+// Server.streamsBy: 127.0.0.1, ::1 and whatever else is loopback are one.
+const loopback = "loopback"
+
+// streamKey is what a stream from remote (a request's RemoteAddr) is
+// counted under: loopback, an IPv4 address, or an IPv6 address's /64, since
+// one machine has as many addresses in its own /64 as it likes. A header
+// that names another address (X-Forwarded-For) is not looked at: whoever
+// asks writes it.
+func streamKey(remote string) string {
+	ap, err := netip.ParseAddrPort(remote)
+	if err != nil {
+		// No address to tell clients apart by: they share one place.
+		return "unknown"
+	}
+	addr := ap.Addr().Unmap().WithZone("")
+	switch {
+	case addr.IsLoopback():
+		return loopback
+	case addr.Is6():
+		if p, err := addr.Prefix(64); err == nil {
+			return p.String()
+		}
+	}
+	return addr.String()
+}
+
+// enter takes a place for a stream from remote, and leave gives it back.
+// With no place left there is no leave, and status is the answer: 429 when
+// the address has its share, 503 when the streams of all addresses, or of
+// this machine, are as many as are served.
+func (s *Server) enter(remote string) (leave func(), status int) {
+	key := streamKey(remote)
+	s.streamMu.Lock()
+	defer s.streamMu.Unlock()
+	if key == loopback {
+		if s.streamsBy[key] >= s.streamMax {
+			return nil, http.StatusServiceUnavailable
+		}
+	} else {
+		// The address before the total: a client that is told it has too
+		// many open can do something about it.
+		if s.streamsBy[key] >= s.streamPerAddr {
+			return nil, http.StatusTooManyRequests
+		}
+		if s.streamsOff >= s.streamMax {
+			return nil, http.StatusServiceUnavailable
+		}
+		s.streamsOff++
+	}
+	s.streamsBy[key]++
+	s.streams.Add(1)
+	return func() {
+		s.streamMu.Lock()
+		defer s.streamMu.Unlock()
+		if key != loopback {
+			s.streamsOff--
+		}
+		// An address with no stream left is forgotten, or the map would
+		// grow with every address that ever asked.
+		if s.streamsBy[key]--; s.streamsBy[key] == 0 {
+			delete(s.streamsBy, key)
+		}
+		s.streams.Add(-1)
+	}, 0
+}
 
 // handleEvents streams the yard's events as server-sent events, one per
 // event, with the event's seq as the id. It starts after the seq in
@@ -42,6 +124,10 @@ const (
 // itself again when something happens; card is seq, and before it the
 // event's bead as /flows shows it, to be put in the section it now stands
 // in.
+//
+// The streams open at once are limited (streamMax, streamPerAddr): one
+// past the limit is answered 429 or 503 with Retry-After, before the yard
+// is asked anything.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	format := q.Get("format")
@@ -56,6 +142,18 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "format is json, html, card or seq, not "+format, http.StatusBadRequest)
 		return
 	}
+	leave, status := s.enter(r.RemoteAddr)
+	if leave == nil {
+		why := "too many event streams are open: close a page of the yard, or try again shortly"
+		if status == http.StatusTooManyRequests {
+			why = "too many event streams are open from this address: close a page of the yard, or try again shortly"
+		}
+		w.Header().Set("Retry-After", streamBusy)
+		w.Header().Set("Cache-Control", "no-store")
+		http.Error(w, why, status)
+		return
+	}
+	defer leave()
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	// Where the client stopped counts for more than where its URL first
@@ -79,8 +177,6 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s.streams.Add(1)
-	defer s.streams.Add(-1)
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")
 	h.Set("Cache-Control", "no-store")
