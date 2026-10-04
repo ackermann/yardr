@@ -157,6 +157,10 @@ func (c *Config) LogFile() string { return filepath.Join(c.Home, "server.log") }
 // DaemonLock is the file the daemon holds a flock on while it runs.
 func (c *Config) DaemonLock() string { return filepath.Join(c.Home, "daemon.lock") }
 
+// DaemonLog is where a daemon started in the background (the onboarding,
+// yardr init --start) writes what one in a pane of its own prints there.
+func (c *Config) DaemonLog() string { return filepath.Join(c.Home, "daemon.log") }
+
 // Actor names who is acting: YARDR_ACTOR, else the OS user.
 func Actor() string {
 	if a := Getenv("ACTOR"); a != "" {

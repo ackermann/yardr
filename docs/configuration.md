@@ -417,6 +417,8 @@ Everything yardr keeps for itself lives in one directory, **`YARDR_HOME`**
 | `yard.db` | the store (bbolt); back it up with `yardr store backup <path>` while it serves (one read transaction, so the copy is the store as of one commit); restore by stopping the daemon and the server and copying the backup over it |
 | `yard.sock` | the server's unix socket |
 | `server.pid`, `server.log` | the running server |
+| `daemon.lock` | held by the running daemon, with its pid in it: one daemon per yard |
+| `daemon.log` | what a daemon started in the background prints (the onboarding's "Start the yard now?", `yardr init --start`); one in a pane of its own prints there instead |
 | `worktrees/<rig>/<bead>` | herdr bead worktrees |
 | `rigs/<name>` | rigs registered with `rig add --clone`; `rig rm` leaves the clone here |
 | `roles/` | the generic role prompts `yardr init` installed (mayor, builder, merger, reviewer), the fallback for rigs without their own; yours to edit. `.shipped.json` there records each file's hash as init wrote it, so init again can tell an edited prompt (kept) from an untouched one (refreshed) |
@@ -438,7 +440,9 @@ the server reads (`YARDR_HOOK_ADDR`, `YARDR_EVENT_RETENTION`,
 `YARDR_HOOK_PAYLOAD_RETENTION`, under the old `YARD_` names too) and
 `YARDR_HOME` set to the home it serves, and runs in that home. The daemon
 is not started this way: it runs in a pane of its own with that pane's
-environment.
+environment, or in the background, started by the onboarding or
+`yardr init --start` ([below](#starting-the-yard)), with the environment of
+the command that started it.
 
 `yardr rig rm <name>` takes a rig out of the store with the routes that
 match it (`--rig <name>`) and its flow pointers, logging one `rig_removed`
@@ -464,14 +468,20 @@ onboarding when it has a terminal: the default harness (every kind herdr starts,
 installed when its executable is on PATH, the first installed one
 preselected), the mayor's name (default `mayor`), the directory its shell
 lives in (default the home's parent, so `~` for `~/.yardr`), and an optional
-model, and your name for the role prompts. Without a terminal it prints how
+model, and your name for the role prompts, then "Create this yard?" and
+"Start the yard now?" ([below](#starting-the-yard)). Before the first page,
+when `git` or `herdr` is not on PATH, it names each and what it is needed for
+(herdr starts every agent, the mayor first; a rig is a git repository) and
+asks whether to go on: the answer starts at stop when herdr is missing, and
+stopping creates nothing. Without a terminal it prints how
 to initialize and exits 2.
 `yardr server`, `yardr init`, `yardr daemon`, `yardr settings` and
 `yardr help` never ask.
 
 `yardr init [--harness <kind>] [--mayor <name>] [--dir <path>] [--model <m>]
-[--operator <name>]` does the same without the form, for scripts and tests;
-`--harness` is required to create a yard. Either way yardr:
+[--operator <name>] [--start [--wait <duration>]]` does the same without the
+form, for scripts and tests; `--harness` is required to create a yard, and
+nothing is started unless `--start` says so. Either way yardr:
 
 1. writes the default role prompts, built into the binary from this repo's
    `roles/`, to `<home>/roles/`. A file already there is kept when it was
@@ -503,7 +513,8 @@ lists what was kept (`kept default_kind claude, operator Jo, mayor mayor, as
 set before`). A resident of the mayor's name is kept as it is, and so are
 the role files already in `<home>/roles/`.
 
-The summary ends with the daemon: it starts the mayor, whose role begins with
+The summary ends with the way to the mayor ([starting the
+yard](#starting-the-yard)), whose role begins with
 a first-run checklist. While `yardr rig list` is empty the mayor sets the
 yard up with the operator in its pane: the repository and its base branch
 (`yardr rig add`), `yardr rig init` ([below](#seeding-a-rig-yardr-rig-init)),
@@ -515,9 +526,56 @@ the same as commands, for scripts.
 The unattended flags keep an agent nobody watches from stopping at a
 permission prompt: claude `--permission-mode auto`, codex
 `--dangerously-bypass-approvals-and-sandbox`, kimi `--yolo`; any other kind
-gets none and may ask (`yardr group add --help` lists them too). The daemon
-starts the mayor; init does not start a daemon, which runs in a terminal pane
-of its own (`yardr daemon`).
+gets none and may ask (`yardr group add --help` lists them too).
+
+#### Starting the yard
+
+The daemon starts the mayor. There are three ways to a running daemon:
+
+- the form's last question, "Start the yard now?", yes by default;
+- `yardr init --start`, the same without a terminal, on a new yard or one
+  that is set up (init again changes nothing its flags do not name);
+- `yardr daemon` in a terminal pane of its own, where you watch what it
+  does. The form's "No" and plain `yardr init` leave it at that and print
+  the command.
+
+The first two start `yardr daemon` detached, in the home, logging to
+`<home>/daemon.log`, unless a daemon holds `<home>/daemon.lock` already: a
+running daemon is left alone. Unlike the server, this daemon keeps the
+environment of the command that started it (herdr's socket, the PATH an exec
+group's command runs with, as a daemon in a pane has its pane's), without
+what names the starter (`YARDR_ACTOR`, `_BEAD`, `_SESSION`, `_STAGE`,
+`_GROUP`, `_RESIDENT`) and with `YARDR_HOME` set to the home. It has no
+`stop` command: `kill $(cat <home>/daemon.lock)` ends it, and the sessions it
+started carry on in herdr.
+
+They then wait for the mayor, up to `--wait` (default 2m; the form always
+waits that long), with a line that counts on a terminal and one line on
+stderr otherwise. A session that exists is not enough: a harness can be on
+PATH and sit dead in a running session (a binary behind a system dialog
+nobody sees, a CLI at "Not logged in"), and herdr reads any process of the
+harness's name as an idle agent. The mayor counts as up once its first
+prompt was delivered and it answered: herdr reports the agent working, or
+the pane shows output below the prompt.
+
+When the mayor is up, yardr prints where it is, as `herdr agent list` and
+`yardr resident show <mayor> --json` name it: the agent (`<yard>-<mayor>`),
+the workspace's label (`<yard> <mayor>`) and id, the tab and the pane; and
+how to get there: `herdr agent focus <agent>` brings its pane to the front
+in herdr, `herdr agent attach <agent>` opens it from any other terminal.
+herdr focuses a pane for any process that asks over its socket, so the form
+then offers "Open the mayor now?" and runs the focus; in a terminal outside
+herdr it adds that herdr has to be opened to see it.
+
+When the mayor is not up, yardr says why the wait ended (the time is up; the
+daemon gave up after five failed starts; a start failed with herdr or the
+harness not on PATH, which no waiting brings; the daemon ended; the mayor is
+disabled), what is known (which program is missing, the reason of the last
+failed start, the last lines of the mayor's pane, where the daemon logs) and
+how to go on. `yardr init --start` then exits 1; the form goes on to the
+command it was started for. `--json` carries the same under `start`:
+`daemon_started`, `daemon_log`, `running`, `mayor` (`agent`, `workspace`,
+`workspace_id`, `tab`, `pane`), `pane`, `problem`, `known`, `next`.
 
 ### Seeding a rig: `yardr rig init`
 

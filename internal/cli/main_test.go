@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"os"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/config"
 )
@@ -15,5 +18,19 @@ func TestMain(m *testing.M) {
 	for _, name := range []string{"SESSION", "BEAD", "RESIDENT", "ACTOR"} {
 		config.Unsetenv(name)
 	}
+	// No test starts a real daemon or talks to a real herdr: the test
+	// binary is not yardr, and the herdr on PATH is somebody's own. A test
+	// of the start replaces these (stubStart).
+	spawnDaemon = func(*config.Config) (<-chan error, error) {
+		return nil, errors.New("tests start no daemon")
+	}
+	paneTail = func(context.Context, map[string]any, int) (string, error) {
+		return "", errors.New("tests read no pane")
+	}
+	agentStatus = func(context.Context, map[string]any) (string, error) {
+		return "", errors.New("tests ask no herdr")
+	}
+	focusAgent = func(context.Context, string) error { return errors.New("tests focus no pane") }
+	pollEvery = 5 * time.Millisecond
 	os.Exit(m.Run())
 }

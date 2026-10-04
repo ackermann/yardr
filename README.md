@@ -21,10 +21,10 @@ and a restart is just another pass.
 ## Quick start
 
 ```sh
-go install .        # 1. one static binary, yardr; nothing else to install
-yardr               # 2. the onboarding: answer the form
-yardr daemon        # 3. in a pane of its own; it starts the mayor
-                    # 4. talk to the mayor in its pane: it sets up the rest
+go install .        # 1. one static binary, yardr; it needs git and herdr on PATH
+yardr               # 2. the onboarding: answer the form; it starts the yard
+                    #    and prints where the mayor is
+                    # 3. talk to the mayor in its pane: it sets up the rest
 ```
 
 The onboarding asks for the agent harness yardr starts by default (each herdr
@@ -33,6 +33,22 @@ coordinates the yard), the directory its shell lives in, and your name. It
 installs generic role prompts in `~/.yardr/roles/` (mayor, builder, merger,
 reviewer, naming you as the one who decides), stores the harness as the
 yard's `default_kind` and your name as its `operator`, and adds the mayor.
+Before its first page it says so when git or herdr is not on PATH, and what
+each is needed for; you stop there or go on.
+
+Its last question is "Start the yard now?" (yes by default). Yes starts the
+daemon in the background, logging to `~/.yardr/daemon.log`, and waits up to
+two minutes, counting, for the mayor: its session running and its first
+output in its pane. Then it prints where the mayor is, as herdr names it
+(agent, workspace, tab, pane), how to get there (`herdr agent focus <agent>`
+in herdr, `herdr agent attach <agent>` from any other terminal), and offers
+"Open the mayor now?", which brings its pane to the front in herdr. When the
+mayor does not come up it says what is known instead (herdr or the harness
+not on PATH, the last failed start, the last lines of the mayor's pane, where
+the daemon logs) and how to go on. No leaves the start to you: `yardr daemon`
+in a pane of its own, where you watch what it does, or `yardr init --start`,
+which starts and waits the same way without a terminal and, on a running
+yard, tells you where the mayor is.
 
 The mayor's first job is the setup, as a conversation with you: it asks for
 the repository and its base branch, registers the rig, seeds it with
@@ -49,7 +65,7 @@ refused):
 
 ```sh
 YARDR_HOME=/tmp/y1 yardr                          # the form
-YARDR_HOME=/tmp/y1 yardr init --harness claude    # the scripted path
+YARDR_HOME=/tmp/y1 yardr init --harness claude    # the scripted path; add --start to start the yard too
 ```
 
 Scripts skip the form and the mayor's conversation (`yardr init --help`):
@@ -74,7 +90,7 @@ yardr route add --stage review   --rig webapp --group webapp/reviewers
 yardr route add --stage approved --rig webapp --group webapp/merger
 yardr route add --stage blocked  --group mckean
 
-yardr daemon &                          # routes and supervises; starts the mayor
+yardr daemon &                          # routes and supervises; starts the mayor (or: yardr init --start)
 yardr watch                             # live event stream
 
 yardr bead create "Add login page" --rig webapp -t feature -b "Use the OAuth flow"

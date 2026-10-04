@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
@@ -159,7 +160,37 @@ func (a *app) onboard(c *cobra.Command) error {
 		return err
 	}
 	a.onboarded = true
-	return a.out(res, res.print)
+	if err := a.report(c.Context(), cfg, res, opts); err != nil {
+		return err
+	}
+	if res.Start != nil && res.Start.Running && !a.json {
+		if err := offerMayor(c.Context(), res.Mayor, res.Start.Mayor); err != nil && !errors.Is(err, huh.ErrUserAborted) {
+			return err
+		}
+	}
+	return nil
+}
+
+// report prints what init did and, when asked to, starts the yard in
+// between: the summary first, so the wait for the mayor has something above
+// it, then how the start ended. As JSON it is one object, at the end.
+func (a *app) report(ctx context.Context, cfg *config.Config, res *initResult, o initOptions) error {
+	if !a.json {
+		res.printYard()
+	}
+	if o.Start {
+		st, err := a.store(ctx)
+		if err != nil {
+			return err
+		}
+		wait := o.Wait
+		if wait <= 0 {
+			wait = mayorWait
+		}
+		res.Start = a.startYard(ctx, cfg, st, res.Mayor, wait)
+		res.Daemon = daemonRunning(cfg.DaemonLock())
+	}
+	return a.out(res, res.printNext)
 }
 
 // initOptions are the answers of the onboarding, from its form or from
@@ -172,6 +203,10 @@ type initOptions struct {
 	// Operator is the person the role prompts name, where the templates say
 	// {{operator}}; "" is $USER. Mayor goes where they say {{mayor}}.
 	Operator string
+	// Start starts the daemon in the background after the yard is created
+	// and waits for the mayor's session, up to Wait (0 is mayorWait).
+	Start bool
+	Wait  time.Duration
 	// Given names the flags the command line set (harness, operator,
 	// mayor). On a yard that is set up, a setting whose flag was not given
 	// is kept as it is. The form never runs on a set-up yard.
@@ -195,6 +230,8 @@ type initResult struct {
 	// SettingsKept are the settings of a set-up yard this init left as they
 	// were ("operator Jo"), their flags not given.
 	SettingsKept []string `json:"settings_kept"`
+	// Start is how starting the yard ended, when init was asked to.
+	Start *startResult `json:"start,omitempty"`
 }
 
 // initYard creates the yard: the store, the default roles in the home, the
@@ -462,7 +499,8 @@ func daemonRunning(lock string) bool {
 	return false
 }
 
-func (r *initResult) print() {
+// printYard is the summary of the yard init created or set up again.
+func (r *initResult) printYard() {
 	env := homeEnv(r.Home)
 	if r.MayorKept {
 		fmt.Printf("yard in %s set up again\n\n", r.Home)
@@ -497,10 +535,24 @@ func (r *initResult) print() {
 		fmt.Printf("This yard is not in the default home: every yardr command for it needs\n"+
 			"YARDR_HOME=%s in front of it, or exported.\n", shellQuote(r.Home))
 	}
-	if r.Daemon {
-		fmt.Printf("The daemon is running; it starts %s shortly.\n", r.Mayor)
-	} else {
-		fmt.Printf("Start the daemon in a terminal pane of its own; %s starts when it does:\n\n  %syardr daemon\n", r.Mayor, env)
+}
+
+// printNext is the way from the yard to the mayor: how the start ended
+// when init started the yard, else how to start it.
+func (r *initResult) printNext() {
+	env := homeEnv(r.Home)
+	switch {
+	case r.Start != nil:
+		r.Start.print(r.Mayor)
+		if !r.Start.Running {
+			return
+		}
+	case r.Daemon:
+		fmt.Printf("The daemon is running; it starts %s shortly. Where %s is then: %syardr init --start\n", r.Mayor, r.Mayor, env)
+	default:
+		fmt.Printf("Start the daemon in a terminal pane of its own, to watch it; %s starts when it does:\n\n  %syardr daemon\n\n"+
+			"Or in the background, waiting for %s and printing where it is:\n\n  %syardr init --start\n",
+			r.Mayor, env, r.Mayor, env)
 	}
 	// The rest of the setup is a conversation: the mayor's role has a first
 	// run checklist (rig, starter files, groups, routes). The commands for
@@ -535,12 +587,15 @@ func harnessOptions() ([]huh.Option[string], string) {
 }
 
 // onboardForm asks for the harness, the mayor's name, its directory and its
-// model. Each answer starts at its default, so accepting every page gives a
-// working yard.
+// model, and whether to start the yard. Each answer starts at its default,
+// so accepting every page gives a working yard with its mayor running.
 func onboardForm(home string) (initOptions, error) {
 	opts, def := harnessOptions()
-	o := initOptions{Harness: def, Mayor: "mayor", Dir: filepath.Dir(home), Operator: defaultOperator()}
+	o := initOptions{Harness: def, Mayor: "mayor", Dir: filepath.Dir(home), Operator: defaultOperator(), Start: true}
 	fmt.Printf("No yard in %s yet. This sets one up: a default agent harness, and a mayor on it.\n\n", home)
+	if err := preflight(); err != nil {
+		return o, err
+	}
 	if err := ask(huh.NewSelect[string]().Title("Harness").
 		Description("The agent yardr starts by default, for the mayor and for groups that name none.").
 		Options(opts...).Height(min(len(opts)+2, 14)).Value(&o.Harness)); err != nil {
@@ -573,6 +628,11 @@ func onboardForm(home string) (initOptions, error) {
 	if !create {
 		return o, huh.ErrUserAborted
 	}
+	if err := ask(huh.NewConfirm().Title("Start the yard now?").
+		Description(fmt.Sprintf("Starts the daemon in the background and waits for %s. No leaves that to you: yardr daemon, in a pane of its own.", o.Mayor)).
+		Value(&o.Start)); err != nil {
+		return o, err
+	}
 	return o, nil
 }
 
@@ -593,6 +653,16 @@ its repo under .yardr/roles/, which groups find first. It stores --harness as th
 adds the mayor resident on that harness with its unattended flags, rotating
 every 6h. The daemon starts the mayor.
 
+Init does not start the daemon unless told to: --start starts one in the
+background (none is started when one runs on the home already), logging to
+<home>/daemon.log, and waits up to --wait for the mayor: its session running
+and its first output in its pane, after its first prompt. It then
+prints where the mayor is in herdr (agent, workspace, tab, pane) and how to
+get there, or, when the mayor did not come up, what is known (the last lines
+of its pane among it) and how to go on, and exits 1. It is what the onboarding form does on "Start the yard now?".
+Run it again on a running yard to be told where the mayor is. yardr daemon in
+a terminal pane of its own does the same in the foreground, to watch it.
+
 Run yardr in a terminal on a home with no yard to get the same as a form. A
 home counts as set up once init has stored default_kind, or once its store
 has rigs, groups, residents or beads (a yard from before the onboarding); the
@@ -612,6 +682,7 @@ by hand:
 Unattended flags per harness:
 ` + agents.UnattendedHelp(),
 		Example: `  yardr init --harness claude
+  yardr init --harness claude --start              # and start the yard, waiting for the mayor
   YARDR_HOME=/tmp/y1 yardr init --harness codex --mayor boss --dir ~/projects --model gpt-5.5 --operator Jo`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
@@ -627,7 +698,14 @@ Unattended flags per harness:
 			if err != nil {
 				return err
 			}
-			return a.out(res, res.print)
+			if err := a.report(c.Context(), cfg, res, o); err != nil {
+				return err
+			}
+			if res.Start != nil && !res.Start.Running {
+				// The report said what is known; a script reads the exit.
+				return fmt.Errorf("%s is not up", res.Mayor)
+			}
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&o.Harness, "harness", "", "agent kind herdr starts: "+strings.Join(agents.Kinds(), ", ")+
@@ -635,6 +713,8 @@ Unattended flags per harness:
 	cmd.Flags().StringVar(&o.Mayor, "mayor", "mayor", "the mayor resident's name (a set-up yard keeps its mayor setting)")
 	cmd.Flags().StringVar(&o.Dir, "dir", "", "where the mayor works (default: the home's parent)")
 	cmd.Flags().StringVar(&o.Model, "model", "", "the mayor's model (default: the harness's own)")
+	cmd.Flags().BoolVar(&o.Start, "start", false, "start the daemon in the background, unless one runs, and wait for the mayor's session")
+	cmd.Flags().DurationVar(&o.Wait, "wait", mayorWait, "with --start: how long to wait for the mayor")
 	cmd.Flags().StringVar(&o.Operator, "operator", "", "your name, as the role prompts use it (default: $USER; a set-up yard keeps its operator setting)")
 	return cmd
 }

@@ -443,13 +443,16 @@ func TestDaemonWithoutYard(t *testing.T) {
 func TestBareYardr(t *testing.T) {
 	newHome(t)
 	setInteractive(t, true)
-	stubLookPath(t, "claude")
+	stubLookPath(t, "claude", "git", "herdr")
 	asked := 0
 	stubAsk(t, func(...huh.Field) error { asked++; return nil })
 	ctx := context.Background()
 
 	// --help on a home that would onboard: help, nothing asked.
 	st := storetest.New(t)
+	stubStart(t, st, mayorHandle())
+	stubPane(t, answeredPane)
+	stubFocus(t)
 	for _, h := range []string{"--help", "-h"} {
 		out, err := run(t, (&app{st: st}).rootCmd(), h)
 		if err != nil || asked != 0 || !strings.Contains(out, "Usage:") {
@@ -461,7 +464,7 @@ func TestBareYardr(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if asked != 3 || !strings.Contains(out, "yard created") || strings.Contains(out, "Usage:") {
+	if asked != 5 || !strings.Contains(out, "yard created") || strings.Contains(out, "Usage:") {
 		t.Fatalf("store without default_kind: asked %d\n%s", asked, out)
 	}
 	if _, err := st.GetResident(ctx, "mayor"); err != nil {
@@ -490,17 +493,20 @@ func TestStoreWithoutSettingWithoutTerminal(t *testing.T) {
 func TestOnboardingForm(t *testing.T) {
 	home := newHome(t)
 	setInteractive(t, true)
-	stubLookPath(t, "codex")
+	stubLookPath(t, "codex", "git", "herdr")
 	asked := 0
 	stubAsk(t, func(...huh.Field) error { asked++; return nil })
 	st := storetest.New(t)
+	stubStart(t, st, mayorHandle())
+	stubPane(t, answeredPane)
+	stubFocus(t)
 	ctx := context.Background()
 
 	out, err := run(t, (&app{st: st}).rootCmd(), "resident", "list")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if asked != 3 {
+	if asked != 5 {
 		t.Fatalf("%d form pages", asked)
 	}
 	r, err := st.GetResident(ctx, "mayor")

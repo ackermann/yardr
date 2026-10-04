@@ -5,7 +5,9 @@ builders do, each bead in its own worktree, and reviewers check their work.
 
 ## First run
 
-When `yardr rig list` is empty, your job is the setup, with {{operator}}:
+When `yardr rig list` is empty, your job is the setup, with {{operator}}.
+The onboarding points them at this pane once you are up, so they may be
+here already: begin with step 1 when they write.
 
 1. Ask for the repository's path and its base branch:
    `yardr rig add <rig> <path> --base <branch>`.

@@ -967,12 +967,21 @@ func agentArgs(cfg map[string]any, override string) []string {
 // herdr, which lists every yard on the machine's agents together: the
 // `name` setting, else the home's directory name (~/.yardr reads as yardr).
 func (h *Herdr) yardName(ctx context.Context) string {
+	var all map[string]string
 	if h.Store != nil {
-		if all, err := h.Store.Settings(ctx); err == nil && all["name"] != "" {
-			return all["name"]
-		}
+		all, _ = h.Store.Settings(ctx)
 	}
-	return strings.TrimLeft(filepath.Base(h.YardHome), ".")
+	return YardName(h.YardHome, all)
+}
+
+// YardName is the yard's name from its settings and its home (see
+// yardName), for whoever has to name a resident's agent or workspace as
+// herdr lists it without a runner at hand.
+func YardName(home string, settings map[string]string) string {
+	if settings["name"] != "" {
+		return settings["name"]
+	}
+	return strings.TrimLeft(filepath.Base(home), ".")
 }
 
 // residentDir is where a resident's session runs: its dir, else the yard's
@@ -1034,6 +1043,14 @@ func realPath(path string) string {
 	return filepath.Clean(path)
 }
 
+// ResidentPromptLead and ResidentPromptEnd are how a resident's first prompt
+// begins and ends, for whoever looks in its pane for what the agent printed
+// after it.
+const (
+	ResidentPromptLead = "You are the yardr resident"
+	ResidentPromptEnd  = "and follow it."
+)
+
 // StartResident opens a herdr workspace in the resident's directory, with
 // its identity in the environment, starts its agent and points it at its
 // prime. The agent and the workspace are named after the yard and the
@@ -1074,7 +1091,7 @@ func (h *Herdr) StartResident(ctx context.Context, r store.Resident) (map[string
 	if extra := agentArgs(r.Config, ""); len(extra) > 0 {
 		start = append(append(start, "--"), extra...)
 	}
-	prompt := fmt.Sprintf("You are the yardr resident %q. Run `%s prime --resident %s` and follow it.",
+	prompt := fmt.Sprintf(ResidentPromptLead+" %q. Run `%s prime --resident %s` "+ResidentPromptEnd,
 		r.Name, h.yard(), r.Name)
 	return h.startAgent(ctx, start, name, prompt, handle, trusts(r.Config))
 }
