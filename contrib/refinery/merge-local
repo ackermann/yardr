@@ -42,7 +42,7 @@ WT=${YARDR_WORKTREE:-${YARDR_HOME:-$HOME/.yardr}/worktrees/$RIG/$BEAD}
 PUSH=${YARDR_PUSH:-}
 NOTIFY=${YARDR_NOTIFY:-mayor}
 TAIL=200
-echo "== $(date -Is) refinery $RIG $BEAD ($BR onto $BASE)"
+echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') refinery $RIG $BEAD ($BR onto $BASE)"
 
 # Each outcome is one advance with its note, so the move and the reason land
 # together. Advancing ends this session (the daemon stops the script), so it

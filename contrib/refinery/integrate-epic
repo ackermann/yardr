@@ -50,7 +50,7 @@ PUSH=${YARDR_PUSH:-}
 NOTIFY=${YARDR_NOTIFY:-mayor}
 PR=${YARDR_PR:-}
 TAIL=200
-echo "== $(date -Is) integrate $RIG $EPIC ($BR onto $BASE)"
+echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') integrate $RIG $EPIC ($BR onto $BASE)"
 
 # Reporting ends this session (the daemon stops the script), so it is
 # always the last thing done.

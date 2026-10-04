@@ -51,7 +51,7 @@ REPO=$YARDR_RIG_PATH
 BASE=$YARDR_BASE
 BR=${YARDR_BRANCH:-yard/$EPIC}
 PUSH=${YARDR_PUSH:-origin}
-echo "== $(date -Is) pr-merge $EPIC ($BR)"
+echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') pr-merge $EPIC ($BR)"
 
 # Reporting ends this session (the daemon stops the script), so it is
 # always the last thing done.

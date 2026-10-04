@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -339,5 +340,30 @@ func TestScriptsRefuseDirRigs(t *testing.T) {
 	}
 	if b, err := os.ReadFile(calls); err == nil {
 		t.Fatalf("scripts called yardr for a dir rig:\n%s", b)
+	}
+}
+
+// Each script's log starts with a header carrying the time of the run. The
+// date it runs has to work on BSD date as well as GNU: macOS has no -Is, so
+// the header lost its time and the log got date's complaint instead.
+func TestScriptsLogHeaderHasTheTime(t *testing.T) {
+	header := regexp.MustCompile(`(?m)^echo "== \$\((date [^)]*)\) `)
+	stamp := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{4}\n$`)
+	for _, script := range []string{"integrate-epic", "pr-epic", "pr-merge", "merge-local"} {
+		s := readFile(t, script)
+		if strings.Contains(s, "date -I") {
+			t.Errorf("%s runs date -I, which BSD date does not have", script)
+		}
+		m := header.FindStringSubmatch(s)
+		if m == nil {
+			t.Errorf("%s: no log header with a date", script)
+			continue
+		}
+		var stdout, stderr strings.Builder
+		cmd := exec.Command("sh", "-c", m[1])
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		if err := cmd.Run(); err != nil || stderr.Len() != 0 || !stamp.MatchString(stdout.String()) {
+			t.Errorf("%s: %s: %v\nstdout: %q\nstderr: %q", script, m[1], err, stdout.String(), stderr.String())
+		}
 	}
 }
