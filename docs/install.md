@@ -40,8 +40,7 @@ the download is whole, not who made it: the archives are not signed.
 The binaries are not signed with an Apple developer identity and not
 notarised. The arm64 binary is signed ad hoc by the Go linker, exactly like
 a `go install`ed build (`codesign -dv yardr` says `Signature=adhoc`); the
-amd64 binary carries no signature at all, which an Intel Mac does not ask
-for.
+amd64 binary carries no signature at all.
 
 What macOS does with such a binary depends on how it arrived. `gh` and
 `curl` do not mark what they download, and the binary runs. A browser marks
