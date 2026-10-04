@@ -22,11 +22,31 @@ and a restart is just another pass.
 
 ```sh
 go install .        # 1. one static binary, yardr; it needs git and herdr on PATH
+                    #    (or a release archive, without Go: see Install below)
 yardr               # 2. the onboarding: answer the form; it starts the yard
                     #    and prints where the mayor is
                     # 3. talk to the mayor in its pane, or keep going in the
                     #    terminal: either sets up the rest (yardr setup)
 ```
+
+### Install
+
+`go install .` from a checkout is one way. The other is a release archive,
+which needs no Go: `yardr_<version>_<os>_<arch>.tar.gz` for darwin and linux,
+arm64 and amd64, with a `checksums.txt`. The archives need a login while the
+repository is private, so download with `gh`:
+
+```sh
+gh release download v1.2.3 --repo McKean/yardr \
+  --pattern 'yardr_1.2.3_darwin_arm64.tar.gz' --pattern checksums.txt
+shasum -a 256 --ignore-missing -c checksums.txt   # must say OK
+tar -xzf yardr_1.2.3_darwin_arm64.tar.gz yardr && mv yardr ~/.local/bin/
+```
+
+Either way yardr still needs git, herdr and an agent harness (claude, codex,
+…) on PATH; `yardr doctor` says which are missing and where to get them.
+[docs/install.md](docs/install.md) has the details, and what macOS does with
+a downloaded binary that is not notarised.
 
 The onboarding asks for the agent harness yardr starts by default (each herdr
 kind, marked installed or not), the mayor's name (the always-on resident that
@@ -145,8 +165,9 @@ yardr bead create "Add login page" --rig webapp -t feature -b "Use the OAuth flo
 The yardr server starts on first use, in the background, and owns
 `~/.yardr/yard.db` (`yardr server status|stop`; `YARDR_HOME` moves everything).
 Back up with `yardr store backup <path>`, which copies it while the server
-keeps serving. To upgrade, `go install` again: the server and daemon replace
-themselves with the new build ([details](docs/configuration.md#upgrading)).
+keeps serving. To upgrade, `go install` again, or put a newer release's
+binary where the old one is: the server and daemon replace themselves with
+the new build ([details](docs/configuration.md#upgrading)).
 
 yardr was called yard; for one release it still reads `YARD_*` variables and
 `~/.yard` ([details](docs/configuration.md#the-rename-from-yard)).

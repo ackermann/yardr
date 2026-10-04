@@ -959,6 +959,13 @@ reinstall) is skipped once per install, logged and recorded as a
 `reason`; stop the server (`yardr server stop`) to run it anyway. Builders
 never `go install` from their worktrees; the mayor installs after merge.
 
+A binary from a [release archive](install.md) upgrades the same way: unpack
+the newer archive and move `yardr` over the old one (`tar` itself also
+replaces the file rather than writing into it). A release build carries the
+same revision and commit time as a `go install` of its commit, and those,
+not the tag `yardr version` prints, decide whether it is newer; so archives
+and `go install`s replace each other by commit time.
+
 The generic role prompts in `~/.yardr/roles/` are files, not code: a new
 build does not touch them. Run `yardr init` again (with the same `--harness`,
 `--operator` and `--mayor`, since init stores the last two) to refresh the

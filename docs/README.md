@@ -5,6 +5,7 @@ go deeper.
 
 | page | what it covers |
 |---|---|
+| [install.md](install.md) | getting the binary: a release archive (download, verify, put on PATH) or `go install`; macOS and a downloaded binary; what `yardr doctor` still asks for; making a release |
 | [setup.md](setup.md) | `yardr setup`: the setup after the onboarding as forms, one page per step, each ending in the command it shows; changing over to the mayor and back |
 | [doctor.md](doctor.md) | `yardr doctor`: what a yard has and what it lacks (programs, what runs, setup steps), every line it prints, its JSON |
 | [configuration.md](configuration.md) | what lives in a repo's `.yardr/` and what lives in the store, precedence, where yardr keeps its own state; creating a yard, a setup that did not finish, starting over |
