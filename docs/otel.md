@@ -57,8 +57,10 @@ still open. On the next run it continues from there.
   to 30 seconds (a `Retry-After` is followed, up to the same 30 seconds).
   Nothing else is read meanwhile, so nothing is skipped.
 - Any other refusal (401, 404, 400) ends the command with the collector's
-  answer. The state does not move, so nothing is lost: fix the endpoint or
-  the header and start it again.
+  answer. That signal's cursor does not move, so it is retried after you fix
+  the endpoint or header. If the traces request succeeded before the logs
+  request was refused, its cursor has moved and those spans are not sent
+  again; the log records are retried on the next run.
 - Stopped and started again, it sends no span and no log record twice. The
   one exception is a process killed between a request the collector took and
   the write of the state file that follows it: that one request is repeated.
