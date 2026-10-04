@@ -4,7 +4,9 @@ Four shell scripts, each run as the `cmd` of an `exec` group with `--limit 1`
 (one bead at a time). They are how rig yard lands work; the flow they sit in
 is described in [docs/pipeline.md](../../docs/pipeline.md), sections 4 and
 Epics. Install them from `main`, not a checkout, so a branch cannot change
-how it is landed.
+how it is landed. merge-local is also built into yardr: `yardr setup`
+writes it to `~/.yardr/scripts/` for a yard set up without a checkout
+(docs/setup.md).
 
 **merge-local** lands a bead's branch on its base (the rig's base, or the
 epic's branch for a child of an epic). It is routed for `approved`. It

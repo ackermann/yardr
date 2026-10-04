@@ -564,9 +564,11 @@ When the mayor is up, yardr prints where it is, as `herdr agent list` and
 the workspace's label (`<yard> <mayor>`) and id, the tab and the pane; and
 how to get there: `herdr agent focus <agent>` brings its pane to the front
 in herdr, `herdr agent attach <agent>` opens it from any other terminal.
-herdr focuses a pane for any process that asks over its socket, so the form
-then offers "Open the mayor now?" and runs the focus; in a terminal outside
-herdr it adds that herdr has to be opened to see it.
+The form then asks how to go on with the rest of the setup: "Talk to the
+mayor" or "Keep going here" ([setup.md](setup.md)). herdr focuses a pane for
+any process that asks over its socket, so the first runs the focus; in a
+terminal outside herdr it adds that herdr has to be opened to see it. The
+second is `yardr setup`, in the same run.
 
 When the mayor is not up, yardr says why the wait ended (the time is up; the
 daemon gave up after five failed starts; a start failed with herdr or the

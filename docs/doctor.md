@@ -90,8 +90,9 @@ Not printed on a home with no yard.
 The steps from a yard to a first merged bead, in the order they are taken.
 Each line is `done` or `todo`, the step, and what in the store shows it done
 or what is lacking. The steps are read from the store and nothing else (the
-store reads a rig's flow from its base branch), by one function that the
-mayor's first run uses through this command, so whoever walks you through
+store reads a rig's flow from its base branch), by one function: the mayor's
+first run uses it through this command, and `yardr setup` takes the first
+step not done as a form ([setup.md](setup.md)), so whoever walks you through
 the setup can take over from anyone else.
 
 | step (`key` in JSON) | done when |
@@ -101,7 +102,7 @@ the setup can take over from anyone else.
 | `a group that builds` (`builders`) | a group has the role `builder.md` as its prompt, or a route for stage `new` |
 | `a group that reviews` (`reviewers`) | the same with `reviewer.md` and `review` |
 | `a group or person that lands approved beads` (`landing`) | a group has the role `merger.md`, is an exec group whose command merges (a refinery), or has a route for stage `approved`: people who merge by hand count once they are routed |
-| `routes for new, review and approved` (`routes`) | a route exists for each of the three stages |
+| `routes for new, review and approved` (`routes`) | a route exists for each of the three stages. The command for a missing one names the group that does the stage's work (the builders for `new`), once the yard has one |
 | `a first bead` (`first_bead`) | a bead exists in a rig (a resident's journal and memories do not count) |
 | `a first merged bead` (`merged_bead`) | a bead of a rig was closed by reaching its flow's terminal stage; one closed by hand does not count |
 
@@ -149,7 +150,7 @@ For a home other than the default, every command doctor prints carries
 | `home`, `yard` | the home; whether a yard is set up in it |
 | `machine` | the programs: `program`, `for`, `found`, `path`, `get` (when missing), `harness` (the kind, for a harness), `optional` (a harness nothing runs on yet), `version` with `state` (`answers`, `fails`, `hangs`, `not_checked`) and `output` |
 | `state` | `server` (`running`, `started`, `unreachable`), `server_error`, `daemon`, `mayor` (`name`, `resident`, `enabled`, `running`, `state`, `agent`, `failures`, `reason`), `residents`, `failing`, `held`; absent with no yard |
-| `steps` | each `key`, `title`, `done`, `detail`, and `next` (the command) when not done |
+| `steps` | each `key`, `title`, `done`, `detail`, `next` (the command) when not done, and `rig` (the rig the command names) once the yard has one |
 | `next` | the first step not done; absent when all are |
 | `optional` | each `key` (`web`, `hooks`, `packs`, `login_service`), `title`, `configured`, `detail`, `notes` |
 | `faults` | the `FAULT` lines, one string each; empty when the exit status is 0 |

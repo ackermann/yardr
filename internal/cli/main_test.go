@@ -31,6 +31,7 @@ func TestMain(m *testing.M) {
 		return "", errors.New("tests ask no herdr")
 	}
 	focusAgent = func(context.Context, string) error { return errors.New("tests focus no pane") }
+	listModels = func(context.Context, string) ([]string, error) { return nil, errors.New("tests run no agent") }
 	pollEvery = 5 * time.Millisecond
 	os.Exit(m.Run())
 }

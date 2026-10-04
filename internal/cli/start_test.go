@@ -75,8 +75,8 @@ func answerNo(fields ...huh.Field) {
 }
 
 // The form, accepted with its defaults, starts the daemon, waits for the
-// mayor and prints where it is; "Open the mayor now" brings its pane to the
-// front.
+// mayor and prints where it is; "Talk to the mayor", the answer its last
+// question starts at, brings its pane to the front.
 func TestOnboardingStartsTheYard(t *testing.T) {
 	home := newHome(t)
 	setInteractive(t, true)

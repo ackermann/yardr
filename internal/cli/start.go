@@ -440,8 +440,14 @@ func (s *startResult) print(mayor string) {
 		}
 		return
 	}
-	p := s.Mayor
-	fmt.Printf("\n%s is running, in herdr:\n\n"+
+	fmt.Println()
+	s.Mayor.print(mayor)
+}
+
+// print says where the running mayor is, as herdr names it, and how to get
+// there.
+func (p *mayorPlace) print(mayor string) {
+	fmt.Printf("%s is running, in herdr:\n\n"+
 		"  agent      %s\n"+
 		"  workspace  %q (%s), tab %s, pane %s\n\n"+
 		"To get there:\n\n"+
@@ -450,19 +456,13 @@ func (s *startResult) print(mayor string) {
 		mayor, p.Agent, p.Workspace, p.WorkspaceID, p.Tab, p.Pane, p.Agent, p.Agent)
 }
 
-// offerMayor asks, at the end of the form, whether to bring the mayor's
-// pane to the front, and does. herdr focuses a pane for any process that
-// asks over its socket, so the offer is always made; what the person then
-// sees depends on where they sit, which the answer says.
-func offerMayor(ctx context.Context, mayor string, p *mayorPlace) error {
-	open := true
-	if err := ask(huh.NewConfirm().Title("Open the mayor now?").
-		Description(fmt.Sprintf("Brings %s's pane to the front in herdr.", mayor)).Value(&open)); err != nil || !open {
-		return err
-	}
+// openMayor brings the mayor's pane to the front. herdr focuses a pane for
+// any process that asks over its socket; what the person then sees depends
+// on where they sit, which the answer says.
+func openMayor(ctx context.Context, mayor string, p *mayorPlace) {
 	if err := focusAgent(ctx, p.Agent); err != nil {
 		fmt.Printf("%s's pane could not be brought to the front: %v\n", mayor, err)
-		return nil
+		return
 	}
 	if os.Getenv("HERDR_ENV") != "" {
 		fmt.Printf("herdr shows %s now.\n", mayor)
@@ -470,5 +470,4 @@ func offerMayor(ctx context.Context, mayor string, p *mayorPlace) error {
 		fmt.Printf("%s is in front in herdr; this terminal is not in herdr, so open it with `herdr`,\n"+
 			"or `herdr agent attach %s` for its pane alone.\n", mayor, p.Agent)
 	}
-	return nil
 }

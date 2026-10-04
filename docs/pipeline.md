@@ -173,7 +173,11 @@ yardr route add --stage approved --group yardr-refinery --rig yardr
 ```
 
 The script is installed from `main` rather than run from a checkout: a bead
-branch must not change how it is landed. The flow gains `merged`:
+branch must not change how it is landed. Without a checkout of yardr,
+`yardr setup` does the same in a terminal: its page for landing writes the
+merge-local this yardr was built with to `~/.yardr/scripts/merge-local`
+(one already there is kept) and adds the group `<rig>/refinery`, without
+`YARDR_PUSH` ([setup.md](setup.md)). The flow gains `merged`:
 
 ```
 approved -> merged on done | new on failed | decide on question

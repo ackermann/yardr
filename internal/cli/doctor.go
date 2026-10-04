@@ -437,13 +437,7 @@ func (r *doctorReport) print() {
 	}
 	if len(r.Steps) > 0 {
 		fmt.Println("\nSetup")
-		for _, s := range r.Steps {
-			tag := "todo"
-			if s.Done {
-				tag = "done"
-			}
-			fmt.Printf("  %-5s  %s: %s\n", tag, s.Title, s.Detail)
-		}
+		printSteps(r.Steps)
 	}
 	if len(r.Optional) > 0 {
 		fmt.Println("\nOptional")
@@ -473,8 +467,6 @@ func (r *doctorReport) print() {
 	case r.Next == nil:
 		fmt.Println("The setup is complete.")
 	default:
-		// The step is the store's; the home in front of its commands is
-		// this report's, as on every other line.
-		fmt.Printf("Next step: %s.\n  %s\n", r.Next.Title, strings.ReplaceAll(r.Next.Next, "yardr ", env+"yardr "))
+		printNextStep(r.Home, r.Next)
 	}
 }

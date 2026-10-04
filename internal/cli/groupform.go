@@ -165,6 +165,23 @@ func (a *app) groupForm(ctx context.Context, st store.API) error {
 			}
 		}
 	}
+	g, err := a.askGroup(ctx, st, groups, ans, editing, nil)
+	if err != nil || g == nil {
+		return err
+	}
+	if err := st.PutGroup(ctx, *g); err != nil {
+		return err
+	}
+	fmt.Printf("group %s saved (%s)\n", g.Name, describe(*g))
+	return nil
+}
+
+// askGroup asks the group form's questions, each starting at what ans holds,
+// and returns the group to save: nil when the last page, "Save this group?",
+// was answered no. It saves nothing itself. editing is a group that exists,
+// whose name is not asked again. note, when given, adds lines to the last
+// page for the group as answered (the guided setup: its command line).
+func (a *app) askGroup(ctx context.Context, st store.API, groups []store.Group, ans groupAnswers, editing bool, note func(store.Group) string) (*store.Group, error) {
 	if !editing {
 		if err := ask(huh.NewInput().Title("Name").Placeholder("webapp/builders").Value(&ans.Name).
 			Validate(func(s string) error {
@@ -176,7 +193,7 @@ func (a *app) groupForm(ctx context.Context, st store.API) error {
 				}
 				return nil
 			})); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	oldRunner := ans.Runner
@@ -186,13 +203,13 @@ func (a *app) groupForm(ctx context.Context, st store.API) error {
 		huh.NewOption("exec    — a shell command (checks, merges)", "exec"),
 		huh.NewOption("manual  — a human; nothing is started", "manual"),
 	)); err != nil {
-		return err
+		return nil, err
 	}
 
 	switch ans.Runner {
 	case "herdr":
 		if err := a.agentFields(ctx, &ans); err != nil {
-			return err
+			return nil, err
 		}
 	case "exec":
 		if err := ask(
@@ -200,7 +217,7 @@ func (a *app) groupForm(ctx context.Context, st store.API) error {
 				Value(&ans.Cmd).Validate(nonEmpty),
 			huh.NewInput().Title("Directory").Description("Optional; defaults to the bead's rig.").Value(&ans.Dir),
 		); err != nil {
-			return err
+			return nil, err
 		}
 	case "manual":
 		if err := ask(huh.NewConfirm().Title("Notify in herdr when a bead arrives?").
@@ -209,7 +226,7 @@ func (a *app) groupForm(ctx context.Context, st store.API) error {
 			huh.NewInput().Title("Members").Placeholder("mckean, mayor").
 				Description("Optional, comma-separated actors (YARDR_ACTOR). If set, only they may advance beads out of this group's stages.").
 				Value(&ans.Members)); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if err := ask(huh.NewInput().Title("Limit").Description("How many beads this group works at once.").
@@ -219,7 +236,7 @@ func (a *app) groupForm(ctx context.Context, st store.API) error {
 		}
 		return nil
 	})); err != nil {
-		return err
+		return nil, err
 	}
 
 	g := ans.group()
@@ -230,19 +247,18 @@ func (a *app) groupForm(ctx context.Context, st store.API) error {
 				"`yardr bead release <bead>` hands one to the new runner.", oldRunner)
 		}
 	}
+	if note != nil {
+		summary += "\n\n" + note(g)
+	}
 	save := true
 	if err := ask(huh.NewConfirm().Title("Save this group?").Description(summary).Value(&save)); err != nil {
-		return err
+		return nil, err
 	}
 	if !save {
 		fmt.Println("not saved")
-		return nil
+		return nil, nil
 	}
-	if err := st.PutGroup(ctx, g); err != nil {
-		return err
-	}
-	fmt.Printf("group %s saved (%s)\n", g.Name, describe(g))
-	return nil
+	return &g, nil
 }
 
 // agentFields asks for the agent kind, model, permissions, prompt and
@@ -326,13 +342,9 @@ func (a *app) agentKindModel(ctx context.Context, ans *groupAnswers) error {
 		ans.Model, ans.PermArgs = "", nil // a new agent: its own models and flags
 	}
 	ans.Kind = kindPick
-	preset, _ := agents.Lookup(ans.Kind)
 
 	// Model: read live from the installed agent.
-	var models []string
-	var listErr error
-	_ = spinner.New().Title("Asking " + ans.Kind + " for its models…").
-		Action(func() { models, listErr = preset.Models(ctx) }).Run()
+	models, listErr := listModels(ctx, ans.Kind)
 	modelPick := ans.Model
 	mopts := []huh.Option[string]{huh.NewOption("Agent's default", "")}
 	for _, m := range models {
@@ -359,6 +371,15 @@ func (a *app) agentKindModel(ctx context.Context, ans *groupAnswers) error {
 	}
 	ans.Model = modelPick
 	return nil
+}
+
+// listModels asks the installed agent of kind for its models, behind a
+// spinner: it runs the agent. Tests replace it.
+var listModels = func(ctx context.Context, kind string) (models []string, err error) {
+	preset, _ := agents.Lookup(kind)
+	_ = spinner.New().Title("Asking " + kind + " for its models…").
+		Action(func() { models, err = preset.Models(ctx) }).Run()
+	return models, err
 }
 
 // ask runs fields as one form page. Tests replace it to answer forms.

@@ -26,6 +26,10 @@ type app struct {
 	st    store.API
 	// onboarded is set once this run has created the yard (see firstRun).
 	onboarded bool
+	// guided is set once the onboarding has asked how to go on with the
+	// setup (see handOff): yardr setup, run on a home with no yard, has
+	// then been answered.
+	guided bool
 	// self is who this run acts as, once asked (see identity).
 	self *resolved
 }
@@ -77,7 +81,7 @@ func (a *app) rootCmd() *cobra.Command {
 		a.depCmd(), a.groupCmd(), a.routeCmd(), a.flowCmd(), a.sessionCmd(), a.eventsCmd(), a.watchCmd(), a.primeCmd(),
 		a.bdpCmd(), a.webCmd(), a.residentCmd(), a.inboxCmd(), a.mailCmd(), a.rememberCmd(), a.recallCmd(), a.hookCmd(),
 		a.subscribeCmd(), a.unsubscribeCmd(), a.threadCmd(), a.replyCmd(), a.reviewCmd(), a.storeCmd(), a.packCmd(),
-		a.initCmd(), a.settingsCmd(), a.doctorCmd())
+		a.initCmd(), a.settingsCmd(), a.doctorCmd(), a.setupCmd())
 	return root
 }
 

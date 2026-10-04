@@ -164,9 +164,7 @@ func (a *app) onboard(c *cobra.Command) error {
 		return err
 	}
 	if res.Start != nil && res.Start.Running && !a.json {
-		if err := offerMayor(c.Context(), res.Mayor, res.Start.Mayor); err != nil && !errors.Is(err, huh.ErrUserAborted) {
-			return err
-		}
+		return a.handOff(c.Context(), cfg, res.Mayor, res.Start.Mayor)
 	}
 	return nil
 }
@@ -554,11 +552,12 @@ func (r *initResult) printNext() {
 			"Or in the background, waiting for %s and printing where it is:\n\n  %syardr init --start\n",
 			r.Mayor, env, r.Mayor, env)
 	}
-	// The rest of the setup is a conversation: the mayor's role has a first
-	// run checklist (rig, starter files, groups, routes). The commands for
-	// scripts are in yardr init --help.
+	// The rest of the setup is a conversation, or a run of forms: the
+	// mayor's first run and yardr setup go by the same steps (setupSteps).
+	// The commands for scripts are in yardr init --help.
 	fmt.Printf("\n%s sets up the rest with you in its pane: the repository to work in, who\n"+
-		"builds and reviews, and a first bead to try it on.\n", r.Mayor)
+		"builds and reviews, and a first bead to try it on. Or here, as a short run of\n"+
+		"forms: %syardr setup\n", r.Mayor, env)
 }
 
 // harnessOptions are the kinds herdr starts, each marked with whether its
@@ -671,8 +670,8 @@ Init again on a yard keeps its default_kind, operator and mayor settings and
 an existing mayor resident; only the flags given change them, so --harness is
 required only to create a yard.
 
-After init the mayor sets up the rest in conversation. For scripts, the same
-by hand:
+After init the mayor sets up the rest in conversation, or yardr setup does in
+a terminal, as forms. For scripts, the same by hand:
 
   yardr rig add webapp ~/projects/webapp --base origin/main
   yardr rig init webapp        # starter roles, gate and flow; commit them on the base

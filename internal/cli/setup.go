@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"yardr.dev/yardr/internal/store"
@@ -19,6 +20,12 @@ type setupStep struct {
 	Detail string `json:"detail,omitempty"`
 	// Next is how to do the step, when it is not done.
 	Next string `json:"next,omitempty"`
+	// Rig is the rig the step's command names, once the yard has one.
+	Rig string `json:"rig,omitempty"`
+	// args are the yardr command lines that do the step, when they follow
+	// from the store alone with nothing left to ask: what the guided setup
+	// shows and runs for it (yardr setup).
+	args [][]string
 }
 
 // The setup steps' keys, in their order.
@@ -121,16 +128,34 @@ func (s setupState) steps() []setupStep {
 	}
 	out := []setupStep{s.rigStep(), s.filesStep()}
 	out = append(out,
-		s.groupStep(stepBuilders, "a group that builds", "new", "builder.md",
+		s.groupStep(stepBuilders, "a group that builds", "new",
 			fmt.Sprintf("yardr group add %s/builders --runner herdr --limit 2 --set prompt=roles/builder.md", rig)),
-		s.groupStep(stepReviewers, "a group that reviews", "review", "reviewer.md",
+		s.groupStep(stepReviewers, "a group that reviews", "review",
 			fmt.Sprintf("yardr group add %s/reviewers --runner herdr --set prompt=roles/reviewer.md", rig)))
 	if lands {
-		out = append(out, s.groupStep(stepLanding, "a group or person that lands approved beads", "approved", "merger.md",
-			fmt.Sprintf("a refinery (an exec group running merge-local, see docs/pipeline.md), or people: "+
-				"yardr group add %s/mergers --runner manual --members <them>", rig)))
+		// Beads land in a git rig: the first of them is the one its command names.
+		landRig := rig
+		for _, r := range s.rigs {
+			if !r.IsDir() {
+				landRig = r.Name
+				break
+			}
+		}
+		step := s.groupStep(stepLanding, "a group or person that lands approved beads", "approved",
+			fmt.Sprintf("a refinery (an exec group running merge-local, which yardr setup installs in a terminal; see docs/pipeline.md), or people: "+
+				"yardr group add %s/mergers --runner manual --members <them>", landRig))
+		if len(s.rigs) > 0 {
+			step.Rig = landRig
+		}
+		out = append(out, step)
 	}
-	return append(out, s.routesStep(rig, lands), s.beadStep(rig), s.mergedStep(lands))
+	out = append(out, s.routesStep(rig, lands), s.beadStep(rig), s.mergedStep(lands))
+	if len(s.rigs) > 0 {
+		for i := range out {
+			out[i].Rig = or(out[i].Rig, rig)
+		}
+	}
+	return out
 }
 
 func (s setupState) rigStep() setupStep {
@@ -181,7 +206,7 @@ func (s setupState) filesStep() setupStep {
 			continue
 		}
 		if step.Next == "" {
-			step.Next = "yardr rig init " + r.Name + next
+			step.Next, step.Rig = "yardr rig init "+r.Name+next, r.Name
 		}
 	}
 	if len(lack) > 0 {
@@ -192,23 +217,24 @@ func (s setupState) filesStep() setupStep {
 	return step
 }
 
-// groupStep is done when a group does the work of stage: one routed for
-// the stage, or one whose prompt is the role file. An exec group whose
+// stageRoles are the stages the setup routes, each with the role file of
+// the group that works it.
+var stageRoles = map[string]string{"new": "builder.md", "review": "reviewer.md", "approved": "merger.md"}
+
+// doing are the groups that do the work of stage: one whose prompt is the
+// stage's role file, then one routed for the stage. An exec group whose
 // command merges lands too (a refinery not yet routed).
-func (s setupState) groupStep(key, title, stage, role, next string) setupStep {
-	step := setupStep{Key: key, Title: title}
+func (s setupState) doing(stage string) []string {
 	var names []string
-	seen := map[string]bool{}
 	add := func(name string) {
-		if !seen[name] {
-			seen[name] = true
+		if !slices.Contains(names, name) {
 			names = append(names, name)
 		}
 	}
 	for _, g := range s.groups {
 		prompt, _ := g.Config["prompt"].(string)
 		cmd, _ := g.Config["cmd"].(string)
-		if roleFile(prompt) == role || (stage == "approved" && g.Runner == "exec" && strings.Contains(cmd, "merge")) {
+		if roleFile(prompt) == stageRoles[stage] || (stage == "approved" && g.Runner == "exec" && strings.Contains(cmd, "merge")) {
 			add(g.Name)
 		}
 	}
@@ -217,8 +243,15 @@ func (s setupState) groupStep(key, title, stage, role, next string) setupStep {
 			add(r.Group)
 		}
 	}
+	return names
+}
+
+// groupStep is done when a group does the work of stage (doing).
+func (s setupState) groupStep(key, title, stage, next string) setupStep {
+	step := setupStep{Key: key, Title: title}
+	names := s.doing(stage)
 	if len(names) == 0 {
-		step.Detail = fmt.Sprintf("no group has the role %s or a route for stage %s", strings.TrimSuffix(role, ".md"), stage)
+		step.Detail = fmt.Sprintf("no group has the role %s or a route for stage %s", strings.TrimSuffix(stageRoles[stage], ".md"), stage)
 		step.Next = next
 		return step
 	}
@@ -251,7 +284,18 @@ func (s setupState) routesStep(rig string, lands bool) setupStep {
 		return step
 	}
 	step.Detail = "no route for " + list(lack)
-	step.Next = fmt.Sprintf("yardr route add --stage %s --rig %s --group <group>", lack[0], rig)
+	// A stage's route goes to the group that does its work, when the yard
+	// has one: then the command is whole, and the guided setup runs it.
+	for _, stage := range lack {
+		group := "<group>"
+		if names := s.doing(stage); len(names) > 0 {
+			group = names[0]
+			step.args = append(step.args, []string{"route", "add", "--stage", stage, "--rig", rig, "--group", group})
+		}
+		if step.Next == "" {
+			step.Next = fmt.Sprintf("yardr route add --stage %s --rig %s --group %s", stage, rig, group)
+		}
+	}
 	return step
 }
 

@@ -57,6 +57,16 @@ decide -> open | backlog
 done terminal
 `
 
+// starterCommit is the message of the commit that puts rig init's files on
+// the base.
+const starterCommit = "yardr: starter roles, gate, flow and stage files"
+
+// commitCommand is the command line that commits rig init's files in the
+// checkout at path, and nothing else staged there.
+func commitCommand(path string) string {
+	return fmt.Sprintf("git -C %s add .yardr && git -C %s commit -m %s -- .yardr", shellQuote(path), shellQuote(path), shellQuote(starterCommit))
+}
+
 // rigInitResult is what rig init wrote into a rig's checkout.
 type rigInitResult struct {
 	Rig      string   `json:"rig"`
@@ -371,7 +381,7 @@ func (r *rigInitResult) print() {
 	fmt.Printf("\nNothing is committed. yardr reads roles, the gate, the flow and its stage\n"+
 		"files from %s,\n"+
 		"so the operator (or the mayor, with their OK) commits them there:\n\n"+
-		"  git -C %s add .yardr && git -C %s commit -m 'yardr: starter roles, gate, flow and stage files'\n", r.Base, r.Path, r.Path)
+		"  %s\n", r.Base, commitCommand(r.Path))
 }
 
 func (r *rigInitResult) printDir() {

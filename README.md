@@ -24,7 +24,8 @@ and a restart is just another pass.
 go install .        # 1. one static binary, yardr; it needs git and herdr on PATH
 yardr               # 2. the onboarding: answer the form; it starts the yard
                     #    and prints where the mayor is
-                    # 3. talk to the mayor in its pane: it sets up the rest
+                    # 3. talk to the mayor in its pane, or keep going in the
+                    #    terminal: either sets up the rest (yardr setup)
 ```
 
 The onboarding asks for the agent harness yardr starts by default (each herdr
@@ -41,8 +42,9 @@ daemon in the background, logging to `~/.yardr/daemon.log`, and waits up to
 two minutes, counting, for the mayor: its session running and its first
 output in its pane. Then it prints where the mayor is, as herdr names it
 (agent, workspace, tab, pane), how to get there (`herdr agent focus <agent>`
-in herdr, `herdr agent attach <agent>` from any other terminal), and offers
-"Open the mayor now?", which brings its pane to the front in herdr. When the
+in herdr, `herdr agent attach <agent>` from any other terminal), and asks how
+to go on with the rest of the setup: "Talk to the mayor", which brings its
+pane to the front in herdr, or "Keep going here", a short run of forms. When the
 mayor does not come up it says what is known instead (herdr or the harness
 not on PATH, the last failed start, the last lines of the mayor's pane, where
 the daemon logs) and how to go on. No leaves the start to you: `yardr daemon`
@@ -55,6 +57,27 @@ the repository and its base branch, registers the rig, seeds it with
 `yardr rig init` (starter roles, gate, flow and stage files under `.yardr/`, which you
 commit on the base branch), creates the groups and routes, and offers a first
 bead to try the pipeline. It asks before anything outward, such as a commit.
+
+"Keep going here" is the same setup as forms, and `yardr setup` runs them at
+any later time ([docs/setup.md](docs/setup.md)). It takes the first step that
+is not done, whoever did the ones before, and each page ends in the command
+you would type, shown before it runs:
+
+1. the repository and its base branch (`yardr rig add`), then `yardr rig init`,
+   which shows what it wrote and the gate it guessed, and asks before it
+   commits `.yardr/` on the base branch;
+2. who builds and who reviews: the form of `yardr group add`, starting at a
+   group on the default harness with the role's prompt;
+3. how approved beads land: a refinery (yardr's `merge-local`, which it
+   installs in `~/.yardr/scripts/`) or people who merge by hand;
+4. the routes for `new`, `review` and `approved`, which follow from the
+   groups: shown, confirmed;
+5. a first small bead, created and advanced to `new`, and how to watch it.
+
+After each page it asks again: keep going, talk to the mayor, or stop here.
+The mayor and the forms read one list of steps, the one `yardr doctor`
+prints, so you can change over after any step. A cancelled page has run no
+command.
 
 `yardr doctor` says at any time what the yard has and what it lacks: git,
 herdr and each harness in use (on PATH, and answering its version flag),
@@ -76,7 +99,7 @@ YARDR_HOME=/tmp/y1 yardr                          # the form
 YARDR_HOME=/tmp/y1 yardr init --harness claude    # the scripted path; add --start to start the yard too
 ```
 
-Scripts skip the form and the mayor's conversation (`yardr init --help`):
+Scripts skip the forms and the mayor's conversation (`yardr init --help`):
 
 ```sh
 yardr init --harness claude [--mayor mayor] [--dir ~/projects] [--model opus] [--operator Jo]
