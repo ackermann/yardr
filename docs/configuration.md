@@ -512,7 +512,8 @@ Init again on a yard that is set up changes only what its flags say: the
 reset to the flags' defaults (the login name, `mayor`), and the summary
 lists what was kept (`kept default_kind claude, operator Jo, mayor mayor, as
 set before`). A resident of the mayor's name is kept as it is, and so are
-the role files already in `<home>/roles/`.
+the role files already in `<home>/roles/`. What a run that failed leaves,
+and how the next one finishes it, is [below](#a-run-that-did-not-finish).
 
 The summary ends with the way to the mayor ([starting the
 yard](#starting-the-yard)), whose role begins with
@@ -596,8 +597,10 @@ the setup, each starting at **no**: "Start the daemon at login?", which runs
 command is shown before it runs and prints what it did; the web view's
 prints its address. One that fails says so and the form goes on: the yard
 runs without either. On a system yardr writes no service for, only the web
-view is offered, for now. `yardr init --start` asks nothing; the commands
-are the same.
+view is offered, for now. A question is left out when the yard has what it
+asks for: the daemon's service is installed, the web view's is, or something
+answers on the view's address. `yardr init --start` asks nothing; the
+commands are the same.
 
 #### Login services
 
@@ -681,6 +684,99 @@ is installed. Keep rigs elsewhere, or grant yardr access: Full Disk Access
 has asked for the folder. What an upgrade does to that grant is
 [below](#upgrading). This is as reported from one Mac (Linear YRD-3):
 yardr's tests load nothing into launchd, so it is not reproduced by them.
+
+#### A run that did not finish
+
+The onboarding and `yardr init` do their steps in one order: the roles, the
+`operator` and `mayor` settings, the mayor resident, `default_kind`, and then,
+when asked to, the daemon and the wait for the mayor. A run that fails leaves
+what the steps before the failure made. The next run finishes from that: it
+does not start again from nothing, and it says what it found.
+
+| the run stopped | what the home holds | the next run |
+|---|---|---|
+| among the roles | some of the prompts, each whole and recorded in `.shipped.json` as written | `yardr init --harness <kind>` again, or `yardr` in a terminal for the form. Prompts the failed run wrote are refreshed to the names this run is given; none counts as edited by hand |
+| after the roles | the four prompts | the same |
+| after `operator`, or after `mayor` | the prompts and the settings stored so far | the same. The stored settings stand in for `--operator` and `--mayor` when they are not given, and are what the form's "Mayor" and "Your name" start at |
+| after the mayor was added | all but `default_kind`. With a resident the home counts as a yard, so no form runs | `yardr init`, with no flag: the harness is the mayor's. Or `yardr` in a terminal, below |
+| the daemon could not be started, or the mayor did not come up | a yard that is set up and does not run | `yardr init --start`, which starts the daemon unless one runs and waits again. Or `yardr` in a terminal, below |
+
+Init then prints `yard in <home> finished: part of it was there`, with a
+`found` line (the prompts, settings and resident that were there) and an
+`added` line (what this run added); `--json` has the same as `found` and
+`added`, which are absent on a new home and on a yard that was set up. A
+setting stored with `yardr settings set` before any init is found the same
+way. Each role prompt is written to a temporary file and renamed, so a run
+that is killed leaves the prompt that was there or none, never half of one;
+`.shipped.json` is saved after every prompt. One case is left: a run killed
+between a prompt and the manifest's save leaves one prompt unrecorded, and a
+next run given another operator or mayor keeps that file as edited. Delete it
+to get this build's copy.
+
+**Bare `yardr` in a terminal** takes the onboarding up where a yard has no
+rig yet and any of this holds: `default_kind` is not set, the mayor resident
+is missing, no daemon runs, or the mayor is not up (its session is not
+running, or runs and has not answered its first prompt). It prints what is
+there, in the lines [`yardr doctor`](doctor.md#the-yard) prints for the yard,
+and asks "Finish the setup now?". Yes runs `yardr init --start` (which adds
+only what is missing, starts the daemon unless one runs, and waits for the
+mayor) and then goes on as the form does: the two services, and "Talk to the
+mayor" or "Keep going here". The summary of the yard is left out when
+nothing had to be added. No, or ctrl+c, changes nothing and prints the
+command. It goes by the yard as it is, not by a record of the earlier run,
+so a yard made with `yardr init` and never started is taken up the same way.
+
+On any other yard bare `yardr` is help, as before: one with a rig (its setup
+is `yardr setup`'s, or the mayor's), one that runs, one whose mayor was
+stopped with `yardr resident stop` while its daemon runs. It is help too
+without a terminal, with `--json`, and in an agent's session. When the form's
+own start ends with a mayor that is not up, its last line says to run `yardr`
+in the terminal again once that is set right.
+
+#### Starting over
+
+There is no command that removes a yard. Starting over is the steps below,
+each typed by you with the path or the name in it: yardr never removes a
+home or a repository. Take them in this order; the first five need the yard
+they stop, so the home goes last.
+
+| what the onboarding and the setup can have made | where | to see it | to remove it |
+|---|---|---|---|
+| the login services | `~/Library/LaunchAgents/dev.yardr.{daemon,web}.<home>.plist`, or `~/.config/systemd/user/yardr-{daemon,web}-<home>.service` | `yardr doctor`, under Optional; `yardr daemon status` | `yardr web uninstall`, `yardr daemon uninstall`. Each unloads its service, which stops what it ran, and deletes the file |
+| a web view started with `yardr web start` | a process; it logs to `<home>/web.log` | `lsof -ti tcp:8791` (the port it was started on) | `kill <pid>` |
+| the mayor's session, and any other resident's | a herdr workspace labelled `<yard> <resident>`, agent `<yard>-<resident>` | `yardr resident list`, `herdr workspace list` | `yardr resident stop <name>`: the daemon closes the session's tab, and its workspace with it, on its next pass (30s at most). It needs the daemon running |
+| sessions working beads | a herdr workspace per bead | `yardr session list`, `herdr workspace list` | `herdr workspace close <id>` for each that is left. Look at the bead's worktree first (the home, below) |
+| the daemon | a process holding `<home>/daemon.lock` | `yardr daemon status` | `yardr daemon stop` |
+| the server | a process; `<home>/server.pid`, `yard.sock` | `yardr server status` | `yardr server stop`. Any yardr command after it starts a server again, so run none before the home is gone |
+| the home | `~/.yardr`, or what `YARDR_HOME` names: the store, the roles, the logs, `scripts/merge-local` and `logs/` (a refinery's, from `yardr setup`), `worktrees/`, `rigs/` | `ls -a <home>` | `rm -rf <home>`, typed by you with the path. Read the next paragraph first |
+| a rig's `.yardr` files | in the repository, committed on its base branch: `.yardr/roles/`, `.yardr/check`, `.yardr/flows/` | `git -C <repo> ls-files .yardr` | keep them: a new yard that adds the repository as a rig reads them as they are. To start the rig's configuration over too: `git -C <repo> rm -r .yardr`, and commit |
+
+**Before the home is removed**, look at two directories in it, because they
+hold work and not only yardr's state. `<home>/worktrees/<rig>/<bead>` are
+the worktrees of beads, on branches `yard/<bead>` of the rig's repository:
+the commits on those branches stay in the repository, and what is not
+committed in a worktree goes with the home. `<home>/rigs/<name>` are
+repositories themselves, cloned by `yardr rig add --clone`: removing the home
+removes those clones, with every branch that was never pushed. Move out what
+you want to keep. Credential files you kept in the home
+(`linear.secret`, `residents/<name>.env`) go with it too.
+
+After the home is gone, each rig's repository still lists the worktrees that
+were in it: `git -C <repo> worktree prune` clears them (and the briefs yardr
+kept in the repository's git directory beside them), and
+`git -C <repo> branch --list 'yard/*'` shows the bead branches that are left,
+for you to delete or keep. Nothing else in a repository is yardr's.
+
+Then `yardr`, or `yardr init --harness <kind>`, creates a yard in the empty
+home as on the first day. Tried in an isolated yard: after these steps no
+process of the yard was left, `yardr doctor` reported no yard, and
+`yardr init --harness claude --start` brought a new mayor up.
+
+Starting over is seldom needed for what the onboarding asked: the harness,
+your name and the mayor's are `yardr settings set`, the mayor's directory
+and model are `yardr resident add <mayor>` again, a role prompt comes back as
+this build's when its file is deleted and `yardr init` runs, and a setup that
+failed is finished by the next run ([above](#a-run-that-did-not-finish)).
 
 ### Seeding a rig: `yardr rig init`
 

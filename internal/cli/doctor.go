@@ -184,37 +184,11 @@ func (a *app) doctor(ctx context.Context, cfg *config.Config) (*doctorReport, er
 		return nil, err
 	}
 	rep.Machine = machineNeeds(ctx, harnessUses(defaultKind(ctx, st), groups, residents))
-	rep.State = &yardState{Server: "running", Daemon: daemonRunning(cfg.DaemonLock()), Residents: len(residents),
-		Failing: []failingResident{}, Held: []string{}}
-	if !was {
-		rep.State.Server = "started"
-	}
-	mayor := yardMayor(ctx, st)
-	rep.State.Mayor = &mayorState{Name: mayor}
-	for _, r := range residents {
-		reason := ""
-		failing := r.State == "failed" || (r.Enabled && !r.Live() && r.Failures > 0)
-		if failing {
-			reason = lastStartFailure(ctx, st, r)
-		}
-		if r.Name == mayor {
-			rep.State.Mayor = &mayorState{Name: mayor, Resident: true, Enabled: r.Enabled, Running: r.Live(), State: r.State,
-				Agent: show(r.Handle["agent"]), Failures: r.Failures, Reason: reason}
-			if !r.Live() {
-				rep.State.Mayor.Agent = ""
-			}
-		} else if failing {
-			rep.State.Failing = append(rep.State.Failing, failingResident{r.Name, r.State, r.Failures, reason})
-		}
-	}
-	open, err := st.ListBeads(ctx, store.BeadFilter{})
-	if err != nil {
+	if rep.State, err = readState(ctx, cfg, st, residents); err != nil {
 		return nil, err
 	}
-	for _, b := range open {
-		if b.Hold {
-			rep.State.Held = append(rep.State.Held, b.ID)
-		}
+	if !was {
+		rep.State.Server = "started"
 	}
 	if rep.Steps, err = setupSteps(ctx, st); err != nil {
 		return nil, err
@@ -225,6 +199,43 @@ func (a *app) doctor(ctx context.Context, cfg *config.Config) (*doctorReport, er
 	}
 	rep.faults()
 	return rep, nil
+}
+
+// readState is the second part, read from a yard whose server answers: the
+// daemon, the mayor and its session, the residents whose starts fail, the
+// held beads. It is what doctor prints, and what bare yardr goes by to tell
+// a yard whose onboarding is to finish (resume).
+func readState(ctx context.Context, cfg *config.Config, st store.API, residents []store.Resident) (*yardState, error) {
+	state := &yardState{Server: "running", Daemon: daemonRunning(cfg.DaemonLock()), Residents: len(residents),
+		Failing: []failingResident{}, Held: []string{}}
+	mayor := yardMayor(ctx, st)
+	state.Mayor = &mayorState{Name: mayor}
+	for _, r := range residents {
+		reason := ""
+		failing := r.State == "failed" || (r.Enabled && !r.Live() && r.Failures > 0)
+		if failing {
+			reason = lastStartFailure(ctx, st, r)
+		}
+		if r.Name == mayor {
+			state.Mayor = &mayorState{Name: mayor, Resident: true, Enabled: r.Enabled, Running: r.Live(), State: r.State,
+				Agent: show(r.Handle["agent"]), Failures: r.Failures, Reason: reason}
+			if !r.Live() {
+				state.Mayor.Agent = ""
+			}
+		} else if failing {
+			state.Failing = append(state.Failing, failingResident{r.Name, r.State, r.Failures, reason})
+		}
+	}
+	open, err := st.ListBeads(ctx, store.BeadFilter{})
+	if err != nil {
+		return nil, err
+	}
+	for _, b := range open {
+		if b.Hold {
+			state.Held = append(state.Held, b.ID)
+		}
+	}
+	return state, nil
 }
 
 // optionalParts are what a yard runs without, each configured or not.

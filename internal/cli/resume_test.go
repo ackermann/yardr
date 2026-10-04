@@ -1,0 +1,467 @@
+package cli
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
+	"yardr.dev/yardr/roles"
+)
+
+// failing is a store whose write named by on fails: "setting <key>" or
+// "resident". It is how a test cuts init short after the step before.
+type failing struct {
+	store.API
+	on string
+}
+
+var errCut = errors.New("cut short")
+
+func (f *failing) SetSetting(ctx context.Context, key, value, actor string) error {
+	if f.on == "setting "+key {
+		return errCut
+	}
+	return f.API.SetSetting(ctx, key, value, actor)
+}
+
+func (f *failing) PutResident(ctx context.Context, def store.Resident, actor string) (*store.Resident, error) {
+	if f.on == "resident" {
+		return nil, errCut
+	}
+	return f.API.PutResident(ctx, def, actor)
+}
+
+// startsMayor replaces the daemon's start with one that counts and, given a
+// handle, records the session of the resident named as the daemon would.
+func startsMayor(t *testing.T, st store.API, name string, handle map[string]any) *int {
+	t.Helper()
+	n := 0
+	stub(t, &spawnDaemon, func(*config.Config) (<-chan error, error) {
+		n++
+		if handle != nil {
+			if err := st.ResidentStarted(context.Background(), name, handle); err != nil {
+				t.Errorf("%s not started: %v", name, err)
+			}
+		}
+		return nil, nil
+	})
+	return &n
+}
+
+// wholeYard fails unless the home holds the yard a clean init makes: the
+// three settings, the mayor on the harness, the four roles naming the
+// operator and the mayor, each in the manifest.
+func wholeYard(t *testing.T, st store.API, home, harness, operator, mayor string) {
+	t.Helper()
+	ctx := context.Background()
+	got, _ := st.Settings(ctx)
+	if got["default_kind"] != harness || got["operator"] != operator || got["mayor"] != mayor {
+		t.Errorf("settings = %v", got)
+	}
+	rs, _ := st.Residents(ctx)
+	if len(rs) != 1 || rs[0].Name != mayor || rs[0].Config["kind"] != harness {
+		t.Errorf("residents = %+v", rs)
+	}
+	manifest := map[string]string{}
+	b, _ := os.ReadFile(filepath.Join(home, "roles", shippedManifest))
+	_ = json.Unmarshal(b, &manifest)
+	for _, name := range []string{"builder.md", "mayor.md", "merger.md", "reviewer.md"} {
+		have, err := os.ReadFile(filepath.Join(home, "roles", name))
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		tmpl, _ := roles.FS.ReadFile(name)
+		if !bytes.Equal(have, fillRole(tmpl, operator, mayor)) {
+			t.Errorf("%s does not name %s and %s", name, operator, mayor)
+		}
+		if manifest[name] != digest(have) {
+			t.Errorf("%s is not in the manifest as written", name)
+		}
+	}
+	if left, _ := filepath.Glob(filepath.Join(home, "roles", ".*.md.*")); len(left) > 0 {
+		t.Errorf("temporary files left: %v", left)
+	}
+}
+
+// Init cut short after each of its steps leaves what it wrote; init again
+// finishes the yard from it, says what it found and what it added, and takes
+// what the first run stored for the flags the second does not give.
+func TestInitFinishesAfterAFailedRun(t *testing.T) {
+	first := []string{"init", "--harness", "codex", "--operator", "Jo", "--mayor", "boss"}
+	for _, tc := range []struct {
+		name string
+		// on is the store's write that fails; "" for the roles, where a
+		// directory in a prompt's place fails the read of it.
+		on    string
+		again []string
+		// setUp: the home counts as a yard after the failed run.
+		setUp        bool
+		operator     string
+		found, added []string
+	}{
+		{name: "among the roles", again: []string{"init", "--harness", "codex", "--operator", "Kim", "--mayor", "boss"}, operator: "Kim",
+			found: []string{"the role prompts builder.md and mayor.md in"},
+			added: []string{"the role prompts merger.md and reviewer.md", "the operator and mayor settings", "the resident boss", "the default_kind setting"}},
+		{name: "after the roles", on: "setting operator", again: first, operator: "Jo",
+			found: []string{"the role prompts builder.md, mayor.md, merger.md and reviewer.md in"},
+			added: []string{"the operator and mayor settings", "the resident boss", "the default_kind setting"}},
+		{name: "after the operator setting", on: "setting mayor", again: []string{"init", "--harness", "codex", "--mayor", "boss"}, operator: "Jo",
+			found: []string{"the setting operator Jo"},
+			added: []string{"the operator and mayor settings", "the resident boss"}},
+		{name: "after the settings", on: "resident", again: []string{"init", "--harness", "codex"}, operator: "Jo",
+			found: []string{"the settings operator Jo and mayor boss"},
+			added: []string{"the resident boss", "the default_kind setting"}},
+		// The mayor is there, so the home counts as a yard, and default_kind
+		// is not: the harness is the mayor's.
+		{name: "after the mayor", on: "setting default_kind", again: []string{"init"}, setUp: true, operator: "Jo",
+			found: []string{"the settings operator Jo and mayor boss", "the resident boss"},
+			added: []string{"the default_kind setting, which marks the yard set up"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := newHome(t)
+			t.Setenv("USER", "kim")
+			st := &failing{API: storetest.New(t), on: tc.on}
+			a := &app{st: st, actor: "me"}
+			ctx := context.Background()
+			block := filepath.Join(home, "roles", "merger.md")
+			if tc.on == "" {
+				if err := os.MkdirAll(block, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if out, err := run(t, a.rootCmd(), first...); err == nil {
+				t.Fatalf("the first run did not fail:\n%s", out)
+			} else if tc.on != "" && !errors.Is(err, errCut) {
+				t.Fatal(err)
+			}
+			if got, _ := st.Settings(ctx); got["default_kind"] != "" {
+				t.Fatalf("the failed run marked the yard set up: %v", got)
+			}
+			cfg, err := config.Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ok, err := a.initialized(ctx, cfg); ok != tc.setUp || err != nil {
+				t.Fatalf("initialized = %v %v", ok, err)
+			}
+			st.on = ""
+			if tc.on == "" {
+				os.Remove(block)
+			}
+
+			out, err := run(t, a.rootCmd(), tc.again...)
+			if err != nil {
+				t.Fatalf("%v: %v\n%s", tc.again, err, out)
+			}
+			wholeYard(t, st, home, "codex", tc.operator, "boss")
+			if !strings.Contains(out, "yard in "+home+" finished: part of it was there") {
+				t.Errorf("the second run does not say it finished a yard:\n%s", out)
+			}
+			for label, want := range map[string][]string{"  found    ": tc.found, "  added    ": tc.added} {
+				line := ""
+				for _, l := range strings.Split(out, "\n") {
+					if strings.HasPrefix(l, label) {
+						line = l
+					}
+				}
+				for _, w := range want {
+					if !strings.Contains(line, w) {
+						t.Errorf("%q lacks %q:\n%s", label, w, out)
+					}
+				}
+			}
+			// Nothing the failed run wrote counts as edited by hand.
+			if strings.Contains(out, "edited, kept") {
+				t.Errorf("a prompt of the failed run was kept as edited:\n%s", out)
+			}
+
+			// And once more: a yard, set up again, nothing found or added.
+			out, err = run(t, a.rootCmd(), "init")
+			if err != nil || !strings.Contains(out, "set up again") || strings.Contains(out, "  found ") {
+				t.Fatalf("third run: %v\n%s", err, out)
+			}
+			wholeYard(t, st, home, "codex", tc.operator, "boss")
+		})
+	}
+}
+
+// A prompt is written whole or not at all, and recorded once written: a
+// run that fails among the roles leaves the ones it wrote in the manifest,
+// so the next run, told another name, refreshes them.
+func TestRolesOfAFailedRunAreRecorded(t *testing.T) {
+	dir := filepath.Join(shortDir(t, "yr"), "roles")
+	if err := os.MkdirAll(filepath.Join(dir, "merger.md"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := installRoles(dir, "Jo", "mayor", true); err == nil {
+		t.Fatal("a directory in a prompt's place did not fail the install")
+	}
+	manifest := map[string]string{}
+	b, err := os.ReadFile(filepath.Join(dir, shippedManifest))
+	if err != nil || json.Unmarshal(b, &manifest) != nil || len(manifest) != 2 || manifest["builder.md"] == "" || manifest["mayor.md"] == "" {
+		t.Fatalf("manifest after the failed run: %v %v", manifest, err)
+	}
+	os.Remove(filepath.Join(dir, "merger.md"))
+	res, err := installRoles(dir, "Kim", "mayor", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Refreshed) != 2 || len(res.Written) != 2 || len(res.Kept) != 0 {
+		t.Fatalf("second run: %+v", res)
+	}
+}
+
+// keysOf are the keys a former was asked, without the keyless fields.
+func keysOf(f *former) []string {
+	var keys []string
+	for _, k := range f.asked {
+		if k != "" {
+			keys = append(keys, k)
+		}
+	}
+	return keys
+}
+
+// resumeYard is a terminal on a fresh home with the programs a yard needs,
+// a service manager nothing is installed in, and a former to answer with.
+func resumeYard(t *testing.T, answers map[string]any) (string, *former) {
+	t.Helper()
+	home := newHome(t)
+	setInteractive(t, true)
+	stubLookPath(t, "claude", "git", "herdr")
+	stubServices(t, "darwin")
+	stubWeb(t)
+	stubFocus(t)
+	captureStderr(t)
+	f := &former{t: t, answers: answers, goes: []string{goMayor}}
+	stubAsk(t, f.ask)
+	return home, f
+}
+
+// The form after an init that was cut short before the mayor was added says
+// what that run left, and its answers start at what it stored.
+func TestOnboardingAfterAFailedRun(t *testing.T) {
+	home, f := resumeYard(t, nil)
+	st := &failing{API: storetest.New(t), on: "resident"}
+	if _, err := run(t, (&app{st: st}).rootCmd(), "init", "--harness", "claude", "--operator", "Jo", "--mayor", "boss"); !errors.Is(err, errCut) {
+		t.Fatal(err)
+	}
+	st.on = ""
+	started := startsMayor(t, st, "boss", mayorHandle())
+	stubPane(t, answeredPane)
+
+	out, err := run(t, (&app{st: st}).rootCmd())
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	wholeYard(t, st, home, "claude", "Jo", "boss")
+	for _, s := range []string{"An earlier setup of this home did not reach its end. It left the role prompts",
+		"the settings operator Jo and mayor boss", "finished: part of it was there", "  added    the resident boss",
+		"boss is running, in herdr"} {
+		if !strings.Contains(out, s) {
+			t.Errorf("output lacks %q:\n%s", s, out)
+		}
+	}
+	if *started != 1 || !slices.Equal(keysOf(f), []string{"login", "web", "go"}) {
+		t.Fatalf("%d daemons started, asked %q", *started, keysOf(f))
+	}
+}
+
+// Bare yardr on a yard an init left without its default_kind (the mayor was
+// added, so the home counts as a yard) finishes it: it says what is there,
+// asks, adds the setting, starts the yard and goes on as the onboarding does.
+func TestBareYardrFinishesAYardWithoutDefaultKind(t *testing.T) {
+	home, f := resumeYard(t, nil)
+	st := &failing{API: storetest.New(t), on: "setting default_kind"}
+	if _, err := run(t, (&app{st: st}).rootCmd(), "init", "--harness", "claude", "--operator", "Jo", "--mayor", "boss"); !errors.Is(err, errCut) {
+		t.Fatal(err)
+	}
+	st.on = ""
+	started := startsMayor(t, st, "boss", mayorHandle())
+	stubPane(t, answeredPane)
+
+	out, err := run(t, (&app{st: st}).rootCmd())
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	wholeYard(t, st, home, "claude", "Jo", "boss")
+	for _, s := range []string{"its onboarding did not reach its end", "FAULT  settings   default_kind is not set", "FAULT  daemon",
+		"finished: part of it was there", "  added    the default_kind setting", "boss is running, in herdr"} {
+		if !strings.Contains(out, s) {
+			t.Errorf("output lacks %q:\n%s", s, out)
+		}
+	}
+	if strings.Contains(out, "Usage:") {
+		t.Errorf("help after the onboarding:\n%s", out)
+	}
+	if *started != 1 || !slices.Equal(keysOf(f), []string{"finish", "login", "web", "go"}) {
+		t.Fatalf("%d daemons started, asked %q", *started, keysOf(f))
+	}
+}
+
+// A yard whose daemon could not be started is taken up by bare yardr: the
+// daemon is started, the mayor comes up, and the questions the first run
+// never reached are asked. A service installed in between is not asked for.
+func TestBareYardrStartsAYardThatDidNotStart(t *testing.T) {
+	home, f := resumeYard(t, nil)
+	st := storetest.New(t)
+	// TestMain's start fails: "tests start no daemon".
+	out, err := run(t, (&app{st: st}).rootCmd(), "init", "--harness", "claude", "--start", "--wait", "30ms")
+	if err == nil || err.Error() != "mayor is not up" || !strings.Contains(out, "the daemon could not be started") {
+		t.Fatalf("first run: %v\n%s", err, out)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, unitPath, err := unitFile(cfg, svcDaemon)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(unitPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unitPath, []byte("installed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	started := startsMayor(t, st, "mayor", mayorHandle())
+	stubPane(t, answeredPane)
+
+	out, err = run(t, (&app{st: st}).rootCmd())
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	for _, s := range []string{"The yard in " + home + " has no rig yet, and its onboarding did not reach its end",
+		"FAULT  daemon     not running", "FAULT  mayor      mayor is not running: the daemon starts it",
+		"The daemon is started, in the background", "mayor is running, in herdr"} {
+		if !strings.Contains(out, s) {
+			t.Errorf("output lacks %q:\n%s", s, out)
+		}
+	}
+	// The yard lacked nothing: no summary of it, and no help.
+	if strings.Contains(out, "set up again") || strings.Contains(out, "Usage:") {
+		t.Errorf("output:\n%s", out)
+	}
+	if *started != 1 || !slices.Equal(keysOf(f), []string{"finish", "web", "go"}) {
+		t.Fatalf("%d daemons started, asked %q", *started, keysOf(f))
+	}
+}
+
+// A daemon that started and a mayor that never came up: init --start again
+// waits again and completes, and so does bare yardr, which says that the
+// session runs without an answer and starts no second daemon.
+func TestTheNextRunWaitsForAMayorThatWasNotUp(t *testing.T) {
+	home, f := resumeYard(t, nil)
+	st := storetest.New(t)
+	started := startsMayor(t, st, "mayor", mayorHandle())
+	stubPane(t, "sh$ claude\nNot logged in")
+	out, err := run(t, (&app{st: st}).rootCmd(), "init", "--harness", "claude", "--start", "--wait", "30ms")
+	if err == nil || *started != 1 || !strings.Contains(out, "has not answered its first prompt within 30ms") {
+		t.Fatalf("first run: %d started, %v\n%s", *started, err, out)
+	}
+	holdDaemon(t, home) // the daemon the first run started
+
+	// Still silent: bare yardr says so, and no ends it there.
+	f.answers = map[string]any{"finish": false}
+	out, err = run(t, (&app{st: st}).rootCmd())
+	if err != nil || !strings.Contains(out, "note   mayor      mayor's session runs, and it has not answered its first prompt") ||
+		!strings.Contains(out, "Left as it is. To finish later: YARDR_HOME="+home+" yardr init --start") || strings.Contains(out, "Usage:") {
+		t.Fatalf("no: %v\n%s", err, out)
+	}
+	if !slices.Equal(keysOf(f), []string{"finish"}) {
+		t.Fatalf("asked %q", keysOf(f))
+	}
+
+	// The harness is logged in; the mayor answers.
+	stubPane(t, answeredPane)
+	f.answers, f.asked = nil, nil
+	// Bare yardr finds nothing to finish on a yard that runs: help.
+	if out, err = run(t, (&app{st: st}).rootCmd()); err != nil || len(f.asked) != 0 || !strings.Contains(out, "Usage:") {
+		t.Fatalf("a yard that runs: asked %q, %v\n%s", f.asked, err, out)
+	}
+	out, err = run(t, (&app{st: st}).rootCmd(), "init", "--start", "--wait", "30ms")
+	if err != nil || *started != 1 || !strings.Contains(out, "The daemon was running already.") || !strings.Contains(out, "mayor is running, in herdr") {
+		t.Fatalf("init --start again: %d started, %v\n%s", *started, err, out)
+	}
+}
+
+// The same from the form: a mayor that did not come up ends the onboarding
+// with how it is taken up, and bare yardr then goes on to its end.
+func TestOnboardingIsTakenUpWhereTheMayorDidNotComeUp(t *testing.T) {
+	home, f := resumeYard(t, nil)
+	st := storetest.New(t)
+	// The form waits mayorWait for the mayor; one that is disabled ends the
+	// wait at once.
+	stub(t, &spawnDaemon, func(*config.Config) (<-chan error, error) {
+		if err := st.SetResidentEnabled(context.Background(), "mayor", false, "", "me"); err != nil {
+			t.Error(err)
+		}
+		return nil, nil
+	})
+	out, err := run(t, (&app{st: st}).rootCmd())
+	if err != nil || !strings.Contains(out, "mayor is stopped (disabled)") ||
+		!strings.Contains(out, "Once that is set right, run YARDR_HOME="+home+" yardr in this terminal again: it goes on from here.") {
+		t.Fatalf("form: %v\n%s", err, out)
+	}
+	if got := keysOf(f); len(got) != 0 {
+		t.Fatalf("asked %q after a mayor that is not up", got)
+	}
+	if err := st.SetResidentEnabled(context.Background(), "mayor", true, "", "me"); err != nil {
+		t.Fatal(err)
+	}
+	started := startsMayor(t, st, "mayor", mayorHandle())
+	stubPane(t, answeredPane)
+	f.asked = nil
+	out, err = run(t, (&app{st: st}).rootCmd())
+	if err != nil || *started != 1 || !strings.Contains(out, "mayor is running, in herdr") || !slices.Equal(keysOf(f), []string{"finish", "login", "web", "go"}) {
+		t.Fatalf("again: asked %q, %v\n%s", keysOf(f), err, out)
+	}
+}
+
+// Bare yardr takes up nothing where it is not the onboarding's to finish: a
+// yard with a rig, a mayor stopped on purpose, an agent's session, --json,
+// no terminal. It is help there, and asks nothing.
+func TestBareYardrLeavesOtherYardsAlone(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		prep func(t *testing.T, st store.API, home string)
+	}{
+		{"a rig", func(t *testing.T, st store.API, _ string) {
+			if err := st.PutRig(context.Background(), store.Rig{Name: "web", Path: shortDir(t, "yg"), Kind: store.RigDir}, "me"); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"a stopped mayor", func(t *testing.T, st store.API, home string) {
+			if err := st.SetResidentEnabled(context.Background(), "mayor", false, "", "me"); err != nil {
+				t.Fatal(err)
+			}
+			holdDaemon(t, home)
+		}},
+		{"an agent", func(t *testing.T, _ store.API, _ string) { t.Setenv("YARDR_RESIDENT", "mayor") }},
+		{"no terminal", func(t *testing.T, _ store.API, _ string) { setInteractive(t, false) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home, f := resumeYard(t, nil)
+			st := storetest.New(t)
+			if _, err := run(t, (&app{st: st}).rootCmd(), "init", "--harness", "claude"); err != nil {
+				t.Fatal(err)
+			}
+			started := startsMayor(t, st, "mayor", mayorHandle())
+			tc.prep(t, st, home)
+			out, err := run(t, (&app{st: st}).rootCmd())
+			if err != nil || len(f.asked) != 0 || *started != 0 || !strings.Contains(out, "Usage:") {
+				t.Fatalf("asked %q, %d started, %v\n%s", f.asked, *started, err, out)
+			}
+		})
+	}
+}

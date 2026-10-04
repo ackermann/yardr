@@ -56,6 +56,12 @@ in a pane of its own, where you watch what it does, or `yardr init --start`,
 which starts and waits the same way without a terminal and, on a running
 yard, tells you where the mayor is.
 
+A setup that failed halfway is finished by the next run: `yardr` in a
+terminal, or `yardr init`, says what the earlier run left and adds what is
+missing, and on a yard that is set up and does not run it starts the daemon
+and waits for the mayor again. To remove a yard and start over, see
+[docs/configuration.md](docs/configuration.md#starting-over).
+
 The mayor's first job is the setup, as a conversation with you: it asks for
 the repository and its base branch, registers the rig, seeds it with
 `yardr rig init` (starter roles, gate, flow and stage files under `.yardr/`, which you

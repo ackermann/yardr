@@ -439,9 +439,10 @@ func TestDaemonWithoutYard(t *testing.T) {
 }
 
 // Bare yardr on a store nobody set up (the server made it) runs the
-// onboarding; on a set-up home, and with --help anywhere, it is help.
+// onboarding; on a set-up home whose yard runs, and with --help anywhere, it
+// is help.
 func TestBareYardr(t *testing.T) {
-	newHome(t)
+	home := newHome(t)
 	setInteractive(t, true)
 	stubLookPath(t, "claude", "git", "herdr")
 	asked := 0
@@ -472,6 +473,8 @@ func TestBareYardr(t *testing.T) {
 		t.Fatalf("no mayor: %v", err)
 	}
 
+	// The daemon the onboarding started runs.
+	holdDaemon(t, home)
 	asked = 0
 	out, err = run(t, (&app{st: st}).rootCmd())
 	if err != nil || asked != 0 || !strings.Contains(out, "Usage:") {

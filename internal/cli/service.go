@@ -799,6 +799,9 @@ func webServiceAddr(cfg *config.Config) string {
 	return ""
 }
 
+// webLocalAddr is where the web view listens unless told otherwise.
+const webLocalAddr = "127.0.0.1:8791"
+
 // webLog is where a web view that no terminal runs writes its log.
 func webLog(cfg *config.Config) string { return filepath.Join(cfg.Home, "web.log") }
 
@@ -954,7 +957,7 @@ from login on instead. It listens on loopback only.`,
 		},
 	}
 	for _, c := range []*cobra.Command{install, start} {
-		c.Flags().StringVar(&addr, "addr", "127.0.0.1:8791", "listen address, on loopback")
+		c.Flags().StringVar(&addr, "addr", webLocalAddr, "listen address, on loopback")
 	}
 	cmd.AddCommand(install, uninstall, start)
 }
@@ -963,7 +966,9 @@ from login on instead. It listens on loopback only.`,
 // without and a person may want from the first day: the daemon at login,
 // and the web view. Both start at no. Each yes ends in the command that
 // does it, shown before it runs; a command that fails says so and the
-// onboarding goes on, since the yard runs either way.
+// onboarding goes on, since the yard runs either way. What the yard has
+// already is not asked for again: an onboarding taken up after a run that
+// got this far (resume) finds the service installed, or the view answering.
 func (a *app) offerServices(ctx context.Context, cfg *config.Config) error {
 	env := homeEnv(cfg.Home)
 	try := func(args ...string) {
@@ -974,7 +979,7 @@ func (a *app) offerServices(ctx context.Context, cfg *config.Config) error {
 	}
 	manager := managerOf()
 	fmt.Println()
-	if manager != "" {
+	if manager != "" && !loginService(cfg) {
 		login := false
 		desc := fmt.Sprintf("The daemon runs in the background now, and does not come back after a reboot.\n"+
 			"Yes installs it as a login service (%s), which starts it at every login.\n"+
@@ -990,10 +995,13 @@ func (a *app) offerServices(ctx context.Context, cfg *config.Config) error {
 			try("daemon", "install")
 		}
 	}
+	if webService(cfg) || answers(webLocalAddr) {
+		return nil
+	}
 	view := false
 	if err := ask(huh.NewConfirm().Key("web").Title("Start the web view now?").
-		Description(fmt.Sprintf("The yard in a browser, read-only, on this machine only: http://127.0.0.1:8791/ (docs/web.md).\n"+
-			"Later: %syardr web start", env)).Value(&view)); err != nil || !view {
+		Description(fmt.Sprintf("The yard in a browser, read-only, on this machine only: http://%s/ (docs/web.md).\n"+
+			"Later: %syardr web start", webLocalAddr, env)).Value(&view)); err != nil || !view {
 		return err
 	}
 	atLogin := false

@@ -37,14 +37,8 @@ import (
 // default_kind into such a yard (store.migrateSettings); this check is the
 // belt to those braces, for a store a server of an older build still holds.
 func (a *app) initialized(ctx context.Context, cfg *config.Config) (bool, error) {
-	if a.st == nil {
-		// No store file: nothing to connect to, and connecting would create one.
-		if _, err := os.Stat(cfg.DBPath()); errors.Is(err, fs.ErrNotExist) {
-			return false, nil
-		}
-	}
-	st, err := a.store(ctx)
-	if err != nil {
+	st, err := a.storeIfAny(ctx, cfg)
+	if err != nil || st == nil {
 		return false, err
 	}
 	if defaultKind(ctx, st) != "" {
@@ -70,6 +64,111 @@ func (a *app) initialized(ctx context.Context, cfg *config.Config) (bool, error)
 		return false, err
 	}
 	return len(beads) > 0, nil
+}
+
+// storeIfAny is the home's store when the home has one, nil when it has no
+// store file: there is nothing to connect to then, and connecting would
+// create one.
+func (a *app) storeIfAny(ctx context.Context, cfg *config.Config) (store.API, error) {
+	if a.st == nil {
+		if _, err := os.Stat(cfg.DBPath()); errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+	}
+	return a.store(ctx)
+}
+
+// partYard is what a home that init never marked set up (no default_kind)
+// holds of a yard all the same: what an init cut short left there. Init
+// writes the roles, then the operator and mayor settings, then the mayor
+// resident, and default_kind last, so a run that failed in between leaves
+// the ones before it. The next run finishes from them and says so.
+type partYard struct {
+	roles           []string // the role prompts in <home>/roles
+	operator, mayor string   // the settings
+	residents       []string
+}
+
+// partYard reads what the home holds of a yard; nil when it holds nothing,
+// when default_kind is set (the yard is set up) and when the store has rigs,
+// groups or beads of work (a yard from before the onboarding, in use).
+func (a *app) partYard(ctx context.Context, cfg *config.Config) (*partYard, error) {
+	p := &partYard{}
+	if files, err := os.ReadDir(filepath.Join(cfg.Home, "roles")); err == nil {
+		for _, f := range files {
+			if strings.HasSuffix(f.Name(), ".md") {
+				p.roles = append(p.roles, f.Name())
+			}
+		}
+	}
+	st, err := a.storeIfAny(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	if st != nil {
+		all, err := st.Settings(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if all["default_kind"] != "" {
+			return nil, nil
+		}
+		rigs, err := st.Rigs(ctx)
+		if err != nil {
+			return nil, err
+		}
+		groups, err := st.Groups(ctx)
+		if err != nil {
+			return nil, err
+		}
+		beads, err := st.ListBeads(ctx, store.BeadFilter{All: true})
+		if err != nil {
+			return nil, err
+		}
+		if len(rigs)+len(groups) > 0 || slices.ContainsFunc(beads, work) {
+			return nil, nil
+		}
+		residents, err := st.Residents(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range residents {
+			p.residents = append(p.residents, r.Name)
+		}
+		p.operator, p.mayor = all["operator"], all["mayor"]
+	}
+	if len(p.found(cfg.Home)) == 0 {
+		return nil, nil
+	}
+	return p, nil
+}
+
+// found is what the home holds, in words; nil for a nil partYard.
+func (p *partYard) found(home string) []string {
+	if p == nil {
+		return nil
+	}
+	var out []string
+	if len(p.roles) > 0 {
+		out = append(out, fmt.Sprintf("the role prompts %s in %s", list(p.roles), filepath.Join(home, "roles")))
+	}
+	var set []string
+	for _, kv := range [][2]string{{"operator", p.operator}, {"mayor", p.mayor}} {
+		if kv[1] != "" {
+			set = append(set, kv[0]+" "+kv[1])
+		}
+	}
+	switch len(set) {
+	case 0:
+	case 1:
+		out = append(out, "the setting "+set[0])
+	default:
+		out = append(out, "the settings "+list(set))
+	}
+	if len(p.residents) > 0 {
+		out = append(out, "the resident "+list(p.residents))
+	}
+	return out
 }
 
 // notInitialized is a command run on a home with no yard yet and no
@@ -143,14 +242,27 @@ func (a *app) onboard(c *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	if ok, err := a.initialized(c.Context(), cfg); err != nil || ok {
+	if ok, err := a.initialized(c.Context(), cfg); err != nil {
 		return err
+	} else if ok {
+		if c.HasParent() {
+			return nil
+		}
+		// Bare yardr on a yard: help, unless its onboarding is to finish.
+		return a.resume(c.Context(), cfg)
 	}
 	if !interactive() {
 		return notInitialized{cfg.Home}
 	}
-	opts, err := onboardForm(cfg.Home)
+	part, err := a.partYard(c.Context(), cfg)
+	if err != nil {
+		return err
+	}
+	opts, err := onboardForm(cfg.Home, part)
 	if errors.Is(err, huh.ErrUserAborted) {
+		if part != nil {
+			return fmt.Errorf("onboarding cancelled; nothing was added to %s", cfg.Home)
+		}
 		return fmt.Errorf("onboarding cancelled; nothing was created in %s", cfg.Home)
 	} else if err != nil {
 		return err
@@ -160,27 +272,124 @@ func (a *app) onboard(c *cobra.Command) error {
 		return err
 	}
 	a.onboarded = true
-	if err := a.report(c.Context(), cfg, res, opts); err != nil {
+	return a.goOn(c.Context(), cfg, res, opts)
+}
+
+// goOn is the onboarding after the yard is created: the summary, the start
+// when asked for, and once the mayor is up the services and the hand-off.
+// When the mayor is not up it says how the onboarding is taken up again.
+func (a *app) goOn(ctx context.Context, cfg *config.Config, res *initResult, opts initOptions) error {
+	if err := a.report(ctx, cfg, res, opts); err != nil {
 		return err
 	}
-	if res.Start != nil && res.Start.Running && !a.json {
-		// What the yard runs without, before the rest of its setup: the
-		// answers are the same wherever that goes on.
-		if err := a.offerServices(c.Context(), cfg); errors.Is(err, huh.ErrUserAborted) {
-			return nil
-		} else if err != nil {
-			return err
-		}
-		return a.handOff(c.Context(), cfg, res.Mayor, res.Start.Mayor)
+	if res.Start == nil || a.json {
+		return nil
 	}
-	return nil
+	if !res.Start.Running {
+		fmt.Printf("\nOnce that is set right, run %syardr in this terminal again: it goes on from here.\n", homeEnv(cfg.Home))
+		return nil
+	}
+	// What the yard runs without, before the rest of its setup: the
+	// answers are the same wherever that goes on.
+	if err := a.offerServices(ctx, cfg); errors.Is(err, huh.ErrUserAborted) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	return a.handOff(ctx, cfg, res.Mayor, res.Start.Mayor)
+}
+
+// resume is bare yardr in a terminal on a yard whose onboarding did not
+// reach its end: it is set up (or counts as it: an init cut short after the
+// mayor was added), has no rig yet, and its default_kind is missing, its
+// mayor is, no daemon runs, or the mayor is not up. It says what is there
+// (the lines yardr doctor prints for the yard), asks, and then does what
+// the onboarding does from that point: init again, which adds only what is
+// missing, the start, the services, the hand-off. On any other yard, and
+// where no form runs, it does nothing, and bare yardr is help.
+//
+// It goes by the yard as it is, not by a record of the earlier run: a yard
+// made by yardr init and never started is taken up the same way.
+func (a *app) resume(ctx context.Context, cfg *config.Config) error {
+	if a.json || !interactive() || agentSession() {
+		return nil
+	}
+	st, err := a.store(ctx)
+	if err != nil {
+		return err
+	}
+	steps, err := setupSteps(ctx, st)
+	if err != nil {
+		return err
+	}
+	if next := nextStep(steps); next == nil || next.Key != stepRig {
+		return nil // a yard with a rig is past its onboarding
+	}
+	residents, err := st.Residents(ctx)
+	if err != nil {
+		return err
+	}
+	state, err := readState(ctx, cfg, st, residents)
+	if err != nil {
+		return err
+	}
+	m := state.Mayor
+	// A session that runs is not a mayor that is up (see waitMayor).
+	silent := false
+	for _, r := range residents {
+		if r.Name == m.Name && r.Live() {
+			silent = !up(ctx, r)
+		}
+	}
+	noKind := defaultKind(ctx, st) == ""
+	if !noKind && state.Daemon && m.Resident && (!m.Enabled || (m.Running && !silent)) {
+		return nil
+	}
+	lines := state.lines(cfg.Home)
+	if silent {
+		lines = append(lines, docLine{tagNote, "mayor", m.Name + "'s session runs, and it has not answered its first prompt"})
+	}
+	if noKind {
+		lines = append(lines, docLine{tagFault, "settings", "default_kind is not set: an earlier setup stopped before it marked the yard set up"})
+	}
+	env := homeEnv(cfg.Home)
+	fmt.Printf("The yard in %s has no rig yet, and its onboarding did not reach its end. What is there:\n\n", cfg.Home)
+	printLines(lines)
+	fmt.Println()
+	a.onboarded = true // from here on this run is the onboarding, not help
+	finish := true
+	what := "Waits for " + m.Name
+	if !state.Daemon {
+		what = "Starts the daemon in the background and waits for " + m.Name
+	}
+	if noKind || !m.Resident {
+		what = "Adds what is missing. " + what
+	}
+	err = ask(huh.NewConfirm().Key("finish").Title("Finish the setup now?").
+		Description(fmt.Sprintf("%s, then goes on as the onboarding does.\nNo leaves the yard as it is: %syardr init --start does the same later.", what, env)).
+		Value(&finish))
+	if err != nil && !errors.Is(err, huh.ErrUserAborted) {
+		return err
+	}
+	if err != nil || !finish {
+		fmt.Printf("Left as it is. To finish later: %syardr init --start, or %syardr in a terminal.\n", env, env)
+		return nil
+	}
+	opts := initOptions{Mayor: m.Name, Start: true, resumed: true}
+	res, err := a.initYard(ctx, cfg, opts)
+	if err != nil {
+		return err
+	}
+	return a.goOn(ctx, cfg, res, opts)
 }
 
 // report prints what init did and, when asked to, starts the yard in
 // between: the summary first, so the wait for the mayor has something above
 // it, then how the start ended. As JSON it is one object, at the end.
 func (a *app) report(ctx context.Context, cfg *config.Config, res *initResult, o initOptions) error {
-	if !a.json {
+	if !a.json && !(o.resumed && res.MayorKept && len(res.Found) == 0) {
+		// An onboarding taken up on a yard that lacked nothing has said
+		// what is there (resume); the summary would say it again.
 		res.printYard()
 	}
 	if o.Start {
@@ -216,6 +425,9 @@ type initOptions struct {
 	// mayor). On a yard that is set up, a setting whose flag was not given
 	// is kept as it is. The form never runs on a set-up yard.
 	Given map[string]bool
+	// resumed: this init takes up an onboarding that did not reach its end
+	// (resume).
+	resumed bool
 }
 
 // initResult is what initYard did.
@@ -232,9 +444,14 @@ type initResult struct {
 	// MayorKept: a resident of the mayor's name was there already and is
 	// left as it was.
 	MayorKept bool `json:"mayor_kept"`
-	// SettingsKept are the settings of a set-up yard this init left as they
-	// were ("operator Jo"), their flags not given.
+	// SettingsKept are the settings stored before that this init left as
+	// they were ("operator Jo"), their flags not given.
 	SettingsKept []string `json:"settings_kept"`
+	// Found is what an earlier init, cut short, had left in the home, and
+	// Added what this run added to finish the yard; both absent on a home
+	// that held nothing and on a yard that was set up.
+	Found []string `json:"found,omitempty"`
+	Added []string `json:"added,omitempty"`
 	// Start is how starting the yard ended, when init was asked to.
 	Start *startResult `json:"start,omitempty"`
 }
@@ -245,19 +462,22 @@ type initResult struct {
 // edited (the mayor edits its own) and refreshed to this build's when not,
 // and an existing resident of the mayor's name is never replaced, so init
 // runs again on a yard without harm, and is how an upgrade reaches the
-// templates. On a yard that is set up, the settings stored before stand in
-// for the flags not given (keepSettings): init again changes only what its
-// flags say.
+// templates. The settings stored before stand in for the flags not given
+// (keepSettings): init again changes only what its flags say.
+//
+// A run that fails leaves what it wrote before (the order is roles,
+// operator and mayor, the mayor resident, default_kind), and the next run
+// finishes from it: the same steps skip or keep what is there, the stored
+// settings and the mayor's kind stand in for flags not given, and the result
+// says what was found and what was added (partYard).
 func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (*initResult, error) {
-	setUp, err := a.initialized(ctx, cfg)
+	part, err := a.partYard(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
-	var kept []string
-	if setUp {
-		if o, kept, err = a.keepSettings(ctx, o); err != nil {
-			return nil, err
-		}
+	o, kept, err := a.keepSettings(ctx, cfg, o)
+	if err != nil {
+		return nil, err
 	}
 	if o.Harness == "" {
 		return nil, fmt.Errorf("--harness <kind> is required to create a yard; herdr starts: %s", strings.Join(agents.Kinds(), ", "))
@@ -294,8 +514,8 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 	}
 	res.MayorKept, res.SettingsKept = mayorKept, kept
 	// operator and mayor are what rig init fills the roles with later.
-	for k, v := range map[string]string{"operator": res.Operator, "mayor": o.Mayor} {
-		if err := st.SetSetting(ctx, k, v, a.who()); err != nil {
+	for _, kv := range [][2]string{{"operator", res.Operator}, {"mayor", o.Mayor}} {
+		if err := st.SetSetting(ctx, kv[0], kv[1], a.who()); err != nil {
 			return nil, err
 		}
 	}
@@ -307,17 +527,31 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 	if err := st.SetSetting(ctx, "default_kind", o.Harness, a.who()); err != nil {
 		return nil, err
 	}
+	if res.Found = part.found(cfg.Home); len(res.Found) > 0 {
+		if len(res.Written) > 0 {
+			res.Added = append(res.Added, "the role prompts "+list(bases(res.Written)))
+		}
+		if part.operator == "" || part.mayor == "" {
+			res.Added = append(res.Added, "the operator and mayor settings")
+		}
+		if !mayorKept {
+			res.Added = append(res.Added, "the resident "+o.Mayor)
+		}
+		res.Added = append(res.Added, "the default_kind setting, which marks the yard set up")
+	}
 	res.Daemon = daemonRunning(cfg.DaemonLock())
 	return res, nil
 }
 
-// keepSettings is o with the settings a set-up yard holds (default_kind,
+// keepSettings is o with the settings the home's store holds (default_kind,
 // operator, mayor) in place of the flags not given, so init again does not
 // reset them to the flags' defaults (the login name, "mayor"); it reports
-// which were kept, as "<setting> <value>".
-func (a *app) keepSettings(ctx context.Context, o initOptions) (initOptions, []string, error) {
-	st, err := a.store(ctx)
-	if err != nil {
+// which were kept, as "<setting> <value>". Where no default_kind is stored
+// and no harness given, the harness is the mayor resident's kind: an init
+// cut short after it added the mayor is finished on the harness it chose.
+func (a *app) keepSettings(ctx context.Context, cfg *config.Config, o initOptions) (initOptions, []string, error) {
+	st, err := a.storeIfAny(ctx, cfg)
+	if err != nil || st == nil {
 		return o, nil, err
 	}
 	all, err := st.Settings(ctx)
@@ -332,6 +566,13 @@ func (a *app) keepSettings(ctx context.Context, o initOptions) (initOptions, []s
 		if !o.Given[s.flag] && all[s.key] != "" {
 			*s.value = all[s.key]
 			kept = append(kept, s.key+" "+all[s.key])
+		}
+	}
+	if o.Harness == "" {
+		if r, err := st.GetResident(ctx, or(o.Mayor, "mayor")); err == nil {
+			o.Harness, _ = r.Config["kind"].(string)
+		} else if !errors.Is(err, store.ErrNotFound) {
+			return o, nil, err
 		}
 	}
 	return o, kept, nil
@@ -411,6 +652,11 @@ func bases(paths []string) []string {
 // A file already there is kept, except that with refresh one the manifest
 // says was never edited is replaced with this build's (see shippedManifest).
 // With only, it writes just those files (e.g. "builder.md").
+//
+// Each file is written whole or not at all, and the manifest is saved after
+// every one: a run that fails among them leaves no half a prompt, and none
+// it wrote that the next run would take for an edited one and keep, naming
+// whoever the failed run was told.
 func installRoles(dir, operator, mayor string, refresh bool, only ...string) (*roleInstall, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
@@ -429,6 +675,16 @@ func installRoles(dir, operator, mayor string, refresh bool, only ...string) (*r
 		} else if !errors.Is(err, fs.ErrNotExist) {
 			return nil, err
 		}
+	}
+	save := func() error {
+		if !refresh {
+			return nil
+		}
+		b, err := json.MarshalIndent(manifest, "", "  ")
+		if err != nil {
+			return err
+		}
+		return writeWhole(mpath, append(b, '\n'))
 	}
 	res := &roleInstall{}
 	for _, f := range files {
@@ -460,21 +716,40 @@ func installRoles(dir, operator, mayor string, refresh bool, only ...string) (*r
 			res.Kept = append(res.Kept, path)
 			continue
 		}
-		if err := os.WriteFile(path, want, 0o644); err != nil {
+		if err := writeWhole(path, want); err != nil {
 			return nil, err
 		}
 		manifest[f.Name()] = digest(want)
+		if err := save(); err != nil {
+			return nil, err
+		}
 	}
-	if refresh {
-		b, err := json.MarshalIndent(manifest, "", "  ")
-		if err != nil {
-			return nil, err
-		}
-		if err := os.WriteFile(mpath, append(b, '\n'), 0o644); err != nil {
-			return nil, err
-		}
+	if err := save(); err != nil {
+		return nil, err
 	}
 	return res, nil
+}
+
+// writeWhole writes a file under its name only once it is complete: a
+// write cut short leaves the file that was there, or none.
+func writeWhole(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }
 
 // digest is the manifest's hash of a role file's bytes.
@@ -507,9 +782,15 @@ func daemonRunning(lock string) bool {
 // printYard is the summary of the yard init created or set up again.
 func (r *initResult) printYard() {
 	env := homeEnv(r.Home)
-	if r.MayorKept {
+	switch {
+	case len(r.Found) > 0:
+		// An init cut short left part of it; this run finished it.
+		fmt.Printf("yard in %s finished: part of it was there, from a setup that did not reach its end\n\n", r.Home)
+		fmt.Printf("  found    %s\n", strings.Join(r.Found, "; "))
+		fmt.Printf("  added    %s\n", strings.Join(r.Added, "; "))
+	case r.MayorKept:
 		fmt.Printf("yard in %s set up again\n\n", r.Home)
-	} else {
+	default:
 		fmt.Printf("yard created in %s\n\n", r.Home)
 	}
 	fmt.Printf("  harness  %s (the yard's default_kind: groups and residents get it when --set kind is omitted)\n", r.Harness)
@@ -595,10 +876,20 @@ func harnessOptions() ([]huh.Option[string], string) {
 // onboardForm asks for the harness, the mayor's name, its directory and its
 // model, and whether to start the yard. Each answer starts at its default,
 // so accepting every page gives a working yard with its mayor running.
-func onboardForm(home string) (initOptions, error) {
+//
+// part is what an earlier setup, cut short, left in the home: the form says
+// so, and the mayor's name and yours start at what that run stored.
+func onboardForm(home string, part *partYard) (initOptions, error) {
 	opts, def := harnessOptions()
-	o := initOptions{Harness: def, Mayor: "mayor", Dir: filepath.Dir(home), Operator: defaultOperator(), Start: true}
+	o := initOptions{Harness: def, Mayor: "mayor", Dir: filepath.Dir(home), Operator: defaultOperator(), Start: true,
+		// The form's answers are given, whatever the store holds.
+		Given: map[string]bool{"harness": true, "operator": true, "mayor": true}}
 	fmt.Printf("No yard in %s yet. This sets one up: a default agent harness, and a mayor on it.\n\n", home)
+	if part != nil {
+		o.Mayor, o.Operator = or(part.mayor, o.Mayor), or(part.operator, o.Operator)
+		fmt.Printf("An earlier setup of this home did not reach its end. It left %s.\n"+
+			"This one goes on from that, and says at its end what it added.\n\n", strings.Join(part.found(home), "; "))
+	}
 	if err := preflight(); err != nil {
 		return o, err
 	}
@@ -676,6 +967,17 @@ store file alone does not, since the server creates it on any first command.
 Init again on a yard keeps its default_kind, operator and mayor settings and
 an existing mayor resident; only the flags given change them, so --harness is
 required only to create a yard.
+
+A run that failed leaves what it made before the failure (the order is: the
+roles, the operator and mayor settings, the mayor, default_kind), and init
+again finishes from it. The settings stored stand in for the flags not given,
+and the mayor's kind for --harness once the mayor is there; the summary then
+says "finished", with what it found and what it added (--json: found, added).
+On a yard that is set up and did not start, init --start starts and waits
+again. Bare yardr in a terminal does the same on a yard with no rig yet,
+after saying what is there and asking, and then goes on as the onboarding
+does. docs/configuration.md has both, and how to remove a yard and start
+over.
 
 After init the mayor sets up the rest in conversation, or yardr setup does in
 a terminal, as forms. For scripts, the same by hand:

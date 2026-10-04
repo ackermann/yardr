@@ -7,7 +7,7 @@ go deeper.
 |---|---|
 | [setup.md](setup.md) | `yardr setup`: the setup after the onboarding as forms, one page per step, each ending in the command it shows; changing over to the mayor and back |
 | [doctor.md](doctor.md) | `yardr doctor`: what a yard has and what it lacks (programs, what runs, setup steps), every line it prints, its JSON |
-| [configuration.md](configuration.md) | what lives in a repo's `.yardr/` and what lives in the store, precedence, where yardr keeps its own state |
+| [configuration.md](configuration.md) | what lives in a repo's `.yardr/` and what lives in the store, precedence, where yardr keeps its own state; creating a yard, a setup that did not finish, starting over |
 | [flows.md](flows.md) | bead lifecycles: named flows rigs point at, repo flows on the base branch, which flow wins, type flows, terminal stages, outcomes and `bead done` |
 | [pipeline.md](pipeline.md) | how a bead moves in practice, using rig yardr: backlog, mayor, builders, review, refinery |
 | [dir-rigs.md](dir-rigs.md) | rigs that are a plain directory, not a repository: `rig init` for them, their flows, a worked example (summarizing a folder of documents) |
