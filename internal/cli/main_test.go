@@ -45,8 +45,8 @@ func TestMain(m *testing.M) {
 		return "", errors.New("tests ask no service manager")
 	}
 	signalDaemon = func(int) error { return errors.New("tests signal no process") }
-	spawnWeb = func(*config.Config, string) (int, <-chan error, error) {
-		return 0, nil, errors.New("tests start no web view")
+	spawnWeb = func(*config.Config, string) (int, <-chan error, func() error, error) {
+		return 0, nil, nil, errors.New("tests start no web view")
 	}
 	answers = func(string) bool { return false }
 	pollEvery = 5 * time.Millisecond
