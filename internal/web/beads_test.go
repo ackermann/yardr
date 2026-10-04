@@ -581,7 +581,7 @@ func TestBeadHTML(t *testing.T) {
 		`<dt>labels</dt><dd>wood</dd>`,
 		`<a class="bead" href="/beads/` + blocker.ID + `">`,
 		"<pre class=\"text\">Hang it.\n\n- on two hinges</pre>",
-		"<pre class=\"text\">A builder implements the bead here.\n</pre>",
+		"<pre class=\"text file\">A builder implements the bead here.\n</pre>",
 		`<code>yardr bead done ` + b.ID + ` --outcome question</code>`,
 		`<pre class="text">the hinge is missing</pre>`,
 		`builders · stage new`,

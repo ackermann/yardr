@@ -187,7 +187,9 @@ ul, ol { list-style: none; }
 
 /* A flow: one column, its stages in order, each with the beads in it. */
 .column { margin-top: 8px; }
-.stage {
+/* Under .column only: Home's stage counts name their labels .stage too, and
+   a bare .stage drew this rule beside each of them. */
+.column > .stage {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   column-gap: 10px;
@@ -217,6 +219,10 @@ ul, ol { list-style: none; }
 .facts dd, .edges li { overflow-wrap: anywhere; }
 /* What someone wrote, as they wrote it. */
 .text { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* A stage file is wrapped by hand, at a width the column may not have: wrapped
+   again its lines end ragged and its lists lose their indent. So it keeps
+   its lines, smaller, and what still does not fit scrolls inside the block. */
+.text.file { white-space: pre; overflow-wrap: normal; overflow-x: auto; font-size: var(--small); line-height: 1.6; }
 .item > h3 + *, .item > .item-head + * { margin-top: 8px; }
 .note + .note { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--hairline); }
 .note .text, .note p { margin-top: 4px; }

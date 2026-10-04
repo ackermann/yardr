@@ -499,7 +499,10 @@ moves.
 text someone, or some agent, wrote. Every page writes them as text through
 `html/template`, in a `<pre class="text">` that keeps their lines; nothing
 renders them as markdown or HTML, so a `<script>` in a note is shown, not
-run. `TestBeadEscapes` feeds one through the title, the body, a note, a
+run. A body or a note wraps at the column's width. A stage file (`<pre
+class="text file">`) is wrapped by hand already, so it keeps its lines as
+written, in the small size, and scrolls sideways inside its block where
+the column is narrower than they are; the page itself never does. `TestBeadEscapes` feeds one through the title, the body, a note, a
 note's author and a stage file, on every page and in the card stream.
 
 ## The stream

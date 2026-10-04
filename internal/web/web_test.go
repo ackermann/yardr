@@ -674,3 +674,51 @@ func TestTokens(t *testing.T) {
 		}
 	}
 }
+
+// The rule of one selector in the stylesheet, as its declarations.
+func cssRule(t *testing.T, selector string) string {
+	t.Helper()
+	css, err := os.ReadFile("assets/yard.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(selector) + ` \{([^}]*)\}`).FindSubmatch(css)
+	if m == nil {
+		t.Fatalf("the stylesheet has no rule for %s", selector)
+	}
+	return string(m[1])
+}
+
+// Home names the label under a stage's count .stage, and so does a flow its
+// stage: the flow's rule (a border on the left, a grid) is the flow's alone.
+// As a bare .stage it drew a rule beside every label on Home.
+func TestStageRuleIsTheFlows(t *testing.T) {
+	css, err := os.ReadFile("assets/yard.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bare := regexp.MustCompile(`(?m)(^|,\s*)\.stage\s*[{,]`).Find(css); bare != nil {
+		t.Errorf("a rule for every .stage, which Home's labels take too: %q", bare)
+	}
+	if rule := cssRule(t, ".column > .stage"); !strings.Contains(rule, "border-left:") {
+		t.Errorf("a flow's stage has no rule on its left: %s", rule)
+	}
+	if rule := cssRule(t, ".stages .stage"); strings.Contains(rule, "border") {
+		t.Errorf("Home's stage label has a border: %s", rule)
+	}
+}
+
+// A stage file keeps the lines it was written in and scrolls inside its
+// block: wrapped again at the column's width its lines end ragged and lose
+// their indent. What a person wrote in a body or a note still wraps.
+func TestStageFileKeepsItsLines(t *testing.T) {
+	file := cssRule(t, ".text.file")
+	for _, want := range []string{"white-space: pre;", "overflow-x: auto;"} {
+		if !strings.Contains(file, want) {
+			t.Errorf(".text.file lacks %s: %s", want, file)
+		}
+	}
+	if text := cssRule(t, ".text"); !strings.Contains(text, "white-space: pre-wrap;") {
+		t.Errorf(".text does not wrap: %s", text)
+	}
+}
