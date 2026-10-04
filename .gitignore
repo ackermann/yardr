@@ -2,3 +2,4 @@
 *.test
 history.txt
 conformance/bdp/node_modules/
+/dist

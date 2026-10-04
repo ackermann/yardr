@@ -118,6 +118,31 @@ func revision(settings []debug.BuildSetting) string {
 	return rev
 }
 
+// tag is the release this build was made for (v1.2.3). contrib/release/build
+// stamps it with -ldflags -X; a `go install` or `go build` leaves it empty.
+// It only names the build for people: which build replaces which is decided
+// by Revision and Time alone, so a release archive and a `go install` are
+// ordered against each other like two installs.
+var tag string
+
+// Describe names this build for people: "v1.2.3 (abcdef123456)" for a
+// release build, else the revision as the server and daemon log it.
+func Describe() string { return describe(tag, Current()) }
+
+func describe(tag, rev string) string {
+	switch {
+	case tag == "":
+		return Show(rev)
+	case rev == "":
+		return tag
+	}
+	return tag + " (" + rev + ")"
+}
+
+// Tag is the release this build was made for, or "" when it is not a
+// release build.
+func Tag() string { return tag }
+
 // Show is rev for people: "unknown" when there is none.
 func Show(rev string) string {
 	if rev == "" {

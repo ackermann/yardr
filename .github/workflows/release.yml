@@ -1,0 +1,70 @@
+name: release
+
+# A pushed tag v* makes a release. Run by hand (workflow_dispatch) it is a
+# dry run: the same gate and the same build, the archives kept as a workflow
+# artifact, and nothing published.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # A dry run has no tag to take the version from.
+      VERSION: ${{ github.event_name == 'push' && github.ref_name || 'v0.0.0-dryrun' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      # The same gate a bead passes before it lands (gofmt, go vet, go test
+      # -race, the rpc suites): a tag on a commit that fails it makes no
+      # release.
+      - name: rig gate (.yardr/check)
+        run: sh .yardr/check
+      # The script a person runs for the same build. It cross-compiles the
+      # four targets without cgo, stamps the version, runs the linux/amd64
+      # binary's `yardr version` against it, and writes the archives and
+      # checksums.txt to dist/.
+      - name: build the archives
+        run: contrib/release/build "$VERSION" dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    # Only a tag publishes; a dry run ends with the artifact above.
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The one job that may write, and it runs no code from the repository:
+    # it only hands the built files to GitHub.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - name: create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # v1.2.3-rc.1 is a pre-release: it never becomes "latest".
+          prerelease=
+          case "$TAG" in *-*) prerelease=--prerelease ;; esac
+          gh release create "$TAG" dist/*.tar.gz dist/checksums.txt \
+            --verify-tag --generate-notes --title "$TAG" $prerelease

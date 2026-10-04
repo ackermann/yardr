@@ -17,6 +17,7 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/version"
 )
 
 type app struct {
@@ -81,8 +82,25 @@ func (a *app) rootCmd() *cobra.Command {
 		a.depCmd(), a.groupCmd(), a.routeCmd(), a.flowCmd(), a.sessionCmd(), a.eventsCmd(), a.watchCmd(), a.primeCmd(),
 		a.bdpCmd(), a.webCmd(), a.residentCmd(), a.inboxCmd(), a.mailCmd(), a.rememberCmd(), a.recallCmd(), a.hookCmd(),
 		a.subscribeCmd(), a.unsubscribeCmd(), a.threadCmd(), a.replyCmd(), a.reviewCmd(), a.storeCmd(), a.packCmd(),
-		a.initCmd(), a.settingsCmd(), a.doctorCmd(), a.setupCmd(), a.otelCmd())
+		a.initCmd(), a.settingsCmd(), a.doctorCmd(), a.setupCmd(), a.otelCmd(), a.versionCmd())
 	return root
+}
+
+// versionCmd prints which build this is. It touches neither the store nor
+// the server, so it answers on a home with no yard and while a server of
+// another build runs.
+func (a *app) versionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use: "version", Short: "Print which build of yardr this is", Args: cobra.NoArgs,
+		Long: `Print which build of yardr this is: the release and its revision for a
+build from a release archive ("v1.2.3 (abcdef123456)"), the revision alone
+for a go install, "unknown" for a build that carries neither.`,
+		RunE: func(*cobra.Command, []string) error {
+			return a.out(map[string]string{"version": version.Tag(), "revision": version.Current()}, func() {
+				fmt.Println(version.Describe())
+			})
+		},
+	}
 }
 
 // exitCode is the process status for a command's error: 1 for a red check

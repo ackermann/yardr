@@ -248,3 +248,18 @@ func TestOfFileReadsThisTestBinary(t *testing.T) {
 		t.Fatal("missing file read")
 	}
 }
+
+func TestDescribe(t *testing.T) {
+	for _, c := range []struct{ tag, rev, want string }{
+		{"", "", "unknown"},
+		{"", "abcdefabcdef", "abcdefabcdef"},
+		{"", "abcdefabcdef-modified", "abcdefabcdef-modified"},
+		{"v1.2.3", "abcdefabcdef", "v1.2.3 (abcdefabcdef)"},
+		// A release built outside a checkout carries no revision.
+		{"v1.2.3", "", "v1.2.3"},
+	} {
+		if got := describe(c.tag, c.rev); got != c.want {
+			t.Errorf("describe(%q, %q) = %q; want %q", c.tag, c.rev, got, c.want)
+		}
+	}
+}
