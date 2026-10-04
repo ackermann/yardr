@@ -376,35 +376,39 @@ func TestDoctorMissingDependency(t *testing.T) {
 // On PATH is not "works": a harness that is found is run with its version
 // flag and answers, fails or hangs; a kind with no known flag is not run.
 func TestDoctorVersionCheck(t *testing.T) {
-	stub(t, &versionTimeout, 300*time.Millisecond)
 	dir := fakeTools(t, map[string]string{"claude": toolAnswers, "codex": toolFails, "kimi": toolHangs, "cursor-agent": toolHangs})
 	ctx := context.Background()
-	for kind, want := range map[string]versionCheck{
-		"claude": {versionAnswers, "tool 1.2.3"},
-		"codex":  {versionFails, "exit status 3: broken install"},
-		"kimi":   {versionHangs, ""},
-		"cursor": {versionNotChecked, ""}, // would hang, were it run
-	} {
-		began := time.Now()
-		n := harnessNeed(kind, "x")
-		if got := probe(ctx, kind, n.Path); got != want {
+	check := func(kind string, want versionCheck) {
+		t.Helper()
+		if got := probe(ctx, kind, harnessNeed(kind, "x").Path); got != want {
 			t.Errorf("%s: %+v, want %+v", kind, got, want)
 		}
-		if d := time.Since(began); d > 5*time.Second {
-			t.Errorf("%s: the check took %s", kind, d)
-		}
+	}
+	// With the timeout a person gets: a loaded machine must not turn an
+	// answer into a hang.
+	check("claude", versionCheck{versionAnswers, "tool 1.2.3"})
+	check("codex", versionCheck{versionFails, "exit status 3: broken install"})
+	check("cursor", versionCheck{versionNotChecked, ""}) // would hang, were it run
+	// A path that cannot be run fails, and says why.
+	if got := probe(ctx, "claude", filepath.Join(dir, "gone")); got.State != versionFails || !strings.Contains(got.Output, "no such file") {
+		t.Errorf("missing executable: %+v", got)
 	}
 	// A long first line is cut on a character, not in the middle of one.
 	if got := versionLine("\n  " + strings.Repeat("─", 90) + "\nmore"); got != strings.Repeat("─", 60)+"…" {
 		t.Errorf("versionLine = %q", got)
 	}
-	// A path that cannot be run fails, and says why.
-	if got := probe(ctx, "claude", filepath.Join(dir, "gone")); got.State != versionFails || !strings.Contains(got.Output, "no such file") {
-		t.Errorf("missing executable: %+v", got)
+	// A hang ends on the timeout, the script's sleep with it.
+	stub(t, &versionTimeout, 300*time.Millisecond)
+	began := time.Now()
+	check("kimi", versionCheck{versionHangs, ""})
+	if d := time.Since(began); d > 5*time.Second {
+		t.Errorf("the hanging check took %s", d)
 	}
 
 	// In the report: a failing or hanging harness the yard runs on is a
-	// fault, and on macOS the hang names Gatekeeper.
+	// fault, and on macOS the hang names Gatekeeper. The timeout leaves the
+	// failing one time to fail.
+	stub(t, &versionTimeout, 2*time.Second)
 	newHome(t)
 	st := storetest.New(t)
 	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "kimi": toolHangs, "codex": toolFails, "cursor-agent": toolHangs})
@@ -421,19 +425,20 @@ func TestDoctorVersionCheck(t *testing.T) {
 	if !errors.Is(err, errCheckFailed) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
-	wantText(t, out, "FAULT  kimi ", "on PATH, but it did not answer its version flag within 300ms. On macOS that can be a quarantined binary "+
+	wantText(t, out, "FAULT  kimi ", "on PATH, but it did not answer its version flag within 2s. On macOS that can be a quarantined binary "+
 		"waiting on a Gatekeeper dialog nobody sees: run kimi once in a terminal and answer it",
 		"FAULT  codex ", "on PATH, but its version flag fails: exit status 3: broken install",
 		"ok     cursor-agent ", "not checked, yardr knows no version flag for cursor")
-	stub(t, &goos, "linux")
-	if out, _ := run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor"); strings.Contains(out, "Gatekeeper") || !strings.Contains(out, "within 300ms") {
-		t.Errorf("off macOS a hang is only a hang:\n%s", out)
-	}
 	rep, _ := doctorJSON(t, st)
 	states := map[string]string{}
+	stub(t, &goos, "linux")
 	for _, n := range rep.Machine {
 		if n.Version != nil {
 			states[n.Harness] = n.Version.State
+		}
+		// Off macOS a hang is only a hang.
+		if l := n.line(); n.Harness == "kimi" && (l.tag != tagFault || strings.Contains(l.text, "Gatekeeper") || !strings.HasSuffix(l.text, "within 2s")) {
+			t.Errorf("off macOS: %+v", l)
 		}
 	}
 	if states["kimi"] != versionHangs || states["codex"] != versionFails || states["cursor"] != versionNotChecked {
