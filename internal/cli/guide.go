@@ -254,8 +254,6 @@ func (a *app) guide(ctx context.Context, cfg *config.Config, st store.API) error
 			// the builder's role, say): going on would ask the same again.
 			fmt.Printf("\nStill to do: %s: %s.\n  %s\n", after.Title, after.Detail, strings.ReplaceAll(after.Next, "yardr ", env+"yardr "))
 			return nil
-		case g.pages()[after.Key] == nil:
-			continue
 		}
 		pick, err := g.goOn(ctx, *after)
 		switch {
@@ -266,6 +264,8 @@ func (a *app) guide(ctx context.Context, cfg *config.Config, st store.API) error
 			return err
 		case pick == goMayor:
 			return g.toMayor(ctx)
+		case g.pages()[after.Key] == nil:
+			return g.watch(ctx)
 		}
 	}
 }

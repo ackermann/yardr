@@ -170,10 +170,10 @@ func yardSnapshot(t *testing.T, st store.API) string {
 
 // The forms alone, every page accepted, take an initialized yard to a first
 // bead in stage new: each page shows its command line and runs that
-// command, and after every page but the last it asks how to go on.
+// command, and asks how to go on after every page.
 func TestSetupForms(t *testing.T) {
 	f := &former{answers: map[string]any{"title": "Say hello", "goal": "HELLO.md says hello. Done when it is committed."},
-		goes: []string{goHere, goHere, goHere, goHere, goHere, goHere}}
+		goes: []string{goHere, goHere, goHere, goHere, goHere, goHere, goHere}}
 	home, st, repo := setupYard(t, f)
 	ctx := context.Background()
 	out := setup(t, st)
@@ -268,10 +268,10 @@ func TestSetupForms(t *testing.T) {
 	if next := todo(t, st); next != stepMerged {
 		t.Errorf("next step = %q, want the merged bead", next)
 	}
-	// How to go on was asked after every page but the last, whose end is
-	// the end of the forms.
-	if n := len(slices.DeleteFunc(slices.Clone(f.asked), func(k string) bool { return k != "go" })); n != 6 || len(f.goes) != 0 {
-		t.Errorf("asked how to go on %d times, want 6: %v", n, f.asked)
+	// How to go on was asked after every page, including the first bead;
+	// keeping going from that page prints how to watch it.
+	if n := len(slices.DeleteFunc(slices.Clone(f.asked), func(k string) bool { return k != "go" })); n != 7 || len(f.goes) != 0 {
+		t.Errorf("asked how to go on %d times, want 7: %v", n, f.asked)
 	}
 
 	// Run again, there is no page left: it says where the bead is.
