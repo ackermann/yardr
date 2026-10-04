@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
@@ -28,6 +30,7 @@ const (
 	ParticipantActed    = "acted"    // a hook delivery showed it acting there
 	ParticipantFollowed = "followed" // yardr thread follow
 	ParticipantReplied  = "replied"  // yardr reply
+	ParticipantOpened   = "opened"   // yardr thread open
 )
 
 // Participation is a resident taking part in a source's thread (in Linear,
@@ -97,8 +100,10 @@ func (s *Store) FollowThread(ctx context.Context, name, source, thread, actor st
 	})
 }
 
-// Reply is what a resident posts in a source's thread with yardr reply:
-// made by Replying before the post, completed by Replied after it.
+// Reply is what a resident posts in a source: a comment in a thread with
+// yardr reply (made by Replying before the post, completed by Replied
+// after it), or a thread of its own with yardr thread open (Opening, then
+// Opened).
 type Reply struct {
 	Source    string `json:"source,omitempty"`
 	Thread    string `json:"thread,omitempty"`
@@ -114,8 +119,12 @@ type Reply struct {
 	// Seq is the delivery answered and Hash identifies the answer (its
 	// conversation and body), so a retry of the same reply gets the same
 	// key and a different reply to the same delivery a new one.
+	// A thread the resident opened answers no delivery: its Seq is 0, In is
+	// where it was opened (a Linear team, a GitHub repository) and Hash
+	// identifies the source, the place, the title and the body.
 	Seq  uint64 `json:"seq,omitempty"`
 	Hash string `json:"hash,omitempty"`
+	In   string `json:"in,omitempty"`
 	// Attempts counts the Replying calls: more than one means an earlier
 	// attempt did not get as far as Replied, so the source may hold the
 	// comment already.
@@ -193,16 +202,23 @@ func (s *Store) Replied(ctx context.Context, name string, rp Reply, actor string
 	if rp.Source == "" || rp.Thread == "" {
 		return fmt.Errorf("replied: source and thread are required")
 	}
+	return s.posted(name, rp, ParticipantReplied, "replied", actor)
+}
+
+// posted completes the record of a post (rp.Key), makes the resident a
+// participant in its thread (how, unless it already takes part) and logs
+// the event kind on its journal.
+func (s *Store) posted(name string, rp Reply, how, kind, actor string) error {
 	return s.changeResident(name, func(w *wtx, r *Resident) error {
 		if !participates(w.Tx, name, rp.Source, rp.Thread) {
 			p := Participation{Resident: name, Source: rp.Source, Thread: rp.Thread, Title: rp.Title, URL: rp.ThreadURL,
-				How: ParticipantReplied, Since: now()}
+				How: how, Since: now()}
 			if err := put(w.Tx, bThreads, threadKey(name, rp.Source, rp.Thread), p); err != nil {
 				return err
 			}
 		}
 		if rp.Key != "" {
-			rec := Reply{Key: rp.Key, Seq: rp.Seq}
+			rec := Reply{Key: rp.Key, Seq: rp.Seq, In: rp.In}
 			if raw := w.Bucket(bReplies).Get([]byte(replyKey(name, rp.Key))); raw != nil {
 				if err := json.Unmarshal(raw, &rec); err != nil {
 					return err
@@ -224,8 +240,93 @@ func (s *Store) Replied(ctx context.Context, name string, rp Reply, actor string
 		if rp.Seq != 0 {
 			data["seq"] = rp.Seq
 		}
-		return w.event(r.Journal, "replied", actor, data)
+		if rp.In != "" {
+			data["in"] = rp.In
+		}
+		return w.event(r.Journal, kind, actor, data)
 	})
+}
+
+// OpenThreads is the resident setting (a key of its config) naming the
+// sources it may open threads in: "linear,github", or a list. Unset, it
+// may open none.
+const OpenThreads = "open_threads"
+
+// MayOpen lists the sources the resident may open threads in, sorted.
+func (r Resident) MayOpen() []string {
+	var out []string
+	switch v := r.Config[OpenThreads].(type) {
+	case string:
+		out = strings.Split(v, ",")
+	case []any:
+		for _, e := range v {
+			if s, ok := e.(string); ok {
+				out = append(out, s)
+			}
+		}
+	case []string: // a definition not yet through JSON
+		out = slices.Clone(v)
+	}
+	for i := range out {
+		out[i] = strings.TrimSpace(out[i])
+	}
+	out = slices.DeleteFunc(out, func(s string) bool { return s == "" })
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// openHash identifies one thread to open: where, and what it says.
+func openHash(source, in, title, body string) string {
+	sum := sha256.Sum256([]byte("open\x00" + source + "\x00" + in + "\x00" + title + "\x00" + body))
+	return hex.EncodeToString(sum[:])
+}
+
+// Opening is the resident about to open a thread in source, in the place
+// in (a Linear team, a GitHub repository), with title and body. Like
+// Replying, it returns the record for exactly that thread, a fresh one
+// with a key chosen now or the one an earlier attempt made, written before
+// anything is posted. A resident whose definition does not allow the
+// source (OpenThreads) is refused here, whoever asks.
+func (s *Store) Opening(ctx context.Context, name, source, in, title, body string) (*Reply, error) {
+	if source == "" || in == "" || title == "" {
+		return nil, fmt.Errorf("opening: a source, where to open the thread and a title are required")
+	}
+	hash := openHash(source, in, title, body)
+	var out *Reply
+	err := s.changeResident(name, func(w *wtx, r *Resident) error {
+		if !slices.Contains(r.MayOpen(), source) {
+			return fmt.Errorf("resident %s may not open threads in %s: its definition does not allow it. The operator allows it with --set %s=%s on yardr resident add %s (add replaces the definition, so give the rest of it too)",
+				name, source, OpenThreads, strings.Join(append(r.MayOpen(), source), ","), name)
+		}
+		out = nil
+		err := each(w.Tx, bReplies, name+"\x00", func(_ []byte, rp *Reply) error {
+			if rp.Seq == 0 && rp.Hash == hash {
+				out = rp
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		if out == nil {
+			out = &Reply{Key: newReplyKey(), Source: source, In: in, Title: title, Hash: hash, At: now()}
+		}
+		out.Attempts++
+		return put(w.Tx, bReplies, replyKey(name, out.Key), out)
+	})
+	return out, err
+}
+
+// Opened records that the resident opened a thread: the record made by
+// Opening (rp.Key) is marked posted with the thread's id and URL, a
+// `thread_opened` event goes on the resident's journal, and the thread is
+// the resident's from now on: it participates (how opened) before the
+// source's webhook has said anything.
+func (s *Store) Opened(ctx context.Context, name string, rp Reply, actor string) error {
+	if rp.Source == "" || rp.Thread == "" || rp.Key == "" {
+		return fmt.Errorf("opened: source, thread and the key Opening chose are required")
+	}
+	return s.posted(name, rp, ParticipantOpened, "thread_opened", actor)
 }
 
 // UnfollowThread ends the resident's participation in a thread, however it

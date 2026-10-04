@@ -17,6 +17,7 @@ import (
 	"golang.org/x/term"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -48,7 +49,13 @@ it running in its directory, nudges it when its inbox has something new and it
 is idle, and rotates it: at --max-age it is asked to write a handoff, and its
 next session starts from that handoff (forced after --handoff-grace).
 
-Without --set kind, a herdr resident gets the yard's default_kind.`,
+Without --set kind, a herdr resident gets the yard's default_kind.
+
+--set open_threads=linear,github lets the resident open threads of its own
+in those sources (yardr thread open). It is off unless set, and only the
+operator (the yard's operator setting, else the user running the command)
+may add a source to it: a resident's session cannot allow itself or
+another resident.`,
 		Example: `  yardr resident add                       # interactive
   yardr resident add mayor --set kind=claude --set model=opus \
     --set 'args=["--permission-mode","auto"]' --set prompt=$HOME/.yardr/roles/mayor.md \
@@ -78,6 +85,9 @@ Without --set kind, a herdr resident gets the yard's default_kind.`,
 			if def.Dir, err = absDir(def.Dir); err != nil {
 				return err
 			}
+			if err := a.mayAllowOpening(c.Context(), st, def); err != nil {
+				return err
+			}
 			r, err := st.PutResident(c.Context(), def, a.who())
 			if err != nil {
 				return err
@@ -87,7 +97,7 @@ Without --set kind, a herdr resident gets the yard's default_kind.`,
 	}
 	f := add.Flags()
 	f.StringVar(&def.Runner, "runner", "herdr", "runner (herdr)")
-	f.StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable): kind, model, args, prompt, env_file")
+	f.StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable): kind, model, args, prompt, env_file, open_threads")
 	f.StringVar(&def.Dir, "dir", "", "directory the resident works in (default: the yard home)")
 	f.StringSliceVar(&def.On, "on", defaultOn, "event kinds delivered to its inbox (mail always is); replaces the list, so name every kind wanted")
 	f.StringVar(&def.MaxAge, "max-age", "", "ask for a handoff after this long, e.g. 6h (default: never)")
@@ -163,6 +173,9 @@ Without --set kind, a herdr resident gets the yard's default_kind.`,
 					fmt.Println()
 				}
 				fmt.Printf("  inbox %d unread · on %s\n", inbox.Total, strings.Join(r.On, ","))
+				if may := r.MayOpen(); len(may) > 0 {
+					fmt.Printf("  may open threads in %s\n", strings.Join(may, ", "))
+				}
 				if r.MaxAge != "" {
 					fmt.Printf("  rotates after %s (handoff grace %s)\n", r.MaxAge, or(r.HandoffGrace, "15m"))
 				}
@@ -246,6 +259,44 @@ Without --set kind, a herdr resident gets the yard's default_kind.`,
 
 	cmd.AddCommand(add, list, show, rm, start, stop, restart, journal, handoff, a.identityCmd())
 	return cmd
+}
+
+// mayAllowOpening refuses a definition that lets its resident open threads
+// (store.OpenThreads) in a source it could not before, unless the operator
+// is the one saving it: speaking first in a source is theirs to grant, and
+// a resident's session granting it to itself, or to another resident,
+// would make the setting mean nothing. A definition that keeps or narrows
+// what was allowed is anyone's to save, as the rest of it is. Like
+// maySpeakAs this is a line, not a wall.
+func (a *app) mayAllowOpening(ctx context.Context, st store.API, def store.Resident) error {
+	may := def.MayOpen()
+	if _, set := def.Config[store.OpenThreads]; set && len(may) == 0 {
+		return fmt.Errorf("--set %s: want sources, comma-separated (%s); leave it out to allow none",
+			store.OpenThreads, strings.Join(hooks.Openable(), ","))
+	}
+	for _, src := range may {
+		if _, ok := hooks.OpenerFor(src); !ok {
+			return fmt.Errorf("--set %s: yardr cannot open threads in %q (it can in %s)", store.OpenThreads, src,
+				strings.Join(hooks.Openable(), ", "))
+		}
+	}
+	var before []string
+	switch old, err := st.GetResident(ctx, def.Name); {
+	case err == nil:
+		before = old.MayOpen()
+	case !errors.Is(err, store.ErrNotFound):
+		return err
+	}
+	added := slices.DeleteFunc(slices.Clone(may), func(s string) bool { return slices.Contains(before, s) })
+	if len(added) == 0 {
+		return nil
+	}
+	operator, is, err := a.operator(ctx, st)
+	if err != nil || is {
+		return err
+	}
+	return fmt.Errorf("--set %s: only the operator (%s) may let %s open threads in %s; this is %s",
+		store.OpenThreads, operator, def.Name, strings.Join(added, ", "), a.who())
 }
 
 func residentAgent(r store.Resident) string {
@@ -701,6 +752,9 @@ func (a *app) residentForm(ctx context.Context, st store.API) error {
 	if !save {
 		fmt.Println("not saved")
 		return nil
+	}
+	if err := a.mayAllowOpening(ctx, st, def); err != nil {
+		return err
 	}
 	r, err := st.PutResident(ctx, def, a.who())
 	if err != nil {

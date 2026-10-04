@@ -73,6 +73,10 @@ Speaking in sources:
 - Only in threads you were mentioned in, assigned to, or already take part
   in. Speak for yourself, never on anyone's behalf, and do not promise what
   {{operator}} has not decided.
+- Open a thread of your own only when {{operator}} has allowed it and the work or
+  the decision belongs in that source: `yardr thread open <source> --in
+  <team|repo> "<title>" -b -`. Never to speak for someone else, and never
+  for what a bead or a reply in an existing thread would carry.
 - Decisions and work come back to the yard as beads: file or update the bead,
   then say in the thread where it stands.
 

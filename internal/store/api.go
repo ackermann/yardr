@@ -107,6 +107,8 @@ type API interface {
 	Threads(ctx context.Context, name string) ([]Participation, error)
 	Replying(ctx context.Context, name string, seq uint64, to, body string) (*Reply, error)
 	Replied(ctx context.Context, name string, rp Reply, actor string) error
+	Opening(ctx context.Context, name, source, in, title, body string) (*Reply, error)
+	Opened(ctx context.Context, name string, rp Reply, actor string) error
 
 	PutHook(ctx context.Context, h Hook, actor string) (*Hook, error)
 	Hooks(ctx context.Context) ([]Hook, error)

@@ -150,7 +150,8 @@ yardr resident show mayor     # env_file …/mayor.env (LINEAR_API_KEY)
 
 ## Speaking in sources
 
-A resident answers what reached its inbox where it came from, as itself:
+A resident answers what reached its inbox where it came from, as itself
+(and may [open a thread](#opening-a-thread) when the operator allowed it):
 
 ```sh
 yardr inbox                                   #   4211 10-03 09:14  hook (mentioned) linear comment create by Jane on "Retries": @mayor can you look?
@@ -194,6 +195,67 @@ comment that key made and records it, and only posts when there is none.
 Another text, or another `--to`, is another reply. A call to a source is
 bounded at two minutes, well past a slow day at Linear, so a post that
 landed slowly is not reported as failed and made again.
+
+### Opening a thread
+
+A resident can also speak first: open a thread of its own, when its
+definition allows it.
+
+```sh
+yardr thread open linear --in YRD "Web view: epic" -b - < epic.md      # an issue in the team (key or name)
+yardr thread open github --in acme/webapp "Retries drop the last attempt" -b "Seen in yardr-k3f9."
+```
+
+The source is `linear` or `github`; `--in` is the Linear team (its key, or
+its name when one team has it) or the GitHub repository (`owner/repo`); `-b`
+is the body (`-` reads stdin). Text only, as a reply. It prints the URL of
+the issue it made.
+
+The rules are those of `yardr reply`. The CLI in the resident's pane makes
+the call with the credential from its `env_file`, so the issue's author is
+the resident's own user in the source; the server keeps the record and
+never sees the credential. Only the resident's own session or the operator
+may speak as it (`--resident`).
+
+**Who may open threads.** No resident, unless its definition says so:
+
+```sh
+yardr resident add mayor --set open_threads=linear,github …   # the rest of the definition, as add replaces it
+yardr resident show mayor     # may open threads in github, linear
+```
+
+`open_threads` names the sources, comma-separated (or as a JSON list).
+Without it `yardr thread open` refuses and says what to set. Only the
+operator (the yard's `operator` setting, else the user running the command)
+may add a source to it: `yardr resident add` from a resident's session, or a
+bead agent's, is refused when it would let a resident (itself or another)
+open threads where it could not before. Saving a definition that keeps the
+setting as it is, or narrows it, is anyone's, like the rest of a
+definition; left out, the setting is gone. The store refuses the opening
+itself for a resident that is not allowed, whoever asks; who may change the
+setting is checked by the CLI, the same line, not wall, as who may speak.
+
+**A thread is opened once.** Like a reply, the thread is on record with a
+key (a UUID) before anything is sent, under the source, the place, the
+title and the body. In Linear the key is the issue's own id, which Linear
+refuses twice; on GitHub it is an HTML comment at the end of the body. Run
+the same command again after a timeout and yardr answers from the record,
+else looks for the issue the key made (Linear by id; GitHub among the
+repository's issues touched since the first attempt) and only opens one
+when there is none. Another title, body or place is another thread.
+
+**The thread is the resident's.** It takes part at once (`yardr thread
+list`, how `opened`), before the source's webhook has said anything, and a
+`thread_opened` event (source, `in`, thread, title, url) lands on its
+journal. With an `involved` subscription what others say there reaches its
+inbox as `participant`, no mention needed, and `yardr reply <seq>` answers
+it. The thread's id is the one deliveries carry: the issue's id in Linear,
+`<owner>/<repo>#<number>` in GitHub.
+
+`YARDR_LINEAR_API` and `YARDR_GITHUB_API`, in the environment of the
+command, send the outbound calls (replies too) to another endpoint: a
+stand-in when trying yardr out, or a GitHub Enterprise API
+(`https://<host>/api/v3`).
 
 What to say, and whether to, is the resident's role: see the generic
 [roles/mayor.md](../roles/mayor.md) that `yardr init` installs. Setting a source up end to end is in

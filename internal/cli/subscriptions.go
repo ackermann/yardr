@@ -317,7 +317,8 @@ func (a *app) threadCmd() *cobra.Command {
 		Short: "Threads a resident participates in, and what is said in them",
 		Long: `A resident participates in a source's thread (in Linear, an issue) once a hook
 delivery shows it acting there under its identity, once it answers there
-with yardr reply, or after yardr thread follow. An involved subscription
+with yardr reply, opens it with yardr thread open, or after yardr thread
+follow. An involved subscription
 then also delivers what others do in the thread, with reason participant.
 Unfollowing stops that until the resident acts in the thread again.
 
@@ -397,7 +398,7 @@ yardr thread show <seq> reads the source thread of a hook delivery.`,
 			})
 		},
 	}
-	cmd.AddCommand(follow, unfollow, list, a.threadShowCmd())
+	cmd.AddCommand(follow, unfollow, list, a.threadShowCmd(), a.threadOpenCmd())
 	return cmd
 }
 

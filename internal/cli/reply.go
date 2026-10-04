@@ -107,7 +107,7 @@ comment's id is logged. Prints the URL of the reply.`,
 			if _, err := st.GetResident(ctx, name); err != nil {
 				return err
 			}
-			if err := a.maySpeakAs(ctx, st, name); err != nil {
+			if err := a.maySpeakAs(ctx, st, "reply", name); err != nil {
 				return err
 			}
 			seq, env, r, err := hookEvent(ctx, st, args[0])
@@ -173,21 +173,28 @@ comment's id is logged. Prints the URL of the reply.`,
 // otherwise speak in the resident's name. Every agent still runs as one OS
 // user, so this is a line, not a wall; it moves when yardr hosts more than
 // one person.
-func (a *app) maySpeakAs(ctx context.Context, st store.API, name string) error {
+func (a *app) maySpeakAs(ctx context.Context, st store.API, what, name string) error {
 	who := a.who()
 	if who == name || config.Getenv("RESIDENT") == name {
 		return nil
 	}
-	all, err := st.Settings(ctx)
-	if err != nil {
+	operator, is, err := a.operator(ctx, st)
+	if err != nil || is {
 		return err
 	}
-	operator := or(all["operator"], defaultOperator())
-	if who == operator {
-		return nil
+	return fmt.Errorf("%s --resident %s: only %s's own session or the operator (%s) may speak as %s; this is %s",
+		what, name, name, operator, name, who)
+}
+
+// operator is the yard's operator (its operator setting, else the user
+// running the command) and whether this command acts as them.
+func (a *app) operator(ctx context.Context, st store.API) (string, bool, error) {
+	all, err := st.Settings(ctx)
+	if err != nil {
+		return "", false, err
 	}
-	return fmt.Errorf("reply --resident %s: only %s's own session or the operator (%s) may speak as %s; this is %s",
-		name, name, operator, name, who)
+	operator := or(all["operator"], defaultOperator())
+	return operator, a.who() == operator, nil
 }
 
 func (a *app) threadShowCmd() *cobra.Command {

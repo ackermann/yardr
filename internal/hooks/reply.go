@@ -54,12 +54,22 @@ type Replier interface {
 // source itself gives up on fails there, within this.
 const ReplyTimeout = 2 * time.Minute
 
-// Where the outbound calls go; tests point them at fake servers.
+// Where the outbound calls go. YARDR_LINEAR_API and YARDR_GITHUB_API, in
+// the environment of the process that makes the call, name another
+// endpoint: a stand-in when yardr is tried out, a GitHub Enterprise host's
+// API. Tests point the variables at fake servers.
 var (
-	LinearAPI  = "https://api.linear.app/graphql"
-	GitHubAPI  = "https://api.github.com"
+	LinearAPI  = endpoint("YARDR_LINEAR_API", "https://api.linear.app/graphql")
+	GitHubAPI  = endpoint("YARDR_GITHUB_API", "https://api.github.com")
 	HTTPClient = &http.Client{Timeout: ReplyTimeout}
 )
+
+func endpoint(name, def string) string {
+	if v := strings.TrimRight(strings.TrimSpace(os.Getenv(name)), "/"); v != "" {
+		return v
+	}
+	return def
+}
 
 // replyMarker is how a reply carries its key in a source that takes no
 // client-chosen id (GitHub): an HTML comment at the end of the body,

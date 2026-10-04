@@ -458,6 +458,12 @@ func (c *Client) Replying(ctx context.Context, name string, seq uint64, to, body
 func (c *Client) Replied(ctx context.Context, name string, rp store.Reply, actor string) error {
 	return c.call(ctx, "Replied", nil, name, rp, actor)
 }
+func (c *Client) Opening(ctx context.Context, name, source, in, title, body string) (*store.Reply, error) {
+	return callV[*store.Reply](c, ctx, "Opening", name, source, in, title, body)
+}
+func (c *Client) Opened(ctx context.Context, name string, rp store.Reply, actor string) error {
+	return c.call(ctx, "Opened", nil, name, rp, actor)
+}
 func (c *Client) Threads(ctx context.Context, name string) ([]store.Participation, error) {
 	return callV[[]store.Participation](c, ctx, "Threads", name)
 }

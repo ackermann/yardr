@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"testing"
 
 	"yardr.dev/yardr/internal/hooks"
@@ -265,5 +266,109 @@ func TestReplied(t *testing.T) {
 	}
 	if err := s.Replied(ctx, "inv", store.Reply{Source: "linear"}, "inv"); err == nil {
 		t.Fatal("replied without a thread")
+	}
+}
+
+// A resident opens threads only in the sources its definition allows.
+// Opening puts the thread on record with a key before it is opened: the
+// same source, place, title and body gets the same key, anything else its
+// own. Opened makes the thread the resident's at once, so what others say
+// there reaches an involved subscription with no mention.
+func TestOpening(t *testing.T) {
+	s, own := storetest.NewOwned(t)
+	ctx := context.Background()
+	resident(t, s, "inv", false, store.Subscription{Source: "linear", Scope: store.ScopeInvolved})
+	head, _ := s.Head(ctx)
+
+	_, err := s.Opening(ctx, "inv", "linear", "YRD", "Web view", "body")
+	if err == nil || !strings.Contains(err.Error(), "may not open threads in linear") ||
+		!strings.Contains(err.Error(), "--set open_threads=linear on yardr resident add inv") {
+		t.Fatalf("not allowed: %v", err)
+	}
+	if now, _ := s.Head(ctx); now != head {
+		t.Fatalf("the refusal logged %d events", now-head)
+	}
+	allow := func(v any) {
+		t.Helper()
+		if _, err := s.PutResident(ctx, store.Resident{Name: "inv", Runner: "herdr", Config: map[string]any{store.OpenThreads: v}}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Allowed in another source only: still refused, and told what to set.
+	allow("github")
+	if _, err := s.Opening(ctx, "inv", "linear", "YRD", "Web view", "body"); err == nil ||
+		!strings.Contains(err.Error(), "--set open_threads=github,linear ") {
+		t.Fatalf("allowed elsewhere: %v", err)
+	}
+	for _, v := range []any{"linear", " github , linear", []any{"linear", "github"}} {
+		allow(v)
+		if _, err := s.Opening(ctx, "inv", "linear", "YRD", "probe", ""); err != nil {
+			t.Fatalf("open_threads=%v: %v", v, err)
+		}
+	}
+
+	uuid4 := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	rp, err := s.Opening(ctx, "inv", "linear", "YRD", "Web view", "body")
+	if err != nil || !uuid4.MatchString(rp.Key) || rp.Attempts != 1 || rp.Posted || rp.Seq != 0 || rp.In != "YRD" || rp.At.IsZero() {
+		t.Fatalf("first attempt: %+v, %v", rp, err)
+	}
+	again, err := s.Opening(ctx, "inv", "linear", "YRD", "Web view", "body")
+	if err != nil || again.Key != rp.Key || again.Attempts != 2 || again.Posted || !again.At.Equal(rp.At) {
+		t.Fatalf("second attempt: %+v, %v", again, err)
+	}
+	seen := map[string]bool{rp.Key: true}
+	for _, c := range [][4]string{{"github", "YRD", "Web view", "body"}, {"linear", "ENG", "Web view", "body"},
+		{"linear", "YRD", "Other", "body"}, {"linear", "YRD", "Web view", "other"}} {
+		o, err := s.Opening(ctx, "inv", c[0], c[1], c[2], c[3])
+		if err != nil || seen[o.Key] || o.Attempts != 1 {
+			t.Fatalf("%v: %+v, %v", c, o, err)
+		}
+		seen[o.Key] = true
+	}
+	// A reply with the same text is no attempt at the thread.
+	if r, err := s.Replying(ctx, "inv", 7, "", "body"); err != nil || seen[r.Key] {
+		t.Fatalf("a reply: %+v, %v", r, err)
+	}
+
+	jane := hooks.Envelope{Source: "linear", Type: "comment", Action: "create", Actor: hooks.Party{ID: "jane-id"},
+		Thread: hooks.Thread{ID: rp.Key}}
+	if got := deliveries(t, s, own, jane); len(got) != 0 {
+		t.Fatalf("before it is opened: %v", got)
+	}
+	opened := store.Reply{Source: "linear", In: "YRD", Thread: rp.Key, Title: "Web view", ThreadURL: "https://l/YRD-9",
+		URL: "https://l/YRD-9", Key: rp.Key, Message: rp.Key}
+	if err := s.Opened(ctx, "inv", opened, "inv"); err != nil {
+		t.Fatal(err)
+	}
+	evs, err := s.EventsSince(ctx, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := evs[len(evs)-1]
+	if last.Kind != "thread_opened" || last.Actor != "inv" || last.Data["thread"] != rp.Key || last.Data["in"] != "YRD" ||
+		last.Data["title"] != "Web view" || last.Data["url"] != "https://l/YRD-9" {
+		t.Fatalf("thread_opened event: %+v", last)
+	}
+	if got := threads(t, s, "inv"); len(got) != 1 || got[0] != "linear/"+rp.Key+" opened" {
+		t.Fatalf("threads: %v", got)
+	}
+	if got := deliveries(t, s, own, jane); got["inv"] != "participant" {
+		t.Fatalf("a comment in the opened thread, no mention: %v", got)
+	}
+	done, err := s.Opening(ctx, "inv", "linear", "YRD", "Web view", "body")
+	if err != nil || !done.Posted || done.Key != rp.Key || done.Thread != rp.Key || done.ThreadURL != "https://l/YRD-9" || done.Attempts != 3 {
+		t.Fatalf("after Opened: %+v, %v", done, err)
+	}
+
+	for _, c := range [][3]string{{"", "YRD", "t"}, {"linear", "", "t"}, {"linear", "YRD", ""}} {
+		if _, err := s.Opening(ctx, "inv", c[0], c[1], c[2], "b"); err == nil {
+			t.Fatalf("%q: accepted", c)
+		}
+	}
+	if err := s.Opened(ctx, "inv", store.Reply{Source: "linear", Thread: "T"}, "inv"); err == nil {
+		t.Fatal("Opened without a key")
+	}
+	if _, err := s.Opening(ctx, "ghost", "linear", "YRD", "t", "b"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("unknown resident: %v", err)
 	}
 }

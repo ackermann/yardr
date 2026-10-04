@@ -157,8 +157,10 @@ yardr thread list mayor
 
 Where keys: `type`, `action` (the envelope), and `team`, `project`, `repo`,
 `label` (fields the adapter exposes; any value may match). Once a resident
-acts in a thread (a Linear issue), or answers there with `yardr reply`, it
-participates there, and `involved` also delivers what others do in it.
+acts in a thread (a Linear issue), answers there with `yardr reply`, or
+opens it with `yardr thread open`
+([residents.md](residents.md#opening-a-thread)), it participates there, and
+`involved` also delivers what others do in it.
 
 An issue's description is re-sent whole with every update, so a mention there
 counts once: yardr keeps who each issue's description mentioned and treats
