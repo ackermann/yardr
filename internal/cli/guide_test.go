@@ -299,7 +299,7 @@ func TestSetupGoesOnWhereTheYardStands(t *testing.T) {
 		{stepReviewers, nil, stepLanding}, // by a command, below
 		{stepLanding, []string{"landing", "go"}, stepRoutes},
 		{stepRoutes, []string{"routes"}, stepFirstBead},
-		{stepFirstBead, []string{"title", "goal"}, stepMerged},
+		{stepFirstBead, []string{"title", "goal", "go"}, stepMerged},
 	} {
 		if got := todo(t, st); got != tc.step {
 			t.Fatalf("next step = %q, want %q", got, tc.step)
@@ -315,6 +315,9 @@ func TestSetupGoesOnWhereTheYardStands(t *testing.T) {
 		if tc.step == stepRoutes {
 			f.goes = []string{goHere} // on to the bead's page, which is cancelled
 			f.abort = func(fld huh.Field) bool { return fld.GetKey() == "title" }
+		}
+		if tc.step == stepFirstBead {
+			f.goes = []string{goHere} // after the last form page, show how to watch the bead
 		}
 		out := setup(t, st)
 		f.abort = nil
