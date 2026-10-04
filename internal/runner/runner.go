@@ -27,6 +27,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/otel"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -43,14 +44,23 @@ func All(home string, st store.API, log *slog.Logger, onError func(error)) map[s
 }
 
 // Env is the environment every started process gets, under the yardr names
-// and the old yard ones (see config.Env).
+// and the old yard ones (see config.Env), and the trace context of its
+// session: TRACEPARENT and OTEL_RESOURCE_ATTRIBUTES, so that whatever in it
+// exports OpenTelemetry sends it under the bead (see otel.Env). They are set
+// whether or not anything collects; the resource attributes this process
+// was itself started with are kept in front of the bead's.
 func Env(job dispatch.Job, actor string) []string {
+	rig := ""
+	if job.Rig != nil {
+		rig = job.Rig.Name
+	}
 	return slices.Concat(
 		config.Env("BEAD", job.Bead.ID),
 		config.Env("SESSION", job.Session.ID),
 		config.Env("STAGE", job.Bead.Stage),
 		config.Env("GROUP", job.Group.Name),
 		config.Env("ACTOR", actor),
+		otel.Env(os.Getenv(otel.ResourceVar), job.Bead.ID, job.Session.ID, job.Bead.Stage, job.Group.Name, rig),
 	)
 }
 

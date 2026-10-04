@@ -635,7 +635,9 @@ Environment variables yardr reads:
 | `YARDR_TEST_RPC` | tests: run the store suites through the unix-socket client |
 
 Exec commands and herdr bead agents also get `YARDR_SESSION`, `YARDR_STAGE`
-and `YARDR_GROUP` (see [groups.md](groups.md)).
+and `YARDR_GROUP` (see [groups.md](groups.md)). They get the session's
+OpenTelemetry trace context too, `TRACEPARENT` and
+`OTEL_RESOURCE_ATTRIBUTES` ([otel.md](otel.md#trace-context-for-the-work)).
 
 ### Retention: keeping `yard.db` bounded
 

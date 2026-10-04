@@ -18,6 +18,7 @@ go deeper.
 | [subscriptions.md](subscriptions.md) | subscriptions and notifications: hook sources, yardr's own bead events, `--done`, bead watch, groups, `--on` |
 | [bdp.md](bdp.md) | serving the yard over the Beads Protocol |
 | [web.md](web.md) | `yardr web serve`: the yard in a browser, read-only; its pages and their JSON, the layout, the look's tokens, adding a page |
+| [otel.md](otel.md) | OpenTelemetry: `yardr otel export` (the event log as OTLP traces and logs), how beads, stages and sessions map to traces and spans, `TRACEPARENT` and `OTEL_RESOURCE_ATTRIBUTES` in every session, Claude Code and Codex, a Grafana example |
 
 Pages mark features that are not built yet as **planned**, with the bead
 that builds them (e.g. *planned, yard-qexg*). The bead that ships a feature

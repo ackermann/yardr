@@ -17,6 +17,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/otel"
 	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/store"
@@ -1118,17 +1119,28 @@ func (h *Herdr) envFile(cfg map[string]any, who string) ([]string, error) {
 
 // withEnvFile is env with the env file's entries added. A key yardr sets
 // itself (the session's identity, the yard's home) is left out of the file's
-// entries, so a credentials file cannot make an agent someone else.
+// entries, so a credentials file cannot make an agent someone else. The one
+// such key that is a list, OTEL_RESOURCE_ATTRIBUTES, keeps the file's
+// attributes in front of yardr's: a group's env file is where an operator
+// turns a harness's telemetry on, and may name attributes of its own.
 func withEnvFile(env, file []string) []string {
-	set := make(map[string]bool, len(env))
-	for _, e := range env {
-		k, _, _ := strings.Cut(e, "=")
-		set[k] = true
-	}
+	set := make(map[string]int, len(env))
 	out := slices.Clone(env)
+	for i, e := range out {
+		k, _, _ := strings.Cut(e, "=")
+		set[k] = i
+	}
 	for _, e := range file {
-		if k, _, _ := strings.Cut(e, "="); !set[k] {
+		k, v, _ := strings.Cut(e, "=")
+		i, ours := set[k]
+		switch {
+		case !ours:
 			out = append(out, e)
+		case k == otel.ResourceVar:
+			if theirs := otel.ResourceAttributes(v); theirs != "" {
+				_, mine, _ := strings.Cut(out[i], "=")
+				out[i] = k + "=" + theirs + "," + mine
+			}
 		}
 	}
 	return out
