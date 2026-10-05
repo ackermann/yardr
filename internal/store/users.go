@@ -106,6 +106,10 @@ func migrateOperator(tx *bolt.Tx) error {
 	return (&wtx{Tx: tx}).ensureOperator("yardr")
 }
 
+// ValidUserName reports whether a user may have the name: what a caller
+// asks before it proposes one (a login name as the operator, say).
+func ValidUserName(name string) bool { return checkUserName(name) == nil }
+
 func checkUserName(name string) error {
 	if !peerMailName.MatchString(name) {
 		return fmt.Errorf("user %q: use letters, digits, '.', '_', '-' or '/' (starting with a letter or digit)", name)

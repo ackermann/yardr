@@ -143,7 +143,7 @@ apply at once, as yardr reads a dir rig's .yardr/ from the directory.`,
 			return a.out(res, res.print)
 		},
 	}
-	cmd.Flags().StringVar(&operator, "operator", "", "who the roles name (default: the yard's operator setting, else $USER)")
+	cmd.Flags().StringVar(&operator, "operator", "", "who the roles name (default: the yard's operator setting, else your login name)")
 	cmd.Flags().StringVar(&mayor, "mayor", "", "the mayor the roles tell agents to mail (default: the yard's mayor setting, else its one resident, else mayor)")
 	cmd.Flags().BoolVar(&withMayor, "with-mayor", false, "dir rigs: write mayor.md too (a git rig always gets it)")
 	return cmd

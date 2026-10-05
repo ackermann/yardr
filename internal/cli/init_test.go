@@ -232,6 +232,80 @@ func TestInitOperatorDefaultsToUser(t *testing.T) {
 	}
 }
 
+// noLogin is an environment that names no user and a machine that knows
+// none: env -i in a container.
+func noLogin(t *testing.T) {
+	t.Helper()
+	t.Setenv("USER", "")
+	t.Setenv("LOGNAME", "")
+	was := loginName
+	loginName = func() string { return "" }
+	t.Cleanup(func() { loginName = was })
+}
+
+// The default operator is a name a user may have, wherever it comes from:
+// $USER, then $LOGNAME, then the OS's own, and "operator" when none of
+// them gives one. It was "the operator" without $USER, which is no user
+// name, so init failed there.
+func TestDefaultOperator(t *testing.T) {
+	for _, c := range []struct{ user, logname, login, want string }{
+		{"kim", "lee", "sam", "kim"},
+		{"", "lee", "sam", "lee"},
+		{"", "", "sam", "sam"},
+		{"", "", "", "operator"},
+		{`CORP\kim`, "", "sam", "sam"},
+		{"kim lee", "the operator", "-x", "operator"},
+	} {
+		noLogin(t)
+		t.Setenv("USER", c.user)
+		t.Setenv("LOGNAME", c.logname)
+		loginName = func() string { return c.login }
+		got := defaultOperator()
+		if got != c.want {
+			t.Errorf("USER=%q LOGNAME=%q login %q: %q, want %q", c.user, c.logname, c.login, got, c.want)
+		}
+		if !store.ValidUserName(got) {
+			t.Errorf("USER=%q LOGNAME=%q login %q: %q is no user name", c.user, c.logname, c.login, got)
+		}
+	}
+}
+
+// Init where nothing names the user (env -i, a container, a service unit)
+// makes the yard, with the operator "operator": a user, whom the roles and
+// a prime name, and as whom one may act.
+func TestInitWithoutLoginName(t *testing.T) {
+	home := newHome(t)
+	noLogin(t)
+	st := storetest.New(t)
+	ctx := context.Background()
+	if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude", "--about", "reads mail at noon"); err != nil {
+		t.Fatalf("init without a login name: %v", err)
+	}
+	if all, _ := st.Settings(ctx); all["operator"] != "operator" {
+		t.Fatalf("operator setting = %q", all["operator"])
+	}
+	users, err := st.Users(ctx)
+	if err != nil || len(users) != 1 || users[0].Name != "operator" {
+		t.Fatalf("users = %+v, %v", users, err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(home, "roles", "builder.md")); !bytes.Contains(b, []byte("never operator's own session")) {
+		t.Fatalf("builder.md does not name the operator:\n%s", b)
+	}
+	if got := yardOperator(ctx, st); got != "operator" {
+		t.Errorf("yardOperator = %q", got)
+	}
+	if p, err := primeOperator(ctx, st); err != nil || p == nil || p.Name != "operator" {
+		t.Errorf("prime's operator = %+v, %v", p, err)
+	}
+	if name, is, err := (&app{st: st, actor: "operator"}).operator(ctx, st); err != nil || !is || name != "operator" {
+		t.Errorf("acting as operator: %q, %v, %v", name, is, err)
+	}
+	// Again, as after an upgrade: the setting is kept, nothing fails.
+	if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init"); err != nil {
+		t.Fatalf("init again: %v", err)
+	}
+}
+
 // A harness without unattended flags gets none, and the summary says so.
 func TestInitHarnessWithoutUnattendedFlags(t *testing.T) {
 	newHome(t)

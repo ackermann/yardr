@@ -544,7 +544,8 @@ nothing is started unless `--start` says so. Either way yardr:
    build's, which is when it starts being tracked; delete one to get this
    build's copy. They are generic: where they say `{{operator}}`, the
    person agents bring decisions to, init writes the operator's name (the
-   form's "Your name", `--operator`, default `$USER`), and where they say
+   form's "Your name", `--operator`, default the login name, or `operator`
+   where there is none), and where they say
    `{{mayor}}`, the resident builders and reviewers mail about what blocks
    them, the mayor's name. A rig's own roles go in its repo under
    `.yardr/roles/` ([role prompts](#role-prompts));
@@ -881,7 +882,7 @@ registered rig's starting configuration into its checkout:
 
 | file | content |
 |---|---|
-| `.yardr/roles/{mayor,builder,reviewer,merger}.md` | the generic roles, `{{operator}}` filled with `--operator`, default the yard's `operator` setting, else `$USER`; `{{mayor}}` with `--mayor`, default the yard's `mayor` setting, else its one resident, else `mayor` |
+| `.yardr/roles/{mayor,builder,reviewer,merger}.md` | the generic roles, `{{operator}}` filled with `--operator`, default the yard's `operator` setting, else the login name, else `operator`; `{{mayor}}` with `--mayor`, default the yard's `mayor` setting, else its one resident, else `mayor` |
 | `.yardr/check` | the merge gate, executable, with a comment saying so; its command is a guess from the repo: `go.mod` gives `go vet ./... && go test ./...`, a `package.json` with a real `test` script gives `npm test` (`pnpm`/`yarn` by lockfile), anything else `exit 0` with a TODO |
 | `.yardr/flows/default.flow` | the standard stages: backlog, new, review, approved, merged (terminal), decide, with the outcomes `done`, `question`, `changes` and `failed` |
 | `.yardr/flows/default/<stage>.md` | a starter [stage file](flows.md#stage-files-what-a-stage-is-for) for each stage but `merged`: what the stage is for, what must be true to leave it, when each outcome applies; the placeholders filled as in the roles |

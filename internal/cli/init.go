@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -418,7 +419,7 @@ type initOptions struct {
 	Dir     string // where the mayor works; "" is the home's parent
 	Model   string // "" is the harness's default
 	// Operator is the person the role prompts name, where the templates say
-	// {{operator}}; "" is $USER. Mayor goes where they say {{mayor}}.
+	// {{operator}}; "" is the login name. Mayor goes where they say {{mayor}}.
 	Operator string
 	// Style is how agents should work with the operator (workStyles), and
 	// About what they should know about them: the operator_style and
@@ -630,10 +631,34 @@ func (a *app) putMayor(ctx context.Context, st store.API, o initOptions, res *in
 	return err
 }
 
+// fallbackOperator is the operator of a yard that was told no name where
+// the environment gives none.
+const fallbackOperator = "operator"
+
+// loginName is the OS's name for the user running yardr, "" when it has
+// none (a uid without a passwd entry, as in a container). A variable so a
+// test can be a machine that does not know its user.
+var loginName = func() string {
+	u, err := user.Current()
+	if err != nil {
+		return ""
+	}
+	return u.Username
+}
+
 // defaultOperator is who the role prompts name when the onboarding was not
-// told: the login name, or a neutral phrase without one.
+// told: the login name ($USER, then $LOGNAME, then the OS's own). The
+// operator is a user, so only a name a user may have is taken (Windows'
+// DOMAIN\name is none), and without one it is "operator": init under
+// env -i, in a container or in a service unit must not fail for want of a
+// login name.
 func defaultOperator() string {
-	return or(os.Getenv("USER"), "the operator")
+	for _, name := range []string{os.Getenv("USER"), os.Getenv("LOGNAME"), loginName()} {
+		if store.ValidUserName(name) {
+			return name
+		}
+	}
+	return fallbackOperator
 }
 
 // shippedManifest, in the home's roles directory, records the sha256 of
@@ -1095,7 +1120,7 @@ Unattended flags per harness:
 	cmd.Flags().StringVar(&o.Model, "model", "", "the mayor's model (default: the harness's own)")
 	cmd.Flags().BoolVar(&o.Start, "start", false, "start the daemon in the background, unless one runs, and wait for the mayor's session")
 	cmd.Flags().DurationVar(&o.Wait, "wait", mayorWait, "with --start: how long to wait for the mayor")
-	cmd.Flags().StringVar(&o.Operator, "operator", "", "your name, as the role prompts use it (default: $USER; a set-up yard keeps its operator setting)")
+	cmd.Flags().StringVar(&o.Operator, "operator", "", "your name, as the role prompts use it (default: your login name, else operator; a set-up yard keeps its operator setting)")
 	cmd.Flags().StringVar(&o.Style, "style", "", "how agents should work with you: "+strings.Join(styleKeys(), ", ")+
 		" (default: none; a set-up yard keeps its operator_style setting)")
 	cmd.Flags().StringVar(&o.About, "about", "", "one line agents should know about you (a set-up yard keeps its operator_note setting)")
