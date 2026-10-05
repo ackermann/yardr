@@ -27,7 +27,9 @@ only reporting it. `<base>` below is the rig's base (`yardr rig list`).
    `yardr rig check <rig> --light --dir .` (a rig without a light gate runs
    its full gate there, and says so). Run the full gate
    (`yardr rig check <rig> --dir .`) only when what you changed is of a kind
-   the rig's light gate cannot see. Test anything that starts agents or
+   the rig's light gate cannot see: cross-package behaviour or tests in
+   packages it skips, race coverage outside the packages it selects, slow
+   suites, or code reached only by building the binary. Test anything that starts agents or
    servers in an isolated environment, never {{operator}}'s own session:
    - Run it under `env -i` with only what it needs: its own home, config and
      state directories in a short temp dir, and a PATH of that dir and the

@@ -16,10 +16,12 @@ branch yard/<bead>.
    package, and the store/dispatch/bdp suites again through the unix-socket
    client) is the refinery's: it runs once, on exactly what lands, and a red
    one comes back to you. Run it yourself only when your change is of a kind
-   the light gate cannot see: a file no Go package compiles in but a test
-   reads (a doc, a flow or stage file, the starter pack, a script), code a
-   test reaches by building the binary instead of importing it, or store,
-   dispatch or bdp behaviour over the socket. An edit to `.yardr/check` or
+   the light gate cannot see: cross-package behaviour or tests in packages
+   it skips, race coverage outside the packages it selects, a file no Go
+   package compiles in but a test reads (a doc, a flow or stage file, the
+   starter pack, a script), code a test reaches by building the binary
+   instead of importing it, or store, dispatch or bdp behaviour over the
+   socket. An edit to `.yardr/check` or
    `.yardr/check-light` is run by neither gate, which read them from main:
    run your copy by hand.
    Every bug you find or fix gets a regression test.

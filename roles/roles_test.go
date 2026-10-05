@@ -99,6 +99,8 @@ func TestTemplatesAreGeneric(t *testing.T) {
 			"`yardr rig check <rig> --light --dir <your worktree>`",
 			"A rig without a light gate runs its full gate there",
 			"Run\n   it yourself only when your change is of a kind the light gate cannot see",
+			"cross-package behaviour or tests in packages it skips",
+			"race coverage\n   outside the packages it selects",
 			"`gate: yardr rig check <rig> --light --dir <worktree> @ <commit>: pass, <n> ok, 0 failed`",
 			"the full one and not the light",
 		},
@@ -106,6 +108,8 @@ func TestTemplatesAreGeneric(t *testing.T) {
 			"Do not run the full gate as a matter of course",
 			"When it names the commit you\n   were handed and you committed nothing, run no gate.",
 			"`yardr rig check <rig> --light --dir .`",
+			"cross-package behaviour or tests in\n   packages it skips",
+			"race coverage outside the packages it selects",
 		},
 		"stages/git/default/new.md": {
 			"(`yardr rig check <rig> --light --dir <worktree>`)",

@@ -14,10 +14,11 @@ You implement one bead, in its own worktree on branch `yard/<bead>`.
    The full gate (`yardr rig check <rig> --dir <your worktree>`) runs once,
    on exactly what lands, after review, and a red one comes back to you. Run
    it yourself only when your change is of a kind the light gate cannot see:
-   what that is depends on what the rig's light gate leaves out (its
-   `.yardr/check-light` says), and is typically behaviour in code you did
-   not touch, the slow suites, and files no test of yours reads. An edit to
-   a gate's own script is run by neither gate: run your copy by hand.
+   cross-package behaviour or tests in packages it skips, race coverage
+   outside the packages it selects, slow suites, or code reached only by
+   building the binary. What those are depends on the rig's light gate (its
+   `.yardr/check-light` says). An edit to a gate's own script is run by
+   neither gate: run your copy by hand.
    Every bug you find or fix gets a regression test.
 4. Test anything that starts agents or servers in an isolated environment,
    never {{operator}}'s own session:
