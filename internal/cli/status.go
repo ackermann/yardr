@@ -2,7 +2,10 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -12,6 +15,7 @@ import (
 	"yardr.dev/yardr/internal/chat"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
@@ -26,25 +30,25 @@ type statusReport struct {
 	Name     string `json:"name,omitempty"`
 	Operator string `json:"operator,omitempty"`
 
-	Server    serverStatus     `json:"server"`
-	Daemon    daemonState      `json:"daemon"`
-	Residents []residentStatus `json:"residents"`
+	Server serverStatus `json:"server"`
+	Daemon daemonState  `json:"daemon"`
+	// Residents, Hooks, Peers, Work and Faults are the store's, and absent
+	// while no server answers for it: status starts none to ask.
+	Residents []residentStatus `json:"residents,omitzero"`
 	Web       webStatus        `json:"web"`
-	// Hooks is absent on a yard with no hook and no address for them.
+	// Hooks is absent too on a yard with no hook and no address for them.
 	Hooks *hookStatus  `json:"hooks,omitempty"`
 	Peers []peerStatus `json:"peers,omitempty"`
-	// Work is absent when the server cannot be reached.
-	Work *workCounts `json:"work,omitempty"`
+	Work  *workCounts  `json:"work,omitempty"`
 	// Faults is how many faults yardr doctor reports on this yard now.
-	Faults int `json:"faults"`
+	Faults *int `json:"faults,omitempty"`
 }
 
 // serverStatus is the process that owns the store.
 type serverStatus struct {
-	Running bool `json:"running"`
-	// Started is whether this command started it, as the first command on
-	// a yard does.
-	Started bool   `json:"started,omitempty"`
+	// Running is whether one answers on the home's socket. Error is why
+	// one that answers there could not be asked about the yard.
+	Running bool   `json:"running"`
 	Error   string `json:"error,omitempty"`
 	PID     int    `json:"pid,omitempty"`
 	// Build is the revision it runs, as yardr version names one; CLI is
@@ -120,17 +124,23 @@ func (a *app) statusCmd() *cobra.Command {
   daemon     running or not, its pid; its login service
   residents  each with what it is doing, as yardr chat lists it, and its
              herdr agent
-  web view   each view that runs: the URL to open, its pid, and whether it is
-             open to the network (--unsafe, no login) or to this machine only;
-             its login service
+  web view   each view that runs: the URL to open, its pid, the build it
+             runs, and whether it is open to the network (--unsafe, no login)
+             or to this machine only; the build of this yardr when that is
+             another; its login service
   hooks      the address the server takes webhooks on, each hook and its URL
   peers      each linked yard and where it is called
   work       how many sessions run in each group, how many beads are held
              and how many wait in decide
 
-A part the yard does not have (hooks, peers) has no line. It is read-only.
-On a yard whose server is not running it starts the server, as any command
-does, and says so.
+A part the yard does not have (hooks, peers) has no line. It is read-only
+and starts nothing: on a yard whose server is not running it says so, with
+the daemon and the web views, which it reads from the home, and one line
+for the residents, hooks, peers and work, which only the server knows.
+
+A web view does not replace itself when a new yardr is installed, as the
+server and the daemon do: it runs the build it was started on until it is
+started again, which is why its build is listed.
 
 yardr status says what is there; yardr doctor says what is wrong or missing.
 When doctor reports a fault, the last line of status says so and names it,
@@ -159,27 +169,49 @@ none and is not listed until it is started again.`,
 
 // status reads the report. The yard's state is doctor's, read once: status
 // lists from it what doctor counts, and takes doctor's faults as they are.
+//
+// It starts no server: it says what runs, and a server it started itself
+// would be one that did not. So the home is asked first whether it holds a
+// store (a home without one holds no yard), then whether a server answers,
+// and only one that answers is asked about the yard. Without one the report
+// is what the home and the machine say: the daemon, the web views, the
+// login services. Whether a store nobody answers for holds a yard that was
+// set up is not known then, and it is reported as the yard it most likely
+// is.
 func (a *app) status(ctx context.Context, cfg *config.Config) (*statusReport, error) {
-	// Before the store is asked: connecting starts a server that is not
-	// running.
-	was := serverRunning(ctx, cfg)
+	if a.st == nil {
+		if _, err := os.Stat(cfg.DBPath()); errors.Is(err, fs.ErrNotExist) {
+			return nil, notInitialized{cfg.Home}
+		}
+	}
+	rep := &statusReport{Home: cfg.Home,
+		Daemon: readDaemon(ctx, cfg),
+		Web:    webStatus{Views: webViews(cfg), Service: stateOf(ctx, cfg, svcWeb)},
+		Server: serverStatus{CLI: version.Describe()}}
+	if !serverRunning(ctx, cfg) {
+		return rep, nil
+	}
+	rep.Server.Running = true
+	if a.st == nil {
+		// A client of the server that answered, not a.store: that one
+		// starts a server when this one has stopped in between, and here a
+		// server that is gone is one that cannot be reached.
+		a.st, a.cfg = rpc.NewClient(cfg.Socket()), cfg
+	}
 	set, err := a.initialized(ctx, cfg)
 	if err == nil && !set {
 		return nil, notInitialized{cfg.Home}
 	}
-	doc, err := a.examine(ctx, cfg, false, was, set, err)
+	doc, err := a.examine(ctx, cfg, false, true, set, err)
 	if err != nil {
 		return nil, err
 	}
-	rep := &statusReport{Home: cfg.Home, Faults: len(doc.Faults), Residents: []residentStatus{},
-		Daemon: readDaemon(ctx, cfg),
-		Web:    webStatus{Views: webViews(cfg), Service: stateOf(ctx, cfg, svcWeb)},
-		Server: serverStatus{CLI: version.Describe()}}
+	faults := len(doc.Faults)
+	rep.Faults = &faults
 	if doc.State.Server == "unreachable" {
 		rep.Server.Error = doc.State.ServerError
 		return rep, nil
 	}
-	rep.Server.Running, rep.Server.Started = true, doc.State.Server == "started"
 	if info, ok := serverInfo(ctx, cfg); ok {
 		rep.Server.PID, rep.Server.Build = info.PID, version.Show(info.Revision)
 		rep.Server.Differs = info.Revision != version.Current()
@@ -187,6 +219,7 @@ func (a *app) status(ctx context.Context, cfg *config.Config) (*statusReport, er
 			rep.Server.Since = &info.Since
 		}
 	}
+	rep.Residents = []residentStatus{}
 	st, err := a.store(ctx)
 	if err != nil {
 		return nil, err
@@ -307,6 +340,8 @@ func (r *statusReport) parts() []statusPart {
 
 	var srv []string
 	switch s := r.Server; {
+	case !s.Running:
+		srv = []string{fmt.Sprintf("not running: any yardr command that needs the yard starts it (%s ready), or %s server start", yardr, yardr)}
 	case s.Error != "":
 		srv = []string{"cannot be reached: " + s.Error}
 	default:
@@ -316,9 +351,6 @@ func (r *statusReport) parts() []statusPart {
 		}
 		if s.Since != nil {
 			line += "  since " + since(*s.Since)
-		}
-		if s.Started {
-			line += "  (it was not running; this command started it)"
 		}
 		srv = []string{line}
 		if s.PID != 0 && s.Differs {
@@ -345,10 +377,15 @@ func (r *statusReport) parts() []statusPart {
 		web = []string{fmt.Sprintf("not running: %s web serve", yardr)}
 	} else {
 		var rows [][]string
+		differs := false
 		for _, v := range r.Web.Views {
-			rows = append(rows, []string{v.URL, fmt.Sprintf("pid %d", v.PID), v.reach()})
+			rows = append(rows, []string{v.URL, fmt.Sprintf("pid %d", v.PID), "build " + v.Build, v.reach()})
+			differs = differs || v.Differs
 		}
 		web = columns(rows)
+		if differs {
+			web = append(web, "this yardr is build "+r.Server.CLI+": a view runs the build it was started on until it is started again")
+		}
 	}
 	parts = append(parts, statusPart{"web view", append(web, "login service: "+r.Web.Service.line())})
 
@@ -405,11 +442,13 @@ func (r *statusReport) print() {
 		}
 	}
 	yardr := yardrAt(r.Home)
-	switch r.Faults {
-	case 0:
-	case 1:
+	switch {
+	case !r.Server.Running:
+		fmt.Println("\nresidents, hooks, peers and work: not known while the server is not running")
+	case r.Faults == nil || *r.Faults == 0:
+	case *r.Faults == 1:
 		fmt.Printf("\n%s doctor reports 1 fault, and says what it is.\n", yardr)
 	default:
-		fmt.Printf("\n%s doctor reports %d faults, and says what they are.\n", yardr, r.Faults)
+		fmt.Printf("\n%s doctor reports %d faults, and says what they are.\n", yardr, *r.Faults)
 	}
 }

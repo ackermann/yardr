@@ -137,8 +137,9 @@ setup stands.
 
 `yardr status` says what runs right now and where to reach it: the server
 with its pid and build, the daemon, each resident and its herdr agent, every
-web view with its URL and whether it is open to the network, hooks, peers,
-and how many sessions run. It checks nothing and exits 0 on any yard
+web view with its URL, its build and whether it is open to the network,
+hooks, peers, and how many sessions run. It checks nothing, starts nothing
+(a stopped server stays stopped) and exits 0 on any yard
 ([docs/doctor.md](docs/doctor.md#yardr-status)).
 
 A home counts as set up once its store has `default_kind`; a store the server

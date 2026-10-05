@@ -88,26 +88,129 @@ func TestStatusServerOnly(t *testing.T) {
 			t.Errorf("status says %q:\n%s", not, out)
 		}
 	}
-	if rep := statusJSON(t, a()); rep.Faults != 2 || rep.Hooks != nil || rep.Peers != nil || rep.Daemon.Running ||
+	if rep := statusJSON(t, a()); rep.Faults == nil || *rep.Faults != 2 || rep.Hooks != nil || rep.Peers != nil || rep.Daemon.Running ||
 		!rep.Server.Running || !rep.Server.Differs || rep.Server.PID != 4711 {
 		t.Fatalf("json: %+v", rep)
 	}
 }
 
-// A server of the build that was asked is not said to differ, and one that
-// this command started is said to have been.
-func TestStatusServerBuildAndStart(t *testing.T) {
+// A server of the build that was asked is not said to differ.
+func TestStatusSameBuild(t *testing.T) {
 	_, _, a := statusYard(t, "")
 	out, _ := run(t, a().rootCmd(), "status")
 	wantText(t, out, "server     running  pid 4711  build unknown  since 10-05 09:12\n")
 	if strings.Contains(out, "this yardr is build") {
 		t.Errorf("the same build is said to differ:\n%s", out)
 	}
-	stub(t, &serverRunning, func(context.Context, *config.Config) bool { return false })
-	out, _ = run(t, a().rootCmd(), "status")
-	wantText(t, out, "since 10-05 09:12  (it was not running; this command started it)\n")
-	if rep := statusJSON(t, a()); !rep.Server.Started || rep.Server.Differs {
+	if rep := statusJSON(t, a()); rep.Server.Differs {
 		t.Fatalf("json: %+v", rep.Server)
+	}
+}
+
+// status says what runs and starts nothing (yardr-t68z): on a yard whose
+// server is stopped it leaves it stopped, says how it is started, lists
+// what the home and the machine say without the store (the daemon, the web
+// views, the login services) and has one line for what only the server
+// knows. The yard is there: exit 0.
+func TestStatusLeavesAStoppedServerStopped(t *testing.T) {
+	home := newHome(t)
+	cfg := &config.Config{Home: home}
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// The store of a yard, which nobody serves.
+	if err := os.WriteFile(cfg.DBPath(), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stub(t, &connect, func(context.Context, *config.Config) (store.API, error) {
+		t.Error("status connected to the store, which starts a server")
+		return nil, errors.New("no server in this test")
+	})
+	stub(t, &machineAddr, func() string { return "192.168.7.7" })
+	holdDaemon(t, home)
+	announce(t, home, "127.0.0.1:9000", false)
+	announce(t, home, "0.0.0.0:9001", true)
+	before, err := os.ReadDir(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var code int
+	out := capture(t, func() { code = execute(&app{}, []string{"status"}) })
+	if code != 0 {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	me := strconv.Itoa(os.Getpid())
+	wantText(t, out,
+		"yard       "+home+"\n",
+		"server     not running: any yardr command that needs the yard starts it ("+here("yardr ready")+"), or "+here("yardr server start")+"\n",
+		"daemon     running (pid "+me+")\n",
+		"           login service: not installed\n",
+		"web view   http://127.0.0.1:9000/    pid "+me+"  build unknown  this machine only\n",
+		"           http://192.168.7.7:9001/  pid "+me+"  build unknown  open to the network (--unsafe), no login\n",
+		"\nresidents, hooks, peers and work: not known while the server is not running\n")
+	for _, not := range []string{"name ", "operator", "doctor", "started", "\nresidents ", "\nwork "} {
+		if strings.Contains(out, not) {
+			t.Errorf("status says %q:\n%s", not, out)
+		}
+	}
+
+	var raw map[string]json.RawMessage
+	js := capture(t, func() { code = execute(&app{}, []string{"status", "--json"}) })
+	if err := json.Unmarshal([]byte(js), &raw); err != nil || code != 0 {
+		t.Fatalf("exit %d, %v:\n%s", code, err, js)
+	}
+	for _, key := range []string{"name", "operator", "residents", "hooks", "peers", "work", "faults"} {
+		if _, ok := raw[key]; ok {
+			t.Errorf("json has %q, which is not known without the server:\n%s", key, js)
+		}
+	}
+	var rep statusReport
+	if err := json.Unmarshal([]byte(js), &rep); err != nil || rep.Server.Running || rep.Server.PID != 0 || !rep.Daemon.Running || len(rep.Web.Views) != 2 {
+		t.Fatalf("json: %v %+v", err, rep)
+	}
+
+	// No server afterwards: no socket, no pidfile, no log, nothing new in
+	// the home at all.
+	for _, p := range []string{cfg.Socket(), cfg.PIDFile(), cfg.LogFile()} {
+		if _, err := os.Stat(p); err == nil {
+			t.Errorf("status left %s: a server was started", p)
+		}
+	}
+	after, err := os.ReadDir(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Errorf("the home changed: %v, was %v", after, before)
+	}
+	if server.Running(context.Background(), cfg) {
+		t.Error("a server answers on the home")
+	}
+}
+
+// A web view runs the build it was started on until it is started again:
+// it records that build, and status lists it and says when this yardr is
+// another.
+func TestStatusWebViewBuild(t *testing.T) {
+	home, _, a := statusYard(t, "")
+	announce(t, home, "127.0.0.1:9000", false)
+	out, _ := run(t, a().rootCmd(), "status")
+	wantText(t, out, "web view   http://127.0.0.1:9000/  pid "+strconv.Itoa(os.Getpid())+"  build unknown  this machine only\n")
+	if strings.Contains(out, "this yardr is build") {
+		t.Errorf("a view of this build is said to differ:\n%s", out)
+	}
+
+	stub(t, &viewRevision, func() string { return "0123456789ab" })
+	announce(t, home, "127.0.0.1:9001", false)
+	out, _ = run(t, a().rootCmd(), "status")
+	wantText(t, out,
+		"           http://127.0.0.1:9001/  pid "+strconv.Itoa(os.Getpid())+"  build 0123456789ab  this machine only\n",
+		"           this yardr is build unknown: a view runs the build it was started on until it is started again\n",
+		"           login service: not installed\n")
+	v := statusJSON(t, a()).Web.Views
+	if len(v) != 2 || v[0].Differs || v[0].Build != "unknown" || !v[1].Differs || v[1].Revision != "0123456789ab" || v[1].Build != "0123456789ab" {
+		t.Fatalf("views: %+v", v)
 	}
 }
 
@@ -185,9 +288,9 @@ func TestStatusRunningYard(t *testing.T) {
 		"daemon     running (pid "+me+")\n",
 		"residents  mayor     idle         herdr agent y-mayor\n",
 		"           refinery  not running\n",
-		"web view   http://127.0.0.1:9000/    pid "+me+"  this machine only\n",
-		"           http://192.168.7.7:9001/  pid "+me+"  open to the network (--unsafe), no login\n",
-		"           http://[::1]:9002/        pid "+me+"  this machine only\n",
+		"web view   http://127.0.0.1:9000/    pid "+me+"  build unknown  this machine only\n",
+		"           http://192.168.7.7:9001/  pid "+me+"  build unknown  open to the network (--unsafe), no login\n",
+		"           http://[::1]:9002/        pid "+me+"  build unknown  this machine only\n",
 		"           login service: not installed\n",
 		"hooks      the server takes webhooks on 127.0.0.1:9100\n",
 		"           tickets  linear  http://127.0.0.1:9100/hooks/tickets\n",
@@ -199,7 +302,7 @@ func TestStatusRunningYard(t *testing.T) {
 	}
 
 	rep := statusJSON(t, a())
-	if rep.Name != "y" || rep.Operator != "Jo" || !rep.Daemon.Running || rep.Daemon.PID != os.Getpid() || rep.Faults != 0 {
+	if rep.Name != "y" || rep.Operator != "Jo" || !rep.Daemon.Running || rep.Daemon.PID != os.Getpid() || rep.Faults == nil || *rep.Faults != 0 {
 		t.Fatalf("json: %+v", rep)
 	}
 	if len(rep.Residents) != 2 || rep.Residents[0] != (residentStatus{"mayor", "idle", "y-mayor"}) || rep.Residents[1].Agent != "" {
@@ -238,7 +341,10 @@ func TestStatusStaleWebView(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(body), "url") || strings.Contains(string(body), "open") {
+	if !strings.Contains(string(body), `"revision"`) {
+		t.Fatalf("the record does not say which build the view runs: %s", body)
+	}
+	if strings.Contains(string(body), "url") || strings.Contains(string(body), "open") || strings.Contains(string(body), "differs") {
 		t.Fatalf("the record holds what is worked out when it is read: %s", body)
 	}
 	// It ends cleanly: the record is gone.
@@ -303,6 +409,8 @@ func TestStatusUnreachableServer(t *testing.T) {
 	home := newHome(t)
 	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
 	announce(t, home, "127.0.0.1:9000", false)
+	// It answers on its socket, and nothing it is asked comes back.
+	stub(t, &serverRunning, func(context.Context, *config.Config) bool { return true })
 	out, err := run(t, (&app{st: brokenStore{storetest.New(t)}, actor: "me"}).rootCmd(), "status")
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, out)

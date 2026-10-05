@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/version"
 )
 
 // A running web view says so in a file of its own in the home's webviews
@@ -30,12 +31,24 @@ type webView struct {
 	// Unsafe is whether it was started with --unsafe.
 	Unsafe  bool      `json:"unsafe"`
 	Started time.Time `json:"started"`
+	// Revision is the build it runs, as it recorded it: a view does not
+	// replace itself when a new yardr is installed, as the server and the
+	// daemon do, so it may be another than the server's all day.
+	Revision string `json:"revision"`
+	// Build is Revision for people, and Differs whether the yardr that
+	// reads the record is another build. Both are the reader's.
+	Build   string `json:"build,omitempty"`
+	Differs bool   `json:"differs"`
 	// URL is where a person opens it, and Open whether another machine on
 	// the network can. Neither is in the record: both are worked out when
 	// it is read, since the machine's address may have changed by then.
 	URL  string `json:"url,omitempty"`
 	Open bool   `json:"open"`
 }
+
+// viewRevision is the build a view records itself as running; tests
+// replace it.
+var viewRevision = version.Current
 
 // webViewsDir is where the home's running web views record themselves.
 func webViewsDir(cfg *config.Config) string { return filepath.Join(cfg.Home, "webviews") }
@@ -55,7 +68,8 @@ func announceWeb(cfg *config.Config, addr string, unsafe bool) (clear func(), er
 		return nil, err
 	}
 	path := filepath.Join(dir, "view-"+strings.TrimPrefix(filepath.Base(f.Name()), ".new-")+".json")
-	b, _ := json.Marshal(map[string]any{"addr": addr, "pid": os.Getpid(), "unsafe": unsafe, "started": time.Now().UTC()})
+	b, _ := json.Marshal(map[string]any{"addr": addr, "pid": os.Getpid(), "unsafe": unsafe, "started": time.Now().UTC(),
+		"revision": viewRevision()})
 	err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 	if err == nil {
 		_, err = f.Write(append(b, '\n'))
@@ -99,6 +113,7 @@ func webViews(cfg *config.Config) []webView {
 			continue
 		}
 		v.URL, v.Open = webURL(v.Addr), v.Unsafe && !loopbackOnly(v.Addr)
+		v.Build, v.Differs = version.Show(v.Revision), v.Revision != version.Current()
 		views = append(views, v)
 	}
 	slices.SortStableFunc(views, func(a, b webView) int { return a.Started.Compare(b.Started) })

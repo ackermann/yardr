@@ -248,8 +248,8 @@ daemon     running (pid 4720)
            login service: not installed
 residents  mayor     idle         herdr agent yardr-mayor
            refinery  not running
-web view   http://127.0.0.1:8791/     pid 4801  this machine only
-           http://192.168.1.20:9000/  pid 4950  open to the network (--unsafe), no login
+web view   http://127.0.0.1:8791/     pid 4801  build abcdef123456  this machine only
+           http://192.168.1.20:9000/  pid 4950  build abcdef123456  open to the network (--unsafe), no login
            login service: not installed
 hooks      the server takes webhooks on 127.0.0.1:8790
            tickets  linear  http://127.0.0.1:8790/hooks/tickets
@@ -260,10 +260,10 @@ work       3 sessions running (web/builders 2, web/reviewers 1), 1 bead held, 2 
 | part | what it says |
 |---|---|
 | `yard` | the home, the yard's name, the operator |
-| `server` | its pid, the build it runs and since when that build runs (a server that replaced itself with a new build counts from then). `this yardr is build <build>` follows when the yardr that was asked is another build. `(it was not running; this command started it)` when status started it, as any command does. `cannot be reached: <why>` when it does not answer: then only `yard`, `daemon` and `web view` follow |
+| `server` | its pid, the build it runs and since when that build runs (a server that replaced itself with a new build counts from then). `this yardr is build <build>` follows when the yardr that was asked is another build. `not running: any yardr command that needs the yard starts it (yardr ready), or yardr server start` when none answers: status starts none ([below](#a-server-that-is-not-running)). `cannot be reached: <why>` when one answers and cannot be asked about the yard: then only `yard`, `daemon` and `web view` follow |
 | `daemon` | `running (pid <pid>)` or `not running`, and its login service, both as `yardr daemon status` prints them |
 | `residents` | each with its state as [`yardr chat`](chat.md) lists it (`not running`, `working`, `idle`, `blocked`, `failed to start`, `running`) and, while it runs, its herdr agent |
-| `web view` | each view that runs: the URL to open, its pid, and `this machine only` or `open to the network (--unsafe), no login`; `not running: yardr web serve` when none does; then the web view's login service ([web.md](web.md#where-it-runs)) |
+| `web view` | each view that runs: the URL to open, its pid, the build it runs, and `this machine only` or `open to the network (--unsafe), no login`; `this yardr is build <build>: ...` when a view runs another build than the yardr that was asked, since a view does not replace itself when a new yardr is installed; `not running: yardr web serve` when none does; then the web view's login service ([web.md](web.md#where-it-runs)) |
 | `hooks` | what the running server takes webhooks on, then each hook, its source and the URL its source posts to. Absent on a yard with no hook and no address |
 | `peers` | each linked yard and where it is called, or `it calls this yard`. Absent with no peer |
 | `work` | how many sessions are live, by group; how many open beads are held; how many are in stage `decide` |
@@ -273,13 +273,38 @@ no more: `yardr doctor reports <N> faults, and says what they are.` To know
 that, status runs doctor's checks too (the version flags, herdr's server),
 so it takes as long as doctor does.
 
-It is read-only. The exit status is 0 on any home that holds a yard, faults
-or not, and 2 on a home with none, where it says what any command says
-there and starts no onboarding. `--json` prints the same as one object:
-`home`, `name`, `operator`, `server` (`running`, `started`, `error`, `pid`,
+It is read-only and starts nothing. The exit status is 0 on any home that
+holds a yard, faults or not, and 2 on a home with none, where it says what
+any command says there and starts no onboarding. `--json` prints the same as
+one object: `home`, `name`, `operator`, `server` (`running`, `error`, `pid`,
 `build`, `since`, `cli_build`, `differs`), `daemon` (`running`, `pid`,
 `service`), `residents` (`name`, `state`, `agent`), `web` (`views`, each
-`url`, `addr`, `pid`, `unsafe`, `open`, `started`; `service`), `hooks`
-(`addr`, `listening`, `hooks` with `name`, `source`, `url`), `peers`
-(`name`, `url`), `work` (`sessions` by group, `held`, `decide`) and `faults`,
-the number doctor reports.
+`url`, `addr`, `pid`, `unsafe`, `open`, `started`, `revision`, `build`,
+`differs`; `service`), `hooks` (`addr`, `listening`, `hooks` with `name`,
+`source`, `url`), `peers` (`name`, `url`), `work` (`sessions` by group,
+`held`, `decide`) and `faults`, the number doctor reports.
+
+### A server that is not running
+
+Every other command that needs the yard starts its server. `yardr status`
+does not: it says what runs, and a server it started would be one that did
+not. On a yard whose server is stopped it prints what the home and the
+machine say without the store, and exits 0:
+
+```
+yard       /Users/jo/.yardr
+server     not running: any yardr command that needs the yard starts it (yardr ready), or yardr server start
+daemon     not running
+           login service: not installed
+web view   http://127.0.0.1:8791/  pid 4801  build abcdef123456  this machine only
+           login service: not installed
+
+residents, hooks, peers and work: not known while the server is not running
+```
+
+The yard's name and its operator are settings in the store, so they are
+left out, and so is the line about doctor's faults. In the JSON
+`server.running` is `false` and `name`, `operator`, `residents`, `hooks`,
+`peers`, `work` and `faults` are absent. A home counts as a yard here when
+it holds a store (`yard.db`): whether that store was ever set up is known
+only to its server. `yardr doctor` does start the server, and says so.

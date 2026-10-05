@@ -87,11 +87,11 @@ service is installed, with its address.
 ## Where it runs
 
 `yardr status` lists every web view that runs on the yard, however it was
-started: the URL to open, its pid, and who can open it.
+started: the URL to open, its pid, the build it runs, and who can open it.
 
 ```
-web view   http://127.0.0.1:8791/     pid 4801  this machine only
-           http://192.168.1.20:9000/  pid 4950  open to the network (--unsafe), no login
+web view   http://127.0.0.1:8791/     pid 4801  build abcdef123456  this machine only
+           http://192.168.1.20:9000/  pid 4950  build abcdef123456  open to the network (--unsafe), no login
            login service: not installed
 ```
 
@@ -105,9 +105,17 @@ a `note` for a view that is open to the network.
   on (`0.0.0.0:8791`).
 - `open to the network` is a view started with `--unsafe` on an address off
   loopback. `--unsafe --addr 127.0.0.1:9000` is `this machine only`.
+- A view does not replace itself when a new yardr is installed, as the
+  server and the daemon do: it runs the build it was started on until it is
+  started again. When that is another build than the yardr that was asked,
+  a line under the views says so (`this yardr is build <build>: ...`); stop
+  the view and start it again to have the new one (`yardr web install`
+  again, for the login service's).
+- The views are read from the home, not from the server, so status lists
+  them while the server is stopped too, and starts none.
 - While it serves, a view keeps a record in `<home>/webviews/` (its
-  address, its pid, `--unsafe` or not, when it started) and holds a lock on
-  it. It removes the record when it stops. One that ended without doing so
+  address, its pid, `--unsafe` or not, when it started, the build it runs)
+  and holds a lock on it. It removes the record when it stops. One that ended without doing so
   (`kill -9`, a reboot) holds the lock no longer, so its record is not
   listed, whatever its pid has become since; the next view to start removes
   it. Nothing is found by process name or by trying a port.
