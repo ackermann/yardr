@@ -275,6 +275,8 @@ The rest of the documentation is in [docs/](docs/README.md):
   in one terminal view: what each is doing, where what you sent stands, a line to type.
 - **[Subscriptions](docs/subscriptions.md):** what reaches a resident's inbox:
   hook sources, yardr's own bead events (`--done`, `yardr bead watch`), groups.
+- **[Timers](docs/timers.md):** `yardr timer`, asking the yard to tell a resident or a
+  user something later, once or recurring, unless an awaited bead moved first.
 - **[Links](docs/links.md):** `yardr link`, the outside issue (Linear, GitHub) a bead
   tracks or relates to, and the hook's map that moves it when the bead changes stage.
 - **[Peers](docs/peers.md):** `yardr peer`, linking two yards by their keys: signed

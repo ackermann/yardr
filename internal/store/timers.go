@@ -419,9 +419,11 @@ func (s *Store) FireTimers(ctx context.Context, at time.Time) (*TimerPass, error
 	for _, t := range all {
 		step := timerStep{t: t}
 		if t.Unless != nil {
+			// A bead that cannot be read holds up no other timer: this
+			// one fires when due, saying nothing of the bead.
 			st, err := s.unlessState(ctx, *t.Unless, false)
 			if err != nil {
-				return nil, err
+				st = unlessState{}
 			}
 			step.stands = st.stands
 			if st.met {
