@@ -718,11 +718,11 @@ func TestDoctorHerdrServer(t *testing.T) {
 
 // tryTool is a stand-in harness: it answers its version flag, and on its
 // one-shot form writes its arguments, how many files its directory holds
-// and whether stdin is at its end to the file called, as one line, then does
-// what real says.
+// and whether stdin is at its end to the file called, as one line, and its
+// directory as a second, then does what real says.
 func tryTool(called, real string) string {
 	return "#!/bin/sh\n[ \"$1\" = --version ] && { echo 'tool 1.2.3'; exit 0; }\n" +
-		"read line || stdin=closed\necho \"args: $*; files: $(ls -A | wc -l | tr -d ' '); stdin: $stdin\" >>" + called + "\n" + real + "\n"
+		"read line || stdin=closed\necho \"args: $*; files: $(ls -A | wc -l | tr -d ' '); stdin: $stdin\ndir: $(pwd -P)\" >>" + called + "\n" + real + "\n"
 }
 
 // Found live (yardr-aa7y): Codex was on PATH, answered its version flag and
@@ -752,6 +752,15 @@ func TestDoctorTry(t *testing.T) {
 	}
 	stub(t, &tryTimeout, 2*time.Second)
 	stub(t, &tryHarnessCall, realTry)
+	// The calls make their directories in a temp directory of this test's
+	// own. In the one every go test on the machine shares, the directory of
+	// another run that is in the middle of this test looked like one left
+	// behind (yardr-1abw): two gates at once, and both were red.
+	tmp, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", tmp)
 
 	// Without --try: nothing is called, and the report says what it did
 	// not do.
@@ -771,7 +780,7 @@ func TestDoctorTry(t *testing.T) {
 		t.Fatalf("a harness was called without --try (tried %v):\n%s", rep.Tried, b)
 	}
 
-	out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor", "--try")
+	out, err = run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor", "--try")
 	if !errors.Is(err, errCheckFailed) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
@@ -795,7 +804,21 @@ func TestDoctorTry(t *testing.T) {
 	if n := strings.Count(string(b), "args: "); n != 3 {
 		t.Errorf("%d calls, want 3 (claude, codex, kimi):\n%s", n, b)
 	}
-	if left, _ := filepath.Glob(filepath.Join(os.TempDir(), "yardr-try*")); len(left) > 0 {
+	// Each had a directory of its own, where this test looks for them, and
+	// none is left.
+	dirs := map[string]bool{}
+	for _, line := range strings.Split(string(b), "\n") {
+		if dir, ok := strings.CutPrefix(line, "dir: "); ok {
+			dirs[dir] = true
+			if !strings.HasPrefix(dir, filepath.Join(tmp, "yardr-try")) {
+				t.Errorf("a call ran in %s, want a directory yardr-try* in %s", dir, tmp)
+			}
+		}
+	}
+	if len(dirs) != 3 {
+		t.Errorf("the calls ran in %d directories, want 3: %v", len(dirs), dirs)
+	}
+	if left, _ := filepath.Glob(filepath.Join(tmp, "yardr-try*")); len(left) > 0 {
 		t.Errorf("the directories of the calls were left: %v", left)
 	}
 	rep, _ = doctorJSON(t, st, "--try")
