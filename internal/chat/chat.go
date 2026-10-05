@@ -1,7 +1,8 @@
 // Package chat is the view behind yardr chat: the yard's residents, each
 // with what its session is doing and how much of its mail is unread, the
 // conversation with the selected one, and a line to write to it
-// (docs/chat.md).
+// (docs/chat.md). Above the residents is the yard itself: the user's
+// notifications, which are no conversation and take no answer (yard.go).
 //
 // It shows what the store keeps and sends through it: a conversation is
 // store.API's Conversation, a line sent is its Mail, and what changes
@@ -40,6 +41,8 @@ type Store interface {
 	AckUserInbox(ctx context.Context, name string, through uint64) error
 	Conversation(ctx context.Context, a, b string, after uint64) ([]store.Letter, error)
 	Mail(ctx context.Context, to, text, actor string) error
+	UserNotifications(ctx context.Context, name string, limit int) (*store.NotificationPage, error)
+	AckUserNotifications(ctx context.Context, name string, through uint64) error
 }
 
 // Options are what the command knows and the model cannot find out.
@@ -83,6 +86,11 @@ type State struct {
 	// mail after it.
 	Cursor uint64
 	Unread []store.Letter
+	// Notifications are all the user's inbox keeps of them, oldest first,
+	// and NotificationCursor how far they are acknowledged: a position of
+	// its own, apart from the mail's.
+	Notifications      []store.Notification
+	NotificationCursor uint64
 }
 
 // Load reads the state a view for the user me starts from.
@@ -99,7 +107,7 @@ func Load(ctx context.Context, st Store, me string) (*State, error) {
 	if err != nil {
 		return nil, err
 	}
-	s.Cursor = u.Cursor
+	s.Cursor, s.NotificationCursor = u.Cursor, u.NotificationCursor
 	// The count first, then that many: a user's inbox lists the unread
 	// before the read, and the read are not wanted here.
 	box, err := st.UserInbox(ctx, me, 1)
@@ -116,6 +124,12 @@ func Load(ctx context.Context, st Store, me string) (*State, error) {
 			s.Unread = append(s.Unread, l)
 		}
 	}
+	// All of them: the store bounds what a user's inbox keeps.
+	page, err := st.UserNotifications(ctx, me, 0)
+	if err != nil {
+		return nil, err
+	}
+	s.Notifications = page.Notifications
 	return s, nil
 }
 
@@ -193,7 +207,10 @@ type Model struct {
 	opt Options
 
 	residents []store.Resident
-	sel       string // the selected resident's name
+	sel       string // the selected resident's name, "" on the yard's row
+	// yard says the yard's row is selected: the notifications and no
+	// conversation (yard.go).
+	yard bool
 	// statusAt is the seq of the resident_status event a resident's
 	// status was last taken from: a list of the residents read before it
 	// does not put an older status back.
@@ -210,6 +227,13 @@ type Model struct {
 	unread map[uint64]*waiting
 	cursor uint64
 	asked  uint64
+
+	// notes are the user's notifications, oldest first. noteCursor is how
+	// far the store has them acknowledged and noteAsked how far the view
+	// has asked for, as cursor and asked are for the mail.
+	notes      []store.Notification
+	noteCursor uint64
+	noteAsked  uint64
 
 	down   bool // the stream is lost
 	input  textarea.Model
@@ -228,7 +252,8 @@ func New(ctx context.Context, st Store, opt Options, s *State) *Model {
 	}
 	m := &Model{ctx: ctx, st: st, opt: opt, residents: s.Residents, cursor: s.Cursor, asked: s.Cursor,
 		statusAt: map[string]uint64{}, convo: map[string][]store.Letter{}, loaded: map[string]bool{},
-		unread: map[uint64]*waiting{}}
+		unread: map[uint64]*waiting{},
+		notes:  s.Notifications, noteCursor: s.NotificationCursor, noteAsked: s.NotificationCursor}
 	for _, l := range s.Unread {
 		m.unread[l.Seq] = &waiting{from: l.From}
 	}
@@ -274,7 +299,8 @@ func (m *Model) resident(name string) *store.Resident {
 // way (Options.Expect).
 func (m *Model) Expects() string { return m.opt.Expect }
 
-// Selected is the selected resident's name, "" in a yard without any.
+// Selected is the selected resident's name, "" in a yard without any and
+// on the yard's row (OnYard).
 func (m *Model) Selected() string { return m.sel }
 
 // Unread is how many mails from name the user has not seen.
@@ -474,6 +500,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.acked(msg.through)
 		return m, nil
+	case notesMsg:
+		if msg.err != nil {
+			m.notice = fmt.Sprintf("the notifications could not be read: %v", msg.err)
+			return m, nil
+		}
+		return m, m.noted(msg.notes)
+	case notesAckedMsg:
+		if msg.err != nil {
+			m.noteAsked = m.noteCursor
+			m.notice = fmt.Sprintf("your notifications could not be marked read: %v", msg.err)
+			return m, nil
+		}
+		m.notesAcked(msg.through)
+		return m, nil
 	case focusMsg:
 		if msg.err != nil {
 			m.notice = msg.err.Error()
@@ -532,6 +572,12 @@ func (m *Model) key(k tea.KeyMsg) tea.Cmd {
 	case "enter":
 		return m.send()
 	}
+	if m.yard {
+		// Nothing typed here goes anywhere, and the view says so once
+		// rather than keep it for whoever is selected next.
+		m.notice = "nobody to answer here: the yard reports, tab goes to a resident"
+		return nil
+	}
 	before := m.input.Value()
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(k)
@@ -548,15 +594,21 @@ func (m *Model) key(k tea.KeyMsg) tea.Cmd {
 	return cmd
 }
 
-// step selects the resident by residents further down the list, around
-// its ends.
+// step selects the row by rows further down the list, around its ends:
+// the yard's row is the first, the residents follow.
 func (m *Model) step(by int) tea.Cmd {
-	n := len(m.residents)
-	if n < 2 {
-		return nil
+	n := 1 + len(m.residents)
+	i := 0
+	if !m.yard {
+		// In a yard without residents nothing is selected, and the yard's
+		// row is the next either way.
+		i = 1 + slices.IndexFunc(m.residents, func(r store.Resident) bool { return r.Name == m.sel })
 	}
-	i := slices.IndexFunc(m.residents, func(r store.Resident) bool { return r.Name == m.sel })
-	m.sel = m.residents[((i+by)%n+n)%n].Name
+	i = ((i+by)%n + n) % n
+	m.yard, m.sel = i == 0, ""
+	if !m.yard {
+		m.sel = m.residents[i-1].Name
+	}
 	m.notice = ""
 	m.opened()
 	return tea.Batch(m.open(), m.watch())
@@ -577,8 +629,12 @@ func (m *Model) opened() {
 }
 
 // open reads the selected conversation if it was not read before, and
-// acknowledges what opening it showed.
+// acknowledges what opening it showed: on the yard's row the
+// notifications, and no mail.
 func (m *Model) open() tea.Cmd {
+	if m.yard {
+		return m.ackNotes()
+	}
 	if m.sel == "" {
 		return nil
 	}
@@ -750,6 +806,12 @@ func (m *Model) tail() tea.Cmd {
 
 // event applies one event of the stream.
 func (m *Model) event(e store.Event) tea.Cmd {
+	if store.Notified(e, m.opt.Me) != "" {
+		// The event says that it became a notification for the user, and
+		// not the text yardr made of it: that is read from the store. No
+		// event is both that and one of those below.
+		return m.readNotes()
+	}
 	switch {
 	case e.Kind == "mail":
 		return m.mail(e)
@@ -765,6 +827,10 @@ func (m *Model) event(e store.Event) tea.Cmd {
 			if c[i].To == reader && c[i].Seq <= through {
 				c[i].Read = true
 			}
+		}
+	case e.Kind == "notifications_read":
+		if reader, _ := e.Data["reader"].(string); reader == m.opt.Me {
+			m.notesAcked(number(e.Data["through"]))
 		}
 	case e.Kind == "resident_status":
 		name, _ := e.Data["resident"].(string)
@@ -831,7 +897,7 @@ func (m *Model) listed(head uint64, rs []store.Resident) tea.Cmd {
 		}
 	}
 	m.residents = rs
-	if m.resident(m.sel) != nil {
+	if m.yard || m.resident(m.sel) != nil {
 		return nil
 	}
 	m.sel = ""

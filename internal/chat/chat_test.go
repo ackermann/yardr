@@ -99,7 +99,7 @@ func (v *view) do(cmd tea.Cmd) {
 		for _, c := range msg {
 			v.do(c)
 		}
-	case convoMsg, residentsMsg, sentMsg, ackedMsg, focusMsg, tailMsg:
+	case convoMsg, residentsMsg, sentMsg, ackedMsg, focusMsg, tailMsg, notesMsg, notesAckedMsg:
 		// Not refreshMsg: the time to read a pane again is the test's to
 		// say, or a watched pane would be read without end.
 		v.send(msg)
@@ -169,8 +169,8 @@ func head(t *testing.T, st store.API) uint64 {
 }
 
 // The resident named is selected, else the first; tab and shift+tab go
-// through the list and around its ends, and each selection shows that
-// resident's conversation.
+// through the list and around its ends, where the yard's row is, and each
+// selection shows that resident's conversation.
 func TestSelection(t *testing.T) {
 	st := yard(t)
 	ctx := context.Background()
@@ -190,9 +190,14 @@ func TestSelection(t *testing.T) {
 	v.shows("> refinery", "to the refinery", "Write to refinery")
 	v.hides("to the mayor", "> mayor")
 	v.key(tea.KeyTab)
-	if v.m.Selected() != "mayor" {
-		t.Fatalf("tab past the end selected %q", v.m.Selected())
+	if !v.m.OnYard() || v.m.Selected() != "" {
+		t.Fatalf("tab past the last resident selected %q, the yard's row %v", v.m.Selected(), v.m.OnYard())
 	}
+	v.key(tea.KeyTab)
+	if v.m.Selected() != "mayor" || v.m.OnYard() {
+		t.Fatalf("tab past the end selected %q, the yard's row %v", v.m.Selected(), v.m.OnYard())
+	}
+	v.key(tea.KeyShiftTab)
 	v.key(tea.KeyShiftTab)
 	if v.m.Selected() != "refinery" {
 		t.Fatalf("shift+tab before the start selected %q", v.m.Selected())
@@ -415,7 +420,7 @@ func TestLayout(t *testing.T) {
 	v := open(t, st, "mayor", 80, 24)
 	v.fits(80, 24)
 	lines := strings.Split(v.screen(), "\n")
-	if lines[1] != "[mayor idle]  refinery idle (1)" {
+	if lines[1] != "yard  [mayor idle]  refinery idle (1)" {
 		t.Fatalf("the residents' line at 80 columns is %q", lines[1])
 	}
 	if strings.Contains(v.screen(), "│") {

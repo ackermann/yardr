@@ -33,6 +33,8 @@ type styles struct {
 	resident lipgloss.Style // a resident's name on its mail
 	own      lipgloss.Style // the user's name on theirs
 
+	bead lipgloss.Style // what a notification is about: a bead's id, a source
+
 	read    lipgloss.Style // under a sent mail: it was read
 	waiting lipgloss.Style // it is in the inbox and will be read
 	warn    lipgloss.Style // it cannot be read now; and the view's own warnings
@@ -80,6 +82,10 @@ func themed(t *huh.Theme) styles {
 		// mail from it.
 		resident: heading.Bold(true),
 		own:      fg(f.Option).Bold(true),
+
+		// Bold and no colour: it is from nobody, neither a resident's
+		// name nor the user's.
+		bead: lipgloss.NewStyle().Bold(true),
 
 		read:    good,
 		waiting: muted,

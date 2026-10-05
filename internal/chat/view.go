@@ -31,12 +31,20 @@ var keys = [][2]string{
 	{"pgup/pgdn", "scroll"}, {"^g", "pane"}, {"^c", "quit"},
 }
 
-// Keys is that line as text. It fits 80 columns.
-var Keys = keysLine(lipgloss.NewStyle(), lipgloss.NewStyle())
+// yardKeys are the keys of that line on the yard's row: those that do
+// something where there is no line to type in and no pane.
+var yardKeys = [][2]string{keys[2], keys[3], keys[5]}
+
+// Keys is that line as text, and YardKeys the one of the yard's row. They
+// fit 80 columns.
+var (
+	Keys     = keysLine(keys, lipgloss.NewStyle(), lipgloss.NewStyle())
+	YardKeys = keysLine(yardKeys, lipgloss.NewStyle(), lipgloss.NewStyle())
+)
 
 // keysLine is the line of keys, a key in one style and its word in the
 // other, as the help under a form tells them apart.
-func keysLine(key, word lipgloss.Style) string {
+func keysLine(keys [][2]string, key, word lipgloss.Style) string {
 	items := make([]string, len(keys))
 	for i, k := range keys {
 		items[i] = key.Render(k[0]) + " " + word.Render(k[1])
@@ -49,9 +57,13 @@ func (m *Model) narrow() bool { return m.width < Wide }
 
 // areaRows is the height between the title and the input: the terminal's
 // less the title, the rule and the input, the line of notices and the
-// keys, and, folded, the residents' line and its rule.
+// keys, and, folded, the residents' line and its rule. The yard's row has
+// no input, and its notifications have those lines too.
 func (m *Model) areaRows() int {
 	fixed := 1 + 1 + inputRows + 1 + 1
+	if m.yard {
+		fixed -= inputRows
+	}
 	if m.narrow() {
 		fixed += 2
 	}
@@ -151,6 +163,9 @@ func (m *Model) clamp() {
 // mail's time and sender, its text, and under a mail the user sent where
 // it stands.
 func (m *Model) lines(w int) []string {
+	if m.yard {
+		return m.noteLines(w)
+	}
 	if m.sel == "" {
 		return []string{look.faint.Render(fit(fmt.Sprintf("The yard has no residents: %s resident add", m.opt.Yardr), w))}
 	}
@@ -230,9 +245,18 @@ func pad(s string, w int) string {
 	return s + strings.Repeat(" ", max(w-ansi.StringWidth(s), 0))
 }
 
-// column is the residents as the wide view's left column, one a line.
+// column is the yard's row and the residents as the wide view's left
+// column, one a line. The yard's row has no state: its count stands where
+// a resident's does.
 func (m *Model) column() []string {
-	var out []string
+	mark, name, unread := "  ", pad(YardRow, nameWidth), ""
+	if m.yard {
+		mark, name = look.selected.Render("> "), look.selected.Render(name)
+	}
+	if n := m.Notifications(); n > 0 {
+		unread = look.unread.Render(fmt.Sprint(n))
+	}
+	out := []string{pad(mark+name+" "+pad("", len(Failed))+" "+unread, listWidth)}
 	for _, r := range m.residents {
 		mark, name := "  ", pad(r.Name, nameWidth)
 		if r.Name == m.sel {
@@ -248,16 +272,24 @@ func (m *Model) column() []string {
 	return out
 }
 
-// folded is the residents as one line of w columns: the selected one in
-// brackets, each with its state and, in parentheses, its unread count.
-// When they do not all fit, those before the selected one give way first.
+// folded is the yard's row and the residents as one line of w columns: the
+// selected one in brackets, each resident with its state and, in
+// parentheses, the unread count. When they do not all fit, those before
+// the selected one give way first.
 func (m *Model) folded(w int) string {
-	var items []string
+	yard := YardRow
+	if n := m.Notifications(); n > 0 {
+		yard += " " + look.unread.Render(fmt.Sprintf("(%d)", n))
+	}
+	if m.yard {
+		yard = look.selected.Render("[") + look.selected.Render(YardRow) + look.selected.Render("]")
+	}
+	items := []string{yard}
 	sel := 0
 	for i, r := range m.residents {
 		name, state, open, shut := r.Name, StateOf(r), "", ""
 		if r.Name == m.sel {
-			name, open, shut, sel = look.selected.Render(name), look.selected.Render("["), look.selected.Render("]"), i
+			name, open, shut, sel = look.selected.Render(name), look.selected.Render("["), look.selected.Render("]"), i+1
 		}
 		item := open + name + " " + look.state(state).Render(state)
 		if n := m.Unread(r.Name); n > 0 {
@@ -300,7 +332,8 @@ func (m *Model) count() string {
 
 // View is the screen: the title, the residents, the conversation with the
 // newest mail in view, the line to type in, a line of notices and the
-// keys.
+// keys. On the yard's row the notifications stand for the conversation,
+// and there is no line to type in.
 func (m *Model) View() string {
 	if m.width == 0 || m.height == 0 {
 		return "" // no size yet
@@ -338,7 +371,12 @@ func (m *Model) View() string {
 		}
 	}
 
-	out = append(out, rule(w, m.count()), m.input.View())
+	keys := keys
+	if m.yard {
+		out, keys = append(out, rule(w, "")), yardKeys
+	} else {
+		out = append(out, rule(w, m.count()), m.input.View())
+	}
 
 	note := m.notice
 	if note == "" {
@@ -346,6 +384,6 @@ func (m *Model) View() string {
 			note = fmt.Sprintf("%d unread from %s, no resident: %s inbox", n, strings.Join(from, ", "), m.opt.Yardr)
 		}
 	}
-	out = append(out, fit(note, w), fit(keysLine(look.key, look.word), w))
+	out = append(out, fit(note, w), fit(keysLine(keys, look.key, look.word), w))
 	return strings.Join(out, "\n")
 }
