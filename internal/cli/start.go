@@ -13,6 +13,7 @@ import (
 	"golang.org/x/term"
 
 	"yardr.dev/yardr/internal/agents"
+	"yardr.dev/yardr/internal/chat"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/runner"
@@ -339,8 +340,7 @@ func diagnose(ctx context.Context, cfg *config.Config, st store.API, r *store.Re
 		// says why, and the person has to go there.
 		kind, _ := r.Config["kind"].(string)
 		if r.Handle[dispatch.PendingPrompt] != nil {
-			known = append(known, fmt.Sprintf("%s was started in the pane but is not ready for its first prompt: "+
-				"it may wait at a login, a question or a system dialog", kind))
+			known = append(known, chat.NotReady(kind))
 		} else {
 			known = append(known, fmt.Sprintf("the first prompt went into the pane, and %s printed nothing after it", kind))
 		}

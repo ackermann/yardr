@@ -3,6 +3,7 @@ package chat
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -46,15 +47,91 @@ func keysLine(key, word lipgloss.Style) string {
 // narrow reports whether the residents are folded into a line.
 func (m *Model) narrow() bool { return m.width < Wide }
 
-// bodyRows is the height the conversation has: the terminal's less the
-// title, the rule and the input, the line of notices and the keys, and,
-// folded, the residents' line and its rule.
-func (m *Model) bodyRows() int {
+// areaRows is the height between the title and the input: the terminal's
+// less the title, the rule and the input, the line of notices and the
+// keys, and, folded, the residents' line and its rule.
+func (m *Model) areaRows() int {
 	fixed := 1 + 1 + inputRows + 1 + 1
 	if m.narrow() {
 		fixed += 2
 	}
 	return max(m.height-fixed, 1)
+}
+
+// bodyRows is the height the conversation has: the area's, less the
+// notice of a resident that waits in its pane.
+func (m *Model) bodyRows() int {
+	return max(m.areaRows()-len(m.waits(m.bodyWidth())), 1)
+}
+
+// minBody is how much of the conversation stays in view above the notice
+// of a resident that waits in its pane: the notice gives up the pane's
+// lines for it, the oldest first.
+const minBody = 3
+
+// waits is the notice above the input for a selected resident that waits
+// in its pane (Waits), as lines of at most w columns, and nothing for any
+// other: what yardr knows, the pane's last lines, and the key that goes
+// there. It is no mail and nowhere kept: it is there while the resident
+// waits.
+func (m *Model) waits(w int) []string {
+	r := m.resident(m.sel)
+	if r == nil || !Waits(*r) {
+		return nil
+	}
+	out := wrap(Known(*r), w, "! ", look.warn)
+	how := "opens its pane; answer there and come back"
+	if !m.opt.InHerdr || m.opt.Focus == nil {
+		how = "names the command that opens its pane; answer there and come back"
+	}
+	// The key as on the keys' line, the words as there too.
+	last := wrap(PaneKey+" "+how, w, "  ")
+	for i, l := range last {
+		if rest, ok := strings.CutPrefix(l, "  "+PaneKey); ok && i == 0 {
+			last[i] = "  " + look.key.Render(PaneKey) + look.word.Render(rest)
+		} else {
+			last[i] = look.word.Render(l)
+		}
+	}
+	area := m.areaRows()
+	var pane []string
+	if m.watched.name == r.Name {
+		pane = m.watched.lines
+	}
+	if room := max(area-minBody-len(out)-len(last), 0); len(pane) > room {
+		pane = pane[len(pane)-room:]
+	}
+	for _, l := range pane {
+		out = append(out, look.faint.Render(fit("  │ "+l, w)))
+	}
+	out = append(out, last...)
+	// A terminal too low for it all keeps the conversation's last line.
+	return out[:min(len(out), max(area-1, 0))]
+}
+
+// inert is a pane's text as at most n lines to show, the last that say
+// something: text and nothing else. A pane holds what a harness, or
+// whatever it ran, printed, and none of it is to reach the terminal of the
+// view as more than letters: escape sequences are taken out whole, then
+// every control character that is left, and the marks that turn the
+// direction of text around.
+func inert(text string, n int) []string {
+	var out []string
+	for _, l := range strings.Split(strings.ToValidUTF8(text, ""), "\n") {
+		l = strings.Map(func(r rune) rune {
+			switch {
+			case r == '\t':
+				return ' '
+			case unicode.IsControl(r), unicode.Is(unicode.Bidi_Control, r):
+				return -1
+			}
+			return r
+		}, ansi.Strip(l))
+		if l = strings.TrimRight(l, " "); strings.TrimSpace(l) != "" {
+			out = append(out, l)
+		}
+	}
+	return out[max(len(out)-n, 0):]
 }
 
 // bodyWidth is the width the conversation has.
@@ -238,16 +315,15 @@ func (m *Model) View() string {
 	rows, bw := m.bodyRows(), m.bodyWidth()
 	all := m.lines(bw)
 	end := len(all) - max(0, min(m.scroll, len(all)-rows))
-	body := all[max(0, end-rows):end]
+	// The conversation, filled to its height, and under it the notice of a
+	// resident that waits in its pane: right above the input.
+	body := make([]string, rows, m.areaRows())
+	copy(body, all[max(0, end-rows):end])
+	body = append(body, m.waits(bw)...)
+	rows = len(body)
 	if m.narrow() {
 		out = append(out, m.folded(w), rule(w, ""))
-		for i := 0; i < rows; i++ {
-			line := ""
-			if i < len(body) {
-				line = body[i]
-			}
-			out = append(out, line)
-		}
+		out = append(out, body...)
 	} else {
 		col := m.column()
 		for i := 0; i < rows; i++ {

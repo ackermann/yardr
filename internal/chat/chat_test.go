@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -12,7 +13,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 
+	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -40,7 +43,7 @@ func yard(t *testing.T) store.API {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"mayor", "refinery"} {
-		if _, err := st.PutResident(ctx, store.Resident{Name: name, Runner: "herdr"}, "jo"); err != nil {
+		if _, err := st.PutResident(ctx, store.Resident{Name: name, Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "jo"); err != nil {
 			t.Fatal(err)
 		}
 		must(t, st.ResidentStarted(ctx, name, map[string]any{"agent": "yard-" + name}))
@@ -72,6 +75,7 @@ func open(t *testing.T, st store.API, sel string, w, h int, opt ...func(*Options
 	}
 	v.m = New(ctx, st, o, state)
 	v.do(v.m.open()) // Init, without the cursor's blinking
+	v.do(v.m.watch())
 	v.send(tea.WindowSizeMsg{Width: w, Height: h})
 	return v
 }
@@ -95,7 +99,9 @@ func (v *view) do(cmd tea.Cmd) {
 		for _, c := range msg {
 			v.do(c)
 		}
-	case convoMsg, residentsMsg, sentMsg, ackedMsg, focusMsg:
+	case convoMsg, residentsMsg, sentMsg, ackedMsg, focusMsg, tailMsg:
+		// Not refreshMsg: the time to read a pane again is the test's to
+		// say, or a watched pane would be read without end.
 		v.send(msg)
 	}
 }
@@ -910,4 +916,264 @@ func TestExpectedFirstMail(t *testing.T) {
 	v.hides("mayor is starting")
 	v.send(tea.KeyMsg{Type: tea.KeyTab})
 	v.shows("No mail between you and refinery yet.")
+}
+
+// panes stands in for the runtime's panes: what each agent's shows, and
+// how often and for how many lines it was read.
+type panes struct {
+	text  map[string]string
+	err   error
+	reads int
+	lines int
+}
+
+func (p *panes) tail(_ context.Context, handle map[string]any, lines int) (string, error) {
+	p.reads++
+	p.lines = lines
+	agent, _ := handle["agent"].(string)
+	return p.text[agent], p.err
+}
+
+func (p *panes) option(o *Options) { o.Tail = p.tail }
+
+const trust = "sh$ claude\n\n one\n two\n three\n Do you trust the files in this folder?\n\n ❯ 1. Yes, proceed\n   2. No, exit\n\n Enter to confirm\n"
+
+// A selected resident that is blocked says so above the input: what is
+// known, the last lines of its pane and the key that goes there. The
+// notice is no mail, takes no line from the screen's size, and goes when
+// the resident goes on or another is selected.
+func TestWaitingNotice(t *testing.T) {
+	st := yard(t)
+	ctx := context.Background()
+	p := &panes{text: map[string]string{"yard-mayor": trust}}
+	known := "! mayor waits at a prompt in its pane: claude may wait at a login, a question or a system dialog"
+	back := "; answer there and come back"
+
+	v := open(t, st, "mayor", 160, 40, p.option)
+	v.hides("may wait at", "Do you trust", back)
+	if p.reads != 0 {
+		t.Fatalf("the pane of an idle resident was read %d times", p.reads)
+	}
+	must(t, st.ResidentStatus(ctx, "mayor", "blocked"))
+	v.stream()
+	v.shows(known, "  │  three", "  │  Do you trust the files in this folder?", "  │  ❯ 1. Yes, proceed", "  │    2. No, exit",
+		"  │  Enter to confirm", "ctrl+g names the command that opens its pane"+back)
+	// The last six lines that say something, and no more.
+	v.hides("sh$ claude", "  │  one")
+	if p.lines != paneRows {
+		t.Fatalf("the pane was read for %d lines, want %d", p.lines, paneRows)
+	}
+	v.fits(160, 40)
+	// It is right above the input: the rule follows its last line.
+	lines := strings.Split(v.screen(), "\n")
+	at := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, back) })
+	if !strings.HasPrefix(lines[at+1], "──") || !strings.HasPrefix(lines[at+2], "> ") {
+		t.Fatalf("the notice is not right above the input:\n%s", v.screen())
+	}
+
+	// Mail is sent all the same, and the line under it has the notice's
+	// words for where it stands.
+	v.typed("deploys are frozen")
+	v.key(tea.KeyEnter)
+	v.stream()
+	v.shows("deploys are frozen", "· mayor waits at a prompt in its pane and cannot read mail (ctrl+g goes there)", known)
+	if c, err := st.Conversation(ctx, me, "mayor", 0); err != nil || len(c) != 1 {
+		t.Fatalf("the conversation has %d mails, %v: the notice is none, and what was typed is one", len(c), err)
+	}
+
+	// Another resident has none; back on the mayor it is there again.
+	v.key(tea.KeyTab)
+	v.hides("may wait at", "Do you trust", back)
+	v.key(tea.KeyShiftTab)
+	v.shows(known, "Do you trust the files in this folder?")
+
+	// Folded, and in a terminal too low for all of it, the view keeps its
+	// size: the pane's lines give way first, the oldest of them first.
+	v.send(tea.WindowSizeMsg{Width: 80, Height: 24})
+	v.fits(80, 24)
+	v.shows("! mayor waits at a prompt in its pane: claude may wait at a login", "  │  Enter to confirm", back)
+	v.send(tea.WindowSizeMsg{Width: 80, Height: 16})
+	v.fits(80, 16)
+	v.shows("! mayor waits at a prompt", "  │  Enter to confirm", back, "· mayor waits at a prompt")
+	v.hides("  │  three")
+	v.send(tea.WindowSizeMsg{Width: 30, Height: 12})
+	v.fits(30, 12)
+	v.send(tea.WindowSizeMsg{Width: 30, Height: 10})
+	v.fits(30, 10)
+	v.send(tea.WindowSizeMsg{Width: 160, Height: 40})
+
+	// In herdr the key goes to the pane itself.
+	in := open(t, st, "mayor", 160, 40, p.option, func(o *Options) { o.InHerdr = true })
+	in.shows(known, "ctrl+g opens its pane"+back)
+
+	// The resident goes on: the notice is gone with the event that says so.
+	must(t, st.ResidentStatus(ctx, "mayor", "idle"))
+	v.stream()
+	v.hides("may wait at", "Do you trust", back)
+	v.shows("· sent; mayor is idle")
+	v.fits(160, 40)
+	// What comes back late for the watch that is over changes nothing.
+	v.send(tailMsg{gen: v.m.watched.gen - 1, text: "a late answer"})
+	v.hides("a late answer")
+}
+
+// A pane that cannot be read leaves the notice without lines of it, and
+// so does a view that was given nothing to read panes with.
+func TestWaitingNoticeWithoutPane(t *testing.T) {
+	st := yard(t)
+	must(t, st.ResidentStatus(context.Background(), "mayor", "blocked"))
+	p := &panes{err: errors.New("herdr pane read: pane_not_found"), text: map[string]string{"yard-mayor": trust}}
+	for name, opt := range map[string]func(*Options){"unreadable": p.option, "no reader": func(*Options) {}} {
+		v := open(t, st, "mayor", 80, 24, opt)
+		v.shows("! mayor waits at a prompt in its pane: claude may wait at a login", "; answer there and come back")
+		v.hides("│", "Do you trust", "pane_not_found")
+		v.fits(80, 24)
+		if name == "unreadable" && p.reads == 0 {
+			t.Fatal("the pane was not asked for")
+		}
+	}
+	// A pane that shows nothing is the same.
+	p.err, p.text = nil, map[string]string{"yard-mayor": "\n  \n"}
+	v := open(t, st, "mayor", 80, 24, p.option)
+	v.shows("! mayor waits at a prompt")
+	v.hides("│")
+}
+
+// What a pane holds is shown as text and nothing else: an escape sequence
+// in it, a control character, a mark that turns text around, none reaches
+// the terminal of the view.
+func TestPaneLinesAreInert(t *testing.T) {
+	hostile := "\x1b[31mDo you \x1b[1mtrust\x1b[0m this folder?\x1b[2J\x1b[H\n" +
+		"\x1b]0;a title\x07after the title\n" +
+		"\x1b]52;c;ZXZpbA==\x1b\\after the clipboard\n" +
+		"bell\x07 back\x08 tab\there del\x7f csi\u009b31m nul\x00 cr\rend\n" +
+		"turned \u202eround\u2066 \xff\xfe\n" +
+		"a lone escape \x1b"
+	for in, want := range map[string][]string{
+		hostile: {"Do you trust this folder?", "after the title", "after the clipboard",
+			"bell back tab here del csi31m nul crend", "turned round", "a lone escape"},
+		"one\n\n \t \ntwo  \nthree": {"two", "three"},
+		"":                          nil,
+	} {
+		n := paneRows
+		if strings.HasPrefix(in, "one") {
+			n = 2
+		}
+		if got := inert(in, n); !slices.Equal(got, want) {
+			t.Errorf("inert(%q)\n got %q\nwant %q", in, got, want)
+		}
+	}
+
+	st := yard(t)
+	must(t, st.ResidentStatus(context.Background(), "mayor", "blocked"))
+	p := &panes{text: map[string]string{"yard-mayor": hostile}}
+	for _, colour := range []termenv.Profile{termenv.Ascii, termenv.TrueColor} {
+		profile(t, colour, true)
+		v := open(t, st, "mayor", 80, 24, p.option)
+		v.shows("  │ Do you trust this folder?", "  │ after the title", "  │ turned round")
+		raw := v.m.View()
+		for _, bad := range []string{"\x1b[31m", "\x1b[2J", "\x1b[H", "\x1b]", "\x07", "\x08", "\x7f", "\x00", "\r", "\t", "\u009b", "\u202e", "\u2066", "a title", "ZXZpbA"} {
+			if strings.Contains(raw, bad) {
+				t.Fatalf("the view passes %q of the pane on to the terminal:\n%q", bad, raw)
+			}
+		}
+		if colour == termenv.Ascii && strings.Contains(raw, "\x1b") {
+			t.Fatalf("an escape in a view without colour:\n%q", raw)
+		}
+	}
+}
+
+// A resident whose first prompt is still to be delivered waits as a
+// blocked one does, whatever its runtime reads it as, and says what the
+// onboarding says of such a mayor. Once the prompt arrived, which no
+// status tells, the notice is gone.
+func TestFirstPromptPending(t *testing.T) {
+	st := yard(t)
+	ctx := context.Background()
+	r, err := st.PutResident(ctx, store.Resident{Name: "scribe", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "jo")
+	must(t, err)
+	handle := map[string]any{"agent": "yard-scribe", "pane": "p1"}
+	must(t, st.ResidentStarted(ctx, "scribe", map[string]any{"agent": "yard-scribe", "pane": "p1", dispatch.PendingPrompt: "You are scribe"}))
+	p := &panes{text: map[string]string{"yard-scribe": "Select login method:"}}
+	known := "! " + NotReady("claude")
+	if !strings.Contains(known, "claude was started in the pane but is not ready for its first prompt: it may wait at a login, a question or a system dialog") {
+		t.Fatalf("what is known reads %q", known)
+	}
+
+	for _, status := range []string{"", "idle", "unknown", "blocked"} {
+		if status != "" {
+			must(t, st.ResidentStatus(ctx, "scribe", status))
+		}
+		v := open(t, st, "scribe", 200, 30, p.option)
+		if status == "blocked" {
+			v.shows("! scribe waits at a prompt in its pane: claude may wait at a login")
+		} else {
+			v.shows(known)
+		}
+		v.shows("  │ Select login method:", "; answer there and come back")
+	}
+	// Working on a prompt, it waits for nobody.
+	must(t, st.ResidentStatus(ctx, "scribe", "working"))
+	open(t, st, "scribe", 200, 30, p.option).hides("may wait at", "Select login method:")
+
+	must(t, st.ResidentStatus(ctx, "scribe", "idle"))
+	v := open(t, st, "scribe", 200, 30, p.option)
+	v.typed("are you there?")
+	v.key(tea.KeyEnter)
+	v.stream()
+	v.shows(known, "· scribe waits at a prompt in its pane and cannot read mail (ctrl+g goes there)")
+
+	// The daemon delivers the prompt: the handle no longer holds it, and
+	// the event of its arrival is what the view reads the residents for.
+	must(t, st.SetResidentHandle(ctx, "scribe", handle))
+	must(t, st.LogDispatch(ctx, r.Journal, "session_prompted", "yard", map[string]any{"resident": "scribe"}))
+	v.stream()
+	v.hides("may wait at", "Select login method:", "waits at a prompt")
+	v.shows("· sent; scribe is idle")
+}
+
+// While the notice shows, the pane is read again every Options.Refresh:
+// one read at a time for the resident watched, whatever else happens, and
+// none for a watch that is over.
+func TestPaneIsReadAgain(t *testing.T) {
+	st := yard(t)
+	ctx := context.Background()
+	must(t, st.ResidentStatus(ctx, "mayor", "blocked"))
+	p := &panes{text: map[string]string{"yard-mayor": "Do you trust this folder?", "yard-refinery": "Select login method:"}}
+	v := open(t, st, "mayor", 80, 24, p.option, func(o *Options) { o.Refresh = time.Millisecond })
+	v.shows("  │ Do you trust this folder?")
+	if p.reads != 1 {
+		t.Fatalf("the pane was read %d times on opening, want 1", p.reads)
+	}
+	// Events come and go: the read is the timer's.
+	must(t, st.Mail(ctx, me, "landed", "refinery"))
+	must(t, st.ResidentStatus(ctx, "refinery", "working"))
+	v.stream()
+	if p.reads != 1 {
+		t.Fatalf("the pane was read %d times between two refreshes, want 1", p.reads)
+	}
+	p.text["yard-mayor"] = "Allow claude to run git push?"
+	v.send(refreshMsg{gen: v.m.watched.gen})
+	v.shows("  │ Allow claude to run git push?")
+	v.hides("Do you trust")
+
+	// Another blocked resident selected: its pane, and the timer of the
+	// first reads nothing more.
+	old := v.m.watched.gen
+	must(t, st.ResidentStatus(ctx, "refinery", "blocked"))
+	v.stream()
+	v.key(tea.KeyTab)
+	v.shows("! refinery waits at a prompt", "  │ Select login method:")
+	reads := p.reads
+	v.send(refreshMsg{gen: old})
+	if p.reads != reads {
+		t.Fatal("the timer of a watch that is over read a pane")
+	}
+	// It goes on: nothing is read for it any more.
+	must(t, st.ResidentStatus(ctx, "refinery", "idle"))
+	v.stream()
+	v.send(refreshMsg{gen: v.m.watched.gen})
+	if p.reads != reads {
+		t.Fatal("a pane was read for a resident that waits no more")
+	}
 }

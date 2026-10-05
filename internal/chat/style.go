@@ -117,8 +117,11 @@ func (s styles) standing(read bool, r *store.Resident) lipgloss.Style {
 	case r == nil:
 		return s.waiting
 	}
+	if Waits(*r) {
+		return s.warn
+	}
 	switch StateOf(*r) {
-	case Blocked, NotRunning, Failed:
+	case NotRunning, Failed:
 		return s.warn
 	}
 	return s.waiting

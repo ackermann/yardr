@@ -92,6 +92,14 @@ yardr chat · ada
   until the release is tagged
   · mayor waits at a prompt in its pane and cannot read mail (ctrl+g goes there)
 
+! mayor waits at a prompt in its pane: claude may wait at a login, a question or
+  a system dialog
+  │    git push origin main
+  │  Do you want to proceed?
+  │  ❯ 1. Yes
+  │    2. No, and tell Claude what to do differently
+  │  Esc to cancel · Enter to confirm
+  ctrl+g names the command that opens its pane; answer there and come back
 ────────────────────────────────────────────────────────────────────────────────
 > Write to mayor
 >
@@ -131,9 +139,44 @@ alike share one line, under the last of them:
 | `read` | the resident acknowledged it (`yardr inbox --ack`) |
 | `sent; <name> is idle` | it is in the inbox, and the daemon nudges the idle session |
 | `sent; <name> is working and reads mail when idle` | mail does not interrupt a turn |
-| `<name> waits at a prompt in its pane and cannot read mail (ctrl+g goes there)` | someone has to answer the prompt in its pane first |
+| `<name> waits at a prompt in its pane and cannot read mail (ctrl+g goes there)` | someone has to answer the prompt in its pane first: it is `blocked`, or its first prompt is not delivered yet ([below](#a-resident-that-waits-in-its-pane)) |
 | `<name> is not running: yardr resident start <name>` | the mail waits in its inbox for its next session |
 | `<name> failed to start: yardr resident show <name>` | as above, and that command says why |
+
+### A resident that waits in its pane
+
+A harness can stop at something only a person at its pane can answer: a
+login, a permission, a question, a dialog of the system. Mail does not reach
+it there. While such a resident is selected, a notice stands above the line
+you type in:
+
+- one line of what yardr knows. For a `blocked` resident: `<name> waits at a
+  prompt in its pane: <harness> may wait at a login, a question or a system
+  dialog`. For one whose session runs and whose first prompt the daemon has
+  not been able to deliver, whatever state it is listed with: `<harness> was
+  started in the pane but is not ready for its first prompt: it may wait at
+  a login, a question or a system dialog`, the sentence `yardr init --start`
+  prints for a mayor in that place. A harness at a login screen is often
+  listed `idle`: its runtime cannot tell the two apart, the daemon can,
+  because the prompt it sent never showed;
+- up to six of the last lines of its pane that say something, behind `│`:
+  usually the question itself. They are read every 5 seconds while the
+  notice shows. A pane that cannot be read (no herdr on this machine, the
+  pane gone) leaves the notice without them;
+- the key: `ctrl+g opens its pane; answer there and come back` in herdr,
+  `ctrl+g names the command that opens its pane; …` anywhere else.
+
+The notice is no mail and is kept nowhere. It is gone when the resident
+goes on, and when another resident is selected. What you send meanwhile is
+sent, and waits in the resident's inbox; the line under it says so in the
+notice's words.
+
+A pane's lines are shown as text and nothing else: escape sequences and
+control characters in them are removed, and nothing in a pane is acted on
+by the view or by your terminal.
+
+The notice goes when the daemon has seen the resident go on, not when you
+answered: up to 30 seconds later ([Live](#live)).
 
 **Timers.** A mail whose text begins `timer:` was sent by the yard for a
 timer the resident set for you (`yardr timer add --to <you>`,
@@ -213,7 +256,9 @@ refuses a text over 4 KB, from stdin too.
 New mail, mail being read and a resident's state appear without a key
 press. They come from the yard's event stream, the one `yardr watch` prints:
 the view reads the residents and a conversation once and applies events from
-then on, and asks nothing in a loop. When the yardr server goes away (it
+then on, and asks nothing of the yard in a loop. (The pane of a selected
+resident that [waits in it](#a-resident-that-waits-in-its-pane) is not the
+yard's: herdr is asked for it every 5 seconds, while that notice shows.) When the yardr server goes away (it
 replaces itself after an install) the title says so, and the view subscribes
 again after the last event it got, so nothing in between is lost.
 
@@ -233,3 +278,8 @@ stream can use them:
 
 Neither is on a bead, and the web view's feed leaves them out, but for a
 resident that stops at a prompt or leaves it.
+
+The view also reads the residents again on `session_prompted` and the other
+`session_prompt_*` events of a resident: a first prompt that arrived changes
+no status, and is what ends the notice of a resident that was not ready for
+it.

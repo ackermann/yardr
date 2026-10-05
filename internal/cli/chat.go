@@ -37,8 +37,10 @@ Opening a conversation marks your unread mail in it as read.
 
 A resident reads its mail when it is idle: mail does not interrupt it, and
 what it is working on stays in its pane. Under what you sent the view says
-where it stands. A resident that waits at a prompt in its pane cannot read
-mail; ctrl+g goes to the pane of the selected resident when this runs in
+where it stands. A resident that waits at a prompt in its pane (a login, a
+question, a dialog) cannot read mail: while it is selected, a notice above
+the line you type in says what yardr knows and shows the last lines of its
+pane. ctrl+g goes to the pane of the selected resident when this runs in
 herdr, and names the herdr command anywhere else.
 
 It is for a user of the yard (yardr user list), and needs a terminal.
@@ -95,7 +97,7 @@ func (a *app) chatOn(ctx context.Context, st store.API, me, first, expect string
 		return errors.New("the yard has no residents to talk with: yardr resident add adds one, yardr init the mayor")
 	}
 	m := chat.New(ctx, st, chat.Options{Me: me, Select: first, Yardr: "yardr", Expect: expect,
-		InHerdr: os.Getenv("HERDR_ENV") != "", Focus: focusAgent}, state)
+		InHerdr: os.Getenv("HERDR_ENV") != "", Focus: focusAgent, Tail: paneTail, Refresh: paneRefresh}, state)
 	return runChat(ctx, st, m, state.Head)
 }
 
@@ -143,6 +145,11 @@ func (a *app) toChat(ctx context.Context, cfg *config.Config, st store.API, mayo
 	fmt.Printf("\nYou left the chat; %s keeps running. To come back: %s chat\n", mayor, yardr)
 	return true, nil
 }
+
+// paneRefresh is how often the view reads the pane of a resident that
+// waits in it again, for the lines its notice quotes: one call of herdr,
+// and only while such a resident is selected.
+const paneRefresh = 5 * time.Second
 
 // streamRetry is how long the view waits before it asks the yardr server
 // for the stream again, as yardr watch does.

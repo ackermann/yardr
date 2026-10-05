@@ -9,6 +9,10 @@
 // changing what it does) comes from the event stream (Follow), never from
 // asking again in a loop. The model here knows no terminal: Update takes
 // messages and View returns text, which is how it is tested.
+//
+// One thing is not the store's: the last lines of the pane of a resident
+// that waits there for a person (Waits). They are read from the runtime,
+// through Options.Tail, while such a resident is selected.
 package chat
 
 import (
@@ -23,6 +27,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -52,6 +57,15 @@ type Options struct {
 	// it names the herdr command instead.
 	InHerdr bool
 	Focus   func(ctx context.Context, agent string) error
+	// Tail reads the last lines a session's pane shows, blank ones left
+	// out, for the notice of a resident that waits in it (Waits). Without
+	// it, and when it fails, the notice has no lines of the pane.
+	Tail func(ctx context.Context, handle map[string]any, lines int) (string, error)
+	// Refresh is how often the pane is read again while that notice
+	// shows: what a harness asks can change with the resident still
+	// blocked, and no event tells of it. 0 reads it when the resident's
+	// state changes and not in between.
+	Refresh time.Duration
 	// Expect is a resident whose first mail is on its way: its session was
 	// asked to greet the user when it started (the onboarding's mayor).
 	// Until there is mail between the two, its conversation says so.
@@ -139,7 +153,28 @@ type (
 		name string
 		err  error
 	}
+	// tailMsg is the watched pane as read for the watch gen (see paneOf),
+	// and refreshMsg the time to read it again.
+	tailMsg struct {
+		gen  int
+		text string
+		err  error
+	}
+	refreshMsg struct{ gen int }
 )
+
+// paneOf is what the view has of the pane of the selected resident while
+// it waits there: its last lines, as text and nothing else (inert). gen
+// numbers the watch: selecting another resident, or this one going on,
+// starts a new one, and what comes back for an older is dropped. busy says
+// a read or the wait for the next is under way, so that one watch reads
+// once at a time.
+type paneOf struct {
+	name  string
+	lines []string
+	gen   int
+	busy  bool
+}
 
 // waiting is one unread mail to the user: who sent it, and whether the
 // view has shown it (its conversation was open).
@@ -182,6 +217,8 @@ type Model struct {
 	height int
 	scroll int // lines the conversation is scrolled up from its end
 	notice string
+	// watched is the pane of the selected resident while it waits there.
+	watched paneOf
 }
 
 // New is the view for the user opt.Me over what Load read.
@@ -217,9 +254,10 @@ func New(ctx context.Context, st Store, opt Options, s *State) *Model {
 	return m
 }
 
-// Init starts the cursor and reads the first conversation.
+// Init starts the cursor, reads the first conversation and, when the
+// selected resident waits in its pane, that pane.
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(textarea.Blink, m.open())
+	return tea.Batch(textarea.Blink, m.open(), m.watch())
 }
 
 // resident is the resident name, nil when the yard has none of it.
@@ -305,6 +343,46 @@ func StateOf(r store.Resident) string {
 // view names it in a sentence.
 const PaneKey = "ctrl+g"
 
+// Waits reports whether r's session waits in its pane for a person: its
+// runtime reads it blocked, or its first prompt is still to be delivered
+// and it is not working on one (a harness at a login or a dialog takes no
+// prompt, and a runtime may read it idle there). Such a resident reads no
+// mail until someone answered it.
+func Waits(r store.Resident) bool {
+	if !r.Live() {
+		return false
+	}
+	return r.Status == "blocked" || (r.Handle[dispatch.PendingPrompt] != nil && r.Status != "working")
+}
+
+// MayWaitAt is what a harness that does not go on may wait at, as far as
+// yardr can tell without reading its pane. One text for the onboarding's
+// diagnosis and the view's notice.
+const MayWaitAt = "may wait at a login, a question or a system dialog"
+
+// NotReady is what is known of a session whose harness, of the kind
+// named, did not take its first prompt.
+func NotReady(kind string) string {
+	return fmt.Sprintf("%s was started in the pane but is not ready for its first prompt: it %s", kind, MayWaitAt)
+}
+
+// AtPrompt says that the resident named waits in its pane: the start of
+// the line under a mail it cannot read, and of the notice above the input.
+func AtPrompt(name string) string { return name + " waits at a prompt in its pane" }
+
+// Known is the one line of what yardr knows about a resident that waits
+// in its pane (Waits).
+func Known(r store.Resident) string {
+	kind, _ := r.Config["kind"].(string)
+	if kind == "" {
+		kind = "its harness"
+	}
+	if r.Status != "blocked" {
+		return NotReady(kind)
+	}
+	return fmt.Sprintf("%s: %s %s", AtPrompt(r.Name), kind, MayWaitAt)
+}
+
 // Standing is where a mail the user sent stands: read, or what its
 // receiver's state means for it. r is nil for a receiver the yard no
 // longer has.
@@ -316,13 +394,14 @@ func Standing(l store.Letter, r *store.Resident, yardr string) string {
 		return "sent"
 	}
 	n := r.Name
+	if Waits(*r) {
+		return fmt.Sprintf("%s and cannot read mail (%s goes there)", AtPrompt(n), PaneKey)
+	}
 	switch StateOf(*r) {
 	case Working:
 		return fmt.Sprintf("sent; %s is working and reads mail when idle", n)
 	case Idle:
 		return fmt.Sprintf("sent; %s is idle", n)
-	case Blocked:
-		return fmt.Sprintf("%s waits at a prompt in its pane and cannot read mail (%s goes there)", n, PaneKey)
 	case NotRunning:
 		return fmt.Sprintf("%s is not running: %s resident start %s", n, yardr, n)
 	case Failed:
@@ -343,7 +422,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return m, m.key(msg)
 	case EventMsg:
-		return m, m.event(store.Event(msg))
+		// Whatever the event changed, the pane watched is the one of the
+		// resident now selected, if it waits there.
+		cmd := m.event(store.Event(msg))
+		return m, tea.Batch(cmd, m.watch())
 	case StreamMsg:
 		m.down = !msg.Up
 		return m, nil
@@ -363,7 +445,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notice = fmt.Sprintf("the residents could not be read: %v", msg.err)
 			return m, nil
 		}
-		return m, m.listed(msg.head, msg.residents)
+		cmd := m.listed(msg.head, msg.residents)
+		return m, tea.Batch(cmd, m.watch())
 	case sentMsg:
 		if msg.err != nil {
 			m.notice = fmt.Sprintf("not sent to %s: %v", msg.to, msg.err)
@@ -398,6 +481,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notice = fmt.Sprintf("herdr shows %s now; this view goes on in its own pane", msg.name)
 		}
 		return m, nil
+	case tailMsg:
+		if msg.gen != m.watched.gen {
+			return m, nil // of a watch that is over
+		}
+		// A pane that cannot be read has no lines: the notice stands
+		// without them.
+		m.watched.lines = nil
+		if msg.err == nil {
+			m.watched.lines = inert(msg.text, paneRows)
+		}
+		m.clamp()
+		if m.opt.Refresh <= 0 {
+			m.watched.busy = false
+			return m, nil
+		}
+		gen := m.watched.gen
+		return m, tea.Tick(m.opt.Refresh, func(time.Time) tea.Msg { return refreshMsg{gen: gen} })
+	case refreshMsg:
+		if msg.gen != m.watched.gen {
+			return m, nil
+		}
+		return m, m.tail()
 	}
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
@@ -454,7 +559,7 @@ func (m *Model) step(by int) tea.Cmd {
 	m.sel = m.residents[((i+by)%n+n)%n].Name
 	m.notice = ""
 	m.opened()
-	return m.open()
+	return tea.Batch(m.open(), m.watch())
 }
 
 // opened is what selecting a resident does to the view itself: its
@@ -603,6 +708,46 @@ func (m *Model) pane() tea.Cmd {
 	return func() tea.Msg { return focusMsg{name: name, err: focus(ctx, agent)} }
 }
 
+// paneRows is how many of the pane's last lines the notice quotes.
+const paneRows = 6
+
+// watch keeps the pane of the selected resident read while it waits there
+// (Waits), and forgets it once it does not: the notice goes with it. It is
+// asked after everything that can change who is selected or what they do.
+func (m *Model) watch() tea.Cmd {
+	r := m.resident(m.sel)
+	if r == nil || !Waits(*r) {
+		if m.watched.name != "" {
+			m.watched = paneOf{gen: m.watched.gen + 1}
+			m.clamp()
+		}
+		return nil
+	}
+	if m.watched.name == r.Name && m.watched.busy {
+		return nil
+	}
+	if m.watched.name != r.Name {
+		m.watched = paneOf{name: r.Name, gen: m.watched.gen + 1}
+		m.clamp()
+	}
+	return m.tail()
+}
+
+// tail reads the watched pane's last lines.
+func (m *Model) tail() tea.Cmd {
+	r := m.resident(m.watched.name)
+	if r == nil || m.opt.Tail == nil {
+		m.watched.busy = false
+		return nil
+	}
+	m.watched.busy = true
+	tail, ctx, gen, handle := m.opt.Tail, m.ctx, m.watched.gen, r.Handle
+	return func() tea.Msg {
+		text, err := tail(ctx, handle, paneRows)
+		return tailMsg{gen: gen, text: text, err: err}
+	}
+}
+
 // event applies one event of the stream.
 func (m *Model) event(e store.Event) tea.Cmd {
 	switch {
@@ -628,10 +773,12 @@ func (m *Model) event(e store.Event) tea.Cmd {
 			r.Status = status
 			m.statusAt[name] = e.Seq
 		}
-	case strings.HasPrefix(e.Kind, "resident_"):
-		// A session started, stopped or failed to start, or the list
-		// itself changed: one read of the residents for the event, since
-		// what they now are is more than the event carries.
+	case strings.HasPrefix(e.Kind, "resident_"), strings.HasPrefix(e.Kind, "session_prompt") && e.Data["resident"] != nil:
+		// A session started, stopped or failed to start, the list itself
+		// changed, or a resident's first prompt arrived or was given up
+		// (its handle then no longer holds it, or says so): one read of
+		// the residents for the event, since what they now are is more
+		// than the event carries.
 		st, ctx := m.st, m.ctx
 		return func() tea.Msg {
 			head, err := st.Head(ctx)
