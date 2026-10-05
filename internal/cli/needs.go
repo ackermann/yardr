@@ -229,7 +229,7 @@ func machineNeeds(ctx context.Context, uses []harnessUse, try bool) []need {
 				v := probe(ctx, n.Harness, n.Path)
 				n.Version = &v
 				if try {
-					t := try(ctx, n.Harness, n.Path)
+					t := tryHarnessCall(ctx, n.Harness, n.Path)
 					n.Try = &t
 				}
 			}()
@@ -340,7 +340,7 @@ const tryPrompt = "Reply with the one word ok and nothing else."
 // then sits at a screen nobody sees. This costs a model call, so doctor
 // makes it only when asked (--try). A kind with no one-shot form known is
 // not run.
-func try(ctx context.Context, kind, path string) tryCheck {
+func tryHarnessCall(ctx context.Context, kind, path string) tryCheck {
 	args := agents.OneShotArgs(kind, tryPrompt)
 	if args == nil {
 		return tryCheck{State: tryNotTried, Output: "yardr knows no one-shot call for " + kind}
