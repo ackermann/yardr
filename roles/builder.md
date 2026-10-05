@@ -37,9 +37,9 @@ mayor's inbox.
 
 1. It does not block you (a bug elsewhere, a stale doc, a flaky test): file
    it and carry on, never fix it on your branch. `yardr bead create "<title>"
-   --rig <rig> --stage backlog -b -`, with what you saw, where, and how to
-   reproduce. Add `--discovered-from <your bead>`: the new bead then names
-   the bead it was found from. The mayor shapes it from backlog.
+   --rig <rig> --stage backlog -b - --discovered-from <your bead>`, with what
+   you saw, where, and how to reproduce. The new bead names the bead it was
+   found from. The mayor shapes it from backlog.
 2. It blocks you but is no question about the bead (the gate is red on the
    base, a tool is missing, the base moved under you): file it as above,
    then mail the mayor: `yardr mail {{mayor}} "<bead id>: <one line>"`. If
