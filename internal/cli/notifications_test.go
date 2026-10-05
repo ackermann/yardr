@@ -49,10 +49,14 @@ func TestUserSubscribes(t *testing.T) {
 		len(subs) != 2 || subs[1].String() != "yardr mentions" {
 		t.Fatalf("subscribe --json = %+v, %v", subs, err)
 	}
-	// A hook source knows no user: only everything from it reaches one.
+	// A hook source knows no user: it defaults to all, and refuses a scope
+	// that would never match.
 	out := mustAs(t, st, "jo", "subscribe", "jo", "github")
-	wantText(t, out, "jo subscribed: github involved\n",
-		"note: jo is a user, who has no identity in github and follows no thread there, so this never matches: --scope all does")
+	if out != "jo subscribed: github all\n" {
+		t.Fatalf("subscribe github default scope: %q", out)
+	}
+	refusedAs(t, st, "jo", "user jo has no identity or thread participation in github; use --scope all",
+		"subscribe", "jo", "github", "--scope", "involved")
 	if out := mustAs(t, st, "jo", "subscribe", "jo", "github", "--scope", "all"); strings.Contains(out, "note:") {
 		t.Fatalf("subscribe github --scope all:\n%s", out)
 	}

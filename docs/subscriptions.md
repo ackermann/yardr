@@ -143,6 +143,11 @@ yardr user show ada                                        # lists them
 yardr unsubscribe ada yardr [--scope …] [--where …]
 ```
 
+A user has no identity in a hook source and follows no thread there, so a
+hook subscription defaults to `--scope all`; `mentions` and `involved` are
+refused with `use --scope all` instead of being saved where they would
+match nothing. Yardr subscriptions keep the default `all` as for residents.
+
 **Who may.** The user themselves and the operator. Nobody else, and no
 resident: a resident deciding what a person is told is what notifications
 are there to end, and the refusal says so:

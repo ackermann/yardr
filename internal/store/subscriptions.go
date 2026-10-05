@@ -163,6 +163,12 @@ func (s *Store) AddSubscription(ctx context.Context, name string, sub Subscripti
 		sub.Where = nil
 	}
 	return s.write(func(w *wtx) error {
+		var user User
+		if ok, err := get(w.Tx, bUsers, name, &user); err != nil {
+			return err
+		} else if ok && sub.Source != SourceYardr && sub.Scope != ScopeAll {
+			return fmt.Errorf("subscribe: user %s has no identity or thread participation in %s; use --scope all", name, sub.Source)
+		}
 		if sub.Source == SourceYardr {
 			for _, k := range []string{"bead", "epic"} {
 				if ref, ok := sub.Where[k]; ok {

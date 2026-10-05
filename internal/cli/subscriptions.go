@@ -213,19 +213,22 @@ them.`,
 			if err != nil {
 				return err
 			}
-			if err := st.AddSubscription(c.Context(), args[0], sub, a.who()); err != nil {
-				return err
-			}
 			user := false
 			if _, err := st.GetUser(c.Context(), args[0]); err == nil {
 				user = true
+			} else if !errors.Is(err, store.ErrNotFound) {
+				return err
+			}
+			if user && src != store.SourceYardr && !c.Flags().Changed("scope") {
+				// A person has no source identity or thread participation, so
+				// the hook's resident default (involved) would match nothing.
+				sub.Scope = store.ScopeAll
+			}
+			if err := st.AddSubscription(c.Context(), args[0], sub, a.who()); err != nil {
+				return err
 			}
 			return a.showSubscriptions(c, st, args[0], func(subs []store.Subscription, r *store.Resident) {
 				fmt.Printf("%s subscribed: %s\n", args[0], subs[len(subs)-1])
-				if user && src != store.SourceYardr && sub.Scope != store.ScopeAll {
-					fmt.Printf("note: %s is a user, who has no identity in %s and follows no thread there, so this never matches: --scope all does\n",
-						args[0], src)
-				}
 				if r == nil || src == store.SourceYardr {
 					return
 				}

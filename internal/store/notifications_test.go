@@ -143,8 +143,13 @@ func TestUserHookNotification(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	user(t, s, "ada", store.Subscription{Source: "linear", Scope: store.ScopeAll, Where: map[string]string{"type": "comment"}})
-	user(t, s, "bob", store.Subscription{Source: "linear", Scope: store.ScopeMentions},
-		store.Subscription{Source: "linear", Scope: store.ScopeInvolved})
+	user(t, s, "bob")
+	for _, scope := range []string{store.ScopeMentions, store.ScopeInvolved} {
+		if err := s.AddSubscription(ctx, "bob", store.Subscription{Source: "linear", Scope: scope}, "bob"); err == nil ||
+			!strings.Contains(err.Error(), "has no identity or thread participation in linear") {
+			t.Fatalf("bob's linear %s subscription = %v", scope, err)
+		}
+	}
 	record(t, own, hooks.Envelope{Source: "linear", Type: "issue", Action: "create", Text: "not a comment"})
 	long := strings.Repeat("word ", 100)
 	seq := record(t, own, hooks.Envelope{Source: "linear", Type: "comment", Action: "create",
@@ -166,6 +171,17 @@ func TestUserHookNotification(t *testing.T) {
 	evs, err := s.EventsSince(ctx, seq-1, 1)
 	if err != nil || len(evs) != 1 || store.Notified(evs[0], "ada") != store.ReasonAll {
 		t.Fatalf("hook event = %+v, %v", evs, err)
+	}
+}
+
+func TestHookNotificationStaysOnOneSafeLine(t *testing.T) {
+	s, own := storetest.NewOwned(t)
+	user(t, s, "ada", store.Subscription{Source: "github", Scope: store.ScopeAll})
+	record(t, own, hooks.Envelope{Source: "github", Type: "issue", Action: "opened",
+		URL: "https://example.test/issue/1\n\x1b[2J"})
+	page := notifications(t, s, "ada", 0)
+	if len(page.Notifications) != 1 || strings.ContainsAny(page.Notifications[0].Text, "\n\r\x1b") {
+		t.Fatalf("notification text is not a safe single line: %+v", page.Notifications)
 	}
 }
 
