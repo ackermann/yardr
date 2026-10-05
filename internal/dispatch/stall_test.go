@@ -204,6 +204,7 @@ func TestStallCountsFromThePendingPromptsDelivery(t *testing.T) {
 	s, r, d := stallSetup(t, "blocked", nil)
 	n := &pendingRunner{agentRunner: r}
 	d.Runners["fake"] = n
+	d.PromptSettle = -1 // delivered on the first pass that finds the agent idle
 	ctx := context.Background()
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
 	must(t, d.Reconcile(ctx)) // starts with the prompt pending

@@ -135,6 +135,13 @@ type Dispatcher struct {
 	PeerTries int
 	PeerPoll  time.Duration
 
+	// PromptSettle is how long an agent has to have been idle before a
+	// pending first prompt is delivered to it (default 3s), and PromptWait
+	// how long after a delivery the prompt may take to show before it
+	// counts as lost (default 10s, as the herdr runner waits for the one it
+	// sends itself). Negative: no wait. See pendingPrompt.
+	PromptSettle, PromptWait time.Duration
+
 	ghCursor uint64 // the last event the github rules read
 	// issueWait is source -> when it is asked again after a call that
 	// failed, so its other moves do not each wait out a timeout.
@@ -157,6 +164,13 @@ type Dispatcher struct {
 	// timerDue is when the earliest timer left is due, as of the last pass
 	// (see timers); nil with none.
 	timerDue *time.Time
+
+	// promptDue is when a pending prompt is next to be delivered or looked
+	// for, as of the last pass (see pendingPrompt); nil with none.
+	// promptIdle is session (or "resident:<name>") -> when its agent was
+	// first seen idle with a prompt that has not been delivered yet.
+	promptDue  *time.Time
+	promptIdle map[string]time.Time
 
 	clock      func() time.Time // tests only; see now
 	retryAfter map[string]time.Time
@@ -264,6 +278,12 @@ func (d *Dispatcher) defaults() {
 	if d.PruneEvery == 0 {
 		d.PruneEvery = time.Hour
 	}
+	if d.PromptSettle == 0 {
+		d.PromptSettle = defaultPromptSettle
+	}
+	if d.PromptWait == 0 {
+		d.PromptWait = defaultPromptWait
+	}
 	if d.Log == nil {
 		d.Log = slog.Default()
 	}
@@ -276,28 +296,16 @@ func (d *Dispatcher) defaults() {
 		d.idleSince = map[string]time.Time{}
 		d.idleTold = map[string]bool{}
 		d.fresh = map[string]time.Time{}
+		d.promptIdle = map[string]time.Time{}
 	}
 }
 
 // PendingPrompt is a handle key: the first prompt a runner could not deliver
 // because the agent was not ready (often blocked on a question a human must
 // answer, such as trusting a folder), or sent and did not see arrive. The
-// dispatcher delivers it once the agent is idle.
+// dispatcher delivers it once the agent is idle, and keeps it until it
+// arrived (see pendingPrompt).
 const PendingPrompt = "pending_prompt"
-
-// PromptWatcher is implemented by runners that can see whether a prompt
-// reached a session's agent (a herdr pane shows it). A pending prompt the
-// runner had sent may have been taken after it stopped looking; one that
-// shows is not delivered a second time.
-type PromptWatcher interface {
-	PromptShown(ctx context.Context, handle map[string]any, prompt string) bool
-}
-
-// promptShown reports whether r can see prompt in the session of handle.
-func promptShown(ctx context.Context, r Runner, handle map[string]any, prompt string) bool {
-	w, ok := r.(PromptWatcher)
-	return ok && w.PromptShown(ctx, handle, prompt)
-}
 
 // Statuser is implemented by runners that can tell more than alive/dead.
 // A session whose status turns "blocked" (the agent waits on a permission
@@ -421,12 +429,17 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 		if d.replace(ctx) {
 			return nil
 		}
-		// A timer is due between passes: wake for it, and no sooner than a
-		// second from now, so one that cannot be fired is not spun on.
+		// A timer or a pending prompt is due between passes: wake for it, and
+		// no sooner than a second from now, so one that cannot be fired is
+		// not spun on.
 		var due <-chan time.Time
 		var timer *time.Timer
-		if d.timerDue != nil {
-			timer = time.NewTimer(max(d.timerDue.Sub(d.now()), time.Second))
+		next := d.timerDue
+		if d.promptDue != nil && (next == nil || d.promptDue.Before(*next)) {
+			next = d.promptDue
+		}
+		if next != nil {
+			timer = time.NewTimer(max(next.Sub(d.now()), time.Second))
 			due = timer.C
 		}
 	wait:
@@ -528,6 +541,7 @@ func (d *Dispatcher) noteReplaced(ctx context.Context) {
 // ready beads.
 func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	d.defaults()
+	d.promptDue = nil
 	groups, err := d.Store.Groups(ctx)
 	if err != nil {
 		return err
@@ -610,7 +624,7 @@ func (d *Dispatcher) reap(ctx context.Context, groups map[string]store.Group) (m
 				active[s.Group]++
 			}
 		default:
-			alive, err := d.alive(ctx, r, s)
+			alive, err := d.alive(ctx, r, &s)
 			if err != nil {
 				// Say it once per session and cause, not on every pass.
 				if msg := err.Error(); d.unknown[s.ID] != msg {
@@ -656,7 +670,8 @@ func (d *Dispatcher) runnerFor(s store.Session, groups map[string]store.Group) R
 }
 
 // alive asks the runner about s and reports blocked agents once per episode.
-func (d *Dispatcher) alive(ctx context.Context, r Runner, s store.Session) (bool, error) {
+// s.Handle is updated with what it stores about a pending prompt.
+func (d *Dispatcher) alive(ctx context.Context, r Runner, s *store.Session) (bool, error) {
 	st, ok := r.(Statuser)
 	if !ok {
 		return r.Alive(ctx, s.Handle)
@@ -666,31 +681,26 @@ func (d *Dispatcher) alive(ctx context.Context, r Runner, s store.Session) (bool
 		return false, err
 	}
 	if p, ok := s.Handle[PendingPrompt].(string); ok {
-		// Asked on every pass, not only of an idle agent: one that took the
-		// prompt late is working on it, and by the time it is idle again the
-		// prompt may have left what the runner reads of its pane.
-		shown := promptShown(ctx, r, s.Handle, p)
-		if shown || status == "idle" || status == "done" {
-			if n, ok := r.(Nudger); ok && !shown {
-				if err := n.Nudge(ctx, s.Handle, p); err != nil {
-					return true, nil // try again next pass
-				}
-			}
-			h := withoutPending(s.Handle)
-			if err := d.Store.SetHandle(ctx, s.ID, h); err != nil {
+		// Looked at on every pass, not only of an idle agent: one that took
+		// the prompt late is working on it, and by the time it is idle again
+		// the prompt may have left what the runner reads of its pane.
+		pass := d.pendingPrompt(ctx, r, s.ID, s.Handle, p, status)
+		if pass.handle != nil {
+			if err := d.Store.SetHandle(ctx, s.ID, pass.handle); err != nil {
 				return true, err
 			}
-			data := map[string]any{"session": s.ID}
-			if shown {
-				data["shown"] = true // found in the pane, not sent again
-			}
-			_ = d.Store.LogDispatch(ctx, s.Bead, "session_prompted", actor, data)
+		}
+		d.promptEvents(ctx, s.Bead, map[string]any{"session": s.ID}, s.Handle, p, pass)
+		if pass.handle != nil {
+			s.Handle = pass.handle
+		}
+		if pass.arrived {
 			d.prompted(r, s.ID)
 		}
 	}
 	prev, seen := d.status[s.ID]
 	if !seen {
-		blocked, err := d.wasBlocked(ctx, s)
+		blocked, err := d.wasBlocked(ctx, *s)
 		if err != nil {
 			return false, err
 		}
@@ -801,6 +811,7 @@ func (d *Dispatcher) forget(id string) {
 	delete(d.idleSince, id)
 	delete(d.idleTold, id)
 	delete(d.fresh, id)
+	delete(d.promptIdle, id)
 }
 
 // teardown stops runner resources for sessions that ended, unless the group
@@ -1119,13 +1130,3 @@ func SortRoutes(rs []store.Route) { store.SortRoutes(rs) }
 
 // Match returns the first route (in SortRoutes order) that applies to b.
 func Match(sorted []store.Route, b store.Bead) *store.Route { return store.MatchRoute(sorted, b) }
-
-func withoutPending(h map[string]any) map[string]any {
-	out := make(map[string]any, len(h))
-	for k, v := range h {
-		if k != PendingPrompt {
-			out[k] = v
-		}
-	}
-	return out
-}

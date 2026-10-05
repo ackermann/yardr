@@ -64,7 +64,7 @@ func (d *Dispatcher) prompted(r Runner, id string) {
 // updated with the mark it stores.
 func (d *Dispatcher) stall(ctx context.Context, r Runner, s *store.Session, g store.Group) {
 	since, ok := d.fresh[s.ID]
-	// A prompt still on the handle was delivered in this very pass.
+	// A prompt still on the handle has not arrived yet.
 	if !ok || s.Handle[PendingPrompt] != nil {
 		return
 	}

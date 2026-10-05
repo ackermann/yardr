@@ -222,9 +222,21 @@ for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`
   taken: an agent that is still coming up can drop the keys. After sending
   the first prompt yardr looks for it in the agent's pane for up to ten
   seconds (an agent that is working took it). A prompt that does not show is
-  kept on the session and sent again once the agent is idle, unless it has
-  shown up in the pane by then; `session_prompted` records that delivery,
-  with `shown: true` when the prompt was found and not sent again.
+  kept on the session (`pending_prompt` on its handle) and sent again once
+  the agent is idle, unless it has shown up in the pane by then. So is the
+  prompt of an agent that was not ready at its start, such as one you had to
+  answer a question for: the daemon delivers it once the agent has been
+  idle for three seconds (it has just left a dialog and may still be drawing
+  its screen), and keeps it until it arrived, which is when it shows in the
+  pane or the agent is working. A delivery that has done neither after ten
+  seconds was lost (`session_prompt_lost`) and is made again, three times in
+  all; after the third, `session_prompt_gave_up` tells the mayor, its `hint`
+  being the command that gives the prompt by hand (`herdr agent prompt
+  <agent> '<text>'`), and the session is left as it is. A prompt given by
+  hand ends the wait like any other that shows. `session_prompted` is the
+  arrival, not the sending: `shown: true` when the prompt was found in the
+  pane, `deliveries` how often the daemon had sent it. Residents go the same
+  way, with the events on their journal.
 - **Decide what agents may run unattended.** Anything outside `args`'
   permissions blocks the agent on a prompt. Pass what the role needs, e.g.
   `--set 'args=["--permission-mode","acceptEdits","--allowedTools","Bash(yardr:*),Bash(git:*)"]'`;

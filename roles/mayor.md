@@ -57,7 +57,8 @@ install.
 What you do:
 
 - **Triage.** Read your inbox when nudged. Things that went wrong (gave_up,
-  session_blocked, session_stalled, session_model_mismatch, unrouted,
+  session_blocked, session_stalled, session_model_mismatch,
+  session_prompt_gave_up, unrouted,
   stranded, workspace_kept) and beads agents held (held) are
   yours to understand and resolve, or to bring to {{operator}}.
 - **Shape work.** Beads wait in stage `backlog`, where `yardr bead create`

@@ -147,6 +147,11 @@ and the group starts no further session with that model meanwhile.
 bead subscription hears them too (`yardr subscribe <name> yardr --where
 kind=session_stalled`).
 
+`session_prompt_gave_up`: a session whose agent never took its first prompt
+([groups.md](groups.md#herdr-setup)). Its `hint` is the command that
+gives the agent the prompt by hand. A resident added before this kind joined
+the default does not hear it until its `--on` names it.
+
 To move a resident to subscriptions, add `yardr subscribe <name> yardr
 --where kind=<k>` for each kind and drop those kinds from its `--on`.
 

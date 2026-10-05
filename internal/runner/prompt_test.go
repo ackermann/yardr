@@ -26,11 +26,27 @@ func shortPromptWait(t *testing.T) {
 // prompt shows in the pane. Every call is logged.
 func droppingHerdr(t *testing.T, drop int) (h *Herdr, calls func() string) {
 	t.Helper()
+	return promptHerdr(t, drop, `echo '{"result":{"type":"ok"}}'`)
+}
+
+// notReadyHerdr is a droppingHerdr whose agent is at a question yardr does
+// not answer when it is started (agent start says agent_not_ready, as for a
+// Codex at its folder-trust dialog) and idle from then on, as once a person
+// has answered: the first prompt is left for the dispatcher to deliver.
+func notReadyHerdr(t *testing.T, drop int) (h *Herdr, calls func() string) {
+	t.Helper()
+	shortTrustWait(t)
+	return promptHerdr(t, drop, `echo '{"error":{"code":"agent_not_ready","message":"agent is blocked during startup and is not ready for prompts"},"id":"x"}' >&2; exit 1`)
+}
+
+func promptHerdr(t *testing.T, drop int, start string) (h *Herdr, calls func() string) {
+	t.Helper()
 	dir := t.TempDir()
 	log := filepath.Join(dir, "calls")
 	h = &Herdr{Socket: fakeHerdrAPI(t, log), Bin: deafHerdrBin(t, `cd `+dir+`
 printf '%s\n' "$*" >> calls
 case "$1 $2" in
+  "agent start") `+start+` ;;
   "agent prompt")
     echo x >> sent
     if [ "$(wc -l < sent)" -gt `+fmt.Sprint(drop)+` ]; then echo "❯ $4" >> pane; fi
@@ -53,7 +69,7 @@ func TestLostFirstPromptIsDeliveredAgainOnce(t *testing.T) {
 	h, calls := droppingHerdr(t, 1)
 	ctx := context.Background()
 	s := storetest.New(t)
-	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": h}}
+	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": h}, PromptSettle: -1, PromptWait: -1}
 	if _, err := s.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +95,7 @@ func TestLostFirstPromptIsDeliveredAgainOnce(t *testing.T) {
 	if n := strings.Count(calls(), "agent prompt"); n != 2 {
 		t.Fatalf("prompt sent %d times, want the lost one and one more:\n%s", n, calls())
 	}
-	if !h.PromptShown(ctx, r.Handle, prompt) {
+	if shown, err := h.PromptShown(ctx, r.Handle, prompt); !shown || err != nil {
 		t.Fatalf("the pane does not show the prompt:\n%s", calls())
 	}
 }
@@ -200,5 +216,76 @@ func TestFirstPromptAsksForAGreetingByMail(t *testing.T) {
 	r.PrevStartedAt = &now
 	if Greeted(r) {
 		t.Error("a second session counts as the greeting one")
+	}
+}
+
+// Found live (yardr-85jy): a Codex left at its folder-trust dialog got its
+// first prompt from the dispatcher in the second a person answered the
+// dialog, and dropped the keys; the prompt was cleared as delivered and the
+// session sat at an empty input. The dispatcher's delivery is checked for
+// arrival as startAgent's is: a prompt that arrives is sent once, one that
+// is dropped once is sent again and arrives, and one that is dropped every
+// time is sent PromptTries times, reported and left alone.
+func TestDispatchersDeliveryIsCheckedForArrival(t *testing.T) {
+	for _, c := range []struct {
+		name                               string
+		drop, sent, lost, gaveUp, prompted int
+	}{
+		{"arrives", 0, 1, 0, 0, 1},
+		{"dropped once", 1, 2, 1, 0, 1},
+		{"dropped every time", 1000, dispatch.PromptTries, dispatch.PromptTries, 1, 0},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h, calls := notReadyHerdr(t, c.drop)
+			ctx := context.Background()
+			s := storetest.New(t)
+			d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": h}, PromptSettle: -1, PromptWait: -1}
+			if _, err := s.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
+				t.Fatal(err)
+			}
+			if err := d.Reconcile(ctx); err != nil {
+				t.Fatal(err)
+			}
+			r, err := s.GetResident(ctx, "mayor")
+			if err != nil || !r.Live() {
+				t.Fatalf("resident not running: %+v %v", r, err)
+			}
+			prompt, _ := r.Handle[dispatch.PendingPrompt].(string)
+			if !strings.HasPrefix(prompt, ResidentPromptLead) || strings.Contains(calls(), "agent prompt") {
+				t.Fatalf("the prompt of an agent that was not ready is not pending: handle %v\n%s", r.Handle, calls())
+			}
+			for range 8 {
+				if err := d.Reconcile(ctx); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if n := strings.Count(calls(), "agent prompt"); n != c.sent {
+				t.Fatalf("prompt sent %d times, want %d:\n%s", n, c.sent, calls())
+			}
+			r, _ = s.GetResident(ctx, "mayor")
+			if pending := r.Handle[dispatch.PendingPrompt] != nil; pending != (c.prompted == 0) {
+				t.Fatalf("pending = %v: handle %v", pending, r.Handle)
+			}
+			if shown, err := h.PromptShown(ctx, r.Handle, prompt); shown != (c.prompted == 1) || err != nil {
+				t.Fatalf("the pane shows the prompt: %v %v\n%s", shown, err, calls())
+			}
+			evs, err := s.Events(ctx, r.Journal, 100)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := map[string]int{}
+			for _, e := range evs {
+				got[e.Kind]++
+				if e.Kind == "session_prompt_gave_up" {
+					agent, _ := r.Handle["agent"].(string)
+					if hint, _ := e.Data["hint"].(string); agent == "" || !strings.HasPrefix(hint, "herdr agent prompt "+agent+" '"+ResidentPromptLead) {
+						t.Errorf("session_prompt_gave_up does not say how to give the prompt by hand: %+v", e.Data)
+					}
+				}
+			}
+			if got["session_prompt_lost"] != c.lost || got["session_prompt_gave_up"] != c.gaveUp || got["session_prompted"] != c.prompted {
+				t.Fatalf("events = %v, want %d lost, %d gave up, %d prompted", got, c.lost, c.gaveUp, c.prompted)
+			}
+		})
 	}
 }

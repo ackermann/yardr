@@ -109,7 +109,7 @@ func (d *Dispatcher) resident(ctx context.Context, r store.Resident) error {
 		case r.RestartRequested != "":
 			return nil // let it finish its handoff turn
 		default:
-			return d.residentRunning(ctx, runner, r, idle, grace)
+			return d.residentRunning(ctx, runner, r, status, grace)
 		}
 	}
 	if !r.Enabled || r.State == "failed" {
@@ -145,6 +145,7 @@ func (d *Dispatcher) resident(ctx context.Context, r store.Resident) error {
 	}
 	d.Log.Info("resident started", "resident", r.Name)
 	delete(d.status, "resident:"+r.Name)
+	delete(d.promptIdle, "resident:"+r.Name)
 	return d.Store.ResidentStarted(ctx, r.Name, handle)
 }
 
@@ -195,29 +196,29 @@ func (d *Dispatcher) residentStartFailed(ctx context.Context, runner Runner, r s
 
 // residentRunning handles a healthy session: a first prompt still to
 // deliver, then rotation, then the inbox.
-func (d *Dispatcher) residentRunning(ctx context.Context, runner Runner, r store.Resident, idle bool, grace time.Duration) error {
+func (d *Dispatcher) residentRunning(ctx context.Context, runner Runner, r store.Resident, status string, grace time.Duration) error {
+	idle := status == "idle" || status == "done"
 	if p, ok := r.Handle[PendingPrompt].(string); ok {
-		if promptShown(ctx, runner, r.Handle, p) {
-			// Sent at the start and taken since: not a second time, and
-			// an agent working on it does not wait for a human.
-			delete(d.status, "resident:"+r.Name)
-			return d.Store.SetResidentHandle(ctx, r.Name, withoutPending(r.Handle))
-		}
-		if !idle {
-			// Waiting on a human (e.g. a trust prompt): say so once.
-			if d.status["resident:"+r.Name] != "waiting" {
-				d.status["resident:"+r.Name] = "waiting"
-				d.Log.Warn("resident waiting for a human before it can start", "resident", r.Name)
-				_ = d.Store.LogDispatch(ctx, r.Journal, "resident_blocked", actor, map[string]any{
-					"resident": r.Name, "reason": "not ready at startup; answer it in its pane"})
+		pass := d.pendingPrompt(ctx, runner, "resident:"+r.Name, r.Handle, p, status)
+		if pass.handle != nil {
+			if err := d.Store.SetResidentHandle(ctx, r.Name, pass.handle); err != nil {
+				return err
 			}
+		}
+		d.promptEvents(ctx, r.Journal, map[string]any{"resident": r.Name}, r.Handle, p, pass)
+		if pass.arrived {
+			// An agent working on its first prompt does not wait for a human.
+			delete(d.status, "resident:"+r.Name)
 			return nil
 		}
-		if err := d.nudge(ctx, runner, r, p); err != nil {
-			return nil // try again next pass
+		// Waiting on a human (e.g. a trust prompt): say so once.
+		if !idle && d.status["resident:"+r.Name] != "waiting" {
+			d.status["resident:"+r.Name] = "waiting"
+			d.Log.Warn("resident waiting for a human before it can start", "resident", r.Name)
+			_ = d.Store.LogDispatch(ctx, r.Journal, "resident_blocked", actor, map[string]any{
+				"resident": r.Name, "reason": "not ready at startup; answer it in its pane"})
 		}
-		delete(d.status, "resident:"+r.Name)
-		return d.Store.SetResidentHandle(ctx, r.Name, withoutPending(r.Handle))
+		return nil
 	}
 	if maxAge := durationOr(r.MaxAge, 0); maxAge > 0 && r.StartedAt != nil && time.Since(*r.StartedAt) > maxAge {
 		switch {

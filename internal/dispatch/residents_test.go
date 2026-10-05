@@ -29,12 +29,17 @@ type residentRunner struct {
 	findErr  error               // the agent list cannot be read
 	sent     bool                // next start sends the first prompt and does not see it arrive
 	shown    bool                // the pane shows the first prompt
+	drop     int                 // deliveries of the first prompt the agent still drops
+	blind    bool                // the pane cannot be read
 }
 
-func (f *residentRunner) PromptShown(context.Context, map[string]any, string) bool {
+func (f *residentRunner) PromptShown(context.Context, map[string]any, string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.shown
+	if f.blind {
+		return false, errors.New("pane cannot be read")
+	}
+	return f.shown, nil
 }
 
 func (f *residentRunner) LiveResident(context.Context, store.Resident) (*dispatch.LiveAgent, error) {
@@ -84,6 +89,14 @@ func (f *residentRunner) Nudge(_ context.Context, h map[string]any, text string)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.nudges = append(f.nudges, h["agent"].(string)+": "+text)
+	if text == h[dispatch.PendingPrompt] {
+		// The first prompt: it shows in the pane unless the agent drops it.
+		if f.drop > 0 {
+			f.drop--
+		} else {
+			f.shown = true
+		}
+	}
 	return nil
 }
 func (f *residentRunner) set(agent, status string) {
@@ -95,7 +108,9 @@ func (f *residentRunner) set(agent, status string) {
 func residentSetup(t *testing.T, def store.Resident) (store.API, *residentRunner, *dispatch.Dispatcher) {
 	s := storetest.New(t)
 	f := &residentRunner{status: map[string]string{}}
-	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f}}
+	// No waits: a pending prompt is delivered on the first pass that finds
+	// the agent idle and judged on the next, unless a test sets them.
+	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f}, PromptSettle: -1, PromptWait: -1}
 	def.Name, def.Runner = "mayor", "fake"
 	if _, err := s.PutResident(context.Background(), def, "me"); err != nil {
 		t.Fatal(err)
@@ -282,7 +297,8 @@ func TestPendingPromptThatShowsIsNotSentAgain(t *testing.T) {
 	}
 }
 
-// One that did not show is delivered once the agent is idle, once.
+// One that did not show is delivered once the agent is idle, and once when
+// it arrives.
 func TestPendingPromptThatDidNotShowIsSentOnce(t *testing.T) {
 	s, f, d := residentSetup(t, store.Resident{})
 	ctx := context.Background()
@@ -302,9 +318,12 @@ type nudgeRunner struct {
 	status string
 	nudges []string
 	shown  bool // the pane shows the first prompt
+	drop   int  // deliveries of the first prompt the agent still drops
 }
 
-func (n *nudgeRunner) PromptShown(context.Context, map[string]any, string) bool { return n.shown }
+func (n *nudgeRunner) PromptShown(context.Context, map[string]any, string) (bool, error) {
+	return n.shown, nil
+}
 
 func (n *nudgeRunner) Start(ctx context.Context, j dispatch.Job) (map[string]any, error) {
 	h, err := n.fakeRunner.Start(ctx, j)
@@ -316,13 +335,18 @@ func (n *nudgeRunner) Start(ctx context.Context, j dispatch.Job) (map[string]any
 func (n *nudgeRunner) Status(context.Context, map[string]any) (string, error) { return n.status, nil }
 func (n *nudgeRunner) Nudge(_ context.Context, _ map[string]any, text string) error {
 	n.nudges = append(n.nudges, text)
+	if n.drop > 0 {
+		n.drop--
+	} else {
+		n.shown = true
+	}
 	return nil
 }
 
 func TestBlockedBeadSessionGetsItsPromptWhenIdle(t *testing.T) {
 	s := storetest.New(t)
 	r := &nudgeRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "blocked"}
-	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}}
+	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, PromptSettle: -1, PromptWait: -1}
 	ctx := context.Background()
 	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}))
 	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
@@ -376,6 +400,212 @@ func TestBeadSessionPendingPromptThatShowsIsNotSentAgain(t *testing.T) {
 	}
 	if prompted != 1 {
 		t.Fatalf("session_prompted logged %d times", prompted)
+	}
+}
+
+// nudgeSetup is a bead whose session starts with its first prompt pending,
+// its agent at a question, as a Codex at its folder-trust dialog is.
+func nudgeSetup(t *testing.T) (store.API, *nudgeRunner, *dispatch.Dispatcher, *store.Bead) {
+	s := storetest.New(t)
+	r := &nudgeRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "blocked"}
+	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, PromptSettle: -1, PromptWait: -1}
+	ctx := context.Background()
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
+	must(t, d.Reconcile(ctx))
+	return s, r, d, b
+}
+
+func handleOf(t *testing.T, s store.API, bead string) map[string]any {
+	t.Helper()
+	got, err := s.GetBead(context.Background(), bead)
+	must(t, err)
+	sess, err := s.GetSession(context.Background(), *got.Session)
+	must(t, err)
+	return sess.Handle
+}
+
+// Found live (yardr-85jy): a Codex was given its pending prompt in the
+// second its trust dialog was answered and dropped the keys. The prompt was
+// cleared as delivered, session_prompted said so, and the session sat at an
+// empty input until the mayor typed the prompt by hand. A delivery that
+// does not show is sent again, and session_prompted is the arrival.
+func TestPendingPromptDroppedOnceIsDeliveredAgain(t *testing.T) {
+	s, r, d, b := nudgeSetup(t)
+	ctx := context.Background()
+	r.status, r.drop = "idle", 1
+	must(t, d.Reconcile(ctx)) // delivered, and dropped
+	if len(r.nudges) != 1 || handleOf(t, s, b.ID)[dispatch.PendingPrompt] != "read your brief" {
+		t.Fatalf("a prompt that did not show is not pending: nudges %v, handle %v", r.nudges, handleOf(t, s, b.ID))
+	}
+	if n := len(eventKinds(t, s, b.ID, "session_prompted")); n != 0 {
+		t.Fatalf("session_prompted logged for a prompt that did not arrive: %d", n)
+	}
+	for range 4 {
+		must(t, d.Reconcile(ctx))
+	}
+	h := handleOf(t, s, b.ID)
+	if len(r.nudges) != 2 || len(h) != 1 {
+		t.Fatalf("nudges %v, handle %v; want the prompt sent twice and nothing of it left", r.nudges, h)
+	}
+	lost, prompted := eventKinds(t, s, b.ID, "session_prompt_lost"), eventKinds(t, s, b.ID, "session_prompted")
+	if len(lost) != 1 || lost[0].Data["delivery"] != float64(1) || lost[0].Data["session"] == nil {
+		t.Fatalf("session_prompt_lost = %+v", lost)
+	}
+	if len(prompted) != 1 || prompted[0].Data["deliveries"] != float64(2) || prompted[0].Data["shown"] != true {
+		t.Fatalf("session_prompted = %+v", prompted)
+	}
+	if n := len(eventKinds(t, s, b.ID, "session_prompt_gave_up")); n != 0 {
+		t.Fatalf("gave up on a prompt that arrived: %d", n)
+	}
+}
+
+// One that is dropped every time is sent PromptTries times and no more:
+// the session is reported, with the command that gives the prompt by hand,
+// and left alone. The prompt a human then gives it ends the wait.
+func TestPendingPromptDroppedEveryTimeIsGivenUp(t *testing.T) {
+	s, r, d, b := nudgeSetup(t)
+	ctx := context.Background()
+	r.status, r.drop = "idle", 1000
+	for range 10 {
+		must(t, d.Reconcile(ctx))
+	}
+	h := handleOf(t, s, b.ID)
+	if len(r.nudges) != dispatch.PromptTries || h[dispatch.PendingPrompt] != "read your brief" {
+		t.Fatalf("nudges %v, handle %v", r.nudges, h)
+	}
+	if n := len(eventKinds(t, s, b.ID, "session_prompt_lost")); n != dispatch.PromptTries {
+		t.Fatalf("session_prompt_lost logged %d times, want one per delivery", n)
+	}
+	gaveUp := eventKinds(t, s, b.ID, "session_prompt_gave_up")
+	if len(gaveUp) != 1 || gaveUp[0].Data["deliveries"] != float64(dispatch.PromptTries) ||
+		!strings.HasPrefix(fmt.Sprint(gaveUp[0].Data["hint"]), "herdr agent prompt ") ||
+		!strings.HasSuffix(fmt.Sprint(gaveUp[0].Data["hint"]), " 'read your brief'") {
+		t.Fatalf("session_prompt_gave_up = %+v", gaveUp)
+	}
+	if n := len(eventKinds(t, s, b.ID, "session_prompted")); n != 0 {
+		t.Fatalf("session_prompted logged for a prompt that never arrived: %d", n)
+	}
+	// By hand: it shows, and the session is an ordinary one again.
+	r.shown = true
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	if h := handleOf(t, s, b.ID); len(h) != 1 || len(r.nudges) != dispatch.PromptTries {
+		t.Fatalf("after the prompt was given by hand: nudges %v, handle %v", r.nudges, h)
+	}
+	if n := len(eventKinds(t, s, b.ID, "session_prompted")); n != 1 {
+		t.Fatalf("session_prompted logged %d times", n)
+	}
+}
+
+// An agent that is working after a delivery took the prompt, whatever its
+// pane shows by the time the dispatcher looks.
+func TestPendingPromptOfAWorkingAgentArrived(t *testing.T) {
+	s, r, d, b := nudgeSetup(t)
+	ctx := context.Background()
+	r.status, r.drop = "idle", 1000
+	must(t, d.Reconcile(ctx))
+	r.status = "working"
+	must(t, d.Reconcile(ctx))
+	r.status = "idle"
+	must(t, d.Reconcile(ctx))
+	if h := handleOf(t, s, b.ID); len(r.nudges) != 1 || len(h) != 1 {
+		t.Fatalf("nudges %v, handle %v", r.nudges, h)
+	}
+	prompted := eventKinds(t, s, b.ID, "session_prompted")
+	if len(prompted) != 1 || prompted[0].Data["shown"] != nil || len(eventKinds(t, s, b.ID, "session_prompt_lost")) != 0 {
+		t.Fatalf("session_prompted = %+v", prompted)
+	}
+}
+
+// The first delivery waits until the agent has been idle for PromptSettle
+// (it has just left a dialog), and a delivery is not judged lost before
+// PromptWait: an agent that is slow to echo is not sent its prompt twice.
+func TestPendingPromptWaitsForTheAgentToSettleAndToEcho(t *testing.T) {
+	s, r, d, b := nudgeSetup(t)
+	ctx := context.Background()
+	d.PromptSettle, d.PromptWait = 3*time.Second, 10*time.Second
+	var skew time.Duration
+	dispatch.SetClock(d, func() time.Time { return time.Now().Add(skew) })
+	r.status, r.drop = "idle", 1
+	must(t, d.Reconcile(ctx))
+	skew += 2 * time.Second
+	must(t, d.Reconcile(ctx))
+	if len(r.nudges) != 0 {
+		t.Fatalf("prompted an agent that had just become idle: %v", r.nudges)
+	}
+	// At a next question in between: the wait starts again.
+	r.status = "blocked"
+	must(t, d.Reconcile(ctx))
+	r.status = "idle"
+	skew += 2 * time.Second
+	must(t, d.Reconcile(ctx))
+	if len(r.nudges) != 0 {
+		t.Fatalf("prompted an agent that had just left its second question: %v", r.nudges)
+	}
+	skew += 4 * time.Second
+	must(t, d.Reconcile(ctx))
+	if len(r.nudges) != 1 {
+		t.Fatalf("nudges after the agent settled = %v", r.nudges)
+	}
+	skew += 9 * time.Second
+	must(t, d.Reconcile(ctx))
+	if len(r.nudges) != 1 || len(eventKinds(t, s, b.ID, "session_prompt_lost")) != 0 {
+		t.Fatalf("judged lost before PromptWait: nudges %v", r.nudges)
+	}
+	skew += 2 * time.Second
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	if h := handleOf(t, s, b.ID); len(r.nudges) != 2 || len(h) != 1 {
+		t.Fatalf("nudges %v, handle %v", r.nudges, h)
+	}
+}
+
+// Residents go the same way: a prime that is dropped is sent again, and one
+// dropped every time is reported on the resident's journal.
+func TestResidentPendingPromptIsCheckedForArrival(t *testing.T) {
+	for _, c := range []struct{ drop, nudges, lost, gaveUp, prompted int }{
+		{0, 1, 0, 0, 1},
+		{1, 2, 1, 0, 1},
+		{1000, dispatch.PromptTries, dispatch.PromptTries, 1, 0},
+	} {
+		s, f, d := residentSetup(t, store.Resident{})
+		ctx := context.Background()
+		f.blocked, f.drop = true, c.drop
+		must(t, d.Reconcile(ctx))
+		f.set(agentOf(t, s), "idle")
+		for range 10 {
+			must(t, d.Reconcile(ctx))
+		}
+		r, _ := s.GetResident(ctx, "mayor")
+		if len(f.nudges) != c.nudges || (r.Handle[dispatch.PendingPrompt] == nil) != (c.prompted == 1) {
+			t.Fatalf("drop %d: nudges %v, handle %v", c.drop, f.nudges, r.Handle)
+		}
+		for kind, want := range map[string]int{"session_prompt_lost": c.lost, "session_prompt_gave_up": c.gaveUp, "session_prompted": c.prompted} {
+			evs := eventKinds(t, s, r.Journal, kind)
+			if len(evs) != want {
+				t.Fatalf("drop %d: %s logged %d times, want %d", c.drop, kind, len(evs), want)
+			}
+			if want > 0 && evs[0].Data["resident"] != "mayor" {
+				t.Fatalf("drop %d: %s does not name the resident: %+v", c.drop, kind, evs[0])
+			}
+		}
+	}
+}
+
+// A pane that cannot be read tells nothing about the prompt: what was sent
+// is taken as arrived, as before yardr looked, and not sent a second time.
+func TestPendingPromptWithAnUnreadablePaneIsSentOnce(t *testing.T) {
+	s, f, d := residentSetup(t, store.Resident{})
+	ctx := context.Background()
+	f.sent, f.blind, f.drop = true, true, 1000
+	for range 4 {
+		must(t, d.Reconcile(ctx))
+	}
+	r, _ := s.GetResident(ctx, "mayor")
+	if len(f.nudges) != 1 || r.Handle[dispatch.PendingPrompt] != nil {
+		t.Fatalf("nudges %v, handle %v", f.nudges, r.Handle)
 	}
 }
 

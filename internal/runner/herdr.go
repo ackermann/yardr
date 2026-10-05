@@ -800,14 +800,16 @@ func (h *Herdr) arrived(ctx context.Context, handle map[string]any, prompt strin
 
 // PromptShown reports whether the pane of the session shows prompt: a first
 // prompt left pending because it had not shown in time (see arrived) may
-// have been taken since, and is then not sent a second time.
-func (h *Herdr) PromptShown(ctx context.Context, handle map[string]any, prompt string) bool {
+// have been taken since, and is then not sent a second time; one the
+// dispatcher delivered is pending until it shows. An error says the pane
+// could not be read, which tells nothing either way (see arrived).
+func (h *Herdr) PromptShown(ctx context.Context, handle map[string]any, prompt string) (bool, error) {
 	pane, _ := handle["pane"].(string)
 	if pane == "" {
-		return false
+		return false, fmt.Errorf("handle has no pane")
 	}
 	text, err := h.readPane(ctx, pane, "recent-unwrapped", promptScan)
-	return err == nil && showsPrompt(text, prompt)
+	return err == nil && showsPrompt(text, prompt), err
 }
 
 // promptLead is how much of a prompt, counted without its white space, is
