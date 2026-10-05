@@ -272,7 +272,7 @@ func TestOnboardingAfterAFailedRun(t *testing.T) {
 			t.Errorf("output lacks %q:\n%s", s, out)
 		}
 	}
-	if *started != 1 || !slices.Equal(keysOf(f), []string{"style", "about", "try", "login", "web", "go"}) {
+	if *started != 1 || !slices.Equal(keysOf(f), []string{"style", "about", "try", "login", "web", "link", "go"}) {
 		t.Fatalf("%d daemons started, asked %q", *started, keysOf(f))
 	}
 }
@@ -304,7 +304,7 @@ func TestBareYardrFinishesAYardWithoutDefaultKind(t *testing.T) {
 	if strings.Contains(out, "Usage:") {
 		t.Errorf("help after the onboarding:\n%s", out)
 	}
-	if *started != 1 || !slices.Equal(keysOf(f), []string{"finish", "try", "login", "web", "go"}) {
+	if *started != 1 || !slices.Equal(keysOf(f), []string{"finish", "try", "login", "web", "link", "go"}) {
 		t.Fatalf("%d daemons started, asked %q", *started, keysOf(f))
 	}
 }
@@ -353,7 +353,7 @@ func TestBareYardrStartsAYardThatDidNotStart(t *testing.T) {
 		t.Errorf("output:\n%s", out)
 	}
 	// The run that could not start the daemon asked about the harness too.
-	if *started != 1 || !slices.Equal(keysOf(f), []string{"try", "finish", "try", "web", "go"}) {
+	if *started != 1 || !slices.Equal(keysOf(f), []string{"try", "finish", "try", "web", "link", "go"}) {
 		t.Fatalf("%d daemons started, asked %q", *started, keysOf(f))
 	}
 }
@@ -430,7 +430,7 @@ func TestOnboardingIsTakenUpWhereTheMayorDidNotComeUp(t *testing.T) {
 	stubPane(t, answeredPane)
 	f.asked = nil
 	out, err = run(t, (&app{st: st}).rootCmd())
-	if err != nil || *started != 1 || !strings.Contains(out, "mayor is running, in herdr") || !slices.Equal(keysOf(f), []string{"finish", "try", "login", "web", "go"}) {
+	if err != nil || *started != 1 || !strings.Contains(out, "mayor is running, in herdr") || !slices.Equal(keysOf(f), []string{"finish", "try", "login", "web", "link", "go"}) {
 		t.Fatalf("again: asked %q, %v\n%s", keysOf(f), err, out)
 	}
 }

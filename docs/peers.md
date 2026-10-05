@@ -9,6 +9,7 @@ and the one feature on it so far: [mail between residents of two
 yards](#mail-between-residents).
 
 ```sh
+yardr peer pair                                # in a terminal: a form that asks, on both yards
 yardr peer pair --url http://10.0.0.5:8790     # on the yard that can be reached: shows a code
 yardr peer pair http://10.0.0.5:8790 K7QM-2XPD # on the other: links the two, and pings
 
@@ -30,7 +31,7 @@ Every request between two yards is signed with the sender's key, and every
 answer with the receiver's. The signature proves who sent a message and that
 it is whole. **It does not hide it.** Over plain http the body is readable by
 whoever carries it. For anything that is not on one machine or a private
-network, put TLS in front of the listener (a reverse proxy, Tailscale Funnel)
+network, put TLS in front of the listener (a reverse proxy or a tunnel of your own)
 and give the `https://` address as the URL. yardr does not do TLS itself.
 
 ## Linking two yards
@@ -53,13 +54,59 @@ yardr server stop            # the next command starts it again, on the address
 
 No listener, no incoming. `yardr doctor` and `yardr peer show` say when that
 is so. A yard that only calls needs no listener. One of the two has to be
-reachable by the other: on a listener it can call, over Tailscale, through a
-tunnel. There is no relay.
+reachable by the other: on an address the other can reach, directly or
+through a tunnel or proxy of your own. There is no relay.
+
+### The form
+
+`yardr peer pair` with nothing after it, in a terminal, is a form. Both
+operators run it, and it asks what the commands below take as arguments:
+
+1. **"Show a code, or enter one?"** The yard that shows the code is the one
+   that is called, so it has to be reachable. The form looks first: the
+   server says it listens, and something answers on the address. If not, it
+   says what the server says of its listener and offers three ways on: set
+   the address now (it asks for `host:port`, then whether to save it as
+   `hook_addr` and restart the server, and does so on a yes), go the other
+   way round and enter a code from the other yard, or stop. A listener on
+   every address of the machine (`:8790`) is asked where the other yard
+   reaches it. The yard that enters is asked for the address and the code
+   the other screen shows; after a call that got no pairing (a wrong code,
+   no yard at the address) it asks again.
+2. **The check**, large, with what the other yard calls itself, and one
+   question: "Does the other screen show the same?" No, or leaving the form,
+   saves nothing on either yard, and the form says so.
+3. **"What may this link carry?"** `ping`, ticked, which the page does not
+   let go: it proves the link. And mail between residents, ticked. Each
+   stands for both directions on this yard, `--send` and `--receive`; the
+   other operator is asked the same about theirs, so mail crosses only when
+   both tick it. Then the name this yard saves the other under, which
+   starts at the one it gives itself.
+4. It allows what was ticked, pings, and ends with the result (`north
+   answered in 205ms: the link works`, or that the link is saved and not
+   proved yet, with what is known of why), the line to try the mail with
+   (`yardr mail mayor@north "…"`), and `yardr peer show` and `yardr peer rm`
+   for the link.
+
+Every question comes before this yard's yes to the check goes to the other,
+so nothing is saved on either yard until both operators have answered all of
+theirs. The form shows no key and no invite line. A resident still needs
+the peer in its own `peers` setting to write there
+([below](#mail-between-residents)): the form allows the link, not a
+resident.
+
+No form runs with an argument or any of the command's flags, without a
+terminal, with `--json`, or in an agent's session (`YARDR_SESSION` or
+`YARDR_RESIDENT` is set): there `yardr peer pair` is the command below.
+`yardr setup` and the onboarding offer the form as "Link with another yard?"
+([setup.md](setup.md#linking-with-another-yard)).
 
 ### Pairing
 
-The short way. Nothing is copied: one operator reads eight characters to the
-other, and both compare six digits.
+The commands the form runs on. Nothing is copied: one operator reads eight
+characters to the other, and both compare six digits. In a terminal give
+`--url` (or any flag) on the yard that opens the pairing, since bare it is
+the form.
 
 ```sh
 # on north, which can be reached
@@ -252,6 +299,7 @@ yardr --home $T/a daemon &             # the daemons carry the messages
 yardr --home $T/b daemon &
 
 # in one terminal: a opens the pairing, shows the command for b, and waits
+# (bare, yardr --home $T/a peer pair is the form: the same pairing, asked for)
 yardr --home $T/a peer pair --name b
 #   yardr peer pair http://127.0.0.1:62131 K7QM-2XPD
 # in another: b calls with it. Both show the same check; say yes in both

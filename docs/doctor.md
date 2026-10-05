@@ -195,7 +195,7 @@ never a fault. Not printed on a home with no yard.
 | `note hooks: the server takes no webhooks yet: hook_addr is <addr>, which it takes at its next start: yardr server stop (the next command starts it again)` | hooks exist and the setting was set after the server started with no address |
 | `note hooks: the server has no address to take webhooks on: yardr settings set hook_addr 127.0.0.1:8790, then yardr server stop (the next command starts it again)` | hooks exist, and neither the setting nor the variable gives the server an address |
 | `note hooks: the server has not said what it takes webhooks on` | hooks exist, and the running server is a build from before it wrote `hooks.state` |
-| `not configured peers: this yard is linked with no other; yardr peer --help (docs/peers.md)` | no peer |
+| `not configured peers: this yard is linked with no other; yardr peer pair in a terminal links it with one, as a form (docs/peers.md)` | no peer |
 | `configured peers: <name>, <name> (it calls), …` | the yards this one is linked with ([peers.md](peers.md)); `(it calls)` marks one without a URL, which is never called |
 | `note peers: this yard has no key, so it signs nothing and its peers cannot know it: yardr peer key` | peers were added before the yard made its key |
 | `note peers: this yard's key cannot be used, so nothing is sent to or taken from its peers: <why>` | `peer.key` is open to others, or does not hold a key |

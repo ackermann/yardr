@@ -980,9 +980,9 @@ from login on instead. It listens on loopback only.`,
 	cmd.AddCommand(install, uninstall, start)
 }
 
-// offerServices asks, once the yard runs, for the two things it runs
-// without and a person may want from the first day: the daemon at login,
-// and the web view. Both start at no. Each yes ends in the command that
+// offerServices asks, once the yard runs, for the things it runs without
+// and a person may want from the first day: the daemon at login, the web
+// view, and a link with another yard (offerLink). All start at no. Each yes ends in the command that
 // does it, shown before it runs; a command that fails says so and the
 // onboarding goes on, since the yard runs either way. What the yard has
 // already is not asked for again: an onboarding taken up after a run that
@@ -1014,13 +1014,15 @@ func (a *app) offerServices(ctx context.Context, cfg *config.Config) error {
 		}
 	}
 	if webService(cfg) || answers(webLocalAddr) {
-		return nil
+		return a.offerLink(ctx, cfg)
 	}
 	view := false
 	if err := ask(huh.NewConfirm().Key("web").Title("Start the web view now?").
 		Description(fmt.Sprintf("The yard in a browser, read-only, on this machine only: http://%s/ (docs/web.md).\n"+
-			"Later: %s web start", webLocalAddr, yardr)).Value(&view)); err != nil || !view {
+			"Later: %s web start", webLocalAddr, yardr)).Value(&view)); err != nil {
 		return err
+	} else if !view {
+		return a.offerLink(ctx, cfg)
 	}
 	atLogin := false
 	if manager != "" {
@@ -1034,6 +1036,38 @@ func (a *app) offerServices(ctx context.Context, cfg *config.Config) error {
 		try("web", "install")
 	} else {
 		try("web", "start")
+	}
+	return a.offerLink(ctx, cfg)
+}
+
+// offerLink asks whether to link the yard with another, and opens the
+// pairing form on a yes (pairForm). It is asked once a run, of the operator
+// alone, since only the operator pairs, and not on a yard that has a peer.
+// A pairing that fails says so and the setup goes on.
+func (a *app) offerLink(ctx context.Context, cfg *config.Config) error {
+	if a.linkAsked {
+		return nil
+	}
+	st, err := a.store(ctx)
+	if err != nil {
+		return err
+	}
+	if ps, err := st.Peers(ctx); err != nil || len(ps) > 0 {
+		return err
+	}
+	if _, is, err := a.operator(ctx, st); err != nil || !is {
+		return err
+	}
+	a.linkAsked = true
+	yardr, link := yardrAt(cfg.Home), false
+	if err := ask(huh.NewConfirm().Key("link").Title("Link with another yard?").
+		Description(fmt.Sprintf("Two linked yards send each other mail between their residents: yours and a colleague's, or\n"+
+			"yours on two machines. Yes opens a short form, which the other yard's operator runs there too.\n"+
+			"Later: %s peer pair", yardr)).Value(&link)); err != nil || !link {
+		return err
+	}
+	if err := a.pairForm(ctx, cfg, st); err != nil {
+		fmt.Printf("yardr: %v\nThe yard runs without it; `%s peer pair` tries again.\n", err, yardr)
 	}
 	return nil
 }

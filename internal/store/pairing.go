@@ -324,6 +324,31 @@ func (s *Store) PairAnswer(ctx context.Context, id string, yes bool, actor strin
 	return &out, nil
 }
 
+// PairName changes the name the yard that called is saved under, while its
+// operator's word on the check is still owed: a form asks for the name once
+// it knows what the other yard calls itself. A name that cannot be a peer's
+// here is refused, and the pairing stays as it was.
+func (s *Store) PairName(ctx context.Context, id, name, actor string) (*Pairing, error) {
+	if err := checkName("peer", name); err != nil {
+		return nil, err
+	}
+	s.pair.mu.Lock()
+	defer s.pair.mu.Unlock()
+	p, err := s.pairingOf(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if p.State != PairCalled || p.Confirmed {
+		return nil, errors.New("the other yard's name is given once it has called and before the check is confirmed")
+	}
+	if err := s.CheckPeer(ctx, Peer{Name: name, Key: p.Key}); err != nil {
+		return nil, err
+	}
+	p.Peer = name
+	out := p.Pairing
+	return &out, nil
+}
+
 // PairClose ends the host's pairing, if it is still open: nothing is
 // saved, and the code is good for nothing.
 func (s *Store) PairClose(ctx context.Context, id, actor string) error {

@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -799,5 +800,50 @@ func TestPairingBadRequests(t *testing.T) {
 	}
 	if p := north.pairing(t); p.State != store.PairOpened || p.Tries != 0 {
 		t.Fatalf("north's pairing = %+v", p)
+	}
+}
+
+// PairName gives the yard that called another name, between its call and
+// the host's yes: the form asks for it once it knows what the other yard
+// calls itself. A name that is a peer's, one that is none, and a pairing
+// that nobody has called or that is confirmed already are refused, and the
+// pairing stays as it was.
+func TestPairingName(t *testing.T) {
+	cheapKeys(t)
+	north, laptop := newPairYard(t, "north"), newPairYard(t, "laptop")
+	ctx := context.Background()
+	if _, err := north.own.AddPeer(ctx, store.Peer{Name: "taken", Key: newPairYard(t, "third").pub()}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	opened, code := north.open(t, "")
+	if _, err := north.own.PairName(ctx, opened.ID, "desk", "jo"); err == nil || !strings.Contains(err.Error(), "once it has called") {
+		t.Fatalf("a name before the call = %v", err)
+	}
+	called, err := laptop.caller().PairCall(ctx, north.srv.URL, code, "laptop", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{"taken": "peer taken is added already", "No Name": "use lowercase letters"} {
+		if _, err := north.own.PairName(ctx, opened.ID, name, "jo"); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("the name %q = %v", name, err)
+		}
+	}
+	if p := north.pairing(t); p.Peer != "laptop" || p.State != store.PairCalled {
+		t.Fatalf("after refused names: %+v", p)
+	}
+	if p, err := north.own.PairName(ctx, opened.ID, "desk", "jo"); err != nil || p.Peer != "desk" || p.Calls != "laptop" {
+		t.Fatalf("the name desk = %+v, %v", p, err)
+	}
+	if _, err := laptop.caller().PairAnswer(ctx, called, true); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := north.own.PairAnswer(ctx, opened.ID, true, "jo"); err != nil || p.State != store.PairDone {
+		t.Fatalf("north's yes = %+v, %v", p, err)
+	}
+	if ps := north.peers(t); len(ps) != 2 || !slices.ContainsFunc(ps, func(p store.Peer) bool { return p.Name == "desk" && p.Calls == "laptop" && p.Key == laptop.pub() }) {
+		t.Fatalf("north's peers = %+v", ps)
+	}
+	if _, err := north.own.PairName(ctx, opened.ID, "other", "jo"); err == nil {
+		t.Fatal("a name after the pairing is done was taken")
 	}
 }

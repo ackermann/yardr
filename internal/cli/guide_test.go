@@ -94,8 +94,24 @@ func (f *former) ask(fields ...huh.Field) error {
 			for i := 0; i < 10 && x.GetValue() != want; i++ {
 				x.Update(tea.KeyMsg{Type: tea.KeyDown})
 			}
+		case *huh.MultiSelect[string]:
+			// From the first option down: each is toggled, and toggled
+			// back when that left it other than wanted.
+			x.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+			toggle := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}}
+			for i := 0; i < 10; i++ {
+				before := slices.Clone(x.GetValue().([]string))
+				x.Update(toggle)
+				for _, v := range append(before, x.GetValue().([]string)...) {
+					now := slices.Contains(x.GetValue().([]string), v)
+					if now != slices.Contains(before, v) && now != slices.Contains(want.([]string), v) {
+						x.Update(toggle)
+					}
+				}
+				x.Update(tea.KeyMsg{Type: tea.KeyDown})
+			}
 		}
-		if got := fld.GetValue(); got != want {
+		if got := fld.GetValue(); !reflect.DeepEqual(got, want) {
 			f.t.Fatalf("field %q: answered %v, it holds %v", key, want, got)
 		}
 	}

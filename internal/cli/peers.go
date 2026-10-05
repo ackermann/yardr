@@ -28,7 +28,8 @@ link carries nothing.
 
 The short way, when one operator can read a code to the other:
 
-  yardr peer pair                      on the yard that can be reached: shows a code
+  yardr peer pair                      in a terminal: a form, on both yards. Else,
+                                       on the yard that can be reached: shows a code
   yardr peer pair <address> <code>     on the other: the yards exchange their keys,
                                        each operator confirms a check, a ping proves it
 
@@ -507,7 +508,7 @@ func noPong(ctx context.Context, st store.API, cfg *config.Config, p store.Peer,
 func peerPart(ctx context.Context, cfg *config.Config, st store.API) (optionalPart, error) {
 	yardr := yardrAt(cfg.Home)
 	part := optionalPart{Key: "peers", Title: "peers",
-		Detail: fmt.Sprintf("this yard is linked with no other; %s peer --help (docs/peers.md)", yardr)}
+		Detail: fmt.Sprintf("this yard is linked with no other; %s peer pair in a terminal links it with one, as a form (docs/peers.md)", yardr)}
 	ps, err := st.Peers(ctx)
 	if err != nil || len(ps) == 0 {
 		return part, err

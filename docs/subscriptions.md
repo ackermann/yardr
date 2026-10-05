@@ -224,9 +224,9 @@ What runs today, from nothing to a resident answering in Linear:
 6. **The webhook**: in Linear, Settings → API → Webhooks, URL
    `https://<public host>/hooks/linear`, events Issues and Comments; put its
    signing secret in the secret file.
-7. **The funnel**: something public in front of the hook listener. Ours is
-   Tailscale Funnel (`tailscale funnel --bg 8790`), which serves
-   `https://<machine>.<tailnet>.ts.net` to the listener and nothing else.
+7. **The funnel**: something public in front of the hook listener, such as
+   a tunnel or a reverse proxy of your own, which serves `https://<public
+   host>` to the listener and nothing else.
 
 A comment mentioning the resident then lands in its inbox (`mentioned`), and
 it answers with `yardr reply <seq>` and reads the thread with `yardr thread

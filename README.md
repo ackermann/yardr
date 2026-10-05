@@ -82,10 +82,11 @@ run of forms. The mayor's first session is asked to greet you by mail, so its
 first message is in the chat or arrives there while you watch; you answer in
 the line under it, and leaving the chat (ctrl+c) stops nothing
 ([chat.md](docs/chat.md#from-the-onboarding)). Before
-that it asks two things, both no by default: whether to start the daemon at
+that it asks three things, all no by default: whether to start the daemon at
 login (`yardr daemon install`: a launchd agent on macOS, a systemd user unit
-on Linux), and whether to start the web view now, and at login
-(`yardr web start`, `yardr web install`). When the
+on Linux), whether to start the web view now, and at login
+(`yardr web start`, `yardr web install`), and whether to link the yard with
+another (`yardr peer pair`, as a form: [docs/peers.md](docs/peers.md#the-form)). When the
 mayor does not come up it says what is known instead (herdr or the harness
 not on PATH, the last failed start, the last lines of the mayor's pane, where
 the daemon logs), what `yardr doctor` says of it, and how to go on; it opens

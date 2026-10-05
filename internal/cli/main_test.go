@@ -33,6 +33,9 @@ var askHerdrServer func(context.Context, string) serverCheck
 // stand-in harness to call.
 var realTry func(context.Context, string, string) tryCheck
 
+// realAnswers is answers as yardr has it, for a test whose listener is real.
+var realAnswers func(string) bool
+
 func TestMain(m *testing.M) {
 	// Code that starts a part of yardr runs its own binary again (as
 	// `server run`, `daemon`, `web serve`), and in a test that binary is
@@ -105,7 +108,12 @@ func TestMain(m *testing.M) {
 	spawnWeb = func(*config.Config, string) (int, <-chan error, func() error, error) {
 		return 0, nil, nil, errors.New("tests start no web view")
 	}
+	realAnswers = answers
 	answers = func(string) bool { return false }
+	// Nor is a server stopped: a test's pidfile names the test itself.
+	restartServer = func(context.Context, *config.Config) error {
+		return errors.New("tests restart no server")
+	}
 	pollEvery = 5 * time.Millisecond
 	code := m.Run()
 	os.RemoveAll(services)

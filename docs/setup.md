@@ -113,6 +113,20 @@ It asks how to go on with the step that is next:
   mayor's line) and how to start it (`yardr init --start`).
 - **Stop here**: ends; `yardr setup` goes on from that step later.
 
+## Linking with another yard
+
+Not a step: a yard is complete without it. Where the forms end (every step
+done, or the first bead on its way) `yardr setup` asks "Link with another
+yard?", which starts at no. Yes opens the form of `yardr peer pair`
+([peers.md](peers.md#the-form)): one yard shows a code, the other enters
+it, both operators compare a number, and each says what the link may carry.
+The onboarding asks the same once the mayor is up, after the daemon at login
+and the web view.
+
+It is asked once a run, of the operator (only the operator pairs), and not
+on a yard that has a peer. A pairing that fails says why and the setup goes
+on; `yardr peer pair` in a terminal opens the form at any time.
+
 ## Cancelling
 
 A page that is cancelled (ctrl+c, or no at its last question) has run none

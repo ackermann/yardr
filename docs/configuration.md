@@ -762,10 +762,13 @@ about trusting the folder when the session starts
 session (a start that failed, a program that is missing) has no pane, and
 nothing is asked.
 
-Once the mayor is up, the form asks two more questions before the rest of
+Once the mayor is up, the form asks three more questions before the rest of
 the setup, each starting at **no**: "Start the daemon at login?", which runs
-`yardr daemon install`, and "Start the web view now?", followed on a yes by
-"And at login?": yes runs `yardr web install`, no `yardr web start`. Each
+`yardr daemon install`, "Start the web view now?", followed on a yes by
+"And at login?": yes runs `yardr web install`, no `yardr web start`, and
+"Link with another yard?", which opens the form of `yardr peer pair`
+([peers.md](peers.md#the-form)) and is asked of the operator, on a yard
+with no peer. Each
 command is shown before it runs and prints what it did; the web view's
 prints its address. One that fails says so and the form goes on: the yard
 runs without either. On a system yardr writes no service for, only the web

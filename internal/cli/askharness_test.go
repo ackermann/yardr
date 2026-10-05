@@ -237,7 +237,7 @@ func TestOnboardingStopsBeforeTheMayor(t *testing.T) {
 	a.f.asked = nil
 	out = a.onboard()
 	wantText(t, out, "has no rig yet, and its onboarding did not reach its end", "claude answers (ok).", "mayor is running, in herdr")
-	if got := keysOf(a.f); !slices.Equal(got, []string{"finish", "try", "login", "web", "go"}) || a.calls() != 2 || *a.started != 1 {
+	if got := keysOf(a.f); !slices.Equal(got, []string{"finish", "try", "login", "web", "link", "go"}) || a.calls() != 2 || *a.started != 1 {
 		t.Fatalf("asked %q, %d calls, %d daemons started\n%s", got, a.calls(), *a.started, out)
 	}
 

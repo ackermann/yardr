@@ -239,7 +239,7 @@ func (a *app) guide(ctx context.Context, cfg *config.Config, st store.API) error
 		next := nextStep(steps)
 		if next == nil {
 			fmt.Println("\nThe setup is complete.")
-			return nil
+			return a.offerLink(ctx, cfg)
 		}
 		run := g.pages()[next.Key]
 		if run == nil {
@@ -801,5 +801,5 @@ func (g *guide) watch(ctx context.Context) error {
 		"  %s watch              # every event as it happens\n"+
 		"  %s web serve          # %s\n\n"+
 		"The setup is over once it has landed: `%s doctor` then says so.\n", yardr, yardr, id, yardr, yardr, web, yardr)
-	return nil
+	return g.a.offerLink(ctx, g.cfg)
 }

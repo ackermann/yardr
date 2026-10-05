@@ -31,6 +31,9 @@ type pairOpts struct {
 	name, url string
 	yes, end  bool
 	timeout   time.Duration
+	// form is what the operator answers in the guided form (pairForm), nil
+	// for the command: the form asks more, and says it in other words.
+	form *pairChoice
 }
 
 // pairPoll is how often each side looks how the pairing stands: the host
@@ -46,6 +49,13 @@ yard that can be reached opens the pairing and reads its code to the other:
 
   yardr peer pair                        on the yard that can be reached: shows a code
   yardr peer pair <address> <code>       on the other: calls it with the code
+
+With nothing after it, in a terminal, yardr peer pair is a form on either
+yard: it asks whether to show a code or enter one, sees to it that a yard
+that shows one can be called, and after the check asks what the link may
+carry (ping, and mail between residents) and the other yard's name. With an
+argument or a flag, without a terminal, with --json and in an agent's
+session it asks only for the check, as below.
 
 The yards then give each other their names and public keys, and each shows
 its operator a check of six digits. Compare it with the other operator's,
@@ -107,6 +117,9 @@ prints two documents, the code at once and the result at the end.`,
 				}
 				return a.out(map[string]string{"pairing": "ended"}, func() { fmt.Println("the pairing is ended: its code is good for nothing") })
 			}
+			if len(args) == 0 && !pairFlagged(c) && !a.json && interactive() && !agentSession() {
+				return a.pairForm(ctx, cfg, st)
+			}
 			if !opt.yes && (a.json || !interactive()) {
 				return errors.New("a pairing asks its operator to compare a check, and there is no terminal to ask in (or --json was given): --yes confirms the check without asking, and prints it")
 			}
@@ -145,6 +158,23 @@ type paired struct {
 // nothingSaved ends what is said of every pairing that ended without a link.
 const nothingSaved = ": nothing was saved on either yard"
 
+// errSaidNo is a pairing this yard's own operator said no to.
+var errSaidNo = errors.New("declined" + nothingSaved)
+
+// notCalled is a call with a code that got no pairing: the form asks for
+// the address and the code again after one.
+type notCalled struct{ error }
+
+// pairFlagged reports whether any of yardr peer pair's own flags was given.
+func pairFlagged(c *cobra.Command) bool {
+	for _, f := range []string{"name", "url", "yes", "end", "timeout"} {
+		if c.Flags().Changed(f) {
+			return true
+		}
+	}
+	return false
+}
+
 // progress says how a pairing goes while it waits. With --json that is not
 // part of what is printed, so it goes to stderr.
 func (a *app) progress(format string, args ...any) {
@@ -158,6 +188,9 @@ func (a *app) progress(format string, args ...any) {
 // confirmCheck shows the check and asks the operator whether the other
 // yard's is the same. With --yes it is printed and not asked.
 func (a *app) confirmCheck(opt pairOpts, peer, calls, check string) (bool, error) {
+	if opt.form != nil {
+		return askSame(calls, check)
+	}
 	a.progress("\n  check  %s\n", check)
 	if opt.yes {
 		a.progress("--yes: the check is confirmed without being compared with %s's", peer)
@@ -203,7 +236,7 @@ func (a *app) pairHost(ctx context.Context, cfg *config.Config, st store.API, op
 	yardr := yardrAt(cfg.Home)
 	if listening, text := receiver(ctx, cfg, st); !listening {
 		return fmt.Errorf("this yard has no listener, so the other yard cannot call it: %s\n"+
-			"One of the two yards has to be reachable by the other (a listener on an address it can call, Tailscale, a tunnel). "+
+			"One of the two yards has to be reachable by the other (on an address the other can reach, directly or through a tunnel or proxy of your own). "+
 			"If the other yard is, open the pairing there and call it from here: %s peer pair <address> <code> (docs/peers.md)", text, yardr)
 	}
 	addr := opt.url
@@ -228,7 +261,9 @@ func (a *app) pairHost(ctx context.Context, cfg *config.Config, st store.API, op
 	defer func() { _ = st.PairClose(context.WithoutCancel(ctx), id, who) }()
 
 	command := fmt.Sprintf("yardr peer pair %s %s", inv.URL, opened.Code)
-	if a.json {
+	if opt.form != nil {
+		showCode(inv.URL, opened.Code, opened.Expires)
+	} else if a.json {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(map[string]any{"pairing": id, "code": opened.Code, "address": inv.URL, "expires": opened.Expires, "command": command}); err != nil {
@@ -270,15 +305,26 @@ func (a *app) pairHosted(ctx context.Context, st store.API, p store.Pairing, opt
 		}
 		if now.State == store.PairCalled && !asked {
 			asked = true
-			a.progress("%s called (it calls itself %s). Its key: %s", now.Peer, now.Calls, now.Key)
+			if opt.form == nil {
+				a.progress("%s called (it calls itself %s). Its key: %s", now.Peer, now.Calls, now.Key)
+			}
 			yes, err := a.confirmCheck(opt, now.Peer, now.Calls, now.Check)
 			if err != nil {
 				return nil, err
 			}
+			if yes && opt.form != nil {
+				// The form's other questions come before this yard's yes, so
+				// that nothing is saved on either yard until they are answered.
+				if yes, err = a.hostChoice(ctx, st, now, opt.form); err != nil {
+					return nil, err
+				}
+			}
 			if now, err = st.PairAnswer(ctx, p.ID, yes, a.who()); err != nil {
 				return nil, err
 			}
-			if now.State == store.PairCalled {
+			if now.State == store.PairCalled && opt.form != nil {
+				fmt.Printf("\nWaiting for the other operator to answer theirs, until %s.\n", now.Expires.Local().Format("15:04:05"))
+			} else if now.State == store.PairCalled {
 				a.progress("waiting for %s's operator to confirm, until %s", now.Peer, now.Expires.Local().Format("15:04:05"))
 			}
 		}
@@ -302,7 +348,7 @@ func hostEnded(p store.Pairing) error {
 	case pairing.WrongCode:
 		text = fmt.Sprintf("the pairing ended after %d wrong codes. Open another, and read out its code", pairing.MaxTries)
 	case pairing.Declined:
-		text = "declined"
+		return errSaidNo
 	case pairing.PeerDeclined:
 		text = "the other yard's operator declined, or that yard could not add this one"
 	case pairing.TimedOut:
@@ -375,6 +421,10 @@ func (a *app) pairJoin(ctx context.Context, cfg *config.Config, st store.API, ad
 		}
 		if err := st.CheckPeer(ctx, peer); err != nil {
 			_ = st.PairRefused(ctx, pairing.AlreadyPeer, host.Name, who)
+			if opt.form != nil {
+				return fmt.Errorf("%w: %w. `%s peer list` shows this yard's peers; the code is still good for `%s peer pair <address> <code> --name <another name>`",
+					errNotAdded, err, yardrAt(cfg.Home), yardrAt(cfg.Home))
+			}
 			if opt.name == "" {
 				return fmt.Errorf("%w: %w (--name saves the other yard under a name of your choosing; the code is still good)", errNotAdded, err)
 			}
@@ -385,7 +435,7 @@ func (a *app) pairJoin(ctx context.Context, cfg *config.Config, st store.API, ad
 	if errors.Is(err, errNotAdded) {
 		return errors.New(strings.TrimPrefix(err.Error(), errNotAdded.Error()+": ") + nothingSaved)
 	} else if err != nil {
-		return a.callFailed(ctx, cfg, st, addr, err)
+		return notCalled{a.callFailed(ctx, cfg, st, addr, err)}
 	}
 	host := called.Host
 	// refuse ends the pairing from this side: the other yard is told, so
@@ -397,19 +447,36 @@ func (a *app) pairJoin(ctx context.Context, cfg *config.Config, st store.API, ad
 		_ = st.PairRefused(ctx, reason, host.Name, who)
 	}
 
-	a.progress("%s answered at %s (it calls itself %s). Its key: %s", peer.Name, addr, host.Name, host.Key)
-	if host.URL != addr {
-		a.progress("it gives its address as %s; this yard keeps the one it answered at", host.URL)
+	if opt.form == nil {
+		a.progress("%s answered at %s (it calls itself %s). Its key: %s", peer.Name, addr, host.Name, host.Key)
+		if host.URL != addr {
+			a.progress("it gives its address as %s; this yard keeps the one it answered at", host.URL)
+		}
 	}
 	yes, err := a.confirmCheck(opt, peer.Name, host.Name, called.Check())
+	if err == nil && yes && opt.form != nil {
+		// As on the yard that is called: every question before this yard's yes.
+		var name string
+		name, err = opt.form.ask(host.Name, func(name string) error {
+			return st.CheckPeer(ctx, store.Peer{Name: name, Key: host.Key})
+		})
+		if yes = !errors.Is(err, huh.ErrUserAborted); !yes {
+			err = nil
+		}
+		peer.Name = or(name, peer.Name)
+	}
 	if err != nil || !yes || ctx.Err() != nil {
 		refuse(pairing.Declined)
 		if err != nil {
 			return err
 		}
-		return errors.New("declined" + nothingSaved)
+		return errSaidNo
 	}
-	a.progress("waiting for %s's operator to confirm", peer.Name)
+	if opt.form != nil {
+		fmt.Println("\nWaiting for the other operator to answer theirs.")
+	} else {
+		a.progress("waiting for %s's operator to confirm", peer.Name)
+	}
 	wait, cancel := context.WithTimeout(ctx, pairing.ConfirmTTL)
 	defer cancel()
 	out, err := caller.PairWait(wait, called, pairPoll.caller)
@@ -484,7 +551,7 @@ func (a *app) callFailed(ctx context.Context, cfg *config.Config, st store.API, 
 		return errors.New(text + nothingSaved)
 	case errors.As(err, &unreached):
 		return fmt.Errorf("no yard was reached at %s: %w\n"+
-			"One of the two yards has to be reachable by the other (a listener on an address it can call, Tailscale, a tunnel). "+
+			"One of the two yards has to be reachable by the other (on an address the other can reach, directly or through a tunnel or proxy of your own). "+
 			"If this yard is the one that can be reached, open the pairing here (%s peer pair) and call it from there: docs/peers.md", addr, unreached.Err, yardr)
 	}
 	return fmt.Errorf("pairing with the yard at %s: %w%s", addr, err, nothingSaved)
@@ -508,6 +575,9 @@ func clipText(s string) string {
 // ping. The peer is saved whatever the ping does: no pong is said, with
 // what is known of why, and is no failure of the pairing.
 func (a *app) pairDone(ctx context.Context, cfg *config.Config, st store.API, res paired, opt pairOpts) error {
+	if opt.form != nil {
+		return a.formDone(ctx, cfg, st, res.Peer, opt)
+	}
 	yardr, p := yardrAt(cfg.Home), res.Peer
 	a.progress("peer %s saved (it calls itself %s): the link carries ping both ways and nothing else", p.Name, p.Calls)
 	if p.URL == "" {

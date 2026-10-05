@@ -33,6 +33,9 @@ type app struct {
 	// setup (see handOff): yardr setup, run on a home with no yard, has
 	// then been answered.
 	guided bool
+	// linkAsked is set once this run has asked whether to link the yard
+	// with another (offerLink).
+	linkAsked bool
 	// noChat is --no-chat: this run ends where it ended before there was a
 	// chat, with the mayor's place printed, and opens no view (see toChat).
 	noChat bool

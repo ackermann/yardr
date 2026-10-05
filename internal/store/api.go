@@ -164,6 +164,7 @@ type API interface {
 	PairOpen(ctx context.Context, o PairOffer, actor string) (*PairingCode, error)
 	GetPairing(ctx context.Context, id string) (*Pairing, error)
 	PairAnswer(ctx context.Context, id string, yes bool, actor string) (*Pairing, error)
+	PairName(ctx context.Context, id, name, actor string) (*Pairing, error)
 	PairClose(ctx context.Context, id, actor string) error
 
 	RecordPack(ctx context.Context, rec PackImport, changed bool, actor string) (bool, error)

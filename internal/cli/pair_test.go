@@ -319,7 +319,8 @@ func TestPeerPairDeclined(t *testing.T) {
 			}
 			t.Cleanup(func() { askCheck = old })
 
-			out, hostErr, callErr := pairBoth(t, north, laptop, nil, withCode())
+			// A flag makes it the command: bare in a terminal it is the form.
+			out, hostErr, callErr := pairBoth(t, north, laptop, []string{"--timeout", "50ms"}, withCode())
 			if hostErr == nil || callErr == nil || !strings.HasSuffix(hostErr.Error(), nothingSaved) || !strings.HasSuffix(callErr.Error(), nothingSaved) {
 				t.Fatalf("host: %v\ncaller: %v\n%s", hostErr, callErr, out)
 			}
@@ -402,7 +403,7 @@ func TestPeerPairAPeerAlready(t *testing.T) {
 	if _, err := north.st.AddPeer(ctx, store.Peer{Name: "laptop", Key: inv.Key}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	out, hostErr, callErr = pairBoth(t, north, laptop, nil, withCode())
+	out, hostErr, callErr = pairBoth(t, north, laptop, []string{"--timeout", "50ms"}, withCode())
 	if hostErr == nil || !strings.Contains(hostErr.Error(), "peer laptop is added already; to replace it, remove it first") {
 		t.Fatalf("the host = %v\n%s", hostErr, out)
 	}
@@ -442,7 +443,7 @@ func TestPeerPairCallFails(t *testing.T) {
 		t.Fatal("a call to no yard succeeded")
 	}
 	wantText(t, err.Error(), "no yard was reached at "+gone.srv.URL, "One of the two yards has to be reachable by the other",
-		"a listener on an address it can call, Tailscale, a tunnel", "docs/peers.md")
+		"on an address the other can reach, directly or through a tunnel or proxy of your own", "docs/peers.md")
 
 	// A wrong code: the caller is told, and so is the host, which counts.
 	out, hostErr, callErr := pairBoth(t, north, laptop, []string{"--yes"}, func(addr, code string) []string {

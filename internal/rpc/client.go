@@ -641,6 +641,10 @@ func (c *Client) GetPairing(ctx context.Context, id string) (*store.Pairing, err
 func (c *Client) PairAnswer(ctx context.Context, id string, yes bool, actor string) (*store.Pairing, error) {
 	return callV[*store.Pairing](c, ctx, "PairAnswer", id, yes, actor)
 }
+func (c *Client) PairName(ctx context.Context, id, name, actor string) (*store.Pairing, error) {
+	return callV[*store.Pairing](c, ctx, "PairName", id, name, actor)
+}
+
 func (c *Client) PairClose(ctx context.Context, id, actor string) error {
 	return c.call(ctx, "PairClose", nil, id, actor)
 }
