@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -71,16 +72,22 @@ case "$1 $2" in
 esac
 `
 
+// fakeGhs is the fake gh's state directory of each test that has one.
+var fakeGhs sync.Map // *testing.T -> string
+
 // withFakeGh puts the fake gh first on PATH for the scripts the exec runner
-// starts, and returns its state directory.
+// starts for this test (see exec), and returns its state directory.
 func withFakeGh(t *testing.T) string {
 	t.Helper()
-	bin, state := t.TempDir(), t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(fakeGh), 0o755); err != nil {
+	state := t.TempDir()
+	if err := os.Mkdir(filepath.Join(state, "bin"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("FAKE_GH", state)
+	if err := os.WriteFile(filepath.Join(state, "bin", "gh"), []byte(fakeGh), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fakeGhs.Store(t, state)
+	t.Cleanup(func() { fakeGhs.Delete(t) })
 	return state
 }
 

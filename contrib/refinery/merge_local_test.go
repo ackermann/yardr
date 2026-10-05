@@ -8,6 +8,7 @@ package refinery
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,15 +26,36 @@ import (
 
 var yardrBin string
 
+// gitEnv keeps git off the developer's configuration and gives it a name
+// to commit as.
+var gitEnv = []string{"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_AUTHOR_NAME=t",
+	"GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t"}
+
 func TestMain(m *testing.M) {
 	// Nothing from a yardr (or git hook) running these tests may leak into
 	// the yardr, git and script they start, which inherit this environment.
+	// What stays is how the stores are opened (storetest set it): the
+	// yardr of each test is a real one, and its commits need not wait for
+	// the disk either.
+	noSync := config.Getenv(store.NoSyncEnv)
 	for _, kv := range os.Environ() {
 		k, _, _ := strings.Cut(kv, "=")
 		if strings.HasPrefix(k, "YARDR_") || strings.HasPrefix(k, "YARD_") || strings.HasPrefix(k, "GIT_") {
 			os.Unsetenv(k)
 		}
 	}
+	os.Setenv("YARDR_"+store.NoSyncEnv, noSync)
+	// Git's identity and configuration are the same for every test, and
+	// the exec runner hands its process's environment on to the scripts: set
+	// here once, not by each test, the tests can run side by side.
+	for _, kv := range gitEnv {
+		k, v, _ := strings.Cut(kv, "=")
+		os.Setenv(k, v)
+	}
+	// Each test has a yard, a repository and a server of its own, and most
+	// of its time is waiting for the processes it starts. Four at once is
+	// what a machine running two more gates still has room for.
+	flag.Set("test.parallel", "4")
 	dir, err := os.MkdirTemp("", "yrbin")
 	if err != nil {
 		panic(err)
@@ -69,6 +91,9 @@ type yard struct {
 
 func newYard(t *testing.T) *yard {
 	t.Helper()
+	// A test with a yard shares nothing with another's (TestMain), so it
+	// runs beside them from here on.
+	t.Parallel()
 	home, err := os.MkdirTemp("", "yr")
 	if err != nil {
 		t.Fatal(err)
@@ -82,9 +107,7 @@ func newYard(t *testing.T) *yard {
 	})
 	y := &yard{t: t, home: home, repo: filepath.Join(t.TempDir(), "repo"),
 		wt: filepath.Join(home, "worktrees", "r", "r-1")}
-	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test", "GIT_CONFIG_GLOBAL=/dev/null",
-		"GIT_CONFIG_NOSYSTEM=1", "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t",
-		"GIT_COMMITTER_EMAIL=t@t")
+	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test")
 
 	// A fresh home has no yard; without a terminal yardr refuses to work
 	// in it until it is initialized.
@@ -154,13 +177,13 @@ func (y *yard) exec(script, group, id string) {
 	if y.opts != "" {
 		cmd = y.opts + " " + cmd
 	}
-	// The runner hands its own environment on: git's identity. YARDR_HOME
-	// and YARDR_BIN come from the runner itself.
-	for _, kv := range y.env[len(os.Environ()):] {
-		if k, v, _ := strings.Cut(kv, "="); strings.HasPrefix(k, "GIT_") {
-			y.t.Setenv(k, v)
-		}
+	// The script finds this test's fake gh, if it has one, by its command
+	// line: the environment is every test's.
+	if state, ok := fakeGhs.Load(y.t); ok {
+		cmd = "PATH='" + filepath.Join(state.(string), "bin") + "':$PATH FAKE_GH='" + state.(string) + "' " + cmd
 	}
+	// The runner hands its own environment on: git's identity (TestMain).
+	// YARDR_HOME and YARDR_BIN come from the runner itself.
 	e := &runner.Exec{Home: y.home, Bin: yardrBin}
 	if y.bin != "" {
 		e.Bin = y.bin

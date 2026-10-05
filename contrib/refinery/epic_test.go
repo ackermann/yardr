@@ -39,6 +39,7 @@ merged terminal
 // commit ahead of the epic's branch in its worktree. check is the rig's gate.
 func newEpicYard(t *testing.T, check string) *yard {
 	t.Helper()
+	t.Parallel() // as newYard
 	home, err := os.MkdirTemp("", "yr")
 	if err != nil {
 		t.Fatal(err)
@@ -51,9 +52,7 @@ func newEpicYard(t *testing.T, check string) *yard {
 		}
 		os.RemoveAll(home)
 	})
-	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test", "GIT_CONFIG_GLOBAL=/dev/null",
-		"GIT_CONFIG_NOSYSTEM=1", "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t",
-		"GIT_COMMITTER_EMAIL=t@t")
+	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test")
 	// A fresh home has no yard; without a terminal yardr refuses to work
 	// in it until it is initialized.
 	y.yardr("init", "--harness", "claude", "--dir", home)
