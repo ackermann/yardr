@@ -556,7 +556,8 @@ func (a *app) mailCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "mail <name>[@<peer>] <text|->",
 		Short: "Send a message to the inbox of a resident or a user, or read a conversation back (--with)",
-		Long: `Sends a message to the inbox of a resident or of a user (up to 4 KB).
+		Long: `Sends a message to the inbox of a resident or of a user (up to 4 KB; yardr chat
+sends a longer text as several mails).
 
 A user is a person of the yard (yardr user list), the operator among them.
 A resident's session and a user mail a user; an agent working a bead does

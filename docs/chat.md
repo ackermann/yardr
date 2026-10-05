@@ -113,7 +113,7 @@ marked read that the view did not show. Mail from someone who is no resident
 
 | Key | Does |
 |---|---|
-| `enter` | sends the line as mail to the selected resident |
+| `enter` | sends the line as mail to the selected resident, a [long text](#a-long-text) as several |
 | `ctrl+j`, `alt+enter` | a line break in the line |
 | `tab`, `shift+tab` | the next, the previous resident |
 | `pgup`, `pgdn` | scroll the conversation |
@@ -121,8 +121,7 @@ marked read that the view did not show. Mail from someone who is no resident
 | `ctrl+c` | leave |
 
 A mail holds 4 KB. From three quarters of that the rule above the line
-counts the bytes (`3072 of 4096 bytes`), and the line takes nothing past the
-limit, so a mail is never refused for its size after it was typed.
+counts the bytes (`3072 of 4096 bytes`).
 
 `ctrl+g` brings the resident's pane to the front when `yardr chat` runs in a
 pane of herdr (`herdr agent focus <agent>`); the view goes on in its own
@@ -131,6 +130,40 @@ terminal: `herdr agent attach <agent>`.
 
 Leaving the view stops nothing: the residents are the daemon's to keep
 running, and mail goes on arriving in your inbox (`yardr inbox`).
+
+## A long text
+
+A text longer than one mail is sent as several. Type or paste it and send it as
+any other: past one mail's size the rule says how many it comes to
+(`9310 bytes, sent as 3 mails`), and Enter sends them one after the other.
+Each begins with a line that numbers it:
+
+```
+(1/3)
+The first paragraphs of the text …
+```
+
+They are ordinary mails. The conversation and `yardr mail --with` show three,
+the resident's `yardr inbox` lists three in the order sent, and the numbers
+tell it that they are one text and whether more follow. The line under the
+last says where they stand.
+
+A text is split where it reads best: at the last paragraph break (an empty
+line) that leaves the mail at least half full, else at the last line break,
+else at the last space, and a line that has none of these and is longer than
+a mail is cut at the limit, between two characters. The break itself is not
+sent.
+
+If one of the mails is not taken, those after it are not sent: the line
+above the keys says how many went (`1 of 3 mails went to mayor, the rest is
+in the line: …`), and the text from that mail on is in the line again. Sent
+from there it is a text of its own, numbered from 1.
+
+A text is sent as at most 16 mails (about 64 KB); the line takes nothing
+past that. More than that is a file, and the mail names it.
+
+Only `yardr chat` splits. `yardr mail <resident> <text|->` sends one mail and
+refuses a text over 4 KB, from stdin too.
 
 ## Live
 

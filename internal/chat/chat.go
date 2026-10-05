@@ -119,8 +119,12 @@ type (
 		residents []store.Resident
 		err       error
 	}
+	// sentMsg is how a send ended: sent of the text's of mails went to
+	// to, and when err stopped it, rest is the text that did not.
 	sentMsg struct {
-		to, text string
+		to       string
+		sent, of int
+		rest     string
 		err      error
 	}
 	ackedMsg struct {
@@ -190,7 +194,8 @@ func New(ctx context.Context, st Store, opt Options, s *State) *Model {
 	in := textarea.New()
 	in.Prompt = "> "
 	in.ShowLineNumbers = false
-	in.CharLimit = 0 // a mail's limit is in bytes, kept in Update
+	in.CharLimit = 0 // the limit is in mails, kept in Update
+	in.MaxHeight = 0 // and it is the only one: a long text has many lines
 	in.SetHeight(inputRows)
 	in.FocusedStyle.CursorLine = lipgloss.NewStyle()
 	look.input(&in)
@@ -354,10 +359,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sentMsg:
 		if msg.err != nil {
 			m.notice = fmt.Sprintf("not sent to %s: %v", msg.to, msg.err)
-			if m.input.Value() == "" {
-				m.input.SetValue(msg.text) // nothing typed is lost to a failed send
+			if msg.of > 1 {
+				m.notice = fmt.Sprintf("%d of %d mails went to %s, the rest is in the line: %v", msg.sent, msg.of, msg.to, msg.err)
 			}
-			return m, nil
+			// Nothing typed is lost to a failed send: what did not go is
+			// back in the line, before what was typed since.
+			if typed := m.input.Value(); typed != "" {
+				msg.rest += "\n\n" + typed
+			}
+			m.input.SetValue(msg.rest)
+			if msg.sent == 0 {
+				return m, nil
+			}
 		}
 		// The mail also comes from the stream. Reading it here shows it
 		// when the stream is lost at this moment, and costs what is new.
@@ -409,13 +422,16 @@ func (m *Model) key(k tea.KeyMsg) tea.Cmd {
 	before := m.input.Value()
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(k)
-	if len(m.input.Value()) > store.MaxMailBytes {
+	if now := m.input.Value(); now == before {
+		return cmd
+	} else if len(split(strings.TrimSpace(now))) > MaxParts {
 		// Refused whole: half a pasted text is not what was meant.
 		m.input.SetValue(before)
-		m.notice = fmt.Sprintf("a mail holds %d bytes: send this one and go on in the next", store.MaxMailBytes)
-	} else if m.input.Value() != before {
-		m.notice = ""
+		m.notice = fmt.Sprintf("a text is sent as at most %d mails (about %d KB): send this one and go on in the next",
+			MaxParts, MaxParts*store.MaxMailBytes>>10)
+		return cmd
 	}
+	m.notice = ""
 	return cmd
 }
 
@@ -536,7 +552,9 @@ func (m *Model) acked(through uint64) {
 	}
 }
 
-// send mails what is typed to the selected resident.
+// send mails what is typed to the selected resident: as one mail when one
+// holds it, else as its parts, in order, each numbered (split). A part that
+// is not taken ends the send, so that no later part arrives without it.
 func (m *Model) send() tea.Cmd {
 	text := strings.TrimSpace(m.input.Value())
 	to := m.sel
@@ -546,8 +564,14 @@ func (m *Model) send() tea.Cmd {
 	m.input.Reset()
 	m.notice = ""
 	st, ctx, me := m.st, m.ctx, m.opt.Me
+	parts := split(text)
 	return func() tea.Msg {
-		return sentMsg{to: to, text: text, err: st.Mail(ctx, to, text, me)}
+		for i, p := range parts {
+			if err := st.Mail(ctx, to, p.mail(i, len(parts)), me); err != nil {
+				return sentMsg{to: to, sent: i, of: len(parts), rest: text[p.at:], err: err}
+			}
+		}
+		return sentMsg{to: to, sent: len(parts), of: len(parts)}
 	}
 }
 

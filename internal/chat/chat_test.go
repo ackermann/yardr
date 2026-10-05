@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
@@ -509,8 +510,9 @@ func TestSendFails(t *testing.T) {
 	}
 }
 
-// The size of a mail is counted before the limit, and what would pass it
-// is not taken, so the store never refuses a mail for its size.
+// The size of a mail is counted before it is reached; past it the rule
+// says how many mails the text is sent as, and what would pass the most
+// mails a text is sent as is not taken.
 func TestSizeLimit(t *testing.T) {
 	st := yard(t)
 	v := open(t, st, "mayor", 80, 24)
@@ -521,23 +523,216 @@ func TestSizeLimit(t *testing.T) {
 	v.typed(strings.Repeat("x", store.MaxMailBytes-warnAt))
 	v.shows(fmt.Sprintf("%d of %d bytes", store.MaxMailBytes, store.MaxMailBytes))
 	v.typed("y")
-	if n := len(v.m.input.Value()); n != store.MaxMailBytes {
-		t.Fatalf("the line holds %d bytes, the limit is %d", n, store.MaxMailBytes)
-	}
-	v.shows("a mail holds 4096 bytes")
+	v.shows(fmt.Sprintf("%d bytes, sent as 2 mails", store.MaxMailBytes+1))
+	v.hides(" of 4096 bytes", "a text is sent as at most")
+	v.fits(80, 24)
+
 	// Bytes, not characters: é is two.
 	v.m.input.Reset()
 	v.typed(strings.Repeat("é", store.MaxMailBytes/2))
+	v.shows(fmt.Sprintf("%d of %d bytes", store.MaxMailBytes, store.MaxMailBytes))
 	v.typed("é")
-	if n := len(v.m.input.Value()); n != store.MaxMailBytes {
-		t.Fatalf("the line holds %d bytes of é, the limit is %d", n, store.MaxMailBytes)
+	v.shows("sent as 2 mails")
+
+	// The most a text is sent as, and one byte more: refused whole.
+	v.m.input.Reset()
+	full := strings.Repeat("x", MaxParts*room)
+	v.typed(full)
+	v.shows(fmt.Sprintf("%d bytes, sent as %d mails", len(full), MaxParts))
+	v.typed("more")
+	if v.m.input.Value() != full {
+		t.Fatalf("the line holds %d bytes, %d mails hold %d", len(v.m.input.Value()), MaxParts, len(full))
 	}
+	v.shows("a text is sent as at most 16 mails (about 64 KB)")
 	v.fits(80, 24)
 	v.key(tea.KeyEnter)
-	v.hides("not sent")
+	v.hides("not sent", "went to")
 	letters, err := st.Conversation(context.Background(), me, "mayor", 0)
-	if err != nil || len(letters) != 1 || len(letters[0].Text) != store.MaxMailBytes {
-		t.Fatalf("a mail of the full size was not sent: %d letters, %v", len(letters), err)
+	if err != nil || len(letters) != MaxParts {
+		t.Fatalf("%d mails of %d were sent, %v", len(letters), MaxParts, err)
+	}
+	if last := letters[MaxParts-1].Text; len(last) != store.MaxMailBytes || !strings.HasPrefix(last, "(16/16)\n") {
+		t.Fatalf("the last mail has %d bytes and begins %q", len(last), last[:10])
+	}
+}
+
+// A text of one mail's size is sent as it is, as one mail.
+func TestSendOneMail(t *testing.T) {
+	st := yard(t)
+	v := open(t, st, "mayor", 80, 24)
+	text := "(1/2) is what a part begins with\n\n" + strings.Repeat("x", store.MaxMailBytes)
+	text = text[:store.MaxMailBytes]
+	v.typed(text)
+	v.key(tea.KeyEnter)
+	letters, err := st.Conversation(context.Background(), me, "mayor", 0)
+	if err != nil || len(letters) != 1 || letters[0].Text != text {
+		t.Fatalf("a text of one mail's size: %d mails, %v", len(letters), err)
+	}
+}
+
+// prose is a text of about size bytes: paragraphs of lines of words.
+func prose(size int) string {
+	var b strings.Builder
+	for n := 0; b.Len() < size; n++ {
+		switch {
+		case n == 0:
+		case n%40 == 0:
+			b.WriteString("\n\n")
+		case n%8 == 0:
+			b.WriteString("\n")
+		default:
+			b.WriteString(" ")
+		}
+		fmt.Fprintf(&b, "word%04d", n)
+	}
+	return b.String()
+}
+
+// A text of two and a half mails is three parts, each within a mail with
+// its number, split at the best break there is: a paragraph's end, else a
+// line's, else a space, else between two characters.
+func TestSplit(t *testing.T) {
+	size := 5 * store.MaxMailBytes / 2
+	lines := strings.ReplaceAll(prose(size), "\n\n", "\n")
+	words := strings.ReplaceAll(lines, "\n", " ")
+	for _, c := range []struct{ name, text, sep string }{
+		{"paragraphs", prose(size), "\n\n"},
+		{"lines", lines, "\n"},
+		{"words", words, " "},
+		{"two bytes a character", strings.Repeat("é", size/2), ""},
+		{"three", "x" + strings.Repeat("€", size/3), ""},
+		{"four", "xy" + strings.Repeat("🚂", size/4), ""},
+	} {
+		parts := split(c.text)
+		if len(parts) != 3 {
+			t.Fatalf("%s: %d parts", c.name, len(parts))
+		}
+		var texts []string
+		for i, p := range parts {
+			mail := p.mail(i, len(parts))
+			if len(mail) > store.MaxMailBytes || !strings.HasPrefix(mail, fmt.Sprintf("(%d/3)\n", i+1)) {
+				t.Fatalf("%s: part %d has %d bytes and begins %q", c.name, i+1, len(mail), mail[:8])
+			}
+			if !utf8.ValidString(p.text) {
+				t.Fatalf("%s: part %d is cut inside a character", c.name, i+1)
+			}
+			if p.text != strings.TrimSpace(p.text) || !strings.HasPrefix(c.text[p.at:], p.text) {
+				t.Fatalf("%s: part %d is not the text from byte %d on: %q…", c.name, i+1, p.at, p.text[:20])
+			}
+			texts = append(texts, p.text)
+		}
+		// Nothing is lost but the breaks themselves, and no part ends at
+		// a lesser break than the text has.
+		if got := strings.Join(texts, c.sep); got != c.text {
+			t.Fatalf("%s: the parts do not make the text again", c.name)
+		}
+	}
+
+	// A paragraph break that would leave a part nearly empty is out of
+	// reach, and a line that is longer than a mail alone is cut at the limit.
+	long := strings.Repeat("x", store.MaxMailBytes+100)
+	parts := split("short\n\n" + long + "\nlast line")
+	if len(parts) != 3 || parts[0].text != "short" || parts[1].text != long[:room] || parts[2].text != long[room:]+"\nlast line" {
+		t.Fatalf("%d parts: %q… %d bytes, %d bytes", len(parts), parts[0].text[:5], len(parts[1].text), len(parts[2].text))
+	}
+	early := "short\n\n" + strings.ReplaceAll(prose(3*store.MaxMailBytes/2), "\n\n", "\n")
+	if parts = split(early); len(parts) != 2 || len(parts[0].text) < room-80 {
+		t.Fatalf("an early paragraph break was taken: %d parts, the first of %d bytes", len(parts), len(parts[0].text))
+	}
+}
+
+// A long text is sent as numbered mails in order, and the conversation
+// shows them as the mails they are, with one line for where they stand.
+func TestSendLong(t *testing.T) {
+	st := yard(t)
+	v := open(t, st, "mayor", 80, 24)
+	text := prose(5 * store.MaxMailBytes / 2)
+	v.typed("  " + text + "\n")
+	v.shows(fmt.Sprintf("%d bytes, sent as 3 mails", len(text)))
+	v.key(tea.KeyEnter)
+	if v.m.input.Value() != "" {
+		t.Fatalf("the line still holds %d bytes after sending", len(v.m.input.Value()))
+	}
+	letters, err := st.Conversation(context.Background(), me, "mayor", 0)
+	if err != nil || len(letters) != 3 {
+		t.Fatalf("%d mails, %v", len(letters), err)
+	}
+	var texts []string
+	for i, l := range letters {
+		head, body, _ := strings.Cut(l.Text, "\n")
+		if head != fmt.Sprintf("(%d/3)", i+1) {
+			t.Fatalf("mail %d begins %q", i+1, head)
+		}
+		texts = append(texts, body)
+	}
+	if strings.Join(texts, "\n\n") != text {
+		t.Fatal("the mails do not make the text again")
+	}
+	all := ansi.Strip(strings.Join(v.m.lines(80), "\n"))
+	if n := strings.Count(all, "· sent; mayor is idle"); n != 1 {
+		t.Fatalf("%d lines say where the three mails stand", n)
+	}
+	for _, mark := range []string{"  (1/3)\n", "  (2/3)\n", "  (3/3)\n"} {
+		if !strings.Contains(all, mark) {
+			t.Fatalf("the conversation does not show %q", mark)
+		}
+	}
+	v.hides("went to", "bytes")
+}
+
+// failing is a store that takes no mail from the nth on.
+type failing struct {
+	store.API
+	n int
+}
+
+func (f *failing) Mail(ctx context.Context, to, text, actor string) error {
+	if f.n--; f.n < 0 {
+		return errors.New("the store is away")
+	}
+	return f.API.Mail(ctx, to, text, actor)
+}
+
+// A part that is not sent ends the send: the view says how many went, and
+// the text from that part on is in the line again, to be sent as it is.
+func TestSendLongFails(t *testing.T) {
+	st := &failing{API: yard(t), n: 1}
+	ctx := context.Background()
+	v := open(t, st, "mayor", 80, 24)
+	text := prose(5 * store.MaxMailBytes / 2)
+	parts := split(text)
+	v.typed(text)
+	v.key(tea.KeyEnter)
+	v.shows("1 of 3 mails went to mayor, the rest is in the line: the store is away")
+	if got := v.m.input.Value(); got != text[parts[1].at:] {
+		t.Fatalf("the line holds %d bytes, parts 2 and 3 are %d", len(got), len(text)-parts[1].at)
+	}
+	letters, err := st.Conversation(ctx, me, "mayor", 0)
+	if err != nil || len(letters) != 1 || letters[0].Text != "(1/3)\n"+parts[0].text {
+		t.Fatalf("%d mails after the failure, %v", len(letters), err)
+	}
+	if all := ansi.Strip(strings.Join(v.m.lines(80), "\n")); !strings.Contains(all, "  (1/3)\n") {
+		t.Fatalf("the conversation does not show the part that went:\n%s", all)
+	}
+
+	// Sent again, the rest is a text of its own.
+	st.n = 2
+	v.key(tea.KeyEnter)
+	v.hides("went to")
+	letters, err = st.Conversation(ctx, me, "mayor", 0)
+	if err != nil || len(letters) != 3 || letters[1].Text != "(1/2)\n"+parts[1].text || letters[2].Text != "(2/2)\n"+parts[2].text {
+		t.Fatalf("%d mails after sending the rest, %v", len(letters), err)
+	}
+
+	// None went, and something was typed since: both are in the line.
+	st.n = 0
+	v.typed(text)
+	cmd := v.m.send()
+	v.typed("typed since")
+	v.do(cmd)
+	v.shows("0 of 3 mails went to mayor")
+	if got := v.m.input.Value(); got != text+"\n\ntyped since" {
+		t.Fatalf("the line holds %d bytes after a failed send and a line typed", len(got))
 	}
 }
 

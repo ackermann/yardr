@@ -201,6 +201,21 @@ func rule(w int, text string) string {
 	return look.line.Render(strings.Repeat("─", w-ansi.StringWidth(text)-4)) + " " + text + " " + look.line.Render("──")
 }
 
+// count is what the rule above the line says of the text in it: nothing
+// while it is short, its bytes towards one mail's size before that is
+// reached, where the eye is when typing, and past it the number of mails
+// it will be sent as.
+func (m *Model) count() string {
+	text := strings.TrimSpace(m.input.Value())
+	if n := len(split(text)); n > 1 {
+		return look.faint.Render(fmt.Sprintf("%d bytes, sent as %d mails", len(text), n))
+	}
+	if len(text) >= warnAt {
+		return look.warn.Render(fmt.Sprintf("%d of %d bytes", len(text), store.MaxMailBytes))
+	}
+	return ""
+}
+
 // View is the screen: the title, the residents, the conversation with the
 // newest mail in view, the line to type in, a line of notices and the
 // keys.
@@ -242,13 +257,7 @@ func (m *Model) View() string {
 		}
 	}
 
-	// The limit is counted before it is reached, where the eye is when
-	// typing.
-	count := ""
-	if n := len(m.input.Value()); n >= warnAt {
-		count = look.warn.Render(fmt.Sprintf("%d of %d bytes", n, store.MaxMailBytes))
-	}
-	out = append(out, rule(w, count), m.input.View())
+	out = append(out, rule(w, m.count()), m.input.View())
 
 	note := m.notice
 	if note == "" {
