@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,8 +26,13 @@ import (
 )
 
 // Path is where a yard takes its peers' requests: POST for a message, GET
-// with ?after=<seq> for what waits for the asker.
+// with ?after=<seq> for what waits for the asker. A GET may add
+// &refused=<seq>:<reason>,... for what the asker got and did not take.
 const Path = "/peers/messages"
+
+// maxRefusals bounds the refusals one question carries; the rest go with
+// the next.
+const maxRefusals = 32
 
 // maxRequest bounds a posted message: its body, and room for the rest.
 const maxRequest = store.MaxPeerBody + 4<<10
@@ -36,7 +42,7 @@ const maxRequest = store.MaxPeerBody + 4<<10
 type Store interface {
 	PeerByKey(ctx context.Context, key string) (*store.Peer, error)
 	PeerReceive(ctx context.Context, name string, msgs []store.PeerMessage) ([]store.PeerTaken, error)
-	PeerHandOver(ctx context.Context, name string, after uint64) (*store.PeerPage, error)
+	PeerHandOver(ctx context.Context, name string, after uint64, refused map[uint64]string) (*store.PeerPage, error)
 }
 
 // Receiver serves Path and nothing else.
@@ -170,7 +176,7 @@ func (rc *Receiver) get(w http.ResponseWriter, r *http.Request) {
 		rc.answer(w, f, "bad_request", http.StatusBadRequest, map[string]any{"error": "after wants a sequence number"})
 		return
 	}
-	page, err := rc.st.PeerHandOver(r.Context(), f.peer.Name, after)
+	page, err := rc.st.PeerHandOver(r.Context(), f.peer.Name, after, refusals(r.URL.Query().Get("refused")))
 	if errors.Is(err, store.ErrNotFound) {
 		rc.reject(w, f.peer.Name, "unknown_peer", http.StatusUnauthorized, err)
 		return
@@ -179,6 +185,25 @@ func (rc *Receiver) get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rc.answer(w, f, "", http.StatusOK, page)
+}
+
+// refusals reads what a question says its asker did not take. What is not
+// a sequence number with a reason is passed by: the message it meant is
+// then ended as sent, as before there were refusals.
+func refusals(q string) map[uint64]string {
+	var out map[uint64]string
+	for _, part := range strings.Split(q, ",") {
+		seq, reason, ok := strings.Cut(part, ":")
+		n, err := strconv.ParseUint(seq, 10, 64)
+		if !ok || err != nil || len(out) >= maxRefusals {
+			continue
+		}
+		if out == nil {
+			out = map[uint64]string{}
+		}
+		out[n] = reason
+	}
+	return out
 }
 
 // answer writes a signed answer to a peer's request, and counts it under

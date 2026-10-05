@@ -441,3 +441,72 @@ func TestCallerPull(t *testing.T) {
 		t.Fatalf("after=x: %d", resp.StatusCode)
 	}
 }
+
+// Mail the peer refuses is refused with its reason, which the Caller says
+// in this yard's words: a posted one by the 403 it is answered with, one
+// asked for by the next question.
+func TestMailRefusedWithAReason(t *testing.T) {
+	a, b := newYard(t), newYard(t)
+	ctx := context.Background()
+	mail := []string{"mail"}
+	toB := a.add(t, "b", b, true, mail, mail)
+	b.add(t, "a", a, false, mail, mail)
+	if _, err := b.api.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	post := func(id, to, text string) error {
+		body, _ := json.Marshal(map[string]string{"to": to, "from": "mayor", "text": text})
+		return a.caller().Push(ctx, toB, store.PeerMessage{ID: id, Kind: "mail", Body: body})
+	}
+	if err := post("m1", "mayor", "hi"); err != nil {
+		t.Fatalf("mail for b's mayor = %v", err)
+	}
+	for want, m := range map[string][2]string{
+		"it has no such resident":          {"clerk", "hi"},
+		"the text is larger than it takes": {"mayor", strings.Repeat("x", store.MaxPeerMailBytes+1)},
+		"it does not read the mail":        {"mayor", ""},
+	} {
+		if err := post("r-"+m[0]+strings.Repeat("x", len(m[1])%7), m[0], m[1]); !errors.Is(err, yards.ErrRefused) || !strings.HasSuffix(err.Error(), want) || strings.Contains(err.Error(), "mayor") {
+			t.Errorf("mail to %s of %d bytes = %v, want %q", m[0], len(m[1]), err, want)
+		}
+	}
+	if got := b.rc.Rejected()["refused"]; got != 3 {
+		t.Fatalf("b refused %d", got)
+	}
+
+	// b's mail for a waits to be asked for. a takes the first and refuses
+	// the second, and says so with its next question.
+	if _, err := a.api.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	for _, to := range []string{"mayor", "clerk"} {
+		if _, err := b.api.MailPeer(ctx, to, "a", "hello", "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	batch, err := a.caller().Pull(ctx, toB, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res, err := a.api.PeerPulled(ctx, "b", batch); err != nil || len(res.Taken) != 2 || res.Taken[1].Refused != store.RefusedNoResident {
+		t.Fatalf("PeerPulled = %+v, %v", res, err)
+	}
+	p, _ := a.api.GetPeer(ctx, "b")
+	if batch, err = a.caller().Pull(ctx, *p, p.Pulled); err != nil || len(batch.Told) != 1 {
+		t.Fatalf("the question that tells = %+v, %v", batch, err)
+	}
+	if _, err := a.api.PeerPulled(ctx, "b", batch); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := a.api.GetPeer(ctx, "b"); len(p.Refused) != 0 {
+		t.Fatalf("a tells it again: %+v", p)
+	}
+	failed := b.events(t, "peer_message_failed")
+	if len(b.events(t, "peer_message_sent")) != 1 || len(failed) != 1 || failed[0].Data["reason"] != "refused by the peer: it has no such resident" {
+		t.Fatalf("b's events: sent %+v, failed %+v", b.events(t, "peer_message_sent"), failed)
+	}
+	// What is no refusal in a question is passed by, and the question answered.
+	if resp, _ := signed(a, b, "GET", yards.Path+"?after=0&refused=x,7,:,9:"+strings.Repeat("y", 40), nil).send(t, b); resp.StatusCode != http.StatusOK {
+		t.Fatalf("a question with refusals that are none: %d", resp.StatusCode)
+	}
+}

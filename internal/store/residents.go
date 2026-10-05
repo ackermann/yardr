@@ -377,7 +377,7 @@ func forResident(r *Resident, e Event) bool {
 	}
 	switch e.Kind {
 	case "mail":
-		return e.Data["to"] == r.Name
+		return mailTo(e) == r.Name
 	case "hook":
 		return Reason(e, r.Name) != ""
 	}

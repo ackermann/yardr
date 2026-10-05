@@ -547,6 +547,9 @@ func (c *Client) AllowPeer(ctx context.Context, name string, ch store.PeerAllow,
 func (c *Client) PeerSend(ctx context.Context, name, kind string, body json.RawMessage, actor string) (*store.PeerOut, error) {
 	return callV[*store.PeerOut](c, ctx, "PeerSend", name, kind, body, actor)
 }
+func (c *Client) MailPeer(ctx context.Context, to, peer, text, actor string) (*store.PeerOut, error) {
+	return callV[*store.PeerOut](c, ctx, "MailPeer", to, peer, text, actor)
+}
 func (c *Client) PeerOutbox(ctx context.Context, name string, limit int) ([]store.PeerOut, error) {
 	return callV[[]store.PeerOut](c, ctx, "PeerOutbox", name, limit)
 }

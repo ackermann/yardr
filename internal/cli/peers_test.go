@@ -157,7 +157,7 @@ func TestPeerAddAndAllowAreTheOperators(t *testing.T) {
 	north.a.actor = "jo"
 	for args, want := range map[string]string{
 		"allow south":                 "say what",
-		"allow south --send mail":     "no kind of message between yards",
+		"allow south --send beads":    "no kind of message between yards",
 		"allow nobody --send ping":    "not found",
 		"add south " + invite:         "is added already",
 		"add twin " + invite:          "that key is peer south's already",

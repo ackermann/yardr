@@ -147,7 +147,7 @@ func TestPeerAllow(t *testing.T) {
 	if p := y.allow(t, store.PeerAllow{NoSend: []string{"ping"}}); len(p.Send) != 0 || !reflect.DeepEqual(p.Receive, []string{"ping"}) {
 		t.Fatalf("after --no-send ping: %+v", p)
 	}
-	for _, ch := range []store.PeerAllow{{Send: []string{"mail"}}, {Receive: []string{"beads"}}, {NoSend: []string{"x"}}} {
+	for _, ch := range []store.PeerAllow{{Send: []string{"memories"}}, {Receive: []string{"beads"}}, {NoSend: []string{"x"}}} {
 		if _, err := y.api.AllowPeer(y.ctx, "north", ch, "jo"); err == nil || !strings.Contains(err.Error(), "no kind of message between yards") {
 			t.Errorf("AllowPeer(%+v) = %v", ch, err)
 		}
@@ -404,7 +404,7 @@ func TestPeerHandOver(t *testing.T) {
 		}
 		ids = append(ids, m.ID)
 	}
-	page, err := y.own.PeerHandOver(y.ctx, "north", 0)
+	page, err := y.own.PeerHandOver(y.ctx, "north", 0, nil)
 	if err != nil || page.Push || len(page.Messages) != 3 || page.Messages[0].ID != ids[0] || page.Messages[0].Seq == 0 {
 		t.Fatalf("the first page = %+v, %v", page, err)
 	}
@@ -414,12 +414,12 @@ func TestPeerHandOver(t *testing.T) {
 	// Asked the same again (its answer was lost): the same again, and
 	// nothing written: a peer asks every few seconds.
 	quiet(t, y.own, "a question that ends nothing", func() {
-		if again, _ := y.own.PeerHandOver(y.ctx, "north", 0); len(again.Messages) != 3 {
+		if again, _ := y.own.PeerHandOver(y.ctx, "north", 0, nil); len(again.Messages) != 3 {
 			t.Fatalf("asked again = %+v", again)
 		}
 	})
 	// It has the first two.
-	page, err = y.own.PeerHandOver(y.ctx, "north", page.Messages[1].Seq)
+	page, err = y.own.PeerHandOver(y.ctx, "north", page.Messages[1].Seq, nil)
 	if err != nil || len(page.Messages) != 1 || page.Messages[0].ID != ids[2] {
 		t.Fatalf("after the first two = %+v, %v", page, err)
 	}
@@ -430,7 +430,7 @@ func TestPeerHandOver(t *testing.T) {
 	if p, _ := y.api.GetPeer(y.ctx, "north"); p.Waiting != 1 {
 		t.Fatalf("waiting = %+v", p)
 	}
-	if _, err := y.own.PeerHandOver(y.ctx, "nobody", 0); !errors.Is(err, store.ErrNotFound) {
+	if _, err := y.own.PeerHandOver(y.ctx, "nobody", 0, nil); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("PeerHandOver to no peer = %v", err)
 	}
 
@@ -440,7 +440,7 @@ func TestPeerHandOver(t *testing.T) {
 		t.Fatal(err)
 	}
 	quiet(t, called.own, "the question of a peer that is called", func() {
-		page, err = called.own.PeerHandOver(called.ctx, "north", 99)
+		page, err = called.own.PeerHandOver(called.ctx, "north", 99, nil)
 	})
 	if err != nil || !page.Push || len(page.Messages) != 0 {
 		t.Fatalf("a page for a peer that is called = %+v, %v", page, err)

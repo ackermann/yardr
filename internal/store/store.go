@@ -330,10 +330,8 @@ func (w *wtx) event(bead, kind, actor string, data map[string]any) error {
 // those are checked when the inbox is read.
 func inboxOf(e Event) []string {
 	var out []string
-	if e.Kind == "mail" {
-		if to, _ := e.Data["to"].(string); to != "" {
-			out = append(out, to)
-		}
+	if to := mailTo(e); to != "" {
+		out = append(out, to)
 	}
 	d, _ := e.Data["deliveries"].(map[string]any)
 	for name := range d {

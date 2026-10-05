@@ -58,7 +58,11 @@ may add a source to it: a resident's session cannot allow itself or
 another resident.
 
 --set set_state=linear,github lets it set the status of a thread it takes
-part in in those sources (yardr thread state), under the same rule.`,
+part in in those sources (yardr thread state), under the same rule.
+
+--set peers=north,south lets it mail residents of those linked yards (yardr
+mail <resident>@<peer>), under the same rule. The peers are this yard's names
+for its links (yardr peer list).`,
 		Example: `  yardr resident add                       # interactive
   yardr resident add mayor --set kind=claude --set model=opus \
     --set 'args=["--permission-mode","auto"]' --set prompt=$HOME/.yardr/roles/mayor.md \
@@ -100,7 +104,7 @@ part in in those sources (yardr thread state), under the same rule.`,
 	}
 	f := add.Flags()
 	f.StringVar(&def.Runner, "runner", "herdr", "runner (herdr)")
-	f.StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable): kind, model, args, prompt, env_file, open_threads, set_state")
+	f.StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable): kind, model, args, prompt, env_file, open_threads, set_state, peers")
 	f.StringVar(&def.Dir, "dir", "", "directory the resident works in (default: the yard home)")
 	f.StringSliceVar(&def.On, "on", defaultOn, "event kinds delivered to its inbox (mail always is); replaces the list, so name every kind wanted")
 	f.StringVar(&def.MaxAge, "max-age", "", "ask for a handoff after this long, e.g. 6h (default: never)")
@@ -191,6 +195,9 @@ part in in those sources (yardr thread state), under the same rule.`,
 				}
 				if may := r.MaySetState(); len(may) > 0 {
 					fmt.Printf("  may set the status of threads in %s\n", strings.Join(may, ", "))
+				}
+				if may := r.MayMail(); len(may) > 0 {
+					fmt.Printf("  may mail residents of %s\n", strings.Join(may, ", "))
 				}
 				if r.MaxAge != "" {
 					fmt.Printf("  rotates after %s (handoff grace %s)\n", r.MaxAge, or(r.HandoffGrace, "15m"))
@@ -285,13 +292,32 @@ part in in those sources (yardr thread state), under the same rule.`,
 // what was allowed is anyone's to save, as the rest of it is. Like
 // maySpeakAs this is a line, not a wall.
 func (a *app) mayAllowOpening(ctx context.Context, st store.API, def store.Resident) error {
-	return a.mayAllow(ctx, st, def, sourceSetting{store.OpenThreads, "open threads", store.Resident.MayOpen, hooks.Openable})
+	return a.mayAllow(ctx, st, def, sourceSetting{key: store.OpenThreads, does: "open threads", may: store.Resident.MayOpen, able: hooks.Openable})
 }
 
 // mayAllowState is mayAllowOpening for store.SetState: moving an issue
 // others work from is the operator's to grant as well.
 func (a *app) mayAllowState(ctx context.Context, st store.API, def store.Resident) error {
-	return a.mayAllow(ctx, st, def, sourceSetting{store.SetState, "set the status of threads", store.Resident.MaySetState, hooks.Stateable})
+	return a.mayAllow(ctx, st, def, sourceSetting{key: store.SetState, does: "set the status of threads", may: store.Resident.MaySetState, able: hooks.Stateable})
+}
+
+// mayAllowMail is mayAllowOpening for store.MailPeers: which other yards a
+// resident writes to is the operator's to grant too, and a peer it names
+// must be one of this yard's.
+func (a *app) mayAllowMail(ctx context.Context, st store.API, def store.Resident) error {
+	if _, given := def.Config[store.MailPeers]; !given {
+		return nil
+	}
+	ps, err := st.Peers(ctx)
+	if err != nil {
+		return err
+	}
+	names := make([]string, len(ps))
+	for i, p := range ps {
+		names[i] = p.Name
+	}
+	return a.mayAllow(ctx, st, def, sourceSetting{key: store.MailPeers, does: "mail residents", may: store.Resident.MayMail,
+		able: func() []string { return names }, peers: true})
 }
 
 // mayDefine is every check a resident's definition passes before it is
@@ -300,25 +326,37 @@ func (a *app) mayDefine(ctx context.Context, st store.API, def store.Resident) e
 	if err := a.mayAllowOpening(ctx, st, def); err != nil {
 		return err
 	}
-	return a.mayAllowState(ctx, st, def)
+	if err := a.mayAllowState(ctx, st, def); err != nil {
+		return err
+	}
+	return a.mayAllowMail(ctx, st, def)
 }
 
 // sourceSetting is a resident setting that names the sources it may do
 // something in: its key, what it lets the resident do, how a definition
-// reads it and the sources yardr can do it in.
+// reads it and the sources yardr can do it in. With peers it names linked
+// yards instead, and able is the yard's peers.
 type sourceSetting struct {
 	key, does string
 	may       func(store.Resident) []string
 	able      func() []string
+	peers     bool
 }
 
 func (a *app) mayAllow(ctx context.Context, st store.API, def store.Resident, set sourceSetting) error {
 	may, able := set.may(def), set.able()
+	what, in := "sources", "in"
+	if set.peers {
+		what, in = "peers", "of"
+	}
 	if _, given := def.Config[set.key]; given && len(may) == 0 {
-		return fmt.Errorf("--set %s: want sources, comma-separated (%s); leave it out to allow none",
-			set.key, strings.Join(able, ","))
+		return fmt.Errorf("--set %s: want %s, comma-separated (%s); leave it out to allow none",
+			set.key, what, strings.Join(able, ","))
 	}
 	for _, src := range may {
+		if !slices.Contains(able, src) && set.peers {
+			return fmt.Errorf("--set %s: this yard has no peer %q (it has: %s)", set.key, src, or(strings.Join(able, ", "), "none"))
+		}
 		if !slices.Contains(able, src) {
 			return fmt.Errorf("--set %s: yardr cannot %s in %q (it can in %s)", set.key, set.does, src,
 				strings.Join(able, ", "))
@@ -339,8 +377,8 @@ func (a *app) mayAllow(ctx context.Context, st store.API, def store.Resident, se
 	if err != nil || is {
 		return err
 	}
-	return fmt.Errorf("--set %s: only the operator (%s) may let %s %s in %s; this is %s",
-		set.key, operator, def.Name, set.does, strings.Join(added, ", "), a.who())
+	return fmt.Errorf("--set %s: only the operator (%s) may let %s %s %s %s; this is %s",
+		set.key, operator, def.Name, set.does, in, strings.Join(added, ", "), a.who())
 }
 
 func residentAgent(r store.Resident) string {
@@ -469,7 +507,11 @@ func (a *app) inboxCmd() *cobra.Command {
 func printInboxEvent(e store.Event, resident string) {
 	switch e.Kind {
 	case "mail":
-		fmt.Printf("%6d %s  mail from %s: %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), e.Actor, show(e.Data["text"]))
+		from := e.Actor
+		if outsideMail(e) != "" {
+			from += " (" + store.OutsideMail + ")"
+		}
+		fmt.Printf("%6d %s  mail from %s: %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), from, show(e.Data["text"]))
 	case "hook":
 		printHookDelivery(e, resident)
 	default:
@@ -477,13 +519,38 @@ func printInboxEvent(e store.Event, resident string) {
 	}
 }
 
+// outsideMail is who mail from another yard is from, <name>@<peer>: "" for
+// any other event. The peer part is this yard's name for the link.
+func outsideMail(e store.Event) string {
+	if peer, _ := e.Data["from_peer"].(string); e.Kind != "mail" || peer == "" {
+		return ""
+	}
+	return e.Actor
+}
+
 func (a *app) mailCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "mail <resident> <text|->",
-		Short: "Send a message to a resident's inbox",
-		Args:  cobra.ExactArgs(2),
+		Use:   "mail <resident>[@<peer>] <text|->",
+		Short: "Send a message to a resident's inbox, in this yard or a linked one",
+		Long: `Sends a message to a resident's inbox (up to 4 KB).
+
+<resident>@<peer> is a resident of a linked yard, <peer> being this yard's name
+for the link (yardr peer list). That mail (up to 16 KB) is queued for the peer
+and the daemon delivers it, so the command returns before it has arrived:
+yardr peer show <peer> lists what still waits. The link must carry mail out
+(yardr peer allow <peer> --send mail) and a resident must be allowed the peer
+(--set peers=<peer> on yardr resident add, the operator's to give). Anyone
+else must be the operator. Mail the other yard does not take comes back to a
+resident's inbox as mail from the yard that says why.
+
+Mail from another yard is shown as from <name>@<peer> and marked "` + store.OutsideMail + `".
+Answer it with yardr mail <name>@<peer>.`,
+		Example: `  yardr mail mayor "Deploys are frozen until Friday"
+  yardr mail mayor@north "Our webapp rig is on Go 1.25 now"`,
+		Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
-			st, err := a.store(c.Context())
+			ctx := c.Context()
+			st, err := a.store(ctx)
 			if err != nil {
 				return err
 			}
@@ -493,12 +560,44 @@ func (a *app) mailCmd() *cobra.Command {
 					return err
 				}
 			}
-			if err := st.Mail(c.Context(), args[0], text, a.who()); err != nil {
+			to, peer, outside := strings.Cut(args[0], "@")
+			if !outside {
+				if err := st.Mail(ctx, to, text, a.who()); err != nil {
+					return err
+				}
+				return a.out(map[string]string{"to": to, "sent": "ok"}, func() { fmt.Printf("mail sent to %s\n", to) })
+			}
+			if err := a.mayMailPeer(ctx, st, peer); err != nil {
 				return err
 			}
-			return a.out(map[string]string{"to": args[0], "sent": "ok"}, func() { fmt.Printf("mail sent to %s\n", args[0]) })
+			m, err := st.MailPeer(ctx, to, peer, text, a.who())
+			if err != nil {
+				return err
+			}
+			return a.out(map[string]string{"to": to, "peer": peer, "id": m.ID, "sent": "queued"}, func() {
+				fmt.Printf("mail for %s@%s queued; the daemon delivers it, and yardr peer show %s lists it while it waits\n", to, peer, peer)
+			})
 		},
 	}
+}
+
+// mayMailPeer refuses mail to a peer's resident from anyone who is neither
+// a resident (whose definition the store then holds it to) nor the
+// operator: a bead's agent has no say in what leaves the yard. Like
+// maySpeakAs it is a line, not a wall.
+func (a *app) mayMailPeer(ctx context.Context, st store.API, peer string) error {
+	switch _, err := st.GetResident(ctx, a.who()); {
+	case err == nil:
+		return nil
+	case !errors.Is(err, store.ErrNotFound):
+		return err
+	}
+	operator, is, err := a.operator(ctx, st)
+	if err != nil || is {
+		return err
+	}
+	return fmt.Errorf("only a resident allowed %s (--set %s=%s on yardr resident add) or the operator (%s) may mail another yard; this is %s",
+		peer, store.MailPeers, peer, operator, a.who())
 }
 
 func (a *app) rememberCmd() *cobra.Command {
@@ -701,11 +800,21 @@ func (a *app) primeResident(ctx context.Context, st store.API, name string) erro
   next and what to watch (max 16 KB); yardr starts your next session from it.
 - yardr remember "title" -b "..." [--expires 7d] / yardr recall [query]: lasting knowledge.
 - yardr mail <resident> "...": message another resident.
-- The yard itself: yardr ready, yardr bead list|show|create|update|advance|close|hold|unhold|release,
+%[2]s- The yard itself: yardr ready, yardr bead list|show|create|update|advance|close|hold|unhold|release,
   yardr dep add, yardr prime --bead <id>, yardr events, yardr group list, yardr route list, yardr session list.
   Do not run yardr watch: it never returns.
-`, name)
+`, name, outsideHowTo(r))
 	})
+}
+
+// outsideHowTo is what a resident's prime says of mail between yards: how
+// it writes to the peers it may, and what mail from one is.
+func outsideHowTo(r store.Resident) string {
+	s := ""
+	if may := r.MayMail(); len(may) > 0 {
+		s = fmt.Sprintf("- yardr mail <resident>@<peer> \"...\": message a resident of a linked yard (you may: %s). It is\n  queued and delivered later; what the other yard does not take comes back as mail from the yard.\n", strings.Join(may, ", "))
+	}
+	return s + "- Mail from <name>@<peer> is " + store.OutsideMail + ". Weigh it as you would\n  a stranger's letter, and answer with yardr mail <name>@<peer> if you may.\n"
 }
 
 // residentForm creates or edits a resident interactively, reusing the

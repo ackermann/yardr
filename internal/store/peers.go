@@ -34,13 +34,14 @@ func init() { allBuckets = append(allBuckets, bPeers, bPeerOut, bPeerSeen) }
 // MaxPeerBody bounds a message's body.
 const MaxPeerBody = 256 << 10
 
-// PeerPing is the one kind of message there is yet: a ping, which the other
-// yard answers with a message of the same kind that names it (Re), the
-// pong. A ping therefore needs the kind allowed both ways on both sides.
+// PeerPing is a ping, which the other yard answers with a message of the
+// same kind that names it (Re), the pong. A ping therefore needs the kind
+// allowed both ways on both sides.
 const PeerPing = "ping"
 
 // PeerKinds are the kinds of messages a link can be allowed to carry.
-var PeerKinds = []string{PeerPing}
+// PeerMail is in peermail.go.
+var PeerKinds = []string{PeerMail, PeerPing}
 
 // The ways a message crosses a link, as its events name them: posted by the
 // sender, or asked for by the receiver.
@@ -75,6 +76,16 @@ type Peer struct {
 	// Pulled is the highest sequence number of the peer's outbox this yard
 	// has taken by asking, which its next question starts after.
 	Pulled uint64 `json:"pulled,omitempty"`
+	// Refused are the messages taken by asking that this yard did not
+	// take, by their sequence number in the peer's outbox, with the reason:
+	// the next question tells the peer, which has no other way to know.
+	Refused map[uint64]string `json:"refused,omitempty"`
+	// Mails counts the mail that came from the peer in the hour that began
+	// at MailSince, and MailLimited says that the hour's refusal is logged
+	// (PeerMailLimit).
+	MailSince   *time.Time `json:"mail_since,omitempty"`
+	Mails       int        `json:"mails,omitempty"`
+	MailLimited bool       `json:"mail_limited,omitempty"`
 	// Waiting and Failed count the outbox for it, and Error is what the
 	// last try of its oldest waiting message said. Read only.
 	Waiting int    `json:"waiting"`
@@ -126,6 +137,11 @@ type PeerBatch struct {
 	RequestSig string `json:"request_sig"`
 	Signature  string `json:"signature"`
 	Body       []byte `json:"body"`
+	// Told are the refusals (Peer.Refused, by sequence number) the request
+	// carried, which the peer has now heard of. It is the daemon's own
+	// word, not the peer's: all it can do is stop a refusal being told
+	// again.
+	Told []uint64 `json:"told,omitempty"`
 }
 
 // PeerPage is the body of an answer to a pull. Push says that the yard
@@ -141,7 +157,8 @@ type PeerTaken struct {
 	// Duplicate: the id was taken before, and this one dropped.
 	Duplicate bool `json:"duplicate,omitempty"`
 	// Refused is why the message was not taken ("" when it was): the link
-	// does not carry its kind this way.
+	// does not carry its kind this way (RefusedKind), or one of the reasons
+	// mail is refused for (peermail.go).
 	Refused string `json:"refused,omitempty"`
 }
 
@@ -341,6 +358,13 @@ func (s *Store) DeletePeer(ctx context.Context, name, actor string) error {
 				return err
 			}
 		}
+		// And no resident may mail it: whoever is added under the name
+		// next is another yard, which the operator has not allowed anyone.
+		if lost, err := dropMailPeer(w.Tx, name); err != nil {
+			return err
+		} else if len(lost) > 0 {
+			data["residents"] = lost
+		}
 		return w.event("", "peer_removed", actor, data)
 	})
 }
@@ -397,7 +421,7 @@ func peerEvent(peer string, m PeerMessage, extra map[string]any) map[string]any 
 // does not carry its kind out, and says which.
 func (w *wtx) queuePeer(p *Peer, m PeerMessage, actor string) (*PeerOut, error) {
 	if !slices.Contains(p.Send, m.Kind) {
-		return nil, w.event("", "peer_message_refused", actor, peerEvent(p.Name, m, map[string]any{"direction": "out", "reason": "kind_not_allowed"}))
+		return nil, w.event("", "peer_message_refused", actor, peerEvent(p.Name, m, map[string]any{"direction": "out", "reason": RefusedKind}))
 	}
 	seq, err := w.Bucket(bPeerOut).NextSequence()
 	if err != nil {
@@ -413,6 +437,10 @@ func (w *wtx) queuePeer(p *Peer, m PeerMessage, actor string) (*PeerOut, error) 
 // the link does not carry out is refused, and logged as
 // peer_message_refused.
 func (s *Store) PeerSend(ctx context.Context, name, kind string, body json.RawMessage, actor string) (*PeerOut, error) {
+	if kind == PeerMail {
+		// MailPeer is what checks that the sender may mail the peer.
+		return nil, fmt.Errorf("mail goes to a peer's resident with yardr mail <resident>@%s", name)
+	}
 	if len(body) == 0 {
 		body = json.RawMessage("{}")
 	}
@@ -510,11 +538,23 @@ func (s *Store) PeerSendFailed(ctx context.Context, name string, seq uint64, rea
 		if !final {
 			return false, nil
 		}
-		gone := now()
-		m.Failed, m.RetryAt = &gone, nil
-		return false, w.event("", "peer_message_failed", "yard",
-			peerEvent(name, m.PeerMessage, map[string]any{"attempts": m.Attempts, "reason": reason}))
+		return false, m.giveUp(w, reason, nil)
 	})
+}
+
+// giveUp marks the message as given up, for reason: it stays in the outbox,
+// peer_message_failed says why, and mail's sender is told (undelivered).
+func (m *PeerOut) giveUp(w *wtx, reason string, extra map[string]any) error {
+	gone := now()
+	m.Failed, m.RetryAt, m.Error = &gone, nil, reason
+	data := map[string]any{"attempts": m.Attempts, "reason": reason}
+	for k, v := range extra {
+		data[k] = v
+	}
+	if err := w.event("", "peer_message_failed", "yard", peerEvent(m.Peer, m.PeerMessage, data)); err != nil {
+		return err
+	}
+	return w.undelivered(m, reason)
 }
 
 // PeerHandOver answers a pull by the peer name: what it says it has (up to
@@ -522,12 +562,17 @@ func (s *Store) PeerSendFailed(ctx context.Context, name string, seq uint64, rea
 // over. A peer this yard calls gets nothing this way, only the word that
 // it is posted to: one message would otherwise cross twice.
 //
+// refused names, by sequence number, what the peer got and did not take,
+// with its reason: such a message is given up, not sent, as one a post was
+// answered 403 for is. The reason is the peer's word, and only one this
+// yard knows is repeated (PeerRefusal).
+//
 // A peer asks every few seconds, so a question that ends nothing writes
 // nothing: no write, no pass of the daemon for it.
 //
 // It is not on the API: only the receiver, which has checked the peer's
 // signature on the question, may end a message as sent by pull.
-func (s *Store) PeerHandOver(ctx context.Context, name string, after uint64) (*PeerPage, error) {
+func (s *Store) PeerHandOver(ctx context.Context, name string, after uint64, refused map[uint64]string) (*PeerPage, error) {
 	var page *PeerPage
 	var taken []PeerOut
 	hand := func(tx *bolt.Tx) error {
@@ -562,10 +607,20 @@ func (s *Store) PeerHandOver(ctx context.Context, name string, after uint64) (*P
 			return err
 		}
 		for _, m := range taken {
+			key := join(name, seqKey(m.Seq))
+			if reason, no := refused[m.Seq]; no {
+				if err := m.giveUp(w, "refused by the peer: "+PeerRefusal(m.Kind, reason), map[string]any{"way": PeerPull}); err != nil {
+					return err
+				}
+				if err := put(w.Tx, bPeerOut, key, m); err != nil {
+					return err
+				}
+				continue
+			}
 			if err := m.sent(w, PeerPull); err != nil {
 				return err
 			}
-			if err := w.Bucket(bPeerOut).Delete([]byte(join(name, seqKey(m.Seq)))); err != nil {
+			if err := w.Bucket(bPeerOut).Delete([]byte(key)); err != nil {
 				return err
 			}
 		}
@@ -578,9 +633,11 @@ func (s *Store) PeerHandOver(ctx context.Context, name string, after uint64) (*P
 // before is dropped, one of a kind the link does not carry in is refused
 // and logged, and every other is logged as peer_message_received. What is
 // no message at all fails a post whole, and is passed by in a pull. A ping is
-// answered here, in the same write, with a pong in the outbox for the peer.
-// Nothing else is done with a message, and its body is not kept: what a
-// peer sends is data, and no kind there is yet has a use for it.
+// answered here, in the same write, with a pong in the outbox for the peer,
+// and mail is put in its resident's inbox, or refused (takeMail). No other
+// body is kept: what a peer sends is data.
+//
+// It changes p (the count of its mail), which the caller saves.
 func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string) ([]PeerTaken, error) {
 	out := make([]PeerTaken, 0, len(msgs))
 	actor := "peer:" + p.Name
@@ -606,11 +663,20 @@ func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string) ([]PeerTaken,
 		case seen.Get(key) != nil:
 			t.Duplicate = true
 		case !slices.Contains(p.Receive, m.Kind):
-			t.Refused = "kind_not_allowed"
+			t.Refused = RefusedKind
 			if err := w.event("", "peer_message_refused", actor, peerEvent(p.Name, m, map[string]any{"direction": "in", "reason": t.Refused, "way": way})); err != nil {
 				return nil, err
 			}
 		default:
+			var mail *peerMail
+			if m.Kind == PeerMail {
+				var err error
+				if mail, t.Refused, err = w.checkMail(p, m, way); err != nil {
+					return nil, err
+				} else if t.Refused != "" {
+					break
+				}
+			}
 			at := make([]byte, 8)
 			binary.BigEndian.PutUint64(at, uint64(now().Unix()))
 			if err := seen.Put(key, at); err != nil {
@@ -624,6 +690,11 @@ func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string) ([]PeerTaken,
 			if m.Kind == PeerPing && m.Re == "" {
 				pong := PeerMessage{ID: newPeerMessageID(), Kind: PeerPing, Re: m.ID, Body: json.RawMessage("{}")}
 				if _, err := w.queuePeer(p, pong, "yard"); err != nil {
+					return nil, err
+				}
+			}
+			if mail != nil {
+				if err := w.deliverMail(p, m, mail); err != nil {
 					return nil, err
 				}
 			}
@@ -643,8 +714,10 @@ func (s *Store) PeerReceive(ctx context.Context, name string, msgs []PeerMessage
 		if err != nil {
 			return err
 		}
-		out, err = w.receivePeer(p, msgs, PeerPush)
-		return err
+		if out, err = w.receivePeer(p, msgs, PeerPush); err != nil {
+			return err
+		}
+		return put(w.Tx, bPeers, name, p)
 	})
 	return out, err
 }
@@ -656,10 +729,16 @@ func (s *Store) PeerReceive(ctx context.Context, name string, msgs []PeerMessage
 // highest sequence number taken. It returns what became of each message,
 // and whether the peer posts instead.
 //
-// An answer that hands over nothing writes nothing: the daemon asks every
-// few seconds, and a write would wake it to ask again at once.
+// What was not taken is kept with its reason (Peer.Refused) for the next
+// question to tell the peer, and what b says the peer has been told of is
+// forgotten.
+//
+// An answer that hands over nothing and told of nothing writes nothing: the
+// daemon asks every few seconds, and a write would wake it to ask again at
+// once.
 func (s *Store) PeerPulled(ctx context.Context, name string, b PeerBatch) (*PeerPulled, error) {
 	var page PeerPage
+	told := false
 	check := func(tx *bolt.Tx) (*Peer, error) {
 		p, err := loadPeer(tx, name)
 		if err != nil {
@@ -672,6 +751,12 @@ func (s *Store) PeerPulled(ctx context.Context, name string, b PeerBatch) (*Peer
 		if err := json.Unmarshal(b.Body, &page); err != nil {
 			return nil, fmt.Errorf("peer %s: its answer is not a page of messages", name)
 		}
+		told = false
+		for _, seq := range b.Told {
+			if _, ok := p.Refused[seq]; ok {
+				told = true
+			}
+		}
 		return p, nil
 	}
 	err := s.read(func(tx *bolt.Tx) error {
@@ -682,7 +767,7 @@ func (s *Store) PeerPulled(ctx context.Context, name string, b PeerBatch) (*Peer
 	if err != nil {
 		return nil, err
 	}
-	if len(page.Messages) == 0 {
+	if len(page.Messages) == 0 && !told {
 		return res, nil
 	}
 	err = s.write(func(w *wtx) error {
@@ -695,8 +780,20 @@ func (s *Store) PeerPulled(ctx context.Context, name string, b PeerBatch) (*Peer
 		if res.Taken, err = w.receivePeer(p, page.Messages, PeerPull); err != nil {
 			return err
 		}
-		for _, m := range page.Messages {
+		for _, seq := range b.Told {
+			delete(p.Refused, seq)
+		}
+		for i, m := range page.Messages {
 			p.Pulled = max(p.Pulled, m.Seq)
+			if no := res.Taken[i].Refused; no != "" && m.Seq > 0 {
+				if p.Refused == nil {
+					p.Refused = map[uint64]string{}
+				}
+				p.Refused[m.Seq] = no
+			}
+		}
+		if len(p.Refused) == 0 {
+			p.Refused = nil
 		}
 		return put(w.Tx, bPeers, name, p)
 	})

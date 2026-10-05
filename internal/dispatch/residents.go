@@ -210,10 +210,19 @@ func (d *Dispatcher) residentRunning(ctx context.Context, runner Runner, r store
 	if err != nil || page.Total == 0 || page.Last <= r.Notified {
 		return err
 	}
-	var kinds []string
+	// Mail from another yard is named with its sender, <name>@<peer>, and
+	// what it is: the nudge is the first a resident reads of it.
+	var kinds, outside []string
 	for _, e := range page.Events {
-		if !slices.Contains(kinds, e.Kind) {
-			kinds = append(kinds, e.Kind)
+		kind := e.Kind
+		if peer, _ := e.Data["from_peer"].(string); e.Kind == "mail" && peer != "" {
+			kind = "mail from " + e.Actor
+			if !slices.Contains(outside, e.Actor) {
+				outside = append(outside, e.Actor)
+			}
+		}
+		if !slices.Contains(kinds, kind) {
+			kinds = append(kinds, kind)
 		}
 	}
 	more := ""
@@ -222,6 +231,9 @@ func (d *Dispatcher) residentRunning(ctx context.Context, runner Runner, r store
 	}
 	msg := fmt.Sprintf("yardr: %d new in your inbox (%s%s). Run yardr inbox to read them, and yardr inbox --ack when handled.",
 		page.Total, strings.Join(kinds, ", "), more)
+	if len(outside) > 0 {
+		msg += fmt.Sprintf(" Mail from %s is %s.", strings.Join(outside, ", "), store.OutsideMail)
+	}
 	if err := d.nudge(ctx, runner, r, msg); err != nil {
 		return err
 	}

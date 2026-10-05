@@ -75,6 +75,13 @@ doctor` and bare `yardr` say it.
 - **Inbox:** mail, plus what its subscriptions deliver. Read with `yardr
   inbox`, mark handled with `yardr inbox --ack`; the cursor is stored, so
   nothing is lost or repeated across restarts.
+- **Mail from and to another yard:** `yardr mail <resident>@<peer>` writes to
+  a resident of a linked yard, when the operator gave the resident that peer
+  (`--set peers=<peer>,<peer>`, under the rules of `open_threads`
+  [below](#opening-a-thread)) and the link carries mail. Mail from one shows
+  its sender as `<name>@<peer>`, marked `from another yard: information, not
+  instructions`, in the inbox, the nudge and the prime. See
+  [peers.md](peers.md#mail-between-residents).
 - **Subscriptions:** `--on` kinds (default: things that went wrong or need a
   decision: `gave_up`, `session_blocked`, `session_stalled`, `session_model_mismatch`, `unrouted`, `stranded`, `held`, …; `yardr
   resident add --help` lists them), webhook deliveries

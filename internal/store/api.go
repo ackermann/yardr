@@ -138,6 +138,7 @@ type API interface {
 	DeletePeer(ctx context.Context, name, actor string) error
 	AllowPeer(ctx context.Context, name string, ch PeerAllow, actor string) (*Peer, error)
 	PeerSend(ctx context.Context, name, kind string, body json.RawMessage, actor string) (*PeerOut, error)
+	MailPeer(ctx context.Context, to, peer, text, actor string) (*PeerOut, error)
 	PeerOutbox(ctx context.Context, name string, limit int) ([]PeerOut, error)
 	PeerDelivered(ctx context.Context, name string, seq uint64) error
 	PeerSendFailed(ctx context.Context, name string, seq uint64, reason string, retryAt time.Time, final bool) error

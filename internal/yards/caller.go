@@ -8,7 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
+	"net/url"
+	"slices"
 	"strconv"
 	"time"
 
@@ -21,7 +24,8 @@ import (
 const maxAnswer = 2 << 20
 
 // ErrRefused is the peer's signed word that it does not take the message:
-// its link does not carry the kind in. Trying again changes nothing.
+// its link does not carry the kind in, or it is mail the yard refuses
+// (store.PeerRefusal). Trying again changes nothing.
 var ErrRefused = errors.New("refused by the peer")
 
 // Caller makes this yard's requests to its peers, signed with its key.
@@ -89,14 +93,19 @@ func (c *Caller) Push(ctx context.Context, p store.Peer, m store.PeerMessage) er
 	if err != nil {
 		return err
 	}
-	status, _, _, _, err := c.do(ctx, p, http.MethodPost, Path, body)
+	status, answer, _, _, err := c.do(ctx, p, http.MethodPost, Path, body)
 	switch {
 	case err != nil:
 		return err
 	case status == http.StatusOK:
 		return nil
 	case status == http.StatusForbidden:
-		return fmt.Errorf("peer %s: %w: its link does not carry %s in", p.Name, ErrRefused, m.Kind)
+		// The reason is the peer's text: only one this yard knows is said.
+		var no struct {
+			Refused string `json:"refused"`
+		}
+		_ = json.Unmarshal(answer, &no)
+		return fmt.Errorf("peer %s: %w: %s", p.Name, ErrRefused, store.PeerRefusal(m.Kind, no.Refused))
 	case status == http.StatusBadRequest:
 		return fmt.Errorf("peer %s: %w: it does not read the message", p.Name, ErrRefused)
 	}
@@ -104,16 +113,22 @@ func (c *Caller) Push(ctx context.Context, p store.Peer, m store.PeerMessage) er
 }
 
 // Pull asks p for what waits there for this yard after sequence number
-// after, which also tells p that everything up to it has arrived. The
-// answer is returned as p signed it, for the store to check and take
-// (store.PeerPulled).
+// after, which also tells p that everything up to it has arrived, and
+// which of it this yard did not take (p.Refused). The answer is returned
+// as p signed it, for the store to check and take (store.PeerPulled).
 func (c *Caller) Pull(ctx context.Context, p store.Peer, after uint64) (store.PeerBatch, error) {
-	status, answer, reqSig, sig, err := c.do(ctx, p, http.MethodGet, Path+"?after="+strconv.FormatUint(after, 10), nil)
+	path := Path + "?after=" + strconv.FormatUint(after, 10)
+	told := slices.Sorted(maps.Keys(p.Refused))
+	told = told[:min(len(told), maxRefusals)]
+	for i, seq := range told {
+		path += map[bool]string{true: "&refused=", false: ","}[i == 0] + strconv.FormatUint(seq, 10) + ":" + url.QueryEscape(p.Refused[seq])
+	}
+	status, answer, reqSig, sig, err := c.do(ctx, p, http.MethodGet, path, nil)
 	if err != nil {
 		return store.PeerBatch{}, err
 	}
 	if status != http.StatusOK {
 		return store.PeerBatch{}, fmt.Errorf("peer %s answered %d", p.Name, status)
 	}
-	return store.PeerBatch{RequestSig: reqSig, Signature: sig, Body: answer}, nil
+	return store.PeerBatch{RequestSig: reqSig, Signature: sig, Body: answer, Told: told}, nil
 }

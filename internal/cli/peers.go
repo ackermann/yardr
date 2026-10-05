@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -194,16 +195,25 @@ remove the peer first to replace it.`,
 			listening, text := receiver(ctx, cfg, st)
 			in := peerIncoming(*p, listening, text)
 			type row struct {
-				ID       string     `json:"id"`
-				Kind     string     `json:"kind"`
-				Seq      uint64     `json:"seq"`
+				ID   string `json:"id"`
+				Kind string `json:"kind"`
+				Seq  uint64 `json:"seq"`
+				// To and From are a mail's, the one a resident of the peer.
+				To       string     `json:"to,omitempty"`
+				From     string     `json:"from,omitempty"`
 				Attempts int        `json:"attempts,omitempty"`
 				Error    string     `json:"error,omitempty"`
 				RetryAt  *time.Time `json:"retry_at,omitempty"`
 			}
 			rows := []row{}
 			for _, m := range waiting {
-				rows = append(rows, row{m.ID, m.Kind, m.Seq, m.Attempts, m.Error, m.RetryAt})
+				r := row{ID: m.ID, Kind: m.Kind, Seq: m.Seq, Attempts: m.Attempts, Error: m.Error, RetryAt: m.RetryAt}
+				if m.Kind == store.PeerMail {
+					var mail struct{ To, From string }
+					_ = json.Unmarshal(m.Body, &mail)
+					r.To, r.From = mail.To, mail.From
+				}
+				rows = append(rows, r)
 			}
 			return a.out(map[string]any{"peer": p, "listening": listening, "incoming": in, "waiting": rows}, func() {
 				fmt.Printf("%s  (it calls itself %s)\n", p.Name, or(p.Calls, "-"))
@@ -221,6 +231,9 @@ remove the peer first to replace it.`,
 				}
 				for _, m := range rows {
 					line := fmt.Sprintf("  waiting: %s %s", m.Kind, m.ID)
+					if m.To != "" {
+						line += fmt.Sprintf(" from %s to %s@%s", m.From, m.To, p.Name)
+					}
 					if m.Attempts > 0 {
 						line += fmt.Sprintf("; tried %d times, next at %s: %s", m.Attempts, m.RetryAt.Local().Format("15:04:05"), m.Error)
 					}
@@ -259,8 +272,13 @@ A message of a kind not allowed is refused before it leaves, and one that
 comes in is answered 403 and logged (peer_message_refused). The kinds:
   ping   yardr peer ping: a ping, and the pong that answers it. A ping needs
          the kind allowed both ways on both sides, since the answer is a
-         message too.`,
+         message too.
+  mail   yardr mail <resident>@<peer>: mail between residents of the two
+         yards. --send lets this yard's residents write (each needs the peer
+         in its peers setting too), --receive puts the peer's mail in the
+         inbox of the resident it names.`,
 		Example: `  yardr peer allow north --send ping --receive ping
+  yardr peer allow north --send mail --receive mail
   yardr peer allow north --no-receive ping`,
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()
