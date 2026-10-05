@@ -89,7 +89,7 @@ func TestDoctorEmptyHome(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
-	wantText(t, out, "no yard in "+home+" yet", "yardr init --harness <kind>", "Nothing was created.",
+	wantText(t, out, "no yard in "+home+" yet", here("yardr init --harness <kind>"), "Nothing was created.",
 		"ok     git ", "ok     herdr ", "a harness a yard can be created on: answers its version flag (tool 1.2.3)",
 		// A harness nothing runs on yet that does not work is said, and is no fault.
 		"note   grok ", "its version flag fails: exit status 3: broken install",
@@ -140,11 +140,11 @@ func TestDoctorFreshYard(t *testing.T) {
 	}
 	wantText(t, out, "yardr doctor: the yard in ", "Needed on this machine", "The yard", "Setup", "Optional",
 		"the harness of the yard's default, resident mayor: answers its version flag (tool 1.2.3)",
-		"FAULT  daemon ", "yardr init --start", "FAULT  mayor ", "mayor is not running: the daemon starts it",
+		"FAULT  daemon ", here("yardr init --start"), "FAULT  mayor ", "mayor is not running: the daemon starts it",
 		"ok     residents ", "ok     held ", "todo   a rig: no repository is a rig of this yard yet",
 		"todo   routes for new, review and approved: no route for new, review and approved",
 		"not configured  web view: ", "not configured  hooks: ", "not configured  packs: ", "not configured  login service: ",
-		"2 faults", "Next step: a rig.\n  ", "yardr rig add <rig> <path> --base <branch>")
+		"2 faults", "Next step: a rig.\n  ", here("yardr rig add <rig> <path> --base <branch>"))
 	if strings.Contains(out, "done ") {
 		t.Errorf("a step is done on a fresh yard:\n%s", out)
 	}
@@ -155,7 +155,7 @@ func TestDoctorFreshYard(t *testing.T) {
 	}
 	// For a home that is not the default, the next step's command names it
 	// like every other.
-	if !config.IsDefaultHome(rep.Home) && !strings.Contains(out, "\n  YARDR_HOME="+rep.Home+" yardr rig add <rig>") {
+	if !config.IsDefaultHome(rep.Home) && !strings.Contains(out, "\n  yardr --home "+rep.Home+" rig add <rig>") {
 		t.Errorf("the next step's command goes to another yard:\n%s", out)
 	}
 	if rep.Next.Next != "yardr rig add <rig> <path> --base <branch>" {
@@ -472,7 +472,7 @@ func TestDoctorFailingResident(t *testing.T) {
 	}
 	wantText(t, out, "FAULT  resident   scribe is not running: 1 failed starts so far, the last with: no workspace",
 		"FAULT  mayor      mayor is not running: 1 failed starts so far, the last with: no workspace",
-		"yardr resident start scribe")
+		here("yardr resident start scribe"))
 	if strings.Contains(out, "none failing") {
 		t.Errorf("output:\n%s", out)
 	}

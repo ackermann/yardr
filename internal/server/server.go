@@ -65,7 +65,7 @@ type runner struct {
 
 func (r *runner) run(ctx context.Context) error {
 	if len(r.c.Socket()) > config.MaxSocket {
-		return fmt.Errorf("socket path %s is too long for a unix socket; use a shorter YARDR_HOME", r.c.Socket())
+		return fmt.Errorf("socket path %s is too long for a unix socket; give --home (or YARDR_HOME) a shorter directory", r.c.Socket())
 	}
 	if r.grace == 0 {
 		r.grace = drainGrace
@@ -131,6 +131,7 @@ func (r *runner) serve(ctx context.Context) (string, error) {
 		if to == "" {
 			os.Remove(c.Socket())
 			os.Remove(c.PIDFile())
+			os.Remove(c.HookState())
 		}
 	}()
 	if from := config.Getenv("REPLACED_FROM"); from != "" {
@@ -187,7 +188,7 @@ func (r *runner) serve(ctx context.Context) (string, error) {
 	// Streams (events, wake) never finish on their own; end them when
 	// shutdown starts so it only waits for calls in flight.
 	srv.RegisterOnShutdown(stopStreams)
-	hookSrv := serveHooks(c, st, log)
+	hookSrv := serveHooks(ctx, c, st, log)
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(ln) }()
 	log.Info("yardr server ready", "store", c.DBPath(), "socket", c.Socket(), "revision", version.Show(r.rev))
@@ -289,17 +290,42 @@ func (r *runner) handler(st *store.Store, offer func(string) bool, streams conte
 	})
 }
 
-// serveHooks starts the webhook receiver on its own TCP listener when
-// configured. It is a separate server with only the receiver's handler, so
-// a port opened to the internet never reaches the store API or BDP. A
-// receiver that cannot listen is logged, not fatal: the yard itself works.
-func serveHooks(c *config.Config, st *store.Store, log *slog.Logger) *http.Server {
-	if c.HookAddr == "" {
+// serveHooks starts the webhook receiver on its own TCP listener when it
+// has an address: YARDR_HOOK_ADDR where the server started, else the yard's
+// hook_addr setting, read once here, so a change takes the next start. It
+// is a separate server with only the receiver's handler, so a port opened
+// to the internet never reaches the store API or BDP. A receiver that
+// cannot listen is not fatal, the yard itself works: two yards given one
+// address is the usual cause, so it is logged as an event and left in the
+// receiver's state for doctor to say.
+func serveHooks(ctx context.Context, c *config.Config, st *store.Store, log *slog.Logger) *http.Server {
+	l := hooks.Listener{Addr: c.HookAddr, From: hooks.FromVariable}
+	if l.Addr == "" {
+		all, err := st.Settings(ctx)
+		if err != nil {
+			log.Warn("hook_addr setting not read", "err", err)
+		}
+		l.Addr, l.From = all[hooks.FromSetting], hooks.FromSetting
+	}
+	if l.Addr == "" {
+		l.From = ""
+	}
+	defer func() {
+		if err := hooks.WriteListener(c, l); err != nil {
+			log.Warn("hook receiver state not written", "err", err)
+		}
+	}()
+	if l.Addr == "" {
 		return nil
 	}
-	ln, err := net.Listen("tcp", c.HookAddr)
+	ln, err := net.Listen("tcp", l.Addr)
 	if err != nil {
-		log.Error("hook receiver not started", "addr", c.HookAddr, "err", err)
+		l.Error = err.Error()
+		log.Error("hook receiver not started", "addr", l.Addr, "from", l.From, "err", err)
+		if err := st.LogEvent(ctx, "", "hook_listener_failed", "yard",
+			map[string]any{"addr": l.Addr, "from": l.From, "error": l.Error}); err != nil {
+			log.Warn("hook_listener_failed event", "err", err)
+		}
 		return nil
 	}
 	srv := &http.Server{Handler: hooks.NewReceiver(st, log).Handler(),
@@ -309,7 +335,7 @@ func serveHooks(c *config.Config, st *store.Store, log *slog.Logger) *http.Serve
 			log.Error("hook receiver stopped", "err", err)
 		}
 	}()
-	log.Info("hook receiver ready", "addr", ln.Addr().String())
+	log.Info("hook receiver ready", "addr", ln.Addr().String(), "from", l.From)
 	return srv
 }
 

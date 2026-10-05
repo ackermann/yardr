@@ -26,8 +26,10 @@ func (a *app) hookCmd() *cobra.Command {
 		Use:   "add <name>",
 		Short: "Create or replace a webhook endpoint POST /hooks/<name>",
 		Long: `A hook receives webhooks from one source on the yardr server's hook listener,
-which runs only when YARDR_HOOK_ADDR (e.g. 127.0.0.1:8790) is set in the
-environment the server starts in. The listener serves POST /hooks/<name> and
+which runs when the yard has an address for it: yardr settings set hook_addr
+127.0.0.1:8790, or YARDR_HOOK_ADDR in the environment the server starts in,
+which is used instead of the setting. The server reads the address when it
+starts. The listener serves POST /hooks/<name> and
 nothing else. Each verified delivery becomes one 'hook' event; its raw body is
 kept for 'yardr hook show <seq>'. A redelivery (the same Linear or GitHub body,
 or a repeated Linear-Delivery, X-GitHub-Delivery or Yard-Delivery id) is
@@ -100,8 +102,11 @@ identity), which keeps the source's delivery of the change out of its inbox.`,
 							saved.As, saved.Source, store.SetState, strings.Join(append(r.MaySetState(), saved.Source), ","), saved.As)
 					}
 				}
-				if a.cfg != nil && a.cfg.HookAddr == "" {
-					fmt.Println("note: YARDR_HOOK_ADDR is not set here; the server receives hooks only if it was started with it")
+				if a.cfg == nil {
+					return
+				}
+				if listening, text := receiver(c.Context(), a.cfg, st); !listening {
+					fmt.Println("note: " + text)
 				}
 			})
 		},
@@ -295,4 +300,27 @@ func (a *app) showHook(ctx context.Context, name string) error {
 			fmt.Println(line)
 		}
 	})
+}
+
+// receiver says whether the yard's server takes webhooks and on what, with
+// the commands that change it as they are typed for this home.
+func receiver(ctx context.Context, cfg *config.Config, st store.API) (listening bool, text string) {
+	all, err := st.Settings(ctx)
+	if err != nil {
+		return false, "the hook_addr setting could not be read: " + err.Error()
+	}
+	l, known := hooks.ReadListener(cfg)
+	listening, text = hooks.Listens(l, known, all[hooks.FromSetting])
+	return listening, strings.ReplaceAll(text, "yardr ", yardrAt(cfg.Home)+" ")
+}
+
+// hookAddrTakes is what yardr settings set hook_addr says after the value:
+// when the server takes it, and that the variable is used instead where the
+// server runs with one.
+func hookAddrTakes(cfg *config.Config) string {
+	text := fmt.Sprintf("The server takes it at its next start: %s server stop, and the next command starts it again.", yardrAt(cfg.Home))
+	if l, known := hooks.ReadListener(cfg); known && l.From == hooks.FromVariable {
+		text += fmt.Sprintf("\nThe running server was started with %s=%s, which is used instead of the setting while it is set there.", hooks.FromVariable, l.Addr)
+	}
+	return text
 }

@@ -139,7 +139,7 @@ func TestOnboardingNoStart(t *testing.T) {
 	if r, _ := st.GetResident(context.Background(), "mayor"); r == nil || r.Live() {
 		t.Fatalf("mayor = %+v", r)
 	}
-	if !strings.Contains(out, "Start the daemon in a terminal pane of its own") || !strings.Contains(out, "yardr init --start") ||
+	if !strings.Contains(out, "Start the daemon in a terminal pane of its own") || !strings.Contains(out, here("yardr init --start")) ||
 		strings.Contains(out, "is running, in herdr") {
 		t.Fatalf("output:\n%s", out)
 	}
@@ -189,7 +189,7 @@ func TestInitStart(t *testing.T) {
 	a := &app{st: st, actor: "me"}
 
 	out, err := run(t, a.rootCmd(), "init", "--harness", "claude")
-	if err != nil || *started != 0 || !strings.Contains(out, "yardr daemon") {
+	if err != nil || *started != 0 || !strings.Contains(out, here("yardr daemon")) {
 		t.Fatalf("plain init: %d started, %v\n%s", *started, err, out)
 	}
 	errs := captureStderr(t)
@@ -248,7 +248,7 @@ func TestInitStartWithRunningDaemon(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 	for _, s := range []string{"The daemon was running already.", "mayor did not start within 30ms.",
-		"no start has failed so far", "yardr resident list", "yardr init --start"} {
+		"no start has failed so far", here("yardr resident list"), here("yardr init --start")} {
 		if !strings.Contains(out, s) {
 			t.Errorf("output lacks %q:\n%s", s, out)
 		}
@@ -306,7 +306,7 @@ func TestWaitForTheMayorsOutput(t *testing.T) {
 				t.Fatalf("err = %v\n%s", err, out)
 			}
 			for _, s := range c.want {
-				if !strings.Contains(out, s) {
+				if s = here(s); !strings.Contains(out, s) {
 					t.Errorf("output lacks %q:\n%s", s, out)
 				}
 			}
@@ -393,7 +393,7 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 	}
 	res = a.startYard(ctx, cfg, st, "mayor", time.Minute)
 	if res.Running || !strings.Contains(res.Problem, "the daemon gave up after") ||
-		!strings.Contains(strings.Join(res.Next, "\n"), "yardr resident start mayor") ||
+		!strings.Contains(strings.Join(res.Next, "\n"), here("yardr resident start mayor")) ||
 		!strings.Contains(strings.Join(res.Known, "\n"), "the last start failed with: herdr agent start: boom") {
 		t.Fatalf("%+v", res)
 	}
@@ -401,7 +401,7 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 	// A daemon that cannot be started at all.
 	spawnDaemon = func(*config.Config) (<-chan error, error) { return nil, errors.New("fork: no") }
 	if res = a.startYard(ctx, cfg, st, "mayor", time.Minute); res.DaemonStarted ||
-		res.Problem != "the daemon could not be started: fork: no" || !strings.Contains(res.Next[0], "yardr daemon") {
+		res.Problem != "the daemon could not be started: fork: no" || !strings.Contains(res.Next[0], here("yardr daemon")) {
 		t.Fatalf("%+v", res)
 	}
 

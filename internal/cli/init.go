@@ -23,6 +23,7 @@ import (
 
 	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/roles"
 )
@@ -178,18 +179,18 @@ func (p *partYard) found(home string) []string {
 type notInitialized struct{ home string }
 
 func (e notInitialized) Error() string {
-	return fmt.Sprintf("no yard in %s yet: create one with `%syardr init --harness <kind>` "+
-		"(or run yardr in a terminal for the onboarding)", e.home, homeEnv(e.home))
+	return fmt.Sprintf("no yard in %s yet: create one with `%s init --harness <kind>` "+
+		"(or run yardr in a terminal for the onboarding)", e.home, yardrAt(e.home))
 }
 
-// homeEnv is what a command for home needs in front of it: nothing for the
-// default home, YARDR_HOME=<home> and a space for any other, since without it
-// the command would go to ~/.yardr (yard-0wys).
-func homeEnv(home string) string {
+// yardrAt is yardr as a command for home is typed: yardr for the default
+// home, yardr --home <home> for any other, since without the flag the
+// command would go to ~/.yardr (yard-0wys).
+func yardrAt(home string) string {
 	if config.IsDefaultHome(home) {
-		return ""
+		return "yardr"
 	}
-	return "YARDR_HOME=" + shellQuote(home) + " "
+	return "yardr --home " + shellQuote(home)
 }
 
 // shellQuote is s as one shell word: as it is when nothing in it is special,
@@ -288,7 +289,7 @@ func (a *app) goOn(ctx context.Context, cfg *config.Config, res *initResult, opt
 		return nil
 	}
 	if !res.Start.Running {
-		fmt.Printf("\nOnce that is set right, run %syardr in this terminal again: it goes on from here.\n", homeEnv(cfg.Home))
+		fmt.Printf("\nOnce that is set right, run %s in this terminal again: it goes on from here.\n", yardrAt(cfg.Home))
 		return nil
 	}
 	// What the yard runs without, before the rest of its setup: the
@@ -354,7 +355,7 @@ func (a *app) resume(ctx context.Context, cfg *config.Config) error {
 	if noKind {
 		lines = append(lines, docLine{tagFault, "settings", "default_kind is not set: an earlier setup stopped before it marked the yard set up"})
 	}
-	env := homeEnv(cfg.Home)
+	yardr := yardrAt(cfg.Home)
 	fmt.Printf("The yard in %s has no rig yet, and its onboarding did not reach its end. What is there:\n\n", cfg.Home)
 	printLines(lines)
 	fmt.Println()
@@ -368,13 +369,13 @@ func (a *app) resume(ctx context.Context, cfg *config.Config) error {
 		what = "Adds what is missing. " + what
 	}
 	err = ask(huh.NewConfirm().Key("finish").Title("Finish the setup now?").
-		Description(fmt.Sprintf("%s, then goes on as the onboarding does.\nNo leaves the yard as it is: %syardr init --start does the same later.", what, env)).
+		Description(fmt.Sprintf("%s, then goes on as the onboarding does.\nNo leaves the yard as it is: %s init --start does the same later.", what, yardr)).
 		Value(&finish))
 	if err != nil && !errors.Is(err, huh.ErrUserAborted) {
 		return err
 	}
 	if err != nil || !finish {
-		fmt.Printf("Left as it is. To finish later: %syardr init --start, or %syardr in a terminal.\n", env, env)
+		fmt.Printf("Left as it is. To finish later: %s init --start, or %s in a terminal.\n", yardr, yardr)
 		return nil
 	}
 	opts := initOptions{Mayor: m.Name, Start: true, resumed: true}
@@ -811,7 +812,7 @@ func daemonRunning(lock string) bool {
 
 // printYard is the summary of the yard init created or set up again.
 func (r *initResult) printYard() {
-	env := homeEnv(r.Home)
+	yardr := yardrAt(r.Home)
 	switch {
 	case len(r.Found) > 0:
 		// An init cut short left part of it; this run finished it.
@@ -838,7 +839,7 @@ func (r *initResult) printYard() {
 			fmt.Printf("           runs with %s so it does not stop to ask\n", strings.Join(r.Args, " "))
 		} else {
 			fmt.Printf("           runs with no unattended flags: %s may stop to ask; give it its own with\n"+
-				"           %syardr resident add %s --set 'args=[...]' (see yardr group add --help)\n", r.Harness, env, r.Mayor)
+				"           %s resident add %s --set 'args=[...]' (see yardr group add --help)\n", r.Harness, yardr, r.Mayor)
 		}
 	}
 	fmt.Printf("  roles    %s", r.Roles)
@@ -848,18 +849,18 @@ func (r *initResult) printYard() {
 	fmt.Printf("\n           starting points naming %s: edit them to fit your yard; the mayor's prompt is mayor.md.\n"+
 		"           A rig's own roles go in its repo under .yardr/roles/, which a group's\n"+
 		"           prompt=roles/<name>.md reads first (from the rig's base branch).\n\n", r.Operator)
-	if env != "" {
-		// Not the default home: without the variable a command goes to
+	if !config.IsDefaultHome(r.Home) {
+		// Not the default home: without the flag a command goes to
 		// ~/.yardr, the daemon's first of all (yard-0wys).
 		fmt.Printf("This yard is not in the default home: every yardr command for it needs\n"+
-			"YARDR_HOME=%s in front of it, or exported.\n", shellQuote(r.Home))
+			"--home %s, or YARDR_HOME exported.\n", shellQuote(r.Home))
 	}
 }
 
 // printNext is the way from the yard to the mayor: how the start ended
 // when init started the yard, else how to start it.
 func (r *initResult) printNext() {
-	env := homeEnv(r.Home)
+	yardr := yardrAt(r.Home)
 	switch {
 	case r.Start != nil:
 		r.Start.print(r.Mayor)
@@ -867,18 +868,18 @@ func (r *initResult) printNext() {
 			return
 		}
 	case r.Daemon:
-		fmt.Printf("The daemon is running; it starts %s shortly. Where %s is then: %syardr init --start\n", r.Mayor, r.Mayor, env)
+		fmt.Printf("The daemon is running; it starts %s shortly. Where %s is then: %s init --start\n", r.Mayor, r.Mayor, yardr)
 	default:
-		fmt.Printf("Start the daemon in a terminal pane of its own, to watch it; %s starts when it does:\n\n  %syardr daemon\n\n"+
-			"Or in the background, waiting for %s and printing where it is:\n\n  %syardr init --start\n",
-			r.Mayor, env, r.Mayor, env)
+		fmt.Printf("Start the daemon in a terminal pane of its own, to watch it; %s starts when it does:\n\n  %s daemon\n\n"+
+			"Or in the background, waiting for %s and printing where it is:\n\n  %s init --start\n",
+			r.Mayor, yardr, r.Mayor, yardr)
 	}
 	// The rest of the setup is a conversation, or a run of forms: the
 	// mayor's first run and yardr setup go by the same steps (setupSteps).
 	// The commands for scripts are in yardr init --help.
 	fmt.Printf("\n%s sets up the rest with you in its pane: the repository to work in, who\n"+
 		"builds and reviews, and a first bead to try it on. Or here, as a short run of\n"+
-		"forms: %syardr setup\n", r.Mayor, env)
+		"forms: %s setup\n", r.Mayor, yardr)
 }
 
 // harnessOptions are the kinds herdr starts, each marked with whether its
@@ -999,7 +1000,7 @@ func (a *app) initCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init [--harness <kind>]",
 		Short: "Create the yard: default harness, roles and the mayor (what the onboarding does)",
-		Long: `Create the yard in YARDR_HOME (default ~/.yardr) without the onboarding form,
+		Long: `Create the yard in --home (else YARDR_HOME, default ~/.yardr) without the onboarding form,
 for scripts and tests. It writes the default role prompts to <home>/roles/,
 naming --operator as the person they bring decisions to and --mayor as the
 resident they mail about what blocks them. A prompt already there is kept
@@ -1061,7 +1062,7 @@ Unattended flags per harness:
 ` + agents.UnattendedHelp(),
 		Example: `  yardr init --harness claude
   yardr init --harness claude --start              # and start the yard, waiting for the mayor
-  YARDR_HOME=/tmp/y1 yardr init --harness codex --mayor boss --dir ~/projects --model gpt-5.5 --operator Jo
+  yardr --home /tmp/y1 init --harness codex --mayor boss --dir ~/projects --model gpt-5.5 --operator Jo
   yardr init --harness claude --style work --about "I review every merge myself"`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
@@ -1132,6 +1133,8 @@ var settings = map[string]struct {
 		}
 		return nil
 	}},
+	hooks.FromSetting: {"the address the server takes webhooks on, such as 127.0.0.1:8790, when YARDR_HOOK_ADDR is not set where it starts; " +
+		"the server reads it when it starts", hooks.CheckAddr},
 	"name": {"the yard's name, which its residents' herdr agents and workspaces carry (<name>-mayor); default: the home's directory name", func(v string) error {
 		if !groupName.MatchString(v) {
 			return fmt.Errorf("yard name %q: letters, digits, '.', '_', '-', '/'", v)
@@ -1141,8 +1144,14 @@ var settings = map[string]struct {
 }
 
 func (a *app) settingsCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "settings", Short: "The yard's own defaults (default_kind, mayor, name, operator, operator_style, operator_note)",
+	cmd := &cobra.Command{Use: "settings", Short: "The yard's own defaults (default_kind, hook_addr, mayor, name, operator, operator_style, operator_note)",
 		Long: `The yard's own defaults. yardr settings get lists them with what each means.
+
+hook_addr is the address the server takes webhooks on (yardr hook --help).
+The server reads it when it starts, so a change takes its next start (yardr
+server stop; the next command starts it again), and YARDR_HOOK_ADDR in the
+environment the server starts in is used instead of it. yardr doctor says
+which address is in use.
 
 operator_style is how agents should work with the operator, and
 operator_note one line they should know about them. Every session reads both
@@ -1196,6 +1205,7 @@ nothing. The styles:
 		Short: "Change a setting; an empty value unsets it",
 		Example: `  yardr settings set default_kind codex
   yardr settings set operator_style report
+  yardr settings set hook_addr 127.0.0.1:8790
   yardr settings set operator_note ""        # unset`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
@@ -1216,6 +1226,16 @@ nothing. The styles:
 			}
 			return a.out(map[string]string{args[0]: args[1]}, func() {
 				fmt.Printf("%s = %s\n", args[0], or(args[1], "(unset)"))
+				if args[0] != hooks.FromSetting {
+					return
+				}
+				cfg := a.cfg
+				if cfg == nil {
+					if cfg, err = config.Load(); err != nil {
+						return
+					}
+				}
+				fmt.Println(hookAddrTakes(cfg))
 			})
 		},
 	}

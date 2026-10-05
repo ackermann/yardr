@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
 )
@@ -240,40 +241,42 @@ func readState(ctx context.Context, cfg *config.Config, st store.API, residents 
 
 // optionalParts are what a yard runs without, each configured or not.
 func optionalParts(ctx context.Context, cfg *config.Config, st store.API) ([]optionalPart, error) {
-	env := homeEnv(cfg.Home)
+	yardr := yardrAt(cfg.Home)
 	web := optionalPart{Key: "web", Title: "web view",
-		Detail: fmt.Sprintf("nothing keeps it running; %syardr web serve shows the yard in a browser while it runs, "+
-			"%syardr web install keeps it running from login on (docs/web.md)", env, env)}
+		Detail: fmt.Sprintf("nothing keeps it running; %s web serve shows the yard in a browser while it runs, "+
+			"%s web install keeps it running from login on (docs/web.md)", yardr, yardr)}
 	if webService(cfg) {
 		web.Configured, web.Detail = true, "kept running as a login service"+at(webServiceAddr(cfg))+fileOf(cfg, svcWeb)
 	}
-	hooks, err := st.Hooks(ctx)
+	hs, err := st.Hooks(ctx)
 	if err != nil {
 		return nil, err
 	}
 	hook := optionalPart{Key: "hooks", Title: "hooks",
-		Detail: fmt.Sprintf("no source outside the yard reaches it; %syardr hook add --help (docs/subscriptions.md)", env)}
-	if len(hooks) > 0 {
+		Detail: fmt.Sprintf("no source outside the yard reaches it; %s hook add --help (docs/subscriptions.md)", yardr)}
+	if len(hs) > 0 {
 		var names []string
-		for _, h := range hooks {
+		for _, h := range hs {
 			names = append(names, fmt.Sprintf("%s (%s)", h.Name, h.Source))
 			if h.Blocked != "" {
 				hook.Notes = append(hook.Notes, fmt.Sprintf("hook %s is blocked: %s", h.Name, h.Blocked))
 			}
 		}
 		hook.Configured, hook.Detail = true, strings.Join(names, ", ")
-		if cfg.HookAddr == "" {
-			// The receiver's address is the server's, set where it was
-			// started: this command's environment only hints at it.
-			hook.Notes = append(hook.Notes, "YARDR_HOOK_ADDR is not set in this environment: the server receives hooks only when it was started with it")
-		}
+	}
+	// The receiver's address is the server's, so what the server said: with
+	// hooks, always; without, when it has an address all the same, since one
+	// it cannot listen on (another yard has it) is to be changed either way.
+	if l, known := hooks.ReadListener(cfg); len(hs) > 0 || known && l.Addr != "" {
+		_, text := receiver(ctx, cfg, st)
+		hook.Notes = append(hook.Notes, text)
 	}
 	packs, err := st.Packs(ctx)
 	if err != nil {
 		return nil, err
 	}
 	pack := optionalPart{Key: "packs", Title: "packs",
-		Detail: fmt.Sprintf("no pack is imported; %syardr pack apply <dir> --rig <rig> (docs/packs.md)", env)}
+		Detail: fmt.Sprintf("no pack is imported; %s pack apply <dir> --rig <rig> (docs/packs.md)", yardr)}
 	if len(packs) > 0 {
 		var names []string
 		for _, p := range packs {
@@ -282,8 +285,8 @@ func optionalParts(ctx context.Context, cfg *config.Config, st store.API) ([]opt
 		pack.Configured, pack.Detail = true, strings.Join(names, ", ")
 	}
 	svc := optionalPart{Key: "login_service", Title: "login service",
-		Detail: fmt.Sprintf("the daemon runs while its terminal or the session that started it does (%syardr daemon, %syardr init --start); "+
-			"it does not come back after a reboot; %syardr daemon install starts it at login", env, env, env)}
+		Detail: fmt.Sprintf("the daemon runs while its terminal or the session that started it does (%s daemon, %s init --start); "+
+			"it does not come back after a reboot; %s daemon install starts it at login", yardr, yardr, yardr)}
 	if loginService(cfg) {
 		svc.Configured, svc.Detail = true, "the daemon starts at login"+fileOf(cfg, svcDaemon)
 		rigs, err := st.Rigs(ctx)
@@ -362,7 +365,7 @@ func (n need) line() docLine {
 
 // lines are the second part as the report prints it.
 func (s *yardState) lines(home string) []docLine {
-	env := homeEnv(home)
+	yardr := yardrAt(home)
 	var out []docLine
 	switch s.Server {
 	case "unreachable":
@@ -376,27 +379,27 @@ func (s *yardState) lines(home string) []docLine {
 		out = append(out, docLine{tagOK, "daemon", "running"})
 	} else {
 		out = append(out, docLine{tagFault, "daemon", fmt.Sprintf("not running: no bead is dispatched and no resident starts. "+
-			"Start it in a pane of its own (%syardr daemon) or in the background (%syardr init --start)", env, env)})
+			"Start it in a pane of its own (%s daemon) or in the background (%s init --start)", yardr, yardr)})
 	}
 	switch m := s.Mayor; {
 	case m == nil:
 	case !m.Resident:
-		out = append(out, docLine{tagFault, "mayor", fmt.Sprintf("no resident %s: %syardr init adds it", m.Name, env)})
+		out = append(out, docLine{tagFault, "mayor", fmt.Sprintf("no resident %s: %s init adds it", m.Name, yardr)})
 	case m.Running:
 		out = append(out, docLine{tagOK, "mayor", fmt.Sprintf("%s is running (herdr agent %s)", m.Name, or(m.Agent, "unknown"))})
 	case !m.Enabled:
-		out = append(out, docLine{tagNote, "mayor", fmt.Sprintf("%s is stopped (disabled). Let it run again: %syardr resident start %s", m.Name, env, m.Name)})
+		out = append(out, docLine{tagNote, "mayor", fmt.Sprintf("%s is stopped (disabled). Let it run again: %s resident start %s", m.Name, yardr, m.Name)})
 	case m.Failures > 0 || m.State == "failed":
-		out = append(out, docLine{tagFault, "mayor", fmt.Sprintf("%s is not running: %s. Once that is fixed: %syardr resident start %s",
-			m.Name, failed(m.State, m.Failures, m.Reason), env, m.Name)})
+		out = append(out, docLine{tagFault, "mayor", fmt.Sprintf("%s is not running: %s. Once that is fixed: %s resident start %s",
+			m.Name, failed(m.State, m.Failures, m.Reason), yardr, m.Name)})
 	case !s.Daemon:
 		out = append(out, docLine{tagFault, "mayor", m.Name + " is not running: the daemon starts it"})
 	default:
-		out = append(out, docLine{tagFault, "mayor", fmt.Sprintf("%s is not running, and no start has failed: the daemon may still be at it (%syardr resident list)", m.Name, env)})
+		out = append(out, docLine{tagFault, "mayor", fmt.Sprintf("%s is not running, and no start has failed: the daemon may still be at it (%s resident list)", m.Name, yardr)})
 	}
 	for _, f := range s.Failing {
-		out = append(out, docLine{tagFault, "resident", fmt.Sprintf("%s is not running: %s. Once that is fixed: %syardr resident start %s",
-			f.Name, failed(f.State, f.Failures, f.Reason), env, f.Name)})
+		out = append(out, docLine{tagFault, "resident", fmt.Sprintf("%s is not running: %s. Once that is fixed: %s resident start %s",
+			f.Name, failed(f.State, f.Failures, f.Reason), yardr, f.Name)})
 	}
 	if len(s.Failing) == 0 {
 		out = append(out, docLine{tagOK, "residents", fmt.Sprintf("%d, none failing to start", s.Residents)})
@@ -404,8 +407,8 @@ func (s *yardState) lines(home string) []docLine {
 	if len(s.Held) == 0 {
 		return append(out, docLine{tagOK, "held", "no bead is held"})
 	}
-	return append(out, docLine{tagNote, "held", fmt.Sprintf("%d held, waiting for someone: %s (%syardr bead show <id>; %syardr bead unhold <id> resumes it)",
-		len(s.Held), strings.Join(s.Held, ", "), env, env)})
+	return append(out, docLine{tagNote, "held", fmt.Sprintf("%d held, waiting for someone: %s (%s bead show <id>; %s bead unhold <id> resumes it)",
+		len(s.Held), strings.Join(s.Held, ", "), yardr, yardr)})
 }
 
 // failed says how a resident's starts fail.
@@ -445,12 +448,12 @@ func printLines(lines []docLine) {
 // print is the report for a person. docs/doctor.md lists every line it can
 // print; a line added here is added there.
 func (r *doctorReport) print() {
-	env := homeEnv(r.Home)
+	yardr := yardrAt(r.Home)
 	if r.Yard {
 		fmt.Printf("yardr doctor: the yard in %s\n", r.Home)
 	} else {
-		fmt.Printf("yardr doctor: no yard in %s yet. Create one with `%syardr init --harness <kind>`, or run yardr in a terminal "+
-			"for the onboarding. Nothing was created.\n", r.Home, env)
+		fmt.Printf("yardr doctor: no yard in %s yet. Create one with `%s init --harness <kind>`, or run yardr in a terminal "+
+			"for the onboarding. Nothing was created.\n", r.Home, yardr)
 	}
 	fmt.Println("\nNeeded on this machine")
 	var lines []docLine

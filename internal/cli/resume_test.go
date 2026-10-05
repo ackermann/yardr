@@ -375,7 +375,7 @@ func TestTheNextRunWaitsForAMayorThatWasNotUp(t *testing.T) {
 	f.answers = map[string]any{"finish": false}
 	out, err = run(t, (&app{st: st}).rootCmd())
 	if err != nil || !strings.Contains(out, "note   mayor      mayor's session runs, and it has not answered its first prompt") ||
-		!strings.Contains(out, "Left as it is. To finish later: YARDR_HOME="+home+" yardr init --start") || strings.Contains(out, "Usage:") {
+		!strings.Contains(out, "Left as it is. To finish later: yardr --home "+home+" init --start") || strings.Contains(out, "Usage:") {
 		t.Fatalf("no: %v\n%s", err, out)
 	}
 	if !slices.Equal(keysOf(f), []string{"finish"}) {
@@ -410,7 +410,7 @@ func TestOnboardingIsTakenUpWhereTheMayorDidNotComeUp(t *testing.T) {
 	})
 	out, err := run(t, (&app{st: st}).rootCmd())
 	if err != nil || !strings.Contains(out, "mayor is stopped (disabled)") ||
-		!strings.Contains(out, "Once that is set right, run YARDR_HOME="+home+" yardr in this terminal again: it goes on from here.") {
+		!strings.Contains(out, "Once that is set right, run yardr --home "+home+" in this terminal again: it goes on from here.") {
 		t.Fatalf("form: %v\n%s", err, out)
 	}
 	if got := keysOf(f); !slices.Equal(got, []string{"style", "about"}) {

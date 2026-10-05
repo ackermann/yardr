@@ -135,7 +135,7 @@ func printSteps(steps []setupStep) {
 // printNextStep names the step the setup goes on with and its command. The
 // step is the store's; the home in front of its commands is the caller's.
 func printNextStep(home string, next *setupStep) {
-	fmt.Printf("Next step: %s.\n  %s\n", next.Title, strings.ReplaceAll(next.Next, "yardr ", homeEnv(home)+"yardr "))
+	fmt.Printf("Next step: %s.\n  %s\n", next.Title, strings.ReplaceAll(next.Next, "yardr ", yardrAt(home)+" "))
 }
 
 // How to go on after a page.
@@ -213,7 +213,7 @@ func (g *guide) pages() map[string]page {
 // or goes to the mayor.
 func (a *app) guide(ctx context.Context, cfg *config.Config, st store.API) error {
 	g := &guide{a: a, cfg: cfg, st: st}
-	env := homeEnv(cfg.Home)
+	yardr := yardrAt(cfg.Home)
 	for {
 		steps, err := setupSteps(ctx, st)
 		if err != nil {
@@ -232,12 +232,12 @@ func (a *app) guide(ctx context.Context, cfg *config.Config, st store.API) error
 		done, err := run(ctx, *next)
 		switch {
 		case errors.Is(err, huh.ErrUserAborted):
-			fmt.Printf("\nCancelled at: %s. The yard is as the steps before it left it; `%syardr setup` goes on from here.\n", next.Title, env)
+			fmt.Printf("\nCancelled at: %s. The yard is as the steps before it left it; `%s setup` goes on from here.\n", next.Title, yardr)
 			return nil
 		case err != nil:
 			return err
 		case !done:
-			fmt.Printf("\nThe setup waits at: %s. `%syardr setup` goes on from here.\n", next.Title, env)
+			fmt.Printf("\nThe setup waits at: %s. `%s setup` goes on from here.\n", next.Title, yardr)
 			return nil
 		}
 		// Read again: what the page did is what the store shows, not what
@@ -252,13 +252,13 @@ func (a *app) guide(ctx context.Context, cfg *config.Config, st store.API) error
 		case after.Key == next.Key:
 			// Answers that leave the step undone (a builders' group without
 			// the builder's role, say): going on would ask the same again.
-			fmt.Printf("\nStill to do: %s: %s.\n  %s\n", after.Title, after.Detail, strings.ReplaceAll(after.Next, "yardr ", env+"yardr "))
+			fmt.Printf("\nStill to do: %s: %s.\n  %s\n", after.Title, after.Detail, strings.ReplaceAll(after.Next, "yardr ", yardr+" "))
 			return nil
 		}
 		pick, err := g.goOn(ctx, *after)
 		switch {
 		case errors.Is(err, huh.ErrUserAborted) || (err == nil && pick == goStop):
-			fmt.Printf("\nStopped. Next is %s: `%syardr setup` goes on from here.\n", after.Title, env)
+			fmt.Printf("\nStopped. Next is %s: `%s setup` goes on from here.\n", after.Title, yardr)
 			return nil
 		case err != nil:
 			return err
@@ -286,14 +286,14 @@ func (g *guide) goOn(ctx context.Context, next setupStep) (string, error) {
 // the onboarding does once the mayor is up. The mayor needs no word of what
 // the forms did: its first run reads the same steps.
 func (g *guide) toMayor(ctx context.Context) error {
-	env := homeEnv(g.cfg.Home)
+	yardr := yardrAt(g.cfg.Home)
 	mayor := yardMayor(ctx, g.st)
 	r, err := g.st.GetResident(ctx, mayor)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return err
 	}
 	if err != nil || !r.Live() {
-		fmt.Printf("\n%s is not running. This starts the yard, waits for it and prints where it is:\n\n  %syardr init --start\n", mayor, env)
+		fmt.Printf("\n%s is not running. This starts the yard, waits for it and prints where it is:\n\n  %s init --start\n", mayor, yardr)
 		return nil
 	}
 	all, _ := g.st.Settings(ctx)
@@ -302,7 +302,7 @@ func (g *guide) toMayor(ctx context.Context) error {
 	place.print(mayor)
 	fmt.Println()
 	openMayor(ctx, mayor, place)
-	fmt.Printf("%s goes on from the step that is next: it reads `%syardr doctor`. Write to it there.\n", mayor, env)
+	fmt.Printf("%s goes on from the step that is next: it reads `%s doctor`. Write to it there.\n", mayor, yardr)
 	return nil
 }
 
@@ -312,7 +312,7 @@ func commandLine(home string, args []string) string {
 	for i, a := range args {
 		words[i] = shellQuote(a)
 	}
-	return homeEnv(home) + "yardr " + strings.Join(words, " ")
+	return yardrAt(home) + " " + strings.Join(words, " ")
 }
 
 // do shows a yardr command line, then runs it.
@@ -439,7 +439,7 @@ func (g *guide) filesPage(ctx context.Context, step setupStep) (bool, error) {
 	if rig.IsDir() {
 		return true, nil // read from the directory as they are
 	}
-	env := homeEnv(g.cfg.Home)
+	yardr := yardrAt(g.cfg.Home)
 	byHand := commitCommand(rig.Path)
 	if head, _ := git(ctx, rig.Path, "symbolic-ref", "--short", "-q", "HEAD"); head != rig.Base {
 		fmt.Printf("\nThe base, %s, is not the branch checked out in %s (%s), so this form does not commit there.\n"+
@@ -455,7 +455,7 @@ func (g *guide) filesPage(ctx context.Context, step setupStep) (bool, error) {
 			"they take effect once they are committed there. Only .yardr/ is committed; other changes\n"+
 			"in the checkout stay as they are.\n\n"+
 			"No leaves the files where they are, uncommitted, and the setup waits. Read them, edit the\n"+
-			"gate (it is a guess), commit them yourself, and `%syardr setup` goes on from there.", rig.Base, env)).
+			"gate (it is a guess), commit them yourself, and `%s setup` goes on from there.", rig.Base, yardr)).
 		Value(&commit)); err != nil {
 		return false, err
 	}
@@ -604,7 +604,7 @@ func (g *guide) landingPage(ctx context.Context, step setupStep) (bool, error) {
 		return false, err
 	}
 	fmt.Printf("An approved bead now waits for them: they merge its branch, yard/<bead>, and report it with\n"+
-		"`%syardr bead done <bead>`. `%syardr review` goes through what waits for a person.\n", homeEnv(g.cfg.Home), homeEnv(g.cfg.Home))
+		"`%s bead done <bead>`. `%s review` goes through what waits for a person.\n", yardrAt(g.cfg.Home), yardrAt(g.cfg.Home))
 	return true, nil
 }
 
@@ -718,7 +718,7 @@ func (g *guide) beadPage(ctx context.Context, step setupStep) (bool, error) {
 // last, a first merged bead, is the pipeline's. It says where the first
 // bead is and how to watch it.
 func (g *guide) watch(ctx context.Context) error {
-	env := homeEnv(g.cfg.Home)
+	yardr := yardrAt(g.cfg.Home)
 	beads, err := g.st.ListBeads(ctx, store.BeadFilter{All: true})
 	if err != nil {
 		return err
@@ -729,22 +729,22 @@ func (g *guide) watch(ctx context.Context) error {
 		id = b.ID
 		fmt.Printf("\nThe forms end here. The first bead, %s (%s), is in stage %s.", b.ID, b.Title, b.Stage)
 		if b.Hold {
-			fmt.Printf(" It is held: `%syardr bead show %s` says why.", env, b.ID)
+			fmt.Printf(" It is held: `%s bead show %s` says why.", yardr, b.ID)
 		}
 		fmt.Println()
 	}
 	if !daemonRunning(g.cfg.DaemonLock()) {
-		fmt.Printf("No daemon is running, so nothing picks it up yet: `%syardr init --start` starts one in the background.\n", env)
+		fmt.Printf("No daemon is running, so nothing picks it up yet: `%s init --start` starts one in the background.\n", yardr)
 	}
 	web := "serves the yard in a browser while it runs, at http://127.0.0.1:8791/"
 	if webService(g.cfg) {
 		web = "runs as a login service already: the yard in a browser" + at(webServiceAddr(g.cfg))
 	}
 	fmt.Printf("\nTo watch it:\n\n"+
-		"  %syardr session list       # who works on what now\n"+
-		"  %syardr bead show %s   # where it is, with the notes of whoever worked it\n"+
-		"  %syardr watch              # every event as it happens\n"+
-		"  %syardr web serve          # %s\n\n"+
-		"The setup is over once it has landed: `%syardr doctor` then says so.\n", env, env, id, env, env, web, env)
+		"  %s session list       # who works on what now\n"+
+		"  %s bead show %s   # where it is, with the notes of whoever worked it\n"+
+		"  %s watch              # every event as it happens\n"+
+		"  %s web serve          # %s\n\n"+
+		"The setup is over once it has landed: `%s doctor` then says so.\n", yardr, yardr, id, yardr, yardr, web, yardr)
 	return nil
 }

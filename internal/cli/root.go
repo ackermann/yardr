@@ -23,8 +23,10 @@ import (
 type app struct {
 	json  bool
 	actor string
-	cfg   *config.Config
-	st    store.API
+	// homeDir is --home: the yard this run and all it starts work in.
+	homeDir string
+	cfg     *config.Config
+	st      store.API
 	// onboarded is set once this run has created the yard (see firstRun).
 	onboarded bool
 	// guided is set once the onboarding has asked how to go on with the
@@ -74,8 +76,18 @@ func (a *app) rootCmd() *cobra.Command {
 			}
 			return c.Help()
 		},
-		PersistentPreRunE: func(c *cobra.Command, _ []string) error { return a.firstRun(c) },
+		PersistentPreRunE: func(c *cobra.Command, _ []string) error {
+			// Before anything reads the home: every config.Load of this
+			// run, and the environment of what it starts, follow the flag.
+			if c.Flags().Changed("home") {
+				if err := config.UseHome(a.homeDir); err != nil {
+					return err
+				}
+			}
+			return a.firstRun(c)
+		},
 	}
+	root.PersistentFlags().StringVar(&a.homeDir, "home", "", "the yard's directory (default $YARDR_HOME, else ~/.yardr)")
 	root.PersistentFlags().BoolVar(&a.json, "json", false, "print JSON")
 	root.PersistentFlags().StringVar(&a.actor, "actor", "", "who is acting (default $YARDR_ACTOR, else $USER)")
 	root.AddCommand(a.serverCmd(), a.daemonCmd(), a.rigCmd(), a.beadCmd(), a.readyCmd(),

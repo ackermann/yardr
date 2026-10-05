@@ -22,7 +22,7 @@ in yard-9cza, the merge gate in yard-p2y7.
 | routes | | which group works which stage, by rig, type, label (built) |
 | rigs | | path, kind (`git` or `dir`), clone, base branch; `rig add` registers, `rig rm` removes (built) |
 | residents | | agent, directory, inbox kinds, rotation, subscriptions, identities (built) |
-| settings | | the yard's defaults: `default_kind`, `operator`, `mayor`, `name`, and how agents work with the operator: `operator_style`, `operator_note` (built) |
+| settings | | the yard's defaults: `default_kind`, `operator`, `mayor`, `name`, `hook_addr`, and how agents work with the operator: `operator_style`, `operator_note` (built) |
 
 ### Why the repo holds what the work is
 
@@ -70,7 +70,7 @@ A group's `prompt` is read when a session starts:
   1. the rig's `.yardr/roles/<name>.md`;
   2. the rig's `roles/<name>.md`, the older place: still read, with a
      warning (once per file) in the daemon's log to move it;
-  3. the yard's home, `~/.yardr/roles/<name>.md` (`YARDR_HOME`).
+  3. the yard's home, `~/.yardr/roles/<name>.md` (`--home`, `YARDR_HOME`).
 - any other relative path is looked up in the rig's working tree, then in
   the home.
 
@@ -409,14 +409,15 @@ A dir rig has no git directory to hide a brief in, so its briefs go to
 
 ## yardr's own state
 
-Everything yardr keeps for itself lives in one directory, **`YARDR_HOME`**
-(default `~/.yardr`):
+Everything yardr keeps for itself lives in one directory, the yard's
+**home**: what `--home <dir>` names, else `YARDR_HOME`, else `~/.yardr`:
 
 | path | what |
 |---|---|
 | `yard.db` | the store (bbolt); back it up with `yardr store backup <path>` while it serves (one read transaction, so the copy is the store as of one commit); restore by stopping the daemon and the server and copying the backup over it |
 | `yard.sock` | the server's unix socket |
 | `server.pid`, `server.log` | the running server |
+| `hooks.state` | what the running server takes webhooks on, or why it does not, which `yardr doctor` and the pack plan read ([below](#settings)); gone when the server stops |
 | `daemon.lock` | held by the running daemon, with its pid in it: one daemon per yard |
 | `daemon.log` | what a daemon started in the background prints (the onboarding's "Start the yard now?", `yardr init --start`); one in a pane of its own prints there instead |
 | `web.log` | what a web view no terminal runs prints: one started with `yardr web start`, or the login service's ([web.md](web.md#keeping-it-running)) |
@@ -425,12 +426,34 @@ Everything yardr keeps for itself lives in one directory, **`YARDR_HOME`**
 | `roles/` | the generic role prompts `yardr init` installed (mayor, builder, merger, reviewer), the fallback for rigs without their own; yours to edit. `.shipped.json` there records each file's hash as init wrote it, so init again can tell an edited prompt (kept) from an untouched one (refreshed) |
 | `linear.secret`, `github.secret`, `residents/<name>.env`, `groups/<group>.env` | credential files, if you keep them here as the examples do ([residents.md](residents.md#outbound-credentials)): yours, yardr creates none of them and reads only the paths a hook, resident or group names |
 
-Set `YARDR_HOME` to run a separate yard (tests do, with a short path: unix
-socket paths are limited to about 100 bytes, and yardr refuses a home whose
-`yard.sock` would be longer). A relative `YARDR_HOME` is made absolute
-once, when the command loads its configuration, so the server, the agents
-and the gate it starts, which run elsewhere, get the directory it named and
-not one relative to their own.
+`--home <dir>` is a flag of every command, and runs it on the yard in that
+directory, so a second yard takes no variable:
+
+```
+yardr --home /tmp/y1                          # in a terminal, on a home with no yard: the onboarding form
+yardr --home /tmp/y1 init --harness claude    # the scripted way
+yardr --home /tmp/y1 bead list
+```
+
+The flag wins over `YARDR_HOME`, and the variable over the default. Keep
+the path short: unix socket paths are limited to about 100 bytes, and yardr
+refuses a home whose `yard.sock` would be longer, before it creates
+anything there. A relative home, from the flag or the variable, is made
+absolute once, when the command starts, and every process the command
+starts gets it as `YARDR_HOME`: the server, a daemon, the agents and the
+gate, which run elsewhere, are in the yard it named and not in one relative
+to their own directory. So is a login service installed with the flag
+([below](#login-services)).
+
+Where yardr prints a command for a yard that is not in the default home
+(what to run next in the setup, a fix in `yardr doctor`), the command
+carries `--home <dir>`; for the default home it carries neither the flag
+nor the variable.
+
+Two yards on one machine share nothing but what they are given in common:
+give each its own `hook_addr` ([settings](#settings)) and its own web
+address ([web.md](web.md)). Their herdr agents are told apart by the yard's
+`name`.
 
 The server is started by the first command that connects to a yard with no
 server, and serves every command after it. It gets none of that command's
@@ -439,7 +462,10 @@ agent's, in a pane holding the credentials its `env_file` set and in a
 worktree, as the operator's. It starts with `PATH`, `HOME`, the settings
 the server reads (`YARDR_HOOK_ADDR`, `YARDR_EVENT_RETENTION`,
 `YARDR_HOOK_PAYLOAD_RETENTION`, under the old `YARD_` names too) and
-`YARDR_HOME` set to the home it serves, and runs in that home. The daemon
+`YARDR_HOME` set to the home it serves, and runs in that home. So
+`YARDR_HOOK_ADDR` reaches the server only from the environment of the
+command that happened to start it; the `hook_addr` setting is the yard's
+own and needs no such luck. The daemon
 is not started this way: it runs in a pane of its own with that pane's
 environment, or in the background, started by the onboarding or
 `yardr init --start` ([below](#starting-the-yard)), with the environment of
@@ -670,7 +696,8 @@ The file holds:
 
 - the yardr that ran the install, by its path, with `daemon` (or `web serve
   --addr <addr>`). A yardr that moves needs the install again;
-- its whole environment besides what the manager sets: `YARDR_HOME`, `HOME`,
+- its whole environment besides what the manager sets: `YARDR_HOME` (the
+  home the install ran for, `--home` included), `HOME`,
   and the `PATH` of the shell the install ran in. herdr, git and every
   harness have to be on that `PATH`; the install names the ones that are
   not. Of the rest of that shell it takes the settings the server and the
@@ -869,17 +896,18 @@ value unsets) keep the yard's own defaults in the store:
 | `operator_style` | how agents should work with the operator: `guide`, `show`, `work` or `report` ([what each tells an agent](#how-agents-work-with-you)). `yardr init` stores it (`--style`, the form's "How should agents work with you?"); both primes print it as instructions, so a change reaches the next session that starts. Unset, the primes say nothing about it. |
 | `operator_note` | one line agents should know about the operator (`--about`, the form's "Anything agents should know about you?"), printed by the primes with the style, or alone. |
 | `mayor` | the mayor resident's name, whom the builder and reviewer roles tell agents to mail about what blocks them ([residents.md](residents.md#findings-from-builders-and-reviewers)); `yardr init` stores it (`--mayor`) and `yardr rig init` fills roles with it. A yard from before the setting has none: `rig init` then takes its one resident, else `mayor`. |
+| `hook_addr` | the TCP address the server takes webhooks on, `127.0.0.1:8790` say ([subscriptions.md](subscriptions.md)). The server reads it when it starts, so a change takes its next start: `yardr server stop`, and the next command starts it again; `settings set` says so. `YARDR_HOOK_ADDR`, set where the server starts, is used instead of it. An address that is not `host:port` with a port from 1 to 65535 is refused (`:8790` is every interface). The server writes what it listens on to `hooks.state` in the home, and `yardr doctor` reports it: the address and whether it is the variable's or the setting's. A server that cannot listen there (another yard has the address) keeps serving its yard, logs a `hook_listener_failed` event, and doctor says so with what to change. |
 | `name` | the yard's name, which its residents' herdr agents and workspaces carry (`<name>-mayor`, labelled `<name> mayor`), so two yards on one machine, whose agents herdr lists together, are told apart. Unset, the home's directory name: `yardr` for `~/.yardr`, `y1` for `/tmp/y1`. Changing it renames residents started from then on. |
 
 Environment variables yardr reads:
 
 | variable | meaning |
 |---|---|
-| `YARDR_HOME` | state directory (above); a relative path is resolved against the command's directory, once |
+| `YARDR_HOME` | state directory (above), when `--home` is not given; a relative path is resolved against the command's directory, once |
 | `YARDR_ACTOR` | who is acting, for the event log (default: the OS user) |
 | `YARDR_BEAD`, `YARDR_RESIDENT` | defaults for `prime` and resident commands; set for the sessions yardr starts |
 | `YARDR_SESSION` | the session yardr started this process for; every bead move (`bead done`, `advance`, `close`, `hold`, `release`, `reopen`) sends it, and the store refuses to move the session's own bead once the session no longer owns it, and any other bead a live session owns. A call from the session's pane is checked as it even with the variable unset ([pipeline.md](pipeline.md#2-new-a-builder-implements-it)). In a bead's worktree, an environment naming another bead gives way to the worktree's session ([groups.md](groups.md#codex)) |
-| `YARDR_HOOK_ADDR` | TCP address the server takes webhooks on, e.g. `127.0.0.1:8790` |
+| `YARDR_HOOK_ADDR` | TCP address the server takes webhooks on, e.g. `127.0.0.1:8790`, read where the server starts; set, it is used instead of the `hook_addr` setting ([above](#settings)) |
 | `YARDR_LINEAR_API`, `YARDR_GITHUB_API` | where `yardr reply`, `yardr thread open` and `yardr thread state` send their calls, read by the command that makes them, and where the daemon sends a hook's issue moves ([links.md](links.md#a-beads-stage-moves-the-issue)), read when it starts (default: Linear's GraphQL endpoint, `https://api.github.com`) |
 | `YARDR_EVENT_RETENTION`, `YARDR_HOOK_PAYLOAD_RETENTION`, `YARDR_INBOX_RETENTION` | how long the daemon and `yardr store prune` keep events, ended sessions and webhook bodies, and how long an unread inbox event holds the log back ([below](#retention-keeping-yarddb-bounded)) |
 | `YARDR_TEST_RPC` | tests: run the store suites through the unix-socket client |

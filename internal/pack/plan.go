@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
 )
@@ -55,9 +56,6 @@ type Options struct {
 	// Operator is who the pack's roles and stage files name where they say
 	// {{operator}}; "" is the yard's operator setting.
 	Operator string
-	// HookAddr is YARDR_HOOK_ADDR as this process sees it. The server's
-	// own value is not known to its clients.
-	HookAddr string
 }
 
 // Plan is what importing a pack into a rig of a yard would do, object by
@@ -1225,10 +1223,21 @@ func (b *planner) needs(source, resident string, exists bool, r store.Resident) 
 		}
 		out = append(out, n)
 	}
-	if b.o.HookAddr != "" {
-		out = append(out, Need{"listener", ok, "YARDR_HOOK_ADDR=" + b.o.HookAddr + " here; the server listens if it was started with it"})
-	} else {
-		out = append(out, Need{"listener", unknown, "YARDR_HOOK_ADDR is not set here; the server receives hooks only if it was started with it"})
+	// What the server of the yard in Home said when it started; a plan made
+	// without one (no home, or no server on it) cannot tell.
+	settings, err := b.st.Settings(b.ctx)
+	if err != nil {
+		return nil, err
+	}
+	l, known := hooks.ReadListener(&config.Config{Home: b.o.Home})
+	listening, text := hooks.Listens(l, known, settings[hooks.FromSetting])
+	switch {
+	case !known:
+		out = append(out, Need{"listener", unknown, text})
+	case listening:
+		out = append(out, Need{"listener", ok, text})
+	default:
+		out = append(out, Need{"listener", missing, text})
 	}
 	return out, nil
 }

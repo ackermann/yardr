@@ -200,7 +200,10 @@ What runs today, from nothing to a resident answering in Linear:
    assignments and its own actions are recognized:
    `yardr resident identity <name> --source linear --id <user id> --key <profile key>`.
 4. **A subscription**: `yardr subscribe <name> linear --scope involved`.
-5. **The hook**: start the server with `YARDR_HOOK_ADDR=127.0.0.1:8790` and
+5. **The hook**: give the yard an address to take webhooks on,
+   `yardr settings set hook_addr 127.0.0.1:8790` (the server takes it at its
+   next start: `yardr server stop`, and the next command starts it; `yardr
+   doctor` says what it listens on), and
    `yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret`.
    One hook serves every resident.
 6. **The webhook**: in Linear, Settings → API → Webhooks, URL
@@ -228,7 +231,7 @@ yardr subscribe mayor github --scope all --where epic=yardr-sv6b --where conclus
 On GitHub, in the repository's **Settings → Webhooks → Add webhook**:
 
 - **Payload URL:** `https://<your host>/hooks/gh`, the hook listener
-  (`YARDR_HOOK_ADDR`) behind whatever exposes it.
+  (the `hook_addr` setting) behind whatever exposes it.
 - **Content type:** `application/json`. The form-encoded type is refused.
 - **Secret:** the contents of the `--secret-file`. Each delivery is checked
   against `X-Hub-Signature-256` (HMAC-SHA256 of the body).

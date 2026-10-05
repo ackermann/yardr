@@ -80,6 +80,24 @@ missing, with where to get it:
 
 Then run `yardr` for the onboarding ([the README](../README.md#quick-start)).
 
+## A yard somewhere else
+
+One install serves any number of yards: each is a directory, its home, and
+`--home <dir>` on a command names it, with no variable to set:
+
+```sh
+yardr --home ~/yards/work                         # the onboarding, in a terminal
+yardr --home ~/yards/work init --harness claude   # or scripted
+yardr --home ~/yards/work doctor
+yardr --home ~/yards/work daemon install          # a login service for that yard
+```
+
+Keep the directory's path short (the server's unix socket lives in it, and a
+home too long for one is refused). A yard that takes webhooks next to another
+needs an address of its own: `yardr --home ~/yards/work settings set
+hook_addr 127.0.0.1:8791`
+([configuration.md](configuration.md#yardrs-own-state)).
+
 ## Upgrading
 
 Install the newer build over the old one, by either way: unpack the newer

@@ -178,34 +178,34 @@ func TestSetupForms(t *testing.T) {
 	ctx := context.Background()
 	out := setup(t, st)
 
-	env := "YARDR_HOME=" + home + " "
+	yardr := "yardr --home " + home
 	script := filepath.Join(home, "scripts", "merge-local")
 	quoted := shellQuote(repo)
 	lines := []string{
 		"  todo   a rig: no repository is a rig of this yard yet",
 		"Setup: a rig",
-		"$ " + env + "yardr rig add web-app " + quoted + " --base main",
+		"$ " + yardr + " rig add web-app " + quoted + " --base main",
 		"Setup: the rig's .yardr files on its base",
-		"$ " + env + "yardr rig init web-app",
+		"$ " + yardr + " rig init web-app",
 		"The gate passes everything until its TODO is filled in.",
 		"$ git -C " + quoted + " add .yardr && git -C " + quoted + " commit -m 'yardr: starter roles, gate, flow and stage files' -- .yardr",
 		"Setup: a group that builds",
-		"$ " + env + "yardr group add web-app/builders --runner herdr --limit 2 --set 'args=[\"--permission-mode\",\"auto\"]' --set kind=claude --set prompt=roles/builder.md",
+		"$ " + yardr + " group add web-app/builders --runner herdr --limit 2 --set 'args=[\"--permission-mode\",\"auto\"]' --set kind=claude --set prompt=roles/builder.md",
 		"Setup: a group that reviews",
-		"$ " + env + "yardr group add web-app/reviewers --runner herdr --set 'args=[\"--permission-mode\",\"auto\"]' --set kind=claude --set prompt=roles/reviewer.md",
+		"$ " + yardr + " group add web-app/reviewers --runner herdr --set 'args=[\"--permission-mode\",\"auto\"]' --set kind=claude --set prompt=roles/reviewer.md",
 		"Setup: a group or person that lands approved beads",
 		"merge-local installed: " + script,
-		"$ " + env + "yardr group add web-app/refinery --runner exec --set cmd=" + script + " --set log=" + filepath.Join(home, "logs", "refinery.log"),
+		"$ " + yardr + " group add web-app/refinery --runner exec --set cmd=" + script + " --set log=" + filepath.Join(home, "logs", "refinery.log"),
 		"Setup: routes for new, review and approved",
-		"$ " + env + "yardr route add --stage new --rig web-app --group web-app/builders",
-		"$ " + env + "yardr route add --stage review --rig web-app --group web-app/reviewers",
-		"$ " + env + "yardr route add --stage approved --rig web-app --group web-app/refinery",
+		"$ " + yardr + " route add --stage new --rig web-app --group web-app/builders",
+		"$ " + yardr + " route add --stage review --rig web-app --group web-app/reviewers",
+		"$ " + yardr + " route add --stage approved --rig web-app --group web-app/refinery",
 		"Setup: a first bead",
-		"$ " + env + "yardr bead create 'Say hello' --rig web-app -b 'HELLO.md says hello. Done when it is committed.'",
+		"$ " + yardr + " bead create 'Say hello' --rig web-app -b 'HELLO.md says hello. Done when it is committed.'",
 		"--to new",
 		"The forms end here. The first bead, ",
-		env + "yardr session list",
-		env + "yardr web serve",
+		yardr + " session list",
+		yardr + " web serve",
 	}
 	rest := out
 	for _, l := range lines {
@@ -331,7 +331,7 @@ func TestSetupGoesOnWhereTheYardStands(t *testing.T) {
 		if n := strings.Count(out, "\nSetup: "); n != 1 && tc.step != stepRoutes {
 			t.Fatalf("%s: %d pages in one run:\n%s", tc.step, n, out)
 		}
-		if tc.next != stepMerged && !strings.Contains(out, "`YARDR_HOME="+home+" yardr setup` goes on from here") {
+		if tc.next != stepMerged && !strings.Contains(out, "`yardr --home "+home+" setup` goes on from here") {
 			t.Errorf("%s: not told how to go on:\n%s", tc.step, out)
 		}
 		if got := todo(t, st); got != tc.next {
@@ -462,11 +462,11 @@ func TestSetupLandsByHand(t *testing.T) {
 		return false
 	}
 	out := setup(t, st)
-	env := "YARDR_HOME=" + home + " "
-	wantText(t, out, "$ "+env+"yardr group add web/mergers --runner manual --members jo,sam",
-		"$ "+env+"yardr route add --stage approved --rig web --group web/mergers",
-		"$ "+env+"yardr route add --stage new --rig web --group web/builders",
-		"$ "+env+"yardr route add --stage review --rig web --group web/reviewers")
+	yardr := "yardr --home " + home
+	wantText(t, out, "$ "+yardr+" group add web/mergers --runner manual --members jo,sam",
+		"$ "+yardr+" route add --stage approved --rig web --group web/mergers",
+		"$ "+yardr+" route add --stage new --rig web --group web/builders",
+		"$ "+yardr+" route add --stage review --rig web --group web/reviewers")
 	if strings.Count(out, "--stage approved") != 1 {
 		t.Errorf("approved routed twice:\n%s", out)
 	}
@@ -522,7 +522,7 @@ func TestSetupTalkToTheMayor(t *testing.T) {
 	focused := stubFocus(t)
 	t.Setenv("HERDR_ENV", "1")
 	out := setup(t, st)
-	wantText(t, out, "mayor is not running.", "YARDR_HOME="+home+" yardr init --start")
+	wantText(t, out, "mayor is not running.", "yardr --home "+home+" init --start")
 	if len(*focused) != 0 || todo(t, st) != stepRigFiles {
 		t.Fatalf("focused %v, next %s\n%s", *focused, todo(t, st), out)
 	}
@@ -533,7 +533,7 @@ func TestSetupTalkToTheMayor(t *testing.T) {
 	f.goes = []string{goMayor}
 	out = setup(t, st)
 	wantText(t, out, "mayor is running, in herdr:", "agent      y-mayor", "herdr agent attach y-mayor", "herdr shows mayor now.",
-		"mayor goes on from the step that is next: it reads `YARDR_HOME="+home+" yardr doctor`")
+		"mayor goes on from the step that is next: it reads `yardr --home "+home+" doctor`")
 	if !slices.Equal(*focused, []string{"y-mayor"}) || todo(t, st) != stepBuilders {
 		t.Fatalf("focused %v, next %s\n%s", *focused, todo(t, st), out)
 	}
@@ -546,7 +546,7 @@ func TestSetupWithoutForms(t *testing.T) {
 	_, st, _ := setupYard(t, f)
 	check := func(out string) {
 		t.Helper()
-		wantText(t, out, "  todo   a rig: ", "Next step: a rig.", "yardr rig add <rig> <path> --base <branch>")
+		wantText(t, out, "  todo   a rig: ", "Next step: a rig.", here("yardr rig add <rig> <path> --base <branch>"))
 		if len(f.asked) != 0 || todo(t, st) != stepRig {
 			t.Fatalf("asked %v", f.asked)
 		}
@@ -587,7 +587,7 @@ func TestOnboardingKeepsGoing(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantText(t, out, "yard created", "mayor is running, in herdr", "Setup: a rig",
-		"Cancelled at: a rig.", "`YARDR_HOME="+home+" yardr setup` goes on from here")
+		"Cancelled at: a rig.", "`yardr --home "+home+" setup` goes on from here")
 	if len(*focused) != 0 {
 		t.Errorf("focused %v for an answer of here", *focused)
 	}

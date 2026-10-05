@@ -77,7 +77,7 @@ func (a *app) packOptions(ctx context.Context, f *packFlags) (store.API, *config
 			return nil, nil, err
 		}
 	}
-	f.opts.Home, f.opts.HookAddr = cfg.Home, cfg.HookAddr
+	f.opts.Home = cfg.Home
 	// Whom yardr init and rig init name in the roles they write.
 	f.opts.Operator = yardOperator(ctx, st)
 	return st, cfg, nil

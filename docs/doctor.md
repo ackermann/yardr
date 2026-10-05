@@ -122,7 +122,13 @@ never a fault. Not printed on a home with no yard.
 | `not configured hooks: no source outside the yard reaches it; yardr hook add --help (docs/subscriptions.md)` | no hook |
 | `configured hooks: <name> (<source>), …` | |
 | `note hooks: hook <name> is blocked: <why>` | the receiver refuses its deliveries |
-| `note hooks: YARDR_HOOK_ADDR is not set in this environment: the server receives hooks only when it was started with it` | hooks exist, and the variable is not set where doctor runs |
+| `note hooks: the server takes webhooks on <addr> (the hook_addr setting)` | hooks exist, or the yard has an address without one: what the running server listens on, and that the address is the yard's `hook_addr` setting ([configuration.md](configuration.md#settings)) |
+| `note hooks: the server takes webhooks on <addr> (YARDR_HOOK_ADDR, set where the server started)` | the same, with the variable's address: set where the server starts, it is the one in use. `; the hook_addr setting (<addr>) is not used while the variable is set there` follows when the setting names another |
+| `… ; hook_addr is <addr> now, which it takes at its next start: yardr server stop (the next command starts it again)` | the setting was changed (or unset) after the server read it |
+| `note hooks: the server could not listen on <addr> (<the setting or the variable>): <error>. Another yard or program may have the address; give this yard its own with yardr settings set hook_addr <host:port>, then yardr server stop (the next command starts it again)` | the address is taken, by another yard given the same one as a rule. The yard works; no delivery reaches it. Printed with no hook too. For the variable's address: `change the variable where the server starts, or unset it there and give this yard its own with …` |
+| `note hooks: the server takes no webhooks yet: hook_addr is <addr>, which it takes at its next start: yardr server stop (the next command starts it again)` | hooks exist and the setting was set after the server started with no address |
+| `note hooks: the server has no address to take webhooks on: yardr settings set hook_addr 127.0.0.1:8790, then yardr server stop (the next command starts it again)` | hooks exist, and neither the setting nor the variable gives the server an address |
+| `note hooks: the server has not said what it takes webhooks on` | hooks exist, and the running server is a build from before it wrote `hooks.state` |
 | `not configured packs: no pack is imported; yardr pack apply <dir> --rig <rig> (docs/packs.md)` | |
 | `configured packs: <pack> into <rig>, …` | |
 | `not configured login service: the daemon runs while its terminal or the session that started it does (yardr daemon, yardr init --start); it does not come back after a reboot; yardr daemon install starts it at login` | no login service for the daemon is installed for this home |
@@ -139,8 +145,8 @@ never a fault. Not printed on a home with no yard.
 | `Next step: <step>.` and, below it, the command | a yard, and a step is not done |
 | `The setup is complete.` | a yard, and every step is done |
 
-For a home other than the default, every command doctor prints carries
-`YARDR_HOME=<home>` in front. In JSON a step's `next` is the bare command.
+For a home other than the default, every command doctor prints is `yardr
+--home <home> …`. In JSON a step's `next` is the bare command.
 
 ## JSON
 

@@ -108,7 +108,7 @@ What a resident uses to act outside the yard (the mayor's Linear developer
 token, a GitHub token) goes in an env file of its own, never in
 the store: BDP serves the store, backups copy it and every builder can read
 it. That is the one rule. The examples keep such files in the yard's home
-(`YARDR_HOME`, `~/.yardr` unless set), next to everything else of the yard:
+(`--home` or `YARDR_HOME`, `~/.yardr` unless set), next to everything else of the yard:
 a file beside `yard.db` is not in it, and neither BDP, `yardr store backup`
 nor pruning touches anything in the home but the store file. Any other path
 works as well. Inbound is separate: webhooks arrive through one shared hook and its

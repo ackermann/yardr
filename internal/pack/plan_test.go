@@ -6,9 +6,12 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -186,6 +189,44 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 	}
 	if want := map[string]string{"hook": "missing", "secret_file": "missing", "identity": "missing", "credential": "missing", "listener": "unknown"}; !reflect.DeepEqual(status, want) {
 		t.Fatalf("linear needs = %v, want %v", status, want)
+	}
+
+	// The listener is the yard's own to tell once its server has said what
+	// it takes webhooks on: missing without an address, ok on the setting's.
+	listener := func() pack.Need {
+		t.Helper()
+		for _, n := range build(t, st, load(t, starter), o).Sources[0].Needs {
+			if n.What == "listener" {
+				return n
+			}
+		}
+		t.Fatal("no listener need")
+		return pack.Need{}
+	}
+	cfg := &config.Config{Home: o.Home}
+	said := func(l hooks.Listener) {
+		t.Helper()
+		if err := hooks.WriteListener(cfg, l); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(cfg.PIDFile(), []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	said(hooks.Listener{})
+	if n := listener(); n.Status != "missing" || !strings.Contains(n.Detail, "yardr settings set hook_addr 127.0.0.1:8790") {
+		t.Fatalf("no address: %+v", n)
+	}
+	if err := st.SetSetting(ctx, "hook_addr", "127.0.0.1:8790", "me"); err != nil {
+		t.Fatal(err)
+	}
+	said(hooks.Listener{Addr: "127.0.0.1:8790", From: hooks.FromSetting})
+	if n := listener(); n.Status != "ok" || !strings.Contains(n.Detail, "127.0.0.1:8790 (the hook_addr setting)") {
+		t.Fatalf("the setting: %+v", n)
+	}
+	said(hooks.Listener{Addr: "127.0.0.1:8790", From: hooks.FromSetting, Error: "address already in use"})
+	if n := listener(); n.Status != "missing" || !strings.Contains(n.Detail, "could not listen on 127.0.0.1:8790") {
+		t.Fatalf("a taken address: %+v", n)
 	}
 }
 

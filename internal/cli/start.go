@@ -172,7 +172,7 @@ func (a *app) startYard(ctx context.Context, cfg *config.Config, st store.API, m
 		var err error
 		if exited, err = spawnDaemon(cfg); err != nil {
 			res.Problem = "the daemon could not be started: " + err.Error()
-			res.Next = []string{fmt.Sprintf("start it in a terminal pane of its own: %syardr daemon", homeEnv(cfg.Home))}
+			res.Next = []string{fmt.Sprintf("start it in a terminal pane of its own: %s daemon", yardrAt(cfg.Home))}
 			return res
 		}
 		res.DaemonStarted, res.DaemonLog = true, cfg.DaemonLog()
@@ -323,7 +323,7 @@ func placeOf(r store.Resident, yard string) *mayorPlace {
 // diagnose says what is known about a mayor that did not start, and how to
 // go on, in plain words. r is the mayor as last read, nil when it was not.
 func diagnose(ctx context.Context, cfg *config.Config, st store.API, r *store.Resident, mayor string, res *startResult) (known, next []string) {
-	env := homeEnv(cfg.Home)
+	yardr := yardrAt(cfg.Home)
 	gaveUp, started := false, res.DaemonStarted
 	if r != nil && r.Live() {
 		// A session, and a harness that does not answer in it: the pane
@@ -345,8 +345,8 @@ func diagnose(ctx context.Context, cfg *config.Config, st store.API, r *store.Re
 		if r.Handle[dispatch.PendingPrompt] != nil {
 			next = append(next, fmt.Sprintf("answer what it asks there, or log %s in; the daemon gives %s its first prompt once %s is ready", kind, mayor, kind))
 		} else {
-			next = append(next, fmt.Sprintf("set right what it shows there (log %s in, say), then have the daemon start %s afresh: %syardr resident restart %s",
-				kind, mayor, env, mayor))
+			next = append(next, fmt.Sprintf("set right what it shows there (log %s in, say), then have the daemon start %s afresh: %s resident restart %s",
+				kind, mayor, yardr, mayor))
 		}
 	} else if r != nil {
 		gaveUp = r.State == "failed"
@@ -367,7 +367,7 @@ func diagnose(ctx context.Context, cfg *config.Config, st store.API, r *store.Re
 	switch {
 	case !daemonRunning(cfg.DaemonLock()):
 		known = append(known, "no daemon is running on this yard")
-		next = append(next, fmt.Sprintf("start it in a terminal pane of its own, where you see what it does: %syardr daemon", env))
+		next = append(next, fmt.Sprintf("start it in a terminal pane of its own, where you see what it does: %s daemon", yardr))
 	case started:
 		known = append(known, "the daemon runs in the background and logs to "+cfg.DaemonLog())
 	default:
@@ -377,16 +377,16 @@ func diagnose(ctx context.Context, cfg *config.Config, st store.API, r *store.Re
 	switch {
 	case r != nil && r.Live():
 	case r != nil && !r.Enabled:
-		next = append(next, fmt.Sprintf("let it run again: %syardr resident start %s", env, mayor))
+		next = append(next, fmt.Sprintf("let it run again: %s resident start %s", yardr, mayor))
 	case gaveUp:
-		next = append(next, fmt.Sprintf("once that is fixed, have the daemon try again: %syardr resident start %s", env, mayor))
+		next = append(next, fmt.Sprintf("once that is fixed, have the daemon try again: %s resident start %s", yardr, mayor))
 	case r != nil && len(absent(*r)) > 0:
 		next = append(next, fmt.Sprintf("install %s where PATH finds it; the daemon looks again on the PATH it was started with, "+
-			"every try, and %syardr resident list shows when %s runs", strings.Join(absent(*r), " and "), env, mayor))
+			"every try, and %s resident list shows when %s runs", strings.Join(absent(*r), " and "), yardr, mayor))
 	default:
-		next = append(next, fmt.Sprintf("the daemon keeps trying; see whether %s runs: %syardr resident list", mayor, env))
+		next = append(next, fmt.Sprintf("the daemon keeps trying; see whether %s runs: %s resident list", mayor, yardr))
 	}
-	next = append(next, fmt.Sprintf("this waits for it again and prints where it is: %syardr init --start", env))
+	next = append(next, fmt.Sprintf("this waits for it again and prints where it is: %s init --start", yardr))
 	return known, next
 }
 

@@ -37,6 +37,12 @@ func shortDir(t *testing.T, prefix string) string {
 	return dir
 }
 
+// here is a command as yardr prints it for the test's home: with --home in
+// it, since that home is not the default one.
+func here(cmd string) string {
+	return strings.Replace(cmd, "yardr", yardrAt(config.Getenv("HOME")), 1)
+}
+
 // newHome points YARDR_HOME at a fresh directory with no yard in it.
 func newHome(t *testing.T) string {
 	t.Helper()
@@ -98,12 +104,12 @@ func TestInitHarnessClaude(t *testing.T) {
 		t.Fatalf("settings = %v", got)
 	}
 	// The mayor takes it from here; the commands are in init --help.
-	for _, s := range []string{"harness  claude", "naming Jo", ".yardr/roles/", "yardr daemon", "sets up the rest with you in its pane"} {
+	for _, s := range []string{"harness  claude", "naming Jo", ".yardr/roles/", here("yardr daemon"), "sets up the rest with you in its pane"} {
 		if !strings.Contains(out, s) {
 			t.Errorf("summary lacks %q:\n%s", s, out)
 		}
 	}
-	if strings.Contains(out, "yardr route add") {
+	if strings.Contains(out, "route add") {
 		t.Errorf("summary still lists the setup commands:\n%s", out)
 	}
 	if help, _ := run(t, a.rootCmd(), "init", "--help"); !strings.Contains(help, "yardr rig init webapp") ||
@@ -243,7 +249,7 @@ func TestInitHarnessWithoutUnattendedFlags(t *testing.T) {
 	}
 }
 
-// A yard outside the default home gets YARDR_HOME=<home> in front of every
+// A yard outside the default home gets --home <home> in every
 // command its summary prints, and the default home gets none (yard-0wys).
 func TestInitSummaryNamesTheHome(t *testing.T) {
 	home := newHome(t)
@@ -251,15 +257,15 @@ func TestInitSummaryNamesTheHome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	env := "YARDR_HOME=" + home + " "
-	for _, s := range []string{"\n  " + env + "yardr daemon\n", env + "yardr resident add mayor",
-		"every yardr command for it needs\nYARDR_HOME=" + home + " in front of it, or exported"} {
+	yardr := "yardr --home " + home
+	for _, s := range []string{"\n  " + yardr + " daemon\n", yardr + " resident add mayor",
+		"every yardr command for it needs\n--home " + home + ", or YARDR_HOME exported"} {
 		if !strings.Contains(out, s) {
 			t.Errorf("summary lacks %q:\n%s", s, out)
 		}
 	}
 
-	// The default home, named with a trailing slash: no variable.
+	// The default home, named with a trailing slash: neither flag nor variable.
 	user := shortDir(t, "yu")
 	t.Setenv("HOME", user)
 	t.Setenv("YARDR_HOME", filepath.Join(user, ".yardr")+"/")
@@ -267,11 +273,11 @@ func TestInitSummaryNamesTheHome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out, "YARDR_HOME") || !strings.Contains(out, "\n  yardr daemon\n") ||
+	if strings.Contains(out, "YARDR_HOME") || strings.Contains(out, "--home") || !strings.Contains(out, "\n  yardr daemon\n") ||
 		!strings.Contains(out, " yardr resident add mayor") {
 		t.Errorf("default home summary:\n%s", out)
 	}
-	if got := (notInitialized{filepath.Join(user, ".yardr")}).Error(); strings.Contains(got, "YARDR_HOME") {
+	if got := (notInitialized{filepath.Join(user, ".yardr")}).Error(); strings.Contains(got, "YARDR_HOME") || strings.Contains(got, "--home") {
 		t.Errorf("default home hint = %q", got)
 	}
 }
@@ -298,7 +304,7 @@ func TestFirstRunWithoutTerminal(t *testing.T) {
 	if code := execute(&app{}, []string{"bead", "list"}); code != 2 {
 		t.Fatalf("exit %d", code)
 	}
-	if got := errs.String(); strings.Count(got, "\n") != 1 || !strings.Contains(got, "`YARDR_HOME="+home+" yardr init --harness") {
+	if got := errs.String(); strings.Count(got, "\n") != 1 || !strings.Contains(got, "`yardr --home "+home+" init --harness") {
 		t.Fatalf("stderr = %q", got)
 	}
 	if _, err := os.Stat(filepath.Join(home, "yard.db")); err == nil {
@@ -487,7 +493,7 @@ func TestStoreWithoutSettingWithoutTerminal(t *testing.T) {
 	newHome(t)
 	setInteractive(t, false)
 	_, err := run(t, (&app{st: storetest.New(t)}).rootCmd(), "bead", "list")
-	if exitCode(err) != 2 || !strings.Contains(fmt.Sprint(err), "yardr init --harness") {
+	if exitCode(err) != 2 || !strings.Contains(fmt.Sprint(err), here("yardr init --harness")) {
 		t.Fatalf("err = %v (exit %d)", err, exitCode(err))
 	}
 }

@@ -150,7 +150,7 @@ func TestLoadRefusesALongHome(t *testing.T) {
 	home := filepath.Join(t.TempDir(), strings.Repeat("h", MaxSocket))
 	t.Setenv("YARDR_HOME", home)
 	_, err := Load()
-	if err == nil || !strings.Contains(err.Error(), "too long") || !strings.Contains(err.Error(), "YARDR_HOME") {
+	if err == nil || !strings.Contains(err.Error(), "too long") || !strings.Contains(err.Error(), "YARDR_HOME") || !strings.Contains(err.Error(), "--home") {
 		t.Fatalf("Load = %v", err)
 	}
 	if _, err := os.Stat(home); err == nil {
@@ -194,5 +194,34 @@ func TestIsDefaultHome(t *testing.T) {
 		if IsDefaultHome(h) {
 			t.Errorf("%s is the default home", h)
 		}
+	}
+}
+
+// UseHome, the --home flag, wins over the variable under either name, is
+// made absolute once, and is what a child's environment then says.
+func TestUseHome(t *testing.T) {
+	dir, err := os.MkdirTemp("", "ych")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Chdir(dir)
+	t.Setenv("YARDR_HOME", filepath.Join(dir, "variable"))
+	t.Setenv("YARD_HOME", filepath.Join(dir, "old"))
+	if err := UseHome("y1/"); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(dir, "y1")
+	if os.Getenv("YARDR_HOME") != want || os.Getenv("YARD_HOME") != want {
+		t.Fatalf("YARDR_HOME=%s YARD_HOME=%s, want %s", os.Getenv("YARDR_HOME"), os.Getenv("YARD_HOME"), want)
+	}
+	if c, err := Load(); err != nil || c.Home != want {
+		t.Fatalf("Load = %+v, %v; want %s", c, err, want)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "variable")); err == nil {
+		t.Fatal("the variable's home was created")
+	}
+	if err := UseHome(""); err == nil || os.Getenv("YARDR_HOME") != want {
+		t.Fatalf("UseHome(\"\") = %v, home %s", err, os.Getenv("YARDR_HOME"))
 	}
 }

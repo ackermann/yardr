@@ -347,7 +347,7 @@ the yard has and lacks to hear it and answer in it:
 | `secret file` | the hook's secret file exists |
 | `identity` | the resident's identity in the source (`yardr resident identity`) |
 | `credential` | the name of the reply credential (`LINEAR_API_KEY`, `GITHUB_TOKEN`) is set in the resident's `env_file`; only names are read |
-| `listener` | `YARDR_HOOK_ADDR`. Only the server knows whether it listens, so this is `ok` when the variable is set where the command runs and `unknown` otherwise |
+| `listener` | what the yard's running server takes webhooks on, as it wrote it when it started: `ok` with the address and whether it is the `hook_addr` setting's or `YARDR_HOOK_ADDR`'s, `missing` when the server has no address or could not listen on its own (with the setting to change). `unknown` only when no server has said: a build from before `hook_addr` |
 
 ## yardr pack apply
 

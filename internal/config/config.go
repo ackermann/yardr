@@ -1,5 +1,6 @@
-// Package config resolves where yardr keeps its state. YARDR_HOME overrides
-// the default ~/.yardr so tests and agents can use their own instance.
+// Package config resolves where yardr keeps its state. --home, then
+// YARDR_HOME, override the default ~/.yardr so tests and agents can use
+// their own instance.
 package config
 
 import (
@@ -60,16 +61,40 @@ func Unsetenv(name string) {
 
 type Config struct {
 	Home string // state directory: yard.db, yard.sock, logs, worktrees
-	// HookAddr is the TCP address the server receives webhooks on
-	// (YARDR_HOOK_ADDR, e.g. 127.0.0.1:8790); empty means no receiver.
+	// HookAddr is YARDR_HOOK_ADDR, the TCP address the server receives
+	// webhooks on (e.g. 127.0.0.1:8790) whatever the yard's hook_addr
+	// setting says; empty leaves it to the setting.
 	HookAddr string
+}
+
+// UseHome makes dir the home of this process and of every process it
+// starts: the --home flag. It is made absolute here and put in the
+// environment under both names, in place of what YARDR_HOME said, so Load
+// finds it and a server, daemon, agent or gate started from here is in the
+// same yard without each start having to pass it on.
+func UseHome(dir string) error {
+	if dir == "" {
+		return errors.New("--home needs a directory")
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
+	for _, kv := range Env("HOME", abs) {
+		k, v, _ := strings.Cut(kv, "=")
+		if err := os.Setenv(k, v); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // MaxSocket bounds the socket path: a unix socket's path must fit in
 // sun_path, 108 bytes on Linux and 104 on macOS, so with room to spare.
 const MaxSocket = 100
 
-// Load resolves YARDR_HOME (default DefaultHome), creating it on first use.
+// Load resolves the home (--home by way of UseHome, else YARDR_HOME, else
+// DefaultHome), creating it on first use.
 // A home whose socket path would not fit a unix socket is refused before
 // anything is created in it. The home is made absolute here, once: every
 // process this one starts (the server, agents, the gate) gets it in its
@@ -92,7 +117,7 @@ func Load() (*Config, error) {
 	c := &Config{Home: home, HookAddr: Getenv("HOOK_ADDR")}
 	if n := len(c.Socket()); n > MaxSocket {
 		return nil, fmt.Errorf("yardr home %s is too long: its socket %s would be %d bytes, and a unix socket path "+
-			"allows %d; set YARDR_HOME to a shorter directory, such as /tmp/y1", home, c.Socket(), n, MaxSocket)
+			"allows %d; give --home (or YARDR_HOME) a shorter directory, such as /tmp/y1", home, c.Socket(), n, MaxSocket)
 	}
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		return nil, err
@@ -114,8 +139,8 @@ func DefaultHome(userHome string) string {
 	return home
 }
 
-// IsDefaultHome reports whether home is the one yardr uses when YARDR_HOME
-// is not set, so a command for it needs no variable. Paths are compared
+// IsDefaultHome reports whether home is the one yardr uses when neither
+// --home nor YARDR_HOME is given, so a command for it needs no flag. Paths are compared
 // resolved: YARDR_HOME=~/.yardr/ or a symlink to it is the default too.
 func IsDefaultHome(home string) bool {
 	h, err := os.UserHomeDir()
@@ -153,6 +178,10 @@ func (c *Config) DBPath() string  { return filepath.Join(c.Home, "yard.db") }
 func (c *Config) Socket() string  { return filepath.Join(c.Home, "yard.sock") }
 func (c *Config) PIDFile() string { return filepath.Join(c.Home, "server.pid") }
 func (c *Config) LogFile() string { return filepath.Join(c.Home, "server.log") }
+
+// HookState is where the server says what its webhook receiver listens on
+// (see server.HookListener).
+func (c *Config) HookState() string { return filepath.Join(c.Home, "hooks.state") }
 
 // DaemonLock is the file the daemon holds a flock on while it runs.
 func (c *Config) DaemonLock() string { return filepath.Join(c.Home, "daemon.lock") }

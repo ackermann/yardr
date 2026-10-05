@@ -129,9 +129,14 @@ short, since the server's unix socket lives in it (a home too long for one is
 refused):
 
 ```sh
-YARDR_HOME=/tmp/y1 yardr                          # the form
-YARDR_HOME=/tmp/y1 yardr init --harness claude    # the scripted path; add --start to start the yard too
+yardr --home /tmp/y1                          # the form
+yardr --home /tmp/y1 init --harness claude    # the scripted path; add --start to start the yard too
 ```
+
+`--home <dir>` goes on every command for that yard (`yardr --home /tmp/y1
+bead list`), and what yardr prints for it carries the flag. Several yards on
+one machine are several homes
+([docs/configuration.md](docs/configuration.md#yardrs-own-state)).
 
 Scripts skip the forms and the mayor's conversation (`yardr init --help`):
 
@@ -163,7 +168,7 @@ yardr bead create "Add login page" --rig webapp -t feature -b "Use the OAuth flo
 ```
 
 The yardr server starts on first use, in the background, and owns
-`~/.yardr/yard.db` (`yardr server status|stop`; `YARDR_HOME` moves everything).
+`~/.yardr/yard.db` (`yardr server status|stop`; `--home <dir>`, or `YARDR_HOME`, moves everything).
 Back up with `yardr store backup <path>`, which copies it while the server
 keeps serving. To upgrade, `go install` again, or put a newer release's
 binary where the old one is: the server and daemon replace themselves with

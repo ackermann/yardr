@@ -27,8 +27,8 @@ second list to keep in step with it.
 ## The pages
 
 One page per step. Each asks what its command needs, shows the command line
-as you would type it (after `$`, with `YARDR_HOME=<home>` in front for a home
-other than the default) and runs that command.
+as you would type it (after `$`, as `yardr --home <home> …` for a home other
+than the default) and runs that command.
 
 On a yard whose `operator_style` is `guide`
 ([configuration.md](configuration.md#how-agents-work-with-you)) the pages

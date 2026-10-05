@@ -224,7 +224,7 @@ func TestDaemonInstallUninstall(t *testing.T) {
 		// where a login daemon has no access.
 		"Mind: claude is not on the PATH written into the service",
 		"Mind: rig notes (/Users/jo/Documents/notes) is in a folder macOS protects", "Full Disk Access (add /opt/yardr/bin/yardr)",
-		"yardr daemon uninstall")
+		here("yardr daemon uninstall"))
 	if strings.Contains(out, "herdr is not on the PATH") {
 		t.Errorf("herdr is on PATH:\n%s", out)
 	}
@@ -253,7 +253,7 @@ func TestDaemonInstallUninstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantText(t, out, "removed "+file, "has stopped the daemon it ran", "yardr init --start")
+	wantText(t, out, "removed "+file, "has stopped the daemon it ran", here("yardr init --start"))
 	if _, err := os.Stat(file); !errors.Is(err, os.ErrNotExist) || m.loaded[label] {
 		t.Fatalf("still there: %v, loaded %v", err, m.loaded)
 	}
@@ -264,7 +264,7 @@ func TestDaemonInstallUninstall(t *testing.T) {
 		t.Fatalf("left in %s: %v", dir, left)
 	}
 	out, _ = run(t, a().rootCmd(), "doctor")
-	wantText(t, out, "not configured  login service: ", "yardr daemon install starts it at login")
+	wantText(t, out, "not configured  login service: ", here("yardr daemon install starts it at login"))
 	if strings.Contains(out, "macOS protects") {
 		t.Errorf("no service, and still the note:\n%s", out)
 	}
@@ -484,7 +484,7 @@ func TestWebInstall(t *testing.T) {
 		t.Fatalf("left: %v", left)
 	}
 	out, _ = run(t, a().rootCmd(), "doctor")
-	wantText(t, out, "not configured  web view: ", "yardr web install keeps it running from login on")
+	wantText(t, out, "not configured  web view: ", here("yardr web install keeps it running from login on"))
 
 	// The same from a systemd unit.
 	stub(t, &goos, "linux")
@@ -593,7 +593,7 @@ func TestOnboardingAsksForTheServices(t *testing.T) {
 	if left, _ := os.ReadDir(dir); len(left) != 0 || len(m.calls) != 0 || len(*started) != 0 {
 		t.Fatalf("written %v, asked %q, started %v", left, m.calls, *started)
 	}
-	if strings.Contains(out, "yardr daemon install") || strings.Contains(out, "The web view") {
+	if strings.Contains(out, here("yardr daemon install")) || strings.Contains(out, "The web view") {
 		t.Errorf("output:\n%s", out)
 	}
 }
@@ -615,8 +615,8 @@ func TestOnboardingInstallsTheDaemonAndStartsTheWebView(t *testing.T) {
 	if left, _ := os.ReadDir(dir); len(left) != 1 || !slices.Equal(*started, []string{"127.0.0.1:8791"}) {
 		t.Fatalf("written %v, started %v", left, *started)
 	}
-	wantText(t, out, "yardr daemon install", "launchd has started the daemon and starts it at every login",
-		"yardr web start", "The web view: http://127.0.0.1:8791/", "mayor is running, in herdr")
+	wantText(t, out, here("yardr daemon install"), "launchd has started the daemon and starts it at every login",
+		here("yardr web start"), "The web view: http://127.0.0.1:8791/", "mayor is running, in herdr")
 }
 
 // Yes to "and at login?" installs the web view as a service instead, which
@@ -641,7 +641,7 @@ func TestOnboardingInstallsTheWebView(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, name)); err != nil || !m.loaded[name] || len(*started) != 0 {
 		t.Fatalf("%v, loaded %v, started %v\n%s", err, m.loaded, *started, out)
 	}
-	wantText(t, out, "yardr web install", "The web view: http://127.0.0.1:8791/")
+	wantText(t, out, here("yardr web install"), "The web view: http://127.0.0.1:8791/")
 }
 
 // Where yardr writes no service, the login questions are not asked; the web

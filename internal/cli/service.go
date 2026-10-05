@@ -460,7 +460,7 @@ func (r *serviceResult) print() {
 	if r.Address != "" && r.Loaded {
 		fmt.Printf("\nThe web view: http://%s/\n", r.Address)
 	}
-	fmt.Printf("\nTo remove it: %syardr %s uninstall\n", homeEnv(r.Home), r.Kind)
+	fmt.Printf("\nTo remove it: %s %s uninstall\n", yardrAt(r.Home), r.Kind)
 }
 
 // removeResult is what an uninstall did.
@@ -482,7 +482,7 @@ func (a *app) uninstall(ctx context.Context, cfg *config.Config, kind string, fi
 	}
 	u := &unit{Kind: kind, Manager: manager, Name: name, Path: path, Home: cfg.Home}
 	res := &removeResult{Kind: kind, Name: name, File: path}
-	env := homeEnv(cfg.Home)
+	yardr := yardrAt(cfg.Home)
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 		return a.out(res, func() {
 			fmt.Printf("No %s service is installed for the yard in %s (%s is not there). Nothing was changed.\n", what(kind), cfg.Home, path)
@@ -509,7 +509,7 @@ func (a *app) uninstall(ctx context.Context, cfg *config.Config, kind string, fi
 			fmt.Printf("Not unloaded (--file-only): what %s runs of it now is left running. To unload it: %s\n", manager, shellLine(u.unloadCommand()))
 		case res.Unloaded && kind == svcDaemon:
 			fmt.Printf("%s no longer has %s and has stopped the daemon it ran. The sessions it started carry on in herdr;\n"+
-				"nothing is dispatched until a daemon runs: %syardr init --start, or %syardr daemon in a pane of its own.\n", manager, name, env, env)
+				"nothing is dispatched until a daemon runs: %s init --start, or %s daemon in a pane of its own.\n", manager, name, yardr, yardr)
 		case res.Unloaded:
 			fmt.Printf("%s no longer has %s and has stopped the web view it ran.\n", manager, name)
 		default:
@@ -749,7 +749,7 @@ none. yardr init --start starts one in the background before that.`,
 					fmt.Printf("no daemon is running on the yard in %s\n", cfg.Home)
 					return
 				}
-				fmt.Printf("daemon stopped (pid %d). Start one again: %syardr init --start\n", pid, homeEnv(cfg.Home))
+				fmt.Printf("daemon stopped (pid %d). Start one again: %s init --start\n", pid, yardrAt(cfg.Home))
 			})
 		},
 	}
@@ -970,7 +970,7 @@ from login on instead. It listens on loopback only.`,
 // already is not asked for again: an onboarding taken up after a run that
 // got this far (resume) finds the service installed, or the view answering.
 func (a *app) offerServices(ctx context.Context, cfg *config.Config) error {
-	env := homeEnv(cfg.Home)
+	yardr := yardrAt(cfg.Home)
 	try := func(args ...string) {
 		fmt.Printf("\n  $ %s\n\n", commandLine(cfg.Home, args))
 		if err := a.sub(ctx, args...); err != nil {
@@ -983,7 +983,7 @@ func (a *app) offerServices(ctx context.Context, cfg *config.Config) error {
 		login := false
 		desc := fmt.Sprintf("The daemon runs in the background now, and does not come back after a reboot.\n"+
 			"Yes installs it as a login service (%s), which starts it at every login.\n"+
-			"Later: %syardr daemon install", serviceKind(manager), env)
+			"Later: %s daemon install", serviceKind(manager), yardr)
 		if manager == launchd {
 			desc += "\n\nOn macOS a daemon started at login does not have this terminal's access to ~/Desktop,\n" +
 				"~/Documents and ~/Downloads: a repository there needs a grant to yardr of its own."
@@ -1001,7 +1001,7 @@ func (a *app) offerServices(ctx context.Context, cfg *config.Config) error {
 	view := false
 	if err := ask(huh.NewConfirm().Key("web").Title("Start the web view now?").
 		Description(fmt.Sprintf("The yard in a browser, read-only, on this machine only: http://%s/ (docs/web.md).\n"+
-			"Later: %syardr web start", webLocalAddr, env)).Value(&view)); err != nil || !view {
+			"Later: %s web start", webLocalAddr, yardr)).Value(&view)); err != nil || !view {
 		return err
 	}
 	atLogin := false
