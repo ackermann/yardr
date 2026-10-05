@@ -670,8 +670,15 @@ func TestPREpicWithoutSwitchHoldsAndEpicLandsLocally(t *testing.T) {
 	if n := countCalls(t, gh, "pr "); n != 0 {
 		t.Fatalf("gh called on the local path:\n%v", ghCalls(t, gh))
 	}
-	if hist := y.yardr("prime", "--bead", "r-e"); strings.Contains(hist, "in-pr") {
-		t.Fatalf("the epic passed in-pr:\n%s", hist)
+	// The map of the flow in prime names in-pr as a stage; the path the
+	// epic took is its PATH line.
+	hist := y.yardr("prime", "--bead", "r-e")
+	i := strings.Index(hist, "\nPATH  ")
+	if i < 0 {
+		t.Fatalf("prime shows no path for the epic:\n%s", hist)
+	}
+	if path, _, _ := strings.Cut(hist[i+1:], "\n"); strings.Contains(path, "in-pr") || !strings.HasSuffix(path, "-> merged") {
+		t.Fatalf("the epic passed in-pr, or did not end in merged: %s", path)
 	}
 }
 
