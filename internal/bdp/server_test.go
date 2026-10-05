@@ -498,3 +498,142 @@ func TestCachedLoaderSnapshotsOnlyWhenTheHeadMoves(t *testing.T) {
 		t.Fatalf("%d snapshots after a write, want 2", src.snapshots)
 	}
 }
+
+// A bead's link to an outside issue is a Link from the bead to the issue's
+// URL, an out-of-Scope endpoint, typed relates or tracks-<source>; every
+// tracks-<source> conforms to tracks. Discovery advertises that a bead
+// tracks at most one issue per source, and nothing about the issue's end.
+func TestIssueLinks(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	const lin, gh, other = "https://linear.app/acme/issue/YRD-1", "https://github.com/acme/webapp/issues/7", "https://linear.app/acme/issue/YRD-2"
+	one, two := f.bead("API", "task"), f.bead("UI", "epic")
+	journal := f.bead("mayor's journal", store.TypeJournal)
+	for _, l := range []struct {
+		bead string
+		nl   store.NewLink
+	}{
+		{one.ID, store.NewLink{Kind: store.LinkTracks, Source: "linear", URL: lin, Thread: "issue-1"}},
+		{one.ID, store.NewLink{Kind: store.LinkTracks, Source: "github", URL: gh}},
+		{two.ID, store.NewLink{Kind: store.LinkRelates, Source: "linear", URL: lin}},
+		{journal.ID, store.NewLink{Kind: store.LinkRelates, Source: "linear", URL: other}},
+	} {
+		if _, err := f.st.AddLink(ctx, l.bead, l.nl, "tester"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	items := func(target string) []map[string]any {
+		t.Helper()
+		var out []map[string]any
+		for next := any(target); next != nil; {
+			page := f.get(strings.TrimPrefix(next.(string), scope)).json(t)
+			for _, it := range page["items"].([]any) {
+				out = append(out, it.(map[string]any))
+			}
+			next = page["next"]
+		}
+		return out
+	}
+	q := url.QueryEscape
+
+	// Every tracked issue, whatever its source, through the parent Type.
+	tracked := items("links/?conformsTo=" + q(scope+"types/tracks"))
+	if len(tracked) != 2 {
+		t.Fatalf("conformsTo tracks = %v", tracked)
+	}
+	byType := map[string]map[string]any{}
+	for _, l := range tracked {
+		byType[l["type"].(string)] = l
+	}
+	l := byType[scope+"types/tracks-linear"]
+	if l == nil || l["source"] != scope+"beads/"+one.ID || l["target"] != lin || l["revision"] == "" ||
+		!strings.HasPrefix(l["id"].(string), scope+"links/") {
+		t.Fatalf("linear tracks link = %v (of %v)", l, tracked)
+	}
+	if p := l["properties"].(map[string]any); p["source"] != "linear" || p["thread"] != "issue-1" || len(p) != 2 {
+		t.Fatalf("properties = %v", p)
+	}
+	if a := l["attribution"].(map[string]any); a["principal"] != "tester" {
+		t.Fatalf("attribution = %v", a)
+	}
+	g := byType[scope+"types/tracks-github"]
+	if g == nil || g["target"] != gh {
+		t.Fatalf("github tracks link = %v", g)
+	}
+	// The thread id is there only when known.
+	if p := g["properties"].(map[string]any); p["source"] != "github" || len(p) != 1 {
+		t.Fatalf("properties = %v", p)
+	}
+	if r := f.get(strings.TrimPrefix(l["id"].(string), scope)); r.json(t)["target"] != lin || r.header.Get("ETag") == "" {
+		t.Fatalf("link GET: %s", r.body)
+	}
+
+	// The issue's URL is an endpoint to filter on, compared as given; the
+	// journal's link is not served, as the journal is not.
+	if got := items("links/?target=" + q(lin)); len(got) != 2 {
+		t.Fatalf("target=%s matched %v", lin, got)
+	}
+	rel := items("links/?type=" + q(scope+"types/relates"))
+	if len(rel) != 1 || rel[0]["source"] != scope+"beads/"+two.ID || rel[0]["target"] != lin {
+		t.Fatalf("relates links = %v", rel)
+	}
+	if got := items("links/?target=" + q(other)); len(got) != 0 {
+		t.Fatalf("a journal's link is served: %v", got)
+	}
+	if got := items("links/?type=" + q(scope+"types/tracks")); len(got) != 0 {
+		t.Fatalf("a link is typed plain tracks: %v", got)
+	}
+	// A bead's links view has its issue links, outbound.
+	if out, in := items("beads/"+one.ID+"?view=links&direction=outbound"), items("beads/"+one.ID+"?view=links&direction=inbound"); len(out) != 2 || len(in) != 0 {
+		t.Fatalf("outbound %v inbound %v", out, in)
+	}
+
+	// The Types resolve, linked to or not, and are in the inventory.
+	for name, parents := range map[string]int{"tracks": 0, "relates": 0, "tracks-linear": 1, "tracks-github": 1} {
+		d := f.get("types/" + name).json(t)
+		c := d["conformsTo"].([]any)
+		if d["id"] != scope+"types/"+name || d["describes"] != "link" || len(c) != parents || d["source"] == nil || d["target"] == nil {
+			t.Fatalf("descriptor %s = %v", name, d)
+		}
+		if parents == 1 && c[0] != scope+"types/tracks" {
+			t.Fatalf("%s conforms to %v", name, c)
+		}
+	}
+	empty := newFixture(t)
+	if d := empty.get("types/tracks-linear").json(t); d["id"] != scope+"types/tracks-linear" {
+		t.Fatalf("descriptor on a yard with no link = %v", d)
+	}
+	inventory := map[string]bool{}
+	for _, ty := range items("types/") {
+		inventory[ty["id"].(string)] = true
+	}
+	for _, name := range []string{"tracks", "relates", "tracks-linear", "tracks-github"} {
+		if !inventory[scope+"types/"+name] {
+			t.Fatalf("types/ lacks %s: %v", name, inventory)
+		}
+	}
+
+	// One maximum per source, each on the bead's end; none on the issue's.
+	max := empty.get("bdp.json").json(t)["maximumEndpointMultiplicity"].([]any)
+	got := map[string]bool{}
+	for _, m := range max {
+		m := m.(map[string]any)
+		if m["endpoint"] != "source" || m["max"] != float64(1) || len(m) != 3 {
+			t.Fatalf("maximum = %v", m)
+		}
+		got[m["linkConformsTo"].(string)] = true
+	}
+	if len(max) != 2 || !got[scope+"types/tracks-linear"] || !got[scope+"types/tracks-github"] {
+		t.Fatalf("maximumEndpointMultiplicity = %v", max)
+	}
+	// What is advertised holds of what is served.
+	perBead := map[string]int{}
+	for _, l := range items("links/?conformsTo=" + q(scope+"types/tracks-linear")) {
+		perBead[l["source"].(string)]++
+	}
+	for bead, n := range perBead {
+		if n > 1 {
+			t.Fatalf("%s is the source of %d tracks-linear links", bead, n)
+		}
+	}
+}

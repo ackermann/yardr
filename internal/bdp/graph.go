@@ -8,6 +8,10 @@
 //	               readiness clients follow (outbound blocks -> blockers)
 //	bead type      https://work.example/types/<t> for BDP's reference types,
 //	dep kind       else <scope>types/<t>, as BDP's bd adapter does
+//	link to an     Link  <scope>links/<link-id>, source the bead, target the
+//	outside issue  issue's URL, an out-of-Scope endpoint; type
+//	               <scope>types/relates, or <scope>types/tracks-<source>,
+//	               which conforms to <scope>types/tracks (see issueTypes)
 //
 // Journals and memories (store.NotWork) are not served: they are knowledge,
 // not work, and a bd-style client computes readiness from open status and
@@ -27,6 +31,7 @@ import (
 	"sync"
 	"time"
 
+	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -197,6 +202,29 @@ func BuildGraph(scope string, snap *store.Snapshot) *Graph {
 		g.Links = append(g.Links, r)
 		g.byID[r.ID] = r
 	}
+	g.issueTypes(types)
+	for i := range snap.Links {
+		l := &snap.Links[i]
+		if hidden[l.Bead] {
+			continue
+		}
+		props := map[string]any{"source": l.Source}
+		if l.Thread != "" {
+			props["thread"] = l.Thread
+		}
+		r := &Record{
+			ID:          g.Scope + "links/" + EncodeSegment(l.ID),
+			Type:        g.issueLinkType(l.Kind, l.Source, types),
+			Revision:    l.Revision,
+			Attribution: attribution(l.LastActor),
+			Source:      g.beadURL(l.Bead),
+			Target:      l.URL,
+			Properties:  props,
+			link:        true,
+		}
+		g.Links = append(g.Links, r)
+		g.byID[r.ID] = r
+	}
 	for _, t := range types {
 		g.Types = append(g.Types, t)
 	}
@@ -239,6 +267,55 @@ func (g *Graph) linkType(kind string, seen map[string]TypeSummary) string {
 		g.conforms[id] = conforms
 	}
 	seen[id] = TypeSummary{ID: id, Name: titleCase(kind), Describes: "link"}
+	return id
+}
+
+// trackType is the Type of a tracks link to an issue of source. Each source
+// has its own, so that "a bead tracks at most one issue per source" is a
+// maximum on one Type (see Server.discovery); all conform to the Scope's
+// tracks, which is what a client asks for to find every tracked issue.
+func trackType(scope, source string) string {
+	return scope + "types/" + EncodeSegment(store.LinkTracks+"-"+source)
+}
+
+// issueTypes installs the Types of links to outside issues: relates, tracks,
+// and a tracks-<source> for every source a bead can link to. They are there
+// whether or not the yard has such a link yet, because discovery names the
+// tracks-<source> Types in its maximums and a Type it names must resolve.
+// They are Scope-local though BDP's reference vocabulary has a relates: that
+// one joins two work items, and this one's target is no bead.
+func (g *Graph) issueTypes(seen map[string]TypeSummary) {
+	g.issueType(store.LinkRelates, nil, "the bead relates to an issue outside the yard: shown with it, never moved by it", seen)
+	g.issueType(store.LinkTracks, nil, "the bead tracks an issue outside the yard: the bead's stage moves the issue", seen)
+	for _, src := range hooks.LinkSources() {
+		g.issueLinkType(store.LinkTracks, src, seen)
+	}
+}
+
+// issueLinkType is the Type of a link of kind to an issue of source.
+func (g *Graph) issueLinkType(kind, source string, seen map[string]TypeSummary) string {
+	if kind != store.LinkTracks {
+		return g.issueType(kind, nil, "", seen)
+	}
+	return g.issueType(kind+"-"+source, []string{g.Scope + "types/" + EncodeSegment(store.LinkTracks)},
+		"the bead tracks a "+source+" issue; a bead tracks at most one", seen)
+}
+
+// issueType installs the Scope-local link Type name once, and returns its id.
+func (g *Graph) issueType(name string, conforms []string, description string, seen map[string]TypeSummary) string {
+	id := g.Scope + "types/" + EncodeSegment(name)
+	if _, ok := g.descriptors[id]; !ok {
+		if conforms == nil {
+			conforms = []string{}
+		}
+		// The target is the issue's URL, out of the Scope, which no endpoint
+		// rule constrains; any bead may be the source.
+		g.descriptors[id] = &TypeDescriptor{ID: id, Name: titleCase(name), Describes: "link", ConformsTo: conforms,
+			Description: description,
+			Source:      &EndpointRule{ConformsTo: []string{}}, Target: &EndpointRule{ConformsTo: []string{}}}
+		g.conforms[id] = conforms
+	}
+	seen[id] = TypeSummary{ID: id, Name: titleCase(name), Describes: "link"}
 	return id
 }
 

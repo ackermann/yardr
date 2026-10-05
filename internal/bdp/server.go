@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"yardr.dev/yardr/internal/hooks"
 )
 
 // Limits are advertised in discovery and enforced.
@@ -315,15 +317,25 @@ func (s *Server) graph(ctx context.Context) (*Graph, error) {
 	return g, nil
 }
 
+// discovery advertises one aggregate rule: a bead tracks at most one issue
+// per source. That an issue has at most one tracking bead is yardr's own
+// rule, kept by the store and not advertised: BDP v0 never counts an
+// out-of-Scope endpoint, and the issue is one.
 func (s *Server) discovery() map[string]any {
+	maximums := []any{}
+	for _, src := range hooks.LinkSources() {
+		maximums = append(maximums, map[string]any{
+			"linkConformsTo": trackType(s.scope, src), "endpoint": "source", "max": 1})
+	}
 	return map[string]any{
-		"bdpVersion": "0",
-		"profile":    "read",
-		"scope":      s.scope,
-		"beads":      s.scope + "beads/",
-		"links":      s.scope + "links/",
-		"types":      s.scope + "types/",
-		"order":      "canonical-uri",
+		"maximumEndpointMultiplicity": maximums,
+		"bdpVersion":                  "0",
+		"profile":                     "read",
+		"scope":                       s.scope,
+		"beads":                       s.scope + "beads/",
+		"links":                       s.scope + "links/",
+		"types":                       s.scope + "types/",
+		"order":                       "canonical-uri",
 		"limits": map[string]any{
 			"page":    map[string]int{"defaultItems": s.limits.PageDefault, "maximumItems": s.limits.PageMax},
 			"request": map[string]int{"targetBytes": s.limits.TargetBytes},

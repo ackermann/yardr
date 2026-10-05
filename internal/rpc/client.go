@@ -229,6 +229,21 @@ func (c *Client) OpenBlockers(ctx context.Context, id string) ([]string, error) 
 func (c *Client) Family(ctx context.Context, id string) (*store.Family, error) {
 	return callV[*store.Family](c, ctx, "Family", id)
 }
+func (c *Client) AddLink(ctx context.Context, id string, nl store.NewLink, actor string) (*store.LinkChange, error) {
+	return callV[*store.LinkChange](c, ctx, "AddLink", id, nl, actor)
+}
+func (c *Client) RemoveLink(ctx context.Context, id, issue, actor string) error {
+	return c.call(ctx, "RemoveLink", nil, id, issue, actor)
+}
+func (c *Client) MoveLink(ctx context.Context, issue, to, actor string) (*store.LinkChange, error) {
+	return callV[*store.LinkChange](c, ctx, "MoveLink", issue, to, actor)
+}
+func (c *Client) Links(ctx context.Context, id string) ([]store.Link, error) {
+	return callV[[]store.Link](c, ctx, "Links", id)
+}
+func (c *Client) IssueLinks(ctx context.Context, issue string) ([]store.Link, error) {
+	return callV[[]store.Link](c, ctx, "IssueLinks", issue)
+}
 func (c *Client) AddNote(ctx context.Context, id, text, actor string) error {
 	return c.call(ctx, "AddNote", nil, id, text, actor)
 }

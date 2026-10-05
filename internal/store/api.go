@@ -27,6 +27,11 @@ type API interface {
 	Deps(ctx context.Context, id string) ([]Dep, error)
 	OpenBlockers(ctx context.Context, id string) ([]string, error)
 	Family(ctx context.Context, id string) (*Family, error)
+	AddLink(ctx context.Context, id string, nl NewLink, actor string) (*LinkChange, error)
+	RemoveLink(ctx context.Context, id, issue, actor string) error
+	MoveLink(ctx context.Context, issue, to, actor string) (*LinkChange, error)
+	Links(ctx context.Context, id string) ([]Link, error)
+	IssueLinks(ctx context.Context, issue string) ([]Link, error)
 	AddNote(ctx context.Context, id, text, actor string) error
 	Notes(ctx context.Context, id string) ([]Note, error)
 

@@ -72,6 +72,9 @@ type NewBead struct {
 	Prefix   string // handle prefix; defaults to the rig name, else "yd"
 	ID       string // explicit handle (imports, journals); must be unused
 	Metadata map[string]any
+	// Links are made with the bead, in the same write: a link that is
+	// refused (the issue has a tracker) creates no bead.
+	Links []NewLink
 }
 
 var validID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
@@ -170,6 +173,11 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 	if nb.Rig != "" {
 		rig = &nb.Rig
 	}
+	for _, nl := range nb.Links {
+		if err := checkLink(nl); err != nil {
+			return nil, err
+		}
+	}
 	pin := PinnedFlow(&Bead{Metadata: nb.Metadata})
 	repo, err := s.repoFor(ctx, rig, typ, pin)
 	if err != nil {
@@ -202,7 +210,15 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 			return err
 		}
 		created = &row.Bead
-		return w.event(row.UUID, "created", actor, map[string]any{"title": nb.Title})
+		if err := w.event(row.UUID, "created", actor, map[string]any{"title": nb.Title}); err != nil {
+			return err
+		}
+		for _, nl := range nb.Links {
+			if _, _, err := w.addLink(row, nl, actor, nil); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	return created, err
 }

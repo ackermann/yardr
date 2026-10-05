@@ -30,12 +30,21 @@ const beadHeader = "ID\tEPIC\tPRI\tTYPE\tSTAGE\tSTATUS\tGROUP\tRIG\tTITLE"
 
 func (a *app) printBead(b *store.Bead) error { return a.printBeadFlow(b, nil, nil, nil) }
 
+// printLinks adds the outside issues a bead is linked to (yardr link) to
+// bead show's text.
+func printLinks(ls []store.Link) {
+	for _, l := range ls {
+		fmt.Printf("  %s\n", linkLine(l))
+	}
+}
+
 // printBeadFlow is printBead naming the flow that governs the bead and
 // where it comes from, when next is given.
 // printBeadFlow prints b with the flow governing it; flowErr, when the
 // flow does not resolve, is shown in its place rather than hide the bead.
-// fam, when given, adds where the bead stands among epics.
-func (a *app) printBeadFlow(b *store.Bead, next *store.NextStages, flowErr error, fam *store.Family) error {
+// fam, when given, adds where the bead stands among epics, and links the
+// outside issues it is linked to.
+func (a *app) printBeadFlow(b *store.Bead, next *store.NextStages, flowErr error, fam *store.Family, links ...store.Link) error {
 	return a.out(b, func() {
 		fmt.Printf("%s  %s\n", b.ID, b.Title)
 		fmt.Printf("  type %s · stage %s · %s · P%d", b.Type, b.Stage, b.Status, b.Priority)
@@ -54,6 +63,7 @@ func (a *app) printBeadFlow(b *store.Bead, next *store.NextStages, flowErr error
 		if fam != nil {
 			printFamily(fam)
 		}
+		printLinks(links)
 		if b.Group != nil {
 			fmt.Printf("  owned by %s (session %s)\n", *b.Group, deref(b.Session))
 		}
@@ -87,7 +97,7 @@ func (a *app) beadCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "bead", Short: "Create, inspect and move beads"}
 
 	var nb store.NewBead
-	var blockedBy, createMeta []string
+	var blockedBy, createMeta, tracks, relates []string
 	create := &cobra.Command{
 		Use:   "create <title>",
 		Short: "Create a bead",
@@ -109,6 +119,21 @@ func (a *app) beadCmd() *cobra.Command {
 					return err
 				}
 				nb.Body = b
+			}
+			// The links are made in the write that creates the bead, so a
+			// link that is refused leaves no bead behind.
+			nb.Links = nil
+			for _, of := range []struct {
+				kind   string
+				issues []string
+			}{{store.LinkTracks, tracks}, {store.LinkRelates, relates}} {
+				for _, issue := range of.issues {
+					nl, err := issueLink(c.Context(), st, of.kind, issue)
+					if err != nil {
+						return err
+					}
+					nb.Links = append(nb.Links, nl)
+				}
 			}
 			b, err := st.CreateBead(c.Context(), nb, a.who())
 			if err != nil {
@@ -133,6 +158,8 @@ func (a *app) beadCmd() *cobra.Command {
 	f.StringVar(&nb.ID, "id", "", "explicit handle instead of a minted one (imports; must be unused)")
 	f.StringArrayVar(&createMeta, "meta", nil, "metadata key=value (repeatable), e.g. model=opus")
 	f.StringSliceVar(&blockedBy, "blocked-by", nil, "beads that must close first")
+	f.StringArrayVar(&tracks, "tracks", nil, "outside issue the bead tracks: its URL, or the seq of a hook delivery from it (one per source; see yardr link)")
+	f.StringArrayVar(&relates, "relates", nil, "outside issue the bead relates to, never moves (repeatable)")
 
 	show := &cobra.Command{
 		Use:   "show <id>",
@@ -152,6 +179,10 @@ func (a *app) beadCmd() *cobra.Command {
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "warning: %v\n", err)
 			}
+			links, err := st.Links(c.Context(), b.ID)
+			if err != nil {
+				return err
+			}
 			if a.json {
 				// The bead's own fields stay at the top level, so readers of
 				// bead show --json (its revision) are unaffected. Bead and
@@ -164,11 +195,12 @@ func (a *app) beadCmd() *cobra.Command {
 				return a.out(struct {
 					*store.Bead
 					*store.Family
-					Epic string `json:"epic,omitempty"`
-				}{b, fam, epic}, nil)
+					Epic  string       `json:"epic,omitempty"`
+					Links []store.Link `json:"links"`
+				}{b, fam, epic, links}, nil)
 			}
 			next, err := st.NextStages(c.Context(), b.ID)
-			return a.printBeadFlow(b, next, err, fam)
+			return a.printBeadFlow(b, next, err, fam, links...)
 		},
 	}
 

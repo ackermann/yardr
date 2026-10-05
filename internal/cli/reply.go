@@ -19,28 +19,9 @@ import (
 // source. Only the event is asked of the server: the call to the source is
 // made from here, with this process's credential.
 func hookEvent(ctx context.Context, st store.API, arg string) (uint64, hooks.Envelope, hooks.Replier, error) {
-	var env hooks.Envelope
-	seq, err := strconv.ParseUint(arg, 10, 64)
-	if err != nil || seq == 0 {
-		return 0, env, nil, fmt.Errorf("event seq %q: want the number an inbox line starts with", arg)
-	}
-	evs, err := st.EventsSince(ctx, seq-1, 1)
+	seq, env, err := hookEnvelope(ctx, st, arg)
 	if err != nil {
 		return 0, env, nil, err
-	}
-	if len(evs) == 0 || evs[0].Seq != seq {
-		return 0, env, nil, fmt.Errorf("event %d: %w", seq, store.ErrNotFound)
-	}
-	e := evs[0]
-	if e.Kind != "hook" {
-		return 0, env, nil, fmt.Errorf("event %d is a %s event, not a hook delivery: only what a source delivered can be answered in it", seq, e.Kind)
-	}
-	raw, err := json.Marshal(e.Data)
-	if err == nil {
-		err = json.Unmarshal(raw, &env)
-	}
-	if err != nil {
-		return 0, env, nil, fmt.Errorf("event %d: %w", seq, err)
 	}
 	r, ok := hooks.ReplierFor(env.Source)
 	if !ok {
@@ -48,6 +29,34 @@ func hookEvent(ctx context.Context, st store.API, arg string) (uint64, hooks.Env
 			seq, or(env.Source, "an unknown source"), strings.Join(hooks.Repliable(), ", "))
 	}
 	return seq, env, r, nil
+}
+
+// hookEnvelope is the hook event seq as an envelope, whatever its source.
+func hookEnvelope(ctx context.Context, st store.API, arg string) (uint64, hooks.Envelope, error) {
+	var env hooks.Envelope
+	seq, err := strconv.ParseUint(arg, 10, 64)
+	if err != nil || seq == 0 {
+		return 0, env, fmt.Errorf("event seq %q: want the number an inbox line starts with", arg)
+	}
+	evs, err := st.EventsSince(ctx, seq-1, 1)
+	if err != nil {
+		return 0, env, err
+	}
+	if len(evs) == 0 || evs[0].Seq != seq {
+		return 0, env, fmt.Errorf("event %d: %w", seq, store.ErrNotFound)
+	}
+	e := evs[0]
+	if e.Kind != "hook" {
+		return 0, env, fmt.Errorf("event %d is a %s event, not a hook delivery: only what a source delivered can be answered in it", seq, e.Kind)
+	}
+	raw, err := json.Marshal(e.Data)
+	if err == nil {
+		err = json.Unmarshal(raw, &env)
+	}
+	if err != nil {
+		return 0, env, fmt.Errorf("event %d: %w", seq, err)
+	}
+	return seq, env, nil
 }
 
 func (a *app) replyCmd() *cobra.Command {

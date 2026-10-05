@@ -479,9 +479,9 @@ func (s *Store) rigUsers(tx *bolt.Tx, name string) ([]string, error) {
 	return out, nil
 }
 
-// SnapBead and SnapDep are the full records the BDP server serves, with the
-// actor of their latest version for attribution. Edges name beads by
-// handle, like everything else the store returns.
+// SnapBead, SnapDep and SnapLink are the full records the BDP server serves,
+// with the actor of their latest version for attribution. Edges and links
+// name beads by handle, like everything else the store returns.
 type SnapBead struct {
 	Bead
 	LastActor *string `json:"last_actor"`
@@ -499,15 +499,30 @@ type SnapDep struct {
 	LastActor *string   `json:"last_actor"`
 }
 
+// SnapLink is a bead's link to an outside issue (see Link).
+type SnapLink struct {
+	ID        string    `json:"id"`
+	Bead      string    `json:"bead"`
+	Kind      string    `json:"kind"`
+	Source    string    `json:"source"`
+	URL       string    `json:"url"`
+	Thread    string    `json:"thread,omitempty"`
+	Revision  string    `json:"revision"`
+	CreatedAt time.Time `json:"created_at"`
+	CreatedBy *string   `json:"created_by"`
+	LastActor *string   `json:"last_actor"`
+}
+
 type Snapshot struct {
 	Beads []SnapBead
 	Deps  []SnapDep
+	Links []SnapLink
 }
 
-// Snapshot reads every bead and edge in one read transaction: a single
-// consistent state of the yard.
+// Snapshot reads every bead, edge and link in one read transaction: a
+// single consistent state of the yard.
 func (s *Store) Snapshot(ctx context.Context) (*Snapshot, error) {
-	snap := &Snapshot{Beads: []SnapBead{}, Deps: []SnapDep{}}
+	snap := &Snapshot{Beads: []SnapBead{}, Deps: []SnapDep{}, Links: []SnapLink{}}
 	err := s.read(func(tx *bolt.Tx) error {
 		if err := each(tx, bBeads, "", func(_ []byte, r *beadRow) error {
 			snap.Beads = append(snap.Beads, SnapBead{Bead: r.Bead, LastActor: ptr(r.LastActor), Notes: r.Notes})
@@ -516,9 +531,17 @@ func (s *Store) Snapshot(ctx context.Context) (*Snapshot, error) {
 			return err
 		}
 		h := handlesIn(tx)
-		return each(tx, bDeps, "", func(_ []byte, d *depRow) error {
+		if err := each(tx, bDeps, "", func(_ []byte, d *depRow) error {
 			snap.Deps = append(snap.Deps, SnapDep{ID: d.ID, From: h.of(d.From), To: h.of(d.To), Kind: d.Kind,
 				Revision: d.Revision, CreatedAt: d.CreatedAt, CreatedBy: ptr(d.CreatedBy), LastActor: ptr(d.LastActor)})
+			return nil
+		}); err != nil {
+			return err
+		}
+		return each(tx, bLinks, "", func(_ []byte, l *linkRow) error {
+			snap.Links = append(snap.Links, SnapLink{ID: l.ID, Bead: h.of(l.Bead), Kind: l.Kind, Source: l.Source,
+				URL: l.URL, Thread: l.Thread, Revision: l.Revision, CreatedAt: l.CreatedAt,
+				CreatedBy: ptr(l.CreatedBy), LastActor: ptr(l.LastActor)})
 			return nil
 		})
 	})

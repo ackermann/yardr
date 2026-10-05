@@ -5,7 +5,9 @@ Only implementation-specific literals change: bd's link ids
 hashes become yard's revisions, and the demo-a property body / attribution
 become yard's. Every membership, direction, readiness and ordering
 expectation is bd's, re-sorted where ids changed. Capabilities yard does not
-claim (external endpoints, content-derived revisions) are dropped.
+claim (external endpoints, content-derived revisions) are dropped. The type
+inventory is bd's plus the Types yard always has for links to outside issues
+(ISSUE_TYPES).
 
 demo-a's properties and the attributions are pinned here, not read from the
 server under test, so the suite catches a change in what yard serves. Only
@@ -141,6 +143,15 @@ if len(deps) != len(want["dependencies"]):
 want["dependencies"] = [dict(d, created_at=minted(s.get("created_at"), INSTANT, "demo-a dependency created_at"))
                         for d, s in zip(want["dependencies"], deps)]
 o["resources"]["bead.demo-a"]["properties"] = want
+# yard's inventory always has the Types of links to outside issues, linked to
+# or not (docs/bdp.md): discovery names the tracks-<source> Types in its
+# maximums. Pinned here like demo-a's row, so a Type that appears or goes is
+# caught. They sort after bd's types/related and before the reference Types.
+ISSUE_TYPES = ["types/relates", "types/tracks", "types/tracks-github", "types/tracks-linear"]
+o["collections"]["type-ids"] += ISSUE_TYPES
+at = o["ordering"]["types"].index(["types/related"]) + 1
+o["ordering"]["types"][at:at] = [[t] for t in ISSUE_TYPES]
+
 # seed.py acts as bdp-conformance; yard claims the actor of the last change.
 o["attribution"] = {"bead": {"principal": "bdp-conformance", "status": "claimed"},
                     "link": {"principal": "bdp-conformance", "status": "claimed"}}

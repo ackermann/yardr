@@ -22,17 +22,22 @@ How it works:
    direction, readiness and ordering expectation stays bd's. Yard's demo-a
    row and attributions are pinned in the script, not copied from the server
    under test; only run-time values (link ids and revisions, demo-a's uuid
-   and timestamps) are read from it, each checked for its shape.
+   and timestamps) are read from it, each checked for its shape. The type
+   inventory is bd's plus the four Types yard always has for links to
+   outside issues (`relates`, `tracks`, `tracks-github`, `tracks-linear`),
+   pinned in the script too.
 4. `external-read.test.mts` runs the suite against the live server.
 
 Journals and memories are not served, nor links touching them: they are not
 work, and a bd client would count an open one as ready.
 
-What yard does not claim, so the suite marks it not-applicable: external or
-pinned link endpoints, content-derived revisions, aliases, owned links,
-disclosure. Rows that need BDP's in-process test hooks (lifecycle rows,
+What yard does not claim, so the suite marks it not-applicable: the suite's
+external-endpoint lane (it seeds a link to a URI that is no issue; yard's
+only out-of-Scope endpoints are the issues of [links](../../docs/links.md),
+tested in internal/bdp), pinned link endpoints, content-derived revisions,
+aliases, owned links, disclosure. Rows that need BDP's in-process test hooks (lifecycle rows,
 internal-fault injection) cannot run against any live server and are skipped.
 
-Last run (BDP main 182f1fc, 2026-10-02): 31 of 31 runnable scenarios pass.
+Last run (BDP main 182f1fc, 2026-10-05): 31 of 31 runnable scenarios pass.
 BDP's own `bdp bd ready --json` client, pointed at `yardr bdp serve`, returns
 J, D, A: the same ready set bd itself does.

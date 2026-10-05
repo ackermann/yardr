@@ -17,6 +17,7 @@ go deeper.
 | [review.md](review.md) | `yardr review`: working through beads waiting on humans |
 | [residents.md](residents.md) | always-on sessions (a mayor): inbox, hooks, journal, prime, memories |
 | [subscriptions.md](subscriptions.md) | subscriptions and notifications: hook sources, yardr's own bead events, `--done`, bead watch, groups, `--on` |
+| [links.md](links.md) | `yardr link`: the outside issue (Linear, GitHub) a bead tracks or relates to; one tracking bead per issue, one tracked issue per source, `link move`; the one form of an issue's URL |
 | [bdp.md](bdp.md) | serving the yard over the Beads Protocol |
 | [web.md](web.md) | `yardr web serve`: the yard in a browser, read-only; its pages and their JSON, the layout, the look's tokens, adding a page |
 | [otel.md](otel.md) | OpenTelemetry: `yardr otel export` (the event log as OTLP traces and logs), how beads, stages and sessions map to traces and spans, `TRACEPARENT` and `OTEL_RESOURCE_ATTRIBUTES` in every session, Claude Code and Codex, a Grafana example |

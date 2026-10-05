@@ -1,8 +1,8 @@
 # BDP (Beads Protocol)
 
 `yardr bdp serve` serves the yard over the [BDP](https://github.com/gastownhall/bdp)
-Read profile, so any BDP client reads yardr's beads and dependency links over
-HTTP:
+Read profile, so any BDP client reads yardr's beads, dependency links and
+links to outside issues over HTTP:
 
 ```sh
 yardr bdp serve --addr :8765 --scope https://beads.example/team/
@@ -30,3 +30,30 @@ yardr bdp serve --addr :8765 --scope https://beads.example/team/
 - BDP's own conformance suite passes against it (31/31 runnable Read
   scenarios), and BDP's `bdp bd ready` client computes the same ready set
   from yardr as `yardr ready`. See [conformance/bdp](../conformance/bdp).
+
+## Links to outside issues
+
+A bead's link to a Linear or GitHub issue ([links.md](links.md)) is served as
+a Link of its own, `<scope>links/<link-id>`:
+
+- `source` is the bead, `target` the issue's URL in its fixed form. The
+  target is an out-of-Scope endpoint: opaque, never dereferenced, compared
+  as given, which is why yardr keeps one form per issue.
+- `properties` has `source` (`linear`, `github`) and, when a delivery gave
+  it, `thread`: the issue's thread id in that source.
+- The Type is `<scope>types/relates`, or `<scope>types/tracks-<source>`
+  (`tracks-linear`, `tracks-github`), which conforms to `<scope>types/tracks`.
+  `links/?conformsTo=<scope>types/tracks` lists every tracked issue;
+  `links/?target=<issue URL>` lists an issue's beads. The Types are
+  Scope-local and resolve whether or not the yard has such a link yet.
+  `relates` is not BDP's reference `relates`: its target is no work item.
+- A link has its own revision. Its kind is fixed, as BDP requires of a
+  Link's type: replacing a bead's `relates` link with a `tracks` one, or
+  moving the tracker, deletes Links and creates new ones.
+- Discovery (`bdp.json`) advertises `maximumEndpointMultiplicity`: for each
+  `tracks-<source>` Type, endpoint `source`, max 1. A bead tracks at most one
+  issue per source.
+- That an issue has at most one tracking bead is yardr's own rule, kept by
+  the store and **not** advertised: BDP v0 never counts or constrains an
+  out-of-Scope endpoint.
+- A journal's or memory's links are not served, as the bead is not.

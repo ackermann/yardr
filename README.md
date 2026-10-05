@@ -265,6 +265,8 @@ The rest of the documentation is in [docs/](docs/README.md):
   inbox, webhook subscriptions, journal, handoffs and memories.
 - **[Subscriptions](docs/subscriptions.md):** what reaches a resident's inbox:
   hook sources, yardr's own bead events (`--done`, `yardr bead watch`), groups.
+- **[Links](docs/links.md):** `yardr link`, the outside issue (Linear, GitHub) a bead
+  tracks or relates to.
 - **[BDP](docs/bdp.md):** serving the yard over the Beads Protocol.
 - **[Web view](docs/web.md):** `yardr web serve`, the yard in a browser, read-only.
 
