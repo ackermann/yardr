@@ -18,6 +18,7 @@ in yard-9cza, the merge gate in yard-p2y7.
 | stage files | a repository flow's: `.yardr/flows/<name>/<stage>.md`, read from the base (built) | none in the store: a store flow's are files in the yard's home, `~/.yardr/flows/<name>/<stage>.md` (built; [flows.md](flows.md#stage-files-what-a-stage-is-for)) |
 | merge gate | `.yardr/check` (built) | a per-rig override, `rig add --check` (built) |
 | light gate, for parts of an epic | `.yardr/check-light` (built) | a per-rig override, `rig add --check-light` (built) |
+| which lines of a red gate's output say what failed | `.yardr/check-fail-pattern` (built) | none; a red gate's whole output is a file in the yard's home, `~/.yardr/gates/<rig>/` (built) |
 | roles | the rig's own role prompts: `.yardr/roles/<name>.md`, read from the base (built) | the generic roles `yardr init` installed in `~/.yardr/roles/`, the fallback; residents' prompts, by absolute path (built) |
 | groups | | runner, limit, members, subscriptions (manual), agent kind, model, args, cmd, worktree settings (built) |
 | routes | | which group works which stage, by rig, type, label (built) |
@@ -377,7 +378,10 @@ gives the full output, the exit code and the source (`store`, `repo@<sha>`,
 an unknown rig, a base that does not resolve, git failing. A check ended by
 a signal from outside (its process killed, or its own exit status 128+N, as
 a shell reports a killed command) exits 128+N, which the refinery runs once
-more instead of sending the bead back. It also fails,
+more instead of sending the bead back. A red gate's whole output is kept
+in a file that the FAIL line names, and its lines that say what failed are
+printed before the tail when the rig has a pattern for them
+([below](#a-red-gates-output-the-file-and-yardrcheck-fail-pattern)). It also fails,
 naming them, while open beads of the rig sit in a stage their flow lacks
 (with a green gate that is exit 2, since no branch can fix it; see
 [flows.md](flows.md#a-base-change-that-drops-a-stage)). The check is
@@ -397,6 +401,56 @@ The gate runs the branch's own code, tests included: it is fixed by the
 base, but what it runs is not. A branch that deletes or weakens its tests
 passes vacuously. That is the accepted model for now; the reviewer is the
 one who catches it (see [pipeline.md](pipeline.md#what-the-gate-does-not-catch)).
+
+### A red gate's output: the file and `.yardr/check-fail-pattern`
+
+The tail of a long run is mostly what came after the failure: with `go test
+./...` the failing test's lines are followed by the `ok` of every package
+after it. So `yardr rig check` does two more things for a gate that did not
+pass (red, timed out, ended by a signal; the light gate's too), whoever ran
+it: the refinery, a builder, a reviewer.
+
+**It keeps the whole output**, in
+`<home>/gates/<rig>/<dir>-<UTC time>.log` (`.light.log` for the light gate),
+mode 0600, where `<dir>` is the last element of the directory the check ran
+in: a bead's worktree is named after the bead, so the file is too. The FAIL
+line ends with it:
+
+```
+check yardr (repo@3cb4b79 from main (no remote)) in /…/yardr-k3f9: FAIL (exit 1); whole output: /…/.yardr/gates/yardr/yardr-k3f9-20261005T141500Z.log
+```
+
+`--json` has it as `log_file`. A gate that passed keeps nothing: nobody is
+sent back to read it. Every run that keeps a file removes the rig's kept
+outputs older than 14 days and, of those for the same `<dir>`, all but the
+newest 5; the count is per directory, so a builder running a red gate over
+and over does not push out the file another bead's note names. A file that
+cannot be written does not change the verdict: the line says why instead.
+
+**It prints the lines that say what failed, before the tail**, when the rig
+says how to tell them. yardr knows no language; the rig gives
+`.yardr/check-fail-pattern`: regular expressions (Go's syntax), one per
+line, a line of output matching when any of them does. Blank lines and lines
+starting with `#` are skipped, space around a pattern is dropped, and a line
+that is not a regular expression is named in a note and skipped. Every
+matching line is printed with the 2 lines before it and the 8 after, each
+line once (stretches that touch are one, and a matching line already shown
+as a match opens no stretch of its own), 150 lines at most, with a count of
+the matching lines left out. Each stretch is headed by the number of its
+first line in the output, `-- line 812`, which is where to look in the file.
+Then come `the last N lines:` and the tail. A rig without the file gets the
+tail alone, as before, and the kept file.
+
+The pattern is read where the repository's gate is: at the tip of the base
+for a git rig (so it counts once it has landed), in the directory for a dir
+rig. It has no store override: under `--check` it is still the repository's,
+at the base as it resolves locally. It serves both gates, and it only
+chooses what is shown first: it cannot make a check pass or fail.
+
+Rig yardr's [`.yardr/check-fail-pattern`](../.yardr/check-fail-pattern)
+names what go prints for a failure: `--- FAIL`, `^FAIL`, `panic:`, `DATA
+RACE`, the gate's own `gofmt needed`, and the `file.go:line:col:` of vet and
+the compiler.
 
 ### The light gate: `.yardr/check-light`
 

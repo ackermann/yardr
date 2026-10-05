@@ -439,6 +439,23 @@ exit status 128+N, which is how a shell reports a command killed by signal N)
 exits 128+N: no branch did that, so a merge script runs the gate again rather
 than send the bead back. The kill at --timeout is not that: it exits 1.
 
+The whole output of a gate that did not pass (red, timed out, ended by a
+signal; the light gate's too) is kept in a file, mode 0600, which the FAIL
+line names after "whole output: ":
+<home>/gates/<rig>/<dir>-<UTC time>.log, <dir> being the last element of the
+directory it ran in (a bead's worktree is named after the bead), and
+".light.log" for the light gate. A gate that passed keeps nothing. Each run
+that keeps one removes the rig's kept outputs older than 14 days and, for
+the same <dir>, all but the newest 5. --json has the path as log_file.
+
+Before the tail, a red gate's output is searched for the lines that say what
+failed, when the rig says how to tell them: ` + rigcheck.FailPatternPath + `, read
+where the repository's gate is (the base; a dir rig's directory), holds
+regular expressions (Go's syntax), one per line, # for a comment. Every line
+matching one is printed with 2 lines before it and 8 after, each line once,
+150 lines at most, each stretch headed by its line number in the output. A
+rig without the file gets the tail alone, and the file.
+
 The check also fails while an open bead of the rig sits in a stage the flow
 governing it lacks (a repository flow lost the stage on the base), and names
 each: bead, stage, flow and the commit it was read at. No branch can fix
@@ -472,8 +489,19 @@ them; yardr rig sources <rig> shows every source.`,
 				if res.Fallback != "" {
 					fmt.Println(res.Fallback)
 				}
-				// No gate has only yardr's own message, said below.
+				// What failed first, where the rig says how to tell: in a long
+				// run it is far above the tail.
 				out := rigcheck.Tail(res.Output, tail)
+				if res.Matched != "" {
+					fmt.Printf("lines matching %s, of %d lines of output:\n%s\n", rigcheck.FailPatternPath, rigcheck.Lines(res.Output), res.Matched)
+					if res.MatchedMore > 0 {
+						fmt.Printf("(%d more matching lines not shown)\n", res.MatchedMore)
+					}
+					if strings.TrimSpace(out) != "" {
+						fmt.Printf("the last %d lines:\n", rigcheck.Lines(out))
+					}
+				}
+				// No gate has only yardr's own message, said below.
 				switch {
 				case res.Source == "":
 				case strings.TrimSpace(out) != "":
@@ -489,8 +517,17 @@ them; yardr rig sources <rig> shows every source.`,
 					fmt.Printf("(%d lines of output not shown; --tail to see them, or --json for all)\n",
 						strings.Count(strings.TrimRight(res.Output, "\n"), "\n")+1)
 				}
-				for _, n := range slices.Concat(res.StageNotes, res.ShadowNotes) {
+				for _, n := range slices.Concat(res.PatternNotes, res.StageNotes, res.ShadowNotes) {
 					fmt.Printf("note: %s\n", n)
+				}
+				// A red gate's line ends with where all of its output is: the
+				// refinery reads the file's name from here (wholeOutput).
+				var kept string
+				switch {
+				case res.LogFile != "":
+					kept = wholeOutput + res.LogFile
+				case res.LogError != "":
+					kept = "; its output could not be kept: " + res.LogError
 				}
 				src := res.Source
 				if res.From != "" {
@@ -509,13 +546,13 @@ them; yardr rig sources <rig> shows every source.`,
 				case res.Pass:
 					fmt.Printf("check %s (%s) in %s: pass\n", res.Rig, src, res.Dir)
 				case res.TimedOut:
-					fmt.Printf("check %s (%s) in %s: FAIL (timed out after %s)\n", res.Rig, src, res.Dir, timeout)
+					fmt.Printf("check %s (%s) in %s: FAIL (timed out after %s)%s\n", res.Rig, src, res.Dir, timeout, kept)
 				case len(res.Stranded)+len(res.StrayStageFiles)+len(res.StrayHomeStageFiles) > 0 && res.ExitCode == 0:
 					fmt.Printf("check %s (%s) in %s: gate passed\n", res.Rig, src, res.Dir)
 				case res.Signal != 0:
-					fmt.Printf("check %s (%s) in %s: FAIL (exit %d, ended by signal %d)\n", res.Rig, src, res.Dir, res.ExitCode, res.Signal)
+					fmt.Printf("check %s (%s) in %s: FAIL (exit %d, ended by signal %d)%s\n", res.Rig, src, res.Dir, res.ExitCode, res.Signal, kept)
 				default:
-					fmt.Printf("check %s (%s) in %s: FAIL (exit %d)\n", res.Rig, src, res.Dir, res.ExitCode)
+					fmt.Printf("check %s (%s) in %s: FAIL (exit %d)%s\n", res.Rig, src, res.Dir, res.ExitCode, kept)
 				}
 				for _, sb := range res.Stranded {
 					fmt.Printf("stranded: bead %s; advance it to a stage the flow has (yardr bead advance %s --to <stage>)\n", sb, sb.Bead)
@@ -546,7 +583,7 @@ them; yardr rig sources <rig> shows every source.`,
 		},
 	}
 	cmd.Flags().StringVar(&dir, "dir", "", "directory to run it in (default: the rig)")
-	cmd.Flags().IntVar(&tail, "tail", 40, "lines of output to show")
+	cmd.Flags().IntVar(&tail, "tail", 40, "last lines of output to show (a red gate's lines matching "+rigcheck.FailPatternPath+" are shown before them, and all of it is kept in a file)")
 	cmd.Flags().DurationVar(&timeout, "timeout", rigcheck.DefaultTimeout, "kill the check and fail after this long")
 	cmd.Flags().BoolVar(&light, "light", false, "run the rig's light gate ("+rigcheck.LightPath+"); the full one when the rig has none")
 	return cmd
@@ -594,6 +631,14 @@ func (a *app) runRigCheck(ctx context.Context, rigName, dir string, timeout time
 	}
 	if len(stranded) > 0 {
 		res.Stranded, res.Pass = stranded, false
+	}
+	// The whole output of a gate that did not pass is kept, whoever ran it:
+	// the tail shown is rarely where the failure is. A run that passed keeps
+	// nothing (nobody is sent back to read it), and no gate printed nothing.
+	if !gateGreen(res) && res.Source != "" {
+		if res.LogFile, err = rigcheck.Keep(a.home(), res, time.Now()); err != nil {
+			res.LogError = err.Error()
+		}
 	}
 	res.StageNotes = notes
 	// A rig whose sources do not resolve has other trouble; the notes wait.
@@ -664,6 +709,11 @@ func stageFileFindings(ctx context.Context, st store.API, rig store.Rig, dir, ho
 	}
 	return notes, stray, strayHome, nil
 }
+
+// wholeOutput is what, in the line that says a gate failed, comes before the
+// file its whole output was kept in, up to the end of the line. merge-local
+// and integrate-epic find the file by it.
+const wholeOutput = "; whole output: "
 
 // gateGreen reports whether the gate itself passed in res, whatever else
 // fails the check: it ran to exit 0, or the rig needs none.

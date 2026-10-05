@@ -103,6 +103,9 @@ type Check struct {
 	// gate was asked for and the rig has none, why this is the full one.
 	Light    bool   `json:"light,omitempty"`
 	Fallback string `json:"fallback,omitempty"`
+	// FailPattern is the content of the rig's FailPatternPath, read where
+	// the repo's gate is; empty when the rig has none.
+	FailPattern []byte `json:"-"`
 }
 
 // None reports whether the rig has no gate.
@@ -125,9 +128,14 @@ func ResolveLight(ctx context.Context, rig store.Rig) (*Check, error) {
 func resolve(ctx context.Context, rig store.Rig, light bool) (*Check, error) {
 	switch {
 	case light && rig.CheckLight != "":
-		return &Check{Source: "store", Cmd: rig.CheckLight, Base: localBase(ctx, rig), Light: true}, nil
+		c := &Check{Source: "store", Cmd: rig.CheckLight, Base: localBase(ctx, rig), Light: true}
+		c.FailPattern = failPattern(ctx, rig, c.Base)
+		return c, nil
 	case rig.Check != "":
+		// The pattern is still the repository's, at the base as it is
+		// locally: the store has no setting for it, and it lowers no bar.
 		c := &Check{Source: "store", Cmd: rig.Check, Base: localBase(ctx, rig)}
+		c.FailPattern = failPattern(ctx, rig, c.Base)
 		if light {
 			// The operator took the gate out of the repo's hands: a light
 			// gate in the repo does not take it back.
@@ -164,6 +172,7 @@ func resolve(ctx context.Context, rig store.Rig, light bool) (*Check, error) {
 			return nil, err
 		}
 		c := &Check{Source: "repo@" + sha[:min(12, len(sha))], From: from, Script: []byte(script), Base: sha, Light: path == LightPath}
+		c.FailPattern = failPattern(ctx, rig, sha)
 		if light && !c.Light {
 			c.Fallback = fmt.Sprintf("rig %s has no light gate (no --check-light, no %s on %s): running the full gate", rig.Name, LightPath, from)
 		}
@@ -205,6 +214,7 @@ func resolveDir(rig store.Rig, paths []string) (*Check, error) {
 			return nil, fmt.Errorf("rig %s: %w", rig.Name, err)
 		}
 		c := &Check{Source: "dir", Script: script, File: file, Light: path == LightPath}
+		c.FailPattern = failPattern(context.Background(), rig, "")
 		if len(paths) > 1 && !c.Light {
 			c.Fallback = fmt.Sprintf("rig %s has no light gate (no --check-light, no %s in %s): running the full gate", rig.Name, LightPath, rig.Path)
 		}
@@ -326,6 +336,18 @@ type Result struct {
 	// the branch: the caller reports it apart from a red gate.
 	Signal int    `json:"signal,omitempty"`
 	Output string `json:"output"` // stdout and stderr, interleaved
+	// Matched is, for a check that did not pass in a rig with a
+	// FailPatternPath, the lines of Output matching it, with their context
+	// (see Matching); MatchedMore is how many matching lines it left out.
+	// PatternNotes name the lines of the pattern file that were skipped.
+	Matched      string   `json:"matched,omitempty"`
+	MatchedMore  int      `json:"matched_more,omitempty"`
+	PatternNotes []string `json:"pattern_notes,omitempty"`
+	// LogFile is where the whole Output of a check that did not pass was
+	// kept (see Keep), and LogError why it could not be. The caller fills
+	// them in: Run does not know the yard's home.
+	LogFile  string `json:"log_file,omitempty"`
+	LogError string `json:"log_error,omitempty"`
 	// Stranded are the rig's open beads in a stage their flow lacks, which
 	// fail the check whatever the gate said. The caller fills it in: Run
 	// has no store.
@@ -442,6 +464,9 @@ func run(ctx context.Context, rig store.Rig, dir string, light bool) (*Result, e
 		res.Signal = signalOf(exitErr)
 	default:
 		return nil, fmt.Errorf("run check: %w", err)
+	}
+	if !res.Pass {
+		c.matching(res)
 	}
 	return res, nil
 }

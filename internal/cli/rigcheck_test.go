@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -340,5 +341,123 @@ func TestRigCheckLight(t *testing.T) {
 	}
 	if _, err = run(t, a.rigCheckCmd(), "broken", "--light"); exitCode(err) != 2 {
 		t.Fatalf("rig that is not a repo, --light: %v (exit %d), want 2", err, exitCode(err))
+	}
+}
+
+// A gate that does not pass keeps its whole output in the yard's home and
+// names the file in its FAIL line, the light gate's and a timed-out one's
+// too; one that passes keeps nothing. With a pattern on the base the lines
+// that say what failed come before the tail.
+func TestRigCheckKeepsAFailedGatesOutput(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	repo, home := t.TempDir(), t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q", "-b", "main")
+	git("commit", "-q", "--allow-empty", "-m", "init")
+	put := func(check, light string) {
+		t.Helper()
+		if err := st.PutRig(ctx, store.Rig{Name: "r", Path: repo, Base: "main", Check: check, CheckLight: light}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := &app{st: st, actor: "me", cfg: &config.Config{Home: home}}
+	gates := filepath.Join(home, "gates", "r")
+	keptFile := func(out string) string {
+		t.Helper()
+		m := regexp.MustCompile(`(?m)^check r \(.*\) in .*: FAIL \(.*\); whole output: (.*)$`).FindStringSubmatch(out)
+		if m == nil {
+			t.Fatalf("the FAIL line names no file:\n%s", out)
+		}
+		if filepath.Dir(m[1]) != gates {
+			t.Fatalf("kept in %s, want under %s", m[1], gates)
+		}
+		return m[1]
+	}
+
+	put("true", "")
+	if out, err := run(t, a.rigCheckCmd(), "r"); exitCode(err) != 0 || strings.Contains(out, "whole output") {
+		t.Fatalf("green gate: %q, %v", out, err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "gates")); !os.IsNotExist(err) {
+		t.Fatalf("a passing gate kept something: %v", err)
+	}
+
+	// The failure, then 500 lines: no pattern, so the tail alone, and the file.
+	fails := `echo '--- FAIL: TestIt'; echo '    it_test.go:7: got 1'; i=0; while [ $i -lt 500 ]; do i=$((i+1)); echo "ok pkg$i"; done; exit 3`
+	put(fails, "echo light; exit 1")
+	out, err := run(t, a.rigCheckCmd(), "r", "--tail", "5")
+	if exitCode(err) != 1 || strings.Contains(out, "TestIt") || strings.Contains(out, "lines matching") || !strings.HasPrefix(out, "ok pkg496\n") {
+		t.Fatalf("red gate without a pattern: %q, %v", out, err)
+	}
+	file := keptFile(out)
+	whole, err := os.ReadFile(file)
+	if err != nil || !strings.HasPrefix(string(whole), "--- FAIL: TestIt\n") || strings.Count(string(whole), "\n") != 502 {
+		t.Fatalf("%s does not hold the whole output: %v\n%.200s", file, err, whole)
+	}
+	if info, _ := os.Stat(file); info.Mode().Perm() != 0o600 {
+		t.Fatalf("%s has mode %v, want 0600", file, info.Mode().Perm())
+	}
+
+	// With a pattern on the base: what failed first, then the tail.
+	if err := os.MkdirAll(filepath.Join(repo, ".yardr"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".yardr", "check-fail-pattern"), []byte("--- FAIL\n(\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", ".yardr")
+	git("commit", "-q", "-m", "pattern")
+	out, err = run(t, a.rigCheckCmd(), "r", "--tail", "5")
+	lead := "lines matching .yardr/check-fail-pattern, of 502 lines of output:\n-- line 1\n--- FAIL: TestIt\n    it_test.go:7: got 1\nok pkg1\n"
+	if exitCode(err) != 1 || !strings.HasPrefix(out, lead) || !strings.Contains(out, "ok pkg7\nthe last 5 lines:\nok pkg496\n") ||
+		!strings.Contains(out, "note: .yardr/check-fail-pattern line 2 is not a regular expression") {
+		t.Fatalf("red gate with a pattern: %q, %v", out, err)
+	}
+	if second := keptFile(out); second == file {
+		t.Fatalf("the second run was kept over the first, in %s", file)
+	}
+	// --tail 0 still leads with what failed.
+	if out, _ = run(t, a.rigCheckCmd(), "r", "--tail", "0"); !strings.HasPrefix(out, lead) || strings.Contains(out, "the last") {
+		t.Fatalf("red gate with a pattern, --tail 0: %q", out)
+	}
+
+	// The light gate's, a timed-out gate's and a signalled one's are kept too.
+	out, err = run(t, a.rigCheckCmd(), "r", "--light")
+	if f := keptFile(out); exitCode(err) != 1 || !strings.HasSuffix(f, ".light.log") {
+		t.Fatalf("red light gate: %q, %v", out, err)
+	}
+	put("echo slow; sleep 30", "")
+	out, err = run(t, a.rigCheckCmd(), "r", "--timeout", "300ms")
+	if b, _ := os.ReadFile(keptFile(out)); exitCode(err) != 1 || !strings.HasPrefix(string(b), "slow\n") {
+		t.Fatalf("timed out gate: %q, %v, kept %q", out, err, b)
+	}
+	put("echo ok; exit 143", "")
+	out, err = run(t, a.rigCheckCmd(), "r")
+	if keptFile(out); exitCode(err) != 143 {
+		t.Fatalf("signalled gate: %q, %v", out, err)
+	}
+
+	// --json names it as log_file.
+	a.json = true
+	if out, _ = run(t, a.rigCheckCmd(), "r"); !strings.Contains(out, `"log_file": "`+gates) {
+		t.Fatalf("--json: %s", out)
+	}
+	a.json = false
+
+	// A home it cannot write to: the gate's verdict stands, and the line says so.
+	notDir := filepath.Join(home, "file")
+	if err := os.WriteFile(notDir, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a.cfg = &config.Config{Home: notDir}
+	if out, err = run(t, a.rigCheckCmd(), "r"); exitCode(err) != 143 || !strings.Contains(out, "ended by signal 15); its output could not be kept: ") {
+		t.Fatalf("unwritable home: %q, %v", out, err)
 	}
 }
