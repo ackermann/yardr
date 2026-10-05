@@ -101,10 +101,10 @@ every start fails with herdr's `server_not_running`, and `yardr doctor` says
   session, and its server stays when you detach (`ctrl+b q`). `herdr server
   stop` ends it, and its panes with it.
 - On a machine without a desktop, `herdr server` runs the headless server,
-  which herdr's CLI reference names for "supervised or service-style
-  setups" (<https://herdr.dev>). Run it under what keeps a program running
-  there. As a systemd user unit, with the path `command -v herdr` prints in
-  your login shell:
+  which herdr's [CLI reference](https://herdr.dev/docs/cli-reference/)
+  recommends for supervised or service-style setups. Run it under what keeps
+  a program running there. As a systemd user unit, with the path
+  `command -v herdr` prints in your login shell:
 
   ```ini
   # ~/.config/systemd/user/herdr.service
