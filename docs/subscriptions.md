@@ -259,7 +259,11 @@ On GitHub, in the repository's **Settings → Webhooks → Add webhook**:
 A GitHub App gives the yard both sides at once: its webhook delivers every
 repository it is installed on, in place of a webhook per repository, and a
 resident answers as the App's bot, `<slug>[bot]`, not under a person's
-account. Create it under your account's **Settings → Developer settings →
+account. Create one private App per yard, owned by the yard's operator and
+installed only on their account. Its single webhook URL and private key mean
+a shared public App would send every installer's events to one machine. App
+names are global; if the name you want is taken, try `<something>-yardr` or
+`yardr-<owner>`. Create it under your account's **Settings → Developer settings →
 GitHub Apps → New GitHub App**:
 
 - **Webhook:** active; the URL is the hook's (`https://<your host>/hooks/gh`)

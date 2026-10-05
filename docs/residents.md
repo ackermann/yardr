@@ -205,7 +205,11 @@ yardr resident show mayor     # env_file …/mayor.env (LINEAR_API_KEY)
 With a personal token a resident's comments are the token's owner's; in a
 yard one person runs, that is the person. A resident that speaks as a GitHub
 App comments as the App's bot, `<slug>[bot]`, and needs no account of its
-own.
+own. Create one private GitHub App per yard, owned by the yard's operator
+and installed only on that operator's account. A GitHub App has one webhook
+URL and private key: a shared public App would send every installer's events
+to one machine. App names are global; if the name you want is taken, try
+`<something>-yardr` or `yardr-<owner>`.
 
 1. **Create the App** (GitHub, your account's **Settings → Developer
    settings → GitHub Apps → New GitHub App**), installable *only on this
