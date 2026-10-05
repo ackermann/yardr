@@ -116,12 +116,24 @@ func (h *Herdr) sendKey(ctx context.Context, pane, key string) error {
 // last `lines` of it when lines is positive. pane read prints the text
 // itself, not a JSON result.
 func (h *Herdr) readPane(ctx context.Context, pane, source string, lines int) (string, error) {
+	return h.paneRead(ctx, pane, source, lines)
+}
+
+// readPaneStyled is readPane with the terminal's styling left in, as SGR
+// escapes: what tells a harness's dimmed placeholder from typed text (see
+// inputText).
+func (h *Herdr) readPaneStyled(ctx context.Context, pane, source string, lines int) (string, error) {
+	return h.paneRead(ctx, pane, source, lines, "--format", "ansi")
+}
+
+func (h *Herdr) paneRead(ctx context.Context, pane, source string, lines int, more ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	args := []string{"pane", "read", pane, "--source", source}
 	if lines > 0 {
 		args = append(args, "--lines", fmt.Sprint(lines))
 	}
+	args = append(args, more...)
 	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, h.Bin, args...)
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr

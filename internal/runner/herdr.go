@@ -914,6 +914,169 @@ func promptPlace(text, prompt string) (taken, typed bool) {
 	return false, showsPrompt(strings.Join(lines[input:], "\n"), prompt)
 }
 
+// InputText is what is typed in the input of the session's agent and not
+// sent: a person's unfinished message, or a prompt whose Enter was not
+// taken. A harness's placeholder is not text. known is false for a harness
+// whose input yardr cannot tell (no line with an input mark), and an error
+// says the pane could not be read; either way nothing is known about the
+// input.
+//
+// Found live (yardr-ps05): a person was typing in the mayor's pane when the
+// yard nudged the mayor. The nudge went into the same input, and its Enter
+// sent their half sentence and the nudge as one message. So what types into
+// an input looks here first.
+func (h *Herdr) InputText(ctx context.Context, handle map[string]any) (text string, known bool, err error) {
+	pane, _ := handle["pane"].(string)
+	if pane == "" {
+		return "", false, fmt.Errorf("handle has no pane")
+	}
+	styled, err := h.readPaneStyled(ctx, pane, "recent-unwrapped", promptScan)
+	if err != nil {
+		return "", false, err
+	}
+	text, known = inputText(styled)
+	return text, known, nil
+}
+
+// inputText finds, in a pane read with its styling, the text of the agent's
+// input: what follows the mark on the pane's last line that begins with one
+// (see promptPlace), and the lines after it down to the first empty line or
+// rule, which is where Codex's and Claude Code's input ends and their
+// footer begins. ok is false for a pane with no such line.
+//
+// Faint text (SGR 2) is left out: it is how both draw what is in the input
+// and was not typed. Read live with `herdr pane read --format ansi` (herdr
+// 0.9.0), Claude Code 2.1.288 shows `❯ ESC[2mTry "fix typecheck errors"`
+// and Codex `› ESC[2mAsk Codex to do anything`, and each shows what a
+// person typed there with no attribute at all. The attribute is asked, not
+// the wording: Claude Code's placeholder is a different suggestion each
+// time, and a person may type a placeholder's very words.
+func inputText(styled string) (text string, ok bool) {
+	plain, typed := unstyled(styled)
+	input := -1
+	for i, l := range plain {
+		l = strings.TrimSpace(l)
+		for _, m := range inputMarks {
+			if strings.HasPrefix(l, m) {
+				input = i
+			}
+		}
+	}
+	if input < 0 {
+		return "", false
+	}
+	var lines []string
+	for i := input; i < len(plain); i++ {
+		if i > input && (strings.TrimSpace(plain[i]) == "" || isRule(plain[i])) {
+			break
+		}
+		l := strings.TrimSpace(typed[i])
+		if i == input {
+			for _, m := range inputMarks {
+				l = strings.TrimPrefix(l, m)
+			}
+		}
+		if l = strings.TrimSpace(l); l != "" {
+			lines = append(lines, l)
+		}
+	}
+	return strings.Join(lines, "\n"), true
+}
+
+// isRule reports whether line is drawn of box-drawing characters alone, as
+// the rules above and below Claude Code's input are.
+func isRule(line string) bool {
+	line = strings.TrimSpace(line)
+	for _, r := range line {
+		if r < 0x2500 || r > 0x257f {
+			return false
+		}
+	}
+	return line != ""
+}
+
+// unstyled splits a pane read with its styling into lines, twice: plain is
+// each line's text, and typed the same without what is drawn faint. Every
+// escape sequence is dropped; of SGR only faint (2) and what ends it (22,
+// 0) are followed. The numbers after 38, 48 and 58 are a colour's, so a 2
+// among them (`38;2;r;g;b`, `38;5;2`) is not the attribute.
+func unstyled(styled string) (plain, typed []string) {
+	var p, t strings.Builder
+	faint := false
+	flush := func() {
+		plain, typed = append(plain, p.String()), append(typed, t.String())
+		p.Reset()
+		t.Reset()
+	}
+	rs := []rune(styled)
+	for i := 0; i < len(rs); i++ {
+		switch r := rs[i]; {
+		case r == '\n':
+			flush()
+		case r == '\r':
+		case r == 0x1b && i+1 < len(rs) && rs[i+1] == '[':
+			j := i + 2
+			for j < len(rs) && (rs[j] < 0x40 || rs[j] > 0x7e) {
+				j++
+			}
+			if j < len(rs) && rs[j] == 'm' {
+				faint = sgrFaint(string(rs[i+2:j]), faint)
+			}
+			i = j
+		case r == 0x1b && i+1 < len(rs) && rs[i+1] == ']':
+			// An OSC (a title, a hyperlink) runs to BEL or ESC \.
+			j := i + 2
+			for j < len(rs) && rs[j] != 0x07 && !(rs[j] == 0x1b && j+1 < len(rs) && rs[j+1] == '\\') {
+				j++
+			}
+			if j < len(rs) && rs[j] == 0x1b {
+				j++
+			}
+			i = j
+		case r == 0x1b:
+			i++ // a two-character escape
+		default:
+			p.WriteRune(r)
+			if !faint {
+				t.WriteRune(r)
+			}
+		}
+	}
+	flush()
+	return plain, typed
+}
+
+// sgrFaint is whether text is faint after the SGR parameters params, given
+// whether it was before.
+func sgrFaint(params string, faint bool) bool {
+	if params == "" {
+		return false // ESC[m is ESC[0m
+	}
+	codes := strings.Split(params, ";")
+	for i := 0; i < len(codes); i++ {
+		// A colon carries a parameter's own arguments (38:2::r:g:b): only
+		// what is before it is the code.
+		code, _, _ := strings.Cut(codes[i], ":")
+		switch code {
+		case "", "0", "22":
+			faint = false
+		case "2":
+			faint = true
+		case "38", "48", "58":
+			if codes[i] != code || i+1 >= len(codes) {
+				break
+			}
+			switch codes[i+1] {
+			case "5":
+				i += 2
+			case "2":
+				i += 4
+			}
+		}
+	}
+	return faint
+}
+
 // promptLead is how much of a prompt, counted without its white space, is
 // looked for in a pane: enough to tell it from anything else there, and
 // short enough that an agent which shortens what it echoes still shows it.

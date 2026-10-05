@@ -144,6 +144,10 @@ type Dispatcher struct {
 	// counts as lost (default 10s, as the herdr runner waits for the one it
 	// sends itself). Negative: no wait. See pendingPrompt.
 	PromptSettle, PromptWait time.Duration
+	// DraftWait is how long text may sit in an agent's input, holding back
+	// what yardr has to type there, before an event says so (default 10m).
+	// See inputHeld.
+	DraftWait time.Duration
 
 	ghCursor uint64 // the last event the github rules read
 	// issueWait is source -> when it is asked again after a call that
@@ -174,6 +178,11 @@ type Dispatcher struct {
 	// first seen idle with a prompt that has not been delivered yet.
 	promptDue  *time.Time
 	promptIdle map[string]time.Time
+	// drafts is session (or "resident:<name>") -> the text found in its
+	// agent's input when yardr had something to type there, and nudged is
+	// the same -> the last nudge yardr typed. See inputHeld.
+	drafts map[string]*draft
+	nudged map[string]string
 
 	clock      func() time.Time // tests only; see now
 	retryAfter map[string]time.Time
@@ -287,6 +296,9 @@ func (d *Dispatcher) defaults() {
 	if d.PromptWait == 0 {
 		d.PromptWait = defaultPromptWait
 	}
+	if d.DraftWait == 0 {
+		d.DraftWait = defaultDraftWait
+	}
 	if d.Log == nil {
 		d.Log = slog.Default()
 	}
@@ -300,6 +312,8 @@ func (d *Dispatcher) defaults() {
 		d.idleTold = map[string]bool{}
 		d.fresh = map[string]time.Time{}
 		d.promptIdle = map[string]time.Time{}
+		d.drafts = map[string]*draft{}
+		d.nudged = map[string]string{}
 	}
 }
 
@@ -815,6 +829,8 @@ func (d *Dispatcher) forget(id string) {
 	delete(d.idleTold, id)
 	delete(d.fresh, id)
 	delete(d.promptIdle, id)
+	delete(d.drafts, id)
+	delete(d.nudged, id)
 }
 
 // teardown stops runner resources for sessions that ended, unless the group

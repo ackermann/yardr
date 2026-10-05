@@ -245,7 +245,10 @@ for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`
   `session_prompted` is the arrival, not the sending: `shown: true` when the
   prompt was found in the pane, `deliveries` how often the daemon had sent
   it, `submits` how often it had sent Enter for it. Residents go the same
-  way, with the events on their journal.
+  way, with the events on their journal. Text in the input that is not the
+  prompt is someone's: the daemon does not type the prompt after it, and
+  delivers it once the input is empty (see "Text in the input" in
+  [residents.md](residents.md); `nudge_held` is then on the bead).
 - **Decide what agents may run unattended.** Anything outside `args`'
   permissions blocks the agent on a prompt. Pass what the role needs, e.g.
   `--set 'args=["--permission-mode","acceptEdits","--allowedTools","Bash(yardr:*),Bash(git:*)"]'`;

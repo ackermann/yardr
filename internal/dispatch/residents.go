@@ -146,6 +146,8 @@ func (d *Dispatcher) resident(ctx context.Context, r store.Resident) error {
 	d.Log.Info("resident started", "resident", r.Name)
 	delete(d.status, "resident:"+r.Name)
 	delete(d.promptIdle, "resident:"+r.Name)
+	delete(d.drafts, "resident:"+r.Name)
+	delete(d.nudged, "resident:"+r.Name)
 	return d.Store.ResidentStarted(ctx, r.Name, handle)
 }
 
@@ -223,10 +225,11 @@ func (d *Dispatcher) residentRunning(ctx context.Context, runner Runner, r store
 	if maxAge := durationOr(r.MaxAge, 0); maxAge > 0 && r.StartedAt != nil && time.Since(*r.StartedAt) > maxAge {
 		switch {
 		case r.RotationAskedAt == nil && idle:
-			if err := d.nudge(ctx, runner, r, fmt.Sprintf(
+			typed, err := d.nudge(ctx, runner, r, fmt.Sprintf(
 				"Your session is due for rotation. Write your handoff now: yardr resident handoff %s \"<what you are doing, what is next, what to watch>\". "+
-					"yardr then starts your next session from it.", r.Name)); err != nil {
-				return err
+					"yardr then starts your next session from it.", r.Name))
+			if err != nil || !typed {
+				return err // not asked yet: the grace runs from the asking
 			}
 			return d.Store.MarkRotationAsked(ctx, r.Name)
 		case r.RotationAskedAt != nil && time.Since(*r.RotationAskedAt) > grace:
@@ -234,10 +237,14 @@ func (d *Dispatcher) residentRunning(ctx context.Context, runner Runner, r store
 		}
 	}
 	if !idle {
+		delete(d.drafts, "resident:"+r.Name) // what was in its input was sent
 		return nil
 	}
 	page, err := d.Store.Inbox(ctx, r.Name, 5)
 	if err != nil || page.Total == 0 || page.Last <= r.Notified {
+		// Nothing to type: text in the input holds nothing back, and a
+		// wait on it is over.
+		delete(d.drafts, "resident:"+r.Name)
 		return err
 	}
 	// Mail from another yard is named with its sender, <name>@<peer>, and
@@ -264,7 +271,10 @@ func (d *Dispatcher) residentRunning(ctx context.Context, runner Runner, r store
 	if len(outside) > 0 {
 		msg += fmt.Sprintf(" Mail from %s is %s.", strings.Join(outside, ", "), store.OutsideMail)
 	}
-	if err := d.nudge(ctx, runner, r, msg); err != nil {
+	// The message is made on the pass that types it: one held back by text
+	// in the input (see inputHeld) counts the inbox anew when its turn comes.
+	typed, err := d.nudge(ctx, runner, r, msg)
+	if err != nil || !typed {
 		return err
 	}
 	return d.Store.MarkNotified(ctx, r.Name, page.Last)
@@ -281,12 +291,27 @@ func (d *Dispatcher) residentStatus(ctx context.Context, runner Runner, r store.
 	return "idle", nil
 }
 
-func (d *Dispatcher) nudge(ctx context.Context, runner Runner, r store.Resident, text string) error {
+// nudge types text into r's session as its next prompt. typed is false
+// when it did not, because the input holds text (see inputHeld): the nudge
+// is then still due, and the caller records nothing as said. A runner that
+// cannot nudge has nothing to wait for.
+func (d *Dispatcher) nudge(ctx context.Context, runner Runner, r store.Resident, text string) (typed bool, err error) {
 	n, ok := runner.(Nudger)
 	if !ok {
-		return nil
+		return true, nil
 	}
-	return n.Nudge(ctx, r.Handle, text)
+	key := "resident:" + r.Name
+	if held, waited := d.inputHeld(ctx, runner, key, r.Handle); held {
+		if waited > 0 {
+			d.nudgeHeld(ctx, r.Journal, map[string]any{"resident": r.Name}, r.Handle, "a nudge", waited)
+		}
+		return false, nil
+	}
+	if err := n.Nudge(ctx, r.Handle, text); err != nil {
+		return false, err
+	}
+	d.nudged[key] = text
+	return true, nil
 }
 
 func (d *Dispatcher) stopResident(ctx context.Context, runner Runner, r store.Resident, reason string) error {

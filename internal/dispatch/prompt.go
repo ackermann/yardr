@@ -27,6 +27,7 @@ const PromptTries = 3
 const (
 	defaultPromptSettle = 3 * time.Second
 	defaultPromptWait   = 10 * time.Second
+	defaultDraftWait    = 10 * time.Minute
 )
 
 // PromptWatcher is implemented by runners that can see whether a prompt
@@ -48,6 +49,100 @@ type PromptSubmitter interface {
 	SubmitPrompt(ctx context.Context, handle map[string]any) error
 }
 
+// InputReader is implemented by runners that can read what is typed in the
+// input of a session's agent and not sent (a herdr pane shows it). known is
+// false when the runner cannot tell the agent's input from the rest of its
+// pane, and an error says it could not look; both tell nothing.
+type InputReader interface {
+	InputText(ctx context.Context, handle map[string]any) (text string, known bool, err error)
+}
+
+// draft is text seen in an agent's input on a pass that had something to
+// type there.
+type draft struct {
+	since   time.Time // when it was first seen
+	said    bool      // the nudge_held event of this wait is logged
+	pressed bool      // it was yardr's own nudge, and Enter was sent for it
+}
+
+// inputHeld reports whether the input of the session of handle holds text,
+// so that nothing may be typed there on this pass; key names the session
+// in the dispatcher's memory. waited is not zero on the one pass of a wait
+// that is to say so: the text has then been there for DraftWait.
+//
+// Found live (yardr-ps05): a person was typing in the mayor's pane when the
+// mayor was nudged about its inbox. The nudge was typed after their words
+// and its Enter sent both as one message; what they had still meant to
+// write was lost. Text in an input is someone's, so yardr types nothing
+// after it and looks again on the next pass: what it had to say stays due.
+//
+// Text that stays is a draft someone left. It is never cleared and never
+// typed after, however long it sits: both would send or destroy words a
+// person wrote, to deliver a line that is still true and still due once
+// they are gone. What a long wait costs is that the agent is not told, so
+// after DraftWait one nudge_held event says who is waiting on whose input,
+// once per wait.
+//
+// The one text yardr sends is its own: the last nudge it typed, alone in
+// the input because its Enter was not taken (as yardr-cxsb found for a
+// first prompt). Left there it would hold back every later nudge. With
+// PromptSettle gone by it gets its Enter, once.
+//
+// A runner that cannot look, or a harness whose input it cannot tell, says
+// nothing: yardr then types as it did before it looked.
+func (d *Dispatcher) inputHeld(ctx context.Context, r Runner, key string, handle map[string]any) (held bool, waited time.Duration) {
+	ir, ok := r.(InputReader)
+	if !ok {
+		return false, 0
+	}
+	text, known, err := ir.InputText(ctx, handle)
+	if err != nil || !known || strings.TrimSpace(text) == "" {
+		delete(d.drafts, key)
+		return false, 0
+	}
+	now := d.now()
+	w := d.drafts[key]
+	if w == nil {
+		w = &draft{since: now}
+		d.drafts[key] = w
+	}
+	if own := d.nudged[key]; own != "" && !w.pressed && squash(text) == squash(own) && now.Sub(w.since) >= d.PromptSettle {
+		if sub, ok := r.(PromptSubmitter); ok && sub.SubmitPrompt(ctx, handle) == nil {
+			w.pressed = true
+			d.Log.Warn("nudge was typed and not submitted: Enter sent", "session", key)
+			return true, 0
+		}
+	}
+	if !w.said && now.Sub(w.since) >= d.DraftWait {
+		w.said = true
+		return true, now.Sub(w.since)
+	}
+	return true, 0
+}
+
+// squash is s without its white space: a harness wraps what is in its
+// input to the width of its pane.
+func squash(s string) string { return strings.Join(strings.Fields(s), "") }
+
+// nudgeHeld logs the one event of a wait on text in an agent's input (see
+// inputHeld): what, a nudge or the first prompt, is not typed, for whom
+// (a resident or a bead's session, as who names it), on bead.
+func (d *Dispatcher) nudgeHeld(ctx context.Context, bead string, who, handle map[string]any, what string, waited time.Duration) {
+	data := map[string]any{
+		"waited": waited.Round(time.Second).String(),
+		"reason": fmt.Sprintf("the agent's input has held text for %s, so %s is not typed there; "+
+			"it is typed once the input is empty. Send or clear the text in its pane",
+			waited.Round(time.Second), what)}
+	if pane, _ := handle["pane"].(string); pane != "" {
+		data["pane"] = pane
+	}
+	for k, v := range who {
+		data[k] = v
+	}
+	d.Log.Warn("text in the agent's input holds back "+what, "bead", bead, "who", who, "waited", waited.Round(time.Second))
+	_ = d.Store.LogDispatch(ctx, bead, "nudge_held", actor, data)
+}
+
 // promptShown reports whether r sees prompt in the session of handle, and
 // whether it could look at all.
 func promptShown(ctx context.Context, r Runner, handle map[string]any, prompt string) (shown, known bool) {
@@ -67,6 +162,7 @@ type promptPass struct {
 	sends   int            // deliveries by the dispatcher so far
 	lost    int            // the delivery this pass found not to have arrived, 0 for none
 	gaveUp  bool           // ... and it was the last: the session is left to a human
+	held    time.Duration  // how long other text in the input has held the prompt back, on the pass that says so
 	submits int            // times the dispatcher submitted the prompt typed in the input
 	typed   int            // the submit this pass made of it, 0 for none
 	unsent  bool           // gaveUp, of a prompt that is in the input and was never taken
@@ -109,6 +205,7 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 	// Typed text was sent by someone, as a delivery of the dispatcher's was.
 	if shown || ((pass.sends > 0 || typed) && status == "working") || (pass.sends > 0 && !known) {
 		delete(d.promptIdle, key)
+		delete(d.drafts, key)
 		pass.arrived, pass.shown, pass.handle = true, shown, withoutPending(handle)
 		return pass
 	}
@@ -119,6 +216,7 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 		// At a question, or not telling: nothing is sent, and nothing is
 		// judged lost while the agent may yet turn to it.
 		delete(d.promptIdle, key)
+		delete(d.drafts, key)
 		return pass
 	}
 	now := d.now()
@@ -171,6 +269,13 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 		pass.arrived, pass.handle = true, withoutPending(handle)
 		return pass
 	}
+	// Text in the input that is not the prompt (that one was submitted
+	// above) is someone's: the prompt waits for it to go (see inputHeld).
+	if held, waited := d.inputHeld(ctx, r, key, handle); held {
+		pass.lost = 0 // said once it is sent again
+		pass.held = waited
+		return pass
+	}
 	if err := n.Nudge(ctx, handle, p); err != nil {
 		pass.lost = 0 // said once it is sent again
 		return pass   // try again next pass
@@ -218,6 +323,9 @@ func (d *Dispatcher) promptEvents(ctx context.Context, bead string, who, handle 
 		d.Log.Warn("first prompt did not arrive", "bead", bead, "who", who, "delivery", pass.lost, "of", PromptTries)
 		_ = d.Store.LogDispatch(ctx, bead, "session_prompt_lost", actor, data(map[string]any{
 			"delivery": pass.lost, "of": PromptTries}))
+	}
+	if pass.held > 0 {
+		d.nudgeHeld(ctx, bead, who, handle, "the first prompt", pass.held)
 	}
 	if pass.typed > 0 {
 		d.Log.Warn("first prompt was typed and not submitted", "bead", bead, "who", who, "submit", pass.typed, "of", PromptTries)

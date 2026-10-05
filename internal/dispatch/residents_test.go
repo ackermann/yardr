@@ -35,6 +35,17 @@ type residentRunner struct {
 	stick    int                 // deliveries of the first prompt the agent still leaves in its input
 	deaf     bool                // Enter does not submit what is in the input
 	submits  int                 // times Enter was sent
+	input    string              // what is in the agent's input, not sent
+	noInput  bool                // the harness's input cannot be told
+}
+
+func (f *residentRunner) InputText(context.Context, map[string]any) (string, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.blind {
+		return "", false, errors.New("pane cannot be read")
+	}
+	return f.input, !f.noInput, nil
 }
 
 func (f *residentRunner) PromptTyped(context.Context, map[string]any, string) (bool, error) {
@@ -48,7 +59,7 @@ func (f *residentRunner) SubmitPrompt(context.Context, map[string]any) error {
 	defer f.mu.Unlock()
 	f.submits++
 	if !f.deaf {
-		f.typed, f.shown = false, true
+		f.typed, f.shown, f.input = false, true, ""
 	}
 	return nil
 }
@@ -347,6 +358,12 @@ type nudgeRunner struct {
 	stick   int  // deliveries of the first prompt the agent still leaves in its input
 	deaf    bool // Enter does not submit what is in the input
 	submits int  // times Enter was sent
+
+	input string // what is in the agent's input, not sent
+}
+
+func (n *nudgeRunner) InputText(context.Context, map[string]any) (string, bool, error) {
+	return n.input, true, nil
 }
 
 func (n *nudgeRunner) PromptTyped(context.Context, map[string]any, string) (bool, error) {

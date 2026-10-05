@@ -125,6 +125,37 @@ doctor` and bare `yardr` say it.
 Agents are told to run yardr by absolute path: a shell may find an older yardr
 first on its PATH, and the prime warns about it.
 
+## Text in the input
+
+A nudge is typed into the resident's pane, and so is whatever a person is
+writing there. The daemon reads the pane before it types: while the agent's
+input holds text it types nothing, and the nudge stays due until a pass
+finds the input empty. It is then written anew, so it counts the inbox as it
+is at that moment. The request to hand off before a rotation waits the same
+way, and the grace for the handoff runs from when it was typed.
+
+- The input is what follows the pane's last line that begins with `❯`
+  (Claude Code) or `›` (Codex), down to the next empty line or rule. A
+  harness with neither mark, and a pane herdr cannot read, are nudged as
+  before.
+- A placeholder is not text. Both harnesses draw theirs faint (`Try "fix
+  typecheck errors"`, `Ask Codex to do anything`) and typed text plain, and
+  that attribute is what is read, with `herdr pane read --format ansi`: not
+  the wording, which Claude Code changes from one session to the next.
+- Text that stays is never cleared and never typed after. After ten minutes
+  one `nudge_held` event on the resident's journal says so, once per wait,
+  with the pane (`yardr events --bead <name>-journal`); the nudge is typed
+  when the text is sent or cleared. It is not among the kinds a resident's
+  inbox gets by default (`--on`).
+- The one text the daemon sends is its own last nudge, alone in the input
+  because its Enter was not taken: it gets Enter, once.
+- Between the read and the typing a person can still begin to write. That
+  window is one herdr call wide and not closed.
+
+A bead's agent gets no nudges. Its first prompt, when the daemon delivers
+it (see [groups.md](groups.md)), waits for text in the input the same way,
+with `nudge_held` on the bead.
+
 ## Findings from builders and reviewers
 
 What an agent finds outside its bead reaches the mayor on two channels, as
