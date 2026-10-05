@@ -79,11 +79,48 @@ decision on a bead that moved or changed since. Every move takes
 `--revision <rev>` for the same compare-and-swap, as BDP writes take
 `If-Match`.
 
-The builder implements the change, runs the gate (`yardr rig check yardr
---dir <worktree>`, which runs `.yardr/check` from fetched `origin/main`:
-`go vet`, `go test -race`, the RPC suites), commits on its branch (never
-pushes or merges), leaves a note with what it changed and verified, and
-reports `yardr bead done`, which the flow sends to `review`.
+The builder implements the change, commits on its branch (never pushes or
+merges), runs the light gate on the last commit (`yardr rig check yardr
+--light --dir <worktree>`, which runs `.yardr/check-light` from fetched
+`origin/main`: `gofmt`, `go vet`, `go build`, then `go test -race` on the
+packages the branch changed and their importers), leaves a note with what it
+changed and verified, ending in a gate line (the command, the commit, the
+result with counts), and reports `yardr bead done`, which the flow sends to
+`review`.
+
+### One full gate per bead
+
+The full gate (`.yardr/check`: `go test -race` on every package, then the
+store, dispatch and bdp suites again over the socket) runs once per bead, in
+the refinery, on exactly the commit that lands (section 4). Until 5 Oct 2026
+it ran three times, for the builder, the reviewer and the refinery: about 16
+of a bead's 37 minutes at the median. The builder now runs the light gate,
+and the reviewer the light gate or none: none when the builder's gate line
+names the commit under review and the reviewer committed nothing.
+
+What that costs is that some faults are now found one stage later, in the
+refinery, where a red gate takes a slot of the serial queue and sends the
+bead back to a builder. They are the faults rig yardr's light gate cannot
+see:
+
+- a test that reads a file no Go package compiles in. The light gate picks
+  packages by changed `.go` and embedded files, so a change to a doc, a
+  stage file under `.yardr/flows/`, the starter pack or a script runs no
+  test, though `internal/pack` compares the starter pack with `roles/` and
+  `internal/cli` reads the pack and the repository's own flows by path;
+- a test that reaches code by building the binary instead of importing it
+  (`contrib/refinery`, `contrib/isolated-yard`, the ask harness);
+- store, dispatch or bdp behaviour that differs over the unix socket: those
+  suites run only in the full gate;
+- a test in a package the branch neither changed nor is imported by, which
+  fails for a reason no import shows (shared state on disk, timing under the
+  load of the whole run).
+
+For these the builder runs the full gate itself
+([`.yardr/roles/builder.md`](../.yardr/roles/builder.md), step 3). An edit
+to `.yardr/check` or `.yardr/check-light` is seen by no gate at all, before
+or after this: both are read from `main`. A reviewer's `review:` commits get
+the light gate too, so a fault in one of them is the refinery's to find.
 
 ### What the gate does not catch
 
@@ -92,8 +129,8 @@ run, but it runs in the branch's worktree, against the branch's code and
 the branch's tests. A branch that deletes a test, skips it or makes it
 trivially true passes the gate vacuously. That is the accepted model for
 now: the reviewer reads the diff and is the one who catches a weakened
-test, not the gate. Both the builder's run and the refinery's run of the
-gate are this same check.
+test, not the gate. The builder's light gate and the refinery's full gate
+are the same in this.
 
 ## 3. Review: Codex reviews forward
 
@@ -102,7 +139,9 @@ the reviewer prompt from this repo's `.yardr/roles/reviewer.md` (how a
 reviewer works) and the stage file `.yardr/flows/default/review.md` (when
 each outcome applies). It is the last review
 before merge, so it fixes what it can on the branch (commits starting
-`review:`) rather than only reporting, re-runs the checks and then:
+`review:`) rather than only reporting, tries the change, runs the light gate
+if it committed or the builder's gate line is not for the commit under
+review (the full gate is the refinery's), and then:
 
 - **approves**: a note with what it checked and fixed, then `yardr bead
   done` (to `approved`);
@@ -429,8 +468,9 @@ yardr dep add <epic> <part> -k parent
   the full one ([configuration.md](configuration.md#the-light-gate-yardrcheck-light)).
   Rig yardr's formats, vets and builds everything and tests, with the race
   detector, only the packages the branch changed and the packages that
-  import them. The builder runs it before `done`; merge-local runs it again
-  on exactly what lands.
+  import them. The builder runs it before `done`, as the builder of any
+  bead does; merge-local runs it again on exactly what lands, where any
+  other bead gets the full gate.
 - **Which gate merge-local runs.** The exec runner tells a script the
   bead's type and its epic (`YARDR_TYPE`, `YARDR_EPIC`, the latter empty for
   a bead with no epic). merge-local runs `rig check --light` only when all

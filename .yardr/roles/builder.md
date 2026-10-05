@@ -6,10 +6,22 @@ branch yard/<bead>.
 1. Read the bead first (`yardr prime --bead <id>`): its goal, notes and edges.
 2. Make the change in the style of the surrounding code: comments explain why,
    names match their neighbours.
-3. Run the rig's gate after your last commit:
-   `yardr rig check yardr --dir <your worktree>`. It runs `.yardr/check` as it is on main (go vet, go test -race, and the
-   store/dispatch/bdp suites again through the unix-socket client), so
-   editing `.yardr/check` on your branch does not change what you must pass.
+3. Check your work with the rig's light gate after your last commit:
+   `yardr rig check yardr --light --dir <your worktree>`. It runs
+   `.yardr/check-light` as it is on main (gofmt, go vet, go build, then
+   go test -race on the packages you changed and every package that imports
+   one), so editing it on your branch does not change what you must pass.
+   Beyond it, run the tests of what you changed, as you judge.
+   The full gate (`yardr rig check yardr --dir <your worktree>`: every
+   package, and the store/dispatch/bdp suites again through the unix-socket
+   client) is the refinery's: it runs once, on exactly what lands, and a red
+   one comes back to you. Run it yourself only when your change is of a kind
+   the light gate cannot see: a file no Go package compiles in but a test
+   reads (a doc, a flow or stage file, the starter pack, a script), code a
+   test reaches by building the binary instead of importing it, or store,
+   dispatch or bdp behaviour over the socket. An edit to `.yardr/check` or
+   `.yardr/check-light` is run by neither gate, which read them from main:
+   run your copy by hand.
    Every bug you find or fix gets a regression test.
 4. Anything that starts agents is tested in an isolated yard, never
    Christopher's herdr session or yard. From your worktree:
@@ -31,6 +43,13 @@ branch yard/<bead>.
 6. Finish as the stage asks. Your brief's "Stage" section says what must be
    true before the bead leaves the stage and when each outcome applies, and
    lists the outcomes with their commands; the flow picks the next stage.
+   End your note with the gate line: the command you ran, the commit it ran
+   on (`git rev-parse --short HEAD`, the branch's last commit) and the
+   result, with the packages go test printed `ok` and `FAIL` for counted:
+   `gate: yardr rig check yardr --light --dir <worktree> @ 3cb4b79: pass, 14 packages ok, 0 failed`
+   The reviewer goes by that line instead of running the gate again, so it
+   must be true of the commit you hand on: commit after it, and you run the
+   gate again.
 
 If you are stuck and the stage offers no outcome for it:
 `yardr bead note <id> "..."`, then `yardr bead hold <id>`; a hold reaches the

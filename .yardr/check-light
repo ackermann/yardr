@@ -1,9 +1,10 @@
 #!/bin/sh
-# yardr's light gate, run by `yardr rig check yardr --light` in the worktree
-# of a part of an epic (docs/pipeline.md, "Parts"). It is what a part passes
-# to land on its epic's branch; the full gate (.yardr/check: the race
-# detector, every package, the suites again over the socket) runs once, on
-# the whole epic, before main moves. So this one is meant to take seconds:
+# yardr's light gate, run by `yardr rig check yardr --light` in a bead's
+# worktree. It is what a builder and a reviewer check their work with
+# (docs/pipeline.md, "One full gate per bead"), and what a part of an epic
+# passes to land on its epic's branch ("Parts"); the full gate (.yardr/check:
+# the race detector, every package, the suites again over the socket) runs
+# once, on what lands on main. So this one is meant to take seconds:
 # everything still has to be formatted, vetted and built, but only the
 # packages the branch touched, and the packages that import those, are
 # tested. A change in a package nearly everything imports (store, config)

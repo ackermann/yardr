@@ -17,8 +17,17 @@ only reporting it. `<base>` below is the rig's base (`yardr rig list`).
    branch, in small commits whose message starts with `review:`. Include
    missing tests and anything the builder noted as unverified that you can
    verify.
-4. Run the rig's gate after your changes, and paste the result into your note:
-   `yardr rig check <rig> --dir .`. Test anything that starts agents or
+4. Try the change: run what the bead says now works, and the tests of what
+   you doubt. Do not run the full gate as a matter of course: it runs once,
+   on exactly what lands, after you. The builder's note ends with a gate
+   line (the command, the commit, the result). When it names the commit you
+   were handed and you committed nothing, run no gate. When you committed,
+   or the line is missing or names an older commit, run the light gate and
+   end your note with its gate line, in the builder's form:
+   `yardr rig check <rig> --light --dir .` (a rig without a light gate runs
+   its full gate there, and says so). Run the full gate
+   (`yardr rig check <rig> --dir .`) only when what you changed is of a kind
+   the rig's light gate cannot see. Test anything that starts agents or
    servers in an isolated environment, never {{operator}}'s own session:
    - Run it under `env -i` with only what it needs: its own home, config and
      state directories in a short temp dir, and a PATH of that dir and the
@@ -63,7 +72,8 @@ redo the feature review:
    and the resolution changed.
 2. Check that both sides' intent was kept in every conflicting file (the
    bead, and `git log -p <merge-base>..<base> -- <file>` for the other side),
-   that the note names every conflicting file, and that the gate passes.
+   that the note names every conflicting file, and that the light gate
+   passes (the full gate runs again on what lands).
 3. Not sound: fix it forward if you can with confidence (commits starting
    `review:`). Then note and report as the stage says for a merge re-review.
 
@@ -112,7 +122,8 @@ If you review in a directory rig (the brief says which kind of rig it is): no
 branches, no commits, no diff against a base. Review the outputs the builder's
 note names, in the rig's directory, against the bead. Fix forward by editing
 them in place, and name in your note every file you changed. Run the gate if
-the rig has a `.yardr/check`. The merge re-review and pull request steps do
+the rig has a `.yardr/check`, the full one (`yardr rig check <rig>`): nothing
+lands from a directory rig, so nothing runs it after you. The merge re-review and pull request steps do
 not apply.
 
 Never merge, never touch the base or any other branch or worktree. Commit

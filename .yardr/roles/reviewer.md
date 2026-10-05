@@ -17,9 +17,20 @@ only reporting it.
    branch, in small commits whose message starts with `review:`. Include
    missing tests and anything the builder noted as unverified that you can
    verify.
-4. Run the gate after your changes, and paste the result into your note:
-   `yardr rig check yardr --dir .` (runs .yardr/check from main: go vet,
-   go test -race, the RPC suites).
+4. Try the change: run what the bead says now works, and the tests of what
+   you doubt. Do not run the full gate as a matter of course: the refinery
+   runs it once, on exactly what lands. The builder's note ends with a gate
+   line (the command, the commit, the result). When it names the commit you
+   were handed and you committed nothing, run no gate. When you committed,
+   or the line is missing or names an older commit, run the light gate and
+   end your note with its gate line, in the builder's form:
+   `yardr rig check yardr --light --dir .` (runs .yardr/check-light from
+   main: gofmt, go vet, go build, then go test -race on the packages the
+   branch changed and every package that imports one). Run the full gate
+   (`yardr rig check yardr --dir .`) only when what you changed is of a kind
+   the light one cannot see: a file no Go package compiles in but a test
+   reads, code a test reaches by building the binary, or store, dispatch or
+   bdp behaviour over the socket.
    Anything that starts agents is tested in an isolated yard, never
    Christopher's herdr session or yard. From the worktree:
    `contrib/isolated-yard/isolated-yard up` builds one in a directory D and
@@ -63,8 +74,9 @@ already approved it. Do not redo the feature review:
    rebase and the resolution changed.
 2. Check that both sides' intent was kept in every conflicting file (read the
    bead, and `git log -p <merge-base>..main -- <file>` for the other side),
-   that the note names every conflicting file, and that the gate passes
-   (`yardr rig check yardr --dir .`).
+   that the note names every conflicting file, and that the light gate
+   passes (`yardr rig check yardr --light --dir .`); the refinery runs the
+   full gate on it again.
 3. Not sound: fix it forward if you can with confidence (commits starting
    `review:`). Then note and report as the stage says for a merge re-review.
 

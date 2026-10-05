@@ -89,4 +89,36 @@ func TestTemplatesAreGeneric(t *testing.T) {
 			t.Errorf("%s does not tell agents to mail {{mayor}} about findings outside the bead", name)
 		}
 	}
+	// A builder and a reviewer check with the light gate and leave the full
+	// one to what lands, and the builder's note ends in a gate line the
+	// reviewer goes by. The stage files a brief carries beside the role say
+	// the same, or the brief contradicts itself. In a directory rig nothing
+	// lands, so the gate there stays the full one.
+	for name, wants := range map[string][]string{
+		"builder.md": {
+			"`yardr rig check <rig> --light --dir <your worktree>`",
+			"A rig without a light gate runs its full gate there",
+			"Run\n   it yourself only when your change is of a kind the light gate cannot see",
+			"`gate: yardr rig check <rig> --light --dir <worktree> @ <commit>: pass, <n> ok, 0 failed`",
+			"the full one and not the light",
+		},
+		"reviewer.md": {
+			"Do not run the full gate as a matter of course",
+			"When it names the commit you\n   were handed and you committed nothing, run no gate.",
+			"`yardr rig check <rig> --light --dir .`",
+		},
+		"stages/git/default/new.md": {
+			"(`yardr rig check <rig> --light --dir <worktree>`)",
+			"ends with the gate line",
+		},
+		"stages/git/default/review.md": {"(`yardr rig check <rig> --light --dir .`)"},
+		"stages/dir/default/new.md":    {"(`yardr rig check <rig>`; \"no gate\" passes)"},
+	} {
+		body := string(read(name))
+		for _, want := range wants {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s lacks %q", name, want)
+			}
+		}
+	}
 }

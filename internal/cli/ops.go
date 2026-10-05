@@ -415,8 +415,9 @@ and run in --dir (default the rig's directory). A dir rig without one passes
 --light runs the rig's light gate instead: the store's --check-light if set,
 else ` + rigcheck.LightPath + ` at the tip of the base, found and run under
 every rule here (read from the base, the timeout, the exit statuses). It is
-for a part of an epic, which lands on the epic's branch, where the full gate
-still stands before the base moves (docs/pipeline.md, "Parts"). A rig without
+for where the full gate still stands before the base moves: a builder's and a
+reviewer's own check of a bead, and a part of an epic, which lands on the
+epic's branch under it (docs/pipeline.md). A rig without
 a light gate runs its full gate and says so in one line: --light never passes
 for want of a file. A rig whose gate is a store override has its light gate
 in the store too: ` + rigcheck.LightPath + ` in its repository is not read.
@@ -477,7 +478,7 @@ it: a note, never a failure. They are read on the base, as a brief reads
 them; yardr rig sources <rig> shows every source.`,
 		Example: `  yardr rig check yard                                   # in the rig itself
   yardr rig check yard --dir ~/.yardr/worktrees/yard/yard-12   # in a bead's worktree
-  yardr rig check yard --light --dir ~/.yardr/worktrees/yard/yard-12   # the light gate, for a part of an epic`,
+  yardr rig check yard --light --dir ~/.yardr/worktrees/yard/yard-12   # the light gate, a builder's check`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			res, err := a.runRigCheck(c.Context(), args[0], dir, timeout, light)
