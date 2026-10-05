@@ -25,7 +25,8 @@
 # until the fix has landed on its branch. A rebase that conflicts reports
 # conflict (-> merge), as merge-local does for a bead: the mergers rebase the
 # branch and send the epic back to open, where it is integrated again. A
-# gate that cannot run, or a branch it cannot work on, is held for a human.
+# gate that cannot run, or a branch it cannot work on, is held for a human;
+# a gate ended by a signal is run once more, and held if one ends it again.
 #
 # Every outcome ends in a report or a hold: exiting without one counts as a
 # failed session, and three of those hold the bead.
@@ -106,8 +107,26 @@ fi
 # The gate runs on exactly what goes to review and then lands: the rig's
 # check, read from the base, run in the epic's worktree. Exit 2 means the
 # gate could not run at all, which no child can fix.
-out=$("$Y" rig check "$RIG" --dir "$WT" --tail "$TAIL" 2>&1) && rc=0 || rc=$?
-printf '%s\n' "$out"
+# An exit above 128 means the gate was ended by a signal from outside, which
+# says nothing about the branch and which no child can fix either: as in
+# merge-local, it is run once more, after a note with the first run's tail,
+# and ended by a signal twice the epic is held. rig check's own kill at its
+# deadline is not this: it exits 1, a red gate.
+gate() { out=$("$Y" rig check "$RIG" --dir "$WT" --tail "$TAIL" 2>&1) && rc=0 || rc=$?; printf '%s\n' "$out"; }
+gate
+if [ "$rc" -gt 128 ]; then
+  first="the gate on $BR at $(git -C "$REPO" rev-parse --short "$BR") was ended by signal $((rc - 128)) (exit $rc), not by a failing check"
+  echo "== $first; running it once more"
+  "$Y" bead note "$EPIC" "integrator: $first; running it once more on the same commit. Its output:
+$out" || echo "== could not note the first run on $EPIC"
+  out1=$out
+  gate
+  [ "$rc" -le 128 ] || hold "$first, and again by signal $((rc - 128)) (exit $rc) when run once more. The branch is not at fault: find what sends the signal, then unhold to gate it again.
+First run:
+$out1
+Second run:
+$out"
+fi
 case $rc in
 0) ;;
 2) hold "the gate could not run on $BR:

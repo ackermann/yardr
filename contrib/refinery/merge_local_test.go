@@ -64,6 +64,7 @@ type yard struct {
 	env            []string
 	push           string // YARDR_PUSH for the run
 	opts           string // more assignments for the script's cmd, e.g. YARDR_PR=1
+	bin            string // the script's YARDR_BIN, when not yardrBin itself
 }
 
 func newYard(t *testing.T) *yard {
@@ -161,6 +162,9 @@ func (y *yard) exec(script, group, id string) {
 		}
 	}
 	e := &runner.Exec{Home: y.home, Bin: yardrBin}
+	if y.bin != "" {
+		e.Bin = y.bin
+	}
 	ctx := context.Background()
 	// The epic and base as the dispatcher passes them, read the way bead
 	// show --json shows them.

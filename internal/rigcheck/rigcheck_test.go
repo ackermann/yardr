@@ -229,9 +229,36 @@ func TestCheckDeadlineKillsTheGroup(t *testing.T) {
 	if took := time.Since(began); took > 3*time.Second {
 		t.Fatalf("Run took %s past a 300ms deadline", took)
 	}
-	if res.Pass || !res.TimedOut || res.ExitCode != -1 || !strings.Contains(res.Output, "started") ||
+	if res.Pass || !res.TimedOut || res.ExitCode != -1 || res.Signal != 0 || !strings.Contains(res.Output, "started") ||
 		!strings.Contains(res.Output, "deadline") {
 		t.Fatalf("result = %+v", res)
+	}
+}
+
+// A check ended by a signal says which: its own process killed, or a
+// command of its script killed and the shell exiting 128+N. The kill at the
+// deadline (above) is not one, nor is an ordinary failure.
+func TestCheckEndedBySignal(t *testing.T) {
+	ctx := context.Background()
+	for _, c := range []struct {
+		check        string
+		exit, signal int
+	}{
+		{"echo ok; kill -TERM $$", -1, 15},
+		{"sh -c 'kill -TERM $$'; exit $?", 143, 15},
+		{"exit 137", 137, 9},
+		{"exit 1", 1, 0},
+		{"exit 128", 128, 0},
+		{"exit 255", 255, 0},
+	} {
+		res, err := Run(ctx, store.Rig{Name: "r", Path: t.TempDir(), Check: c.check}, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Pass || res.TimedOut || res.ExitCode != c.exit || res.Signal != c.signal {
+			t.Errorf("%q: exit %d signal %d (pass %v, timed out %v), want exit %d signal %d",
+				c.check, res.ExitCode, res.Signal, res.Pass, res.TimedOut, c.exit, c.signal)
+		}
 	}
 }
 

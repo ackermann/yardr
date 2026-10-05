@@ -373,7 +373,10 @@ tail is empty says so, or how many lines it hid) and pass or FAIL; `--json`
 gives the full output, the exit code and the source (`store`, `repo@<sha>`,
 `dir` for a dir rig's own file, or empty for a rig with no gate). It exits 0 on a green gate, 1 on a red one
 (no gate and a timeout included), and 2 when the gate could not run at all:
-an unknown rig, a base that does not resolve, git failing. It also fails,
+an unknown rig, a base that does not resolve, git failing. A check ended by
+a signal from outside (its process killed, or its own exit status 128+N, as
+a shell reports a killed command) exits 128+N, which the refinery runs once
+more instead of sending the bead back. It also fails,
 naming them, while open beads of the rig sit in a stage their flow lacks
 (with a green gate that is exit 2, since no branch can fix it; see
 [flows.md](flows.md#a-base-change-that-drops-a-stage)). The check is

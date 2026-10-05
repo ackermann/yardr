@@ -416,7 +416,10 @@ too.
 Exits 0 when the gate passes, 1 when it fails (including no gate and a
 timeout), 2 when it could not be run at all (unknown rig, base that does not
 resolve, git failing), so a merge script can tell a red branch from a broken
-setup.
+setup. A check ended by a signal from outside (its process killed, or its own
+exit status 128+N, which is how a shell reports a command killed by signal N)
+exits 128+N: no branch did that, so a merge script runs the gate again rather
+than send the bead back. The kill at --timeout is not that: it exits 1.
 
 The check also fails while an open bead of the rig sits in a stage the flow
 governing it lacks (a repository flow lost the stage on the base), and names
@@ -483,6 +486,8 @@ them; yardr rig sources <rig> shows every source.`,
 					fmt.Printf("check %s (%s) in %s: FAIL (timed out after %s)\n", res.Rig, src, res.Dir, timeout)
 				case len(res.Stranded)+len(res.StrayStageFiles)+len(res.StrayHomeStageFiles) > 0 && res.ExitCode == 0:
 					fmt.Printf("check %s (%s) in %s: gate passed\n", res.Rig, src, res.Dir)
+				case res.Signal != 0:
+					fmt.Printf("check %s (%s) in %s: FAIL (exit %d, ended by signal %d)\n", res.Rig, src, res.Dir, res.ExitCode, res.Signal)
 				default:
 					fmt.Printf("check %s (%s) in %s: FAIL (exit %d)\n", res.Rig, src, res.Dir, res.ExitCode)
 				}
@@ -508,6 +513,8 @@ them; yardr rig sources <rig> shows every source.`,
 				// Only stranded beads, or stage files in the yard's home, fail
 				// it: no branch's to fix.
 				return checkNotRun{errCheckFailed}
+			case res.Signal != 0:
+				return checkSignalled(res.Signal)
 			}
 			return errCheckFailed
 		},

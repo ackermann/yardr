@@ -15,6 +15,10 @@ the bead to `merge` with the conflicting files (or reports `failed` if the
 flow has no `merge`). It then runs the rig's gate (`yardr rig check`, read from the
 base) on exactly what will land: red reports `failed` (back to `new`, or
 `open` for an epic), and a gate that could not run (exit 2) holds the bead.
+A gate ended by a signal from outside (exit 128+N, e.g. 143 for SIGTERM) is
+neither: it is run once more on the same commit, with a note of the first
+run's output, and held with both outputs if a signal ends it again. The
+gate's own kill at its deadline exits 1, so it is red.
 Green fast-forwards the base to the commit the gate ran on, by its sha,
 only ever by fast-forward, and never in a dirty checkout (it holds
 instead); a branch that moved while the gate ran reports `failed` with
@@ -36,7 +40,8 @@ the gate on epic <id>", which blocks the epic, and reports `failed`, back to
 with the conflicting files and both tips, and leaves the branch for the
 mergers; after they report done, the epic returns to `open` for integration.
 A gate that could not run, or a branch it cannot work on (missing, dirty,
-nothing ahead of the base), holds the epic.
+nothing ahead of the base), holds the epic. A gate ended by a signal is run
+once more, as in merge-local, and holds the epic the second time.
 
 With `YARDR_PR=1` (and `YARDR_PUSH`), integrate-epic also opens a pull
 request for the pushed branch against the base, or replaces the body of the

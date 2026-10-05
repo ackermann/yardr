@@ -139,11 +139,15 @@ func (a *app) printVersion() error {
 
 // exitCode is the process status for a command's error: 1 for a red check
 // or most errors, 2 for a check that could not run or a home with no yard
-// yet, 3 for something not found.
+// yet, 3 for something not found, 128+N for a check ended by signal N.
 func exitCode(err error) int {
+	var sig checkSignalled
 	switch {
 	case err == nil:
 		return 0
+	// Before errCheckFailed, which it is too.
+	case errors.As(err, &sig):
+		return 128 + int(sig)
 	// Before errCheckFailed: a check that failed for no branch's fault
 	// (stranded beads) is both.
 	case errors.As(err, new(checkNotRun)), errors.As(err, new(notInitialized)):
@@ -166,6 +170,14 @@ var errCheckFailed = errors.New("check failed")
 type checkNotRun struct{ error }
 
 func (e checkNotRun) Unwrap() error { return e.error }
+
+// checkSignalled is a check ended by a signal from outside (exit 128+N, as
+// a shell reports it), told apart from a red one (exit 1) so a merge script
+// does not send a bead back to its builder for something no branch did.
+type checkSignalled int
+
+func (e checkSignalled) Error() string { return fmt.Sprintf("check ended by signal %d", int(e)) }
+func (e checkSignalled) Unwrap() error { return errCheckFailed }
 
 func (a *app) who() string {
 	if a.actor != "" {

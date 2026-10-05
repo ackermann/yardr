@@ -228,8 +228,14 @@ type Result struct {
 	ExitCode int `json:"exit_code"`
 	// TimedOut: the check ran past the caller's deadline and was killed,
 	// with everything it started. That fails the gate.
-	TimedOut bool   `json:"timed_out,omitempty"`
-	Output   string `json:"output"` // stdout and stderr, interleaved
+	TimedOut bool `json:"timed_out,omitempty"`
+	// Signal is the signal that ended the check, when one did and it was
+	// not this package's own kill at the deadline: the check's process died
+	// of it (ExitCode -1), or exited 128+Signal, as a shell does when a
+	// command it ran was killed. It fails the gate, but says nothing about
+	// the branch: the caller reports it apart from a red gate.
+	Signal int    `json:"signal,omitempty"`
+	Output string `json:"output"` // stdout and stderr, interleaved
 	// Stranded are the rig's open beads in a stage their flow lacks, which
 	// fail the check whatever the gate said. The caller fills it in: Run
 	// has no store.
@@ -326,10 +332,24 @@ func Run(ctx context.Context, rig store.Rig, dir string) (*Result, error) {
 		return nil, fmt.Errorf("run check: %w", ctx.Err())
 	case errors.As(err, &exitErr):
 		res.ExitCode = exitErr.ExitCode()
+		res.Signal = signalOf(exitErr)
 	default:
 		return nil, fmt.Errorf("run check: %w", err)
 	}
 	return res, nil
+}
+
+// signalOf is the signal a check ended by, or 0: the one its process died
+// of, or the N of an exit status 128+N, which is how a shell reports a
+// command of its script killed by signal N.
+func signalOf(err *exec.ExitError) int {
+	if ws, ok := err.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		return int(ws.Signal())
+	}
+	if n := err.ExitCode() - 128; n > 0 && n <= 64 {
+		return n
+	}
+	return 0
 }
 
 func writeScript(ctx context.Context, repo string, script []byte) (string, error) {

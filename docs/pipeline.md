@@ -142,7 +142,13 @@ the session and the daemon stops the script, so it is the script's last step.
    the outcome `failed` (to `new`; to `open` for an epic), or advances to
    `new` in a flow without outcomes, with the last 200 lines of output, and
    a gate that could not run at all (exit 2: git, the base, the rig) holds
-   the bead, since no builder can fix that. A branch that moved while the
+   the bead, since no builder can fix that. Nor can one fix a gate ended
+   by a signal from outside (exit 128+N; 143 is a `go test` killed with
+   SIGTERM after every package printed `ok`): it is run once more on the
+   same commit, after a note with the first run's output, and what the
+   second run says counts; ended by a signal again, the bead is held with
+   both outputs. The gate's own kill at `--timeout` is not that: it exits
+   1, a red gate. A branch that moved while the
    gate ran (a commit pushed to it meanwhile) reports `failed` the same
    way, with both commits in the note: nothing the gate did not see lands;
 3. lands that commit, by its sha, by fast-forward only. Where the base is
@@ -401,7 +407,9 @@ path with that setup:
    `conflict`, to `merge`, with the conflicting files and both tips in the
    note (step 5). A gate that could not run (exit 2) or a branch it cannot
    work on (missing, dirty, nothing ahead of the base) holds the epic with
-   a note.
+   a note. A gate ended by a signal (exit 128+N) is run once more, as
+   merge-local does, and holds the epic if a signal ends it again; no
+   child is added for it.
 
    An epic reported `failed` back to `open` with no child to wait for (the
    push or the pull request failed: GitHub down) is not integrated again on

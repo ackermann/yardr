@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -44,6 +45,18 @@ func TestRigCheckExitsAndTail(t *testing.T) {
 	put("sleep 30")
 	if out, err = run(t, a.rigCheckCmd(), "r", "--timeout", "200ms"); exitCode(err) != 1 || !strings.Contains(out, "timed out after 200ms") {
 		t.Fatalf("timed out gate: %q, %v", out, err)
+	}
+
+	// Ended by a signal from outside, either way a shell shows it: 128+N,
+	// which the kill at the deadline above is not.
+	put("echo ok; kill -TERM $$")
+	if out, err = run(t, a.rigCheckCmd(), "r"); exitCode(err) != 143 || !errors.Is(err, errCheckFailed) ||
+		!strings.Contains(out, "ok\n") || !strings.Contains(out, "FAIL (exit -1, ended by signal 15)") {
+		t.Fatalf("gate killed by SIGTERM: %q, %v (exit %d), want 143", out, err, exitCode(err))
+	}
+	put("exit 143")
+	if out, err = run(t, a.rigCheckCmd(), "r"); exitCode(err) != 143 || !strings.Contains(out, "FAIL (exit 143, ended by signal 15)") {
+		t.Fatalf("gate exiting 143: %q, %v (exit %d), want 143", out, err, exitCode(err))
 	}
 
 	put("true")
