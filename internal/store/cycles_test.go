@@ -131,7 +131,7 @@ func TestAddDepOtherKindsAreNoCycle(t *testing.T) {
 	ctx := context.Background()
 	beads(t, s, "y-a", "y-b", "y-c")
 	block(t, s, "y-a y-b")
-	for _, kind := range []string{"related", "follows"} {
+	for _, kind := range []string{"related", "follows", store.DepDiscoveredFrom} {
 		for _, e := range [][2]string{{"y-b", "y-a"}, {"y-a", "y-b"}, {"y-b", "y-c"}, {"y-c", "y-b"}} {
 			if err := s.AddDep(ctx, e[0], e[1], kind, "me"); err != nil {
 				t.Fatalf("%s -%s-> %s: %v", e[0], kind, e[1], err)
