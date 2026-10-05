@@ -117,6 +117,10 @@ const inviteTag = "yardr-peer-1"
 
 var inviteName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,63}$`)
 
+// ValidName reports whether s is a name a yard can give itself to another:
+// what an invite carries, and a pairing.
+func ValidName(s string) bool { return inviteName.MatchString(s) }
+
 // Invite is what one yard's operator gives another's to be added as a peer:
 // what the yard calls itself, its public key, and where it can be reached.
 // A yard without a URL cannot be called: it calls.

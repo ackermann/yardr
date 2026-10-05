@@ -26,6 +26,14 @@ public key. They share no store: each sends the other signed messages, and
 takes only the kinds its operator allowed, each direction on its own. A new
 link carries nothing.
 
+The short way, when one operator can read a code to the other:
+
+  yardr peer pair                      on the yard that can be reached: shows a code
+  yardr peer pair <address> <code>     on the other: the yards exchange their keys,
+                                       each operator confirms a check, a ping proves it
+
+The way by hand, when no code can be passed, or for scripts:
+
   yardr peer key                       this yard's public key (made on first use)
   yardr peer invite --url <url>        one line for the other operator to paste
   yardr peer add <name> <invite>       add the other yard, from its invite
@@ -337,7 +345,7 @@ both yards must allow ping both ways.`,
 	}
 	ping.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "how long to wait for the pong")
 
-	cmd.AddCommand(key, invite, add, list, show, rm, allow, ping)
+	cmd.AddCommand(a.pairCmd(), key, invite, add, list, show, rm, allow, ping)
 	return cmd
 }
 

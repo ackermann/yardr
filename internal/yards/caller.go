@@ -28,6 +28,10 @@ const maxAnswer = 2 << 20
 // (store.PeerRefusal). Trying again changes nothing.
 var ErrRefused = errors.New("refused by the peer")
 
+// ErrUnsigned is an answer that is not signed with the key of the yard that
+// was asked: what it says is anyone's.
+var ErrUnsigned = errors.New("not signed with its key")
+
 // Caller makes this yard's requests to its peers, signed with its key.
 type Caller struct {
 	Key  ed25519.PrivateKey
@@ -78,8 +82,8 @@ func (c *Caller) do(ctx context.Context, p store.Peer, method, path string, body
 	if err := yardkey.VerifyResponse(p.Key, resp.StatusCode, reqSig, sig, answer); err != nil {
 		// What an unsigned answer says is anyone's text: only its status
 		// is passed on.
-		return 0, nil, "", "", fmt.Errorf("peer %s answered %d, not signed with its key: this yard is not a peer of it there, the clocks are more than %s apart, or something between the two answered",
-			p.Name, resp.StatusCode, yardkey.MaxSkew)
+		return 0, nil, "", "", fmt.Errorf("peer %s answered %d, %w: this yard is not a peer of it there, the clocks are more than %s apart, or something between the two answered",
+			p.Name, resp.StatusCode, ErrUnsigned, yardkey.MaxSkew)
 	}
 	return resp.StatusCode, answer, reqSig, sig, nil
 }

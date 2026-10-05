@@ -101,6 +101,9 @@ type Store struct {
 	// sessionReads counts the sessions read through the live index, so a
 	// test can tell Claim never looked at an ended one.
 	sessionReads atomic.Int64
+	// pair is the pairing this yard has open with another (pairing.go):
+	// in memory only, so a code is never in the file.
+	pair pairings
 
 	// pump publishes committed events in seq order; writers only nudge it.
 	nudge  chan struct{}

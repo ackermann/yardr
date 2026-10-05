@@ -217,40 +217,13 @@ func loadPeer(tx *bolt.Tx, name string) (*Peer, error) {
 }
 
 // AddPeer records another yard as a peer. The link carries nothing until
-// AllowPeer says what. A name or a key that is a peer already is refused:
-// a key replaced under a name would hand the link to someone else, so that
-// takes removing the peer first.
+// AllowPeer says what. A name or a key that is a peer already is refused
+// (peerFree).
 func (s *Store) AddPeer(ctx context.Context, p Peer, actor string) (*Peer, error) {
-	if err := checkName("peer", p.Name); err != nil {
-		return nil, err
-	}
-	if _, err := yardkey.ParsePublic(p.Key); err != nil {
-		return nil, fmt.Errorf("peer %s: %w", p.Name, err)
-	}
-	if p.URL != "" {
-		u, err := yardkey.CleanURL(p.URL)
-		if err != nil {
-			return nil, fmt.Errorf("peer %s: %w", p.Name, err)
-		}
-		p.URL = u
-	}
 	p = Peer{Name: p.Name, Key: p.Key, URL: p.URL, Calls: p.Calls, Send: []string{}, Receive: []string{}, AddedAt: now()}
 	err := s.write(func(w *wtx) error {
-		if w.Bucket(bPeers).Get([]byte(p.Name)) != nil {
-			return fmt.Errorf("peer %s is added already; to replace it, remove it first (its waiting messages go with it)", p.Name)
-		}
-		var same string
-		err := each(w.Tx, bPeers, "", func(_ []byte, o *Peer) error {
-			if o.Key == p.Key {
-				same = o.Name
-			}
-			return nil
-		})
-		if err != nil {
+		if err := peerFree(w.Tx, &p); err != nil {
 			return err
-		}
-		if same != "" {
-			return fmt.Errorf("peer %s: that key is peer %s's already", p.Name, same)
 		}
 		if err := put(w.Tx, bPeers, p.Name, p); err != nil {
 			return err

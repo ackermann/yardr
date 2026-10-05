@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"yardr.dev/yardr/internal/pairing"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/yardkey"
 )
@@ -47,10 +48,12 @@ type Store interface {
 
 // Receiver serves Path and nothing else.
 type Receiver struct {
-	st  Store
-	key string // the file of this yard's key
-	log *slog.Logger
-	now func() time.Time
+	st Store
+	// pair is the yard's side of a pairing; nil for a yard that takes none.
+	pair PairStore
+	key  string // the file of this yard's key
+	log  *slog.Logger
+	now  func() time.Time
 
 	mu       sync.Mutex
 	rejected map[string]int
@@ -62,7 +65,10 @@ func NewReceiver(st Store, keyFile string, log *slog.Logger) *Receiver {
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	return &Receiver{st: st, key: keyFile, log: log, now: time.Now, rejected: map[string]int{}}
+	rc := &Receiver{st: st, key: keyFile, log: log, now: time.Now, rejected: map[string]int{}}
+	// The store is both; a test's stand-in for its messages may be only one.
+	rc.pair, _ = st.(PairStore)
+	return rc
 }
 
 // SetClock replaces the clock (tests).
@@ -84,6 +90,11 @@ func (rc *Receiver) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST "+Path, rc.post)
 	mux.HandleFunc("GET "+Path, rc.get)
+	if rc.pair != nil {
+		mux.HandleFunc("POST "+pairing.PathHello, rc.pairHello)
+		mux.HandleFunc("POST "+pairing.PathReveal, rc.pairReveal)
+		mux.HandleFunc("POST "+pairing.PathConfirm, rc.pairConfirm)
+	}
 	return mux
 }
 

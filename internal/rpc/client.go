@@ -609,6 +609,27 @@ func (c *Client) PeerSendFailed(ctx context.Context, name string, seq uint64, re
 func (c *Client) PeerPulled(ctx context.Context, name string, b store.PeerBatch) (*store.PeerPulled, error) {
 	return callV[*store.PeerPulled](c, ctx, "PeerPulled", name, b)
 }
+func (c *Client) CheckPeer(ctx context.Context, p store.Peer) error {
+	return c.call(ctx, "CheckPeer", nil, p)
+}
+func (c *Client) PairPeer(ctx context.Context, p store.Peer, actor string) (*store.Peer, error) {
+	return callV[*store.Peer](c, ctx, "PairPeer", p, actor)
+}
+func (c *Client) PairRefused(ctx context.Context, reason, peer, actor string) error {
+	return c.call(ctx, "PairRefused", nil, reason, peer, actor)
+}
+func (c *Client) PairOpen(ctx context.Context, o store.PairOffer, actor string) (*store.PairingCode, error) {
+	return callV[*store.PairingCode](c, ctx, "PairOpen", o, actor)
+}
+func (c *Client) GetPairing(ctx context.Context, id string) (*store.Pairing, error) {
+	return callV[*store.Pairing](c, ctx, "GetPairing", id)
+}
+func (c *Client) PairAnswer(ctx context.Context, id string, yes bool, actor string) (*store.Pairing, error) {
+	return callV[*store.Pairing](c, ctx, "PairAnswer", id, yes, actor)
+}
+func (c *Client) PairClose(ctx context.Context, id, actor string) error {
+	return c.call(ctx, "PairClose", nil, id, actor)
+}
 
 // Subscribe streams events with seq > after. The channel closes if the
 // connection drops; resubscribe from the last seq seen.

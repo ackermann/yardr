@@ -308,7 +308,8 @@ The rest of the documentation is in [docs/](docs/README.md):
   user something later, once or recurring, unless an awaited bead moved first.
 - **[Links](docs/links.md):** `yardr link`, the outside issue (Linear, GitHub) a bead
   tracks or relates to, and the hook's map that moves it when the bead changes stage.
-- **[Peers](docs/peers.md):** `yardr peer`, linking two yards by their keys: signed
+- **[Peers](docs/peers.md):** `yardr peer`, linking two yards by their keys, from a
+  short code one operator reads to the other (`yardr peer pair`) or by hand: signed
   messages both ways, pushed or pulled, proved with a ping, and mail between
   their residents (`yardr mail mayor@north "…"`).
 - **[BDP](docs/bdp.md):** serving the yard over the Beads Protocol.
