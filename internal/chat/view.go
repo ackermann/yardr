@@ -249,7 +249,8 @@ func pad(s string, w int) string {
 // column, one a line. The yard's row has no state: its count stands where
 // a resident's does.
 func (m *Model) column() []string {
-	mark, name, unread := "  ", pad(YardRow, nameWidth), ""
+	yardLabel := m.yardLabel()
+	mark, name, unread := "  ", pad(yardLabel, nameWidth), ""
 	if m.yard {
 		mark, name = look.selected.Render("> "), look.selected.Render(name)
 	}
@@ -277,12 +278,12 @@ func (m *Model) column() []string {
 // parentheses, the unread count. When they do not all fit, those before
 // the selected one give way first.
 func (m *Model) folded(w int) string {
-	yard := YardRow
+	yard := m.yardLabel()
 	if n := m.Notifications(); n > 0 {
 		yard += " " + look.unread.Render(fmt.Sprintf("(%d)", n))
 	}
 	if m.yard {
-		yard = look.selected.Render("[") + look.selected.Render(YardRow) + look.selected.Render("]")
+		yard = look.selected.Render("[") + look.selected.Render(yard) + look.selected.Render("]")
 	}
 	items := []string{yard}
 	sel := 0

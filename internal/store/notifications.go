@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	bolt "go.etcd.io/bbolt"
 )
@@ -152,12 +153,12 @@ func (w *wtx) notify(n Notification, users map[string]any) error {
 // length, with the reason in its place and the bead's title after it.
 func (n Notification) line(row string) string {
 	out := clip(oneLine(strings.Replace(row, reasonSlot, n.Reason, 1)), maxNotificationLine)
-	if n.Title != "" && !strings.Contains(out, n.Title) {
+	if n.Title != "" && !strings.Contains(out, "title="+n.Title) {
 		out += fmt.Sprintf(" on %q", clip(oneLine(n.Title), maxNotificationTitle))
 	}
 	// After the cut, so that a long comment does not cost the link to it.
 	if n.URL != "" {
-		out += "  " + n.URL
+		out += "  " + oneLine(n.URL)
 	}
 	return out
 }
@@ -166,7 +167,15 @@ func (n Notification) line(row string) string {
 // differs by user, until notify writes it.
 const reasonSlot = "\x00"
 
-func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
+func oneLine(s string) string {
+	var plain strings.Builder
+	for _, r := range s {
+		if !unicode.IsControl(r) {
+			plain.WriteRune(r)
+		}
+	}
+	return strings.Join(strings.Fields(plain.String()), " ")
+}
 
 // clip cuts s to at most n runes, marking the cut.
 func clip(s string, n int) string {

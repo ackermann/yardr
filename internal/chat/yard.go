@@ -25,6 +25,16 @@ import (
 // YardRow is the name of that row.
 const YardRow = "yard"
 
+// yardLabel keeps the system row distinct if an older yard already has a
+// resident named "yard". New residents may keep their names; only this
+// display label changes in the collision case.
+func (m *Model) yardLabel() string {
+	if m.resident(YardRow) != nil {
+		return "yard-notify"
+	}
+	return YardRow
+}
+
 type (
 	// notesMsg is the user's notifications as the store has them, and
 	// notesAckedMsg how acknowledging them ended.

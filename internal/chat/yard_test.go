@@ -153,6 +153,19 @@ func TestYardRow(t *testing.T) {
 	v.shows("[yard]  mayor idle  refinery idle (1)", fourth)
 }
 
+func TestYardRowDoesNotCollideWithResidentName(t *testing.T) {
+	st := yard(t)
+	ctx := context.Background()
+	if _, err := st.PutResident(ctx, store.Resident{Name: YardRow, Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	v := open(t, st, "mayor", 120, 24)
+	s := v.screen()
+	if !strings.Contains(s, "yard-notify") || !strings.Contains(s, "  yard        not running") {
+		t.Fatalf("the system row and resident named yard are not distinct:\n%s", s)
+	}
+}
+
 // The yard's row has no line to type in and the keys that do something
 // there: what is typed goes nowhere, to no resident and into no draft.
 func TestYardRowTakesNoAnswer(t *testing.T) {

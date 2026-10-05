@@ -114,6 +114,8 @@ From 100 columns the rows (`yard`, then the residents) are a column on the
 left, one a line, with `>` before the selected one and the unread number at
 the column's right edge; narrower, they fold into the one line on top, the
 selected one in brackets and the number in parentheses.
+If an existing resident is named `yard`, the system row is labelled
+`yard-notify` so the two rows stay distinct.
 
 The colours are those of the onboarding's forms, for a light and a dark
 terminal, and say nothing the words and marks do not; with `NO_COLOR` set,
