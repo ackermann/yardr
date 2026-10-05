@@ -78,6 +78,10 @@ pages made it. The one exception is the rig's files, which yardr rig init
 has written into the checkout before the question whether to commit them;
 they stay there, and rig init never overwrites a file.
 
+Where the forms end it asks a user whether to be told when beads land: a
+yes is yardr subscribe <you> yardr --done --where rig=<rig>, and each bead
+of the rig that is done is then a notification in your inbox (yardr inbox).
+
 Without a terminal, with --json, and in an agent's session it runs no form:
 it prints the steps and the command for the next one.`,
 		Example: `  yardr setup
@@ -239,6 +243,9 @@ func (a *app) guide(ctx context.Context, cfg *config.Config, st store.API) error
 		next := nextStep(steps)
 		if next == nil {
 			fmt.Println("\nThe setup is complete.")
+			if err := g.offerLanded(ctx); err != nil {
+				return err
+			}
 			return a.offerLink(ctx, cfg)
 		}
 		run := g.pages()[next.Key]
@@ -801,5 +808,42 @@ func (g *guide) watch(ctx context.Context) error {
 		"  %s watch              # every event as it happens\n"+
 		"  %s web serve          # %s\n\n"+
 		"The setup is over once it has landed: `%s doctor` then says so.\n", yardr, yardr, id, yardr, yardr, web, yardr)
+	if err := g.offerLanded(ctx); err != nil {
+		return err
+	}
 	return g.a.offerLink(ctx, g.cfg)
+}
+
+// offerLanded asks, where the forms end, whether the person wants to be
+// told when beads land: a subscription of their own to the beads of the
+// setup's rig becoming done, which the yard then writes into their inbox
+// as notifications. It is asked of a user, since a subscription is the
+// user's own to make, and not of one who is told of done beads already. A
+// subscribe that fails says so and the setup goes on.
+func (g *guide) offerLanded(ctx context.Context) error {
+	u, err := g.a.actingUser(ctx, g.st)
+	if err != nil || u == nil {
+		return err
+	}
+	if slices.ContainsFunc(u.Subscriptions, func(s store.Subscription) bool {
+		return s.Source == store.SourceYardr && s.Where["state"] == store.StateDone
+	}) {
+		return nil
+	}
+	rigs, err := g.st.Rigs(ctx)
+	if err != nil || len(rigs) == 0 {
+		return err
+	}
+	args := []string{"subscribe", u.Name, store.SourceYardr, "--done", "--where", "rig=" + rigs[0].Name}
+	line, told := commandLine(g.cfg.Home, args), false
+	if err := ask(huh.NewConfirm().Key("landed").Title("Be told when beads land?").
+		Description(fmt.Sprintf("Yes subscribes you to the beads of %s that are done: the yard then writes a line for each\n"+
+			"into your inbox, as a notification, apart from your mail (%s inbox).\n"+
+			"Later: %s", rigs[0].Name, yardrAt(g.cfg.Home), line)).Value(&told)); err != nil || !told {
+		return err
+	}
+	if err := g.do(ctx, args...); err != nil {
+		fmt.Printf("yardr: %v\nThe yard runs without it; `%s` tries again.\n", err, line)
+	}
+	return nil
 }

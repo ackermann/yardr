@@ -73,7 +73,7 @@ login name) is the user's name. yardr does not check who is at the keyboard.`}
 		},
 	}
 	show := &cobra.Command{
-		Use: "show <name>", Short: "Show a user and what waits in their inbox", Args: cobra.ExactArgs(1),
+		Use: "show <name>", Short: "Show a user: what waits in their inbox, and what they subscribe to", Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -87,6 +87,11 @@ login name) is the user's name. yardr does not check who is at the keyboard.`}
 			if v.Timers, err = st.Timers(c.Context(), v.Name); err != nil {
 				return err
 			}
+			notes, err := st.UserNotifications(c.Context(), v.Name, 1)
+			if err != nil {
+				return err
+			}
+			v.Notifications = notes.Unread
 			return a.out(v, func() {
 				fmt.Print(v.Name)
 				if v.Operator {
@@ -97,6 +102,12 @@ login name) is the user's name. yardr does not check who is at the keyboard.`}
 					fmt.Println("  inbox: nothing unread")
 				} else {
 					fmt.Printf("  inbox: %d unread from %s\n", v.Unread, strings.Join(v.From, ", "))
+				}
+				if v.Notifications > 0 {
+					fmt.Printf("  %s unread\n", notifications(v.Notifications))
+				}
+				for _, sub := range v.Subscriptions {
+					fmt.Printf("  subscribed: %s\n", sub)
 				}
 				printTimers(v.Timers, v.Name, "  ")
 			})
@@ -131,6 +142,9 @@ type userView struct {
 	// Timers are the live timers that tell the user or that they set; only
 	// yardr user show reads them.
 	Timers []store.Timer `json:"timers,omitempty"`
+	// Notifications are the unread notifications, counted apart from the
+	// mail (Unread); only yardr user show reads them.
+	Notifications int `json:"unread_notifications"`
 }
 
 // userViews reads the user name, or all of them for "".
@@ -200,46 +214,124 @@ func (a *app) actingUser(ctx context.Context, st store.API) (*store.User, error)
 	return u, err
 }
 
-// userInbox is yardr inbox run as a user: the unread, then the latest
-// read, and with ack the unread shown marked read.
-func (a *app) userInbox(ctx context.Context, st store.API, name string, limit int, ack bool) error {
-	box, err := st.UserInbox(ctx, name, limit)
-	if err != nil {
-		return err
-	}
-	shown := 0
-	for _, l := range box.Mail {
-		if !l.Read {
-			shown++
-		}
-	}
-	if ack && shown > 0 {
-		if err := st.AckUserInbox(ctx, name, box.Mail[shown-1].Seq); err != nil {
+// userBox is a user's inbox as yardr inbox prints it: its two parts, the
+// mail (a person or a resident talking) and the notifications (the yard
+// reporting). A part that was not asked for is absent. The mail is at the
+// top level, where it was when the inbox had one part.
+type userBox struct {
+	*store.Mailbox
+	Notifications *store.NotificationPage `json:"notifications,omitempty"`
+}
+
+// userInbox is yardr inbox run as a user: of each part asked for, the
+// unread and the latest read, under the part's name and unread count. With
+// ack the unread shown are marked read, in the parts shown only: each part
+// has a cursor of its own.
+func (a *app) userInbox(ctx context.Context, st store.API, name string, limit int, ack, mail, notes bool) error {
+	var box userBox
+	var err error
+	acked := map[string]int{}
+	if mail {
+		if box.Mailbox, err = st.UserInbox(ctx, name, limit); err != nil {
 			return err
 		}
 	}
-	return a.out(box, func() {
-		if len(box.Mail) == 0 {
-			fmt.Println("inbox empty")
-			return
+	if notes {
+		if box.Notifications, err = st.UserNotifications(ctx, name, limit); err != nil {
+			return err
 		}
-		if box.Unread == 0 {
-			fmt.Println("nothing unread; the latest read:")
-		}
+	}
+	// Both are read before either is acknowledged: an ack is logged, and
+	// what is shown is the inbox as it was found.
+	if mail {
+		// The unread come first, oldest first.
+		shown := 0
 		for _, l := range box.Mail {
-			state := ""
-			if l.Read {
-				state = " (read)"
+			if !l.Read {
+				shown++
 			}
-			fmt.Printf("%6d %s  mail from %s%s: %s\n", l.Seq, l.At.Local().Format(mailTime), l.From, state, l.Text)
 		}
-		if rest := box.Unread - shown; rest > 0 {
-			fmt.Printf("… %d more unread\n", rest)
+		if acked["mail"] = shown; ack && shown > 0 {
+			if err := st.AckUserInbox(ctx, name, box.Mail[shown-1].Seq); err != nil {
+				return err
+			}
 		}
-		if ack {
-			fmt.Printf("acknowledged %d\n", shown)
+	}
+	if notes {
+		// Oldest first, so the unread are last and the newest of them ends
+		// the page unless the limit cut it.
+		ns := box.Notifications.Notifications
+		shown := 0
+		for _, n := range ns {
+			if !n.Read {
+				shown++
+			}
+		}
+		if acked["notifications"] = shown; ack && shown > 0 {
+			if err := st.AckUserNotifications(ctx, name, ns[len(ns)-1].Seq); err != nil {
+				return err
+			}
+		}
+	}
+	return a.out(box, func() {
+		if mail {
+			fmt.Println(partHead("Mail", len(box.Mail), box.Unread))
+			for _, l := range box.Mail {
+				state := ""
+				if l.Read {
+					state = " (read)"
+				}
+				fmt.Printf("%6d %s  mail from %s%s: %s\n", l.Seq, l.At.Local().Format(mailTime), l.From, state, l.Text)
+			}
+			partFoot(box.Unread-acked["mail"], acked["mail"], ack)
+		}
+		if mail && notes {
+			fmt.Println()
+		}
+		if notes {
+			p := box.Notifications
+			fmt.Println(partHead("Notifications", len(p.Notifications), p.Unread))
+			for _, n := range p.Notifications {
+				state := ""
+				if n.Read {
+					state = "(read) "
+				}
+				fmt.Printf("%6d %s  %s%s\n", n.Seq, n.At.Local().Format(mailTime), state, n.Text)
+			}
+			partFoot(p.Unread-acked["notifications"], acked["notifications"], ack)
 		}
 	})
+}
+
+// partHead is the line over a part of a user's inbox: its name and how
+// much of it is unread.
+func partHead(part string, shown, unread int) string {
+	switch {
+	case shown == 0:
+		return part + ": none"
+	case unread == 0:
+		return part + ": nothing unread; the latest read:"
+	}
+	return fmt.Sprintf("%s: %d unread", part, unread)
+}
+
+// partFoot says, under a part, what of its unread was not shown and what
+// an ack marked read.
+func partFoot(rest, shown int, ack bool) {
+	if rest > 0 {
+		fmt.Printf("… %d more unread\n", rest)
+	}
+	if ack {
+		fmt.Printf("acknowledged %d\n", shown)
+	}
+}
+
+// notifications is "1 notification" or "N notifications".
+func notifications(n int) string {
+	if n == 1 {
+		return "1 notification"
+	}
+	return fmt.Sprintf("%d notifications", n)
 }
 
 // conversation is yardr mail --with: the mail between who acts and the
@@ -358,7 +450,8 @@ func partyNotes(ctx context.Context, st store.API, residents []store.Resident, g
 }
 
 // unreadLine prints what waits for the acting user under bare yardr's
-// help. It is a courtesy: a store it cannot read says nothing here.
+// help: the unread mail, and how many notifications. It is a courtesy: a
+// store it cannot read says nothing here.
 func (a *app) unreadLine(ctx context.Context) {
 	if a.json {
 		return
@@ -368,8 +461,21 @@ func (a *app) unreadLine(ctx context.Context) {
 		return
 	}
 	m, err := a.readMail(ctx, st)
-	if err != nil || m == nil || m.Unread == 0 {
+	if err != nil || m == nil {
 		return
 	}
-	fmt.Printf("\nMail for %s: %s (yardr inbox).\n", m.User, m.unread())
+	// Notifications are no mail and are not counted as mail: they are
+	// said after it, by their number alone.
+	told := 0
+	if p, err := st.UserNotifications(ctx, m.User, 1); err == nil {
+		told = p.Unread
+	}
+	switch {
+	case m.Unread > 0 && told > 0:
+		fmt.Printf("\nMail for %s: %s, and %s (yardr inbox).\n", m.User, m.unread(), notifications(told))
+	case m.Unread > 0:
+		fmt.Printf("\nMail for %s: %s (yardr inbox).\n", m.User, m.unread())
+	case told > 0:
+		fmt.Printf("\nNo unread mail for %s, and %s (yardr inbox).\n", m.User, notifications(told))
+	}
 }

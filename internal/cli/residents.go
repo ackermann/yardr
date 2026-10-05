@@ -562,7 +562,7 @@ func currentResident(flag string) (string, error) {
 
 func (a *app) inboxCmd() *cobra.Command {
 	var resident string
-	var ack bool
+	var ack, mail, notes bool
 	var limit int
 	cmd := &cobra.Command{
 		Use:   "inbox",
@@ -570,9 +570,22 @@ func (a *app) inboxCmd() *cobra.Command {
 		Long: `Show a resident's unacknowledged events, oldest first. --ack marks everything shown as handled.
 
 Run as a user (your actor is a user's name, and neither --resident nor
-$YARDR_RESIDENT names a resident) it shows the mail to you: the unread,
-oldest first, then the latest you have read. --ack marks the unread shown as
-read. Nothing nudges a person: yardr doctor and bare yardr say what waits.`,
+$YARDR_RESIDENT names a resident) it shows your inbox in two parts, each
+under its name and unread count:
+
+  Mail           what a resident or a person wrote to you: the unread,
+                 oldest first, then the latest you have read
+  Notifications  what the yard tells you of the events you subscribed to
+                 (yardr subscribe <you> ...): one line each, oldest first,
+                 with nobody to answer
+
+--mail and --notifications show one part. --ack marks the unread shown as
+read, in the parts shown only: with --notifications your mail stays
+unread, and with --mail your notifications do. Nothing nudges a person:
+yardr doctor and bare yardr say what waits.`,
+		Example: `  yardr inbox
+  yardr inbox --mail --ack
+  yardr inbox --notifications -n 50 --ack`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			st, err := a.store(c.Context())
@@ -587,7 +600,11 @@ read. Nothing nudges a person: yardr doctor and bare yardr say what waits.`,
 				if u == nil {
 					return fmt.Errorf("--resident is required (or set YARDR_RESIDENT): %s is no user, who would read their own (yardr user list)", a.who())
 				}
-				return a.userInbox(c.Context(), st, u.Name, limit, ack)
+				// Neither flag is both parts, as both flags are.
+				return a.userInbox(c.Context(), st, u.Name, limit, ack, mail || !notes, notes || !mail)
+			}
+			if mail || notes {
+				return fmt.Errorf("--mail and --notifications are the parts of a user's inbox; a resident's has one")
 			}
 			name, err := currentResident(resident)
 			if err != nil {
@@ -620,7 +637,9 @@ read. Nothing nudges a person: yardr doctor and bare yardr say what waits.`,
 		},
 	}
 	cmd.Flags().StringVar(&resident, "resident", "", "resident (default $YARDR_RESIDENT)")
-	cmd.Flags().BoolVar(&ack, "ack", false, "mark the events shown as handled (a user's unread mail as read)")
+	cmd.Flags().BoolVar(&ack, "ack", false, "mark the events shown as handled (a user's: the unread shown as read, in the parts shown)")
+	cmd.Flags().BoolVar(&mail, "mail", false, "a user's inbox: the mail only")
+	cmd.Flags().BoolVar(&notes, "notifications", false, "a user's inbox: the notifications only")
 	cmd.Flags().IntVarP(&limit, "limit", "n", 20, "how many to show")
 	return cmd
 }

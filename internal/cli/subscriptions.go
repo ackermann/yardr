@@ -131,8 +131,8 @@ func (a *app) subscribeCmd() *cobra.Command {
 	var where []string
 	var done bool
 	cmd := &cobra.Command{
-		Use:   "subscribe <resident|group> [source]",
-		Short: "Deliver a source's events to a resident's inbox",
+		Use:   "subscribe <resident|group|user> [source]",
+		Short: "Deliver a source's events to a resident's inbox, or a user's as notifications",
 		Long: `Which events reach the resident, decided as each is logged: hook deliveries
 from a hook source (` + strings.Join(hooks.Sources(), ", ") + `), or yardr's own bead events from
 the yardr source.
@@ -170,13 +170,21 @@ its members that is a resident (reason "<reason> via <group>").
 Each delivery records why it reached the resident: all, mentioned,
 assigned (a delegation reads assigned too), participant or done. Events a resident is the actor of never
 reach it. A resident's --on kinds work as implicit "yardr all kind=<k>"
-subscriptions (and also cover events not about a bead).`,
+subscriptions (and also cover events not about a bead).
+
+The subscriber may be a user: a matching event is then a notification in
+the user's inbox, a line the yard writes, apart from the mail (yardr inbox
+--notifications). The user subscribes themselves, or the operator does it
+for them; a resident does not decide what a person is told. A user has no
+identity in a hook source, so of a hook source only --scope all reaches
+them.`,
 		Example: `  yardr subscribe mayor linear --scope involved
   yardr subscribe triage linear --scope all --where type=issue --where action=create --where team=ENG
   yardr subscribe mayor github --scope all --where epic=yard-sv6b --where conclusion=failure
   yardr subscribe mayor yardr --done
   yardr subscribe mayor yardr --done --where rig=yard --where label=ui
-  yardr subscribe approvers yardr --where stage=approved`,
+  yardr subscribe approvers yardr --where stage=approved
+  yardr subscribe jo yardr --done --where rig=yard     # jo, a user, is told when a bead lands`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(c *cobra.Command, args []string) error {
 			src, err := subSource(args, sub.Source)
@@ -208,8 +216,16 @@ subscriptions (and also cover events not about a bead).`,
 			if err := st.AddSubscription(c.Context(), args[0], sub, a.who()); err != nil {
 				return err
 			}
+			user := false
+			if _, err := st.GetUser(c.Context(), args[0]); err == nil {
+				user = true
+			}
 			return a.showSubscriptions(c, st, args[0], func(subs []store.Subscription, r *store.Resident) {
 				fmt.Printf("%s subscribed: %s\n", args[0], subs[len(subs)-1])
+				if user && src != store.SourceYardr && sub.Scope != store.ScopeAll {
+					fmt.Printf("note: %s is a user, who has no identity in %s and follows no thread there, so this never matches: --scope all does\n",
+						args[0], src)
+				}
 				if r == nil || src == store.SourceYardr {
 					return
 				}
@@ -228,11 +244,18 @@ subscriptions (and also cover events not about a bead).`,
 	return cmd
 }
 
-// showSubscriptions prints (or outputs) the subscriptions of the resident
-// or group called name; r is nil for a group.
+// showSubscriptions prints (or outputs) the subscriptions of the
+// resident, user or group called name, looked up in the order the store
+// does; r is nil for a user and a group.
 func (a *app) showSubscriptions(c *cobra.Command, st store.API, name string, text func([]store.Subscription, *store.Resident)) error {
 	r, err := st.GetResident(c.Context(), name)
 	if errors.Is(err, store.ErrNotFound) {
+		u, uerr := st.GetUser(c.Context(), name)
+		if uerr == nil {
+			return a.out(u.Subscriptions, func() { text(u.Subscriptions, nil) })
+		} else if !errors.Is(uerr, store.ErrNotFound) {
+			return uerr
+		}
 		g, gerr := st.GetGroup(c.Context(), name)
 		if gerr != nil {
 			return gerr
@@ -249,11 +272,12 @@ func (a *app) unsubscribeCmd() *cobra.Command {
 	var source, scope string
 	var where []string
 	cmd := &cobra.Command{
-		Use:   "unsubscribe <resident|group> [source]",
+		Use:   "unsubscribe <resident|group|user> [source]",
 		Short: "Remove subscriptions to a source",
-		Long: `Removes every subscription of the resident (or manual group) to the source;
---scope and --where narrow it to the subscriptions with that scope and
-exactly those filters.`,
+		Long: `Removes every subscription of the resident (or manual group, or user) to the
+source; --scope and --where narrow it to the subscriptions with that scope
+and exactly those filters. A user's are removed by the user and by the
+operator, as they are added.`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(c *cobra.Command, args []string) error {
 			src, err := subSource(args, source)

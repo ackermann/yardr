@@ -171,7 +171,7 @@ func TestMailAUser(t *testing.T) {
 		t.Fatalf("unread is not first:\n%s", out)
 	}
 	mustAs(t, st, "jo", "inbox", "--ack")
-	if out := mustAs(t, st, "jo", "inbox"); !strings.HasPrefix(out, "nothing unread; the latest read:\n") || strings.Count(out, "(read)") != 2 {
+	if out := mustAs(t, st, "jo", "inbox"); !strings.HasPrefix(out, "Mail: nothing unread; the latest read:\n") || strings.Count(out, "(read)") != 2 {
 		t.Fatalf("after the ack:\n%s", out)
 	}
 	var box store.Mailbox
