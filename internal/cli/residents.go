@@ -459,15 +459,30 @@ func (a *app) inboxCmd() *cobra.Command {
 	var limit int
 	cmd := &cobra.Command{
 		Use:   "inbox",
-		Short: "A resident's unread events and mail",
-		Long:  "Show a resident's unacknowledged events, oldest first. --ack marks everything shown as handled.",
-		Args:  cobra.NoArgs,
+		Short: "Unread events and mail: a resident's, or your own as a user",
+		Long: `Show a resident's unacknowledged events, oldest first. --ack marks everything shown as handled.
+
+Run as a user (your actor is a user's name, and neither --resident nor
+$YARDR_RESIDENT names a resident) it shows the mail to you: the unread,
+oldest first, then the latest you have read. --ack marks the unread shown as
+read. Nothing nudges a person: yardr doctor and bare yardr say what waits.`,
+		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			name, err := currentResident(resident)
+			st, err := a.store(c.Context())
 			if err != nil {
 				return err
 			}
-			st, err := a.store(c.Context())
+			if resident == "" && config.Getenv("RESIDENT") == "" {
+				u, err := a.actingUser(c.Context(), st)
+				if err != nil {
+					return err
+				}
+				if u == nil {
+					return fmt.Errorf("--resident is required (or set YARDR_RESIDENT): %s is no user, who would read their own (yardr user list)", a.who())
+				}
+				return a.userInbox(c.Context(), st, u.Name, limit, ack)
+			}
+			name, err := currentResident(resident)
 			if err != nil {
 				return err
 			}
@@ -498,7 +513,7 @@ func (a *app) inboxCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&resident, "resident", "", "resident (default $YARDR_RESIDENT)")
-	cmd.Flags().BoolVar(&ack, "ack", false, "mark the events shown as handled")
+	cmd.Flags().BoolVar(&ack, "ack", false, "mark the events shown as handled (a user's unread mail as read)")
 	cmd.Flags().IntVarP(&limit, "limit", "n", 20, "how many to show")
 	return cmd
 }
@@ -528,10 +543,23 @@ func outsideMail(e store.Event) string {
 }
 
 func (a *app) mailCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "mail <resident>[@<peer>] <text|->",
-		Short: "Send a message to a resident's inbox, in this yard or a linked one",
-		Long: `Sends a message to a resident's inbox (up to 4 KB).
+	var with string
+	var after uint64
+	cmd := &cobra.Command{
+		Use:   "mail <name>[@<peer>] <text|->",
+		Short: "Send a message to the inbox of a resident or a user, or read a conversation back (--with)",
+		Long: `Sends a message to the inbox of a resident or of a user (up to 4 KB).
+
+A user is a person of the yard (yardr user list), the operator among them.
+A resident's session and a user mail a user; an agent working a bead does
+not, its channel is the bead. Nothing nudges a person: they read with yardr
+inbox.
+
+--with <name> sends nothing and prints the mail between you and that resident
+or user, both directions, oldest first: seq, time, whether its receiver has
+read it (acknowledged it with yardr inbox --ack), sender and text. --after
+<seq> prints only what is newer; --json prints a list of
+{seq, at, from, to, text, read}.
 
 <resident>@<peer> is a resident of a linked yard, <peer> being this yard's name
 for the link (yardr peer list). That mail (up to 16 KB) is queued for the peer
@@ -545,13 +573,24 @@ resident's inbox as mail from the yard that says why.
 Mail from another yard is shown as from <name>@<peer> and marked "` + store.OutsideMail + `".
 Answer it with yardr mail <name>@<peer>.`,
 		Example: `  yardr mail mayor "Deploys are frozen until Friday"
+  yardr mail mckean "The refinery is red on main: yardr-1a2b"
+  yardr mail --with mayor
+  yardr mail --with mayor --after 412 --json
   yardr mail mayor@north "Our webapp rig is on Go 1.25 now"`,
-		Args: cobra.ExactArgs(2),
+		Args: func(c *cobra.Command, args []string) error {
+			if with != "" {
+				return cobra.NoArgs(c, args)
+			}
+			return cobra.ExactArgs(2)(c, args)
+		},
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()
 			st, err := a.store(ctx)
 			if err != nil {
 				return err
+			}
+			if with != "" {
+				return a.conversation(ctx, st, with, after)
 			}
 			text := args[1]
 			if text == "-" {
@@ -561,6 +600,13 @@ Answer it with yardr mail <name>@<peer>.`,
 			}
 			to, peer, outside := strings.Cut(args[0], "@")
 			if !outside {
+				if _, err := st.GetUser(ctx, to); err == nil {
+					if err := a.mayMailUser(to); err != nil {
+						return err
+					}
+				} else if !errors.Is(err, store.ErrNotFound) {
+					return err
+				}
 				if err := st.Mail(ctx, to, text, a.who()); err != nil {
 					return err
 				}
@@ -578,6 +624,9 @@ Answer it with yardr mail <name>@<peer>.`,
 			})
 		},
 	}
+	cmd.Flags().StringVar(&with, "with", "", "print the mail between you and this resident or user instead of sending")
+	cmd.Flags().Uint64Var(&after, "after", 0, "with --with: only mail newer than this seq")
+	return cmd
 }
 
 // mayMailPeer refuses mail to a peer's resident from anyone who is neither
@@ -798,7 +847,8 @@ func (a *app) primeResident(ctx context.Context, st store.API, name string) erro
 - yardr resident handoff %[1]s "...": end your session. Write what you are doing, what is
   next and what to watch (max 16 KB); yardr starts your next session from it.
 - yardr remember "title" -b "..." [--expires 7d] / yardr recall [query]: lasting knowledge.
-- yardr mail <resident> "...": message another resident.
+- yardr mail <name> "...": message another resident, or a user (yardr user list). Answer a
+  user's mail by mail; yardr mail --with <name> reads an exchange back.
 %[2]s- The yard itself: yardr ready, yardr bead list|show|create|update|advance|close|hold|unhold|release,
   yardr dep add, yardr prime --bead <id>, yardr events, yardr group list, yardr route list, yardr session list.
   Do not run yardr watch: it never returns.

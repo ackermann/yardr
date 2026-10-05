@@ -504,7 +504,9 @@ before the onboarding is in use, and onboarding it would refuse its agents'
 commands. Opening such a store writes `default_kind` for it, from the first
 herdr group's kind, else the first herdr resident's, else `claude`, with the
 event `settings_migrated` (the `operator` and `mayor` settings stay unset; installed role
-prompts keep the name they have). Only an empty store onboards. The store
+prompts keep the name they have). Opening a store whose `operator` setting
+names nobody's user adds that user ([users.md](users.md)), unless a
+resident has the name. Only an empty store onboards. The store
 file alone is no marker: the server creates `yard.db` on the first command
 that connects, whatever it was, so a home can hold an empty store nobody set
 up. Any yardr command on a home that is not set
@@ -820,7 +822,7 @@ nothing had to be added. No, or ctrl+c, changes nothing and prints the
 command. It goes by the yard as it is, not by a record of the earlier run,
 so a yard made with `yardr init` and never started is taken up the same way.
 
-On any other yard bare `yardr` is help, as before: one with a rig (its setup
+On any other yard bare `yardr` is help, as before (with a last line, `Mail for <user>: N unread from <names>`, when the user who runs it has unread mail, [users.md](users.md)): one with a rig (its setup
 is `yardr setup`'s, or the mayor's), one that runs, one whose mayor was
 stopped with `yardr resident stop` while its daemon runs. It is help too
 without a terminal, with `--json`, and in an agent's session. When the form's
@@ -910,7 +912,7 @@ value unsets) keep the yard's own defaults in the store:
 | key | meaning |
 |---|---|
 | `default_kind` | the agent kind a herdr group or resident gets when `group add` or `resident add` is given no `--set kind`; also the kind their forms start at. One of the kinds herdr starts. Its presence marks the yard set up. |
-| `operator` | the person the role prompts name, agents bring decisions to; `yardr init` stores it (`--operator`, the form's "Your name") and `yardr rig init` fills roles with it. |
+| `operator` | the person the role prompts name, agents bring decisions to; `yardr init` stores it (`--operator`, the form's "Your name") and `yardr rig init` fills roles with it. The operator is a user ([users.md](users.md)): setting a name adds the user when there is none, a resident's name is refused, and only the operator adds and removes other users. |
 | `operator_style` | how agents should work with the operator: `guide`, `show`, `work` or `report` ([what each tells an agent](#how-agents-work-with-you)). `yardr init` stores it (`--style`, the form's "How should agents work with you?"); both primes print it as instructions, so a change reaches the next session that starts. Unset, the primes say nothing about it. |
 | `operator_note` | one line agents should know about the operator (`--about`, the form's "Anything agents should know about you?"), printed by the primes with the style, or alone. |
 | `mayor` | the mayor resident's name, whom the builder and reviewer roles tell agents to mail about what blocks them ([residents.md](residents.md#findings-from-builders-and-reviewers)); `yardr init` stores it (`--mayor`) and `yardr rig init` fills roles with it. A yard from before the setting has none: `rig init` then takes its one resident, else `mayor`. |
@@ -922,7 +924,7 @@ Environment variables yardr reads:
 | variable | meaning |
 |---|---|
 | `YARDR_HOME` | state directory (above), when `--home` is not given; a relative path is resolved against the command's directory, once |
-| `YARDR_ACTOR` | who is acting, for the event log (default: the OS user) |
+| `YARDR_ACTOR` | who is acting, for the event log (default: the OS user). A command whose actor is a user's name acts as that user ([users.md](users.md)); nothing checks who is at the keyboard |
 | `YARDR_BEAD`, `YARDR_RESIDENT` | defaults for `prime` and resident commands; set for the sessions yardr starts |
 | `YARDR_SESSION` | the session yardr started this process for; every bead move (`bead done`, `advance`, `close`, `hold`, `release`, `reopen`) sends it, and the store refuses to move the session's own bead once the session no longer owns it, and any other bead a live session owns. A call from the session's pane is checked as it even with the variable unset ([pipeline.md](pipeline.md#2-new-a-builder-implements-it)). In a bead's worktree, an environment naming another bead gives way to the worktree's session ([groups.md](groups.md#codex)) |
 | `YARDR_HOOK_ADDR` | TCP address the server takes webhooks on, e.g. `127.0.0.1:8790`, read where the server starts; set, it is used instead of the `hook_addr` setting ([above](#settings)) |

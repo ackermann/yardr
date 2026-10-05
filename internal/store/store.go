@@ -152,6 +152,9 @@ func Open(path string) (*Store, error) {
 		if err := migrateSettings(tx); err != nil {
 			return err
 		}
+		if err := migrateOperator(tx); err != nil {
+			return err
+		}
 		return setSchema(tx)
 	})
 	if err != nil {
@@ -324,13 +327,13 @@ func (w *wtx) event(bead, kind, actor string, data map[string]any) error {
 	return put(w.Tx, bEvents, seqKey(seq), e)
 }
 
-// inboxOf lists the residents e is addressed to: whom mail is for, and
-// whom a subscription delivered it to. What reaches an inbox through a
+// inboxOf lists whom e is addressed to: whom mail is for (a resident, or a
+// user), and the residents a subscription delivered it to. What reaches an inbox through a
 // resident's --on kinds is found through events_by_kind instead, since
 // those are checked when the inbox is read.
 func inboxOf(e Event) []string {
 	var out []string
-	if to := mailTo(e); to != "" {
+	if to := mailReceiver(e); to != "" {
 		out = append(out, to)
 	}
 	d, _ := e.Data["deliveries"].(map[string]any)

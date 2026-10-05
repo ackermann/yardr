@@ -1,7 +1,8 @@
 # Subscriptions and notifications
 
 A resident hears of things through its inbox (`yardr inbox`). Mail to it
-always lands there. Everything else arrives because something subscribed it:
+always lands there. A user's inbox ([users.md](users.md)) holds mail and
+nothing else: subscriptions deliver to residents. Everything else arrives because something subscribed it:
 
 | source | what it delivers | how a resident subscribes |
 |---|---|---|
@@ -114,7 +115,8 @@ approvers`). Scopes are worked out per member: `mentions` means that member
 is @mentioned. Redefining the group keeps its subscriptions. A runner other
 than manual cannot subscribe.
 
-Human members get nothing in an inbox yet. They are told in herdr when a bead
+Human members get no deliveries in an inbox yet: a member who is a user
+([users.md](users.md)) has an inbox, for mail alone. They are told in herdr when a bead
 reaches their manual group's stage (group config `notify=true`).
 Delivering subscriptions to humans waits for channels (*planned, yard-1*).
 

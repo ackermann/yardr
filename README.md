@@ -268,6 +268,9 @@ The rest of the documentation is in [docs/](docs/README.md):
 - **[Review](docs/review.md):** `yardr review`, a form for beads waiting on you.
 - **[Residents](docs/residents.md):** always-on sessions such as a mayor, with
   inbox, webhook subscriptions, journal, handoffs and memories.
+- **[Users](docs/users.md):** `yardr user`, people with an inbox of their own: residents
+  mail a user, the user reads it with `yardr inbox` and a whole exchange with
+  `yardr mail --with mayor`.
 - **[Subscriptions](docs/subscriptions.md):** what reaches a resident's inbox:
   hook sources, yardr's own bead events (`--done`, `yardr bead watch`), groups.
 - **[Links](docs/links.md):** `yardr link`, the outside issue (Linear, GitHub) a bead

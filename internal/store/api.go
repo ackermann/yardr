@@ -101,6 +101,13 @@ type API interface {
 	Mail(ctx context.Context, to, text, actor string) error
 	Inbox(ctx context.Context, name string, limit int) (*InboxPage, error)
 	AckInbox(ctx context.Context, name string, through uint64) error
+	AddUser(ctx context.Context, name, actor string) (*User, error)
+	Users(ctx context.Context) ([]User, error)
+	GetUser(ctx context.Context, name string) (*User, error)
+	DeleteUser(ctx context.Context, name, actor string) error
+	UserInbox(ctx context.Context, name string, limit int) (*Mailbox, error)
+	AckUserInbox(ctx context.Context, name string, through uint64) error
+	Conversation(ctx context.Context, a, b string, after uint64) ([]Letter, error)
 	ResidentPrime(ctx context.Context, name string) (*Prime, error)
 	Remember(ctx context.Context, m NewMemory, actor string) (*Bead, error)
 	Recall(ctx context.Context, scope, query string) ([]MemoryInfo, error)

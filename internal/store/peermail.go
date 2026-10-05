@@ -84,16 +84,14 @@ type peerMail struct {
 var peerMailName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,63}$`)
 
 // mailTo is the resident of this yard a mail event is for: "" for mail
-// that left for a peer's resident, who may have the name of one here.
+// that left for a peer's resident, who may have the name of one here, and
+// for mail to a user (see mailReceiver), whose name a resident may come to
+// have once the user is gone.
 func mailTo(e Event) string {
-	if e.Kind != "mail" {
+	if toUser(e) {
 		return ""
 	}
-	if _, left := e.Data["to_peer"]; left {
-		return ""
-	}
-	to, _ := e.Data["to"].(string)
-	return to
+	return mailReceiver(e)
 }
 
 // MailPeer queues mail from actor to the resident to of the peer's yard:

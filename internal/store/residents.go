@@ -92,6 +92,10 @@ func (s *Store) PutResident(ctx context.Context, def Resident, actor string) (*R
 			return err
 		}
 		if !ok {
+			// One name is one party: mail to it must reach one of the two.
+			if w.Bucket(bUsers).Get([]byte(def.Name)) != nil {
+				return fmt.Errorf("resident %s: that is a user's name, and mail to a name reaches one party: choose another", def.Name)
+			}
 			// A new resident starts reading the inbox from now, not history.
 			head := uint64(0)
 			if k, _ := w.Bucket(bEvents).Cursor().Last(); k != nil {
@@ -352,16 +356,21 @@ func (s *Store) Journal(ctx context.Context, name, kind, text, actor string) err
 	})
 }
 
-// Mail sends a message to a resident's inbox.
+// Mail sends a message to the inbox of a resident or of a user.
 func (s *Store) Mail(ctx context.Context, to, text, actor string) error {
 	if strings.TrimSpace(text) == "" || len(text) > MaxMailBytes {
 		return fmt.Errorf("mail must be 1..%d bytes", MaxMailBytes)
 	}
 	return s.write(func(w *wtx) error {
-		if w.Bucket(bResidents).Get([]byte(to)) == nil {
-			return fmt.Errorf("resident %s: %w", to, ErrNotFound)
+		data := map[string]any{"to": to, "text": text}
+		switch {
+		case w.Bucket(bResidents).Get([]byte(to)) != nil:
+		case w.Bucket(bUsers).Get([]byte(to)) != nil:
+			data["to_user"] = true
+		default:
+			return fmt.Errorf("resident %s: %w (nor is there a user of that name)", to, ErrNotFound)
 		}
-		return w.event("", "mail", actor, map[string]any{"to": to, "text": text})
+		return w.event("", "mail", actor, data)
 	})
 }
 

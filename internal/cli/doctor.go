@@ -44,6 +44,12 @@ type yardState struct {
 	Residents int               `json:"residents"`
 	Failing   []failingResident `json:"failing"`
 	Held      []string          `json:"held"`
+	// Mail is what waits in the inbox of the user the command acts as;
+	// absent when who acts is no user.
+	Mail *mailState `json:"mail,omitempty"`
+	// Parties are what is to know about the yard's names: a resident named
+	// as the operator, members of groups that are no party of the yard.
+	Parties []string `json:"parties,omitempty"`
 }
 
 // mayorState is the mayor: whether the resident exists, and its session.
@@ -190,6 +196,12 @@ func (a *app) doctor(ctx context.Context, cfg *config.Config) (*doctorReport, er
 	}
 	if !was {
 		rep.State.Server = "started"
+	}
+	if rep.State.Mail, err = a.readMail(ctx, st); err != nil {
+		return nil, err
+	}
+	if rep.State.Parties, err = partyNotes(ctx, st, residents, groups, yardrAt(cfg.Home)); err != nil {
+		return nil, err
 	}
 	if rep.Steps, err = setupSteps(ctx, st); err != nil {
 		return nil, err
@@ -409,10 +421,18 @@ func (s *yardState) lines(home string) []docLine {
 		out = append(out, docLine{tagOK, "residents", fmt.Sprintf("%d, none failing to start", s.Residents)})
 	}
 	if len(s.Held) == 0 {
-		return append(out, docLine{tagOK, "held", "no bead is held"})
+		out = append(out, docLine{tagOK, "held", "no bead is held"})
+	} else {
+		out = append(out, docLine{tagNote, "held", fmt.Sprintf("%d held, waiting for someone: %s (%s bead show <id>; %s bead unhold <id> resumes it)",
+			len(s.Held), strings.Join(s.Held, ", "), yardr, yardr)})
 	}
-	return append(out, docLine{tagNote, "held", fmt.Sprintf("%d held, waiting for someone: %s (%s bead show <id>; %s bead unhold <id> resumes it)",
-		len(s.Held), strings.Join(s.Held, ", "), yardr, yardr)})
+	if s.Mail != nil {
+		out = append(out, s.Mail.line(yardr))
+	}
+	for _, n := range s.Parties {
+		out = append(out, docLine{tagNote, "names", n})
+	}
+	return out
 }
 
 // failed says how a resident's starts fail.

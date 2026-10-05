@@ -74,7 +74,11 @@ func (a *app) rootCmd() *cobra.Command {
 			if a.onboarded {
 				return nil
 			}
-			return c.Help()
+			if err := c.Help(); err != nil {
+				return err
+			}
+			a.unreadLine(c.Context())
+			return nil
 		},
 		PersistentPreRunE: func(c *cobra.Command, _ []string) error {
 			// Before anything reads the home: every config.Load of this
@@ -92,7 +96,7 @@ func (a *app) rootCmd() *cobra.Command {
 	root.PersistentFlags().StringVar(&a.actor, "actor", "", "who is acting (default $YARDR_ACTOR, else $USER)")
 	root.AddCommand(a.serverCmd(), a.daemonCmd(), a.rigCmd(), a.beadCmd(), a.readyCmd(),
 		a.depCmd(), a.linkCmd(), a.groupCmd(), a.routeCmd(), a.flowCmd(), a.sessionCmd(), a.eventsCmd(), a.watchCmd(), a.primeCmd(),
-		a.bdpCmd(), a.webCmd(), a.residentCmd(), a.inboxCmd(), a.mailCmd(), a.rememberCmd(), a.recallCmd(), a.hookCmd(),
+		a.bdpCmd(), a.webCmd(), a.residentCmd(), a.userCmd(), a.inboxCmd(), a.mailCmd(), a.rememberCmd(), a.recallCmd(), a.hookCmd(),
 		a.peerCmd(), a.subscribeCmd(), a.unsubscribeCmd(), a.threadCmd(), a.replyCmd(), a.reviewCmd(), a.storeCmd(), a.packCmd(),
 		a.initCmd(), a.settingsCmd(), a.doctorCmd(), a.setupCmd(), a.otelCmd(), a.versionCmd())
 	return root

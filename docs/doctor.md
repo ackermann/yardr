@@ -84,6 +84,10 @@ Not printed on a home with no yard.
 | `ok residents <N>, none failing to start` | |
 | `ok held no bead is held` | |
 | `note held <N> held, waiting for someone: <ids> (yardr bead show <id>; yardr bead unhold <id> resumes it)` | no fault: a held bead waits for a person |
+| `ok mail nothing unread for <user>` | printed when who runs the command is a user ([users.md](users.md)); absent otherwise |
+| `note mail <N> unread from <names> for <user>: yardr inbox reads them, --ack marks them read` | no fault: nothing nudges a person, so this line and bare `yardr` are where they learn of mail |
+| `note names group <group>: <names> are neither a user nor a resident, so nobody of that name can be mailed (yardr user add <name>)` | no fault: members of a group are names, taken as given |
+| `note names resident <name> has the operator's name, so the operator has no user and no inbox: mail to <name> is the resident's. Rename one of the two: yardr settings set operator <name> gives the operator a name of their own and adds their user` | no fault: a yard from before residents and users shared their names |
 
 ### Setup
 
@@ -162,7 +166,7 @@ For a home other than the default, every command doctor prints is `yardr
 |---|---|
 | `home`, `yard` | the home; whether a yard is set up in it |
 | `machine` | the programs: `program`, `for`, `found`, `path`, `get` (when missing), `harness` (the kind, for a harness), `optional` (a harness nothing runs on yet), `version` with `state` (`answers`, `fails`, `hangs`, `not_checked`) and `output` |
-| `state` | `server` (`running`, `started`, `unreachable`), `server_error`, `daemon`, `mayor` (`name`, `resident`, `enabled`, `running`, `state`, `agent`, `failures`, `reason`), `residents`, `failing`, `held`; absent with no yard |
+| `state` | `server` (`running`, `started`, `unreachable`), `server_error`, `daemon`, `mayor` (`name`, `resident`, `enabled`, `running`, `state`, `agent`, `failures`, `reason`), `residents`, `failing`, `held`, `mail` (`user`, `unread`, `from`; only when who runs it is a user), `parties` (the `names` notes); absent with no yard |
 | `steps` | each `key`, `title`, `done`, `detail`, `next` (the command) when not done, and `rig` (the rig the command names) once the yard has one |
 | `next` | the first step not done; absent when all are |
 | `optional` | each `key` (`web`, `hooks`, `peers`, `packs`, `login_service`), `title`, `configured`, `detail`, `notes` |

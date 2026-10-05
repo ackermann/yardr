@@ -74,7 +74,13 @@ doctor` and bare `yardr` say it.
 
 - **Inbox:** mail, plus what its subscriptions deliver. Read with `yardr
   inbox`, mark handled with `yardr inbox --ack`; the cursor is stored, so
-  nothing is lost or repeated across restarts.
+  nothing is lost or repeated across restarts. A mail counts as read, where
+  a conversation shows it, once the acknowledgement has passed it.
+- **Mail to and from a user:** `yardr mail <user>` writes to a person of the
+  yard, the operator among them, who reads it with `yardr inbox`; nothing
+  nudges a person. `yardr mail --with <name>` prints the exchange with a user
+  or another resident, with what each side has read. Residents and users
+  share their names. See [users.md](users.md).
 - **Mail from and to another yard:** `yardr mail <resident>@<peer>` writes to
   a resident of a linked yard, when the operator gave the resident that peer
   (`--set peers=<peer>,<peer>`, under the rules of `open_threads`

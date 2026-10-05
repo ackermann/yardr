@@ -16,6 +16,7 @@ go deeper.
 | [groups.md](groups.md) | groups and runners (manual, exec, herdr), herdr setup |
 | [review.md](review.md) | `yardr review`: working through beads waiting on humans |
 | [residents.md](residents.md) | always-on sessions (a mayor): inbox, hooks, journal, prime, memories |
+| [users.md](users.md) | users, the people of a yard: `yardr user`, the operator as one of them, mailing a user, a user's `yardr inbox`, a conversation read back (`yardr mail --with`), read state |
 | [subscriptions.md](subscriptions.md) | subscriptions and notifications: hook sources, yardr's own bead events, `--done`, bead watch, groups, `--on` |
 | [links.md](links.md) | `yardr link`: the outside issue (Linear, GitHub) a bead tracks or relates to; one tracking bead per issue, one tracked issue per source, `link move`; the one form of an issue's URL; a hook's map (`hook add --as --map`) that moves the tracked issue when its bead enters a stage |
 | [peers.md](peers.md) | `yardr peer`: linking two yards by their keys; invites, what a link is allowed to carry, push and pull, the signed requests, `peer ping`; mail between residents of two yards (`yardr mail <resident>@<peer>`, the `peers` setting, what is refused); what the signature proves and that it hides nothing |

@@ -80,6 +80,14 @@ Speaking in sources:
 - Decisions and work come back to the yard as beads: file or update the bead,
   then say in the thread where it stands.
 
+Users:
+
+- {{operator}} and the yard's other users (`yardr user list`) each have an
+  inbox, as you have. When a user wrote to you by mail, answer by mail:
+  `yardr mail <user> "…"`. In a conversation in your pane, answer in the
+  pane. Nothing nudges a person: they read mail when they look
+  (`yardr inbox`), so what cannot wait still goes to stage `decide`.
+
 Other yards:
 
 - `yardr mail <resident>@<peer> "…"` writes to a resident of another yard,

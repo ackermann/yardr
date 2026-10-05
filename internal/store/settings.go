@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 
 	bolt "go.etcd.io/bbolt"
 )
@@ -26,12 +27,23 @@ func (s *Store) Settings(ctx context.Context) (map[string]string, error) {
 	return out, err
 }
 
-// SetSetting sets key to value; an empty value removes it.
+// SetSetting sets key to value; an empty value removes it. The operator is
+// a user (see User), so naming one adds the user when there is none. A
+// resident's name is refused: mail to a name reaches one party. A yard that
+// has a resident named as its operator already keeps its setting as it is.
 func (s *Store) SetSetting(ctx context.Context, key, value, actor string) error {
 	if err := checkName("setting", key); err != nil {
 		return err
 	}
 	return s.write(func(w *wtx) error {
+		if key == OperatorSetting && value != "" && w.Bucket(bResidents).Get([]byte(value)) != nil {
+			if was, err := operatorIn(w.Tx); err != nil {
+				return err
+			} else if was != value {
+				return fmt.Errorf("%s %q: that is a resident's name, and mail to a name reaches one party: "+
+					"choose another name for the operator, or remove the resident first (yardr resident rm %s)", key, value, value)
+			}
+		}
 		var err error
 		if value == "" {
 			err = w.Bucket(bSettings).Delete([]byte(key))
@@ -40,6 +52,11 @@ func (s *Store) SetSetting(ctx context.Context, key, value, actor string) error 
 		}
 		if err != nil {
 			return err
+		}
+		if key == OperatorSetting {
+			if err := w.ensureOperator(actor); err != nil {
+				return err
+			}
 		}
 		return w.event("", "setting_changed", actor, map[string]any{"key": key, "value": value})
 	})

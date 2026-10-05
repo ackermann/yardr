@@ -434,6 +434,27 @@ func (c *Client) Inbox(ctx context.Context, name string, limit int) (*store.Inbo
 func (c *Client) AckInbox(ctx context.Context, name string, through uint64) error {
 	return c.call(ctx, "AckInbox", nil, name, through)
 }
+func (c *Client) AddUser(ctx context.Context, name, actor string) (*store.User, error) {
+	return callV[*store.User](c, ctx, "AddUser", name, actor)
+}
+func (c *Client) Users(ctx context.Context) ([]store.User, error) {
+	return callV[[]store.User](c, ctx, "Users")
+}
+func (c *Client) GetUser(ctx context.Context, name string) (*store.User, error) {
+	return callV[*store.User](c, ctx, "GetUser", name)
+}
+func (c *Client) DeleteUser(ctx context.Context, name, actor string) error {
+	return c.call(ctx, "DeleteUser", nil, name, actor)
+}
+func (c *Client) UserInbox(ctx context.Context, name string, limit int) (*store.Mailbox, error) {
+	return callV[*store.Mailbox](c, ctx, "UserInbox", name, limit)
+}
+func (c *Client) AckUserInbox(ctx context.Context, name string, through uint64) error {
+	return c.call(ctx, "AckUserInbox", nil, name, through)
+}
+func (c *Client) Conversation(ctx context.Context, a, b string, after uint64) ([]store.Letter, error) {
+	return callV[[]store.Letter](c, ctx, "Conversation", a, b, after)
+}
 func (c *Client) ResidentPrime(ctx context.Context, name string) (*store.Prime, error) {
 	return callV[*store.Prime](c, ctx, "ResidentPrime", name)
 }
