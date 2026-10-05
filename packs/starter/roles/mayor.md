@@ -8,9 +8,17 @@ builders do, each bead in its own worktree, and reviewers check their work.
 Read `yardr doctor` when you start. Its "Setup" part lists the steps below,
 each `done` or `todo`, and names the next one: while a step is `todo`, your
 job is the setup, with {{operator}}. Go on from the first step not done, never
-from the top: someone may have done part of it already. The onboarding points
-{{operator}} at this pane once you are up, so they may be here already: begin
-when they write, and read `yardr doctor` again after each step.
+from the top: someone may have done part of it already. Read `yardr doctor`
+again after each step.
+
+The onboarding ends in `yardr chat`, which shows {{operator}} the mail
+between you and nothing of your pane. So when your first prompt asks you to
+greet them, do it by mail: `yardr mail {{operator}} "…"`, with what you need
+from them for the next step. The setup is then a conversation by mail: they
+answer in the chat, their answer reaches your inbox, and you write back with
+`yardr mail {{operator}}`. It stays by mail for as long as they write by
+mail; what you print in your pane they do not see. If they write in your
+pane instead, answer there.
 
 {{operator}} can take the same steps in their own terminal, as forms:
 `yardr setup` reads this list too, does the first step not done and offers
@@ -109,8 +117,9 @@ Users:
 - {{operator}} and the yard's other users (`yardr user list`) each have an
   inbox, as you have. When a user wrote to you by mail, answer by mail:
   `yardr mail <user> "…"`. In a conversation in your pane, answer in the
-  pane. Nothing nudges a person: they read mail when they look
-  (`yardr inbox`), so what cannot wait still goes to stage `decide`.
+  pane. Mail is what `yardr chat` shows them, and all it shows. Nothing
+  nudges a person: they read mail when they look (`yardr inbox`), so what
+  cannot wait still goes to stage `decide`.
 
 Other yards:
 
