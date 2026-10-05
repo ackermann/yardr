@@ -92,7 +92,8 @@ func strs(cfg map[string]any, key string) []string {
 
 // Brief renders the instructions an agent session starts from: the group's
 // prompt file followed by the bead, the yard commands to report back and,
-// when the bead's flow has one for its stage, the stage file.
+// when a flow governs the bead, the map of the flow and the stage file it
+// has for the bead's stage.
 // home is the yard's home, where relative prompts not in the rig are found.
 func Brief(job dispatch.Job, actor, workdir, home string) (string, error) {
 	var b strings.Builder
@@ -166,9 +167,25 @@ Your environment already names you to yardr (YARDR_ACTOR=%[1]s, YARDR_BEAD, YARD
 			return "", err
 		}
 	}
-	// Without its `summary:` line, which is for the map of the flow in
-	// yardr prime.
-	if body := strings.TrimSpace(sf.Body()); body != "" {
+	// Without its `summary:` line, which is for the map of the flow.
+	body := strings.TrimSpace(sf.Body())
+	// The whole flow and the path the bead took, as yardr prime draws
+	// them: what comes before and after the stage, and for a bead sent back
+	// that it was, which the stage file does not say. Fenced, since its
+	// columns are aligned.
+	if m := job.FlowMap; m != nil {
+		if job.StoreFlow != "" {
+			// The job's map is left as the store drew it.
+			filled := *m
+			filled.Stages = slices.Clone(m.Stages)
+			if err := filled.HomeSummaries(home); err != nil {
+				return "", err
+			}
+			m = &filled
+		}
+		fmt.Fprintf(&b, "\n## Flow `%s`\n\n```text\n%s```\n", m.Name, m.Text(body != ""))
+	}
+	if body != "" {
 		fmt.Fprintf(&b, "\n## Stage `%s`\n\n%s\n", bead.Stage, body)
 	}
 	switch {

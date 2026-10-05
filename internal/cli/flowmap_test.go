@@ -6,7 +6,10 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -154,14 +157,141 @@ func TestFlowMapTextLongPath(t *testing.T) {
 		}
 	}
 	whole := "PATH  a -> b -> c -> d (changes) -> e -> f -> g -> h\n"
-	if got, want := flowMapText(m, false), "FLOW f · 1 stage (context: it does not say what you must do)\n> only   nobody   <- you are here\n"+whole; got != want {
+	if got, want := m.Text(false), "FLOW f · 1 stage (context: it does not say what you must do)\n> only   nobody   <- you are here\n"+whole; got != want {
 		t.Errorf("eight stages:\n%s\nwant:\n%s", got, want)
 	}
 	m.Path = append(m.Path, store.PathStep{Stage: "i", Back: store.BackByHand})
-	if got, want := flowMapText(m, false), "PATH  a -> b -> … -> e -> f -> g -> h -> i (by hand)\n"; !strings.HasSuffix(got, "\n"+want) {
+	if got, want := m.Text(false), "PATH  a -> b -> … -> e -> f -> g -> h -> i (by hand)\n"; !strings.HasSuffix(got, "\n"+want) {
 		t.Errorf("nine stages:\n%s\nwant it to end:\n%s", got, want)
 	}
 	if len(m.Path) != 9 {
 		t.Errorf("drawing the map changed its path: %+v", m.Path)
+	}
+}
+
+// briefRunner writes the brief of every job it is started with, as the
+// herdr runner does, and starts nothing.
+type briefRunner struct {
+	home   string
+	briefs map[string]string // by bead, the last one
+	err    error
+}
+
+func (r *briefRunner) Start(_ context.Context, j dispatch.Job) (map[string]any, error) {
+	b, err := runner.Brief(j, "a", "", r.home)
+	if err != nil {
+		r.err = err
+	}
+	r.briefs[j.Bead.ID] = b
+	return map[string]any{}, nil
+}
+func (*briefRunner) Alive(context.Context, map[string]any) (bool, error) { return true, nil }
+func (*briefRunner) Stop(context.Context, map[string]any) error          { return nil }
+
+// The brief a session starts from holds the map prime draws, directly
+// before its stage section: for a bead in its first stage, for one sent
+// back (the path says by which outcome) and for a store flow, whose lines
+// come from the home. The text is prime's for the same bead. A bead no
+// flow governs gets the brief it always got.
+func TestBriefCarriesPrimesFlowMap(t *testing.T) {
+	a, repo, home, git, write := stageYard(t)
+	ctx := context.Background()
+	write(repo, map[string]string{
+		".yardr/flows/default/new.md":    "summary: A builder implements the bead.\n\nBuild it on your branch. Then report.\n",
+		".yardr/flows/default/review.md": "The diff is read. All of it.\n",
+	})
+	git("add", "-A")
+	git("commit", "-q", "-m", "stage files")
+	write(home, map[string]string{"flows/code/review.md": "Review for every rig. In full.\n"})
+	if err := a.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "brief", Limit: 5, Config: map[string]any{}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.st.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}); err != nil {
+		t.Fatal(err)
+	}
+	r := &briefRunner{home: home, briefs: map[string]string{}}
+	d := &dispatch.Dispatcher{Store: a.st, Runners: map[string]dispatch.Runner{"brief": r}, Backoff: time.Nanosecond}
+	// primes is the FLOW block of prime for the bead, up to the blank line
+	// that ends it.
+	primes := func(id string) string {
+		t.Helper()
+		out, err := run(t, a.primeCmd(), "--bead", id)
+		if err != nil {
+			t.Fatalf("prime %s: %v", id, err)
+		}
+		i := strings.Index(out, "\nFLOW ")
+		if i < 0 {
+			t.Fatalf("prime %s draws no map:\n%s", id, out)
+		}
+		block, _, _ := strings.Cut(out[i+1:], "\n\n")
+		return block + "\n"
+	}
+	brief := func(id string) string {
+		t.Helper()
+		if err := d.Reconcile(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if r.err != nil {
+			t.Fatal(r.err)
+		}
+		return r.briefs[id]
+	}
+	holds := func(brief, want string) {
+		t.Helper()
+		if !strings.Contains(brief, want) {
+			t.Errorf("brief:\n%s\nwant it to hold:\n%s", brief, want)
+		}
+	}
+
+	b, err := a.st.CreateBead(ctx, store.NewBead{Title: "task", Rig: "web"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	api, err := a.st.CreateBead(ctx, store.NewBead{Title: "api", Rig: "api", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	free, err := a.st.CreateBead(ctx, store.NewBead{Title: "free", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first := brief(b.ID)
+	holds(first, "\n## Flow `default`\n\n```text\n"+
+		"FLOW default · 3 stages (context: your stage's file below says what you must do)\n"+
+		"> new      agents   A builder implements the bead.   <- you are here\n"+
+		"  review   nobody   The diff is read.\n"+
+		"  merged   end\n"+
+		"```\n\n## Stage `new`\n\nBuild it on your branch. Then report.\n\n## Outcomes\n")
+	holds(first, "```text\n"+primes(b.ID)+"```\n")
+	if strings.Contains(first, "PATH") {
+		t.Errorf("the brief of a bead that never moved has a path:\n%s", first)
+	}
+
+	// A store flow, in a stage without a file: the heading says so.
+	holds(brief(api.ID), "\n## Flow `code`\n\n```text\n"+
+		"FLOW code · 3 stages (context: it does not say what you must do)\n"+
+		"> new       agents   <- you are here\n"+
+		"  review    nobody   Review for every rig.\n"+
+		"  shipped   end\n"+
+		"```\n\n## Outcomes\n")
+	holds(brief(api.ID), "```text\n"+primes(api.ID)+"```\n")
+
+	// Sent back from review: the new session's brief says so.
+	if _, err := a.st.Advance(ctx, b.ID, "review", store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.st.Done(ctx, b.ID, "changes", "", store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	delete(r.briefs, b.ID)
+	back := brief(b.ID)
+	holds(back, "  merged   end\nPATH  new -> review -> new (changes)\n```\n\n## Stage `new`\n")
+	holds(back, "```text\n"+primes(b.ID)+"```\n")
+
+	// No flow, no map: the brief is the one it was.
+	none := brief(free.ID)
+	if none == "" || strings.Contains(none, "## Flow") || strings.Contains(none, "FLOW") || strings.Contains(none, "```") {
+		t.Errorf("the brief of a bead no flow governs:\n%s", none)
 	}
 }

@@ -43,6 +43,10 @@ type Job struct {
 	// files are in the yard's home, read when the brief is written.
 	StageFile *store.StageFile
 	StoreFlow string
+	// FlowMap is the bead's flow as a short map with the path the bead
+	// took, for its brief; nil when no flow governs it. A store flow's
+	// lines are filled in from the yard's home when the brief is written.
+	FlowMap *store.FlowMap
 }
 
 // NextStage is one stage a flow allows the bead to move to, with who would
@@ -865,7 +869,7 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		d.Log.Info("dispatching", "bead", b.ID, "stage", b.Stage, "group", g.Name, "session", sess.ID)
 
 		handle, err := runner.Start(ctx, Job{Bead: b, Group: g, Rig: rig, Session: *sess, Epic: fam.Epic, Base: fam.Base,
-			Children: fam.Children, Next: next, Outcomes: outcomes, StageFile: stage.file, StoreFlow: stage.storeFlow})
+			Children: fam.Children, Next: next, Outcomes: outcomes, StageFile: stage.file, StoreFlow: stage.storeFlow, FlowMap: stage.flowMap})
 		if IsRuntime(err) || IsBlocked(err) {
 			// Not the bead's fault: abort the session (no failure), leave
 			// the bead for the next try and stop trying the group a while.
@@ -937,7 +941,8 @@ func (d *Dispatcher) runtimeUp(ctx context.Context, g store.Group) {
 
 // nextStages is where b's flow lets it go next, and the outcomes its stage
 // offers, each with the group that would work it there, and where the
-// stage file of the stage it is in comes from; nil when no flow governs b.
+// stage file of the stage it is in comes from, with the map of the flow;
+// nil when no flow governs b.
 func (d *Dispatcher) nextStages(ctx context.Context, b store.Bead, routes []store.Route, groups map[string]store.Group) ([]NextStage, []NextOutcome, stageDoc, error) {
 	ns, err := d.Store.NextStages(ctx, b.ID)
 	if err != nil || ns.Flow == nil {
@@ -960,7 +965,13 @@ func (d *Dispatcher) nextStages(ctx context.Context, b store.Bead, routes []stor
 	for _, o := range ns.Outcomes {
 		outcomes = append(outcomes, NextOutcome{Outcome: o.Name, NextStage: at(o.To)})
 	}
-	doc := stageDoc{file: ns.StageFile}
+	// The map is drawn now, as the bead is handed out, so a bead sent back
+	// starts its new session with the path that brought it here.
+	fm, err := d.Store.FlowMap(ctx, b.ID)
+	if err != nil {
+		return nil, nil, stageDoc{}, err
+	}
+	doc := stageDoc{file: ns.StageFile, flowMap: fm}
 	if ns.Source.InStore() {
 		doc.storeFlow = ns.Flow.Name
 	}
@@ -968,10 +979,12 @@ func (d *Dispatcher) nextStages(ctx context.Context, b store.Bead, routes []stor
 }
 
 // stageDoc is where a bead's stage file comes from: the repository flow's
-// file, or the store flow whose files are in the yard's home.
+// file, or the store flow whose files are in the yard's home; and the map
+// of the flow the stage is in.
 type stageDoc struct {
 	file      *store.StageFile
 	storeFlow string
+	flowMap   *store.FlowMap
 }
 
 func (d *Dispatcher) reportOnce(ctx context.Context, b store.Bead, kind, reason string) {

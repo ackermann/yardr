@@ -797,7 +797,8 @@ func TestStrandedBeadIsReportedOnceAndNotRouted(t *testing.T) {
 
 // A job carries what its brief needs for the stage file: a repository
 // flow's file as read from the base, or the name of the store flow, whose
-// stage files are in the yard's home.
+// stage files are in the yard's home. It carries the map of the flow too,
+// drawn as the bead is handed out; a bead no flow governs has none.
 func TestJobCarriesTheStageFile(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()
@@ -853,6 +854,15 @@ func TestJobCarriesTheStageFile(t *testing.T) {
 	}
 	if j := jobs[none.ID]; j.StageFile != nil || j.StoreFlow != "" {
 		t.Errorf("no flow: stage file %+v, store flow %q", j.StageFile, j.StoreFlow)
+	}
+	if m := jobs[inRepo.ID].FlowMap; m == nil || m.Name != "default" || len(m.Stages) != 3 || !m.Stages[0].Current || m.Stages[0].Summary != "Build it." || len(m.Path) != 0 {
+		t.Errorf("repository flow: map %+v", m)
+	}
+	if m := jobs[inStore.ID].FlowMap; m == nil || m.Name != "code" || len(m.Stages) != 2 {
+		t.Errorf("store flow: map %+v", m)
+	}
+	if m := jobs[none.ID].FlowMap; m != nil {
+		t.Errorf("no flow: map %+v", m)
 	}
 	if len(jobs) != 3 {
 		t.Errorf("jobs = %d, want 3", len(jobs))

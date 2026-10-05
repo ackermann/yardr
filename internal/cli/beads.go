@@ -633,7 +633,7 @@ func (a *app) primeCmd() *cobra.Command {
 					stage = strings.TrimSpace(next.StageFile.Body())
 				}
 				if fm != nil {
-					fmt.Printf("\n%s", flowMapText(fm, stage != ""))
+					fmt.Printf("\n%s", fm.Text(stage != ""))
 				}
 				if stage != "" {
 					fmt.Printf("\nSTAGE %s (%s):\n  %s\n", b.Stage, next.StageFile.Path, strings.ReplaceAll(stage, "\n", "\n  "))

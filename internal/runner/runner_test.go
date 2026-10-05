@@ -1520,6 +1520,70 @@ func TestBriefShowsTheStageFile(t *testing.T) {
 	}
 }
 
+// The map of the flow goes directly before the stage section, fenced under
+// a heading of its own, and its heading line says whether a stage file
+// follows. A store flow's lines are read from the home, and the job's map
+// is left as it was. Without a map the brief has no such section.
+func TestBriefShowsTheFlowMap(t *testing.T) {
+	job := dispatch.Job{
+		Bead:     store.Bead{ID: "web-3", Title: "Add login", Type: "task", Stage: "new"},
+		Group:    store.Group{Name: "builders"},
+		Session:  store.Session{ID: "s1"},
+		Outcomes: []dispatch.NextOutcome{{Outcome: "done", NextStage: dispatch.NextStage{Stage: "review"}}},
+	}
+	home := t.TempDir()
+	brief := func(j dispatch.Job) string {
+		t.Helper()
+		b, err := Brief(j, "a", "", home)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	plain := brief(job)
+	if strings.Contains(plain, "## Flow") || strings.Contains(plain, "FLOW") {
+		t.Fatalf("a brief without a map draws one:\n%s", plain)
+	}
+	m := func() *store.FlowMap {
+		return &store.FlowMap{Name: "code",
+			Stages: []store.FlowMapStage{{Name: "new", Who: store.WhoAgents, Summary: "Build it.", Current: true}, {Name: "review", Who: store.WhoPeople}},
+			Path:   []store.PathStep{{Stage: "new"}, {Stage: "review"}, {Stage: "new", Back: "changes"}}}
+	}
+	section := func(m *store.FlowMap, hasFile bool) string {
+		return "\n## Flow `code`\n\n```text\n" + m.Text(hasFile) + "```\n"
+	}
+
+	job.FlowMap = m()
+	if got, want := brief(job), strings.Replace(plain, "\n## Outcomes\n", section(m(), false)+"\n## Outcomes\n", 1); got != want {
+		t.Errorf("brief with a map and no stage file:\n%s\nwant:\n%s", got, want)
+	}
+	if !strings.Contains(brief(job), "PATH  new -> review -> new (changes)\n```\n") {
+		t.Errorf("the brief leaves out the path:\n%s", brief(job))
+	}
+	job.StageFile = &store.StageFile{Path: ".yardr/flows/code/new.md", Text: "summary: Build it.\n\nOn your branch.\n"}
+	if got, want := brief(job), strings.Replace(plain, "\n## Outcomes\n", section(m(), true)+"\n## Stage `new`\n\nOn your branch.\n\n## Outcomes\n", 1); got != want {
+		t.Errorf("brief with a map and a stage file:\n%s\nwant:\n%s", got, want)
+	}
+
+	// A store flow: the store drew the map without its lines.
+	job.StageFile, job.StoreFlow = nil, "code"
+	job.FlowMap.Stages[0].Summary = ""
+	if err := os.MkdirAll(filepath.Join(home, "flows", "code"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "flows", "code", "review.md"), []byte("People read it. All of it.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	filled := m()
+	filled.Stages[0].Summary, filled.Stages[1].Summary = "", "People read it."
+	if got, want := brief(job), strings.Replace(plain, "\n## Outcomes\n", section(filled, false)+"\n## Outcomes\n", 1); got != want {
+		t.Errorf("brief with a store flow's map:\n%s\nwant:\n%s", got, want)
+	}
+	if s := job.FlowMap.Stages[1].Summary; s != "" {
+		t.Errorf("writing the brief changed the job's map: review says %q", s)
+	}
+}
+
 // LocatePrompt says where a brief reads a prompt: the rig's role at the
 // base commit, the home's when the rig has none, a path as it is.
 func TestLocatePrompt(t *testing.T) {

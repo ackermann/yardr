@@ -378,7 +378,10 @@ yardr has one for every stage of both its flows
 
 `yardr prime --bead <id>` draws the whole flow before the `STAGE` block, so
 whoever works a bead sees how big the flow is, who works each stage, where
-the bead stands and where it has been:
+the bead stands and where it has been. The brief an agent is started with
+has the same block, under `## Flow <name>` directly before its stage
+section, so a bead sent back says so in the first text its new session
+reads:
 
 ```
 FLOW default · 6 stages (context: your stage's file below says what you must do)
@@ -395,8 +398,9 @@ The map is context: with a testing stage later in the flow, a builder can
 see what is not its job. What must hold before the bead leaves its stage is
 in that stage's file, which is the only one printed in full; the heading
 says so, or `(context: it does not say what you must do)` when the stage has
-no file. The block is the same whoever asks, and a bead no flow governs has
-none.
+no file. The block is the same whoever asks and the same in the brief,
+drawn as the bead is handed out; a bead no flow governs has none, in prime
+and in its brief. An exec group's script gets no brief and no map.
 
 - **Order.** The flow's stages in the order its file first names them, so
   what a rule leads to comes before the stage of the next rule (`decide`
