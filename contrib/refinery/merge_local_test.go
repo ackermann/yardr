@@ -180,7 +180,8 @@ func (y *yard) exec(script, group, id string) {
 	// The script finds this test's fake gh, if it has one, by its command
 	// line: the environment is every test's.
 	if state, ok := fakeGhs.Load(y.t); ok {
-		cmd = "PATH='" + filepath.Join(state.(string), "bin") + "':$PATH FAKE_GH='" + state.(string) + "' " + cmd
+		stateDir := state.(string)
+		cmd = "PATH=" + shellQuote(filepath.Join(stateDir, "bin")) + ":$PATH FAKE_GH=" + shellQuote(stateDir) + " " + cmd
 	}
 	// The runner hands its own environment on: git's identity (TestMain).
 	// YARDR_HOME and YARDR_BIN come from the runner itself.
@@ -216,6 +217,10 @@ func (y *yard) exec(script, group, id string) {
 	out, _ := os.ReadFile(logPath)
 	y.t.Logf("%s log:\n%s", group, out)
 	_ = os.Remove(logPath)
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
 // claimFor gives bead id to group, as the dispatcher would, so the
