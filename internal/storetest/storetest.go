@@ -21,6 +21,16 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
+// A test's store is thrown away with the test, so no commit to it waits for
+// the disk (store.NoSyncEnv): every test binary that imports this package
+// opens its stores so, and hands the variable on to the yardr it starts.
+// YARDR_STORE_NOSYNC=0 in the environment of `go test` keeps the sync.
+func init() {
+	if config.Getenv(store.NoSyncEnv) == "" {
+		os.Setenv("YARDR_"+store.NoSyncEnv, "1")
+	}
+}
+
 // Main runs the package's tests (kept so test packages need no changes).
 func Main(m *testing.M) { os.Exit(m.Run()) }
 

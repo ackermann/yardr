@@ -46,6 +46,8 @@ import (
 	"time"
 
 	bolt "go.etcd.io/bbolt"
+
+	"yardr.dev/yardr/internal/config"
 )
 
 var (
@@ -111,11 +113,19 @@ type Store struct {
 	pumped chan struct{} // closed when the pump exits
 }
 
+// NoSyncEnv names the variable that, set to 1, opens the store without
+// syncing each commit to the disk. It is for tests: a commit's sync is some
+// 30ms on macOS and a test suite makes thousands, which was two thirds of
+// the gate's time (yardr-a9qf). A store opened so is whole after its process
+// dies, and can be lost when the machine does, so nothing but a test's
+// throwaway yard may run with it.
+const NoSyncEnv = "STORE_NOSYNC"
+
 // Open opens (creating if needed) the store file. It fails with ErrLocked
 // if another process holds it, and with ErrNewerSchema if a newer yardr
 // wrote it.
 func Open(path string) (*Store, error) {
-	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: time.Second})
+	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: time.Second, NoSync: config.Getenv(NoSyncEnv) == "1"})
 	if errors.Is(err, bolt.ErrTimeout) {
 		return nil, fmt.Errorf("%s: %w", path, ErrLocked)
 	} else if err != nil {

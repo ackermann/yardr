@@ -342,4 +342,7 @@ contrib/isolated-yard  a throwaway yard and herdr server for tests that start ag
 
 `go test ./...` runs everything against throwaway store files;
 `YARDR_TEST_RPC=1 go test ./...` runs the same suites through the unix-socket
-client, so the wire is tested by the same assertions.
+client, so the wire is tested by the same assertions. The tests open
+their stores without waiting for the disk on each commit
+(`YARDR_STORE_NOSYNC`, which they set themselves): that wait was most of a
+run's time. `YARDR_STORE_NOSYNC=0 go test ./...` keeps it.

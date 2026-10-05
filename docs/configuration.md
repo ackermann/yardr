@@ -1123,6 +1123,7 @@ Environment variables yardr reads:
 | `YARDR_LINEAR_API`, `YARDR_GITHUB_API` | where `yardr reply`, `yardr thread open` and `yardr thread state` send their calls, read by the command that makes them, and where the daemon sends a hook's issue moves ([links.md](links.md#a-beads-stage-moves-the-issue)), read when it starts (default: Linear's GraphQL endpoint, `https://api.github.com`) |
 | `YARDR_EVENT_RETENTION`, `YARDR_HOOK_PAYLOAD_RETENTION`, `YARDR_INBOX_RETENTION` | how long the daemon and `yardr store prune` keep events, ended sessions and webhook bodies, and how long an unread inbox event holds the log back ([below](#retention-keeping-yarddb-bounded)) |
 | `YARDR_TEST_RPC` | tests: run the store suites through the unix-socket client |
+| `YARDR_STORE_NOSYNC` | tests: `1` opens `yard.db` without syncing each commit to the disk, which is most of a test run's time on macOS. The test suites set it for their throwaway yards (`0` keeps the sync). Never set it for a yard you keep: its store can be lost when the machine goes down |
 
 Exec commands and herdr bead agents also get `YARDR_SESSION`, `YARDR_STAGE`
 and `YARDR_GROUP` (see [groups.md](groups.md)). They get the session's

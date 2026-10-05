@@ -2,12 +2,24 @@ package rpc
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 )
+
+// The tests' stores do not wait for the disk (store.NoSyncEnv). storetest
+// says so for every other package's; it imports this one, so here it is
+// said again.
+func TestMain(m *testing.M) {
+	if config.Getenv(store.NoSyncEnv) == "" {
+		os.Setenv("YARDR_"+store.NoSyncEnv, "1")
+	}
+	os.Exit(m.Run())
+}
 
 // Only the process that owns the store records webhook deliveries or logs
 // events of any kind; over the socket a client may log dispatch decisions

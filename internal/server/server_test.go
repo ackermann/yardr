@@ -23,6 +23,7 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/store"
+	_ "yardr.dev/yardr/internal/storetest" // the tests' stores do not wait for the disk
 	"yardr.dev/yardr/internal/version"
 )
 
