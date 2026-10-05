@@ -94,22 +94,10 @@ home_pids() {
     echo "isolated-yard: $1 was not made by isolated-yard up" >&2
     return 1
   fi
-  # The list is read whole before it is matched: a pipeline has the status
-  # of its last command only, and a ps that failed must not look like a
-  # machine with no process of the yard.
-  if [ -r /proc/self/environ ]; then
-    # One line a process, as ps gives them on macOS: the records of environ
-    # end in NUL. A process may end while it is read, and another user's
-    # cannot be read at all; neither is one of the yard.
-    procs=$(for f in /proc/[0-9]*/environ; do
-      p=${f#/proc/}
-      printf '%s ' "${p%/environ}"
-      { tr '\0\n' '  ' <"$f"; } 2>/dev/null || true
-      echo
-    done) || { echo "isolated-yard: cannot read the processes' environments in /proc" >&2; return 1; }
-  else
-    procs=$(ps axeww -o pid= -o command=) || { echo "isolated-yard: ps failed" >&2; return 1; }
-  fi
+  # Use ps on both platforms: it lists the environment with each process,
+  # and checking its status means a failed listing cannot look like an empty
+  # machine. The same form is accepted by BSD ps and procps.
+  procs=$(ps axeww -o pid= -o command=) || { echo "isolated-yard: ps failed" >&2; return 1; }
   [ -n "$procs" ] || { echo "isolated-yard: no process listed, not even this one" >&2; return 1; }
   printf '%s\n' "$procs" | match_home "$1"
 }

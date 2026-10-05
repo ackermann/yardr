@@ -301,6 +301,38 @@ func TestPidsRefusesWhatIsNoYard(t *testing.T) {
 	}
 }
 
+// A failed process listing must not look like an empty yard and let down
+// remove it without knowing whether any of its processes are still alive.
+func TestDownRefusesWhenPsFails(t *testing.T) {
+	d := bare(t)
+	bin := t.TempDir()
+	ps := filepath.Join(bin, "ps")
+	if err := os.WriteFile(ps, []byte("#!/bin/sh\necho simulated ps failure >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(filepath.Join(root, "contrib/isolated-yard/isolated-yard"), "down", d)
+	cmd.Dir = root
+	env := []string{}
+	for _, e := range os.Environ() {
+		if !strings.HasPrefix(e, "PATH=") {
+			env = append(env, e)
+		}
+	}
+	cmd.Env = append(env, "PATH="+bin+":"+os.Getenv("PATH"))
+	out, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "cannot tell the processes") || !strings.Contains(string(out), "ps failed") {
+		t.Fatalf("down with failing ps: err %v, output %q; want a refusal", err, out)
+	}
+	if _, err := os.Stat(d); err != nil {
+		t.Fatalf("down removed the yard after ps failed: %v", err)
+	}
+}
+
 // As a sleeper (see there) the test binary only waits to be stopped.
 func TestMain(m *testing.M) {
 	if os.Getenv("ISOLATED_YARD_TEST_SLEEPER") != "" {

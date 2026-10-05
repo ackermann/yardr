@@ -67,11 +67,10 @@ A real yard has neither the name nor the mark, and no process of it has a
 home under `/tmp/iy.*`.
 
 The processes are found by the environment they were started with:
-`/proc/<pid>/environ` where there is a `/proc`, `ps axeww` elsewhere
-(macOS). Neither shows another user's processes, which an isolated yard
-does not have. macOS's `ps` also shows no environment for the system's own
-binaries (`/bin/sleep`, `/bin/sh`): one of those is found by its home only
-on Linux.
+`ps axeww` on both Linux and macOS. Neither shows another user's processes,
+which an isolated yard does not have. macOS's `ps` also shows no environment
+for the system's own binaries (`/bin/sleep`, `/bin/sh`): one of those is
+found by its home only on Linux.
 
 The home is compared as a string, the same way on both: `YARDR_HOME` equal
 to D or a path inside it. It is never made into a pattern, and `down` stops
