@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -77,5 +78,8 @@ func TestMain(m *testing.M) {
 	pollEvery = 5 * time.Millisecond
 	code := m.Run()
 	os.RemoveAll(services)
+	if standIn.bin != "" {
+		os.RemoveAll(filepath.Dir(standIn.bin))
+	}
 	os.Exit(code)
 }
