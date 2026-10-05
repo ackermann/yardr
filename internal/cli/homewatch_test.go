@@ -80,10 +80,13 @@ func TestDaemonStopsWhenItsHomeIsRemoved(t *testing.T) {
 // The home's name holds another yard now, with a daemon lock of its own.
 func TestDaemonStopsWhenItsLockIsAnothers(t *testing.T) {
 	cfg, ctx, logged := daemonHome(t)
-	if err := os.Remove(cfg.DaemonLock()); err != nil {
+	// Renamed over, in one step: removed and then written, a check that fell
+	// between the two saw no lock and said "is gone" (yardr-5vsd).
+	other := cfg.DaemonLock() + ".new"
+	if err := os.WriteFile(other, []byte("1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(cfg.DaemonLock(), []byte("1\n"), 0o600); err != nil {
+	if err := os.Rename(other, cfg.DaemonLock()); err != nil {
 		t.Fatal(err)
 	}
 	stopped(t, ctx, logged, "another file")
