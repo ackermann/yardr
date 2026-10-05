@@ -60,7 +60,7 @@ type Options struct {
 
 // Plan is what importing a pack into a rig of a yard would do, object by
 // object and in the order an import would do it: files, groups, flows,
-// pointers, routes, residents, subscriptions. Each object carries the state
+// pointers, routes, residents, subscriptions, stage maps. Each object carries the state
 // the import would leave it in, so applying a plan needs no second look at
 // the pack; what the yard must still be asked is under Questions, by the id
 // the object refers to.
@@ -96,17 +96,21 @@ type Plan struct {
 	// sources it would be let open threads in and what an import does about
 	// each: nothing, ask the operator, or neither ask nor grant.
 	OpenThreads []OpenThreads `json:"open_threads"`
-	Notes       []string      `json:"notes"`
+	// Maps says, for each source whose issues hear the pack's flows, the map,
+	// the yard's resident it is acted on as, and what the yard has and lacks
+	// for it. A map the import would set is among Objects too, as kind map.
+	Maps  []MapPlan `json:"maps"`
+	Notes []string  `json:"notes"`
 	// Refused is why this plan must not be applied as it is; empty when it
 	// may be.
 	Refused []string `json:"refused"`
 }
 
 // Object is one thing in the yard and what the import would do to it. One
-// of File, Group, Flow, Pointer, Route, Resident and Subscription is set,
-// by Kind.
+// of File, Group, Flow, Pointer, Route, Resident, Subscription and Map is
+// set, by Kind.
 type Object struct {
-	Kind    string   `json:"kind"` // file group flow pointer route resident subscription
+	Kind    string   `json:"kind"` // file group flow pointer route resident subscription map
 	Name    string   `json:"name"`
 	Action  string   `json:"action"`
 	Changes []Diff   `json:"changes,omitempty"`
@@ -133,6 +137,7 @@ type Object struct {
 	Route        *RouteOp           `json:"route,omitempty"`
 	Resident     *ResidentOp        `json:"resident,omitempty"`
 	Subscription *SubscriptionOp    `json:"subscription,omitempty"`
+	Map          *MapOp             `json:"map,omitempty"`
 }
 
 // Diff is one field of an object an import would change.
@@ -190,6 +195,16 @@ type SubscriptionOp struct {
 	Remove   *store.Subscription `json:"remove,omitempty"`
 }
 
+// MapOp sets on the yard's hook Hook the resident it moves tracked issues
+// as and its map (store.Hook's As and Map), and leaves the rest of the hook.
+// A dropped one clears both.
+type MapOp struct {
+	Hook   string            `json:"hook"`
+	Source string            `json:"source"`
+	As     string            `json:"as"`
+	Map    map[string]string `json:"map"`
+}
+
 // Question is something an import must be told, since a pack names no
 // agent, model, permission arguments, person or directory.
 type Question struct {
@@ -223,6 +238,50 @@ type Need struct {
 	What   string `json:"what"` // hook secret_file identity credential listener
 	Status string `json:"status"`
 	Detail string `json:"detail"`
+}
+
+// NotSet is the Action of a MapPlan the import sets nothing for: the yard
+// has no hook of the source, or the resident no identity in it.
+const NotSet = "not_set"
+
+// MapPlan is what an import does about the stage map a pack carries for
+// one source. The import sets the map and the resident on a hook the yard
+// has; it never makes the hook, and never lets the resident set a status:
+// Needs says which of those the yard lacks and the command for each.
+type MapPlan struct {
+	Source string `json:"source"`
+	Pack   string `json:"pack"` // the pack's name for the resident
+	As     string `json:"as"`   // the yard's
+	// Map is the pack's, keyed as a hook's is: "<bead type>:<stage>".
+	Map map[string]string `json:"map"`
+	// Hook is the yard's hook of the source, "" when it has none.
+	Hook string `json:"hook,omitempty"`
+	// Action is create for a hook without a map, change for one with
+	// another (Was), unchanged, or NotSet.
+	Action string `json:"action"`
+	Was    *MapOp `json:"was,omitempty"`
+	// Needs are hook, identity and set_state, each ok or missing.
+	Needs []Need `json:"needs"`
+}
+
+// Missing is the detail of the need what when the yard lacks it, else "".
+func (m MapPlan) Missing(what string) string {
+	for _, n := range m.Needs {
+		if n.What == what && n.Status != "ok" {
+			return n.Detail
+		}
+	}
+	return ""
+}
+
+// MapLines are a hook's map as yardr hook add --map takes it, sorted.
+func MapLines(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k, v := range m {
+		out = append(out, k+"="+v)
+	}
+	slices.Sort(out)
+	return out
 }
 
 // OpenThreads is what the pack asks that one of its residents may open
@@ -311,7 +370,7 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 	b := &planner{ctx: ctx, st: st, p: p, o: o, rig: rig, plan: &Plan{
 		Pack: p.Name, Dir: p.Dir, Rig: o.Rig, Install: filepath.Join(o.Home, "packs", p.Name), StageFiles: filepath.Join(o.Home, "flows"),
 		Groups: map[string]string{}, Residents: map[string]string{}, Fill: map[string]string{},
-		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, OpenThreads: []OpenThreads{}, Notes: []string{}, Refused: []string{},
+		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, OpenThreads: []OpenThreads{}, Maps: []MapPlan{}, Notes: []string{}, Refused: []string{},
 	}}
 	if b.all, err = st.Packs(ctx); err != nil {
 		return nil, err
@@ -342,6 +401,7 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 		func() error { return b.flows(flows) },
 		func() error { return b.routes(flows) },
 		b.residents,
+		b.maps,
 		b.dropped,
 	} {
 		if err := step(); err != nil {
@@ -1291,6 +1351,88 @@ func (b *planner) openThreads(pr Resident, name string, exists bool, r store.Res
 	return ot, nil
 }
 
+// maps plans the stage map of each source the pack carries one for. The map
+// goes on the yard's hook of that source, as the yard's resident that takes
+// the pack's; a hook that has another map gets the pack's, and the plan
+// shows both. Nothing is planned for a source the yard has no hook of, or
+// whose resident has no identity in it (the store refuses such a hook, and
+// says why): the import sets nothing for it then, and the next one does.
+func (b *planner) maps() error {
+	const ok, missing = "ok", "missing"
+	if len(b.p.Sources) == 0 {
+		return nil
+	}
+	hs, err := b.st.Hooks(b.ctx)
+	if err != nil {
+		return err
+	}
+	for _, sm := range b.p.Sources {
+		as := b.plan.Residents[sm.As]
+		mp := MapPlan{Source: sm.Source, Pack: sm.As, As: as, Map: maps.Clone(sm.Map), Action: NotSet}
+		var of []store.Hook
+		for _, h := range hs {
+			if h.Source == sm.Source {
+				of = append(of, h)
+			}
+		}
+		if len(of) == 0 {
+			mp.Needs = append(mp.Needs, Need{"hook", missing, fmt.Sprintf("no hook receives %s, and the import makes none: yardr hook add %s --source %s --secret-file <file>, then apply the pack again", sm.Source, sm.Source, sm.Source)})
+		} else {
+			mp.Hook = of[0].Name
+			mp.Needs = append(mp.Needs, Need{"hook", ok, "hook " + mp.Hook})
+			if len(of) > 1 {
+				// Every hook with a map moves the issue, so one of them has it.
+				names := make([]string, len(of))
+				for i, h := range of {
+					names[i] = h.Name
+				}
+				b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("the yard has several hooks of source %s (%s): the pack's stage map goes on %s alone", sm.Source, strings.Join(names, ", "), mp.Hook))
+			}
+		}
+		var r store.Resident
+		if have, err := b.st.GetResident(b.ctx, as); err == nil {
+			r = *have
+		} else if !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
+		identified := false
+		if id := r.Identities[sm.Source]; id.ID != "" || id.Key != "" {
+			identified = true
+			mp.Needs = append(mp.Needs, Need{"identity", ok, "resident " + as + " has an identity in " + sm.Source})
+		} else {
+			mp.Needs = append(mp.Needs, Need{"identity", missing, fmt.Sprintf("resident %s has no identity in %s, and a hook acts only as one that has: yardr resident identity %s --source %s --id <its id there>, then apply the pack again", as, sm.Source, as, sm.Source)})
+		}
+		if slices.Contains(r.MaySetState(), sm.Source) {
+			mp.Needs = append(mp.Needs, Need{store.SetState, ok, "resident " + as + " may set a status in " + sm.Source})
+		} else {
+			mp.Needs = append(mp.Needs, Need{store.SetState, missing, fmt.Sprintf("resident %s may not set a status in %s, so no issue is moved. The import does not grant it: the operator allows it with --set %s=%s on yardr resident add %s",
+				as, sm.Source, store.SetState, strings.Join(append(r.MaySetState(), sm.Source), ","), as)})
+		}
+		if mp.Hook != "" && identified {
+			h := of[0]
+			var changes []Diff
+			if h.As != as {
+				changes = append(changes, Diff{"as", h.As, as})
+			}
+			if !maps.Equal(h.Map, sm.Map) {
+				changes = append(changes, Diff{"map", strings.Join(MapLines(h.Map), " "), strings.Join(MapLines(sm.Map), " ")})
+			}
+			had := h.As != "" || len(h.Map) > 0
+			mp.Action = action(had, changes)
+			if mp.Action == Change {
+				mp.Was = &MapOp{Hook: h.Name, Source: h.Source, As: h.As, Map: h.Map}
+			}
+			b.add(Object{Kind: "map", Name: mapName(h.Name, as), Action: mp.Action, Changes: changes,
+				Map: &MapOp{Hook: h.Name, Source: sm.Source, As: as, Map: maps.Clone(sm.Map)}})
+		}
+		b.plan.Maps = append(b.plan.Maps, mp)
+	}
+	return nil
+}
+
+// mapName is what a plan calls the stage map on hook, acted on as resident.
+func mapName(hook, as string) string { return "hook " + hook + " as " + as }
+
 // rigRole names the rig's own role file that stands in for the pack's role
 // rel (roles/builder.md -> .yardr/roles/builder.md), or "" when the rig has
 // none or the pack's file is no role by yardr's naming (roles/<name>.md).
@@ -1334,6 +1476,8 @@ func Ident(o Object) (po store.PackObject, ok bool) {
 		return store.PackObject{Kind: o.Kind, Stage: o.Route.Stage, Type: o.Route.Type, Group: o.Route.Group}, true
 	case o.Kind == "subscription" && o.Subscription != nil && o.Subscription.Add != nil:
 		return store.PackObject{Kind: o.Kind, Resident: o.Subscription.Resident, Subscription: o.Subscription.Add}, true
+	case o.Kind == "map" && o.Map != nil:
+		return store.PackObject{Kind: o.Kind, Name: o.Map.Hook, Resident: o.Map.As, Map: o.Map.Map}, true
 	}
 	return po, false
 }
@@ -1525,6 +1669,19 @@ func (b *planner) gone(po store.PackObject) (*Object, error) {
 			return nil, nil
 		}
 		return &Object{Kind: po.Kind, Name: po.Resident + " " + sub.String(), Subscription: &SubscriptionOp{Resident: po.Resident, Remove: &sub}}, nil
+	case "map":
+		h, err := b.st.GetHook(b.ctx, po.Name)
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, nil
+		} else if err != nil {
+			return nil, err
+		}
+		// A source the pack still carries is not dropped, though nothing can
+		// be set for it now; and a map set by hand since is the yard's.
+		if slices.ContainsFunc(b.p.Sources, func(m StageMap) bool { return m.Source == h.Source }) || h.As != po.Resident || !maps.Equal(h.Map, po.Map) {
+			return nil, nil
+		}
+		return &Object{Kind: po.Kind, Name: mapName(h.Name, h.As), Map: &MapOp{Hook: h.Name, Source: h.Source, As: h.As, Map: h.Map}}, nil
 	}
 	return nil, nil
 }

@@ -99,7 +99,11 @@ pack apply --prune removes it). Then what an import would ask, which flow
 would govern the rig, what each source a resident subscribes to still
 lacks, and which sources the pack asks that a resident may open threads in
 (open_threads): an import asks the operator, and only about a source the
-yard has a hook and a credential for. Nothing is written.
+yard has a hook and a credential for. For each source the pack carries a
+stage map for (sources.<source>: as, hears), the plan shows the map, the
+yard's resident it would be acted on as, whether the yard has a hook of
+that source and whether that resident may set a status there (set_state),
+with the command for whatever is missing. Nothing is written.
 
 The pack's role is set on every agent group and resident it names, also
 where the rig has its own .yardr/roles/<name>.md: the plan names that file
@@ -128,7 +132,7 @@ pack's flow lacks). --json prints the plan as data. See docs/packs.md.`,
 			if err != nil {
 				return err
 			}
-			if err := a.out(plan, func() { printPlan(plan, nil, nil) }); err != nil {
+			if err := a.out(plan, func() { printPlan(plan, nil, nil, nil) }); err != nil {
 				return err
 			}
 			if len(plan.Refused) > 0 {
@@ -186,6 +190,18 @@ says what any other source lacks. Without a terminal, with --json or with
 names the flag. Run by anyone but the operator the import does the rest and
 grants nothing. An answer is recorded, so it is asked once.
 
+A pack may carry a stage map for a source (sources.<source>: as, hears):
+which status an issue goes to when the bead tracking it enters a stage. The
+import sets it, and the resident it is acted on as, on the yard's hook of
+that source; a hook that has another map gets the pack's, and the plan shows
+both. It never makes a hook: without one the import goes through, sets
+nothing for that source and names the command, and the next apply sets it.
+It never lets the resident set a status either: until the operator has
+(--set set_state=<source> on yardr resident add), the map moves nothing, and
+the plan and the output say so. As with yardr hook add --as, only the
+operator or that resident's own session may have a hook act as a resident:
+run by anyone else the import does the rest and sets no map.
+
 The one answer with a default is what a new group's or resident's agent may
 do without asking. <preset> names one of the agent's permission presets by
 the label the group form shows (claude: auto, accept-edits, bypass; none
@@ -233,7 +249,7 @@ says so. The import is recorded (yardr pack list). See docs/packs.md.`,
 				}
 			}
 			if len(plan.Refused) > 0 {
-				_ = a.out(plan, func() { printPlan(plan, nil, nil) })
+				_ = a.out(plan, func() { printPlan(plan, nil, nil, nil) })
 				return errCheckFailed
 			}
 			// The flags' answers go into the printed plan, so it shows what
@@ -250,8 +266,19 @@ says so. The import is recorded (yardr pack list). See docs/packs.md.`,
 			if err != nil {
 				return err
 			}
+			// A hook that acts as a resident speaks as it: the line yardr
+			// hook add --as draws, and the rest of the import is done.
+			refused := map[string]string{}
+			for _, o := range plan.Objects {
+				if o.Kind != "map" || o.Map == nil || (o.Action != pack.Create && o.Action != pack.Change) {
+					continue
+				}
+				if err := a.maySpeakAs(ctx, st, "pack apply: the stage map of "+o.Map.Source, o.Map.As); err != nil {
+					refused[o.Map.Source] = err.Error()
+				}
+			}
 			if !a.json {
-				printPlan(plan, answers, open.Answers)
+				printPlan(plan, answers, open.Answers, refused)
 			}
 			// A copy someone edited is not overwritten on a confirmation
 			// alone: the edit is lost for good, and its place is the pack.
@@ -269,6 +296,9 @@ says so. The import is recorded (yardr pack list). See docs/packs.md.`,
 			}
 			todo := 0
 			for _, o := range plan.Objects {
+				if o.Kind == "map" && o.Map != nil && refused[o.Map.Source] != "" {
+					continue
+				}
 				if o.Action == pack.Create || o.Action == pack.Change || (prune && o.Action == pack.Dropped && o.Held == "") {
 					todo++
 				}
@@ -290,9 +320,9 @@ says so. The import is recorded (yardr pack list). See docs/packs.md.`,
 			if err := open.ask(); err != nil {
 				return cancelled(err)
 			}
-			res, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: answers, OpenThreads: open.Answers, Prune: prune, Overwrite: yes, Actor: a.who()})
+			res, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: answers, OpenThreads: open.Answers, MapRefused: refused, Prune: prune, Overwrite: yes, Actor: a.who()})
 			if res != nil {
-				if oerr := a.out(map[string]any{"plan": plan, "answers": answers, "open_threads": open, "result": res}, func() { printResult(plan, res, prune, answers, open) }); oerr != nil {
+				if oerr := a.out(map[string]any{"plan": plan, "answers": answers, "open_threads": open, "maps_refused": refused, "result": res}, func() { printResult(plan, res, prune, answers, open, refused) }); oerr != nil {
 					return oerr
 				}
 			}
@@ -693,7 +723,7 @@ func (a *app) askAnswers(ctx context.Context, st store.API, plan *pack.Plan, ans
 	return nil
 }
 
-func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.Answers, open *openAnswers) {
+func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.Answers, open *openAnswers, refused map[string]string) {
 	fmt.Println()
 	if res.Wrote() {
 		fmt.Printf("applied pack %s to rig %s: %d created, %d changed, %d unchanged", res.Pack, res.Rig, res.Created, res.Changed, res.Unchanged)
@@ -745,6 +775,24 @@ func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.A
 	}
 	for _, n := range open.Notes {
 		fmt.Println(n)
+	}
+	for _, m := range res.Mapped {
+		fmt.Printf("hook %s now moves tracked %s issues as %s: %s\n", m.Hook, m.Source, m.As, strings.Join(pack.MapLines(m.Map), " "))
+	}
+	// What the import did not do for a stage map, each with who does it and
+	// how: it makes no hook, gives no identity and grants no set_state.
+	for _, m := range plan.Maps {
+		if why := refused[m.Source]; why != "" {
+			fmt.Printf("the stage map of %s was not set on hook %s: %s. The rest of the import does not depend on it\n", m.Source, m.Hook, why)
+		}
+		for _, what := range []string{"hook", "identity"} {
+			if detail := m.Missing(what); detail != "" {
+				fmt.Printf("the stage map of %s was not set: %s\n", m.Source, detail)
+			}
+		}
+		if detail := m.Missing(store.SetState); detail != "" {
+			fmt.Println("note: " + detail)
+		}
 	}
 	for _, r := range res.Restart {
 		fmt.Printf("resident %s is running and was not restarted: its role or subscriptions changed, so restart it (yardr resident restart %s)\n", r, r)
@@ -816,13 +864,14 @@ func fills(fill map[string]string) string {
 // planKinds are the kinds of object in a plan, in its order, with the
 // heading each is printed under.
 var planKinds = [][2]string{{"file", "files"}, {"group", "groups"}, {"flow", "flows"}, {"pointer", "flow pointers"},
-	{"route", "routes"}, {"resident", "residents"}, {"subscription", "subscriptions"}}
+	{"route", "routes"}, {"resident", "residents"}, {"subscription", "subscriptions"}, {"map", "stage maps"}}
 
 // printPlan prints the plan. answers are those already given: an answered
 // question is printed as what its object gets, and only the open ones are
 // listed as what an import would ask. open are the answers to whether a
-// resident may open threads, by resident and source.
-func printPlan(p *pack.Plan, answers pack.Answers, open map[string]map[string]bool) {
+// resident may open threads, by resident and source. refused says, by
+// source, why a stage map the plan would set is not set by this run.
+func printPlan(p *pack.Plan, answers pack.Answers, open map[string]map[string]bool, refused map[string]string) {
 	fmt.Printf("pack %s (%s) into rig %s\n", p.Pack, p.Dir, p.Rig)
 	fmt.Printf("its roles and scripts would be copied to %s\n", p.Install)
 	if slices.ContainsFunc(p.Objects, func(o pack.Object) bool { return o.File != nil && o.File.Stage != "" }) {
@@ -948,6 +997,25 @@ func printPlan(p *pack.Plan, answers pack.Answers, open map[string]map[string]bo
 			for _, n := range l.Missing {
 				fmt.Printf("    %-8s %-12s %s\n", n.Status, strings.ReplaceAll(n.What, "_", " "), n.Detail)
 			}
+		}
+	}
+	for _, m := range p.Maps {
+		fmt.Printf("\nstage map of source %s, as resident %s\n", m.Source, m.As)
+		fmt.Printf("  the pack says %s\n", strings.Join(pack.MapLines(m.Map), " "))
+		switch {
+		case refused[m.Source] != "":
+			fmt.Printf("  not set on hook %s: %s\n", m.Hook, refused[m.Source])
+		case m.Action == pack.Create:
+			fmt.Printf("  would be set on hook %s, which has none\n", m.Hook)
+		case m.Action == pack.Change:
+			fmt.Printf("  would replace what hook %s has: as %s, %s\n", m.Hook, or(m.Was.As, "(none)"), or(strings.Join(pack.MapLines(m.Was.Map), " "), "(no map)"))
+		case m.Action == pack.Unchanged:
+			fmt.Printf("  hook %s has it\n", m.Hook)
+		default:
+			fmt.Println("  nothing would be set: the import goes through without it, and the next one sets it once the yard has what is missing")
+		}
+		for _, n := range m.Needs {
+			fmt.Printf("  %-8s %-12s %s\n", n.Status, strings.ReplaceAll(n.What, "_", " "), n.Detail)
 		}
 	}
 	if len(p.Notes) > 0 {

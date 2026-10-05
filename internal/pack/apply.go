@@ -37,7 +37,13 @@ type ApplyOptions struct {
 	// nobody and asked about again. Whoever fills this in has checked that
 	// the actor is the operator: Apply does not.
 	OpenThreads map[string]map[string]bool
-	Actor       string
+	// MapRefused says, by source, why the stage map the plan would set on
+	// that source's hook is not set: a hook acts as a resident, which only
+	// the operator or that resident's own session may decide. The rest of
+	// the import does not depend on it. As with OpenThreads, who the actor is
+	// was checked by whoever fills this in.
+	MapRefused map[string]string
+	Actor      string
 }
 
 // Result is what applying a plan did.
@@ -61,6 +67,8 @@ type Result struct {
 	// Granted are the residents the import let open threads, each with the
 	// sources that are new to it.
 	Granted []Grant `json:"granted"`
+	// Mapped are the stage maps the import set on a hook of the yard.
+	Mapped []MapOp `json:"mapped"`
 	// Recorded says the yard's record of the import was written; false when
 	// nothing changed.
 	Recorded bool `json:"recorded"`
@@ -101,7 +109,7 @@ func (p *Plan) Missing(a Answers) []Question {
 // removal fails does not undo the import either: the rest is pruned, the
 // record is written with that object still in it, and the error names it.
 func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result, error) {
-	res := &Result{Pack: p.Pack, Rig: p.Rig, Pruned: []string{}, Left: []string{}, PruneErrors: []string{}, Restart: []string{}, Granted: []Grant{}}
+	res := &Result{Pack: p.Pack, Rig: p.Rig, Pruned: []string{}, Left: []string{}, PruneErrors: []string{}, Restart: []string{}, Granted: []Grant{}, Mapped: []MapOp{}}
 	files, err := check(p, o)
 	if err != nil {
 		return nil, err
@@ -115,6 +123,9 @@ func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result,
 		case NotInPack, Dropped:
 			continue
 		}
+		if obj.refused(o) {
+			continue
+		}
 		if err := write(ctx, st, p, obj, o, files); err != nil {
 			return nil, fmt.Errorf("%s %s: %w (the import stopped here: what it wrote before stays, nothing is recorded, and applying again finishes it)", obj.Kind, obj.Name, err)
 		}
@@ -122,6 +133,9 @@ func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result,
 			res.Created++
 		} else {
 			res.Changed++
+		}
+		if obj.Kind == "map" {
+			res.Mapped = append(res.Mapped, *obj.Map)
 		}
 	}
 	for _, obj := range p.Objects {
@@ -159,7 +173,7 @@ func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result,
 	rec.OpenThreads = p.openAnswers(o.OpenThreads)
 	for _, obj := range p.Objects {
 		po, ok := Ident(obj)
-		if !ok || pruned[po.Key()] || (po.Kind == "route" && po.Group == "") {
+		if !ok || pruned[po.Key()] || (po.Kind == "route" && po.Group == "") || obj.refused(o) {
 			continue
 		}
 		rec.Objects = append(rec.Objects, po)
@@ -171,6 +185,12 @@ func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result,
 		return res, fmt.Errorf("the import is applied and recorded, but not everything dropped could be removed: %s", strings.Join(res.PruneErrors, "; "))
 	}
 	return res, nil
+}
+
+// refused reports whether o is a stage map the import was told not to set
+// (ApplyOptions.MapRefused): it is neither written nor recorded.
+func (o Object) refused(a ApplyOptions) bool {
+	return o.Kind == "map" && o.Map != nil && (o.Action == Create || o.Action == Change) && a.MapRefused[o.Map.Source] != ""
 }
 
 // openAnswers is what the record keeps of the plan's OpenThreads: the
@@ -371,6 +391,15 @@ func write(ctx context.Context, st store.API, p *Plan, obj *Object, o ApplyOptio
 			}
 		}
 		return st.AddSubscription(ctx, s.Resident, *s.Add, o.Actor)
+	case "map":
+		// The hook as it is now, so its name, source and secret file stay.
+		h, err := st.GetHook(ctx, obj.Map.Hook)
+		if err != nil {
+			return err
+		}
+		h.As, h.Map = obj.Map.As, obj.Map.Map
+		_, err = st.PutHook(ctx, *h, o.Actor)
+		return err
 	}
 	return fmt.Errorf("the plan has an object of unknown kind %q", obj.Kind)
 }
@@ -415,7 +444,7 @@ func install(op *FileOp, text []byte) error {
 // pruneOrder is the order dropped objects are removed in: a route before
 // the group it leads to, a pointer before the flow it points at, a flow
 // before its stage files.
-var pruneOrder = []string{"route", "pointer", "flow", "group", "subscription", "file"}
+var pruneOrder = []string{"route", "pointer", "flow", "group", "subscription", "map", "file"}
 
 // prune removes the plan's dropped objects, or with no prune asked for
 // only lists them as left. It returns the keys of those removed.
@@ -470,6 +499,12 @@ func remove(ctx context.Context, st store.API, obj Object, actor string) (note s
 		}
 	case "subscription":
 		err = st.RemoveSubscription(ctx, obj.Subscription.Resident, *obj.Subscription.Remove, actor)
+	case "map":
+		var h *store.Hook
+		if h, err = st.GetHook(ctx, obj.Map.Hook); err == nil {
+			h.As, h.Map = "", nil
+			_, err = st.PutHook(ctx, *h, actor)
+		}
 	case "file":
 		err = os.Remove(obj.File.To)
 	}

@@ -28,3 +28,11 @@ One thing it asks for and does not set: that the mayor may open threads in
 Linear (`open_threads`). The import puts that to the yard's operator, once
 the yard has a Linear hook and the mayor a credential, and a no leaves the
 mayor as it is.
+
+One thing it sets only where the yard is ready for it: the stage map for
+Linear (`sources.linear`), which moves the issue a task tracks to started,
+in review and done as the task enters `new`, `review` and `merged`. The
+import puts it on the yard's Linear hook, acting as the resident that takes
+`mayor`. It makes no hook and does not let that resident set a status
+(`set_state`): the plan names the command for each, and the next import
+sets the map once the hook is there.

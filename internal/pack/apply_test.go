@@ -229,7 +229,9 @@ func TestDroppedObjectsAreReportedAndPrunedOnlyWhenAsked(t *testing.T) {
 	edit(t, dir,
 		"outcomes: { done: review, question: decide }", "outcomes: { done: approved, question: decide }",
 		"      review:   { group: reviewers, file: flows/default/review.md,   outcomes: { done: approved, changes: new, question: decide } }\n", "",
-		"  reviewers: { agent: roles/reviewer.md, limit: 3 }\n", "")
+		"  reviewers: { agent: roles/reviewer.md, limit: 3 }\n", "",
+		// The stage map names the stage too, and a pack is refused for that.
+		"new: started, review: review, merged: done", "new: started, merged: done")
 
 	plan := build(t, st, load(t, dir), o)
 	// The stage's file goes with it: named by where it is in the home, since
@@ -795,7 +797,9 @@ func TestPruneHoldsTypePointerThatWouldStrandBeads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Add a type flow whose stage does not exist in the default flow.
+	// Add a type flow whose stage does not exist in the default flow. The
+	// stage map is for tasks, which would follow that flow: it goes.
+	text = []byte(strings.Replace(string(text), "      task: { new: started, review: review, merged: done }", "      bug: { new: started }", 1))
 	withType := strings.Replace(string(text), "groups:\n", "  task-flow:\n    type: task\n    stages:\n      triage: { group: builders, outcomes: { done: merged } }\n      merged: { end: true }\ngroups:\n", 1)
 	if withType == string(text) {
 		t.Fatal("pack.yaml has no groups section")

@@ -60,3 +60,19 @@ residents:
     subscribe:
       linear: involved
     open_threads: [linear]
+
+# What an outside source hears of the flows above: when a bead that tracks
+# one of its issues (yardr link) enters a stage, the issue goes to a status.
+#
+#   as:     the resident above the status is set as, with its credential
+#   hears:  bead type -> stage -> started, review or done. A stage left out
+#           changes nothing, and an issue is only ever moved forward
+#
+# The import sets this on the yard's hook of the source. It makes no hook,
+# and it does not let the resident set a status: the operator grants that
+# (set_state), and until then nothing is moved.
+sources:
+  linear:
+    as: mayor
+    hears:
+      task: { new: started, review: review, merged: done }

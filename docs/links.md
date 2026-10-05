@@ -80,6 +80,11 @@ yardr hook show linear          # the definition, and the moves still to make
 yardr events --bead webapp-k3f9 # thread_state, thread_state_skipped
 ```
 
+A pack can carry the map with the flow it speaks about (`sources.<source>`
+in `pack.yaml`): `yardr pack apply` then sets it on the yard's hook of that
+source, and neither makes the hook nor grants `set_state`
+([packs.md](packs.md#how-a-pack-maps-to-the-yard)).
+
 **The map.** `--map <bead type>:<stage>=<state>`, repeatable. The state is
 one of `started`, `review`, `done`, the words of `yardr thread state`, and
 each source turns it into a status of its own

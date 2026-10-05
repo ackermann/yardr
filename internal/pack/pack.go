@@ -34,6 +34,21 @@ type Pack struct {
 	Flows     []Flow     `json:"flows"`
 	Groups    []Group    `json:"groups"`
 	Residents []Resident `json:"residents"`
+	// Sources are the outside sources whose issues hear the pack's flows, in
+	// file order.
+	Sources []StageMap `json:"sources,omitempty"`
+}
+
+// StageMap says which status an issue of an outside source goes to when the
+// bead tracking it enters a stage of the pack's flows, and as which of the
+// pack's residents the status is set. Map is keyed as a hook's map is
+// (store.MapKey: "<bead type>:<stage>") and holds one of hooks.States. The
+// pack carries it because which stage means which status is opinion about
+// the flow; the import sets it on the yard's hook of the source.
+type StageMap struct {
+	Source string            `json:"source"`
+	As     string            `json:"as"`
+	Map    map[string]string `json:"map"`
 }
 
 type Flow struct {
@@ -371,9 +386,9 @@ func (r *reader) boolean(n *yaml.Node, key string) (value, ok bool) {
 }
 
 func (r *reader) pack(p *Pack, root *yaml.Node) {
-	var flows, groups, residents *entry
+	var flows, groups, residents, sources *entry
 	named := false
-	for _, e := range r.entries(root, "", "name", "flows", "groups", "residents") {
+	for _, e := range r.entries(root, "", "name", "flows", "groups", "residents", "sources") {
 		switch e.key {
 		case "name":
 			named = true
@@ -389,6 +404,8 @@ func (r *reader) pack(p *Pack, root *yaml.Node) {
 			groups = &e
 		case "residents":
 			residents = &e
+		case "sources":
+			sources = &e
 		}
 	}
 	if !named && root.Kind == yaml.MappingNode {
@@ -419,6 +436,126 @@ func (r *reader) pack(p *Pack, root *yaml.Node) {
 			p.Residents = append(p.Residents, r.resident(e, p.Flows))
 		}
 	}
+	// Last: a source names a resident, and its map the flows' stages.
+	if sources != nil {
+		for _, e := range r.entries(sources.v, sources.path) {
+			if m, ok := r.source(e, p); ok {
+				p.Sources = append(p.Sources, m)
+			}
+		}
+	}
+}
+
+// source reads what the issues of one outside source hear. ok is false for
+// a source yardr could not set a status in, which is not read further.
+func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
+	m = StageMap{Source: e.key, Map: map[string]string{}}
+	if _, has := hooks.Adapters[e.key]; !has {
+		r.errf(e.k, e.path, "this yardr has no adapter for source %s (it has %s)", e.key, strings.Join(hooks.Sources(), ", "))
+		return m, false
+	}
+	f, can := hooks.ForwarderFor(e.key)
+	if !can {
+		r.errf(e.k, e.path, "yardr cannot set a status in %s (it can in %s)", e.key, strings.Join(hooks.Forwardable(), ", "))
+		return m, false
+	}
+	var as, hears bool
+	for _, k := range r.entries(e.v, e.path, "as", "hears") {
+		switch k.key {
+		case "as":
+			as = true
+			name, ok := r.str(k.v, k.path)
+			if !ok {
+				continue
+			}
+			if !slices.ContainsFunc(p.Residents, func(have Resident) bool { return have.Name == name }) {
+				r.errf(k.v, k.path, "no resident %s is declared under residents: the status is set as one of the pack's residents", name)
+				continue
+			}
+			m.As = name
+		case "hears":
+			hears = true
+			types := r.entries(k.v, k.path)
+			if k.v.Kind == yaml.MappingNode && len(k.v.Content) == 0 {
+				r.errf(k.v, k.path, "empty: name a bead type and its stages (task: { review: review }), or leave the source out")
+			}
+			for _, t := range types {
+				flows := flowsFor(p.Flows, t.key)
+				if len(flows) == 0 {
+					r.errf(t.k, t.path, "no flow of this pack is for beads of type %s: it has no flow with type: %s and none a rig follows", t.key, t.key)
+					continue
+				}
+				for _, s := range r.entries(t.v, t.path) {
+					if !hasStage(flows, s.key) {
+						r.errf(s.k, s.path, "%s stage %s (stages: %s)", lacking(flows), s.key, strings.Join(stageNames(flows), ", "))
+						continue
+					}
+					word, ok := r.str(s.v, s.path)
+					if !ok {
+						continue
+					}
+					if !slices.Contains(hooks.States(), word) {
+						r.errf(s.v, s.path, "%q is no state: one of %s", word, strings.Join(hooks.States(), ", "))
+						continue
+					}
+					if err := f.Places(word); err != nil {
+						r.errf(s.v, s.path, "%v", err)
+						continue
+					}
+					m.Map[store.MapKey(t.key, s.key)] = word
+				}
+			}
+		}
+	}
+	if e.v.Kind == yaml.MappingNode {
+		if !as {
+			r.errf(e.k, join(e.path, "as"), "missing: the resident of the pack the status is set as")
+		}
+		if !hears {
+			r.errf(e.k, join(e.path, "hears"), "missing: which stage of which bead type means which status")
+		}
+	}
+	return m, true
+}
+
+// flowsFor are the pack's flows a bead of type typ may follow: the flow for
+// that type, else every flow a rig could follow as its own, since a rig's
+// flow governs the types that have none.
+func flowsFor(flows []Flow, typ string) []Flow {
+	var own []Flow
+	for _, f := range flows {
+		if f.Type == typ {
+			return []Flow{f}
+		}
+		if f.Type == "" {
+			own = append(own, f)
+		}
+	}
+	return own
+}
+
+// lacking begins the sentence that none of flows has a stage.
+func lacking(flows []Flow) string {
+	if len(flows) == 1 {
+		return "flow " + flows[0].Name + " has no"
+	}
+	names := make([]string, len(flows))
+	for i, f := range flows {
+		names[i] = f.Name
+	}
+	return "none of the flows a rig could follow (" + strings.Join(names, ", ") + ") has a"
+}
+
+func stageNames(flows []Flow) []string {
+	var out []string
+	for _, f := range flows {
+		for _, s := range f.Stages {
+			if !slices.Contains(out, s.Name) {
+				out = append(out, s.Name)
+			}
+		}
+	}
+	return out
 }
 
 func (r *reader) group(e entry) Group {

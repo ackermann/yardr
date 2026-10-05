@@ -52,7 +52,7 @@ type PackImport struct {
 // PackObject is one object of the yard that came from a pack, with what it
 // takes to find it again.
 type PackObject struct {
-	Kind string `json:"kind"` // file group flow pointer route subscription
+	Kind string `json:"kind"` // file group flow pointer route subscription map
 	// Name is the file's path, or the group's or flow's name.
 	Name string `json:"name,omitempty"`
 	// SHA256 is a file's content as the import installed it: a copy that
@@ -66,6 +66,10 @@ type PackObject struct {
 	// A subscription and the resident it is of.
 	Resident     string        `json:"resident,omitempty"`
 	Subscription *Subscription `json:"subscription,omitempty"`
+	// A stage map (kind map): Name is the hook it was set on, Resident the
+	// one the hook acts as, and Map the map as the import left it, so a map
+	// changed by hand since is not taken for the pack's.
+	Map map[string]string `json:"map,omitempty"`
 }
 
 // Key identifies the object among those of one import, by what stays the

@@ -56,6 +56,12 @@ residents:
     subscribe:
       linear: involved
     open_threads: [linear]
+
+sources:
+  linear:
+    as: mayor
+    hears:
+      task: { new: started, review: review, merged: done }
 ```
 
 | key | meaning |
@@ -76,6 +82,8 @@ residents:
 | `residents.<name>.hears.done` | `true`: a bead becoming done |
 | `residents.<name>.subscribe.<source>` | an outside source (`github`, `linear`, `token`) and how much of it: `involved`, `mentions` or `all` |
 | `residents.<name>.open_threads` | optional: the sources (`github`, `linear`) the resident should be able to open a thread in unasked (`yardr thread open`). The pack only asks: the import puts it to the yard's operator ([below](#yardr-pack-apply)) |
+| `sources.<source>.as` | the resident of the pack an issue's status is set as, in that source (`github`, `linear`): a key of `residents` |
+| `sources.<source>.hears.<type>.<stage>` | the stage map: when a bead of that type enters that stage, the issue of the source it tracks goes to `started`, `review` or `done`. A stage left out changes nothing. The import sets it on the yard's hook of the source ([Stage maps](#how-a-pack-maps-to-the-yard)) |
 
 A stage's outcomes and manual moves are the flow's transitions, outcomes
 first ([flows.md](flows.md#outcomes-agents-say-how-the-work-ended)): `new`
@@ -140,7 +148,18 @@ packs/mine/pack.yaml:7: flows.default.stages.decide.group: no group deciders is 
 - `hears.stages` naming a stage no flow of the pack has;
 - a `subscribe` source this yardr has no adapter for, or an unknown scope;
 - an `open_threads` source yardr cannot open threads in (`token`), with the
-  ones it can.
+  ones it can;
+- under `sources`: a source this yardr has no adapter for, or one it cannot
+  set a status in (`token`); a source without `as` or without `hears`; `as`
+  naming no resident of the pack; a bead type no flow of the pack is for; a
+  stage that flow lacks; a word that is not `started`, `review` or `done`,
+  or one the source has no status for (GitHub knows open and closed, so
+  `review` is refused there as `yardr hook add --map` refuses it).
+
+Which flow a type's stages are held to: the flow with that `type:`, else a
+flow a rig could follow, since a rig's flow governs every type that has
+none of its own. A pack with several such flows may name a stage any of
+them has.
 
 ## yardr pack check
 
@@ -338,6 +357,46 @@ The import only adds to the resident's `open_threads`. A pack without the
 key, a no, and a source nobody was asked about leave the setting as the
 yard has it.
 
+**Stage maps.** `sources.<source>` says which status an issue goes to when
+the bead tracking it ([links.md](links.md)) enters a stage, and as which
+resident. Which stage means which status is opinion about the flow, so the
+pack carries it; the import puts it where the yard keeps it, on the yard's
+hook of that source, as `yardr hook add --as <resident> --map
+<type>:<stage>=<state>` would:
+
+| pack | hook |
+|---|---|
+| `as: mayor` | acts as the yard's resident that takes `mayor` (`--resident mayor=yardmaster`) |
+| `hears.task.review: review` | the map line `task:review=review` |
+
+The plan says, per source, what it would do and what the yard has for it:
+
+```
+stage maps
+  create           hook linear as yardmaster
+
+stage map of source linear, as resident yardmaster
+  the pack says task:merged=done task:new=started task:review=review
+  would be set on hook linear, which has none
+  ok       hook         hook linear
+  ok       identity     resident yardmaster has an identity in linear
+  missing  set state    resident yardmaster may not set a status in linear, so no issue is moved. The import does not grant it: the operator allows it with --set set_state=linear on yardr resident add yardmaster
+```
+
+| the plan says | meaning |
+|---|---|
+| `would be set on hook <name>, which has none` | the hook gets the resident and the map (`create`) |
+| `would replace what hook <name> has: as <resident>, <map>` | the hook has another map or acts as another resident: it gets the pack's, whole, and the object's `as:` and `map:` lines show old and new (`change`) |
+| `hook <name> has it` | nothing to do (`unchanged`) |
+| `nothing would be set` | the yard has no hook of the source, or the resident no identity in it. The import goes through without it; the next one sets the map once the yard has what is `missing` |
+| `not set on hook <name>: …` | in the plan `pack apply` prints: this run may not have a hook act as that resident ([below](#yardr-pack-apply)) |
+
+| need | what is looked at |
+|---|---|
+| `hook` | a hook with that source. **The import never makes one**: it has no secret to give it. With several hooks of one source the map goes on the first by name, and a note says so |
+| `identity` | the resident's identity in the source. A hook acts only as a resident that has one, which keeps the source's delivery of the change out of that resident's inbox; a resident the import itself creates has none yet |
+| `set state` | whether the resident's definition lets it set a status in the source (`set_state`, [residents.md](residents.md)). **The import never grants it**: with the map set and the grant missing, no issue is moved, and the line names the command the operator runs |
+
 **Sources.** For each source a resident subscribes to, the plan says what
 the yard has and lacks to hear it and answer in it:
 
@@ -449,8 +508,31 @@ source under `asks` in the plan:
   The resident needs no restart: `yardr thread open` reads the setting each
   time.
 
+**Stage maps.** For each source under `sources` the import sets the map,
+and the resident it is acted on as, on the yard's hook of that source, and
+leaves the hook's name, source and secret file. A hook that has another map
+gets the pack's.
+
+- No hook of the source, or a resident without an identity in it: the
+  import goes through, sets nothing for that source and says what to add
+  (`the stage map of linear was not set: no hook receives linear, and the
+  import makes none: yardr hook add linear --source linear --secret-file
+  <file>, then apply the pack again`). The next apply sets it.
+- It grants nothing. While the resident lacks `set_state` for the source the
+  output ends with a `note:` naming the command the operator grants it with
+  (`--set set_state=linear on yardr resident add <resident>`), on every
+  apply until it is granted.
+- A hook that acts as a resident speaks as it. So, as `yardr hook add --as`
+  does, the import sets the map only when run by the operator or from that
+  resident's own session. Run by anyone else it does everything else, sets
+  no map, records none and prints the refusal; `--json` has it under
+  `maps_refused`, by source.
+- What it set is printed as `hook linear now moves tracked linear issues as
+  yardmaster: …` and logged as the store logs any `hook_added`.
+
 **Twice is once.** Applying a pack that is already applied writes no object
-and logs one event, `pack_unchanged`. It needs no flag and no `--yes`: the
+and logs one event, `pack_unchanged`. A hook that has the pack's map and
+acts as the resident that takes the pack's is left as it is. It needs no flag and no `--yes`: the
 record says which resident took each of the pack's, which flow the rig
 follows and whose roles were chosen. It also keeps each answer about
 opening threads, by resident and source, yes or no: the same pack asks
@@ -525,7 +607,7 @@ starter in rig web  2026-10-03 18:40 by mckean
 | `flow` | the pack's flow the rig follows |
 | `rig_roles` | `true` when the import was given `--rig-roles`; absent when the pack's roles were set |
 | `groups`, `residents` | pack name -> yard name |
-| `objects` | the files, groups, flows, pointers, routes and subscriptions that are the pack's; a file with the `sha256` of its content as installed, placeholders filled |
+| `objects` | the files, groups, flows, pointers, routes, subscriptions and stage maps that are the pack's; a file with the `sha256` of its content as installed, placeholders filled; a stage map (`kind: map`) with the hook's `name`, the `resident` it acts as and the `map` as the import set it |
 | `open_threads` | the answers about opening threads: yard's resident -> source -> `true` or `false`; absent when nothing was answered. `yardr pack list` prints them as `may open   yardmaster: github no, linear yes` |
 
 An import that changes nothing leaves the record as it is, its commit and
@@ -556,6 +638,11 @@ yard no pack was imported into.
 - A resident is never removed. One that no longer takes a resident of the
   pack keeps its role and `--on` kinds as the import left them; its
   subscriptions that came from the pack are pruned like any other object.
+- A stage map of a source the pack no longer has under `sources` shows as
+  `no longer in it` while the hook still acts as that resident with the map
+  the import set; `--prune` clears the hook's resident and map and keeps the
+  hook. A map changed by hand since (`yardr hook add`) is the yard's, and
+  is neither listed nor pruned.
 - A file is removed only under `<home>/packs/<pack>/`, or as a stage file
   of one of the pack's flows, `<home>/flows/<pack>.<flow>/<stage>.md`. A
   dropped stage file is named by that path under the home.
@@ -574,12 +661,14 @@ again, and the command exits 1 naming it.
 ## The plan as data
 
 `pack check --json` prints the plan an import executes (`pack apply --json`
-prints `{"plan": …, "answers": …, "open_threads": …, "result": …}`, the
+prints `{"plan": …, "answers": …, "open_threads": …, "maps_refused": …, "result": …}`, the
 answers by question id, an `args` answer being the arguments the new agent
 got, space-separated; `open_threads` has `answers`, resident -> source ->
 yes or no as given by flag or form, and `notes`, what was not granted and
 which flag or who would grant it; `result.granted` lists each resident with
-the sources it was let open threads in):
+the sources it was let open threads in; `maps_refused` is source -> why this
+run set no stage map for it, and `result.mapped` the maps it set, each with
+`hook`, `source`, `as` and `map`):
 
 ```json
 {
@@ -597,6 +686,8 @@ the sources it was let open threads in):
   "sources": [{"source": "linear", "resident": "yardmaster", "needs": [{"what": "hook", "status": "ok", "detail": "…"}]}],
   "open_threads": [{"pack": "mayor", "resident": "yardmaster", "wants": ["linear", "github"], "has": [], "asks": ["linear"], "declined": [],
     "lacks": [{"source": "github", "missing": [{"what": "hook", "status": "missing", "detail": "…"}]}]}],
+  "maps": [{"source": "linear", "pack": "mayor", "as": "yardmaster", "map": {"task:new": "started", "task:review": "review", "task:merged": "done"},
+    "hook": "linear", "action": "create", "needs": [{"what": "set_state", "status": "missing", "detail": "…"}]}],
   "notes": [], "refused": []
 }
 ```
@@ -608,7 +699,7 @@ for each placeholder, by its name.
 
 Objects come in the order an import does them: files (roles and scripts,
 then stage files), groups, flows,
-pointers, routes, residents, subscriptions; dropped objects come last.
+pointers, routes, residents, subscriptions, stage maps; dropped objects come last.
 `action` is `create`, `change`, `unchanged`, `not_in_pack` or `dropped`.
 Each object carries what the import would write (for a dropped one, what a
 prune removes), under its kind:
@@ -622,6 +713,7 @@ prune removes), under its kind:
 | `route` | `stage`, `rig`, `type`, `group`, `priority`, and `delete`: the ids of the routes it replaces |
 | `resident` | `pack` (its name in the pack), `resident` (in the yard), `prompt`, `on`, and `restart` when it is running and the import changes its role or what it hears |
 | `subscription` | `resident`, `add`, and `remove` when a scope changes |
+| `map` | `hook`, `source`, `as` and `map`: what the hook is set to. Only a map the import can set is an object; `maps` has every source |
 
 An object's `asks` are the ids of the questions whose answers it still
 needs, its `keeps` what the import leaves as the yard has it, and its
@@ -632,6 +724,14 @@ object has `owned`, the record's entry for it, and `held` when not even a
 prune removes it. The question `pack.flow` belongs to no object: it is
 asked when the pack has several flows a rig could follow. A plan with
 anything under `refused` must not be applied.
+
+`maps` has one entry per source under the pack's `sources`: the `map` keyed
+`<type>:<stage>` as a hook keeps it, `pack` and `as` (the resident by the
+pack's name and the yard's), `hook` (absent when the yard has none),
+`action` (`create`, `change` with `was`, the hook's `as` and `map` before,
+`unchanged`, or `not_set` when the import sets nothing), and `needs`: `hook`,
+`identity` and `set_state`, each `ok` or `missing` with the command in
+`detail`.
 
 `open_threads` has one entry per resident the pack asks it for. Each source
 under `wants` is in exactly one of `has`, `lacks`, `declined` and `asks`;
