@@ -29,7 +29,7 @@ shasum -a 256 --ignore-missing -c checksums.txt      # Linux: sha256sum --ignore
 # unpack, and put the binary on PATH
 tar -xzf "yardr_${version}_$target.tar.gz" yardr
 mv yardr ~/.local/bin/     # any directory on your PATH
-yardr version              # v1.2.3 (<revision>)
+yardr --version            # v1.2.3 (<revision>); yardr version prints the same
 ```
 
 `checksums.txt` comes from the same release as the archive, so it shows that
@@ -64,8 +64,8 @@ go install .
 ```
 
 This writes `yardr` to `$(go env GOPATH)/bin`, which has to be on PATH.
-`yardr version` prints its revision (`abcdef123456`, with `-modified` for a
-build from a tree with uncommitted changes).
+`yardr --version`, or `yardr version`, prints its revision (`abcdef123456`,
+with `-modified` for a build from a tree with uncommitted changes).
 
 ## What yardr doctor still asks for
 

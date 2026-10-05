@@ -41,6 +41,7 @@ gh release download v1.2.3 --repo McKean/yardr \
   --pattern 'yardr_1.2.3_darwin_arm64.tar.gz' --pattern checksums.txt
 shasum -a 256 --ignore-missing -c checksums.txt   # must say OK
 tar -xzf yardr_1.2.3_darwin_arm64.tar.gz yardr && mv yardr ~/.local/bin/
+yardr --version                                   # v1.2.3 (<revision>); yardr version prints the same
 ```
 
 Either way yardr still needs git, herdr and an agent harness (claude, codex,

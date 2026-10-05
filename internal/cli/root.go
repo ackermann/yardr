@@ -62,6 +62,7 @@ func execute(a *app, args []string) int {
 }
 
 func (a *app) rootCmd() *cobra.Command {
+	var showVersion bool
 	root := &cobra.Command{
 		Use:           "yardr",
 		Short:         "Route beads of work to whoever works them",
@@ -71,6 +72,9 @@ func (a *app) rootCmd() *cobra.Command {
 		// Bare yardr: the onboarding on a home with no yard yet (run by
 		// firstRun), help otherwise.
 		RunE: func(c *cobra.Command, _ []string) error {
+			if showVersion {
+				return a.printVersion()
+			}
 			if a.onboarded {
 				return nil
 			}
@@ -88,9 +92,17 @@ func (a *app) rootCmd() *cobra.Command {
 					return err
 				}
 			}
+			// yardr --version answers as yardr version does: on a home
+			// with no yard, without the onboarding.
+			if showVersion {
+				return nil
+			}
 			return a.firstRun(c)
 		},
 	}
+	// Not persistent: it is the flag of bare yardr, tried before any
+	// command is known. -v as cobra gives its own version flag.
+	root.Flags().BoolVarP(&showVersion, "version", "v", false, "print which build of yardr this is, as yardr version does")
 	root.PersistentFlags().StringVar(&a.homeDir, "home", "", "the yard's directory (default $YARDR_HOME, else ~/.yardr)")
 	root.PersistentFlags().BoolVar(&a.json, "json", false, "print JSON")
 	root.PersistentFlags().StringVar(&a.actor, "actor", "", "who is acting (default $YARDR_ACTOR, else $USER)")
@@ -111,12 +123,15 @@ func (a *app) versionCmd() *cobra.Command {
 		Long: `Print which build of yardr this is: the release and its revision for a
 build from a release archive ("v1.2.3 (abcdef123456)"), the revision alone
 for a go install, "unknown" for a build that carries neither.`,
-		RunE: func(*cobra.Command, []string) error {
-			return a.out(map[string]string{"version": version.Tag(), "revision": version.Current()}, func() {
-				fmt.Println(version.Describe())
-			})
-		},
+		RunE: func(*cobra.Command, []string) error { return a.printVersion() },
 	}
+}
+
+// printVersion is yardr version, and yardr --version.
+func (a *app) printVersion() error {
+	return a.out(map[string]string{"version": version.Tag(), "revision": version.Current()}, func() {
+		fmt.Println(version.Describe())
+	})
 }
 
 // exitCode is the process status for a command's error: 1 for a red check
