@@ -229,6 +229,10 @@ func (c *Client) BlockerCycles(ctx context.Context) ([][]string, error) {
 	return callV[[][]string](c, ctx, "BlockerCycles")
 }
 
+func (c *Client) CheckBlockers(ctx context.Context, refs []string) error {
+	return c.call(ctx, "CheckBlockers", nil, refs)
+}
+
 func (c *Client) Discovery(ctx context.Context, id string) (*store.Discovery, error) {
 	return callV[*store.Discovery](c, ctx, "Discovery", id)
 }

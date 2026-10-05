@@ -116,7 +116,7 @@ func (a *app) beadCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "bead", Short: "Create, inspect and move beads"}
 
 	var nb store.NewBead
-	var blockedBy, createMeta, tracks, relates []string
+	var createMeta, tracks, relates []string
 	create := &cobra.Command{
 		Use:   "create <title>",
 		Short: "Create a bead",
@@ -164,14 +164,18 @@ func (a *app) beadCmd() *cobra.Command {
 					return fmt.Errorf("discovered from: %w", err)
 				}
 			}
+			// The blocking edges are made in that write too, and the same
+			// goes for them: an older server knows neither the field nor
+			// this question, and a bead created without its blockers would
+			// be ready for a route to hand out.
+			if len(nb.BlockedBy) > 0 {
+				if err := st.CheckBlockers(c.Context(), nb.BlockedBy); err != nil {
+					return err
+				}
+			}
 			b, err := st.CreateBead(c.Context(), nb, a.who())
 			if err != nil {
 				return err
-			}
-			for _, blocker := range blockedBy {
-				if err := st.AddDep(c.Context(), blocker, b.ID, "blocks", a.who()); err != nil {
-					return fmt.Errorf("created %s but blocking on %s failed: %w", b.ID, blocker, err)
-				}
 			}
 			return a.out(b, func() { fmt.Println(b.ID) })
 		},
@@ -186,7 +190,7 @@ func (a *app) beadCmd() *cobra.Command {
 	f.StringVar(&nb.Prefix, "prefix", "", "id prefix (default rig name, else yd)")
 	f.StringVar(&nb.ID, "id", "", "explicit handle instead of a minted one (imports; must be unused)")
 	f.StringArrayVar(&createMeta, "meta", nil, "metadata key=value (repeatable), e.g. model=opus")
-	f.StringSliceVar(&blockedBy, "blocked-by", nil, "beads that must close first")
+	f.StringSliceVar(&nb.BlockedBy, "blocked-by", nil, "beads that must close first; made with the bead, so an unknown one creates nothing")
 	f.StringVar(&nb.DiscoveredFrom, "discovered-from", "", "the bead this one was found while working on (open or closed, any rig); recorded as an edge, never blocks")
 	f.StringArrayVar(&tracks, "tracks", nil, "outside issue the bead tracks: its URL, or the seq of a hook delivery from it (one per source; see yardr link)")
 	f.StringArrayVar(&relates, "relates", nil, "outside issue the bead relates to, never moves (repeatable)")

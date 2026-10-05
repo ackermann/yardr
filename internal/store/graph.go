@@ -102,6 +102,37 @@ func (s *Store) AddDep(ctx context.Context, fromRef, toRef, kind, actor string) 
 	})
 }
 
+// newBlockers reads the beads refs name as the blockers of a bead about to
+// be created, in the order given. It refuses one that does not exist and
+// one named twice (by its handle and its UUID, say), as AddDep refuses an
+// edge that is already there.
+func newBlockers(tx *bolt.Tx, refs []string) ([]*beadRow, error) {
+	rows, seen := make([]*beadRow, 0, len(refs)), map[string]bool{}
+	for _, ref := range refs {
+		row, err := loadBead(tx, ref)
+		if err != nil {
+			return nil, fmt.Errorf("blocked by: %w", err)
+		}
+		if seen[row.UUID] {
+			return nil, fmt.Errorf("blocked by: %s is named twice", row.ID)
+		}
+		seen[row.UUID] = true
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+// CheckBlockers reports why CreateBead would refuse refs as NewBead.BlockedBy:
+// a bead that does not exist, or one named twice. bead create asks it before
+// it creates: a server from before BlockedBy does not know the question,
+// where its CreateBead would drop the field and create the bead unblocked.
+func (s *Store) CheckBlockers(ctx context.Context, refs []string) error {
+	return s.read(func(tx *bolt.Tx) error {
+		_, err := newBlockers(tx, refs)
+		return err
+	})
+}
+
 // checkCycle refuses the edge from -blocks-> to when to already blocks
 // from, directly or through other beads: "a blocks b blocks c blocks a",
 // in handles, the new edge first. Closed beads count like open ones. A

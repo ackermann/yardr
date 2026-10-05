@@ -80,6 +80,12 @@ type NewBead struct {
 	// edge is made with the bead, in the same write: an origin that does
 	// not exist creates no bead. Nothing of the origin is inherited.
 	DiscoveredFrom string
+	// BlockedBy names the beads that must close before this one is ready
+	// (handles or UUIDs). The blocks edges are made with the bead, in the
+	// same write: a blocker that does not exist, or one named twice,
+	// creates no bead, so the bead is never there unblocked for a route to
+	// hand out.
+	BlockedBy []string
 }
 
 var validID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
@@ -228,6 +234,25 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 				return err
 			}
 			// The edge re-minted the bead: go on with it as stored.
+			if _, err := get(w.Tx, bBeads, row.UUID, row); err != nil {
+				return err
+			}
+		}
+		if len(nb.BlockedBy) > 0 {
+			blockers, err := newBlockers(w.Tx, nb.BlockedBy)
+			if err != nil {
+				return err
+			}
+			for _, blocker := range blockers {
+				// A bead that blocks nothing yet closes no cycle; the
+				// check is AddDep's, should that ever change.
+				if err := checkCycle(w.Tx, blocker, row, ""); err != nil {
+					return err
+				}
+				if err := w.addDep(blocker, row, DepBlocks, actor); err != nil {
+					return err
+				}
+			}
 			if _, err := get(w.Tx, bBeads, row.UUID, row); err != nil {
 				return err
 			}

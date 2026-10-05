@@ -373,9 +373,10 @@ func TestBeadDiscoveredFrom(t *testing.T) {
 	}
 }
 
-// oldServer is a store whose server is from before discovered-from: it does
-// not know Discovery, and its CreateBead would drop the origin and create
-// the bead without its edge.
+// oldServer is a store whose server is from before discovered-from and
+// NewBead.BlockedBy: it knows neither Discovery nor CheckBlockers, and its
+// CreateBead would drop the origin and the blockers and create the bead
+// without its edges.
 type oldServer struct {
 	store.API
 	created int
@@ -385,9 +386,13 @@ func (o *oldServer) Discovery(context.Context, string) (*store.Discovery, error)
 	return nil, errors.New("no such method Discovery")
 }
 
+func (o *oldServer) CheckBlockers(context.Context, []string) error {
+	return errors.New("no such method CheckBlockers")
+}
+
 func (o *oldServer) CreateBead(ctx context.Context, nb store.NewBead, actor string) (*store.Bead, error) {
 	o.created++
-	nb.DiscoveredFrom = ""
+	nb.DiscoveredFrom, nb.BlockedBy = "", nil
 	return o.API.CreateBead(ctx, nb, actor)
 }
 
@@ -409,5 +414,61 @@ func TestDiscoveredFromRefusesAnOlderServer(t *testing.T) {
 	// Without the flag an older server is asked nothing new.
 	if _, err := run(t, a.beadCmd(), "create", "plain"); err != nil || st.created != 1 {
 		t.Fatalf("a plain create: %v, %d created", err, st.created)
+	}
+}
+
+// bead create --blocked-by makes the bead with its blockers or not at all:
+// an unknown blocker leaves no bead for bead list and ready to show, and
+// several blockers are all there when the bead is.
+func TestBeadCreateBlockedBy(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	for _, id := range []string{"yd-1", "yd-2"} {
+		if _, err := st.CreateBead(ctx, store.NewBead{ID: id, Title: "a blocker"}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := &app{st: st, actor: "me"}
+	head, _ := st.Head(ctx)
+	for _, blockers := range []string{"yd-nope", "yd-1,yd-nope", "yd-1,yd-1"} {
+		if out, err := run(t, a.beadCmd(), "create", "x", "--blocked-by", blockers); err == nil || !strings.Contains(err.Error(), "blocked by: ") {
+			t.Fatalf("create --blocked-by %s: %v\n%s", blockers, err, out)
+		}
+		for name, listing := range map[string]*cobra.Command{"bead list": a.beadCmd(), "ready": a.readyCmd()} {
+			out, err := run(t, listing, strings.Fields(name)[1:]...)
+			if err != nil || strings.Contains(out, " x") {
+				t.Fatalf("after a refused --blocked-by %s, %s: %v\n%s", blockers, name, err, out)
+			}
+		}
+		if now, _ := st.Head(ctx); now != head {
+			t.Fatalf("a refused --blocked-by %s logged %d events", blockers, now-head)
+		}
+	}
+	out, err := run(t, a.beadCmd(), "create", "x", "--id", "yd-3", "--blocked-by", "yd-1", "--blocked-by", "yd-2")
+	if err != nil || strings.TrimSpace(out) != "yd-3" {
+		t.Fatalf("create with two blockers: %v\n%s", err, out)
+	}
+	if bs, _ := st.OpenBlockers(ctx, "yd-3"); !slices.Equal(bs, []string{"yd-1", "yd-2"}) {
+		t.Fatalf("yd-3 is blocked by %v", bs)
+	}
+	if out, err := run(t, a.readyCmd()); err != nil || strings.Contains(out, "yd-3") {
+		t.Fatalf("ready lists the blocked bead: %v\n%s", err, out)
+	}
+}
+
+// Against a server from before NewBead.BlockedBy, bead create --blocked-by
+// creates nothing rather than a bead a route could hand out unblocked.
+func TestBlockedByRefusesAnOlderServer(t *testing.T) {
+	st := &oldServer{API: storetest.New(t)}
+	ctx := context.Background()
+	if _, err := st.API.CreateBead(ctx, store.NewBead{ID: "yd-1", Title: "a blocker"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, actor: "me"}
+	if _, err := run(t, a.beadCmd(), "create", "blocked", "--blocked-by", "yd-1"); err == nil || !strings.Contains(err.Error(), "no such method") {
+		t.Fatalf("create against an older server: %v, want its refusal", err)
+	}
+	if st.created != 0 {
+		t.Fatal("the bead was created without its blockers")
 	}
 }
