@@ -63,7 +63,7 @@ port can read the whole yard. The view stays read-only.
 - It logs one warning when it starts:
   `no authentication: anyone who can reach this machine on port 8791 can read the yard`.
   The line after it says what the view answers to:
-  `serving the yard url=http://[::]:8791/ answers_to="an IP address, localhost, adventuretime, adventuretime.local, adventuretime.tail5cf2e8.ts.net"`.
+  `serving the yard url=http://[::]:8791/ answers_to="an IP address, localhost, adventuretime, adventuretime.local, yard.example.net"` when started with `--unsafe --host yard.example.net`.
 
 ## Keeping it running
 
