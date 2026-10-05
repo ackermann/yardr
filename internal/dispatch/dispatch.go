@@ -180,9 +180,9 @@ type Dispatcher struct {
 	promptIdle map[string]time.Time
 	// drafts is session (or "resident:<name>") -> the text found in its
 	// agent's input when yardr had something to type there, and nudged is
-	// the same -> the last nudge yardr typed. See inputHeld.
+	// the same -> the last nudge yardr typed and when. See inputHeld.
 	drafts map[string]*draft
-	nudged map[string]string
+	nudged map[string]ownNudge
 
 	clock      func() time.Time // tests only; see now
 	retryAfter map[string]time.Time
@@ -313,7 +313,7 @@ func (d *Dispatcher) defaults() {
 		d.fresh = map[string]time.Time{}
 		d.promptIdle = map[string]time.Time{}
 		d.drafts = map[string]*draft{}
-		d.nudged = map[string]string{}
+		d.nudged = map[string]ownNudge{}
 	}
 }
 

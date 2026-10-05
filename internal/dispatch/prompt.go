@@ -65,6 +65,11 @@ type draft struct {
 	pressed bool      // it was yardr's own nudge, and Enter was sent for it
 }
 
+type ownNudge struct {
+	text string
+	at   time.Time
+}
+
 // inputHeld reports whether the input of the session of handle holds text,
 // so that nothing may be typed there on this pass; key names the session
 // in the dispatcher's memory. waited is not zero on the one pass of a wait
@@ -98,6 +103,9 @@ func (d *Dispatcher) inputHeld(ctx context.Context, r Runner, key string, handle
 	text, known, err := ir.InputText(ctx, handle)
 	if err != nil || !known || strings.TrimSpace(text) == "" {
 		delete(d.drafts, key)
+		if err == nil && known {
+			delete(d.nudged, key) // its input was empty: no old nudge can still be there
+		}
 		return false, 0
 	}
 	now := d.now()
@@ -106,9 +114,13 @@ func (d *Dispatcher) inputHeld(ctx context.Context, r Runner, key string, handle
 		w = &draft{since: now}
 		d.drafts[key] = w
 	}
-	if own := d.nudged[key]; own != "" && !w.pressed && squash(text) == squash(own) && now.Sub(w.since) >= d.PromptSettle {
+	if own, ok := d.nudged[key]; ok && now.Sub(own.at) > 2*d.Interval {
+		delete(d.nudged, key) // old text entered later may belong to a person
+	}
+	if own, ok := d.nudged[key]; ok && !w.pressed && squash(text) == squash(own.text) && now.Sub(w.since) >= d.PromptSettle {
 		if sub, ok := r.(PromptSubmitter); ok && sub.SubmitPrompt(ctx, handle) == nil {
 			w.pressed = true
+			delete(d.nudged, key)
 			d.Log.Warn("nudge was typed and not submitted: Enter sent", "session", key)
 			return true, 0
 		}

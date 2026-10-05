@@ -175,6 +175,32 @@ func TestNudgeLeftInTheInputIsSubmitted(t *testing.T) {
 	}
 }
 
+// A later draft that happens to equal yardr's old nudge is still a person's
+// text: only an immediately stranded nudge may be submitted as yardr's own.
+func TestOldNudgeTextIsNotSubmitted(t *testing.T) {
+	s, f, d := residentSetup(t, store.Resident{})
+	ctx := context.Background()
+	now := time.Now()
+	dispatch.SetClock(d, func() time.Time { return now })
+	must(t, d.Reconcile(ctx))
+	must(t, s.Mail(ctx, "mayor", "first", "chris"))
+	must(t, d.Reconcile(ctx))
+	if len(f.nudges) != 1 {
+		t.Fatalf("first nudge = %q", f.nudges)
+	}
+
+	// The old nudge has long since either been taken or left alone. A person
+	// types the same words later; that coincidence must not send Enter.
+	now = now.Add(3 * d.Interval)
+	f.input = strings.TrimPrefix(f.nudges[0], agentOf(t, s)+": ")
+	f.deaf = true
+	must(t, s.Mail(ctx, "mayor", "second", "chris"))
+	must(t, d.Reconcile(ctx))
+	if f.submits != 0 || len(f.nudges) != 1 || f.input == "" {
+		t.Fatalf("old nudge text was treated as yardr's: Enter %d, nudges %q, input %q", f.submits, f.nudges, f.input)
+	}
+}
+
 // The request to hand off before a rotation is a nudge too. Held back, it
 // was not asked: the grace for the handoff does not run yet.
 func TestRotationIsNotAskedIntoTextInTheInput(t *testing.T) {

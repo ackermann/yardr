@@ -310,7 +310,7 @@ func (d *Dispatcher) nudge(ctx context.Context, runner Runner, r store.Resident,
 	if err := n.Nudge(ctx, r.Handle, text); err != nil {
 		return false, err
 	}
-	d.nudged[key] = text
+	d.nudged[key] = ownNudge{text: text, at: d.now()}
 	return true, nil
 }
 
