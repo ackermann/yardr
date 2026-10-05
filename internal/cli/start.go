@@ -370,7 +370,9 @@ func diagnose(ctx context.Context, cfg *config.Config, st store.API, r *store.Re
 		}
 		if reason := lastStartFailure(ctx, st, *r); reason != "" {
 			known = append(known, "the last start failed with: "+reason)
-			if len(absent(*r)) == 0 {
+			// Not when herdr had no server for it: the harness was never
+			// started, and doctor's own line says what is wrong.
+			if len(absent(*r)) == 0 && !strings.Contains(reason, "server_not_running") && !strings.Contains(reason, "server_unavailable") {
 				ask = kind
 			}
 		} else if r.Enabled {

@@ -416,6 +416,17 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 		t.Errorf("next lacks doctor --try:\n%s", next)
 	}
 
+	// A start that failed because herdr has no server says nothing of the
+	// harness, which was never started: doctor's herdr line is what helps.
+	if err := st.ResidentStartFailed(ctx, "mayor", "server_not_running: no herdr server is running", time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	spawnDaemon = func(*config.Config) (<-chan error, error) { return nil, nil }
+	res = a.startYard(ctx, cfg, st, "mayor", time.Minute)
+	if next := strings.Join(res.Next, "\n"); res.Running || strings.Contains(next, "doctor --try") {
+		t.Errorf("herdr's outage is no reason to try the harness: %+v", res)
+	}
+
 	// A daemon that cannot be started at all.
 	spawnDaemon = func(*config.Config) (<-chan error, error) { return nil, errors.New("fork: no") }
 	if res = a.startYard(ctx, cfg, st, "mayor", time.Minute); res.DaemonStarted ||
