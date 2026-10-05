@@ -36,8 +36,11 @@ var YardrWhereKeys = []string{"bead", "rig", "type", "label", "stage", "from", "
 
 // deliver decides, as bead event e is logged, which residents it reaches
 // through yardr subscriptions and why, and records that on the event as
-// "deliveries". A closed event then ends the subscriptions watching that
-// bead, after they heard of the close, and lists whose in "watches_ended".
+// "deliveries". The users it reaches the same way are recorded as
+// "notified", and each gets a notification (see Notification): a user is
+// matched as a resident is, but has no journal to be told about. A closed
+// event then ends the subscriptions watching that bead, after they heard
+// of the close, and lists whose in "watches_ended".
 //
 // A mention is "@name" in this event alone (see eventText), never in what
 // the bead said before, so a journal that once said "@B" does not reach B
@@ -52,19 +55,31 @@ func (w *wtx) deliver(e *Event) error {
 	// Collected first: whether the bead is a resident's journal is only
 	// known once every resident has been read.
 	type cand struct {
-		r    *Resident
+		name string
+		user bool
 		subs []boundSub
 	}
 	var cands []cand
 	private := NotWork[row.Type]
+	yardr := func(subs []boundSub) bool {
+		return slices.ContainsFunc(subs, func(s boundSub) bool { return s.Source == SourceYardr })
+	}
 	err := subscribers(w.Tx, func(r *Resident, subs []boundSub) error {
 		private = private || r.Journal == row.ID
-		if e.Actor != r.Name && !aboutItself(r, row.ID, e.Kind) && !doneAs(r, e) &&
-			slices.ContainsFunc(subs, func(s boundSub) bool { return s.Source == SourceYardr }) {
-			cands = append(cands, cand{r, subs})
+		if e.Actor != r.Name && !aboutItself(r, row.ID, e.Kind) && !doneAs(r, e) && yardr(subs) {
+			cands = append(cands, cand{name: r.Name, subs: subs})
 		}
 		return nil
 	})
+	if err == nil {
+		// Nor is a person told of what they did themselves.
+		err = userSubscribers(w.Tx, func(u *User, subs []boundSub) error {
+			if e.Actor != u.Name && yardr(subs) {
+				cands = append(cands, cand{name: u.Name, user: true, subs: subs})
+			}
+			return nil
+		})
+	}
 	if err != nil || len(cands) == 0 {
 		return w.endWatchesOn(e, row, err)
 	}
@@ -80,13 +95,13 @@ func (w *wtx) deliver(e *Event) error {
 		}
 	}
 	var fields map[string][]string // worked out for the first subscription that filters
-	out := map[string]any{}
+	out, told := map[string]any{}, map[string]any{}
 	for _, c := range cands {
-		mentioned := text != "" && w.mentions.pattern(c.r.Name).MatchString(text)
-		participant := lazy(func() bool { return participated(w.Tx, row, c.r.Name) })
+		mentioned := text != "" && w.mentions.pattern(c.name).MatchString(text)
+		participant := lazy(func() bool { return participated(w.Tx, row, c.name) })
 		// A done subscription hears of a bead once, so it may look at the
 		// whole bead: mentioned anywhere on it counts.
-		onBead := lazy(func() bool { return mentionedOnBead(w.Tx, row, w.mentions.pattern(c.r.Name)) })
+		onBead := lazy(func() bool { return mentionedOnBead(w.Tx, row, w.mentions.pattern(c.name)) })
 		got := ""
 		for _, sub := range c.subs {
 			if sub.Source != SourceYardr {
@@ -121,12 +136,22 @@ func (w *wtx) deliver(e *Event) error {
 				got = best(got, sub.reason(reason))
 			}
 		}
-		if got != "" {
-			out[c.r.Name] = got
+		switch {
+		case got == "":
+		case c.user:
+			told[c.name] = got
+		default:
+			out[c.name] = got
 		}
 	}
 	if len(out) > 0 {
 		e.Data["deliveries"] = out
+	}
+	if len(told) > 0 {
+		e.Data["notified"] = told
+		if err := w.notify(beadNotification(e, row), told); err != nil {
+			return err
+		}
 	}
 	return w.endWatchesOn(e, row, nil)
 }
@@ -326,11 +351,13 @@ func (c *mentionCache) pattern(name string) *regexp.Regexp {
 }
 
 // endWatches drops every subscription watching the bead with handle h
-// (where bead=h), from residents and groups, and names whose it dropped.
+// (where bead=h), from residents, users and groups, and names whose it
+// dropped.
 func endWatches(tx *bolt.Tx, h string) ([]string, error) {
 	watching := func(sub Subscription) bool { return sub.Source == SourceYardr && sub.Where["bead"] == h }
 	// Collected first: a bucket must not change under its own cursor.
 	var rs []*Resident
+	var us []*User
 	var gs []*Group
 	err := each(tx, bResidents, "", func(_ []byte, r *Resident) error {
 		if slices.ContainsFunc(r.Subscriptions, watching) {
@@ -338,6 +365,14 @@ func endWatches(tx *bolt.Tx, h string) ([]string, error) {
 		}
 		return nil
 	})
+	if err == nil {
+		err = each(tx, bUsers, "", func(_ []byte, u *User) error {
+			if slices.ContainsFunc(u.Subscriptions, watching) {
+				us = append(us, u)
+			}
+			return nil
+		})
+	}
 	if err == nil {
 		err = each(tx, bGroups, "", func(_ []byte, g *Group) error {
 			if slices.ContainsFunc(g.Subscriptions, watching) {
@@ -356,6 +391,13 @@ func endWatches(tx *bolt.Tx, h string) ([]string, error) {
 			return nil, err
 		}
 		ended = append(ended, r.Name)
+	}
+	for _, u := range us {
+		u.Subscriptions = slices.DeleteFunc(u.Subscriptions, watching)
+		if err := put(tx, bUsers, u.Name, u); err != nil {
+			return nil, err
+		}
+		ended = append(ended, u.Name)
 	}
 	for _, g := range gs {
 		g.Subscriptions = slices.DeleteFunc(g.Subscriptions, watching)

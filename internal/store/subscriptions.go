@@ -88,6 +88,8 @@ func whereKeys(source string) []string {
 // Subscription delivers a source's events to a resident's inbox: hook
 // events from a hook source, or bead events from the yardr source. A manual
 // group's subscriptions deliver to each of its members that is a resident.
+// A user's make the events notifications in the user's inbox (see
+// Notification).
 type Subscription struct {
 	Source string            `json:"source"`
 	Scope  string            `json:"scope"`
@@ -130,8 +132,10 @@ func (s *Store) SetIdentity(ctx context.Context, name, source string, id Identit
 	})
 }
 
-// AddSubscription subscribes the resident, or else the manual group,
-// called name; an identical subscription is kept once. A yardr
+// AddSubscription subscribes the resident, or else the user, or else the
+// manual group, called name; an identical subscription is kept once. Only
+// the user themselves and the operator subscribe a user (maySubscribe), or
+// remove what the user subscribes to. A yardr
 // subscription's bead and epic are stored as handles; one for a closed
 // bead is refused, as its watch would already have ended.
 func (s *Store) AddSubscription(ctx context.Context, name string, sub Subscription, actor string) error {
@@ -227,9 +231,10 @@ func (s *Store) dropSubscriptions(name, source, actor string, match func(Subscri
 }
 
 // changeSubscriptions replaces the subscriptions of the resident called
-// name, or else of the manual group, with what fn returns, and logs fn's
-// event (none when kind is ""): on the resident's journal, or unattached
-// for a group.
+// name, or else of the user, or else of the manual group, with what fn
+// returns, and logs fn's event (none when kind is ""): on the resident's
+// journal, or unattached for a user or a group. A user's are changed by
+// the user and the operator only.
 func (w *wtx) changeSubscriptions(name, actor string, fn func([]Subscription) ([]Subscription, string, map[string]any, error)) error {
 	var r Resident
 	if ok, err := get(w.Tx, bResidents, name, &r); err != nil {
@@ -246,11 +251,29 @@ func (w *wtx) changeSubscriptions(name, actor string, fn func([]Subscription) ([
 		data["resident"] = name
 		return w.event(r.Journal, kind, actor, data)
 	}
+	var u User
+	if ok, err := get(w.Tx, bUsers, name, &u); err != nil {
+		return err
+	} else if ok {
+		if err := w.maySubscribe(name, actor); err != nil {
+			return err
+		}
+		subs, kind, data, err := fn(u.Subscriptions)
+		if err != nil || kind == "" {
+			return err
+		}
+		u.Subscriptions = subs
+		if err := put(w.Tx, bUsers, name, u); err != nil {
+			return err
+		}
+		data["user"] = name
+		return w.event("", kind, actor, data)
+	}
 	var g Group
 	if ok, err := get(w.Tx, bGroups, name, &g); err != nil {
 		return err
 	} else if !ok {
-		return fmt.Errorf("no resident or group %s: %w", name, ErrNotFound)
+		return fmt.Errorf("no resident, user or group %s: %w", name, ErrNotFound)
 	}
 	if g.Runner != "manual" {
 		return fmt.Errorf("group %s is %s: only manual groups subscribe, for their members", name, g.Runner)

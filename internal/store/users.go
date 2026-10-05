@@ -31,13 +31,19 @@ func init() { allBuckets = append(allBuckets, bUsers) }
 
 // User is a person with an inbox. The record is the place for what a
 // person is elsewhere (an identity in an outside source, an origin in
-// another yard) once there is such a thing; today it is the name and how
-// far its mail is read.
+// another yard) once there is such a thing; today it is the name, what
+// the user subscribes to, and how far each part of its inbox is read.
 type User struct {
 	Name      string    `json:"name"`
 	CreatedAt time.Time `json:"created_at"`
 	CreatedBy string    `json:"created_by"`
 	Cursor    uint64    `json:"cursor"` // mail acknowledged through this event seq
+	// NotificationCursor is the same for the notifications: the two parts
+	// of the inbox are acknowledged apart.
+	NotificationCursor uint64 `json:"notification_cursor"`
+	// Subscriptions make matching events notifications in the inbox (see
+	// Notification). The user and the operator change them.
+	Subscriptions []Subscription `json:"subscriptions,omitempty"`
 }
 
 // Letter is one mail as a conversation and a user's inbox show it.
@@ -76,11 +82,15 @@ func operatorIn(tx *bolt.Tx) (string, error) {
 }
 
 // addUser writes a new user who reads mail from now on: mail an earlier
-// user of the name left is not theirs.
+// user of the name left is not theirs, nor are its notifications.
 func (w *wtx) addUser(name, actor string) (*User, error) {
 	u := &User{Name: name, CreatedAt: now(), CreatedBy: actor}
 	if k, _ := w.Bucket(bEvents).Cursor().Last(); k != nil {
 		u.Cursor = binary.BigEndian.Uint64(k)
+		u.NotificationCursor = u.Cursor
+	}
+	if err := dropNotifications(w.Tx, name); err != nil {
+		return nil, err
 	}
 	if err := put(w.Tx, bUsers, name, u); err != nil {
 		return nil, err
@@ -170,7 +180,8 @@ func (s *Store) GetUser(ctx context.Context, name string) (*User, error) {
 	return u, err
 }
 
-// DeleteUser removes the user; the mail to and from them stays in the log.
+// DeleteUser removes the user, with their subscriptions and notifications;
+// the mail to and from them stays in the log.
 // The operator's user is not removed: the setting names someone else
 // first.
 func (s *Store) DeleteUser(ctx context.Context, name, actor string) error {
@@ -184,6 +195,9 @@ func (s *Store) DeleteUser(ctx context.Context, name, actor string) error {
 			return fmt.Errorf("user %s is the yard's operator and is not removed; name another operator first (yardr settings set %s <name>)", name, OperatorSetting)
 		}
 		if err := w.Bucket(bUsers).Delete([]byte(name)); err != nil {
+			return err
+		}
+		if err := dropNotifications(w.Tx, name); err != nil {
 			return err
 		}
 		return w.event("", "user_removed", actor, map[string]any{"user": name})

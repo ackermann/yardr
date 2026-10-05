@@ -480,6 +480,12 @@ func (c *Client) UserInbox(ctx context.Context, name string, limit int) (*store.
 func (c *Client) AckUserInbox(ctx context.Context, name string, through uint64) error {
 	return c.call(ctx, "AckUserInbox", nil, name, through)
 }
+func (c *Client) UserNotifications(ctx context.Context, name string, limit int) (*store.NotificationPage, error) {
+	return callV[*store.NotificationPage](c, ctx, "UserNotifications", name, limit)
+}
+func (c *Client) AckUserNotifications(ctx context.Context, name string, through uint64) error {
+	return c.call(ctx, "AckUserNotifications", nil, name, through)
+}
 func (c *Client) Conversation(ctx context.Context, a, b string, after uint64) ([]store.Letter, error) {
 	return callV[[]store.Letter](c, ctx, "Conversation", a, b, after)
 }

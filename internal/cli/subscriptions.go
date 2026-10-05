@@ -419,7 +419,7 @@ yardr thread state sets the status of a thread the resident takes part in.`,
 func printBeadDelivery(e store.Event, resident string) {
 	data := map[string]any{}
 	for k, v := range e.Data {
-		if k != "deliveries" && k != "watches_ended" {
+		if k != "deliveries" && k != "watches_ended" && k != "notified" {
 			data[k] = v
 		}
 	}

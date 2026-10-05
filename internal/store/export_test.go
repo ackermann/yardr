@@ -145,3 +145,25 @@ func (s *Store) HasBucket(name string) (ok bool) {
 	})
 	return ok
 }
+
+// BulkNotify notifies user n times in one transaction, each as of a seq
+// of its own taken from the log's, for tests that need a full inbox
+// quickly. It returns the seqs.
+func (s *Store) BulkNotify(user string, n int) (seqs []uint64, err error) {
+	err = s.db.Update(func(tx *bolt.Tx) error {
+		w := &wtx{Tx: tx}
+		for range n {
+			seq, err := tx.Bucket(bEvents).NextSequence()
+			if err != nil {
+				return err
+			}
+			note := Notification{Seq: seq, At: now(), Source: SourceYardr, Kind: "noted", Text: "bulk (" + reasonSlot + ")"}
+			if err := w.notify(note, map[string]any{user: ReasonAll}); err != nil {
+				return err
+			}
+			seqs = append(seqs, seq)
+		}
+		return nil
+	})
+	return seqs, err
+}

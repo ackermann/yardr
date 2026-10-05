@@ -111,6 +111,8 @@ type API interface {
 	DeleteUser(ctx context.Context, name, actor string) error
 	UserInbox(ctx context.Context, name string, limit int) (*Mailbox, error)
 	AckUserInbox(ctx context.Context, name string, through uint64) error
+	UserNotifications(ctx context.Context, name string, limit int) (*NotificationPage, error)
+	AckUserNotifications(ctx context.Context, name string, through uint64) error
 	Conversation(ctx context.Context, a, b string, after uint64) ([]Letter, error)
 	AddTimer(ctx context.Context, nt NewTimer, actor string) (*Timer, error)
 	Timers(ctx context.Context, name string) ([]Timer, error)

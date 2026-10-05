@@ -70,7 +70,7 @@ func copyFile(t *testing.T, src, dst string) {
 	}
 }
 
-// A store stamped with schema 2 comes out of Open at schema 3 with its
+// A store stamped with schema 2 comes out of Open at the current schema with its
 // inbox and kind indexes built, whether a build before the indexes wrote
 // it (no index buckets) or a schema-2 build with the indexes did and an
 // older one appended to it since (index buckets missing entries).
@@ -100,8 +100,8 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 	if err := s.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := schemaOf(t, fixture); got != 3 {
-		t.Fatalf("a new store is stamped %d; want 3", got)
+	if got := schemaOf(t, fixture); got != 4 {
+		t.Fatalf("a new store is stamped %d; want 4", got)
 	}
 	want := indexKeys(t, fixture)
 	if len(want["inbox"]) != 2 || len(want["events_by_kind"]) == 0 {
@@ -161,8 +161,8 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 			if err := s.Close(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if got := schemaOf(t, path); got != 3 {
-				t.Fatalf("schema after Open = %d; want 3", got)
+			if got := schemaOf(t, path); got != 4 {
+				t.Fatalf("schema after Open = %d; want 4", got)
 			}
 			got := indexKeys(t, path)
 			for _, name := range indexBuckets {
@@ -170,7 +170,7 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 					t.Errorf("%s after migration = %v\nwant %v", name, got[name], want[name])
 				}
 			}
-			if got := schemaOf(t, fixture); got != 3 || !slices.Equal(indexKeys(t, fixture)["inbox"], want["inbox"]) {
+			if got := schemaOf(t, fixture); got != 4 || !slices.Equal(indexKeys(t, fixture)["inbox"], want["inbox"]) {
 				t.Fatal("the fixture changed; the migration ran on the copy")
 			}
 		})

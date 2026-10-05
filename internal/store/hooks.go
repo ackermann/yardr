@@ -212,7 +212,8 @@ func (s *Store) BlockHook(ctx context.Context, name, reason string) error {
 // event's seq. The envelope is what routing reads; the payload is there
 // for `yardr hook show` when the envelope is not enough. Which residents it
 // reaches, and why, is decided here against their subscriptions as they
-// are now, and kept on the event as "deliveries". A resident that is the
+// are now, and kept on the event as "deliveries"; the users it reaches are
+// kept as "notified" and each gets a notification. A resident that is the
 // delivery's actor becomes a participant in its thread from then on.
 //
 // dedupe are the keys that identify this delivery (see hooks.DedupeKeys).
@@ -252,6 +253,13 @@ func (s *Store) RecordHook(ctx context.Context, name string, envelope map[string
 			return err
 		}
 		data["deliveries"] = deliveries
+		told, err := hookNotified(w.Tx, data)
+		if err != nil {
+			return err
+		}
+		if len(told) > 0 {
+			data["notified"] = told
+		}
 		if err := recordParticipation(w.Tx, data); err != nil {
 			return err
 		}
@@ -259,6 +267,15 @@ func (s *Store) RecordHook(ctx context.Context, name string, envelope map[string
 			return err
 		}
 		seq = w.Bucket(bEvents).Sequence()
+		if len(told) > 0 {
+			var e Event
+			if _, err := get(w.Tx, bEvents, seqKey(seq), &e); err != nil {
+				return err
+			}
+			if err := w.notify(hookNotification(seq, e.At, data), told); err != nil {
+				return err
+			}
+		}
 		for _, k := range dedupe {
 			if err := seen.Put([]byte(k), []byte(seqKey(seq))); err != nil {
 				return err
