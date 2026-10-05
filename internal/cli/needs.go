@@ -160,7 +160,8 @@ const forNewYard = "a harness a yard can be created on"
 // it is the harnesses that are installed, any of which a yard can be created
 // on, or one line saying that none is. What is not on PATH is looked for
 // with the user's login shell, once. With try, each harness that answers its
-// version flag is given one real call (see try).
+// one-shot form is given one real call (see try), regardless of how its
+// version flag came to.
 func machineNeeds(ctx context.Context, uses []harnessUse, try bool) []need {
 	out := basicNeeds()
 	first := len(out)
@@ -228,7 +229,7 @@ func machineNeeds(ctx context.Context, uses []harnessUse, try bool) []need {
 				v := probe(ctx, n.Harness, n.Path)
 				n.Version = &v
 				if try {
-					t := tryHarness(ctx, n.Harness, n.Path, v)
+					t := try(ctx, n.Harness, n.Path)
 					n.Try = &t
 				}
 			}()
@@ -329,15 +330,6 @@ var tryTimeout = 45 * time.Second
 // tryPrompt is what the one real call asks: as little as a model can be
 // asked for.
 const tryPrompt = "Reply with the one word ok and nothing else."
-
-// tryHarness is try for a harness whose version check came to v: one that
-// does not answer its version flag is not called.
-func tryHarness(ctx context.Context, kind, path string, v versionCheck) tryCheck {
-	if v.State == versionFails || v.State == versionHangs {
-		return tryCheck{State: tryNotTried, Output: "it does not answer its version flag"}
-	}
-	return try(ctx, kind, path)
-}
 
 // try makes one real call to the harness at path: its one-shot form (see
 // agents.OneShotArgs) with a prompt that asks for one word, stdin closed, in

@@ -51,8 +51,9 @@ or did not end.
 | opencode | `opencode run <prompt>` |
 | pi | `pi -p <prompt>` |
 
-Any other kind is reported as not tried, as is a harness that does not
-answer its version flag.
+Any other kind is reported as not tried. `--try` makes this call even when
+the separate version check fails or hangs, so it can show what the call
+itself says.
 
 **It costs a model call per harness**, on your account with it, so doctor
 never makes it unasked: without `--try` one line says that no harness was
@@ -112,7 +113,6 @@ created on; they are then never a fault.
 | `FAULT <harness> tried: one real call failed: <error>: <the last three lines it printed>` | `--try`: it ended with another status. The lines are the end of what it printed, stdout and stderr as they came, joined with ` / `: where a harness says that a login is needed or which flag it does not know |
 | `FAULT <harness> tried: one real call did not end within 45s; it printed: <the last three lines>` | `--try`: it hung, at a question or a login screen as a rule |
 | `note <harness> not tried: yardr knows no one-shot call for <kind>` | `--try`: a kind not in the table above |
-| `note <harness> not tried: it does not answer its version flag` | `--try`: the line above it says how the version flag ended |
 | `note <harness> tried: …` | the two failing lines, for a harness nothing runs on yet (a home with no yard) |
 
 ### The yard
