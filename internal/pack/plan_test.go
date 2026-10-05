@@ -169,7 +169,7 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 		t.Fatalf("flow stages = %v", got)
 	}
 	m := find(t, plan, "resident", "mayor").Resident
-	if m.Prompt != filepath.Join(install, "roles", "mayor.md") || len(m.On) != 13 {
+	if m.Prompt != filepath.Join(install, "roles", "mayor.md") || len(m.On) != 14 {
 		t.Fatalf("mayor = %+v", m)
 	}
 	if len(plan.Governs) != 1 || plan.Governs[0].Flow != "starter.default" || plan.Governs[0].Now != "none" || plan.Governs[0].Type != "" {
@@ -328,7 +328,7 @@ func TestYardSetUpByHand(t *testing.T) {
 	_, err := st.PutResident(ctx, store.Resident{Name: "boss", Runner: "herdr", Dir: "/home/boss", MaxAge: "6h",
 		Config: map[string]any{"kind": "claude", "prompt": "/old/roles/mayor.md", "env_file": "/nowhere.env"},
 		On: []string{"held", "gave_up", "session_blocked", "unrouted", "stranded", "session_idle", "session_stalled",
-			"no_runner", "workspace_kept", "resident_gave_up", "runtime_down", "session_aged", "session_model_mismatch"}}, "me")
+			"no_runner", "workspace_kept", "resident_gave_up", "runtime_down", "session_aged", "session_model_mismatch", "session_prompt_gave_up"}}, "me")
 	must(err)
 	must(st.AddSubscription(ctx, "boss", store.Subscription{Source: "linear", Scope: "all"}, "me"))
 	must(st.AddSubscription(ctx, "boss", store.Subscription{Source: "yardr", Scope: "all", Where: map[string]string{"label": "ui"}}, "me"))
