@@ -17,7 +17,8 @@
 # commit it gated and advances the bead to merged. A conflict goes to
 # merge, a red gate back (outcome failed: new, or open for an epic), as
 # does a branch that moved while the gate ran, and a gate that cannot run,
-# or anything it cannot land without touching a dirty tree, is held. It
+# or anything it cannot land without touching a dirty tree, is held. A gate
+# ended by a signal is run once more, and held if a signal ends it again. It
 # never forces and never pushes anything but a fast-forward.
 #
 # Every outcome ends in an advance, a close or a hold: exiting without one
@@ -90,9 +91,28 @@ fi
 # the branch's name, ungated.
 # Exit 1 is a red gate, the branch's to fix; exit 2 means the gate could not
 # run at all (git, the base, the rig), which no builder can fix: hold.
+# An exit above 128 means the gate was ended by a signal from outside (143:
+# a go test killed with SIGTERM after every package printed ok), which says
+# nothing about the branch and which no builder can fix either. It is run
+# once more, after a note with the first run's tail, so the event is on
+# record however the second ends; ended by a signal twice, the bead is held.
+# rig check's own kill at its deadline is not this: it exits 1, a red gate.
+gate() { out=$("$Y" rig check "$RIG" --dir "$WT" --tail "$TAIL" 2>&1) && rc=0 || rc=$?; printf '%s\n' "$out"; }
 gated=$(git -C "$REPO" rev-parse "refs/heads/$BR") || hold "cannot read $BR"
-out=$("$Y" rig check "$RIG" --dir "$WT" --tail "$TAIL" 2>&1) && rc=0 || rc=$?
-printf '%s\n' "$out"
+gate
+if [ "$rc" -gt 128 ]; then
+  first="the gate on $BR at $(git -C "$REPO" rev-parse --short "$gated") was ended by signal $((rc - 128)) (exit $rc), not by a failing check"
+  echo "== $first; running it once more"
+  "$Y" bead note "$BEAD" "refinery: $first; running it once more on the same commit. Its output:
+$out" || echo "== could not note the first run on $BEAD"
+  out1=$out
+  gate
+  [ "$rc" -le 128 ] || hold "$first, and again by signal $((rc - 128)) (exit $rc) when run once more. Nothing landed, and the branch is not at fault: find what sends the signal, then unhold to gate it again.
+First run:
+$out1
+Second run:
+$out"
+fi
 case $rc in
 0) ;;
 2) hold "the gate could not run on $BR:
