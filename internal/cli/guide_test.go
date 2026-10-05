@@ -30,6 +30,9 @@ type former struct {
 	// goes are the answers to "how to go on", one per time it is asked;
 	// past its end the answer is stop.
 	goes []string
+	// panes are the answers to "open the mayor's pane?", one per time it
+	// is asked; past its end the answer is not now.
+	panes []string
 	// abort, when it holds for a field, cancels the form there (ctrl+c).
 	abort func(huh.Field) bool
 	// asked are the keys of the fields asked, in order ("" for a field of
@@ -50,6 +53,11 @@ func (f *former) ask(fields ...huh.Field) error {
 			want = goStop
 			if len(f.goes) > 0 {
 				want, f.goes = f.goes[0], f.goes[1:]
+			}
+		} else if key == "pane" {
+			want = paneLater
+			if len(f.panes) > 0 {
+				want, f.panes = f.panes[0], f.panes[1:]
 			}
 		} else if w, ok := f.answers[key]; ok && key != "" {
 			want = w

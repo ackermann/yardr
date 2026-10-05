@@ -119,7 +119,7 @@ func TestOnboardingWithoutAMayorSaysWhatDoctorSays(t *testing.T) {
 			t.Errorf("the form does not say doctor's line %q:\n%s", l, out)
 		}
 	}
-	if len(*chats) != 0 || slices.Contains(keysOf(f), "go") {
+	if len(*chats) != 0 || slices.Contains(keysOf(f), "go") || slices.Contains(keysOf(f), "pane") {
 		t.Fatalf("chats %v, asked %q after a mayor that is not up", *chats, keysOf(f))
 	}
 }

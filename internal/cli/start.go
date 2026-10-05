@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -91,6 +92,10 @@ type startResult struct {
 	Problem string   `json:"problem,omitempty"`
 	Known   []string `json:"known,omitempty"`
 	Next    []string `json:"next,omitempty"`
+	// said: the daemon's line was printed already, before the question
+	// that offers the mayor's pane (offerPane), and for a mayor that is not
+	// up the problem and its pane with it; print does not say them twice.
+	said bool
 }
 
 // spawnDaemon starts `yardr daemon` for the home, detached from this
@@ -148,6 +153,27 @@ var focusAgent = func(ctx context.Context, agent string) error {
 	return nil
 }
 
+// attachAgent opens an agent's pane in this terminal, as herdr's direct
+// attach does, and returns when the person leaves it; tests replace it.
+// The pane's program gets the keys, so it is the terminal's own that herdr
+// is given.
+var attachAgent = func(ctx context.Context, agent string) error {
+	cmd := exec.CommandContext(ctx, "herdr", "agent", "attach", agent)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("herdr agent attach %s: %w", agent, err)
+	}
+	return nil
+}
+
+// detachKeys leave a pane opened with herdr agent attach, and gotoKeys open
+// herdr's list of panes, as herdr documents them ("Direct terminal attach"
+// and "Keyboard" in its docs) for a prefix that was not rebound.
+const (
+	detachKeys = "ctrl+b q"
+	gotoKeys   = "ctrl+b g"
+)
+
 // paneTail is the last lines a session's pane shows, blank ones left out;
 // tests replace it.
 var paneTail = func(ctx context.Context, handle map[string]any, lines int) (string, error) {
@@ -182,21 +208,105 @@ func (a *app) startYard(ctx context.Context, cfg *config.Config, st store.API, m
 		}
 		res.DaemonStarted, res.DaemonLog = true, cfg.DaemonLog()
 	}
+	a.awaitMayor(ctx, cfg, st, mayor, wait, exited, res)
+	return res
+}
+
+// awaitMayor waits up to wait for the mayor (waitMayor) and writes into res
+// how that ended: where the mayor is, and for one that is not up the
+// problem, its pane's last lines, what is known and how to go on.
+func (a *app) awaitMayor(ctx context.Context, cfg *config.Config, st store.API, mayor string, wait time.Duration, exited <-chan error, res *startResult) {
 	r, problem := waitMayor(ctx, cfg, st, mayor, wait, exited)
+	res.describe(ctx, cfg, st, r, mayor, problem)
+}
+
+// describe writes into s what is known of the mayor as last read (r, nil
+// when it was not): up when problem is "", else not up for that reason.
+func (s *startResult) describe(ctx context.Context, cfg *config.Config, st store.API, r *store.Resident, mayor, problem string) {
+	s.Running, s.Mayor, s.Chat, s.Problem, s.Pane, s.Known, s.Next = false, nil, "", "", "", nil, nil
 	if r != nil && r.Live() {
 		all, _ := st.Settings(ctx)
-		res.Mayor = placeOf(*r, runner.YardName(cfg.Home, all))
+		s.Mayor = placeOf(*r, runner.YardName(cfg.Home, all))
 	}
 	if problem == "" {
-		res.Running, res.Chat = true, yardrAt(cfg.Home)+" chat"
-		return res
+		s.Running, s.Chat = true, yardrAt(cfg.Home)+" chat"
+		return
 	}
-	res.Problem = problem
-	if res.Mayor != nil {
-		res.Pane, _ = paneTail(ctx, r.Handle, paneLines)
+	s.Problem = problem
+	if s.Mayor != nil {
+		s.Pane, _ = paneTail(ctx, r.Handle, paneLines)
 	}
-	res.Known, res.Next = diagnose(ctx, cfg, st, r, mayor, res)
-	return res
+	s.Known, s.Next = diagnose(ctx, cfg, st, r, mayor, s)
+}
+
+// How the question that offers the mayor's pane is answered.
+const (
+	paneOpen  = "open"
+	paneLater = "later"
+)
+
+// offerPane is the way to a mayor that is live but not up, and back: its
+// harness waits at something yardr does not answer (a login, a dialog, a
+// question), and only the person can, in its pane. It says what is known,
+// shows the pane's last lines and asks; "Open the mayor's pane" attaches to
+// the pane in this terminal and, once the person has left it, waits for
+// the mayor as the start does and writes into res how that ended. Still not
+// up, it asks again. It returns when the mayor is up, has no session any
+// more, or the answer is "Not now": res says which, and the caller goes on
+// as it does after a start.
+//
+// It asks only where a chat could open (chats), since that is where it
+// leads. yardr types nothing into the pane: what the harness asks there is
+// the person's to answer.
+func (a *app) offerPane(ctx context.Context, cfg *config.Config, st store.API, mayor string, wait time.Duration, res *startResult) error {
+	for a.chats() && !res.Running && res.Mayor != nil && res.Mayor.Agent != "" && ctx.Err() == nil {
+		res.printHead()
+		agent, pick := res.Mayor.Agent, paneOpen
+		known := "its harness may wait at a login, a question or a system dialog"
+		if len(res.Known) > 0 {
+			known = res.Known[0]
+		}
+		fmt.Println()
+		err := ask(huh.NewSelect[string]().Key("pane").Title("Open "+mayor+"'s pane?").
+			Description(known+".\nOnly you can answer it there; yardr types nothing into the pane.").
+			Options(huh.NewOption("Open the mayor's pane", paneOpen), huh.NewOption("Not now", paneLater)).Value(&pick))
+		switch {
+		case errors.Is(err, huh.ErrUserAborted) || (err == nil && pick != paneOpen):
+			return nil
+		case err != nil:
+			return err
+		}
+		if os.Getenv("HERDR_ENV") != "" {
+			// In a pane of herdr there is nothing to attach: herdr shows the
+			// mayor's pane in place of this one, as yardr chat's key for it
+			// does, and this run waits behind it.
+			if err := focusAgent(ctx, agent); err != nil {
+				fmt.Printf("%s's pane could not be brought to the front: %v\n", mayor, err)
+				return nil
+			}
+			fmt.Printf("herdr shows %s's pane now. To come back to this one: %s opens herdr's list of panes.\n"+
+				"This pane waits for %s meanwhile, and opens the chat once it is up.\n", mayor, gotoKeys, mayor)
+		} else {
+			fmt.Printf("Opening %s's pane here. To come back: %s (press ctrl+b, release, then q).\n"+
+				"Leaving that way stops nothing: %s keeps running, and this goes on.\n", mayor, detachKeys, mayor)
+			if err := attachAgent(ctx, agent); err != nil {
+				fmt.Printf("\n%s's pane could not be opened: %v\n", mayor, err)
+				return nil
+			}
+			fmt.Printf("\nBack from %s's pane.\n", mayor)
+		}
+		fmt.Printf("Waiting for %s to answer its first prompt (up to %s).\n", mayor, wait)
+		again := &startResult{DaemonStarted: res.DaemonStarted, DaemonLog: res.DaemonLog}
+		a.awaitMayor(ctx, cfg, st, mayor, wait, nil, again)
+		*res = *again
+		// The daemon's line stands above; a mayor still not up is said
+		// anew, with its pane as it is now.
+		res.said = true
+		if !res.Running {
+			res.printProblem()
+		}
+	}
+	return nil
 }
 
 // waitMayor polls the mayor until it is up, and returns "" then. Up is more
@@ -351,7 +461,7 @@ func diagnose(ctx context.Context, cfg *config.Config, st store.API, r *store.Re
 		p := res.Mayor
 		next = append(next,
 			fmt.Sprintf("look at its pane (agent %s, workspace %q, pane %s): herdr agent focus %s in herdr, "+
-				"herdr agent attach %s from any other terminal", p.Agent, p.Workspace, p.Pane, p.Agent, p.Agent))
+				"herdr agent attach %s from any other terminal (%s leaves it again, and stops nothing)", p.Agent, p.Workspace, p.Pane, p.Agent, p.Agent, detachKeys))
 		if r.Handle[dispatch.PendingPrompt] != nil {
 			next = append(next, fmt.Sprintf("answer what it asks there, or log %s in; the daemon gives %s its first prompt once %s is ready", kind, mayor, kind))
 		} else {
@@ -438,19 +548,8 @@ func lastStartFailure(ctx context.Context, st store.API, r store.Resident) strin
 // print says how the start ended: where the mayor is and how to get there,
 // or what is known and how to go on.
 func (s *startResult) print(mayor string) {
-	if s.DaemonStarted {
-		fmt.Printf("The daemon is started, in the background; it logs to %s.\n", s.DaemonLog)
-	} else if s.Running || len(s.Known) > 0 {
-		fmt.Println("The daemon was running already.")
-	}
+	s.printHead()
 	if !s.Running {
-		fmt.Printf("\n%s\n", s.Problem)
-		if s.Pane != "" {
-			fmt.Printf("\nThe last lines of its pane:\n\n")
-			for _, l := range strings.Split(s.Pane, "\n") {
-				fmt.Printf("  | %s\n", l)
-			}
-		}
 		if len(s.Known) > 0 {
 			fmt.Println("\nWhat is known:")
 			for _, k := range s.Known {
@@ -467,6 +566,35 @@ func (s *startResult) print(mayor string) {
 	}
 	fmt.Println()
 	s.Mayor.print(mayor)
+}
+
+// printHead says, once, what print starts with: the daemon, and of a mayor
+// that is not up the problem and the last lines of its pane.
+func (s *startResult) printHead() {
+	if s.said {
+		return
+	}
+	s.said = true
+	if s.DaemonStarted {
+		fmt.Printf("The daemon is started, in the background; it logs to %s.\n", s.DaemonLog)
+	} else if s.Running || len(s.Known) > 0 {
+		fmt.Println("The daemon was running already.")
+	}
+	if !s.Running {
+		s.printProblem()
+	}
+}
+
+// printProblem says why the mayor is not up, with the last lines of its
+// pane.
+func (s *startResult) printProblem() {
+	fmt.Printf("\n%s\n", s.Problem)
+	if s.Pane != "" {
+		fmt.Printf("\nThe last lines of its pane:\n\n")
+		for _, l := range strings.Split(s.Pane, "\n") {
+			fmt.Printf("  | %s\n", l)
+		}
+	}
 }
 
 // print says where the running mayor is, as herdr names it, and how to get

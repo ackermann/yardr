@@ -37,6 +37,7 @@ func TestMain(m *testing.M) {
 		return "", errors.New("tests ask no herdr")
 	}
 	focusAgent = func(context.Context, string) error { return errors.New("tests focus no pane") }
+	attachAgent = func(context.Context, string) error { return errors.New("tests attach to no pane") }
 	// Nor does doctor ask that herdr for its server or run this machine's
 	// login shell: a test of either replaces these.
 	askHerdrServer = herdrServer

@@ -312,6 +312,7 @@ func (g *guide) mayorAt() string {
 // pane to the front. The mayor needs no word of what the forms did: its
 // first run reads the same steps. A mayor that is not running is no one to
 // talk to: it says what yardr doctor says of it, and opens no empty chat.
+// One whose session runs without an answer is offered as its pane first.
 func (g *guide) toMayor(ctx context.Context) error {
 	yardr := yardrAt(g.cfg.Home)
 	mayor := yardMayor(ctx, g.st)
@@ -319,10 +320,24 @@ func (g *guide) toMayor(ctx context.Context) error {
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return err
 	}
-	if err != nil || !r.Live() || (g.a.chats() && runner.Greeted(*r) && !up(ctx, *r)) {
-		if err == nil && r.Live() {
-			fmt.Printf("\n%s has not answered its first prompt, so there is nobody to talk to yet.\n", mayor)
-		} else {
+	silent := err == nil && r.Live() && g.a.chats() && runner.Greeted(*r) && !up(ctx, *r)
+	if silent {
+		// Its harness may wait at something in its pane: the way there and
+		// back, as after a start (offerPane).
+		res := &startResult{said: true}
+		res.describe(ctx, g.cfg, g.st, r, mayor, fmt.Sprintf("%s has not answered its first prompt, so there is nobody to talk to yet.", mayor))
+		res.printProblem()
+		if err := g.a.offerPane(ctx, g.cfg, g.st, mayor, mayorWait, res); err != nil {
+			return err
+		}
+		if silent = !res.Running; !silent {
+			if r, err = g.st.GetResident(ctx, mayor); err != nil {
+				return err
+			}
+		}
+	}
+	if err != nil || !r.Live() || silent {
+		if err != nil || !r.Live() {
 			fmt.Printf("\n%s is not running, so there is nobody to talk to yet.\n", mayor)
 		}
 		if err := g.a.doctorSays(ctx, g.cfg); err != nil {

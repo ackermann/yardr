@@ -412,6 +412,11 @@ func (a *app) report(ctx context.Context, cfg *config.Config, res *initResult, o
 			wait = mayorWait
 		}
 		res.Start = a.startYard(ctx, cfg, st, res.Mayor, wait)
+		// A mayor whose harness waits at something only a person answers:
+		// the way to its pane and back, before the start is reported.
+		if err := a.offerPane(ctx, cfg, st, res.Mayor, wait, res.Start); err != nil {
+			return err
+		}
 		res.Daemon = daemonRunning(cfg.DaemonLock())
 	}
 	return a.out(res, res.printNext)

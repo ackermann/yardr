@@ -369,6 +369,11 @@ func TestTheNextRunWaitsForAMayorThatWasNotUp(t *testing.T) {
 	if err == nil || *started != 1 || !strings.Contains(out, "has not answered its first prompt within 30ms") {
 		t.Fatalf("first run: %d started, %v\n%s", *started, err, out)
 	}
+	// In a terminal that run offered the mayor's pane, and was told not now.
+	if !slices.Equal(keysOf(f), []string{"pane"}) {
+		t.Fatalf("first run: asked %q", keysOf(f))
+	}
+	f.asked = nil
 	holdDaemon(t, home) // the daemon the first run started
 
 	// Still silent: bare yardr says so, and no ends it there.

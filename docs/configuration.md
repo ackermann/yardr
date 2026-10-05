@@ -714,6 +714,29 @@ goes on to the command it was started for. `--json` carries the same under
 `workspace`, `workspace_id`, `tab`, `pane`), `pane`, `chat` (the command for
 the conversation with the mayor, once it is up), `problem`, `known`, `next`.
 
+A mayor whose session runs and that has not answered its first prompt may
+have a harness that waits at something yardr does not answer: a login, a
+dialog, a question. Where a chat would open (a terminal, no `--json`, no
+`--no-chat`, not an agent's session), yardr then says why the wait ended,
+shows the last lines of the mayor's pane and asks "Open the mayor's pane" or
+"Not now", before anything else of the above. "Open the mayor's pane" runs
+`herdr agent attach <agent>` in the same terminal, after a line that says
+how to come back: `ctrl+b q`, herdr's keys for leaving a pane it attached,
+which stop nothing. Back from the pane, yardr waits for the mayor again, for
+as long as the start did. A mayor that is up now is one the start found up:
+the chat opens, or the form goes on. One that is still not up is said so,
+with its pane as it is now, and the question is asked again. "Not now" (or
+ctrl+c) ends as a start that asks nothing does, with what is known and how
+to go on. In a pane of herdr there is nothing to attach: herdr shows the
+mayor's pane in place of yardr's, yardr says how to come back to its own
+(`ctrl+b g`, herdr's list of panes) and waits there meanwhile. "Talk to the
+mayor" in [`yardr setup`](setup.md) asks the same of a mayor it finds that
+way. yardr types nothing into the pane: it answers Claude Code's question
+about trusting the folder when the session starts
+([groups.md](groups.md)), and nothing else a harness asks. A mayor without a
+session (a start that failed, a program that is missing) has no pane, and
+nothing is asked.
+
 Once the mayor is up, the form asks two more questions before the rest of
 the setup, each starting at **no**: "Start the daemon at login?", which runs
 `yardr daemon install`, and "Start the web view now?", followed on a yes by
