@@ -38,6 +38,8 @@ func TestCreateBlockedBy(t *testing.T) {
 	for _, d := range ds {
 		edges = append(edges, d.From+" "+d.Kind+" "+d.To)
 	}
+	// Edges made in one write have no order among themselves.
+	slices.Sort(edges)
 	if !slices.Equal(edges, []string{"web-1 blocks web-3", "web-2 blocks web-3"}) {
 		t.Fatalf("edges of the new bead: %v", edges)
 	}
@@ -57,7 +59,9 @@ func TestCreateBlockedBy(t *testing.T) {
 		}
 		return ids
 	}
-	if bs, _ := s.OpenBlockers(ctx, "web-3"); !slices.Equal(bs, []string{"web-1", "web-2"}) || slices.Contains(ready(), "web-3") {
+	bs, _ := s.OpenBlockers(ctx, "web-3")
+	slices.Sort(bs)
+	if !slices.Equal(bs, []string{"web-1", "web-2"}) || slices.Contains(ready(), "web-3") {
 		t.Fatalf("web-3 is blocked by %v, ready: %v", bs, ready())
 	}
 	for _, id := range []string{"web-1", "web-2"} {

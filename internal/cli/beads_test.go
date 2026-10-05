@@ -448,7 +448,9 @@ func TestBeadCreateBlockedBy(t *testing.T) {
 	if err != nil || strings.TrimSpace(out) != "yd-3" {
 		t.Fatalf("create with two blockers: %v\n%s", err, out)
 	}
-	if bs, _ := st.OpenBlockers(ctx, "yd-3"); !slices.Equal(bs, []string{"yd-1", "yd-2"}) {
+	bs, _ := st.OpenBlockers(ctx, "yd-3")
+	slices.Sort(bs)
+	if !slices.Equal(bs, []string{"yd-1", "yd-2"}) {
 		t.Fatalf("yd-3 is blocked by %v", bs)
 	}
 	if out, err := run(t, a.readyCmd()); err != nil || strings.Contains(out, "yd-3") {
