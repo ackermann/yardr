@@ -230,8 +230,8 @@ What runs today, from nothing to a resident answering in Linear:
 A comment mentioning the resident then lands in its inbox (`mentioned`), and
 it answers with `yardr reply <seq>` and reads the thread with `yardr thread
 show <seq>` ([residents.md](residents.md#speaking-in-sources)). GitHub is
-the same with a `GITHUB_TOKEN` (or the pane's `gh` login), its login as
-identity and the webhook below.
+the same with a `GITHUB_TOKEN` or a [GitHub App](#as-a-github-app), its
+login as identity and the webhook below.
 
 ### GitHub
 
@@ -253,6 +253,52 @@ On GitHub, in the repository's **Settings → Webhooks → Add webhook**:
   Pull request reviews, Issue comments, Issues, Workflow runs and Check
   suites. Other events are recorded too, but with only `event`, `action` and
   `repo` and no thread.
+
+#### As a GitHub App
+
+A GitHub App gives the yard both sides at once: its webhook delivers every
+repository it is installed on, in place of a webhook per repository, and a
+resident answers as the App's bot, `<slug>[bot]`, not under a person's
+account. Create it under your account's **Settings → Developer settings →
+GitHub Apps → New GitHub App**:
+
+- **Webhook:** active; the URL is the hook's (`https://<your host>/hooks/gh`)
+  and the secret the contents of the hook's `--secret-file`. An App's
+  deliveries are signed and read as a repository webhook's are.
+- **Repository permissions:** Pull requests *read and write*, Issues *read
+  and write*, Contents *read*, Metadata *read*, Actions *read*, Checks
+  *read*. Nothing else: the App comments, opens issues and sets their
+  status, and does not push or merge.
+- **Subscribe to events:** Pull request, Pull request review, Pull request
+  review comment, Issue comment, Issues, Workflow run, Check suite. (A
+  review comment is recorded with only `event`, `action` and `repo` for
+  now, like any event yardr does not read further.)
+- **Where can this GitHub App be installed:** *Only on this account*.
+
+Then generate the App's private key, install the App on the repositories,
+and give the resident the key and its identity:
+
+```sh
+# in the resident's env_file, in place of GITHUB_TOKEN
+GITHUB_APP_ID=1234567            # the App ID, or its Client ID
+GITHUB_APP_PRIVATE_KEY_FILE=~/.yardr/residents/yardr-app.pem   # mode 0600
+
+yardr resident identity mayor --source github --key 'yardr[bot]'   # <slug>[bot], lowercase
+```
+
+[residents.md](residents.md#as-a-github-app) has the steps and what yardr
+does with the key. Remove the webhooks of the repositories the App is
+installed on once its own delivers: an App's delivery of an event is another
+body than the repository webhook's, so the hook would record the event
+twice.
+
+GitHub has no mention of an App. `@yardr` in a comment notifies no one, and
+links to the user named yardr if there is one; people write it anyway, as
+they do for other Apps, and the App finds it in the comment's body. So does
+yardr: a resident whose github key is `yardr[bot]` is mentioned by `@yardr`
+(and by `@yardr[bot]`). What the bot itself does has `yardr[bot]` as its
+`actor.id` and stays out of the resident's inbox; the user named yardr is
+someone else.
 
 The envelope's `type` is the GitHub event and `action` the body's action:
 

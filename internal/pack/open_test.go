@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"yardr.dev/yardr/internal/pack"
+	"yardr.dev/yardr/internal/standin"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -118,6 +119,47 @@ func TestPlanSortsWhatThePackAsksToOpen(t *testing.T) {
 	if ot = open(t, build(t, st, load(t, dir), o), "boss"); len(ot.Lacks) != 1 || what(ot.Lacks[0]) != "github: credential" {
 		t.Fatalf("with a hook for github: %+v", ot)
 	}
+
+	// A GitHub App's two names stand in for GITHUB_TOKEN: one of them alone
+	// is no credential, nor is the pair with a key file open to others, and
+	// with a key only its owner reads github is a question like linear.
+	boss, err := st.GetResident(ctx, "boss")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env, key := boss.Config["env_file"].(string), filepath.Join(t.TempDir(), "yardr.pem")
+	credential := func(lines string) pack.OpenThreads {
+		t.Helper()
+		if err := os.WriteFile(env, []byte("LINEAR_API_KEY=secret-linear\n"+lines), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return open(t, build(t, st, load(t, dir), o), "boss")
+	}
+	lack := func(ot pack.OpenThreads, detail string) {
+		t.Helper()
+		if len(ot.Lacks) != 1 || what(ot.Lacks[0]) != "github: credential" || !strings.Contains(ot.Lacks[0].Missing[0].Detail, detail) {
+			t.Fatalf("want github's credential missing with %q: %+v", detail, ot)
+		}
+	}
+	lack(credential("GITHUB_APP_ID=4242\n"), "GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, or GITHUB_TOKEN, in resident boss's env_file")
+	if _, err := standin.NewApp("4242", "yardr", key); err != nil {
+		t.Fatal(err)
+	}
+	pair := "GITHUB_APP_ID=4242\nGITHUB_APP_PRIVATE_KEY_FILE=" + key + "\n"
+	if err := os.Chmod(key, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lack(credential(pair), "open to others")
+	if err := os.Chmod(key, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if ot = credential(pair); !reflect.DeepEqual(ot.Asks, []string{"linear", "github"}) || len(ot.Lacks) != 0 {
+		t.Fatalf("with a GitHub App's pair: %+v", ot)
+	}
+	if ot = credential("GITHUB_TOKEN=secret-github\n"); !reflect.DeepEqual(ot.Asks, []string{"linear", "github"}) || len(ot.Lacks) != 0 {
+		t.Fatalf("with GITHUB_TOKEN: %+v", ot)
+	}
+	credential("")
 
 	// What the resident may already is no question.
 	if _, err := st.AllowOpening(ctx, "boss", []string{"linear"}, "", "jo"); err != nil {

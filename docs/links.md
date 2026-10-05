@@ -60,7 +60,8 @@ No agent takes part: the yard does it, as a resident the hook names.
 
 ```sh
 # Once, by the operator: the mayor may set a status in Linear, and its
-# credential is in its env_file (LINEAR_API_KEY; GITHUB_TOKEN for GitHub).
+# credential is in its env_file (LINEAR_API_KEY; for GitHub a GitHub App's
+# two lines or GITHUB_TOKEN, see residents.md "As a GitHub App").
 yardr resident add mayor --set set_state=linear --set env_file=~/.yardr/residents/mayor.env …   # the rest of its definition
 yardr resident identity mayor --source linear --id <its Linear user id>
 

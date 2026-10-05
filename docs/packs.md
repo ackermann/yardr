@@ -342,7 +342,7 @@ open threads, for resident yardmaster
   asks      linear: the operator is asked, and the answer without one is no
   the pack wants github, this yard lacks hook and credential: nothing is asked or granted
     missing  hook         no hook receives github: yardr hook add github --source github --secret-file <file>
-    missing  credential   GITHUB_TOKEN in resident yardmaster's env_file, to answer in github: …
+    missing  credential   GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, or GITHUB_TOKEN, in resident yardmaster's env_file, to answer in github: …
 ```
 
 | the plan says | meaning |
@@ -405,7 +405,7 @@ the yard has and lacks to hear it and answer in it:
 | `hook` | a hook with that source (`yardr hook add`) |
 | `secret file` | the hook's secret file exists |
 | `identity` | the resident's identity in the source (`yardr resident identity`) |
-| `credential` | the name of the reply credential (`LINEAR_API_KEY`, `GITHUB_TOKEN`) is set in the resident's `env_file`; only names are read |
+| `credential` | the name of the reply credential is set in the resident's `env_file`: `LINEAR_API_KEY`; for GitHub a GitHub App's pair (`GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY_FILE`) or `GITHUB_TOKEN`. Only names are read, and for an App its key file, which must be a private key only its owner can read ([residents.md](residents.md#as-a-github-app)) |
 | `listener` | what the yard's running server takes webhooks on, as it wrote it when it started: `ok` with the address and whether it is the `hook_addr` setting's or `YARDR_HOOK_ADDR`'s, `missing` when the server has no address or could not listen on its own (with the setting to change). `unknown` only when no server has said: a build from before `hook_addr` |
 
 ## yardr pack apply

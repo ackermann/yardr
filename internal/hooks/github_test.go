@@ -283,6 +283,9 @@ func TestGitHubMentions(t *testing.T) {
 		"@acme/core and @-x and @x- end":                  {"x"},
 		"```\n@mayor in a block\n``` but `@jane` in code": {},
 		"@" + strings.Repeat("a", 40):                     {},
+		// An App is mentioned by its slug; its bot's login, written out,
+		// names the same slug (the store matches it to a [bot] identity).
+		"@yardr can you look? cc @Yardr[bot]": {"yardr"},
 	} {
 		body, _ := json.Marshal(map[string]any{"issue": map[string]any{"number": 1, "body": body}})
 		got, err := hooks.GitHub{}.Normalize(http.Header{"X-Github-Event": {"issues"}}, body)

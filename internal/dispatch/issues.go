@@ -93,7 +93,7 @@ func (d *Dispatcher) issueMove(ctx context.Context, m store.IssueMove) {
 			return
 		}
 	}
-	cred, err := d.credential(ctx, m.As, f.CredentialKey())
+	cred, err := d.credential(ctx, m.As, m.Source, f)
 	if err != nil {
 		d.issueFailed(ctx, m, err, skip)
 		return
@@ -143,25 +143,37 @@ func (d *Dispatcher) issueFailed(ctx context.Context, m store.IssueMove, cause e
 }
 
 // credential is the resident's credential for a source: what its env_file
-// sets under key, the one its own pane would use. Nothing else is tried: the
+// sets for it, the one its own pane would use. Nothing else is tried: the
 // daemon's environment, or its gh login, is the operator's.
-func (d *Dispatcher) credential(ctx context.Context, resident, key string) (string, error) {
+func (d *Dispatcher) credential(ctx context.Context, resident, source string, f hooks.Forwarder) (string, error) {
 	r, err := d.Store.GetResident(ctx, resident)
 	if err != nil {
 		return "", err
 	}
+	names := hooks.CredentialNames(source)
 	path, _ := r.Config["env_file"].(string)
 	if path == "" {
-		return "", fmt.Errorf("resident %s has no env_file, where its %s is read from", resident, key)
+		return "", fmt.Errorf("resident %s has no env_file, where its %s is read from", resident, names)
 	}
-	f, err := config.ReadEnvFile(path)
+	file, err := config.ReadEnvFile(path)
 	if err != nil {
 		return "", err
 	}
-	for _, e := range f.Env {
-		if k, v, _ := strings.Cut(e, "="); k == key && strings.TrimSpace(v) != "" {
-			return strings.TrimSpace(v), nil
+	cred, err := f.CredentialFrom(func(name string) string {
+		// A name set twice has its last value, as in the pane's environment.
+		val := ""
+		for _, e := range file.Env {
+			if k, v, _ := strings.Cut(e, "="); k == name {
+				val = v
+			}
 		}
+		return val
+	})
+	if missing := (*hooks.MissingCredential)(nil); errors.As(err, &missing) {
+		return "", fmt.Errorf("resident %s's env_file %s does not set %s", resident, file.Path, names)
 	}
-	return "", fmt.Errorf("resident %s's env_file %s does not set %s", resident, f.Path, key)
+	if err != nil {
+		return "", fmt.Errorf("resident %s's env_file %s: %w", resident, file.Path, err)
+	}
+	return cred, nil
 }

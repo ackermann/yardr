@@ -21,8 +21,10 @@ team --in names (its key or its name), in GitHub an issue in the repository
 --in names (owner/repo). -b is the body (- reads it from stdin); text only.
 
 The rules are those of yardr reply. The call is made from this process with
-your own credential, from your environment (LINEAR_API_KEY; GITHUB_TOKEN,
-else gh auth token), and the server never sees it. Only the resident's own
+your own credential, from your environment (LINEAR_API_KEY; for GitHub a
+GitHub App's GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, else
+GITHUB_TOKEN, else, outside a resident's session, gh auth token), and the
+server never sees it. Only the resident's own
 session or the operator may speak as the resident (--resident, default
 $YARDR_RESIDENT).
 

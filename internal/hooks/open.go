@@ -221,7 +221,7 @@ func (GitHub) Open(ctx context.Context, in, title, body, key, cred string) (Thre
 		body = strings.TrimSpace(body + "\n\n" + openMarker(key))
 	}
 	var i githubOpened
-	if err := call(ctx, http.MethodPost, u, githubHeader(cred), map[string]string{"title": title, "body": body}, &i); err != nil {
+	if err := githubCall(ctx, http.MethodPost, u, cred, map[string]string{"title": title, "body": body}, &i); err != nil {
 		return Thread{}, fmt.Errorf("github: %w", err)
 	}
 	if i.Number <= 0 {
@@ -245,7 +245,7 @@ func (GitHub) Opened(ctx context.Context, in, key, cred string, since time.Time)
 	for page := 1; ; page++ {
 		q.Set("page", fmt.Sprint(page))
 		var is []githubOpened
-		if err := call(ctx, http.MethodGet, u+"?"+q.Encode(), githubHeader(cred), nil, &is); err != nil {
+		if err := githubCall(ctx, http.MethodGet, u+"?"+q.Encode(), cred, nil, &is); err != nil {
 			return nil, fmt.Errorf("github: %w", err)
 		}
 		for _, i := range is {

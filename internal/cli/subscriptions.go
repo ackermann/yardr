@@ -32,8 +32,13 @@ the assignee or the delegate (the agent a Linear issue is handed to) is its
 --id, and never hears of deliveries it is the actor of.
 
 In Linear, --id is the user id and --key the profile URL key
-(https://linear.app/<org>/profiles/<key>): markdown mentions carry only the key.`,
+(https://linear.app/<org>/profiles/<key>): markdown mentions carry only the key.
+
+In GitHub, --key is the login, in any case. A resident that speaks as a
+GitHub App has the App's bot as its login, <slug>[bot]: what the bot does
+is then its own, and @<slug> in a comment mentions it.`,
 		Example: `  yardr resident identity mayor --source linear --id 4d3a2b1c-... --key mayor
+  yardr resident identity mayor --source github --key 'yardr[bot]'
   yardr resident identity mayor
   yardr resident identity mayor --source linear --rm`,
 		Args: cobra.ExactArgs(1),
@@ -54,6 +59,10 @@ In Linear, --id is the user id and --key the profile URL key
 					return fmt.Errorf("give --id and/or --key, or --rm")
 				case rm:
 					id = store.Identity{}
+				case source == "github":
+					// A login is the same in any case, and deliveries carry
+					// it in lowercase: Yardr[bot] is kept as yardr[bot].
+					id.Key = strings.ToLower(id.Key)
 				}
 				if err := st.SetIdentity(c.Context(), name, source, id, a.who()); err != nil {
 					return err

@@ -253,6 +253,44 @@ func TestHookDeliveryInInbox(t *testing.T) {
 	}
 }
 
+// A resident that speaks as a GitHub App has the bot's login as its key:
+// yardr[bot]. Its own comments, whose actor is that login, stay out of its
+// inbox, and a mention of the App, which people write as @yardr, reaches
+// it. The account named yardr is not the bot: what it does is delivered.
+func TestHookDeliveryToAGitHubApp(t *testing.T) {
+	s, own := storetest.NewOwned(t)
+	ctx := context.Background()
+	if _, err := s.PutResident(ctx, store.Resident{Name: "ment"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetIdentity(ctx, "ment", "github", store.Identity{Key: "yardr[bot]"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddSubscription(ctx, "ment", store.Subscription{Source: "github", Scope: store.ScopeAll}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	comment := func(actor string, mentions ...string) hooks.Envelope {
+		return hooks.Envelope{Source: "github", Type: "issue_comment", Actor: hooks.Party{ID: actor, Name: actor},
+			Thread: hooks.Thread{ID: "acme/webapp#7"}, Mentions: mentions, Text: "words"}
+	}
+	for _, c := range []struct {
+		name string
+		env  hooks.Envelope
+		want map[string]string
+	}{
+		{"its own comment", comment("yardr[bot]"), map[string]string{}},
+		{"its own comment, as GitHub cases the login", comment("Yardr[bot]", "yardr"), map[string]string{}},
+		{"mentioned by its slug", comment("jane", "yardr"), map[string]string{"ment": store.ReasonMentioned}},
+		// Mentioned once, it takes part in the thread from then on.
+		{"another name", comment("jane", "yardr-dev"), map[string]string{"ment": store.ReasonParticipant}},
+		{"the account of the slug's name acts", comment("yardr"), map[string]string{"ment": store.ReasonParticipant}},
+	} {
+		if got := deliveries(t, s, own, c.env); !same(got, c.want) {
+			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
 func TestIdentitiesAndSubscriptions(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()

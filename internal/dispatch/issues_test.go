@@ -1,8 +1,11 @@
 package dispatch_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -371,6 +374,83 @@ func TestIssueMoveRefusedForGood(t *testing.T) {
 	}
 	want(t, "sets", y.src.Sets(), nil)
 	want(t, "moves left", len(y.pending(t)), 0)
+}
+
+// A hook that acts as a resident whose env_file names a GitHub App moves
+// the issue as the App: the daemon signs as it, asks for the installation
+// of the issue's repository and closes the issue with that installation's
+// token, which the next move in the repository uses again. Where the App
+// is not installed the move is tried again and says what is missing.
+// Neither the token nor the key is in an event or in the daemon's log.
+func TestIssueMoveAsAGitHubApp(t *testing.T) {
+	y := newIssueYard(t)
+	key := filepath.Join(t.TempDir(), "yardr.pem")
+	app, err := standin.NewApp("4242", "yardr", key, "acme/webapp")
+	must(t, err)
+	y.src.App = app
+	y.src.Add(standin.Issue{Source: "github", Key: "acme/webapp#8", Title: "Timeouts", Status: "open"})
+	y.src.Add(standin.Issue{Source: "github", Key: "other/repo#1", Title: "Elsewhere", Status: "open"})
+	// GITHUB_TOKEN is there too: the App is who acts.
+	must(t, os.WriteFile(y.env, []byte("GITHUB_TOKEN=gh-mayor\nGITHUB_APP_ID=4242\nGITHUB_APP_PRIVATE_KEY_FILE="+key+"\n"), 0o600))
+	var logged bytes.Buffer
+	y.d.Log = slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	y.bead(t, "yard-a", "https://github.com/acme/webapp/issues/7")
+	y.bead(t, "yard-b", "https://github.com/acme/webapp/issues/8")
+	y.bead(t, "yard-c", "https://github.com/other/repo/issues/1")
+	for _, id := range []string{"yard-a", "yard-b", "yard-c"} {
+		y.to(t, id, "new")
+		y.to(t, id, "review")
+		y.to(t, id, "merged")
+	}
+	want(t, "calls", y.src.Calls(), []string{
+		"github app installation acme/webapp", "github app token acme/webapp",
+		// Entering new reads the issue and leaves it: open is started.
+		"github read acme/webapp#7", "github read acme/webapp#7", "github set acme/webapp#7 closed",
+		"github read acme/webapp#8", "github read acme/webapp#8", "github set acme/webapp#8 closed",
+		"github app installation other/repo"})
+	ms := y.pending(t)
+	if len(ms) == 0 || ms[0].Bead != "yard-c" || !strings.Contains(ms[0].Error, "not installed on other/repo") || !strings.Contains(ms[0].Error, "install the App there") {
+		t.Fatalf("moves %+v", ms)
+	}
+
+	// A key file open to others is refused as the env_file would be.
+	must(t, os.Chmod(key, 0o644))
+	y.src.Add(standin.Issue{Source: "github", Key: "acme/webapp#9", Title: "Leaks", Status: "open"})
+	y.bead(t, "yard-d", "https://github.com/acme/webapp/issues/9")
+	y.to(t, "yard-d", "new")
+	y.to(t, "yard-d", "review")
+	y.d = y.daemon() // a new daemon has no token in hand
+	y.d.Log = slog.New(slog.NewTextHandler(&logged, nil))
+	y.to(t, "yard-d", "merged")
+	found := false
+	for _, m := range y.pending(t) {
+		found = found || strings.Contains(m.Error, "GITHUB_APP_PRIVATE_KEY_FILE") && strings.Contains(m.Error, "open to others")
+	}
+	if !found {
+		t.Fatalf("moves %+v", y.pending(t))
+	}
+
+	evs, err := y.api.EventsSince(context.Background(), 0, 0)
+	must(t, err)
+	raw, err := json.Marshal(evs)
+	must(t, err)
+	pem, err := os.ReadFile(key)
+	must(t, err)
+	secrets := y.src.Tokens()
+	for _, line := range strings.Split(string(pem), "\n") {
+		if len(line) > 20 && !strings.HasPrefix(line, "-----") {
+			secrets = append(secrets, line)
+		}
+	}
+	if len(secrets) < 2 {
+		t.Fatalf("secrets to look for: %d", len(secrets))
+	}
+	for _, s := range secrets {
+		if strings.Contains(string(raw), s) || strings.Contains(logged.String(), s) {
+			t.Fatalf("a secret shows in the events or the log:\n%s", logged.String())
+		}
+	}
 }
 
 // The credential is the resident's own, from its env_file, and nothing

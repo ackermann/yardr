@@ -171,7 +171,8 @@ mkdir -p ~/.yardr/residents
 cat > ~/.yardr/residents/mayor.env <<'END'
 # Linear, as the mayor: its app's developer token (or a personal API key)
 LINEAR_API_KEY=lin_oauth_…
-# GitHub, as the mayor (else `gh auth token` in its pane is used)
+# GitHub, as the mayor: a personal token of its account, or the two lines
+# of a GitHub App (below) in its place
 GITHUB_TOKEN=github_pat_…
 END
 chmod 600 ~/.yardr/residents/mayor.env
@@ -199,6 +200,70 @@ yardr resident show mayor     # env_file …/mayor.env (LINEAR_API_KEY)
   restart (`yardr resident restart mayor`). Values are never logged, put on
   the session's handle or shown; `yardr resident show` lists the key names.
 
+### As a GitHub App
+
+With a personal token a resident's comments are the token's owner's; in a
+yard one person runs, that is the person. A resident that speaks as a GitHub
+App comments as the App's bot, `<slug>[bot]`, and needs no account of its
+own.
+
+1. **Create the App** (GitHub, your account's **Settings → Developer
+   settings → GitHub Apps → New GitHub App**), installable *only on this
+   account*. Its webhook URL is the hook's (`https://<your host>/hooks/gh`)
+   and its webhook secret the contents of the hook's `--secret-file`. The
+   permissions and events to tick are in
+   [subscriptions.md](subscriptions.md#as-a-github-app).
+2. **The private key**: on the App's page, *Generate a private key*. GitHub
+   downloads a `.pem`; keep it where the env file is, for its owner alone:
+
+   ```sh
+   mv ~/Downloads/yardr.*.private-key.pem ~/.yardr/residents/yardr-app.pem
+   chmod 600 ~/.yardr/residents/yardr-app.pem
+   ```
+
+3. **Install it** (the App's page, *Install App*) on the repositories the
+   resident answers in.
+4. **Two lines in the resident's `env_file`**, in place of `GITHUB_TOKEN`:
+
+   ```sh
+   GITHUB_APP_ID=1234567            # the App ID, or its Client ID (Iv23li…)
+   GITHUB_APP_PRIVATE_KEY_FILE=~/.yardr/residents/yardr-app.pem
+   ```
+
+   GitHub takes either id as the issuer of the App's token and recommends
+   the client id; both are on the App's page. The key's path is absolute or
+   starts with `~/`: the daemon and the pane read the line from different
+   directories. The key file is held to the rule the env file is: a regular
+   file of mode `0600` or stricter.
+5. **The identity**, the bot's login, so that its own comments stay out of
+   its inbox and `@<slug>` reaches it:
+
+   ```sh
+   yardr resident identity mayor --source github --key 'yardr[bot]'
+   yardr resident restart mayor
+   yardr resident show mayor     # github credential: GitHub App (GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY_FILE)
+   ```
+
+For each call yardr signs a token as the App (a JWT, RS256, good for nine
+minutes), asks GitHub which installation covers the thread's repository,
+and is given an installation token for that repository, which lives an
+hour. The token is kept in the memory of the process that asked (the
+daemon, or one `yardr reply`) until five minutes before it expires, and is
+never written to the store, an event or a log. Where the App is not
+installed the call is refused with the repository's name and "install the
+App there".
+
+When both the App's lines and `GITHUB_TOKEN` are set, the App answers. One
+of the two lines without the other is an error, not a reason to use the
+token. With neither, a resident is refused: it does not fall back to `gh
+auth token`, which is the login of whoever runs the yard. A person at their
+own shell (the operator's `yardr reply --resident mayor`) still speaks as
+`gh` has them logged in.
+
+The refinery's scripts and the daemon's reads of pull requests and CI call
+`gh` and so act as its login, not as the App: with the permissions above the
+App cannot push or merge.
+
 ## Speaking in sources
 
 A resident answers what reached its inbox where it came from, as itself
@@ -218,8 +283,9 @@ one level deep, so under its root), or a new comment for an issue
 delivery; in GitHub it is a comment on the issue or pull request.
 
 yardr only types. The call is made by the CLI in the resident's pane with
-the credential its `env_file` put there (`LINEAR_API_KEY`, `GITHUB_TOKEN`,
-else `gh auth token`); the server is asked only for the event, and never
+the credential its `env_file` put there (`LINEAR_API_KEY`; for GitHub
+[an App's two lines](#as-a-github-app), else `GITHUB_TOKEN`); the server is
+asked only for the event, and never
 sees, stores or sends a credential. After posting, the resident takes part
 in the thread at once (`yardr thread list`, how `replied`) and a `replied`
 event (source, thread, url, the comment's id as `message`, the delivery's

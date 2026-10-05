@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"yardr.dev/yardr/internal/config"
 )
 
 // The outbound side. yard never speaks for anyone: a resident answers a
@@ -93,11 +96,67 @@ func Repliable() []string {
 	return out
 }
 
+// MissingCredential is what CredentialFrom fails with when nothing it was
+// given sets the source's credential. Names says what would, for the caller
+// to say where.
+type MissingCredential struct{ Names string }
+
+func (e *MissingCredential) Error() string { return e.Names + " is not set" }
+
+// CredentialWay is one way a source's credential is given: the names that
+// together set it in a resident's env_file, and what kind of credential
+// they make.
+type CredentialWay struct {
+	Kind  string   `json:"kind"`
+	Names []string `json:"names"`
+}
+
+// credentialWays are the ways of each source, the one preferred first.
+var credentialWays = map[string][]CredentialWay{
+	"linear": {{"API key", []string{"LINEAR_API_KEY"}}},
+	"github": {{"GitHub App", []string{githubAppIDName, githubAppKeyName}}, {"token", []string{githubTokenName}}},
+}
+
+// CredentialWays are the ways source's credential is given, the one used
+// when several are set first. They are names only: what `yardr resident
+// show` and a pack's plan read of an env_file.
+func CredentialWays(source string) []CredentialWay { return credentialWays[source] }
+
+// CredentialSet is the way of source that keys, the names an env_file
+// sets, give in full: the one a call would use.
+func CredentialSet(source string, keys []string) (CredentialWay, bool) {
+	for _, w := range credentialWays[source] {
+		if !slices.ContainsFunc(w.Names, func(n string) bool { return !slices.Contains(keys, n) }) {
+			return w, true
+		}
+	}
+	return CredentialWay{}, false
+}
+
+// CredentialNames says in words what an env_file sets for source's
+// credential: "LINEAR_API_KEY", or for GitHub the App's two names or
+// GITHUB_TOKEN.
+func CredentialNames(source string) string {
+	var ways []string
+	for _, w := range credentialWays[source] {
+		ways = append(ways, strings.Join(w.Names, " and "))
+	}
+	return strings.Join(ways, ", or ")
+}
+
 func envCredential(name string) (string, error) {
-	if v := strings.TrimSpace(os.Getenv(name)); v != "" {
+	cred, err := namedCredential(name, os.Getenv)
+	if err != nil {
+		return "", fmt.Errorf("%s is not set in this environment: answering in a source takes your own credential (a resident's env_file sets it)", name)
+	}
+	return cred, nil
+}
+
+func namedCredential(name string, get func(string) string) (string, error) {
+	if v := strings.TrimSpace(get(name)); v != "" {
 		return v, nil
 	}
-	return "", fmt.Errorf("%s is not set in this environment: answering in a source takes your own credential (a resident's env_file sets it)", name)
+	return "", &MissingCredential{Names: name}
 }
 
 // call sends a JSON request and decodes a JSON answer into out, turning a
@@ -129,7 +188,8 @@ func call(ctx context.Context, method, url string, hdr http.Header, in, out any)
 		return err
 	}
 	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("%s %s: %s: %s", method, url, resp.Status, strings.TrimSpace(string(raw[:min(len(raw), 500)])))
+		return &statusError{code: resp.StatusCode,
+			msg: fmt.Sprintf("%s %s: %s: %s", method, url, resp.Status, strings.TrimSpace(string(raw[:min(len(raw), 500)])))}
 	}
 	if out == nil {
 		return nil
@@ -139,6 +199,15 @@ func call(ctx context.Context, method, url string, hdr http.Header, in, out any)
 	}
 	return nil
 }
+
+// statusError is an answer with a status other than 2xx: what call fails
+// with, kept apart so a caller can tell a 404 or a 401 from the rest.
+type statusError struct {
+	code int
+	msg  string
+}
+
+func (e *statusError) Error() string { return e.msg }
 
 // Linear
 
@@ -384,21 +453,34 @@ func (Linear) Thread(ctx context.Context, env Envelope, cred string) ([]Message,
 
 // GitHub
 
-// Credential is GITHUB_TOKEN, else what the gh CLI is logged in with.
+// Credential is the GitHub App the environment names (GITHUB_APP_ID and
+// GITHUB_APP_PRIVATE_KEY_FILE), else GITHUB_TOKEN, else, for a person at
+// their own shell, what the gh CLI is logged in with. A resident's session
+// (its pane, which names it in YARDR_RESIDENT) never asks gh: that login is
+// whoever runs the yard, and the resident would answer in their name.
 func (GitHub) Credential(ctx context.Context) (string, error) {
-	if v := strings.TrimSpace(os.Getenv("GITHUB_TOKEN")); v != "" {
-		return v, nil
+	cred, err := githubCredential(os.Getenv)
+	if missing := (*MissingCredential)(nil); !errors.As(err, &missing) {
+		return cred, err
+	}
+	if r := config.Getenv("RESIDENT"); r != "" {
+		return "", fmt.Errorf("resident %s has no GitHub credential in this environment, and a resident does not speak with the gh login of whoever runs the yard: put %s and %s (a GitHub App) or %s (a personal token) in its env_file and restart it",
+			r, githubAppIDName, githubAppKeyName, githubTokenName)
 	}
 	out, err := exec.CommandContext(ctx, "gh", "auth", "token").Output()
 	if tok := strings.TrimSpace(string(out)); err == nil && tok != "" {
 		return tok, nil
 	}
-	return "", fmt.Errorf("GITHUB_TOKEN is not set in this environment and `gh auth token` gave none: answering in a source takes your own credential (a resident's env_file sets it)")
+	return "", fmt.Errorf("neither a GitHub App (%s and %s) nor %s is set in this environment and `gh auth token` gave none: answering in a source takes your own credential (a resident's env_file sets it)",
+		githubAppIDName, githubAppKeyName, githubTokenName)
 }
 
-func githubHeader(cred string) http.Header {
+// githubHeader is the header of a call made with tok: a personal token, an
+// installation token, or the App's JWT. Calls for a resident are made by
+// githubCall, which works the token out of its credential.
+func githubHeader(tok string) http.Header {
 	h := http.Header{}
-	h.Set("Authorization", "Bearer "+cred)
+	h.Set("Authorization", "Bearer "+tok)
 	h.Set("Accept", "application/vnd.github+json")
 	h.Set("X-GitHub-Api-Version", "2022-11-28")
 	return h
@@ -438,7 +520,7 @@ func (GitHub) Reply(ctx context.Context, env Envelope, to, body, key, cred strin
 		body += "\n\n" + replyMarker(key)
 	}
 	var c githubComment
-	if err := call(ctx, http.MethodPost, url, githubHeader(cred), map[string]string{"body": body}, &c); err != nil {
+	if err := githubCall(ctx, http.MethodPost, url, cred, map[string]string{"body": body}, &c); err != nil {
 		return Message{}, fmt.Errorf("github: %w", err)
 	}
 	return Message{ID: fmt.Sprint(c.ID), Body: c.Body, URL: c.HTMLURL, At: c.CreatedAt,
@@ -469,7 +551,7 @@ func (GitHub) Thread(ctx context.Context, env Envelope, cred string) ([]Message,
 	var out []Message
 	for page := 1; ; page++ {
 		var cs []githubComment
-		if err := call(ctx, http.MethodGet, fmt.Sprintf("%s?per_page=100&page=%d", url, page), githubHeader(cred), nil, &cs); err != nil {
+		if err := githubCall(ctx, http.MethodGet, fmt.Sprintf("%s?per_page=100&page=%d", url, page), cred, nil, &cs); err != nil {
 			return nil, fmt.Errorf("github: %w", err)
 		}
 		for _, c := range cs {

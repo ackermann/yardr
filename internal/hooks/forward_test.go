@@ -2,6 +2,7 @@ package hooks_test
 
 import (
 	"context"
+	"errors"
 	"net/http/httptest"
 	"reflect"
 	"strings"
@@ -225,7 +226,20 @@ func TestIssueThread(t *testing.T) {
 	if gh.Places("review") == nil || gh.Places("done") != nil || lin.Places("review") != nil || lin.Places("other") == nil {
 		t.Fatal("places: github has no review, linear has all three and nothing else")
 	}
-	if gh.CredentialKey() != "GITHUB_TOKEN" || lin.CredentialKey() != "LINEAR_API_KEY" {
-		t.Fatal("credential keys")
+	// The credential is read from what an env_file sets, by name; with
+	// none of the names set the error says so in a way the caller can tell.
+	file := map[string]string{"GITHUB_TOKEN": " gh-tok ", "LINEAR_API_KEY": "lin_api_x"}
+	get := func(name string) string { return file[name] }
+	if c, err := gh.CredentialFrom(get); err != nil || c != "gh-tok" {
+		t.Fatalf("github credential %q, %v", c, err)
+	}
+	if c, err := lin.CredentialFrom(get); err != nil || c != "lin_api_x" {
+		t.Fatalf("linear credential %q, %v", c, err)
+	}
+	for _, f := range []hooks.Forwarder{gh, lin} {
+		var missing *hooks.MissingCredential
+		if _, err := f.CredentialFrom(func(string) string { return "" }); !errors.As(err, &missing) {
+			t.Fatalf("nothing set: %v", err)
+		}
 	}
 }

@@ -240,7 +240,7 @@ func (i githubStanding) status() string {
 // pull request, which the same endpoint serves and would close unmerged.
 func githubRead(ctx context.Context, u, thread, cred string) (githubStanding, error) {
 	var i githubStanding
-	if err := call(ctx, http.MethodGet, u, githubHeader(cred), nil, &i); err != nil {
+	if err := githubCall(ctx, http.MethodGet, u, cred, nil, &i); err != nil {
 		return i, fmt.Errorf("github: %w", err)
 	}
 	if i.PullRequest != nil {
@@ -259,7 +259,7 @@ func githubMove(ctx context.Context, u, want, cred string) error {
 	if want == "closed" {
 		patch["state_reason"] = "completed"
 	}
-	if err := call(ctx, http.MethodPatch, u, githubHeader(cred), patch, nil); err != nil {
+	if err := githubCall(ctx, http.MethodPatch, u, cred, patch, nil); err != nil {
 		return fmt.Errorf("github: %w", err)
 	}
 	return nil

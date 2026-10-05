@@ -28,6 +28,24 @@ func (i Identity) is(v string) bool {
 	return v != "" && (v == i.ID || strings.EqualFold(v, i.Key))
 }
 
+// botSuffix ends the login of a GitHub App's bot: the App yardr acts as
+// yardr[bot].
+const botSuffix = "[bot]"
+
+// mentionedAs reports whether a mention of v is one of this identity. A
+// GitHub App is mentioned by its slug: GitHub has no mention of an App, so
+// people write @yardr, as they do for a person, and the App whose bot is
+// yardr[bot] takes it as meant for it. So a key ending in [bot] is also
+// mentioned by the name before it. Only a mention is read so: the actor or
+// assignee yardr is the account of that name, another party than the bot.
+func (i Identity) mentionedAs(v string) bool {
+	if i.is(v) {
+		return true
+	}
+	slug, bot := strings.CutSuffix(strings.ToLower(i.Key), botSuffix)
+	return bot && slug != "" && strings.EqualFold(v, slug)
+}
+
 // Subscription scopes, from widest to narrowest.
 const (
 	ScopeAll      = "all"      // every delivery from the source
@@ -319,7 +337,7 @@ func hookDeliveries(tx *bolt.Tx, data map[string]any) (map[string]any, error) {
 		if known && id.is(actorID) {
 			return nil
 		}
-		mentioned := known && slices.ContainsFunc(mentions, id.is)
+		mentioned := known && slices.ContainsFunc(mentions, id.mentionedAs)
 		// An issue delegated to the resident is its to work as much as one
 		// assigned to it: in Linear an agent is the delegate, and the
 		// assignee stays the person who handed it over.

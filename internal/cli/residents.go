@@ -175,6 +175,10 @@ for its links (yardr peer list).`,
 			if env != nil {
 				out["env_file"] = env
 			}
+			creds := credentialSummary(*r, env)
+			if len(creds) > 0 {
+				out["credentials"] = creds
+			}
 			return a.out(out, func() {
 				fmt.Printf("%s  %s · %s · %s\n", r.Name, r.State, residentAgent(*r), r.Dir)
 				if f := startFailures(*r, time.Now()); f != "" {
@@ -198,6 +202,9 @@ for its links (yardr peer list).`,
 						fmt.Printf(": %s", e)
 					}
 					fmt.Println()
+				}
+				for _, src := range sortedKeys(creds) {
+					fmt.Printf("  %s credential: %s\n", src, creds[src])
 				}
 				fmt.Printf("  inbox %d unread · on %s\n", inbox.Total, strings.Join(r.On, ","))
 				if may := r.MayOpen(); len(may) > 0 {
@@ -420,6 +427,61 @@ func envFileSummary(cfg map[string]any) map[string]any {
 		return out
 	}
 	out["keys"] = f.Keys()
+	return out
+}
+
+// sourceCredential is the credential a resident answers in a source with,
+// by kind and by the names its env_file sets for it: never a value.
+type sourceCredential struct {
+	Kind  string   `json:"kind"` // GitHub App, token, API key; "none" without one
+	Names []string `json:"names,omitempty"`
+	// Note says what is amiss: one of an App's two names without the other,
+	// or that the resident is someone in the source and cannot answer there.
+	Note string `json:"note,omitempty"`
+}
+
+func (c sourceCredential) String() string {
+	out := c.Kind
+	if len(c.Names) > 0 {
+		out += " (" + strings.Join(c.Names, ", ") + ")"
+	}
+	if c.Note != "" {
+		out += ": " + c.Note
+	}
+	return out
+}
+
+// credentialSummary says, for each source a credential can be given for,
+// which kind the resident's env_file (env, its envFileSummary) gives it. A
+// source it has neither a credential nor an identity in is left out: it is
+// not one the resident speaks in.
+func credentialSummary(r store.Resident, env map[string]any) map[string]sourceCredential {
+	keys, _ := env["keys"].([]string)
+	out := map[string]sourceCredential{}
+	for _, src := range hooks.Repliable() {
+		ways := hooks.CredentialWays(src)
+		if way, ok := hooks.CredentialSet(src, keys); ok {
+			out[src] = sourceCredential{Kind: way.Kind, Names: way.Names}
+			continue
+		}
+		// Some of a way's names without the rest give no credential, and
+		// say what was meant.
+		var part []string
+		for _, w := range ways {
+			for _, n := range w.Names {
+				if slices.Contains(keys, n) {
+					part = append(part, n)
+				}
+			}
+		}
+		_, known := r.Identities[src]
+		switch {
+		case len(part) > 0:
+			out[src] = sourceCredential{Kind: "none", Names: part, Note: "it takes " + hooks.CredentialNames(src)}
+		case known:
+			out[src] = sourceCredential{Kind: "none", Note: "it cannot answer in " + src + " until its env_file sets " + hooks.CredentialNames(src)}
+		}
+	}
 	return out
 }
 

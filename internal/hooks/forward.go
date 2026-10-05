@@ -50,9 +50,11 @@ type Forwarder interface {
 	// the source's fixed form (Linker.Issue). A link made from a URL has no
 	// thread id, so the issue is named from the URL alone.
 	IssueThread(fixed string) (string, error)
-	// CredentialKey is the name the source's credential goes by in a
-	// resident's env_file, the one Credential reads in its pane.
-	CredentialKey() string
+	// CredentialFrom is the source's credential as a resident's env_file
+	// gives it, get being what the file sets a name to: the one Credential
+	// reads from the environment in the resident's pane. When the file sets
+	// none of the names it fails with a *MissingCredential.
+	CredentialFrom(get func(name string) string) (string, error)
 	// Places reports whether the source has a status for state at all, so a
 	// map that names one it has not is refused when it is written.
 	Places(state string) error
@@ -98,7 +100,9 @@ func Final(err error) bool {
 
 // Linear
 
-func (Linear) CredentialKey() string { return "LINEAR_API_KEY" }
+func (Linear) CredentialFrom(get func(string) string) (string, error) {
+	return namedCredential("LINEAR_API_KEY", get)
+}
 
 func (Linear) Places(state string) error {
 	if standing(state) < standing(StateStarted) || standing(state) > standing(StateDone) {
@@ -167,7 +171,9 @@ func (Linear) Forward(ctx context.Context, thread, state, cred string) (Forwarde
 
 // GitHub
 
-func (GitHub) CredentialKey() string { return "GITHUB_TOKEN" }
+// CredentialFrom is the App the file names, else its GITHUB_TOKEN; never
+// the gh login, which is the operator's.
+func (GitHub) CredentialFrom(get func(string) string) (string, error) { return githubCredential(get) }
 
 func (GitHub) Places(state string) error {
 	_, err := githubWant(state)
