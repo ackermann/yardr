@@ -290,7 +290,7 @@ internal/server     the store-owning server process; started on first use
 internal/version    build revisions; notices a new binary installed over a running one
 internal/cli        cobra commands
 contrib/refinery    merge-local, a reference refinery script for an exec group
-contrib/isolated-yard  a throwaway yard and herdr server for tests that start agents
+contrib/isolated-yard  a throwaway yard and herdr server for tests that start agents (see its README)
 ```
 
 `go test ./...` runs everything against throwaway store files;

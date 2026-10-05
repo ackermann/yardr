@@ -6,6 +6,11 @@
 #   isolated-yard up            builds it, proves it, prints its directory D
 #   D/e <command> ...           runs a command inside it (D/e yardr init ...)
 #   isolated-yard down D        stops everything in it by pid and removes D
+#   isolated-yard bare          the yard without a herdr server: prints D
+#
+# A bare yard is for what starts no agent (a server, a daemon, the CLI): no
+# herdr is on its PATH, so nothing in it can open a pane. It ends with `down`
+# like any other.
 #
 # Run `up` from the worktree under test: D/bin/yardr is `go build` of the
 # current directory. What keeps a run isolated:
@@ -32,30 +37,100 @@
 set -eu
 
 usage() {
-  echo "usage: isolated-yard up | isolated-yard down <dir>" >&2
+  echo "usage: isolated-yard up | isolated-yard bare | isolated-yard down <dir>" >&2
   exit 2
 }
 
-# pids of the processes whose executable is a file in $1/bin: the herdr
-# server, the yard's server and daemon, the stand-in agents. lsof goes by the
-# file a process runs, not by its name (ps shows `claude` for the stand-in
-# and for the real one alike), and the directory is unique to one run.
+# pids of the processes whose YARDR_HOME is $1 or inside it, whatever binary
+# they run and whoever started them: a server started by the installed
+# yardr with its home in the yard, or one whose D/bin/yardr was rebuilt
+# under it (it then runs a file that has no name any more, which lsof on
+# D/bin does not find). The environment is the one the process was started
+# with, which is where a server and a daemon get their home from.
+home_pids() {
+  if [ -r /proc/self/environ ]; then
+    re=$(printf '%s' "$1" | sed 's/[][.*^$\\]/\\&/g')
+    grep -lzE "^YARDR_HOME=(/private)?$re(/.*)?\$" /proc/[0-9]*/environ 2>/dev/null |
+      sed 's|^/proc/\([0-9]*\)/environ$|\1|'
+  else
+    # The path comes to awk in its environment: on its command line, ps
+    # would show it and awk would find itself.
+    ps axeww -o pid= -o command= | D="$1" awk '
+      BEGIN { a = " YARDR_HOME=" ENVIRON["D"]; b = " YARDR_HOME=/private" ENVIRON["D"] }
+      { l = $0 " " }
+      index(l, a "/") || index(l, a " ") || index(l, b "/") || index(l, b " ") { print $1 }'
+  fi
+}
+
+# This script and what it was called from, which are never stopped: a
+# caller's command line may name the yard's home.
+ancestors() {
+  p=$$
+  while [ "${p:-0}" -gt 1 ]; do
+    echo "$p"
+    p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
+  done
+}
+
+# pids of the yard in $1: the processes whose home is in it, and those whose
+# executable is a file in $1/bin (the herdr server, the stand-in agents).
+# lsof goes by the file a process runs, not by its name (ps shows `claude`
+# for the stand-in and for the real one alike). Both go by the directory,
+# which is unique to one run.
 pids() {
-  lsof -t "$1"/bin/* 2>/dev/null | sort -u
+  {
+    home_pids "$1"
+    lsof -t "$1"/bin/* 2>/dev/null || true
+  } | sort -u | grep -vxF "$(ancestors)" || true
+}
+
+# gone waits up to 5s for the pids to end.
+gone() {
+  i=0
+  while [ "$i" -lt 50 ]; do
+    alive=
+    for p in $1; do
+      kill -0 "$p" 2>/dev/null && alive=1
+    done
+    [ -n "$alive" ] || return 0
+    i=$((i + 1))
+    sleep 0.1
+  done
+  return 1
 }
 
 down() {
   d=$1
   case "$d" in /tmp/iy.*|/private/tmp/iy.*) ;; *) echo "isolated-yard: $d is not an isolated yard" >&2; exit 2 ;; esac
-  [ -x "$d/e" ] || { echo "isolated-yard: no yard at $d" >&2; exit 2; }
+  [ -d "$d" ] || { echo "isolated-yard: no yard at $d" >&2; exit 2; }
   d=$(cd "$d" && pwd -P | sed 's|^/private/tmp/|/tmp/|')
+  # Only what `up` made: it left its own path in the yard. Everything below
+  # stops processes by this directory, so it must not be one of a real yard.
+  if [ ! -x "$d/e" ] || [ "$(cat "$d/.isolated-yard" 2>/dev/null)" != "$d" ]; then
+    echo "isolated-yard: $d was not made by isolated-yard up; nothing stopped or removed" >&2
+    exit 2
+  fi
   "$d/e" herdr server stop >/dev/null 2>&1 || true
+  # The daemon, then the server it calls, by the pid each left in its home:
+  # stopped in that order the daemon ends its pass cleanly. A pid is only
+  # signalled when it is also one of the yard's, since a file left by a
+  # process that died may name someone else's by now.
+  for name in daemon.lock server.pid; do
+    for f in "$d"/*/"$name"; do
+      [ -f "$f" ] || continue
+      pid=$(head -n 1 "$f" | tr -cd '0-9')
+      if [ -n "$pid" ] && pids "$d" | grep -qx "$pid"; then
+        kill -TERM "$pid" 2>/dev/null || true
+        gone "$pid" || true
+      fi
+    done
+  done
   for sig in TERM KILL; do
     left=$(pids "$d")
     [ -n "$left" ] || break
     # shellcheck disable=SC2086
     kill -"$sig" $left 2>/dev/null || true
-    sleep 1
+    gone "$left" || true
   done
   left=$(pids "$d")
   if [ -n "$left" ]; then
@@ -66,13 +141,50 @@ down() {
     echo "stand-in agents started: $(grep -c ' start ' "$d/agents.log")"
   fi
   rm -rf "$d"
+  # With the directory gone only the home tells: anything started while the
+  # yard was being stopped is found here.
+  left=$(home_pids "$d" | grep -vxF "$(ancestors)" || true)
+  if [ -n "$left" ]; then
+    echo "isolated-yard: $d is removed and these processes of it still run:" >&2
+    for p in $left; do
+      ps -o pid=,ppid=,command= -p "$p" >&2 || true
+    done
+    exit 1
+  fi
   echo "stopped and removed $d"
+}
+
+# build makes the yard's directory d: yardr from the current directory, the
+# stand-in agent, the wrapper D/e.
+build() {
+  src=$(cd "$(dirname "$0")" && pwd)
+  mkdir -p "$d/bin" "$d/c/herdr" "$d/s" "$d/y" "$d/h"
+  # What down knows a yard of its own by.
+  printf '%s\n' "$d" >"$d/.isolated-yard"
+  go build -o "$d/bin/yardr" .
+  (cd "$src/fake" && go build -o "$d/bin/claude" .)
+  # Commits in a test rig need an author; the caller's gitconfig is not read.
+  printf '[user]\n\tname = tester\n\temail = tester@example.invalid\n[init]\n\tdefaultBranch = main\n' >"$d/h/.gitconfig"
+  cat >"$d/e" <<WRAP
+#!/bin/sh
+exec /usr/bin/env -i HOME=$d/h PATH=$d/bin:/usr/bin:/bin:/usr/sbin:/sbin \\
+  XDG_CONFIG_HOME=$d/c XDG_STATE_HOME=$d/s YARDR_HOME=$d/y \\
+  TERM=xterm-256color SHELL=/bin/sh LANG=en_US.UTF-8 "\$@"
+WRAP
+  chmod +x "$d/e"
+}
+
+bare() {
+  d=$(mktemp -d /tmp/iy.XXXXXX)
+  trap 'rm -rf "$d"' 0
+  build >&2
+  trap - 0
+  echo "$d"
 }
 
 up() {
   herdr=$(command -v herdr) || { echo "isolated-yard: herdr not found" >&2; exit 2; }
   command -v lsof >/dev/null || { echo "isolated-yard: lsof not found (down needs it)" >&2; exit 2; }
-  src=$(cd "$(dirname "$0")" && pwd)
   d=$(mktemp -d /tmp/iy.XXXXXX)
   up_ok=0
   cleanup_failed_up() {
@@ -90,9 +202,7 @@ up() {
     exit "$status"
   }
   trap cleanup_failed_up 0
-  mkdir -p "$d/bin" "$d/c/herdr" "$d/s" "$d/y" "$d/h"
-  go build -o "$d/bin/yardr" .
-  (cd "$src/fake" && go build -o "$d/bin/claude" .)
+  build
   # A copy, not a link: its process then runs from D/bin, where down finds it.
   cp "$herdr" "$d/bin/herdr"
   cat >"$d/c/herdr/config.toml" <<CONF
@@ -101,15 +211,6 @@ onboarding = false
 default_shell = "/bin/sh"
 shell_mode = "non_login"
 CONF
-  # Commits in a test rig need an author; the caller's gitconfig is not read.
-  printf '[user]\n\tname = tester\n\temail = tester@example.invalid\n[init]\n\tdefaultBranch = main\n' >"$d/h/.gitconfig"
-  cat >"$d/e" <<WRAP
-#!/bin/sh
-exec /usr/bin/env -i HOME=$d/h PATH=$d/bin:/usr/bin:/bin:/usr/sbin:/sbin \\
-  XDG_CONFIG_HOME=$d/c XDG_STATE_HOME=$d/s YARDR_HOME=$d/y \\
-  TERM=xterm-256color SHELL=/bin/sh LANG=en_US.UTF-8 "\$@"
-WRAP
-  chmod +x "$d/e"
 
   "$d/e" herdr server >"$d/herdr.log" 2>&1 &
   i=0
@@ -147,8 +248,16 @@ WRAP
   trap - 0
 }
 
+# A caller inside a yard (D/e isolated-yard down D) has the yard's home in
+# its environment and would hand it to everything this script starts, which
+# down would then take for processes of the yard.
+if [ -n "${YARDR_HOME:-}${YARD_HOME:-}" ]; then
+  exec env -u YARDR_HOME -u YARD_HOME "$0" "$@"
+fi
+
 case "${1:-}" in
 up) [ $# -eq 1 ] || usage; up ;;
+bare) [ $# -eq 1 ] || usage; bare ;;
 down) [ $# -eq 2 ] || usage; down "$2" ;;
 *) usage ;;
 esac
