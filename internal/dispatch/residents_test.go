@@ -550,3 +550,29 @@ func TestResidentWantedEndingsAreNoFailedStarts(t *testing.T) {
 		t.Fatal("a wanted ending logged resident_start_failed")
 	}
 }
+
+// What the runtime says a resident's session is doing is recorded on each
+// pass, as the store's words for it, so a view reads it from the store and
+// its events and asks no runtime.
+func TestResidentStatusIsRecorded(t *testing.T) {
+	s, f, d := residentSetup(t, store.Resident{})
+	ctx := context.Background()
+	must(t, d.Reconcile(ctx))
+	agent := agentOf(t, s)
+	for _, c := range []struct{ runtime, want string }{
+		{"idle", "idle"}, {"working", "working"}, {"blocked", "blocked"}, {"done", "idle"}, {"starting", "unknown"},
+	} {
+		f.set(agent, c.runtime)
+		must(t, d.Reconcile(ctx))
+		r, err := s.GetResident(ctx, "mayor")
+		if err != nil || r.Status != c.want {
+			t.Fatalf("runtime says %s: status %q, want %q (%v)", c.runtime, r.Status, c.want, err)
+		}
+	}
+	// A pass that sees the same writes nothing.
+	head, _ := s.Head(ctx)
+	must(t, d.Reconcile(ctx))
+	if now, _ := s.Head(ctx); now != head {
+		t.Fatalf("an unchanged status was logged: head %d, was %d", now, head)
+	}
+}

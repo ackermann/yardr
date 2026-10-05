@@ -310,3 +310,132 @@ func TestUserNameReused(t *testing.T) {
 		t.Fatalf("resident ada's inbox = %+v", page.Events)
 	}
 }
+
+// kindsAfter are the events after seq, in order.
+func kindsAfter(t *testing.T, s store.API, after uint64) []store.Event {
+	t.Helper()
+	evs, err := s.EventsSince(context.Background(), after, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return evs
+}
+
+// An acknowledgement that passes mail is an event, mail_read, of a
+// resident's inbox and of a user's: a view following the stream learns
+// from it that what it shows as sent was read. One that passes none is
+// not.
+func TestMailReadIsAnEvent(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	party(t, s, "mayor")
+	if _, err := s.AddUser(ctx, "ada", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	head := func() uint64 {
+		h, err := s.Head(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return h
+	}
+
+	// Nothing to read: no event.
+	at := head()
+	if err := s.AckInbox(ctx, "mayor", at); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AckUserInbox(ctx, "ada", at); err != nil {
+		t.Fatal(err)
+	}
+	if evs := kindsAfter(t, s, at); len(evs) != 0 {
+		t.Fatalf("acknowledging no mail logged %+v", evs)
+	}
+
+	if err := s.Mail(ctx, "mayor", "freeze", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	mail := head()
+	if err := s.AckInbox(ctx, "mayor", mail); err != nil {
+		t.Fatal(err)
+	}
+	evs := kindsAfter(t, s, mail)
+	if len(evs) != 1 || evs[0].Kind != "mail_read" || evs[0].Actor != "mayor" ||
+		evs[0].Data["reader"] != "mayor" || fmt.Sprint(evs[0].Data["through"]) != fmt.Sprint(mail) {
+		t.Fatalf("after the resident's ack: %+v", evs)
+	}
+	// The same again reads nothing new.
+	at = head()
+	if err := s.AckInbox(ctx, "mayor", mail); err != nil {
+		t.Fatal(err)
+	}
+	if evs := kindsAfter(t, s, at); len(evs) != 0 {
+		t.Fatalf("a second ack logged %+v", evs)
+	}
+
+	if err := s.Mail(ctx, "ada", "until when?", "mayor"); err != nil {
+		t.Fatal(err)
+	}
+	mail = head()
+	// An ack short of the mail passes none.
+	if err := s.AckUserInbox(ctx, "ada", mail-1); err != nil {
+		t.Fatal(err)
+	}
+	if evs := kindsAfter(t, s, mail); len(evs) != 0 {
+		t.Fatalf("an ack short of the mail logged %+v", evs)
+	}
+	if err := s.AckUserInbox(ctx, "ada", mail); err != nil {
+		t.Fatal(err)
+	}
+	if evs := kindsAfter(t, s, mail); len(evs) != 1 || evs[0].Kind != "mail_read" || evs[0].Data["reader"] != "ada" {
+		t.Fatalf("after the user's ack: %+v", evs)
+	}
+}
+
+// What a resident's session is doing is on its record, and a change of it
+// is an event; the same status again writes nothing, and a session that
+// starts or stops has none.
+func TestResidentStatus(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	party(t, s, "mayor")
+	if err := s.ResidentStatus(ctx, "mayor", "napping"); err == nil {
+		t.Fatal("a status nobody knows was taken")
+	}
+	if err := s.ResidentStatus(ctx, "nobody", "idle"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("status of no resident = %v", err)
+	}
+	status := func() string {
+		r, err := s.GetResident(ctx, "mayor")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r.Status
+	}
+	// Not running: nothing is doing anything.
+	if err := s.ResidentStatus(ctx, "mayor", "idle"); err != nil || status() != "" {
+		t.Fatalf("status of a stopped resident = %q, %v", status(), err)
+	}
+	if err := s.ResidentStarted(ctx, "mayor", map[string]any{"agent": "a"}); err != nil {
+		t.Fatal(err)
+	}
+	at, _ := s.Head(ctx)
+	for _, st := range []string{"working", "working", "blocked", "idle"} {
+		if err := s.ResidentStatus(ctx, "mayor", st); err != nil || status() != st {
+			t.Fatalf("status %s = %q, %v", st, status(), err)
+		}
+	}
+	var got []string
+	for _, e := range kindsAfter(t, s, at) {
+		if e.Kind != "resident_status" || e.Data["resident"] != "mayor" || e.Bead != nil {
+			t.Fatalf("event %+v", e)
+		}
+		got = append(got, fmt.Sprintf("%v>%v", e.Data["was"], e.Data["status"]))
+	}
+	if strings.Join(got, " ") != ">working working>blocked blocked>idle" {
+		t.Fatalf("status events = %v", got)
+	}
+	if err := s.ResidentStopped(ctx, "mayor", "gone"); err != nil || status() != "" {
+		t.Fatalf("status after the stop = %q, %v", status(), err)
+	}
+}

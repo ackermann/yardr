@@ -42,9 +42,18 @@ func (e Entry) Clock() string { return clock(e.At) }
 
 // inFeed reports whether an event has an entry in the feed. A resident's
 // journal entries and handoffs are its own notes to itself, and there are
-// many: they are left out.
+// many: they are left out. So are a resident's turns beginning and ending
+// (resident_status, but for one that stops at a prompt or leaves it) and
+// mail being read (mail_read), which a view of the residents follows and
+// nobody reads as news.
 func inFeed(e store.Event) bool {
-	return e.Kind != store.NoteJournal && e.Kind != store.NoteHandoff
+	switch e.Kind {
+	case store.NoteJournal, store.NoteHandoff, "mail_read":
+		return false
+	case "resident_status":
+		return e.Data["status"] == "blocked" || e.Data["was"] == "blocked"
+	}
+	return true
 }
 
 // maxNote bounds the note an entry carries: a builder's closing note runs

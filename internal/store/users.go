@@ -297,9 +297,38 @@ func (s *Store) AckUserInbox(ctx context.Context, name string, through uint64) e
 		if err != nil {
 			return err
 		}
+		was := u.Cursor
 		u.Cursor = max(u.Cursor, through)
-		return put(w.Tx, bUsers, name, u)
+		if err := put(w.Tx, bUsers, name, u); err != nil {
+			return err
+		}
+		return w.mailRead(name, was, u.Cursor)
 	})
+}
+
+// mailRead logs that name, a resident or a user, acknowledged its inbox
+// from after was through seq, when mail is in between: the event mail_read
+// with the reader and how far. It is what tells a view that follows the
+// stream that mail it shows as sent has been read; an acknowledgement
+// that passes no mail is not an event.
+func (w *wtx) mailRead(name string, was, through uint64) error {
+	read := false
+	for _, k := range mailKeys(w.Tx, name, was) {
+		if binary.BigEndian.Uint64([]byte(k)) > through {
+			break
+		}
+		var e Event
+		if ok, err := get(w.Tx, bEvents, k, &e); err != nil {
+			return err
+		} else if ok && mailReceiver(e) == name {
+			read = true
+			break
+		}
+	}
+	if !read {
+		return nil
+	}
+	return w.event("", "mail_read", name, map[string]any{"reader": name, "through": through})
 }
 
 // Conversation returns the mail between a and b within this yard, both

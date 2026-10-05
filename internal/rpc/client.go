@@ -419,6 +419,9 @@ func (c *Client) RequestRestart(ctx context.Context, name, reason, rev, actor st
 func (c *Client) MarkRotationAsked(ctx context.Context, name string) error {
 	return c.call(ctx, "MarkRotationAsked", nil, name)
 }
+func (c *Client) ResidentStatus(ctx context.Context, name, status string) error {
+	return c.call(ctx, "ResidentStatus", nil, name, status)
+}
 func (c *Client) MarkNotified(ctx context.Context, name string, seq uint64) error {
 	return c.call(ctx, "MarkNotified", nil, name, seq)
 }

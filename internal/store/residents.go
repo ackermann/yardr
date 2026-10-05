@@ -58,7 +58,12 @@ type Resident struct {
 	Subscriptions []Subscription      `json:"subscriptions,omitempty"`
 
 	// Runtime, maintained by the daemon.
-	State              string         `json:"state"` // stopped running failed
+	State string `json:"state"` // stopped running failed
+	// Status is what the running session is doing, as the daemon last saw
+	// it (ResidentStatus): working, idle, blocked (it waits at a prompt
+	// only a person in its pane can answer) or unknown; "" when none runs
+	// or the daemon has not looked yet.
+	Status             string         `json:"status,omitempty"`
 	Handle             map[string]any `json:"handle,omitempty"`
 	StartedAt          *time.Time     `json:"started_at,omitempty"`
 	PrevStartedAt      *time.Time     `json:"prev_started_at,omitempty"`
@@ -246,7 +251,7 @@ func (s *Store) ResidentStarted(ctx context.Context, name string, handle map[str
 	return s.changeResident(name, func(w *wtx, r *Resident) error {
 		t := now()
 		r.PrevStartedAt, r.StartedAt = r.StartedAt, &t
-		r.State, r.Handle, r.RetryAfter = "running", handle, nil
+		r.State, r.Status, r.Handle, r.RetryAfter = "running", "", handle, nil
 		r.RestartRequested, r.RestartRequestedAt, r.RotationAskedAt = "", nil, nil
 		// The new session sees its unread inbox in its prime; only events
 		// after this point warrant a nudge.
@@ -266,6 +271,39 @@ func (s *Store) ResidentSettled(ctx context.Context, name string) error {
 	})
 }
 
+// ResidentStatuses are what ResidentStatus takes: a runtime's word for
+// what a session is doing, "done" being a turn that ended, which is idle.
+var ResidentStatuses = []string{"working", "idle", "blocked", "unknown"}
+
+// ResidentStatus records what the resident's running session is doing, as
+// the daemon saw it on its pass. A change is an event, resident_status
+// with the status and what it was, so a view of the residents follows it
+// from the stream; the same status again writes nothing. The event is on
+// no bead: a session's turns are not its journal's history.
+func (s *Store) ResidentStatus(ctx context.Context, name, status string) error {
+	if !slices.Contains(ResidentStatuses, status) {
+		return fmt.Errorf("resident status %q: it is one of %s", status, strings.Join(ResidentStatuses, ", "))
+	}
+	var r Resident
+	if err := s.read(func(tx *bolt.Tx) error {
+		_, err := get(tx, bResidents, name, &r)
+		return err
+	}); err != nil {
+		return err
+	}
+	if r.Status == status {
+		return nil // no write, and no new revision, for what did not change
+	}
+	return s.changeResident(name, func(w *wtx, r *Resident) error {
+		if r.State != "running" || r.Status == status {
+			return nil
+		}
+		was := r.Status
+		r.Status = status
+		return w.event("", "resident_status", "yard", map[string]any{"resident": name, "status": status, "was": was})
+	})
+}
+
 // SetResidentHandle replaces the running session's handle (e.g. once its
 // pending first prompt was delivered).
 func (s *Store) SetResidentHandle(ctx context.Context, name string, handle map[string]any) error {
@@ -281,7 +319,7 @@ func (s *Store) ResidentStopped(ctx context.Context, name, reason string) error 
 		if r.State != "running" {
 			return nil
 		}
-		r.State, r.Handle = "stopped", nil
+		r.State, r.Status, r.Handle = "stopped", "", nil
 		return w.event(r.Journal, "resident_stopped", "yard", map[string]any{"resident": name, "reason": reason})
 	})
 }
@@ -467,10 +505,11 @@ func inboxKeys(tx *bolt.Tx, r *Resident) []string {
 
 // AckInbox marks the inbox read through seq.
 func (s *Store) AckInbox(ctx context.Context, name string, through uint64) error {
-	return s.changeResident(name, func(_ *wtx, r *Resident) error {
+	return s.changeResident(name, func(w *wtx, r *Resident) error {
+		was := r.Cursor
 		r.Cursor = max(r.Cursor, through)
 		r.Notified = max(r.Notified, r.Cursor)
-		return nil
+		return w.mailRead(name, was, r.Cursor)
 	})
 }
 

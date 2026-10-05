@@ -68,6 +68,7 @@ func (d *Dispatcher) resident(ctx context.Context, r store.Resident) error {
 			return nil // runtime unreachable: unknown, leave it be
 		}
 		idle := status == "idle" || status == "done"
+		d.residentSeen(ctx, r, status)
 		grace := durationOr(r.HandoffGrace, defaultHandoffGrace)
 		// A session that has lived MinSessionLife started for good, running
 		// still or gone since: the starts that failed before it are over.
@@ -145,6 +146,28 @@ func (d *Dispatcher) resident(ctx context.Context, r store.Resident) error {
 	d.Log.Info("resident started", "resident", r.Name)
 	delete(d.status, "resident:"+r.Name)
 	return d.Store.ResidentStarted(ctx, r.Name, handle)
+}
+
+// residentSeen records what the runtime says r's session is doing, so that
+// who looks at the residents (yardr chat) reads it from the store and its
+// event stream and asks no runtime. The store writes a change only. A
+// session that is gone is recorded by ResidentStopped, not here.
+func (d *Dispatcher) residentSeen(ctx context.Context, r store.Resident, status string) {
+	switch status {
+	case "":
+		return
+	case "done":
+		status = "idle"
+	case "working", "idle", "blocked":
+	default:
+		status = "unknown"
+	}
+	if status == r.Status {
+		return
+	}
+	if err := d.Store.ResidentStatus(ctx, r.Name, status); err != nil {
+		d.Log.Warn("resident status", "resident", r.Name, "err", err)
+	}
 }
 
 // residentStartFailed counts a start that did not happen, or whose session

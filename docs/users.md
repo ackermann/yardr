@@ -92,6 +92,11 @@ has.
 user's own, or a resident's, whose acknowledgement covers its whole inbox
 through the last event shown. Mail to a party that has since been removed
 counts as unread.
+An acknowledgement that passes mail is an event, `mail_read` (with `reader`
+and `through`), so a view that follows the stream learns of it.
+
+[`yardr chat`](chat.md) is this exchange as a view in the terminal, with a
+line to type.
 
 From Go the same reads are `store.API`'s `Conversation`, `UserInbox`,
 `AckUserInbox`, `Users` and `GetUser`.

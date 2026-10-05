@@ -271,6 +271,8 @@ The rest of the documentation is in [docs/](docs/README.md):
 - **[Users](docs/users.md):** `yardr user`, people with an inbox of their own: residents
   mail a user, the user reads it with `yardr inbox` and a whole exchange with
   `yardr mail --with mayor`.
+- **[Chat](docs/chat.md):** `yardr chat`, the residents and your conversation with each
+  in one terminal view: what each is doing, where what you sent stands, a line to type.
 - **[Subscriptions](docs/subscriptions.md):** what reaches a resident's inbox:
   hook sources, yardr's own bead events (`--done`, `yardr bead watch`), groups.
 - **[Links](docs/links.md):** `yardr link`, the outside issue (Linear, GitHub) a bead
