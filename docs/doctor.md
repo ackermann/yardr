@@ -7,20 +7,61 @@ does nothing.
 
 ```sh
 yardr doctor
+yardr doctor --try                         # and one real call to each harness (costs a model call)
 yardr doctor --json | jq -r '.next.next'   # the command for the next setup step
 ```
 
 ## Read-only
 
 Doctor installs nothing and changes nothing in the store. Where a program is
-missing it prints where to get it and never runs that. It starts no daemon.
-Two things it does do:
+missing it prints where to get it and never runs that. It starts no daemon,
+and no herdr server. What it does do:
 
 - It runs each harness it finds with its version flag (`claude --version`),
   for up to 5 seconds each, side by side. That runs a program and changes
   nothing.
+- It asks the herdr it finds whether its server answers (`herdr agent list`,
+  the call a resident's start begins with), for up to 5 seconds.
+- For a program that is not on PATH it runs your login shell once (`$SHELL
+  -l -c 'command -v <program>'`, stdin closed, up to 5 seconds) to ask where
+  that finds it. With no `SHELL`, or a shell that does not answer, it says
+  nothing of it.
 - On a yard whose server is not running, it starts the server, as the first
   command on a yard always does. It says so.
+
+## --try: one real call to each harness
+
+A harness on PATH that answers its version flag can still not work: it is
+logged out, its token is spent while its own status says logged in, or it is
+a version that lacks what it is started with. A session started on it then
+sits at a screen nobody sees, and the resident's start times out.
+
+`yardr doctor --try` makes one real call to each harness: its one-shot form
+with the prompt `Reply with the one word ok and nothing else.`, stdin
+closed, in an empty directory of its own, for up to 45 seconds each, side by
+side. It prints the answer, or what the harness printed when the call failed
+or did not end.
+
+| kind | the call |
+|---|---|
+| claude | `claude -p <prompt>` |
+| codex | `codex exec --skip-git-repo-check <prompt>` |
+| grok | `grok -p <prompt>` |
+| kimi | `kimi -p <prompt>` |
+| opencode | `opencode run <prompt>` |
+| pi | `pi -p <prompt>` |
+
+Any other kind is reported as not tried, as is a harness that does not
+answer its version flag.
+
+**It costs a model call per harness**, on your account with it, so doctor
+never makes it unasked: without `--try` one line says that no harness was
+asked. A resident's start that fails or does not answer names it
+(`yardr init --start`, `yardr resident show`).
+
+The call is the harness's one-shot form, not the command herdr starts it
+with in a pane: a flag herdr passes that the harness does not know is not
+found by it.
 
 On a home with no yard it says so, checks the machine, and creates nothing:
 no store, no server. It runs without a terminal too, where other commands
@@ -54,14 +95,25 @@ created on; they are then never a fault.
 
 | line | meaning |
 |---|---|
-| `ok git <path>`, `ok herdr <path>` | on PATH |
+| `ok git <path>` | on PATH |
+| `ok herdr <path>, its server is running` | on PATH, and its server answers |
+| ``FAULT herdr <path>: on PATH, but its server is not running (server_not_running: <herdr's message>): the daemon cannot start agents until it is. Start it: run herdr in a terminal (ctrl+b q detaches, the server stays); on a machine without a desktop, run `herdr server`, its headless server, as a service (docs/install.md, "herdr's server")`` | herdr says no server is at its socket: every start of a resident or a bead's agent fails with `server_not_running` until one is ([install.md](install.md#herdrs-server)) |
+| `note herdr <path>: on PATH; whether its server is running could not be asked: <what herdr said>` | herdr answered with something else, or not in 5 seconds: not known to be down, so no fault |
 | `FAULT <program> not on PATH: <what it is needed for>. Get it: <where>` | missing. For git and herdr the same words the onboarding uses before its first page. For a harness, `<where>` is its install command where yardr knows one (claude, codex, opencode), else a pointer to the agent's own documentation |
-| `FAULT a harness not on PATH: …` | a home with no yard, and no agent herdr starts is installed |
+| ``FAULT <program> not on PATH: <what it is needed for>. Found at <path> by your login shell, which this shell's PATH does not have: add <dir> to PATH here, or for the daemon's service run `yardr daemon install` from a login shell`` | missing here and installed: your login shell finds it. A shell without a terminal (ssh with a command, a service) reads no profile, so it lacks what `~/.profile` adds, `~/.local/bin` for one. The daemon's service gets the PATH of the shell that installs it ([configuration.md](configuration.md#login-services)) |
+| `FAULT a harness not on PATH: …` | a home with no yard, and no agent herdr starts is installed. When the login shell finds claude, codex, grok, kimi, opencode or pi, the line above is printed for each it finds instead |
 | `ok <harness> <path>, the harness of <who>: answers its version flag (<its first line>)` | found, and it runs |
 | `FAULT <harness> <path>, the harness of <who>: on PATH, but its version flag fails: <error and its first line>` | found, and it does not run |
 | `FAULT <harness> <path>, the harness of <who>: on PATH, but it did not answer its version flag within 5s` | found, and it hangs. On macOS the line goes on: `On macOS that can be a quarantined binary waiting on a Gatekeeper dialog nobody sees: run <harness> once in a terminal and answer it` |
 | `ok <harness> <path>, the harness of <who>: not checked, yardr knows no version flag for <kind>` | found, and not run: the flag is known for claude, codex, grok, kimi, opencode and pi |
 | `note <harness> …` | the two failing lines above, for a harness nothing runs on yet (a home with no yard) |
+| `note harness on PATH is not "works": no harness was asked for an answer. yardr doctor --try makes one real call to each (it costs a model call per harness)` | without `--try`, when a harness was found |
+| `ok <harness> tried: one real call answered (<the last line of its answer>)` | `--try`: the harness ended with status 0 |
+| `FAULT <harness> tried: one real call failed: <error>: <the last three lines it printed>` | `--try`: it ended with another status. The lines are the end of what it printed, stdout and stderr as they came, joined with ` / `: where a harness says that a login is needed or which flag it does not know |
+| `FAULT <harness> tried: one real call did not end within 45s; it printed: <the last three lines>` | `--try`: it hung, at a question or a login screen as a rule |
+| `note <harness> not tried: yardr knows no one-shot call for <kind>` | `--try`: a kind not in the table above |
+| `note <harness> not tried: it does not answer its version flag` | `--try`: the line above it says how the version flag ended |
+| `note <harness> tried: …` | the two failing lines, for a harness nothing runs on yet (a home with no yard) |
 
 ### The yard
 
@@ -165,7 +217,8 @@ For a home other than the default, every command doctor prints is `yardr
 | field | |
 |---|---|
 | `home`, `yard` | the home; whether a yard is set up in it |
-| `machine` | the programs: `program`, `for`, `found`, `path`, `get` (when missing), `harness` (the kind, for a harness), `optional` (a harness nothing runs on yet), `version` with `state` (`answers`, `fails`, `hangs`, `not_checked`) and `output` |
+| `machine` | the programs: `program`, `for`, `found`, `path`, `get` (when missing), `login_shell_path` (where the login shell finds one that is missing), `harness` (the kind, for a harness), `optional` (a harness nothing runs on yet), `version` with `state` (`answers`, `fails`, `hangs`, `not_checked`) and `output`; for herdr, `server` with `state` (`running`, `not_running`, `unknown`) and `output` (what herdr said); under `--try`, for a harness, `try` with `state` (`ok`, `fails`, `hangs`, `not_tried`) and `output` (the answer's last line, what it printed, or why it was not tried) |
+| `tried` | whether `--try` was given |
 | `state` | `server` (`running`, `started`, `unreachable`), `server_error`, `daemon`, `mayor` (`name`, `resident`, `enabled`, `running`, `state`, `agent`, `failures`, `reason`), `residents`, `failing`, `held`, `mail` (`user`, `unread`, `from`; only when who runs it is a user), `parties` (the `names` notes); absent with no yard |
 | `steps` | each `key`, `title`, `done`, `detail`, `next` (the command) when not done, and `rig` (the rig the command names) once the yard has one |
 | `next` | the first step not done; absent when all are |

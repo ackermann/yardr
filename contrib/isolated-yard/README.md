@@ -19,7 +19,9 @@ fails it tears the yard down and exits 1. `D/e` is `env -i` with `HOME`,
 `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `YARDR_HOME` under D, so nothing of
 the calling session (no `HERDR_SOCKET_PATH`, no `YARDR_*`) reaches a command
 run through it. Use agent kind `claude` only: `D/agents.log` shows what each
-stand-in was started with. The script's header says why each of these holds.
+stand-in was started with. Started as `claude -p <prompt>` (what `yardr
+doctor --try` runs) the stand-in prints `ok` and exits; with a file
+`D/print-fails` it prints that file's text on stderr and exits 1 instead. The script's header says why each of these holds.
 
 `isolated-yard bare` makes the same yard without a herdr server and prints D
 alone: for what starts no agent (a server, a daemon, the CLI), and where

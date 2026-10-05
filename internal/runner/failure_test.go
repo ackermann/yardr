@@ -170,6 +170,19 @@ func TestHerdrDownErrorObjectIsAnOutage(t *testing.T) {
 		}
 	}
 
+	// What yardr doctor asks (yardr-aa7y): no server at the socket is told
+	// from a server that is there and not ready, and from one that answers.
+	for body, want := range map[string][2]bool{ // down, an error
+		`echo '{"id":"cli:x","error":{"code":"server_not_running","message":"no herdr server is running"}}' >&2; exit 1`: {true, true},
+		`echo '{"id":"cli:x","error":{"code":"server_unavailable","message":"starting"}}' >&2; exit 1`:                   {false, true},
+		`echo '{"id":"cli:x","result":{"agents":[]}}'`:                                                                   {false, false},
+	} {
+		down, err := (&Herdr{Bin: fakeHerdrBin(t, body)}).ServerUp(ctx)
+		if down != want[0] || (err != nil) != want[1] {
+			t.Errorf("ServerUp with %s: down %v, err %v", body, down, err)
+		}
+	}
+
 	// Through Start: no fallback to `git worktree add`, which would make a
 	// checkout herdr knows nothing about.
 	repo := t.TempDir()

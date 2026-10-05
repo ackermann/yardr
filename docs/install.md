@@ -74,13 +74,62 @@ Neither way installs anything but yardr. Run `yardr doctor`
 missing, with where to get it:
 
 - **git**, on PATH;
-- **herdr**, on PATH: it runs the agents' panes;
+- **herdr**, on PATH and with its server running: it runs the agents' panes
+  ([herdr's server](#herdrs-server));
 - **a harness**: an agent herdr starts (claude, codex, opencode, …), on PATH
-  and answering its version flag.
+  and answering its version flag. That is not yet a harness that works:
+  `yardr doctor --try` makes one real call to it, which costs a model call
+  and says when it is logged out ([doctor.md](doctor.md#--try-one-real-call-to-each-harness)).
+
+A program doctor reports as not on PATH can be installed all the same: over
+ssh with a command, and in a service, the shell reads no profile and lacks
+what yours adds (`~/.local/bin`, where claude and codex install themselves).
+Doctor asks your login shell and names the directory when that finds it.
 
 Then run `yardr` for the onboarding ([the README](../README.md#quick-start)).
 It ends in [`yardr chat`](chat.md#from-the-onboarding), talking to the mayor
 in the terminal you ran it in.
+
+## herdr's server
+
+herdr on PATH is a program; what starts agents is its server. Without one
+every start fails with herdr's `server_not_running`, and `yardr doctor` says
+`FAULT herdr … its server is not running`.
+
+- On a machine you sit at, run `herdr` in a terminal: it launches the
+  session, and its server stays when you detach (`ctrl+b q`). `herdr server
+  stop` ends it, and its panes with it.
+- On a machine without a desktop, `herdr server` runs the headless server,
+  which herdr's CLI reference names for "supervised or service-style
+  setups" (<https://herdr.dev>). Run it under what keeps a program running
+  there. As a systemd user unit, with the path `command -v herdr` prints in
+  your login shell:
+
+  ```ini
+  # ~/.config/systemd/user/herdr.service
+  [Unit]
+  Description=herdr server
+
+  [Service]
+  ExecStart=%h/.local/bin/herdr server
+  Restart=on-failure
+
+  [Install]
+  WantedBy=default.target
+  ```
+
+  ```sh
+  systemctl --user daemon-reload && systemctl --user enable --now herdr
+  loginctl enable-linger "$USER"     # so it runs with nobody logged in
+  herdr status server                # status: running, and its socket
+  ```
+
+  The unit is an example: yardr does not write or test it, and herdr's own
+  documentation is what holds for its server. A systemd unit has no profile's
+  PATH; if a harness is then not found in a pane, give the unit one
+  (`Environment=PATH=…`).
+
+`yardr daemon install` installs yardr's daemon, not herdr's server.
 
 ## A yard somewhere else
 

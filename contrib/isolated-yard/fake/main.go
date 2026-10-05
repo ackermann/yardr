@@ -3,7 +3,7 @@
 // draws Claude Code's prompt box, which is what herdr's claude manifest reads
 // as an idle agent, so a session reaches `running`, and it appends what it
 // was started with and every line it is sent to agents.log beside its bin
-// directory.
+// directory. Started with -p it answers "ok" and exits, or fails (see main).
 package main
 
 import (
@@ -36,6 +36,21 @@ func main() {
 		}
 	}
 	logf("start exe=%s cwd=%s args=%q %s", exe, cwd, os.Args[1:], strings.Join(env, " "))
+
+	// A one-shot call (claude -p <prompt>, what yardr doctor --try makes):
+	// one word and out. With a file print-fails beside agents.log it fails
+	// as a harness does that cannot answer: the file's text on stderr and
+	// status 1.
+	if len(os.Args) > 1 && os.Args[1] == "-p" {
+		if why, err := os.ReadFile(filepath.Join(filepath.Dir(filepath.Dir(exe)), "print-fails")); err == nil {
+			fmt.Fprint(os.Stderr, string(why))
+			logf("exit 1")
+			os.Exit(1)
+		}
+		fmt.Println("ok")
+		logf("exit")
+		return
+	}
 
 	box := func() { fmt.Printf("%s\n❯ \n%s\n", rule, rule) }
 	box()

@@ -103,6 +103,17 @@ func (e *herdrError) outage() bool {
 	return false
 }
 
+// ServerUp asks herdr whether its server answers, by the call a resident's
+// start begins with (agent list). It returns nil when it does; down reports
+// whether the error is herdr saying that no server runs at its socket
+// (server_not_running), as opposed to anything else that kept it from
+// answering. yardr doctor asks it: herdr on PATH is not a server that runs.
+func (h *Herdr) ServerUp(ctx context.Context) (down bool, err error) {
+	_, err = h.run(ctx, "agent", "list")
+	var herr *herdrError
+	return errors.As(err, &herr) && herr.Code == "server_not_running", err
+}
+
 func (h *Herdr) run(ctx context.Context, args ...string) (json.RawMessage, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()

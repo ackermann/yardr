@@ -56,10 +56,11 @@ func stub[T any](t *testing.T, v *T, to T) {
 	t.Cleanup(func() { *v = old })
 }
 
-// doctorJSON runs yardr doctor --json and returns its report and error.
-func doctorJSON(t *testing.T, st store.API) (doctorReport, error) {
+// doctorJSON runs yardr doctor --json, with more flags if given, and returns
+// its report and error.
+func doctorJSON(t *testing.T, st store.API, flags ...string) (doctorReport, error) {
 	t.Helper()
-	out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor", "--json")
+	out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), append([]string{"doctor", "--json"}, flags...)...)
 	var rep doctorReport
 	if jerr := json.Unmarshal([]byte(out), &rep); jerr != nil {
 		t.Fatalf("doctor --json: %v\n%s", jerr, out)
@@ -514,8 +515,10 @@ func TestDoctorMayorGivenUpAfterSessionsGoneAtOnce(t *testing.T) {
 	gone() // the start in between did not clear the count
 	// The wait itself is a second or so under the two minutes by now.
 	wantText(t, cmd("resident", "list"), "stopped (2 failed starts, next try in ")
-	wantText(t, cmd("resident", "show", "mayor"), "  2 failed starts, next try in ", "s, the last with: "+reason)
-	wantText(t, cmd("doctor"), "FAULT  mayor      mayor is not running: 2 failed starts so far, the last with: "+reason)
+	wantText(t, cmd("resident", "show", "mayor"), "  2 failed starts, next try in ", "s, the last with: "+reason,
+		"  yardr doctor --try asks its harness for one real answer")
+	wantText(t, cmd("doctor"), "FAULT  mayor      mayor is not running: 2 failed starts so far, the last with: "+reason,
+		"note   harness    on PATH is not \"works\"", here("yardr doctor --try")+" makes one real call to each")
 	for i := 2; i < store.MaxStartFails; i++ {
 		gone()
 	}
@@ -650,5 +653,282 @@ func TestDoctorUnreachableServer(t *testing.T) {
 	wantText(t, out, "ok     git ", "FAULT  server     cannot be reached: server gone", "1 fault")
 	if strings.Contains(out, "Setup") || strings.Contains(out, "daemon") {
 		t.Errorf("nothing else of the yard is known:\n%s", out)
+	}
+}
+
+// Stand-ins for herdr, by what `herdr agent list` does in each: a server
+// that answers, no server at the socket (herdr's own error object, on
+// stderr), and something else going wrong.
+const (
+	herdrServes   = "#!/bin/sh\necho '{\"id\":\"cli:x\",\"result\":{\"agents\":[]}}'\n"
+	herdrNoServer = "#!/bin/sh\necho '{\"id\":\"cli:x\",\"error\":{\"code\":\"server_not_running\",\"message\":\"no herdr server is running\"}}' >&2\nexit 1\n"
+	herdrBroken   = "#!/bin/sh\necho 'config.toml: bad key' >&2\nexit 2\n"
+)
+
+// Found live (yardr-aa7y): herdr was installed and its server was not
+// running, doctor said `ok herdr`, and the mayor failed with herdr's
+// server_not_running. herdr on PATH with no server is a fault that says how
+// to start one; a herdr that cannot be asked is a note, not a fault.
+func TestDoctorHerdrServer(t *testing.T) {
+	newHome(t)
+	stub(t, &herdrServer, askHerdrServer)
+	st := storetest.New(t)
+	dir := fakeTools(t, map[string]string{"git": toolAnswers, "herdr": herdrNoServer, "claude": toolAnswers})
+	if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	herdr := filepath.Join(dir, "herdr")
+	out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
+	if !errors.Is(err, errCheckFailed) {
+		t.Fatalf("err = %v\n%s", err, out)
+	}
+	wantText(t, out, "FAULT  herdr      "+herdr+": on PATH, but its server is not running (server_not_running: no herdr server is running): "+
+		"the daemon cannot start agents until it is. Start it: run herdr in a terminal (ctrl+b q detaches, the server stays); "+
+		"on a machine without a desktop, run `herdr server`, its headless server, as a service (docs/install.md, \"herdr's server\")")
+	rep, _ := doctorJSON(t, st)
+	var got *serverCheck
+	for _, n := range rep.Machine {
+		if n.Program == "herdr" {
+			got = n.Server
+		} else if n.Server != nil {
+			t.Errorf("%s was asked for a server: %+v", n.Program, n.Server)
+		}
+	}
+	if got == nil || got.State != herdrDown || !slices.ContainsFunc(rep.Faults, func(f string) bool { return strings.HasPrefix(f, "herdr: ") }) {
+		t.Fatalf("server = %+v, faults = %v", got, rep.Faults)
+	}
+
+	// A server that answers.
+	if err := os.WriteFile(herdr, []byte(herdrServes), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out, _ = run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
+	wantText(t, out, "ok     herdr      "+herdr+", its server is running")
+
+	// Anything else is not known to be a server that is down.
+	if err := os.WriteFile(herdr, []byte(herdrBroken), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out, _ = run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
+	wantText(t, out, "note   herdr      "+herdr+": on PATH; whether its server is running could not be asked: ", "config.toml: bad key")
+	if strings.Contains(out, "FAULT  herdr") {
+		t.Errorf("a herdr that cannot be asked is no fault:\n%s", out)
+	}
+}
+
+// tryTool is a stand-in harness: it answers its version flag, and on its
+// one-shot form writes its arguments, how many files its directory holds
+// and whether stdin is at its end to the file called, as one line, then does
+// what real says.
+func tryTool(called, real string) string {
+	return "#!/bin/sh\n[ \"$1\" = --version ] && { echo 'tool 1.2.3'; exit 0; }\n" +
+		"read line || stdin=closed\necho \"args: $*; files: $(ls -A | wc -l | tr -d ' '); stdin: $stdin\" >>" + called + "\n" + real + "\n"
+}
+
+// Found live (yardr-aa7y): Codex was on PATH, answered its version flag and
+// said it was logged in, and a real call failed on a spent token, so the
+// mayor sat at a login screen. doctor --try makes that call and says what
+// the harness printed; without --try no harness is called, and one line
+// says so.
+func TestDoctorTry(t *testing.T) {
+	newHome(t)
+	st := storetest.New(t)
+	ctx := context.Background()
+	called := filepath.Join(t.TempDir(), "called")
+	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers,
+		"claude": tryTool(called, "echo 'some banner'; echo ok"),
+		"codex": tryTool(called, "echo 'model: gpt' >&2\necho 'ERROR: refresh token was already used' >&2\n"+
+			"echo 'Please log out and sign in again.' >&2\nexit 1"),
+		"kimi":         tryTool(called, "echo 'thinking'; sleep 30"),
+		"cursor-agent": tryTool(called, "echo ok"),
+		"pi":           toolFails})
+	if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	for name, kind := range map[string]string{"b": "codex", "c": "cursor", "k": "kimi", "p": "pi"} {
+		if err := st.PutGroup(ctx, store.Group{Name: name, Runner: "herdr", Config: map[string]any{"kind": kind}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stub(t, &tryTimeout, 2*time.Second)
+
+	// Without --try: nothing is called, and the report says what it did
+	// not do.
+	out, _ := run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
+	wantText(t, out, "note   harness    on PATH is not \"works\": no harness was asked for an answer. "+
+		here("yardr doctor --try")+" makes one real call to each (it costs a model call per harness)")
+	if strings.Contains(out, "tried") {
+		t.Errorf("without --try nothing is tried:\n%s", out)
+	}
+	rep, _ := doctorJSON(t, st)
+	for _, n := range rep.Machine {
+		if n.Try != nil {
+			t.Errorf("%s was tried without --try: %+v", n.Program, n.Try)
+		}
+	}
+	if b, err := os.ReadFile(called); err == nil || rep.Tried {
+		t.Fatalf("a harness was called without --try (tried %v):\n%s", rep.Tried, b)
+	}
+
+	out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor", "--try")
+	if !errors.Is(err, errCheckFailed) {
+		t.Fatalf("err = %v\n%s", err, out)
+	}
+	wantText(t, out,
+		"ok     claude     tried: one real call answered (ok)",
+		"FAULT  codex      tried: one real call failed: exit status 1: model: gpt / ERROR: refresh token was already used / Please log out and sign in again.",
+		"FAULT  kimi       tried: one real call did not end within 2s; it printed: thinking",
+		"note   cursor-agent  not tried: yardr knows no one-shot call for cursor",
+		"note   pi         not tried: it does not answer its version flag")
+	if strings.Contains(out, "no harness was asked") {
+		t.Errorf("with --try the harnesses were asked:\n%s", out)
+	}
+	// Each was called once, in its one-shot form, with stdin closed, in a
+	// directory with nothing in it; the one with no form was not.
+	b, _ := os.ReadFile(called)
+	for want, n := range map[string]int{"args: -p " + tryPrompt: 2, "args: exec --skip-git-repo-check " + tryPrompt: 1} {
+		if strings.Count(string(b), want+"; files: 0; stdin: closed\n") != n {
+			t.Errorf("calls lack %d of %q:\n%s", n, want, b)
+		}
+	}
+	if n := strings.Count(string(b), "args: "); n != 3 {
+		t.Errorf("%d calls, want 3 (claude, codex, kimi):\n%s", n, b)
+	}
+	if left, _ := filepath.Glob(filepath.Join(os.TempDir(), "yardr-try*")); len(left) > 0 {
+		t.Errorf("the directories of the calls were left: %v", left)
+	}
+	rep, _ = doctorJSON(t, st, "--try")
+	states := map[string]tryCheck{}
+	for _, n := range rep.Machine {
+		if n.Try != nil {
+			states[n.Harness] = *n.Try
+		}
+	}
+	if !rep.Tried || states["claude"] != (tryCheck{tryOK, "ok"}) || states["codex"].State != tryFails || states["kimi"].State != tryHangs ||
+		states["cursor"].State != tryNotTried || states["pi"].State != tryNotTried {
+		t.Fatalf("tried %v, states = %+v", rep.Tried, states)
+	}
+	if !slices.ContainsFunc(rep.Faults, func(f string) bool { return strings.HasPrefix(f, "codex: tried: one real call failed") }) {
+		t.Errorf("faults = %v", rep.Faults)
+	}
+}
+
+// loginShellStub is a stand-in login shell: it takes what yardr gives a
+// login shell (-l -c <command>), writes that it ran to the file called, and
+// runs the command on a PATH with dir in front, as a profile adds one.
+func loginShellStub(t *testing.T, called, dir, before string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "loginsh")
+	body := "#!/bin/sh\necho \"$*\" >>" + called + "\n[ \"$1\" = -l ] && [ \"$2\" = -c ] || exit 9\n" + before + "\nPATH=" + dir + ":/usr/bin:/bin\neval \"$3\"\n"
+	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// Found live (yardr-aa7y): claude and codex were in ~/.local/bin, which a
+// shell without a terminal did not have on PATH. "not on PATH" was right
+// and no help. When the login shell finds the program, the line says where
+// and what to do; when it does not, or cannot be asked, the line is as it
+// was.
+func TestDoctorLoginShellFinds(t *testing.T) {
+	newHome(t)
+	st := storetest.New(t)
+	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
+	if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutGroup(context.Background(), store.Group{Name: "b", Runner: "herdr", Config: map[string]any{"kind": "codex"}}); err != nil {
+		t.Fatal(err)
+	}
+	// Where a profile's PATH has codex, and this shell's has not.
+	local := filepath.Join(t.TempDir(), ".local", "bin")
+	if err := os.MkdirAll(local, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(local, "codex"), []byte(toolAnswers), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	called := filepath.Join(t.TempDir(), "called")
+	doctor := func() string {
+		t.Helper()
+		out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
+		if !errors.Is(err, errCheckFailed) {
+			t.Fatalf("err = %v\n%s", err, out)
+		}
+		return out
+	}
+	const plain = "FAULT  codex      not on PATH: the harness of group b. Get it: npm install -g @openai/codex"
+
+	// A profile that prints as it likes does not confuse it.
+	sh := loginShellStub(t, called, local, "echo 'Welcome back'; echo /etc/motd")
+	stub(t, &loginShell, func() string { return sh })
+	out := doctor()
+	wantText(t, out, "FAULT  codex      not on PATH: the harness of group b. Found at "+local+"/codex by your login shell, "+
+		"which this shell's PATH does not have: add "+local+" to PATH here, or for the daemon's service run `yardr daemon install` from a login shell")
+	if strings.Contains(out, "Get it: npm") {
+		t.Errorf("what is installed is not to get:\n%s", out)
+	}
+	// The login shell ran once, with the one program that is missing.
+	if b, _ := os.ReadFile(called); string(b) != "-l -c command -v codex\n" {
+		t.Errorf("the login shell was run with:\n%s", b)
+	}
+	rep, _ := doctorJSON(t, st)
+	for _, n := range rep.Machine {
+		if want := map[string]string{"codex": local + "/codex"}[n.Program]; n.LoginPath != want || n.Program == "codex" && n.Found {
+			t.Errorf("%s: login_shell_path %q, want %q (found %v)", n.Program, n.LoginPath, want, n.Found)
+		}
+	}
+
+	// A login shell that does not find it either, one that hangs, one that
+	// is not there and none at all: the line as it was, and no word of it.
+	elsewhere := t.TempDir()
+	stub(t, &loginShellTimeout, 500*time.Millisecond)
+	for name, shell := range map[string]string{
+		"does not find it": loginShellStub(t, called, elsewhere, ""),
+		"hangs":            loginShellStub(t, called, local, "sleep 30"),
+		"is not a shell":   filepath.Join(elsewhere, "gone"),
+		"none":             "",
+	} {
+		stub(t, &loginShell, func() string { return shell })
+		if out := doctor(); !strings.Contains(out, plain) || strings.Contains(out, "login shell,") {
+			t.Errorf("a login shell that %s:\n%s", name, out)
+		}
+	}
+
+	// Nothing missing: the login shell is not run at all.
+	if err := os.Remove(called); err != nil {
+		t.Fatal(err)
+	}
+	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers, "codex": toolAnswers})
+	stub(t, &loginShell, func() string { return sh })
+	if out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor"); !errors.Is(err, errCheckFailed) {
+		t.Fatalf("err = %v\n%s", err, out) // the daemon and the mayor are still missing
+	}
+	if b, err := os.ReadFile(called); err == nil {
+		t.Errorf("the login shell was run with nothing missing:\n%s", b)
+	}
+}
+
+// On a home with no yard and no harness on PATH, the one the login shell
+// finds is named, where "a harness is not on PATH" sent the person to
+// install what they have.
+func TestDoctorLoginShellFindsHarnessForNewYard(t *testing.T) {
+	newHome(t)
+	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers})
+	local := t.TempDir()
+	if err := os.WriteFile(filepath.Join(local, "codex"), []byte(toolAnswers), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sh := loginShellStub(t, filepath.Join(t.TempDir(), "called"), local, "")
+	stub(t, &loginShell, func() string { return sh })
+	var code int
+	out := capture(t, func() { code = execute(&app{}, []string{"doctor"}) })
+	if code != 1 {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	wantText(t, out, "FAULT  codex      not on PATH: a harness a yard can be created on. Found at "+local+"/codex by your login shell", "1 fault")
+	if strings.Contains(out, "FAULT  a harness") {
+		t.Errorf("a harness is installed:\n%s", out)
 	}
 }

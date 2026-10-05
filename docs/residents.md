@@ -72,6 +72,7 @@ rotation, `yardr resident restart` or `stop`.
 yardr resident list          # mayor  stopped (2 failed starts, next try in 48s)  …
 yardr resident show mayor    # 2 failed starts, next try in 48s, the last with: <reason>
 yardr doctor                 # FAULT mayor mayor is not running: the daemon gave up after 5 tries, the last with: <reason>
+yardr doctor --try           # one real call to each harness: does it answer at all? (costs a model call)
 ```
 
 When the resident that gave up is the mayor itself, nobody is told: `yardr

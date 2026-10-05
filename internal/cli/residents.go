@@ -183,6 +183,11 @@ for its links (yardr peer list).`,
 						fmt.Printf(", the last with: %s", reason)
 					}
 					fmt.Println()
+					// The reason says what herdr or the session did, not
+					// whether the harness works: doctor can ask it.
+					if r.Runner == "herdr" {
+						fmt.Println("  yardr doctor --try asks its harness for one real answer (a model call), yardr doctor for the rest")
+					}
 				}
 				if env != nil {
 					fmt.Printf("  env_file %s", env["path"])

@@ -329,6 +329,11 @@ func placeOf(r store.Resident, yard string) *mayorPlace {
 func diagnose(ctx context.Context, cfg *config.Config, st store.API, r *store.Resident, mayor string, res *startResult) (known, next []string) {
 	yardr := yardrAt(cfg.Home)
 	gaveUp, started := false, res.DaemonStarted
+	// ask is the harness to ask for one real answer: of a session that sits
+	// silent, or of a start that failed with every program there. The pane
+	// and the reason say what happened; the call says whether the harness
+	// works at all, without a pane.
+	ask := ""
 	if r != nil && r.Live() {
 		// A session, and a harness that does not answer in it: the pane
 		// says why, and the person has to go there.
@@ -342,6 +347,7 @@ func diagnose(ctx context.Context, cfg *config.Config, st store.API, r *store.Re
 		if res.Pane == "" {
 			known = append(known, "its pane shows nothing")
 		}
+		ask = kind
 		p := res.Mayor
 		next = append(next,
 			fmt.Sprintf("look at its pane (agent %s, workspace %q, pane %s): herdr agent focus %s in herdr, "+
@@ -364,6 +370,9 @@ func diagnose(ctx context.Context, cfg *config.Config, st store.API, r *store.Re
 		}
 		if reason := lastStartFailure(ctx, st, *r); reason != "" {
 			known = append(known, "the last start failed with: "+reason)
+			if len(absent(*r)) == 0 {
+				ask = kind
+			}
 		} else if r.Enabled {
 			known = append(known, "no start has failed so far: the daemon may still be at it")
 		}
@@ -390,8 +399,18 @@ func diagnose(ctx context.Context, cfg *config.Config, st store.API, r *store.Re
 	default:
 		next = append(next, fmt.Sprintf("the daemon keeps trying; see whether %s runs: %s resident list", mayor, yardr))
 	}
+	if ask != "" {
+		next = append(next, tryHint(yardr, ask))
+	}
 	next = append(next, fmt.Sprintf("this waits for it again and prints where it is: %s init --start", yardr))
 	return known, next
+}
+
+// tryHint is the step that names yardr doctor --try, for a resident on
+// harness kind whose start failed or whose session does not answer.
+func tryHint(yardr, kind string) string {
+	return fmt.Sprintf("see whether %s answers at all, outside a pane: %s doctor --try makes one real call to it "+
+		"and prints what it says (a login that is needed, a flag it does not know); it costs a model call", or(kind, "the harness"), yardr)
 }
 
 // lastStartFailure is the reason of the resident's latest failed start, ""

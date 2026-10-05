@@ -12,6 +12,10 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
+// askHerdrServer is herdrServer as yardr has it, for a test that gives it a
+// stand-in herdr to ask.
+var askHerdrServer func(context.Context, string) serverCheck
+
 func TestMain(m *testing.M) {
 	// A builder's pane and a refinery script run the gate with their own
 	// session's identity in the environment. Commands read it (a move from
@@ -33,6 +37,11 @@ func TestMain(m *testing.M) {
 		return "", errors.New("tests ask no herdr")
 	}
 	focusAgent = func(context.Context, string) error { return errors.New("tests focus no pane") }
+	// Nor does doctor ask that herdr for its server or run this machine's
+	// login shell: a test of either replaces these.
+	askHerdrServer = herdrServer
+	herdrServer = func(context.Context, string) serverCheck { return serverCheck{State: herdrUp} }
+	loginShell = func() string { return "" }
 	// Nor does a test take over the terminal with the chat's view: a test
 	// of the hand-over replaces this (stubChat).
 	runChat = func(context.Context, store.API, *chat.Model, uint64) error { return nil }

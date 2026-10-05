@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -30,6 +31,9 @@ type doctorReport struct {
 	// Faults are what the yard needs and lacks, one line each. Any of them
 	// makes the exit status 1.
 	Faults []string `json:"faults"`
+	// Tried is whether each harness was given one real call (--try): the
+	// machine's `try` says what each came to.
+	Tried bool `json:"tried"`
 }
 
 // yardState is the second part: what of the yard runs.
@@ -99,7 +103,8 @@ var webService = func(cfg *config.Config) bool { return serviceInstalled(cfg, sv
 var userHomeDir = os.UserHomeDir
 
 func (a *app) doctorCmd() *cobra.Command {
-	return &cobra.Command{
+	var try bool
+	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "What this yard has and what it lacks: programs, what runs, setup steps (read-only)",
 		Long: `Print what the yard has and what it lacks, in three parts:
@@ -107,8 +112,11 @@ func (a *app) doctorCmd() *cobra.Command {
   Needed on this machine  git, herdr and each harness the yard runs on (its
                           default_kind and every kind a group or resident
                           names): on PATH or not, with where to get what is
-                          missing. A harness that is found is run with its
-                          version flag: on PATH is not "works".
+                          missing, and where your login shell finds it when
+                          this shell's PATH does not. herdr is asked whether
+                          its server runs. A harness that is found is run
+                          with its version flag: on PATH is not "works", and
+                          a version is not an answer (--try).
   The yard                the server, the daemon, the mayor and its session,
                           residents whose starts fail, held beads.
   Setup                   the steps from a yard to a first merged bead, each
@@ -122,13 +130,22 @@ never runs that), changes nothing in the store and starts no daemon. It runs
 each harness's version flag, for up to ` + versionTimeout.String() + ` each; a kind yardr knows no
 version flag for is not run. On a yard whose server is not running it starts
 the server, as any command does. On a home with no yard it says so, checks
-the machine and creates nothing.
+the machine and creates nothing. For a program that is not on PATH it runs
+your login shell ($SHELL -l -c) once, to ask where that finds it.
+
+--try makes one real call to each harness: its one-shot form (claude -p,
+codex exec, ...) with a prompt that asks for one word, stdin closed, for up
+to ` + tryTimeout.String() + ` each. It says what the harness printed when that fails: a login
+that is needed, a flag it does not know. It costs a model call per harness,
+on your account with it, so doctor never makes it unasked. A kind yardr
+knows no one-shot form for is reported as not tried.
 
 The exit status is 1 when something the yard needs is missing or not working
 (the lines marked FAULT), 0 otherwise. A step not done, a held bead, a
 stopped mayor and anything not configured are no fault. docs/doctor.md lists
 every line.`,
 		Example: `  yardr doctor
+  yardr doctor --try                           # and one real call to each harness (costs a model call)
   yardr doctor --json | jq -r '.next.next'     # the command for the next setup step`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
@@ -136,7 +153,7 @@ every line.`,
 			if err != nil {
 				return err
 			}
-			rep, err := a.doctor(c.Context(), cfg)
+			rep, err := a.doctor(c.Context(), cfg, try)
 			if err != nil {
 				return err
 			}
@@ -149,12 +166,15 @@ every line.`,
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&try, "try", false, "make one real call to each harness and say what it answered (costs a model call each)")
+	return cmd
 }
 
 // doctor reads the three parts. It fails only on what stops it from reading
-// at all; everything it finds wrong is in the report.
-func (a *app) doctor(ctx context.Context, cfg *config.Config) (*doctorReport, error) {
-	rep := &doctorReport{Home: cfg.Home, Faults: []string{}}
+// at all; everything it finds wrong is in the report. With try it makes one
+// real call to each harness (see try).
+func (a *app) doctor(ctx context.Context, cfg *config.Config, try bool) (*doctorReport, error) {
+	rep := &doctorReport{Home: cfg.Home, Faults: []string{}, Tried: try}
 	// Before the store is asked: connecting starts a server that is not
 	// running.
 	was := serverRunning(ctx, cfg)
@@ -163,7 +183,7 @@ func (a *app) doctor(ctx context.Context, cfg *config.Config) (*doctorReport, er
 		// A yard whose server cannot be reached: the machine's part still
 		// says something, and the fault is the server's.
 		rep.Yard = true
-		rep.Machine = machineNeeds(ctx, nil)
+		rep.Machine = machineNeeds(ctx, nil, try)
 		rep.State = &yardState{Server: "unreachable", ServerError: err.Error(), Daemon: daemonRunning(cfg.DaemonLock()),
 			Failing: []failingResident{}, Held: []string{}}
 		rep.Steps = []setupStep{}
@@ -171,7 +191,7 @@ func (a *app) doctor(ctx context.Context, cfg *config.Config) (*doctorReport, er
 		return rep, nil
 	}
 	if !set {
-		rep.Machine = machineNeeds(ctx, nil)
+		rep.Machine = machineNeeds(ctx, nil, try)
 		rep.Steps = noSetup()
 		rep.Next = nextStep(rep.Steps)
 		rep.faults()
@@ -190,7 +210,7 @@ func (a *app) doctor(ctx context.Context, cfg *config.Config) (*doctorReport, er
 	if err != nil {
 		return nil, err
 	}
-	rep.Machine = machineNeeds(ctx, harnessUses(defaultKind(ctx, st), groups, residents))
+	rep.Machine = machineNeeds(ctx, harnessUses(defaultKind(ctx, st), groups, residents), try)
 	if rep.State, err = readState(ctx, cfg, st, residents); err != nil {
 		return nil, err
 	}
@@ -348,10 +368,29 @@ const (
 // and what was found.
 type docLine struct{ tag, name, text string }
 
-// line is a need as the report prints it.
+// line is a need as the report prints it, without what a real call to it
+// came to (see lines).
 func (n need) line() docLine {
+	if !n.Found && n.LoginPath != "" {
+		// Installed, and not where this shell looks: nothing is to get.
+		return docLine{tagFault, n.Program, fmt.Sprintf("not on PATH: %s. Found at %s by your login shell, which this shell's PATH does not have: "+
+			"add %s to PATH here, or for the daemon's service run `yardr daemon install` from a login shell",
+			n.For, n.LoginPath, filepath.Dir(n.LoginPath))}
+	}
 	if !n.Found {
 		return docLine{tagFault, n.Program, fmt.Sprintf("not on PATH: %s. Get it: %s", n.For, n.Get)}
+	}
+	if s := n.Server; s != nil {
+		switch s.State {
+		case herdrUp:
+			return docLine{tagOK, n.Program, n.Path + ", its server is running"}
+		case herdrDown:
+			return docLine{tagFault, n.Program, fmt.Sprintf("%s: on PATH, but its server is not running (%s): the daemon cannot start agents until it is. "+
+				"Start it: run herdr in a terminal (ctrl+b q detaches, the server stays); on a machine without a desktop, "+
+				"run `herdr server`, its headless server, as a service (docs/install.md, \"herdr's server\")", n.Path, or(s.Output, "no output"))}
+		default:
+			return docLine{tagNote, n.Program, fmt.Sprintf("%s: on PATH; whether its server is running could not be asked: %s", n.Path, or(s.Output, "no output"))}
+		}
 	}
 	if n.Harness == "" {
 		return docLine{tagOK, n.Program, n.Path}
@@ -377,6 +416,52 @@ func (n need) line() docLine {
 	default:
 		return docLine{bad, n.Program, head + "on PATH, but " + flag + " fails: " + or(v.Output, "no output")}
 	}
+}
+
+// lines are a need as the report prints it: its line and, for a harness
+// under --try, what one real call to it came to.
+func (n need) lines() []docLine {
+	out := []docLine{n.line()}
+	t := n.Try
+	if t == nil {
+		return out
+	}
+	bad := tagFault
+	if n.Optional {
+		bad = tagNote
+	}
+	switch t.State {
+	case tryOK:
+		out = append(out, docLine{tagOK, n.Program, "tried: one real call answered (" + or(t.Output, "no output") + ")"})
+	case tryHangs:
+		text := fmt.Sprintf("tried: one real call did not end within %s", tryTimeout)
+		if t.Output != "" {
+			text += "; it printed: " + t.Output
+		}
+		out = append(out, docLine{bad, n.Program, text})
+	case tryFails:
+		out = append(out, docLine{bad, n.Program, "tried: one real call failed: " + or(t.Output, "no output")})
+	default:
+		out = append(out, docLine{tagNote, n.Program, "not tried: " + t.Output})
+	}
+	return out
+}
+
+// machineLines are the first part as the report prints it. Without --try
+// its last line says what the lines above do not: no harness was asked for
+// an answer.
+func (r *doctorReport) machineLines() []docLine {
+	lines := []docLine{}
+	harness := false
+	for _, n := range r.Machine {
+		lines = append(lines, n.lines()...)
+		harness = harness || n.Harness != "" && n.Found
+	}
+	if harness && !r.Tried {
+		lines = append(lines, docLine{tagNote, "harness", fmt.Sprintf("on PATH is not \"works\": no harness was asked for an answer. "+
+			"%s doctor --try makes one real call to each (it costs a model call per harness)", yardrAt(r.Home))})
+	}
+	return lines
 }
 
 // lines are the second part as the report prints it.
@@ -449,10 +534,7 @@ func failed(state string, failures int, reason string) string {
 
 // lines are the report's first two parts as it prints them.
 func (r *doctorReport) lines() []docLine {
-	lines := []docLine{}
-	for _, n := range r.Machine {
-		lines = append(lines, n.line())
-	}
+	lines := r.machineLines()
 	if r.State != nil {
 		lines = append(lines, r.State.lines(r.Home)...)
 	}
@@ -469,7 +551,7 @@ func silentMayor(mayor string) docLine {
 // onboarding that could not get to the mayor: the report's FAULT lines and
 // the mayor's own line, as doctor prints them, and how to read the rest.
 func (a *app) doctorSays(ctx context.Context, cfg *config.Config) error {
-	rep, err := a.doctor(ctx, cfg)
+	rep, err := a.doctor(ctx, cfg, false)
 	if err != nil {
 		return err
 	}
@@ -521,11 +603,7 @@ func (r *doctorReport) print() {
 			"for the onboarding. Nothing was created.\n", r.Home, yardr)
 	}
 	fmt.Println("\nNeeded on this machine")
-	var lines []docLine
-	for _, n := range r.Machine {
-		lines = append(lines, n.line())
-	}
-	printLines(lines)
+	printLines(r.machineLines())
 	if r.State != nil {
 		fmt.Println("\nThe yard")
 		printLines(r.State.lines(r.Home))

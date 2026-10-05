@@ -74,3 +74,25 @@ func TestUnattendedArgs(t *testing.T) {
 		}
 	}
 }
+
+// The one-shot form of a kind ends in the prompt; a kind with none known
+// has none, and the forms are not changed by a call.
+func TestOneShotArgs(t *testing.T) {
+	for kind, want := range map[string][]string{
+		"claude": {"-p", "say ok"},
+		"codex":  {"exec", "--skip-git-repo-check", "say ok"},
+		"cursor": nil,
+	} {
+		if got := OneShotArgs(kind, "say ok"); !slices.Equal(got, want) {
+			t.Errorf("%s: %v, want %v", kind, got, want)
+		}
+	}
+	if OneShotArgs("claude", "again"); len(oneShot["claude"]) != 1 {
+		t.Errorf("the form of claude was changed: %v", oneShot["claude"])
+	}
+	for kind := range oneShot {
+		if _, ok := Lookup(kind); !ok {
+			t.Errorf("%s has a one-shot form and is no preset", kind)
+		}
+	}
+}

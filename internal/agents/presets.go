@@ -316,6 +316,31 @@ var versionArgs = map[string][]string{
 // and exit; nil when none is known.
 func VersionArgs(kind string) []string { return versionArgs[kind] }
 
+// oneShot are the kinds whose harness takes one prompt, answers it and
+// exits without a terminal, with the arguments before the prompt. Each was
+// taken from the agent's own --help (claude -p/--print, codex exec, grok
+// -p/--single, kimi -p/--prompt, opencode run, pi -p/--print); a kind not
+// listed has no form known here. codex exec refuses to run outside a git
+// repository without --skip-git-repo-check.
+var oneShot = map[string][]string{
+	"claude":   {"-p"},
+	"codex":    {"exec", "--skip-git-repo-check"},
+	"grok":     {"-p"},
+	"kimi":     {"-p"},
+	"opencode": {"run"},
+	"pi":       {"-p"},
+}
+
+// OneShotArgs are the arguments that make kind's harness answer prompt and
+// exit: one real call to its model. nil when no such form is known.
+func OneShotArgs(kind, prompt string) []string {
+	args, ok := oneShot[kind]
+	if !ok {
+		return nil
+	}
+	return append(append([]string{}, args...), prompt)
+}
+
 // installHints say where to get a harness, for the kinds whose source is
 // known here. yardr prints them and never runs them.
 var installHints = map[string]string{

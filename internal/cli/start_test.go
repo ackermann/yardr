@@ -382,6 +382,9 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 	if res.Running || time.Since(began) > 10*time.Second || res.Problem != "mayor cannot start: herdr and claude are not on PATH." {
 		t.Fatalf("after %v: %+v", time.Since(began), res)
 	}
+	if next := strings.Join(res.Next, "\n"); strings.Contains(next, "doctor --try") {
+		t.Errorf("a harness that is not there is not one to try:\n%s", next)
+	}
 	known := strings.Join(res.Known, "\n")
 	for _, s := range []string{"herdr is not on PATH: it starts every agent", "claude is not on PATH: it is the harness mayor runs on",
 		"the last start failed with: herdr workspace.create", "logs to " + home + "/daemon.log"} {
@@ -405,6 +408,12 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 		!strings.Contains(strings.Join(res.Next, "\n"), here("yardr resident start mayor")) ||
 		!strings.Contains(strings.Join(res.Known, "\n"), "the last start failed with: herdr agent start: boom") {
 		t.Fatalf("%+v", res)
+	}
+	// A start that failed with every program there names the call that says
+	// whether the harness works (yardr-aa7y); one that failed for want of a
+	// program did not.
+	if next := strings.Join(res.Next, "\n"); !strings.Contains(next, "see whether claude answers at all, outside a pane: "+here("yardr doctor --try")) {
+		t.Errorf("next lacks doctor --try:\n%s", next)
 	}
 
 	// A daemon that cannot be started at all.
