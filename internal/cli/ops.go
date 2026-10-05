@@ -108,11 +108,16 @@ func (a *app) daemonCmd() *cobra.Command {
 				return err
 			}
 			defer unlock()
+			log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+			ctx, release, err := whileHomeStands(ctx, cfg, homeCheck, log)
+			if err != nil {
+				return err
+			}
+			defer release()
 			st, err := a.store(ctx)
 			if err != nil {
 				return err
 			}
-			log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 			var lastErr string
 			onError := func(err error) {
 				// herdr may simply not be running; say so once per distinct error.

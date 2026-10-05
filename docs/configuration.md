@@ -472,6 +472,23 @@ environment, or in the background, started by the onboarding or
 `yardr init --start` ([below](#starting-the-yard)), with the environment of
 the command that started it.
 
+Neither outlives its home. A server and a daemon are detached from whatever
+started them, so a home removed under them (a temp directory of a test, a
+yard deleted with `rm -rf` before its processes were stopped) used to leave
+a process no command could reach. Each now looks once a minute whether the
+home directory is still the one it started in, and whether the file it made
+there is still its own: for the server `yard.sock`, for the daemon
+`daemon.lock`. A home that is gone, a directory of the same name made in its
+place, a socket or lock that is missing or another process's: it logs one
+line (`the yardr server's home is no longer its own; stopping`, with the
+reason) and stops, with exit status 0, so a login service does not start it
+again. A server that stops this way removes nothing that is not its own: a
+socket another server put at that path stays, and `server.pid` is removed
+only while it still names this server. So a throwaway home needs no
+cleanup beyond removing it, and the processes are gone within the minute;
+`yardr --home <dir> daemon stop` and `server stop` before the `rm` are
+still the way to have them gone at once.
+
 `yardr rig rm <name>` takes a rig out of the store with the routes that
 match it (`--rig <name>`) and its flow pointers, logging one `rig_removed`
 event. It is refused, naming them, while the rig has open beads or live
@@ -824,7 +841,7 @@ they stop, so the home goes last.
 | the mayor's session, and any other resident's | a herdr workspace labelled `<yard> <resident>`, agent `<yard>-<resident>` | `yardr resident list`, `herdr workspace list` | `yardr resident stop <name>`: the daemon closes the session's tab, and its workspace with it, on its next pass (30s at most). It needs the daemon running |
 | sessions working beads | a herdr workspace per bead | `yardr session list`, `herdr workspace list` | `herdr workspace close <id>` for each that is left. Look at the bead's worktree first (the home, below) |
 | the daemon | a process holding `<home>/daemon.lock` | `yardr daemon status` | `yardr daemon stop` |
-| the server | a process; `<home>/server.pid`, `yard.sock` | `yardr server status` | `yardr server stop`. Any yardr command after it starts a server again, so run none before the home is gone |
+| the server | a process; `<home>/server.pid`, `yard.sock` | `yardr server status` | `yardr server stop`. Any yardr command after it starts a server again, so run none before the home is gone. A server or daemon still running when the home is removed stops by itself within a minute ([above](#yardrs-own-state)) |
 | the home | `~/.yardr`, or what `YARDR_HOME` names: the store, the roles, the logs, `scripts/merge-local` and `logs/` (a refinery's, from `yardr setup`), `worktrees/`, `rigs/` | `ls -a <home>` | `rm -rf <home>`, typed by you with the path. Read the next paragraph first |
 | a rig's `.yardr` files | in the repository, committed on its base branch: `.yardr/roles/`, `.yardr/check`, `.yardr/flows/` | `git -C <repo> ls-files .yardr` | keep them: a new yard that adds the repository as a rig reads them as they are. To start the rig's configuration over too: `git -C <repo> rm -r .yardr`, and commit |
 

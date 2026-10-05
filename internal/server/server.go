@@ -61,7 +61,10 @@ type runner struct {
 	// grace and settle are the drain's bounds (default drainGrace and
 	// drainSettle); tests shorten them.
 	grace, settle time.Duration
-	wrap          func(http.Handler) http.Handler
+	// homeCheck is how often the server looks whether its home and socket
+	// are still its own (default config.HomeCheck); tests shorten it.
+	homeCheck time.Duration
+	wrap      func(http.Handler) http.Handler
 }
 
 func (r *runner) run(ctx context.Context) error {
@@ -73,6 +76,9 @@ func (r *runner) run(ctx context.Context) error {
 	}
 	if r.settle == 0 {
 		r.settle = drainSettle
+	}
+	if r.homeCheck == 0 {
+		r.homeCheck = config.HomeCheck
 	}
 	for {
 		to, err := r.serve(ctx)
@@ -125,11 +131,28 @@ func (r *runner) serve(ctx context.Context) (string, error) {
 		ln.Close()
 		return "", err
 	}
+	held, err := c.Hold(c.Socket())
+	if err != nil {
+		ln.Close()
+		return "", err
+	}
+	defer held.Close()
 	var to string
+	lost := false // the home or the socket is no longer ours
 	defer func() {
-		// The pid stays ours across the exec, and clients seeing the pidfile
-		// wait for the new build instead of starting a second server.
-		if to == "" {
+		switch {
+		case lost:
+			// The socket at that path, if any, is another server's. The
+			// pidfile and the receiver's state are still ours only while
+			// the pidfile names us.
+			if pid, err := readPID(c); err == nil && pid == os.Getpid() {
+				os.Remove(c.PIDFile())
+				os.Remove(c.HookState())
+			}
+		case to == "":
+			// The pid stays ours across the exec, and clients seeing the
+			// pidfile wait for the new build instead of starting a second
+			// server.
 			os.Remove(c.Socket())
 			os.Remove(c.PIDFile())
 			os.Remove(c.HookState())
@@ -205,6 +228,13 @@ func (r *runner) serve(ctx context.Context) (string, error) {
 		defer t.Stop()
 		check = t.C
 	}
+	// A server outlives the command that started it, so nothing else stops
+	// one whose home was removed under it (a test's temp directory, an
+	// isolated yard torn down): no client can reach it there, and it would
+	// run until the machine restarts.
+	watch, stopWatch := context.WithCancel(ctx)
+	defer stopWatch()
+	gone := held.Watch(watch, r.homeCheck)
 	var serveErr error
 	stopped := false // Serve has returned
 wait:
@@ -216,6 +246,15 @@ wait:
 			break wait
 		case <-check:
 			offer("")
+		case why := <-gone:
+			log.Warn("the yardr server's home is no longer its own; stopping", "home", c.Home, "reason", why)
+			lost = true
+			// Closing a unix listener unlinks its path, which by now names
+			// nothing or another server's socket.
+			if ul, ok := ln.(*net.UnixListener); ok {
+				ul.SetUnlinkOnClose(false)
+			}
+			break wait
 		case serveErr = <-served:
 			stopped = true
 			break wait
