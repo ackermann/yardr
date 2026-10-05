@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 
 	bolt "go.etcd.io/bbolt"
 )
@@ -38,10 +39,52 @@ type Hook struct {
 	// secret file is missing or open to others), empty while it takes them.
 	// Only the receiver sets it, through BlockHook.
 	Blocked string `json:"blocked,omitempty"`
+	// Map says which status an issue of the source goes to when the bead
+	// tracking it enters a stage: "<bead type>:<stage>" -> started, review
+	// or done (see IssueMove). As is the resident the change is made as:
+	// with its credential, under its identity in the source, and only where
+	// its definition allows it (SetState).
+	As  string            `json:"as,omitempty"`
+	Map map[string]string `json:"map,omitempty"`
+}
+
+// ThreadStates are the words a thread's status is asked for by, in the
+// order work passes through them (hooks.States, which a test holds equal).
+var ThreadStates = []string{"started", "review", "done"}
+
+// MapKey is the key of a Hook's Map for beads of type typ entering stage.
+func MapKey(typ, stage string) string { return typ + ":" + stage }
+
+// checkMap refuses a hook whose map could never be acted on: one without
+// the resident to act as, a line that names no bead type and stage, or a
+// word that is no state.
+func (h Hook) checkMap() error {
+	if len(h.Map) > 0 && h.As == "" {
+		return fmt.Errorf("hook %s: a map needs the resident it acts as (--as): the issue is moved with that resident's credential, under its identity", h.Name)
+	}
+	for k, word := range h.Map {
+		typ, stage, ok := strings.Cut(k, ":")
+		if !ok {
+			return fmt.Errorf("hook %s: map %q: want <bead type>:<stage>=<state>", h.Name, k+"="+word)
+		}
+		if err := checkName("hook "+h.Name+": map "+k+": bead type", typ); err != nil {
+			return err
+		}
+		if err := checkName("hook "+h.Name+": map "+k+": stage", stage); err != nil {
+			return err
+		}
+		if !slices.Contains(ThreadStates, word) {
+			return fmt.Errorf("hook %s: map %s=%s: %q is no state: want %s", h.Name, k, word, word, strings.Join(ThreadStates, ", "))
+		}
+	}
+	return nil
 }
 
 // PutHook creates or replaces a hook. A replaced hook starts unblocked: the
-// receiver finds out again on the next delivery.
+// receiver finds out again on the next delivery. A hook that acts as a
+// resident (As) is refused when there is no such resident, or when it has
+// no identity in the hook's source: the source's delivery of a change made
+// as the resident is kept from the resident's inbox by that identity alone.
 func (s *Store) PutHook(ctx context.Context, h Hook, actor string) (*Hook, error) {
 	h.Blocked = ""
 	if !hookName.MatchString(h.Name) {
@@ -50,11 +93,31 @@ func (s *Store) PutHook(ctx context.Context, h Hook, actor string) (*Hook, error
 	if h.Source == "" || h.SecretFile == "" {
 		return nil, fmt.Errorf("hook %s: source and secret file are required", h.Name)
 	}
+	if err := h.checkMap(); err != nil {
+		return nil, err
+	}
 	err := s.write(func(w *wtx) error {
+		data := map[string]any{"hook": h.Name, "source": h.Source}
+		if h.As != "" {
+			var r Resident
+			if ok, err := get(w.Tx, bResidents, h.As, &r); err != nil {
+				return err
+			} else if !ok {
+				return fmt.Errorf("hook %s: --as %s: resident %s: %w", h.Name, h.As, h.As, ErrNotFound)
+			}
+			if r.Identities[h.Source].zero() {
+				return fmt.Errorf("hook %s: --as %s: resident %s has no identity in %s, so the delivery of a change made as it would reach its own inbox: yardr resident identity %s --source %s --id <its id there>",
+					h.Name, h.As, h.As, h.Source, h.As, h.Source)
+			}
+			data["as"] = h.As
+		}
+		if len(h.Map) > 0 {
+			data["map"] = h.Map
+		}
 		if err := put(w.Tx, bHooks, h.Name, h); err != nil {
 			return err
 		}
-		return w.event("", "hook_added", actor, map[string]any{"hook": h.Name, "source": h.Source})
+		return w.event("", "hook_added", actor, data)
 	})
 	if err != nil {
 		return nil, err
@@ -88,7 +151,9 @@ func (s *Store) GetHook(ctx context.Context, name string) (*Hook, error) {
 	return h, nil
 }
 
-// DeleteHook removes the hook; deliveries it already accepted stay.
+// DeleteHook removes the hook; deliveries it already accepted stay. The
+// issue moves it had still to make (IssueMoves) are dropped with it, and
+// the hook_removed event says how many.
 func (s *Store) DeleteHook(ctx context.Context, name, actor string) error {
 	return s.write(func(w *wtx) error {
 		if w.Bucket(bHooks).Get([]byte(name)) == nil {
@@ -97,7 +162,17 @@ func (s *Store) DeleteHook(ctx context.Context, name, actor string) error {
 		if err := w.Bucket(bHooks).Delete([]byte(name)); err != nil {
 			return err
 		}
-		return w.event("", "hook_removed", actor, map[string]any{"hook": name})
+		data := map[string]any{"hook": name}
+		// What the hook had still to do is not done behind the back of
+		// whoever removed it.
+		dropped, err := dropIssueMoves(w.Tx, name)
+		if err != nil {
+			return err
+		}
+		if dropped > 0 {
+			data["issue_moves_dropped"] = dropped
+		}
+		return w.event("", "hook_removed", actor, data)
 	})
 }
 

@@ -2,9 +2,11 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -19,6 +21,7 @@ func (a *app) hookCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "hook", Short: "Webhook endpoints that turn deliveries into hook events"}
 
 	var h store.Hook
+	var maps []string
 	add := &cobra.Command{
 		Use:   "add <name>",
 		Short: "Create or replace a webhook endpoint POST /hooks/<name>",
@@ -37,9 +40,27 @@ so later blocks the hook (503 to the sender, 'blocked' in 'yardr hook list')
 until it is fixed. Sources:
   github  the webhook's secret (X-Hub-Signature-256 HMAC); content type application/json
   linear  the webhook's signing secret (Linear-Signature HMAC)
-  token   a shared bearer token (Authorization: Bearer <token>)`,
+  token   a shared bearer token (Authorization: Bearer <token>)
+
+A hook can also move the issues beads track (yardr link). --map
+<type>:<stage>=<state> says that when a bead of that type enters that stage,
+the issue of this hook's source it tracks goes to started, review or done, as
+yardr thread state names them; --as names the resident it is done as. No
+agent takes part: the daemon makes the call with that resident's credential,
+from its env_file, and only where the resident's definition allows it
+(--set set_state=<source> on yardr resident add, which only the operator may
+grant), so a map does nothing until the operator has allowed it. An issue is
+only ever moved forward: one that stands at or past the status is left
+alone. See docs/links.md.
+
+add replaces the definition: give the whole map again to change a line of it.
+The resident must exist and have an identity in the source (yardr resident
+identity), which keeps the source's delivery of the change out of its inbox.`,
 		Example: `  yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret
-  yardr hook add gh --source github --secret-file ~/.yardr/github.secret`,
+  yardr hook add gh --source github --secret-file ~/.yardr/github.secret
+  yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret --as mayor \
+      --map task:new=started --map task:review=review --map task:merged=done \
+      --map epic:open=started --map epic:done=done`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			if _, ok := hooks.Adapters[h.Source]; !ok {
@@ -49,9 +70,21 @@ until it is fixed. Sources:
 			if err != nil {
 				return err
 			}
+			if h.Map, err = hookMap(h.Source, maps); err != nil {
+				return err
+			}
+			if len(h.Map) > 0 && h.As == "" {
+				return fmt.Errorf("--map needs --as <resident>: the issue is moved with that resident's credential, under its identity")
+			}
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
+			}
+			if h.As != "" {
+				// A hook that acts as a resident speaks as it.
+				if err := a.maySpeakAs(c.Context(), st, "hook add", h.As); err != nil {
+					return err
+				}
 			}
 			h.Name, h.SecretFile = args[0], path
 			saved, err := st.PutHook(c.Context(), h, a.who())
@@ -60,6 +93,13 @@ until it is fixed. Sources:
 			}
 			return a.out(saved, func() {
 				fmt.Printf("hook %s saved: POST /hooks/%s (%s)\n", saved.Name, saved.Name, saved.Source)
+				if len(saved.Map) > 0 {
+					fmt.Printf("moves tracked %s issues as %s: %s\n", saved.Source, saved.As, strings.Join(mapLines(saved.Map), " "))
+					if r, err := st.GetResident(c.Context(), saved.As); err == nil && !slices.Contains(r.MaySetState(), saved.Source) {
+						fmt.Printf("note: %s may not set a status in %s yet, so nothing is moved: the operator allows it with --set %s=%s on yardr resident add %s\n",
+							saved.As, saved.Source, store.SetState, strings.Join(append(r.MaySetState(), saved.Source), ","), saved.As)
+					}
+				}
 				if a.cfg != nil && a.cfg.HookAddr == "" {
 					fmt.Println("note: YARDR_HOOK_ADDR is not set here; the server receives hooks only if it was started with it")
 				}
@@ -68,6 +108,8 @@ until it is fixed. Sources:
 	}
 	add.Flags().StringVar(&h.Source, "source", "", "source adapter: "+strings.Join(hooks.Sources(), ", "))
 	add.Flags().StringVar(&h.SecretFile, "secret-file", "", "file holding the secret (never the secret itself)")
+	add.Flags().StringVar(&h.As, "as", "", "resident the hook moves tracked issues as (with --map)")
+	add.Flags().StringArrayVar(&maps, "map", nil, "<bead type>:<stage>=<state> (repeatable): a bead entering the stage moves the issue it tracks to "+strings.Join(hooks.States(), ", "))
 	_ = add.MarkFlagRequired("source")
 	_ = add.MarkFlagRequired("secret-file")
 
@@ -89,9 +131,13 @@ until it is fixed. Sources:
 					if h.Blocked != "" {
 						state = "blocked: " + h.Blocked
 					}
-					rows = append(rows, []string{h.Name, h.Source, "/hooks/" + h.Name, h.SecretFile, state})
+					moves := "-"
+					if len(h.Map) > 0 {
+						moves = "as " + h.As + ": " + strings.Join(mapLines(h.Map), " ")
+					}
+					rows = append(rows, []string{h.Name, h.Source, "/hooks/" + h.Name, h.SecretFile, state, moves})
 				}
-				table("NAME\tSOURCE\tPATH\tSECRET FILE\tSTATE", rows)
+				table("NAME\tSOURCE\tPATH\tSECRET FILE\tSTATE\tMOVES ISSUES", rows)
 			})
 		},
 	}
@@ -111,11 +157,17 @@ until it is fixed. Sources:
 	}
 
 	show := &cobra.Command{
-		Use: "show <event seq>", Short: "Print the raw payload of a hook event", Args: cobra.ExactArgs(1),
+		Use:   "show <event seq|name>",
+		Short: "Print the raw payload of a hook event, or a hook's definition",
+		Long: `With the seq of a hook event, prints the delivery's raw body. With a hook's
+name, prints its definition: the source, the secret file's path, the resident
+it acts as and its map, and the issue moves it has still to make, each with
+the last error when a try failed (see yardr hook add).`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			seq, err := strconv.ParseUint(args[0], 10, 64)
 			if err != nil {
-				return fmt.Errorf("event seq %q: %w", args[0], err)
+				return a.showHook(c.Context(), args[0])
 			}
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -158,4 +210,89 @@ func secretPath(path string) (string, error) {
 		return "", fmt.Errorf("--secret-file %s is empty", p)
 	}
 	return p, nil
+}
+
+// hookMap reads --map lines, <bead type>:<stage>=<state>, into a hook's map
+// for source, and refuses a source whose issues yardr cannot move and a
+// state the source has no status for.
+func hookMap(source string, lines []string) (map[string]string, error) {
+	if len(lines) == 0 {
+		return nil, nil
+	}
+	f, ok := hooks.ForwarderFor(source)
+	if !ok {
+		return nil, fmt.Errorf("--map: yardr cannot move an issue in %s (it can in %s)", source, strings.Join(hooks.Forwardable(), ", "))
+	}
+	out := map[string]string{}
+	for _, line := range lines {
+		key, state, ok := strings.Cut(strings.TrimSpace(line), "=")
+		typ, stage, colon := strings.Cut(key, ":")
+		if !ok || !colon || typ == "" || stage == "" || state == "" {
+			return nil, fmt.Errorf("--map %q: want <bead type>:<stage>=<state>, e.g. task:review=review", line)
+		}
+		if !slices.Contains(hooks.States(), state) {
+			return nil, fmt.Errorf("--map %s: %q is no state: want %s", line, state, strings.Join(hooks.States(), ", "))
+		}
+		if err := f.Places(state); err != nil {
+			return nil, fmt.Errorf("--map %s: %w", line, err)
+		}
+		if was, dup := out[key]; dup && was != state {
+			return nil, fmt.Errorf("--map %s: %s is mapped to %s already", line, key, was)
+		}
+		out[key] = state
+	}
+	return out, nil
+}
+
+// mapLines are a hook's map as --map takes it, sorted.
+func mapLines(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k, v := range m {
+		out = append(out, k+"="+v)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// showHook prints the hook's definition and the issue moves it has still to
+// make.
+func (a *app) showHook(ctx context.Context, name string) error {
+	st, err := a.store(ctx)
+	if err != nil {
+		return err
+	}
+	h, err := st.GetHook(ctx, name)
+	if err != nil {
+		return err
+	}
+	all, err := st.IssueMoves(ctx)
+	if err != nil {
+		return err
+	}
+	moves := []store.IssueMove{}
+	for _, m := range all {
+		if m.Hook == name {
+			moves = append(moves, m)
+		}
+	}
+	return a.out(map[string]any{"hook": h, "issue_moves": moves}, func() {
+		fmt.Printf("%s  %s  POST /hooks/%s\n", h.Name, h.Source, h.Name)
+		fmt.Printf("  secret file %s\n", h.SecretFile)
+		if h.Blocked != "" {
+			fmt.Printf("  blocked: %s\n", h.Blocked)
+		}
+		if h.As != "" {
+			fmt.Printf("  acts as %s\n", h.As)
+		}
+		for _, l := range mapLines(h.Map) {
+			fmt.Printf("  map %s\n", l)
+		}
+		for _, m := range moves {
+			line := fmt.Sprintf("  to do: %s (%s in %s) -> %s %s", m.Bead, m.Type, m.Stage, m.URL, m.State)
+			if m.Attempts > 0 {
+				line += fmt.Sprintf("; tried %d times, next at %s: %s", m.Attempts, m.RetryAt.Local().Format("15:04:05"), m.Error)
+			}
+			fmt.Println(line)
+		}
+	})
 }

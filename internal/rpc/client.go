@@ -510,6 +510,21 @@ func (c *Client) DeleteHook(ctx context.Context, name, actor string) error {
 func (c *Client) HookPayload(ctx context.Context, seq uint64) ([]byte, error) {
 	return callV[[]byte](c, ctx, "HookPayload", seq)
 }
+func (c *Client) IssueMoves(ctx context.Context) ([]store.IssueMove, error) {
+	return callV[[]store.IssueMove](c, ctx, "IssueMoves")
+}
+func (c *Client) IssueMoveAllowed(ctx context.Context, id string) (string, error) {
+	return callV[string](c, ctx, "IssueMoveAllowed", id)
+}
+func (c *Client) IssueMoveFailed(ctx context.Context, id, reason string, retryAt time.Time) error {
+	return c.call(ctx, "IssueMoveFailed", nil, id, reason, retryAt)
+}
+func (c *Client) IssueMoved(ctx context.Context, id string, ts store.ThreadState) error {
+	return c.call(ctx, "IssueMoved", nil, id, ts)
+}
+func (c *Client) IssueMoveSkipped(ctx context.Context, id string, skip store.IssueSkip) error {
+	return c.call(ctx, "IssueMoveSkipped", nil, id, skip)
+}
 
 // Subscribe streams events with seq > after. The channel closes if the
 // connection drops; resubscribe from the last seq seen.

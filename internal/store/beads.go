@@ -213,12 +213,15 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 		if err := w.event(row.UUID, "created", actor, map[string]any{"title": nb.Title}); err != nil {
 			return err
 		}
+		seq := w.Bucket(bEvents).Sequence()
 		for _, nl := range nb.Links {
 			if _, _, err := w.addLink(row, nl, actor, nil); err != nil {
 				return err
 			}
 		}
-		return nil
+		// A bead enters its first stage as it is created, and tracks what
+		// it was created with.
+		return w.queueIssueMoves(row, seq, row.Stage)
 	})
 	return created, err
 }

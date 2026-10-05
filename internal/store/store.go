@@ -311,6 +311,9 @@ func (w *wtx) event(bead, kind, actor string, data map[string]any) error {
 		if err := w.deliver(&e); err != nil {
 			return err
 		}
+		if err := w.hearStage(&e); err != nil {
+			return err
+		}
 		if err := w.Bucket(bEventsBy).Put([]byte(join(bead, seqKey(seq))), []byte{}); err != nil {
 			return err
 		}

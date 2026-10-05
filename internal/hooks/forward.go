@@ -1,0 +1,225 @@
+package hooks
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+)
+
+// Moving an issue forward is what a hook with a map does when a bead enters
+// a stage (see store.IssueMove): the same change as SetState, made only when
+// it takes the issue further than it is. SetState puts an issue in exactly
+// the status asked, so started on an issue in review moves it back; a
+// stage's map must never do that, to a bead sent back or to an issue a
+// person moved ahead by hand.
+
+// Where an issue stands among the states, in the order work passes through
+// them. StoodOther is a status yardr cannot place (cancelled, a duplicate, a
+// type it does not know): it counts as past every state, so the issue is
+// left alone.
+const (
+	StoodBefore = "before"
+	StoodOther  = "other"
+)
+
+// standings orders where an issue can stand.
+var standings = []string{StoodBefore, StateStarted, StateReview, StateDone, StoodOther}
+
+func standing(stood string) int {
+	for i, s := range standings {
+		if s == stood {
+			return i
+		}
+	}
+	return len(standings) // unknown: past everything
+}
+
+// Forwarded is what Forward found and did.
+type Forwarded struct {
+	Stated
+	// Stood is where the issue stood before: before, started, review, done
+	// or other. When Changed is false it was at or past the state asked.
+	Stood string `json:"stood"`
+}
+
+// Forwarder is what a Stater whose issues a bead's stage can move adds.
+type Forwarder interface {
+	Stater
+	// IssueThread is what Forward takes for the issue at fixed, its URL in
+	// the source's fixed form (Linker.Issue). A link made from a URL has no
+	// thread id, so the issue is named from the URL alone.
+	IssueThread(fixed string) (string, error)
+	// CredentialKey is the name the source's credential goes by in a
+	// resident's env_file, the one Credential reads in its pane.
+	CredentialKey() string
+	// Places reports whether the source has a status for state at all, so a
+	// map that names one it has not is refused when it is written.
+	Places(state string) error
+	// Forward moves the thread to the status state means in this source,
+	// unless it stands at or past it already. It reads once and writes at
+	// most once.
+	Forward(ctx context.Context, thread, state, cred string) (Forwarded, error)
+}
+
+// ForwarderFor is the source's Forwarder, if a bead's stage can move its
+// issues.
+func ForwarderFor(source string) (Forwarder, bool) {
+	f, ok := Adapters[source].(Forwarder)
+	return f, ok
+}
+
+// Forwardable lists the sources a bead's stage can move issues in, sorted.
+func Forwardable() []string {
+	var out []string
+	for _, s := range Sources() {
+		if _, ok := ForwarderFor(s); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// finalError marks an error no retry changes: yardr refused the call itself
+// (a word the source has no status for, a pull request), where anything
+// else may be the source failing.
+type finalError struct{ err error }
+
+func (e *finalError) Error() string { return e.err.Error() }
+func (e *finalError) Unwrap() error { return e.err }
+
+func final(err error) error { return &finalError{err} }
+
+// Final reports whether err is one a retry cannot change.
+func Final(err error) bool {
+	var fe *finalError
+	return errors.As(err, &fe)
+}
+
+// Linear
+
+func (Linear) CredentialKey() string { return "LINEAR_API_KEY" }
+
+func (Linear) Places(state string) error {
+	if standing(state) < standing(StateStarted) || standing(state) > standing(StateDone) {
+		return noState(state)
+	}
+	return nil
+}
+
+// IssueThread is the issue's identifier, the KEY-n its URL ends in, which
+// Linear's issue(id:) takes in place of the id.
+func (Linear) IssueThread(fixed string) (string, error) {
+	i := strings.LastIndex(fixed, "/issue/")
+	if i < 0 || fixed[i+len("/issue/"):] == "" {
+		return "", final(fmt.Errorf("linear: %s names no issue", fixed))
+	}
+	return fixed[i+len("/issue/"):], nil
+}
+
+// linearStood places a status of the team: by its type, and among those of
+// type started by whether it is at or after the team's review status, in
+// the team's order. Triage, backlog and unstarted are before; anything that
+// is none of Linear's types for work in hand or completed (canceled, which
+// duplicates are too) is other.
+func linearStood(states []linearState, s linearState) string {
+	switch s.Type {
+	case "triage", "backlog", "unstarted":
+		return StoodBefore
+	case "started":
+		if review, instead, err := linearStatus(states, StateReview); err == nil && instead == "" && s.Position >= review.Position {
+			return StateReview
+		}
+		return StateStarted
+	case "completed":
+		return StateDone
+	}
+	return StoodOther
+}
+
+// Forward is SetState for an issue that stands before the status the word
+// means; one at or past it gets no mutation. A team without a review status
+// has started for review, as in SetState, so an issue in progress is at it.
+func (Linear) Forward(ctx context.Context, thread, state, cred string) (Forwarded, error) {
+	if err := (Linear{}).Places(state); err != nil {
+		return Forwarded{}, err
+	}
+	issue, err := linearRead(ctx, thread, cred)
+	if err != nil {
+		return Forwarded{}, err
+	}
+	to, instead, err := linearStatus(issue.Team.States.Nodes, state)
+	if err != nil {
+		return Forwarded{}, err
+	}
+	states := issue.Team.States.Nodes
+	out := Forwarded{Stood: linearStood(states, issue.State),
+		Stated: Stated{Thread: issue.thread(), Status: issue.State.Name, Was: issue.State.Name, Instead: instead}}
+	if issue.State.ID == to.ID || standing(out.Stood) >= standing(linearStood(states, to)) {
+		return out, nil
+	}
+	if err := linearMove(ctx, issue.ID, to, cred); err != nil {
+		return Forwarded{}, err
+	}
+	out.Status, out.Changed = to.Name, true
+	return out, nil
+}
+
+// GitHub
+
+func (GitHub) CredentialKey() string { return "GITHUB_TOKEN" }
+
+func (GitHub) Places(state string) error {
+	_, err := githubWant(state)
+	return err
+}
+
+// IssueThread is owner/repo#number, read from the issue's URL.
+func (GitHub) IssueThread(fixed string) (string, error) {
+	rest, ok := strings.CutPrefix(fixed, "https://"+GitHub{}.IssueHost()+"/")
+	repo, n, cut := strings.Cut(rest, "/issues/")
+	if !ok || !cut {
+		return "", final(fmt.Errorf("github: %s names no issue", fixed))
+	}
+	thread := repo + "#" + n
+	if _, err := githubIssueURL(thread); err != nil {
+		return "", final(fmt.Errorf("github: %s names no issue", fixed))
+	}
+	return thread, nil
+}
+
+// Forward closes an open issue as completed for done. An open issue stands
+// at started, which is all GitHub can say of it, and a closed one is never
+// reopened: closed as completed it is done, closed as anything else (not
+// planned, a duplicate) it is other.
+func (GitHub) Forward(ctx context.Context, thread, state, cred string) (Forwarded, error) {
+	want, err := githubWant(state)
+	if err != nil {
+		return Forwarded{}, err
+	}
+	u, err := githubIssueURL(thread)
+	if err != nil {
+		return Forwarded{}, err
+	}
+	i, err := githubRead(ctx, u, thread, cred)
+	if err != nil {
+		return Forwarded{}, err
+	}
+	stood := StateStarted
+	if i.State == "closed" {
+		stood = StateDone
+		if i.StateReason != "" && i.StateReason != "completed" {
+			stood = StoodOther
+		}
+	}
+	repo, _, _ := strings.Cut(thread, "#")
+	out := Forwarded{Stood: stood, Stated: Stated{Thread: i.thread(repo), Status: i.status(), Was: i.status()}}
+	if standing(stood) >= standing(state) {
+		return out, nil
+	}
+	if err := githubMove(ctx, u, want, cred); err != nil {
+		return Forwarded{}, err
+	}
+	out.Status, out.Changed = want, true
+	return out, nil
+}

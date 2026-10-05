@@ -304,6 +304,13 @@ left out it is gone. Being allowed to open threads is no leave to set their
 status, nor the other way. The store refuses the change itself for a
 resident that is not allowed, whoever asks. A pack cannot ask for it.
 
+**A hook acting as the resident.** `set_state` is also what lets a hook
+with a map move a tracked issue as the resident when a bead changes stage
+([links.md](links.md#a-beads-stage-moves-the-issue)). The daemon makes that
+call, with the credential in the resident's `env_file` and nothing else: its
+own environment and `gh` login are the operator's. There the issue is only
+moved forward, and the resident need not take part in the thread.
+
 **Where.** Only in a thread the resident takes part in (`yardr thread
 list`): one it acted in, answered in, opened, or follows. Anywhere else the
 command refuses and names `yardr thread follow`, which makes it a

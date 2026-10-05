@@ -59,7 +59,7 @@ func (w *wtx) deliver(e *Event) error {
 	private := NotWork[row.Type]
 	err := subscribers(w.Tx, func(r *Resident, subs []boundSub) error {
 		private = private || r.Journal == row.ID
-		if e.Actor != r.Name && !aboutItself(r, row.ID, e.Kind) &&
+		if e.Actor != r.Name && !aboutItself(r, row.ID, e.Kind) && !doneAs(r, e) &&
 			slices.ContainsFunc(subs, func(s boundSub) bool { return s.Source == SourceYardr }) {
 			cands = append(cands, cand{r, subs})
 		}
@@ -155,6 +155,14 @@ func (w *wtx) endWatchesOn(e *Event, row *beadRow, err error) error {
 // someone left there.
 func aboutItself(r *Resident, bead, kind string) bool {
 	return bead == r.Journal && kind != "noted"
+}
+
+// doneAs reports whether e is an issue's status set as the resident by a
+// hook (IssueMoved). Like what it does in a source itself, it never reaches
+// its own inbox.
+func doneAs(r *Resident, e *Event) bool {
+	as, _ := e.Data["resident"].(string)
+	return e.Kind == "thread_state" && as == r.Name
 }
 
 // eventText is what the event itself says, where a mention counts: the

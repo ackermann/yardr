@@ -114,7 +114,15 @@ type Dispatcher struct {
 	// pull request (see ci.go); nil asks gh.
 	CI func(ctx context.Context, q CIQuery) (CIChecks, error)
 
+	// IssueTries is how often a tracked issue's move is tried before it is
+	// given up (default 24: with the default Backoff and BackoffMax, most of
+	// a day). See issues.go.
+	IssueTries int
+
 	ghCursor uint64 // the last event the github rules read
+	// issueWait is source -> when it is asked again after a call that
+	// failed, so its other moves do not each wait out a timeout.
+	issueWait map[string]time.Time
 	// ciRead is epic in in-pr -> its revision when its CI was read and
 	// acted on; an event about the epic's pull request removes it, so the
 	// state is read again. ciWait is epic -> the wait after a read GitHub
@@ -212,6 +220,9 @@ func (d *Dispatcher) defaults() {
 	}
 	if d.RuntimeBackoffMax == 0 {
 		d.RuntimeBackoffMax = 5 * time.Minute
+	}
+	if d.IssueTries == 0 {
+		d.IssueTries = 24
 	}
 	if d.CheckBinary == 0 {
 		d.CheckBinary = 10 * time.Second
@@ -442,7 +453,8 @@ func (d *Dispatcher) noteReplaced(ctx context.Context) {
 
 // Reconcile performs one idempotent pass: reap dead sessions, tear down
 // finished ones, apply the github rules to new hook events, read the CI of
-// epics in in-pr, then route and start unowned ready beads.
+// epics in in-pr, move the issues beads track, then route and start unowned
+// ready beads.
 func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	d.defaults()
 	groups, err := d.Store.Groups(ctx)
@@ -473,6 +485,9 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 		return err
 	}
 	if err := d.ci(ctx); err != nil {
+		return err
+	}
+	if err := d.issues(ctx); err != nil {
 		return err
 	}
 	return d.route(ctx, byName, active)

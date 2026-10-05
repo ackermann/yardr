@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -111,5 +112,116 @@ func TestHookListShowsBlocked(t *testing.T) {
 	h, err := st.PutHook(ctx, store.Hook{Name: "u", Source: "token", SecretFile: f, Blocked: "forged"}, "me")
 	if err != nil || h.Blocked != "" {
 		t.Fatalf("PutHook kept a client's blocked state: %+v %v", h, err)
+	}
+}
+
+// hook add takes the resident to act as and the map; list and show print
+// them, and what cannot be acted on is refused with nothing saved.
+func TestHookAddMap(t *testing.T) {
+	a, st, _ := stateYard(t, "")
+	a.actor = "jo"
+	ctx := context.Background()
+	f := filepath.Join(t.TempDir(), "s.secret")
+	if err := os.WriteFile(f, []byte("s3cret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	add := func(name, source string, more ...string) (string, error) {
+		t.Helper()
+		return run(t, a.hookCmd(), append([]string{"add", name, "--source", source, "--secret-file", f}, more...)...)
+	}
+	for _, c := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"a map without --as", []string{"--map", "task:new=started"}, "--map needs --as <resident>"},
+		{"an unknown word", []string{"--as", "mayor", "--map", "task:new=closed"}, `"closed" is no state: want started, review, done`},
+		{"no word", []string{"--as", "mayor", "--map", "task:new"}, "want <bead type>:<stage>=<state>"},
+		{"no stage", []string{"--as", "mayor", "--map", "task=started"}, "want <bead type>:<stage>=<state>"},
+		{"no type", []string{"--as", "mayor", "--map", ":new=started"}, "want <bead type>:<stage>=<state>"},
+		{"a bad stage", []string{"--as", "mayor", "--map", "task:In Review=review"}, "stage"},
+		{"a stage mapped twice", []string{"--as", "mayor", "--map", "task:new=started", "--map", "task:new=done"}, "task:new is mapped to started already"},
+		{"a resident that does not exist", []string{"--as", "deputy", "--map", "task:new=started"}, "resident deputy: not found"},
+	} {
+		_, err := add("linear", "linear", c.args...)
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v, want %q", c.name, err, c.want)
+		}
+	}
+	// GitHub has no review status, and a token hook no issues.
+	if _, err := add("gh", "github", "--as", "mayor", "--map", "task:review=review"); err == nil || !strings.Contains(err.Error(), "an issue has no review status") {
+		t.Errorf("github review: %v", err)
+	}
+	if _, err := add("t", "token", "--as", "mayor", "--map", "task:new=started"); err == nil || !strings.Contains(err.Error(), "yardr cannot move an issue in token (it can in github, linear)") {
+		t.Errorf("token: %v", err)
+	}
+	// A resident with no identity in the hook's source.
+	if _, err := st.PutResident(ctx, store.Resident{Name: "scout", Runner: "herdr"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := add("linear", "linear", "--as", "scout", "--map", "task:new=started"); err == nil ||
+		!strings.Contains(err.Error(), "yardr resident identity scout --source linear --id") {
+		t.Errorf("no identity: %v", err)
+	}
+	// Acting as a resident is speaking as it: its own session or the
+	// operator, not a bead's agent.
+	t.Setenv("YARDR_RESIDENT", "")
+	a.actor = "yard-10-new"
+	if _, err := add("linear", "linear", "--as", "mayor", "--map", "task:new=started"); err == nil ||
+		!strings.Contains(err.Error(), "only mayor's own session or the operator (jo) may speak as mayor; this is yard-10-new") {
+		t.Errorf("a bead's agent: %v", err)
+	}
+	if hs, _ := st.Hooks(ctx); len(hs) != 0 {
+		t.Fatalf("refused hooks were saved: %+v", hs)
+	}
+
+	a.actor = "jo"
+	out, err := add("linear", "linear", "--as", "mayor", "--map", "task:new=started", "--map", "task:review=review",
+		"--map", "task:merged=done", "--map", "epic:open=started", "--map", "epic:done=done")
+	lines := "epic:done=done epic:open=started task:merged=done task:new=started task:review=review"
+	if err != nil || !strings.Contains(out, "moves tracked linear issues as mayor: "+lines+"\n") ||
+		!strings.Contains(out, "note: mayor may not set a status in linear yet, so nothing is moved: the operator allows it with --set set_state=linear on yardr resident add mayor") {
+		t.Fatalf("add: %q, %v", out, err)
+	}
+	h, err := st.GetHook(ctx, "linear")
+	if err != nil || h.As != "mayor" || len(h.Map) != 5 || h.Map["task:merged"] != "done" || h.Map["epic:open"] != "started" {
+		t.Fatalf("stored %+v, %v", h, err)
+	}
+	if out, err = run(t, a.hookCmd(), "list"); err != nil || !strings.Contains(out, "MOVES ISSUES") || !strings.Contains(out, "as mayor: "+lines) {
+		t.Fatalf("list: %q, %v", out, err)
+	}
+
+	// show <name>: the definition, and what the hook has still to do.
+	nb := store.NewBead{ID: "yard-a", Title: "x", Stage: "new",
+		Links: []store.NewLink{{Kind: store.LinkTracks, Source: "linear", URL: "https://linear.app/acme/issue/YRD-1"}}}
+	if _, err := st.CreateBead(ctx, nb, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	ms, err := st.IssueMoves(ctx)
+	if err != nil || len(ms) != 1 {
+		t.Fatalf("moves %+v, %v", ms, err)
+	}
+	if err := st.IssueMoveFailed(ctx, ms[0].ID, "linear: 503", time.Now().Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, a.hookCmd(), "show", "linear")
+	for _, want := range []string{"linear  linear  POST /hooks/linear\n", "  secret file " + f + "\n", "  acts as mayor\n", "  map task:review=review\n",
+		"  to do: yard-a (task in new) -> https://linear.app/acme/issue/YRD-1 started; tried 1 times, next at ", ": linear: 503\n"} {
+		if err != nil || !strings.Contains(out, want) {
+			t.Fatalf("show: %q, %v; want %q", out, err, want)
+		}
+	}
+	if strings.Contains(out, "s3cret") {
+		t.Fatalf("show prints the secret: %q", out)
+	}
+	if _, err = run(t, a.hookCmd(), "show", "nope"); err == nil || !strings.Contains(err.Error(), "hook nope: not found") {
+		t.Fatalf("show of no hook: %v", err)
+	}
+	// add replaces the definition: without the flags the hook maps nothing.
+	if out, err = add("linear", "linear"); err != nil || strings.Contains(out, "moves tracked") {
+		t.Fatalf("replace: %q, %v", out, err)
+	}
+	if h, _ := st.GetHook(ctx, "linear"); h.As != "" || h.Map != nil {
+		t.Fatalf("replaced %+v", h)
 	}
 }

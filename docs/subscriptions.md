@@ -165,6 +165,13 @@ In a thread it takes part in it can also set the issue's status, when its
 definition allows it: `yardr thread state`
 ([residents.md](residents.md#setting-a-threads-status)).
 
+A hook also works the other way. With `--as <resident>` and `--map
+<type>:<stage>=<state>` it hears the yard's own bead events and moves the
+issue a bead tracks when the bead enters a stage, as that resident, with no
+agent in between ([links.md](links.md#a-beads-stage-moves-the-issue)).
+`yardr hook list` shows the map, and `yardr hook show <name>` the whole
+definition.
+
 An issue's description is re-sent whole with every update, so a mention there
 counts once: yardr keeps who each issue's description mentioned and treats
 only newly added names as mentions. A status or label change on an issue that
