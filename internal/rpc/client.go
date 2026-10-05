@@ -467,6 +467,12 @@ func (c *Client) Opened(ctx context.Context, name string, rp store.Reply, actor 
 func (c *Client) AllowOpening(ctx context.Context, name string, sources []string, pack, actor string) ([]string, error) {
 	return callV[[]string](c, ctx, "AllowOpening", name, sources, pack, actor)
 }
+func (c *Client) SettingState(ctx context.Context, name, source, thread string) (*store.Participation, error) {
+	return callV[*store.Participation](c, ctx, "SettingState", name, source, thread)
+}
+func (c *Client) StateSet(ctx context.Context, name string, ts store.ThreadState, actor string) error {
+	return c.call(ctx, "StateSet", nil, name, ts, actor)
+}
 func (c *Client) Threads(ctx context.Context, name string) ([]store.Participation, error) {
 	return callV[[]store.Participation](c, ctx, "Threads", name)
 }

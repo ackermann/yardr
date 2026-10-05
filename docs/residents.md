@@ -261,10 +261,73 @@ inbox as `participant`, no mention needed, and `yardr reply <seq>` answers
 it. The thread's id is the one deliveries carry: the issue's id in Linear,
 `<owner>/<repo>#<number>` in GitHub.
 
+### Setting a thread's status
+
+A resident can move the issue a thread is to started, review or done, when
+its definition allows it.
+
+```sh
+yardr thread state 4211 started                           # the thread of hook delivery 4211, as yardr reply names it
+yardr thread state 539068e2-ae88-4d09-bd75-22eb4a59612f review   # a thread it takes part in, by id
+yardr thread state --source github acme/webapp#12 done    # by source and id, as yardr thread follow names it
+```
+
+The three words are yardr's; each source has its own statuses:
+
+| | `started` | `review` | `done` |
+|---|---|---|---|
+| `linear` | the team's first status of type `started` | its first status of type `started` whose name contains "review", in any case; a team without one gets `started`, and the output says so | its first status of type `completed` |
+| `github` | reopens a closed issue; an open one is left as it is | refused: an issue is open or closed, so the words it has are `started` and `done` | closes the issue as completed |
+
+First means lowest position, the order the team gives its statuses. So in
+Linear `started` on an issue in review moves it back to the first started
+status. On GitHub a closed issue is done whatever it was closed as (the
+reason someone gave is not rewritten), and a pull request is refused: the
+same call would close it unmerged.
+
+**Nothing to do.** The issue is read first. One already in the status asked
+for gets no call that changes it, the output says it was there
+(`… was already Done; nothing set`), and nothing is logged.
+
+**Who may set a status.** No resident, unless its definition says so:
+
+```sh
+yardr resident add mayor --set set_state=linear,github …   # the rest of the definition, as add replaces it
+yardr resident show mayor     # may set the status of threads in github, linear
+```
+
+`set_state` is its own setting with the rules of `open_threads` above:
+it names the sources, only the operator may add a source to it (`yardr
+resident add` from a resident's session or a bead agent's is refused when it
+would allow more than before), keeping or narrowing it is anyone's, and
+left out it is gone. Being allowed to open threads is no leave to set their
+status, nor the other way. The store refuses the change itself for a
+resident that is not allowed, whoever asks. A pack cannot ask for it.
+
+**Where.** Only in a thread the resident takes part in (`yardr thread
+list`): one it acted in, answered in, opened, or follows. Anywhere else the
+command refuses and names `yardr thread follow`, which makes it a
+participant. Only the resident's own session or the operator may speak as
+it (`--resident`), and the call is made with the resident's own credential,
+as a reply is.
+
+**What is recorded.** A `thread_state` event on the resident's journal:
+the resident, the source, the thread, `state` (the word asked), `status`
+(the source's name of the status set), `was`, `instead` (`started`, when
+review had no status of its own) and, as the event's actor, who ran the
+command. `--json` prints the same fields, with `actor` and `changed`.
+
+**No echo.** The source tells of the change by webhook, and that delivery
+does not reach the resident's own inbox: its actor is the resident, by its
+identity in the source (`yardr resident identity`), and a resident never
+hears of what it did. Without an identity there yardr cannot tell the
+delivery from someone else's, so the command warns when it changes
+something for a resident that has none.
+
 `YARDR_LINEAR_API` and `YARDR_GITHUB_API`, in the environment of the
-command, send the outbound calls (replies too) to another endpoint: a
-stand-in when trying yardr out, or a GitHub Enterprise API
-(`https://<host>/api/v3`).
+command, send the outbound calls (replies and status changes too) to
+another endpoint: a stand-in when trying yardr out, or a GitHub Enterprise
+API (`https://<host>/api/v3`).
 
 What to say, and whether to, is the resident's role: see the generic
 [roles/mayor.md](../roles/mayor.md) that `yardr init` installs. Setting a source up end to end is in

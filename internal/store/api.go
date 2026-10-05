@@ -110,6 +110,8 @@ type API interface {
 	Opening(ctx context.Context, name, source, in, title, body string) (*Reply, error)
 	Opened(ctx context.Context, name string, rp Reply, actor string) error
 	AllowOpening(ctx context.Context, name string, sources []string, pack, actor string) ([]string, error)
+	SettingState(ctx context.Context, name, source, thread string) (*Participation, error)
+	StateSet(ctx context.Context, name string, ts ThreadState, actor string) error
 
 	PutHook(ctx context.Context, h Hook, actor string) (*Hook, error)
 	Hooks(ctx context.Context) ([]Hook, error)

@@ -161,6 +161,9 @@ acts in a thread (a Linear issue), answers there with `yardr reply`, or
 opens it with `yardr thread open`
 ([residents.md](residents.md#opening-a-thread)), it participates there, and
 `involved` also delivers what others do in it.
+In a thread it takes part in it can also set the issue's status, when its
+definition allows it: `yardr thread state`
+([residents.md](residents.md#setting-a-threads-status)).
 
 An issue's description is re-sent whole with every update, so a mention there
 counts once: yardr keeps who each issue's description mentioned and treats

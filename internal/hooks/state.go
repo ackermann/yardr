@@ -1,0 +1,256 @@
+package hooks
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"slices"
+	"strings"
+)
+
+// Setting a thread's status is the third outbound call, after a reply and
+// an opened thread: an issue moves to started, review or done. The call
+// takes a thread's id and a credential and nothing else, so whoever holds
+// both can make it: the CLI in a resident's pane today, with the resident's
+// own credential, and anything that has no pane tomorrow.
+
+// The states a thread can be asked into. The words are yardr's; each source
+// has its own statuses, and its Stater says which one a word means there.
+const (
+	StateStarted = "started"
+	StateReview  = "review"
+	StateDone    = "done"
+)
+
+// States lists the words, in the order work passes through them.
+func States() []string { return []string{StateStarted, StateReview, StateDone} }
+
+// Stated is what SetState found and did.
+type Stated struct {
+	Thread Thread `json:"thread"`
+	// Status is the source's name of the status the thread is in now, and
+	// Was the one it was in before.
+	Status string `json:"status"`
+	Was    string `json:"was,omitempty"`
+	// Changed is false when the thread was in the status already: no call
+	// changed anything.
+	Changed bool `json:"changed"`
+	// Instead is the word acted on when it is not the one asked: started,
+	// for a review asked of a Linear team that has no review status.
+	Instead string `json:"instead,omitempty"`
+}
+
+// Stater is what a Replier whose source lets a thread's status be set adds.
+type Stater interface {
+	Replier
+	// SetState moves the thread (its id as deliveries name it) to the
+	// status state means in this source. A thread already there is left as
+	// it is, and a word the source has no status for is refused.
+	SetState(ctx context.Context, thread, state, cred string) (Stated, error)
+}
+
+// StaterFor is the source's Stater, if a thread's status can be set in it.
+func StaterFor(source string) (Stater, bool) {
+	s, ok := Adapters[source].(Stater)
+	return s, ok
+}
+
+// Stateable lists the sources a thread's status can be set in, sorted.
+func Stateable() []string {
+	var out []string
+	for _, s := range Sources() {
+		if _, ok := StaterFor(s); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func noState(state string) error {
+	return fmt.Errorf("%q is no state: want %s", state, strings.Join(States(), ", "))
+}
+
+// Linear
+
+type linearState struct {
+	ID       string  `json:"id"`
+	Name     string  `json:"name"`
+	Type     string  `json:"type"`
+	Position float64 `json:"position"`
+}
+
+// linearStatus picks the team's status for a word: started is the first
+// status of type started, done the first of type completed, and review the
+// first of type started whose name contains "review" in any case. First is
+// lowest position, as the team orders them. A team without a review status
+// gets started for review, and instead says so.
+func linearStatus(states []linearState, state string) (to linearState, instead string, err error) {
+	states = slices.Clone(states)
+	slices.SortStableFunc(states, func(a, b linearState) int {
+		switch {
+		case a.Position < b.Position:
+			return -1
+		case a.Position > b.Position:
+			return 1
+		}
+		return 0
+	})
+	first := func(typ string, ok func(linearState) bool) (linearState, bool) {
+		for _, s := range states {
+			if s.Type == typ && ok(s) {
+				return s, true
+			}
+		}
+		return linearState{}, false
+	}
+	every := func(linearState) bool { return true }
+	typ := "started"
+	switch state {
+	case StateStarted:
+	case StateDone:
+		typ = "completed"
+	case StateReview:
+		review := func(s linearState) bool { return strings.Contains(strings.ToLower(s.Name), "review") }
+		if s, ok := first(typ, review); ok {
+			return s, "", nil
+		}
+		instead = StateStarted
+	default:
+		return linearState{}, "", noState(state)
+	}
+	if s, ok := first(typ, every); ok {
+		return s, instead, nil
+	}
+	return linearState{}, "", fmt.Errorf("linear: the issue's team has no status of type %s", typ)
+}
+
+// SetState sets the issue's status to the one of its team the word means
+// (linearStatus). The issue and its team's statuses are read first, so an
+// issue already there gets no mutation.
+func (Linear) SetState(ctx context.Context, thread, state, cred string) (Stated, error) {
+	if !slices.Contains(States(), state) {
+		return Stated{}, noState(state)
+	}
+	if thread == "" {
+		return Stated{}, fmt.Errorf("linear: no issue to set the status of")
+	}
+	var q struct {
+		Issue struct {
+			linearIssueNode
+			State linearState `json:"state"`
+			Team  struct {
+				// 250 is the most Linear gives in one page, and far more
+				// statuses than a team has.
+				States struct {
+					Nodes []linearState `json:"nodes"`
+				} `json:"states"`
+			} `json:"team"`
+		} `json:"issue"`
+	}
+	err := linearGraphQL(ctx, cred, `query($id: String!) {
+  issue(id: $id) {
+    id title url
+    state { id name type position }
+    team { states(first: 250) { nodes { id name type position } } }
+  }
+}`, map[string]any{"id": thread}, &q)
+	if err != nil {
+		return Stated{}, err
+	}
+	if q.Issue.ID == "" {
+		return Stated{}, fmt.Errorf("linear: no issue %s", thread)
+	}
+	to, instead, err := linearStatus(q.Issue.Team.States.Nodes, state)
+	if err != nil {
+		return Stated{}, err
+	}
+	out := Stated{Thread: q.Issue.thread(), Status: to.Name, Was: q.Issue.State.Name, Instead: instead}
+	if q.Issue.State.ID == to.ID {
+		return out, nil
+	}
+	var m struct {
+		IssueUpdate struct {
+			Success bool `json:"success"`
+		} `json:"issueUpdate"`
+	}
+	err = linearGraphQL(ctx, cred, `mutation($id: String!, $input: IssueUpdateInput!) { issueUpdate(id: $id, input: $input) { success } }`,
+		map[string]any{"id": q.Issue.ID, "input": map[string]any{"stateId": to.ID}}, &m)
+	if err != nil {
+		return Stated{}, err
+	}
+	if !m.IssueUpdate.Success {
+		return Stated{}, fmt.Errorf("linear: issueUpdate did not succeed")
+	}
+	out.Changed = true
+	return out, nil
+}
+
+// GitHub
+
+// githubIssueURL is the endpoint of the issue a thread id (owner/repo#number)
+// names.
+func githubIssueURL(thread string) (string, error) {
+	repo, n, ok := strings.Cut(thread, "#")
+	if !ok || !githubRepoName.MatchString(repo) || n == "" || strings.Trim(n, "0123456789") != "" {
+		return "", fmt.Errorf("github: thread %q: want owner/repo#number", thread)
+	}
+	return GitHubAPI + "/repos/" + repo + "/issues/" + n, nil
+}
+
+// SetState closes the issue as completed for done and reopens a closed one
+// for started. An issue has no more statuses than open and closed, so
+// review is refused; so is a pull request, which the same endpoint would
+// close unmerged. A closed issue is done whatever it was closed as: the
+// reason someone gave is not rewritten.
+func (GitHub) SetState(ctx context.Context, thread, state, cred string) (Stated, error) {
+	want := ""
+	switch state {
+	case StateStarted:
+		want = "open"
+	case StateDone:
+		want = "closed"
+	case StateReview:
+		return Stated{}, fmt.Errorf("github: an issue has no review status: the states it has are %s and %s", StateStarted, StateDone)
+	default:
+		return Stated{}, noState(state)
+	}
+	u, err := githubIssueURL(thread)
+	if err != nil {
+		return Stated{}, err
+	}
+	var i struct {
+		githubOpened
+		State       string         `json:"state"`
+		StateReason string         `json:"state_reason"`
+		PullRequest map[string]any `json:"pull_request"`
+	}
+	if err := call(ctx, http.MethodGet, u, githubHeader(cred), nil, &i); err != nil {
+		return Stated{}, fmt.Errorf("github: %w", err)
+	}
+	if i.PullRequest != nil {
+		return Stated{}, fmt.Errorf("github: %s is a pull request: yardr sets the status of issues only", thread)
+	}
+	if i.State != "open" && i.State != "closed" {
+		return Stated{}, fmt.Errorf("github: the answer names no state for %s", thread)
+	}
+	status := func(state, reason string) string {
+		if state == "closed" && reason != "" && reason != "completed" {
+			return "closed (" + strings.ReplaceAll(reason, "_", " ") + ")"
+		}
+		return state
+	}
+	repo, _, _ := strings.Cut(thread, "#")
+	out := Stated{Thread: i.thread(repo), Status: status(i.State, i.StateReason), Was: status(i.State, i.StateReason)}
+	if i.State == want {
+		return out, nil
+	}
+	patch := map[string]string{"state": want}
+	if want == "closed" {
+		patch["state_reason"] = "completed"
+	}
+	if err := call(ctx, http.MethodPatch, u, githubHeader(cred), patch, nil); err != nil {
+		return Stated{}, fmt.Errorf("github: %w", err)
+	}
+	out.Status, out.Changed = want, true
+	return out, nil
+}

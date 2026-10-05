@@ -322,7 +322,8 @@ follow. An involved subscription
 then also delivers what others do in the thread, with reason participant.
 Unfollowing stops that until the resident acts in the thread again.
 
-yardr thread show <seq> reads the source thread of a hook delivery.`,
+yardr thread show <seq> reads the source thread of a hook delivery, and
+yardr thread state sets the status of a thread the resident takes part in.`,
 	}
 	threadArgs := func(source *string) func(*cobra.Command, []string) error {
 		return func(c *cobra.Command, args []string) error {
@@ -398,7 +399,7 @@ yardr thread show <seq> reads the source thread of a hook delivery.`,
 			})
 		},
 	}
-	cmd.AddCommand(follow, unfollow, list, a.threadShowCmd(), a.threadOpenCmd())
+	cmd.AddCommand(follow, unfollow, list, a.threadShowCmd(), a.threadOpenCmd(), a.threadStateCmd())
 	return cmd
 }
 

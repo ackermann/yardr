@@ -254,9 +254,13 @@ func (s *Store) posted(name string, rp Reply, how, kind, actor string) error {
 const OpenThreads = "open_threads"
 
 // MayOpen lists the sources the resident may open threads in, sorted.
-func (r Resident) MayOpen() []string {
+func (r Resident) MayOpen() []string { return r.sources(OpenThreads) }
+
+// sources reads a setting that names sources: "linear,github", or a list.
+// Sorted, each once.
+func (r Resident) sources(setting string) []string {
 	var out []string
-	switch v := r.Config[OpenThreads].(type) {
+	switch v := r.Config[setting].(type) {
 	case string:
 		out = strings.Split(v, ",")
 	case []any:
@@ -375,6 +379,97 @@ func (s *Store) Opened(ctx context.Context, name string, rp Reply, actor string)
 		return fmt.Errorf("opened: source, thread and the key Opening chose are required")
 	}
 	return s.posted(name, rp, ParticipantOpened, "thread_opened", actor)
+}
+
+// SetState is the resident setting (a key of its config) naming the sources
+// it may set the status of a thread in: "linear,github", or a list. Unset,
+// it may set none.
+const SetState = "set_state"
+
+// MaySetState lists the sources the resident may set the status of a thread
+// in, sorted.
+func (r Resident) MaySetState() []string { return r.sources(SetState) }
+
+// ThreadState is a resident setting the status of a source's thread: the
+// word it asked for (started, review, done) and the source's name of the
+// status the thread was put in.
+type ThreadState struct {
+	Source string `json:"source"`
+	Thread string `json:"thread"`
+	Title  string `json:"title,omitempty"`
+	URL    string `json:"url,omitempty"`
+	State  string `json:"state"`
+	Status string `json:"status"`
+	Was    string `json:"was,omitempty"`
+	// Instead is the word acted on when the source has no status for the
+	// one asked (see hooks.Stated).
+	Instead string `json:"instead,omitempty"`
+}
+
+// mayState is the resident's participation in the thread it is about to set
+// the status of, or the refusal: a resident whose definition does not allow
+// the source (SetState) is refused, whoever asks, and so is one that takes
+// no part in the thread.
+func mayState(tx *bolt.Tx, r *Resident, source, thread string) (*Participation, error) {
+	if source == "" || thread == "" {
+		return nil, fmt.Errorf("thread state: source and thread are required")
+	}
+	if !slices.Contains(r.MaySetState(), source) {
+		return nil, fmt.Errorf("resident %s may not set the status of threads in %s: its definition does not allow it. The operator allows it with --set %s=%s on yardr resident add %s (add replaces the definition, so give the rest of it too)",
+			r.Name, source, SetState, strings.Join(append(r.MaySetState(), source), ","), r.Name)
+	}
+	var p Participation
+	ok, err := get(tx, bThreads, threadKey(r.Name, source, thread), &p)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("resident %s takes no part in %s thread %s, and sets the status only of a thread it takes part in (yardr thread follow %s --source %s %s makes it a participant)",
+			r.Name, source, thread, r.Name, source, thread)
+	}
+	return &p, nil
+}
+
+// SettingState is the resident about to set the status of a thread: its
+// participation in the thread, or why it may not (mayState). It is asked
+// before the source is called and writes nothing.
+func (s *Store) SettingState(ctx context.Context, name, source, thread string) (*Participation, error) {
+	var out *Participation
+	err := s.read(func(tx *bolt.Tx) error {
+		var r Resident
+		ok, err := get(tx, bResidents, name, &r)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("resident %s: %w", name, ErrNotFound)
+		}
+		out, err = mayState(tx, &r, source, thread)
+		return err
+	})
+	return out, err
+}
+
+// StateSet records that the resident set the status of a thread: a
+// `thread_state` event on its journal with the source, the thread, the word
+// asked and the status set. What SettingState refuses is refused here too,
+// so nothing is on record that the resident was not allowed.
+func (s *Store) StateSet(ctx context.Context, name string, ts ThreadState, actor string) error {
+	if ts.State == "" || ts.Status == "" {
+		return fmt.Errorf("thread state: the state asked for and the status set are required")
+	}
+	return s.changeResident(name, func(w *wtx, r *Resident) error {
+		if _, err := mayState(w.Tx, r, ts.Source, ts.Thread); err != nil {
+			return err
+		}
+		data := map[string]any{"resident": name, "source": ts.Source, "thread": ts.Thread, "state": ts.State, "status": ts.Status}
+		for k, v := range map[string]string{"title": ts.Title, "url": ts.URL, "was": ts.Was, "instead": ts.Instead} {
+			if v != "" {
+				data[k] = v
+			}
+		}
+		return w.event(r.Journal, "thread_state", actor, data)
+	})
 }
 
 // UnfollowThread ends the resident's participation in a thread, however it

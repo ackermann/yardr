@@ -421,3 +421,133 @@ func TestAllowOpeningAddsOnly(t *testing.T) {
 		t.Fatal("a source with a comma was taken")
 	}
 }
+
+// A resident sets the status of a thread only in the sources its definition
+// allows, and only in a thread it takes part in. SettingState says so before
+// the source is called and writes nothing; StateSet refuses the same and
+// otherwise logs thread_state on the resident's journal. The delivery its
+// own change causes does not reach it.
+func TestSettingState(t *testing.T) {
+	s, own := storetest.NewOwned(t)
+	ctx := context.Background()
+	resident(t, s, "inv", false, store.Subscription{Source: "linear", Scope: store.ScopeInvolved})
+	if err := s.FollowThread(ctx, "inv", "linear", "T", "me"); err != nil {
+		t.Fatal(err)
+	}
+	ts := store.ThreadState{Source: "linear", Thread: "T", Title: "Web view", URL: "https://linear.app/acme/issue/YRD-1",
+		State: "review", Status: "In Progress", Was: "Todo", Instead: "started"}
+	allow := func(v any) {
+		t.Helper()
+		r, err := s.GetResident(ctx, "inv")
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Config, r.Revision = map[string]any{}, ""
+		if v != nil {
+			r.Config[store.SetState] = v
+		}
+		if _, err := s.PutResident(ctx, *r, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	head, _ := s.Head(ctx)
+	refused := func(thread ...string) error {
+		t.Helper()
+		_, err := s.SettingState(ctx, "inv", thread[0], thread[1])
+		if err == nil {
+			t.Fatalf("%v: allowed", thread)
+		}
+		set := ts
+		set.Source, set.Thread = thread[0], thread[1]
+		if again := s.StateSet(ctx, "inv", set, "inv"); again == nil || again.Error() != err.Error() {
+			t.Fatalf("%v: StateSet says %v, SettingState %v", thread, again, err)
+		}
+		if now, _ := s.Head(ctx); now != head {
+			t.Fatalf("%v: the refusal logged %d events", thread, now-head)
+		}
+		return err
+	}
+
+	// Off unless set, and the refusal says what to set.
+	err := refused("linear", "T")
+	if !strings.Contains(err.Error(), "resident inv may not set the status of threads in linear") ||
+		!strings.Contains(err.Error(), "--set set_state=linear on yardr resident add inv") {
+		t.Fatalf("not allowed: %v", err)
+	}
+	// Opening threads is another setting, and another source no help.
+	r, _ := s.GetResident(ctx, "inv")
+	r.Config = map[string]any{store.OpenThreads: "linear", store.SetState: "github"}
+	if _, err := s.PutResident(ctx, *r, "me"); err != nil {
+		t.Fatal(err)
+	}
+	head, _ = s.Head(ctx)
+	if err := refused("linear", "T"); !strings.Contains(err.Error(), "--set set_state=github,linear ") {
+		t.Fatalf("allowed elsewhere: %v", err)
+	}
+	if r, _ := s.GetResident(ctx, "inv"); !reflect.DeepEqual(r.MaySetState(), []string{"github"}) || !reflect.DeepEqual(r.MayOpen(), []string{"linear"}) {
+		t.Fatalf("may set %v, may open %v", r.MaySetState(), r.MayOpen())
+	}
+
+	for _, v := range []any{"linear", " github , linear", []any{"linear", "github"}} {
+		allow(v)
+		p, err := s.SettingState(ctx, "inv", "linear", "T")
+		if err != nil || p.Thread != "T" || p.How != store.ParticipantFollowed {
+			t.Fatalf("set_state=%v: %+v, %v", v, p, err)
+		}
+	}
+	head, _ = s.Head(ctx)
+	// Allowed in the source, but no part in the thread.
+	for _, thread := range [][]string{{"linear", "U"}, {"github", "T"}} {
+		err := refused(thread...)
+		if want := fmt.Sprintf("resident inv takes no part in %s thread %s", thread[0], thread[1]); !strings.Contains(err.Error(), want) ||
+			!strings.Contains(err.Error(), fmt.Sprintf("yardr thread follow inv --source %s %s", thread[0], thread[1])) {
+			t.Fatalf("%v: %v", thread, err)
+		}
+	}
+	for _, thread := range [][]string{{"", "T"}, {"linear", ""}} {
+		if err := refused(thread...); !strings.Contains(err.Error(), "source and thread are required") {
+			t.Fatalf("%v: %v", thread, err)
+		}
+	}
+	if _, err := s.SettingState(ctx, "ghost", "linear", "T"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("unknown resident: %v", err)
+	}
+	if err := s.StateSet(ctx, "ghost", ts, "ghost"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("unknown resident: %v", err)
+	}
+	for _, bad := range []store.ThreadState{{Source: "linear", Thread: "T", State: "done"}, {Source: "linear", Thread: "T", Status: "Done"}} {
+		if err := s.StateSet(ctx, "inv", bad, "inv"); err == nil {
+			t.Fatalf("%+v recorded", bad)
+		}
+	}
+	if now, _ := s.Head(ctx); now != head {
+		t.Fatalf("the refusals logged %d events", now-head)
+	}
+
+	// The operator speaks as the resident: the event names both.
+	if err := s.StateSet(ctx, "inv", ts, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	evs, _ := s.EventsSince(ctx, head, 0)
+	inv, _ := s.GetResident(ctx, "inv")
+	want := map[string]any{"resident": "inv", "source": "linear", "thread": "T", "state": "review", "status": "In Progress",
+		"was": "Todo", "instead": "started", "title": "Web view", "url": "https://linear.app/acme/issue/YRD-1"}
+	if len(evs) != 1 || evs[0].Kind != "thread_state" || evs[0].Actor != "jo" || evs[0].Bead == nil || *evs[0].Bead != inv.Journal || !reflect.DeepEqual(evs[0].Data, want) {
+		t.Fatalf("events = %+v\nwant data %v", evs, want)
+	}
+	if got := threads(t, s, "inv"); !reflect.DeepEqual(got, []string{"linear/T followed"}) {
+		t.Fatalf("threads %v", got)
+	}
+
+	// Linear tells of the change: the resident is its actor, so it is not
+	// told; the same change by someone else reaches it as a participant.
+	change := hooks.Envelope{Source: "linear", Type: "issue", Action: "update", Actor: hooks.Party{ID: "inv-id"},
+		Thread: hooks.Thread{ID: "T"}, Text: "changed stateId", Entity: "T"}
+	if got := deliveries(t, s, own, change); len(got) != 0 {
+		t.Fatalf("its own change reached %v", got)
+	}
+	change.Actor = hooks.Party{ID: "u-jane"}
+	if got := deliveries(t, s, own, change); got["inv"] != store.ReasonParticipant {
+		t.Fatalf("someone else's change: %v", got)
+	}
+}

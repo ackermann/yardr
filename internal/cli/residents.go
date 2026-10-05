@@ -55,7 +55,10 @@ Without --set kind, a herdr resident gets the yard's default_kind.
 in those sources (yardr thread open). It is off unless set, and only the
 operator (the yard's operator setting, else the user running the command)
 may add a source to it: a resident's session cannot allow itself or
-another resident.`,
+another resident.
+
+--set set_state=linear,github lets it set the status of a thread it takes
+part in in those sources (yardr thread state), under the same rule.`,
 		Example: `  yardr resident add                       # interactive
   yardr resident add mayor --set kind=claude --set model=opus \
     --set 'args=["--permission-mode","auto"]' --set prompt=$HOME/.yardr/roles/mayor.md \
@@ -85,7 +88,7 @@ another resident.`,
 			if def.Dir, err = absDir(def.Dir); err != nil {
 				return err
 			}
-			if err := a.mayAllowOpening(c.Context(), st, def); err != nil {
+			if err := a.mayDefine(c.Context(), st, def); err != nil {
 				return err
 			}
 			r, err := st.PutResident(c.Context(), def, a.who())
@@ -97,7 +100,7 @@ another resident.`,
 	}
 	f := add.Flags()
 	f.StringVar(&def.Runner, "runner", "herdr", "runner (herdr)")
-	f.StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable): kind, model, args, prompt, env_file, open_threads")
+	f.StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable): kind, model, args, prompt, env_file, open_threads, set_state")
 	f.StringVar(&def.Dir, "dir", "", "directory the resident works in (default: the yard home)")
 	f.StringSliceVar(&def.On, "on", defaultOn, "event kinds delivered to its inbox (mail always is); replaces the list, so name every kind wanted")
 	f.StringVar(&def.MaxAge, "max-age", "", "ask for a handoff after this long, e.g. 6h (default: never)")
@@ -175,6 +178,9 @@ another resident.`,
 				fmt.Printf("  inbox %d unread · on %s\n", inbox.Total, strings.Join(r.On, ","))
 				if may := r.MayOpen(); len(may) > 0 {
 					fmt.Printf("  may open threads in %s\n", strings.Join(may, ", "))
+				}
+				if may := r.MaySetState(); len(may) > 0 {
+					fmt.Printf("  may set the status of threads in %s\n", strings.Join(may, ", "))
 				}
 				if r.MaxAge != "" {
 					fmt.Printf("  rotates after %s (handoff grace %s)\n", r.MaxAge, or(r.HandoffGrace, "15m"))
@@ -269,21 +275,49 @@ another resident.`,
 // what was allowed is anyone's to save, as the rest of it is. Like
 // maySpeakAs this is a line, not a wall.
 func (a *app) mayAllowOpening(ctx context.Context, st store.API, def store.Resident) error {
-	may := def.MayOpen()
-	if _, set := def.Config[store.OpenThreads]; set && len(may) == 0 {
+	return a.mayAllow(ctx, st, def, sourceSetting{store.OpenThreads, "open threads", store.Resident.MayOpen, hooks.Openable})
+}
+
+// mayAllowState is mayAllowOpening for store.SetState: moving an issue
+// others work from is the operator's to grant as well.
+func (a *app) mayAllowState(ctx context.Context, st store.API, def store.Resident) error {
+	return a.mayAllow(ctx, st, def, sourceSetting{store.SetState, "set the status of threads", store.Resident.MaySetState, hooks.Stateable})
+}
+
+// mayDefine is every check a resident's definition passes before it is
+// saved.
+func (a *app) mayDefine(ctx context.Context, st store.API, def store.Resident) error {
+	if err := a.mayAllowOpening(ctx, st, def); err != nil {
+		return err
+	}
+	return a.mayAllowState(ctx, st, def)
+}
+
+// sourceSetting is a resident setting that names the sources it may do
+// something in: its key, what it lets the resident do, how a definition
+// reads it and the sources yardr can do it in.
+type sourceSetting struct {
+	key, does string
+	may       func(store.Resident) []string
+	able      func() []string
+}
+
+func (a *app) mayAllow(ctx context.Context, st store.API, def store.Resident, set sourceSetting) error {
+	may, able := set.may(def), set.able()
+	if _, given := def.Config[set.key]; given && len(may) == 0 {
 		return fmt.Errorf("--set %s: want sources, comma-separated (%s); leave it out to allow none",
-			store.OpenThreads, strings.Join(hooks.Openable(), ","))
+			set.key, strings.Join(able, ","))
 	}
 	for _, src := range may {
-		if _, ok := hooks.OpenerFor(src); !ok {
-			return fmt.Errorf("--set %s: yardr cannot open threads in %q (it can in %s)", store.OpenThreads, src,
-				strings.Join(hooks.Openable(), ", "))
+		if !slices.Contains(able, src) {
+			return fmt.Errorf("--set %s: yardr cannot %s in %q (it can in %s)", set.key, set.does, src,
+				strings.Join(able, ", "))
 		}
 	}
 	var before []string
 	switch old, err := st.GetResident(ctx, def.Name); {
 	case err == nil:
-		before = old.MayOpen()
+		before = set.may(*old)
 	case !errors.Is(err, store.ErrNotFound):
 		return err
 	}
@@ -295,8 +329,8 @@ func (a *app) mayAllowOpening(ctx context.Context, st store.API, def store.Resid
 	if err != nil || is {
 		return err
 	}
-	return fmt.Errorf("--set %s: only the operator (%s) may let %s open threads in %s; this is %s",
-		store.OpenThreads, operator, def.Name, strings.Join(added, ", "), a.who())
+	return fmt.Errorf("--set %s: only the operator (%s) may let %s %s in %s; this is %s",
+		set.key, operator, def.Name, set.does, strings.Join(added, ", "), a.who())
 }
 
 func residentAgent(r store.Resident) string {
@@ -753,7 +787,7 @@ func (a *app) residentForm(ctx context.Context, st store.API) error {
 		fmt.Println("not saved")
 		return nil
 	}
-	if err := a.mayAllowOpening(ctx, st, def); err != nil {
+	if err := a.mayDefine(ctx, st, def); err != nil {
 		return err
 	}
 	r, err := st.PutResident(ctx, def, a.who())
