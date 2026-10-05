@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,7 +30,14 @@ type ApplyOptions struct {
 	// Overwrite lets the import replace an installed file that was edited
 	// by hand since the last import; without it such a plan is refused.
 	Overwrite bool
-	Actor     string
+	// OpenThreads are the operator's answers to what the plan asks under
+	// OpenThreads: the yard's resident -> source -> yes or no. A yes lets
+	// the resident open threads in the source, a no is recorded so the next
+	// import does not ask, and a source without an answer is granted to
+	// nobody and asked about again. Whoever fills this in has checked that
+	// the actor is the operator: Apply does not.
+	OpenThreads map[string]map[string]bool
+	Actor       string
 }
 
 // Result is what applying a plan did.
@@ -50,13 +58,22 @@ type Result struct {
 	// Restart are the running residents whose role or subscriptions
 	// changed: the import does not restart them.
 	Restart []string `json:"restart"`
+	// Granted are the residents the import let open threads, each with the
+	// sources that are new to it.
+	Granted []Grant `json:"granted"`
 	// Recorded says the yard's record of the import was written; false when
 	// nothing changed.
 	Recorded bool `json:"recorded"`
 }
 
+// Grant is a resident and the sources an import let it open threads in.
+type Grant struct {
+	Resident string   `json:"resident"`
+	Sources  []string `json:"sources"`
+}
+
 // Wrote reports whether the import changed anything in the yard.
-func (r *Result) Wrote() bool { return r.Created+r.Changed+len(r.Pruned) > 0 }
+func (r *Result) Wrote() bool { return r.Created+r.Changed+len(r.Pruned)+len(r.Granted) > 0 }
 
 // Missing are the plan's questions a has no answer to.
 func (p *Plan) Missing(a Answers) []Question {
@@ -84,7 +101,7 @@ func (p *Plan) Missing(a Answers) []Question {
 // removal fails does not undo the import either: the rest is pruned, the
 // record is written with that object still in it, and the error names it.
 func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result, error) {
-	res := &Result{Pack: p.Pack, Rig: p.Rig, Pruned: []string{}, Left: []string{}, PruneErrors: []string{}, Restart: []string{}}
+	res := &Result{Pack: p.Pack, Rig: p.Rig, Pruned: []string{}, Left: []string{}, PruneErrors: []string{}, Restart: []string{}, Granted: []Grant{}}
 	files, err := check(p, o)
 	if err != nil {
 		return nil, err
@@ -112,6 +129,25 @@ func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result,
 			res.Restart = append(res.Restart, obj.Resident.Resident)
 		}
 	}
+	// After the residents: one the import created is there to be granted to.
+	for _, ot := range p.OpenThreads {
+		var yes []string
+		for _, src := range ot.Wants {
+			if o.OpenThreads[ot.Resident][src] {
+				yes = append(yes, src)
+			}
+		}
+		if len(yes) == 0 {
+			continue
+		}
+		added, err := st.AllowOpening(ctx, ot.Resident, yes, p.Pack, o.Actor)
+		if err != nil {
+			return nil, fmt.Errorf("letting resident %s open threads in %s: %w (the import stopped here: what it wrote before stays, nothing is recorded, and applying again finishes it)", ot.Resident, strings.Join(yes, ", "), err)
+		}
+		if len(added) > 0 {
+			res.Granted = append(res.Granted, Grant{Resident: ot.Resident, Sources: added})
+		}
+	}
 	pruned := prune(ctx, st, p, o, res)
 
 	dir := p.Dir
@@ -120,6 +156,7 @@ func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result,
 	}
 	rec := store.PackImport{Pack: p.Pack, Rig: p.Rig, Source: dir, Flow: p.Flow, RigRoles: p.RigRoles, Groups: p.Groups, Residents: p.Residents}
 	rec.Commit, rec.Dirty = Commit(dir)
+	rec.OpenThreads = p.openAnswers(o.OpenThreads)
 	for _, obj := range p.Objects {
 		po, ok := Ident(obj)
 		if !ok || pruned[po.Key()] || (po.Kind == "route" && po.Group == "") {
@@ -134,6 +171,32 @@ func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result,
 		return res, fmt.Errorf("the import is applied and recorded, but not everything dropped could be removed: %s", strings.Join(res.PruneErrors, "; "))
 	}
 	return res, nil
+}
+
+// openAnswers is what the record keeps of the plan's OpenThreads: the
+// answers given now, and those of the last import that still hold: a no,
+// and a yes the resident still has. A yes it lost since is forgotten, so
+// the next import asks.
+func (p *Plan) openAnswers(now map[string]map[string]bool) map[string]map[string]bool {
+	out := map[string]map[string]bool{}
+	for _, ot := range p.OpenThreads {
+		for _, src := range ot.Wants {
+			yes, ok := now[ot.Resident][src]
+			if !ok {
+				if yes, ok = ot.Recorded[src]; ok && yes && !slices.Contains(ot.Has, src) {
+					ok = false
+				}
+			}
+			if !ok {
+				continue
+			}
+			if out[ot.Resident] == nil {
+				out[ot.Resident] = map[string]bool{}
+			}
+			out[ot.Resident][src] = yes
+		}
+	}
+	return out
 }
 
 // check is everything Apply can know to be wrong before it writes. It
@@ -155,6 +218,16 @@ func check(p *Plan, o ApplyOptions) (map[string][]byte, error) {
 	}
 	if !o.Overwrite {
 		problems = append(problems, p.EditedFiles()...)
+	}
+	// An answer is to a question of the plan: a source the yard lacks, or
+	// one the pack does not name, is granted to nobody.
+	for _, name := range slices.Sorted(maps.Keys(o.OpenThreads)) {
+		i := slices.IndexFunc(p.OpenThreads, func(ot OpenThreads) bool { return ot.Resident == name })
+		for _, src := range slices.Sorted(maps.Keys(o.OpenThreads[name])) {
+			if i < 0 || !p.OpenThreads[i].Grantable(src) {
+				problems = append(problems, fmt.Sprintf("the plan does not ask whether resident %s may open threads in %s", name, src))
+			}
+		}
 	}
 	files := map[string][]byte{}
 	for _, obj := range p.Objects {

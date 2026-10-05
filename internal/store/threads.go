@@ -276,6 +276,53 @@ func (r Resident) MayOpen() []string {
 	return slices.Compact(out)
 }
 
+// AllowOpening adds sources to those the resident may open threads in
+// (OpenThreads) and keeps the ones it has: what an import of pack does on
+// the operator's yes. It returns the sources that are new to the resident,
+// sorted, and logs them as open_threads_granted on its journal, with the
+// pack; when the resident may open threads in all of them already, nothing
+// is written. Who may grant is the caller's to check, as with PutResident.
+func (s *Store) AllowOpening(ctx context.Context, name string, sources []string, pack, actor string) ([]string, error) {
+	var added []string
+	err := s.write(func(w *wtx) error {
+		added = nil
+		var r Resident
+		ok, err := get(w.Tx, bResidents, name, &r)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("resident %s: %w", name, ErrNotFound)
+		}
+		may := r.MayOpen()
+		for _, src := range sources {
+			if src = strings.TrimSpace(src); src == "" || strings.Contains(src, ",") {
+				return fmt.Errorf("allow opening: %q is no source", src)
+			}
+			if !slices.Contains(may, src) && !slices.Contains(added, src) {
+				added = append(added, src)
+			}
+		}
+		if len(added) == 0 {
+			return nil
+		}
+		slices.Sort(added)
+		may = append(may, added...)
+		slices.Sort(may)
+		if r.Config == nil {
+			r.Config = map[string]any{}
+		}
+		// As --set open_threads=a,b writes it.
+		r.Config[OpenThreads] = strings.Join(may, ",")
+		r.Revision = newRevision()
+		if err := put(w.Tx, bResidents, name, r); err != nil {
+			return err
+		}
+		return w.event(r.Journal, "open_threads_granted", actor, map[string]any{"resident": name, "sources": added, "pack": pack})
+	})
+	return added, err
+}
+
 // openHash identifies one thread to open: where, and what it says.
 func openHash(source, in, title, body string) string {
 	sum := sha256.Sum256([]byte("open\x00" + source + "\x00" + in + "\x00" + title + "\x00" + body))

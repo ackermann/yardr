@@ -103,6 +103,11 @@ func TestStarterPackLoads(t *testing.T) {
 		!reflect.DeepEqual(m.Subscribe, []pack.Source{{Name: "linear", Scope: "involved"}}) || len(m.Events) != 13 {
 		t.Fatalf("mayor = %+v", m)
 	}
+	// It asks for what its role tells the mayor to do: open a thread in the
+	// source it subscribes to.
+	if !reflect.DeepEqual(m.OpenThreads, []string{"linear"}) {
+		t.Fatalf("the starter's mayor asks to open threads in %v", m.OpenThreads)
+	}
 	// hears.events replaces the list, so a trouble kind the pack leaves out
 	// never reaches the mayor: a bead stranded by a flow change must.
 	if !slices.Contains(m.Events, "stranded") {
@@ -200,6 +205,8 @@ func TestStrictness(t *testing.T) {
 		{name: "stage no flow has", old: "stages: [decide]", new: "stages: [triage]", key: "residents.mayor.hears.stages", msg: "no flow of this pack has a stage triage", line: 18},
 		{name: "source without an adapter", old: "linear: involved", new: "slack: involved", key: "residents.mayor.subscribe.slack", msg: "no adapter for source slack", line: 21},
 		{name: "unknown scope", old: "linear: involved", new: "linear: everything", key: "residents.mayor.subscribe.linear", msg: "one of involved, mentions, all", line: 21},
+		{name: "a source no thread can be opened in", old: "    role: roles/mayor.md", new: "    role: roles/mayor.md\n    open_threads: [linear, token]", key: "residents.mayor.open_threads", msg: "yardr cannot open threads in token (it can in github, linear)", line: 16},
+		{name: "open_threads is a list", old: "    role: roles/mayor.md", new: "    role: roles/mayor.md\n    open_threads: linear", key: "residents.mayor.open_threads", msg: "want a list", line: 16},
 		{name: "key given twice", old: "groups:\n", new: "groups:\n  people: { people: true }\n", key: "groups.people", msg: "given twice", line: 13},
 		{name: "no name", old: "name: small\n", new: "", key: "name", msg: "missing", line: 1},
 	}

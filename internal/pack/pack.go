@@ -72,6 +72,10 @@ type Resident struct {
 	Stages    []string `json:"stages,omitempty"`
 	Done      bool     `json:"done,omitempty"`
 	Subscribe []Source `json:"subscribe,omitempty"`
+	// OpenThreads are the sources the pack asks that its resident may open
+	// threads in, in file order. It is a request and no more: the import
+	// asks the operator, and only their yes sets it on the yard's resident.
+	OpenThreads []string `json:"open_threads,omitempty"`
 }
 
 // Source is one outside source a resident hears, and how much of it.
@@ -604,7 +608,7 @@ func (r *reader) stage(e entry, stages []string, groups []Group) Stage {
 
 func (r *reader) resident(e entry, flows []Flow) Resident {
 	res := Resident{Name: e.key}
-	for _, k := range r.entries(e.v, e.path, "role", "hears", "subscribe") {
+	for _, k := range r.entries(e.v, e.path, "role", "hears", "subscribe", "open_threads") {
 		switch k.key {
 		case "role":
 			res.Role = r.rel(k.v, k.path, "role", false)
@@ -640,6 +644,14 @@ func (r *reader) resident(e entry, flows []Flow) Resident {
 					continue
 				}
 				res.Subscribe = append(res.Subscribe, Source{Name: s.key, Scope: scope})
+			}
+		case "open_threads":
+			for _, s := range r.strs(k.v, k.path) {
+				if _, ok := hooks.OpenerFor(s); !ok {
+					r.errf(k.v, k.path, "yardr cannot open threads in %s (it can in %s)", s, strings.Join(hooks.Openable(), ", "))
+					continue
+				}
+				res.OpenThreads = append(res.OpenThreads, s)
 			}
 		}
 	}

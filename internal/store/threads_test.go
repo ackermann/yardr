@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -370,5 +371,53 @@ func TestOpening(t *testing.T) {
 	}
 	if _, err := s.Opening(ctx, "ghost", "linear", "YRD", "t", "b"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("unknown resident: %v", err)
+	}
+}
+
+// AllowOpening adds sources to what a resident may open threads in and
+// takes none away, whatever form the setting has; only what is new is
+// logged, with the pack that asked and who granted it.
+func TestAllowOpeningAddsOnly(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	if _, err := s.AllowOpening(ctx, "inv", []string{"linear"}, "starter", "jo"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a resident the yard lacks: %v", err)
+	}
+	def := store.Resident{Name: "inv", Runner: "herdr", Dir: "/work", On: []string{"held"},
+		Config: map[string]any{"kind": "claude", store.OpenThreads: []any{"github"}}}
+	if _, err := s.PutResident(ctx, def, "me"); err != nil {
+		t.Fatal(err)
+	}
+	head, _ := s.Head(ctx)
+	added, err := s.AllowOpening(ctx, "inv", []string{"linear", "github", "linear"}, "starter", "jo")
+	if err != nil || !reflect.DeepEqual(added, []string{"linear"}) {
+		t.Fatalf("added %v, %v", added, err)
+	}
+	r, err := s.GetResident(ctx, "inv")
+	if err != nil || !reflect.DeepEqual(r.MayOpen(), []string{"github", "linear"}) {
+		t.Fatalf("may open %v, %v", r.MayOpen(), err)
+	}
+	// The rest of the definition is as it was.
+	if r.Config["kind"] != "claude" || r.Dir != "/work" || !reflect.DeepEqual(r.On, []string{"held"}) {
+		t.Fatalf("the definition changed: %+v", r)
+	}
+	evs, _ := s.EventsSince(ctx, head, 0)
+	if len(evs) != 1 || evs[0].Kind != "open_threads_granted" || evs[0].Actor != "jo" || evs[0].Data["pack"] != "starter" ||
+		evs[0].Data["resident"] != "inv" || fmt.Sprint(evs[0].Data["sources"]) != "[linear]" {
+		t.Fatalf("events = %+v", evs)
+	}
+	// Again, and with nothing new: nothing is written.
+	head, _ = s.Head(ctx)
+	if added, err := s.AllowOpening(ctx, "inv", []string{"github", "linear"}, "starter", "jo"); err != nil || len(added) != 0 {
+		t.Fatalf("again: %v, %v", added, err)
+	}
+	if now, _ := s.Head(ctx); now != head {
+		t.Fatalf("granting nothing new logged %d events", now-head)
+	}
+	if after, _ := s.GetResident(ctx, "inv"); after.Revision != r.Revision {
+		t.Fatal("granting nothing new changed the resident's revision")
+	}
+	if _, err := s.AllowOpening(ctx, "inv", []string{"a,b"}, "starter", "jo"); err == nil {
+		t.Fatal("a source with a comma was taken")
 	}
 }

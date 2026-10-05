@@ -42,6 +42,11 @@ type PackImport struct {
 	Groups    map[string]string `json:"groups"`
 	Residents map[string]string `json:"residents"`
 	Objects   []PackObject      `json:"objects"`
+	// OpenThreads are the answers to what the pack asked that its residents
+	// may open threads in: the yard's resident -> source -> whether the
+	// operator said yes. A source nobody was asked about is not in it, so a
+	// later import asks.
+	OpenThreads map[string]map[string]bool `json:"open_threads,omitempty"`
 }
 
 // PackObject is one object of the yard that came from a pack, with what it
@@ -109,6 +114,17 @@ func normalPack(p PackImport) PackImport {
 			s.Where = nil
 			p.Objects[i].Subscription = &s
 		}
+	}
+	// A resident without an answer, and a record without any, are left out
+	// when stored.
+	answers := map[string]map[string]bool{}
+	for name, by := range p.OpenThreads {
+		if len(by) > 0 {
+			answers[name] = by
+		}
+	}
+	if p.OpenThreads = answers; len(answers) == 0 {
+		p.OpenThreads = nil
 	}
 	return p
 }

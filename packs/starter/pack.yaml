@@ -46,6 +46,10 @@ groups:
 #   subscribe:  what it hears from outside sources, and how much:
 #               involved (mentioned, assigned, or already in the thread),
 #               mentions, or all
+#   open_threads: the outside sources it should be able to open a thread in
+#               of its own accord (linear, github). A pack only asks: the
+#               import puts the question to the yard's operator, and only for
+#               a source the yard is set up for
 residents:
   mayor:
     role: roles/mayor.md
@@ -55,3 +59,4 @@ residents:
       done: true
     subscribe:
       linear: involved
+    open_threads: [linear]

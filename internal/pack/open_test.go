@@ -1,0 +1,270 @@
+package pack_test
+
+import (
+	"os"
+	"path/filepath"
+	"reflect"
+	"slices"
+	"strings"
+	"testing"
+
+	"yardr.dev/yardr/internal/pack"
+	"yardr.dev/yardr/internal/store"
+)
+
+// has gives the yard what it takes to be asked about a source: a hook that
+// receives it, and its credential's name in the resident's env_file. The
+// resident is made when the yard lacks it, and keeps what it may open.
+func has(t *testing.T, st store.API, resident string, sources ...string) {
+	t.Helper()
+	keys := map[string]string{"linear": "LINEAR_API_KEY", "github": "GITHUB_TOKEN"}
+	r, err := st.GetResident(ctx, resident)
+	if err != nil {
+		r = &store.Resident{Name: resident, Runner: "herdr", Config: map[string]any{"kind": "claude"}}
+	}
+	env, _ := r.Config["env_file"].(string)
+	if env == "" {
+		env = filepath.Join(t.TempDir(), "env")
+		r.Config["env_file"] = env
+		if _, err := st.PutResident(ctx, *r, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f, err := os.OpenFile(env, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	for _, src := range sources {
+		if _, err := f.WriteString(keys[src] + "=secret-" + src + "\n"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.PutHook(ctx, store.Hook{Name: src, Source: src, SecretFile: filepath.Join(t.TempDir(), "secret")}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// open is the plan's entry for what the pack asks resident may open.
+func open(t *testing.T, p *pack.Plan, resident string) pack.OpenThreads {
+	t.Helper()
+	i := slices.IndexFunc(p.OpenThreads, func(o pack.OpenThreads) bool { return o.Resident == resident })
+	if i < 0 {
+		t.Fatalf("the plan asks nothing for %s: %+v", resident, p.OpenThreads)
+	}
+	return p.OpenThreads[i]
+}
+
+// applyOpen applies the plan with the operator's answers to what it asks
+// about opening threads.
+func applyOpen(t *testing.T, st store.API, p *pack.Plan, answers map[string]map[string]bool) *pack.Result {
+	t.Helper()
+	a := pack.Answers{}
+	for _, q := range p.Questions {
+		a[q.ID] = map[string]string{"kind": "claude", "dir": t.TempDir()}[q.Field]
+	}
+	res, err := pack.Apply(ctx, st, p, pack.ApplyOptions{Answers: a, OpenThreads: answers, Actor: "jo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+func mayOpen(t *testing.T, st store.API, resident string) string {
+	t.Helper()
+	r, err := st.GetResident(ctx, resident)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Join(r.MayOpen(), ",")
+}
+
+// A plan sorts the sources a pack asks for: what the resident may already,
+// what the yard has no hook or credential for, and what is left to ask the
+// operator. Building it grants nothing.
+func TestPlanSortsWhatThePackAsksToOpen(t *testing.T) {
+	st, o := yard(t)
+	o.Residents = map[string]string{"mayor": "boss"}
+	dir := copyStarter(t)
+	edit(t, dir, "open_threads: [linear]", "open_threads: [linear, github]")
+
+	// A resident the import would create has no credential yet, and the
+	// yard no hook: nothing can be asked.
+	ot := open(t, build(t, st, load(t, dir), o), "boss")
+	if ot.Pack != "mayor" || !reflect.DeepEqual(ot.Wants, []string{"linear", "github"}) || len(ot.Has)+len(ot.Asks)+len(ot.Declined) != 0 || len(ot.Lacks) != 2 {
+		t.Fatalf("into an empty yard: %+v", ot)
+	}
+	what := func(l pack.Lack) string {
+		var out []string
+		for _, n := range l.Missing {
+			out = append(out, n.What)
+		}
+		return l.Source + ": " + strings.Join(out, ",")
+	}
+	if got := what(ot.Lacks[0]); got != "linear: hook,credential" {
+		t.Fatalf("lacks %s", got)
+	}
+
+	// Set up for linear alone: linear is a question, github still is not,
+	// and each of hook and credential is named when it alone is missing.
+	has(t, st, "boss", "linear")
+	ot = open(t, build(t, st, load(t, dir), o), "boss")
+	if !reflect.DeepEqual(ot.Asks, []string{"linear"}) || len(ot.Lacks) != 1 || what(ot.Lacks[0]) != "github: hook,credential" {
+		t.Fatalf("set up for linear: %+v", ot)
+	}
+	if _, err := st.PutHook(ctx, store.Hook{Name: "gh", Source: "github", SecretFile: "/nowhere"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if ot = open(t, build(t, st, load(t, dir), o), "boss"); len(ot.Lacks) != 1 || what(ot.Lacks[0]) != "github: credential" {
+		t.Fatalf("with a hook for github: %+v", ot)
+	}
+
+	// What the resident may already is no question.
+	if _, err := st.AllowOpening(ctx, "boss", []string{"linear"}, "", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if ot = open(t, build(t, st, load(t, dir), o), "boss"); !reflect.DeepEqual(ot.Has, []string{"linear"}) || len(ot.Asks) != 0 {
+		t.Fatalf("with linear allowed by hand: %+v", ot)
+	}
+
+	// A pack without the key has no entry at all.
+	edit(t, dir, "    open_threads: [linear, github]\n", "")
+	if p := build(t, st, load(t, dir), o); len(p.OpenThreads) != 0 {
+		t.Fatalf("a pack that asks for nothing: %+v", p.OpenThreads)
+	}
+}
+
+// An import grants on a yes and only then, adds to what the resident may
+// and takes nothing away, logs the grant, and records each answer: the
+// second import asks nothing and changes nothing, a no is not asked again,
+// and a source the pack asks for later is the only new question.
+func TestApplyGrantsWhatTheOperatorAnswered(t *testing.T) {
+	st, o := yard(t)
+	o.Residents = map[string]string{"mayor": "boss"}
+	dir := copyStarter(t)
+	has(t, st, "boss", "linear", "github")
+	if _, err := st.AllowOpening(ctx, "boss", []string{"github"}, "", "jo"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Without an answer nothing is granted, and nothing is recorded as
+	// answered: the next import still asks.
+	res := applyOpen(t, st, build(t, st, load(t, dir), o), nil)
+	if len(res.Granted) != 0 || mayOpen(t, st, "boss") != "github" || record(t, st).OpenThreads != nil {
+		t.Fatalf("unanswered: granted %v, may open %s, record %v", res.Granted, mayOpen(t, st, "boss"), record(t, st).OpenThreads)
+	}
+	plan := build(t, st, load(t, dir), o)
+	if ot := open(t, plan, "boss"); !reflect.DeepEqual(ot.Asks, []string{"linear"}) {
+		t.Fatalf("after an import without an answer: %+v", ot)
+	}
+
+	// Yes: linear is added, github stays, and the log says who granted
+	// what to whom for which pack.
+	h := head(t, st)
+	res = applyOpen(t, st, plan, map[string]map[string]bool{"boss": {"linear": true}})
+	if want := []pack.Grant{{Resident: "boss", Sources: []string{"linear"}}}; !reflect.DeepEqual(res.Granted, want) || !res.Wrote() || !res.Recorded {
+		t.Fatalf("granted %+v, wrote %v, recorded %v", res.Granted, res.Wrote(), res.Recorded)
+	}
+	if got := mayOpen(t, st, "boss"); got != "github,linear" {
+		t.Fatalf("boss may open %s", got)
+	}
+	evs, _ := st.EventsSince(ctx, h, 0)
+	if len(evs) != 2 || evs[0].Kind != "open_threads_granted" || evs[0].Actor != "jo" || evs[0].Data["pack"] != "starter" ||
+		evs[0].Data["resident"] != "boss" || !reflect.DeepEqual(evs[0].Data["sources"], []any{"linear"}) || evs[1].Kind != "pack_applied" {
+		t.Fatalf("events = %+v", evs)
+	}
+	if got, want := record(t, st).OpenThreads, map[string]map[string]bool{"boss": {"linear": true}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("record = %v", got)
+	}
+
+	// Twice is once.
+	plan = build(t, st, load(t, dir), o)
+	if ot := open(t, plan, "boss"); len(ot.Asks) != 0 || !reflect.DeepEqual(ot.Has, []string{"linear"}) {
+		t.Fatalf("second import: %+v", ot)
+	}
+	h = head(t, st)
+	if res = applyOpen(t, st, plan, nil); res.Wrote() || res.Recorded || !reflect.DeepEqual(kinds(t, st, h), []string{"pack_unchanged"}) {
+		t.Fatalf("second import: wrote %v, recorded %v, events %v", res.Wrote(), res.Recorded, kinds(t, st, h))
+	}
+
+	// The pack asks for a further source: that one alone is asked. No is
+	// recorded, grants nothing, and is not asked again.
+	if _, err := st.PutResident(ctx, func() store.Resident {
+		r, _ := st.GetResident(ctx, "boss")
+		r.Config[store.OpenThreads] = "linear"
+		return *r
+	}(), "jo"); err != nil {
+		t.Fatal(err)
+	}
+	edit(t, dir, "open_threads: [linear]", "open_threads: [linear, github]")
+	plan = build(t, st, load(t, dir), o)
+	if ot := open(t, plan, "boss"); !reflect.DeepEqual(ot.Asks, []string{"github"}) {
+		t.Fatalf("a further source: %+v", ot)
+	}
+	res = applyOpen(t, st, plan, map[string]map[string]bool{"boss": {"github": false}})
+	if len(res.Granted) != 0 || mayOpen(t, st, "boss") != "linear" || !res.Recorded {
+		t.Fatalf("no: granted %v, may open %s, recorded %v", res.Granted, mayOpen(t, st, "boss"), res.Recorded)
+	}
+	plan = build(t, st, load(t, dir), o)
+	if ot := open(t, plan, "boss"); len(ot.Asks) != 0 || !reflect.DeepEqual(ot.Declined, []string{"github"}) {
+		t.Fatalf("after a no: %+v", ot)
+	}
+	h = head(t, st)
+	if res = applyOpen(t, st, plan, nil); res.Wrote() || !reflect.DeepEqual(kinds(t, st, h), []string{"pack_unchanged"}) {
+		t.Fatalf("after a no, again: wrote %v, events %v", res.Wrote(), kinds(t, st, h))
+	}
+	// The operator may still say yes to what was declined.
+	res = applyOpen(t, st, plan, map[string]map[string]bool{"boss": {"github": true}})
+	if len(res.Granted) != 1 || mayOpen(t, st, "boss") != "github,linear" || !record(t, st).OpenThreads["boss"]["github"] {
+		t.Fatalf("yes after a no: %+v, may open %s", res.Granted, mayOpen(t, st, "boss"))
+	}
+
+	// A yes the operator took back by hand is not given again unasked: the
+	// record forgets it and the import asks.
+	r, _ := st.GetResident(ctx, "boss")
+	delete(r.Config, store.OpenThreads)
+	if _, err := st.PutResident(ctx, *r, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	plan = build(t, st, load(t, dir), o)
+	if ot := open(t, plan, "boss"); !reflect.DeepEqual(ot.Asks, []string{"linear", "github"}) {
+		t.Fatalf("after the setting was removed: %+v", ot)
+	}
+	if res = applyOpen(t, st, plan, nil); len(res.Granted) != 0 || mayOpen(t, st, "boss") != "" || record(t, st).OpenThreads != nil {
+		t.Fatalf("after the setting was removed: granted %v, may open %q, record %v", res.Granted, mayOpen(t, st, "boss"), record(t, st).OpenThreads)
+	}
+}
+
+// An answer is to a question the plan asks. One for a source the yard
+// lacks, one the pack does not name, and one for another resident are
+// refused before anything is written.
+func TestApplyRefusesAnAnswerThePlanDidNotAsk(t *testing.T) {
+	st, o := yard(t)
+	o.Residents = map[string]string{"mayor": "boss"}
+	dir := copyStarter(t)
+	edit(t, dir, "open_threads: [linear]", "open_threads: [linear, github]")
+	has(t, st, "boss", "linear")
+	plan := build(t, st, load(t, dir), o)
+	a := pack.Answers{}
+	for _, q := range plan.Questions {
+		a[q.ID] = map[string]string{"kind": "claude", "dir": t.TempDir()}[q.Field]
+	}
+	for _, c := range []struct {
+		answers map[string]map[string]bool
+		want    string
+	}{
+		{map[string]map[string]bool{"boss": {"github": true}}, "does not ask whether resident boss may open threads in github"},
+		{map[string]map[string]bool{"boss": {"github": false}}, "does not ask whether resident boss may open threads in github"},
+		{map[string]map[string]bool{"boss": {"token": true}}, "may open threads in token"},
+		{map[string]map[string]bool{"scout": {"linear": true}}, "does not ask whether resident scout may open threads in linear"},
+	} {
+		h := head(t, st)
+		_, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: a, OpenThreads: c.answers, Actor: "jo"})
+		if err == nil || !strings.Contains(err.Error(), "nothing was changed") || !strings.Contains(err.Error(), c.want) {
+			t.Fatalf("%v: %v", c.answers, err)
+		}
+		if got := kinds(t, st, h); len(got) != 0 || mayOpen(t, st, "boss") != "" {
+			t.Fatalf("%v: a refused import logged %v, and boss may open %q", c.answers, got, mayOpen(t, st, "boss"))
+		}
+	}
+}

@@ -94,7 +94,11 @@ type Plan struct {
 	// Sources says, for each outside source a resident would subscribe to,
 	// what the yard has and lacks to hear it and answer in it.
 	Sources []SourceNeeds `json:"sources"`
-	Notes   []string      `json:"notes"`
+	// OpenThreads says, for each resident the pack asks it for, which
+	// sources it would be let open threads in and what an import does about
+	// each: nothing, ask the operator, or neither ask nor grant.
+	OpenThreads []OpenThreads `json:"open_threads"`
+	Notes       []string      `json:"notes"`
 	// Refused is why this plan must not be applied as it is; empty when it
 	// may be.
 	Refused []string `json:"refused"`
@@ -223,6 +227,44 @@ type Need struct {
 	Detail string `json:"detail"`
 }
 
+// OpenThreads is what the pack asks that one of its residents may open
+// threads in. Each source of Wants is in exactly one of Has, Lacks,
+// Declined and Asks. Nothing here is granted by the plan: the operator's
+// answers are given when it is applied (ApplyOptions.OpenThreads).
+type OpenThreads struct {
+	Pack     string `json:"pack"`     // the pack's name for the resident
+	Resident string `json:"resident"` // the yard's
+	// Wants are the sources the pack names, in its order.
+	Wants []string `json:"wants"`
+	// Has are those the yard's resident may open threads in already: no
+	// question.
+	Has []string `json:"has"`
+	// Lacks are those this yard has no hook or no credential for: an import
+	// asks nothing and grants nothing for them, and records no answer.
+	Lacks []Lack `json:"lacks"`
+	// Declined are those an earlier import was told no for: not asked again.
+	Declined []string `json:"declined"`
+	// Asks are the rest: what an import asks the operator.
+	Asks []string `json:"asks"`
+	// Recorded are the answers the last import recorded for the sources in
+	// Wants.
+	Recorded map[string]bool `json:"recorded,omitempty"`
+}
+
+// Lack is a source a pack wants a resident to open threads in, and what of
+// hook and credential this yard does not have for it, with the detail the
+// plan's Sources table gives.
+type Lack struct {
+	Source  string `json:"source"`
+	Missing []Need `json:"missing"`
+}
+
+// Grantable reports whether an import may be answered for source: it would
+// ask about it, or an earlier one was told no.
+func (o OpenThreads) Grantable(source string) bool {
+	return slices.Contains(o.Asks, source) || slices.Contains(o.Declined, source)
+}
+
 // credentialKeys are the names a source's reply credential goes by in a
 // resident's env_file (see hooks: each adapter's Credential).
 var credentialKeys = map[string]string{"linear": "LINEAR_API_KEY", "github": "GITHUB_TOKEN"}
@@ -271,7 +313,7 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 	b := &planner{ctx: ctx, st: st, p: p, o: o, rig: rig, plan: &Plan{
 		Pack: p.Name, Dir: p.Dir, Rig: o.Rig, Install: filepath.Join(o.Home, "packs", p.Name), StageFiles: filepath.Join(o.Home, "flows"),
 		Groups: map[string]string{}, Residents: map[string]string{}, Fill: map[string]string{},
-		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, Notes: []string{}, Refused: []string{},
+		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, OpenThreads: []OpenThreads{}, Notes: []string{}, Refused: []string{},
 	}}
 	if b.all, err = st.Packs(ctx); err != nil {
 		return nil, err
@@ -1110,6 +1152,13 @@ func (b *planner) residents() error {
 			}
 			b.plan.Sources = append(b.plan.Sources, SourceNeeds{Source: s.Name, Resident: name, Needs: needs})
 		}
+		if len(pr.OpenThreads) > 0 {
+			ot, err := b.openThreads(pr, name, exists, old)
+			if err != nil {
+				return err
+			}
+			b.plan.OpenThreads = append(b.plan.OpenThreads, ot)
+		}
 	}
 	for _, o := range subs {
 		b.add(o)
@@ -1182,6 +1231,55 @@ func (b *planner) needs(source, resident string, exists bool, r store.Resident) 
 		out = append(out, Need{"listener", unknown, "YARDR_HOOK_ADDR is not set here; the server receives hooks only if it was started with it"})
 	}
 	return out, nil
+}
+
+// openThreads sorts the sources the pack asks that its resident pr may open
+// threads in by what an import does about each. A source is asked about
+// only when the yard has a hook and a credential for it, read as needs
+// reads them for the Sources table: letting a resident speak first where
+// the yard cannot hear or answer is nothing an operator can judge yet. An
+// earlier yes the resident no longer has (the setting was taken away by
+// hand) is asked again, never given back unasked.
+func (b *planner) openThreads(pr Resident, name string, exists bool, r store.Resident) (OpenThreads, error) {
+	ot := OpenThreads{Pack: pr.Name, Resident: name, Wants: slices.Clone(pr.OpenThreads),
+		Has: []string{}, Lacks: []Lack{}, Declined: []string{}, Asks: []string{}}
+	var recorded map[string]bool
+	if b.rec != nil {
+		recorded = b.rec.OpenThreads[name]
+	}
+	may := r.MayOpen()
+	for _, src := range ot.Wants {
+		yes, answered := recorded[src]
+		if answered {
+			if ot.Recorded == nil {
+				ot.Recorded = map[string]bool{}
+			}
+			ot.Recorded[src] = yes
+		}
+		if slices.Contains(may, src) {
+			ot.Has = append(ot.Has, src)
+			continue
+		}
+		needs, err := b.needs(src, name, exists, r)
+		if err != nil {
+			return ot, err
+		}
+		var missing []Need
+		for _, n := range needs {
+			if (n.What == "hook" || n.What == "credential") && n.Status != "ok" {
+				missing = append(missing, n)
+			}
+		}
+		switch {
+		case len(missing) > 0:
+			ot.Lacks = append(ot.Lacks, Lack{Source: src, Missing: missing})
+		case answered && !yes:
+			ot.Declined = append(ot.Declined, src)
+		default:
+			ot.Asks = append(ot.Asks, src)
+		}
+	}
+	return ot, nil
 }
 
 // rigRole names the rig's own role file that stands in for the pack's role

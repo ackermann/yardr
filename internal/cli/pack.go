@@ -96,8 +96,10 @@ create, change (field: old -> new), unchanged, not in the pack (the yard
 has it, the pack does not, and an import leaves it alone), or no longer in
 the pack (an earlier import brought it, the pack has dropped it since, and
 pack apply --prune removes it). Then what an import would ask, which flow
-would govern the rig, and what each source a resident subscribes to still
-lacks. Nothing is written.
+would govern the rig, what each source a resident subscribes to still
+lacks, and which sources the pack asks that a resident may open threads in
+(open_threads): an import asks the operator, and only about a source the
+yard has a hook and a credential for. Nothing is written.
 
 The pack's role is set on every agent group and resident it names, also
 where the rig has its own .yardr/roles/<name>.md: the plan names that file
@@ -126,7 +128,7 @@ pack's flow lacks). --json prints the plan as data. See docs/packs.md.`,
 			if err != nil {
 				return err
 			}
-			if err := a.out(plan, func() { printPlan(plan, nil) }); err != nil {
+			if err := a.out(plan, func() { printPlan(plan, nil, nil) }); err != nil {
 				return err
 			}
 			if len(plan.Refused) > 0 {
@@ -141,6 +143,7 @@ pack's flow lacks). --json prints the plan as data. See docs/packs.md.`,
 		af      packFlags
 		binds   []string
 		members []string
+		opens   []string
 		yes     bool
 		prune   bool
 	)
@@ -169,9 +172,19 @@ What it asks, and the flag that answers instead:
   which resident takes a resident of the pack     --resident <pack's>=<yard's>
   the agent of a resident the yard lacks          --bind resident:<pack's>=<kind>[:<model>][,<preset>]
   which flow, when the pack has several           --flow <name>
+  whether a resident may open threads in the      --open-threads <pack's>=linear,github
+  sources the pack asks for (open_threads)        (=none for no)
 <group> is the pack's name for it (builders). Without a terminal nothing is
 asked: a missing answer is an error, never a default, and --yes is needed
 to apply.
+
+A pack may ask that its resident may open threads in a source. That is the
+operator's to grant, so the import asks, last and with no as the default,
+and only about a source this yard has a hook and a credential for; the plan
+says what any other source lacks. Without a terminal, with --json or with
+--yes, nothing is granted unless --open-threads says so, and the output
+names the flag. Run by anyone but the operator the import does the rest and
+grants nothing. An answer is recorded, so it is asked once.
 
 The one answer with a default is what a new group's or resident's agent may
 do without asking. <preset> names one of the agent's permission presets by
@@ -220,7 +233,7 @@ says so. The import is recorded (yardr pack list). See docs/packs.md.`,
 				}
 			}
 			if len(plan.Refused) > 0 {
-				_ = a.out(plan, func() { printPlan(plan, nil) })
+				_ = a.out(plan, func() { printPlan(plan, nil, nil) })
 				return errCheckFailed
 			}
 			// The flags' answers go into the printed plan, so it shows what
@@ -231,8 +244,14 @@ says so. The import is recorded (yardr pack list). See docs/packs.md.`,
 			if err != nil {
 				return err
 			}
+			// Whether a resident may open threads is asked last, and only
+			// where a no can be said: --yes says not to ask.
+			open, err := a.openThreads(ctx, st, plan, opens, asking && !yes)
+			if err != nil {
+				return err
+			}
 			if !a.json {
-				printPlan(plan, answers)
+				printPlan(plan, answers, open.Answers)
 			}
 			// A copy someone edited is not overwritten on a confirmation
 			// alone: the edit is lost for good, and its place is the pack.
@@ -254,10 +273,10 @@ says so. The import is recorded (yardr pack list). See docs/packs.md.`,
 					todo++
 				}
 			}
+			if !asking && !yes && todo+len(open.Answers) > 0 {
+				return errors.New("pack apply changes the yard: give --yes, or run it in a terminal to be asked")
+			}
 			if todo > 0 && !yes {
-				if !asking {
-					return errors.New("pack apply changes the yard: give --yes, or run it in a terminal to be asked")
-				}
 				ok := true
 				title := fmt.Sprintf("Apply pack %s to rig %s?", plan.Pack, plan.Rig)
 				if err := ask(huh.NewConfirm().Title(title).Description(fmt.Sprintf("%d objects to write or remove.", todo)).Value(&ok)); err != nil {
@@ -268,9 +287,12 @@ says so. The import is recorded (yardr pack list). See docs/packs.md.`,
 					return nil
 				}
 			}
-			res, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: answers, Prune: prune, Overwrite: yes, Actor: a.who()})
+			if err := open.ask(); err != nil {
+				return cancelled(err)
+			}
+			res, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: answers, OpenThreads: open.Answers, Prune: prune, Overwrite: yes, Actor: a.who()})
 			if res != nil {
-				if oerr := a.out(map[string]any{"plan": plan, "answers": answers, "result": res}, func() { printResult(plan, res, prune, answers) }); oerr != nil {
+				if oerr := a.out(map[string]any{"plan": plan, "answers": answers, "open_threads": open, "result": res}, func() { printResult(plan, res, prune, answers, open) }); oerr != nil {
 					return oerr
 				}
 			}
@@ -280,6 +302,7 @@ says so. The import is recorded (yardr pack list). See docs/packs.md.`,
 	af.register(apply, "is")
 	apply.Flags().StringArrayVar(&binds, "bind", nil, "<group>=<kind>[:<model>][,<preset>]: the agent, model and permission preset of a group the yard lacks; resident:<name>=… for a resident (repeatable)")
 	apply.Flags().StringArrayVar(&members, "members", nil, "<group>=a,b: the members of a people group the yard lacks; empty for anyone (repeatable)")
+	apply.Flags().StringArrayVar(&opens, "open-threads", nil, "<pack's resident>=linear,github: let the resident that takes it open threads in these of the sources the pack asks for, and in no other; =none for no (repeatable)")
 	apply.Flags().BoolVar(&yes, "yes", false, "apply without asking for confirmation, and overwrite an installed file that was edited by hand")
 	apply.Flags().BoolVar(&prune, "prune", false, "remove what an earlier import of this pack brought and the pack has dropped since")
 
@@ -441,6 +464,137 @@ func packAnswers(p *pack.Plan, binds, members []string, home string, unattended 
 	return answers, nil
 }
 
+// openAnswers is what an import does about the sources a pack asks that
+// its residents may open threads in.
+type openAnswers struct {
+	// Answers are the operator's, by the yard's resident and source: what
+	// pack.Apply grants and records.
+	Answers map[string]map[string]bool `json:"answers"`
+	// Notes say what was not granted and why, each naming who or which flag
+	// would grant it.
+	Notes []string `json:"notes"`
+	// open are the residents still to ask about, in a terminal.
+	open []pack.OpenThreads
+}
+
+// openThreads settles what the plan's OpenThreads come to: --open-threads
+// answers for the pack's resident it names, a terminal is asked for the
+// rest (mayAsk), and without either nothing is granted and a note names the
+// flag. The safe answer exists here, and it is no, so a missing flag is no
+// error as it is for the import's other questions. Anyone but the operator
+// answers nothing, by flag or by form: the check is the one yardr resident
+// add makes (mayAllowOpening), and the import does the rest.
+func (a *app) openThreads(ctx context.Context, st store.API, p *pack.Plan, flags []string, mayAsk bool) (*openAnswers, error) {
+	out := &openAnswers{Answers: map[string]map[string]bool{}, Notes: []string{}}
+	named := map[string][]string{}
+	for _, kv := range flags {
+		name, v, ok := strings.Cut(kv, "=")
+		if !ok || name == "" || v == "" {
+			return nil, fmt.Errorf("--open-threads %q: want <pack's resident>=<source>[,<source>], or =none", kv)
+		}
+		if _, ok := p.Residents[name]; !ok {
+			return nil, fmt.Errorf("--open-threads %q: the pack has no resident %s (it has: %s)", kv, name, strings.Join(sortedKeys(p.Residents), ", "))
+		}
+		i := slices.IndexFunc(p.OpenThreads, func(ot pack.OpenThreads) bool { return ot.Pack == name })
+		if i < 0 {
+			return nil, fmt.Errorf("--open-threads %q: the pack asks for no source its resident %s may open threads in (open_threads)", kv, name)
+		}
+		if _, twice := named[name]; twice {
+			return nil, fmt.Errorf("--open-threads %q: %s is answered twice", kv, name)
+		}
+		named[name] = []string{}
+		if v == "none" {
+			continue
+		}
+		for _, src := range strings.Split(v, ",") {
+			if src = strings.TrimSpace(src); !slices.Contains(p.OpenThreads[i].Wants, src) {
+				return nil, fmt.Errorf("--open-threads %q: the pack does not ask that %s may open threads in %q (it asks for: %s)", kv, name, src, strings.Join(p.OpenThreads[i].Wants, ", "))
+			}
+			named[name] = append(named[name], src)
+		}
+	}
+	var operator string
+	var is, checked bool
+	for _, ot := range p.OpenThreads {
+		yes, flagged := named[ot.Pack]
+		answers := map[string]bool{}
+		// What this run would have to be the operator for.
+		var about []string
+		for _, src := range ot.Wants {
+			switch {
+			case flagged && slices.Contains(yes, src) && ot.Grantable(src):
+				answers[src] = true
+				about = append(about, src)
+			case flagged && slices.Contains(yes, src) && !slices.Contains(ot.Has, src):
+				out.Notes = append(out.Notes, fmt.Sprintf("--open-threads %s=%s grants nothing: the pack wants %s, this yard lacks %s (yardr pack check says what to set up; the import asks once the yard has it)",
+					ot.Pack, src, src, lacking(ot, src)))
+			case slices.Contains(ot.Asks, src):
+				// A flag that leaves a source out says no to it.
+				if flagged {
+					answers[src] = false
+				}
+				about = append(about, src)
+			}
+		}
+		if len(about) == 0 {
+			continue
+		}
+		if !checked {
+			var err error
+			if operator, is, err = a.operator(ctx, st); err != nil {
+				return nil, err
+			}
+			checked = true
+		}
+		switch {
+		case !is:
+			out.Notes = append(out.Notes, fmt.Sprintf("resident %s was not let open threads in %s: only the operator (%s) may grant that, and this is %s. The rest of the import does not depend on it; %s applies the pack again to be asked",
+				ot.Resident, strings.Join(about, ", "), operator, a.who(), operator))
+		case flagged:
+			out.Answers[ot.Resident] = answers
+		case mayAsk:
+			out.open = append(out.open, ot)
+		default:
+			out.Notes = append(out.Notes, fmt.Sprintf("resident %s was not let open threads in %s: nothing is asked here, and the answer without a flag is no. --open-threads %s=%s grants it, --open-threads %s=none says no for good",
+				ot.Resident, strings.Join(about, ", "), ot.Pack, strings.Join(about, ","), ot.Pack))
+		}
+	}
+	return out, nil
+}
+
+// lacking names what of hook and credential the yard has not for source.
+func lacking(ot pack.OpenThreads, source string) string {
+	var out []string
+	for _, l := range ot.Lacks {
+		if l.Source == source {
+			for _, n := range l.Missing {
+				out = append(out, n.What)
+			}
+		}
+	}
+	return strings.Join(out, " and ")
+}
+
+// ask asks the operator, once per resident, whether it may open threads in
+// the sources still open, and takes the one answer for all of them. No is
+// the default: leaving the form at its first key grants nothing.
+func (o *openAnswers) ask() error {
+	for _, ot := range o.open {
+		yes := false
+		if err := ask(huh.NewConfirm().Title(fmt.Sprintf("Let %s open threads in %s?", ot.Resident, strings.Join(ot.Asks, ", "))).
+			Description("The pack asks for it. Yes lets the resident start a thread there unasked (yardr thread open); no leaves its setting as it is. Either answer is recorded and not asked again.").
+			Value(&yes)); err != nil {
+			return err
+		}
+		answers := map[string]bool{}
+		for _, src := range ot.Asks {
+			answers[src] = yes
+		}
+		o.Answers[ot.Resident] = answers
+	}
+	return nil
+}
+
 // presetLabel is a permission preset's label as --bind takes it: one word.
 func presetLabel(label string) string {
 	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(label)), " ", "-")
@@ -539,7 +693,7 @@ func (a *app) askAnswers(ctx context.Context, st store.API, plan *pack.Plan, ans
 	return nil
 }
 
-func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.Answers) {
+func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.Answers, open *openAnswers) {
 	fmt.Println()
 	if res.Wrote() {
 		fmt.Printf("applied pack %s to rig %s: %d created, %d changed, %d unchanged", res.Pack, res.Rig, res.Created, res.Changed, res.Unchanged)
@@ -572,6 +726,25 @@ func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.A
 			continue
 		}
 		fmt.Printf("%s %s is new and has no agent arguments: an unattended agent stops at every permission prompt until it is given them (yardr %s add, the form)\n", o.Kind, o.Name, o.Kind)
+	}
+	for _, g := range res.Granted {
+		fmt.Printf("resident %s may now open threads in %s\n", g.Resident, strings.Join(g.Sources, ", "))
+	}
+	// A no changes nothing in the yard, so it is said: it is on record.
+	for _, name := range sortedKeys(open.Answers) {
+		var no []string
+		for _, src := range sortedKeys(open.Answers[name]) {
+			if !open.Answers[name][src] {
+				no = append(no, src)
+			}
+		}
+		if len(no) > 0 {
+			fmt.Printf("resident %s was not let open threads in %s: the no is recorded and not asked again (--open-threads %s=%s grants it after all)\n",
+				name, strings.Join(no, ", "), packName(plan.Residents, name), strings.Join(no, ","))
+		}
+	}
+	for _, n := range open.Notes {
+		fmt.Println(n)
 	}
 	for _, r := range res.Restart {
 		fmt.Printf("resident %s is running and was not restarted: its role or subscriptions changed, so restart it (yardr resident restart %s)\n", r, r)
@@ -616,6 +789,13 @@ func printRecord(r store.PackImport) {
 		}
 	}
 	fmt.Printf("  objects    %s\n", or(strings.Join(parts, ", "), "none"))
+	for _, name := range sortedKeys(r.OpenThreads) {
+		var said []string
+		for _, src := range sortedKeys(r.OpenThreads[name]) {
+			said = append(said, src+" "+map[bool]string{true: "yes", false: "no"}[r.OpenThreads[name][src]])
+		}
+		fmt.Printf("  may open   %s: %s\n", name, strings.Join(said, ", "))
+	}
 }
 
 // fills says what a plan puts for each placeholder, the operator first.
@@ -640,8 +820,9 @@ var planKinds = [][2]string{{"file", "files"}, {"group", "groups"}, {"flow", "fl
 
 // printPlan prints the plan. answers are those already given: an answered
 // question is printed as what its object gets, and only the open ones are
-// listed as what an import would ask.
-func printPlan(p *pack.Plan, answers pack.Answers) {
+// listed as what an import would ask. open are the answers to whether a
+// resident may open threads, by resident and source.
+func printPlan(p *pack.Plan, answers pack.Answers, open map[string]map[string]bool) {
 	fmt.Printf("pack %s (%s) into rig %s\n", p.Pack, p.Dir, p.Rig)
 	fmt.Printf("its roles and scripts would be copied to %s\n", p.Install)
 	if slices.ContainsFunc(p.Objects, func(o pack.Object) bool { return o.File != nil && o.File.Stage != "" }) {
@@ -697,13 +878,23 @@ func printPlan(p *pack.Plan, answers pack.Answers) {
 			}
 		}
 	}
-	if open := p.Missing(answers); len(open) > 0 {
+	var asks []string
+	for _, q := range p.Missing(answers) {
+		line := fmt.Sprintf("  %s: %s", q.ID, q.Ask)
+		if q.Default != "" {
+			line += " [" + q.Default + "]"
+		}
+		asks = append(asks, line)
+	}
+	for _, ot := range p.OpenThreads {
+		if _, done := open[ot.Resident]; !done && len(ot.Asks) > 0 {
+			asks = append(asks, fmt.Sprintf("  the operator: let %s open threads in %s (--open-threads %s=%s, or =none)? [no]",
+				ot.Resident, strings.Join(ot.Asks, ", "), ot.Pack, strings.Join(ot.Asks, ",")))
+		}
+	}
+	if len(asks) > 0 {
 		fmt.Println("\nan import would ask")
-		for _, q := range open {
-			line := fmt.Sprintf("  %s: %s", q.ID, q.Ask)
-			if q.Default != "" {
-				line += " [" + q.Default + "]"
-			}
+		for _, line := range asks {
 			fmt.Println(line)
 		}
 	}
@@ -725,6 +916,38 @@ func printPlan(p *pack.Plan, answers pack.Answers) {
 		fmt.Printf("\nsource %s, for resident %s\n", s.Source, s.Resident)
 		for _, n := range s.Needs {
 			fmt.Printf("  %-8s %-12s %s\n", n.Status, strings.ReplaceAll(n.What, "_", " "), n.Detail)
+		}
+	}
+	for _, ot := range p.OpenThreads {
+		fmt.Printf("\nopen threads, for resident %s\n", ot.Resident)
+		fmt.Printf("  the pack asks for %s\n", strings.Join(ot.Wants, ", "))
+		row := func(what string, sources []string, detail string) {
+			if len(sources) > 0 {
+				fmt.Printf("  %-9s %s%s\n", what, strings.Join(sources, ", "), detail)
+			}
+		}
+		row("has", ot.Has, ": it may already, and nothing is asked")
+		var yes, no, asked []string
+		for _, src := range ot.Wants {
+			switch said, done := open[ot.Resident][src]; {
+			case done && said:
+				yes = append(yes, src)
+			case done:
+				no = append(no, src)
+			case slices.Contains(ot.Asks, src):
+				asked = append(asked, src)
+			}
+		}
+		row("grants", yes, ": --open-threads says so")
+		row("declines", no, ": --open-threads leaves it out")
+		row("asks", asked, ": the operator is asked, and the answer without one is no")
+		row("declined", slices.DeleteFunc(slices.Clone(ot.Declined), func(s string) bool { return slices.Contains(yes, s) }),
+			": an earlier import was told no (--open-threads "+ot.Pack+"=<source> grants it)")
+		for _, l := range ot.Lacks {
+			fmt.Printf("  the pack wants %s, this yard lacks %s: nothing is asked or granted\n", l.Source, lacking(ot, l.Source))
+			for _, n := range l.Missing {
+				fmt.Printf("    %-8s %-12s %s\n", n.Status, strings.ReplaceAll(n.What, "_", " "), n.Detail)
+			}
 		}
 	}
 	if len(p.Notes) > 0 {

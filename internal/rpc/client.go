@@ -464,6 +464,9 @@ func (c *Client) Opening(ctx context.Context, name, source, in, title, body stri
 func (c *Client) Opened(ctx context.Context, name string, rp store.Reply, actor string) error {
 	return c.call(ctx, "Opened", nil, name, rp, actor)
 }
+func (c *Client) AllowOpening(ctx context.Context, name string, sources []string, pack, actor string) ([]string, error) {
+	return callV[[]string](c, ctx, "AllowOpening", name, sources, pack, actor)
+}
 func (c *Client) Threads(ctx context.Context, name string) ([]store.Participation, error) {
 	return callV[[]store.Participation](c, ctx, "Threads", name)
 }

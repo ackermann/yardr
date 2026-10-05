@@ -136,3 +136,39 @@ func TestRemoveSubscriptionIsExact(t *testing.T) {
 		t.Fatalf("removing it again: %v", err)
 	}
 }
+
+// The record keeps the answers to what a pack asked its residents may open
+// threads in. The same answers again are the same record; a new one is a
+// new record though the import wrote nothing else.
+func TestRecordPackKeepsOpenThreadsAnswers(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	if err := st.PutRig(ctx, store.Rig{Name: "web"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	rec := store.PackImport{Pack: "starter", Rig: "web", Residents: map[string]string{"mayor": "boss"},
+		OpenThreads: map[string]map[string]bool{"boss": {"linear": true}, "scout": {}}}
+	if wrote, err := st.RecordPack(ctx, rec, true, "jo"); err != nil || !wrote {
+		t.Fatalf("first: %v, %v", wrote, err)
+	}
+	recs, err := st.Packs(ctx)
+	if err != nil || len(recs) != 1 || !reflect.DeepEqual(recs[0].OpenThreads, map[string]map[string]bool{"boss": {"linear": true}}) {
+		t.Fatalf("records = %+v, %v", recs, err)
+	}
+	if wrote, err := st.RecordPack(ctx, rec, false, "jo"); err != nil || wrote {
+		t.Fatalf("the same answers again: wrote %v, %v", wrote, err)
+	}
+	rec.OpenThreads = map[string]map[string]bool{"boss": {"linear": true, "github": false}}
+	if wrote, err := st.RecordPack(ctx, rec, false, "jo"); err != nil || !wrote {
+		t.Fatalf("a further answer: wrote %v, %v", wrote, err)
+	}
+	// A record from before the field, and one without answers, are equal.
+	rec.OpenThreads = nil
+	if _, err := st.RecordPack(ctx, rec, true, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	rec.OpenThreads = map[string]map[string]bool{}
+	if wrote, err := st.RecordPack(ctx, rec, false, "jo"); err != nil || wrote {
+		t.Fatalf("no answers, as an empty map: wrote %v, %v", wrote, err)
+	}
+}

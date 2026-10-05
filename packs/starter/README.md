@@ -23,3 +23,8 @@ repository.
 Importing sets the yard to this state: what exists under the same name is
 overwritten, nothing is added twice, and what the yard chose locally (agent,
 model, arguments, members, env file) is left alone.
+
+One thing it asks for and does not set: that the mayor may open threads in
+Linear (`open_threads`). The import puts that to the yard's operator, once
+the yard has a Linear hook and the mayor a credential, and a no leaves the
+mayor as it is.

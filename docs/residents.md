@@ -235,6 +235,15 @@ definition; left out, the setting is gone. The store refuses the opening
 itself for a resident that is not allowed, whoever asks; who may change the
 setting is checked by the CLI, the same line, not wall, as who may speak.
 
+A pack can ask for it: `open_threads: [linear]` under a resident in
+`pack.yaml`. That sets nothing by itself. `yardr pack apply` asks the
+operator, `Let mayor open threads in linear?` with no as the default (or
+takes `--open-threads mayor=linear`), only for a source the yard has a hook
+and the resident a credential for, and only when the operator is the one
+applying. A yes adds the source to the setting, keeps what is there, and is
+logged as `open_threads_granted`
+([packs.md](packs.md#yardr-pack-apply)).
+
 **A thread is opened once.** Like a reply, the thread is on record with a
 key (a UUID) before anything is sent, under the source, the place, the
 title and the body. In Linear the key is the issue's own id, which Linear

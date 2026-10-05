@@ -109,6 +109,7 @@ type API interface {
 	Replied(ctx context.Context, name string, rp Reply, actor string) error
 	Opening(ctx context.Context, name, source, in, title, body string) (*Reply, error)
 	Opened(ctx context.Context, name string, rp Reply, actor string) error
+	AllowOpening(ctx context.Context, name string, sources []string, pack, actor string) ([]string, error)
 
 	PutHook(ctx context.Context, h Hook, actor string) (*Hook, error)
 	Hooks(ctx context.Context) ([]Hook, error)

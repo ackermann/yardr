@@ -55,6 +55,7 @@ residents:
       done: true
     subscribe:
       linear: involved
+    open_threads: [linear]
 ```
 
 | key | meaning |
@@ -74,6 +75,7 @@ residents:
 | `residents.<name>.hears.stages` | a bead entering one of these stages, which a flow of the pack must have |
 | `residents.<name>.hears.done` | `true`: a bead becoming done |
 | `residents.<name>.subscribe.<source>` | an outside source (`github`, `linear`, `token`) and how much of it: `involved`, `mentions` or `all` |
+| `residents.<name>.open_threads` | optional: the sources (`github`, `linear`) the resident should be able to open a thread in unasked (`yardr thread open`). The pack only asks: the import puts it to the yard's operator ([below](#yardr-pack-apply)) |
 
 A stage's outcomes and manual moves are the flow's transitions, outcomes
 first ([flows.md](flows.md#outcomes-agents-say-how-the-work-ended)): `new`
@@ -136,7 +138,9 @@ packs/mine/pack.yaml:7: flows.default.stages.decide.group: no group deciders is 
   {{operator}}, {{mayor}} (the operator and the pack's residents) and
   nothing else`;
 - `hears.stages` naming a stage no flow of the pack has;
-- a `subscribe` source this yardr has no adapter for, or an unknown scope.
+- a `subscribe` source this yardr has no adapter for, or an unknown scope;
+- an `open_threads` source yardr cannot open threads in (`token`), with the
+  ones it can.
 
 ## yardr pack check
 
@@ -159,7 +163,8 @@ writes nothing, neither to the store nor under the home:
 | `edited by hand since the last import: …` under a file | the installed copy is neither what the last import installed nor what the pack has now: `pack apply` overwrites it only with `--yes` ([below](#yardr-pack-apply)) |
 
 then what an import would ask, which flow would govern the rig afterwards,
-what each subscribed source has and lacks, and notes. `--json` prints the
+what each subscribed source has and lacks, what each resident would be let
+open threads in ([Opening threads](#how-a-pack-maps-to-the-yard)), and notes. `--json` prints the
 same plan as data ([below](#the-plan-as-data)). It exits 1 on an invalid
 pack and on a plan an import would refuse.
 
@@ -306,6 +311,33 @@ yard's):
 Its other subscriptions are left alone
 ([subscriptions.md](subscriptions.md)).
 
+**Opening threads.** `open_threads` is the one key of a resident the pack
+does not set: it asks. Speaking first in a source is the operator's to grant
+([residents.md](residents.md#opening-a-thread)), so the plan sorts the
+sources the pack names, per resident, and the import asks the operator
+about what is left:
+
+```
+open threads, for resident yardmaster
+  the pack asks for linear, github
+  asks      linear: the operator is asked, and the answer without one is no
+  the pack wants github, this yard lacks hook and credential: nothing is asked or granted
+    missing  hook         no hook receives github: yardr hook add github --source github --secret-file <file>
+    missing  credential   GITHUB_TOKEN in resident yardmaster's env_file, to answer in github: …
+```
+
+| the plan says | meaning |
+|---|---|
+| `has` | the yard's resident may open threads there already: no question |
+| `asks` | the import asks the operator |
+| `the pack wants <source>, this yard lacks <hook\|credential>` | the yard has no hook for the source, or the resident's `env_file` does not name its credential, read as the Sources table below reads them. The import asks nothing and grants nothing for it, by flag either, and records no answer: an import after the yard has both asks then. A resident the import creates has no `env_file` yet, so its sources are all here the first time |
+| `declined` | an earlier import was told no: not asked again; `--open-threads` still grants it |
+| `grants`, `declines` | in the plan `pack apply` prints: what `--open-threads` answered |
+
+The import only adds to the resident's `open_threads`. A pack without the
+key, a no, and a source nobody was asked about leave the setting as the
+yard has it.
+
 **Sources.** For each source a resident subscribes to, the plan says what
 the yard has and lacks to hear it and answer in it:
 
@@ -322,7 +354,8 @@ the yard has and lacks to hear it and answer in it:
 ```sh
 yardr pack apply <dir> --rig <rig> [--yes] [--prune]
     [--bind <group>=<kind>[:<model>][,<preset>]]… [--members <group>=a,b]…
-    [--resident <pack's>=<yard's>]… [--flow <flow>] [--rig-roles] [--json]
+    [--resident <pack's>=<yard's>]… [--open-threads <pack's>=<source>,…|none]…
+    [--flow <flow>] [--rig-roles] [--json]
 ```
 
 It makes the plan `pack check` shows, prints it with what the flags answer
@@ -342,6 +375,7 @@ answers it instead:
 | which resident of the yard takes a resident of the pack | `--resident <pack's>=<yard's>` |
 | the agent, model and permissions of a resident the yard lacks | `--bind resident:<pack's>=<kind>[:<model>][,<preset>]` |
 | which flow the rig follows, when the pack has several without a type | `--flow <name>` |
+| whether a resident may open threads in the sources the pack asks for | `--open-threads <pack's>=linear,github`, or `=none`; see below for what happens without it |
 
 `<group>` is the pack's name for the group (`builders`, not
 `web-builders`). A flag for a group or resident the yard already has
@@ -350,8 +384,9 @@ an error, so the same command can be run again. A resident the import
 creates works in the yard's home, as one made by `yardr resident add` does.
 
 Without a terminal, or with `--json`, nothing is asked: a question without
-its flag is an error that names the flag, never a default, with the one
-exception of the permission arguments below. `--yes` applies without the
+its flag is an error that names the flag, never a default, with two
+exceptions: the permission arguments, and whether a resident may open
+threads, both below. `--yes` applies without the
 confirmation, and without a terminal it is required whenever there is
 something to write.
 
@@ -384,10 +419,48 @@ create, the agent, model and arguments the flags give it, and lists under
 group or resident the yard already has are the yard's and are never
 touched, whatever `--bind` says.
 
+**Opening threads is asked of the operator.** For each resident with a
+source under `asks` in the plan:
+
+- In a terminal the import asks once per resident, after its other
+  questions and the confirmation: `Let yardmaster open threads in linear?`
+  The default is no, and the one answer is for every source in the
+  question.
+- Without a terminal, with `--json` or with `--yes`, nothing is asked and
+  the flag answers: `--open-threads mayor=linear,github` lets the resident
+  that takes the pack's `mayor` open threads in those and says no to the
+  other sources in the question; `--open-threads mayor=none` says no to
+  all. A no changes nothing in the yard, and the output says it is on
+  record. Without the flag nothing is granted, the rest is imported, and the
+  output names the flag. The safe answer exists here, and it is no, which
+  is why this is no error. Without a terminal an answer by flag needs
+  `--yes`, like any other change.
+- The flag names sources the pack asks for; any other is an error. One the
+  resident has already answers nothing, so the same command can be run
+  again. One the yard lacks a hook or a credential for grants nothing, and
+  the output says what is missing.
+- Only the operator grants, by the check `yardr resident add` makes: the
+  yard's `operator` setting, else the user running the command. Run by
+  anyone else (a resident's session, a bead's agent) the import does
+  everything else, grants nothing whatever the flag says, records no
+  answer, and says who may grant it; the operator's next apply is asked.
+- A yes is logged as `open_threads_granted` on the resident's journal, with
+  the pack, the resident, the sources that were new to it and the actor.
+  The resident needs no restart: `yardr thread open` reads the setting each
+  time.
+
 **Twice is once.** Applying a pack that is already applied writes no object
 and logs one event, `pack_unchanged`. It needs no flag and no `--yes`: the
 record says which resident took each of the pack's, which flow the rig
-follows and whose roles were chosen.
+follows and whose roles were chosen. It also keeps each answer about
+opening threads, by resident and source, yes or no: the same pack asks
+nothing the second time, and one that asks for a further source later asks
+about that source alone. A source nobody could be asked about (the yard
+lacked it, nobody with a terminal or a flag was there, the operator was not
+the one applying) has no answer and is asked about next time. So is a yes
+whose setting the operator has since taken away by hand: the import never
+gives it back unasked. An import whose only news is an answer writes the
+record and logs `pack_applied`.
 
 **A copy edited by hand is not overwritten silently.** The record holds the
 content of each file as the import installed it, placeholders filled. A copy under
@@ -453,6 +526,7 @@ starter in rig web  2026-10-03 18:40 by mckean
 | `rig_roles` | `true` when the import was given `--rig-roles`; absent when the pack's roles were set |
 | `groups`, `residents` | pack name -> yard name |
 | `objects` | the files, groups, flows, pointers, routes and subscriptions that are the pack's; a file with the `sha256` of its content as installed, placeholders filled |
+| `open_threads` | the answers about opening threads: yard's resident -> source -> `true` or `false`; absent when nothing was answered. `yardr pack list` prints them as `may open   yardmaster: github no, linear yes` |
 
 An import that changes nothing leaves the record as it is, its commit and
 time included: it is the record of the last import that did something. The
@@ -500,8 +574,12 @@ again, and the command exits 1 naming it.
 ## The plan as data
 
 `pack check --json` prints the plan an import executes (`pack apply --json`
-prints `{"plan": …, "answers": …, "result": …}`, the answers by question
-id, an `args` answer being the arguments the new agent got, space-separated):
+prints `{"plan": …, "answers": …, "open_threads": …, "result": …}`, the
+answers by question id, an `args` answer being the arguments the new agent
+got, space-separated; `open_threads` has `answers`, resident -> source ->
+yes or no as given by flag or form, and `notes`, what was not granted and
+which flag or who would grant it; `result.granted` lists each resident with
+the sources it was let open threads in):
 
 ```json
 {
@@ -517,6 +595,8 @@ id, an `args` answer being the arguments the new agent got, space-separated):
   "questions": [{"id": "group.web-builders.kind", "object": "group web-builders", "field": "kind", "ask": "…", "default": "claude"}],
   "governs": [{"flow": "starter.default", "source": "store", "now": "default (repo@77a3a8f)", "in_pack": true}],
   "sources": [{"source": "linear", "resident": "yardmaster", "needs": [{"what": "hook", "status": "ok", "detail": "…"}]}],
+  "open_threads": [{"pack": "mayor", "resident": "yardmaster", "wants": ["linear", "github"], "has": [], "asks": ["linear"], "declined": [],
+    "lacks": [{"source": "github", "missing": [{"what": "hook", "status": "missing", "detail": "…"}]}]}],
   "notes": [], "refused": []
 }
 ```
@@ -552,3 +632,8 @@ object has `owned`, the record's entry for it, and `held` when not even a
 prune removes it. The question `pack.flow` belongs to no object: it is
 asked when the pack has several flows a rig could follow. A plan with
 anything under `refused` must not be applied.
+
+`open_threads` has one entry per resident the pack asks it for. Each source
+under `wants` is in exactly one of `has`, `lacks`, `declined` and `asks`;
+`recorded` holds the last import's answers. What `asks` lists is not among
+`questions`: without an answer it is no, not an error.
