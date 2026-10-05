@@ -599,6 +599,10 @@ type Rig struct {
 	// CheckLight is the rig's light gate, beside Check: the override of the
 	// repo's .yardr/check-light (see package rigcheck).
 	CheckLight string `json:"check_light,omitempty"`
+	// LightSlot: the rig's light gate takes one of the machine's gate slots,
+	// as its full gate always does (see package rigcheck). For a rig whose
+	// light gate is not light.
+	LightSlot bool `json:"light_slot,omitempty"`
 	// AllowNoCheck lets a rig with neither Check nor .yardr/check pass its
 	// gate; without it, no gate fails.
 	AllowNoCheck bool `json:"allow_no_check,omitempty"`
@@ -630,7 +634,7 @@ func (s *Store) PutRig(ctx context.Context, r Rig, actor string) error {
 			return err
 		}
 		return w.event("", "rig_updated", actor, map[string]any{
-			"rig": r.Name, "path": r.Path, "kind": r.Kind, "base": r.Base, "check": r.Check, "check_light": r.CheckLight, "allow_no_check": r.AllowNoCheck})
+			"rig": r.Name, "path": r.Path, "kind": r.Kind, "base": r.Base, "check": r.Check, "check_light": r.CheckLight, "light_slot": r.LightSlot, "allow_no_check": r.AllowNoCheck})
 	})
 }
 

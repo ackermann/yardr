@@ -25,6 +25,7 @@ import (
 	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/roles"
@@ -1210,6 +1211,11 @@ var settings = map[string]struct {
 		checkTimerLimit},
 	store.TimerMinEverySetting: {fmt.Sprintf("the shortest period of a recurring timer (yardr timer add --every), such as 30m or 1d; default %s",
 		store.Span(store.DefaultTimerMinEvery)), checkTimerMinEvery},
+	rigcheck.SlotsSetting: {fmt.Sprintf("how many full gates (yardr rig check) run at once on the machine, counting every yard of the user; the others wait; 0 for no limit; default %d",
+		rigcheck.DefaultSlots), func(v string) error {
+		_, err := rigcheck.ParseSlots(rigcheck.SlotsSetting, v)
+		return err
+	}},
 	"name": {"the yard's name, which its residents' herdr agents and workspaces carry (<name>-mayor); default: the home's directory name", func(v string) error {
 		if !groupName.MatchString(v) {
 			return fmt.Errorf("yard name %q: letters, digits, '.', '_', '-', '/'", v)
@@ -1219,7 +1225,7 @@ var settings = map[string]struct {
 }
 
 func (a *app) settingsCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "settings", Short: "The yard's own defaults (default_kind, hook_addr, mayor, name, operator, operator_style, operator_note, timer_limit, timer_min_every)",
+	cmd := &cobra.Command{Use: "settings", Short: "The yard's own defaults (default_kind, gate_slots, hook_addr, mayor, name, operator, operator_style, operator_note, timer_limit, timer_min_every)",
 		Long: `The yard's own defaults. yardr settings get lists them with what each means.
 
 hook_addr is the address the server takes webhooks on (yardr hook --help).
@@ -1235,6 +1241,10 @@ instructions), so a change reaches the next session; unset, the primes say
 nothing. The styles:
 
 ` + styleHelp() + `
+
+gate_slots is how many full gates run at once on the machine (yardr rig
+check --help): the limit is the machine's, shared by every yard of the user,
+and a gate that finds no slot free waits. 0 is no limit.
 
 timer_limit and timer_min_every bound the yard's timers (yardr timer): how
 many live ones one resident or user may have set, and the shortest period of

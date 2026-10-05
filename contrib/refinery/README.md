@@ -19,6 +19,9 @@ The note of a red gate starts with the branch, the commit, the base and the
 file `rig check` kept the whole output in (under the yard's home,
 `gates/<rig>/`); then the lines matching the rig's
 `.yardr/check-fail-pattern`, if it has one, and the last 200 lines.
+The gate waits for one of the machine's gate slots (`yardr rig check
+--help`) ahead of the others waiting (`YARDR_GATE_FIRST=1`, as
+integrate-epic's does); none within rig check's bound is exit 2 as well.
 A gate ended by a signal from outside (exit 128+N, e.g. 143 for SIGTERM) is
 neither: it is run once more on the same commit, with a note of the first
 run's output, and held with both outputs if a signal ends it again. The

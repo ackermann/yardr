@@ -15,6 +15,7 @@ import (
 	"yardr.dev/yardr/internal/chat"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/server"
@@ -40,6 +41,9 @@ type statusReport struct {
 	Hooks *hookStatus  `json:"hooks,omitempty"`
 	Peers []peerStatus `json:"peers,omitempty"`
 	Work  *workCounts  `json:"work,omitempty"`
+	// Gates are the full gates of the machine, of this yard and any other of
+	// the user: absent with no limit set, and while none runs or waits.
+	Gates *gateStatus `json:"gates,omitempty"`
 	// Faults is how many faults yardr doctor reports on this yard now.
 	Faults *int `json:"faults,omitempty"`
 }
@@ -108,6 +112,13 @@ type workCounts struct {
 	Held    int            `json:"held"`
 }
 
+// gateStatus is what runs and waits for a gate slot on the machine, and the
+// yard's limit.
+type gateStatus struct {
+	rigcheck.SlotCount
+	Limit int `json:"limit"`
+}
+
 // serverInfo asks the home's server which process and build it is; tests
 // replace it.
 var serverInfo = server.Describe
@@ -132,8 +143,12 @@ func (a *app) statusCmd() *cobra.Command {
   peers      each linked yard and where it is called
   work       how many sessions run in each group, how many beads wait for
              a person in each manual group, and how many beads are held
+  gates      how many full gates (yardr rig check) run on the machine now and
+             how many wait for a slot, with the yard's limit (gate_slots);
+             they are the machine's, so another yard's gates are counted
 
-A part the yard does not have (hooks, peers) has no line. It is read-only
+A part the yard does not have (hooks, peers) has no line, nor have the gates
+while none runs or waits. It is read-only
 and starts nothing: on a yard whose server is not running it says so, with
 the daemon and the web views, which it reads from the home, and one line
 for the residents, hooks, peers and work, which only the server knows.
@@ -256,6 +271,12 @@ func (a *app) status(ctx context.Context, cfg *config.Config) (*statusReport, er
 			rep.Work.Waiting[s.Group]++
 		} else {
 			rep.Work.Sessions[s.Group]++
+		}
+	}
+	// A limit that does not read is rig check's to say, not status's.
+	if limit, err := rigcheck.SlotLimit(all); err == nil && limit > 0 {
+		if c, err := rigcheck.Count(rigcheck.SlotDir()); err == nil && c.Running+c.Waiting > 0 {
+			rep.Gates = &gateStatus{SlotCount: c, Limit: limit}
 		}
 	}
 	return rep, nil
@@ -425,6 +446,9 @@ func (r *statusReport) parts() []statusPart {
 		}
 		line += fmt.Sprintf("; %d held", w.Held)
 		parts = append(parts, statusPart{"work", []string{line}})
+	}
+	if g := r.Gates; g != nil {
+		parts = append(parts, statusPart{"gates", []string{fmt.Sprintf("%d running, %d waiting (limit %d)", g.Running, g.Waiting, g.Limit)}})
 	}
 	return parts
 }

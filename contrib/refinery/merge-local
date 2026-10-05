@@ -105,6 +105,14 @@ fi
 # record however the second ends; ended by a signal twice, the bead is held.
 # rig check's own kill at its deadline is not this: it exits 1, a red gate.
 #
+# A full gate waits for one of the machine's gate slots (yardr rig check
+# --help). This one goes before the others that wait (YARDR_GATE_FIRST, which
+# is rig check --first): every approved bead waits behind it, one at a time,
+# while builders and reviewers gate many at once. It is said in the
+# environment, not as the flag, so a yardr older than the slots runs this
+# script as before instead of failing on a flag it does not know. No slot
+# within rig check's bound is exit 2: hold.
+#
 # The light gate is only for a part that lands on its epic's branch, where
 # the full gate still stands before the rig's base (integrate-epic runs it on
 # the whole epic). All three must hold, as the exec runner says them: the
@@ -117,7 +125,7 @@ if [ "${YARDR_TYPE:-}" = part ] && [ -n "${YARDR_EPIC:-}" ] && [ "$BASE" = "yard
   LIGHT=--light GATE="the light gate"
   echo "== $BEAD is a part of epic $YARDR_EPIC: light gate here, the full gate on the epic"
 fi
-gate() { out=$("$Y" rig check "$RIG" $LIGHT --dir "$WT" --tail "$TAIL" 2>&1) && rc=0 || rc=$?; printf '%s\n' "$out"; }
+gate() { out=$(YARDR_GATE_FIRST=1 "$Y" rig check "$RIG" $LIGHT --dir "$WT" --tail "$TAIL" 2>&1) && rc=0 || rc=$?; printf '%s\n' "$out"; }
 # Where rig check kept all of a red gate's output: its FAIL line ends with
 # the file. $out is what the rig says matters (the lines matching its
 # .yardr/check-fail-pattern, if it has one) and then the last $TAIL lines,

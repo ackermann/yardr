@@ -375,7 +375,8 @@ tail is empty says so, or how many lines it hid) and pass or FAIL; `--json`
 gives the full output, the exit code and the source (`store`, `repo@<sha>`,
 `dir` for a dir rig's own file, or empty for a rig with no gate). It exits 0 on a green gate, 1 on a red one
 (no gate and a timeout included), and 2 when the gate could not run at all:
-an unknown rig, a base that does not resolve, git failing. A check ended by
+an unknown rig, a base that does not resolve, git failing, no
+[gate slot](#gate-slots-how-many-gates-run-at-once) within `--slot-wait`. A check ended by
 a signal from outside (its process killed, or its own exit status 128+N, as
 a shell reports a killed command) exits 128+N, which the refinery runs once
 more instead of sending the bead back. A red gate's whole output is kept
@@ -451,6 +452,48 @@ Rig yardr's [`.yardr/check-fail-pattern`](../.yardr/check-fail-pattern)
 names what go prints for a failure: `--- FAIL`, `^FAIL`, `panic:`, `DATA
 RACE`, the gate's own `gofmt needed`, and the `file.go:line:col:` of vet and
 the compiler.
+
+### Gate slots: how many gates run at once
+
+A full gate is heavy (yardr's own takes about five of ten cores for five
+minutes), and the groups' limits do not bound how many run together: five
+builders and three reviewers can be eight gates, each several times slower,
+with the tests that time something failing. So `yardr rig check` takes one
+of the machine's **gate slots** before the check starts and gives it back
+when the check ends, however it ends. With none free it waits, and says so
+on stderr:
+
+```
+yardr: 2 gates are running on this machine; waiting for a slot
+yardr: got a slot after waiting 3m12s
+```
+
+| what | how |
+|---|---|
+| how many | the yard's `gate_slots` setting, default 2; `0` is no limit. `YARDR_GATE_SLOTS`, when set, is used instead of the setting (one run told otherwise, a script, a test). |
+| whose | the machine's, for every yard of the same user: a builder, a reviewer, the refinery, the integrator and a person at a terminal all take from the same slots, and so does another yard, and an isolated yard ([contrib/isolated-yard](../contrib/isolated-yard/README.md)). |
+| where | lock files `slot-1` to `slot-N` in `~/.local/state/yardr/gates`, with `~` the home the user database names, not `$HOME`: a yard run with another `HOME`, `XDG_STATE_HOME` or an emptied environment finds the same directory. `YARDR_GATE_DIR` names another one (tests). A user the database does not know gets `/tmp/yardr-gates-<uid>`. |
+| never leaks | a slot is a `flock` held by the `yardr rig check` process, and by nothing it starts. The kernel drops it when that process ends: a pass, a failure, the timeout, a signal, `kill -9`. The files stay; they are a few bytes saying who held each last. |
+| the timeout | `--timeout` starts when the check starts. The wait has its own bound, `--slot-wait` (default 30m); past it the check could not run and `rig check` exits 2, which the refinery holds on. It is never a red gate. |
+| who goes first | `--first` (or `YARDR_GATE_FIRST=1`, which the refinery scripts set): the runs already waiting, and one that only arrives, stand back for it. Among the others no order is kept; each looks five times a second. |
+| the light gate | takes no slot: it is meant to be cheap. `yardr rig add --light-slot` says a rig's light gate takes one. The full gate run under `--light` for want of a light one takes one. |
+| a gate inside a gate | a check under a slot has `YARDR_GATE_SLOT=1` in its environment, and a `yardr rig check` started with it takes none: a gate whose tests run gates would otherwise wait on itself. |
+| who sees it | `yardr status` has a line `gates  2 running, 1 waiting (limit 2)` while any gate of the machine runs or waits and the yard has a limit; `rig check --json` has `slot_waited_seconds`. |
+
+Yards with different limits share the lower slots: a run with limit N takes
+one of the first N, so the highest limit among them is what holds for the
+machine. Give them the same.
+
+The refinery goes first because its gate is the one every approved bead
+waits behind, one at a time, while the gates of builders and reviewers come
+many at once: without it the merge queue would stand in line eight to one.
+A builder's wait holds up one bead.
+
+The slot is not held by the check's own processes on purpose. A `rig check`
+killed with `kill -9` leaves its check running until that ends by itself,
+and for that time the machine carries a gate the slots do not count; held
+by the check too, a test that left a process behind would keep a slot for
+good.
 
 ### The light gate: `.yardr/check-light`
 
@@ -1110,6 +1153,7 @@ value unsets) keep the yard's own defaults in the store:
 | `operator_note` | one line agents should know about the operator (`--about`, the form's "Anything agents should know about you?"), printed by the primes with the style, or alone. |
 | `mayor` | the mayor resident's name, whom the builder and reviewer roles tell agents to mail about what blocks them ([residents.md](residents.md#findings-from-builders-and-reviewers)); `yardr init` stores it (`--mayor`) and `yardr rig init` fills roles with it. A yard from before the setting has none: `rig init` then takes its one resident, else `mayor`. |
 | `hook_addr` | the TCP address the server takes webhooks on, `127.0.0.1:8790` say ([subscriptions.md](subscriptions.md)). The server reads it when it starts, so a change takes its next start: `yardr server stop`, and the next command starts it again; `settings set` says so. `YARDR_HOOK_ADDR`, set where the server starts, is used instead of it. An address that is not `host:port` with a port from 1 to 65535 is refused (`:8790` is every interface). The server writes what it listens on to `hooks.state` in the home, and `yardr doctor` reports it: the address and whether it is the variable's or the setting's. A server that cannot listen there (another yard has the address) keeps serving its yard, logs a `hook_listener_failed` event, and doctor says so with what to change. |
+| `gate_slots` | how many full gates (`yardr rig check`) run at once on the machine, counting every yard of the user; the others wait for a [slot](#gate-slots-how-many-gates-run-at-once). A whole number, default 2; `0` is no limit. |
 | `name` | the yard's name, which its residents' herdr agents and workspaces carry (`<name>-mayor`, labelled `<name> mayor`), so two yards on one machine, whose agents herdr lists together, are told apart. Unset, the home's directory name: `yardr` for `~/.yardr`, `y1` for `/tmp/y1`. Changing it renames residents started from then on. |
 | `timer_limit` | how many live timers one resident or user may have set ([timers.md](timers.md#limits)); a whole number from 1, default 5. |
 | `timer_min_every` | the shortest period of a recurring timer (`yardr timer add --every`): a duration such as `30m` or `1d`, default `1h`. |
@@ -1125,6 +1169,10 @@ Environment variables yardr reads:
 | `YARDR_HOOK_ADDR` | TCP address the server takes webhooks on, e.g. `127.0.0.1:8790`, read where the server starts; set, it is used instead of the `hook_addr` setting ([above](#settings)) |
 | `YARDR_LINEAR_API`, `YARDR_GITHUB_API` | where `yardr reply`, `yardr thread open` and `yardr thread state` send their calls, read by the command that makes them, and where the daemon sends a hook's issue moves ([links.md](links.md#a-beads-stage-moves-the-issue)), read when it starts (default: Linear's GraphQL endpoint, `https://api.github.com`) |
 | `YARDR_EVENT_RETENTION`, `YARDR_HOOK_PAYLOAD_RETENTION`, `YARDR_INBOX_RETENTION` | how long the daemon and `yardr store prune` keep events, ended sessions and webhook bodies, and how long an unread inbox event holds the log back ([below](#retention-keeping-yarddb-bounded)) |
+| `YARDR_GATE_SLOTS` | how many full gates run at once on the machine, used instead of the `gate_slots` setting when set; `0` is no limit ([gate slots](#gate-slots-how-many-gates-run-at-once)) |
+| `YARDR_GATE_FIRST` | set, `yardr rig check` takes its slot before the other runs waiting for one, as `--first`; the refinery scripts set it |
+| `YARDR_GATE_DIR` | where the gate slots are, instead of `~/.local/state/yardr/gates` |
+| `YARDR_GATE_SLOT` | set by `yardr rig check` for a check that runs under a slot; a `rig check` started with it takes none |
 | `YARDR_TEST_RPC` | tests: run the store suites through the unix-socket client |
 | `YARDR_STORE_NOSYNC` | tests: `1` opens `yard.db` without syncing each commit to the disk, which is most of a test run's time on macOS. The test suites set it for their throwaway yards (`0` keeps the sync). Never set it for a yard you keep: its store can be lost when the machine goes down |
 

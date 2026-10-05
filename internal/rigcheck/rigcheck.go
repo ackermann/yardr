@@ -34,6 +34,9 @@
 // does: a rig whose gate is a store override has its light gate in the store
 // too, and a .yardr/check-light in its repo is not read.
 //
+// No more than N full gates run at once on the machine (slots.go): RunWith
+// takes a slot before the check starts and holds it until the check ends.
+//
 // Either gate is told what it is compared with: YARDR_CHECK_BASE is the
 // commit the repo's gate was read at (the tip of the base, as fetched), so
 // a check can look at what the branch changed (git diff against the merge
@@ -323,7 +326,10 @@ type Result struct {
 	Fallback string `json:"light_fallback,omitempty"`
 	// Base is the commit the check was given to compare with (BaseVar).
 	Base string `json:"base,omitempty"`
-	Pass bool   `json:"pass"`
+	// SlotWaited is how long the run waited for a slot of the machine, in
+	// seconds; 0 when one was free, or it took none.
+	SlotWaited float64 `json:"slot_waited_seconds,omitempty"`
+	Pass       bool    `json:"pass"`
 	// ExitCode is the check's exit status (-1 when it was killed).
 	ExitCode int `json:"exit_code"`
 	// TimedOut: the check ran past the caller's deadline and was killed,
@@ -378,20 +384,41 @@ type Result struct {
 // at ctx's deadline is killed and fails (TimedOut); finding the gate past
 // the deadline is an error.
 func Run(ctx context.Context, rig store.Rig, dir string) (*Result, error) {
-	return run(ctx, rig, dir, false)
+	return run(ctx, rig, dir, Options{})
 }
 
 // RunLight is Run for the rig's light gate, and for its full gate when it
 // has no light one (Result.Fallback then says so).
 func RunLight(ctx context.Context, rig store.Rig, dir string) (*Result, error) {
-	return run(ctx, rig, dir, true)
+	return run(ctx, rig, dir, Options{Light: true})
 }
 
-func run(ctx context.Context, rig store.Rig, dir string, light bool) (*Result, error) {
+// Options are how RunWith runs a gate.
+type Options struct {
+	// Light asks for the rig's light gate (RunLight).
+	Light bool
+	// Timeout bounds the check itself, from when it starts: finding the gate
+	// and waiting for a slot are not counted. 0 leaves ctx's deadline alone.
+	Timeout time.Duration
+	// Slots is how the run takes its slot of the machine (see slots.go);
+	// nil takes none. A light gate takes none either, unless the rig says
+	// its light gate takes one (store.Rig.LightSlot): it is meant to be
+	// cheap. The full gate run for want of a light one takes one. So does
+	// no check started from inside a check that has one (SlotVar).
+	Slots *Slots
+}
+
+// RunWith is Run with options. A wait for a slot that runs past its bound
+// is an error wrapping ErrSlotWait: the check could not run.
+func RunWith(ctx context.Context, rig store.Rig, dir string, o Options) (*Result, error) {
+	return run(ctx, rig, dir, o)
+}
+
+func run(ctx context.Context, rig store.Rig, dir string, o Options) (*Result, error) {
 	if dir == "" {
 		dir = rig.Path
 	}
-	c, err := resolve(ctx, rig, light)
+	c, err := resolve(ctx, rig, o.Light)
 	if err != nil {
 		return nil, err
 	}
@@ -404,6 +431,20 @@ func run(ctx context.Context, rig store.Rig, dir string, light bool) (*Result, e
 			res.Output = fmt.Sprintf("no gate: rig %s has no --check and no %s on %s; add one, or set allow_no_check\n", rig.Name, RepoPath, c.From)
 		}
 		return res, nil
+	}
+	slot := false
+	if o.Slots != nil && o.Slots.Limit > 0 && os.Getenv(SlotVar) == "" && (!c.Light || rig.LightSlot) {
+		release, waited, err := o.Slots.Acquire(ctx)
+		if err != nil {
+			return nil, err
+		}
+		defer release()
+		slot, res.SlotWaited = true, waited.Seconds()
+	}
+	if o.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, o.Timeout)
+		defer cancel()
 	}
 	var cmd *exec.Cmd
 	switch {
@@ -441,6 +482,9 @@ func run(ctx context.Context, rig store.Rig, dir string, light bool) (*Result, e
 		"YARDR_RIG="+rig.Name)
 	if c.Base != "" {
 		cmd.Env = append(cmd.Env, BaseVar+"="+c.Base)
+	}
+	if slot {
+		cmd.Env = append(cmd.Env, SlotVar+"=1")
 	}
 	// The check runs in its own process group, killed whole at the
 	// deadline: killing only sh would leave go test and its test binaries

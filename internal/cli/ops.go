@@ -158,7 +158,7 @@ func (a *app) daemonCmd() *cobra.Command {
 func (a *app) rigCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "rig", Short: "Repositories (or plain directories) beads are worked in"}
 	var base, clone, check, checkLight, kind string
-	var allowNoCheck bool
+	var allowNoCheck, lightSlot bool
 	add := &cobra.Command{
 		Use:   "add <name> [path]",
 		Short: "Register (or update) a rig: an existing clone, --clone a URL, or a directory",
@@ -222,7 +222,7 @@ other directory a dir rig; rig add says which it took.`,
 				if c.Flags().Changed("base") {
 					return fmt.Errorf("a dir rig has no base; drop --base, or register a git checkout")
 				}
-				r := store.Rig{Name: name, Path: path, Kind: store.RigDir, Check: check, CheckLight: checkLight, AllowNoCheck: allowNoCheck}
+				r := store.Rig{Name: name, Path: path, Kind: store.RigDir, Check: check, CheckLight: checkLight, LightSlot: lightSlot, AllowNoCheck: allowNoCheck}
 				if err := st.PutRig(c.Context(), r, a.who()); err != nil {
 					return err
 				}
@@ -244,7 +244,7 @@ other directory a dir rig; rig add says which it took.`,
 				return fmt.Errorf("base %q does not resolve in %s (found: %s); pass --base",
 					base, path, strings.Join(strings.Fields(string(refs)), ", "))
 			}
-			r := store.Rig{Name: name, Path: path, Kind: store.RigGit, Base: base, Check: check, CheckLight: checkLight, AllowNoCheck: allowNoCheck}
+			r := store.Rig{Name: name, Path: path, Kind: store.RigGit, Base: base, Check: check, CheckLight: checkLight, LightSlot: lightSlot, AllowNoCheck: allowNoCheck}
 			if err := st.PutRig(c.Context(), r, a.who()); err != nil {
 				return err
 			}
@@ -259,6 +259,7 @@ other directory a dir rig; rig add says which it took.`,
 	add.Flags().StringVar(&clone, "clone", "", "clone this URL first (into [path] or ~/.yardr/rigs/<name>)")
 	add.Flags().StringVar(&check, "check", "", "merge gate command (sh -c), overriding the repo's "+rigcheck.RepoPath)
 	add.Flags().StringVar(&checkLight, "check-light", "", "light gate command (sh -c), overriding the repo's "+rigcheck.LightPath+" (yardr rig check --light)")
+	add.Flags().BoolVar(&lightSlot, "light-slot", false, "the light gate takes one of the machine's gate slots, as the full gate does (yardr rig check --help)")
 	add.Flags().BoolVar(&allowNoCheck, "allow-no-check", false, "let the gate pass when the rig has no check at all (default: no gate fails)")
 	show := &cobra.Command{
 		Use: "show <rig>", Short: "Show a rig: path, kind, base, flow and gate", Args: cobra.ExactArgs(1),
@@ -395,8 +396,8 @@ the beads and sessions named: close or move the beads first.`,
 func (a *app) rigCheckCmd() *cobra.Command {
 	var dir string
 	var tail int
-	var timeout time.Duration
-	var light bool
+	var timeout, slotWait time.Duration
+	var light, first bool
 	cmd := &cobra.Command{
 		Use:   "check <rig>",
 		Short: "Run the rig's merge gate in a directory and report pass or fail",
@@ -432,9 +433,27 @@ The check is killed, with everything it started, once it has run for
 --timeout, which fails the gate; each git call that finds the gate is bounded
 too.
 
+No more than gate_slots full gates (yardr settings, default ` + strconv.Itoa(rigcheck.DefaultSlots) + `) run at once
+on the machine, whoever starts them and from whichever yard of the user: a
+gate takes a slot before the check starts and gives it back when the check
+ends, however it ends. With none free it waits, and says so on stderr when
+it starts to wait and when it gets one, with how long it waited. --timeout
+starts when the check starts, not while it waits. The wait is bounded by
+--slot-wait; past it the check could not run (exit 2). --first lets this run
+go before the others that wait: it is for the refinery and the integrator
+(YARDR_GATE_FIRST=1 says the same), whose one gate at a time every approved
+bead waits behind. gate_slots 0 is no limit; YARDR_GATE_SLOTS, when set, is
+used instead of the setting. The light gate takes no slot, unless the rig
+was added with --light-slot; the full gate run for want of a light one takes
+one. A rig check started by a check that holds a slot (a gate whose tests
+run a gate) takes none: ` + rigcheck.SlotVar + ` in the check's environment says so.
+The slots are lock files in ` + slotDirHelp + `
+(YARDR_GATE_DIR names another directory), held by this process: the kernel
+frees one when its process ends. yardr status counts them.
+
 Exits 0 when the gate passes, 1 when it fails (including no gate and a
 timeout), 2 when it could not be run at all (unknown rig, base that does not
-resolve, git failing), so a merge script can tell a red branch from a broken
+resolve, git failing, no slot within --slot-wait), so a merge script can tell a red branch from a broken
 setup. A check ended by a signal from outside (its process killed, or its own
 exit status 128+N, which is how a shell reports a command killed by signal N)
 exits 128+N: no branch did that, so a merge script runs the gate again rather
@@ -481,7 +500,8 @@ them; yardr rig sources <rig> shows every source.`,
   yardr rig check yard --light --dir ~/.yardr/worktrees/yard/yard-12   # the light gate, a builder's check`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			res, err := a.runRigCheck(c.Context(), args[0], dir, timeout, light)
+			res, err := a.runRigCheck(c.Context(), args[0], dir, timeout, light,
+				rigcheck.Slots{First: first || config.Getenv("GATE_FIRST") != "", Wait: slotWait})
 			if err != nil {
 				return checkNotRun{err}
 			}
@@ -587,13 +607,20 @@ them; yardr rig sources <rig> shows every source.`,
 	cmd.Flags().IntVar(&tail, "tail", 40, "last lines of output to show (a red gate's lines matching "+rigcheck.FailPatternPath+" are shown before them, and all of it is kept in a file)")
 	cmd.Flags().DurationVar(&timeout, "timeout", rigcheck.DefaultTimeout, "kill the check and fail after this long")
 	cmd.Flags().BoolVar(&light, "light", false, "run the rig's light gate ("+rigcheck.LightPath+"); the full one when the rig has none")
+	cmd.Flags().BoolVar(&first, "first", false, "take a gate slot before the other runs that wait for one (the refinery, the integrator)")
+	cmd.Flags().DurationVar(&slotWait, "slot-wait", rigcheck.DefaultSlotWait, "give up (exit 2) after waiting this long for a gate slot")
 	return cmd
 }
 
+// slotDirHelp is where the gate slots are, for the help.
+const slotDirHelp = "~/.local/state/yardr/gates"
+
 // runRigCheck runs rig's gate in dir within timeout, its light one when
 // light (see rigcheck.RunLight); an error means it could not be run, as
-// opposed to a failing Result.
-func (a *app) runRigCheck(ctx context.Context, rigName, dir string, timeout time.Duration, light bool) (*rigcheck.Result, error) {
+// opposed to a failing Result. slots says how this run waits for its slot
+// of the machine; where the slots are and how many is filled in here, from
+// the yard.
+func (a *app) runRigCheck(ctx context.Context, rigName, dir string, timeout time.Duration, light bool, slots rigcheck.Slots) (*rigcheck.Result, error) {
 	st, err := a.store(ctx)
 	if err != nil {
 		return nil, err
@@ -610,6 +637,20 @@ func (a *app) runRigCheck(ctx context.Context, rigName, dir string, timeout time
 	if timeout <= 0 {
 		return nil, fmt.Errorf("--timeout must be positive")
 	}
+	if slots.Wait <= 0 {
+		return nil, fmt.Errorf("--slot-wait must be positive")
+	}
+	all, err := st.Settings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if slots.Limit, err = rigcheck.SlotLimit(all); err != nil {
+		return nil, err
+	}
+	slots.Dir, slots.Holder = rigcheck.SlotDir(), fmt.Sprintf("rig %s in %s", rig.Name, or(dir, rig.Path))
+	// On stderr, and at once: a person who waits must see why, and --json
+	// keeps stdout.
+	slots.Notify = func(line string) { fmt.Fprintln(stderr, "yardr: "+line) }
 	// Before the gate and outside its deadline: a gate that ran out of time
 	// must not hide the stranded beads.
 	stranded, err := st.Stranded(ctx, rig.Name)
@@ -620,13 +661,8 @@ func (a *app) runRigCheck(ctx context.Context, rigName, dir string, timeout time
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	run := rigcheck.Run
-	if light {
-		run = rigcheck.RunLight
-	}
-	res, err := run(ctx, *rig, dir)
+	// The timeout is the check's own: the wait for a slot does not eat it.
+	res, err := rigcheck.RunWith(ctx, *rig, dir, rigcheck.Options{Light: light, Timeout: timeout, Slots: &slots})
 	if err != nil {
 		return nil, err
 	}
@@ -734,6 +770,9 @@ func rigCheckLine(r store.Rig) string {
 	}
 	if r.CheckLight != "" {
 		line += "; light gate: " + r.CheckLight + " (store override of " + rigcheck.LightPath + ")"
+	}
+	if r.LightSlot {
+		line += "; light_slot: the light gate takes a gate slot"
 	}
 	if r.AllowNoCheck {
 		line += "; allow_no_check: no gate passes"

@@ -122,6 +122,12 @@ to `.yardr/check` or `.yardr/check-light` is seen by no gate at all, before
 or after this: both are read from `main`. A reviewer's `review:` commits get
 the light gate too, so a fault in one of them is the refinery's to find.
 
+No more than two full gates run at once on the machine (the yard's
+`gate_slots`), whoever starts them: a third `rig check` says `2 gates are
+running on this machine; waiting for a slot` and starts when one ends. The
+wait is not part of the check's timeout
+([configuration.md](configuration.md#gate-slots-how-many-gates-run-at-once)).
+
 ### What the gate does not catch
 
 The gate's script comes from the base, so a branch cannot change what is
@@ -181,7 +187,11 @@ the builder reported: `yardr rig check "$YARDR_RIG" --dir
 "$YARDR_WORKTREE"`, i.e. `.yardr/check` as it is on the base (the fetched
 `origin/main` when the base has a remote), or the rig's `--check`; a rig
 with neither fails with "no gate" unless it allows that
-([configuration.md](configuration.md#the-merge-gate-yardrcheck)). The script finishes by moving the bead, with a note:
+([configuration.md](configuration.md#the-merge-gate-yardrcheck)). Its gate takes a
+[gate slot](configuration.md#gate-slots-how-many-gates-run-at-once) like any
+other, and goes before the builders' and reviewers' gates that wait for one
+(`YARDR_GATE_FIRST=1`); with none free for 30 minutes the gate could not run
+(exit 2), and the bead is held, not sent back. The script finishes by moving the bead, with a note:
 `yardr bead advance "$YARDR_BEAD" --to <stage> --note -`. A script that
 exits without advancing, closing or holding counts as a failed session, like
 an agent that gives up, and after 3 of those the bead is held. Advancing ends

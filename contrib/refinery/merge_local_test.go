@@ -56,6 +56,11 @@ func TestMain(m *testing.M) {
 	// of its time is waiting for the processes it starts. Four at once is
 	// what a machine running two more gates still has room for.
 	flag.Set("test.parallel", "4")
+	// The yardr these tests start takes none of the machine's gate slots:
+	// they run inside a gate that holds one, whose mark (YARDR_GATE_SLOT)
+	// went with the rest, and a slot they waited for behind their own gate
+	// would never come free. A test of the slots sets its own limit.
+	os.Setenv("YARDR_GATE_SLOTS", "0")
 	dir, err := os.MkdirTemp("", "yrbin")
 	if err != nil {
 		panic(err)

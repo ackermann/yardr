@@ -114,7 +114,9 @@ fi
 # merge-local, it is run once more, after a note with the first run's tail,
 # and ended by a signal twice the epic is held. rig check's own kill at its
 # deadline is not this: it exits 1, a red gate.
-gate() { out=$("$Y" rig check "$RIG" --dir "$WT" --tail "$TAIL" 2>&1) && rc=0 || rc=$?; printf '%s\n' "$out"; }
+# As in merge-local, it goes before the other gates waiting for a slot of the
+# machine (YARDR_GATE_FIRST): the epic's children wait behind it.
+gate() { out=$(YARDR_GATE_FIRST=1 "$Y" rig check "$RIG" --dir "$WT" --tail "$TAIL" 2>&1) && rc=0 || rc=$?; printf '%s\n' "$out"; }
 # Where rig check kept all of a red gate's output: its FAIL line ends with
 # the file. $out is what the rig says matters (the lines matching its
 # .yardr/check-fail-pattern, if it has one) and then the last $TAIL lines,
