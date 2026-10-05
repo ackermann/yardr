@@ -529,6 +529,37 @@ func (c *Client) IssueMoveSkipped(ctx context.Context, id string, skip store.Iss
 	return c.call(ctx, "IssueMoveSkipped", nil, id, skip)
 }
 
+func (c *Client) AddPeer(ctx context.Context, p store.Peer, actor string) (*store.Peer, error) {
+	return callV[*store.Peer](c, ctx, "AddPeer", p, actor)
+}
+func (c *Client) Peers(ctx context.Context) ([]store.Peer, error) {
+	return callV[[]store.Peer](c, ctx, "Peers")
+}
+func (c *Client) GetPeer(ctx context.Context, name string) (*store.Peer, error) {
+	return callV[*store.Peer](c, ctx, "GetPeer", name)
+}
+func (c *Client) DeletePeer(ctx context.Context, name, actor string) error {
+	return c.call(ctx, "DeletePeer", nil, name, actor)
+}
+func (c *Client) AllowPeer(ctx context.Context, name string, ch store.PeerAllow, actor string) (*store.Peer, error) {
+	return callV[*store.Peer](c, ctx, "AllowPeer", name, ch, actor)
+}
+func (c *Client) PeerSend(ctx context.Context, name, kind string, body json.RawMessage, actor string) (*store.PeerOut, error) {
+	return callV[*store.PeerOut](c, ctx, "PeerSend", name, kind, body, actor)
+}
+func (c *Client) PeerOutbox(ctx context.Context, name string, limit int) ([]store.PeerOut, error) {
+	return callV[[]store.PeerOut](c, ctx, "PeerOutbox", name, limit)
+}
+func (c *Client) PeerDelivered(ctx context.Context, name string, seq uint64) error {
+	return c.call(ctx, "PeerDelivered", nil, name, seq)
+}
+func (c *Client) PeerSendFailed(ctx context.Context, name string, seq uint64, reason string, retryAt time.Time, final bool) error {
+	return c.call(ctx, "PeerSendFailed", nil, name, seq, reason, retryAt, final)
+}
+func (c *Client) PeerPulled(ctx context.Context, name string, b store.PeerBatch) (*store.PeerPulled, error) {
+	return callV[*store.PeerPulled](c, ctx, "PeerPulled", name, b)
+}
+
 // Subscribe streams events with seq > after. The channel closes if the
 // connection drops; resubscribe from the last seq seen.
 func (c *Client) Subscribe(ctx context.Context, after uint64) (<-chan store.Event, error) {

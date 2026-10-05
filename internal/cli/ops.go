@@ -137,6 +137,7 @@ func (a *app) daemonCmd() *cobra.Command {
 				MaxAttempts: attempts,
 				Binary:      bin,
 				Retention:   keep,
+				PeerKey:     a.cfg.PeerKey(),
 			}
 			log.Info("yardr daemon started", "store", a.cfg.DBPath(), "reconcile", interval)
 			return d.Run(ctx)

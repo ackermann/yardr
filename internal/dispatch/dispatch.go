@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"slices"
 	"time"
 
@@ -123,10 +124,29 @@ type Dispatcher struct {
 	// a day). See issues.go.
 	IssueTries int
 
+	// PeerKey is the file of the yard's key, with which requests to its
+	// peers are signed; PeerHTTP makes them (nil: http.DefaultClient).
+	// PeerTries is how often a message is posted to a peer before it is
+	// given up (default 24, as IssueTries), and PeerPoll how often peers
+	// are asked for what waits there between passes (default 5s). See
+	// peers.go.
+	PeerKey   string
+	PeerHTTP  *http.Client
+	PeerTries int
+	PeerPoll  time.Duration
+
 	ghCursor uint64 // the last event the github rules read
 	// issueWait is source -> when it is asked again after a call that
 	// failed, so its other moves do not each wait out a timeout.
 	issueWait map[string]time.Time
+	// peerCalls is whether any peer can be called, as of the last pass.
+	// peerWait is peer -> when it is called again after a request that
+	// failed. peerErr and peerKeyErr are the last errors said, so each is
+	// said once.
+	peerCalls  bool
+	peerWait   map[string]time.Time
+	peerErr    map[string]string
+	peerKeyErr string
 	// ciRead is epic in in-pr -> its revision when its CI was read and
 	// acted on; an event about the epic's pull request removes it, so the
 	// state is read again. ciWait is epic -> the wait after a read GitHub
@@ -227,6 +247,12 @@ func (d *Dispatcher) defaults() {
 	}
 	if d.IssueTries == 0 {
 		d.IssueTries = 24
+	}
+	if d.PeerTries == 0 {
+		d.PeerTries = 24
+	}
+	if d.PeerPoll == 0 {
+		d.PeerPoll = 5 * time.Second
 	}
 	if d.CheckBinary == 0 {
 		d.CheckBinary = 10 * time.Second
@@ -363,6 +389,10 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 	}
 	tick := time.NewTicker(d.Interval)
 	defer tick.Stop()
+	// A yard that cannot be called gets its messages by asking, so it asks
+	// more often than it reconciles.
+	poll := time.NewTicker(d.PeerPoll)
+	defer poll.Stop()
 	for {
 		if err := d.Reconcile(ctx); err != nil {
 			if ctx.Err() != nil {
@@ -384,6 +414,12 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 				}
 			case <-prune:
 				d.prune(ctx)
+			case <-poll.C:
+				if d.peerCalls {
+					if err := d.peers(ctx); err != nil && ctx.Err() == nil {
+						d.Log.Warn("peers", "err", err)
+					}
+				}
 			case <-tick.C:
 				break wait
 			case <-wake:
@@ -457,7 +493,7 @@ func (d *Dispatcher) noteReplaced(ctx context.Context) {
 
 // Reconcile performs one idempotent pass: reap dead sessions, tear down
 // finished ones, apply the github rules to new hook events, read the CI of
-// epics in in-pr, move the issues beads track, then route and start unowned
+// epics in in-pr, move the issues beads track, route and start unowned
 // ready beads.
 func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	d.defaults()
@@ -494,7 +530,11 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	if err := d.issues(ctx); err != nil {
 		return err
 	}
-	return d.route(ctx, byName, active)
+	if err := d.route(ctx, byName, active); err != nil {
+		return err
+	}
+	// Last: a peer that does not answer holds up nothing of this yard's.
+	return d.peers(ctx)
 }
 
 // reap ends sessions whose runner reports them gone and returns the live

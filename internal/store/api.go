@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 )
 
@@ -130,6 +131,17 @@ type API interface {
 	IssueMoveFailed(ctx context.Context, id, reason string, retryAt time.Time) error
 	IssueMoved(ctx context.Context, id string, ts ThreadState) error
 	IssueMoveSkipped(ctx context.Context, id string, skip IssueSkip) error
+
+	AddPeer(ctx context.Context, p Peer, actor string) (*Peer, error)
+	Peers(ctx context.Context) ([]Peer, error)
+	GetPeer(ctx context.Context, name string) (*Peer, error)
+	DeletePeer(ctx context.Context, name, actor string) error
+	AllowPeer(ctx context.Context, name string, ch PeerAllow, actor string) (*Peer, error)
+	PeerSend(ctx context.Context, name, kind string, body json.RawMessage, actor string) (*PeerOut, error)
+	PeerOutbox(ctx context.Context, name string, limit int) ([]PeerOut, error)
+	PeerDelivered(ctx context.Context, name string, seq uint64) error
+	PeerSendFailed(ctx context.Context, name string, seq uint64, reason string, retryAt time.Time, final bool) error
+	PeerPulled(ctx context.Context, name string, b PeerBatch) (*PeerPulled, error)
 
 	RecordPack(ctx context.Context, rec PackImport, changed bool, actor string) (bool, error)
 	Packs(ctx context.Context) ([]PackImport, error)

@@ -1,0 +1,713 @@
+package store
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"regexp"
+	"slices"
+	"strings"
+	"time"
+
+	bolt "go.etcd.io/bbolt"
+
+	"yardr.dev/yardr/internal/yardkey"
+)
+
+// Two yards are linked when the operator of each has added the other as a
+// peer, by its public key (docs/peers.md). Yards share no store: each stays
+// the only writer of its own, and they send each other messages. A message
+// to a peer waits in this yard's outbox for it until it is delivered: the
+// daemon posts it to a peer that can be called (push), a peer that cannot
+// asks for what waits (pull). What comes in is taken once, by its id.
+var (
+	bPeers    = []byte("peers")     // <name>
+	bPeerOut  = []byte("peer_out")  // <peer>\x00<seq>: messages still to deliver
+	bPeerSeen = []byte("peer_seen") // <peer>\x00<message id>: when it was taken
+)
+
+func init() { allBuckets = append(allBuckets, bPeers, bPeerOut, bPeerSeen) }
+
+// MaxPeerBody bounds a message's body.
+const MaxPeerBody = 256 << 10
+
+// PeerPing is the one kind of message there is yet: a ping, which the other
+// yard answers with a message of the same kind that names it (Re), the
+// pong. A ping therefore needs the kind allowed both ways on both sides.
+const PeerPing = "ping"
+
+// PeerKinds are the kinds of messages a link can be allowed to carry.
+var PeerKinds = []string{PeerPing}
+
+// The ways a message crosses a link, as its events name them: posted by the
+// sender, or asked for by the receiver.
+const (
+	PeerPush = "push"
+	PeerPull = "pull"
+)
+
+// pullBatch bounds what one pull hands over; the rest waits for the next.
+const (
+	pullBatch      = 32
+	pullBatchBytes = 1 << 20
+)
+
+// Peer is another yard this one is linked with, under a name of this yard's
+// choosing. Nothing a peer says of itself is trusted: Calls is kept to show
+// the operator, and the key alone tells whose a request is.
+type Peer struct {
+	Name string `json:"name"`
+	// Key is its public key (yardkey.Public).
+	Key string `json:"key"`
+	// URL is where it can be called; empty for a yard that cannot be, which
+	// calls this one and asks for what waits.
+	URL string `json:"url,omitempty"`
+	// Calls is what the yard called itself in its invite.
+	Calls string `json:"calls,omitempty"`
+	// Send and Receive are the kinds of messages the link carries, each
+	// direction on its own. A new link carries none.
+	Send    []string  `json:"send"`
+	Receive []string  `json:"receive"`
+	AddedAt time.Time `json:"added_at"`
+	// Pulled is the highest sequence number of the peer's outbox this yard
+	// has taken by asking, which its next question starts after.
+	Pulled uint64 `json:"pulled,omitempty"`
+	// Waiting and Failed count the outbox for it, and Error is what the
+	// last try of its oldest waiting message said. Read only.
+	Waiting int    `json:"waiting"`
+	Failed  int    `json:"failed"`
+	Error   string `json:"error,omitempty"`
+}
+
+// PeerMessage is what crosses a link: an id the sender mints, by which the
+// receiver takes it once, a kind, the id of the message it answers, if any,
+// and a JSON body. Seq is its place in the sender's outbox, set where a
+// pull hands it over.
+type PeerMessage struct {
+	ID   string          `json:"id"`
+	Kind string          `json:"kind"`
+	Re   string          `json:"re,omitempty"`
+	Body json.RawMessage `json:"body"`
+	Seq  uint64          `json:"seq,omitempty"`
+}
+
+// PeerOut is a message in the outbox for a peer.
+type PeerOut struct {
+	Peer string `json:"peer"`
+	PeerMessage
+	At time.Time `json:"at"`
+	// Attempts counts the posts that failed, Error is what the last one
+	// said, and RetryAt when the next is due.
+	Attempts int        `json:"attempts,omitempty"`
+	Error    string     `json:"error,omitempty"`
+	RetryAt  *time.Time `json:"retry_at,omitempty"`
+	// Failed is when the message was given up. It stays in the outbox, out
+	// of the way of those behind it, until the peer is removed.
+	Failed *time.Time `json:"failed,omitempty"`
+}
+
+// PeerAllow changes what a link carries: kinds to allow and to stop
+// allowing, each direction on its own.
+type PeerAllow struct {
+	Send      []string `json:"send,omitempty"`
+	Receive   []string `json:"receive,omitempty"`
+	NoSend    []string `json:"no_send,omitempty"`
+	NoReceive []string `json:"no_receive,omitempty"`
+}
+
+// PeerBatch is a peer's answer to a pull, as the daemon got it: the store
+// checks the peer's signature on it itself (PeerPulled), so nothing on the
+// socket can hand in a message no peer sent.
+type PeerBatch struct {
+	// RequestSig is the signature of the request this answers.
+	RequestSig string `json:"request_sig"`
+	Signature  string `json:"signature"`
+	Body       []byte `json:"body"`
+}
+
+// PeerPage is the body of an answer to a pull. Push says that the yard
+// asked posts what it has for the asker, so there is nothing to ask for.
+type PeerPage struct {
+	Messages []PeerMessage `json:"messages"`
+	Push     bool          `json:"push,omitempty"`
+}
+
+// PeerTaken says what became of a message that came in.
+type PeerTaken struct {
+	ID string `json:"id"`
+	// Duplicate: the id was taken before, and this one dropped.
+	Duplicate bool `json:"duplicate,omitempty"`
+	// Refused is why the message was not taken ("" when it was): the link
+	// does not carry its kind this way.
+	Refused string `json:"refused,omitempty"`
+}
+
+var (
+	peerMessageID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+	peerKind      = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
+)
+
+// check refuses a message that is not one: on the way out, and before
+// anything of one that came in is kept. What a peer sends is data, so its
+// id and kind are held to a few plain characters before they become keys
+// and event fields.
+func (m PeerMessage) check() error {
+	switch {
+	case !peerMessageID.MatchString(m.ID):
+		return fmt.Errorf("peer message: id of up to 64 letters, digits, - and _ wanted")
+	case !peerKind.MatchString(m.Kind):
+		return fmt.Errorf("peer message %s: kind of lowercase letters, digits, - and _ wanted", m.ID)
+	case m.Re != "" && !peerMessageID.MatchString(m.Re):
+		return fmt.Errorf("peer message %s: re is no message id", m.ID)
+	case len(m.Body) > MaxPeerBody:
+		return fmt.Errorf("peer message %s: body of %d bytes exceeds %d", m.ID, len(m.Body), MaxPeerBody)
+	case !json.Valid(m.Body):
+		return fmt.Errorf("peer message %s: the body is not JSON", m.ID)
+	}
+	return nil
+}
+
+func newPeerMessageID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(b)
+}
+
+func checkKinds(kinds ...[]string) error {
+	for _, ks := range kinds {
+		for _, k := range ks {
+			if !slices.Contains(PeerKinds, k) {
+				return fmt.Errorf("%q is no kind of message between yards: there is %s", k, strings.Join(PeerKinds, ", "))
+			}
+		}
+	}
+	return nil
+}
+
+func loadPeer(tx *bolt.Tx, name string) (*Peer, error) {
+	p := new(Peer)
+	if ok, err := get(tx, bPeers, name, p); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, fmt.Errorf("peer %s: %w", name, ErrNotFound)
+	}
+	return p, nil
+}
+
+// AddPeer records another yard as a peer. The link carries nothing until
+// AllowPeer says what. A name or a key that is a peer already is refused:
+// a key replaced under a name would hand the link to someone else, so that
+// takes removing the peer first.
+func (s *Store) AddPeer(ctx context.Context, p Peer, actor string) (*Peer, error) {
+	if err := checkName("peer", p.Name); err != nil {
+		return nil, err
+	}
+	if _, err := yardkey.ParsePublic(p.Key); err != nil {
+		return nil, fmt.Errorf("peer %s: %w", p.Name, err)
+	}
+	if p.URL != "" {
+		u, err := yardkey.CleanURL(p.URL)
+		if err != nil {
+			return nil, fmt.Errorf("peer %s: %w", p.Name, err)
+		}
+		p.URL = u
+	}
+	p = Peer{Name: p.Name, Key: p.Key, URL: p.URL, Calls: p.Calls, Send: []string{}, Receive: []string{}, AddedAt: now()}
+	err := s.write(func(w *wtx) error {
+		if w.Bucket(bPeers).Get([]byte(p.Name)) != nil {
+			return fmt.Errorf("peer %s is added already; to replace it, remove it first (its waiting messages go with it)", p.Name)
+		}
+		var same string
+		err := each(w.Tx, bPeers, "", func(_ []byte, o *Peer) error {
+			if o.Key == p.Key {
+				same = o.Name
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		if same != "" {
+			return fmt.Errorf("peer %s: that key is peer %s's already", p.Name, same)
+		}
+		if err := put(w.Tx, bPeers, p.Name, p); err != nil {
+			return err
+		}
+		data := map[string]any{"peer": p.Name, "key": p.Key}
+		if p.URL != "" {
+			data["url"] = p.URL
+		}
+		return w.event("", "peer_added", actor, data)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// outboxOf fills in what p's outbox holds.
+func outboxOf(tx *bolt.Tx, p *Peer) error {
+	p.Waiting, p.Failed, p.Error = 0, 0, ""
+	return each(tx, bPeerOut, join(p.Name, ""), func(_ []byte, m *PeerOut) error {
+		switch {
+		case m.Failed != nil:
+			p.Failed++
+		default:
+			if p.Waiting == 0 {
+				p.Error = m.Error
+			}
+			p.Waiting++
+		}
+		return nil
+	})
+}
+
+func (s *Store) Peers(ctx context.Context) ([]Peer, error) {
+	out := []Peer{}
+	err := s.read(func(tx *bolt.Tx) error {
+		err := each(tx, bPeers, "", func(_ []byte, p *Peer) error {
+			out = append(out, *p)
+			return nil
+		})
+		for i := range out {
+			if err == nil {
+				err = outboxOf(tx, &out[i])
+			}
+		}
+		return err
+	})
+	return out, err
+}
+
+func (s *Store) GetPeer(ctx context.Context, name string) (*Peer, error) {
+	var p *Peer
+	err := s.read(func(tx *bolt.Tx) (err error) {
+		if p, err = loadPeer(tx, name); err != nil {
+			return err
+		}
+		return outboxOf(tx, p)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+// PeerByKey is the peer whose public key is key. It is not on the API: the
+// receiver, in the process that owns the store, is who asks.
+func (s *Store) PeerByKey(ctx context.Context, key string) (*Peer, error) {
+	var found *Peer
+	err := s.read(func(tx *bolt.Tx) error {
+		return each(tx, bPeers, "", func(_ []byte, p *Peer) error {
+			if p.Key == key {
+				found = p
+			}
+			return nil
+		})
+	})
+	if err == nil && found == nil {
+		err = fmt.Errorf("peer with that key: %w", ErrNotFound)
+	}
+	return found, err
+}
+
+// DeletePeer removes the link: nothing more is taken from the yard or sent
+// to it. What waited for it is dropped, and peer_removed says how many.
+func (s *Store) DeletePeer(ctx context.Context, name, actor string) error {
+	return s.write(func(w *wtx) error {
+		if _, err := loadPeer(w.Tx, name); err != nil {
+			return err
+		}
+		if err := w.Bucket(bPeers).Delete([]byte(name)); err != nil {
+			return err
+		}
+		data := map[string]any{"peer": name}
+		if out := keys(w.Tx, bPeerOut, join(name, "")); len(out) > 0 {
+			data["messages_dropped"] = len(out)
+			for _, k := range out {
+				if err := w.Bucket(bPeerOut).Delete([]byte(k)); err != nil {
+					return err
+				}
+			}
+		}
+		// A yard added again under the name starts as a new link.
+		for _, k := range keys(w.Tx, bPeerSeen, join(name, "")) {
+			if err := w.Bucket(bPeerSeen).Delete([]byte(k)); err != nil {
+				return err
+			}
+		}
+		return w.event("", "peer_removed", actor, data)
+	})
+}
+
+// AllowPeer changes the kinds of messages the link with name carries.
+func (s *Store) AllowPeer(ctx context.Context, name string, ch PeerAllow, actor string) (*Peer, error) {
+	if err := checkKinds(ch.Send, ch.Receive, ch.NoSend, ch.NoReceive); err != nil {
+		return nil, err
+	}
+	change := func(have, add, drop []string) []string {
+		out := []string{}
+		for _, k := range append(slices.Clone(have), add...) {
+			if !slices.Contains(drop, k) && !slices.Contains(out, k) {
+				out = append(out, k)
+			}
+		}
+		slices.Sort(out)
+		return out
+	}
+	var p *Peer
+	err := s.write(func(w *wtx) (err error) {
+		if p, err = loadPeer(w.Tx, name); err != nil {
+			return err
+		}
+		p.Send, p.Receive = change(p.Send, ch.Send, ch.NoSend), change(p.Receive, ch.Receive, ch.NoReceive)
+		if err := put(w.Tx, bPeers, name, p); err != nil {
+			return err
+		}
+		if err := w.event("", "peer_allowed", actor, map[string]any{"peer": name, "send": p.Send, "receive": p.Receive}); err != nil {
+			return err
+		}
+		return outboxOf(w.Tx, p)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+// peerEvent is what every event about a message says: the peer, the kind
+// and the id, and the message it answers. Never the body.
+func peerEvent(peer string, m PeerMessage, extra map[string]any) map[string]any {
+	data := map[string]any{"peer": peer, "kind": m.Kind, "id": m.ID}
+	if m.Re != "" {
+		data["re"] = m.Re
+	}
+	for k, v := range extra {
+		data[k] = v
+	}
+	return data
+}
+
+// queue puts m in the outbox for p, or logs it as refused when the link
+// does not carry its kind out, and says which.
+func (w *wtx) queuePeer(p *Peer, m PeerMessage, actor string) (*PeerOut, error) {
+	if !slices.Contains(p.Send, m.Kind) {
+		return nil, w.event("", "peer_message_refused", actor, peerEvent(p.Name, m, map[string]any{"direction": "out", "reason": "kind_not_allowed"}))
+	}
+	seq, err := w.Bucket(bPeerOut).NextSequence()
+	if err != nil {
+		return nil, err
+	}
+	m.Seq = seq
+	out := &PeerOut{Peer: p.Name, PeerMessage: m, At: now()}
+	return out, put(w.Tx, bPeerOut, join(p.Name, seqKey(seq)), out)
+}
+
+// PeerSend puts a message of kind for the peer name in its outbox, under an
+// id minted here, for the daemon to deliver or the peer to ask for. A kind
+// the link does not carry out is refused, and logged as
+// peer_message_refused.
+func (s *Store) PeerSend(ctx context.Context, name, kind string, body json.RawMessage, actor string) (*PeerOut, error) {
+	if len(body) == 0 {
+		body = json.RawMessage("{}")
+	}
+	m := PeerMessage{ID: newPeerMessageID(), Kind: kind, Body: body}
+	if err := m.check(); err != nil {
+		return nil, err
+	}
+	var out *PeerOut
+	err := s.write(func(w *wtx) error {
+		p, err := loadPeer(w.Tx, name)
+		if err != nil {
+			return err
+		}
+		out, err = w.queuePeer(p, m, actor)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	if out == nil {
+		return nil, fmt.Errorf("peer %s: the link does not carry %s out: the operator allows it with yardr peer allow %s --send %s", name, kind, name, kind)
+	}
+	return out, nil
+}
+
+// PeerOutbox lists the messages waiting for the peer name, oldest first, up
+// to limit (0: all). Those given up are left out.
+func (s *Store) PeerOutbox(ctx context.Context, name string, limit int) ([]PeerOut, error) {
+	out := []PeerOut{}
+	err := s.read(func(tx *bolt.Tx) error {
+		if _, err := loadPeer(tx, name); err != nil {
+			return err
+		}
+		return each(tx, bPeerOut, join(name, ""), func(_ []byte, m *PeerOut) error {
+			if m.Failed == nil && (limit <= 0 || len(out) < limit) {
+				out = append(out, *m)
+			}
+			return nil
+		})
+	})
+	return out, err
+}
+
+// changePeerOut reads the outbox message for fn, which ends it (done) or
+// leaves a changed record to keep.
+func (s *Store) changePeerOut(name string, seq uint64, fn func(w *wtx, m *PeerOut) (done bool, err error)) error {
+	key := join(name, seqKey(seq))
+	return s.write(func(w *wtx) error {
+		var m PeerOut
+		if ok, err := get(w.Tx, bPeerOut, key, &m); err != nil {
+			return err
+		} else if !ok {
+			return fmt.Errorf("message %d for peer %s: %w", seq, name, ErrNotFound)
+		}
+		done, err := fn(w, &m)
+		if err != nil {
+			return err
+		}
+		if done {
+			return w.Bucket(bPeerOut).Delete([]byte(key))
+		}
+		return put(w.Tx, bPeerOut, key, m)
+	})
+}
+
+func (m *PeerOut) sent(w *wtx, way string) error {
+	extra := map[string]any{"way": way}
+	if m.Attempts > 0 {
+		extra["attempts"] = m.Attempts + 1
+	}
+	return w.event("", "peer_message_sent", "yard", peerEvent(m.Peer, m.PeerMessage, extra))
+}
+
+// PeerDelivered ends the outbox message seq for name: the peer took it, by
+// a post of the daemon's. It logs peer_message_sent.
+func (s *Store) PeerDelivered(ctx context.Context, name string, seq uint64) error {
+	return s.changePeerOut(name, seq, func(w *wtx, m *PeerOut) (bool, error) {
+		if m.Failed != nil {
+			return false, fmt.Errorf("message %d for peer %s was given up", seq, name)
+		}
+		return true, m.sent(w, PeerPush)
+	})
+}
+
+// PeerSendFailed records a post that failed and when the next is due, or
+// with final that the message is given up: it stays, marked, and
+// peer_message_failed says why. No event is logged for a try.
+func (s *Store) PeerSendFailed(ctx context.Context, name string, seq uint64, reason string, retryAt time.Time, final bool) error {
+	return s.changePeerOut(name, seq, func(w *wtx, m *PeerOut) (bool, error) {
+		if m.Failed != nil {
+			return false, nil
+		}
+		at := retryAt.UTC()
+		m.Attempts, m.Error, m.RetryAt = m.Attempts+1, reason, &at
+		if !final {
+			return false, nil
+		}
+		gone := now()
+		m.Failed, m.RetryAt = &gone, nil
+		return false, w.event("", "peer_message_failed", "yard",
+			peerEvent(name, m.PeerMessage, map[string]any{"attempts": m.Attempts, "reason": reason}))
+	})
+}
+
+// PeerHandOver answers a pull by the peer name: what it says it has (up to
+// after) is ended as sent, and the next of what waits for it is handed
+// over. A peer this yard calls gets nothing this way, only the word that
+// it is posted to: one message would otherwise cross twice.
+//
+// A peer asks every few seconds, so a question that ends nothing writes
+// nothing: no write, no pass of the daemon for it.
+//
+// It is not on the API: only the receiver, which has checked the peer's
+// signature on the question, may end a message as sent by pull.
+func (s *Store) PeerHandOver(ctx context.Context, name string, after uint64) (*PeerPage, error) {
+	var page *PeerPage
+	var taken []PeerOut
+	hand := func(tx *bolt.Tx) error {
+		page, taken = &PeerPage{Messages: []PeerMessage{}}, nil // a batched write may run this twice
+		p, err := loadPeer(tx, name)
+		if err != nil {
+			return err
+		}
+		if p.URL != "" {
+			page.Push = true
+			return nil
+		}
+		size := 0
+		return each(tx, bPeerOut, join(name, ""), func(_ []byte, m *PeerOut) error {
+			switch {
+			case m.Failed != nil:
+			case m.Seq <= after:
+				taken = append(taken, *m)
+			case len(page.Messages) < pullBatch && (size == 0 || size+len(m.Body) <= pullBatchBytes):
+				size += len(m.Body)
+				page.Messages = append(page.Messages, m.PeerMessage)
+			}
+			return nil
+		})
+	}
+	if err := s.read(hand); err != nil || len(taken) == 0 {
+		return page, err
+	}
+	// Read again in the write: the outbox may have changed between the two.
+	err := s.write(func(w *wtx) error {
+		if err := hand(w.Tx); err != nil {
+			return err
+		}
+		for _, m := range taken {
+			if err := m.sent(w, PeerPull); err != nil {
+				return err
+			}
+			if err := w.Bucket(bPeerOut).Delete([]byte(join(name, seqKey(m.Seq)))); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return page, err
+}
+
+// receive takes the messages a peer sent, each once: one of an id taken
+// before is dropped, one of a kind the link does not carry in is refused
+// and logged, and every other is logged as peer_message_received. What is
+// no message at all fails a post whole, and is passed by in a pull. A ping is
+// answered here, in the same write, with a pong in the outbox for the peer.
+// Nothing else is done with a message, and its body is not kept: what a
+// peer sends is data, and no kind there is yet has a use for it.
+func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string) ([]PeerTaken, error) {
+	out := make([]PeerTaken, 0, len(msgs))
+	actor := "peer:" + p.Name
+	seen := w.Bucket(bPeerSeen)
+	for _, m := range msgs {
+		if err := m.check(); err != nil {
+			if way == PeerPush {
+				return nil, err
+			}
+			// Asked for, it is passed by: answered with an error it would
+			// be handed over again on every question, and hold up all
+			// that waits behind it. Nothing of it is kept, its id and
+			// kind included: they are what is wrong with it.
+			if err := w.event("", "peer_message_refused", actor, map[string]any{"peer": p.Name, "direction": "in", "reason": "not_a_message", "way": way, "seq": m.Seq}); err != nil {
+				return nil, err
+			}
+			out = append(out, PeerTaken{Refused: "not_a_message"})
+			continue
+		}
+		t := PeerTaken{ID: m.ID}
+		key := []byte(join(p.Name, m.ID))
+		switch {
+		case seen.Get(key) != nil:
+			t.Duplicate = true
+		case !slices.Contains(p.Receive, m.Kind):
+			t.Refused = "kind_not_allowed"
+			if err := w.event("", "peer_message_refused", actor, peerEvent(p.Name, m, map[string]any{"direction": "in", "reason": t.Refused, "way": way})); err != nil {
+				return nil, err
+			}
+		default:
+			at := make([]byte, 8)
+			binary.BigEndian.PutUint64(at, uint64(now().Unix()))
+			if err := seen.Put(key, at); err != nil {
+				return nil, err
+			}
+			if err := w.event("", "peer_message_received", actor, peerEvent(p.Name, m, map[string]any{"way": way})); err != nil {
+				return nil, err
+			}
+			// A message that answers another is never answered, so two
+			// yards cannot keep each other busy.
+			if m.Kind == PeerPing && m.Re == "" {
+				pong := PeerMessage{ID: newPeerMessageID(), Kind: PeerPing, Re: m.ID, Body: json.RawMessage("{}")}
+				if _, err := w.queuePeer(p, pong, "yard"); err != nil {
+					return nil, err
+				}
+			}
+		}
+		out = append(out, t)
+	}
+	return out, nil
+}
+
+// PeerReceive takes messages the peer name posted (see receivePeer). It is
+// not on the API: only the receiver, in the process that owns the store,
+// has checked whose they are, so no client can hand in one of its own.
+func (s *Store) PeerReceive(ctx context.Context, name string, msgs []PeerMessage) ([]PeerTaken, error) {
+	var out []PeerTaken
+	err := s.write(func(w *wtx) error {
+		p, err := loadPeer(w.Tx, name)
+		if err != nil {
+			return err
+		}
+		out, err = w.receivePeer(p, msgs, PeerPush)
+		return err
+	})
+	return out, err
+}
+
+// PeerPulled takes what the peer name handed over when the daemon asked.
+// The peer's signature on the answer is checked here, against the key the
+// link was made with, so the daemon is trusted with nothing: what it passes
+// on is the peer's or is refused. The next question starts after the
+// highest sequence number taken. It returns what became of each message,
+// and whether the peer posts instead.
+//
+// An answer that hands over nothing writes nothing: the daemon asks every
+// few seconds, and a write would wake it to ask again at once.
+func (s *Store) PeerPulled(ctx context.Context, name string, b PeerBatch) (*PeerPulled, error) {
+	var page PeerPage
+	check := func(tx *bolt.Tx) (*Peer, error) {
+		p, err := loadPeer(tx, name)
+		if err != nil {
+			return nil, err
+		}
+		if err := yardkey.VerifyResponse(p.Key, 200, b.RequestSig, b.Signature, b.Body); err != nil {
+			return nil, fmt.Errorf("peer %s: %w", name, err)
+		}
+		page = PeerPage{}
+		if err := json.Unmarshal(b.Body, &page); err != nil {
+			return nil, fmt.Errorf("peer %s: its answer is not a page of messages", name)
+		}
+		return p, nil
+	}
+	err := s.read(func(tx *bolt.Tx) error {
+		_, err := check(tx)
+		return err
+	})
+	res := &PeerPulled{Taken: []PeerTaken{}, Push: page.Push}
+	if err != nil {
+		return nil, err
+	}
+	if len(page.Messages) == 0 {
+		return res, nil
+	}
+	err = s.write(func(w *wtx) error {
+		// Checked again in the write: the peer may have been removed, or
+		// added anew with another key, between the two.
+		p, err := check(w.Tx)
+		if err != nil {
+			return err
+		}
+		if res.Taken, err = w.receivePeer(p, page.Messages, PeerPull); err != nil {
+			return err
+		}
+		for _, m := range page.Messages {
+			p.Pulled = max(p.Pulled, m.Seq)
+		}
+		return put(w.Tx, bPeers, name, p)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// PeerPulled is what a pull brought.
+type PeerPulled struct {
+	Taken []PeerTaken `json:"taken"`
+	Push  bool        `json:"push,omitempty"`
+}

@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"net"
+	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +13,8 @@ import (
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/yardkey"
+	"yardr.dev/yardr/internal/yards"
 )
 
 // freeAddr is a loopback address nothing listens on now.
@@ -132,6 +136,73 @@ func TestHookAddrTaken(t *testing.T) {
 		}
 		if time.Now().After(deadline) {
 			t.Fatal("the stopped server's state is still read as a running one's")
+		}
+	}
+}
+
+// The listener that takes webhooks takes the yard's peers too, under
+// /peers/, beside /hooks/: a peer's signed message is taken there, and a
+// yard that is no peer is refused.
+func TestHookListenerTakesPeers(t *testing.T) {
+	c := home(t)
+	addr := freeAddr(t)
+	setHookAddr(t, c, addr)
+	start(t, &runner{c: c})
+	ctx := context.Background()
+	cl := rpc.NewClient(c.Socket())
+	defer cl.Close(ctx)
+
+	if _, _, err := yardkey.Ensure(c.PeerKey()); err != nil {
+		t.Fatal(err)
+	}
+	own, err := yardkey.Load(c.PeerKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	north, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stranger, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "stranger.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cl.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(north)}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cl.AllowPeer(ctx, "north", store.PeerAllow{Receive: []string{"ping"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	me := store.Peer{Name: "yard", Key: yardkey.Public(own), URL: "http://" + addr}
+	m := store.PeerMessage{ID: "m1", Kind: "ping", Body: []byte(`{}`)}
+	if err := (&yards.Caller{Key: north}).Push(ctx, me, m); err != nil {
+		t.Fatalf("north's message: %v", err)
+	}
+	if err := (&yards.Caller{Key: stranger}).Push(ctx, me, m); err == nil || !strings.Contains(err.Error(), "answered 401") {
+		t.Fatalf("a stranger's message: %v", err)
+	}
+	evs, err := cl.Events(ctx, "", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	received := 0
+	for _, e := range evs {
+		if e.Kind == "peer_message_received" && e.Data["peer"] == "north" && e.Data["id"] == "m1" {
+			received++
+		}
+	}
+	if received != 1 {
+		t.Fatalf("events = %+v", evs)
+	}
+	// The hooks are still served beside it, and nothing else is.
+	for path, want := range map[string]int{"/hooks/none": http.StatusNotFound, "/call/Peers": http.StatusNotFound, "/": http.StatusNotFound} {
+		resp, err := http.Post("http://"+addr+path, "application/json", strings.NewReader("[]"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != want {
+			t.Errorf("POST %s: %d, want %d", path, resp.StatusCode, want)
 		}
 	}
 }

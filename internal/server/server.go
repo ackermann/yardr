@@ -23,6 +23,7 @@ import (
 	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/version"
+	"yardr.dev/yardr/internal/yards"
 )
 
 // Run owns the store and serves it until ctx ends. When a new build of
@@ -290,7 +291,8 @@ func (r *runner) handler(st *store.Store, offer func(string) bool, streams conte
 	})
 }
 
-// serveHooks starts the webhook receiver on its own TCP listener when it
+// serveHooks starts the webhook receiver, and with it the receiver of the
+// yard's peers, on its own TCP listener when it
 // has an address: YARDR_HOOK_ADDR where the server started, else the yard's
 // hook_addr setting, read once here, so a change takes the next start. It
 // is a separate server with only the receiver's handler, so a port opened
@@ -328,7 +330,12 @@ func serveHooks(ctx context.Context, c *config.Config, st *store.Store, log *slo
 		}
 		return nil
 	}
-	srv := &http.Server{Handler: hooks.NewReceiver(st, log).Handler(),
+	// Beside the hooks, under /peers/: the yards this one is linked with
+	// (docs/peers.md). Each handler serves its own paths and nothing else.
+	mux := http.NewServeMux()
+	mux.Handle("/hooks/", hooks.NewReceiver(st, log).Handler())
+	mux.Handle("/peers/", yards.NewReceiver(st, c.PeerKey(), log).Handler())
+	srv := &http.Server{Handler: mux,
 		ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second}
 	go func() {
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {

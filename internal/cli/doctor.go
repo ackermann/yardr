@@ -109,7 +109,7 @@ func (a *app) doctorCmd() *cobra.Command {
                           done or todo, and the command for the first one
                           not done. Then what a yard runs without, as
                           configured or not configured: the web view, hooks,
-                          packs, the daemon as a login service.
+                          peers, packs, the daemon as a login service.
 
 It is read-only: it installs nothing (it prints where to get a program and
 never runs that), changes nothing in the store and starts no daemon. It runs
@@ -301,7 +301,11 @@ func optionalParts(ctx context.Context, cfg *config.Config, st store.API) ([]opt
 			}
 		}
 	}
-	return []optionalPart{web, hook, pack, svc}, nil
+	peers, err := peerPart(ctx, cfg, st)
+	if err != nil {
+		return nil, err
+	}
+	return []optionalPart{web, hook, peers, pack, svc}, nil
 }
 
 // at is " at http://<addr>/" for a web view's address, "" for none.

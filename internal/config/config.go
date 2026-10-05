@@ -183,6 +183,10 @@ func (c *Config) LogFile() string { return filepath.Join(c.Home, "server.log") }
 // (see server.HookListener).
 func (c *Config) HookState() string { return filepath.Join(c.Home, "hooks.state") }
 
+// PeerKey is the file holding the yard's private key, by which other yards
+// know it (see internal/yardkey). It is read as a secret file is: mode 0600.
+func (c *Config) PeerKey() string { return filepath.Join(c.Home, "peer.key") }
+
 // DaemonLock is the file the daemon holds a flock on while it runs.
 func (c *Config) DaemonLock() string { return filepath.Join(c.Home, "daemon.lock") }
 

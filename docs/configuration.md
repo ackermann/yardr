@@ -418,6 +418,7 @@ Everything yardr keeps for itself lives in one directory, the yard's
 | `yard.sock` | the server's unix socket |
 | `server.pid`, `server.log` | the running server |
 | `hooks.state` | what the running server takes webhooks on, or why it does not, which `yardr doctor` and the pack plan read ([below](#settings)); gone when the server stops |
+| `peer.key` | the yard's private key, by which the yards it is linked with know it ([peers.md](peers.md#the-key)); made by the first `yardr peer key` or `peer invite`, mode 0600, and refused when it is more open |
 | `daemon.lock` | held by the running daemon, with its pid in it: one daemon per yard |
 | `daemon.log` | what a daemon started in the background prints (the onboarding's "Start the yard now?", `yardr init --start`); one in a pane of its own prints there instead |
 | `web.log` | what a web view no terminal runs prints: one started with `yardr web start`, or the login service's ([web.md](web.md#keeping-it-running)) |

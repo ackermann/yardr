@@ -150,7 +150,7 @@ func TestDoctorFreshYard(t *testing.T) {
 	}
 	rep, err := doctorJSON(t, st)
 	if !errors.Is(err, errCheckFailed) || !rep.Yard || rep.State == nil || rep.State.Daemon || rep.State.Mayor == nil ||
-		!rep.State.Mayor.Resident || rep.State.Mayor.Running || rep.Next == nil || rep.Next.Key != stepRig || len(rep.Optional) != 4 {
+		!rep.State.Mayor.Resident || rep.State.Mayor.Running || rep.Next == nil || rep.Next.Key != stepRig || len(rep.Optional) != 5 {
 		t.Fatalf("json: %v %+v", err, rep)
 	}
 	// For a home that is not the default, the next step's command names it
