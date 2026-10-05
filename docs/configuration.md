@@ -434,11 +434,24 @@ resolve, and for a dir rig, which has no base. A check that needs it must
 fail without it: rig yardr's does.
 
 Rig yardr's [`.yardr/check-light`](../.yardr/check-light) runs `gofmt -l`,
-`go vet ./...` and `go build ./...` on everything, then `go test` without
-`-race` on the directories that hold Go files and a changed file (a script
-or role beside Go code is embedded or run by that package's tests); every
-package when `go.mod` or `go.sum` changed; nothing when only files outside
-any package changed (docs).
+`go vet ./...` and `go build ./...` on everything, then `go test -race` on
+the packages that changed and on every package that imports one of them,
+however far up: a change breaks its importers as easily as itself. One
+`go list -test ./...` gives both, since each package's `Deps` is already
+transitive and counts its test files' imports: a package is tested when it
+changed or one of its `Deps` did. A package changed when a `.go` file in its
+directory did, or a file it embeds (`go:embed`: a role, merge-local), which
+is compiled in like one. A changed `_test.go` file runs its own package
+only, as nobody imports it. Every package is tested when `go.mod` or
+`go.sum` changed, and nothing when only other files did (docs, a flow, a
+script nothing embeds).
+
+What it costs follows from the import graph. A change in a leaf package
+takes well under a minute; a change in a package nearly everything imports
+(`internal/store`, `internal/config`) tests nearly everything, which is
+right, and is then close to the full gate without its second run of three
+suites over the socket. In this repository `internal/cli` imports almost
+every package, so most changes to non-test Go code run its tests.
 
 ## Briefs are not config
 

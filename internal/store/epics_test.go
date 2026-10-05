@@ -365,7 +365,7 @@ func TestPartNeedsAnEpic(t *testing.T) {
 		t.Fatalf("stage = %s after refused moves", b.Stage)
 	}
 	if _, err := s.CreateBead(ctx, store.NewBead{Title: "late", Type: store.TypePart, Rig: "web", Stage: "new"}, "me"); err == nil ||
-		!strings.Contains(err.Error(), "a part with no epic") {
+		!strings.Contains(err.Error(), "a new part has no epic yet, so it is created in backlog, not new") {
 		t.Fatalf("creating a part in new = %v, want it refused", err)
 	}
 	// A parent that is no epic does not count (it makes no epic's branch).

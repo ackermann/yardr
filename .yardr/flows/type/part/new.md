@@ -8,9 +8,11 @@ This is the default builder's stage with two differences:
 
 1. The gate is the light one: `yardr rig check yardr --light --dir <worktree>`
    in place of the full gate. It formats, vets and builds everything and
-   tests only the packages the branch touched, without the race detector; it
-   takes seconds. Do not run the full gate (`yardr rig check yardr` without
-   `--light`): it runs once, on the whole epic, before `main` moves.
+   tests, with the race detector, only the packages the branch changed and
+   the packages that import them: seconds for a leaf package, close to the
+   full gate for one nearly everything imports (`store`, `config`). Do not
+   run the full gate (`yardr rig check yardr` without `--light`): it runs
+   once, on the whole epic, before `main` moves.
 2. The report is short, because nobody reviews a part by itself: the epic's
    reviewer reads the whole epic with your note beside it. Three things, a
    few lines each: what it does; how you checked it (the exact commands);

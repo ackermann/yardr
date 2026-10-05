@@ -421,9 +421,10 @@ yardr dep add <epic> <part> -k parent
 - **The light gate.** A rig's second gate, `.yardr/check-light`, read from
   the base and run by `yardr rig check <rig> --light` under every rule of
   the full one ([configuration.md](configuration.md#the-light-gate-yardrcheck-light)).
-  Rig yardr's formats, vets and builds everything and tests, without the
-  race detector, only the packages the branch touched. The builder runs it
-  before `done`; merge-local runs it again on exactly what lands.
+  Rig yardr's formats, vets and builds everything and tests, with the race
+  detector, only the packages the branch changed and the packages that
+  import them. The builder runs it before `done`; merge-local runs it again
+  on exactly what lands.
 - **Which gate merge-local runs.** The exec runner tells a script the
   bead's type and its epic (`YARDR_TYPE`, `YARDR_EPIC`, the latter empty for
   a bead with no epic). merge-local runs `rig check --light` only when all

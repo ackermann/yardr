@@ -38,17 +38,19 @@ func checkPart(tx *bolt.Tx, f *Flow, row *beadRow, stage string) error {
 	if row.Type != TypePart || f == nil || stage == firstStage(f) {
 		return nil
 	}
-	// A new bead has no UUID and no edges yet.
-	if row.UUID != "" {
-		if epic, err := parentEpic(tx, row.UUID); err != nil {
-			return fmt.Errorf("%s: %w", row.ID, err)
-		} else if epic != nil {
-			return nil
-		}
+	const why = "a part lands under the light gate with no review of its own, which is only safe on an epic's branch"
+	// A new bead has no UUID and no edges yet: it cannot be a child.
+	if row.UUID == "" {
+		return fmt.Errorf("a new part has no epic yet, so it is created in %s, not %s: %s. Create it without a stage, make it a child (yardr dep add <epic> <part> -k parent), then advance it",
+			firstStage(f), stage, why)
 	}
-	id := or(row.ID, "<part>")
-	return fmt.Errorf("bead %s is a part with no epic, so it stays in %s: a part lands under the light gate with no review of its own, which is only safe on an epic's branch. Make it a child first (yardr dep add <epic> %s -k parent), or make it a task (yardr bead update %s --type task)",
-		or(row.ID, "of type part"), firstStage(f), id, id)
+	if epic, err := parentEpic(tx, row.UUID); err != nil {
+		return fmt.Errorf("%s: %w", row.ID, err)
+	} else if epic != nil {
+		return nil
+	}
+	return fmt.Errorf("bead %s is a part with no epic, so it stays in %s: %s. Make it a child first (yardr dep add <epic> %s -k parent), or make it a task (yardr bead update %s --type task)",
+		row.ID, firstStage(f), why, row.ID, row.ID)
 }
 
 // Branch is the git branch bead handle is worked on. It is built from the

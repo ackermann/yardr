@@ -5,7 +5,10 @@
 # detector, every package, the suites again over the socket) runs once, on
 # the whole epic, before main moves. So this one is meant to take seconds:
 # everything still has to be formatted, vetted and built, but only the
-# packages the branch touched are tested.
+# packages the branch touched, and the packages that import those, are
+# tested. A change in a package nearly everything imports (store, config)
+# makes it nearly the full gate, which is right; a leaf package takes
+# seconds.
 # Like .yardr/check, yardr reads it from the base branch.
 set -e
 out=$(gofmt -l .)
@@ -26,21 +29,50 @@ from=$(git merge-base "$YARDR_CHECK_BASE" HEAD)
 changed=$(git diff --name-only "$from")
 # go.mod or go.sum moves every package.
 if printf '%s\n' "$changed" | grep -qx -e go.mod -e go.sum; then
-  echo "light gate: go.mod or go.sum changed; testing every package (no -race)"
-  exec go test ./...
+  echo "light gate: go.mod or go.sum changed; testing every package"
+  exec go test -race ./...
 fi
-# The packages are the directories with a changed file that hold Go files:
-# a script or a role beside Go code is embedded or run by that package's
-# tests. A directory with none (docs, a deleted package) has nothing to run.
-pkgs=$(printf '%s\n' "$changed" | while IFS= read -r f; do
-  [ -n "$f" ] || continue
-  d=$(dirname "$f")
-  ls "$d"/*.go >/dev/null 2>&1 && echo "./$d"
-done | sort -u)
+# What is tested, with the race detector: the packages that changed, and
+# every package that imports one of them, however far up, since a change
+# breaks its importers as easily as itself. go list knows both, with the
+# test files counted (-test): each package and test variant with its
+# directory, the files it embeds and everything it depends on (Deps is
+# already transitive, so no walk is needed: a package is in when one of its
+# Deps changed). A package changed when a .go file in its directory did, or
+# a file it embeds, which is compiled in like one. A _test.go file is
+# imported by nobody: it runs its own package's tests only. Any other file
+# (docs, a flow, a script nothing embeds) is no package's, and runs no test.
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+printf '%s\n' "$changed" >"$tmp/changed"
+go list -test -f '{{.ImportPath}}|{{.Dir}}|{{join .Deps ","}}|{{join .EmbedFiles ","}},{{join .TestEmbedFiles ","}},{{join .XTestEmbedFiles ","}}' ./... >"$tmp/pkgs"
+# Not in a pipe or a $(...): a go list or awk that fails must fail the gate,
+# not read as an empty list.
+awk -F'|' -v root="$(git rev-parse --show-toplevel)" '
+  # "p [p.test]", "p_test [p.test]" and "p.test" are all package p.
+  function base(p) { sub(/ \[.*/, "", p); sub(/\.test$/, "", p); sub(/_test$/, "", p); return p }
+  FNR == NR { if ($0 != "") { file[$0] = 1; if ($0 ~ /\.go$/) { gd = $0; if (!sub(/\/[^\/]*$/, "", gd)) gd = "."; if ($0 ~ /_test\.go$/) testdir[gd] = 1; else godir[gd] = 1 } } next }
+  {
+    n++; path[n] = base($1); deps[n] = $3
+    dir = substr($2, length(root) + 2); if (dir == "") dir = "."
+    if (dir in godir) hit[path[n]] = 1
+    if (dir in testdir) run[path[n]] = 1
+    m = split($4, e, ",")
+    for (i = 1; i <= m; i++) if (e[i] != "" && ((dir == "." ? "" : dir "/") e[i]) in file) hit[path[n]] = 1
+  }
+  END {
+    for (k = 1; k <= n; k++) {
+      if (path[k] in hit) { run[path[k]] = 1; continue }
+      m = split(deps[k], d, ",")
+      for (i = 1; i <= m; i++) if (base(d[i]) in hit) { run[path[k]] = 1; break }
+    }
+    for (p in run) print p
+  }' "$tmp/changed" "$tmp/pkgs" >"$tmp/run"
+pkgs=$(sort "$tmp/run")
 if [ -z "$pkgs" ]; then
   echo "light gate: no package changed since $(git rev-parse --short "$from"); no tests to run"
   exit 0
 fi
-echo "light gate: testing (no -race)" $pkgs
+echo "light gate: testing, with -race, what changed and what imports it:" $pkgs
 # shellcheck disable=SC2086
-go test $pkgs
+go test -race $pkgs
