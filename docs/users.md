@@ -3,7 +3,8 @@
 A user is a person as a party of the yard: a name and an inbox, as a
 [resident](residents.md) has. Residents write to a user through yardr, and
 the user reads it, and the whole exchange with a resident, without going to
-the resident's pane.
+the resident's pane. The yard itself tells a user of the events they
+subscribed to, as notifications, in a part of the inbox apart from the mail.
 
 ```sh
 yardr user list                          # the users, who is the operator, unread mail
@@ -12,15 +13,18 @@ yardr user show ada
 yardr user rm ada                        # the mail stays in the log
 
 yardr mail mckean "The refinery is red on main: yardr-1a2b"   # a resident's session, or a user
-yardr inbox                              # as a user: your unread mail, then the latest read
-yardr inbox --ack                        # mark what is shown as read
+yardr inbox                              # as a user: Mail and Notifications, each with its unread
+yardr inbox --mail --ack                 # one part, and mark what it shows as read
+yardr subscribe ada yardr --done         # ada is told of every bead that becomes done
 yardr mail --with mayor                  # the exchange with the mayor, both directions
 yardr mail --with mayor --after 412 --json
 ```
 
 ## The record
 
-A user has a name and an inbox. The record is where more about a person
+A user has a name, an inbox and the subscriptions that fill its
+notifications ([subscriptions.md](subscriptions.md#users-as-subscribers));
+`yardr user show <name>` lists them. The record is where more about a person
 goes later: who they are in an outside source (as `yardr resident identity`
 says for a resident) and a user who comes from another yard. Neither is
 built.
@@ -57,14 +61,10 @@ a bead is refused**: what it has to say to a person goes on its bead
 (`yardr bead note`), and a question ends its stage with the `question`
 outcome. That is a rule of the `mail` command, not of the user's record.
 
-`yardr inbox`, run as a user with neither `--resident` nor
-`$YARDR_RESIDENT` naming a resident, lists the mail to that user and to
-nobody else: the unread, oldest first, then the latest read, marked
-`(read)`; `-n` bounds how many. `--ack` marks the unread it shows as read.
-
 **Nothing nudges a person.** `yardr doctor` (the `mail` line) and bare
 `yardr` (a last line under its help) say `N unread from <names>` to the
-user who runs them.
+user who runs them. That count is of mail alone; bare `yardr` adds `and N
+notifications` after it when there are unread ones.
 
 A resident can have the yard tell a user something later, unless a bead
 moved first: `yardr timer add --to <user>` ([timers.md](timers.md)). It
@@ -74,6 +74,38 @@ way; `yardr user show` lists the live ones.
 
 Mail from a resident of another yard to a user is not built: a peer's mail
 is taken for residents only ([peers.md](peers.md#mail-between-residents)).
+
+## The inbox
+
+A user's inbox has two parts, and `yardr inbox`, run as a user with neither
+`--resident` nor `$YARDR_RESIDENT` naming a resident, shows both, each
+under its heading with its unread count:
+
+- **Mail**: what a resident or another user wrote to this user, and to
+  nobody else. Somebody is talking, and can be answered.
+- **Notifications**: what the yard reports of the events the user
+  subscribed to
+  ([subscriptions.md](subscriptions.md#users-as-subscribers)), one line
+  each. Nobody sent them, so there is nobody to answer.
+
+Each part lists its unread, oldest first, then the latest read, marked
+`(read)`; `-n` bounds how many. `--mail` and `--notifications` show one
+part.
+
+**Each part is acknowledged apart.** `--ack` marks the unread it shows as
+read: with `--mail` the mail, with `--notifications` the notifications,
+with neither both, since both were shown. Acknowledging the mail leaves the
+notifications unread, and the other way round: a user has two positions,
+one a part. So a stream of notifications nobody reads does not hold back
+what counts as read mail, and reading through the notifications marks no
+mail read.
+
+A yard from before notifications kept one position for the whole inbox.
+Its store is migrated when the server next opens it (schema 4): what a
+user had acknowledged is acknowledged in both parts.
+
+The notifications are bounded: the newest 500 are kept and the oldest
+dropped, read or not. Mail is not.
 
 ## A conversation
 
@@ -95,17 +127,20 @@ exchange with the user's name: `yardr mail --with mckean`.
 has.
 
 **Read** means acknowledged by the receiver, with `yardr inbox --ack`: a
-user's own, or a resident's, whose acknowledgement covers its whole inbox
-through the last event shown. Mail to a party that has since been removed
-counts as unread.
+user's own, for the mail part of [the inbox](#the-inbox), or a resident's,
+whose acknowledgement covers its whole inbox through the last event shown.
+Mail to a party that has since been removed counts as unread.
 An acknowledgement that passes mail is an event, `mail_read` (with `reader`
-and `through`), so a view that follows the stream learns of it.
+and `through`), so a view that follows the stream learns of it. One that
+passes a user's notifications is `notifications_read`, with the same two
+fields.
 
 [`yardr chat`](chat.md) is this exchange as a view in the terminal, with a
 line to type.
 
 From Go the same reads are `store.API`'s `Conversation`, `UserInbox`,
-`AckUserInbox`, `Users` and `GetUser`.
+`AckUserInbox`, `Users` and `GetUser`; the notifications are
+`UserNotifications` and `AckUserNotifications`.
 
 ## Members of groups
 

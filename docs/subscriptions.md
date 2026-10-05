@@ -1,8 +1,9 @@
 # Subscriptions and notifications
 
 A resident hears of things through its inbox (`yardr inbox`). Mail to it
-always lands there. A user's inbox ([users.md](users.md)) holds mail and
-nothing else: subscriptions deliver to residents. Everything else arrives because something subscribed it:
+always lands there. Everything else arrives because something subscribed it.
+A person subscribes the same way, and what matches is a notification in the
+user's inbox, kept apart from the mail ([below](#users-as-subscribers)):
 
 | source | what it delivers | how a resident subscribes |
 |---|---|---|
@@ -122,10 +123,87 @@ approvers`). Scopes are worked out per member: `mentions` means that member
 is @mentioned. Redefining the group keeps its subscriptions. A runner other
 than manual cannot subscribe.
 
-Human members get no deliveries in an inbox yet: a member who is a user
-([users.md](users.md)) has an inbox, for mail alone. They are told in herdr when a bead
-reaches their manual group's stage (group config `notify=true`).
-Delivering subscriptions to humans waits for channels (*planned, yard-1*).
+A group's subscriptions reach no person: a member who is a user
+([users.md](users.md)) is told of what they subscribed to themselves
+([below](#users-as-subscribers)), not of what their group did. Human members
+are told in herdr when a bead reaches their manual group's stage (group
+config `notify=true`).
+
+## Users as subscribers
+
+A user ([users.md](users.md)) subscribes as a resident does, with the same
+sources, scopes and where keys:
+
+```sh
+yardr subscribe ada yardr --done --where rig=yardr         # every bead of the rig that becomes done
+yardr subscribe ada yardr --where stage=decide             # every bead that enters decide
+yardr subscribe ada yardr --where kind=gave_up             # every session that gave up
+yardr subscribe ada github --scope all --where conclusion=failure
+yardr user show ada                                        # lists them
+yardr unsubscribe ada yardr [--scope …] [--where …]
+```
+
+**Who may.** The user themselves and the operator. Nobody else, and no
+resident: a resident deciding what a person is told is what notifications
+are there to end, and the refusal says so:
+
+```
+mayor is a resident, and a resident does not decide what a person is told: ada subscribes themselves, or the operator (mckean) does it for them
+```
+
+The check is the store's, on the command's actor
+([users.md](users.md#who-is-acting)), so it holds for every client.
+
+**A matching event is a notification**, not mail: a record of its own in the
+user's inbox, with no sender and so nobody to answer. yardr writes it as the
+event is logged. No model is called and no resident is nudged or spends a
+turn on it. Its text is one line, made from the event in the words `yardr
+inbox` shows a resident for the same delivery, with the bead's title after
+it where there is a bead:
+
+```
+yardr-k3dy closed (done) by yardr-refinery reason=merged 1a2b3c4 on "Chat: a row for the yard"
+hook (all) github workflow_run completed by jane on "Fix the gate": ci failure on main  https://github.com/…
+```
+
+The first is `<bead> <kind> (<reason>) by <actor> <key=value …>`, the
+reason being why it reached the user ([Scopes](#scopes)). A closed bead's
+line carries the commit when the event has one: its own `commit`, or the
+one its reason names, as the refinery's `merged <sha>` does. The second is a
+hook delivery: source, type and action, who acted, the thread's title, the
+text and the link. The event's part is cut at 300 characters and the title
+at 120, with `…`; the link is never cut.
+
+What differs from a resident:
+
+- A user is not told of what they did themselves, as a resident is not.
+- In a hook source a user has no identity and takes part in no thread, so
+  only `--scope all` reaches them there. Say it: a hook source's default
+  scope is `involved`, and a user's `mentions` or `involved` subscription
+  to one is stored and matches nothing. In the yardr source every scope
+  works: `@ada` in a note mentions the user `ada`, and `involved` adds the
+  beads they created, advanced or noted.
+- There is no `--on` for a user, so yardr's events that are not about a
+  bead reach no person this way.
+- A subscription with `bead=<id>` ends when the bead closes, after the
+  close is told, as a resident's watch does.
+
+The event records whom it notified as `notified` (user to reason), beside
+`deliveries` for the residents, so a view that follows the stream knows to
+read the notifications again.
+
+**The bound.** A user's inbox keeps the newest 500 notifications. Nobody
+acknowledges a stream, so when a 501st arrives the oldest is dropped, read
+or not. Mail has no such bound. Removing a user removes their subscriptions
+and notifications, and a later user of the same name starts with neither.
+
+Reading and acknowledging them is in
+[users.md](users.md#the-inbox), and [`yardr chat`](chat.md#the-yard) shows
+them in a row of their own.
+
+Telling a person outside the yard (a desktop notification, a chat service)
+is not built (*planned, yardr-1481*): a notification is what such a channel
+would carry.
 
 ## `--on`
 

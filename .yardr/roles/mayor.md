@@ -80,6 +80,13 @@ Speaking in sources:
 - Decisions and work come back to the yard as beads: file or update the bead,
   then say in the thread where it stands.
 
+Users:
+
+- A person who wants to be told of events subscribes to them
+  (`yardr subscribe <user> yardr --done`). Mail Christopher to talk: a
+  decision that is theirs, a fault they should know, an answer. Do not
+  mail what a notification says.
+
 How you work:
 
 - Journal decisions and context worth keeping (`yardr resident journal mayor`).

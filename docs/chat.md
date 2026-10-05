@@ -13,7 +13,9 @@ yardr chat refinery    # opens on the resident named
 It shows the mail a [user](users.md) and a resident have written each other,
 and what you type is mail: `yardr chat` adds no other channel. What it shows
 is what `yardr mail --with <resident>` prints, and Enter does what
-`yardr mail <resident> <text>` does.
+`yardr mail <resident> <text>` does. What the yard itself reports to you,
+your notifications, is in no conversation: it has a row of its own,
+[`yard`](#the-yard).
 
 ## From the onboarding
 
@@ -70,8 +72,8 @@ start and names what does the same there: `yardr mail <resident> <text>`
 sends, `yardr mail --with <resident> [--after <seq>] [--json]` reads the
 conversation.
 
-It shows residents only: no agents working a bead (their channel is the
-bead) and no residents of other yards.
+It shows residents only, and the `yard` row: no agents working a bead
+(their channel is the bead) and no residents of other yards.
 
 ## The view
 
@@ -128,6 +130,9 @@ mails from it you have not seen:
 | `failed to start` | its last start failed; `yardr resident show <name>` says why |
 | `running` | a session runs and the daemon has not said more yet, or its runner cannot tell |
 
+Above the residents stands one row that is no resident, `yard`
+([below](#the-yard)).
+
 **The conversation** with the selected resident: oldest at the top, the
 newest in view, each mail with its time and sender. `pgup` and `pgdn` scroll.
 
@@ -178,6 +183,34 @@ by the view or by your terminal.
 The notice goes when the daemon has seen the resident go on, not when you
 answered: up to 30 seconds later ([Live](#live)).
 
+### The yard
+
+The row `yard`, above the residents, is the yard reporting: the
+notifications of the events you subscribed to
+([subscriptions.md](subscriptions.md#users-as-subscribers)), the part
+`yardr inbox --notifications` prints. It has no state, since nothing runs
+behind it, and shows the number of notifications you have not read, when
+there is any.
+
+Selecting it shows the notifications in place of a conversation: one a
+line, oldest at the top and the newest last, plain, each with its time.
+
+```
+10-05 14:02  yardr-k3dy closed (done) by yardr-refinery reason=merged 1a2b3c4 on "Chat: a row for the yard"
+10-05 14:31  yardr-p0qa advanced (all) by mayor from=review to=decide on "Which port for the hook listener"
+```
+
+- **There is no line to type in.** Nobody sent a notification, so there is
+  nobody to answer. To talk about one, select a resident and write to it.
+- **A notification about a bead begins with the bead's id**, so it can be
+  copied into `yardr bead show <id>`. The view does not go there itself.
+- **Unread notifications light up no resident.** A resident's number counts
+  the mail from it and nothing else, whoever the notification says acted.
+- The list is what the inbox keeps: the newest 500, the oldest dropped.
+
+Without a subscription the row is there and stays empty; `yardr subscribe
+<you> yardr --done` is how it fills.
+
 **Timers.** A mail whose text begins `timer:` was sent by the yard for a
 timer the resident set for you (`yardr timer add --to <you>`,
 [timers.md](timers.md)): the resident wrote the reason when it set the
@@ -188,12 +221,17 @@ as long as its turn does. What it is working on in the meantime is in its
 pane, not here.
 
 **Reading.** Opening a conversation marks your unread mail in it as read, and
-so does mail that arrives in the open one. A user's inbox has one position
+so does mail that arrives in the open one. A user's mail has one position
 for all senders ([users.md](users.md#a-conversation)), so mail of a
 conversation you have not opened holds back what came after it: nothing is
 marked read that the view did not show. Mail from someone who is no resident
 (another user) is not shown; the line above the keys counts it and names
 `yardr inbox`.
+
+The notifications have a position of their own
+([users.md](users.md#the-inbox)): selecting `yard` marks them read and
+marks no mail read, and reading a conversation leaves the number on `yard`
+as it was.
 
 ## Keys
 
@@ -201,7 +239,7 @@ marked read that the view did not show. Mail from someone who is no resident
 |---|---|
 | `enter` | sends the line as mail to the selected resident, a [long text](#a-long-text) as several |
 | `ctrl+j`, `alt+enter` | a line break in the line |
-| `tab`, `shift+tab` | the next, the previous resident |
+| `tab`, `shift+tab` | the next, the previous row: `yard`, then the residents |
 | `pgup`, `pgdn` | scroll the conversation |
 | `ctrl+g` | to the selected resident's pane |
 | `ctrl+c` | leave |
@@ -276,7 +314,13 @@ stream can use them:
   acknowledged its inbox through that seq, and mail was among what it
   acknowledged.
 
-Neither is on a bead, and the web view's feed leaves them out, but for a
+The `yard` row follows two more things in the stream. An event that became
+a notification names whom it told in its data, `notified` (user to reason),
+and the view reads your notifications again when you are among them.
+`notifications_read`, with `reader` and `through`, says a user acknowledged
+their notifications through that seq.
+
+Neither of the two above is on a bead, and the web view's feed leaves them out, but for a
 resident that stops at a prompt or leaves it.
 
 The view also reads the residents again on `session_prompted` and the other

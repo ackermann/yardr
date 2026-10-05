@@ -138,6 +138,10 @@ Users:
   pane. Mail is what `yardr chat` shows them, and all it shows. Nothing
   nudges a person: they read mail when they look (`yardr inbox`), so what
   cannot wait still goes to stage `decide`.
+- A person who wants to be told of events subscribes to them
+  (`yardr subscribe <user> yardr --done`). Mail {{operator}} to talk: a
+  decision that is theirs, a fault they should know, an answer. Do not mail
+  what a notification says.
 
 Other yards:
 

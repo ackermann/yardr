@@ -17,10 +17,10 @@ go deeper.
 | [groups.md](groups.md) | groups and runners (manual, exec, herdr), herdr setup |
 | [review.md](review.md) | `yardr review`: working through beads waiting on humans |
 | [residents.md](residents.md) | always-on sessions (a mayor): inbox, hooks, journal, prime, memories |
-| [users.md](users.md) | users, the people of a yard: `yardr user`, the operator as one of them, mailing a user, a user's `yardr inbox`, a conversation read back (`yardr mail --with`), read state |
-| [chat.md](chat.md) | `yardr chat`: the residents and a user's conversation with each in one terminal view; the states, where a sent mail stands, keys, what marks mail read, the events it follows (`resident_status`, `mail_read`) |
+| [users.md](users.md) | users, the people of a yard: `yardr user`, the operator as one of them, mailing a user, a user's `yardr inbox` in its two parts (mail and notifications, acknowledged apart), a conversation read back (`yardr mail --with`), read state |
+| [chat.md](chat.md) | `yardr chat`: the residents and a user's conversation with each in one terminal view; the states, where a sent mail stands, keys, what marks mail read, the `yard` row of notifications, the events it follows (`resident_status`, `mail_read`, `notifications_read`) |
 | [timers.md](timers.md) | `yardr timer`: asking the yard to tell a resident or a user something later, once or recurring, unless an awaited bead event came first (`--unless`); who sets one for whom, what a firing is, the limits and their settings, late firings, the events |
-| [subscriptions.md](subscriptions.md) | subscriptions and notifications: hook sources, yardr's own bead events, `--done`, bead watch, groups, `--on` |
+| [subscriptions.md](subscriptions.md) | subscriptions and notifications: hook sources, yardr's own bead events, `--done`, bead watch, groups, a user as subscriber (who may, the notification's text, the bound of 500), `--on` |
 | [links.md](links.md) | `yardr link`: the outside issue (Linear, GitHub) a bead tracks or relates to; one tracking bead per issue, one tracked issue per source, `link move`; the one form of an issue's URL; a hook's map (`hook add --as --map`) that moves the tracked issue when its bead enters a stage |
 | [peers.md](peers.md) | `yardr peer`: linking two yards by their keys; pairing with a short code (`peer pair`) and what it rests on, invites, what a link is allowed to carry, push and pull, the signed requests, `peer ping`; mail between residents of two yards (`yardr mail <resident>@<peer>`, the `peers` setting, what is refused); what the signature proves and that it hides nothing |
 | [bdp.md](bdp.md) | serving the yard over the Beads Protocol |
