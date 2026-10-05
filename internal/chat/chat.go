@@ -193,6 +193,7 @@ func New(ctx context.Context, st Store, opt Options, s *State) *Model {
 	in.CharLimit = 0 // a mail's limit is in bytes, kept in Update
 	in.SetHeight(inputRows)
 	in.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	look.input(&in)
 	// Enter sends, so a line break has keys of its own: ctrl+j is a line
 	// feed in every terminal, alt+enter is what most also pass on.
 	in.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("ctrl+j", "alt+enter"))

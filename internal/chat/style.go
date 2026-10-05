@@ -1,0 +1,133 @@
+package chat
+
+import (
+	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/lipgloss"
+
+	"yardr.dev/yardr/internal/store"
+)
+
+// styles are the view's styles, all of them. Their colours are those of the
+// theme the onboarding's forms have (huh's default, ThemeCharm), taken from
+// its styles and never written out here, so that the view and the forms
+// cannot drift apart. They are adaptive: a light and a dark terminal each
+// get their own. A terminal without colour, and NO_COLOR, get none of it,
+// neither colour nor bold: lipgloss leaves the text as it is there.
+//
+// No colour says anything alone: a state keeps its word, the selection its
+// mark, a mail's standing its sentence.
+type styles struct {
+	title lipgloss.Style // the view's name
+	faint lipgloss.Style // what is beside the point: the time, the user's name in the title
+	line  lipgloss.Style // the rules and the column's edge
+
+	selected lipgloss.Style // the selected resident's name and its mark
+	unread   lipgloss.Style // the count of unread mail
+
+	working lipgloss.Style
+	idle    lipgloss.Style
+	absent  lipgloss.Style // not running
+	alarm   lipgloss.Style // blocked, failed to start: someone has to act
+
+	resident lipgloss.Style // a resident's name on its mail
+	own      lipgloss.Style // the user's name on theirs
+
+	read    lipgloss.Style // under a sent mail: it was read
+	waiting lipgloss.Style // it is in the inbox and will be read
+	warn    lipgloss.Style // it cannot be read now; and the view's own warnings
+
+	key  lipgloss.Style // a key on the keys' line
+	word lipgloss.Style // what the key does
+
+	prompt, placeholder, cursor lipgloss.Style // the line to type in
+}
+
+// look is the view's styles.
+var look = themed(huh.ThemeCharm())
+
+// themed takes the view's styles from a theme of huh's.
+func themed(t *huh.Theme) styles {
+	// The colour alone: a style of the theme may carry text of its own
+	// (the error's " *", the selector's "> ") and margins.
+	fg := func(s lipgloss.Style) lipgloss.Style {
+		return lipgloss.NewStyle().Foreground(s.GetForeground())
+	}
+	f := t.Focused
+	var (
+		heading = fg(f.Title)          // a field's title
+		muted   = fg(f.Description)    // a field's description
+		pick    = fg(f.SelectSelector) // the mark before the option under the cursor
+		good    = fg(f.SelectedOption) // a chosen option
+		bad     = fg(f.ErrorMessage)   // a field's error
+	)
+	return styles{
+		title: heading.Bold(true),
+		faint: muted,
+		// The help's separator and not the forms' border: the border has
+		// one colour for both backgrounds, nearly black on a light one.
+		line: fg(t.Help.ShortSeparator),
+
+		selected: pick.Bold(true),
+		unread:   heading.Bold(true),
+
+		working: good,
+		idle:    muted,
+		absent:  fg(t.Help.ShortKey),
+		alarm:   bad.Bold(true),
+
+		// A resident's name has the colour its unread count has: both are
+		// mail from it.
+		resident: heading.Bold(true),
+		own:      fg(f.Option).Bold(true),
+
+		read:    good,
+		waiting: muted,
+		warn:    bad,
+
+		key:  t.Help.ShortKey,
+		word: t.Help.ShortDesc,
+
+		prompt:      f.TextInput.Prompt,
+		placeholder: f.TextInput.Placeholder,
+		cursor:      f.TextInput.Cursor,
+	}
+}
+
+// state is the style a resident's state is listed in.
+func (s styles) state(state string) lipgloss.Style {
+	switch state {
+	case Working:
+		return s.working
+	case Idle:
+		return s.idle
+	case NotRunning:
+		return s.absent
+	case Blocked, Failed:
+		return s.alarm
+	}
+	return lipgloss.NewStyle() // running: nothing more is known
+}
+
+// standing is the style of the line under a mail the user sent to r.
+func (s styles) standing(read bool, r *store.Resident) lipgloss.Style {
+	switch {
+	case read:
+		return s.read
+	case r == nil:
+		return s.waiting
+	}
+	switch StateOf(*r) {
+	case Blocked, NotRunning, Failed:
+		return s.warn
+	}
+	return s.waiting
+}
+
+// input styles the line to type in as a text field of the forms is.
+func (s styles) input(in *textarea.Model) {
+	for _, st := range []*textarea.Style{&in.FocusedStyle, &in.BlurredStyle} {
+		st.Prompt, st.Placeholder = s.prompt, s.placeholder
+	}
+	in.Cursor.Style = s.cursor
+}

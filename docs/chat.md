@@ -61,6 +61,10 @@ From 100 columns the residents are a column on the left, one a line, with
 `>` before the selected one; narrower, they fold into the one line on top,
 the selected one in brackets.
 
+The colours are those of the onboarding's forms, for a light and a dark
+terminal, and say nothing the words and marks do not; with `NO_COLOR` set,
+or in a terminal without colour, the view is plain text.
+
 **The residents.** Each with its state and, when there is any, the number of
 mails from it you have not seen:
 

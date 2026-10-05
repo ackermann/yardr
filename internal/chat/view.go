@@ -24,14 +24,24 @@ const (
 	warnAt = 3 * store.MaxMailBytes / 4
 )
 
-// Keys is the line of keys at the bottom. It fits 80 columns.
-const Keys = "enter send  ^j new line  tab next resident  pgup/pgdn scroll  ^g pane  ^c quit"
+// keys are the keys of the line at the bottom, each with what it does.
+var keys = [][2]string{
+	{"enter", "send"}, {"^j", "new line"}, {"tab", "next resident"},
+	{"pgup/pgdn", "scroll"}, {"^g", "pane"}, {"^c", "quit"},
+}
 
-var (
-	dim  = lipgloss.NewStyle().Faint(true)
-	bold = lipgloss.NewStyle().Bold(true)
-	warn = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
-)
+// Keys is that line as text. It fits 80 columns.
+var Keys = keysLine(lipgloss.NewStyle(), lipgloss.NewStyle())
+
+// keysLine is the line of keys, a key in one style and its word in the
+// other, as the help under a form tells them apart.
+func keysLine(key, word lipgloss.Style) string {
+	items := make([]string, len(keys))
+	for i, k := range keys {
+		items[i] = key.Render(k[0]) + " " + word.Render(k[1])
+	}
+	return strings.Join(items, "  ")
+}
 
 // narrow reports whether the residents are folded into a line.
 func (m *Model) narrow() bool { return m.width < Wide }
@@ -65,7 +75,7 @@ func (m *Model) clamp() {
 // it stands.
 func (m *Model) lines(w int) []string {
 	if m.sel == "" {
-		return []string{dim.Render(fit(fmt.Sprintf("The yard has no residents: %s resident add", m.opt.Yardr), w))}
+		return []string{look.faint.Render(fit(fmt.Sprintf("The yard has no residents: %s resident add", m.opt.Yardr), w))}
 	}
 	c := m.convo[m.sel]
 	if len(c) == 0 {
@@ -73,7 +83,7 @@ func (m *Model) lines(w int) []string {
 		if !m.loaded[m.sel] {
 			text = "…"
 		}
-		return []string{dim.Render(fit(text, w))}
+		return []string{look.faint.Render(fit(text, w))}
 	}
 	r := m.resident(m.sel)
 	var out []string
@@ -81,7 +91,11 @@ func (m *Model) lines(w int) []string {
 		if i > 0 {
 			out = append(out, "")
 		}
-		out = append(out, fit(dim.Render(clock(l.At))+"  "+bold.Render(l.From), w))
+		from := look.resident
+		if l.From == m.opt.Me {
+			from = look.own
+		}
+		out = append(out, fit(look.faint.Render(clock(l.At))+"  "+from.Render(l.From), w))
 		out = append(out, wrap(l.Text, w, "  ")...)
 		if l.From != m.opt.Me {
 			continue
@@ -89,7 +103,7 @@ func (m *Model) lines(w int) []string {
 		// One line for a run of mails that stand alike: under the last
 		// read, and under the last of those still waiting.
 		if next := m.nextSent(c, i); next == nil || next.Read != l.Read {
-			out = append(out, wrap(Standing(l, r, m.opt.Yardr), w, "  · ", dim)...)
+			out = append(out, wrap(Standing(l, r, m.opt.Yardr), w, "  · ", look.standing(l.Read, r))...)
 		}
 	}
 	return out
@@ -140,13 +154,14 @@ func (m *Model) column() []string {
 	for _, r := range m.residents {
 		mark, name := "  ", pad(r.Name, nameWidth)
 		if r.Name == m.sel {
-			mark, name = "> ", bold.Render(name)
+			mark, name = look.selected.Render("> "), look.selected.Render(name)
 		}
 		unread := ""
 		if n := m.Unread(r.Name); n > 0 {
-			unread = bold.Render(fmt.Sprint(n))
+			unread = look.unread.Render(fmt.Sprint(n))
 		}
-		out = append(out, pad(mark+name+" "+pad(StateOf(r), len(Failed))+" "+unread, listWidth))
+		state := StateOf(r)
+		out = append(out, pad(mark+name+" "+look.state(state).Render(pad(state, len(Failed)))+" "+unread, listWidth))
 	}
 	return out
 }
@@ -158,14 +173,15 @@ func (m *Model) folded(w int) string {
 	var items []string
 	sel := 0
 	for i, r := range m.residents {
-		item := r.Name + " " + StateOf(r)
-		if n := m.Unread(r.Name); n > 0 {
-			item += fmt.Sprintf(" (%d)", n)
-		}
+		name, state, open, shut := r.Name, StateOf(r), "", ""
 		if r.Name == m.sel {
-			item, sel = bold.Render("["+item+"]"), i
+			name, open, shut, sel = look.selected.Render(name), look.selected.Render("["), look.selected.Render("]"), i
 		}
-		items = append(items, item)
+		item := open + name + " " + look.state(state).Render(state)
+		if n := m.Unread(r.Name); n > 0 {
+			item += " " + look.unread.Render(fmt.Sprintf("(%d)", n))
+		}
+		items = append(items, item+shut)
 	}
 	from, lead := 0, ""
 	line := strings.Join(items, "  ")
@@ -180,9 +196,9 @@ func (m *Model) folded(w int) string {
 // rule is a line across w columns with text near its right end.
 func rule(w int, text string) string {
 	if text == "" || ansi.StringWidth(text)+6 > w {
-		return dim.Render(strings.Repeat("─", w))
+		return look.line.Render(strings.Repeat("─", w))
 	}
-	return dim.Render(strings.Repeat("─", w-ansi.StringWidth(text)-4)) + " " + text + " " + dim.Render("──")
+	return look.line.Render(strings.Repeat("─", w-ansi.StringWidth(text)-4)) + " " + text + " " + look.line.Render("──")
 }
 
 // View is the screen: the title, the residents, the conversation with the
@@ -193,9 +209,9 @@ func (m *Model) View() string {
 		return "" // no size yet
 	}
 	w := max(m.width, 10)
-	title := bold.Render("yardr chat") + dim.Render(" · "+m.opt.Me)
+	title := look.title.Render("yardr chat") + look.faint.Render(" · "+m.opt.Me)
 	if m.down {
-		title += "  " + warn.Render("the yardr server is away: waiting for it, nothing here is lost")
+		title += "  " + look.warn.Render("the yardr server is away: waiting for it, nothing here is lost")
 	}
 	out := []string{fit(title, w)}
 
@@ -222,7 +238,7 @@ func (m *Model) View() string {
 			if i < len(body) {
 				right = body[i]
 			}
-			out = append(out, left+dim.Render(" │ ")+right)
+			out = append(out, left+look.line.Render(" │ ")+right)
 		}
 	}
 
@@ -230,7 +246,7 @@ func (m *Model) View() string {
 	// typing.
 	count := ""
 	if n := len(m.input.Value()); n >= warnAt {
-		count = warn.Render(fmt.Sprintf("%d of %d bytes", n, store.MaxMailBytes))
+		count = look.warn.Render(fmt.Sprintf("%d of %d bytes", n, store.MaxMailBytes))
 	}
 	out = append(out, rule(w, count), m.input.View())
 
@@ -240,6 +256,6 @@ func (m *Model) View() string {
 			note = fmt.Sprintf("%d unread from %s, no resident: %s inbox", n, strings.Join(from, ", "), m.opt.Yardr)
 		}
 	}
-	out = append(out, fit(note, w), dim.Render(fit(Keys, w)))
+	out = append(out, fit(note, w), fit(keysLine(look.key, look.word), w))
 	return strings.Join(out, "\n")
 }
