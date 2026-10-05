@@ -52,7 +52,26 @@ func TestSessionListRunning(t *testing.T) {
 	if text, js := list(); !slices.Equal(text, all) || !slices.Equal(js, all) {
 		t.Errorf("session list = %v, --json %v, want %v", text, js, all)
 	}
-	running := sorted(beads[0], beads[1])
+	// Claiming a bead mints a new handle, so use the claimed sessions' bead
+	// handles rather than the pre-claim IDs returned by workYard.
+	ss, err := st.Sessions(t.Context(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var running []string
+	runners := map[string]string{"builders": "herdr", "refinery": "exec"}
+	for _, s := range ss {
+		if want, ok := runners[s.Group]; ok {
+			if s.Runner != want {
+				t.Errorf("%s session runner = %q, want %q", s.Group, s.Runner, want)
+			}
+			running = append(running, s.Bead)
+		}
+	}
+	if len(running) != 2 {
+		t.Fatalf("got %d herdr/exec sessions, want 2", len(running))
+	}
+	running = sorted(running...)
 	if text, js := list("--running"); !slices.Equal(text, running) || !slices.Equal(js, running) {
 		t.Errorf("session list --running = %v, --json %v, want %v", text, js, running)
 	}
