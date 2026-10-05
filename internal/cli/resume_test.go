@@ -272,7 +272,7 @@ func TestOnboardingAfterAFailedRun(t *testing.T) {
 			t.Errorf("output lacks %q:\n%s", s, out)
 		}
 	}
-	if *started != 1 || !slices.Equal(keysOf(f), []string{"style", "about", "login", "web", "go"}) {
+	if *started != 1 || !slices.Equal(keysOf(f), []string{"style", "about", "try", "login", "web", "go"}) {
 		t.Fatalf("%d daemons started, asked %q", *started, keysOf(f))
 	}
 }
@@ -304,7 +304,7 @@ func TestBareYardrFinishesAYardWithoutDefaultKind(t *testing.T) {
 	if strings.Contains(out, "Usage:") {
 		t.Errorf("help after the onboarding:\n%s", out)
 	}
-	if *started != 1 || !slices.Equal(keysOf(f), []string{"finish", "login", "web", "go"}) {
+	if *started != 1 || !slices.Equal(keysOf(f), []string{"finish", "try", "login", "web", "go"}) {
 		t.Fatalf("%d daemons started, asked %q", *started, keysOf(f))
 	}
 }
@@ -352,7 +352,8 @@ func TestBareYardrStartsAYardThatDidNotStart(t *testing.T) {
 	if strings.Contains(out, "set up again") || strings.Contains(out, "Usage:") {
 		t.Errorf("output:\n%s", out)
 	}
-	if *started != 1 || !slices.Equal(keysOf(f), []string{"finish", "web", "go"}) {
+	// The run that could not start the daemon asked about the harness too.
+	if *started != 1 || !slices.Equal(keysOf(f), []string{"try", "finish", "try", "web", "go"}) {
 		t.Fatalf("%d daemons started, asked %q", *started, keysOf(f))
 	}
 }
@@ -369,8 +370,9 @@ func TestTheNextRunWaitsForAMayorThatWasNotUp(t *testing.T) {
 	if err == nil || *started != 1 || !strings.Contains(out, "has not answered its first prompt within 30ms") {
 		t.Fatalf("first run: %d started, %v\n%s", *started, err, out)
 	}
-	// In a terminal that run offered the mayor's pane, and was told not now.
-	if !slices.Equal(keysOf(f), []string{"pane"}) {
+	// In a terminal that run offered to ask the harness first and then the
+	// mayor's pane, and was told no and not now.
+	if !slices.Equal(keysOf(f), []string{"try", "pane"}) {
 		t.Fatalf("first run: asked %q", keysOf(f))
 	}
 	f.asked = nil
@@ -418,7 +420,7 @@ func TestOnboardingIsTakenUpWhereTheMayorDidNotComeUp(t *testing.T) {
 		!strings.Contains(out, "Once that is set right, run yardr --home "+home+" in this terminal again: it goes on from here.") {
 		t.Fatalf("form: %v\n%s", err, out)
 	}
-	if got := keysOf(f); !slices.Equal(got, []string{"style", "about"}) {
+	if got := keysOf(f); !slices.Equal(got, []string{"style", "about", "try"}) {
 		t.Fatalf("asked %q after a mayor that is not up", got)
 	}
 	if err := st.SetResidentEnabled(context.Background(), "mayor", true, "", "me"); err != nil {
@@ -428,7 +430,7 @@ func TestOnboardingIsTakenUpWhereTheMayorDidNotComeUp(t *testing.T) {
 	stubPane(t, answeredPane)
 	f.asked = nil
 	out, err = run(t, (&app{st: st}).rootCmd())
-	if err != nil || *started != 1 || !strings.Contains(out, "mayor is running, in herdr") || !slices.Equal(keysOf(f), []string{"finish", "login", "web", "go"}) {
+	if err != nil || *started != 1 || !strings.Contains(out, "mayor is running, in herdr") || !slices.Equal(keysOf(f), []string{"finish", "try", "login", "web", "go"}) {
 		t.Fatalf("again: asked %q, %v\n%s", keysOf(f), err, out)
 	}
 }

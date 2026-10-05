@@ -96,6 +96,10 @@ type tryCheck struct {
 	// printed (or the error) when it fails or hangs, and why when it was not
 	// tried.
 	Output string `json:"output,omitempty"`
+	// err is how a call that fails ended, and printed the last lines it
+	// printed when it fails or hangs, one a line: what Output joins, for a
+	// text that shows them apart (askHarness).
+	err, printed string
 }
 
 // The states of a versionCheck.
@@ -338,9 +342,10 @@ const tryPrompt = "Reply with the one word ok and nothing else."
 // hold a token that is spent while its own status says logged in, or be a
 // version that lacks what it is started with, and a session started on it
 // then sits at a screen nobody sees. This costs a model call, so doctor
-// makes it only when asked (--try). A kind with no one-shot form known is
-// not run.
-func tryHarnessCall(ctx context.Context, kind, path string) tryCheck {
+// makes it only when asked (--try), and the onboarding only on a yes
+// (askHarness). A kind with no one-shot form known is not run. A variable
+// so that no test makes the call unasked: a test of it puts it back.
+var tryHarnessCall = func(ctx context.Context, kind, path string) tryCheck {
 	args := agents.OneShotArgs(kind, tryPrompt)
 	if args == nil {
 		return tryCheck{State: tryNotTried, Output: "yardr knows no one-shot call for " + kind}
@@ -361,11 +366,13 @@ func tryHarnessCall(ctx context.Context, kind, path string) tryCheck {
 	all := &lockedBuffer{}
 	cmd.Stdout, cmd.Stderr = io.MultiWriter(&answer, all), all
 	err = cmd.Run()
+	printed := tailLines(all.String(), 3)
 	switch {
 	case ctx.Err() != nil:
-		return tryCheck{State: tryHangs, Output: lastLines(all.String(), 3)}
+		return tryCheck{State: tryHangs, Output: strings.Join(printed, " / "), printed: strings.Join(printed, "\n")}
 	case err != nil:
-		return tryCheck{State: tryFails, Output: strings.TrimSuffix(err.Error()+": "+lastLines(all.String(), 3), ": ")}
+		return tryCheck{State: tryFails, Output: strings.TrimSuffix(err.Error()+": "+strings.Join(printed, " / "), ": "),
+			err: err.Error(), printed: strings.Join(printed, "\n")}
 	}
 	return tryCheck{State: tryOK, Output: lastLines(answer.String(), 1)}
 }
@@ -392,6 +399,11 @@ func (l *lockedBuffer) String() string {
 // each cut to a length a report line carries: where a program that fails
 // says why.
 func lastLines(out string, n int) string {
+	return strings.Join(tailLines(out, n), " / ")
+}
+
+// tailLines are the lines lastLines joins, one each.
+func tailLines(out string, n int) []string {
 	var lines []string
 	for _, l := range strings.Split(out, "\n") {
 		if l = strings.TrimSpace(l); l != "" {
@@ -404,7 +416,7 @@ func lastLines(out string, n int) string {
 	if len(lines) > n {
 		lines = lines[len(lines)-n:]
 	}
-	return strings.Join(lines, " / ")
+	return lines
 }
 
 func presetKinds() []string {

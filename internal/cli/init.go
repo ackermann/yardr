@@ -411,6 +411,13 @@ func (a *app) report(ctx context.Context, cfg *config.Config, res *initResult, o
 		if wait <= 0 {
 			wait = mayorWait
 		}
+		// One real call to the mayor's harness first, if the person says
+		// so: one that is not logged in is named before any pane exists.
+		if goOn, err := a.askHarness(ctx, cfg, st, res.Mayor); err != nil || !goOn {
+			// Stopped: it said what is there and how to come back, and
+			// nothing was started to report on.
+			return err
+		}
 		res.Start = a.startYard(ctx, cfg, st, res.Mayor, wait)
 		// A mayor whose harness waits at something only a person answers:
 		// the way to its pane and back, before the start is reported.
@@ -1057,6 +1064,14 @@ and its first output in its pane, after its first prompt. It then
 prints where the mayor is in herdr (agent, workspace, tab, pane) and how to
 get there, or, when the mayor did not come up, what is known (the last lines
 of its pane among it) and how to go on, and exits 1. It is what the onboarding form does on "Start the yard now?".
+
+In a terminal, --start first asks whether to check that the mayor's harness
+answers, as the onboarding does: one real call to it outside a pane, the one
+yardr doctor --try makes, which costs a model call. A harness that does not
+answer is named with what it printed, and the call is made again, the start
+goes on all the same, or it stops there and starts nothing. Without a
+terminal, with --json and in an agent's session it asks nothing and makes no
+call: yardr doctor --try is that call for a script.
 
 In a terminal, --start then opens yardr chat on the mayor, as the onboarding
 does: the mayor's first session is asked to greet the operator by mail

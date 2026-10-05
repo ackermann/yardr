@@ -67,7 +67,10 @@ yard's `default_kind` and your name as its `operator`, and adds the mayor.
 Before its first page it says so when git or herdr is not on PATH, what
 each is needed for and where to get it; you stop there or go on.
 
-Its last question is "Start the yard now?" (yes by default). Yes starts the
+Its last question is "Start the yard now?" (yes by default). Yes first offers
+to check that the harness answers, with one real call to it (a model call; you
+can skip it): a harness that is not logged in is named there, with what it
+printed, and you set it right and try again. Then it starts the
 daemon in the background, logging to `~/.yardr/daemon.log`, and waits up to
 two minutes, counting, for the mayor: its session running and its first
 output in its pane. Then it prints where the mayor is, as herdr names it

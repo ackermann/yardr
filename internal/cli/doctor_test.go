@@ -751,6 +751,7 @@ func TestDoctorTry(t *testing.T) {
 		}
 	}
 	stub(t, &tryTimeout, 2*time.Second)
+	stub(t, &tryHarnessCall, realTry)
 
 	// Without --try: nothing is called, and the report says what it did
 	// not do.
@@ -804,7 +805,7 @@ func TestDoctorTry(t *testing.T) {
 			states[n.Harness] = *n.Try
 		}
 	}
-	if !rep.Tried || states["claude"] != (tryCheck{tryOK, "ok"}) || states["codex"].State != tryFails || states["kimi"].State != tryHangs ||
+	if !rep.Tried || states["claude"] != (tryCheck{State: tryOK, Output: "ok"}) || states["codex"].State != tryFails || states["kimi"].State != tryHangs ||
 		states["cursor"].State != tryNotTried || states["pi"].State != tryFails {
 		t.Fatalf("tried %v, states = %+v", rep.Tried, states)
 	}

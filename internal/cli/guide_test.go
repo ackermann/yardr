@@ -33,6 +33,11 @@ type former struct {
 	// panes are the answers to "open the mayor's pane?", one per time it
 	// is asked; past its end the answer is not now.
 	panes []string
+	// tries are the answers to "<harness> did not answer", one per time it
+	// is asked; past its end the answer is stop. Whether to ask the harness
+	// at all ("try") is answered no unless answers says otherwise: the
+	// tests of the question say yes.
+	tries []string
 	// abort, when it holds for a field, cancels the form there (ctrl+c).
 	abort func(huh.Field) bool
 	// asked are the keys of the fields asked, in order ("" for a field of
@@ -59,6 +64,13 @@ func (f *former) ask(fields ...huh.Field) error {
 			if len(f.panes) > 0 {
 				want, f.panes = f.panes[0], f.panes[1:]
 			}
+		} else if key == "tried" {
+			want = tryStop
+			if len(f.tries) > 0 {
+				want, f.tries = f.tries[0], f.tries[1:]
+			}
+		} else if _, ok := f.answers[key]; key == "try" && !ok {
+			want = false
 		} else if w, ok := f.answers[key]; ok && key != "" {
 			want = w
 		} else {

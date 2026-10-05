@@ -660,6 +660,30 @@ sessions it started carry on in herdr; nothing is dispatched until a daemon
 runs again. `yardr daemon status` says whether one runs, with its pid, and
 whether the login service is installed and loaded.
 
+Before they start the daemon, in a terminal, they ask "Check that <harness>
+answers?", with the mayor's harness: "Check" (the answer it starts at) or
+"Skip". Check makes one real call to the harness outside a pane, the one
+`yardr doctor --try` makes ([doctor.md](doctor.md)); it costs a model call on
+your account with the harness, which is why it asks. A harness that answers
+gets one line with its answer, and the start goes on. One that does not is
+named before any pane exists: how the call ended, the last lines the harness
+printed and, where those tell, what that usually means (it is not logged in;
+it does not know a flag yardr calls it with). Then:
+
+- "Try again", the answer it starts at: set it right in another terminal
+  (log the harness in, say) and choose it; the call is made again;
+- "Go on anyway": the start goes on with the harness as it is;
+- "Stop here" (and ctrl+c, at either question): nothing is started. The yard
+  stays, and it prints how to come back: `yardr init --start`, or bare
+  `yardr` in a terminal, which asks again.
+
+Skip makes no call. Nothing is asked without a terminal, with `--json` and
+in an agent's session, for a kind yardr knows no one-shot call for (doctor's
+"not tried"), for a harness that is not on PATH, for a mayor that runs
+already or is stopped, and when a daemon runs already, since that one starts
+the mayor whatever would be answered. `yardr setup` does not ask: it starts
+no mayor.
+
 They then wait for the mayor, up to `--wait` (default 2m; the form always
 waits that long), with a line that counts on a terminal and one line on
 stderr otherwise. A session that exists is not enough: a harness can be on
@@ -678,7 +702,7 @@ The form then asks how to go on with the rest of the setup: "Talk to the
 mayor" or "Keep going here" ([setup.md](setup.md)). The first opens
 `yardr chat` on the mayor in the same terminal
 ([chat.md](chat.md#from-the-onboarding)); the second is `yardr setup`, in the
-same run. `yardr init --start` in a terminal asks nothing and opens the chat.
+same run. `yardr init --start` in a terminal does not ask that and opens the chat.
 
 The mayor `yardr init` adds has `greet=<operator>` in its config. The first
 prompt of a resident with that key, in its first session only, asks it to

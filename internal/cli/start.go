@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -237,6 +238,158 @@ func (s *startResult) describe(ctx context.Context, cfg *config.Config, st store
 		s.Pane, _ = paneTail(ctx, r.Handle, paneLines)
 	}
 	s.Known, s.Next = diagnose(ctx, cfg, st, r, mayor, s)
+}
+
+// How the question after a harness that did not answer is answered.
+const (
+	tryAgain = "again"
+	tryGoOn  = "go"
+	tryStop  = "stop"
+)
+
+// askHarness is the question before the mayor is started: whether to ask
+// its harness for one real answer first, outside a pane (tryHarnessCall,
+// the call yardr doctor --try makes). A harness that is not logged in then
+// says so here, with what it printed, before a session sits at a screen
+// nobody sees. One that does not answer is asked again once the person has
+// set it right in another terminal, or the start goes on all the same, or
+// stops here: it reports false for that last one, and a form left with
+// ctrl+c is the same answer.
+//
+// It asks only a person at a terminal, and only when the start is this
+// run's to make or leave: no daemon runs yet (one that does starts the mayor
+// whatever is answered here), and the mayor is enabled, has no session and
+// was not given up on. A kind with no one-shot form, and a harness that is
+// not on PATH (the start says so), are not asked about. The call costs a model call, so it is made on a yes
+// only.
+func (a *app) askHarness(ctx context.Context, cfg *config.Config, st store.API, mayor string) (goOn bool, err error) {
+	if a.json || !interactive() || agentSession() || daemonRunning(cfg.DaemonLock()) {
+		return true, nil
+	}
+	r, err := st.GetResident(ctx, mayor)
+	if err != nil || !r.Enabled || r.Live() || r.State == "failed" {
+		return true, nil // the wait says what is wrong with it
+	}
+	kind, _ := r.Config["kind"].(string)
+	kind = or(kind, defaultKind(ctx, st))
+	exe := agents.Executable(kind)
+	if agents.OneShotArgs(kind, tryPrompt) == nil || exe == "" {
+		return true, nil
+	}
+	path, err := lookPath(exe)
+	if err != nil {
+		return true, nil
+	}
+	check := true
+	fmt.Println()
+	err = ask(huh.NewConfirm().Key("try").Title("Check that " + kind + " answers?").
+		Description(fmt.Sprintf("It makes one real call (it costs a model call), outside a pane: a %s that is not logged in\n"+
+			"says so here, before %s is started on it.", kind, mayor)).
+		Affirmative("Check").Negative("Skip").Value(&check))
+	switch {
+	case errors.Is(err, huh.ErrUserAborted):
+		stoppedBefore(cfg, mayor, kind)
+		return false, nil
+	case err != nil:
+		return false, err
+	case !check:
+		return true, nil
+	}
+	for ctx.Err() == nil {
+		fmt.Printf("Asking %s for one answer (up to %s).\n", kind, tryTimeout)
+		t := tryHarnessCall(ctx, kind, path)
+		switch t.State {
+		case tryOK:
+			fmt.Printf("%s answers (%s).\n\n", kind, or(t.Output, "no output"))
+			return true, nil
+		case tryNotTried:
+			fmt.Printf("%s was not asked: %s.\n\n", kind, t.Output)
+			return true, nil
+		}
+		t.print(kind, exe)
+		pick := tryAgain
+		fmt.Println()
+		err := ask(huh.NewSelect[string]().Key("tried").Title(kind+" did not answer").
+			Description(fmt.Sprintf("%s runs on it: started now, it would likely sit in its pane the same way.", mayor)).
+			Options(huh.NewOption("Try again: once you have set it right in another terminal", tryAgain),
+				huh.NewOption("Go on anyway: start "+mayor+" on it", tryGoOn),
+				huh.NewOption("Stop here: the yard stays, and nothing is started on it", tryStop)).Value(&pick))
+		switch {
+		case errors.Is(err, huh.ErrUserAborted) || (err == nil && pick == tryStop):
+			stoppedBefore(cfg, mayor, kind)
+			return false, nil
+		case err != nil:
+			return false, err
+		case pick == tryGoOn:
+			return true, nil
+		}
+	}
+	return false, ctx.Err()
+}
+
+// print says of a call that failed or did not end what it came to: how it
+// ended, the last lines the harness printed and, where they tell, what that
+// usually means.
+func (t tryCheck) print(kind, exe string) {
+	if t.State == tryHangs {
+		fmt.Printf("\n%s did not answer: the call did not end within %s.\n", kind, tryTimeout)
+	} else {
+		fmt.Printf("\n%s did not answer: the call failed (%s).\n", kind, or(t.err, "no error"))
+	}
+	if t.printed == "" {
+		fmt.Println("It printed nothing.")
+	} else {
+		fmt.Printf("\nThe last lines it printed:\n\n")
+		for _, l := range strings.Split(t.printed, "\n") {
+			fmt.Printf("  | %s\n", l)
+		}
+	}
+	if means := t.means(kind, exe); means != "" {
+		fmt.Printf("\n%s\n", means)
+	}
+}
+
+// What a harness prints when it is called with a flag it does not know, and
+// when it has no login to call its model with, in lower case. They are what
+// the harnesses yardr was tried with print; one that says it another way
+// gets no sentence, and its lines stand for themselves.
+var (
+	saysNoFlag  = []string{"unknown option", "unknown flag", "unknown argument", "unknown command", "unrecognized", "unexpected argument", "invalid option", "no such option"}
+	saysNoLogin = []string{"not logged in", "/login", "log in", "logged out", "log out", "sign in", "signed out", "login", "unauthorized", "401",
+		"authenticat", "api key", "api_key", "credential"}
+)
+
+// means is what a call that did not answer usually means, in plain words,
+// where what it printed tells: no login, or a flag this version of the
+// harness does not know. "" where it does not tell.
+func (t tryCheck) means(kind, exe string) string {
+	said := strings.ToLower(t.printed)
+	has := func(words []string) bool {
+		return slices.ContainsFunc(words, func(w string) bool { return strings.Contains(said, w) })
+	}
+	switch {
+	case has(saysNoFlag):
+		return fmt.Sprintf("That usually means this %s does not know what yardr calls it with (%s): a version other than\n"+
+			"the one yardr knows. `%s --help` says what it takes.", exe, strings.Join(append([]string{exe}, agents.OneShotArgs(kind, "<prompt>")...), " "), exe)
+	case has(saysNoLogin):
+		return fmt.Sprintf("That usually means %s is not logged in, or its login has run out: run %s in another terminal\n"+
+			"and log in there.", kind, exe)
+	case t.State == tryHangs:
+		return fmt.Sprintf("It may wait at something nobody sees here: a login, a question, a system dialog. Run %s once in\n"+
+			"another terminal and answer what it asks.", exe)
+	}
+	return ""
+}
+
+// stoppedBefore says, after "Stop here", what is there and how to come
+// back.
+func stoppedBefore(cfg *config.Config, mayor, kind string) {
+	yardr := yardrAt(cfg.Home)
+	fmt.Printf("Stopped before %s was started. The yard is there, and nothing runs on it.\n"+
+		"Once %s answers (`%s doctor --try` asks it again, for a model call), this starts the yard\n"+
+		"and waits for %s:\n\n  %s init --start\n\n"+
+		"%s in a terminal does the same and goes on from here. `%s setup` takes the rest of\n"+
+		"the setup as forms, with %s or without.\n", mayor, kind, yardr, mayor, yardr, yardr, yardr, mayor)
 }
 
 // How the question that offers the mayor's pane is answered.

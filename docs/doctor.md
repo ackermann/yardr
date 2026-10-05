@@ -40,7 +40,9 @@ sits at a screen nobody sees, and the resident's start times out.
 with the prompt `Reply with the one word ok and nothing else.`, stdin
 closed, in an empty directory of its own, for up to 45 seconds each, side by
 side. It prints the answer, or what the harness printed when the call failed
-or did not end.
+or did not end. The onboarding offers the same call for the mayor's harness
+before it starts the mayor
+([configuration.md](configuration.md#starting-the-yard)).
 
 | kind | the call |
 |---|---|

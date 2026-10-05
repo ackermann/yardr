@@ -98,9 +98,10 @@ func TestOnboardingStartsTheYard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Harness, the mayor's page, create, start, the daemon at login, the web
-	// view, open: no page for what is missing.
-	if asked != 8 || *started != 1 {
+	// Harness, the mayor's page, create, start, whether to ask the harness
+	// first, the daemon at login, the web view, open: no page for what is
+	// missing.
+	if asked != 9 || *started != 1 {
 		t.Fatalf("%d pages, %d daemons started\n%s", asked, *started, out)
 	}
 	for _, s := range []string{"yard created", "The daemon is started, in the background; it logs to " + home + "/daemon.log",
@@ -179,7 +180,7 @@ func TestOnboardingPreflight(t *testing.T) {
 	stubFocus(t)
 	asked = 0
 	text, err := run(t, (&app{st: st}).rootCmd())
-	if err != nil || asked != 9 || *started != 1 {
+	if err != nil || asked != 10 || *started != 1 {
 		t.Fatalf("no git: %d pages, %d started, %v\n%s", asked, *started, err, text)
 	}
 	if !strings.Contains(text, "git is not on PATH: a rig is a git repository") || strings.Contains(text, "herdr is not on PATH") {

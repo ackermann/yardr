@@ -20,7 +20,8 @@ fails it tears the yard down and exits 1. `D/e` is `env -i` with `HOME`,
 the calling session (no `HERDR_SOCKET_PATH`, no `YARDR_*`) reaches a command
 run through it. Use agent kind `claude` only: `D/agents.log` shows what each
 stand-in was started with. Started as `claude -p <prompt>` (what `yardr
-doctor --try` runs) the stand-in prints `ok` and exits; with a file
+doctor --try` and the onboarding's "Check that claude answers?" run) the
+stand-in prints `ok` and exits; with a file
 `D/print-fails` it prints that file's text on stderr and exits 1 instead.
 With a file `D/login-needed` a stand-in started in a pane sits at a login
 screen (`Not logged in · Run /login`, no prompt box) and takes what it is
