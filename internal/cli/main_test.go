@@ -1,17 +1,29 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"flag"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"yardr.dev/yardr/internal/chat"
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
 )
+
+// errNoServer is what a command gets in a test when it reaches for the
+// store of a yard whose server does not run.
+var errNoServer = errors.New("tests start no server")
 
 // askHerdrServer is herdrServer as yardr has it, for a test that gives it a
 // stand-in herdr to ask.
@@ -22,6 +34,17 @@ var askHerdrServer func(context.Context, string) serverCheck
 var realTry func(context.Context, string, string) tryCheck
 
 func TestMain(m *testing.M) {
+	// Code that starts a part of yardr runs its own binary again (as
+	// `server run`, `daemon`, `web serve`), and in a test that binary is
+	// this one. The testing package takes such arguments for none and runs
+	// the whole suite once more, detached, where a test of a command without
+	// arguments then runs `server run` from os.Args and serves for good
+	// (yardr-ahgv). So this binary, started as yardr, ends at once.
+	flag.Parse()
+	if flag.NArg() > 0 {
+		fmt.Fprintf(os.Stderr, "%s is a test binary, not yardr: it does not run %q\n", os.Args[0], strings.Join(flag.Args(), " "))
+		os.Exit(2)
+	}
 	// A builder's pane and a refinery script run the gate with their own
 	// session's identity in the environment. Commands read it (a move from
 	// YARDR_SESSION expects that session to own the bead), so it must not
@@ -34,6 +57,14 @@ func TestMain(m *testing.M) {
 	// of the start replaces these (stubStart).
 	spawnDaemon = func(*config.Config) (<-chan error, error) {
 		return nil, errors.New("tests start no daemon")
+	}
+	// Nor a server, for the same reason: a command reaches the store of a
+	// yard whose server a test runs itself (server.Run), and of no other.
+	connect = func(ctx context.Context, cfg *config.Config) (store.API, error) {
+		if !server.Running(ctx, cfg) {
+			return nil, errNoServer
+		}
+		return server.Connect(ctx, cfg)
 	}
 	paneTail = func(context.Context, map[string]any, int) (string, error) {
 		return "", errors.New("tests read no pane")
@@ -81,5 +112,87 @@ func TestMain(m *testing.M) {
 	if standIn.bin != "" {
 		os.RemoveAll(filepath.Dir(standIn.bin))
 	}
+	// A process a test started and did not stop outlives the run, and the
+	// next run, and the one after: the run that leaves one fails, and says
+	// where it ran. It is ended here, since nothing else will end it.
+	for _, c := range leftBehind(2 * time.Second) {
+		fmt.Fprintf(os.Stderr, "FAIL: a test left process %d running, in %s: %s\n", c.pid, c.dir, c.command)
+		_ = syscall.Kill(c.pid, syscall.SIGKILL)
+		if code == 0 {
+			code = 1
+		}
+	}
 	os.Exit(code)
+}
+
+// child is a process this test binary started.
+type child struct {
+	pid          int
+	command, dir string
+}
+
+// leftBehind is the children of this process that still run after wait, each
+// with its working directory: for a server that is its home, which a test
+// made and which mostly carries the test's name. The wait is for a child a
+// test has signalled in its cleanup and not waited for.
+func leftBehind(wait time.Duration) []child {
+	var left []child
+	for deadline := time.Now().Add(wait); ; time.Sleep(50 * time.Millisecond) {
+		var err error
+		if left, err = children(); err != nil {
+			fmt.Fprintln(os.Stderr, "the processes this run left were not checked:", err)
+			return nil
+		}
+		if len(left) == 0 || time.Now().After(deadline) {
+			break
+		}
+	}
+	for i := range left {
+		left[i].dir = cwd(left[i].pid)
+	}
+	return left
+}
+
+// children lists the running children of this process, as ps has them. One
+// that has ended and that nobody waited for (a zombie) is not running.
+func children() ([]child, error) {
+	cmd := exec.Command("ps", "-axo", "pid=,ppid=,stat=,command=")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	ps := cmd.Process.Pid
+	if err := cmd.Wait(); err != nil {
+		return nil, err
+	}
+	var all []child
+	for _, line := range strings.Split(out.String(), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 4 {
+			continue
+		}
+		pid, _ := strconv.Atoi(f[0])
+		ppid, _ := strconv.Atoi(f[1])
+		if ppid != os.Getpid() || pid == ps || strings.HasPrefix(f[2], "Z") {
+			continue
+		}
+		all = append(all, child{pid: pid, command: strings.Join(f[3:], " ")})
+	}
+	return all, nil
+}
+
+// cwd is the working directory of pid, from /proc or, where there is none
+// (macOS), from lsof; "an unknown directory" when neither says.
+func cwd(pid int) string {
+	if dir, err := os.Readlink("/proc/" + strconv.Itoa(pid) + "/cwd"); err == nil {
+		return dir
+	}
+	out, _ := exec.Command("lsof", "-a", "-p", strconv.Itoa(pid), "-d", "cwd", "-Fn").Output()
+	for _, line := range strings.Split(string(out), "\n") {
+		if dir, ok := strings.CutPrefix(line, "n"); ok {
+			return dir
+		}
+	}
+	return "an unknown directory"
 }

@@ -51,7 +51,7 @@ func (a *app) serverCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if _, err := server.Connect(c.Context(), cfg); err != nil {
+			if _, err := connect(c.Context(), cfg); err != nil {
 				return err
 			}
 			return a.out(map[string]string{"store": cfg.DBPath(), "socket": cfg.Socket()}, func() {

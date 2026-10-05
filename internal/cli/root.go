@@ -203,6 +203,17 @@ func (a *app) expect(rev string) store.Expect {
 	return store.Expect{Session: a.identity().session, Revision: rev}
 }
 
+// connect returns the store of cfg's yard from its server, starting the
+// server if none answers. Tests replace it: the server it starts is this
+// binary run as `server run`, and a test binary is not yardr.
+var connect = func(ctx context.Context, cfg *config.Config) (store.API, error) {
+	st, err := server.Connect(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return st, nil
+}
+
 // store connects to the yardr server, starting it on first use.
 func (a *app) store(ctx context.Context) (store.API, error) {
 	if a.st != nil {
@@ -213,7 +224,7 @@ func (a *app) store(ctx context.Context) (store.API, error) {
 		return nil, err
 	}
 	a.cfg = cfg
-	st, err := server.Connect(ctx, cfg)
+	st, err := connect(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}

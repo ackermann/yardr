@@ -16,7 +16,10 @@ import (
 // run executes c with args, returning its stdout and error.
 func run(t *testing.T, c *cobra.Command, args ...string) (string, error) {
 	t.Helper()
-	c.SetArgs(args)
+	// Never nil: with no arguments set, cobra runs the binary's own
+	// (os.Args), and what a command does must not depend on how the test
+	// binary was started.
+	c.SetArgs(append([]string{}, args...))
 	c.SilenceUsage, c.SilenceErrors = true, true
 	var err error
 	out := capture(t, func() { err = c.Execute() })

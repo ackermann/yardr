@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -50,12 +51,14 @@ func TestWebAddr(t *testing.T) {
 
 // --unsafe gets an address off loopback past the address check and on to
 // the yard: what fails here is the store there is none of, not a refusal.
+// The home is a short one, so that the command gets as far as the server
+// under any TMPDIR (a socket path too long for the system ends it earlier).
 func TestWebServeUnsafeAcceptsAnyAddress(t *testing.T) {
-	t.Setenv("YARDR_HOME", t.TempDir())
+	newHome(t)
 	for _, args := range [][]string{{"--unsafe"}, {"--unsafe", "--addr", ":9000"}, {"--unsafe", "--addr", "0.0.0.0:9000"}, {"--unsafe", "--addr", "192.168.1.10:9000"}} {
 		a := &app{}
 		_, err := run(t, a.webCmd(), append([]string{"serve"}, args...)...)
-		if err == nil || strings.Contains(err.Error(), "refused") {
+		if !errors.Is(err, errNoServer) {
 			t.Errorf("%v: %v, want the store's error", args, err)
 		}
 	}
