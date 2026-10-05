@@ -478,6 +478,51 @@ func TestDoctorFailingResident(t *testing.T) {
 	}
 }
 
+// Found live (yardr-05dd): a mayor whose harness exits at once is given up
+// like any resident, but it is the one who hears resident_gave_up, so doctor
+// is where it is said, with how long the last session lived; resident list
+// and show give the count, and the next try while there is one.
+func TestDoctorMayorGivenUpAfterSessionsGoneAtOnce(t *testing.T) {
+	newHome(t)
+	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
+	st := storetest.New(t)
+	ctx := context.Background()
+	cmd := func(args ...string) string {
+		t.Helper()
+		out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), args...)
+		if err != nil && !errors.Is(err, errCheckFailed) {
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+		return out
+	}
+	cmd("init", "--harness", "claude")
+	const reason = "the session ended 4s after its start (gone within 1m0s counts as a failed start)"
+	gone := func() {
+		t.Helper()
+		if err := st.ResidentStarted(ctx, "mayor", mayorHandle()); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.ResidentStopped(ctx, "mayor", "the session is gone"); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.ResidentStartFailed(ctx, "mayor", reason, 2*time.Minute); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gone()
+	gone() // the start in between did not clear the count
+	// The wait itself is a second or so under the two minutes by now.
+	wantText(t, cmd("resident", "list"), "stopped (2 failed starts, next try in ")
+	wantText(t, cmd("resident", "show", "mayor"), "  2 failed starts, next try in ", "s, the last with: "+reason)
+	wantText(t, cmd("doctor"), "FAULT  mayor      mayor is not running: 2 failed starts so far, the last with: "+reason)
+	for i := 2; i < store.MaxStartFails; i++ {
+		gone()
+	}
+	wantText(t, cmd("resident", "list"), "failed (gave up after 5 failed starts; yardr resident start mayor tries again)")
+	wantText(t, cmd("resident", "show", "mayor"), "gave up after 5 failed starts; yardr resident start mayor tries again, the last with: "+reason)
+	wantText(t, cmd("doctor"), "FAULT  mayor      mayor is not running: the daemon gave up after 5 tries, the last with: "+reason)
+}
+
 // The rigs a launchd agent cannot read are named once the daemon runs as a
 // login service, on macOS, as a note and never as a fault.
 func TestDoctorLoginServiceRigs(t *testing.T) {

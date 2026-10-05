@@ -131,7 +131,9 @@ func TestResidentKeptAliveAndInboxNudgedWhenIdle(t *testing.T) {
 		t.Fatalf("nudges = %v", f.nudges)
 	}
 
-	// The session dies: yard starts another.
+	// The session dies, long enough after its start to be no failed start:
+	// yard starts another.
+	dispatch.SetClock(d, func() time.Time { return time.Now().Add(2 * store.MinSessionLife) })
 	f.set(agent, "")
 	must(t, d.Reconcile(ctx))
 	if f.n != 2 || agentOf(t, s) == agent {
@@ -366,7 +368,9 @@ func TestResidentNotStartedBesideALiveAgent(t *testing.T) {
 	if r, _ = s.GetResident(ctx, "mayor"); !r.Live() || f.n != 1 {
 		t.Fatalf("not started once the agent was gone: %+v starts %d", r, f.n)
 	}
-	// It dies while another agent is it again: said again, not restarted.
+	// It dies, long enough after its start to be no failed start, while
+	// another agent is it again: said again, not restarted.
+	dispatch.SetClock(d, func() time.Time { return time.Now().Add(2 * store.MinSessionLife) })
 	f.set(agentOf(t, s), "")
 	f.foreign = &dispatch.LiveAgent{Name: "mayor", Pane: "w1:p1"}
 	must(t, d.Reconcile(ctx))
@@ -390,5 +394,159 @@ func TestResidentAgentListUnreadableIsAFailedStart(t *testing.T) {
 	evs, _ := s.Events(ctx, r.Journal, 100)
 	if slices.ContainsFunc(evs, func(e store.Event) bool { return e.Kind == "resident_blocked" }) {
 		t.Fatal("herdr down reported as resident_blocked")
+	}
+}
+
+// shortLived is residentSetup with a clock the test moves: at(by) puts the
+// dispatcher by after the real time, which is what the store stamps a start
+// with, so at(time.Second) right after a start makes that session a second
+// old.
+func shortLived(t *testing.T) (s store.API, f *residentRunner, d *dispatch.Dispatcher, at func(time.Duration)) {
+	s, f, d = residentSetup(t, store.Resident{On: []string{"resident_gave_up"}})
+	var skew time.Duration
+	dispatch.SetClock(d, func() time.Time { return time.Now().Add(skew) })
+	return s, f, d, func(by time.Duration) { skew = by }
+}
+
+// Found live (yardr-05dd): a harness that exits right after its start was
+// started again on every pass, a new workspace every 5 seconds, with nothing
+// counted and nobody told. A session gone within store.MinSessionLife is a
+// failed start: the waits grow and after store.MaxStartFails the resident is
+// given up.
+func TestResidentSessionGoneAtOnceIsAFailedStart(t *testing.T) {
+	s, f, d, at := shortLived(t)
+	ctx := context.Background()
+	must(t, d.Reconcile(ctx))
+	var waits []time.Duration
+	for n := 1; n <= store.MaxStartFails; n++ {
+		if f.n != n {
+			t.Fatalf("round %d: %d sessions started", n, f.n)
+		}
+		f.set(agentOf(t, s), "") // the harness exits
+		at(time.Second)
+		must(t, d.Reconcile(ctx))
+		must(t, d.Reconcile(ctx)) // within the wait: no start
+		r, _ := s.GetResident(ctx, "mayor")
+		if r.Live() || f.n != n || r.Failures != n || r.RetryAfter == nil || r.Handle != nil {
+			t.Fatalf("round %d: starts %d resident %+v", n, f.n, r)
+		}
+		wait := time.Until(*r.RetryAfter)
+		waits = append(waits, wait)
+		if n > 1 && wait < waits[n-2]+waits[n-2]/2 {
+			t.Fatalf("waits do not grow: %v", waits)
+		}
+		if n == 3 && (r.State != "stopped" || wait < 100*time.Second) {
+			t.Fatalf("after three sessions: state %s, waits %v, want stopped and about 30s, 1m, 2m", r.State, waits)
+		}
+		if n == store.MaxStartFails {
+			if r.State != "failed" {
+				t.Fatalf("state %s after %d sessions gone at once, want failed", r.State, n)
+			}
+			break
+		}
+		at(wait + time.Second)
+		must(t, d.Reconcile(ctx))
+	}
+	// Given up: never started again, however long ago.
+	at(24 * time.Hour)
+	must(t, d.Reconcile(ctx))
+	if f.n != store.MaxStartFails {
+		t.Fatalf("started again after giving up: %d sessions", f.n)
+	}
+	evs, _ := s.Events(ctx, "mayor-journal", 100)
+	kinds := map[string]int{}
+	reason := ""
+	for _, e := range evs {
+		kinds[e.Kind]++
+		if e.Kind == "resident_gave_up" {
+			reason = fmt.Sprint(e.Data["reason"])
+		}
+	}
+	if kinds["resident_start_failed"] != store.MaxStartFails-1 || kinds["resident_gave_up"] != 1 ||
+		kinds["resident_stopped"] != store.MaxStartFails {
+		t.Fatalf("events %v", kinds)
+	}
+	if !strings.Contains(reason, "the session ended 1s after its start") {
+		t.Fatalf("resident_gave_up reason %q does not say how long the session lived", reason)
+	}
+}
+
+// A session that lives past the limit ends the streak, still running or gone
+// since, so an early exit long ago does not add up with one today; the start
+// alone does not, or two early exits would never be two in a row.
+func TestResidentSessionThatLivesResetsFailedStarts(t *testing.T) {
+	s, f, d, at := shortLived(t)
+	ctx := context.Background()
+	failures := func() int {
+		r, _ := s.GetResident(ctx, "mayor")
+		return r.Failures
+	}
+	early := func() { // the running session exits a second after its start, and the next is started
+		t.Helper()
+		f.set(agentOf(t, s), "")
+		at(time.Second)
+		must(t, d.Reconcile(ctx))
+		at(time.Hour)
+		must(t, d.Reconcile(ctx))
+		agentOf(t, s)
+	}
+	must(t, d.Reconcile(ctx))
+	early()
+	if failures() != 1 {
+		t.Fatalf("failures %d right after the next start, want 1: a start alone does not reset", failures())
+	}
+	at(store.MinSessionLife - time.Second)
+	must(t, d.Reconcile(ctx))
+	if failures() != 1 {
+		t.Fatalf("failures %d before the limit, want 1", failures())
+	}
+	// Still running past the limit.
+	at(store.MinSessionLife + time.Second)
+	must(t, d.Reconcile(ctx))
+	if failures() != 0 {
+		t.Fatalf("failures %d with a session past the limit, want 0", failures())
+	}
+	// Gone past the limit, between two passes: reset, and started at once.
+	early()
+	n := f.n
+	f.set(agentOf(t, s), "")
+	at(store.MinSessionLife + time.Second)
+	must(t, d.Reconcile(ctx))
+	if r, _ := s.GetResident(ctx, "mayor"); !r.Live() || r.Failures != 0 || r.RetryAfter != nil || f.n != n+1 {
+		t.Fatalf("a session gone after the limit: starts %d (was %d) resident %+v", f.n, n, r)
+	}
+}
+
+// Endings that were asked for are no failed starts, however soon after the
+// start: a handoff, a requested restart (a rotation is one), a stop; nor is
+// a session that ends itself once its restart was asked for.
+func TestResidentWantedEndingsAreNoFailedStarts(t *testing.T) {
+	s, f, d, at := shortLived(t)
+	ctx := context.Background()
+	must(t, d.Reconcile(ctx))
+	at(time.Second)
+	restarted := func(what string, n int) {
+		t.Helper()
+		must(t, d.Reconcile(ctx))
+		r, _ := s.GetResident(ctx, "mayor")
+		if !r.Live() || r.Failures != 0 || r.RetryAfter != nil || f.n != n {
+			t.Fatalf("%s: starts %d, want %d; resident %+v", what, f.n, n, r)
+		}
+	}
+	must(t, s.Journal(ctx, "mayor", store.NoteHandoff, "all quiet", "mayor"))
+	restarted("handoff", 2)
+	must(t, s.RequestRestart(ctx, "mayor", "requested by me", "", "me"))
+	restarted("restart", 3)
+	must(t, s.RequestRestart(ctx, "mayor", "requested by me", "", "me"))
+	f.set(agentOf(t, s), "") // it exits by itself before the daemon stops it
+	restarted("restart of a session that left", 4)
+	must(t, s.SetResidentEnabled(ctx, "mayor", false, "", "me"))
+	must(t, d.Reconcile(ctx))
+	if r, _ := s.GetResident(ctx, "mayor"); r.Live() || r.Failures != 0 || r.RetryAfter != nil {
+		t.Fatalf("stop counted as a failed start: %+v", r)
+	}
+	evs, _ := s.Events(ctx, "mayor-journal", 100)
+	if slices.ContainsFunc(evs, func(e store.Event) bool { return e.Kind == "resident_start_failed" }) {
+		t.Fatal("a wanted ending logged resident_start_failed")
 	}
 }

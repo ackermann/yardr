@@ -132,6 +132,9 @@ part in in those sources (yardr thread state), under the same rule.`,
 					if r.RestartRequested != "" {
 						state += " (restart: " + r.RestartRequested + ")"
 					}
+					if f := startFailures(r, time.Now()); f != "" {
+						state += " (" + f + ")"
+					}
 					rows = append(rows, []string{r.Name, state, up, residentAgent(r), r.Journal})
 				}
 				table("NAME\tSTATE\tUP\tAGENT\tJOURNAL", rows)
@@ -165,6 +168,13 @@ part in in those sources (yardr thread state), under the same rule.`,
 			}
 			return a.out(out, func() {
 				fmt.Printf("%s  %s · %s · %s\n", r.Name, r.State, residentAgent(*r), r.Dir)
+				if f := startFailures(*r, time.Now()); f != "" {
+					fmt.Printf("  %s", f)
+					if reason := lastStartFailure(c.Context(), st, *r); reason != "" {
+						fmt.Printf(", the last with: %s", reason)
+					}
+					fmt.Println()
+				}
 				if env != nil {
 					fmt.Printf("  env_file %s", env["path"])
 					if keys, _ := env["keys"].([]string); len(keys) > 0 {
@@ -822,4 +832,22 @@ func yardSkew() string {
 	}
 	return fmt.Sprintf("`yardr` on your PATH is %s, not this yardr. Run every yardr command below as %s instead of yardr.",
 		onPath, self)
+}
+
+// startFailures says how a resident that is not running stands with its
+// starts: how many failed in a row (a session gone within
+// store.MinSessionLife is one) and when the daemon tries next, or that it
+// gave up. "" when none failed or a session runs.
+func startFailures(r store.Resident, now time.Time) string {
+	switch {
+	case r.State == "failed":
+		return fmt.Sprintf("gave up after %d failed starts; yardr resident start %s tries again", r.Failures, r.Name)
+	case r.Live() || r.Failures == 0:
+		return ""
+	case !r.Enabled || r.RetryAfter == nil:
+		return fmt.Sprintf("%d failed starts", r.Failures)
+	case !r.RetryAfter.After(now):
+		return fmt.Sprintf("%d failed starts, next try on the daemon's next pass", r.Failures)
+	}
+	return fmt.Sprintf("%d failed starts, next try in %s", r.Failures, r.RetryAfter.Sub(now).Round(time.Second))
 }

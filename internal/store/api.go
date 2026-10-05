@@ -89,6 +89,7 @@ type API interface {
 	DeleteResident(ctx context.Context, name, rev, actor string) error
 	SetResidentEnabled(ctx context.Context, name string, enabled bool, rev, actor string) error
 	ResidentStarted(ctx context.Context, name string, handle map[string]any) error
+	ResidentSettled(ctx context.Context, name string) error
 	ResidentStopped(ctx context.Context, name, reason string) error
 	SetResidentHandle(ctx context.Context, name string, handle map[string]any) error
 	ResidentStartFailed(ctx context.Context, name, reason string, backoff time.Duration) error

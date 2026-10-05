@@ -77,7 +77,7 @@ Not printed on a home with no yard.
 | `ok mayor <name> is running (herdr agent <agent>)` | the resident named by the `mayor` setting has a session |
 | `FAULT mayor no resident <name>: yardr init adds it` | |
 | `note mayor <name> is stopped (disabled). Let it run again: yardr resident start <name>` | stopped on purpose: no fault |
-| `FAULT mayor <name> is not running: <N> failed starts so far, the last with: <reason>. Once that is fixed: yardr resident start <name>` | its starts fail; `the daemon gave up after <N> tries` once it has |
+| `FAULT mayor <name> is not running: <N> failed starts so far, the last with: <reason>. Once that is fixed: yardr resident start <name>` | its starts fail; `the daemon gave up after <N> tries` once it has. A session gone within 60 seconds of its start is a failed start, with the reason `the session ended <time> after its start (…)` ([residents.md](residents.md)) |
 | `FAULT mayor <name> is not running: the daemon starts it` | no daemon |
 | `FAULT mayor <name> is not running, and no start has failed: the daemon may still be at it (yardr resident list)` | |
 | `FAULT resident <name> is not running: …` | another resident whose starts fail, as for the mayor |

@@ -401,6 +401,9 @@ func (c *Client) SetResidentEnabled(ctx context.Context, name string, enabled bo
 func (c *Client) ResidentStarted(ctx context.Context, name string, handle map[string]any) error {
 	return c.call(ctx, "ResidentStarted", nil, name, handle)
 }
+func (c *Client) ResidentSettled(ctx context.Context, name string) error {
+	return c.call(ctx, "ResidentSettled", nil, name)
+}
 func (c *Client) SetResidentHandle(ctx context.Context, name string, handle map[string]any) error {
 	return c.call(ctx, "SetResidentHandle", nil, name, handle)
 }

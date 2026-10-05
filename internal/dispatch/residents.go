@@ -69,6 +69,19 @@ func (d *Dispatcher) resident(ctx context.Context, r store.Resident) error {
 		}
 		idle := status == "idle" || status == "done"
 		grace := durationOr(r.HandoffGrace, defaultHandoffGrace)
+		// A session that has lived MinSessionLife started for good, running
+		// still or gone since: the starts that failed before it are over.
+		lived, early := time.Duration(0), false
+		if r.StartedAt != nil {
+			lived = d.now().Sub(*r.StartedAt)
+			early = lived < store.MinSessionLife
+		}
+		if r.Failures > 0 && !early {
+			if err := d.Store.ResidentSettled(ctx, r.Name); err != nil {
+				return err
+			}
+			r.Failures = 0
+		}
 		switch {
 		case !r.Enabled:
 			return d.stopResident(ctx, runner, r, "disabled")
@@ -77,6 +90,15 @@ func (d *Dispatcher) resident(ctx context.Context, r store.Resident) error {
 				return err
 			}
 			r.State = "stopped"
+			if early && r.RestartRequested == "" {
+				// Its harness exits at once (a broken install, a bad flag, an
+				// expired login): started again on this pass it would do the
+				// same every few seconds, forever. An ending that was asked
+				// for (a handoff, a rotation, a restart) is not one of these.
+				return d.residentStartFailed(ctx, runner, r, nil, fmt.Errorf(
+					"the session ended %s after its start (gone within %s counts as a failed start)",
+					lived.Round(time.Second), store.MinSessionLife))
+			}
 		case r.RestartRequested != "" &&
 			(idle || (r.RestartRequestedAt != nil && time.Since(*r.RestartRequestedAt) > grace)):
 			if err := d.stopResident(ctx, runner, r, "restart: "+r.RestartRequested); err != nil {
@@ -92,7 +114,7 @@ func (d *Dispatcher) resident(ctx context.Context, r store.Resident) error {
 	if !r.Enabled || r.State == "failed" {
 		return nil
 	}
-	if r.RetryAfter != nil && time.Now().Before(*r.RetryAfter) {
+	if r.RetryAfter != nil && d.now().Before(*r.RetryAfter) {
 		return nil
 	}
 	if finder, ok := runner.(ResidentFinder); ok {
@@ -125,11 +147,16 @@ func (d *Dispatcher) resident(ctx context.Context, r store.Resident) error {
 	return d.Store.ResidentStarted(ctx, r.Name, handle)
 }
 
-// residentStartFailed counts a start that did not happen against the
-// resident and backs it off; handle is what the runner left behind.
+// residentStartFailed counts a start that did not happen, or whose session
+// was gone at once, against the resident and backs it off; handle is what
+// the runner left behind.
 func (d *Dispatcher) residentStartFailed(ctx context.Context, runner Runner, r store.Resident, handle map[string]any, err error) error {
 	backoff := min(30*time.Second<<min(r.Failures, 5), 10*time.Minute)
-	d.Log.Warn("resident start failed", "resident", r.Name, "err", err, "retry_in", backoff)
+	if r.Failures+1 >= store.MaxStartFails {
+		d.Log.Error("resident given up", "resident", r.Name, "err", err, "failures", r.Failures+1)
+	} else {
+		d.Log.Warn("resident start failed", "resident", r.Name, "err", err, "failures", r.Failures+1, "retry_in", backoff)
+	}
 	if IsBlocked(err) && d.status["resident:"+r.Name] != "blocked: "+err.Error() {
 		// Its configuration refuses it (an env_file missing or open to
 		// others): a human has to act, so say so, once per reason.

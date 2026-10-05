@@ -47,6 +47,31 @@ something else. yardr looks again on every pass and starts the resident once
 the agent is gone; this is not counted as a failed start, so it never gives
 up. yardr does not adopt the pane it found and does not end it for you.
 
+**A start that fails.** The daemon waits before it tries again, longer each
+time (30s, 1m, 2m, 4m), and gives up after five failed starts in a row: the
+resident is `failed`, a `resident_gave_up` event is on its journal (in every
+default `--on`, so the mayor hears of another resident's) and nothing starts
+it until `yardr resident start <name>`, which also clears the count. Each
+failed start is a `resident_start_failed` event with the reason.
+
+A session that is gone within 60 seconds of its start is a failed start too,
+with the reason `the session ended 4s after its start (…)`: a harness that
+exits at once (a broken install, a bad flag in `args`, a login that expired)
+would otherwise be started again on every pass, a new workspace every few
+seconds. Run the resident's command by hand in its directory to see what it
+says. A session that lives longer, still running or ended since, clears the
+count. An ending that was asked for never counts, however soon: a handoff, a
+rotation, `yardr resident restart` or `stop`.
+
+```sh
+yardr resident list          # mayor  stopped (2 failed starts, next try in 48s)  …
+yardr resident show mayor    # 2 failed starts, next try in 48s, the last with: <reason>
+yardr doctor                 # FAULT mayor mayor is not running: the daemon gave up after 5 tries, the last with: <reason>
+```
+
+When the resident that gave up is the mayor itself, nobody is told: `yardr
+doctor` and bare `yardr` say it.
+
 - **Inbox:** mail, plus what its subscriptions deliver. Read with `yardr
   inbox`, mark handled with `yardr inbox --ack`; the cursor is stored, so
   nothing is lost or repeated across restarts.

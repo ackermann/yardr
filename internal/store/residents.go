@@ -28,6 +28,12 @@ const (
 	MaxStartFails   = 5  // consecutive failed starts before a resident is parked
 )
 
+// MinSessionLife is how long a resident's session has to live for its start
+// to count as one that worked. A session gone sooner (a harness that exits
+// on a bad flag or an expired login) is a failed start, or the daemon would
+// start the next one on every pass and never give up.
+const MinSessionLife = 60 * time.Second
+
 // Resident is an always-on session not tied to a bead, such as a mayor.
 // The daemon keeps it running, delivers its inbox when it is idle, and
 // rotates it through handoffs written to its journal bead.
@@ -230,12 +236,13 @@ func (s *Store) SetResidentEnabled(ctx context.Context, name string, enabled boo
 	})
 }
 
-// ResidentStarted records a fresh session.
+// ResidentStarted records a fresh session. The failure streak stays: only a
+// session that lives (ResidentSettled) ends it.
 func (s *Store) ResidentStarted(ctx context.Context, name string, handle map[string]any) error {
 	return s.changeResident(name, func(w *wtx, r *Resident) error {
 		t := now()
 		r.PrevStartedAt, r.StartedAt = r.StartedAt, &t
-		r.State, r.Handle, r.Failures, r.RetryAfter = "running", handle, 0, nil
+		r.State, r.Handle, r.RetryAfter = "running", handle, nil
 		r.RestartRequested, r.RestartRequestedAt, r.RotationAskedAt = "", nil, nil
 		// The new session sees its unread inbox in its prime; only events
 		// after this point warrant a nudge.
@@ -243,6 +250,15 @@ func (s *Store) ResidentStarted(ctx context.Context, name string, handle map[str
 			r.Notified = max(r.Notified, binary.BigEndian.Uint64(k))
 		}
 		return w.event(r.Journal, "resident_started", "yard", map[string]any{"resident": name, "handle": handle})
+	})
+}
+
+// ResidentSettled ends the failure streak: the session has lived
+// MinSessionLife, so its start worked.
+func (s *Store) ResidentSettled(ctx context.Context, name string) error {
+	return s.changeResident(name, func(_ *wtx, r *Resident) error {
+		r.Failures = 0
+		return nil
 	})
 }
 
@@ -266,8 +282,9 @@ func (s *Store) ResidentStopped(ctx context.Context, name, reason string) error 
 	})
 }
 
-// ResidentStartFailed counts a failed start; after MaxStartFails in a row
-// the resident is parked (state failed) until someone starts it again.
+// ResidentStartFailed counts a failed start (one that did not happen, or a
+// session gone within MinSessionLife); after MaxStartFails in a row the
+// resident is parked (state failed) until someone starts it again.
 func (s *Store) ResidentStartFailed(ctx context.Context, name, reason string, backoff time.Duration) error {
 	return s.changeResident(name, func(w *wtx, r *Resident) error {
 		r.Failures++
