@@ -2,13 +2,11 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -48,8 +46,7 @@ host name (with or without .local), and 421 under any other name.
 itself: its name in the LAN's DNS, on a tailnet, or a proxy's. It is
 answered as the machine's own names are, in any case and with any port. It
 takes one name or a comma list, may be repeated, and goes with --unsafe
-only. A wildcard is refused. With tailscale on PATH the machine's tailnet
-name is answered without being given.
+only. A wildcard is refused.
 
 The open /events streams are limited: 16 from one address off loopback
 (then 429) and 128 from all of them together (then 503), and 128 from
@@ -91,7 +88,7 @@ this machine. Both answers carry Retry-After.`,
 			if unsafe {
 				// A machine with no name is still reached by its IP.
 				hostname, _ := os.Hostname()
-				srv.AllowNetwork(hostname, append(hosts, tailnetName(ctx))...)
+				srv.AllowNetwork(hostname, hosts...)
 				_, port, _ := net.SplitHostPort(ln.Addr().String())
 				log.Warn("no authentication: anyone who can reach this machine on port " + port + " can read the yard")
 			}
@@ -167,38 +164,4 @@ func webHosts(hosts []string, given, unsafe bool) ([]string, error) {
 		names = append(names, name)
 	}
 	return names, nil
-}
-
-// tailnetWait is how long tailscale gets to say the machine's name.
-const tailnetWait = 2 * time.Second
-
-// tailnetName is this machine's name on its tailnet (MagicDNS, as
-// adventuretime.tail5cf2e8.ts.net), asked of the tailscale on PATH, or ""
-// when there is none, it does not answer in time, or the machine is on no
-// tailnet: the view then starts as it would without Tailscale, and --host
-// names the machine. The name comes from this machine's own tailscaled, not
-// from a request, so it is the machine's as os.Hostname's is.
-func tailnetName(ctx context.Context) string {
-	bin, err := exec.LookPath("tailscale")
-	if err != nil {
-		return ""
-	}
-	ctx, cancel := context.WithTimeout(ctx, tailnetWait)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "status", "--json", "--peers=false")
-	// Its pipes must not outlive the wait when it leaves a child behind.
-	cmd.WaitDelay = time.Second
-	out, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	var status struct{ Self struct{ DNSName string } }
-	if json.Unmarshal(out, &status) != nil {
-		return ""
-	}
-	name, err := web.CheckHost(status.Self.DNSName)
-	if err != nil {
-		return ""
-	}
-	return name
 }

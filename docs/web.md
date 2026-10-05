@@ -53,13 +53,6 @@ port can read the whole yard. The view stays read-only.
   it, and the flag is refused. A wildcard (`*`, `*.ts.net`) and an empty
   name are refused too: a view that answers to every name has no guard
   left.
-- The machine's Tailscale name is answered without `--host`: when a
-  `tailscale` is on `PATH`, the view asks it once at start
-  (`tailscale status --json --peers=false`, two seconds at most) for the
-  machine's MagicDNS name (`adventuretime.tail5cf2e8.ts.net`). With no
-  `tailscale` on `PATH`, one that fails or does not answer in time, or a
-  machine on no tailnet, nothing is added and the view starts as it would
-  without Tailscale; `--host` names the machine then.
 - The 421 says which names are answered and, for a name that could be a
   host's, how to add it:
   `... not yard.example.net:8791. If that name is this machine's, start the view with --host yard.example.net`.

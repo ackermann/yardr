@@ -1,10 +1,7 @@
 package cli
 
 import (
-	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -113,32 +110,5 @@ func TestWebHosts(t *testing.T) {
 	}
 	if got, err := webHosts(nil, false, false); err != nil || got != nil {
 		t.Errorf("no --host: %v, %v", got, err)
-	}
-}
-
-// The machine's tailnet name is what the tailscale on PATH says it is, and
-// nothing when there is none, it fails, or what it says is no host name.
-func TestTailnetName(t *testing.T) {
-	bin := t.TempDir()
-	t.Setenv("PATH", bin)
-	if got := tailnetName(context.Background()); got != "" {
-		t.Errorf("no tailscale: %q", got)
-	}
-	for script, want := range map[string]string{
-		`[ "$1 $2 $3" = "status --json --peers=false" ] || exit 2
-echo 'warning: client version != server version' >&2
-echo '{"BackendState":"Running","Self":{"HostName":"adventuretime","DNSName":"AdventureTime.tail5cf2e8.ts.net."}}'`: "adventuretime.tail5cf2e8.ts.net",
-		`echo '{"BackendState":"NeedsLogin","Self":{"DNSName":""}}'`:             "",
-		`echo '{"Self":{"DNSName":"*.ts.net."}}'`:                                "",
-		`echo 'failed to connect to local tailscaled'; exit 1`:                   "",
-		`echo '{"Self":{"DNSName":"adventuretime.tail5cf2e8.ts.net."}}'; exit 1`: "",
-		`echo not json`: "",
-	} {
-		if err := os.WriteFile(filepath.Join(bin, "tailscale"), []byte("#!/bin/sh\n"+script+"\n"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if got := tailnetName(context.Background()); got != want {
-			t.Errorf("tailscale that runs %q: %q, want %q", script, got, want)
-		}
 	}
 }
