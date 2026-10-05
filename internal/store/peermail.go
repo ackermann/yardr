@@ -205,6 +205,9 @@ func (w *wtx) undelivered(m *PeerOut, reason string) error {
 	if err := json.Unmarshal(m.Body, &mail); err != nil || w.Bucket(bResidents).Get([]byte(mail.From)) == nil {
 		return nil
 	}
+	// The daemon's reason for a post begins with the peer, which the mail's
+	// address says already.
+	reason = strings.TrimPrefix(reason, "peer "+m.Peer+": ")
 	return w.event("", "mail", "yard", map[string]any{"to": mail.From, "undelivered": m.ID,
 		"text": fmt.Sprintf("your mail to %s@%s of %s was not delivered: %s", mail.To, m.Peer, m.At.Local().Format("01-02 15:04"), reason)})
 }

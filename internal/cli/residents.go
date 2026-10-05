@@ -356,8 +356,7 @@ func (a *app) mayAllow(ctx context.Context, st store.API, def store.Resident, se
 	for _, src := range may {
 		if !slices.Contains(able, src) && set.peers {
 			return fmt.Errorf("--set %s: this yard has no peer %q (it has: %s)", set.key, src, or(strings.Join(able, ", "), "none"))
-		}
-		if !slices.Contains(able, src) {
+		} else if !slices.Contains(able, src) {
 			return fmt.Errorf("--set %s: yardr cannot %s in %q (it can in %s)", set.key, set.does, src,
 				strings.Join(able, ", "))
 		}

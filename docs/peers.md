@@ -145,7 +145,7 @@ yardr --home $T/a inbox --resident mayor
 
 YARDR_ACTOR=mayor yardr --home $T/a mail clerk@b "anyone?"       # b has no clerk
 yardr --home $T/a inbox --resident mayor
-#   25 10-05 12:11  mail from yard: your mail to clerk@b of 10-05 12:11 was not delivered: peer b: refused by the peer: it has no such resident
+#   25 10-05 12:11  mail from yard: your mail to clerk@b of 10-05 12:11 was not delivered: refused by the peer: it has no such resident
 YARDR_ACTOR=web-12-new yardr --home $T/a resident add mayor --set kind=claude --set peers=b   # refused: only the operator
 ```
 
@@ -299,8 +299,10 @@ number, an id the sender minted, a kind and a JSON body of up to 256 KB.
 - **Pull.** A peer without a URL is never called. Its daemon asks, every few
   seconds, for what waits for it after the last sequence number it took. The
   question also says that everything up to that number has arrived, which is
-  when the sender logs those messages as sent. So a laptop behind a router
-  links to a server with only the server reachable.
+  when the sender logs those messages as sent, and names what of it the
+  asker did not take, with the reason: those the sender gives up
+  (`peer_message_failed`) as it does a post answered 403. So a laptop behind
+  a router links to a server with only the server reachable.
 
 One of two linked yards must be reachable. A yard that can be called asks
 all the same and is handed nothing: whether the other side has its URL is
