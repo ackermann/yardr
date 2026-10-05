@@ -439,8 +439,8 @@ func TestDaemonInstallStopsTheRunningDaemon(t *testing.T) {
 }
 
 // yardr web install keeps the view on loopback: an address off it is
-// refused, there is no --unsafe, and the file names the address, which
-// doctor then reports.
+// refused, there is no --unsafe and so no --host, which goes with it only,
+// and the file names the address, which doctor then reports.
 func TestWebInstall(t *testing.T) {
 	home := newHome(t)
 	dir, m := stubServices(t, "darwin")
@@ -449,7 +449,8 @@ func TestWebInstall(t *testing.T) {
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
-	for _, args := range [][]string{{"--addr", "0.0.0.0:8791"}, {"--addr", ":8791"}, {"--addr", "192.168.1.5:8791"}, {"--unsafe"}} {
+	for _, args := range [][]string{{"--addr", "0.0.0.0:8791"}, {"--addr", ":8791"}, {"--addr", "192.168.1.5:8791"}, {"--unsafe"},
+		{"--host", "yard.example.net"}} {
 		if _, err := run(t, a().rootCmd(), append([]string{"web", "install"}, args...)...); err == nil {
 			t.Fatalf("%v was accepted", args)
 		}

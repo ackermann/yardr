@@ -1,7 +1,11 @@
 package cli
 
 import (
+	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -60,6 +64,81 @@ func TestWebServeUnsafeAcceptsAnyAddress(t *testing.T) {
 		_, err := run(t, a.webCmd(), append([]string{"serve"}, args...)...)
 		if !errors.Is(err, errNoServer) {
 			t.Errorf("%v: %v, want the store's error", args, err)
+		}
+	}
+}
+
+// --host goes with --unsafe only, and names hosts: without --unsafe, as a
+// wildcard or with no name it is refused before the yard is touched, with
+// the reason.
+func TestWebServeRefusesHost(t *testing.T) {
+	t.Setenv("YARDR_HOME", t.TempDir())
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--host", "yard.example.net"}, "--unsafe"},
+		{[]string{"--host", "yard.example.net", "--addr", "127.0.0.1:9000"}, "loopback"},
+		{[]string{"--unsafe", "--host", "*"}, "wildcard"},
+		{[]string{"--unsafe", "--host", "*.ts.net"}, "wildcard"},
+		{[]string{"--unsafe", "--host", ""}, "no name"},
+		{[]string{"--unsafe", "--host", "a.example,,b.example"}, "no name"},
+		{[]string{"--unsafe", "--host", "a.example", "--host", "b.example:8791"}, "without a scheme or a port"},
+	} {
+		a := &app{}
+		_, err := run(t, a.webCmd(), append([]string{"serve"}, c.args...)...)
+		if err == nil || !strings.Contains(err.Error(), "--host") || !strings.Contains(err.Error(), "refused") || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%v: %v, want a refusal that says %q", c.args, err, c.want)
+		}
+		if a.st != nil {
+			t.Errorf("%v: the store was opened", c.args)
+		}
+	}
+}
+
+// With --unsafe, --host gets past the checks and on to the yard, given
+// once, twice or as a comma list, and each name is kept as it is compared.
+func TestWebHosts(t *testing.T) {
+	newHome(t)
+	for _, args := range [][]string{{"--unsafe", "--host", "yard.example.net"}, {"--unsafe", "--host", "a.example,b.example", "--host", "C.example."}} {
+		a := &app{}
+		_, err := run(t, a.webCmd(), append([]string{"serve"}, args...)...)
+		if !errors.Is(err, errNoServer) {
+			t.Errorf("%v: %v, want the store's error", args, err)
+		}
+	}
+	got, err := webHosts([]string{"a.example", " B.Example ", "C.example."}, true, true)
+	if want := []string{"a.example", "b.example", "c.example"}; err != nil || !slices.Equal(got, want) {
+		t.Errorf("webHosts = %v, %v, want %v", got, err, want)
+	}
+	if got, err := webHosts(nil, false, false); err != nil || got != nil {
+		t.Errorf("no --host: %v, %v", got, err)
+	}
+}
+
+// The machine's tailnet name is what the tailscale on PATH says it is, and
+// nothing when there is none, it fails, or what it says is no host name.
+func TestTailnetName(t *testing.T) {
+	bin := t.TempDir()
+	t.Setenv("PATH", bin)
+	if got := tailnetName(context.Background()); got != "" {
+		t.Errorf("no tailscale: %q", got)
+	}
+	for script, want := range map[string]string{
+		`[ "$1 $2 $3" = "status --json --peers=false" ] || exit 2
+echo 'warning: client version != server version' >&2
+echo '{"BackendState":"Running","Self":{"HostName":"adventuretime","DNSName":"AdventureTime.tail5cf2e8.ts.net."}}'`: "adventuretime.tail5cf2e8.ts.net",
+		`echo '{"BackendState":"NeedsLogin","Self":{"DNSName":""}}'`:             "",
+		`echo '{"Self":{"DNSName":"*.ts.net."}}'`:                                "",
+		`echo 'failed to connect to local tailscaled'; exit 1`:                   "",
+		`echo '{"Self":{"DNSName":"adventuretime.tail5cf2e8.ts.net."}}'; exit 1`: "",
+		`echo not json`: "",
+	} {
+		if err := os.WriteFile(filepath.Join(bin, "tailscale"), []byte("#!/bin/sh\n"+script+"\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if got := tailnetName(context.Background()); got != want {
+			t.Errorf("tailscale that runs %q: %q, want %q", script, got, want)
 		}
 	}
 }

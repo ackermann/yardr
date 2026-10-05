@@ -903,8 +903,9 @@ now and at every login. It prints the view's address and logs to
 <home>/web.log.
 
 A service listens on loopback only: --addr takes 127.0.0.1, ::1 or localhost
-with a port, and there is no --unsafe here. To reach the view from another
-machine, forward the port over ssh (docs/web.md).
+with a port, and there is no --unsafe here, nor the --host that goes with
+it. To reach the view from another machine, forward the port over ssh
+(docs/web.md).
 
 --file-only writes the file and loads nothing.`,
 		Example: `  yardr web install                       # http://127.0.0.1:8791/

@@ -2,12 +2,15 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -20,6 +23,7 @@ func (a *app) webCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "web", Short: "Show the yard in a browser"}
 	var addr string
 	var unsafe bool
+	var hosts []string
 	serve := &cobra.Command{
 		Use:   "serve",
 		Short: "Serve a read-only view of the yard over HTTP",
@@ -40,6 +44,13 @@ this machine on that port can read the whole yard. A request is answered
 when its Host header is an IP address, a loopback name or this machine's
 host name (with or without .local), and 421 under any other name.
 
+--host names a host the machine is reached by and cannot work out by
+itself: its name in the LAN's DNS, on a tailnet, or a proxy's. It is
+answered as the machine's own names are, in any case and with any port. It
+takes one name or a comma list, may be repeated, and goes with --unsafe
+only. A wildcard is refused. With tailscale on PATH the machine's tailnet
+name is answered without being given.
+
 The open /events streams are limited: 16 from one address off loopback
 (then 429) and 128 from all of them together (then 503), and 128 from
 loopback, counted apart, so the network cannot take a stream from a page on
@@ -48,6 +59,7 @@ this machine. Both answers carry Retry-After.`,
   yardr web serve --addr 127.0.0.1:9000
   yardr web serve --unsafe                 # http://<this machine's IP>:8791/
   yardr web serve --unsafe --addr 192.168.178.90:9000   # that interface only
+  yardr web serve --unsafe --host yard.example.net      # http://yard.example.net:8791/ too
   curl -H 'Accept: application/json' localhost:8791/
   curl -N 'localhost:8791/events?format=json&after=0'   # every event, then live`,
 		Args: cobra.NoArgs,
@@ -55,6 +67,10 @@ this machine. Both answers carry Retry-After.`,
 			// Before the store: a refused address must not start a server.
 			addr := webAddr(addr, c.Flags().Changed("addr"), unsafe)
 			if err := web.CheckAddr(addr, unsafe); err != nil {
+				return err
+			}
+			hosts, err := webHosts(hosts, c.Flags().Changed("host"), unsafe)
+			if err != nil {
 				return err
 			}
 			ctx, stop := signal.NotifyContext(c.Context(), os.Interrupt, syscall.SIGTERM)
@@ -75,7 +91,7 @@ this machine. Both answers carry Retry-After.`,
 			if unsafe {
 				// A machine with no name is still reached by its IP.
 				hostname, _ := os.Hostname()
-				srv.AllowNetwork(hostname)
+				srv.AllowNetwork(hostname, append(hosts, tailnetName(ctx))...)
 				_, port, _ := net.SplitHostPort(ln.Addr().String())
 				log.Warn("no authentication: anyone who can reach this machine on port " + port + " can read the yard")
 			}
@@ -96,7 +112,11 @@ this machine. Both answers carry Retry-After.`,
 			} else {
 				defer clear()
 			}
-			log.Info("serving the yard", "url", "http://"+ln.Addr().String()+"/")
+			at := []any{"url", "http://" + ln.Addr().String() + "/"}
+			if unsafe {
+				at = append(at, "answers_to", strings.Join(append([]string{"an IP address", "localhost"}, srv.Names()...), ", "))
+			}
+			log.Info("serving the yard", at...)
 			if err := hs.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				return err
 			}
@@ -105,6 +125,7 @@ this machine. Both answers carry Retry-After.`,
 	}
 	serve.Flags().StringVar(&addr, "addr", "127.0.0.1:8791", "listen address, on loopback; "+webUnsafeAddr+" with --unsafe")
 	serve.Flags().BoolVar(&unsafe, "unsafe", false, "listen on every interface, or on any --addr; there is no authentication")
+	serve.Flags().StringSliceVar(&hosts, "host", nil, "a host name this machine is reached by, answered as its own are (repeatable); with --unsafe only")
 	cmd.AddCommand(serve)
 	a.webServiceCmds(cmd)
 	return cmd
@@ -120,4 +141,64 @@ func webAddr(addr string, given, unsafe bool) string {
 		return webUnsafeAddr
 	}
 	return addr
+}
+
+// webHosts is what --host gave, each name as the view compares it, or why
+// one is refused. Without --unsafe every one is: the view is on loopback
+// then, where no name but a loopback one reaches it.
+func webHosts(hosts []string, given, unsafe bool) ([]string, error) {
+	if !given {
+		return nil, nil
+	}
+	if !unsafe {
+		return nil, errors.New("--host refused: without --unsafe the view listens on loopback only and answers to localhost and the loopback addresses, " +
+			"so no other name reaches it. Give --unsafe too to open the view to the network under that name")
+	}
+	// An empty list is what `--host ""` leaves of itself.
+	if len(hosts) == 0 {
+		return nil, errors.New(`--host "" refused: it is no name`)
+	}
+	names := make([]string, 0, len(hosts))
+	for _, h := range hosts {
+		name, err := web.CheckHost(strings.TrimSpace(h))
+		if err != nil {
+			return nil, err
+		}
+		names = append(names, name)
+	}
+	return names, nil
+}
+
+// tailnetWait is how long tailscale gets to say the machine's name.
+const tailnetWait = 2 * time.Second
+
+// tailnetName is this machine's name on its tailnet (MagicDNS, as
+// adventuretime.tail5cf2e8.ts.net), asked of the tailscale on PATH, or ""
+// when there is none, it does not answer in time, or the machine is on no
+// tailnet: the view then starts as it would without Tailscale, and --host
+// names the machine. The name comes from this machine's own tailscaled, not
+// from a request, so it is the machine's as os.Hostname's is.
+func tailnetName(ctx context.Context) string {
+	bin, err := exec.LookPath("tailscale")
+	if err != nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(ctx, tailnetWait)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, "status", "--json", "--peers=false")
+	// Its pipes must not outlive the wait when it leaves a child behind.
+	cmd.WaitDelay = time.Second
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	var status struct{ Self struct{ DNSName string } }
+	if json.Unmarshal(out, &status) != nil {
+		return ""
+	}
+	name, err := web.CheckHost(status.Self.DNSName)
+	if err != nil {
+		return ""
+	}
+	return name
 }

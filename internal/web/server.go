@@ -82,7 +82,8 @@ type Server struct {
 	streamPerAddr int
 	// network is set when the view is served off loopback (--unsafe): a
 	// request may then name any IP in its Host header, or one of names,
-	// this machine's host names in lower case.
+	// this machine's host names in lower case: its own, and the ones its
+	// operator gave (--host).
 	network bool
 	names   []string
 }
@@ -184,11 +185,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// then carries that name, so a name that is not this machine's is
 	// refused.
 	if !s.knownHost(r.Host) {
-		as := "localhost or 127.0.0.1"
+		as, hint := "localhost or 127.0.0.1", ""
 		if s.network {
 			as = strings.Join(append([]string{"an IP address"}, s.names...), " or ")
+			// The name may be this machine's all the same (a tailnet's, the
+			// LAN's DNS, a proxy's): only its operator can say so. What is
+			// no host name is not offered back as one.
+			if name, err := CheckHost(hostOf(r.Host)); err == nil {
+				hint = ". If that name is this machine's, start the view with --host " + name
+			}
 		}
-		http.Error(w, "yardr web does not answer to another host's name: ask for it as "+as+", not "+r.Host,
+		http.Error(w, "yardr web does not answer to another host's name: ask for it as "+as+", not "+r.Host+hint,
 			http.StatusMisdirectedRequest)
 		return
 	}
@@ -391,25 +398,66 @@ func refused(addr, why string) error {
 // loopback, so a request may name the machine by any IP or by hostname,
 // its host name, with or without .local. Every other name is still
 // refused: one that resolves here is what DNS rebinding looks like, and an
-// IP literal cannot be rebound. Call it before the server serves.
-func (s *Server) AllowNetwork(hostname string) {
+// IP literal cannot be rebound. hosts are the names the operator says are
+// this machine's too (--host, each as CheckHost returns it): one the
+// machine cannot work out by itself, as a tailnet's or a proxy's. Call it
+// before the server serves.
+func (s *Server) AllowNetwork(hostname string, hosts ...string) {
 	s.network = true
+	s.names = nil
 	if name := strings.TrimSuffix(strings.ToLower(hostname), ".local"); name != "" {
 		s.names = []string{name, name + ".local"}
 	}
+	for _, h := range hosts {
+		if h = strings.ToLower(h); h != "" && !slices.Contains(s.names, h) {
+			s.names = append(s.names, h)
+		}
+	}
+}
+
+// Names are the host names a request may name the machine by when the view
+// is served off loopback, besides any IP address and the loopback names.
+func (s *Server) Names() []string { return slices.Clone(s.names) }
+
+// CheckHost returns name as a request's Host header is compared with it,
+// in lower case and without the dot that ends a full name, or says why it
+// is no host name. A wildcard is none: a view that answers to every name
+// has no guard against DNS rebinding left.
+func CheckHost(name string) (string, error) {
+	host := strings.TrimSuffix(strings.ToLower(name), ".")
+	switch {
+	case host == "":
+		return "", fmt.Errorf("--host %q refused: it is no name", name)
+	case strings.Contains(host, "*"):
+		return "", fmt.Errorf("--host %s refused: a wildcard would answer to any site's name, and yardr web has no authentication yet. Name each host", name)
+	case strings.Contains(host, ":"):
+		return "", fmt.Errorf("--host %s refused: give the name alone, without a scheme or a port (an IP address is answered already)", name)
+	}
+	for _, label := range strings.Split(host, ".") {
+		if label == "" || strings.Trim(label, "abcdefghijklmnopqrstuvwxyz0123456789-_") != "" {
+			return "", fmt.Errorf("--host %s refused: it is no host name (letters, digits, - and _, in parts joined by dots)", name)
+		}
+	}
+	return host, nil
 }
 
 // knownHost reports whether a request's Host header names this machine's
 // loopback interface or, served off loopback, the machine itself: an IP
 // literal or one of its host names.
 func (s *Server) knownHost(hostport string) bool {
-	host := hostport
-	if h, _, err := net.SplitHostPort(hostport); err == nil {
-		host = h
-	}
-	host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
+	host := hostOf(hostport)
 	if ip := net.ParseIP(host); ip != nil {
 		return s.network || ip.IsLoopback()
 	}
 	return strings.EqualFold(host, "localhost") || s.network && slices.Contains(s.names, strings.ToLower(host))
+}
+
+// hostOf is the host of a Host header, without its port and without the
+// brackets of an IPv6 literal.
+func hostOf(hostport string) string {
+	host := hostport
+	if h, _, err := net.SplitHostPort(hostport); err == nil {
+		host = h
+	}
+	return strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
 }

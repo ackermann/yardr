@@ -40,21 +40,44 @@ port can read the whole yard. The view stays read-only.
 - A request is answered when its `Host` header is an IP address (any), a
   loopback name, or this machine's host name as `os.Hostname` gives it,
   with or without `.local`, in any case (`adventuretime` and
-  `adventuretime.local`). Every other name is still answered 421, so a page
-  on another site cannot read the yard through a visitor's browser by
-  pointing a name of its own at this machine.
+  `adventuretime.local`), or a name given with `--host` (below). Every
+  other name is still answered 421, so a page on another site cannot read
+  the yard through a visitor's browser by pointing a name of its own at
+  this machine.
+- `--host <name>` names a host the machine is reached by and cannot work
+  out by itself: its name in the LAN's DNS, on a tailnet, or a proxy's.
+  It is answered as the machine's own names are, in any case and with any
+  port. The flag takes one name or a comma list and may be repeated
+  (`--host yard.example.net --host yard.lan`). It goes with `--unsafe`
+  only: without it the view is on loopback, where no such name reaches
+  it, and the flag is refused. A wildcard (`*`, `*.ts.net`) and an empty
+  name are refused too: a view that answers to every name has no guard
+  left.
+- The machine's Tailscale name is answered without `--host`: when a
+  `tailscale` is on `PATH`, the view asks it once at start
+  (`tailscale status --json --peers=false`, two seconds at most) for the
+  machine's MagicDNS name (`adventuretime.tail5cf2e8.ts.net`). With no
+  `tailscale` on `PATH`, one that fails or does not answer in time, or a
+  machine on no tailnet, nothing is added and the view starts as it would
+  without Tailscale; `--host` names the machine then.
+- The 421 says which names are answered and, for a name that could be a
+  host's, how to add it:
+  `... not yard.example.net:8791. If that name is this machine's, start the view with --host yard.example.net`.
 - The event streams one address may hold open, and all addresses
   together, are limited ([The stream](#the-stream), **How many**), so a
   device on the network cannot hold streams open without end. Loopback's
   are counted apart.
 - It logs one warning when it starts:
   `no authentication: anyone who can reach this machine on port 8791 can read the yard`.
+  The line after it says what the view answers to:
+  `serving the yard url=http://[::]:8791/ answers_to="an IP address, localhost, adventuretime, adventuretime.local, adventuretime.tail5cf2e8.ts.net"`.
 
 ## Keeping it running
 
 `yardr web serve` runs while its terminal does. Two commands run it without
 one, both on loopback only (`--addr` takes a loopback address with a port,
-default `127.0.0.1:8791`; neither has `--unsafe`):
+default `127.0.0.1:8791`; neither has `--unsafe`, and so neither has
+`--host`):
 
 ```sh
 yardr web start                  # in the background, until it is killed or the machine restarts

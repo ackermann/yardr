@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -491,6 +492,79 @@ func TestUnsafeHost(t *testing.T) {
 	for _, host := range []string{".local", "evil.example"} {
 		if r := bf.get("/", "Host", host); r.status != http.StatusMisdirectedRequest {
 			t.Errorf("no host name, Host %s: status %d, want 421", host, r.status)
+		}
+	}
+}
+
+// A name the operator gave (--host) is answered as the machine's own are,
+// in any case and with any port; a name not given is still refused, and
+// the refusal says how to give it. Without --unsafe no name is answered.
+func TestGivenHost(t *testing.T) {
+	st := storetest.New(t)
+	srv, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.AllowNetwork("adventuretime", "adventuretime.tail5cf2e8.ts.net", "Yard.Example.net", "adventuretime")
+	if got, want := srv.Names(), []string{"adventuretime", "adventuretime.local", "adventuretime.tail5cf2e8.ts.net", "yard.example.net"}; !slices.Equal(got, want) {
+		t.Errorf("names %v, want %v", got, want)
+	}
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+	f := &fixture{t: t, st: st, ts: ts}
+	for _, host := range []string{"adventuretime.tail5cf2e8.ts.net", "adventuretime.tail5cf2e8.ts.net:8791", "ADVENTURETIME.Tail5CF2E8.ts.net:8791",
+		"yard.example.net:443", "YARD.EXAMPLE.NET", "adventuretime.local:8791", "192.168.178.90:8791"} {
+		if r := f.get("/", "Host", host); r.status != 200 {
+			t.Errorf("Host %s: status %d", host, r.status)
+		}
+	}
+	for host, name := range map[string]string{
+		"other.tail5cf2e8.ts.net:8791":        "other.tail5cf2e8.ts.net",
+		"Evil.Example":                        "evil.example",
+		"tail5cf2e8.ts.net":                   "tail5cf2e8.ts.net",
+		"x.adventuretime.tail5cf2e8.ts.net:1": "x.adventuretime.tail5cf2e8.ts.net",
+		"yard.example.net.evil.example":       "yard.example.net.evil.example",
+	} {
+		r := f.get("/", "Host", host)
+		if r.status != http.StatusMisdirectedRequest {
+			t.Errorf("Host %s: status %d, want 421", host, r.status)
+		}
+		for _, want := range []string{"yard.example.net", ", not " + host + ". If that name is this machine's, start the view with --host " + name + "\n"} {
+			if !strings.Contains(r.body, want) {
+				t.Errorf("Host %s: the refusal lacks %q: %q", host, want, r.body)
+			}
+		}
+	}
+	// What is no host name is not offered back as one.
+	if r := f.get("/", "Host", "evil*.example"); r.status != http.StatusMisdirectedRequest || strings.Contains(r.body, "--host") {
+		t.Errorf("Host evil*.example: status %d, body %q", r.status, r.body)
+	}
+
+	// On loopback the flag is refused, so the refusal does not name it.
+	lf := newFixture(t)
+	if r := lf.get("/", "Host", "yard.example.net"); r.status != http.StatusMisdirectedRequest || strings.Contains(r.body, "--host") {
+		t.Errorf("on loopback, Host yard.example.net: status %d, body %q", r.status, r.body)
+	}
+}
+
+// A name for --host is compared in lower case and without the dot that
+// ends a full name; a wildcard, an empty name and what is no name at all
+// are refused.
+func TestCheckHost(t *testing.T) {
+	for name, want := range map[string]string{
+		"adventuretime":                    "adventuretime",
+		"AdventureTime.Tail5cf2e8.ts.net.": "adventuretime.tail5cf2e8.ts.net",
+		"my_box.lan":                       "my_box.lan",
+		"xn--bcher-kva.example":            "xn--bcher-kva.example",
+	} {
+		if got, err := web.CheckHost(name); err != nil || got != want {
+			t.Errorf("CheckHost(%q) = %q, %v, want %q", name, got, err, want)
+		}
+	}
+	for _, name := range []string{"", ".", "*", "*.ts.net", "a*.example", "yard.example.net:8791", "http://yard.example.net", "[::1]",
+		"a..b", ".example", "yard.example.net/", "a b", "bücher.example"} {
+		if got, err := web.CheckHost(name); err == nil || !strings.Contains(err.Error(), "refused") {
+			t.Errorf("CheckHost(%q) = %q, %v, want a refusal", name, got, err)
 		}
 	}
 }
