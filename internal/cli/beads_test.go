@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -265,5 +266,148 @@ func TestListingsShowTheEpic(t *testing.T) {
 	var shown struct{ ID, Epic, Base, Revision string }
 	if err := json.Unmarshal([]byte(out), &shown); err != nil || shown.Epic != "yard-e" || shown.Base != "yard/yard-e" || shown.Revision == "" {
 		t.Fatalf("bead show --json = %+v, %v:\n%s", shown, err, out)
+	}
+}
+
+// bead create --discovered-from records where a bead was found: bead show
+// says so on both beads, in text and JSON, and bead list --discovered-from
+// lists what a bead led to. An unknown origin creates nothing.
+func TestBeadDiscoveredFrom(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	if err := st.PutRig(ctx, store.Rig{Name: "yard", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateBead(ctx, store.NewBead{ID: "yard-1", Title: "the origin", Rig: "yard"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, actor: "me"}
+
+	create := func(title string) string {
+		t.Helper()
+		out, err := run(t, a.beadCmd(), "create", title, "--discovered-from", "yard-1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(out)
+	}
+	open, shut := create("a loose end"), create("a fixed end")
+	if _, err := st.CloseBead(ctx, shut, "fixed", store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	// Created like any bead: no rig, labels or priority of the origin's.
+	if b, _ := st.GetBead(ctx, open); b == nil || b.Rig != nil || b.Priority != 2 {
+		t.Fatalf("the found bead: %+v", b)
+	}
+
+	out, err := run(t, a.beadCmd(), "show", open)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "  discovered from yard-1 the origin\n"; !strings.Contains(out, want) {
+		t.Fatalf("bead show of the found bead lacks %q:\n%s", want, out)
+	}
+	out, err = run(t, a.beadCmd(), "show", "yard-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "  led to: " + open + " a loose end\n  led to: " + shut + " a fixed end (closed)\n"; !strings.Contains(out, want) {
+		t.Fatalf("bead show of the origin lacks %q:\n%s", want, out)
+	}
+
+	listed := func(args ...string) []string {
+		t.Helper()
+		out, err := run(t, a.beadCmd(), append([]string{"list", "--discovered-from", "yard-1"}, args...)...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ids []string
+		for _, l := range strings.Split(strings.TrimSpace(out), "\n")[1:] {
+			ids = append(ids, strings.Fields(l)[0])
+		}
+		return ids
+	}
+	if got := listed(); !slices.Equal(got, []string{open}) {
+		t.Fatalf("bead list --discovered-from yard-1 = %v, want %s", got, open)
+	}
+	if got := listed("-a"); !slices.Equal(got, []string{open, shut}) {
+		t.Fatalf("bead list -a --discovered-from yard-1 = %v, want both", got)
+	}
+
+	before, _ := st.ListBeads(ctx, store.BeadFilter{All: true})
+	if _, err := run(t, a.beadCmd(), "create", "an orphan", "--discovered-from", "yard-nope"); err == nil {
+		t.Fatal("an unknown origin was accepted")
+	}
+	if after, _ := st.ListBeads(ctx, store.BeadFilter{All: true}); len(after) != len(before) {
+		t.Fatalf("a refused create left a bead: %d, were %d", len(after), len(before))
+	}
+
+	a.json = true
+	type refs struct {
+		ID             string
+		DiscoveredFrom []store.BeadRef `json:"discovered_from"`
+		LedTo          []store.BeadRef `json:"led_to"`
+	}
+	show := func(id string) refs {
+		t.Helper()
+		out, err := run(t, a.beadCmd(), "show", id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var r refs
+		if err := json.Unmarshal([]byte(out), &r); err != nil {
+			t.Fatalf("%v\n%s", err, out)
+		}
+		// Both lists are there, empty when there is nothing to list.
+		if r.ID != id || r.DiscoveredFrom == nil || r.LedTo == nil {
+			t.Fatalf("bead show --json %s:\n%s", id, out)
+		}
+		return r
+	}
+	if r := show(open); !slices.Equal(r.DiscoveredFrom, []store.BeadRef{{ID: "yard-1", Title: "the origin", Status: "open"}}) || len(r.LedTo) != 0 {
+		t.Fatalf("the found bead as JSON: %+v", r)
+	}
+	if r := show("yard-1"); len(r.DiscoveredFrom) != 0 || !slices.Equal(r.LedTo, []store.BeadRef{
+		{ID: open, Title: "a loose end", Status: "open"}, {ID: shut, Title: "a fixed end", Status: "closed"}}) {
+		t.Fatalf("the origin as JSON: %+v", r)
+	}
+}
+
+// oldServer is a store whose server is from before discovered-from: it does
+// not know Discovery, and its CreateBead would drop the origin and create
+// the bead without its edge.
+type oldServer struct {
+	store.API
+	created int
+}
+
+func (o *oldServer) Discovery(context.Context, string) (*store.Discovery, error) {
+	return nil, errors.New("no such method Discovery")
+}
+
+func (o *oldServer) CreateBead(ctx context.Context, nb store.NewBead, actor string) (*store.Bead, error) {
+	o.created++
+	nb.DiscoveredFrom = ""
+	return o.API.CreateBead(ctx, nb, actor)
+}
+
+// Against a server from before the flag, bead create --discovered-from
+// creates nothing rather than a bead without its edge.
+func TestDiscoveredFromRefusesAnOlderServer(t *testing.T) {
+	st := &oldServer{API: storetest.New(t)}
+	ctx := context.Background()
+	if _, err := st.API.CreateBead(ctx, store.NewBead{ID: "yd-1", Title: "the origin"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, actor: "me"}
+	if _, err := run(t, a.beadCmd(), "create", "found", "--discovered-from", "yd-1"); err == nil || !strings.Contains(err.Error(), "no such method") {
+		t.Fatalf("create against an older server: %v, want its refusal", err)
+	}
+	if st.created != 0 {
+		t.Fatal("the bead was created without its edge")
+	}
+	// Without the flag an older server is asked nothing new.
+	if _, err := run(t, a.beadCmd(), "create", "plain"); err != nil || st.created != 1 {
+		t.Fatalf("a plain create: %v, %d created", err, st.created)
 	}
 }

@@ -7,7 +7,9 @@
 //	               blocks, "b depends on a", the direction bd and BDP's
 //	               readiness clients follow (outbound blocks -> blockers)
 //	bead type      https://work.example/types/<t> for BDP's reference types,
-//	dep kind       else <scope>types/<t>, as BDP's bd adapter does
+//	dep kind       else <scope>types/<t>, as BDP's bd adapter does. Kind
+//	               discovered-from (origin -> found bead) is one of these:
+//	               source the found bead, target its origin, as in bd
 //	link to an     Link  <scope>links/<link-id>, source the bead, target the
 //	outside issue  issue's URL, an out-of-Scope endpoint; type
 //	               <scope>types/relates, or <scope>types/tracks-<source>,
@@ -261,8 +263,15 @@ func (g *Graph) linkType(kind string, seen map[string]TypeSummary) string {
 	id := g.Scope + "types/" + EncodeSegment(kind)
 	if _, ok := g.descriptors[id]; !ok {
 		conforms := []string{}
+		description := "yardr dependency kind " + kind
+		if kind == store.DepDiscoveredFrom {
+			// BDP's reference vocabulary has no discovered-from, so it is
+			// Scope-local, and conforms to nothing: least of all to
+			// dependency, which a readiness client could take for a blocker.
+			description = "the source bead was found while working on the target; a record, it never blocks"
+		}
 		g.descriptors[id] = &TypeDescriptor{ID: id, Name: titleCase(kind), Describes: "link", ConformsTo: conforms,
-			Description: "yardr dependency kind " + kind,
+			Description: description,
 			Source:      &EndpointRule{ConformsTo: []string{}}, Target: &EndpointRule{ConformsTo: []string{}}}
 		g.conforms[id] = conforms
 	}

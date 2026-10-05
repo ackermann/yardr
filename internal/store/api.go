@@ -29,6 +29,7 @@ type API interface {
 	OpenBlockers(ctx context.Context, id string) ([]string, error)
 	BlockerCycles(ctx context.Context) ([][]string, error)
 	Family(ctx context.Context, id string) (*Family, error)
+	Discovery(ctx context.Context, id string) (*Discovery, error)
 	AddLink(ctx context.Context, id string, nl NewLink, actor string) (*LinkChange, error)
 	RemoveLink(ctx context.Context, id, issue, actor string) error
 	MoveLink(ctx context.Context, issue, to, actor string) (*LinkChange, error)

@@ -16,6 +16,14 @@ import (
 // its source closes.
 const DepBlocks = "blocks"
 
+// DepDiscoveredFrom is the edge kind from a bead to each bead that was
+// found while working on it (`bead create --discovered-from`): the record of
+// where follow-up work came from. It has the direction of blocks and parent,
+// the earlier bead first, so BDP serves it as bd does: the found bead is the
+// link's source and "depends on" its origin. It is a record only: it never
+// blocks, and nothing routes, groups or lands by it.
+const DepDiscoveredFrom = "discovered-from"
+
 type Dep struct {
 	From      string    `json:"from"` // must close first (for kind 'blocks')
 	To        string    `json:"to"`
@@ -410,6 +418,49 @@ func (s *Store) Deps(ctx context.Context, ref string) ([]Dep, error) {
 	})
 	sort.SliceStable(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
 	return out, err
+}
+
+// BeadRef names a bead on another bead's page: enough to show it without
+// reading it.
+type BeadRef struct {
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	Status string `json:"status"`
+}
+
+// Discovery is a bead's discovered-from edges, both ways, each list oldest
+// edge first.
+type Discovery struct {
+	// From are the beads this one was found from. bead create gives one;
+	// dep add can add more.
+	From []BeadRef `json:"discovered_from"`
+	// LedTo are the beads found from this one, open and closed.
+	LedTo []BeadRef `json:"led_to"`
+}
+
+// Discovery returns where ref was found from and what was found from it.
+func (s *Store) Discovery(ctx context.Context, ref string) (*Discovery, error) {
+	d := &Discovery{From: []BeadRef{}, LedTo: []BeadRef{}}
+	err := s.read(func(tx *bolt.Tx) error {
+		id, err := resolve(tx, ref)
+		if err != nil {
+			return err
+		}
+		refs := func(index []byte, other func(depRow) string) []BeadRef {
+			out := []BeadRef{}
+			for _, e := range edges(tx, index, id, DepDiscoveredFrom) {
+				var row beadRow
+				if ok, _ := get(tx, bBeads, other(e), &row); ok {
+					out = append(out, BeadRef{ID: row.ID, Title: row.Title, Status: row.Status})
+				}
+			}
+			return out
+		}
+		d.From = refs(bDepTo, func(e depRow) string { return e.From })
+		d.LedTo = refs(bDepFrom, func(e depRow) string { return e.To })
+		return nil
+	})
+	return d, err
 }
 
 // OpenBlockers lists the handles of beads that block ref and are not closed.

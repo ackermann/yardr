@@ -28,7 +28,7 @@ func beadRows(bs []store.Bead) [][]string {
 
 const beadHeader = "ID\tEPIC\tPRI\tTYPE\tSTAGE\tSTATUS\tGROUP\tRIG\tTITLE"
 
-func (a *app) printBead(b *store.Bead) error { return a.printBeadFlow(b, nil, nil, nil) }
+func (a *app) printBead(b *store.Bead) error { return a.printBeadFlow(b, nil, nil, nil, nil) }
 
 // printLinks adds the outside issues a bead is linked to (yardr link) to
 // bead show's text.
@@ -43,8 +43,9 @@ func printLinks(ls []store.Link) {
 // printBeadFlow prints b with the flow governing it; flowErr, when the
 // flow does not resolve, is shown in its place rather than hide the bead.
 // fam, when given, adds where the bead stands among epics, and links the
-// outside issues it is linked to.
-func (a *app) printBeadFlow(b *store.Bead, next *store.NextStages, flowErr error, fam *store.Family, links ...store.Link) error {
+// outside issues it is linked to; disc, when given, the bead it was found
+// from and the beads found from it.
+func (a *app) printBeadFlow(b *store.Bead, next *store.NextStages, flowErr error, fam *store.Family, disc *store.Discovery, links ...store.Link) error {
 	return a.out(b, func() {
 		fmt.Printf("%s  %s\n", b.ID, b.Title)
 		fmt.Printf("  type %s · stage %s · %s · P%d", b.Type, b.Stage, b.Status, b.Priority)
@@ -62,6 +63,9 @@ func (a *app) printBeadFlow(b *store.Bead, next *store.NextStages, flowErr error
 		}
 		if fam != nil {
 			printFamily(fam)
+		}
+		if disc != nil {
+			printDiscovery(disc)
 		}
 		printLinks(links)
 		if b.Group != nil {
@@ -90,6 +94,21 @@ func printFamily(f *store.Family) {
 	}
 	if len(f.Children) > 0 {
 		fmt.Printf("  children %s\n", strings.Join(f.Children, ", "))
+	}
+}
+
+// printDiscovery adds a bead's discovered-from edges to bead show's text:
+// the bead it was found from, and each bead found from it, closed ones too.
+func printDiscovery(d *store.Discovery) {
+	for _, o := range d.From {
+		fmt.Printf("  discovered from %s %s\n", o.ID, o.Title)
+	}
+	for _, f := range d.LedTo {
+		closed := ""
+		if f.Status == "closed" {
+			closed = " (closed)"
+		}
+		fmt.Printf("  led to: %s %s%s\n", f.ID, f.Title, closed)
 	}
 }
 
@@ -135,6 +154,16 @@ func (a *app) beadCmd() *cobra.Command {
 					nb.Links = append(nb.Links, nl)
 				}
 			}
+			// The store makes the edge in the write that creates the bead, and
+			// refuses an unknown origin there. A server from before the flag
+			// would drop the field and create the bead without its edge, so
+			// ask it for the origin first: such a server does not know the
+			// question, and nothing is created.
+			if nb.DiscoveredFrom != "" {
+				if _, err := st.Discovery(c.Context(), nb.DiscoveredFrom); err != nil {
+					return fmt.Errorf("discovered from: %w", err)
+				}
+			}
 			b, err := st.CreateBead(c.Context(), nb, a.who())
 			if err != nil {
 				return err
@@ -158,6 +187,7 @@ func (a *app) beadCmd() *cobra.Command {
 	f.StringVar(&nb.ID, "id", "", "explicit handle instead of a minted one (imports; must be unused)")
 	f.StringArrayVar(&createMeta, "meta", nil, "metadata key=value (repeatable), e.g. model=opus")
 	f.StringSliceVar(&blockedBy, "blocked-by", nil, "beads that must close first")
+	f.StringVar(&nb.DiscoveredFrom, "discovered-from", "", "the bead this one was found while working on (open or closed, any rig); recorded as an edge, never blocks")
 	f.StringArrayVar(&tracks, "tracks", nil, "outside issue the bead tracks: its URL, or the seq of a hook delivery from it (one per source; see yardr link)")
 	f.StringArrayVar(&relates, "relates", nil, "outside issue the bead relates to, never moves (repeatable)")
 
@@ -183,6 +213,10 @@ func (a *app) beadCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			disc, err := st.Discovery(c.Context(), b.ID)
+			if err != nil {
+				return err
+			}
 			if a.json {
 				// The bead's own fields stay at the top level, so readers of
 				// bead show --json (its revision) are unaffected. Bead and
@@ -195,12 +229,13 @@ func (a *app) beadCmd() *cobra.Command {
 				return a.out(struct {
 					*store.Bead
 					*store.Family
+					*store.Discovery
 					Epic  string       `json:"epic,omitempty"`
 					Links []store.Link `json:"links"`
-				}{b, fam, epic, links}, nil)
+				}{b, fam, disc, epic, links}, nil)
 			}
 			next, err := st.NextStages(c.Context(), b.ID)
-			return a.printBeadFlow(b, next, err, fam, links...)
+			return a.printBeadFlow(b, next, err, fam, disc, links...)
 		},
 	}
 
@@ -229,6 +264,7 @@ func (a *app) beadCmd() *cobra.Command {
 	lf2.StringVarP(&lf.Label, "label", "l", "", "filter by label")
 	lf2.StringVarP(&lf.Group, "group", "g", "", "filter by owning group")
 	lf2.StringVar(&lf.Epic, "epic", "", "only this epic and its children, the epic first")
+	lf2.StringVar(&lf.DiscoveredFrom, "discovered-from", "", "only the beads found from this bead (bead create --discovered-from)")
 
 	// rev is --revision: the bead's revision as the caller last read it
 	// (bead show --json). A write is refused if the bead changed since.
@@ -495,12 +531,16 @@ func (a *app) depCmd() *cobra.Command {
 child: the child's branch starts from the epic's and lands on it, and the
 child also blocks the epic (one command adds both edges), so the epic is
 not ready until its last child closes. dep rm -k parent removes both.
+With kind discovered-from, <to> was found while working on <from>: a record
+that bead show prints on both and that never blocks (bead create
+--discovered-from <from> makes it with the bead). Any other kind is a
+record too.
 
 A blocks edge that would close a cycle of blockers (the one asked for, or
 the child's edge a parent edge adds) is refused, naming the cycle: "a blocks
 b blocks c blocks a". An open cycle leaves no bead ready. Closed beads count:
 one would block again once reopened. Other kinds are never refused for it.`
-	add.Flags().StringVarP(&kind, "kind", "k", "blocks", "edge kind (blocks, related, parent, ...)")
+	add.Flags().StringVarP(&kind, "kind", "k", "blocks", "edge kind (blocks, related, parent, discovered-from, ...)")
 	var rmKind string
 	rm := &cobra.Command{
 		Use:   "rm <from> <to>",
@@ -589,6 +629,10 @@ func (a *app) primeCmd() *cobra.Command {
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "warning: %v\n", err)
 			}
+			disc, err := st.Discovery(c.Context(), id)
+			if err != nil {
+				return err
+			}
 			next, flowErr := st.NextStages(c.Context(), id)
 			// A store flow's stage file is a file in the yard's home, which
 			// the store does not read.
@@ -600,7 +644,7 @@ func (a *app) primeCmd() *cobra.Command {
 				next.StageFile = sf
 			}
 			v := map[string]any{"bead": b, "notes": notes, "deps": deps, "open_blockers": blockers, "next": next,
-				"family": fam}
+				"family": fam, "discovery": disc}
 			// The whole flow as a map, and the path the bead took: what comes
 			// before and after the stage, which the stage file does not say.
 			// The bead and its stage file are worth printing without it.
@@ -626,7 +670,7 @@ func (a *app) primeCmd() *cobra.Command {
 				v["flow_error"] = flowErr.Error()
 			}
 			return a.out(v, func() {
-				_ = a.printBeadFlow(b, next, flowErr, fam)
+				_ = a.printBeadFlow(b, next, flowErr, fam, disc)
 				if op != nil {
 					fmt.Printf("\nOPERATOR %s:\n  %s\n", op.Name, strings.Join(op.lines(), "\n  "))
 				}

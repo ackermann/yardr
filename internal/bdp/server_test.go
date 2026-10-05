@@ -312,6 +312,46 @@ func TestLinksFollowBDPDirection(t *testing.T) {
 	}
 }
 
+// A discovered-from edge is served as bd's: the found bead is the source and
+// "depends on" its origin, in a Scope-local Type (BDP's reference vocabulary
+// has none) that conforms to nothing, so no client takes it for a blocker.
+func TestDiscoveredFromLink(t *testing.T) {
+	f := newFixture(t)
+	origin := f.bead("API", "task")
+	found, err := f.st.CreateBead(context.Background(), store.NewBead{Title: "a leak", DiscoveredFrom: origin.ID}, "tester")
+	if err != nil {
+		t.Fatal(err)
+	}
+	typ := scope + "types/discovered-from"
+	links := f.get("links/?type=" + url.QueryEscape(typ)).json(t)["items"].([]any)
+	if len(links) != 1 {
+		t.Fatalf("discovered-from links = %v", links)
+	}
+	l := links[0].(map[string]any)
+	if l["type"] != typ || l["source"] != scope+"beads/"+found.ID || l["target"] != scope+"beads/"+origin.ID {
+		t.Fatalf("link = %v, want source the found bead and target its origin", l)
+	}
+	desc := f.get("types/discovered-from").json(t)
+	if desc["describes"] != "link" || len(desc["conformsTo"].([]any)) != 0 || !strings.Contains(desc["description"].(string), "never blocks") {
+		t.Fatalf("descriptor = %v", desc)
+	}
+	for _, c := range []string{"dependency", "relationship", "blocks"} {
+		q := url.QueryEscape("https://work.example/types/" + c)
+		if n := len(f.get("links/?conformsTo=" + q).json(t)["items"].([]any)); n != 0 {
+			t.Fatalf("conformsTo %s matched %d links, want none", c, n)
+		}
+	}
+	// bd's row of the found bead lists the edge among its dependencies.
+	props := f.get("beads/" + found.ID).json(t)["properties"].(map[string]any)
+	deps := props["dependencies"].([]any)
+	if len(deps) != 1 {
+		t.Fatalf("dependencies = %v", deps)
+	}
+	if d := deps[0].(map[string]any); d["issue_id"] != found.ID || d["depends_on_id"] != origin.ID || d["type"] != "discovered-from" {
+		t.Fatalf("dependency row = %v", d)
+	}
+}
+
 // Journals and memories are open beads in the store, but not work: a bd-style
 // client computes readiness from status and blockers, so serving them would
 // list a resident's journal as ready. They are not served, nor their links.

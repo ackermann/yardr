@@ -75,6 +75,11 @@ type NewBead struct {
 	// Links are made with the bead, in the same write: a link that is
 	// refused (the issue has a tracker) creates no bead.
 	Links []NewLink
+	// DiscoveredFrom names the bead this one was found while working on
+	// (a handle or UUID, open or closed, in any rig). The discovered-from
+	// edge is made with the bead, in the same write: an origin that does
+	// not exist creates no bead. Nothing of the origin is inherited.
+	DiscoveredFrom string
 }
 
 var validID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
@@ -214,6 +219,19 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 			return err
 		}
 		seq := w.Bucket(bEvents).Sequence()
+		if nb.DiscoveredFrom != "" {
+			origin, err := w.loadBead(nb.DiscoveredFrom)
+			if err != nil {
+				return fmt.Errorf("discovered from: %w", err)
+			}
+			if err := w.addDep(origin, row, DepDiscoveredFrom, actor); err != nil {
+				return err
+			}
+			// The edge re-minted the bead: go on with it as stored.
+			if _, err := get(w.Tx, bBeads, row.UUID, row); err != nil {
+				return err
+			}
+		}
 		for _, nl := range nb.Links {
 			if _, _, err := w.addLink(row, nl, actor, nil); err != nil {
 				return err
@@ -272,9 +290,29 @@ type BeadFilter struct {
 	// Epic keeps the epic (a handle or UUID) and its children, the epic
 	// first.
 	Epic string
+	// DiscoveredFrom keeps the beads found from this one (a handle or
+	// UUID): those with a discovered-from edge from it.
+	DiscoveredFrom string
 }
 
 func (s *Store) ListBeads(ctx context.Context, f BeadFilter) ([]Bead, error) {
+	var found map[string]bool
+	if f.DiscoveredFrom != "" {
+		err := s.read(func(tx *bolt.Tx) error {
+			origin, err := resolve(tx, f.DiscoveredFrom)
+			if err != nil {
+				return err
+			}
+			found = map[string]bool{}
+			for _, d := range edges(tx, bDepFrom, origin, DepDiscoveredFrom) {
+				found[d.To] = true
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
 	epic := ""
 	if f.Epic != "" {
 		err := s.read(func(tx *bolt.Tx) error {
@@ -295,6 +333,7 @@ func (s *Store) ListBeads(ctx context.Context, f BeadFilter) ([]Bead, error) {
 	bs, err := s.beadsWhere(func(tx *bolt.Tx, b *Bead) bool {
 		return (f.All || b.Status == "open") &&
 			(epic == "" || b.ID == epic || b.Epic == epic) &&
+			(found == nil || found[b.UUID]) &&
 			(f.Stage == "" || b.Stage == f.Stage) &&
 			// Journals and memories are listed only when asked for by type.
 			((f.Type == "" && !NotWork[b.Type]) || b.Type == f.Type) &&

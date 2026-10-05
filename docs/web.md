@@ -487,8 +487,9 @@ time.
 
 `/beads/<id>` is what `yardr prime --bead <id>` knows, for a person: title,
 type, stage, status and priority; its rig, the flow that governs it and
-where that comes from, its base, its epic; the open beads that block it; an
-epic's children; the body; the stage file of its stage (without its
+where that comes from, its base, its epic, the bead it was discovered from;
+the open beads that block it; an epic's children; the beads it led to; the
+body; the stage file of its stage (without its
 `summary:` line, in the page; whole in the JSON); the outcomes the
 stage offers, each with the command that reports it (the next stages, for a
 stage with no outcome); its edges; its notes, the oldest first; the
@@ -519,7 +520,8 @@ sessions that worked it. A closed bead has a page too. An unknown id is a
 - `bead`, `deps`, `notes`, `sessions` and `stage_file` are the store's own
   records, as `yardr bead show --json`, `yardr prime --json` and `yardr
   session list --json` print them. `epic`, `children` and `blockers` are
-  cards.
+  cards, and so are `discovered_from` and `led_to`, present when the bead
+  has such an edge (`bead create --discovered-from`).
 - `flow` is absent for a bead no flow governs: it may move to any stage.
   `terminal` names those of `next` that close the bead.
 - `warnings` say what could not be read (a broken flow, an ambiguous

@@ -405,6 +405,10 @@ type BeadPage struct {
 	// Blockers are the open beads that must close before this one is
 	// worked.
 	Blockers []Card `json:"blockers,omitempty"`
+	// DiscoveredFrom is the bead this one was found while working on;
+	// LedTo are the beads found from this one, open and closed.
+	DiscoveredFrom []Card `json:"discovered_from,omitempty"`
+	LedTo          []Card `json:"led_to,omitempty"`
 	// Deps are the bead's edges, both ways.
 	Deps []store.Dep `json:"deps,omitempty"`
 	// StageFile is what the flow says about the bead's stage.
@@ -506,6 +510,16 @@ func (s *Server) handleBead(w http.ResponseWriter, r *http.Request) {
 	if d.Deps, err = s.st.Deps(ctx, b.ID); err != nil {
 		s.fail(w, r, err)
 		return
+	}
+	for _, e := range d.Deps {
+		if e.Kind != store.DepDiscoveredFrom {
+			continue
+		}
+		if e.To == b.ID {
+			d.DiscoveredFrom = append(d.DiscoveredFrom, cards([]string{e.From})...)
+		} else {
+			d.LedTo = append(d.LedTo, cards([]string{e.To})...)
+		}
 	}
 	notes, err := s.st.Notes(ctx, b.ID)
 	if err != nil {

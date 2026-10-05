@@ -229,6 +229,10 @@ func (c *Client) BlockerCycles(ctx context.Context) ([][]string, error) {
 	return callV[[][]string](c, ctx, "BlockerCycles")
 }
 
+func (c *Client) Discovery(ctx context.Context, id string) (*store.Discovery, error) {
+	return callV[*store.Discovery](c, ctx, "Discovery", id)
+}
+
 func (c *Client) Family(ctx context.Context, id string) (*store.Family, error) {
 	return callV[*store.Family](c, ctx, "Family", id)
 }

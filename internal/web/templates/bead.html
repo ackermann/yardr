@@ -22,6 +22,7 @@
       <div><dt>flow</dt><dd>{{with .Flow}}{{.Name}} <span class="faint">({{.Source}})</span>{{else}}<span class="faint">none: it may move to any stage</span>{{end}}</dd></div>
       {{- with .Base}}<div><dt>base</dt><dd>{{.}}</dd></div>{{end}}
       {{- with .Epic}}<div><dt>epic</dt><dd><a class="bead" href="/beads/{{.ID}}">{{.ID}}</a> {{.Title}}</dd></div>{{end}}
+      {{- range .DiscoveredFrom}}<div><dt>discovered from</dt><dd><a class="bead" href="/beads/{{.ID}}">{{.ID}}</a> {{.Title}}</dd></div>{{end}}
       {{- with .Bead.Group}}<div><dt>group</dt><dd>{{.}}</dd></div>{{end}}
       {{- with .Bead.Session}}<div><dt>session</dt><dd>{{.}}</dd></div>{{end}}
       {{- with .Bead.Labels}}<div><dt>labels</dt><dd>{{range $i, $l := .}}{{if $i}}, {{end}}{{$l}}{{end}}</dd></div>{{end}}
@@ -40,6 +41,12 @@
   <section class="item">
     <h3 class="label">children</h3>
     <div class="cards">{{range .Children}}{{template "card" .}}{{end}}</div>
+  </section>
+  {{- end}}
+  {{- if .LedTo}}
+  <section class="item">
+    <h3 class="label">led to</h3>
+    <div class="cards">{{range .LedTo}}{{template "card" .}}{{end}}</div>
   </section>
   {{- end}}
   {{- if .Bead.Body}}

@@ -17,6 +17,12 @@ yardr bdp serve --addr :8765 --scope https://beads.example/team/
   plus yardr's own fields; a held bead reads as `deferred`. Types use BDP's
   reference vocabulary (`https://work.example/types/task`, `…/blocks`) where
   names match, else `<scope>types/<name>`.
+- A `discovered-from` edge (`yardr bead create --discovered-from <origin>`)
+  is a Link of Type `<scope>types/discovered-from`: BDP's reference
+  vocabulary has none. Its source is the found bead and its target the
+  origin, as bd's `discovered-from` dependency, and the found bead's
+  `dependencies` row lists it with `"type": "discovered-from"`. The Type
+  conforms to nothing, so no client reads it as a blocker.
 - Every real change mints an opaque revision (a no-op mints none), served
   as the ETag; listings page over one consistent snapshot.
 - The revision is the compare-and-swap token a BDP write profile will take

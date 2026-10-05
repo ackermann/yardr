@@ -202,6 +202,19 @@ itself is integrated, reviewed as a whole and landed on main through its own
 flow ([details](docs/pipeline.md#epics)). Work that can land bead by bead is a
 chain instead: `yardr dep add <blocker> <bead>` orders it.
 
+A dependency's kind is a free word. Only `blocks` (the default) keeps a bead
+from being ready, and only `parent` makes a child of an epic; any other kind
+is a record. One has a meaning of its own: `discovered-from`, from a bead to
+a bead that was found while working on it. `yardr bead create "<title>"
+--discovered-from <bead>` makes the bead and the edge in one write (the
+origin may be open or closed, in any rig; an unknown one creates nothing),
+and the new bead inherits nothing from it. `yardr bead show` says
+"discovered from" on the one and "led to" on the other,
+`yardr bead list --discovered-from <bead>` lists what was found from a bead
+(`-a` for the closed too), and `yardr dep rm <origin> <found> -k
+discovered-from` removes it. It never affects `yardr ready`, routing, an
+epic's children or what lands.
+
 ## Rigs
 
 A rig is a git repository beads are worked in. Register an existing clone,

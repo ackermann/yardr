@@ -603,6 +603,37 @@ func TestBeadHTML(t *testing.T) {
 	}
 }
 
+// A bead found from another names it, and the origin's page lists what it
+// led to, closed beads too.
+func TestBeadDiscoveredFrom(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	origin, err := f.st.CreateBead(ctx, store.NewBead{Title: "the origin"}, "me")
+	must(t, err)
+	found, err := f.st.CreateBead(ctx, store.NewBead{Title: "a loose end", DiscoveredFrom: origin.ID}, "me")
+	must(t, err)
+	_, err = f.st.CloseBead(ctx, found.ID, "fixed", store.Expect{}, "me")
+	must(t, err)
+
+	var got web.BeadPage
+	f.getJSON("/beads/"+found.ID, &got)
+	if len(got.DiscoveredFrom) != 1 || got.DiscoveredFrom[0].ID != origin.ID || got.DiscoveredFrom[0].Title != "the origin" || len(got.LedTo) != 0 {
+		t.Errorf("the found bead: discovered from %+v, led to %+v", got.DiscoveredFrom, got.LedTo)
+	}
+	got = web.BeadPage{}
+	f.getJSON("/beads/"+origin.ID, &got)
+	if len(got.LedTo) != 1 || got.LedTo[0].ID != found.ID || got.LedTo[0].Status != "closed" || len(got.DiscoveredFrom) != 0 {
+		t.Errorf("the origin: led to %+v, discovered from %+v", got.LedTo, got.DiscoveredFrom)
+	}
+	if want, body := `<dt>discovered from</dt><dd><a class="bead" href="/beads/`+origin.ID+`">`+origin.ID+`</a> the origin</dd>`, f.get("/beads/"+found.ID).body; !strings.Contains(body, want) {
+		t.Errorf("the found bead's page lacks %s", want)
+	}
+	body := f.get("/beads/" + origin.ID).body
+	if at := strings.Index(body, `<h3 class="label">led to</h3>`); at < 0 || !strings.Contains(body[at:], `href="/beads/`+found.ID+`"`) {
+		t.Errorf("the origin's page does not list %s under led to", found.ID)
+	}
+}
+
 // A bead's title, body, notes and stage file are text someone wrote. Every
 // page and the card stream write them as text, never as markup; JSON
 // carries them as they are.
