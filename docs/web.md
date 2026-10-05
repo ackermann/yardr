@@ -488,7 +488,8 @@ time.
 `/beads/<id>` is what `yardr prime --bead <id>` knows, for a person: title,
 type, stage, status and priority; its rig, the flow that governs it and
 where that comes from, its base, its epic; the open beads that block it; an
-epic's children; the body; the stage file of its stage; the outcomes the
+epic's children; the body; the stage file of its stage (without its
+`summary:` line, in the page; whole in the JSON); the outcomes the
 stage offers, each with the command that reports it (the next stages, for a
 stage with no outcome); its edges; its notes, the oldest first; the
 sessions that worked it. A closed bead has a page too. An unknown id is a

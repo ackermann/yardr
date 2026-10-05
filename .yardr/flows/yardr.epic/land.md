@@ -1,3 +1,5 @@
+summary: The epic's pull request is merged, at the reviewed commit and no other.
+
 The epic's pull request is merged here (`contrib/refinery/pr-merge`;
 docs/pipeline.md#through-a-pull-request). No agent works this stage. What is
 merged is the reviewed commit and no other: the merge names

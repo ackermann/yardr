@@ -1,3 +1,5 @@
+summary: The epic's pull request is open; a person says whether it is merged.
+
 The epic's pull request is open against `main`, at the commit the reviewer
 approved (`pr_reviewed_sha` in the epic's metadata). A person looks at the
 pull request and its checks and says whether it is merged. Only the pull

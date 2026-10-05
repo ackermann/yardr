@@ -51,7 +51,7 @@
   {{- with .StageFile}}
   <section class="item">
     <h3 class="label">stage {{$.Data.Bead.Stage}} · {{.Path}}</h3>
-    <pre class="text file">{{.Text}}</pre>
+    <pre class="text file">{{.Body}}</pre>
   </section>
   {{- end}}
   {{- if eq .Bead.Status "open"}}

@@ -57,6 +57,7 @@ type API interface {
 	RepoFlows(ctx context.Context, rig string) (*RepoFlows, error)
 	RigFlows(ctx context.Context, rig string) ([]RigFlow, error)
 	NextStages(ctx context.Context, id string) (*NextStages, error)
+	FlowMap(ctx context.Context, id string) (*FlowMap, error)
 	Stranded(ctx context.Context, rig string) ([]StrandedBead, error)
 
 	Claim(ctx context.Context, beadID, group, stage, actor string) (*Session, error)

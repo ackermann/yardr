@@ -1,3 +1,5 @@
+summary: The mayor shapes the epic: its goal, its "done when" and its children.
+
 An epic is shaped here: the mayor writes its goal and "done when" and adds its
 children (`yardr dep add <epic> <child> -k parent`, which also makes each
 child block the epic). No agent works this stage.

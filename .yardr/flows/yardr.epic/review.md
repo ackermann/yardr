@@ -1,3 +1,5 @@
+summary: The whole of the epic is reviewed: the sum of its children, which nobody has seen yet.
+
 The whole of an epic is reviewed here: branch `yard/<epic>`, which the
 integrator already rebased onto `main` and gated. The brief says the bead is
 an epic and lists its children. The children were each reviewed when they

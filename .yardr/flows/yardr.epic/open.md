@@ -1,3 +1,5 @@
+summary: The epic waits while any child is open, then is rebased onto `main` and gated.
+
 The epic waits here while any child is open: each child blocks it, and lands
 on the epic's branch `yard/<epic>`, not on `main`. Once the last child closes
 the epic is ready and is integrated (`contrib/refinery/integrate-epic`;

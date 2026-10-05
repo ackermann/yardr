@@ -596,6 +596,18 @@ func (a *app) primeCmd() *cobra.Command {
 			}
 			v := map[string]any{"bead": b, "notes": notes, "deps": deps, "open_blockers": blockers, "next": next,
 				"family": fam}
+			// The whole flow as a map, and the path the bead took: what comes
+			// before and after the stage, which the stage file does not say.
+			// The bead and its stage file are worth printing without it.
+			var fm *store.FlowMap
+			if flowErr == nil {
+				if fm, err = a.flowMap(c.Context(), st, id, next); err != nil {
+					fmt.Fprintf(os.Stderr, "warning: flow map: %v\n", err)
+				}
+			}
+			if fm != nil {
+				v["flow"] = fm
+			}
 			// How to work with the operator, on a yard that says: read here,
 			// at the session's start, so a change needs no new role file.
 			op, err := primeOperator(c.Context(), st)
@@ -615,9 +627,16 @@ func (a *app) primeCmd() *cobra.Command {
 				}
 				// What the flow says about the stage, for people and residents
 				// in manual stages, who get no brief.
-				if flowErr == nil && next.StageFile != nil {
-					fmt.Printf("\nSTAGE %s (%s):\n  %s\n", b.Stage, next.StageFile.Path,
-						strings.ReplaceAll(strings.TrimSpace(next.StageFile.Text), "\n", "\n  "))
+				// Without its `summary:` line, which the map above already says.
+				stage := ""
+				if flowErr == nil {
+					stage = strings.TrimSpace(next.StageFile.Body())
+				}
+				if fm != nil {
+					fmt.Printf("\n%s", flowMapText(fm, stage != ""))
+				}
+				if stage != "" {
+					fmt.Printf("\nSTAGE %s (%s):\n  %s\n", b.Stage, next.StageFile.Path, strings.ReplaceAll(stage, "\n", "\n  "))
 				}
 				if flowErr != nil {
 					fmt.Println("\nOUTCOMES: none until the flow is fixed; every move is refused")

@@ -484,7 +484,8 @@ func whole(t *testing.T, f *fixture) (epic, blocker, b *store.Bead) {
 	must(t, f.st.SetFlowPointer(ctx, "line", "", "code", "me"))
 	file := filepath.Join(store.HomeStageDir(f.home, "code"), "new.md")
 	must(t, os.MkdirAll(filepath.Dir(file), 0o755))
-	must(t, os.WriteFile(file, []byte("A builder implements the bead here.\n"), 0o644))
+	// The summary line is for the map in yardr prime: the page leaves it out.
+	must(t, os.WriteFile(file, []byte("summary: Built here.\n\nA builder implements the bead here.\n"), 0o644))
 	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 2}))
 	epic, err = f.st.CreateBead(ctx, store.NewBead{Title: "the gate", Type: store.TypeEpic, Stage: "new", Rig: "line"}, "me")
 	must(t, err)
@@ -527,7 +528,7 @@ func TestBeadJSON(t *testing.T) {
 	if len(got.Blockers) != 1 || got.Blockers[0].ID != blocker.ID || got.Blockers[0].Title != "the posts" {
 		t.Errorf("blockers %+v", got.Blockers)
 	}
-	if got.StageFile == nil || got.StageFile.Text != "A builder implements the bead here.\n" ||
+	if got.StageFile == nil || got.StageFile.Body() != "A builder implements the bead here.\n" ||
 		got.StageFile.Path != filepath.Join(store.HomeStageDir(f.home, "code"), "new.md") {
 		t.Errorf("stage file %+v", got.StageFile)
 	}

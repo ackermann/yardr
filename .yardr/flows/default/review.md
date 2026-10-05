@@ -1,3 +1,5 @@
+summary: The finished bead is reviewed against its goal; what the reviewer can fix is fixed, not sent back.
+
 The finished bead is reviewed here, on its branch `yard/<bead>`, against the
 bead: its goal, its "done when" and the builder's notes. The review is
 forward: what the reviewer can fix with confidence is fixed on the branch

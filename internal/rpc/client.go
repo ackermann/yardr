@@ -312,6 +312,9 @@ func (c *Client) RigFlows(ctx context.Context, rig string) ([]store.RigFlow, err
 func (c *Client) NextStages(ctx context.Context, id string) (*store.NextStages, error) {
 	return callV[*store.NextStages](c, ctx, "NextStages", id)
 }
+func (c *Client) FlowMap(ctx context.Context, id string) (*store.FlowMap, error) {
+	return callV[*store.FlowMap](c, ctx, "FlowMap", id)
+}
 func (c *Client) Stranded(ctx context.Context, rig string) ([]store.StrandedBead, error) {
 	return callV[[]store.StrandedBead](c, ctx, "Stranded", rig)
 }

@@ -1,3 +1,5 @@
+summary: A conflict between the epic's branch and `main` is resolved.
+
 A conflict between the epic's branch and `main` is resolved here: rebasing
 `yard/<epic>` onto `main` conflicted, in `open` or in `approved`. The epic
 was already integrated, or reviewed and approved; the job is only to make it

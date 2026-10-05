@@ -166,8 +166,10 @@ Your environment already names you to yardr (YARDR_ACTOR=%[1]s, YARDR_BEAD, YARD
 			return "", err
 		}
 	}
-	if sf != nil && strings.TrimSpace(sf.Text) != "" {
-		fmt.Fprintf(&b, "\n## Stage `%s`\n\n%s\n", bead.Stage, strings.TrimSpace(sf.Text))
+	// Without its `summary:` line, which is for the map of the flow in
+	// yardr prime.
+	if body := strings.TrimSpace(sf.Body()); body != "" {
+		fmt.Fprintf(&b, "\n## Stage `%s`\n\n%s\n", bead.Stage, body)
 	}
 	switch {
 	case len(job.Outcomes) > 0:

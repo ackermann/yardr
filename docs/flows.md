@@ -294,8 +294,9 @@ A stage can carry a markdown **stage file**: what the stage is for, what
 must be true to leave it, and when each outcome applies. Whoever works a
 bead in the stage is shown it, whichever group they belong to: an agent in
 its brief, a person or a resident with `yardr prime --bead`. Stage files are
-optional; a stage without one behaves as it always did, and briefs and
-`prime` print exactly what they printed before.
+optional; a stage without one behaves as it always did: its brief has no
+stage section, `prime` no `STAGE` block, and its line on
+[the map of the flow](#the-map-of-the-flow) says only who works it.
 
 A stage file belongs to one flow, not to a stage name: `review` in `default`
 and `review` in `yardr.epic` are two files. It lives where its flow lives.
@@ -343,7 +344,9 @@ Where it shows:
   bead, right before the outcomes. The heading is the brief's, so the file
   needs none; a file that uses headings should start at `###`.
 - **`yardr prime --bead <id>`.** As `STAGE <stage> (<path>):` before
-  `OUTCOMES:`, and in `--json` as `next.stage_file` (`path`, `text`).
+  `OUTCOMES:`, and in `--json` as `next.stage_file` (`path`, `text`). Above
+  it, the `FLOW` block has one line of every stage's file
+  ([The map of the flow](#the-map-of-the-flow)).
 - **`yardr flow show <rig>`.** The `FILE` column says per stage whether it
   has one (`stage_file`, the path, in `--json`). `yardr flow show <name>`
   lists the stages of a store flow that have one and where the files live.
@@ -370,6 +373,59 @@ starter stage file for every stage of the flows it seeds
 yardr has one for every stage of both its flows
 ([`.yardr/flows/default/`](../.yardr/flows/default),
 [`.yardr/flows/yardr.epic/`](../.yardr/flows/yardr.epic)).
+
+### The map of the flow
+
+`yardr prime --bead <id>` draws the whole flow before the `STAGE` block, so
+whoever works a bead sees how big the flow is, who works each stage, where
+the bead stands and where it has been:
+
+```
+FLOW default · 6 stages (context: your stage's file below says what you must do)
+  backlog    people   New beads wait here, where `yardr bead create` puts them, until the mayor has shaped them.
+> new        agents   A builder implements the bead here, on branch `yard/<bead>` in the bead's own worktree.   <- you are here
+  decide     people   A bead here waits for a person: Christopher decides.
+  review     agents   The finished bead is reviewed against its goal; what the reviewer can fix is fixed, not sent back.
+  approved   script   The refinery gates the bead and lands it on `main`, one bead at a time.
+  merged     end
+PATH  new -> review -> new (changes)
+```
+
+The map is context: with a testing stage later in the flow, a builder can
+see what is not its job. What must hold before the bead leaves its stage is
+in that stage's file, which is the only one printed in full; the heading
+says so, or `(context: it does not say what you must do)` when the stage has
+no file. The block is the same whoever asks, and a bead no flow governs has
+none.
+
+- **Order.** The flow's stages in the order its file first names them, so
+  what a rule leads to comes before the stage of the next rule (`decide`
+  above, which `backlog -> new | decide` names). An epic, or any bead of a
+  type with its own flow, gets the map of that flow.
+- **Who.** From the route a bead of this rig and type (and these labels)
+  would take in the stage, by the group's runner: `agents`, `script` for an
+  exec group, `people` for a manual one, `end` for a terminal stage whatever
+  is routed there, `nobody` for a stage without a route. Groups are not
+  named.
+- **The line.** The first sentence of the stage's file: its first
+  paragraph up to the first `.`, `!` or `?` that a space or the paragraph's
+  end follows, on one line. A line longer than 100 characters is cut on a
+  word and ends in `…`. When the first sentence does not serve, the file
+  starts with a line `summary: <text>`: that is the line then, and it is
+  for the map alone: the `STAGE` block, the brief and the web view leave it
+  out (`next.stage_file.text` in `--json` is the whole file). A stage
+  without a file has no line.
+- **`>` and `<- you are here`** mark the stage the bead is in.
+- **`PATH`.** Every stage the bead entered, oldest first, from its
+  `advanced` events; a bead that never moved has no `PATH` line. A move to
+  a stage that is not later in the flow's order (the bead was sent back, or
+  stayed for another try) names the outcome that took it there, or `by
+  hand` for a move that reported none (`yardr bead advance --to`). Of more
+  than eight stages the first two and the last five are printed, with `…`
+  between.
+- **`--json`.** `flow`: `name`, `stages` (each `name`, `who`, `summary`,
+  `current`) and `path` (each `stage`, and `back` where the move went
+  against the order: the outcome, or `by hand`), which is never shortened.
 
 ## Type flows
 

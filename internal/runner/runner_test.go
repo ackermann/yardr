@@ -1471,6 +1471,18 @@ func TestBriefShowsTheStageFile(t *testing.T) {
 		t.Errorf("brief with a repository stage file:\n%s\nwant:\n%s", got, want)
 	}
 
+	// Its `summary:` line is for the map in yardr prime: the brief leaves
+	// it out, and a file that says nothing else is no stage section.
+	repo.StageFile = &store.StageFile{Path: ".yardr/flows/default/review.md", Text: "summary: The diff is reviewed.\n\nRead the whole diff.\n\n`changes` sends it back.\n"}
+	if got, want := brief(repo), with("Read the whole diff.\n\n`changes` sends it back."); got != want {
+		t.Errorf("brief with a stage file that has a summary line:\n%s\nwant:\n%s", got, want)
+	}
+	repo.StageFile = &store.StageFile{Path: ".yardr/flows/default/review.md", Text: "summary: The diff is reviewed.\n"}
+	if got := brief(repo); got != plain {
+		t.Errorf("a stage file with only a summary line changed the brief:\n%s", got)
+	}
+	repo.StageFile = &store.StageFile{Path: ".yardr/flows/default/review.md", Text: "\nRead the whole diff.\n\n`changes` sends it back.\n\n"}
+
 	// A store flow with no file in the home, or an empty one, changes nothing.
 	inStore := job
 	inStore.StoreFlow = "code"

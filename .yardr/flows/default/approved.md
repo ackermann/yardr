@@ -1,3 +1,5 @@
+summary: The refinery gates the bead and lands it on `main`, one bead at a time.
+
 The refinery lands the bead on `main` from here, one bead at a time
 (`contrib/refinery/merge-local`; docs/pipeline.md). No agent works this
 stage. The bead was built, reviewed and approved; the refinery rebases
