@@ -510,6 +510,7 @@ func TestDoctorMayorGivenUpAfterSessionsGoneAtOnce(t *testing.T) {
 		}
 	}
 	gone()
+	wantText(t, cmd("resident", "list"), "stopped (1 failed start, next try in ")
 	gone() // the start in between did not clear the count
 	// The wait itself is a second or so under the two minutes by now.
 	wantText(t, cmd("resident", "list"), "stopped (2 failed starts, next try in ")

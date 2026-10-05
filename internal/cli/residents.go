@@ -839,15 +839,19 @@ func yardSkew() string {
 // store.MinSessionLife is one) and when the daemon tries next, or that it
 // gave up. "" when none failed or a session runs.
 func startFailures(r store.Resident, now time.Time) string {
+	n := fmt.Sprintf("%d failed starts", r.Failures)
+	if r.Failures == 1 {
+		n = "1 failed start"
+	}
 	switch {
 	case r.State == "failed":
-		return fmt.Sprintf("gave up after %d failed starts; yardr resident start %s tries again", r.Failures, r.Name)
+		return fmt.Sprintf("gave up after %s; yardr resident start %s tries again", n, r.Name)
 	case r.Live() || r.Failures == 0:
 		return ""
 	case !r.Enabled || r.RetryAfter == nil:
-		return fmt.Sprintf("%d failed starts", r.Failures)
+		return n
 	case !r.RetryAfter.After(now):
-		return fmt.Sprintf("%d failed starts, next try on the daemon's next pass", r.Failures)
+		return n + ", next try on the daemon's next pass"
 	}
-	return fmt.Sprintf("%d failed starts, next try in %s", r.Failures, r.RetryAfter.Sub(now).Round(time.Second))
+	return fmt.Sprintf("%s, next try in %s", n, r.RetryAfter.Sub(now).Round(time.Second))
 }
