@@ -592,6 +592,26 @@ func (s serviceState) line() string {
 	return fmt.Sprintf("installed, not loaded in %s now (%s)", s.Manager, s.File)
 }
 
+// daemonState is the daemon as yardr daemon status and yardr status report
+// it: whether one holds the home's lock, and its login service.
+type daemonState struct {
+	Running bool         `json:"running"`
+	PID     int          `json:"pid"`
+	Service serviceState `json:"service"`
+}
+
+func readDaemon(ctx context.Context, cfg *config.Config) daemonState {
+	return daemonState{Running: daemonRunning(cfg.DaemonLock()), PID: daemonPID(cfg.DaemonLock()), Service: stateOf(ctx, cfg, svcDaemon)}
+}
+
+// line is whether the daemon runs, in words.
+func (d daemonState) line() string {
+	if d.Running {
+		return fmt.Sprintf("running (pid %d)", d.PID)
+	}
+	return "not running"
+}
+
 // protectedNote is what a daemon started at login cannot do in the rigs
 // named, and what to grant. macOS only.
 func protectedNote(rigs []string, program string) string {
@@ -763,16 +783,13 @@ none. yardr init --start starts one in the background before that.`,
 			if err != nil {
 				return err
 			}
-			pid := daemonPID(cfg.DaemonLock())
-			running := daemonRunning(cfg.DaemonLock())
-			svc := stateOf(c.Context(), cfg, svcDaemon)
-			return a.out(map[string]any{"home": cfg.Home, "running": running, "pid": pid, "service": svc}, func() {
-				if running {
-					fmt.Printf("daemon   running (pid %d)\n", pid)
-				} else {
-					fmt.Println("daemon   not running")
-				}
-				fmt.Printf("service  %s\n", svc.line())
+			d := readDaemon(c.Context(), cfg)
+			return a.out(struct {
+				Home string `json:"home"`
+				daemonState
+			}{cfg.Home, d}, func() {
+				fmt.Printf("daemon   %s\n", d.line())
+				fmt.Printf("service  %s\n", d.Service.line())
 			})
 		},
 	}

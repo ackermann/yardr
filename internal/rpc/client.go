@@ -64,6 +64,20 @@ func (c *Client) Ping(ctx context.Context) error {
 	return nil
 }
 
+// Owner asks the owner which process it is and which build it runs, from
+// the headers it stamps every reply with. pid is 0 and revision "" for what
+// a reply does not say.
+func (c *Client) Owner(ctx context.Context) (pid int, revision string, err error) {
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://yard/ping", nil)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return 0, "", err
+	}
+	resp.Body.Close()
+	pid, _ = strconv.Atoi(resp.Header.Get(PIDHeader))
+	return pid, resp.Header.Get(version.Header), nil
+}
+
 func (c *Client) call(ctx context.Context, method string, out any, args ...any) error {
 	if args == nil {
 		args = []any{}

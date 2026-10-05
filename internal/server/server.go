@@ -412,6 +412,35 @@ func Running(ctx context.Context, c *config.Config) bool {
 	return ping(ctx, rpc.NewClient(c.Socket()))
 }
 
+// Info is what a running server says of itself.
+type Info struct {
+	PID int `json:"pid"`
+	// Revision is the build it runs; "" for one that carries none.
+	Revision string `json:"revision"`
+	// Since is when this build of it started: when it wrote the pidfile,
+	// which a server that replaces itself writes again. Zero when the
+	// pidfile is not this server's.
+	Since time.Time `json:"since"`
+}
+
+// Describe is the server that answers on the socket; false when none does.
+// It starts none.
+func Describe(ctx context.Context, c *config.Config) (Info, bool) {
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	pid, rev, err := rpc.NewClient(c.Socket()).Owner(ctx)
+	if err != nil {
+		return Info{}, false
+	}
+	info := Info{PID: pid, Revision: rev}
+	if named, err := readPID(c); err == nil && named == pid {
+		if fi, err := os.Stat(c.PIDFile()); err == nil {
+			info.Since = fi.ModTime()
+		}
+	}
+	return info, true
+}
+
 func ping(ctx context.Context, client *rpc.Client) bool {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()

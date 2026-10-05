@@ -61,6 +61,10 @@ type yardState struct {
 	// EnvCommands are the residents whose env_command names a program
 	// this command does not find.
 	EnvCommands []string `json:"env_commands,omitempty"`
+	// What readState read to say the above, kept for yardr status, which
+	// lists it: every resident, and the open beads.
+	residents []store.Resident
+	open      []store.Bead
 }
 
 // mayorState is the mayor: whether the resident exists, and its session.
@@ -92,6 +96,8 @@ type optionalPart struct {
 	Detail     string `json:"detail"`
 	// Notes are what to know about it as it is configured.
 	Notes []string `json:"notes,omitempty"`
+	// Views are the web views that run now, on the web view's part only.
+	Views []webView `json:"views,omitempty"`
 }
 
 // serverRunning reports whether the home's server answers; tests replace it.
@@ -181,11 +187,18 @@ every line.`,
 // at all; everything it finds wrong is in the report. With try it makes one
 // real call to each harness (see try).
 func (a *app) doctor(ctx context.Context, cfg *config.Config, try bool) (*doctorReport, error) {
-	rep := &doctorReport{Home: cfg.Home, Faults: []string{}, Tried: try}
 	// Before the store is asked: connecting starts a server that is not
 	// running.
 	was := serverRunning(ctx, cfg)
 	set, err := a.initialized(ctx, cfg)
+	return a.examine(ctx, cfg, try, was, set, err)
+}
+
+// examine is doctor for a home already asked whether it holds a yard (set,
+// or err when its server cannot be reached) and whether its server was
+// running before that (was).
+func (a *app) examine(ctx context.Context, cfg *config.Config, try, was, set bool, err error) (*doctorReport, error) {
+	rep := &doctorReport{Home: cfg.Home, Faults: []string{}, Tried: try}
 	if err != nil {
 		// A yard whose server cannot be reached: the machine's part still
 		// says something, and the fault is the server's.
@@ -248,7 +261,7 @@ func (a *app) doctor(ctx context.Context, cfg *config.Config, try bool) (*doctor
 // a yard whose onboarding is to finish (resume).
 func readState(ctx context.Context, cfg *config.Config, st store.API, residents []store.Resident) (*yardState, error) {
 	state := &yardState{Server: "running", Daemon: daemonRunning(cfg.DaemonLock()), Residents: len(residents),
-		Failing: []failingResident{}, Held: []string{}}
+		Failing: []failingResident{}, Held: []string{}, residents: residents}
 	mayor := yardMayor(ctx, st)
 	state.Mayor = &mayorState{Name: mayor}
 	for _, r := range residents {
@@ -277,6 +290,7 @@ func readState(ctx context.Context, cfg *config.Config, st store.API, residents 
 	if err != nil {
 		return nil, err
 	}
+	state.open = open
 	for _, b := range open {
 		if b.Hold {
 			state.Held = append(state.Held, b.ID)
@@ -291,12 +305,7 @@ func readState(ctx context.Context, cfg *config.Config, st store.API, residents 
 // optionalParts are what a yard runs without, each configured or not.
 func optionalParts(ctx context.Context, cfg *config.Config, st store.API) ([]optionalPart, error) {
 	yardr := yardrAt(cfg.Home)
-	web := optionalPart{Key: "web", Title: "web view",
-		Detail: fmt.Sprintf("nothing keeps it running; %s web serve shows the yard in a browser while it runs, "+
-			"%s web install keeps it running from login on (docs/web.md)", yardr, yardr)}
-	if webService(cfg) {
-		web.Configured, web.Detail = true, "kept running as a login service"+at(webServiceAddr(cfg))+fileOf(cfg, svcWeb)
-	}
+	web := webPart(cfg)
 	hs, err := st.Hooks(ctx)
 	if err != nil {
 		return nil, err

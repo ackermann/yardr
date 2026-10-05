@@ -1,0 +1,415 @@
+package cli
+
+import (
+	"context"
+	"fmt"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/spf13/cobra"
+
+	"yardr.dev/yardr/internal/chat"
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/runner"
+	"yardr.dev/yardr/internal/server"
+	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/version"
+)
+
+// statusReport is what yardr status prints: what of the yard runs now, and
+// where each part is reached. It holds facts only; what is wrong or missing
+// is yardr doctor's, which Faults points at.
+type statusReport struct {
+	Home     string `json:"home"`
+	Name     string `json:"name,omitempty"`
+	Operator string `json:"operator,omitempty"`
+
+	Server    serverStatus     `json:"server"`
+	Daemon    daemonState      `json:"daemon"`
+	Residents []residentStatus `json:"residents"`
+	Web       webStatus        `json:"web"`
+	// Hooks is absent on a yard with no hook and no address for them.
+	Hooks *hookStatus  `json:"hooks,omitempty"`
+	Peers []peerStatus `json:"peers,omitempty"`
+	// Work is absent when the server cannot be reached.
+	Work *workCounts `json:"work,omitempty"`
+	// Faults is how many faults yardr doctor reports on this yard now.
+	Faults int `json:"faults"`
+}
+
+// serverStatus is the process that owns the store.
+type serverStatus struct {
+	Running bool `json:"running"`
+	// Started is whether this command started it, as the first command on
+	// a yard does.
+	Started bool   `json:"started,omitempty"`
+	Error   string `json:"error,omitempty"`
+	PID     int    `json:"pid,omitempty"`
+	// Build is the revision it runs, as yardr version names one; CLI is
+	// the build of the yardr that was asked.
+	Build string     `json:"build,omitempty"`
+	Since *time.Time `json:"since,omitempty"`
+	CLI   string     `json:"cli_build"`
+	// Differs is whether the two are different builds.
+	Differs bool `json:"differs"`
+}
+
+// residentStatus is a resident with the state yardr chat lists it with.
+type residentStatus struct {
+	Name  string `json:"name"`
+	State string `json:"state"`
+	// Agent is herdr's name for its session; "" when none runs.
+	Agent string `json:"agent,omitempty"`
+}
+
+// webStatus is the web view: each one that runs, and its login service.
+type webStatus struct {
+	Views   []webView    `json:"views"`
+	Service serviceState `json:"service"`
+}
+
+// hookStatus is the webhook receiver and the hooks it serves.
+type hookStatus struct {
+	// Addr is the address the server was given for webhooks, "" for none;
+	// Listening is whether it takes them there.
+	Addr      string         `json:"addr,omitempty"`
+	Listening bool           `json:"listening"`
+	Hooks     []hookEndpoint `json:"hooks"`
+}
+
+// hookEndpoint is one hook.
+type hookEndpoint struct {
+	Name   string `json:"name"`
+	Source string `json:"source"`
+	// URL is where its source posts to, "" while the server takes none.
+	URL string `json:"url,omitempty"`
+}
+
+type peerStatus struct {
+	Name string `json:"name"`
+	// URL is where the peer is called; "" for one that calls this yard.
+	URL string `json:"url,omitempty"`
+}
+
+// workCounts are the yard's work in numbers.
+type workCounts struct {
+	// Sessions are the live sessions by group.
+	Sessions map[string]int `json:"sessions"`
+	Held     int            `json:"held"`
+	Decide   int            `json:"decide"`
+}
+
+// decideStage is the stage where a bead waits for a person to decide.
+const decideStage = "decide"
+
+// serverInfo asks the home's server which process and build it is; tests
+// replace it.
+var serverInfo = server.Describe
+
+func (a *app) statusCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "status",
+		Short: "What of the yard runs now, and where to reach it (read-only)",
+		Long: `Print what runs right now and where it is reached, in one screen:
+
+  yard       its home, its name, the operator
+  server     running or not, its pid, the build it runs and since when; the
+             build of this yardr when that is another
+  daemon     running or not, its pid; its login service
+  residents  each with what it is doing, as yardr chat lists it, and its
+             herdr agent
+  web view   each view that runs: the URL to open, its pid, and whether it is
+             open to the network (--unsafe, no login) or to this machine only;
+             its login service
+  hooks      the address the server takes webhooks on, each hook and its URL
+  peers      each linked yard and where it is called
+  work       how many sessions run in each group, how many beads are held
+             and how many wait in decide
+
+A part the yard does not have (hooks, peers) has no line. It is read-only.
+On a yard whose server is not running it starts the server, as any command
+does, and says so.
+
+yardr status says what is there; yardr doctor says what is wrong or missing.
+When doctor reports a fault, the last line of status says so and names it,
+without repeating it. The exit status is 0 whenever the home holds a yard,
+and 2 on a home with none.
+
+A web view is found by the record it keeps in <home>/webviews while it
+runs. One started by a build of yardr before this command existed keeps
+none and is not listed until it is started again.`,
+		Example: `  yardr status
+  yardr status --json | jq -r '.web.views[].url'   # where the web view is`,
+		Args: cobra.NoArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			rep, err := a.status(c.Context(), cfg)
+			if err != nil {
+				return err
+			}
+			return a.out(rep, rep.print)
+		},
+	}
+}
+
+// status reads the report. The yard's state is doctor's, read once: status
+// lists from it what doctor counts, and takes doctor's faults as they are.
+func (a *app) status(ctx context.Context, cfg *config.Config) (*statusReport, error) {
+	// Before the store is asked: connecting starts a server that is not
+	// running.
+	was := serverRunning(ctx, cfg)
+	set, err := a.initialized(ctx, cfg)
+	if err == nil && !set {
+		return nil, notInitialized{cfg.Home}
+	}
+	doc, err := a.examine(ctx, cfg, false, was, set, err)
+	if err != nil {
+		return nil, err
+	}
+	rep := &statusReport{Home: cfg.Home, Faults: len(doc.Faults), Residents: []residentStatus{},
+		Daemon: readDaemon(ctx, cfg),
+		Web:    webStatus{Views: webViews(cfg), Service: stateOf(ctx, cfg, svcWeb)},
+		Server: serverStatus{CLI: version.Describe()}}
+	if doc.State.Server == "unreachable" {
+		rep.Server.Error = doc.State.ServerError
+		return rep, nil
+	}
+	rep.Server.Running, rep.Server.Started = true, doc.State.Server == "started"
+	if info, ok := serverInfo(ctx, cfg); ok {
+		rep.Server.PID, rep.Server.Build = info.PID, version.Show(info.Revision)
+		rep.Server.Differs = info.Revision != version.Current()
+		if !info.Since.IsZero() {
+			rep.Server.Since = &info.Since
+		}
+	}
+	st, err := a.store(ctx)
+	if err != nil {
+		return nil, err
+	}
+	all, err := st.Settings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rep.Name, rep.Operator = runner.YardName(cfg.Home, all), or(all["operator"], defaultOperator())
+	for _, r := range doc.State.residents {
+		rs := residentStatus{Name: r.Name, State: chat.StateOf(r)}
+		if r.Live() && r.Handle["agent"] != nil {
+			rs.Agent = show(r.Handle["agent"])
+		}
+		rep.Residents = append(rep.Residents, rs)
+	}
+	if rep.Hooks, err = readHooks(ctx, cfg, st); err != nil {
+		return nil, err
+	}
+	peers, err := st.Peers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range peers {
+		rep.Peers = append(rep.Peers, peerStatus{Name: p.Name, URL: p.URL})
+	}
+	sessions, err := st.Sessions(ctx, false)
+	if err != nil {
+		return nil, err
+	}
+	rep.Work = &workCounts{Sessions: map[string]int{}, Held: len(doc.State.Held)}
+	for _, s := range sessions {
+		rep.Work.Sessions[s.Group]++
+	}
+	for _, b := range doc.State.open {
+		if b.Stage == decideStage {
+			rep.Work.Decide++
+		}
+	}
+	return rep, nil
+}
+
+// readHooks is the receiver as the running server said it is, and the
+// yard's hooks; nil for a yard with neither a hook nor an address.
+func readHooks(ctx context.Context, cfg *config.Config, st store.API) (*hookStatus, error) {
+	hs, err := st.Hooks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	l, known := hooks.ReadListener(cfg)
+	if len(hs) == 0 && !(known && l.Addr != "") {
+		return nil, nil
+	}
+	out := &hookStatus{Hooks: []hookEndpoint{}}
+	if known {
+		out.Addr, out.Listening = l.Addr, l.Listening()
+	}
+	for _, h := range hs {
+		one := hookEndpoint{Name: h.Name, Source: h.Source}
+		if out.Listening {
+			one.URL = "http://" + out.Addr + "/hooks/" + h.Name
+		}
+		out.Hooks = append(out.Hooks, one)
+	}
+	return out, nil
+}
+
+// since is a time as the listings print one.
+func since(t time.Time) string { return t.Local().Format("01-02 15:04") }
+
+// plural is n of a thing, in words: 1 bead, 2 beads.
+func plural(n int, one string) string {
+	if n == 1 {
+		return "1 " + one
+	}
+	return fmt.Sprintf("%d %ss", n, one)
+}
+
+// columns pads the cells of each row to the widest of their column, the
+// last one aside, and joins them.
+func columns(rows [][]string) []string {
+	var width []int
+	for _, r := range rows {
+		for i, c := range r[:max(len(r)-1, 0)] {
+			if i == len(width) {
+				width = append(width, 0)
+			}
+			width[i] = max(width[i], len(c))
+		}
+	}
+	out := make([]string, len(rows))
+	for n, r := range rows {
+		for i, c := range r {
+			if i < len(r)-1 {
+				c = fmt.Sprintf("%-*s", width[i], c)
+			}
+			r[i] = c
+		}
+		out[n] = strings.TrimRight(strings.Join(r, "  "), " ")
+	}
+	return out
+}
+
+// statusPart is a part of the report: what it is about, and its lines.
+type statusPart struct {
+	name  string
+	lines []string
+}
+
+// parts are the report as it is printed, a part for what exists.
+func (r *statusReport) parts() []statusPart {
+	yardr := yardrAt(r.Home)
+	yard := r.Home
+	if r.Name != "" {
+		yard += fmt.Sprintf("  name %s  operator %s", r.Name, r.Operator)
+	}
+	parts := []statusPart{{"yard", []string{yard}}}
+
+	var srv []string
+	switch s := r.Server; {
+	case s.Error != "":
+		srv = []string{"cannot be reached: " + s.Error}
+	default:
+		line := "running"
+		if s.PID != 0 {
+			line += fmt.Sprintf("  pid %d  build %s", s.PID, s.Build)
+		}
+		if s.Since != nil {
+			line += "  since " + since(*s.Since)
+		}
+		if s.Started {
+			line += "  (it was not running; this command started it)"
+		}
+		srv = []string{line}
+		if s.PID != 0 && s.Differs {
+			srv = append(srv, "this yardr is build "+s.CLI)
+		}
+	}
+	parts = append(parts, statusPart{"server", srv},
+		statusPart{"daemon", []string{r.Daemon.line(), "login service: " + r.Daemon.Service.line()}})
+
+	if len(r.Residents) > 0 {
+		var rows [][]string
+		for _, res := range r.Residents {
+			row := []string{res.Name, res.State, ""}
+			if res.Agent != "" {
+				row[2] = "herdr agent " + res.Agent
+			}
+			rows = append(rows, row)
+		}
+		parts = append(parts, statusPart{"residents", columns(rows)})
+	}
+
+	var web []string
+	if len(r.Web.Views) == 0 {
+		web = []string{fmt.Sprintf("not running: %s web serve", yardr)}
+	} else {
+		var rows [][]string
+		for _, v := range r.Web.Views {
+			rows = append(rows, []string{v.URL, fmt.Sprintf("pid %d", v.PID), v.reach()})
+		}
+		web = columns(rows)
+	}
+	parts = append(parts, statusPart{"web view", append(web, "login service: "+r.Web.Service.line())})
+
+	if h := r.Hooks; h != nil {
+		var lines []string
+		switch {
+		case h.Listening:
+			lines = []string{"the server takes webhooks on " + h.Addr}
+		case h.Addr != "":
+			lines = []string{"the server takes no webhooks: it does not listen on " + h.Addr}
+		default:
+			lines = []string{"the server takes no webhooks: it has no address for them"}
+		}
+		var rows [][]string
+		for _, one := range h.Hooks {
+			rows = append(rows, []string{one.Name, one.Source, one.URL})
+		}
+		parts = append(parts, statusPart{"hooks", append(lines, columns(rows)...)})
+	}
+
+	if len(r.Peers) > 0 {
+		var rows [][]string
+		for _, p := range r.Peers {
+			rows = append(rows, []string{p.Name, or(p.URL, "it calls this yard")})
+		}
+		parts = append(parts, statusPart{"peers", columns(rows)})
+	}
+
+	if w := r.Work; w != nil {
+		n, groups := 0, []string{}
+		for g, c := range w.Sessions {
+			n += c
+			groups = append(groups, fmt.Sprintf("%s %d", g, c))
+		}
+		slices.Sort(groups)
+		line := plural(n, "session") + " running"
+		if n > 0 {
+			line += " (" + strings.Join(groups, ", ") + ")"
+		}
+		line += fmt.Sprintf(", %s held, %d in %s; %s session list has each", plural(w.Held, "bead"), w.Decide, decideStage, yardr)
+		parts = append(parts, statusPart{"work", []string{line}})
+	}
+	return parts
+}
+
+// print is the report for a person: one block, the parts' names in a
+// column of their own.
+func (r *statusReport) print() {
+	for _, p := range r.parts() {
+		name := p.name
+		for _, l := range p.lines {
+			fmt.Printf("%-9s  %s\n", name, l)
+			name = ""
+		}
+	}
+	yardr := yardrAt(r.Home)
+	switch r.Faults {
+	case 0:
+	case 1:
+		fmt.Printf("\n%s doctor reports 1 fault, and says what it is.\n", yardr)
+	default:
+		fmt.Printf("\n%s doctor reports %d faults, and says what they are.\n", yardr, r.Faults)
+	}
+}

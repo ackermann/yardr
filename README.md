@@ -135,6 +135,12 @@ home with no yard too, and exits 1 when something the yard needs is missing
 ([docs/doctor.md](docs/doctor.md)). The mayor reads it to know where the
 setup stands.
 
+`yardr status` says what runs right now and where to reach it: the server
+with its pid and build, the daemon, each resident and its herdr agent, every
+web view with its URL and whether it is open to the network, hooks, peers,
+and how many sessions run. It checks nothing and exits 0 on any yard
+([docs/doctor.md](docs/doctor.md#yardr-status)).
+
 A home counts as set up once its store has `default_kind`; a store the server
 created on some earlier command, with nothing in it, still onboards. Without a
 terminal, a command on a home with no yard says so and exits 2. To try the

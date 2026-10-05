@@ -113,7 +113,7 @@ func (a *app) rootCmd() *cobra.Command {
 		a.depCmd(), a.linkCmd(), a.groupCmd(), a.routeCmd(), a.flowCmd(), a.sessionCmd(), a.eventsCmd(), a.watchCmd(), a.primeCmd(),
 		a.bdpCmd(), a.webCmd(), a.residentCmd(), a.userCmd(), a.inboxCmd(), a.mailCmd(), a.timerCmd(), a.chatCmd(), a.rememberCmd(), a.recallCmd(), a.hookCmd(),
 		a.peerCmd(), a.subscribeCmd(), a.unsubscribeCmd(), a.threadCmd(), a.replyCmd(), a.reviewCmd(), a.storeCmd(), a.packCmd(),
-		a.initCmd(), a.settingsCmd(), a.doctorCmd(), a.setupCmd(), a.otelCmd(), a.versionCmd())
+		a.initCmd(), a.settingsCmd(), a.doctorCmd(), a.statusCmd(), a.setupCmd(), a.otelCmd(), a.versionCmd())
 	return root
 }
 

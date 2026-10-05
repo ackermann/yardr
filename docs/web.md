@@ -84,6 +84,36 @@ and, on a yes, "And at login?", each starting at no.
 [`yardr doctor`](doctor.md#optional) reports the view as configured once the
 service is installed, with its address.
 
+## Where it runs
+
+`yardr status` lists every web view that runs on the yard, however it was
+started: the URL to open, its pid, and who can open it.
+
+```
+web view   http://127.0.0.1:8791/     pid 4801  this machine only
+           http://192.168.1.20:9000/  pid 4950  open to the network (--unsafe), no login
+           login service: not installed
+```
+
+`yardr status --json | jq -r '.web.views[].url'` prints the URLs alone.
+`yardr doctor` says the same in its `web view` line under Optional, and adds
+a `note` for a view that is open to the network.
+
+- A view that listens on every interface (`--unsafe` without `--addr`) has
+  no address of its own, so its URL names this machine's first IPv4 address
+  off loopback, else its host name. `addr` in the JSON is what it listens
+  on (`0.0.0.0:8791`).
+- `open to the network` is a view started with `--unsafe` on an address off
+  loopback. `--unsafe --addr 127.0.0.1:9000` is `this machine only`.
+- While it serves, a view keeps a record in `<home>/webviews/` (its
+  address, its pid, `--unsafe` or not, when it started) and holds a lock on
+  it. It removes the record when it stops. One that ended without doing so
+  (`kill -9`, a reboot) holds the lock no longer, so its record is not
+  listed, whatever its pid has become since; the next view to start removes
+  it. Nothing is found by process name or by trying a port.
+- A view started by a build of yardr from before `yardr status` keeps no
+  record and is not listed until it is started again.
+
 ## No other host
 
 The browser gets everything from this server: HTML rendered with

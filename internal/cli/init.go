@@ -217,10 +217,12 @@ var lookPath = exec.LookPath
 // store), init itself, the ones that never touch the store, the daemon (it
 // has no terminal, and a refusal after it replaced itself would end it:
 // yard-w6np), settings, the way out when the check is wrong about a yard,
-// doctor, which says that there is no yard and creates none, and store compact, which needs the file to itself: the check would connect
+// doctor, which says that there is no yard and creates none, status, which
+// says the same and never starts an onboarding where a fact was asked for,
+// and store compact, which needs the file to itself: the check would connect
 // to the server, starting one, and the compaction would then always find
 // the store in use.
-var noOnboarding = []string{"server", "init", "daemon", "settings", "doctor", "version", "help", "completion",
+var noOnboarding = []string{"server", "init", "daemon", "settings", "doctor", "status", "version", "help", "completion",
 	cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd, "store compact"}
 
 // firstRun runs before every command: on a home with no yard yet it runs the

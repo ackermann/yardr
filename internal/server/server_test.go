@@ -776,3 +776,28 @@ func TestStartGivesTheServerItsOwnEnvAndDir(t *testing.T) {
 		t.Errorf("server lacks PATH or HOME:\n%s", strings.Join(env, "\n"))
 	}
 }
+
+// Describe says which process and build answers on the home's socket and
+// since when, for yardr status; with no server it says so and starts none.
+func TestDescribe(t *testing.T) {
+	c := home(t)
+	if info, ok := Describe(context.Background(), c); ok {
+		t.Fatalf("no server runs, and one is described: %+v", info)
+	}
+	if _, err := os.Stat(c.Socket()); err == nil {
+		t.Fatal("Describe started a server")
+	}
+	before := time.Now().Add(-time.Second)
+	start(t, &runner{c: c, rev: "abcdef123456"})
+	info, ok := Describe(context.Background(), c)
+	if !ok || info.PID != os.Getpid() || info.Revision != "abcdef123456" || info.Since.Before(before) || info.Since.After(time.Now().Add(time.Second)) {
+		t.Fatalf("ok = %v, info = %+v", ok, info)
+	}
+	// A pidfile that names another process says nothing of this server.
+	if err := os.WriteFile(c.PIDFile(), []byte("1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if info, ok := Describe(context.Background(), c); !ok || info.PID != os.Getpid() || !info.Since.IsZero() {
+		t.Fatalf("ok = %v, info = %+v", ok, info)
+	}
+}

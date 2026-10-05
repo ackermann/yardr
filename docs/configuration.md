@@ -425,6 +425,7 @@ Everything yardr keeps for itself lives in one directory, the yard's
 | `daemon.lock` | held by the running daemon, with its pid in it: one daemon per yard |
 | `daemon.log` | what a daemon started in the background prints (the onboarding's "Start the yard now?", `yardr init --start`); one in a pane of its own prints there instead |
 | `web.log` | what a web view no terminal runs prints: one started with `yardr web start`, or the login service's ([web.md](web.md#keeping-it-running)) |
+| `webviews/` | a record per running web view, held by it while it serves, which `yardr status` and `yardr doctor` read ([web.md](web.md#where-it-runs)) |
 | `worktrees/<rig>/<bead>` | herdr bead worktrees |
 | `rigs/<name>` | rigs registered with `rig add --clone`; `rig rm` leaves the clone here |
 | `roles/` | the generic role prompts `yardr init` installed (mayor, builder, merger, reviewer), the fallback for rigs without their own; yours to edit. `.shipped.json` there records each file's hash as init wrote it, so init again can tell an edited prompt (kept) from an untouched one (refreshed) |
@@ -915,7 +916,7 @@ they stop, so the home goes last.
 | what the onboarding and the setup can have made | where | to see it | to remove it |
 |---|---|---|---|
 | the login services | `~/Library/LaunchAgents/dev.yardr.{daemon,web}.<home>.plist`, or `~/.config/systemd/user/yardr-{daemon,web}-<home>.service` | `yardr doctor`, under Optional; `yardr daemon status` | `yardr web uninstall`, `yardr daemon uninstall`. Each unloads its service, which stops what it ran, and deletes the file |
-| a web view started with `yardr web start` | a process; it logs to `<home>/web.log` | `lsof -ti tcp:8791` (the port it was started on) | `kill <pid>` |
+| a web view started with `yardr web start` | a process; it logs to `<home>/web.log` | `yardr status`, under `web view` | `kill <pid>` |
 | the mayor's session, and any other resident's | a herdr workspace labelled `<yard> <resident>`, agent `<yard>-<resident>` | `yardr resident list`, `herdr workspace list` | `yardr resident stop <name>`: the daemon closes the session's tab, and its workspace with it, on its next pass (30s at most). It needs the daemon running |
 | sessions working beads | a herdr workspace per bead | `yardr session list`, `herdr workspace list` | `herdr workspace close <id>` for each that is left. Look at the bead's worktree first (the home, below) |
 | the daemon | a process holding `<home>/daemon.lock` | `yardr daemon status` | `yardr daemon stop` |

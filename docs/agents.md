@@ -29,7 +29,8 @@ as it stands; follow its order, not a list from the beginning. See
 | need | use | common wrong guess |
 |---|---|---|
 | build | `yardr version` (`yardr --version`, `-v` also work) | `yardr -version` |
-| missing items and next step | `yardr doctor [--json]` | `yardr status`, `yardr check` |
+| missing items and next step | `yardr doctor [--json]` | `yardr check`; `yardr status`, which lists what runs and checks nothing |
+| what runs now and where: server, daemon, residents, the web view's URL | `yardr status [--json]` | `yardr doctor`, `pgrep`, `lsof` |
 | create a yard without a form | `yardr init --harness <kind> --operator <name> --start` | bare `yardr`; `yardr init` without `--harness` |
 | use another yard directory | `--home <dir>` | inventing a yard variable |
 | install yardr's service | `yardr daemon install` from a login shell | treating it as herdr's service; `--file-only` starts nothing |

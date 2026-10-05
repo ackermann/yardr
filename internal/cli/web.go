@@ -89,6 +89,13 @@ this machine. Both answers carry Retry-After.`,
 				defer cancel()
 				_ = hs.Shutdown(sctx)
 			}()
+			// For yardr status and yardr doctor, which name the views that
+			// run. A view that cannot say so still serves.
+			if clear, err := announceWeb(a.cfg, ln.Addr().String(), unsafe); err != nil {
+				log.Warn("yardr status will not list this view: it could not be recorded", "err", err)
+			} else {
+				defer clear()
+			}
 			log.Info("serving the yard", "url", "http://"+ln.Addr().String()+"/")
 			if err := hs.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				return err
