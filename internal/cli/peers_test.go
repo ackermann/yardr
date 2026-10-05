@@ -26,6 +26,9 @@ type cliYard struct {
 	own  *store.Store
 	home string
 	srv  *httptest.Server
+	// lastCommand is the command its last yardr peer pair printed for the
+	// other yard, code and all (pairBoth).
+	lastCommand string
 }
 
 func newCLIYard(t *testing.T, name string) *cliYard {
