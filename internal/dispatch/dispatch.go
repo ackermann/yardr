@@ -154,6 +154,10 @@ type Dispatcher struct {
 	ciRead map[string]string
 	ciWait map[string]*outage
 
+	// timerDue is when the earliest timer left is due, as of the last pass
+	// (see timers); nil with none.
+	timerDue *time.Time
+
 	clock      func() time.Time // tests only; see now
 	retryAfter map[string]time.Time
 	reported   map[string]string  // bead -> last unroutable reason, to log once
@@ -417,11 +421,21 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 		if d.replace(ctx) {
 			return nil
 		}
+		// A timer is due between passes: wake for it, and no sooner than a
+		// second from now, so one that cannot be fired is not spun on.
+		var due <-chan time.Time
+		var timer *time.Timer
+		if d.timerDue != nil {
+			timer = time.NewTimer(max(d.timerDue.Sub(d.now()), time.Second))
+			due = timer.C
+		}
 	wait:
 		for {
 			select {
 			case <-ctx.Done():
 				return nil
+			case <-due:
+				break wait
 			case <-check:
 				if d.replace(ctx) {
 					return nil
@@ -446,6 +460,9 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 				}
 				break wait
 			}
+		}
+		if timer != nil {
+			timer.Stop()
 		}
 	}
 }
@@ -530,6 +547,8 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	if err := d.cleanup(ctx, byName); err != nil {
 		return err
 	}
+	// Before the residents, so one a timer is for is nudged in this pass.
+	d.timers(ctx)
 	if err := d.residents(ctx); err != nil {
 		return err
 	}
@@ -549,6 +568,23 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	}
 	// Last: a peer that does not answer holds up nothing of this yard's.
 	return d.peers(ctx)
+}
+
+// timers fires the timers that are due and drops those whose awaited
+// event came first (store.FireTimers), by the dispatcher's clock, and
+// notes when the next is due so Run wakes for it. One that was due while
+// no daemon ran fires on the first pass of the next, marked late.
+func (d *Dispatcher) timers(ctx context.Context) {
+	pass, err := d.Store.FireTimers(ctx, d.now())
+	if err != nil {
+		// The next pass tries again: a timer is late rather than lost.
+		d.Log.Warn("timers", "err", err)
+		return
+	}
+	d.timerDue = pass.Next
+	if pass.Fired+pass.Dropped > 0 {
+		d.Log.Info("timers", "fired", pass.Fired, "dropped", pass.Dropped)
+	}
 }
 
 // reap ends sessions whose runner reports them gone and returns the live

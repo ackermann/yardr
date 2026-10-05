@@ -1160,6 +1160,10 @@ var settings = map[string]struct {
 	}},
 	hooks.FromSetting: {"the address the server takes webhooks on, such as 127.0.0.1:8790, when YARDR_HOOK_ADDR is not set where it starts; " +
 		"the server reads it when it starts", hooks.CheckAddr},
+	store.TimerLimitSetting: {fmt.Sprintf("how many live timers one resident or user may have set (yardr timer); default %d", store.DefaultTimerLimit),
+		checkTimerLimit},
+	store.TimerMinEverySetting: {fmt.Sprintf("the shortest period of a recurring timer (yardr timer add --every), such as 30m or 1d; default %s",
+		store.Span(store.DefaultTimerMinEvery)), checkTimerMinEvery},
 	"name": {"the yard's name, which its residents' herdr agents and workspaces carry (<name>-mayor); default: the home's directory name", func(v string) error {
 		if !groupName.MatchString(v) {
 			return fmt.Errorf("yard name %q: letters, digits, '.', '_', '-', '/'", v)
@@ -1169,7 +1173,7 @@ var settings = map[string]struct {
 }
 
 func (a *app) settingsCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "settings", Short: "The yard's own defaults (default_kind, hook_addr, mayor, name, operator, operator_style, operator_note)",
+	cmd := &cobra.Command{Use: "settings", Short: "The yard's own defaults (default_kind, hook_addr, mayor, name, operator, operator_style, operator_note, timer_limit, timer_min_every)",
 		Long: `The yard's own defaults. yardr settings get lists them with what each means.
 
 hook_addr is the address the server takes webhooks on (yardr hook --help).
@@ -1184,7 +1188,11 @@ when it starts (yardr prime --bead and --resident print them as
 instructions), so a change reaches the next session; unset, the primes say
 nothing. The styles:
 
-` + styleHelp()}
+` + styleHelp() + `
+
+timer_limit and timer_min_every bound the yard's timers (yardr timer): how
+many live ones one resident or user may have set, and the shortest period of
+a recurring one. They hold for timers set from then on.`}
 	known := func(key string) error {
 		if _, ok := settings[key]; !ok {
 			return fmt.Errorf("no setting %q; there is: %s", key, strings.Join(sortedKeys(settings), ", "))

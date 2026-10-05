@@ -109,6 +109,10 @@ type API interface {
 	UserInbox(ctx context.Context, name string, limit int) (*Mailbox, error)
 	AckUserInbox(ctx context.Context, name string, through uint64) error
 	Conversation(ctx context.Context, a, b string, after uint64) ([]Letter, error)
+	AddTimer(ctx context.Context, nt NewTimer, actor string) (*Timer, error)
+	Timers(ctx context.Context, name string) ([]Timer, error)
+	RemoveTimer(ctx context.Context, id, actor string, anyone bool) (*Timer, error)
+	FireTimers(ctx context.Context, at time.Time) (*TimerPass, error)
 	ResidentPrime(ctx context.Context, name string) (*Prime, error)
 	Remember(ctx context.Context, m NewMemory, actor string) (*Bead, error)
 	Recall(ctx context.Context, scope, query string) ([]MemoryInfo, error)

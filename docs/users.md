@@ -66,6 +66,12 @@ nobody else: the unread, oldest first, then the latest read, marked
 `yardr` (a last line under its help) say `N unread from <names>` to the
 user who runs them.
 
+A resident can have the yard tell a user something later, unless a bead
+moved first: `yardr timer add --to <user>` ([timers.md](timers.md)). It
+arrives as mail from that resident whose text begins `timer:`, and the
+resident is not woken for it. A user sets timers for themselves the same
+way; `yardr user show` lists the live ones.
+
 Mail from a resident of another yard to a user is not built: a peer's mail
 is taken for residents only ([peers.md](peers.md#mail-between-residents)).
 

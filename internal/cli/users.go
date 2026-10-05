@@ -84,6 +84,9 @@ login name) is the user's name. yardr does not check who is at the keyboard.`}
 				return err
 			}
 			v := views[0]
+			if v.Timers, err = st.Timers(c.Context(), v.Name); err != nil {
+				return err
+			}
 			return a.out(v, func() {
 				fmt.Print(v.Name)
 				if v.Operator {
@@ -95,6 +98,7 @@ login name) is the user's name. yardr does not check who is at the keyboard.`}
 				} else {
 					fmt.Printf("  inbox: %d unread from %s\n", v.Unread, strings.Join(v.From, ", "))
 				}
+				printTimers(v.Timers, v.Name, "  ")
 			})
 		},
 	}
@@ -124,6 +128,9 @@ type userView struct {
 	Operator bool     `json:"operator"`
 	Unread   int      `json:"unread"`
 	From     []string `json:"unread_from"`
+	// Timers are the live timers that tell the user or that they set; only
+	// yardr user show reads them.
+	Timers []store.Timer `json:"timers,omitempty"`
 }
 
 // userViews reads the user name, or all of them for "".

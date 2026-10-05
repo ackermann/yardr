@@ -458,6 +458,18 @@ func (c *Client) AckUserInbox(ctx context.Context, name string, through uint64) 
 func (c *Client) Conversation(ctx context.Context, a, b string, after uint64) ([]store.Letter, error) {
 	return callV[[]store.Letter](c, ctx, "Conversation", a, b, after)
 }
+func (c *Client) AddTimer(ctx context.Context, nt store.NewTimer, actor string) (*store.Timer, error) {
+	return callV[*store.Timer](c, ctx, "AddTimer", nt, actor)
+}
+func (c *Client) Timers(ctx context.Context, name string) ([]store.Timer, error) {
+	return callV[[]store.Timer](c, ctx, "Timers", name)
+}
+func (c *Client) RemoveTimer(ctx context.Context, id, actor string, anyone bool) (*store.Timer, error) {
+	return callV[*store.Timer](c, ctx, "RemoveTimer", id, actor, anyone)
+}
+func (c *Client) FireTimers(ctx context.Context, at time.Time) (*store.TimerPass, error) {
+	return callV[*store.TimerPass](c, ctx, "FireTimers", at)
+}
 func (c *Client) ResidentPrime(ctx context.Context, name string) (*store.Prime, error) {
 	return callV[*store.Prime](c, ctx, "ResidentPrime", name)
 }

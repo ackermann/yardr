@@ -92,6 +92,11 @@ alike share one line, under the last of them:
 | `<name> is not running: yardr resident start <name>` | the mail waits in its inbox for its next session |
 | `<name> failed to start: yardr resident show <name>` | as above, and that command says why |
 
+**Timers.** A mail whose text begins `timer:` was sent by the yard for a
+timer the resident set for you (`yardr timer add --to <you>`,
+[timers.md](timers.md)): the resident wrote the reason when it set the
+timer, and was not woken when it fired.
+
 A resident answers when it is idle and has read its inbox, so an answer takes
 as long as its turn does. What it is working on in the meantime is in its
 pane, not here.

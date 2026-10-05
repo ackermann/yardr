@@ -45,11 +45,16 @@ func (e Entry) Clock() string { return clock(e.At) }
 // many: they are left out. So are a resident's turns beginning and ending
 // (resident_status, but for one that stops at a prompt or leaves it) and
 // mail being read (mail_read), which a view of the residents follows and
-// nobody reads as news.
+// nobody reads as news. Of a timer only its firing is news: not that it
+// was set, dropped or removed, nor the mail a firing is to a user, which
+// the timer's own entry tells.
 func inFeed(e store.Event) bool {
 	switch e.Kind {
-	case store.NoteJournal, store.NoteHandoff, "mail_read":
+	case store.NoteJournal, store.NoteHandoff, "mail_read", "timer_set", "timer_dropped", "timer_removed":
 		return false
+	case "mail":
+		_, timer := e.Data["timer"]
+		return !timer
 	case "resident_status":
 		return e.Data["status"] == "blocked" || e.Data["was"] == "blocked"
 	}
@@ -235,6 +240,11 @@ func (r *reader) entry(ctx context.Context, e store.Event) Entry {
 		// A session that ends well ends with its bead's move, which has an
 		// entry of its own: one that ends here did not.
 		out.Text, out.Note, out.Tone = "session ended: "+strings.TrimPrefix(e.Kind, "session_"), str("reason"), "held"
+	case e.Kind == "timer":
+		out.Text, out.Note = fmt.Sprintf("timer of %s for %s", str("by"), str("to")), strings.TrimPrefix(str("text"), "timer: ")
+		if str("by") == str("to") {
+			out.Text = "timer of " + str("by")
+		}
 	default:
 		// Every other event in its own name, with what it carries.
 		out.Text, out.Note = strings.ReplaceAll(e.Kind, "_", " "), carried(e.Data)

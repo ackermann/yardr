@@ -22,7 +22,7 @@ in yard-9cza, the merge gate in yard-p2y7.
 | routes | | which group works which stage, by rig, type, label (built) |
 | rigs | | path, kind (`git` or `dir`), clone, base branch; `rig add` registers, `rig rm` removes (built) |
 | residents | | agent, directory, inbox kinds, rotation, subscriptions, identities (built) |
-| settings | | the yard's defaults: `default_kind`, `operator`, `mayor`, `name`, `hook_addr`, and how agents work with the operator: `operator_style`, `operator_note` (built) |
+| settings | | the yard's defaults: `default_kind`, `operator`, `mayor`, `name`, `hook_addr`, and how agents work with the operator: `operator_style`, `operator_note`, and the bounds of its timers: `timer_limit`, `timer_min_every` (built) |
 
 ### Why the repo holds what the work is
 
@@ -919,6 +919,8 @@ value unsets) keep the yard's own defaults in the store:
 | `mayor` | the mayor resident's name, whom the builder and reviewer roles tell agents to mail about what blocks them ([residents.md](residents.md#findings-from-builders-and-reviewers)); `yardr init` stores it (`--mayor`) and `yardr rig init` fills roles with it. A yard from before the setting has none: `rig init` then takes its one resident, else `mayor`. |
 | `hook_addr` | the TCP address the server takes webhooks on, `127.0.0.1:8790` say ([subscriptions.md](subscriptions.md)). The server reads it when it starts, so a change takes its next start: `yardr server stop`, and the next command starts it again; `settings set` says so. `YARDR_HOOK_ADDR`, set where the server starts, is used instead of it. An address that is not `host:port` with a port from 1 to 65535 is refused (`:8790` is every interface). The server writes what it listens on to `hooks.state` in the home, and `yardr doctor` reports it: the address and whether it is the variable's or the setting's. A server that cannot listen there (another yard has the address) keeps serving its yard, logs a `hook_listener_failed` event, and doctor says so with what to change. |
 | `name` | the yard's name, which its residents' herdr agents and workspaces carry (`<name>-mayor`, labelled `<name> mayor`), so two yards on one machine, whose agents herdr lists together, are told apart. Unset, the home's directory name: `yardr` for `~/.yardr`, `y1` for `/tmp/y1`. Changing it renames residents started from then on. |
+| `timer_limit` | how many live timers one resident or user may have set ([timers.md](timers.md#limits)); a whole number from 1, default 5. |
+| `timer_min_every` | the shortest period of a recurring timer (`yardr timer add --every`): a duration such as `30m` or `1d`, default `1h`. |
 
 Environment variables yardr reads:
 

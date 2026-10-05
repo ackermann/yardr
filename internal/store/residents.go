@@ -522,6 +522,7 @@ type Prime struct {
 	Inbox       []Event        `json:"inbox"`
 	InboxTotal  int            `json:"inbox_total"`
 	Memories    []MemoryInfo   `json:"memories"` // titles only
+	Timers      []Timer        `json:"timers"`   // the live ones it set or is told by
 	NoHandoff   bool           `json:"no_handoff"`
 	EventCounts map[string]int `json:"event_counts,omitempty"` // since the last handoff, when there was none at the end
 	Recent      []Event        `json:"recent,omitempty"`
@@ -560,6 +561,9 @@ func (s *Store) ResidentPrime(ctx context.Context, name string) (*Prime, error) 
 	}
 	p.Inbox, p.InboxTotal = inbox.Events, inbox.Total
 	if p.Memories, err = s.Recall(ctx, "resident:"+name, ""); err != nil {
+		return nil, err
+	}
+	if p.Timers, err = s.Timers(ctx, name); err != nil {
 		return nil, err
 	}
 

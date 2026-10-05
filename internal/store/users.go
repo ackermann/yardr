@@ -51,6 +51,9 @@ type Letter struct {
 	// Mail to a party that is gone was never read as far as the store
 	// knows.
 	Read bool `json:"read"`
+	// Timer is the id of the timer the yard sent it for, "" for mail its
+	// sender wrote: the text then begins "timer:".
+	Timer string `json:"timer,omitempty"`
 }
 
 // Mailbox is a user's mail: what they have not acknowledged, and the
@@ -246,7 +249,7 @@ func (rd *readers) letter(e Event) (Letter, error) {
 		rd.cursors[key] = cursor
 	}
 	text, _ := e.Data["text"].(string)
-	return Letter{Seq: e.Seq, At: e.At, From: e.Actor, To: to, Text: text, Read: e.Seq <= cursor}, nil
+	return Letter{Seq: e.Seq, At: e.At, From: e.Actor, To: to, Text: text, Read: e.Seq <= cursor, Timer: timerOf(e)}, nil
 }
 
 // UserInbox returns the mail to the user name: all that is unread counted,

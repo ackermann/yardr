@@ -95,6 +95,12 @@ doctor` and bare `yardr` say it.
   events (`yardr subscribe <name> yardr --done`, `yardr bead watch <id>`).
   Each delivery records why it reached the resident, and `yardr inbox` shows
   it. See [subscriptions.md](subscriptions.md).
+- **Timers:** `yardr timer add --in 40m "…"` has the yard put a `timer`
+  event in the inbox later, once or recurring, unless an awaited bead moved
+  first (`--unless bead=<id>,stage=<stage>`); `--to <user>` tells a user
+  instead, by mail, and wakes no resident. An event is the better way to
+  learn something; a timer is the fallback. The live ones are in the prime
+  and in `yardr resident show`. See [timers.md](timers.md).
 - **Journal:** one bead per resident (`<name>-journal`). `yardr resident journal`
   keeps decisions (≤4 KB); `yardr resident handoff` ends the session (≤16 KB) and
   the next session starts from it. At `--max-age` the resident is asked for a
@@ -102,7 +108,8 @@ doctor` and bare `yardr` say it.
 - **Prime:** a new session reads `yardr prime --resident <name>`: its role, how
   the operator wants agents to work with them when the yard says
   ([configuration.md](configuration.md#how-agents-work-with-you)), the
-  latest handoff, journal entries since, its inbox and its memories' titles,
+  latest handoff, journal entries since, its inbox, its memories' titles and
+  its live timers,
   bounded in size. If the last session ended without a handoff, it gets a
   summary of what happened since instead.
 - **Memories:** `yardr remember "title" -b … [--expires 7d] [--scope all]` and

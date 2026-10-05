@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -702,4 +703,45 @@ func TestSlowClient(t *testing.T) {
 	settle(t, "the client that reads nothing still has its stream", func() bool { return srv.Streams() == 1 })
 	quick.cancel()
 	settle(t, "a stream outlived its client", func() bool { return srv.Streams() == 0 })
+}
+
+// A timer is in the feed when it fires, once, in the yard's words: not
+// when it is set, and not a second time as the mail a firing is to a user.
+func TestFeedTimers(t *testing.T) {
+	api, _ := storetest.NewOwned(t)
+	srv, err := web.NewServer(api, filepath.Join(t.TempDir(), ".depot"), nil)
+	must(t, err)
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+	f := &fixture{t: t, st: api, ts: ts}
+	ctx := context.Background()
+	_, err = api.AddUser(ctx, "jo", "me")
+	must(t, err)
+	_, err = api.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr"}, "me")
+	must(t, err)
+	due := time.Now().Add(time.Hour)
+	_, err = api.AddTimer(ctx, store.NewTimer{Reason: "look at the deploy", Due: due}, "mayor")
+	must(t, err)
+	_, err = api.AddTimer(ctx, store.NewTimer{To: "jo", Reason: "the refinery is red", Due: due}, "mayor")
+	must(t, err)
+	pass, err := api.FireTimers(ctx, due)
+	must(t, err)
+	if pass.Fired != 2 {
+		t.Fatalf("pass = %+v", pass)
+	}
+
+	var texts []string
+	for _, e := range homeJSON(t, f, "/").Events {
+		switch e.Kind {
+		case "timer":
+			texts = append(texts, e.Text+": "+e.Note)
+		case "timer_set", "mail":
+			t.Errorf("the feed shows a %s: %+v", e.Kind, e)
+		}
+	}
+	slices.Sort(texts)
+	if len(texts) != 2 || !strings.HasPrefix(texts[0], "timer of mayor for jo: the refinery is red (set ") ||
+		!strings.HasPrefix(texts[1], "timer of mayor: look at the deploy (set ") {
+		t.Fatalf("timer entries = %q", texts)
+	}
 }

@@ -165,7 +165,11 @@ for its links (yardr peer list).`,
 			if err != nil {
 				return err
 			}
-			out := map[string]any{"resident": r, "inbox": inbox.Total, "journal": notes}
+			timers, err := st.Timers(c.Context(), r.Name)
+			if err != nil {
+				return err
+			}
+			out := map[string]any{"resident": r, "inbox": inbox.Total, "journal": notes, "timers": timers}
 			env := envFileSummary(r.Config)
 			if env != nil {
 				out["env_file"] = env
@@ -210,6 +214,7 @@ for its links (yardr peer list).`,
 				for _, sub := range r.Subscriptions {
 					fmt.Printf("  subscribed: %s\n", sub)
 				}
+				printTimers(timers, r.Name, "  ")
 				fmt.Printf("  journal %s (%d entries)\n", r.Journal, len(notes))
 				for _, n := range notes[max(0, len(notes)-5):] {
 					fmt.Printf("    [%s %s %s] %s\n", n.At.Local().Format("01-02 15:04"), or(n.Kind, "note"), n.Author,
@@ -528,6 +533,9 @@ func printInboxEvent(e store.Event, resident string) {
 		fmt.Printf("%6d %s  mail from %s: %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), from, show(e.Data["text"]))
 	case "hook":
 		printHookDelivery(e, resident)
+	case "timer":
+		// The text says it is a timer, who set it and when.
+		fmt.Printf("%6d %s  %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), show(e.Data["text"]))
 	default:
 		printBeadDelivery(e, resident)
 	}
@@ -836,6 +844,14 @@ func (a *app) primeResident(ctx context.Context, st store.API, name string) erro
 			}
 			fmt.Println()
 		}
+		if len(p.Timers) > 0 {
+			fmt.Printf("## Timers: %d live (yardr timer list, yardr timer rm <id>)\n\n", len(p.Timers))
+			now := time.Now()
+			for _, t := range p.Timers {
+				fmt.Printf("- %s  %s\n", t.ID, timerLine(t, name, now))
+			}
+			fmt.Println()
+		}
 		if note := yardSkew(); note != "" {
 			fmt.Printf("## Important\n\n%s\n\n", note)
 		}
@@ -849,6 +865,9 @@ func (a *app) primeResident(ctx context.Context, st store.API, name string) erro
 - yardr remember "title" -b "..." [--expires 7d] / yardr recall [query]: lasting knowledge.
 - yardr mail <name> "...": message another resident, or a user (yardr user list). Answer a
   user's mail by mail; yardr mail --with <name> reads an exchange back.
+- yardr timer add --in 40m|--at 15:04|--every 1d [--to <user>] [--unless bead=<id>[,stage=<stage>]] "...":
+  the yard tells you, or a user, later. Prefer an event (a subscription, a bead's done: yardr bead
+  watch <id> --done); a timer is the fallback for when it does not come, or a check by the clock.
 %[2]s- The yard itself: yardr ready, yardr bead list|show|create|update|advance|close|hold|unhold|release,
   yardr dep add, yardr prime --bead <id>, yardr events, yardr group list, yardr route list, yardr session list.
   Do not run yardr watch: it never returns.
