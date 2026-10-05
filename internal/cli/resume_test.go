@@ -272,7 +272,8 @@ func TestOnboardingAfterAFailedRun(t *testing.T) {
 			t.Errorf("output lacks %q:\n%s", s, out)
 		}
 	}
-	if *started != 1 || !slices.Equal(keysOf(f), []string{"style", "about", "try", "login", "web", "link", "go"}) {
+	// The operator is Jo, and who runs this is not: no link is offered.
+	if *started != 1 || !slices.Equal(keysOf(f), []string{"style", "about", "try", "login", "web", "go"}) {
 		t.Fatalf("%d daemons started, asked %q", *started, keysOf(f))
 	}
 }
@@ -304,7 +305,7 @@ func TestBareYardrFinishesAYardWithoutDefaultKind(t *testing.T) {
 	if strings.Contains(out, "Usage:") {
 		t.Errorf("help after the onboarding:\n%s", out)
 	}
-	if *started != 1 || !slices.Equal(keysOf(f), []string{"finish", "try", "login", "web", "link", "go"}) {
+	if *started != 1 || !slices.Equal(keysOf(f), []string{"finish", "try", "login", "web", "go"}) {
 		t.Fatalf("%d daemons started, asked %q", *started, keysOf(f))
 	}
 }
