@@ -24,9 +24,10 @@ and a restart is just another pass.
 go install .        # 1. one static binary, yardr; it needs git and herdr on PATH
                     #    (or a release archive, without Go: see Install below)
 yardr               # 2. the onboarding: answer the form; it starts the yard
-                    #    and prints where the mayor is
-                    # 3. talk to the mayor in its pane, or keep going in the
-                    #    terminal: either sets up the rest (yardr setup)
+                    #    and the mayor
+                    # 3. talk to the mayor, in the chat the form ends in
+                    #    (yardr chat), or keep going with forms (yardr setup):
+                    #    either sets up the rest
 ```
 
 ### Install
@@ -68,15 +69,20 @@ two minutes, counting, for the mayor: its session running and its first
 output in its pane. Then it prints where the mayor is, as herdr names it
 (agent, workspace, tab, pane), how to get there (`herdr agent focus <agent>`
 in herdr, `herdr agent attach <agent>` from any other terminal), and asks how
-to go on with the rest of the setup: "Talk to the mayor", which brings its
-pane to the front in herdr, or "Keep going here", a short run of forms. Before
+to go on with the rest of the setup: "Talk to the mayor", which opens
+`yardr chat` on the mayor in the same terminal, or "Keep going here", a short
+run of forms. The mayor's first session is asked to greet you by mail, so its
+first message is in the chat or arrives there while you watch; you answer in
+the line under it, and leaving the chat (ctrl+c) stops nothing
+([chat.md](docs/chat.md#from-the-onboarding)). Before
 that it asks two things, both no by default: whether to start the daemon at
 login (`yardr daemon install`: a launchd agent on macOS, a systemd user unit
 on Linux), and whether to start the web view now, and at login
 (`yardr web start`, `yardr web install`). When the
 mayor does not come up it says what is known instead (herdr or the harness
 not on PATH, the last failed start, the last lines of the mayor's pane, where
-the daemon logs) and how to go on. No leaves the start to you: `yardr daemon`
+the daemon logs), what `yardr doctor` says of it, and how to go on; it opens
+no chat with nobody in it. No leaves the start to you: `yardr daemon`
 in a pane of its own, where you watch what it does, or `yardr init --start`,
 which starts and waits the same way without a terminal and, on a running
 yard, tells you where the mayor is.

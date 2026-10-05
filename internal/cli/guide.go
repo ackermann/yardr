@@ -42,7 +42,7 @@ type setupReport struct {
 }
 
 func (a *app) setupCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "setup",
 		Short: "Go on with the yard's setup where it stands: the next step not done, as a form",
 		Long: `Print the setup steps, each done or todo, and take the first one not done as
@@ -69,8 +69,10 @@ it runs:
                         yardr bead advance --to new; and how to watch it
 
 After each page it asks how to go on: keep going here, talk to the mayor
-(prints where the mayor is and brings its pane to the front; the mayor goes
-on from the same steps), or stop here. A page that is cancelled (ctrl+c, or
+(opens yardr chat on the mayor in this terminal; the mayor goes on from the
+same steps), or stop here. With --no-chat that choice prints where the
+mayor's pane is and brings it to the front instead. When the mayor is not
+running it opens nothing and prints what yardr doctor says of it. A page that is cancelled (ctrl+c, or
 no at its last question) has run no command: the yard is as the finished
 pages made it. The one exception is the rig's files, which yardr rig init
 has written into the checkout before the question whether to commit them;
@@ -112,6 +114,8 @@ it prints the steps and the command for the next one.`,
 			return a.guide(c.Context(), cfg, st)
 		},
 	}
+	cmd.Flags().BoolVar(&a.noChat, "no-chat", false, "\"talk to the mayor\" prints where its pane is instead of opening yardr chat")
+	return cmd
 }
 
 // agentSession reports whether this run is an agent's: a session yardr
@@ -149,6 +153,10 @@ const (
 // the mayor, or keep going in this terminal. Both go by the same steps, so
 // the answer is not final: the forms offer the mayor again after each page,
 // and the mayor reads where the forms left the yard.
+//
+// Talking to the mayor is yardr chat, opened here on the mayor (toChat):
+// the person is in the conversation in the window the form ran in. Where
+// no chat can open it is the mayor's pane, brought to the front.
 func (a *app) handOff(ctx context.Context, cfg *config.Config, mayor string, place *mayorPlace) error {
 	st, err := a.store(ctx)
 	if err != nil {
@@ -160,7 +168,11 @@ func (a *app) handOff(ctx context.Context, cfg *config.Config, mayor string, pla
 	}
 	a.guided = true
 	pick := goMayor
-	opts := []huh.Option[string]{huh.NewOption("Talk to the mayor: brings "+mayor+"'s pane to the front in herdr", goMayor)}
+	talk := "Talk to the mayor: opens the chat with " + mayor + " here"
+	if !a.chats() {
+		talk = "Talk to the mayor: brings " + mayor + "'s pane to the front in herdr"
+	}
+	opts := []huh.Option[string]{huh.NewOption(talk, goMayor)}
 	if next := nextStep(steps); next != nil {
 		opts = append(opts, huh.NewOption("Keep going here: a short run of forms, next "+next.Title, goHere))
 	}
@@ -177,6 +189,11 @@ func (a *app) handOff(ctx context.Context, cfg *config.Config, mayor string, pla
 		return err
 	case pick == goHere:
 		return a.guide(ctx, cfg, st)
+	}
+	if a.chats() {
+		if opened, err := a.toChat(ctx, cfg, st, mayor); err != nil || opened {
+			return err
+		}
 	}
 	openMayor(ctx, mayor, place)
 	return nil
@@ -276,15 +293,25 @@ func (g *guide) goOn(ctx context.Context, next setupStep) (string, error) {
 	pick := goHere
 	err := ask(huh.NewSelect[string]().Key("go").Title("Next: "+next.Title).Options(
 		huh.NewOption("Keep going here", goHere),
-		huh.NewOption("Talk to the mayor: "+mayor+" goes on from this step, in its pane", goMayor),
+		huh.NewOption("Talk to the mayor: "+mayor+" goes on from this step, in "+g.mayorAt(), goMayor),
 		huh.NewOption("Stop here: yardr setup goes on from this step later", goStop),
 	).Value(&pick))
 	return pick, err
 }
 
-// toMayor prints where the mayor is and brings its pane to the front, as
-// the onboarding does once the mayor is up. The mayor needs no word of what
-// the forms did: its first run reads the same steps.
+// mayorAt is where "talk to the mayor" leads: the chat, or its pane.
+func (g *guide) mayorAt() string {
+	if g.a.chats() {
+		return "yardr chat"
+	}
+	return "its pane"
+}
+
+// toMayor opens the chat on the mayor, as the onboarding does once the
+// mayor is up; with --no-chat it prints where the mayor is and brings its
+// pane to the front. The mayor needs no word of what the forms did: its
+// first run reads the same steps. A mayor that is not running is no one to
+// talk to: it says what yardr doctor says of it, and opens no empty chat.
 func (g *guide) toMayor(ctx context.Context) error {
 	yardr := yardrAt(g.cfg.Home)
 	mayor := yardMayor(ctx, g.st)
@@ -293,8 +320,17 @@ func (g *guide) toMayor(ctx context.Context) error {
 		return err
 	}
 	if err != nil || !r.Live() {
-		fmt.Printf("\n%s is not running. This starts the yard, waits for it and prints where it is:\n\n  %s init --start\n", mayor, yardr)
+		fmt.Printf("\n%s is not running, so there is nobody to talk to yet.\n", mayor)
+		if err := g.a.doctorSays(ctx, g.cfg); err != nil {
+			return err
+		}
+		fmt.Printf("\nThis starts the yard, waits for %s and opens the chat with it:\n\n  %s init --start\n", mayor, yardr)
 		return nil
+	}
+	if g.a.chats() {
+		if opened, err := g.a.toChat(ctx, g.cfg, g.st, mayor); err != nil || opened {
+			return err
+		}
 	}
 	all, _ := g.st.Settings(ctx)
 	place := placeOf(*r, runner.YardName(g.cfg.Home, all))
@@ -337,9 +373,9 @@ func (g *guide) show(ctx context.Context, line string) {
 // setup's pages end in the commands themselves, not in a second way of
 // doing what they do, so a page cannot drift from the command it shows.
 func (a *app) sub(ctx context.Context, args ...string) error {
-	asJSON, actor := a.json, a.actor
+	asJSON, actor, noChat := a.json, a.actor, a.noChat
 	root := a.rootCmd() // binds its flags to a, which resets them
-	a.json, a.actor = asJSON, actor
+	a.json, a.actor, a.noChat = asJSON, actor, noChat
 	root.SetArgs(args)
 	return root.ExecuteContext(ctx)
 }

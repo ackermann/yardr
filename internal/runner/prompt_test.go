@@ -163,3 +163,42 @@ func TestShowsPrompt(t *testing.T) {
 		t.Error("an empty prompt shows nowhere")
 	}
 }
+
+// The mayor yardr init adds greets the operator by mail in its first
+// session: the onboarding ends in yardr chat, which shows mail and no pane.
+// The prompt still begins and ends as every resident's does, which is what
+// the pane is searched for, and a later session is asked for no greeting.
+func TestFirstPromptAsksForAGreetingByMail(t *testing.T) {
+	r := store.Resident{Name: "mayor", Config: map[string]any{GreetKey: "ada"}}
+	got := residentPrompt("yardr --home /y", r)
+	for _, want := range []string{"`yardr --home /y mail ada \"<text>\"`", "`yardr --home /y chat`", "the next setup step",
+		"`yardr --home /y prime --resident mayor` " + ResidentPromptEnd} {
+		if !strings.Contains(got, want) {
+			t.Errorf("prompt lacks %q:\n%s", want, got)
+		}
+	}
+	plain := residentPrompt("yardr", store.Resident{Name: "mayor"})
+	if plain != "You are the yardr resident \"mayor\". Run `yardr prime --resident mayor` and follow it." {
+		t.Errorf("a resident that greets nobody got %q", plain)
+	}
+	if !strings.HasPrefix(got, ResidentPromptLead+` "mayor". `) || !strings.HasSuffix(got, ResidentPromptEnd) ||
+		!showsPrompt("❯ "+got, got) {
+		t.Errorf("the greeting's prompt does not begin and end as a resident's:\n%s", got)
+	}
+	now := time.Now()
+	r.StartedAt = &now
+	if again := residentPrompt("yardr", r); again != plain {
+		t.Errorf("a session after the first is asked to greet again:\n%s", again)
+	}
+	if Greets(r) != "" || Greeted(r) {
+		t.Errorf("a resident that is not running greets: %q %v", Greets(r), Greeted(r))
+	}
+	r.State = "running"
+	if !Greeted(r) {
+		t.Error("the first session of a resident that greets is not the greeting one")
+	}
+	r.PrevStartedAt = &now
+	if Greeted(r) {
+		t.Error("a second session counts as the greeting one")
+	}
+}

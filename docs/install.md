@@ -79,6 +79,8 @@ missing, with where to get it:
   and answering its version flag.
 
 Then run `yardr` for the onboarding ([the README](../README.md#quick-start)).
+It ends in [`yardr chat`](chat.md#from-the-onboarding), talking to the mayor
+in the terminal you ran it in.
 
 ## A yard somewhere else
 

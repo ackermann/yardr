@@ -80,8 +80,13 @@ func (m *Model) lines(w int) []string {
 	c := m.convo[m.sel]
 	if len(c) == 0 {
 		text := fmt.Sprintf("No mail between you and %s yet.", m.sel)
-		if !m.loaded[m.sel] {
+		switch {
+		case !m.loaded[m.sel]:
 			text = "…"
+		case m.sel == m.opt.Expect:
+			text = fmt.Sprintf("%s is starting: it reads its role first, and its first message appears here. "+
+				"You can write to it already.", m.sel)
+			return wrap(text, w, "", look.faint)
 		}
 		return []string{look.faint.Render(fit(text, w))}
 	}

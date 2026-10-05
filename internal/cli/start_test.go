@@ -15,6 +15,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -76,9 +77,13 @@ func answerNo(fields ...huh.Field) {
 
 // The form, accepted with its defaults, starts the daemon, waits for the
 // mayor and prints where it is; "Talk to the mayor", the answer its last
-// question starts at, brings its pane to the front.
+// question starts at, opens the chat on the mayor in the same terminal
+// (yardr-8j3n; it brought the mayor's pane to the front before). The mayor
+// is in the session that was asked to greet, so the view expects its mail.
 func TestOnboardingStartsTheYard(t *testing.T) {
 	home := newHome(t)
+	actAsOperator(t)
+	chats := stubChat(t)
 	setInteractive(t, true)
 	stubLookPath(t, "claude", "git", "herdr")
 	asked := 0
@@ -100,8 +105,9 @@ func TestOnboardingStartsTheYard(t *testing.T) {
 	}
 	for _, s := range []string{"yard created", "The daemon is started, in the background; it logs to " + home + "/daemon.log",
 		"mayor is running, in herdr", "agent      y-mayor", `workspace  "y mayor" (w2), tab w2:t1, pane w2:p1`,
-		"herdr agent focus y-mayor", "herdr agent attach y-mayor", "this terminal is not in herdr",
-		"sets up the rest with you in its pane"} {
+		"herdr agent focus y-mayor", "herdr agent attach y-mayor",
+		"Talk to it in any terminal", "\n  " + here("yardr chat") + "\n  " + here("yardr setup") + "\n",
+		"You left the chat; mayor keeps running. To come back: " + here("yardr chat") + "\n"} {
 		if !strings.Contains(out, s) {
 			t.Errorf("output lacks %q:\n%s", s, out)
 		}
@@ -109,8 +115,11 @@ func TestOnboardingStartsTheYard(t *testing.T) {
 	if strings.Contains(out, "Start the daemon in a terminal pane") {
 		t.Errorf("still told to start the daemon:\n%s", out)
 	}
-	if !slices.Equal(*focused, []string{"y-mayor"}) {
-		t.Fatalf("focused %v", *focused)
+	if len(*focused) != 0 || !slices.Equal(*chats, []string{"mayor, expecting mayor"}) {
+		t.Fatalf("focused %v, chats %v\n%s", *focused, *chats, out)
+	}
+	if r, err := st.GetResident(context.Background(), "mayor"); err != nil || runner.Greets(*r) != "" || r.Config[runner.GreetKey] != config.Actor() {
+		t.Fatalf("the mayor, once started, greets %q again (config %v): %v", runner.Greets(*r), r.Config, err)
 	}
 }
 

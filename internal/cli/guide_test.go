@@ -514,28 +514,44 @@ func TestSetupKeepsAnInstalledMergeLocal(t *testing.T) {
 	}
 }
 
-// "Talk to the mayor" after a page prints where the mayor is and brings its
-// pane to the front; with no mayor running it says how to start the yard.
+// "Talk to the mayor" after a page opens the chat on the mayor (yardr-8j3n;
+// it printed where the mayor's pane is before, and with --no-chat it still
+// does). With no mayor running it opens no empty chat: it says what yardr
+// doctor says of the mayor, and how to start the yard.
 func TestSetupTalkToTheMayor(t *testing.T) {
 	f := &former{answers: map[string]any{"name": "web"}, goes: []string{goMayor}}
 	home, st, _ := setupYard(t, f)
+	mustAs(t, st, "Jo", "user", "add", "me")
 	focused := stubFocus(t)
+	chats := stubChat(t)
 	t.Setenv("HERDR_ENV", "1")
-	out := setup(t, st)
-	wantText(t, out, "mayor is not running.", "yardr --home "+home+" init --start")
-	if len(*focused) != 0 || todo(t, st) != stepRigFiles {
-		t.Fatalf("focused %v, next %s\n%s", *focused, todo(t, st), out)
+	out := setup(t, st, "--actor", "me")
+	wantText(t, out, "mayor is not running, so there is nobody to talk to yet.", "`yardr --home "+home+" doctor` says of it:",
+		"  FAULT  mayor      mayor is not running: the daemon starts it", "yardr --home "+home+" init --start")
+	if len(*focused) != 0 || len(*chats) != 0 || todo(t, st) != stepRigFiles {
+		t.Fatalf("focused %v, chats %v, next %s\n%s", *focused, *chats, todo(t, st), out)
 	}
 
 	if err := st.ResidentStarted(context.Background(), "mayor", mayorHandle()); err != nil {
 		t.Fatal(err)
 	}
 	f.goes = []string{goMayor}
-	out = setup(t, st)
+	out = setup(t, st, "--actor", "me")
+	wantText(t, out, "You left the chat; mayor keeps running. To come back: yardr --home "+home+" chat\n")
+	if strings.Contains(out, "mayor is running, in herdr:") {
+		t.Errorf("the chat was opened, and the pane is named all the same:\n%s", out)
+	}
+	if len(*focused) != 0 || !slices.Equal(*chats, []string{"mayor, expecting mayor"}) || todo(t, st) != stepBuilders {
+		t.Fatalf("focused %v, chats %v, next %s\n%s", *focused, *chats, todo(t, st), out)
+	}
+
+	// --no-chat: the pane, as before there was a chat.
+	f.goes = []string{goMayor}
+	out = setup(t, st, "--actor", "me", "--no-chat")
 	wantText(t, out, "mayor is running, in herdr:", "agent      y-mayor", "herdr agent attach y-mayor", "herdr shows mayor now.",
 		"mayor goes on from the step that is next: it reads `yardr --home "+home+" doctor`")
-	if !slices.Equal(*focused, []string{"y-mayor"}) || todo(t, st) != stepBuilders {
-		t.Fatalf("focused %v, next %s\n%s", *focused, todo(t, st), out)
+	if !slices.Equal(*focused, []string{"y-mayor"}) || len(*chats) != 1 {
+		t.Fatalf("focused %v, chats %v\n%s", *focused, *chats, out)
 	}
 }
 

@@ -12,6 +12,11 @@ yardr mail mayor "Deploys are frozen until Friday"
 yardr resident show mayor              # state, unread inbox, recent journal
 ```
 
+`--set greet=<user>` has the resident's first session, and no later one,
+greet that user by mail: its first prompt asks for it. `yardr init` sets it
+on the mayor, to the operator, because the onboarding ends in
+[`yardr chat`](chat.md#from-the-onboarding).
+
 A resident has no rig, so its `prompt` is an absolute path (a relative one is
 read from its `--dir`): a rig's own `.yardr/roles/mayor.md`, or the generic
 `~/.yardr/roles/mayor.md` that `yardr init` installs and points the mayor at.

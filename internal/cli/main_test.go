@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"yardr.dev/yardr/internal/chat"
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/store"
 )
 
 func TestMain(m *testing.M) {
@@ -31,6 +33,9 @@ func TestMain(m *testing.M) {
 		return "", errors.New("tests ask no herdr")
 	}
 	focusAgent = func(context.Context, string) error { return errors.New("tests focus no pane") }
+	// Nor does a test take over the terminal with the chat's view: a test
+	// of the hand-over replaces this (stubChat).
+	runChat = func(context.Context, store.API, *chat.Model, uint64) error { return nil }
 	listModels = func(context.Context, string) ([]string, error) { return nil, errors.New("tests run no agent") }
 	// Nor does a test load a service into this machine's launchd or systemd,
 	// write into its LaunchAgents, start a web view, dial its port or signal a

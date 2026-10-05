@@ -1116,11 +1116,49 @@ func realPath(path string) string {
 
 // ResidentPromptLead and ResidentPromptEnd are how a resident's first prompt
 // begins and ends, for whoever looks in its pane for what the agent printed
-// after it.
+// after it. What a prompt says beyond its prime (the greeting) goes between
+// the two.
 const (
 	ResidentPromptLead = "You are the yardr resident"
 	ResidentPromptEnd  = "and follow it."
 )
+
+// GreetKey is the resident config key that names the user its first session
+// greets by mail. yardr init sets it on the mayor it adds, to the operator:
+// the onboarding ends in yardr chat, which shows mail and no pane, so the
+// mayor's first word has to be mail.
+const GreetKey = "greet"
+
+// Greets is the user r's next session is asked to greet: the one its config
+// names, for its first session only. A session after that (a rotation, a
+// restart) is in a conversation that has begun, or was never answered.
+func Greets(r store.Resident) string {
+	if r.StartedAt != nil {
+		return ""
+	}
+	return str(r.Config, GreetKey, "")
+}
+
+// Greeted reports whether r's running session is the one that was asked to
+// greet (Greets, before it started).
+func Greeted(r store.Resident) bool {
+	return r.Live() && r.PrevStartedAt == nil && str(r.Config, GreetKey, "") != ""
+}
+
+// residentPrompt is a resident's first prompt: who it is and where its
+// prime is, and for a session that greets (Greets) whom to write to first.
+// It begins and ends as every resident's does: the start is what a pane is
+// searched for to tell that the prompt arrived (showsPrompt), the end what
+// the agent's answer is looked for after.
+func residentPrompt(yardr string, r store.Resident) string {
+	run := "Run"
+	if user := Greets(r); user != "" {
+		run = fmt.Sprintf("%s set this yard up a moment ago and waits for your first message in `%s chat`, which shows "+
+			"them your mail and not your pane. Once you have read your prime, greet them with `%s mail %s \"<text>\"` and say "+
+			"what you need from them for the next setup step; go on with them by mail. First run", user, yardr, yardr, user)
+	}
+	return fmt.Sprintf(ResidentPromptLead+" %q. %s `%s prime --resident %s` "+ResidentPromptEnd, r.Name, run, yardr, r.Name)
+}
 
 // StartResident opens a herdr workspace in the resident's directory, with
 // its identity in the environment, starts its agent and points it at its
@@ -1162,9 +1200,7 @@ func (h *Herdr) StartResident(ctx context.Context, r store.Resident) (map[string
 	if extra := agentArgs(r.Config, ""); len(extra) > 0 {
 		start = append(append(start, "--"), extra...)
 	}
-	prompt := fmt.Sprintf(ResidentPromptLead+" %q. Run `%s prime --resident %s` "+ResidentPromptEnd,
-		r.Name, h.yard(), r.Name)
-	return h.startAgent(ctx, start, name, prompt, handle, trusts(r.Config))
+	return h.startAgent(ctx, start, name, residentPrompt(h.yard(), r), handle, trusts(r.Config))
 }
 
 // envFile reads the env_file cfg names, if any, for the pane environment of

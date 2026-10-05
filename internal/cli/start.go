@@ -22,8 +22,9 @@ import (
 // mayorWait is how long the onboarding waits for the mayor before it says
 // what it knows instead. A start takes seconds; the rest is room for
 // a harness that is slow to come up or a first failed try (the daemon
-// retries after 30s).
-const mayorWait = 2 * time.Minute
+// retries after 30s). A variable so a test of the form, which has no
+// --wait, need not sit it out.
+var mayorWait = 2 * time.Minute
 
 // pollEvery is how often the wait looks at the mayor; tests shorten it.
 var pollEvery = 500 * time.Millisecond
@@ -82,7 +83,10 @@ type startResult struct {
 	Mayor *mayorPlace `json:"mayor,omitempty"`
 	// Pane is the last lines of the mayor's pane when it did not come up:
 	// where a harness says why it does nothing.
-	Pane    string   `json:"pane,omitempty"`
+	Pane string `json:"pane,omitempty"`
+	// Chat is the command for the conversation with the mayor, once it is
+	// up: where its first message goes, and where a terminal is taken.
+	Chat    string   `json:"chat,omitempty"`
 	Problem string   `json:"problem,omitempty"`
 	Known   []string `json:"known,omitempty"`
 	Next    []string `json:"next,omitempty"`
@@ -183,7 +187,7 @@ func (a *app) startYard(ctx context.Context, cfg *config.Config, st store.API, m
 		res.Mayor = placeOf(*r, runner.YardName(cfg.Home, all))
 	}
 	if problem == "" {
-		res.Running = true
+		res.Running, res.Chat = true, yardrAt(cfg.Home)+" chat"
 		return res
 	}
 	res.Problem = problem

@@ -615,7 +615,8 @@ The summary ends with the way to the mayor ([starting the
 yard](#starting-the-yard)), whose role begins with
 a first-run checklist. The mayor reads `yardr doctor` ([doctor.md](doctor.md)),
 whose setup steps say what is done, and goes on from the first one that is
-not, with the operator in its pane: the repository and its base branch
+not, with the operator, by mail in `yardr chat` when the onboarding took them
+there ([chat.md](chat.md#from-the-onboarding)) and in its pane otherwise: the repository and its base branch
 (`yardr rig add`), `yardr rig init` ([below](#seeding-a-rig-yardr-rig-init)),
 the builder and reviewer groups on the default harness, how approved beads
 land (a refinery or a manual group), routes for `new`, `review` and
@@ -671,20 +672,44 @@ the workspace's label (`<yard> <mayor>`) and id, the tab and the pane; and
 how to get there: `herdr agent focus <agent>` brings its pane to the front
 in herdr, `herdr agent attach <agent>` opens it from any other terminal.
 The form then asks how to go on with the rest of the setup: "Talk to the
-mayor" or "Keep going here" ([setup.md](setup.md)). herdr focuses a pane for
-any process that asks over its socket, so the first runs the focus; in a
-terminal outside herdr it adds that herdr has to be opened to see it. The
-second is `yardr setup`, in the same run.
+mayor" or "Keep going here" ([setup.md](setup.md)). The first opens
+`yardr chat` on the mayor in the same terminal
+([chat.md](chat.md#from-the-onboarding)); the second is `yardr setup`, in the
+same run. `yardr init --start` in a terminal asks nothing and opens the chat.
+
+The mayor `yardr init` adds has `greet=<operator>` in its config. The first
+prompt of a resident with that key, in its first session only, asks it to
+greet that user by mail (`yardr mail <operator> "…"`) and to say what it
+needs for the next setup step, before it points at the prime as every
+resident's first prompt does. The chat shows mail and nothing of a pane, so
+this is how the mayor's first word gets there. A later session (a rotation,
+a restart) is asked for no greeting.
+
+No chat opens without a terminal, with `--json`, in an agent's own session
+(`YARDR_SESSION` or `YARDR_RESIDENT` is set) and with `--no-chat`: yardr then
+ends where the mayor's place is printed, and the lines after it name
+`yardr chat`. Nor does one open when who runs the command is no user of the
+yard (the operator was given another name than the login name): the mayor's
+mail goes to the operator, so yardr says who the chat is for and how to open
+it as them (`--actor <operator>`), and the form's "Talk to the mayor" then
+brings the mayor's pane to the front as `--no-chat` does: herdr focuses a
+pane for any process that asks over its socket, and in a terminal outside
+herdr yardr adds that herdr has to be opened to see it.
 
 When the mayor is not up, yardr says why the wait ended (the time is up; the
 daemon gave up after five failed starts; a start failed with herdr or the
 harness not on PATH, which no waiting brings; the daemon ended; the mayor is
 disabled), what is known (which program is missing, the reason of the last
 failed start, the last lines of the mayor's pane, where the daemon logs) and
-how to go on. `yardr init --start` then exits 1; the form goes on to the
-command it was started for. `--json` carries the same under `start`:
-`daemon_started`, `daemon_log`, `running`, `mayor` (`agent`, `workspace`,
-`workspace_id`, `tab`, `pane`), `pane`, `problem`, `known`, `next`.
+how to go on. `yardr init --start` then exits 1. The form opens no chat,
+since nobody is there to answer in it: it prints what
+[`yardr doctor`](doctor.md) says of the yard (its `FAULT` lines and the
+mayor's own line, and for a session that runs without an answer the note
+`<mayor>'s session runs, and it has not answered its first prompt`), and
+goes on to the command it was started for. `--json` carries the same under
+`start`: `daemon_started`, `daemon_log`, `running`, `mayor` (`agent`,
+`workspace`, `workspace_id`, `tab`, `pane`), `pane`, `chat` (the command for
+the conversation with the mayor, once it is up), `problem`, `known`, `next`.
 
 Once the mayor is up, the form asks two more questions before the rest of
 the setup, each starting at **no**: "Start the daemon at login?", which runs

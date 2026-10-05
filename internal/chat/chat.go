@@ -52,6 +52,10 @@ type Options struct {
 	// it names the herdr command instead.
 	InHerdr bool
 	Focus   func(ctx context.Context, agent string) error
+	// Expect is a resident whose first mail is on its way: its session was
+	// asked to greet the user when it started (the onboarding's mayor).
+	// Until there is mail between the two, its conversation says so.
+	Expect string
 }
 
 // State is what the view starts from, read once (Load).
@@ -227,6 +231,10 @@ func (m *Model) resident(name string) *store.Resident {
 	}
 	return nil
 }
+
+// Expects is the resident whose first mail the view was told is on its
+// way (Options.Expect).
+func (m *Model) Expects() string { return m.opt.Expect }
 
 // Selected is the selected resident's name, "" in a yard without any.
 func (m *Model) Selected() string { return m.sel }

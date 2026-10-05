@@ -25,6 +25,7 @@ import (
 	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/roles"
 )
@@ -290,6 +291,11 @@ func (a *app) goOn(ctx context.Context, cfg *config.Config, res *initResult, opt
 		return nil
 	}
 	if !res.Start.Running {
+		// No mayor, no chat: an empty view would wait for someone who is
+		// not there. What doctor says of the yard is what there is to read.
+		if err := a.doctorSays(ctx, cfg); err != nil {
+			return err
+		}
 		fmt.Printf("\nOnce that is set right, run %s in this terminal again: it goes on from here.\n", yardrAt(cfg.Home))
 		return nil
 	}
@@ -351,7 +357,7 @@ func (a *app) resume(ctx context.Context, cfg *config.Config) error {
 	}
 	lines := state.lines(cfg.Home)
 	if silent {
-		lines = append(lines, docLine{tagNote, "mayor", m.Name + "'s session runs, and it has not answered its first prompt"})
+		lines = append(lines, silentMayor(m.Name))
 	}
 	if noKind {
 		lines = append(lines, docLine{tagFault, "settings", "default_kind is not set: an earlier setup stopped before it marked the yard set up"})
@@ -615,7 +621,9 @@ func (a *app) putMayor(ctx context.Context, st store.API, o initOptions, res *in
 	if res.MayorKept {
 		return nil
 	}
-	conf := map[string]any{"kind": o.Harness, "prompt": filepath.Join(res.Roles, "mayor.md")}
+	// greet: its first session writes to the operator by mail, which is
+	// where the onboarding takes them (yardr chat).
+	conf := map[string]any{"kind": o.Harness, "prompt": filepath.Join(res.Roles, "mayor.md"), runner.GreetKey: res.Operator}
 	if o.Model != "" {
 		conf["model"] = o.Model
 	}
@@ -902,9 +910,9 @@ func (r *initResult) printNext() {
 	// The rest of the setup is a conversation, or a run of forms: the
 	// mayor's first run and yardr setup go by the same steps (setupSteps).
 	// The commands for scripts are in yardr init --help.
-	fmt.Printf("\n%s sets up the rest with you in its pane: the repository to work in, who\n"+
-		"builds and reviews, and a first bead to try it on. Or here, as a short run of\n"+
-		"forms: %s setup\n", r.Mayor, yardr)
+	fmt.Printf("\n%s sets up the rest with you: the repository to work in, who builds and\n"+
+		"reviews, and a first bead to try it on. Talk to it in any terminal, or take\n"+
+		"the same steps yourself as a short run of forms:\n\n  %s chat\n  %s setup\n", r.Mayor, yardr, yardr)
 }
 
 // harnessOptions are the kinds herdr starts, each marked with whether its
@@ -1044,6 +1052,13 @@ and its first output in its pane, after its first prompt. It then
 prints where the mayor is in herdr (agent, workspace, tab, pane) and how to
 get there, or, when the mayor did not come up, what is known (the last lines
 of its pane among it) and how to go on, and exits 1. It is what the onboarding form does on "Start the yard now?".
+
+In a terminal, --start then opens yardr chat on the mayor, as the onboarding
+does: the mayor's first session is asked to greet the operator by mail
+(yardr mail <operator>), and the chat is where that mail shows and where the
+setup goes on as a conversation. Leaving it stops nothing. Without a
+terminal, with --json, in an agent's session and with --no-chat it opens
+nothing, and what it prints names yardr chat.
 Run it again on a running yard to be told where the mayor is. yardr daemon in
 a terminal pane of its own does the same in the foreground, to watch it.
 
@@ -1110,6 +1125,14 @@ Unattended flags per harness:
 				// The report said what is known; a script reads the exit.
 				return fmt.Errorf("%s is not up", res.Mayor)
 			}
+			if res.Start != nil && a.chats() {
+				st, err := a.store(c.Context())
+				if err != nil {
+					return err
+				}
+				_, err = a.toChat(c.Context(), cfg, st, res.Mayor)
+				return err
+			}
 			return nil
 		},
 	}
@@ -1120,6 +1143,7 @@ Unattended flags per harness:
 	cmd.Flags().StringVar(&o.Model, "model", "", "the mayor's model (default: the harness's own)")
 	cmd.Flags().BoolVar(&o.Start, "start", false, "start the daemon in the background, unless one runs, and wait for the mayor's session")
 	cmd.Flags().DurationVar(&o.Wait, "wait", mayorWait, "with --start: how long to wait for the mayor")
+	cmd.Flags().BoolVar(&a.noChat, "no-chat", false, "with --start in a terminal: do not open yardr chat on the mayor once it is up")
 	cmd.Flags().StringVar(&o.Operator, "operator", "", "your name, as the role prompts use it (default: your login name, else operator; a set-up yard keeps its operator setting)")
 	cmd.Flags().StringVar(&o.Style, "style", "", "how agents should work with you: "+strings.Join(styleKeys(), ", ")+
 		" (default: none; a set-up yard keeps its operator_style setting)")

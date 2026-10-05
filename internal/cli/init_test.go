@@ -84,8 +84,9 @@ func TestInitHarnessClaude(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// greet: its first session writes to the operator by mail (yardr-8j3n).
 	want := map[string]any{"kind": "claude", "prompt": filepath.Join(home, "roles", "mayor.md"),
-		"args": []any{"--permission-mode", "auto"}}
+		"args": []any{"--permission-mode", "auto"}, "greet": "Jo"}
 	if !reflect.DeepEqual(r.Config, want) || r.Runner != "herdr" || r.MaxAge != "6h" ||
 		r.Dir != filepath.Dir(home) || !reflect.DeepEqual(r.On, defaultOn) {
 		t.Fatalf("mayor = %+v", r)
@@ -104,7 +105,7 @@ func TestInitHarnessClaude(t *testing.T) {
 		t.Fatalf("settings = %v", got)
 	}
 	// The mayor takes it from here; the commands are in init --help.
-	for _, s := range []string{"harness  claude", "naming Jo", ".yardr/roles/", here("yardr daemon"), "sets up the rest with you in its pane"} {
+	for _, s := range []string{"harness  claude", "naming Jo", ".yardr/roles/", here("yardr daemon"), "\n  " + here("yardr chat") + "\n  " + here("yardr setup") + "\n"} {
 		if !strings.Contains(out, s) {
 			t.Errorf("summary lacks %q:\n%s", s, out)
 		}

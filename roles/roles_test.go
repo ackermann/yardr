@@ -70,6 +70,12 @@ func TestTemplatesAreGeneric(t *testing.T) {
 		!strings.Contains(string(body), "the epic\n  tracks it") || !strings.Contains(string(body), "the last bead tracks it") {
 		t.Error("mayor.md does not say when to make an epic and when a chain, how, what an epic costs, or which bead tracks an outside issue")
 	}
+	// And that the onboarding's conversation is by mail: the operator sits
+	// in yardr chat, which shows mail and nothing of the mayor's pane.
+	if body, _ := FS.ReadFile("mayor.md"); !strings.Contains(string(body), "greet them, do it by mail: `yardr mail {{operator}} \"…\"`") ||
+		!strings.Contains(string(body), "It stays by mail for as long as they write by\nmail") {
+		t.Error("mayor.md does not say to greet the operator by mail, or that the setup conversation stays by mail")
+	}
 	for _, name := range []string{"mayor.md", "builder.md", "reviewer.md"} {
 		if body, _ := FS.ReadFile(name); !strings.Contains(string(body), "{{operator}}") {
 			t.Errorf("%s does not name {{operator}}", name)

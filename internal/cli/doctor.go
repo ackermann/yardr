@@ -447,8 +447,8 @@ func failed(state string, failures int, reason string) string {
 	return text
 }
 
-// faults collects the report's faults from its first two parts.
-func (r *doctorReport) faults() {
+// lines are the report's first two parts as it prints them.
+func (r *doctorReport) lines() []docLine {
 	lines := []docLine{}
 	for _, n := range r.Machine {
 		lines = append(lines, n.line())
@@ -456,7 +456,48 @@ func (r *doctorReport) faults() {
 	if r.State != nil {
 		lines = append(lines, r.State.lines(r.Home)...)
 	}
-	for _, l := range lines {
+	return lines
+}
+
+// silentMayor is the line for a mayor whose session runs and that is not up
+// (see up): doctor itself reads no pane, so the onboarding adds it.
+func silentMayor(mayor string) docLine {
+	return docLine{tagNote, "mayor", mayor + "'s session runs, and it has not answered its first prompt"}
+}
+
+// doctorSays prints what yardr doctor says is wrong with the yard, for an
+// onboarding that could not get to the mayor: the report's FAULT lines and
+// the mayor's own line, as doctor prints them, and how to read the rest.
+func (a *app) doctorSays(ctx context.Context, cfg *config.Config) error {
+	rep, err := a.doctor(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	var say []docLine
+	for _, l := range rep.lines() {
+		if l.tag == tagFault || l.name == "mayor" {
+			say = append(say, l)
+		}
+	}
+	if m := rep.State; m != nil && m.Mayor != nil && m.Mayor.Running {
+		st, err := a.store(ctx)
+		if err != nil {
+			return err
+		}
+		if r, err := st.GetResident(ctx, m.Mayor.Name); err == nil && r.Live() && !up(ctx, *r) {
+			say = append(say, silentMayor(r.Name))
+		}
+	}
+	yardr := yardrAt(cfg.Home)
+	fmt.Printf("\n`%s doctor` says of it:\n\n", yardr)
+	printLines(say)
+	fmt.Printf("\n`%s doctor` prints the whole of it, and is how to tell when it is set right.\n", yardr)
+	return nil
+}
+
+// faults collects the report's faults from its first two parts.
+func (r *doctorReport) faults() {
+	for _, l := range r.lines() {
 		if l.tag == tagFault {
 			r.Faults = append(r.Faults, l.name+": "+l.text)
 		}

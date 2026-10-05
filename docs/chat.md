@@ -15,6 +15,49 @@ and what you type is mail: `yardr chat` adds no other channel. What it shows
 is what `yardr mail --with <resident>` prints, and Enter does what
 `yardr mail <resident> <text>` does.
 
+## From the onboarding
+
+The onboarding ends here. Once the form has started the yard and the mayor
+is up, "Talk to the mayor" (the answer its last question starts at) opens
+this view on the mayor, in the terminal the form ran in.
+`yardr init --start` in a terminal does the same without the question, and
+so does "Talk to the mayor" after a page of [`yardr setup`](setup.md).
+
+The mayor that `yardr init` adds is asked, in the first prompt of its first
+session, to greet the operator by mail and to say what it needs for the next
+setup step ([configuration.md](configuration.md#starting-the-yard)). So its
+first message is there when the view opens, or arrives while you watch:
+until there is mail between you, the conversation says
+
+```
+mayor is starting: it reads its role first, and its first message appears here.
+You can write to it already.
+```
+
+What you type goes to the mayor as mail, and it answers by mail: its role
+says the setup conversation stays by mail when it began there. What the
+mayor does in between is in its pane (`ctrl+g`).
+
+Leaving the view prints one line and stops nothing:
+
+```
+You left the chat; mayor keeps running. To come back: yardr chat
+```
+
+It does not open from the onboarding:
+
+- without a terminal, with `--json`, in an agent's own session, and with
+  `--no-chat` (`yardr init --start --no-chat`, `yardr setup --no-chat`):
+  yardr then prints where the mayor's pane is, as it did before there was a
+  chat, and names `yardr chat`;
+- when the mayor did not come up (not logged in, a harness that exits):
+  nobody would answer, so the form prints what [`yardr doctor`](doctor.md)
+  says of the yard instead, and how the onboarding is taken up again;
+- when who runs the command is no user of the yard, which is the case when
+  the form's "Your name" is another name than your login name: the mayor
+  writes to the operator, so yardr says so and how to open the chat as them
+  (`yardr --actor <operator> chat`).
+
 ## Who it is for
 
 A user of the yard: the operator, and whoever the operator added with

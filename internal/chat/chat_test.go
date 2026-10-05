@@ -894,3 +894,20 @@ func TestFollowTheStore(t *testing.T) {
 		}
 	}
 }
+
+// The onboarding opens the view on a mayor that was asked to greet and may
+// not have yet: its empty conversation says it is starting, the first mail
+// replaces that when the stream brings it, and no other resident's
+// conversation claims the same.
+func TestExpectedFirstMail(t *testing.T) {
+	st := yard(t)
+	v := open(t, st, "mayor", 80, 24, func(o *Options) { o.Expect = "mayor" })
+	v.shows("mayor is starting: it reads its role first, and its first message appears here.", "You can write to it already.")
+	v.hides("No mail between you and mayor yet.")
+	must(t, st.Mail(context.Background(), me, "hello ada, which repository?", "mayor"))
+	v.stream()
+	v.shows("hello ada, which repository?")
+	v.hides("mayor is starting")
+	v.send(tea.KeyMsg{Type: tea.KeyTab})
+	v.shows("No mail between you and refinery yet.")
+}

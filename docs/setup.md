@@ -9,9 +9,10 @@ yardr setup
 yardr setup --json | jq -r '.next.next'   # the command for the next step, no form
 ```
 
-The onboarding ends in it: once the mayor is up, its last question is "Talk
-to the mayor" or "Keep going here", and "Keep going here" is `yardr setup` in
-the same run.
+The onboarding ends in one of the two: once the mayor is up, its last
+question is "Talk to the mayor" or "Keep going here". "Talk to the mayor"
+opens [`yardr chat`](chat.md#from-the-onboarding) on the mayor in the same
+terminal, and "Keep going here" is `yardr setup` in the same run.
 
 ## One list of steps
 
@@ -19,7 +20,7 @@ The steps are the ones [`yardr doctor`](doctor.md#setup) prints, read from
 the store by one function. `yardr setup` prints them, each `done` or `todo`,
 and takes the first one not done. It keeps no state of its own, so it goes on
 where the yard stands, whoever did the steps before: these forms, the mayor
-in its pane, or you on the command line. Run it again at any time.
+in conversation with you, or you on the command line. Run it again at any time.
 
 The mayor's first run reads the same list through `yardr doctor`. There is no
 second list to keep in step with it.
@@ -99,10 +100,17 @@ yardr route add --stage approved --rig <rig> --group <rig>/mergers
 It asks how to go on with the step that is next:
 
 - **Keep going here**: the next page.
-- **Talk to the mayor**: prints where the mayor is in herdr (agent,
-  workspace, tab, pane), brings its pane to the front and ends. The mayor
-  goes on from the same step. When the mayor is not running it says how to
-  start the yard (`yardr init --start`).
+- **Talk to the mayor**: opens [`yardr chat`](chat.md) on the mayor in this
+  terminal. The mayor goes on from the same step: write to it what you want
+  next. Leaving the chat (ctrl+c) ends the run with one line, how to come
+  back (`yardr chat`) and that the mayor keeps running.
+  With `yardr setup --no-chat`, and when who runs it is no user of the yard
+  (the chat is a user's; it says so, and how to open it as the operator), it
+  prints where the mayor is in herdr (agent, workspace, tab, pane) and
+  brings its pane to the front instead.
+  When the mayor is not running it opens no chat: it prints what
+  [`yardr doctor`](doctor.md) says of the yard (the `FAULT` lines and the
+  mayor's line) and how to start it (`yardr init --start`).
 - **Stop here**: ends; `yardr setup` goes on from that step later.
 
 ## Cancelling

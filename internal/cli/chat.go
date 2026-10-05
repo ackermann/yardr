@@ -11,6 +11,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"yardr.dev/yardr/internal/chat"
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -50,8 +52,7 @@ Without one, yardr mail <resident> <text> sends and yardr mail --with
 				return errors.New("yardr chat is a view for a terminal, and this is none: " +
 					"yardr mail <resident> <text> sends a message, and yardr mail --with <resident> prints the conversation (--json for a program)")
 			}
-			ctx, cancel := context.WithCancel(c.Context())
-			defer cancel()
+			ctx := c.Context()
 			st, err := a.store(ctx)
 			if err != nil {
 				return err
@@ -68,13 +69,6 @@ Without one, yardr mail <resident> <text> sends and yardr mail --with
 				return fmt.Errorf("yardr chat is for a user of the yard, and %s is none: the operator (%s) adds one with yardr user add %s",
 					a.who(), operator, a.who())
 			}
-			state, err := chat.Load(ctx, st, me.Name)
-			if err != nil {
-				return err
-			}
-			if len(state.Residents) == 0 {
-				return errors.New("the yard has no residents to talk with: yardr resident add adds one, yardr init the mayor")
-			}
 			first := yardMayor(ctx, st)
 			if len(args) == 1 {
 				if _, err := st.GetResident(ctx, args[0]); err != nil {
@@ -82,11 +76,72 @@ Without one, yardr mail <resident> <text> sends and yardr mail --with
 				}
 				first = args[0]
 			}
-			m := chat.New(ctx, st, chat.Options{Me: me.Name, Select: first, Yardr: "yardr",
-				InHerdr: os.Getenv("HERDR_ENV") != "", Focus: focusAgent}, state)
-			return runChat(ctx, st, m, state.Head)
+			return a.chatOn(ctx, st, me.Name, first, "")
 		},
 	}
+}
+
+// chatOn shows the view to the user me, with the resident first selected,
+// until they leave it. expect is a resident whose first mail is on its way
+// (chat.Options.Expect), "" for none.
+func (a *app) chatOn(ctx context.Context, st store.API, me, first, expect string) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	state, err := chat.Load(ctx, st, me)
+	if err != nil {
+		return err
+	}
+	if len(state.Residents) == 0 {
+		return errors.New("the yard has no residents to talk with: yardr resident add adds one, yardr init the mayor")
+	}
+	m := chat.New(ctx, st, chat.Options{Me: me, Select: first, Yardr: "yardr", Expect: expect,
+		InHerdr: os.Getenv("HERDR_ENV") != "", Focus: focusAgent}, state)
+	return runChat(ctx, st, m, state.Head)
+}
+
+// chats reports whether this run can end in the chat: a person at a
+// terminal who did not ask for none. An agent's pane is a terminal too, and
+// a view would sit there.
+func (a *app) chats() bool {
+	return !a.json && !a.noChat && interactive() && !agentSession()
+}
+
+// toChat is the hand-over to the mayor: it opens the chat on it for the
+// user this run acts as and, once they leave the view, says how to come
+// back. A mayor in the session that was asked to greet (runner.Greeted) is
+// expected to write first, and the view says so until it has.
+//
+// It reports false, having said why and opened nothing, when who acts is no
+// user of the yard: the operator was given another name than the one this
+// terminal acts under, and the mayor's mail goes to the operator.
+func (a *app) toChat(ctx context.Context, cfg *config.Config, st store.API, mayor string) (bool, error) {
+	yardr := yardrAt(cfg.Home)
+	me, err := a.actingUser(ctx, st)
+	if err != nil {
+		return false, err
+	}
+	if me == nil {
+		operator, _, err := a.operator(ctx, st)
+		if err != nil {
+			return false, err
+		}
+		fmt.Printf("\n%s chat is for a user of the yard, and this terminal acts as %s, who is none: the operator is %s,\n"+
+			"and %s writes to them. As the operator: %s --actor %s chat (or YARDR_ACTOR=%s). As yourself, once\n"+
+			"added: %s --actor %s user add %s\n",
+			yardr, a.who(), operator, mayor, yardr, operator, operator, yardr, operator, a.who())
+		return false, nil
+	}
+	expect := ""
+	if r, err := st.GetResident(ctx, mayor); err != nil {
+		return false, err
+	} else if runner.Greeted(*r) {
+		expect = mayor
+	}
+	if err := a.chatOn(ctx, st, me.Name, mayor, expect); err != nil {
+		return false, err
+	}
+	fmt.Printf("\nYou left the chat; %s keeps running. To come back: %s chat\n", mayor, yardr)
+	return true, nil
 }
 
 // streamRetry is how long the view waits before it asks the yardr server
