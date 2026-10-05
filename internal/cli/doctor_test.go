@@ -779,7 +779,7 @@ func TestDoctorTry(t *testing.T) {
 		"FAULT  codex      tried: one real call failed: exit status 1: model: gpt / ERROR: refresh token was already used / Please log out and sign in again.",
 		"FAULT  kimi       tried: one real call did not end within 2s; it printed: thinking",
 		"note   cursor-agent  not tried: yardr knows no one-shot call for cursor",
-		"note   pi         tried: one real call failed: exit status 3: broken install")
+		"FAULT  pi         tried: one real call failed: exit status 3: broken install")
 	if strings.Contains(out, "no harness was asked") {
 		t.Errorf("with --try the harnesses were asked:\n%s", out)
 	}
