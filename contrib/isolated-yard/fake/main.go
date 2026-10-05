@@ -69,10 +69,11 @@ func main() {
 	}()
 
 	// With a file login-needed beside agents.log it sits at a login screen,
-	// as a harness does that is not logged in: no prompt box, and what it
-	// is sent is taken and shown nowhere (the terminal's echo is off), so a
-	// first prompt sent meanwhile has not arrived for yardr. Removing the
-	// file is the login: the box comes, and yardr sends the prompt again.
+	// as a harness does that is not logged in: no prompt box, and input is
+	// held without showing it (the terminal's echo is off), so the first
+	// prompt reaches the agent only after login. Removing the file is login:
+	// the box comes and the held prompt is handled.
+	var held []string
 	if login := filepath.Join(filepath.Dir(filepath.Dir(exe)), "login-needed"); exists(login) {
 		fmt.Println("Not logged in · Run /login")
 		logf("login screen")
@@ -85,7 +86,12 @@ func main() {
 					logf("exit")
 					return
 				}
-				logf("login screen took %q", strings.TrimSpace(line))
+				// Keep the first prompt that arrives while the harness is at
+				// login. Retries are the same pending prompt; once the person
+				// logs in, handle it instead of silently losing it.
+				if len(held) == 0 {
+					held = append(held, line)
+				}
 			case <-time.After(200 * time.Millisecond):
 			}
 		}
@@ -95,8 +101,8 @@ func main() {
 	}
 
 	box := func() { fmt.Printf("%s\n❯ \n%s\n", rule, rule) }
-	box()
-	for line := range lines {
+	greeted := false
+	process := func(line string) {
 		if line = strings.TrimSpace(line); line != "" {
 			logf("prompt %q", line)
 			// As Claude Code echoes a message it took, above its input: that
@@ -105,13 +111,21 @@ func main() {
 			// A mayor's first prompt asks it to greet its operator by mail
 			// (runner.Greets): the stand-in does, so a chat opened on it
 			// gets a first message.
-			if m := greet.FindStringSubmatch(line); m != nil {
+			if m := greet.FindStringSubmatch(line); m != nil && !greeted {
+				greeted = true
 				out, err := exec.Command(m[1], "mail", m[2], "Hello, this is the stand-in mayor: logged in and ready.").CombinedOutput()
 				logf("greeted %s: %v %s", m[2], err, strings.TrimSpace(string(out)))
 				fmt.Printf("⏺ Greeted %s by mail.\n", m[2])
 			}
 		}
 		box()
+	}
+	box()
+	for _, line := range held {
+		process(line)
+	}
+	for line := range lines {
+		process(line)
 	}
 	logf("exit")
 }
