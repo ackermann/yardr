@@ -298,7 +298,7 @@ func TestUnreadMailIsSaid(t *testing.T) {
 	}
 
 	bare := mustAs(t, st, "jo")
-	if !strings.Contains(bare, "Usage:") || !strings.HasSuffix(bare, "\nMail for jo: 3 unread from mayor, ada. Read them with yardr inbox.\n") {
+	if !strings.Contains(bare, "Usage:") || !strings.HasSuffix(bare, "\nMail for jo: 3 unread from mayor, ada (yardr inbox).\n") {
 		t.Fatalf("bare yardr:\n%s", bare)
 	}
 	for _, who := range []string{"ada", "mayor", "pat"} {

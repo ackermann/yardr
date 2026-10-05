@@ -364,5 +364,5 @@ func (a *app) unreadLine(ctx context.Context) {
 	if err != nil || m == nil || m.Unread == 0 {
 		return
 	}
-	fmt.Printf("\nMail for %s: %s. Read them with yardr inbox.\n", m.User, m.unread())
+	fmt.Printf("\nMail for %s: %s (yardr inbox).\n", m.User, m.unread())
 }
