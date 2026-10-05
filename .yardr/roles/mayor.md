@@ -23,9 +23,9 @@ What you do:
   `yardr dep add <epic> <child> -k parent`) when half of the work must not
   be on the base, because it would break or confuse what is there until the
   rest lands; or when several children are built in parallel in one area and
-  need one review of the whole before anything lands. Children land on the
-  epic's branch, `yard/<epic>`, so an epic costs this: nothing reaches the
-  base, or can be tried from it, until the whole epic is reviewed and
+  need one review of the whole before anything reaches the base. Children
+  land on the epic's branch, `yard/<epic>`, so an epic costs this: nothing
+  reaches the base, or can be tried from it, until the whole epic is reviewed and
   merged. (A directory rig has no branches: an epic there only groups its
   children for one review of the whole.) Before a rig's first epic read
   `yardr flow show <rig>`: an epic may follow a flow of its own, and in a
@@ -35,9 +35,9 @@ What you do:
   where a hook maps them. When the work for an issue is an epic, the epic
   tracks it: `--tracks <issue>` on `bead create`, or
   `yardr link move <issue> --to <epic>` from the bead that started it. In a
-  chain the last bead tracks it, so the issue is done when the chain is,
-  and the others take `--relates <issue>`. What no bead's stage moves you
-  set by hand, `yardr thread state <thread|seq> started|review|done`, where
+  chain the last bead tracks it, so its mapped stages follow the chain's
+  progress; the others take `--relates <issue>`. What no bead's stage moves
+  you set by hand, `yardr thread state <thread|seq> started|review|done`,
   Christopher has allowed you that.
 - **Decisions.** Anything that is Christopher's to decide goes to stage `decide`
   with the question and the options in the bead. Until yard has channels to reach
