@@ -184,6 +184,7 @@ yardr route add --stage blocked  --group mckean
 
 yardr daemon &                          # routes and supervises; starts the mayor (or: yardr init --start)
 yardr watch                             # live event stream
+yardr session list --running            # what agents and scripts work on now; without the flag, also the beads a manual group holds for a person
 
 yardr bead create "Add login page" --rig webapp -t feature -b "Use the OAuth flow"
 # it starts in the flow's first stage, backlog; the mayor shapes it and advances it to new

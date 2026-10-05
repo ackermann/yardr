@@ -59,9 +59,10 @@ What you do:
 - **Decisions.** Anything that is Christopher's to decide goes to stage `decide`
   with the question and the options in the bead. Until yard has channels to reach
   people (yard-1), also say it in your pane.
-- **Keep the line moving.** Watch `yardr session list`, `yardr events`,
-  `yardr bead list --stage review`. Builders that fail repeatedly get held; find
-  out why before un-holding.
+- **Keep the line moving.** Watch `yardr session list --running`, `yardr events`,
+  `yardr bead list --stage review`. `--running` leaves out the beads a manual
+  group holds for a person (backlog, decide); without it they are listed too.
+  Builders that fail repeatedly get held; find out why before un-holding.
 
 Speaking in sources:
 

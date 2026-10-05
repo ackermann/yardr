@@ -961,9 +961,14 @@ func (a *app) routeCmd() *cobra.Command {
 
 func (a *app) sessionCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "session", Short: "Runner sessions working beads"}
-	var all bool
+	var all, running bool
 	list := &cobra.Command{
 		Use: "list", Short: "List live sessions", Args: cobra.NoArgs,
+		Long: `List live sessions: one for each bead a group has claimed.
+
+A manual group's claim is among them, though nothing runs in it: the bead
+waits for a person. --running leaves those out, so the list is what an
+agent (herdr) or a script (exec) is working on now.`,
 		RunE: func(c *cobra.Command, _ []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -973,12 +978,17 @@ func (a *app) sessionCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if running {
+				// A manual group's claim is a bead waiting for a person, with
+				// nothing running behind it (yardr-7r3h).
+				ss = slices.DeleteFunc(ss, store.Session.Manual)
+			}
 			return a.out(ss, func() {
 				rows := [][]string{}
 				for _, s := range ss {
 					// Which runner owns it, and what it is running there.
 					runner := s.Runner
-					if runner == "" && s.Handle["manual"] != nil {
+					if s.Manual() {
 						runner = "manual"
 					}
 					if v, ok := s.Handle["agent"]; ok {
@@ -994,6 +1004,7 @@ func (a *app) sessionCmd() *cobra.Command {
 		},
 	}
 	list.Flags().BoolVarP(&all, "all", "a", false, "include ended sessions")
+	list.Flags().BoolVar(&running, "running", false, "only sessions an agent or a script is behind: leave out the beads a manual group holds for a person")
 	cmd.AddCommand(list)
 	return cmd
 }
