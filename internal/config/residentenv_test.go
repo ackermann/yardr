@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -97,15 +98,44 @@ func TestResidentEnvCommandWinsOverFile(t *testing.T) {
 	}
 }
 
+// reached is a context whose deadline has passed once the returned func is
+// called, and not a moment before: the limit of an env_command, at a time
+// the test decides.
+func reached() (context.Context, func()) {
+	d := &deadline{Context: context.Background(), done: make(chan struct{})}
+	return d, func() { close(d.done) }
+}
+
+type deadline struct {
+	context.Context
+	done chan struct{}
+}
+
+func (d *deadline) Done() <-chan struct{} { return d.done }
+
+func (d *deadline) Err() error {
+	select {
+	case <-d.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
+
 // A provider that is not there, fails, hangs or prints a line that is no
 // KEY=VALUE gives no environment and an error that names the command, how
 // it ended and the end of its stderr: never its stdout, never a value.
 func TestResidentEnvCommandFailures(t *testing.T) {
-	// Long enough for a script's first run on a busy machine, which a
-	// provider that answers must not be taken for a hang over.
+	// No case waits for the limit, so none is decided by how fast the
+	// machine starts a script: a provider that answers has an hour to, and
+	// the one that hangs says when it does, which is when its time is up.
 	old := EnvCommandTimeout
-	EnvCommandTimeout = 3 * time.Second
+	EnvCommandTimeout = time.Hour
 	t.Cleanup(func() { EnvCommandTimeout = old })
+	hanging := filepath.Join(t.TempDir(), "hanging")
+	if err := syscall.Mkfifo(hanging, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	secret := `echo "LINEAR_API_KEY=` + provided + `"; `
 	for name, tc := range map[string]struct {
 		cmd  string
@@ -116,12 +146,28 @@ func TestResidentEnvCommandFailures(t *testing.T) {
 		"exit": {providerT(t, secret+`for i in 1 2 3 4 5 6 7; do echo "line $i" >&2; done; echo "vault is locked" >&2; exit 3`),
 			[]string{"exit status 3", "its stderr ended: line 4 | line 5 | line 6 | line 7 | vault is locked"}},
 		// The child outlives the script's shell unless the group is killed.
-		"hangs":    {providerT(t, secret+`echo "waiting for a password" >&2; sleep 30`), []string{"no answer within 3s", "waiting for a password"}},
+		// It is there before the time is up: a kill that lands while the
+		// shell forks misses the child on macOS, and the sleep is left.
+		"hangs": {providerT(t, secret+`echo "waiting for a password" >&2; (: >`+hanging+`; exec sleep 300) & wait`),
+			[]string{"no answer within 1h0m0s", "waiting for a password"}},
 		"bad line": {providerT(t, secret+`echo "export TOKEN=`+provided+`"`), []string{" line 2: want KEY=VALUE"}},
 		"bad key":  {providerT(t, `echo "1TOKEN=`+provided+`"`), []string{" line 1: want KEY=VALUE"}},
 	} {
+		ctx := context.Background()
+		if name == "hangs" {
+			// The child's open of the fifo returns when this one does: the
+			// script has said what it waits for, and waits.
+			var timeUp func()
+			ctx, timeUp = reached()
+			go func() {
+				if f, err := os.Open(hanging); err == nil {
+					f.Close()
+				}
+				timeUp()
+			}()
+		}
 		start := time.Now()
-		env, err := ReadResidentEnv(context.Background(), "mayor", "", "", map[string]any{"env_command": tc.cmd})
+		env, err := ReadResidentEnv(ctx, "mayor", "", "", map[string]any{"env_command": tc.cmd})
 		if err == nil {
 			t.Errorf("%s: no error", name)
 			continue
@@ -137,9 +183,32 @@ func TestResidentEnvCommandFailures(t *testing.T) {
 		if len(env.Env) != 0 || env.CommandErr == nil || env.Command != tc.cmd {
 			t.Errorf("%s: %+v", name, env)
 		}
-		if took := time.Since(start); took > 8*time.Second {
+		// Not the script's sleep: it was killed, not waited for.
+		if took := time.Since(start); took > 2*time.Minute {
 			t.Errorf("%s: took %s", name, took)
 		}
+	}
+}
+
+// The limit itself: a provider that does not answer within
+// EnvCommandTimeout is given up on and said to have been. Whether it had
+// started by then is the machine's affair, so nothing of its stderr is
+// asked for here.
+func TestResidentEnvCommandTimeout(t *testing.T) {
+	old := EnvCommandTimeout
+	EnvCommandTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { EnvCommandTimeout = old })
+	p := providerT(t, `echo "LINEAR_API_KEY=`+provided+`"; sleep 300`)
+	start := time.Now()
+	env, err := ReadResidentEnv(context.Background(), "mayor", "", "", map[string]any{"env_command": p})
+	if err == nil || !strings.Contains(err.Error(), "env_command "+p+": no answer within 50ms") || strings.Contains(err.Error(), provided) {
+		t.Fatalf("err = %v", err)
+	}
+	if len(env.Env) != 0 || env.CommandErr == nil {
+		t.Errorf("%+v", env)
+	}
+	if took := time.Since(start); took > 2*time.Minute {
+		t.Errorf("took %s", took)
 	}
 }
 
