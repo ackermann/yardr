@@ -170,7 +170,9 @@ const reasonSlot = "\x00"
 func oneLine(s string) string {
 	var plain strings.Builder
 	for _, r := range s {
-		if !unicode.IsControl(r) {
+		if unicode.IsSpace(r) {
+			plain.WriteByte(' ')
+		} else if !unicode.IsControl(r) {
 			plain.WriteRune(r)
 		}
 	}

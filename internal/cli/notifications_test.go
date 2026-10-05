@@ -80,20 +80,20 @@ func TestUserSubscribes(t *testing.T) {
 	}
 
 	show := mustAs(t, st, "ada", "user", "show", "jo")
-	wantText(t, show, "  subscribed: yardr all state=done\n", "  subscribed: github involved\n", "  subscribed: github all\n")
+	wantText(t, show, "  subscribed: yardr all state=done\n", "  subscribed: github all\n")
 	var v userView
 	if err := json.Unmarshal([]byte(mustAs(t, st, "jo", "user", "show", "ada", "--json")), &v); err != nil ||
 		len(v.Subscriptions) != 2 || v.Subscriptions[0].String() != "yardr all kind=noted rig=web" {
 		t.Fatalf("user show --json = %+v, %v", v, err)
 	}
 
-	if out := mustAs(t, st, "jo", "unsubscribe", "jo", "github", "--scope", "involved"); out != "jo: 1 subscription(s) removed\n" {
+	if out := mustAs(t, st, "jo", "unsubscribe", "jo", "github", "--scope", "all"); out != "jo: 1 subscription(s) removed\n" {
 		t.Fatalf("unsubscribe: %q", out)
 	}
 	if out := mustAs(t, st, "jo", "unsubscribe", "ada", "yardr"); out != "ada: 2 subscription(s) removed\n" {
 		t.Fatalf("the operator unsubscribes ada: %q", out)
 	}
-	if show := mustAs(t, st, "jo", "user", "show", "jo"); strings.Contains(show, "github involved") || !strings.Contains(show, "subscribed: github all") {
+	if show := mustAs(t, st, "jo", "user", "show", "jo"); strings.Contains(show, "github") {
 		t.Fatalf("show jo after the unsubscribe:\n%s", show)
 	}
 	if show := mustAs(t, st, "jo", "user", "show", "ada"); strings.Contains(show, "subscribed") {
