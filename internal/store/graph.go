@@ -44,7 +44,7 @@ type depRow struct {
 // count it, are re-minted.
 //
 // A blocks edge that would close a cycle of blockers is refused, naming the
-// cycle: no bead in one is ever ready, and nothing else says why. That is
+// cycle: if all its beads were open, none would be ready. That is
 // the edge asked for with kind blocks, and the child's edge a parent edge
 // brings. Any other kind decides no readiness and is never refused for it.
 // The walk is part of this write, so of two adds that would close a cycle
@@ -125,7 +125,7 @@ func checkCycle(tx *bolt.Tx, from, to *beadRow, why string) error {
 	if len(closed) > 0 {
 		note = fmt.Sprintf(" (%s closed, and would block again once reopened)", strings.Join(closed, ", "))
 	}
-	return fmt.Errorf("%s%s blocks %s would close a cycle of blockers, and no bead in one is ever ready: %s%s",
+	return fmt.Errorf("%s%s blocks %s would close a cycle of blockers: %s%s",
 		why, from.ID, to.ID, strings.Join(cycle, " blocks "), note)
 }
 

@@ -28,8 +28,8 @@ Christopher can do the same from `yardr review -g backlog`.
 
 `yardr dep add` refuses a `blocks` edge that would close a cycle, and names
 it in order, the new edge first: `yardr-a blocks yardr-b blocks yardr-c
-blocks yardr-a`. No bead in a cycle would ever be ready, and nothing would
-say why. The child's edge that `dep add -k parent` adds ([Epics](#epics)) is
+blocks yardr-a`. An open cycle leaves no bead ready, and nothing would say
+why. The child's edge that `dep add -k parent` adds ([Epics](#epics)) is
 refused the same way; edges of any other kind (`related`, ...) decide no
 readiness and are never refused for it. Closed beads count: a closed blocker
 blocks nothing, but reopening it would make the cycle live, and `bead

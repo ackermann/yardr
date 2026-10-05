@@ -243,7 +243,8 @@ func (a *app) doctor(ctx context.Context, cfg *config.Config, try bool) (*doctor
 
 // readState is the second part, read from a yard whose server answers: the
 // daemon, the mayor and its session, the residents whose starts fail, the
-// held beads, the beads that block each other in a circle. It is what doctor prints, and what bare yardr goes by to tell
+// held beads, and the beads that block each other in a circle. It is what
+// doctor prints, and what bare yardr goes by to tell
 // a yard whose onboarding is to finish (resume).
 func readState(ctx context.Context, cfg *config.Config, st store.API, residents []store.Resident) (*yardState, error) {
 	state := &yardState{Server: "running", Daemon: daemonRunning(cfg.DaemonLock()), Residents: len(residents),
