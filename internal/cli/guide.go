@@ -319,8 +319,12 @@ func (g *guide) toMayor(ctx context.Context) error {
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return err
 	}
-	if err != nil || !r.Live() {
-		fmt.Printf("\n%s is not running, so there is nobody to talk to yet.\n", mayor)
+	if err != nil || !r.Live() || (g.a.chats() && runner.Greeted(*r) && !up(ctx, *r)) {
+		if err == nil && r.Live() {
+			fmt.Printf("\n%s has not answered its first prompt, so there is nobody to talk to yet.\n", mayor)
+		} else {
+			fmt.Printf("\n%s is not running, so there is nobody to talk to yet.\n", mayor)
+		}
 		if err := g.a.doctorSays(ctx, g.cfg); err != nil {
 			return err
 		}

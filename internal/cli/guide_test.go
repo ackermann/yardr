@@ -535,13 +535,27 @@ func TestSetupTalkToTheMayor(t *testing.T) {
 	if err := st.ResidentStarted(context.Background(), "mayor", mayorHandle()); err != nil {
 		t.Fatal(err)
 	}
+	// A live pane at a login prompt has not answered the onboarding prompt:
+	// say what doctor knows and do not open an empty chat.
+	stubPane(t, "Not logged in · Run /login")
+	f.goes = []string{goMayor}
+	out = setup(t, st, "--actor", "me")
+	wantText(t, out, "has not answered its first prompt", "`yardr --home "+home+" doctor` says of it:",
+		"  ok     mayor      mayor is running (herdr agent y-mayor)",
+		"  note   mayor      mayor's session runs, and it has not answered its first prompt")
+	if len(*chats) != 0 || len(*focused) != 0 {
+		t.Fatalf("a chat or focus was opened for a silent mayor: chats %v, focused %v\n%s", *chats, *focused, out)
+	}
+
+	// This session has answered its first prompt; it is ready for a chat.
+	stubPane(t, answeredPane)
 	f.goes = []string{goMayor}
 	out = setup(t, st, "--actor", "me")
 	wantText(t, out, "You left the chat; mayor keeps running. To come back: yardr --home "+home+" chat\n")
 	if strings.Contains(out, "mayor is running, in herdr:") {
 		t.Errorf("the chat was opened, and the pane is named all the same:\n%s", out)
 	}
-	if len(*focused) != 0 || !slices.Equal(*chats, []string{"mayor, expecting mayor"}) || todo(t, st) != stepBuilders {
+	if len(*focused) != 0 || !slices.Equal(*chats, []string{"mayor, expecting mayor"}) || todo(t, st) != stepReviewers {
 		t.Fatalf("focused %v, chats %v, next %s\n%s", *focused, *chats, todo(t, st), out)
 	}
 

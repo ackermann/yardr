@@ -163,6 +163,7 @@ func TestHandOverAsSomeoneWhoIsNoUser(t *testing.T) {
 	if err := st.ResidentStarted(context.Background(), "mayor", mayorHandle()); err != nil {
 		t.Fatal(err)
 	}
+	stubPane(t, answeredPane)
 	out := setup(t, st, "--actor", "eve")
 	wantText(t, out, "this terminal acts as eve, who is none: the operator is Jo",
 		"yardr --home "+home+" --actor Jo chat", "yardr --home "+home+" --actor Jo user add eve", "mayor is running, in herdr:")
@@ -179,6 +180,7 @@ func TestHandOverReportsAViewThatFails(t *testing.T) {
 	if err := st.ResidentStarted(context.Background(), "mayor", mayorHandle()); err != nil {
 		t.Fatal(err)
 	}
+	stubPane(t, answeredPane)
 	stub(t, &runChat, func(context.Context, store.API, *chat.Model, uint64) error { return errors.New("no tty") })
 	out, err := run(t, (&app{st: st}).rootCmd(), "setup", "--actor", "me")
 	if err == nil || !strings.Contains(err.Error(), "no tty") || strings.Contains(out, "You left the chat") {
