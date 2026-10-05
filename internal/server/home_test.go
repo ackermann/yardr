@@ -83,15 +83,23 @@ func TestServerStopsWhenItsSocketIsAnotherServers(t *testing.T) {
 	done := start(t, &runner{c: c, rev: "r", homeCheck: 20 * time.Millisecond,
 		log: slog.New(slog.NewTextHandler(logged, nil))})
 
-	if err := os.Remove(c.Socket()); err != nil {
+	// The other server's pidfile comes first: a server that has seen the
+	// other socket reads the pidfile at once, and removes the one that still
+	// names it.
+	if err := os.WriteFile(c.PIDFile(), []byte("1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	other, err := net.Listen("unix", c.Socket())
+	// Renamed over, in one step: removed and then listened on, a check that
+	// fell between the two saw no socket and said "is gone" (yardr-xx58).
+	other, err := net.Listen("unix", c.Socket()+".new")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer other.Close()
-	if err := os.WriteFile(c.PIDFile(), []byte("1\n"), 0o600); err != nil {
+	// Closing unlinks the name the listener was made with, which is no
+	// longer its socket's.
+	other.(*net.UnixListener).SetUnlinkOnClose(false)
+	if err := os.Rename(c.Socket()+".new", c.Socket()); err != nil {
 		t.Fatal(err)
 	}
 
