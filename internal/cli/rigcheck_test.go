@@ -325,6 +325,15 @@ func TestRigCheckLight(t *testing.T) {
 		strings.Contains(out, "light gate, ") {
 		t.Fatalf("--light without a light gate: %q, %v (exit %d)", out, err, exitCode(err))
 	}
+	// rig add --check-light is how the store gets one, and rig add says it.
+	dir := t.TempDir()
+	out, err = run(t, a.rigCmd(), "add", "d", dir, "--kind", "dir", "--check", "exit 4", "--check-light", "echo from rig add")
+	if err != nil || !strings.Contains(out, "light gate: echo from rig add (store override of .yardr/check-light)") {
+		t.Fatalf("rig add --check-light: %q, %v", out, err)
+	}
+	if out, err = run(t, a.rigCheckCmd(), "d", "--light"); exitCode(err) != 0 || !strings.Contains(out, "from rig add\n") {
+		t.Fatalf("the light gate rig add stored: %q, %v", out, err)
+	}
 	// Could not run is still exit 2.
 	if err := st.PutRig(ctx, store.Rig{Name: "broken", Path: t.TempDir(), Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
