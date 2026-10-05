@@ -732,7 +732,8 @@ func writeBrief(dir, session, brief string) (string, error) {
 // is not ready yet (blocked on a question a human must answer, or just
 // slow) is not a failure: the session is kept and the prompt is left on the
 // handle as pending, for the dispatcher to deliver once the agent is idle.
-// So is a prompt that was sent and did not arrive (see arrived).
+// So is a prompt that was sent and did not arrive (see arrived): one that
+// never showed is sent again, one left in the agent's input is submitted.
 // With trust, the one question yardr answers itself is Claude Code's
 // folder-trust dialog (see acceptTrust); the handle then says so.
 func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt string, handle map[string]any, trust bool) (map[string]any, error) {
@@ -766,8 +767,9 @@ func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt stri
 		return handle, err
 	}
 	if !h.arrived(ctx, handle, prompt) {
-		// Sent, and nothing in the pane to show for it: the dispatcher sends
-		// it again once the agent is idle, unless it shows up meanwhile.
+		// Sent, and nothing in the pane to show that it was taken: the
+		// dispatcher sends it again once the agent is idle, or submits the
+		// text that is in its input, unless it shows up meanwhile.
 		handle[dispatch.PendingPrompt] = prompt
 	}
 	return handle, nil
@@ -783,44 +785,127 @@ var promptWait = 10 * time.Second
 const promptScan = 200
 
 // arrived reports whether the agent took the prompt herdr just sent it: its
-// pane shows the prompt, or it is working. Found live (yardr-ykbt): `agent
-// prompt` succeeding says the keys were sent, not that they were taken. A
-// Claude Code still coming up after its trust dialog was reported idle and
-// dropped them, and the session sat there without its first prompt. A pane
-// that cannot be read says nothing either way, and the prompt is then taken
-// as arrived, as it was before yardr looked.
+// pane shows the prompt as sent, or it is working. Found live (yardr-ykbt):
+// `agent prompt` succeeding says the keys were sent, not that they were
+// taken. A Claude Code still coming up after its trust dialog was reported
+// idle and dropped them, and the session sat there without its first prompt.
+// Found live (yardr-cxsb): a prompt whose text is in the agent's input did
+// not arrive either. The Enter after it was not taken as a submit, and the
+// resident sat idle on its own prompt until a person pressed Return. The
+// dispatcher submits that one (see PromptTyped); here it is only told from
+// one that arrived, and not waited on for all of promptWait.
+// A pane that cannot be read says nothing either way, and the prompt is then
+// taken as arrived, as it was before yardr looked.
 func (h *Herdr) arrived(ctx context.Context, handle map[string]any, prompt string) bool {
 	pane, _ := handle["pane"].(string)
 	if pane == "" {
 		return true
 	}
+	var typedSince time.Time
 	for deadline := time.Now().Add(promptWait); ; {
 		text, err := h.readPane(ctx, pane, "recent-unwrapped", promptScan)
-		if err != nil || showsPrompt(text, prompt) {
+		if err != nil {
+			return true
+		}
+		taken, typed := promptPlace(text, prompt)
+		if taken {
 			return true
 		}
 		if s, err := h.Status(ctx, handle); err == nil && s == "working" {
 			return true
 		}
-		if time.Now().After(deadline) || ctx.Err() != nil {
+		now := time.Now()
+		switch {
+		case !typed:
+			typedSince = time.Time{}
+		case typedSince.IsZero():
+			typedSince = now
+		case now.Sub(typedSince) >= promptWait/4:
+			// Text that is still in the input of an agent that is not
+			// working, this long after its Enter, was not submitted.
+			return false
+		}
+		if now.After(deadline) || ctx.Err() != nil {
 			return false
 		}
 		time.Sleep(promptWait / 40)
 	}
 }
 
-// PromptShown reports whether the pane of the session shows prompt: a first
-// prompt left pending because it had not shown in time (see arrived) may
-// have been taken since, and is then not sent a second time; one the
-// dispatcher delivered is pending until it shows. An error says the pane
-// could not be read, which tells nothing either way (see arrived).
+// PromptShown reports whether the pane of the session shows prompt as one
+// the agent took: a first prompt left pending because it had not shown in
+// time (see arrived) may have been taken since, and is then not sent a
+// second time; one the dispatcher delivered is pending until it shows. Text
+// that is only in the agent's input is not shown (see PromptTyped). An error
+// says the pane could not be read, which tells nothing either way (see
+// arrived).
 func (h *Herdr) PromptShown(ctx context.Context, handle map[string]any, prompt string) (bool, error) {
+	taken, _, err := h.promptPlace(ctx, handle, prompt)
+	return taken, err
+}
+
+// PromptTyped reports whether prompt is in the input of the session's agent
+// and nowhere above it: typed, and not submitted.
+func (h *Herdr) PromptTyped(ctx context.Context, handle map[string]any, prompt string) (bool, error) {
+	_, typed, err := h.promptPlace(ctx, handle, prompt)
+	return typed, err
+}
+
+// SubmitPrompt presses Enter in the session's pane: what a prompt that is
+// typed in the agent's input still needs. The text is not sent again, which
+// would put it in the input twice.
+func (h *Herdr) SubmitPrompt(ctx context.Context, handle map[string]any) error {
 	pane, _ := handle["pane"].(string)
 	if pane == "" {
-		return false, fmt.Errorf("handle has no pane")
+		return fmt.Errorf("handle has no pane")
+	}
+	return h.sendKey(ctx, pane, "enter")
+}
+
+func (h *Herdr) promptPlace(ctx context.Context, handle map[string]any, prompt string) (taken, typed bool, err error) {
+	pane, _ := handle["pane"].(string)
+	if pane == "" {
+		return false, false, fmt.Errorf("handle has no pane")
 	}
 	text, err := h.readPane(ctx, pane, "recent-unwrapped", promptScan)
-	return err == nil && showsPrompt(text, prompt), err
+	if err != nil {
+		return false, false, err
+	}
+	taken, typed = promptPlace(text, prompt)
+	return taken, typed, nil
+}
+
+// inputMarks begin the first line of a harness's input: Claude Code's "❯"
+// and Codex's "›". Both draw their input at the bottom of the pane and begin
+// a message they took with the same mark, further up.
+var inputMarks = []string{"❯", "›"}
+
+// promptPlace finds prompt in a pane's text: taken when it shows above the
+// agent's input (the harness echoed it as a sent message), typed when it
+// shows only in the input. The input is what the pane holds from its last
+// line that begins with an input mark: a harness draws its input below
+// everything it has printed, so a prompt it took has an input, empty or
+// not, after it. A pane without such a line is of a harness whose input
+// yardr cannot tell from its transcript; a prompt that shows there is taken
+// as arrived, as it was before yardr told the two apart.
+func promptPlace(text, prompt string) (taken, typed bool) {
+	lines := strings.Split(text, "\n")
+	input := -1
+	for i, l := range lines {
+		l = strings.TrimSpace(l)
+		for _, m := range inputMarks {
+			if strings.HasPrefix(l, m) {
+				input = i
+			}
+		}
+	}
+	if input < 0 {
+		return showsPrompt(text, prompt), false
+	}
+	if showsPrompt(strings.Join(lines[:input], "\n"), prompt) {
+		return true, false
+	}
+	return false, showsPrompt(strings.Join(lines[input:], "\n"), prompt)
 }
 
 // promptLead is how much of a prompt, counted without its white space, is

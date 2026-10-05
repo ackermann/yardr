@@ -149,7 +149,8 @@ kind=session_stalled`).
 
 `session_prompt_gave_up`: a session whose agent never took its first prompt
 ([groups.md](groups.md#herdr-setup)). Its `hint` is the command that
-gives the agent the prompt by hand. A resident added before this kind joined
+gives the agent the prompt by hand, or, with `typed: true`, the Enter that
+submits the prompt sitting in its input. A resident added before this kind joined
 the default does not hear it until its `--on` names it.
 
 To move a resident to subscriptions, add `yardr subscribe <name> yardr

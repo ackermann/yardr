@@ -33,7 +33,7 @@ var defaultOn = []string{"gave_up", "session_blocked", "unrouted", "stranded", "
 // knownKinds are offered in the interactive form.
 var knownKinds = []string{"gave_up", "session_blocked", "session_died", "session_failed", "unrouted", "stranded",
 	"runtime_down", "runtime_up", "session_idle", "session_aged", "session_stalled", "session_model_mismatch",
-	"session_prompt_gave_up", "session_prompt_lost",
+	"session_prompt_gave_up", "session_prompt_lost", "session_prompt_typed",
 	"no_runner", "workspace_kept", "resident_gave_up", "created", "claimed", "advanced", "closed",
 	"held", "released", "noted", "dep_added"}
 

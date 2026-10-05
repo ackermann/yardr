@@ -31,6 +31,26 @@ type residentRunner struct {
 	shown    bool                // the pane shows the first prompt
 	drop     int                 // deliveries of the first prompt the agent still drops
 	blind    bool                // the pane cannot be read
+	typed    bool                // the first prompt is in the agent's input, not submitted
+	stick    int                 // deliveries of the first prompt the agent still leaves in its input
+	deaf     bool                // Enter does not submit what is in the input
+	submits  int                 // times Enter was sent
+}
+
+func (f *residentRunner) PromptTyped(context.Context, map[string]any, string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.typed, nil
+}
+
+func (f *residentRunner) SubmitPrompt(context.Context, map[string]any) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.submits++
+	if !f.deaf {
+		f.typed, f.shown = false, true
+	}
+	return nil
 }
 
 func (f *residentRunner) PromptShown(context.Context, map[string]any, string) (bool, error) {
@@ -93,6 +113,9 @@ func (f *residentRunner) Nudge(_ context.Context, h map[string]any, text string)
 		// The first prompt: it shows in the pane unless the agent drops it.
 		if f.drop > 0 {
 			f.drop--
+		} else if f.stick > 0 {
+			f.stick--
+			f.typed = true
 		} else {
 			f.shown = true
 		}
@@ -319,6 +342,23 @@ type nudgeRunner struct {
 	nudges []string
 	shown  bool // the pane shows the first prompt
 	drop   int  // deliveries of the first prompt the agent still drops
+
+	typed   bool // the first prompt is in the agent's input, not submitted
+	stick   int  // deliveries of the first prompt the agent still leaves in its input
+	deaf    bool // Enter does not submit what is in the input
+	submits int  // times Enter was sent
+}
+
+func (n *nudgeRunner) PromptTyped(context.Context, map[string]any, string) (bool, error) {
+	return n.typed, nil
+}
+
+func (n *nudgeRunner) SubmitPrompt(context.Context, map[string]any) error {
+	n.submits++
+	if !n.deaf {
+		n.typed, n.shown = false, true
+	}
+	return nil
 }
 
 func (n *nudgeRunner) PromptShown(context.Context, map[string]any, string) (bool, error) {
@@ -337,6 +377,9 @@ func (n *nudgeRunner) Nudge(_ context.Context, _ map[string]any, text string) er
 	n.nudges = append(n.nudges, text)
 	if n.drop > 0 {
 		n.drop--
+	} else if n.stick > 0 {
+		n.stick--
+		n.typed = true
 	} else {
 		n.shown = true
 	}
@@ -559,6 +602,141 @@ func TestPendingPromptWaitsForTheAgentToSettleAndToEcho(t *testing.T) {
 	must(t, d.Reconcile(ctx))
 	if h := handleOf(t, s, b.ID); len(r.nudges) != 2 || len(h) != 1 {
 		t.Fatalf("nudges %v, handle %v", r.nudges, h)
+	}
+}
+
+// Found live (yardr-cxsb): a resident's prime was typed into Claude Code's
+// input and its Enter not taken; the text being in the pane, the prompt
+// counted as arrived and the resident sat idle until a person pressed
+// Return. A prompt that is only in the input is submitted, once, and not
+// typed a second time; session_prompted is still the arrival.
+func TestPendingPromptTypedAndNotSubmittedIsSubmitted(t *testing.T) {
+	for name, stick := range map[string]int{"the runner's own send": 0, "the dispatcher's delivery": 1} {
+		s, r, d, b := nudgeSetup(t)
+		ctx := context.Background()
+		r.status, r.stick, r.typed = "idle", stick, stick == 0
+		for range 5 {
+			must(t, d.Reconcile(ctx))
+		}
+		if h := handleOf(t, s, b.ID); len(r.nudges) != stick || r.submits != 1 || len(h) != 1 {
+			t.Fatalf("%s: typed %d times, submitted %d times, handle %v; want the text typed once in all and one Enter",
+				name, len(r.nudges), r.submits, h)
+		}
+		typed, prompted := eventKinds(t, s, b.ID, "session_prompt_typed"), eventKinds(t, s, b.ID, "session_prompted")
+		if len(typed) != 1 || typed[0].Data["submit"] != float64(1) || typed[0].Data["session"] == nil {
+			t.Fatalf("%s: session_prompt_typed = %+v", name, typed)
+		}
+		if len(prompted) != 1 || prompted[0].Data["submits"] != float64(1) || prompted[0].Data["shown"] != true {
+			t.Fatalf("%s: session_prompted = %+v", name, prompted)
+		}
+		for _, kind := range []string{"session_prompt_lost", "session_prompt_gave_up"} {
+			if n := len(eventKinds(t, s, b.ID, kind)); n != 0 {
+				t.Fatalf("%s: %s logged %d times for a prompt that only needed Enter", name, kind, n)
+			}
+		}
+	}
+}
+
+// One whose Enter never takes is submitted PromptTries times, PromptWait
+// apart, and no more: the session is reported, Enter in its pane being all
+// it needs, and left alone. The Enter a human then gives it ends the wait.
+func TestPendingPromptWhoseSubmitNeverTakesIsGivenUp(t *testing.T) {
+	s, r, d, b := nudgeSetup(t)
+	ctx := context.Background()
+	d.PromptSettle, d.PromptWait = 3*time.Second, 10*time.Second
+	var skew time.Duration
+	dispatch.SetClock(d, func() time.Time { return time.Now().Add(skew) })
+	r.status, r.typed, r.deaf = "idle", true, true
+	must(t, d.Reconcile(ctx))
+	skew += 2 * time.Second
+	must(t, d.Reconcile(ctx))
+	if r.submits != 0 {
+		t.Fatalf("submitted text whose own Enter may still be on its way: %d", r.submits)
+	}
+	skew += 2 * time.Second
+	must(t, d.Reconcile(ctx))
+	skew += 9 * time.Second
+	must(t, d.Reconcile(ctx))
+	if r.submits != 1 {
+		t.Fatalf("submits = %d, want one once the agent settled and none before PromptWait", r.submits)
+	}
+	for range 10 {
+		skew += 11 * time.Second
+		must(t, d.Reconcile(ctx))
+	}
+	h := handleOf(t, s, b.ID)
+	if r.submits != dispatch.PromptTries || len(r.nudges) != 0 || h[dispatch.PendingPrompt] != "read your brief" {
+		t.Fatalf("submits %d, nudges %v, handle %v", r.submits, r.nudges, h)
+	}
+	if n := len(eventKinds(t, s, b.ID, "session_prompt_typed")); n != dispatch.PromptTries {
+		t.Fatalf("session_prompt_typed logged %d times, want one per submit", n)
+	}
+	gaveUp := eventKinds(t, s, b.ID, "session_prompt_gave_up")
+	if len(gaveUp) != 1 || gaveUp[0].Data["typed"] != true || gaveUp[0].Data["submits"] != float64(dispatch.PromptTries) ||
+		!strings.HasPrefix(fmt.Sprint(gaveUp[0].Data["hint"]), "herdr pane send-keys ") ||
+		!strings.HasSuffix(fmt.Sprint(gaveUp[0].Data["hint"]), " enter") ||
+		!strings.Contains(fmt.Sprint(gaveUp[0].Data["reason"]), "Enter in its pane is all it needs") {
+		t.Fatalf("session_prompt_gave_up = %+v", gaveUp)
+	}
+	if n := len(eventKinds(t, s, b.ID, "session_prompted")); n != 0 {
+		t.Fatalf("session_prompted logged for a prompt that was never taken: %d", n)
+	}
+	// By hand: the agent works on it, whatever its pane shows.
+	r.status = "working"
+	must(t, d.Reconcile(ctx))
+	if h := handleOf(t, s, b.ID); len(h) != 1 || r.submits != dispatch.PromptTries {
+		t.Fatalf("after Enter by hand: submits %d, handle %v", r.submits, h)
+	}
+	if n := len(eventKinds(t, s, b.ID, "session_prompted")); n != 1 {
+		t.Fatalf("session_prompted logged %d times", n)
+	}
+}
+
+// Text in the input of an agent that is working was submitted: nothing more
+// is sent to it.
+func TestPendingPromptTypedByAWorkingAgentArrived(t *testing.T) {
+	s, r, d, b := nudgeSetup(t)
+	ctx := context.Background()
+	r.status, r.typed = "working", true
+	for range 3 {
+		must(t, d.Reconcile(ctx))
+	}
+	if h := handleOf(t, s, b.ID); r.submits != 0 || len(r.nudges) != 0 || len(h) != 1 {
+		t.Fatalf("submits %d, nudges %v, handle %v", r.submits, r.nudges, h)
+	}
+	if n := len(eventKinds(t, s, b.ID, "session_prompted")); n != 1 {
+		t.Fatalf("session_prompted logged %d times", n)
+	}
+}
+
+// Residents go the same way, with the events on their journal.
+func TestResidentPromptTypedAndNotSubmittedIsSubmitted(t *testing.T) {
+	for _, c := range []struct {
+		deaf                             bool
+		submits, typed, gaveUp, prompted int
+	}{
+		{false, 1, 1, 0, 1},
+		{true, dispatch.PromptTries, dispatch.PromptTries, 1, 0},
+	} {
+		s, f, d := residentSetup(t, store.Resident{})
+		ctx := context.Background()
+		f.sent, f.typed, f.deaf = true, true, c.deaf
+		for range 10 {
+			must(t, d.Reconcile(ctx))
+		}
+		r, _ := s.GetResident(ctx, "mayor")
+		if f.submits != c.submits || len(f.nudges) != 0 || (r.Handle[dispatch.PendingPrompt] == nil) != (c.prompted == 1) {
+			t.Fatalf("deaf %v: submits %d, nudges %v, handle %v", c.deaf, f.submits, f.nudges, r.Handle)
+		}
+		for kind, want := range map[string]int{"session_prompt_typed": c.typed, "session_prompt_gave_up": c.gaveUp, "session_prompted": c.prompted} {
+			evs := eventKinds(t, s, r.Journal, kind)
+			if len(evs) != want {
+				t.Fatalf("deaf %v: %s logged %d times, want %d", c.deaf, kind, len(evs), want)
+			}
+			if want > 0 && evs[0].Data["resident"] != "mayor" {
+				t.Fatalf("deaf %v: %s does not name the resident: %+v", c.deaf, kind, evs[0])
+			}
+		}
 	}
 }
 

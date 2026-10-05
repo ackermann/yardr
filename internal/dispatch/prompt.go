@@ -15,6 +15,9 @@ const (
 	promptSends  = "prompt_sends"   // how often the dispatcher sent it
 	promptSentAt = "prompt_sent_at" // when it last did (RFC 3339)
 	promptLost   = "prompt_lost"    // true once it is given up
+
+	promptSubmits  = "prompt_submits"   // how often the dispatcher submitted it (see PromptSubmitter)
+	promptSubmitAt = "prompt_submit_at" // when it last did (RFC 3339)
 )
 
 // PromptTries is how often the dispatcher delivers a pending prompt that
@@ -36,6 +39,15 @@ type PromptWatcher interface {
 	PromptShown(ctx context.Context, handle map[string]any, prompt string) (bool, error)
 }
 
+// PromptSubmitter is implemented by runners that can tell a prompt the
+// agent took from one that is typed in its input and was not submitted, and
+// can submit the latter (a herdr pane takes Enter). PromptShown of such a
+// runner is false for a prompt that is only in the input.
+type PromptSubmitter interface {
+	PromptTyped(ctx context.Context, handle map[string]any, prompt string) (bool, error)
+	SubmitPrompt(ctx context.Context, handle map[string]any) error
+}
+
 // promptShown reports whether r sees prompt in the session of handle, and
 // whether it could look at all.
 func promptShown(ctx context.Context, r Runner, handle map[string]any, prompt string) (shown, known bool) {
@@ -55,6 +67,9 @@ type promptPass struct {
 	sends   int            // deliveries by the dispatcher so far
 	lost    int            // the delivery this pass found not to have arrived, 0 for none
 	gaveUp  bool           // ... and it was the last: the session is left to a human
+	submits int            // times the dispatcher submitted the prompt typed in the input
+	typed   int            // the submit this pass made of it, 0 for none
+	unsent  bool           // gaveUp, of a prompt that is in the input and was never taken
 }
 
 // pendingPrompt takes one step with the pending first prompt p of the
@@ -72,13 +87,27 @@ type promptPass struct {
 // in all; then the session is reported and left alone, still watched for
 // the prompt a human gives it by hand.
 //
+// Found live (yardr-cxsb): a resident's prime was in Claude Code's input,
+// not sent, and the resident idle for 95 seconds until a person pressed
+// Return: the text had been typed and its Enter not taken as a submit. Text
+// in the input is not an arrival. With the agent idle it is submitted
+// (Enter alone: typing it again would put it in the input twice), as often
+// as a lost prompt is delivered and as far apart; then the session is
+// reported in the same way, Enter being all it needs.
+//
 // A runner that cannot look (no PromptWatcher, a pane that cannot be read)
 // tells nothing: what was sent is then taken as arrived, as it was before
 // yardr looked.
 func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, handle map[string]any, p, status string) promptPass {
-	pass := promptPass{sends: handleInt(handle[promptSends])}
+	pass := promptPass{sends: handleInt(handle[promptSends]), submits: handleInt(handle[promptSubmits])}
 	shown, known := promptShown(ctx, r, handle, p)
-	if shown || (pass.sends > 0 && (status == "working" || !known)) {
+	sub, _ := r.(PromptSubmitter)
+	typed := false
+	if sub != nil && known && !shown {
+		typed, _ = sub.PromptTyped(ctx, handle, p)
+	}
+	// Typed text was sent by someone, as a delivery of the dispatcher's was.
+	if shown || ((pass.sends > 0 || typed) && status == "working") || (pass.sends > 0 && !known) {
 		delete(d.promptIdle, key)
 		pass.arrived, pass.shown, pass.handle = true, shown, withoutPending(handle)
 		return pass
@@ -93,6 +122,31 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 		return pass
 	}
 	now := d.now()
+	if typed {
+		if pass.submits > 0 {
+			at, _ := time.Parse(time.RFC3339Nano, fmt.Sprint(handle[promptSubmitAt]))
+			if due := at.Add(d.PromptWait); now.Before(due) {
+				d.lookAt(due)
+				return pass
+			}
+			if pass.submits >= PromptTries {
+				pass.gaveUp, pass.unsent, pass.handle = true, true, withHandle(handle, promptLost, true)
+				return pass
+			}
+		} else if !d.settled(key, now) {
+			// Its own Enter may still be on its way.
+			return pass
+		}
+		if err := sub.SubmitPrompt(ctx, handle); err != nil {
+			return pass // try again next pass
+		}
+		delete(d.promptIdle, key)
+		pass.submits++
+		pass.typed = pass.submits
+		pass.handle = withHandle(withHandle(handle, promptSubmits, pass.submits), promptSubmitAt, now.UTC().Format(time.RFC3339Nano))
+		d.lookAt(now.Add(d.PromptWait))
+		return pass
+	}
 	if pass.sends > 0 {
 		sent, _ := time.Parse(time.RFC3339Nano, fmt.Sprint(handle[promptSentAt]))
 		if due := sent.Add(d.PromptWait); now.Before(due) {
@@ -104,19 +158,11 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 			pass.gaveUp, pass.handle = true, withHandle(handle, promptLost, true)
 			return pass
 		}
-	} else {
+	} else if !d.settled(key, now) {
 		// The first delivery waits until the agent has been idle for
 		// PromptSettle: one that has just left a dialog is reported idle
 		// while it still draws its screen, and that is when keys are lost.
-		since, ok := d.promptIdle[key]
-		if !ok {
-			since = now
-			d.promptIdle[key] = now
-		}
-		if due := since.Add(d.PromptSettle); now.Before(due) {
-			d.lookAt(due)
-			return pass
-		}
+		return pass
 	}
 	n, ok := r.(Nudger)
 	if !ok {
@@ -140,10 +186,27 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 	return pass
 }
 
+// settled reports whether the agent of key has been idle for PromptSettle,
+// counted from the first pass that asks; until then Run is told when to
+// look again.
+func (d *Dispatcher) settled(key string, now time.Time) bool {
+	since, ok := d.promptIdle[key]
+	if !ok {
+		since = now
+		d.promptIdle[key] = now
+	}
+	if due := since.Add(d.PromptSettle); now.Before(due) {
+		d.lookAt(due)
+		return false
+	}
+	return true
+}
+
 // promptEvents logs what pass found out about the first prompt p of who (a
 // bead's session or a resident, as the event's data names it) on bead, so
 // `yardr events` tells a prompt that arrived from one that was sent and
-// lost. session_prompted is the arrival, not the sending.
+// lost, and from one that was typed in the agent's input and had to be
+// submitted. session_prompted is the arrival, not the sending.
 func (d *Dispatcher) promptEvents(ctx context.Context, bead string, who, handle map[string]any, p string, pass promptPass) {
 	data := func(more map[string]any) map[string]any {
 		for k, v := range who {
@@ -156,7 +219,21 @@ func (d *Dispatcher) promptEvents(ctx context.Context, bead string, who, handle 
 		_ = d.Store.LogDispatch(ctx, bead, "session_prompt_lost", actor, data(map[string]any{
 			"delivery": pass.lost, "of": PromptTries}))
 	}
-	if pass.gaveUp {
+	if pass.typed > 0 {
+		d.Log.Warn("first prompt was typed and not submitted", "bead", bead, "who", who, "submit", pass.typed, "of", PromptTries)
+		_ = d.Store.LogDispatch(ctx, bead, "session_prompt_typed", actor, data(map[string]any{
+			"submit": pass.typed, "of": PromptTries,
+			"reason": "the first prompt was in the agent's input, not submitted, and the agent idle: Enter was sent"}))
+	}
+	if pass.gaveUp && pass.unsent {
+		agent, _ := handle["agent"].(string)
+		pane, _ := handle["pane"].(string)
+		_ = d.Store.LogDispatch(ctx, bead, "session_prompt_gave_up", actor, data(map[string]any{
+			"typed": true, "submits": pass.submits, "agent": agent,
+			"reason": fmt.Sprintf("the first prompt is typed in the agent's input and Enter was sent %d times without the agent "+
+				"taking it; the agent is idle and Enter in its pane is all it needs", pass.submits),
+			"hint": fmt.Sprintf("herdr pane send-keys %s enter", pane)}))
+	} else if pass.gaveUp {
 		agent, _ := handle["agent"].(string)
 		_ = d.Store.LogDispatch(ctx, bead, "session_prompt_gave_up", actor, data(map[string]any{
 			"deliveries": pass.sends, "agent": agent,
@@ -171,6 +248,9 @@ func (d *Dispatcher) promptEvents(ctx context.Context, bead string, who, handle 
 		}
 		if pass.sends > 0 {
 			more["deliveries"] = pass.sends
+		}
+		if pass.submits > 0 {
+			more["submits"] = pass.submits
 		}
 		_ = d.Store.LogDispatch(ctx, bead, "session_prompted", actor, data(more))
 	}
@@ -213,7 +293,7 @@ func withoutPending(h map[string]any) map[string]any {
 	out := make(map[string]any, len(h))
 	for k, v := range h {
 		switch k {
-		case PendingPrompt, promptSends, promptSentAt, promptLost:
+		case PendingPrompt, promptSends, promptSentAt, promptLost, promptSubmits, promptSubmitAt:
 		default:
 			out[k] = v
 		}

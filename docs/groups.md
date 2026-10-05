@@ -233,9 +233,18 @@ for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`
   all; after the third, `session_prompt_gave_up` tells the mayor, its `hint`
   being the command that gives the prompt by hand (`herdr agent prompt
   <agent> '<text>'`), and the session is left as it is. A prompt given by
-  hand ends the wait like any other that shows. `session_prompted` is the
-  arrival, not the sending: `shown: true` when the prompt was found in the
-  pane, `deliveries` how often the daemon had sent it. Residents go the same
+  hand ends the wait like any other that shows. A prompt whose text is in
+  the agent's input and was not submitted has not arrived either: "shows"
+  means above the input, where Claude Code and Codex echo a message they
+  took (the input is what the pane holds from its last line that begins
+  with `❯` or `›`; the pane of a harness with neither is read as before).
+  With the agent idle the daemon sends Enter alone, never the text a second
+  time (`session_prompt_typed`, its `submit` the count), three times in
+  all, ten seconds apart; after the third, `session_prompt_gave_up` has
+  `typed: true` and the hint `herdr pane send-keys <pane> enter`.
+  `session_prompted` is the arrival, not the sending: `shown: true` when the
+  prompt was found in the pane, `deliveries` how often the daemon had sent
+  it, `submits` how often it had sent Enter for it. Residents go the same
   way, with the events on their journal.
 - **Decide what agents may run unattended.** Anything outside `args`'
   permissions blocks the agent on a prompt. Pass what the role needs, e.g.

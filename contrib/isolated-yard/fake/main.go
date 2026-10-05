@@ -59,6 +59,9 @@ func main() {
 	for in.Scan() {
 		if line := strings.TrimSpace(in.Text()); line != "" {
 			logf("prompt %q", line)
+			// As Claude Code echoes a message it took, above its input: that
+			// is where yardr looks for a first prompt that arrived.
+			fmt.Printf("❯ %s\n", line)
 		}
 		box()
 	}
