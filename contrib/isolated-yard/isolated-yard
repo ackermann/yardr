@@ -140,6 +140,9 @@ down() {
   if [ -f "$d/agents.log" ]; then
     echo "stand-in agents started: $(grep -c ' start ' "$d/agents.log")"
   fi
+  # Go's module cache (and other tools' caches) deliberately make files and
+  # directories read-only. Make the tree removable before deleting the yard.
+  chmod -R u+w "$d"
   rm -rf "$d"
   # With the directory gone only the home tells: anything started while the
   # yard was being stopped is found here.

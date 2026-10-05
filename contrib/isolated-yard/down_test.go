@@ -126,6 +126,18 @@ func TestDownAfterTheBinaryWasRebuilt(t *testing.T) {
 	in(t, d, "yardr", "server", "start")
 	server := pidIn(t, filepath.Join(d, "y", "server.pid"))
 	daemon := startDaemon(t, d)
+	// Go's module cache deliberately makes downloaded files read-only. down
+	// must still remove a yard after a gate or test populated that cache.
+	mod := filepath.Join(d, "h", "go", "pkg", "mod", "example.invalid", "module@v1")
+	if err := os.MkdirAll(mod, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mod, "source.go"), []byte("package module\n"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(mod, 0o555); err != nil {
+		t.Fatal(err)
+	}
 
 	// Rebuilt the way go build does it and the way an install does it: the
 	// file written anew, and a new file renamed over the name.
