@@ -1,8 +1,10 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -40,6 +42,13 @@ type depRow struct {
 // child is open, so nothing routes it until its last child closes. The edge
 // gets its own revision, and both beads, whose representations list or
 // count it, are re-minted.
+//
+// A blocks edge that would close a cycle of blockers is refused, naming the
+// cycle: no bead in one is ever ready, and nothing else says why. That is
+// the edge asked for with kind blocks, and the child's edge a parent edge
+// brings. Any other kind decides no readiness and is never refused for it.
+// The walk is part of this write, so of two adds that would close a cycle
+// between them the second sees the first's edge.
 func (s *Store) AddDep(ctx context.Context, fromRef, toRef, kind, actor string) error {
 	if err := checkName("dep kind", kind); err != nil {
 		return err
@@ -64,14 +73,210 @@ func (s *Store) AddDep(ctx context.Context, fromRef, toRef, kind, actor string) 
 		if hasEdge(w.Tx, fromRow.UUID, toRow.UUID, kind) {
 			return fmt.Errorf("%s already %s %s", fromRow.ID, kind, toRow.ID)
 		}
+		childBlocks := kind == DepParent && !hasEdge(w.Tx, toRow.UUID, fromRow.UUID, DepBlocks)
+		switch {
+		case kind == DepBlocks:
+			if err := checkCycle(w.Tx, fromRow, toRow, ""); err != nil {
+				return err
+			}
+		case childBlocks:
+			if err := checkCycle(w.Tx, toRow, fromRow, "a child blocks its epic, so "); err != nil {
+				return err
+			}
+		}
 		if err := w.addDep(fromRow, toRow, kind, actor); err != nil {
 			return err
 		}
-		if kind == DepParent && !hasEdge(w.Tx, toRow.UUID, fromRow.UUID, DepBlocks) {
+		if childBlocks {
 			return w.addDep(toRow, fromRow, DepBlocks, actor)
 		}
 		return nil
 	})
+}
+
+// checkCycle refuses the edge from -blocks-> to when to already blocks
+// from, directly or through other beads: "a blocks b blocks c blocks a",
+// in handles, the new edge first. Closed beads count like open ones. A
+// closed blocker blocks nothing today, but Reopen does not look at edges:
+// were a cycle through a closed bead let in, reopening that bead would make
+// it live with nothing said. So the walk is over every bead to reaches by
+// blocks edges, closed ones included.
+func checkCycle(tx *bolt.Tx, from, to *beadRow, why string) error {
+	path := pathTo(to.UUID, from.UUID, func(u string) []string {
+		var next []string
+		for _, d := range edges(tx, bDepFrom, u, DepBlocks) {
+			next = append(next, d.To)
+		}
+		return next
+	})
+	if path == nil {
+		return nil
+	}
+	h := handlesIn(tx)
+	cycle, closed := []string{from.ID}, []string{}
+	for _, u := range path {
+		cycle = append(cycle, h.of(u))
+		var row beadRow
+		if ok, _ := get(tx, bBeads, u, &row); ok && row.Status == "closed" {
+			closed = append(closed, row.ID)
+		}
+	}
+	note := ""
+	if len(closed) > 0 {
+		note = fmt.Sprintf(" (%s closed, and would block again once reopened)", strings.Join(closed, ", "))
+	}
+	return fmt.Errorf("%s%s blocks %s would close a cycle of blockers, and no bead in one is ever ready: %s%s",
+		why, from.ID, to.ID, strings.Join(cycle, " blocks "), note)
+}
+
+// pathTo is a shortest path from -> ... -> to along next, both ends
+// included; nil when there is none. With from == to it is a cycle through
+// from, which is then named at both ends.
+func pathTo(from, to string, next func(string) []string) []string {
+	prev := map[string]string{from: ""}
+	for queue := []string{from}; len(queue) > 0; queue = queue[1:] {
+		u := queue[0]
+		for _, n := range next(u) {
+			if n == to {
+				path := []string{to}
+				for x := u; x != ""; x = prev[x] {
+					path = append(path, x)
+				}
+				slices.Reverse(path)
+				return path
+			}
+			if _, seen := prev[n]; !seen {
+				prev[n] = u
+				queue = append(queue, n)
+			}
+		}
+	}
+	return nil
+}
+
+// BlockerCycles finds the cycles of blocks edges among beads that are not
+// closed: every bead in one waits on itself and is never ready. AddDep
+// refuses the edge that would close one, so these come from a store written
+// before it did, or from a bead reopened into one that store held. Each is
+// a list of handles in blocking order, starting and ending with its
+// smallest: a blocks b blocks a. Beads that block each other in more than
+// one way (a knot of several cycles) are reported as one cycle through
+// their smallest handle; the rest shows once that one is broken. Nothing is
+// changed: yardr dep rm removes an edge.
+func (s *Store) BlockerCycles(ctx context.Context) ([][]string, error) {
+	out := [][]string{}
+	err := s.read(func(tx *bolt.Tx) error {
+		open := map[string]string{} // UUID -> handle
+		if err := each(tx, bBeads, "", func(_ []byte, r *beadRow) error {
+			if r.Status != "closed" {
+				open[r.UUID] = r.ID
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+		next := map[string][]string{}
+		if err := each(tx, bDeps, "", func(_ []byte, d *depRow) error {
+			if d.Kind == DepBlocks && open[d.From] != "" && open[d.To] != "" {
+				next[d.From] = append(next[d.From], d.To)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+		byHandle := func(a, b string) int { return cmp.Compare(open[a], open[b]) }
+		nodes := make([]string, 0, len(next))
+		for u, to := range next {
+			slices.SortFunc(to, byHandle)
+			nodes = append(nodes, u)
+		}
+		slices.SortFunc(nodes, byHandle)
+		for _, knot := range knots(nodes, next) {
+			in := map[string]bool{}
+			for _, u := range knot {
+				in[u] = true
+			}
+			start := slices.MinFunc(knot, byHandle)
+			cycle := pathTo(start, start, func(u string) []string {
+				var within []string
+				for _, n := range next[u] {
+					if in[n] {
+						within = append(within, n)
+					}
+				}
+				return within
+			})
+			for i, u := range cycle {
+				cycle[i] = open[u]
+			}
+			if cycle != nil {
+				out = append(out, cycle)
+			}
+		}
+		slices.SortFunc(out, func(a, b []string) int { return cmp.Compare(a[0], b[0]) })
+		return nil
+	})
+	return out, err
+}
+
+// knots are the sets of nodes that all reach each other along next (the
+// strongly connected components, by Tarjan's algorithm), without those of
+// one node that has no edge to itself: every node of a knot is on a cycle.
+// The walk keeps its own stack: a chain of blockers may be as long as the
+// store.
+func knots(nodes []string, next map[string][]string) [][]string {
+	type frame struct {
+		u string
+		i int // the next of next[u] to look at
+	}
+	var out [][]string
+	index, low, onStack := map[string]int{}, map[string]int{}, map[string]bool{}
+	var stack []string
+	for _, root := range nodes {
+		if _, seen := index[root]; seen {
+			continue
+		}
+		visit := func(u string) frame {
+			index[u], low[u] = len(index), len(index)
+			stack, onStack[u] = append(stack, u), true
+			return frame{u: u}
+		}
+		for work := []frame{visit(root)}; len(work) > 0; {
+			f := &work[len(work)-1]
+			if f.i < len(next[f.u]) {
+				n := next[f.u][f.i]
+				f.i++
+				if _, seen := index[n]; !seen {
+					work = append(work, visit(n))
+				} else if onStack[n] {
+					low[f.u] = min(low[f.u], index[n])
+				}
+				continue
+			}
+			u := f.u
+			work = work[:len(work)-1]
+			if len(work) > 0 {
+				p := work[len(work)-1].u
+				low[p] = min(low[p], low[u])
+			}
+			if low[u] != index[u] {
+				continue
+			}
+			var knot []string
+			for {
+				n := stack[len(stack)-1]
+				stack, onStack[n] = stack[:len(stack)-1], false
+				knot = append(knot, n)
+				if n == u {
+					break
+				}
+			}
+			if len(knot) > 1 || slices.Contains(next[u], u) {
+				out = append(out, knot)
+			}
+		}
+	}
+	return out
 }
 
 // hasEdge reports whether the edge from -kind-> to (bead UUIDs) exists.

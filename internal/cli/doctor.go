@@ -49,6 +49,9 @@ type yardState struct {
 	Residents int               `json:"residents"`
 	Failing   []failingResident `json:"failing"`
 	Held      []string          `json:"held"`
+	// Cycles are the beads that block each other in a circle, each as
+	// handles in blocking order (see store.BlockerCycles): never ready.
+	Cycles [][]string `json:"cycles,omitempty"`
 	// Mail is what waits in the inbox of the user the command acts as;
 	// absent when who acts is no user.
 	Mail *mailState `json:"mail,omitempty"`
@@ -240,7 +243,7 @@ func (a *app) doctor(ctx context.Context, cfg *config.Config, try bool) (*doctor
 
 // readState is the second part, read from a yard whose server answers: the
 // daemon, the mayor and its session, the residents whose starts fail, the
-// held beads. It is what doctor prints, and what bare yardr goes by to tell
+// held beads, the beads that block each other in a circle. It is what doctor prints, and what bare yardr goes by to tell
 // a yard whose onboarding is to finish (resume).
 func readState(ctx context.Context, cfg *config.Config, st store.API, residents []store.Resident) (*yardState, error) {
 	state := &yardState{Server: "running", Daemon: daemonRunning(cfg.DaemonLock()), Residents: len(residents),
@@ -277,6 +280,9 @@ func readState(ctx context.Context, cfg *config.Config, st store.API, residents 
 		if b.Hold {
 			state.Held = append(state.Held, b.ID)
 		}
+	}
+	if state.Cycles, err = st.BlockerCycles(ctx); err != nil {
+		return nil, err
 	}
 	return state, nil
 }
@@ -520,6 +526,13 @@ func (s *yardState) lines(home string) []docLine {
 	} else {
 		out = append(out, docLine{tagNote, "held", fmt.Sprintf("%d held, waiting for someone: %s (%s bead show <id>; %s bead unhold <id> resumes it)",
 			len(s.Held), strings.Join(s.Held, ", "), yardr, yardr)})
+	}
+	// dep add refuses these, so they are from a store written before it
+	// did. No fault: the yard runs, and only a person knows which edge is
+	// the wrong one.
+	for _, c := range s.Cycles {
+		out = append(out, docLine{tagNote, "cycle", fmt.Sprintf("%s: these beads wait on each other and are never ready. "+
+			"Remove the edge that is wrong: %s dep rm <blocker> <bead>", strings.Join(c, " blocks "), yardr)})
 	}
 	if s.Mail != nil {
 		out = append(out, s.Mail.line(yardr))

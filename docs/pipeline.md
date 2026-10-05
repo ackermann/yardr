@@ -24,6 +24,23 @@ ready once its blockers are closed.
 A shaped bead is advanced to `new` (`yardr bead advance <id> --to new`).
 Christopher can do the same from `yardr review -g backlog`.
 
+### Cycles of blockers
+
+`yardr dep add` refuses a `blocks` edge that would close a cycle, and names
+it in order, the new edge first: `yardr-a blocks yardr-b blocks yardr-c
+blocks yardr-a`. No bead in a cycle would ever be ready, and nothing would
+say why. The child's edge that `dep add -k parent` adds ([Epics](#epics)) is
+refused the same way; edges of any other kind (`related`, ...) decide no
+readiness and are never refused for it. Closed beads count: a closed blocker
+blocks nothing, but reopening it would make the cycle live, and `bead
+reopen` does not look at edges. The refusal then says which beads of the
+cycle are closed; `yardr dep rm` on the old edge makes room for the new one.
+
+A store written before this check may hold a cycle. `yardr doctor` names
+each cycle of open beads in a `cycle` line ([doctor.md](doctor.md)), and
+`yardr dep rm <blocker> <bead>` on the edge that is wrong ends it. yardr
+removes no edge itself.
+
 ## 2. New: a builder implements it
 
 `new` is routed to `yardr-builders`: a herdr group running Claude Code with

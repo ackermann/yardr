@@ -27,6 +27,7 @@ type API interface {
 	RemoveDep(ctx context.Context, from, to, kind, actor string) error
 	Deps(ctx context.Context, id string) ([]Dep, error)
 	OpenBlockers(ctx context.Context, id string) ([]string, error)
+	BlockerCycles(ctx context.Context) ([][]string, error)
 	Family(ctx context.Context, id string) (*Family, error)
 	AddLink(ctx context.Context, id string, nl NewLink, actor string) (*LinkChange, error)
 	RemoveLink(ctx context.Context, id, issue, actor string) error

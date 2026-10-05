@@ -6,11 +6,15 @@ package storetest
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	bolt "go.etcd.io/bbolt"
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/rpc"
@@ -95,4 +99,30 @@ func Open(t testing.TB, path string) *store.Store {
 	}
 	t.Cleanup(func() { _ = s.Close(context.Background()) })
 	return s
+}
+
+// OldBlocks writes the edge from -blocks-> to (bead UUIDs) into the store
+// file at path, which no process may have open, as a store from before
+// AddDep refused cycles holds one: the row and its two index keys, with
+// none of AddDep's checks.
+func OldBlocks(t testing.TB, path, from, to string) {
+	t.Helper()
+	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: time.Second})
+	if err != nil {
+		t.Fatalf("open %s: %v", path, err)
+	}
+	defer db.Close()
+	id := fmt.Sprintf("old%017d", time.Now().UnixNano()%1e17)
+	row := fmt.Sprintf(`{"id":%q,"from":%q,"to":%q,"kind":"blocks","created_at":%q}`, id, from, to, time.Now().UTC().Format(time.RFC3339Nano))
+	err = db.Update(func(tx *bolt.Tx) error {
+		for _, kv := range [][3]string{{"deps", id, row}, {"dep_from", from + "\x00" + id, ""}, {"dep_to", to + "\x00" + id, ""}} {
+			if err := tx.Bucket([]byte(kv[0])).Put([]byte(kv[1]), []byte(kv[2])); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("write edge: %v", err)
+	}
 }

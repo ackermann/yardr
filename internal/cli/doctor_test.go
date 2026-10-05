@@ -933,3 +933,56 @@ func TestDoctorLoginShellFindsHarnessForNewYard(t *testing.T) {
 		t.Errorf("a harness is installed:\n%s", out)
 	}
 }
+
+// A store from before dep add refused cycles may hold one (yardr-9wq1):
+// doctor names its beads in a line that is no fault, and dep rm, which
+// yardr leaves to the person, ends it.
+func TestDoctorBlockerCycle(t *testing.T) {
+	newHome(t)
+	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
+	path := filepath.Join(t.TempDir(), "yard.db")
+	ctx := context.Background()
+	old, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var uuid []string
+	for _, id := range []string{"y-a", "y-b"} {
+		b, err := old.CreateBead(ctx, store.NewBead{ID: id, Title: id}, "me")
+		if err != nil {
+			t.Fatal(err)
+		}
+		uuid = append(uuid, b.UUID)
+	}
+	if err := old.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	storetest.OldBlocks(t, path, uuid[0], uuid[1])
+	storetest.OldBlocks(t, path, uuid[1], uuid[0])
+	st := storetest.Open(t, path)
+	if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude"); err != nil {
+		t.Fatal(err)
+	}
+
+	before, _ := doctorJSON(t, st)
+	out, _ := run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
+	wantText(t, out, "note   cycle      y-a blocks y-b blocks y-a: these beads wait on each other and are never ready. "+
+		"Remove the edge that is wrong: "+here("yardr dep rm <blocker> <bead>"))
+	if len(before.State.Cycles) != 1 || slices.ContainsFunc(before.Faults, func(f string) bool { return strings.Contains(f, "cycle") }) {
+		t.Fatalf("json: cycles %v, faults %v", before.State.Cycles, before.Faults)
+	}
+	if out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "dep", "add", "y-a", "y-b"); err == nil || !strings.Contains(err.Error(), "already blocks") {
+		t.Fatalf("dep add on the cycle: %v\n%s", err, out)
+	}
+	if out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "dep", "rm", "y-b", "y-a"); err != nil {
+		t.Fatalf("dep rm: %v\n%s", err, out)
+	}
+	after, _ := doctorJSON(t, st)
+	out, _ = run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
+	if len(after.State.Cycles) != 0 || strings.Contains(out, "cycle") {
+		t.Fatalf("after dep rm: cycles %v\n%s", after.State.Cycles, out)
+	}
+	if ready, err := st.Ready(ctx); err != nil || len(ready) != 1 || ready[0].ID != "y-a" {
+		t.Fatalf("ready = %+v, %v", ready, err)
+	}
+}
