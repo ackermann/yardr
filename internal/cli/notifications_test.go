@@ -177,6 +177,12 @@ func TestUserInboxParts(t *testing.T) {
 	out = mustAs(t, st, "jo", "inbox")
 	wantText(t, out, "Mail: nothing unread; the latest read:\n", "mail from mayor (read): hello\n",
 		"\nNotifications: 1 unread\n", "(read) "+row+"3 on", row+"4 on")
+	// Both parts in one order: the unread over the read, the latest read
+	// first, as the mail is listed.
+	if strings.Index(out, row+"4 on") > strings.Index(out, "(read) "+row+"3 on") ||
+		strings.Index(out, "(read) "+row+"3 on") > strings.Index(out, "(read) "+row+"2 on") {
+		t.Fatalf("the notifications' order:\n%s", out)
+	}
 
 	// Neither flag is both parts, for --ack too.
 	if err := st.Mail(ctx, "jo", "still there?", "mayor"); err != nil {
@@ -207,8 +213,10 @@ func TestBareYardrSaysNotifications(t *testing.T) {
 	mustAs(t, st, "jo", "subscribe", "jo", "yardr", "--where", "kind=noted")
 	note, _ := notedBead(t, st)
 	note("one")
-	if bare := mustAs(t, st, "jo"); !strings.HasSuffix(bare, "\nNo unread mail for jo, and 1 notification (yardr inbox).\n") {
-		t.Fatalf("bare yardr, one notification:\n%s", bare)
+	// Notifications alone are not said: nobody is talking, and the line
+	// would stand under every command of a person who never acks them.
+	if bare := mustAs(t, st, "jo"); strings.Contains(bare, "for jo") || strings.Contains(bare, "notification (") || strings.Contains(bare, "(yardr inbox)") {
+		t.Fatalf("bare yardr, one notification and no mail:\n%s", bare)
 	}
 	note("two")
 	for _, from := range []string{"mayor", "ada", "mayor"} {

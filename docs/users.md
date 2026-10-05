@@ -64,7 +64,16 @@ outcome. That is a rule of the `mail` command, not of the user's record.
 **Nothing nudges a person.** `yardr doctor` (the `mail` line) and bare
 `yardr` (a last line under its help) say `N unread from <names>` to the
 user who runs them. That count is of mail alone; bare `yardr` adds `and N
-notifications` after it when there are unread ones.
+notifications` after it when there are unread ones:
+
+```
+Mail for jo: 1 unread from mayor, and 2 notifications (yardr inbox).
+```
+
+Without unread mail bare `yardr` prints no such line, whatever the
+notifications: nobody is talking, and a person who never acknowledges them
+would read it under every command. `yardr inbox`, `yardr user show <name>`
+and the `yard` row of [`yardr chat`](chat.md#the-yard) count them.
 
 A resident can have the yard tell a user something later, unless a bead
 moved first: `yardr timer add --to <user>` ([timers.md](timers.md)). It
@@ -88,9 +97,24 @@ under its heading with its unread count:
   ([subscriptions.md](subscriptions.md#users-as-subscribers)), one line
   each. Nobody sent them, so there is nobody to answer.
 
-Each part lists its unread, oldest first, then the latest read, marked
-`(read)`; `-n` bounds how many. `--mail` and `--notifications` show one
-part.
+Each part lists its unread, oldest first, then the latest read, the newest
+of them first, marked `(read)`; `-n` bounds how many in each. `--mail` and
+`--notifications` show one part.
+
+```
+Mail: nothing unread; the latest read:
+    50 10-06 01:02  mail from mayor (read): One question on web-hk7z when you have a minute.
+    39 10-06 01:00  mail from mayor (read): Shall I add a reviewer group?
+
+Notifications: 2 unread
+    51 10-06 01:02  web-hk7z advanced (all) by mayor from=new to=decide on "Which port for the hook listener"
+    53 10-06 01:02  web-3cps closed (done) by mayor reason=merged 1a2b3c4 on "Chat: a row for the yard"
+    43 10-06 01:00  (read) web-wh4c closed (done) by mayor reason=merged 1234567 on "Narrow one"
+```
+
+A part with nothing in it is `Mail: none` or `Notifications: none`. The
+first column is the seq, the same in both parts: it orders a mail and a
+notification against each other.
 
 **Each part is acknowledged apart.** `--ack` marks the unread it shows as
 read: with `--mail` the mail, with `--notifications` the notifications,

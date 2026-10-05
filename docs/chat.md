@@ -81,7 +81,7 @@ At 80 columns:
 
 ```
 yardr chat · ada
-[mayor blocked]  refinery idle (1)
+yard (2)  [mayor blocked]  refinery idle (1)
 ────────────────────────────────────────────────────────────────────────────────
 10-05 13:20  ada
   deploys are frozen until Friday
@@ -110,9 +110,10 @@ yardr chat · ada
 enter send  ^j new line  tab next resident  pgup/pgdn scroll  ^g pane  ^c quit
 ```
 
-From 100 columns the residents are a column on the left, one a line, with
-`>` before the selected one; narrower, they fold into the one line on top,
-the selected one in brackets.
+From 100 columns the rows (`yard`, then the residents) are a column on the
+left, one a line, with `>` before the selected one and the unread number at
+the column's right edge; narrower, they fold into the one line on top, the
+selected one in brackets and the number in parentheses.
 
 The colours are those of the onboarding's forms, for a light and a dark
 terminal, and say nothing the words and marks do not; with `NO_COLOR` set,
@@ -192,24 +193,51 @@ notifications of the events you subscribed to
 behind it, and shows the number of notifications you have not read, when
 there is any.
 
-Selecting it shows the notifications in place of a conversation: one a
-line, oldest at the top and the newest last, plain, each with its time.
+Selecting it shows the notifications in place of a conversation: oldest at
+the top and the newest last, plain. Each is laid out as a mail is: a line
+with its time and, where a sender's name would stand, the bead's id, then
+the yard's text under it, less the id it would begin with. At 80 columns,
+with one unread mail from the mayor:
 
 ```
-10-05 14:02  yardr-k3dy closed (done) by yardr-refinery reason=merged 1a2b3c4 on "Chat: a row for the yard"
-10-05 14:31  yardr-p0qa advanced (all) by mayor from=review to=decide on "Which port for the hook listener"
+yardr chat · jo
+[yard]  ada idle  mayor idle (1)
+────────────────────────────────────────────────────────────────────────────────
+10-06 01:00  web-f1qx
+  closed (done) by mayor reason=merged 5e6f7a8 on "Cache the avatar lookups"
+
+10-06 01:00  web-wh4c
+  closed (done) by mayor reason=merged 1234567 on "Narrow one"
+
+10-06 01:02  web-hk7z
+  advanced (all) by mayor from=new to=decide on "Which port for the hook
+  listener"
+
+10-06 01:02  web-3cps
+  closed (done) by mayor reason=merged 1a2b3c4 on "Chat: a row for the yard"
+────────────────────────────────────────────────────────────────────────────────
+
+tab next resident  pgup/pgdn scroll  ^c quit
 ```
 
 - **There is no line to type in.** Nobody sent a notification, so there is
-  nobody to answer. To talk about one, select a resident and write to it.
-- **A notification about a bead begins with the bead's id**, so it can be
-  copied into `yardr bead show <id>`. The view does not go there itself.
+  nobody to answer. `enter` and `ctrl+g` do nothing here, and a key that
+  would type says `nobody to answer here: the yard reports, tab goes to a
+  resident`. To talk about one, select a resident and write to it.
+- **A notification about a bead has the bead's id alone after its time**,
+  whole on its line, so it can be copied into `yardr bead show <id>`. The
+  view does not go there itself. A hook delivery's has its source there.
 - **Unread notifications light up no resident.** A resident's number counts
   the mail from it and nothing else, whoever the notification says acted.
 - The list is what the inbox keeps: the newest 500, the oldest dropped.
 
-Without a subscription the row is there and stays empty; `yardr subscribe
-<you> yardr --done` is how it fills.
+Without a subscription the row is there and says how it fills:
+
+```
+No notifications. The yard reports here what you subscribe to,
+for one when beads land:
+  yardr subscribe jo yardr --done
+```
 
 **Timers.** A mail whose text begins `timer:` was sent by the yard for a
 timer the resident set for you (`yardr timer add --to <you>`,
@@ -237,11 +265,11 @@ as it was.
 
 | Key | Does |
 |---|---|
-| `enter` | sends the line as mail to the selected resident, a [long text](#a-long-text) as several |
+| `enter` | sends the line as mail to the selected resident, a [long text](#a-long-text) as several; nothing on `yard` |
 | `ctrl+j`, `alt+enter` | a line break in the line |
 | `tab`, `shift+tab` | the next, the previous row: `yard`, then the residents |
 | `pgup`, `pgdn` | scroll the conversation |
-| `ctrl+g` | to the selected resident's pane |
+| `ctrl+g` | to the selected resident's pane; nothing on `yard` |
 | `ctrl+c` | leave |
 
 A mail holds 4 KB. From three quarters of that the rule above the line

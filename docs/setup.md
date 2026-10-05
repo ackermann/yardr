@@ -113,6 +113,17 @@ It asks how to go on with the step that is next:
   mayor's line) and how to start it (`yardr init --start`).
 - **Stop here**: ends; `yardr setup` goes on from that step later.
 
+## Being told when beads land
+
+Not a step either. Where the forms end, before the question below, `yardr
+setup` asks a [user](users.md) "Be told when beads land?", which starts at
+no. Yes runs `yardr subscribe <you> yardr --done --where rig=<rig>` for the
+setup's rig: each bead of it that becomes done is then a notification in
+your inbox, apart from your mail
+([subscriptions.md](subscriptions.md#users-as-subscribers)). It is not
+asked of who already has a `--done` subscription to yardr, nor of who is
+no user of the yard. The onboarding does not ask it.
+
 ## Linking with another yard
 
 Not a step: a yard is complete without it. Where the forms end (every step

@@ -148,8 +148,10 @@ resident: a resident deciding what a person is told is what notifications
 are there to end, and the refusal says so:
 
 ```
-mayor is a resident, and a resident does not decide what a person is told: ada subscribes themselves, or the operator (mckean) does it for them
+mayor is a resident, and a resident does not decide what a person is told: bo subscribes themselves, or the operator (jo) does it for them
 ```
+
+Another user is refused as `bo does not decide what jo is told: …`.
 
 The check is the store's, on the command's actor
 ([users.md](users.md#who-is-acting)), so it holds for every client.
@@ -162,14 +164,15 @@ inbox` shows a resident for the same delivery, with the bead's title after
 it where there is a bead:
 
 ```
-yardr-k3dy closed (done) by yardr-refinery reason=merged 1a2b3c4 on "Chat: a row for the yard"
+web-3cps closed (done) by mayor reason=merged 1a2b3c4 on "Chat: a row for the yard"
+web-hk7z advanced (all) by mayor from=new to=decide on "Which port for the hook listener"
 hook (all) github workflow_run completed by jane on "Fix the gate": ci failure on main  https://github.com/…
 ```
 
-The first is `<bead> <kind> (<reason>) by <actor> <key=value …>`, the
+The first two are `<bead> <kind> (<reason>) by <actor> <key=value …>`, the
 reason being why it reached the user ([Scopes](#scopes)). A closed bead's
 line carries the commit when the event has one: its own `commit`, or the
-one its reason names, as the refinery's `merged <sha>` does. The second is a
+one its reason names, as the refinery's `merged <sha>` does. The third is a
 hook delivery: source, type and action, who acted, the thread's title, the
 text and the link. The event's part is cut at 300 characters and the title
 at 120, with `…`; the link is never cut.

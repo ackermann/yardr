@@ -291,7 +291,7 @@ func (a *app) userInbox(ctx context.Context, st store.API, name string, limit in
 		if notes {
 			p := box.Notifications
 			fmt.Println(partHead("Notifications", len(p.Notifications), p.Unread))
-			for _, n := range p.Notifications {
+			for _, n := range unreadFirst(p.Notifications) {
 				state := ""
 				if n.Read {
 					state = "(read) "
@@ -301,6 +301,25 @@ func (a *app) userInbox(ctx context.Context, st store.API, name string, limit in
 			partFoot(p.Unread-acked["notifications"], acked["notifications"], ack)
 		}
 	})
+}
+
+// unreadFirst is a page of notifications in the order the mail above it
+// is listed in: the unread, oldest first, then the read, the latest first.
+// The store gives a page oldest first throughout, which put the unread
+// under the read in one part and over them in the other.
+func unreadFirst(page []store.Notification) []store.Notification {
+	rows := make([]store.Notification, 0, len(page))
+	for _, n := range page {
+		if !n.Read {
+			rows = append(rows, n)
+		}
+	}
+	for i := len(page) - 1; i >= 0; i-- {
+		if page[i].Read {
+			rows = append(rows, page[i])
+		}
+	}
+	return rows
 }
 
 // partHead is the line over a part of a user's inbox: its name and how
@@ -461,21 +480,20 @@ func (a *app) unreadLine(ctx context.Context) {
 		return
 	}
 	m, err := a.readMail(ctx, st)
-	if err != nil || m == nil {
+	if err != nil || m == nil || m.Unread == 0 {
 		return
 	}
 	// Notifications are no mail and are not counted as mail: they are
-	// said after it, by their number alone.
+	// said after it, by their number alone. Without unread mail the line
+	// is not printed for them: nobody is talking, and a person who never
+	// acknowledges a stream would read it under every command.
 	told := 0
 	if p, err := st.UserNotifications(ctx, m.User, 1); err == nil {
 		told = p.Unread
 	}
-	switch {
-	case m.Unread > 0 && told > 0:
+	if told > 0 {
 		fmt.Printf("\nMail for %s: %s, and %s (yardr inbox).\n", m.User, m.unread(), notifications(told))
-	case m.Unread > 0:
-		fmt.Printf("\nMail for %s: %s (yardr inbox).\n", m.User, m.unread())
-	case told > 0:
-		fmt.Printf("\nNo unread mail for %s, and %s (yardr inbox).\n", m.User, notifications(told))
+		return
 	}
+	fmt.Printf("\nMail for %s: %s (yardr inbox).\n", m.User, m.unread())
 }

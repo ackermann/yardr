@@ -576,8 +576,8 @@ under its name and unread count:
   Mail           what a resident or a person wrote to you: the unread,
                  oldest first, then the latest you have read
   Notifications  what the yard tells you of the events you subscribed to
-                 (yardr subscribe <you> ...): one line each, oldest first,
-                 with nobody to answer
+                 (yardr subscribe <you> ...): one line each, in the
+                 mail's order, with nobody to answer
 
 --mail and --notifications show one part. --ack marks the unread shown as
 read, in the parts shown only: with --notifications your mail stays
