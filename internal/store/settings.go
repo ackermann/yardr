@@ -35,6 +35,11 @@ func (s *Store) SetSetting(ctx context.Context, key, value, actor string) error 
 	if err := checkName("setting", key); err != nil {
 		return err
 	}
+	if key == OperatorSetting && value != "" {
+		if err := checkUserName(value); err != nil {
+			return fmt.Errorf("operator: %w", err)
+		}
+	}
 	return s.write(func(w *wtx) error {
 		if key == OperatorSetting && value != "" && w.Bucket(bResidents).Get([]byte(value)) != nil {
 			if was, err := operatorIn(w.Tx); err != nil {

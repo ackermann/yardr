@@ -78,6 +78,12 @@ func TestUserRecord(t *testing.T) {
 func TestOperatorIsAUser(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
+	if err := s.SetSetting(ctx, "operator", "two words", "jo"); err == nil {
+		t.Fatal("operator with an invalid user name was accepted")
+	}
+	if all, _ := s.Settings(ctx); all["operator"] != "" || userNames(t, s) != "" {
+		t.Fatalf("invalid operator was stored: %v, users %q", all, userNames(t, s))
+	}
 	if err := s.SetSetting(ctx, "operator", "jo", "jo"); err != nil || userNames(t, s) != "jo" {
 		t.Fatalf("users = %q, %v", userNames(t, s), err)
 	}

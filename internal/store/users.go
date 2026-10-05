@@ -106,10 +106,17 @@ func migrateOperator(tx *bolt.Tx) error {
 	return (&wtx{Tx: tx}).ensureOperator("yardr")
 }
 
+func checkUserName(name string) error {
+	if !peerMailName.MatchString(name) {
+		return fmt.Errorf("user %q: use letters, digits, '.', '_', '-' or '/' (starting with a letter or digit)", name)
+	}
+	return nil
+}
+
 // AddUser adds the user name. It refuses a name a resident or a user has.
 func (s *Store) AddUser(ctx context.Context, name, actor string) (*User, error) {
-	if !peerMailName.MatchString(name) {
-		return nil, fmt.Errorf("user %q: use letters, digits, '.', '_', '-' or '/' (starting with a letter or digit)", name)
+	if err := checkUserName(name); err != nil {
+		return nil, err
 	}
 	var out *User
 	err := s.write(func(w *wtx) error {
