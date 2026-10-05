@@ -113,9 +113,12 @@ fi
 # and ended by a signal twice the epic is held. rig check's own kill at its
 # deadline is not this: it exits 1, a red gate.
 gate() { out=$("$Y" rig check "$RIG" --dir "$WT" --tail "$TAIL" 2>&1) && rc=0 || rc=$?; printf '%s\n' "$out"; }
+gated=$(git -C "$REPO" rev-parse "refs/heads/$BR") || hold "cannot read $BR"
 gate
 if [ "$rc" -gt 128 ]; then
-  first="the gate on $BR at $(git -C "$REPO" rev-parse --short "$BR") was ended by signal $((rc - 128)) (exit $rc), not by a failing check"
+  now=$(git -C "$REPO" rev-parse "refs/heads/$BR") || hold "cannot read $BR"
+  [ "$now" = "$gated" ] || hold "$BR moved while the gate ran: gated $(git -C "$REPO" rev-parse --short "$gated"), now $(git -C "$REPO" rev-parse --short "$now"). Cannot retry on the same commit."
+  first="the gate on $BR at $(git -C "$REPO" rev-parse --short "$gated") was ended by signal $((rc - 128)) (exit $rc), not by a failing check"
   echo "== $first; running it once more"
   "$Y" bead note "$EPIC" "integrator: $first; running it once more on the same commit. Its output:
 $out" || echo "== could not note the first run on $EPIC"
