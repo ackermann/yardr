@@ -721,6 +721,7 @@ func writeBrief(dir, session, brief string) (string, error) {
 // is not ready yet (blocked on a question a human must answer, or just
 // slow) is not a failure: the session is kept and the prompt is left on the
 // handle as pending, for the dispatcher to deliver once the agent is idle.
+// So is a prompt that was sent and did not arrive (see arrived).
 // With trust, the one question yardr answers itself is Claude Code's
 // folder-trust dialog (see acceptTrust); the handle then says so.
 func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt string, handle map[string]any, trust bool) (map[string]any, error) {
@@ -753,7 +754,76 @@ func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt stri
 	if _, err := h.run(ctx, "agent", "prompt", name, prompt); err != nil {
 		return handle, err
 	}
+	if !h.arrived(ctx, handle, prompt) {
+		// Sent, and nothing in the pane to show for it: the dispatcher sends
+		// it again once the agent is idle, unless it shows up meanwhile.
+		handle[dispatch.PendingPrompt] = prompt
+	}
 	return handle, nil
+}
+
+// promptWait bounds the wait for a first prompt to show in the agent's pane
+// after herdr sent it. Like trustWait it is spent inside the dispatcher's
+// pass, and only by a prompt that got lost: one that arrived shows at once.
+// A variable so tests can shorten it.
+var promptWait = 10 * time.Second
+
+// promptScan is how far back in a pane a first prompt is looked for.
+const promptScan = 200
+
+// arrived reports whether the agent took the prompt herdr just sent it: its
+// pane shows the prompt, or it is working. Found live (yardr-ykbt): `agent
+// prompt` succeeding says the keys were sent, not that they were taken. A
+// Claude Code still coming up after its trust dialog was reported idle and
+// dropped them, and the session sat there without its first prompt. A pane
+// that cannot be read says nothing either way, and the prompt is then taken
+// as arrived, as it was before yardr looked.
+func (h *Herdr) arrived(ctx context.Context, handle map[string]any, prompt string) bool {
+	pane, _ := handle["pane"].(string)
+	if pane == "" {
+		return true
+	}
+	for deadline := time.Now().Add(promptWait); ; {
+		text, err := h.readPane(ctx, pane, "recent-unwrapped", promptScan)
+		if err != nil || showsPrompt(text, prompt) {
+			return true
+		}
+		if s, err := h.Status(ctx, handle); err == nil && s == "working" {
+			return true
+		}
+		if time.Now().After(deadline) || ctx.Err() != nil {
+			return false
+		}
+		time.Sleep(promptWait / 40)
+	}
+}
+
+// PromptShown reports whether the pane of the session shows prompt: a first
+// prompt left pending because it had not shown in time (see arrived) may
+// have been taken since, and is then not sent a second time.
+func (h *Herdr) PromptShown(ctx context.Context, handle map[string]any, prompt string) bool {
+	pane, _ := handle["pane"].(string)
+	if pane == "" {
+		return false
+	}
+	text, err := h.readPane(ctx, pane, "recent-unwrapped", promptScan)
+	return err == nil && showsPrompt(text, prompt)
+}
+
+// promptLead is how much of a prompt, counted without its white space, is
+// looked for in a pane: enough to tell it from anything else there, and
+// short enough that an agent which shortens what it echoes still shows it.
+const promptLead = 24
+
+// showsPrompt reports whether a pane's text holds the start of prompt.
+// White space is left out on both sides: an agent wraps a long prompt to
+// its pane's width, in the middle of a brief's path if it must.
+func showsPrompt(text, prompt string) bool {
+	lead := []rune(strings.Join(strings.Fields(prompt), ""))
+	if len(lead) > promptLead {
+		lead = lead[:promptLead]
+	}
+	return len(lead) > 0 && strings.Contains(strings.Join(strings.Fields(text), ""), string(lead))
 }
 
 func (h *Herdr) Alive(ctx context.Context, handle map[string]any) (bool, error) {

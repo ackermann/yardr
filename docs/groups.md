@@ -218,6 +218,13 @@ for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`
   `session_blocked` and gets its first prompt once you have. yardr answers
   only this dialog, and only when its cursor is seen on the accepting answer;
   anything else an agent asks is left to you.
+- **A first prompt that gets lost.** herdr reports a prompt as sent, not as
+  taken: an agent that is still coming up can drop the keys. After sending
+  the first prompt yardr looks for it in the agent's pane for up to ten
+  seconds (an agent that is working took it). A prompt that does not show is
+  kept on the session and sent again once the agent is idle, unless it has
+  shown up in the pane by then; `session_prompted` records that delivery,
+  with `shown: true` when the prompt was found and not sent again.
 - **Decide what agents may run unattended.** Anything outside `args`'
   permissions blocks the agent on a prompt. Pass what the role needs, e.g.
   `--set 'args=["--permission-mode","acceptEdits","--allowedTools","Bash(yardr:*),Bash(git:*)"]'`;

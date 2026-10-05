@@ -277,9 +277,23 @@ func (d *Dispatcher) defaults() {
 
 // PendingPrompt is a handle key: the first prompt a runner could not deliver
 // because the agent was not ready (often blocked on a question a human must
-// answer, such as trusting a folder). The dispatcher delivers it once the
-// agent is idle.
+// answer, such as trusting a folder), or sent and did not see arrive. The
+// dispatcher delivers it once the agent is idle.
 const PendingPrompt = "pending_prompt"
+
+// PromptWatcher is implemented by runners that can see whether a prompt
+// reached a session's agent (a herdr pane shows it). A pending prompt the
+// runner had sent may have been taken after it stopped looking; one that
+// shows is not delivered a second time.
+type PromptWatcher interface {
+	PromptShown(ctx context.Context, handle map[string]any, prompt string) bool
+}
+
+// promptShown reports whether r can see prompt in the session of handle.
+func promptShown(ctx context.Context, r Runner, handle map[string]any, prompt string) bool {
+	w, ok := r.(PromptWatcher)
+	return ok && w.PromptShown(ctx, handle, prompt)
+}
 
 // Statuser is implemented by runners that can tell more than alive/dead.
 // A session whose status turns "blocked" (the agent waits on a permission
@@ -615,18 +629,28 @@ func (d *Dispatcher) alive(ctx context.Context, r Runner, s store.Session) (bool
 	if err != nil || status == "" {
 		return false, err
 	}
-	if p, ok := s.Handle[PendingPrompt].(string); ok && (status == "idle" || status == "done") {
-		if n, ok := r.(Nudger); ok {
-			if err := n.Nudge(ctx, s.Handle, p); err != nil {
-				return true, nil // try again next pass
+	if p, ok := s.Handle[PendingPrompt].(string); ok {
+		// Asked on every pass, not only of an idle agent: one that took the
+		// prompt late is working on it, and by the time it is idle again the
+		// prompt may have left what the runner reads of its pane.
+		shown := promptShown(ctx, r, s.Handle, p)
+		if shown || status == "idle" || status == "done" {
+			if n, ok := r.(Nudger); ok && !shown {
+				if err := n.Nudge(ctx, s.Handle, p); err != nil {
+					return true, nil // try again next pass
+				}
 			}
+			h := withoutPending(s.Handle)
+			if err := d.Store.SetHandle(ctx, s.ID, h); err != nil {
+				return true, err
+			}
+			data := map[string]any{"session": s.ID}
+			if shown {
+				data["shown"] = true // found in the pane, not sent again
+			}
+			_ = d.Store.LogDispatch(ctx, s.Bead, "session_prompted", actor, data)
+			d.prompted(r, s.ID)
 		}
-		h := withoutPending(s.Handle)
-		if err := d.Store.SetHandle(ctx, s.ID, h); err != nil {
-			return true, err
-		}
-		_ = d.Store.LogDispatch(ctx, s.Bead, "session_prompted", actor, map[string]any{"session": s.ID})
-		d.prompted(r, s.ID)
 	}
 	prev, seen := d.status[s.ID]
 	if !seen {

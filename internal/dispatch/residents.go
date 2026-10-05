@@ -197,6 +197,12 @@ func (d *Dispatcher) residentStartFailed(ctx context.Context, runner Runner, r s
 // deliver, then rotation, then the inbox.
 func (d *Dispatcher) residentRunning(ctx context.Context, runner Runner, r store.Resident, idle bool, grace time.Duration) error {
 	if p, ok := r.Handle[PendingPrompt].(string); ok {
+		if promptShown(ctx, runner, r.Handle, p) {
+			// Sent at the start and taken since: not a second time, and
+			// an agent working on it does not wait for a human.
+			delete(d.status, "resident:"+r.Name)
+			return d.Store.SetResidentHandle(ctx, r.Name, withoutPending(r.Handle))
+		}
 		if !idle {
 			// Waiting on a human (e.g. a trust prompt): say so once.
 			if d.status["resident:"+r.Name] != "waiting" {

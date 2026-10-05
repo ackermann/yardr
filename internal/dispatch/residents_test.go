@@ -27,6 +27,14 @@ type residentRunner struct {
 	blocked  bool                // next start blocks before the agent is ready (a trust prompt)
 	foreign  *dispatch.LiveAgent // an agent yardr did not start that already is the resident
 	findErr  error               // the agent list cannot be read
+	sent     bool                // next start sends the first prompt and does not see it arrive
+	shown    bool                // the pane shows the first prompt
+}
+
+func (f *residentRunner) PromptShown(context.Context, map[string]any, string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.shown
 }
 
 func (f *residentRunner) LiveResident(context.Context, store.Resident) (*dispatch.LiveAgent, error) {
@@ -48,6 +56,10 @@ func (f *residentRunner) StartResident(_ context.Context, r store.Resident) (map
 	if f.blocked {
 		f.blocked = false
 		f.status[agent] = "blocked"
+		return map[string]any{"agent": agent, dispatch.PendingPrompt: "prime yourself"}, nil
+	}
+	if f.sent {
+		f.sent = false
 		return map[string]any{"agent": agent, dispatch.PendingPrompt: "prime yourself"}, nil
 	}
 	return map[string]any{"agent": agent}, nil
@@ -243,12 +255,56 @@ func TestBlockedStartWaitsForHumanThenPrompts(t *testing.T) {
 	}
 }
 
+// Found live (yardr-ykbt): a first prompt that was sent and did not show in
+// the pane is left pending. An agent that took it after the runner stopped
+// looking is working on it: it does not get it a second time, and it is not
+// reported as waiting for a human.
+func TestPendingPromptThatShowsIsNotSentAgain(t *testing.T) {
+	s, f, d := residentSetup(t, store.Resident{})
+	ctx := context.Background()
+	f.sent = true
+	must(t, d.Reconcile(ctx))
+	f.set(agentOf(t, s), "working")
+	f.shown = true
+	must(t, d.Reconcile(ctx))
+	f.set(agentOf(t, s), "idle")
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	r, _ := s.GetResident(ctx, "mayor")
+	if len(f.nudges) != 0 || r.Handle[dispatch.PendingPrompt] != nil {
+		t.Fatalf("nudges %v, handle %v", f.nudges, r.Handle)
+	}
+	evs, _ := s.Events(ctx, r.Journal, 100)
+	for _, e := range evs {
+		if e.Kind == "resident_blocked" {
+			t.Fatalf("a resident working on its first prompt was reported blocked: %+v", e)
+		}
+	}
+}
+
+// One that did not show is delivered once the agent is idle, once.
+func TestPendingPromptThatDidNotShowIsSentOnce(t *testing.T) {
+	s, f, d := residentSetup(t, store.Resident{})
+	ctx := context.Background()
+	f.sent = true
+	for range 4 {
+		must(t, d.Reconcile(ctx))
+	}
+	r, _ := s.GetResident(ctx, "mayor")
+	if len(f.nudges) != 1 || !strings.HasSuffix(f.nudges[0], "prime yourself") || r.Handle[dispatch.PendingPrompt] != nil {
+		t.Fatalf("nudges %v, handle %v", f.nudges, r.Handle)
+	}
+}
+
 // nudgeRunner is a bead runner whose agents can be blocked and prompted.
 type nudgeRunner struct {
 	*fakeRunner
 	status string
 	nudges []string
+	shown  bool // the pane shows the first prompt
 }
+
+func (n *nudgeRunner) PromptShown(context.Context, map[string]any, string) bool { return n.shown }
 
 func (n *nudgeRunner) Start(ctx context.Context, j dispatch.Job) (map[string]any, error) {
 	h, err := n.fakeRunner.Start(ctx, j)
@@ -286,6 +342,40 @@ func TestBlockedBeadSessionGetsItsPromptWhenIdle(t *testing.T) {
 	sess, _ := s.GetSession(ctx, *got.Session)
 	if sess.Handle[dispatch.PendingPrompt] != nil || sess.State != "running" {
 		t.Fatalf("session after prompt: %+v", sess)
+	}
+}
+
+// The same for a bead session: a pending first prompt that shows in the pane
+// was taken, so it is cleared without a second delivery, working or idle.
+func TestBeadSessionPendingPromptThatShowsIsNotSentAgain(t *testing.T) {
+	s := storetest.New(t)
+	r := &nudgeRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "working", shown: true}
+	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}}
+	ctx := context.Background()
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	r.status = "idle"
+	must(t, d.Reconcile(ctx))
+	got, _ := s.GetBead(ctx, b.ID)
+	sess, _ := s.GetSession(ctx, *got.Session)
+	if len(r.nudges) != 0 || sess.Handle[dispatch.PendingPrompt] != nil {
+		t.Fatalf("nudges %v, handle %v", r.nudges, sess.Handle)
+	}
+	evs, _ := s.Events(ctx, b.ID, 100)
+	prompted := 0
+	for _, e := range evs {
+		if e.Kind == "session_prompted" {
+			prompted++
+			if e.Data["shown"] != true {
+				t.Errorf("session_prompted does not say the prompt was found in the pane: %+v", e)
+			}
+		}
+	}
+	if prompted != 1 {
+		t.Fatalf("session_prompted logged %d times", prompted)
 	}
 }
 

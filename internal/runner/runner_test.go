@@ -593,6 +593,18 @@ func TestExecEnvWorktreesConfig(t *testing.T) {
 // error objects on stderr with exit status 1.
 func fakeHerdrBin(t *testing.T, script string) string {
 	t.Helper()
+	// As a real pane: the prompt an agent was sent shows in it.
+	return deafHerdrBin(t, `case "$1 $2" in
+  "agent prompt") printf '%s\n' "$4" > "$0.pane" ;;
+  "pane read") cat "$0.pane" 2>/dev/null ;;
+esac
+`+script)
+}
+
+// deafHerdrBin is fakeHerdrBin without a pane that shows what was sent: an
+// agent that takes no keys, unless the script says otherwise.
+func deafHerdrBin(t *testing.T, script string) string {
+	t.Helper()
 	p := filepath.Join(t.TempDir(), "herdr")
 	if err := os.WriteFile(p, []byte("#!/bin/sh\n"+script), 0o755); err != nil {
 		t.Fatal(err)
