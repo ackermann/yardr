@@ -172,6 +172,17 @@ func TestMatching(t *testing.T) {
 	if got != want || more != 0 {
 		t.Fatalf("matching (%d more):\n%s\nwant:\n%s", more, got, want)
 	}
+	// Context ranges that touch are one stretch; a later separate stretch
+	// gets its own heading with the first line number from the output.
+	touching := []string{"FAIL first"}
+	for i := 0; i < 9; i++ {
+		touching = append(touching, fmt.Sprintf("l%d", i))
+	}
+	touching = append(touching, "FAIL second")
+	got, more = Matching(strings.Join(touching, "\n"), pats[:1])
+	if more != 0 || strings.Count(got, "-- line ") != 1 || !strings.Contains(got, "FAIL second") {
+		t.Fatalf("touching context ranges were not one headed stretch (%d more):\n%s", more, got)
+	}
 
 	// Distinct failures, far apart: the bound holds, and the rest is counted.
 	lines = nil

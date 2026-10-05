@@ -113,20 +113,20 @@ func Matching(output string, pats []*regexp.Regexp) (text string, more int) {
 		if !matches(line) {
 			continue
 		}
-		if i < end {
-			// Inside a stretch already written: its context goes on from here.
+		from := max(i-MatchBefore, 0)
+		if i < end || (shown > 0 && from <= end) {
+			// The match or its context touches a stretch already written.
 			seen[line] = true
 		} else if seen[line] {
 			continue
-		} else if from := max(i-MatchBefore, end); shown+i-from >= MatchMax {
+		} else if shown+i-max(from, end) >= MatchMax {
 			// No room left to reach the line itself.
 			more++
 			continue
 		} else {
 			seen[line] = true
-			if from > end || end == 0 {
-				fmt.Fprintf(&sb, "-- line %d\n", from+1)
-			}
+			from = max(from, end)
+			fmt.Fprintf(&sb, "-- line %d\n", from+1)
 			end = from
 		}
 		for to := min(i+MatchAfter+1, len(lines)); end < to && shown < MatchMax; end, shown = end+1, shown+1 {
