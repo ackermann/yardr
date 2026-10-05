@@ -594,6 +594,35 @@ func TestLinearNormalize(t *testing.T) {
 			URL:      "https://linear.app/company/issue/ENG-42/webhook-receiver-drops-retries",
 			Entity:   "539068e2-ae88-4d09-bd75-22eb4a59612f",
 		}},
+		// The shape of the delivery that reached nobody (yardr-rber): a
+		// person is the assignee, the agent the delegate.
+		{"linear_issue_delegated.json", hooks.Envelope{
+			Source: "linear", Type: "issue", Action: "create",
+			Actor: hooks.Party{ID: "aacdca22-6266-4c0a-ab3c-8fa70a26765c", Name: "Jane Doe"},
+			Thread: hooks.Thread{ID: "6f0d2c1b-8a3e-4b7c-9d15-3e2a1b0c9d8e", Title: "Notify the agent an issue is handed to",
+				URL: "https://linear.app/company/issue/ENG-14/notify-the-agent-an-issue-is-handed-to"},
+			Mentions: []string{},
+			Assignee: "aacdca22-6266-4c0a-ab3c-8fa70a26765c",
+			Delegate: "4d3a2b1c-0000-4000-8000-00000000mayr",
+			Text:     "Created with a person as assignee and an agent as delegate.",
+			URL:      "https://linear.app/company/issue/ENG-14/notify-the-agent-an-issue-is-handed-to",
+			Fields:   map[string][]string{"team": {"ENG", "Engineering"}},
+			Entity:   "6f0d2c1b-8a3e-4b7c-9d15-3e2a1b0c9d8e",
+		}},
+		// A delegate set later; this payload names it by the nested object
+		// alone, which is read when delegateId is absent.
+		{"linear_issue_delegate_set.json", hooks.Envelope{
+			Source: "linear", Type: "issue", Action: "update",
+			Actor: hooks.Party{ID: "aacdca22-6266-4c0a-ab3c-8fa70a26765c", Name: "Jane Doe"},
+			Thread: hooks.Thread{ID: "6f0d2c1b-8a3e-4b7c-9d15-3e2a1b0c9d8e", Title: "Notify the agent an issue is handed to",
+				URL: "https://linear.app/company/issue/ENG-14/notify-the-agent-an-issue-is-handed-to"},
+			Mentions: []string{},
+			Assignee: "aacdca22-6266-4c0a-ab3c-8fa70a26765c",
+			Delegate: "4d3a2b1c-0000-4000-8000-00000000mayr",
+			Text:     "changed delegateId",
+			URL:      "https://linear.app/company/issue/ENG-14/notify-the-agent-an-issue-is-handed-to",
+			Entity:   "6f0d2c1b-8a3e-4b7c-9d15-3e2a1b0c9d8e",
+		}},
 	} {
 		got, err := hooks.Linear{}.Normalize(nil, fixture(t, c.file))
 		if err != nil {
@@ -682,6 +711,71 @@ func TestLinearMentionReachesInbox(t *testing.T) {
 	for _, e := range page.Events {
 		if why := store.Reason(e, "mayor"); why != store.ReasonMentioned || e.Data["type"] != "comment" {
 			t.Errorf("event %d: %s, reason %q", e.Seq, e.Data["type"], why)
+		}
+	}
+}
+
+// An issue handed to a resident as its delegate (Linear's field for the
+// agent; the assignee stays the person) reaches it under involved as one
+// assigned to it does: when it is created that way, and when the delegate
+// is set later, each once, a redelivery included. One delegated to someone
+// else does not.
+func TestLinearDelegateReachesInbox(t *testing.T) {
+	const mayor, other = "4d3a2b1c-0000-4000-8000-00000000mayr", "9e8d7c6b-0000-4000-8000-0000000other"
+	inbox := func(t *testing.T, delegate string, files ...string) []store.Event {
+		t.Helper()
+		r := newRig(t)
+		ctx := context.Background()
+		if _, err := r.st.PutResident(ctx, store.Resident{Name: "mayor"}, "me"); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.st.SetIdentity(ctx, "mayor", "linear", store.Identity{ID: mayor, Key: "mayor"}, "me"); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.st.AddSubscription(ctx, "mayor", store.Subscription{Source: "linear", Scope: store.ScopeInvolved}, "me"); err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range files {
+			body := []byte(strings.ReplaceAll(string(fixture(t, f)), mayor, delegate))
+			r.now = sentAt(t, body)
+			// Linear retries a delivery it got no answer to: the second
+			// post is that, and must not be a second inbox entry.
+			for range 2 {
+				if code := r.linear(t, body, secret, f); code != http.StatusOK {
+					t.Fatalf("%s: %d", f, code)
+				}
+			}
+		}
+		page, err := r.st.Inbox(ctx, "mayor", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return page.Events
+	}
+	for _, c := range []struct {
+		name, delegate string
+		files          []string
+		want           []string // action of each inbox entry
+	}{
+		{"created delegated to it", mayor, []string{"linear_issue_delegated.json"}, []string{"create"}},
+		{"created delegated to another", other, []string{"linear_issue_delegated.json"}, nil},
+		{"delegate set by an update", mayor, []string{"linear_issue_delegate_set.json"}, []string{"update"}},
+		{"update sets another delegate", other, []string{"linear_issue_delegate_set.json"}, nil},
+	} {
+		got := inbox(t, c.delegate, c.files...)
+		var actions []string
+		for _, e := range got {
+			a, _ := e.Data["action"].(string)
+			actions = append(actions, a)
+			if why := store.Reason(e, "mayor"); why != store.ReasonAssigned {
+				t.Errorf("%s: event %d: reason %q, want assigned", c.name, e.Seq, why)
+			}
+			if d, _ := e.Data["delegate"].(string); d != c.delegate {
+				t.Errorf("%s: event %d: delegate %q", c.name, e.Seq, d)
+			}
+		}
+		if !reflect.DeepEqual(actions, c.want) {
+			t.Errorf("%s: inbox %v, want %v", c.name, actions, c.want)
 		}
 	}
 }

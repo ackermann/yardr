@@ -86,6 +86,8 @@ type linearData struct {
 	Issue       *linearData     `json:"issue"`
 	AssigneeID  string          `json:"assigneeId"`
 	Assignee    *linearUser     `json:"assignee"`
+	DelegateID  string          `json:"delegateId"`
+	Delegate    *linearUser     `json:"delegate"`
 	Team        *linearNamed    `json:"team"`
 	Project     *linearNamed    `json:"project"`
 	Labels      []linearNamed   `json:"labels"`
@@ -142,6 +144,12 @@ func (Linear) Normalize(_ http.Header, body []byte) (*Envelope, error) {
 		e.Assignee = d.AssigneeID
 		if e.Assignee == "" && d.Assignee != nil {
 			e.Assignee = d.Assignee.ID
+		}
+		// The delegate is the agent the issue is handed to; the assignee
+		// stays the person, so an agent's work arrives here, not there.
+		e.Delegate = d.DelegateID
+		if e.Delegate == "" && d.Delegate != nil {
+			e.Delegate = d.Delegate.ID
 		}
 		if p.Action == "update" {
 			e.Text = changed(p.UpdatedFrom)

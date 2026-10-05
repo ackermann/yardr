@@ -28,7 +28,8 @@ func (a *app) identityCmd() *cobra.Command {
 		Short: "Who a resident is in a source (no --source: list)",
 		Long: `A resident's identity in a source is how a hook delivery is matched to it:
 it is mentioned when the delivery mentions its --id or --key, assigned when
-the assignee is its --id, and never hears of deliveries it is the actor of.
+the assignee or the delegate (the agent a Linear issue is handed to) is its
+--id, and never hears of deliveries it is the actor of.
 
 In Linear, --id is the user id and --key the profile URL key
 (https://linear.app/<org>/profiles/<key>): markdown mentions carry only the key.`,
@@ -131,9 +132,10 @@ the yardr source.
   mentions  events that mention it: in a hook source, under its identity
             (yardr resident identity); in yardr, @<name> in the bead's body
             or a note
-  involved  mentions, plus: in a hook source, events assigning it or in a
-            thread it participates in (it acted there, or yardr thread
-            follow); in yardr, beads it created, advanced or noted
+  involved  mentions, plus: in a hook source, events on what is assigned
+            or (a Linear issue's delegate) delegated to it, or in a thread
+            it participates in (it acted there, or yardr thread follow);
+            in yardr, beads it created, advanced or noted
 
 The scope defaults to involved for a hook source and to all for yardr.
 
@@ -157,7 +159,7 @@ The subscriber may be a manual group: its subscriptions deliver to each of
 its members that is a resident (reason "<reason> via <group>").
 
 Each delivery records why it reached the resident: all, mentioned,
-assigned, participant or done. Events a resident is the actor of never
+assigned (a delegation reads assigned too), participant or done. Events a resident is the actor of never
 reach it. A resident's --on kinds work as implicit "yardr all kind=<k>"
 subscriptions (and also cover events not about a bead).`,
 		Example: `  yardr subscribe mayor linear --scope involved

@@ -40,9 +40,12 @@ type Envelope struct {
 	Thread   Thread   `json:"thread"`
 	Mentions []string `json:"mentions"` // ids (or profile keys) of people mentioned
 	Assignee string   `json:"assignee,omitempty"`
-	Text     string   `json:"text,omitempty"`
-	URL      string   `json:"url,omitempty"`
-	Delivery string   `json:"delivery,omitempty"`
+	// Delegate is the agent an issue is handed to while a person stays its
+	// assignee (Linear's delegate). Routing treats it as an assignment.
+	Delegate string `json:"delegate,omitempty"`
+	Text     string `json:"text,omitempty"`
+	URL      string `json:"url,omitempty"`
+	Delivery string `json:"delivery,omitempty"`
 	// Message is the source's id of the message the delivery is (a
 	// comment), and Parent the message it answers in a threaded source, so
 	// a reply lands in the same conversation. Empty for what is not a

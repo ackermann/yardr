@@ -38,7 +38,7 @@ The source can be the second argument or `--source`.
 |---|---|---|
 | `all` | every delivery | every bead event |
 | `mentions` | deliveries that mention its identity | `@<name>` in the event itself (see below) |
-| `involved` | mentions, plus deliveries that assign it, plus threads it participates in | mentions, plus events on beads it created, advanced or noted |
+| `involved` | mentions, plus deliveries on what is assigned or delegated to it, plus threads it participates in | mentions, plus events on beads it created, advanced or noted |
 
 The default is `involved` for a hook source and `all` for yardr, where the
 where filters usually do the narrowing.
@@ -46,6 +46,13 @@ where filters usually do the narrowing.
 Reasons, from most to least specific: `done` (a done subscription matched),
 `mentioned`, `assigned`, `participant`, `all`. When several subscriptions
 match, the most specific reason is recorded.
+
+A Linear issue has an assignee and a delegate: the delegate is the agent
+the issue is handed to, while the assignee stays the person who handed it
+over. A resident is usually the delegate, so an issue whose delegate is its
+identity reaches it under `involved` as one assigned to it does, with
+reason `assigned`: when it is created that way, and when the delegate is
+set later. The event carries the id as `delegate`, beside `assignee`.
 
 ## The yardr source
 
@@ -199,7 +206,7 @@ What runs today, from nothing to a resident answering in Linear:
    [residents.md](residents.md#outbound-credentials)). Restart the resident
    after changing it.
 3. **Its identity**: the app user's id and profile key, so mentions,
-   assignments and its own actions are recognized:
+   assignments, delegations and its own actions are recognized:
    `yardr resident identity <name> --source linear --id <user id> --key <profile key>`.
 4. **A subscription**: `yardr subscribe <name> linear --scope involved`.
 5. **The hook**: give the yard an address to take webhooks on,

@@ -13,7 +13,8 @@ import (
 // Identity is who a resident is in a source, so a delivery can tell when it
 // is mentioned, assigned, or the one acting. A source may name people two
 // ways: Linear's markdown mentions carry a profile key ("mayor"), its
-// rich-text and assignee fields a user id; either matches a mention.
+// rich-text, assignee and delegate fields a user id; either matches a
+// mention.
 type Identity struct {
 	ID  string `json:"id,omitempty"`
 	Key string `json:"key,omitempty"`
@@ -31,7 +32,7 @@ func (i Identity) is(v string) bool {
 const (
 	ScopeAll      = "all"      // every delivery from the source
 	ScopeMentions = "mentions" // deliveries that mention the resident
-	ScopeInvolved = "involved" // mentioned, assigned, or in a thread it participates in
+	ScopeInvolved = "involved" // mentioned, assigned (or delegated), or in a thread it participates in
 )
 
 // Delivery reasons, recorded per resident on the event delivered. A
@@ -305,6 +306,7 @@ func hookDeliveries(tx *bolt.Tx, data map[string]any) (map[string]any, error) {
 	actor, _ := data["actor"].(map[string]any)
 	actorID, _ := actor["id"].(string)
 	assignee, _ := data["assignee"].(string)
+	delegate, _ := data["delegate"].(string)
 	mentions := strs(data["mentions"])
 	if fresh, ok := data["new_mentions"]; ok {
 		mentions = strs(fresh) // see freshMentions
@@ -318,7 +320,10 @@ func hookDeliveries(tx *bolt.Tx, data map[string]any) (map[string]any, error) {
 			return nil
 		}
 		mentioned := known && slices.ContainsFunc(mentions, id.is)
-		assigned := known && id.is(assignee)
+		// An issue delegated to the resident is its to work as much as one
+		// assigned to it: in Linear an agent is the delegate, and the
+		// assignee stays the person who handed it over.
+		assigned := known && (id.is(assignee) || id.is(delegate))
 		participant := participates(tx, r.Name, source, threadID)
 		got := ""
 		for _, sub := range subs {
