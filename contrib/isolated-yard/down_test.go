@@ -216,3 +216,161 @@ func TestDownRefusesWhatUpDidNotMake(t *testing.T) {
 		}
 	}
 }
+
+// match runs `isolated-yard match home` over lines of "<pid> <environment>"
+// and returns what it printed and whether it failed.
+func match(t *testing.T, home string, lines ...string) (string, error) {
+	t.Helper()
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(filepath.Join(root, "contrib/isolated-yard/isolated-yard"), "match", home)
+	cmd.Stdin = strings.NewReader(strings.Join(lines, "\n") + "\n")
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return stderr.String(), err
+	}
+	return strings.Join(strings.Fields(string(out)), " "), nil
+}
+
+// yardr-6gyb: the home was escaped into a regular expression by a sed
+// expression GNU sed refuses, so on Linux the pattern was empty and every
+// process with any YARDR_HOME was one of the yard. The home is compared as
+// a string: what a pattern would read as an operator is a character here.
+func TestMatchComparesTheHomeAsAString(t *testing.T) {
+	for _, home := range []string{
+		"/tmp/iy.Ab12Cd",
+		"/tmp/iy.a[b]",
+		"/tmp/iy.[.x.]",
+		"/tmp/iy.a*b+c?",
+		"/tmp/iy.with space",
+		`/tmp/iy.back\slash$^(x|y)`,
+	} {
+		got, err := match(t, home,
+			"11 PATH=/bin YARDR_HOME="+home+"/y TERM=x",
+			"12 YARDR_HOME="+home,
+			"13 YARDR_HOME=/private"+home+"/y",
+			// Not the yard's: a longer name, another yard, a real yard,
+			// no home, the home under another name, and a line of no process.
+			"21 YARDR_HOME="+home+"x/y",
+			"22 YARDR_HOME=/tmp/iy.other/y",
+			"23 YARDR_HOME=/Users/someone/.yardr",
+			"24 PATH=/bin",
+			"25 NOT_YARDR_HOME="+home+"/y",
+			"26 YARDR_HOME=/elsewhere"+home+"/y",
+			"x YARDR_HOME="+home+"/y",
+		)
+		if err != nil || got != "11 12 13" {
+			t.Errorf("match %q: %q, %v; want 11 12 13", home, got, err)
+		}
+	}
+	// A home that is all pattern matches itself only.
+	if got, err := match(t, "/.*", "1 YARDR_HOME=/tmp/iy.a/y", "2 YARDR_HOME=/.*/y"); err != nil || got != "2" {
+		t.Errorf("match /.*: %q, %v; want 2", got, err)
+	}
+}
+
+// yardr-6gyb: nothing may match every process. No home, "/" and what is no
+// absolute path are refused, with a message and no pid.
+func TestMatchRefusesAHomeThatWouldMatchEverything(t *testing.T) {
+	for _, home := range []string{"", "/", "//", "/tmp/", "tmp/iy.a", "."} {
+		out, err := match(t, home, "1 YARDR_HOME=/tmp/iy.a/y", "2 YARDR_HOME=/y", "3 YARDR_HOME=")
+		if err == nil || !strings.Contains(out, "isolated-yard: ") {
+			t.Errorf("match %q: %q, %v; want a refusal", home, out, err)
+		}
+	}
+}
+
+// The list of a yard's processes is refused, not empty and not everyone's,
+// for what is not an isolated yard.
+func TestPidsRefusesWhatIsNoYard(t *testing.T) {
+	unmarked, err := os.MkdirTemp("/tmp", "iy.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(unmarked) })
+	home, _ := os.UserHomeDir()
+	for _, dir := range []string{"", "/", "/tmp", "/tmp/iy.", unmarked, unmarked + "/y", "/tmp/iy.nosuchyard", filepath.Join(home, ".yardr"), t.TempDir()} {
+		out, err := script(t, "pids", dir)
+		if err == nil || !strings.HasPrefix(out, "isolated-yard: ") || strings.Contains(out, "\n") {
+			t.Errorf("pids %q: err %v, output %q; want a refusal and nothing else", dir, err, out)
+		}
+	}
+}
+
+// As a sleeper (see there) the test binary only waits to be stopped.
+func TestMain(m *testing.M) {
+	if os.Getenv("ISOLATED_YARD_TEST_SLEEPER") != "" {
+		time.Sleep(5 * time.Minute)
+		return
+	}
+	os.Exit(m.Run())
+}
+
+// sleeper starts a process with the given YARDR_HOME that does nothing, and
+// ends it with the test. It is this test binary, not sleep(1): macOS's ps
+// shows no environment for the system's own binaries, so down does not see
+// one of those by its home.
+func sleeper(t *testing.T, home string) int {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(exe)
+	cmd.Env = []string{"PATH=/usr/bin:/bin", "ISOLATED_YARD_TEST_SLEEPER=1", "YARDR_HOME=" + home}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cmd.Process.Kill()
+		cmd.Wait()
+	})
+	return cmd.Process.Pid
+}
+
+// yardr-6gyb: down on Linux stopped the processes of every yard on the
+// machine, the servers of the tests running beside it among them. A process
+// with its home in another yard, in a real one or in a directory that only
+// begins like this yard's outlives down.
+func TestDownLeavesTheProcessesOfOtherYards(t *testing.T) {
+	d := bare(t)
+	mine := []int{sleeper(t, d+"/y"), sleeper(t, d)}
+	others := []int{
+		sleeper(t, d+"x/y"),
+		sleeper(t, "/tmp/iy.another/y"),
+		sleeper(t, filepath.Join(t.TempDir(), "home")),
+		sleeper(t, ""),
+		sleeper(t, "/"),
+	}
+	out, err := script(t, "pids", d)
+	if err != nil {
+		t.Fatalf("isolated-yard pids: %v\n%s", err, out)
+	}
+	listed := map[string]bool{}
+	for _, f := range strings.Fields(out) {
+		listed[f] = true
+	}
+	for _, pid := range mine {
+		if !listed[strconv.Itoa(pid)] {
+			t.Errorf("pids lacks %d of the yard: %q", pid, out)
+		}
+	}
+	for _, pid := range others {
+		if listed[strconv.Itoa(pid)] {
+			t.Errorf("pids has %d, which is not of the yard: %q", pid, out)
+		}
+	}
+	if t.Failed() {
+		t.FailNow() // down would signal what pids listed
+	}
+	down(t, d, mine...)
+	for _, pid := range others {
+		if !running(pid) {
+			t.Errorf("down stopped pid %d, which is not of the yard", pid)
+		}
+	}
+}

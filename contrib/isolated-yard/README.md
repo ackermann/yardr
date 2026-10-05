@@ -69,11 +69,26 @@ home under `/tmp/iy.*`.
 The processes are found by the environment they were started with:
 `/proc/<pid>/environ` where there is a `/proc`, `ps axeww` elsewhere
 (macOS). Neither shows another user's processes, which an isolated yard
-does not have.
+does not have. macOS's `ps` also shows no environment for the system's own
+binaries (`/bin/sleep`, `/bin/sh`): one of those is found by its home only
+on Linux.
+
+The home is compared as a string, the same way on both: `YARDR_HOME` equal
+to D or a path inside it. It is never made into a pattern, and `down` stops
+nothing when it cannot tell: for a home that is empty, `/` or no isolated
+yard, or when the processes cannot be listed, it says so, exits 1 and
+leaves D. An earlier `down` escaped the home into a regular expression with
+a `sed` expression GNU sed refuses; on Linux the pattern came out empty and
+`down` signalled every process that had any `YARDR_HOME`.
+
+`isolated-yard pids D` prints the pids `down D` would stop and stops none.
 
 A server or daemon that `down` does not get to (the yard removed by hand, a
 temp home of your own) stops by itself within a minute of its home going
 away: see "yardr's own state" in
 [docs/configuration.md](../../docs/configuration.md#yardrs-own-state).
 
-`down_test.go` tests the two cases and the refusal with bare yards.
+`down_test.go` tests the two cases and the refusals with bare yards, that
+processes of other yards outlive a `down`, and the comparison itself
+(`isolated-yard match <home>`, which reads `<pid> <environment>` lines) with
+homes that hold `.`, `[`, `*`, `+` and spaces.

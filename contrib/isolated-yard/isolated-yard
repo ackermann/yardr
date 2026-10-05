@@ -7,6 +7,7 @@
 #   D/e <command> ...           runs a command inside it (D/e yardr init ...)
 #   isolated-yard down D        stops everything in it by pid and removes D
 #   isolated-yard bare          the yard without a herdr server: prints D
+#   isolated-yard pids D        prints the pids down would stop, stops none
 #
 # A bare yard is for what starts no agent (a server, a daemon, the CLI): no
 # herdr is on its PATH, so nothing in it can open a pane. It ends with `down`
@@ -41,25 +42,76 @@ usage() {
   exit 2
 }
 
+# match_home reads one process a line, "<pid> <its environment>", and prints
+# the pids of those whose YARDR_HOME is $1 or a path inside it (on macOS
+# also as /private$1, which is what /tmp is there). The home is compared as
+# a string, never made into a pattern: a pattern built from a path was once
+# empty where sed refused the expression that escaped it (GNU sed reads `[.`
+# in a bracket as a collating symbol), and an empty pattern matched every
+# process with any YARDR_HOME (yardr-6gyb). No home, a relative one and "/"
+# are refused for the same reason: nothing here may match everything.
+#
+# The path comes to awk in its environment: on its command line, ps would
+# show it and awk would find itself.
+match_home() {
+  D="$1" awk '
+    BEGIN {
+      d = ENVIRON["D"]
+      if (d !~ /^\/[^\/]/ || d ~ /\/$/) {
+        print "isolated-yard: \"" d "\" is not a home to look for processes by" > "/dev/stderr"
+        bad = 1
+        exit 2
+      }
+      a = " YARDR_HOME=" d; b = " YARDR_HOME=/private" d
+    }
+    $1 !~ /^[0-9]+$/ { next }
+    { l = $0 " " }
+    index(l, a "/") || index(l, a " ") || index(l, b "/") || index(l, b " ") { print $1 }
+    END { if (bad) exit 2 }'
+}
+
+# removed is the yard down has just deleted: the one directory home_pids
+# takes without the mark of `up` in it.
+removed=
+
 # pids of the processes whose YARDR_HOME is $1 or inside it, whatever binary
 # they run and whoever started them: a server started by the installed
 # yardr with its home in the yard, or one whose D/bin/yardr was rebuilt
 # under it (it then runs a file that has no name any more, which lsof on
 # D/bin does not find). The environment is the one the process was started
 # with, which is where a server and a daemon get their home from.
+#
+# It fails, printing nothing, for a directory that is not an isolated yard
+# and when the processes cannot be listed: its caller signals what it
+# prints, so no answer must never read as "these" or as "none".
 home_pids() {
-  if [ -r /proc/self/environ ]; then
-    re=$(printf '%s' "$1" | sed 's/[][.*^$\\]/\\&/g')
-    grep -lzE "^YARDR_HOME=(/private)?$re(/.*)?\$" /proc/[0-9]*/environ 2>/dev/null |
-      sed 's|^/proc/\([0-9]*\)/environ$|\1|'
-  else
-    # The path comes to awk in its environment: on its command line, ps
-    # would show it and awk would find itself.
-    ps axeww -o pid= -o command= | D="$1" awk '
-      BEGIN { a = " YARDR_HOME=" ENVIRON["D"]; b = " YARDR_HOME=/private" ENVIRON["D"] }
-      { l = $0 " " }
-      index(l, a "/") || index(l, a " ") || index(l, b "/") || index(l, b " ") { print $1 }'
+  case "$1" in
+  /tmp/iy. | /tmp/iy.*/*) echo "isolated-yard: $1 is not an isolated yard" >&2; return 1 ;;
+  /tmp/iy.*) ;;
+  *) echo "isolated-yard: $1 is not an isolated yard" >&2; return 1 ;;
+  esac
+  if [ "$removed" != "$1" ] && [ "$(cat "$1/.isolated-yard" 2>/dev/null)" != "$1" ]; then
+    echo "isolated-yard: $1 was not made by isolated-yard up" >&2
+    return 1
   fi
+  # The list is read whole before it is matched: a pipeline has the status
+  # of its last command only, and a ps that failed must not look like a
+  # machine with no process of the yard.
+  if [ -r /proc/self/environ ]; then
+    # One line a process, as ps gives them on macOS: the records of environ
+    # end in NUL. A process may end while it is read, and another user's
+    # cannot be read at all; neither is one of the yard.
+    procs=$(for f in /proc/[0-9]*/environ; do
+      p=${f#/proc/}
+      printf '%s ' "${p%/environ}"
+      { tr '\0\n' '  ' <"$f"; } 2>/dev/null || true
+      echo
+    done) || { echo "isolated-yard: cannot read the processes' environments in /proc" >&2; return 1; }
+  else
+    procs=$(ps axeww -o pid= -o command=) || { echo "isolated-yard: ps failed" >&2; return 1; }
+  fi
+  [ -n "$procs" ] || { echo "isolated-yard: no process listed, not even this one" >&2; return 1; }
+  printf '%s\n' "$procs" | match_home "$1"
 }
 
 # This script and what it was called from, which are never stopped: a
@@ -76,12 +128,20 @@ ancestors() {
 # executable is a file in $1/bin (the herdr server, the stand-in agents).
 # lsof goes by the file a process runs, not by its name (ps shows `claude`
 # for the stand-in and for the real one alike). Both go by the directory,
-# which is unique to one run.
+# which is unique to one run. It fails where home_pids does.
 pids() {
-  {
-    home_pids "$1"
-    lsof -t "$1"/bin/* 2>/dev/null || true
-  } | sort -u | grep -vxF "$(ancestors)" || true
+  hp=$(home_pids "$1") || return 1
+  lp=$(lsof -t "$1"/bin/* 2>/dev/null) || true
+  printf '%s\n%s\n' "$hp" "$lp" | A="$(ancestors)" awk '
+    BEGIN { n = split(ENVIRON["A"], a, "\n"); for (i = 1; i <= n; i++) skip[a[i]] }
+    /^[0-9]+$/ && !($0 in skip) && !seen[$0]++'
+}
+
+# yard_pids is pids for down: without the list nothing more is signalled and
+# the yard stays. Its callers end the script themselves (|| exit 1): under
+# the `if !` of a failed up's cleanup, set -e does not.
+yard_pids() {
+  pids "$1" || { echo "isolated-yard: cannot tell the processes of $1; nothing more is stopped" >&2; return 1; }
 }
 
 # gone waits up to 5s for the pids to end.
@@ -119,20 +179,22 @@ down() {
     for f in "$d"/*/"$name"; do
       [ -f "$f" ] || continue
       pid=$(head -n 1 "$f" | tr -cd '0-9')
-      if [ -n "$pid" ] && pids "$d" | grep -qx "$pid"; then
+      [ -n "$pid" ] || continue
+      yard=$(yard_pids "$d") || exit 1
+      if printf '%s\n' "$yard" | grep -qx "$pid"; then
         kill -TERM "$pid" 2>/dev/null || true
         gone "$pid" || true
       fi
     done
   done
   for sig in TERM KILL; do
-    left=$(pids "$d")
+    left=$(yard_pids "$d") || exit 1
     [ -n "$left" ] || break
     # shellcheck disable=SC2086
     kill -"$sig" $left 2>/dev/null || true
     gone "$left" || true
   done
-  left=$(pids "$d")
+  left=$(yard_pids "$d") || exit 1
   if [ -n "$left" ]; then
     echo "isolated-yard: still running, $d kept:" $left >&2
     exit 1
@@ -144,9 +206,10 @@ down() {
   # directories read-only. Make the tree removable before deleting the yard.
   chmod -R u+w "$d"
   rm -rf "$d"
+  removed=$d
   # With the directory gone only the home tells: anything started while the
   # yard was being stopped is found here.
-  left=$(home_pids "$d" | grep -vxF "$(ancestors)" || true)
+  left=$(yard_pids "$d") || exit 1
   if [ -n "$left" ]; then
     echo "isolated-yard: $d is removed and these processes of it still run:" >&2
     for p in $left; do
@@ -262,5 +325,8 @@ case "${1:-}" in
 up) [ $# -eq 1 ] || usage; up ;;
 bare) [ $# -eq 1 ] || usage; bare ;;
 down) [ $# -eq 2 ] || usage; down "$2" ;;
+# For tests and for looking before a down; neither signals anything.
+pids) [ $# -eq 2 ] || usage; pids "$2" ;;
+match) [ $# -eq 2 ] || usage; match_home "$2" ;;
 *) usage ;;
 esac

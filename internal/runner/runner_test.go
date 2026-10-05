@@ -1402,8 +1402,11 @@ func TestExecEnvDirRig(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "env")
 	e := &Exec{Home: "/yh", Bin: "/bin/yardr"}
 	job := dispatch.Job{
-		Bead:    store.Bead{ID: "docs-7", Stage: "new"},
-		Group:   store.Group{Name: "sum", Config: map[string]any{"cmd": "{ pwd; env; } > " + out}},
+		Bead: store.Bead{ID: "docs-7", Stage: "new"},
+		// Written whole, then named: env writes a large environment (CI's)
+		// in several pieces, and a read between two of them found YARDR_BEAD
+		// and no YARDR_RIG_PATH yet (yardr-6gyb).
+		Group:   store.Group{Name: "sum", Config: map[string]any{"cmd": "{ pwd; env; } > " + out + ".part && mv " + out + ".part " + out}},
 		Rig:     &store.Rig{Name: "docs", Path: dir, Kind: store.RigDir},
 		Session: store.Session{ID: "s1"},
 		Epic:    "docs-e",
