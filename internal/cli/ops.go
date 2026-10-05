@@ -138,6 +138,7 @@ func (a *app) daemonCmd() *cobra.Command {
 				Store:       st,
 				Runners:     runner.All(a.cfg.Home, st, log, onError),
 				Log:         log,
+				Home:        a.cfg.Home,
 				Interval:    interval,
 				MaxAttempts: attempts,
 				Binary:      bin,

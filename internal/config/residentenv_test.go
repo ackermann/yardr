@@ -1,0 +1,166 @@
+package config
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+// What the stand-in providers print as values: none may show in an error.
+const provided = "pr0vided-s3cret"
+
+// providerT is a stand-in provider: a script with body, and the path it is
+// at.
+func providerT(t *testing.T, body string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "provider")
+	if err := os.WriteFile(p, []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// An env_command's stdout is read as an env_file: its entries are the
+// resident's environment. It is run in the resident's directory, without a
+// shell, told who asks and for which yard, with nothing to read.
+func TestResidentEnvFromCommand(t *testing.T) {
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := providerT(t, `# as a secrets tool prints them
+echo "# for $YARDR_RESIDENT"
+echo
+echo "LINEAR_API_KEY=`+provided+`"
+echo "WHO=$YARDR_RESIDENT $YARD_RESIDENT"
+echo "HOME_OF=$YARDR_HOME"
+echo "PWD_OF=$(pwd -P)"
+echo "ARGS=$#:$1:$2"
+echo "STDIN=$(cat | wc -c | tr -d ' ')"
+echo "noise" >&2`)
+	for name, cmd := range map[string]any{"string": p + " one $HOME", "list": []any{p, "one", "$HOME"}} {
+		env, err := ReadResidentEnv(context.Background(), "mayor", dir, "/y", map[string]any{"env_command": cmd})
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		for k, want := range map[string]string{"LINEAR_API_KEY": provided, "WHO": "mayor mayor", "HOME_OF": "/y",
+			"PWD_OF": dir, "ARGS": "2:one:$HOME", "STDIN": "0"} {
+			if got := env.Get(k); got != want {
+				t.Errorf("%s: %s = %q, want %q", name, k, got, want)
+			}
+		}
+		if env.Command != p+" one $HOME" || env.File != "" || !env.Set() || env.From() != "env_command "+p+" one $HOME" ||
+			strings.Join(env.CommandKeys, " ") != "LINEAR_API_KEY WHO HOME_OF PWD_OF ARGS STDIN" {
+			t.Errorf("%s: %+v", name, env)
+		}
+	}
+	// A resident without a directory is asked for in the yard's home.
+	env, err := ReadResidentEnv(context.Background(), "mayor", "", dir, map[string]any{"env_command": p})
+	if err != nil || env.Get("PWD_OF") != dir {
+		t.Fatalf("in the home: %v, %v", env, err)
+	}
+	// Neither setting: nothing, and no error.
+	if env, err := ReadResidentEnv(context.Background(), "mayor", dir, "/y", map[string]any{}); err != nil || env.Set() || len(env.Env) != 0 {
+		t.Fatalf("no setting: %+v, %v", env, err)
+	}
+}
+
+// With an env_file too both are read, and a key in both has the command's
+// value: once, so the pane's environment and the daemon's lookup agree.
+func TestResidentEnvCommandWinsOverFile(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "mayor.env")
+	if err := os.WriteFile(file, []byte("LINEAR_API_KEY=from-the-file\nGITHUB_TOKEN=gh-file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := map[string]any{"env_file": file, "env_command": providerT(t, `echo "LINEAR_API_KEY=`+provided+`"; echo OTHER=x`)}
+	env, err := ReadResidentEnv(context.Background(), "mayor", "", "", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(env.Env, " "); got != "GITHUB_TOKEN=gh-file LINEAR_API_KEY="+provided+" OTHER=x" {
+		t.Errorf("env = %q", got)
+	}
+	if strings.Join(env.Keys(), " ") != "GITHUB_TOKEN LINEAR_API_KEY OTHER" || strings.Join(env.FileKeys, " ") != "LINEAR_API_KEY GITHUB_TOKEN" ||
+		!strings.HasPrefix(env.From(), "env_file "+file+" with env_command ") {
+		t.Errorf("%+v", env)
+	}
+	// The file refused: no environment, though the command answered.
+	if err := os.Chmod(file, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env, err = ReadResidentEnv(context.Background(), "mayor", "", "", cfg)
+	if err == nil || !strings.Contains(err.Error(), "chmod 600") || len(env.Env) != 0 || env.FileErr == nil || env.CommandErr != nil {
+		t.Fatalf("refused file: %+v, %v", env, err)
+	}
+}
+
+// A provider that is not there, fails, hangs or prints a line that is no
+// KEY=VALUE gives no environment and an error that names the command, how
+// it ended and the end of its stderr: never its stdout, never a value.
+func TestResidentEnvCommandFailures(t *testing.T) {
+	// Long enough for a script's first run on a busy machine, which a
+	// provider that answers must not be taken for a hang over.
+	old := EnvCommandTimeout
+	EnvCommandTimeout = 3 * time.Second
+	t.Cleanup(func() { EnvCommandTimeout = old })
+	secret := `echo "LINEAR_API_KEY=` + provided + `"; `
+	for name, tc := range map[string]struct {
+		cmd  string
+		want []string
+	}{
+		"missing":     {filepath.Join(t.TempDir(), "nope"), []string{"no such file"}},
+		"not on PATH": {"yardr-no-such-provider --env", []string{"env_command yardr-no-such-provider --env: ", "not found"}},
+		"exit": {providerT(t, secret+`for i in 1 2 3 4 5 6 7; do echo "line $i" >&2; done; echo "vault is locked" >&2; exit 3`),
+			[]string{"exit status 3", "its stderr ended: line 4 | line 5 | line 6 | line 7 | vault is locked"}},
+		// The child outlives the script's shell unless the group is killed.
+		"hangs":    {providerT(t, secret+`echo "waiting for a password" >&2; sleep 30`), []string{"no answer within 3s", "waiting for a password"}},
+		"bad line": {providerT(t, secret+`echo "export TOKEN=`+provided+`"`), []string{" line 2: want KEY=VALUE"}},
+		"bad key":  {providerT(t, `echo "1TOKEN=`+provided+`"`), []string{" line 1: want KEY=VALUE"}},
+	} {
+		start := time.Now()
+		env, err := ReadResidentEnv(context.Background(), "mayor", "", "", map[string]any{"env_command": tc.cmd})
+		if err == nil {
+			t.Errorf("%s: no error", name)
+			continue
+		}
+		for _, w := range append(tc.want, "env_command "+tc.cmd) {
+			if !strings.Contains(err.Error(), w) {
+				t.Errorf("%s: error %q lacks %q", name, err, w)
+			}
+		}
+		if strings.Contains(err.Error(), provided) || strings.Contains(err.Error(), "line 1 |") {
+			t.Errorf("%s: error shows a value or too much: %q", name, err)
+		}
+		if len(env.Env) != 0 || env.CommandErr == nil || env.Command != tc.cmd {
+			t.Errorf("%s: %+v", name, env)
+		}
+		if took := time.Since(start); took > 8*time.Second {
+			t.Errorf("%s: took %s", name, took)
+		}
+	}
+}
+
+// What doctor asks: whether the program is there, without running it.
+func TestEnvCommandMissing(t *testing.T) {
+	ran := filepath.Join(t.TempDir(), "ran")
+	p := providerT(t, "touch "+ran)
+	if err := EnvCommandMissing("", map[string]any{"env_command": p + " x"}); err != nil {
+		t.Errorf("there: %v", err)
+	}
+	if err := EnvCommandMissing(filepath.Dir(p), map[string]any{"env_command": "./provider"}); err != nil {
+		t.Errorf("relative to the directory: %v", err)
+	}
+	if err := EnvCommandMissing("", map[string]any{}); err != nil {
+		t.Errorf("none: %v", err)
+	}
+	err := EnvCommandMissing("", map[string]any{"env_command": "yardr-no-such-provider --env"})
+	if err == nil || !strings.Contains(err.Error(), "env_command yardr-no-such-provider --env") {
+		t.Errorf("missing: %v", err)
+	}
+	if _, err := os.Stat(ran); err == nil {
+		t.Error("the command was run")
+	}
+}

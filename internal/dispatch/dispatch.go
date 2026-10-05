@@ -99,6 +99,9 @@ type Dispatcher struct {
 	// (default 30s); it doubles on every further outage, up to
 	// RuntimeBackoffMax (default 5m).
 	RuntimeBackoff, RuntimeBackoffMax time.Duration
+	// Home is the yard's home: what a resident's env_command is told, and
+	// where it runs for a resident without a directory.
+	Home string
 	// Binary, when set, is the daemon's own executable: when a new build is
 	// installed over it, Run finishes its pass and execs that build. The
 	// sessions live in the store, so the new daemon carries on.

@@ -42,6 +42,12 @@ import (
 //	           never belong in the store (see config.ReadEnvFile) nor on a
 //	           command line (see call)
 //
+// A resident's config has those but keep and worktrees, and one more:
+//
+//	env_command  a command that prints KEY=VALUE lines, run at each start,
+//	             whose entries join the env_file's (see
+//	             config.ReadResidentEnv)
+//
 //	trust      false to leave Claude Code's folder-trust dialog for a human;
 //	           by default yardr answers it (see acceptTrust)
 //
@@ -1267,7 +1273,7 @@ func (h *Herdr) StartResident(ctx context.Context, r store.Resident) (map[string
 	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
 		return nil, fmt.Errorf("resident directory %q does not exist", dir)
 	}
-	secrets, err := h.envFile(r.Config, "resident "+r.Name)
+	secrets, err := h.residentEnv(ctx, r, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -1319,6 +1325,27 @@ func (h *Herdr) envFile(cfg map[string]any, who string) ([]string, error) {
 		h.Log.Debug("env_file loaded", "for", who, "path", f.Path, "keys", f.Keys())
 	}
 	return f.Env, nil
+}
+
+// residentEnv is what r's settings add to its pane environment: its
+// env_file's entries and those its env_command prints (see
+// config.ReadResidentEnv), asked for at every start. Either one refused (a
+// file open to others, a command that fails, hangs or prints a line that is
+// no KEY=VALUE) is Blocked, as a group's env_file is: the resident must not
+// start without its credentials. Only key names are logged.
+func (h *Herdr) residentEnv(ctx context.Context, r store.Resident, dir string) ([]string, error) {
+	env, err := config.ReadResidentEnv(ctx, r.Name, dir, h.YardHome, r.Config)
+	if err != nil {
+		if ctx.Err() != nil {
+			// The daemon is stopping: nothing a human has to fix.
+			return nil, err
+		}
+		return nil, dispatch.Blocked(fmt.Errorf("resident %s: %w", r.Name, err))
+	}
+	if h.Log != nil && env.Set() {
+		h.Log.Debug("resident environment loaded", "for", "resident "+r.Name, "from", env.From(), "keys", env.Keys())
+	}
+	return env.Env, nil
 }
 
 // withEnvFile is env with the env file's entries added. A key yardr sets

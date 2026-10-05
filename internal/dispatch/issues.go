@@ -16,9 +16,9 @@ import (
 // stage (docs/links.md). The store decides that as the bead's event is
 // logged, and keeps the move (store.IssueMove) until it is made; making it
 // is the daemon's, here, for three reasons. The call needs the credential of
-// the resident the hook acts as, which is in its env_file: the daemon reads
-// env_files for the panes it starts, the server holds no one's tokens. The
-// call must be outside the store's write, and the daemon is what already
+// the resident the hook acts as, which is in its env_file or comes from its
+// env_command: the daemon reads both for the panes it starts, the server
+// holds no one's tokens. The call must be outside the store's write, and the daemon is what already
 // calls a source between passes (GitHub, in github.go and ci.go) and waits
 // out its outages. And every pass re-reads the moves from the store, so a
 // daemon restarted, or replaced by a new build, between the event and the
@@ -143,7 +143,8 @@ func (d *Dispatcher) issueFailed(ctx context.Context, m store.IssueMove, cause e
 }
 
 // credential is the resident's credential for a source: what its env_file
-// sets for it, the one its own pane would use. Nothing else is tried: the
+// and env_command set for it (config.ReadResidentEnv), the one its own pane
+// would use, asked for again at each move. Nothing else is tried: the
 // daemon's environment, or its gh login, is the operator's.
 func (d *Dispatcher) credential(ctx context.Context, resident, source string, f hooks.Forwarder) (string, error) {
 	r, err := d.Store.GetResident(ctx, resident)
@@ -151,29 +152,19 @@ func (d *Dispatcher) credential(ctx context.Context, resident, source string, f 
 		return "", err
 	}
 	names := hooks.CredentialNames(source)
-	path, _ := r.Config["env_file"].(string)
-	if path == "" {
-		return "", fmt.Errorf("resident %s has no env_file, where its %s is read from", resident, names)
+	env, err := config.ReadResidentEnv(ctx, r.Name, r.Dir, d.Home, r.Config)
+	if !env.Set() {
+		return "", fmt.Errorf("resident %s has no env_file or env_command, where its %s is read from", resident, names)
 	}
-	file, err := config.ReadEnvFile(path)
 	if err != nil {
 		return "", err
 	}
-	cred, err := f.CredentialFrom(func(name string) string {
-		// A name set twice has its last value, as in the pane's environment.
-		val := ""
-		for _, e := range file.Env {
-			if k, v, _ := strings.Cut(e, "="); k == name {
-				val = v
-			}
-		}
-		return val
-	})
+	cred, err := f.CredentialFrom(env.Get)
 	if missing := (*hooks.MissingCredential)(nil); errors.As(err, &missing) {
-		return "", fmt.Errorf("resident %s's env_file %s does not set %s", resident, file.Path, names)
+		return "", fmt.Errorf("resident %s's %s does not set %s", resident, env.From(), names)
 	}
 	if err != nil {
-		return "", fmt.Errorf("resident %s's env_file %s: %w", resident, file.Path, err)
+		return "", fmt.Errorf("resident %s's %s: %w", resident, env.From(), err)
 	}
 	return cred, nil
 }

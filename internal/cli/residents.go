@@ -52,6 +52,15 @@ next session starts from that handoff (forced after --handoff-grace).
 
 Without --set kind, a herdr resident gets the yard's default_kind.
 
+--set env_file=<path> names a file of KEY=VALUE lines (mode 0600) that join
+the session's environment: its credentials. --set env_command="<command>"
+names a command that prints such lines instead, so a secrets tool holds the
+values: it is run without a shell (words split at spaces; a JSON list for a
+word with a space in it) at each start, and the resident does not start
+when it fails. With both, the command's value wins for a key in both. The
+command line is stored and shown (yardr resident show): never put a secret
+in it. docs/residents.md has both.
+
 --set open_threads=linear,github lets the resident open threads of its own
 in those sources (yardr thread open). It is off unless set, and only the
 operator (the yard's operator setting, else the user running the command)
@@ -105,7 +114,7 @@ for its links (yardr peer list).`,
 	}
 	f := add.Flags()
 	f.StringVar(&def.Runner, "runner", "herdr", "runner (herdr)")
-	f.StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable): kind, model, args, prompt, env_file, open_threads, set_state, peers")
+	f.StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable): kind, model, args, prompt, env_file, env_command, open_threads, set_state, peers")
 	f.StringVar(&def.Dir, "dir", "", "directory the resident works in (default: the yard home)")
 	f.StringSliceVar(&def.On, "on", defaultOn, "event kinds delivered to its inbox (mail always is); replaces the list, so name every kind wanted")
 	f.StringVar(&def.MaxAge, "max-age", "", "ask for a handoff after this long, e.g. 6h (default: never)")
@@ -171,11 +180,11 @@ for its links (yardr peer list).`,
 				return err
 			}
 			out := map[string]any{"resident": r, "inbox": inbox.Total, "journal": notes, "timers": timers}
-			env := envFileSummary(r.Config)
-			if env != nil {
-				out["env_file"] = env
+			env, keys := residentEnvSummary(c.Context(), *r, a.home())
+			for _, e := range env {
+				out[e.Setting] = e.fields()
 			}
-			creds := credentialSummary(*r, env)
+			creds := credentialSummary(*r, keys)
 			if len(creds) > 0 {
 				out["credentials"] = creds
 			}
@@ -193,13 +202,13 @@ for its links (yardr peer list).`,
 						fmt.Println("  yardr doctor --try asks its harness for one real answer (a model call), yardr doctor for the rest")
 					}
 				}
-				if env != nil {
-					fmt.Printf("  env_file %s", env["path"])
-					if keys, _ := env["keys"].([]string); len(keys) > 0 {
-						fmt.Printf(" (%s)", strings.Join(keys, ", "))
+				for _, e := range env {
+					fmt.Printf("  %s %s", e.Setting, e.From)
+					if len(e.Keys) > 0 {
+						fmt.Printf(" (%s)", strings.Join(e.Keys, ", "))
 					}
-					if e, _ := env["error"].(string); e != "" {
-						fmt.Printf(": %s", e)
+					if e.Error != "" {
+						fmt.Printf(": %s", e.Error)
 					}
 					fmt.Println()
 				}
@@ -409,29 +418,54 @@ func residentAgent(r store.Resident) string {
 	return strings.Join(parts, " · ")
 }
 
-// envFileSummary is what a session started from cfg would load from its
-// env_file: the path and key names, or why the runner would refuse it. Never
-// a value. nil when cfg names no env_file.
-func envFileSummary(cfg map[string]any) map[string]any {
-	path, _ := cfg["env_file"].(string)
-	if path == "" {
-		return nil
+// envSource is one place a resident's environment comes from, as resident
+// show says it: the setting, the path or command line it names, the key
+// names it sets, or why the runner would refuse it. Never a value.
+type envSource struct {
+	Setting string // env_file, env_command
+	From    string
+	Keys    []string
+	Error   string
+}
+
+func (e envSource) fields() map[string]any {
+	name := "path"
+	if e.Setting == "env_command" {
+		name = "command"
 	}
-	out := map[string]any{"path": path}
-	if p, err := config.ExpandPath(path); err == nil {
-		out["path"] = p
+	out := map[string]any{name: e.From}
+	if e.Error != "" {
+		out["error"] = e.Error
+	} else {
+		out["keys"] = e.Keys
 	}
-	f, err := config.ReadEnvFile(path)
-	if err != nil {
-		out["error"] = err.Error()
-		return out
-	}
-	out["keys"] = f.Keys()
 	return out
 }
 
+// residentEnvSummary is what a session of r would start with from its
+// env_file and its env_command (which is run to tell: see
+// config.ReadResidentEnv), and the key names the two set together; home is
+// the yard's. A source that is refused sets none.
+func residentEnvSummary(ctx context.Context, r store.Resident, home string) ([]envSource, []string) {
+	env, _ := config.ReadResidentEnv(ctx, r.Name, r.Dir, home, r.Config)
+	text := func(err error) string {
+		if err != nil {
+			return err.Error()
+		}
+		return ""
+	}
+	var out []envSource
+	if env.File != "" {
+		out = append(out, envSource{"env_file", env.File, env.FileKeys, text(env.FileErr)})
+	}
+	if env.Command != "" {
+		out = append(out, envSource{"env_command", env.Command, env.CommandKeys, text(env.CommandErr)})
+	}
+	return out, slices.Concat(env.FileKeys, env.CommandKeys)
+}
+
 // sourceCredential is the credential a resident answers in a source with,
-// by kind and by the names its env_file sets for it: never a value.
+// by kind and by the names its environment sets for it: never a value.
 type sourceCredential struct {
 	Kind  string   `json:"kind"` // GitHub App, token, API key; "none" without one
 	Names []string `json:"names,omitempty"`
@@ -452,11 +486,11 @@ func (c sourceCredential) String() string {
 }
 
 // credentialSummary says, for each source a credential can be given for,
-// which kind the resident's env_file (env, its envFileSummary) gives it. A
+// which kind the resident's environment (keys, the names its env_file and
+// env_command set: residentEnvSummary) gives it. A
 // source it has neither a credential nor an identity in is left out: it is
 // not one the resident speaks in.
-func credentialSummary(r store.Resident, env map[string]any) map[string]sourceCredential {
-	keys, _ := env["keys"].([]string)
+func credentialSummary(r store.Resident, keys []string) map[string]sourceCredential {
 	out := map[string]sourceCredential{}
 	for _, src := range hooks.Repliable() {
 		ways := hooks.CredentialWays(src)
@@ -479,7 +513,7 @@ func credentialSummary(r store.Resident, env map[string]any) map[string]sourceCr
 		case len(part) > 0:
 			out[src] = sourceCredential{Kind: "none", Names: part, Note: "it takes " + hooks.CredentialNames(src)}
 		case known:
-			out[src] = sourceCredential{Kind: "none", Note: "it cannot answer in " + src + " until its env_file sets " + hooks.CredentialNames(src)}
+			out[src] = sourceCredential{Kind: "none", Note: "it cannot answer in " + src + " until its env_file or env_command sets " + hooks.CredentialNames(src)}
 		}
 	}
 	return out

@@ -58,8 +58,19 @@ func ReadEnvFile(path string) (*EnvFile, error) {
 		return nil, err
 	}
 	defer f.Close()
-	out := &EnvFile{Path: p}
-	sc := bufio.NewScanner(f)
+	env, err := parseEnv(f, "env_file "+p)
+	if err != nil {
+		return nil, err
+	}
+	return &EnvFile{Path: p, Env: env}, nil
+}
+
+// parseEnv reads KEY=VALUE lines from r, an env_file or what an env_command
+// printed: the one reader of both. what names the source in errors, which
+// carry a line number and never a value.
+func parseEnv(r io.Reader, what string) ([]string, error) {
+	var env []string
+	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for n := 1; sc.Scan(); n++ {
 		line := strings.TrimSpace(sc.Text())
@@ -69,14 +80,14 @@ func ReadEnvFile(path string) (*EnvFile, error) {
 		k, v, ok := strings.Cut(line, "=")
 		k = strings.TrimSpace(k)
 		if !ok || !envKey.MatchString(k) {
-			return nil, fmt.Errorf("env_file %s line %d: want KEY=VALUE", p, n)
+			return nil, fmt.Errorf("%s line %d: want KEY=VALUE", what, n)
 		}
-		out.Env = append(out.Env, k+"="+v)
+		env = append(env, k+"="+v)
 	}
 	if err := sc.Err(); err != nil {
-		return nil, fmt.Errorf("env_file %s: %w", p, err)
+		return nil, fmt.Errorf("%s: %w", what, err)
 	}
-	return out, nil
+	return env, nil
 }
 
 // ReadSecretFile reads the file holding one secret (a hook's --secret-file)

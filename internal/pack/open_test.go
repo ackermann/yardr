@@ -1,6 +1,7 @@
 package pack_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -160,6 +161,44 @@ func TestPlanSortsWhatThePackAsksToOpen(t *testing.T) {
 		t.Fatalf("with GITHUB_TOKEN: %+v", ot)
 	}
 	credential("")
+
+	// The credential from a provider, the resident's env_command, counts as
+	// the env_file's does: the pair it prints, a provider that fails, and
+	// both with the name in the file alone.
+	provider := filepath.Join(t.TempDir(), "provider")
+	provided := func(body string, cfg map[string]any) pack.OpenThreads {
+		t.Helper()
+		if err := os.WriteFile(provider, []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		def := *boss
+		def.Revision = ""
+		def.Config = map[string]any{"kind": "claude", "env_command": provider}
+		for k, v := range cfg {
+			def.Config[k] = v
+		}
+		if _, err := st.PutResident(ctx, def, "me"); err != nil {
+			t.Fatal(err)
+		}
+		return open(t, build(t, st, load(t, dir), o), "boss")
+	}
+	both := `echo "LINEAR_API_KEY=secret-linear"; echo "GITHUB_APP_ID=4242"; echo "GITHUB_APP_PRIVATE_KEY_FILE=` + key + `"`
+	if ot = provided(both, nil); !reflect.DeepEqual(ot.Asks, []string{"linear", "github"}) || len(ot.Lacks) != 0 {
+		t.Fatalf("with a provider's pair: %+v", ot)
+	}
+	if ot = provided(both+`; echo "vault is locked" >&2; exit 3`, nil); len(ot.Lacks) != 2 ||
+		!strings.Contains(ot.Lacks[0].Missing[0].Detail, "env_command "+provider+": exit status 3; its stderr ended: vault is locked") ||
+		strings.Contains(fmt.Sprint(ot), "secret-linear") {
+		t.Fatalf("with a provider that fails: %+v", ot)
+	}
+	lack(provided(`echo "GITHUB_APP_ID=4242"`, map[string]any{"env_file": env}), "env_file "+env+" with env_command "+provider+" does not set it")
+	if ot = provided(`echo "GITHUB_TOKEN=secret-github"`, map[string]any{"env_file": env}); !reflect.DeepEqual(ot.Asks, []string{"linear", "github"}) || len(ot.Lacks) != 0 {
+		t.Fatalf("with linear's in the file and github's from the provider: %+v", ot)
+	}
+	boss.Revision = ""
+	if _, err := st.PutResident(ctx, *boss, "me"); err != nil {
+		t.Fatal(err)
+	}
 
 	// What the resident may already is no question.
 	if _, err := st.AllowOpening(ctx, "boss", []string{"linear"}, "", "jo"); err != nil {

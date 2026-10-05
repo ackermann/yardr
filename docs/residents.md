@@ -200,6 +200,95 @@ yardr resident show mayor     # env_file …/mayor.env (LINEAR_API_KEY)
   restart (`yardr resident restart mayor`). Values are never logged, put on
   the session's handle or shown; `yardr resident show` lists the key names.
 
+### Secrets from a provider
+
+The values need not be in a file of yardr's at all. A resident may name a
+provider: a command yardr runs to get its environment, so a secrets tool
+holds the values and yardr knows none of them by name.
+
+```sh
+yardr resident add mayor --set env_command="varlock load --format env" …
+yardr resident show mayor     # env_command varlock load --format env (LINEAR_API_KEY)
+```
+
+The contract is one line: **the command prints `KEY=VALUE` lines on its
+stdout and exits 0.** What it prints is read exactly as an `env_file` is
+(the same reader): blank lines and `#` comments are skipped, nothing is
+expanded or unquoted, a key yardr sets itself is ignored.
+
+- The command is run without a shell. A string is split at white space and
+  nothing in it is expanded (no quotes, `$VAR`, pipes or `~` in an
+  argument); a word with a space in it takes the list form,
+  `--set 'env_command=["op","inject","-i","my template.env"]'`. Anything
+  more goes in a script. A leading `~/` of the program itself is the
+  daemon user's home; a bare name is looked up on the daemon's `PATH`.
+- It runs in the resident's directory (the yard's home for a resident
+  without one), with the daemon's environment plus `YARDR_RESIDENT` (who is
+  asked for) and `YARDR_HOME`, and nothing on stdin. It has 10 seconds: a
+  tool that waits for a password or a fingerprint is a failure, so the tool
+  must be able to answer unattended.
+- It is asked again every time the environment is needed, and nothing is
+  kept in between: at each start of the resident, for each call the daemon
+  makes as the resident (an [issue's status](links.md)), and by `yardr
+  resident show` and a pack's plan, which run it to list the key names.
+- With an `env_file` too, both are read, and **the command's value wins**
+  for a key in both.
+- If the command is not found, exits non-zero, does not answer in time or
+  prints a line that is not `KEY=VALUE`, the resident does not start, as
+  with a refused `env_file`: a failed start, backed off, and a
+  `resident_blocked` event naming the command, how it ended and the last
+  lines of its **stderr**. Its stdout is never shown, and a bad line is
+  named by its number. So a provider should not print a secret on stderr.
+- The command line is stored in the yard and shown by `yardr resident
+  show`: it is not a place for a secret. Give the tool its own token
+  through the daemon's environment or the tool's own login.
+- `yardr doctor` notes a resident whose `env_command` names a program it
+  does not find. It does not run it.
+
+**varlock** ([CLI reference](https://varlock.dev/reference/cli/load-and-run/):
+`varlock load`, "`--format env`: dotenv lines … with raw values"). In a
+directory with the resident's `.env.schema`:
+
+```sh
+yardr resident add mayor --dir ~/projects --set env_command="varlock load --format env" …
+```
+
+**1Password** ([`op inject`](https://www.1password.dev/cli/reference/commands/inject/):
+it fills the `{{ op://vault/item/field }}` references of a template and,
+without `--out-file`, writes the result to stdout). The template holds
+names and references, no values:
+
+```sh
+cat > ~/.yardr/residents/mayor.env.tpl <<'END'
+LINEAR_API_KEY={{ op://yard/linear-mayor/credential }}
+GITHUB_TOKEN={{ op://yard/github-mayor/token }}
+END
+yardr resident add mayor --set 'env_command=["op","inject","-i","/Users/jo/.yardr/residents/mayor.env.tpl"]' …
+```
+
+Both commands are taken from the tools' documentation as linked; neither
+was run against a real varlock or a real 1Password vault for this page.
+Check yours with `yardr resident show mayor`, which lists the names it got
+or says why it got none. If a tool quotes its values, the quotes are part
+of the value yardr passes on: have it print them raw. Not checked at all:
+sops, the macOS keychain, any other tool. For those, and for anything that
+needs a shell, the provider is a script of yours that keeps the contract:
+
+```sh
+#!/bin/sh
+# ~/.yardr/residents/mayor-env: prints the mayor's environment
+printf 'LINEAR_API_KEY=%s\n' "$(your-secrets-tool get linear-mayor)"
+```
+
+What this does and does not do. The values are no longer plain text under
+`~/.yardr`: yardr holds them in memory only, for the request that opens the
+pane or for one call, and writes them to no file, event or log. But the
+agent still has them in its environment, as with an `env_file`, and can
+read and print them. And the provider is a command anyone running as the
+same user can run: another agent on the machine gets the same answer by
+running it. A provider moves the secrets out of yardr's files; it does not
+keep them from the agents.
+
 ### As a GitHub App
 
 With a personal token a resident's comments are the token's owner's; in a

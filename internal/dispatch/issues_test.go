@@ -514,3 +514,84 @@ func TestIssuesOfTwoSources(t *testing.T) {
 	want(t, "events", y.said(t, "yard-a"), []string{"started skipped: already_past", "started: In Progress (was Todo)",
 		"review: In Review (was In Progress)", "done: closed (was open)", "done: Done (was In Review)"})
 }
+
+// A resident whose credential comes from a provider (env_command) has its
+// issue moved with what the provider prints, asked again for each move; with
+// an env_file too, the provider's value wins. A provider that fails makes
+// the move wait with nothing sent, saying which command and how it ended,
+// and what it printed is in no event or log.
+func TestIssueMoveUsesTheResidentsEnvCommand(t *testing.T) {
+	y := newIssueYard(t)
+	var logged bytes.Buffer
+	y.d.Log = slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	dir := t.TempDir()
+	cmd, runs := filepath.Join(dir, "provider"), filepath.Join(dir, "runs")
+	provider := func(body string) {
+		t.Helper()
+		must(t, os.WriteFile(cmd, []byte("#!/bin/sh\necho \"$YARDR_RESIDENT in $YARDR_HOME\" >> "+runs+"\n"+body+"\n"), 0o700))
+	}
+	mayor := func(cfg map[string]any) {
+		t.Helper()
+		cfg[store.SetState] = "linear,github"
+		_, err := y.api.PutResident(context.Background(), store.Resident{Name: "mayor", Runner: "fake", Config: cfg}, "me")
+		must(t, err)
+	}
+	y.d.Home = dir
+
+	// The provider alone.
+	provider(`echo "LINEAR_API_KEY=lin_api_mayor"`)
+	mayor(map[string]any{"env_command": cmd})
+	y.bead(t, "yard-a", issueA)
+	y.to(t, "yard-a", "new")
+	want(t, "the issue", y.src.Status("linear", "YRD-1"), "In Progress")
+	raw, err := os.ReadFile(runs)
+	must(t, err)
+	want(t, "the provider's runs", string(raw), "mayor in "+dir+"\n")
+
+	// With an env_file whose key the source refuses: the provider's wins,
+	// and the file's other key is still the resident's.
+	must(t, os.WriteFile(y.env, []byte("LINEAR_API_KEY=lin_api_other\nGITHUB_TOKEN=gh-mayor\n"), 0o600))
+	mayor(map[string]any{"env_file": y.env, "env_command": cmd})
+	y.to(t, "yard-a", "review")
+	want(t, "the issue", y.src.Status("linear", "YRD-1"), "In Review")
+	y.bead(t, "yard-g", issueGH)
+	y.to(t, "yard-g", "new")
+	want(t, "moves left", len(y.pending(t)), 0)
+
+	// The provider fails: the move waits, the source is not asked.
+	provider(`echo "LINEAR_API_KEY=lin_api_mayor"; echo "vault is locked" >&2; exit 3`)
+	asked := y.asked.Load()
+	y.to(t, "yard-a", "merged")
+	ms := y.pending(t)
+	if len(ms) != 1 || ms[0].Attempts != 1 || y.asked.Load() != asked {
+		t.Fatalf("moves %+v, asked %d more", ms, y.asked.Load()-asked)
+	}
+	for _, w := range []string{"env_command " + cmd, "exit status 3", "vault is locked"} {
+		if !strings.Contains(ms[0].Error, w) {
+			t.Errorf("the move's error %q lacks %q", ms[0].Error, w)
+		}
+	}
+	// It does not set the name: said as such, with where it was looked for.
+	provider(`echo "OTHER=lin_api_mayor"`)
+	mayor(map[string]any{"env_command": cmd})
+	y.now = y.now.Add(time.Minute)
+	y.pass(t)
+	if ms = y.pending(t); len(ms) != 1 || !strings.Contains(ms[0].Error, "resident mayor's env_command "+cmd+" does not set LINEAR_API_KEY") {
+		t.Fatalf("moves %+v", ms)
+	}
+	// It answers again: the move is made.
+	provider(`echo "LINEAR_API_KEY=lin_api_mayor"`)
+	y.now = y.now.Add(time.Hour)
+	y.pass(t)
+	want(t, "the issue", y.src.Status("linear", "YRD-1"), "Done")
+
+	evs, err := y.api.EventsSince(context.Background(), 0, 0)
+	must(t, err)
+	all, err := json.Marshal(evs)
+	must(t, err)
+	for _, s := range []string{"lin_api_mayor", "lin_api_other", "gh-mayor"} {
+		if strings.Contains(string(all), s) || strings.Contains(logged.String(), s) {
+			t.Fatalf("%s shows in the events or the log:\n%s", s, logged.String())
+		}
+	}
+}

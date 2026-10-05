@@ -35,7 +35,7 @@ type Message struct {
 // Replier is what an Adapter whose source can be answered in adds.
 type Replier interface {
 	// Credential is the caller's credential for the source, read from the
-	// calling process's environment (a resident's env_file sets it).
+	// calling process's environment (a resident's env_file or env_command sets it).
 	Credential(ctx context.Context) (string, error)
 	// Reply posts body in the thread of the delivery env, under the
 	// conversation of message to ("" for the delivery's own), marked with
@@ -147,7 +147,7 @@ func CredentialNames(source string) string {
 func envCredential(name string) (string, error) {
 	cred, err := namedCredential(name, os.Getenv)
 	if err != nil {
-		return "", fmt.Errorf("%s is not set in this environment: answering in a source takes your own credential (a resident's env_file sets it)", name)
+		return "", fmt.Errorf("%s is not set in this environment: answering in a source takes your own credential (a resident's env_file or env_command sets it)", name)
 	}
 	return cred, nil
 }
@@ -464,14 +464,14 @@ func (GitHub) Credential(ctx context.Context) (string, error) {
 		return cred, err
 	}
 	if r := config.Getenv("RESIDENT"); r != "" {
-		return "", fmt.Errorf("resident %s has no GitHub credential in this environment, and a resident does not speak with the gh login of whoever runs the yard: put %s and %s (a GitHub App) or %s (a personal token) in its env_file and restart it",
+		return "", fmt.Errorf("resident %s has no GitHub credential in this environment, and a resident does not speak with the gh login of whoever runs the yard: put %s and %s (a GitHub App) or %s (a personal token) in its env_file, or have its env_command print them, and restart it",
 			r, githubAppIDName, githubAppKeyName, githubTokenName)
 	}
 	out, err := exec.CommandContext(ctx, "gh", "auth", "token").Output()
 	if tok := strings.TrimSpace(string(out)); err == nil && tok != "" {
 		return tok, nil
 	}
-	return "", fmt.Errorf("neither a GitHub App (%s and %s) nor %s is set in this environment and `gh auth token` gave none: answering in a source takes your own credential (a resident's env_file sets it)",
+	return "", fmt.Errorf("neither a GitHub App (%s and %s) nor %s is set in this environment and `gh auth token` gave none: answering in a source takes your own credential (a resident's env_file or env_command sets it)",
 		githubAppIDName, githubAppKeyName, githubTokenName)
 }
 

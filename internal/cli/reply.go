@@ -74,7 +74,7 @@ yardr thread show).
 The call is made from this process with your own credential, from your
 environment: LINEAR_API_KEY; for GitHub a GitHub App (GITHUB_APP_ID and
 GITHUB_APP_PRIVATE_KEY_FILE, the reply is the App's bot's), else
-GITHUB_TOKEN. A resident's env_file sets them; the server never sees them.
+GITHUB_TOKEN. A resident's env_file or env_command sets them; the server never sees them.
 With none of them a person's own shell speaks as gh is logged in (gh auth
 token); a resident's session is refused, since that login is not its own.
 yardr only types: what is said, and whether to say it, is the resident's.

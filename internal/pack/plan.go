@@ -1227,22 +1227,18 @@ func sameSet(a, b []string) bool {
 	return slices.Equal(slices.Compact(a), slices.Compact(b))
 }
 
-// appKeyOf reports why the key of the GitHub App f names cannot be signed
-// with; nil when f names no App, or for another source.
-func appKeyOf(source string, f *config.EnvFile) error {
+// appKeyOf reports why the key of the GitHub App env names cannot be signed
+// with; nil when env names no App, or for another source.
+func appKeyOf(source string, env *config.ResidentEnv) error {
 	if source != "github" {
 		return nil
 	}
-	file := map[string]string{}
-	for _, e := range f.Env {
-		k, v, _ := strings.Cut(e, "=")
-		file[k] = strings.TrimSpace(v)
-	}
+	get := func(name string) string { return strings.TrimSpace(env.Get(name)) }
 	gh, _ := hooks.ForwarderFor(source)
-	if _, err := gh.CredentialFrom(func(name string) string { return file[name] }); err != nil {
-		return fmt.Errorf("%s: %w", f.Path, err)
+	if _, err := gh.CredentialFrom(get); err != nil {
+		return fmt.Errorf("%s: %w", env.From(), err)
 	}
-	if key := file["GITHUB_APP_PRIVATE_KEY_FILE"]; key != "" && file["GITHUB_APP_ID"] != "" {
+	if key := get("GITHUB_APP_PRIVATE_KEY_FILE"); key != "" && get("GITHUB_APP_ID") != "" {
 		return hooks.CheckGitHubAppKey(key)
 	}
 	return nil
@@ -1281,39 +1277,34 @@ func (b *planner) needs(source, resident string, exists bool, r store.Resident) 
 		out = append(out, Need{"identity", missing, fmt.Sprintf("yardr resident identity %s --source %s --id <id> --key <key>", resident, source)})
 	}
 	// The names a source's reply credential goes by in a resident's
-	// env_file (hooks.CredentialWays): for GitHub an App's two, or a token.
+	// environment, its env_file's and its env_command's
+	// (hooks.CredentialWays): for GitHub an App's two, or a token.
 	if len(hooks.CredentialWays(source)) > 0 {
 		names := hooks.CredentialNames(source)
-		path, _ := r.Config["env_file"].(string)
 		if strings.Contains(names, ",") {
 			names += "," // GITHUB_APP_ID and ..., or GITHUB_TOKEN, in resident ...
 		}
-		n := Need{"credential", missing, fmt.Sprintf("%s in resident %s's env_file, to answer in %s", names, resident, source)}
-		switch {
-		case !exists:
-		case path == "":
-			n.Detail += ": it has no env_file"
-		default:
-			f, err := config.ReadEnvFile(path)
-			way, set := hooks.CredentialWay{}, false
-			if err == nil {
-				way, set = hooks.CredentialSet(source, f.Keys())
-			}
+		n := Need{"credential", missing, fmt.Sprintf("%s in resident %s's env_file or from its env_command, to answer in %s", names, resident, source)}
+		if exists {
+			env, err := config.ReadResidentEnv(b.ctx, r.Name, r.Dir, b.o.Home, r.Config)
+			way, set := hooks.CredentialSet(source, env.Keys())
 			switch {
+			case !env.Set():
+				n.Detail += ": it has neither"
 			case err != nil:
 				n.Detail += ": " + err.Error()
 			case !set:
-				n.Detail += ": " + f.Path + " does not set it"
+				n.Detail += ": " + env.From() + " does not set it"
 			default:
 				verb := " is set in "
 				if len(way.Names) > 1 {
 					verb = " are set in "
 				}
-				n = Need{"credential", ok, strings.Join(way.Names, " and ") + verb + f.Path}
+				n = Need{"credential", ok, strings.Join(way.Names, " and ") + verb + env.From()}
 				// An App's key is in a file of its own, held to the rule
 				// the env_file is; a key that cannot be read answers
 				// nothing.
-				if err := appKeyOf(source, f); err != nil {
+				if err := appKeyOf(source, env); err != nil {
 					n = Need{"credential", missing, err.Error()}
 				}
 			}

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -54,6 +55,9 @@ type yardState struct {
 	// Parties are what is to know about the yard's names: a resident named
 	// as the operator, members of groups that are no party of the yard.
 	Parties []string `json:"parties,omitempty"`
+	// EnvCommands are the residents whose env_command names a program
+	// this command does not find.
+	EnvCommands []string `json:"env_commands,omitempty"`
 }
 
 // mayorState is the mayor: whether the resident exists, and its session.
@@ -257,6 +261,12 @@ func readState(ctx context.Context, cfg *config.Config, st store.API, residents 
 			}
 		} else if failing {
 			state.Failing = append(state.Failing, failingResident{r.Name, r.State, r.Failures, reason})
+		}
+		// Not run here: it may ask a vault to unlock. Only whether its
+		// program is there, as this command finds it; the daemon's PATH is
+		// its own.
+		if err := config.EnvCommandMissing(cmp.Or(r.Dir, cfg.Home), r.Config); err != nil {
+			state.EnvCommands = append(state.EnvCommands, fmt.Sprintf("resident %s does not start without its environment: %v", r.Name, err))
 		}
 	}
 	open, err := st.ListBeads(ctx, store.BeadFilter{})
@@ -513,6 +523,9 @@ func (s *yardState) lines(home string) []docLine {
 	}
 	if s.Mail != nil {
 		out = append(out, s.Mail.line(yardr))
+	}
+	for _, n := range s.EnvCommands {
+		out = append(out, docLine{tagNote, "resident", n})
 	}
 	for _, n := range s.Parties {
 		out = append(out, docLine{tagNote, "names", n})

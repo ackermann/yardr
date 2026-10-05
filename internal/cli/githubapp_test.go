@@ -218,7 +218,7 @@ func TestResidentWithoutGitHubCredentialIsRefused(t *testing.T) {
 	if err := os.WriteFile(r.Config["env_file"].(string), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if show, err = run(t, y.a.residentCmd(), "show", "mayor"); err != nil || !strings.Contains(show, "  github credential: none: it cannot answer in github until its env_file sets ") {
+	if show, err = run(t, y.a.residentCmd(), "show", "mayor"); err != nil || !strings.Contains(show, "  github credential: none: it cannot answer in github until its env_file or env_command sets ") {
 		t.Fatalf("resident show: %v\n%s", err, show)
 	}
 

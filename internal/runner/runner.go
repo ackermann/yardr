@@ -72,22 +72,7 @@ func str(cfg map[string]any, key, def string) string {
 }
 
 func strs(cfg map[string]any, key string) []string {
-	switch v := cfg[key].(type) {
-	case []any:
-		out := make([]string, 0, len(v))
-		for _, x := range v {
-			out = append(out, fmt.Sprint(x))
-		}
-		return out
-	case []string:
-		return v
-	case string:
-		if v == "" {
-			return nil
-		}
-		return strings.Fields(v)
-	}
-	return nil
+	return config.StringList(cfg[key])
 }
 
 // Brief renders the instructions an agent session starts from: the group's
