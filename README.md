@@ -34,13 +34,14 @@ yardr               # 2. the onboarding: answer the form; it starts the yard
 
 `go install .` from a checkout is one way. The other is a release archive,
 which needs no Go: `yardr_<version>_<os>_<arch>.tar.gz` for darwin and linux,
-arm64 and amd64, with a `checksums.txt`. The archives need a login while the
-repository is private, so download with `gh`:
+arm64 and amd64. `checksums.txt` is a file of the release beside the
+archives, not inside them. The archives need a login while the repository is
+private, so download with `gh`:
 
 ```sh
 gh release download v1.2.3 --repo McKean/yardr \
   --pattern 'yardr_1.2.3_darwin_arm64.tar.gz' --pattern checksums.txt
-shasum -a 256 --ignore-missing -c checksums.txt   # must say OK
+shasum -a 256 --ignore-missing -c checksums.txt   # must say OK; Linux: sha256sum --ignore-missing -c checksums.txt
 tar -xzf yardr_1.2.3_darwin_arm64.tar.gz yardr && mv yardr ~/.local/bin/
 yardr --version                                   # v1.2.3 (<revision>); yardr version prints the same
 ```
@@ -48,7 +49,10 @@ yardr --version                                   # v1.2.3 (<revision>); yardr v
 Either way yardr still needs git, herdr and an agent harness (claude, codex,
 …) on PATH; `yardr doctor` says which are missing and where to get them.
 [docs/install.md](docs/install.md) has the details, and what macOS does with
-a downloaded binary that is not notarised.
+a downloaded binary that is not notarised. It also has the order of an
+install on a server without a desktop
+([On a server](docs/install.md#on-a-server-no-desktop)). An agent that
+installs or sets up yardr for you reads [docs/agents.md](docs/agents.md).
 
 The onboarding asks for the agent harness yardr starts by default (each herdr
 kind, marked installed or not), the mayor's name (the always-on resident that

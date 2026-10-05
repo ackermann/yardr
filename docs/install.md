@@ -8,9 +8,10 @@ those are missing.
 ## From a release archive
 
 Each release has four archives, `yardr_<version>_<os>_<arch>.tar.gz` for
-darwin/arm64, darwin/amd64, linux/amd64 and linux/arm64, and a
-`checksums.txt` with the sha256 of each. An archive holds `yardr` and the
-README.
+darwin/arm64, darwin/amd64, linux/amd64 and linux/arm64. An archive holds
+`yardr` and the README. `checksums.txt`, with the sha256 of each archive, is
+a file of the release beside the archives, not inside them: download it with
+the archive.
 
 **The archives need a login while the repository is private.** A release
 asset of a private repository is served only to an account that can read the
@@ -130,6 +131,80 @@ every start fails with herdr's `server_not_running`, and `yardr doctor` says
   (`Environment=PATH=…`).
 
 `yardr daemon install` installs yardr's daemon, not herdr's server.
+
+## On a server (no desktop)
+
+A machine reached over ssh, with nobody at a terminal of its own. The order
+matters: each step is what the next one needs. An agent doing this for
+someone reads [agents.md](agents.md) first.
+
+1. **Put the programs where every shell finds them.** yardr, herdr and the
+   harness have to be on the PATH of three shells: yours, a shell without a
+   terminal (`ssh host yardr doctor`), and a systemd user service. The last
+   two read no profile, and on many systems `~/.local/bin` is on PATH only
+   through `~/.profile`. Either install into a directory all three have
+   (`/usr/local/bin`), or keep `~/.local/bin` and name it where it is
+   missing: `yardr doctor` says which program your login shell finds that
+   the shell it runs in does not, and in which directory.
+
+2. **Run herdr's server as a service**, with the systemd user unit under
+   [herdr's server](#herdrs-server). Nothing starts an agent before it
+   runs.
+
+3. **Let your services run with nobody logged in:**
+   `loginctl enable-linger "$USER"`. Without it a systemd user unit ends
+   with your last ssh session
+   ([configuration.md](configuration.md#login-services)).
+
+4. **Check that the harness works, not only that it is installed.** Log in
+   to it as its own documentation says, then:
+
+   ```sh
+   yardr doctor --try     # one real call to each harness: costs a model call
+   ```
+
+   `ok <harness> tried: one real call answered` is the line to wait for. A
+   harness's own status is not that: on the install this part comes from,
+   `codex login status` said logged in and a real call was refused.
+   `--try` runs the call with stdin closed, as a service would; by hand that
+   is `codex exec --skip-git-repo-check 'Reply ok' < /dev/null`
+   ([the call for each kind](doctor.md#--try-one-real-call-to-each-harness)).
+   It does not find a harness too old for the flags herdr starts it with:
+   that shows when the mayor's start fails. `yardr init --start` then
+   prints the last lines of its pane, and `yardr doctor` the reason of the
+   last failed start. Update the harness then.
+
+5. **Create the yard and install the daemon**, from a login shell (an ssh
+   session is one; `ssh host cmd` is not):
+
+   ```sh
+   yardr init --harness codex --start     # no form: flags only, see yardr init --help
+   yardr daemon install                   # a systemd user unit, started now and at boot
+   yardr doctor
+   ```
+
+   `yardr daemon install` writes the PATH of the shell it runs in into the
+   unit, and names the programs that PATH lacks. Run it again after the PATH
+   changes ([configuration.md](configuration.md#login-services)).
+
+6. **Look at the mayor.** `yardr init --start` and `yardr doctor` print its
+   herdr agent (`<yard>-mayor`, `yardr-mayor` for `~/.yardr`):
+
+   ```sh
+   herdr agent attach yardr-mayor     # its pane in this terminal; ctrl+b q detaches
+   yardr chat                         # or talk to it by mail, in one view
+   ```
+
+   Both need a terminal: `ssh -t host herdr agent attach yardr-mayor` for one
+   command over ssh.
+
+On Linux the checksum line of [the download](#from-a-release-archive) is
+`sha256sum --ignore-missing -c checksums.txt`. Without `--ignore-missing` it
+fails on the three archives you did not download.
+
+This part is written from one such install (v0.1.0, Ubuntu, 5 Oct 2026) and
+from herdr's documentation. yardr's tests run on no machine without a
+desktop.
 
 ## A yard somewhere else
 
