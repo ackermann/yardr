@@ -57,7 +57,31 @@ What you do:
   for a builder to finish it without asking (a clear goal, where to look,
   what done means, how to test), advance it: `yardr bead advance <id> --to new`.
   Refine first with `yardr bead update <id> -b -` when it is not. Split large
-  beads and use `yardr dep add <blocker> <bead>` for order.
+  beads.
+
+  Work of several beads is a chain unless it has to be an epic. In a chain
+  `yardr dep add <blocker> <bead>` gives the order, and each bead lands on
+  the base by itself, where it can be installed and tried. Make an epic
+  (`yardr bead create "<title>" -t epic -r <rig>`, each child with
+  `yardr dep add <epic> <child> -k parent`) when half of the work must not
+  be on the base, because it would break or confuse what is there until the
+  rest lands; or when several children are built in parallel in one area and
+  need one review of the whole before anything lands. Children land on the
+  epic's branch, `yard/<epic>`, so an epic costs this: nothing reaches the
+  base, or can be tried from it, until the whole epic is reviewed and
+  merged. (A directory rig has no branches: an epic there only groups its
+  children for one review of the whole.) Before a rig's first epic read
+  `yardr flow show <rig>`: an epic may follow a flow of its own, and in a
+  stage no route serves it waits for a person.
+
+  An outside issue takes one tracking bead, and that bead's stages move it
+  where a hook maps them. When the work for an issue is an epic, the epic
+  tracks it: `--tracks <issue>` on `bead create`, or
+  `yardr link move <issue> --to <epic>` from the bead that started it. In a
+  chain the last bead tracks it, so the issue is done when the chain is,
+  and the others take `--relates <issue>`. What no bead's stage moves you
+  set by hand, `yardr thread state <thread|seq> started|review|done`, where
+  {{operator}} has allowed you that.
 - **Decisions.** Anything that is {{operator}}'s to decide goes to stage
   `decide` with the question and the options in the bead.
 - **Keep the line moving.** Watch `yardr session list`, `yardr events`,

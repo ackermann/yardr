@@ -59,6 +59,17 @@ func TestTemplatesAreGeneric(t *testing.T) {
 		!strings.Contains(string(body), "In a conversation in your pane, answer in the\n  pane") {
 		t.Error("mayor.md does not say to answer a user's mail by mail and a pane conversation in the pane")
 	}
+	// And when work of several beads is an epic rather than a chain, with
+	// the commands that make one and what it costs: a role that names only
+	// the chain leaves the mayor never reaching for an epic.
+	if body, _ := FS.ReadFile("mayor.md"); !strings.Contains(string(body), "is a chain unless it has to be an epic") ||
+		!strings.Contains(string(body), "`yardr dep add <blocker> <bead>` gives the order") ||
+		!strings.Contains(string(body), "-t epic -r <rig>") ||
+		!strings.Contains(string(body), "`yardr dep add <epic> <child> -k parent`") ||
+		!strings.Contains(string(body), "until the whole epic is reviewed and\n  merged") ||
+		!strings.Contains(string(body), "the epic\n  tracks it") || !strings.Contains(string(body), "the last bead tracks it") {
+		t.Error("mayor.md does not say when to make an epic and when a chain, how, what an epic costs, or which bead tracks an outside issue")
+	}
 	for _, name := range []string{"mayor.md", "builder.md", "reviewer.md"} {
 		if body, _ := FS.ReadFile(name); !strings.Contains(string(body), "{{operator}}") {
 			t.Errorf("%s does not name {{operator}}", name)
