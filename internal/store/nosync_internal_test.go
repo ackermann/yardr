@@ -18,8 +18,8 @@ func TestOpenSyncsUnlessToldNotTo(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := s.db.NoSync; got != want {
-			t.Errorf("YARDR_%s=%q: store opened with NoSync %v, want %v", NoSyncEnv, value, got, want)
+		if s.db.NoSync != want || s.db.NoGrowSync != want {
+			t.Errorf("YARDR_%s=%q: store opened with NoSync %v and NoGrowSync %v, want %v", NoSyncEnv, value, s.db.NoSync, s.db.NoGrowSync, want)
 		}
 		if err := s.Close(context.Background()); err != nil {
 			t.Fatal(err)

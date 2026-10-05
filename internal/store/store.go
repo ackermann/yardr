@@ -114,7 +114,7 @@ type Store struct {
 }
 
 // NoSyncEnv names the variable that, set to 1, opens the store without
-// syncing each commit to the disk. It is for tests: a commit's sync is some
+// syncing each commit, and each growth of the file, to the disk. It is for tests: a commit's sync is some
 // 30ms on macOS and a test suite makes thousands, which was two thirds of
 // the gate's time (yardr-a9qf). A store opened so is whole after its process
 // dies, and can be lost when the machine does, so nothing but a test's
@@ -125,7 +125,8 @@ const NoSyncEnv = "STORE_NOSYNC"
 // if another process holds it, and with ErrNewerSchema if a newer yardr
 // wrote it.
 func Open(path string) (*Store, error) {
-	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: time.Second, NoSync: config.Getenv(NoSyncEnv) == "1"})
+	noSync := config.Getenv(NoSyncEnv) == "1"
+	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: time.Second, NoSync: noSync, NoGrowSync: noSync})
 	if errors.Is(err, bolt.ErrTimeout) {
 		return nil, fmt.Errorf("%s: %w", path, ErrLocked)
 	} else if err != nil {
