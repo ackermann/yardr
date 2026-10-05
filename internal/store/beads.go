@@ -211,6 +211,10 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 		if err := checkCreateStage(f, stage); err != nil {
 			return err
 		}
+		// A part is created before it can be an epic's child.
+		if err := checkPart(w.Tx, f, &beadRow{Bead: Bead{Type: typ}}, stage); err != nil {
+			return err
+		}
 		row := &beadRow{Bead: Bead{
 			Title: nb.Title, Body: nb.Body, Type: typ, Stage: stage,
 			Status: "open", Priority: nb.Priority, Labels: dedupe(nb.Labels), CreatedAt: now(), CreatedBy: &actor,
@@ -662,6 +666,9 @@ func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor 
 				return "", nil, err
 			}
 			data["to"] = stage
+			if err := checkPart(w.Tx, f, b, stage); err != nil {
+				return "", nil, err
+			}
 			g, err := stageGroup(w.Tx, b)
 			if err != nil {
 				return "", nil, err

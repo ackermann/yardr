@@ -4,7 +4,10 @@ The whole of an epic is reviewed here: branch `yard/<epic>`, which the
 integrator already rebased onto `main` and gated. The brief says the bead is
 an epic and lists its children. The children were each reviewed when they
 landed on the epic branch; the job here is the thing nobody has seen yet: the
-sum.
+sum. Children of type `part` are the exception: they were not reviewed or
+fully gated one by one (they landed under the light gate, straight from
+their builders), so review each part as you would a bead of its own, and
+name each in your note.
 
 1. Read the epic and every child (`yardr bead show <child>` for each; their
    notes say what was verified). The diff is `git diff main...HEAD`; it is

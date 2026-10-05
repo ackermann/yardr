@@ -157,7 +157,7 @@ func (a *app) daemonCmd() *cobra.Command {
 
 func (a *app) rigCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "rig", Short: "Repositories (or plain directories) beads are worked in"}
-	var base, clone, check, kind string
+	var base, clone, check, checkLight, kind string
 	var allowNoCheck bool
 	add := &cobra.Command{
 		Use:   "add <name> [path]",
@@ -172,6 +172,7 @@ other directory a dir rig; rig add says which it took.`,
   yardr rig add webapp --clone git@github.com:me/webapp.git   # clones to ~/.yardr/rigs/webapp
   yardr rig add legacy ~/src/legacy --base origin/master
   yardr rig add webapp ~/projects/webapp --check 'make test'   # overrides .yardr/check
+  yardr rig add webapp ~/projects/webapp --check 'make test' --check-light 'make vet'   # and its light gate
   yardr rig add scratch ~/src/scratch --allow-no-check         # no gate passes`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(c *cobra.Command, args []string) error {
@@ -221,7 +222,7 @@ other directory a dir rig; rig add says which it took.`,
 				if c.Flags().Changed("base") {
 					return fmt.Errorf("a dir rig has no base; drop --base, or register a git checkout")
 				}
-				r := store.Rig{Name: name, Path: path, Kind: store.RigDir, Check: check, AllowNoCheck: allowNoCheck}
+				r := store.Rig{Name: name, Path: path, Kind: store.RigDir, Check: check, CheckLight: checkLight, AllowNoCheck: allowNoCheck}
 				if err := st.PutRig(c.Context(), r, a.who()); err != nil {
 					return err
 				}
@@ -243,7 +244,7 @@ other directory a dir rig; rig add says which it took.`,
 				return fmt.Errorf("base %q does not resolve in %s (found: %s); pass --base",
 					base, path, strings.Join(strings.Fields(string(refs)), ", "))
 			}
-			r := store.Rig{Name: name, Path: path, Kind: store.RigGit, Base: base, Check: check, AllowNoCheck: allowNoCheck}
+			r := store.Rig{Name: name, Path: path, Kind: store.RigGit, Base: base, Check: check, CheckLight: checkLight, AllowNoCheck: allowNoCheck}
 			if err := st.PutRig(c.Context(), r, a.who()); err != nil {
 				return err
 			}
@@ -257,6 +258,7 @@ other directory a dir rig; rig add says which it took.`,
 	add.Flags().StringVar(&kind, "kind", "", "git or dir (default: git when the path is a git checkout, else dir)")
 	add.Flags().StringVar(&clone, "clone", "", "clone this URL first (into [path] or ~/.yardr/rigs/<name>)")
 	add.Flags().StringVar(&check, "check", "", "merge gate command (sh -c), overriding the repo's "+rigcheck.RepoPath)
+	add.Flags().StringVar(&checkLight, "check-light", "", "light gate command (sh -c), overriding the repo's "+rigcheck.LightPath+" (yardr rig check --light)")
 	add.Flags().BoolVar(&allowNoCheck, "allow-no-check", false, "let the gate pass when the rig has no check at all (default: no gate fails)")
 	show := &cobra.Command{
 		Use: "show <rig>", Short: "Show a rig: path, kind, base, flow and gate", Args: cobra.ExactArgs(1),
@@ -394,6 +396,7 @@ func (a *app) rigCheckCmd() *cobra.Command {
 	var dir string
 	var tail int
 	var timeout time.Duration
+	var light bool
 	cmd := &cobra.Command{
 		Use:   "check <rig>",
 		Short: "Run the rig's merge gate in a directory and report pass or fail",
@@ -408,6 +411,21 @@ fails ("no gate") unless it was added with --allow-no-check.
 A dir rig has no base: its ` + rigcheck.RepoPath + ` is read from the rig's directory
 and run in --dir (default the rig's directory). A dir rig without one passes
 ("no gate"): nothing of it merges anywhere.
+
+--light runs the rig's light gate instead: the store's --check-light if set,
+else ` + rigcheck.LightPath + ` at the tip of the base, found and run under
+every rule here (read from the base, the timeout, the exit statuses). It is
+for a part of an epic, which lands on the epic's branch, where the full gate
+still stands before the base moves (docs/pipeline.md, "Parts"). A rig without
+a light gate runs its full gate and says so in one line: --light never passes
+for want of a file. A rig whose gate is a store override has its light gate
+in the store too: ` + rigcheck.LightPath + ` in its repository is not read.
+
+Either gate gets ` + rigcheck.BaseVar + ` in its environment: the commit the
+repository's gate was read at (the tip of the base, as fetched), so a check
+can look at what the branch changed against it. Under a store override it is
+the rig's base as it resolves locally; it is unset when that does not
+resolve, and for a dir rig.
 
 The check is killed, with everything it started, once it has run for
 --timeout, which fails the gate; each git call that finds the gate is bounded
@@ -441,14 +459,19 @@ the store, or a prompt from a pack or the yard's home, stands in front of
 it: a note, never a failure. They are read on the base, as a brief reads
 them; yardr rig sources <rig> shows every source.`,
 		Example: `  yardr rig check yard                                   # in the rig itself
-  yardr rig check yard --dir ~/.yardr/worktrees/yard/yard-12   # in a bead's worktree`,
+  yardr rig check yard --dir ~/.yardr/worktrees/yard/yard-12   # in a bead's worktree
+  yardr rig check yard --light --dir ~/.yardr/worktrees/yard/yard-12   # the light gate, for a part of an epic`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			res, err := a.runRigCheck(c.Context(), args[0], dir, timeout)
+			res, err := a.runRigCheck(c.Context(), args[0], dir, timeout, light)
 			if err != nil {
 				return checkNotRun{err}
 			}
 			if err := a.out(res, func() {
+				// First, so nobody reads the full gate's output as the light one's.
+				if res.Fallback != "" {
+					fmt.Println(res.Fallback)
+				}
 				// No gate has only yardr's own message, said below.
 				out := rigcheck.Tail(res.Output, tail)
 				switch {
@@ -472,6 +495,9 @@ them; yardr rig sources <rig> shows every source.`,
 				src := res.Source
 				if res.From != "" {
 					src += " from " + res.From
+				}
+				if res.Light {
+					src = "light gate, " + src
 				}
 				switch {
 				case res.Source == "" && res.Kind == store.RigDir:
@@ -522,12 +548,14 @@ them; yardr rig sources <rig> shows every source.`,
 	cmd.Flags().StringVar(&dir, "dir", "", "directory to run it in (default: the rig)")
 	cmd.Flags().IntVar(&tail, "tail", 40, "lines of output to show")
 	cmd.Flags().DurationVar(&timeout, "timeout", rigcheck.DefaultTimeout, "kill the check and fail after this long")
+	cmd.Flags().BoolVar(&light, "light", false, "run the rig's light gate ("+rigcheck.LightPath+"); the full one when the rig has none")
 	return cmd
 }
 
-// runRigCheck runs rig's gate in dir within timeout; an error means it could
-// not be run, as opposed to a failing Result.
-func (a *app) runRigCheck(ctx context.Context, rigName, dir string, timeout time.Duration) (*rigcheck.Result, error) {
+// runRigCheck runs rig's gate in dir within timeout, its light one when
+// light (see rigcheck.RunLight); an error means it could not be run, as
+// opposed to a failing Result.
+func (a *app) runRigCheck(ctx context.Context, rigName, dir string, timeout time.Duration, light bool) (*rigcheck.Result, error) {
 	st, err := a.store(ctx)
 	if err != nil {
 		return nil, err
@@ -556,7 +584,11 @@ func (a *app) runRigCheck(ctx context.Context, rigName, dir string, timeout time
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	res, err := rigcheck.Run(ctx, *rig, dir)
+	run := rigcheck.Run
+	if light {
+		run = rigcheck.RunLight
+	}
+	res, err := run(ctx, *rig, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -648,6 +680,9 @@ func rigCheckLine(r store.Rig) string {
 	}
 	if r.Check != "" {
 		line = r.Check + " (store override of " + rigcheck.RepoPath + ")"
+	}
+	if r.CheckLight != "" {
+		line += "; light gate: " + r.CheckLight + " (store override of " + rigcheck.LightPath + ")"
 	}
 	if r.AllowNoCheck {
 		line += "; allow_no_check: no gate passes"

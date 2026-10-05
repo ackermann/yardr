@@ -23,6 +23,23 @@
 // from the rig's directory as it is, and run in place. Without one a dir rig
 // passes ("no gate"), the opposite of a git rig on purpose: nothing of a dir
 // rig's merges anywhere, so there is no bar to lower.
+//
+// A rig may have a second, light gate (RunLight): `--check-light <cmd>` in
+// the store, or .yardr/check-light in the repo, found and run under every
+// rule above. It is for a branch that lands where the full gate still
+// stands before the base moves: a part of an epic, landing on the epic's
+// branch (docs/pipeline.md, "Parts"). A rig without one runs its full gate
+// instead and says so (Result.Fallback): asking for the light gate never
+// passes for want of a file. The light gate comes from where the full one
+// does: a rig whose gate is a store override has its light gate in the store
+// too, and a .yardr/check-light in its repo is not read.
+//
+// Either gate is told what it is compared with: YARDR_CHECK_BASE is the
+// commit the repo's gate was read at (the tip of the base, as fetched), so
+// a check can look at what the branch changed (git diff against the merge
+// base with it). Under a store override it is the rig's base as it resolves
+// locally, and it is unset when that does not resolve and for a dir rig: a
+// check that needs it must fail without it.
 package rigcheck
 
 import (
@@ -34,6 +51,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -43,6 +61,12 @@ import (
 
 // RepoPath is where a rig keeps its check, relative to the repo root.
 const RepoPath = ".yardr/check"
+
+// LightPath is where a rig keeps its light check, beside the full one.
+const LightPath = ".yardr/check-light"
+
+// BaseVar names the commit a check is compared with, in its environment.
+const BaseVar = "YARDR_CHECK_BASE"
 
 // FetchTimeout bounds the fetch of the base before the check is read: a
 // dead remote must not hang the gate, and with it the merge queue.
@@ -72,6 +96,13 @@ type Check struct {
 	Script []byte `json:"-"`
 	// File is a dir rig's .yardr/check, run where it is.
 	File string `json:"file,omitempty"`
+	// Base is the commit the check is compared with (BaseVar); "" when
+	// there is none.
+	Base string `json:"base,omitempty"`
+	// Light: this is the rig's light gate. Fallback says, when the light
+	// gate was asked for and the rig has none, why this is the full one.
+	Light    bool   `json:"light,omitempty"`
+	Fallback string `json:"fallback,omitempty"`
 }
 
 // None reports whether the rig has no gate.
@@ -81,11 +112,35 @@ func (c *Check) None() bool { return c.Source == "" }
 // .yardr/check is read from the base commit with git, not from any
 // checkout, so whatever a bead's branch holds there does not matter.
 func Resolve(ctx context.Context, rig store.Rig) (*Check, error) {
-	if rig.Check != "" {
-		return &Check{Source: "store", Cmd: rig.Check}, nil
+	return resolve(ctx, rig, false)
+}
+
+// ResolveLight finds the rig's light gate the same way (--check-light, else
+// .yardr/check-light on the base), or its full gate, with Fallback set,
+// when it has no light one.
+func ResolveLight(ctx context.Context, rig store.Rig) (*Check, error) {
+	return resolve(ctx, rig, true)
+}
+
+func resolve(ctx context.Context, rig store.Rig, light bool) (*Check, error) {
+	switch {
+	case light && rig.CheckLight != "":
+		return &Check{Source: "store", Cmd: rig.CheckLight, Base: localBase(ctx, rig), Light: true}, nil
+	case rig.Check != "":
+		c := &Check{Source: "store", Cmd: rig.Check, Base: localBase(ctx, rig)}
+		if light {
+			// The operator took the gate out of the repo's hands: a light
+			// gate in the repo does not take it back.
+			c.Fallback = fmt.Sprintf("rig %s has no light gate (its gate is a store override, with no --check-light beside it): running the full gate", rig.Name)
+		}
+		return c, nil
+	}
+	paths := []string{RepoPath}
+	if light {
+		paths = []string{LightPath, RepoPath}
 	}
 	if rig.IsDir() {
-		return resolveDir(rig)
+		return resolveDir(rig, paths)
 	}
 	ref, from, err := BaseRef(ctx, rig)
 	if err != nil {
@@ -96,37 +151,66 @@ func Resolve(ctx context.Context, rig store.Rig) (*Check, error) {
 		return nil, fmt.Errorf("rig %s: base %q does not resolve: %w", rig.Name, ref, err)
 	}
 	sha = strings.TrimSpace(sha)
-	// ls-tree tells "no check" apart from a failing git: an absent file is
-	// no gate, which Run decides about, not a broken one.
-	if out, err := git(ctx, rig.Path, "ls-tree", "--name-only", sha, "--", RepoPath); err != nil {
-		return nil, err
-	} else if strings.TrimSpace(out) == "" {
-		return &Check{From: from}, nil
+	for _, path := range paths {
+		// ls-tree tells "no check" apart from a failing git: an absent file is
+		// no gate, which Run decides about, not a broken one.
+		if out, err := git(ctx, rig.Path, "ls-tree", "--name-only", sha, "--", path); err != nil {
+			return nil, err
+		} else if strings.TrimSpace(out) == "" {
+			continue
+		}
+		script, err := git(ctx, rig.Path, "show", sha+":"+path)
+		if err != nil {
+			return nil, err
+		}
+		c := &Check{Source: "repo@" + sha[:min(12, len(sha))], From: from, Script: []byte(script), Base: sha, Light: path == LightPath}
+		if light && !c.Light {
+			c.Fallback = fmt.Sprintf("rig %s has no light gate (no --check-light, no %s on %s): running the full gate", rig.Name, LightPath, from)
+		}
+		return c, nil
 	}
-	script, err := git(ctx, rig.Path, "show", sha+":"+RepoPath)
-	if err != nil {
-		return nil, err
-	}
-	return &Check{Source: "repo@" + sha[:min(12, len(sha))], From: from, Script: []byte(script)}, nil
+	return &Check{From: from}, nil
 }
 
-// resolveDir finds a dir rig's .yardr/check in its directory.
-func resolveDir(rig store.Rig) (*Check, error) {
-	file := filepath.Join(rig.Path, filepath.FromSlash(RepoPath))
-	info, err := os.Stat(file)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return &Check{}, nil
-	case err != nil:
-		return nil, fmt.Errorf("rig %s: %w", rig.Name, err)
-	case info.IsDir():
-		return nil, fmt.Errorf("rig %s: %s is a directory, not a check", rig.Name, file)
+// localBase is the rig's base as it resolves in the rig's checkout, with no
+// fetch, or "": what a store override is compared with. The override never
+// needed the repository to resolve, so a base that does not is no error.
+func localBase(ctx context.Context, rig store.Rig) string {
+	if rig.IsDir() || rig.Base == "" {
+		return ""
 	}
-	script, err := os.ReadFile(file)
+	sha, err := git(ctx, rig.Path, "rev-parse", "--verify", "--quiet", rig.Base+"^{commit}")
 	if err != nil {
-		return nil, fmt.Errorf("rig %s: %w", rig.Name, err)
+		return ""
 	}
-	return &Check{Source: "dir", Script: script, File: file}, nil
+	return strings.TrimSpace(sha)
+}
+
+// resolveDir finds a dir rig's check in its directory: the first of paths
+// that is there.
+func resolveDir(rig store.Rig, paths []string) (*Check, error) {
+	for _, path := range paths {
+		file := filepath.Join(rig.Path, filepath.FromSlash(path))
+		info, err := os.Stat(file)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			continue
+		case err != nil:
+			return nil, fmt.Errorf("rig %s: %w", rig.Name, err)
+		case info.IsDir():
+			return nil, fmt.Errorf("rig %s: %s is a directory, not a check", rig.Name, file)
+		}
+		script, err := os.ReadFile(file)
+		if err != nil {
+			return nil, fmt.Errorf("rig %s: %w", rig.Name, err)
+		}
+		c := &Check{Source: "dir", Script: script, File: file, Light: path == LightPath}
+		if len(paths) > 1 && !c.Light {
+			c.Fallback = fmt.Sprintf("rig %s has no light gate (no --check-light, no %s in %s): running the full gate", rig.Name, LightPath, rig.Path)
+		}
+		return c, nil
+	}
+	return &Check{}, nil
 }
 
 // BaseRef is the ref the rig's repo config is read from, and a note on how
@@ -223,7 +307,13 @@ type Result struct {
 	Dir    string `json:"dir"`
 	Source string `json:"source"`
 	From   string `json:"from,omitempty"`
-	Pass   bool   `json:"pass"`
+	// Light: the rig's light gate ran. Fallback: it was asked for, the rig
+	// has none, and the full gate ran instead; the line says so.
+	Light    bool   `json:"light,omitempty"`
+	Fallback string `json:"light_fallback,omitempty"`
+	// Base is the commit the check was given to compare with (BaseVar).
+	Base string `json:"base,omitempty"`
+	Pass bool   `json:"pass"`
 	// ExitCode is the check's exit status (-1 when it was killed).
 	ExitCode int `json:"exit_code"`
 	// TimedOut: the check ran past the caller's deadline and was killed,
@@ -266,14 +356,25 @@ type Result struct {
 // at ctx's deadline is killed and fails (TimedOut); finding the gate past
 // the deadline is an error.
 func Run(ctx context.Context, rig store.Rig, dir string) (*Result, error) {
+	return run(ctx, rig, dir, false)
+}
+
+// RunLight is Run for the rig's light gate, and for its full gate when it
+// has no light one (Result.Fallback then says so).
+func RunLight(ctx context.Context, rig store.Rig, dir string) (*Result, error) {
+	return run(ctx, rig, dir, true)
+}
+
+func run(ctx context.Context, rig store.Rig, dir string, light bool) (*Result, error) {
 	if dir == "" {
 		dir = rig.Path
 	}
-	c, err := Resolve(ctx, rig)
+	c, err := resolve(ctx, rig, light)
 	if err != nil {
 		return nil, err
 	}
-	res := &Result{Rig: rig.Name, Kind: rig.Kind, Dir: dir, Source: c.Source, From: c.From}
+	res := &Result{Rig: rig.Name, Kind: rig.Kind, Dir: dir, Source: c.Source, From: c.From,
+		Light: c.Light, Fallback: c.Fallback, Base: c.Base}
 	if c.None() {
 		res.Pass = rig.AllowNoCheck || rig.IsDir()
 		if !res.Pass {
@@ -312,7 +413,13 @@ func Run(ctx context.Context, rig store.Rig, dir string) (*Result, error) {
 	var out bytes.Buffer
 	cmd.Dir = dir
 	cmd.Stdout, cmd.Stderr = &out, &out
-	cmd.Env = append(os.Environ(), "YARDR_RIG="+rig.Name)
+	// An outer check's base (a gate whose tests run a gate) is not this
+	// one's: it is dropped, and set only when this check has one.
+	cmd.Env = append(slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, BaseVar+"=") }),
+		"YARDR_RIG="+rig.Name)
+	if c.Base != "" {
+		cmd.Env = append(cmd.Env, BaseVar+"="+c.Base)
+	}
 	// The check runs in its own process group, killed whole at the
 	// deadline: killing only sh would leave go test and its test binaries
 	// running, holding the output open.

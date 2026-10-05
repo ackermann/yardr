@@ -396,6 +396,60 @@ stage's tab mirrors it with the stage in front, `<stage> [<epic>] <bead>`
 one command makes the child and keeps the epic from being ready until the
 child closes; `dep rm <epic> <child> -k parent` removes both edges.
 
+### Parts
+
+A part is a child of an epic that takes a shorter road to the epic's
+branch. It is for several pieces of one feature, built in parallel, that
+are not worth having on main one by one: each piece would otherwise pay
+for the full gate three times (builder, reviewer, refinery) and a review of
+its own, and the refinery lands one bead at a time. A part pays for a light
+gate, twice, and no review; the full gate and one review happen once, on the
+whole epic, before main moves. Everything about the epic itself is as above
+and below: nothing changes in what an epic needs to reach main.
+
+```sh
+yardr bead create "Epics" -t epic -r yardr
+yardr bead create "The parser" -t part -r yardr
+yardr dep add <epic> <part> -k parent
+```
+
+- **The type.** A part is a bead of type `part`. In rig yardr the type has
+  a flow of its own, [`.yardr/flows/type/part.flow`](../.yardr/flows/type/part.flow):
+  the rig's flow without `review` (`new -> approved on done`). The rig's
+  routes for `new`, `approved` and `decide` carry no type, so parts go to the
+  same builders and the same refinery as any bead.
+- **The light gate.** A rig's second gate, `.yardr/check-light`, read from
+  the base and run by `yardr rig check <rig> --light` under every rule of
+  the full one ([configuration.md](configuration.md#the-light-gate-yardrcheck-light)).
+  Rig yardr's formats, vets and builds everything and tests, without the
+  race detector, only the packages the branch touched. The builder runs it
+  before `done`; merge-local runs it again on exactly what lands.
+- **Which gate merge-local runs.** The exec runner tells a script the
+  bead's type and its epic (`YARDR_TYPE`, `YARDR_EPIC`, the latter empty for
+  a bead with no epic). merge-local runs `rig check --light` only when all
+  three hold: the type is `part`, there is an epic, and the base it lands on
+  is that epic's branch. Everything else gets the full gate, as before: a
+  task that is a child of an epic, and a part with no epic, which would land
+  on the rig's base. A rig with no light gate runs its full gate under
+  `--light` and says so in the output. A part's landing note says
+  `merged <sha> on yard/<epic> under the light gate`.
+- **A part needs an epic.** The light gate and the missing review are only
+  safe where the full gate and a review still stand before main, so yardr
+  keeps a part with no parent epic in the stage its flow starts in
+  (`backlog`): `bead advance`, `bead done` and `bead create -s <stage>`
+  refuse to put it anywhere else, saying how to give it an epic
+  (`dep add <epic> <part> -k parent`) or make it a task
+  (`bead update <part> --type task`). A part that lost its epic after it
+  moved (`dep rm -k parent`), or that no flow governs, is not started by any
+  agent or script: the dispatcher logs `part_without_epic` once, and only a
+  manual group still gets it. It can be taken back to `backlog`.
+- **The epic pays.** integrate-epic rebases the epic's branch and runs the
+  full gate on it as for any epic, and a red gate adds a fix child. The
+  epic's reviewer is told that parts were not reviewed or fully gated one by
+  one ([`.yardr/flows/yardr.epic/review.md`](../.yardr/flows/yardr.epic/review.md)),
+  and reviews each. So keep an epic to about five parts, which one review
+  can hold, and leave single fixes on the normal path.
+
 ### The epic's own flow
 
 An epic follows `yardr.epic` ([flows.md](flows.md#worked-example-rig-yardr)).

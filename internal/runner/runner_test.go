@@ -575,8 +575,15 @@ func TestExecEnvWorktreesConfig(t *testing.T) {
 	if env := e.env(job); !slices.Contains(env, "YARDR_BASE=main") {
 		t.Fatalf("no epic: %v", env)
 	}
+	// The type and the epic are always said, the epic empty for none, so a
+	// script can tell a part of an epic (merge-local's light gate) and no
+	// value the daemon was started with reads as the bead's.
+	job.Bead.Type = "part"
+	if env := e.env(job); !slices.Contains(env, "YARDR_TYPE=part") || !slices.Contains(env, "YARDR_EPIC=") {
+		t.Fatalf("no epic: %v", env)
+	}
 	job.Epic, job.Base = "yd-e", "yard/yd-e"
-	if env := e.env(job); !slices.Contains(env, "YARDR_BASE=yard/yd-e") {
+	if env := e.env(job); !slices.Contains(env, "YARDR_BASE=yard/yd-e") || !slices.Contains(env, "YARDR_EPIC=yd-e") {
 		t.Fatalf("child of an epic: %v", env)
 	}
 	// Without a rig there is no worktree, but the branch is still known.

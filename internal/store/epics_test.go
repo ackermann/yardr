@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"maps"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -314,5 +315,89 @@ func TestListBeadsByEpic(t *testing.T) {
 	}
 	if _, err := s.ListBeads(ctx, store.BeadFilter{Epic: "web-nope"}); err == nil {
 		t.Fatal("--epic of a missing bead listed")
+	}
+}
+
+// partRig is epicRig with the repository's part flow governing rig web's
+// parts, and part web-p in backlog.
+func partRig(t *testing.T) (store.API, context.Context) {
+	t.Helper()
+	s, ctx := epicRig(t)
+	text, err := os.ReadFile(storetest.RepoFlow(t, "type/part"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := store.ParseFlow(string(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Name = "web.part"
+	if _, err := s.PutFlow(ctx, *f, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetFlowPointer(ctx, "web", store.TypePart, "web.part", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := s.CreateBead(ctx, store.NewBead{ID: "web-p", Title: "part", Type: store.TypePart, Rig: "web"}, "me"); err != nil || b.Stage != "backlog" {
+		t.Fatalf("part = %+v, %v; want it created in backlog", b, err)
+	}
+	return s, ctx
+}
+
+// A part with no epic stays where its flow starts: it lands under the light
+// gate with no review of its own, which is only safe on an epic's branch.
+// Neither a move nor an outcome takes it on, nor can one be created further
+// along; as a child of an epic it moves like any bead.
+func TestPartNeedsAnEpic(t *testing.T) {
+	s, ctx := partRig(t)
+	refused := func(err error) {
+		t.Helper()
+		if err == nil || !strings.Contains(err.Error(), "is a part with no epic, so it stays in backlog") ||
+			!strings.Contains(err.Error(), "yardr dep add <epic> web-p -k parent") {
+			t.Fatalf("err = %v, want the part refused with what to do", err)
+		}
+	}
+	_, err := s.Advance(ctx, "web-p", "new", store.Expect{}, "me")
+	refused(err)
+	_, err = s.Done(ctx, "web-p", "", "", store.Expect{}, "me")
+	refused(err)
+	if b, _ := s.GetBead(ctx, "web-p"); b.Stage != "backlog" {
+		t.Fatalf("stage = %s after refused moves", b.Stage)
+	}
+	if _, err := s.CreateBead(ctx, store.NewBead{Title: "late", Type: store.TypePart, Rig: "web", Stage: "new"}, "me"); err == nil ||
+		!strings.Contains(err.Error(), "a part with no epic") {
+		t.Fatalf("creating a part in new = %v, want it refused", err)
+	}
+	// A parent that is no epic does not count (it makes no epic's branch).
+	if err := s.AddDep(ctx, "web-1", "web-p", store.DepParent, "me"); err == nil {
+		t.Fatal("a task took a part as its child")
+	}
+
+	if err := s.AddDep(ctx, "web-e", "web-p", store.DepParent, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := s.Advance(ctx, "web-p", "new", store.Expect{}, "me"); err != nil || b.Stage != "new" {
+		t.Fatalf("a part of an epic: %+v, %v", b, err)
+	}
+	// Having lost its epic, it can only be taken back to where it started.
+	if err := s.RemoveDep(ctx, "web-e", "web-p", store.DepParent, "me"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.Done(ctx, "web-p", "", "", store.Expect{}, "me")
+	refused(err)
+	if b, err := s.Advance(ctx, "web-p", "backlog", store.Expect{}, "me"); err != nil || b.Stage != "backlog" {
+		t.Fatalf("back to backlog: %+v, %v", b, err)
+	}
+
+	// Other types are not held to it, and a part no flow governs has no
+	// first stage to stay in: the dispatcher keeps that one from being worked.
+	if _, err := s.Advance(ctx, "web-1", "review", store.Expect{}, "me"); err != nil {
+		t.Fatalf("a task with no epic: %v", err)
+	}
+	if err := s.PutRig(ctx, store.Rig{Name: "bare", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateBead(ctx, store.NewBead{Title: "flowless", Type: store.TypePart, Rig: "bare", Stage: "anywhere"}, "me"); err != nil {
+		t.Fatalf("a part no flow governs: %v", err)
 	}
 }

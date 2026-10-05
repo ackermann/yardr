@@ -26,6 +26,12 @@ both commits, so nothing ungated lands. With `YARDR_PUSH` set it pushes the base
 never forced; a failed push mails `YARDR_NOTIFY` and leaves the bead merged.
 Finally it advances the bead to `merged` with `merged <sha>`.
 
+A part of an epic (`YARDR_TYPE=part`, `YARDR_EPIC` set, and that epic's
+branch as `YARDR_BASE`) is gated with `yardr rig check --light`, the rig's
+light gate; the full gate is integrate-epic's, on the whole epic. Everything
+else gets the full gate, a part with no epic included. See
+[docs/pipeline.md](../../docs/pipeline.md#parts).
+
 **integrate-epic** runs once an epic's last child has landed on its branch,
 routed for the epic flow's `open` stage (type `epic`). It fetches the base
 when it is a remote's, rebases `yard/<epic>` onto the rig's base and runs
@@ -86,7 +92,7 @@ Both need `gh`, logged in as the operator, and `jq` on PATH.
 **Environment.** All four read what the exec runner sets: `YARDR_BEAD`,
 `YARDR_RIG`, `YARDR_RIG_PATH`, `YARDR_BASE`, `YARDR_BRANCH` (default
 `yard/<bead>`), `YARDR_WORKTREE`, `YARDR_BIN` and `YARDR_HOME` (used for the
-default worktree path). Options go in the group's `cmd`: `YARDR_PUSH`, a
+default worktree path); merge-local also `YARDR_TYPE` and `YARDR_EPIC`. Options go in the group's `cmd`: `YARDR_PUSH`, a
 remote to push to (off when empty; pr-epic and pr-merge default to
 `origin`), `YARDR_NOTIFY`, the resident mailed when that push fails (default
 `mayor`), and `YARDR_PR=1`, the switch for the pull-request path, read by

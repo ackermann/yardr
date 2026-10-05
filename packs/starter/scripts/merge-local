@@ -6,7 +6,8 @@
 #
 # It reads everything from the environment the exec runner gives it:
 # YARDR_BEAD, YARDR_RIG, YARDR_RIG_PATH, YARDR_BASE, YARDR_BRANCH,
-# YARDR_WORKTREE and YARDR_BIN. Options, set in the group's cmd
+# YARDR_WORKTREE, YARDR_BIN, YARDR_TYPE and YARDR_EPIC. Options, set in the
+# group's cmd
 # (cmd='YARDR_PUSH=origin /path/to/merge-local'):
 #
 #   YARDR_PUSH     a remote to push the base to after landing; off when empty
@@ -20,6 +21,11 @@
 # or anything it cannot land without touching a dirty tree, is held. A gate
 # ended by a signal is run once more, and held if a signal ends it again. It
 # never forces and never pushes anything but a fast-forward.
+#
+# A part of an epic (type part, landing on its epic's branch) is gated with
+# the rig's light gate (yardr rig check --light): the full gate, and the one
+# review, are the epic's, before the rig's base moves. Everything else gets
+# the full gate, a part with no epic included. See docs/pipeline.md, "Parts".
 #
 # Every outcome ends in an advance, a close or a hold: exiting without one
 # counts as a failed session, and three of those hold the bead.
@@ -97,11 +103,24 @@ fi
 # once more, after a note with the first run's tail, so the event is on
 # record however the second ends; ended by a signal twice, the bead is held.
 # rig check's own kill at its deadline is not this: it exits 1, a red gate.
-gate() { out=$("$Y" rig check "$RIG" --dir "$WT" --tail "$TAIL" 2>&1) && rc=0 || rc=$?; printf '%s\n' "$out"; }
+#
+# The light gate is only for a part that lands on its epic's branch, where
+# the full gate still stands before the rig's base (integrate-epic runs it on
+# the whole epic). All three must hold, as the exec runner says them: the
+# type, an epic, and that epic's branch as the base. A part with no epic
+# lands on the rig's base, so it gets the full gate, as does anything run by
+# a yardr that does not say the type and the epic. A rig with no light gate
+# runs its full one under --light, and says so in the output.
+LIGHT= GATE="the gate"
+if [ "${YARDR_TYPE:-}" = part ] && [ -n "${YARDR_EPIC:-}" ] && [ "$BASE" = "yard/$YARDR_EPIC" ]; then
+  LIGHT=--light GATE="the light gate"
+  echo "== $BEAD is a part of epic $YARDR_EPIC: light gate here, the full gate on the epic"
+fi
+gate() { out=$("$Y" rig check "$RIG" $LIGHT --dir "$WT" --tail "$TAIL" 2>&1) && rc=0 || rc=$?; printf '%s\n' "$out"; }
 gated=$(git -C "$REPO" rev-parse "refs/heads/$BR") || hold "cannot read $BR"
 gate
 if [ "$rc" -gt 128 ]; then
-  first="the gate on $BR at $(git -C "$REPO" rev-parse --short "$gated") was ended by signal $((rc - 128)) (exit $rc), not by a failing check"
+  first="$GATE on $BR at $(git -C "$REPO" rev-parse --short "$gated") was ended by signal $((rc - 128)) (exit $rc), not by a failing check"
   echo "== $first; running it once more"
   "$Y" bead note "$BEAD" "refinery: $first; running it once more on the same commit. Its output:
 $out" || echo "== could not note the first run on $BEAD"
@@ -115,9 +134,9 @@ $out"
 fi
 case $rc in
 0) ;;
-2) hold "the gate could not run on $BR:
+2) hold "$GATE could not run on $BR:
 $out" ;;
-*) back "the gate failed on $BR rebased onto $BASE:
+*) back "$GATE failed on $BR rebased onto $BASE:
 $out" ;;
 esac
 
@@ -148,6 +167,7 @@ echo "== landed $BEAD on $BASE at $sha"
 # the script with it. Never forced. A failed push (offline, the remote moved)
 # leaves the bead merged locally; the next landing's push carries it.
 msg="merged $sha"
+[ -z "$LIGHT" ] || msg="$msg on $BASE under the light gate; the full gate and the review are epic $YARDR_EPIC's"
 if [ -n "$PUSH" ]; then
   if git -C "$REPO" push "$PUSH" "$BASE" 2>&1; then
     echo "== pushed $BASE to $PUSH"

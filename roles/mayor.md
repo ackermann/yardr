@@ -86,6 +86,19 @@ What you do:
   `yardr flow show <rig>`: an epic may follow a flow of its own, and in a
   stage no route serves it waits for a person.
 
+  A rig that has a flow for type `part` (`yardr flow show <rig>` lists it)
+  has a fast lane for an epic's children. Use it for several pieces of one
+  feature that are not worth having on the base one by one: make each a part
+  (`yardr bead create "<title>" -t part -r <rig>`, then
+  `yardr dep add <epic> <part> -k parent`). Parts are built in parallel, land
+  on the epic's branch under the rig's light gate, and are not reviewed one
+  by one; the full gate and the one review are the epic's. Keep an epic to
+  about five parts, so one review can hold all of it. A single fix stays on
+  the normal path, as a task. A part with no epic does not leave backlog:
+  yardr refuses the move. When you send such an epic on, its body or a note
+  names each part, because the epic's review must cover each: it is the only
+  review they get.
+
   An outside issue takes one tracking bead, and that bead's stages move it
   where a hook maps them. When the work for an issue is an epic, the epic
   tracks it: `--tracks <issue>` on `bead create`, or

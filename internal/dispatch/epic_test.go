@@ -2,6 +2,7 @@ package dispatch_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -253,5 +254,57 @@ func TestReturnToTheSameStageBacksOff(t *testing.T) {
 	must(t, d2.Reconcile(ctx))
 	if n := len(f2.starts()); n != 1 {
 		t.Fatalf("not retried after an un-hold: %d starts", n)
+	}
+}
+
+// A part is started only as a child of an epic. One that lost its epic
+// after it moved on, or that no flow governs, is not handed to an agent or
+// a script, and the reason is logged once; a manual group still gets it, as
+// someone has to see it to fix it.
+func TestPartWithoutEpicIsNotStarted(t *testing.T) {
+	s, f, d := setup(t)
+	ctx := context.Background()
+	must(t, s.PutRig(ctx, store.Rig{Name: "yard", Base: "main"}, "me"))
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
+	people := &fakeRunner{dead: map[string]bool{}}
+	d.Runners["manual"] = people
+	must(t, s.PutGroup(ctx, store.Group{Name: "mayor", Runner: "manual", Limit: 5}))
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
+	must(t, err)
+	_, err = s.AddRoute(ctx, store.Route{Stage: "backlog", Group: "mayor"})
+	must(t, err)
+	for _, nb := range []store.NewBead{
+		{ID: "yard-e", Title: "epic", Type: store.TypeEpic, Rig: "yard", Stage: "open"},
+		{ID: "yard-1", Title: "a part of the epic", Type: store.TypePart, Rig: "yard"},
+		{ID: "yard-2", Title: "a part that lost its epic", Type: store.TypePart, Rig: "yard"},
+		{ID: "yard-3", Title: "a part that never had one", Type: store.TypePart, Rig: "yard"},
+		{ID: "yard-4", Title: "a part with no epic, in backlog", Type: store.TypePart, Rig: "yard", Stage: "backlog"},
+		{ID: "yard-5", Title: "a task", Rig: "yard"},
+	} {
+		_, err := s.CreateBead(ctx, nb, "me")
+		must(t, err)
+	}
+	must(t, s.AddDep(ctx, "yard-e", "yard-1", store.DepParent, "me"))
+	must(t, s.AddDep(ctx, "yard-e", "yard-2", store.DepParent, "me"))
+	must(t, s.RemoveDep(ctx, "yard-e", "yard-2", store.DepParent, "me"))
+
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	got := f.starts()
+	slices.Sort(got)
+	if want := []string{"yard-1", "yard-5"}; !slices.Equal(got, want) {
+		t.Fatalf("started %v, want %v", got, want)
+	}
+	for _, id := range []string{"yard-2", "yard-3"} {
+		evs := eventKinds(t, s, id, "part_without_epic")
+		if len(evs) != 1 || !strings.Contains(fmt.Sprint(evs[0].Data["reason"]), "yardr dep add <epic> "+id+" -k parent") {
+			t.Fatalf("part_without_epic events for %s = %+v, want one saying what to do", id, evs)
+		}
+	}
+	if evs := eventKinds(t, s, "yard-4", "part_without_epic"); len(evs) != 0 {
+		t.Fatalf("a part waiting with people was reported: %+v", evs)
+	}
+	if got := people.starts(); !slices.Equal(got, []string{"yard-4"}) {
+		t.Fatalf("people were handed %v, want the part in backlog", got)
 	}
 }

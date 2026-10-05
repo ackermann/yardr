@@ -280,3 +280,56 @@ func TestRigCheckAndFlowShowReportStrandedBeads(t *testing.T) {
 		t.Fatalf("flow show omitted pinned stranded bead: %+v, %v", views, err)
 	}
 }
+
+// rig check --light runs the rig's light gate under the full one's exit
+// statuses, and names it; a rig without one runs the full gate and says so
+// in one line, first.
+func TestRigCheckLight(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	put := func(check, light string) {
+		t.Helper()
+		if err := st.PutRig(ctx, store.Rig{Name: "r", Path: t.TempDir(), Base: "main", Check: check, CheckLight: light}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := &app{st: st, actor: "me"}
+
+	put("echo full; exit 4", "echo light")
+	out, err := run(t, a.rigCheckCmd(), "r", "--light")
+	if exitCode(err) != 0 || !strings.Contains(out, "light\n") || strings.Contains(out, "full\n") ||
+		!strings.Contains(out, "check r (light gate, store) in ") || !strings.Contains(out, ": pass") {
+		t.Fatalf("green light gate: %q, %v", out, err)
+	}
+	if out, err = run(t, a.rigCheckCmd(), "r"); exitCode(err) != 1 || strings.Contains(out, "light") {
+		t.Fatalf("the full gate beside a light one: %q, %v", out, err)
+	}
+
+	put("true", "echo no; exit 3")
+	if out, err = run(t, a.rigCheckCmd(), "r", "--light"); exitCode(err) != 1 || !strings.Contains(out, "FAIL (exit 3)") {
+		t.Fatalf("red light gate: %q, %v (exit %d)", out, err, exitCode(err))
+	}
+	put("true", "exit 143")
+	if _, err = run(t, a.rigCheckCmd(), "r", "--light"); exitCode(err) != 143 {
+		t.Fatalf("light gate ended by a signal: %v (exit %d), want 143", err, exitCode(err))
+	}
+	put("true", "sleep 30")
+	if out, err = run(t, a.rigCheckCmd(), "r", "--light", "--timeout", "200ms"); exitCode(err) != 1 || !strings.Contains(out, "timed out after 200ms") {
+		t.Fatalf("timed out light gate: %q, %v", out, err)
+	}
+
+	// No light gate: the full one, said first, and its verdict.
+	put("echo full; exit 4", "")
+	out, err = run(t, a.rigCheckCmd(), "r", "--light")
+	if exitCode(err) != 1 || !strings.HasPrefix(out, "rig r has no light gate (") || !strings.Contains(out, "running the full gate\nfull\n") ||
+		strings.Contains(out, "light gate, ") {
+		t.Fatalf("--light without a light gate: %q, %v (exit %d)", out, err, exitCode(err))
+	}
+	// Could not run is still exit 2.
+	if err := st.PutRig(ctx, store.Rig{Name: "broken", Path: t.TempDir(), Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = run(t, a.rigCheckCmd(), "broken", "--light"); exitCode(err) != 2 {
+		t.Fatalf("rig that is not a repo, --light: %v (exit %d), want 2", err, exitCode(err))
+	}
+}

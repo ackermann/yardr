@@ -1,0 +1,12 @@
+# part: the flow of rig yardr's parts. A part is one piece of an epic, built
+# in parallel with its siblings: the builder gates it with the rig's light
+# gate (.yardr/check-light, seconds), the refinery lands it on the epic's
+# branch under the same light gate, and nobody reviews it by itself. The full
+# gate and the one review are the epic's, on the whole, before main moves
+# (yardr.epic.flow). So there is no review stage here. A part with no epic
+# never leaves backlog: yardr refuses the move. See docs/pipeline.md#parts.
+backlog -> new
+new -> approved on done | decide on question | backlog
+approved -> merged on done | new on failed | decide on question
+decide -> backlog | new
+merged terminal

@@ -986,6 +986,17 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 			continue
 		}
 
+		// A part with no epic is moved nowhere by the store, so one found
+		// here lost its epic after it moved (its parent edge was removed).
+		// Nothing works it until it has one again: its flow has no review,
+		// and its builder's brief would name the light gate, on the rig's
+		// base. People still get it: someone has to see it to fix it.
+		if b.Type == store.TypePart && fam.Epic == "" && g.Runner != "manual" {
+			d.reportOnce(ctx, b, "part_without_epic", fmt.Sprintf(
+				"a part with no epic is not started; make it a child (yardr dep add <epic> %s -k parent) or a task (yardr bead update %s --type task)", b.ID, b.ID))
+			continue
+		}
+
 		sess, err := d.Store.Claim(ctx, b.ID, g.Name, b.Stage, actor)
 		if errors.Is(err, store.ErrTaken) || errors.Is(err, store.ErrAtLimit) {
 			// ErrAtLimit: another dispatcher, or a session this pass could

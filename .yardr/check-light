@@ -1,0 +1,46 @@
+#!/bin/sh
+# yardr's light gate, run by `yardr rig check yardr --light` in the worktree
+# of a part of an epic (docs/pipeline.md, "Parts"). It is what a part passes
+# to land on its epic's branch; the full gate (.yardr/check: the race
+# detector, every package, the suites again over the socket) runs once, on
+# the whole epic, before main moves. So this one is meant to take seconds:
+# everything still has to be formatted, vetted and built, but only the
+# packages the branch touched are tested.
+# Like .yardr/check, yardr reads it from the base branch.
+set -e
+out=$(gofmt -l .)
+if [ -n "$out" ]; then
+  echo "gofmt needed on:"
+  echo "$out"
+  exit 1
+fi
+go vet ./...
+go build ./...
+# What the branch changed: against the commit the gate was read at, which
+# yardr gives (the tip of main as fetched), from where the branch left it.
+# For a part that is its epic's earlier parts too, so a package two parts
+# share is tested with both. Without the base nothing can be told apart,
+# which must not read as "nothing changed".
+: "${YARDR_CHECK_BASE:?not set: run this through yardr rig check yardr --light}"
+from=$(git merge-base "$YARDR_CHECK_BASE" HEAD)
+changed=$(git diff --name-only "$from")
+# go.mod or go.sum moves every package.
+if printf '%s\n' "$changed" | grep -qx -e go.mod -e go.sum; then
+  echo "light gate: go.mod or go.sum changed; testing every package (no -race)"
+  exec go test ./...
+fi
+# The packages are the directories with a changed file that hold Go files:
+# a script or a role beside Go code is embedded or run by that package's
+# tests. A directory with none (docs, a deleted package) has nothing to run.
+pkgs=$(printf '%s\n' "$changed" | while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  d=$(dirname "$f")
+  ls "$d"/*.go >/dev/null 2>&1 && echo "./$d"
+done | sort -u)
+if [ -z "$pkgs" ]; then
+  echo "light gate: no package changed since $(git rev-parse --short "$from"); no tests to run"
+  exit 0
+fi
+echo "light gate: testing (no -race)" $pkgs
+# shellcheck disable=SC2086
+go test $pkgs

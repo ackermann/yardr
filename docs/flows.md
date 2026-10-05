@@ -443,6 +443,28 @@ integrating an epic's branch and landing it on main. Its children follow the
 rig's flow like any bead; what an epic changes for them is only their base,
 see [pipeline.md](pipeline.md#epics).
 
+Type `part` has its own flow in rig yardr too, the repository's
+[`.yardr/flows/type/part.flow`](../.yardr/flows/type/part.flow), with its
+stage files in `.yardr/flows/type/part/`. No pointer is needed: a
+`type/<type>.flow` governs the type by being there. It is the rig's flow
+without the review stage:
+
+```
+# type/part.flow
+backlog -> new
+new -> approved on done | decide on question | backlog
+approved -> merged on done | new on failed | decide on question
+decide -> backlog | new
+merged terminal
+```
+
+A part is a child of an epic that lands on the epic's branch under the
+rig's light gate, with no review of its own; the full gate and the review
+are the epic's ([pipeline.md](pipeline.md#parts)). The stage names are the
+rig's, so the rig's routes send parts to the same groups. One rule is
+yardr's, whatever the flow says: a part with no parent epic stays in its
+flow's first stage. Moving or creating it anywhere else is refused.
+
 ## Terminal stages
 
 A line `<stage> terminal` marks a stage that ends the bead: advancing into it

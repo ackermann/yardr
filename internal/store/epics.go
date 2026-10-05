@@ -19,6 +19,38 @@ const (
 	DepParent = "parent"
 )
 
+// Parts. A part is a piece of an epic that is not worth having on the base
+// by itself: it lands on its epic's branch under the rig's light gate, with
+// no review of its own, and the full gate and the one review are the
+// epic's (docs/pipeline.md, "Parts"). That is only safe under an epic, so a
+// part with no parent epic stays where its flow starts: checkPart refuses
+// to move or create it anywhere else, and the dispatcher starts no agent or
+// script for one that got there some other way (its parent edge removed
+// after it moved, or no flow governing it).
+const TypePart = "part"
+
+// checkPart refuses putting row, a part, in stage of its flow f while it is
+// no child of an epic. The flow's first stage is always allowed: it is
+// where a part waits for its epic, and where it is taken back to.
+func checkPart(tx *bolt.Tx, f *Flow, row *beadRow, stage string) error {
+	// No flow, no stage it starts in: the dispatcher alone keeps such a
+	// part from being worked.
+	if row.Type != TypePart || f == nil || stage == firstStage(f) {
+		return nil
+	}
+	// A new bead has no UUID and no edges yet.
+	if row.UUID != "" {
+		if epic, err := parentEpic(tx, row.UUID); err != nil {
+			return fmt.Errorf("%s: %w", row.ID, err)
+		} else if epic != nil {
+			return nil
+		}
+	}
+	id := or(row.ID, "<part>")
+	return fmt.Errorf("bead %s is a part with no epic, so it stays in %s: a part lands under the light gate with no review of its own, which is only safe on an epic's branch. Make it a child first (yardr dep add <epic> %s -k parent), or make it a task (yardr bead update %s --type task)",
+		or(row.ID, "of type part"), firstStage(f), id, id)
+}
+
 // Branch is the git branch bead handle is worked on. It is built from the
 // handle, which never changes (a migrated bead keeps its old id as handle),
 // so a bead's branch and worktree stay valid for its whole life.

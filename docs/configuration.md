@@ -17,6 +17,7 @@ in yard-9cza, the merge gate in yard-p2y7.
 | flows | the rig's default and type flows, named flows: `.yardr/flows/` (built) | named flows, and rig and type pointers to them (built) |
 | stage files | a repository flow's: `.yardr/flows/<name>/<stage>.md`, read from the base (built) | none in the store: a store flow's are files in the yard's home, `~/.yardr/flows/<name>/<stage>.md` (built; [flows.md](flows.md#stage-files-what-a-stage-is-for)) |
 | merge gate | `.yardr/check` (built) | a per-rig override, `rig add --check` (built) |
+| light gate, for parts of an epic | `.yardr/check-light` (built) | a per-rig override, `rig add --check-light` (built) |
 | roles | the rig's own role prompts: `.yardr/roles/<name>.md`, read from the base (built) | the generic roles `yardr init` installed in `~/.yardr/roles/`, the fallback; residents' prompts, by absolute path (built) |
 | groups | | runner, limit, members, subscriptions (manual), agent kind, model, args, cmd, worktree settings (built) |
 | routes | | which group works which stage, by rig, type, label (built) |
@@ -351,7 +352,7 @@ directory being checked (a script without `#!` runs with `sh`; the rig's
 name is in `$YARDR_RIG`). A store override, `yardr rig add <rig> <path>
 --check '<cmd>'`, runs with `sh -c` instead. Re-running `rig add` without
 `--check` drops the override. Every `rig add` logs a `rig_updated` event
-with the rig's check and `allow_no_check`, so an override never changes
+with the rig's check, `check_light` and `allow_no_check`, so an override never changes
 unseen, and `yardr rig show <rig>` prints it.
 
 A rig with neither fails its gate with "no gate": a missing file must not
@@ -396,6 +397,48 @@ The gate runs the branch's own code, tests included: it is fixed by the
 base, but what it runs is not. A branch that deletes or weakens its tests
 passes vacuously. That is the accepted model for now; the reviewer is the
 one who catches it (see [pipeline.md](pipeline.md#what-the-gate-does-not-catch)).
+
+### The light gate: `.yardr/check-light`
+
+A rig may have a second, lighter gate beside `.yardr/check`, for a part of
+an epic ([pipeline.md](pipeline.md#parts)): a branch that lands on an epic's
+branch, where the full gate still runs on the whole epic before the base
+moves. `yardr rig check <rig> --light [--dir <worktree>]` runs it.
+
+It is found and run exactly as the full gate is: `.yardr/check-light` at the
+tip of the base (the fetched remote's when the base has one), never from the
+branch or the worktree; the store override is
+`yardr rig add <rig> <path> --check-light '<cmd>'`, logged with the rig's
+other settings and shown by `rig show`; the same `--timeout`, the same exit
+statuses (0, 1, 2, 128+N for a check ended by a signal). A dir rig's is
+read from its directory.
+
+A rig **without** a light gate runs its full gate under `--light`, and the
+first line of the output says so (`rig r has no light gate (no
+--check-light, no .yardr/check-light on main (no remote)): running the full
+gate`; `light_fallback` in `--json`). `--light` never passes for want of a
+file, and a rig with no gate at all still fails with "no gate". The light
+gate comes from where the full one does: a rig whose gate is a store
+override (`--check`) has its light gate in the store too, and a
+`.yardr/check-light` in its repository is not read.
+
+Both gates get `YARDR_CHECK_BASE` in their environment: the commit the
+repository's gate was read at, which is the tip of the rig's base as
+fetched. A check can so look at what the branch changed, from where it left
+the base: `git diff --name-only "$(git merge-base "$YARDR_CHECK_BASE" HEAD)"`.
+It is the rig's base and not the epic's branch, so for a part the range
+holds the epic's earlier parts too, and a package two parts share is tested
+with both. Under a store override it is the rig's base as it resolves
+locally (nothing is fetched for an override); it is unset when that does not
+resolve, and for a dir rig, which has no base. A check that needs it must
+fail without it: rig yardr's does.
+
+Rig yardr's [`.yardr/check-light`](../.yardr/check-light) runs `gofmt -l`,
+`go vet ./...` and `go build ./...` on everything, then `go test` without
+`-race` on the directories that hold Go files and a changed file (a script
+or role beside Go code is embedded or run by that package's tests); every
+package when `go.mod` or `go.sum` changed; nothing when only files outside
+any package changed (docs).
 
 ## Briefs are not config
 
