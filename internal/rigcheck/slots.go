@@ -263,11 +263,25 @@ func isHeld(path string, reap bool) bool {
 		return false
 	}
 	defer f.Close()
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB); err != nil {
+	lock := syscall.LOCK_SH
+	if reap {
+		// Reapers must exclude each other. With shared locks, two readers
+		// could both inspect a stale inode; after one unlinks it and a waiter
+		// creates a new marker at the same path, the other could unlink that
+		// live marker without holding its lock.
+		lock = syscall.LOCK_EX
+	}
+	if err := syscall.Flock(int(f.Fd()), lock|syscall.LOCK_NB); err != nil {
 		return true
 	}
 	if reap {
-		os.Remove(path)
+		// Only remove the inode we locked. The name may have been replaced
+		// between Open and Flock by another reaper.
+		mine, err1 := f.Stat()
+		named, err2 := os.Stat(path)
+		if err1 == nil && err2 == nil && os.SameFile(mine, named) {
+			os.Remove(path)
+		}
 	}
 	return false
 }
