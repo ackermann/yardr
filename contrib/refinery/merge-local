@@ -16,7 +16,8 @@
 # For each bead it rebases the branch onto the base if the base moved, runs
 # the rig's gate on exactly what will land, fast-forwards the base to the
 # commit it gated and advances the bead to merged. A conflict goes to
-# merge, a red gate back (outcome failed: new, or open for an epic), as
+# merge, a red gate back (outcome failed: new, or open for an epic) with a
+# note that names the commit and the file all of the gate's output is in, as
 # does a branch that moved while the gate ran, and a gate that cannot run,
 # or anything it cannot land without touching a dirty tree, is held. A gate
 # ended by a signal is run once more, and held if a signal ends it again. It
@@ -117,6 +118,14 @@ if [ "${YARDR_TYPE:-}" = part ] && [ -n "${YARDR_EPIC:-}" ] && [ "$BASE" = "yard
   echo "== $BEAD is a part of epic $YARDR_EPIC: light gate here, the full gate on the epic"
 fi
 gate() { out=$("$Y" rig check "$RIG" $LIGHT --dir "$WT" --tail "$TAIL" 2>&1) && rc=0 || rc=$?; printf '%s\n' "$out"; }
+# Where rig check kept all of a red gate's output: its FAIL line ends with
+# the file. $out is what the rig says matters (the lines matching its
+# .yardr/check-fail-pattern, if it has one) and then the last $TAIL lines,
+# which in a long run are what came after the failure, not the failure.
+whole() {
+  f=$(printf '%s\n' "$out" | sed -n 's/^check .*: FAIL (.*); whole output: //p' | tail -n 1)
+  if [ -n "$f" ]; then echo "the whole output is in $f"; else echo "the whole output was not kept"; fi
+}
 gated=$(git -C "$REPO" rev-parse "refs/heads/$BR") || hold "cannot read $BR"
 gate
 if [ "$rc" -gt 128 ]; then
@@ -136,7 +145,7 @@ case $rc in
 0) ;;
 2) hold "$GATE could not run on $BR:
 $out" ;;
-*) back "$GATE failed on $BR rebased onto $BASE:
+*) back "$GATE failed on $BR at $(git -C "$REPO" rev-parse --short "$gated") rebased onto $BASE; $(whole):
 $out" ;;
 esac
 

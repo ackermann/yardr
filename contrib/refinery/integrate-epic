@@ -20,9 +20,11 @@
 #
 # It fetches the base when it is a remote's, rebases the epic branch onto
 # the base, runs the rig's gate on the result and reports done (-> review).
-# A red gate reports failed (-> open) with the gate's tail, after adding a
-# child to fix it: the child blocks the epic, so it is not integrated again
-# until the fix has landed on its branch. A rebase that conflicts reports
+# A red gate reports failed (-> open) with the commit, the file all of the
+# gate's output is in, the lines the rig says matter and the gate's tail,
+# after adding a child to fix it, which carries the same: the child blocks
+# the epic, so it is not integrated again until the fix has landed on its
+# branch. A rebase that conflicts reports
 # conflict (-> merge), as merge-local does for a bead: the mergers rebase the
 # branch and send the epic back to open, where it is integrated again. A
 # gate that cannot run, or a branch it cannot work on, is held for a human;
@@ -113,6 +115,14 @@ fi
 # and ended by a signal twice the epic is held. rig check's own kill at its
 # deadline is not this: it exits 1, a red gate.
 gate() { out=$("$Y" rig check "$RIG" --dir "$WT" --tail "$TAIL" 2>&1) && rc=0 || rc=$?; printf '%s\n' "$out"; }
+# Where rig check kept all of a red gate's output: its FAIL line ends with
+# the file. $out is what the rig says matters (the lines matching its
+# .yardr/check-fail-pattern, if it has one) and then the last $TAIL lines,
+# which in a long run are what came after the failure, not the failure.
+whole() {
+  f=$(printf '%s\n' "$out" | sed -n 's/^check .*: FAIL (.*); whole output: //p' | tail -n 1)
+  if [ -n "$f" ]; then echo "the whole output is in $f"; else echo "the whole output was not kept"; fi
+}
 gated=$(git -C "$REPO" rev-parse "refs/heads/$BR") || hold "cannot read $BR"
 gate
 if [ "$rc" -gt 128 ]; then
@@ -138,9 +148,10 @@ $out" ;;
   # The fix is a child: it lands on the epic branch through the usual flow,
   # and blocks the epic until it closes, so the epic is not integrated again
   # unchanged. It starts in backlog, for the mayor to shape.
-  msg="the gate failed on $BR rebased onto $BASE:
+  at="$BR at $(git -C "$REPO" rev-parse --short "$gated") rebased onto $BASE; $(whole)"
+  msg="the gate failed on $at:
 $out"
-  fix=$(printf '%s\n' "The gate failed on epic $EPIC's branch $BR, rebased onto $BASE. Make it pass on $BR.
+  fix=$(printf '%s\n' "The gate failed on epic $EPIC's branch $at. Make it pass on $BR.
 
 $out" | "$Y" bead create "Fix the gate on epic $EPIC" -r "$RIG" -t bug -s backlog -b -) &&
     "$Y" dep add "$EPIC" "$fix" -k parent ||

@@ -157,8 +157,14 @@ the session and the daemon stops the script, so it is the script's last step.
 2. runs the gate on exactly what will land, every time, including after a
    merger's rebase, and records the commit it ran on; red (exit 1) reports
    the outcome `failed` (to `new`; to `open` for an epic), or advances to
-   `new` in a flow without outcomes, with the last 200 lines of output, and
-   a gate that could not run at all (exit 2: git, the base, the rig) holds
+   `new` in a flow without outcomes. The note starts with the branch, the
+   commit the gate ran on, the base and the file `rig check` kept the whole
+   output in (`<home>/gates/<rig>/<bead>-<time>.log`); then come the lines
+   of the output matching the rig's `.yardr/check-fail-pattern`, each with
+   the lines around it, when the rig has one, and then the last 200 lines
+   ([configuration.md](configuration.md#a-red-gates-output-the-file-and-yardrcheck-fail-pattern)).
+   The builder reads it with `yardr prime --bead <id>`, which shows every
+   note whole. A gate that could not run at all (exit 2: git, the base, the rig) holds
    the bead, since no builder can fix that. Nor can one fix a gate ended
    by a signal from outside (exit 128+N; 143 is a `go test` killed with
    SIGTERM after every package printed `ok`): it is run once more on the
@@ -471,9 +477,11 @@ path with that setup:
    pushes the rebased branch when `YARDR_PUSH` is set (replacing the remote
    branch only when everything on it was in what it rebased, or in a
    recorded old tip; step 5), and reports `done`, to review. A red gate
-   reports `failed`, back to `open`, with the gate's tail in the note,
-   after adding a child in `backlog` to fix it
-   ("Fix the gate on epic <id>", type bug, the tail in its body): the child
+   reports `failed`, back to `open`, after adding a child in `backlog` to
+   fix it ("Fix the gate on epic <id>", type bug). The note and the child's
+   body carry what merge-local's note does: the branch, the commit, the base
+   and the file the whole output is in, then the lines matching the rig's
+   `.yardr/check-fail-pattern`, then the gate's tail. The child
    blocks the epic, so it is not integrated again until the fix has landed
    on its branch. A rebase that conflicts aborts it and reports
    `conflict`, to `merge`, with the conflicting files and both tips in the

@@ -15,6 +15,10 @@ the bead to `merge` with the conflicting files (or reports `failed` if the
 flow has no `merge`). It then runs the rig's gate (`yardr rig check`, read from the
 base) on exactly what will land: red reports `failed` (back to `new`, or
 `open` for an epic), and a gate that could not run (exit 2) holds the bead.
+The note of a red gate starts with the branch, the commit, the base and the
+file `rig check` kept the whole output in (under the yard's home,
+`gates/<rig>/`); then the lines matching the rig's
+`.yardr/check-fail-pattern`, if it has one, and the last 200 lines.
 A gate ended by a signal from outside (exit 128+N, e.g. 143 for SIGTERM) is
 neither: it is run once more on the same commit, with a note of the first
 run's output, and held with both outputs if a signal ends it again. The
@@ -42,7 +46,8 @@ its own conflict note and the merger's note both do: the merger rebases
 without pushing, so the remote still has the tip it started from) and
 reports `done`, to review. Red adds a child in `backlog`, "Fix
 the gate on epic <id>", which blocks the epic, and reports `failed`, back to
-`open`. A rebase conflict aborts the rebase, reports `conflict` to `merge`
+`open`; the child's body and the epic's note start as merge-local's red
+note does, with the commit and the file the whole output is in. A rebase conflict aborts the rebase, reports `conflict` to `merge`
 with the conflicting files and both tips, and leaves the branch for the
 mergers; after they report done, the epic returns to `open` for integration.
 A gate that could not run, or a branch it cannot work on (missing, dirty,
