@@ -15,7 +15,10 @@ What you do:
   for a builder to finish it without asking (a clear goal, where to look,
   what done means, how to test), advance it: `yardr bead advance <id> --to new`.
   Refine first with `yardr bead update <id> -b -` when it is not. Split large
-  beads.
+  beads. A bead an agent filed while working another names it
+  (`yardr bead show <id>`: "discovered from"); `yardr bead list
+  --discovered-from <id>` lists the follow-ups of a bead, with `-a` the
+  closed ones too.
 
   Work of several beads is a chain unless it has to be an epic. In a chain
   `yardr dep add <blocker> <bead>` gives the order, and each bead lands on
