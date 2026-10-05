@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net"
 	"os"
 	"path/filepath"
@@ -81,7 +82,7 @@ func TestStatusServerOnly(t *testing.T) {
 		"           login service: not installed\n",
 		"residents  mayor  not running\n",
 		"web view   "+here("not running: yardr web serve")+"\n",
-		"work       0 sessions running, 0 beads held, 0 in decide; "+here("yardr session list has each")+"\n",
+		"work       0 sessions running; 0 held\n",
 		"\n"+here("yardr doctor reports 2 faults, and says what they are.")+"\n")
 	for _, not := range []string{"hooks", "peers", "FAULT", "no bead is dispatched"} {
 		if strings.Contains(out, not) {
@@ -258,24 +259,15 @@ func TestStatusRunningYard(t *testing.T) {
 
 	rig := gitRig(t, st)
 	commitRig(t, rig)
-	if err := st.PutGroup(ctx, store.Group{Name: "web/builders", Runner: "manual", Limit: 2}); err != nil {
-		t.Fatal(err)
-	}
-	var beads []string
-	stage := ""
-	for _, title := range []string{"one", "two", "three"} {
-		b, err := st.CreateBead(ctx, store.NewBead{Title: title, Rig: rig.Name}, "me")
-		if err != nil {
-			t.Fatal(err)
-		}
-		beads, stage = append(beads, b.ID), b.Stage
-	}
-	for _, id := range beads[:2] {
-		if _, err := st.Claim(ctx, id, "web/builders", stage, "yard"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := st.SetHold(ctx, beads[2], true, store.Expect{}, "me"); err != nil {
+	// Two beads an agent works, one a script works, three that two manual
+	// groups hold for a person, and one held.
+	claimed := workYard(t, st, rig.Name, []store.Group{
+		{Name: "web/builders", Runner: "herdr", Limit: 2},
+		{Name: "web/refinery", Runner: "exec", Limit: 1},
+		{Name: "backlog", Runner: "manual", Limit: 5},
+		{Name: "decisions", Runner: "manual", Limit: 5},
+	}, "web/builders", "web/builders", "web/refinery", "backlog", "backlog", "decisions", "")
+	if _, err := st.SetHold(ctx, claimed[6], true, store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -296,7 +288,7 @@ func TestStatusRunningYard(t *testing.T) {
 		"           tickets  linear  http://127.0.0.1:9100/hooks/tickets\n",
 		"peers      laptop  it calls this yard\n",
 		"           north   https://north.example\n",
-		"work       2 sessions running (web/builders 2), 1 bead held, 0 in decide; ")
+		"work       3 sessions running (web/builders 2, web/refinery 1); 3 beads wait for a person (backlog 2, decisions 1); 1 held\n")
 	if strings.Contains(out, "doctor") {
 		t.Errorf("doctor is named on a yard it reports no fault on:\n%s", out)
 	}
@@ -315,9 +307,83 @@ func TestStatusRunningYard(t *testing.T) {
 	if h := rep.Hooks; h == nil || !h.Listening || len(h.Hooks) != 1 || h.Hooks[0].URL != "http://127.0.0.1:9100/hooks/tickets" {
 		t.Fatalf("hooks: %+v", h)
 	}
-	if w := rep.Work; w == nil || w.Sessions["web/builders"] != 2 || w.Held != 1 || w.Decide != 0 || len(rep.Peers) != 2 {
+	if w := rep.Work; w == nil || w.Held != 1 || len(rep.Peers) != 2 ||
+		!maps.Equal(w.Sessions, map[string]int{"web/builders": 2, "web/refinery": 1}) ||
+		!maps.Equal(w.Waiting, map[string]int{"backlog": 2, "decisions": 1}) {
 		t.Fatalf("work: %+v, peers: %+v", w, rep.Peers)
 	}
+}
+
+// workYard puts the groups and a bead per name in claims, claimed by the
+// group of that name ("" for none), and returns the beads.
+func workYard(t *testing.T, st store.API, rig string, groups []store.Group, claims ...string) []string {
+	t.Helper()
+	ctx := context.Background()
+	for _, g := range groups {
+		if err := st.PutGroup(ctx, g); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var beads []string
+	for i, group := range claims {
+		b, err := st.CreateBead(ctx, store.NewBead{Title: "bead " + strconv.Itoa(i), Rig: rig}, "me")
+		if err != nil {
+			t.Fatal(err)
+		}
+		beads = append(beads, b.ID)
+		if group == "" {
+			continue
+		}
+		if _, err := st.Claim(ctx, b.ID, group, b.Stage, "yard"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return beads
+}
+
+// A manual group's claim is a person's turn and no session running
+// (yardr-7r3h: a yard with 2 agents and 35 beads in backlog said "37
+// sessions running"). A yard no person waits on has no word about it, and
+// one bead waits where two wait.
+func TestStatusWorkLine(t *testing.T) {
+	work := func(t *testing.T, groups []store.Group, claims ...string) (string, *workCounts) {
+		t.Helper()
+		_, st, a := statusYard(t, "abcdef123456")
+		rig := gitRig(t, st)
+		commitRig(t, rig)
+		workYard(t, st, rig.Name, groups, claims...)
+		out, err := run(t, a().rootCmd(), "status")
+		if err != nil {
+			t.Fatalf("err = %v\n%s", err, out)
+		}
+		i := strings.Index(out, "work  ")
+		if i < 0 {
+			t.Fatalf("no work line:\n%s", out)
+		}
+		line, _, _ := strings.Cut(out[i:], "\n")
+		return line, statusJSON(t, a()).Work
+	}
+	builders := store.Group{Name: "builders", Runner: "herdr", Limit: 2}
+	backlog := store.Group{Name: "backlog", Runner: "manual", Limit: 5}
+
+	t.Run("no manual claim", func(t *testing.T) {
+		line, w := work(t, []store.Group{builders, backlog}, "builders", "")
+		if want := "work       1 session running (builders 1); 0 held"; line != want {
+			t.Errorf("line = %q, want %q", line, want)
+		}
+		if w == nil || !maps.Equal(w.Sessions, map[string]int{"builders": 1}) || w.Waiting == nil || len(w.Waiting) != 0 {
+			t.Errorf("json: %+v", w)
+		}
+	})
+	t.Run("one manual claim", func(t *testing.T) {
+		line, w := work(t, []store.Group{builders, backlog}, "backlog")
+		if want := "work       0 sessions running; 1 bead waits for a person (backlog 1); 0 held"; line != want {
+			t.Errorf("line = %q, want %q", line, want)
+		}
+		if w == nil || len(w.Sessions) != 0 || !maps.Equal(w.Waiting, map[string]int{"backlog": 1}) {
+			t.Errorf("json: %+v", w)
+		}
+	})
 }
 
 // A view that ended without clearing its record (kill -9, a reboot) holds

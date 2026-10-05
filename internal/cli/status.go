@@ -99,14 +99,14 @@ type peerStatus struct {
 
 // workCounts are the yard's work in numbers.
 type workCounts struct {
-	// Sessions are the live sessions by group.
+	// Sessions are the sessions that run something, by group: those of a
+	// group whose runner starts an agent or a script.
 	Sessions map[string]int `json:"sessions"`
-	Held     int            `json:"held"`
-	Decide   int            `json:"decide"`
+	// Waiting are the beads a manual group has claimed, by group: a
+	// person's turn, with no process behind the claim.
+	Waiting map[string]int `json:"waiting"`
+	Held    int            `json:"held"`
 }
-
-// decideStage is the stage where a bead waits for a person to decide.
-const decideStage = "decide"
 
 // serverInfo asks the home's server which process and build it is; tests
 // replace it.
@@ -130,8 +130,8 @@ func (a *app) statusCmd() *cobra.Command {
              another; its login service
   hooks      the address the server takes webhooks on, each hook and its URL
   peers      each linked yard and where it is called
-  work       how many sessions run in each group, how many beads are held
-             and how many wait in decide
+  work       how many sessions run in each group, how many beads wait for
+             a person in each manual group, and how many beads are held
 
 A part the yard does not have (hooks, peers) has no line. It is read-only
 and starts nothing: on a yard whose server is not running it says so, with
@@ -250,13 +250,12 @@ func (a *app) status(ctx context.Context, cfg *config.Config) (*statusReport, er
 	if err != nil {
 		return nil, err
 	}
-	rep.Work = &workCounts{Sessions: map[string]int{}, Held: len(doc.State.Held)}
+	rep.Work = &workCounts{Sessions: map[string]int{}, Waiting: map[string]int{}, Held: len(doc.State.Held)}
 	for _, s := range sessions {
-		rep.Work.Sessions[s.Group]++
-	}
-	for _, b := range doc.State.open {
-		if b.Stage == decideStage {
-			rep.Work.Decide++
+		if s.Manual() {
+			rep.Work.Waiting[s.Group]++
+		} else {
+			rep.Work.Sessions[s.Group]++
 		}
 	}
 	return rep, nil
@@ -415,20 +414,34 @@ func (r *statusReport) parts() []statusPart {
 	}
 
 	if w := r.Work; w != nil {
-		n, groups := 0, []string{}
-		for g, c := range w.Sessions {
-			n += c
-			groups = append(groups, fmt.Sprintf("%s %d", g, c))
+		n, groups := byGroup(w.Sessions)
+		line := plural(n, "session") + " running" + groups
+		// A manual group's claim is a person's turn; a yard with none
+		// has nothing to say about it.
+		if n, groups := byGroup(w.Waiting); n == 1 {
+			line += "; 1 bead waits for a person" + groups
+		} else if n > 1 {
+			line += fmt.Sprintf("; %d beads wait for a person%s", n, groups)
 		}
-		slices.Sort(groups)
-		line := plural(n, "session") + " running"
-		if n > 0 {
-			line += " (" + strings.Join(groups, ", ") + ")"
-		}
-		line += fmt.Sprintf(", %s held, %d in %s; %s session list has each", plural(w.Held, "bead"), w.Decide, decideStage, yardr)
+		line += fmt.Sprintf("; %d held", w.Held)
 		parts = append(parts, statusPart{"work", []string{line}})
 	}
 	return parts
+}
+
+// byGroup is the sum of counts by group and the groups with theirs, in
+// name order: " (builders 2, reviewers 1)", "" for none.
+func byGroup(counts map[string]int) (int, string) {
+	n, groups := 0, []string{}
+	for g, c := range counts {
+		n += c
+		groups = append(groups, fmt.Sprintf("%s %d", g, c))
+	}
+	if n == 0 {
+		return 0, ""
+	}
+	slices.Sort(groups)
+	return n, " (" + strings.Join(groups, ", ") + ")"
 }
 
 // print is the report for a person: one block, the parts' names in a

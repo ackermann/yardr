@@ -286,6 +286,13 @@ type Session struct {
 	Epic string `json:"epic,omitempty"`
 }
 
+// Manual reports whether the session is a manual group's claim: nothing
+// runs in it, a person works the bead. A session from before sessions
+// recorded their runner is known by its handle.
+func (s Session) Manual() bool {
+	return s.Runner == "manual" || s.Runner == "" && s.Handle["manual"] != nil
+}
+
 func (s Session) live() bool { return s.State == "starting" || s.State == "running" }
 
 // liveKey is the session's entry in the live index, under its group so a

@@ -254,7 +254,7 @@ web view   http://127.0.0.1:8791/     pid 4801  build abcdef123456  this machine
 hooks      the server takes webhooks on 127.0.0.1:8790
            tickets  linear  http://127.0.0.1:8790/hooks/tickets
 peers      north  https://north.example
-work       3 sessions running (web/builders 2, web/reviewers 1), 1 bead held, 2 in decide; yardr session list has each
+work       3 sessions running (web/builders 2, web/reviewers 1); 2 beads wait for a person (decisions 2); 1 held
 ```
 
 | part | what it says |
@@ -266,7 +266,7 @@ work       3 sessions running (web/builders 2, web/reviewers 1), 1 bead held, 2 
 | `web view` | each view that runs: the URL to open, its pid, the build it runs, and `this machine only` or `open to the network (--unsafe), no login`; `this yardr is build <build>: ...` when a view runs another build than the yardr that was asked, since a view does not replace itself when a new yardr is installed; `not running: yardr web serve` when none does; then the web view's login service ([web.md](web.md#where-it-runs)) |
 | `hooks` | what the running server takes webhooks on, then each hook, its source and the URL its source posts to. Absent on a yard with no hook and no address |
 | `peers` | each linked yard and where it is called, or `it calls this yard`. Absent with no peer |
-| `work` | how many sessions are live, by group; how many open beads are held; how many are in stage `decide` |
+| `work` | how many sessions run something, by group: those of a group whose runner starts an agent or a script (`herdr`, `exec`). `<n> beads wait for a person`, by group, when a `manual` group has claimed beads: such a claim is a session in `yardr session list` with nothing running behind it, so it is counted here and not as a session running; a bead in `decide` is one of them. Then how many open beads are held |
 
 It judges nothing. When doctor reports a fault, one last line says so and
 no more: `yardr doctor reports <N> faults, and says what they are.` To know
@@ -282,7 +282,7 @@ one object: `home`, `name`, `operator`, `server` (`running`, `error`, `pid`,
 `url`, `addr`, `pid`, `unsafe`, `open`, `started`, `revision`, `build`,
 `differs`; `service`), `hooks` (`addr`, `listening`, `hooks` with `name`,
 `source`, `url`), `peers` (`name`, `url`), `work` (`sessions` by group,
-`held`, `decide`) and `faults`, the number doctor reports.
+`waiting` by group: the beads a manual group has claimed, `held`) and `faults`, the number doctor reports.
 
 ### A server that is not running
 

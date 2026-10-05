@@ -56,14 +56,14 @@ func (r SessionRow) Dot() string {
 
 // isManual reports whether a session is a manual group's claim: nothing
 // runs in it, a person works the bead.
-func isManual(s store.Session) bool { return runnerOf(s) == "manual" }
+func isManual(s store.Session) bool { return s.Manual() }
 
 // runnerOf is the runner that owns a session and what it runs there, as
 // `yardr session list` shows it. A session from before sessions recorded
 // their runner is known by its handle.
 func runnerOf(s store.Session) string {
 	runner := s.Runner
-	if runner == "" && s.Handle["manual"] != nil {
+	if s.Manual() {
 		runner = "manual"
 	}
 	if v, ok := s.Handle["agent"]; ok {
