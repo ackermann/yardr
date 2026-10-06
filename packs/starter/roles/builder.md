@@ -74,13 +74,3 @@ yardmaster's inbox.
 3. It is a question about the bead itself (an unclear goal, a design
    choice): that is for the stage's outcomes, not for a new bead. Your brief
    says which outcome takes a question, or hold as above.
-
-## In a directory depot
-
-If you work in a directory depot (the brief says which kind of depot it is): no
-branches, no commits. You work in the depot's directory itself, where other
-beads may be at work too, so touch only the files and folders your bead names.
-The gate is the depot's `.yardr/check` if it has one (`yardr depot check <depot>`
-passes with "no gate" otherwise), the full one and not the light: nothing
-lands from a directory depot, so no later stage runs it for you. The gate line
-has no commit. Steps 3 and 5 apply only as far as that.

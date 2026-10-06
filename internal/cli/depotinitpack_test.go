@@ -241,8 +241,9 @@ func TestDepotInitPackGateAlone(t *testing.T) {
 }
 
 // What depot init --pack refuses, each saying why and writing nothing: a
-// dir depot, a flag for the files it does not write, and without --pack a
-// flag that answers an import.
+// flag for the files it does not write, and without --pack a flag that
+// answers an import. (A pack for the other kind of depot:
+// TestDepotInitPackIsForTheDepotsKind.)
 func TestDepotInitPackRefusals(t *testing.T) {
 	a, repo := packYard(t, nil)
 	setInteractive(t, false)
@@ -255,7 +256,6 @@ func TestDepotInitPackRefusals(t *testing.T) {
 		args []string
 		want string
 	}{
-		{append([]string{"init", "notes", "--pack", "starter", "--yes"}, starterFlags...), "depot notes is a directory depot, and depot init --pack is for a git depot: a pack's flow lands a bead on a base branch"},
 		{[]string{"init", "web", "--pack", "starter", "--operator", "Jo"}, "--operator does not go with --pack: a pack's roles name the yard's operator setting"},
 		{[]string{"init", "web", "--pack", "starter", "--yardmaster", "boss"}, "--yardmaster does not go with --pack: --crew yardmaster=<name>"},
 		{[]string{"init", "web", "--pack", "starter", "--mayor", "boss"}, "--yardmaster does not go with --pack"},

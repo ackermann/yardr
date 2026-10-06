@@ -347,7 +347,7 @@ says so. The import is recorded (yardr pack list). See docs/packs.md.
     --bind builders=claude:opus --bind reviewers=codex,approve-for-me --members backlog= --members decisions=mckean`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			imp, err := a.planImport(c.Context(), "pack apply", args[0], &af, "")
+			imp, err := a.planImport(c.Context(), "pack apply", args[0], &af, "", nil)
 			if imp == nil || err != nil {
 				return err
 			}
@@ -407,10 +407,17 @@ type plannedImport struct {
 // "" for nothing: the confirmation then covers it, and is asked for it
 // alone when the import itself changes nothing. A nil import with no error
 // means the operator left a form or said no, and nothing is to be written.
-func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, also string) (*plannedImport, error) {
+// fits, when cmd has one, refuses a pack before anything of its plan is
+// shown: depot init's, for a pack written for the other kind of depot.
+func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, also string, fits func(*pack.Pack) error) (*plannedImport, error) {
 	st, cfg, p, err := a.openPack(ctx, arg, &f.packFlags)
 	if err != nil {
 		return nil, err
+	}
+	if fits != nil {
+		if err := fits(p); err != nil {
+			return nil, err
+		}
 	}
 	asking := interactive() && !a.json
 	plan, err := pack.Build(ctx, st, p, f.opts)

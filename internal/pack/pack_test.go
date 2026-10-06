@@ -308,7 +308,8 @@ func TestNoPackFile(t *testing.T) {
 }
 
 // The starter's roles and its merge-local are copies of the roles yardr
-// embeds (roles/*.md) and of the reference assembly, and its stage files of
+// embeds (roles/*.md, less what they say of a directory depot) and of the
+// reference assembly, and its stage files of
 // the ones depot init writes for a git depot, placeholders included: an import
 // fills them as depot init does. Until one is read from the other, a change to
 // either must be made to both.
@@ -331,8 +332,11 @@ func TestStarterMatchesItsSources(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if string(got) != string(want) {
-			t.Errorf("packs/starter/%s differs from %s: change both", in, strings.TrimPrefix(source, "../../"))
+		// What a role says of a directory depot is the dir pack's
+		// (packs/dir/roles/). roles/ keeps its section until depot init
+		// stops writing these roles into a dir depot.
+		if string(got) != withoutDirSection(string(want)) {
+			t.Errorf("packs/starter/%s differs from %s (less its \"In a directory depot\" section): change both", in, strings.TrimPrefix(source, "../../"))
 		}
 	}
 	stages, err := filepath.Glob("../../roles/stages/git/default/*.md")
@@ -361,6 +365,22 @@ func TestStarterMatchesItsSources(t *testing.T) {
 	if err != nil || info.Mode().Perm()&0o111 == 0 {
 		t.Errorf("packs/starter/scripts/merge-local must be executable: %v", err)
 	}
+}
+
+// withoutDirSection is a role of roles/ as the starter pack carries it:
+// without its section for a directory depot, which is one heading and one
+// paragraph.
+func withoutDirSection(role string) string {
+	const heading = "## In a directory depot\n\n"
+	i := strings.Index(role, heading)
+	if i < 0 {
+		return role
+	}
+	rest := role[i+len(heading):]
+	if j := strings.Index(rest, "\n\n"); j >= 0 {
+		return role[:i] + rest[j+2:]
+	}
+	return strings.TrimRight(role[:i], "\n") + "\n"
 }
 
 // A stage's file is read as the pack's other paths are: relative to its

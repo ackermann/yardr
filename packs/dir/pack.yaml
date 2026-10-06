@@ -1,0 +1,42 @@
+# The dir pack for yardr: a way of working for a depot that is a plain
+# directory and no repository (docs/dir-depots.md). Beads are worked in the
+# directory itself, nothing is committed and nothing merges, so a reviewed
+# bead is done. Like the starter pack it names no agent product, model,
+# depot, person or secret: those are asked for when the pack is imported and
+# stay in the yard. The format is the starter's (packs/starter/pack.yaml,
+# docs/packs.md).
+
+name: dir
+
+# Two flows: the depot's own, and its trains'. A stage without a group is
+# worked by nobody: a bead waits there for whoever shapes it or answers it,
+# and is moved on by hand.
+flows:
+  default:
+    stages:
+      backlog: { file: flows/default/backlog.md, manual: [new, decide] }
+      new:     { group: builders,  file: flows/default/new.md,    outcomes: { done: review, question: decide }, manual: [backlog] }
+      review:  { group: reviewers, file: flows/default/review.md, outcomes: { done: done, changes: new, question: decide } }
+      decide:  { file: flows/default/decide.md, manual: [backlog, new] }
+      done:    { end: true }
+
+  # A train only groups its children here, which work in the same directory:
+  # there is no train branch to integrate. It waits in open while a child is
+  # open, and is then reviewed as a whole, by the depot's reviewers both times.
+  train:
+    type: train
+    stages:
+      backlog: { file: flows/train/backlog.md, manual: [open] }
+      open:    { group: reviewers, file: flows/train/open.md,   outcomes: { done: review }, manual: [backlog] }
+      review:  { group: reviewers, file: flows/train/review.md, outcomes: { done: done, changes: open, question: decide } }
+      decide:  { file: flows/train/decide.md, manual: [open, backlog] }
+      done:    { end: true }
+
+# Beads share the one directory, and a group's limit is the only thing that
+# keeps two of them out of each other's files. No limit is given here, so a
+# new group works one bead at a time and a limit the yard sets later stays
+# through the next import: raise the builders' only where beads touch
+# separate files. No group lands anything, and the pack has no crew.
+groups:
+  builders:  { agent: roles/builder.md }
+  reviewers: { agent: roles/reviewer.md }

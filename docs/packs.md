@@ -17,6 +17,13 @@ depot init` writes with its stage files, the roles yardr embeds and the
 reference assembly, as one pack. It is in the binary, so `starter` names it
 with no checkout at hand ([Naming a pack](#naming-a-pack)).
 
+It is written for a git depot. For a depot that is a plain directory yardr
+carries a second pack, [`packs/dir`](../packs/dir), named `dir`: the two
+flows `yardr depot init` writes into a dir depot (the depot's, and its
+trains') with their stage files, a builders and a reviewers group whose
+roles are written for a directory, no group that lands anything and no crew
+([dir-depots.md](dir-depots.md#from-the-dir-pack)).
+
 ```
 packs/starter/
   pack.yaml         flows, groups, crew members
@@ -171,7 +178,7 @@ and `yardr depot init` as its `--pack`, which is one of:
 | written | is |
 |---|---|
 | with a path separator: `packs/starter`, `./mine`, `~/packs/team` (also `.` and `..`) | the pack's directory |
-| a bare word: `starter`, `team` | a name: of a pack this yard has imported (`yardr pack list`), read again from the directory that import recorded; else of a pack in the binary (`starter`) |
+| a bare word: `starter`, `team` | a name: of a pack this yard has imported (`yardr pack list`), read again from the directory that import recorded; else of a pack in the binary (`starter`, `dir`) |
 
 A bare word is never tried as a directory, so what `starter` means does not
 depend on where the command is run: in a directory that holds `starter/` it
@@ -700,7 +707,16 @@ repository, when the depot has no gate (no such file in the checkout, no
 `--depot-roles`, `--yes`; not `--prune`). The gate is part of what is
 confirmed: nothing is written before a yes in the terminal or `--yes`. It
 writes no role, flow or stage file into the depot, and prints the commit
-that puts the gate on the base. A dir depot is refused.
+that puts the gate on the base.
+
+A dir depot is set up the same way and gets no gate: nothing is written
+into the directory, and its `.yardr/check`, if it has one, stays its own.
+Of the two packs in the binary each is for one kind of depot, and `depot
+init` refuses the other's, naming the one that fits: `starter` on a dir
+depot (its flow lands a bead on a base branch through an assembly, and
+nothing merges in a directory), and `dir` on a git depot (its roles commit
+nothing and its flow closes a bead at review). A pack of another name is
+yours to judge: nothing in a pack says which kind of depot it is for.
 [configuration.md](configuration.md#from-a-pack---pack) has the details.
 
 ## The plan as data

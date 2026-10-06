@@ -1246,8 +1246,11 @@ depot's own instead.
 
 `--operator`, `--yardmaster` and `--with-yardmaster` do not go with `--pack`:
 a pack's roles name the yard's `operator` setting and the crew member `--crew`
-gives. A dir depot is refused: a pack's flow lands a bead on a base branch
-through an assembly, and nothing merges in a directory. To apply the pack
+gives. A dir depot takes `--pack dir`, the pack in the binary for a plain
+directory, and gets no gate ([dir-depots.md](dir-depots.md#from-the-dir-pack));
+`starter` is refused there, since its flow lands a bead on a base branch
+through an assembly and nothing merges in a directory, and `dir` is refused
+on a git depot. To apply the pack
 again after it changed, use `yardr pack apply`, which never writes a gate.
 
 ```

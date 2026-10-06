@@ -955,6 +955,11 @@ func (b *planner) flows(flows []Flow) error {
 	// A depot pointer in the store wins over the repository as a whole: its
 	// default.flow and its type files stop governing, though they stay.
 	own := slices.IndexFunc(after, func(p store.FlowPointer) bool { return p.Depot == b.o.Depot && p.Type == "" })
+	// A dir depot is no repository: its flow files are in the directory.
+	where := "repository"
+	if b.depot.IsDir() {
+		where = "directory"
+	}
 	for _, rf := range depotFlows {
 		if own < 0 || len(flows) == 0 || rf.Source.Kind != "repo" {
 			continue
@@ -962,10 +967,15 @@ func (b *planner) flows(flows []Flow) error {
 		what := "the depot's beads"
 		if rf.Type != "" {
 			what = "beads of type " + rf.Type
-			b.plan.Governs = append(b.plan.Governs, Governs{Type: rf.Type, Flow: after[own].Flow, Source: "store", Now: now[rf.Type]})
+			// The depot's flow takes the type over, unless the type has a
+			// pointer of its own afterwards: that one governs it, and is
+			// listed above.
+			if !slices.ContainsFunc(after, func(p store.FlowPointer) bool { return p.Depot == b.o.Depot && p.Type == rf.Type }) {
+				b.plan.Governs = append(b.plan.Governs, Governs{Type: rf.Type, Flow: after[own].Flow, Source: "store", Now: now[rf.Type]})
+			}
 		}
-		b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("depot %s's repository carries %s (%s), which governs %s now. The import points the depot at a flow in the store, and a store pointer wins over the repository's flow files: the file stays where it is and governs nothing until the pointer is cleared (yardr depot flow %s --clear).",
-			b.o.Depot, rf.Source.Path, rf.Source.String(), what, b.o.Depot))
+		b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("depot %s's %s carries %s (%s), which governs %s now. The import points the depot at a flow in the store, and a store pointer wins over the %s's flow files: the file stays where it is and governs nothing until the pointer is cleared (yardr depot flow %s --clear).",
+			b.o.Depot, where, rf.Source.Path, rf.Source.String(), what, where, b.o.Depot))
 	}
 	return b.strays(want, after)
 }

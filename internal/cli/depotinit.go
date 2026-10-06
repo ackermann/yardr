@@ -12,8 +12,10 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/packs"
 	"yardr.dev/yardr/roles"
 )
 
@@ -127,23 +129,27 @@ roles, the flow and its stage files are the pack's, imported as yardr pack
 apply <pack> --depot <depot> imports them: under the yard's home, with the
 depot's groups, routes and flow pointer in the store. <pack> is named as
 there (a directory with a path separator in it, else the name of a pack the
-yard has imported or yardr carries: starter), the plan is printed first,
-and what the import asks is answered by the same flags: --bind, --members,
---crew, --flow, --open-threads, --depot-roles. A role the depot has under
-.yardr/roles/ is named in the plan as shadowed. Nothing is written, gate
-included, before a yes in the terminal or --yes. The operator and the
+yard has imported or yardr carries: starter, and dir for a dir depot), the
+plan is printed first, and what the import asks is answered by the same
+flags: --bind, --members, --crew, --flow, --open-threads, --depot-roles. A
+role the depot has under .yardr/roles/ is named in the plan as shadowed.
+Nothing is written, gate included, before a yes in the terminal or --yes. The operator and the
 yardmaster the pack's roles name are the yard's operator setting and the
 crew member --crew gives, so --operator, --yardmaster and --with-yardmaster
 do not go with --pack. Applying the pack again later is yardr pack apply.
-A dir depot is refused: a pack's flow lands beads on a base branch. See
-docs/packs.md.`,
+
+A dir depot takes --pack dir and gets no gate: nothing is written into the
+directory. Of the two packs yardr carries each is for one kind of depot:
+starter is refused on a dir depot, whose beads have no base branch to land
+on, and dir on a git depot. See docs/packs.md and docs/dir-depots.md.`,
 		Example: `  yardr depot init webapp
   yardr depot init webapp --operator Jo --yardmaster boss
   yardr depot init invoices          # a dir depot
   yardr depot init invoices --with-yardmaster
   yardr depot init webapp --pack starter
   yardr depot init webapp --pack starter --yes --crew yardmaster=boss \
-    --bind builders=claude:opus --bind reviewers=codex --members backlog= --members decisions=jo`,
+    --bind builders=claude:opus --bind reviewers=codex --members backlog= --members decisions=jo
+  yardr depot init invoices --pack dir --yes --bind builders=claude --bind reviewers=claude`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			if err := packOrSeed(c, packArg != ""); err != nil {
@@ -178,7 +184,7 @@ docs/packs.md.`,
 	cmd.Flags().BoolVar(&withYardmaster, "with-yardmaster", false, "dir depots: write yardmaster.md too (a git depot always gets it)")
 	oldFlag(cmd, "mayor", "yardmaster")
 	oldFlag(cmd, "with-mayor", "with-yardmaster")
-	cmd.Flags().StringVar(&packArg, "pack", "", "set the depot up from this pack instead: write the gate alone, and import the pack as yardr pack apply does (a directory, or the name of an imported or embedded pack)")
+	cmd.Flags().StringVar(&packArg, "pack", "", "set the depot up from this pack instead: write the gate alone (none for a dir depot), and import the pack as yardr pack apply does (a directory, or the name of an imported or embedded pack)")
 	imp.registerShape(cmd)
 	imp.registerAnswers(cmd)
 	return cmd
@@ -189,7 +195,7 @@ docs/packs.md.`,
 var seedFlags = [][2]string{
 	{"operator", "a pack's roles name the yard's operator setting (yardr settings set operator <name>)"},
 	{"yardmaster", "--crew yardmaster=<name> says which crew member takes the pack's"},
-	{"with-yardmaster", "it is for a dir depot, which takes no pack"},
+	{"with-yardmaster", "it writes the yardmaster's role into a dir depot, and with a pack the roles are the pack's"},
 }
 
 // packOrSeed refuses a flag of depot init's other way: with --pack one for
@@ -218,38 +224,40 @@ const gateCommit = "yardr: gate"
 // gateResult is what depot init --pack did about the depot's gate.
 type gateResult struct {
 	Depot   string `json:"depot"`
-	Path    string `json:"path"`    // the checkout
+	Kind    string `json:"kind"`
+	Path    string `json:"path"`    // the checkout, or a dir depot's directory
 	File    string `json:"file"`    // relative to Path
-	Written bool   `json:"written"` // false: the depot had a gate
+	Written bool   `json:"written"` // false: the depot had a gate, or is a dir depot
 	Command string `json:"command"` // the guess; "" for the TODO, or when nothing was written
 	Base    string `json:"base"`
 	Store   string `json:"store,omitempty"` // the depot's --check, which is why none was written
 }
 
 // depotInitPack sets depot up from the pack arg names: the gate guess into
-// the checkout when the depot has no gate, then the import pack apply
+// the checkout when a git depot has no gate, then the import pack apply
 // makes. Nothing else goes into the checkout: the roles, the flow and its
-// stage files are the pack's, under the yard's home.
+// stage files are the pack's, under the yard's home. A dir depot gets no
+// gate, as from depot init without --pack: nothing lands there for one to
+// hold back, and what would check a folder of documents is no guess from
+// its files.
 func (a *app) depotInitPack(ctx context.Context, depot store.Depot, arg string, f *importFlags) error {
-	if depot.IsDir() {
-		return fmt.Errorf("depot %s is a directory depot, and depot init --pack is for a git depot: a pack's flow lands a bead on a base branch through an assembly, and nothing merges in a directory. Without --pack, yardr depot init %s writes a dir depot's own flows and roles",
-			depot.Name, depot.Name)
-	}
-	if depot.Path == "" {
-		return fmt.Errorf("depot %s has no path: depot init --pack writes %s into its checkout", depot.Name, rigcheck.RepoPath)
-	}
-	gate := &gateResult{Depot: depot.Name, Path: depot.Path, File: rigcheck.RepoPath, Base: depot.Base, Store: depot.Check}
+	gate := &gateResult{Depot: depot.Name, Kind: depot.Kind, Path: depot.Path, File: rigcheck.RepoPath, Base: depot.Base, Store: depot.Check}
 	file := filepath.Join(depot.Path, rigcheck.RepoPath)
 	var also string
-	if depot.Check == "" {
-		if _, err := os.Lstat(file); errors.Is(err, fs.ErrNotExist) {
-			also = file + ", the depot's gate"
-		} else if err != nil {
-			return err
+	if !depot.IsDir() {
+		if depot.Path == "" {
+			return fmt.Errorf("depot %s has no path: depot init --pack writes %s into its checkout", depot.Name, rigcheck.RepoPath)
+		}
+		if depot.Check == "" {
+			if _, err := os.Lstat(file); errors.Is(err, fs.ErrNotExist) {
+				also = file + ", the depot's gate"
+			} else if err != nil {
+				return err
+			}
 		}
 	}
 	f.opts.Depot = depot.Name
-	imp, err := a.planImport(ctx, "depot init", arg, f, also)
+	imp, err := a.planImport(ctx, "depot init", arg, f, also, func(p *pack.Pack) error { return packFits(p, depot) })
 	if imp == nil || err != nil {
 		return err
 	}
@@ -272,11 +280,35 @@ func (a *app) depotInitPack(ctx context.Context, depot store.Depot, arg string, 
 	return err
 }
 
+// packFits refuses one of the two packs yardr carries for a depot of the
+// kind the other is written for, naming the one that fits. The starter's
+// flow lands a bead on a base branch through an assembly, which a directory
+// has not; the dir pack's roles commit nothing and its flow ends at review,
+// so in a repository nothing a bead built would ever land. A pack of
+// another name is the operator's own and theirs to judge: nothing in a
+// pack says which kind of depot it is for.
+func packFits(p *pack.Pack, depot store.Depot) error {
+	switch {
+	case depot.IsDir() && p.Name == packs.Starter:
+		return fmt.Errorf("depot %s is a directory depot, and pack %s is for a git depot: its flow lands a bead on a base branch through an assembly, and nothing merges in a directory. yardr's pack for a directory depot is %s: yardr depot init %s --pack %s",
+			depot.Name, p.Name, packs.Dir, depot.Name, packs.Dir)
+	case !depot.IsDir() && p.Name == packs.Dir:
+		return fmt.Errorf("depot %s is a git depot, and pack %s is for a directory depot: its roles commit nothing and its flow closes a bead at review, so nothing built on a branch would land. yardr's pack for a git depot is %s: yardr depot init %s --pack %s",
+			depot.Name, p.Name, packs.Starter, depot.Name, packs.Starter)
+	}
+	return nil
+}
+
 func (g *gateResult) print() {
 	fmt.Println()
 	switch {
 	case g.Store != "":
 		fmt.Printf("gate: depot %s has a --check in the store (%s), so no %s was written\n", g.Depot, g.Store, g.File)
+		return
+	case g.Kind == store.DepotDir:
+		// Whether it has one or not, it is the directory's own, read as it
+		// is: there is nothing to guess it from and no base to commit it on.
+		fmt.Printf("gate: none written. Depot %s is a directory depot: its gate is %s in %s when it has one, and without one yardr depot check passes with \"no gate\"\n", g.Depot, g.File, g.Path)
 		return
 	case !g.Written:
 		fmt.Printf("gate: %s in %s is already there, kept\n", g.File, g.Path)

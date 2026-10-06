@@ -2,6 +2,8 @@ package pack_test
 
 import (
 	"context"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -15,6 +17,7 @@ import (
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
+	"yardr.dev/yardr/packs"
 )
 
 var ctx = context.Background()
@@ -421,6 +424,76 @@ func TestDirDepotFlowIsReportedBeforeAndAfterImport(t *testing.T) {
 		return strings.Contains(n, ".yardr/flows/default.flow") && strings.Contains(n, "governs nothing until the pointer is cleared")
 	}) {
 		t.Fatalf("dir depot repository flow note missing: %v", plan.Notes)
+	}
+}
+
+// A depot that carries a flow file for a type is told what governs that
+// type after the import, once: the pack's flow for the type where it has
+// one (the dir pack's train flow over a dir depot's type/train.flow), and
+// the depot's flow from the pack where it has none, since a depot pointer
+// takes the type files over. The plan used to add the second line in both
+// cases, and so named two flows for a dir depot's trains. Its notes call a
+// dir depot's files the directory's: it is no repository.
+func TestTypeFileIsGovernedOnceAfterImport(t *testing.T) {
+	dir := t.TempDir()
+	for name, text := range map[string]string{
+		"default.flow":    "new -> done\ndone terminal\n",
+		"type/train.flow": "open -> done\ndone terminal\n",
+	} {
+		path := filepath.Join(dir, ".yardr", "flows", filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st := storetest.New(t)
+	if err := st.PutDepot(ctx, store.Depot{Name: "notes", Path: dir, Kind: store.DepotDir}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	o := pack.Options{Depot: "notes", Home: t.TempDir()}
+	sub, err := fs.Sub(packs.FS, packs.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirPack, err := pack.Load(sub, packs.Embedded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	governs := func(plan *pack.Plan) []string {
+		var out []string
+		for _, g := range plan.Governs {
+			out = append(out, fmt.Sprintf("%q: %s, now %s", g.Type, g.Flow, g.Now))
+		}
+		return out
+	}
+	plan := build(t, st, dirPack, o)
+	if got, want := governs(plan), []string{
+		`"": dir.default, now default (repo (directory))`,
+		`"train": dir.train, now type/train (repo (directory), type train)`,
+	}; !slices.Equal(got, want) {
+		t.Errorf("the dir pack: governs = %q\nwant %q", got, want)
+	}
+	n := 0
+	for _, note := range plan.Notes {
+		if strings.Contains(note, "governs nothing until the pointer is cleared") {
+			n++
+			if !strings.Contains(note, "depot notes's directory carries .yardr/flows/") || strings.Contains(note, "repository") {
+				t.Errorf("a dir depot's flow file is called a repository's: %s", note)
+			}
+		}
+	}
+	if n != 2 {
+		t.Errorf("%d notes on the directory's flow files, want 2: %q", n, plan.Notes)
+	}
+	// A pack with no flow for the type: the depot's flow takes it over.
+	plan = build(t, st, load(t, starter), o)
+	if got, want := governs(plan), []string{
+		`"": starter.default, now default (repo (directory))`,
+		`"train": starter.default, now type/train (repo (directory), type train)`,
+	}; !slices.Equal(got, want) {
+		t.Errorf("the starter pack: governs = %q\nwant %q", got, want)
 	}
 }
 

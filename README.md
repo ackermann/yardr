@@ -386,6 +386,7 @@ internal/otel       trace context for a bead's work; the event log as OTLP
 main.go             the yardr binary
 roles/              the default role prompts yardr init installs
 packs/starter       a starter pack
+packs/dir           the pack for a depot that is a plain directory
 docs/               the documentation (docs/README.md is its index)
 conformance/bdp     runs BDP's own Read conformance suite against yardr bdp serve
 contrib/assembly    merge-local, a reference assembly script for an exec group

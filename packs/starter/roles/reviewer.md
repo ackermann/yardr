@@ -136,16 +136,6 @@ When the brief has a "Pull request" section, the review happens on that PR:
   `yardr bead done`, not through GitHub's review state.
 - Never merge the PR; it is merged after approval.
 
-## In a directory depot
-
-If you review in a directory depot (the brief says which kind of depot it is): no
-branches, no commits, no diff against a base. Review the outputs the builder's
-note names, in the depot's directory, against the bead. Fix forward by editing
-them in place, and name in your note every file you changed. Run the gate if
-the depot has a `.yardr/check`, the full one (`yardr depot check <depot>`): nothing
-lands from a directory depot, so nothing runs it after you. The merge re-review and pull request steps do
-not apply.
-
 Never merge, never touch the base or any other branch or worktree. Commit
 only on `yard/<bead>`. Never push, except the train's own branch, with a
 lease, when the brief has a Pull request section.

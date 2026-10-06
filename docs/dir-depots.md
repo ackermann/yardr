@@ -114,6 +114,48 @@ train twice, in `open` and in `review`.
 `--limit 1` keeps one worker in the folder at a time. Raise it only when
 beads touch separate files.
 
+### From the dir pack
+
+`yardr depot init invoices --pack dir` does steps 1 and 2 in one, from the
+pack yardr carries for a dir depot ([packs.md](packs.md)):
+
+```sh
+yardr depot add invoices ~/Documents/invoices --kind dir
+yardr depot init invoices --pack dir
+```
+
+It prints the plan and asks which agent, model and permissions the two new
+groups run with (`--bind builders=claude --bind reviewers=claude --yes`
+answers without a terminal), then makes:
+
+| what | where |
+|---|---|
+| groups `invoices-builders` and `invoices-reviewers`, agents with the pack's roles | the store; the roles under `<home>/packs/dir/roles/` |
+| the two flows above, as `dir.default` and `dir.train`, and the depot's pointers to them | the store |
+| their stage files, the same texts | `<home>/flows/dir.default/`, `<home>/flows/dir.train/` |
+| routes: `new` to the builders, `review` to the reviewers, and a train's `open` and `review` to the reviewers | the store |
+
+Nothing is written into the directory, and no gate: `.yardr/check` stays
+yours to add. The roles are written for a directory (no branches, no
+commits, name your files by path) where the ones `depot init` writes
+without `--pack` are the generic roles with a paragraph for dir depots.
+What differs from the two steps above:
+
+- Both groups are agents. For a person as the reviewer, point the route at a
+  manual group afterwards; the next `yardr pack apply dir --depot invoices`
+  would set it back.
+- A new group works one bead at a time. The pack gives no limit, so one you
+  set later stays through the next import.
+- `backlog` and `decide` are routed to nobody, as in the steps above: a bead
+  there waits to be moved by hand, and the yard reports it as unrouted. Give
+  either a route to a manual group if someone should find it in `yardr
+  review`.
+- The pack has no crew: its roles name no yardmaster, and a held bead waits
+  for whoever runs the yard.
+
+`--pack starter` is refused on a dir depot, and `--pack dir` on a git depot:
+each of the two is written for one kind.
+
 ### 3. A bead
 
 ```sh
