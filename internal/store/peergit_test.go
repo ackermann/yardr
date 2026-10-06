@@ -12,31 +12,63 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// Two yards' URLs for one remote compare equal whatever each wrote of
-// credentials, of .git and of the way to say ssh; another scheme, host or
-// path is another remote.
+// Two yards' URLs for one remote compare equal however each reaches it: by
+// ssh in either spelling or by https, with whatever login, port and .git.
+// Another host or another path is another remote, and the form reads as
+// itself, since it is what crosses a link.
 func TestRemoteForm(t *testing.T) {
+	const web = "github.com/acme/web"
 	for in, want := range map[string]string{
-		"https://github.com/acme/web.git":                      "https://github.com/acme/web",
-		"https://jo:s3cret@GitHub.com/acme/web":                "https://github.com/acme/web",
-		"https://github.com/acme/web/":                         "https://github.com/acme/web",
-		"git@github.com:acme/web.git":                          "ssh://github.com/acme/web",
-		"ssh://git@github.com/acme/web.git":                    "ssh://github.com/acme/web",
-		"ssh://git@git.example.com:2222/acme/web":              "ssh://git.example.com:2222/acme/web",
+		"https://github.com/acme/web.git":                      web,
+		"https://jo:s3cret@GitHub.com/acme/web":                web,
+		"https://github.com/acme/web/":                         web,
+		"https://github.com:8443/acme/web.git/":                web,
+		"http://github.com/acme/web":                           web,
+		"git://github.com/acme/web.git":                        web,
+		"git@github.com:acme/web.git":                          web,
+		"github.com:acme/web":                                  web,
+		"git@github.com:/acme/web.git":                         web,
+		"ssh://git@github.com/acme/web":                        web,
+		"ssh://git@github.com/acme/web.git":                    web,
+		"ssh://git@GITHUB.com:2222/acme/web":                   web,
+		"ssh://github.com/acme/web":                            web, // the form of the build before this one
+		web:                                                    web,
+		"GitHub.com/acme/web.git":                              web,
+		"ssh://git@[2001:db8::1]:2222/acme/web.git":            "[2001:db8::1]/acme/web",
+		"[2001:db8::1]/acme/web":                               "[2001:db8::1]/acme/web",
 		"/srv/git/web.git":                                     "file:///srv/git/web",
 		"file:///srv/git/web.git":                              "file:///srv/git/web",
-		"  https://github.com/acme/web.git\n":                  "https://github.com/acme/web",
+		"  https://github.com/acme/web.git\n":                  web,
 		"":                                                     "",
+		"https://github.com":                                   "",
+		"https://github.com/":                                  "",
+		"https:///acme/web":                                    "",
 		"https://github.com/acme/web\x00--upload":              "",
 		"https://github.com/acme/" + strings.Repeat("w", 2100): "",
 	} {
-		if got := store.RemoteForm(in); got != want {
+		got := store.RemoteForm(in)
+		if got != want {
 			t.Errorf("RemoteForm(%q) = %q, want %q", in, got, want)
 		}
+		if again := store.RemoteForm(got); again != got {
+			t.Errorf("RemoteForm(%q) = %q, which reads as %q", in, got, again)
+		}
+		if strings.Contains(got, "@") || strings.Contains(got, "s3cret") {
+			t.Errorf("RemoteForm(%q) = %q carries a login", in, got)
+		}
 	}
-	if store.RemoteForm("https://github.com/acme/web") == store.RemoteForm("ssh://github.com/acme/web") ||
-		store.RemoteForm("https://github.com/acme/web") == store.RemoteForm("https://github.com/acme/api") {
-		t.Error("two remotes have one form")
+	// Two repositories on one host, one repository's name on two hosts,
+	// and a path on this machine that is spelled as a host's is.
+	for a, b := range map[string]string{
+		"https://github.com/acme/web":  "git@github.com:acme/api.git",
+		"git@github.com:acme/web.git":  "git@gitlab.com:acme/web.git",
+		"https://github.com/acme/web/": "https://github.com/acme/web/sub",
+		"/github.com/acme/web":         "https://github.com/acme/web",
+		"https://github.com/Acme/web":  "https://github.com/acme/web",
+	} {
+		if store.RemoteForm(a) == store.RemoteForm(b) {
+			t.Errorf("%q and %q are two remotes with one form, %q", a, b, store.RemoteForm(a))
+		}
 	}
 	// A link on the way to a directory is not another remote, also while
 	// the directory itself is away.
@@ -168,5 +200,53 @@ func TestPeerGroupRemoteSetting(t *testing.T) {
 		if err := st.PutGroup(ctx, g); err == nil || !strings.Contains(err.Error(), "remote is the name of the remote") {
 			t.Errorf("remote=%q: %v", bad, err)
 		}
+	}
+}
+
+// What a bead from a peer starts from is kept by the bead's ref, through a
+// gc that keeps nothing else, and is the rig's to drop once the bead is no
+// longer among those named.
+func TestKeepPeerBases(t *testing.T) {
+	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	dir := t.TempDir()
+	git(t, dir, "init", "-q", "-b", "main", dir)
+	first := commit(t, dir, "a.txt")
+	// A commit on no branch, as one fetched by its name is.
+	loose := commit(t, dir, "b.txt")
+	git(t, dir, "reset", "-q", "--hard", first)
+	gc := func() bool {
+		git(t, dir, "reflog", "expire", "--expire=now", "--all")
+		git(t, dir, "gc", "-q", "--prune=now")
+		return exec.Command("git", "-C", dir, "cat-file", "-e", loose+"^{commit}").Run() == nil
+	}
+	ctx := context.Background()
+	rig := store.Rig{Name: "web", Path: dir, Kind: store.RigGit, Base: "main"}
+	refs := func() string { return git(t, dir, "for-each-ref", "--format=%(refname) %(objectname)", "refs/yardr") }
+	bases := []store.PeerBase{{Bead: "web-1", Rig: rig, Commit: loose}, {Bead: "web-2", Rig: rig, Commit: first}}
+	if err := store.KeepPeerBases(ctx, rig, bases); err != nil {
+		t.Fatal(err)
+	}
+	if want := "refs/yardr/peer-base/web-1 " + loose + "\nrefs/yardr/peer-base/web-2 " + first; refs() != want || store.PeerBaseRef("web-1") != "refs/yardr/peer-base/web-1" {
+		t.Fatalf("the refs are\n%s\nwant\n%s", refs(), want)
+	}
+	if !gc() {
+		t.Fatal("gc dropped a commit that a bead's ref keeps")
+	}
+	// A ref of the fetch of a returned branch is not this one's to remove,
+	// and what is no bead's name or no commit's makes no ref.
+	git(t, dir, "update-ref", "refs/yardr/returned/web-9", first)
+	if err := store.KeepPeerBases(ctx, rig, []store.PeerBase{bases[1], {Bead: "../heads/main", Rig: rig, Commit: loose}, {Bead: "web-3", Rig: rig, Commit: "HEAD"}}); err != nil {
+		t.Fatal(err)
+	}
+	if want := "refs/yardr/peer-base/web-2 " + first + "\nrefs/yardr/returned/web-9 " + first; refs() != want || git(t, dir, "rev-parse", "main") != first {
+		t.Fatalf("the refs once web-1 has closed are\n%s\nwant\n%s", refs(), want)
+	}
+	if gc() {
+		t.Fatal("the commit is still there: the test's gc drops nothing, and shows nothing")
+	}
+	// A directory has no refs, and asking is no error.
+	if err := store.KeepPeerBases(ctx, store.Rig{Name: "notes", Path: dir, Kind: store.RigDir}, bases); err != nil || strings.Contains(refs(), "web-1") {
+		t.Fatalf("a dir rig: %v, %s", err, refs())
 	}
 }

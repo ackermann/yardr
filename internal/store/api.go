@@ -169,6 +169,7 @@ type API interface {
 	PeerFetches(ctx context.Context) ([]PeerFetch, error)
 	PeerFetched(ctx context.Context, bead, message, notTaken string) error
 	PeerFetchFailed(ctx context.Context, bead, message, reason string, retryAt time.Time, final bool) error
+	PeerBases(ctx context.Context) ([]PeerBase, error)
 	ExpirePeerBeads(ctx context.Context, at time.Time) error
 	PeerPulled(ctx context.Context, name string, b PeerBatch) (*PeerPulled, error)
 	PeerPostAnswered(ctx context.Context, name string, answer PeerAnswer) error

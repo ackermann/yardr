@@ -656,6 +656,9 @@ func (c *Client) PeerFetched(ctx context.Context, bead, message, notTaken string
 func (c *Client) PeerFetchFailed(ctx context.Context, bead, message, reason string, retryAt time.Time, final bool) error {
 	return c.call(ctx, "PeerFetchFailed", nil, bead, message, reason, retryAt, final)
 }
+func (c *Client) PeerBases(ctx context.Context) ([]store.PeerBase, error) {
+	return callV[[]store.PeerBase](c, ctx, "PeerBases")
+}
 func (c *Client) ExpirePeerBeads(ctx context.Context, at time.Time) error {
 	return c.call(ctx, "ExpirePeerBeads", nil, at)
 }

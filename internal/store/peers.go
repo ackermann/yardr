@@ -961,6 +961,9 @@ func (s *Store) PeerReceive(ctx context.Context, name, key string, msgs []PeerMe
 		}
 		return put(w.Tx, bPeers, name, p)
 	})
+	if err == nil {
+		tk.keep(ctx, s)
+	}
 	return out, err
 }
 
@@ -1116,6 +1119,7 @@ func (s *Store) PeerPulled(ctx context.Context, name string, b PeerBatch) (*Peer
 	if err != nil {
 		return nil, err
 	}
+	tk.keep(ctx, s)
 	return res, nil
 }
 

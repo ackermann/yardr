@@ -651,6 +651,54 @@ type taking struct {
 	// directory, is not in it.
 	rig   string
 	bases map[string]string
+	// at is that rig, when it is a repository.
+	at *Rig
+}
+
+// PeerBases are the commits the open beads that came from peers start
+// from, each with its bead's rig: what the rigs keep by a ref of the
+// bead's (KeepPeerBases). A bead that came with words only, or into a
+// directory, has none.
+func (s *Store) PeerBases(ctx context.Context) ([]PeerBase, error) {
+	var out []PeerBase
+	err := s.read(func(tx *bolt.Tx) error {
+		return each(tx, bPeerBeads, "", func(_ []byte, rec *peerBead) error {
+			if rec.Git == nil || rec.Git.BaseCommit == "" {
+				return nil
+			}
+			var row beadRow
+			if ok, err := get(tx, bBeads, rec.Bead, &row); err != nil || !ok || row.Status != "open" || row.Rig == nil {
+				return err
+			}
+			b := PeerBase{Bead: row.ID, Commit: rec.Git.BaseCommit}
+			if ok, err := get(tx, bRigs, *row.Rig, &b.Rig); err != nil || !ok || b.Rig.IsDir() {
+				return err
+			}
+			out = append(out, b)
+			return nil
+		})
+	})
+	return out, err
+}
+
+// keep gives the beads that were just taken the refs that keep what they
+// start from, when any names it: the commit was fetched before the write,
+// and is held by the bead's own ref from here until the bead closes. One
+// that cannot be made is the daemon's to make on its next pass.
+func (tk *taking) keep(ctx context.Context, s *Store) {
+	taken := false
+	for _, why := range tk.bases {
+		taken = taken || why == ""
+	}
+	if tk.at == nil || !taken {
+		return
+	}
+	bases, err := s.PeerBases(ctx)
+	if err != nil {
+		return
+	}
+	bases = slices.DeleteFunc(bases, func(b PeerBase) bool { return b.Rig.Name != tk.at.Name })
+	_ = KeepPeerBases(context.WithoutCancel(ctx), *tk.at, bases)
 }
 
 // taking reads what taking the beads among msgs from the peer name depends
@@ -677,7 +725,7 @@ func (s *Store) taking(ctx context.Context, name string, msgs []PeerMessage) *ta
 	if err != nil || rig.IsDir() {
 		return tk
 	}
-	tk.rig, tk.bases = rig.Name, map[string]string{}
+	tk.rig, tk.bases, tk.at = rig.Name, map[string]string{}, rig
 	checked := map[PeerGit]string{}
 	for _, m := range msgs {
 		var b struct {

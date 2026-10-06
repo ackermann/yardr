@@ -169,6 +169,11 @@ type Dispatcher struct {
 	// fetchErr is the last error of asking the store which branches came
 	// back from peers (fetches), said once.
 	fetchErr string
+	// basesKept is rig -> the bases of beads from peers its refs were last
+	// made to keep (bases), nil until the first pass; basesErr is the last
+	// error of asking the store for them, said once.
+	basesKept map[string]keptBases
+	basesErr  string
 	// ciRead is epic in in-pr -> its revision when its CI was read and
 	// acted on; an event about the epic's pull request removes it, so the
 	// state is read again. ciWait is epic -> the wait after a read GitHub
@@ -629,6 +634,9 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	if err := d.issues(ctx); err != nil {
 		return err
 	}
+	// Before anything is started: what a bead from a peer starts from is
+	// kept by its ref when its worktree is made.
+	d.bases(ctx)
 	if err := d.route(ctx, byName, active); err != nil {
 		return err
 	}

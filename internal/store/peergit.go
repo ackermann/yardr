@@ -21,7 +21,8 @@ import (
 // branch, the return names that branch, and the yard that asked fetches
 // it. This file is the git of that: which remote a rig's base has, the form
 // two yards' URLs for one remote are compared in, whether a base commit can
-// be had here, and the taking of a branch that came back. All of it runs
+// be had here and the ref that keeps it, and the taking of a branch that
+// came back. All of it runs
 // outside a write.
 
 // PeerGit is the git part of a bead message and of its return. A bead
@@ -72,6 +73,9 @@ var (
 	// this yard asks its own remote for it.
 	gitBranchName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$`)
 	scpRemote     = regexp.MustCompile(`^(?:[^@/:]+@)?([^/:@]+):(.*)$`)
+	// formRemote is what RemoteForm gives for a remote on another machine:
+	// a host, then the path.
+	formRemote = regexp.MustCompile(`(?i)^(\[[0-9a-f:.]+\]|[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?)/(.+)$`)
 )
 
 // IsBeadBranch reports whether name is of the form a bead's branch has
@@ -82,40 +86,59 @@ func IsBeadBranch(name string) bool {
 }
 
 // RemoteForm is the URL of a git remote in the one form two yards' URLs
-// are compared in: scheme, host and path, with no credentials and no
-// trailing .git. git@host:org/repo is ssh://host/org/repo, and a path is
-// file:///path, with the links in it followed when it is on this machine.
-// "" for what reads as none of them.
+// are compared in: the host and the path, as in github.com/acme/web. How
+// the host is reached is each yard's own and no part of it, so the scheme,
+// the login and the port are left out, with a trailing slash and .git, and
+// the host is in lower case: git@host:acme/web.git, ssh://git@host/acme/web
+// and https://host/acme/web are one remote, and host/acme/api is another.
+// A path on this machine is file:///path, with the links in it followed.
+// The form reads as itself, and is "" for what reads as none of them.
 func RemoteForm(raw string) string {
 	s := strings.TrimSpace(raw)
 	if s == "" || len(s) > 2048 || strings.ContainsFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
 		return ""
 	}
-	var scheme, host, path string
-	switch m := scpRemote.FindStringSubmatch(s); {
+	var host, path string
+	local := false
+	form, scp := formRemote.FindStringSubmatch(s), scpRemote.FindStringSubmatch(s)
+	switch {
 	case strings.Contains(s, "://"):
 		u, err := url.Parse(s)
 		if err != nil || u.Scheme == "" {
 			return ""
 		}
-		scheme, host, path = strings.ToLower(u.Scheme), strings.ToLower(u.Host), u.Path
-	case m != nil && !strings.HasPrefix(s, ".") && len(m[1]) > 1:
+		if local = strings.EqualFold(u.Scheme, "file"); local {
+			host, path = u.Host, u.Path
+		} else {
+			host, path = u.Hostname(), u.Path
+		}
+	case form != nil:
+		// The form itself, as it crossed a link.
+		host, path = strings.Trim(form[1], "[]"), form[2]
+	case scp != nil && !strings.HasPrefix(s, ".") && len(scp[1]) > 1:
 		// One letter before the colon is a drive, not a host.
-		scheme, host, path = "ssh", strings.ToLower(m[1]), "/"+strings.TrimPrefix(m[2], "/")
+		host, path = scp[1], scp[2]
 	default:
-		scheme, path = "file", filepath.Clean(s)
+		local, path = true, filepath.Clean(s)
 	}
-	if scheme == "file" {
+	host = strings.ToLower(host)
+	if local {
 		// As this machine names the directory: two yards that share one
 		// are on one machine, and a link in the way to it (/tmp) is not
 		// a different remote.
 		path = filepath.ToSlash(realPath(path))
 	}
-	path = strings.TrimSuffix(strings.TrimRight(path, "/"), ".git")
-	if !strings.HasPrefix(path, "/") {
-		path = "/" + path
+	path = "/" + strings.TrimLeft(strings.TrimSuffix(strings.TrimRight(path, "/"), ".git"), "/")
+	switch {
+	case local:
+		return "file://" + host + path
+	case host == "" || path == "/":
+		return ""
+	case strings.Contains(host, ":"):
+		// An address with colons of its own keeps its brackets.
+		host = "[" + host + "]"
 	}
-	return scheme + "://" + host + path
+	return host + path
 }
 
 // realPath is path with the links in it followed, as far as it is there:
@@ -303,6 +326,66 @@ func checkBase(ctx context.Context, rig Rig, g PeerGit) string {
 		why += ": " + ferr.Error()
 	}
 	return why
+}
+
+// peerBaseRefs is where a rig keeps the commits that the open beads from
+// peers start from: one ref a bead, named as its branch is. A base commit
+// may be on no branch of the rig (fetched by its own name, or on a branch
+// the remote has moved since), and git's gc drops a commit that no ref
+// leads to.
+const peerBaseRefs = "refs/yardr/peer-base/"
+
+// PeerBaseRef is the ref that keeps the commit the bead starts from.
+func PeerBaseRef(bead string) string { return peerBaseRefs + bead }
+
+// PeerBase is the commit an open bead that came from a peer starts from,
+// which the bead's rig keeps by PeerBaseRef until the bead is closed.
+type PeerBase struct {
+	Bead   string `json:"bead"`
+	Rig    Rig    `json:"rig"`
+	Commit string `json:"commit"`
+}
+
+// KeepPeerBases makes rig's refs for the bases of beads from peers what
+// bases says, which are the rig's open ones (PeerBases): a ref for each,
+// at its commit, and no other, so the ref of a bead that has closed goes.
+// It runs outside any write: the store calls it when a bead has arrived,
+// and the daemon when the rig's open beads have changed.
+func KeepPeerBases(ctx context.Context, rig Rig, bases []PeerBase) error {
+	if rig.IsDir() || rig.Path == "" {
+		return nil
+	}
+	out, err := git(ctx, rig.Path, "for-each-ref", "--format=%(refname) %(objectname)", peerBaseRefs)
+	if err != nil {
+		return fmt.Errorf("rig %s: reading %s: %w", rig.Name, peerBaseRefs, err)
+	}
+	have := map[string]string{}
+	for _, line := range strings.Split(string(out), "\n") {
+		if ref, at, ok := strings.Cut(strings.TrimSpace(line), " "); ok {
+			have[ref] = at
+		}
+	}
+	var errs []error
+	for _, b := range bases {
+		ref := PeerBaseRef(b.Bead)
+		at, ok := have[ref]
+		delete(have, ref)
+		if ok && at == b.Commit {
+			continue
+		}
+		if !validID.MatchString(b.Bead) || !gitCommit.MatchString(b.Commit) {
+			continue
+		}
+		if _, err := git(ctx, rig.Path, "update-ref", ref, b.Commit); err != nil {
+			errs = append(errs, fmt.Errorf("rig %s: keeping %s for %s: %w", rig.Name, short(b.Commit), b.Bead, err))
+		}
+	}
+	for ref := range have {
+		if _, err := git(ctx, rig.Path, "update-ref", "-d", ref); err != nil {
+			errs = append(errs, fmt.Errorf("rig %s: removing %s: %w", rig.Name, ref, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // short is a commit as a line says it.

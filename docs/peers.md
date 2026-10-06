@@ -1481,13 +1481,13 @@ yard cannot fetch, and the bead comes back `refused`.
 **What the yard that takes it does.** With `git` in the message and a
 repository as the intake's rig, before the bead is made:
 
-- its rig's remote (found the same way) must be the remote the bead names,
-  compared in the one form a `remote` crosses in
-  ([the messages](#the-messages)): scheme, host and path. `https://…` and
-  `git@…` of one repository are two remotes to this comparison, so both
-  yards use the same kind of URL;
+- its rig's remote (found the same way) must be the remote the bead names:
+  [the same remote](#the-same-remote), however each yard reaches it;
 - the base commit must be in the rig, or come with a fetch of the branch
-  the bead names, or of the commit by its name.
+  the bead names, or of the commit by its name. It is then kept by a ref of
+  the bead's, `refs/yardr/peer-base/<bead>`, until the bead closes
+  ([the refs](#the-refs-a-rig-has-for-it)): a commit fetched by its name is
+  on no branch, and `git gc` drops what no ref leads to.
 
 Either failing refuses the bead as `base_unknown`
 ([what arrives](#what-arrives)); `detail` in the yard's
@@ -1621,6 +1621,62 @@ nothing to push. (A taking yard whose rig is a repository with another
 remote than the bead names is the one case that refuses, as
 `base_unknown`: its work would start somewhere else.)
 
+#### The same remote
+
+Two yards have the same remote when their URLs for it name the same host
+and the same path. That is all that is compared, in the three places a
+remote is: when a bead is taken, when its return is, and against the peer
+group's `remote` on the way back.
+
+| | |
+|---|---|
+| left out | the scheme (`https`, `ssh`, `git`, the scp spelling `git@host:path`), the login, the port, a trailing `.git`, a trailing `/` |
+| compared | the host, in lower case, and the path as it is written: `acme/web` and `Acme/web` are two |
+
+So these are one remote, `github.com/acme/web`, and a laptop that clones by
+ssh works with a server that clones by https:
+
+```text
+git@github.com:acme/web.git
+ssh://git@github.com/acme/web
+ssh://git@github.com:2222/acme/web.git
+https://github.com/acme/web
+https://jo:<token>@github.com/acme/web.git/
+```
+
+`github.com/acme/api` is another remote, and so is `gitlab.com/acme/web`.
+A path on the machine (`/srv/git/web.git`, `file:///srv/git/web.git`) is
+`file:///srv/git/web`, with the links in it followed, and is the same
+remote only for two yards on that machine.
+
+What is compared is what `git remote get-url <remote>` prints in each rig,
+so a URL that git's `url.<base>.insteadOf` rewrites is compared as
+rewritten. Two servers on one host that differ only in their port, with the
+same path on both, read as one remote; such a pair goes wrong one step
+later and no further, since the base commit has to be fetched from this
+yard's own remote and a returned branch has to be at the commit the return
+names.
+
+#### The refs a rig has for it
+
+All of them are under `refs/yardr/` or are a bead's own branch; none is a
+tag, and none is pushed.
+
+| step | in the yard that builds | in the yard that asked |
+|---|---|---|
+| the bead is taken | `refs/yardr/peer-base/<its bead>` at the base commit. When the commit came with a fetch of the branch the bead names, `refs/remotes/<remote>/<that branch>` has moved as with any fetch | nothing new |
+| the builder starts | `yard/<its bead>`, made from the base commit | |
+| `return-branch` has pushed | the same, and `yard/<its bead>` on the remote | |
+| the bead closes, returned | `refs/yardr/peer-base/<its bead>` is removed on the daemon's next pass; `yard/<its bead>` is as any closed bead's branch is | |
+| the branch is fetched back | | `refs/yardr/returned/<this yard's bead>` for the length of the fetch and the check, removed whether it is taken or not |
+| it is taken | | `yard/<this yard's bead>` at the returned commit, and nothing else: the returned branch is never held under another name, and no tracking ref is made for it |
+
+The daemon keeps `refs/yardr/peer-base/` in each rig equal to the open
+beads that came with a base: it removes the ref of a bead that has closed
+(also one that closed while no daemon ran, which it finds when it starts)
+and makes one that is missing, for a bead that arrived under a build
+before this one. A bead that is refused has no ref.
+
 **Beads meant to travel** name files by their path in the repository, not
 by a path on the machine that wrote them: `internal/store/peers.go`, never
 `~/projects/web/internal/store/peers.go`. The other yard's clone is
@@ -1634,9 +1690,15 @@ somewhere else.
 | `bead-return` | the receiver | the `bead` message's id | `v` 1, `bead` (the receiver's handle), `outcome`, `notes`, `notes_left_out`, `git` when a stage of its flow pushed the bead's branch: `branch`, `commit`, `remote` (the URL it was pushed to) |
 
 A `remote` is always in one form, which is also the form two yards' URLs are
-compared in: scheme, host and path, without credentials and without a
-trailing `.git` (`git@github.com:acme/web.git` is `ssh://github.com/acme/web`,
-a path is `file:///path`). No credential crosses a link.
+compared in ([the same remote](#the-same-remote)): the host and the path,
+without scheme, login, port or a trailing `.git`
+(`git@github.com:acme/web.git` and `https://github.com/acme/web` are both
+`github.com/acme/web`; a path is `file:///path`). No credential crosses a
+link. A yard on the build before this one sends `ssh://github.com/acme/web`,
+which reads as the same remote here. It compares the scheme itself, so
+until it is replaced it takes what this build sends only when its own rig's
+remote is a path (`file://`): any other bead it refuses as `base_unknown`,
+and any other returned branch it does not take, with the note that says so.
 
 A field a yard does not know is ignored, so adding one changes no `v`. A `v`
 it does not know is refused as `version`. A yardr from before beads crossed

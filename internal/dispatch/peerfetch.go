@@ -3,6 +3,8 @@ package dispatch
 import (
 	"context"
 	"errors"
+	"slices"
+	"strings"
 	"time"
 
 	"yardr.dev/yardr/internal/store"
@@ -65,4 +67,72 @@ func (d *Dispatcher) fetches(ctx context.Context) {
 			d.Log.Warn("peer fetch: recording the failure", "bead", f.Bead, "err", err)
 		}
 	}
+}
+
+// bases keeps, in every rig that is a repository, the refs for what the
+// open beads from peers start from as the store says they are
+// (store.KeepPeerBases): the ref of a bead that has closed is removed, and
+// one that is missing is made. A rig is looked at when its beads have
+// changed since it last was, and once after the daemon starts, which is
+// when a ref may be left of a bead that closed while none ran.
+func (d *Dispatcher) bases(ctx context.Context) {
+	bases, err := d.Store.PeerBases(ctx)
+	if err != nil {
+		if msg := err.Error(); ctx.Err() == nil && msg != d.basesErr {
+			d.basesErr = msg
+			d.Log.Warn("peers: reading what the beads from peers start from", "err", err)
+		}
+		return
+	}
+	d.basesErr = ""
+	rigs, of := map[string]store.Rig{}, map[string][]store.PeerBase{}
+	if d.basesKept == nil {
+		all, err := d.Store.Rigs(ctx)
+		if err != nil {
+			return
+		}
+		d.basesKept = map[string]keptBases{}
+		for _, r := range all {
+			rigs[r.Name] = r
+		}
+	}
+	for name, k := range d.basesKept {
+		rigs[name] = k.rig
+	}
+	for _, b := range bases {
+		rigs[b.Rig.Name], of[b.Rig.Name] = b.Rig, append(of[b.Rig.Name], b)
+	}
+	for name, rig := range rigs {
+		if rig.IsDir() || rig.Path == "" {
+			continue
+		}
+		slices.SortFunc(of[name], func(a, b store.PeerBase) int { return strings.Compare(a.Bead, b.Bead) })
+		var is strings.Builder
+		for _, b := range of[name] {
+			is.WriteString(b.Bead + "=" + b.Commit + " ")
+		}
+		if k, ok := d.basesKept[name]; ok && k.is == is.String() && k.rig.Path == rig.Path {
+			continue
+		}
+		cctx, cancel := context.WithTimeout(ctx, branchTimeout)
+		err := store.KeepPeerBases(cctx, rig, of[name])
+		cancel()
+		if err != nil {
+			// Said once: it is tried again when the rig's beads change.
+			d.Log.Warn("peers: keeping what the beads from peers start from", "rig", name, "err", err)
+		}
+		if len(of[name]) == 0 {
+			// Nothing to keep there any more, and nothing to remember.
+			delete(d.basesKept, name)
+			continue
+		}
+		d.basesKept[name] = keptBases{rig: rig, is: is.String()}
+	}
+}
+
+// keptBases is a rig whose refs for the bases of beads from peers were
+// made what the store said: is, its beads and their commits then.
+type keptBases struct {
+	rig store.Rig
+	is  string
 }
