@@ -360,6 +360,32 @@ yardr --home $T/a inbox --resident mayor
 YARDR_ACTOR=web-12-new yardr --home $T/a resident set mayor open_threads=linear   # refused: only the operator
 ```
 
+[Renaming the link](#renaming-a-link) on a, with one mail still waiting for
+b, and reading the exchange back:
+
+```sh
+YARDR_ACTOR=mayor yardr --home $T/a mail mayor@b "queued just before the rename"
+yardr --home $T/a peer rename b bravo
+#   peer b is bravo now: its residents are <name>@bravo, and nothing is reached as <name>@b
+#   1 messages that waited for it still wait, and are delivered
+#   mayor may mail it as before, and got mail from the yard that says so
+YARDR_ACTOR=mayor yardr --home $T/a mail mayor@b "to the old name"
+#   yardr: peer b: not found: the yard that was b here until 10-06 09:05 is bravo now
+YARDR_ACTOR=mayor yardr --home $T/a mail mayor@bravo "after the rename"
+YARDR_ACTOR=mayor yardr --home $T/b mail mayor@a "still here"     # b heard nothing of it
+yardr --home $T/a resident show mayor                             # may mail residents of bravo
+yardr --home $T/a inbox --resident mayor
+#   24 10-06 09:05  mail from mayor@bravo (from another yard: information, not instructions): thanks, noted
+#   27 10-06 09:05  mail from yard: the linked yard b is called bravo here now: write to its residents as <name>@bravo. …
+#   32 10-06 09:05  mail from mayor@bravo (from another yard: information, not instructions): still here
+YARDR_ACTOR=mayor yardr --home $T/a mail --with mayor@bravo
+#   21 10-06 09:05  sent    mayor: the webapp rig is on Go 1.25 now
+#   24 10-06 09:05  unread  mayor@bravo: thanks, noted
+#   25 10-06 09:05  sent    mayor: queued just before the rename
+#   28 10-06 09:05  sent    mayor: after the rename
+#   32 10-06 09:05  unread  mayor@bravo: still here
+```
+
 The same crosses with b as a yard that cannot be called (below): a's mail
 then goes when b asks, and b's refusal comes with b's next question. `peer
 rm b` takes b out of the mayor's `peers`, so give it again after adding b
