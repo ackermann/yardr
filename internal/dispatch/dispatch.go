@@ -157,7 +157,8 @@ type Dispatcher struct {
 	// peerCalls is whether any peer can be called, as of the last pass.
 	// peerWait is peer -> when it is called again after a request that
 	// failed. peerErr and peerKeyErr are the last errors said, so each is
-	// said once.
+	// said once. Both are by the peer's key: its name can change, and be
+	// another yard's later.
 	peerCalls  bool
 	peerWait   map[string]time.Time
 	peerErr    map[string]string

@@ -984,7 +984,11 @@ inbox.
 or user, both directions, oldest first: seq, time, whether its receiver has
 read it (acknowledged it with yardr inbox --ack), sender and text. --after
 <seq> prints only what is newer; --json prints a list of
-{seq, at, from, to, text, read}.
+{seq, at, from, to, text, read}. --with <resident>@<peer> prints the mail
+between you and a resident of a linked yard; what you wrote says queued,
+sent or failed (delivery in --json) instead, since the other yard does not
+say what was read. It goes by the link, so a peer renamed since (yardr peer
+rename) shows its mail from before under the name it has now.
 
 <resident>@<peer> is a resident of a linked yard, <peer> being this yard's name
 for the link (yardr peer list). That mail (up to 16 KB) is queued for the peer
@@ -1001,7 +1005,8 @@ Answer it with yardr mail <name>@<peer>.`,
   yardr mail mckean "The refinery is red on main: yardr-1a2b"
   yardr mail --with mayor
   yardr mail --with mayor --after 412 --json
-  yardr mail mayor@north "Our webapp rig is on Go 1.25 now"`,
+  yardr mail mayor@north "Our webapp rig is on Go 1.25 now"
+  yardr mail --with mayor@north`,
 		Args: func(c *cobra.Command, args []string) error {
 			if with != "" {
 				return cobra.NoArgs(c, args)
@@ -1049,7 +1054,7 @@ Answer it with yardr mail <name>@<peer>.`,
 			})
 		},
 	}
-	cmd.Flags().StringVar(&with, "with", "", "print the mail between you and this resident or user instead of sending")
+	cmd.Flags().StringVar(&with, "with", "", "print the mail between you and this resident or user, or <resident>@<peer>, instead of sending")
 	cmd.Flags().Uint64Var(&after, "after", 0, "with --with: only mail newer than this seq")
 	return cmd
 }

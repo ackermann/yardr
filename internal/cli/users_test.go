@@ -239,7 +239,11 @@ func TestMailWith(t *testing.T) {
 	if _, err := as(t, st, "jo", "mail", "--with", "nobody"); exitCode(err) != 3 || !strings.Contains(err.Error(), "no resident and no user of that name") {
 		t.Fatalf("--with nobody: %v", err)
 	}
-	refusedAs(t, st, "jo", "a conversation is of this yard's mail", "mail", "--with", "mayor@north")
+	// A resident of another yard is read back by its link (peerrename_test.go),
+	// and a yard this one is not linked with has none.
+	if _, err := as(t, st, "jo", "mail", "--with", "mayor@north"); exitCode(err) != 3 || !strings.Contains(err.Error(), "--with mayor@north: peer north: not found") {
+		t.Fatalf("--with a resident of no peer: %v", err)
+	}
 	if _, err := as(t, st, "jo", "mail", "--with", "mayor", "and", "text"); err == nil {
 		t.Fatal("--with took a text to send")
 	}

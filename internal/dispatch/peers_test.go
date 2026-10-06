@@ -367,3 +367,56 @@ func TestPeersWithoutAKey(t *testing.T) {
 		t.Fatalf("a yard without a key made %d requests", b.asked.Load())
 	}
 }
+
+// A peer renamed while a message for it waits on a retry gets the message
+// at the retry, under its new name, and its pong comes back. A yard added
+// under the name the rename freed is another yard: it is called at once,
+// not left alone for the failures of the one that had the name.
+func TestPeersRenamed(t *testing.T) {
+	ctx := context.Background()
+	clock := newClock()
+	a, b, c := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock), newPeerYard(t, "c", clock)
+	link(t, a, b, true, true)
+	b.down.Store(true)
+	first := a.send(t, "b")
+	a.pass(t)
+	if w := a.waiting(t, "b"); len(w) != 1 || w[0].Attempts != 1 {
+		t.Fatalf("with b down: %+v", w)
+	}
+
+	_, err := a.api.RenamePeer(ctx, "b", "bee", "jo")
+	must(t, err)
+	// c takes the name b had, on both sides.
+	_, err = a.api.AddPeer(ctx, store.Peer{Name: "b", Key: c.pub, URL: c.srv.URL}, "jo")
+	must(t, err)
+	_, err = a.api.AllowPeer(ctx, "b", store.PeerAllow{Send: []string{"ping"}, Receive: []string{"ping"}}, "jo")
+	must(t, err)
+	_, err = c.api.AddPeer(ctx, store.Peer{Name: "a", Key: a.pub, URL: a.srv.URL}, "jo")
+	must(t, err)
+	_, err = c.api.AllowPeer(ctx, "a", store.PeerAllow{Send: []string{"ping"}, Receive: []string{"ping"}}, "jo")
+	must(t, err)
+	second := a.send(t, "b")
+	a.pass(t)
+	if got := c.events(t, "peer_message_received"); len(got) != 1 || got[0].Data["id"] != second {
+		t.Fatalf("c, added under the name b had, received %+v in the pass after; want its ping", got)
+	}
+	if w := a.waiting(t, "bee"); len(w) != 1 || w[0].ID != first || w[0].Attempts != 1 {
+		t.Fatalf("what waited for the renamed peer: %+v", w)
+	}
+
+	b.down.Store(false)
+	clock.now = clock.now.Add(30 * time.Second)
+	a.pass(t)
+	if got := b.events(t, "peer_message_received"); len(got) != 1 || got[0].Data["id"] != first {
+		t.Fatalf("b received %+v, want the ping from before the rename", got)
+	}
+	b.pass(t)
+	c.pass(t)
+	a.pass(t)
+	if pong := a.pong(t, first); pong == nil || pong.Data["peer"] != "bee" {
+		t.Fatalf("the pong of the renamed peer = %+v", pong)
+	}
+	if pong := a.pong(t, second); pong == nil || pong.Data["peer"] != "b" {
+		t.Fatalf("the pong of the yard added under the old name = %+v", pong)
+	}
+}

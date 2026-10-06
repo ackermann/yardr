@@ -11,10 +11,13 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// schemaVersion 4 has users that subscribe: a user's record holds its
-// subscriptions and a second cursor, for the notifications they make
-// (migrateUserCursors), which a build before it would drop from a record
-// it rewrites. Version 3 has the inbox and events_by_kind indexes, written
+// schemaVersion 5 has peers that can be renamed: a peer's record holds the
+// names it had and the event it was added after (migratePeerSince), which
+// a build before it would drop from a record it rewrites, and with them
+// the mail from before a rename. Version 4 has users that subscribe: a
+// user's record holds its subscriptions and a second cursor, for the
+// notifications they make (migrateUserCursors), which a build before it
+// would drop from a record it rewrites. Version 3 has the inbox and events_by_kind indexes, written
 // with every event (migrateIndexes). Version 2 keys beads by UUID with handles
 // (yard-29). Version 1 is every store before it: beads keyed by counter ids
 // (yard-1) minted from the counters bucket.
@@ -22,7 +25,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 4
+const schemaVersion = 5
 
 var (
 	kSchema   = []byte("schema")

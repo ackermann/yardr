@@ -100,8 +100,8 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 	if err := s.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := schemaOf(t, fixture); got != 4 {
-		t.Fatalf("a new store is stamped %d; want 4", got)
+	if got := schemaOf(t, fixture); got != 5 {
+		t.Fatalf("a new store is stamped %d; want 5", got)
 	}
 	want := indexKeys(t, fixture)
 	if len(want["inbox"]) != 2 || len(want["events_by_kind"]) == 0 {
@@ -161,8 +161,8 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 			if err := s.Close(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if got := schemaOf(t, path); got != 4 {
-				t.Fatalf("schema after Open = %d; want 4", got)
+			if got := schemaOf(t, path); got != 5 {
+				t.Fatalf("schema after Open = %d; want 5", got)
 			}
 			got := indexKeys(t, path)
 			for _, name := range indexBuckets {
@@ -170,7 +170,7 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 					t.Errorf("%s after migration = %v\nwant %v", name, got[name], want[name])
 				}
 			}
-			if got := schemaOf(t, fixture); got != 4 || !slices.Equal(indexKeys(t, fixture)["inbox"], want["inbox"]) {
+			if got := schemaOf(t, fixture); got != 5 || !slices.Equal(indexKeys(t, fixture)["inbox"], want["inbox"]) {
 				t.Fatal("the fixture changed; the migration ran on the copy")
 			}
 		})

@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
@@ -60,6 +61,11 @@ type Letter struct {
 	// Timer is the id of the timer the yard sent it for, "" for mail its
 	// sender wrote: the text then begins "timer:".
 	Timer string `json:"timer,omitempty"`
+	// Delivery is set on mail to a resident of another yard, whose reading
+	// of it this yard never learns of: MailQueued while it waits here for
+	// the peer, MailSent once the peer has it, MailFailed when it was
+	// given up.
+	Delivery string `json:"delivery,omitempty"`
 }
 
 // Mailbox is a user's mail: what they have not acknowledged, and the
@@ -357,9 +363,16 @@ func (w *wtx) mailRead(name string, was, through uint64) error {
 // leaves out what is not newer than that seq. Either may be a resident or
 // a user. It reads the inbox index of the two and nothing else of the log,
 // so asking again with the last seq seen costs what is new.
+//
+// b may also be <resident>@<peer>, a resident of a linked yard: see
+// peerConversation.
 func (s *Store) Conversation(ctx context.Context, a, b string, after uint64) ([]Letter, error) {
 	out := []Letter{}
-	err := s.read(func(tx *bolt.Tx) error {
+	err := s.read(func(tx *bolt.Tx) (err error) {
+		if strings.Contains(b, "@") {
+			out, err = peerConversation(tx, a, b, after)
+			return err
+		}
 		keys := mailKeys(tx, a, after)
 		if b != a {
 			keys = append(keys, mailKeys(tx, b, after)...)

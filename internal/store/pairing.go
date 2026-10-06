@@ -193,6 +193,7 @@ func (s *Store) pairPeer(p Peer, actor string, data map[string]any) (*Peer, erro
 		if err := peerFree(w.Tx, &p); err != nil {
 			return err
 		}
+		p.Since = w.Bucket(bEvents).Sequence()
 		if err := put(w.Tx, bPeers, p.Name, p); err != nil {
 			return err
 		}

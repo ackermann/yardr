@@ -150,6 +150,10 @@ exchange with the user's name: `yardr mail --with mckean`.
 `{seq, at, from, to, text, read}`: a view asks again with the last seq it
 has.
 
+`yardr mail --with <resident>@<peer>` is the same for a resident of a
+linked yard ([peers.md](peers.md#mail-between-residents)); what was sent
+there says `queued`, `sent` or `failed` in place of read.
+
 **Read** means acknowledged by the receiver, with `yardr inbox --ack`: a
 user's own, for the mail part of [the inbox](#the-inbox), or a resident's,
 whose acknowledgement covers its whole inbox through the last event shown.

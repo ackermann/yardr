@@ -172,6 +172,9 @@ func Open(path string) (*Store, error) {
 		if err := migrateUserCursors(tx, stampedSchema(tx)); err != nil {
 			return err
 		}
+		if err := migratePeerSince(tx, stampedSchema(tx)); err != nil {
+			return err
+		}
 		return setSchema(tx)
 	})
 	if err != nil {

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"maps"
 	"net/http"
+	"slices"
 	"time"
 
 	"yardr.dev/yardr/internal/store"
@@ -46,6 +48,15 @@ func (d *Dispatcher) peers(ctx context.Context) error {
 	for _, p := range ps {
 		d.peerCalls = d.peerCalls || p.URL != ""
 	}
+	// What the daemon keeps of a peer it keeps by the peer's key, not its
+	// name: a rename changes nothing of it, and a yard added under a name
+	// that a removal or a rename freed is another yard, not left alone for
+	// the failures of the one before. What is no peer's any more goes.
+	gone := func(key string) bool {
+		return !slices.ContainsFunc(ps, func(p store.Peer) bool { return p.Key == key })
+	}
+	maps.DeleteFunc(d.peerWait, func(key string, _ time.Time) bool { return gone(key) })
+	maps.DeleteFunc(d.peerErr, func(key, _ string) bool { return gone(key) })
 	if !d.peerCalls {
 		return nil
 	}
@@ -73,7 +84,7 @@ func (d *Dispatcher) peers(ctx context.Context) error {
 	}
 	for _, p := range ps {
 		// A peer that just failed is not called again in the same breath.
-		if until, ok := d.peerWait[p.Name]; p.URL == "" || ok && d.now().Before(until) {
+		if until, ok := d.peerWait[p.Key]; p.URL == "" || ok && d.now().Before(until) {
 			continue
 		}
 		// Posted first: a peer that is down then costs its oldest message a
@@ -104,7 +115,7 @@ func (d *Dispatcher) pull(ctx context.Context, c *yards.Caller, p store.Peer) in
 		}
 		return 0
 	}
-	delete(d.peerWait, p.Name)
+	delete(d.peerWait, p.Key)
 	if len(res.Taken) > 0 {
 		d.Log.Info("messages pulled from peer", "peer", p.Name, "messages", len(res.Taken))
 	}
@@ -131,7 +142,7 @@ func (d *Dispatcher) push(ctx context.Context, c *yards.Caller, p store.Peer) bo
 		cancel()
 		switch {
 		case err == nil:
-			delete(d.peerWait, p.Name)
+			delete(d.peerWait, p.Key)
 			d.Log.Info("message sent to peer", "peer", p.Name, "kind", m.Kind, "id", m.ID)
 			if err := d.Store.PeerDelivered(ctx, p.Name, m.Seq); err != nil && !errors.Is(err, store.ErrNotFound) {
 				// It stays and is posted again; the peer takes an id once.
@@ -149,7 +160,7 @@ func (d *Dispatcher) push(ctx context.Context, c *yards.Caller, p store.Peer) bo
 				d.Log.Warn("message not sent to peer", "peer", p.Name, "kind", m.Kind, "id", m.ID, "tries", tries, "given_up", final, "err", err)
 			}
 			d.peerGaveUp(ctx, m, err.Error(), d.now().Add(min(d.Backoff<<min(tries-1, 30), d.BackoffMax)), final)
-			d.peerWait[p.Name] = d.now().Add(d.Backoff)
+			d.peerWait[p.Key] = d.now().Add(d.Backoff)
 			return false
 		}
 	}
@@ -170,9 +181,9 @@ func (d *Dispatcher) peerFailed(p store.Peer, doing string, err error) {
 	if d.peerErr == nil {
 		d.peerErr = map[string]string{}
 	}
-	if msg := err.Error(); d.peerErr[p.Name] != msg {
-		d.peerErr[p.Name] = msg
+	if msg := err.Error(); d.peerErr[p.Key] != msg {
+		d.peerErr[p.Key] = msg
 		d.Log.Warn("peer: "+doing+" failed; trying again", "peer", p.Name, "err", err)
 	}
-	d.peerWait[p.Name] = d.now().Add(d.Backoff)
+	d.peerWait[p.Key] = d.now().Add(d.Backoff)
 }

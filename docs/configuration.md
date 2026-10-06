@@ -1339,7 +1339,10 @@ the summary says which ([above](#creating-a-yard-the-onboarding-and-yardr-init))
 The store is stamped with its schema version on open, and a yardr whose
 schema is older than the store's refuses to open it (`store schema is newer
 than this yardr knows`) rather than run its migrations over it. The schema
-is 3: version 3 added the inbox and kind indexes, which every event is
+is 5: version 5 keeps, in a peer's record, the names it had before a rename
+and the event it was added after ([peers.md](peers.md#renaming-a-link));
+version 4 gave users subscriptions and a second cursor
+([users.md](users.md)); version 3 added the inbox and kind indexes, which every event is
 written with, so a store at 2 is reindexed in full the first time a newer
 build opens it (and a build without the indexes can no longer append to it
 unindexed); version 2 keyed beads by UUID.

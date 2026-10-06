@@ -40,6 +40,7 @@ The way by hand, when no code can be passed, or for scripts:
   yardr peer add <name> <invite>       add the other yard, from its invite
   yardr peer allow <name> --send ping --receive ping
   yardr peer ping <name>               prove the link, both ways
+  yardr peer rename <old> <new>        change the name this yard has for a link
 
 The other yard's requests come in on the server's hook listener, under
 /peers/, beside /hooks/ (yardr settings set hook_addr <host:port>): a yard
@@ -226,6 +227,9 @@ remove the peer first to replace it.`,
 			}
 			return a.out(map[string]any{"peer": p, "listening": listening, "incoming": in, "waiting": rows}, func() {
 				fmt.Printf("%s  (it calls itself %s)\n", p.Name, or(p.Calls, "-"))
+				for _, w := range p.Was {
+					fmt.Printf("  was      %s until %s\n", w.Name, w.At.Local().Format("2006-01-02 15:04"))
+				}
 				fmt.Printf("  key      %s\n", p.Key)
 				if p.URL != "" {
 					fmt.Printf("  url      %s: this yard posts to it and asks it for what waits there\n", p.URL)
@@ -266,6 +270,65 @@ requests are refused here from now on.`,
 				return err
 			}
 			return a.out(map[string]string{"peer": args[0], "rm": "ok"}, func() { fmt.Printf("%s: removed\n", args[0]) })
+		},
+	}
+
+	rename := &cobra.Command{
+		Use: "rename <old> <new>", Short: "Change the name this yard has for a peer", Args: cobra.ExactArgs(2),
+		Long: `Changes the name this yard knows a linked yard by. The name is this yard's
+own: the other yard hears nothing of it and changes nothing. The link stays
+what it is: its key, its URL and what it carries (yardr peer allow).
+
+Everything that names the peer follows, in the same write:
+  - mail that waits for it is delivered, and what was taken from it is still
+    known as taken;
+  - a resident that may mail it (its peers setting) may still, under the new
+    name, and is told of it by mail from the yard;
+  - yardr inbox shows mail it sent before as from <name>@<new>, and yardr mail
+    --with <name>@<new> prints the mail from before and after as one
+    conversation.
+
+The old name is free afterwards and reaches nothing: a yard added under it
+later is another yard, with no mail, no grant and no history of this one's.
+The event log is not rewritten: its events keep the name the peer had when
+they were logged, and peer_renamed says when it changed.
+
+Only the operator may: the name is what residents' addresses reach a yard by.
+Refused when <old> is no peer, <new> is no name for one, or <new> is a peer
+already.`,
+		Example: `  yardr peer rename nroth north`,
+		RunE: func(c *cobra.Command, args []string) error {
+			ctx := c.Context()
+			st, err := a.store(ctx)
+			if err != nil {
+				return err
+			}
+			if err := a.operatorOnly(ctx, st, "rename a peer"); err != nil {
+				return err
+			}
+			var may []string
+			rs, err := st.Residents(ctx)
+			if err != nil {
+				return err
+			}
+			for _, r := range rs {
+				if slices.Contains(r.MayMail(), args[0]) {
+					may = append(may, r.Name)
+				}
+			}
+			p, err := st.RenamePeer(ctx, args[0], args[1], a.who())
+			if err != nil {
+				return err
+			}
+			return a.out(map[string]any{"peer": p, "from": args[0], "residents": may}, func() {
+				fmt.Printf("peer %s is %s now: its residents are <name>@%s, and nothing is reached as <name>@%s\n", args[0], p.Name, p.Name, args[0])
+				if p.Waiting > 0 {
+					fmt.Printf("%d messages that waited for it still wait, and are delivered\n", p.Waiting)
+				}
+				if len(may) > 0 {
+					fmt.Printf("%s may mail it as before, and got mail from the yard that says so\n", strings.Join(may, ", "))
+				}
+			})
 		},
 	}
 
@@ -346,7 +409,7 @@ both yards must allow ping both ways.`,
 	}
 	ping.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "how long to wait for the pong")
 
-	cmd.AddCommand(a.pairCmd(), key, invite, add, list, show, rm, allow, ping)
+	cmd.AddCommand(a.pairCmd(), key, invite, add, list, show, rm, rename, allow, ping)
 	return cmd
 }
 
@@ -453,7 +516,7 @@ func (a *app) ping(ctx context.Context, cfg *config.Config, st store.API, name s
 		}
 		for e := range ch {
 			head = e.Seq
-			if peer, _ := e.Data["peer"].(string); peer != name {
+			if peer, _ := e.Data["peer"].(string); peer != name && !(e.Kind == "peer_renamed" && e.Data["from"] == name) {
 				continue
 			}
 			id, _ := e.Data["id"].(string)
@@ -468,6 +531,10 @@ func (a *app) ping(ctx context.Context, cfg *config.Config, st store.API, name s
 				return nil, fmt.Errorf("the ping to %s was given up: %s", name, reason)
 			case e.Kind == "peer_removed":
 				return nil, fmt.Errorf("peer %s was removed while its pong was waited for", name)
+			case e.Kind == "peer_renamed":
+				// The pong comes under the name the peer has now.
+				name, _ = e.Data["to"].(string)
+				res.Peer, p.Name = name, name
 			}
 		}
 	}

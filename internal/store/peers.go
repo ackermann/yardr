@@ -73,6 +73,11 @@ type Peer struct {
 	Send    []string  `json:"send"`
 	Receive []string  `json:"receive"`
 	AddedAt time.Time `json:"added_at"`
+	// Since is the last event logged before the link was added, and Was
+	// the names it had before a rename, oldest first: together they say
+	// which events that name a peer mean this one (peerrename.go).
+	Since uint64    `json:"since,omitempty"`
+	Was   []PeerWas `json:"was,omitempty"`
 	// Pulled is the highest sequence number of the peer's outbox this yard
 	// has taken by asking, which its next question starts after.
 	Pulled uint64 `json:"pulled,omitempty"`
@@ -211,7 +216,7 @@ func loadPeer(tx *bolt.Tx, name string) (*Peer, error) {
 	if ok, err := get(tx, bPeers, name, p); err != nil {
 		return nil, err
 	} else if !ok {
-		return nil, fmt.Errorf("peer %s: %w", name, ErrNotFound)
+		return nil, fmt.Errorf("peer %s: %w%s", name, ErrNotFound, renamedTo(tx, name))
 	}
 	return p, nil
 }
@@ -225,6 +230,7 @@ func (s *Store) AddPeer(ctx context.Context, p Peer, actor string) (*Peer, error
 		if err := peerFree(w.Tx, &p); err != nil {
 			return err
 		}
+		p.Since = w.Bucket(bEvents).Sequence()
 		if err := put(w.Tx, bPeers, p.Name, p); err != nil {
 			return err
 		}

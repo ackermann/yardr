@@ -20,8 +20,10 @@ yardr peer allow north --send ping --receive ping
 yardr peer ping north                          # prove the link, both ways
 yardr peer allow north --send mail --receive mail
 yardr mail mayor@north "Our webapp rig is on Go 1.25 now"   # to north's mayor
+yardr mail --with mayor@north                  # the mail between you and north's mayor
 yardr peer list
 yardr peer show north
+yardr peer rename north uplink                 # this yard's name for the link, and all that names it
 yardr peer rm north
 ```
 
@@ -385,12 +387,80 @@ added, gets `answered 401, not signed with its key` for every try.
 that is why the trial removes it before the daemons start. To try the mail
 above, add it again once the yards are linked.
 
+## Renaming a link
+
+The name of a peer is this yard's own label for the link. `yardr peer rename
+<old> <new>` changes it:
+
+```sh
+yardr peer rename nroth north
+peer nroth is north now: its residents are <name>@north, and nothing is reached as <name>@nroth
+1 messages that waited for it still wait, and are delivered
+mayor may mail it as before, and got mail from the yard that says so
+```
+
+The other yard hears nothing of it and changes nothing: it knows this yard
+by its key. The link stays what it is: its key, its URL, what it carries
+(`peer allow`), its count of the hour's mail. It is one write, so all of the
+following holds or the name is as it was.
+
+**What follows the rename:**
+
+- **Mail that waits** for the peer is delivered, under the sequence numbers
+  it had, pushed or pulled.
+- **What was taken** from the peer is still known as taken: a message handed
+  over again after the rename is dropped as the duplicate it is.
+- **A resident's `peers` setting** names the new name in place of the old.
+  It is the grant the resident had, for the same yard, so nobody is asked.
+  Each such resident gets mail from `yard` that says the address changed,
+  since an agent that runs has the old one in what it has read.
+- **`yardr inbox`**, the nudge and a resident's prime name the sender of
+  mail from the peer as `<name>@<new>`, for mail from before the rename
+  too: that is the address an answer goes to. (`--json` keeps the name the
+  mail came under as `from_peer_was`.)
+- **`yardr mail --with <name>@<new>`** prints the mail from before and after
+  as one conversation.
+- **`peer list`, `peer show`, `yardr status`, `yardr doctor`** read the
+  peer as it is now. `peer show` has a line for each name it had: `was
+  nroth until 2026-10-06 09:12`.
+- A `yardr peer ping` that waits for its pong takes the pong under the new
+  name, and the daemon keeps what it knows of a peer by its key.
+
+**What does not:**
+
+- **The event log is not rewritten.** `yardr events` shows every event with
+  the name the peer had when it was logged (`peer`, `from_peer`, `to_peer`,
+  the actor `<name>@<peer>` and `peer:<peer>`), and `peer_renamed` (`from`,
+  `to`) says when it changed. The peer's record holds the names it had and
+  the event each ended with; what reads mail back goes by that.
+- **Text.** A notice from before the rename (`your mail to clerk@nroth …
+  was not delivered`) says what it said; one written after it says the new
+  name, also for mail queued before. So does anything an agent wrote down:
+  a memory, a bead.
+- **The other yard.** What it calls this yard is its own to rename.
+
+**The old name is free**, and reaches nothing. `yardr mail mayor@nroth` and
+`peer show nroth` are refused, with where the yard went:
+
+```text
+peer nroth: not found: the yard that was nroth here until 10-06 09:12 is north now
+```
+
+A yard added under the old name later is another yard and inherits nothing:
+no resident may mail it, it has no conversation, no message of the renamed
+yard counts as taken from it, and nothing waits for it. Mail the renamed
+yard sent stays that yard's, under its new name.
+
+**Refused**, with the reason: `<old>` is no peer, `<new>` is no name for a
+peer (lowercase letters, digits, `.`, `_`, `-`), `<new>` is a peer already.
+
 ## Who may do what
 
-`peer add` and `peer allow --send/--receive` are the operator's alone, by the
-check a resident's definition is saved under
-([residents.md](residents.md)): who a yard is linked with, and what it takes
-from them, is not for a resident's session to grant. Stopping a kind
+`peer add`, `peer rename` and `peer allow --send/--receive` are the
+operator's alone, by the check a resident's definition is saved under
+([residents.md](residents.md)): who a yard is linked with, by which name its
+residents reach it, and what it takes from them, is not for a resident's
+session to grant. Stopping a kind
 (`--no-send`, `--no-receive`) and `peer rm` only narrow, and anyone may.
 Like that check it is a line, not a wall.
 
@@ -461,6 +531,22 @@ resident's prime says what the line means, and the mayor's role prompt does.
 
 **Answering.** `yardr mail <name>@<peer>` again, if the resident may mail
 that peer. There are no thread ids: a mail is one message.
+
+**Reading it back.** `yardr mail --with <name>@<peer>` prints the mail
+between who runs it and that resident, both directions, oldest first:
+
+```text
+   212 10-05 14:02  sent    mayor: Our webapp rig is on Go 1.25 now
+   219 10-05 14:09  read    mayor@north: thanks, noted
+   230 10-05 15:40  queued  mayor: and the deploys are frozen until Friday
+```
+
+What came in says whether its receiver here has read it, as local mail
+does. What went out says `queued` while it waits here for the peer, `sent`
+once the peer has it, or `failed` when it was given up: the other yard does
+not say what was read. `--json` has that as `delivery`, and `--after <seq>`
+prints only what is newer. The conversation is the link's: it begins when
+the peer was added, and [a rename](#renaming-a-link) does not part it.
 
 **What is refused, and how the sender hears.** The receiving yard refuses
 mail, with a reason:
@@ -578,6 +664,7 @@ with is 401, as any request that is no peer's.
 | `peer_paired` | a pairing ended with a link: with it `peer_added` and `peer_allowed`, in the same write | `peer`, `key`, `url`, `calls`, `role` (`host`: this yard was called; `joiner`: it called), `pairing` on the host |
 | `peer_pair_refused` | a pairing ended without one | `reason`: `wrong_code` (on the host after five, with `wrong_codes`; on the yard that called for each), `declined` (this yard's operator), `peer_declined` (the other's), `timed_out`, `closed` (`--end`, Ctrl+C), `already_peer`, `bad_name`, `own_key`; `role`; `pairing` on the host; `peer`, `calls` and `key` once the other yard is known |
 | `peer_removed` | `peer rm` | `peer`, `messages_dropped`, `residents` that could mail it and no longer can |
+| `peer_renamed` | `peer rename` | `from`, `to`; `peer`, the new name; `messages` that waited and moved with it; `residents` whose `peers` setting followed |
 | `peer_allowed` | `peer allow`, and a pairing that ended with a link | `peer`, `send`, `receive` as they are now |
 | `peer_message_sent` | the peer has the message | `peer`, `kind`, `id`, `re`, `way` (`push` or `pull`), `attempts` when it took more than one |
 | `peer_message_received` | a message was taken | `peer`, `kind`, `id`, `re`, `way` |
@@ -631,5 +718,6 @@ error of each, and `yardr doctor` has a `peers` line
 | `the link does not carry ping out` | `yardr peer allow <name> --send ping` here |
 | `refused by the peer: its link does not carry ping in` | `yardr peer allow <name> --receive ping` there |
 | `resident mayor may not mail residents of north` | the operator: `yardr resident set mayor peers=north` |
+| `peer nroth: not found: the yard that was nroth here until … is north now` | the link was [renamed](#renaming-a-link): write to `<name>@north` |
 | `mail from yard: your mail to … was not delivered: …` | the other yard refused it, or it was given up; the reason follows ([above](#mail-between-residents)) |
 | the ping waits to be asked for | the peer has no URL here, so its daemon must run and it must have this yard's URL |

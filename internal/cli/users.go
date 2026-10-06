@@ -356,12 +356,14 @@ func notifications(n int) string {
 // conversation is yardr mail --with: the mail between who acts and the
 // other party, oldest first.
 func (a *app) conversation(ctx context.Context, st store.API, with string, after uint64) error {
-	if strings.Contains(with, "@") {
-		return fmt.Errorf("--with %s: a conversation is of this yard's mail; mail to and from another yard is in yardr inbox and yardr peer show", with)
-	}
-	// The other has to be a party of the yard, or a typo reads as a
-	// conversation nobody has had yet.
-	if _, err := st.GetResident(ctx, with); errors.Is(err, store.ErrNotFound) {
+	// The other has to be a party of the yard, or a resident of a yard it
+	// is linked with, or a typo reads as a conversation nobody has had yet.
+	// Whether that yard has the resident is not this one's to know.
+	if _, peer, outside := strings.Cut(with, "@"); outside {
+		if _, err := st.GetPeer(ctx, peer); err != nil {
+			return fmt.Errorf("--with %s: %w", with, err)
+		}
+	} else if _, err := st.GetResident(ctx, with); errors.Is(err, store.ErrNotFound) {
 		if _, err := st.GetUser(ctx, with); err != nil {
 			if errors.Is(err, store.ErrNotFound) {
 				return fmt.Errorf("--with %s: no resident and no user of that name: %w", with, store.ErrNotFound)
@@ -387,7 +389,10 @@ func (a *app) conversation(ctx context.Context, st store.API, with string, after
 		}
 		for _, l := range letters {
 			state := "unread"
-			if l.Read {
+			switch {
+			case l.Delivery != "":
+				state = l.Delivery
+			case l.Read:
 				state = "read"
 			}
 			fmt.Printf("%6d %s  %-6s  %s: %s\n", l.Seq, l.At.Local().Format(mailTime), state, l.From, l.Text)

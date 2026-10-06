@@ -617,6 +617,9 @@ func (c *Client) DeletePeer(ctx context.Context, name, actor string) error {
 func (c *Client) AllowPeer(ctx context.Context, name string, ch store.PeerAllow, actor string) (*store.Peer, error) {
 	return callV[*store.Peer](c, ctx, "AllowPeer", name, ch, actor)
 }
+func (c *Client) RenamePeer(ctx context.Context, name, to, actor string) (*store.Peer, error) {
+	return callV[*store.Peer](c, ctx, "RenamePeer", name, to, actor)
+}
 func (c *Client) PeerSend(ctx context.Context, name, kind string, body json.RawMessage, actor string) (*store.PeerOut, error) {
 	return callV[*store.PeerOut](c, ctx, "PeerSend", name, kind, body, actor)
 }

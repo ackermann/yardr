@@ -492,6 +492,9 @@ func (s *Store) Inbox(ctx context.Context, name string, limit int) (*InboxPage, 
 		}
 		s.inboxReads.Add(int64(len(evs)))
 		named(tx, evs) // forResident compares handles
+		if err := peersToday(tx, evs); err != nil {
+			return err
+		}
 		for _, e := range evs {
 			if forResident(r, e) {
 				page.Total++
