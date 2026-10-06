@@ -118,8 +118,10 @@ func (d *Dispatcher) bases(ctx context.Context) {
 		err := store.KeepPeerBases(cctx, rig, of[name])
 		cancel()
 		if err != nil {
-			// Said once: it is tried again when the rig's beads change.
+			// Leave it uncached so the next pass retries. The rig may have
+			// been unavailable temporarily, and its bases must stay rooted.
 			d.Log.Warn("peers: keeping what the beads from peers start from", "rig", name, "err", err)
+			continue
 		}
 		if len(of[name]) == 0 {
 			// Nothing to keep there any more, and nothing to remember.
