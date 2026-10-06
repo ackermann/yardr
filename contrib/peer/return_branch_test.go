@@ -8,6 +8,7 @@ package peer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,6 +37,18 @@ func TestMain(m *testing.M) {
 		}
 	}
 	os.Setenv("YARDR_"+store.NoSyncEnv, noSync)
+	// With the home gone from the environment, a yardr started without a
+	// test's own would take the default one, which on a machine that works
+	// with yardr is the operator's yard, its server answering (yardr-j4vm).
+	// So the home is one with no yard in it; each test's yard sets its own
+	// over it (newYard).
+	nowhere, err := os.MkdirTemp("", "ynone")
+	if err != nil {
+		panic(err)
+	}
+	if err := config.UseHome(filepath.Join(nowhere, "y")); err != nil {
+		panic(err)
+	}
 	for _, kv := range []string{"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_AUTHOR_NAME=t",
 		"GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t"} {
 		k, v, _ := strings.Cut(kv, "=")
@@ -53,6 +66,7 @@ func TestMain(m *testing.M) {
 	}
 	code := m.Run()
 	os.RemoveAll(dir)
+	os.RemoveAll(nowhere)
 	os.Exit(code)
 }
 
@@ -324,5 +338,22 @@ func TestReturnBranchWithoutABranch(t *testing.T) {
 	y.returns("YARDR_PUSH=origin", nil)
 	if b := y.bead(); b.Stage != "new" || !strings.Contains(y.notes(), "branch yard/r-1 does not exist") {
 		t.Fatalf("bead = %+v\n%s", b, y.notes())
+	}
+}
+
+// A yardr started with the environment of these tests and no yard of a
+// test's own finds none: not the one of the machine the tests run on,
+// whose home TestMain took out of the environment (yardr-j4vm).
+func TestAYardrWithoutATestsYardFindsNone(t *testing.T) {
+	home := config.Getenv("HOME")
+	if home == "" {
+		t.Fatal("no home in the environment: a yardr started from here takes the default one, the machine's")
+	}
+	cmd := exec.Command(yardrBin, "bead", "list")
+	cmd.Dir = t.TempDir()
+	out, err := cmd.CombinedOutput()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 2 || !strings.Contains(string(out), "no yard in "+home) {
+		t.Fatalf("yardr bead list: %v, want exit 2 and no yard in %s\n%s", err, home, out)
 	}
 }

@@ -55,6 +55,30 @@ func TestMain(m *testing.M) {
 	for _, name := range []string{"SESSION", "BEAD", "CREW", "ACTOR"} {
 		config.Unsetenv(name)
 	}
+	// Nor does a command reach the yard of this machine. The gate runs in a
+	// pane of that yard, with its YARDR_HOME, and its server answers: a
+	// command that asked for a store no test gave it got the operator's
+	// (yardr-j4vm). So the home is one with no yard in it, under every name
+	// config reads, and the user's home, where the default one lies, is
+	// empty too; a test that wants a yard names its own (newHome, noHome).
+	nowhere, err := os.MkdirTemp("", "ynone")
+	if err != nil {
+		panic(err)
+	}
+	if err := config.UseHome(filepath.Join(nowhere, "y")); err != nil {
+		panic(err)
+	}
+	// The go tool, which a test builds a stand-in with (newAsker), has its
+	// caches and settings under the user's home: it keeps the ones it has.
+	goDirs := []string{"GOCACHE", "GOMODCACHE", "GOPATH", "GOENV"}
+	if out, err := exec.Command("go", append([]string{"env"}, goDirs...)...).Output(); err == nil {
+		for i, dir := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+			if i < len(goDirs) && dir != "" {
+				os.Setenv(goDirs[i], dir)
+			}
+		}
+	}
+	os.Setenv("HOME", nowhere)
 	// Nor does a depot check here take one of the machine's gate slots, which
 	// are real: a test of the slots sets its own limit and directory.
 	os.Setenv("YARDR_GATE_SLOTS", "0")
@@ -120,6 +144,7 @@ func TestMain(m *testing.M) {
 	pollEvery = 5 * time.Millisecond
 	code := m.Run()
 	os.RemoveAll(services)
+	os.RemoveAll(nowhere)
 	if standIn.bin != "" {
 		os.RemoveAll(filepath.Dir(standIn.bin))
 	}

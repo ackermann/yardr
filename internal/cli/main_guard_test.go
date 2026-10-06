@@ -1,13 +1,20 @@
 package cli
 
 import (
+	"context"
 	"errors"
+	"io"
+	"io/fs"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/server"
 )
 
 // The check at the end of the run sees a process a test started and left
@@ -80,5 +87,54 @@ func TestTheTestBinaryIsNotYardr(t *testing.T) {
 	var exit *exec.ExitError
 	if !errors.As(err, &exit) || exit.ExitCode() != 2 || !strings.Contains(string(out), "is a test binary, not yardr") {
 		t.Fatalf("%v: %s, want exit 2 and the reason", err, out)
+	}
+}
+
+// A command that reaches for a store no test gave it reaches no yard of the
+// machine the tests run on: not the one the environment of `go test` names
+// (a gate runs in a pane of the operator's yard, with its YARDR_HOME), and
+// not the one at the default home of whoever runs them. The first hid a
+// test that failed everywhere else from three gates (yardr-j4vm). This test
+// names no home: it has the one TestMain left it.
+func TestNoCommandReachesTheMachinesYard(t *testing.T) {
+	// Where a test that clears the variables ends up: nothing is there.
+	user, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(config.DefaultHome(user)); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the default home %s of these tests: %v, want none: TestMain gives them a user's home with no yard", config.DefaultHome(user), err)
+	}
+
+	// A server answers at the user's default home, here a user of the
+	// test's own. A command run with no flag still gets none.
+	user = shortDir(t, "yu")
+	t.Setenv("HOME", user)
+	live := &config.Config{Home: config.DefaultHome(user)}
+	if err := os.MkdirAll(live.Home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- server.Run(ctx, live, slog.New(slog.NewTextHandler(io.Discard, nil))) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Error("server did not stop")
+		}
+	})
+	for deadline := time.Now().Add(5 * time.Second); !server.Running(ctx, live); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("server did not come up")
+		}
+	}
+	a := &app{actor: "me"}
+	if _, err := run(t, a.beadCmd(), "list"); !errors.Is(err, errNoServer) {
+		t.Fatalf("bead list with no store and no flag: %v, want %v: it reached a yard of the machine", err, errNoServer)
+	}
+	if a.cfg == nil || a.cfg.Home == live.Home {
+		t.Fatalf("the command's home: %+v, want one with no yard, not %s", a.cfg, live.Home)
 	}
 }

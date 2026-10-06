@@ -8,6 +8,7 @@ package assembly
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"os"
 	"os/exec"
@@ -45,6 +46,18 @@ func TestMain(m *testing.M) {
 		}
 	}
 	os.Setenv("YARDR_"+store.NoSyncEnv, noSync)
+	// With the home gone from the environment, a yardr started without a
+	// test's own would take the default one, which on a machine that works
+	// with yardr is the operator's yard, its server answering (yardr-j4vm).
+	// So the home is one with no yard in it; each test's yard sets its own
+	// over it (newYard).
+	nowhere, err := os.MkdirTemp("", "ynone")
+	if err != nil {
+		panic(err)
+	}
+	if err := config.UseHome(filepath.Join(nowhere, "y")); err != nil {
+		panic(err)
+	}
 	// Git's identity and configuration are the same for every test, and
 	// the exec runner hands its process's environment on to the scripts: set
 	// here once, not by each test, the tests can run side by side.
@@ -73,6 +86,7 @@ func TestMain(m *testing.M) {
 	}
 	code := m.Run()
 	os.RemoveAll(dir)
+	os.RemoveAll(nowhere)
 	os.Exit(code)
 }
 
@@ -507,5 +521,22 @@ func TestMergeLocalChildLandsOnItsTrain(t *testing.T) {
 	}
 	if pushed := y.git(remote, "rev-parse", "main"); pushed != pushedMain {
 		t.Fatalf("origin main moved to %s", pushed)
+	}
+}
+
+// A yardr started with the environment of these tests and no yard of a
+// test's own finds none: not the one of the machine the tests run on,
+// whose home TestMain took out of the environment (yardr-j4vm).
+func TestAYardrWithoutATestsYardFindsNone(t *testing.T) {
+	home := config.Getenv("HOME")
+	if home == "" {
+		t.Fatal("no home in the environment: a yardr started from here takes the default one, the machine's")
+	}
+	cmd := exec.Command(yardrBin, "bead", "list")
+	cmd.Dir = t.TempDir()
+	out, err := cmd.CombinedOutput()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 2 || !strings.Contains(string(out), "no yard in "+home) {
+		t.Fatalf("yardr bead list: %v, want exit 2 and no yard in %s\n%s", err, home, out)
 	}
 }
