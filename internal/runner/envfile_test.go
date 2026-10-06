@@ -82,10 +82,10 @@ func checkEnvStart(t *testing.T, calls, paneCall, actor string, handle map[strin
 	}
 }
 
-func TestStartResidentLoadsEnvFile(t *testing.T) {
+func TestStartCrewLoadsEnvFile(t *testing.T) {
 	h, calls, logs := envHerdr(t, "")
-	r := store.Resident{Name: "yardmaster", Dir: t.TempDir(), Config: map[string]any{"env_file": envFileT(t, 0o600)}}
-	handle, err := h.StartResident(context.Background(), r)
+	r := store.CrewMember{Name: "yardmaster", Dir: t.TempDir(), Config: map[string]any{"env_file": envFileT(t, 0o600)}}
+	handle, err := h.StartCrew(context.Background(), r)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,10 +117,10 @@ func TestEnvFileRefusedBlocksStart(t *testing.T) {
 		"missing": missing, "directory": t.TempDir()} {
 		h, calls, logs := envHerdr(t, "")
 		cfg := map[string]any{"env_file": path}
-		_, rerr := h.StartResident(context.Background(), store.Resident{Name: "yardmaster", Dir: t.TempDir(), Config: cfg})
+		_, rerr := h.StartCrew(context.Background(), store.CrewMember{Name: "yardmaster", Dir: t.TempDir(), Config: cfg})
 		_, gerr := h.Start(context.Background(), dispatch.Job{Bead: store.Bead{ID: "yard-13", Stage: "new"},
 			Group: store.Group{Name: "g", Config: cfg}, Rig: &store.Rig{Name: "yard", Path: t.TempDir(), Base: "main"}})
-		for who, err := range map[string]error{"resident": rerr, "group": gerr} {
+		for who, err := range map[string]error{"crew": rerr, "group": gerr} {
 			if !dispatch.IsBlocked(err) {
 				t.Errorf("%s %s: err = %v, want Blocked", name, who, err)
 			} else if strings.Contains(err.Error(), envSecret) || !strings.Contains(err.Error(), "env_file") {
@@ -136,11 +136,11 @@ func TestEnvFileRefusedBlocksStart(t *testing.T) {
 	}
 }
 
-// A resident's herdr agent and workspace carry the yard's name, so two
+// A crew member's herdr agent and workspace carry the yard's name, so two
 // yards on one machine (herdr lists their agents together, and refuses a
 // second "yardmaster") are told apart: the `name` setting, else the home's
-// directory name; a yard with neither names them after the resident alone.
-func TestStartResidentNamesTheYard(t *testing.T) {
+// directory name; a yard with neither names them after the crew member alone.
+func TestStartCrewNamesTheYard(t *testing.T) {
 	for _, tc := range []struct {
 		home, setting, agent, label string
 	}{
@@ -158,7 +158,7 @@ func TestStartResidentNamesTheYard(t *testing.T) {
 			}
 			h.Store = st
 		}
-		handle, err := h.StartResident(context.Background(), store.Resident{Name: "yardmaster", Dir: t.TempDir()})
+		handle, err := h.StartCrew(context.Background(), store.CrewMember{Name: "yardmaster", Dir: t.TempDir()})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -200,12 +200,12 @@ func setAgents(t *testing.T, path string, lines ...string) {
 	}
 }
 
-// Which of herdr's agents already is a resident: one under the resident's
+// Which of herdr's agents already is a crew member: one under the crew member's
 // herdr name wherever it runs, or one under its bare name in its directory
 // (herdr reports a cwd with its symlinks resolved). Not the session the
 // store recorded for it, not an agent of another name or of the bare name
 // somewhere else, and not an agent herdr detected but nobody named.
-func TestLiveResident(t *testing.T) {
+func TestLiveCrew(t *testing.T) {
 	real := t.TempDir()
 	dir := filepath.Join(t.TempDir(), "link")
 	if err := os.Symlink(real, dir); err != nil {
@@ -235,7 +235,7 @@ func TestLiveResident(t *testing.T) {
 	} {
 		h, calls, agents := listHerdr(t)
 		setAgents(t, agents, tc.agents...)
-		got, err := h.LiveResident(context.Background(), store.Resident{Name: "yardmaster", Dir: dir, Handle: tc.handle})
+		got, err := h.LiveCrew(context.Background(), store.CrewMember{Name: "yardmaster", Dir: dir, Handle: tc.handle})
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
@@ -250,27 +250,27 @@ func TestLiveResident(t *testing.T) {
 			t.Errorf("%s: looking did more than list agents:\n%s", name, c)
 		}
 	}
-	// A resident with no dir runs in the yard's home.
+	// A crew member with no dir runs in the yard's home.
 	h, _, agents := listHerdr(t)
 	h.YardHome = dir
 	setAgents(t, agents, "yardmaster "+real+" w3:p1")
-	if got, err := h.LiveResident(context.Background(), store.Resident{Name: "yardmaster"}); err != nil || got == nil {
+	if got, err := h.LiveCrew(context.Background(), store.CrewMember{Name: "yardmaster"}); err != nil || got == nil {
 		t.Errorf("bare name in the yard's home: %v %v", got, err)
 	}
 	// herdr down: an error, never "none".
 	down := &Herdr{Bin: fakeHerdrBin(t, `echo '{"error":{"code":"server_not_running","message":"no herdr server"}}' >&2; exit 1`)}
-	if got, err := down.LiveResident(context.Background(), store.Resident{Name: "yardmaster", Dir: dir}); got != nil || !dispatch.IsRuntime(err) {
+	if got, err := down.LiveCrew(context.Background(), store.CrewMember{Name: "yardmaster", Dir: dir}); got != nil || !dispatch.IsRuntime(err) {
 		t.Errorf("herdr down: %v %v, want a runtime error", got, err)
 	}
 }
 
 // Found live (2026-10-03): the daemon started yardr-yardmaster beside a
 // pane that had been the yardmaster since noon. Through the dispatcher,
-// under either name: the resident is refused without a workspace being
-// created or an agent started, one resident_blocked names agent and pane
-// however often it is tried, and the resident starts once the agent is
+// under either name: the crew member is refused without a workspace being
+// created or an agent started, one crew_blocked names agent and pane
+// however often it is tried, and the crew member starts once the agent is
 // gone.
-func TestResidentNotStartedBesideALiveHerdrAgent(t *testing.T) {
+func TestCrewNotStartedBesideALiveHerdrAgent(t *testing.T) {
 	dir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -280,7 +280,7 @@ func TestResidentNotStartedBesideALiveHerdrAgent(t *testing.T) {
 		ctx := context.Background()
 		h, calls, agents := listHerdr(t)
 		st := storetest.New(t)
-		if _, err := st.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr", Dir: dir}, "me"); err != nil {
+		if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Dir: dir}, "me"); err != nil {
 			t.Fatal(err)
 		}
 		d := &dispatch.Dispatcher{Store: st, Runners: map[string]dispatch.Runner{"herdr": h}}
@@ -290,7 +290,7 @@ func TestResidentNotStartedBesideALiveHerdrAgent(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		r, _ := st.GetResident(ctx, "yardmaster")
+		r, _ := st.GetCrew(ctx, "yardmaster")
 		got := readCalls(t, calls)
 		if r.Live() || r.Failures != 0 || strings.Contains(got, "workspace.create") || strings.Contains(got, "agent start") {
 			t.Fatalf("%s: started beside it: %+v\n%s", agent, r, got)
@@ -298,18 +298,18 @@ func TestResidentNotStartedBesideALiveHerdrAgent(t *testing.T) {
 		var reasons []string
 		evs, _ := st.Events(ctx, r.Journal, 100)
 		for _, e := range evs {
-			if e.Kind == "resident_blocked" {
+			if e.Kind == "crew_blocked" {
 				reasons = append(reasons, fmt.Sprint(e.Data["reason"]))
 			}
 		}
 		if len(reasons) != 1 || !strings.Contains(reasons[0], `"`+agent+`"`) || !strings.Contains(reasons[0], "w7:p1") {
-			t.Fatalf("%s: resident_blocked = %q, want one naming agent and pane", agent, reasons)
+			t.Fatalf("%s: crew_blocked = %q, want one naming agent and pane", agent, reasons)
 		}
 		setAgents(t, agents)
 		if err := d.Reconcile(ctx); err != nil {
 			t.Fatal(err)
 		}
-		r, _ = st.GetResident(ctx, "yardmaster")
+		r, _ = st.GetCrew(ctx, "yardmaster")
 		if got := readCalls(t, calls); !r.Live() || r.Handle["agent"] != "y1-yardmaster" || !strings.Contains(got, "workspace.create") {
 			t.Fatalf("%s: not started once it was gone: %+v\n%s", agent, r, got)
 		}
@@ -362,8 +362,8 @@ func TestHerdrSessionsGetNoServerSettings(t *testing.T) {
 	check(readCalls(t, calls), "tab.create")
 
 	h, calls, _ = envHerdr(t, "")
-	r := store.Resident{Name: "yardmaster", Dir: t.TempDir(), Config: map[string]any{"env_file": envFile}}
-	if _, err := h.StartResident(context.Background(), r); err != nil {
+	r := store.CrewMember{Name: "yardmaster", Dir: t.TempDir(), Config: map[string]any{"env_file": envFile}}
+	if _, err := h.StartCrew(context.Background(), r); err != nil {
 		t.Fatal(err)
 	}
 	check(readCalls(t, calls), "workspace.create")
@@ -410,18 +410,18 @@ func TestExecSessionsGetNoServerSettings(t *testing.T) {
 	}
 }
 
-// A resident's handle names the shell of its pane, as a bead session's
-// does: by it the store knows a command run in the pane as the resident's,
+// A crew member's handle names the shell of its pane, as a bead session's
+// does: by it the store knows a command run in the pane as the crew member's,
 // whatever actor the command names (store's release of a peer's bead).
 // A herdr that does not tell leaves the handle without it.
-func TestStartResidentRecordsItsShell(t *testing.T) {
+func TestStartCrewRecordsItsShell(t *testing.T) {
 	h, calls, _ := envHerdr(t, "")
 	h.Bin = fakeHerdrBin(t, `printf '%s\n' "$*" >> `+calls+`
 case "$1 $2" in
   "pane process-info") echo '{"result":{"process_info":{"pane_id":"p1","shell_pid":`+fmt.Sprint(os.Getpid())+`}}}' ;;
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)
-	handle, err := h.StartResident(context.Background(), store.Resident{Name: "yardmaster", Dir: t.TempDir()})
+	handle, err := h.StartCrew(context.Background(), store.CrewMember{Name: "yardmaster", Dir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -434,7 +434,7 @@ esac`)
 		t.Fatalf("the shell was asked for after the agent started:\n%s", got)
 	}
 	plain, _, _ := envHerdr(t, "")
-	if handle, err := plain.StartResident(context.Background(), store.Resident{Name: "yardmaster", Dir: t.TempDir()}); err != nil || handle["shell_pid"] != nil {
+	if handle, err := plain.StartCrew(context.Background(), store.CrewMember{Name: "yardmaster", Dir: t.TempDir()}); err != nil || handle["shell_pid"] != nil {
 		t.Fatalf("a herdr that tells no shell: handle %v, %v", handle, err)
 	}
 }

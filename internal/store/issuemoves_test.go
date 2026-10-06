@@ -33,7 +33,7 @@ done terminal
 var linearMap = map[string]string{"task:new": "started", "task:review": "review", "task:merged": "done",
 	"train:open": "started", "train:done": "done"}
 
-// moveYard is a yard whose rig follows moveFlow, with resident yardmaster, who
+// moveYard is a yard whose rig follows moveFlow, with crew member yardmaster, who
 // has an identity in both sources and may set a status in them, and a
 // linear hook that maps as it.
 func moveYard(t *testing.T) (store.API, *store.Store, context.Context) {
@@ -55,15 +55,15 @@ func moveYard(t *testing.T) (store.API, *store.Store, context.Context) {
 	return s, own, ctx
 }
 
-// moveYardmaster creates or redefines resident yardmaster with set_state for
+// moveYardmaster creates or redefines crew member yardmaster with set_state for
 // sources ("": none).
 func moveYardmaster(t *testing.T, s store.API, sources string) {
 	t.Helper()
-	def := store.Resident{Name: "yardmaster", Runner: "herdr", Config: map[string]any{}}
+	def := store.CrewMember{Name: "yardmaster", Runner: "herdr", Config: map[string]any{}}
 	if sources != "" {
 		def.Config[store.SetState] = sources
 	}
-	if _, err := s.PutResident(context.Background(), def, "me"); err != nil {
+	if _, err := s.PutCrew(context.Background(), def, "me"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -120,8 +120,8 @@ func lastEvent(t *testing.T, s store.API, bead string) store.Event {
 	return evs[0]
 }
 
-// A map is refused without the resident to act as, with a word that is no
-// state, with a line that names no type and stage, and for a resident that
+// A map is refused without the crew member to act as, with a word that is no
+// state, with a line that names no type and stage, and for a crew member that
 // does not exist or has no identity in the hook's source.
 func TestHookMapRefusals(t *testing.T) {
 	s := storetest.New(t)
@@ -136,19 +136,19 @@ func TestHookMapRefusals(t *testing.T) {
 		h    store.Hook
 		want string
 	}{
-		{"no resident to act as", hook("", map[string]string{"task:new": "started"}), "needs the resident it acts as"},
+		{"no crew member to act as", hook("", map[string]string{"task:new": "started"}), "needs the crew member it acts as"},
 		{"unknown word", hook("yardmaster", map[string]string{"task:new": "closed"}), `"closed" is no state: want started, review, done`},
 		{"no stage", hook("yardmaster", map[string]string{"task": "started"}), "want <bead type>:<stage>=<state>"},
 		{"bad type", hook("yardmaster", map[string]string{"Task:new": "started"}), "bead type"},
 		{"bad stage", hook("yardmaster", map[string]string{"task:in review": "review"}), "stage"},
-		{"no such resident", hook("deputy", map[string]string{"task:new": "started"}), "resident deputy"},
+		{"no such crew member", hook("deputy", map[string]string{"task:new": "started"}), "crew member deputy"},
 		{"no identity in the source", hook("yardmaster", map[string]string{"task:new": "started"}), "has no identity in linear"},
 	} {
 		_, err := s.PutHook(ctx, c.h, "me")
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: %v, want %q", c.name, err, c.want)
 		}
-		if c.name == "no such resident" && !errors.Is(err, store.ErrNotFound) {
+		if c.name == "no such crew member" && !errors.Is(err, store.ErrNotFound) {
 			t.Errorf("%s: %v is not ErrNotFound", c.name, err)
 		}
 	}
@@ -162,7 +162,7 @@ func TestHookMapRefusals(t *testing.T) {
 	if err := s.SetIdentity(ctx, "yardmaster", "github", store.Identity{Key: "yardmaster-bot"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.PutHook(ctx, hook("yardmaster", linearMap), "me"); err == nil || !strings.Contains(err.Error(), "yardr resident identity yardmaster --source linear") {
+	if _, err := s.PutHook(ctx, hook("yardmaster", linearMap), "me"); err == nil || !strings.Contains(err.Error(), "yardr crew identity yardmaster --source linear") {
 		t.Fatalf("identity elsewhere: %v", err)
 	}
 	if err := s.SetIdentity(ctx, "yardmaster", "linear", store.Identity{ID: "u-yardmaster"}, "me"); err != nil {
@@ -355,7 +355,7 @@ func TestIssueMoveEnds(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := lastEvent(t, s, "yard-a")
-	want := map[string]any{"hook": "linear", "resident": "yardmaster", "source": "linear", "url": linA, "stage": "new", "state": "started",
+	want := map[string]any{"hook": "linear", "crew": "yardmaster", "source": "linear", "url": linA, "stage": "new", "state": "started",
 		"thread": "uuid-1", "title": "Web view", "status": "In Progress", "was": "Todo", "instead": "started"}
 	if e.Kind != "thread_state" || e.Actor != "hook:linear" || fmt.Sprint(e.Data["cause"]) != fmt.Sprint(started.Seq) {
 		t.Fatalf("event %+v", e)
@@ -392,7 +392,7 @@ func TestIssueMoveEnds(t *testing.T) {
 	}
 	e = lastEvent(t, s, "yard-a")
 	if e.Kind != "thread_state_skipped" || e.Actor != "hook:linear" || e.Data["reason"] != "failed" || e.Data["detail"] != skip.Detail ||
-		e.Data["stage"] != "review" || e.Data["state"] != "review" || e.Data["resident"] != "yardmaster" || e.Data["url"] != linA ||
+		e.Data["stage"] != "review" || e.Data["state"] != "review" || e.Data["crew"] != "yardmaster" || e.Data["url"] != linA ||
 		fmt.Sprint(e.Data["attempts"]) != "1" || fmt.Sprint(e.Data["cause"]) != fmt.Sprint(review.Seq) {
 		t.Fatalf("event %+v", e)
 	}
@@ -413,7 +413,7 @@ func TestIssueMoveEnds(t *testing.T) {
 }
 
 // Without set_state for the source nothing may be recorded as moved, and
-// the refusal names the setting; so does a resident that is gone.
+// the refusal names the setting; so does a crew member that is gone.
 func TestIssueMoveNeedsTheGrant(t *testing.T) {
 	s, _, ctx := moveYard(t)
 	tracked(t, s, "yard-a", "task", "new", linA)
@@ -421,13 +421,13 @@ func TestIssueMoveNeedsTheGrant(t *testing.T) {
 	id := ms[0].ID
 	ts := store.ThreadState{Status: "In Progress"}
 	for _, c := range []struct{ sources, want string }{
-		{"", "yardr resident set yardmaster set_state=linear"},
-		{"github", "yardr resident set yardmaster set_state=github,linear"},
+		{"", "yardr crew set yardmaster set_state=linear"},
+		{"github", "yardr crew set yardmaster set_state=github,linear"},
 	} {
 		moveYardmaster(t, s, c.sources)
 		head, _ := s.Head(ctx)
 		why, err := s.IssueMoveAllowed(ctx, id)
-		if err != nil || !strings.Contains(why, "resident yardmaster may not set the status of threads in linear") || !strings.Contains(why, c.want) {
+		if err != nil || !strings.Contains(why, "crew member yardmaster may not set the status of threads in linear") || !strings.Contains(why, c.want) {
 			t.Fatalf("set_state %q: %q, %v", c.sources, why, err)
 		}
 		if err := s.IssueMoved(ctx, id, ts); err == nil || !strings.Contains(err.Error(), c.want) {
@@ -438,10 +438,10 @@ func TestIssueMoveNeedsTheGrant(t *testing.T) {
 		}
 	}
 	wantMoves(t, s, "yard-a linear "+linA+" started@new")
-	if err := s.DeleteResident(ctx, "yardmaster", "", "me"); err != nil {
+	if err := s.DeleteCrew(ctx, "yardmaster", "", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if why, err := s.IssueMoveAllowed(ctx, id); err != nil || why != "resident yardmaster, which hook linear acts as, is gone" {
+	if why, err := s.IssueMoveAllowed(ctx, id); err != nil || why != "crew member yardmaster, which hook linear acts as, is gone" {
 		t.Fatalf("gone: %q, %v", why, err)
 	}
 	if err := s.IssueMoveSkipped(ctx, id, store.IssueSkip{Reason: store.SkipNoGrant, Detail: "x"}); err != nil {
@@ -452,14 +452,14 @@ func TestIssueMoveNeedsTheGrant(t *testing.T) {
 	}
 }
 
-// No echo: what a hook did as a resident does not reach that resident, the
+// No echo: what a hook did as a crew member does not reach that crew member, the
 // source's delivery of the change neither, and neither queues a move.
 func TestIssueMoveDoesNotEcho(t *testing.T) {
 	s, own, ctx := moveYard(t)
 	all := store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll}
 	for _, name := range []string{"yardmaster", "deputy"} {
 		if name == "deputy" {
-			resident(t, s, name, false)
+			member(t, s, name, false)
 		}
 		for _, sub := range []store.Subscription{all, {Source: "linear", Scope: store.ScopeAll}} {
 			if err := s.AddSubscription(ctx, name, sub, "me"); err != nil {

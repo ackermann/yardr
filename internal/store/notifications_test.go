@@ -50,7 +50,7 @@ func texts(page *store.NotificationPage) []string {
 
 // A user's subscription makes a matching bead event a notification in the
 // user's inbox: yardr's own line about the event with the bead's title,
-// and no mail. A resident subscribed to the same hears of it as before.
+// and no mail. A crew member subscribed to the same hears of it as before.
 func TestUserSubscriptionNotifies(t *testing.T) {
 	s, ctx, b := yardrRig(t, "yardmaster")
 	user(t, s, "ada", yardrSub(store.ScopeAll, "state=done"), yardrSub(store.ScopeMentions))
@@ -108,7 +108,7 @@ func TestUserSubscriptionNotifies(t *testing.T) {
 			t.Fatalf("closed event names its receivers as %v", e.Data)
 		}
 	}
-	// The resident's inbox holds its own delivery and nothing of ada's.
+	// The crew member's inbox holds its own delivery and nothing of ada's.
 	if in, err := s.Inbox(ctx, "yardmaster", 0); err != nil || in.Total != 1 || in.Events[0].Seq != closed.Seq {
 		t.Fatalf("yardmaster's inbox = %+v, %v", in, err)
 	}
@@ -117,11 +117,11 @@ func TestUserSubscriptionNotifies(t *testing.T) {
 		t.Fatalf("bob was notified: %+v", page)
 	}
 	if _, err := s.UserNotifications(ctx, "yardmaster", 0); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("a resident's notifications = %v", err)
+		t.Fatalf("a crew member's notifications = %v", err)
 	}
 }
 
-// A person is not told of what they did themselves, as a resident is not.
+// A person is not told of what they did themselves, as a crew member is not.
 func TestUserNotToldOfOwnActions(t *testing.T) {
 	s, ctx, b := yardrRig(t)
 	user(t, s, "ada", yardrSub(store.ScopeAll))
@@ -137,7 +137,7 @@ func TestUserNotToldOfOwnActions(t *testing.T) {
 }
 
 // A hook delivery reaches a user through a subscription of scope all, in
-// the words a resident's inbox has for it. A user has no identity in a
+// the words a crew member's inbox has for it. A user has no identity in a
 // source, so the narrower scopes reach nobody.
 func TestUserHookNotification(t *testing.T) {
 	s, own := storetest.NewOwned(t)
@@ -186,9 +186,9 @@ func TestHookNotificationStaysOnOneSafeLine(t *testing.T) {
 }
 
 // What a person is told is theirs to decide, or the operator's for them:
-// a resident may neither subscribe a user nor remove what a user
+// a crew member may neither subscribe a user nor remove what a user
 // subscribes to, and is told why.
-func TestResidentMayNotSubscribeAUser(t *testing.T) {
+func TestCrewMayNotSubscribeAUser(t *testing.T) {
 	s, ctx, b := yardrRig(t, "yardmaster")
 	if err := s.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
 		t.Fatal(err)
@@ -196,12 +196,12 @@ func TestResidentMayNotSubscribeAUser(t *testing.T) {
 	user(t, s, "ada")
 	user(t, s, "bob")
 	done := yardrSub(store.ScopeAll, "state=done")
-	const refusal = "a resident does not decide what a person is told"
+	const refusal = "a crew member does not decide what a person is told"
 	if err := s.AddSubscription(ctx, "ada", done, "yardmaster"); err == nil || !strings.Contains(err.Error(), refusal) ||
-		!strings.Contains(err.Error(), "yardmaster is a resident") || !strings.Contains(err.Error(), "the operator (jo)") {
-		t.Fatalf("a resident subscribing a user = %v", err)
+		!strings.Contains(err.Error(), "yardmaster is a crew member") || !strings.Contains(err.Error(), "the operator (jo)") {
+		t.Fatalf("a crew member subscribing a user = %v", err)
 	}
-	// Nor another user, nor a session that is no resident.
+	// Nor another user, nor a session that is no crew member.
 	for _, actor := range []string{"bob", "yard-1-new", ""} {
 		if err := s.AddSubscription(ctx, "ada", done, actor); err == nil || !strings.Contains(err.Error(), "does not decide what ada is told") {
 			t.Fatalf("%q subscribing ada = %v", actor, err)
@@ -224,16 +224,16 @@ func TestResidentMayNotSubscribeAUser(t *testing.T) {
 	if u, _ := s.GetUser(ctx, "ada"); len(u.Subscriptions) != 2 {
 		t.Fatalf("ada's subscriptions = %v", u.Subscriptions)
 	}
-	// What a resident's subscription is refused, a user's is too.
+	// What a crew member's subscription is refused, a user's is too.
 	if err := s.AddSubscription(ctx, "ada", yardrSub(store.ScopeAll, "nope=x"), "ada"); err == nil {
 		t.Fatal("a filter on an unknown key accepted for a user")
 	}
 
 	if _, err := s.RemoveSubscriptions(ctx, "ada", store.SourceYardr, "", nil, "yardmaster"); err == nil || !strings.Contains(err.Error(), refusal) {
-		t.Fatalf("a resident unsubscribing a user = %v", err)
+		t.Fatalf("a crew member unsubscribing a user = %v", err)
 	}
 	if _, err := s.Unwatch(ctx, "ada", b.ID, "yardmaster"); err == nil || !strings.Contains(err.Error(), refusal) {
-		t.Fatalf("a resident ending a user's watch = %v", err)
+		t.Fatalf("a crew member ending a user's watch = %v", err)
 	}
 	if n, err := s.Unwatch(ctx, "ada", b.ID, "ada"); err != nil || n != 1 {
 		t.Fatalf("ada's unwatch = %d, %v", n, err)
@@ -244,14 +244,14 @@ func TestResidentMayNotSubscribeAUser(t *testing.T) {
 	if _, err := s.RemoveSubscriptions(ctx, "ada", store.SourceYardr, "", nil, "ada"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("unsubscribing from nothing = %v", err)
 	}
-	// A resident still subscribes itself and other residents.
+	// A crew member still subscribes itself and other crew members.
 	if err := s.AddSubscription(ctx, "yardmaster", done, "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
 }
 
 // A user's watch on a bead ends when the bead closes, after it told of the
-// close, as a resident's does.
+// close, as a crew member's does.
 func TestUserWatchEndsOnClose(t *testing.T) {
 	s, ctx, b := yardrRig(t)
 	user(t, s, "ada", yardrSub(store.ScopeAll, "bead="+b.ID))

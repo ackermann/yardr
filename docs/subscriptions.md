@@ -1,22 +1,22 @@
 # Subscriptions and notifications
 
-A resident hears of things through its inbox (`yardr inbox`). Mail to it
+A crew member hears of things through its inbox (`yardr inbox`). Mail to it
 always lands there. Everything else arrives because something subscribed it.
 A person subscribes the same way, and what matches is a notification in the
 user's inbox, kept apart from the mail ([below](#users-as-subscribers)):
 
-| source | what it delivers | how a resident subscribes |
+| source | what it delivers | how a crew member subscribes |
 |---|---|---|
 | a hook source (`github`, `linear`, `token`) | webhook deliveries taken by `yardr hook` | `yardr subscribe <name> linear …` |
 | `yardr` | yardr's own bead events: created, advanced, noted, closed, … | `yardr subscribe <name> yardr …`, `yardr bead watch` |
-| `--on` on the resident | event kinds, every bead, and events not about a bead | `yardr resident add --on …`, `yardr resident set <name> --on …` |
+| `--on` on the crew member | event kinds, every bead, and events not about a bead | `yardr crew add --on …`, `yardr crew set <name> --on …` |
 
 Every subscription has the same shape: a **source**, a **scope** (`all`,
 `mentions`, `involved`) and **where** filters (exact matches, all of which
 must hold). Matching happens once, when the event is logged, against the
 subscriptions as they are then. The event records who it reached and why
 (`deliveries`), and `yardr inbox` shows that reason next to each event. A
-resident never hears of its own actions, nor of what happens on its own
+crew member never hears of its own actions, nor of what happens on its own
 journal bead (its session starting and stopping, its journal entries and
 handoffs, its subscriptions changing), whoever logged it; a plain note
 someone else leaves on its journal still reaches it.
@@ -25,9 +25,9 @@ someone else leaves on its journal still reaches it.
 yardr subscribe yardmaster yardr --done                         # every bead that becomes done
 yardr subscribe yardmaster yardr --done --where rig=yardr --where label=ui
 yardr subscribe yardmaster yardr --scope involved               # beads it created, advanced or noted, and events @mentioning it
-yardr bead watch yardr-k3f9 --resident yardmaster --done         # this one bead, until it closes
+yardr bead watch yardr-k3f9 --crew yardmaster --done         # this one bead, until it closes
 yardr subscribe yardmaster linear --scope involved              # Linear issues it is mentioned in, assigned, or works on
-yardr resident show yardmaster                                  # lists its subscriptions
+yardr crew show yardmaster                                  # lists its subscriptions
 yardr unsubscribe yardmaster yardr [--scope …] [--where …]
 ```
 
@@ -50,7 +50,7 @@ match, the most specific reason is recorded.
 
 A Linear issue has an assignee and a delegate: the delegate is the agent
 the issue is handed to, while the assignee stays the person who handed it
-over. A resident is usually the delegate, so an issue whose delegate is its
+over. A crew member is usually the delegate, so an issue whose delegate is its
 identity reaches it under `involved` as one assigned to it does, with
 reason `assigned`: when it is created that way, and when the delegate is
 set later. The event carries the id as `delegate`, beside `assignee`.
@@ -63,15 +63,15 @@ Bead events from the event log.
 what the event itself says: the note it added (`noted`, `journal`,
 `handoff`), the body of the bead it created, and its own fields (a close or
 hold reason). A note that said `@b` once does not make every later event on
-that bead mention `b`, so two residents mentioning each other in their
+that bead mention `b`, so two crew members mentioning each other in their
 journals nudge each other once per mention, not forever. A `state=done`
 subscription is the exception: it hears of a bead once, so for it a mention
 anywhere on the bead (body or any note) counts.
 
 **Journals and memories are out of the source** unless a subscription names
 them with `bead=` or `type=` (`--where type=journal`, `--where
-bead=yardmaster-journal`). A resident subscribed to `all` does not hear every
-other resident's journal entries; a mention of it in one still reaches it.
+bead=yardmaster-journal`). A crew member subscribed to `all` does not hear every
+other crew member's journal entries; a mention of it in one still reaches it.
 
 Where keys:
 
@@ -101,13 +101,13 @@ reopen`.
 ### Watching a bead
 
 ```sh
-yardr bead watch <id> [--resident <name>] [--stage s] [--kind k] [--done]
-yardr bead unwatch <id> [--resident <name>]
+yardr bead watch <id> [--crew <name>] [--stage s] [--kind k] [--done]
+yardr bead unwatch <id> [--crew <name>]
 ```
 
 `watch` is sugar for `yardr subscribe <name> yardr --where bead=<id>`
-(plus `stage`, `kind`, `state=done`). `--resident` defaults to
-`$YARDR_RESIDENT`, so a resident's own session can watch without naming
+(plus `stage`, `kind`, `state=done`). `--crew` defaults to
+`$YARDR_CREW`, so a crew member's own session can watch without naming
 itself. When the bead closes, the close is delivered first, then every
 subscription with `bead=<id>` ends (the `closed` event lists whose in
 `watches_ended`). A reopened bead is not watched any more. Watching (any
@@ -116,9 +116,9 @@ watch would have ended already.
 
 ## Groups as subscribers
 
-A manual group can subscribe like a resident (`yardr subscribe approvers
+A manual group can subscribe like a crew member (`yardr subscribe approvers
 yardr --done`). Its subscriptions deliver to each of its **members that is
-a resident**, with the reason `<reason> via <group>` (e.g. `done via
+a crew member**, with the reason `<reason> via <group>` (e.g. `done via
 approvers`). Scopes are worked out per member: `mentions` means that member
 is @mentioned. Redefining the group keeps its subscriptions. A runner other
 than manual cannot subscribe.
@@ -131,7 +131,7 @@ config `notify=true`).
 
 ## Users as subscribers
 
-A user ([users.md](users.md)) subscribes as a resident does, with the same
+A user ([users.md](users.md)) subscribes as a crew member does, with the same
 sources, scopes and where keys:
 
 ```sh
@@ -146,14 +146,14 @@ yardr unsubscribe ada yardr [--scope …] [--where …]
 A user has no identity in a hook source and follows no thread there, so a
 hook subscription defaults to `--scope all`; `mentions` and `involved` are
 refused with `use --scope all` instead of being saved where they would
-match nothing. Yardr subscriptions keep the default `all` as for residents.
+match nothing. Yardr subscriptions keep the default `all` as for crew members.
 
 **Who may.** The user themselves and the operator. Nobody else, and no
-resident: a resident deciding what a person is told is what notifications
+crew member: a crew member deciding what a person is told is what notifications
 are there to end, and the refusal says so:
 
 ```
-yardmaster is a resident, and a resident does not decide what a person is told: bo subscribes themselves, or the operator (jo) does it for them
+yardmaster is a crew member, and a crew member does not decide what a person is told: bo subscribes themselves, or the operator (jo) does it for them
 ```
 
 Another user is refused as `bo does not decide what jo is told: …`.
@@ -163,9 +163,9 @@ The check is the store's, on the command's actor
 
 **A matching event is a notification**, not mail: a record of its own in the
 user's inbox, with no sender and so nobody to answer. yardr writes it as the
-event is logged. No model is called and no resident is nudged or spends a
+event is logged. No model is called and no crew member is nudged or spends a
 turn on it. Its text is one line, made from the event in the words `yardr
-inbox` shows a resident for the same delivery, with the bead's title after
+inbox` shows a crew member for the same delivery, with the bead's title after
 it where there is a bead:
 
 ```
@@ -182,9 +182,9 @@ hook delivery: source, type and action, who acted, the thread's title, the
 text and the link. The event's part is cut at 300 characters and the title
 at 120, with `…`; the link is never cut.
 
-What differs from a resident:
+What differs from a crew member:
 
-- A user is not told of what they did themselves, as a resident is not.
+- A user is not told of what they did themselves, as a crew member is not.
 - In a hook source a user has no identity and takes part in no thread, so
   only `--scope all` reaches them there. It is the default for a user, and
   a user's `mentions` or `involved` subscription to a hook source is
@@ -194,10 +194,10 @@ What differs from a resident:
 - There is no `--on` for a user, so yardr's events that are not about a
   bead reach no person this way.
 - A subscription with `bead=<id>` ends when the bead closes, after the
-  close is told, as a resident's watch does.
+  close is told, as a crew member's watch does.
 
 The event records whom it notified as `notified` (user to reason), beside
-`deliveries` for the residents, so a view that follows the stream knows to
+`deliveries` for the crew, so a view that follows the stream knows to
 read the notifications again.
 
 **The bound.** A user's inbox keeps the newest 500 notifications. Nobody
@@ -215,7 +215,7 @@ would carry.
 
 ## `--on`
 
-A resident's `--on` kinds (default: `gave_up`, `session_blocked`,
+A crew member's `--on` kinds (default: `gave_up`, `session_blocked`,
 `session_stalled`, `session_harness_error`, `session_model_mismatch`, `move_refused`, `unrouted`, …) keep working, as **implicit `yardr all kind=<k>`
 subscriptions**. They are not migrated into stored subscriptions. They are
 checked when the inbox is read, not when the event is logged, so changing
@@ -251,28 +251,28 @@ per bead, session and reason; a person's refused command logs none.
 `session_prompt_gave_up`: a session whose agent never took its first prompt
 ([groups.md](groups.md#herdr-setup)). Its `hint` is the command that
 gives the agent the prompt by hand, or, with `typed: true`, the Enter that
-submits the prompt sitting in its input. A resident added before this kind joined
+submits the prompt sitting in its input. A crew member added before this kind joined
 the default does not hear it until its `--on` names it.
 
 `hook_rejected`: the webhook listener refused a delivery
-([below](#a-refused-delivery)). It is in no resident's default `--on`: add
-it to the list of the resident that should hear of it, `yardr resident set
+([below](#a-refused-delivery)). It is in no crew member's default `--on`: add
+it to the list of the crew member that should hear of it, `yardr crew set
 <name> --on <its kinds>,hook_rejected` (`--on` replaces the list). The event
 is about no bead, so a `yardr subscribe <name> yardr --where
 kind=hook_rejected` does not carry it: subscriptions to yardr match bead
 events, `--on` kinds every event.
 
-To move a resident to subscriptions, add `yardr subscribe <name> yardr
+To move a crew member to subscriptions, add `yardr subscribe <name> yardr
 --where kind=<k>` for each kind and drop those kinds from its `--on`.
 
 ## Hook sources
 
 A webhook delivery (`yardr hook add`) becomes one `hook` event with a
-normalized envelope. Who it reaches depends on the resident's identity in the
+normalized envelope. Who it reaches depends on the crew member's identity in the
 source:
 
 ```sh
-yardr resident identity yardmaster --source linear --id <user id> --key <profile key>
+yardr crew identity yardmaster --source linear --id <user id> --key <profile key>
 yardr subscribe yardmaster linear --scope involved
 yardr subscribe triage linear --scope all --where type=issue --where action=create --where team=ENG
 yardr thread follow yardmaster --source linear <issue id>    # participate without having acted
@@ -280,18 +280,18 @@ yardr thread list yardmaster
 ```
 
 Where keys: `type`, `action` (the envelope), and `team`, `project`, `repo`,
-`label` (fields the adapter exposes; any value may match). Once a resident
+`label` (fields the adapter exposes; any value may match). Once a crew member
 acts in a thread (a Linear issue), answers there with `yardr reply`, or
 opens it with `yardr thread open`
-([residents.md](residents.md#opening-a-thread)), it participates there, and
+([crew.md](crew.md#opening-a-thread)), it participates there, and
 `involved` also delivers what others do in it.
 In a thread it takes part in it can also set the issue's status, when its
 definition allows it: `yardr thread state`
-([residents.md](residents.md#setting-a-threads-status)).
+([crew.md](crew.md#setting-a-threads-status)).
 
-A hook also works the other way. With `--as <resident>` and `--map
+A hook also works the other way. With `--as <crew member>` and `--map
 <type>:<stage>=<state>` it hears the yard's own bead events and moves the
-issue a bead tracks when the bead enters a stage, as that resident, with no
+issue a bead tracks when the bead enters a stage, as that crew member, with no
 agent in between ([links.md](links.md#a-beads-stage-moves-the-issue)).
 `yardr hook list` shows the map, and `yardr hook show <name>` the whole
 definition.
@@ -309,27 +309,27 @@ diffed: the issue or pull request, the comment, or a review.
 
 ### Setting up Linear
 
-What runs today, from nothing to a resident answering in Linear:
+What runs today, from nothing to a crew member answering in Linear:
 
-1. **The resident's own Linear user.** Create a Linear OAuth application for
-   the resident and take its developer token: the token acts as the app's own
+1. **The crew member's own Linear user.** Create a Linear OAuth application for
+   the crew member and take its developer token: the token acts as the app's own
    user (the yardmaster's is called Yardr). A personal API key works too, but
-   then the resident speaks as that person.
+   then the crew member speaks as that person.
 2. **The token in its env_file**, never in the store:
-   `LINEAR_API_KEY=…` in `~/.yardr/residents/<name>.env`, `chmod
-   600`, `yardr resident set <name> env_file=…` (see
-   [residents.md](residents.md#outbound-credentials)). Restart the resident
+   `LINEAR_API_KEY=…` in `~/.yardr/crew/<name>.env`, `chmod
+   600`, `yardr crew set <name> env_file=…` (see
+   [crew.md](crew.md#outbound-credentials)). Restart the crew member
    after changing it.
 3. **Its identity**: the app user's id and profile key, so mentions,
    assignments, delegations and its own actions are recognized:
-   `yardr resident identity <name> --source linear --id <user id> --key <profile key>`.
+   `yardr crew identity <name> --source linear --id <user id> --key <profile key>`.
 4. **A subscription**: `yardr subscribe <name> linear --scope involved`.
 5. **The hook**: give the yard an address to take webhooks on,
    `yardr settings set hook_addr 127.0.0.1:8790` (the server takes it at its
    next start: `yardr server stop`, and the next command starts it; `yardr
    doctor` says what it listens on), and
    `yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret`.
-   One hook serves every resident.
+   One hook serves every crew member.
 6. **The webhook**: in Linear, Settings → API → Webhooks, URL
    `https://<public host>/hooks/linear`, events Issues and Comments; put its
    signing secret in the secret file.
@@ -337,9 +337,9 @@ What runs today, from nothing to a resident answering in Linear:
    a tunnel or a reverse proxy of your own, which serves `https://<public
    host>` to the listener and nothing else.
 
-A comment mentioning the resident then lands in its inbox (`mentioned`), and
+A comment mentioning the crew member then lands in its inbox (`mentioned`), and
 it answers with `yardr reply <seq>` and reads the thread with `yardr thread
-show <seq>` ([residents.md](residents.md#speaking-in-sources)). GitHub is
+show <seq>` ([crew.md](crew.md#speaking-in-sources)). GitHub is
 the same with a `GITHUB_TOKEN` or a [GitHub App](#as-a-github-app), its
 login as identity and the webhook below.
 
@@ -347,7 +347,7 @@ login as identity and the webhook below.
 
 ```sh
 yardr hook add gh --source github --secret-file ~/.yardr/github.secret
-yardr resident identity yardmaster --source github --key yardmaster   # its login, lowercase
+yardr crew identity yardmaster --source github --key yardmaster   # its login, lowercase
 yardr subscribe yardmaster github --scope involved
 yardr subscribe yardmaster github --scope all --where train=yardr-sv6b --where conclusion=failure
 ```
@@ -368,7 +368,7 @@ On GitHub, in the repository's **Settings → Webhooks → Add webhook**:
 
 A GitHub App gives the yard both sides at once: its webhook delivers every
 repository it is installed on, in place of a webhook per repository, and a
-resident answers as the App's bot, `<slug>[bot]`, not under a person's
+crew member answers as the App's bot, `<slug>[bot]`, not under a person's
 account. Create one private App per yard, owned by the yard's operator and
 installed only on their account. Its single webhook URL and private key mean
 a shared public App would send every installer's events to one machine. App
@@ -390,17 +390,17 @@ GitHub Apps → New GitHub App**:
 - **Where can this GitHub App be installed:** *Only on this account*.
 
 Then generate the App's private key, install the App on the repositories,
-and give the resident the key and its identity:
+and give the crew member the key and its identity:
 
 ```sh
-# in the resident's env_file, in place of GITHUB_TOKEN
+# in the crew member's env_file, in place of GITHUB_TOKEN
 GITHUB_APP_ID=1234567            # the App ID, or its Client ID
-GITHUB_APP_PRIVATE_KEY_FILE=~/.yardr/residents/yardr-app.pem   # mode 0600
+GITHUB_APP_PRIVATE_KEY_FILE=~/.yardr/crew/yardr-app.pem   # mode 0600
 
-yardr resident identity yardmaster --source github --key 'yardr[bot]'   # <slug>[bot], lowercase
+yardr crew identity yardmaster --source github --key 'yardr[bot]'   # <slug>[bot], lowercase
 ```
 
-[residents.md](residents.md#as-a-github-app) has the steps and what yardr
+[crew.md](crew.md#as-a-github-app) has the steps and what yardr
 does with the key. Remove the webhooks of the repositories the App is
 installed on once its own delivers: an App's delivery of an event is another
 body than the repository webhook's, so the hook would record the event
@@ -409,9 +409,9 @@ twice.
 GitHub has no mention of an App. `@yardr` in a comment notifies no one, and
 links to the user named yardr if there is one; people write it anyway, as
 they do for other Apps, and the App finds it in the comment's body. So does
-yardr: a resident whose github key is `yardr[bot]` is mentioned by `@yardr`
+yardr: a crew member whose github key is `yardr[bot]` is mentioned by `@yardr`
 (and by `@yardr[bot]`). What the bot itself does has `yardr[bot]` as its
-`actor.id` and stays out of the resident's inbox; the user named yardr is
+`actor.id` and stays out of the crew member's inbox; the user named yardr is
 someone else.
 
 The envelope's `type` is the GitHub event and `action` the body's action:
@@ -428,7 +428,7 @@ A thread is `<owner>/<repo>#<number>`; so is the entity whose mentions are
 diffed for a description, while a comment's is `issuecomment-<id>` and a
 review's `pullrequestreview-<id>`, as GitHub's own URL fragments name them.
 Logins are lowercased in `actor.id`, `assignee`
-and `mentions`, so a resident's github identity is its login in lowercase.
+and `mentions`, so a crew member's github identity is its login in lowercase.
 `@org/team` mentions, email addresses and mentions in code are not mentions.
 Where keys, besides `type`, `action`, `repo` and `label`: `event`, `number`,
 `state` (the issue's or pull request's, or the review's), `merged`,
@@ -465,7 +465,7 @@ sender stops retrying, and leaves no event.
 ### The secret file
 
 A hook's `--secret-file` is held to the rule an `env_file` is
-([residents.md](residents.md#outbound-credentials)): a regular file of mode
+([crew.md](crew.md#outbound-credentials)): a regular file of mode
 0600 or stricter. `yardr hook add` refuses one that is not, saves nothing and
 says `chmod 600`.
 
@@ -537,7 +537,7 @@ when it is added again. A hook whose last delivery was refused is a note on
 this yard's server saw (then look at the source's own delivery log: the
 delivery went elsewhere, or was not sent).
 
-To have a resident hear of it, add the kind to its [`--on`](#--on); it is in
+To have a crew member hear of it, add the kind to its [`--on`](#--on); it is in
 no default.
 
 Only the server's webhook listener records deliveries. The store socket has no

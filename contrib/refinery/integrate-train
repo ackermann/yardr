@@ -11,7 +11,7 @@
 # and YARDR_BIN. Options, set in the group's cmd:
 #
 #   YARDR_PUSH     a remote to push the train branch to; off when empty
-#   YARDR_NOTIFY   resident mailed when that push fails (default: the yard's
+#   YARDR_NOTIFY   crew member mailed when that push fails (default: the yard's
 #                  yardmaster setting, else yardmaster)
 #   YARDR_PR       1: open a pull request for the pushed branch against the
 #                  base, or update the one the train is bound to, and bind

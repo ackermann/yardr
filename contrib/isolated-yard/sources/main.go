@@ -18,7 +18,7 @@
 // With -github-app-key the stand-in knows a GitHub App too: it makes a
 // throwaway key, writes the private half to the file named (mode 0600),
 // and takes JWTs signed with it from the App -github-app-id, installed on
-// -github-app-repos. A resident answers as the App with
+// -github-app-repos. A crew member answers as the App with
 //
 //	GITHUB_APP_ID=<the -github-app-id>
 //	GITHUB_APP_PRIVATE_KEY_FILE=<the -github-app-key>

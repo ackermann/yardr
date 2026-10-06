@@ -74,7 +74,7 @@ type rigInitResult struct {
 	Kind       string   `json:"kind"`
 	Base       string   `json:"base"`
 	Operator   string   `json:"operator"`
-	Yardmaster string   `json:"yardmaster"` // the resident the roles tell agents to mail
+	Yardmaster string   `json:"yardmaster"` // the crew member the roles tell agents to mail
 	Gate       string   `json:"gate"`       // the guessed check command
 	Written    []string `json:"written"`    // relative to Path
 	Kept       []string `json:"kept"`       // already there, left as they were
@@ -97,7 +97,7 @@ A stage file says what its stage is for, what must be true to leave it and
 when each outcome applies (docs/flows.md); the roles say how a group works.
 
 --operator defaults to the yard's operator setting and --yardmaster to its
-yardmaster setting (yardr init stores both), else to the yard's one resident.
+yardmaster setting (yardr init stores both), else to the yard's one crew member.
 The gate is a guess: go.mod runs go vet and go test, a package.json with a
 test script runs it, anything else passes with a TODO. Read it before relying
 on it.
@@ -145,7 +145,7 @@ apply at once, as yardr reads a dir rig's .yardr/ from the directory.`,
 		},
 	}
 	cmd.Flags().StringVar(&operator, "operator", "", "who the roles name (default: the yard's operator setting, else your login name)")
-	cmd.Flags().StringVar(&yardmaster, "yardmaster", "", "the yardmaster the roles tell agents to mail (default: the yard's yardmaster setting, else its one resident, else yardmaster)")
+	cmd.Flags().StringVar(&yardmaster, "yardmaster", "", "the yardmaster the roles tell agents to mail (default: the yard's yardmaster setting, else its one crew member, else yardmaster)")
 	cmd.Flags().BoolVar(&withYardmaster, "with-yardmaster", false, "dir rigs: write yardmaster.md too (a git rig always gets it)")
 	oldFlag(cmd, "mayor", "yardmaster")
 	oldFlag(cmd, "with-mayor", "with-yardmaster")
@@ -161,14 +161,14 @@ func yardOperator(ctx context.Context, st store.API) string {
 	return or(all["operator"], defaultOperator())
 }
 
-// yardmasterOf is the yardmaster resident the roles tell agents to mail: the
-// yard's yardmaster setting, else the one resident of a yard from before the
+// yardmasterOf is the yardmaster crew member the roles tell agents to mail: the
+// yard's yardmaster setting, else the one crew member of a yard from before the
 // setting, else init's default name.
 func yardmasterOf(ctx context.Context, st store.API) string {
 	if all, err := st.Settings(ctx); err == nil && all[store.YardmasterSetting] != "" {
 		return all[store.YardmasterSetting]
 	}
-	if rs, err := st.Residents(ctx); err == nil && len(rs) == 1 {
+	if rs, err := st.Crew(ctx); err == nil && len(rs) == 1 {
 		return rs[0].Name
 	}
 	return "yardmaster"

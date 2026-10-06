@@ -31,15 +31,15 @@ type ApplyOptions struct {
 	// by hand since the last import; without it such a plan is refused.
 	Overwrite bool
 	// OpenThreads are the operator's answers to what the plan asks under
-	// OpenThreads: the yard's resident -> source -> yes or no. A yes lets
-	// the resident open threads in the source, a no is recorded so the next
+	// OpenThreads: the yard's crew member -> source -> yes or no. A yes lets
+	// the crew member open threads in the source, a no is recorded so the next
 	// import does not ask, and a source without an answer is granted to
 	// nobody and asked about again. Whoever fills this in has checked that
 	// the actor is the operator: Apply does not.
 	OpenThreads map[string]map[string]bool
 	// MapRefused says, by source, why the stage map the plan would set on
-	// that source's hook is not set: a hook acts as a resident, which only
-	// the operator or that resident's own session may decide. The rest of
+	// that source's hook is not set: a hook acts as a crew member, which only
+	// the operator or that crew member's own session may decide. The rest of
 	// the import does not depend on it. As with OpenThreads, who the actor is
 	// was checked by whoever fills this in.
 	MapRefused map[string]string
@@ -61,10 +61,10 @@ type Result struct {
 	Pruned      []string `json:"pruned"`
 	Left        []string `json:"left"`
 	PruneErrors []string `json:"prune_errors"`
-	// Restart are the running residents whose role or subscriptions
+	// Restart are the running crew members whose role or subscriptions
 	// changed: the import does not restart them.
 	Restart []string `json:"restart"`
-	// Granted are the residents the import let open threads, each with the
+	// Granted are the crew the import let open threads, each with the
 	// sources that are new to it.
 	Granted []Grant `json:"granted"`
 	// Mapped are the stage maps the import set on a hook of the yard.
@@ -74,10 +74,10 @@ type Result struct {
 	Recorded bool `json:"recorded"`
 }
 
-// Grant is a resident and the sources an import let it open threads in.
+// Grant is a crew member and the sources an import let it open threads in.
 type Grant struct {
-	Resident string   `json:"resident"`
-	Sources  []string `json:"sources"`
+	CrewMember string   `json:"crew"`
+	Sources    []string `json:"sources"`
 }
 
 // Wrote reports whether the import changed anything in the yard.
@@ -139,27 +139,27 @@ func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result,
 		}
 	}
 	for _, obj := range p.Objects {
-		if obj.Kind == "resident" && obj.Resident != nil && obj.Resident.Restart {
-			res.Restart = append(res.Restart, obj.Resident.Resident)
+		if obj.Kind == "crew" && obj.CrewMember != nil && obj.CrewMember.Restart {
+			res.Restart = append(res.Restart, obj.CrewMember.CrewMember)
 		}
 	}
-	// After the residents: one the import created is there to be granted to.
+	// After the crew: one the import created is there to be granted to.
 	for _, ot := range p.OpenThreads {
 		var yes []string
 		for _, src := range ot.Wants {
-			if o.OpenThreads[ot.Resident][src] {
+			if o.OpenThreads[ot.CrewMember][src] {
 				yes = append(yes, src)
 			}
 		}
 		if len(yes) == 0 {
 			continue
 		}
-		added, err := st.AllowOpening(ctx, ot.Resident, yes, p.Pack, o.Actor)
+		added, err := st.AllowOpening(ctx, ot.CrewMember, yes, p.Pack, o.Actor)
 		if err != nil {
-			return nil, fmt.Errorf("letting resident %s open threads in %s: %w (the import stopped here: what it wrote before stays, nothing is recorded, and applying again finishes it)", ot.Resident, strings.Join(yes, ", "), err)
+			return nil, fmt.Errorf("letting crew member %s open threads in %s: %w (the import stopped here: what it wrote before stays, nothing is recorded, and applying again finishes it)", ot.CrewMember, strings.Join(yes, ", "), err)
 		}
 		if len(added) > 0 {
-			res.Granted = append(res.Granted, Grant{Resident: ot.Resident, Sources: added})
+			res.Granted = append(res.Granted, Grant{CrewMember: ot.CrewMember, Sources: added})
 		}
 	}
 	pruned := prune(ctx, st, p, o, res)
@@ -168,7 +168,7 @@ func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result,
 	if abs, err := filepath.Abs(dir); err == nil {
 		dir = abs
 	}
-	rec := store.PackImport{Pack: p.Pack, Rig: p.Rig, Source: dir, Flow: p.Flow, RigRoles: p.RigRoles, Groups: p.Groups, Residents: p.Residents}
+	rec := store.PackImport{Pack: p.Pack, Rig: p.Rig, Source: dir, Flow: p.Flow, RigRoles: p.RigRoles, Groups: p.Groups, Crew: p.Crew}
 	rec.Commit, rec.Dirty = Commit(dir)
 	rec.OpenThreads = p.openAnswers(o.OpenThreads)
 	for _, obj := range p.Objects {
@@ -195,13 +195,13 @@ func (o Object) refused(a ApplyOptions) bool {
 
 // openAnswers is what the record keeps of the plan's OpenThreads: the
 // answers given now, and those of the last import that still hold: a no,
-// and a yes the resident still has. A yes it lost since is forgotten, so
+// and a yes the crew member still has. A yes it lost since is forgotten, so
 // the next import asks.
 func (p *Plan) openAnswers(now map[string]map[string]bool) map[string]map[string]bool {
 	out := map[string]map[string]bool{}
 	for _, ot := range p.OpenThreads {
 		for _, src := range ot.Wants {
-			yes, ok := now[ot.Resident][src]
+			yes, ok := now[ot.CrewMember][src]
 			if !ok {
 				if yes, ok = ot.Recorded[src]; ok && yes && !slices.Contains(ot.Has, src) {
 					ok = false
@@ -210,10 +210,10 @@ func (p *Plan) openAnswers(now map[string]map[string]bool) map[string]map[string
 			if !ok {
 				continue
 			}
-			if out[ot.Resident] == nil {
-				out[ot.Resident] = map[string]bool{}
+			if out[ot.CrewMember] == nil {
+				out[ot.CrewMember] = map[string]bool{}
 			}
-			out[ot.Resident][src] = yes
+			out[ot.CrewMember][src] = yes
 		}
 	}
 	return out
@@ -231,7 +231,7 @@ func check(p *Plan, o ApplyOptions) (map[string][]byte, error) {
 	for _, q := range p.Missing(o.Answers) {
 		problems = append(problems, fmt.Sprintf("%s has no answer (%s)", q.ID, q.Ask))
 	}
-	// Which flow and which resident shape the plan: an answer that is not
+	// Which flow and which crew member shape the plan: an answer that is not
 	// what the plan was made with needs a new plan, not this one.
 	if v := o.Answers[FlowQuestion]; v != "" && v != p.Flow {
 		problems = append(problems, fmt.Sprintf("the plan is for flow %s, not %s: make it again with that flow", p.Flow, v))
@@ -242,17 +242,17 @@ func check(p *Plan, o ApplyOptions) (map[string][]byte, error) {
 	// An answer is to a question of the plan: a source the yard lacks, or
 	// one the pack does not name, is granted to nobody.
 	for _, name := range slices.Sorted(maps.Keys(o.OpenThreads)) {
-		i := slices.IndexFunc(p.OpenThreads, func(ot OpenThreads) bool { return ot.Resident == name })
+		i := slices.IndexFunc(p.OpenThreads, func(ot OpenThreads) bool { return ot.CrewMember == name })
 		for _, src := range slices.Sorted(maps.Keys(o.OpenThreads[name])) {
 			if i < 0 || !p.OpenThreads[i].Grantable(src) {
-				problems = append(problems, fmt.Sprintf("the plan does not ask whether resident %s may open threads in %s", name, src))
+				problems = append(problems, fmt.Sprintf("the plan does not ask whether crew member %s may open threads in %s", name, src))
 			}
 		}
 	}
 	files := map[string][]byte{}
 	for _, obj := range p.Objects {
-		if v := o.Answers["resident."+obj.Name+".resident"]; obj.Kind == "resident" && v != "" && v != obj.Name {
-			problems = append(problems, fmt.Sprintf("the plan gives the pack's %s to resident %s, not %s: make it again with that resident", obj.Resident.Pack, obj.Name, v))
+		if v := o.Answers["crew."+obj.Name+".crew"]; obj.Kind == "crew" && v != "" && v != obj.Name {
+			problems = append(problems, fmt.Sprintf("the plan gives the pack's %s to crew member %s, not %s: make it again with that crew member", obj.CrewMember.Pack, obj.Name, v))
 		}
 		answer := func(field string) string { return o.Answers[obj.Kind+"."+obj.Name+"."+field] }
 		asks := func(field string) bool { return slices.Contains(obj.Asks, obj.Kind+"."+obj.Name+"."+field) }
@@ -280,15 +280,15 @@ func check(p *Plan, o ApplyOptions) (map[string][]byte, error) {
 			if asks("kind") && strings.TrimSpace(answer("kind")) == "" {
 				problems = append(problems, fmt.Sprintf("group %s needs an agent kind", obj.Name))
 			}
-		case obj.Kind == "resident":
+		case obj.Kind == "crew":
 			if asks("kind") && strings.TrimSpace(answer("kind")) == "" {
-				problems = append(problems, fmt.Sprintf("resident %s needs an agent kind", obj.Name))
+				problems = append(problems, fmt.Sprintf("crew member %s needs an agent kind", obj.Name))
 			}
 			if asks("dir") {
 				if dir := answer("dir"); !filepath.IsAbs(dir) {
-					problems = append(problems, fmt.Sprintf("resident %s needs a directory, as an absolute path (got %q)", obj.Name, dir))
+					problems = append(problems, fmt.Sprintf("crew member %s needs a directory, as an absolute path (got %q)", obj.Name, dir))
 				} else if info, err := os.Stat(dir); err != nil || !info.IsDir() {
-					problems = append(problems, fmt.Sprintf("resident %s: %s is not a directory", obj.Name, dir))
+					problems = append(problems, fmt.Sprintf("crew member %s: %s is not a directory", obj.Name, dir))
 				}
 			}
 		}
@@ -351,13 +351,13 @@ func write(ctx context.Context, st store.API, p *Plan, obj *Object, o ApplyOptio
 			}
 		}
 		return nil
-	case "resident":
-		op := obj.Resident
-		def := store.Resident{Name: op.Resident, Runner: "herdr", Config: map[string]any{}, HandoffGrace: "15m"}
-		have, err := st.GetResident(ctx, op.Resident)
+	case "crew":
+		op := obj.CrewMember
+		def := store.CrewMember{Name: op.CrewMember, Runner: "herdr", Config: map[string]any{}, HandoffGrace: "15m"}
+		have, err := st.GetCrew(ctx, op.CrewMember)
 		switch {
 		case err == nil:
-			// At the revision read: a resident changed since is refused,
+			// At the revision read: a crew member changed since is refused,
 			// not overwritten.
 			def = *have
 			if def.Config == nil {
@@ -381,16 +381,16 @@ func write(ctx context.Context, st store.API, p *Plan, obj *Object, o ApplyOptio
 			def.Config["prompt"] = op.Prompt
 		}
 		def.On = op.On
-		_, err = st.PutResident(ctx, def, o.Actor)
+		_, err = st.PutCrew(ctx, def, o.Actor)
 		return err
 	case "subscription":
 		s := obj.Subscription
 		if s.Remove != nil {
-			if err := st.RemoveSubscription(ctx, s.Resident, *s.Remove, o.Actor); err != nil && !errors.Is(err, store.ErrNotFound) {
+			if err := st.RemoveSubscription(ctx, s.CrewMember, *s.Remove, o.Actor); err != nil && !errors.Is(err, store.ErrNotFound) {
 				return err
 			}
 		}
-		return st.AddSubscription(ctx, s.Resident, *s.Add, o.Actor)
+		return st.AddSubscription(ctx, s.CrewMember, *s.Add, o.Actor)
 	case "map":
 		// The hook as it is now, so its name, source and secret file stay.
 		h, err := st.GetHook(ctx, obj.Map.Hook)
@@ -404,7 +404,7 @@ func write(ctx context.Context, st store.API, p *Plan, obj *Object, o ApplyOptio
 	return fmt.Errorf("the plan has an object of unknown kind %q", obj.Kind)
 }
 
-// argList is an args answer as a group or resident stores its arguments.
+// argList is an args answer as a group or crew member stores its arguments.
 func argList(v string) []any {
 	var list []any
 	for _, s := range strings.Fields(v) {
@@ -498,7 +498,7 @@ func remove(ctx context.Context, st store.API, obj Object, actor string) (note s
 			note = fmt.Sprintf(" (%d of its beads released)", released)
 		}
 	case "subscription":
-		err = st.RemoveSubscription(ctx, obj.Subscription.Resident, *obj.Subscription.Remove, actor)
+		err = st.RemoveSubscription(ctx, obj.Subscription.CrewMember, *obj.Subscription.Remove, actor)
 	case "map":
 		var h *store.Hook
 		if h, err = st.GetHook(ctx, obj.Map.Hook); err == nil {

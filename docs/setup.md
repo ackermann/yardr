@@ -159,7 +159,7 @@ print the step and its command rather than ask again.
 ## Where no form runs
 
 Without a terminal, with `--json`, and in an agent's own session
-(`YARDR_SESSION` or `YARDR_RESIDENT` is set: the yardmaster's pane is a terminal
+(`YARDR_SESSION` or `YARDR_CREW` is set: the yardmaster's pane is a terminal
 too) `yardr setup` asks nothing. It prints the steps and the command for the
 next one; `--json` prints `home`, `steps` and `next`, as
 [`yardr doctor --json`](doctor.md#json) names them.

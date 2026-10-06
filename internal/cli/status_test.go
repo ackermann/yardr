@@ -80,7 +80,7 @@ func TestStatusServerOnly(t *testing.T) {
 		"           this yardr is build unknown\n",
 		"daemon     not running\n",
 		"           login service: not installed\n",
-		"residents  yardmaster  not running\n",
+		"crew       yardmaster  not running\n",
 		"web view   "+here("not running: yardr web serve")+"\n",
 		"work       0 sessions running; 0 held\n",
 		"\n"+here("yardr doctor reports 2 faults, and says what they are.")+"\n")
@@ -149,8 +149,8 @@ func TestStatusLeavesAStoppedServerStopped(t *testing.T) {
 		"           login service: not installed\n",
 		"web view   http://127.0.0.1:9000/    pid "+me+"  build unknown  this machine only\n",
 		"           http://192.168.7.7:9001/  pid "+me+"  build unknown  open to the network (--unsafe), no login\n",
-		"\nresidents, hooks, peers and work: not known while the server is not running\n")
-	for _, not := range []string{"name ", "operator", "doctor", "started", "\nresidents ", "\nwork "} {
+		"\ncrew, hooks, peers and work: not known while the server is not running\n")
+	for _, not := range []string{"name ", "operator", "doctor", "started", "\ncrew ", "\nwork "} {
 		if strings.Contains(out, not) {
 			t.Errorf("status says %q:\n%s", not, out)
 		}
@@ -161,7 +161,7 @@ func TestStatusLeavesAStoppedServerStopped(t *testing.T) {
 	if err := json.Unmarshal([]byte(js), &raw); err != nil || code != 0 {
 		t.Fatalf("exit %d, %v:\n%s", code, err, js)
 	}
-	for _, key := range []string{"name", "operator", "residents", "hooks", "peers", "work", "faults"} {
+	for _, key := range []string{"name", "operator", "crew", "hooks", "peers", "work", "faults"} {
 		if _, ok := raw[key]; ok {
 			t.Errorf("json has %q, which is not known without the server:\n%s", key, js)
 		}
@@ -215,20 +215,20 @@ func TestStatusWebViewBuild(t *testing.T) {
 	}
 }
 
-// The whole of a yard that runs: the daemon with its pid, each resident
+// The whole of a yard that runs: the daemon with its pid, each crew member
 // with its state and agent, a view on loopback and one open to the network,
 // the hooks with where they are posted to, the peers, and the work counted.
 func TestStatusRunningYard(t *testing.T) {
 	home, st, a := statusYard(t, "abcdef123456")
 	ctx := context.Background()
 	holdDaemon(t, home)
-	if err := st.ResidentStarted(ctx, "yardmaster", yardmasterHandle()); err != nil {
+	if err := st.CrewStarted(ctx, "yardmaster", yardmasterHandle()); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.ResidentStatus(ctx, "yardmaster", "idle"); err != nil {
+	if err := st.CrewStatus(ctx, "yardmaster", "idle"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.PutResident(ctx, store.Resident{Name: "refinery", Enabled: true}, "me"); err != nil {
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "refinery", Enabled: true}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	announce(t, home, "127.0.0.1:9000", false)
@@ -278,7 +278,7 @@ func TestStatusRunningYard(t *testing.T) {
 	me := strconv.Itoa(os.Getpid())
 	wantText(t, out,
 		"daemon     running (pid "+me+")\n",
-		"residents  refinery    not running\n",
+		"crew       refinery    not running\n",
 		"           yardmaster  idle         herdr agent y-yardmaster\n",
 		"web view   http://127.0.0.1:9000/    pid "+me+"  build unknown  this machine only\n",
 		"           http://192.168.7.7:9001/  pid "+me+"  build unknown  open to the network (--unsafe), no login\n",
@@ -297,8 +297,8 @@ func TestStatusRunningYard(t *testing.T) {
 	if rep.Name != "y" || rep.Operator != "Jo" || !rep.Daemon.Running || rep.Daemon.PID != os.Getpid() || rep.Faults == nil || *rep.Faults != 0 {
 		t.Fatalf("json: %+v", rep)
 	}
-	if len(rep.Residents) != 2 || rep.Residents[1] != (residentStatus{"yardmaster", "idle", "y-yardmaster"}) || rep.Residents[0].Agent != "" {
-		t.Fatalf("residents: %+v", rep.Residents)
+	if len(rep.Crew) != 2 || rep.Crew[1] != (crewStatus{"yardmaster", "idle", "y-yardmaster"}) || rep.Crew[0].Agent != "" {
+		t.Fatalf("crew: %+v", rep.Crew)
 	}
 	if v := rep.Web.Views; len(v) != 3 || v[0].Open || v[0].URL != "http://127.0.0.1:9000/" || !v[1].Open || !v[1].Unsafe ||
 		v[1].Addr != "0.0.0.0:9001" || v[1].PID != os.Getpid() || v[2].Open {
@@ -483,7 +483,7 @@ func TestStatusUnreachableServer(t *testing.T) {
 	}
 	wantText(t, out, "yard       "+home+"\n", "server     cannot be reached: server gone\n", "daemon     not running\n",
 		"web view   http://127.0.0.1:9000/  pid ", here("yardr doctor reports 1 fault, and says what it is."))
-	if strings.Contains(out, "residents") || strings.Contains(out, "work ") {
+	if strings.Contains(out, "crew") || strings.Contains(out, "work ") {
 		t.Errorf("nothing of the store is known:\n%s", out)
 	}
 }
@@ -494,7 +494,7 @@ func TestStatusUnreachableServer(t *testing.T) {
 func TestDoctorWebView(t *testing.T) {
 	home, st, a := statusYard(t, "abcdef123456")
 	holdDaemon(t, home)
-	if err := st.ResidentStarted(context.Background(), "yardmaster", yardmasterHandle()); err != nil {
+	if err := st.CrewStarted(context.Background(), "yardmaster", yardmasterHandle()); err != nil {
 		t.Fatal(err)
 	}
 	stubServices(t, "darwin")

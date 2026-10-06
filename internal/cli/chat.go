@@ -17,42 +17,42 @@ import (
 )
 
 // yardr chat is the view of internal/chat in a terminal (docs/chat.md): a
-// user's conversations with the yard's residents. It sends with the store's
+// user's conversations with the yard's crew. It sends with the store's
 // Mail and reads with its Conversation, as yardr mail and yardr mail --with
 // do, and follows the event stream as yardr watch does.
 
 func (a *app) chatCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "chat [resident]",
-		Short: "Talk with the yard's residents in one view: who runs, the conversation with each, a line to type",
-		Long: `Opens a view of the yard's residents and your conversation with each, in the
-terminal: the residents with what each is doing (not running, working, idle,
+		Use:   "chat [name]",
+		Short: "Talk with the yard's crew in one view: who runs, the conversation with each, a line to type",
+		Long: `Opens a view of the yard's crew and your conversation with each, in the
+terminal: the crew with what each is doing (not running, working, idle,
 blocked, failed to start) and how much mail from it you have not seen, the
 mail between you and the selected one, and a line to type. Enter sends the
-line as mail to the selected resident, as yardr mail does.
+line as mail to the selected crew member, as yardr mail does.
 
-The resident named is selected first, else the yardmaster. New mail and a
-resident's state appear as they change, from the yard's event stream.
+The crew member named is selected first, else the yardmaster. New mail and a
+crew member's state appear as they change, from the yard's event stream.
 Opening a conversation marks your unread mail in it as read.
 
-A resident reads its mail when it is idle: mail does not interrupt it, and
+A crew member reads its mail when it is idle: mail does not interrupt it, and
 what it is working on stays in its pane. Under what you sent the view says
-where it stands. A resident that waits at a prompt in its pane (a login, a
+where it stands. A crew member that waits at a prompt in its pane (a login, a
 question, a dialog) cannot read mail: while it is selected, a notice above
 the line you type in says what yardr knows and shows the last lines of its
-pane. ctrl+g goes to the pane of the selected resident when this runs in
+pane. ctrl+g goes to the pane of the selected crew member when this runs in
 herdr, and names the herdr command anywhere else.
 
 It is for a user of the yard (yardr user list), and needs a terminal.
-Without one, yardr mail <resident> <text> sends and yardr mail --with
-<resident> prints the conversation. Leaving the view (ctrl+c) stops nothing.`,
+Without one, yardr mail <crew member> <text> sends and yardr mail --with
+<crew member> prints the conversation. Leaving the view (ctrl+c) stops nothing.`,
 		Example: `  yardr chat
   yardr chat refinery`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			if a.json || !interactive() {
 				return errors.New("yardr chat is a view for a terminal, and this is none: " +
-					"yardr mail <resident> <text> sends a message, and yardr mail --with <resident> prints the conversation (--json for a program)")
+					"yardr mail <crew member> <text> sends a message, and yardr mail --with <crew member> prints the conversation (--json for a program)")
 			}
 			ctx := c.Context()
 			st, err := a.store(ctx)
@@ -73,7 +73,7 @@ Without one, yardr mail <resident> <text> sends and yardr mail --with
 			}
 			first := yardmasterOf(ctx, st)
 			if len(args) == 1 {
-				if _, err := st.GetResident(ctx, args[0]); err != nil {
+				if _, err := st.GetCrew(ctx, args[0]); err != nil {
 					return err
 				}
 				first = args[0]
@@ -83,8 +83,8 @@ Without one, yardr mail <resident> <text> sends and yardr mail --with
 	}
 }
 
-// chatOn shows the view to the user me, with the resident first selected,
-// until they leave it. expect is a resident whose first mail is on its way
+// chatOn shows the view to the user me, with the crew member first selected,
+// until they leave it. expect is a crew member whose first mail is on its way
 // (chat.Options.Expect), "" for none.
 func (a *app) chatOn(ctx context.Context, st store.API, me, first, expect string) error {
 	ctx, cancel := context.WithCancel(ctx)
@@ -93,8 +93,8 @@ func (a *app) chatOn(ctx context.Context, st store.API, me, first, expect string
 	if err != nil {
 		return err
 	}
-	if len(state.Residents) == 0 {
-		return errors.New("the yard has no residents to talk with: yardr resident add adds one, yardr init the yardmaster")
+	if len(state.Crew) == 0 {
+		return errors.New("the yard has no crew to talk with: yardr crew add adds one, yardr init the yardmaster")
 	}
 	m := chat.New(ctx, st, chat.Options{Me: me, Select: first, Yardr: "yardr", Expect: expect,
 		InHerdr: os.Getenv("HERDR_ENV") != "", Focus: focusAgent, Tail: paneTail, Refresh: paneRefresh}, state)
@@ -134,7 +134,7 @@ func (a *app) toChat(ctx context.Context, cfg *config.Config, st store.API, yard
 		return false, nil
 	}
 	expect := ""
-	if r, err := st.GetResident(ctx, yardmaster); err != nil {
+	if r, err := st.GetCrew(ctx, yardmaster); err != nil {
 		return false, err
 	} else if runner.Greeted(*r) {
 		expect = yardmaster
@@ -146,9 +146,9 @@ func (a *app) toChat(ctx context.Context, cfg *config.Config, st store.API, yard
 	return true, nil
 }
 
-// paneRefresh is how often the view reads the pane of a resident that
+// paneRefresh is how often the view reads the pane of a crew member that
 // waits in it again, for the lines its notice quotes: one call of herdr,
-// and only while such a resident is selected.
+// and only while such a crew member is selected.
 const paneRefresh = 5 * time.Second
 
 // streamRetry is how long the view waits before it asks the yardr server

@@ -11,10 +11,10 @@ import (
 )
 
 // The daemon's pass fires the timers that are due by its clock. One for a
-// resident is in its inbox and the resident is nudged in the same pass;
-// one a resident set for a user is mail, and nudges nobody.
+// crew member is in its inbox and the crew member is nudged in the same pass;
+// one a crew member set for a user is mail, and nudges nobody.
 func TestPassFiresTimers(t *testing.T) {
-	s, f, d := residentSetup(t, store.Resident{})
+	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	if _, err := s.AddUser(ctx, "jo", "me"); err != nil {
 		t.Fatal(err)
@@ -35,7 +35,7 @@ func TestPassFiresTimers(t *testing.T) {
 		t.Fatalf("nudged before anything was due: %v", f.nudges)
 	}
 
-	// The user's is due: mail for jo, and the resident that set it is left
+	// The user's is due: mail for jo, and the crew member that set it is left
 	// alone.
 	now = now.Add(10 * time.Minute)
 	must(t, d.Reconcile(ctx))
@@ -44,10 +44,10 @@ func TestPassFiresTimers(t *testing.T) {
 		t.Fatalf("jo's inbox = %+v, %v", box, err)
 	}
 	if len(f.nudges) != 0 {
-		t.Fatalf("a timer for a user nudged a resident: %v", f.nudges)
+		t.Fatalf("a timer for a user nudged a crew member: %v", f.nudges)
 	}
 
-	// The resident's own is due: in its inbox, and it is nudged for it.
+	// The crew member's own is due: in its inbox, and it is nudged for it.
 	now = now.Add(10 * time.Minute)
 	must(t, d.Reconcile(ctx))
 	page, err := s.Inbox(ctx, "yardmaster", 0)

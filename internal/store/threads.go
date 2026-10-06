@@ -14,19 +14,19 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// bThreads holds which source threads each resident participates in:
-// <resident>\x00<source>\x00<thread id> -> Participation.
+// bThreads holds which source threads each crew member participates in:
+// <crew member>\x00<source>\x00<thread id> -> Participation.
 var bThreads = []byte("threads")
 
-// bReplies holds every post a resident set out to make in a source, a
+// bReplies holds every post a crew member set out to make in a source, a
 // reply (yardr reply) or a thread of its own (yardr thread open):
-// <resident>\x00<key> -> Reply, from Replying or Opening (before the post)
+// <crew member>\x00<key> -> Reply, from Replying or Opening (before the post)
 // through Replied or Opened (after it).
 var bReplies = []byte("replies")
 
 func init() { allBuckets = append(allBuckets, bThreads, bReplies) }
 
-// How a resident came to participate in a thread.
+// How a crew member came to participate in a thread.
 const (
 	ParticipantActed    = "acted"    // a hook delivery showed it acting there
 	ParticipantFollowed = "followed" // yardr thread follow
@@ -34,29 +34,29 @@ const (
 	ParticipantOpened   = "opened"   // yardr thread open
 )
 
-// Participation is a resident taking part in a source's thread (in Linear,
+// Participation is a crew member taking part in a source's thread (in Linear,
 // an issue), so that an involved subscription hears of what others do
 // there afterwards.
 type Participation struct {
-	Resident string    `json:"resident"`
-	Source   string    `json:"source"`
-	Thread   string    `json:"thread"`
-	Title    string    `json:"title,omitempty"`
-	URL      string    `json:"url,omitempty"`
-	How      string    `json:"how"`
-	Since    time.Time `json:"since"`
+	CrewMember string    `json:"crew"`
+	Source     string    `json:"source"`
+	Thread     string    `json:"thread"`
+	Title      string    `json:"title,omitempty"`
+	URL        string    `json:"url,omitempty"`
+	How        string    `json:"how"`
+	Since      time.Time `json:"since"`
 }
 
-func threadKey(resident, source, thread string) string {
-	return resident + "\x00" + source + "\x00" + thread
+func threadKey(member, source, thread string) string {
+	return member + "\x00" + source + "\x00" + thread
 }
 
-// participates reports whether the resident takes part in the thread.
-func participates(tx *bolt.Tx, resident, source, thread string) bool {
-	return thread != "" && tx.Bucket(bThreads).Get([]byte(threadKey(resident, source, thread))) != nil
+// participates reports whether the crew member takes part in the thread.
+func participates(tx *bolt.Tx, member, source, thread string) bool {
+	return thread != "" && tx.Bucket(bThreads).Get([]byte(threadKey(member, source, thread))) != nil
 }
 
-// recordParticipation marks every resident that is the actor of a hook
+// recordParticipation marks every crew member that is the actor of a hook
 // delivery as a participant in its thread. Its own action is the evidence,
 // so no event is logged beyond the delivery itself; a thread it already
 // takes part in keeps how and since it joined.
@@ -71,37 +71,37 @@ func recordParticipation(tx *bolt.Tx, data map[string]any) error {
 	}
 	title, _ := thread["title"].(string)
 	url, _ := thread["url"].(string)
-	return each(tx, bResidents, "", func(_ []byte, r *Resident) error {
+	return each(tx, bCrew, "", func(_ []byte, r *CrewMember) error {
 		id, known := r.Identities[source]
 		if !known || !id.is(actorID) || participates(tx, r.Name, source, threadID) {
 			return nil
 		}
 		return put(tx, bThreads, threadKey(r.Name, source, threadID), Participation{
-			Resident: r.Name, Source: source, Thread: threadID, Title: title, URL: url,
+			CrewMember: r.Name, Source: source, Thread: threadID, Title: title, URL: url,
 			How: ParticipantActed, Since: now(),
 		})
 	})
 }
 
-// FollowThread makes the resident a participant in a thread by hand, as
+// FollowThread makes the crew member a participant in a thread by hand, as
 // if it had acted there.
 func (s *Store) FollowThread(ctx context.Context, name, source, thread, actor string) error {
 	if source == "" || thread == "" {
 		return fmt.Errorf("follow: source and thread are required")
 	}
-	return s.changeResident(name, func(w *wtx, r *Resident) error {
+	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
 		if participates(w.Tx, name, source, thread) {
 			return nil
 		}
-		p := Participation{Resident: name, Source: source, Thread: thread, How: ParticipantFollowed, Since: now()}
+		p := Participation{CrewMember: name, Source: source, Thread: thread, How: ParticipantFollowed, Since: now()}
 		if err := put(w.Tx, bThreads, threadKey(name, source, thread), p); err != nil {
 			return err
 		}
-		return w.event(r.Journal, "thread_followed", actor, map[string]any{"resident": name, "source": source, "thread": thread})
+		return w.event(r.Journal, "thread_followed", actor, map[string]any{"crew": name, "source": source, "thread": thread})
 	})
 }
 
-// Reply is what a resident posts in a source: a comment in a thread with
+// Reply is what a crew member posts in a source: a comment in a thread with
 // yardr reply (made by Replying before the post, completed by Replied
 // after it), or a thread of its own with yardr thread open (Opening, then
 // Opened).
@@ -120,7 +120,7 @@ type Reply struct {
 	// Seq is the delivery answered and Hash identifies the answer (its
 	// conversation and body), so a retry of the same reply gets the same
 	// key and a different reply to the same delivery a new one.
-	// A thread the resident opened answers no delivery: its Seq is 0, In is
+	// A thread the crew member opened answers no delivery: its Seq is 0, In is
 	// where it was opened (a Linear team, a GitHub repository) and Hash
 	// identifies the source, the place, the title and the body.
 	Seq  uint64 `json:"seq,omitempty"`
@@ -137,7 +137,7 @@ type Reply struct {
 	At      time.Time `json:"at"` // Replying first, then the post
 }
 
-func replyKey(resident, key string) string { return resident + "\x00" + key }
+func replyKey(member, key string) string { return member + "\x00" + key }
 
 // replyHash identifies one answer to a delivery: the conversation it goes
 // under and its body.
@@ -159,7 +159,7 @@ func newReplyKey() string {
 	return h[:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:]
 }
 
-// Replying is the resident about to answer delivery seq with body, under
+// Replying is the crew member about to answer delivery seq with body, under
 // the conversation to ("" for the delivery's own). It returns the Reply
 // for exactly that answer: a fresh one, with a key chosen now, or the one
 // an earlier attempt made, with Attempts counted up. The record is written
@@ -171,7 +171,7 @@ func (s *Store) Replying(ctx context.Context, name string, seq uint64, to, body 
 	}
 	hash := replyHash(to, body)
 	var out *Reply
-	err := s.changeResident(name, func(w *wtx, r *Resident) error {
+	err := s.changeCrew(name, func(w *wtx, r *CrewMember) error {
 		out = nil
 		err := each(w.Tx, bReplies, name+"\x00", func(_ []byte, rp *Reply) error {
 			if rp.Seq == seq && rp.Hash == hash {
@@ -191,11 +191,11 @@ func (s *Store) Replying(ctx context.Context, name string, seq uint64, to, body 
 	return out, err
 }
 
-// Replied records that the resident answered in a source's thread: the
+// Replied records that the crew member answered in a source's thread: the
 // reply made by Replying (rp.Key) is marked posted with the source's id
-// of the comment and its URL, a `replied` event goes on the resident's
+// of the comment and its URL, a `replied` event goes on the crew member's
 // journal, and it participates in the thread from now on. The source's
-// webhook echoes the reply later, but the resident takes part as soon as
+// webhook echoes the reply later, but the crew member takes part as soon as
 // it has spoken. A thread it already takes part in keeps how and since it
 // joined. Without a key (a caller that did not go through Replying) only
 // the event and the participation are recorded.
@@ -206,13 +206,13 @@ func (s *Store) Replied(ctx context.Context, name string, rp Reply, actor string
 	return s.posted(name, rp, ParticipantReplied, "replied", actor)
 }
 
-// posted completes the record of a post (rp.Key), makes the resident a
+// posted completes the record of a post (rp.Key), makes the crew member a
 // participant in its thread (how, unless it already takes part) and logs
 // the event kind on its journal.
 func (s *Store) posted(name string, rp Reply, how, kind, actor string) error {
-	return s.changeResident(name, func(w *wtx, r *Resident) error {
+	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
 		if !participates(w.Tx, name, rp.Source, rp.Thread) {
-			p := Participation{Resident: name, Source: rp.Source, Thread: rp.Thread, Title: rp.Title, URL: rp.ThreadURL,
+			p := Participation{CrewMember: name, Source: rp.Source, Thread: rp.Thread, Title: rp.Title, URL: rp.ThreadURL,
 				How: how, Since: now()}
 			if err := put(w.Tx, bThreads, threadKey(name, rp.Source, rp.Thread), p); err != nil {
 				return err
@@ -231,7 +231,7 @@ func (s *Store) posted(name string, rp Reply, how, kind, actor string) error {
 				return err
 			}
 		}
-		data := map[string]any{"resident": name, "source": rp.Source, "thread": rp.Thread, "url": rp.URL}
+		data := map[string]any{"crew": name, "source": rp.Source, "thread": rp.Thread, "url": rp.URL}
 		if rp.Title != "" {
 			data["title"] = rp.Title
 		}
@@ -248,17 +248,17 @@ func (s *Store) posted(name string, rp Reply, how, kind, actor string) error {
 	})
 }
 
-// OpenThreads is the resident setting (a key of its config) naming the
+// OpenThreads is the crew member setting (a key of its config) naming the
 // sources it may open threads in: "linear,github", or a list. Unset, it
 // may open none.
 const OpenThreads = "open_threads"
 
-// MayOpen lists the sources the resident may open threads in, sorted.
-func (r Resident) MayOpen() []string { return r.sources(OpenThreads) }
+// MayOpen lists the sources the crew member may open threads in, sorted.
+func (r CrewMember) MayOpen() []string { return r.sources(OpenThreads) }
 
 // sources reads a setting that names sources: "linear,github", or a list.
 // Sorted, each once.
-func (r Resident) sources(setting string) []string {
+func (r CrewMember) sources(setting string) []string {
 	var out []string
 	switch v := r.Config[setting].(type) {
 	case string:
@@ -280,23 +280,23 @@ func (r Resident) sources(setting string) []string {
 	return slices.Compact(out)
 }
 
-// AllowOpening adds sources to those the resident may open threads in
+// AllowOpening adds sources to those the crew member may open threads in
 // (OpenThreads) and keeps the ones it has: what an import of pack does on
-// the operator's yes. It returns the sources that are new to the resident,
+// the operator's yes. It returns the sources that are new to the crew member,
 // sorted, and logs them as open_threads_granted on its journal, with the
-// pack; when the resident may open threads in all of them already, nothing
-// is written. Who may grant is the caller's to check, as with PutResident.
+// pack; when the crew member may open threads in all of them already, nothing
+// is written. Who may grant is the caller's to check, as with PutCrew.
 func (s *Store) AllowOpening(ctx context.Context, name string, sources []string, pack, actor string) ([]string, error) {
 	var added []string
 	err := s.write(func(w *wtx) error {
 		added = nil
-		var r Resident
-		ok, err := get(w.Tx, bResidents, name, &r)
+		var r CrewMember
+		ok, err := get(w.Tx, bCrew, name, &r)
 		if err != nil {
 			return err
 		}
 		if !ok {
-			return fmt.Errorf("resident %s: %w", name, ErrNotFound)
+			return fmt.Errorf("crew member %s: %w", name, ErrNotFound)
 		}
 		may := r.MayOpen()
 		for _, src := range sources {
@@ -319,10 +319,10 @@ func (s *Store) AllowOpening(ctx context.Context, name string, sources []string,
 		// As --set open_threads=a,b writes it.
 		r.Config[OpenThreads] = strings.Join(may, ",")
 		r.Revision = newRevision()
-		if err := put(w.Tx, bResidents, name, r); err != nil {
+		if err := put(w.Tx, bCrew, name, r); err != nil {
 			return err
 		}
-		return w.event(r.Journal, "open_threads_granted", actor, map[string]any{"resident": name, "sources": added, "pack": pack})
+		return w.event(r.Journal, "open_threads_granted", actor, map[string]any{"crew": name, "sources": added, "pack": pack})
 	})
 	return added, err
 }
@@ -333,11 +333,11 @@ func openHash(source, in, title, body string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// Opening is the resident about to open a thread in source, in the place
+// Opening is the crew member about to open a thread in source, in the place
 // in (a Linear team, a GitHub repository), with title and body. Like
 // Replying, it returns the record for exactly that thread, a fresh one
 // with a key chosen now or the one an earlier attempt made, written before
-// anything is posted. A resident whose definition does not allow the
+// anything is posted. A crew member whose definition does not allow the
 // source (OpenThreads) is refused here, whoever asks.
 func (s *Store) Opening(ctx context.Context, name, source, in, title, body string) (*Reply, error) {
 	if source == "" || in == "" || title == "" {
@@ -345,9 +345,9 @@ func (s *Store) Opening(ctx context.Context, name, source, in, title, body strin
 	}
 	hash := openHash(source, in, title, body)
 	var out *Reply
-	err := s.changeResident(name, func(w *wtx, r *Resident) error {
+	err := s.changeCrew(name, func(w *wtx, r *CrewMember) error {
 		if !slices.Contains(r.MayOpen(), source) {
-			return fmt.Errorf("resident %s may not open threads in %s: its definition does not allow it. The operator allows it with yardr resident set %s %s=%s",
+			return fmt.Errorf("crew member %s may not open threads in %s: its definition does not allow it. The operator allows it with yardr crew set %s %s=%s",
 				name, source, name, OpenThreads, strings.Join(append(r.MayOpen(), source), ","))
 		}
 		out = nil
@@ -369,10 +369,10 @@ func (s *Store) Opening(ctx context.Context, name, source, in, title, body strin
 	return out, err
 }
 
-// Opened records that the resident opened a thread: the record made by
+// Opened records that the crew member opened a thread: the record made by
 // Opening (rp.Key) is marked posted with the thread's id and URL, a
-// `thread_opened` event goes on the resident's journal, and the thread is
-// the resident's from now on: it participates (how opened) before the
+// `thread_opened` event goes on the crew member's journal, and the thread is
+// the crew member's from now on: it participates (how opened) before the
 // source's webhook has said anything.
 func (s *Store) Opened(ctx context.Context, name string, rp Reply, actor string) error {
 	if rp.Source == "" || rp.Thread == "" || rp.Key == "" {
@@ -381,16 +381,16 @@ func (s *Store) Opened(ctx context.Context, name string, rp Reply, actor string)
 	return s.posted(name, rp, ParticipantOpened, "thread_opened", actor)
 }
 
-// SetState is the resident setting (a key of its config) naming the sources
+// SetState is the crew member setting (a key of its config) naming the sources
 // it may set the status of a thread in: "linear,github", or a list. Unset,
 // it may set none.
 const SetState = "set_state"
 
-// MaySetState lists the sources the resident may set the status of a thread
+// MaySetState lists the sources the crew member may set the status of a thread
 // in, sorted.
-func (r Resident) MaySetState() []string { return r.sources(SetState) }
+func (r CrewMember) MaySetState() []string { return r.sources(SetState) }
 
-// ThreadState is a resident setting the status of a source's thread: the
+// ThreadState is a crew member setting the status of a source's thread: the
 // word it asked for (started, review, done) and the source's name of the
 // status the thread was put in.
 type ThreadState struct {
@@ -406,16 +406,16 @@ type ThreadState struct {
 	Instead string `json:"instead,omitempty"`
 }
 
-// mayState is the resident's participation in the thread it is about to set
-// the status of, or the refusal: a resident whose definition does not allow
+// mayState is the crew member's participation in the thread it is about to set
+// the status of, or the refusal: a crew member whose definition does not allow
 // the source (SetState) is refused, whoever asks, and so is one that takes
 // no part in the thread.
-func mayState(tx *bolt.Tx, r *Resident, source, thread string) (*Participation, error) {
+func mayState(tx *bolt.Tx, r *CrewMember, source, thread string) (*Participation, error) {
 	if source == "" || thread == "" {
 		return nil, fmt.Errorf("thread state: source and thread are required")
 	}
 	if !slices.Contains(r.MaySetState(), source) {
-		return nil, fmt.Errorf("resident %s may not set the status of threads in %s: its definition does not allow it. The operator allows it with yardr resident set %s %s=%s",
+		return nil, fmt.Errorf("crew member %s may not set the status of threads in %s: its definition does not allow it. The operator allows it with yardr crew set %s %s=%s",
 			r.Name, source, r.Name, SetState, strings.Join(append(r.MaySetState(), source), ","))
 	}
 	var p Participation
@@ -424,25 +424,25 @@ func mayState(tx *bolt.Tx, r *Resident, source, thread string) (*Participation, 
 		return nil, err
 	}
 	if !ok {
-		return nil, fmt.Errorf("resident %s takes no part in %s thread %s, and sets the status only of a thread it takes part in (yardr thread follow %s --source %s %s makes it a participant)",
+		return nil, fmt.Errorf("crew member %s takes no part in %s thread %s, and sets the status only of a thread it takes part in (yardr thread follow %s --source %s %s makes it a participant)",
 			r.Name, source, thread, r.Name, source, thread)
 	}
 	return &p, nil
 }
 
-// SettingState is the resident about to set the status of a thread: its
+// SettingState is the crew member about to set the status of a thread: its
 // participation in the thread, or why it may not (mayState). It is asked
 // before the source is called and writes nothing.
 func (s *Store) SettingState(ctx context.Context, name, source, thread string) (*Participation, error) {
 	var out *Participation
 	err := s.read(func(tx *bolt.Tx) error {
-		var r Resident
-		ok, err := get(tx, bResidents, name, &r)
+		var r CrewMember
+		ok, err := get(tx, bCrew, name, &r)
 		if err != nil {
 			return err
 		}
 		if !ok {
-			return fmt.Errorf("resident %s: %w", name, ErrNotFound)
+			return fmt.Errorf("crew member %s: %w", name, ErrNotFound)
 		}
 		out, err = mayState(tx, &r, source, thread)
 		return err
@@ -450,19 +450,19 @@ func (s *Store) SettingState(ctx context.Context, name, source, thread string) (
 	return out, err
 }
 
-// StateSet records that the resident set the status of a thread: a
+// StateSet records that the crew member set the status of a thread: a
 // `thread_state` event on its journal with the source, the thread, the word
 // asked and the status set. What SettingState refuses is refused here too,
-// so nothing is on record that the resident was not allowed.
+// so nothing is on record that the crew member was not allowed.
 func (s *Store) StateSet(ctx context.Context, name string, ts ThreadState, actor string) error {
 	if ts.State == "" || ts.Status == "" {
 		return fmt.Errorf("thread state: the state asked for and the status set are required")
 	}
-	return s.changeResident(name, func(w *wtx, r *Resident) error {
+	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
 		if _, err := mayState(w.Tx, r, ts.Source, ts.Thread); err != nil {
 			return err
 		}
-		data := map[string]any{"resident": name, "source": ts.Source, "thread": ts.Thread, "state": ts.State, "status": ts.Status}
+		data := map[string]any{"crew": name, "source": ts.Source, "thread": ts.Thread, "state": ts.State, "status": ts.Status}
 		for k, v := range map[string]string{"title": ts.Title, "url": ts.URL, "was": ts.Was, "instead": ts.Instead} {
 			if v != "" {
 				data[k] = v
@@ -472,28 +472,28 @@ func (s *Store) StateSet(ctx context.Context, name string, ts ThreadState, actor
 	})
 }
 
-// UnfollowThread ends the resident's participation in a thread, however it
+// UnfollowThread ends the crew member's participation in a thread, however it
 // began. Acting there again makes it a participant again.
 func (s *Store) UnfollowThread(ctx context.Context, name, source, thread, actor string) error {
-	return s.changeResident(name, func(w *wtx, r *Resident) error {
+	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
 		key := []byte(threadKey(name, source, thread))
 		if w.Bucket(bThreads).Get(key) == nil {
-			return fmt.Errorf("resident %s does not participate in %s thread %s: %w", name, source, thread, ErrNotFound)
+			return fmt.Errorf("crew member %s does not participate in %s thread %s: %w", name, source, thread, ErrNotFound)
 		}
 		if err := w.Bucket(bThreads).Delete(key); err != nil {
 			return err
 		}
-		return w.event(r.Journal, "thread_unfollowed", actor, map[string]any{"resident": name, "source": source, "thread": thread})
+		return w.event(r.Journal, "thread_unfollowed", actor, map[string]any{"crew": name, "source": source, "thread": thread})
 	})
 }
 
-// Threads lists the threads the resident participates in, by source and
+// Threads lists the threads the crew member participates in, by source and
 // thread id.
 func (s *Store) Threads(ctx context.Context, name string) ([]Participation, error) {
 	out := []Participation{}
 	err := s.read(func(tx *bolt.Tx) error {
-		if tx.Bucket(bResidents).Get([]byte(name)) == nil {
-			return fmt.Errorf("resident %s: %w", name, ErrNotFound)
+		if tx.Bucket(bCrew).Get([]byte(name)) == nil {
+			return fmt.Errorf("crew member %s: %w", name, ErrNotFound)
 		}
 		return each(tx, bThreads, name+"\x00", func(_ []byte, p *Participation) error {
 			out = append(out, *p)
@@ -503,8 +503,8 @@ func (s *Store) Threads(ctx context.Context, name string) ([]Participation, erro
 	return out, err
 }
 
-// dropThreads forgets a deleted resident's participation and replies, so
-// a resident later created under the name starts with none.
+// dropThreads forgets a deleted crew member's participation and replies, so
+// a crew member later created under the name starts with none.
 func dropThreads(tx *bolt.Tx, name string) error {
 	for _, bucket := range [][]byte{bThreads, bReplies} {
 		b := tx.Bucket(bucket)

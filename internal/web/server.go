@@ -40,7 +40,7 @@ var menu = []menuItem{
 	{Name: "flows", Label: "Flows", Path: "/flows"},
 	{Name: "beads", Label: "Beads", Path: "/beads"},
 	{Name: "sessions", Label: "Sessions", Path: "/sessions"},
-	{Name: "residents", Label: "Residents", Path: "/residents"},
+	{Name: "crew", Label: "Crew", Path: "/crew"},
 	{Name: "line", Label: "Line", Path: "/line", Aside: true},
 }
 
@@ -153,7 +153,15 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /line", s.handleLine)
 	s.mux.HandleFunc("GET /events", s.handleEvents)
 	s.mux.HandleFunc("GET /sessions", s.handleSessions)
-	s.mux.HandleFunc("GET /residents", s.handleResidents)
+	s.mux.HandleFunc("GET /crew", s.handleCrew)
+	// The page's address until this release: a bookmark still finds it.
+	s.mux.HandleFunc("GET /residents", func(w http.ResponseWriter, r *http.Request) {
+		to := "/crew"
+		if r.URL.RawQuery != "" {
+			to += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, to, http.StatusMovedPermanently)
+	})
 	s.mux.HandleFunc("GET /flows", s.handleFlows)
 	s.mux.HandleFunc("GET /beads", s.handleBeads)
 	s.mux.HandleFunc("GET /beads/{id}", s.handleBead)
@@ -339,7 +347,7 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	_, _ = w.Write(buf.Bytes())
 }
 
-// yardName is the yard's name as its residents carry it in herdr: the
+// yardName is the yard's name as its crew carry it in herdr: the
 // `name` setting, else the home's directory name (~/.yardr reads as yardr).
 func (s *Server) yardName(ctx context.Context) string {
 	if all, err := s.st.Settings(ctx); err == nil && all["name"] != "" {

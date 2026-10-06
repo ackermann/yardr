@@ -119,7 +119,7 @@ func TestNudgeIsNotTypedIntoAnInputThatHoldsText(t *testing.T) {
 			ctx := context.Background()
 			s := storetest.New(t)
 			d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": h}, PromptSettle: -1, PromptWait: -1}
-			if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
+			if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
 				t.Fatal(err)
 			}
 			pass := func() {
@@ -131,8 +131,8 @@ func TestNudgeIsNotTypedIntoAnInputThatHoldsText(t *testing.T) {
 				}
 			}
 			pass()
-			if r, err := s.GetResident(ctx, "yardmaster"); err != nil || !r.Live() || r.Handle[dispatch.PendingPrompt] != nil {
-				t.Fatalf("resident = %+v %v", r, err)
+			if r, err := s.GetCrew(ctx, "yardmaster"); err != nil || !r.Live() || r.Handle[dispatch.PendingPrompt] != nil {
+				t.Fatalf("crew member = %+v %v", r, err)
 			}
 			typed := func() int { return strings.Count(calls(), "agent prompt") - 1 } // less its first prompt
 			keys := func() int { return strings.Count(calls(), "send-") }

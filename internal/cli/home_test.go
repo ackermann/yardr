@@ -158,7 +158,7 @@ func TestHomeFlagOnboards(t *testing.T) {
 	if asked == 0 {
 		t.Fatal("no form was asked")
 	}
-	r, err := st.GetResident(context.Background(), "yardmaster")
+	r, err := st.GetCrew(context.Background(), "yardmaster")
 	if err != nil || r.Dir != user {
 		t.Fatalf("yardmaster = %+v, %v", r, err)
 	}

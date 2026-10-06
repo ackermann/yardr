@@ -641,11 +641,11 @@ func (a *app) daemonWarnings(ctx context.Context, cfg *config.Config, program st
 		if err != nil {
 			return nil, err
 		}
-		residents, err := st.Residents(ctx)
+		crew, err := st.Crew(ctx)
 		if err != nil {
 			return nil, err
 		}
-		for _, u := range harnessUses(defaultKind(ctx, st), groups, residents) {
+		for _, u := range harnessUses(defaultKind(ctx, st), groups, crew) {
 			needs = append(needs, harnessNeed(u.kind, "the harness of "+strings.Join(u.by, ", ")))
 		}
 		rigs, err := st.Rigs(ctx)
@@ -1061,7 +1061,7 @@ func (a *app) offerLink(ctx context.Context, cfg *config.Config) error {
 	a.linkAsked = true
 	yardr, link := yardrAt(cfg.Home), false
 	if err := ask(huh.NewConfirm().Key("link").Title("Link with another yard?").
-		Description(fmt.Sprintf("Two linked yards send each other mail between their residents: yours and a colleague's, or\n"+
+		Description(fmt.Sprintf("Two linked yards send each other mail between their crew: yours and a colleague's, or\n"+
 			"yours on two machines. Yes opens a short form, which the other yard's operator runs there too.\n"+
 			"Later: %s peer pair", yardr)).Value(&link)); err != nil || !link {
 		return err

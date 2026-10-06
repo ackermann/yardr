@@ -408,41 +408,41 @@ func (c *Client) SetSetting(ctx context.Context, key, value, actor string) error
 	return c.call(ctx, "SetSetting", nil, key, value, actor)
 }
 
-func (c *Client) PutResident(ctx context.Context, def store.Resident, actor string) (*store.Resident, error) {
-	return callV[*store.Resident](c, ctx, "PutResident", def, actor)
+func (c *Client) PutCrew(ctx context.Context, def store.CrewMember, actor string) (*store.CrewMember, error) {
+	return callV[*store.CrewMember](c, ctx, "PutCrew", def, actor)
 }
-func (c *Client) Residents(ctx context.Context) ([]store.Resident, error) {
-	return callV[[]store.Resident](c, ctx, "Residents")
+func (c *Client) Crew(ctx context.Context) ([]store.CrewMember, error) {
+	return callV[[]store.CrewMember](c, ctx, "Crew")
 }
-func (c *Client) GetResident(ctx context.Context, name string) (*store.Resident, error) {
-	return callV[*store.Resident](c, ctx, "GetResident", name)
+func (c *Client) GetCrew(ctx context.Context, name string) (*store.CrewMember, error) {
+	return callV[*store.CrewMember](c, ctx, "GetCrew", name)
 }
-func (c *Client) DeleteResident(ctx context.Context, name, rev, actor string) error {
-	return c.call(ctx, "DeleteResident", nil, name, rev, actor)
+func (c *Client) DeleteCrew(ctx context.Context, name, rev, actor string) error {
+	return c.call(ctx, "DeleteCrew", nil, name, rev, actor)
 }
-func (c *Client) SetResidentEnabled(ctx context.Context, name string, enabled bool, rev, actor string) error {
-	return c.call(ctx, "SetResidentEnabled", nil, name, enabled, rev, actor)
+func (c *Client) SetCrewEnabled(ctx context.Context, name string, enabled bool, rev, actor string) error {
+	return c.call(ctx, "SetCrewEnabled", nil, name, enabled, rev, actor)
 }
-func (c *Client) ResidentStarted(ctx context.Context, name string, handle map[string]any) error {
-	return c.call(ctx, "ResidentStarted", nil, name, handle)
+func (c *Client) CrewStarted(ctx context.Context, name string, handle map[string]any) error {
+	return c.call(ctx, "CrewStarted", nil, name, handle)
 }
-func (c *Client) ResidentSettled(ctx context.Context, name string) error {
-	return c.call(ctx, "ResidentSettled", nil, name)
+func (c *Client) CrewSettled(ctx context.Context, name string) error {
+	return c.call(ctx, "CrewSettled", nil, name)
 }
-func (c *Client) SetResidentHandle(ctx context.Context, name string, handle map[string]any) error {
-	return c.call(ctx, "SetResidentHandle", nil, name, handle)
+func (c *Client) SetCrewHandle(ctx context.Context, name string, handle map[string]any) error {
+	return c.call(ctx, "SetCrewHandle", nil, name, handle)
 }
-func (c *Client) ResidentStopped(ctx context.Context, name, reason string) error {
-	return c.call(ctx, "ResidentStopped", nil, name, reason)
+func (c *Client) CrewStopped(ctx context.Context, name, reason string) error {
+	return c.call(ctx, "CrewStopped", nil, name, reason)
 }
-func (c *Client) ResidentGone(ctx context.Context, name, reason string) error {
-	return c.call(ctx, "ResidentGone", nil, name, reason)
+func (c *Client) CrewGone(ctx context.Context, name, reason string) error {
+	return c.call(ctx, "CrewGone", nil, name, reason)
 }
-func (c *Client) ResidentLeft(ctx context.Context, name string, left []map[string]any) error {
-	return c.call(ctx, "ResidentLeft", nil, name, left)
+func (c *Client) CrewLeft(ctx context.Context, name string, left []map[string]any) error {
+	return c.call(ctx, "CrewLeft", nil, name, left)
 }
-func (c *Client) ResidentStartFailed(ctx context.Context, name, reason string, backoff time.Duration) error {
-	return c.call(ctx, "ResidentStartFailed", nil, name, reason, backoff)
+func (c *Client) CrewStartFailed(ctx context.Context, name, reason string, backoff time.Duration) error {
+	return c.call(ctx, "CrewStartFailed", nil, name, reason, backoff)
 }
 func (c *Client) RequestRestart(ctx context.Context, name, reason, rev, actor string) error {
 	return c.call(ctx, "RequestRestart", nil, name, reason, rev, actor)
@@ -450,8 +450,8 @@ func (c *Client) RequestRestart(ctx context.Context, name, reason, rev, actor st
 func (c *Client) MarkRotationAsked(ctx context.Context, name string) error {
 	return c.call(ctx, "MarkRotationAsked", nil, name)
 }
-func (c *Client) ResidentStatus(ctx context.Context, name, status string) error {
-	return c.call(ctx, "ResidentStatus", nil, name, status)
+func (c *Client) CrewStatus(ctx context.Context, name, status string) error {
+	return c.call(ctx, "CrewStatus", nil, name, status)
 }
 func (c *Client) MarkNotified(ctx context.Context, name string, seq uint64) error {
 	return c.call(ctx, "MarkNotified", nil, name, seq)
@@ -507,8 +507,8 @@ func (c *Client) RemoveTimer(ctx context.Context, id, actor string, anyone bool)
 func (c *Client) FireTimers(ctx context.Context, at time.Time) (*store.TimerPass, error) {
 	return callV[*store.TimerPass](c, ctx, "FireTimers", at)
 }
-func (c *Client) ResidentPrime(ctx context.Context, name string) (*store.Prime, error) {
-	return callV[*store.Prime](c, ctx, "ResidentPrime", name)
+func (c *Client) CrewPrime(ctx context.Context, name string) (*store.Prime, error) {
+	return callV[*store.Prime](c, ctx, "CrewPrime", name)
 }
 func (c *Client) Remember(ctx context.Context, m store.NewMemory, actor string) (*store.Bead, error) {
 	return callV[*store.Bead](c, ctx, "Remember", m, actor)

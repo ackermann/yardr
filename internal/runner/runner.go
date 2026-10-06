@@ -341,7 +341,7 @@ var yardmasterRoles = [2]string{"yardmaster.md", "mayor.md"}
 // findPrompt is lookPrompt, and for the yardmaster's role under one of its
 // two names, when no file has that name, the other: a yard set up before
 // the rename has mayor.md where a prompt now says yardmaster.md, and a rig
-// that renamed its file is still named by a resident's prompt=…/mayor.md.
+// that renamed its file is still named by a crew member's prompt=…/mayor.md.
 // For this release only.
 func findPrompt(p string, rig *store.Rig, home string) ([]byte, PromptSource, error) {
 	text, src, err := lookPrompt(p, rig, home)

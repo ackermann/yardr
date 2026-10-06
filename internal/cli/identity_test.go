@@ -159,7 +159,7 @@ func TestEnvironmentNamesTheSessionOutsideAWorktree(t *testing.T) {
 // Only another bead's environment gives way to the worktree's session. An
 // earlier stage's agent left open in the worktree names the same bead and
 // stays itself, so its move is still refused as stale; and someone with no
-// bead in the environment (a person, a resident) acts as themselves there.
+// bead in the environment (a person, a crew member) acts as themselves there.
 func TestWorktreeLeavesTheBeadsOwnEnvironmentAlone(t *testing.T) {
 	st, ctx := reviewYard(t, "/tmp/yard")
 	if err := st.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "herdr"}); err != nil {

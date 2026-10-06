@@ -50,9 +50,9 @@ type Forwarder interface {
 	// the source's fixed form (Linker.Issue). A link made from a URL has no
 	// thread id, so the issue is named from the URL alone.
 	IssueThread(fixed string) (string, error)
-	// CredentialFrom is the source's credential as a resident's env_file
+	// CredentialFrom is the source's credential as a crew member's env_file
 	// gives it, get being what the file sets a name to: the one Credential
-	// reads from the environment in the resident's pane. When the file sets
+	// reads from the environment in the crew member's pane. When the file sets
 	// none of the names it fails with a *MissingCredential.
 	CredentialFrom(get func(name string) string) (string, error)
 	// Places reports whether the source has a status for state at all, so a

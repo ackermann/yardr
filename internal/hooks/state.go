@@ -11,8 +11,8 @@ import (
 // Setting a thread's status is the third outbound call, after a reply and
 // an opened thread: an issue moves to started, review or done. The call
 // takes a thread's id and a credential and nothing else, so whoever holds
-// both can make it: the CLI in a resident's pane, with the resident's own
-// credential, and the daemon for a hook that acts as a resident (forward.go).
+// both can make it: the CLI in a crew member's pane, with the crew member's own
+// credential, and the daemon for a hook that acts as a crew member (forward.go).
 
 // The states a thread can be asked into. The words are yardr's; each source
 // has its own statuses, and its Stater says which one a word means there.

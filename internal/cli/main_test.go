@@ -52,7 +52,7 @@ func TestMain(m *testing.M) {
 	// session's identity in the environment. Commands read it (a move from
 	// YARDR_SESSION expects that session to own the bead), so it must not
 	// leak into these tests; a test that wants it sets it.
-	for _, name := range []string{"SESSION", "BEAD", "RESIDENT", "ACTOR"} {
+	for _, name := range []string{"SESSION", "BEAD", "CREW", "ACTOR"} {
 		config.Unsetenv(name)
 	}
 	// Nor does a rig check here take one of the machine's gate slots, which

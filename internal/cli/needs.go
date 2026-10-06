@@ -482,10 +482,10 @@ func versionLine(out string) string {
 }
 
 // harnessUses are the harness kinds the yard runs on, each with who names
-// it: the default_kind first, then the herdr groups and residents in the
-// store's order. A group or resident whose config names no kind runs on
+// it: the default_kind first, then the herdr groups and crew members in the
+// store's order. A group or crew member whose config names no kind runs on
 // nothing yardr can name, and is left out.
-func harnessUses(def string, groups []store.Group, residents []store.Resident) []harnessUse {
+func harnessUses(def string, groups []store.Group, crew []store.CrewMember) []harnessUse {
 	var out []harnessUse
 	add := func(kind, by string) {
 		if kind == "" {
@@ -500,9 +500,9 @@ func harnessUses(def string, groups []store.Group, residents []store.Resident) [
 		out = append(out, harnessUse{kind, []string{by}})
 	}
 	add(def, "the yard's default")
-	for _, r := range residents {
+	for _, r := range crew {
 		if kind, _ := r.Config["kind"].(string); r.Runner == "herdr" {
-			add(kind, "resident "+r.Name)
+			add(kind, "crew member "+r.Name)
 		}
 	}
 	for _, g := range groups {

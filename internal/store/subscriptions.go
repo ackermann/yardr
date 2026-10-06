@@ -10,7 +10,7 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// Identity is who a resident is in a source, so a delivery can tell when it
+// Identity is who a crew member is in a source, so a delivery can tell when it
 // is mentioned, assigned, or the one acting. A source may name people two
 // ways: Linear's markdown mentions carry a profile key ("yardmaster"), its
 // rich-text, assignee and delegate fields a user id; either matches a
@@ -49,11 +49,11 @@ func (i Identity) mentionedAs(v string) bool {
 // Subscription scopes, from widest to narrowest.
 const (
 	ScopeAll      = "all"      // every delivery from the source
-	ScopeMentions = "mentions" // deliveries that mention the resident
+	ScopeMentions = "mentions" // deliveries that mention the crew member
 	ScopeInvolved = "involved" // mentioned, assigned (or delegated), or in a thread it participates in
 )
 
-// Delivery reasons, recorded per resident on the event delivered. A
+// Delivery reasons, recorded per crew member on the event delivered. A
 // delivery through a group's subscription reads "<reason> via <group>".
 const (
 	ReasonAll         = "all"
@@ -85,9 +85,9 @@ func whereKeys(source string) []string {
 	return WhereKeys
 }
 
-// Subscription delivers a source's events to a resident's inbox: hook
+// Subscription delivers a source's events to a crew member's inbox: hook
 // events from a hook source, or bead events from the yardr source. A manual
-// group's subscriptions deliver to each of its members that is a resident.
+// group's subscriptions deliver to each of its members that is a crew member.
 // A user's make the events notifications in the user's inbox (see
 // Notification).
 type Subscription struct {
@@ -109,30 +109,30 @@ func (s Subscription) same(o Subscription) bool {
 	return s.Source == o.Source && s.Scope == o.Scope && maps.Equal(s.Where, o.Where)
 }
 
-// SetIdentity records who the resident is in source; a zero identity
+// SetIdentity records who the crew member is in source; a zero identity
 // removes it.
 func (s *Store) SetIdentity(ctx context.Context, name, source string, id Identity, actor string) error {
 	if source == "" {
 		return fmt.Errorf("identity: source is required")
 	}
-	return s.changeResident(name, func(w *wtx, r *Resident) error {
+	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
 		if id.zero() {
 			if _, ok := r.Identities[source]; !ok {
-				return fmt.Errorf("resident %s has no %s identity: %w", name, source, ErrNotFound)
+				return fmt.Errorf("crew member %s has no %s identity: %w", name, source, ErrNotFound)
 			}
 			delete(r.Identities, source)
-			return w.event(r.Journal, "identity_removed", actor, map[string]any{"resident": name, "source": source})
+			return w.event(r.Journal, "identity_removed", actor, map[string]any{"crew": name, "source": source})
 		}
 		if r.Identities == nil {
 			r.Identities = map[string]Identity{}
 		}
 		r.Identities[source] = id
 		return w.event(r.Journal, "identity_set", actor,
-			map[string]any{"resident": name, "source": source, "id": id.ID, "key": id.Key})
+			map[string]any{"crew": name, "source": source, "id": id.ID, "key": id.Key})
 	})
 }
 
-// AddSubscription subscribes the resident, or else the user, or else the
+// AddSubscription subscribes the crew member, or else the user, or else the
 // manual group, called name; an identical subscription is kept once. Only
 // the user themselves and the operator subscribe a user (maySubscribe), or
 // remove what the user subscribes to. A yardr
@@ -195,7 +195,7 @@ func (s *Store) AddSubscription(ctx context.Context, name string, sub Subscripti
 	})
 }
 
-// RemoveSubscriptions drops the subscriptions of the resident (or manual
+// RemoveSubscriptions drops the subscriptions of the crew member (or manual
 // group) name to source, only those of scope and with exactly where when
 // given, and reports how many.
 func (s *Store) RemoveSubscriptions(ctx context.Context, name, source, scope string, where map[string]string, actor string) (int, error) {
@@ -205,7 +205,7 @@ func (s *Store) RemoveSubscriptions(ctx context.Context, name, source, scope str
 	})
 }
 
-// Unwatch drops the yardr subscriptions of the resident (or manual group)
+// Unwatch drops the yardr subscriptions of the crew member (or manual group)
 // name that are for bead, and reports how many.
 func (s *Store) Unwatch(ctx context.Context, name, bead, actor string) (int, error) {
 	b, err := s.GetBead(ctx, bead)
@@ -238,14 +238,14 @@ func (s *Store) dropSubscriptions(name, source, actor string, match func(Subscri
 	return n, err
 }
 
-// changeSubscriptions replaces the subscriptions of the resident called
+// changeSubscriptions replaces the subscriptions of the crew member called
 // name, or else of the user, or else of the manual group, with what fn
-// returns, and logs fn's event (none when kind is ""): on the resident's
+// returns, and logs fn's event (none when kind is ""): on the crew member's
 // journal, or unattached for a user or a group. A user's are changed by
 // the user and the operator only.
 func (w *wtx) changeSubscriptions(name, actor string, fn func([]Subscription) ([]Subscription, string, map[string]any, error)) error {
-	var r Resident
-	if ok, err := get(w.Tx, bResidents, name, &r); err != nil {
+	var r CrewMember
+	if ok, err := get(w.Tx, bCrew, name, &r); err != nil {
 		return err
 	} else if ok {
 		subs, kind, data, err := fn(r.Subscriptions)
@@ -253,10 +253,10 @@ func (w *wtx) changeSubscriptions(name, actor string, fn func([]Subscription) ([
 			return err
 		}
 		r.Subscriptions = subs
-		if err := put(w.Tx, bResidents, name, r); err != nil {
+		if err := put(w.Tx, bCrew, name, r); err != nil {
 			return err
 		}
-		data["resident"] = name
+		data["crew"] = name
 		return w.event(r.Journal, kind, actor, data)
 	}
 	var u User
@@ -281,7 +281,7 @@ func (w *wtx) changeSubscriptions(name, actor string, fn func([]Subscription) ([
 	if ok, err := get(w.Tx, bGroups, name, &g); err != nil {
 		return err
 	} else if !ok {
-		return fmt.Errorf("no resident, user or group %s: %w", name, ErrNotFound)
+		return fmt.Errorf("no crew member, user or group %s: %w", name, ErrNotFound)
 	}
 	if g.Runner != "manual" {
 		return fmt.Errorf("group %s is %s: only manual groups subscribe, for their members", name, g.Runner)
@@ -298,7 +298,7 @@ func (w *wtx) changeSubscriptions(name, actor string, fn func([]Subscription) ([
 	return w.event("", kind, actor, data)
 }
 
-// boundSub is a subscription as it applies to one resident: its own, or
+// boundSub is a subscription as it applies to one crew member: its own, or
 // one of a manual group it is a member of (via).
 type boundSub struct {
 	Subscription
@@ -313,9 +313,9 @@ func (b boundSub) reason(r string) string {
 	return r + " via " + b.via
 }
 
-// subscribers calls fn for every resident with the subscriptions that
+// subscribers calls fn for every crew member with the subscriptions that
 // apply to it: its own, then those of the groups it is a member of.
-func subscribers(tx *bolt.Tx, fn func(r *Resident, subs []boundSub) error) error {
+func subscribers(tx *bolt.Tx, fn func(r *CrewMember, subs []boundSub) error) error {
 	byMember := map[string][]boundSub{}
 	err := each(tx, bGroups, "", func(_ []byte, g *Group) error {
 		for _, m := range g.Members {
@@ -328,7 +328,7 @@ func subscribers(tx *bolt.Tx, fn func(r *Resident, subs []boundSub) error) error
 	if err != nil {
 		return err
 	}
-	return each(tx, bResidents, "", func(_ []byte, r *Resident) error {
+	return each(tx, bCrew, "", func(_ []byte, r *CrewMember) error {
 		subs := make([]boundSub, 0, len(r.Subscriptions)+len(byMember[r.Name]))
 		for _, sub := range r.Subscriptions {
 			subs = append(subs, boundSub{Subscription: sub})
@@ -346,8 +346,8 @@ func best(a, b string) string {
 	return a
 }
 
-// hookDeliveries decides, at ingest, which residents a hook event reaches
-// and why: resident name -> reason. A resident never hears of its own
+// hookDeliveries decides, at ingest, which crew members a hook event reaches
+// and why: crew member name -> reason. A crew member never hears of its own
 // actions in the source. Without an identity there it is never mentioned
 // or assigned, but it can still participate in threads it follows by hand.
 func hookDeliveries(tx *bolt.Tx, data map[string]any) (map[string]any, error) {
@@ -363,13 +363,13 @@ func hookDeliveries(tx *bolt.Tx, data map[string]any) (map[string]any, error) {
 	thread, _ := data["thread"].(map[string]any)
 	threadID, _ := thread["id"].(string)
 	out := map[string]any{}
-	err := subscribers(tx, func(r *Resident, subs []boundSub) error {
+	err := subscribers(tx, func(r *CrewMember, subs []boundSub) error {
 		id, known := r.Identities[source]
 		if known && id.is(actorID) {
 			return nil
 		}
 		mentioned := known && slices.ContainsFunc(mentions, id.mentionedAs)
-		// An issue delegated to the resident is its to work as much as one
+		// An issue delegated to the crew member is its to work as much as one
 		// assigned to it: in Linear an agent is the delegate, and the
 		// assignee stays the person who handed it over.
 		assigned := known && (id.is(assignee) || id.is(delegate))
@@ -456,10 +456,10 @@ func strs(v any) []string {
 	return nil
 }
 
-// Reason is why a hook or bead event reached the resident through its
+// Reason is why a hook or bead event reached the crew member through its
 // subscriptions ("" if none delivered it).
-func Reason(e Event, resident string) string {
+func Reason(e Event, member string) string {
 	d, _ := e.Data["deliveries"].(map[string]any)
-	reason, _ := d[resident].(string)
+	reason, _ := d[member].(string)
 	return reason
 }

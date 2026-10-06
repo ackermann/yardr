@@ -78,16 +78,16 @@ const (
 // without working it through its flow (a bare yardr bead close).
 const OutcomeRefused = "refused"
 
-// ReleasePeers is the resident setting (a key of its config) naming the
+// ReleasePeers is the crew member setting (a key of its config) naming the
 // peers whose beads it may release when they arrive held: "north,south",
 // or a list. Unset, it may release none: a user does.
 const ReleasePeers = "release"
 
-// MayRelease lists the peers whose held beads the resident may release,
+// MayRelease lists the peers whose held beads the crew member may release,
 // sorted.
-func (r Resident) MayRelease() []string { return r.sources(ReleasePeers) }
+func (r CrewMember) MayRelease() []string { return r.sources(ReleasePeers) }
 
-// peerSettings are the resident settings that name peers: a rename of a
+// peerSettings are the crew member settings that name peers: a rename of a
 // link changes the name in each, and its removal takes it out.
 var peerSettings = []string{MailPeers, ReleasePeers}
 
@@ -271,7 +271,7 @@ type BeadPeer struct {
 	Message   string    `json:"message"`
 	At        time.Time `json:"at"`
 	// Held: it arrived held and waits to be released, by a user or a
-	// resident allowed to (ReleasePeers).
+	// crew member allowed to (ReleasePeers).
 	Held       bool       `json:"held,omitempty"`
 	ReleasedBy string     `json:"released_by,omitempty"`
 	ReleasedAt *time.Time `json:"released_at,omitempty"`
@@ -947,7 +947,7 @@ func (w *wtx) arriveBead(p *Peer, m PeerMessage, a *arrival, way string) error {
 // none.
 //
 // They are written as records, not through addNote: a noted event is
-// matched against what residents and users subscribe to, and a peer's note
+// matched against what crew members and users subscribe to, and a peer's note
 // is not this yard's to be told of line by line. Oldest first, whatever
 // order they came in, so they read as they were written.
 func (w *wtx) peerNotes(row *beadRow, peer string, from []PeerNote) (uint64, error) {
@@ -1073,9 +1073,9 @@ func cutNote(text string) string {
 
 // releasePeerBead is asked before the hold of b is lifted. A bead that
 // arrived held from a peer waits for someone who may start this yard's
-// agents on another yard's text: a user, or a resident the operator named
+// agents on another yard's text: a user, or a crew member the operator named
 // for that peer (ReleasePeers). A bead's agent may not, and neither may any
-// other resident: its session reads what peers send, and one that could
+// other crew member: its session reads what peers send, and one that could
 // release a bead could be talked into it. The release is logged on the
 // bead as peer_bead_released, and holds from then on: a bead held again
 // later, by its own agent say, is anyone's to unhold as any bead is.
@@ -1196,12 +1196,12 @@ func (s *Store) ExpirePeerBeads(ctx context.Context, at time.Time) error {
 }
 
 // mayRelease refuses the release of b, held as it arrived from the peer
-// name, to everyone but a user and a resident allowed that peer. Who asks
+// name, to everyone but a user and a crew member allowed that peer. Who asks
 // is told by the store's own records before the caller's word: a call from
-// the pane of a bead's session or of a resident is that session's or that
-// resident's, whatever actor it names.
+// the pane of a bead's session or of a crew member is that session's or that
+// crew member's, whatever actor it names.
 func (w *wtx) mayRelease(ctx context.Context, exp Expect, b *beadRow, actor, name string, linked bool) error {
-	why := fmt.Sprintf("bead %s arrived held from the yard %s, and its text is that yard's: a user releases it, or a resident the operator allowed to (yardr resident set <resident> %s=%s)",
+	why := fmt.Sprintf("bead %s arrived held from the yard %s, and its text is that yard's: a user releases it, or a crew member the operator allowed to (yardr crew set <crew member> %s=%s)",
 		b.ID, name, ReleasePeers, name)
 	sess, err := w.callerSession(ctx, exp, b)
 	if err != nil {
@@ -1210,13 +1210,13 @@ func (w *wtx) mayRelease(ctx context.Context, exp Expect, b *beadRow, actor, nam
 	if sess != nil && !sess.Manual() {
 		return fmt.Errorf("%s; this is the session %s of a bead's agent", why, sess.ID)
 	}
-	r, err := paneResident(w.Tx, callerOf(ctx))
+	r, err := paneCrew(w.Tx, callerOf(ctx))
 	if err != nil {
 		return err
 	}
 	if r == nil {
-		r = new(Resident)
-		if ok, err := get(w.Tx, bResidents, actor, r); err != nil {
+		r = new(CrewMember)
+		if ok, err := get(w.Tx, bCrew, actor, r); err != nil {
 			return err
 		} else if !ok {
 			r = nil
@@ -1227,7 +1227,7 @@ func (w *wtx) mayRelease(ctx context.Context, exp Expect, b *beadRow, actor, nam
 		if linked && slices.Contains(r.MayRelease(), name) {
 			return nil
 		}
-		return fmt.Errorf("%s; this is the resident %s, which is not", why, r.Name)
+		return fmt.Errorf("%s; this is the crew member %s, which is not", why, r.Name)
 	}
 	operator, err := operatorIn(w.Tx)
 	if err != nil {
@@ -1278,7 +1278,7 @@ func (w *wtx) relabelPeerBeads(p *Peer, name, to, actor string) error {
 }
 
 // renamePeerSettings puts the peer's new name in place of the old in every
-// resident setting that names peers, and returns the residents that had it
+// crew member setting that names peers, and returns the crew that had it
 // in setting. It is the grant they had, for the yard they had it for, so
 // nobody is asked.
 func renamePeerSettings(tx *bolt.Tx, name, to string) (map[string][]string, error) {
@@ -1289,8 +1289,8 @@ func renamePeerSettings(tx *bolt.Tx, name, to string) (map[string][]string, erro
 	})
 }
 
-// dropPeerSettings takes the peer out of every resident setting that names
-// peers, and returns the residents that had it, by setting.
+// dropPeerSettings takes the peer out of every crew member setting that names
+// peers, and returns the crew that had it, by setting.
 func dropPeerSettings(tx *bolt.Tx, name string) (map[string][]string, error) {
 	return changePeerSettings(tx, name, func(may []string) []string {
 		return slices.DeleteFunc(may, func(p string) bool { return p == name })
@@ -1298,8 +1298,8 @@ func dropPeerSettings(tx *bolt.Tx, name string) (map[string][]string, error) {
 }
 
 func changePeerSettings(tx *bolt.Tx, name string, change func([]string) []string) (map[string][]string, error) {
-	var had []Resident
-	err := each(tx, bResidents, "", func(_ []byte, r *Resident) error {
+	var had []CrewMember
+	err := each(tx, bCrew, "", func(_ []byte, r *CrewMember) error {
 		if slices.ContainsFunc(peerSettings, func(k string) bool { return slices.Contains(r.sources(k), name) }) {
 			had = append(had, *r)
 		}
@@ -1323,7 +1323,7 @@ func changePeerSettings(tx *bolt.Tx, name string, change func([]string) []string
 			names[k] = append(names[k], r.Name)
 		}
 		r.Revision = newRevision()
-		err = put(tx, bResidents, r.Name, r)
+		err = put(tx, bCrew, r.Name, r)
 	}
 	return names, err
 }

@@ -510,7 +510,7 @@ func (s *Store) DeletePeer(ctx context.Context, name, actor string) error {
 				return err
 			}
 		}
-		// And no resident may mail it, or release its beads: whoever is
+		// And no crew member may mail it, or release its beads: whoever is
 		// added under the name next is another yard, which the operator
 		// has not allowed anyone.
 		lost, err := dropPeerSettings(w.Tx, name)
@@ -518,7 +518,7 @@ func (s *Store) DeletePeer(ctx context.Context, name, actor string) error {
 			return err
 		}
 		if len(lost[MailPeers]) > 0 {
-			data["residents"] = lost[MailPeers]
+			data["crew"] = lost[MailPeers]
 		}
 		if len(lost[ReleasePeers]) > 0 {
 			data["releasers"] = lost[ReleasePeers]
@@ -623,7 +623,7 @@ func (s *Store) PeerSend(ctx context.Context, name, kind string, body json.RawMe
 	switch kind {
 	case PeerMail:
 		// MailPeer is what checks that the sender may mail the peer.
-		return nil, fmt.Errorf("mail goes to a peer's resident with yardr mail <resident>@%s", name)
+		return nil, fmt.Errorf("mail goes to a peer's crew member with yardr mail <crew member>@%s", name)
 	case PeerBead, PeerBeadReturn:
 		// Either would be a word about a bead from whoever can reach the
 		// socket: the yard says both itself, from its own beads.
@@ -849,7 +849,7 @@ func (s *Store) PeerHandOver(ctx context.Context, name, key string, after uint64
 // alone: those that came with it are taken. What is
 // no message at all fails a post whole, and is passed by in a pull. A ping is
 // answered here, in the same write, with a pong in the outbox for the peer,
-// and mail is put in its resident's inbox, or refused (checkMail). A bead
+// and mail is put in its crew member's inbox, or refused (checkMail). A bead
 // becomes a bead of this yard, or is refused (checkBead); tk is what
 // that needs of its intake's rig (taking) and own this yard's key,
 // which a bead that has been here before names. The return of a bead ends

@@ -17,7 +17,7 @@ import (
 	"yardr.dev/yardr/internal/config"
 )
 
-// The outbound side. yard never speaks for anyone: a resident answers a
+// The outbound side. yard never speaks for anyone: a crew member answers a
 // delivery in its source with its own credential, and the CLI in its pane
 // makes the call. The server is never asked to speak and never holds the
 // credential; it only hands out the hook event that is being answered.
@@ -35,7 +35,7 @@ type Message struct {
 // Replier is what an Adapter whose source can be answered in adds.
 type Replier interface {
 	// Credential is the caller's credential for the source, read from the
-	// calling process's environment (a resident's env_file or env_command sets it).
+	// calling process's environment (a crew member's env_file or env_command sets it).
 	Credential(ctx context.Context) (string, error)
 	// Reply posts body in the thread of the delivery env, under the
 	// conversation of message to ("" for the delivery's own), marked with
@@ -53,7 +53,7 @@ type Replier interface {
 
 // ReplyTimeout bounds one call to a source. It is well past what a source
 // takes on a slow day: at the 30 s it was, a post Linear completed slowly
-// was reported as failed, and the resident posted it again. A call the
+// was reported as failed, and the crew member posted it again. A call the
 // source itself gives up on fails there, within this.
 const ReplyTimeout = 2 * time.Minute
 
@@ -104,7 +104,7 @@ type MissingCredential struct{ Names string }
 func (e *MissingCredential) Error() string { return e.Names + " is not set" }
 
 // CredentialWay is one way a source's credential is given: the names that
-// together set it in a resident's env_file, and what kind of credential
+// together set it in a crew member's env_file, and what kind of credential
 // they make.
 type CredentialWay struct {
 	Kind  string   `json:"kind"`
@@ -118,7 +118,7 @@ var credentialWays = map[string][]CredentialWay{
 }
 
 // CredentialWays are the ways source's credential is given, the one used
-// when several are set first. They are names only: what `yardr resident
+// when several are set first. They are names only: what `yardr crew
 // show` and a pack's plan read of an env_file.
 func CredentialWays(source string) []CredentialWay { return credentialWays[source] }
 
@@ -147,7 +147,7 @@ func CredentialNames(source string) string {
 func envCredential(name string) (string, error) {
 	cred, err := namedCredential(name, os.Getenv)
 	if err != nil {
-		return "", fmt.Errorf("%s is not set in this environment: answering in a source takes your own credential (a resident's env_file or env_command sets it)", name)
+		return "", fmt.Errorf("%s is not set in this environment: answering in a source takes your own credential (a crew member's env_file or env_command sets it)", name)
 	}
 	return cred, nil
 }
@@ -455,28 +455,28 @@ func (Linear) Thread(ctx context.Context, env Envelope, cred string) ([]Message,
 
 // Credential is the GitHub App the environment names (GITHUB_APP_ID and
 // GITHUB_APP_PRIVATE_KEY_FILE), else GITHUB_TOKEN, else, for a person at
-// their own shell, what the gh CLI is logged in with. A resident's session
-// (its pane, which names it in YARDR_RESIDENT) never asks gh: that login is
-// whoever runs the yard, and the resident would answer in their name.
+// their own shell, what the gh CLI is logged in with. A crew member's session
+// (its pane, which names it in YARDR_CREW) never asks gh: that login is
+// whoever runs the yard, and the crew member would answer in their name.
 func (GitHub) Credential(ctx context.Context) (string, error) {
 	cred, err := githubCredential(os.Getenv)
 	if missing := (*MissingCredential)(nil); !errors.As(err, &missing) {
 		return cred, err
 	}
-	if r := config.Getenv("RESIDENT"); r != "" {
-		return "", fmt.Errorf("resident %s has no GitHub credential in this environment, and a resident does not speak with the gh login of whoever runs the yard: put %s and %s (a GitHub App) or %s (a personal token) in its env_file, or have its env_command print them, and restart it",
+	if r := config.Getenv("CREW"); r != "" {
+		return "", fmt.Errorf("crew member %s has no GitHub credential in this environment, and a crew member does not speak with the gh login of whoever runs the yard: put %s and %s (a GitHub App) or %s (a personal token) in its env_file, or have its env_command print them, and restart it",
 			r, githubAppIDName, githubAppKeyName, githubTokenName)
 	}
 	out, err := exec.CommandContext(ctx, "gh", "auth", "token").Output()
 	if tok := strings.TrimSpace(string(out)); err == nil && tok != "" {
 		return tok, nil
 	}
-	return "", fmt.Errorf("neither a GitHub App (%s and %s) nor %s is set in this environment and `gh auth token` gave none: answering in a source takes your own credential (a resident's env_file or env_command sets it)",
+	return "", fmt.Errorf("neither a GitHub App (%s and %s) nor %s is set in this environment and `gh auth token` gave none: answering in a source takes your own credential (a crew member's env_file or env_command sets it)",
 		githubAppIDName, githubAppKeyName, githubTokenName)
 }
 
 // githubHeader is the header of a call made with tok: a personal token, an
-// installation token, or the App's JWT. Calls for a resident are made by
+// installation token, or the App's JWT. Calls for a crew member are made by
 // githubCall, which works the token out of its credential.
 func githubHeader(tok string) http.Header {
 	h := http.Header{}

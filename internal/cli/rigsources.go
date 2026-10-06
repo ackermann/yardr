@@ -29,12 +29,12 @@ const (
 
 // rigSource is one flow, stage file or role of a rig and where it comes
 // from. Nothing here is decided by this view: the store's flow pointers and
-// each group's and resident's prompt decide, and the view reads them the
+// each group's and crew member's prompt decide, and the view reads them the
 // way a brief does.
 type rigSource struct {
 	Kind string `json:"kind"` // flow, stage or role
 	// Name is the flow's place in the rig (default, or type/<type>), the
-	// stage, or the group or resident.
+	// stage, or the group or crew member.
 	Name string `json:"name"`
 	// Flow is the governing flow, of a flow and of each of its stages; Type
 	// the bead type it governs, "" for the rig's own.
@@ -68,7 +68,7 @@ comes from, and which file of the rig's repository it shadows:
          then one per type (type/<type>), as yardr flow show <rig> resolves them
   stage  each non-terminal stage of those flows: its stage file
   role   the prompt of each agent group a route of the rig leads to, and of
-         each resident a pack imported into the rig names
+         each crew member a pack imported into the rig names
 
 The source is one of: rig (` + store.RepoFlowDir + `, .yardr/roles on the base branch, with
 the commit read), pack <name> (the pack's flow in the store, a stage file of
@@ -183,7 +183,7 @@ func rigSources(ctx context.Context, st store.API, rigName, home string) ([]rigS
 		}
 	}
 	b := &sourcer{ctx: ctx, st: st, rig: rig, home: home, packs: packs}
-	for _, step := range []func() error{b.flows, b.groups, b.residents} {
+	for _, step := range []func() error{b.flows, b.groups, b.crew} {
 		if err := step(); err != nil {
 			return nil, err
 		}
@@ -392,13 +392,13 @@ func (b *sourcer) groups() error {
 	return nil
 }
 
-// residents adds a line per resident a pack imported into the rig names. A
-// resident is the yard's, not the rig's: its prompt is a path, read as it
-// is, or from the resident's directory when it is relative.
-func (b *sourcer) residents() error {
+// crew members adds a line per crew member a pack imported into the rig names. A
+// crew member is the yard's, not the rig's: its prompt is a path, read as it
+// is, or from the crew member's directory when it is relative.
+func (b *sourcer) crew() error {
 	var names []string
 	for _, p := range b.packs {
-		for _, name := range p.Residents {
+		for _, name := range p.Crew {
 			if !slices.Contains(names, name) {
 				names = append(names, name)
 			}
@@ -406,7 +406,7 @@ func (b *sourcer) residents() error {
 	}
 	slices.Sort(names)
 	for _, name := range names {
-		r, err := b.st.GetResident(b.ctx, name)
+		r, err := b.st.GetCrew(b.ctx, name)
 		if errors.Is(err, store.ErrNotFound) {
 			continue
 		} else if err != nil {
@@ -457,7 +457,7 @@ func (b *sourcer) role(l *rigSource, src runner.PromptSource) error {
 		l.Source = sourceHome
 		return nil
 	}
-	// A file of the rig's checkout named by its path, as a resident reads
+	// A file of the rig's checkout named by its path, as a crew member reads
 	// the rig's role (yardr rig source): the rig's, at no commit.
 	if rel, err := filepath.Rel(b.rig.Path, src.Path); b.rig.Path != "" && err == nil && strings.HasPrefix(filepath.ToSlash(rel), ".yardr/roles/") {
 		l.Path = rel

@@ -17,7 +17,7 @@ import (
 
 // fakeSources stands in for Linear's GraphQL API and GitHub's REST API as
 // yardr thread open and yardr reply use them: issues are created, found
-// again and commented on. Each takes only its resident's credential. With
+// again and commented on. Each takes only its crew member's credential. With
 // lose set, a create makes its issue and then answers with a 504, as a
 // post whose answer never arrived looks to the caller.
 type fakeSources struct {
@@ -131,18 +131,18 @@ func fakeSourceAPIs(t *testing.T) *fakeSources {
 	return f
 }
 
-// openYard is a store with the operator jo, a resident yardmaster that hears of
+// openYard is a store with the operator jo, a crew member yardmaster that hears of
 // what it is involved in in both sources, and its session: the pane names
 // it, and holds its credentials. allowed is its open_threads setting.
 func openYard(t *testing.T, allowed string) (*app, store.API, *store.Store) {
 	t.Helper()
 	st, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	def := store.Resident{Name: "yardmaster", Runner: "herdr", Config: map[string]any{}}
+	def := store.CrewMember{Name: "yardmaster", Runner: "herdr", Config: map[string]any{}}
 	if allowed != "" {
 		def.Config[store.OpenThreads] = allowed
 	}
-	if _, err := st.PutResident(ctx, def, "jo"); err != nil {
+	if _, err := st.PutCrew(ctx, def, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.SetSetting(ctx, "operator", "jo", "jo"); err != nil {
@@ -155,7 +155,7 @@ func openYard(t *testing.T, allowed string) (*app, store.API, *store.Store) {
 	}
 	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
 	t.Setenv("GITHUB_TOKEN", "gh-yardmaster")
-	t.Setenv("YARDR_RESIDENT", "yardmaster")
+	t.Setenv("YARDR_CREW", "yardmaster")
 	return &app{st: st, actor: "yardmaster"}, st, own
 }
 
@@ -175,7 +175,7 @@ func kinds(t *testing.T, st store.API, kind string) int {
 	return n
 }
 
-// A resident opens a thread as itself in Linear and in GitHub. The thread
+// A crew member opens a thread as itself in Linear and in GitHub. The thread
 // is its own at once: what someone else says there, with no mention,
 // reaches its inbox, and yardr reply answers it in the thread.
 func TestThreadOpen(t *testing.T) {
@@ -320,8 +320,8 @@ func TestThreadOpenRetryDoesNotOpenTwice(t *testing.T) {
 	}
 }
 
-// Off unless the resident's definition allows the source, and then only
-// from the resident's own session or the operator's.
+// Off unless the crew member's definition allows the source, and then only
+// from the crew member's own session or the operator's.
 func TestThreadOpenRefusals(t *testing.T) {
 	f := fakeSourceAPIs(t)
 	a, st, _ := openYard(t, "github")
@@ -340,43 +340,43 @@ func TestThreadOpenRefusals(t *testing.T) {
 			t.Fatalf("%v: the refusal logged %d events", args, now-head)
 		}
 	}
-	refused("resident yardmaster may not open threads in linear", "linear", "--in", "YRD", "Train")
-	refused("yardr resident set yardmaster open_threads=github,linear", "linear", "--in", "YRD", "Train")
+	refused("crew member yardmaster may not open threads in linear", "linear", "--in", "YRD", "Train")
+	refused("yardr crew set yardmaster open_threads=github,linear", "linear", "--in", "YRD", "Train")
 	refused("yardr cannot open threads in token (it can in github, linear)", "token", "--in", "x", "Train")
 	refused("--in is required: the repository to open the thread in", "github", "Train")
 	refused("the title is empty", "github", "--in", "Acme/webapp", "  ")
 	refused("want owner/repo", "github", "--in", "webapp", "Train")
 	head, _ = st.Head(ctx) // the last one was recorded before the source refused it
-	refused("resident ghost", "github", "--in", "Acme/webapp", "Train", "--resident", "ghost")
+	refused("crew member ghost", "github", "--in", "Acme/webapp", "Train", "--crew", "ghost")
 
-	// A bead's agent, or another resident, naming it with --resident.
-	t.Setenv("YARDR_RESIDENT", "")
+	// A bead's agent, or another crew member, naming it with --crew.
+	t.Setenv("YARDR_CREW", "")
 	a.actor = "yard-10-new"
 	refused("only yardmaster's own session or the operator (jo) may speak as yardmaster; this is yard-10-new",
-		"github", "--in", "Acme/webapp", "Train", "--resident", "yardmaster")
-	refused("--resident is required", "github", "--in", "Acme/webapp", "Train")
+		"github", "--in", "Acme/webapp", "Train", "--crew", "yardmaster")
+	refused("--crew is required", "github", "--in", "Acme/webapp", "Train")
 	// Without its credential nothing is posted.
 	a.actor = "yardmaster"
 	t.Setenv("GITHUB_TOKEN", "wrong")
-	if _, err := run(t, a.threadOpenCmd(), "github", "--in", "Acme/webapp", "Train", "--resident", "yardmaster"); err == nil ||
+	if _, err := run(t, a.threadOpenCmd(), "github", "--in", "Acme/webapp", "Train", "--crew", "yardmaster"); err == nil ||
 		!strings.Contains(err.Error(), "401") || len(f.github) != 0 {
 		t.Fatalf("wrong credential: %v, %v", err, f.github)
 	}
 	// The operator may speak as it.
 	t.Setenv("GITHUB_TOKEN", "gh-yardmaster")
 	a.actor = "jo"
-	if _, err := run(t, a.threadOpenCmd(), "github", "--in", "Acme/webapp", "Train", "--resident", "yardmaster"); err != nil || len(f.github) != 1 {
+	if _, err := run(t, a.threadOpenCmd(), "github", "--in", "Acme/webapp", "Train", "--crew", "yardmaster"); err != nil || len(f.github) != 1 {
 		t.Fatalf("the operator: %v, %v", err, f.github)
 	}
 }
 
-// Only the operator lets a resident open threads: a resident's session
+// Only the operator lets a crew member open threads: a crew member's session
 // cannot add a source to its own definition or to another's. Keeping or
 // narrowing what is allowed is anyone's, as the rest of the definition is.
 func TestOpenThreadsIsTheOperatorsToSet(t *testing.T) {
 	a, st, _ := openYard(t, "")
 	ctx := context.Background()
-	if _, err := st.PutResident(ctx, store.Resident{Name: "scout", Runner: "herdr"}, "jo"); err != nil {
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "scout", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	add := func(name string, sets ...string) error {
@@ -385,19 +385,19 @@ func TestOpenThreadsIsTheOperatorsToSet(t *testing.T) {
 		for _, s := range sets {
 			args = append(args, "--set", s)
 		}
-		_, err := run(t, a.residentCmd(), args...)
+		_, err := run(t, a.crewCmd(), args...)
 		return err
 	}
 	may := func(name string) string {
 		t.Helper()
-		r, err := st.GetResident(ctx, name)
+		r, err := st.GetCrew(ctx, name)
 		if err != nil {
 			t.Fatal(err)
 		}
 		return strings.Join(r.MayOpen(), ",")
 	}
 
-	// yardmaster's own session, for itself, for another resident and for one
+	// yardmaster's own session, for itself, for another crew member and for one
 	// that does not exist yet.
 	for _, name := range []string{"yardmaster", "scout", "fresh"} {
 		err := add(name, "kind=claude", "open_threads=linear")
@@ -405,7 +405,7 @@ func TestOpenThreadsIsTheOperatorsToSet(t *testing.T) {
 			t.Fatalf("yardmaster's session allowing %s: %v", name, err)
 		}
 	}
-	if _, err := st.GetResident(ctx, "fresh"); err == nil || may("yardmaster") != "" || may("scout") != "" {
+	if _, err := st.GetCrew(ctx, "fresh"); err == nil || may("yardmaster") != "" || may("scout") != "" {
 		t.Fatalf("a refused definition was saved: yardmaster %q, scout %q", may("yardmaster"), may("scout"))
 	}
 	// A bead's agent is no operator either.
@@ -424,7 +424,7 @@ func TestOpenThreadsIsTheOperatorsToSet(t *testing.T) {
 		}
 	}
 
-	// The resident saves its definition with what it already has, but not
+	// The crew member saves its definition with what it already has, but not
 	// with more; without the setting, it has given it up.
 	a.actor = "yardmaster"
 	if err := add("yardmaster", "kind=claude", "model=opus", "open_threads=linear"); err != nil || may("yardmaster") != "linear" {
@@ -440,12 +440,12 @@ func TestOpenThreadsIsTheOperatorsToSet(t *testing.T) {
 		t.Fatal("taking it back after dropping it")
 	}
 
-	// resident show says what is allowed.
+	// crew show says what is allowed.
 	a.actor = "jo"
 	if err := add("yardmaster", "kind=claude", "open_threads=github,linear"); err != nil {
 		t.Fatal(err)
 	}
-	out, err := run(t, a.residentCmd(), "show", "yardmaster")
+	out, err := run(t, a.crewCmd(), "show", "yardmaster")
 	if err != nil || !strings.Contains(out, "may open threads in github, linear\n") {
 		t.Fatalf("show: %q, %v", out, err)
 	}

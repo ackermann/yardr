@@ -10,12 +10,12 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// timerUserYard is userYard with a second resident and a second user.
+// timerUserYard is userYard with a second crew member and a second user.
 func timerUserYard(t *testing.T) store.API {
 	t.Helper()
 	st := userYard(t)
 	mustAs(t, st, "jo", "user", "add", "ada")
-	if _, err := st.PutResident(context.Background(), store.Resident{Name: "clerk", Runner: "herdr"}, "jo"); err != nil {
+	if _, err := st.PutCrew(context.Background(), store.CrewMember{Name: "clerk", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	return st
@@ -41,9 +41,9 @@ func TestTimerCommands(t *testing.T) {
 		t.Fatalf("add --json = %+v, %v", set, err)
 	}
 
-	refusedAs(t, st, "yardmaster", "nobody sets a timer for another resident: mail it", "timer", "add", "--in", "1h", "--to", "clerk", "x")
+	refusedAs(t, st, "yardmaster", "nobody sets a timer for another crew member: mail it", "timer", "add", "--in", "1h", "--to", "clerk", "x")
 	refusedAs(t, st, "jo", "a user sets timers for themselves", "timer", "add", "--in", "1h", "--to", "ada", "x")
-	refusedAs(t, st, "yard-10-new", "neither a resident nor a user", "timer", "add", "--in", "1h", "x")
+	refusedAs(t, st, "yard-10-new", "neither a crew member nor a user", "timer", "add", "--in", "1h", "x")
 	refusedAs(t, st, "yardmaster", "one of --in <duration>, --at <time> or --every <duration>", "timer", "add", "x")
 	refusedAs(t, st, "yardmaster", "one of --in <duration>, --at <time> or --every <duration>", "timer", "add", "--in", "1h", "--at", "09:00", "x")
 	refusedAs(t, st, "yardmaster", `--in: bad duration "soon"`, "timer", "add", "--in", "soon", "x")
@@ -114,7 +114,7 @@ func TestTimerSettings(t *testing.T) {
 	}
 }
 
-// A fired timer reads as a timer where its receiver reads: a resident's
+// A fired timer reads as a timer where its receiver reads: a crew member's
 // inbox, a user's inbox and the conversation with whoever set it.
 func TestTimerFiringIsRead(t *testing.T) {
 	st := timerUserYard(t)
@@ -124,7 +124,7 @@ func TestTimerFiringIsRead(t *testing.T) {
 	if pass, err := st.FireTimers(ctx, time.Now().Add(10*time.Minute+time.Second)); err != nil || pass.Fired != 2 {
 		t.Fatalf("pass = %+v, %v", pass, err)
 	}
-	if out := mustAs(t, st, "jo", "inbox", "--resident", "yardmaster"); !strings.Contains(out, "  timer: look at the deploy (set ") ||
+	if out := mustAs(t, st, "jo", "inbox", "--crew", "yardmaster"); !strings.Contains(out, "  timer: look at the deploy (set ") ||
 		!strings.Contains(out, " by yardmaster).") || strings.Contains(out, "refinery") {
 		t.Fatalf("the yardmaster's inbox:\n%s", out)
 	}
@@ -141,7 +141,7 @@ func TestTimerFiringIsRead(t *testing.T) {
 	}
 }
 
-// A resident's live timers are in its prime and in resident show, a user's
+// A crew member's live timers are in its prime and in crew show, a user's
 // in user show; the prime says in its "How you work" when a timer is the
 // right tool.
 func TestTimersAreSeen(t *testing.T) {
@@ -150,7 +150,7 @@ func TestTimersAreSeen(t *testing.T) {
 	mustAs(t, st, "yardmaster", "timer", "add", "--every", "1d", "--to", "jo", "the refinery is red")
 	mustAs(t, st, "clerk", "timer", "add", "--in", "1h", "the clerk's own")
 
-	prime := mustAs(t, st, "yardmaster", "prime", "--resident", "yardmaster")
+	prime := mustAs(t, st, "yardmaster", "prime", "--crew", "yardmaster")
 	for _, want := range []string{
 		"## Timers: 2 live (yardr timer list, yardr timer rm <id>)",
 		"(in 40m): look at the deploy",
@@ -170,22 +170,22 @@ func TestTimersAreSeen(t *testing.T) {
 	}
 	// With none, the prime has no section for them.
 	mustAs(t, st, "jo", "user", "add", "pat")
-	if _, err := st.PutResident(context.Background(), store.Resident{Name: "scribe", Runner: "herdr"}, "jo"); err != nil {
+	if _, err := st.PutCrew(context.Background(), store.CrewMember{Name: "scribe", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if out := mustAs(t, st, "jo", "prime", "--resident", "scribe"); strings.Contains(out, "## Timers") {
+	if out := mustAs(t, st, "jo", "prime", "--crew", "scribe"); strings.Contains(out, "## Timers") {
 		t.Fatalf("a prime without timers has their section:\n%s", out)
 	}
 
-	if out := mustAs(t, st, "jo", "resident", "show", "yardmaster"); !strings.Contains(out, "  timer t1 ") ||
+	if out := mustAs(t, st, "jo", "crew", "show", "yardmaster"); !strings.Contains(out, "  timer t1 ") ||
 		!strings.Contains(out, "  timer t2 tells jo ") || strings.Contains(out, "clerk's own") {
-		t.Fatalf("resident show:\n%s", out)
+		t.Fatalf("crew show:\n%s", out)
 	}
 	var shown struct {
 		Timers []store.Timer `json:"timers"`
 	}
-	if err := json.Unmarshal([]byte(mustAs(t, st, "jo", "resident", "show", "yardmaster", "--json")), &shown); err != nil || len(shown.Timers) != 2 {
-		t.Fatalf("resident show --json timers = %+v, %v", shown.Timers, err)
+	if err := json.Unmarshal([]byte(mustAs(t, st, "jo", "crew", "show", "yardmaster", "--json")), &shown); err != nil || len(shown.Timers) != 2 {
+		t.Fatalf("crew show --json timers = %+v, %v", shown.Timers, err)
 	}
 	if out := mustAs(t, st, "jo", "user", "show", "jo"); !strings.Contains(out, "  timer t2 set by yardmaster, tells you ") {
 		t.Fatalf("user show:\n%s", out)

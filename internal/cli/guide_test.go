@@ -569,7 +569,7 @@ func TestSetupTalkToTheYardmaster(t *testing.T) {
 		t.Fatalf("focused %v, chats %v, next %s\n%s", *focused, *chats, todo(t, st), out)
 	}
 
-	if err := st.ResidentStarted(context.Background(), "yardmaster", yardmasterHandle()); err != nil {
+	if err := st.CrewStarted(context.Background(), "yardmaster", yardmasterHandle()); err != nil {
 		t.Fatal(err)
 	}
 	// A live pane at a login prompt has not answered the onboarding prompt:
@@ -621,9 +621,9 @@ func TestSetupWithoutForms(t *testing.T) {
 	setInteractive(t, false)
 	check(setup(t, st))
 	setInteractive(t, true)
-	t.Setenv("YARDR_RESIDENT", "yardmaster")
+	t.Setenv("YARDR_CREW", "yardmaster")
 	check(setup(t, st))
-	t.Setenv("YARDR_RESIDENT", "")
+	t.Setenv("YARDR_CREW", "")
 
 	var rep setupReport
 	if err := json.Unmarshal([]byte(setup(t, st, "--json")), &rep); err != nil {

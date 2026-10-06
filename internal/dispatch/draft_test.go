@@ -29,10 +29,10 @@ func kindCount(t *testing.T, s store.API, bead, kind string) (n int, last store.
 // message. A nudge is not typed into an input that holds text: it stays due,
 // and is typed once, with the inbox as it then is, when the input is empty.
 func TestNudgeWaitsForTextInTheInput(t *testing.T) {
-	s, f, d := residentSetup(t, store.Resident{})
+	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	must(t, d.Reconcile(ctx))
-	before, err := s.GetResident(ctx, "yardmaster")
+	before, err := s.GetCrew(ctx, "yardmaster")
 	must(t, err)
 
 	f.input = "some creative.."
@@ -43,7 +43,7 @@ func TestNudgeWaitsForTextInTheInput(t *testing.T) {
 	if len(f.nudges) != 0 || f.submits != 0 {
 		t.Fatalf("typed into an input that holds text: nudges %v, Enter sent %d times", f.nudges, f.submits)
 	}
-	if r, _ := s.GetResident(ctx, "yardmaster"); r.Notified != before.Notified {
+	if r, _ := s.GetCrew(ctx, "yardmaster"); r.Notified != before.Notified {
 		t.Fatalf("a nudge that was not typed is recorded as said: notified %d -> %d", before.Notified, r.Notified)
 	}
 
@@ -63,12 +63,12 @@ func TestNudgeWaitsForTextInTheInput(t *testing.T) {
 // say nothing about the input: the nudge is typed as it was before yardr
 // looked.
 func TestNudgeIsTypedWhenTheInputCannotBeTold(t *testing.T) {
-	for name, set := range map[string]func(*residentRunner){
-		"no mark":         func(f *residentRunner) { f.noInput = true },
-		"pane unreadable": func(f *residentRunner) { f.blind = true },
+	for name, set := range map[string]func(*crewRunner){
+		"no mark":         func(f *crewRunner) { f.noInput = true },
+		"pane unreadable": func(f *crewRunner) { f.blind = true },
 	} {
 		t.Run(name, func(t *testing.T) {
-			s, f, d := residentSetup(t, store.Resident{})
+			s, f, d := crewSetup(t, store.CrewMember{})
 			ctx := context.Background()
 			must(t, d.Reconcile(ctx))
 			f.input = "whatever the pane ends with"
@@ -84,15 +84,15 @@ func TestNudgeIsTypedWhenTheInputCannotBeTold(t *testing.T) {
 }
 
 // Text that stays is an abandoned draft. It is still not typed after and
-// not cleared; one nudge_held event on the resident's journal says so after
+// not cleared; one nudge_held event on the crew member's journal says so after
 // DraftWait, once per wait, and the nudge is typed when the text is gone.
 func TestTextLeftInTheInputIsSaidOnceAndNeverTypedAfter(t *testing.T) {
-	s, f, d := residentSetup(t, store.Resident{})
+	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	now := time.Now()
 	dispatch.SetClock(d, func() time.Time { return now })
 	must(t, d.Reconcile(ctx))
-	r, err := s.GetResident(ctx, "yardmaster")
+	r, err := s.GetCrew(ctx, "yardmaster")
 	must(t, err)
 
 	f.input = "some creative.."
@@ -108,8 +108,8 @@ func TestTextLeftInTheInputIsSaidOnceAndNeverTypedAfter(t *testing.T) {
 		must(t, d.Reconcile(ctx))
 	}
 	n, ev := kindCount(t, s, r.Journal, "nudge_held")
-	if n != 1 || ev.Data["resident"] != "yardmaster" || ev.Data["reason"] == nil {
-		t.Fatalf("nudge_held logged %d times, want once, naming the resident: %+v", n, ev)
+	if n != 1 || ev.Data["crew"] != "yardmaster" || ev.Data["reason"] == nil {
+		t.Fatalf("nudge_held logged %d times, want once, naming the crew member: %+v", n, ev)
 	}
 	if len(f.nudges) != 0 || f.submits != 0 || f.input != "some creative.." {
 		t.Fatalf("the draft was touched: nudges %v, Enter %d, input %q", f.nudges, f.submits, f.input)
@@ -139,7 +139,7 @@ func TestTextLeftInTheInputIsSaidOnceAndNeverTypedAfter(t *testing.T) {
 // every nudge after it. It gets Enter once, nothing is typed after it, and
 // the next nudge follows when the input is empty.
 func TestNudgeLeftInTheInputIsSubmitted(t *testing.T) {
-	s, f, d := residentSetup(t, store.Resident{})
+	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	must(t, d.Reconcile(ctx))
 	must(t, s.Mail(ctx, "yardmaster", "deploy freeze", "chris"))
@@ -178,7 +178,7 @@ func TestNudgeLeftInTheInputIsSubmitted(t *testing.T) {
 // A later draft that happens to equal yardr's old nudge is still a person's
 // text: only an immediately stranded nudge may be submitted as yardr's own.
 func TestOldNudgeTextIsNotSubmitted(t *testing.T) {
-	s, f, d := residentSetup(t, store.Resident{})
+	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	now := time.Now()
 	dispatch.SetClock(d, func() time.Time { return now })
@@ -204,7 +204,7 @@ func TestOldNudgeTextIsNotSubmitted(t *testing.T) {
 // The request to hand off before a rotation is a nudge too. Held back, it
 // was not asked: the grace for the handoff does not run yet.
 func TestRotationIsNotAskedIntoTextInTheInput(t *testing.T) {
-	s, f, d := residentSetup(t, store.Resident{MaxAge: "1ms", HandoffGrace: "1ms"})
+	s, f, d := crewSetup(t, store.CrewMember{MaxAge: "1ms", HandoffGrace: "1ms"})
 	ctx := context.Background()
 	must(t, d.Reconcile(ctx))
 	f.input = "some creative.."
@@ -213,7 +213,7 @@ func TestRotationIsNotAskedIntoTextInTheInput(t *testing.T) {
 		must(t, d.Reconcile(ctx))
 		time.Sleep(2 * time.Millisecond)
 	}
-	r, err := s.GetResident(ctx, "yardmaster")
+	r, err := s.GetCrew(ctx, "yardmaster")
 	must(t, err)
 	if len(f.nudges) != 0 || r.RotationAskedAt != nil || r.RestartRequested != "" || f.n != 1 {
 		t.Fatalf("rotation asked into a draft: nudges %q, asked %v, restart %q, starts %d",

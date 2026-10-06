@@ -14,7 +14,7 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// threads lists the resident's threads as "source/thread how".
+// threads lists the crew member's threads as "source/thread how".
 func threads(t *testing.T, s store.API, name string) []string {
 	t.Helper()
 	ps, err := s.Threads(context.Background(), name)
@@ -32,9 +32,9 @@ func TestThreadParticipation(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	sub := func(scope string) store.Subscription { return store.Subscription{Source: "linear", Scope: scope} }
-	resident(t, s, "inv", false, sub(store.ScopeInvolved))
-	resident(t, s, "ment", false, sub(store.ScopeMentions))
-	resident(t, s, "all", false, sub(store.ScopeAll))
+	member(t, s, "inv", false, sub(store.ScopeInvolved))
+	member(t, s, "ment", false, sub(store.ScopeMentions))
+	member(t, s, "all", false, sub(store.ScopeAll))
 	jane := hooks.Party{ID: "jane-id", Name: "Jane"}
 	on := func(actor hooks.Party, thread string, mentions ...string) hooks.Envelope {
 		return hooks.Envelope{Source: "linear", Type: "comment", Action: "create", Actor: actor,
@@ -93,8 +93,8 @@ func TestThreadParticipation(t *testing.T) {
 func TestFollowThread(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	// Following needs no identity: it is the resident's own say-so.
-	resident(t, s, "noid-inv", true, store.Subscription{Source: "linear", Scope: store.ScopeInvolved})
+	// Following needs no identity: it is the crew member's own say-so.
+	member(t, s, "noid-inv", true, store.Subscription{Source: "linear", Scope: store.ScopeInvolved})
 	jane := hooks.Party{ID: "jane-id"}
 	comment := hooks.Envelope{Source: "linear", Type: "comment", Actor: jane, Thread: hooks.Thread{ID: "T"}}
 
@@ -123,26 +123,26 @@ func TestFollowThread(t *testing.T) {
 		}
 	}
 	if err := s.FollowThread(ctx, "ghost", "linear", "T", "me"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("unknown resident: %v", err)
+		t.Fatalf("unknown crew member: %v", err)
 	}
 	if _, err := s.Threads(ctx, "ghost"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("unknown resident's threads: %v", err)
+		t.Fatalf("unknown crew member's threads: %v", err)
 	}
 
 	// Redefining keeps participation; deleting forgets it, so a new
-	// resident under the name starts with none.
-	if _, err := s.PutResident(ctx, store.Resident{Name: "noid-inv", Runner: "herdr"}, "me"); err != nil {
+	// crew member under the name starts with none.
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "noid-inv", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if got := threads(t, s, "noid-inv"); len(got) != 1 {
 		t.Fatalf("after redefine: %v", got)
 	}
-	if err := s.DeleteResident(ctx, "noid-inv", "", "me"); err != nil {
+	if err := s.DeleteCrew(ctx, "noid-inv", "", "me"); err != nil {
 		t.Fatal(err)
 	}
-	resident(t, s, "noid-inv", true, store.Subscription{Source: "linear", Scope: store.ScopeInvolved})
+	member(t, s, "noid-inv", true, store.Subscription{Source: "linear", Scope: store.ScopeInvolved})
 	if got := threads(t, s, "noid-inv"); len(got) != 0 {
-		t.Fatalf("recreated resident inherits threads: %v", got)
+		t.Fatalf("recreated crew member inherits threads: %v", got)
 	}
 }
 
@@ -154,7 +154,7 @@ func TestFollowThread(t *testing.T) {
 func TestReplying(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
-	resident(t, s, "inv", false)
+	member(t, s, "inv", false)
 	uuid4 := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 	rp, err := s.Replying(ctx, "inv", 7, "", "hello")
@@ -205,25 +205,25 @@ func TestReplying(t *testing.T) {
 		t.Fatal("no body")
 	}
 	if _, err := s.Replying(ctx, "ghost", 7, "", "hello"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("unknown resident: %v", err)
+		t.Fatalf("unknown crew member: %v", err)
 	}
-	// A resident deleted and made again starts with no replies.
-	if err := s.DeleteResident(ctx, "inv", "", "me"); err != nil {
+	// A crew member deleted and made again starts with no replies.
+	if err := s.DeleteCrew(ctx, "inv", "", "me"); err != nil {
 		t.Fatal(err)
 	}
-	resident(t, s, "inv", false)
+	member(t, s, "inv", false)
 	fresh, err := s.Replying(ctx, "inv", 7, "", "hello")
 	if err != nil || fresh.Key == rp.Key || fresh.Attempts != 1 {
-		t.Fatalf("after recreating the resident: %+v, %v", fresh, err)
+		t.Fatalf("after recreating the crew member: %+v, %v", fresh, err)
 	}
 }
 
-// A reply makes the resident a participant at once, with a replied event
+// A reply makes the crew member a participant at once, with a replied event
 // on its journal; the webhook's echo of the reply changes nothing.
 func TestReplied(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	resident(t, s, "inv", false, store.Subscription{Source: "linear", Scope: store.ScopeInvolved})
+	member(t, s, "inv", false, store.Subscription{Source: "linear", Scope: store.ScopeInvolved})
 	rp := store.Reply{Source: "linear", Thread: "T", Title: "Issue T", ThreadURL: "https://l/T", URL: "https://l/T#c-1"}
 	if err := s.Replied(ctx, "inv", rp, "inv"); err != nil {
 		t.Fatal(err)
@@ -245,7 +245,7 @@ func TestReplied(t *testing.T) {
 			got = &evs[i]
 		}
 	}
-	r, _ := s.GetResident(ctx, "inv")
+	r, _ := s.GetCrew(ctx, "inv")
 	if got == nil || got.Actor != "inv" || got.Bead == nil || *got.Bead != r.Journal ||
 		got.Data["source"] != "linear" || got.Data["thread"] != "T" || got.Data["url"] != "https://l/T#c-1" {
 		t.Fatalf("replied event: %+v", got)
@@ -263,27 +263,27 @@ func TestReplied(t *testing.T) {
 		t.Fatalf("after reply: %v", got)
 	}
 	if err := s.Replied(ctx, "ghost", rp, "ghost"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("unknown resident: %v", err)
+		t.Fatalf("unknown crew member: %v", err)
 	}
 	if err := s.Replied(ctx, "inv", store.Reply{Source: "linear"}, "inv"); err == nil {
 		t.Fatal("replied without a thread")
 	}
 }
 
-// A resident opens threads only in the sources its definition allows.
+// A crew member opens threads only in the sources its definition allows.
 // Opening puts the thread on record with a key before it is opened: the
 // same source, place, title and body gets the same key, anything else its
-// own. Opened makes the thread the resident's at once, so what others say
+// own. Opened makes the thread the crew member's at once, so what others say
 // there reaches an involved subscription with no mention.
 func TestOpening(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	resident(t, s, "inv", false, store.Subscription{Source: "linear", Scope: store.ScopeInvolved})
+	member(t, s, "inv", false, store.Subscription{Source: "linear", Scope: store.ScopeInvolved})
 	head, _ := s.Head(ctx)
 
 	_, err := s.Opening(ctx, "inv", "linear", "YRD", "Web view", "body")
 	if err == nil || !strings.Contains(err.Error(), "may not open threads in linear") ||
-		!strings.Contains(err.Error(), "yardr resident set inv open_threads=linear") {
+		!strings.Contains(err.Error(), "yardr crew set inv open_threads=linear") {
 		t.Fatalf("not allowed: %v", err)
 	}
 	if now, _ := s.Head(ctx); now != head {
@@ -291,14 +291,14 @@ func TestOpening(t *testing.T) {
 	}
 	allow := func(v any) {
 		t.Helper()
-		if _, err := s.PutResident(ctx, store.Resident{Name: "inv", Runner: "herdr", Config: map[string]any{store.OpenThreads: v}}, "me"); err != nil {
+		if _, err := s.PutCrew(ctx, store.CrewMember{Name: "inv", Runner: "herdr", Config: map[string]any{store.OpenThreads: v}}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// Allowed in another source only: still refused, and told what to set.
 	allow("github")
 	if _, err := s.Opening(ctx, "inv", "linear", "YRD", "Web view", "body"); err == nil ||
-		!strings.Contains(err.Error(), "yardr resident set inv open_threads=github,linear") {
+		!strings.Contains(err.Error(), "yardr crew set inv open_threads=github,linear") {
 		t.Fatalf("allowed elsewhere: %v", err)
 	}
 	for _, v := range []any{"linear", " github , linear", []any{"linear", "github"}} {
@@ -370,22 +370,22 @@ func TestOpening(t *testing.T) {
 		t.Fatal("Opened without a key")
 	}
 	if _, err := s.Opening(ctx, "ghost", "linear", "YRD", "t", "b"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("unknown resident: %v", err)
+		t.Fatalf("unknown crew member: %v", err)
 	}
 }
 
-// AllowOpening adds sources to what a resident may open threads in and
+// AllowOpening adds sources to what a crew member may open threads in and
 // takes none away, whatever form the setting has; only what is new is
 // logged, with the pack that asked and who granted it.
 func TestAllowOpeningAddsOnly(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
 	if _, err := s.AllowOpening(ctx, "inv", []string{"linear"}, "starter", "jo"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("a resident the yard lacks: %v", err)
+		t.Fatalf("a crew member the yard lacks: %v", err)
 	}
-	def := store.Resident{Name: "inv", Runner: "herdr", Dir: "/work", On: []string{"held"},
+	def := store.CrewMember{Name: "inv", Runner: "herdr", Dir: "/work", On: []string{"held"},
 		Config: map[string]any{"kind": "claude", store.OpenThreads: []any{"github"}}}
-	if _, err := s.PutResident(ctx, def, "me"); err != nil {
+	if _, err := s.PutCrew(ctx, def, "me"); err != nil {
 		t.Fatal(err)
 	}
 	head, _ := s.Head(ctx)
@@ -393,7 +393,7 @@ func TestAllowOpeningAddsOnly(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(added, []string{"linear"}) {
 		t.Fatalf("added %v, %v", added, err)
 	}
-	r, err := s.GetResident(ctx, "inv")
+	r, err := s.GetCrew(ctx, "inv")
 	if err != nil || !reflect.DeepEqual(r.MayOpen(), []string{"github", "linear"}) {
 		t.Fatalf("may open %v, %v", r.MayOpen(), err)
 	}
@@ -403,7 +403,7 @@ func TestAllowOpeningAddsOnly(t *testing.T) {
 	}
 	evs, _ := s.EventsSince(ctx, head, 0)
 	if len(evs) != 1 || evs[0].Kind != "open_threads_granted" || evs[0].Actor != "jo" || evs[0].Data["pack"] != "starter" ||
-		evs[0].Data["resident"] != "inv" || fmt.Sprint(evs[0].Data["sources"]) != "[linear]" {
+		evs[0].Data["crew"] != "inv" || fmt.Sprint(evs[0].Data["sources"]) != "[linear]" {
 		t.Fatalf("events = %+v", evs)
 	}
 	// Again, and with nothing new: nothing is written.
@@ -414,23 +414,23 @@ func TestAllowOpeningAddsOnly(t *testing.T) {
 	if now, _ := s.Head(ctx); now != head {
 		t.Fatalf("granting nothing new logged %d events", now-head)
 	}
-	if after, _ := s.GetResident(ctx, "inv"); after.Revision != r.Revision {
-		t.Fatal("granting nothing new changed the resident's revision")
+	if after, _ := s.GetCrew(ctx, "inv"); after.Revision != r.Revision {
+		t.Fatal("granting nothing new changed the crew member's revision")
 	}
 	if _, err := s.AllowOpening(ctx, "inv", []string{"a,b"}, "starter", "jo"); err == nil {
 		t.Fatal("a source with a comma was taken")
 	}
 }
 
-// A resident sets the status of a thread only in the sources its definition
+// A crew member sets the status of a thread only in the sources its definition
 // allows, and only in a thread it takes part in. SettingState says so before
 // the source is called and writes nothing; StateSet refuses the same and
-// otherwise logs thread_state on the resident's journal. The delivery its
+// otherwise logs thread_state on the crew member's journal. The delivery its
 // own change causes does not reach it.
 func TestSettingState(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	resident(t, s, "inv", false, store.Subscription{Source: "linear", Scope: store.ScopeInvolved})
+	member(t, s, "inv", false, store.Subscription{Source: "linear", Scope: store.ScopeInvolved})
 	if err := s.FollowThread(ctx, "inv", "linear", "T", "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -438,7 +438,7 @@ func TestSettingState(t *testing.T) {
 		State: "review", Status: "In Progress", Was: "Todo", Instead: "started"}
 	allow := func(v any) {
 		t.Helper()
-		r, err := s.GetResident(ctx, "inv")
+		r, err := s.GetCrew(ctx, "inv")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -446,7 +446,7 @@ func TestSettingState(t *testing.T) {
 		if v != nil {
 			r.Config[store.SetState] = v
 		}
-		if _, err := s.PutResident(ctx, *r, "me"); err != nil {
+		if _, err := s.PutCrew(ctx, *r, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -470,21 +470,21 @@ func TestSettingState(t *testing.T) {
 
 	// Off unless set, and the refusal says what to set.
 	err := refused("linear", "T")
-	if !strings.Contains(err.Error(), "resident inv may not set the status of threads in linear") ||
-		!strings.Contains(err.Error(), "yardr resident set inv set_state=linear") {
+	if !strings.Contains(err.Error(), "crew member inv may not set the status of threads in linear") ||
+		!strings.Contains(err.Error(), "yardr crew set inv set_state=linear") {
 		t.Fatalf("not allowed: %v", err)
 	}
 	// Opening threads is another setting, and another source no help.
-	r, _ := s.GetResident(ctx, "inv")
+	r, _ := s.GetCrew(ctx, "inv")
 	r.Config = map[string]any{store.OpenThreads: "linear", store.SetState: "github"}
-	if _, err := s.PutResident(ctx, *r, "me"); err != nil {
+	if _, err := s.PutCrew(ctx, *r, "me"); err != nil {
 		t.Fatal(err)
 	}
 	head, _ = s.Head(ctx)
-	if err := refused("linear", "T"); !strings.Contains(err.Error(), "yardr resident set inv set_state=github,linear") {
+	if err := refused("linear", "T"); !strings.Contains(err.Error(), "yardr crew set inv set_state=github,linear") {
 		t.Fatalf("allowed elsewhere: %v", err)
 	}
-	if r, _ := s.GetResident(ctx, "inv"); !reflect.DeepEqual(r.MaySetState(), []string{"github"}) || !reflect.DeepEqual(r.MayOpen(), []string{"linear"}) {
+	if r, _ := s.GetCrew(ctx, "inv"); !reflect.DeepEqual(r.MaySetState(), []string{"github"}) || !reflect.DeepEqual(r.MayOpen(), []string{"linear"}) {
 		t.Fatalf("may set %v, may open %v", r.MaySetState(), r.MayOpen())
 	}
 
@@ -499,7 +499,7 @@ func TestSettingState(t *testing.T) {
 	// Allowed in the source, but no part in the thread.
 	for _, thread := range [][]string{{"linear", "U"}, {"github", "T"}} {
 		err := refused(thread...)
-		if want := fmt.Sprintf("resident inv takes no part in %s thread %s", thread[0], thread[1]); !strings.Contains(err.Error(), want) ||
+		if want := fmt.Sprintf("crew member inv takes no part in %s thread %s", thread[0], thread[1]); !strings.Contains(err.Error(), want) ||
 			!strings.Contains(err.Error(), fmt.Sprintf("yardr thread follow inv --source %s %s", thread[0], thread[1])) {
 			t.Fatalf("%v: %v", thread, err)
 		}
@@ -510,10 +510,10 @@ func TestSettingState(t *testing.T) {
 		}
 	}
 	if _, err := s.SettingState(ctx, "ghost", "linear", "T"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("unknown resident: %v", err)
+		t.Fatalf("unknown crew member: %v", err)
 	}
 	if err := s.StateSet(ctx, "ghost", ts, "ghost"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("unknown resident: %v", err)
+		t.Fatalf("unknown crew member: %v", err)
 	}
 	for _, bad := range []store.ThreadState{{Source: "linear", Thread: "T", State: "done"}, {Source: "linear", Thread: "T", Status: "Done"}} {
 		if err := s.StateSet(ctx, "inv", bad, "inv"); err == nil {
@@ -524,13 +524,13 @@ func TestSettingState(t *testing.T) {
 		t.Fatalf("the refusals logged %d events", now-head)
 	}
 
-	// The operator speaks as the resident: the event names both.
+	// The operator speaks as the crew member: the event names both.
 	if err := s.StateSet(ctx, "inv", ts, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	evs, _ := s.EventsSince(ctx, head, 0)
-	inv, _ := s.GetResident(ctx, "inv")
-	want := map[string]any{"resident": "inv", "source": "linear", "thread": "T", "state": "review", "status": "In Progress",
+	inv, _ := s.GetCrew(ctx, "inv")
+	want := map[string]any{"crew": "inv", "source": "linear", "thread": "T", "state": "review", "status": "In Progress",
 		"was": "Todo", "instead": "started", "title": "Web view", "url": "https://linear.app/acme/issue/YRD-1"}
 	if len(evs) != 1 || evs[0].Kind != "thread_state" || evs[0].Actor != "jo" || evs[0].Bead == nil || *evs[0].Bead != inv.Journal || !reflect.DeepEqual(evs[0].Data, want) {
 		t.Fatalf("events = %+v\nwant data %v", evs, want)
@@ -539,7 +539,7 @@ func TestSettingState(t *testing.T) {
 		t.Fatalf("threads %v", got)
 	}
 
-	// Linear tells of the change: the resident is its actor, so it is not
+	// Linear tells of the change: the crew member is its actor, so it is not
 	// told; the same change by someone else reaches it as a participant.
 	change := hooks.Envelope{Source: "linear", Type: "issue", Action: "update", Actor: hooks.Party{ID: "inv-id"},
 		Thread: hooks.Thread{ID: "T"}, Text: "changed stateId", Entity: "T"}

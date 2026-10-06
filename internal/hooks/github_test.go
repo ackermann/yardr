@@ -298,7 +298,7 @@ func TestGitHubMentions(t *testing.T) {
 	}
 }
 
-// A github delivery reaches a resident by its lowercase login: a comment
+// A github delivery reaches a crew member by its lowercase login: a comment
 // mentioning it, a pull request whose description newly mentions it, and,
 // through a where filter on the train, CI on the train's branch. Its own
 // actions and a description that mentioned it before do not.
@@ -306,7 +306,7 @@ func TestGitHubMentionReachesInbox(t *testing.T) {
 	r := newRig(t)
 	r.now = time.Now()
 	ctx := context.Background()
-	if _, err := r.st.PutResident(ctx, store.Resident{Name: "yardmaster"}, "me"); err != nil {
+	if _, err := r.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.st.SetIdentity(ctx, "yardmaster", "github", store.Identity{Key: "yardmaster"}, "me"); err != nil {
@@ -346,14 +346,14 @@ func TestGitHubMentionReachesInbox(t *testing.T) {
 	}
 }
 
-// A comment's edit re-sends it whole: a resident it already mentioned is
+// A comment's edit re-sends it whole: a crew member it already mentioned is
 // not told again, one newly mentioned is, and a deleted comment tells no
 // one and is forgotten.
 func TestGitHubCommentEditDeliversOnlyNewMentions(t *testing.T) {
 	r := newRig(t)
 	ctx := context.Background()
 	for _, name := range []string{"yardmaster", "ops"} {
-		if _, err := r.st.PutResident(ctx, store.Resident{Name: name}, "me"); err != nil {
+		if _, err := r.st.PutCrew(ctx, store.CrewMember{Name: name}, "me"); err != nil {
 			t.Fatal(err)
 		}
 		if err := r.st.SetIdentity(ctx, name, "github", store.Identity{Key: name}, "me"); err != nil {

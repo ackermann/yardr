@@ -30,7 +30,7 @@ func packApp(t *testing.T) *app {
 
 func TestPackCheckPrintsThePlan(t *testing.T) {
 	a := packApp(t)
-	out, err := run(t, a.packCmd(), "check", "../../packs/starter", "--rig", "web", "--resident", "yardmaster=boss")
+	out, err := run(t, a.packCmd(), "check", "../../packs/starter", "--rig", "web", "--crew", "yardmaster=boss")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestPackCheckPrintsThePlan(t *testing.T) {
 		"  create           boss linear involved\n",
 		"an import would ask\n  group.web-builders.kind: which agent runs group web-builders",
 		"flows governing rig web afterwards\n  the rig's beads: starter.default (store); now: none\n",
-		"source linear, for resident boss\n  missing  hook ",
+		"source linear, for crew member boss\n  missing  hook ",
 		"its stage files would be copied to " + filepath.Join(a.cfg.Home, "flows", "starter.<flow>") + "\n",
 		"  create           flows/default/new.md -> " + filepath.Join(a.cfg.Home, "flows", "starter.default", "new.md") + "\n",
 		"25 to create, 0 to change, 0 unchanged, 0 not in the pack\n",
@@ -57,9 +57,9 @@ func TestPackCheckPrintsThePlan(t *testing.T) {
 	if t.Failed() {
 		t.Log(out)
 	}
-	// --resident named it, so the import need not ask who takes yardmaster.
-	if strings.Contains(out, "resident.boss.resident") {
-		t.Errorf("asks who takes yardmaster though --resident said:\n%s", out)
+	// --crew named it, so the import need not ask who takes yardmaster.
+	if strings.Contains(out, "crew.boss.crew") {
+		t.Errorf("asks who takes yardmaster though --crew said:\n%s", out)
 	}
 
 	a.json = true
@@ -130,8 +130,8 @@ func TestPackCheckRefusedPlanFails(t *testing.T) {
 
 // starterFlags are the flags that answer everything the starter pack asks
 // of an empty yard.
-var starterFlags = []string{"--resident", "yardmaster=boss", "--bind", "builders=claude:opus", "--bind", "reviewers=codex",
-	"--bind", "resident:yardmaster=claude", "--members", "backlog=", "--members", "decisions=ann,boss"}
+var starterFlags = []string{"--crew", "yardmaster=boss", "--bind", "builders=claude:opus", "--bind", "reviewers=codex",
+	"--bind", "crew:yardmaster=claude", "--members", "backlog=", "--members", "decisions=ann,boss"}
 
 // Without a terminal pack apply asks nothing: a missing answer is an error
 // naming the flag that gives it, never a default, and nothing is changed.
@@ -150,14 +150,14 @@ func TestPackApplyWithoutATerminalNeedsEveryAnswer(t *testing.T) {
 	}
 
 	_, err := run(t, a.packCmd(), "apply", "../../packs/starter", "--rig", "web", "--yes")
-	if err == nil || !strings.Contains(err.Error(), "cannot ask without a terminal") || !strings.Contains(err.Error(), "--resident yardmaster=<resident>") {
-		t.Fatalf("err = %v, want the --resident flag named", err)
+	if err == nil || !strings.Contains(err.Error(), "cannot ask without a terminal") || !strings.Contains(err.Error(), "--crew yardmaster=<crew member>") {
+		t.Fatalf("err = %v, want the --crew flag named", err)
 	}
 	unchanged()
 
-	_, err = run(t, a.packCmd(), "apply", "../../packs/starter", "--rig", "web", "--yes", "--resident", "yardmaster=boss", "--bind", "builders=claude")
+	_, err = run(t, a.packCmd(), "apply", "../../packs/starter", "--rig", "web", "--yes", "--crew", "yardmaster=boss", "--bind", "builders=claude")
 	for _, want := range []string{"cannot ask without a terminal", "--bind reviewers=<kind>[:<model>] for the new group web-reviewers",
-		"--members backlog=<a,b> for the new group backlog", "--bind resident:yardmaster=<kind>[:<model>] for the new resident boss"} {
+		"--members backlog=<a,b> for the new group backlog", "--bind crew:yardmaster=<kind>[:<model>] for the new crew member boss"} {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("err lacks %q:\n%v", want, err)
 		}
@@ -173,7 +173,7 @@ func TestPackApplyWithoutATerminalNeedsEveryAnswer(t *testing.T) {
 	}
 	unchanged()
 
-	_, err = run(t, a.packCmd(), "apply", "../../packs/starter", "--rig", "web", "--yes", "--resident", "yardmaster=boss", "--bind", "coders=claude")
+	_, err = run(t, a.packCmd(), "apply", "../../packs/starter", "--rig", "web", "--yes", "--crew", "yardmaster=boss", "--bind", "coders=claude")
 	if err == nil || !strings.Contains(err.Error(), "the pack has no group coders") {
 		t.Fatalf("--bind for a group the pack lacks: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestPackApplyWithFlags(t *testing.T) {
 	if g, _ := a.st.GetGroup(ctx, "decisions"); g == nil || strings.Join(g.Members, ",") != "ann,boss" {
 		t.Fatalf("decisions = %+v", g)
 	}
-	boss, err := a.st.GetResident(ctx, "boss")
+	boss, err := a.st.GetCrew(ctx, "boss")
 	if err != nil || boss.Config["kind"] != "claude" || boss.Dir != a.cfg.Home || fmt.Sprint(boss.Config["args"]) != "[--permission-mode auto]" {
 		t.Fatalf("boss = %+v, %v", boss, err)
 	}
@@ -240,7 +240,7 @@ func TestPackApplyWithFlags(t *testing.T) {
 	if evs, _ := a.st.EventsSince(ctx, head, 0); len(evs) != 1 || evs[0].Kind != "pack_unchanged" || evs[0].Actor != "me" {
 		t.Fatalf("the second apply logged %+v", evs)
 	}
-	// And with no flags at all: the record names the resident, and nothing
+	// And with no flags at all: the record names the crew member, and nothing
 	// is left to ask or to confirm.
 	if out, err = run(t, a.packCmd(), "apply", "../../packs/starter", "--rig", "web"); err != nil || !strings.Contains(out, "nothing changed") {
 		t.Fatalf("apply without flags over an applied pack: %v\n%s", err, out)
@@ -251,7 +251,7 @@ func TestPackApplyWithFlags(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"starter in rig web  ", " by me\n", "  source     ", "  flow       default (stored as starter.default)\n",
-		"builders -> web-builders", "  residents  yardmaster -> boss\n", "  objects    9 files, 5 groups, 1 flows, 1 flow pointers, 5 routes, 3 subscriptions\n"} {
+		"builders -> web-builders", "  crew       yardmaster -> boss\n", "  objects    9 files, 5 groups, 1 flows, 1 flow pointers, 5 routes, 3 subscriptions\n"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("pack list lacks %q:\n%s", want, out)
 		}
@@ -268,12 +268,12 @@ func TestPackApplyWithFlags(t *testing.T) {
 	}
 	out, err = run(t, a.packCmd(), "list")
 	var recs []store.PackImport
-	if err != nil || json.Unmarshal([]byte(out), &recs) != nil || len(recs) != 1 || recs[0].Residents["yardmaster"] != "boss" {
+	if err != nil || json.Unmarshal([]byte(out), &recs) != nil || len(recs) != 1 || recs[0].Crew["yardmaster"] != "boss" {
 		t.Fatalf("json list: %v\n%s", err, out)
 	}
 }
 
-// In a terminal pack apply asks: who takes the pack's resident, the members
+// In a terminal pack apply asks: who takes the pack's crew member, the members
 // of a new people group, and whether to apply. A form that is left at the
 // confirmation has changed nothing.
 func TestPackApplyAsksInATerminal(t *testing.T) {
@@ -291,7 +291,7 @@ func TestPackApplyAsksInATerminal(t *testing.T) {
 		}
 		return nil
 	})
-	args := []string{"apply", "../../packs/starter", "--rig", "web", "--bind", "builders=claude", "--bind", "reviewers=claude", "--bind", "resident:yardmaster=claude"}
+	args := []string{"apply", "../../packs/starter", "--rig", "web", "--bind", "builders=claude", "--bind", "reviewers=claude", "--bind", "crew:yardmaster=claude"}
 	out, err := run(t, a.packCmd(), args...)
 	if !errors.Is(err, errDeclined) {
 		t.Fatalf("err = %v\n%s", err, out)
@@ -299,7 +299,7 @@ func TestPackApplyAsksInATerminal(t *testing.T) {
 	if groups, _ := a.st.Groups(ctx); len(groups) != 0 {
 		t.Fatalf("groups after leaving the form: %v", groups)
 	}
-	// A select for the resident, one for the permissions of each new agent
+	// A select for the crew member, one for the permissions of each new agent
 	// --bind named without a preset, an input per people group, the confirm.
 	if len(asked) != 7 {
 		t.Fatalf("asked %v", asked)
@@ -309,9 +309,9 @@ func TestPackApplyAsksInATerminal(t *testing.T) {
 	if out, err = run(t, a.packCmd(), args...); err != nil || !strings.Contains(out, "applied pack starter to rig web: 25 created") {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	// The select's default is a new resident under the pack's name, and
+	// The select's default is a new crew member under the pack's name, and
 	// the permissions' is the kind's unattended arguments.
-	yardmaster, err := a.st.GetResident(ctx, "yardmaster")
+	yardmaster, err := a.st.GetCrew(ctx, "yardmaster")
 	if err != nil || fmt.Sprint(yardmaster.Config["args"]) != "[--permission-mode auto]" {
 		t.Fatalf("yardmaster = %+v, %v", yardmaster, err)
 	}
@@ -348,8 +348,8 @@ func TestPackApplyAsksPermissionsInATerminal(t *testing.T) {
 		}
 		return nil
 	})
-	args := []string{"apply", "../../packs/starter", "--rig", "web", "--resident", "yardmaster=boss", "--bind", "builders=claude",
-		"--bind", "reviewers=codex,approve-for-me", "--bind", "resident:yardmaster=claude,none", "--members", "backlog=", "--members", "decisions="}
+	args := []string{"apply", "../../packs/starter", "--rig", "web", "--crew", "yardmaster=boss", "--bind", "builders=claude",
+		"--bind", "reviewers=codex,approve-for-me", "--bind", "crew:yardmaster=claude,none", "--members", "backlog=", "--members", "decisions="}
 	out, err := run(t, a.packCmd(), args...)
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
@@ -383,14 +383,14 @@ func TestPackApplyPresets(t *testing.T) {
 		t.Fatal(err)
 	}
 	apply := func(binds ...string) (string, error) {
-		args := []string{"apply", "../../packs/starter", "--rig", "web", "--yes", "--resident", "yardmaster=boss", "--members", "backlog=", "--members", "decisions="}
+		args := []string{"apply", "../../packs/starter", "--rig", "web", "--yes", "--crew", "yardmaster=boss", "--members", "backlog=", "--members", "decisions="}
 		for _, b := range binds {
 			args = append(args, "--bind", b)
 		}
 		return run(t, a.packCmd(), args...)
 	}
 
-	_, err := apply("builders=claude:opus,yolo", "resident:yardmaster=pi")
+	_, err := apply("builders=claude:opus,yolo", "crew:yardmaster=pi")
 	if err == nil || !strings.Contains(err.Error(), `claude has no permission preset "yolo" (it has: auto, accept-edits, bypass, none)`) {
 		t.Fatalf("an unknown preset: %v", err)
 	}
@@ -398,14 +398,14 @@ func TestPackApplyPresets(t *testing.T) {
 		t.Fatalf("an unknown preset still made the group: %v", err)
 	}
 
-	out, err := apply("builders=claude:opus,Accept Edits", "reviewers=codex,bypass", "resident:yardmaster=pi")
+	out, err := apply("builders=claude:opus,Accept Edits", "reviewers=codex,bypass", "crew:yardmaster=pi")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	for _, want := range []string{
 		"  create           web-builders\n                     agent: claude\n                     model: opus\n                     arguments: --permission-mode acceptEdits\n",
 		"                     arguments: none; its agent stops at every permission prompt\n",
-		"resident boss is new and has no agent arguments: an unattended agent stops at every permission prompt",
+		"crew member boss is new and has no agent arguments: an unattended agent stops at every permission prompt",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
@@ -420,13 +420,13 @@ func TestPackApplyPresets(t *testing.T) {
 	if g, _ := a.st.GetGroup(ctx, "web-reviewers"); g == nil || g.Config["kind"] != "claude" || fmt.Sprint(g.Config["args"]) != "[--mine]" {
 		t.Fatalf("web-reviewers, which the yard had, = %+v", g)
 	}
-	if r, _ := a.st.GetResident(ctx, "boss"); r == nil || r.Config["kind"] != "pi" || r.Config["args"] != nil {
+	if r, _ := a.st.GetCrew(ctx, "boss"); r == nil || r.Config["kind"] != "pi" || r.Config["args"] != nil {
 		t.Fatalf("boss = %+v", r)
 	}
 
 	// Again, with other presets: the groups are the yard's now and stay.
 	head, _ := a.st.Head(ctx)
-	out, err = apply("builders=claude,bypass", "reviewers=codex,bypass", "resident:yardmaster=claude")
+	out, err = apply("builders=claude,bypass", "reviewers=codex,bypass", "crew:yardmaster=claude")
 	if err != nil || !strings.Contains(out, "nothing changed") {
 		t.Fatalf("second apply: %v\n%s", err, out)
 	}
@@ -439,8 +439,8 @@ func TestPackApplyPresets(t *testing.T) {
 
 	// none is honoured too, and warned about.
 	b := packApp(t)
-	out, err = run(t, b.packCmd(), "apply", "../../packs/starter", "--rig", "web", "--yes", "--resident", "yardmaster=boss", "--members", "backlog=", "--members", "decisions=",
-		"--bind", "builders=claude,none", "--bind", "reviewers=codex", "--bind", "resident:yardmaster=claude")
+	out, err = run(t, b.packCmd(), "apply", "../../packs/starter", "--rig", "web", "--yes", "--crew", "yardmaster=boss", "--members", "backlog=", "--members", "decisions=",
+		"--bind", "builders=claude,none", "--bind", "reviewers=codex", "--bind", "crew:yardmaster=claude")
 	if err != nil || !strings.Contains(out, "group web-builders is new and has no agent arguments") || strings.Contains(out, "group web-reviewers is new and has no") {
 		t.Fatalf("none: %v\n%s", err, out)
 	}
@@ -511,7 +511,7 @@ func TestPackApplyPrune(t *testing.T) {
 	if err != nil || !strings.Contains(out, "  pruned  subscription "+sub+"\n") {
 		t.Fatalf("prune: %v\n%s", err, out)
 	}
-	boss, _ := a.st.GetResident(context.Background(), "boss")
+	boss, _ := a.st.GetCrew(context.Background(), "boss")
 	if len(boss.Subscriptions) != 2 {
 		t.Fatalf("boss subscriptions = %v", boss.Subscriptions)
 	}

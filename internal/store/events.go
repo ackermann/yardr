@@ -124,7 +124,7 @@ var DispatchKinds = []string{
 	"runtime_down", "runtime_up",
 	"workspace_kept", "workspace_removed",
 	"gave_up", "backoff", "unrouted", "no_runner", "bad_rig", "bad_flow", "stranded",
-	"resident_blocked", "nudge_held", "human_notified",
+	"crew_blocked", "nudge_held", "human_notified",
 	"train_branched", "bad_train", "car_without_train", "github_rule",
 }
 

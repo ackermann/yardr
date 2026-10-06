@@ -37,7 +37,7 @@ merged terminal
 `
 )
 
-// issueYard is a yard with a stand-in for Linear and GitHub, resident
+// issueYard is a yard with a stand-in for Linear and GitHub, crew member
 // yardmaster whose env_file holds the credentials the stand-in takes, and a
 // hook per source that maps as the yardmaster.
 type issueYard struct {
@@ -106,11 +106,11 @@ func (y *issueYard) daemon() *dispatch.Dispatcher {
 // yardmaster defines the yardmaster with set_state for sources ("": none).
 func (y *issueYard) yardmaster(t *testing.T, sources string) {
 	t.Helper()
-	def := store.Resident{Name: "yardmaster", Runner: "fake", Config: map[string]any{"env_file": y.env}}
+	def := store.CrewMember{Name: "yardmaster", Runner: "fake", Config: map[string]any{"env_file": y.env}}
 	if sources != "" {
 		def.Config[store.SetState] = sources
 	}
-	_, err := y.api.PutResident(context.Background(), def, "me")
+	_, err := y.api.PutCrew(context.Background(), def, "me")
 	must(t, err)
 }
 
@@ -214,7 +214,7 @@ func TestIssueFollowsItsBead(t *testing.T) {
 		}
 	}
 	// The hook is the cause; the thread's id and title are the source's.
-	if state.Actor != "hook:linear" || state.Data["hook"] != "linear" || state.Data["resident"] != "yardmaster" || state.Data["stage"] != "review" ||
+	if state.Actor != "hook:linear" || state.Data["hook"] != "linear" || state.Data["crew"] != "yardmaster" || state.Data["stage"] != "review" ||
 		state.Data["source"] != "linear" || state.Data["url"] != issueA || state.Data["thread"] != "uuid-1" || state.Data["title"] != "Web view" ||
 		fmt.Sprint(state.Data["cause"]) != fmt.Sprint(adv.Seq) || state.Seq < adv.Seq {
 		t.Fatalf("thread_state %+v for advanced %+v", state, adv)
@@ -237,7 +237,7 @@ func TestIssueOnlyMovesForward(t *testing.T) {
 	want(t, "the issue of a bead sent back", y.src.Status("linear", "YRD-1"), "In Review")
 	e := y.skipped(t, "yard-a")
 	if e.Actor != "hook:linear" || e.Data["reason"] != store.SkipPast || e.Data["status"] != "In Review" || e.Data["state"] != "started" ||
-		e.Data["stage"] != "new" || e.Data["resident"] != "yardmaster" || e.Data["detail"] != "the issue is In Review, which is at or past started" {
+		e.Data["stage"] != "new" || e.Data["crew"] != "yardmaster" || e.Data["detail"] != "the issue is In Review, which is at or past started" {
 		t.Fatalf("skipped %+v", e)
 	}
 	// Review again: it is there.
@@ -271,8 +271,8 @@ func TestIssueNeedsSetState(t *testing.T) {
 	want(t, "the issue", y.src.Status("linear", "YRD-1"), "Todo")
 	e := y.skipped(t, "yard-a")
 	detail, _ := e.Data["detail"].(string)
-	if e.Data["reason"] != store.SkipNoGrant || !strings.Contains(detail, "resident yardmaster may not set the status of threads in linear") ||
-		!strings.Contains(detail, "yardr resident set yardmaster set_state=github,linear") {
+	if e.Data["reason"] != store.SkipNoGrant || !strings.Contains(detail, "crew member yardmaster may not set the status of threads in linear") ||
+		!strings.Contains(detail, "yardr crew set yardmaster set_state=github,linear") {
 		t.Fatalf("skipped %+v", e)
 	}
 	want(t, "moves left", len(y.pending(t)), 0)
@@ -376,7 +376,7 @@ func TestIssueMoveRefusedForGood(t *testing.T) {
 	want(t, "moves left", len(y.pending(t)), 0)
 }
 
-// A hook that acts as a resident whose env_file names a GitHub App moves
+// A hook that acts as a crew member whose env_file names a GitHub App moves
 // the issue as the App: the daemon signs as it, asks for the installation
 // of the issue's repository and closes the issue with that installation's
 // token, which the next move in the repository uses again. Where the App
@@ -453,12 +453,12 @@ func TestIssueMoveAsAGitHubApp(t *testing.T) {
 	}
 }
 
-// The credential is the resident's own, from its env_file, and nothing
+// The credential is the crew member's own, from its env_file, and nothing
 // else: without it the move waits, with nothing sent, and is made once the
 // file has it.
-func TestIssueMoveUsesTheResidentsCredential(t *testing.T) {
+func TestIssueMoveUsesTheCrewCredential(t *testing.T) {
 	y := newIssueYard(t)
-	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster") // the daemon's own environment is not the resident's
+	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster") // the daemon's own environment is not the crew member's
 	must(t, os.WriteFile(y.env, []byte("GITHUB_TOKEN=gh-yardmaster\n"), 0o600))
 	y.bead(t, "yard-a", issueA)
 	y.to(t, "yard-a", "new")
@@ -481,11 +481,11 @@ func TestIssueMoveUsesTheResidentsCredential(t *testing.T) {
 	want(t, "the issue", y.src.Status("linear", "YRD-1"), "In Progress")
 
 	// No env_file at all.
-	_, err := y.api.PutResident(context.Background(), store.Resident{Name: "yardmaster", Runner: "fake",
+	_, err := y.api.PutCrew(context.Background(), store.CrewMember{Name: "yardmaster", Runner: "fake",
 		Config: map[string]any{store.SetState: "linear"}}, "me")
 	must(t, err)
 	y.to(t, "yard-a", "review")
-	if ms = y.pending(t); len(ms) != 1 || !strings.Contains(ms[0].Error, "resident yardmaster has no env_file") {
+	if ms = y.pending(t); len(ms) != 1 || !strings.Contains(ms[0].Error, "crew member yardmaster has no env_file") {
 		t.Fatalf("moves %+v", ms)
 	}
 	// The hook removed: what it had still to do is not done.
@@ -515,12 +515,12 @@ func TestIssuesOfTwoSources(t *testing.T) {
 		"review: In Review (was In Progress)", "done: closed (was open)", "done: Done (was In Review)"})
 }
 
-// A resident whose credential comes from a provider (env_command) has its
+// A crew member whose credential comes from a provider (env_command) has its
 // issue moved with what the provider prints, asked again for each move; with
 // an env_file too, the provider's value wins. A provider that fails makes
 // the move wait with nothing sent, saying which command and how it ended,
 // and what it printed is in no event or log.
-func TestIssueMoveUsesTheResidentsEnvCommand(t *testing.T) {
+func TestIssueMoveUsesTheCrewEnvCommand(t *testing.T) {
 	y := newIssueYard(t)
 	var logged bytes.Buffer
 	y.d.Log = slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelDebug}))
@@ -528,12 +528,12 @@ func TestIssueMoveUsesTheResidentsEnvCommand(t *testing.T) {
 	cmd, runs := filepath.Join(dir, "provider"), filepath.Join(dir, "runs")
 	provider := func(body string) {
 		t.Helper()
-		must(t, os.WriteFile(cmd, []byte("#!/bin/sh\necho \"$YARDR_RESIDENT in $YARDR_HOME\" >> "+runs+"\n"+body+"\n"), 0o700))
+		must(t, os.WriteFile(cmd, []byte("#!/bin/sh\necho \"$YARDR_CREW in $YARDR_HOME\" >> "+runs+"\n"+body+"\n"), 0o700))
 	}
 	yardmaster := func(cfg map[string]any) {
 		t.Helper()
 		cfg[store.SetState] = "linear,github"
-		_, err := y.api.PutResident(context.Background(), store.Resident{Name: "yardmaster", Runner: "fake", Config: cfg}, "me")
+		_, err := y.api.PutCrew(context.Background(), store.CrewMember{Name: "yardmaster", Runner: "fake", Config: cfg}, "me")
 		must(t, err)
 	}
 	y.d.Home = dir
@@ -549,7 +549,7 @@ func TestIssueMoveUsesTheResidentsEnvCommand(t *testing.T) {
 	want(t, "the provider's runs", string(raw), "yardmaster in "+dir+"\n")
 
 	// With an env_file whose key the source refuses: the provider's wins,
-	// and the file's other key is still the resident's.
+	// and the file's other key is still the crew member's.
 	must(t, os.WriteFile(y.env, []byte("LINEAR_API_KEY=lin_api_other\nGITHUB_TOKEN=gh-yardmaster\n"), 0o600))
 	yardmaster(map[string]any{"env_file": y.env, "env_command": cmd})
 	y.to(t, "yard-a", "review")
@@ -576,7 +576,7 @@ func TestIssueMoveUsesTheResidentsEnvCommand(t *testing.T) {
 	yardmaster(map[string]any{"env_command": cmd})
 	y.now = y.now.Add(time.Minute)
 	y.pass(t)
-	if ms = y.pending(t); len(ms) != 1 || !strings.Contains(ms[0].Error, "resident yardmaster's env_command "+cmd+" does not set LINEAR_API_KEY") {
+	if ms = y.pending(t); len(ms) != 1 || !strings.Contains(ms[0].Error, "crew member yardmaster's env_command "+cmd+" does not set LINEAR_API_KEY") {
 		t.Fatalf("moves %+v", ms)
 	}
 	// It answers again: the move is made.

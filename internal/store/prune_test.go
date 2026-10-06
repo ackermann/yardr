@@ -24,12 +24,12 @@ func head(t *testing.T, s store.API) uint64 {
 	return h
 }
 
-// The inbox reads the resident's own index entries, not the log: with
+// The inbox reads the crew member's own index entries, not the log: with
 // 100k events of which 10 are for it, it decodes those 10.
-func TestInboxReadsOnlyTheResidentsEntries(t *testing.T) {
+func TestInboxReadsOnlyTheCrewEntries(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr", On: []string{"gave_up"}}, "me"); err != nil {
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", On: []string{"gave_up"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 10; i++ {
@@ -45,7 +45,7 @@ func TestInboxReadsOnlyTheResidentsEntries(t *testing.T) {
 		}
 	}
 	// Mail to someone else and the yardmaster's own actions stay out.
-	if _, err := s.PutResident(ctx, store.Resident{Name: "other", Runner: "herdr"}, "me"); err != nil {
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "other", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Mail(ctx, "other", "not yours", "me"); err != nil {
@@ -75,7 +75,7 @@ func TestInboxIndexBuiltForOldStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Mail(ctx, "yardmaster", "kept across the upgrade", "me"); err != nil {
@@ -189,15 +189,15 @@ func TestPruneRemovesOldEventsButTheHead(t *testing.T) {
 	}
 }
 
-// An event a running resident has not read stays, however old, and so does
-// all after it; a resident with nothing unread holds nothing back.
-func TestPruneKeepsWhatAResidentHasNotRead(t *testing.T) {
+// An event a running crew member has not read stays, however old, and so does
+// all after it; a crew member with nothing unread holds nothing back.
+func TestPruneKeepsWhatACrewHasNotRead(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ResidentStarted(ctx, "yardmaster", map[string]any{"agent": "a1"}); err != nil {
+	if err := s.CrewStarted(ctx, "yardmaster", map[string]any{"agent": "a1"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := own.BulkEvents(100, "noise", nil); err != nil {
@@ -220,7 +220,7 @@ func TestPruneKeepsWhatAResidentHasNotRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Events != int(mail-1) || !strings.Contains(res.HeldBy, "resident yardmaster") {
+	if res.Events != int(mail-1) || !strings.Contains(res.HeldBy, "crew member yardmaster") {
 		t.Fatalf("pruned %+v, want %d events held by the yardmaster", res, mail-1)
 	}
 	page, err := s.Inbox(ctx, "yardmaster", 0)
@@ -236,11 +236,11 @@ func TestPruneKeepsWhatAResidentHasNotRead(t *testing.T) {
 	}
 }
 
-// journalEvents returns the events of kind on the resident's journal.
-func journalEvents(t *testing.T, s store.API, resident, kind string) []store.Event {
+// journalEvents returns the events of kind on the crew member's journal.
+func journalEvents(t *testing.T, s store.API, member, kind string) []store.Event {
 	t.Helper()
 	ctx := context.Background()
-	r, err := s.GetResident(ctx, resident)
+	r, err := s.GetCrew(ctx, member)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,17 +257,17 @@ func journalEvents(t *testing.T, s store.API, resident, kind string) []store.Eve
 	return out
 }
 
-// A resident that is not running (here: disabled) holds nothing back,
+// A crew member that is not running (here: disabled) holds nothing back,
 // however much it has not read: its unread mail past retention goes, and
 // its journal is told how much.
-func TestPruneIgnoresAStoppedResidentsInbox(t *testing.T) {
+func TestPruneIgnoresAStoppedCrewInbox(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	r, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me")
+	r, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetResidentEnabled(ctx, "yardmaster", false, r.Revision, "me"); err != nil {
+	if err := s.SetCrewEnabled(ctx, "yardmaster", false, r.Revision, "me"); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 3; i++ {
@@ -293,7 +293,7 @@ func TestPruneIgnoresAStoppedResidentsInbox(t *testing.T) {
 		t.Fatalf("inbox after prune = %+v %v, want empty", page, err)
 	}
 	evs := journalEvents(t, s, "yardmaster", "inbox_expired")
-	if len(evs) != 1 || evs[0].Data["events"] != float64(3) || evs[0].Data["resident"] != "yardmaster" {
+	if len(evs) != 1 || evs[0].Data["events"] != float64(3) || evs[0].Data["crew"] != "yardmaster" {
 		t.Fatalf("inbox_expired on the journal = %+v, want one for 3 events", evs)
 	}
 	// Nothing more to say once it is gone.
@@ -305,15 +305,15 @@ func TestPruneIgnoresAStoppedResidentsInbox(t *testing.T) {
 	}
 }
 
-// Even for a running resident, unread mail older than the inbox retention
+// Even for a running crew member, unread mail older than the inbox retention
 // no longer holds the log back; younger unread mail still does.
 func TestPruneDropsUnreadPastTheInboxRetention(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ResidentStarted(ctx, "yardmaster", map[string]any{"agent": "a1"}); err != nil {
+	if err := s.CrewStarted(ctx, "yardmaster", map[string]any{"agent": "a1"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Mail(ctx, "yardmaster", "forgotten", "me"); err != nil {
@@ -338,7 +338,7 @@ func TestPruneDropsUnreadPastTheInboxRetention(t *testing.T) {
 	}
 	// With no bound the oldest unread mail pins everything from it on.
 	res, err := s.Prune(ctx, keep90, "me")
-	if err != nil || res.Events >= int(old) || !strings.Contains(res.HeldBy, "resident yardmaster") {
+	if err != nil || res.Events >= int(old) || !strings.Contains(res.HeldBy, "crew member yardmaster") {
 		t.Fatalf("unbounded prune = %+v %v, want only what came before the mail pruned, held by the yardmaster", res, err)
 	}
 	if page, err := s.Inbox(ctx, "yardmaster", 0); err != nil || page.Total != 2 {
@@ -349,7 +349,7 @@ func TestPruneDropsUnreadPastTheInboxRetention(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Events == 0 || res.Expired["yardmaster"] != 1 || !strings.Contains(res.HeldBy, "resident yardmaster") {
+	if res.Events == 0 || res.Expired["yardmaster"] != 1 || !strings.Contains(res.HeldBy, "crew member yardmaster") {
 		t.Fatalf("pruned %+v, want the forgotten mail and what followed it gone, held by the pending mail", res)
 	}
 	if evs, err := s.EventsSince(ctx, 0, 1); err != nil || len(evs) != 1 || evs[0].Seq != pending {

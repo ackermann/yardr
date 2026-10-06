@@ -400,7 +400,9 @@ func (x *Exporter) beadAttrs(bead string, b *store.Bead, stage string) []keyValu
 // (a stage, a group, a session), never text a person or an agent wrote.
 // They are what a log record carries of the data unless Text is set.
 var idKeys = map[string]bool{"from": true, "to": true, "stage": true, "outcome": true, "group": true,
-	"session": true, "resident": true, "flow": true, "hook": true, "kind": true, "runner": true}
+	"session": true, "crew": true, "flow": true, "hook": true, "kind": true, "runner": true,
+	// What crew was in an event logged before this release.
+	"resident": true}
 
 // record is e as a log record. Its body is the event's kind.
 func (x *Exporter) record(e store.Event) logRecord {

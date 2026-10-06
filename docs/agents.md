@@ -19,7 +19,7 @@ as it stands; follow its order, not a list from the beginning. See
 - Which repository, rig name, and base branch to use. If there is no rig yet,
   stop at “name the repository.”
 - Anything that grants an agent permission: `yardr init`'s harness defaults,
-  group or resident flags, `YARDR_PUSH`, credential files.
+  group or crew member flags, `YARDR_PUSH`, credential files.
 - Harness and `gh` logins. The person logs in. Ask before `yardr doctor
   --try`: it makes one real call per harness and costs a model call.
 - The operator's name and the harness for the yard.
@@ -30,7 +30,7 @@ as it stands; follow its order, not a list from the beginning. See
 |---|---|---|
 | build | `yardr version` (`yardr --version`, `-v` also work) | `yardr -version` |
 | missing items and next step | `yardr doctor [--json]` | `yardr check`; `yardr status`, which lists what runs and checks nothing |
-| what runs now and where: server, daemon, residents, the web view's URL | `yardr status [--json]` | `yardr doctor`, `pgrep`, `lsof` |
+| what runs now and where: server, daemon, crew members, the web view's URL | `yardr status [--json]` | `yardr doctor`, `pgrep`, `lsof` |
 | create a yard without a form | `yardr init --harness <kind> --operator <name> --start` | bare `yardr`; `yardr init` without `--harness` |
 | use another yard directory | `--home <dir>` | inventing a yard variable |
 | install yardr's service | `yardr daemon install` from a login shell | treating it as herdr's service; `--file-only` starts nothing |
@@ -46,7 +46,7 @@ Check a flag with `--help` before using it.
 yardmaster but does not open chat. `yardr chat` exits with guidance to use
 `yardr mail`. Bare `yardr` shows help in a yard, and without a yard exits 2
 with the `yardr init --harness <kind>` command. `yardr group add` and
-`yardr resident add` need names and flags instead of opening forms;
+`yardr crew add` need names and flags instead of opening forms;
 `yardr review` lists beads. Harness checks should have stdin closed, for
 example `codex exec … < /dev/null`.
 
@@ -54,7 +54,7 @@ example `codex exec … < /dev/null`.
 
 The yard is `--home <dir>`, else `$YARDR_HOME`, else `~/.yardr`; its store is
 `<home>/yard.db` (read it through yardr). Logs are `<home>/server.log` and
-`<home>/daemon.log`. Use `yardr resident show yardmaster` and `yardr resident
+`<home>/daemon.log`. Use `yardr crew show yardmaster` and `yardr crew
 list` for the yardmaster's state and failed starts; `yardr events` for the event
 history (`-n <count>`, `--bead <id>` filter it). `herdr agent attach
 <agent>` attaches to its pane in a terminal; `herdr agent list` names agents.

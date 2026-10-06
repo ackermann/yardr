@@ -12,7 +12,7 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// A timer is how a resident or a user asks the yard to tell someone later
+// A timer is how a crew member or a user asks the yard to tell someone later
 // (docs/timers.md). The records and their firing are the store's and the
 // daemon's; this file is the commands and how a timer is printed.
 
@@ -27,9 +27,9 @@ Prefer an event: a subscription or a bead's done (yardr bead watch <id>
 --done) is heard when it happens, with no clock. A timer is the fallback for
 when the event does not come, or for a check by the clock.
 
-A resident and a user set timers; an agent working a bead does not. A timer
-is for whoever set it, or, set by a resident, for a user (--to). To a
-resident it is an event of kind timer in its inbox, which it is nudged for
+A crew member and a user set timers; an agent working a bead does not. A timer
+is for whoever set it, or, set by a crew member, for a user (--to). To a
+crew member it is an event of kind timer in its inbox, which it is nudged for
 when idle. To a user it is mail from whoever set it, beginning "timer:", in
 yardr inbox and yardr chat, and nobody is woken for it.
 
@@ -116,7 +116,7 @@ bead stands.`,
 	f.StringVar(&at, "at", "", "fire once at this time: RFC 3339, or 15:04 (the next such local time)")
 	f.StringVar(&every, "every", "", "fire each period: 1h, 1d (no shorter than the timer_min_every setting)")
 	f.StringVar(&runs, "for", "", "with --every: how long it runs (default 7d, at most 30d)")
-	f.StringVar(&to, "to", "", "whom it tells: yourself (the default), or as a resident a user of the yard")
+	f.StringVar(&to, "to", "", "whom it tells: yourself (the default), or as a crew member a user of the yard")
 	f.StringVar(&unless, "unless", "", "drop it when this came first: bead=<id> (it closed) or bead=<id>,stage=<stage> (it entered the stage)")
 
 	var all bool

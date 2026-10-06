@@ -138,7 +138,7 @@ func squash(s string) string { return strings.Join(strings.Fields(s), "") }
 
 // nudgeHeld logs the one event of a wait on text in an agent's input (see
 // inputHeld): what, a nudge or the first prompt, is not typed, for whom
-// (a resident or a bead's session, as who names it), on bead.
+// (a crew member or a bead's session, as who names it), on bead.
 func (d *Dispatcher) nudgeHeld(ctx context.Context, bead string, who, handle map[string]any, what string, waited time.Duration) {
 	data := map[string]any{
 		"waited": waited.Round(time.Second).String(),
@@ -195,8 +195,8 @@ type promptPass struct {
 // in all; then the session is reported and left alone, still watched for
 // the prompt a human gives it by hand.
 //
-// Found live (yardr-cxsb): a resident's prime was in Claude Code's input,
-// not sent, and the resident idle for 95 seconds until a person pressed
+// Found live (yardr-cxsb): a crew member's prime was in Claude Code's input,
+// not sent, and the crew member idle for 95 seconds until a person pressed
 // Return: the text had been typed and its Enter not taken as a submit. Text
 // in the input is not an arrival. With the agent idle it is submitted
 // (Enter alone: typing it again would put it in the input twice), as often
@@ -329,7 +329,7 @@ func (d *Dispatcher) settled(key string, now time.Time) bool {
 }
 
 // promptEvents logs what pass found out about the first prompt p of who (a
-// bead's session or a resident, as the event's data names it) on bead, so
+// bead's session or a crew member, as the event's data names it) on bead, so
 // `yardr events` tells a prompt that arrived from one that was sent and
 // lost, and from one that was typed in the agent's input and had to be
 // submitted. session_prompted is the arrival, not the sending.

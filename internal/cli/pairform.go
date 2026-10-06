@@ -31,7 +31,7 @@ import (
 
 // pairChoice is what the operator answers in the form beyond the check.
 type pairChoice struct {
-	// mail is whether the link carries mail between residents, both ways.
+	// mail is whether the link carries mail between crew members, both ways.
 	mail bool
 }
 
@@ -76,7 +76,7 @@ func (a *app) pairForm(ctx context.Context, cfg *config.Config, st store.API) er
 	yardr := yardrAt(cfg.Home)
 	fmt.Print("\nLinking this yard with another\n\n" +
 		"Two linked yards send each other messages: a ping, which shows the other is there, and mail\n" +
-		"between their residents (the agents that live in a yard, such as the yardmaster). They share nothing\n" +
+		"between their crew (the agents that live in a yard, such as the yardmaster). They share nothing\n" +
 		"else, and each operator decides what their own yard takes.\n\n" +
 		"You and the other yard's operator each run this form. One of you shows a code and reads it to\n" +
 		"the other, who enters it.\n\n")
@@ -388,7 +388,7 @@ func (f *pairChoice) ask(calls string, free func(name string) error) (string, er
 				"operator is asked the same, and mail crosses only when both of you tick it.", calls)).
 			Value(&carry).Options(
 			huh.NewOption("ping: each yard may ask the other whether it is there, and is answered. Always on: it proves the link", store.PeerPing),
-			huh.NewOption(fmt.Sprintf("mail between residents: this yard's may write to %s's, and %s's to this yard's", calls, calls), store.PeerMail),
+			huh.NewOption(fmt.Sprintf("mail between crew members: this yard's may write to %s's, and %s's to this yard's", calls, calls), store.PeerMail),
 		).Validate(func(picked []string) error {
 			if !slices.Contains(picked, store.PeerPing) {
 				return errors.New("ping stays ticked: without it the link cannot be proved")
@@ -464,8 +464,8 @@ func (a *app) formDone(ctx context.Context, cfg *config.Config, st store.API, p 
 	}
 	if opt.form.mail {
 		fmt.Printf("\nTo try the mail, write to %s's yardmaster:\n\n  %s mail yardmaster@%s \"hello from the other yard\"\n\n"+
-			"It arrives if the other operator ticked mail too. A resident of this yard may write there once\n"+
-			"you have allowed it that yard by name: docs/peers.md, \"Mail between residents\".\n", p.Name, yardr, p.Name)
+			"It arrives if the other operator ticked mail too. A crew member of this yard may write there once\n"+
+			"you have allowed it that yard by name: docs/peers.md, \"Mail between crew members\".\n", p.Name, yardr, p.Name)
 	}
 	fmt.Printf("\nThe link, and what waits on it:   %s peer show %s\nTo remove it:                     %s peer rm %s\n", yardr, p.Name, yardr, p.Name)
 	return nil

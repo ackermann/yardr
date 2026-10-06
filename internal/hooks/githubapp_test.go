@@ -17,7 +17,7 @@ import (
 
 // appYard is a stand-in for GitHub that knows the App yardr (id 4242),
 // installed on acme/webapp and acme/site, with the App's private key in a
-// file as a resident's env_file would name it, and a clock the test moves
+// file as a crew member's env_file would name it, and a clock the test moves
 // for both sides.
 type appYard struct {
 	src     *standin.Server
@@ -324,11 +324,11 @@ func TestGitHubTokenAlone(t *testing.T) {
 	}
 }
 
-// In a resident's pane the credential is the App's pair or GITHUB_TOKEN
+// In a crew member's pane the credential is the App's pair or GITHUB_TOKEN
 // from its env_file, and nothing else: with neither it is refused, in words
 // that name both, and gh is not asked. Before, it answered with the gh
 // login of whoever runs the yard.
-func TestGitHubCredentialOfAResident(t *testing.T) {
+func TestGitHubCredentialOfACrew(t *testing.T) {
 	ctx := context.Background()
 	bin := t.TempDir()
 	asked := filepath.Join(bin, "asked")
@@ -337,15 +337,15 @@ func TestGitHubCredentialOfAResident(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	for _, name := range []string{"GITHUB_TOKEN", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY_FILE", "YARD_RESIDENT"} {
+	for _, name := range []string{"GITHUB_TOKEN", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY_FILE", "YARD_CREW"} {
 		t.Setenv(name, "")
 	}
-	t.Setenv("YARDR_RESIDENT", "yardmaster")
+	t.Setenv("YARDR_CREW", "yardmaster")
 	_, err := hooks.GitHub{}.Credential(ctx)
 	if err == nil {
-		t.Fatal("a resident with no GitHub credential got one")
+		t.Fatal("a crew member with no GitHub credential got one")
 	}
-	for _, want := range []string{"resident yardmaster", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY_FILE", "GITHUB_TOKEN", "env_file"} {
+	for _, want := range []string{"crew member yardmaster", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY_FILE", "GITHUB_TOKEN", "env_file"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("refusal %q does not name %s", err, want)
 		}
@@ -354,7 +354,7 @@ func TestGitHubCredentialOfAResident(t *testing.T) {
 		t.Errorf("refusal shows gh's token: %v", err)
 	}
 	if _, statErr := os.Stat(asked); statErr == nil {
-		t.Error("gh was asked for a resident")
+		t.Error("gh was asked for a crew member")
 	}
 	// Its own credential is used, and gh still is not asked.
 	t.Setenv("GITHUB_TOKEN", "github_pat_yardmaster")
@@ -368,13 +368,13 @@ func TestGitHubCredentialOfAResident(t *testing.T) {
 		t.Errorf("app: %q, %v", c, err)
 	}
 	if _, statErr := os.Stat(asked); statErr == nil {
-		t.Error("gh was asked for a resident")
+		t.Error("gh was asked for a crew member")
 	}
 	// A person at their own shell, with nothing set, still speaks as gh
 	// has them logged in.
 	t.Setenv("GITHUB_APP_ID", "")
 	t.Setenv("GITHUB_APP_PRIVATE_KEY_FILE", "")
-	t.Setenv("YARDR_RESIDENT", "")
+	t.Setenv("YARDR_CREW", "")
 	if c, err := (hooks.GitHub{}).Credential(ctx); err != nil || c != "gho_the_operators" {
 		t.Errorf("a person: %q, %v", c, err)
 	}

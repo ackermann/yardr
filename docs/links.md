@@ -56,14 +56,14 @@ creates the bead: a refused link creates no bead.
 
 A hook can carry a map from stages to statuses. When a bead enters a stage
 the map names, the issue it tracks in the hook's source goes to that status.
-No agent takes part: the yard does it, as a resident the hook names.
+No agent takes part: the yard does it, as a crew member the hook names.
 
 ```sh
 # Once, by the operator: the yardmaster may set a status in Linear, and its
 # credential is in its env_file (LINEAR_API_KEY; for GitHub a GitHub App's
-# two lines or GITHUB_TOKEN, see residents.md "As a GitHub App").
-yardr resident set yardmaster set_state=linear env_file=~/.yardr/residents/yardmaster.env   # the rest of its definition stays
-yardr resident identity yardmaster --source linear --id <its Linear user id>
+# two lines or GITHUB_TOKEN, see crew.md "As a GitHub App").
+yardr crew set yardmaster set_state=linear env_file=~/.yardr/crew/yardmaster.env   # the rest of its definition stays
+yardr crew identity yardmaster --source linear --id <its Linear user id>
 
 # The hook of the source, with the map and whom it acts as.
 yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret --as yardmaster \
@@ -89,13 +89,13 @@ source, and neither makes the hook nor grants `set_state`
 **The map.** `--map <bead type>:<stage>=<state>`, repeatable. The state is
 one of `started`, `review`, `done`, the words of `yardr thread state`, and
 each source turns it into a status of its own
-([residents.md](residents.md#setting-a-threads-status)). A stage or a type
+([crew.md](crew.md#setting-a-threads-status)). A stage or a type
 without a line changes nothing. A train is a bead of type `train` with its
 own lines: the issue a train tracks follows the train, and its children's
 stages move nothing unless they track issues themselves. `hook add` replaces
 the definition, so the whole map is given each time. It refuses a map
 without `--as`, a word that is no state (`review` on a GitHub hook too: an
-issue there is open or closed), a resident that does not exist, and one with
+issue there is open or closed), a crew member that does not exist, and one with
 no identity in the hook's source.
 
 **When.** A bead of that type enters a mapped stage, whatever moved it: an
@@ -107,12 +107,12 @@ counts from its next stage on. A bead sent back into the stage it is in
 (`open -> open on failed`) entered nothing. A bead that tracks a Linear and
 a GitHub issue moves both, each through its source's hook.
 
-**As the resident.** The call is made with the credential in the `--as`
-resident's `env_file` and so appears in the source under its name. It is
-made only when that resident has `set_state` for the source, which only the
+**As the crew member.** The call is made with the credential in the `--as`
+crew member's `env_file` and so appears in the source under its name. It is
+made only when that crew member has `set_state` for the source, which only the
 operator can grant: a map alone moves nothing. Without the grant nothing is
 sent, and the `thread_state_skipped` event names the setting. Adding a map
-that acts as a resident is itself only the operator's, or that resident's
+that acts as a crew member is itself only the operator's, or that crew member's
 own session's.
 
 **Forward only.** The states have an order: started, review, done. yardr
@@ -137,11 +137,11 @@ the hook had still to do, and `hook_removed` says how many.
 
 | event | when | data |
 |---|---|---|
-| `thread_state` | the issue was moved | `hook`, `resident` (acted as), `source`, `url`, `thread`, `title`, `stage` (entered), `state` (the word), `status` (set), `was`, `instead` (`started`, when review had no status of its own), `cause` (the seq of the bead's event) |
-| `thread_state_skipped` | it was not | the same without `was` and `instead`, `status` being the one found, and `reason` with `detail` in words: `no_grant` (the resident lacks `set_state` for the source, or is gone), `already_past`, `failed` (the source failed for good: given up after `attempts` tries, or something no retry changes, such as a pull request) |
+| `thread_state` | the issue was moved | `hook`, `crew` (acted as), `source`, `url`, `thread`, `title`, `stage` (entered), `state` (the word), `status` (set), `was`, `instead` (`started`, when review had no status of its own), `cause` (the seq of the bead's event) |
+| `thread_state_skipped` | it was not | the same without `was` and `instead`, `status` being the one found, and `reason` with `detail` in words: `no_grant` (the crew member lacks `set_state` for the source, or is gone), `already_past`, `failed` (the source failed for good: given up after `attempts` tries, or something no retry changes, such as a pull request) |
 
 **No echo.** The source reports the change by webhook. That delivery does
-not reach the resident acted as: its actor is the resident's identity in the
+not reach the crew member acted as: its actor is the crew member's identity in the
 source, which is why `hook add --as` insists on one. `thread_state` does not
 reach its inbox either. A delivery is a `hook` event, not a bead entering a
 stage, so it moves nothing in turn.

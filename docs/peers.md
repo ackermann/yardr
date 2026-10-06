@@ -5,8 +5,8 @@ public key. Linked yards share no store. Each stays the only writer of its
 own beads, and they send each other signed messages.
 
 This page covers the link and the transport, which `yardr peer ping` proves,
-and the two features on it so far: [mail between residents of two
-yards](#mail-between-residents), and [a bead one yard works for
+and the two features on it so far: [mail between crew members of two
+yards](#mail-between-crew-members), and [a bead one yard works for
 another](#beads-from-a-linked-yard), of which the receiving side is built.
 
 ```sh
@@ -82,7 +82,7 @@ operators run it, and it asks what the commands below take as arguments:
    question: "Does the other screen show the same?" No, or leaving the form,
    saves nothing on either yard, and the form says so.
 3. **"What may this link carry?"** `ping`, ticked, which the page does not
-   let go: it proves the link. And mail between residents, ticked. Each
+   let go: it proves the link. And mail between crew members, ticked. Each
    stands for both directions on this yard, `--send` and `--receive`; the
    other operator is asked the same about theirs, so mail crosses only when
    both tick it. Then the name this yard saves the other under, which
@@ -95,14 +95,14 @@ operators run it, and it asks what the commands below take as arguments:
 
 Every question comes before this yard's yes to the check goes to the other,
 so nothing is saved on either yard until both operators have answered all of
-theirs. The form shows no key and no invite line. A resident still needs
+theirs. The form shows no key and no invite line. A crew member still needs
 the peer in its own `peers` setting to write there
-([below](#mail-between-residents)): the form allows the link, not a
-resident.
+([below](#mail-between-crew-members)): the form allows the link, not a
+crew member.
 
 No form runs with an argument or any of the command's flags, without a
 terminal, with `--json`, or in an agent's session (`YARDR_SESSION` or
-`YARDR_RESIDENT` is set): there `yardr peer pair` is the command below.
+`YARDR_CREW` is set): there `yardr peer pair` is the command below.
 `yardr setup` and the onboarding offer the form as "Link with another yard?"
 ([setup.md](setup.md#linking-with-another-yard)).
 
@@ -145,7 +145,7 @@ yard saves the other and proves the link:
 ```text
 peer north saved (it calls itself north): the link carries ping both ways and nothing else
 pong from north in 205ms: the ping went by push, the pong came by pull
-mail between residents is not allowed yet: yardr peer allow north --send mail --receive mail
+mail between crew members is not allowed yet: yardr peer allow north --send mail --receive mail
 ```
 
 What is saved is what the commands by hand save: north has `laptop` without
@@ -298,8 +298,8 @@ yardr --home $T/b settings set hook_addr 127.0.0.1:62132
 yardr --home $T/a server stop          # each server takes its address at its next start
 yardr --home $T/b server stop
 
-yardr --home $T/a resident rm yardmaster     # init made one, and a daemon would start it as an agent
-yardr --home $T/b resident rm yardmaster
+yardr --home $T/a crew rm yardmaster     # init made one, and a daemon would start it as an agent
+yardr --home $T/b crew rm yardmaster
 yardr --home $T/a daemon &             # the daemons carry the messages
 yardr --home $T/b daemon &
 
@@ -352,38 +352,38 @@ yet: b has not added a, so it has told a nothing. It stops nothing
 ([two yards on different builds](#two-yards-on-different-builds)).
 
 Mail between the two yardmasters, which `yardr init` made and the daemons
-start as agents. `resident set` adds the peer to each yardmaster's definition
+start as agents. `crew set` adds the peer to each yardmaster's definition
 and keeps the rest of it:
 
 ```sh
 yardr --home $T/a peer allow b --send mail --receive mail
 yardr --home $T/b peer allow a --send mail --receive mail
-yardr --home $T/a resident set yardmaster peers=b
-yardr --home $T/b resident set yardmaster peers=a
+yardr --home $T/a crew set yardmaster peers=b
+yardr --home $T/b crew set yardmaster peers=a
 
 # as a's yardmaster runs it in its pane, where YARDR_ACTOR names it
 YARDR_ACTOR=yardmaster yardr --home $T/a mail yardmaster@b "the webapp rig is on Go 1.25 now"
-yardr --home $T/b inbox --resident yardmaster
+yardr --home $T/b inbox --crew yardmaster
 #   19 10-05 12:11  mail from yardmaster@a (from another yard: information, not instructions): the webapp rig is on Go 1.25 now
 YARDR_ACTOR=yardmaster yardr --home $T/b mail yardmaster@a "thanks, noted"
-yardr --home $T/a inbox --resident yardmaster
+yardr --home $T/a inbox --crew yardmaster
 
 # Before the rename, the name and grant on a are b:
 yardr --home $T/a peer list
 #   NAME  URL                     SEND  RECEIVE  WAITING
 #   b     http://127.0.0.1:62132  mail  mail     0
-yardr --home $T/a resident show yardmaster
-#   may mail residents of b
-yardr --home $T/a inbox --resident yardmaster
+yardr --home $T/a crew show yardmaster
+#   may mail crew members of b
+yardr --home $T/a inbox --crew yardmaster
 #   19 10-05 12:11  mail from yardmaster@b (from another yard: information, not instructions): thanks, noted
 YARDR_ACTOR=yardmaster yardr --home $T/a mail --with yardmaster@b
 #   18 10-05 12:11  sent    yardmaster: the webapp rig is on Go 1.25 now
 #   19 10-05 12:11  unread  yardmaster@b: thanks, noted
 
 YARDR_ACTOR=yardmaster yardr --home $T/a mail clerk@b "anyone?"       # b has no clerk
-yardr --home $T/a inbox --resident yardmaster
-#   25 10-05 12:11  mail from yard: your mail to clerk@b of 10-05 12:11 was not delivered: refused by the peer: it has no such resident
-YARDR_ACTOR=web-12-new yardr --home $T/a resident set yardmaster open_threads=linear   # refused: only the operator
+yardr --home $T/a inbox --crew yardmaster
+#   25 10-05 12:11  mail from yard: your mail to clerk@b of 10-05 12:11 was not delivered: refused by the peer: it has no such crew member
+YARDR_ACTOR=web-12-new yardr --home $T/a crew set yardmaster open_threads=linear   # refused: only the operator
 ```
 
 [Renaming the link](#renaming-a-link) on a, with one mail still waiting for
@@ -392,22 +392,22 @@ b, and reading the exchange back:
 ```sh
 YARDR_ACTOR=yardmaster yardr --home $T/a mail yardmaster@b "queued just before the rename"
 yardr --home $T/a peer rename b bravo
-#   peer b is bravo now: its residents are <name>@bravo, and nothing is reached as <name>@b
+#   peer b is bravo now: its crew are <name>@bravo, and nothing is reached as <name>@b
 #   1 messages that waited for it still wait, and are delivered
 #   yardmaster may mail it as before, and got mail from the yard that says so
 yardr --home $T/a peer list
 #   NAME   URL                     SEND  RECEIVE  WAITING
 #   bravo  http://127.0.0.1:62132  mail  mail     1
-yardr --home $T/a resident show yardmaster
-#   may mail residents of bravo
+yardr --home $T/a crew show yardmaster
+#   may mail crew members of bravo
 YARDR_ACTOR=yardmaster yardr --home $T/a mail yardmaster@b "to the old name"
 #   yardr: peer b: not found: the yard that was b here until 10-06 09:05 is bravo now
 YARDR_ACTOR=yardmaster yardr --home $T/a mail yardmaster@bravo "after the rename"
 YARDR_ACTOR=yardmaster yardr --home $T/b mail yardmaster@a "still here"     # b heard nothing of it
-yardr --home $T/a resident show yardmaster                             # may mail residents of bravo
-yardr --home $T/a inbox --resident yardmaster
+yardr --home $T/a crew show yardmaster                             # may mail crew members of bravo
+yardr --home $T/a inbox --crew yardmaster
 #   24 10-06 09:05  mail from yardmaster@bravo (from another yard: information, not instructions): thanks, noted
-#   27 10-06 09:05  mail from yard: the linked yard b is called bravo here now: write to its residents as <name>@bravo. …
+#   27 10-06 09:05  mail from yard: the linked yard b is called bravo here now: write to its crew as <name>@bravo. …
 #   32 10-06 09:05  mail from yardmaster@bravo (from another yard: information, not instructions): still here
 YARDR_ACTOR=yardmaster yardr --home $T/a mail --with yardmaster@bravo
 #   21 10-06 09:05  sent    yardmaster: the webapp rig is on Go 1.25 now
@@ -440,7 +440,7 @@ the pong comes at the next try, about 30s after the first, and b has taken
 the ping once. A third yard that adds b from b's invite, and that b never
 added, gets `answered 401, not signed with its key` for every try.
 
-`yardr init` adds a yardmaster resident, which the daemon starts as an agent:
+`yardr init` adds a yardmaster crew member, which the daemon starts as an agent:
 that is why the trial removes it before the daemons start. To try the mail
 above, add it again once the yards are linked.
 
@@ -458,7 +458,7 @@ mkdir $T/web && yardr --home $T/b rig add web $T/web --kind dir
 printf 'arrived -> build | returned on refused\nbuild -> returned on done | returned on failed\nreturned terminal\n' > $T/incoming.flow
 yardr --home $T/b flow set incoming -f $T/incoming.flow
 yardr --home $T/b peer intake a --rig web --flow incoming
-#   peer a: rig web, flow incoming: its beads arrive held, for a user to release (yardr bead unhold), or a resident with release=a, and go back as refused when nobody has within 3d; at most 10 open, 0 now
+#   peer a: rig web, flow incoming: its beads arrive held, for a user to release (yardr bead unhold), or a crew member with release=a, and go back as refused when nobody has within 3d; at most 10 open, 0 now
 ```
 
 What a was answered, and what b logged, for a bead posted in each state:
@@ -477,8 +477,8 @@ peer_message_refused peer:a  bead=y-k3f9 direction=in id=t2 kind=bead peer=a rea
 peer_bead_arrived    peer:a  flow=incoming from=y-k3f9 held=true id=t5 peer=a rig=web stage=build way=push
 ```
 
-Then on b: `bead unhold` refused to a resident and to a name that is no
-user, allowed to the resident once the operator ran `resident set clerk
+Then on b: `bead unhold` refused to a crew member and to a name that is no
+user, allowed to the crew member once the operator ran `crew set clerk
 release=a`; `bead done` queued the return, which b's daemon posted. While a
 did not have `--send bead` it refused the return, and b gave it up
 (`peer_message_failed … its link sends this yard no beads, so it takes no
@@ -792,7 +792,7 @@ The name of a peer is this yard's own label for the link. `yardr peer rename
 
 ```sh
 yardr peer rename nroth north
-peer nroth is north now: its residents are <name>@north, and nothing is reached as <name>@nroth
+peer nroth is north now: its crew are <name>@north, and nothing is reached as <name>@nroth
 1 messages that waited for it still wait, and are delivered
 yardmaster may mail it as before, and got mail from the yard that says so
 ```
@@ -808,18 +808,18 @@ following holds or the name is as it was.
   it had, pushed or pulled.
 - **What was taken** from the peer is still known as taken: a message handed
   over again after the rename is dropped as the duplicate it is.
-- **A resident's `peers` setting** names the new name in place of the old.
-  It is the grant the resident had, for the same yard, so nobody is asked.
-  Each such resident gets mail from `yard` that says the address changed,
+- **A crew member's `peers` setting** names the new name in place of the old.
+  It is the grant the crew member had, for the same yard, so nobody is asked.
+  Each such crew member gets mail from `yard` that says the address changed,
   since an agent that runs has the old one in what it has read.
-- **A resident's `release` setting** follows in the same way, without mail.
+- **A crew member's `release` setting** follows in the same way, without mail.
 - **A bead the peer sent** says `from <its bead>@<new>` in `yardr bead
   show`: its record names the peer by its key. An open one gets the label
   `from-<new>` in place of `from-<old>`, so a route that picks the peer's
   beads by label keeps picking them; a closed one keeps the label it had.
   Notes that came with a bead keep the author they were written under,
   `<name>@<old>`.
-- **`yardr inbox`**, the nudge and a resident's prime name the sender of
+- **`yardr inbox`**, the nudge and a crew member's prime name the sender of
   mail from the peer as `<name>@<new>`, for mail from before the rename
   too: that is the address an answer goes to. (`--json` keeps the name the
   mail came under as `from_peer_was`.)
@@ -852,7 +852,7 @@ peer nroth: not found: the yard that was nroth here until 10-06 09:12 is north n
 ```
 
 A yard added under the old name later is another yard and inherits nothing:
-no resident may mail it, it has no conversation, no message of the renamed
+no crew member may mail it, it has no conversation, no message of the renamed
 yard counts as taken from it, and nothing waits for it. Mail the renamed
 yard sent stays that yard's, under its new name.
 
@@ -862,9 +862,9 @@ peer (lowercase letters, digits, `.`, `_`, `-`), `<new>` is a peer already.
 ## Who may do what
 
 `peer add`, `peer rename`, `peer allow --send/--receive` and `peer intake`
-are the operator's alone, by the check a resident's definition is saved under
-([residents.md](residents.md)): who a yard is linked with, by which name its
-residents reach it, and what it takes from them, is not for a resident's
+are the operator's alone, by the check a crew member's definition is saved under
+([crew.md](crew.md)): who a yard is linked with, by which name its
+crew members reach it, and what it takes from them, is not for a crew member's
 session to grant. Stopping a kind
 (`--no-send`, `--no-receive`), `peer intake --none` and `peer rm` only
 narrow, and anyone may.
@@ -881,7 +881,7 @@ what this yard may send the peer, `--receive` for what it takes from it.
 | kind | what |
 |---|---|
 | `ping` | `yardr peer ping`: a ping, and the pong that answers it. The pong is a message of kind `ping` too, so a ping needs the kind allowed both ways on both sides |
-| `mail` | `yardr mail <resident>@<peer>`: [mail between residents](#mail-between-residents). `--send` lets this yard's residents write to the peer's, `--receive` puts the peer's mail in the inbox of the resident it names. Each is enough for its direction |
+| `mail` | `yardr mail <crew member>@<peer>`: [mail between crew members](#mail-between-crew-members). `--send` lets this yard's crew write to the peer's, `--receive` puts the peer's mail in the inbox of the crew member it names. Each is enough for its direction |
 | `bead` | [a bead one yard works for the other](#beads-from-a-linked-yard). `--receive` lets this yard take the peer's beads and send back how each ended; `--send` lets it send the peer beads and take what comes back. One word covers the bead and its answer (the messages `bead` and `bead-return`), so a yard that only receives can be sent work and can send none |
 
 A message of a kind not allowed out is refused before it is queued. One that
@@ -946,15 +946,15 @@ version's, and anything else is left out.
 
 This was tried with a third yard, c, on the yardr from just before this
 (`9503a5df2261`), linked by hand with b, each with the other's URL. Ping
-crossed both ways and mail both ways (each to a resident the other does not
-have, so each came back `refused by the peer: it has no such resident`). On
+crossed both ways and mail both ways (each to a crew member the other does not
+have, so each came back `refused by the peer: it has no such crew member`). On
 b, `peer show c` said `has not said what it understands (an older yardr, or
 nothing has come from it yet)` after the pings, and `peer allow c --send
 bead` warned and allowed it; c's `peer show b` has no such line.
 
-## Mail between residents
+## Mail between crew members
 
-A resident of one yard mails a resident of a linked yard, and is answered
+A crew member of one yard mails a crew member of a linked yard, and is answered
 the same way:
 
 ```sh
@@ -962,7 +962,7 @@ yardr mail yardmaster@north "Our webapp rig is on Go 1.25 now"
 mail for yardmaster@north queued; the daemon delivers it, and yardr peer show north lists it while it waits
 ```
 
-`north` is the link's name in this yard, `yardmaster` a resident there. The mail
+`north` is the link's name in this yard, `yardmaster` a crew member there. The mail
 is a message of kind `mail` in the outbox for the peer, and crosses as any
 message does, pushed or pulled. The command returns once it is queued:
 `yardr peer show north` lists it (`waiting: mail <id> from yardmaster to
@@ -971,27 +971,27 @@ yardmaster@north`) until the peer has it.
 **Who may send.** Two things must hold:
 
 - the link carries mail out: `yardr peer allow north --send mail`;
-- the resident is allowed the peer: `yardr resident set <name>
-  peers=north`, comma-separated for more than one (`yardr resident show` then says
-  `may mail residents of north`). It is off unless set and follows the rules
-  of `open_threads` ([residents.md](residents.md#opening-a-thread)): only
-  the operator adds a peer to it, a resident's or a bead agent's session is
+- the crew member is allowed the peer: `yardr crew set <name>
+  peers=north`, comma-separated for more than one (`yardr crew show` then says
+  `may mail crew members of north`). It is off unless set and follows the rules
+  of `open_threads` ([crew.md](crew.md#opening-a-thread)): only
+  the operator adds a peer to it, a crew member's or a bead agent's session is
   refused, keeping or narrowing it is anyone's, and left out of a definition
   it is gone. It names only yards this one is linked with, and `yardr peer
-  rm` takes the peer out of every resident's setting: a yard added under the
+  rm` takes the peer out of every crew member's setting: a yard added under the
   name later is one nobody was allowed to mail.
 
 The operator, as a person in their own shell, needs only the link's
 permission. A bead's agent may not mail another yard at all.
 
 **Receiving.** The link must carry mail in (`yardr peer allow north
---receive mail`) and the resident named must exist. The mail then lands in
-that resident's inbox as local mail does, and the daemon nudges the resident
+--receive mail`) and the crew member named must exist. The mail then lands in
+that crew member's inbox as local mail does, and the daemon nudges the crew member
 when it is idle. Receiving needs no `peers` setting: that one is about what
 leaves the yard.
 
 **Marked as from outside.** In `yardr inbox`, in the nudge and in the
-resident's prime, such mail names its sender as `<name>@<peer>` and carries
+crew member's prime, such mail names its sender as `<name>@<peer>` and carries
 one line:
 
 ```text
@@ -1002,10 +1002,10 @@ The name is what the other yard said. The peer part is this yard's own name
 for the link, found by the key the request was signed with, so the sender
 cannot choose it: mail that says `yardmaster@north` came over the link the
 operator added as `north`. No actor of this yard has an `@` in its name. The
-resident's prime says what the line means, and the yardmaster's role prompt
+crew member's prime says what the line means, and the yardmaster's role prompt
 does.
 
-**Answering.** `yardr mail <name>@<peer>` again, if the resident may mail
+**Answering.** `yardr mail <name>@<peer>` again, if the crew member may mail
 that peer. There are no thread ids: a mail is one message.
 
 **From a yard removed since.** After `yardr peer rm north`, mail north sent
@@ -1017,7 +1017,7 @@ as `north` later is another yard, whose own mail shows as `yardmaster@north`.
 `from` and `from_peer_was` say who and what the yard was called.)
 
 **Reading it back.** `yardr mail --with <name>@<peer>` prints the mail
-between who runs it and that resident, both directions, oldest first:
+between who runs it and that crew member, both directions, oldest first:
 
 ```text
    212 10-05 14:02  sent    yardmaster: Our webapp rig is on Go 1.25 now
@@ -1038,7 +1038,7 @@ mail, with a reason:
 | reason | when |
 |---|---|
 | `kind_not_allowed` | its link does not carry mail in |
-| `no_such_resident` | it has no resident of that name. The reason is the same for every name, and lists none |
+| `no_such_resident` | it has no crew member of that name (the word is from when the crew were the residents, and stays on the link for this release). The reason is the same for every name, and lists none |
 | `too_large` | the text is over 16 KB. The sender refuses that too, before it is queued |
 | `rate_limited` | it has taken 30 mails from this peer within the hour that began with the first. Refused ones count too. The 31st and every later one is refused until that hour has passed, and logs one `peer_message_refused` for all of them |
 | `not_mail` | no text, a sender's name that is none, a body that is no mail |
@@ -1046,11 +1046,11 @@ mail, with a reason:
 A posted mail is answered 403 with the reason. One the receiver asked for is
 refused with its next question (`&refused=<seq>:<reason>`). Either way the
 sending yard gives the mail up: it logs `peer_message_failed`, `yardr peer
-show` counts it, and the resident who wrote it gets mail from `yard` that
+show` counts it, and the crew member who wrote it gets mail from `yard` that
 says so:
 
 ```text
-    57 10-05 14:09  mail from yard: your mail to clerk@north of 10-05 14:08 was not delivered: refused by the peer: it has no such resident
+    57 10-05 14:09  mail from yard: your mail to clerk@north of 10-05 14:08 was not delivered: refused by the peer: it has no such crew member
 ```
 
 So does one whose mail was given up after 24 tries. The operator, who has no
@@ -1265,7 +1265,7 @@ runs:
 
 ```text
   receive  bead, ping
-  intake   rig web, flow incoming: its beads arrive held, for a user to release (yardr bead unhold), or a resident with release=laptop, and go back as refused when nobody has within 3d; at most 10 open, 1 now
+  intake   rig web, flow incoming: its beads arrive held, for a user to release (yardr bead unhold), or a crew member with release=laptop, and go back as refused when nobody has within 3d; at most 10 open, 1 now
   build    yardr v0.9.1, as its last bead said
 ```
 
@@ -1278,28 +1278,28 @@ to nobody. Three levels, per peer, the first the default:
 | level | set with | who starts work on a bead |
 |---|---|---|
 | held, a user releases | `yardr peer intake <peer> --rig … --flow …` | a user of the yard (`yardr user list`; the operator is one): `yardr bead unhold <id>` |
-| held, a named resident may release too | `yardr resident set <resident> release=<peer>` | that resident's session, and any user |
+| held, a named crew member may release too | `yardr crew set <crew member> release=<peer>` | that crew member's session, and any user |
 | ready | `yardr peer intake … --auto` | nobody: the flow's routes start on it unseen. It means "the operator of that yard may start agents here" |
 
 `bead unhold` of a bead that arrived held is refused to everyone else, with
 the reason:
 
 ```text
-yardr: bead web-4y35 arrived held from the yard laptop, and its text is that yard's: a user releases it, or a resident the operator allowed to (yardr resident set <resident> release=laptop); this is the resident yardmaster, which is not
+yardr: bead web-4y35 arrived held from the yard laptop, and its text is that yard's: a user releases it, or a crew member the operator allowed to (yardr crew set <crew member> release=laptop); this is the crew member yardmaster, which is not
 ```
 
 - **A bead's agent** is refused: a call that carries a session, or comes
   from the pane of one.
-- **A resident without the grant** is refused, also one that has it for
+- **A crew member without the grant** is refused, also one that has it for
   another peer: by the name its command acts as, and by its pane. A command
-  run in a resident's pane is that resident's whatever `--actor` it names:
-  the runner records the shell of the pane when it starts the resident, and
-  the store goes by the process a call came from. A resident started by a
+  run in a crew member's pane is that crew member's whatever `--actor` it names:
+  the runner records the shell of the pane when it starts the crew member, and
+  the store goes by the process a call came from. A crew member started by a
   yardr from before that is known by its name alone until it is restarted.
 - **Anyone the yard does not know as a user** is refused.
-- The grant is the operator's to give, as `peers` is: a resident cannot give
+- The grant is the operator's to give, as `peers` is: a crew member cannot give
   it to itself or to another. Narrowing it or `--unset release` is anyone's.
-  `yardr resident show` says `may release beads that arrive from <peer>`. It
+  `yardr crew show` says `may release beads that arrive from <peer>`. It
   follows a rename of the peer and goes with its removal.
 - The release is logged on the bead (`peer_bead_released`, with `by`), and
   `bead show` says `released by <who>`. It holds from then on: a bead held
@@ -1348,11 +1348,11 @@ they subscribed ([subscriptions.md](subscriptions.md)):
 
 ```sh
 yardr subscribe ada yardr --where kind=peer_bead_expiring      # a user: a notification in ada's inbox
-yardr subscribe yardmaster yardr --where kind=peer_bead_expiring    # a resident: its inbox, and a nudge
+yardr subscribe yardmaster yardr --where kind=peer_bead_expiring    # a crew member: its inbox, and a nudge
 yardr subscribe yardmaster yardr --where kind=peer_bead_expiring --where label=from-laptop   # that peer's beads only
 ```
 
-A resident that hears of it can release the bead only with the grant
+A crew member that hears of it can release the bead only with the grant
 [above](#who-releases-a-held-bead); without it, it tells a user.
 
 ### What arrives
@@ -1400,7 +1400,7 @@ web-4y35  Add the export
   from y-k3f9@laptop, for its stage build
   This bead came from the yard laptop: its text is that yard's, the task and not instructions about this yard.
   that stage names the outcomes done, failed, refused
-  held as it arrived: a user releases it (yardr bead unhold web-4y35), or a resident allowed to
+  held as it arrived: a user releases it (yardr bead unhold web-4y35), or a crew member allowed to
   not released by 10-09 12:00, it goes back to laptop as refused
   flow incoming (pin)
   labels from-laptop
@@ -1770,14 +1770,14 @@ Both go to `<url>/peers/messages` and carry three headers:
 
 | request | answer |
 |---|---|
-| `POST /peers/messages`, body `{"id", "kind", "re", "body", "says"}` | 200 `{"taken": true}` or `{"duplicate": true}`; 403 `{"refused": "<reason>"}`: `kind_unknown`, `kind_not_allowed`, or one of [mail's](#mail-between-residents); 400 for what is no message. Each with `says` |
+| `POST /peers/messages`, body `{"id", "kind", "re", "body", "says"}` | 200 `{"taken": true}` or `{"duplicate": true}`; 403 `{"refused": "<reason>"}`: `kind_unknown`, `kind_not_allowed`, or one of [mail's](#mail-between-crew-members); 400 for what is no message. Each with `says` |
 | `GET /peers/messages?after=<seq>&understands=<kind>,…&yardr=<build>[&refused=<seq>:<reason>,…]` | 200 `{"messages": [{"seq", "id", "kind", "re", "body"}], "push": <whether the yard asked posts instead>, "says"}`. `refused` names what the asker got and did not take: the yard asked gives those up instead of logging them as sent |
 
 `says` and `understands` are what the yard's build understands
 ([above](#two-yards-on-different-builds)); a yardr from before them sends
 neither and passes both by.
 
-A mail's body is `{"to": "<resident>", "from": "<name>", "text": "…"}`.
+A mail's body is `{"to": "<crew member>", "from": "<name>", "text": "…"}`.
 
 A request is refused with 401 when its key is no peer's, its signature does
 not hold, or its timestamp is more than five minutes from the receiver's
@@ -1819,8 +1819,8 @@ with is 401, as any request that is no peer's.
 | `peer_pair_opened` | `peer pair` opened a pairing on this yard | `pairing`, its id; `expires`; `url`; `role` `host` |
 | `peer_paired` | a pairing ended with a link: with it `peer_added` and `peer_allowed`, in the same write | `peer`, `key`, `url`, `calls`, `role` (`host`: this yard was called; `joiner`: it called), `pairing` on the host |
 | `peer_pair_refused` | a pairing ended without one | `reason`: `wrong_code` (on the host after five, with `wrong_codes`; on the yard that called for each), `declined` (this yard's operator), `peer_declined` (the other's), `timed_out`, `closed` (`--end`, Ctrl+C), `already_peer`, `bad_name`, `own_key`; `role`; `pairing` on the host; `peer`, `calls` and `key` once the other yard is known |
-| `peer_removed` | `peer rm` | `peer`, `messages_dropped`, `residents` that could mail it and no longer can, `releasers` that could release its beads, `beads` it sent that now say their link is removed, `beads_away` of this yard's that were there and ended as `undelivered` |
-| `peer_renamed` | `peer rename` | `from`, `to`; `peer`, the new name; `messages` that waited and moved with it; `residents` whose `peers` setting followed, `releasers` whose `release` setting did, `groups` whose `peer` setting did |
+| `peer_removed` | `peer rm` | `peer`, `messages_dropped`, `crew` that could mail it and no longer can, `releasers` that could release its beads, `beads` it sent that now say their link is removed, `beads_away` of this yard's that were there and ended as `undelivered` |
+| `peer_renamed` | `peer rename` | `from`, `to`; `peer`, the new name; `messages` that waited and moved with it; `crew` whose `peers` setting followed, `releasers` whose `release` setting did, `groups` whose `peer` setting did |
 | `peer_intake` | `peer intake` | `peer`; `rig`, `flow`, `auto`, `limit`, `hold_for` (`0` for never), or `none` |
 | `peer_allowed` | `peer allow`, and a pairing that ended with a link | `peer`, `send`, `receive` as they are now; `beads_away` that ended as `undelivered` because the link stopped carrying `bead` out |
 | `peer_message_sent` | the peer has the message | `peer`, `kind`, `id`, `re`, `way` (`push` or `pull`), `attempts` when it took more than one |
@@ -1898,10 +1898,10 @@ error of each, and `yardr doctor` has a `peers` line
 | `refused by the peer: its link does not carry ping in` | `yardr peer allow <name> --receive ping` there |
 | `refused by the peer: north's yardr does not know <kind>` | the other yard runs a yardr from before that kind: it is upgraded there, and no `peer allow` helps. `yardr peer show north` says what it understands ([above](#two-yards-on-different-builds)) |
 | `warning: north has not said what its yardr understands …`, on `peer allow --send` | nothing has come from it yet, or it runs an older yardr. The kind is allowed all the same; `yardr peer show north` after a ping says which |
-| `resident yardmaster may not mail residents of north` | the operator: `yardr resident set yardmaster peers=north` |
+| `crew member yardmaster may not mail crew members of north` | the operator: `yardr crew set yardmaster peers=north` |
 | `peer_message_refused` with `reason=no_intake` | the peer's beads have nowhere to go: `yardr peer intake <name> --rig <rig> --flow <flow>`. With `detail`, the intake names a rig or a flow that is gone |
-| `bead … arrived held from the yard north … this is the resident yardmaster, which is not` | a user releases it (`yardr bead unhold`), or the operator lets that resident: `yardr resident set yardmaster release=north` |
+| `bead … arrived held from the yard north … this is the crew member yardmaster, which is not` | a user releases it (`yardr bead unhold`), or the operator lets that crew member: `yardr crew set yardmaster release=north` |
 | `refused by the peer: its link sends this yard no beads, so it takes no return of one` | the other yard removed `--send bead` after it sent the bead: nothing there waits for the return |
 | `peer nroth: not found: the yard that was nroth here until … is north now` | the link was [renamed](#renaming-a-link): write to `<name>@north` |
-| `mail from yard: your mail to … was not delivered: …` | the other yard refused it, or it was given up; the reason follows ([above](#mail-between-residents)) |
+| `mail from yard: your mail to … was not delivered: …` | the other yard refused it, or it was given up; the reason follows ([above](#mail-between-crew-members)) |
 | the ping waits to be asked for | the peer has no URL here, so its daemon must run and it must have this yard's URL |

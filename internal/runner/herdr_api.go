@@ -14,7 +14,7 @@ import (
 )
 
 // call sends one request to herdr's API socket and returns its result.
-// Start and StartResident use it for what carries a pane's environment
+// Start and StartCrew use it for what carries a pane's environment
 // (tab.create, workspace.create): the values travel in the request body on
 // the socket, which only this user can open, instead of as --env arguments
 // of the herdr CLI, where ps showed them (an env_file's tokens among them)

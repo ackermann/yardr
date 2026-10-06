@@ -288,7 +288,7 @@ func TestTokenDedupesOnDeliveryIDOnly(t *testing.T) {
 	}
 }
 
-// An issue update re-sends the whole description; a resident it already
+// An issue update re-sends the whole description; a crew member it already
 // mentioned is not told again, one newly mentioned is.
 func TestIssueUpdateDeliversOnlyNewMentions(t *testing.T) {
 	r := newRig(t)
@@ -297,7 +297,7 @@ func TestIssueUpdateDeliversOnlyNewMentions(t *testing.T) {
 		"yardmaster": {ID: "4d3a2b1c-0000-4000-8000-00000000mayr", Key: "yardmaster"},
 		"jane":       {ID: "jane-id", Key: "jane.doe"},
 	} {
-		if _, err := r.st.PutResident(ctx, store.Resident{Name: name}, "me"); err != nil {
+		if _, err := r.st.PutCrew(ctx, store.CrewMember{Name: name}, "me"); err != nil {
 			t.Fatal(err)
 		}
 		if err := r.st.SetIdentity(ctx, name, "linear", id, "me"); err != nil {
@@ -359,13 +359,13 @@ func TestIssueUpdateDeliversOnlyNewMentions(t *testing.T) {
 }
 
 // A comment's edit re-sends its body whole, as an issue update does the
-// description: a resident the comment already mentioned is not told
+// description: a crew member the comment already mentioned is not told
 // again, one newly mentioned is, and a removed comment is forgotten.
 func TestCommentEditDeliversOnlyNewMentions(t *testing.T) {
 	r := newRig(t)
 	ctx := context.Background()
 	for name, id := range map[string]store.Identity{"yardmaster": {ID: "u-yardmaster", Key: "yardmaster"}, "jane": {ID: "u-jane", Key: "jane.doe"}} {
-		if _, err := r.st.PutResident(ctx, store.Resident{Name: name}, "me"); err != nil {
+		if _, err := r.st.PutCrew(ctx, store.CrewMember{Name: name}, "me"); err != nil {
 			t.Fatal(err)
 		}
 		if err := r.st.SetIdentity(ctx, name, "linear", id, "me"); err != nil {
@@ -679,13 +679,13 @@ func TestTextIsTruncated(t *testing.T) {
 	}
 }
 
-// A Linear comment reaches a subscribed resident's inbox with its reason:
+// A Linear comment reaches a subscribed crew member's inbox with its reason:
 // by profile key from markdown (a profile URL or a plain @key), by user id
 // from bodyData.
 func TestLinearMentionReachesInbox(t *testing.T) {
 	r := newRig(t)
 	ctx := context.Background()
-	if _, err := r.st.PutResident(ctx, store.Resident{Name: "yardmaster"}, "me"); err != nil {
+	if _, err := r.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.st.SetIdentity(ctx, "yardmaster", "linear",
@@ -715,7 +715,7 @@ func TestLinearMentionReachesInbox(t *testing.T) {
 	}
 }
 
-// An issue handed to a resident as its delegate (Linear's field for the
+// An issue handed to a crew member as its delegate (Linear's field for the
 // agent; the assignee stays the person) reaches it under involved as one
 // assigned to it does: when it is created that way, and when the delegate
 // is set later, each once, a redelivery included. One delegated to someone
@@ -726,7 +726,7 @@ func TestLinearDelegateReachesInbox(t *testing.T) {
 		t.Helper()
 		r := newRig(t)
 		ctx := context.Background()
-		if _, err := r.st.PutResident(ctx, store.Resident{Name: "yardmaster"}, "me"); err != nil {
+		if _, err := r.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster"}, "me"); err != nil {
 			t.Fatal(err)
 		}
 		if err := r.st.SetIdentity(ctx, "yardmaster", "linear", store.Identity{ID: yardmaster, Key: "yardmaster"}, "me"); err != nil {

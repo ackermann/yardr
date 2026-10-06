@@ -50,7 +50,7 @@ groups:
   builders: { agent: roles/builder.md, limit: 2 }
   refinery: { run: scripts/land }
   people:   { people: true }
-residents:
+crew:
   yardmaster:
     role: roles/yardmaster.md
     hears:
@@ -70,7 +70,7 @@ func TestStarterPackLoads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Name != "starter" || len(p.Flows) != 1 || len(p.Groups) != 5 || len(p.Residents) != 1 {
+	if p.Name != "starter" || len(p.Flows) != 1 || len(p.Groups) != 5 || len(p.Crew) != 1 {
 		t.Fatalf("starter = %+v", p)
 	}
 	f := p.Flows[0]
@@ -98,7 +98,7 @@ func TestStarterPackLoads(t *testing.T) {
 			t.Errorf("stage %s names the stage file %q, want %q", s.Name, s.File, want)
 		}
 	}
-	m := p.Residents[0]
+	m := p.Crew[0]
 	if m.Name != "yardmaster" || m.Role != "roles/yardmaster.md" || !m.Done || !reflect.DeepEqual(m.Stages, []string{"decide"}) ||
 		!reflect.DeepEqual(m.Subscribe, []pack.Source{{Name: "linear", Scope: "involved"}}) || len(m.Events) != 16 {
 		t.Fatalf("yardmaster = %+v", m)
@@ -176,12 +176,12 @@ func TestStrictness(t *testing.T) {
 		{name: "unknown top-level key", old: "groups:", new: "model: opus\ngroups:", key: "model", msg: "unknown key", line: 9},
 		{name: "unknown stage key", old: "merged: { end: true }", new: "merged: { end: true, colour: red }", key: "flows.default.stages.merged.colour", msg: "unknown key", line: 8},
 		{name: "unknown group key", old: "limit: 2", new: "limit: 2, model: opus", key: "groups.builders.model", msg: "unknown key", line: 10},
-		{name: "unknown resident key", old: "    role: roles/yardmaster.md", new: "    role: roles/yardmaster.md\n    identity: x", key: "residents.yardmaster.identity", msg: "unknown key", line: 16},
+		{name: "unknown crew member key", old: "    role: roles/yardmaster.md", new: "    role: roles/yardmaster.md\n    identity: x", key: "crew.yardmaster.identity", msg: "unknown key", line: 16},
 		// The sketch's own mistake: "on" for outcomes and for what a
-		// resident hears.
+		// crew member hears.
 		{name: "boolean key on", old: "outcomes: { done: merged }", new: "on: { done: merged }", key: "flows.default.stages.review.on", msg: "reads the bare key on as a boolean", line: 6},
 		{name: "boolean key yes as an outcome", old: "outcomes: { done: merged }", new: "outcomes: { yes: merged }", key: "flows.default.stages.review.outcomes.yes", msg: "as a boolean", line: 6},
-		{name: "boolean key true", old: "    hears:", new: "    true:", key: "residents.yardmaster.true", msg: "as a boolean", line: 16},
+		{name: "boolean key true", old: "    hears:", new: "    true:", key: "crew.yardmaster.true", msg: "as a boolean", line: 16},
 		{name: "boolean word as a stage", old: "manual: [new]", new: "manual: [no]", key: "flows.default.stages.decide.manual", msg: "reads the bare word no as a boolean", line: 7},
 		{name: "yes is not true", old: "end: true", new: "end: yes", key: "flows.default.stages.merged.end", msg: "want true or false", line: 8},
 		{name: "undeclared group", old: "group: refinery", new: "group: refiners", key: "flows.default.stages.review.group", msg: "no group refiners is declared", line: 6},
@@ -194,7 +194,7 @@ func TestStrictness(t *testing.T) {
 		{name: "people false is no kind", old: "people:   { people: true }", new: "people:   { people: false }", key: "groups.people", msg: "this one has none", line: 12},
 		{name: "limit below one", old: "limit: 2", new: "limit: 0", key: "groups.builders.limit", msg: "1 or more", line: 10},
 		{name: "missing role", files: map[string]string{"roles/builder.md": ""}, key: "groups.builders.agent", msg: "role roles/builder.md is missing", line: 10},
-		{name: "missing resident role", files: map[string]string{"roles/yardmaster.md": ""}, key: "residents.yardmaster.role", msg: "role roles/yardmaster.md is missing", line: 15},
+		{name: "missing crew member role", files: map[string]string{"roles/yardmaster.md": ""}, key: "crew.yardmaster.role", msg: "role roles/yardmaster.md is missing", line: 15},
 		{name: "missing script", files: map[string]string{"scripts/land": ""}, key: "groups.refinery.run", msg: "script scripts/land is missing", line: 11},
 		{name: "absolute path", old: "agent: roles/builder.md", new: "agent: /etc/passwd", key: "groups.builders.agent", msg: "relative to its directory, not absolute", line: 10},
 		{name: "path leaving the pack", old: "agent: roles/builder.md", new: "agent: roles/../../builder.md", key: "groups.builders.agent", msg: "leaves the pack's directory", line: 10},
@@ -202,11 +202,11 @@ func TestStrictness(t *testing.T) {
 		{name: "empty stage file", old: "review: { group: refinery,", new: "review: { group: refinery, file: flows/review.md,", files: map[string]string{"flows/review.md": " \n"}, key: "flows.default.stages.review.file", msg: "stage file flows/review.md is empty", line: 6},
 		{name: "stage file outside the pack", old: "review: { group: refinery,", new: "review: { group: refinery, file: ../review.md,", key: "flows.default.stages.review.file", msg: "leaves the pack's directory", line: 6},
 		{name: "stage file of an end stage", old: "merged: { end: true }", new: "merged: { end: true, file: roles/yardmaster.md }", key: "flows.default.stages.merged", msg: "so it has no file", line: 8},
-		{name: "stage no flow has", old: "stages: [decide]", new: "stages: [triage]", key: "residents.yardmaster.hears.stages", msg: "no flow of this pack has a stage triage", line: 18},
-		{name: "source without an adapter", old: "linear: involved", new: "slack: involved", key: "residents.yardmaster.subscribe.slack", msg: "no adapter for source slack", line: 21},
-		{name: "unknown scope", old: "linear: involved", new: "linear: everything", key: "residents.yardmaster.subscribe.linear", msg: "one of involved, mentions, all", line: 21},
-		{name: "a source no thread can be opened in", old: "    role: roles/yardmaster.md", new: "    role: roles/yardmaster.md\n    open_threads: [linear, token]", key: "residents.yardmaster.open_threads", msg: "yardr cannot open threads in token (it can in github, linear)", line: 16},
-		{name: "open_threads is a list", old: "    role: roles/yardmaster.md", new: "    role: roles/yardmaster.md\n    open_threads: linear", key: "residents.yardmaster.open_threads", msg: "want a list", line: 16},
+		{name: "stage no flow has", old: "stages: [decide]", new: "stages: [triage]", key: "crew.yardmaster.hears.stages", msg: "no flow of this pack has a stage triage", line: 18},
+		{name: "source without an adapter", old: "linear: involved", new: "slack: involved", key: "crew.yardmaster.subscribe.slack", msg: "no adapter for source slack", line: 21},
+		{name: "unknown scope", old: "linear: involved", new: "linear: everything", key: "crew.yardmaster.subscribe.linear", msg: "one of involved, mentions, all", line: 21},
+		{name: "a source no thread can be opened in", old: "    role: roles/yardmaster.md", new: "    role: roles/yardmaster.md\n    open_threads: [linear, token]", key: "crew.yardmaster.open_threads", msg: "yardr cannot open threads in token (it can in github, linear)", line: 16},
+		{name: "open_threads is a list", old: "    role: roles/yardmaster.md", new: "    role: roles/yardmaster.md\n    open_threads: linear", key: "crew.yardmaster.open_threads", msg: "want a list", line: 16},
 		{name: "key given twice", old: "groups:\n", new: "groups:\n  people: { people: true }\n", key: "groups.people", msg: "given twice", line: 13},
 		{name: "no name", old: "name: small\n", new: "", key: "name", msg: "missing", line: 1},
 	}
@@ -380,7 +380,7 @@ func TestStageFileIsRead(t *testing.T) {
 	}
 }
 
-// A role or stage file may name the operator and the pack's residents in
+// A role or stage file may name the operator and the pack's crew in
 // double braces, and nothing else: an import fills those, so any other
 // placeholder would reach an agent as written. Each is named by file and
 // line. A script is copied as it is, so its braces are its own.
@@ -403,9 +403,9 @@ func TestUnknownPlaceholderIsRefused(t *testing.T) {
 		t.Fatalf("Load = %v, want three errors", err)
 	}
 	for i, want := range []pack.Error{
-		{File: filepath.Join(dir, "roles", "builder.md"), Line: 2, Msg: "placeholder {{lead}}: an import fills {{operator}}, {{yardmaster}} (the operator and the pack's residents) and nothing else"},
-		{File: filepath.Join(dir, "roles", "builder.md"), Line: 2, Msg: "placeholder {{ operator }}: an import fills {{operator}}, {{yardmaster}} (the operator and the pack's residents) and nothing else"},
-		{File: filepath.Join(dir, "flows", "new.md"), Line: 3, Msg: "placeholder {{boss}}: an import fills {{operator}}, {{yardmaster}} (the operator and the pack's residents) and nothing else"},
+		{File: filepath.Join(dir, "roles", "builder.md"), Line: 2, Msg: "placeholder {{lead}}: an import fills {{operator}}, {{yardmaster}} (the operator and the pack's crew) and nothing else"},
+		{File: filepath.Join(dir, "roles", "builder.md"), Line: 2, Msg: "placeholder {{ operator }}: an import fills {{operator}}, {{yardmaster}} (the operator and the pack's crew) and nothing else"},
+		{File: filepath.Join(dir, "flows", "new.md"), Line: 3, Msg: "placeholder {{boss}}: an import fills {{operator}}, {{yardmaster}} (the operator and the pack's crew) and nothing else"},
 	} {
 		if errs[i] != want {
 			t.Errorf("error %d = %+v\nwant      %+v", i, errs[i], want)
@@ -417,7 +417,7 @@ func TestUnknownPlaceholderIsRefused(t *testing.T) {
 }
 
 // The starter uses the placeholders it may: its roles name the operator and
-// its resident, which is what an import fills.
+// its crew member, which is what an import fills.
 func TestStarterNamesItsPlaceholders(t *testing.T) {
 	p, err := pack.Load(starter)
 	if err != nil {

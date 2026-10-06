@@ -15,7 +15,7 @@ backlog ──yardmaster shapes──▶ new ──builder──▶ review ─�
 ## 1. Backlog: the yardmaster shapes the bead
 
 New ideas land in stage `backlog`, routed to the manual group `backlog`. The
-yardmaster (see [residents.md](residents.md), prompt this repo's
+yardmaster (see [crew.md](crew.md), prompt this repo's
 `.yardr/roles/yardmaster.md`) reads them and shapes each one until a builder
 could finish it without asking: a goal, where to look, what "done" means and
 how to test it. Large beads are split, and `yardr dep add` orders them: a bead
@@ -96,9 +96,9 @@ move was checked as: the pane's, else the one `YARDR_SESSION` names):
 
 It is on the bead the move named, or on the session's own for `not_found`,
 and at most once per bead, session and reason, so an agent that retries
-says it once. A person's or a resident's refused command logs nothing (they
+says it once. A person's or a crew member's refused command logs nothing (they
 are in no session and read the error where they typed it), nor does a
-manual group's claim. It is in a new resident's default `--on`, so the
+manual group's claim. It is in a new crew member's default `--on`, so the
 yardmaster hears it; `yardr inbox` leads its row with `reason`, `command` and
 `error`.
 
@@ -763,7 +763,7 @@ is held, and is read when it is un-held.
    body), train in `review`, `approved`, `in-pr` or `land` (with no session):
    the review goes into a note and the train to `open`, where the yardmaster
    files the fix as a child. Comments (`issue_comment`) are not the daemon's:
-   a resident subscribed to github with `--scope mentions` gets them.
+   a crew member subscribed to github with `--scope mentions` gets them.
 
 For `ci_red`, the head commit is the one the last `pull_request` event
 (opened, synchronize, ...) or review for the train carried, kept in the

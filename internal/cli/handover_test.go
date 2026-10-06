@@ -16,7 +16,7 @@ import (
 )
 
 // stubChat stands in for the chat's view, which needs a terminal: it
-// records each view opened, as "<selected>, expecting <resident>".
+// records each view opened, as "<selected>, expecting <crew member>".
 func stubChat(t *testing.T) *[]string {
 	t.Helper()
 	var opened []string
@@ -73,9 +73,9 @@ func TestInitStartEndsInTheChatInATerminalOnly(t *testing.T) {
 		t.Fatalf("--json: start = %+v, %v", res.Start, err)
 	}
 	wantText(t, start("--no-chat"), names)
-	t.Setenv("YARDR_RESIDENT", "yardmaster")
+	t.Setenv("YARDR_CREW", "yardmaster")
 	wantText(t, start(), names)
-	t.Setenv("YARDR_RESIDENT", "")
+	t.Setenv("YARDR_CREW", "")
 	if len(*chats) != 0 {
 		t.Fatalf("a chat opened with --json, --no-chat or in an agent's pane: %v", *chats)
 	}
@@ -99,7 +99,7 @@ func TestOnboardingWithoutAYardmasterSaysWhatDoctorSays(t *testing.T) {
 	st := storetest.New(t)
 	stub(t, &spawnDaemon, func(*config.Config) (<-chan error, error) {
 		for range store.MaxStartFails {
-			if err := st.ResidentStartFailed(context.Background(), "yardmaster", "claude: not logged in", time.Minute); err != nil {
+			if err := st.CrewStartFailed(context.Background(), "yardmaster", "claude: not logged in", time.Minute); err != nil {
 				t.Error(err)
 			}
 		}
@@ -111,7 +111,7 @@ func TestOnboardingWithoutAYardmasterSaysWhatDoctorSays(t *testing.T) {
 	}
 	wantText(t, out, "yardmaster could not be started: the daemon gave up after",
 		"`yardr --home "+home+" doctor` says of it:",
-		"  FAULT  yardmaster  yardmaster is not running: the daemon gave up after", "the last with: claude: not logged in. Once that is fixed: yardr --home "+home+" resident start yardmaster",
+		"  FAULT  yardmaster  yardmaster is not running: the daemon gave up after", "the last with: claude: not logged in. Once that is fixed: yardr --home "+home+" crew start yardmaster",
 		"Once that is set right, run yardr --home "+home+" in this terminal again")
 	doc, _ := run(t, (&app{st: st}).rootCmd(), "doctor")
 	for _, l := range strings.Split(doc, "\n") {
@@ -160,7 +160,7 @@ func TestHandOverAsSomeoneWhoIsNoUser(t *testing.T) {
 	home, st, _ := setupYard(t, f)
 	focused := stubFocus(t)
 	chats := stubChat(t)
-	if err := st.ResidentStarted(context.Background(), "yardmaster", yardmasterHandle()); err != nil {
+	if err := st.CrewStarted(context.Background(), "yardmaster", yardmasterHandle()); err != nil {
 		t.Fatal(err)
 	}
 	stubPane(t, answeredPane)
@@ -177,7 +177,7 @@ func TestHandOverReportsAViewThatFails(t *testing.T) {
 	f := &former{answers: map[string]any{"name": "web"}, goes: []string{goYardmaster}}
 	_, st, _ := setupYard(t, f)
 	mustAs(t, st, "Jo", "user", "add", "me")
-	if err := st.ResidentStarted(context.Background(), "yardmaster", yardmasterHandle()); err != nil {
+	if err := st.CrewStarted(context.Background(), "yardmaster", yardmasterHandle()); err != nil {
 		t.Fatal(err)
 	}
 	stubPane(t, answeredPane)

@@ -30,7 +30,7 @@ func must(t *testing.T, err error) {
 	}
 }
 
-// landing gives the yard a rig with a flow, a resident with a journal, and
+// landing gives the yard a rig with a flow, a crew member with a journal, and
 // one bead that goes the whole way: created, held with a reason, unheld,
 // moved with an outcome, landed with a commit. It returns the bead.
 func landing(t *testing.T, st store.API) *store.Bead {
@@ -43,7 +43,7 @@ func landing(t *testing.T, st store.API) *store.Bead {
 	_, err = st.PutFlow(ctx, *fl, "me")
 	must(t, err)
 	must(t, st.SetFlowPointer(ctx, "line", "", "code", "me"))
-	_, err = st.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me")
+	_, err = st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me")
 	must(t, err)
 	b, err := st.CreateBead(ctx, store.NewBead{Title: "a door", Stage: "new", Rig: "line"}, "me")
 	must(t, err)
@@ -77,7 +77,7 @@ func homeJSON(t *testing.T, f *fixture, target string) web.Home {
 
 // The feed says each event in the yard's words, newest first: a move with
 // its outcome, a hold with its reason, a landing with its commit. A
-// resident's journal entries are left out.
+// crew member's journal entries are left out.
 func TestFeedWords(t *testing.T) {
 	f := newFixture(t)
 	b := landing(t, f.st)
@@ -182,7 +182,7 @@ func TestFeedOtherWords(t *testing.T) {
 func TestFeedPages(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	_, err := f.st.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me")
+	_, err := f.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me")
 	must(t, err)
 	for i := range 130 {
 		_, err := f.st.CreateBead(ctx, store.NewBead{Title: fmt.Sprint("bead ", i), Stage: "new"}, "me")
@@ -420,7 +420,7 @@ func bead(t *testing.T, st store.API, title string) *store.Bead {
 func TestEventsJSON(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	_, err := f.st.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me")
+	_, err := f.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me")
 	must(t, err)
 	bead(t, f.st, "one")
 	must(t, f.st.Journal(ctx, "yardmaster", store.NoteJournal, "dear diary", "yardmaster"))
@@ -476,7 +476,7 @@ func TestEventsJSON(t *testing.T) {
 func TestEventsHTML(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	_, err := f.st.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me")
+	_, err := f.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me")
 	must(t, err)
 	head, err := f.st.Head(ctx)
 	must(t, err)
@@ -725,7 +725,7 @@ func TestFeedTimers(t *testing.T) {
 	ctx := context.Background()
 	_, err = api.AddUser(ctx, "jo", "me")
 	must(t, err)
-	_, err = api.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me")
+	_, err = api.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me")
 	must(t, err)
 	due := time.Now().Add(time.Hour)
 	_, err = api.AddTimer(ctx, store.NewTimer{Reason: "look at the deploy", Due: due}, "yardmaster")

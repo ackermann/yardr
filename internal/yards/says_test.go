@@ -123,7 +123,7 @@ func TestOlderYardrIsStillHeard(t *testing.T) {
 	ctx := context.Background()
 	both := []string{"ping", "mail"}
 	b.add(t, "old", old, false, both, both)
-	if _, err := b.api.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
+	if _, err := b.api.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	// It said once, on a newer build it has since left.

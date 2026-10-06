@@ -14,7 +14,7 @@ name: starter
 #   file:    the stage file: what the stage is for, what must be true to leave
 #            it and when each outcome applies, shown to whoever works a bead there
 #   outcomes: outcome reported -> next stage
-#   manual:  stages a person or a resident may move the bead to by hand
+#   manual:  stages a person or a crew member may move the bead to by hand
 #   end:     the bead closes here
 flows:
   default:
@@ -36,7 +36,7 @@ groups:
   decisions: { people: true }
 
 # Always-on sessions, by name. None is required; a yard may run without one,
-# with several, or under another name (the import asks which resident of the
+# with several, or under another name (the import asks which crew member of the
 # yard takes each of these).
 #
 #   hears:      what it hears from the yard itself
@@ -50,11 +50,11 @@ groups:
 #               of its own accord (linear, github). A pack only asks: the
 #               import puts the question to the yard's operator, and only for
 #               a source the yard is set up for
-residents:
+crew:
   yardmaster:
     role: roles/yardmaster.md
     hears:
-      events: [gave_up, session_blocked, unrouted, stranded, no_runner, workspace_kept, resident_gave_up, runtime_down, session_idle, session_aged, session_stalled, session_harness_error, session_model_mismatch, session_prompt_gave_up, move_refused, held]
+      events: [gave_up, session_blocked, unrouted, stranded, no_runner, workspace_kept, crew_gave_up, runtime_down, session_idle, session_aged, session_stalled, session_harness_error, session_model_mismatch, session_prompt_gave_up, move_refused, held]
       stages: [decide]
       done: true
     subscribe:
@@ -64,12 +64,12 @@ residents:
 # What an outside source hears of the flows above: when a bead that tracks
 # one of its issues (yardr link) enters a stage, the issue goes to a status.
 #
-#   as:     the resident above the status is set as, with its credential
+#   as:     the crew member above the status is set as, with its credential
 #   hears:  bead type -> stage -> started, review or done. A stage left out
 #           changes nothing, and an issue is only ever moved forward
 #
 # The import sets this on the yard's hook of the source. It makes no hook,
-# and it does not let the resident set a status: the operator grants that
+# and it does not let the crew member set a status: the operator grants that
 # (set_state), and until then nothing is moved.
 sources:
   linear:

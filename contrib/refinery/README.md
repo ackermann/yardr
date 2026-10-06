@@ -102,7 +102,7 @@ Both need `gh`, logged in as the operator, and `jq` on PATH.
 `yard/<bead>`), `YARDR_WORKTREE`, `YARDR_BIN` and `YARDR_HOME` (used for the
 default worktree path); merge-local also `YARDR_TYPE` and `YARDR_TRAIN`.
 Options go in the group's `cmd`: `YARDR_PUSH`, a remote to push to (off when
-empty; pr-train and pr-merge default to `origin`), `YARDR_NOTIFY`, the resident
+empty; pr-train and pr-merge default to `origin`), `YARDR_NOTIFY`, the crew member
 mailed when that push fails (default the yard's `yardmaster` setting, else
 `yardmaster`), and `YARDR_PR=1`, the switch for the pull-request path, read by
 integrate-train, pr-train and pr-merge.

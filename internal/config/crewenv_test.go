@@ -26,25 +26,25 @@ func providerT(t *testing.T, body string) string {
 }
 
 // An env_command's stdout is read as an env_file: its entries are the
-// resident's environment. It is run in the resident's directory, without a
+// crew member's environment. It is run in the crew member's directory, without a
 // shell, told who asks and for which yard, with nothing to read.
-func TestResidentEnvFromCommand(t *testing.T) {
+func TestCrewEnvFromCommand(t *testing.T) {
 	dir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	p := providerT(t, `# as a secrets tool prints them
-echo "# for $YARDR_RESIDENT"
+echo "# for $YARDR_CREW"
 echo
 echo "LINEAR_API_KEY=`+provided+`"
-echo "WHO=$YARDR_RESIDENT $YARD_RESIDENT"
+echo "WHO=$YARDR_CREW $YARD_CREW"
 echo "HOME_OF=$YARDR_HOME"
 echo "PWD_OF=$(pwd -P)"
 echo "ARGS=$#:$1:$2"
 echo "STDIN=$(cat | wc -c | tr -d ' ')"
 echo "noise" >&2`)
 	for name, cmd := range map[string]any{"string": p + " one $HOME", "list": []any{p, "one", "$HOME"}} {
-		env, err := ReadResidentEnv(context.Background(), "yardmaster", dir, "/y", map[string]any{"env_command": cmd})
+		env, err := ReadCrewEnv(context.Background(), "yardmaster", dir, "/y", map[string]any{"env_command": cmd})
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
@@ -59,26 +59,26 @@ echo "noise" >&2`)
 			t.Errorf("%s: %+v", name, env)
 		}
 	}
-	// A resident without a directory is asked for in the yard's home.
-	env, err := ReadResidentEnv(context.Background(), "yardmaster", "", dir, map[string]any{"env_command": p})
+	// A crew member without a directory is asked for in the yard's home.
+	env, err := ReadCrewEnv(context.Background(), "yardmaster", "", dir, map[string]any{"env_command": p})
 	if err != nil || env.Get("PWD_OF") != dir {
 		t.Fatalf("in the home: %v, %v", env, err)
 	}
 	// Neither setting: nothing, and no error.
-	if env, err := ReadResidentEnv(context.Background(), "yardmaster", dir, "/y", map[string]any{}); err != nil || env.Set() || len(env.Env) != 0 {
+	if env, err := ReadCrewEnv(context.Background(), "yardmaster", dir, "/y", map[string]any{}); err != nil || env.Set() || len(env.Env) != 0 {
 		t.Fatalf("no setting: %+v, %v", env, err)
 	}
 }
 
 // With an env_file too both are read, and a key in both has the command's
 // value: once, so the pane's environment and the daemon's lookup agree.
-func TestResidentEnvCommandWinsOverFile(t *testing.T) {
+func TestCrewEnvCommandWinsOverFile(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "yardmaster.env")
 	if err := os.WriteFile(file, []byte("LINEAR_API_KEY=from-the-file\nGITHUB_TOKEN=gh-file\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg := map[string]any{"env_file": file, "env_command": providerT(t, `echo "LINEAR_API_KEY=`+provided+`"; echo OTHER=x`)}
-	env, err := ReadResidentEnv(context.Background(), "yardmaster", "", "", cfg)
+	env, err := ReadCrewEnv(context.Background(), "yardmaster", "", "", cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestResidentEnvCommandWinsOverFile(t *testing.T) {
 	if err := os.Chmod(file, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	env, err = ReadResidentEnv(context.Background(), "yardmaster", "", "", cfg)
+	env, err = ReadCrewEnv(context.Background(), "yardmaster", "", "", cfg)
 	if err == nil || !strings.Contains(err.Error(), "chmod 600") || len(env.Env) != 0 || env.FileErr == nil || env.CommandErr != nil {
 		t.Fatalf("refused file: %+v, %v", env, err)
 	}
@@ -126,7 +126,7 @@ func (d *deadline) Err() error {
 // A provider that is not there, fails, hangs or prints a line that is no
 // KEY=VALUE gives no environment and an error that names the command, how
 // it ended and the end of its stderr: never its stdout, never a value.
-func TestResidentEnvCommandFailures(t *testing.T) {
+func TestCrewEnvCommandFailures(t *testing.T) {
 	// No case waits for the limit, so none is decided by how fast the
 	// machine starts a script: a provider that answers has an hour to, and
 	// the one that hangs says when it does, which is when its time is up.
@@ -168,7 +168,7 @@ func TestResidentEnvCommandFailures(t *testing.T) {
 			}()
 		}
 		start := time.Now()
-		env, err := ReadResidentEnv(ctx, "yardmaster", "", "", map[string]any{"env_command": tc.cmd})
+		env, err := ReadCrewEnv(ctx, "yardmaster", "", "", map[string]any{"env_command": tc.cmd})
 		if err == nil {
 			t.Errorf("%s: no error", name)
 			continue
@@ -195,13 +195,13 @@ func TestResidentEnvCommandFailures(t *testing.T) {
 // EnvCommandTimeout is given up on and said to have been. Whether it had
 // started by then is the machine's affair, so nothing of its stderr is
 // asked for here.
-func TestResidentEnvCommandTimeout(t *testing.T) {
+func TestCrewEnvCommandTimeout(t *testing.T) {
 	old := EnvCommandTimeout
 	EnvCommandTimeout = 50 * time.Millisecond
 	t.Cleanup(func() { EnvCommandTimeout = old })
 	p := providerT(t, `echo "LINEAR_API_KEY=`+provided+`"; sleep 300`)
 	start := time.Now()
-	env, err := ReadResidentEnv(context.Background(), "yardmaster", "", "", map[string]any{"env_command": p})
+	env, err := ReadCrewEnv(context.Background(), "yardmaster", "", "", map[string]any{"env_command": p})
 	if err == nil || !strings.Contains(err.Error(), "env_command "+p+": no answer within 50ms") || strings.Contains(err.Error(), provided) {
 		t.Fatalf("err = %v", err)
 	}
@@ -239,7 +239,7 @@ func TestEnvCommandMissing(t *testing.T) {
 // leaves nothing running. The kill of its group can land while the shell
 // forks, and on macOS the child then outlives it; whether one round lands
 // so is chance, hence the rounds.
-func TestResidentEnvCommandKillsChildForkedAtTheLimit(t *testing.T) {
+func TestCrewEnvCommandKillsChildForkedAtTheLimit(t *testing.T) {
 	old := EnvCommandTimeout
 	EnvCommandTimeout = time.Hour
 	t.Cleanup(func() { EnvCommandTimeout = old })
@@ -260,7 +260,7 @@ func TestResidentEnvCommandKillsChildForkedAtTheLimit(t *testing.T) {
 			}
 			timeUp()
 		}()
-		_, err := ReadResidentEnv(ctx, "yardmaster", "", "", map[string]any{"env_command": p})
+		_, err := ReadCrewEnv(ctx, "yardmaster", "", "", map[string]any{"env_command": p})
 		if err == nil || !strings.Contains(err.Error(), "no answer within 1h0m0s") {
 			t.Fatalf("round %d: err = %v", round, err)
 		}

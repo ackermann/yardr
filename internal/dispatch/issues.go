@@ -16,7 +16,7 @@ import (
 // stage (docs/links.md). The store decides that as the bead's event is
 // logged, and keeps the move (store.IssueMove) until it is made; making it
 // is the daemon's, here, for three reasons. The call needs the credential of
-// the resident the hook acts as, which is in its env_file or comes from its
+// the crew member the hook acts as, which is in its env_file or comes from its
 // env_command: the daemon reads both for the panes it starts, the server
 // holds no one's tokens. The call must be outside the store's write, and the daemon is what already
 // calls a source between passes (GitHub, in github.go and ci.go) and waits
@@ -73,7 +73,7 @@ func (d *Dispatcher) issueMove(ctx context.Context, m store.IssueMove) {
 		skip(store.SkipFailed, fmt.Sprintf("yardr cannot move an issue in %s (it can in %s)", m.Source, strings.Join(hooks.Forwardable(), ", ")), hooks.Forwarded{})
 		return
 	}
-	// The store is asked before the source is: a resident that may not set
+	// The store is asked before the source is: a crew member that may not set
 	// a status there has nothing sent in its name.
 	why, err := d.Store.IssueMoveAllowed(ctx, m.ID)
 	if err != nil {
@@ -142,29 +142,29 @@ func (d *Dispatcher) issueFailed(ctx context.Context, m store.IssueMove, cause e
 	}
 }
 
-// credential is the resident's credential for a source: what its env_file
-// and env_command set for it (config.ReadResidentEnv), the one its own pane
+// credential is the crew member's credential for a source: what its env_file
+// and env_command set for it (config.ReadCrewEnv), the one its own pane
 // would use, asked for again at each move. Nothing else is tried: the
 // daemon's environment, or its gh login, is the operator's.
-func (d *Dispatcher) credential(ctx context.Context, resident, source string, f hooks.Forwarder) (string, error) {
-	r, err := d.Store.GetResident(ctx, resident)
+func (d *Dispatcher) credential(ctx context.Context, member, source string, f hooks.Forwarder) (string, error) {
+	r, err := d.Store.GetCrew(ctx, member)
 	if err != nil {
 		return "", err
 	}
 	names := hooks.CredentialNames(source)
-	env, err := config.ReadResidentEnv(ctx, r.Name, r.Dir, d.Home, r.Config)
+	env, err := config.ReadCrewEnv(ctx, r.Name, r.Dir, d.Home, r.Config)
 	if !env.Set() {
-		return "", fmt.Errorf("resident %s has no env_file or env_command, where its %s is read from", resident, names)
+		return "", fmt.Errorf("crew member %s has no env_file or env_command, where its %s is read from", member, names)
 	}
 	if err != nil {
 		return "", err
 	}
 	cred, err := f.CredentialFrom(env.Get)
 	if missing := (*hooks.MissingCredential)(nil); errors.As(err, &missing) {
-		return "", fmt.Errorf("resident %s's %s does not set %s", resident, env.From(), names)
+		return "", fmt.Errorf("crew member %s's %s does not set %s", member, env.From(), names)
 	}
 	if err != nil {
-		return "", fmt.Errorf("resident %s's %s: %w", resident, env.From(), err)
+		return "", fmt.Errorf("crew member %s's %s: %w", member, env.From(), err)
 	}
 	return cred, nil
 }

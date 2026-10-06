@@ -37,9 +37,9 @@ func TestSettings(t *testing.T) {
 	}
 }
 
-// A yard from before the onboarding (rigs, groups or residents, no
+// A yard from before the onboarding (rigs, groups or crew members, no
 // default_kind) gets default_kind when it is opened, from its first herdr
-// group's kind, else its first herdr resident's, else claude, once, with
+// group's kind, else its first herdr crew member's, else claude, once, with
 // settings_migrated; the operator stays unset. An empty store and one that
 // has the setting are left alone (yard-w6np).
 func TestMigrateSettings(t *testing.T) {
@@ -98,11 +98,11 @@ func TestMigrateSettings(t *testing.T) {
 		{"herdr group", func(s *store.Store) {
 			must(t, s.PutGroup(ctx, store.Group{Name: "a", Runner: "manual", Config: herdr("pi")}))
 			must(t, s.PutGroup(ctx, store.Group{Name: "b", Runner: "herdr", Config: herdr("codex")}))
-			_, err := s.PutResident(ctx, store.Resident{Name: "m", Runner: "herdr", Config: herdr("gemini")}, "me")
+			_, err := s.PutCrew(ctx, store.CrewMember{Name: "m", Runner: "herdr", Config: herdr("gemini")}, "me")
 			must(t, err)
 		}, "codex"},
-		{"herdr resident", func(s *store.Store) {
-			_, err := s.PutResident(ctx, store.Resident{Name: "m", Runner: "herdr", Config: herdr("gemini")}, "me")
+		{"herdr crew member", func(s *store.Store) {
+			_, err := s.PutCrew(ctx, store.CrewMember{Name: "m", Runner: "herdr", Config: herdr("gemini")}, "me")
 			must(t, err)
 		}, "gemini"},
 	} {

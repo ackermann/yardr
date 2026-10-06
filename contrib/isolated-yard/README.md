@@ -46,7 +46,7 @@ too.
 `sources/` is a stand-in for the Linear and GitHub APIs, for testing packs
 and hooks in the yard. With `-github-app-key D/app.pem` it is a GitHub App
 too: it writes a throwaway private key there and gives installation tokens
-for the repositories of `-github-app-repos`, so a resident whose env_file
+for the repositories of `-github-app-repos`, so a crew member whose env_file
 has `GITHUB_APP_ID=12345` and `GITHUB_APP_PRIVATE_KEY_FILE=D/app.pem`
 answers as `yardr[bot]`.
 

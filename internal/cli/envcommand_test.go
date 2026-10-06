@@ -13,12 +13,12 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// A resident whose only credential source is a provider (env_command):
+// A crew member whose only credential source is a provider (env_command):
 // yardr reply, in a pane with the environment a start gives it, answers as
-// the GitHub App the provider names, and resident show says where the
+// the GitHub App the provider names, and crew show says where the
 // environment comes from, with the names and no value. A provider that
 // fails is said there too, with nothing it printed.
-func TestResidentAnswersWithAProvidersCredential(t *testing.T) {
+func TestCrewAnswersWithAProvidersCredential(t *testing.T) {
 	y := newAppYard(t)
 	ctx := context.Background()
 	provider := filepath.Join(t.TempDir(), "provider")
@@ -30,17 +30,17 @@ func TestResidentAnswersWithAProvidersCredential(t *testing.T) {
 		}
 	}
 	body("")
-	def := store.Resident{Name: "yardmaster", Runner: "herdr",
+	def := store.CrewMember{Name: "yardmaster", Runner: "herdr",
 		Config: map[string]any{"env_command": provider + " --env", store.SetState: "github", store.OpenThreads: "github"}}
-	if _, err := y.st.PutResident(ctx, def, "jo"); err != nil {
+	if _, err := y.st.PutCrew(ctx, def, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	// The pane's environment: nothing of newAppYard's, and what the runner
-	// puts there at a start (Herdr.residentEnv reads it with this call;
-	// runner's TestStartResidentLoadsEnvCommand has it reach the pane).
+	// puts there at a start (Herdr.crewEnv reads it with this call;
+	// runner's TestStartCrewLoadsEnvCommand has it reach the pane).
 	t.Setenv("GITHUB_APP_ID", "")
 	t.Setenv("GITHUB_APP_PRIVATE_KEY_FILE", "")
-	env, err := config.ReadResidentEnv(ctx, "yardmaster", "", "", def.Config)
+	env, err := config.ReadCrewEnv(ctx, "yardmaster", "", "", def.Config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,19 +56,19 @@ func TestResidentAnswersWithAProvidersCredential(t *testing.T) {
 		t.Fatalf("calls: %v", got)
 	}
 
-	show, err := run(t, y.a.residentCmd(), "show", "yardmaster")
+	show, err := run(t, y.a.crewCmd(), "show", "yardmaster")
 	if err != nil {
 		t.Fatal(err)
 	}
 	wantText(t, show, "  env_command "+provider+" --env (GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY_FILE)\n",
 		"  github credential: GitHub App (GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY_FILE)\n")
 	if strings.Contains(show, "env_file") {
-		t.Errorf("show names an env_file the resident has not:\n%s", show)
+		t.Errorf("show names an env_file the crew member has not:\n%s", show)
 	}
 	y.clean(t, out, show)
 
 	body("echo GITHUB_TOKEN=gh-pr0vided; echo 'vault is locked' >&2; exit 3")
-	if show, err = run(t, y.a.residentCmd(), "show", "yardmaster"); err != nil {
+	if show, err = run(t, y.a.crewCmd(), "show", "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
 	wantText(t, show, "  env_command "+provider+" --env: env_command "+provider+" --env: exit status 3; its stderr ended: vault is locked\n")
@@ -77,7 +77,7 @@ func TestResidentAnswersWithAProvidersCredential(t *testing.T) {
 	}
 }
 
-// doctor says which resident's env_command names a program it does not
+// doctor says which crew member's env_command names a program it does not
 // find, and runs none to tell.
 func TestDoctorNotesAMissingEnvCommand(t *testing.T) {
 	st := storetest.New(t)
@@ -88,11 +88,11 @@ func TestDoctorNotesAMissingEnvCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, cmd := range map[string]string{"clerk": there, "scribe": "yardr-no-such-provider --env"} {
-		if _, err := st.PutResident(ctx, store.Resident{Name: name, Runner: "herdr", Config: map[string]any{"env_command": cmd}}, "me"); err != nil {
+		if _, err := st.PutCrew(ctx, store.CrewMember{Name: name, Runner: "herdr", Config: map[string]any{"env_command": cmd}}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	rs, err := st.Residents(ctx)
+	rs, err := st.Crew(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestDoctorNotesAMissingEnvCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(state.EnvCommands) != 1 || !strings.Contains(state.EnvCommands[0], "resident scribe does not start without its environment: env_command yardr-no-such-provider --env: ") {
+	if len(state.EnvCommands) != 1 || !strings.Contains(state.EnvCommands[0], "crew member scribe does not start without its environment: env_command yardr-no-such-provider --env: ") {
 		t.Fatalf("notes %q", state.EnvCommands)
 	}
 	if _, err := os.Stat(ran); !errors.Is(err, os.ErrNotExist) {

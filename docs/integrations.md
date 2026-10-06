@@ -8,7 +8,7 @@ write to add a service. It ends with what is missing.
 
 It describes what is built. The other pages go deeper and are linked where
 they do: [subscriptions.md](subscriptions.md), [links.md](links.md),
-[residents.md](residents.md), [packs.md](packs.md),
+[crew.md](crew.md), [packs.md](packs.md),
 [configuration.md](configuration.md).
 
 ## What an integration is
@@ -20,7 +20,7 @@ Two things, kept in two places:
   **source**: `linear`, `github`, `token`. yardr has these three and no way
   to load another.
 - **Settings in the yard**: a hook (the endpoint and its secret), a
-  resident's credential, identity and grants, subscriptions, links, a stage
+  crew member's credential, identity and grants, subscriptions, links, a stage
   map. They live in the store and in files in the yard's home, and are set
   with the commands of [part 2](#how-one-becomes-part-of-a-yard).
 
@@ -94,7 +94,7 @@ the envelope's own two fields. A where key that a source's deliveries never
 carry matches nothing.
 
 The event is the envelope plus `hook` (the hook's name), `deliveries` (the
-residents it reached, each with the reason), `notified` (the users) and
+crew members it reached, each with the reason), `notified` (the users) and
 `new_mentions`.
 
 *What is kept.* The event keeps the envelope, for as long as events are
@@ -128,15 +128,15 @@ lines.
 
 ### Identify
 
-*What for.* To know which resident a delivery is about, and which
-deliveries are the resident's own.
+*What for.* To know which crew member a delivery is about, and which
+deliveries are the crew member's own.
 
 *No interface.* The adapter only fills `actor.id`, `mentions`, `assignee`
-and `delegate`. The store compares them with the identity each resident has
+and `delegate`. The store compares them with the identity each crew member has
 in the source:
 
 ```sh
-yardr resident identity yardmaster --source linear --id <user id> --key <profile key>
+yardr crew identity yardmaster --source linear --id <user id> --key <profile key>
 ```
 
 An identity is an `id`, a `key`, or both. An id matches exactly; a key is a
@@ -147,30 +147,30 @@ wants both. GitHub's reports logins in lowercase, so a GitHub identity is
 `--key <login>`; a GitHub App's is `--key '<slug>[bot]'`, and `@<slug>`
 mentions it.
 
-With that, for each resident subscribed to the source:
+With that, for each crew member subscribed to the source:
 
-- a delivery whose `actor.id` is the resident's identity never reaches it.
-  It makes the resident a **participant** in the delivery's thread;
+- a delivery whose `actor.id` is the crew member's identity never reaches it.
+  It makes the crew member a **participant** in the delivery's thread;
 - **mentioned**: its identity is among the new mentions;
 - **assigned**: it is the `assignee` or the `delegate`;
-- **participant**: it takes part in the thread. A resident takes part in a
+- **participant**: it takes part in the thread. A crew member takes part in a
   thread once it acted there (above), answered there (`yardr reply`),
   opened it (`yardr thread open`) or follows it (`yardr thread follow`).
-  `yardr thread list <resident>` shows them, each with how.
+  `yardr thread list <crew member>` shows them, each with how.
 
 **Involved** is the subscription scope that puts these together:
-`involved` delivers what mentions the resident, what is assigned or
+`involved` delivers what mentions the crew member, what is assigned or
 delegated to it and what happens in a thread it takes part in. `mentions`
 delivers the first only, `all` everything from the source
-([subscriptions.md](subscriptions.md#scopes)). A resident without an
+([subscriptions.md](subscriptions.md#scopes)). A crew member without an
 identity in the source is never mentioned or assigned, and hears its own
 actions as someone else's.
 
 A user ([users.md](users.md)) has no identity in a source: only `--scope
 all` reaches a person.
 
-*Where a user sees it.* `yardr resident identity`, `yardr subscribe`,
-`yardr resident show` (identities and subscriptions), `yardr thread list`,
+*Where a user sees it.* `yardr crew identity`, `yardr subscribe`,
+`yardr crew show` (identities and subscriptions), `yardr thread list`,
 `thread follow`, `thread unfollow`, and the reason on each line of `yardr
 inbox`.
 
@@ -203,7 +203,7 @@ rm`, `yardr bead create --tracks` and `--relates`, `yardr bead show`.
 
 ### Reply, open a thread, set a thread's status
 
-*What for.* A resident speaks in the service as itself: it answers a
+*What for.* A crew member speaks in the service as itself: it answers a
 delivery, starts an issue, moves an issue's status.
 
 *The interfaces.*
@@ -244,20 +244,20 @@ type Stater interface {
   again after a timeout does not post twice.
 
 *What the yard does with it.* The server never speaks and never holds a
-credential. The CLI in the resident's pane makes the call, with what the
-resident's `env_file` or `env_command` put in the pane's environment
-([residents.md](residents.md#outbound-credentials)). Only the resident's
-own session or the operator may speak as a resident. Replying needs no
-grant. Opening a thread needs `open_threads=<source>` on the resident, and
-setting a status needs `set_state=<source>` and a thread the resident takes
-part in; only the operator may grant either. After each, the resident takes
+credential. The CLI in the crew member's pane makes the call, with what the
+crew member's `env_file` or `env_command` put in the pane's environment
+([crew.md](crew.md#outbound-credentials)). Only the crew member's
+own session or the operator may speak as a crew member. Replying needs no
+grant. Opening a thread needs `open_threads=<source>` on the crew member, and
+setting a status needs `set_state=<source>` and a thread the crew member takes
+part in; only the operator may grant either. After each, the crew member takes
 part in the thread and an event lands on its journal (`replied`,
 `thread_opened`, `thread_state`).
 
 *Where a user sees it.* `yardr reply <seq>`, `yardr thread show <seq>`,
 `yardr thread open <source> --in <place>`, `yardr thread state <seq>
-<state>`, `yardr resident set <name> open_threads=… set_state=…`, `yardr
-resident show` ([residents.md](residents.md#speaking-in-sources)).
+<state>`, `yardr crew set <name> open_threads=… set_state=…`, `yardr
+crew show` ([crew.md](crew.md#speaking-in-sources)).
 
 ### Move
 
@@ -278,37 +278,37 @@ type Forwarder interface {
 
 - `IssueThread` names the issue for `Forward` from its fixed URL, since a
   link made from a URL has no thread id.
-- `CredentialFrom` is `Credential` for a caller that is not the resident's
-  pane: it reads the names from what the resident's `env_file` sets.
+- `CredentialFrom` is `Credential` for a caller that is not the crew member's
+  pane: it reads the names from what the crew member's `env_file` sets.
 - `Places` says whether the source has a status for a state at all, so a
   map that names one it lacks is refused when it is written (`review` on
   GitHub).
 - `Forward` is `SetState` that only moves an issue further than it stands.
 
 *What the yard does with it.* A hook carries a map from `<bead
-type>:<stage>` to a state and the resident it acts as. `yardr hook list`
+type>:<stage>` to a state and the crew member it acts as. `yardr hook list`
 shows it in its `MOVES ISSUES` column. When a bead with a `tracks` link to
 an issue of the hook's source enters a mapped stage, the move is written
 with the bead's event and made by the daemon afterwards, with the
-credential in that resident's `env_file`, and only when the resident has
+credential in that crew member's `env_file`, and only when the crew member has
 `set_state` for the source. It is retried when the service fails, and ends
 in a `thread_state` or `thread_state_skipped` event on the bead
 ([links.md](links.md#a-beads-stage-moves-the-issue)).
 
-*Where a user sees it.* `yardr hook add --as <resident> --map
+*Where a user sees it.* `yardr hook add --as <crew member> --map
 <type>:<stage>=<state>`, `yardr hook list`, `yardr hook show <name>` (the
 map and the moves still to make), `yardr events --bead <id>`.
 
 ### What is not there
 
-Telling a user outside the yard. A resident is nudged in its pane; a person
+Telling a user outside the yard. A crew member is nudged in its pane; a person
 sees mail and notifications only when they look (`yardr inbox`, `yardr
 chat`). No adapter has a method that carries a notification to a person in
 the service, on the desktop or in a chat (*planned, yardr-1481*).
 
 ## How one becomes part of a yard
 
-The steps as they are today, with Linear, for a resident called `yardmaster`.
+The steps as they are today, with Linear, for a crew member called `yardmaster`.
 "Anyone" is anyone who runs yardr on the yard's home; "the operator" is the
 yard's `operator` setting, else the user running the command.
 
@@ -351,7 +351,7 @@ yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret
 A file open to others is refused (`… is open to others (mode 0644); chmod
 600 it`). The file is read on every delivery, so rotating the secret is
 rewriting the file ([subscriptions.md](subscriptions.md#the-secret-file)).
-One hook serves every resident.
+One hook serves every crew member.
 
 *(in Linear)* Settings → API → Webhooks: the URL
 `https://<public host>/hooks/linear`, the events Issues and Comments. Its
@@ -360,38 +360,38 @@ signing secret is what goes in the file.
 Check: `yardr hook list` shows the hook with STATE `ok`, and `-` under LAST
 ACCEPTED until a delivery came.
 
-### 3. The resident's credential
+### 3. The crew member's credential
 
-*Anyone, for the file; the token is made in Linear.* What the resident
+*Anyone, for the file; the token is made in Linear.* What the crew member
 speaks with goes in an env file of its own, never in the store:
 
 ```sh
-echo 'LINEAR_API_KEY=<token>' > ~/.yardr/residents/yardmaster.env
-chmod 600 ~/.yardr/residents/yardmaster.env
-yardr resident set yardmaster env_file=~/.yardr/residents/yardmaster.env
-yardr resident show yardmaster
-#   env_file …/residents/yardmaster.env (LINEAR_API_KEY)
+echo 'LINEAR_API_KEY=<token>' > ~/.yardr/crew/yardmaster.env
+chmod 600 ~/.yardr/crew/yardmaster.env
+yardr crew set yardmaster env_file=~/.yardr/crew/yardmaster.env
+yardr crew show yardmaster
+#   env_file …/crew/yardmaster.env (LINEAR_API_KEY)
 #   linear credential: API key (LINEAR_API_KEY)
 ```
 
 `env_command` names a command that prints the environment in place of a
-file ([residents.md](residents.md#secrets-from-a-provider)). The file is
-read when the resident starts: `yardr resident restart yardmaster` after a
+file ([crew.md](crew.md#secrets-from-a-provider)). The file is
+read when the crew member starts: `yardr crew restart yardmaster` after a
 change.
 
 *(in Linear)* The token is that of a Linear OAuth application made for the
-resident, so the resident acts as the application's own user and not as a
+crew member, so the crew member acts as the application's own user and not as a
 person ([subscriptions.md](subscriptions.md#setting-up-linear)).
 
-Nothing checks the token against Linear at this step: `resident show`
+Nothing checks the token against Linear at this step: `crew show`
 reads the names in the file, not whether the service takes the value.
 
-### 4. The resident's identity
+### 4. The crew member's identity
 
 *Anyone.* The id and the profile key of the user the token acts as:
 
 ```sh
-yardr resident identity yardmaster --source linear --id <user id> --key <profile key>
+yardr crew identity yardmaster --source linear --id <user id> --key <profile key>
 # SOURCE  ID                                    KEY
 # linear  11111111-2222-4333-8444-555555555555  yardr
 ```
@@ -405,7 +405,7 @@ service who a token is.
 their status do, and the stage map of step 7 needs `set_state`:
 
 ```sh
-yardr resident set yardmaster open_threads=linear set_state=linear
+yardr crew set yardmaster open_threads=linear set_state=linear
 #   open_threads: (not set) -> linear
 #   set_state: (not set) -> linear
 ```
@@ -415,7 +415,7 @@ threads in linear; this is mckean`.
 
 ### 6. Subscriptions
 
-*Anyone, for a resident.* What of the source reaches the resident's inbox:
+*Anyone, for a crew member.* What of the source reaches the crew member's inbox:
 
 ```sh
 yardr subscribe yardmaster linear --scope involved      # mentions, what is assigned or delegated to it, its threads
@@ -431,8 +431,8 @@ source's is refused.
 
 ### 7. The stage map
 
-*The operator, or the resident's own session.* Which stage means which
-status is set on the hook, with the resident the yard acts as. `hook add`
+*The operator, or the crew member's own session.* Which stage means which
+status is set on the hook, with the crew member the yard acts as. `hook add`
 replaces the definition, so the source and the secret file are given again:
 
 ```sh
@@ -449,7 +449,7 @@ yardr hook show linear
 #   map task:review=review
 ```
 
-The resident must have an identity in the source (step 4), and nothing is
+The crew member must have an identity in the source (step 4), and nothing is
 moved without `set_state` (step 5). The daemon makes the calls, so it must
 run.
 
@@ -475,7 +475,7 @@ curl -s -X POST http://127.0.0.1:65207/hooks/linear \
     16 10-06 11:00:27  -        hook           hook:linear  action=create actor={id=aacdca22-6266-4c0a-ab3c-8fa70a26765c name=Jane Doe} deliveries={yardmaster=all} delivery=52C4DEDF-79AF-41ED-82C4-B38CBB085A37 entity=539068e2-ae88-4d09-bd75-22eb4a59612f fields={label=[ui] team=[YRD Yardr]} hook=linear mentions=[] new_mentions=[] source=linear text=The bead page should list the issue it tracks. thread={id=539068e2-ae88-4d09-bd75-22eb4a59612f title=Web view shows links url=https://linear.app/acme/issue/YRD-1/web-view-shows-links} type=issue url=https://linear.app/acme/issue/YRD-1/web-view-shows-links
 ```
 
-and the resident's inbox has it as a line (`yardr inbox --resident yardmaster`):
+and the crew member's inbox has it as a line (`yardr inbox --crew yardmaster`):
 
 ```
     16 10-06 11:00  hook (all) linear issue create by Jane Doe on "Web view shows links": The bead page should list the issue it tracks.  https://linear.app/acme/issue/YRD-1/web-view-shows-links
@@ -495,7 +495,7 @@ raw body.
 
 ### 9. The yardmaster answers, and a merged bead closes the issue
 
-*The resident's own session, or the operator, for the answer; anyone for
+*The crew member's own session, or the operator, for the answer; anyone for
 the bead and the link.*
 
 ```sh
@@ -507,10 +507,10 @@ yardr thread show 16                                      # (in Linear) the issu
 yardr reply 16 "Filed as work-h6ef; I will post here when it lands."   # (in Linear)
 ```
 
-The last two call Linear with the credential of step 3, from the resident's
-pane; the operator runs `yardr reply` with `--resident yardmaster` and the
+The last two call Linear with the credential of step 3, from the crew member's
+pane; the operator runs `yardr reply` with `--crew yardmaster` and the
 credential in the command's environment. From anyone else:
-`reply --resident yardmaster: only yardmaster's own session or the operator (jo) may speak as yardmaster; this is mckean`.
+`reply --crew yardmaster: only yardmaster's own session or the operator (jo) may speak as yardmaster; this is mckean`.
 The stand-in does not know comments, so the post itself was not made there.
 
 The link is the issue's fixed form, without the title the delivery's URL
@@ -520,8 +520,8 @@ later stage does as the map says:
 ```sh
 yardr bead advance work-h6ef --to merged
 yardr events --bead work-h6ef
-#   21 … work-h6ef thread_state  hook:linear  cause=18 hook=linear resident=yardmaster source=linear stage=new state=started status=In Progress … was=Todo
-#   24 … work-h6ef thread_state  hook:linear  cause=23 hook=linear resident=yardmaster source=linear stage=merged state=done status=Done … was=In Progress
+#   21 … work-h6ef thread_state  hook:linear  cause=18 hook=linear crew=yardmaster source=linear stage=new state=started status=In Progress … was=Todo
+#   24 … work-h6ef thread_state  hook:linear  cause=23 hook=linear crew=yardmaster source=linear stage=merged state=done status=Done … was=In Progress
 ```
 
 In a yard with a flow the bead reaches `merged` through review and the
@@ -540,13 +540,13 @@ The same steps, with these differences:
   the body>` and names its event in `X-GitHub-Event`; no timestamp is
   signed, so a test delivery needs none.
 - **A GitHub App** does both sides at once: its one webhook delivers every
-  repository it is installed on, and the resident answers as the App's bot.
+  repository it is installed on, and the crew member answers as the App's bot.
   Its credential is two lines in the `env_file`, `GITHUB_APP_ID` and
   `GITHUB_APP_PRIVATE_KEY_FILE`, in place of `GITHUB_TOKEN`. yardr signs a
   short-lived token with the key for each repository it calls
   ([subscriptions.md](subscriptions.md#as-a-github-app),
-  [residents.md](residents.md#as-a-github-app)).
-- **The identity** is a key only: the login in lowercase, `yardr resident
+  [crew.md](crew.md#as-a-github-app)).
+- **The identity** is a key only: the login in lowercase, `yardr crew
   identity yardmaster --source github --key <login>`; for an App `--key
   '<slug>[bot]'`.
 - **The states.** An issue is open or closed, so a map may say `started`
@@ -560,7 +560,7 @@ The same steps, with these differences:
 - **A thread** is `<owner>/<repo>#<number>`, and `yardr thread open github
   --in <owner>/<repo>` names a repository where Linear names a team.
 
-A signed GitHub comment that mentions the resident's login, sent to the
+A signed GitHub comment that mentions the crew member's login, sent to the
 isolated yard, was recorded as
 
 ```
@@ -574,8 +574,8 @@ isolated yard, was recorded as
 | the listener | `yardr doctor`: `hooks: the server takes webhooks on <addr> (…)`, or why it does not ([doctor.md](doctor.md)) |
 | the hook and its secret file | `yardr hook list`: STATE `ok` or `blocked: <reason>` |
 | the service reaches the yard | `yardr hook list`: LAST ACCEPTED and LAST REFUSED; `yardr events` for `hook` and `hook_rejected`; doctor notes a hook whose last delivery was refused |
-| the credential's names | `yardr resident show <name>`: `<source> credential: …`. Whether the service takes it shows at the first `yardr thread show <seq>` |
-| identity, grants, subscriptions | `yardr resident show <name>` |
+| the credential's names | `yardr crew show <name>`: `<source> credential: …`. Whether the service takes it shows at the first `yardr thread show <seq>` |
+| identity, grants, subscriptions | `yardr crew show <name>` |
 | the stage map | `yardr hook list` (MOVES ISSUES), `yardr hook show <name>` |
 | a pack's view of all of it | `yardr pack check` and `pack apply` print, per source a pack names, what the yard has and lacks: hook, secret file, identity, credential, listener ([packs.md](packs.md#how-a-pack-maps-to-the-yard)) |
 
@@ -599,7 +599,7 @@ delivery of one issue; `entity` wherever the service re-sends a text.
 |---|---|---|
 | `--where` on the source's own fields | `fields` in `Normalize` | the key in `WhereKeys` or a list of the source's own in `internal/store/subscriptions.go` (`whereKeys`), which is what `subscribe` accepts; the help of `yardr subscribe` names the keys by hand |
 | `yardr link` | `IssueHost` and `Issue` (`issue.go` has both sources') | nothing: `LinkSources` finds it |
-| `yardr reply`, `thread show` | `Credential`, `Reply`, `Posted`, `Thread` (`reply.go`) | the names of its credential in `credentialWays` (`reply.go`), which `resident show`, the pack plan and the daemon read |
+| `yardr reply`, `thread show` | `Credential`, `Reply`, `Posted`, `Thread` (`reply.go`) | the names of its credential in `credentialWays` (`reply.go`), which `crew show`, the pack plan and the daemon read |
 | `yardr thread open` | `Place`, `Open`, `Opened` (`open.go`) | nothing |
 | `yardr thread state` | `SetState` (`state.go`): what `started`, `review` and `done` mean there | nothing |
 | a stage map | `IssueThread`, `CredentialFrom`, `Places`, `Forward` (`forward.go`) | nothing: `hook add --map`, the pack's `sources` and the daemon ask `ForwarderFor` |
@@ -661,12 +661,12 @@ a design.
    subscriptions and a map, set by eight or so commands in an order the
    commands do not enforce, plus a webhook made by hand in the service.
    Nothing lists the integrations of a yard; `yardr hook list` and `yardr
-   resident show` each show a part.
+   crew show` each show a part.
 2. **A pack carries part of it, and only part.** From `pack.yaml`: a
-   resident's unfiltered subscription to a source
-   (`residents.<name>.subscribe.<source>: <scope>`), the request that the
-   resident may open threads there (`open_threads`, which the import puts
-   to the operator), and the stage map with the resident it acts as
+   crew member's unfiltered subscription to a source
+   (`crew members.<name>.subscribe.<source>: <scope>`), the request that the
+   crew member may open threads there (`open_threads`, which the import puts
+   to the operator), and the stage map with the crew member it acts as
    (`sources.<source>`). A pack does not make the hook, the secret file or
    `hook_addr`, does not set the credential or the identity, cannot ask for
    `set_state`, and carries no subscription with a `--where`. Its plan is
@@ -680,13 +680,13 @@ a design.
 5. **No command says what a source can do.** The capability table above is
    read from the code. A user learns that `token` cannot be answered in
    from the refusal.
-6. **Nothing checks a credential until it is used.** `yardr resident show`
+6. **Nothing checks a credential until it is used.** `yardr crew show`
    and the pack plan read the names in the `env_file`. A wrong or expired
    token shows at the first reply, and for a stage map as a move that
    fails and is retried (`yardr hook show <name>` has the last error).
 7. **The identity is looked up by hand.** yardr holds the token and could
    ask the service who it is; no command does, and a wrong id fails
-   silently: the resident is never mentioned and hears its own actions.
+   silently: the crew member is never mentioned and hears its own actions.
 8. **No test delivery.** Checking a hook end to end takes a real event in
    the service or a body signed by hand, as in step 8.
 9. **yardr does not know its public address** and makes no webhook in the
@@ -699,7 +699,7 @@ a design.
 11. **Conformance is not checked** beyond the three methods of `Adapter`
     (above).
 12. **A reply needs a delivery.** `yardr reply` answers a hook event by its
-    seq. A resident cannot comment on an issue that sent the yard nothing,
+    seq. A crew member cannot comment on an issue that sent the yard nothing,
     though it can set the status of one it follows.
 13. **The states are three words.** `started`, `review`, `done`, moved
     forward only. A service's other statuses (cancelled, blocked, a

@@ -17,7 +17,7 @@
 //
 // Journals and memories (store.NotWork) are not served: they are knowledge,
 // not work, and a bd-style client computes readiness from open status and
-// blockers alone, so it would list a resident's open journal as ready work.
+// blockers alone, so it would list a crew member's open journal as ready work.
 // Links touching them are left out with them.
 //
 // Bead properties are bd's JSON row (id, title, status, priority,

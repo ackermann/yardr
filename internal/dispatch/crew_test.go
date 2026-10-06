@@ -15,9 +15,9 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// residentRunner fakes herdr for residents: sessions with a status, and the
+// crewRunner fakes herdr for crew members: sessions with a status, and the
 // nudges they received.
-type residentRunner struct {
+type crewRunner struct {
 	mu       sync.Mutex
 	n        int
 	status   map[string]string // agent -> idle|working|"" (gone)
@@ -25,7 +25,7 @@ type residentRunner struct {
 	stops    int
 	failNext error
 	blocked  bool                // next start blocks before the agent is ready (a trust prompt)
-	foreign  *dispatch.LiveAgent // an agent yardr did not start that already is the resident
+	foreign  *dispatch.LiveAgent // an agent yardr did not start that already is the crew member
 	findErr  error               // the agent list cannot be read
 	sent     bool                // next start sends the first prompt and does not see it arrive
 	shown    bool                // the pane shows the first prompt
@@ -44,7 +44,7 @@ type residentRunner struct {
 
 // CloseLeft closes the workspace of a session that is gone, as herdr does:
 // not one with an agent in it.
-func (f *residentRunner) CloseLeft(_ context.Context, _ store.Resident, h map[string]any) (bool, error) {
+func (f *crewRunner) CloseLeft(_ context.Context, _ store.CrewMember, h map[string]any) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	agent := h["agent"].(string)
@@ -58,13 +58,13 @@ func (f *residentRunner) CloseLeft(_ context.Context, _ store.Resident, h map[st
 	return false, nil
 }
 
-func (f *residentRunner) workspaces() string {
+func (f *crewRunner) workspaces() string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return strings.Join(f.open, " ")
 }
 
-func (f *residentRunner) InputText(context.Context, map[string]any) (string, bool, error) {
+func (f *crewRunner) InputText(context.Context, map[string]any) (string, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.blind {
@@ -73,13 +73,13 @@ func (f *residentRunner) InputText(context.Context, map[string]any) (string, boo
 	return f.input, !f.noInput, nil
 }
 
-func (f *residentRunner) PromptTyped(context.Context, map[string]any, string) (bool, error) {
+func (f *crewRunner) PromptTyped(context.Context, map[string]any, string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.typed, nil
 }
 
-func (f *residentRunner) SubmitPrompt(context.Context, map[string]any) error {
+func (f *crewRunner) SubmitPrompt(context.Context, map[string]any) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.submits++
@@ -89,7 +89,7 @@ func (f *residentRunner) SubmitPrompt(context.Context, map[string]any) error {
 	return nil
 }
 
-func (f *residentRunner) PromptShown(context.Context, map[string]any, string) (bool, error) {
+func (f *crewRunner) PromptShown(context.Context, map[string]any, string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.blind {
@@ -98,13 +98,13 @@ func (f *residentRunner) PromptShown(context.Context, map[string]any, string) (b
 	return f.shown, nil
 }
 
-func (f *residentRunner) LiveResident(context.Context, store.Resident) (*dispatch.LiveAgent, error) {
+func (f *crewRunner) LiveCrew(context.Context, store.CrewMember) (*dispatch.LiveAgent, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.foreign, f.findErr
 }
 
-func (f *residentRunner) StartResident(_ context.Context, r store.Resident) (map[string]any, error) {
+func (f *crewRunner) StartCrew(_ context.Context, r store.CrewMember) (map[string]any, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.failNext; err != nil {
@@ -126,11 +126,11 @@ func (f *residentRunner) StartResident(_ context.Context, r store.Resident) (map
 	}
 	return map[string]any{"agent": agent}, nil
 }
-func (f *residentRunner) Start(context.Context, dispatch.Job) (map[string]any, error) {
+func (f *crewRunner) Start(context.Context, dispatch.Job) (map[string]any, error) {
 	return nil, nil
 }
-func (f *residentRunner) Alive(context.Context, map[string]any) (bool, error) { return true, nil }
-func (f *residentRunner) Stop(_ context.Context, h map[string]any) error {
+func (f *crewRunner) Alive(context.Context, map[string]any) (bool, error) { return true, nil }
+func (f *crewRunner) Stop(_ context.Context, h map[string]any) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.stops++
@@ -138,12 +138,12 @@ func (f *residentRunner) Stop(_ context.Context, h map[string]any) error {
 	f.open = slices.DeleteFunc(f.open, func(a string) bool { return a == h["agent"] })
 	return nil
 }
-func (f *residentRunner) Status(_ context.Context, h map[string]any) (string, error) {
+func (f *crewRunner) Status(_ context.Context, h map[string]any) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.status[h["agent"].(string)], nil
 }
-func (f *residentRunner) Nudge(_ context.Context, h map[string]any, text string) error {
+func (f *crewRunner) Nudge(_ context.Context, h map[string]any, text string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.nudges = append(f.nudges, h["agent"].(string)+": "+text)
@@ -160,35 +160,35 @@ func (f *residentRunner) Nudge(_ context.Context, h map[string]any, text string)
 	}
 	return nil
 }
-func (f *residentRunner) set(agent, status string) {
+func (f *crewRunner) set(agent, status string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.status[agent] = status
 }
 
-func residentSetup(t *testing.T, def store.Resident) (store.API, *residentRunner, *dispatch.Dispatcher) {
+func crewSetup(t *testing.T, def store.CrewMember) (store.API, *crewRunner, *dispatch.Dispatcher) {
 	s := storetest.New(t)
-	f := &residentRunner{status: map[string]string{}}
+	f := &crewRunner{status: map[string]string{}}
 	// No waits: a pending prompt is delivered on the first pass that finds
 	// the agent idle and judged on the next, unless a test sets them.
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f}, PromptSettle: -1, PromptWait: -1}
 	def.Name, def.Runner = "yardmaster", "fake"
-	if _, err := s.PutResident(context.Background(), def, "me"); err != nil {
+	if _, err := s.PutCrew(context.Background(), def, "me"); err != nil {
 		t.Fatal(err)
 	}
 	return s, f, d
 }
 
 func agentOf(t *testing.T, s store.API) string {
-	r, err := s.GetResident(context.Background(), "yardmaster")
+	r, err := s.GetCrew(context.Background(), "yardmaster")
 	if err != nil || !r.Live() {
-		t.Fatalf("resident not running: %+v %v", r, err)
+		t.Fatalf("crew member not running: %+v %v", r, err)
 	}
 	return r.Handle["agent"].(string)
 }
 
-func TestResidentKeptAliveAndInboxNudgedWhenIdle(t *testing.T) {
-	s, f, d := residentSetup(t, store.Resident{On: []string{"gave_up"}})
+func TestCrewKeptAliveAndInboxNudgedWhenIdle(t *testing.T) {
+	s, f, d := crewSetup(t, store.CrewMember{On: []string{"gave_up"}})
 	ctx := context.Background()
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
@@ -230,7 +230,7 @@ func TestResidentKeptAliveAndInboxNudgedWhenIdle(t *testing.T) {
 }
 
 func TestHandoffRestartsWhenIdle(t *testing.T) {
-	s, f, d := residentSetup(t, store.Resident{})
+	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	must(t, d.Reconcile(ctx))
 	agent := agentOf(t, s)
@@ -245,14 +245,14 @@ func TestHandoffRestartsWhenIdle(t *testing.T) {
 	if f.n != 2 || f.stops != 1 {
 		t.Fatalf("starts %d stops %d", f.n, f.stops)
 	}
-	p, err := s.ResidentPrime(ctx, "yardmaster")
+	p, err := s.CrewPrime(ctx, "yardmaster")
 	if err != nil || p.Handoff == nil || p.Handoff.Text != "Next: review webapp-3" || p.NoHandoff {
 		t.Fatalf("prime after handoff: %+v %v", p, err)
 	}
 }
 
 func TestRotationAsksThenForces(t *testing.T) {
-	s, f, d := residentSetup(t, store.Resident{MaxAge: "1ms", HandoffGrace: "1ms"})
+	s, f, d := crewSetup(t, store.CrewMember{MaxAge: "1ms", HandoffGrace: "1ms"})
 	ctx := context.Background()
 	must(t, d.Reconcile(ctx))
 	time.Sleep(5 * time.Millisecond)
@@ -266,43 +266,43 @@ func TestRotationAsksThenForces(t *testing.T) {
 	if f.n != 2 {
 		t.Fatalf("starts %d, want a forced rotation", f.n)
 	}
-	p, _ := s.ResidentPrime(ctx, "yardmaster")
+	p, _ := s.CrewPrime(ctx, "yardmaster")
 	if !p.NoHandoff {
 		t.Fatal("the forced rotation left no handoff; the prime must fall back")
 	}
 }
 
-func TestResidentStartFailureBacksOffAndDisableStops(t *testing.T) {
-	s, f, d := residentSetup(t, store.Resident{})
+func TestCrewStartFailureBacksOffAndDisableStops(t *testing.T) {
+	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	f.failNext = errors.New("herdr down")
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx)) // within backoff: no retry
-	r, _ := s.GetResident(ctx, "yardmaster")
+	r, _ := s.GetCrew(ctx, "yardmaster")
 	if f.n != 0 || r.Failures != 1 || r.RetryAfter == nil {
-		t.Fatalf("starts %d resident %+v", f.n, r)
+		t.Fatalf("starts %d crew member %+v", f.n, r)
 	}
-	must(t, s.SetResidentEnabled(ctx, "yardmaster", true, "", "me")) // clears the backoff
+	must(t, s.SetCrewEnabled(ctx, "yardmaster", true, "", "me")) // clears the backoff
 	must(t, d.Reconcile(ctx))
 	agentOf(t, s)
-	must(t, s.SetResidentEnabled(ctx, "yardmaster", false, "", "me"))
+	must(t, s.SetCrewEnabled(ctx, "yardmaster", false, "", "me"))
 	must(t, d.Reconcile(ctx))
-	if r, _ = s.GetResident(ctx, "yardmaster"); r.Live() || f.stops != 1 {
+	if r, _ = s.GetCrew(ctx, "yardmaster"); r.Live() || f.stops != 1 {
 		t.Fatalf("disable did not stop it: %+v stops %d", r, f.stops)
 	}
 }
 
-// Found live: a resident whose agent stops at Claude's trust prompt was
+// Found live: a crew member whose agent stops at Claude's trust prompt was
 // treated as a failed start, its tab closed and retried in a loop, so the
 // human could never answer. A blocked start is kept and its first prompt
 // delivered once the agent is idle.
 func TestBlockedStartWaitsForHumanThenPrompts(t *testing.T) {
-	s, f, d := residentSetup(t, store.Resident{})
+	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	f.blocked = true
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
-	r, _ := s.GetResident(ctx, "yardmaster")
+	r, _ := s.GetCrew(ctx, "yardmaster")
 	if !r.Live() || f.stops != 0 || f.n != 1 || r.Failures != 0 {
 		t.Fatalf("blocked start was not kept: %+v stops %d starts %d", r, f.stops, f.n)
 	}
@@ -312,12 +312,12 @@ func TestBlockedStartWaitsForHumanThenPrompts(t *testing.T) {
 	evs, _ := s.Events(ctx, r.Journal, 100)
 	blocked := 0
 	for _, e := range evs {
-		if e.Kind == "resident_blocked" {
+		if e.Kind == "crew_blocked" {
 			blocked++
 		}
 	}
 	if blocked != 1 {
-		t.Fatalf("resident_blocked logged %d times", blocked)
+		t.Fatalf("crew_blocked logged %d times", blocked)
 	}
 	// The human answers in the pane; the agent becomes idle.
 	f.set(agentOf(t, s), "idle")
@@ -326,7 +326,7 @@ func TestBlockedStartWaitsForHumanThenPrompts(t *testing.T) {
 	if len(f.nudges) != 1 || !strings.HasSuffix(f.nudges[0], "prime yourself") {
 		t.Fatalf("pending prompt delivered %v", f.nudges)
 	}
-	if r, _ = s.GetResident(ctx, "yardmaster"); r.Handle[dispatch.PendingPrompt] != nil {
+	if r, _ = s.GetCrew(ctx, "yardmaster"); r.Handle[dispatch.PendingPrompt] != nil {
 		t.Fatal("pending prompt not cleared")
 	}
 }
@@ -336,7 +336,7 @@ func TestBlockedStartWaitsForHumanThenPrompts(t *testing.T) {
 // looking is working on it: it does not get it a second time, and it is not
 // reported as waiting for a human.
 func TestPendingPromptThatShowsIsNotSentAgain(t *testing.T) {
-	s, f, d := residentSetup(t, store.Resident{})
+	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	f.sent = true
 	must(t, d.Reconcile(ctx))
@@ -346,14 +346,14 @@ func TestPendingPromptThatShowsIsNotSentAgain(t *testing.T) {
 	f.set(agentOf(t, s), "idle")
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
-	r, _ := s.GetResident(ctx, "yardmaster")
+	r, _ := s.GetCrew(ctx, "yardmaster")
 	if len(f.nudges) != 0 || r.Handle[dispatch.PendingPrompt] != nil {
 		t.Fatalf("nudges %v, handle %v", f.nudges, r.Handle)
 	}
 	evs, _ := s.Events(ctx, r.Journal, 100)
 	for _, e := range evs {
-		if e.Kind == "resident_blocked" {
-			t.Fatalf("a resident working on its first prompt was reported blocked: %+v", e)
+		if e.Kind == "crew_blocked" {
+			t.Fatalf("a crew member working on its first prompt was reported blocked: %+v", e)
 		}
 	}
 }
@@ -361,13 +361,13 @@ func TestPendingPromptThatShowsIsNotSentAgain(t *testing.T) {
 // One that did not show is delivered once the agent is idle, and once when
 // it arrives.
 func TestPendingPromptThatDidNotShowIsSentOnce(t *testing.T) {
-	s, f, d := residentSetup(t, store.Resident{})
+	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	f.sent = true
 	for range 4 {
 		must(t, d.Reconcile(ctx))
 	}
-	r, _ := s.GetResident(ctx, "yardmaster")
+	r, _ := s.GetCrew(ctx, "yardmaster")
 	if len(f.nudges) != 1 || !strings.HasSuffix(f.nudges[0], "prime yourself") || r.Handle[dispatch.PendingPrompt] != nil {
 		t.Fatalf("nudges %v, handle %v", f.nudges, r.Handle)
 	}
@@ -658,9 +658,9 @@ func TestPendingPromptWaitsForTheAgentToSettleAndToEcho(t *testing.T) {
 	}
 }
 
-// Found live (yardr-cxsb): a resident's prime was typed into Claude Code's
+// Found live (yardr-cxsb): a crew member's prime was typed into Claude Code's
 // input and its Enter not taken; the text being in the pane, the prompt
-// counted as arrived and the resident sat idle until a person pressed
+// counted as arrived and the crew member sat idle until a person pressed
 // Return. A prompt that is only in the input is submitted, once, and not
 // typed a second time; session_prompted is still the arrival.
 func TestPendingPromptTypedAndNotSubmittedIsSubmitted(t *testing.T) {
@@ -813,8 +813,8 @@ func TestUnconfirmedPromptIsLookedAtAgain(t *testing.T) {
 	}
 }
 
-// Residents go the same way, with the events on their journal.
-func TestResidentPromptTypedAndNotSubmittedIsSubmitted(t *testing.T) {
+// Crew members go the same way, with the events on their journal.
+func TestCrewPromptTypedAndNotSubmittedIsSubmitted(t *testing.T) {
 	for _, c := range []struct {
 		deaf                             bool
 		submits, typed, gaveUp, prompted int
@@ -822,13 +822,13 @@ func TestResidentPromptTypedAndNotSubmittedIsSubmitted(t *testing.T) {
 		{false, 1, 1, 0, 1},
 		{true, dispatch.PromptTries, dispatch.PromptTries, 1, 0},
 	} {
-		s, f, d := residentSetup(t, store.Resident{})
+		s, f, d := crewSetup(t, store.CrewMember{})
 		ctx := context.Background()
 		f.sent, f.typed, f.deaf = true, true, c.deaf
 		for range 10 {
 			must(t, d.Reconcile(ctx))
 		}
-		r, _ := s.GetResident(ctx, "yardmaster")
+		r, _ := s.GetCrew(ctx, "yardmaster")
 		if f.submits != c.submits || len(f.nudges) != 0 || (r.Handle[dispatch.PendingPrompt] == nil) != (c.prompted == 1) {
 			t.Fatalf("deaf %v: submits %d, nudges %v, handle %v", c.deaf, f.submits, f.nudges, r.Handle)
 		}
@@ -837,22 +837,22 @@ func TestResidentPromptTypedAndNotSubmittedIsSubmitted(t *testing.T) {
 			if len(evs) != want {
 				t.Fatalf("deaf %v: %s logged %d times, want %d", c.deaf, kind, len(evs), want)
 			}
-			if want > 0 && evs[0].Data["resident"] != "yardmaster" {
-				t.Fatalf("deaf %v: %s does not name the resident: %+v", c.deaf, kind, evs[0])
+			if want > 0 && evs[0].Data["crew"] != "yardmaster" {
+				t.Fatalf("deaf %v: %s does not name the crew member: %+v", c.deaf, kind, evs[0])
 			}
 		}
 	}
 }
 
-// Residents go the same way: a prime that is dropped is sent again, and one
-// dropped every time is reported on the resident's journal.
-func TestResidentPendingPromptIsCheckedForArrival(t *testing.T) {
+// Crew members go the same way: a prime that is dropped is sent again, and one
+// dropped every time is reported on the crew member's journal.
+func TestCrewPendingPromptIsCheckedForArrival(t *testing.T) {
 	for _, c := range []struct{ drop, nudges, lost, gaveUp, prompted int }{
 		{0, 1, 0, 0, 1},
 		{1, 2, 1, 0, 1},
 		{1000, dispatch.PromptTries, dispatch.PromptTries, 1, 0},
 	} {
-		s, f, d := residentSetup(t, store.Resident{})
+		s, f, d := crewSetup(t, store.CrewMember{})
 		ctx := context.Background()
 		f.blocked, f.drop = true, c.drop
 		must(t, d.Reconcile(ctx))
@@ -860,7 +860,7 @@ func TestResidentPendingPromptIsCheckedForArrival(t *testing.T) {
 		for range 10 {
 			must(t, d.Reconcile(ctx))
 		}
-		r, _ := s.GetResident(ctx, "yardmaster")
+		r, _ := s.GetCrew(ctx, "yardmaster")
 		if len(f.nudges) != c.nudges || (r.Handle[dispatch.PendingPrompt] == nil) != (c.prompted == 1) {
 			t.Fatalf("drop %d: nudges %v, handle %v", c.drop, f.nudges, r.Handle)
 		}
@@ -869,8 +869,8 @@ func TestResidentPendingPromptIsCheckedForArrival(t *testing.T) {
 			if len(evs) != want {
 				t.Fatalf("drop %d: %s logged %d times, want %d", c.drop, kind, len(evs), want)
 			}
-			if want > 0 && evs[0].Data["resident"] != "yardmaster" {
-				t.Fatalf("drop %d: %s does not name the resident: %+v", c.drop, kind, evs[0])
+			if want > 0 && evs[0].Data["crew"] != "yardmaster" {
+				t.Fatalf("drop %d: %s does not name the crew member: %+v", c.drop, kind, evs[0])
 			}
 		}
 	}
@@ -879,68 +879,68 @@ func TestResidentPendingPromptIsCheckedForArrival(t *testing.T) {
 // A pane that cannot be read tells nothing about the prompt: what was sent
 // is taken as arrived, as before yardr looked, and not sent a second time.
 func TestPendingPromptWithAnUnreadablePaneIsSentOnce(t *testing.T) {
-	s, f, d := residentSetup(t, store.Resident{})
+	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	f.sent, f.blind, f.drop = true, true, 1000
 	for range 4 {
 		must(t, d.Reconcile(ctx))
 	}
-	r, _ := s.GetResident(ctx, "yardmaster")
+	r, _ := s.GetCrew(ctx, "yardmaster")
 	if len(f.nudges) != 1 || r.Handle[dispatch.PendingPrompt] != nil {
 		t.Fatalf("nudges %v, handle %v", f.nudges, r.Handle)
 	}
 }
 
-// A resident whose env_file is refused (missing, open to others) does not
-// start, and resident_blocked tells the yardmaster why, once while the reason
+// A crew member whose env_file is refused (missing, open to others) does not
+// start, and crew_blocked tells the yardmaster why, once while the reason
 // stays the same.
-func TestResidentBlockedByItsConfig(t *testing.T) {
-	s, f, d := residentSetup(t, store.Resident{})
+func TestCrewBlockedByItsConfig(t *testing.T) {
+	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
-	refuse := dispatch.Blocked(errors.New("resident yardmaster: env_file /x/yardmaster.env is open to others (mode 0644); chmod 600 it"))
+	refuse := dispatch.Blocked(errors.New("crew member yardmaster: env_file /x/yardmaster.env is open to others (mode 0644); chmod 600 it"))
 	for range 2 {
 		f.failNext = refuse
-		must(t, s.SetResidentEnabled(ctx, "yardmaster", true, "", "me")) // clears the backoff
+		must(t, s.SetCrewEnabled(ctx, "yardmaster", true, "", "me")) // clears the backoff
 		must(t, d.Reconcile(ctx))
 	}
-	r, _ := s.GetResident(ctx, "yardmaster")
+	r, _ := s.GetCrew(ctx, "yardmaster")
 	if r.Live() || f.n != 0 {
-		t.Fatalf("blocked resident started: %+v", r)
+		t.Fatalf("blocked crew member started: %+v", r)
 	}
 	evs, _ := s.Events(ctx, r.Journal, 100)
 	var reasons []string
 	for _, e := range evs {
-		if e.Kind == "resident_blocked" {
+		if e.Kind == "crew_blocked" {
 			reasons = append(reasons, fmt.Sprint(e.Data["reason"]))
 		}
 	}
 	if len(reasons) != 1 || !strings.Contains(reasons[0], "env_file") {
-		t.Fatalf("resident_blocked = %q, want one naming the env_file", reasons)
+		t.Fatalf("crew_blocked = %q, want one naming the env_file", reasons)
 	}
 	// An ordinary failure is not a block.
 	f.failNext = errors.New("herdr down")
-	must(t, s.SetResidentEnabled(ctx, "yardmaster", true, "", "me"))
+	must(t, s.SetCrewEnabled(ctx, "yardmaster", true, "", "me"))
 	must(t, d.Reconcile(ctx))
 	if evs, _ = s.Events(ctx, r.Journal, 100); slices.ContainsFunc(evs[len(evs)-1:], func(e store.Event) bool {
-		return e.Kind == "resident_blocked"
+		return e.Kind == "crew_blocked"
 	}) {
-		t.Fatal("herdr down reported as resident_blocked")
+		t.Fatal("herdr down reported as crew_blocked")
 	}
 }
 
 // Found live (2026-10-03): a pane started by hand was the yardmaster when
-// the resident was defined, and the daemon started a second one beside it.
-// A resident whose runner finds a live agent that already is it is not
-// started: resident_blocked names the agent and its pane, once while it is
-// the same agent, nothing counts as a failed start, and the resident starts
+// the crew member was defined, and the daemon started a second one beside it.
+// A crew member whose runner finds a live agent that already is it is not
+// started: crew_blocked names the agent and its pane, once while it is
+// the same agent, nothing counts as a failed start, and the crew member starts
 // on the pass after the agent is gone.
-func TestResidentNotStartedBesideALiveAgent(t *testing.T) {
-	s, f, d := residentSetup(t, store.Resident{})
+func TestCrewNotStartedBesideALiveAgent(t *testing.T) {
+	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	blocked := func() (reasons []string) {
 		evs, _ := s.Events(ctx, "yardmaster-journal", 100)
 		for _, e := range evs {
-			if e.Kind == "resident_blocked" {
+			if e.Kind == "crew_blocked" {
 				reasons = append(reasons, fmt.Sprint(e.Data["reason"]))
 			}
 		}
@@ -950,24 +950,24 @@ func TestResidentNotStartedBesideALiveAgent(t *testing.T) {
 	for range 3 {
 		must(t, d.Reconcile(ctx))
 	}
-	r, _ := s.GetResident(ctx, "yardmaster")
+	r, _ := s.GetCrew(ctx, "yardmaster")
 	if r.Live() || f.n != 0 || r.Failures != 0 || r.RetryAfter != nil {
 		t.Fatalf("started, or counted as a failure: %+v starts %d", r, f.n)
 	}
 	if got := blocked(); len(got) != 1 || !strings.Contains(got[0], `"yardmaster"`) || !strings.Contains(got[0], "w1:p1") {
-		t.Fatalf("resident_blocked = %q, want one naming agent and pane", got)
+		t.Fatalf("crew_blocked = %q, want one naming agent and pane", got)
 	}
 	// Another agent in its place is news.
 	f.foreign = &dispatch.LiveAgent{Name: "yardr-yardmaster", Pane: "w2:p1"}
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
 	if got := blocked(); len(got) != 2 || !strings.Contains(got[1], "yardr-yardmaster") || !strings.Contains(got[1], "w2:p1") {
-		t.Fatalf("resident_blocked = %q, want a second for the other agent", got)
+		t.Fatalf("crew_blocked = %q, want a second for the other agent", got)
 	}
-	// The human ends it: the next pass starts the resident.
+	// The human ends it: the next pass starts the crew member.
 	f.foreign = nil
 	must(t, d.Reconcile(ctx))
-	if r, _ = s.GetResident(ctx, "yardmaster"); !r.Live() || f.n != 1 {
+	if r, _ = s.GetCrew(ctx, "yardmaster"); !r.Live() || f.n != 1 {
 		t.Fatalf("not started once the agent was gone: %+v starts %d", r, f.n)
 	}
 	// It dies, long enough after its start to be no failed start, while
@@ -976,7 +976,7 @@ func TestResidentNotStartedBesideALiveAgent(t *testing.T) {
 	f.set(agentOf(t, s), "")
 	f.foreign = &dispatch.LiveAgent{Name: "yardmaster", Pane: "w1:p1"}
 	must(t, d.Reconcile(ctx))
-	if r, _ = s.GetResident(ctx, "yardmaster"); r.Live() || f.n != 1 || len(blocked()) != 3 {
+	if r, _ = s.GetCrew(ctx, "yardmaster"); r.Live() || f.n != 1 || len(blocked()) != 3 {
 		t.Fatalf("restarted beside a live agent: %+v starts %d blocked %q", r, f.n, blocked())
 	}
 }
@@ -984,27 +984,27 @@ func TestResidentNotStartedBesideALiveAgent(t *testing.T) {
 // An agent list that cannot be read is a failed start like any other (herdr
 // down): counted and backed off, not reported as blocked, and nothing is
 // started blind.
-func TestResidentAgentListUnreadableIsAFailedStart(t *testing.T) {
-	s, f, d := residentSetup(t, store.Resident{})
+func TestCrewAgentListUnreadableIsAFailedStart(t *testing.T) {
+	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	f.findErr = errors.New("herdr: connection refused")
 	must(t, d.Reconcile(ctx))
-	r, _ := s.GetResident(ctx, "yardmaster")
+	r, _ := s.GetCrew(ctx, "yardmaster")
 	if r.Live() || f.n != 0 || r.Failures != 1 || r.RetryAfter == nil {
-		t.Fatalf("resident after an unreadable agent list: %+v starts %d", r, f.n)
+		t.Fatalf("crew member after an unreadable agent list: %+v starts %d", r, f.n)
 	}
 	evs, _ := s.Events(ctx, r.Journal, 100)
-	if slices.ContainsFunc(evs, func(e store.Event) bool { return e.Kind == "resident_blocked" }) {
-		t.Fatal("herdr down reported as resident_blocked")
+	if slices.ContainsFunc(evs, func(e store.Event) bool { return e.Kind == "crew_blocked" }) {
+		t.Fatal("herdr down reported as crew_blocked")
 	}
 }
 
-// shortLived is residentSetup with a clock the test moves: at(by) puts the
+// shortLived is crewSetup with a clock the test moves: at(by) puts the
 // dispatcher by after the real time, which is what the store stamps a start
 // with, so at(time.Second) right after a start makes that session a second
 // old.
-func shortLived(t *testing.T) (s store.API, f *residentRunner, d *dispatch.Dispatcher, at func(time.Duration)) {
-	s, f, d = residentSetup(t, store.Resident{On: []string{"resident_gave_up"}})
+func shortLived(t *testing.T) (s store.API, f *crewRunner, d *dispatch.Dispatcher, at func(time.Duration)) {
+	s, f, d = crewSetup(t, store.CrewMember{On: []string{"crew_gave_up"}})
 	var skew time.Duration
 	dispatch.SetClock(d, func() time.Time { return time.Now().Add(skew) })
 	return s, f, d, func(by time.Duration) { skew = by }
@@ -1013,9 +1013,9 @@ func shortLived(t *testing.T) (s store.API, f *residentRunner, d *dispatch.Dispa
 // Found live (yardr-05dd): a harness that exits right after its start was
 // started again on every pass, a new workspace every 5 seconds, with nothing
 // counted and nobody told. A session gone within store.MinSessionLife is a
-// failed start: the waits grow and after store.MaxStartFails the resident is
+// failed start: the waits grow and after store.MaxStartFails the crew member is
 // given up.
-func TestResidentSessionGoneAtOnceIsAFailedStart(t *testing.T) {
+func TestCrewSessionGoneAtOnceIsAFailedStart(t *testing.T) {
 	s, f, d, at := shortLived(t)
 	ctx := context.Background()
 	must(t, d.Reconcile(ctx))
@@ -1028,9 +1028,9 @@ func TestResidentSessionGoneAtOnceIsAFailedStart(t *testing.T) {
 		at(time.Second)
 		must(t, d.Reconcile(ctx))
 		must(t, d.Reconcile(ctx)) // within the wait: no start
-		r, _ := s.GetResident(ctx, "yardmaster")
+		r, _ := s.GetCrew(ctx, "yardmaster")
 		if r.Live() || f.n != n || r.Failures != n || r.RetryAfter == nil || r.Handle != nil {
-			t.Fatalf("round %d: starts %d resident %+v", n, f.n, r)
+			t.Fatalf("round %d: starts %d crew member %+v", n, f.n, r)
 		}
 		wait := time.Until(*r.RetryAfter)
 		waits = append(waits, wait)
@@ -1060,25 +1060,25 @@ func TestResidentSessionGoneAtOnceIsAFailedStart(t *testing.T) {
 	reason := ""
 	for _, e := range evs {
 		kinds[e.Kind]++
-		if e.Kind == "resident_gave_up" {
+		if e.Kind == "crew_gave_up" {
 			reason = fmt.Sprint(e.Data["reason"])
 		}
 	}
-	if kinds["resident_start_failed"] != store.MaxStartFails-1 || kinds["resident_gave_up"] != 1 ||
-		kinds["resident_stopped"] != store.MaxStartFails {
+	if kinds["crew_start_failed"] != store.MaxStartFails-1 || kinds["crew_gave_up"] != 1 ||
+		kinds["crew_stopped"] != store.MaxStartFails {
 		t.Fatalf("events %v", kinds)
 	}
 	if !strings.Contains(reason, "the session ended 1s after its start") {
-		t.Fatalf("resident_gave_up reason %q does not say how long the session lived", reason)
+		t.Fatalf("crew_gave_up reason %q does not say how long the session lived", reason)
 	}
 }
 
 // Found live (yardr-ybxk): a session that was gone left its workspace open,
-// one for each, five by the time the daemon gave the resident up. The
+// one for each, five by the time the daemon gave the crew member up. The
 // daemon keeps the handle of every such session and, when the next one has
 // started, closes them all but the latest, whose pane is the only place
 // that shows why the harness exited.
-func TestResidentSessionsGoneLeaveOneWorkspace(t *testing.T) {
+func TestCrewSessionsGoneLeaveOneWorkspace(t *testing.T) {
 	s, f, d, at := shortLived(t)
 	ctx := context.Background()
 	must(t, d.Reconcile(ctx))
@@ -1086,7 +1086,7 @@ func TestResidentSessionsGoneLeaveOneWorkspace(t *testing.T) {
 		f.set(agentOf(t, s), "") // the harness exits; the pane's shell stays
 		at(time.Second)
 		must(t, d.Reconcile(ctx))
-		r, _ := s.GetResident(ctx, "yardmaster")
+		r, _ := s.GetCrew(ctx, "yardmaster")
 		// Gone, and nothing started since: the one before it is still open
 		// too, and no more than that, however many went before.
 		want := fmt.Sprintf("yardmaster-%d", n)
@@ -1101,23 +1101,23 @@ func TestResidentSessionsGoneLeaveOneWorkspace(t *testing.T) {
 			must(t, d.Reconcile(ctx))
 		}
 	}
-	if r, _ := s.GetResident(ctx, "yardmaster"); r.State != "failed" || f.n != store.MaxStartFails {
+	if r, _ := s.GetCrew(ctx, "yardmaster"); r.State != "failed" || f.n != store.MaxStartFails {
 		t.Fatalf("state %s after %d sessions", r.State, f.n)
 	}
 	// Five sessions gone; the next start leaves the last one's workspace
 	// beside its own.
-	must(t, s.SetResidentEnabled(ctx, "yardmaster", true, "", "me"))
+	must(t, s.SetCrewEnabled(ctx, "yardmaster", true, "", "me"))
 	must(t, d.Reconcile(ctx))
-	r, _ := s.GetResident(ctx, "yardmaster")
+	r, _ := s.GetCrew(ctx, "yardmaster")
 	if got := f.workspaces(); got != "yardmaster-5 yardmaster-6" || !r.Live() || len(r.Left) != 1 || r.Left[0]["agent"] != "yardmaster-5" {
-		t.Fatalf("after the next start: workspaces %q, resident %+v", got, r)
+		t.Fatalf("after the next start: workspaces %q, crew member %+v", got, r)
 	}
 	// A session ended by yardr (here a restart) is stopped, which closes
 	// what it ran in: nothing of it is kept, and the latest that was gone
 	// stays.
 	must(t, s.RequestRestart(ctx, "yardmaster", "test", "", "me"))
 	must(t, d.Reconcile(ctx))
-	r, _ = s.GetResident(ctx, "yardmaster")
+	r, _ = s.GetCrew(ctx, "yardmaster")
 	if got := f.workspaces(); got != "yardmaster-5 yardmaster-7" || len(r.Left) != 1 {
 		t.Fatalf("after a restart: workspaces %q, left %v", got, r.Left)
 	}
@@ -1126,7 +1126,7 @@ func TestResidentSessionsGoneLeaveOneWorkspace(t *testing.T) {
 // A workspace left by a gone session is not closed while an agent runs in
 // it (someone started one there by hand), nor forgotten when herdr could
 // not close it: its handle is kept and it is tried at the next start.
-func TestResidentWorkspaceLeftWithAnAgentIsKept(t *testing.T) {
+func TestCrewWorkspaceLeftWithAnAgentIsKept(t *testing.T) {
 	s, f, d, at := shortLived(t)
 	ctx := context.Background()
 	gone := func() {
@@ -1140,19 +1140,19 @@ func TestResidentWorkspaceLeftWithAnAgentIsKept(t *testing.T) {
 	gone()
 	gone()
 	gone()
-	r, _ := s.GetResident(ctx, "yardmaster")
+	r, _ := s.GetCrew(ctx, "yardmaster")
 	if got := f.workspaces(); got != "yardmaster-1 yardmaster-3 yardmaster-4" || len(r.Left) != 2 || r.Left[0]["agent"] != "yardmaster-1" {
 		t.Fatalf("with an agent in the first: workspaces %q, left %v", got, r.Left)
 	}
 	f.busy, f.closeErr = nil, errors.New("herdr is down")
 	gone()
-	r, _ = s.GetResident(ctx, "yardmaster")
+	r, _ = s.GetCrew(ctx, "yardmaster")
 	if got := f.workspaces(); got != "yardmaster-1 yardmaster-3 yardmaster-4 yardmaster-5" || len(r.Left) != 3 {
 		t.Fatalf("herdr could not close: workspaces %q, left %v", got, r.Left)
 	}
 	f.closeErr = nil
 	gone()
-	r, _ = s.GetResident(ctx, "yardmaster")
+	r, _ = s.GetCrew(ctx, "yardmaster")
 	if got := f.workspaces(); got != "yardmaster-5 yardmaster-6" || len(r.Left) != 1 || r.Left[0]["agent"] != "yardmaster-5" {
 		t.Fatalf("once it can be closed: workspaces %q, left %v", got, r.Left)
 	}
@@ -1161,11 +1161,11 @@ func TestResidentWorkspaceLeftWithAnAgentIsKept(t *testing.T) {
 // A session that lives past the limit ends the streak, still running or gone
 // since, so an early exit long ago does not add up with one today; the start
 // alone does not, or two early exits would never be two in a row.
-func TestResidentSessionThatLivesResetsFailedStarts(t *testing.T) {
+func TestCrewSessionThatLivesResetsFailedStarts(t *testing.T) {
 	s, f, d, at := shortLived(t)
 	ctx := context.Background()
 	failures := func() int {
-		r, _ := s.GetResident(ctx, "yardmaster")
+		r, _ := s.GetCrew(ctx, "yardmaster")
 		return r.Failures
 	}
 	early := func() { // the running session exits a second after its start, and the next is started
@@ -1199,15 +1199,15 @@ func TestResidentSessionThatLivesResetsFailedStarts(t *testing.T) {
 	f.set(agentOf(t, s), "")
 	at(store.MinSessionLife + time.Second)
 	must(t, d.Reconcile(ctx))
-	if r, _ := s.GetResident(ctx, "yardmaster"); !r.Live() || r.Failures != 0 || r.RetryAfter != nil || f.n != n+1 {
-		t.Fatalf("a session gone after the limit: starts %d (was %d) resident %+v", f.n, n, r)
+	if r, _ := s.GetCrew(ctx, "yardmaster"); !r.Live() || r.Failures != 0 || r.RetryAfter != nil || f.n != n+1 {
+		t.Fatalf("a session gone after the limit: starts %d (was %d) crew member %+v", f.n, n, r)
 	}
 }
 
 // Endings that were asked for are no failed starts, however soon after the
 // start: a handoff, a requested restart (a rotation is one), a stop; nor is
 // a session that ends itself once its restart was asked for.
-func TestResidentWantedEndingsAreNoFailedStarts(t *testing.T) {
+func TestCrewWantedEndingsAreNoFailedStarts(t *testing.T) {
 	s, f, d, at := shortLived(t)
 	ctx := context.Background()
 	must(t, d.Reconcile(ctx))
@@ -1215,9 +1215,9 @@ func TestResidentWantedEndingsAreNoFailedStarts(t *testing.T) {
 	restarted := func(what string, n int) {
 		t.Helper()
 		must(t, d.Reconcile(ctx))
-		r, _ := s.GetResident(ctx, "yardmaster")
+		r, _ := s.GetCrew(ctx, "yardmaster")
 		if !r.Live() || r.Failures != 0 || r.RetryAfter != nil || f.n != n {
-			t.Fatalf("%s: starts %d, want %d; resident %+v", what, f.n, n, r)
+			t.Fatalf("%s: starts %d, want %d; crew member %+v", what, f.n, n, r)
 		}
 	}
 	must(t, s.Journal(ctx, "yardmaster", store.NoteHandoff, "all quiet", "yardmaster"))
@@ -1227,22 +1227,22 @@ func TestResidentWantedEndingsAreNoFailedStarts(t *testing.T) {
 	must(t, s.RequestRestart(ctx, "yardmaster", "requested by me", "", "me"))
 	f.set(agentOf(t, s), "") // it exits by itself before the daemon stops it
 	restarted("restart of a session that left", 4)
-	must(t, s.SetResidentEnabled(ctx, "yardmaster", false, "", "me"))
+	must(t, s.SetCrewEnabled(ctx, "yardmaster", false, "", "me"))
 	must(t, d.Reconcile(ctx))
-	if r, _ := s.GetResident(ctx, "yardmaster"); r.Live() || r.Failures != 0 || r.RetryAfter != nil {
+	if r, _ := s.GetCrew(ctx, "yardmaster"); r.Live() || r.Failures != 0 || r.RetryAfter != nil {
 		t.Fatalf("stop counted as a failed start: %+v", r)
 	}
 	evs, _ := s.Events(ctx, "yardmaster-journal", 100)
-	if slices.ContainsFunc(evs, func(e store.Event) bool { return e.Kind == "resident_start_failed" }) {
-		t.Fatal("a wanted ending logged resident_start_failed")
+	if slices.ContainsFunc(evs, func(e store.Event) bool { return e.Kind == "crew_start_failed" }) {
+		t.Fatal("a wanted ending logged crew_start_failed")
 	}
 }
 
-// What the runtime says a resident's session is doing is recorded on each
+// What the runtime says a crew member's session is doing is recorded on each
 // pass, as the store's words for it, so a view reads it from the store and
 // its events and asks no runtime.
-func TestResidentStatusIsRecorded(t *testing.T) {
-	s, f, d := residentSetup(t, store.Resident{})
+func TestCrewStatusIsRecorded(t *testing.T) {
+	s, f, d := crewSetup(t, store.CrewMember{})
 	ctx := context.Background()
 	must(t, d.Reconcile(ctx))
 	agent := agentOf(t, s)
@@ -1251,7 +1251,7 @@ func TestResidentStatusIsRecorded(t *testing.T) {
 	} {
 		f.set(agent, c.runtime)
 		must(t, d.Reconcile(ctx))
-		r, err := s.GetResident(ctx, "yardmaster")
+		r, err := s.GetCrew(ctx, "yardmaster")
 		if err != nil || r.Status != c.want {
 			t.Fatalf("runtime says %s: status %q, want %q (%v)", c.runtime, r.Status, c.want, err)
 		}

@@ -10,12 +10,12 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// resident creates a resident with a linear identity (id "<name>-id", key
+// crew member creates a crew member with a linear identity (id "<name>-id", key
 // "<name>"; none when noID) and the given subscriptions.
-func resident(t *testing.T, s store.API, name string, noID bool, subs ...store.Subscription) {
+func member(t *testing.T, s store.API, name string, noID bool, subs ...store.Subscription) {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := s.PutResident(ctx, store.Resident{Name: name, Runner: "herdr"}, "me"); err != nil {
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: name, Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if !noID {
@@ -74,11 +74,11 @@ func same(a, b map[string]string) bool {
 func TestHookScopes(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	sub := func(scope string) store.Subscription { return store.Subscription{Source: "linear", Scope: scope} }
-	resident(t, s, "all", false, sub(store.ScopeAll))
-	resident(t, s, "noid", true, sub(store.ScopeAll))
-	resident(t, s, "ment", false, sub(store.ScopeMentions))
-	resident(t, s, "inv", false, sub(store.ScopeInvolved))
-	resident(t, s, "noid-inv", true, sub(store.ScopeInvolved), sub(store.ScopeMentions))
+	member(t, s, "all", false, sub(store.ScopeAll))
+	member(t, s, "noid", true, sub(store.ScopeAll))
+	member(t, s, "ment", false, sub(store.ScopeMentions))
+	member(t, s, "inv", false, sub(store.ScopeInvolved))
+	member(t, s, "noid-inv", true, sub(store.ScopeInvolved), sub(store.ScopeMentions))
 	jane := hooks.Party{ID: "jane-id", Name: "Jane"}
 
 	for _, c := range []struct {
@@ -135,9 +135,9 @@ func TestHookScopes(t *testing.T) {
 func TestHookWhere(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	resident(t, s, "all", false, store.Subscription{Source: "linear", Scope: store.ScopeAll,
+	member(t, s, "all", false, store.Subscription{Source: "linear", Scope: store.ScopeAll,
 		Where: map[string]string{"type": "comment", "team": "ENG"}})
-	resident(t, s, "inv", false, store.Subscription{Source: "linear", Scope: store.ScopeInvolved,
+	member(t, s, "inv", false, store.Subscription{Source: "linear", Scope: store.ScopeInvolved,
 		Where: map[string]string{"label": "Bug", "action": "create"}})
 	for _, bad := range []map[string]string{{"state": "Todo"}, {"team": ""}} {
 		err := s.AddSubscription(ctx, "all", store.Subscription{Source: "linear", Scope: "all", Where: bad}, "me")
@@ -185,7 +185,7 @@ func TestHookWhere(t *testing.T) {
 func TestGitHubWhereKeys(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	resident(t, s, "all", false, store.Subscription{Source: "github", Scope: store.ScopeAll,
+	member(t, s, "all", false, store.Subscription{Source: "github", Scope: store.ScopeAll,
 		Where: map[string]string{"train": "yard-sv6b", "state": "approved"}})
 	for _, bad := range []store.Subscription{
 		{Source: "linear", Scope: "all", Where: map[string]string{"train": "yard-sv6b"}},
@@ -219,10 +219,10 @@ func TestHookDeliveryInInbox(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	// "hook" in On must not widen delivery past the subscriptions.
-	if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", On: []string{"hook"}}, "me"); err != nil {
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", On: []string{"hook"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	resident(t, s, "other", false, store.Subscription{Source: "linear", Scope: store.ScopeAll})
+	member(t, s, "other", false, store.Subscription{Source: "linear", Scope: store.ScopeAll})
 	if err := s.SetIdentity(ctx, "yardmaster", "linear", store.Identity{ID: "mayr-id", Key: "yardmaster"}, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -253,14 +253,14 @@ func TestHookDeliveryInInbox(t *testing.T) {
 	}
 }
 
-// A resident that speaks as a GitHub App has the bot's login as its key:
+// A crew member that speaks as a GitHub App has the bot's login as its key:
 // yardr[bot]. Its own comments, whose actor is that login, stay out of its
 // inbox, and a mention of the App, which people write as @yardr, reaches
 // it. The account named yardr is not the bot: what it does is delivered.
 func TestHookDeliveryToAGitHubApp(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	if _, err := s.PutResident(ctx, store.Resident{Name: "ment"}, "me"); err != nil {
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "ment"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetIdentity(ctx, "ment", "github", store.Identity{Key: "yardr[bot]"}, "me"); err != nil {
@@ -302,7 +302,7 @@ func TestIdentitiesAndSubscriptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := s.SetIdentity(ctx, "ghost", "linear", store.Identity{ID: "u"}, "me"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("unknown resident: %v", err)
+		t.Fatalf("unknown crew member: %v", err)
 	}
 	all := store.Subscription{Source: "linear", Scope: store.ScopeAll}
 	eng := store.Subscription{Source: "linear", Scope: store.ScopeAll, Where: map[string]string{"team": "ENG"}}
@@ -316,11 +316,11 @@ func TestIdentitiesAndSubscriptions(t *testing.T) {
 			t.Errorf("accepted %+v", bad)
 		}
 	}
-	// Redefining the resident keeps who it is and what it hears.
-	if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
+	// Redefining the crew member keeps who it is and what it hears.
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	r, _ := s.GetResident(ctx, "yardmaster")
+	r, _ := s.GetCrew(ctx, "yardmaster")
 	if r.Identities["linear"] != (store.Identity{ID: "u2", Key: "yardmaster"}) || len(r.Subscriptions) != 3 {
 		t.Fatalf("after redefine: %+v %+v", r.Identities, r.Subscriptions)
 	}
@@ -340,7 +340,7 @@ func TestIdentitiesAndSubscriptions(t *testing.T) {
 	if err := s.SetIdentity(ctx, "yardmaster", "linear", store.Identity{}, "me"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("remove twice: %v", err)
 	}
-	r, _ = s.GetResident(ctx, "yardmaster")
+	r, _ = s.GetCrew(ctx, "yardmaster")
 	if len(r.Identities) != 0 || len(r.Subscriptions) != 1 || r.Subscriptions[0].Source != "token" {
 		t.Fatalf("after removal: %+v %+v", r.Identities, r.Subscriptions)
 	}

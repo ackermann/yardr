@@ -282,7 +282,7 @@ func TestTrainPushRefusesForeignRemoteCommits(t *testing.T) {
 	y.git(y.repo, "push", "-q", "origin", foreign+":refs/heads/yard/r-e")
 	// The yard's yardmaster has a name of its own, which YARDR_NOTIFY, unset
 	// here, leaves to the yard's setting.
-	y.yardr("resident", "add", "lead", "--runner", "manual")
+	y.yardr("crew", "add", "lead", "--runner", "manual")
 	y.yardr("settings", "set", "yardmaster", "lead")
 
 	y.exec("integrate-train", "yard-integrators", "r-e")
@@ -297,7 +297,7 @@ func TestTrainPushRefusesForeignRemoteCommits(t *testing.T) {
 	if !strings.Contains(notes, "did not have before the rebase") || !strings.Contains(notes, "not forced") {
 		t.Fatalf("no note on the refused push:\n%s", notes)
 	}
-	if lead := y.yardr("resident", "show", "lead"); !strings.Contains(lead, "inbox 1 unread") {
+	if lead := y.yardr("crew", "show", "lead"); !strings.Contains(lead, "inbox 1 unread") {
 		t.Fatalf("the yardmaster was not mailed:\n%s", lead)
 	}
 }

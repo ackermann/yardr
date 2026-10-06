@@ -1,19 +1,19 @@
-# yardr chat: talking with the residents
+# yardr chat: talking with the crew
 
-`yardr chat` is one view of the yard's [residents](residents.md) and your
+`yardr chat` is one view of the yard's [crew members](crew.md) and your
 conversation with each, in a terminal. It is the same for every harness a
-resident runs, and you do not have to find the resident's pane to say
+crew member runs, and you do not have to find the crew member's pane to say
 something to it.
 
 ```sh
 yardr chat             # opens on the yardmaster
-yardr chat refinery    # opens on the resident named
+yardr chat refinery    # opens on the crew member named
 ```
 
-It shows the mail a [user](users.md) and a resident have written each other,
+It shows the mail a [user](users.md) and a crew member have written each other,
 and what you type is mail: `yardr chat` adds no other channel. What it shows
-is what `yardr mail --with <resident>` prints, and Enter does what
-`yardr mail <resident> <text>` does. What the yard itself reports to you,
+is what `yardr mail --with <crew member>` prints, and Enter does what
+`yardr mail <crew member> <text>` does. What the yard itself reports to you,
 your notifications, is in no conversation: it has a row of its own,
 [`yard`](#the-yard).
 
@@ -68,12 +68,12 @@ else `$YARDR_ACTOR`, else the login name). Anyone else is told to ask the
 operator for `yardr user add <name>`.
 
 It needs a terminal. Without one (a script, a pipe, `--json`) it does not
-start and names what does the same there: `yardr mail <resident> <text>`
-sends, `yardr mail --with <resident> [--after <seq>] [--json]` reads the
+start and names what does the same there: `yardr mail <crew member> <text>`
+sends, `yardr mail --with <crew member> [--after <seq>] [--json]` reads the
 conversation.
 
-It shows residents only, and the `yard` row: no agents working a bead
-(their channel is the bead) and no residents of other yards.
+It shows crew members only, and the `yard` row: no agents working a bead
+(their channel is the bead) and no crew members of other yards.
 
 ## The view
 
@@ -107,21 +107,21 @@ yard (2)  [yardmaster blocked]  refinery idle (1)
 >
 >
 
-enter send  ^j new line  tab next resident  pgup/pgdn scroll  ^g pane  ^c quit
+enter send  ^j new line  tab next member  pgup/pgdn scroll  ^g pane  ^c quit
 ```
 
-From 100 columns the rows (`yard`, then the residents) are a column on the
+From 100 columns the rows (`yard`, then the crew) are a column on the
 left, one a line, with `>` before the selected one and the unread number at
 the column's right edge; narrower, they fold into the one line on top, the
 selected one in brackets and the number in parentheses.
-If an existing resident is named `yard`, the system row is labelled
+If an existing crew member is named `yard`, the system row is labelled
 `yard-notify` so the two rows stay distinct.
 
 The colours are those of the onboarding's forms, for a light and a dark
 terminal, and say nothing the words and marks do not; with `NO_COLOR` set,
 or in a terminal without colour, the view is plain text.
 
-**The residents.** Each with its state and, when there is any, the number of
+**The crew.** Each with its state and, when there is any, the number of
 mails from it you have not seen:
 
 | State | Means |
@@ -130,13 +130,13 @@ mails from it you have not seen:
 | `working` | its session is in a turn |
 | `idle` | its session waits for a prompt; the daemon nudges it about new mail |
 | `blocked` | its session waits at a prompt only a person in its pane can answer (a permission, a question) |
-| `failed to start` | its last start failed; `yardr resident show <name>` says why |
+| `failed to start` | its last start failed; `yardr crew show <name>` says why |
 | `running` | a session runs and the daemon has not said more yet, or its runner cannot tell |
 
-Above the residents stands one row that is no resident, `yard`
+Above the crew stands one row that is no crew member, `yard`
 ([below](#the-yard)).
 
-**The conversation** with the selected resident: oldest at the top, the
+**The conversation** with the selected crew member: oldest at the top, the
 newest in view, each mail with its time and sender. `pgup` and `pgdn` scroll.
 
 **Where a mail you sent stands** is the line under it. Mails that stand
@@ -144,21 +144,21 @@ alike share one line, under the last of them:
 
 | Line | Means |
 |---|---|
-| `read` | the resident acknowledged it (`yardr inbox --ack`) |
+| `read` | the crew member acknowledged it (`yardr inbox --ack`) |
 | `sent; <name> is idle` | it is in the inbox, and the daemon nudges the idle session |
 | `sent; <name> is working and reads mail when idle` | mail does not interrupt a turn |
-| `<name> waits at a prompt in its pane and cannot read mail (ctrl+g goes there)` | someone has to answer the prompt in its pane first: it is `blocked`, or its first prompt is not delivered yet ([below](#a-resident-that-waits-in-its-pane)) |
-| `<name> is not running: yardr resident start <name>` | the mail waits in its inbox for its next session |
-| `<name> failed to start: yardr resident show <name>` | as above, and that command says why |
+| `<name> waits at a prompt in its pane and cannot read mail (ctrl+g goes there)` | someone has to answer the prompt in its pane first: it is `blocked`, or its first prompt is not delivered yet ([below](#a-crew-member-that-waits-in-its-pane)) |
+| `<name> is not running: yardr crew start <name>` | the mail waits in its inbox for its next session |
+| `<name> failed to start: yardr crew show <name>` | as above, and that command says why |
 
-### A resident that waits in its pane
+### A crew member that waits in its pane
 
 A harness can stop at something only a person at its pane can answer: a
 login, a permission, a question, a dialog of the system. Mail does not reach
-it there. While such a resident is selected, a notice stands above the line
+it there. While such a crew member is selected, a notice stands above the line
 you type in:
 
-- one line of what yardr knows. For a `blocked` resident: `<name> waits at a
+- one line of what yardr knows. For a `blocked` crew member: `<name> waits at a
   prompt in its pane: <harness> may wait at a login, a question or a system
   dialog`. For one whose session runs and whose first prompt the daemon has
   not been able to deliver, whatever state it is listed with: `<harness> was
@@ -174,21 +174,21 @@ you type in:
 - the key: `ctrl+g opens its pane; answer there and come back` in herdr,
   `ctrl+g names the command that opens its pane; …` anywhere else.
 
-The notice is no mail and is kept nowhere. It is gone when the resident
-goes on, and when another resident is selected. What you send meanwhile is
-sent, and waits in the resident's inbox; the line under it says so in the
+The notice is no mail and is kept nowhere. It is gone when the crew member
+goes on, and when another crew member is selected. What you send meanwhile is
+sent, and waits in the crew member's inbox; the line under it says so in the
 notice's words.
 
 A pane's lines are shown as text and nothing else: escape sequences and
 control characters in them are removed, and nothing in a pane is acted on
 by the view or by your terminal.
 
-The notice goes when the daemon has seen the resident go on, not when you
+The notice goes when the daemon has seen the crew member go on, not when you
 answered: up to 30 seconds later ([Live](#live)).
 
 ### The yard
 
-The row `yard`, above the residents, is the yard reporting: the
+The row `yard`, above the crew, is the yard reporting: the
 notifications of the events you subscribed to
 ([subscriptions.md](subscriptions.md#users-as-subscribers)), the part
 `yardr inbox --notifications` prints. It has no state, since nothing runs
@@ -219,17 +219,17 @@ yardr chat · jo
   closed (done) by yardmaster reason=merged 1a2b3c4 on "Chat: a row for the yard"
 ────────────────────────────────────────────────────────────────────────────────
 
-tab next resident  pgup/pgdn scroll  ^c quit
+tab next member  pgup/pgdn scroll  ^c quit
 ```
 
 - **There is no line to type in.** Nobody sent a notification, so there is
   nobody to answer. `enter` and `ctrl+g` do nothing here, and a key that
   would type says `nobody to answer here: the yard reports, tab goes to a
-  resident`. To talk about one, select a resident and write to it.
+  crew member`. To talk about one, select a crew member and write to it.
 - **A notification about a bead has the bead's id alone after its time**,
   whole on its line, so it can be copied into `yardr bead show <id>`. The
   view does not go there itself. A hook delivery's has its source there.
-- **Unread notifications light up no resident.** A resident's number counts
+- **Unread notifications light up no crew member.** A crew member's number counts
   the mail from it and nothing else, whoever the notification says acted.
 - The list is what the inbox keeps: the newest 500, the oldest dropped.
 
@@ -242,11 +242,11 @@ for one when beads land:
 ```
 
 **Timers.** A mail whose text begins `timer:` was sent by the yard for a
-timer the resident set for you (`yardr timer add --to <you>`,
-[timers.md](timers.md)): the resident wrote the reason when it set the
+timer the crew member set for you (`yardr timer add --to <you>`,
+[timers.md](timers.md)): the crew member wrote the reason when it set the
 timer, and was not woken when it fired.
 
-A resident answers when it is idle and has read its inbox, so an answer takes
+A crew member answers when it is idle and has read its inbox, so an answer takes
 as long as its turn does. What it is working on in the meantime is in its
 pane, not here.
 
@@ -254,7 +254,7 @@ pane, not here.
 so does mail that arrives in the open one. A user's mail has one position
 for all senders ([users.md](users.md#a-conversation)), so mail of a
 conversation you have not opened holds back what came after it: nothing is
-marked read that the view did not show. Mail from someone who is no resident
+marked read that the view did not show. Mail from someone who is no crew member
 (another user) is not shown; the line above the keys counts it and names
 `yardr inbox`.
 
@@ -267,22 +267,22 @@ as it was.
 
 | Key | Does |
 |---|---|
-| `enter` | sends the line as mail to the selected resident, a [long text](#a-long-text) as several; nothing on `yard` |
+| `enter` | sends the line as mail to the selected crew member, a [long text](#a-long-text) as several; nothing on `yard` |
 | `ctrl+j`, `alt+enter` | a line break in the line |
-| `tab`, `shift+tab` | the next, the previous row: `yard`, then the residents |
+| `tab`, `shift+tab` | the next, the previous row: `yard`, then the crew |
 | `pgup`, `pgdn` | scroll the conversation |
-| `ctrl+g` | to the selected resident's pane; nothing on `yard` |
+| `ctrl+g` | to the selected crew member's pane; nothing on `yard` |
 | `ctrl+c` | leave |
 
 A mail holds 4 KB. From three quarters of that the rule above the line
 counts the bytes (`3072 of 4096 bytes`).
 
-`ctrl+g` brings the resident's pane to the front when `yardr chat` runs in a
+`ctrl+g` brings the crew member's pane to the front when `yardr chat` runs in a
 pane of herdr (`herdr agent focus <agent>`); the view goes on in its own
 pane. Anywhere else it names the command that opens the pane from that
 terminal: `herdr agent attach <agent>`.
 
-Leaving the view stops nothing: the residents are the daemon's to keep
+Leaving the view stops nothing: the crew are the daemon's to keep
 running, and mail goes on arriving in your inbox (`yardr inbox`).
 
 ## A long text
@@ -298,7 +298,7 @@ The first paragraphs of the text …
 ```
 
 They are ordinary mails. The conversation and `yardr mail --with` show three,
-the resident's `yardr inbox` lists three in the order sent, and the numbers
+the crew member's `yardr inbox` lists three in the order sent, and the numbers
 tell it that they are one text and whether more follow. The line under the
 last says where they stand.
 
@@ -316,16 +316,16 @@ from there it is a text of its own, numbered from 1.
 A text is sent as at most 16 mails (about 64 KB); the line takes nothing
 past that. More than that is a file, and the mail names it.
 
-Only `yardr chat` splits. `yardr mail <resident> <text|->` sends one mail and
+Only `yardr chat` splits. `yardr mail <crew member> <text|->` sends one mail and
 refuses a text over 4 KB, from stdin too.
 
 ## Live
 
-New mail, mail being read and a resident's state appear without a key
+New mail, mail being read and a crew member's state appear without a key
 press. They come from the yard's event stream, the one `yardr watch` prints:
-the view reads the residents and a conversation once and applies events from
+the view reads the crew and a conversation once and applies events from
 then on, and asks nothing of the yard in a loop. (The pane of a selected
-resident that [waits in it](#a-resident-that-waits-in-its-pane) is not the
+crew member that [waits in it](#a-crew-member-that-waits-in-its-pane) is not the
 yard's: herdr is asked for it every 5 seconds, while that notice shows.) When the yardr server goes away (it
 replaces itself after an install) the title says so, and the view subscribes
 again after the last event it got, so nothing in between is lost.
@@ -333,14 +333,14 @@ again after the last event it got, so nothing in between is lost.
 Two kinds of event exist for this, and anything else that follows the
 stream can use them:
 
-- `resident_status`, with `resident`, `status` (`working`, `idle`, `blocked`
+- `crew_status`, with `crew`, `status` (`working`, `idle`, `blocked`
   or `unknown`) and `was`: the daemon saw the session do something else
-  than on its pass before. The status is also on the resident
-  (`yardr resident show <name> --json`, `status`). The daemon looks on every
+  than on its pass before. The status is also on the crew member
+  (`yardr crew show <name> --json`, `status`). The daemon looks on every
   pass: after every change to the store, and every 30 seconds otherwise, so
   a session that starts or ends a turn with nothing else happening in the
   yard shows up to that much later.
-- `mail_read`, with `reader` and `through`: a resident or a user
+- `mail_read`, with `reader` and `through`: a crew member or a user
   acknowledged its inbox through that seq, and mail was among what it
   acknowledged.
 
@@ -351,9 +351,9 @@ and the view reads your notifications again when you are among them.
 their notifications through that seq.
 
 Neither of the two above is on a bead, and the web view's feed leaves them out, but for a
-resident that stops at a prompt or leaves it.
+crew member that stops at a prompt or leaves it.
 
-The view also reads the residents again on `session_prompted` and the other
-`session_prompt_*` events of a resident: a first prompt that arrived changes
-no status, and is what ends the notice of a resident that was not ready for
+The view also reads the crew again on `session_prompted` and the other
+`session_prompt_*` events of a crew member: a first prompt that arrived changes
+no status, and is what ends the notice of a crew member that was not ready for
 it.

@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// timerYard is a store whose clock the test moves: resident yardmaster and
+// timerYard is a store whose clock the test moves: crew member yardmaster and
 // clerk, users jo (the operator) and ada. tick moves the clock and runs
 // the daemon's part, FireTimers at the new time.
 type timerYard struct {
@@ -37,7 +37,7 @@ func newTimerYard(t *testing.T) *timerYard {
 		t.Fatal(err)
 	}
 	for _, r := range []string{"yardmaster", "clerk"} {
-		if _, err := s.PutResident(ctx, Resident{Name: r, Runner: "herdr"}, "jo"); err != nil {
+		if _, err := s.PutCrew(ctx, CrewMember{Name: r, Runner: "herdr"}, "jo"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -115,10 +115,10 @@ func (y *timerYard) live(name string) []Timer {
 	return ts
 }
 
-// A one-shot timer a resident set for itself is an event of kind timer in
+// A one-shot timer a crew member set for itself is an event of kind timer in
 // its inbox when it is due, once, with the reason, who set it and when;
 // then the timer is gone.
-func TestTimerFiresOnceToAResident(t *testing.T) {
+func TestTimerFiresOnceToACrew(t *testing.T) {
 	y := newTimerYard(t)
 	tm := y.add("yardmaster", NewTimer{Reason: "look at the deploy", Due: y.in(40 * time.Minute)})
 	if tm.To != "yardmaster" || tm.ToUser || tm.ID == "" {
@@ -156,7 +156,7 @@ func TestTimerFiresOnceToAResident(t *testing.T) {
 }
 
 // A timer for a user fires as mail from whoever set it, marked as a timer
-// and saying so in its text. It is in no resident's inbox: the one who set
+// and saying so in its text. It is in no crew member's inbox: the one who set
 // it is not woken.
 func TestTimerToAUserIsMail(t *testing.T) {
 	y := newTimerYard(t)
@@ -192,16 +192,16 @@ func TestTimerToAUserIsMail(t *testing.T) {
 	}
 }
 
-// Who may set a timer for whom: a resident or a user for themselves, a
-// resident for a user, and nobody for another resident.
+// Who may set a timer for whom: a crew member or a user for themselves, a
+// crew member for a user, and nobody for another crew member.
 func TestTimerWhoMaySet(t *testing.T) {
 	y := newTimerYard(t)
 	due := y.in(time.Hour)
-	y.refused("yardmaster", NewTimer{To: "clerk", Reason: "x", Due: due}, "nobody sets a timer for another resident: mail it (yardr mail clerk")
-	y.refused("jo", NewTimer{To: "yardmaster", Reason: "x", Due: due}, "nobody sets a timer for another resident")
+	y.refused("yardmaster", NewTimer{To: "clerk", Reason: "x", Due: due}, "nobody sets a timer for another crew member: mail it (yardr mail clerk")
+	y.refused("jo", NewTimer{To: "yardmaster", Reason: "x", Due: due}, "nobody sets a timer for another crew member")
 	y.refused("jo", NewTimer{To: "ada", Reason: "x", Due: due}, "a user sets timers for themselves")
 	y.refused("yardmaster", NewTimer{To: "nobody", Reason: "x", Due: due}, "no user of that name")
-	y.refused("yardr-1-new", NewTimer{Reason: "x", Due: due}, "neither a resident nor a user")
+	y.refused("yardr-1-new", NewTimer{Reason: "x", Due: due}, "neither a crew member nor a user")
 	y.refused("yardmaster", NewTimer{Reason: "  ", Due: due}, "a reason is required")
 	y.refused("yardmaster", NewTimer{Reason: "x"}, "say when")
 	if len(y.live("")) != 0 {
@@ -553,14 +553,14 @@ func TestTimerListAndRemove(t *testing.T) {
 	}
 }
 
-// A resident's prime lists its live timers: its own and those it set for
+// A crew member's prime lists its live timers: its own and those it set for
 // a user.
 func TestTimersInPrime(t *testing.T) {
 	y := newTimerYard(t)
 	y.add("yardmaster", NewTimer{Reason: "own", Due: y.in(time.Hour)})
 	y.add("yardmaster", NewTimer{To: "jo", Reason: "for jo", Due: y.in(2 * time.Hour)})
 	y.add("clerk", NewTimer{Reason: "clerk's", Due: y.in(time.Hour)})
-	p, err := y.ResidentPrime(context.Background(), "yardmaster")
+	p, err := y.CrewPrime(context.Background(), "yardmaster")
 	if err != nil {
 		t.Fatal(err)
 	}

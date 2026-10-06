@@ -20,12 +20,12 @@ func init() { allBuckets = append(allBuckets, bIssueMoves) }
 // stage a hook's map names. It is written with the bead's event, in the
 // same transaction, so no stage change is missed and none is heard twice;
 // the call to the source is made afterwards by the daemon, which holds the
-// resident's credential where the store never does, and the move is gone
+// crew member's credential where the store never does, and the move is gone
 // once IssueMoved or IssueMoveSkipped has logged how it ended. Until then it
 // survives any restart.
 //
-// It keeps what the event meant when it was logged: the hook's resident and
-// word, and the link. Only the resident's grant and credential are read
+// It keeps what the event meant when it was logged: the hook's crew member and
+// word, and the link. Only the crew member's grant and credential are read
 // when the call is made.
 type IssueMove struct {
 	// ID is "<seq>/<hook>": one move per bead event and hook.
@@ -53,7 +53,7 @@ type IssueMove struct {
 
 // Why an issue move was not made, as thread_state_skipped names it.
 const (
-	SkipNoGrant = "no_grant"     // the resident acted as may not set a status in the source
+	SkipNoGrant = "no_grant"     // the crew member acted as may not set a status in the source
 	SkipPast    = "already_past" // the issue stands at or past the status
 	SkipFailed  = "failed"       // the source failed for good
 )
@@ -194,20 +194,20 @@ func (s *Store) IssueMoveFailed(ctx context.Context, id, reason string, retryAt 
 	})
 }
 
-// mayMove is the refusal of a move whose resident may not set a status in
+// mayMove is the refusal of a move whose crew member may not set a status in
 // its source: it is gone, or its definition does not allow the source
 // (SetState). "" when it may.
 func mayMove(tx *bolt.Tx, m *IssueMove) (string, error) {
-	var r Resident
-	ok, err := get(tx, bResidents, m.As, &r)
+	var r CrewMember
+	ok, err := get(tx, bCrew, m.As, &r)
 	if err != nil {
 		return "", err
 	}
 	if !ok {
-		return fmt.Sprintf("resident %s, which hook %s acts as, is gone", m.As, m.Hook), nil
+		return fmt.Sprintf("crew member %s, which hook %s acts as, is gone", m.As, m.Hook), nil
 	}
 	if !slices.Contains(r.MaySetState(), m.Source) {
-		return fmt.Sprintf("resident %s may not set the status of threads in %s: its definition does not allow it. The operator allows it with yardr resident set %s %s=%s",
+		return fmt.Sprintf("crew member %s may not set the status of threads in %s: its definition does not allow it. The operator allows it with yardr crew set %s %s=%s",
 			m.As, m.Source, m.As, SetState, strings.Join(append(r.MaySetState(), m.Source), ",")), nil
 	}
 	return "", nil
@@ -235,10 +235,10 @@ func (s *Store) IssueMoveAllowed(ctx context.Context, id string) (string, error)
 }
 
 // moveData is what both of a move's events say: the hook that caused it,
-// the resident acted as, the issue, the stage entered, the word its map has
+// the crew member acted as, the issue, the stage entered, the word its map has
 // for it and the event that put the bead there.
 func (m *IssueMove) data(extra map[string]string) map[string]any {
-	data := map[string]any{"hook": m.Hook, "resident": m.As, "source": m.Source, "url": m.URL,
+	data := map[string]any{"hook": m.Hook, "crew": m.As, "source": m.Source, "url": m.URL,
 		"stage": m.Stage, "state": m.State, "cause": m.Seq}
 	if m.Thread != "" {
 		data["thread"] = m.Thread
@@ -252,10 +252,10 @@ func (m *IssueMove) data(extra map[string]string) map[string]any {
 }
 
 // IssueMoved ends the move id names: the issue was moved. It logs
-// thread_state on the bead, as StateSet does on a resident's journal, with
+// thread_state on the bead, as StateSet does on a crew member's journal, with
 // the hook as the actor and in the data, the stage, the event that caused
-// it and the resident acted as; ts says what the source did (its thread and
-// title when the link had none). A move whose resident may not set a status
+// it and the crew member acted as; ts says what the source did (its thread and
+// title when the link had none). A move whose crew member may not set a status
 // (mayMove) is refused, so nothing is on record that it was not allowed.
 func (s *Store) IssueMoved(ctx context.Context, id string, ts ThreadState) error {
 	if ts.Status == "" {

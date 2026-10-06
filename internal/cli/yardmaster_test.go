@@ -25,8 +25,8 @@ func TestTheMayorsFlagsAndSettingStillWork(t *testing.T) {
 	if out, err := run(t, a.rootCmd(), "init", "--harness", "claude", "--operator", "Jo", "--mayor", "boss"); err != nil {
 		t.Fatalf("init --mayor: %v\n%s", err, out)
 	}
-	if _, err := st.GetResident(ctx, "boss"); err != nil {
-		t.Fatalf("the resident --mayor named: %v", err)
+	if _, err := st.GetCrew(ctx, "boss"); err != nil {
+		t.Fatalf("the crew member --mayor named: %v", err)
 	}
 	if got, _ := st.Settings(ctx); got["yardmaster"] != "boss" || got["mayor"] != "" {
 		t.Fatalf("settings = %v, want yardmaster boss and no mayor", got)
@@ -81,9 +81,9 @@ func TestFillRoleFillsTheOldPlaceholder(t *testing.T) {
 }
 
 // A yard set up before the rename has its yardmaster's role in mayor.md,
-// and its resident's prompt is that path. Init again keeps the role there:
+// and its crew member's prompt is that path. Init again keeps the role there:
 // refreshed in place when it was never edited, with no yardmaster.md beside
-// it that nothing would read. The resident keeps its name, which the
+// it that nothing would read. The crew member keeps its name, which the
 // operator gave it.
 func TestInitKeepsAYardsMayor(t *testing.T) {
 	home := newHome(t)
@@ -103,7 +103,7 @@ func TestInitKeepsAYardsMayor(t *testing.T) {
 		}
 	}
 	prompt := filepath.Join(dir, "mayor.md")
-	if _, err := st.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr",
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "mayor", Runner: "herdr",
 		Config: map[string]any{"kind": "claude", "prompt": prompt}}, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -117,24 +117,24 @@ func TestInitKeepsAYardsMayor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("init again: %v\n%s", err, out)
 	}
-	for _, want := range []string{"yardmaster mayor, as set before", "  yardmaster mayor, already a resident: kept as it was",
+	for _, want := range []string{"yardmaster mayor, as set before", "  yardmaster mayor, already a crew member: kept as it was",
 		"mayor.md refreshed to this build's", "the yardmaster's prompt is mayor.md."} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the summary lacks %q:\n%s", want, out)
 		}
 	}
-	rs, err := st.Residents(ctx)
+	rs, err := st.Crew(ctx)
 	if err != nil || len(rs) != 1 || rs[0].Name != "mayor" || rs[0].Config["prompt"] != prompt {
-		t.Fatalf("residents = %+v %v", rs, err)
+		t.Fatalf("crew members = %+v %v", rs, err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "yardmaster.md")); err == nil {
-		t.Error("yardmaster.md was written beside the mayor.md the resident reads")
+		t.Error("yardmaster.md was written beside the mayor.md the crew member reads")
 	}
 	tmpl, _ := roles.FS.ReadFile("yardmaster.md")
 	if b, _ := os.ReadFile(prompt); !bytes.Equal(b, fillRole(tmpl, "Jo", "mayor")) {
 		t.Errorf("mayor.md is not this build's yardmaster role:\n%s", b)
 	}
 	if b, _ := os.ReadFile(filepath.Join(dir, "builder.md")); !strings.Contains(string(b), "yardr mail mayor ") {
-		t.Errorf("the builder is not told to mail the resident mayor:\n%s", b)
+		t.Errorf("the builder is not told to mail the crew member mayor:\n%s", b)
 	}
 }

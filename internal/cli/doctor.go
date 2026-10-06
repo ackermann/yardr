@@ -57,7 +57,7 @@ const skippedWhy = "the server is not running"
 
 // storeChecks are the checks that read the store, as Skipped names them:
 // the lines of the yard's part, the setup steps, and the optional parts.
-var storeChecks = []string{"yardmaster", "residents", "held", "cycles", "mail", "names", "steps", "hooks", "peers", "packs"}
+var storeChecks = []string{"yardmaster", "crew", "held", "cycles", "mail", "names", "steps", "hooks", "peers", "packs"}
 
 // yardState is the second part: what of the yard runs.
 type yardState struct {
@@ -67,43 +67,43 @@ type yardState struct {
 	ServerError string           `json:"server_error,omitempty"`
 	Daemon      bool             `json:"daemon"`
 	Yardmaster  *yardmasterState `json:"yardmaster,omitempty"`
-	// Residents is how many the yard has; Failing those that do not start.
-	Residents int               `json:"residents"`
-	Failing   []failingResident `json:"failing"`
-	Held      []string          `json:"held"`
+	// Crew is how many the yard has; Failing those that do not start.
+	Crew    int           `json:"crew"`
+	Failing []failingCrew `json:"failing"`
+	Held    []string      `json:"held"`
 	// Cycles are the beads that block each other in a circle, each as
 	// handles in blocking order (see store.BlockerCycles): never ready.
 	Cycles [][]string `json:"cycles,omitempty"`
 	// Mail is what waits in the inbox of the user the command acts as;
 	// absent when who acts is no user.
 	Mail *mailState `json:"mail,omitempty"`
-	// Parties are what is to know about the yard's names: a resident named
+	// Parties are what is to know about the yard's names: a crew member named
 	// as the operator, members of groups that are no party of the yard.
 	Parties []string `json:"parties,omitempty"`
-	// EnvCommands are the residents whose env_command names a program
+	// EnvCommands are the crew whose env_command names a program
 	// this command does not find.
 	EnvCommands []string `json:"env_commands,omitempty"`
 	// What readState read to say the above, kept for yardr status, which
-	// lists it: every resident, and the open beads.
-	residents []store.Resident
-	open      []store.Bead
+	// lists it: every crew member, and the open beads.
+	crew []store.CrewMember
+	open []store.Bead
 }
 
-// yardmasterState is the yardmaster: whether the resident exists, and its
+// yardmasterState is the yardmaster: whether the crew member exists, and its
 // session.
 type yardmasterState struct {
-	Name     string `json:"name"`
-	Resident bool   `json:"resident"`
-	Enabled  bool   `json:"enabled"`
-	Running  bool   `json:"running"`
-	State    string `json:"state,omitempty"` // the resident's: stopped running failed
-	Agent    string `json:"agent,omitempty"` // herdr's name for its session
-	Failures int    `json:"failures,omitempty"`
-	Reason   string `json:"reason,omitempty"` // of its last failed start
+	Name       string `json:"name"`
+	CrewMember bool   `json:"crew"`
+	Enabled    bool   `json:"enabled"`
+	Running    bool   `json:"running"`
+	State      string `json:"state,omitempty"` // the crew member's: stopped running failed
+	Agent      string `json:"agent,omitempty"` // herdr's name for its session
+	Failures   int    `json:"failures,omitempty"`
+	Reason     string `json:"reason,omitempty"` // of its last failed start
 }
 
-// failingResident is a resident whose starts fail.
-type failingResident struct {
+// failingCrew is a crew member whose starts fail.
+type failingCrew struct {
 	Name     string `json:"name"`
 	State    string `json:"state"`
 	Failures int    `json:"failures"`
@@ -149,7 +149,7 @@ func (a *app) doctorCmd() *cobra.Command {
 		Long: `Print what the yard has and what it lacks, in three parts:
 
   Needed on this machine  git, herdr and each harness the yard runs on (its
-                          default_kind and every kind a group or resident
+                          default_kind and every kind a group or crew member
                           names): on PATH or not, with where to get what is
                           missing, and where your login shell finds it when
                           this shell's PATH does not. herdr is asked whether
@@ -157,7 +157,7 @@ func (a *app) doctorCmd() *cobra.Command {
                           with its version flag: on PATH is not "works", and
                           a version is not an answer (--try).
   The yard                the server, the daemon, the yardmaster and its session,
-                          residents whose starts fail, held beads.
+                          crew members whose starts fail, held beads.
   Setup                   the steps from a yard to a first merged bead, each
                           done or todo, and the command for the first one
                           not done. Then what a yard runs without, as
@@ -169,7 +169,7 @@ never runs that), changes nothing in the store and starts no daemon and no
 server. It runs each harness's version flag, for up to ` + versionTimeout.String() + ` each; a kind
 yardr knows no version flag for is not run. On a yard whose server is not
 running it says so, checks the machine and the daemon, and lists what only
-the store knows (the yardmaster, the residents, held beads, the setup steps,
+the store knows (the yardmaster, the crew, held beads, the setup steps,
 hooks, peers, packs) as skipped: that is a note, not a fault. On a home with
 no yard it says so, checks the machine and creates nothing. For a program
 that is not on PATH it runs your login shell ($SHELL -l -c) once, to ask
@@ -262,7 +262,7 @@ func stoppedYard(ctx context.Context, cfg *config.Config) *doctorReport {
 			rep.Machine[i].For = forStoppedYard
 		}
 	}
-	rep.State = &yardState{Server: serverStopped, Daemon: daemonRunning(cfg.DaemonLock()), Failing: []failingResident{}, Held: []string{}}
+	rep.State = &yardState{Server: serverStopped, Daemon: daemonRunning(cfg.DaemonLock()), Failing: []failingCrew{}, Held: []string{}}
 	skip := func(key, title string) optionalPart {
 		return optionalPart{Key: key, Title: title, Skipped: true, Detail: skippedWhy}
 	}
@@ -283,7 +283,7 @@ func (a *app) examine(ctx context.Context, cfg *config.Config, try, set bool, er
 		rep.Yard = true
 		rep.Machine = machineNeeds(ctx, nil, try)
 		rep.State = &yardState{Server: serverUnreachable, ServerError: err.Error(), Daemon: daemonRunning(cfg.DaemonLock()),
-			Failing: []failingResident{}, Held: []string{}}
+			Failing: []failingCrew{}, Held: []string{}}
 		rep.Steps = []setupStep{}
 		rep.faults()
 		return rep, nil
@@ -304,18 +304,18 @@ func (a *app) examine(ctx context.Context, cfg *config.Config, try, set bool, er
 	if err != nil {
 		return nil, err
 	}
-	residents, err := st.Residents(ctx)
+	crew, err := st.Crew(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rep.Machine = machineNeeds(ctx, harnessUses(defaultKind(ctx, st), groups, residents), try)
-	if rep.State, err = readState(ctx, cfg, st, residents); err != nil {
+	rep.Machine = machineNeeds(ctx, harnessUses(defaultKind(ctx, st), groups, crew), try)
+	if rep.State, err = readState(ctx, cfg, st, crew); err != nil {
 		return nil, err
 	}
 	if rep.State.Mail, err = a.readMail(ctx, st); err != nil {
 		return nil, err
 	}
-	if rep.State.Parties, err = partyNotes(ctx, st, residents, groups, yardrAt(cfg.Home)); err != nil {
+	if rep.State.Parties, err = partyNotes(ctx, st, crew, groups, yardrAt(cfg.Home)); err != nil {
 		return nil, err
 	}
 	if rep.Steps, err = setupSteps(ctx, st); err != nil {
@@ -330,35 +330,35 @@ func (a *app) examine(ctx context.Context, cfg *config.Config, try, set bool, er
 }
 
 // readState is the second part, read from a yard whose server answers: the
-// daemon, the yardmaster and its session, the residents whose starts fail, the
+// daemon, the yardmaster and its session, the crew whose starts fail, the
 // held beads, and the beads that block each other in a circle. It is what
 // doctor prints, and what bare yardr goes by to tell
 // a yard whose onboarding is to finish (resume).
-func readState(ctx context.Context, cfg *config.Config, st store.API, residents []store.Resident) (*yardState, error) {
-	state := &yardState{Server: serverUp, Daemon: daemonRunning(cfg.DaemonLock()), Residents: len(residents),
-		Failing: []failingResident{}, Held: []string{}, residents: residents}
+func readState(ctx context.Context, cfg *config.Config, st store.API, crew []store.CrewMember) (*yardState, error) {
+	state := &yardState{Server: serverUp, Daemon: daemonRunning(cfg.DaemonLock()), Crew: len(crew),
+		Failing: []failingCrew{}, Held: []string{}, crew: crew}
 	yardmaster := yardmasterOf(ctx, st)
 	state.Yardmaster = &yardmasterState{Name: yardmaster}
-	for _, r := range residents {
+	for _, r := range crew {
 		reason := ""
 		failing := r.State == "failed" || (r.Enabled && !r.Live() && r.Failures > 0)
 		if failing {
 			reason = lastStartFailure(ctx, st, r)
 		}
 		if r.Name == yardmaster {
-			state.Yardmaster = &yardmasterState{Name: yardmaster, Resident: true, Enabled: r.Enabled, Running: r.Live(), State: r.State,
+			state.Yardmaster = &yardmasterState{Name: yardmaster, CrewMember: true, Enabled: r.Enabled, Running: r.Live(), State: r.State,
 				Agent: show(r.Handle["agent"]), Failures: r.Failures, Reason: reason}
 			if !r.Live() {
 				state.Yardmaster.Agent = ""
 			}
 		} else if failing {
-			state.Failing = append(state.Failing, failingResident{r.Name, r.State, r.Failures, reason})
+			state.Failing = append(state.Failing, failingCrew{r.Name, r.State, r.Failures, reason})
 		}
 		// Not run here: it may ask a vault to unlock. Only whether its
 		// program is there, as this command finds it; the daemon's PATH is
 		// its own.
 		if err := config.EnvCommandMissing(cmp.Or(r.Dir, cfg.Home), r.Config); err != nil {
-			state.EnvCommands = append(state.EnvCommands, fmt.Sprintf("resident %s does not start without its environment: %v", r.Name, err))
+			state.EnvCommands = append(state.EnvCommands, fmt.Sprintf("crew member %s does not start without its environment: %v", r.Name, err))
 		}
 	}
 	open, err := st.ListBeads(ctx, store.BeadFilter{})
@@ -596,38 +596,38 @@ func (s *yardState) lines(home string) []docLine {
 	if s.Daemon {
 		out = append(out, docLine{tagOK, "daemon", "running"})
 	} else {
-		out = append(out, docLine{tagFault, "daemon", fmt.Sprintf("not running: no bead is dispatched and no resident starts. "+
+		out = append(out, docLine{tagFault, "daemon", fmt.Sprintf("not running: no bead is dispatched and no crew member starts. "+
 			"Start it in a pane of its own (%s daemon) or in the background (%s init --start)", yardr, yardr)})
 	}
 	if s.Server == serverStopped {
 		// The lines every report has, so that its shape stays the same.
-		for _, name := range []string{"yardmaster", "residents", "held"} {
+		for _, name := range []string{"yardmaster", "crew", "held"} {
 			out = append(out, docLine{tagNote, name, "skipped: " + skippedWhy})
 		}
 		return out
 	}
 	switch m := s.Yardmaster; {
 	case m == nil:
-	case !m.Resident:
-		out = append(out, docLine{tagFault, "yardmaster", fmt.Sprintf("no resident %s: %s init adds it", m.Name, yardr)})
+	case !m.CrewMember:
+		out = append(out, docLine{tagFault, "yardmaster", fmt.Sprintf("no crew member %s: %s init adds it", m.Name, yardr)})
 	case m.Running:
 		out = append(out, docLine{tagOK, "yardmaster", fmt.Sprintf("%s is running (herdr agent %s)", m.Name, or(m.Agent, "unknown"))})
 	case !m.Enabled:
-		out = append(out, docLine{tagNote, "yardmaster", fmt.Sprintf("%s is stopped (disabled). Let it run again: %s resident start %s", m.Name, yardr, m.Name)})
+		out = append(out, docLine{tagNote, "yardmaster", fmt.Sprintf("%s is stopped (disabled). Let it run again: %s crew start %s", m.Name, yardr, m.Name)})
 	case m.Failures > 0 || m.State == "failed":
-		out = append(out, docLine{tagFault, "yardmaster", fmt.Sprintf("%s is not running: %s. Once that is fixed: %s resident start %s",
+		out = append(out, docLine{tagFault, "yardmaster", fmt.Sprintf("%s is not running: %s. Once that is fixed: %s crew start %s",
 			m.Name, failed(m.State, m.Failures, m.Reason), yardr, m.Name)})
 	case !s.Daemon:
 		out = append(out, docLine{tagFault, "yardmaster", m.Name + " is not running: the daemon starts it"})
 	default:
-		out = append(out, docLine{tagFault, "yardmaster", fmt.Sprintf("%s is not running, and no start has failed: the daemon may still be at it (%s resident list)", m.Name, yardr)})
+		out = append(out, docLine{tagFault, "yardmaster", fmt.Sprintf("%s is not running, and no start has failed: the daemon may still be at it (%s crew list)", m.Name, yardr)})
 	}
 	for _, f := range s.Failing {
-		out = append(out, docLine{tagFault, "resident", fmt.Sprintf("%s is not running: %s. Once that is fixed: %s resident start %s",
+		out = append(out, docLine{tagFault, "crew", fmt.Sprintf("%s is not running: %s. Once that is fixed: %s crew start %s",
 			f.Name, failed(f.State, f.Failures, f.Reason), yardr, f.Name)})
 	}
 	if len(s.Failing) == 0 {
-		out = append(out, docLine{tagOK, "residents", fmt.Sprintf("%d, none failing to start", s.Residents)})
+		out = append(out, docLine{tagOK, "crew", fmt.Sprintf("%d, none failing to start", s.Crew)})
 	}
 	if len(s.Held) == 0 {
 		out = append(out, docLine{tagOK, "held", "no bead is held"})
@@ -646,7 +646,7 @@ func (s *yardState) lines(home string) []docLine {
 		out = append(out, s.Mail.line(yardr))
 	}
 	for _, n := range s.EnvCommands {
-		out = append(out, docLine{tagNote, "resident", n})
+		out = append(out, docLine{tagNote, "crew", n})
 	}
 	for _, n := range s.Parties {
 		out = append(out, docLine{tagNote, "names", n})
@@ -654,7 +654,7 @@ func (s *yardState) lines(home string) []docLine {
 	return out
 }
 
-// failed says how a resident's starts fail.
+// failed says how a crew member's starts fail.
 func failed(state string, failures int, reason string) string {
 	text := fmt.Sprintf("%d failed starts so far", failures)
 	if state == "failed" {
@@ -700,7 +700,7 @@ func (a *app) doctorSays(ctx context.Context, cfg *config.Config) error {
 		if err != nil {
 			return err
 		}
-		if r, err := st.GetResident(ctx, m.Yardmaster.Name); err == nil && r.Live() && !up(ctx, *r) {
+		if r, err := st.GetCrew(ctx, m.Yardmaster.Name); err == nil && r.Live() && !up(ctx, *r) {
 			say = append(say, silentYardmaster(r.Name))
 		}
 	}

@@ -117,7 +117,7 @@ func printBeadPeer(b *store.Bead) {
 	case p.ReturnedAt != nil:
 		fmt.Printf("  returned to it as %s (%s)\n", p.Outcome, p.ReturnedAt.Local().Format("01-02 15:04"))
 	case p.Held && b.Status == "open":
-		fmt.Printf("  held as it arrived: a user releases it (yardr bead unhold %s), or a resident allowed to\n", b.ID)
+		fmt.Printf("  held as it arrived: a user releases it (yardr bead unhold %s), or a crew member allowed to\n", b.ID)
 		if p.Expires != nil {
 			fmt.Printf("  not released by %s, it goes back to %s as refused\n", p.Expires.Local().Format("01-02 15:04"), p.Yard())
 		}
@@ -631,27 +631,27 @@ one would block again once reopened. Other kinds are never refused for it.`
 }
 
 func (a *app) primeCmd() *cobra.Command {
-	var id, resident string
+	var id, member string
 	cmd := &cobra.Command{
 		Use:   "prime",
-		Short: "Print everything an agent needs to work a bead, or to run as a resident",
+		Short: "Print everything an agent needs to work a bead, or to run as a crew member",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			if resident == "" && id == "" {
-				resident = config.Getenv("RESIDENT")
+			if member == "" && id == "" {
+				member = config.Getenv("CREW")
 			}
-			if resident != "" {
+			if member != "" {
 				st, err := a.store(c.Context())
 				if err != nil {
 					return err
 				}
-				return a.primeResident(c.Context(), st, resident)
+				return a.primeCrew(c.Context(), st, member)
 			}
 			if id == "" {
 				id = a.identity().bead
 			}
 			if id == "" {
-				return fmt.Errorf("--bead or --resident is required (or set YARDR_BEAD / YARDR_RESIDENT)")
+				return fmt.Errorf("--bead or --crew is required (or set YARDR_BEAD / YARDR_CREW)")
 			}
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -722,7 +722,7 @@ func (a *app) primeCmd() *cobra.Command {
 				if op != nil {
 					fmt.Printf("\nOPERATOR %s:\n  %s\n", op.Name, strings.Join(op.lines(), "\n  "))
 				}
-				// What the flow says about the stage, for people and residents
+				// What the flow says about the stage, for people and crew members
 				// in manual stages, who get no brief.
 				// Without its `summary:` line, which the map above already says.
 				stage := ""
@@ -769,7 +769,8 @@ func (a *app) primeCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&id, "bead", "", "bead id (default $YARDR_BEAD)")
-	cmd.Flags().StringVar(&resident, "resident", "", "resident name (default $YARDR_RESIDENT)")
+	cmd.Flags().StringVar(&member, "crew", "", "crew member name (default $YARDR_CREW)")
+	oldFlag(cmd, "resident", "crew")
 	return cmd
 }
 

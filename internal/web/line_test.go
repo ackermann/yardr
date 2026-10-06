@@ -71,7 +71,7 @@ func TestWaitsHeld(t *testing.T) {
 	if got := waiting(lineJSON(t, f)); !reflect.DeepEqual(got, want) {
 		t.Errorf("held\n got %+v\nwant %+v", got, want)
 	}
-	for _, path := range []string{"/", "/line", "/sessions", "/residents", "/beads", "/nowhere"} {
+	for _, path := range []string{"/", "/line", "/sessions", "/crew", "/beads", "/nowhere"} {
 		text := squash(f.get(path).body)
 		for _, part := range []string{
 			`<article class="wait"><header><span class="bead">` + b.ID + `</span><span class="label">new</span></header>`,
@@ -422,7 +422,7 @@ func TestColumnIsLive(t *testing.T) {
 	// event the column hears.
 	formats := map[string]string{"/flows": "&amp;format=card", "/beads": "&amp;format=seq", "/beads/" + f.byTitle()["three"].ID: "&amp;format=seq"}
 	column := `<aside class="right" aria-label="The line" hx-get="/line" hx-trigger="sse:message" hx-select="aside.right > *" hx-swap="innerHTML ignoreTitle:true">`
-	for _, path := range []string{"/", "/line", "/sessions", "/residents", "/flows", "/beads", "/beads/" + f.byTitle()["three"].ID, "/nowhere"} {
+	for _, path := range []string{"/", "/line", "/sessions", "/crew", "/flows", "/beads", "/beads/" + f.byTitle()["three"].ID, "/nowhere"} {
 		text := squash(f.get(path).body)
 		shell := `<div class="shell" hx-ext="sse" sse-connect="/events?after=` + itoa(head) + formats[path] + `">`
 		for _, part := range []string{shell, column} {
@@ -435,9 +435,9 @@ func TestColumnIsLive(t *testing.T) {
 		}
 	}
 	for path, part := range map[string]string{
-		"/line":      `<div class="item" id="line" hx-get="/line" hx-trigger="sse:message" hx-select="#line > *" hx-swap="innerHTML ignoreTitle:true">`,
-		"/sessions":  `<div id="live" hx-get="/sessions" hx-trigger="sse:message" hx-select="#live > *" hx-swap="innerHTML ignoreTitle:true">`,
-		"/residents": `<div id="live" hx-get="/residents" hx-trigger="sse:message" hx-select="#live > *" hx-swap="innerHTML ignoreTitle:true">`,
+		"/line":     `<div class="item" id="line" hx-get="/line" hx-trigger="sse:message" hx-select="#line > *" hx-swap="innerHTML ignoreTitle:true">`,
+		"/sessions": `<div id="live" hx-get="/sessions" hx-trigger="sse:message" hx-select="#live > *" hx-swap="innerHTML ignoreTitle:true">`,
+		"/crew":     `<div id="live" hx-get="/crew" hx-trigger="sse:message" hx-select="#live > *" hx-swap="innerHTML ignoreTitle:true">`,
 	} {
 		if text := squash(f.get(path).body); !strings.Contains(text, part) {
 			t.Errorf("%s lacks %q", path, part)
@@ -552,66 +552,70 @@ func TestAge(t *testing.T) {
 	}
 }
 
-// The residents page lists each resident, whether it runs and since when,
+// The crew page lists each crew member, whether it runs and since when,
 // and how many events of its inbox it has not read. What its journal says
 // is not on it.
-func TestResidents(t *testing.T) {
+func TestCrew(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	var empty web.Residents
-	r := f.get("/residents", "Accept", "application/json")
-	if err := json.Unmarshal([]byte(r.body), &empty); err != nil || r.status != 200 || empty.Residents == nil || len(empty.Residents) != 0 {
+	var empty web.Crew
+	r := f.get("/crew", "Accept", "application/json")
+	if err := json.Unmarshal([]byte(r.body), &empty); err != nil || r.status != 200 || empty.Crew == nil || len(empty.Crew) != 0 {
 		t.Fatalf("an empty yard: status %d, %v, %+v, want an empty list", r.status, err, empty)
 	}
-	if text := f.get("/residents").body; !strings.Contains(text, "This yard has no resident.") {
-		t.Error("the page of a yard with no resident does not say so")
+	if text := f.get("/crew").body; !strings.Contains(text, "This yard has no crew.") {
+		t.Error("the page of a yard with no crew does not say so")
+	}
+	// The page's address until this release leads to it.
+	if old := f.get("/residents"); old.status != 200 || !strings.Contains(old.body, "This yard has no crew.") {
+		t.Errorf("/residents: status %d, and not the crew's page:\n%s", old.status, old.body)
 	}
 
 	for _, name := range []string{"yardmaster", "zed"} {
-		_, err := f.st.PutResident(ctx, store.Resident{Name: name, Runner: "herdr", Enabled: true,
+		_, err := f.st.PutCrew(ctx, store.CrewMember{Name: name, Runner: "herdr", Enabled: true,
 			Config: map[string]any{"kind": "claude", "model": "opus"}}, "me")
 		must(t, err)
 	}
-	must(t, f.st.ResidentStarted(ctx, "yardmaster", map[string]any{"agent": "yardmaster"}))
+	must(t, f.st.CrewStarted(ctx, "yardmaster", map[string]any{"agent": "yardmaster"}))
 	must(t, f.st.Mail(ctx, "yardmaster", "the gate is red", "builder"))
 	must(t, f.st.Mail(ctx, "yardmaster", "and still red", "builder"))
 	must(t, f.st.Journal(ctx, "yardmaster", store.NoteJournal, "dear diary", "yardmaster"))
-	must(t, f.st.SetResidentEnabled(ctx, "zed", false, "", "me"))
+	must(t, f.st.SetCrewEnabled(ctx, "zed", false, "", "me"))
 
-	var got web.Residents
-	r = f.get("/residents", "Accept", "application/json")
+	var got web.Crew
+	r = f.get("/crew", "Accept", "application/json")
 	if err := json.Unmarshal([]byte(r.body), &got); err != nil || r.status != 200 {
 		t.Fatalf("status %d, %v: %s", r.status, err, r.body)
 	}
-	if len(got.Residents) != 2 || got.Residents[0].Since == nil || got.Residents[0].Up == "" {
-		t.Fatalf("got %+v, want two residents, the first running since some time", got)
+	if len(got.Crew) != 2 || got.Crew[0].Since == nil || got.Crew[0].Up == "" {
+		t.Fatalf("got %+v, want two crew members, the first running since some time", got)
 	}
-	got.Residents[0].Since, got.Residents[0].Up = nil, ""
-	want := web.Residents{Residents: []web.ResidentRow{
+	got.Crew[0].Since, got.Crew[0].Up = nil, ""
+	want := web.Crew{Crew: []web.CrewRow{
 		{Name: "yardmaster", State: "running", Running: true, Enabled: true, Agent: "herdr · claude · opus", Unread: 2},
 		{Name: "zed", State: "stopped", Agent: "herdr · claude · opus"},
 	}}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("residents\n got %+v\nwant %+v", got, want)
+		t.Errorf("crew members\n got %+v\nwant %+v", got, want)
 	}
-	text := squash(f.get("/residents").body)
+	text := squash(f.get("/crew").body)
 	for _, part := range []string{
 		`<h2>yardmaster</h2><span class="state"><span class="dot running"></span><span>running</span></span><span class="item-count">2 unread</span>`,
 		`<h2>zed</h2><span class="state"><span>stopped</span> · disabled</span><span class="item-count"><span class="zero">0 unread</span></span>`,
 		`<dt>agent</dt><dd>herdr · claude · opus</dd>`,
 		`<dt>running since</dt><dd><time datetime="`,
-		`<a href="/residents" aria-current="page">Residents</a>`,
+		`<a href="/crew" aria-current="page">Crew</a>`,
 	} {
 		if !strings.Contains(text, part) {
 			t.Errorf("the page lacks %q", part)
 		}
 	}
 	if strings.Count(text, "running since") != 1 {
-		t.Error("the stopped resident is shown running since some time")
+		t.Error("the stopped crew member is shown running since some time")
 	}
 	for _, not := range []string{"dear diary", "the gate is red"} {
 		if strings.Contains(text, not) || strings.Contains(r.body, not) {
-			t.Errorf("the page shows %q: a resident's journal and mail are its own", not)
+			t.Errorf("the page shows %q: a crew member's journal and mail are its own", not)
 		}
 	}
 
@@ -619,7 +623,7 @@ func TestResidents(t *testing.T) {
 	page, err := f.st.Inbox(ctx, "yardmaster", 0)
 	must(t, err)
 	must(t, f.st.AckInbox(ctx, "yardmaster", page.Last))
-	if text := squash(f.get("/residents").body); !strings.Contains(text, `<h2>yardmaster</h2>`) || strings.Contains(text, "2 unread") {
+	if text := squash(f.get("/crew").body); !strings.Contains(text, `<h2>yardmaster</h2>`) || strings.Contains(text, "2 unread") {
 		t.Error("the yardmaster read its inbox, and the page still counts 2 unread")
 	}
 }
@@ -650,7 +654,7 @@ func TestStreamStartsBeforeThePageWasRead(t *testing.T) {
 	must(t, err)
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
-	for _, path := range []string{"/flows", "/beads", "/sessions", "/residents"} {
+	for _, path := range []string{"/flows", "/beads", "/sessions", "/crew"} {
 		head, err := f.st.Head(ctx)
 		must(t, err)
 		res, err := http.Get(ts.URL + path)

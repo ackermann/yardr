@@ -24,7 +24,7 @@ type Group struct {
 	// works (see Advance). Only manual groups have them; none means anyone.
 	// A guardrail against mistakes, not security: anyone can set YARDR_ACTOR.
 	Members []string `json:"members,omitempty"`
-	// Subscriptions deliver events to each member that is a resident. Kept
+	// Subscriptions deliver events to each member that is a crew member. Kept
 	// when the group is redefined.
 	Subscriptions []Subscription `json:"subscriptions,omitempty"`
 }

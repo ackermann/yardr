@@ -101,8 +101,8 @@ type Dispatcher struct {
 	// (default 30s); it doubles on every further outage, up to
 	// RuntimeBackoffMax (default 5m).
 	RuntimeBackoff, RuntimeBackoffMax time.Duration
-	// Home is the yard's home: what a resident's env_command is told, and
-	// where it runs for a resident without a directory.
+	// Home is the yard's home: what a crew member's env_command is told, and
+	// where it runs for a crew member without a directory.
 	Home string
 	// Binary, when set, is the daemon's own executable: when a new build is
 	// installed over it, Run finishes its pass and execs that build. The
@@ -187,11 +187,11 @@ type Dispatcher struct {
 
 	// promptDue is when a pending prompt is next to be delivered or looked
 	// for, as of the last pass (see pendingPrompt); nil with none.
-	// promptIdle is session (or "resident:<name>") -> when its agent was
+	// promptIdle is session (or "crew:<name>") -> when its agent was
 	// first seen idle with a prompt that has not been delivered yet.
 	promptDue  *time.Time
 	promptIdle map[string]time.Time
-	// drafts is session (or "resident:<name>") -> the text found in its
+	// drafts is session (or "crew:<name>") -> the text found in its
 	// agent's input when yardr had something to type there, and nudged is
 	// the same -> the last nudge yardr typed and when. See inputHeld.
 	drafts map[string]*draft
@@ -250,7 +250,7 @@ func IsRuntime(err error) bool {
 // BlockedError marks a Start error as the session's own configuration
 // refusing it (an env_file that is missing or open to others): no retry
 // fixes it until a human does, and every session of the same group or
-// resident would fail alike, so it is reported rather than counted against
+// crew member would fail alike, so it is reported rather than counted against
 // a bead.
 type BlockedError struct{ Err error }
 
@@ -618,9 +618,9 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	if err := d.cleanup(ctx, byName); err != nil {
 		return err
 	}
-	// Before the residents, so one a timer is for is nudged in this pass.
+	// Before the crew, so one a timer is for is nudged in this pass.
 	d.timers(ctx)
-	if err := d.residents(ctx); err != nil {
+	if err := d.crew(ctx); err != nil {
 		return err
 	}
 	// Before routing, so a train the rules move to land is dispatched to

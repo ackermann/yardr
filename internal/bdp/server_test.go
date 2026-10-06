@@ -360,7 +360,7 @@ func TestDiscoveredFromLink(t *testing.T) {
 
 // Journals and memories are open beads in the store, but not work: a bd-style
 // client computes readiness from status and blockers, so serving them would
-// list a resident's journal as ready. They are not served, nor their links.
+// list a crew member's journal as ready. They are not served, nor their links.
 func TestJournalsAndMemoriesAreNotServed(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()

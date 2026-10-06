@@ -299,7 +299,7 @@ func (s setupState) routesStep(rig string, lands bool) setupStep {
 	return step
 }
 
-// work reports whether b is a bead of work in a rig: not a resident's
+// work reports whether b is a bead of work in a rig: not a crew member's
 // journal or a memory.
 func work(b store.Bead) bool { return b.Rig != nil && !store.NotWork[b.Type] }
 

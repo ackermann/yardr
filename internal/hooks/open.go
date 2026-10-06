@@ -10,9 +10,9 @@ import (
 	"time"
 )
 
-// Opening a thread is the other outbound call: a resident starts one in a
+// Opening a thread is the other outbound call: a crew member starts one in a
 // source instead of answering in one. The rules are those of a reply: the
-// CLI in the resident's pane makes the call with the resident's own
+// CLI in the crew member's pane makes the call with the crew member's own
 // credential, and the server only keeps the record.
 
 // Opener is what a Replier whose source lets a thread be opened adds.

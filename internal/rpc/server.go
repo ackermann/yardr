@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"yardr.dev/yardr/internal/peer"
@@ -61,6 +62,20 @@ func WriteReplacing(w http.ResponseWriter) {
 // streams and lifecycle methods are not callable through /call.
 var notCallable = map[string]bool{"Subscribe": true, "TailEvents": true, "Wake": true, "Close": true}
 
+// oldMethod is the name a method of store.API had until this release, when
+// the crew were the residents; "" for one that had no other. A client
+// started before the upgrade that does not replace itself (the web view, a
+// chat left open) still calls it, and gets what the method of today gives.
+func oldMethod(name string) string {
+	if name == "Crew" {
+		return "Residents"
+	}
+	if strings.Contains(name, "Crew") {
+		return strings.Replace(name, "Crew", "Resident", 1)
+	}
+	return ""
+}
+
 // Handler serves st.
 func Handler(st *store.Store, log *slog.Logger) http.Handler {
 	return handler(st, log, StreamWriteTimeout)
@@ -75,6 +90,9 @@ func handler(st *store.Store, log *slog.Logger, writeTimeout time.Duration) http
 		name := api.Method(i).Name
 		if !notCallable[name] {
 			methods[name] = v.MethodByName(name)
+			if old := oldMethod(name); old != "" {
+				methods[old] = methods[name]
+			}
 		}
 	}
 	mux := http.NewServeMux()

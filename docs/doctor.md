@@ -25,7 +25,7 @@ no yardr server and no herdr server. What it does do:
   for up to 5 seconds each, side by side. That runs a program and changes
   nothing.
 - It asks the herdr it finds whether its server answers (`herdr agent list`,
-  the call a resident's start begins with), for up to 5 seconds.
+  the call a crew member's start begins with), for up to 5 seconds.
 - For a program that is not on PATH it runs your login shell once (`$SHELL
   -l -c 'command -v <program>'`, stdin closed, up to 5 seconds) to ask where
   that finds it. With no `SHELL`, or a shell that does not answer, it says
@@ -44,7 +44,7 @@ without the store:
   does not work is a note there, not a fault;
 - the daemon, and of the optional parts the web view and the login service
   (without its notes on rigs);
-- the yardmaster, the residents, the held beads, the setup steps, hooks, peers
+- the yardmaster, the crew, the held beads, the setup steps, hooks, peers
   and packs as `skipped: the server is not running`, each on the line it
   always has. Cycles, mail and names, which have a line only when there is
   something to say, are skipped without one.
@@ -64,7 +64,7 @@ known only to its server.
 A harness on PATH that answers its version flag can still not work: it is
 logged out, its token is spent while its own status says logged in, or it is
 a version that lacks what it is started with. A session started on it then
-sits at a screen nobody sees, and the resident's start times out.
+sits at a screen nobody sees, and the crew member's start times out.
 
 `yardr doctor --try` makes one real call to each harness: its one-shot form
 with the prompt `Reply with the one word ok and nothing else.`, stdin
@@ -89,8 +89,8 @@ itself says.
 
 **It costs a model call per harness**, on your account with it, so doctor
 never makes it unasked: without `--try` one line says that no harness was
-asked. A resident's start that fails or does not answer names it
-(`yardr init --start`, `yardr resident show`).
+asked. A crew member's start that fails or does not answer names it
+(`yardr init --start`, `yardr crew show`).
 
 The call is the harness's one-shot form, not the command herdr starts it
 with in a pane: a flag herdr passes that the harness does not know is not
@@ -121,8 +121,8 @@ Then up to four headed blocks. In the first two, a line is a tag (`ok`,
 ### Needed on this machine
 
 git, herdr, and a harness for each kind the yard runs on: its `default_kind`
-and every kind a herdr group or resident names. `<who>` lists them
-(`the yard's default, resident yardmaster, group web/builders`). On a home
+and every kind a herdr group or crew member names. `<who>` lists them
+(`the yard's default, crew member yardmaster, group web/builders`). On a home
 with no yard the harnesses are those that are installed, any of which a yard
 can be created on; they are then never a fault.
 
@@ -130,7 +130,7 @@ can be created on; they are then never a fault.
 |---|---|
 | `ok git <path>` | on PATH |
 | `ok herdr <path>, its server is running` | on PATH, and its server answers |
-| ``FAULT herdr <path>: on PATH, but its server is not running (server_not_running: <herdr's message>): the daemon cannot start agents until it is. Start it: run herdr in a terminal (ctrl+b q detaches, the server stays); on a machine without a desktop, run `herdr server`, its headless server, as a service (docs/install.md, "herdr's server")`` | herdr says no server is at its socket: every start of a resident or a bead's agent fails with `server_not_running` until one is ([install.md](install.md#herdrs-server)) |
+| ``FAULT herdr <path>: on PATH, but its server is not running (server_not_running: <herdr's message>): the daemon cannot start agents until it is. Start it: run herdr in a terminal (ctrl+b q detaches, the server stays); on a machine without a desktop, run `herdr server`, its headless server, as a service (docs/install.md, "herdr's server")`` | herdr says no server is at its socket: every start of a crew member or a bead's agent fails with `server_not_running` until one is ([install.md](install.md#herdrs-server)) |
 | `note herdr <path>: on PATH; whether its server is running could not be asked: <what herdr said>` | herdr answered with something else, or not in 5 seconds: not known to be down, so no fault |
 | `FAULT <program> not on PATH: <what it is needed for>. Get it: <where>` | missing. For git and herdr the same words the onboarding uses before its first page. For a harness, `<where>` is its install command where yardr knows one (claude, codex, opencode), else a pointer to the agent's own documentation |
 | ``FAULT <program> not on PATH: <what it is needed for>. Found at <path> by your login shell, which this shell's PATH does not have: add <dir> to PATH here, or for the daemon's service run `yardr daemon install` from a login shell`` | missing here and installed: your login shell finds it. A shell without a terminal (ssh with a command, a service) reads no profile, so it lacks what `~/.profile` adds, `~/.local/bin` for one. The daemon's service gets the PATH of the shell that installs it ([configuration.md](configuration.md#login-services)) |
@@ -154,25 +154,25 @@ Not printed on a home with no yard.
 | line | meaning |
 |---|---|
 | `ok server running` | |
-| `note server not running (yardr server start, or any command but status and doctor, starts it)` | no fault. Doctor starts none ([above](#a-server-that-is-not-running)): the daemon's line follows, then `note yardmaster skipped: the server is not running` and the same for `residents` and `held`, and the block ends |
+| `note server not running (yardr server start, or any command but status and doctor, starts it)` | no fault. Doctor starts none ([above](#a-server-that-is-not-running)): the daemon's line follows, then `note yardmaster skipped: the server is not running` and the same for `crew` and `held`, and the block ends |
 | `FAULT server cannot be reached: <error>` | nothing else of the yard can be read; the block ends here and there are no steps |
 | `ok daemon running` | a daemon holds the home's lock |
-| `FAULT daemon not running: no bead is dispatched and no resident starts. Start it in a pane of its own (yardr daemon) or in the background (yardr init --start)` | |
-| `ok yardmaster <name> is running (herdr agent <agent>)` | the resident named by the `yardmaster` setting has a session |
-| `FAULT yardmaster no resident <name>: yardr init adds it` | |
-| `note yardmaster <name> is stopped (disabled). Let it run again: yardr resident start <name>` | stopped on purpose: no fault |
-| `FAULT yardmaster <name> is not running: <N> failed starts so far, the last with: <reason>. Once that is fixed: yardr resident start <name>` | its starts fail; `the daemon gave up after <N> tries` once it has. A session gone within 60 seconds of its start is a failed start, with the reason `the session ended <time> after its start (…)` ([residents.md](residents.md)) |
+| `FAULT daemon not running: no bead is dispatched and no crew member starts. Start it in a pane of its own (yardr daemon) or in the background (yardr init --start)` | |
+| `ok yardmaster <name> is running (herdr agent <agent>)` | the crew member named by the `yardmaster` setting has a session |
+| `FAULT yardmaster no crew member <name>: yardr init adds it` | |
+| `note yardmaster <name> is stopped (disabled). Let it run again: yardr crew start <name>` | stopped on purpose: no fault |
+| `FAULT yardmaster <name> is not running: <N> failed starts so far, the last with: <reason>. Once that is fixed: yardr crew start <name>` | its starts fail; `the daemon gave up after <N> tries` once it has. A session gone within 60 seconds of its start is a failed start, with the reason `the session ended <time> after its start (…)` ([crew.md](crew.md)) |
 | `FAULT yardmaster <name> is not running: the daemon starts it` | no daemon |
-| `FAULT yardmaster <name> is not running, and no start has failed: the daemon may still be at it (yardr resident list)` | |
-| `FAULT resident <name> is not running: …` | another resident whose starts fail, as for the yardmaster |
-| `ok residents <N>, none failing to start` | |
+| `FAULT yardmaster <name> is not running, and no start has failed: the daemon may still be at it (yardr crew list)` | |
+| `FAULT crew <name> is not running: …` | another crew member whose starts fail, as for the yardmaster |
+| `ok crew <N>, none failing to start` | |
 | `ok held no bead is held` | |
 | `note held <N> held, waiting for someone: <ids> (yardr bead show <id>; yardr bead unhold <id> resumes it)` | no fault: a held bead waits for a person |
 | `note cycle <a> blocks <b> blocks <a>: these beads wait on each other and are never ready. Remove the edge that is wrong: yardr dep rm <blocker> <bead>` | no fault: open beads that block each other in a circle, one line per cycle. `yardr dep add` refuses the edge that would close one, so these are from a store written before it did; yardr removes nothing itself ([pipeline.md](pipeline.md#cycles-of-blockers)) |
 | `ok mail nothing unread for <user>` | printed when who runs the command is a user ([users.md](users.md)); absent otherwise |
 | `note mail <N> unread from <names> for <user>: yardr inbox reads them, --ack marks them read` | no fault: nothing nudges a person, so this line and bare `yardr` are where they learn of mail |
-| `note names group <group>: <names> are neither a user nor a resident, so nobody of that name can be mailed (yardr user add <name>)` | no fault: members of a group are names, taken as given |
-| `note names resident <name> has the operator's name, so the operator has no user and no inbox: mail to <name> is the resident's. Rename one of the two: yardr settings set operator <name> gives the operator a name of their own and adds their user` | no fault: a yard from before residents and users shared their names |
+| `note names group <group>: <names> are neither a user nor a crew member, so nobody of that name can be mailed (yardr user add <name>)` | no fault: members of a group are names, taken as given |
+| `note names crew member <name> has the operator's name, so the operator has no user and no inbox: mail to <name> is the crew member's. Rename one of the two: yardr settings set operator <name> gives the operator a name of their own and adds their user` | no fault: a yard from before crew members and users shared their names |
 
 ### Setup
 
@@ -195,7 +195,7 @@ through the setup can take over from anyone else.
 | `a group that reviews` (`reviewers`) | the same with `reviewer.md` and `review` |
 | `a group or person that lands approved beads` (`landing`) | a group has the role `merger.md`, is an exec group whose command merges (a refinery), or has a route for stage `approved`: people who merge by hand count once they are routed |
 | `routes for new, review and approved` (`routes`) | a route exists for each of the three stages. The command for a missing one names the group that does the stage's work (the builders for `new`), once the yard has one |
-| `a first bead` (`first_bead`) | a bead exists in a rig (a resident's journal and memories do not count) |
+| `a first bead` (`first_bead`) | a bead exists in a rig (a crew member's journal and memories do not count) |
 | `a first merged bead` (`merged_bead`) | a bead of a rig was closed by reaching its flow's terminal stage; one closed by hand does not count |
 
 A yard whose rigs are all dir rigs lands nothing: it has no landing step, its
@@ -261,11 +261,11 @@ For a home other than the default, every command doctor prints is `yardr
 | `home`, `yard` | the home; whether a yard is set up in it |
 | `machine` | the programs: `program`, `for`, `found`, `path`, `get` (when missing), `login_shell_path` (where the login shell finds one that is missing), `harness` (the kind, for a harness), `optional` (a harness nothing runs on yet), `version` with `state` (`answers`, `fails`, `hangs`, `not_checked`) and `output`; for herdr, `server` with `state` (`running`, `not_running`, `unknown`) and `output` (what herdr said); under `--try`, for a harness, `try` with `state` (`ok`, `fails`, `hangs`, `not_tried`) and `output` (the answer's last line, what it printed, or why it was not tried) |
 | `tried` | whether `--try` was given |
-| `state` | `server` (`running`, `not_running`, `unreachable`), `server_error`, `daemon`, `yardmaster` (`name`, `resident`, `enabled`, `running`, `state`, `agent`, `failures`, `reason`), `residents`, `failing`, `held`, `cycles` (each a list of ids in blocking order, the first repeated at the end; absent when there is none), `mail` (`user`, `unread`, `from`; only when who runs it is a user), `parties` (the `names` notes); absent with no yard |
+| `state` | `server` (`running`, `not_running`, `unreachable`), `server_error`, `daemon`, `yardmaster` (`name`, `crew`, `enabled`, `running`, `state`, `agent`, `failures`, `reason`), `crew`, `failing`, `held`, `cycles` (each a list of ids in blocking order, the first repeated at the end; absent when there is none), `mail` (`user`, `unread`, `from`; only when who runs it is a user), `parties` (the `names` notes); absent with no yard |
 | `steps` | each `key`, `title`, `done`, `detail`, `next` (the command) when not done, and `rig` (the rig the command names) once the yard has one |
 | `next` | the first step not done; absent when all are |
 | `optional` | each `key` (`web`, `hooks`, `peers`, `packs`, `login_service`), `title`, `configured`, `detail`, `notes`; `skipped` (true on a part that was not looked at, whose `configured` then says nothing); on `web`, `views`: the views that run, as `yardr status --json` lists them |
-| `skipped` | the checks that were not made, on a yard whose server is not running: `yardmaster`, `residents`, `held`, `cycles`, `mail`, `names`, `steps`, `hooks`, `peers`, `packs`. `state` then holds `server` and `daemon` and nothing that was read, and `steps` is empty. Absent otherwise |
+| `skipped` | the checks that were not made, on a yard whose server is not running: `yardmaster`, `crew`, `held`, `cycles`, `mail`, `names`, `steps`, `hooks`, `peers`, `packs`. `state` then holds `server` and `daemon` and nothing that was read, and `steps` is empty. Absent otherwise |
 | `faults` | the `FAULT` lines, one string each; empty when the exit status is 0 |
 
 ## yardr status
@@ -279,7 +279,7 @@ yard       /Users/jo/.yardr  name yardr  operator Jo
 server     running  pid 4711  build abcdef123456  since 10-05 09:12
 daemon     running (pid 4720)
            login service: not installed
-residents  refinery    not running
+crew       refinery    not running
            yardmaster  idle         herdr agent yardr-yardmaster
 web view   http://127.0.0.1:8791/     pid 4801  build abcdef123456  this machine only
            http://192.168.1.20:9000/  pid 4950  build abcdef123456  open to the network (--unsafe), no login
@@ -295,7 +295,7 @@ work       3 sessions running (web/builders 2, web/reviewers 1); 2 beads wait fo
 | `yard` | the home, the yard's name, the operator |
 | `server` | its pid, the build it runs and since when that build runs (a server that replaced itself with a new build counts from then). `this yardr is build <build>` follows when the yardr that was asked is another build. `not running: any yardr command that needs the yard starts it (yardr ready), or yardr server start` when none answers: status starts none ([below](#a-server-that-is-not-running)). `cannot be reached: <why>` when one answers and cannot be asked about the yard: then only `yard`, `daemon` and `web view` follow |
 | `daemon` | `running (pid <pid>)` or `not running`, and its login service, both as `yardr daemon status` prints them |
-| `residents` | each with its state as [`yardr chat`](chat.md) lists it (`not running`, `working`, `idle`, `blocked`, `failed to start`, `running`) and, while it runs, its herdr agent |
+| `crew` | each with its state as [`yardr chat`](chat.md) lists it (`not running`, `working`, `idle`, `blocked`, `failed to start`, `running`) and, while it runs, its herdr agent |
 | `web view` | each view that runs: the URL to open, its pid, the build it runs, and `this machine only` or `open to the network (--unsafe), no login`; `this yardr is build <build>: ...` when a view runs another build than the yardr that was asked, since a view does not replace itself when a new yardr is installed; `not running: yardr web serve` when none does; then the web view's login service ([web.md](web.md#where-it-runs)) |
 | `hooks` | what the running server takes webhooks on, then each hook, its source and the URL its source posts to. Absent on a yard with no hook and no address |
 | `peers` | each linked yard and where it is called, or `it calls this yard`. Absent with no peer |
@@ -311,7 +311,7 @@ holds a yard, faults or not, and 2 on a home with none, where it says what
 any command says there and starts no onboarding. `--json` prints the same as
 one object: `home`, `name`, `operator`, `server` (`running`, `error`, `pid`,
 `build`, `since`, `cli_build`, `differs`), `daemon` (`running`, `pid`,
-`service`), `residents` (`name`, `state`, `agent`), `web` (`views`, each
+`service`), `crew` (`name`, `state`, `agent`), `web` (`views`, each
 `url`, `addr`, `pid`, `unsafe`, `open`, `started`, `revision`, `build`,
 `differs`; `service`), `hooks` (`addr`, `listening`, `hooks` with `name`,
 `source`, `url`), `peers` (`name`, `url`), `work` (`sessions` by group,
@@ -333,12 +333,12 @@ daemon     not running
 web view   http://127.0.0.1:8791/  pid 4801  build abcdef123456  this machine only
            login service: not installed
 
-residents, hooks, peers and work: not known while the server is not running
+crew members, hooks, peers and work: not known while the server is not running
 ```
 
 The yard's name and its operator are settings in the store, so they are
 left out, and so is the line about doctor's faults. In the JSON
-`server.running` is `false` and `name`, `operator`, `residents`, `hooks`,
+`server.running` is `false` and `name`, `operator`, `crew`, `hooks`,
 `peers`, `work` and `faults` are absent. A home counts as a yard here when
 it holds a store (`yard.db`): whether that store was ever set up is known
 only to its server.

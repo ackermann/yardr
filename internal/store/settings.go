@@ -8,14 +8,14 @@ import (
 )
 
 // bSettings holds the yard's own defaults, key -> value (a JSON string),
-// such as default_kind, the agent kind a herdr group or resident gets when
+// such as default_kind, the agent kind a herdr group or crew member gets when
 // its config names none. Which keys exist and what they accept is the
 // CLI's business; the store keeps strings.
 var bSettings = []byte("settings")
 
 func init() { allBuckets = append(allBuckets, bSettings) }
 
-// YardmasterSetting names the resident that coordinates the yard, whom the
+// YardmasterSetting names the crew member that coordinates the yard, whom the
 // role prompts tell agents to mail. Until schema 9 the key was mayor
 // (migrateYardmaster), and SettingKey still reads that for this release.
 const (
@@ -47,8 +47,8 @@ func (s *Store) Settings(ctx context.Context) (map[string]string, error) {
 // SetSetting sets key to value; an empty value removes it. A key an earlier
 // release used sets the one that replaced it (SettingKey). The operator is
 // a user (see User), so naming one adds the user when there is none. A
-// resident's name is refused: mail to a name reaches one party. A yard that
-// has a resident named as its operator already keeps its setting as it is.
+// crew member's name is refused: mail to a name reaches one party. A yard that
+// has a crew member named as its operator already keeps its setting as it is.
 func (s *Store) SetSetting(ctx context.Context, key, value, actor string) error {
 	key = SettingKey(key)
 	if err := checkName("setting", key); err != nil {
@@ -60,12 +60,12 @@ func (s *Store) SetSetting(ctx context.Context, key, value, actor string) error 
 		}
 	}
 	return s.write(func(w *wtx) error {
-		if key == OperatorSetting && value != "" && w.Bucket(bResidents).Get([]byte(value)) != nil {
+		if key == OperatorSetting && value != "" && w.Bucket(bCrew).Get([]byte(value)) != nil {
 			if was, err := operatorIn(w.Tx); err != nil {
 				return err
 			} else if was != value {
-				return fmt.Errorf("%s %q: that is a resident's name, and mail to a name reaches one party: "+
-					"choose another name for the operator, or remove the resident first (yardr resident rm %s)", key, value, value)
+				return fmt.Errorf("%s %q: that is a crew member's name, and mail to a name reaches one party: "+
+					"choose another name for the operator, or remove the crew member first (yardr crew rm %s)", key, value, value)
 			}
 		}
 		var err error

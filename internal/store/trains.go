@@ -92,10 +92,19 @@ func mapWords(m map[string]string) (map[string]string, bool) {
 }
 
 // whereWords is a subscription's filter with the words an earlier release
-// used replaced, and whether any was: the key epic is train, type=epic and
-// type=part name the types as they are now, and a kind that said epic or
-// part names the kind new events carry (OldTrainKinds).
+// used replaced, and whether any was: those of trains (trainWhere) and
+// those of the crew (crewWhere).
 func whereWords(where map[string]string) (map[string]string, bool) {
+	where, trains := trainWhere(where)
+	where, crew := crewWhere(where)
+	return where, trains || crew
+}
+
+// trainWhere is a subscription's filter with the words trains had until
+// schema 10 replaced, and whether any was: the key epic is train, type=epic
+// and type=part name the types as they are now, and a kind that said epic
+// or part names the kind new events carry (OldTrainKinds).
+func trainWhere(where map[string]string) (map[string]string, bool) {
 	out, changed := where, false
 	set := func(old, k, v string) {
 		if !changed {

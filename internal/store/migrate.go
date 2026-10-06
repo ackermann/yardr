@@ -12,12 +12,17 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// schemaVersion 10 calls work that lands as one a train and a piece of it a
+// schemaVersion 11 calls the sessions that are always in a yard its crew:
+// their records are in the bucket crew, where they were in residents
+// (migrateCrewBucket), and the word is crew where the store held resident
+// (migrateCrew). A build before it reads the old bucket only, so it would
+// find a yard with nobody in it and make a second yardmaster.
+// Version 10 calls work that lands as one a train and a piece of it a
 // car: the bead types epic and part are train and car, in beads and in all
 // that names a type (migrateTrains). A build before it knows only the old
 // types, so it would take a train for a bead like any other: its children
 // would branch from the rig's base and land there one by one.
-// Version 9 calls the resident that coordinates a yard its yardmaster:
+// Version 9 calls the crew member that coordinates a yard its yardmaster:
 // the setting that names it is yardmaster, where it was mayor
 // (migrateYardmaster). A build before it reads the old key only, so it would
 // not find the name and would write a second one beside it.
@@ -55,7 +60,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 10
+const schemaVersion = 11
 
 var (
 	kSchema   = []byte("schema")
@@ -392,16 +397,16 @@ func migrateRigKinds(tx *bolt.Tx) error {
 
 // migrateSettings gives a yard from before the onboarding (yard-p01r) the
 // default_kind setting that marks a home set up: a store with rigs, groups
-// or residents but no default_kind is in use, and without it every command
+// or crew members but no default_kind is in use, and without it every command
 // would onboard it again (yard-w6np). The kind is the first herdr group's,
-// else the first herdr resident's, else claude. The operator setting stays
+// else the first herdr crew member's, else claude. The operator setting stays
 // unset: role prompts already installed keep the name they have.
 func migrateSettings(tx *bolt.Tx) error {
 	if tx.Bucket(bSettings).Get([]byte("default_kind")) != nil {
 		return nil
 	}
 	inUse := false
-	for _, b := range [][]byte{bRigs, bGroups, bResidents} {
+	for _, b := range [][]byte{bRigs, bGroups, bCrew} {
 		if k, _ := tx.Bucket(b).Cursor().First(); k != nil {
 			inUse = true
 		}
@@ -418,9 +423,9 @@ func migrateSettings(tx *bolt.Tx) error {
 	}); err != nil {
 		return err
 	}
-	if err := each(tx, bResidents, "", func(_ []byte, r *Resident) error {
+	if err := each(tx, bCrew, "", func(_ []byte, r *CrewMember) error {
 		if k, ok := r.Config["kind"].(string); ok && k != "" && r.Runner == "herdr" && kind == "" {
-			kind, from = k, "resident "+r.Name
+			kind, from = k, "crew member "+r.Name
 		}
 		return nil
 	}); err != nil {
@@ -437,9 +442,9 @@ func migrateSettings(tx *bolt.Tx) error {
 }
 
 // migrateYardmaster renames the setting that names the yard's coordinating
-// resident, mayor until schema 9, to yardmaster. The resident keeps its name,
+// crew member, mayor until schema 9, to yardmaster. The crew member keeps its name,
 // which is the operator's to give: a yard from before the setting whose
-// resident is called mayor gets the setting, so what defaulted to that name
+// crew member is called mayor gets the setting, so what defaulted to that name
 // still finds it now that the default is yardmaster.
 func migrateYardmaster(tx *bolt.Tx, from uint64) error {
 	if from >= 9 {
@@ -455,8 +460,8 @@ func migrateYardmaster(tx *bolt.Tx, from uint64) error {
 		if err := tx.Bucket(bSettings).Delete([]byte(oldYardmasterSetting)); err != nil {
 			return err
 		}
-	} else if tx.Bucket(bResidents).Get([]byte(oldYardmasterSetting)) != nil {
-		name, source = oldYardmasterSetting, "resident "+oldYardmasterSetting
+	} else if tx.Bucket(bCrew).Get([]byte(oldYardmasterSetting)) != nil {
+		name, source = oldYardmasterSetting, "crew member "+oldYardmasterSetting
 	}
 	if name == "" || tx.Bucket(bSettings).Get([]byte(YardmasterSetting)) != nil {
 		return nil
@@ -522,7 +527,7 @@ func migrateTrains(tx *bolt.Tx, from uint64) error {
 	subs := func(list []Subscription) bool {
 		changed := false
 		for i := range list {
-			if w, ok := whereWords(list[i].Where); ok {
+			if w, ok := trainWhere(list[i].Where); ok {
 				list[i].Where, changed = w, true
 			}
 		}
@@ -577,8 +582,8 @@ func migrateTrains(tx *bolt.Tx, from uint64) error {
 	if err != nil {
 		return err
 	}
-	err = rewrite("subscriptions", bResidents, func(k string, raw []byte) (string, any, error) {
-		var r Resident
+	err = rewrite("subscriptions", bCrew, func(k string, raw []byte) (string, any, error) {
+		var r CrewMember
 		if err := json.Unmarshal(raw, &r); err != nil || !subs(r.Subscriptions) {
 			return k, nil, err
 		}
@@ -622,7 +627,7 @@ func migrateTrains(tx *bolt.Tx, from uint64) error {
 				o.Map, changed = m, true
 			}
 			if o.Subscription != nil {
-				if w, ok := whereWords(o.Subscription.Where); ok {
+				if w, ok := trainWhere(o.Subscription.Where); ok {
 					o.Subscription.Where, changed = w, true
 				}
 			}

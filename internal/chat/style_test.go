@@ -39,7 +39,7 @@ func TestWithoutColour(t *testing.T) {
 		v.typed("deploys are frozen")
 		v.key(tea.KeyEnter)
 		must(t, st.Mail(ctx, me, "noted", "chief"))
-		must(t, st.ResidentStatus(ctx, "chief", "blocked"))
+		must(t, st.CrewStatus(ctx, "chief", "blocked"))
 		v.stream()
 		v.typed("until Friday")
 		v.key(tea.KeyEnter)
@@ -66,7 +66,7 @@ func TestWithoutColour(t *testing.T) {
 
 // The keys' line reads as it did before its keys and words had styles.
 func TestKeysLine(t *testing.T) {
-	const want = "enter send  ^j new line  tab next resident  pgup/pgdn scroll  ^g pane  ^c quit"
+	const want = "enter send  ^j new line  tab next member  pgup/pgdn scroll  ^g pane  ^c quit"
 	if Keys != want {
 		t.Fatalf("the keys' line is %q", Keys)
 	}
@@ -78,11 +78,11 @@ func TestKeysLine(t *testing.T) {
 
 // What the colours have to tell apart, they do, on a dark and on a light
 // background: the states that need someone from those that do not, the
-// user's name from a resident's, and the three ways a sent mail stands.
+// user's name from a crew member's, and the three ways a sent mail stands.
 func TestColoursTellApart(t *testing.T) {
 	blocked := yard(t)
-	must(t, blocked.ResidentStatus(context.Background(), "chief", "blocked"))
-	rs, err := blocked.Residents(context.Background())
+	must(t, blocked.CrewStatus(context.Background(), "chief", "blocked"))
+	rs, err := blocked.Crew(context.Background())
 	must(t, err)
 	chief, refinery := &rs[0], &rs[1]
 	if StateOf(*chief) != Blocked || StateOf(*refinery) != Idle {
@@ -107,13 +107,13 @@ func TestColoursTellApart(t *testing.T) {
 			}
 		}
 		differ("working and idle", look.state(Working), look.state(Idle))
-		differ("the selected resident and another", look.selected, lipgloss.NewStyle())
-		differ("the user's name and a resident's", look.own, look.resident)
+		differ("the selected crew member and another", look.selected, lipgloss.NewStyle())
+		differ("the user's name and a crew member's", look.own, look.member)
 		differ("read and sent", look.standing(true, refinery), look.standing(false, refinery))
 		differ("sent and cannot be read", look.standing(false, refinery), look.standing(false, chief))
 		differ("read and cannot be read", look.standing(true, chief), look.standing(false, chief))
 		if in(look.standing(false, nil)) != in(look.standing(false, refinery)) {
-			t.Errorf("dark %v: mail to a resident that is gone does not stand as sent", dark)
+			t.Errorf("dark %v: mail to a crew member that is gone does not stand as sent", dark)
 		}
 	}
 }

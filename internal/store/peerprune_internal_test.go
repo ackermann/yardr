@@ -146,13 +146,13 @@ func TestPruneOfPeersAloneIsLogged(t *testing.T) {
 	y := newPruneYard(t)
 	y.take(t, "old")
 	y.at = y.at.Add(8 * day)
-	// A running resident holds the whole log back, so no event goes.
+	// A running crew member holds the whole log back, so no event goes.
 	ctx := context.Background()
-	if _, err := y.PutResident(ctx, Resident{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
+	if _, err := y.PutCrew(ctx, CrewMember{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	y.at = y.at.Add(-9 * day)
-	if err := y.ResidentStarted(ctx, "yardmaster", nil); err != nil {
+	if err := y.CrewStarted(ctx, "yardmaster", nil); err != nil {
 		t.Fatal(err)
 	}
 	y.at = y.at.Add(9 * day)
@@ -249,11 +249,11 @@ func TestPruneForgetsSeenPeerIDsInBatches(t *testing.T) {
 func TestMailGivenUpReadsFailedAfterThePrune(t *testing.T) {
 	y := newPruneYard(t)
 	ctx := context.Background()
-	if _, err := y.PutResident(ctx, Resident{Name: "yardmaster", Runner: "herdr", Config: map[string]any{MailPeers: "north"}}, "jo"); err != nil {
+	if _, err := y.PutCrew(ctx, CrewMember{Name: "yardmaster", Runner: "herdr", Config: map[string]any{MailPeers: "north"}}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	// Running, it holds the log back to its start.
-	if err := y.ResidentStarted(ctx, "yardmaster", nil); err != nil {
+	if err := y.CrewStarted(ctx, "yardmaster", nil); err != nil {
 		t.Fatal(err)
 	}
 	y.at = y.at.Add(time.Minute)

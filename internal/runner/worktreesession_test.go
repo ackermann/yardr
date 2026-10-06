@@ -70,7 +70,7 @@ esac`)}
 	}
 }
 
-// yardr-8bhk: Codex is started with --no-daemon, bead agent and resident
+// yardr-8bhk: Codex is started with --no-daemon, bead agent and crew member
 // alike, so its commands run under its own pane with its own environment;
 // no other kind gets the flag, and a group that passes it gets it once.
 func TestAgentArgsCodexRunsWithoutItsSharedDaemon(t *testing.T) {

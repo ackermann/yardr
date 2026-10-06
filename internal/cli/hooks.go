@@ -48,16 +48,16 @@ until it is fixed. Sources:
 A hook can also move the issues beads track (yardr link). --map
 <type>:<stage>=<state> says that when a bead of that type enters that stage,
 the issue of this hook's source it tracks goes to started, review or done, as
-yardr thread state names them; --as names the resident it is done as. No
-agent takes part: the daemon makes the call with that resident's credential,
-from its env_file, and only where the resident's definition allows it
-(yardr resident set <resident> set_state=<source>, which only the operator
+yardr thread state names them; --as names the crew member it is done as. No
+agent takes part: the daemon makes the call with that crew member's credential,
+from its env_file, and only where the crew member's definition allows it
+(yardr crew set <crew member> set_state=<source>, which only the operator
 may grant), so a map does nothing until the operator has allowed it. An issue is
 only ever moved forward: one that stands at or past the status is left
 alone. See docs/links.md.
 
 add replaces the definition: give the whole map again to change a line of it.
-The resident must exist and have an identity in the source (yardr resident
+The crew member must exist and have an identity in the source (yardr crew
 identity), which keeps the source's delivery of the change out of its inbox.`,
 		Example: `  yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret
   yardr hook add gh --source github --secret-file ~/.yardr/github.secret
@@ -77,14 +77,14 @@ identity), which keeps the source's delivery of the change out of its inbox.`,
 				return err
 			}
 			if len(h.Map) > 0 && h.As == "" {
-				return fmt.Errorf("--map needs --as <resident>: the issue is moved with that resident's credential, under its identity")
+				return fmt.Errorf("--map needs --as <crew member>: the issue is moved with that crew member's credential, under its identity")
 			}
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
 			}
 			if h.As != "" {
-				// A hook that acts as a resident speaks as it.
+				// A hook that acts as a crew member speaks as it.
 				if err := a.maySpeakAs(c.Context(), st, "hook add", h.As); err != nil {
 					return err
 				}
@@ -98,8 +98,8 @@ identity), which keeps the source's delivery of the change out of its inbox.`,
 				fmt.Printf("hook %s saved: POST /hooks/%s (%s)\n", saved.Name, saved.Name, saved.Source)
 				if len(saved.Map) > 0 {
 					fmt.Printf("moves tracked %s issues as %s: %s\n", saved.Source, saved.As, strings.Join(mapLines(saved.Map), " "))
-					if r, err := st.GetResident(c.Context(), saved.As); err == nil && !slices.Contains(r.MaySetState(), saved.Source) {
-						fmt.Printf("note: %s may not set a status in %s yet, so nothing is moved: the operator allows it with yardr resident set %s %s=%s\n",
+					if r, err := st.GetCrew(c.Context(), saved.As); err == nil && !slices.Contains(r.MaySetState(), saved.Source) {
+						fmt.Printf("note: %s may not set a status in %s yet, so nothing is moved: the operator allows it with yardr crew set %s %s=%s\n",
 							saved.As, saved.Source, saved.As, store.SetState, strings.Join(append(r.MaySetState(), saved.Source), ","))
 					}
 				}
@@ -114,7 +114,7 @@ identity), which keeps the source's delivery of the change out of its inbox.`,
 	}
 	add.Flags().StringVar(&h.Source, "source", "", "source adapter: "+strings.Join(hooks.Sources(), ", "))
 	add.Flags().StringVar(&h.SecretFile, "secret-file", "", "file holding the secret (never the secret itself)")
-	add.Flags().StringVar(&h.As, "as", "", "resident the hook moves tracked issues as (with --map)")
+	add.Flags().StringVar(&h.As, "as", "", "crew member the hook moves tracked issues as (with --map)")
 	add.Flags().StringArrayVar(&maps, "map", nil, "<bead type>:<stage>=<state> (repeatable): a bead entering the stage moves the issue it tracks to "+strings.Join(hooks.States(), ", "))
 	_ = add.MarkFlagRequired("source")
 	_ = add.MarkFlagRequired("secret-file")
@@ -186,7 +186,7 @@ no hook's (unknown_hook). See docs/subscriptions.md.`,
 		Use:   "show <event seq|name>",
 		Short: "Print the raw payload of a hook event, or a hook's definition",
 		Long: `With the seq of a hook event, prints the delivery's raw body. With a hook's
-name, prints its definition: the source, the secret file's path, the resident
+name, prints its definition: the source, the secret file's path, the crew member
 it acts as and its map, and the issue moves it has still to make, each with
 the last error when a try failed (see yardr hook add).`,
 		Args: cobra.ExactArgs(1),

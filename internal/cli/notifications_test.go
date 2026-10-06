@@ -28,8 +28,8 @@ func notedBead(t *testing.T, st store.API) (note func(string), id string) {
 	}, b.ID
 }
 
-// A user subscribes as a resident does, and so does the operator for them;
-// a resident and another user are refused in the store's own words, for
+// A user subscribes as a crew member does, and so does the operator for them;
+// a crew member and another user are refused in the store's own words, for
 // subscribe and unsubscribe alike. yardr user show lists what a user
 // subscribes to.
 func TestUserSubscribes(t *testing.T) {
@@ -62,14 +62,14 @@ func TestUserSubscribes(t *testing.T) {
 	}
 
 	// The store's refusal, as it is.
-	const resident = "yardmaster is a resident, and a resident does not decide what a person is told: " +
+	const member = "yardmaster is a crew member, and a crew member does not decide what a person is told: " +
 		"ada subscribes themselves, or the operator (jo) does it for them"
 	for _, args := range [][]string{
 		{"subscribe", "ada", "yardr", "--done"},
 		{"unsubscribe", "ada", "yardr"},
 	} {
-		if _, err := as(t, st, "yardmaster", args...); err == nil || err.Error() != resident {
-			t.Fatalf("yardmaster: yardr %s = %v\nwant %s", strings.Join(args, " "), err, resident)
+		if _, err := as(t, st, "yardmaster", args...); err == nil || err.Error() != member {
+			t.Fatalf("yardmaster: yardr %s = %v\nwant %s", strings.Join(args, " "), err, member)
 		}
 	}
 	refusedAs(t, st, "ada", "ada does not decide what jo is told: jo subscribes themselves, or the operator does it for them",
@@ -204,8 +204,8 @@ func TestUserInboxParts(t *testing.T) {
 		t.Fatalf("inbox --mail --notifications:\n%s", out)
 	}
 
-	// A resident's inbox has no parts.
-	refusedAs(t, st, "jo", "--mail and --notifications are the parts of a user's inbox", "inbox", "--resident", "yardmaster", "--mail")
+	// A crew member's inbox has no parts.
+	refusedAs(t, st, "jo", "--mail and --notifications are the parts of a user's inbox", "inbox", "--crew", "yardmaster", "--mail")
 }
 
 // Bare yardr counts the mail as mail, and says the notifications after it
@@ -238,7 +238,7 @@ func TestBareYardrSaysNotifications(t *testing.T) {
 	if show := mustAs(t, st, "ada", "user", "show", "jo"); !strings.Contains(show, "  inbox: 3 unread from yardmaster, ada\n  2 notifications unread\n") {
 		t.Fatalf("user show:\n%s", show)
 	}
-	// Another user's, and a resident's, say nothing of jo's.
+	// Another user's, and a crew member's, say nothing of jo's.
 	for _, who := range []string{"ada", "yardmaster"} {
 		if out := mustAs(t, st, who); strings.Contains(out, "for jo") || strings.Contains(out, "(yardr inbox)") {
 			t.Fatalf("bare yardr as %s:\n%s", who, out)

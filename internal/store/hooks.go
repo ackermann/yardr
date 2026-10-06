@@ -42,7 +42,7 @@ type Hook struct {
 	Blocked string `json:"blocked,omitempty"`
 	// Map says which status an issue of the source goes to when the bead
 	// tracking it enters a stage: "<bead type>:<stage>" -> started, review
-	// or done (see IssueMove). As is the resident the change is made as:
+	// or done (see IssueMove). As is the crew member the change is made as:
 	// with its credential, under its identity in the source, and only where
 	// its definition allows it (SetState).
 	As  string            `json:"as,omitempty"`
@@ -75,11 +75,11 @@ var ThreadStates = []string{"started", "review", "done"}
 func MapKey(typ, stage string) string { return typ + ":" + stage }
 
 // checkMap refuses a hook whose map could never be acted on: one without
-// the resident to act as, a line that names no bead type and stage, or a
+// the crew member to act as, a line that names no bead type and stage, or a
 // word that is no state.
 func (h Hook) checkMap() error {
 	if len(h.Map) > 0 && h.As == "" {
-		return fmt.Errorf("hook %s: a map needs the resident it acts as (--as): the issue is moved with that resident's credential, under its identity", h.Name)
+		return fmt.Errorf("hook %s: a map needs the crew member it acts as (--as): the issue is moved with that crew member's credential, under its identity", h.Name)
 	}
 	for k, word := range h.Map {
 		typ, stage, ok := strings.Cut(k, ":")
@@ -102,9 +102,9 @@ func (h Hook) checkMap() error {
 // PutHook creates or replaces a hook. A replaced hook starts unblocked: the
 // receiver finds out again on the next delivery. It keeps when it last
 // accepted and refused a delivery, which the caller cannot set. A hook that acts as a
-// resident (As) is refused when there is no such resident, or when it has
+// crew member (As) is refused when there is no such crew member, or when it has
 // no identity in the hook's source: the source's delivery of a change made
-// as the resident is kept from the resident's inbox by that identity alone.
+// as the crew member is kept from the crew member's inbox by that identity alone.
 func (s *Store) PutHook(ctx context.Context, h Hook, actor string) (*Hook, error) {
 	h.Blocked = ""
 	if !hookName.MatchString(h.Name) {
@@ -120,14 +120,14 @@ func (s *Store) PutHook(ctx context.Context, h Hook, actor string) (*Hook, error
 	err := s.write(func(w *wtx) error {
 		data := map[string]any{"hook": h.Name, "source": h.Source}
 		if h.As != "" {
-			var r Resident
-			if ok, err := get(w.Tx, bResidents, h.As, &r); err != nil {
+			var r CrewMember
+			if ok, err := get(w.Tx, bCrew, h.As, &r); err != nil {
 				return err
 			} else if !ok {
-				return fmt.Errorf("hook %s: --as %s: resident %s: %w", h.Name, h.As, h.As, ErrNotFound)
+				return fmt.Errorf("hook %s: --as %s: crew member %s: %w", h.Name, h.As, h.As, ErrNotFound)
 			}
 			if r.Identities[h.Source].zero() {
-				return fmt.Errorf("hook %s: --as %s: resident %s has no identity in %s, so the delivery of a change made as it would reach its own inbox: yardr resident identity %s --source %s --id <its id there>",
+				return fmt.Errorf("hook %s: --as %s: crew member %s has no identity in %s, so the delivery of a change made as it would reach its own inbox: yardr crew identity %s --source %s --id <its id there>",
 					h.Name, h.As, h.As, h.Source, h.As, h.Source)
 			}
 			data["as"] = h.As
@@ -269,10 +269,10 @@ func (s *Store) RejectHook(ctx context.Context, name, reason string, status, cou
 // RecordHook logs an accepted delivery as one `hook` event carrying the
 // normalized envelope, and keeps the raw payload beside it under the
 // event's seq. The envelope is what routing reads; the payload is there
-// for `yardr hook show` when the envelope is not enough. Which residents it
+// for `yardr hook show` when the envelope is not enough. Which crew members it
 // reaches, and why, is decided here against their subscriptions as they
 // are now, and kept on the event as "deliveries"; the users it reaches are
-// kept as "notified" and each gets a notification. A resident that is the
+// kept as "notified" and each gets a notification. A crew member that is the
 // delivery's actor becomes a participant in its thread from then on.
 //
 // dedupe are the keys that identify this delivery (see hooks.DedupeKeys).
@@ -359,7 +359,7 @@ func (s *Store) RecordHook(ctx context.Context, name string, envelope map[string
 
 // freshMentions diffs the mentions of a delivery that names an entity
 // against those the entity's text carried last time, and keeps the new set.
-// Routing then reads "new_mentions", so a resident mentioned in an issue's
+// Routing then reads "new_mentions", so a crew member mentioned in an issue's
 // description, or in a comment, is told once, not again on every status
 // or label change nor on every edit of the comment.
 func freshMentions(tx *bolt.Tx, data map[string]any) error {

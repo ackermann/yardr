@@ -37,12 +37,12 @@ func (y *peerYard) conversation(t *testing.T, me, with string) []string {
 
 // A rename moves everything the yard keys by the peer's name in one write:
 // the link as it was, what waits for it, the ids taken from it and the
-// residents' grants. Mail from before and after it is one conversation,
+// crew members' grants. Mail from before and after it is one conversation,
 // read under the new name, and the old name reaches nothing.
 func TestPeerRename(t *testing.T) {
 	y := newPeerYard(t, "http://north.test")
-	y.resident(t, "yardmaster", "north,west")
-	y.resident(t, "clerk", "")
+	y.member(t, "yardmaster", "north,west")
+	y.member(t, "clerk", "")
 	if _, err := y.api.AddPeer(y.ctx, store.Peer{Name: "west", Key: otherKey(t)}, "jo"); err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestPeerRename(t *testing.T) {
 	}
 	ev := peerEvents(t, y.api, "peer_renamed")
 	if len(ev) != 1 || ev[0].Actor != "jo" || ev[0].Data["from"] != "north" || ev[0].Data["to"] != "up" || ev[0].Data["peer"] != "up" ||
-		len(ev[0].Data["residents"].([]any)) != 1 || ev[0].Data["residents"].([]any)[0] != "yardmaster" || p.Was[0].Until != ev[0].Seq {
+		len(ev[0].Data["crew"].([]any)) != 1 || ev[0].Data["crew"].([]any)[0] != "yardmaster" || p.Was[0].Until != ev[0].Seq {
 		t.Fatalf("peer_renamed = %+v, was %+v", ev, p.Was)
 	}
 
@@ -117,8 +117,8 @@ func TestPeerRename(t *testing.T) {
 		t.Fatalf("m1 again after the rename = %+v, %v", got, err)
 	}
 
-	// The grant followed: the resident may mail the new name and not the old.
-	if r, _ := y.api.GetResident(y.ctx, "yardmaster"); !slices.Equal(r.MayMail(), []string{"up", "west"}) {
+	// The grant followed: the crew member may mail the new name and not the old.
+	if r, _ := y.api.GetCrew(y.ctx, "yardmaster"); !slices.Equal(r.MayMail(), []string{"up", "west"}) {
 		t.Fatalf("yardmaster may mail %v", r.MayMail())
 	}
 	if _, err := y.api.MailPeer(y.ctx, "clerk", "north", "to the old name", "yardmaster"); !errors.Is(err, store.ErrNotFound) || !strings.Contains(err.Error(), "is up now") {
@@ -127,19 +127,19 @@ func TestPeerRename(t *testing.T) {
 	if _, err := y.api.MailPeer(y.ctx, "clerk", "up", "after the rename", "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.api.MailPeer(y.ctx, "clerk", "up", "hello", "clerk"); err == nil || !strings.Contains(err.Error(), "resident clerk may not mail residents of up") {
-		t.Fatalf("a resident without the grant = %v", err)
+	if _, err := y.api.MailPeer(y.ctx, "clerk", "up", "hello", "clerk"); err == nil || !strings.Contains(err.Error(), "crew member clerk may not mail crew members of up") {
+		t.Fatalf("a crew member without the grant = %v", err)
 	}
 
 	// The inbox names the sender by the name its yard has now, and the yard
-	// told the resident of it. The log keeps what it said.
+	// told the crew member of it. The log keeps what it said.
 	in := y.inbox(t, "yardmaster")
 	if len(in) != 2 || in[0].Actor != "clerk@up" || in[0].Data["from_peer"] != "up" || in[0].Data["from_peer_was"] != "north" ||
-		in[1].Actor != "yard" || !strings.Contains(in[1].Data["text"].(string), "the linked yard north is called up here now: write to its residents as <name>@up.") {
+		in[1].Actor != "yard" || !strings.Contains(in[1].Data["text"].(string), "the linked yard north is called up here now: write to its crew as <name>@up.") {
 		t.Fatalf("yardmaster's inbox = %+v", in)
 	}
 	if len(y.inbox(t, "clerk")) != 0 {
-		t.Fatal("a resident that could not mail the peer was told of its rename")
+		t.Fatal("a crew member that could not mail the peer was told of its rename")
 	}
 	logged := false
 	for _, e := range peerEvents(t, y.api, "mail") {
@@ -158,7 +158,7 @@ func TestPeerRename(t *testing.T) {
 		t.Fatalf("the conversation after the head = %+v", ls)
 	}
 	if got := y.conversation(t, "yardmaster", "nobody@up"); len(got) != 0 {
-		t.Fatalf("the conversation with another resident = %q", got)
+		t.Fatalf("the conversation with another crew member = %q", got)
 	}
 	if _, err := y.api.Conversation(y.ctx, "yardmaster", "clerk@north", 0); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("the conversation under the old name = %v", err)
@@ -176,7 +176,7 @@ func TestPeerRename(t *testing.T) {
 	if n, err := y.api.GetPeer(y.ctx, "north"); err != nil || n.Waiting != 0 || len(n.Was) != 0 || n.Mails != 0 {
 		t.Fatalf("the yard added under the old name = %+v, %v", n, err)
 	}
-	if _, err := y.api.MailPeer(y.ctx, "clerk", "north", "hello", "yardmaster"); err == nil || !strings.Contains(err.Error(), "resident yardmaster may not mail residents of north") {
+	if _, err := y.api.MailPeer(y.ctx, "clerk", "north", "hello", "yardmaster"); err == nil || !strings.Contains(err.Error(), "crew member yardmaster may not mail crew members of north") {
 		t.Fatalf("mail to the yard added under the old name = %v", err)
 	}
 	if got := y.conversation(t, "yardmaster", "clerk@north"); len(got) != 0 {
@@ -249,8 +249,8 @@ func TestPeerRenamePull(t *testing.T) {
 // that has the name now is that yard's, under the name.
 func TestMailFromRemovedPeer(t *testing.T) {
 	y := newPeerYard(t, "http://north.test")
-	y.resident(t, "yardmaster", "north")
-	y.resident(t, "clerk", "")
+	y.member(t, "yardmaster", "north")
+	y.member(t, "clerk", "")
 	y.allow(t, store.PeerAllow{Send: []string{"mail"}, Receive: []string{"mail"}})
 	if got, err := y.own.PeerReceive(y.ctx, "north", y.key, []store.PeerMessage{mail("m1", "yardmaster", "clerk", "from the first north")}); err != nil || got[0].Refused != "" {
 		t.Fatalf("PeerReceive = %+v, %v", got, err)

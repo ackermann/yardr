@@ -4,8 +4,8 @@
 // Receiving is all the server does here: nothing is routed, answered or
 // linked. Each source has an Adapter that proves a delivery came from that
 // source and normalizes it; adding a source (Jira) is adding an Adapter. A
-// source a resident can answer in also has a Replier (reply.go), which the
-// resident's own CLI calls with its own credential.
+// source a crew member can answer in also has a Replier (reply.go), which the
+// crew member's own CLI calls with its own credential.
 package hooks
 
 import (

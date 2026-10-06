@@ -28,7 +28,7 @@ type identity struct {
 // Only another bead's environment gives way. One naming this bead is kept
 // even when its session is not the worktree's: that is an earlier stage's
 // agent left open, which must stay refused as stale. An environment naming
-// no bead is a person's or a resident's, who act as themselves wherever
+// no bead is a person's or a crew member's, who act as themselves wherever
 // they stand.
 func (a *app) identity() identity {
 	env := identity{actor: config.Getenv("ACTOR"), session: config.Getenv("SESSION"), bead: config.Getenv("BEAD")}

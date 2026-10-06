@@ -57,7 +57,7 @@ nothing behind (no note or move on its bead, no commit and no change in its
 worktree) for the group's `stall` (default `2m`) is reported at once, not at
 the `idle` limit: one `session_stalled` event per session, on the bead,
 with `model`, `group`, `stage` and `tail`, the last 20 lines of the agent's
-pane that say anything, where its error is. It is in a new resident's
+pane that say anything, where its error is. It is in a new crew member's
 default `--on`, as `session_model_mismatch` is, so both reach the yardmaster's
 inbox ([subscriptions.md](subscriptions.md#--on)). An agent seen working or
 blocked since its prompt is not judged, however long it idles later, and a
@@ -73,7 +73,7 @@ when someone says to try again by ending the stalled session: `yardr bead
 release <bead>`, which also sends that bead to the group again. An agent
 that someone got going in its pane lifts the hold as well. `--set
 stall=off` turns the check off for a group. Only bead sessions are judged,
-not a resident's.
+not a crew member's.
 
 ### A harness that stopped on an error
 
@@ -105,9 +105,9 @@ read once more when `session_idle` is raised, so an error drawn late is
 told then. The session is left as it is, and unlike `session_stalled` the
 group goes on starting sessions: whether to wait, to get the agent going in
 its pane or to end the session (`yardr bead release
-<bead>`) is the yardmaster's to decide. It is in a new resident's default
-`--on`; a resident from before it was gets it with `yardr resident set <name>
---on` naming every kind wanted ([residents.md](residents.md)).
+<bead>`) is the yardmaster's to decide. It is in a new crew member's default
+`--on`; a crew member from before it was gets it with `yardr crew set <name>
+--on` naming every kind wanted ([crew.md](crew.md)).
 
 The lines known, as each harness prints them (a mark its TUI draws before a
 message, `⏺ ⎿ ■ •`, aside):
@@ -243,7 +243,7 @@ answer different questions.
 - **The stage file** says what the stage is, for whoever works a bead
   there: what it is for, what must be true before a bead leaves it, and when
   each outcome applies (`changes` when the builder can fix it, `question`
-  when a person must decide). It follows the flow, so a person or a resident
+  when a person must decide). It follows the flow, so a person or a crew member
   in a manual stage reads the same text with `yardr prime --bead`, where no
   role prompt reaches.
 
@@ -256,8 +256,8 @@ routed to another stage, in the role file. Stages no agent works (`backlog`,
 
 A herdr group whose agents need a credential to act outside the yard (a
 review bot's GitHub token, say) names an env file with `--set
-env_file=~/.yardr/groups/<group>.env`. The rules are the residents'
-([residents.md](residents.md#outbound-credentials)): `KEY=VALUE` lines, `#`
+env_file=~/.yardr/groups/<group>.env`. The rules are the crew's
+([crew.md](crew.md#outbound-credentials)): `KEY=VALUE` lines, `#`
 comments, no expansion, mode `0600` or stricter, and the store never holds
 the values (BDP serves it, backups copy it, every builder reads it). Each
 entry joins the agent's tab environment next to `YARDR_ACTOR` and the rest;
@@ -286,7 +286,7 @@ the bead as `move_refused`). Two things hold
 against that:
 
 - **A `kind=codex` agent is started with `--no-daemon`**, bead agent and
-  resident alike, whatever the group's `args` say. Its commands then run
+  crew member alike, whatever the group's `args` say. Its commands then run
   under its own pane, with the tab's environment, and the store recognises
   them by the process tree as it does any agent's
   ([pipeline.md](pipeline.md#2-new-a-builder-implements-it)). The installed
@@ -302,7 +302,7 @@ against that:
   runs `yardr` from its worktree. Only another bead's environment gives
   way: one naming the worktree's own bead is an earlier stage's agent left
   open and stays refused as stale, and one naming no bead (a person, a
-  resident) acts as itself. A pane the store knows still wins: a call from
+  crew member) acts as itself. A pane the store knows still wins: a call from
   another session's own pane is refused, wherever it stands.
 
 A dir rig's beads share one directory, which names no session: there only
@@ -317,11 +317,11 @@ for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`
   setting that skips the question in an interactive session. yardr answers it:
   when the agent stops at the dialog, yardr selects "Yes, I trust this folder"
   in its pane and sends the first prompt as soon as the agent is ready. Making
-  a folder a rig (or a resident's directory) is what says you trust it. The
+  a folder a rig (or a crew member's directory) is what says you trust it. The
   session's `started` event carries `trust_accepted: true` when this
   happened. Claude Code records the answer against the repository, so it
   comes up once per rig, not per worktree. Set `--set trust=false` on a group
-  (or resident) to answer it yourself: the session then waits as
+  (or crew member) to answer it yourself: the session then waits as
   `session_blocked` and gets its first prompt once you have. yardr answers
   only this dialog, and only when its cursor is seen on the accepting answer;
   anything else an agent asks is left to you.
@@ -359,11 +359,11 @@ for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`
   `typed: true` and the hint `herdr pane send-keys <pane> enter`.
   `session_prompted` is the arrival, not the sending: `shown: true` when the
   prompt was found in the pane, `deliveries` how often the daemon had sent
-  it, `submits` how often it had sent Enter for it. Residents go the same
+  it, `submits` how often it had sent Enter for it. Crew members go the same
   way, with the events on their journal. Text in the input that is not the
   prompt is someone's: the daemon does not type the prompt after it, and
   delivers it once the input is empty (see "Text in the input" in
-  [residents.md](residents.md); `nudge_held` is then on the bead).
+  [crew.md](crew.md); `nudge_held` is then on the bead).
 - **Decide what agents may run unattended.** Anything outside `args`'
   permissions blocks the agent on a prompt. Pass what the role needs, e.g.
   `--set 'args=["--permission-mode","acceptEdits","--allowedTools","Bash(yardr:*),Bash(git:*)"]'`;
@@ -384,7 +384,7 @@ for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`
   not start with `<rig>-` stays whole, and ids everywhere else in yardr stay
   full. The group appears as its `label` config when set (`--set
   label=codex` on `yardr-reviewers` gives `codex [sv6b] p4cv`), else as
-  its name without the `<rig>-` prefix. Residents' workspaces are labelled
-  with the resident's name.
+  its name without the `<rig>-` prefix. Crew members' workspaces are labelled
+  with the crew member's name.
 - The daemon subscribes to herdr's event stream, so an agent that exits is
   noticed within a second; the reconcile timer remains the fallback.

@@ -97,9 +97,9 @@ func TestRigSourceRoleOfAGroup(t *testing.T) {
 	}
 }
 
-// A resident reads a path as it is, so its rig's role is the file in the
+// A crew member reads a path as it is, so its rig's role is the file in the
 // rig's checkout: refused while there is none, then listed as the rig's.
-func TestRigSourceRoleOfAResident(t *testing.T) {
+func TestRigSourceRoleOfACrew(t *testing.T) {
 	a, home, _ := packedYard(t)
 	rig, err := a.st.GetRig(context.Background(), "web")
 	if err != nil {

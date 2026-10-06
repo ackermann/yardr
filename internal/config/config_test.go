@@ -46,6 +46,38 @@ func TestIsVar(t *testing.T) {
 	}
 }
 
+// YARDR_CREW was YARDR_RESIDENT until this release: a session started
+// before the upgrade has only the old name, and what yardr starts gets both.
+func TestRenamedVariable(t *testing.T) {
+	for _, k := range []string{"YARDR_CREW", "YARD_CREW", "YARDR_RESIDENT", "YARD_RESIDENT"} {
+		t.Setenv(k, "")
+	}
+	if got := Getenv("CREW"); got != "" {
+		t.Fatalf("Getenv(CREW) = %q with nothing set", got)
+	}
+	t.Setenv("YARDR_RESIDENT", "old")
+	if got := Getenv("CREW"); got != "old" {
+		t.Fatalf("Getenv(CREW) = %q, want the old name's value", got)
+	}
+	t.Setenv("YARDR_CREW", "new")
+	if got := Getenv("CREW"); got != "new" {
+		t.Fatalf("Getenv(CREW) = %q, want the new name's value", got)
+	}
+	env := Env("CREW", "lead")
+	for _, want := range []string{"YARDR_CREW=lead", "YARDR_RESIDENT=lead"} {
+		if !slices.Contains(env, want) {
+			t.Fatalf("Env(CREW) = %v, want %s in it", env, want)
+		}
+	}
+	if !IsVar("YARDR_RESIDENT", "CREW") || !IsVar("YARDR_CREW", "CREW") || IsVar("YARDR_RESIDENT", "BEAD") {
+		t.Fatal("IsVar does not take YARDR_RESIDENT for CREW alone")
+	}
+	Unsetenv("CREW")
+	if os.Getenv("YARDR_RESIDENT") != "" || os.Getenv("YARDR_CREW") != "" {
+		t.Fatal("Unsetenv(CREW) left a spelling set")
+	}
+}
+
 func TestDefaultHome(t *testing.T) {
 	u := t.TempDir()
 	if got := DefaultHome(u); got != filepath.Join(u, ".yardr") {

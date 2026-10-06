@@ -21,7 +21,7 @@ import (
 	"yardr.dev/yardr/internal/config"
 )
 
-// A resident speaks on GitHub with a personal token (GITHUB_TOKEN) or as a
+// A crew member speaks on GitHub with a personal token (GITHUB_TOKEN) or as a
 // GitHub App, whose comments appear under the App's bot name (<slug>[bot])
 // and not under a person's account. An App has no token of its own: it
 // signs a short-lived JWT with its private key, asks which installation
@@ -32,7 +32,7 @@ import (
 // it into a token for the repository it is about to ask, here and nowhere
 // else.
 
-// The names a GitHub credential goes by in a resident's env_file.
+// The names a GitHub credential goes by in a crew member's env_file.
 const (
 	githubTokenName  = "GITHUB_TOKEN"
 	githubAppIDName  = "GITHUB_APP_ID"
@@ -49,7 +49,7 @@ var githubAppID = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 // githubCredential is the GitHub credential the names get gives stand for:
 // the App pair when it is set, else GITHUB_TOKEN. One of the pair without
-// the other is refused, and not passed over for the token: a resident meant
+// the other is refused, and not passed over for the token: a crew member meant
 // to answer as the App would answer as a person.
 func githubCredential(get func(string) string) (string, error) {
 	id, key := strings.TrimSpace(get(githubAppIDName)), strings.TrimSpace(get(githubAppKeyName))
@@ -98,7 +98,7 @@ var githubTokens = struct {
 
 // githubCall is call for GitHub's API as the holder of cred: a token as it
 // is, an App as an installation token for the repository the URL is in.
-// Every GitHub call yardr makes for a resident goes through it.
+// Every GitHub call yardr makes for a crew member goes through it.
 func githubCall(ctx context.Context, method, url, cred string, in, out any) error {
 	app, isApp := strings.CutPrefix(cred, githubAppScheme)
 	if !isApp {
@@ -248,7 +248,7 @@ func githubAppKey(keyFile string) (*rsa.PrivateKey, error) {
 }
 
 // CheckGitHubAppKey reports why the App key at keyFile could not be signed
-// with, for a check that reads what a resident has without calling GitHub.
+// with, for a check that reads what a crew member has without calling GitHub.
 func CheckGitHubAppKey(keyFile string) error {
 	_, err := githubAppKey(keyFile)
 	return err

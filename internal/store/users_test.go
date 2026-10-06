@@ -13,7 +13,7 @@ import (
 
 func party(t *testing.T, s store.API, name string) {
 	t.Helper()
-	if _, err := s.PutResident(context.Background(), store.Resident{Name: name, Runner: "herdr"}, "jo"); err != nil {
+	if _, err := s.PutCrew(context.Background(), store.CrewMember{Name: name, Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -106,32 +106,32 @@ func TestOperatorIsAUser(t *testing.T) {
 	}
 }
 
-// Residents and users share one space of names, refused both ways, and the
-// operator cannot be given a resident's name.
+// Crew members and users share one space of names, refused both ways, and the
+// operator cannot be given a crew member's name.
 func TestOneNameOneParty(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
 	party(t, s, "yardmaster")
-	if _, err := s.AddUser(ctx, "yardmaster", "jo"); err == nil || !strings.Contains(err.Error(), "that is a resident's name") {
-		t.Fatalf("user with a resident's name = %v", err)
+	if _, err := s.AddUser(ctx, "yardmaster", "jo"); err == nil || !strings.Contains(err.Error(), "that is a crew member's name") {
+		t.Fatalf("user with a crew member's name = %v", err)
 	}
 	if _, err := s.AddUser(ctx, "ada", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.PutResident(ctx, store.Resident{Name: "ada", Runner: "herdr"}, "jo"); err == nil || !strings.Contains(err.Error(), "that is a user's name") {
-		t.Fatalf("resident with a user's name = %v", err)
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "ada", Runner: "herdr"}, "jo"); err == nil || !strings.Contains(err.Error(), "that is a user's name") {
+		t.Fatalf("crew member with a user's name = %v", err)
 	}
-	if _, err := s.GetResident(ctx, "ada"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("the refused resident exists: %v", err)
+	if _, err := s.GetCrew(ctx, "ada"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("the refused crew member exists: %v", err)
 	}
-	if err := s.SetSetting(ctx, "operator", "yardmaster", "jo"); err == nil || !strings.Contains(err.Error(), "that is a resident's name") {
-		t.Fatalf("operator with a resident's name = %v", err)
+	if err := s.SetSetting(ctx, "operator", "yardmaster", "jo"); err == nil || !strings.Contains(err.Error(), "that is a crew member's name") {
+		t.Fatalf("operator with a crew member's name = %v", err)
 	}
 	if all, _ := s.Settings(ctx); all["operator"] != "" || userNames(t, s) != "ada" {
 		t.Fatalf("the refused setting was stored: %v, users %q", all, userNames(t, s))
 	}
-	// A resident that is there is still redefined.
-	if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr", MaxAge: "1h"}, "jo"); err != nil {
+	// A crew member that is there is still redefined.
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", MaxAge: "1h"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -149,7 +149,7 @@ func letters(ls []store.Letter) string {
 }
 
 // Mail to a user lands in that user's inbox alone, unread until they
-// acknowledge it, and never in a resident's.
+// acknowledge it, and never in a crew member's.
 func TestUserInbox(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
@@ -172,7 +172,7 @@ func TestUserInbox(t *testing.T) {
 		t.Fatalf("mail to nobody = %v", err)
 	}
 	if _, err := s.UserInbox(ctx, "yardmaster", 0); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("a resident read as a user = %v", err)
+		t.Fatalf("a crew member read as a user = %v", err)
 	}
 
 	box, err := s.UserInbox(ctx, "jo", 0)
@@ -221,7 +221,7 @@ func TestUserInbox(t *testing.T) {
 }
 
 // A conversation is the mail between two parties in both directions, in
-// order, each with whether its receiver acknowledged it: a resident with
+// order, each with whether its receiver acknowledged it: a crew member with
 // its inbox, a user with theirs.
 func TestConversation(t *testing.T) {
 	s := storetest.New(t)
@@ -233,7 +233,7 @@ func TestConversation(t *testing.T) {
 	}
 	for _, m := range [][3]string{
 		{"yardmaster", "freeze", "jo"}, {"clerk", "not this", "jo"}, {"jo", "noted", "yardmaster"}, {"jo", "not this either", "clerk"},
-		{"yardmaster", "lifted", "jo"}, {"clerk", "between residents", "yardmaster"}, {"jo", "ok", "yardmaster"},
+		{"yardmaster", "lifted", "jo"}, {"clerk", "between crew members", "yardmaster"}, {"jo", "ok", "yardmaster"},
 	} {
 		if err := s.Mail(ctx, m[0], m[1], m[2]); err != nil {
 			t.Fatal(err)
@@ -248,8 +248,8 @@ func TestConversation(t *testing.T) {
 	if rev, _ := s.Conversation(ctx, "yardmaster", "jo", 0); letters(rev) != all {
 		t.Fatalf("from the yardmaster's side = %s", letters(rev))
 	}
-	if rr, _ := s.Conversation(ctx, "yardmaster", "clerk", 0); letters(rr) != "yardmaster>clerk between residents unread" {
-		t.Fatalf("between residents = %s", letters(rr))
+	if rr, _ := s.Conversation(ctx, "yardmaster", "clerk", 0); letters(rr) != "yardmaster>clerk between crew members unread" {
+		t.Fatalf("between crew members = %s", letters(rr))
 	}
 	if after, _ := s.Conversation(ctx, "jo", "yardmaster", conv[1].Seq); letters(after) != "jo>yardmaster lifted unread | yardmaster>jo ok unread" {
 		t.Fatalf("after %d = %s", conv[1].Seq, letters(after))
@@ -279,7 +279,7 @@ func TestConversation(t *testing.T) {
 }
 
 // A user added under a name that had mail before reads from now on, and a
-// resident that later takes a removed user's name gets none of their mail.
+// crew member that later takes a removed user's name gets none of their mail.
 func TestUserNameReused(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
@@ -303,11 +303,11 @@ func TestUserNameReused(t *testing.T) {
 		t.Fatal(err)
 	}
 	party(t, s, "ada")
-	if err := s.Mail(ctx, "ada", "to the resident", "yardmaster"); err != nil {
+	if err := s.Mail(ctx, "ada", "to the crew member", "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
-	if page, _ := s.Inbox(ctx, "ada", 0); page.Total != 1 || page.Events[0].Data["text"] != "to the resident" {
-		t.Fatalf("resident ada's inbox = %+v", page.Events)
+	if page, _ := s.Inbox(ctx, "ada", 0); page.Total != 1 || page.Events[0].Data["text"] != "to the crew member" {
+		t.Fatalf("crew member ada's inbox = %+v", page.Events)
 	}
 }
 
@@ -322,7 +322,7 @@ func kindsAfter(t *testing.T, s store.API, after uint64) []store.Event {
 }
 
 // An acknowledgement that passes mail is an event, mail_read, of a
-// resident's inbox and of a user's: a view following the stream learns
+// crew member's inbox and of a user's: a view following the stream learns
 // from it that what it shows as sent was read. One that passes none is
 // not.
 func TestMailReadIsAnEvent(t *testing.T) {
@@ -362,7 +362,7 @@ func TestMailReadIsAnEvent(t *testing.T) {
 	evs := kindsAfter(t, s, mail)
 	if len(evs) != 1 || evs[0].Kind != "mail_read" || evs[0].Actor != "yardmaster" ||
 		evs[0].Data["reader"] != "yardmaster" || fmt.Sprint(evs[0].Data["through"]) != fmt.Sprint(mail) {
-		t.Fatalf("after the resident's ack: %+v", evs)
+		t.Fatalf("after the crew member's ack: %+v", evs)
 	}
 	// The same again reads nothing new.
 	at = head()
@@ -392,42 +392,42 @@ func TestMailReadIsAnEvent(t *testing.T) {
 	}
 }
 
-// What a resident's session is doing is on its record, and a change of it
+// What a crew member's session is doing is on its record, and a change of it
 // is an event; the same status again writes nothing, and a session that
 // starts or stops has none.
-func TestResidentStatus(t *testing.T) {
+func TestCrewStatus(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
 	party(t, s, "yardmaster")
-	if err := s.ResidentStatus(ctx, "yardmaster", "napping"); err == nil {
+	if err := s.CrewStatus(ctx, "yardmaster", "napping"); err == nil {
 		t.Fatal("a status nobody knows was taken")
 	}
-	if err := s.ResidentStatus(ctx, "nobody", "idle"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("status of no resident = %v", err)
+	if err := s.CrewStatus(ctx, "nobody", "idle"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("status of no crew member = %v", err)
 	}
 	status := func() string {
-		r, err := s.GetResident(ctx, "yardmaster")
+		r, err := s.GetCrew(ctx, "yardmaster")
 		if err != nil {
 			t.Fatal(err)
 		}
 		return r.Status
 	}
 	// Not running: nothing is doing anything.
-	if err := s.ResidentStatus(ctx, "yardmaster", "idle"); err != nil || status() != "" {
-		t.Fatalf("status of a stopped resident = %q, %v", status(), err)
+	if err := s.CrewStatus(ctx, "yardmaster", "idle"); err != nil || status() != "" {
+		t.Fatalf("status of a stopped crew member = %q, %v", status(), err)
 	}
-	if err := s.ResidentStarted(ctx, "yardmaster", map[string]any{"agent": "a"}); err != nil {
+	if err := s.CrewStarted(ctx, "yardmaster", map[string]any{"agent": "a"}); err != nil {
 		t.Fatal(err)
 	}
 	at, _ := s.Head(ctx)
 	for _, st := range []string{"working", "working", "blocked", "idle"} {
-		if err := s.ResidentStatus(ctx, "yardmaster", st); err != nil || status() != st {
+		if err := s.CrewStatus(ctx, "yardmaster", st); err != nil || status() != st {
 			t.Fatalf("status %s = %q, %v", st, status(), err)
 		}
 	}
 	var got []string
 	for _, e := range kindsAfter(t, s, at) {
-		if e.Kind != "resident_status" || e.Data["resident"] != "yardmaster" || e.Bead != nil {
+		if e.Kind != "crew_status" || e.Data["crew"] != "yardmaster" || e.Bead != nil {
 			t.Fatalf("event %+v", e)
 		}
 		got = append(got, fmt.Sprintf("%v>%v", e.Data["was"], e.Data["status"]))
@@ -435,7 +435,7 @@ func TestResidentStatus(t *testing.T) {
 	if strings.Join(got, " ") != ">working working>blocked blocked>idle" {
 		t.Fatalf("status events = %v", got)
 	}
-	if err := s.ResidentStopped(ctx, "yardmaster", "gone"); err != nil || status() != "" {
+	if err := s.CrewStopped(ctx, "yardmaster", "gone"); err != nil || status() != "" {
 		t.Fatalf("status after the stop = %q, %v", status(), err)
 	}
 }

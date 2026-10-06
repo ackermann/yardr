@@ -27,13 +27,13 @@ const File = "pack.yaml"
 
 // Pack is a pack as written. Everything that has an order in the file
 // keeps it: flows, a flow's stages (the first is where a bead starts), a
-// stage's outcomes, groups and residents.
+// stage's outcomes, groups and crew members.
 type Pack struct {
-	Dir       string     `json:"dir"` // absolute
-	Name      string     `json:"name"`
-	Flows     []Flow     `json:"flows"`
-	Groups    []Group    `json:"groups"`
-	Residents []Resident `json:"residents"`
+	Dir    string       `json:"dir"` // absolute
+	Name   string       `json:"name"`
+	Flows  []Flow       `json:"flows"`
+	Groups []Group      `json:"groups"`
+	Crew   []CrewMember `json:"crew"`
 	// Sources are the outside sources whose issues hear the pack's flows, in
 	// file order.
 	Sources []StageMap `json:"sources,omitempty"`
@@ -41,7 +41,7 @@ type Pack struct {
 
 // StageMap says which status an issue of an outside source goes to when the
 // bead tracking it enters a stage of the pack's flows, and as which of the
-// pack's residents the status is set. Map is keyed as a hook's map is
+// pack's crew the status is set. Map is keyed as a hook's map is
 // (store.MapKey: "<bead type>:<stage>") and holds one of hooks.States. The
 // pack carries it because which stage means which status is opinion about
 // the flow; the import sets it on the yard's hook of the source.
@@ -80,20 +80,20 @@ type Group struct {
 	Limit  int    `json:"limit,omitempty"` // 0: the pack names none
 }
 
-type Resident struct {
+type CrewMember struct {
 	Name      string   `json:"name"`
 	Role      string   `json:"role,omitempty"`
 	Events    []string `json:"events,omitempty"`
 	Stages    []string `json:"stages,omitempty"`
 	Done      bool     `json:"done,omitempty"`
 	Subscribe []Source `json:"subscribe,omitempty"`
-	// OpenThreads are the sources the pack asks that its resident may open
+	// OpenThreads are the sources the pack asks that its crew member may open
 	// threads in, in file order. It is a request and no more: the import
-	// asks the operator, and only their yes sets it on the yard's resident.
+	// asks the operator, and only their yes sets it on the yard's crew member.
 	OpenThreads []string `json:"open_threads,omitempty"`
 }
 
-// Source is one outside source a resident hears, and how much of it.
+// Source is one outside source a crew member hears, and how much of it.
 type Source struct {
 	Name  string `json:"source"`
 	Scope string `json:"scope"`
@@ -132,7 +132,7 @@ func (es Errors) Error() string {
 }
 
 // validName is what a pack may call itself and its flows, groups,
-// residents, stages and outcomes: each becomes, or becomes part of, a name
+// crew members, stages and outcomes: each becomes, or becomes part of, a name
 // in the store or a directory under the yard's home.
 var validName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
@@ -145,7 +145,7 @@ func booleanLike(n *yaml.Node) bool {
 	return n.Kind == yaml.ScalarNode && (n.Tag == "!!bool" || (n.Style == 0 && slices.Contains(booleans, strings.ToLower(n.Value))))
 }
 
-// Scopes are how much of an outside source a resident may hear.
+// Scopes are how much of an outside source a crew member may hear.
 var Scopes = []string{store.ScopeInvolved, store.ScopeMentions, store.ScopeAll}
 
 // Load reads and checks the pack in dir. A pack with anything wrong is not
@@ -185,23 +185,23 @@ func Load(dir string) (*Pack, error) {
 
 // Operator is the placeholder for the yard's operator: a role or stage file
 // says {{operator}} where the import puts that person's name. The other
-// placeholders are the pack's residents, {{<name>}}, each filled with the
-// yard's resident that takes it. A pack names no person and no resident of
+// placeholders are the pack's crew, {{<name>}}, each filled with the
+// yard's crew member that takes it. A pack names no person and no crew member of
 // a yard, so these are how its prose refers to them.
 const Operator = "operator"
 
 // oldNames are the names an earlier release gave what a pack names, each
-// with the name it has now: the starter pack's resident was mayor until it
+// with the name it has now: the starter pack's crew member was mayor until it
 // became yardmaster. For this release a yard's own files and commands may
 // still say the old name where the pack has only the new one.
 var oldNames = map[string]string{"mayor": "yardmaster"}
 
-// Renamed is the pack's resident that old named in an earlier release: a
-// pack that still has a resident called old has renamed nothing.
+// Renamed is the pack's crew member that old named in an earlier release: a
+// pack that still has a crew member called old has renamed nothing.
 func (p *Pack) Renamed(old string) (string, bool) {
 	name, ok := oldNames[old]
 	has := func(n string) bool {
-		return slices.ContainsFunc(p.Residents, func(r Resident) bool { return r.Name == n })
+		return slices.ContainsFunc(p.Crew, func(r CrewMember) bool { return r.Name == n })
 	}
 	if !ok || has(old) || !has(name) {
 		return "", false
@@ -238,10 +238,10 @@ func (p *Pack) Filled(rel string) bool {
 }
 
 // Placeholders are the names a role or stage file of the pack may put in
-// double braces: the operator, then the pack's residents.
+// double braces: the operator, then the pack's crew.
 func (p *Pack) Placeholders() []string {
 	out := []string{Operator}
-	for _, r := range p.Residents {
+	for _, r := range p.Crew {
 		if r.Name != Operator {
 			out = append(out, r.Name)
 		}
@@ -279,7 +279,7 @@ func (p *Pack) placeholderErrors() Errors {
 		for i, line := range strings.Split(string(text), "\n") {
 			for _, m := range placeholder.FindAllString(line, -1) {
 				if name := m[2 : len(m)-2]; !slices.Contains(known, name) && !slices.Contains(known, oldNames[name]) {
-					errs = append(errs, Error{File: file, Line: i + 1, Msg: fmt.Sprintf("placeholder %s: an import fills %s (the operator and the pack's residents) and nothing else", m, strings.Join(may, ", "))})
+					errs = append(errs, Error{File: file, Line: i + 1, Msg: fmt.Sprintf("placeholder %s: an import fills %s (the operator and the pack's crew) and nothing else", m, strings.Join(may, ", "))})
 				}
 			}
 		}
@@ -410,9 +410,11 @@ func (r *reader) boolean(n *yaml.Node, key string) (value, ok bool) {
 }
 
 func (r *reader) pack(p *Pack, root *yaml.Node) {
-	var flows, groups, residents, sources *entry
+	var flows, groups, crew, sources *entry
 	named := false
-	for _, e := range r.entries(root, "", "name", "flows", "groups", "residents", "sources") {
+	// residents is what crew was until this release: a pack that still says
+	// it is read as it stands, and one that says both means crew.
+	for _, e := range r.entries(root, "", "name", "flows", "groups", "crew", "residents", "sources") {
 		switch e.key {
 		case "name":
 			named = true
@@ -426,8 +428,12 @@ func (r *reader) pack(p *Pack, root *yaml.Node) {
 			flows = &e
 		case "groups":
 			groups = &e
+		case "crew":
+			crew = &e
 		case "residents":
-			residents = &e
+			if crew == nil {
+				crew = &e
+			}
 		case "sources":
 			sources = &e
 		}
@@ -435,7 +441,7 @@ func (r *reader) pack(p *Pack, root *yaml.Node) {
 	if !named && root.Kind == yaml.MappingNode {
 		r.errf(root, "name", "missing: a pack has a name")
 	}
-	// Groups first: stages name them. Flows before residents: hears.stages
+	// Groups first: stages name them. Flows before crew members: hears.stages
 	// names their stages.
 	if groups != nil {
 		for _, e := range r.entries(groups.v, groups.path) {
@@ -455,12 +461,12 @@ func (r *reader) pack(p *Pack, root *yaml.Node) {
 			p.Flows = append(p.Flows, f)
 		}
 	}
-	if residents != nil {
-		for _, e := range r.entries(residents.v, residents.path) {
-			p.Residents = append(p.Residents, r.resident(e, p.Flows))
+	if crew != nil {
+		for _, e := range r.entries(crew.v, crew.path) {
+			p.Crew = append(p.Crew, r.member(e, p.Flows))
 		}
 	}
-	// Last: a source names a resident, and its map the flows' stages.
+	// Last: a source names a crew member, and its map the flows' stages.
 	if sources != nil {
 		for _, e := range r.entries(sources.v, sources.path) {
 			if m, ok := r.source(e, p); ok {
@@ -492,8 +498,8 @@ func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 			if !ok {
 				continue
 			}
-			if !slices.ContainsFunc(p.Residents, func(have Resident) bool { return have.Name == name }) {
-				r.errf(k.v, k.path, "no resident %s is declared under residents: the status is set as one of the pack's residents", name)
+			if !slices.ContainsFunc(p.Crew, func(have CrewMember) bool { return have.Name == name }) {
+				r.errf(k.v, k.path, "no crew member %s is declared under crew: the status is set as one of the pack's crew", name)
 				continue
 			}
 			m.As = name
@@ -533,7 +539,7 @@ func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 	}
 	if e.v.Kind == yaml.MappingNode {
 		if !as {
-			r.errf(e.k, join(e.path, "as"), "missing: the resident of the pack the status is set as")
+			r.errf(e.k, join(e.path, "as"), "missing: the crew member of the pack the status is set as")
 		}
 		if !hears {
 			r.errf(e.k, join(e.path, "hears"), "missing: which stage of which bead type means which status")
@@ -769,8 +775,8 @@ func (r *reader) stage(e entry, stages []string, groups []Group) Stage {
 	return s
 }
 
-func (r *reader) resident(e entry, flows []Flow) Resident {
-	res := Resident{Name: e.key}
+func (r *reader) member(e entry, flows []Flow) CrewMember {
+	res := CrewMember{Name: e.key}
 	for _, k := range r.entries(e.v, e.path, "role", "hears", "subscribe", "open_threads") {
 		switch k.key {
 		case "role":
@@ -779,7 +785,11 @@ func (r *reader) resident(e entry, flows []Flow) Resident {
 			for _, h := range r.entries(k.v, k.path, "events", "stages", "done") {
 				switch h.key {
 				case "events":
-					res.Events = r.strs(h.v, h.path)
+					// A kind an earlier release logged (resident_gave_up)
+					// names the one new events carry.
+					for _, kind := range r.strs(h.v, h.path) {
+						res.Events = append(res.Events, store.EventKind(kind))
+					}
 				case "stages":
 					for _, s := range r.strs(h.v, h.path) {
 						if !hasStage(flows, s) {
@@ -827,7 +837,7 @@ func hasStage(flows []Flow, stage string) bool {
 	})
 }
 
-// Files are the role and script files the pack's groups and residents
+// Files are the role and script files the pack's groups and crew members
 // name, as slash paths relative to its directory, sorted, each once. Stage
 // files are not among them: they belong to a flow and go where the yard
 // reads that flow's (Stage.File).
@@ -836,7 +846,7 @@ func (p *Pack) Files() []string {
 	for _, g := range p.Groups {
 		out = append(out, g.Agent, g.Run)
 	}
-	for _, r := range p.Residents {
+	for _, r := range p.Crew {
 		out = append(out, r.Role)
 	}
 	slices.Sort(out)

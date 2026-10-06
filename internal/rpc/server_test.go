@@ -53,3 +53,38 @@ func TestSocketCannotForgeEvents(t *testing.T) {
 		t.Fatalf("events: %+v %v", evs, err)
 	}
 }
+
+// A client of the build before this one, which the upgrade does not
+// replace (the web view, a chat left open), calls the crew's methods by
+// the names they had when the crew were the residents.
+func TestOldMethodNamesStillAnswer(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "yard.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close(context.Background())
+	sock := socket(t)
+	serve(t, sock, Handler(st, nil).ServeHTTP)
+	c := NewClient(sock)
+	ctx := context.Background()
+
+	put, err := callV[*store.CrewMember](c, ctx, "PutResident", store.CrewMember{Name: "clerk", Runner: "manual"}, "me")
+	if err != nil || put.Name != "clerk" {
+		t.Fatalf("PutResident = %+v, %v", put, err)
+	}
+	if all, err := callV[[]store.CrewMember](c, ctx, "Residents"); err != nil || len(all) != 1 || all[0].Name != "clerk" {
+		t.Fatalf("Residents = %+v, %v", all, err)
+	}
+	if got, err := callV[*store.CrewMember](c, ctx, "GetResident", "clerk"); err != nil || got.Journal != "clerk-journal" {
+		t.Fatalf("GetResident = %+v, %v", got, err)
+	}
+	if err := c.call(ctx, "ResidentStatus", nil, "clerk", "idle"); err != nil {
+		t.Fatalf("ResidentStatus: %v", err)
+	}
+	if _, err := callV[*store.Prime](c, ctx, "ResidentPrime", "clerk"); err != nil {
+		t.Fatalf("ResidentPrime: %v", err)
+	}
+	if now, err := c.Crew(ctx); err != nil || len(now) != 1 {
+		t.Fatalf("Crew = %+v, %v", now, err)
+	}
+}

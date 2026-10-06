@@ -33,7 +33,7 @@ type view struct {
 
 const me = "ada"
 
-// yard is a store with the user ada and the residents chief and refinery,
+// yard is a store with the user ada and the crew chief and refinery,
 // both running and idle.
 func yard(t *testing.T) store.API {
 	t.Helper()
@@ -43,11 +43,11 @@ func yard(t *testing.T) store.API {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"chief", "refinery"} {
-		if _, err := st.PutResident(ctx, store.Resident{Name: name, Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "jo"); err != nil {
+		if _, err := st.PutCrew(ctx, store.CrewMember{Name: name, Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "jo"); err != nil {
 			t.Fatal(err)
 		}
-		must(t, st.ResidentStarted(ctx, name, map[string]any{"agent": "yard-" + name}))
-		must(t, st.ResidentStatus(ctx, name, "idle"))
+		must(t, st.CrewStarted(ctx, name, map[string]any{"agent": "yard-" + name}))
+		must(t, st.CrewStatus(ctx, name, "idle"))
 	}
 	return st
 }
@@ -99,7 +99,7 @@ func (v *view) do(cmd tea.Cmd) {
 		for _, c := range msg {
 			v.do(c)
 		}
-	case convoMsg, residentsMsg, sentMsg, ackedMsg, focusMsg, tailMsg, notesMsg, notesAckedMsg:
+	case convoMsg, crewMsg, sentMsg, ackedMsg, focusMsg, tailMsg, notesMsg, notesAckedMsg:
 		// Not refreshMsg: the time to read a pane again is the test's to
 		// say, or a watched pane would be read without end.
 		v.send(msg)
@@ -168,9 +168,9 @@ func head(t *testing.T, st store.API) uint64 {
 	return h
 }
 
-// The resident named is selected, else the first; tab and shift+tab go
+// The crew member named is selected, else the first; tab and shift+tab go
 // through the list and around its ends, where the yard's row is, and each
-// selection shows that resident's conversation.
+// selection shows that crew member's conversation.
 func TestSelection(t *testing.T) {
 	st := yard(t)
 	ctx := context.Background()
@@ -181,7 +181,7 @@ func TestSelection(t *testing.T) {
 		t.Fatalf("named refinery, selected %q", got)
 	}
 	if got := open(t, st, "nobody", 120, 24).m.Selected(); got != "chief" {
-		t.Fatalf("named a resident the yard does not have, selected %q", got)
+		t.Fatalf("named a crew member the yard does not have, selected %q", got)
 	}
 	v := open(t, st, "chief", 120, 24)
 	v.shows("> chief", "to the chief")
@@ -191,7 +191,7 @@ func TestSelection(t *testing.T) {
 	v.hides("to the chief", "> chief")
 	v.key(tea.KeyTab)
 	if !v.m.OnYard() || v.m.Selected() != "" {
-		t.Fatalf("tab past the last resident selected %q, the yard's row %v", v.m.Selected(), v.m.OnYard())
+		t.Fatalf("tab past the last crew member selected %q, the yard's row %v", v.m.Selected(), v.m.OnYard())
 	}
 	v.key(tea.KeyTab)
 	if v.m.Selected() != "chief" || v.m.OnYard() {
@@ -203,16 +203,16 @@ func TestSelection(t *testing.T) {
 		t.Fatalf("shift+tab before the start selected %q", v.m.Selected())
 	}
 
-	// The selected resident is removed: the first is selected.
-	must(t, st.DeleteResident(ctx, "refinery", "", "jo"))
+	// The selected crew member is removed: the first is selected.
+	must(t, st.DeleteCrew(ctx, "refinery", "", "jo"))
 	v.stream()
 	if v.m.Selected() != "chief" {
-		t.Fatalf("after the selected resident was removed, selected %q", v.m.Selected())
+		t.Fatalf("after the selected crew member was removed, selected %q", v.m.Selected())
 	}
 	v.hides("refinery")
 }
 
-// Mail from the selected resident appears from the stream and is
+// Mail from the selected crew member appears from the stream and is
 // acknowledged as it is shown. Mail from another is counted beside its
 // name and stays unread in the store until its conversation is opened,
 // and what came after it is not marked read past it.
@@ -278,7 +278,7 @@ func TestMailArrives(t *testing.T) {
 }
 
 // Mail acknowledged elsewhere (yardr inbox --ack in another terminal) is
-// no longer counted, and mail from someone who is no resident is named
+// no longer counted, and mail from someone who is no crew member is named
 // with where to read it.
 func TestUnreadElsewhere(t *testing.T) {
 	st := yard(t)
@@ -290,7 +290,7 @@ func TestUnreadElsewhere(t *testing.T) {
 	must(t, st.Mail(ctx, me, "landed", "refinery"))
 	must(t, st.Mail(ctx, me, "lunch?", "grace"))
 	v.stream()
-	v.shows("refinery idle (1)", "1 unread from grace, no resident: yardr inbox")
+	v.shows("refinery idle (1)", "1 unread from grace, no crew member: yardr inbox")
 	must(t, st.AckUserInbox(ctx, me, head(t, st)))
 	v.stream()
 	v.hides("(1)", "unread from grace")
@@ -316,7 +316,7 @@ func TestStanding(t *testing.T) {
 		{"unknown", "chief       running", "· sent"},
 		{"idle", "chief       idle", "· sent; chief is idle"},
 	} {
-		must(t, st.ResidentStatus(ctx, "chief", c.status))
+		must(t, st.CrewStatus(ctx, "chief", c.status))
 		v.stream()
 		v.shows(c.list, c.line)
 	}
@@ -345,48 +345,48 @@ func TestStanding(t *testing.T) {
 	}
 
 	// Its session ends, and a third mail has nobody to read it.
-	must(t, st.SetResidentEnabled(ctx, "chief", false, "", "jo"))
-	must(t, st.ResidentStopped(ctx, "chief", "disabled"))
+	must(t, st.SetCrewEnabled(ctx, "chief", false, "", "jo"))
+	must(t, st.CrewStopped(ctx, "chief", "disabled"))
 	v.typed("anyone?")
 	v.key(tea.KeyEnter)
 	v.stream()
-	v.shows("chief       not running", "· chief is not running: yardr resident start chief")
+	v.shows("chief       not running", "· chief is not running: yardr crew start chief")
 
 	// Started again and failing: the list and the line say so.
-	must(t, st.SetResidentEnabled(ctx, "chief", true, "", "jo"))
-	must(t, st.ResidentStartFailed(ctx, "chief", "claude: command not found", time.Minute))
+	must(t, st.SetCrewEnabled(ctx, "chief", true, "", "jo"))
+	must(t, st.CrewStartFailed(ctx, "chief", "claude: command not found", time.Minute))
 	v.stream()
-	v.shows("chief       failed to start", "· chief failed to start: yardr resident show chief")
+	v.shows("chief       failed to start", "· chief failed to start: yardr crew show chief")
 
 	// A view opened now reads the same from the store.
 	again := open(t, st, "chief", 120, 30)
-	again.shows("chief       failed to start", "· read", "· chief failed to start: yardr resident show chief")
+	again.shows("chief       failed to start", "· read", "· chief failed to start: yardr crew show chief")
 }
 
 func TestStateOf(t *testing.T) {
 	for _, c := range []struct {
-		r    store.Resident
+		r    store.CrewMember
 		want string
 	}{
-		{store.Resident{State: "stopped", Enabled: true}, NotRunning},
-		{store.Resident{State: "stopped"}, NotRunning},
-		{store.Resident{State: "stopped", Failures: 2}, NotRunning}, // stopped by hand after failing
-		{store.Resident{State: "stopped", Enabled: true, Failures: 2}, Failed},
-		{store.Resident{State: "failed", Enabled: true, Failures: 5}, Failed},
-		{store.Resident{State: "running", Enabled: true}, Running},
-		{store.Resident{State: "running", Enabled: true, Status: "unknown"}, Running},
-		{store.Resident{State: "running", Enabled: true, Status: "working"}, Working},
-		{store.Resident{State: "running", Enabled: true, Status: "idle"}, Idle},
-		{store.Resident{State: "running", Enabled: true, Status: "blocked"}, Blocked},
+		{store.CrewMember{State: "stopped", Enabled: true}, NotRunning},
+		{store.CrewMember{State: "stopped"}, NotRunning},
+		{store.CrewMember{State: "stopped", Failures: 2}, NotRunning}, // stopped by hand after failing
+		{store.CrewMember{State: "stopped", Enabled: true, Failures: 2}, Failed},
+		{store.CrewMember{State: "failed", Enabled: true, Failures: 5}, Failed},
+		{store.CrewMember{State: "running", Enabled: true}, Running},
+		{store.CrewMember{State: "running", Enabled: true, Status: "unknown"}, Running},
+		{store.CrewMember{State: "running", Enabled: true, Status: "working"}, Working},
+		{store.CrewMember{State: "running", Enabled: true, Status: "idle"}, Idle},
+		{store.CrewMember{State: "running", Enabled: true, Status: "blocked"}, Blocked},
 		// A session that runs after failed starts is what it does now.
-		{store.Resident{State: "running", Enabled: true, Status: "idle", Failures: 1}, Idle},
+		{store.CrewMember{State: "running", Enabled: true, Status: "idle", Failures: 1}, Idle},
 	} {
 		if got := StateOf(c.r); got != c.want {
 			t.Errorf("%+v: %q, want %q", c.r, got, c.want)
 		}
 	}
 	if got := Standing(store.Letter{}, nil, "yardr"); got != "sent" {
-		t.Errorf("mail to a resident that is gone stands as %q", got)
+		t.Errorf("mail to a crew member that is gone stands as %q", got)
 	}
 }
 
@@ -404,7 +404,7 @@ func (v *view) fits(w, h int) {
 	}
 }
 
-// At 80 columns the residents are one line on top and the conversation
+// At 80 columns the crew are one line on top and the conversation
 // has the width; in a wide terminal they are a column. Either way the
 // view is the terminal's size, the newest mail is in view and the keys
 // are the last line.
@@ -421,7 +421,7 @@ func TestLayout(t *testing.T) {
 	v.fits(80, 24)
 	lines := strings.Split(v.screen(), "\n")
 	if lines[1] != "yard  [chief idle]  refinery idle (1)" {
-		t.Fatalf("the residents' line at 80 columns is %q", lines[1])
+		t.Fatalf("the crew's line at 80 columns is %q", lines[1])
 	}
 	if strings.Contains(v.screen(), "│") {
 		t.Fatalf("a column at 80 columns:\n%s", v.screen())
@@ -451,7 +451,7 @@ func TestLayout(t *testing.T) {
 		t.Fatalf("the last line is %q", lines[len(lines)-1])
 	}
 
-	// Narrower than the keys and the residents: cut, not wrapped.
+	// Narrower than the keys and the crew: cut, not wrapped.
 	v.send(tea.WindowSizeMsg{Width: 30, Height: 12})
 	v.fits(30, 12)
 	v.send(tea.WindowSizeMsg{Width: Wide - 1, Height: 24})
@@ -474,7 +474,7 @@ func TestLayout(t *testing.T) {
 }
 
 // rows is the view as a letter for each of its lines: T the title, F the
-// residents' line, R a rule, I a row of the input, K the keys, and a dot
+// crew members' line, R a rule, I a row of the input, K the keys, and a dot
 // for a line of the conversation or the line of notices.
 func (v *view) rows() string {
 	var out strings.Builder
@@ -501,7 +501,7 @@ func (v *view) rows() string {
 
 // A terminal lower than the view's rows gives them up in order: the keys,
 // the line of notices, the rows of the input down to one, the rules, the
-// residents' line. The view is never taller than the terminal while that
+// crew members' line. The view is never taller than the terminal while that
 // has two rows, for the title and a line of the conversation.
 func TestLowTerminal(t *testing.T) {
 	st := yard(t)
@@ -553,12 +553,12 @@ func TestLowTerminal(t *testing.T) {
 	}
 }
 
-// Many residents on the folded line: the selected one stays on it.
+// Many crew members on the folded line: the selected one stays on it.
 func TestFoldedLineKeepsTheSelection(t *testing.T) {
 	st := yard(t)
 	ctx := context.Background()
 	for i := range 12 {
-		_, err := st.PutResident(ctx, store.Resident{Name: fmt.Sprintf("worker-%02d", i), Runner: "herdr"}, "jo")
+		_, err := st.PutCrew(ctx, store.CrewMember{Name: fmt.Sprintf("worker-%02d", i), Runner: "herdr"}, "jo")
 		must(t, err)
 	}
 	v := open(t, st, "worker-11", 80, 24)
@@ -566,7 +566,7 @@ func TestFoldedLineKeepsTheSelection(t *testing.T) {
 	v.shows("[worker-11 not running]")
 }
 
-// Enter sends the line as mail to the selected resident; ctrl+j breaks
+// Enter sends the line as mail to the selected crew member; ctrl+j breaks
 // the line instead; an empty line sends nothing.
 func TestSend(t *testing.T) {
 	st := yard(t)
@@ -600,7 +600,7 @@ func TestSend(t *testing.T) {
 func TestSendFails(t *testing.T) {
 	st := yard(t)
 	v := open(t, st, "chief", 80, 24)
-	must(t, st.DeleteResident(context.Background(), "chief", "", "jo")) // gone before the view hears of it
+	must(t, st.DeleteCrew(context.Background(), "chief", "", "jo")) // gone before the view hears of it
 	v.typed("are you there?")
 	v.key(tea.KeyEnter)
 	v.shows("not sent to chief", "are you there?")
@@ -863,34 +863,49 @@ func TestPaneKey(t *testing.T) {
 	failing.key(tea.KeyCtrlG)
 	failing.shows("herdr agent focus yard-chief: agent_not_found")
 
-	must(t, st.ResidentStopped(ctx, "chief", "gone"))
+	must(t, st.CrewStopped(ctx, "chief", "gone"))
 	in.stream()
 	in.key(tea.KeyCtrlG)
 	if len(in.focused) != 1 {
-		t.Fatalf("a pane was focused for a resident that does not run: %v", in.focused)
+		t.Fatalf("a pane was focused for a crew member that does not run: %v", in.focused)
 	}
-	in.shows("chief has no pane, it is not running: yardr resident start chief")
+	in.shows("chief has no pane, it is not running: yardr crew start chief")
 }
 
-// A list of the residents read before a status the stream told of does
+// A list of the crew read before a status the stream told of does
 // not put the older status back.
 func TestOlderListKeepsNewerStatus(t *testing.T) {
 	st := yard(t)
 	ctx := context.Background()
 	v := open(t, st, "chief", 120, 24)
 	before := head(t, st)
-	stale, err := st.Residents(ctx)
+	stale, err := st.Crew(ctx)
 	must(t, err)
-	must(t, st.ResidentStatus(ctx, "chief", "working"))
+	must(t, st.CrewStatus(ctx, "chief", "working"))
 	v.stream()
-	v.send(residentsMsg{head: before, residents: stale})
+	v.send(crewMsg{head: before, crew: stale})
 	v.shows("chief       working")
 	// One read after it is taken as it is.
-	must(t, st.ResidentStatus(ctx, "chief", "idle"))
-	fresh, err := st.Residents(ctx)
+	must(t, st.CrewStatus(ctx, "chief", "idle"))
+	fresh, err := st.Crew(ctx)
 	must(t, err)
-	v.send(residentsMsg{head: head(t, st), residents: fresh})
+	v.send(crewMsg{head: head(t, st), crew: fresh})
 	v.shows("chief       idle")
+}
+
+// An event a yardr from before the crew had the name logged, which a view
+// opened across the upgrade still gets from the log, is read as the one of
+// the new kind: its kind and its field say resident.
+func TestStatusEventOfTheOldKind(t *testing.T) {
+	st := yard(t)
+	ctx := context.Background()
+	v := open(t, st, "chief", 120, 24)
+	must(t, st.CrewStatus(ctx, "chief", "idle"))
+	v.stream()
+	v.shows("chief       idle")
+	v.send(EventMsg(store.Event{Seq: head(t, st) + 1, Kind: "resident_status",
+		Data: map[string]any{"resident": "chief", "status": "working", "was": "idle"}}))
+	v.shows("chief       working")
 }
 
 // dropping is a stream that ends after each batch: the yardr server going
@@ -997,7 +1012,7 @@ func TestFollowTheStore(t *testing.T) {
 // The onboarding opens the view on a yardmaster (here: chief) that was asked
 // to greet and may not have yet: its empty conversation says it is starting,
 // the first mail replaces that when the stream brings it, and no other
-// resident's conversation claims the same.
+// crew member's conversation claims the same.
 func TestExpectedFirstMail(t *testing.T) {
 	st := yard(t)
 	v := open(t, st, "chief", 80, 24, func(o *Options) { o.Expect = "chief" })
@@ -1031,10 +1046,10 @@ func (p *panes) option(o *Options) { o.Tail = p.tail }
 
 const trust = "sh$ claude\n\n one\n two\n three\n Do you trust the files in this folder?\n\n ❯ 1. Yes, proceed\n   2. No, exit\n\n Enter to confirm\n"
 
-// A selected resident that is blocked says so above the input: what is
+// A selected crew member that is blocked says so above the input: what is
 // known, the last lines of its pane and the key that goes there. The
 // notice is no mail, takes no line from the screen's size, and goes when
-// the resident goes on or another is selected.
+// the crew member goes on or another is selected.
 func TestWaitingNotice(t *testing.T) {
 	st := yard(t)
 	ctx := context.Background()
@@ -1045,9 +1060,9 @@ func TestWaitingNotice(t *testing.T) {
 	v := open(t, st, "chief", 160, 40, p.option)
 	v.hides("may wait at", "Do you trust", back)
 	if p.reads != 0 {
-		t.Fatalf("the pane of an idle resident was read %d times", p.reads)
+		t.Fatalf("the pane of an idle crew member was read %d times", p.reads)
 	}
-	must(t, st.ResidentStatus(ctx, "chief", "blocked"))
+	must(t, st.CrewStatus(ctx, "chief", "blocked"))
 	v.stream()
 	v.shows(known, "  │  three", "  │  Do you trust the files in this folder?", "  │  ❯ 1. Yes, proceed", "  │    2. No, exit",
 		"  │  Enter to confirm", "ctrl+g names the command that opens its pane"+back)
@@ -1074,7 +1089,7 @@ func TestWaitingNotice(t *testing.T) {
 		t.Fatalf("the conversation has %d mails, %v: the notice is none, and what was typed is one", len(c), err)
 	}
 
-	// Another resident has none; back on the chief it is there again.
+	// Another crew member has none; back on the chief it is there again.
 	v.key(tea.KeyTab)
 	v.hides("may wait at", "Do you trust", back)
 	v.key(tea.KeyShiftTab)
@@ -1101,8 +1116,8 @@ func TestWaitingNotice(t *testing.T) {
 	in := open(t, st, "chief", 160, 40, p.option, func(o *Options) { o.InHerdr = true })
 	in.shows(known, "ctrl+g opens its pane"+back)
 
-	// The resident goes on: the notice is gone with the event that says so.
-	must(t, st.ResidentStatus(ctx, "chief", "idle"))
+	// The crew member goes on: the notice is gone with the event that says so.
+	must(t, st.CrewStatus(ctx, "chief", "idle"))
 	v.stream()
 	v.hides("may wait at", "Do you trust", back)
 	v.shows("· sent; chief is idle")
@@ -1116,7 +1131,7 @@ func TestWaitingNotice(t *testing.T) {
 // so does a view that was given nothing to read panes with.
 func TestWaitingNoticeWithoutPane(t *testing.T) {
 	st := yard(t)
-	must(t, st.ResidentStatus(context.Background(), "chief", "blocked"))
+	must(t, st.CrewStatus(context.Background(), "chief", "blocked"))
 	p := &panes{err: errors.New("herdr pane read: pane_not_found"), text: map[string]string{"yard-chief": trust}}
 	for name, opt := range map[string]func(*Options){"unreadable": p.option, "no reader": func(*Options) {}} {
 		v := open(t, st, "chief", 80, 24, opt)
@@ -1160,7 +1175,7 @@ func TestPaneLinesAreInert(t *testing.T) {
 	}
 
 	st := yard(t)
-	must(t, st.ResidentStatus(context.Background(), "chief", "blocked"))
+	must(t, st.CrewStatus(context.Background(), "chief", "blocked"))
 	p := &panes{text: map[string]string{"yard-chief": hostile}}
 	for _, colour := range []termenv.Profile{termenv.Ascii, termenv.TrueColor} {
 		profile(t, colour, true)
@@ -1178,17 +1193,17 @@ func TestPaneLinesAreInert(t *testing.T) {
 	}
 }
 
-// A resident whose first prompt is still to be delivered waits as a
+// A crew member whose first prompt is still to be delivered waits as a
 // blocked one does, whatever its runtime reads it as, and says what the
 // onboarding says of such a yardmaster. Once the prompt arrived, which no
 // status tells, the notice is gone.
 func TestFirstPromptPending(t *testing.T) {
 	st := yard(t)
 	ctx := context.Background()
-	r, err := st.PutResident(ctx, store.Resident{Name: "scribe", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "jo")
+	r, err := st.PutCrew(ctx, store.CrewMember{Name: "scribe", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "jo")
 	must(t, err)
 	handle := map[string]any{"agent": "yard-scribe", "pane": "p1"}
-	must(t, st.ResidentStarted(ctx, "scribe", map[string]any{"agent": "yard-scribe", "pane": "p1", dispatch.PendingPrompt: "You are scribe"}))
+	must(t, st.CrewStarted(ctx, "scribe", map[string]any{"agent": "yard-scribe", "pane": "p1", dispatch.PendingPrompt: "You are scribe"}))
 	p := &panes{text: map[string]string{"yard-scribe": "Select login method:"}}
 	known := "! " + NotReady("claude")
 	if !strings.Contains(known, "claude was started in the pane but is not ready for its first prompt: it may wait at a login, a question or a system dialog") {
@@ -1197,7 +1212,7 @@ func TestFirstPromptPending(t *testing.T) {
 
 	for _, status := range []string{"", "idle", "unknown", "blocked"} {
 		if status != "" {
-			must(t, st.ResidentStatus(ctx, "scribe", status))
+			must(t, st.CrewStatus(ctx, "scribe", status))
 		}
 		v := open(t, st, "scribe", 200, 30, p.option)
 		if status == "blocked" {
@@ -1208,10 +1223,10 @@ func TestFirstPromptPending(t *testing.T) {
 		v.shows("  │ Select login method:", "; answer there and come back")
 	}
 	// Working on a prompt, it waits for nobody.
-	must(t, st.ResidentStatus(ctx, "scribe", "working"))
+	must(t, st.CrewStatus(ctx, "scribe", "working"))
 	open(t, st, "scribe", 200, 30, p.option).hides("may wait at", "Select login method:")
 
-	must(t, st.ResidentStatus(ctx, "scribe", "idle"))
+	must(t, st.CrewStatus(ctx, "scribe", "idle"))
 	v := open(t, st, "scribe", 200, 30, p.option)
 	v.typed("are you there?")
 	v.key(tea.KeyEnter)
@@ -1219,21 +1234,21 @@ func TestFirstPromptPending(t *testing.T) {
 	v.shows(known, "· scribe waits at a prompt in its pane and cannot read mail (ctrl+g goes there)")
 
 	// The daemon delivers the prompt: the handle no longer holds it, and
-	// the event of its arrival is what the view reads the residents for.
-	must(t, st.SetResidentHandle(ctx, "scribe", handle))
-	must(t, st.LogDispatch(ctx, r.Journal, "session_prompted", "yard", map[string]any{"resident": "scribe"}))
+	// the event of its arrival is what the view reads the crew for.
+	must(t, st.SetCrewHandle(ctx, "scribe", handle))
+	must(t, st.LogDispatch(ctx, r.Journal, "session_prompted", "yard", map[string]any{"crew": "scribe"}))
 	v.stream()
 	v.hides("may wait at", "Select login method:", "waits at a prompt")
 	v.shows("· sent; scribe is idle")
 }
 
 // While the notice shows, the pane is read again every Options.Refresh:
-// one read at a time for the resident watched, whatever else happens, and
+// one read at a time for the crew member watched, whatever else happens, and
 // none for a watch that is over.
 func TestPaneIsReadAgain(t *testing.T) {
 	st := yard(t)
 	ctx := context.Background()
-	must(t, st.ResidentStatus(ctx, "chief", "blocked"))
+	must(t, st.CrewStatus(ctx, "chief", "blocked"))
 	p := &panes{text: map[string]string{"yard-chief": "Do you trust this folder?", "yard-refinery": "Select login method:"}}
 	v := open(t, st, "chief", 80, 24, p.option, func(o *Options) { o.Refresh = time.Millisecond })
 	v.shows("  │ Do you trust this folder?")
@@ -1242,7 +1257,7 @@ func TestPaneIsReadAgain(t *testing.T) {
 	}
 	// Events come and go: the read is the timer's.
 	must(t, st.Mail(ctx, me, "landed", "refinery"))
-	must(t, st.ResidentStatus(ctx, "refinery", "working"))
+	must(t, st.CrewStatus(ctx, "refinery", "working"))
 	v.stream()
 	if p.reads != 1 {
 		t.Fatalf("the pane was read %d times between two refreshes, want 1", p.reads)
@@ -1252,10 +1267,10 @@ func TestPaneIsReadAgain(t *testing.T) {
 	v.shows("  │ Allow claude to run git push?")
 	v.hides("Do you trust")
 
-	// Another blocked resident selected: its pane, and the timer of the
+	// Another blocked crew member selected: its pane, and the timer of the
 	// first reads nothing more.
 	old := v.m.watched.gen
-	must(t, st.ResidentStatus(ctx, "refinery", "blocked"))
+	must(t, st.CrewStatus(ctx, "refinery", "blocked"))
 	v.stream()
 	v.key(tea.KeyTab)
 	v.shows("! refinery waits at a prompt", "  │ Select login method:")
@@ -1265,10 +1280,10 @@ func TestPaneIsReadAgain(t *testing.T) {
 		t.Fatal("the timer of a watch that is over read a pane")
 	}
 	// It goes on: nothing is read for it any more.
-	must(t, st.ResidentStatus(ctx, "refinery", "idle"))
+	must(t, st.CrewStatus(ctx, "refinery", "idle"))
 	v.stream()
 	v.send(refreshMsg{gen: v.m.watched.gen})
 	if p.reads != reads {
-		t.Fatal("a pane was read for a resident that waits no more")
+		t.Fatal("a pane was read for a crew member that waits no more")
 	}
 }

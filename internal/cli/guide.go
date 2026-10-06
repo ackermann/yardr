@@ -124,10 +124,10 @@ it prints the steps and the command for the next one.`,
 }
 
 // agentSession reports whether this run is an agent's: a session yardr
-// started, or a resident. An agent's pane is a terminal too, and a form
+// started, or a crew member. An agent's pane is a terminal too, and a form
 // would sit there unanswered.
 func agentSession() bool {
-	return config.Getenv("SESSION") != "" || config.Getenv("RESIDENT") != ""
+	return config.Getenv("SESSION") != "" || config.Getenv("CREW") != ""
 }
 
 // printSteps prints the setup steps, each done or todo.
@@ -325,7 +325,7 @@ func (g *guide) yardmasterAt() string {
 func (g *guide) toYardmaster(ctx context.Context) error {
 	yardr := yardrAt(g.cfg.Home)
 	yardmaster := yardmasterOf(ctx, g.st)
-	r, err := g.st.GetResident(ctx, yardmaster)
+	r, err := g.st.GetCrew(ctx, yardmaster)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return err
 	}
@@ -340,7 +340,7 @@ func (g *guide) toYardmaster(ctx context.Context) error {
 			return err
 		}
 		if silent = !res.Running; !silent {
-			if r, err = g.st.GetResident(ctx, yardmaster); err != nil {
+			if r, err = g.st.GetCrew(ctx, yardmaster); err != nil {
 				return err
 			}
 		}

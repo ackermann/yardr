@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// EnvCommandTimeout bounds a resident's env_command: a provider that waits
+// EnvCommandTimeout bounds a crew member's env_command: a provider that waits
 // for someone (a locked vault asking for a password) must not hold up the
 // daemon's pass.
 var EnvCommandTimeout = 10 * time.Second
@@ -26,21 +26,21 @@ const envCommandKillAgain = 50 * time.Millisecond
 // stream.
 const envCommandMax = 1 << 20
 
-// ResidentEnv is a resident's environment as its settings give it: the
+// CrewEnv is a crew member's environment as its settings give it: the
 // entries of its env_file and those its env_command printed. It is the one
-// answer to "what does this resident run with" for the pane its session
-// starts in, the daemon's calls as the resident, `yardr resident show` and
+// answer to "what does this crew member run with" for the pane its session
+// starts in, the daemon's calls as the crew member, `yardr crew show` and
 // a pack's plan, so the four cannot disagree. Values are held in memory
 // only, and asked for again at every use: nothing here is cached.
-type ResidentEnv struct {
+type CrewEnv struct {
 	// File is the env_file's resolved path, Command the env_command as one
-	// line; empty when the resident has none. Both are shown to whoever may
-	// read the resident, so neither is a place for a secret.
+	// line; empty when the crew member has none. Both are shown to whoever may
+	// read the crew member, so neither is a place for a secret.
 	File, Command string
 	// FileKeys and CommandKeys are the names each set, for showing where a
 	// name comes from without showing a value.
 	FileKeys, CommandKeys []string
-	// FileErr and CommandErr say why a source was refused. A resident with
+	// FileErr and CommandErr say why a source was refused. A crew member with
 	// either does not start.
 	FileErr, CommandErr error
 	// Env is the entries as KEY=VALUE: the file's, then the command's. A
@@ -48,12 +48,12 @@ type ResidentEnv struct {
 	Env []string
 }
 
-// Set reports whether the resident names an env_file or an env_command.
-func (e *ResidentEnv) Set() bool { return e.File != "" || e.Command != "" }
+// Set reports whether the crew member names an env_file or an env_command.
+func (e *CrewEnv) Set() bool { return e.File != "" || e.Command != "" }
 
 // From names where the environment comes from, for a message: "env_file
 // /p", "env_command op inject ...", or both.
-func (e *ResidentEnv) From() string {
+func (e *CrewEnv) From() string {
 	var from []string
 	if e.File != "" {
 		from = append(from, "env_file "+e.File)
@@ -65,7 +65,7 @@ func (e *ResidentEnv) From() string {
 }
 
 // Keys are the names the environment sets, each once, in Env's order.
-func (e *ResidentEnv) Keys() []string {
+func (e *CrewEnv) Keys() []string {
 	keys := make([]string, 0, len(e.Env))
 	seen := map[string]bool{}
 	for _, kv := range e.Env {
@@ -79,7 +79,7 @@ func (e *ResidentEnv) Keys() []string {
 
 // Get is the value of name: of a name set twice the last, as in the pane's
 // environment; "" for one not set.
-func (e *ResidentEnv) Get(name string) string {
+func (e *CrewEnv) Get(name string) string {
 	val := ""
 	for _, kv := range e.Env {
 		if k, v, _ := strings.Cut(kv, "="); k == name {
@@ -91,7 +91,7 @@ func (e *ResidentEnv) Get(name string) string {
 
 // StringList reads a setting that is a list of words: a list as it is, a
 // string split at white space (no quoting: a word with a space in it takes
-// the list form). It is how a group's or resident's args are read, and an
+// the list form). It is how a group's or crew member's args are read, and an
 // env_command.
 func StringList(v any) []string {
 	switch v := v.(type) {
@@ -109,11 +109,11 @@ func StringList(v any) []string {
 	return nil
 }
 
-// ReadResidentEnv reads the environment of resident name from its settings
+// ReadCrewEnv reads the environment of crew member name from its settings
 // cfg: its env_file (ReadEnvFile) and what its env_command prints, the
 // command's value winning for a key in both. The command is run without a
-// shell, in dir (the resident's directory; the yard's home when empty),
-// with the caller's environment plus the resident's name and the yard's
+// shell, in dir (the crew member's directory; the yard's home when empty),
+// with the caller's environment plus the crew member's name and the yard's
 // home, its stdin closed, for at most EnvCommandTimeout. Its stdout is read
 // as an env_file is.
 //
@@ -121,8 +121,8 @@ func StringList(v any) []string {
 // refused; the error is the first of those. An error names the file or the
 // command, a line number, an exit status and the last lines of the
 // command's stderr: never its stdout, never a value.
-func ReadResidentEnv(ctx context.Context, name, dir, home string, cfg map[string]any) (*ResidentEnv, error) {
-	out := &ResidentEnv{}
+func ReadCrewEnv(ctx context.Context, name, dir, home string, cfg map[string]any) (*CrewEnv, error) {
+	out := &CrewEnv{}
 	var file, cmd []string
 	if path, _ := cfg["env_file"].(string); path != "" {
 		out.File = path
@@ -201,7 +201,7 @@ func envProgram(prog, dir string) (string, error) {
 }
 
 // runEnvCommand runs argv and reads its stdout as an env_file.
-func runEnvCommand(ctx context.Context, argv []string, resident, dir, home string) ([]string, error) {
+func runEnvCommand(ctx context.Context, argv []string, member, dir, home string) ([]string, error) {
 	what := "env_command " + strings.Join(argv, " ")
 	prog, err := envProgram(argv[0], dir)
 	if err != nil {
@@ -211,7 +211,7 @@ func runEnvCommand(ctx context.Context, argv []string, resident, dir, home strin
 	defer cancel()
 	cmd := exec.CommandContext(ctx, prog, argv[1:]...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), Env("RESIDENT", resident)...)
+	cmd.Env = append(os.Environ(), Env("CREW", member)...)
 	if home != "" {
 		cmd.Env = append(cmd.Env, Env("HOME", home)...)
 	}

@@ -6,13 +6,13 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// The feed leaves out what a view of the residents follows and nobody
-// reads as news: mail being read, and a resident's turns beginning and
-// ending. A resident stopping at a prompt, or leaving it, is news. So is a
+// The feed leaves out what a view of the crew follows and nobody
+// reads as news: mail being read, and a crew member's turns beginning and
+// ending. A crew member stopping at a prompt, or leaving it, is news. So is a
 // timer firing, and nothing else of a timer.
 func TestFeedLeavesOutTurnsAndReading(t *testing.T) {
 	status := func(was, now string) store.Event {
-		return store.Event{Kind: "resident_status", Data: map[string]any{"resident": "yardmaster", "status": now, "was": was}}
+		return store.Event{Kind: "crew_status", Data: map[string]any{"crew": "yardmaster", "status": now, "was": was}}
 	}
 	for _, c := range []struct {
 		e    store.Event
@@ -23,6 +23,9 @@ func TestFeedLeavesOutTurnsAndReading(t *testing.T) {
 		{status("", "idle"), false},
 		{status("working", "blocked"), true},
 		{status("blocked", "idle"), true},
+		// As a yardr from before the crew had the name logged them.
+		{store.Event{Kind: "resident_status", Data: map[string]any{"resident": "yardmaster", "status": "working", "was": "idle"}}, false},
+		{store.Event{Kind: "resident_status", Data: map[string]any{"resident": "yardmaster", "status": "blocked", "was": "working"}}, true},
 		{store.Event{Kind: "mail"}, true},
 		{store.Event{Kind: store.NoteJournal}, false},
 		// Of a timer only the firing, and that once: the mail it is to a

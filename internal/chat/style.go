@@ -22,7 +22,7 @@ type styles struct {
 	faint lipgloss.Style // what is beside the point: the time, the user's name in the title
 	line  lipgloss.Style // the rules and the column's edge
 
-	selected lipgloss.Style // the selected resident's name and its mark
+	selected lipgloss.Style // the selected crew member's name and its mark
 	unread   lipgloss.Style // the count of unread mail
 
 	working lipgloss.Style
@@ -30,8 +30,8 @@ type styles struct {
 	absent  lipgloss.Style // not running
 	alarm   lipgloss.Style // blocked, failed to start: someone has to act
 
-	resident lipgloss.Style // a resident's name on its mail
-	own      lipgloss.Style // the user's name on theirs
+	member lipgloss.Style // a crew member's name on its mail
+	own    lipgloss.Style // the user's name on theirs
 
 	bead lipgloss.Style // what a notification is about: a bead's id, a source
 
@@ -78,12 +78,12 @@ func themed(t *huh.Theme) styles {
 		absent:  fg(t.Help.ShortKey),
 		alarm:   bad.Bold(true),
 
-		// A resident's name has the colour its unread count has: both are
+		// A crew member's name has the colour its unread count has: both are
 		// mail from it.
-		resident: heading.Bold(true),
-		own:      fg(f.Option).Bold(true),
+		member: heading.Bold(true),
+		own:    fg(f.Option).Bold(true),
 
-		// Bold and no colour: it is from nobody, neither a resident's
+		// Bold and no colour: it is from nobody, neither a crew member's
 		// name nor the user's.
 		bead: lipgloss.NewStyle().Bold(true),
 
@@ -100,7 +100,7 @@ func themed(t *huh.Theme) styles {
 	}
 }
 
-// state is the style a resident's state is listed in.
+// state is the style a crew member's state is listed in.
 func (s styles) state(state string) lipgloss.Style {
 	switch state {
 	case Working:
@@ -116,7 +116,7 @@ func (s styles) state(state string) lipgloss.Style {
 }
 
 // standing is the style of the line under a mail the user sent to r.
-func (s styles) standing(read bool, r *store.Resident) lipgloss.Style {
+func (s styles) standing(read bool, r *store.CrewMember) lipgloss.Style {
 	switch {
 	case read:
 		return s.read

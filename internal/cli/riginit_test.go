@@ -127,9 +127,9 @@ func TestRigInitOperator(t *testing.T) {
 }
 
 // The yardmaster the roles tell agents to mail is the yard's: --yardmaster,
-// else the yardmaster setting yardr init stores, else the one resident of a
+// else the yardmaster setting yardr init stores, else the one crew member of a
 // yard from before the setting, else init's default name. A yard with several
-// residents and no setting does not guess among them.
+// crew members and no setting does not guess among them.
 func TestRigInitYardmaster(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
@@ -159,17 +159,17 @@ func TestRigInitYardmaster(t *testing.T) {
 	if got := mailTo(t, initRig(t, "empty")); got != "yardmaster" {
 		t.Errorf("empty yard: mail %s, want yardmaster", got)
 	}
-	if _, err := st.PutResident(ctx, store.Resident{Name: "boss", Runner: "manual"}, "me"); err != nil {
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "manual"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if got := mailTo(t, initRig(t, "one")); got != "boss" {
-		t.Errorf("one resident: mail %s, want boss", got)
+		t.Errorf("one crew member: mail %s, want boss", got)
 	}
-	if _, err := st.PutResident(ctx, store.Resident{Name: "scribe", Runner: "manual"}, "me"); err != nil {
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "scribe", Runner: "manual"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if got := mailTo(t, initRig(t, "two")); got != "yardmaster" {
-		t.Errorf("two residents, no setting: mail %s, want yardmaster", got)
+		t.Errorf("two crew members, no setting: mail %s, want yardmaster", got)
 	}
 	if _, err := run(t, (&app{st: st}).settingsCmd(), "set", "yardmaster", "boss"); err != nil {
 		t.Fatal(err)
@@ -181,7 +181,7 @@ func TestRigInitYardmaster(t *testing.T) {
 		t.Errorf("--yardmaster: mail %s, want boss", got)
 	}
 	if _, err := run(t, (&app{st: st}).settingsCmd(), "set", "yardmaster", "no spaces"); err == nil {
-		t.Error("settings set yardmaster accepted a name a resident cannot have")
+		t.Error("settings set yardmaster accepted a name a crew member cannot have")
 	}
 }
 

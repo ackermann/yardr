@@ -220,7 +220,7 @@ func TestMigrateCounterIDs(t *testing.T) {
 	if ws, err := s.ClosedWithWorkspace(ctx); err != nil || len(ws) != 1 || ws[0].ID != "s1" {
 		t.Fatalf("closed with workspace = %+v %v", ws, err)
 	}
-	// The resident's journal (an explicit id) still works.
+	// The crew member's journal (an explicit id) still works.
 	if err := s.Journal(ctx, "mayor", store.NoteJournal, "still here", "mayor"); err != nil {
 		t.Fatal(err)
 	}

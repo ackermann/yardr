@@ -236,7 +236,7 @@ func TestPairForm(t *testing.T) {
 	}
 	pages := o.pages.String()
 	wantText(t, pages, "Show a code, or enter one?", "Does the other screen show the same?", "What may this link carry?",
-		"ping: each yard may ask the other whether it is there", "mail between residents: this yard's may write to laptop's, and laptop's to this yard's",
+		"ping: each yard may ask the other whether it is there", "mail between crew members: this yard's may write to laptop's, and laptop's to this yard's",
 		"This yard's name for the other one", "The other yard's address", "The code")
 	for _, y := range []*cliYard{north, laptop} {
 		for _, p := range peersOf(t, y) {
@@ -483,7 +483,7 @@ func TestNoPairFormWithoutATerminal(t *testing.T) {
 		t.Errorf("with --json: %v", err)
 	}
 	laptop.a.json = false
-	for _, v := range []string{"YARDR_SESSION", "YARDR_RESIDENT"} {
+	for _, v := range []string{"YARDR_SESSION", "YARDR_CREW"} {
 		t.Setenv(v, "s1")
 		if _, err := laptop.peer(t, "pair"); err == nil || !strings.Contains(err.Error(), noListener) {
 			t.Errorf("with %s: %v", v, err)

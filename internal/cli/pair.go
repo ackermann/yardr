@@ -53,7 +53,7 @@ yard that can be reached opens the pairing and reads its code to the other:
 With nothing after it, in a terminal, yardr peer pair is a form on either
 yard: it asks whether to show a code or enter one, sees to it that a yard
 that shows one can be called, and after the check asks what the link may
-carry (ping, and mail between residents) and the other yard's name. With an
+carry (ping, and mail between crew members) and the other yard's name. With an
 argument or a flag, without a terminal, with --json and in an agent's
 session it asks only for the check, as below.
 
@@ -68,7 +68,7 @@ The code is good for 10 minutes and for one pairing, and 5 wrong codes end
 the pairing. It keeps a yard that was not given it from calling at all. The
 check is what the link rests on: do not confirm one you have not compared.
 
-The link carries ping both ways and nothing else. Mail between residents is
+The link carries ping both ways and nothing else. Mail between crew members is
 one more command, which pairing prints.
 
 The yard that opens the pairing needs a listener (yardr settings set
@@ -656,7 +656,7 @@ func (a *app) pairDone(ctx context.Context, cfg *config.Config, st store.API, re
 		} else {
 			fmt.Fprintf(stderr, "the link is saved, and not proved yet: %s\n", res.PingError)
 		}
-		fmt.Printf("mail between residents is not allowed yet: %s peer allow %s --send mail --receive mail\n", yardr, p.Name)
+		fmt.Printf("mail between crew members is not allowed yet: %s peer allow %s --send mail --receive mail\n", yardr, p.Name)
 	})
 }
 

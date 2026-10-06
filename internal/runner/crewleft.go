@@ -10,19 +10,19 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-var _ dispatch.ResidentCloser = (*Herdr)(nil)
+var _ dispatch.CrewCloser = (*Herdr)(nil)
 
-// CloseLeft closes the herdr workspace a resident's session that is gone
-// ran in (see dispatch.ResidentCloser): the harness exited, its pane's
+// CloseLeft closes the herdr workspace a crew member's session that is gone
+// ran in (see dispatch.CrewCloser): the harness exited, its pane's
 // shell did not, and herdr keeps the workspace until someone closes it.
 //
 // The workspace is the one yardr recorded in the session's handle, never
 // one found by its label, and it is closed only while it still is what
-// yardr opened: it carries the resident's label and holds the handle's
+// yardr opened: it carries the crew member's label and holds the handle's
 // pane. An id that names something else by now is left alone and
 // forgotten. A workspace with an agent in any pane is kept: someone
 // started one there by hand, and closing it would end their session.
-func (h *Herdr) CloseLeft(ctx context.Context, r store.Resident, handle map[string]any) (bool, error) {
+func (h *Herdr) CloseLeft(ctx context.Context, r store.CrewMember, handle map[string]any) (bool, error) {
 	ws, _ := handle["workspace"].(string)
 	pane, _ := handle["pane"].(string)
 	if ws == "" || pane == "" {
@@ -44,7 +44,7 @@ func (h *Herdr) CloseLeft(ctx context.Context, r store.Resident, handle map[stri
 	if err := json.Unmarshal(raw, &info); err != nil {
 		return false, fmt.Errorf("workspace get: %w", err)
 	}
-	if info.Workspace.Label != ResidentLabel(h.yardName(ctx), r.Name) {
+	if info.Workspace.Label != CrewLabel(h.yardName(ctx), r.Name) {
 		return false, nil
 	}
 	if raw, err = h.run(ctx, "pane", "list"); err != nil {

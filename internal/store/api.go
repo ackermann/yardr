@@ -87,19 +87,19 @@ type API interface {
 	Settings(ctx context.Context) (map[string]string, error)
 	SetSetting(ctx context.Context, key, value, actor string) error
 
-	PutResident(ctx context.Context, def Resident, actor string) (*Resident, error)
-	Residents(ctx context.Context) ([]Resident, error)
-	GetResident(ctx context.Context, name string) (*Resident, error)
-	DeleteResident(ctx context.Context, name, rev, actor string) error
-	SetResidentEnabled(ctx context.Context, name string, enabled bool, rev, actor string) error
-	ResidentStarted(ctx context.Context, name string, handle map[string]any) error
-	ResidentSettled(ctx context.Context, name string) error
-	ResidentStopped(ctx context.Context, name, reason string) error
-	ResidentGone(ctx context.Context, name, reason string) error
-	ResidentLeft(ctx context.Context, name string, left []map[string]any) error
-	ResidentStatus(ctx context.Context, name, status string) error
-	SetResidentHandle(ctx context.Context, name string, handle map[string]any) error
-	ResidentStartFailed(ctx context.Context, name, reason string, backoff time.Duration) error
+	PutCrew(ctx context.Context, def CrewMember, actor string) (*CrewMember, error)
+	Crew(ctx context.Context) ([]CrewMember, error)
+	GetCrew(ctx context.Context, name string) (*CrewMember, error)
+	DeleteCrew(ctx context.Context, name, rev, actor string) error
+	SetCrewEnabled(ctx context.Context, name string, enabled bool, rev, actor string) error
+	CrewStarted(ctx context.Context, name string, handle map[string]any) error
+	CrewSettled(ctx context.Context, name string) error
+	CrewStopped(ctx context.Context, name, reason string) error
+	CrewGone(ctx context.Context, name, reason string) error
+	CrewLeft(ctx context.Context, name string, left []map[string]any) error
+	CrewStatus(ctx context.Context, name, status string) error
+	SetCrewHandle(ctx context.Context, name string, handle map[string]any) error
+	CrewStartFailed(ctx context.Context, name, reason string, backoff time.Duration) error
 	RequestRestart(ctx context.Context, name, reason, rev, actor string) error
 	MarkRotationAsked(ctx context.Context, name string) error
 	MarkNotified(ctx context.Context, name string, seq uint64) error
@@ -120,7 +120,7 @@ type API interface {
 	Timers(ctx context.Context, name string) ([]Timer, error)
 	RemoveTimer(ctx context.Context, id, actor string, anyone bool) (*Timer, error)
 	FireTimers(ctx context.Context, at time.Time) (*TimerPass, error)
-	ResidentPrime(ctx context.Context, name string) (*Prime, error)
+	CrewPrime(ctx context.Context, name string) (*Prime, error)
 	Remember(ctx context.Context, m NewMemory, actor string) (*Bead, error)
 	Recall(ctx context.Context, scope, query string) ([]MemoryInfo, error)
 	ExpireMemories(ctx context.Context) (int, error)

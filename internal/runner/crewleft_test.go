@@ -41,7 +41,7 @@ esac
 `)}, calls
 }
 
-// Found live (yardr-ybxk): the workspace of a resident's session that was
+// Found live (yardr-ybxk): the workspace of a crew member's session that was
 // gone stayed open, one for every such session. CloseLeft closes it by the
 // id yardr recorded, and only while it is still that workspace with no
 // agent in it.
@@ -74,7 +74,7 @@ func TestCloseLeft(t *testing.T) {
 			mustNotAsk: "workspace get"},
 	} {
 		h, calls := leftHerdr(t, tc.label, tc.panes, tc.agents)
-		kept, err := h.CloseLeft(context.Background(), store.Resident{Name: "yardmaster"}, tc.handle)
+		kept, err := h.CloseLeft(context.Background(), store.CrewMember{Name: "yardmaster"}, tc.handle)
 		if err != nil || kept != tc.wantKept {
 			t.Errorf("%s: kept %v, %v; want kept %v", name, kept, err, tc.wantKept)
 		}
@@ -89,7 +89,7 @@ func TestCloseLeft(t *testing.T) {
 	}
 	// herdr down: an error, so the handle is kept, and nothing closed.
 	down := &Herdr{Bin: deafHerdrBin(t, `echo '{"error":{"code":"server_not_running","message":"no herdr server"}}' >&2; exit 1`)}
-	if kept, err := down.CloseLeft(context.Background(), store.Resident{Name: "yardmaster"}, handle); err == nil || kept {
+	if kept, err := down.CloseLeft(context.Background(), store.CrewMember{Name: "yardmaster"}, handle); err == nil || kept {
 		t.Errorf("herdr down: kept %v, %v; want an error", kept, err)
 	}
 }

@@ -58,7 +58,7 @@ func refusedWhy(err error) string {
 // on the bead says it tried: a move that works ends the session, so this
 // event is the only trace of one that did not. The session is the one the
 // move was checked as (the caller's pane, else the one exp names, see
-// Expect). A person or a resident runs in no session and a manual session
+// Expect). A person or a crew member runs in no session and a manual session
 // is a person's claim: their refused commands log nothing, they read the
 // error themselves.
 //

@@ -10,18 +10,18 @@ import (
 
 // A yard from before users has an operator setting and no user. The store
 // adds the operator's when it opens, once; a yard whose operator has a
-// resident's name keeps the resident and gets no user.
+// crew member's name keeps the crew member and gets no user.
 func TestOperatorUserOfAnOlderYard(t *testing.T) {
 	ctx := context.Background()
-	older := func(t *testing.T, operator string, residents ...string) string {
+	older := func(t *testing.T, operator string, crew ...string) string {
 		t.Helper()
 		path := filepath.Join(t.TempDir(), "y.db")
 		s, err := Open(path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, r := range residents {
-			if _, err := s.PutResident(ctx, Resident{Name: r, Runner: "herdr"}, "jo"); err != nil {
+		for _, r := range crew {
+			if _, err := s.PutCrew(ctx, CrewMember{Name: r, Runner: "herdr"}, "jo"); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -74,17 +74,17 @@ func TestOperatorUserOfAnOlderYard(t *testing.T) {
 			t.Fatalf("inbox after reopening = %+v, %v", box, err)
 		}
 	})
-	t.Run("a resident named as the operator stays", func(t *testing.T) {
+	t.Run("a crew member named as the operator stays", func(t *testing.T) {
 		s := open(t, older(t, "yardmaster", "yardmaster"))
 		if us, err := s.Users(ctx); err != nil || len(us) != 0 {
 			t.Fatalf("users = %+v, %v", us, err)
 		}
-		// Mail to the name is the resident's.
+		// Mail to the name is the crew member's.
 		if err := s.Mail(ctx, "yardmaster", "hello", "clerk"); err != nil {
 			t.Fatal(err)
 		}
 		if page, err := s.Inbox(ctx, "yardmaster", 0); err != nil || page.Total != 1 {
-			t.Fatalf("the resident's inbox = %+v, %v", page, err)
+			t.Fatalf("the crew member's inbox = %+v, %v", page, err)
 		}
 		// The setting is kept as it is, and a new name gives the operator
 		// their user.
@@ -107,7 +107,7 @@ func TestOperatorUserOfAnOlderYard(t *testing.T) {
 	})
 }
 
-// Mail to a user goes with the log as a resident's does, and its index
+// Mail to a user goes with the log as a crew member's does, and its index
 // entry with it.
 func TestUserMailIsIndexedAsMail(t *testing.T) {
 	e := Event{Seq: 7, Kind: "mail", Data: map[string]any{"to": "jo", "to_user": true, "text": "x"}}
@@ -115,7 +115,7 @@ func TestUserMailIsIndexedAsMail(t *testing.T) {
 		t.Fatalf("inboxOf = %v", got)
 	}
 	if mailTo(e) != "" {
-		t.Fatal("mail to a user reads as mail to a resident")
+		t.Fatal("mail to a user reads as mail to a crew member")
 	}
 	e.Data["to_peer"] = "north"
 	if got := inboxOf(e); len(got) != 0 {

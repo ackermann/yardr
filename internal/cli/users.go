@@ -21,13 +21,13 @@ const mailTime = "01-02 15:04"
 
 func (a *app) userCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "user", Short: "The people of the yard: each a name and an inbox",
-		Long: `A user is a person as a party of the yard: a name and an inbox, as a resident
-has. Residents and users mail a user with yardr mail <name>; the user reads
+		Long: `A user is a person as a party of the yard: a name and an inbox, as a crew member
+has. Crew members and users mail a user with yardr mail <name>; the user reads
 with yardr inbox and yardr mail --with <name> (docs/users.md).
 
 The operator (yardr settings get operator) is a user, added with the yard.
 Only the operator adds and removes users, and the operator's own is not
-removed. Residents and users share one space of names.
+removed. Crew members and users share one space of names.
 
 A command acts as a user when its actor (--actor, $YARDR_ACTOR, else the
 login name) is the user's name. yardr does not check who is at the keyboard.`}
@@ -178,7 +178,7 @@ func userViews(ctx context.Context, st store.API, name string) ([]userView, erro
 }
 
 // mayManageUsers refuses adding or removing a user to anyone but the
-// operator: who is a party of the yard is theirs to say, and a resident's
+// operator: who is a party of the yard is theirs to say, and a crew member's
 // session adding one would make itself a second voice. Like maySpeakAs it
 // is a line, not a wall.
 func (a *app) mayManageUsers(ctx context.Context, st store.API, does string) error {
@@ -204,7 +204,7 @@ func (a *app) mayMailUser(user string) error {
 }
 
 // actingUser is the user this run acts as: its actor, when that is a
-// user's name. nil otherwise: a resident's session acts as the resident,
+// user's name. nil otherwise: a crew member's session acts as the crew member,
 // whose name no user has.
 func (a *app) actingUser(ctx context.Context, st store.API) (*store.User, error) {
 	u, err := st.GetUser(ctx, a.who())
@@ -215,7 +215,7 @@ func (a *app) actingUser(ctx context.Context, st store.API) (*store.User, error)
 }
 
 // userBox is a user's inbox as yardr inbox prints it: its two parts, the
-// mail (a person or a resident talking) and the notifications (the yard
+// mail (a person or a crew member talking) and the notifications (the yard
 // reporting). A part that was not asked for is absent. The mail is at the
 // top level, where it was when the inbox had one part.
 type userBox struct {
@@ -356,17 +356,17 @@ func notifications(n int) string {
 // conversation is yardr mail --with: the mail between who acts and the
 // other party, oldest first.
 func (a *app) conversation(ctx context.Context, st store.API, with string, after uint64) error {
-	// The other has to be a party of the yard, or a resident of a yard it
+	// The other has to be a party of the yard, or a crew member of a yard it
 	// is linked with, or a typo reads as a conversation nobody has had yet.
-	// Whether that yard has the resident is not this one's to know.
+	// Whether that yard has the crew member is not this one's to know.
 	if _, peer, outside := strings.Cut(with, "@"); outside {
 		if _, err := st.GetPeer(ctx, peer); err != nil {
 			return fmt.Errorf("--with %s: %w", with, err)
 		}
-	} else if _, err := st.GetResident(ctx, with); errors.Is(err, store.ErrNotFound) {
+	} else if _, err := st.GetCrew(ctx, with); errors.Is(err, store.ErrNotFound) {
 		if _, err := st.GetUser(ctx, with); err != nil {
 			if errors.Is(err, store.ErrNotFound) {
-				return fmt.Errorf("--with %s: no resident and no user of that name: %w", with, store.ErrNotFound)
+				return fmt.Errorf("--with %s: no crew member and no user of that name: %w", with, store.ErrNotFound)
 			}
 			return err
 		}
@@ -435,9 +435,9 @@ func (m *mailState) line(yardr string) docLine {
 }
 
 // partyNotes are what yardr doctor notes about the yard's names: a
-// resident that has the operator's name, and members of groups that are
-// neither a user nor a resident.
-func partyNotes(ctx context.Context, st store.API, residents []store.Resident, groups []store.Group, yardr string) ([]string, error) {
+// crew member that has the operator's name, and members of groups that are
+// neither a user nor a crew member.
+func partyNotes(ctx context.Context, st store.API, crew []store.CrewMember, groups []store.Group, yardr string) ([]string, error) {
 	all, err := st.Settings(ctx)
 	if err != nil {
 		return nil, err
@@ -451,10 +451,10 @@ func partyNotes(ctx context.Context, st store.API, residents []store.Resident, g
 		known[u.Name] = true
 	}
 	notes := []string{}
-	for _, r := range residents {
+	for _, r := range crew {
 		known[r.Name] = true
 		if r.Name == all[store.OperatorSetting] {
-			notes = append(notes, fmt.Sprintf("resident %s has the operator's name, so the operator has no user and no inbox: mail to %s is the resident's. "+
+			notes = append(notes, fmt.Sprintf("crew member %s has the operator's name, so the operator has no user and no inbox: mail to %s is the crew member's. "+
 				"Rename one of the two: %s settings set operator <name> gives the operator a name of their own and adds their user", r.Name, r.Name, yardr))
 		}
 	}
@@ -466,7 +466,7 @@ func partyNotes(ctx context.Context, st store.API, residents []store.Resident, g
 			}
 		}
 		if len(unknown) > 0 {
-			notes = append(notes, fmt.Sprintf("group %s: %s%s neither a user nor a resident, so nobody of that name can be mailed (%s user add <name>)",
+			notes = append(notes, fmt.Sprintf("group %s: %s%s neither a user nor a crew member, so nobody of that name can be mailed (%s user add <name>)",
 				g.Name, strings.Join(unknown, ", "), isAre(unknown), yardr))
 		}
 	}

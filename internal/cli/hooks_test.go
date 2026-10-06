@@ -117,7 +117,7 @@ func TestHookListShowsBlocked(t *testing.T) {
 	}
 }
 
-// hook add takes the resident to act as and the map; list and show print
+// hook add takes the crew member to act as and the map; list and show print
 // them, and what cannot be acted on is refused with nothing saved.
 func TestHookAddMap(t *testing.T) {
 	a, st, _ := stateYard(t, "")
@@ -136,14 +136,14 @@ func TestHookAddMap(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"a map without --as", []string{"--map", "task:new=started"}, "--map needs --as <resident>"},
+		{"a map without --as", []string{"--map", "task:new=started"}, "--map needs --as <crew member>"},
 		{"an unknown word", []string{"--as", "yardmaster", "--map", "task:new=closed"}, `"closed" is no state: want started, review, done`},
 		{"no word", []string{"--as", "yardmaster", "--map", "task:new"}, "want <bead type>:<stage>=<state>"},
 		{"no stage", []string{"--as", "yardmaster", "--map", "task=started"}, "want <bead type>:<stage>=<state>"},
 		{"no type", []string{"--as", "yardmaster", "--map", ":new=started"}, "want <bead type>:<stage>=<state>"},
 		{"a bad stage", []string{"--as", "yardmaster", "--map", "task:In Review=review"}, "stage"},
 		{"a stage mapped twice", []string{"--as", "yardmaster", "--map", "task:new=started", "--map", "task:new=done"}, "task:new is mapped to started already"},
-		{"a resident that does not exist", []string{"--as", "deputy", "--map", "task:new=started"}, "resident deputy: not found"},
+		{"a crew member that does not exist", []string{"--as", "deputy", "--map", "task:new=started"}, "crew member deputy: not found"},
 	} {
 		_, err := add("linear", "linear", c.args...)
 		if err == nil || !strings.Contains(err.Error(), c.want) {
@@ -157,17 +157,17 @@ func TestHookAddMap(t *testing.T) {
 	if _, err := add("t", "token", "--as", "yardmaster", "--map", "task:new=started"); err == nil || !strings.Contains(err.Error(), "yardr cannot move an issue in token (it can in github, linear)") {
 		t.Errorf("token: %v", err)
 	}
-	// A resident with no identity in the hook's source.
-	if _, err := st.PutResident(ctx, store.Resident{Name: "scout", Runner: "herdr"}, "jo"); err != nil {
+	// A crew member with no identity in the hook's source.
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "scout", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := add("linear", "linear", "--as", "scout", "--map", "task:new=started"); err == nil ||
-		!strings.Contains(err.Error(), "yardr resident identity scout --source linear --id") {
+		!strings.Contains(err.Error(), "yardr crew identity scout --source linear --id") {
 		t.Errorf("no identity: %v", err)
 	}
-	// Acting as a resident is speaking as it: its own session or the
+	// Acting as a crew member is speaking as it: its own session or the
 	// operator, not a bead's agent.
-	t.Setenv("YARDR_RESIDENT", "")
+	t.Setenv("YARDR_CREW", "")
 	a.actor = "yard-10-new"
 	if _, err := add("linear", "linear", "--as", "yardmaster", "--map", "task:new=started"); err == nil ||
 		!strings.Contains(err.Error(), "only yardmaster's own session or the operator (jo) may speak as yardmaster; this is yard-10-new") {
@@ -182,7 +182,7 @@ func TestHookAddMap(t *testing.T) {
 		"--map", "task:merged=done", "--map", "train:open=started", "--map", "train:done=done")
 	lines := "task:merged=done task:new=started task:review=review train:done=done train:open=started"
 	if err != nil || !strings.Contains(out, "moves tracked linear issues as yardmaster: "+lines+"\n") ||
-		!strings.Contains(out, "note: yardmaster may not set a status in linear yet, so nothing is moved: the operator allows it with yardr resident set yardmaster set_state=linear") {
+		!strings.Contains(out, "note: yardmaster may not set a status in linear yet, so nothing is moved: the operator allows it with yardr crew set yardmaster set_state=linear") {
 		t.Fatalf("add: %q, %v", out, err)
 	}
 	h, err := st.GetHook(ctx, "linear")

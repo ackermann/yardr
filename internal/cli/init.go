@@ -35,7 +35,7 @@ import (
 // default_kind. The store file alone does not say so: the server creates it
 // on the first command that connects, whatever that command was, so a home
 // can hold a store nobody set up. A store without default_kind that already
-// holds rigs, groups, residents or beads is a yard from before the
+// holds rigs, groups, crew members or beads is a yard from before the
 // onboarding, in use, and counts as set up too: onboarding it would refuse
 // its agents' commands and the daemon (yard-w6np). Opening the store writes
 // default_kind into such a yard (store.migrateSettings); this check is the
@@ -56,11 +56,11 @@ func (a *app) initialized(ctx context.Context, cfg *config.Config) (bool, error)
 	if err != nil {
 		return false, err
 	}
-	residents, err := st.Residents(ctx)
+	crew, err := st.Crew(ctx)
 	if err != nil {
 		return false, err
 	}
-	if len(rigs)+len(groups)+len(residents) > 0 {
+	if len(rigs)+len(groups)+len(crew) > 0 {
 		return true, nil
 	}
 	beads, err := st.ListBeads(ctx, store.BeadFilter{All: true})
@@ -85,13 +85,13 @@ func (a *app) storeIfAny(ctx context.Context, cfg *config.Config) (store.API, er
 // partYard is what a home that init never marked set up (no default_kind)
 // holds of a yard all the same: what an init cut short left there. Init
 // writes the roles, then the operator and yardmaster settings, then the
-// yardmaster resident, and default_kind last, so a run that failed in between
+// yardmaster crew member, and default_kind last, so a run that failed in between
 // leaves the ones before it. The next run finishes from them and says so.
 type partYard struct {
 	roles                []string // the role prompts in <home>/roles
 	operator, yardmaster string   // the settings
 	style, note          string   // operator_style and operator_note, for the form to start at
-	residents            []string
+	crew                 []string
 }
 
 // partYard reads what the home holds of a yard; nil when it holds nothing,
@@ -133,12 +133,12 @@ func (a *app) partYard(ctx context.Context, cfg *config.Config) (*partYard, erro
 		if len(rigs)+len(groups) > 0 || slices.ContainsFunc(beads, work) {
 			return nil, nil
 		}
-		residents, err := st.Residents(ctx)
+		crew, err := st.Crew(ctx)
 		if err != nil {
 			return nil, err
 		}
-		for _, r := range residents {
-			p.residents = append(p.residents, r.Name)
+		for _, r := range crew {
+			p.crew = append(p.crew, r.Name)
 		}
 		p.operator, p.yardmaster = all["operator"], all["yardmaster"]
 		p.style, p.note = all[styleSetting], all[noteSetting]
@@ -171,8 +171,8 @@ func (p *partYard) found(home string) []string {
 	default:
 		out = append(out, "the settings "+list(set))
 	}
-	if len(p.residents) > 0 {
-		out = append(out, "the resident "+list(p.residents))
+	if len(p.crew) > 0 {
+		out = append(out, "the crew member "+list(p.crew))
 	}
 	return out
 }
@@ -338,24 +338,24 @@ func (a *app) resume(ctx context.Context, cfg *config.Config) error {
 	if next := nextStep(steps); next == nil || next.Key != stepRig {
 		return nil // a yard with a rig is past its onboarding
 	}
-	residents, err := st.Residents(ctx)
+	crew, err := st.Crew(ctx)
 	if err != nil {
 		return err
 	}
-	state, err := readState(ctx, cfg, st, residents)
+	state, err := readState(ctx, cfg, st, crew)
 	if err != nil {
 		return err
 	}
 	m := state.Yardmaster
 	// A session that runs is not a yardmaster that is up (see waitYardmaster).
 	silent := false
-	for _, r := range residents {
+	for _, r := range crew {
 		if r.Name == m.Name && r.Live() {
 			silent = !up(ctx, r)
 		}
 	}
 	noKind := defaultKind(ctx, st) == ""
-	if !noKind && state.Daemon && m.Resident && (!m.Enabled || (m.Running && !silent)) {
+	if !noKind && state.Daemon && m.CrewMember && (!m.Enabled || (m.Running && !silent)) {
 		return nil
 	}
 	lines := state.lines(cfg.Home)
@@ -375,7 +375,7 @@ func (a *app) resume(ctx context.Context, cfg *config.Config) error {
 	if !state.Daemon {
 		what = "Starts the daemon in the background and waits for " + m.Name
 	}
-	if noKind || !m.Resident {
+	if noKind || !m.CrewMember {
 		what = "Adds what is missing. " + what
 	}
 	err = ask(huh.NewConfirm().Key("finish").Title("Finish the setup now?").
@@ -436,7 +436,7 @@ func (a *app) report(ctx context.Context, cfg *config.Config, res *initResult, o
 // `yardr init` flags.
 type initOptions struct {
 	Harness    string // herdr kind: the yard's default_kind and the yardmaster's
-	Yardmaster string // the yardmaster resident's name
+	Yardmaster string // the yardmaster crew member's name
 	Dir        string // where the yardmaster works; "" is the home's parent
 	Model      string // "" is the harness's default
 	// Operator is the person the role prompts name, where the templates say
@@ -476,7 +476,7 @@ type initResult struct {
 	Roles string   `json:"roles"`
 	*roleInstall
 	Daemon bool `json:"daemon"` // a daemon runs on this home
-	// YardmasterKept: a resident of the yardmaster's name was there already
+	// YardmasterKept: a crew member of the yardmaster's name was there already
 	// and is left as it was.
 	YardmasterKept bool `json:"yardmaster_kept"`
 	// SettingsKept are the settings stored before that this init left as
@@ -492,16 +492,16 @@ type initResult struct {
 }
 
 // initYard creates the yard: the store, the default roles in the home, the
-// operator and default_kind settings and the yardmaster resident. Inputs are
+// operator and default_kind settings and the yardmaster crew member. Inputs are
 // checked before anything is created; roles already installed are kept when
 // edited (the yardmaster edits its own) and refreshed to this build's when not,
-// and an existing resident of the yardmaster's name is never replaced, so init
+// and an existing crew member of the yardmaster's name is never replaced, so init
 // runs again on a yard without harm, and is how an upgrade reaches the
 // templates. The settings stored before stand in for the flags not given
 // (keepSettings): init again changes only what its flags say.
 //
 // A run that fails leaves what it wrote before (the order is roles, operator
-// and yardmaster, the yardmaster resident, default_kind), and the next run
+// and yardmaster, the yardmaster crew member, default_kind), and the next run
 // finishes from it: the same steps skip or keep what is there, the stored
 // settings and the yardmaster's kind stand in for flags not given, and the
 // result says what was found and what was added (partYard).
@@ -543,9 +543,9 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 	if err != nil {
 		return nil, err
 	}
-	// Init again on a yard is no harm: an existing resident of the yardmaster's
+	// Init again on a yard is no harm: an existing crew member of the yardmaster's
 	// name is kept as it is, never replaced.
-	_, err = st.GetResident(ctx, o.Yardmaster)
+	_, err = st.GetCrew(ctx, o.Yardmaster)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return nil, err
 	}
@@ -589,7 +589,7 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 			res.Added = append(res.Added, "the operator and yardmaster settings")
 		}
 		if !yardmasterKept {
-			res.Added = append(res.Added, "the resident "+o.Yardmaster)
+			res.Added = append(res.Added, "the crew member "+o.Yardmaster)
 		}
 		res.Added = append(res.Added, "the default_kind setting, which marks the yard set up")
 	}
@@ -602,7 +602,7 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 // not given, so init again does not reset them to the flags' defaults (the
 // login name, "yardmaster"); it reports which were kept, as "<setting>
 // <value>". Where no default_kind is stored and no harness given, the harness
-// is the yardmaster resident's kind: an init cut short after it added the
+// is the yardmaster crew member's kind: an init cut short after it added the
 // yardmaster is finished on the harness it chose.
 func (a *app) keepSettings(ctx context.Context, cfg *config.Config, o initOptions) (initOptions, []string, error) {
 	st, err := a.storeIfAny(ctx, cfg)
@@ -625,7 +625,7 @@ func (a *app) keepSettings(ctx context.Context, cfg *config.Config, o initOption
 		}
 	}
 	if o.Harness == "" {
-		if r, err := st.GetResident(ctx, or(o.Yardmaster, "yardmaster")); err == nil {
+		if r, err := st.GetCrew(ctx, or(o.Yardmaster, "yardmaster")); err == nil {
 			o.Harness, _ = r.Config["kind"].(string)
 		} else if !errors.Is(err, store.ErrNotFound) {
 			return o, nil, err
@@ -634,7 +634,7 @@ func (a *app) keepSettings(ctx context.Context, cfg *config.Config, o initOption
 	return o, kept, nil
 }
 
-// putYardmaster adds the yardmaster resident res describes, unless one is kept.
+// putYardmaster adds the yardmaster crew member res describes, unless one is kept.
 func (a *app) putYardmaster(ctx context.Context, st store.API, o initOptions, res *initResult) error {
 	if res.YardmasterKept {
 		return nil
@@ -652,7 +652,7 @@ func (a *app) putYardmaster(ctx context.Context, st store.API, o initOptions, re
 		}
 		conf["args"] = list
 	}
-	_, err := st.PutResident(ctx, store.Resident{Name: o.Yardmaster, Runner: "herdr", Config: conf, Dir: res.Dir,
+	_, err := st.PutCrew(ctx, store.CrewMember{Name: o.Yardmaster, Runner: "herdr", Config: conf, Dir: res.Dir,
 		On: defaultOn, MaxAge: "6h", HandoffGrace: "15m"}, a.who())
 	return err
 }
@@ -815,12 +815,12 @@ func installRoles(dir, operator, yardmaster string, refresh bool, only ...string
 }
 
 // oldYardmasterRole is the file name the yardmaster's role had until this
-// release, when the resident was called the mayor.
+// release, when the crew member was called the mayor.
 const oldYardmasterRole = "mayor.md"
 
 // roleFileIn is the name the embedded role called name has in dir: its own,
 // except that a directory holding mayor.md and no yardmaster.md keeps the
-// yardmaster's role under the old name, where the residents of a yard set up
+// yardmaster's role under the old name, where the crew of a yard set up
 // before the rename read it (their prompt is that path).
 func roleFileIn(dir, name string) string {
 	if name != "yardmaster.md" {
@@ -908,7 +908,7 @@ func (r *initResult) printYard() {
 	default:
 		fmt.Printf("yard created in %s\n\n", r.Home)
 	}
-	fmt.Printf("  harness    %s (the yard's default_kind: groups and residents get it when --set kind is omitted)\n", r.Harness)
+	fmt.Printf("  harness    %s (the yard's default_kind: groups and crew members get it when --set kind is omitted)\n", r.Harness)
 	if len(r.SettingsKept) > 0 {
 		fmt.Printf("  kept       %s, as set before: --harness, --operator, --yardmaster, --style and --about change them\n", strings.Join(r.SettingsKept, ", "))
 	}
@@ -916,14 +916,14 @@ func (r *initResult) printYard() {
 		fmt.Printf("  operator   %s, with whom agents work in the style %s (%q): every session reads it when it starts\n", r.Operator, s.key, s.label)
 	}
 	if r.YardmasterKept {
-		fmt.Printf("  yardmaster %s, already a resident: kept as it was\n", r.Yardmaster)
+		fmt.Printf("  yardmaster %s, already a crew member: kept as it was\n", r.Yardmaster)
 	} else {
 		fmt.Printf("  yardmaster %s, working in %s, rotating every 6h\n", r.Yardmaster, r.Dir)
 		if len(r.Args) > 0 {
 			fmt.Printf("             runs with %s so it does not stop to ask\n", strings.Join(r.Args, " "))
 		} else {
 			fmt.Printf("             runs with no unattended flags: %s may stop to ask; give it its own with\n"+
-				"             %s resident set %s 'args=[...]' (see yardr group add --help)\n", r.Harness, yardr, r.Yardmaster)
+				"             %s crew set %s 'args=[...]' (see yardr group add --help)\n", r.Harness, yardr, r.Yardmaster)
 		}
 	}
 	fmt.Printf("  roles      %s", r.Roles)
@@ -1023,7 +1023,7 @@ func onboardForm(home string, part *partYard) (initOptions, error) {
 		return o, err
 	}
 	if err := ask(
-		huh.NewInput().Title("Yardmaster").Description("The always-on resident that coordinates the yard.").
+		huh.NewInput().Title("Yardmaster").Description("The always-on crew member that coordinates the yard.").
 			Value(&o.Yardmaster).Validate(func(s string) error {
 			if !groupName.MatchString(s) {
 				return errors.New("letters, digits, '.', '_', '-', '/'")
@@ -1087,13 +1087,13 @@ func (a *app) initCmd() *cobra.Command {
 		Long: `Create the yard in --home (else YARDR_HOME, default ~/.yardr) without the onboarding form,
 for scripts and tests. It writes the default role prompts to <home>/roles/,
 naming --operator as the person they bring decisions to and --yardmaster as
-the resident they mail about what blocks them. A prompt already there is kept
+the crew member they mail about what blocks them. A prompt already there is kept
 when it was edited, and replaced with this build's when it still reads as init
 wrote it (<home>/roles/.shipped.json records what was written), so init again
 after an upgrade refreshes the templates; the summary says which. They are
 generic starting points: a rig's own roles belong in its repo under
 .yardr/roles/, which groups find first. It stores --harness as the yard's
-default_kind, and adds the yardmaster resident on that harness with its
+default_kind, and adds the yardmaster crew member on that harness with its
 unattended flags, rotating every 6h. The daemon starts the yardmaster.
 
 Init does not start the daemon unless told to: --start starts one in the
@@ -1124,10 +1124,10 @@ does the same in the foreground, to watch it.
 
 Run yardr in a terminal on a home with no yard to get the same as a form. A
 home counts as set up once init has stored default_kind, or once its store has
-rigs, groups, residents or beads (a yard from before the onboarding); the
+rigs, groups, crew members or beads (a yard from before the onboarding); the
 store file alone does not, since the server creates it on any first command.
 Init again on a yard keeps its default_kind, operator and yardmaster settings
-and an existing yardmaster resident; only the flags given change them, so
+and an existing yardmaster crew member; only the flags given change them, so
 --harness is required only to create a yard.
 
 --style says how agents should work with you, and --about what they should
@@ -1199,7 +1199,7 @@ Unattended flags per harness:
 	}
 	cmd.Flags().StringVar(&o.Harness, "harness", "", "agent kind herdr starts: "+strings.Join(agents.Kinds(), ", ")+
 		" (required to create a yard; a set-up yard keeps its default_kind)")
-	cmd.Flags().StringVar(&o.Yardmaster, "yardmaster", "yardmaster", "the yardmaster resident's name (a set-up yard keeps its yardmaster setting)")
+	cmd.Flags().StringVar(&o.Yardmaster, "yardmaster", "yardmaster", "the yardmaster crew member's name (a set-up yard keeps its yardmaster setting)")
 	oldFlag(cmd, "mayor", "yardmaster")
 	cmd.Flags().StringVar(&o.Dir, "dir", "", "where the yardmaster works (default: the home's parent)")
 	cmd.Flags().StringVar(&o.Model, "model", "", "the yardmaster's model (default: the harness's own)")
@@ -1229,7 +1229,7 @@ var settings = map[string]struct {
 }{
 	"operator": {"who the role prompts name, the person agents bring decisions to (yardr rig init's default)",
 		func(string) error { return nil }},
-	store.YardmasterSetting: {"the yardmaster resident's name, whom the role prompts tell agents to mail (yardr rig init's default)", func(v string) error {
+	store.YardmasterSetting: {"the yardmaster crew member's name, whom the role prompts tell agents to mail (yardr rig init's default)", func(v string) error {
 		if !groupName.MatchString(v) {
 			return fmt.Errorf("yardmaster name %q: letters, digits, '.', '_', '-', '/'", v)
 		}
@@ -1238,7 +1238,7 @@ var settings = map[string]struct {
 	styleSetting: {"how agents should work with the operator, which every session reads when it starts (yardr prime): " +
 		strings.Join(styleKeys(), ", "), checkStyle},
 	noteSetting: {"one line agents should know about the operator, read with operator_style", checkNote},
-	"default_kind": {"the agent kind of herdr groups and residents whose config names none", func(v string) error {
+	"default_kind": {"the agent kind of herdr groups and crew members whose config names none", func(v string) error {
 		if !agents.IsKind(v) {
 			return fmt.Errorf("default_kind %q: herdr starts %s", v, strings.Join(agents.Kinds(), ", "))
 		}
@@ -1246,7 +1246,7 @@ var settings = map[string]struct {
 	}},
 	hooks.FromSetting: {"the address the server takes webhooks on, such as 127.0.0.1:8790, when YARDR_HOOK_ADDR is not set where it starts; " +
 		"the server reads it when it starts", hooks.CheckAddr},
-	store.TimerLimitSetting: {fmt.Sprintf("how many live timers one resident or user may have set (yardr timer); default %d", store.DefaultTimerLimit),
+	store.TimerLimitSetting: {fmt.Sprintf("how many live timers one crew member or user may have set (yardr timer); default %d", store.DefaultTimerLimit),
 		checkTimerLimit},
 	store.TimerMinEverySetting: {fmt.Sprintf("the shortest period of a recurring timer (yardr timer add --every), such as 30m or 1d; default %s",
 		store.Span(store.DefaultTimerMinEvery)), checkTimerMinEvery},
@@ -1255,7 +1255,7 @@ var settings = map[string]struct {
 		_, err := rigcheck.ParseSlots(rigcheck.SlotsSetting, v)
 		return err
 	}},
-	"name": {"the yard's name, which its residents' herdr agents and workspaces carry (<name>-yardmaster); default: the home's directory name", func(v string) error {
+	"name": {"the yard's name, which its crew's herdr agents and workspaces carry (<name>-yardmaster); default: the home's directory name", func(v string) error {
 		if !groupName.MatchString(v) {
 			return fmt.Errorf("yard name %q: letters, digits, '.', '_', '-', '/'", v)
 		}
@@ -1275,7 +1275,7 @@ which address is in use.
 
 operator_style is how agents should work with the operator, and
 operator_note one line they should know about them. Every session reads both
-when it starts (yardr prime --bead and --resident print them as
+when it starts (yardr prime --bead and --crew print them as
 instructions), so a change reaches the next session; unset, the primes say
 nothing. The styles:
 
@@ -1286,7 +1286,7 @@ check --help): the limit is the machine's, shared by every yard of the user,
 and a gate that finds no slot free waits. 0 is no limit.
 
 timer_limit and timer_min_every bound the yard's timers (yardr timer): how
-many live ones one resident or user may have set, and the shortest period of
+many live ones one crew member or user may have set, and the shortest period of
 a recurring one. They hold for timers set from then on.`}
 	// known is the key as it is stored and printed: an earlier release's
 	// name for a setting still names it.

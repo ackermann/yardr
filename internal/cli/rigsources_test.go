@@ -164,7 +164,7 @@ func TestRigSourcesAppliedPack(t *testing.T) {
 }
 
 // A mix: the pack's flow governs, and the rig keeps its own roles
-// (--rig-roles). The role's line says the pack has a copy; a resident, the
+// (--rig-roles). The role's line says the pack has a copy; a crew member, the
 // yard's, is the pack's either way. Clearing the pointer gives the flow
 // back to the repository, and the line says the pack's is still there.
 func TestRigSourcesPackFlowRigRoles(t *testing.T) {

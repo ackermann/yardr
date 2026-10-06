@@ -13,14 +13,14 @@ import (
 )
 
 // A user is a person as a party of the yard: a name and an inbox, as a
-// resident has. The operator (the name in the operator setting) is one of
+// crew member has. The operator (the name in the operator setting) is one of
 // them. Mail to a user is a mail event like any other, marked to_user and
 // indexed in the inbox bucket under the name, so the log's pruning and the
-// rebuilt indexes treat it as they treat a resident's. What differs is the
+// rebuilt indexes treat it as they treat a crew member's. What differs is the
 // reading: nothing nudges a person, and nothing of theirs holds the log
 // back.
 //
-// Residents and users share one space of names, since mail to a name must
+// Crew members and users share one space of names, since mail to a name must
 // reach one party.
 
 // OperatorSetting is the setting naming the yard's operator.
@@ -61,7 +61,7 @@ type Letter struct {
 	// Timer is the id of the timer the yard sent it for, "" for mail its
 	// sender wrote: the text then begins "timer:".
 	Timer string `json:"timer,omitempty"`
-	// Delivery is set on mail to a resident of another yard, whose reading
+	// Delivery is set on mail to a crew member of another yard, whose reading
 	// of it this yard never learns of: MailQueued while it waits here for
 	// the peer, MailSent once the peer has it, MailFailed when it was
 	// given up.
@@ -105,14 +105,14 @@ func (w *wtx) addUser(name, actor string) (*User, error) {
 }
 
 // ensureOperator gives the operator a user when there is none of the name.
-// A resident of the name keeps it and no user is made: yardr doctor says
+// A crew member of the name keeps it and no user is made: yardr doctor says
 // which of the two to rename.
 func (w *wtx) ensureOperator(actor string) error {
 	operator, err := operatorIn(w.Tx)
 	if err != nil || operator == "" {
 		return err
 	}
-	if w.Bucket(bUsers).Get([]byte(operator)) != nil || w.Bucket(bResidents).Get([]byte(operator)) != nil {
+	if w.Bucket(bUsers).Get([]byte(operator)) != nil || w.Bucket(bCrew).Get([]byte(operator)) != nil {
 		return nil
 	}
 	_, err = w.addUser(operator, actor)
@@ -136,7 +136,7 @@ func checkUserName(name string) error {
 	return nil
 }
 
-// AddUser adds the user name. It refuses a name a resident or a user has.
+// AddUser adds the user name. It refuses a name a crew member or a user has.
 func (s *Store) AddUser(ctx context.Context, name, actor string) (*User, error) {
 	if err := checkUserName(name); err != nil {
 		return nil, err
@@ -146,8 +146,8 @@ func (s *Store) AddUser(ctx context.Context, name, actor string) (*User, error) 
 		switch {
 		case w.Bucket(bUsers).Get([]byte(name)) != nil:
 			return fmt.Errorf("%w: there is a user %s already", ErrConflict, name)
-		case w.Bucket(bResidents).Get([]byte(name)) != nil:
-			return fmt.Errorf("user %s: that is a resident's name, and mail to a name reaches one party: choose another", name)
+		case w.Bucket(bCrew).Get([]byte(name)) != nil:
+			return fmt.Errorf("user %s: that is a crew member's name, and mail to a name reaches one party: choose another", name)
 		}
 		var err error
 		out, err = w.addUser(name, actor)
@@ -210,14 +210,14 @@ func (s *Store) DeleteUser(ctx context.Context, name, actor string) error {
 	})
 }
 
-// toUser reports whether a mail event is for a user, not a resident.
+// toUser reports whether a mail event is for a user, not a crew member.
 func toUser(e Event) bool {
 	u, _ := e.Data["to_user"].(bool)
 	return e.Kind == "mail" && u
 }
 
-// mailReceiver is whose inbox a mail event of this yard is in, resident or
-// user: "" for mail that left for a peer's resident.
+// mailReceiver is whose inbox a mail event of this yard is in, crew member or
+// user: "" for mail that left for a peer's crew member.
 func mailReceiver(e Event) string {
 	if e.Kind != "mail" {
 		return ""
@@ -241,7 +241,7 @@ func mailKeys(tx *bolt.Tx, name string, after uint64) []string {
 }
 
 // readers answers whether a mail's receiver acknowledged it, reading each
-// resident or user once.
+// crew member or user once.
 type readers struct {
 	tx      *bolt.Tx
 	cursors map[string]uint64
@@ -249,13 +249,13 @@ type readers struct {
 
 func (rd *readers) letter(e Event) (Letter, error) {
 	to := mailReceiver(e)
-	key, bucket := "r\x00"+to, bResidents
+	key, bucket := "r\x00"+to, bCrew
 	if toUser(e) {
 		key, bucket = "u\x00"+to, bUsers
 	}
 	cursor, ok := rd.cursors[key]
 	if !ok {
-		// Resident and User both keep it as "cursor".
+		// CrewMember and User both keep it as "cursor".
 		var c struct {
 			Cursor uint64 `json:"cursor"`
 		}
@@ -287,7 +287,7 @@ func (s *Store) UserInbox(ctx context.Context, name string, limit int) (*Mailbox
 			if ok, err := get(tx, bEvents, k, &e); err != nil {
 				return err
 			} else if !ok || !toUser(e) || mailReceiver(e) != name {
-				continue // a resident's of the same name, before or since
+				continue // a crew member's of the same name, before or since
 			}
 			l, err := rd.letter(e)
 			if err != nil {
@@ -333,7 +333,7 @@ func (s *Store) AckUserInbox(ctx context.Context, name string, through uint64) e
 	})
 }
 
-// mailRead logs that name, a resident or a user, acknowledged its inbox
+// mailRead logs that name, a crew member or a user, acknowledged its inbox
 // from after was through seq, when mail is in between: the event mail_read
 // with the reader and how far. It is what tells a view that follows the
 // stream that mail it shows as sent has been read; an acknowledgement
@@ -360,11 +360,11 @@ func (w *wtx) mailRead(name string, was, through uint64) error {
 
 // Conversation returns the mail between a and b within this yard, both
 // directions, oldest first, with whether its receiver has read each; after
-// leaves out what is not newer than that seq. Either may be a resident or
+// leaves out what is not newer than that seq. Either may be a crew member or
 // a user. It reads the inbox index of the two and nothing else of the log,
 // so asking again with the last seq seen costs what is new.
 //
-// b may also be <resident>@<peer>, a resident of a linked yard: see
+// b may also be <crew member>@<peer>, a crew member of a linked yard: see
 // peerConversation.
 func (s *Store) Conversation(ctx context.Context, a, b string, after uint64) ([]Letter, error) {
 	out := []Letter{}

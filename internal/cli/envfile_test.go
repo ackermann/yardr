@@ -11,10 +11,10 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// summaryT is resident show's reading of cfg's environment, as its JSON
+// summaryT is crew show's reading of cfg's environment, as its JSON
 // has it: the fields of each source, by setting.
 func summaryT(cfg map[string]any) map[string]map[string]any {
-	env, _ := residentEnvSummary(context.Background(), store.Resident{Name: "yardmaster", Config: cfg}, "")
+	env, _ := crewEnvSummary(context.Background(), store.CrewMember{Name: "yardmaster", Config: cfg}, "")
 	out := map[string]map[string]any{}
 	for _, e := range env {
 		out[e.Setting] = e.fields()
@@ -22,7 +22,7 @@ func summaryT(cfg map[string]any) map[string]map[string]any {
 	return out
 }
 
-// resident show lists the env_file's key names, never its values, and says
+// crew show lists the env_file's key names, never its values, and says
 // why a runner would refuse the file.
 func TestEnvFileSummaryShowsKeysNotValues(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "yardmaster.env")

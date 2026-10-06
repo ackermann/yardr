@@ -132,13 +132,13 @@ var spawnDaemon = func(cfg *config.Config) (exited <-chan error, err error) {
 
 // daemonEnv is the environment a daemon started in the background gets,
 // from the starter's environ: all of it but what names the starter (its
-// actor, bead, session, stage, group, resident: init may be run by an agent, and the
+// actor, bead, session, stage, group, crew member: init may be run by an agent, and the
 // daemon is nobody's session), with the home it works for in place of
 // whatever YARDR_HOME said.
 func daemonEnv(environ []string, home string) []string {
 	var env []string
 	for _, kv := range environ {
-		if k, _, _ := strings.Cut(kv, "="); !config.IsVar(k, "HOME", "ACTOR", "BEAD", "SESSION", "RESIDENT", "STAGE", "GROUP") {
+		if k, _, _ := strings.Cut(kv, "="); !config.IsVar(k, "HOME", "ACTOR", "BEAD", "SESSION", "CREW", "STAGE", "GROUP") {
 			env = append(env, kv)
 		}
 	}
@@ -224,7 +224,7 @@ func (a *app) awaitYardmaster(ctx context.Context, cfg *config.Config, st store.
 
 // describe writes into s what is known of the yardmaster as last read (r, nil
 // when it was not): up when problem is "", else not up for that reason.
-func (s *startResult) describe(ctx context.Context, cfg *config.Config, st store.API, r *store.Resident, yardmaster, problem string) {
+func (s *startResult) describe(ctx context.Context, cfg *config.Config, st store.API, r *store.CrewMember, yardmaster, problem string) {
 	s.Running, s.Yardmaster, s.Chat, s.Problem, s.Pane, s.Known, s.Next = false, nil, "", "", "", nil, nil
 	if r != nil && r.Live() {
 		all, _ := st.Settings(ctx)
@@ -267,7 +267,7 @@ func (a *app) askHarness(ctx context.Context, cfg *config.Config, st store.API, 
 	if a.json || !interactive() || agentSession() || daemonRunning(cfg.DaemonLock()) {
 		return true, nil
 	}
-	r, err := st.GetResident(ctx, yardmaster)
+	r, err := st.GetCrew(ctx, yardmaster)
 	if err != nil || !r.Enabled || r.Live() || r.State == "failed" {
 		return true, nil // the wait says what is wrong with it
 	}
@@ -474,7 +474,7 @@ func (a *app) offerPane(ctx context.Context, cfg *config.Config, st store.API, y
 // gone, yardr gave up on the yardmaster, or a start failed for want of a
 // program that waiting will not bring. Progress goes to stderr: a line that
 // counts on a terminal, one line otherwise.
-func waitYardmaster(ctx context.Context, cfg *config.Config, st store.API, yardmaster string, wait time.Duration, exited <-chan error) (*store.Resident, string) {
+func waitYardmaster(ctx context.Context, cfg *config.Config, st store.API, yardmaster string, wait time.Duration, exited <-chan error) (*store.CrewMember, string) {
 	tty := false
 	if f, ok := stderr.(*os.File); ok {
 		tty = term.IsTerminal(int(f.Fd()))
@@ -487,10 +487,10 @@ func waitYardmaster(ctx context.Context, cfg *config.Config, st store.API, yardm
 		fmt.Fprintf(stderr, "waiting for %s to start (up to %s)\n", yardmaster, wait)
 	}
 	began := time.Now()
-	var r *store.Resident
+	var r *store.CrewMember
 	for {
 		var err error
-		if r, err = st.GetResident(ctx, yardmaster); err != nil {
+		if r, err = st.GetCrew(ctx, yardmaster); err != nil {
 			return nil, fmt.Sprintf("%s could not be read: %v", yardmaster, err)
 		}
 		elapsed := time.Since(began)
@@ -528,11 +528,11 @@ func waitYardmaster(ctx context.Context, cfg *config.Config, st store.API, yardm
 	}
 }
 
-// up reports whether a running resident answered its first prompt: the
+// up reports whether a running crew member answered its first prompt: the
 // prompt was delivered (the handle holds one herdr could not deliver as
 // pending) and the agent is working on it, or its pane shows output below
 // it.
-func up(ctx context.Context, r store.Resident) bool {
+func up(ctx context.Context, r store.CrewMember) bool {
 	if r.Handle[dispatch.PendingPrompt] != nil {
 		return false
 	}
@@ -543,17 +543,18 @@ func up(ctx context.Context, r store.Resident) bool {
 	return err == nil && promptAnswered(text)
 }
 
-// promptAnswered reports whether a pane's text goes on after the resident's first
+// promptAnswered reports whether a pane's text goes on after the crew member's first
 // prompt. A pane without the prompt has no answer to it: a harness at a
 // login screen takes the keys and shows none of them.
 func promptAnswered(text string) bool {
-	i := strings.LastIndex(text, runner.ResidentPromptLead)
+	// A session from before the upgrade was prompted in the old words.
+	i := max(strings.LastIndex(text, runner.CrewPromptLead), strings.LastIndex(text, runner.OldCrewPromptLead))
 	if i < 0 {
 		return false
 	}
 	rest := text[i:]
-	if j := strings.Index(rest, runner.ResidentPromptEnd); j >= 0 {
-		rest = rest[j+len(runner.ResidentPromptEnd):]
+	if j := strings.Index(rest, runner.CrewPromptEnd); j >= 0 {
+		rest = rest[j+len(runner.CrewPromptEnd):]
 	} else if j := strings.IndexByte(rest, '\n'); j >= 0 {
 		rest = rest[j:]
 	} else {
@@ -569,9 +570,9 @@ func isAre(list []string) string {
 	return " are"
 }
 
-// absent are the programs the resident's session needs that are not on
+// absent are the programs the crew member's session needs that are not on
 // PATH: herdr and its harness.
-func absent(r store.Resident) []string {
+func absent(r store.CrewMember) []string {
 	var out []string
 	kind, _ := r.Config["kind"].(string)
 	for _, exe := range []string{"herdr", agents.Executable(kind)} {
@@ -582,16 +583,16 @@ func absent(r store.Resident) []string {
 	return out
 }
 
-// placeOf reads where a running resident is from the handle the runner
+// placeOf reads where a running crew member is from the handle the runner
 // recorded; the workspace's label is the one the runner gave it.
-func placeOf(r store.Resident, yard string) *yardmasterPlace {
-	return &yardmasterPlace{Agent: show(r.Handle["agent"]), Workspace: runner.ResidentLabel(yard, r.Name),
+func placeOf(r store.CrewMember, yard string) *yardmasterPlace {
+	return &yardmasterPlace{Agent: show(r.Handle["agent"]), Workspace: runner.CrewLabel(yard, r.Name),
 		WorkspaceID: show(r.Handle["workspace"]), Tab: show(r.Handle["tab"]), Pane: show(r.Handle["pane"])}
 }
 
 // diagnose says what is known about a yardmaster that did not start, and how to
 // go on, in plain words. r is the yardmaster as last read, nil when it was not.
-func diagnose(ctx context.Context, cfg *config.Config, st store.API, r *store.Resident, yardmaster string, res *startResult) (known, next []string) {
+func diagnose(ctx context.Context, cfg *config.Config, st store.API, r *store.CrewMember, yardmaster string, res *startResult) (known, next []string) {
 	yardr := yardrAt(cfg.Home)
 	gaveUp, started := false, res.DaemonStarted
 	// ask is the harness to ask for one real answer: of a session that sits
@@ -619,7 +620,7 @@ func diagnose(ctx context.Context, cfg *config.Config, st store.API, r *store.Re
 		if r.Handle[dispatch.PendingPrompt] != nil {
 			next = append(next, fmt.Sprintf("answer what it asks there, or log %s in; the daemon gives %s its first prompt once %s is ready", kind, yardmaster, kind))
 		} else {
-			next = append(next, fmt.Sprintf("set right what it shows there (log %s in, say), then have the daemon start %s afresh: %s resident restart %s",
+			next = append(next, fmt.Sprintf("set right what it shows there (log %s in, say), then have the daemon start %s afresh: %s crew restart %s",
 				kind, yardmaster, yardr, yardmaster))
 		}
 	} else if r != nil {
@@ -656,14 +657,14 @@ func diagnose(ctx context.Context, cfg *config.Config, st store.API, r *store.Re
 	switch {
 	case r != nil && r.Live():
 	case r != nil && !r.Enabled:
-		next = append(next, fmt.Sprintf("let it run again: %s resident start %s", yardr, yardmaster))
+		next = append(next, fmt.Sprintf("let it run again: %s crew start %s", yardr, yardmaster))
 	case gaveUp:
-		next = append(next, fmt.Sprintf("once that is fixed, have the daemon try again: %s resident start %s", yardr, yardmaster))
+		next = append(next, fmt.Sprintf("once that is fixed, have the daemon try again: %s crew start %s", yardr, yardmaster))
 	case r != nil && len(absent(*r)) > 0:
 		next = append(next, fmt.Sprintf("install %s where PATH finds it; the daemon looks again on the PATH it was started with, "+
-			"every try, and %s resident list shows when %s runs", strings.Join(absent(*r), " and "), yardr, yardmaster))
+			"every try, and %s crew list shows when %s runs", strings.Join(absent(*r), " and "), yardr, yardmaster))
 	default:
-		next = append(next, fmt.Sprintf("the daemon keeps trying; see whether %s runs: %s resident list", yardmaster, yardr))
+		next = append(next, fmt.Sprintf("the daemon keeps trying; see whether %s runs: %s crew list", yardmaster, yardr))
 	}
 	if ask != "" {
 		next = append(next, tryHint(yardr, ask))
@@ -672,16 +673,16 @@ func diagnose(ctx context.Context, cfg *config.Config, st store.API, r *store.Re
 	return known, next
 }
 
-// tryHint is the step that names yardr doctor --try, for a resident on
+// tryHint is the step that names yardr doctor --try, for a crew member on
 // harness kind whose start failed or whose session does not answer.
 func tryHint(yardr, kind string) string {
 	return fmt.Sprintf("see whether %s answers at all, outside a pane: %s doctor --try makes one real call to it "+
 		"and prints what it says (a login that is needed, a flag it does not know); it costs a model call", or(kind, "the harness"), yardr)
 }
 
-// lastStartFailure is the reason of the resident's latest failed start, ""
+// lastStartFailure is the reason of the crew member's latest failed start, ""
 // when none is logged.
-func lastStartFailure(ctx context.Context, st store.API, r store.Resident) string {
+func lastStartFailure(ctx context.Context, st store.API, r store.CrewMember) string {
 	evs, err := st.Events(ctx, r.Journal, 50)
 	if err != nil {
 		return ""
@@ -689,8 +690,8 @@ func lastStartFailure(ctx context.Context, st store.API, r store.Resident) strin
 	var seq uint64
 	reason := ""
 	for _, e := range evs {
-		switch e.Kind {
-		case "resident_start_failed", "resident_gave_up", "resident_blocked":
+		switch store.EventKind(e.Kind) {
+		case "crew_start_failed", "crew_gave_up", "crew_blocked":
 			if s, _ := e.Data["reason"].(string); s != "" && e.Seq >= seq {
 				seq, reason = e.Seq, s
 			}

@@ -215,7 +215,7 @@ remove the peer first to replace it.`,
 				ID   string `json:"id"`
 				Kind string `json:"kind"`
 				Seq  uint64 `json:"seq"`
-				// To and From are a mail's, the one a resident of the peer.
+				// To and From are a mail's, the one a crew member of the peer.
 				To       string     `json:"to,omitempty"`
 				From     string     `json:"from,omitempty"`
 				Attempts int        `json:"attempts,omitempty"`
@@ -303,7 +303,7 @@ what it is: its key, its URL and what it carries (yardr peer allow).
 Everything that names the peer follows, in the same write:
   - mail that waits for it is delivered, and what was taken from it is still
     known as taken;
-  - a resident that may mail it (its peers setting) may still, under the new
+  - a crew member that may mail it (its peers setting) may still, under the new
     name, and is told of it by mail from the yard; one that may release its
     beads (its release setting) may still;
   - a bead it sent says it came from <new> (yardr bead show), and an open
@@ -317,7 +317,7 @@ later is another yard, with no mail, no grant and no history of this one's.
 The event log is not rewritten: its events keep the name the peer had when
 they were logged, and peer_renamed says when it changed.
 
-Only the operator may: the name is what residents' addresses reach a yard by.
+Only the operator may: the name is what crew members' addresses reach a yard by.
 Refused when <old> is no peer, <new> is no name for one, or <new> is a peer
 already.`,
 		Example: `  yardr peer rename nroth north`,
@@ -331,7 +331,7 @@ already.`,
 				return err
 			}
 			var may []string
-			rs, err := st.Residents(ctx)
+			rs, err := st.Crew(ctx)
 			if err != nil {
 				return err
 			}
@@ -344,8 +344,8 @@ already.`,
 			if err != nil {
 				return err
 			}
-			return a.out(map[string]any{"peer": p, "from": args[0], "residents": may}, func() {
-				fmt.Printf("peer %s is %s now: its residents are <name>@%s, and nothing is reached as <name>@%s\n", args[0], p.Name, p.Name, args[0])
+			return a.out(map[string]any{"peer": p, "from": args[0], "crew": may}, func() {
+				fmt.Printf("peer %s is %s now: its crew are <name>@%s, and nothing is reached as <name>@%s\n", args[0], p.Name, p.Name, args[0])
 				if p.Waiting > 0 {
 					fmt.Printf("%d messages that waited for it still wait, and are delivered\n", p.Waiting)
 				}
@@ -375,10 +375,10 @@ comes in is answered 403 and logged (peer_message_refused). The kinds:
   ping   yardr peer ping: a ping, and the pong that answers it. A ping needs
          the kind allowed both ways on both sides, since the answer is a
          message too.
-  mail   yardr mail <resident>@<peer>: mail between residents of the two
-         yards. --send lets this yard's residents write (each needs the peer
+  mail   yardr mail <crew member>@<peer>: mail between crew members of the two
+         yards. --send lets this yard's crew write (each needs the peer
          in its peers setting too), --receive puts the peer's mail in the
-         inbox of the resident it names.
+         inbox of the crew member it names.
   bead   a bead of one yard worked by the other. --receive lets this yard
          take the peer's beads, each as a bead of its own, and send back how
          it ended; where they go is yardr peer intake, and without one each
@@ -473,8 +473,8 @@ the end is its shape: a first stage a person works, or one routed to builders.
 A bead arrives held: its text is another yard's, and it becomes the brief of
 an agent that runs with this yard's permissions. Three levels, per peer:
   - held, and a user releases it with yardr bead unhold (the default);
-  - held, and a resident the operator named may release it too
-    (yardr resident set <resident> release=<name>);
+  - held, and a crew member the operator named may release it too
+    (yardr crew set <crew member> release=<name>);
   - --auto: it arrives ready, and the flow's routes start on it unseen. That
     lets the operator of the other yard start agents here.
 
@@ -592,7 +592,7 @@ func intakeLine(p store.Peer) string {
 		}
 		return fmt.Sprintf("none: a bead it sends is refused (yardr peer intake %s --rig <rig> --flow <flow>)", p.Name)
 	}
-	how := fmt.Sprintf("its beads arrive held, for a user to release (yardr bead unhold), or a resident with release=%s, ", p.Name)
+	how := fmt.Sprintf("its beads arrive held, for a user to release (yardr bead unhold), or a crew member with release=%s, ", p.Name)
 	if hold := p.Intake.Hold(); hold > 0 {
 		how += fmt.Sprintf("and go back as refused when nobody has within %s", store.Span(hold))
 	} else {
@@ -673,9 +673,9 @@ func (a *app) config() (*config.Config, error) {
 }
 
 // operatorOnly refuses what only the operator may do when this command acts
-// as anyone else, with the check a resident's definition is saved under
+// as anyone else, with the check a crew member's definition is saved under
 // (mayAllow): who a yard is linked with, and what it takes from them, is
-// not for a resident's session to grant. Like that check it is a line, not
+// not for a crew member's session to grant. Like that check it is a line, not
 // a wall.
 func (a *app) operatorOnly(ctx context.Context, st store.API, what string) error {
 	operator, is, err := a.operator(ctx, st)

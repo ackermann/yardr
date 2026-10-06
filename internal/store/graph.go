@@ -514,7 +514,7 @@ func (s *Store) OpenBlockers(ctx context.Context, ref string) ([]string, error) 
 	return out, err
 }
 
-// Note kinds: plain evidence on a bead, and a resident's journal entries.
+// Note kinds: plain evidence on a bead, and a crew member's journal entries.
 const (
 	NoteNote    = "note"
 	NoteJournal = "journal"

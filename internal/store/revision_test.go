@@ -135,39 +135,39 @@ func TestClaimRespectsGroupLimit(t *testing.T) {
 	}
 }
 
-// A resident carries a revision that changes on every write; the writes a
+// A crew member carries a revision that changes on every write; the writes a
 // person makes (define, enable, restart, delete) refuse a stale one with
 // ErrConflict and change nothing. The daemon's own bookkeeping is not
 // checked, but moves the revision.
-func TestResidentRevision(t *testing.T) {
+func TestCrewRevision(t *testing.T) {
 	s, ctx := flowRig(t)
-	r, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me")
+	r, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if r.Revision == "" {
-		t.Fatal("a new resident has no revision")
+		t.Fatal("a new crew member has no revision")
 	}
 	read := r.Revision
 	if err := s.MarkNotified(ctx, "yardmaster", 7); err != nil {
 		t.Fatal(err)
 	}
-	now, _ := s.GetResident(ctx, "yardmaster")
+	now, _ := s.GetCrew(ctx, "yardmaster")
 	if now.Revision == read {
-		t.Fatal("a write kept the resident's revision")
+		t.Fatal("a write kept the crew member's revision")
 	}
 
 	stale := map[string]func() error{
 		"put": func() error {
-			_, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr", MaxAge: "1h", Revision: read}, "me")
+			_, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", MaxAge: "1h", Revision: read}, "me")
 			return err
 		},
-		"enable":  func() error { return s.SetResidentEnabled(ctx, "yardmaster", false, read, "me") },
+		"enable":  func() error { return s.SetCrewEnabled(ctx, "yardmaster", false, read, "me") },
 		"restart": func() error { return s.RequestRestart(ctx, "yardmaster", "why", read, "me") },
-		"delete":  func() error { return s.DeleteResident(ctx, "yardmaster", read, "me") },
-		// Expecting a revision of a resident that does not exist yet.
+		"delete":  func() error { return s.DeleteCrew(ctx, "yardmaster", read, "me") },
+		// Expecting a revision of a crew member that does not exist yet.
 		"put new": func() error {
-			_, err := s.PutResident(ctx, store.Resident{Name: "clerk", Runner: "herdr", Revision: read}, "me")
+			_, err := s.PutCrew(ctx, store.CrewMember{Name: "clerk", Runner: "herdr", Revision: read}, "me")
 			return err
 		},
 	}
@@ -176,18 +176,18 @@ func TestResidentRevision(t *testing.T) {
 			t.Errorf("%s at a stale revision: %v, want a conflict", name, err)
 		}
 	}
-	if got, _ := s.GetResident(ctx, "yardmaster"); got.Revision != now.Revision || !got.Enabled || got.MaxAge != "" || got.RestartRequested != "" {
-		t.Fatalf("a refused write changed the resident: %+v", got)
+	if got, _ := s.GetCrew(ctx, "yardmaster"); got.Revision != now.Revision || !got.Enabled || got.MaxAge != "" || got.RestartRequested != "" {
+		t.Fatalf("a refused write changed the crew member: %+v", got)
 	}
-	if _, err := s.GetResident(ctx, "clerk"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("a refused put created a resident: %v", err)
+	if _, err := s.GetCrew(ctx, "clerk"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a refused put created a crew member: %v", err)
 	}
 
-	if err := s.SetResidentEnabled(ctx, "yardmaster", false, now.Revision, "me"); err != nil {
+	if err := s.SetCrewEnabled(ctx, "yardmaster", false, now.Revision, "me"); err != nil {
 		t.Fatalf("disable at the current revision: %v", err)
 	}
-	got, _ := s.GetResident(ctx, "yardmaster")
-	if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr", MaxAge: "1h", Revision: got.Revision}, "me"); err != nil {
+	got, _ := s.GetCrew(ctx, "yardmaster")
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", MaxAge: "1h", Revision: got.Revision}, "me"); err != nil {
 		t.Fatalf("put at the current revision: %v", err)
 	}
 }

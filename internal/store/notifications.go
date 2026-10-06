@@ -18,18 +18,18 @@ import (
 )
 
 // A notification is the yard telling a user of an event one of the user's
-// subscriptions matched: what a resident gets as a delivery in its inbox,
+// subscriptions matched: what a crew member gets as a delivery in its inbox,
 // written out for a person. It is no mail: nobody sent it, so there is
 // nobody to answer, and it is read and acknowledged apart from the mail
 // (User.NotificationCursor). Yardr makes its text from the event when the
-// event is logged; no model is called and no resident is nudged.
+// event is logged; no model is called and no crew member is nudged.
 //
-// Unlike a delivery to a resident, which is the event itself found through
+// Unlike a delivery to a crew member, which is the event itself found through
 // the inbox index, a notification is a record of its own: the log is
 // pruned without regard to what a person has read, and the text is to say
 // what the bead was called when it happened. The event names whom it
 // notified ("notified": user -> reason, as "deliveries" does for
-// residents), which is what tells a view that follows the stream to read
+// crew members), which is what tells a view that follows the stream to read
 // the notifications again.
 
 var bNotifications = []byte("notifications") // <user>\x00<seq>: Notification
@@ -55,14 +55,14 @@ type Notification struct {
 	// hook's. Kind is the event's kind (closed, advanced, hook, ...).
 	Source string `json:"source"`
 	Kind   string `json:"kind"`
-	Reason string `json:"reason"` // why it was delivered, as Reason gives for a resident
+	Reason string `json:"reason"` // why it was delivered, as Reason gives for a crew member
 	// Bead is the handle and Title the title of the bead it is about, when
 	// it is about one; Commit is the commit a closed event names.
 	Bead   string `json:"bead,omitempty"`
 	Title  string `json:"title,omitempty"`
 	Commit string `json:"commit,omitempty"`
 	URL    string `json:"url,omitempty"` // of a hook delivery
-	// Text is the whole of it in one line: the row a resident's inbox
+	// Text is the whole of it in one line: the row a crew member's inbox
 	// shows for the event, then the bead's title.
 	Text string `json:"text"`
 	// Read is whether the user acknowledged it (AckUserNotifications).
@@ -107,7 +107,7 @@ func userSubscribers(tx *bolt.Tx, fn func(u *User, subs []boundSub) error) error
 }
 
 // maySubscribe refuses actor changing what the user name is told: that is
-// the user's own to decide, or the operator's for them. A resident
+// the user's own to decide, or the operator's for them. A crew member
 // deciding what a person hears of is what notifications are there to end.
 func (w *wtx) maySubscribe(name, actor string) error {
 	operator, err := operatorIn(w.Tx)
@@ -121,8 +121,8 @@ func (w *wtx) maySubscribe(name, actor string) error {
 	if operator != "" && operator != name {
 		who = "the operator (" + operator + ")"
 	}
-	if w.Bucket(bResidents).Get([]byte(actor)) != nil {
-		return fmt.Errorf("%s is a resident, and a resident does not decide what a person is told: %s subscribes themselves, or %s does it for them",
+	if w.Bucket(bCrew).Get([]byte(actor)) != nil {
+		return fmt.Errorf("%s is a crew member, and a crew member does not decide what a person is told: %s subscribes themselves, or %s does it for them",
 			actor, name, who)
 	}
 	return fmt.Errorf("%s does not decide what %s is told: %s subscribes themselves, or %s does it for them", or(actor, "nobody"), name, name, who)
@@ -192,7 +192,7 @@ func clip(s string, n int) string {
 var commitIn = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
 
 // beadNotification is bead event e as a notification, its row in the words
-// yardr inbox shows a resident: "<bead> <kind> (<reason>) by <actor>
+// yardr inbox shows a crew member: "<bead> <kind> (<reason>) by <actor>
 // <key=value ...>". The title follows it unless the event says it already.
 func beadNotification(e *Event, row *beadRow) Notification {
 	n := Notification{Seq: e.Seq, At: e.At, Source: SourceYardr, Kind: e.Kind, Bead: row.ID, Title: row.Title}
@@ -208,7 +208,7 @@ func beadNotification(e *Event, row *beadRow) Notification {
 }
 
 // hookNotification is the hook delivery data, logged as event seq at at,
-// as a notification, its row in the words yardr inbox shows a resident:
+// as a notification, its row in the words yardr inbox shows a crew member:
 // "hook (<reason>) <source> <type> <action> by <who> on "<title>": <text>
 // <url>".
 func hookNotification(seq uint64, at time.Time, data map[string]any) Notification {

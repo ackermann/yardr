@@ -9,16 +9,16 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// The yard's row is the first of the list, above the residents: what the
+// The yard's row is the first of the list, above the crew: what the
 // yard reports to the user (store.Notification), apart from every
 // conversation. It is a row and no third column, since a row folds into the
-// line of a narrow terminal with the residents, is reached with the key
+// line of a narrow terminal with the crew, is reached with the key
 // that reaches them, and costs the conversation no width.
 //
-// It differs from a resident's row in what it is not: it has no state, no
+// It differs from a crew member's row in what it is not: it has no state, no
 // pane, and no line to type in, since nobody sent a notification and nobody
 // reads an answer. Its unread count is of notifications only, and a
-// resident's of that resident's mail only. Opening it acknowledges the
+// crew member's of that crew member's mail only. Opening it acknowledges the
 // notifications (AckUserNotifications) and leaves the mail's position
 // where it is.
 
@@ -26,10 +26,10 @@ import (
 const YardRow = "yard"
 
 // yardLabel keeps the system row distinct if an older yard already has a
-// resident named "yard". New residents may keep their names; only this
+// crew member named "yard". New crew members may keep their names; only this
 // display label changes in the collision case.
 func (m *Model) yardLabel() string {
-	if m.resident(YardRow) != nil {
+	if m.member(YardRow) != nil {
 		return "yard-notify"
 	}
 	return YardRow

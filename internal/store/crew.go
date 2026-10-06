@@ -13,9 +13,9 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-var bResidents = []byte("residents")
+var bCrew = []byte("crew")
 
-func init() { allBuckets = append(allBuckets, bResidents) }
+func init() { allBuckets = append(allBuckets, bCrew) }
 
 // Bounds that keep a fresh session's starting context small.
 const (
@@ -25,19 +25,20 @@ const (
 	PrimeEntries    = 20 // journal entries since the latest handoff
 	PrimeInbox      = 20
 	PrimeFallback   = 15 // recent events when the last session left no handoff
-	MaxStartFails   = 5  // consecutive failed starts before a resident is parked
+	MaxStartFails   = 5  // consecutive failed starts before a crew member is parked
 )
 
-// MinSessionLife is how long a resident's session has to live for its start
+// MinSessionLife is how long a crew member's session has to live for its start
 // to count as one that worked. A session gone sooner (a harness that exits
 // on a bad flag or an expired login) is a failed start, or the daemon would
 // start the next one on every pass and never give up.
 const MinSessionLife = 60 * time.Second
 
-// Resident is an always-on session not tied to a bead, such as a yardmaster.
+// CrewMember is one of the crew: an always-on session not tied to a bead,
+// such as a yardmaster. Until schema 11 it was a resident (crewwords.go).
 // The daemon keeps it running, delivers its inbox when it is idle, and
 // rotates it through handoffs written to its journal bead.
-type Resident struct {
+type CrewMember struct {
 	Name         string         `json:"name"`
 	Runner       string         `json:"runner"`
 	Config       map[string]any `json:"config"`
@@ -47,7 +48,7 @@ type Resident struct {
 	HandoffGrace string         `json:"handoff_grace"` // how long a requested handoff may take
 	Enabled      bool           `json:"enabled"`
 	Journal      string         `json:"journal"` // journal bead handle
-	// Revision changes on every write to the resident. Given to PutResident
+	// Revision changes on every write to the crew member. Given to PutCrew
 	// (or as rev to the writes that take one) it is the revision the caller
 	// read, and the write is refused with ErrConflict if it moved since.
 	Revision string `json:"revision,omitempty"`
@@ -60,7 +61,7 @@ type Resident struct {
 	// Runtime, maintained by the daemon.
 	State string `json:"state"` // stopped running failed
 	// Status is what the running session is doing, as the daemon last saw
-	// it (ResidentStatus): working, idle, blocked (it waits at a prompt
+	// it (CrewStatus): working, idle, blocked (it waits at a prompt
 	// only a person in its pane can answer) or unknown; "" when none runs
 	// or the daemon has not looked yet.
 	Status             string         `json:"status,omitempty"`
@@ -77,46 +78,46 @@ type Resident struct {
 	Notified           uint64         `json:"notified"` // nudged about events through this seq
 
 	// Left are the handles of sessions that were gone when the daemon
-	// looked (ResidentGone), oldest first: what they ran in is still open
+	// looked (CrewGone), oldest first: what they ran in is still open
 	// in the runtime, and the handle is how the daemon knows it as its own
-	// when it closes all but the latest (ResidentLeft).
+	// when it closes all but the latest (CrewLeft).
 	Left []map[string]any `json:"left,omitempty"`
 }
 
-func (r Resident) Live() bool { return r.State == "running" }
+func (r CrewMember) Live() bool { return r.State == "running" }
 
 func journalID(name string) string {
 	return strings.NewReplacer("/", "-", " ", "-").Replace(name) + "-journal"
 }
 
-// PutResident creates a resident (with its journal bead) or replaces its
+// PutCrew creates a crew member (with its journal bead) or replaces its
 // definition, keeping its runtime state, journal and inbox position.
-func (s *Store) PutResident(ctx context.Context, def Resident, actor string) (*Resident, error) {
-	var out *Resident
+func (s *Store) PutCrew(ctx context.Context, def CrewMember, actor string) (*CrewMember, error) {
+	var out *CrewMember
 	err := s.write(func(w *wtx) error {
-		var r Resident
-		ok, err := get(w.Tx, bResidents, def.Name, &r)
+		var r CrewMember
+		ok, err := get(w.Tx, bCrew, def.Name, &r)
 		if err != nil {
 			return err
 		}
-		if err := checkResidentRev(def.Name, r.Revision, def.Revision); err != nil {
+		if err := checkCrewRev(def.Name, r.Revision, def.Revision); err != nil {
 			return err
 		}
 		if !ok {
 			// One name is one party: mail to it must reach one of the two.
 			if w.Bucket(bUsers).Get([]byte(def.Name)) != nil {
-				return fmt.Errorf("resident %s: that is a user's name, and mail to a name reaches one party: choose another", def.Name)
+				return fmt.Errorf("crew member %s: that is a user's name, and mail to a name reaches one party: choose another", def.Name)
 			}
-			// A new resident starts reading the inbox from now, not history.
+			// A new crew member starts reading the inbox from now, not history.
 			head := uint64(0)
 			if k, _ := w.Bucket(bEvents).Cursor().Last(); k != nil {
 				head = binary.BigEndian.Uint64(k)
 			}
-			r = Resident{Name: def.Name, State: "stopped", Enabled: true, Cursor: head, Notified: head,
+			r = CrewMember{Name: def.Name, State: "stopped", Enabled: true, Cursor: head, Notified: head,
 				Journal: journalID(def.Name)}
 			if w.Bucket(bHandles).Get([]byte(r.Journal)) == nil {
 				jr := &beadRow{Bead: Bead{Title: "Journal of " + def.Name, Type: TypeJournal,
-					Stage: "journal", Status: "open", Labels: []string{"resident:" + def.Name},
+					Stage: "journal", Status: "open", Labels: []string{"crew:" + def.Name},
 					CreatedAt: now(), CreatedBy: &actor}}
 				if err := w.insertBead(jr, "", r.Journal, actor); err != nil {
 					return err
@@ -126,8 +127,9 @@ func (s *Store) PutResident(ctx context.Context, def Resident, actor string) (*R
 				}
 			}
 		}
-		r.Runner, r.Config, r.Dir, r.On, r.MaxAge, r.HandoffGrace =
-			def.Runner, def.Config, def.Dir, def.On, def.MaxAge, def.HandoffGrace
+		r.Runner, r.Config, r.Dir, r.MaxAge, r.HandoffGrace =
+			def.Runner, def.Config, def.Dir, def.MaxAge, def.HandoffGrace
+		r.On, _ = eventKinds(def.On)
 		if r.Config == nil {
 			r.Config = map[string]any{}
 		}
@@ -139,19 +141,19 @@ func (s *Store) PutResident(ctx context.Context, def Resident, actor string) (*R
 			}
 		}
 		r.Revision = newRevision()
-		if err := put(w.Tx, bResidents, r.Name, r); err != nil {
+		if err := put(w.Tx, bCrew, r.Name, r); err != nil {
 			return err
 		}
 		out = &r
-		return w.event(r.Journal, "resident_defined", actor, map[string]any{"resident": r.Name, "runner": r.Runner})
+		return w.event(r.Journal, "crew_defined", actor, map[string]any{"crew": r.Name, "runner": r.Runner})
 	})
 	return out, err
 }
 
-func (s *Store) Residents(ctx context.Context) ([]Resident, error) {
-	out := []Resident{}
+func (s *Store) Crew(ctx context.Context) ([]CrewMember, error) {
+	out := []CrewMember{}
 	err := s.read(func(tx *bolt.Tx) error {
-		return each(tx, bResidents, "", func(_ []byte, r *Resident) error {
+		return each(tx, bCrew, "", func(_ []byte, r *CrewMember) error {
 			out = append(out, *r)
 			return nil
 		})
@@ -159,12 +161,12 @@ func (s *Store) Residents(ctx context.Context) ([]Resident, error) {
 	return out, err
 }
 
-func (s *Store) GetResident(ctx context.Context, name string) (*Resident, error) {
-	r := new(Resident)
+func (s *Store) GetCrew(ctx context.Context, name string) (*CrewMember, error) {
+	r := new(CrewMember)
 	err := s.read(func(tx *bolt.Tx) error {
-		ok, err := get(tx, bResidents, name, r)
+		ok, err := get(tx, bCrew, name, r)
 		if err == nil && !ok {
-			err = fmt.Errorf("resident %s: %w", name, ErrNotFound)
+			err = fmt.Errorf("crew member %s: %w", name, ErrNotFound)
 		}
 		return err
 	})
@@ -174,40 +176,40 @@ func (s *Store) GetResident(ctx context.Context, name string) (*Resident, error)
 	return r, nil
 }
 
-// DeleteResident removes the resident; its journal bead is kept as history.
-// A rev other than "" must be the resident's current revision.
-func (s *Store) DeleteResident(ctx context.Context, name, rev, actor string) error {
-	return s.changeResidentAt(name, rev, func(w *wtx, r *Resident) error {
-		if err := w.Bucket(bResidents).Delete([]byte(name)); err != nil {
+// DeleteCrew removes the crew member; its journal bead is kept as history.
+// A rev other than "" must be the crew member's current revision.
+func (s *Store) DeleteCrew(ctx context.Context, name, rev, actor string) error {
+	return s.changeCrewAt(name, rev, func(w *wtx, r *CrewMember) error {
+		if err := w.Bucket(bCrew).Delete([]byte(name)); err != nil {
 			return err
 		}
 		if err := dropThreads(w.Tx, name); err != nil {
 			return err
 		}
-		return w.event(r.Journal, "resident_deleted", actor, map[string]any{"resident": name})
+		return w.event(r.Journal, "crew_deleted", actor, map[string]any{"crew": name})
 	}, true)
 }
 
-// changeResident applies fn to the stored resident and saves it under a
+// changeCrew applies fn to the stored crew member and saves it under a
 // fresh revision, unless deleted is set (fn removed it). The daemon's own
 // bookkeeping writes through it unchecked.
-func (s *Store) changeResident(name string, fn func(*wtx, *Resident) error, deleted ...bool) error {
-	return s.changeResidentAt(name, "", fn, deleted...)
+func (s *Store) changeCrew(name string, fn func(*wtx, *CrewMember) error, deleted ...bool) error {
+	return s.changeCrewAt(name, "", fn, deleted...)
 }
 
-// changeResidentAt is changeResident refusing with ErrConflict unless the
-// resident is at rev ("" expects nothing).
-func (s *Store) changeResidentAt(name, rev string, fn func(*wtx, *Resident) error, deleted ...bool) error {
+// changeCrewAt is changeCrew refusing with ErrConflict unless the
+// crew member is at rev ("" expects nothing).
+func (s *Store) changeCrewAt(name, rev string, fn func(*wtx, *CrewMember) error, deleted ...bool) error {
 	return s.write(func(w *wtx) error {
-		var r Resident
-		ok, err := get(w.Tx, bResidents, name, &r)
+		var r CrewMember
+		ok, err := get(w.Tx, bCrew, name, &r)
 		if err != nil {
 			return err
 		}
 		if !ok {
-			return fmt.Errorf("resident %s: %w", name, ErrNotFound)
+			return fmt.Errorf("crew member %s: %w", name, ErrNotFound)
 		}
-		if err := checkResidentRev(name, r.Revision, rev); err != nil {
+		if err := checkCrewRev(name, r.Revision, rev); err != nil {
 			return err
 		}
 		if err := fn(w, &r); err != nil {
@@ -217,28 +219,28 @@ func (s *Store) changeResidentAt(name, rev string, fn func(*wtx, *Resident) erro
 			return nil
 		}
 		r.Revision = newRevision()
-		return put(w.Tx, bResidents, name, r)
+		return put(w.Tx, bCrew, name, r)
 	})
 }
 
-// checkResidentRev refuses a write that expected revision want of a
-// resident now at have. A resident stored before revisions existed has
+// checkCrewRev refuses a write that expected revision want of a
+// crew member now at have. A crew member stored before revisions existed has
 // none, so any expectation of it is stale: the caller read something else.
-func checkResidentRev(name, have, want string) error {
+func checkCrewRev(name, have, want string) error {
 	if want == "" || want == have {
 		return nil
 	}
 	if have == "" {
 		have = "none"
 	}
-	return fmt.Errorf("%w: resident %s is at revision %s, not %s; read it again", ErrConflict, name, have, want)
+	return fmt.Errorf("%w: crew member %s is at revision %s, not %s; read it again", ErrConflict, name, have, want)
 }
 
-// SetResidentEnabled starts (true) or stops (false) keeping it alive. Enabling
-// also clears a failure streak. A rev other than "" must be the resident's
+// SetCrewEnabled starts (true) or stops (false) keeping it alive. Enabling
+// also clears a failure streak. A rev other than "" must be the crew member's
 // current revision.
-func (s *Store) SetResidentEnabled(ctx context.Context, name string, enabled bool, rev, actor string) error {
-	return s.changeResidentAt(name, rev, func(w *wtx, r *Resident) error {
+func (s *Store) SetCrewEnabled(ctx context.Context, name string, enabled bool, rev, actor string) error {
+	return s.changeCrewAt(name, rev, func(w *wtx, r *CrewMember) error {
 		r.Enabled = enabled
 		if enabled {
 			r.Failures, r.RetryAfter = 0, nil
@@ -246,15 +248,15 @@ func (s *Store) SetResidentEnabled(ctx context.Context, name string, enabled boo
 				r.State = "stopped"
 			}
 		}
-		kind := map[bool]string{true: "resident_enabled", false: "resident_disabled"}[enabled]
-		return w.event(r.Journal, kind, actor, map[string]any{"resident": name})
+		kind := map[bool]string{true: "crew_enabled", false: "crew_disabled"}[enabled]
+		return w.event(r.Journal, kind, actor, map[string]any{"crew": name})
 	})
 }
 
-// ResidentStarted records a fresh session. The failure streak stays: only a
-// session that lives (ResidentSettled) ends it.
-func (s *Store) ResidentStarted(ctx context.Context, name string, handle map[string]any) error {
-	return s.changeResident(name, func(w *wtx, r *Resident) error {
+// CrewStarted records a fresh session. The failure streak stays: only a
+// session that lives (CrewSettled) ends it.
+func (s *Store) CrewStarted(ctx context.Context, name string, handle map[string]any) error {
+	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
 		t := now()
 		r.PrevStartedAt, r.StartedAt = r.StartedAt, &t
 		r.State, r.Status, r.Handle, r.RetryAfter = "running", "", handle, nil
@@ -264,35 +266,35 @@ func (s *Store) ResidentStarted(ctx context.Context, name string, handle map[str
 		if k, _ := w.Bucket(bEvents).Cursor().Last(); k != nil {
 			r.Notified = max(r.Notified, binary.BigEndian.Uint64(k))
 		}
-		return w.event(r.Journal, "resident_started", "yard", map[string]any{"resident": name, "handle": handle})
+		return w.event(r.Journal, "crew_started", "yard", map[string]any{"crew": name, "handle": handle})
 	})
 }
 
-// ResidentSettled ends the failure streak: the session has lived
+// CrewSettled ends the failure streak: the session has lived
 // MinSessionLife, so its start worked.
-func (s *Store) ResidentSettled(ctx context.Context, name string) error {
-	return s.changeResident(name, func(_ *wtx, r *Resident) error {
+func (s *Store) CrewSettled(ctx context.Context, name string) error {
+	return s.changeCrew(name, func(_ *wtx, r *CrewMember) error {
 		r.Failures = 0
 		return nil
 	})
 }
 
-// ResidentStatuses are what ResidentStatus takes: a runtime's word for
+// CrewStatuses are what CrewStatus takes: a runtime's word for
 // what a session is doing, "done" being a turn that ended, which is idle.
-var ResidentStatuses = []string{"working", "idle", "blocked", "unknown"}
+var CrewStatuses = []string{"working", "idle", "blocked", "unknown"}
 
-// ResidentStatus records what the resident's running session is doing, as
-// the daemon saw it on its pass. A change is an event, resident_status
-// with the status and what it was, so a view of the residents follows it
+// CrewStatus records what the crew member's running session is doing, as
+// the daemon saw it on its pass. A change is an event, crew_status
+// with the status and what it was, so a view of the crew follows it
 // from the stream; the same status again writes nothing. The event is on
 // no bead: a session's turns are not its journal's history.
-func (s *Store) ResidentStatus(ctx context.Context, name, status string) error {
-	if !slices.Contains(ResidentStatuses, status) {
-		return fmt.Errorf("resident status %q: it is one of %s", status, strings.Join(ResidentStatuses, ", "))
+func (s *Store) CrewStatus(ctx context.Context, name, status string) error {
+	if !slices.Contains(CrewStatuses, status) {
+		return fmt.Errorf("crew member status %q: it is one of %s", status, strings.Join(CrewStatuses, ", "))
 	}
-	var r Resident
+	var r CrewMember
 	if err := s.read(func(tx *bolt.Tx) error {
-		_, err := get(tx, bResidents, name, &r)
+		_, err := get(tx, bCrew, name, &r)
 		return err
 	}); err != nil {
 		return err
@@ -300,41 +302,41 @@ func (s *Store) ResidentStatus(ctx context.Context, name, status string) error {
 	if r.Status == status {
 		return nil // no write, and no new revision, for what did not change
 	}
-	return s.changeResident(name, func(w *wtx, r *Resident) error {
+	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
 		if r.State != "running" || r.Status == status {
 			return nil
 		}
 		was := r.Status
 		r.Status = status
-		return w.event("", "resident_status", "yard", map[string]any{"resident": name, "status": status, "was": was})
+		return w.event("", "crew_status", "yard", map[string]any{"crew": name, "status": status, "was": was})
 	})
 }
 
-// SetResidentHandle replaces the running session's handle (e.g. once its
+// SetCrewHandle replaces the running session's handle (e.g. once its
 // pending first prompt was delivered).
-func (s *Store) SetResidentHandle(ctx context.Context, name string, handle map[string]any) error {
-	return s.changeResident(name, func(_ *wtx, r *Resident) error {
+func (s *Store) SetCrewHandle(ctx context.Context, name string, handle map[string]any) error {
+	return s.changeCrew(name, func(_ *wtx, r *CrewMember) error {
 		r.Handle = handle
 		return nil
 	})
 }
 
-// ResidentStopped records that the session ended (stopped by yard, or died).
-func (s *Store) ResidentStopped(ctx context.Context, name, reason string) error {
-	return s.changeResident(name, func(w *wtx, r *Resident) error {
+// CrewStopped records that the session ended (stopped by yard, or died).
+func (s *Store) CrewStopped(ctx context.Context, name, reason string) error {
+	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
 		if r.State != "running" {
 			return nil
 		}
 		r.State, r.Status, r.Handle = "stopped", "", nil
-		return w.event(r.Journal, "resident_stopped", "yard", map[string]any{"resident": name, "reason": reason})
+		return w.event(r.Journal, "crew_stopped", "yard", map[string]any{"crew": name, "reason": reason})
 	})
 }
 
-// ResidentGone is ResidentStopped for a session that ended by itself in a
+// CrewGone is CrewStopped for a session that ended by itself in a
 // runtime that keeps what it ran in open: its handle goes to the end of
 // Left, in the same write, so no session's leavings are lost track of.
-func (s *Store) ResidentGone(ctx context.Context, name, reason string) error {
-	return s.changeResident(name, func(w *wtx, r *Resident) error {
+func (s *Store) CrewGone(ctx context.Context, name, reason string) error {
+	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
 		if r.State != "running" {
 			return nil
 		}
@@ -342,64 +344,64 @@ func (s *Store) ResidentGone(ctx context.Context, name, reason string) error {
 			r.Left = append(r.Left, r.Handle)
 		}
 		r.State, r.Status, r.Handle = "stopped", "", nil
-		return w.event(r.Journal, "resident_stopped", "yard", map[string]any{"resident": name, "reason": reason})
+		return w.event(r.Journal, "crew_stopped", "yard", map[string]any{"crew": name, "reason": reason})
 	})
 }
 
-// ResidentLeft replaces Left, once the daemon has closed some of what it
+// CrewLeft replaces Left, once the daemon has closed some of what it
 // lists.
-func (s *Store) ResidentLeft(ctx context.Context, name string, left []map[string]any) error {
-	return s.changeResident(name, func(_ *wtx, r *Resident) error {
+func (s *Store) CrewLeft(ctx context.Context, name string, left []map[string]any) error {
+	return s.changeCrew(name, func(_ *wtx, r *CrewMember) error {
 		r.Left = left
 		return nil
 	})
 }
 
-// ResidentStartFailed counts a failed start (one that did not happen, or a
+// CrewStartFailed counts a failed start (one that did not happen, or a
 // session gone within MinSessionLife); after MaxStartFails in a row the
-// resident is parked (state failed) until someone starts it again.
-func (s *Store) ResidentStartFailed(ctx context.Context, name, reason string, backoff time.Duration) error {
-	return s.changeResident(name, func(w *wtx, r *Resident) error {
+// crew member is parked (state failed) until someone starts it again.
+func (s *Store) CrewStartFailed(ctx context.Context, name, reason string, backoff time.Duration) error {
+	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
 		r.Failures++
 		retry := now().Add(backoff)
 		r.RetryAfter, r.State = &retry, "stopped"
-		kind := "resident_start_failed"
+		kind := "crew_start_failed"
 		if r.Failures >= MaxStartFails {
-			r.State, kind = "failed", "resident_gave_up"
+			r.State, kind = "failed", "crew_gave_up"
 		}
-		return w.event(r.Journal, kind, "yard", map[string]any{"resident": name, "reason": reason, "failures": r.Failures})
+		return w.event(r.Journal, kind, "yard", map[string]any{"crew": name, "reason": reason, "failures": r.Failures})
 	})
 }
 
 // RequestRestart asks the daemon for a fresh session once the current one
 // is idle (or the handoff grace has passed). A rev other than "" must be
-// the resident's current revision.
+// the crew member's current revision.
 func (s *Store) RequestRestart(ctx context.Context, name, reason, rev, actor string) error {
-	return s.changeResidentAt(name, rev, func(w *wtx, r *Resident) error {
+	return s.changeCrewAt(name, rev, func(w *wtx, r *CrewMember) error {
 		t := now()
 		r.RestartRequested, r.RestartRequestedAt = reason, &t
-		return w.event(r.Journal, "resident_restart_requested", actor, map[string]any{"resident": name, "reason": reason})
+		return w.event(r.Journal, "crew_restart_requested", actor, map[string]any{"crew": name, "reason": reason})
 	})
 }
 
-// MarkRotationAsked records that the resident was asked to hand off.
+// MarkRotationAsked records that the crew member was asked to hand off.
 func (s *Store) MarkRotationAsked(ctx context.Context, name string) error {
-	return s.changeResident(name, func(w *wtx, r *Resident) error {
+	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
 		t := now()
 		r.RotationAskedAt = &t
-		return w.event(r.Journal, "resident_rotation_asked", "yard", map[string]any{"resident": name})
+		return w.event(r.Journal, "crew_rotation_asked", "yard", map[string]any{"crew": name})
 	})
 }
 
-// MarkNotified records that the resident was nudged about events through seq.
+// MarkNotified records that the crew member was nudged about events through seq.
 func (s *Store) MarkNotified(ctx context.Context, name string, seq uint64) error {
-	return s.changeResident(name, func(_ *wtx, r *Resident) error {
+	return s.changeCrew(name, func(_ *wtx, r *CrewMember) error {
 		r.Notified = max(r.Notified, seq)
 		return nil
 	})
 }
 
-// Journal writes an entry on the resident's journal bead. A handoff also
+// Journal writes an entry on the crew member's journal bead. A handoff also
 // requests a fresh session.
 func (s *Store) Journal(ctx context.Context, name, kind, text, actor string) error {
 	limit := map[string]int{NoteJournal: MaxJournalBytes, NoteHandoff: MaxHandoffBytes}[kind]
@@ -412,7 +414,7 @@ func (s *Store) Journal(ctx context.Context, name, kind, text, actor string) err
 	if len(text) > limit {
 		return fmt.Errorf("%s entry is %d bytes, over the %d-byte limit: summarize it", kind, len(text), limit)
 	}
-	return s.changeResident(name, func(w *wtx, r *Resident) error {
+	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
 		if err := w.addNote(r.Journal, kind, text, actor); err != nil {
 			return err
 		}
@@ -425,7 +427,7 @@ func (s *Store) Journal(ctx context.Context, name, kind, text, actor string) err
 	})
 }
 
-// Mail sends a message to the inbox of a resident or of a user.
+// Mail sends a message to the inbox of a crew member or of a user.
 func (s *Store) Mail(ctx context.Context, to, text, actor string) error {
 	if strings.TrimSpace(text) == "" || len(text) > MaxMailBytes {
 		return fmt.Errorf("mail must be 1..%d bytes", MaxMailBytes)
@@ -433,23 +435,23 @@ func (s *Store) Mail(ctx context.Context, to, text, actor string) error {
 	return s.write(func(w *wtx) error {
 		data := map[string]any{"to": to, "text": text}
 		switch {
-		case w.Bucket(bResidents).Get([]byte(to)) != nil:
+		case w.Bucket(bCrew).Get([]byte(to)) != nil:
 		case w.Bucket(bUsers).Get([]byte(to)) != nil:
 			data["to_user"] = true
 		default:
-			return fmt.Errorf("resident %s: %w (nor is there a user of that name)", to, ErrNotFound)
+			return fmt.Errorf("crew member %s: %w (nor is there a user of that name)", to, ErrNotFound)
 		}
 		return w.event("", "mail", actor, data)
 	})
 }
 
-// forResident reports whether e belongs in r's inbox: mail to it, a hook
+// forCrew reports whether e belongs in r's inbox: mail to it, a hook
 // or bead event its subscriptions delivered to it when logged, or a kind
 // it hears of through --on, never its own actions nor yardr telling of
 // itself (aboutItself). --on works as implicit
 // "yardr all kind=<k>" subscriptions, checked when the inbox is read, and
 // also covers events not about a bead.
-func forResident(r *Resident, e Event) bool {
+func forCrew(r *CrewMember, e Event) bool {
 	if e.Actor == r.Name || (e.Bead != nil && aboutItself(r, *e.Bead, e.Kind)) {
 		return false
 	}
@@ -459,27 +461,27 @@ func forResident(r *Resident, e Event) bool {
 	case "hook":
 		return Reason(e, r.Name) != ""
 	}
-	return Reason(e, r.Name) != "" || slices.Contains(r.On, e.Kind)
+	return Reason(e, r.Name) != "" || slices.Contains(r.On, EventKind(e.Kind))
 }
 
-// InboxPage is the start of a resident's unacknowledged events.
+// InboxPage is the start of a crew member's unacknowledged events.
 type InboxPage struct {
 	Events []Event `json:"events"` // oldest first, at most the limit
 	Total  int     `json:"total"`  // all unacknowledged events
 	Last   uint64  `json:"last"`   // seq of the newest unacknowledged event
 }
 
-// Inbox returns up to limit unacknowledged events for the resident. It
-// reads only the resident's own index entries and those of its --on kinds
+// Inbox returns up to limit unacknowledged events for the crew member. It
+// reads only the crew member's own index entries and those of its --on kinds
 // after its cursor, never the rest of the log.
 func (s *Store) Inbox(ctx context.Context, name string, limit int) (*InboxPage, error) {
 	page := &InboxPage{Events: []Event{}}
 	err := s.read(func(tx *bolt.Tx) error {
-		r := new(Resident)
-		if ok, err := get(tx, bResidents, name, r); err != nil {
+		r := new(CrewMember)
+		if ok, err := get(tx, bCrew, name, r); err != nil {
 			return err
 		} else if !ok {
-			return fmt.Errorf("resident %s: %w", name, ErrNotFound)
+			return fmt.Errorf("crew member %s: %w", name, ErrNotFound)
 		}
 		var evs []Event
 		for _, k := range inboxKeys(tx, r) {
@@ -491,12 +493,12 @@ func (s *Store) Inbox(ctx context.Context, name string, limit int) (*InboxPage, 
 			}
 		}
 		s.inboxReads.Add(int64(len(evs)))
-		named(tx, evs) // forResident compares handles
+		named(tx, evs) // forCrew compares handles
 		if err := peersToday(tx, evs); err != nil {
 			return err
 		}
 		for _, e := range evs {
-			if forResident(r, e) {
+			if forCrew(r, e) {
 				page.Total++
 				page.Last = e.Seq
 				if limit <= 0 || len(page.Events) < limit {
@@ -515,7 +517,7 @@ func (s *Store) Inbox(ctx context.Context, name string, limit int) (*InboxPage, 
 // inboxKeys are the event keys after r's cursor that may be in its inbox,
 // in seq order: its inbox index entries and those of the kinds it hears of
 // through --on.
-func inboxKeys(tx *bolt.Tx, r *Resident) []string {
+func inboxKeys(tx *bolt.Tx, r *CrewMember) []string {
 	from := seqKey(r.Cursor + 1)
 	seen := map[string]bool{}
 	var out []string
@@ -531,7 +533,10 @@ func inboxKeys(tx *bolt.Tx, r *Resident) []string {
 	}
 	scan(bInbox, r.Name)
 	for _, kind := range r.On {
-		scan(bEventsKd, kind)
+		// An event logged before the upgrade has the kind's old word.
+		for _, k := range kindSpellings(kind) {
+			scan(bEventsKd, k)
+		}
 	}
 	slices.Sort(out) // big-endian seqs sort as numbers
 	return out
@@ -539,7 +544,7 @@ func inboxKeys(tx *bolt.Tx, r *Resident) []string {
 
 // AckInbox marks the inbox read through seq.
 func (s *Store) AckInbox(ctx context.Context, name string, through uint64) error {
-	return s.changeResident(name, func(w *wtx, r *Resident) error {
+	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
 		was := r.Cursor
 		r.Cursor = max(r.Cursor, through)
 		r.Notified = max(r.Notified, r.Cursor)
@@ -547,9 +552,9 @@ func (s *Store) AckInbox(ctx context.Context, name string, through uint64) error
 	})
 }
 
-// Prime is what a fresh resident session reads first, bounded in size.
+// Prime is what a fresh crew member session reads first, bounded in size.
 type Prime struct {
-	Resident    Resident       `json:"resident"`
+	CrewMember  CrewMember     `json:"crew"`
 	Handoff     *Note          `json:"handoff,omitempty"`
 	Since       []Note         `json:"since"`   // journal entries after the handoff, newest last
 	Omitted     int            `json:"omitted"` // entries after the handoff not shown
@@ -562,13 +567,13 @@ type Prime struct {
 	Recent      []Event        `json:"recent,omitempty"`
 }
 
-// ResidentPrime gathers what the next session needs, and only that.
-func (s *Store) ResidentPrime(ctx context.Context, name string) (*Prime, error) {
-	r, err := s.GetResident(ctx, name)
+// CrewPrime gathers what the next session needs, and only that.
+func (s *Store) CrewPrime(ctx context.Context, name string) (*Prime, error) {
+	r, err := s.GetCrew(ctx, name)
 	if err != nil {
 		return nil, err
 	}
-	p := &Prime{Resident: *r, Since: []Note{}}
+	p := &Prime{CrewMember: *r, Since: []Note{}}
 	notes, err := s.Notes(ctx, r.Journal)
 	if err != nil {
 		return nil, err
@@ -594,7 +599,7 @@ func (s *Store) ResidentPrime(ctx context.Context, name string) (*Prime, error) 
 		return nil, err
 	}
 	p.Inbox, p.InboxTotal = inbox.Events, inbox.Total
-	if p.Memories, err = s.Recall(ctx, "resident:"+name, ""); err != nil {
+	if p.Memories, err = s.Recall(ctx, "crew:"+name, ""); err != nil {
 		return nil, err
 	}
 	if p.Timers, err = s.Timers(ctx, name); err != nil {
@@ -649,7 +654,7 @@ type MemoryInfo struct {
 type NewMemory struct {
 	Title   string
 	Body    string
-	Scope   string // "all" or "resident:<name>" (or any label)
+	Scope   string // "all" or "crew:<name>" (or any label)
 	Expires *time.Time
 }
 
@@ -658,6 +663,7 @@ func (s *Store) Remember(ctx context.Context, m NewMemory, actor string) (*Bead,
 	if m.Scope == "" {
 		m.Scope = "all"
 	}
+	m.Scope = CrewLabel(m.Scope)
 	meta := map[string]any{"scope": m.Scope}
 	if m.Expires != nil {
 		meta["expires_at"] = m.Expires.UTC().Format(time.RFC3339)
@@ -669,7 +675,7 @@ func (s *Store) Remember(ctx context.Context, m NewMemory, actor string) (*Bead,
 // Recall lists live memories visible in scope (its own and "all") whose
 // title or body contains query (case-insensitive), titles only.
 func (s *Store) Recall(ctx context.Context, scope, query string) ([]MemoryInfo, error) {
-	q := strings.ToLower(query)
+	q, scope := strings.ToLower(query), CrewLabel(scope)
 	beads, err := s.beadsWhere(func(_ *bolt.Tx, b *Bead) bool {
 		if b.Type != TypeMemory || b.Status != "open" {
 			return false

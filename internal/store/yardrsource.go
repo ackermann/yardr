@@ -34,11 +34,11 @@ const StateDone = "done"
 //	train   the bead, or a bead it blocks or is the parent of (direct edges)
 var YardrWhereKeys = []string{"bead", "rig", "type", "label", "stage", "from", "kind", "group", "actor", "train", "state"}
 
-// deliver decides, as bead event e is logged, which residents it reaches
+// deliver decides, as bead event e is logged, which crew members it reaches
 // through yardr subscriptions and why, and records that on the event as
 // "deliveries". The users it reaches the same way are recorded as
 // "notified", and each gets a notification (see Notification): a user is
-// matched as a resident is, but has no journal to be told about. A closed
+// matched as a crew member is, but has no journal to be told about. A closed
 // event then ends the subscriptions watching that bead, after they heard
 // of the close, and lists whose in "watches_ended".
 //
@@ -52,8 +52,8 @@ func (w *wtx) deliver(e *Event) error {
 	if ok, err := get(w.Tx, bBeads, *e.Bead, row); err != nil || !ok {
 		return err
 	}
-	// Collected first: whether the bead is a resident's journal is only
-	// known once every resident has been read.
+	// Collected first: whether the bead is a crew member's journal is only
+	// known once every crew member has been read.
 	type cand struct {
 		name string
 		user bool
@@ -64,7 +64,7 @@ func (w *wtx) deliver(e *Event) error {
 	yardr := func(subs []boundSub) bool {
 		return slices.ContainsFunc(subs, func(s boundSub) bool { return s.Source == SourceYardr })
 	}
-	err := subscribers(w.Tx, func(r *Resident, subs []boundSub) error {
+	err := subscribers(w.Tx, func(r *CrewMember, subs []boundSub) error {
 		private = private || r.Journal == row.ID
 		if e.Actor != r.Name && !aboutItself(r, row.ID, e.Kind) && !doneAs(r, e) && yardr(subs) {
 			cands = append(cands, cand{name: r.Name, subs: subs})
@@ -173,20 +173,20 @@ func (w *wtx) endWatchesOn(e *Event, row *beadRow, err error) error {
 }
 
 // aboutItself reports whether an event of kind on the bead with handle
-// bead is yardr telling the resident about itself, which never reaches it
+// bead is yardr telling the crew member about itself, which never reaches it
 // whoever the actor (the daemon logs starts and stops as "yard"): anything
 // on its own journal (its session starting and stopping, its journal
 // entries and handoffs, its subscriptions changing) but a plain note
 // someone left there.
-func aboutItself(r *Resident, bead, kind string) bool {
+func aboutItself(r *CrewMember, bead, kind string) bool {
 	return bead == r.Journal && kind != "noted"
 }
 
-// doneAs reports whether e is an issue's status set as the resident by a
+// doneAs reports whether e is an issue's status set as the crew member by a
 // hook (IssueMoved). Like what it does in a source itself, it never reaches
 // its own inbox.
-func doneAs(r *Resident, e *Event) bool {
-	as, _ := e.Data["resident"].(string)
+func doneAs(r *CrewMember, e *Event) bool {
+	as := EventCrew(e.Data)
 	return e.Kind == "thread_state" && as == r.Name
 }
 
@@ -304,7 +304,7 @@ func mentionedOnBead(tx *bolt.Tx, row *beadRow, mention *regexp.Regexp) bool {
 	return mentioned
 }
 
-// participated reports whether the resident created, advanced or noted the
+// participated reports whether the crew member created, advanced or noted the
 // bead.
 func participated(tx *bolt.Tx, row *beadRow, name string) bool {
 	if row.CreatedBy != nil && *row.CreatedBy == name {
@@ -320,7 +320,7 @@ func participated(tx *bolt.Tx, row *beadRow, name string) bool {
 	return false
 }
 
-// mentionCache holds a compiled "@name" pattern per resident name. Names
+// mentionCache holds a compiled "@name" pattern per crew member name. Names
 // are few and patterns small, so entries are never dropped.
 type mentionCache struct {
 	mu       sync.Mutex
@@ -351,15 +351,15 @@ func (c *mentionCache) pattern(name string) *regexp.Regexp {
 }
 
 // endWatches drops every subscription watching the bead with handle h
-// (where bead=h), from residents, users and groups, and names whose it
+// (where bead=h), from crew members, users and groups, and names whose it
 // dropped.
 func endWatches(tx *bolt.Tx, h string) ([]string, error) {
 	watching := func(sub Subscription) bool { return sub.Source == SourceYardr && sub.Where["bead"] == h }
 	// Collected first: a bucket must not change under its own cursor.
-	var rs []*Resident
+	var rs []*CrewMember
 	var us []*User
 	var gs []*Group
-	err := each(tx, bResidents, "", func(_ []byte, r *Resident) error {
+	err := each(tx, bCrew, "", func(_ []byte, r *CrewMember) error {
 		if slices.ContainsFunc(r.Subscriptions, watching) {
 			rs = append(rs, r)
 		}
@@ -387,7 +387,7 @@ func endWatches(tx *bolt.Tx, h string) ([]string, error) {
 	var ended []string
 	for _, r := range rs {
 		r.Subscriptions = slices.DeleteFunc(r.Subscriptions, watching)
-		if err := put(tx, bResidents, r.Name, r); err != nil {
+		if err := put(tx, bCrew, r.Name, r); err != nil {
 			return nil, err
 		}
 		ended = append(ended, r.Name)

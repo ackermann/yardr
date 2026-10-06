@@ -19,11 +19,11 @@ in yard-9cza, the merge gate in yard-p2y7.
 | merge gate | `.yardr/check` (built) | a per-rig override, `rig add --check` (built) |
 | light gate | `.yardr/check-light` (built) | a per-rig override, `rig add --check-light` (built) |
 | which lines of a red gate's output say what failed | `.yardr/check-fail-pattern` (built) | none; a red gate's whole output is a file in the yard's home, `~/.yardr/gates/<rig>/` (built) |
-| roles | the rig's own role prompts: `.yardr/roles/<name>.md`, read from the base (built) | the generic roles `yardr init` installed in `~/.yardr/roles/`, the fallback; residents' prompts, by absolute path (built) |
+| roles | the rig's own role prompts: `.yardr/roles/<name>.md`, read from the base (built) | the generic roles `yardr init` installed in `~/.yardr/roles/`, the fallback; crew members' prompts, by absolute path (built) |
 | groups | | runner, limit, members, subscriptions (manual), agent kind, model, args, cmd, worktree settings (built) |
 | routes | | which group works which stage, by rig, type, label (built) |
 | rigs | | path, kind (`git` or `dir`), clone, base branch; `rig add` registers, `rig rm` removes (built) |
-| residents | | agent, directory, inbox kinds, rotation, subscriptions, identities (built) |
+| crew members | | agent, directory, inbox kinds, rotation, subscriptions, identities (built) |
 | settings | | the yard's defaults: `default_kind`, `operator`, `yardmaster`, `name`, `hook_addr`, and how agents work with the operator: `operator_style`, `operator_note`, and the bounds of its timers: `timer_limit`, `timer_min_every` (built) |
 
 ### Why the repo holds what the work is
@@ -42,7 +42,7 @@ when the code changes, so they belong next to it:
 
 ### Why the store holds who, where and how
 
-Groups, runners, models, agent arguments, members, routes and residents
+Groups, runners, models, agent arguments, members, routes and crew members
 describe one installation, not the codebase:
 
 - **Machine-specific.** Paths to scripts and prompts, the herdr setup, which
@@ -91,7 +91,7 @@ only. A prompt found nowhere fails the session start with every path tried in
 the error (the rig's as `<base>:.yardr/roles/<name>.md`); three such failures
 hold the bead.
 
-Residents have no rig: give a resident's `prompt` as an absolute path (a
+Crew members have no rig: give a crew member's `prompt` as an absolute path (a
 relative one is read from its directory), e.g. a rig's
 `/path/to/repo/.yardr/roles/yardmaster.md`.
 
@@ -151,10 +151,10 @@ event's `stop_after` says how long after the event the session is stopped,
 with or without a grace.
 
 These events, `runtime_down` (below) and `held` (a stuck agent holds its bead
-for the yardmaster) are in a new resident's default `--on`, so the
-yardmaster's inbox gets them; a resident made before one of them joined the
-default needs it added to its `--on`, which `yardr resident set <name> --on`
-replaces as a whole ([residents.md](residents.md)). `runtime_down` is about no
+for the yardmaster) are in a new crew member's default `--on`, so the
+yardmaster's inbox gets them; a crew member made before one of them joined the
+default needs it added to its `--on`, which `yardr crew set <name> --on`
+replaces as a whole ([crew.md](crew.md)). `runtime_down` is about no
 bead, so a `yardr` subscription does not deliver it.
 
 **Outages are not failures.** When a runner cannot start anything at all
@@ -235,7 +235,7 @@ gate, which fails unless the rig allows it.
 ### Where a rig's flows, stage files and roles come from
 
 The store decides per object: the rig's flow pointer, and the `prompt` of
-each group and resident. `yardr rig sources <rig>` shows all of it in one
+each group and crew member. `yardr rig sources <rig>` shows all of it in one
 place, one line per object: the kind, the name, the source that governs,
 and what it shadows or what else is available.
 
@@ -257,7 +257,7 @@ role   yardmaster      home (~/.yardr/roles/yardmaster.md)
   rig's own).
 - **stage**: the stage file of each non-terminal stage of those flows.
 - **role**: the prompt of each agent group a stage or route of the rig leads
-  to, where a brief for a bead of the rig reads it, and of each resident a
+  to, where a brief for a bead of the rig reads it, and of each crew member a
   pack imported into the rig names. Script and people groups have no role.
 
 | source | it is |
@@ -306,17 +306,17 @@ the flow switched whole: its stage files are the ones above now
 | command | `rig` | `pack` |
 |---|---|---|
 | `yardr rig source <rig> role <group> rig\|pack` | the group's `prompt` becomes `roles/<name>.md`, which resolves to the rig's `.yardr/roles/<name>.md` on the base | it becomes the pack's installed copy, `<home>/packs/<pack>/roles/<name>.md` |
-| `yardr rig source <rig> role <resident> rig\|pack` | the resident's `prompt` becomes the absolute path of `.yardr/roles/<name>.md` in the rig's checkout | as for a group |
+| `yardr rig source <rig> role <crew member> rig\|pack` | the crew member's `prompt` becomes the absolute path of `.yardr/roles/<name>.md` in the rig's checkout | as for a group |
 | `yardr rig source <rig> flow [--type <type>] rig\|pack` | the pointer of the rig, or of the type, is cleared: `.yardr/flows/default.flow`, or `type/<type>.flow`, governs | the pointer is set to the flow the pack's import pointed it at |
 
 - The role is the one the prompt names now, by its file name (`builder.md`
   of `roles/builder.md` or of `~/.yardr/packs/starter/roles/builder.md`). A
   prompt that names no role is refused: set it yourself (`yardr group
-  add`, `yardr resident add`).
-- A resident is the yard's and reads its prompt as a path, never by a
+  add`, `yardr crew add`).
+- A crew member is the yard's and reads its prompt as a path, never by a
   lookup in a rig. Its rig's role is therefore the file in the rig's
   checkout as it is on disk, not at the base commit, and the line has no
-  commit. A running resident keeps its session; the output names the
+  commit. A running crew member keeps its session; the output names the
   restart.
 - A flow switches whole: the stage files come from where the flow does, the
   rig's from beside its flow file and the pack's from the yard's home. No
@@ -656,7 +656,7 @@ Everything yardr keeps for itself lives in one directory, the yard's
 | `worktrees/<rig>/<bead>` | herdr bead worktrees |
 | `rigs/<name>` | rigs registered with `rig add --clone`; `rig rm` leaves the clone here |
 | `roles/` | the generic role prompts `yardr init` installed (yardmaster, builder, merger, reviewer), the fallback for rigs without their own; yours to edit. `.shipped.json` there records each file's hash as init wrote it, so init again can tell an edited prompt (kept) from an untouched one (refreshed) |
-| `linear.secret`, `github.secret`, `residents/<name>.env`, `groups/<group>.env` | credential files, if you keep them here as the examples do ([residents.md](residents.md#outbound-credentials)): yours, yardr creates none of them and reads only the paths a hook, resident or group names |
+| `linear.secret`, `github.secret`, `crew/<name>.env`, `groups/<group>.env` | credential files, if you keep them here as the examples do ([crew.md](crew.md#outbound-credentials)): yours, yardr creates none of them and reads only the paths a hook, crew member or group names |
 
 `--home <dir>` is a flag of every command, and runs it on the yard in that
 directory, so a second yard takes no variable:
@@ -734,14 +734,14 @@ stay where they are for you to remove.
 ### Creating a yard: the onboarding and `yardr init`
 
 A home is set up once its store has the `default_kind` setting, which init
-writes last, or once it has any rig, group, resident or bead: a yard from
+writes last, or once it has any rig, group, crew member or bead: a yard from
 before the onboarding is in use, and onboarding it would refuse its agents'
 commands. Opening such a store writes `default_kind` for it, from the first
-herdr group's kind, else the first herdr resident's, else `claude`, with the
+herdr group's kind, else the first herdr crew member's, else `claude`, with the
 event `settings_migrated` (the `operator` and `yardmaster` settings stay
 unset; installed role prompts keep the name they have). Opening a store whose
 `operator` setting names nobody's user adds that user ([users.md](users.md)),
-unless a resident has the name. Only an empty store onboards. The store file
+unless a crew member has the name. Only an empty store onboards. The store file
 alone is no marker: the server creates `yard.db` on the first command that
 connects, whatever it was, so a home can hold an empty store nobody set up.
 Any yardr command on a home that is not set up, bare `yardr` included (help
@@ -778,16 +778,16 @@ yardr:
    build's copy. They are generic: where they say `{{operator}}`, the person
    agents bring decisions to, init writes the operator's name (the form's
    "Your name", `--operator`, default the login name, or `operator` where
-   there is none), and where they say `{{yardmaster}}`, the resident builders
+   there is none), and where they say `{{yardmaster}}`, the crew member builders
    and reviewers mail about what blocks them, the yardmaster's name. A rig's
    own roles go in its repo under `.yardr/roles/`
    ([role prompts](#role-prompts));
 2. sets `operator` to the operator's name and `yardmaster` to the
    yardmaster's, and `operator_style` and `operator_note` when they were said
    (the form's answers, `--style`, `--about`);
-3. adds the yardmaster resident: `kind=<harness>`,
+3. adds the yardmaster crew member: `kind=<harness>`,
    `prompt=<home>/roles/yardmaster.md`, the model if given, the harness's
-   unattended flags as `args`, rotating every 6h. A resident of that name
+   unattended flags as `args`, rotating every 6h. A crew member of that name
    already there is kept as it is, so init runs again on a yard without harm;
 4. sets `default_kind` to the harness, which marks the yard set up.
 
@@ -798,7 +798,7 @@ reset to the flags' defaults (the login name, `yardmaster`); `operator_style`
 and `operator_note` are kept the same way, changed only by `--style` and
 `--about`. The summary lists what was kept
 (`kept default_kind claude, operator Jo, yardmaster yardmaster, as set before`).
-A resident of the yardmaster's name is kept as it is, and so are the role
+A crew member of the yardmaster's name is kept as it is, and so are the role
 files already in `<home>/roles/`. What a run that failed leaves, and how the
 next one finishes it, is [below](#a-run-that-did-not-finish).
 
@@ -831,7 +831,7 @@ OPERATOR Jo:
   What Jo wants agents to know: I review every merge myself
 ```
 
-and `yardr prime --resident <name>` after the role, under `## The operator:
+and `yardr prime --crew <name>` after the role, under `## The operator:
 Jo` (`--json`: `operator`, with `name`, `style`, `label`, `tells`, `note`).
 So `yardr settings set operator_style report` reaches every session that
 starts after it, with no init and no edit of a role a rig committed; a
@@ -881,7 +881,7 @@ running daemon is left alone. Unlike the server, this daemon keeps the
 environment of the command that started it (herdr's socket, the PATH an exec
 group's command runs with, as a daemon in a pane has its pane's), without
 what names the starter (`YARDR_ACTOR`, `_BEAD`, `_SESSION`, `_STAGE`,
-`_GROUP`, `_RESIDENT`) and with `YARDR_HOME` set to the home.
+`_GROUP`, `_CREW`) and with `YARDR_HOME` set to the home.
 
 `yardr daemon stop` ends the daemon of the home, however it was started: it
 signals the pid in `<home>/daemon.lock` and waits (`--wait`, default 30s)
@@ -924,7 +924,7 @@ prompt was delivered and it answered: herdr reports the agent working, or
 the pane shows output below the prompt.
 
 When the yardmaster is up, yardr prints where it is, as `herdr agent list` and
-`yardr resident show <yardmaster> --json` name it: the agent
+`yardr crew show <yardmaster> --json` name it: the agent
 (`<yard>-<yardmaster>`), the workspace's label (`<yard> <yardmaster>`) and id,
 the tab and the pane; and how to get there: `herdr agent focus <agent>` brings
 its pane to the front in herdr, `herdr agent attach <agent>` opens it from any
@@ -936,15 +936,15 @@ same run. `yardr init --start` in a terminal does not ask that and opens the
 chat.
 
 The yardmaster `yardr init` adds has `greet=<operator>` in its config. The first
-prompt of a resident with that key, in its first session only, asks it to
+prompt of a crew member with that key, in its first session only, asks it to
 greet that user by mail (`yardr mail <operator> "…"`) and to say what it
 needs for the next setup step, before it points at the prime as every
-resident's first prompt does. The chat shows mail and nothing of a pane, so
+crew member's first prompt does. The chat shows mail and nothing of a pane, so
 this is how the yardmaster's first word gets there. A later session (a rotation,
 a restart) is asked for no greeting.
 
 No chat opens without a terminal, with `--json`, in an agent's own session
-(`YARDR_SESSION` or `YARDR_RESIDENT` is set) and with `--no-chat`: yardr then
+(`YARDR_SESSION` or `YARDR_CREW` is set) and with `--no-chat`: yardr then
 ends where the yardmaster's place is printed, and the lines after it name
 `yardr chat`. Nor does one open when who runs the command is no user of the
 yard (the operator was given another name than the login name): the yardmaster's
@@ -1095,7 +1095,7 @@ yardr's tests load nothing into launchd, so it is not reproduced by them.
 #### A run that did not finish
 
 The onboarding and `yardr init` do their steps in one order: the roles, the
-`operator` and `yardmaster` settings, the yardmaster resident, `default_kind`,
+`operator` and `yardmaster` settings, the yardmaster crew member, `default_kind`,
 and then, when asked to, the daemon and the wait for the yardmaster. A run
 that fails leaves what the steps before the failure made. The next run
 finishes from that: it does not start again from nothing, and it says what it
@@ -1106,11 +1106,11 @@ found.
 | among the roles | some of the prompts, each whole and recorded in `.shipped.json` as written | `yardr init --harness <kind>` again, or `yardr` in a terminal for the form. Prompts the failed run wrote are refreshed to the names this run is given; none counts as edited by hand |
 | after the roles | the four prompts | the same |
 | after `operator`, or after `yardmaster` | the prompts and the settings stored so far | the same. The stored settings stand in for `--operator` and `--yardmaster` when they are not given, and are what the form's "Yardmaster" and "Your name" start at |
-| after the yardmaster was added | all but `default_kind`. With a resident the home counts as a yard, so no form runs | `yardr init`, with no flag: the harness is the yardmaster's. Or `yardr` in a terminal, below |
+| after the yardmaster was added | all but `default_kind`. With a crew member the home counts as a yard, so no form runs | `yardr init`, with no flag: the harness is the yardmaster's. Or `yardr` in a terminal, below |
 | the daemon could not be started, or the yardmaster did not come up | a yard that is set up and does not run | `yardr init --start`, which starts the daemon unless one runs and waits again. Or `yardr` in a terminal, below |
 
 Init then prints `yard in <home> finished: part of it was there`, with a
-`found` line (the prompts, settings and resident that were there) and an
+`found` line (the prompts, settings and crew member that were there) and an
 `added` line (what this run added); `--json` has the same as `found` and
 `added`, which are absent on a new home and on a yard that was set up. A
 setting stored with `yardr settings set` before any init is found the same
@@ -1122,7 +1122,7 @@ next run given another operator or yardmaster keeps that file as edited.
 Delete it to get this build's copy.
 
 **Bare `yardr` in a terminal** takes the onboarding up where a yard has no rig
-yet and any of this holds: `default_kind` is not set, the yardmaster resident
+yet and any of this holds: `default_kind` is not set, the yardmaster crew member
 is missing, no daemon runs, or the yardmaster is not up (its session is not
 running, or runs and has not answered its first prompt). It prints what is
 there, in the lines [`yardr doctor`](doctor.md#the-yard) prints for the yard,
@@ -1138,7 +1138,7 @@ On any other yard bare `yardr` is help, as before (with a last line,
 `Mail for <user>: N unread from <names>`, when the user who runs it has unread
 mail, [users.md](users.md)): one with a rig (its setup is `yardr setup`'s, or
 the yardmaster's), one that runs, one whose yardmaster was stopped with
-`yardr resident stop` while its daemon runs. It is help too without a
+`yardr crew stop` while its daemon runs. It is help too without a
 terminal, with `--json`, and in an agent's session. When the form's own start
 ends with a yardmaster that is not up, its last line says to run `yardr` in
 the terminal again once that is set right.
@@ -1154,7 +1154,7 @@ they stop, so the home goes last.
 |---|---|---|---|
 | the login services | `~/Library/LaunchAgents/dev.yardr.{daemon,web}.<home>.plist`, or `~/.config/systemd/user/yardr-{daemon,web}-<home>.service` | `yardr doctor`, under Optional; `yardr daemon status` | `yardr web uninstall`, `yardr daemon uninstall`. Each unloads its service, which stops what it ran, and deletes the file |
 | a web view started with `yardr web start` | a process; it logs to `<home>/web.log` | `yardr status`, under `web view` | `kill <pid>` |
-| the yardmaster's session, and any other resident's | a herdr workspace labelled `<yard> <resident>`, agent `<yard>-<resident>` | `yardr resident list`, `herdr workspace list` | `yardr resident stop <name>`: the daemon closes the session's tab, and its workspace with it, on its next pass (30s at most). It needs the daemon running |
+| the yardmaster's session, and any other crew member's | a herdr workspace labelled `<yard> <crew member>`, agent `<yard>-<crew member>` | `yardr crew list`, `herdr workspace list` | `yardr crew stop <name>`: the daemon closes the session's tab, and its workspace with it, on its next pass (30s at most). It needs the daemon running |
 | sessions working beads | a herdr workspace per bead | `yardr session list`, `herdr workspace list` | `herdr workspace close <id>` for each that is left. Look at the bead's worktree first (the home, below) |
 | the daemon | a process holding `<home>/daemon.lock` | `yardr daemon status` | `yardr daemon stop` |
 | the server | a process; `<home>/server.pid`, `yard.sock` | `yardr server status` | `yardr server stop`. Any yardr command after it starts a server again, so run none before the home is gone. A server or daemon still running when the home is removed stops by itself within a minute ([above](#yardrs-own-state)) |
@@ -1169,7 +1169,7 @@ committed in a worktree goes with the home. `<home>/rigs/<name>` are
 repositories themselves, cloned by `yardr rig add --clone`: removing the home
 removes those clones, with every branch that was never pushed. Move out what
 you want to keep. Credential files you kept in the home
-(`linear.secret`, `residents/<name>.env`) go with it too.
+(`linear.secret`, `crew/<name>.env`) go with it too.
 
 After the home is gone, each rig's repository still lists the worktrees that
 were in it: `git -C <repo> worktree prune` clears them (and the briefs yardr
@@ -1184,7 +1184,7 @@ process of the yard was left, `yardr doctor` reported no yard, and
 
 Starting over is seldom needed for what the onboarding asked: the harness,
 your name and the yardmaster's are `yardr settings set`, the yardmaster's
-directory and model are `yardr resident set <yardmaster> --dir … model=…`, a
+directory and model are `yardr crew set <yardmaster> --dir … model=…`, a
 role prompt comes back as this build's when its file is deleted and
 `yardr init` runs, and a setup that failed is finished by the next run
 ([above](#a-run-that-did-not-finish)).
@@ -1196,7 +1196,7 @@ writes a registered rig's starting configuration into its checkout:
 
 | file | content |
 |---|---|
-| `.yardr/roles/{yardmaster,builder,reviewer,merger}.md` | the generic roles, `{{operator}}` filled with `--operator`, default the yard's `operator` setting, else the login name, else `operator`; `{{yardmaster}}` with `--yardmaster`, default the yard's `yardmaster` setting, else its one resident, else `yardmaster` |
+| `.yardr/roles/{yardmaster,builder,reviewer,merger}.md` | the generic roles, `{{operator}}` filled with `--operator`, default the yard's `operator` setting, else the login name, else `operator`; `{{yardmaster}}` with `--yardmaster`, default the yard's `yardmaster` setting, else its one crew member, else `yardmaster` |
 | `.yardr/check` | the merge gate, executable, with a comment saying so; its command is a guess from the repo: `go.mod` gives `go vet ./... && go test ./...`, a `package.json` with a real `test` script gives `npm test` (`pnpm`/`yarn` by lockfile), anything else `exit 0` with a TODO |
 | `.yardr/flows/default.flow` | the standard stages: backlog, new, review, approved, merged (terminal), decide, with the outcomes `done`, `question`, `changes` and `failed` |
 | `.yardr/flows/default/<stage>.md` | a starter [stage file](flows.md#stage-files-what-a-stage-is-for) for each stage but `merged`: what the stage is for, what must be true to leave it, when each outcome applies; the placeholders filled as in the roles |
@@ -1228,15 +1228,15 @@ value unsets) keep the yard's own defaults in the store:
 
 | key | meaning |
 |---|---|
-| `default_kind` | the agent kind a herdr group or resident gets when `group add` or `resident add` is given no `--set kind`; also the kind their forms start at. One of the kinds herdr starts. Its presence marks the yard set up. |
-| `operator` | the person the role prompts name, agents bring decisions to; `yardr init` stores it (`--operator`, the form's "Your name") and `yardr rig init` fills roles with it. The operator is a user ([users.md](users.md)): setting a name adds the user when there is none, a resident's name is refused, and only the operator adds and removes other users. |
+| `default_kind` | the agent kind a herdr group or crew member gets when `group add` or `crew add` is given no `--set kind`; also the kind their forms start at. One of the kinds herdr starts. Its presence marks the yard set up. |
+| `operator` | the person the role prompts name, agents bring decisions to; `yardr init` stores it (`--operator`, the form's "Your name") and `yardr rig init` fills roles with it. The operator is a user ([users.md](users.md)): setting a name adds the user when there is none, a crew member's name is refused, and only the operator adds and removes other users. |
 | `operator_style` | how agents should work with the operator: `guide`, `show`, `work` or `report` ([what each tells an agent](#how-agents-work-with-you)). `yardr init` stores it (`--style`, the form's "How should agents work with you?"); both primes print it as instructions, so a change reaches the next session that starts. Unset, the primes say nothing about it. |
 | `operator_note` | one line agents should know about the operator (`--about`, the form's "Anything agents should know about you?"), printed by the primes with the style, or alone. |
-| `yardmaster` | the yardmaster resident's name, whom the builder and reviewer roles tell agents to mail about what blocks them ([residents.md](residents.md#findings-from-builders-and-reviewers)); `yardr init` stores it (`--yardmaster`) and `yardr rig init` fills roles with it. A yard from before the setting has none: `rig init` then takes its one resident, else `yardmaster`. |
+| `yardmaster` | the yardmaster crew member's name, whom the builder and reviewer roles tell agents to mail about what blocks them ([crew.md](crew.md#findings-from-builders-and-reviewers)); `yardr init` stores it (`--yardmaster`) and `yardr rig init` fills roles with it. A yard from before the setting has none: `rig init` then takes its one crew member, else `yardmaster`. |
 | `hook_addr` | the TCP address the server takes webhooks on, `127.0.0.1:8790` say ([subscriptions.md](subscriptions.md)). The server reads it when it starts, so a change takes its next start: `yardr server stop`, and the next command starts it again; `settings set` says so. `YARDR_HOOK_ADDR`, set where the server starts, is used instead of it. An address that is not `host:port` with a port from 1 to 65535 is refused (`:8790` is every interface). The server writes what it listens on to `hooks.state` in the home, and `yardr doctor` reports it: the address and whether it is the variable's or the setting's. A server that cannot listen there (another yard has the address) keeps serving its yard, logs a `hook_listener_failed` event, and doctor says so with what to change. |
 | `gate_slots` | how many full gates (`yardr rig check`) run at once on the machine, counting every yard of the user; the others wait for a [slot](#gate-slots-how-many-gates-run-at-once). A whole number, default 2; `0` is no limit. |
-| `name` | the yard's name, which its residents' herdr agents and workspaces carry (`<name>-yardmaster`, labelled `<name> yardmaster`), so two yards on one machine, whose agents herdr lists together, are told apart. Unset, the home's directory name: `yardr` for `~/.yardr`, `y1` for `/tmp/y1`. Changing it renames residents started from then on. |
-| `timer_limit` | how many live timers one resident or user may have set ([timers.md](timers.md#limits)); a whole number from 1, default 5. |
+| `name` | the yard's name, which its crew's herdr agents and workspaces carry (`<name>-yardmaster`, labelled `<name> yardmaster`), so two yards on one machine, whose agents herdr lists together, are told apart. Unset, the home's directory name: `yardr` for `~/.yardr`, `y1` for `/tmp/y1`. Changing it renames crew members started from then on. |
+| `timer_limit` | how many live timers one crew member or user may have set ([timers.md](timers.md#limits)); a whole number from 1, default 5. |
 | `timer_min_every` | the shortest period of a recurring timer (`yardr timer add --every`): a duration such as `30m` or `1d`, default `1h`. |
 
 Environment variables yardr reads:
@@ -1245,7 +1245,7 @@ Environment variables yardr reads:
 |---|---|
 | `YARDR_HOME` | state directory (above), when `--home` is not given; a relative path is resolved against the command's directory, once |
 | `YARDR_ACTOR` | who is acting, for the event log (default: the OS user). A command whose actor is a user's name acts as that user ([users.md](users.md)); nothing checks who is at the keyboard |
-| `YARDR_BEAD`, `YARDR_RESIDENT` | defaults for `prime` and resident commands; set for the sessions yardr starts |
+| `YARDR_BEAD`, `YARDR_CREW` | defaults for `prime` and crew member commands; set for the sessions yardr starts |
 | `YARDR_SESSION` | the session yardr started this process for; every bead move (`bead done`, `advance`, `close`, `hold`, `release`, `reopen`) sends it, and the store refuses to move the session's own bead once the session no longer owns it, and any other bead a live session owns. A call from the session's pane is checked as it even with the variable unset ([pipeline.md](pipeline.md#2-new-a-builder-implements-it)). In a bead's worktree, an environment naming another bead gives way to the worktree's session ([groups.md](groups.md#codex)) |
 | `YARDR_HOOK_ADDR` | TCP address the server takes webhooks on, e.g. `127.0.0.1:8790`, read where the server starts; set, it is used instead of the `hook_addr` setting ([above](#settings)). Sessions and gates do not inherit it |
 | `YARDR_LINEAR_API`, `YARDR_GITHUB_API` | where `yardr reply`, `yardr thread open` and `yardr thread state` send their calls, read by the command that makes them, and where the daemon sends a hook's issue moves ([links.md](links.md#a-beads-stage-moves-the-issue)), read when it starts (default: Linear's GraphQL endpoint, `https://api.github.com`) |
@@ -1273,22 +1273,22 @@ and `--inbox` override the knobs for one run).
 |---|---|---|
 | `YARDR_EVENT_RETENTION` | `90d` | events, with their index entries, and ended sessions (`yardr session list --all`); also what a link with another yard remembers of its messages, though never for less than 7 days (below) |
 | `YARDR_HOOK_PAYLOAD_RETENTION` | `30d` | raw webhook bodies (up to 1 MiB each), read only by `yardr hook show`; the `hook` event keeps the envelope routing reads |
-| `YARDR_INBOX_RETENTION` | `180d` | how long an event a running resident has not read holds the log back |
+| `YARDR_INBOX_RETENTION` | `180d` | how long an event a running crew member has not read holds the log back |
 
 Values are days (`90d`), Go durations (`720h`), or `off` (or `0`) to keep
 everything. Whatever its age, an event is kept when:
 
 - it is the newest event (sequences continue from it);
-- it is in a *running* resident's inbox, not yet acknowledged and younger
-  than the inbox retention, and so is every event after it; a resident with
+- it is in a *running* crew member's inbox, not yet acknowledged and younger
+  than the inbox retention, and so is every event after it; a crew member with
   nothing unread holds nothing back, and neither does one that is stopped or
   disabled, however much it has not read;
-- it was logged after the oldest live bead session or running resident
+- it was logged after the oldest live bead session or running crew member
   session started.
 
 An unread inbox event past those bounds goes like any other; the prune
-reports how many each resident lost (`expired`) and logs `inbox_expired` on
-the resident's journal with the count, so the resident learns what it never
+reports how many each crew member lost (`expired`) and logs `inbox_expired` on
+the crew member's journal with the count, so the crew member learns what it never
 read. An ended session goes with the events of its time once the daemon has
 stopped its runner resources and, when it left a worktree, cleaned up after
 the bead closed (`workspace_removed`); a live session is never pruned.
@@ -1356,8 +1356,9 @@ the summary says which ([above](#creating-a-yard-the-onboarding-and-yardr-init))
 The store is stamped with its schema version on open, and a yardr whose schema
 is older than the store's refuses to open it
 (`store schema is newer than this yardr knows`) rather than run its migrations
-over it. The schema is 10: version 10 stores the bead types `epic` and `part`
-as `train` and `car`, and version 9 the setting `mayor` as `yardmaster`
+over it. The schema is 11: version 11 stores the residents as the crew,
+version 10 the bead types `epic` and `part` as `train` and `car`, and
+version 9 the setting `mayor` as `yardmaster`
 ([below](#words-that-changed)); version 8 keeps, in a peer's intake, how long
 a bead it sent waits to be released
 ([peers.md](peers.md#a-held-bead-that-nobody-releases)); version 7 keeps, with
@@ -1377,24 +1378,25 @@ yardr names its things with the yard, and some of them had other names. For
 one release an old word is still read wherever a person, a script or a file
 of the yard's own may give it, and yardr answers with the new one; what the
 store holds under an old word is renamed when the new build first opens it
-(`settings_migrated` and `types_migrated` in the events say what was). The release after drops
-the old words below, so change scripts and files now.
+(`settings_migrated`, `types_migrated` and `crew_migrated` in the events say
+what was). The release after drops the old words below, so change scripts
+and files now.
 
-**mayor is now yardmaster**: the resident that coordinates a yard.
+**mayor is now yardmaster**: the crew member that coordinates a yard.
 
 | the old word | still read as |
 |---|---|
 | `yardr init --mayor <name>`, `yardr rig init --mayor <name>` and `--with-mayor` | `--yardmaster`, `--with-yardmaster`; help lists only these |
 | the setting `mayor` (`yardr settings get mayor`, `set mayor <name>`) | the setting `yardmaster`. The stored one is renamed by schema 9 |
-| `{{mayor}}` in a role or stage file of a pack whose resident is `yardmaster`, and in yardr's own templates | `{{yardmaster}}` |
-| `--resident mayor=<name>` of `yardr pack check` and `apply`, and the record of an import from when the starter pack's resident was `mayor` | the pack's resident `yardmaster`. A pack that still has a resident `mayor` of its own is read as it stands |
-| `mayor.md`, the yardmaster's role file | `yardmaster.md`. A roles directory (`~/.yardr/roles/`, a rig's `.yardr/roles/`) that has `mayor.md` and no `yardmaster.md` keeps its file: `yardr init` refreshes it there and `yardr rig init` adds no second one. A prompt that names either file reads the other when the one it names is not there, so a resident's `prompt=…/mayor.md` keeps working, also after the file is renamed |
+| `{{mayor}}` in a role or stage file of a pack whose crew member is `yardmaster`, and in yardr's own templates | `{{yardmaster}}` |
+| `--crew mayor=<name>` of `yardr pack check` and `apply`, and the record of an import from when the starter pack's crew member was `mayor` | the pack's crew member `yardmaster`. A pack that still has a crew member `mayor` of its own is read as it stands |
+| `mayor.md`, the yardmaster's role file | `yardmaster.md`. A roles directory (`~/.yardr/roles/`, a rig's `.yardr/roles/`) that has `mayor.md` and no `yardmaster.md` keeps its file: `yardr init` refreshes it there and `yardr rig init` adds no second one. A prompt that names either file reads the other when the one it names is not there, so a crew member's `prompt=…/mayor.md` keeps working, also after the file is renamed |
 
-What does not change: a resident's name is the operator's, so a yard whose
-resident is called `mayor` keeps it. Its `yardmaster` setting says `mayor`
+What does not change: a crew member's name is the operator's, so a yard whose
+crew member is called `mayor` keeps it. Its `yardmaster` setting says `mayor`
 (the upgrade sets it where it was unset), and that is whom the roles tell
 agents to mail and whom `yardr doctor` reports on. Only a new yard's
-resident is called `yardmaster` by default.
+crew member is called `yardmaster` by default.
 
 What is printed has the new word at once, with no old spelling beside it:
 `yardr doctor`'s line `yardmaster`, the `yardmaster` and `yardmaster_kept`
@@ -1452,6 +1454,60 @@ for a task, as it did, so a yard and its peers can be upgraded in any
 order. What yardr serves over [BDP](bdp.md) gives a train the reference
 type `epic`, as before; its `issue_type` property and a car's minted type
 say `train` and `car`.
+
+**resident is now crew**: the ones who are always in the yard are its crew,
+and one of them is a crew member ([crew.md](crew.md)).
+
+| the old word | still read as |
+|---|---|
+| `yardr resident <command>`: `add`, `set`, `show`, `list`, `start`, `stop`, `restart`, `rm`, `journal`, `handoff`, `identity` | `yardr crew <command>`; help lists only that |
+| `--resident <name>` of `yardr prime`, `inbox`, `reply`, `thread open`, `thread state`, `bead watch` and `bead unwatch` | `--crew <name>`; help lists only that |
+| `--resident <pack's>=<yard's>` and `--bind resident:<name>=…` of `yardr pack check` and `apply` | `--crew <pack's>=<yard's>` and `--bind crew:<name>=…` |
+| `YARDR_RESIDENT` in the environment | `YARDR_CREW`. Both are set in a crew member's pane and for its `env_command`, and yardr reads the old one where the new is not set, so a session started before the upgrade works until it ends |
+| the event kinds `resident_defined`, `resident_deleted`, `resident_enabled`, `resident_disabled`, `resident_started`, `resident_status`, `resident_stopped`, `resident_start_failed`, `resident_gave_up`, `resident_restart_requested`, `resident_rotation_asked` and `resident_blocked`: in `--where kind=` of `yardr subscribe` and `unsubscribe`, in `--on` of `yardr crew add` and `set`, and in `hears: events:` of a pack | the same kinds with `crew_` for `resident_`, which new events carry. Schema 11 renames the stored ones: a crew member's `--on`, subscriptions, the records of imported packs. Events already in the log keep the kind they were logged with, and the inbox, `yardr chat`, the web view's feed and `yardr doctor` read them as before |
+| the label `resident:<name>` of a crew member's journal, in `yardr bead list -l` and `--where label=`, and `--scope resident:<name>` of `yardr remember` and `recall` | `crew:<name>`. Schema 11 renames the stored labels and the scope of the memories |
+| `residents:` in a `pack.yaml` | `crew:`. A pack that has both means `crew:` |
+| `<home>/residents/`, where these pages had you keep a crew member's `env_file` and keys | `<home>/crew/`. The first start of the new build renames the directory and leaves a link `residents` to it, so a path written in an `env_file` (a GitHub App's key), in a script or in a shell's history still finds its file; an `env_file` of a crew member that was under the old directory is recorded under the new one. A home that has both directories is left as it is, and so are the paths |
+| `/residents` of the web view | `/crew`, by a redirect |
+| `docs/residents.md` | [crew.md](crew.md); the old page is one line that says so |
+| the field `resident` of an event already logged | the field `crew`, where yardr reads an event again (`yardr chat`, the inbox). The [OpenTelemetry export](otel.md) passes an old event's field on under the name it has |
+
+What does not change: a crew member's name, its journal bead
+(`<name>-journal`), its herdr agent and workspace, the keys of its
+definition (`env_file`, `peers`, `open_threads` and the rest), the settings,
+and its inbox, which keeps its place. Files of your own that say resident (a
+role or stage file an earlier `yardr init`, `yardr rig init` or pack import
+wrote, a script) are yours: the commands and flags they name are read as
+above, so edit them when it suits; `yardr init` again refreshes the role
+prompts nobody edited.
+
+What is printed has the new word at once, with no old spelling beside it:
+the first line of a crew member's prime (`# yardr crew member: <name>`) and
+of its first prompt (`You are the yardr crew member "<name>"`), the line
+`crew` of `yardr doctor` and the part `crew` of `yardr status`, and in
+`--json`: the field `crew` (it was `resident`) of `yardr crew show`,
+`journal`, `handoff`, `start`, `stop` and `restart`, of `yardr reply`,
+`thread open`, `thread state`, `thread follow` and `unfollow`, and of
+`yardr doctor`'s yardmaster; the list `crew` (it was `residents`) of
+`yardr status`, of the web view's `/crew`, of `yardr peer rename` and of a
+pack's plan and record, with the kind `crew` of a plan's object and its
+questions `crew.<name>.<field>`; the count `crew` of `yardr doctor` and the
+name `crew` in its `skipped`. New events name the crew member in the field
+`crew`. Change what reads them.
+
+A yard that runs while it is upgraded keeps running. A crew member's
+session from before has `YARDR_RESIDENT` alone in its environment and a first
+prompt in the old words (`yardr prime --resident <name>`): both are read, and
+the daemon goes on nudging it. A web view or a `yardr chat` started before
+does not replace itself and asks the server for the crew by the names of its
+own build, which the server still answers; restart it to get the new words.
+
+On a link to another yard the word was in one place: the reason
+`no_such_resident` a yard gives when it refuses mail for a name it does not
+have. It is still sent as that in this release, and `no_such_crew`, which the
+next release sends, is read already, so a yard and its peers can be upgraded
+in any order. Mail addresses (`<name>@<peer>`) and everything else on a link
+are as they were.
 
 How a newer build takes over:
 

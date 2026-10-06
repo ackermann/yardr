@@ -25,7 +25,7 @@
 #     the real agent in Homebrew's bin ahead of any fake; a non-login shell
 #     keeps the server's PATH.
 #   - D/bin/claude is the stand-in from ./fake. Use kind claude for groups and
-#     residents (`yardr init --harness claude`): no other agent kind is on
+#     crew members (`yardr init --harness claude`): no other agent kind is on
 #     the pane's PATH, so any other kind fails to start instead of starting
 #     the real one. An agent kind "the machine does not have" is no
 #     protection: it may be installed tomorrow.

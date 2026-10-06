@@ -22,70 +22,78 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// defaultOn are the events a new resident hears about: work that needs a
+// defaultOn are the events a new crew member hears about: work that needs a
 // decision, anything that went wrong, and beads held: the roles tell a
 // stuck agent to hold its bead for the yardmaster, so the hold must reach it.
-// A resident from before a kind joined this list does not get it: resident
-// add --on replaces the list, so name every kind wanted (docs/residents.md).
+// A crew member from before a kind joined this list does not get it: crew member
+// add --on replaces the list, so name every kind wanted (docs/crew.md).
 var defaultOn = []string{"gave_up", "session_blocked", "unrouted", "stranded", "no_runner", "workspace_kept",
-	"resident_gave_up", "runtime_down", "session_idle", "session_aged", "session_stalled",
+	"crew_gave_up", "runtime_down", "session_idle", "session_aged", "session_stalled",
 	"session_harness_error", "session_model_mismatch", "session_prompt_gave_up", "move_refused", "held"}
 
 // knownKinds are offered in the interactive form.
 var knownKinds = []string{"gave_up", "session_blocked", "session_died", "session_failed", "unrouted", "stranded",
 	"runtime_down", "runtime_up", "session_idle", "session_aged", "session_stalled", "session_harness_error",
 	"session_model_mismatch", "session_prompt_gave_up", "session_prompt_lost", "session_prompt_typed", "move_refused", "nudge_held",
-	"no_runner", "workspace_kept", "resident_gave_up", "created", "claimed", "advanced", "closed",
+	"no_runner", "workspace_kept", "crew_gave_up", "created", "claimed", "advanced", "closed",
 	"held", "released", "noted", "dep_added", "hook_rejected"}
 
-func (a *app) residentCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "resident", Short: "Always-on sessions not tied to a bead (a yardmaster)"}
+// oldCrewCmd is crewCmd under the name it had until this release, when the
+// crew were the residents: it does the same, and help lists only the new.
+func (a *app) oldCrewCmd() *cobra.Command {
+	cmd := a.crewCmd()
+	cmd.Use, cmd.Hidden = "resident", true
+	return cmd
+}
 
-	var def store.Resident
+func (a *app) crewCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "crew", Short: "Always-on sessions not tied to a bead (a yardmaster)"}
+
+	var def store.CrewMember
 	var sets []string
 	var replace bool
 	add := &cobra.Command{
 		Use:   "add [<name>]",
-		Short: "Create a resident, or replace one's whole definition (no name: an interactive form)",
-		Long: `A resident is an always-on agent session, such as a yardmaster. The daemon keeps
+		Short: "Create a crew member, or replace one's whole definition (no name: an interactive form)",
+		Long: `A crew member is an always-on agent session, such as a yardmaster. The daemon keeps
 it running in its directory, nudges it when its inbox has something new and it
 is idle, and rotates it: at --max-age it is asked to write a handoff, and its
 next session starts from that handoff (forced after --handoff-grace).
 
-Without --set kind, a herdr resident gets the yard's default_kind.
+Without --set kind, a herdr crew member gets the yard's default_kind.
 
-Add writes the whole definition: on a resident that exists, every setting
+Add writes the whole definition: on a crew member that exists, every setting
 left out is dropped. So there it lists what would change and asks, in a
 terminal; anywhere else it is refused unless --replace is given. To change
-some settings and keep the rest, use yardr resident set.
+some settings and keep the rest, use yardr crew set.
 
 --set env_file=<path> names a file of KEY=VALUE lines (mode 0600) that join
 the session's environment: its credentials. --set env_command="<command>"
 names a command that prints such lines instead, so a secrets tool holds the
 values: it is run without a shell (words split at spaces; a JSON list for a
-word with a space in it) at each start, and the resident does not start
+word with a space in it) at each start, and the crew member does not start
 when it fails. With both, the command's value wins for a key in both. The
-command line is stored and shown (yardr resident show): never put a secret
-in it. docs/residents.md has both.
+command line is stored and shown (yardr crew show): never put a secret
+in it. docs/crew.md has both.
 
---set open_threads=linear,github lets the resident open threads of its own
+--set open_threads=linear,github lets the crew member open threads of its own
 in those sources (yardr thread open). It is off unless set, and only the
 operator (the yard's operator setting, else the user running the command)
-may add a source to it: a resident's session cannot allow itself or
-another resident.
+may add a source to it: a crew member's session cannot allow itself or
+another crew member.
 
 --set set_state=linear,github lets it set the status of a thread it takes
 part in in those sources (yardr thread state), under the same rule.
 
---set peers=north,south lets it mail residents of those linked yards (yardr
-mail <resident>@<peer>), under the same rule. The peers are this yard's names
+--set peers=north,south lets it mail crew members of those linked yards (yardr
+mail <crew member>@<peer>), under the same rule. The peers are this yard's names
 for its links (yardr peer list).
 
 --set release=north lets it release the beads that arrive held from those
 linked yards (yardr bead unhold), under the same rule. Without it only a
 user releases such a bead (yardr peer intake).`,
-		Example: `  yardr resident add                       # interactive
-  yardr resident add yardmaster --set kind=claude --set model=opus \
+		Example: `  yardr crew add                       # interactive
+  yardr crew add yardmaster --set kind=claude --set model=opus \
     --set 'args=["--permission-mode","auto"]' --set prompt=$HOME/.yardr/roles/yardmaster.md \
     --dir ~/projects --max-age 6h`,
 		Args: cobra.MaximumNArgs(1),
@@ -96,9 +104,9 @@ user releases such a bead (yardr peer intake).`,
 			}
 			if len(args) == 0 {
 				if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
-					return fmt.Errorf("give a resident name, or run in a terminal for the interactive form")
+					return fmt.Errorf("give a crew member name, or run in a terminal for the interactive form")
 				}
-				if err := a.residentForm(c.Context(), st); errors.Is(err, huh.ErrUserAborted) {
+				if err := a.crewForm(c.Context(), st); errors.Is(err, huh.ErrUserAborted) {
 					fmt.Println("cancelled")
 					return nil
 				} else {
@@ -116,11 +124,11 @@ user releases such a bead (yardr peer intake).`,
 			if err := a.mayDefine(c.Context(), st, def, false); err != nil {
 				return err
 			}
-			// Add writes the whole definition, so on a resident that is there
+			// Add writes the whole definition, so on a crew member that is there
 			// every flag left out is a setting lost: it says which, and saves
 			// only once someone has said that is meant.
 			var changes []defChange
-			switch have, err := st.GetResident(c.Context(), def.Name); {
+			switch have, err := st.GetCrew(c.Context(), def.Name); {
 			case err == nil:
 				changes = defChanges(*have, def)
 			case !errors.Is(err, store.ErrNotFound):
@@ -128,27 +136,27 @@ user releases such a bead (yardr peer intake).`,
 			}
 			if len(changes) > 0 && !replace {
 				if a.json || !interactive() || agentSession() {
-					return fmt.Errorf("resident %s exists, and add replaces its whole definition. This one would change:\n%s\n"+
-						"To change some settings and keep the rest: yardr resident set %s key=value. To save this definition as given: --replace",
+					return fmt.Errorf("crew member %s exists, and add replaces its whole definition. This one would change:\n%s\n"+
+						"To change some settings and keep the rest: yardr crew set %s key=value. To save this definition as given: --replace",
 						def.Name, changeLines(changes), def.Name)
 				}
 				ok := false
 				if err := ask(huh.NewConfirm().Title(fmt.Sprintf("Replace the definition of %s?", def.Name)).
-					Description(changeLines(changes) + "\nyardr resident set " + def.Name + " key=value changes some settings and keeps the rest.").
+					Description(changeLines(changes) + "\nyardr crew set " + def.Name + " key=value changes some settings and keeps the rest.").
 					Affirmative("Replace").Negative("No").Value(&ok)); err != nil && !errors.Is(err, huh.ErrUserAborted) {
 					return err
 				}
 				if !ok {
-					fmt.Printf("resident %s not changed\n", def.Name)
+					fmt.Printf("crew member %s not changed\n", def.Name)
 					return nil
 				}
 			}
-			r, err := st.PutResident(c.Context(), def, a.who())
+			r, err := st.PutCrew(c.Context(), def, a.who())
 			if err != nil {
 				return err
 			}
 			return a.out(r, func() {
-				fmt.Printf("resident %s saved; journal %s\n", r.Name, r.Journal)
+				fmt.Printf("crew member %s saved; journal %s\n", r.Name, r.Journal)
 				if len(changes) > 0 {
 					fmt.Println(changeLines(changes))
 				}
@@ -156,23 +164,23 @@ user releases such a bead (yardr peer intake).`,
 		},
 	}
 	f := add.Flags()
-	f.BoolVar(&replace, "replace", false, "the resident exists: save this definition in its place without asking (settings left out are dropped)")
+	f.BoolVar(&replace, "replace", false, "the crew member exists: save this definition in its place without asking (settings left out are dropped)")
 	f.StringVar(&def.Runner, "runner", "herdr", "runner (herdr)")
 	f.StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable): kind, model, args, prompt, env_file, env_command, open_threads, set_state, peers, release")
-	f.StringVar(&def.Dir, "dir", "", "directory the resident works in (default: the yard home)")
+	f.StringVar(&def.Dir, "dir", "", "directory the crew member works in (default: the yard home)")
 	f.StringSliceVar(&def.On, "on", defaultOn, "event kinds delivered to its inbox (mail always is); replaces the list, so name every kind wanted")
 	f.StringVar(&def.MaxAge, "max-age", "", "ask for a handoff after this long, e.g. 6h (default: never)")
 	f.StringVar(&def.HandoffGrace, "handoff-grace", "15m", "how long a requested handoff may take before a forced restart")
-	f.StringVar(&def.Revision, "revision", "", "refuse unless the resident is still at this revision (from resident show --json)")
+	f.StringVar(&def.Revision, "revision", "", "refuse unless the crew member is still at this revision (from crew show --json)")
 
 	list := &cobra.Command{
-		Use: "list", Short: "List residents", Args: cobra.NoArgs,
+		Use: "list", Short: "List the crew", Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
 			}
-			rs, err := st.Residents(c.Context())
+			rs, err := st.Crew(c.Context())
 			if err != nil {
 				return err
 			}
@@ -193,7 +201,7 @@ user releases such a bead (yardr peer intake).`,
 					if f := startFailures(r, time.Now()); f != "" {
 						state += " (" + f + ")"
 					}
-					rows = append(rows, []string{r.Name, state, up, residentAgent(r), r.Journal})
+					rows = append(rows, []string{r.Name, state, up, crewAgent(r), r.Journal})
 				}
 				table("NAME\tSTATE\tUP\tAGENT\tJOURNAL", rows)
 			})
@@ -201,13 +209,13 @@ user releases such a bead (yardr peer intake).`,
 	}
 
 	show := &cobra.Command{
-		Use: "show <name>", Short: "Show a resident, its inbox and recent journal", Args: cobra.ExactArgs(1),
+		Use: "show <name>", Short: "Show a crew member, its inbox and recent journal", Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
 			}
-			r, err := st.GetResident(c.Context(), args[0])
+			r, err := st.GetCrew(c.Context(), args[0])
 			if err != nil {
 				return err
 			}
@@ -223,8 +231,8 @@ user releases such a bead (yardr peer intake).`,
 			if err != nil {
 				return err
 			}
-			out := map[string]any{"resident": r, "inbox": inbox.Total, "journal": notes, "timers": timers}
-			env, keys := residentEnvSummary(c.Context(), *r, a.home())
+			out := map[string]any{"crew": r, "inbox": inbox.Total, "journal": notes, "timers": timers}
+			env, keys := crewEnvSummary(c.Context(), *r, a.home())
 			for _, e := range env {
 				out[e.Setting] = e.fields()
 			}
@@ -233,7 +241,7 @@ user releases such a bead (yardr peer intake).`,
 				out["credentials"] = creds
 			}
 			return a.out(out, func() {
-				fmt.Printf("%s  %s · %s · %s\n", r.Name, r.State, residentAgent(*r), r.Dir)
+				fmt.Printf("%s  %s · %s · %s\n", r.Name, r.State, crewAgent(*r), r.Dir)
 				if f := startFailures(*r, time.Now()); f != "" {
 					fmt.Printf("  %s", f)
 					if reason := lastStartFailure(c.Context(), st, *r); reason != "" {
@@ -267,7 +275,7 @@ user releases such a bead (yardr peer intake).`,
 					fmt.Printf("  may set the status of threads in %s\n", strings.Join(may, ", "))
 				}
 				if may := r.MayMail(); len(may) > 0 {
-					fmt.Printf("  may mail residents of %s\n", strings.Join(may, ", "))
+					fmt.Printf("  may mail crew members of %s\n", strings.Join(may, ", "))
 				}
 				if may := r.MayRelease(); len(may) > 0 {
 					fmt.Printf("  may release beads that arrive from %s\n", strings.Join(may, ", "))
@@ -303,29 +311,29 @@ user releases such a bead (yardr peer intake).`,
 				if err := fn(c.Context(), st, args[0]); err != nil {
 					return err
 				}
-				return a.out(map[string]string{"resident": args[0], use: "ok"}, func() { fmt.Printf("%s: %s\n", args[0], use) })
+				return a.out(map[string]string{"crew": args[0], use: "ok"}, func() { fmt.Printf("%s: %s\n", args[0], use) })
 			}}
 	}
-	// rev is --revision: the resident's revision as the caller last read
-	// it (resident show --json); the write is refused if it moved since.
+	// rev is --revision: the crew member's revision as the caller last read
+	// it (crew show --json); the write is refused if it moved since.
 	var rev string
-	rm := simple("rm", "Delete a resident (its journal is kept)", func(ctx context.Context, st store.API, n string) error {
+	rm := simple("rm", "Delete a crew member (its journal is kept)", func(ctx context.Context, st store.API, n string) error {
 		// Delete directly so the revision check and removal happen in one
 		// transaction. Disabling first would mint a new revision and the
 		// subsequent unchecked delete could erase a concurrent update.
-		return st.DeleteResident(ctx, n, rev, a.who())
+		return st.DeleteCrew(ctx, n, rev, a.who())
 	})
-	start := simple("start", "Keep the resident running (clears a failure streak)", func(ctx context.Context, st store.API, n string) error {
-		return st.SetResidentEnabled(ctx, n, true, rev, a.who())
+	start := simple("start", "Keep the crew member running (clears a failure streak)", func(ctx context.Context, st store.API, n string) error {
+		return st.SetCrewEnabled(ctx, n, true, rev, a.who())
 	})
-	stop := simple("stop", "Stop the resident and keep it stopped", func(ctx context.Context, st store.API, n string) error {
-		return st.SetResidentEnabled(ctx, n, false, rev, a.who())
+	stop := simple("stop", "Stop the crew member and keep it stopped", func(ctx context.Context, st store.API, n string) error {
+		return st.SetCrewEnabled(ctx, n, false, rev, a.who())
 	})
 	restart := simple("restart", "Start a fresh session once the current one is idle", func(ctx context.Context, st store.API, n string) error {
 		return st.RequestRestart(ctx, n, "requested by "+a.who(), rev, a.who())
 	})
 	for _, c := range []*cobra.Command{rm, start, stop, restart} {
-		c.Flags().StringVar(&rev, "revision", "", "refuse unless the resident is still at this revision (from resident show --json)")
+		c.Flags().StringVar(&rev, "revision", "", "refuse unless the crew member is still at this revision (from crew show --json)")
 	}
 
 	entry := func(kind, short string) *cobra.Command {
@@ -344,7 +352,7 @@ user releases such a bead (yardr peer intake).`,
 				if err := st.Journal(c.Context(), args[0], kind, text, a.who()); err != nil {
 					return err
 				}
-				return a.out(map[string]string{"resident": args[0], "written": kind}, func() {
+				return a.out(map[string]string{"crew": args[0], "written": kind}, func() {
 					if kind == store.NoteHandoff {
 						fmt.Println("handoff written; yardr starts a fresh session from it once this one is idle")
 					}
@@ -354,22 +362,22 @@ user releases such a bead (yardr peer intake).`,
 	journal := entry(store.NoteJournal, "Keep a decision or piece of context in the journal (≤4 KB)")
 	handoff := entry(store.NoteHandoff, "End this session: write where things stand; the next session starts from it (≤16 KB)")
 
-	cmd.AddCommand(add, a.residentSetCmd(), list, show, rm, start, stop, restart, journal, handoff, a.identityCmd())
+	cmd.AddCommand(add, a.crewSetCmd(), list, show, rm, start, stop, restart, journal, handoff, a.identityCmd())
 	return cmd
 }
 
-// residentSetCmd is yardr resident set: some settings of a definition
-// changed, the rest kept. Resident add cannot do that, as it writes the
+// crewSetCmd is yardr crew set: some settings of a definition
+// changed, the rest kept. crew add cannot do that, as it writes the
 // whole definition, and a grant of one permission made with it cost a
-// running resident everything that was not retyped.
-func (a *app) residentSetCmd() *cobra.Command {
+// running crew member everything that was not retyped.
+func (a *app) crewSetCmd() *cobra.Command {
 	var unset, on []string
 	var dir, maxAge, grace, rev string
 	cmd := &cobra.Command{
 		Use:   "set <name> [key=value ...]",
-		Short: "Change some settings of a resident and keep the rest",
-		Long: `Changes the settings named and keeps the rest of the resident's definition.
-key=value is a runner config key, as --set on yardr resident add takes it
+		Short: "Change some settings of a crew member and keep the rest",
+		Long: `Changes the settings named and keeps the rest of the crew member's definition.
+key=value is a runner config key, as --set on yardr crew add takes it
 (kind, model, args, prompt, env_file, env_command, open_threads, set_state,
 peers, release); --unset <key> removes one. --dir, --on, --max-age and --handoff-grace
 change what the same flags of add set.
@@ -379,18 +387,18 @@ named like a secret (token, secret, password, key) is not printed.
 
 open_threads, set_state, peers and release follow the rule of add: only the
 operator (the yard's operator setting, else the user running the command)
-may allow a resident a source or a peer it was not allowed before. Narrowing
+may allow a crew member a source or a peer it was not allowed before. Narrowing
 one, or removing it with --unset, is anyone's.
 
-A running resident keeps its session. What it may do (open_threads,
+A running crew member keeps its session. What it may do (open_threads,
 set_state, peers, release), --on and --max-age hold from the next time they are
 looked at; what a session starts with (kind, model, args, prompt, its
-environment, --dir) is read when the next one starts: yardr resident
+environment, --dir) is read when the next one starts: yardr crew
 restart <name>.`,
-		Example: `  yardr resident set yardmaster set_state=linear
-  yardr resident set yardmaster release=north
-  yardr resident set yardmaster model=opus 'args=["--permission-mode","auto"]' --max-age 6h
-  yardr resident set yardmaster --unset open_threads`,
+		Example: `  yardr crew set yardmaster set_state=linear
+  yardr crew set yardmaster release=north
+  yardr crew set yardmaster model=opus 'args=["--permission-mode","auto"]' --max-age 6h
+  yardr crew set yardmaster --unset open_threads`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()
@@ -425,17 +433,17 @@ restart <name>.`,
 			}
 			// The operator rule looks at what this command sets, not at
 			// the settings it keeps: those were checked when they were saved.
-			if err := a.mayDefine(ctx, st, store.Resident{Name: name, Config: sets}, true); err != nil {
+			if err := a.mayDefine(ctx, st, store.CrewMember{Name: name, Config: sets}, true); err != nil {
 				return err
 			}
-			var r *store.Resident
+			var r *store.CrewMember
 			var changes []defChange
-			// The daemon's bookkeeping re-mints a running resident's revision
+			// The daemon's bookkeeping re-mints a running crew member's revision
 			// between the read and the write now and then. Without --revision
 			// that is no reason to refuse: read again and apply the same
 			// change. With it, the caller asked to be refused.
 			for try := 0; ; try++ {
-				have, err := st.GetResident(ctx, name)
+				have, err := st.GetCrew(ctx, name)
 				if err != nil {
 					return err
 				}
@@ -470,7 +478,7 @@ restart <name>.`,
 					break
 				}
 				def.Revision = or(rev, have.Revision)
-				if r, err = st.PutResident(ctx, def, a.who()); err == nil {
+				if r, err = st.PutCrew(ctx, def, a.who()); err == nil {
 					break
 				}
 				if rev != "" || try == 4 || !errors.Is(err, store.ErrConflict) {
@@ -479,10 +487,10 @@ restart <name>.`,
 			}
 			return a.out(r, func() {
 				if len(changes) == 0 {
-					fmt.Printf("resident %s unchanged: it is set so already\n", name)
+					fmt.Printf("crew member %s unchanged: it is set so already\n", name)
 					return
 				}
-				fmt.Printf("resident %s saved\n%s\n", name, changeLines(changes))
+				fmt.Printf("crew member %s saved\n%s\n", name, changeLines(changes))
 				var atStart []string
 				for _, ch := range changes {
 					if !slices.Contains([]string{store.OpenThreads, store.SetState, store.MailPeers, store.ReleasePeers, "--on", "--max-age", "--handoff-grace"}, ch.Key) {
@@ -490,7 +498,7 @@ restart <name>.`,
 					}
 				}
 				if r.Live() && len(atStart) > 0 {
-					fmt.Printf("%s is running and keeps its session: its next one starts with the new %s (yardr resident restart %s)\n",
+					fmt.Printf("%s is running and keeps its session: its next one starts with the new %s (yardr crew restart %s)\n",
 						name, strings.Join(atStart, ", "), name)
 				}
 			})
@@ -498,22 +506,22 @@ restart <name>.`,
 	}
 	f := cmd.Flags()
 	f.StringArrayVar(&unset, "unset", nil, "remove this runner config key (repeatable)")
-	f.StringVar(&dir, "dir", "", "directory the resident works in (empty: the yard home)")
+	f.StringVar(&dir, "dir", "", "directory the crew member works in (empty: the yard home)")
 	f.StringSliceVar(&on, "on", nil, "event kinds delivered to its inbox; replaces the list, so name every kind wanted")
 	f.StringVar(&maxAge, "max-age", "", "ask for a handoff after this long, e.g. 6h (empty: never)")
 	f.StringVar(&grace, "handoff-grace", "", "how long a requested handoff may take before a forced restart")
-	f.StringVar(&rev, "revision", "", "refuse unless the resident is still at this revision (from resident show --json)")
+	f.StringVar(&rev, "revision", "", "refuse unless the crew member is still at this revision (from crew show --json)")
 	return cmd
 }
 
-// defChange is one setting of a resident's definition that a write changes:
+// defChange is one setting of a crew member's definition that a write changes:
 // a runner config key, or the flag of a field (--dir). Old and New are the
 // values as printed, "" for none.
 type defChange struct{ Key, Old, New string }
 
 // defChanges lists what saving def over old changes, the fields first and
 // the config keys by name. The order of --on is not a change.
-func defChanges(old, def store.Resident) []defChange {
+func defChanges(old, def store.CrewMember) []defChange {
 	var out []defChange
 	add := func(key, was, is string) {
 		if was != is {
@@ -600,39 +608,39 @@ func changeLines(changes []defChange) string {
 	return strings.Join(lines, "\n")
 }
 
-// mayAllowOpening refuses a definition that lets its resident open threads
+// mayAllowOpening refuses a definition that lets its crew member open threads
 // (store.OpenThreads) in a source it could not before, unless the operator
 // is the one saving it: speaking first in a source is theirs to grant, and
-// a resident's session granting it to itself, or to another resident,
+// a crew member's session granting it to itself, or to another crew member,
 // would make the setting mean nothing. A definition that keeps or narrows
 // what was allowed is anyone's to save, as the rest of it is. Like
 // maySpeakAs this is a line, not a wall.
-func (a *app) mayAllowOpening(ctx context.Context, st store.API, def store.Resident, set bool) error {
-	return a.mayAllow(ctx, st, def, sourceSetting{set: set, key: store.OpenThreads, does: "open threads", may: store.Resident.MayOpen, able: hooks.Openable})
+func (a *app) mayAllowOpening(ctx context.Context, st store.API, def store.CrewMember, set bool) error {
+	return a.mayAllow(ctx, st, def, sourceSetting{set: set, key: store.OpenThreads, does: "open threads", may: store.CrewMember.MayOpen, able: hooks.Openable})
 }
 
 // mayAllowState is mayAllowOpening for store.SetState: moving an issue
 // others work from is the operator's to grant as well.
-func (a *app) mayAllowState(ctx context.Context, st store.API, def store.Resident, set bool) error {
-	return a.mayAllow(ctx, st, def, sourceSetting{set: set, key: store.SetState, does: "set the status of threads", may: store.Resident.MaySetState, able: hooks.Stateable})
+func (a *app) mayAllowState(ctx context.Context, st store.API, def store.CrewMember, set bool) error {
+	return a.mayAllow(ctx, st, def, sourceSetting{set: set, key: store.SetState, does: "set the status of threads", may: store.CrewMember.MaySetState, able: hooks.Stateable})
 }
 
 // mayAllowMail is mayAllowOpening for store.MailPeers: which other yards a
-// resident writes to is the operator's to grant too, and a peer it names
+// crew member writes to is the operator's to grant too, and a peer it names
 // must be one of this yard's.
-func (a *app) mayAllowMail(ctx context.Context, st store.API, def store.Resident, set bool) error {
-	return a.mayAllowPeers(ctx, st, def, sourceSetting{set: set, key: store.MailPeers, does: "mail residents", may: store.Resident.MayMail})
+func (a *app) mayAllowMail(ctx context.Context, st store.API, def store.CrewMember, set bool) error {
+	return a.mayAllowPeers(ctx, st, def, sourceSetting{set: set, key: store.MailPeers, does: "mail crew members", may: store.CrewMember.MayMail})
 }
 
 // mayAllowRelease is mayAllowMail for store.ReleasePeers: whose beads a
-// resident may release when they arrive held is the operator's to grant,
+// crew member may release when they arrive held is the operator's to grant,
 // since releasing one starts this yard's agents on another yard's text.
-func (a *app) mayAllowRelease(ctx context.Context, st store.API, def store.Resident, set bool) error {
-	return a.mayAllowPeers(ctx, st, def, sourceSetting{set: set, key: store.ReleasePeers, does: "release the beads", may: store.Resident.MayRelease})
+func (a *app) mayAllowRelease(ctx context.Context, st store.API, def store.CrewMember, set bool) error {
+	return a.mayAllowPeers(ctx, st, def, sourceSetting{set: set, key: store.ReleasePeers, does: "release the beads", may: store.CrewMember.MayRelease})
 }
 
 // mayAllowPeers is mayAllow for a setting that names linked yards.
-func (a *app) mayAllowPeers(ctx context.Context, st store.API, def store.Resident, set sourceSetting) error {
+func (a *app) mayAllowPeers(ctx context.Context, st store.API, def store.CrewMember, set sourceSetting) error {
 	if _, given := def.Config[set.key]; !given {
 		return nil
 	}
@@ -648,10 +656,10 @@ func (a *app) mayAllowPeers(ctx context.Context, st store.API, def store.Residen
 	return a.mayAllow(ctx, st, def, set)
 }
 
-// mayDefine is every check a resident's definition passes before it is
-// saved. With set, def holds only the settings yardr resident set was given,
+// mayDefine is every check a crew member's definition passes before it is
+// saved. With set, def holds only the settings yardr crew set was given,
 // and the refusals name them as that command takes them.
-func (a *app) mayDefine(ctx context.Context, st store.API, def store.Resident, set bool) error {
+func (a *app) mayDefine(ctx context.Context, st store.API, def store.CrewMember, set bool) error {
 	if err := a.mayAllowOpening(ctx, st, def, set); err != nil {
 		return err
 	}
@@ -664,20 +672,20 @@ func (a *app) mayDefine(ctx context.Context, st store.API, def store.Resident, s
 	return a.mayAllowRelease(ctx, st, def, set)
 }
 
-// sourceSetting is a resident setting that names the sources it may do
-// something in: its key, what it lets the resident do, how a definition
+// sourceSetting is a crew member setting that names the sources it may do
+// something in: its key, what it lets the crew member do, how a definition
 // reads it and the sources yardr can do it in. With peers it names linked
 // yards instead, and able is the yard's peers. set says the command is
-// yardr resident set, which takes the key bare and removes it with --unset.
+// yardr crew set, which takes the key bare and removes it with --unset.
 type sourceSetting struct {
 	key, does string
-	may       func(store.Resident) []string
+	may       func(store.CrewMember) []string
 	able      func() []string
 	peers     bool
 	set       bool
 }
 
-func (a *app) mayAllow(ctx context.Context, st store.API, def store.Resident, set sourceSetting) error {
+func (a *app) mayAllow(ctx context.Context, st store.API, def store.CrewMember, set sourceSetting) error {
 	may, able := set.may(def), set.able()
 	what, in := "sources", "in"
 	if set.peers {
@@ -700,7 +708,7 @@ func (a *app) mayAllow(ctx context.Context, st store.API, def store.Resident, se
 		}
 	}
 	var before []string
-	switch old, err := st.GetResident(ctx, def.Name); {
+	switch old, err := st.GetCrew(ctx, def.Name); {
 	case err == nil:
 		before = set.may(*old)
 	case !errors.Is(err, store.ErrNotFound):
@@ -718,7 +726,7 @@ func (a *app) mayAllow(ctx context.Context, st store.API, def store.Resident, se
 		flag, operator, def.Name, set.does, in, strings.Join(added, ", "), a.who())
 }
 
-func residentAgent(r store.Resident) string {
+func crewAgent(r store.CrewMember) string {
 	parts := []string{r.Runner}
 	if k, _ := r.Config["kind"].(string); k != "" {
 		parts = append(parts, k)
@@ -729,7 +737,7 @@ func residentAgent(r store.Resident) string {
 	return strings.Join(parts, " · ")
 }
 
-// envSource is one place a resident's environment comes from, as resident
+// envSource is one place a crew member's environment comes from, as crew member
 // show says it: the setting, the path or command line it names, the key
 // names it sets, or why the runner would refuse it. Never a value.
 type envSource struct {
@@ -753,12 +761,12 @@ func (e envSource) fields() map[string]any {
 	return out
 }
 
-// residentEnvSummary is what a session of r would start with from its
+// crewEnvSummary is what a session of r would start with from its
 // env_file and its env_command (which is run to tell: see
-// config.ReadResidentEnv), and the key names the two set together; home is
+// config.ReadCrewEnv), and the key names the two set together; home is
 // the yard's. A source that is refused sets none.
-func residentEnvSummary(ctx context.Context, r store.Resident, home string) ([]envSource, []string) {
-	env, _ := config.ReadResidentEnv(ctx, r.Name, r.Dir, home, r.Config)
+func crewEnvSummary(ctx context.Context, r store.CrewMember, home string) ([]envSource, []string) {
+	env, _ := config.ReadCrewEnv(ctx, r.Name, r.Dir, home, r.Config)
 	text := func(err error) string {
 		if err != nil {
 			return err.Error()
@@ -775,13 +783,13 @@ func residentEnvSummary(ctx context.Context, r store.Resident, home string) ([]e
 	return out, slices.Concat(env.FileKeys, env.CommandKeys)
 }
 
-// sourceCredential is the credential a resident answers in a source with,
+// sourceCredential is the credential a crew member answers in a source with,
 // by kind and by the names its environment sets for it: never a value.
 type sourceCredential struct {
 	Kind  string   `json:"kind"` // GitHub App, token, API key; "none" without one
 	Names []string `json:"names,omitempty"`
 	// Note says what is amiss: one of an App's two names without the other,
-	// or that the resident is someone in the source and cannot answer there.
+	// or that the crew member is someone in the source and cannot answer there.
 	Note string `json:"note,omitempty"`
 }
 
@@ -797,11 +805,11 @@ func (c sourceCredential) String() string {
 }
 
 // credentialSummary says, for each source a credential can be given for,
-// which kind the resident's environment (keys, the names its env_file and
-// env_command set: residentEnvSummary) gives it. A
+// which kind the crew member's environment (keys, the names its env_file and
+// env_command set: crewEnvSummary) gives it. A
 // source it has neither a credential nor an identity in is left out: it is
-// not one the resident speaks in.
-func credentialSummary(r store.Resident, keys []string) map[string]sourceCredential {
+// not one the crew member speaks in.
+func credentialSummary(r store.CrewMember, keys []string) map[string]sourceCredential {
 	out := map[string]sourceCredential{}
 	for _, src := range hooks.Repliable() {
 		ways := hooks.CredentialWays(src)
@@ -866,32 +874,32 @@ func absDir(d string) (string, error) {
 	return d, nil
 }
 
-// currentResident is --resident, else $YARDR_RESIDENT (set in a resident's
+// currentCrew is --crew, else $YARDR_CREW (set in a crew member's
 // own session).
-func currentResident(flag string) (string, error) {
+func currentCrew(flag string) (string, error) {
 	if flag != "" {
 		return flag, nil
 	}
-	if r := config.Getenv("RESIDENT"); r != "" {
+	if r := config.Getenv("CREW"); r != "" {
 		return r, nil
 	}
-	return "", fmt.Errorf("--resident is required (or set YARDR_RESIDENT)")
+	return "", fmt.Errorf("--crew is required (or set YARDR_CREW)")
 }
 
 func (a *app) inboxCmd() *cobra.Command {
-	var resident string
+	var member string
 	var ack, mail, notes bool
 	var limit int
 	cmd := &cobra.Command{
 		Use:   "inbox",
-		Short: "Unread events and mail: a resident's, or your own as a user",
-		Long: `Show a resident's unacknowledged events, oldest first. --ack marks everything shown as handled.
+		Short: "Unread events and mail: a crew member's, or your own as a user",
+		Long: `Show a crew member's unacknowledged events, oldest first. --ack marks everything shown as handled.
 
-Run as a user (your actor is a user's name, and neither --resident nor
-$YARDR_RESIDENT names a resident) it shows your inbox in two parts, each
+Run as a user (your actor is a user's name, and neither --crew nor
+$YARDR_CREW names a crew member) it shows your inbox in two parts, each
 under its name and unread count:
 
-  Mail           what a resident or a person wrote to you: the unread,
+  Mail           what a crew member or a person wrote to you: the unread,
                  oldest first, then the latest you have read
   Notifications  what the yard tells you of the events you subscribed to
                  (yardr subscribe <you> ...): one line each, in the
@@ -910,21 +918,21 @@ yardr doctor and bare yardr say what waits.`,
 			if err != nil {
 				return err
 			}
-			if resident == "" && config.Getenv("RESIDENT") == "" {
+			if member == "" && config.Getenv("CREW") == "" {
 				u, err := a.actingUser(c.Context(), st)
 				if err != nil {
 					return err
 				}
 				if u == nil {
-					return fmt.Errorf("--resident is required (or set YARDR_RESIDENT): %s is no user, who would read their own (yardr user list)", a.who())
+					return fmt.Errorf("--crew is required (or set YARDR_CREW): %s is no user, who would read their own (yardr user list)", a.who())
 				}
 				// Neither flag is both parts, as both flags are.
 				return a.userInbox(c.Context(), st, u.Name, limit, ack, mail || !notes, notes || !mail)
 			}
 			if mail || notes {
-				return fmt.Errorf("--mail and --notifications are the parts of a user's inbox; a resident's has one")
+				return fmt.Errorf("--mail and --notifications are the parts of a user's inbox; a crew member's has one")
 			}
-			name, err := currentResident(resident)
+			name, err := currentCrew(member)
 			if err != nil {
 				return err
 			}
@@ -954,7 +962,8 @@ yardr doctor and bare yardr say what waits.`,
 			})
 		},
 	}
-	cmd.Flags().StringVar(&resident, "resident", "", "resident (default $YARDR_RESIDENT)")
+	cmd.Flags().StringVar(&member, "crew", "", "crew member (default $YARDR_CREW)")
+	oldFlag(cmd, "resident", "crew")
 	cmd.Flags().BoolVar(&ack, "ack", false, "mark the events shown as handled (a user's: the unread shown as read, in the parts shown)")
 	cmd.Flags().BoolVar(&mail, "mail", false, "a user's inbox: the mail only")
 	cmd.Flags().BoolVar(&notes, "notifications", false, "a user's inbox: the notifications only")
@@ -962,7 +971,7 @@ yardr doctor and bare yardr say what waits.`,
 	return cmd
 }
 
-func printInboxEvent(e store.Event, resident string) {
+func printInboxEvent(e store.Event, member string) {
 	switch e.Kind {
 	case "mail":
 		from := store.MailSender(e)
@@ -971,12 +980,12 @@ func printInboxEvent(e store.Event, resident string) {
 		}
 		fmt.Printf("%6d %s  mail from %s: %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), from, show(e.Data["text"]))
 	case "hook":
-		printHookDelivery(e, resident)
+		printHookDelivery(e, member)
 	case "timer":
 		// The text says it is a timer, who set it and when.
 		fmt.Printf("%6d %s  %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), show(e.Data["text"]))
 	default:
-		printBeadDelivery(e, resident)
+		printBeadDelivery(e, member)
 	}
 }
 
@@ -985,33 +994,33 @@ func (a *app) mailCmd() *cobra.Command {
 	var after uint64
 	cmd := &cobra.Command{
 		Use:   "mail <name>[@<peer>] <text|->",
-		Short: "Send a message to the inbox of a resident or a user, or read a conversation back (--with)",
-		Long: `Sends a message to the inbox of a resident or of a user (up to 4 KB; yardr chat
+		Short: "Send a message to the inbox of a crew member or a user, or read a conversation back (--with)",
+		Long: `Sends a message to the inbox of a crew member or of a user (up to 4 KB; yardr chat
 sends a longer text as several mails).
 
 A user is a person of the yard (yardr user list), the operator among them.
-A resident's session and a user mail a user; an agent working a bead does
+A crew member's session and a user mail a user; an agent working a bead does
 not, its channel is the bead. Nothing nudges a person: they read with yardr
 inbox.
 
---with <name> sends nothing and prints the mail between you and that resident
+--with <name> sends nothing and prints the mail between you and that crew member
 or user, both directions, oldest first: seq, time, whether its receiver has
 read it (acknowledged it with yardr inbox --ack), sender and text. --after
 <seq> prints only what is newer; --json prints a list of
-{seq, at, from, to, text, read}. --with <resident>@<peer> prints the mail
-between you and a resident of a linked yard; what you wrote says queued,
+{seq, at, from, to, text, read}. --with <crew member>@<peer> prints the mail
+between you and a crew member of a linked yard; what you wrote says queued,
 sent or failed (delivery in --json) instead, since the other yard does not
 say what was read. It goes by the link, so a peer renamed since (yardr peer
 rename) shows its mail from before under the name it has now.
 
-<resident>@<peer> is a resident of a linked yard, <peer> being this yard's name
+<crew member>@<peer> is a crew member of a linked yard, <peer> being this yard's name
 for the link (yardr peer list). That mail (up to 16 KB) is queued for the peer
 and the daemon delivers it, so the command returns before it has arrived:
 yardr peer show <peer> lists what still waits. The link must carry mail out
-(yardr peer allow <peer> --send mail) and a resident must be allowed the peer
-(yardr resident set <resident> peers=<peer>, the operator's to give). Anyone
+(yardr peer allow <peer> --send mail) and a crew member must be allowed the peer
+(yardr crew set <crew member> peers=<peer>, the operator's to give). Anyone
 else must be the operator. Mail the other yard does not take comes back to a
-resident's inbox as mail from the yard that says why.
+crew member's inbox as mail from the yard that says why.
 
 Mail from another yard is shown as from <name>@<peer> and marked "` + store.OutsideMail + `".
 Answer it with yardr mail <name>@<peer>. Mail from a yard that is linked no
@@ -1070,17 +1079,17 @@ more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
 			})
 		},
 	}
-	cmd.Flags().StringVar(&with, "with", "", "print the mail between you and this resident or user, or <resident>@<peer>, instead of sending")
+	cmd.Flags().StringVar(&with, "with", "", "print the mail between you and this crew member or user, or <crew member>@<peer>, instead of sending")
 	cmd.Flags().Uint64Var(&after, "after", 0, "with --with: only mail newer than this seq")
 	return cmd
 }
 
-// mayMailPeer refuses mail to a peer's resident from anyone who is neither
-// a resident (whose definition the store then holds it to) nor the
+// mayMailPeer refuses mail to a peer's crew member from anyone who is neither
+// a crew member (whose definition the store then holds it to) nor the
 // operator: a bead's agent has no say in what leaves the yard. Like
 // maySpeakAs it is a line, not a wall.
 func (a *app) mayMailPeer(ctx context.Context, st store.API, peer string) error {
-	switch _, err := st.GetResident(ctx, a.who()); {
+	switch _, err := st.GetCrew(ctx, a.who()); {
 	case err == nil:
 		return nil
 	case !errors.Is(err, store.ErrNotFound):
@@ -1090,7 +1099,7 @@ func (a *app) mayMailPeer(ctx context.Context, st store.API, peer string) error 
 	if err != nil || is {
 		return err
 	}
-	return fmt.Errorf("only a resident allowed %s (yardr resident set <resident> %s=%s) or the operator (%s) may mail another yard; this is %s",
+	return fmt.Errorf("only a crew member allowed %s (yardr crew set <crew member> %s=%s) or the operator (%s) may mail another yard; this is %s",
 		peer, store.MailPeers, peer, operator, a.who())
 }
 
@@ -1116,8 +1125,8 @@ func (a *app) rememberCmd() *cobra.Command {
 			}
 			if m.Scope == "" {
 				m.Scope = "all"
-				if r := config.Getenv("RESIDENT"); r != "" {
-					m.Scope = "resident:" + r
+				if r := config.Getenv("CREW"); r != "" {
+					m.Scope = "crew:" + r
 				}
 			}
 			if expires != "" {
@@ -1136,7 +1145,7 @@ func (a *app) rememberCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&m.Body, "body", "b", "", "the memory (- reads stdin)")
-	cmd.Flags().StringVar(&m.Scope, "scope", "", "all, or resident:<name> (default: your resident, else all)")
+	cmd.Flags().StringVar(&m.Scope, "scope", "", "all, or crew:<name> (default: your crew member, else all)")
 	cmd.Flags().StringVar(&expires, "expires", "", "retire it after this long: 7d, 12h")
 	return cmd
 }
@@ -1153,8 +1162,8 @@ func (a *app) recallCmd() *cobra.Command {
 				return err
 			}
 			if scope == "" {
-				if r := config.Getenv("RESIDENT"); r != "" {
-					scope = "resident:" + r
+				if r := config.Getenv("CREW"); r != "" {
+					scope = "crew:" + r
 				}
 			}
 			q := ""
@@ -1178,7 +1187,7 @@ func (a *app) recallCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&scope, "scope", "", "only memories visible in this scope (default: your resident's)")
+	cmd.Flags().StringVar(&scope, "scope", "", "only memories visible in this scope (default: your crew member's)")
 	return cmd
 }
 
@@ -1198,13 +1207,13 @@ func parseDays(s string) (time.Duration, error) {
 	return d, nil
 }
 
-// primeResident prints what a fresh resident session starts from.
-func (a *app) primeResident(ctx context.Context, st store.API, name string) error {
-	p, err := st.ResidentPrime(ctx, name)
+// primeCrew prints what a fresh crew member session starts from.
+func (a *app) primeCrew(ctx context.Context, st store.API, name string) error {
+	p, err := st.CrewPrime(ctx, name)
 	if err != nil {
 		return err
 	}
-	r := p.Resident
+	r := p.CrewMember
 	role := ""
 	if path, _ := r.Config["prompt"].(string); path != "" {
 		if !filepath.IsAbs(path) && r.Dir != "" {
@@ -1212,7 +1221,7 @@ func (a *app) primeResident(ctx context.Context, st store.API, name string) erro
 		}
 		b, err := os.ReadFile(path)
 		if err != nil {
-			return fmt.Errorf("resident %s prompt: %w", name, err)
+			return fmt.Errorf("crew member %s prompt: %w", name, err)
 		}
 		role = strings.TrimSpace(string(b))
 	}
@@ -1225,8 +1234,8 @@ func (a *app) primeResident(ctx context.Context, st store.API, name string) erro
 		v["operator"] = op
 	}
 	return a.out(v, func() {
-		fmt.Printf("# yardr resident: %s\n\n", name)
-		fmt.Printf("You are `%s`, an always-on resident of this yard, working in %s. ", name, or(r.Dir, "the yard home"))
+		fmt.Printf("# yardr crew member: %s\n\n", name)
+		fmt.Printf("You are `%s`, an always-on crew member of this yard, working in %s. ", name, or(r.Dir, "the yard home"))
 		fmt.Printf("Your yardr commands are attributed to you (YARDR_ACTOR=%s).\n\n", name)
 		if role != "" {
 			fmt.Printf("## Your role\n\n%s\n\n", role)
@@ -1297,11 +1306,11 @@ func (a *app) primeResident(ctx context.Context, st store.API, name string) erro
 
 - yardr inbox / yardr inbox --ack: your events and mail; ack what you have handled.
   yardr nudges you when something new arrives and you are idle.
-- yardr resident journal %[1]s "...": keep decisions and context worth keeping (max 4 KB).
-- yardr resident handoff %[1]s "...": end your session. Write what you are doing, what is
+- yardr crew journal %[1]s "...": keep decisions and context worth keeping (max 4 KB).
+- yardr crew handoff %[1]s "...": end your session. Write what you are doing, what is
   next and what to watch (max 16 KB); yardr starts your next session from it.
 - yardr remember "title" -b "..." [--expires 7d] / yardr recall [query]: lasting knowledge.
-- yardr mail <name> "...": message another resident, or a user (yardr user list). Answer a
+- yardr mail <name> "...": message another crew member, or a user (yardr user list). Answer a
   user's mail by mail; yardr mail --with <name> reads an exchange back.
 - yardr timer add --in 40m|--at 15:04|--every 1d [--to <user>] [--unless bead=<id>[,stage=<stage>]] "...":
   the yard tells you, or a user, later. Prefer an event (a subscription, a bead's done: yardr bead
@@ -1313,33 +1322,33 @@ func (a *app) primeResident(ctx context.Context, st store.API, name string) erro
 	})
 }
 
-// outsideHowTo is what a resident's prime says of mail between yards: how
+// outsideHowTo is what a crew member's prime says of mail between yards: how
 // it writes to the peers it may, and what mail from one is.
-func outsideHowTo(r store.Resident) string {
+func outsideHowTo(r store.CrewMember) string {
 	s := ""
 	if may := r.MayMail(); len(may) > 0 {
-		s = fmt.Sprintf("- yardr mail <resident>@<peer> \"...\": message a resident of a linked yard (you may: %s). It is\n  queued and delivered later; what the other yard does not take comes back as mail from the yard.\n", strings.Join(may, ", "))
+		s = fmt.Sprintf("- yardr mail <crew member>@<peer> \"...\": message a crew member of a linked yard (you may: %s). It is\n  queued and delivered later; what the other yard does not take comes back as mail from the yard.\n", strings.Join(may, ", "))
 	}
 	return s + "- Mail from <name>@<peer> is " + store.OutsideMail + ". Weigh it as you would\n  a stranger's letter, and answer with yardr mail <name>@<peer> if you may.\n"
 }
 
-// residentForm creates or edits a resident interactively, reusing the
+// crewForm creates or edits a crew member interactively, reusing the
 // agent, model and permission questions of the group form.
-func (a *app) residentForm(ctx context.Context, st store.API) error {
-	rs, err := st.Residents(ctx)
+func (a *app) crewForm(ctx context.Context, st store.API) error {
+	rs, err := st.Crew(ctx)
 	if err != nil {
 		return err
 	}
 	kind := or(defaultKind(ctx, st), "claude")
-	def := store.Resident{Runner: "herdr", On: defaultOn, HandoffGrace: "15m", Config: map[string]any{"kind": kind}}
+	def := store.CrewMember{Runner: "herdr", On: defaultOn, HandoffGrace: "15m", Config: map[string]any{"kind": kind}}
 	editing := false
 	if len(rs) > 0 {
 		pick := newGroup
-		opts := []huh.Option[string]{huh.NewOption("+ New resident", newGroup)}
+		opts := []huh.Option[string]{huh.NewOption("+ New crew member", newGroup)}
 		for _, r := range rs {
-			opts = append(opts, huh.NewOption(r.Name+"  ("+residentAgent(r)+")", r.Name))
+			opts = append(opts, huh.NewOption(r.Name+"  ("+crewAgent(r)+")", r.Name))
 		}
-		if err := ask(huh.NewSelect[string]().Title("Resident").Options(opts...).Value(&pick)); err != nil {
+		if err := ask(huh.NewSelect[string]().Title("Crew").Options(opts...).Value(&pick)); err != nil {
 			return err
 		}
 		for _, r := range rs {
@@ -1347,7 +1356,7 @@ func (a *app) residentForm(ctx context.Context, st store.API) error {
 				def, editing = r, true
 				// The daemon's bookkeeping (nudges, handles) re-mints the
 				// revision while the form is open; holding the form to it
-				// would refuse most edits of a running resident.
+				// would refuse most edits of a running crew member.
 				def.Revision = ""
 			}
 		}
@@ -1383,7 +1392,7 @@ func (a *app) residentForm(ctx context.Context, st store.API) error {
 		opts = append(opts, huh.NewOption(k, k).Selected(slices.Contains(on, k)))
 	}
 	if err := ask(
-		huh.NewInput().Title("Directory").Description("Where the resident works.").Value(&dir).
+		huh.NewInput().Title("Directory").Description("Where the crew member works.").Value(&dir).
 			Validate(func(s string) error { _, err := absDir(s); return err }),
 		huh.NewMultiSelect[string]().Title("Inbox").Description("Events it is nudged about (mail always is).").
 			Options(opts...).Value(&on),
@@ -1403,9 +1412,9 @@ func (a *app) residentForm(ctx context.Context, st store.API) error {
 	}
 	def.On = on
 	save := true
-	summary := fmt.Sprintf("%s: %s in %s\ninbox: %s\nrotate after: %s", def.Name, residentAgent(def), def.Dir,
+	summary := fmt.Sprintf("%s: %s in %s\ninbox: %s\nrotate after: %s", def.Name, crewAgent(def), def.Dir,
 		strings.Join(def.On, ", "), or(def.MaxAge, "never"))
-	if err := ask(huh.NewConfirm().Title("Save this resident?").Description(summary).Value(&save)); err != nil {
+	if err := ask(huh.NewConfirm().Title("Save this crew member?").Description(summary).Value(&save)); err != nil {
 		return err
 	}
 	if !save {
@@ -1415,11 +1424,11 @@ func (a *app) residentForm(ctx context.Context, st store.API) error {
 	if err := a.mayDefine(ctx, st, def, false); err != nil {
 		return err
 	}
-	r, err := st.PutResident(ctx, def, a.who())
+	r, err := st.PutCrew(ctx, def, a.who())
 	if err != nil {
 		return err
 	}
-	fmt.Printf("resident %s saved; the daemon starts it (journal %s)\n", r.Name, r.Journal)
+	fmt.Printf("crew member %s saved; the daemon starts it (journal %s)\n", r.Name, r.Journal)
 	return nil
 }
 
@@ -1449,18 +1458,18 @@ func yardSkew() string {
 		onPath, self)
 }
 
-// startFailures says how a resident that is not running stands with its
+// startFailures says how a crew member that is not running stands with its
 // starts: how many failed in a row (a session gone within
 // store.MinSessionLife is one) and when the daemon tries next, or that it
 // gave up. "" when none failed or a session runs.
-func startFailures(r store.Resident, now time.Time) string {
+func startFailures(r store.CrewMember, now time.Time) string {
 	n := fmt.Sprintf("%d failed starts", r.Failures)
 	if r.Failures == 1 {
 		n = "1 failed start"
 	}
 	switch {
 	case r.State == "failed":
-		return fmt.Sprintf("gave up after %s; yardr resident start %s tries again", n, r.Name)
+		return fmt.Sprintf("gave up after %s; yardr crew start %s tries again", n, r.Name)
 	case r.Live() || r.Failures == 0:
 		return ""
 	case !r.Enabled || r.RetryAfter == nil:

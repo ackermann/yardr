@@ -35,7 +35,7 @@ func stubStart(t *testing.T, st store.API, handle map[string]any) *int {
 	spawnDaemon = func(*config.Config) (<-chan error, error) {
 		n++
 		if handle != nil {
-			if err := st.ResidentStarted(context.Background(), "yardmaster", handle); err != nil {
+			if err := st.CrewStarted(context.Background(), "yardmaster", handle); err != nil {
 				t.Errorf("yardmaster not started: %v", err)
 			}
 		}
@@ -47,7 +47,7 @@ func stubStart(t *testing.T, st store.API, handle map[string]any) *int {
 
 // answeredPane is a pane whose agent printed something after its first
 // prompt.
-const answeredPane = "sh$ claude\n❯ You are the yardr resident \"yardmaster\". Run `yardr prime --resident yardmaster` and follow it.\n⏺ Reading my prime.\n❯"
+const answeredPane = "sh$ claude\n❯ You are the yardr crew member \"yardmaster\". Run `yardr prime --crew yardmaster` and follow it.\n⏺ Reading my prime.\n❯"
 
 // stubPane makes every pane read give text.
 func stubPane(t *testing.T, text string) {
@@ -120,7 +120,7 @@ func TestOnboardingStartsTheYard(t *testing.T) {
 	if len(*focused) != 0 || !slices.Equal(*chats, []string{"yardmaster, expecting yardmaster"}) {
 		t.Fatalf("focused %v, chats %v\n%s", *focused, *chats, out)
 	}
-	if r, err := st.GetResident(context.Background(), "yardmaster"); err != nil || runner.Greets(*r) != "" || r.Config[runner.GreetKey] != config.Actor() {
+	if r, err := st.GetCrew(context.Background(), "yardmaster"); err != nil || runner.Greets(*r) != "" || r.Config[runner.GreetKey] != config.Actor() {
 		t.Fatalf("the yardmaster, once started, greets %q again (config %v): %v", runner.Greets(*r), r.Config, err)
 	}
 }
@@ -147,7 +147,7 @@ func TestOnboardingNoStart(t *testing.T) {
 	if asked != 5 || *started != 0 {
 		t.Fatalf("%d pages, %d daemons started\n%s", asked, *started, out)
 	}
-	if r, _ := st.GetResident(context.Background(), "yardmaster"); r == nil || r.Live() {
+	if r, _ := st.GetCrew(context.Background(), "yardmaster"); r == nil || r.Live() {
 		t.Fatalf("yardmaster = %+v", r)
 	}
 	if !strings.Contains(out, "Start the daemon in a terminal pane of its own") || !strings.Contains(out, here("yardr init --start")) ||
@@ -172,8 +172,8 @@ func TestOnboardingPreflight(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "nothing was created") || asked != 1 || *started != 0 {
 		t.Fatalf("no herdr: %d pages, err %v", asked, err)
 	}
-	if rs, _ := st.Residents(context.Background()); len(rs) != 0 {
-		t.Fatalf("residents = %v", rs)
+	if rs, _ := st.Crew(context.Background()); len(rs) != 0 {
+		t.Fatalf("crew members = %v", rs)
 	}
 
 	stubLookPath(t, "claude", "herdr")
@@ -259,7 +259,7 @@ func TestInitStartWithRunningDaemon(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 	for _, s := range []string{"The daemon was running already.", "yardmaster did not start within 30ms.",
-		"no start has failed so far", here("yardr resident list"), here("yardr init --start")} {
+		"no start has failed so far", here("yardr crew list"), here("yardr init --start")} {
 		if !strings.Contains(out, s) {
 			t.Errorf("output lacks %q:\n%s", s, out)
 		}
@@ -273,7 +273,7 @@ func TestInitStartWithRunningDaemon(t *testing.T) {
 // session whose harness never took its first prompt, or whose pane stays
 // blank, ends on the timeout, and the message quotes the pane's last lines.
 func TestWaitForTheYardmastersOutput(t *testing.T) {
-	const prompt = "You are the yardr resident \"yardmaster\". Run `/bin/yardr prime --resident yardmaster` and follow it."
+	const prompt = "You are the yardr crew member \"yardmaster\". Run `/bin/yardr prime --crew yardmaster` and follow it."
 	for _, c := range []struct {
 		name    string
 		pending bool
@@ -283,13 +283,16 @@ func TestWaitForTheYardmastersOutput(t *testing.T) {
 		want    []string
 	}{
 		{name: "answered", pane: answeredPane, up: true},
+		// A session started before the upgrade was prompted in the old words.
+		{name: "answered before the crew had the name", up: true,
+			pane: "sh$ claude\n❯ You are the yardr resident \"yardmaster\". Run `yardr prime --resident yardmaster` and follow it.\n⏺ Reading my prime.\n❯"},
 		{name: "working", status: "working", pane: "", up: true},
 		// herdr calls this one idle, and its session runs.
 		{name: "not logged in", status: "idle", pane: "sh$ claude\nWelcome\nNot logged in · Run /login\n" + prompt,
 			want: []string{"yardmaster's session is running, but it has not answered its first prompt within 30ms.",
 				"The last lines of its pane:", "  | Not logged in · Run /login",
 				"the first prompt went into the pane, and claude printed nothing after it",
-				"herdr agent focus y-yardmaster", "yardr resident restart yardmaster"}},
+				"herdr agent focus y-yardmaster", "yardr crew restart yardmaster"}},
 		{name: "prompt not taken", pending: true, pane: "sh$ claude\nDo you trust this folder?",
 			want: []string{"has not answered its first prompt within 30ms.", "  | Do you trust this folder?",
 				"claude was started in the pane but is not ready for its first prompt"}},
@@ -372,7 +375,7 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 		if unlock, err = lockDaemon(cfg.DaemonLock(), 0); err != nil {
 			return nil, err
 		}
-		return nil, st.ResidentStartFailed(ctx, "yardmaster", `herdr workspace.create: exec: "herdr": executable file not found in $PATH`, time.Minute)
+		return nil, st.CrewStartFailed(ctx, "yardmaster", `herdr workspace.create: exec: "herdr": executable file not found in $PATH`, time.Minute)
 	}
 	t.Cleanup(func() { spawnDaemon = old })
 	captureStderr(t)
@@ -399,7 +402,7 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 	stubLookPath(t, "claude", "git", "herdr")
 	spawnDaemon = func(*config.Config) (<-chan error, error) {
 		for i := 0; i < store.MaxStartFails; i++ {
-			if err := st.ResidentStartFailed(ctx, "yardmaster", "herdr agent start: boom", time.Minute); err != nil {
+			if err := st.CrewStartFailed(ctx, "yardmaster", "herdr agent start: boom", time.Minute); err != nil {
 				return nil, err
 			}
 		}
@@ -407,7 +410,7 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 	}
 	res = a.startYard(ctx, cfg, st, "yardmaster", time.Minute)
 	if res.Running || !strings.Contains(res.Problem, "the daemon gave up after") ||
-		!strings.Contains(strings.Join(res.Next, "\n"), here("yardr resident start yardmaster")) ||
+		!strings.Contains(strings.Join(res.Next, "\n"), here("yardr crew start yardmaster")) ||
 		!strings.Contains(strings.Join(res.Known, "\n"), "the last start failed with: herdr agent start: boom") {
 		t.Fatalf("%+v", res)
 	}
@@ -420,7 +423,7 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 
 	// A start that failed because herdr has no server says nothing of the
 	// harness, which was never started: doctor's herdr line is what helps.
-	if err := st.ResidentStartFailed(ctx, "yardmaster", "server_not_running: no herdr server is running", time.Minute); err != nil {
+	if err := st.CrewStartFailed(ctx, "yardmaster", "server_not_running: no herdr server is running", time.Minute); err != nil {
 		t.Fatal(err)
 	}
 	spawnDaemon = func(*config.Config) (<-chan error, error) { return nil, nil }
@@ -440,7 +443,7 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 	spawnDaemon = func(*config.Config) (<-chan error, error) {
 		ch := make(chan error, 1)
 		ch <- errors.New("exit status 1")
-		return ch, st.SetResidentEnabled(ctx, "yardmaster", true, "", "me")
+		return ch, st.SetCrewEnabled(ctx, "yardmaster", true, "", "me")
 	}
 	if res = a.startYard(ctx, cfg, st, "yardmaster", time.Minute); res.Problem != "the daemon stopped right after it started." ||
 		!strings.Contains(strings.Join(res.Known, "\n"), "no daemon is running on this yard") {
@@ -452,7 +455,7 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 // identity, and works for the home it was started for.
 func TestDaemonEnv(t *testing.T) {
 	got := daemonEnv([]string{"PATH=/bin", "HERDR_SOCKET_PATH=/s", "YARDR_ACTOR=a", "YARD_BEAD=b", "YARDR_SESSION=s",
-		"YARDR_RESIDENT=r", "YARDR_HOME=/elsewhere", "YARDR_EVENT_RETENTION=9d", "TOKEN=x"}, "/y")
+		"YARDR_CREW=r", "YARDR_HOME=/elsewhere", "YARDR_EVENT_RETENTION=9d", "TOKEN=x"}, "/y")
 	want := []string{"PATH=/bin", "HERDR_SOCKET_PATH=/s", "YARDR_EVENT_RETENTION=9d", "TOKEN=x", "YARDR_HOME=/y", "YARD_HOME=/y"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("env = %v", got)

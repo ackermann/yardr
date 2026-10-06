@@ -30,8 +30,8 @@ yardr bdp serve --addr :8765 --scope https://beads.example/team/
   the store already enforces it: `bead update`, `hold`/`unhold`, `advance`,
   `done` and `close` take `--revision <rev>` (in Go, `store.Expect.Revision`)
   and refuse with a `stale` conflict, changing nothing, when the bead has
-  changed since that revision was read. Residents carry their own `revision`
-  (`yardr resident show --json`) for `resident add`, `start`, `stop`,
+  changed since that revision was read. Crew members carry their own `revision`
+  (`yardr crew show --json`) for `crew add`, `start`, `stop`,
   `restart` and `rm`.
 - BDP's own conformance suite passes against it (31/31 runnable Read
   scenarios), and BDP's `bdp bd ready` client computes the same ready set

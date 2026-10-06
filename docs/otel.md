@@ -152,7 +152,7 @@ Every event is one log record, bead or no bead:
 | `yardr.actor` | who did it |
 | `yardr.seq` | the event's sequence number |
 | `yardr.bead` | the bead's handle, when it has one |
-| `yardr.data.<key>` | the event's data, for these keys only: `from`, `to`, `stage`, `outcome`, `group`, `session`, `resident`, `flow`, `hook`, `kind`, `runner` |
+| `yardr.data.<key>` | the event's data, for these keys only: `from`, `to`, `stage`, `outcome`, `group`, `session`, `crew`, `flow`, `hook`, `kind`, `runner` |
 
 Severity is INFO for all of them.
 
@@ -160,7 +160,7 @@ Severity is INFO for all of them.
 
 By default nothing a person or an agent wrote leaves the machine: no title,
 body, note, reason, mail text or prompt. What is sent are handles and names:
-beads, rigs, stages, groups, sessions, residents, flows, hooks and actors.
+beads, rigs, stages, groups, sessions, crew members, flows, hooks and actors.
 An actor is often a person's login name.
 
 `--include-text` adds:
@@ -192,7 +192,7 @@ itself was started with come first, then those of the group's `env_file`
 (herdr groups, [groups.md](groups.md)), then the bead's. `TRACEPARENT` is
 always the session's; an `env_file` cannot replace it.
 
-Residents (a yardmaster) work no single bead and get neither.
+Crew members (a yardmaster) work no single bead and get neither.
 
 A program that reads `TRACEPARENT` sends its spans as children of the
 session's span, which `yardr otel export` sends when the session ends. One

@@ -107,7 +107,7 @@ func TestPeerKeyAndInvite(t *testing.T) {
 }
 
 // Who a yard is linked with, and what it takes from them, is the
-// operator's to say: a resident's session, and a bead's agent, are refused
+// operator's to say: a crew member's session, and a bead's agent, are refused
 // peer add and peer allow. Anyone may stop a kind or remove a peer.
 func TestPeerAddAndAllowAreTheOperators(t *testing.T) {
 	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
@@ -118,9 +118,9 @@ func TestPeerAddAndAllowAreTheOperators(t *testing.T) {
 	for _, who := range []string{"yardmaster", "yard-10-new"} {
 		north.a.actor = who
 		if who == "yardmaster" {
-			t.Setenv("YARDR_RESIDENT", "yardmaster")
+			t.Setenv("YARDR_CREW", "yardmaster")
 		} else {
-			t.Setenv("YARDR_RESIDENT", "")
+			t.Setenv("YARDR_CREW", "")
 		}
 		if _, err := north.peer(t, "add", "south", invite); err == nil || !strings.Contains(err.Error(), "only the operator (jo) may add a peer; this is "+who) {
 			t.Fatalf("%s adding a peer: %v", who, err)
@@ -152,7 +152,7 @@ func TestPeerAddAndAllowAreTheOperators(t *testing.T) {
 	if out := north.must(t, "allow", "south", "--send", "ping", "--receive", "ping"); !strings.Contains(out, "peer south: send ping; receive ping") {
 		t.Fatalf("allow printed %q", out)
 	}
-	// Narrowing is anyone's, as it is in a resident's definition.
+	// Narrowing is anyone's, as it is in a crew member's definition.
 	north.a.actor = "yardmaster"
 	if out := north.must(t, "allow", "south", "--no-receive", "ping"); !strings.Contains(out, "send ping; receive nothing") {
 		t.Fatalf("allow --no-receive printed %q", out)

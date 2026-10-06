@@ -58,7 +58,7 @@ esac`)}
 	return h, func() string { return readCalls(t, log) }
 }
 
-// Found live (yardr-ykbt): after a handoff the daemon restarted a resident,
+// Found live (yardr-ykbt): after a handoff the daemon restarted a crew member,
 // answered its trust dialog and sent the first prompt while Claude Code was
 // still coming up. herdr said the keys were sent, the pane never showed
 // them, and the session sat idle with no role until someone asked it why.
@@ -70,18 +70,18 @@ func TestLostFirstPromptIsDeliveredAgainOnce(t *testing.T) {
 	ctx := context.Background()
 	s := storetest.New(t)
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": h}, PromptSettle: -1, PromptWait: -1}
-	if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if err := d.Reconcile(ctx); err != nil {
 		t.Fatal(err)
 	}
-	r, err := s.GetResident(ctx, "yardmaster")
+	r, err := s.GetCrew(ctx, "yardmaster")
 	if err != nil || !r.Live() {
-		t.Fatalf("resident not running: %+v %v", r, err)
+		t.Fatalf("crew member not running: %+v %v", r, err)
 	}
 	prompt, _ := r.Handle[dispatch.PendingPrompt].(string)
-	if !strings.HasPrefix(prompt, ResidentPromptLead) || strings.Count(calls(), "agent prompt") != 1 {
+	if !strings.HasPrefix(prompt, CrewPromptLead) || strings.Count(calls(), "agent prompt") != 1 {
 		t.Fatalf("a prompt that did not show is not pending: handle %v\n%s", r.Handle, calls())
 	}
 	for range 3 {
@@ -89,7 +89,7 @@ func TestLostFirstPromptIsDeliveredAgainOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if r, _ = s.GetResident(ctx, "yardmaster"); r.Handle[dispatch.PendingPrompt] != nil {
+	if r, _ = s.GetCrew(ctx, "yardmaster"); r.Handle[dispatch.PendingPrompt] != nil {
 		t.Fatalf("still pending: %v", r.Handle)
 	}
 	if n := strings.Count(calls(), "agent prompt"); n != 2 {
@@ -107,7 +107,7 @@ func TestFirstPromptThatShowsIsSentOnce(t *testing.T) {
 	ctx := context.Background()
 	s := storetest.New(t)
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": h}}
-	if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	for range 3 {
@@ -115,9 +115,9 @@ func TestFirstPromptThatShowsIsSentOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	r, err := s.GetResident(ctx, "yardmaster")
+	r, err := s.GetCrew(ctx, "yardmaster")
 	if err != nil || !r.Live() || r.Handle[dispatch.PendingPrompt] != nil {
-		t.Fatalf("resident = %+v %v", r, err)
+		t.Fatalf("crew member = %+v %v", r, err)
 	}
 	if n := strings.Count(calls(), "agent prompt"); n != 1 {
 		t.Fatalf("prompt sent %d times:\n%s", n, calls())
@@ -203,36 +203,36 @@ func TestShowsPrompt(t *testing.T) {
 
 // The yardmaster yardr init adds greets the operator by mail in its first
 // session: the onboarding ends in yardr chat, which shows mail and no pane.
-// The prompt still begins and ends as every resident's does, which is what
+// The prompt still begins and ends as every crew member's does, which is what
 // the pane is searched for, and a later session is asked for no greeting.
 func TestFirstPromptAsksForAGreetingByMail(t *testing.T) {
-	r := store.Resident{Name: "yardmaster", Config: map[string]any{GreetKey: "ada"}}
-	got := residentPrompt("yardr --home /y", r)
+	r := store.CrewMember{Name: "yardmaster", Config: map[string]any{GreetKey: "ada"}}
+	got := crewPrompt("yardr --home /y", r)
 	for _, want := range []string{"`yardr --home /y mail ada \"<text>\"`", "`yardr --home /y chat`", "the next setup step",
-		"`yardr --home /y prime --resident yardmaster` " + ResidentPromptEnd} {
+		"`yardr --home /y prime --crew yardmaster` " + CrewPromptEnd} {
 		if !strings.Contains(got, want) {
 			t.Errorf("prompt lacks %q:\n%s", want, got)
 		}
 	}
-	plain := residentPrompt("yardr", store.Resident{Name: "yardmaster"})
-	if plain != "You are the yardr resident \"yardmaster\". Run `yardr prime --resident yardmaster` and follow it." {
-		t.Errorf("a resident that greets nobody got %q", plain)
+	plain := crewPrompt("yardr", store.CrewMember{Name: "yardmaster"})
+	if plain != "You are the yardr crew member \"yardmaster\". Run `yardr prime --crew yardmaster` and follow it." {
+		t.Errorf("a crew member that greets nobody got %q", plain)
 	}
-	if !strings.HasPrefix(got, ResidentPromptLead+` "yardmaster". `) || !strings.HasSuffix(got, ResidentPromptEnd) ||
+	if !strings.HasPrefix(got, CrewPromptLead+` "yardmaster". `) || !strings.HasSuffix(got, CrewPromptEnd) ||
 		!showsPrompt("❯ "+got, got) {
-		t.Errorf("the greeting's prompt does not begin and end as a resident's:\n%s", got)
+		t.Errorf("the greeting's prompt does not begin and end as a crew member's:\n%s", got)
 	}
 	now := time.Now()
 	r.StartedAt = &now
-	if again := residentPrompt("yardr", r); again != plain {
+	if again := crewPrompt("yardr", r); again != plain {
 		t.Errorf("a session after the first is asked to greet again:\n%s", again)
 	}
 	if Greets(r) != "" || Greeted(r) {
-		t.Errorf("a resident that is not running greets: %q %v", Greets(r), Greeted(r))
+		t.Errorf("a crew member that is not running greets: %q %v", Greets(r), Greeted(r))
 	}
 	r.State = "running"
 	if !Greeted(r) {
-		t.Error("the first session of a resident that greets is not the greeting one")
+		t.Error("the first session of a crew member that greets is not the greeting one")
 	}
 	r.PrevStartedAt = &now
 	if Greeted(r) {
@@ -261,18 +261,18 @@ func TestDispatchersDeliveryIsCheckedForArrival(t *testing.T) {
 			ctx := context.Background()
 			s := storetest.New(t)
 			d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": h}, PromptSettle: -1, PromptWait: -1}
-			if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
+			if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
 				t.Fatal(err)
 			}
 			if err := d.Reconcile(ctx); err != nil {
 				t.Fatal(err)
 			}
-			r, err := s.GetResident(ctx, "yardmaster")
+			r, err := s.GetCrew(ctx, "yardmaster")
 			if err != nil || !r.Live() {
-				t.Fatalf("resident not running: %+v %v", r, err)
+				t.Fatalf("crew member not running: %+v %v", r, err)
 			}
 			prompt, _ := r.Handle[dispatch.PendingPrompt].(string)
-			if !strings.HasPrefix(prompt, ResidentPromptLead) || strings.Contains(calls(), "agent prompt") {
+			if !strings.HasPrefix(prompt, CrewPromptLead) || strings.Contains(calls(), "agent prompt") {
 				t.Fatalf("the prompt of an agent that was not ready is not pending: handle %v\n%s", r.Handle, calls())
 			}
 			for range 8 {
@@ -283,7 +283,7 @@ func TestDispatchersDeliveryIsCheckedForArrival(t *testing.T) {
 			if n := strings.Count(calls(), "agent prompt"); n != c.sent {
 				t.Fatalf("prompt sent %d times, want %d:\n%s", n, c.sent, calls())
 			}
-			r, _ = s.GetResident(ctx, "yardmaster")
+			r, _ = s.GetCrew(ctx, "yardmaster")
 			if pending := r.Handle[dispatch.PendingPrompt] != nil; pending != (c.prompted == 0) {
 				t.Fatalf("pending = %v: handle %v", pending, r.Handle)
 			}
@@ -299,7 +299,7 @@ func TestDispatchersDeliveryIsCheckedForArrival(t *testing.T) {
 				got[e.Kind]++
 				if e.Kind == "session_prompt_gave_up" {
 					agent, _ := r.Handle["agent"].(string)
-					if hint, _ := e.Data["hint"].(string); agent == "" || !strings.HasPrefix(hint, "herdr agent prompt "+agent+" '"+ResidentPromptLead) {
+					if hint, _ := e.Data["hint"].(string); agent == "" || !strings.HasPrefix(hint, "herdr agent prompt "+agent+" '"+CrewPromptLead) {
 						t.Errorf("session_prompt_gave_up does not say how to give the prompt by hand: %+v", e.Data)
 					}
 				}
@@ -343,7 +343,7 @@ esac`)}
 	return h, func() string { return readCalls(t, log) }
 }
 
-// Found live (yardr-cxsb): a resident restarted by its handoff had its
+// Found live (yardr-cxsb): a crew member restarted by its handoff had its
 // prime in Claude Code's input, not sent, and sat idle for 95 seconds until
 // a person pressed Return. The text was in the pane, so the prompt counted
 // as arrived and no event said otherwise. A prompt that shows only in the
@@ -367,18 +367,18 @@ func TestPromptLeftInTheInputIsSubmitted(t *testing.T) {
 			ctx := context.Background()
 			s := storetest.New(t)
 			d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": h}, PromptSettle: -1, PromptWait: -1}
-			if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
+			if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
 				t.Fatal(err)
 			}
 			if err := d.Reconcile(ctx); err != nil {
 				t.Fatal(err)
 			}
-			r, err := s.GetResident(ctx, "yardmaster")
+			r, err := s.GetCrew(ctx, "yardmaster")
 			if err != nil || !r.Live() {
-				t.Fatalf("resident not running: %+v %v", r, err)
+				t.Fatalf("crew member not running: %+v %v", r, err)
 			}
 			prompt, _ := r.Handle[dispatch.PendingPrompt].(string)
-			if !strings.HasPrefix(prompt, ResidentPromptLead) || strings.Contains(calls(), "send-keys") {
+			if !strings.HasPrefix(prompt, CrewPromptLead) || strings.Contains(calls(), "send-keys") {
 				t.Fatalf("a prompt that is only in the input is not pending: handle %v\n%s", r.Handle, calls())
 			}
 			for range 8 {
@@ -393,7 +393,7 @@ func TestPromptLeftInTheInputIsSubmitted(t *testing.T) {
 			if n := strings.Count(calls(), "pane send-keys "+pane+" enter"); pane == "" || n != c.enters {
 				t.Fatalf("Enter sent %d times to pane %q, want %d:\n%s", n, pane, c.enters, calls())
 			}
-			r, _ = s.GetResident(ctx, "yardmaster")
+			r, _ = s.GetCrew(ctx, "yardmaster")
 			if pending := r.Handle[dispatch.PendingPrompt] != nil; pending != (c.prompted == 0) {
 				t.Fatalf("pending = %v: handle %v", pending, r.Handle)
 			}
@@ -469,7 +469,7 @@ func TestPromptTypedBehindAWrongFirstLookIsSubmitted(t *testing.T) {
 			ctx := context.Background()
 			s := storetest.New(t)
 			d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": h}, PromptSettle: -1, PromptWait: -1}
-			if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
+			if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
 				t.Fatal(err)
 			}
 			for range 4 {
@@ -477,9 +477,9 @@ func TestPromptTypedBehindAWrongFirstLookIsSubmitted(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			r, err := s.GetResident(ctx, "yardmaster")
+			r, err := s.GetCrew(ctx, "yardmaster")
 			if err != nil || !r.Live() {
-				t.Fatalf("resident not running: %+v %v", r, err)
+				t.Fatalf("crew member not running: %+v %v", r, err)
 			}
 			if look := r.Handle[dispatch.PromptLook]; look != flicker+", look 1" {
 				t.Errorf("%s = %v, want what the first look saw", dispatch.PromptLook, look)

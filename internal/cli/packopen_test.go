@@ -50,7 +50,7 @@ func setOpenThreads(t *testing.T, dir, old, sources string) string {
 }
 
 // openApp is packApp with the operator me, who runs the command, and the
-// resident boss; yardHas sets the yard up for sources.
+// crew member boss; yardHas sets the yard up for sources.
 func openApp(t *testing.T, sources ...string) *app {
 	t.Helper()
 	a := packApp(t)
@@ -62,8 +62,8 @@ func openApp(t *testing.T, sources ...string) *app {
 	if err := os.WriteFile(env, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	def := store.Resident{Name: "boss", Runner: "herdr", Dir: t.TempDir(), Config: map[string]any{"kind": "claude", "env_file": env}}
-	if _, err := a.st.PutResident(ctx, def, "me"); err != nil {
+	def := store.CrewMember{Name: "boss", Runner: "herdr", Dir: t.TempDir(), Config: map[string]any{"kind": "claude", "env_file": env}}
+	if _, err := a.st.PutCrew(ctx, def, "me"); err != nil {
 		t.Fatal(err)
 	}
 	yardHas(t, a, sources...)
@@ -74,7 +74,7 @@ func openApp(t *testing.T, sources ...string) *app {
 func yardHas(t *testing.T, a *app, sources ...string) {
 	t.Helper()
 	ctx := context.Background()
-	boss, err := a.st.GetResident(ctx, "boss")
+	boss, err := a.st.GetCrew(ctx, "boss")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func yardHas(t *testing.T, a *app, sources ...string) {
 
 func bossMayOpen(t *testing.T, a *app) string {
 	t.Helper()
-	r, err := a.st.GetResident(context.Background(), "boss")
+	r, err := a.st.GetCrew(context.Background(), "boss")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,10 +144,10 @@ func answerForms(t *testing.T, say *bool) *[]string {
 	return &asked
 }
 
-// In a terminal the operator is asked once per resident, after the
+// In a terminal the operator is asked once per crew member, after the
 // import's other questions and with no as the default, and only about a
 // source the yard has a hook and a credential for: the plan names what the
-// other lacks. Yes sets it on the resident and is logged; the second apply
+// other lacks. Yes sets it on the crew member and is logged; the second apply
 // asks nothing and changes nothing; once the yard has the other source the
 // next apply asks about that one alone, and a no is not asked again.
 func TestPackApplyAsksTheOperatorAboutOpeningThreads(t *testing.T) {
@@ -159,14 +159,14 @@ func TestPackApplyAsksTheOperatorAboutOpeningThreads(t *testing.T) {
 	asked := answerForms(t, &say)
 	args := append([]string{"apply", dir, "--rig", "web"}, starterFlags...)
 
-	out, err := run(t, a.packCmd(), "check", dir, "--rig", "web", "--resident", "yardmaster=boss")
+	out, err := run(t, a.packCmd(), "check", dir, "--rig", "web", "--crew", "yardmaster=boss")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"\nopen threads, for resident boss\n  the pack asks for linear, github\n  asks      linear: the operator is asked, and the answer without one is no\n",
+		"\nopen threads, for crew member boss\n  the pack asks for linear, github\n  asks      linear: the operator is asked, and the answer without one is no\n",
 		"  the pack wants github, this yard lacks hook and credential: nothing is asked or granted\n    missing  hook         no hook receives github",
-		"    missing  credential   GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, or GITHUB_TOKEN, in resident boss's env_file",
+		"    missing  credential   GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, or GITHUB_TOKEN, in crew member boss's env_file",
 		"\nan import would ask\n",
 		"  the operator: let boss open threads in linear (--open-threads yardmaster=linear, or =none)? [no]\n",
 	} {
@@ -185,11 +185,11 @@ func TestPackApplyAsksTheOperatorAboutOpeningThreads(t *testing.T) {
 	if n := len(*asked); n < 2 || (*asked)[n-1] != "Let boss open threads in linear?" || !strings.HasPrefix((*asked)[n-2], "Apply pack starter") {
 		t.Fatalf("asked %q, want the question about linear alone, once, after the confirmation", *asked)
 	}
-	if !strings.Contains(out, "\nresident boss may now open threads in linear\n") || bossMayOpen(t, a) != "linear" {
+	if !strings.Contains(out, "\ncrew member boss may now open threads in linear\n") || bossMayOpen(t, a) != "linear" {
 		t.Fatalf("boss may open %q:\n%s", bossMayOpen(t, a), out)
 	}
-	if show, err := run(t, a.residentCmd(), "show", "boss"); err != nil || !strings.Contains(show, "  may open threads in linear\n") {
-		t.Fatalf("resident show: %v\n%s", err, show)
+	if show, err := run(t, a.crewCmd(), "show", "boss"); err != nil || !strings.Contains(show, "  may open threads in linear\n") {
+		t.Fatalf("crew show: %v\n%s", err, show)
 	}
 	var grant *store.Event
 	evs, _ := a.st.EventsSince(ctx, head, 0)
@@ -198,7 +198,7 @@ func TestPackApplyAsksTheOperatorAboutOpeningThreads(t *testing.T) {
 			grant = &evs[i]
 		}
 	}
-	if grant == nil || grant.Actor != "me" || grant.Data["pack"] != "starter" || grant.Data["resident"] != "boss" || len(grant.Data["sources"].([]any)) != 1 {
+	if grant == nil || grant.Actor != "me" || grant.Data["pack"] != "starter" || grant.Data["crew"] != "boss" || len(grant.Data["sources"].([]any)) != 1 {
 		t.Fatalf("the grant in the log: %+v", grant)
 	}
 	if got := openRecord(t, a); len(got) != 1 || !got["boss"]["linear"] || len(got["boss"]) != 1 {
@@ -228,7 +228,7 @@ func TestPackApplyAsksTheOperatorAboutOpeningThreads(t *testing.T) {
 	if got := openRecord(t, a); bossMayOpen(t, a) != "linear" || got["boss"]["github"] || len(got["boss"]) != 2 {
 		t.Fatalf("after a no: boss may open %q, record %v", bossMayOpen(t, a), got)
 	}
-	if !strings.Contains(out, "resident boss was not let open threads in github: the no is recorded and not asked again (--open-threads yardmaster=github grants it after all)\n") {
+	if !strings.Contains(out, "crew member boss was not let open threads in github: the no is recorded and not asked again (--open-threads yardmaster=github grants it after all)\n") {
 		t.Errorf("a no is not said to be recorded:\n%s", out)
 	}
 	*asked = nil
@@ -253,7 +253,7 @@ func TestPackApplyOpenThreadsFlag(t *testing.T) {
 	ctx := context.Background()
 	dir := openPack(t, "linear, github")
 	args := append([]string{"apply", dir, "--rig", "web", "--yes"}, starterFlags...)
-	const names = "resident boss was not let open threads in linear: nothing is asked here, and the answer without a flag is no. --open-threads yardmaster=linear grants it, --open-threads yardmaster=none says no for good"
+	const names = "crew member boss was not let open threads in linear: nothing is asked here, and the answer without a flag is no. --open-threads yardmaster=linear grants it, --open-threads yardmaster=none says no for good"
 
 	t.Run("no flag", func(t *testing.T) {
 		a := openApp(t, "linear")
@@ -303,7 +303,7 @@ func TestPackApplyOpenThreadsFlag(t *testing.T) {
 		}
 		for _, want := range []string{
 			"  grants    linear: --open-threads says so\n",
-			"\nresident boss may now open threads in linear\n",
+			"\ncrew member boss may now open threads in linear\n",
 			"--open-threads yardmaster=github grants nothing: the pack wants github, this yard lacks hook and credential",
 		} {
 			if !strings.Contains(out, want) {
@@ -364,10 +364,10 @@ func TestPackApplyOpenThreadsFlag(t *testing.T) {
 		a := openApp(t, "linear")
 		setInteractive(t, false)
 		for flag, want := range map[string]string{
-			"scout=linear":       "the pack has no resident scout (it has: yardmaster)",
+			"scout=linear":       "the pack has no crew member scout (it has: yardmaster)",
 			"yardmaster=token":   `the pack does not ask that yardmaster may open threads in "token" (it asks for: linear, github)`,
-			"yardmaster":         "want <pack's resident>=<source>[,<source>], or =none",
-			"yardmaster=":        "want <pack's resident>=<source>[,<source>], or =none",
+			"yardmaster":         "want <pack's crew member>=<source>[,<source>], or =none",
+			"yardmaster=":        "want <pack's crew member>=<source>[,<source>], or =none",
 			"yardmaster=linear,": `may open threads in ""`,
 		} {
 			_, err := run(t, a.packCmd(), append(args, "--open-threads", flag)...)
@@ -376,12 +376,12 @@ func TestPackApplyOpenThreadsFlag(t *testing.T) {
 			}
 		}
 		if _, err := run(t, a.packCmd(), append(args, "--open-threads", "yardmaster=linear", "--open-threads", "yardmaster=none")...); err == nil || !strings.Contains(err.Error(), "answered twice") {
-			t.Errorf("the flag twice for one resident: %v", err)
+			t.Errorf("the flag twice for one crew member: %v", err)
 		}
 		// A pack that asks for nothing takes no answer.
 		plain := openPack(t, "")
 		_, err := run(t, a.packCmd(), append([]string{"apply", plain, "--rig", "web", "--yes", "--open-threads", "yardmaster=linear"}, starterFlags...)...)
-		if err == nil || !strings.Contains(err.Error(), "the pack asks for no source its resident yardmaster may open threads in") {
+		if err == nil || !strings.Contains(err.Error(), "the pack asks for no source its crew member yardmaster may open threads in") {
 			t.Errorf("a pack without the key: %v", err)
 		}
 		if groups, _ := a.st.Groups(ctx); len(groups) != 0 || bossMayOpen(t, a) != "" {
@@ -390,8 +390,8 @@ func TestPackApplyOpenThreadsFlag(t *testing.T) {
 	})
 }
 
-// Letting a resident open threads is the operator's, by the check yardr
-// resident add makes. Run by anyone else, a resident's own session say, the
+// Letting a crew member open threads is the operator's, by the check yardr
+// crew add makes. Run by anyone else, a crew member's own session say, the
 // import does everything else, grants nothing whatever the flag says,
 // records no answer, and names who may grant it. The operator's next apply
 // is then asked.
@@ -401,7 +401,7 @@ func TestPackApplyOnlyTheOperatorGrants(t *testing.T) {
 	dir := openPack(t, "linear")
 	a.actor = "boss"
 	args := append([]string{"apply", dir, "--rig", "web", "--yes"}, starterFlags...)
-	const says = "resident boss was not let open threads in linear: only the operator (me) may grant that, and this is boss."
+	const says = "crew member boss was not let open threads in linear: only the operator (me) may grant that, and this is boss."
 
 	setInteractive(t, false)
 	out, err := run(t, a.packCmd(), append(args, "--open-threads", "yardmaster=linear")...)
@@ -416,7 +416,7 @@ func TestPackApplyOnlyTheOperatorGrants(t *testing.T) {
 	}
 	// Nor may it say no for the operator.
 	if out, err = run(t, a.packCmd(), append(args, "--open-threads", "yardmaster=none")...); err != nil || !strings.Contains(out, says) || openRecord(t, a) != nil {
-		t.Fatalf("none from a resident: %v, record %v\n%s", err, openRecord(t, a), out)
+		t.Fatalf("none from a crew member: %v, record %v\n%s", err, openRecord(t, a), out)
 	}
 	// In a terminal it is not asked, and is told the same.
 	setInteractive(t, true)
@@ -438,7 +438,7 @@ func TestPackApplyOnlyTheOperatorGrants(t *testing.T) {
 	}
 }
 
-// The import only adds: a source the resident may open threads in by hand
+// The import only adds: a source the crew member may open threads in by hand
 // stays through a yes, a no, and a pack that does not ask at all.
 func TestPackApplyOnlyAddsToOpenThreads(t *testing.T) {
 	a := openApp(t, "linear")

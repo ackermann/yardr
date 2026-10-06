@@ -8,20 +8,20 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// Residents is the residents page: every resident of the yard, by name.
+// Crew is the crew's page: every crew member of the yard, by name.
 // Their journals and handoffs are their own and are not shown.
-type Residents struct {
-	Residents []ResidentRow `json:"residents"`
+type Crew struct {
+	Crew []CrewRow `json:"crew"`
 }
 
-// ResidentRow is one resident: whether it runs, since when, and how much
+// CrewRow is one crew member: whether it runs, since when, and how much
 // of its inbox it has not read.
-type ResidentRow struct {
+type CrewRow struct {
 	Name string `json:"name"`
 	// State is stopped, running or failed.
 	State   string `json:"state"`
 	Running bool   `json:"running"`
-	// Enabled is false for a resident the daemon was told not to keep up.
+	// Enabled is false for a crew member the daemon was told not to keep up.
 	Enabled bool `json:"enabled"`
 	// Since is when the running session started; absent when none runs.
 	Since *time.Time `json:"since,omitempty"`
@@ -37,7 +37,7 @@ type ResidentRow struct {
 
 // Dot is the status dot's class: running, held for one that failed, none
 // for one that is stopped.
-func (r ResidentRow) Dot() string {
+func (r CrewRow) Dot() string {
 	switch {
 	case r.Running:
 		return "running"
@@ -47,9 +47,9 @@ func (r ResidentRow) Dot() string {
 	return ""
 }
 
-// agentOf is the resident's runner with the kind and model it runs, as
-// `yardr resident list` shows it.
-func agentOf(r store.Resident) string {
+// agentOf is the crew member's runner with the kind and model it runs, as
+// `yardr crew list` shows it.
+func agentOf(r store.CrewMember) string {
 	parts := []string{r.Runner}
 	for _, k := range []string{"kind", "model"} {
 		if v, _ := r.Config[k].(string); v != "" {
@@ -59,33 +59,33 @@ func agentOf(r store.Resident) string {
 	return strings.Join(parts, " · ")
 }
 
-func (s *Server) handleResidents(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleCrew(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	head, err := s.st.Head(ctx)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	rs, err := s.st.Residents(ctx)
+	rs, err := s.st.Crew(ctx)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	out := Residents{Residents: []ResidentRow{}}
+	out := Crew{Crew: []CrewRow{}}
 	for _, res := range rs {
-		row := ResidentRow{Name: res.Name, State: res.State, Running: res.Live(), Enabled: res.Enabled,
+		row := CrewRow{Name: res.Name, State: res.State, Running: res.Live(), Enabled: res.Enabled,
 			Agent: agentOf(res), Restart: res.RestartRequested}
 		if res.Live() && res.StartedAt != nil {
 			row.Since, row.Up = res.StartedAt, age(time.Since(*res.StartedAt))
 		}
-		// The count alone: the events are the resident's to read.
+		// The count alone: the events are the crew member's to read.
 		inbox, err := s.st.Inbox(ctx, res.Name, 1)
 		if err != nil {
 			s.fail(w, r, err)
 			return
 		}
 		row.Unread = inbox.Total
-		out.Residents = append(out.Residents, row)
+		out.Crew = append(out.Crew, row)
 	}
-	s.respond(w, r, Page{Template: "residents", Title: "Residents", Menu: "residents", Data: out, head: head})
+	s.respond(w, r, Page{Template: "crew", Title: "Crew", Menu: "crew", Data: out, head: head})
 }

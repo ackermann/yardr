@@ -20,7 +20,7 @@ func TestUserCursorOfAnOlderStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.PutResident(ctx, Resident{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
+	if _, err := s.PutCrew(ctx, CrewMember{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.AddUser(ctx, "ada", "jo"); err != nil {

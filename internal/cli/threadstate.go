@@ -13,10 +13,10 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// stateThread is the source and id of the thread arg names for resident
+// stateThread is the source and id of the thread arg names for crew member
 // name. With --source it is the thread's id, as yardr thread follow takes
 // it. Alone, a number is the seq of a hook delivery, as yardr reply takes
-// it, and anything else the id of a thread the resident takes part in,
+// it, and anything else the id of a thread the crew member takes part in,
 // whose source its participation gives.
 func stateThread(ctx context.Context, st store.API, name, source, arg string) (string, string, error) {
 	if source != "" {
@@ -46,20 +46,20 @@ func stateThread(ctx context.Context, st store.API, name, source, arg string) (s
 	case 1:
 		return in[0], arg, nil
 	case 0:
-		return "", "", fmt.Errorf("resident %s takes no part in a thread %s, and sets the status only of a thread it takes part in (yardr thread follow %s --source <source> %s makes it a participant; yardr thread list %s shows its threads)",
+		return "", "", fmt.Errorf("crew member %s takes no part in a thread %s, and sets the status only of a thread it takes part in (yardr thread follow %s --source <source> %s makes it a participant; yardr thread list %s shows its threads)",
 			name, arg, name, arg, name)
 	}
-	return "", "", fmt.Errorf("resident %s takes part in a thread %s in %s: say which with --source", name, arg, strings.Join(in, " and "))
+	return "", "", fmt.Errorf("crew member %s takes part in a thread %s in %s: say which with --source", name, arg, strings.Join(in, " and "))
 }
 
 func (a *app) threadStateCmd() *cobra.Command {
-	var resident, source string
+	var member, source string
 	cmd := &cobra.Command{
 		Use:   "state <thread|seq> " + strings.Join(hooks.States(), "|"),
 		Short: "Set the status of a thread you take part in, as yourself",
 		Long: `Moves the issue a thread is to started, review or done. The thread is named
 by its id, as yardr thread follow names one (--source says where; it may be
-left out when the resident takes part in one thread with that id), or by
+left out when the crew member takes part in one thread with that id), or by
 the seq of a hook delivery from it, the number an inbox line starts with.
 
 The three words are yardr's, and each source has its own statuses:
@@ -78,27 +78,27 @@ it was there.
 The rules are those of yardr reply. The call is made from this process with
 your own credential, from your environment (LINEAR_API_KEY; for GitHub a
 GitHub App's GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, else
-GITHUB_TOKEN, else, outside a resident's session, gh auth token), and the
-server never sees it. Only the resident's own
-session or the operator may speak as the resident (--resident, default
-$YARDR_RESIDENT).
+GITHUB_TOKEN, else, outside a crew member's session, gh auth token), and the
+server never sees it. Only the crew member's own
+session or the operator may speak as the crew member (--crew, default
+$YARDR_CREW).
 
-A resident may set a status only in the sources its definition allows:
-yardr resident set <resident> set_state=linear,github, which only the
+A crew member may set a status only in the sources its definition allows:
+yardr crew set <crew member> set_state=linear,github, which only the
 operator may add a source to. It is off unless set. And only in a thread it takes
 part in (yardr thread list): yardr thread follow makes it a participant.
 
 A thread_state event is logged with the word asked and the status set. The
-source's delivery of the change does not reach the resident's own inbox,
+source's delivery of the change does not reach the crew member's own inbox,
 as none of what it does there does: that takes its identity in the source
-(yardr resident identity), and the command says when it has none.`,
+(yardr crew identity), and the command says when it has none.`,
 		Example: `  yardr thread state 4211 started
   yardr thread state 539068e2-ae88-4d09-bd75-22eb4a59612f review
   yardr thread state --source github acme/webapp#12 done`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()
-			name, err := currentResident(resident)
+			name, err := currentCrew(member)
 			if err != nil {
 				return err
 			}
@@ -110,7 +110,7 @@ as none of what it does there does: that takes its identity in the source
 			if err != nil {
 				return err
 			}
-			r, err := st.GetResident(ctx, name)
+			r, err := st.GetCrew(ctx, name)
 			if err != nil {
 				return err
 			}
@@ -126,7 +126,7 @@ as none of what it does there does: that takes its identity in the source
 				return fmt.Errorf("yardr cannot set the status of a thread in %s (it can in %s)", source, strings.Join(hooks.Stateable(), ", "))
 			}
 			// The store is asked before the source is: it is where a
-			// resident that may not, or takes no part in the thread, is
+			// crew member that may not, or takes no part in the thread, is
 			// refused.
 			p, err := st.SettingState(ctx, name, source, thread)
 			if err != nil {
@@ -148,7 +148,7 @@ as none of what it does there does: that takes its identity in the source
 					return fmt.Errorf("%s thread %s is now %s, but could not record it: %w", source, thread, res.Status, err)
 				}
 			}
-			out := map[string]any{"resident": name, "source": source, "thread": thread, "state": state, "status": res.Status,
+			out := map[string]any{"crew": name, "source": source, "thread": thread, "state": state, "status": res.Status,
 				"actor": a.who(), "changed": res.Changed}
 			for k, v := range map[string]string{"title": ts.Title, "url": ts.URL, "was": ts.Was, "instead": ts.Instead} {
 				if v != "" {
@@ -168,13 +168,14 @@ as none of what it does there does: that takes its identity in the source
 				// the source (hookDeliveries); without one the delivery of
 				// this change is someone else's as far as yardr can tell.
 				if id, known := r.Identities[source]; !known || id == (store.Identity{}) {
-					fmt.Fprintf(c.ErrOrStderr(), "%s has no %s identity, so the delivery of this change may reach its own inbox: yardr resident identity %s --source %s --id <its id there>\n",
+					fmt.Fprintf(c.ErrOrStderr(), "%s has no %s identity, so the delivery of this change may reach its own inbox: yardr crew identity %s --source %s --id <its id there>\n",
 						name, source, name, source)
 				}
 			})
 		},
 	}
-	cmd.Flags().StringVar(&resident, "resident", "", "who is setting it (default $YARDR_RESIDENT)")
+	cmd.Flags().StringVar(&member, "crew", "", "who is setting it (default $YARDR_CREW)")
+	oldFlag(cmd, "resident", "crew")
 	cmd.Flags().StringVar(&source, "source", "", "the thread's source, with a thread id: "+strings.Join(hooks.Stateable(), ", "))
 	return cmd
 }

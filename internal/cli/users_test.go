@@ -18,7 +18,7 @@ func userYard(t *testing.T) store.API {
 	t.Helper()
 	newHome(t)
 	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
-	for _, k := range []string{"ACTOR", "BEAD", "SESSION", "RESIDENT"} {
+	for _, k := range []string{"ACTOR", "BEAD", "SESSION", "CREW"} {
 		t.Setenv("YARDR_"+k, "")
 		t.Setenv("YARD_"+k, "")
 	}
@@ -55,7 +55,7 @@ func refusedAs(t *testing.T, st store.API, actor, want string, args ...string) {
 }
 
 // yardr init makes the operator a user. Only the operator adds and
-// removes users, never their own, and residents and users share their
+// removes users, never their own, and crew members and users share their
 // names.
 func TestUserCommands(t *testing.T) {
 	st := userYard(t)
@@ -72,7 +72,7 @@ func TestUserCommands(t *testing.T) {
 		t.Fatalf("list --json = %+v, %v", views, err)
 	}
 
-	// A resident's session, another user and a bead's agent: none of them
+	// A crew member's session, another user and a bead's agent: none of them
 	// says who is a party of the yard.
 	for _, who := range []string{"yardmaster", "ada", "yard-10-new"} {
 		refusedAs(t, st, who, "only the operator (jo) adds users; this is "+who, "user", "add", "grace")
@@ -84,9 +84,9 @@ func TestUserCommands(t *testing.T) {
 	refusedAs(t, st, "jo", "is the yard's operator and is not removed", "user", "rm", "jo")
 
 	// One name, one party, both ways.
-	refusedAs(t, st, "jo", "that is a resident's name", "user", "add", "yardmaster")
-	refusedAs(t, st, "jo", "resident ada: that is a user's name", "resident", "add", "ada", "--dir", t.TempDir(), "--set", "kind=claude")
-	refusedAs(t, st, "jo", "that is a resident's name", "settings", "set", "operator", "yardmaster")
+	refusedAs(t, st, "jo", "that is a crew member's name", "user", "add", "yardmaster")
+	refusedAs(t, st, "jo", "crew member ada: that is a user's name", "crew", "add", "ada", "--dir", t.TempDir(), "--set", "kind=claude")
+	refusedAs(t, st, "jo", "that is a crew member's name", "settings", "set", "operator", "yardmaster")
 
 	if err := st.Mail(ctx, "ada", "hello", "yardmaster"); err != nil {
 		t.Fatal(err)
@@ -113,14 +113,14 @@ func TestUserCommands(t *testing.T) {
 	}
 }
 
-// A resident's session and a user mail a user; a bead's agent does not.
+// A crew member's session and a user mail a user; a bead's agent does not.
 // Each user reads their own mail with yardr inbox, and --ack marks it read.
 func TestMailAUser(t *testing.T) {
 	st := userYard(t)
 	mustAs(t, st, "jo", "user", "add", "ada")
 
 	mustAs(t, st, "jo", "mail", "yardmaster", "deploys are frozen")
-	t.Setenv("YARDR_RESIDENT", "yardmaster")
+	t.Setenv("YARDR_CREW", "yardmaster")
 	if out := mustAs(t, st, "yardmaster", "mail", "jo", "noted, until when?"); out != "mail sent to jo\n" {
 		t.Fatalf("mail to a user: %q", out)
 	}
@@ -129,11 +129,11 @@ func TestMailAUser(t *testing.T) {
 	if out := mustAs(t, st, "yardmaster", "inbox"); !strings.Contains(out, "mail from jo: deploys are frozen") || strings.Contains(out, "welcome") {
 		t.Fatalf("the yardmaster's inbox:\n%s", out)
 	}
-	t.Setenv("YARDR_RESIDENT", "")
+	t.Setenv("YARDR_CREW", "")
 	mustAs(t, st, "ada", "mail", "jo", "from one user to another")
 
 	// A bead's agent is told where its word to a person goes. Its mail to
-	// a resident is taken as before.
+	// a crew member is taken as before.
 	t.Setenv("YARDR_BEAD", "yard-10")
 	t.Setenv("YARDR_SESSION", "s1")
 	for _, want := range []string{"an agent working a bead does not mail a user", "yardr bead note yard-10", "yardr bead done yard-10 --outcome question"} {
@@ -154,9 +154,9 @@ func TestMailAUser(t *testing.T) {
 		t.Fatalf("ada's inbox:\n%s", ada)
 	}
 	refusedAs(t, st, "pat", "pat is no user", "inbox")
-	// Named with --resident it is that resident's, whoever asks.
-	if out := mustAs(t, st, "jo", "inbox", "--resident", "yardmaster"); !strings.Contains(out, "mail from jo: deploys are frozen") {
-		t.Fatalf("inbox --resident yardmaster:\n%s", out)
+	// Named with --crew it is that crew member's, whoever asks.
+	if out := mustAs(t, st, "jo", "inbox", "--crew", "yardmaster"); !strings.Contains(out, "mail from jo: deploys are frozen") {
+		t.Fatalf("inbox --crew yardmaster:\n%s", out)
 	}
 
 	// --ack marks what is shown: the first of two, then the rest.
@@ -191,9 +191,9 @@ func TestMailWith(t *testing.T) {
 		mustAs(t, st, m[0], "mail", m[1], m[2])
 	}
 	// The yardmaster acknowledges the first mail, jo theirs.
-	t.Setenv("YARDR_RESIDENT", "yardmaster")
+	t.Setenv("YARDR_CREW", "yardmaster")
 	mustAs(t, st, "yardmaster", "inbox", "-n", "1", "--ack")
-	t.Setenv("YARDR_RESIDENT", "")
+	t.Setenv("YARDR_CREW", "")
 	mustAs(t, st, "jo", "inbox", "--ack")
 
 	out := mustAs(t, st, "jo", "mail", "--with", "yardmaster")
@@ -236,13 +236,13 @@ func TestMailWith(t *testing.T) {
 		t.Fatalf("nothing newer: %q", out)
 	}
 
-	if _, err := as(t, st, "jo", "mail", "--with", "nobody"); exitCode(err) != 3 || !strings.Contains(err.Error(), "no resident and no user of that name") {
+	if _, err := as(t, st, "jo", "mail", "--with", "nobody"); exitCode(err) != 3 || !strings.Contains(err.Error(), "no crew member and no user of that name") {
 		t.Fatalf("--with nobody: %v", err)
 	}
-	// A resident of another yard is read back by its link (peerrename_test.go),
+	// A crew member of another yard is read back by its link (peerrename_test.go),
 	// and a yard this one is not linked with has none.
 	if _, err := as(t, st, "jo", "mail", "--with", "yardmaster@north"); exitCode(err) != 3 || !strings.Contains(err.Error(), "--with yardmaster@north: peer north: not found") {
-		t.Fatalf("--with a resident of no peer: %v", err)
+		t.Fatalf("--with a crew member of no peer: %v", err)
 	}
 	if _, err := as(t, st, "jo", "mail", "--with", "yardmaster", "and", "text"); err == nil {
 		t.Fatal("--with took a text to send")
@@ -323,7 +323,7 @@ func TestUnreadMailIsSaid(t *testing.T) {
 	}
 }
 
-// operatorNamed is a store whose operator setting names a resident, as a
+// operatorNamed is a store whose operator setting names a crew member, as a
 // yard from before users may have it: no command gets a yard there now.
 type operatorNamed struct {
 	store.API
@@ -339,8 +339,8 @@ func (o operatorNamed) Settings(ctx context.Context) (map[string]string, error) 
 }
 
 // yardr doctor notes the names that are no party of the yard: a member of
-// a group who is neither user nor resident, which stays allowed, and a
-// resident who has the operator's name.
+// a group who is neither user nor crew member, which stays allowed, and a
+// crew member who has the operator's name.
 func TestDoctorNotesNames(t *testing.T) {
 	st := userYard(t)
 	out, err := as(t, st, "jo", "doctor")
@@ -351,7 +351,7 @@ func TestDoctorNotesNames(t *testing.T) {
 	mustAs(t, st, "jo", "group", "add", "humans", "--runner", "manual", "--members", "jo,yardmaster,pat,sam")
 	mustAs(t, st, "jo", "group", "add", "mergers", "--runner", "manual", "--members", "jo")
 	out, _ = as(t, st, "jo", "doctor")
-	wantText(t, out, "note   names       group humans: pat, sam are neither a user nor a resident, so nobody of that name can be mailed (",
+	wantText(t, out, "note   names       group humans: pat, sam are neither a user nor a crew member, so nobody of that name can be mailed (",
 		" user add <name>)")
 	if strings.Contains(out, "group mergers") {
 		t.Fatalf("a group of users is noted:\n%s", out)
@@ -367,11 +367,11 @@ func TestDoctorNotesNames(t *testing.T) {
 		}
 	}
 	mustAs(t, st, "jo", "user", "add", "pat")
-	if out, _ = as(t, st, "jo", "doctor"); !strings.Contains(out, "group humans: sam is neither a user nor a resident") {
+	if out, _ = as(t, st, "jo", "doctor"); !strings.Contains(out, "group humans: sam is neither a user nor a crew member") {
 		t.Fatalf("after adding pat:\n%s", out)
 	}
 
 	out, _ = as(t, operatorNamed{st, "yardmaster"}, "jo", "doctor")
-	wantText(t, out, "note   names       resident yardmaster has the operator's name, so the operator has no user and no inbox: mail to yardmaster is the resident's. Rename one of the two: ",
+	wantText(t, out, "note   names       crew member yardmaster has the operator's name, so the operator has no user and no inbox: mail to yardmaster is the crew member's. Rename one of the two: ",
 		" settings set operator <name>")
 }

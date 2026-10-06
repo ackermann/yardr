@@ -9,12 +9,12 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// chatYard is userYard with a terminal, a second resident, and the view
+// chatYard is userYard with a terminal, a second crew member, and the view
 // itself replaced by a record of what it was opened with.
 func chatYard(t *testing.T) (st store.API, opened *[]string) {
 	t.Helper()
 	st = userYard(t)
-	mustAs(t, st, "jo", "resident", "add", "refinery", "--set", "kind=claude")
+	mustAs(t, st, "jo", "crew", "add", "refinery", "--set", "kind=claude")
 	was, ran := interactive, runChat
 	t.Cleanup(func() { interactive, runChat = was, ran })
 	interactive = func() bool { return true }
@@ -26,7 +26,7 @@ func chatYard(t *testing.T) (st store.API, opened *[]string) {
 	return st, opened
 }
 
-// yardr chat opens on the yardmaster, or on the resident named, for a user of
+// yardr chat opens on the yardmaster, or on the crew member named, for a user of
 // the yard; anyone else is told who adds users.
 func TestChatCommand(t *testing.T) {
 	st, opened := chatYard(t)
@@ -37,7 +37,7 @@ func TestChatCommand(t *testing.T) {
 	}
 	refusedAs(t, st, "jo", "nobody", "chat", "nobody")
 	refusedAs(t, st, "eve", "yardr chat is for a user of the yard, and eve is none: the operator (jo) adds one with yardr user add eve", "chat")
-	// A resident's session is no user either: its mail is yardr mail.
+	// A crew member's session is no user either: its mail is yardr mail.
 	refusedAs(t, st, "yardmaster", "is for a user of the yard", "chat")
 	mustAs(t, st, "jo", "user", "add", "eve")
 	mustAs(t, st, "eve", "chat")
@@ -51,7 +51,7 @@ func TestChatCommand(t *testing.T) {
 func TestChatNeedsATerminal(t *testing.T) {
 	st, opened := chatYard(t)
 	interactive = func() bool { return false }
-	refusedAs(t, st, "jo", "yardr mail <resident> <text> sends a message, and yardr mail --with <resident> prints the conversation", "chat")
+	refusedAs(t, st, "jo", "yardr mail <crew member> <text> sends a message, and yardr mail --with <crew member> prints the conversation", "chat")
 	interactive = func() bool { return true }
 	refusedAs(t, st, "jo", "is a view for a terminal", "chat", "--json")
 	if len(*opened) != 0 {
@@ -59,13 +59,13 @@ func TestChatNeedsATerminal(t *testing.T) {
 	}
 }
 
-// A yard without residents has nobody to talk with, and the command says
+// A yard without crew members has nobody to talk with, and the command says
 // how to get one instead of showing an empty view.
-func TestChatWithoutResidents(t *testing.T) {
+func TestChatWithoutCrew(t *testing.T) {
 	st, opened := chatYard(t)
-	mustAs(t, st, "jo", "resident", "rm", "yardmaster")
-	mustAs(t, st, "jo", "resident", "rm", "refinery")
-	refusedAs(t, st, "jo", "the yard has no residents to talk with", "chat")
+	mustAs(t, st, "jo", "crew", "rm", "yardmaster")
+	mustAs(t, st, "jo", "crew", "rm", "refinery")
+	refusedAs(t, st, "jo", "the yard has no crew to talk with", "chat")
 	if len(*opened) != 0 {
 		t.Fatalf("the view opened: %v", *opened)
 	}

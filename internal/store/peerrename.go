@@ -13,7 +13,7 @@ import (
 // A peer's name is this yard's own label for the link (docs/peers.md): the
 // other yard is known by its key and hears nothing of the name. So the name
 // can change, and everything this yard keys by it moves in the write that
-// changes it: the record, the outbox, the ids taken, every resident
+// changes it: the record, the outbox, the ids taken, every crew member
 // setting that names peers (peerSettings), and the label of the open beads
 // it sent.
 //
@@ -85,8 +85,8 @@ func renamedTo(tx *bolt.Tx, name string) string {
 // RenamePeer changes the name this yard has for the peer name to to. The
 // link stays what it is: its key, its URL, what it carries and what it has
 // counted. What waits for the peer still waits, what was taken from it is
-// still known as taken, and a resident that may mail it still may, all
-// under the new name and in this one write. The residents that may are
+// still known as taken, and a crew member that may mail it still may, all
+// under the new name and in this one write. The crew that may are
 // told by mail from the yard, since the address they knew reaches nothing
 // now. It logs peer_renamed.
 //
@@ -141,9 +141,9 @@ func (s *Store) RenamePeer(ctx context.Context, name, to, actor string) (*Peer, 
 		if err != nil {
 			return err
 		}
-		residents := had[MailPeers]
-		if len(residents) > 0 {
-			data["residents"] = residents
+		crew := had[MailPeers]
+		if len(crew) > 0 {
+			data["crew"] = crew
 		}
 		if len(had[ReleasePeers]) > 0 {
 			data["releasers"] = had[ReleasePeers]
@@ -171,8 +171,8 @@ func (s *Store) RenamePeer(ctx context.Context, name, to, actor string) (*Peer, 
 		if err := put(w.Tx, bPeers, to, p); err != nil {
 			return err
 		}
-		for _, r := range residents {
-			text := fmt.Sprintf("the linked yard %s is called %s here now: write to its residents as <name>@%s. Nothing is reached as <name>@%s any more.", name, to, to, name)
+		for _, r := range crew {
+			text := fmt.Sprintf("the linked yard %s is called %s here now: write to its crew as <name>@%s. Nothing is reached as <name>@%s any more.", name, to, to, name)
 			if err := w.event("", "mail", "yard", map[string]any{"to": r, "text": text}); err != nil {
 				return err
 			}
@@ -188,7 +188,7 @@ func (s *Store) RenamePeer(ctx context.Context, name, to, actor string) (*Peer, 
 // peersToday gives mail from another yard in evs the name its peer has
 // now, where the peer was renamed since: the sender is <name>@<peer>, and
 // an address that reaches nothing, or in time another yard, is not what a
-// resident is to answer. The name the event was logged with is kept as
+// crew member is to answer. The name the event was logged with is kept as
 // from_peer_was.
 //
 // Mail from a yard that is no peer any more has no address at all: its
@@ -223,7 +223,7 @@ func peersToday(tx *bolt.Tx, evs []Event) error {
 }
 
 // FromOutside is whether e is mail that came from another yard, linked
-// still or not: what carries OutsideMail where a resident reads it.
+// still or not: what carries OutsideMail where a crew member reads it.
 func FromOutside(e Event) bool {
 	if e.Kind != "mail" {
 		return false
@@ -250,15 +250,15 @@ func MailSender(e Event) string {
 	return fmt.Sprintf("%s at a yard no longer linked (was %s)", from, was)
 }
 
-// Delivery of mail to another yard's resident (Letter.Delivery).
+// Delivery of mail to another yard's crew member (Letter.Delivery).
 const (
 	MailQueued = "queued"
 	MailSent   = "sent"
 	MailFailed = "failed"
 )
 
-// peerConversation is Conversation with a resident of a linked yard,
-// with being <resident>@<peer>: the mail me wrote there and the mail that
+// peerConversation is Conversation with a crew member of a linked yard,
+// with being <crew member>@<peer>: the mail me wrote there and the mail that
 // came from there for me, after seq after. It goes by the link, not by the
 // name: mail from before a rename is in it, under the name the peer has
 // now, and mail of an earlier yard that had the name is not.
@@ -267,7 +267,7 @@ const (
 // index.
 func peerConversation(tx *bolt.Tx, me, with string, after uint64) ([]Letter, error) {
 	out := []Letter{}
-	resident, name, _ := strings.Cut(with, "@")
+	member, name, _ := strings.Cut(with, "@")
 	p, err := loadPeer(tx, name)
 	if err != nil {
 		return nil, err
@@ -317,7 +317,7 @@ func peerConversation(tx *bolt.Tx, me, with string, after uint64) ([]Letter, err
 		came, _ := e.Data["from_peer"].(string)
 		from, _ := e.Data["from"].(string)
 		switch {
-		case left != "" && e.Actor == me && to == resident && ps.now(left, e.Seq) == name:
+		case left != "" && e.Actor == me && to == member && ps.now(left, e.Seq) == name:
 			text, _ := e.Data["text"].(string)
 			id, _ := e.Data["id"].(string)
 			l := Letter{Seq: e.Seq, At: e.At, From: me, To: with, Text: text, Delivery: delivery[id]}
@@ -325,7 +325,7 @@ func peerConversation(tx *bolt.Tx, me, with string, after uint64) ([]Letter, err
 				l.Delivery = MailSent
 			}
 			out = append(out, l)
-		case came != "" && to == me && from == resident && ps.now(came, e.Seq) == name:
+		case came != "" && to == me && from == member && ps.now(came, e.Seq) == name:
 			l, err := rd.letter(e)
 			if err != nil {
 				return nil, err

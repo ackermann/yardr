@@ -21,14 +21,14 @@ func yardrSub(scope string, where ...string) store.Subscription {
 	return sub
 }
 
-// yardrRig is the yard rig with yardFlow, residents with no subscriptions
+// yardrRig is the yard rig with yardFlow, crew members with no subscriptions
 // yet, and a bead in stage new.
-func yardrRig(t *testing.T, residents ...string) (store.API, context.Context, *store.Bead) {
+func yardrRig(t *testing.T, crew ...string) (store.API, context.Context, *store.Bead) {
 	t.Helper()
 	s, ctx := flowRig(t)
 	putFlow(t, s, "yard", "", yardFlow)
-	for _, r := range residents {
-		if _, err := s.PutResident(ctx, store.Resident{Name: r, Runner: "herdr"}, "me"); err != nil {
+	for _, r := range crew {
+		if _, err := s.PutCrew(ctx, store.CrewMember{Name: r, Runner: "herdr"}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -47,8 +47,8 @@ func subscribe(t *testing.T, s store.API, name string, sub store.Subscription) {
 }
 
 // heard lists, oldest first, "<kind>:<reason>" for each of the bead's
-// events that reached resident through its subscriptions.
-func heard(t *testing.T, s store.API, bead, resident string) []string {
+// events that reached crew member through its subscriptions.
+func heard(t *testing.T, s store.API, bead, member string) []string {
 	t.Helper()
 	evs, err := s.Events(context.Background(), bead, 1000)
 	if err != nil {
@@ -56,17 +56,17 @@ func heard(t *testing.T, s store.API, bead, resident string) []string {
 	}
 	var out []string
 	for _, e := range evs {
-		if why := store.Reason(e, resident); why != "" {
+		if why := store.Reason(e, member); why != "" {
 			out = append(out, e.Kind+":"+why)
 		}
 	}
 	return out
 }
 
-func wantHeard(t *testing.T, s store.API, bead, resident string, want ...string) {
+func wantHeard(t *testing.T, s store.API, bead, member string, want ...string) {
 	t.Helper()
-	if got := heard(t, s, bead, resident); !slices.Equal(got, want) {
-		t.Errorf("%s heard %v, want %v", resident, got, want)
+	if got := heard(t, s, bead, member); !slices.Equal(got, want) {
+		t.Errorf("%s heard %v, want %v", member, got, want)
 	}
 }
 
@@ -207,7 +207,7 @@ func TestBeadWatchEndsOnClose(t *testing.T) {
 	subscribe(t, s, "yardmaster", yardrSub(store.ScopeAll, "bead="+b.UUID)) // stored as the handle
 	subscribe(t, s, "yardmaster", yardrSub(store.ScopeAll, "bead="+b.ID, "state=done"))
 	subscribe(t, s, "yardmaster", yardrSub(store.ScopeAll, "kind=closed"))
-	r, err := s.GetResident(ctx, "yardmaster")
+	r, err := s.GetCrew(ctx, "yardmaster")
 	if err != nil || r.Subscriptions[0].Where["bead"] != b.ID {
 		t.Fatalf("subscriptions = %v, %v", r.Subscriptions, err)
 	}
@@ -219,7 +219,7 @@ func TestBeadWatchEndsOnClose(t *testing.T) {
 	if ended := evs[0].Data["watches_ended"]; ended == nil {
 		t.Fatalf("closed event %v names no ended watches", evs[0].Data)
 	}
-	r, _ = s.GetResident(ctx, "yardmaster")
+	r, _ = s.GetCrew(ctx, "yardmaster")
 	if len(r.Subscriptions) != 1 || r.Subscriptions[0].Where["kind"] != "closed" {
 		t.Fatalf("after close: %v", r.Subscriptions)
 	}
@@ -251,16 +251,16 @@ func TestWatchOnClosedBeadRefused(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "closed") {
 		t.Fatalf("watch on closed bead err = %v", err)
 	}
-	if r, _ := s.GetResident(ctx, "yardmaster"); len(r.Subscriptions) != 0 {
+	if r, _ := s.GetCrew(ctx, "yardmaster"); len(r.Subscriptions) != 0 {
 		t.Fatalf("subscriptions = %v", r.Subscriptions)
 	}
 	// A train filter is not a watch: a closed train still gathers its children.
 	subscribe(t, s, "yardmaster", yardrSub(store.ScopeAll, "train="+b.ID))
 }
 
-// deliveredTo counts the events in the whole log that reached resident
+// deliveredTo counts the events in the whole log that reached crew member
 // through its subscriptions.
-func deliveredTo(t *testing.T, s store.API, resident string) int {
+func deliveredTo(t *testing.T, s store.API, member string) int {
 	t.Helper()
 	evs, err := s.EventsSince(context.Background(), 0, 0)
 	if err != nil {
@@ -268,14 +268,14 @@ func deliveredTo(t *testing.T, s store.API, resident string) int {
 	}
 	n := 0
 	for _, e := range evs {
-		if store.Reason(e, resident) != "" {
+		if store.Reason(e, member) != "" {
 			n++
 		}
 	}
 	return n
 }
 
-// Two residents subscribed to everything can mention each other in their
+// Two crew members subscribed to everything can mention each other in their
 // journals without nudging each other forever: a mention counts in the
 // entry that makes it, not in every later entry on the same journal.
 func TestYardrJournalMentionsDoNotPingPong(t *testing.T) {
@@ -330,30 +330,30 @@ func TestYardrMemoryOutOfSource(t *testing.T) {
 	wantHeard(t, s, m.ID, "memories", "created:all")
 }
 
-// A resident never hears of its own session starting or stopping, nor its
+// A crew member never hears of its own session starting or stopping, nor its
 // own journal entries, whoever logs them (the daemon acts as "yard"), not
 // even when it subscribes to its journal or has the kind in --on.
-func TestResidentDoesNotHearOfItself(t *testing.T) {
+func TestCrewDoesNotHearOfItself(t *testing.T) {
 	s, ctx, _ := yardrRig(t, "other")
-	if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr",
-		On: []string{"resident_started", "resident_stopped"}}, "me"); err != nil {
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr",
+		On: []string{"crew_started", "crew_stopped"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	for _, r := range []string{"yardmaster", "other"} {
 		subscribe(t, s, r, yardrSub(store.ScopeAll, "type="+store.TypeJournal))
 	}
 	subscribe(t, s, "yardmaster", yardrSub(store.ScopeAll, "bead=yardmaster-journal"))
-	if err := s.ResidentStarted(ctx, "yardmaster", map[string]any{"pane": "p1"}); err != nil {
+	if err := s.CrewStarted(ctx, "yardmaster", map[string]any{"pane": "p1"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Journal(ctx, "yardmaster", store.NoteJournal, "starting on the queue", "yardmaster-session"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ResidentStopped(ctx, "yardmaster", "test"); err != nil {
+	if err := s.CrewStopped(ctx, "yardmaster", "test"); err != nil {
 		t.Fatal(err)
 	}
 	wantHeard(t, s, "yardmaster-journal", "yardmaster")
-	wantHeard(t, s, "yardmaster-journal", "other", "subscribed:all", "resident_started:all", "journal:all", "resident_stopped:all")
+	wantHeard(t, s, "yardmaster-journal", "other", "subscribed:all", "crew_started:all", "journal:all", "crew_stopped:all")
 	ownJournal := func() []string {
 		t.Helper()
 		page, err := s.Inbox(ctx, "yardmaster", 0)
@@ -380,7 +380,7 @@ func TestResidentDoesNotHearOfItself(t *testing.T) {
 	}
 }
 
-func TestGroupSubscriptionDeliversToMemberResidents(t *testing.T) {
+func TestGroupSubscriptionDeliversToMemberCrew(t *testing.T) {
 	s, ctx, b := yardrRig(t, "yardmaster", "outsider")
 	if err := s.PutGroup(ctx, store.Group{Name: "approvers", Runner: "manual", Members: []string{"mckean", "yardmaster"}}); err != nil {
 		t.Fatal(err)
@@ -417,10 +417,10 @@ func TestGroupSubscriptionDeliversToMemberResidents(t *testing.T) {
 }
 
 // --on keeps working as implicit "yardr all kind=<k>" subscriptions: a
-// resident with --on gave_up and one subscribed to it hear the same.
+// crew member with --on gave_up and one subscribed to it hear the same.
 func TestOnMatchesKindSubscription(t *testing.T) {
 	s, ctx, b := yardrRig(t, "subbed")
-	if _, err := s.PutResident(ctx, store.Resident{Name: "legacy", Runner: "herdr", On: []string{"gave_up"}}, "me"); err != nil {
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "legacy", Runner: "herdr", On: []string{"gave_up"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	subscribe(t, s, "subbed", yardrSub(store.ScopeAll, "kind=gave_up"))
@@ -484,9 +484,9 @@ func TestYardrTrainAndGroupKeys(t *testing.T) {
 	wantHeard(t, s, stranger.ID, "builders")
 }
 
-// Matching runs under the write lock, so it compiles each resident's
+// Matching runs under the write lock, so it compiles each crew member's
 // mention pattern once, not once per event.
-func TestYardrMentionPatternCompiledOncePerResident(t *testing.T) {
+func TestYardrMentionPatternCompiledOncePerCrew(t *testing.T) {
 	s, owned := storetest.NewOwned(t)
 	ctx := context.Background()
 	if err := s.PutRig(ctx, store.Rig{Name: "yard", Base: "origin/main"}, "me"); err != nil {
@@ -494,7 +494,7 @@ func TestYardrMentionPatternCompiledOncePerResident(t *testing.T) {
 	}
 	names := []string{"a", "b", "c"}
 	for _, r := range names {
-		if _, err := s.PutResident(ctx, store.Resident{Name: r, Runner: "herdr"}, "me"); err != nil {
+		if _, err := s.PutCrew(ctx, store.CrewMember{Name: r, Runner: "herdr"}, "me"); err != nil {
 			t.Fatal(err)
 		}
 		subscribe(t, s, r, yardrSub(store.ScopeMentions))
@@ -510,7 +510,7 @@ func TestYardrMentionPatternCompiledOncePerResident(t *testing.T) {
 		}
 	}
 	if got := owned.MentionCompiles(); got != int64(len(names)) {
-		t.Fatalf("%d patterns compiled over %d events, want %d (one per resident)", got, n+1, len(names))
+		t.Fatalf("%d patterns compiled over %d events, want %d (one per crew member)", got, n+1, len(names))
 	}
 	if got := deliveredTo(t, s, "a"); got != 7 {
 		t.Fatalf("a reached %d times, want 7", got)

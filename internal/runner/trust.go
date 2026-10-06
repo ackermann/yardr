@@ -13,7 +13,7 @@ import (
 // in a repository (a linked worktree counts as its repository, so one answer
 // covers every bead of a rig) or in a plain directory. Nobody watches an
 // agent yardr starts, and the operator already said the folder is theirs by
-// making it a rig or a resident's directory, so yardr answers the dialog.
+// making it a rig or a crew member's directory, so yardr answers the dialog.
 //
 // Claude Code has no flag, setting or environment variable that skips the
 // dialog in an interactive session (2.1.288). The other way is to write
@@ -38,7 +38,7 @@ const trustRedrawWait = 2 * time.Second
 
 // trusts reports whether yardr answers the folder-trust dialog for an agent
 // with this config: only Claude Code's, whose dialog it knows, and not when
-// the group or resident says `trust=false`.
+// the group or crew member says `trust=false`.
 func trusts(cfg map[string]any) bool {
 	return str(cfg, "kind", "claude") == "claude" && cfg["trust"] != false
 }

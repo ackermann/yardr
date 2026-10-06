@@ -374,9 +374,9 @@ func TestPeerBeadKinds(t *testing.T) {
 	}
 }
 
-// A bead that arrived held is released by a user, or by a resident the
+// A bead that arrived held is released by a user, or by a crew member the
 // operator named for that peer: not by a bead's agent, not by any other
-// resident, not by a name the yard does not know. The release is logged,
+// crew member, not by a name the yard does not know. The release is logged,
 // and holds: held again later, the bead is anyone's to unhold.
 func TestPeerBeadRelease(t *testing.T) {
 	y := newBeadYard(t, false)
@@ -387,9 +387,9 @@ func TestPeerBeadRelease(t *testing.T) {
 	if _, err := y.api.AddPeer(y.ctx, store.Peer{Name: "south", Key: yardkey.Public(south)}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	y.resident(t, "yardmaster", "")
+	y.member(t, "yardmaster", "")
 	for name, release := range map[string]string{"clerk": "south", "warden": "north,south"} {
-		if _, err := y.api.PutResident(y.ctx, store.Resident{Name: name, Runner: "herdr", Config: map[string]any{store.ReleasePeers: release}}, "jo"); err != nil {
+		if _, err := y.api.PutCrew(y.ctx, store.CrewMember{Name: name, Runner: "herdr", Config: map[string]any{store.ReleasePeers: release}}, "jo"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -413,13 +413,13 @@ func TestPeerBeadRelease(t *testing.T) {
 		actor string
 	}{
 		"the session " + sess.ID + " of a bead's agent": {store.Expect{Session: sess.ID}, "jo"},
-		"the resident yardmaster, which is not":         {store.Expect{}, "yardmaster"},
-		"the resident clerk, which is not":              {store.Expect{}, "clerk"},
+		"the crew member yardmaster, which is not":      {store.Expect{}, "yardmaster"},
+		"the crew member clerk, which is not":           {store.Expect{}, "clerk"},
 		"this is stranger, who is no user":              {store.Expect{}, "stranger"},
 	} {
 		_, err := y.api.SetHold(y.ctx, b.ID, false, try.exp, try.actor)
 		if err == nil || !strings.Contains(err.Error(), who) || !strings.Contains(err.Error(), "arrived held from the yard north") ||
-			!strings.Contains(err.Error(), "yardr resident set <resident> release=north") {
+			!strings.Contains(err.Error(), "yardr crew set <crew member> release=north") {
 			t.Errorf("unhold as %s = %v", who, err)
 		}
 	}
@@ -427,9 +427,9 @@ func TestPeerBeadRelease(t *testing.T) {
 		t.Fatalf("a refused release changed the bead: %+v", got)
 	}
 
-	// The resident allowed north.
+	// The crew member allowed north.
 	if _, err := y.api.SetHold(y.ctx, b.ID, false, store.Expect{}, "warden"); err != nil {
-		t.Fatalf("the resident allowed north: %v", err)
+		t.Fatalf("the crew member allowed north: %v", err)
 	}
 	got, _ := y.api.GetBead(y.ctx, b.ID)
 	if got.Hold || got.Peer.Held || got.Peer.ReleasedBy != "warden" || got.Peer.ReleasedAt == nil {
@@ -623,12 +623,12 @@ func TestPeerBeadReturnOverAClosedLink(t *testing.T) {
 }
 
 // The record names the peer by its key: after a rename the bead's line,
-// its label and a resident's grant to release follow, and the return goes
+// its label and a crew member's grant to release follow, and the return goes
 // to the peer under its new name. After the link is removed the bead says
 // so, nobody's grant is left, and nothing is returned.
 func TestPeerBeadRenameAndRemove(t *testing.T) {
 	y := newBeadYard(t, false)
-	if _, err := y.api.PutResident(y.ctx, store.Resident{Name: "warden", Runner: "herdr", Config: map[string]any{store.ReleasePeers: "north", store.MailPeers: "north"}}, "jo"); err != nil {
+	if _, err := y.api.PutCrew(y.ctx, store.CrewMember{Name: "warden", Runner: "herdr", Config: map[string]any{store.ReleasePeers: "north", store.MailPeers: "north"}}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	y.take(t, beadMsg("b1", "web-1", nil), beadMsg("b2", "web-2", nil))
@@ -647,7 +647,7 @@ func TestPeerBeadRenameAndRemove(t *testing.T) {
 	if one.Peer.Peer != "nord" || one.Peer.Line() != "from web-1@nord, for its stage build" || !slices.Equal(one.Labels, []string{"from-nord"}) {
 		t.Fatalf("the bead after the rename = %+v %v", one.Peer, one.Labels)
 	}
-	r, _ := y.api.GetResident(y.ctx, "warden")
+	r, _ := y.api.GetCrew(y.ctx, "warden")
 	if !slices.Equal(r.MayRelease(), []string{"nord"}) || !slices.Equal(r.MayMail(), []string{"nord"}) {
 		t.Fatalf("the grants after the rename = release %v, mail %v", r.MayRelease(), r.MayMail())
 	}
@@ -680,12 +680,12 @@ func TestPeerBeadRenameAndRemove(t *testing.T) {
 	if ev := peerEvents(t, y.api, "peer_removed"); ev[0].Data["beads"] != float64(3) || !slices.Equal(toStrings(ev[0].Data["releasers"]), []string{"warden"}) {
 		t.Fatalf("peer_removed = %+v", ev[0].Data)
 	}
-	if r, _ := y.api.GetResident(y.ctx, "warden"); len(r.MayRelease()) != 0 || len(r.MayMail()) != 0 {
+	if r, _ := y.api.GetCrew(y.ctx, "warden"); len(r.MayRelease()) != 0 || len(r.MayMail()) != 0 {
 		t.Fatalf("grants for a link that is removed: %+v", r.Config)
 	}
 	// Still held as it arrived, and only a user's to release now.
-	if _, err := y.api.SetHold(y.ctx, two.ID, false, store.Expect{}, "warden"); err == nil || !strings.Contains(err.Error(), "the resident warden, which is not") {
-		t.Fatalf("release of a removed link's bead by a resident = %v", err)
+	if _, err := y.api.SetHold(y.ctx, two.ID, false, store.Expect{}, "warden"); err == nil || !strings.Contains(err.Error(), "the crew member warden, which is not") {
+		t.Fatalf("release of a removed link's bead by a crew member = %v", err)
 	}
 	if _, err := y.api.SetHold(y.ctx, two.ID, false, store.Expect{}, "jo"); err != nil {
 		t.Fatal(err)
@@ -751,13 +751,13 @@ func TestPeerBeadPulled(t *testing.T) {
 	}
 }
 
-// A release asked from a resident's pane is that resident's, whatever
-// actor the command names: a resident talked into releasing a bead cannot
+// A release asked from a crew member's pane is that crew member's, whatever
+// actor the command names: a crew member talked into releasing a bead cannot
 // do it as a user by saying it is one. The pane is the shell the runner
-// recorded for the resident's tab.
-func TestPeerBeadReleaseFromAResidentsPane(t *testing.T) {
+// recorded for the crew member's tab.
+func TestPeerBeadReleaseFromACrewPane(t *testing.T) {
 	y := newBeadYard(t, false)
-	y.resident(t, "yardmaster", "")
+	y.member(t, "yardmaster", "")
 	y.take(t, beadMsg("b1", "web-1", nil))
 	b := y.arrived(t)
 	me := os.Getpid()
@@ -765,19 +765,19 @@ func TestPeerBeadReleaseFromAResidentsPane(t *testing.T) {
 	if err != nil {
 		t.Skipf("this process cannot be described: %v", err)
 	}
-	if err := y.api.ResidentStarted(y.ctx, "yardmaster", map[string]any{"shell_pid": me, "shell_start": st.Start}); err != nil {
+	if err := y.api.CrewStarted(y.ctx, "yardmaster", map[string]any{"shell_pid": me, "shell_start": st.Start}); err != nil {
 		t.Fatal(err)
 	}
 	pane := store.WithCaller(y.ctx, me)
-	if _, err := y.own.SetHold(pane, b.ID, false, store.Expect{}, "jo"); err == nil || !strings.Contains(err.Error(), "this is the resident yardmaster, which is not") {
+	if _, err := y.own.SetHold(pane, b.ID, false, store.Expect{}, "jo"); err == nil || !strings.Contains(err.Error(), "this is the crew member yardmaster, which is not") {
 		t.Fatalf("a release from the yardmaster's pane as jo = %v", err)
 	}
 	// The shell is gone, and its pid someone else's: jo is jo again.
-	if err := y.api.ResidentStarted(y.ctx, "yardmaster", map[string]any{"shell_pid": me, "shell_start": st.Start + 1}); err != nil {
+	if err := y.api.CrewStarted(y.ctx, "yardmaster", map[string]any{"shell_pid": me, "shell_start": st.Start + 1}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := y.own.SetHold(pane, b.ID, false, store.Expect{}, "jo"); err != nil {
-		t.Fatalf("a user's release from a pid a resident's shell once had: %v", err)
+		t.Fatalf("a user's release from a pid a crew member's shell once had: %v", err)
 	}
 }
 

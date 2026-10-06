@@ -471,7 +471,7 @@ var executable = os.Executable
 // one, so it gets none of that command's environment or working directory:
 // the first command on a yard is as often an agent's (whose pane holds its
 // credentials from an env_file) as the operator's, and a server holding a
-// resident's tokens, or a cwd in a worktree that is removed under it, would
+// crew member's tokens, or a cwd in a worktree that is removed under it, would
 // be wrong for everyone else. It gets what it needs (ServerEnv) and runs
 // in the home.
 func Start(ctx context.Context, c *config.Config) error {

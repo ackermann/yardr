@@ -11,7 +11,7 @@
 # (cmd='YARDR_PUSH=origin /path/to/merge-local'):
 #
 #   YARDR_PUSH     a remote to push the base to after landing; off when empty
-#   YARDR_NOTIFY   resident mailed when that push fails (default: the yard's
+#   YARDR_NOTIFY   crew member mailed when that push fails (default: the yard's
 #                  yardmaster setting, else yardmaster)
 #
 # For each bead it rebases the branch onto the base if the base moved, runs

@@ -5,13 +5,13 @@ itself. Its roles are copies of `roles/*.md` and its `scripts/merge-local`
 of `contrib/refinery/merge-local`, and its stage files are the ones `yardr
 rig init` writes for a git rig (`roles/stages/git/default/*.md`); a test
 fails when they drift. Where they say `{{operator}}` and `{{yardmaster}}`, an
-import puts the yard's operator and the resident that takes `yardmaster`. The
+import puts the yard's operator and the crew member that takes `yardmaster`. The
 format and how a pack maps to a yard are in [docs/packs.md](../../docs/packs.md).
 
 `yardr pack check packs/starter --rig <rig>` shows what importing it would
 change, and `yardr pack apply packs/starter --rig <rig>` imports it.
 
-- `pack.yaml`: the flows (stages), the groups that work them, and the residents.
+- `pack.yaml`: the flows (stages), the groups that work them, and the crew.
 - `roles/`: the prompts.
 - `scripts/`: what a script group runs.
 - `flows/default/`: a stage file for every stage a bead is worked in.
@@ -32,7 +32,7 @@ yardmaster as it is.
 One thing it sets only where the yard is ready for it: the stage map for
 Linear (`sources.linear`), which moves the issue a task tracks to started,
 in review and done as the task enters `new`, `review` and `merged`. The
-import puts it on the yard's Linear hook, acting as the resident that takes
-`yardmaster`. It makes no hook and does not let that resident set a status
+import puts it on the yard's Linear hook, acting as the crew member that takes
+`yardmaster`. It makes no hook and does not let that crew member set a status
 (`set_state`): the plan names the command for each, and the next import
 sets the map once the hook is there.

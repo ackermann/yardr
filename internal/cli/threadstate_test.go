@@ -19,7 +19,7 @@ import (
 // fakeStates stands in for Linear's GraphQL API and GitHub's REST API as
 // yardr thread state uses them: one Linear issue, L1, in a team with or
 // without a review status, and one GitHub issue, Acme/webapp#7. Each takes
-// only its resident's credential.
+// only its crew member's credential.
 type fakeStates struct {
 	review  bool   // the Linear team has a review status
 	linear  string // L1's status, by id
@@ -115,11 +115,11 @@ func stateYard(t *testing.T, allowed string) (*app, store.API, *store.Store) {
 	t.Helper()
 	st, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	def := store.Resident{Name: "yardmaster", Runner: "herdr", Config: map[string]any{}}
+	def := store.CrewMember{Name: "yardmaster", Runner: "herdr", Config: map[string]any{}}
 	if allowed != "" {
 		def.Config[store.SetState] = allowed
 	}
-	if _, err := st.PutResident(ctx, def, "jo"); err != nil {
+	if _, err := st.PutCrew(ctx, def, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.SetSetting(ctx, "operator", "jo", "jo"); err != nil {
@@ -140,7 +140,7 @@ func stateYard(t *testing.T, allowed string) (*app, store.API, *store.Store) {
 	}
 	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
 	t.Setenv("GITHUB_TOKEN", "gh-yardmaster")
-	t.Setenv("YARDR_RESIDENT", "yardmaster")
+	t.Setenv("YARDR_CREW", "yardmaster")
 	return &app{st: st, actor: "yardmaster"}, st, own
 }
 
@@ -167,7 +167,7 @@ func lastEvent(t *testing.T, st store.API, kind string) store.Event {
 	return evs[0]
 }
 
-// A resident moves a Linear issue it takes part in through started, review
+// A crew member moves a Linear issue it takes part in through started, review
 // and done, naming it by a delivery's seq, by its id, and by source and id.
 // Each change is one request and one thread_state event; an issue already
 // there gets neither. The delivery of its own change stays out of its inbox.
@@ -212,7 +212,7 @@ func TestThreadStateLinear(t *testing.T) {
 			t.Fatalf("%v: linear is %s after %v", c.args, f.linear, f.changes)
 		}
 		e := lastEvent(t, st, "thread_state")
-		want := map[string]any{"resident": "yardmaster", "source": "linear", "thread": linearIssue1, "state": word, "status": c.status,
+		want := map[string]any{"crew": "yardmaster", "source": "linear", "thread": linearIssue1, "state": word, "status": c.status,
 			"was": c.was, "title": "Web view", "url": "https://linear.app/acme/issue/YRD-1"}
 		if e.Actor != "yardmaster" || !reflect.DeepEqual(e.Data, want) {
 			t.Fatalf("%v: event by %s: %v\nwant %v", c.args, e.Actor, e.Data, want)
@@ -230,8 +230,8 @@ func TestThreadStateLinear(t *testing.T) {
 			t.Fatalf("%v again: %d events, changes %v, %d requests", c.args, now-head, f.changes, f.calls-calls)
 		}
 
-		// Linear tells of the change, made by the resident's own user: it
-		// does not reach the resident, as a change by someone else does.
+		// Linear tells of the change, made by the crew member's own user: it
+		// does not reach the crew member, as a change by someone else does.
 		change := hooks.Envelope{Source: "linear", Type: "issue", Action: "update", Actor: hooks.Party{ID: "u-yardmaster", Name: "Yardmaster"},
 			Thread: hooks.Thread{ID: linearIssue1, Title: "Web view"}, Text: "changed stateId", Entity: linearIssue1}
 		if _, _, err := own.RecordHook(ctx, "linear", change.Map(), []byte("{}"), nil); err != nil {
@@ -267,13 +267,13 @@ func TestThreadStateLinear(t *testing.T) {
 	}
 
 	// --json prints the event's fields, and whether anything changed. The
-	// operator speaks as the resident: the event names who did.
+	// operator speaks as the crew member: the event names who did.
 	a.json, a.actor = true, "jo"
-	t.Setenv("YARDR_RESIDENT", "")
+	t.Setenv("YARDR_CREW", "")
 	for _, changed := range []bool{true, false} {
-		out, _, err = state(t, a, linearIssue1, "done", "--resident", "yardmaster")
+		out, _, err = state(t, a, linearIssue1, "done", "--crew", "yardmaster")
 		var res map[string]any
-		want := map[string]any{"resident": "yardmaster", "source": "linear", "thread": linearIssue1, "state": "done", "status": "Done",
+		want := map[string]any{"crew": "yardmaster", "source": "linear", "thread": linearIssue1, "state": "done", "status": "Done",
 			"actor": "jo", "changed": changed, "title": "Web view", "url": "https://linear.app/acme/issue/YRD-1"}
 		if changed {
 			want["was"] = "In Progress"
@@ -282,7 +282,7 @@ func TestThreadStateLinear(t *testing.T) {
 			t.Fatalf("json: %q, %v\nwant %v", out, err, want)
 		}
 	}
-	if e := lastEvent(t, st, "thread_state"); e.Actor != "jo" || e.Data["resident"] != "yardmaster" {
+	if e := lastEvent(t, st, "thread_state"); e.Actor != "jo" || e.Data["crew"] != "yardmaster" {
 		t.Fatalf("the operator's event: %+v", e)
 	}
 	a.json = false
@@ -292,11 +292,11 @@ func TestThreadStateLinear(t *testing.T) {
 	if err := st.SetIdentity(ctx, "yardmaster", "linear", store.Identity{}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	_, warned, err := state(t, a, linearIssue1, "started", "--resident", "yardmaster")
-	if err != nil || !strings.Contains(warned, "yardmaster has no linear identity, so the delivery of this change may reach its own inbox: yardr resident identity yardmaster --source linear") {
+	_, warned, err := state(t, a, linearIssue1, "started", "--crew", "yardmaster")
+	if err != nil || !strings.Contains(warned, "yardmaster has no linear identity, so the delivery of this change may reach its own inbox: yardr crew identity yardmaster --source linear") {
 		t.Fatalf("no identity: %q, %v", warned, err)
 	}
-	if _, warned, err = state(t, a, linearIssue1, "started", "--resident", "yardmaster"); err != nil || warned != "" {
+	if _, warned, err = state(t, a, linearIssue1, "started", "--crew", "yardmaster"); err != nil || warned != "" {
 		t.Fatalf("no identity, nothing changed: %q, %v", warned, err)
 	}
 }
@@ -335,7 +335,7 @@ func TestThreadStateGitHub(t *testing.T) {
 			t.Fatalf("%v: changes %q", c.args, f.changes)
 		}
 		e := lastEvent(t, st, "thread_state")
-		want := map[string]any{"resident": "yardmaster", "source": "github", "thread": "Acme/webapp#7", "state": c.args[len(c.args)-1],
+		want := map[string]any{"crew": "yardmaster", "source": "github", "thread": "Acme/webapp#7", "state": c.args[len(c.args)-1],
 			"status": c.status, "was": c.was, "title": "Retries", "url": "https://github.com/Acme/webapp/issues/7"}
 		if e.Actor != "yardmaster" || !reflect.DeepEqual(e.Data, want) {
 			t.Fatalf("%v: event %v\nwant %v", c.args, e.Data, want)
@@ -347,7 +347,7 @@ func TestThreadStateGitHub(t *testing.T) {
 		if now, _ := st.Head(ctx); now != head || len(f.changes) != i+1 {
 			t.Fatalf("%v again: %d events, changes %q", c.args, now-head, f.changes)
 		}
-		// GitHub tells of it; the resident's own login is the sender.
+		// GitHub tells of it; the crew member's own login is the sender.
 		change := hooks.Envelope{Source: "github", Type: "issues", Action: map[string]string{"closed": "closed", "open": "reopened"}[c.status],
 			Actor: hooks.Party{ID: "yardmaster-bot", Name: "Yardmaster-Bot"}, Thread: hooks.Thread{ID: "Acme/webapp#7", Title: "Retries"}}
 		if _, _, err := own.RecordHook(ctx, "github", change.Map(), []byte("{}"), nil); err != nil {
@@ -369,7 +369,7 @@ func TestThreadStateGitHub(t *testing.T) {
 	}
 }
 
-// Off unless the resident's definition allows the source, only in a thread
+// Off unless the crew member's definition allows the source, only in a thread
 // it takes part in, and only from its own session or the operator's. No
 // refusal reaches a source or leaves an event.
 func TestThreadStateRefusals(t *testing.T) {
@@ -416,14 +416,14 @@ func TestThreadStateRefusals(t *testing.T) {
 	}
 	// Without the setting for the source, however the thread is named.
 	for _, args := range [][]string{{linear, "started"}, {linearIssue1, "started"}, {"--source", "linear", linearIssue1, "started"}} {
-		refused("resident yardmaster may not set the status of threads in linear", args...)
-		refused("yardr resident set yardmaster set_state=github,linear", args...)
+		refused("crew member yardmaster may not set the status of threads in linear", args...)
+		refused("yardr crew set yardmaster set_state=github,linear", args...)
 	}
 	// Allowed in the source, but no part in the thread.
-	refused("resident yardmaster takes no part in github thread Acme/webapp#8", elsewhere, "done")
+	refused("crew member yardmaster takes no part in github thread Acme/webapp#8", elsewhere, "done")
 	refused("yardr thread follow yardmaster --source github Acme/webapp#8", elsewhere, "done")
 	refused("yardr thread follow yardmaster --source github Acme/webapp#9", "--source", "github", "Acme/webapp#9", "done")
-	refused("resident yardmaster takes no part in a thread Acme/webapp#9", "Acme/webapp#9", "done")
+	refused("crew member yardmaster takes no part in a thread Acme/webapp#9", "Acme/webapp#9", "done")
 	refused("yardr thread follow yardmaster --source <source> Acme/webapp#9", "Acme/webapp#9", "done")
 	// An id it follows in two sources needs its source.
 	refused("takes part in a thread Acme/webapp#7 in github and linear: say which with --source", "Acme/webapp#7", "done")
@@ -434,37 +434,37 @@ func TestThreadStateRefusals(t *testing.T) {
 	refused(`--source "slack": one of`, "--source", "slack", "C1", "done")
 	refused("is a mail event, not a hook delivery", strconv.FormatUint(mail, 10), "done")
 	refused("event 99999", "99999", "done")
-	refused("resident ghost", "--source", "github", "Acme/webapp#7", "done", "--resident", "ghost")
+	refused("crew member ghost", "--source", "github", "Acme/webapp#7", "done", "--crew", "ghost")
 
-	// A bead's agent, or another resident, naming it with --resident.
-	t.Setenv("YARDR_RESIDENT", "")
+	// A bead's agent, or another crew member, naming it with --crew.
+	t.Setenv("YARDR_CREW", "")
 	a.actor = "yard-10-new"
 	refused("only yardmaster's own session or the operator (jo) may speak as yardmaster; this is yard-10-new",
-		"--source", "github", "Acme/webapp#7", "done", "--resident", "yardmaster")
-	refused("--resident is required", "--source", "github", "Acme/webapp#7", "done")
+		"--source", "github", "Acme/webapp#7", "done", "--crew", "yardmaster")
+	refused("--crew is required", "--source", "github", "Acme/webapp#7", "done")
 
 	// Without its credential nothing changes.
 	a.actor = "yardmaster"
 	t.Setenv("GITHUB_TOKEN", "wrong")
-	if _, _, err := state(t, a, "--source", "github", "Acme/webapp#7", "done", "--resident", "yardmaster"); err == nil ||
+	if _, _, err := state(t, a, "--source", "github", "Acme/webapp#7", "done", "--crew", "yardmaster"); err == nil ||
 		!strings.Contains(err.Error(), "401") || len(f.changes) != 0 || kinds(t, st, "thread_state") != 0 {
 		t.Fatalf("wrong credential: %v, %v", err, f.changes)
 	}
 	// The operator may speak as it.
 	t.Setenv("GITHUB_TOKEN", "gh-yardmaster")
 	a.actor = "jo"
-	if _, _, err := state(t, a, "--source", "github", "Acme/webapp#7", "done", "--resident", "yardmaster"); err != nil || f.github != "closed" {
+	if _, _, err := state(t, a, "--source", "github", "Acme/webapp#7", "done", "--crew", "yardmaster"); err != nil || f.github != "closed" {
 		t.Fatalf("the operator: %v, github %s", err, f.github)
 	}
 }
 
-// Only the operator lets a resident set the status of threads, by the rules
-// of open_threads: a resident's session cannot add a source to its own
+// Only the operator lets a crew member set the status of threads, by the rules
+// of open_threads: a crew member's session cannot add a source to its own
 // definition or to another's, and may keep or narrow what it has.
 func TestSetStateIsTheOperatorsToSet(t *testing.T) {
 	a, st, _ := stateYard(t, "")
 	ctx := context.Background()
-	if _, err := st.PutResident(ctx, store.Resident{Name: "scout", Runner: "herdr"}, "jo"); err != nil {
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "scout", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	add := func(name string, sets ...string) error {
@@ -473,19 +473,19 @@ func TestSetStateIsTheOperatorsToSet(t *testing.T) {
 		for _, s := range sets {
 			args = append(args, "--set", s)
 		}
-		_, err := run(t, a.residentCmd(), args...)
+		_, err := run(t, a.crewCmd(), args...)
 		return err
 	}
 	may := func(name string) string {
 		t.Helper()
-		r, err := st.GetResident(ctx, name)
+		r, err := st.GetCrew(ctx, name)
 		if err != nil {
 			t.Fatal(err)
 		}
 		return strings.Join(r.MaySetState(), ",")
 	}
 
-	// yardmaster's own session, for itself, for another resident and for one
+	// yardmaster's own session, for itself, for another crew member and for one
 	// that does not exist yet.
 	for _, name := range []string{"yardmaster", "scout", "fresh"} {
 		err := add(name, "kind=claude", "set_state=linear")
@@ -493,7 +493,7 @@ func TestSetStateIsTheOperatorsToSet(t *testing.T) {
 			t.Fatalf("yardmaster's session allowing %s: %v", name, err)
 		}
 	}
-	if _, err := st.GetResident(ctx, "fresh"); err == nil || may("yardmaster") != "" || may("scout") != "" {
+	if _, err := st.GetCrew(ctx, "fresh"); err == nil || may("yardmaster") != "" || may("scout") != "" {
 		t.Fatalf("a refused definition was saved: yardmaster %q, scout %q", may("yardmaster"), may("scout"))
 	}
 	// A bead's agent is no operator either.
@@ -512,7 +512,7 @@ func TestSetStateIsTheOperatorsToSet(t *testing.T) {
 		}
 	}
 
-	// The resident saves its definition with what it already has, but not
+	// The crew member saves its definition with what it already has, but not
 	// with more; without the setting, it has given it up. Being allowed to
 	// open threads is no leave to set their status, nor the other way.
 	a.actor = "yardmaster"
@@ -532,12 +532,12 @@ func TestSetStateIsTheOperatorsToSet(t *testing.T) {
 		t.Fatal("taking it back after dropping it")
 	}
 
-	// resident show says what is allowed.
+	// crew show says what is allowed.
 	a.actor = "jo"
 	if err := add("yardmaster", "kind=claude", "set_state=github,linear"); err != nil {
 		t.Fatal(err)
 	}
-	out, err := run(t, a.residentCmd(), "show", "yardmaster")
+	out, err := run(t, a.crewCmd(), "show", "yardmaster")
 	if err != nil || !strings.Contains(out, "may set the status of threads in github, linear\n") || strings.Contains(out, "may open threads") {
 		t.Fatalf("show: %q, %v", out, err)
 	}

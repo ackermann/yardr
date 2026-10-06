@@ -9,13 +9,13 @@ import (
 )
 
 // yardmaster gives the yard a yardmaster, running on a runner that records its
-// nudges, who may mail residents of the peer.
-func (y *peerYard) yardmaster(t *testing.T, peer string) *residentRunner {
+// nudges, who may mail crew members of the peer.
+func (y *peerYard) yardmaster(t *testing.T, peer string) *crewRunner {
 	t.Helper()
 	ctx := context.Background()
-	f := &residentRunner{status: map[string]string{}}
+	f := &crewRunner{status: map[string]string{}}
 	y.d.Runners["fake"] = f
-	_, err := y.api.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "fake", Config: map[string]any{store.MailPeers: peer}}, "jo")
+	_, err := y.api.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "fake", Config: map[string]any{store.MailPeers: peer}}, "jo")
 	must(t, err)
 	_, err = y.api.AllowPeer(ctx, peer, store.PeerAllow{Send: []string{"mail"}, Receive: []string{"mail"}}, "jo")
 	must(t, err)
@@ -38,7 +38,7 @@ func (y *peerYard) mails(t *testing.T) []store.Event {
 
 // The yardmasters of two linked yards mail each other: the mail lands in the
 // other's inbox as from <name>@<peer>, the nudge says it is from another
-// yard, and mail for a resident the other yard does not have comes back to
+// yard, and mail for a crew member the other yard does not have comes back to
 // its writer. With both yards reachable, and with one that asks.
 func TestPeerMailBetweenYardmasters(t *testing.T) {
 	for name, bReachable := range map[string]bool{"push": true, "b asks": false} {
@@ -92,7 +92,7 @@ func TestPeerMailBetweenYardmasters(t *testing.T) {
 			carry()
 			back := a.mails(t)
 			if len(back) != 2 || back[1].Actor != "yard" || !strings.Contains(back[1].Data["text"].(string), "your mail to nobody@b") ||
-				!strings.HasSuffix(back[1].Data["text"].(string), "it has no such resident") {
+				!strings.HasSuffix(back[1].Data["text"].(string), "it has no such crew member") {
 				t.Fatalf("a's inbox after mail for nobody = %+v", back)
 			}
 			if len(b.mails(t)) != 1 || len(a.events(t, "peer_message_failed")) != 1 {

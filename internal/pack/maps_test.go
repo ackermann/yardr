@@ -3,6 +3,7 @@ package pack_test
 import (
 	"errors"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -79,7 +80,7 @@ func TestStageMapRefusals(t *testing.T) {
 	}{
 		{name: "source without an adapter", pairs: []string{"  linear:\n    as", "  slack:\n    as"}, key: "sources.slack", msg: "no adapter for source slack", line: 23},
 		{name: "source yardr cannot set a status in", pairs: []string{"  linear:\n    as", "  token:\n    as"}, key: "sources.token", msg: "yardr cannot set a status in token (it can in ", line: 23, alsoMentioned: "linear"},
-		{name: "as naming no resident of the pack", pairs: []string{"as: yardmaster", "as: boss"}, key: "sources.linear.as", msg: "no resident boss is declared under residents", line: 24},
+		{name: "as naming no crew member of the pack", pairs: []string{"as: yardmaster", "as: boss"}, key: "sources.linear.as", msg: "no crew member boss is declared under crew", line: 24},
 		{name: "type no flow of the pack is for", pairs: []string{"  default:\n", "  default:\n    type: train\n"}, key: "sources.linear.hears.task", msg: "no flow of this pack is for beads of type task", line: 27},
 		{name: "stage the flow lacks", pairs: []string{"merged: done }\n", "merged: done, approved: done }\n"}, key: "sources.linear.hears.task.approved", msg: "flow default has no stage approved (stages: new, review, decide, merged)", line: 26},
 		{name: "stage the type's own flow lacks", pairs: []string{"groups:\n", trains, "      task: { new: started, review: review, merged: done }\n", "      train: { new: started }\n"},
@@ -136,15 +137,15 @@ func TestStageMapWordTheSourceHasNoStatusFor(t *testing.T) {
 	}
 }
 
-// resident makes a resident of the yard; with identified it has an
+// crew member makes a crew member of the yard; with identified it has an
 // identity in linear, which a hook that acts as it needs.
-func resident(t *testing.T, st store.API, name string, identified bool, config map[string]any) {
+func member(t *testing.T, st store.API, name string, identified bool, config map[string]any) {
 	t.Helper()
 	if config == nil {
 		config = map[string]any{}
 	}
 	config["kind"] = "claude"
-	if _, err := st.PutResident(ctx, store.Resident{Name: name, Runner: "herdr", Dir: t.TempDir(), Config: config}, "me"); err != nil {
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: name, Runner: "herdr", Dir: t.TempDir(), Config: config}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if identified {
@@ -204,11 +205,11 @@ func mapObjects(p *pack.Plan) []string {
 // Into a yard without a hook of the source the import goes through and sets
 // nothing for it: the plan names the hook to add, the identity and the
 // grant. It makes no hook. Once the yard has the hook, the next apply sets
-// the map and the resident on it, and the one after changes nothing.
+// the map and the crew member on it, and the one after changes nothing.
 func TestStageMapWaitsForTheYardsHook(t *testing.T) {
 	st, o := yard(t)
-	o.Residents = map[string]string{"yardmaster": "boss"}
-	resident(t, st, "boss", true, nil)
+	o.Crew = map[string]string{"yardmaster": "boss"}
+	member(t, st, "boss", true, nil)
 	p := load(t, starter)
 
 	plan := build(t, st, p, o)
@@ -222,7 +223,7 @@ func TestStageMapWaitsForTheYardsHook(t *testing.T) {
 	if n := need(t, m, "identity"); n.Status != "ok" {
 		t.Fatalf("identity: %+v", n)
 	}
-	if n := need(t, m, store.SetState); n.Status != "missing" || !strings.Contains(n.Detail, "The import does not grant it: the operator allows it with yardr resident set boss set_state=linear") {
+	if n := need(t, m, store.SetState); n.Status != "missing" || !strings.Contains(n.Detail, "The import does not grant it: the operator allows it with yardr crew set boss set_state=linear") {
 		t.Fatalf("set_state: %+v", n)
 	}
 	res := apply(t, st, plan, nil)
@@ -247,13 +248,13 @@ func TestStageMapWaitsForTheYardsHook(t *testing.T) {
 	if len(res.Mapped) != 1 || res.Mapped[0].Hook != "lin" || res.Mapped[0].As != "boss" || res.Created != 1 || !res.Recorded {
 		t.Fatalf("result = %+v", res)
 	}
-	// It set the map and no more: the resident may still not set a status.
-	if r, _ := st.GetResident(ctx, "boss"); len(r.MaySetState()) != 0 {
+	// It set the map and no more: the crew member may still not set a status.
+	if r, _ := st.GetCrew(ctx, "boss"); len(r.MaySetState()) != 0 {
 		t.Fatalf("the import let boss set a status in %v", r.MaySetState())
 	}
 	rec := record(t, st)
 	if !slices.ContainsFunc(rec.Objects, func(po store.PackObject) bool {
-		return po.Kind == "map" && po.Name == "lin" && po.Resident == "boss" && maps.Equal(po.Map, starterMap)
+		return po.Kind == "map" && po.Name == "lin" && po.CrewMember == "boss" && maps.Equal(po.Map, starterMap)
 	}) {
 		t.Fatalf("the record lacks the map: %+v", rec.Objects)
 	}
@@ -275,9 +276,9 @@ func TestStageMapWaitsForTheYardsHook(t *testing.T) {
 // A hook that has another map gets the pack's, and the plan shows both.
 func TestStageMapReplacesTheHooksAndThePlanShowsBoth(t *testing.T) {
 	st, o := yard(t)
-	o.Residents = map[string]string{"yardmaster": "boss"}
-	resident(t, st, "boss", true, map[string]any{store.SetState: "linear"})
-	resident(t, st, "clerk", true, nil)
+	o.Crew = map[string]string{"yardmaster": "boss"}
+	member(t, st, "boss", true, map[string]any{store.SetState: "linear"})
+	member(t, st, "clerk", true, nil)
 	old := map[string]string{"task:review": "done", "train:open": "started"}
 	hook(t, st, store.Hook{Name: "linear", Source: "linear", As: "clerk", Map: old})
 
@@ -304,19 +305,19 @@ func TestStageMapReplacesTheHooksAndThePlanShowsBoth(t *testing.T) {
 	if len(res.Mapped) != 1 {
 		t.Fatalf("result = %+v", res)
 	}
-	// Who takes the pack's resident is the import's to say: another one
+	// Who takes the pack's crew member is the import's to say: another one
 	// changes whom the hook acts as, and the map stays.
-	o.Residents = map[string]string{"yardmaster": "clerk"}
+	o.Crew = map[string]string{"yardmaster": "clerk"}
 	plan = build(t, st, load(t, starter), o)
 	if obj := find(t, plan, "map", "hook linear as clerk"); obj.Action != pack.Change || !slices.Equal(obj.Changes, []pack.Diff{{Field: "as", Old: "boss", New: "clerk"}}) {
-		t.Fatalf("under --resident yardmaster=clerk: %+v", obj)
+		t.Fatalf("under --crew yardmaster=clerk: %+v", obj)
 	}
 }
 
-// A hook acts only as a resident with an identity in its source, so for one
-// without, the import sets nothing and names the command; a resident the
+// A hook acts only as a crew member with an identity in its source, so for one
+// without, the import sets nothing and names the command; a crew member the
 // import itself makes has none yet.
-func TestStageMapNeedsTheResidentsIdentity(t *testing.T) {
+func TestStageMapNeedsTheCrewIdentity(t *testing.T) {
 	st, o := yard(t)
 	hook(t, st, store.Hook{Name: "linear", Source: "linear"})
 	p := load(t, starter)
@@ -324,9 +325,9 @@ func TestStageMapNeedsTheResidentsIdentity(t *testing.T) {
 	plan := build(t, st, p, o)
 	m := mapPlan(t, plan, "linear")
 	if m.As != "yardmaster" || m.Action != pack.NotSet || len(mapObjects(plan)) != 0 {
-		t.Fatalf("for a resident the import makes: %+v", m)
+		t.Fatalf("for a crew member the import makes: %+v", m)
 	}
-	if n := need(t, m, "identity"); n.Status != "missing" || !strings.Contains(n.Detail, "yardr resident identity yardmaster --source linear --id <its id there>") {
+	if n := need(t, m, "identity"); n.Status != "missing" || !strings.Contains(n.Detail, "yardr crew identity yardmaster --source linear --id <its id there>") {
 		t.Fatalf("identity: %+v", n)
 	}
 	if n := need(t, m, "hook"); n.Status != "ok" {
@@ -355,8 +356,8 @@ func TestStageMapNeedsTheResidentsIdentity(t *testing.T) {
 // operator's next apply sets it.
 func TestStageMapRefusedLeavesTheRestOfTheImport(t *testing.T) {
 	st, o := yard(t)
-	o.Residents = map[string]string{"yardmaster": "boss"}
-	resident(t, st, "boss", true, nil)
+	o.Crew = map[string]string{"yardmaster": "boss"}
+	member(t, st, "boss", true, nil)
 	hook(t, st, store.Hook{Name: "linear", Source: "linear"})
 	p := load(t, starter)
 
@@ -390,12 +391,12 @@ func TestStageMapRefusedLeavesTheRestOfTheImport(t *testing.T) {
 }
 
 // A pack that drops its block leaves the map on the hook unless told to
-// prune, as with its other objects; a prune clears the map and the resident
+// prune, as with its other objects; a prune clears the map and the crew member
 // and keeps the hook. A map changed by hand since the import is the yard's.
 func TestDroppedStageMapIsPrunedOnlyWhenAsked(t *testing.T) {
 	st, o := yard(t)
-	o.Residents = map[string]string{"yardmaster": "boss"}
-	resident(t, st, "boss", true, nil)
+	o.Crew = map[string]string{"yardmaster": "boss"}
+	member(t, st, "boss", true, nil)
 	hook(t, st, store.Hook{Name: "linear", Source: "linear"})
 	dir := copyStarter(t)
 	apply(t, st, build(t, st, load(t, dir), o), nil)
@@ -429,8 +430,8 @@ func TestDroppedStageMapIsPrunedOnlyWhenAsked(t *testing.T) {
 
 	// Set by hand since the import: not the pack's to remove.
 	st2, o2 := yard(t)
-	o2.Residents = map[string]string{"yardmaster": "boss"}
-	resident(t, st2, "boss", true, nil)
+	o2.Crew = map[string]string{"yardmaster": "boss"}
+	member(t, st2, "boss", true, nil)
 	hook(t, st2, store.Hook{Name: "linear", Source: "linear"})
 	dir = copyStarter(t)
 	apply(t, st2, build(t, st2, load(t, dir), o2), nil)
@@ -445,8 +446,8 @@ func TestDroppedStageMapIsPrunedOnlyWhenAsked(t *testing.T) {
 // which: every hook with a map would move the issue.
 func TestStageMapGoesOnOneHookOfTheSource(t *testing.T) {
 	st, o := yard(t)
-	o.Residents = map[string]string{"yardmaster": "boss"}
-	resident(t, st, "boss", true, nil)
+	o.Crew = map[string]string{"yardmaster": "boss"}
+	member(t, st, "boss", true, nil)
 	hook(t, st, store.Hook{Name: "b-linear", Source: "linear"})
 	hook(t, st, store.Hook{Name: "a-linear", Source: "linear"})
 	plan := build(t, st, load(t, starter), o)
@@ -467,8 +468,8 @@ func TestStageMapGoesOnOneHookOfTheSource(t *testing.T) {
 // Building a plan sets nothing on the hook.
 func TestStageMapPlanWritesNothing(t *testing.T) {
 	st, o := yard(t)
-	o.Residents = map[string]string{"yardmaster": "boss"}
-	resident(t, st, "boss", true, nil)
+	o.Crew = map[string]string{"yardmaster": "boss"}
+	member(t, st, "boss", true, nil)
 	hook(t, st, store.Hook{Name: "linear", Source: "linear"})
 	at := head(t, st)
 	build(t, st, load(t, starter), o)
@@ -477,5 +478,32 @@ func TestStageMapPlanWritesNothing(t *testing.T) {
 	}
 	if h := getHook(t, st, "linear"); h.As != "" || len(h.Map) != 0 {
 		t.Fatalf("hook = %+v", h)
+	}
+}
+
+// A pack from before the crew had the name declares it under residents and
+// lists the kinds a crew member hears of as that release logged them: it is
+// read as crew, and the kinds as new events carry them.
+func TestPackReadsTheOldCrewWords(t *testing.T) {
+	dir := copyStarter(t)
+	file := filepath.Join(dir, "pack.yaml")
+	b, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.Replace(string(b), "\ncrew:\n", "\nresidents:\n", 1)
+	text = strings.Replace(text, "crew_gave_up", "resident_gave_up", 1)
+	if text == string(b) || strings.Contains(text, "crew_gave_up") {
+		t.Fatal("the starter pack has no crew: with crew_gave_up to say in the old words")
+	}
+	if err := os.WriteFile(file, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := load(t, dir)
+	if len(p.Crew) != 1 || p.Crew[0].Name != "yardmaster" {
+		t.Fatalf("crew = %+v", p.Crew)
+	}
+	if ev := p.Crew[0].Events; !slices.Contains(ev, "crew_gave_up") || slices.Contains(ev, "resident_gave_up") {
+		t.Fatalf("events = %v, want crew_gave_up for resident_gave_up", ev)
 	}
 }

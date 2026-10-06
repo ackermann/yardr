@@ -377,7 +377,7 @@ func (s *Store) ListBeads(ctx context.Context, f BeadFilter) ([]Bead, error) {
 			// Journals and memories are listed only when asked for by type.
 			((f.Type == "" && !NotWork[b.Type]) || b.Type == f.Type) &&
 			(f.Rig == "" || (b.Rig != nil && *b.Rig == f.Rig)) &&
-			(f.Label == "" || slices.Contains(b.Labels, f.Label)) &&
+			(f.Label == "" || slices.Contains(b.Labels, CrewLabel(f.Label))) &&
 			(f.Group == "" || (b.Group != nil && *b.Group == f.Group))
 	})
 	if train != "" {

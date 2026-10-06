@@ -74,7 +74,7 @@ install on a server without a desktop
 installs or sets up yardr for you reads [docs/agents.md](docs/agents.md).
 
 The onboarding asks for the agent harness yardr starts by default (each herdr
-kind, marked installed or not), the yardmaster's name (the always-on resident
+kind, marked installed or not), the yardmaster's name (the always-on crew member
 that coordinates the yard), the directory its shell lives in, its model
 (optional), your name, and how agents should work with you: "Guide me", "Show
 me" (the default), "Work with me" or "Just report", with a line of anything
@@ -156,14 +156,14 @@ home with no yard too, and exits 1 when something the yard needs is missing
 setup stands.
 
 `yardr status` says what runs right now and where to reach it: the server
-with its pid and build, the daemon, each resident and its herdr agent, every
+with its pid and build, the daemon, each crew member and its herdr agent, every
 web view with its URL, its build and whether it is open to the network,
 hooks, peers, and how many sessions run. It checks nothing, starts nothing
 (a stopped server stays stopped) and exits 0 on any yard
 ([docs/doctor.md](docs/doctor.md#yardr-status)).
 
 A home counts as set up once its store has `default_kind`, or rigs, groups,
-residents or beads (a yard from before the onboarding); a store the server
+crew members or beads (a yard from before the onboarding); a store the server
 created on some earlier command, with nothing in it, still onboards. Without a
 terminal, a command on a home with no yard says so and exits 2. To try the
 onboarding without touching your yard, give it a home of its own; keep it
@@ -317,7 +317,7 @@ The rest of the documentation is in [docs/](docs/README.md):
 
 - **[Configuration](docs/configuration.md):** what a repo's `.yardr/` holds
   (what the work is: flows, the check gate, roles) and what the store holds
-  (who, where and how: groups, runners, routes, residents), which wins, and
+  (who, where and how: groups, runners, routes, crew members), which wins, and
   where yardr keeps its own state.
 - **[Flows](docs/flows.md):** bead lifecycles. Named flows rigs and types
   point at, flows in the repo's `.yardr/flows/` read from the base branch,
@@ -331,16 +331,16 @@ The rest of the documentation is in [docs/](docs/README.md):
 - **[Groups and runners](docs/groups.md):** `manual`, `exec` and `herdr`
   runners, the interactive `group add`, and setting up herdr agents.
 - **[Review](docs/review.md):** `yardr review`, a form for beads waiting on you.
-- **[Residents](docs/residents.md):** always-on sessions such as a yardmaster,
+- **[The crew](docs/crew.md):** always-on sessions such as a yardmaster,
   with inbox, webhook subscriptions, journal, handoffs and memories.
-- **[Users](docs/users.md):** `yardr user`, people with an inbox of their own: residents
+- **[Users](docs/users.md):** `yardr user`, people with an inbox of their own: crew members
   mail a user, the user reads it with `yardr inbox` and a whole exchange with
   `yardr mail --with yardmaster`.
-- **[Chat](docs/chat.md):** `yardr chat`, the residents and your conversation with each
+- **[Chat](docs/chat.md):** `yardr chat`, the crew and your conversation with each
   in one terminal view: what each is doing, where what you sent stands, a line to type.
-- **[Subscriptions](docs/subscriptions.md):** what reaches a resident's inbox:
+- **[Subscriptions](docs/subscriptions.md):** what reaches a crew member's inbox:
   hook sources, yardr's own bead events (`--done`, `yardr bead watch`), groups.
-- **[Timers](docs/timers.md):** `yardr timer`, asking the yard to tell a resident or a
+- **[Timers](docs/timers.md):** `yardr timer`, asking the yard to tell a crew member or a
   user something later, once or recurring, unless an awaited bead moved first.
 - **[Links](docs/links.md):** `yardr link`, the outside issue (Linear, GitHub) a bead
   tracks or relates to, and the hook's map that moves it when the bead changes stage.
@@ -350,9 +350,9 @@ The rest of the documentation is in [docs/](docs/README.md):
 - **[Peers](docs/peers.md):** `yardr peer`, linking two yards by their keys, from a
   short code one operator reads to the other (`yardr peer pair`) or by hand: signed
   messages both ways, pushed or pulled, proved with a ping, and mail between
-  their residents (`yardr mail yardmaster@north "…"`).
+  their crew (`yardr mail yardmaster@north "…"`).
 - **[Packs](docs/packs.md):** `yardr pack`, a yard's way of working as one directory
-  (flows, groups, roles, residents) that another yard imports.
+  (flows, groups, roles, crew members) that another yard imports.
 - **[BDP](docs/bdp.md):** `yardr bdp serve`, serving the yard over the Bead Protocol.
 - **[Web view](docs/web.md):** `yardr web serve`, the yard in a browser, read-only.
 

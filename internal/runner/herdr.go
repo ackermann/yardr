@@ -42,11 +42,11 @@ import (
 //	           never belong in the store (see config.ReadEnvFile) nor on a
 //	           command line (see call)
 //
-// A resident's config has those but keep and worktrees, and one more:
+// A crew member's config has those but keep and worktrees, and one more:
 //
 //	env_command  a command that prints KEY=VALUE lines, run at each start,
 //	             whose entries join the env_file's (see
-//	             config.ReadResidentEnv)
+//	             config.ReadCrewEnv)
 //
 //	trust      false to leave Claude Code's folder-trust dialog for a human;
 //	           by default yardr answers it (see acceptTrust)
@@ -55,7 +55,7 @@ import (
 type Herdr struct {
 	Bin          string
 	WorktreeRoot string
-	YardHome     string // passed to residents, so their yard commands reach this yard
+	YardHome     string // passed to crew members, so their yard commands reach this yard
 	// YardBin is this yard's executable. Agents are told to use it by path:
 	// an agent's shell may find an older yard first on its PATH.
 	YardBin string
@@ -109,7 +109,7 @@ func (e *herdrError) outage() bool {
 	return false
 }
 
-// ServerUp asks herdr whether its server answers, by the call a resident's
+// ServerUp asks herdr whether its server answers, by the call a crew member's
 // start begins with (agent list). It returns nil when it does; down reports
 // whether the error is herdr saying that no server runs at its socket
 // (server_not_running), as opposed to anything else that kept it from
@@ -174,16 +174,16 @@ func BaseOf(job dispatch.Job) string {
 // and stage, so `herdr agent list` reads like the yard.
 func AgentName(bead, stage string) string { return agentName(bead + "-" + stage) }
 
-// ResidentAgentName is the herdr agent name of a yard's resident,
-// "<yard>-<resident>": herdr lists every yard on the machine's agents
+// CrewAgentName is the herdr agent name of a yard's crew member,
+// "<yard>-<crew member>": herdr lists every yard on the machine's agents
 // together and refuses a second of one name, so two yards' yardmasters must not
-// both be "yardmaster". Without a yard name it is the resident's.
-func ResidentAgentName(yard, resident string) string { return agentName(yard + "-" + resident) }
+// both be "yardmaster". Without a yard name it is the crew member's.
+func CrewAgentName(yard, member string) string { return agentName(yard + "-" + member) }
 
-// ResidentLabel is the herdr label of a resident's workspace, "<yard>
-// <resident>", for the same reason.
-func ResidentLabel(yard, resident string) string {
-	return strings.TrimSpace(yard + " " + resident)
+// CrewLabel is the herdr label of a crew member's workspace, "<yard>
+// <crew member>", for the same reason.
+func CrewLabel(yard, member string) string {
+	return strings.TrimSpace(yard + " " + member)
 }
 
 // agentName is raw as a herdr agent name.
@@ -831,7 +831,7 @@ const (
 // idle and dropped them, and the session sat there without its first prompt.
 // Found live (yardr-cxsb): a prompt whose text is in the agent's input did
 // not arrive either. The Enter after it was not taken as a submit, and the
-// resident sat idle on its own prompt until a person pressed Return. The
+// crew member sat idle on its own prompt until a person pressed Return. The
 // dispatcher submits that one (see PromptTyped); here it is only told from
 // one that arrived, and not waited on for all of promptWait.
 //
@@ -1345,7 +1345,7 @@ func agentArgs(cfg map[string]any, override string) []string {
 	return append(out, "--model", model)
 }
 
-// yardName is what tells this yard's residents from another yard's in
+// yardName is what tells this yard's crew from another yard's in
 // herdr, which lists every yard on the machine's agents together: the
 // `name` setting, else the home's directory name (~/.yardr reads as yardr).
 func (h *Herdr) yardName(ctx context.Context) string {
@@ -1357,7 +1357,7 @@ func (h *Herdr) yardName(ctx context.Context) string {
 }
 
 // YardName is the yard's name from its settings and its home (see
-// yardName), for whoever has to name a resident's agent or workspace as
+// yardName), for whoever has to name a crew member's agent or workspace as
 // herdr lists it without a runner at hand.
 func YardName(home string, settings map[string]string) string {
 	if settings["name"] != "" {
@@ -1366,23 +1366,23 @@ func YardName(home string, settings map[string]string) string {
 	return strings.TrimLeft(filepath.Base(home), ".")
 }
 
-// residentDir is where a resident's session runs: its dir, else the yard's
+// crewDir is where a crew member's session runs: its dir, else the yard's
 // home.
-func (h *Herdr) residentDir(r store.Resident) string {
+func (h *Herdr) crewDir(r store.CrewMember) string {
 	if r.Dir != "" {
 		return r.Dir
 	}
 	return h.YardHome
 }
 
-// LiveResident looks through herdr's agents for one that already is r
+// LiveCrew looks through herdr's agents for one that already is r
 // without being the session yardr recorded for it (see
-// dispatch.ResidentFinder): an agent under the resident's herdr name
-// (ResidentAgentName), or one under its bare name in its directory, which
-// is what a pane started by hand before the resident was defined looks
+// dispatch.CrewFinder): an agent under the crew member's herdr name
+// (CrewAgentName), or one under its bare name in its directory, which
+// is what a pane started by hand before the crew member was defined looks
 // like. The recorded session itself (r.Handle's agent, in its pane) is not
 // counted: after a stop for a handoff herdr may list it a moment longer.
-func (h *Herdr) LiveResident(ctx context.Context, r store.Resident) (*dispatch.LiveAgent, error) {
+func (h *Herdr) LiveCrew(ctx context.Context, r store.CrewMember) (*dispatch.LiveAgent, error) {
 	raw, err := h.run(ctx, "agent", "list")
 	if err != nil {
 		return nil, err
@@ -1397,8 +1397,8 @@ func (h *Herdr) LiveResident(ctx context.Context, r store.Resident) (*dispatch.L
 	if err := json.Unmarshal(raw, &list); err != nil {
 		return nil, fmt.Errorf("agent list: %w", err)
 	}
-	full, bare := ResidentAgentName(h.yardName(ctx), r.Name), agentName(r.Name)
-	dir := realPath(h.residentDir(r))
+	full, bare := CrewAgentName(h.yardName(ctx), r.Name), agentName(r.Name)
+	dir := realPath(h.crewDir(r))
 	own, _ := r.Handle["agent"].(string)
 	ownPane, _ := r.Handle["pane"].(string)
 	for _, a := range list.Agents {
@@ -1425,16 +1425,19 @@ func realPath(path string) string {
 	return filepath.Clean(path)
 }
 
-// ResidentPromptLead and ResidentPromptEnd are how a resident's first prompt
+// CrewPromptLead and CrewPromptEnd are how a crew member's first prompt
 // begins and ends, for whoever looks in its pane for what the agent printed
 // after it. What a prompt says beyond its prime (the greeting) goes between
-// the two.
+// the two. OldCrewPromptLead is how it began until this release, when the
+// crew were the residents: a session started before the upgrade has it in
+// its pane.
 const (
-	ResidentPromptLead = "You are the yardr resident"
-	ResidentPromptEnd  = "and follow it."
+	CrewPromptLead    = "You are the yardr crew member"
+	OldCrewPromptLead = "You are the yardr resident"
+	CrewPromptEnd     = "and follow it."
 )
 
-// GreetKey is the resident config key that names the user its first session
+// GreetKey is the crew member config key that names the user its first session
 // greets by mail. yardr init sets it on the yardmaster it adds, to the
 // operator: the onboarding ends in yardr chat, which shows mail and no pane,
 // so the yardmaster's first word has to be mail.
@@ -1443,7 +1446,7 @@ const GreetKey = "greet"
 // Greets is the user r's next session is asked to greet: the one its config
 // names, for its first session only. A session after that (a rotation, a
 // restart) is in a conversation that has begun, or was never answered.
-func Greets(r store.Resident) string {
+func Greets(r store.CrewMember) string {
 	if r.StartedAt != nil {
 		return ""
 	}
@@ -1452,51 +1455,51 @@ func Greets(r store.Resident) string {
 
 // Greeted reports whether r's running session is the one that was asked to
 // greet (Greets, before it started).
-func Greeted(r store.Resident) bool {
+func Greeted(r store.CrewMember) bool {
 	return r.Live() && r.PrevStartedAt == nil && str(r.Config, GreetKey, "") != ""
 }
 
-// residentPrompt is a resident's first prompt: who it is and where its
+// crewPrompt is a crew member's first prompt: who it is and where its
 // prime is, and for a session that greets (Greets) whom to write to first.
-// It begins and ends as every resident's does: the start is what a pane is
+// It begins and ends as every crew member's does: the start is what a pane is
 // searched for to tell that the prompt arrived (showsPrompt), the end what
 // the agent's answer is looked for after.
-func residentPrompt(yardr string, r store.Resident) string {
+func crewPrompt(yardr string, r store.CrewMember) string {
 	run := "Run"
 	if user := Greets(r); user != "" {
 		run = fmt.Sprintf("%s set this yard up a moment ago and waits for your first message in `%s chat`, which shows "+
 			"them your mail and not your pane. Once you have read your prime, greet them with `%s mail %s \"<text>\"` and say "+
 			"what you need from them for the next setup step; go on with them by mail. First run", user, yardr, yardr, user)
 	}
-	return fmt.Sprintf(ResidentPromptLead+" %q. %s `%s prime --resident %s` "+ResidentPromptEnd, r.Name, run, yardr, r.Name)
+	return fmt.Sprintf(CrewPromptLead+" %q. %s `%s prime --crew %s` "+CrewPromptEnd, r.Name, run, yardr, r.Name)
 }
 
-// StartResident opens a herdr workspace in the resident's directory, with
+// StartCrew opens a herdr workspace in the crew member's directory, with
 // its identity in the environment, starts its agent and points it at its
 // prime. The agent and the workspace are named after the yard and the
-// resident (ResidentAgentName).
-func (h *Herdr) StartResident(ctx context.Context, r store.Resident) (map[string]any, error) {
-	dir := h.residentDir(r)
+// crew member (CrewAgentName).
+func (h *Herdr) StartCrew(ctx context.Context, r store.CrewMember) (map[string]any, error) {
+	dir := h.crewDir(r)
 	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
-		return nil, fmt.Errorf("resident directory %q does not exist", dir)
+		return nil, fmt.Errorf("crew member directory %q does not exist", dir)
 	}
-	secrets, err := h.residentEnv(ctx, r, dir)
+	secrets, err := h.crewEnv(ctx, r, dir)
 	if err != nil {
 		return nil, err
 	}
 	yard := h.yardName(ctx)
-	name := ResidentAgentName(yard, r.Name)
+	name := CrewAgentName(yard, r.Name)
 	// The settings of the yard's server are blanked, as for a bead's agent
 	// (agentEnv).
-	env := slices.Concat(config.Env("RESIDENT", r.Name), config.Env("ACTOR", r.Name), config.BlankServerSettings())
+	env := slices.Concat(config.Env("CREW", r.Name), config.Env("ACTOR", r.Name), config.BlankServerSettings())
 	if h.YardHome != "" {
 		env = append(env, config.Env("HOME", h.YardHome)...)
 	}
 	// The environment goes over the socket, never on a command line (see
-	// call). The workspace is not focused: a resident starts in the
+	// call). The workspace is not focused: a crew member starts in the
 	// background, under the daemon, not in front of whoever is at herdr.
 	raw, err := h.call(ctx, "workspace.create", map[string]any{
-		"cwd": dir, "label": ResidentLabel(yard, r.Name), "focus": false,
+		"cwd": dir, "label": CrewLabel(yard, r.Name), "focus": false,
 		"env": envMap(withEnvFile(env, secrets)),
 	})
 	if err != nil {
@@ -1509,20 +1512,20 @@ func (h *Herdr) StartResident(ctx context.Context, r store.Resident) (map[string
 	handle := map[string]any{"agent": name, "workspace": ws.Workspace.ID, "tab": ws.Tab.ID,
 		"pane": ws.RootPane.ID, "dir": dir}
 	// As for a bead's session: the store then knows a command run in the
-	// resident's pane as the resident's, whatever actor it names, which is
-	// what keeps a resident from releasing a peer's bead as a user
-	// (store.paneResident).
+	// crew member's pane as the crew member's, whatever actor it names, which is
+	// what keeps a crew member from releasing a peer's bead as a user
+	// (store.paneCrew).
 	h.shellOn(ctx, ws.RootPane.ID, handle)
 
 	start := []string{"agent", "start", name, "--kind", str(r.Config, "kind", "claude"), "--pane", ws.RootPane.ID}
 	if extra := agentArgs(r.Config, ""); len(extra) > 0 {
 		start = append(append(start, "--"), extra...)
 	}
-	return h.startAgent(ctx, start, name, residentPrompt(h.yard(), r), handle, trusts(r.Config))
+	return h.startAgent(ctx, start, name, crewPrompt(h.yard(), r), handle, trusts(r.Config))
 }
 
 // envFile reads the env_file cfg names, if any, for the pane environment of
-// who ("resident yardmaster", "group builders"). A file that is missing, not a
+// who ("crew member yardmaster", "group builders"). A file that is missing, not a
 // regular file or open to others is refused as Blocked: the session must
 // not start without its credentials, nor with credentials others can read.
 // Only key names are logged.
@@ -1541,23 +1544,23 @@ func (h *Herdr) envFile(cfg map[string]any, who string) ([]string, error) {
 	return f.Env, nil
 }
 
-// residentEnv is what r's settings add to its pane environment: its
+// crewEnv is what r's settings add to its pane environment: its
 // env_file's entries and those its env_command prints (see
-// config.ReadResidentEnv), asked for at every start. Either one refused (a
+// config.ReadCrewEnv), asked for at every start. Either one refused (a
 // file open to others, a command that fails, hangs or prints a line that is
-// no KEY=VALUE) is Blocked, as a group's env_file is: the resident must not
+// no KEY=VALUE) is Blocked, as a group's env_file is: the crew member must not
 // start without its credentials. Only key names are logged.
-func (h *Herdr) residentEnv(ctx context.Context, r store.Resident, dir string) ([]string, error) {
-	env, err := config.ReadResidentEnv(ctx, r.Name, dir, h.YardHome, r.Config)
+func (h *Herdr) crewEnv(ctx context.Context, r store.CrewMember, dir string) ([]string, error) {
+	env, err := config.ReadCrewEnv(ctx, r.Name, dir, h.YardHome, r.Config)
 	if err != nil {
 		if ctx.Err() != nil {
 			// The daemon is stopping: nothing a human has to fix.
 			return nil, err
 		}
-		return nil, dispatch.Blocked(fmt.Errorf("resident %s: %w", r.Name, err))
+		return nil, dispatch.Blocked(fmt.Errorf("crew member %s: %w", r.Name, err))
 	}
 	if h.Log != nil && env.Set() {
-		h.Log.Debug("resident environment loaded", "for", "resident "+r.Name, "from", env.From(), "keys", env.Keys())
+		h.Log.Debug("crew member environment loaded", "for", "crew member "+r.Name, "from", env.From(), "keys", env.Keys())
 	}
 	return env.Env, nil
 }

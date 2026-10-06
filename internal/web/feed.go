@@ -40,22 +40,24 @@ type Entry struct {
 // Clock is the entry's time as the page shows it (see clock).
 func (e Entry) Clock() string { return clock(e.At) }
 
-// inFeed reports whether an event has an entry in the feed. A resident's
+// inFeed reports whether an event has an entry in the feed. A crew member's
 // journal entries and handoffs are its own notes to itself, and there are
-// many: they are left out. So are a resident's turns beginning and ending
-// (resident_status, but for one that stops at a prompt or leaves it) and
-// mail being read (mail_read), which a view of the residents follows and
+// many: they are left out. So are a crew member's turns beginning and ending
+// (crew_status, but for one that stops at a prompt or leaves it) and
+// mail being read (mail_read), which a view of the crew follows and
 // nobody reads as news. Of a timer only its firing is news: not that it
 // was set, dropped or removed, nor the mail a firing is to a user, which
 // the timer's own entry tells.
 func inFeed(e store.Event) bool {
-	switch e.Kind {
+	// EventKind: an event from before the crew had the name is in the log
+	// under its old kind.
+	switch store.EventKind(e.Kind) {
 	case store.NoteJournal, store.NoteHandoff, "mail_read", "timer_set", "timer_dropped", "timer_removed":
 		return false
 	case "mail":
 		_, timer := e.Data["timer"]
 		return !timer
-	case "resident_status":
+	case "crew_status":
 		return e.Data["status"] == "blocked" || e.Data["was"] == "blocked"
 	}
 	return true

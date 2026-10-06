@@ -153,7 +153,7 @@ three places until someone moves the bead:
 - `yardr flow show <rig>` prints a warning per bead under the flow that
   lacks its stage, next to "stage has no route".
 - The dispatcher logs one `stranded` event for the bead (`stage`, `flow`,
-  `source` with the commit), which a resident hears like `unrouted` (it is
+  `source` with the commit), which a crew member hears like `unrouted` (it is
   in the default `--on` list and the starter pack's `hears.events`). It is
   logged again only when the stage or the flow changes, not when the base
   merely moves on, and once more after a daemon restart.
@@ -293,7 +293,7 @@ stages, so flows without outcomes behave as before.
 A stage can carry a markdown **stage file**: what the stage is for, what
 must be true to leave it, and when each outcome applies. Whoever works a
 bead in the stage is shown it, whichever group they belong to: an agent in
-its brief, a person or a resident with `yardr prime --bead`. Stage files are
+its brief, a person or a crew member with `yardr prime --bead`. Stage files are
 optional; a stage without one behaves as it always did: its brief has no
 stage section, `prime` no `STAGE` block, and its line on
 [the map of the flow](#the-map-of-the-flow) says only who works it.

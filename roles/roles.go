@@ -4,7 +4,7 @@
 //
 // They are generic: no person, rig or language, since every yard installs
 // them. `yardr init` puts the operator's name where they say {{operator}} and
-// the yardmaster resident's where they say {{yardmaster}}; a rig says how it
+// the yardmaster crew member's where they say {{yardmaster}}; a rig says how it
 // is worked in its own repo, under .yardr/roles/.
 package roles
 

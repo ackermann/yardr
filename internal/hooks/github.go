@@ -129,7 +129,7 @@ type githubSuite struct {
 }
 
 // Logins are lowercased in actor, assignee and mentions: GitHub logins are
-// case-insensitive and a mention is typed by hand, so a resident's github
+// case-insensitive and a mention is typed by hand, so a crew member's github
 // identity is matched by its lowercase login.
 func (GitHub) Normalize(h http.Header, body []byte) (*Envelope, error) {
 	event := h.Get("X-GitHub-Event")
@@ -304,7 +304,7 @@ var githubMention = regexp.MustCompile(`(?:^|[^A-Za-z0-9_@./-])@([A-Za-z0-9](?:-
 var githubCode = regexp.MustCompile("(?s)```.*?(```|$)|`[^`\n]*`")
 
 // githubMentions lists the lowercase logins a body mentions, once each, in
-// order. Team mentions (@org/team) are left out: a team is not a resident.
+// order. Team mentions (@org/team) are left out: a team is not a crew member.
 func githubMentions(md string) []string {
 	out := []string{}
 	seen := map[string]bool{}

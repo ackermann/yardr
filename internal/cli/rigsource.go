@@ -24,22 +24,22 @@ type sourceSwitch struct {
 	Changed bool        `json:"changed"`
 	Lines   []rigSource `json:"lines"`
 	// Notes say what the switch leaves for the operator: a pack's record
-	// that will undo it, a resident to restart, a type still pointed elsewhere.
+	// that will undo it, a crew member to restart, a type still pointed elsewhere.
 	Notes []string `json:"notes,omitempty"`
 }
 
 func (a *app) rigSourceCmd() *cobra.Command {
 	var flowType string
 	cmd := &cobra.Command{
-		Use:   "source <rig> (role <group|resident> | flow [--type <type>]) (rig | pack)",
+		Use:   "source <rig> (role <group|crew> | flow [--type <type>]) (rig | pack)",
 		Short: "Switch one role or flow of a rig between the rig's own and the pack's",
 		Long: `Switch one line of yardr rig sources between the rig's repository and the
 pack imported into the rig, and print the line as it is afterwards.
 
-  role  sets the prompt of the group or resident: to roles/<name>.md, which
+  role  sets the prompt of the group or crew member: to roles/<name>.md, which
         yardr resolves to the rig's .yardr/roles/<name>.md on the base
         branch, or to the pack's installed copy under the yard's home. A
-        resident is the yard's and reads a path as it is, so its rig's role
+        crew member is the yard's and reads a path as it is, so its rig's role
         is the file in the rig's checkout, by its absolute path.
   flow  clears the rig's flow pointer (rig), or points it at the pack's flow
         in the store (pack); with --type, the pointer of that type's beads.
@@ -61,7 +61,7 @@ pack apply sets them again; the output says when that undoes the switch.`,
 		RunE: func(c *cobra.Command, args []string) error {
 			rig, kind, to := args[0], args[1], args[len(args)-1]
 			if (kind != "role" || len(args) != 4) && (kind != "flow" || len(args) != 3) {
-				return fmt.Errorf("give role <group|resident> rig|pack, or flow [--type <type>] rig|pack")
+				return fmt.Errorf("give role <group|crew> rig|pack, or flow [--type <type>] rig|pack")
 			}
 			if to != sourceRig && to != sourcePack {
 				return fmt.Errorf("the source is rig or pack, not %q", to)
@@ -141,7 +141,7 @@ func rigPacks(ctx context.Context, st store.API, rig string) ([]store.PackImport
 	return out, nil
 }
 
-// switchRole sets the prompt of the group or resident name, a role of the
+// switchRole sets the prompt of the group or crew member name, a role of the
 // rig as yardr rig sources lists them, to the rig's own role or to the copy
 // a pack imported into the rig installed. The role is the one the prompt
 // names now, by its file name: nothing else says which of the rig's roles
@@ -153,7 +153,7 @@ func switchRole(ctx context.Context, st store.API, rigName, name, to, home, acto
 	}
 	cur := roleLine(lines, name)
 	if cur == nil {
-		return nil, fmt.Errorf("rig %s has no role %s: no route of the rig leads to an agent group of that name, and no pack imported into it names such a resident (yardr rig sources %s)", rigName, name, rigName)
+		return nil, fmt.Errorf("rig %s has no role %s: no route of the rig leads to an agent group of that name, and no pack imported into it names such a crew member (yardr rig sources %s)", rigName, name, rigName)
 	}
 	res := &sourceSwitch{Rig: rigName, Lines: []rigSource{*cur}}
 	if cur.Source == to && cur.Error == "" {
@@ -163,18 +163,18 @@ func switchRole(ctx context.Context, st store.API, rigName, name, to, home, acto
 	if err != nil {
 		return nil, err
 	}
-	// The lines list groups before residents, so a name both have is the group's.
+	// The lines list groups before crew members, so a name both have is the group's.
 	group, err := st.GetGroup(ctx, name)
-	var resident *store.Resident
+	var member *store.CrewMember
 	var config map[string]any
 	switch {
 	case err == nil:
 		config = group.Config
 	case errors.Is(err, store.ErrNotFound):
-		if resident, err = st.GetResident(ctx, name); err != nil {
+		if member, err = st.GetCrew(ctx, name); err != nil {
 			return nil, err
 		}
-		config = resident.Config
+		config = member.Config
 	default:
 		return nil, err
 	}
@@ -196,12 +196,12 @@ func switchRole(ctx context.Context, st store.API, rigName, name, to, home, acto
 	}
 	var next string
 	if to == sourceRig {
-		if resident != nil {
-			// A resident's prompt is a path read as it is, never looked up
+		if member != nil {
+			// A crew member's prompt is a path read as it is, never looked up
 			// in a rig: the rig's role is the file in its checkout.
 			next = filepath.Join(rig.Path, ".yardr", "roles", file)
 			if _, err := os.Stat(next); rig.Path == "" || err != nil {
-				return nil, fmt.Errorf("rig %s has no .yardr/roles/%s in its checkout %s, where a resident would read it: %s stays as it is", rigName, file, rig.Path, name)
+				return nil, fmt.Errorf("rig %s has no .yardr/roles/%s in its checkout %s, where a crew member would read it: %s stays as it is", rigName, file, rig.Path, name)
 			}
 		} else {
 			has, err := runner.RigRole(rig, file)
@@ -218,10 +218,10 @@ func switchRole(ctx context.Context, st store.API, rigName, name, to, home, acto
 			return nil, fmt.Errorf("no pack is imported into rig %s (yardr pack list): there is no pack's role to switch %s to", rigName, name)
 		}
 		// Of several packs with a copy, the one whose import named the
-		// group or resident.
+		// group or crew member.
 		if len(copies) > 1 {
 			named := slices.DeleteFunc(slices.Clone(copies), func(p store.PackImport) bool {
-				return !mapsTo(p.Groups, name) && !mapsTo(p.Residents, name)
+				return !mapsTo(p.Groups, name) && !mapsTo(p.Crew, name)
 			})
 			if len(named) != 1 {
 				return nil, fmt.Errorf("packs %s imported into rig %s each have a role %s, and nothing says which is %s's: set its prompt yourself", packNames(copies), rigName, file, name)
@@ -234,12 +234,12 @@ func switchRole(ctx context.Context, st store.API, rigName, name, to, home, acto
 		next = filepath.Join(home, "packs", copies[0].Pack, "roles", file)
 	}
 	config["prompt"] = next
-	if resident != nil {
-		if _, err := st.PutResident(ctx, *resident, actor); err != nil {
+	if member != nil {
+		if _, err := st.PutCrew(ctx, *member, actor); err != nil {
 			return nil, err
 		}
-		if resident.Live() {
-			res.Notes = append(res.Notes, fmt.Sprintf("resident %s is running and keeps its session: it reads the new role when its next one starts (yardr resident restart %s)", name, name))
+		if member.Live() {
+			res.Notes = append(res.Notes, fmt.Sprintf("crew member %s is running and keeps its session: it reads the new role when its next one starts (yardr crew restart %s)", name, name))
 		}
 	} else if err := st.PutGroup(ctx, *group); err != nil {
 		return nil, err
@@ -249,7 +249,7 @@ func switchRole(ctx context.Context, st store.API, rigName, name, to, home, acto
 		switch {
 		case to == sourceRig && !p.RigRoles:
 			res.Notes = append(res.Notes, fmt.Sprintf("the import of pack %s chose the pack's roles: the next yardr pack apply sets its role on %s again unless given --rig-roles", p.Pack, name))
-		case to == sourcePack && p.RigRoles && resident == nil:
+		case to == sourcePack && p.RigRoles && member == nil:
 			res.Notes = append(res.Notes, fmt.Sprintf("the import of pack %s was given --rig-roles: the next yardr pack apply sets the rig's role on %s again unless given --pack-roles", p.Pack, name))
 		}
 	}

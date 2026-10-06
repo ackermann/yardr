@@ -3,7 +3,7 @@
 A rig does not have to be a git repository. A **dir rig** is a plain
 directory: a folder of invoices, documents, images, whatever needs working
 on. Beads are routed, worked, reviewed and closed as in any rig, with the
-same groups, routes, inbox, `yardr review` and residents; what a dir rig
+same groups, routes, inbox, `yardr review` and crew members; what a dir rig
 drops is the branch machinery:
 
 - Beads are worked in the directory itself: no worktree, no branch, no base,

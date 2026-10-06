@@ -32,18 +32,18 @@ type PackImport struct {
 	Dirty  bool   `json:"dirty,omitempty"`
 	// Flow is the pack's flow the rig follows, by the pack's name for it.
 	Flow string `json:"flow,omitempty"`
-	// RigRoles says the import was told to leave a group or resident its
+	// RigRoles says the import was told to leave a group or crew member its
 	// rig's own role (--rig-roles); otherwise the pack's roles were set, the
 	// default. The next import repeats the choice unless told anew.
 	RigRoles bool      `json:"rig_roles,omitempty"`
 	At       time.Time `json:"at"`
 	By       string    `json:"by"`
-	// Groups and Residents map the pack's names to the yard's.
-	Groups    map[string]string `json:"groups"`
-	Residents map[string]string `json:"residents"`
-	Objects   []PackObject      `json:"objects"`
-	// OpenThreads are the answers to what the pack asked that its residents
-	// may open threads in: the yard's resident -> source -> whether the
+	// Groups and Crew members map the pack's names to the yard's.
+	Groups  map[string]string `json:"groups"`
+	Crew    map[string]string `json:"crew"`
+	Objects []PackObject      `json:"objects"`
+	// OpenThreads are the answers to what the pack asked that its crew
+	// may open threads in: the yard's crew member -> source -> whether the
 	// operator said yes. A source nobody was asked about is not in it, so a
 	// later import asks.
 	OpenThreads map[string]map[string]bool `json:"open_threads,omitempty"`
@@ -63,10 +63,10 @@ type PackObject struct {
 	Type  string `json:"type,omitempty"`
 	Group string `json:"group,omitempty"`
 	Flow  string `json:"flow,omitempty"`
-	// A subscription and the resident it is of.
-	Resident     string        `json:"resident,omitempty"`
+	// A subscription and the crew member it is of.
+	CrewMember   string        `json:"crew,omitempty"`
 	Subscription *Subscription `json:"subscription,omitempty"`
-	// A stage map (kind map): Name is the hook it was set on, Resident the
+	// A stage map (kind map): Name is the hook it was set on, CrewMember the
 	// one the hook acts as, and Map the map as the import left it, so a map
 	// changed by hand since is not taken for the pack's.
 	Map map[string]string `json:"map,omitempty"`
@@ -87,7 +87,7 @@ func (o PackObject) Key() string {
 		if o.Subscription != nil {
 			s = Subscription{Source: o.Subscription.Source, Where: o.Subscription.Where}
 		}
-		return join(o.Kind, o.Resident, s.String())
+		return join(o.Kind, o.CrewMember, s.String())
 	}
 	return join(o.Kind, o.Name)
 }
@@ -105,8 +105,8 @@ func normalPack(p PackImport) PackImport {
 	if p.Groups == nil {
 		p.Groups = map[string]string{}
 	}
-	if p.Residents == nil {
-		p.Residents = map[string]string{}
+	if p.Crew == nil {
+		p.Crew = map[string]string{}
 	}
 	p.Objects = slices.Clone(p.Objects)
 	if p.Objects == nil {
@@ -119,7 +119,7 @@ func normalPack(p PackImport) PackImport {
 			p.Objects[i].Subscription = &s
 		}
 	}
-	// A resident without an answer, and a record without any, are left out
+	// A crew member without an answer, and a record without any, are left out
 	// when stored.
 	answers := map[string]map[string]bool{}
 	for name, by := range p.OpenThreads {
@@ -185,7 +185,7 @@ func (s *Store) Packs(ctx context.Context) ([]PackImport, error) {
 	return out, err
 }
 
-// RemoveSubscription drops exactly sub from the resident (or manual group)
+// RemoveSubscription drops exactly sub from the crew member (or manual group)
 // name: the one with its source, scope and filters, and no other.
 // RemoveSubscriptions without filters takes every subscription of the
 // source and scope, filtered ones too.

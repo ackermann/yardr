@@ -22,7 +22,7 @@ import (
 // stand-in for GitHub that knows the App (installed on acme/webapp), the
 // yardmaster's env_file with the App's two lines, and deliveries from a thread
 // where the App is installed and from one where it is not. The environment
-// is the yardmaster's pane's: YARDR_RESIDENT and what the env_file sets.
+// is the yardmaster's pane's: YARDR_CREW and what the env_file sets.
 type appYard struct {
 	a       *app
 	st      store.API
@@ -63,9 +63,9 @@ func newAppYard(t *testing.T) *appYard {
 	if err := os.WriteFile(envFile, []byte(lines), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	def := store.Resident{Name: "yardmaster", Runner: "herdr",
+	def := store.CrewMember{Name: "yardmaster", Runner: "herdr",
 		Config: map[string]any{"env_file": envFile, store.SetState: "github", store.OpenThreads: "github"}}
-	if _, err := st.PutResident(ctx, def, "jo"); err != nil {
+	if _, err := st.PutCrew(ctx, def, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.SetSetting(ctx, "operator", "jo", "jo"); err != nil {
@@ -80,12 +80,12 @@ func newAppYard(t *testing.T) *appYard {
 		}
 		y.seqs[name] = strconv.FormatUint(seq, 10)
 	}
-	for _, name := range []string{"GITHUB_TOKEN", "YARD_RESIDENT"} {
+	for _, name := range []string{"GITHUB_TOKEN", "YARD_CREW"} {
 		t.Setenv(name, "")
 	}
 	t.Setenv("GITHUB_APP_ID", "4242")
 	t.Setenv("GITHUB_APP_PRIVATE_KEY_FILE", y.keyFile)
-	t.Setenv("YARDR_RESIDENT", "yardmaster")
+	t.Setenv("YARDR_CREW", "yardmaster")
 	y.a = &app{st: st, actor: "yardmaster"}
 	return y
 }
@@ -123,9 +123,9 @@ func (y *appYard) clean(t *testing.T, texts ...string) {
 	}
 }
 
-// yardr reply, thread open and thread state, run in the pane of a resident
+// yardr reply, thread open and thread state, run in the pane of a crew member
 // whose env_file names a GitHub App, speak as the App's bot, with one
-// installation token asked for; resident show says which kind of
+// installation token asked for; crew show says which kind of
 // credential it has, by name. Neither the token nor the key is in an
 // event or in what is printed.
 func TestSpeakingAsAGitHubApp(t *testing.T) {
@@ -148,9 +148,9 @@ func TestSpeakingAsAGitHubApp(t *testing.T) {
 	if got := y.src.Calls(); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("calls:\n  %s", strings.Join(got, "\n  "))
 	}
-	show, err := run(t, y.a.residentCmd(), "show", "yardmaster")
+	show, err := run(t, y.a.crewCmd(), "show", "yardmaster")
 	if err != nil || !strings.Contains(show, "  github credential: GitHub App (GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY_FILE)\n") {
-		t.Fatalf("resident show: %v\n%s", err, show)
+		t.Fatalf("crew show: %v\n%s", err, show)
 	}
 	y.clean(t, out, opened, stated, show)
 
@@ -163,11 +163,11 @@ func TestSpeakingAsAGitHubApp(t *testing.T) {
 	y.clean(t, err.Error())
 }
 
-// A resident whose environment has no GitHub credential is refused, with
+// A crew member whose environment has no GitHub credential is refused, with
 // both ways to give it one named, and gh is not asked: before, the reply
 // went out under the gh login of whoever runs the yard. The operator, at
 // their own shell, still speaks as gh has them logged in.
-func TestResidentWithoutGitHubCredentialIsRefused(t *testing.T) {
+func TestCrewWithoutGitHubCredentialIsRefused(t *testing.T) {
 	y := newAppYard(t)
 	bin := t.TempDir()
 	asked := filepath.Join(bin, "asked")
@@ -183,49 +183,49 @@ func TestResidentWithoutGitHubCredentialIsRefused(t *testing.T) {
 	if err == nil {
 		t.Fatal("posted")
 	}
-	for _, want := range []string{"resident yardmaster has no GitHub credential", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY_FILE", "GITHUB_TOKEN"} {
+	for _, want := range []string{"crew member yardmaster has no GitHub credential", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY_FILE", "GITHUB_TOKEN"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("refusal %q does not say %q", err, want)
 		}
 	}
 	if _, statErr := os.Stat(asked); statErr == nil {
-		t.Error("gh was asked on a resident's behalf")
+		t.Error("gh was asked on a crew member's behalf")
 	}
 	if got := y.src.Calls(); len(got) != 0 {
 		t.Errorf("calls %v", got)
 	}
 
-	// resident show says a resident that is someone on GitHub has nothing
+	// crew show says a crew member that is someone on GitHub has nothing
 	// to answer there with. The bot's login is kept in lowercase, as
 	// deliveries carry it.
 	y.a.actor = "jo"
-	if out, err := run(t, y.a.residentCmd(), "identity", "yardmaster", "--source", "github", "--key", "Yardr[bot]"); err != nil || !strings.Contains(out, "yardr[bot]") {
+	if out, err := run(t, y.a.crewCmd(), "identity", "yardmaster", "--source", "github", "--key", "Yardr[bot]"); err != nil || !strings.Contains(out, "yardr[bot]") {
 		t.Fatalf("identity: %q, %v", out, err)
 	}
 	y.a.actor = "yardmaster"
-	r, err := y.st.GetResident(context.Background(), "yardmaster")
+	r, err := y.st.GetCrew(context.Background(), "yardmaster")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(r.Config["env_file"].(string), []byte("GITHUB_APP_ID=4242\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	show, err := run(t, y.a.residentCmd(), "show", "yardmaster")
+	show, err := run(t, y.a.crewCmd(), "show", "yardmaster")
 	if err != nil || !strings.Contains(show, "  github credential: none (GITHUB_APP_ID): it takes GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, or GITHUB_TOKEN\n") ||
 		!strings.Contains(show, "github identity: yardr[bot]") {
-		t.Fatalf("resident show: %v\n%s", err, show)
+		t.Fatalf("crew show: %v\n%s", err, show)
 	}
 	if err := os.WriteFile(r.Config["env_file"].(string), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if show, err = run(t, y.a.residentCmd(), "show", "yardmaster"); err != nil || !strings.Contains(show, "  github credential: none: it cannot answer in github until its env_file or env_command sets ") {
-		t.Fatalf("resident show: %v\n%s", err, show)
+	if show, err = run(t, y.a.crewCmd(), "show", "yardmaster"); err != nil || !strings.Contains(show, "  github credential: none: it cannot answer in github until its env_file or env_command sets ") {
+		t.Fatalf("crew show: %v\n%s", err, show)
 	}
 
-	// The operator's own shell: no YARDR_RESIDENT, acting as themselves.
-	t.Setenv("YARDR_RESIDENT", "")
+	// The operator's own shell: no YARDR_CREW, acting as themselves.
+	t.Setenv("YARDR_CREW", "")
 	y.a.actor = "jo"
-	out, err := run(t, y.a.replyCmd(), y.seqs["installed"], "On it.", "--resident", "yardmaster")
+	out, err := run(t, y.a.replyCmd(), y.seqs["installed"], "On it.", "--crew", "yardmaster")
 	if err != nil || !strings.Contains(out, "#issuecomment-") {
 		t.Fatalf("the operator's reply: %q, %v", out, err)
 	}

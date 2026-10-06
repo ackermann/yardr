@@ -23,15 +23,16 @@ import (
 // packFlags are what pack check and pack apply both take: where the pack
 // goes and what a pack cannot say for itself.
 type packFlags struct {
-	opts      pack.Options
-	residents []string
+	opts pack.Options
+	crew []string
 }
 
 func (f *packFlags) register(c *cobra.Command, verb string) {
 	c.Flags().StringVar(&f.opts.Rig, "rig", "", "the rig the pack "+verb+" imported into")
 	c.Flags().StringVar(&f.opts.Flow, "flow", "", "the pack's flow the rig follows (default: the one it was given by the last import, else the pack's first flow without a type)")
-	c.Flags().StringArrayVar(&f.residents, "resident", nil, "<pack's name>=<yard's resident>: which resident takes a resident of the pack (repeatable; default: as at the last import)")
-	c.Flags().BoolVar(&f.opts.RigRoles, "rig-roles", false, "leave a group or resident its rig's own .yardr/roles/<name>.md where the rig has one, instead of setting the pack's role (default: as at the last import, else the pack's)")
+	c.Flags().StringArrayVar(&f.crew, "crew", nil, "<pack's name>=<yard's crew member>: which crew member takes a crew member of the pack (repeatable; default: as at the last import)")
+	oldFlag(c, "resident", "crew")
+	c.Flags().BoolVar(&f.opts.RigRoles, "rig-roles", false, "leave a group or crew member its rig's own .yardr/roles/<name>.md where the rig has one, instead of setting the pack's role (default: as at the last import, else the pack's)")
 	c.Flags().BoolVar(&f.opts.PackRoles, "pack-roles", false, "set the pack's roles everywhere: the default now, needed only to undo an earlier --rig-roles")
 	c.MarkFlagsMutuallyExclusive("rig-roles", "pack-roles")
 	_ = c.MarkFlagRequired("rig")
@@ -59,13 +60,13 @@ func (a *app) packOptions(ctx context.Context, f *packFlags) (store.API, *config
 		// To stderr: --json's output stays the plan alone.
 		fmt.Fprintln(os.Stderr, "--pack-roles: the pack's roles are the default now; the flag is only needed to undo an earlier --rig-roles")
 	}
-	f.opts.Residents = map[string]string{}
-	for _, kv := range f.residents {
+	f.opts.Crew = map[string]string{}
+	for _, kv := range f.crew {
 		from, to, ok := strings.Cut(kv, "=")
 		if !ok || from == "" || to == "" {
-			return nil, nil, fmt.Errorf("--resident %q: want <pack's name>=<yard's resident>", kv)
+			return nil, nil, fmt.Errorf("--crew %q: want <pack's name>=<yard's crew member>", kv)
 		}
-		f.opts.Residents[from] = to
+		f.opts.Crew[from] = to
 	}
 	st, err := a.store(ctx)
 	if err != nil {
@@ -84,7 +85,7 @@ func (a *app) packOptions(ctx context.Context, f *packFlags) (store.API, *config
 }
 
 func (a *app) packCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "pack", Short: "A yard's way of working as a directory: flows, groups, roles, residents"}
+	cmd := &cobra.Command{Use: "pack", Short: "A yard's way of working as a directory: flows, groups, roles, crew members"}
 
 	var cf packFlags
 	check := &cobra.Command{
@@ -96,28 +97,28 @@ create, change (field: old -> new), unchanged, not in the pack (the yard
 has it, the pack does not, and an import leaves it alone), or no longer in
 the pack (an earlier import brought it, the pack has dropped it since, and
 pack apply --prune removes it). Then what an import would ask, which flow
-would govern the rig, what each source a resident subscribes to still
-lacks, and which sources the pack asks that a resident may open threads in
+would govern the rig, what each source a crew member subscribes to still
+lacks, and which sources the pack asks that a crew member may open threads in
 (open_threads): an import asks the operator, and only about a source the
 yard has a hook and a credential for. For each source the pack carries a
 stage map for (sources.<source>: as, hears), the plan shows the map, the
-yard's resident it would be acted on as, whether the yard has a hook of
-that source and whether that resident may set a status there (set_state),
+yard's crew member it would be acted on as, whether the yard has a hook of
+that source and whether that crew member may set a status there (set_state),
 with the command for whatever is missing. Nothing is written.
 
-The pack's role is set on every agent group and resident it names, also
+The pack's role is set on every agent group and crew member it names, also
 where the rig has its own .yardr/roles/<name>.md: the plan names that file
 as shadowed. --rig-roles keeps the rig's own role instead.
 
 A role or stage file is installed with {{operator}} filled with the yard's
-operator and {{<resident>}} with the yard's resident that takes that
-resident of the pack; any other {{...}} in one makes the pack invalid.
+operator and {{<crew member>}} with the yard's crew member that takes that
+crew member of the pack; any other {{...}} in one makes the pack invalid.
 
 It exits 1 on a pack that is not valid, naming every mistake by file, line
 and key, and on a plan an import would refuse (open beads in a stage the
 pack's flow lacks). --json prints the plan as data. See docs/packs.md.`,
 		Example: `  yardr pack check packs/starter --rig yardr
-  yardr pack check ~/packs/starter --rig yardr --resident yardmaster=boss`,
+  yardr pack check ~/packs/starter --rig yardr --crew yardmaster=boss`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			p, err := a.loadPack(args[0])
@@ -159,11 +160,11 @@ filled in, asks for what a pack cannot say, then sets the yard to the pack's
 state. Everything is matched by name,
 so an object the yard has is overwritten in what the pack carries, never
 added a second time, and keeps what the pack does not carry (a group's
-agent, model, arguments and members; a resident's identity and directory).
+agent, model, arguments and members; a crew member's identity and directory).
 Applying the same pack again changes nothing and logs one pack_unchanged
 event.
 
-The pack's roles win: a group or resident gets the pack's copied role also
+The pack's roles win: a group or crew member gets the pack's copied role also
 where the rig has its own .yardr/roles/<name>.md, which the plan names as
 shadowed. --rig-roles keeps the rig's own role instead; the import records
 the choice and the next one repeats it. A copy under <home>/packs/<pack>/
@@ -173,16 +174,16 @@ the pack's source.
 What it asks, and the flag that answers instead:
   the agent and model of a group the yard lacks   --bind <group>=<kind>[:<model>][,<preset>]
   the members of a people group the yard lacks    --members <group>=a,b   (empty: anyone)
-  which resident takes a resident of the pack     --resident <pack's>=<yard's>
-  the agent of a resident the yard lacks          --bind resident:<pack's>=<kind>[:<model>][,<preset>]
+  which crew member takes one of the pack         --crew <pack's>=<yard's>
+  the agent of a crew member the yard lacks       --bind crew:<pack's>=<kind>[:<model>][,<preset>]
   which flow, when the pack has several           --flow <name>
-  whether a resident may open threads in the      --open-threads <pack's>=linear,github
+  whether a crew member may open threads in the   --open-threads <pack's>=linear,github
   sources the pack asks for (open_threads)        (=none for no)
 <group> is the pack's name for it (builders). Without a terminal nothing is
 asked: a missing answer is an error, never a default, and --yes is needed
 to apply.
 
-A pack may ask that its resident may open threads in a source. That is the
+A pack may ask that its crew member may open threads in a source. That is the
 operator's to grant, so the import asks, last and with no as the default,
 and only about a source this yard has a hook and a credential for; the plan
 says what any other source lacks. Without a terminal, with --json or with
@@ -192,32 +193,32 @@ grants nothing. An answer is recorded, so it is asked once.
 
 A pack may carry a stage map for a source (sources.<source>: as, hears):
 which status an issue goes to when the bead tracking it enters a stage. The
-import sets it, and the resident it is acted on as, on the yard's hook of
+import sets it, and the crew member it is acted on as, on the yard's hook of
 that source; a hook that has another map gets the pack's, and the plan shows
 both. It never makes a hook: without one the import goes through, sets
 nothing for that source and names the command, and the next apply sets it.
-It never lets the resident set a status either: until the operator has
-(yardr resident set <resident> set_state=<source>), the map moves nothing, and
+It never lets the crew member set a status either: until the operator has
+(yardr crew set <crew member> set_state=<source>), the map moves nothing, and
 the plan and the output say so. As with yardr hook add --as, only the
-operator or that resident's own session may have a hook act as a resident:
+operator or that crew member's own session may have a hook act as a crew member:
 run by anyone else the import does the rest and sets no map.
 
-The one answer with a default is what a new group's or resident's agent may
+The one answer with a default is what a new group's or crew member's agent may
 do without asking. <preset> names one of the agent's permission presets by
 the label the group form shows (claude: auto, accept-edits, bypass; none
 for no arguments). Left out, a terminal asks with the same list; without a
 terminal, or with --yes, the agent gets the arguments yardr init gives it:
 ` + agents.UnattendedHelp() + `
-The plan prints the arguments each new group and resident gets. Those of a
-group or resident the yard already has are never touched.
+The plan prints the arguments each new group and crew member gets. Those of a
+group or crew member the yard already has are never touched.
 
 Refused, changing nothing, while open beads sit in a stage the pack's flow
 lacks; the message names them. Objects an earlier import brought and the
 pack has dropped since are listed, and removed only with --prune. A running
-resident whose role or subscriptions change is not restarted; the output
+crew member whose role or subscriptions change is not restarted; the output
 says so. The import is recorded (yardr pack list). See docs/packs.md.`,
 		Example: `  yardr pack apply packs/starter --rig web
-  yardr pack apply packs/starter --rig web --yes --resident yardmaster=boss \
+  yardr pack apply packs/starter --rig web --yes --crew yardmaster=boss \
     --bind builders=claude:opus --bind reviewers=codex,approve-for-me --members backlog= --members decisions=mckean`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
@@ -235,7 +236,7 @@ says so. The import is recorded (yardr pack list). See docs/packs.md.`,
 			if err != nil {
 				return err
 			}
-			// Which flow and which residents shape the plan itself, so they
+			// Which flow and which crew members shape the plan itself, so they
 			// are settled first and the plan made again.
 			if open := shaping(plan); len(open) > 0 {
 				if !asking {
@@ -253,20 +254,20 @@ says so. The import is recorded (yardr pack list). See docs/packs.md.`,
 				return errCheckFailed
 			}
 			// The flags' answers go into the printed plan, so it shows what
-			// each new group and resident gets and lists only what is still
+			// each new group and crew member gets and lists only what is still
 			// open. Where nothing can be asked, or --yes says not to, a new
 			// agent gets its kind's unattended arguments.
 			answers, err := packAnswers(plan, binds, members, cfg.Home, !asking || yes)
 			if err != nil {
 				return err
 			}
-			// Whether a resident may open threads is asked last, and only
+			// Whether a crew member may open threads is asked last, and only
 			// where a no can be said: --yes says not to ask.
 			open, err := a.openThreads(ctx, st, plan, opens, asking && !yes)
 			if err != nil {
 				return err
 			}
-			// A hook that acts as a resident speaks as it: the line yardr
+			// A hook that acts as a crew member speaks as it: the line yardr
 			// hook add --as draws, and the rest of the import is done.
 			refused := map[string]string{}
 			for _, o := range plan.Objects {
@@ -330,9 +331,9 @@ says so. The import is recorded (yardr pack list). See docs/packs.md.`,
 		},
 	}
 	af.register(apply, "is")
-	apply.Flags().StringArrayVar(&binds, "bind", nil, "<group>=<kind>[:<model>][,<preset>]: the agent, model and permission preset of a group the yard lacks; resident:<name>=… for a resident (repeatable)")
+	apply.Flags().StringArrayVar(&binds, "bind", nil, "<group>=<kind>[:<model>][,<preset>]: the agent, model and permission preset of a group the yard lacks; crew:<name>=… for a crew member (repeatable)")
 	apply.Flags().StringArrayVar(&members, "members", nil, "<group>=a,b: the members of a people group the yard lacks; empty for anyone (repeatable)")
-	apply.Flags().StringArrayVar(&opens, "open-threads", nil, "<pack's resident>=linear,github: let the resident that takes it open threads in these of the sources the pack asks for, and in no other; =none for no (repeatable)")
+	apply.Flags().StringArrayVar(&opens, "open-threads", nil, "<pack's crew member>=linear,github: let the crew member that takes it open threads in these of the sources the pack asks for, and in no other; =none for no (repeatable)")
 	apply.Flags().BoolVar(&yes, "yes", false, "apply without asking for confirmation, and overwrite an installed file that was edited by hand")
 	apply.Flags().BoolVar(&prune, "prune", false, "remove what an earlier import of this pack brought and the pack has dropped since")
 
@@ -375,11 +376,11 @@ func cancelled(err error) error {
 }
 
 // shaping are the plan's questions whose answers change the plan itself:
-// which flow the rig follows, and which resident takes a pack's.
+// which flow the rig follows, and which crew member takes a pack's.
 func shaping(p *pack.Plan) []pack.Question {
 	var out []pack.Question
 	for _, q := range p.Questions {
-		if q.ID == pack.FlowQuestion || q.Field == "resident" {
+		if q.ID == pack.FlowQuestion || q.Field == "crew" {
 			out = append(out, q)
 		}
 	}
@@ -406,14 +407,14 @@ func flagsFor(p *pack.Plan, open []pack.Question) []string {
 		switch {
 		case q.ID == pack.FlowQuestion:
 			flag = "--flow <name> (" + q.Ask + ")"
-		case q.Field == "resident":
-			flag = fmt.Sprintf("--resident %s=<resident> (%s)", packName(p.Residents, name), q.Ask)
+		case q.Field == "crew":
+			flag = fmt.Sprintf("--crew %s=<crew member> (%s)", packName(p.Crew, name), q.Ask)
 		case kind == "group" && q.Field == "members":
 			flag = fmt.Sprintf("--members %s=<a,b> for the new group %s (empty: anyone)", packName(p.Groups, name), name)
 		case kind == "group":
 			flag = fmt.Sprintf("--bind %s=<kind>[:<model>] for the new group %s", packName(p.Groups, name), name)
-		case kind == "resident":
-			flag = fmt.Sprintf("--bind resident:%s=<kind>[:<model>] for the new resident %s", packName(p.Residents, name), name)
+		case kind == "crew":
+			flag = fmt.Sprintf("--bind crew:%s=<kind>[:<model>] for the new crew member %s", packName(p.Crew, name), name)
 		default:
 			flag = q.ID + ": " + q.Ask
 		}
@@ -425,10 +426,10 @@ func flagsFor(p *pack.Plan, open []pack.Question) []string {
 }
 
 // packAnswers reads --bind and --members into answers to the plan's
-// questions. A flag must name a group or resident of the pack; one for an
+// questions. A flag must name a group or crew member of the pack; one for an
 // object the yard already has answers nothing, since the yard's binding is
 // kept, and is not an error, so the same command can be run again. A new
-// resident works in the yard's home, as one made by resident add does.
+// crew member works in the yard's home, as one made by crew add does.
 // With unattended, a new agent whose kind is answered and whose --bind names
 // no preset gets its kind's unattended arguments, as yardr init gives them.
 func packAnswers(p *pack.Plan, binds, members []string, home string, unattended bool) (pack.Answers, error) {
@@ -436,7 +437,7 @@ func packAnswers(p *pack.Plan, binds, members []string, home string, unattended 
 	asked := map[string]bool{}
 	for _, q := range p.Questions {
 		asked[q.ID] = true
-		if strings.HasPrefix(q.ID, "resident.") && q.Field == "dir" {
+		if strings.HasPrefix(q.ID, "crew.") && q.Field == "dir" {
 			answers[q.ID] = home
 		}
 	}
@@ -455,8 +456,13 @@ func packAnswers(p *pack.Plan, binds, members []string, home string, unattended 
 			return nil, fmt.Errorf("--bind %q: want <group>=<kind>[:<model>][,<preset>]", kv)
 		}
 		obj, names := "group", p.Groups
-		if rest, is := strings.CutPrefix(name, "resident:"); is {
-			obj, names, name = "resident", p.Residents, rest
+		rest, is := strings.CutPrefix(name, "crew:")
+		if !is {
+			// What the prefix was until this release.
+			rest, is = strings.CutPrefix(name, "resident:")
+		}
+		if is {
+			obj, names, name = "crew", p.Crew, rest
 		}
 		yard, ok := names[name]
 		if !ok {
@@ -495,24 +501,24 @@ func packAnswers(p *pack.Plan, binds, members []string, home string, unattended 
 }
 
 // openAnswers is what an import does about the sources a pack asks that
-// its residents may open threads in.
+// its crew may open threads in.
 type openAnswers struct {
-	// Answers are the operator's, by the yard's resident and source: what
+	// Answers are the operator's, by the yard's crew member and source: what
 	// pack.Apply grants and records.
 	Answers map[string]map[string]bool `json:"answers"`
 	// Notes say what was not granted and why, each naming who or which flag
 	// would grant it.
 	Notes []string `json:"notes"`
-	// open are the residents still to ask about, in a terminal.
+	// open are the crew still to ask about, in a terminal.
 	open []pack.OpenThreads
 }
 
 // openThreads settles what the plan's OpenThreads come to: --open-threads
-// answers for the pack's resident it names, a terminal is asked for the
+// answers for the pack's crew member it names, a terminal is asked for the
 // rest (mayAsk), and without either nothing is granted and a note names the
 // flag. The safe answer exists here, and it is no, so a missing flag is no
 // error as it is for the import's other questions. Anyone but the operator
-// answers nothing, by flag or by form: the check is the one yardr resident
+// answers nothing, by flag or by form: the check is the one yardr crew
 // add makes (mayAllowOpening), and the import does the rest.
 func (a *app) openThreads(ctx context.Context, st store.API, p *pack.Plan, flags []string, mayAsk bool) (*openAnswers, error) {
 	out := &openAnswers{Answers: map[string]map[string]bool{}, Notes: []string{}}
@@ -520,14 +526,14 @@ func (a *app) openThreads(ctx context.Context, st store.API, p *pack.Plan, flags
 	for _, kv := range flags {
 		name, v, ok := strings.Cut(kv, "=")
 		if !ok || name == "" || v == "" {
-			return nil, fmt.Errorf("--open-threads %q: want <pack's resident>=<source>[,<source>], or =none", kv)
+			return nil, fmt.Errorf("--open-threads %q: want <pack's crew member>=<source>[,<source>], or =none", kv)
 		}
-		if _, ok := p.Residents[name]; !ok {
-			return nil, fmt.Errorf("--open-threads %q: the pack has no resident %s (it has: %s)", kv, name, strings.Join(sortedKeys(p.Residents), ", "))
+		if _, ok := p.Crew[name]; !ok {
+			return nil, fmt.Errorf("--open-threads %q: the pack has no crew member %s (it has: %s)", kv, name, strings.Join(sortedKeys(p.Crew), ", "))
 		}
 		i := slices.IndexFunc(p.OpenThreads, func(ot pack.OpenThreads) bool { return ot.Pack == name })
 		if i < 0 {
-			return nil, fmt.Errorf("--open-threads %q: the pack asks for no source its resident %s may open threads in (open_threads)", kv, name)
+			return nil, fmt.Errorf("--open-threads %q: the pack asks for no source its crew member %s may open threads in (open_threads)", kv, name)
 		}
 		if _, twice := named[name]; twice {
 			return nil, fmt.Errorf("--open-threads %q: %s is answered twice", kv, name)
@@ -578,15 +584,15 @@ func (a *app) openThreads(ctx context.Context, st store.API, p *pack.Plan, flags
 		}
 		switch {
 		case !is:
-			out.Notes = append(out.Notes, fmt.Sprintf("resident %s was not let open threads in %s: only the operator (%s) may grant that, and this is %s. The rest of the import does not depend on it; %s applies the pack again to be asked",
-				ot.Resident, strings.Join(about, ", "), operator, a.who(), operator))
+			out.Notes = append(out.Notes, fmt.Sprintf("crew member %s was not let open threads in %s: only the operator (%s) may grant that, and this is %s. The rest of the import does not depend on it; %s applies the pack again to be asked",
+				ot.CrewMember, strings.Join(about, ", "), operator, a.who(), operator))
 		case flagged:
-			out.Answers[ot.Resident] = answers
+			out.Answers[ot.CrewMember] = answers
 		case mayAsk:
 			out.open = append(out.open, ot)
 		default:
-			out.Notes = append(out.Notes, fmt.Sprintf("resident %s was not let open threads in %s: nothing is asked here, and the answer without a flag is no. --open-threads %s=%s grants it, --open-threads %s=none says no for good",
-				ot.Resident, strings.Join(about, ", "), ot.Pack, strings.Join(about, ","), ot.Pack))
+			out.Notes = append(out.Notes, fmt.Sprintf("crew member %s was not let open threads in %s: nothing is asked here, and the answer without a flag is no. --open-threads %s=%s grants it, --open-threads %s=none says no for good",
+				ot.CrewMember, strings.Join(about, ", "), ot.Pack, strings.Join(about, ","), ot.Pack))
 		}
 	}
 	return out, nil
@@ -605,14 +611,14 @@ func lacking(ot pack.OpenThreads, source string) string {
 	return strings.Join(out, " and ")
 }
 
-// ask asks the operator, once per resident, whether it may open threads in
+// ask asks the operator, once per crew member, whether it may open threads in
 // the sources still open, and takes the one answer for all of them. No is
 // the default: leaving the form at its first key grants nothing.
 func (o *openAnswers) ask() error {
 	for _, ot := range o.open {
 		yes := false
-		if err := ask(huh.NewConfirm().Title(fmt.Sprintf("Let %s open threads in %s?", ot.Resident, strings.Join(ot.Asks, ", "))).
-			Description("The pack asks for it. Yes lets the resident start a thread there unasked (yardr thread open); no leaves its setting as it is. Either answer is recorded and not asked again.").
+		if err := ask(huh.NewConfirm().Title(fmt.Sprintf("Let %s open threads in %s?", ot.CrewMember, strings.Join(ot.Asks, ", "))).
+			Description("The pack asks for it. Yes lets the crew member start a thread there unasked (yardr thread open); no leaves its setting as it is. Either answer is recorded and not asked again.").
 			Value(&yes)); err != nil {
 			return err
 		}
@@ -620,7 +626,7 @@ func (o *openAnswers) ask() error {
 		for _, src := range ot.Asks {
 			answers[src] = yes
 		}
-		o.Answers[ot.Resident] = answers
+		o.Answers[ot.CrewMember] = answers
 	}
 	return nil
 }
@@ -647,7 +653,7 @@ func presetArgs(kind, label string) ([]string, error) {
 	return nil, fmt.Errorf("%s has no permission preset %q (it has: %s)", kind, label, strings.Join(append(have, "none"), ", "))
 }
 
-// askShape asks which flow the rig follows and which resident takes each
+// askShape asks which flow the rig follows and which crew member takes each
 // of the pack's, and puts the answers into o.
 func (a *app) askShape(ctx context.Context, st store.API, p *pack.Pack, plan *pack.Plan, o *pack.Options) error {
 	for _, q := range shaping(plan) {
@@ -665,22 +671,22 @@ func (a *app) askShape(ctx context.Context, st store.API, p *pack.Pack, plan *pa
 			continue
 		}
 		_, yard, _ := strings.Cut(q.Object, " ")
-		name := packName(plan.Residents, yard)
-		have, err := st.Residents(ctx)
+		name := packName(plan.Crew, yard)
+		have, err := st.Crew(ctx)
 		if err != nil {
 			return err
 		}
 		pick := name
-		opts := []huh.Option[string]{huh.NewOption("A new resident called "+name, name)}
+		opts := []huh.Option[string]{huh.NewOption("A new crew member called "+name, name)}
 		for _, r := range have {
-			opts = append(opts, huh.NewOption(r.Name+"  ("+residentAgent(r)+")", r.Name))
+			opts = append(opts, huh.NewOption(r.Name+"  ("+crewAgent(r)+")", r.Name))
 		}
-		if err := ask(huh.NewSelect[string]().Title("Which resident takes the pack's " + name + "?").
+		if err := ask(huh.NewSelect[string]().Title("Which crew member takes the pack's " + name + "?").
 			Description("It gets the pack's role and what the pack says it hears; its identity, directory, agent and model stay.").
 			Options(opts...).Value(&pick)); err != nil {
 			return err
 		}
-		o.Residents[name] = pick
+		o.Crew[name] = pick
 	}
 	return nil
 }
@@ -696,14 +702,14 @@ func (a *app) askAnswers(ctx context.Context, st store.API, plan *pack.Plan, ans
 			return slices.Contains(o.Asks, id(field)) && !done
 		}
 		if open("kind") || open("model") {
-			ans := groupAnswers{Kind: or(defaultKind(ctx, st), "claude"), For: " for " + o.Kind + " " + o.Name}
+			ans := groupAnswers{Kind: or(defaultKind(ctx, st), "claude"), For: " for " + kindWord(o.Kind) + " " + o.Name}
 			if err := a.agentKindModel(ctx, &ans); err != nil {
 				return err
 			}
 			answers[id("kind")], answers[id("model")] = ans.Kind, ans.Model
 		}
 		if open("args") {
-			ans := groupAnswers{Kind: answers[id("kind")], For: " for " + o.Kind + " " + o.Name}
+			ans := groupAnswers{Kind: answers[id("kind")], For: " for " + kindWord(o.Kind) + " " + o.Name}
 			ans.PermArgs = agents.UnattendedArgs(ans.Kind)
 			if err := a.agentPermissions(&ans); err != nil {
 				return err
@@ -755,10 +761,10 @@ func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.A
 		if !slices.Contains(o.Asks, id) || strings.TrimSpace(answers[id]) != "" {
 			continue
 		}
-		fmt.Printf("%s %s is new and has no agent arguments: an unattended agent stops at every permission prompt until it is given them (yardr %s add, the form)\n", o.Kind, o.Name, o.Kind)
+		fmt.Printf("%s %s is new and has no agent arguments: an unattended agent stops at every permission prompt until it is given them (yardr %s add, the form)\n", kindWord(o.Kind), o.Name, o.Kind)
 	}
 	for _, g := range res.Granted {
-		fmt.Printf("resident %s may now open threads in %s\n", g.Resident, strings.Join(g.Sources, ", "))
+		fmt.Printf("crew member %s may now open threads in %s\n", g.CrewMember, strings.Join(g.Sources, ", "))
 	}
 	// A no changes nothing in the yard, so it is said: it is on record.
 	for _, name := range sortedKeys(open.Answers) {
@@ -769,8 +775,8 @@ func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.A
 			}
 		}
 		if len(no) > 0 {
-			fmt.Printf("resident %s was not let open threads in %s: the no is recorded and not asked again (--open-threads %s=%s grants it after all)\n",
-				name, strings.Join(no, ", "), packName(plan.Residents, name), strings.Join(no, ","))
+			fmt.Printf("crew member %s was not let open threads in %s: the no is recorded and not asked again (--open-threads %s=%s grants it after all)\n",
+				name, strings.Join(no, ", "), packName(plan.Crew, name), strings.Join(no, ","))
 		}
 	}
 	for _, n := range open.Notes {
@@ -795,7 +801,7 @@ func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.A
 		}
 	}
 	for _, r := range res.Restart {
-		fmt.Printf("resident %s is running and was not restarted: its role or subscriptions changed, so restart it (yardr resident restart %s)\n", r, r)
+		fmt.Printf("crew member %s is running and was not restarted: its role or subscriptions changed, so restart it (yardr crew restart %s)\n", r, r)
 	}
 }
 
@@ -825,7 +831,7 @@ func printRecord(r store.PackImport) {
 	}
 	fmt.Printf("  roles      %s\n", roles)
 	fmt.Printf("  groups     %s\n", pairs(r.Groups))
-	fmt.Printf("  residents  %s\n", pairs(r.Residents))
+	fmt.Printf("  crew       %s\n", pairs(r.Crew))
 	count := map[string]int{}
 	for _, o := range r.Objects {
 		count[o.Kind]++
@@ -861,15 +867,24 @@ func fills(fill map[string]string) string {
 	return strings.Join(parts, ", ")
 }
 
+// kindWord is a plan object's kind as a sentence names one of it: a crew
+// member, where the kind is the command's word.
+func kindWord(kind string) string {
+	if kind == "crew" {
+		return "crew member"
+	}
+	return kind
+}
+
 // planKinds are the kinds of object in a plan, in its order, with the
 // heading each is printed under.
 var planKinds = [][2]string{{"file", "files"}, {"group", "groups"}, {"flow", "flows"}, {"pointer", "flow pointers"},
-	{"route", "routes"}, {"resident", "residents"}, {"subscription", "subscriptions"}, {"map", "stage maps"}}
+	{"route", "routes"}, {"crew", "crew"}, {"subscription", "subscriptions"}, {"map", "stage maps"}}
 
 // printPlan prints the plan. answers are those already given: an answered
 // question is printed as what its object gets, and only the open ones are
 // listed as what an import would ask. open are the answers to whether a
-// resident may open threads, by resident and source. refused says, by
+// crew member may open threads, by crew member and source. refused says, by
 // source, why a stage map the plan would set is not set by this run.
 func printPlan(p *pack.Plan, answers pack.Answers, open map[string]map[string]bool, refused map[string]string) {
 	fmt.Printf("pack %s (%s) into rig %s\n", p.Pack, p.Dir, p.Rig)
@@ -936,9 +951,9 @@ func printPlan(p *pack.Plan, answers pack.Answers, open map[string]map[string]bo
 		asks = append(asks, line)
 	}
 	for _, ot := range p.OpenThreads {
-		if _, done := open[ot.Resident]; !done && len(ot.Asks) > 0 {
+		if _, done := open[ot.CrewMember]; !done && len(ot.Asks) > 0 {
 			asks = append(asks, fmt.Sprintf("  the operator: let %s open threads in %s (--open-threads %s=%s, or =none)? [no]",
-				ot.Resident, strings.Join(ot.Asks, ", "), ot.Pack, strings.Join(ot.Asks, ",")))
+				ot.CrewMember, strings.Join(ot.Asks, ", "), ot.Pack, strings.Join(ot.Asks, ",")))
 		}
 	}
 	if len(asks) > 0 {
@@ -962,13 +977,13 @@ func printPlan(p *pack.Plan, answers pack.Answers, open map[string]map[string]bo
 		}
 	}
 	for _, s := range p.Sources {
-		fmt.Printf("\nsource %s, for resident %s\n", s.Source, s.Resident)
+		fmt.Printf("\nsource %s, for crew member %s\n", s.Source, s.CrewMember)
 		for _, n := range s.Needs {
 			fmt.Printf("  %-8s %-12s %s\n", n.Status, strings.ReplaceAll(n.What, "_", " "), n.Detail)
 		}
 	}
 	for _, ot := range p.OpenThreads {
-		fmt.Printf("\nopen threads, for resident %s\n", ot.Resident)
+		fmt.Printf("\nopen threads, for crew member %s\n", ot.CrewMember)
 		fmt.Printf("  the pack asks for %s\n", strings.Join(ot.Wants, ", "))
 		row := func(what string, sources []string, detail string) {
 			if len(sources) > 0 {
@@ -978,7 +993,7 @@ func printPlan(p *pack.Plan, answers pack.Answers, open map[string]map[string]bo
 		row("has", ot.Has, ": it may already, and nothing is asked")
 		var yes, no, asked []string
 		for _, src := range ot.Wants {
-			switch said, done := open[ot.Resident][src]; {
+			switch said, done := open[ot.CrewMember][src]; {
 			case done && said:
 				yes = append(yes, src)
 			case done:
@@ -1000,7 +1015,7 @@ func printPlan(p *pack.Plan, answers pack.Answers, open map[string]map[string]bo
 		}
 	}
 	for _, m := range p.Maps {
-		fmt.Printf("\nstage map of source %s, as resident %s\n", m.Source, m.As)
+		fmt.Printf("\nstage map of source %s, as crew member %s\n", m.Source, m.As)
 		fmt.Printf("  the pack says %s\n", strings.Join(pack.MapLines(m.Map), " "))
 		switch {
 		case refused[m.Source] != "":

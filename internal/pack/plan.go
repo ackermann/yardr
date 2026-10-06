@@ -45,10 +45,10 @@ type Options struct {
 	// Flow names the pack's flow the rig would follow; "" is the first
 	// flow without a type.
 	Flow string
-	// Residents says which resident of the yard takes each of the pack's:
+	// Crew says which crew member of the yard takes each of the pack's:
 	// pack name -> yard name.
-	Residents map[string]string
-	// RigRoles leaves a group or resident its rig's own role where the rig
+	Crew map[string]string
+	// RigRoles leaves a group or crew member its rig's own role where the rig
 	// has one of that name; PackRoles sets the pack's role everywhere, which
 	// is the default. With neither, the choice is the last import's.
 	RigRoles  bool
@@ -60,7 +60,7 @@ type Options struct {
 
 // Plan is what importing a pack into a rig of a yard would do, object by
 // object and in the order an import would do it: files, groups, flows,
-// pointers, routes, residents, subscriptions, stage maps. Each object carries the state
+// pointers, routes, crew members, subscriptions, stage maps. Each object carries the state
 // the import would leave it in, so applying a plan needs no second look at
 // the pack; what the yard must still be asked is under Questions, by the id
 // the object refers to.
@@ -73,12 +73,12 @@ type Plan struct {
 	// RigRoles says a rig's own role is kept where it has one, instead of
 	// the pack's being set.
 	RigRoles bool `json:"rig_roles"`
-	// Groups and Residents map the pack's names to the yard's.
-	Groups    map[string]string `json:"groups"`
-	Residents map[string]string `json:"residents"`
+	// Groups and Crew members map the pack's names to the yard's.
+	Groups map[string]string `json:"groups"`
+	Crew   map[string]string `json:"crew"`
 	// Fill is what the import puts where a role or stage file of the pack
 	// has a placeholder: operator -> the yard's operator, and each of the
-	// pack's residents -> the yard's resident that takes it.
+	// pack's crew -> the yard's crew member that takes it.
 	Fill map[string]string `json:"fill"`
 	// Install is where the pack's roles and scripts would be copied.
 	Install string `json:"install"`
@@ -89,15 +89,15 @@ type Plan struct {
 	Questions  []Question `json:"questions"`
 	// Governs says which flow would govern the rig's beads afterwards.
 	Governs []Governs `json:"governs"`
-	// Sources says, for each outside source a resident would subscribe to,
+	// Sources says, for each outside source a crew member would subscribe to,
 	// what the yard has and lacks to hear it and answer in it.
 	Sources []SourceNeeds `json:"sources"`
-	// OpenThreads says, for each resident the pack asks it for, which
+	// OpenThreads says, for each crew member the pack asks it for, which
 	// sources it would be let open threads in and what an import does about
 	// each: nothing, ask the operator, or neither ask nor grant.
 	OpenThreads []OpenThreads `json:"open_threads"`
 	// Maps says, for each source whose issues hear the pack's flows, the map,
-	// the yard's resident it is acted on as, and what the yard has and lacks
+	// the yard's crew member it is acted on as, and what the yard has and lacks
 	// for it. A map the import would set is among Objects too, as kind map.
 	Maps  []MapPlan `json:"maps"`
 	Notes []string  `json:"notes"`
@@ -107,10 +107,10 @@ type Plan struct {
 }
 
 // Object is one thing in the yard and what the import would do to it. One
-// of File, Group, Flow, Pointer, Route, Resident, Subscription and Map is
+// of File, Group, Flow, Pointer, Route, CrewMember, Subscription and Map is
 // set, by Kind.
 type Object struct {
-	Kind    string   `json:"kind"` // file group flow pointer route resident subscription map
+	Kind    string   `json:"kind"` // file group flow pointer route crew member subscription map
 	Name    string   `json:"name"`
 	Action  string   `json:"action"`
 	Changes []Diff   `json:"changes,omitempty"`
@@ -135,7 +135,7 @@ type Object struct {
 	Flow         *store.Flow        `json:"flow,omitempty"`
 	Pointer      *store.FlowPointer `json:"pointer,omitempty"`
 	Route        *RouteOp           `json:"route,omitempty"`
-	Resident     *ResidentOp        `json:"resident,omitempty"`
+	CrewMember   *CrewOp            `json:"crew,omitempty"`
 	Subscription *SubscriptionOp    `json:"subscription,omitempty"`
 	Map          *MapOp             `json:"map,omitempty"`
 }
@@ -175,27 +175,27 @@ type RouteOp struct {
 	Delete   []string `json:"delete,omitempty"`
 }
 
-// ResidentOp is what the pack sets on a resident: its role and the event
-// kinds it hears. Everything else of the resident is the yard's.
-type ResidentOp struct {
-	Pack     string   `json:"pack"`     // the pack's name for it
-	Resident string   `json:"resident"` // the yard's
-	Prompt   string   `json:"prompt,omitempty"`
-	On       []string `json:"on"`
-	// Restart says the resident is running and its role or what it hears
+// CrewOp is what the pack sets on a crew member: its role and the event
+// kinds it hears. Everything else of the crew member is the yard's.
+type CrewOp struct {
+	Pack       string   `json:"pack"` // the pack's name for it
+	CrewMember string   `json:"crew"` // the yard's
+	Prompt     string   `json:"prompt,omitempty"`
+	On         []string `json:"on"`
+	// Restart says the crew member is running and its role or what it hears
 	// would change: an import does not restart it.
 	Restart bool `json:"restart,omitempty"`
 }
 
-// SubscriptionOp subscribes a resident; Remove is the subscription it
+// SubscriptionOp subscribes a crew member; Remove is the subscription it
 // replaces, when a source's scope changes.
 type SubscriptionOp struct {
-	Resident string              `json:"resident"`
-	Add      *store.Subscription `json:"add,omitempty"`
-	Remove   *store.Subscription `json:"remove,omitempty"`
+	CrewMember string              `json:"crew"`
+	Add        *store.Subscription `json:"add,omitempty"`
+	Remove     *store.Subscription `json:"remove,omitempty"`
 }
 
-// MapOp sets on the yard's hook Hook the resident it moves tracked issues
+// MapOp sets on the yard's hook Hook the crew member it moves tracked issues
 // as and its map (store.Hook's As and Map), and leaves the rest of the hook.
 // A dropped one clears both.
 type MapOp struct {
@@ -225,11 +225,11 @@ type Governs struct {
 	InPack bool   `json:"in_pack"`
 }
 
-// SourceNeeds is what a resident's subscription to a source takes.
+// SourceNeeds is what a crew member's subscription to a source takes.
 type SourceNeeds struct {
-	Source   string `json:"source"`
-	Resident string `json:"resident"`
-	Needs    []Need `json:"needs"`
+	Source     string `json:"source"`
+	CrewMember string `json:"crew"`
+	Needs      []Need `json:"needs"`
 }
 
 // Need is one of them: ok, missing, or unknown when this process cannot
@@ -241,16 +241,16 @@ type Need struct {
 }
 
 // NotSet is the Action of a MapPlan the import sets nothing for: the yard
-// has no hook of the source, or the resident no identity in it.
+// has no hook of the source, or the crew member no identity in it.
 const NotSet = "not_set"
 
 // MapPlan is what an import does about the stage map a pack carries for
-// one source. The import sets the map and the resident on a hook the yard
-// has; it never makes the hook, and never lets the resident set a status:
+// one source. The import sets the map and the crew member on a hook the yard
+// has; it never makes the hook, and never lets the crew member set a status:
 // Needs says which of those the yard lacks and the command for each.
 type MapPlan struct {
 	Source string `json:"source"`
-	Pack   string `json:"pack"` // the pack's name for the resident
+	Pack   string `json:"pack"` // the pack's name for the crew member
 	As     string `json:"as"`   // the yard's
 	// Map is the pack's, keyed as a hook's is: "<bead type>:<stage>".
 	Map map[string]string `json:"map"`
@@ -284,16 +284,16 @@ func MapLines(m map[string]string) []string {
 	return out
 }
 
-// OpenThreads is what the pack asks that one of its residents may open
+// OpenThreads is what the pack asks that one of its crew may open
 // threads in. Each source of Wants is in exactly one of Has, Lacks,
 // Declined and Asks. Nothing here is granted by the plan: the operator's
 // answers are given when it is applied (ApplyOptions.OpenThreads).
 type OpenThreads struct {
-	Pack     string `json:"pack"`     // the pack's name for the resident
-	Resident string `json:"resident"` // the yard's
+	Pack       string `json:"pack"` // the pack's name for the crew member
+	CrewMember string `json:"crew"` // the yard's
 	// Wants are the sources the pack names, in its order.
 	Wants []string `json:"wants"`
-	// Has are those the yard's resident may open threads in already: no
+	// Has are those the yard's crew member may open threads in already: no
 	// question.
 	Has []string `json:"has"`
 	// Lacks are those this yard has no hook or no credential for: an import
@@ -308,7 +308,7 @@ type OpenThreads struct {
 	Recorded map[string]bool `json:"recorded,omitempty"`
 }
 
-// Lack is a source a pack wants a resident to open threads in, and what of
+// Lack is a source a pack wants a crew member to open threads in, and what of
 // hook and credential this yard does not have for it, with the detail the
 // plan's Sources table gives.
 type Lack struct {
@@ -351,7 +351,7 @@ type planner struct {
 	// there was none; all are the records of every import.
 	rec *store.PackImport
 	all []store.PackImport
-	// told are the pack's residents whose taker a flag or the last import
+	// told are the pack's crew whose taker a flag or the last import
 	// named; the others go by their own name.
 	told map[string]bool
 }
@@ -365,7 +365,7 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 	}
 	b := &planner{ctx: ctx, st: st, p: p, o: o, rig: rig, plan: &Plan{
 		Pack: p.Name, Dir: p.Dir, Rig: o.Rig, Install: filepath.Join(o.Home, "packs", p.Name), StageFiles: filepath.Join(o.Home, "flows"),
-		Groups: map[string]string{}, Residents: map[string]string{}, Fill: map[string]string{},
+		Groups: map[string]string{}, Crew: map[string]string{}, Fill: map[string]string{},
 		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, OpenThreads: []OpenThreads{}, Maps: []MapPlan{}, Notes: []string{}, Refused: []string{},
 	}}
 	if b.all, err = st.Packs(ctx); err != nil {
@@ -379,12 +379,12 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 	}
 	// Whose roles, as at the last import unless told anew.
 	b.plan.RigRoles = o.RigRoles || (!o.PackRoles && b.rec != nil && b.rec.RigRoles)
-	for name := range o.Residents {
-		if !slices.ContainsFunc(p.Residents, func(r Resident) bool { return r.Name == name }) {
+	for name := range o.Crew {
+		if !slices.ContainsFunc(p.Crew, func(r CrewMember) bool { return r.Name == name }) {
 			if _, ok := p.Renamed(name); ok {
 				continue
 			}
-			return nil, fmt.Errorf("--resident %s=%s: the pack has no resident %s", name, o.Residents[name], name)
+			return nil, fmt.Errorf("--crew %s=%s: the pack has no crew member %s", name, o.Crew[name], name)
 		}
 	}
 	flows, err := b.chosen()
@@ -399,7 +399,7 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 		b.groups,
 		func() error { return b.flows(flows) },
 		func() error { return b.routes(flows) },
-		b.residents,
+		b.crew,
 		b.maps,
 		b.dropped,
 	} {
@@ -410,21 +410,21 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 	return b.plan, nil
 }
 
-// names settles which resident of the yard takes each of the pack's and who
+// names settles which crew member of the yard takes each of the pack's and who
 // the operator is, before the files: a role or stage file is installed with
 // those names in it.
 func (b *planner) names() error {
 	b.told = map[string]bool{}
-	for _, pr := range b.p.Residents {
-		name, told := b.took(b.o.Residents, pr.Name)
+	for _, pr := range b.p.Crew {
+		name, told := b.took(b.o.Crew, pr.Name)
 		if !told && b.rec != nil {
 			// Whoever took it at the last import, unless told anew.
-			name, told = b.took(b.rec.Residents, pr.Name)
+			name, told = b.took(b.rec.Crew, pr.Name)
 		}
 		if !told {
 			name = pr.Name
 		}
-		b.plan.Residents[pr.Name], b.told[pr.Name] = name, told
+		b.plan.Crew[pr.Name], b.told[pr.Name] = name, told
 		b.plan.Fill[pr.Name] = name
 	}
 	operator := b.o.Operator
@@ -437,14 +437,14 @@ func (b *planner) names() error {
 			operator = "the operator"
 		}
 	}
-	// Last: {{operator}} is the operator also in a pack with a resident of
+	// Last: {{operator}} is the operator also in a pack with a crew member of
 	// that name.
 	b.plan.Fill[Operator] = operator
 	return nil
 }
 
-// took is the yard's resident that m says takes the pack's resident name:
-// under that name, else under the one the pack's resident had in an earlier
+// took is the yard's crew member that m says takes the pack's crew member name:
+// under that name, else under the one the pack's crew member had in an earlier
 // release (Renamed), as a command written then or the last import's record
 // has it.
 func (b *planner) took(m map[string]string, name string) (string, bool) {
@@ -1115,8 +1115,8 @@ func deref(p *string) string {
 	return *p
 }
 
-func (b *planner) residents() error {
-	have, err := b.st.Residents(b.ctx)
+func (b *planner) crew() error {
+	have, err := b.st.Crew(b.ctx)
 	if err != nil {
 		return err
 	}
@@ -1125,19 +1125,19 @@ func (b *planner) residents() error {
 		return err
 	}
 	var subs []Object
-	for _, pr := range b.p.Residents {
-		name, told := b.plan.Residents[pr.Name], b.told[pr.Name]
-		i := slices.IndexFunc(have, func(r store.Resident) bool { return r.Name == name })
+	for _, pr := range b.p.Crew {
+		name, told := b.plan.Crew[pr.Name], b.told[pr.Name]
+		i := slices.IndexFunc(have, func(r store.CrewMember) bool { return r.Name == name })
 		exists := i >= 0
-		var old store.Resident
+		var old store.CrewMember
 		if exists {
 			old = have[i]
 		}
-		op := &ResidentOp{Pack: pr.Name, Resident: name, On: slices.Clone(pr.Events)}
+		op := &CrewOp{Pack: pr.Name, CrewMember: name, On: slices.Clone(pr.Events)}
 		if op.On == nil {
 			op.On = []string{}
 		}
-		o := Object{Kind: "resident", Name: name, Resident: op}
+		o := Object{Kind: "crew", Name: name, CrewMember: op}
 		var changes []Diff
 		if pr.Role != "" {
 			op.Prompt = b.installed(pr.Role)
@@ -1151,7 +1151,7 @@ func (b *planner) residents() error {
 			case !b.plan.RigRoles:
 				o.Shadows = append(o.Shadows, own)
 			case prompt != "" && prompt != op.Prompt:
-				// A resident is the yard's, not the rig's, so only one that
+				// A crew member is the yard's, not the rig's, so only one that
 				// has a prompt of its own keeps it; a new one gets the pack's.
 				op.Prompt = prompt
 				o.Keeps = append(o.Keeps, fmt.Sprintf("prompt %s: the rig has its own %s", prompt, own))
@@ -1169,16 +1169,16 @@ func (b *planner) residents() error {
 				for i, r := range have {
 					names[i] = r.Name
 				}
-				ask := "which resident of the yard takes the pack's " + pr.Name + " (--resident " + pr.Name + "=<name>)?"
+				ask := "which crew member of the yard takes the pack's " + pr.Name + " (--crew " + pr.Name + "=<name>)?"
 				if len(names) > 0 {
 					ask += " The yard has: " + strings.Join(names, ", ") + "."
 				}
-				b.ask(&o, "resident", ask, "a new resident "+name)
+				b.ask(&o, "crew", ask, "a new crew member "+name)
 			}
-			b.ask(&o, "kind", "which agent runs resident "+name+" (claude, codex, ...)?", settings["default_kind"])
-			b.ask(&o, "model", "which model does resident "+name+" run (empty: the agent's own default)?", "")
-			b.ask(&o, "args", "which permission arguments does resident "+name+"'s agent run with (empty: none, and it stops at every permission prompt)?", "")
-			b.ask(&o, "dir", "which directory does resident "+name+" work in?", "")
+			b.ask(&o, "kind", "which agent runs crew member "+name+" (claude, codex, ...)?", settings["default_kind"])
+			b.ask(&o, "model", "which model does crew member "+name+" run (empty: the agent's own default)?", "")
+			b.ask(&o, "args", "which permission arguments does crew member "+name+"'s agent run with (empty: none, and it stops at every permission prompt)?", "")
+			b.ask(&o, "dir", "which directory does crew member "+name+" work in?", "")
 		}
 		o.Action, o.Changes = action(exists, changes), changes
 		b.add(o)
@@ -1196,7 +1196,7 @@ func (b *planner) residents() error {
 		taken := make([]bool, len(old.Subscriptions))
 		hears := len(changes) > 0
 		for _, w := range want {
-			so := Object{Kind: "subscription", Name: name + " " + w.String(), Action: Create, Subscription: &SubscriptionOp{Resident: name, Add: &w}}
+			so := Object{Kind: "subscription", Name: name + " " + w.String(), Action: Create, Subscription: &SubscriptionOp{CrewMember: name, Add: &w}}
 			if j := slices.IndexFunc(old.Subscriptions, func(s store.Subscription) bool { return reflect.DeepEqual(s.Where, w.Where) && s.Source == w.Source }); j >= 0 {
 				// The same source and filters: it is this subscription,
 				// whatever its scope is now.
@@ -1211,11 +1211,11 @@ func (b *planner) residents() error {
 		}
 		if old.Live() && hears {
 			op.Restart = true
-			b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("resident %s is running and its role or what it hears changes: the import does not restart it, so restart it afterwards (yardr resident restart %s)", name, name))
+			b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("crew member %s is running and its role or what it hears changes: the import does not restart it, so restart it afterwards (yardr crew restart %s)", name, name))
 		}
 		for j, s := range old.Subscriptions {
 			if !taken[j] {
-				subs = append(subs, Object{Kind: "subscription", Name: name + " " + s.String(), Action: NotInPack, Subscription: &SubscriptionOp{Resident: name}})
+				subs = append(subs, Object{Kind: "subscription", Name: name + " " + s.String(), Action: NotInPack, Subscription: &SubscriptionOp{CrewMember: name}})
 			}
 		}
 		for _, s := range pr.Subscribe {
@@ -1223,7 +1223,7 @@ func (b *planner) residents() error {
 			if err != nil {
 				return err
 			}
-			b.plan.Sources = append(b.plan.Sources, SourceNeeds{Source: s.Name, Resident: name, Needs: needs})
+			b.plan.Sources = append(b.plan.Sources, SourceNeeds{Source: s.Name, CrewMember: name, Needs: needs})
 		}
 		if len(pr.OpenThreads) > 0 {
 			ot, err := b.openThreads(pr, name, exists, old)
@@ -1248,7 +1248,7 @@ func sameSet(a, b []string) bool {
 
 // appKeyOf reports why the key of the GitHub App env names cannot be signed
 // with; nil when env names no App, or for another source.
-func appKeyOf(source string, env *config.ResidentEnv) error {
+func appKeyOf(source string, env *config.CrewEnv) error {
 	if source != "github" {
 		return nil
 	}
@@ -1265,10 +1265,10 @@ func appKeyOf(source string, env *config.ResidentEnv) error {
 
 // needs is what hearing source, and answering in it, takes of the yard:
 // the hook that receives its deliveries and the file holding that hook's
-// secret, who the resident is in the source, the credential it answers
+// secret, who the crew member is in the source, the credential it answers
 // with, and the server's hook listener. Only names are read, never a
 // secret's value.
-func (b *planner) needs(source, resident string, exists bool, r store.Resident) ([]Need, error) {
+func (b *planner) needs(source, member string, exists bool, r store.CrewMember) ([]Need, error) {
 	const ok, missing, unknown = "ok", "missing", "unknown"
 	var out []Need
 	hs, err := b.st.Hooks(b.ctx)
@@ -1291,21 +1291,21 @@ func (b *planner) needs(source, resident string, exists bool, r store.Resident) 
 		}
 	}
 	if id := r.Identities[source]; id.ID != "" || id.Key != "" {
-		out = append(out, Need{"identity", ok, "resident " + resident + " has an identity in " + source})
+		out = append(out, Need{"identity", ok, "crew member " + member + " has an identity in " + source})
 	} else {
-		out = append(out, Need{"identity", missing, fmt.Sprintf("yardr resident identity %s --source %s --id <id> --key <key>", resident, source)})
+		out = append(out, Need{"identity", missing, fmt.Sprintf("yardr crew identity %s --source %s --id <id> --key <key>", member, source)})
 	}
-	// The names a source's reply credential goes by in a resident's
+	// The names a source's reply credential goes by in a crew member's
 	// environment, its env_file's and its env_command's
 	// (hooks.CredentialWays): for GitHub an App's two, or a token.
 	if len(hooks.CredentialWays(source)) > 0 {
 		names := hooks.CredentialNames(source)
 		if strings.Contains(names, ",") {
-			names += "," // GITHUB_APP_ID and ..., or GITHUB_TOKEN, in resident ...
+			names += "," // GITHUB_APP_ID and ..., or GITHUB_TOKEN, in crew member ...
 		}
-		n := Need{"credential", missing, fmt.Sprintf("%s in resident %s's env_file or from its env_command, to answer in %s", names, resident, source)}
+		n := Need{"credential", missing, fmt.Sprintf("%s in crew member %s's env_file or from its env_command, to answer in %s", names, member, source)}
 		if exists {
-			env, err := config.ReadResidentEnv(b.ctx, r.Name, r.Dir, b.o.Home, r.Config)
+			env, err := config.ReadCrewEnv(b.ctx, r.Name, r.Dir, b.o.Home, r.Config)
 			way, set := hooks.CredentialSet(source, env.Keys())
 			switch {
 			case !env.Set():
@@ -1349,15 +1349,15 @@ func (b *planner) needs(source, resident string, exists bool, r store.Resident) 
 	return out, nil
 }
 
-// openThreads sorts the sources the pack asks that its resident pr may open
+// openThreads sorts the sources the pack asks that its crew member pr may open
 // threads in by what an import does about each. A source is asked about
 // only when the yard has a hook and a credential for it, read as needs
-// reads them for the Sources table: letting a resident speak first where
+// reads them for the Sources table: letting a crew member speak first where
 // the yard cannot hear or answer is nothing an operator can judge yet. An
-// earlier yes the resident no longer has (the setting was taken away by
+// earlier yes the crew member no longer has (the setting was taken away by
 // hand) is asked again, never given back unasked.
-func (b *planner) openThreads(pr Resident, name string, exists bool, r store.Resident) (OpenThreads, error) {
-	ot := OpenThreads{Pack: pr.Name, Resident: name, Wants: slices.Clone(pr.OpenThreads),
+func (b *planner) openThreads(pr CrewMember, name string, exists bool, r store.CrewMember) (OpenThreads, error) {
+	ot := OpenThreads{Pack: pr.Name, CrewMember: name, Wants: slices.Clone(pr.OpenThreads),
 		Has: []string{}, Lacks: []Lack{}, Declined: []string{}, Asks: []string{}}
 	var recorded map[string]bool
 	if b.rec != nil {
@@ -1399,10 +1399,10 @@ func (b *planner) openThreads(pr Resident, name string, exists bool, r store.Res
 }
 
 // maps plans the stage map of each source the pack carries one for. The map
-// goes on the yard's hook of that source, as the yard's resident that takes
+// goes on the yard's hook of that source, as the yard's crew member that takes
 // the pack's; a hook that has another map gets the pack's, and the plan
 // shows both. Nothing is planned for a source the yard has no hook of, or
-// whose resident has no identity in it (the store refuses such a hook, and
+// whose crew member has no identity in it (the store refuses such a hook, and
 // says why): the import sets nothing for it then, and the next one does.
 func (b *planner) maps() error {
 	const ok, missing = "ok", "missing"
@@ -1414,7 +1414,7 @@ func (b *planner) maps() error {
 		return err
 	}
 	for _, sm := range b.p.Sources {
-		as := b.plan.Residents[sm.As]
+		as := b.plan.Crew[sm.As]
 		mp := MapPlan{Source: sm.Source, Pack: sm.As, As: as, Map: maps.Clone(sm.Map), Action: NotSet}
 		var of []store.Hook
 		for _, h := range hs {
@@ -1436,8 +1436,8 @@ func (b *planner) maps() error {
 				b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("the yard has several hooks of source %s (%s): the pack's stage map goes on %s alone", sm.Source, strings.Join(names, ", "), mp.Hook))
 			}
 		}
-		var r store.Resident
-		if have, err := b.st.GetResident(b.ctx, as); err == nil {
+		var r store.CrewMember
+		if have, err := b.st.GetCrew(b.ctx, as); err == nil {
 			r = *have
 		} else if !errors.Is(err, store.ErrNotFound) {
 			return err
@@ -1445,14 +1445,14 @@ func (b *planner) maps() error {
 		identified := false
 		if id := r.Identities[sm.Source]; id.ID != "" || id.Key != "" {
 			identified = true
-			mp.Needs = append(mp.Needs, Need{"identity", ok, "resident " + as + " has an identity in " + sm.Source})
+			mp.Needs = append(mp.Needs, Need{"identity", ok, "crew member " + as + " has an identity in " + sm.Source})
 		} else {
-			mp.Needs = append(mp.Needs, Need{"identity", missing, fmt.Sprintf("resident %s has no identity in %s, and a hook acts only as one that has: yardr resident identity %s --source %s --id <its id there>, then apply the pack again", as, sm.Source, as, sm.Source)})
+			mp.Needs = append(mp.Needs, Need{"identity", missing, fmt.Sprintf("crew member %s has no identity in %s, and a hook acts only as one that has: yardr crew identity %s --source %s --id <its id there>, then apply the pack again", as, sm.Source, as, sm.Source)})
 		}
 		if slices.Contains(r.MaySetState(), sm.Source) {
-			mp.Needs = append(mp.Needs, Need{store.SetState, ok, "resident " + as + " may set a status in " + sm.Source})
+			mp.Needs = append(mp.Needs, Need{store.SetState, ok, "crew member " + as + " may set a status in " + sm.Source})
 		} else {
-			mp.Needs = append(mp.Needs, Need{store.SetState, missing, fmt.Sprintf("resident %s may not set a status in %s, so no issue is moved. The import does not grant it: the operator allows it with yardr resident set %s %s=%s",
+			mp.Needs = append(mp.Needs, Need{store.SetState, missing, fmt.Sprintf("crew member %s may not set a status in %s, so no issue is moved. The import does not grant it: the operator allows it with yardr crew set %s %s=%s",
 				as, sm.Source, as, store.SetState, strings.Join(append(r.MaySetState(), sm.Source), ","))})
 		}
 		if mp.Hook != "" && identified {
@@ -1477,7 +1477,7 @@ func (b *planner) maps() error {
 	return nil
 }
 
-// mapName is what a plan calls the stage map on hook, acted on as resident.
+// mapName is what a plan calls the stage map on hook, acted on as crew member.
 func mapName(hook, as string) string { return "hook " + hook + " as " + as }
 
 // rigRole names the rig's own role file that stands in for the pack's role
@@ -1500,7 +1500,7 @@ func (b *planner) rigRole(rel string) (string, error) {
 }
 
 // Ident is the record of an object the pack carries: what a later import
-// finds it by. ok is false for what is not the pack's to own: a resident,
+// finds it by. ok is false for what is not the pack's to own: a crew member,
 // which stays the yard's, and an object the pack does not carry.
 func Ident(o Object) (po store.PackObject, ok bool) {
 	if o.Action == Dropped {
@@ -1522,9 +1522,9 @@ func Ident(o Object) (po store.PackObject, ok bool) {
 	case o.Kind == "route" && o.Route != nil:
 		return store.PackObject{Kind: o.Kind, Stage: o.Route.Stage, Type: o.Route.Type, Group: o.Route.Group}, true
 	case o.Kind == "subscription" && o.Subscription != nil && o.Subscription.Add != nil:
-		return store.PackObject{Kind: o.Kind, Resident: o.Subscription.Resident, Subscription: o.Subscription.Add}, true
+		return store.PackObject{Kind: o.Kind, CrewMember: o.Subscription.CrewMember, Subscription: o.Subscription.Add}, true
 	case o.Kind == "map" && o.Map != nil:
-		return store.PackObject{Kind: o.Kind, Name: o.Map.Hook, Resident: o.Map.As, Map: o.Map.Map}, true
+		return store.PackObject{Kind: o.Kind, Name: o.Map.Hook, CrewMember: o.Map.As, Map: o.Map.Map}, true
 	}
 	return po, false
 }
@@ -1544,12 +1544,12 @@ func (b *planner) dropped() error {
 			carried[po.Key()] = true
 		}
 	}
-	for pk, name := range b.rec.Residents {
+	for pk, name := range b.rec.Crew {
 		if renamed, ok := b.p.Renamed(pk); ok {
 			pk = renamed
 		}
-		if now, ok := b.plan.Residents[pk]; !ok || now != name {
-			b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("resident %s took the pack's %s at the last import and no longer does: it is the yard's, so its role and the event kinds it hears stay as that import left them", name, pk))
+		if now, ok := b.plan.Crew[pk]; !ok || now != name {
+			b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("crew member %s took the pack's %s at the last import and no longer does: it is the yard's, so its role and the event kinds it hears stay as that import left them", name, pk))
 		}
 	}
 	for _, po := range b.rec.Objects {
@@ -1708,7 +1708,7 @@ func (b *planner) gone(po store.PackObject) (*Object, error) {
 		if po.Subscription == nil {
 			return nil, nil
 		}
-		r, err := b.st.GetResident(b.ctx, po.Resident)
+		r, err := b.st.GetCrew(b.ctx, po.CrewMember)
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, nil
 		} else if err != nil {
@@ -1718,7 +1718,7 @@ func (b *planner) gone(po store.PackObject) (*Object, error) {
 		if !slices.ContainsFunc(r.Subscriptions, func(s store.Subscription) bool { return s.String() == sub.String() }) {
 			return nil, nil
 		}
-		return &Object{Kind: po.Kind, Name: po.Resident + " " + sub.String(), Subscription: &SubscriptionOp{Resident: po.Resident, Remove: &sub}}, nil
+		return &Object{Kind: po.Kind, Name: po.CrewMember + " " + sub.String(), Subscription: &SubscriptionOp{CrewMember: po.CrewMember, Remove: &sub}}, nil
 	case "map":
 		h, err := b.st.GetHook(b.ctx, po.Name)
 		if errors.Is(err, store.ErrNotFound) {
@@ -1728,7 +1728,7 @@ func (b *planner) gone(po store.PackObject) (*Object, error) {
 		}
 		// A source the pack still carries is not dropped, though nothing can
 		// be set for it now; and a map set by hand since is the yard's.
-		if slices.ContainsFunc(b.p.Sources, func(m StageMap) bool { return m.Source == h.Source }) || h.As != po.Resident || !maps.Equal(h.Map, po.Map) {
+		if slices.ContainsFunc(b.p.Sources, func(m StageMap) bool { return m.Source == h.Source }) || h.As != po.CrewMember || !maps.Equal(h.Map, po.Map) {
 			return nil, nil
 		}
 		return &Object{Kind: po.Kind, Name: mapName(h.Name, h.As), Map: &MapOp{Hook: h.Name, Source: h.Source, As: h.As, Map: h.Map}}, nil

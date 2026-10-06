@@ -451,7 +451,7 @@ func TestMailRefusedWithAReason(t *testing.T) {
 	mail := []string{"mail"}
 	toB := a.add(t, "b", b, true, mail, mail)
 	b.add(t, "a", a, false, mail, mail)
-	if _, err := b.api.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
+	if _, err := b.api.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	post := func(id, to, text string) error {
@@ -462,7 +462,7 @@ func TestMailRefusedWithAReason(t *testing.T) {
 		t.Fatalf("mail for b's yardmaster = %v", err)
 	}
 	for want, m := range map[string][2]string{
-		"it has no such resident":          {"clerk", "hi"},
+		"it has no such crew member":       {"clerk", "hi"},
 		"the text is larger than it takes": {"yardmaster", strings.Repeat("x", store.MaxPeerMailBytes+1)},
 		"it does not read the mail":        {"yardmaster", ""},
 	} {
@@ -476,7 +476,7 @@ func TestMailRefusedWithAReason(t *testing.T) {
 
 	// b's mail for a waits to be asked for. a takes the first and refuses
 	// the second, and says so with its next question.
-	if _, err := a.api.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
+	if _, err := a.api.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	for _, to := range []string{"yardmaster", "clerk"} {
@@ -488,7 +488,7 @@ func TestMailRefusedWithAReason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res, err := a.api.PeerPulled(ctx, "b", batch); err != nil || len(res.Taken) != 2 || res.Taken[1].Refused != store.RefusedNoResident {
+	if res, err := a.api.PeerPulled(ctx, "b", batch); err != nil || len(res.Taken) != 2 || res.Taken[1].Refused != store.RefusedNoCrew {
 		t.Fatalf("PeerPulled = %+v, %v", res, err)
 	}
 	p, _ := a.api.GetPeer(ctx, "b")
@@ -502,7 +502,7 @@ func TestMailRefusedWithAReason(t *testing.T) {
 		t.Fatalf("a tells it again: %+v", p)
 	}
 	failed := b.events(t, "peer_message_failed")
-	if len(b.events(t, "peer_message_sent")) != 1 || len(failed) != 1 || failed[0].Data["reason"] != "refused by the peer: it has no such resident" {
+	if len(b.events(t, "peer_message_sent")) != 1 || len(failed) != 1 || failed[0].Data["reason"] != "refused by the peer: it has no such crew member" {
 		t.Fatalf("b's events: sent %+v, failed %+v", b.events(t, "peer_message_sent"), failed)
 	}
 	// What is no refusal in a question is passed by, and the question answered.

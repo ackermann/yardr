@@ -259,8 +259,8 @@ func TestInitStartAsksTheHarnessInATerminalOnly(t *testing.T) {
 	start := func(args ...string) string {
 		t.Helper()
 		// Each start is the first: no session of the yardmaster from the last.
-		if _, err := a.st.GetResident(context.Background(), "yardmaster"); err == nil {
-			if err := a.st.ResidentStopped(context.Background(), "yardmaster", "test"); err != nil {
+		if _, err := a.st.GetCrew(context.Background(), "yardmaster"); err == nil {
+			if err := a.st.CrewStopped(context.Background(), "yardmaster", "test"); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -325,7 +325,7 @@ func TestNoQuestionWithoutACallOrAStart(t *testing.T) {
 		if _, err := run(t, (&app{st: a.st}).rootCmd(), "init", "--harness", "claude"); err != nil {
 			t.Fatal(err)
 		}
-		if err := a.st.SetResidentEnabled(context.Background(), "yardmaster", false, "", "me"); err != nil {
+		if err := a.st.SetCrewEnabled(context.Background(), "yardmaster", false, "", "me"); err != nil {
 			t.Fatal(err)
 		}
 		start(a, "claude")

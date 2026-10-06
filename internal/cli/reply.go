@@ -60,7 +60,7 @@ func hookEnvelope(ctx context.Context, st store.API, arg string) (uint64, hooks.
 }
 
 func (a *app) replyCmd() *cobra.Command {
-	var resident, to string
+	var member, to string
 	cmd := &cobra.Command{
 		Use:   "reply <seq> <text|->",
 		Short: "Answer a hook delivery in its source, as yourself",
@@ -74,21 +74,21 @@ yardr thread show).
 The call is made from this process with your own credential, from your
 environment: LINEAR_API_KEY; for GitHub a GitHub App (GITHUB_APP_ID and
 GITHUB_APP_PRIVATE_KEY_FILE, the reply is the App's bot's), else
-GITHUB_TOKEN. A resident's env_file or env_command sets them; the server never sees them.
+GITHUB_TOKEN. A crew member's env_file or env_command sets them; the server never sees them.
 With none of them a person's own shell speaks as gh is logged in (gh auth
-token); a resident's session is refused, since that login is not its own.
-yardr only types: what is said, and whether to say it, is the resident's.
+token); a crew member's session is refused, since that login is not its own.
+yardr only types: what is said, and whether to say it, is the crew member's.
 
-Only the resident's own session (its pane, where yardr set YARDR_RESIDENT
+Only the crew member's own session (its pane, where yardr set YARDR_CREW
 and YARDR_ACTOR) or the operator (the yard's operator setting, else the
-user running the command) may speak as the resident (--resident, default
-$YARDR_RESIDENT).
+user running the command) may speak as the crew member (--crew, default
+$YARDR_CREW).
 
 The reply is recorded, with an id chosen for it, before it is posted, and
 the id goes with the post (as the comment's id in Linear, as a marker in
 the body on GitHub). Run again with the same text after a lost answer (a
 timeout), yardr first looks for the comment that id made and does not post
-it twice. After posting, the resident takes part in the thread at once
+it twice. After posting, the crew member takes part in the thread at once
 (yardr thread list shows it, how=replied) and a replied event with the
 comment's id is logged. Prints the URL of the reply.`,
 		Example: `  yardr reply 4211 "Filed as yard-k3f9; I'll post here when it lands."
@@ -96,7 +96,7 @@ comment's id is logged. Prints the URL of the reply.`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()
-			name, err := currentResident(resident)
+			name, err := currentCrew(member)
 			if err != nil {
 				return err
 			}
@@ -116,7 +116,7 @@ comment's id is logged. Prints the URL of the reply.`,
 			if err != nil {
 				return err
 			}
-			if _, err := st.GetResident(ctx, name); err != nil {
+			if _, err := st.GetCrew(ctx, name); err != nil {
 				return err
 			}
 			if err := a.maySpeakAs(ctx, st, "reply", name); err != nil {
@@ -161,7 +161,7 @@ comment's id is logged. Prints the URL of the reply.`,
 					return fmt.Errorf("posted %s, but could not record it: %w", m.URL, err)
 				}
 			}
-			return a.out(map[string]any{"seq": seq, "resident": name, "source": env.Source, "thread": env.Thread.ID,
+			return a.out(map[string]any{"seq": seq, "crew": name, "source": env.Source, "thread": env.Thread.ID,
 				"url": m.URL, "message": m.ID, "repeated": already},
 				func() {
 					if already {
@@ -171,30 +171,31 @@ comment's id is logged. Prints the URL of the reply.`,
 				})
 		},
 	}
-	cmd.Flags().StringVar(&resident, "resident", "", "who is replying (default $YARDR_RESIDENT)")
+	cmd.Flags().StringVar(&member, "crew", "", "who is replying (default $YARDR_CREW)")
+	oldFlag(cmd, "resident", "crew")
 	cmd.Flags().StringVar(&to, "to", "", "answer under this message's conversation (an id from yardr thread show)")
 	return cmd
 }
 
-// maySpeakAs refuses to speak as resident name from anywhere but the
-// resident's own session (the pane yardr started it in, which names it in
-// YARDR_RESIDENT and YARDR_ACTOR) or the operator's shell (the yard's
+// maySpeakAs refuses to speak as crew member name from anywhere but the
+// crew member's own session (the pane yardr started it in, which names it in
+// YARDR_CREW and YARDR_ACTOR) or the operator's shell (the yard's
 // operator setting, else the user running the command, which is what a
 // shell with no YARDR_ACTOR acts as). A bead's agent, or another
-// resident, is refused: its credential, or the operator's gh login, would
-// otherwise speak in the resident's name. Every agent still runs as one OS
+// crew member, is refused: its credential, or the operator's gh login, would
+// otherwise speak in the crew member's name. Every agent still runs as one OS
 // user, so this is a line, not a wall; it moves when yardr hosts more than
 // one person.
 func (a *app) maySpeakAs(ctx context.Context, st store.API, what, name string) error {
 	who := a.who()
-	if who == name || config.Getenv("RESIDENT") == name {
+	if who == name || config.Getenv("CREW") == name {
 		return nil
 	}
 	operator, is, err := a.operator(ctx, st)
 	if err != nil || is {
 		return err
 	}
-	return fmt.Errorf("%s --resident %s: only %s's own session or the operator (%s) may speak as %s; this is %s",
+	return fmt.Errorf("%s --crew %s: only %s's own session or the operator (%s) may speak as %s; this is %s",
 		what, name, name, operator, name, who)
 }
 

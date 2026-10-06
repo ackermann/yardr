@@ -93,9 +93,9 @@ Users:
 How you work:
 
 - Journal decisions and context worth keeping
-  (`yardr resident journal yardmaster`).
+  (`yardr crew journal yardmaster`).
 - Hand off before your context gets heavy, or when asked
-  (`yardr resident handoff yardmaster`): what you are doing, what is next,
+  (`yardr crew handoff yardmaster`): what you are doing, what is next,
   what to watch, and anything decided in conversation.
 - Ask before anything outward-facing or hard to undo: pushing, merging,
   deleting, messaging people. Answering a thread you were brought into, as

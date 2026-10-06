@@ -90,7 +90,7 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 	if err := s.SetSetting(ctx, "default_kind", "claude", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me"); err != nil {
@@ -104,8 +104,8 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 	if err := s.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := schemaOf(t, fixture); got != 10 {
-		t.Fatalf("a new store is stamped %d; want 10", got)
+	if got := schemaOf(t, fixture); got != 11 {
+		t.Fatalf("a new store is stamped %d; want 11", got)
 	}
 	want := indexKeys(t, fixture)
 	if len(want["inbox"]) != 2 || len(want["events_by_kind"]) == 0 {
@@ -165,8 +165,8 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 			if err := s.Close(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if got := schemaOf(t, path); got != 10 {
-				t.Fatalf("schema after Open = %d; want 10", got)
+			if got := schemaOf(t, path); got != 11 {
+				t.Fatalf("schema after Open = %d; want 11", got)
 			}
 			got := indexKeys(t, path)
 			for _, name := range indexBuckets {
@@ -174,7 +174,7 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 					t.Errorf("%s after migration = %v\nwant %v", name, got[name], want[name])
 				}
 			}
-			if got := schemaOf(t, fixture); got != 10 || !slices.Equal(indexKeys(t, fixture)["inbox"], want["inbox"]) {
+			if got := schemaOf(t, fixture); got != 11 || !slices.Equal(indexKeys(t, fixture)["inbox"], want["inbox"]) {
 				t.Fatal("the fixture changed; the migration ran on the copy")
 			}
 		})
@@ -203,26 +203,26 @@ func bucketDump(t *testing.T, path string, buckets ...string) map[string]string 
 	return out
 }
 
-// A store of schema 8, from when the yard's coordinating resident was its
+// A store of schema 8, from when the yard's coordinating crew member was its
 // mayor, comes out of Open with the setting that names it under yardmaster
-// and nothing else changed: the resident keeps its name and its prompt's
-// path, the record of a pack that called its resident mayor stays as that
+// and nothing else changed: the crew member keeps its name and its prompt's
+// path, the record of a pack that called its crew member mayor stays as that
 // import wrote it, and the events already logged are not rewritten. A yard
-// from before the setting whose resident is called mayor gets the setting,
+// from before the setting whose crew member is called mayor gets the setting,
 // since the default name is no longer that one.
 func TestSchema8StoreRenamesTheMayorSetting(t *testing.T) {
 	ctx := context.Background()
-	kept := []string{"residents", "packs", "rigs", "users"}
+	kept := []string{"crew", "packs", "rigs", "users"}
 	cases := []struct {
-		name     string
-		resident string
-		setting  string // the mayor setting of the old store, "" for none
-		want     string // the yardmaster setting after Open, "" for none
+		name    string
+		member  string
+		setting string // the mayor setting of the old store, "" for none
+		want    string // the yardmaster setting after Open, "" for none
 	}{
-		{"the setting names a resident of another name", "boss", "boss", "boss"},
-		{"the setting names the resident mayor", "mayor", "mayor", "mayor"},
-		{"no setting, and a resident mayor", "mayor", "", "mayor"},
-		{"no setting, and no resident mayor", "lead", "", ""},
+		{"the setting names a crew member of another name", "boss", "boss", "boss"},
+		{"the setting names the crew member mayor", "mayor", "mayor", "mayor"},
+		{"no setting, and a crew member mayor", "mayor", "", "mayor"},
+		{"no setting, and no crew member mayor", "lead", "", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -237,19 +237,19 @@ func TestSchema8StoreRenamesTheMayorSetting(t *testing.T) {
 			if err := s.PutRig(ctx, store.Rig{Name: "web", Path: t.TempDir()}, "me"); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := s.PutResident(ctx, store.Resident{Name: tc.resident, Runner: "herdr",
+			if _, err := s.PutCrew(ctx, store.CrewMember{Name: tc.member, Runner: "herdr",
 				Config: map[string]any{"kind": "claude", "prompt": "/home/jo/.yardr/roles/mayor.md"}}, "me"); err != nil {
 				t.Fatal(err)
 			}
-			if err := s.AddSubscription(ctx, tc.resident, store.Subscription{Source: "linear", Scope: "involved"}, "me"); err != nil {
+			if err := s.AddSubscription(ctx, tc.member, store.Subscription{Source: "linear", Scope: "involved"}, "me"); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := s.RecordPack(ctx, store.PackImport{Pack: "starter", Rig: "web", Source: "/packs/starter",
-				Groups: map[string]string{"builders": "web-builders"}, Residents: map[string]string{"mayor": tc.resident},
+				Groups: map[string]string{"builders": "web-builders"}, Crew: map[string]string{"mayor": tc.member},
 				Objects: []store.PackObject{{Kind: "file", Name: "/home/jo/.yardr/packs/starter/roles/mayor.md"}}}, true, "me"); err != nil {
 				t.Fatal(err)
 			}
-			if err := s.Mail(ctx, tc.resident, "the mayor setting is next", "me"); err != nil {
+			if err := s.Mail(ctx, tc.member, "the mayor setting is next", "me"); err != nil {
 				t.Fatal(err)
 			}
 			if err := s.Close(ctx); err != nil {
@@ -287,15 +287,15 @@ func TestSchema8StoreRenamesTheMayorSetting(t *testing.T) {
 				if _, old := all["mayor"]; old || all["yardmaster"] != tc.want || all["default_kind"] != "claude" {
 					t.Fatalf("%s: settings = %v, want yardmaster %q and no mayor", pass, all, tc.want)
 				}
-				if page, err := s.Inbox(ctx, tc.resident, 0); err != nil || page.Total != 1 {
-					t.Fatalf("%s: %s's inbox = %+v %v", pass, tc.resident, page, err)
+				if page, err := s.Inbox(ctx, tc.member, 0); err != nil || page.Total != 1 {
+					t.Fatalf("%s: %s's inbox = %+v %v", pass, tc.member, page, err)
 				}
 				if err := s.Close(ctx); err != nil {
 					t.Fatal(err)
 				}
 			}
-			if got := schemaOf(t, path); got != 10 {
-				t.Fatalf("schema after Open = %d; want 10", got)
+			if got := schemaOf(t, path); got != 11 {
+				t.Fatalf("schema after Open = %d; want 11", got)
 			}
 			after := bucketDump(t, path, append(kept, "events", "settings")...)
 			added := 0
@@ -345,7 +345,7 @@ func TestTheMayorSettingIsTheYardmasterSetting(t *testing.T) {
 
 // A store of schema 9, from when a train was an epic and a car a part,
 // comes out of Open with the new types wherever it holds a type: beads,
-// routes, flow pointers, a hook's stage map, the filters of a resident's,
+// routes, flow pointers, a hook's stage map, the filters of a crew member's,
 // a user's and a group's subscriptions, and the record of a pack. What the
 // operator named stays (the flow web.epic, the label epic), a pointer at
 // that flow still finds it, and the events already logged are not
@@ -386,7 +386,7 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 	typ := store.TypeTrain
 	_, err = s.AddRoute(ctx, store.Route{Stage: "open", Type: &typ, Group: "integrators"})
 	must(err)
-	_, err = s.PutResident(ctx, store.Resident{Name: "boss", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "me")
+	_, err = s.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "me")
 	must(err)
 	must(s.SetIdentity(ctx, "boss", "linear", store.Identity{ID: "u-boss"}, "me"))
 	_, err = s.PutHook(ctx, store.Hook{Name: "linear", Source: "linear", SecretFile: "/home/jo/.yardr/linear.secret", As: "boss",
@@ -407,8 +407,8 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 		Objects: []store.PackObject{
 			{Kind: "route", Stage: "open", Type: "train", Group: "integrators"},
 			{Kind: "pointer", Type: "train", Flow: "web.epic"},
-			{Kind: "map", Name: "linear", Resident: "boss", Map: map[string]string{"train:open": "started"}},
-			{Kind: "subscription", Resident: "boss", Subscription: &store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll, Where: map[string]string{"train": "web-e"}}},
+			{Kind: "map", Name: "linear", CrewMember: "boss", Map: map[string]string{"train:open": "started"}},
+			{Kind: "subscription", CrewMember: "boss", Subscription: &store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll, Where: map[string]string{"train": "web-e"}}},
 		}}, true, "me")
 	must(err)
 	must(s.Close(ctx))
@@ -420,7 +420,7 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 		`"train:open"`, `"epic:open"`, `"car:new"`, `"part:new"`,
 		`"train":"web-e"`, `"epic":"web-e"`, `"kind":"train_branched"`, `"kind":"epic_branched"`,
 	)
-	aged := []string{"beads", "routes", "flow_pointers", "hooks", "residents", "users", "groups", "packs"}
+	aged := []string{"beads", "routes", "flow_pointers", "hooks", "crew", "users", "groups", "packs"}
 	db, err := bolt.Open(path, 0o600, nil)
 	must(err)
 	err = db.Update(func(tx *bolt.Tx) error {
@@ -448,7 +448,7 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 	db.Close()
 	must(err)
 	before := bucketDump(t, path, append(aged, "events", "named_flows")...)
-	for _, want := range []string{"beads", "routes", "flow_pointers", "hooks", "residents", "users", "groups", "packs"} {
+	for _, want := range []string{"beads", "routes", "flow_pointers", "hooks", "crew", "users", "groups", "packs"} {
 		found := false
 		for k, v := range before {
 			if strings.HasPrefix(k, want+"\x00") && (strings.Contains(v, "epic") || strings.Contains(v, `"part`)) {
@@ -499,9 +499,9 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 			return out
 		}
 		want := []string{"yardr all kind=train_branched", "yardr all train=web-e", "yardr all type=car", "yardr all type=task"}
-		boss, err := s.GetResident(ctx, "boss")
+		boss, err := s.GetCrew(ctx, "boss")
 		if err != nil || !slices.Equal(subs(boss.Subscriptions), append([]string{"github all train=web-e"}, want...)) {
-			t.Fatalf("%s: the resident's subscriptions = %v, %v", pass, subs(boss.Subscriptions), err)
+			t.Fatalf("%s: the crew member's subscriptions = %v, %v", pass, subs(boss.Subscriptions), err)
 		}
 		if jo, err := s.GetUser(ctx, "jo"); err != nil || !slices.Equal(subs(jo.Subscriptions), want) {
 			t.Fatalf("%s: the user's subscriptions = %v, %v", pass, subs(jo.Subscriptions), err)
@@ -524,8 +524,8 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 		}
 		must(s.Close(ctx))
 	}
-	if got := schemaOf(t, path); got != 10 {
-		t.Fatalf("schema after Open = %d; want 10", got)
+	if got := schemaOf(t, path); got != 11 {
+		t.Fatalf("schema after Open = %d; want 11", got)
 	}
 	after := bucketDump(t, path, "events", "named_flows")
 	added := 0
@@ -612,12 +612,12 @@ func TestTheOldTypeWordsAreStillRead(t *testing.T) {
 
 	// A subscription that names the old key, types or kinds is stored, and
 	// removed, as what they are now.
-	_, err = s.PutResident(ctx, store.Resident{Name: "boss", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "me")
+	_, err = s.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "me")
 	must(err)
 	for _, w := range []map[string]string{{"epic": "web-e"}, {"type": "part"}, {"kind": "part_without_epic"}} {
 		must(s.AddSubscription(ctx, "boss", store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll, Where: w}, "me"))
 	}
-	boss, err := s.GetResident(ctx, "boss")
+	boss, err := s.GetCrew(ctx, "boss")
 	must(err)
 	var got []string
 	for _, sub := range boss.Subscriptions {
@@ -640,5 +640,272 @@ func TestTheOldTypeWordsAreStillRead(t *testing.T) {
 		Map: map[string]string{"epic:open": "started", "part:new": "started"}}, "me")
 	if err != nil || !maps.Equal(h.Map, map[string]string{"train:open": "started", "car:new": "started"}) {
 		t.Fatalf("a map that says epic and part: %+v, %v", h, err)
+	}
+}
+
+// A store of schema 10, from when the crew were the residents, comes out of
+// Open with the word renamed in every place the store holds it: the bucket
+// of the records, the label of a journal and the scope of a memory, a kind
+// in --on and in the filter of a crew member's, a user's and a group's
+// subscription, the field that names the crew member in a thread and in
+// the record of an imported pack, and the path of an env_file under
+// <home>/residents, which is <home>/crew with a link of the old name. The
+// events already logged are not rewritten, and one of an old kind is still
+// in the inbox of whoever hears of the kind.
+func TestSchema10StoreRenamesResidents(t *testing.T) {
+	ctx := context.Background()
+	home := t.TempDir()
+	if resolved, err := filepath.EvalSymlinks(home); err == nil {
+		home = resolved
+	}
+	path := filepath.Join(home, "yard.db")
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	envFile := filepath.Join(home, "crew", "boss.env")
+	s, err := store.Open(path)
+	must(err)
+	must(s.SetSetting(ctx, "default_kind", "claude", "me"))
+	must(s.PutRig(ctx, store.Rig{Name: "web", Path: t.TempDir()}, "me"))
+	must(s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 5}))
+	_, err = s.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "herdr", On: []string{"crew_gave_up", "held"},
+		Config: map[string]any{"kind": "claude", "env_file": envFile}}, "me")
+	must(err)
+	_, err = s.PutCrew(ctx, store.CrewMember{Name: "clerk", Runner: "manual", Config: map[string]any{"env_file": "/etc/yard/clerk.env"}}, "me")
+	must(err)
+	_, err = s.AddUser(ctx, "jo", "me")
+	must(err)
+	wheres := []map[string]string{{"kind": "crew_started"}, {"label": "crew:boss"}, {"type": "task"}}
+	for _, who := range []struct{ name, actor string }{{"boss", "me"}, {"jo", "jo"}, {"people", "me"}} {
+		for _, w := range wheres {
+			must(s.AddSubscription(ctx, who.name, store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll, Where: w}, who.actor))
+		}
+	}
+	_, err = s.Remember(ctx, store.NewMemory{Title: "deploys are frozen", Scope: "crew:boss"}, "boss")
+	must(err)
+	must(s.FollowThread(ctx, "boss", "linear", "ENG-1", "me"))
+	_, err = s.RecordPack(ctx, store.PackImport{Pack: "starter", Rig: "web", Source: "/packs/starter",
+		Crew: map[string]string{"yardmaster": "boss"},
+		Objects: []store.PackObject{
+			{Kind: "crew", Name: "boss"},
+			{Kind: "map", Name: "linear", CrewMember: "boss", Map: map[string]string{"task:new": "started"}},
+			{Kind: "subscription", CrewMember: "boss", Subscription: &store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll, Where: map[string]string{"kind": "crew_started"}}},
+		}}, true, "me")
+	must(err)
+	// What a build of schema 10 logged when a start was given up: boss
+	// hears of the kind.
+	must(s.LogEvent(ctx, "clerk-journal", "resident_gave_up", "yard", map[string]any{"resident": "clerk", "reason": "not logged in"}))
+	must(s.Close(ctx))
+
+	// Age it: every word as a build of schema 10 stored it, in the bucket
+	// and the directory it had, under that build's stamp.
+	oldEnv := filepath.Join(home, "residents", "boss.env")
+	old := strings.NewReplacer(
+		`"scope:crew:boss"`, `"scope:resident:boss"`, `"crew:boss"`, `"resident:boss"`,
+		`"crew_started"`, `"resident_started"`, `"crew_gave_up"`, `"resident_gave_up"`,
+		`"crew":{`, `"residents":{`, `"crew":"boss"`, `"resident":"boss"`, `"kind":"crew"`, `"kind":"resident"`,
+		envFile, oldEnv,
+	)
+	aged := map[string]string{"beads": "beads", "crew": "residents", "users": "users", "groups": "groups", "packs": "packs", "threads": "threads"}
+	db, err := bolt.Open(path, 0o600, nil)
+	must(err)
+	err = db.Update(func(tx *bolt.Tx) error {
+		for name, was := range aged {
+			rows := map[string]string{}
+			_ = tx.Bucket([]byte(name)).ForEach(func(k, v []byte) error {
+				rows[string(k)] = string(v)
+				return nil
+			})
+			if err := tx.DeleteBucket([]byte(name)); err != nil {
+				return err
+			}
+			b, err := tx.CreateBucket([]byte(was))
+			if err != nil {
+				return err
+			}
+			for k, v := range rows {
+				if err := b.Put([]byte(k), []byte(old.Replace(v))); err != nil {
+					return err
+				}
+			}
+		}
+		return tx.Bucket([]byte("meta")).Put([]byte("schema"), binary.BigEndian.AppendUint64(nil, 10))
+	})
+	db.Close()
+	must(err)
+	must(os.Mkdir(filepath.Dir(oldEnv), 0o700))
+	must(os.WriteFile(oldEnv, []byte("LINEAR_API_KEY=k\n"), 0o600))
+	was := bucketDump(t, path, "beads", "residents", "users", "groups", "packs", "threads")
+	for _, want := range aged {
+		found := false
+		for k, v := range was {
+			found = found || strings.HasPrefix(k, want+"\x00") && strings.Contains(v, "resident")
+		}
+		if !found {
+			t.Fatalf("the aged store has no old word in %s", want)
+		}
+	}
+	events := bucketDump(t, path, "events")
+
+	var first map[string]string
+	for _, pass := range []string{"the upgrade", "the next start"} {
+		s, err = store.Open(path)
+		must(err)
+		boss, err := s.GetCrew(ctx, "boss")
+		must(err)
+		if !slices.Equal(boss.On, []string{"crew_gave_up", "held"}) || boss.Config["env_file"] != envFile {
+			t.Fatalf("%s: boss hears of %v and reads %v", pass, boss.On, boss.Config["env_file"])
+		}
+		if clerk, err := s.GetCrew(ctx, "clerk"); err != nil || clerk.Config["env_file"] != "/etc/yard/clerk.env" {
+			t.Fatalf("%s: an env_file outside the home = %+v, %v", pass, clerk, err)
+		}
+		people, err := s.GetGroup(ctx, "people")
+		must(err)
+		users, err := s.Users(ctx)
+		must(err)
+		for who, list := range map[string][]store.Subscription{"boss": boss.Subscriptions, "jo": users[0].Subscriptions, "people": people.Subscriptions} {
+			var got []string
+			for _, sub := range list {
+				got = append(got, sub.String())
+			}
+			slices.Sort(got)
+			if want := []string{"yardr all kind=crew_started", "yardr all label=crew:boss", "yardr all type=task"}; !slices.Equal(got, want) {
+				t.Fatalf("%s: %s's subscriptions = %q, want %q", pass, who, got, want)
+			}
+		}
+		if j, err := s.GetBead(ctx, boss.Journal); err != nil || !slices.Equal(j.Labels, []string{"crew:boss"}) {
+			t.Fatalf("%s: the journal = %+v, %v", pass, j, err)
+		}
+		for _, scope := range []string{"crew:boss", "resident:boss"} {
+			ms, err := s.Recall(ctx, scope, "")
+			if err != nil || len(ms) != 1 || ms[0].Scope != "crew:boss" {
+				t.Fatalf("%s: recall %s = %+v, %v", pass, scope, ms, err)
+			}
+		}
+		if labelled, err := s.ListBeads(ctx, store.BeadFilter{Label: "resident:boss", Type: store.TypeJournal}); err != nil || len(labelled) != 1 {
+			t.Fatalf("%s: beads of the old label = %+v, %v", pass, labelled, err)
+		}
+		if ths, err := s.Threads(ctx, "boss"); err != nil || len(ths) != 1 || ths[0].CrewMember != "boss" || ths[0].Thread != "ENG-1" {
+			t.Fatalf("%s: threads = %+v, %v", pass, ths, err)
+		}
+		packs, err := s.Packs(ctx)
+		must(err)
+		if len(packs) != 1 || packs[0].Crew["yardmaster"] != "boss" || len(packs[0].Objects) != 3 {
+			t.Fatalf("%s: the pack's record = %+v", pass, packs)
+		}
+		for _, o := range packs[0].Objects {
+			switch {
+			case o.Kind == "crew" && o.Name == "boss":
+			case o.Kind == "map" && o.CrewMember == "boss":
+			case o.Kind == "subscription" && o.CrewMember == "boss" && o.Subscription.Where["kind"] == "crew_started":
+			default:
+				t.Fatalf("%s: the pack's object = %+v", pass, o)
+			}
+		}
+		// The start given up before the upgrade is still in the inbox.
+		page, err := s.Inbox(ctx, "boss", 0)
+		must(err)
+		if len(page.Events) != 1 || page.Events[0].Kind != "resident_gave_up" || store.EventCrew(page.Events[0].Data) != "clerk" {
+			t.Fatalf("%s: boss's inbox = %+v", pass, page.Events)
+		}
+		must(s.Close(ctx))
+
+		if got := schemaOf(t, path); got != 11 {
+			t.Fatalf("%s: schema = %d; want 11", pass, got)
+		}
+		if st, err := os.Lstat(filepath.Dir(oldEnv)); err != nil || st.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("%s: the old directory is no link: %v, %v", pass, st, err)
+		}
+		for _, p := range []string{envFile, oldEnv} {
+			if b, err := os.ReadFile(p); err != nil || string(b) != "LINEAR_API_KEY=k\n" {
+				t.Fatalf("%s: %s = %q, %v", pass, p, b, err)
+			}
+		}
+		now := bucketDump(t, path, "beads", "crew", "users", "groups", "packs", "threads")
+		for k, v := range now {
+			if strings.Contains(v, "resident") {
+				t.Fatalf("%s: %q still says %s", pass, k, v)
+			}
+		}
+		db, err := bolt.Open(path, 0o600, &bolt.Options{ReadOnly: true})
+		must(err)
+		_ = db.View(func(tx *bolt.Tx) error {
+			if tx.Bucket([]byte("residents")) != nil {
+				t.Errorf("%s: the old bucket is still there", pass)
+			}
+			return nil
+		})
+		db.Close()
+		after := bucketDump(t, path, "events")
+		var added []string
+		for k, v := range after {
+			if _, had := events[k]; !had {
+				added = append(added, v)
+			} else if events[k] != v {
+				t.Fatalf("%s: an event was rewritten: %s, was %s", pass, v, events[k])
+			}
+		}
+		if len(added) != 1 || !strings.Contains(added[0], `"kind":"crew_migrated"`) || !strings.Contains(added[0], `"from":"residents"`) {
+			t.Fatalf("%s: events added = %q, want one crew_migrated", pass, added)
+		}
+		for _, want := range []string{`"crew":1`, `"beads":2`, `"threads":1`, `"packs":1`, `"user_subscriptions":1`, `"group_subscriptions":1`} {
+			if !strings.Contains(added[0], want) {
+				t.Fatalf("%s: crew_migrated = %s, want %s in it", pass, added[0], want)
+			}
+		}
+		if first == nil {
+			first = now
+		} else if !maps.Equal(first, now) {
+			t.Fatalf("the next start changed what the upgrade wrote")
+		}
+	}
+}
+
+// A home with both directories is left as it is, and so are the paths: the
+// operator made the new one, and yardr does not choose between the two.
+func TestSchema10StoreLeavesTwoDirectories(t *testing.T) {
+	ctx := context.Background()
+	home := t.TempDir()
+	path := filepath.Join(home, "yard.db")
+	oldEnv := filepath.Join(home, "residents", "boss.env")
+	s, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "manual", Config: map[string]any{"env_file": oldEnv}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, err := bolt.Open(path, 0o600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket([]byte("meta")).Put([]byte("schema"), binary.BigEndian.AppendUint64(nil, 10))
+	})
+	db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{"residents", "crew"} {
+		if err := os.Mkdir(filepath.Join(home, dir), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if s, err = store.Open(path); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close(ctx)
+	boss, err := s.GetCrew(ctx, "boss")
+	if err != nil || boss.Config["env_file"] != oldEnv {
+		t.Fatalf("env_file = %v, %v; want it as it was", boss, err)
+	}
+	if st, err := os.Lstat(filepath.Dir(oldEnv)); err != nil || !st.IsDir() {
+		t.Fatalf("the old directory = %v, %v; want it left", st, err)
 	}
 }

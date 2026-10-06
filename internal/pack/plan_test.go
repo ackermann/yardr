@@ -121,7 +121,7 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 		"pointer rig web -> starter.default",
 		"route rig web stage backlog -> backlog", "route rig web stage new -> web-builders", "route rig web stage review -> web-reviewers",
 		"route rig web stage approved -> web-refinery", "route rig web stage decide -> decisions",
-		"resident yardmaster",
+		"crew yardmaster",
 		"subscription yardmaster yardr all rig=web stage=decide", "subscription yardmaster yardr all rig=web state=done", "subscription yardmaster linear involved",
 	}
 	if got := actions(plan, pack.Create); !reflect.DeepEqual(got, want) {
@@ -139,7 +139,7 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 		"group.web-builders.kind", "group.web-builders.model", "group.web-builders.args",
 		"group.web-reviewers.kind", "group.web-reviewers.model", "group.web-reviewers.args",
 		"group.backlog.members", "group.decisions.members",
-		"resident.yardmaster.resident", "resident.yardmaster.kind", "resident.yardmaster.model", "resident.yardmaster.args", "resident.yardmaster.dir",
+		"crew.yardmaster.crew", "crew.yardmaster.kind", "crew.yardmaster.model", "crew.yardmaster.args", "crew.yardmaster.dir",
 	}
 	if !reflect.DeepEqual(ids, wantQ) {
 		t.Fatalf("questions = %v\nwant %v", ids, wantQ)
@@ -168,7 +168,7 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 	if got := find(t, plan, "flow", "starter.default").Flow.Stages; got[0] != "backlog" || got[5] != "merged" {
 		t.Fatalf("flow stages = %v", got)
 	}
-	m := find(t, plan, "resident", "yardmaster").Resident
+	m := find(t, plan, "crew", "yardmaster").CrewMember
 	if m.Prompt != filepath.Join(install, "roles", "yardmaster.md") || len(m.On) != 16 {
 		t.Fatalf("yardmaster = %+v", m)
 	}
@@ -180,7 +180,7 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 	}
 
 	// What linear lacks in a yard that has nothing.
-	if len(plan.Sources) != 1 || plan.Sources[0].Source != "linear" || plan.Sources[0].Resident != "yardmaster" {
+	if len(plan.Sources) != 1 || plan.Sources[0].Source != "linear" || plan.Sources[0].CrewMember != "yardmaster" {
 		t.Fatalf("sources = %+v", plan.Sources)
 	}
 	status := map[string]string{}
@@ -325,24 +325,24 @@ func TestYardSetUpByHand(t *testing.T) {
 		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Rig: &rig, Group: group, Priority: 3})
 		must(err)
 	}
-	_, err := st.PutResident(ctx, store.Resident{Name: "boss", Runner: "herdr", Dir: "/home/boss", MaxAge: "6h",
+	_, err := st.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "herdr", Dir: "/home/boss", MaxAge: "6h",
 		Config: map[string]any{"kind": "claude", "prompt": "/old/roles/yardmaster.md", "env_file": "/nowhere.env"},
 		On: []string{"held", "gave_up", "session_blocked", "unrouted", "stranded", "session_idle", "session_stalled",
-			"no_runner", "workspace_kept", "resident_gave_up", "runtime_down", "session_aged", "session_harness_error", "session_model_mismatch", "session_prompt_gave_up", "move_refused"}}, "me")
+			"no_runner", "workspace_kept", "crew_gave_up", "runtime_down", "session_aged", "session_harness_error", "session_model_mismatch", "session_prompt_gave_up", "move_refused"}}, "me")
 	must(err)
 	must(st.AddSubscription(ctx, "boss", store.Subscription{Source: "linear", Scope: "all"}, "me"))
 	must(st.AddSubscription(ctx, "boss", store.Subscription{Source: "yardr", Scope: "all", Where: map[string]string{"label": "ui"}}, "me"))
 
-	o.Residents = map[string]string{"yardmaster": "boss"}
+	o.Crew = map[string]string{"yardmaster": "boss"}
 	plan := build(t, st, load(t, starter), o)
 	install := filepath.Join(o.Home, "packs", "starter")
 
 	for _, o := range plan.Objects {
-		if o.Action == pack.Create && (o.Kind == "group" || o.Kind == "route" || o.Kind == "resident") {
+		if o.Action == pack.Create && (o.Kind == "group" || o.Kind == "route" || o.Kind == "crew") {
 			t.Errorf("%s %s is planned as new", o.Kind, o.Name)
 		}
 	}
-	if got, want := actions(plan, pack.Change), []string{"group web-builders", "group web-reviewers", "group web-refinery", "resident boss", "subscription boss linear involved"}; !reflect.DeepEqual(got, want) {
+	if got, want := actions(plan, pack.Change), []string{"group web-builders", "group web-reviewers", "group web-refinery", "crew boss", "subscription boss linear involved"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("change = %v\nwant %v", got, want)
 	}
 	if got, want := actions(plan, pack.NotInPack), []string{"group web-mergers", "route rig web stage merge -> web-mergers", "subscription boss yardr all label=ui"}; !reflect.DeepEqual(got, want) {
@@ -370,8 +370,8 @@ func TestYardSetUpByHand(t *testing.T) {
 	if rt := find(t, plan, "route", "rig web stage new -> web-builders"); rt.Action != pack.Unchanged || rt.Route.Priority != 3 || len(rt.Route.Delete) != 0 {
 		t.Fatalf("route new = %+v %+v", rt, rt.Route)
 	}
-	res := find(t, plan, "resident", "boss")
-	if len(res.Changes) != 1 || res.Changes[0].Field != "prompt" || res.Resident.Pack != "yardmaster" || len(res.Asks) != 0 {
+	res := find(t, plan, "crew", "boss")
+	if len(res.Changes) != 1 || res.Changes[0].Field != "prompt" || res.CrewMember.Pack != "yardmaster" || len(res.Asks) != 0 {
 		t.Fatalf("boss = %+v (the same kinds in another order are no change)", res)
 	}
 	sub := find(t, plan, "subscription", "boss linear involved")
@@ -390,7 +390,7 @@ func TestYardSetUpByHand(t *testing.T) {
 	if c, ch := actions(plan, pack.Create), actions(plan, pack.Change); len(c)+len(ch) != 0 {
 		t.Fatalf("after the import: create %v, change %v", c, ch)
 	}
-	boss, err := st.GetResident(ctx, "boss")
+	boss, err := st.GetCrew(ctx, "boss")
 	must(err)
 	if boss.Dir != "/home/boss" || boss.MaxAge != "6h" || boss.Config["env_file"] != "/nowhere.env" || len(boss.Subscriptions) != 4 {
 		t.Fatalf("boss = %+v", boss)
@@ -628,13 +628,13 @@ func TestChangedFlowIsShownByStage(t *testing.T) {
 	}
 }
 
-func TestUnknownRigAndResident(t *testing.T) {
+func TestUnknownRigAndCrew(t *testing.T) {
 	st, o := yard(t)
-	o.Residents = map[string]string{"sheriff": "boss"}
-	if _, err := pack.Build(ctx, st, load(t, starter), o); err == nil || !strings.Contains(err.Error(), "the pack has no resident sheriff") {
+	o.Crew = map[string]string{"sheriff": "boss"}
+	if _, err := pack.Build(ctx, st, load(t, starter), o); err == nil || !strings.Contains(err.Error(), "the pack has no crew member sheriff") {
 		t.Fatalf("Build = %v", err)
 	}
-	o.Residents, o.Rig = nil, "nope"
+	o.Crew, o.Rig = nil, "nope"
 	if _, err := pack.Build(ctx, st, load(t, starter), o); err == nil || !strings.Contains(err.Error(), "nope") {
 		t.Fatalf("Build = %v", err)
 	}

@@ -168,11 +168,11 @@ none: scripts and styles live in the asset files.
 | `/beads?rig=<rig>&stage=<stage>` | the same, of one rig, in one stage, or both | `Beads` |
 | `/beads/<id>` | one bead: what `yardr prime --bead <id>` knows, for a person ([One bead](#one-bead)) | `BeadPage` |
 | `/sessions` | the running sessions, the oldest first, with bead, stage, group, runner, state and age (`yardr session list`), and under them the claims of manual groups, live | `Sessions` |
-| `/residents` | each resident: whether it runs, since when, and its unread inbox count, live. Journals and handoffs are not shown | `Residents` |
+| `/crew` | each crew member: whether it runs, since when, and its unread inbox count, live. Journals and handoffs are not shown | `Crew` |
 | `/assets/<file>` | the stylesheet and the two scripts | |
 
 The feed, the right column, `/flows`, `/beads`, a bead's page, the sessions
-and the residents are live ([Live pages](#live-pages)). The rigs' stage
+and the crew are live ([Live pages](#live-pages)). The rigs' stage
 counts above the feed are a snapshot: reload the page to see them change.
 
 Home as JSON:
@@ -205,7 +205,7 @@ Home as JSON:
 ```
 
 - `yard` is the `name` setting, else the home's directory name, as for
-  residents ([configuration.md](configuration.md)).
+  crew members ([configuration.md](configuration.md)).
 - `open` counts the rig's open beads, `working` those an agent's or a
   command's session has claimed, `held` those on hold. A bead a manual
   group has claimed is not `working`: it is a person's turn
@@ -265,11 +265,11 @@ Home as JSON:
 - `age` is how long ago it started, in its two largest units, when the
   page was read.
 
-`/residents` as JSON:
+`/crew` as JSON:
 
 ```json
 {
-  "residents": [
+  "crew": [
     {"name": "yardmaster", "state": "running", "running": true, "enabled": true,
      "since": "2026-10-03T21:14:02Z", "up": "5h 52m", "agent": "herdr · claude · opus", "unread": 3},
     {"name": "night", "state": "stopped", "running": false, "enabled": false, "agent": "herdr · claude", "unread": 0}
@@ -281,7 +281,7 @@ Home as JSON:
   it); `enabled` is false for one the daemon was told not to keep up.
 - `since` and `up` are there while it runs: when its session started.
 - `unread` counts the events in its inbox it has not acknowledged
-  (`yardr resident show`). The events themselves, its journal and its
+  (`yardr crew show`). The events themselves, its journal and its
   handoffs are its own and are on no page.
 - `restart` is why a restart was asked for that has not happened yet.
 
@@ -382,7 +382,7 @@ listens for. These hang on the stream:
   in its place (`hx-trigger="sse:message"`), and so does `/line`'s own copy
   of it. A bead that is held shows there with its reason as soon as the
   event arrives, and goes when it is unheld;
-- `/sessions`, `/residents`, `/beads` and a bead's page read themselves
+- `/sessions`, `/crew`, `/beads` and a bead's page read themselves
   again the same way;
 - on `/flows` each card and each section listens for the message named
   after it ([Flows](#flows));
@@ -391,7 +391,7 @@ listens for. These hang on the stream:
 While one such read is under way, htmx keeps only the last of the events
 that arrive, so a burst costs two reads and not one each. What changes
 with no event is as old as the last one: an age (`3h 4m`), and a
-resident's unread count after it acknowledged its inbox, which the yard
+crew member's unread count after it acknowledged its inbox, which the yard
 does not log.
 
 One stream per page, because a browser allows a host six connections
@@ -421,7 +421,7 @@ An entry says its event in the yard's words:
 | `session_<state>` (a session the dispatcher ended) | session ended: *state* (`tone` `held`) | the reason |
 | any other | the kind, spelled out: `setting changed` | its plain values: `key name · value north` |
 
-- A resident's journal entries and handoffs (`journal`, `handoff`) are left
+- A crew member's journal entries and handoffs (`journal`, `handoff`) are left
   out: they are its notes to itself.
 - The reason of a hold and the note of a move are the note their actor
   left on the bead right before (`yardr bead note … && yardr bead hold`,
@@ -716,7 +716,7 @@ One column, like x.com. Simplicity is the point: **a new view is a new feed
 in the centre column, never a new arrangement.**
 
 - **Left**, 200px: the yard's name and a short menu (Home, Flows, Beads,
-  Sessions, Residents).
+  Sessions, Crew members).
 - **Centre**, up to 600px: the page. It is the only place content scrolls;
   the body itself never does.
 - **Right**, 300px: what waits for a person, and a summary of the line. It

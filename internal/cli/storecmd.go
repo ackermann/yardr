@@ -46,9 +46,9 @@ YARDR_EVENT_RETENTION and YARDR_HOOK_PAYLOAD_RETENTION). The daemon does this
 every hour.
 
 The newest event and anything since the oldest live session started are kept
-whatever their age, and so is an event a running resident has not read yet,
+whatever their age, and so is an event a running crew member has not read yet,
 for up to the inbox retention (180d, or YARDR_INBOX_RETENTION); a stopped or
-disabled resident holds nothing back.
+disabled crew member holds nothing back.
 
 What a link keeps of its messages goes at the age of events too, but never
 younger than 7 days: the ids of the messages taken from a peer, by which one
@@ -94,7 +94,7 @@ The file does not shrink until it is compacted (yardr store compact).`,
 					fmt.Printf("older events kept: %s\n", res.HeldBy)
 				}
 				for _, name := range slices.Sorted(maps.Keys(res.Expired)) {
-					fmt.Printf("resident %s: %d unread inbox events went with the log\n", name, res.Expired[name])
+					fmt.Printf("crew member %s: %d unread inbox events went with the log\n", name, res.Expired[name])
 				}
 				for _, name := range slices.Sorted(maps.Keys(res.Peers)) {
 					fmt.Printf("peer %s: %d ids of messages taken from it forgotten, %d messages given up removed\n", name, res.Peers[name].Seen, res.Peers[name].Failed)

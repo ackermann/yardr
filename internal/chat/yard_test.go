@@ -55,8 +55,8 @@ func (v *view) row(name string) string {
 	return ""
 }
 
-// The yard's row is above the residents with the count of unread
-// notifications, which lights no resident's row and is none of the mail's.
+// The yard's row is above the crew with the count of unread
+// notifications, which lights no crew member's row and is none of the mail's.
 // Selecting it shows the notifications, newest last, each with its bead's
 // id on a line of its own, and acknowledges them and not the mail.
 func TestYardRow(t *testing.T) {
@@ -73,9 +73,9 @@ func TestYardRow(t *testing.T) {
 	}
 	lines := strings.Split(v.screen(), "\n")
 	if !strings.HasPrefix(lines[1], "  yard ") || !strings.HasPrefix(lines[2], "> chief ") {
-		t.Fatalf("the yard's row is not above the residents:\n%s", v.screen())
+		t.Fatalf("the yard's row is not above the crew:\n%s", v.screen())
 	}
-	// Four notifications, and the residents' rows say nothing of them:
+	// Four notifications, and the crew's rows say nothing of them:
 	// the chief has none, the refinery its one mail.
 	if got := v.row("chief"); got != "> chief       idle" {
 		t.Fatalf("the chief's row is %q", got)
@@ -93,7 +93,7 @@ func TestYardRow(t *testing.T) {
 
 	v.key(tea.KeyShiftTab)
 	if !v.m.OnYard() {
-		t.Fatalf("shift+tab from the first resident selected %q", v.m.Selected())
+		t.Fatalf("shift+tab from the first crew member selected %q", v.m.Selected())
 	}
 	v.fits(120, 24)
 	v.shows("> yard", "  "+first, "  "+second, `closed (all) by refinery reason=merged abc1234 on "the second"`)
@@ -153,21 +153,21 @@ func TestYardRow(t *testing.T) {
 	v.shows("[yard]  chief idle  refinery idle (1)", fourth)
 }
 
-func TestYardRowDoesNotCollideWithResidentName(t *testing.T) {
+func TestYardRowDoesNotCollideWithCrewName(t *testing.T) {
 	st := yard(t)
 	ctx := context.Background()
-	if _, err := st.PutResident(ctx, store.Resident{Name: YardRow, Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "jo"); err != nil {
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: YardRow, Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	v := open(t, st, "chief", 120, 24)
 	s := v.screen()
 	if !strings.Contains(s, "yard-notify") || !strings.Contains(s, "  yard        not running") {
-		t.Fatalf("the system row and resident named yard are not distinct:\n%s", s)
+		t.Fatalf("the system row and crew member named yard are not distinct:\n%s", s)
 	}
 }
 
 // The yard's row has no line to type in and the keys that do something
-// there: what is typed goes nowhere, to no resident and into no draft.
+// there: what is typed goes nowhere, to no crew member and into no draft.
 func TestYardRowTakesNoAnswer(t *testing.T) {
 	for _, w := range []int{80, 140} {
 		st := yard(t)
@@ -208,13 +208,13 @@ func TestYardRowTakesNoAnswer(t *testing.T) {
 		v.shows("Write to chief")
 		v.hides("nobody to answer here")
 	}
-	if YardKeys != "tab next resident  pgup/pgdn scroll  ^c quit" {
+	if YardKeys != "tab next member  pgup/pgdn scroll  ^c quit" {
 		t.Fatalf("the yard's keys are %q", YardKeys)
 	}
 }
 
 // Without notifications the row says what would be here; a yard without
-// residents has the row all the same, and tab reaches it.
+// crew members has the row all the same, and tab reaches it.
 func TestYardRowEmpty(t *testing.T) {
 	v := open(t, yard(t), "chief", 120, 24)
 	if got := v.row(YardRow); got != "  yard" {
@@ -225,12 +225,12 @@ func TestYardRowEmpty(t *testing.T) {
 
 	st := yard(t)
 	ctx := context.Background()
-	must(t, st.DeleteResident(ctx, "chief", "", "jo"))
-	must(t, st.DeleteResident(ctx, "refinery", "", "jo"))
+	must(t, st.DeleteCrew(ctx, "chief", "", "jo"))
+	must(t, st.DeleteCrew(ctx, "refinery", "", "jo"))
 	told(t, st)
 	id, _ := landed(t, st, "work")
 	v = open(t, st, "", 120, 24)
-	v.shows("The yard has no residents")
+	v.shows("The yard has no crew")
 	v.hides(id)
 	v.key(tea.KeyTab)
 	v.shows("> yard", id)

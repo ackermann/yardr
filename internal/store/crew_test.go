@@ -10,9 +10,9 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
-func yardmaster(t *testing.T, s store.API) *store.Resident {
+func yardmaster(t *testing.T, s store.API) *store.CrewMember {
 	t.Helper()
-	r, err := s.PutResident(context.Background(), store.Resident{Name: "yardmaster", Runner: "herdr",
+	r, err := s.PutCrew(context.Background(), store.CrewMember{Name: "yardmaster", Runner: "herdr",
 		Config: map[string]any{"kind": "claude"}, On: []string{"gave_up", "session_blocked"}}, "me")
 	if err != nil {
 		t.Fatal(err)
@@ -20,7 +20,7 @@ func yardmaster(t *testing.T, s store.API) *store.Resident {
 	return r
 }
 
-func TestResidentJournalIsNotWork(t *testing.T) {
+func TestCrewJournalIsNotWork(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
 	r := yardmaster(t, s)
@@ -34,29 +34,29 @@ func TestResidentJournalIsNotWork(t *testing.T) {
 		t.Fatalf("journal counted as work: ready %d dispatchable %d", len(ready), len(disp))
 	}
 	// Redefining keeps runtime state and the journal.
-	if err := s.ResidentStarted(ctx, "yardmaster", map[string]any{"agent": "yardmaster"}); err != nil {
+	if err := s.CrewStarted(ctx, "yardmaster", map[string]any{"agent": "yardmaster"}); err != nil {
 		t.Fatal(err)
 	}
-	r2, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr", MaxAge: "6h"}, "me")
+	r2, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", MaxAge: "6h"}, "me")
 	if err != nil || r2.State != "running" || r2.Journal != r.Journal || r2.MaxAge != "6h" {
 		t.Fatalf("redefine: %+v %v", r2, err)
 	}
-	if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", MaxAge: "soon"}, "me"); err == nil {
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", MaxAge: "soon"}, "me"); err == nil {
 		t.Fatal("bad duration accepted")
 	}
 }
 
 // A session that was gone keeps its handle in Left, in the write that
 // stops it; one that yardr stopped leaves none.
-func TestResidentGoneKeepsItsHandle(t *testing.T) {
+func TestCrewGoneKeepsItsHandle(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
 	yardmaster(t, s)
 	left := func() string {
 		t.Helper()
-		r, err := s.GetResident(ctx, "yardmaster")
+		r, err := s.GetCrew(ctx, "yardmaster")
 		if err != nil || r.Live() || r.Handle != nil {
-			t.Fatalf("resident %+v, %v", r, err)
+			t.Fatalf("crew member %+v, %v", r, err)
 		}
 		var ws []string
 		for _, h := range r.Left {
@@ -65,12 +65,12 @@ func TestResidentGoneKeepsItsHandle(t *testing.T) {
 		return strings.Join(ws, " ")
 	}
 	for _, ws := range []string{"w1", "w2", "w3"} {
-		if err := s.ResidentStarted(ctx, "yardmaster", map[string]any{"agent": "yardmaster", "workspace": ws}); err != nil {
+		if err := s.CrewStarted(ctx, "yardmaster", map[string]any{"agent": "yardmaster", "workspace": ws}); err != nil {
 			t.Fatal(err)
 		}
-		end := s.ResidentGone
+		end := s.CrewGone
 		if ws == "w2" {
-			end = s.ResidentStopped
+			end = s.CrewStopped
 		}
 		if err := end(ctx, "yardmaster", "the session is gone"); err != nil {
 			t.Fatal(err)
@@ -80,24 +80,24 @@ func TestResidentGoneKeepsItsHandle(t *testing.T) {
 		t.Fatalf("left = %q, want w1 w3", got)
 	}
 	// Not running: nothing to keep, and no second event.
-	if err := s.ResidentGone(ctx, "yardmaster", "again"); err != nil || left() != "w1 w3" {
+	if err := s.CrewGone(ctx, "yardmaster", "again"); err != nil || left() != "w1 w3" {
 		t.Fatalf("gone twice: left %q, %v", left(), err)
 	}
 	evs, _ := s.Events(ctx, "yardmaster-journal", 100)
 	stopped := 0
 	for _, e := range evs {
-		if e.Kind == "resident_stopped" {
+		if e.Kind == "crew_stopped" {
 			stopped++
 		}
 	}
 	if stopped != 3 {
-		t.Fatalf("%d resident_stopped events, want 3", stopped)
+		t.Fatalf("%d crew_stopped events, want 3", stopped)
 	}
-	if err := s.ResidentLeft(ctx, "yardmaster", []map[string]any{{"workspace": "w3"}}); err != nil || left() != "w3" {
-		t.Fatalf("after ResidentLeft: left %q, %v", left(), err)
+	if err := s.CrewLeft(ctx, "yardmaster", []map[string]any{{"workspace": "w3"}}); err != nil || left() != "w3" {
+		t.Fatalf("after CrewLeft: left %q, %v", left(), err)
 	}
-	// Redefining the resident keeps them.
-	if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil || left() != "w3" {
+	// Redefining the crew member keeps them.
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil || left() != "w3" {
 		t.Fatalf("after a redefinition: left %q, %v", left(), err)
 	}
 }
@@ -115,7 +115,7 @@ func TestJournalCapsAndHandoff(t *testing.T) {
 	if err := s.Journal(ctx, "yardmaster", store.NoteHandoff, "Next: review webapp-3", "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
-	r, _ := s.GetResident(ctx, "yardmaster")
+	r, _ := s.GetCrew(ctx, "yardmaster")
 	if r.RestartRequested != "handoff" || r.LastHandoffAt == nil {
 		t.Fatalf("handoff did not request a restart: %+v", r)
 	}
@@ -131,7 +131,7 @@ func TestInboxFilteringAndAck(t *testing.T) {
 	_ = s.LogDispatch(ctx, b.ID, "session_blocked", "yardmaster", nil) // its own action
 	_ = s.Mail(ctx, "yardmaster", "deploy freeze until Friday", "chris")
 	if err := s.Mail(ctx, "nobody", "hi", "chris"); err == nil {
-		t.Fatal("mail to an unknown resident accepted")
+		t.Fatal("mail to an unknown crew member accepted")
 	}
 	page, err := s.Inbox(ctx, "yardmaster", 10)
 	if err != nil {
@@ -156,14 +156,14 @@ func TestPrimeIsBounded(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
 	yardmaster(t, s)
-	_ = s.ResidentStarted(ctx, "yardmaster", nil)
+	_ = s.CrewStarted(ctx, "yardmaster", nil)
 	_ = s.Journal(ctx, "yardmaster", store.NoteJournal, "old context", "yardmaster")
 	_ = s.Journal(ctx, "yardmaster", store.NoteHandoff, "HANDOFF-1", "yardmaster")
 	for i := 0; i < store.PrimeEntries+5; i++ {
 		_ = s.Journal(ctx, "yardmaster", store.NoteJournal, "entry", "yardmaster")
 	}
-	_ = s.ResidentStarted(ctx, "yardmaster", nil) // the session after the handoff
-	p, err := s.ResidentPrime(ctx, "yardmaster")
+	_ = s.CrewStarted(ctx, "yardmaster", nil) // the session after the handoff
+	p, err := s.CrewPrime(ctx, "yardmaster")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,8 +178,8 @@ func TestPrimeIsBounded(t *testing.T) {
 	// what happened since the last handoff.
 	time.Sleep(5 * time.Millisecond)
 	_ = s.Mail(ctx, "yardmaster", "are you there?", "chris")
-	_ = s.ResidentStarted(ctx, "yardmaster", nil)
-	p, _ = s.ResidentPrime(ctx, "yardmaster")
+	_ = s.CrewStarted(ctx, "yardmaster", nil)
+	p, _ = s.CrewPrime(ctx, "yardmaster")
 	if !p.NoHandoff || p.EventCounts["mail"] != 1 || len(p.Recent) == 0 || len(p.Recent) > store.PrimeFallback {
 		t.Fatalf("fallback: nohandoff %v counts %v recent %d", p.NoHandoff, p.EventCounts, len(p.Recent))
 	}
@@ -193,16 +193,16 @@ func TestMemoriesScopeSearchAndExpiry(t *testing.T) {
 	ctx := context.Background()
 	past := time.Now().Add(-time.Minute)
 	future := time.Now().Add(time.Hour)
-	_, _ = s.Remember(ctx, store.NewMemory{Title: "Deploy freeze", Body: "until Friday", Scope: "resident:yardmaster", Expires: &future}, "me")
+	_, _ = s.Remember(ctx, store.NewMemory{Title: "Deploy freeze", Body: "until Friday", Scope: "crew:yardmaster", Expires: &future}, "me")
 	_, _ = s.Remember(ctx, store.NewMemory{Title: "Screenshots on UI beads", Scope: "all"}, "me")
 	_, _ = s.Remember(ctx, store.NewMemory{Title: "Builder-only tip", Scope: "group:builders"}, "me")
 	_, _ = s.Remember(ctx, store.NewMemory{Title: "Old news", Scope: "all", Expires: &past}, "me")
 
-	m, _ := s.Recall(ctx, "resident:yardmaster", "")
+	m, _ := s.Recall(ctx, "crew:yardmaster", "")
 	if len(m) != 3 { // own + two "all", not the builders' one
 		t.Fatalf("yardmaster sees %d memories: %+v", len(m), m)
 	}
-	if m, _ = s.Recall(ctx, "resident:yardmaster", "FRIDAY"); len(m) != 1 || m[0].Title != "Deploy freeze" {
+	if m, _ = s.Recall(ctx, "crew:yardmaster", "FRIDAY"); len(m) != 1 || m[0].Title != "Deploy freeze" {
 		t.Fatalf("search = %+v", m)
 	}
 	ready, _ := s.Ready(ctx)
@@ -227,5 +227,37 @@ func TestBeadListHidesKnowledgeBeads(t *testing.T) {
 	mem, _ := s.ListBeads(ctx, store.BeadFilter{Type: store.TypeMemory})
 	if len(all) != 1 || all[0].Title != "work" || len(mem) != 1 {
 		t.Fatalf("list %d (%v), memories %d", len(all), all, len(mem))
+	}
+}
+
+// The words the crew had as residents name what they are called now: an
+// event kind, the label of a journal, the scope of a memory, the field of
+// an event already logged. A peer's refusal is read under both words.
+func TestTheResidentsWordsNameTheCrew(t *testing.T) {
+	for old, want := range map[string]string{"resident_gave_up": "crew_gave_up", "resident_status": "crew_status",
+		"epic_branched": "train_branched", "crew_started": "crew_started", "held": "held"} {
+		if got := store.EventKind(old); got != want {
+			t.Errorf("EventKind(%s) = %s, want %s", old, got, want)
+		}
+	}
+	for old, want := range map[string]string{"resident:boss": "crew:boss", "scope:resident:boss": "scope:crew:boss",
+		"crew:boss": "crew:boss", "resident": "resident", "all": "all", "president:x": "president:x"} {
+		if got := store.CrewLabel(old); got != want {
+			t.Errorf("CrewLabel(%s) = %s, want %s", old, got, want)
+		}
+	}
+	if got := store.EventCrew(map[string]any{"resident": "boss"}); got != "boss" {
+		t.Errorf("an old event names %q", got)
+	}
+	if got := store.EventCrew(map[string]any{"crew": "boss", "resident": "clerk"}); got != "boss" {
+		t.Errorf("an event with both fields names %q", got)
+	}
+	for _, reason := range []string{"no_such_resident", "no_such_crew"} {
+		if got := store.PeerRefusal("north", store.PeerMail, reason); got != "it has no such crew member" {
+			t.Errorf("PeerRefusal(%s) = %q", reason, got)
+		}
+	}
+	if store.RefusedNoCrew != "no_such_resident" {
+		t.Errorf("the refusal on the link is %q: a peer of the release before reads no_such_resident only", store.RefusedNoCrew)
 	}
 }

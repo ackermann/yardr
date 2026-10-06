@@ -33,10 +33,10 @@ type statusReport struct {
 
 	Server serverStatus `json:"server"`
 	Daemon daemonState  `json:"daemon"`
-	// Residents, Hooks, Peers, Work and Faults are the store's, and absent
+	// Crew, Hooks, Peers, Work and Faults are the store's, and absent
 	// while no server answers for it: status starts none to ask.
-	Residents []residentStatus `json:"residents,omitzero"`
-	Web       webStatus        `json:"web"`
+	Crew []crewStatus `json:"crew,omitzero"`
+	Web  webStatus    `json:"web"`
 	// Hooks is absent too on a yard with no hook and no address for them.
 	Hooks *hookStatus  `json:"hooks,omitempty"`
 	Peers []peerStatus `json:"peers,omitempty"`
@@ -64,8 +64,8 @@ type serverStatus struct {
 	Differs bool `json:"differs"`
 }
 
-// residentStatus is a resident with the state yardr chat lists it with.
-type residentStatus struct {
+// crewStatus is a crew member with the state yardr chat lists it with.
+type crewStatus struct {
 	Name  string `json:"name"`
 	State string `json:"state"`
 	// Agent is herdr's name for its session; "" when none runs.
@@ -153,7 +153,7 @@ func (a *app) statusCmd() *cobra.Command {
   server     running or not, its pid, the build it runs and since when; the
              build of this yardr when that is another
   daemon     running or not, its pid; its login service
-  residents  each with what it is doing, as yardr chat lists it, and its
+  crew       each with what it is doing, as yardr chat lists it, and its
              herdr agent
   web view   each view that runs: the URL to open, its pid, the build it
              runs, and whether it is open to the network (--unsafe, no login)
@@ -174,7 +174,7 @@ A part the yard does not have (hooks, peers) has no line, nor have the gates
 while none runs or waits. It is read-only
 and starts nothing: on a yard whose server is not running it says so, with
 the daemon and the web views, which it reads from the home, and one line
-for the residents, hooks, peers and work, which only the server knows.
+for the crew, hooks, peers and work, which only the server knows.
 
 A web view does not replace itself when a new yardr is installed, as the
 server and the daemon do: it runs the build it was started on until it is
@@ -257,7 +257,7 @@ func (a *app) status(ctx context.Context, cfg *config.Config) (*statusReport, er
 			rep.Server.Since = &info.Since
 		}
 	}
-	rep.Residents = []residentStatus{}
+	rep.Crew = []crewStatus{}
 	st, err := a.store(ctx)
 	if err != nil {
 		return nil, err
@@ -267,12 +267,12 @@ func (a *app) status(ctx context.Context, cfg *config.Config) (*statusReport, er
 		return nil, err
 	}
 	rep.Name, rep.Operator = runner.YardName(cfg.Home, all), or(all["operator"], defaultOperator())
-	for _, r := range doc.State.residents {
-		rs := residentStatus{Name: r.Name, State: chat.StateOf(r)}
+	for _, r := range doc.State.crew {
+		rs := crewStatus{Name: r.Name, State: chat.StateOf(r)}
 		if r.Live() && r.Handle["agent"] != nil {
 			rs.Agent = show(r.Handle["agent"])
 		}
-		rep.Residents = append(rep.Residents, rs)
+		rep.Crew = append(rep.Crew, rs)
 	}
 	if rep.Hooks, err = readHooks(ctx, cfg, st); err != nil {
 		return nil, err
@@ -409,16 +409,16 @@ func (r *statusReport) parts() []statusPart {
 	parts = append(parts, statusPart{"server", srv},
 		statusPart{"daemon", []string{r.Daemon.line(), "login service: " + r.Daemon.Service.line()}})
 
-	if len(r.Residents) > 0 {
+	if len(r.Crew) > 0 {
 		var rows [][]string
-		for _, res := range r.Residents {
+		for _, res := range r.Crew {
 			row := []string{res.Name, res.State, ""}
 			if res.Agent != "" {
 				row[2] = "herdr agent " + res.Agent
 			}
 			rows = append(rows, row)
 		}
-		parts = append(parts, statusPart{"residents", columns(rows)})
+		parts = append(parts, statusPart{"crew", columns(rows)})
 	}
 
 	var web []string
@@ -510,7 +510,7 @@ func (r *statusReport) print() {
 	yardr := yardrAt(r.Home)
 	switch {
 	case !r.Server.Running:
-		fmt.Println("\nresidents, hooks, peers and work: not known while the server is not running")
+		fmt.Println("\ncrew, hooks, peers and work: not known while the server is not running")
 	case r.Faults == nil || *r.Faults == 0:
 	case *r.Faults == 1:
 		fmt.Printf("\n%s doctor reports 1 fault, and says what it is.\n", yardr)

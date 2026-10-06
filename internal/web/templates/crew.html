@@ -1,7 +1,7 @@
 {{define "content"}}
 {{- /* Read again on every event of the stream, as the sessions are. */}}
-<div id="live" hx-get="/residents" hx-trigger="sse:message" hx-select="#live > *" hx-swap="innerHTML ignoreTitle:true">
-  {{- range .Data.Residents}}
+<div id="live" hx-get="/crew" hx-trigger="sse:message" hx-select="#live > *" hx-swap="innerHTML ignoreTitle:true">
+  {{- range .Data.Crew}}
   <article class="item">
     <header class="item-head">
       <h2>{{.Name}}</h2>
@@ -19,7 +19,7 @@
     </dl>
   </article>
   {{- else}}
-  <p class="item faint">This yard has no resident.</p>
+  <p class="item faint">This yard has no crew.</p>
   {{- end}}
 </div>
 {{end}}

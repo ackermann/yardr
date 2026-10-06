@@ -36,9 +36,9 @@ func styledYard(t *testing.T, args ...string) (*app, store.API, string) {
 }
 
 // primes are what yardr prime prints for the bead and for the yardmaster.
-func primes(t *testing.T, st store.API, id string, asJSON bool) (bead, resident string) {
+func primes(t *testing.T, st store.API, id string, asJSON bool) (bead, member string) {
 	t.Helper()
-	for i, args := range [][]string{{"--bead", id}, {"--resident", "yardmaster"}} {
+	for i, args := range [][]string{{"--bead", id}, {"--crew", "yardmaster"}} {
 		out, err := run(t, (&app{st: st, actor: "me", json: asJSON}).primeCmd(), args...)
 		if err != nil {
 			t.Fatalf("prime %v: %v\n%s", args, err, out)
@@ -46,10 +46,10 @@ func primes(t *testing.T, st store.API, id string, asJSON bool) (bead, resident 
 		if i == 0 {
 			bead = out
 		} else {
-			resident = out
+			member = out
 		}
 	}
-	return bead, resident
+	return bead, member
 }
 
 // The onboarding asks, after "Your name", how agents should work with the
@@ -131,7 +131,7 @@ func TestStyleRefused(t *testing.T) {
 	}
 	_, err := run(t, a.rootCmd(), "init", "--harness", "claude", "--style", "loud")
 	refused("init --style loud", err)
-	if rs, _ := st.Residents(ctx); len(rs) != 0 {
+	if rs, _ := st.Crew(ctx); len(rs) != 0 {
 		t.Errorf("the refused init added %v", rs)
 	}
 	if got, _ := st.Settings(ctx); len(got) != 0 {
@@ -181,17 +181,17 @@ func TestPrimesSayTheStyle(t *testing.T) {
 				args = append(args, "--about", note)
 			}
 			_, st, id := styledYard(t, args...)
-			bead, resident := primes(t, st, id, false)
-			for name, out := range map[string]string{"bead": bead, "resident": resident} {
+			bead, member := primes(t, st, id, false)
+			for name, out := range map[string]string{"bead": bead, "crew": member} {
 				wantText(t, out, "Jo", "`"+s.key+"`", `"`+s.label+`"`, s.tells)
 				if has := strings.Contains(out, "What Jo wants agents to know: "+note); has != (note != "") {
 					t.Errorf("%s prime, style %s, note %q:\n%s", name, s.key, note, out)
 				}
 			}
 			wantText(t, bead, "\nOPERATOR Jo:\n  Jo asked agents")
-			wantText(t, resident, "\n## The operator: Jo\n\nJo asked agents")
-			jbead, jresident := primes(t, st, id, true)
-			for _, out := range []string{jbead, jresident} {
+			wantText(t, member, "\n## The operator: Jo\n\nJo asked agents")
+			jbead, jcrew := primes(t, st, id, true)
+			for _, out := range []string{jbead, jcrew} {
 				var v struct {
 					Operator operatorPrime `json:"operator"`
 				}
@@ -210,9 +210,9 @@ func TestPrimesSayTheStyle(t *testing.T) {
 // operator in the JSON, no style assumed. A note alone is said without one.
 func TestPrimesWithoutStyle(t *testing.T) {
 	a, st, id := styledYard(t)
-	bead, resident := primes(t, st, id, false)
-	jbead, jresident := primes(t, st, id, true)
-	for _, out := range []string{bead, resident, jbead, jresident} {
+	bead, member := primes(t, st, id, false)
+	jbead, jcrew := primes(t, st, id, true)
+	for _, out := range []string{bead, member, jbead, jcrew} {
 		if strings.Contains(out, "OPERATOR") || strings.Contains(out, "The operator") ||
 			strings.Contains(out, `"operator"`) || strings.Contains(out, "asked agents") {
 			t.Errorf("a yard without the setting says something about the operator:\n%s", out)
@@ -221,8 +221,8 @@ func TestPrimesWithoutStyle(t *testing.T) {
 	if _, err := run(t, a.rootCmd(), "settings", "set", noteSetting, "I am on call this week"); err != nil {
 		t.Fatal(err)
 	}
-	bead, resident = primes(t, st, id, false)
-	for _, out := range []string{bead, resident} {
+	bead, member = primes(t, st, id, false)
+	for _, out := range []string{bead, member} {
 		wantText(t, out, "What Jo wants agents to know: I am on call this week")
 		if strings.Contains(out, "asked agents") {
 			t.Errorf("a note alone gave a style:\n%s", out)
@@ -236,14 +236,14 @@ func TestSettingsSetChangesThePrimes(t *testing.T) {
 	a, st, id := styledYard(t, "--style", "guide")
 	guide, _ := styleOf("guide")
 	report, _ := styleOf("report")
-	bead, resident := primes(t, st, id, false)
+	bead, member := primes(t, st, id, false)
 	wantText(t, bead, guide.tells)
-	wantText(t, resident, guide.tells)
+	wantText(t, member, guide.tells)
 	if _, err := run(t, a.rootCmd(), "settings", "set", styleSetting, "report"); err != nil {
 		t.Fatal(err)
 	}
-	bead, resident = primes(t, st, id, false)
-	for _, out := range []string{bead, resident} {
+	bead, member = primes(t, st, id, false)
+	for _, out := range []string{bead, member} {
 		wantText(t, out, report.tells)
 		if strings.Contains(out, guide.tells) {
 			t.Errorf("the prime still says guide:\n%s", out)
@@ -253,8 +253,8 @@ func TestSettingsSetChangesThePrimes(t *testing.T) {
 	if _, err := run(t, a.rootCmd(), "settings", "set", styleSetting, ""); err != nil {
 		t.Fatal(err)
 	}
-	if bead, resident = primes(t, st, id, false); strings.Contains(bead, "OPERATOR") || strings.Contains(resident, "The operator") {
-		t.Errorf("unset, the primes still have the section:\n%s\n%s", bead, resident)
+	if bead, member = primes(t, st, id, false); strings.Contains(bead, "OPERATOR") || strings.Contains(member, "The operator") {
+		t.Errorf("unset, the primes still have the section:\n%s\n%s", bead, member)
 	}
 }
 

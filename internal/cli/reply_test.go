@@ -91,13 +91,13 @@ func fakeLinearAPI(t *testing.T) *fakeLinear {
 	return f
 }
 
-// replyYard is a store with resident yardmaster and three events to answer: a
+// replyYard is a store with crew member yardmaster and three events to answer: a
 // Linear reply c2 (under c1), a token message, and yardmaster's own creation.
 func replyYard(t *testing.T) (*app, store.API, map[string]string) {
 	t.Helper()
 	st, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	if _, err := st.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	record := func(name string, env hooks.Envelope) string {
@@ -137,7 +137,7 @@ func TestReply(t *testing.T) {
 	a, st, seqs := replyYard(t)
 	ctx := context.Background()
 	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
-	t.Setenv("YARDR_RESIDENT", "yardmaster")
+	t.Setenv("YARDR_CREW", "yardmaster")
 
 	out, err := run(t, a.replyCmd(), seqs["linear"], "Filed as yard-k3f9.")
 	if err != nil {
@@ -183,7 +183,7 @@ func TestReply(t *testing.T) {
 	}
 	var res map[string]any
 	if json.Unmarshal([]byte(out), &res) != nil || res["url"] != "https://linear.app/acme/issue/ENG-1#comment-"+fmt.Sprint(f.created[1]["id"]) ||
-		res["resident"] != "yardmaster" || res["message"] != f.created[1]["id"] || res["repeated"] != false {
+		res["crew"] != "yardmaster" || res["message"] != f.created[1]["id"] || res["repeated"] != false {
 		t.Fatalf("json %q", out)
 	}
 }
@@ -198,7 +198,7 @@ func TestReplyRetryDoesNotPostTwice(t *testing.T) {
 	a, st, seqs := replyYard(t)
 	ctx := context.Background()
 	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
-	t.Setenv("YARDR_RESIDENT", "yardmaster")
+	t.Setenv("YARDR_CREW", "yardmaster")
 	replied := func() int {
 		t.Helper()
 		evs, err := st.EventsSince(ctx, 0, 0)
@@ -264,17 +264,17 @@ func TestReplyRetryDoesNotPostTwice(t *testing.T) {
 	}
 }
 
-// Speaking as a resident takes its own session or the operator: a bead's
-// agent naming it with --resident is refused before anything is posted.
-func TestReplyOnlyByTheResidentOrOperator(t *testing.T) {
+// Speaking as a crew member takes its own session or the operator: a bead's
+// agent naming it with --crew is refused before anything is posted.
+func TestReplyOnlyByTheCrewOrOperator(t *testing.T) {
 	f := fakeLinearAPI(t)
 	a, st, seqs := replyYard(t) // acting as yard-10-new, a bead's agent
 	ctx := context.Background()
 	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
-	t.Setenv("YARDR_RESIDENT", "")
+	t.Setenv("YARDR_CREW", "")
 	head, _ := st.Head(ctx)
 
-	_, err := run(t, a.replyCmd(), seqs["linear"], "x", "--resident", "yardmaster")
+	_, err := run(t, a.replyCmd(), seqs["linear"], "x", "--crew", "yardmaster")
 	if err == nil || !strings.Contains(err.Error(), "only yardmaster's own session or the operator") || !strings.Contains(err.Error(), "this is yard-10-new") {
 		t.Fatalf("a bead's agent: %v", err)
 	}
@@ -288,25 +288,25 @@ func TestReplyOnlyByTheResidentOrOperator(t *testing.T) {
 	if err := st.SetSetting(ctx, "operator", "yard-10-new", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := run(t, a.replyCmd(), seqs["linear"], "x", "--resident", "yardmaster"); err != nil {
+	if _, err := run(t, a.replyCmd(), seqs["linear"], "x", "--crew", "yardmaster"); err != nil {
 		t.Fatalf("the operator: %v", err)
 	}
 	if err := st.SetSetting(ctx, "operator", "jo", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := run(t, a.replyCmd(), seqs["linear"], "y", "--resident", "yardmaster"); err == nil {
+	if _, err := run(t, a.replyCmd(), seqs["linear"], "y", "--crew", "yardmaster"); err == nil {
 		t.Fatal("no longer the operator, still allowed")
 	}
-	// The resident's own session: the pane names it in YARDR_RESIDENT, and
+	// The crew member's own session: the pane names it in YARDR_CREW, and
 	// acts as it.
-	t.Setenv("YARDR_RESIDENT", "yardmaster")
+	t.Setenv("YARDR_CREW", "yardmaster")
 	if _, err := run(t, a.replyCmd(), seqs["linear"], "y"); err != nil {
 		t.Fatalf("its own session: %v", err)
 	}
-	t.Setenv("YARDR_RESIDENT", "")
+	t.Setenv("YARDR_CREW", "")
 	a.actor = "yardmaster"
-	if _, err := run(t, a.replyCmd(), seqs["linear"], "z", "--resident", "yardmaster"); err != nil {
-		t.Fatalf("acting as the resident: %v", err)
+	if _, err := run(t, a.replyCmd(), seqs["linear"], "z", "--crew", "yardmaster"); err != nil {
+		t.Fatalf("acting as the crew member: %v", err)
 	}
 	if len(f.created) != 3 {
 		t.Fatalf("created %v", f.created)
@@ -321,7 +321,7 @@ func TestReplyPlacement(t *testing.T) {
 	f := fakeLinearAPI(t)
 	a, _, seqs := replyYard(t)
 	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
-	t.Setenv("YARDR_RESIDENT", "yardmaster")
+	t.Setenv("YARDR_CREW", "yardmaster")
 	for _, c := range []struct {
 		event string
 		want  any
@@ -351,7 +351,7 @@ func TestReplyRefusals(t *testing.T) {
 	a, st, seqs := replyYard(t)
 	ctx := context.Background()
 	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
-	t.Setenv("YARDR_RESIDENT", "yardmaster")
+	t.Setenv("YARDR_CREW", "yardmaster")
 	head, _ := st.Head(ctx)
 
 	for _, c := range []struct {
@@ -359,12 +359,12 @@ func TestReplyRefusals(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"bead event", []string{seqs["bead"], "x"}, "is a resident_defined event, not a hook delivery"},
+		{"bead event", []string{seqs["bead"], "x"}, "is a crew_defined event, not a hook delivery"},
 		{"token source", []string{seqs["token"], "x"}, "came from token, which yardr cannot answer in (it can in github, linear)"},
 		{"no such event", []string{"9999", "x"}, "event 9999: not found"},
 		{"not a seq", []string{"abc", "x"}, "want the number an inbox line starts with"},
 		{"empty text", []string{seqs["linear"], "  "}, "the reply is empty"},
-		{"unknown resident", []string{seqs["linear"], "x", "--resident", "ghost"}, "resident ghost: not found"},
+		{"unknown crew member", []string{seqs["linear"], "x", "--crew", "ghost"}, "crew member ghost: not found"},
 	} {
 		_, err := run(t, a.replyCmd(), c.args...)
 		if err == nil || !strings.Contains(err.Error(), c.want) {
@@ -382,14 +382,14 @@ func TestReplyRefusals(t *testing.T) {
 	if _, err := run(t, a.replyCmd(), seqs["linear"], "x"); err == nil || !strings.Contains(err.Error(), "LINEAR_API_KEY is not set") {
 		t.Errorf("no key: %v", err)
 	}
-	// Nor without a resident to reply as.
+	// Nor without a crew member to reply as.
 	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
-	t.Setenv("YARDR_RESIDENT", "")
-	if _, err := run(t, a.replyCmd(), seqs["linear"], "x"); err == nil || !strings.Contains(err.Error(), "--resident is required") {
-		t.Errorf("no resident: %v", err)
+	t.Setenv("YARDR_CREW", "")
+	if _, err := run(t, a.replyCmd(), seqs["linear"], "x"); err == nil || !strings.Contains(err.Error(), "--crew is required") {
+		t.Errorf("no crew member: %v", err)
 	}
 	// What the source refuses is the error, and nothing is recorded.
-	t.Setenv("YARDR_RESIDENT", "yardmaster")
+	t.Setenv("YARDR_CREW", "yardmaster")
 	t.Setenv("LINEAR_API_KEY", "lin_api_other")
 	if _, err := run(t, a.replyCmd(), seqs["linear"], "x"); err == nil || !strings.Contains(err.Error(), "Authentication required") {
 		t.Errorf("refused by linear: %v", err)

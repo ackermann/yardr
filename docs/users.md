@@ -1,9 +1,9 @@
 # Users: people with an inbox
 
 A user is a person as a party of the yard: a name and an inbox, as a
-[resident](residents.md) has. Residents write to a user through yardr, and
-the user reads it, and the whole exchange with a resident, without going to
-the resident's pane. The yard itself tells a user of the events they
+[crew member](crew.md) has. Crew members write to a user through yardr, and
+the user reads it, and the whole exchange with a crew member, without going to
+the crew member's pane. The yard itself tells a user of the events they
 subscribed to, as notifications, in a part of the inbox apart from the mail.
 
 ```sh
@@ -12,7 +12,7 @@ yardr user add ada                       # the operator adds a user
 yardr user show ada
 yardr user rm ada                        # the mail stays in the log
 
-yardr mail mckean "The refinery is red on main: yardr-1a2b"   # a resident's session, or a user
+yardr mail mckean "The refinery is red on main: yardr-1a2b"   # a crew member's session, or a user
 yardr inbox                              # as a user: Mail and Notifications, each with its unread
 yardr inbox --mail --ack                 # one part, and mark what it shows as read
 yardr subscribe ada yardr --done         # ada is told of every bead that becomes done
@@ -25,8 +25,8 @@ yardr mail --with yardmaster --after 412 --json
 A user has a name, an inbox and the subscriptions that fill its
 notifications ([subscriptions.md](subscriptions.md#users-as-subscribers));
 `yardr user show <name>` lists them. The record is where more about a person
-goes later: who they are in an outside source (as `yardr resident identity`
-says for a resident) and a user who comes from another yard. Neither is
+goes later: who they are in an outside source (as `yardr crew identity`
+says for a crew member) and a user who comes from another yard. Neither is
 built.
 
 **The operator is a user.** `yardr init` and the onboarding add the user
@@ -35,15 +35,15 @@ adds the user of a new name. A yard from before users gets its operator's
 user when its server next starts (event `user_added` by `yardr`).
 
 **Only the operator adds and removes users**, under the check `yardr
-resident add` uses for what a resident may do: the command's actor is the
+crew add` uses for what a crew member may do: the command's actor is the
 `operator` setting. The operator's own user is not removed: name another
 operator first.
 
-**One name, one party.** Residents and users share their names, because
-mail to a name reaches one inbox: `user add` refuses a resident's name,
-`resident add` a user's, and `settings set operator` a resident's. A yard
-that already had a resident named as its operator keeps the resident and
-gets no user; mail to the name is the resident's, and `yardr doctor` notes
+**One name, one party.** Crew members and users share their names, because
+mail to a name reaches one inbox: `user add` refuses a crew member's name,
+`crew add` a user's, and `settings set operator` a crew member's. A yard
+that already had a crew member named as its operator keeps the crew member and
+gets no user; mail to the name is the crew member's, and `yardr doctor` notes
 it with what to rename.
 
 ## Who is acting
@@ -56,7 +56,7 @@ any actor.
 ## Mail
 
 `yardr mail <user> <text|->` puts a message of up to 4 KB in the user's
-inbox. A resident's session sends it, and so does a user. **An agent working
+inbox. A crew member's session sends it, and so does a user. **An agent working
 a bead is refused**: what it has to say to a person goes on its bead
 (`yardr bead note`), and a question ends its stage with the `question`
 outcome. That is a rule of the `mail` command, not of the user's record.
@@ -75,22 +75,22 @@ notifications: nobody is talking, and a person who never acknowledges them
 would read it under every command. `yardr inbox`, `yardr user show <name>`
 and the `yard` row of [`yardr chat`](chat.md#the-yard) count them.
 
-A resident can have the yard tell a user something later, unless a bead
+A crew member can have the yard tell a user something later, unless a bead
 moved first: `yardr timer add --to <user>` ([timers.md](timers.md)). It
-arrives as mail from that resident whose text begins `timer:`, and the
-resident is not woken for it. A user sets timers for themselves the same
+arrives as mail from that crew member whose text begins `timer:`, and the
+crew member is not woken for it. A user sets timers for themselves the same
 way; `yardr user show` lists the live ones.
 
-Mail from a resident of another yard to a user is not built: a peer's mail
-is taken for residents only ([peers.md](peers.md#mail-between-residents)).
+Mail from a crew member of another yard to a user is not built: a peer's mail
+is taken for crew members only ([peers.md](peers.md#mail-between-crew-members)).
 
 ## The inbox
 
 A user's inbox has two parts, and `yardr inbox`, run as a user with neither
-`--resident` nor `$YARDR_RESIDENT` naming a resident, shows both, each
+`--crew` nor `$YARDR_CREW` naming a crew member, shows both, each
 under its heading with its unread count:
 
-- **Mail**: what a resident or another user wrote to this user, and to
+- **Mail**: what a crew member or another user wrote to this user, and to
   nobody else. Somebody is talking, and can be answered.
 - **Notifications**: what the yard reports of the events the user
   subscribed to
@@ -134,7 +134,7 @@ dropped, read or not. Mail is not.
 ## A conversation
 
 `yardr mail --with <name>` sends nothing. It prints the mail between who
-runs it and that resident or user, both directions, oldest first:
+runs it and that crew member or user, both directions, oldest first:
 
 ```
    412 10-05 14:02  read    mckean: deploys are frozen until Friday
@@ -143,19 +143,19 @@ runs it and that resident or user, both directions, oldest first:
 ```
 
 The columns are the mail's seq, when it was sent, whether its receiver has
-read it, the sender and the text. A resident's session reads the same
+read it, the sender and the text. A crew member's session reads the same
 exchange with the user's name: `yardr mail --with mckean`.
 
 `--after <seq>` prints only what is newer, and `--json` prints a list of
 `{seq, at, from, to, text, read}`: a view asks again with the last seq it
 has.
 
-`yardr mail --with <resident>@<peer>` is the same for a resident of a
-linked yard ([peers.md](peers.md#mail-between-residents)); what was sent
+`yardr mail --with <crew member>@<peer>` is the same for a crew member of a
+linked yard ([peers.md](peers.md#mail-between-crew-members)); what was sent
 there says `queued`, `sent` or `failed` in place of read.
 
 **Read** means acknowledged by the receiver, with `yardr inbox --ack`: a
-user's own, for the mail part of [the inbox](#the-inbox), or a resident's,
+user's own, for the mail part of [the inbox](#the-inbox), or a crew member's,
 whose acknowledgement covers its whole inbox through the last event shown.
 Mail to a party that has since been removed counts as unread.
 An acknowledgement that passes mail is an event, `mail_read` (with `reader`
@@ -173,6 +173,6 @@ From Go the same reads are `store.API`'s `Conversation`, `UserInbox`,
 ## Members of groups
 
 A manual group's `--members` are names, taken as they are given, whether or
-not a user or resident has them ([groups.md](groups.md)). `yardr doctor`
+not a user or crew member has them ([groups.md](groups.md)). `yardr doctor`
 notes a member that is neither, since nobody of that name can be mailed;
 nothing is refused.

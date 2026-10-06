@@ -80,7 +80,7 @@ func TestInitHarnessClaude(t *testing.T) {
 		t.Errorf("yardmaster.md does not name Jo:\n%s", b)
 	}
 	// The yardmaster, on the harness with its unattended flags.
-	r, err := st.GetResident(ctx, "yardmaster")
+	r, err := st.GetCrew(ctx, "yardmaster")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,10 +126,10 @@ func TestInitHarnessClaude(t *testing.T) {
 		t.Fatal(err)
 	}
 	if out, err := run(t, a.rootCmd(), "init", "--harness", "claude", "--operator", "Jo"); err != nil ||
-		!strings.Contains(out, "already a resident: kept") {
+		!strings.Contains(out, "already a crew member: kept") {
 		t.Fatalf("second init: %v\n%s", err, out)
 	}
-	if again, _ := st.GetResident(ctx, "yardmaster"); !reflect.DeepEqual(again, r) {
+	if again, _ := st.GetCrew(ctx, "yardmaster"); !reflect.DeepEqual(again, r) {
 		t.Fatalf("second init changed the yardmaster:\n%+v\n%+v", again, r)
 	}
 	if _, err := run(t, a.rootCmd(), "init", "--harness", "kimi", "--yardmaster", "boss", "--model", "k2", "--dir", home); err != nil {
@@ -138,7 +138,7 @@ func TestInitHarnessClaude(t *testing.T) {
 	if b, _ := os.ReadFile(yardmaster); string(b) != "mine" {
 		t.Fatalf("edited yardmaster.md overwritten: %q", b)
 	}
-	boss, err := st.GetResident(ctx, "boss")
+	boss, err := st.GetCrew(ctx, "boss")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,8 +156,8 @@ func TestInitHarnessClaude(t *testing.T) {
 			t.Errorf("%v accepted", args)
 		}
 	}
-	if _, err := st.GetResident(ctx, "x"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("refused init left a resident: %v", err)
+	if _, err := st.GetCrew(ctx, "x"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("refused init left a crew member: %v", err)
 	}
 }
 
@@ -192,11 +192,11 @@ func TestInitAgainKeepsSettings(t *testing.T) {
 	}
 	settings("init again")
 	if !strings.Contains(out, "  kept       default_kind codex, operator Jo, yardmaster boss, as set before") ||
-		!strings.Contains(out, "harness    codex") || !strings.Contains(out, "boss, already a resident: kept") {
+		!strings.Contains(out, "harness    codex") || !strings.Contains(out, "boss, already a crew member: kept") {
 		t.Errorf("init again does not say what it kept:\n%s", out)
 	}
-	if rs, _ := st.Residents(ctx); len(rs) != 1 {
-		t.Errorf("init again added a resident: %v", rs)
+	if rs, _ := st.Crew(ctx); len(rs) != 1 {
+		t.Errorf("init again added a crew member: %v", rs)
 	}
 	// A flag given changes its setting alone.
 	if out, err = run(t, a.rootCmd(), "init", "--operator", "Kim"); err != nil {
@@ -316,7 +316,7 @@ func TestInitHarnessWithoutUnattendedFlags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, _ := st.GetResident(context.Background(), "yardmaster")
+	r, _ := st.GetCrew(context.Background(), "yardmaster")
 	if _, ok := r.Config["args"]; ok || r.Config["kind"] != "gemini" {
 		t.Fatalf("yardmaster config = %v", r.Config)
 	}
@@ -334,7 +334,7 @@ func TestInitSummaryNamesTheHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	yardr := "yardr --home " + home
-	for _, s := range []string{"\n  " + yardr + " daemon\n", yardr + " resident set yardmaster 'args=[...]'",
+	for _, s := range []string{"\n  " + yardr + " daemon\n", yardr + " crew set yardmaster 'args=[...]'",
 		"every yardr command for it needs\n--home " + home + ", or YARDR_HOME exported"} {
 		if !strings.Contains(out, s) {
 			t.Errorf("summary lacks %q:\n%s", s, out)
@@ -350,7 +350,7 @@ func TestInitSummaryNamesTheHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(out, "YARDR_HOME") || strings.Contains(out, "--home") || !strings.Contains(out, "\n  yardr daemon\n") ||
-		!strings.Contains(out, " yardr resident set yardmaster 'args=[...]'") {
+		!strings.Contains(out, " yardr crew set yardmaster 'args=[...]'") {
 		t.Errorf("default home summary:\n%s", out)
 	}
 	if got := (notInitialized{filepath.Join(user, ".yardr")}).Error(); strings.Contains(got, "YARDR_HOME") || strings.Contains(got, "--home") {
@@ -433,8 +433,8 @@ func TestInitialized(t *testing.T) {
 	}
 	for name, fill := range map[string]func(store.API) error{
 		"group": func(st store.API) error { return st.PutGroup(ctx, store.Group{Name: "g", Runner: "manual"}) },
-		"resident": func(st store.API) error {
-			_, err := st.PutResident(ctx, store.Resident{Name: "m", Runner: "herdr"}, "me")
+		"crew": func(st store.API) error {
+			_, err := st.PutCrew(ctx, store.CrewMember{Name: "m", Runner: "herdr"}, "me")
 			return err
 		},
 		"bead": func(st store.API) error {
@@ -552,7 +552,7 @@ func TestBareYardr(t *testing.T) {
 	if asked != 10 || !strings.Contains(out, "yard created") || strings.Contains(out, "Usage:") {
 		t.Fatalf("store without default_kind: asked %d\n%s", asked, out)
 	}
-	if _, err := st.GetResident(ctx, "yardmaster"); err != nil {
+	if _, err := st.GetCrew(ctx, "yardmaster"); err != nil {
 		t.Fatalf("no yardmaster: %v", err)
 	}
 
@@ -589,14 +589,14 @@ func TestOnboardingForm(t *testing.T) {
 	stubFocus(t)
 	ctx := context.Background()
 
-	out, err := run(t, (&app{st: st}).rootCmd(), "resident", "list")
+	out, err := run(t, (&app{st: st}).rootCmd(), "crew", "list")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if asked != 10 {
 		t.Fatalf("%d form pages", asked)
 	}
-	r, err := st.GetResident(ctx, "yardmaster")
+	r, err := st.GetCrew(ctx, "yardmaster")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -622,8 +622,8 @@ func TestOnboardingCancelled(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "cancelled") {
 		t.Fatalf("err = %v", err)
 	}
-	if rs, _ := st.Residents(context.Background()); len(rs) != 0 {
-		t.Fatalf("residents = %v", rs)
+	if rs, _ := st.Crew(context.Background()); len(rs) != 0 {
+		t.Fatalf("crew members = %v", rs)
 	}
 }
 
@@ -648,7 +648,7 @@ func TestHarnessOptions(t *testing.T) {
 	}
 }
 
-// group add and resident add without --set kind take the default_kind.
+// group add and crew add without --set kind take the default_kind.
 func TestDefaultKind(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
@@ -683,11 +683,11 @@ func TestDefaultKind(t *testing.T) {
 			t.Errorf("group %s kind = %v, want %v", name, g.Config["kind"], want)
 		}
 	}
-	if _, err := run(t, a.residentCmd(), "add", "r"); err != nil {
+	if _, err := run(t, a.crewCmd(), "add", "r"); err != nil {
 		t.Fatal(err)
 	}
-	if r, _ := st.GetResident(ctx, "r"); r.Config["kind"] != "kimi" {
-		t.Fatalf("resident config = %v", r.Config)
+	if r, _ := st.GetCrew(ctx, "r"); r.Config["kind"] != "kimi" {
+		t.Fatalf("crew member config = %v", r.Config)
 	}
 
 	if _, err := run(t, a.settingsCmd(), "set", "default_kind", ""); err != nil {

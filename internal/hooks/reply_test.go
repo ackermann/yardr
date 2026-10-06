@@ -410,8 +410,8 @@ func TestCredentials(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("GITHUB_APP_ID", "")
 	t.Setenv("GITHUB_APP_PRIVATE_KEY_FILE", "")
-	t.Setenv("YARDR_RESIDENT", "")
-	t.Setenv("YARD_RESIDENT", "")
+	t.Setenv("YARDR_CREW", "")
+	t.Setenv("YARD_CREW", "")
 	bin := t.TempDir()
 	t.Setenv("PATH", bin)
 	if _, err := (hooks.GitHub{}).Credential(ctx); err == nil || !strings.Contains(err.Error(), "gh auth token") {

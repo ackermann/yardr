@@ -12,24 +12,24 @@ import (
 )
 
 func (a *app) threadOpenCmd() *cobra.Command {
-	var resident, in, body string
+	var member, in, body string
 	cmd := &cobra.Command{
 		Use:   "open <source> --in <team|repo> <title>",
 		Short: "Open a thread in a source, as yourself",
-		Long: `Opens a thread of the resident's own in a source: in Linear an issue in the
+		Long: `Opens a thread of the crew member's own in a source: in Linear an issue in the
 team --in names (its key or its name), in GitHub an issue in the repository
 --in names (owner/repo). -b is the body (- reads it from stdin); text only.
 
 The rules are those of yardr reply. The call is made from this process with
 your own credential, from your environment (LINEAR_API_KEY; for GitHub a
 GitHub App's GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, else
-GITHUB_TOKEN, else, outside a resident's session, gh auth token), and the
-server never sees it. Only the resident's own
-session or the operator may speak as the resident (--resident, default
-$YARDR_RESIDENT).
+GITHUB_TOKEN, else, outside a crew member's session, gh auth token), and the
+server never sees it. Only the crew member's own
+session or the operator may speak as the crew member (--crew, default
+$YARDR_CREW).
 
-A resident may open threads only in the sources its definition allows:
-yardr resident set <resident> open_threads=linear,github, which only the
+A crew member may open threads only in the sources its definition allows:
+yardr crew set <crew member> open_threads=linear,github, which only the
 operator may add a source to. It is off unless set, and the command then
 refuses and says so.
 
@@ -37,7 +37,7 @@ The thread is recorded, with an id chosen for it, before it is opened, and
 the id goes with the post (as the issue's id in Linear, as a marker in the
 body on GitHub). Run again with the same source, place, title and body
 after a lost answer, yardr first looks for the thread that id made and
-does not open it twice. The thread is the resident's at once: it takes
+does not open it twice. The thread is the crew member's at once: it takes
 part in it (yardr thread list shows it, how=opened), so an involved
 subscription delivers what others say there with no mention, to be
 answered with yardr reply; a thread_opened event is logged. Prints the URL
@@ -47,7 +47,7 @@ of the thread.`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()
-			name, err := currentResident(resident)
+			name, err := currentCrew(member)
 			if err != nil {
 				return err
 			}
@@ -74,14 +74,14 @@ of the thread.`,
 			if err != nil {
 				return err
 			}
-			if _, err := st.GetResident(ctx, name); err != nil {
+			if _, err := st.GetCrew(ctx, name); err != nil {
 				return err
 			}
 			if err := a.maySpeakAs(ctx, st, "thread open", name); err != nil {
 				return err
 			}
 			// The thread is on record, with its key, before anything is
-			// posted, and the record is where a resident that may not open
+			// posted, and the record is where a crew member that may not open
 			// threads in the source is refused.
 			rp, err := st.Opening(ctx, name, source, in, title, body)
 			if err != nil {
@@ -116,7 +116,7 @@ of the thread.`,
 					return fmt.Errorf("opened %s, but could not record it: %w", t.URL, err)
 				}
 			}
-			return a.out(map[string]any{"resident": name, "source": source, "in": in, "thread": t.ID,
+			return a.out(map[string]any{"crew": name, "source": source, "in": in, "thread": t.ID,
 				"title": or(t.Title, title), "url": t.URL, "repeated": already},
 				func() {
 					if already {
@@ -126,7 +126,8 @@ of the thread.`,
 				})
 		},
 	}
-	cmd.Flags().StringVar(&resident, "resident", "", "who is opening it (default $YARDR_RESIDENT)")
+	cmd.Flags().StringVar(&member, "crew", "", "who is opening it (default $YARDR_CREW)")
+	oldFlag(cmd, "resident", "crew")
 	cmd.Flags().StringVar(&in, "in", "", "where: a Linear team's key or name, a GitHub owner/repo")
 	cmd.Flags().StringVarP(&body, "body", "b", "", "the thread's body (- reads stdin)")
 	return cmd

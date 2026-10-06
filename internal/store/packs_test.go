@@ -18,11 +18,11 @@ func TestRecordPack(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	rec := store.PackImport{Pack: "starter", Rig: "web", Source: "/packs/starter", Commit: "abc", Flow: "default",
-		Groups: map[string]string{"builders": "web-builders"}, Residents: map[string]string{"yardmaster": "boss"},
+		Groups: map[string]string{"builders": "web-builders"}, Crew: map[string]string{"yardmaster": "boss"},
 		Objects: []store.PackObject{
 			{Kind: "group", Name: "web-builders"},
 			{Kind: "route", Stage: "new", Group: "web-builders"},
-			{Kind: "subscription", Resident: "boss", Subscription: &store.Subscription{Source: "linear", Scope: "involved"}},
+			{Kind: "subscription", CrewMember: "boss", Subscription: &store.Subscription{Source: "linear", Scope: "involved"}},
 		}}
 	if _, err := st.RecordPack(ctx, rec, true, "ann"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("a record for a rig the yard lacks: %v", err)
@@ -64,13 +64,13 @@ func TestRecordPack(t *testing.T) {
 		t.Fatalf("the record changed: %+v", got)
 	}
 
-	// No object written, but the record says something new (a resident
+	// No object written, but the record says something new (a crew member
 	// mapped anew): it is written.
-	again.Residents = map[string]string{"yardmaster": "carol"}
+	again.Crew = map[string]string{"yardmaster": "carol"}
 	if wrote, err := st.RecordPack(ctx, again, false, "bob"); err != nil || !wrote {
 		t.Fatalf("a record that differs: %v, %v", wrote, err)
 	}
-	if got, _ := st.Packs(ctx); got[0].By != "bob" || got[0].Commit != "def" || got[0].Residents["yardmaster"] != "carol" {
+	if got, _ := st.Packs(ctx); got[0].By != "bob" || got[0].Commit != "def" || got[0].Crew["yardmaster"] != "carol" {
 		t.Fatalf("records = %+v", got)
 	}
 
@@ -88,8 +88,8 @@ func TestPackObjectKey(t *testing.T) {
 	same := [][2]store.PackObject{
 		{{Kind: "route", Stage: "new", Group: "a"}, {Kind: "route", Stage: "new", Group: "b"}},
 		{{Kind: "pointer", Type: "train", Flow: "a"}, {Kind: "pointer", Type: "train", Flow: "b"}},
-		{{Kind: "subscription", Resident: "r", Subscription: &store.Subscription{Source: "linear", Scope: "all"}},
-			{Kind: "subscription", Resident: "r", Subscription: &store.Subscription{Source: "linear", Scope: "involved"}}},
+		{{Kind: "subscription", CrewMember: "r", Subscription: &store.Subscription{Source: "linear", Scope: "all"}},
+			{Kind: "subscription", CrewMember: "r", Subscription: &store.Subscription{Source: "linear", Scope: "involved"}}},
 	}
 	for _, p := range same {
 		if p[0].Key() != p[1].Key() {
@@ -99,8 +99,8 @@ func TestPackObjectKey(t *testing.T) {
 	differ := [][2]store.PackObject{
 		{{Kind: "route", Stage: "new"}, {Kind: "route", Stage: "new", Type: "train"}},
 		{{Kind: "group", Name: "a"}, {Kind: "flow", Name: "a"}},
-		{{Kind: "subscription", Resident: "r", Subscription: &store.Subscription{Source: "linear", Scope: "all"}},
-			{Kind: "subscription", Resident: "r", Subscription: &store.Subscription{Source: "linear", Scope: "all", Where: map[string]string{"team": "ENG"}}}},
+		{{Kind: "subscription", CrewMember: "r", Subscription: &store.Subscription{Source: "linear", Scope: "all"}},
+			{Kind: "subscription", CrewMember: "r", Subscription: &store.Subscription{Source: "linear", Scope: "all", Where: map[string]string{"team": "ENG"}}}},
 	}
 	for _, p := range differ {
 		if p[0].Key() == p[1].Key() {
@@ -115,7 +115,7 @@ func TestPackObjectKey(t *testing.T) {
 func TestRemoveSubscriptionIsExact(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
-	if _, err := st.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	plain := store.Subscription{Source: "linear", Scope: "all"}
@@ -128,7 +128,7 @@ func TestRemoveSubscriptionIsExact(t *testing.T) {
 	if err := st.RemoveSubscription(ctx, "yardmaster", plain, "me"); err != nil {
 		t.Fatal(err)
 	}
-	r, _ := st.GetResident(ctx, "yardmaster")
+	r, _ := st.GetCrew(ctx, "yardmaster")
 	if len(r.Subscriptions) != 1 || r.Subscriptions[0].String() != filtered.String() {
 		t.Fatalf("subscriptions = %v, want the filtered one alone", r.Subscriptions)
 	}
@@ -137,7 +137,7 @@ func TestRemoveSubscriptionIsExact(t *testing.T) {
 	}
 }
 
-// The record keeps the answers to what a pack asked its residents may open
+// The record keeps the answers to what a pack asked its crew may open
 // threads in. The same answers again are the same record; a new one is a
 // new record though the import wrote nothing else.
 func TestRecordPackKeepsOpenThreadsAnswers(t *testing.T) {
@@ -146,7 +146,7 @@ func TestRecordPackKeepsOpenThreadsAnswers(t *testing.T) {
 	if err := st.PutRig(ctx, store.Rig{Name: "web"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	rec := store.PackImport{Pack: "starter", Rig: "web", Residents: map[string]string{"yardmaster": "boss"},
+	rec := store.PackImport{Pack: "starter", Rig: "web", Crew: map[string]string{"yardmaster": "boss"},
 		OpenThreads: map[string]map[string]bool{"boss": {"linear": true}, "scout": {}}}
 	if wrote, err := st.RecordPack(ctx, rec, true, "jo"); err != nil || !wrote {
 		t.Fatalf("first: %v, %v", wrote, err)

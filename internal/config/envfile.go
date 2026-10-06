@@ -12,7 +12,7 @@ import (
 	"syscall"
 )
 
-// EnvFile is a resident's or group's env_file: outbound credentials (an API
+// EnvFile is a crew member's or group's env_file: outbound credentials (an API
 // token, an OAuth app's secret) for the panes its agents run in. They live in
 // a file of their own, never in the store, which BDP serves, backups copy and
 // every builder can read.

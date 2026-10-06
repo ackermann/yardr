@@ -150,9 +150,9 @@ func TestDoctorFreshYard(t *testing.T) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
 	wantText(t, out, "yardr doctor: the yard in ", "Needed on this machine", "The yard", "Setup", "Optional",
-		"the harness of the yard's default, resident yardmaster: answers its version flag (tool 1.2.3)",
+		"the harness of the yard's default, crew member yardmaster: answers its version flag (tool 1.2.3)",
 		"FAULT  daemon ", here("yardr init --start"), "FAULT  yardmaster  ", "yardmaster is not running: the daemon starts it",
-		"ok     residents ", "ok     held ", "todo   a rig: no repository is a rig of this yard yet",
+		"ok     crew ", "ok     held ", "todo   a rig: no repository is a rig of this yard yet",
 		"todo   routes for new, review and approved: no route for new, review and approved",
 		"not configured  web view: ", "not configured  hooks: ", "not configured  packs: ", "not configured  login service: ",
 		"2 faults", "Next step: a rig.\n  ", here("yardr rig add <rig> <path> --base <branch>"))
@@ -161,7 +161,7 @@ func TestDoctorFreshYard(t *testing.T) {
 	}
 	rep, err := doctorJSON(t, st)
 	if !errors.Is(err, errCheckFailed) || !rep.Yard || rep.State == nil || rep.State.Daemon || rep.State.Yardmaster == nil ||
-		!rep.State.Yardmaster.Resident || rep.State.Yardmaster.Running || rep.Next == nil || rep.Next.Key != stepRig || len(rep.Optional) != 5 {
+		!rep.State.Yardmaster.CrewMember || rep.State.Yardmaster.Running || rep.Next == nil || rep.Next.Key != stepRig || len(rep.Optional) != 5 {
 		t.Fatalf("json: %v %+v", err, rep)
 	}
 	// For a home that is not the default, the next step's command names it
@@ -293,7 +293,7 @@ func TestDoctorSetUpYard(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer unlock()
-	if err := st.ResidentStarted(ctx, "yardmaster", yardmasterHandle()); err != nil {
+	if err := st.CrewStarted(ctx, "yardmaster", yardmasterHandle()); err != nil {
 		t.Fatal(err)
 	}
 	out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
@@ -301,7 +301,7 @@ func TestDoctorSetUpYard(t *testing.T) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
 	wantText(t, out, "ok     server      running", "ok     daemon      running", "yardmaster is running (herdr agent y-yardmaster)",
-		"the harness of the yard's default, resident yardmaster, group web/builders, group web/reviewers",
+		"the harness of the yard's default, crew member yardmaster, group web/builders, group web/reviewers",
 		"done   a rig: web", "done   the rig's .yardr files on its base: web has its flow on its base main",
 		"done   a group that builds: web/builders", "done   a group that reviews: web/reviewers",
 		"done   a group or person that lands approved beads: web/mergers",
@@ -324,10 +324,10 @@ func TestDoctorSetUpYard(t *testing.T) {
 	if _, err := st.SetHold(ctx, held.ID, true, store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.ResidentStopped(ctx, "yardmaster", "test"); err != nil {
+	if err := st.CrewStopped(ctx, "yardmaster", "test"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetResidentEnabled(ctx, "yardmaster", false, "", "me"); err != nil {
+	if err := st.SetCrewEnabled(ctx, "yardmaster", false, "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	out, err = run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
@@ -453,7 +453,7 @@ func TestDoctorVersionCheck(t *testing.T) {
 	if !errors.Is(err, errCheckFailed) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
-	wantText(t, out, "ok     kimi ", "the harness of the yard's default, resident yardmaster: answers its version flag (tool 1.2.3)",
+	wantText(t, out, "ok     kimi ", "the harness of the yard's default, crew member yardmaster: answers its version flag (tool 1.2.3)",
 		"FAULT  codex ", "on PATH, but its version flag fails: exit status 3: broken install",
 		"ok     cursor-agent ", "not checked, yardr knows no version flag for cursor")
 	states := func() map[string]string {
@@ -494,8 +494,8 @@ func TestDoctorVersionCheck(t *testing.T) {
 	}
 }
 
-// A resident whose starts fail is a fault, with the reason of the last.
-func TestDoctorFailingResident(t *testing.T) {
+// A crew member whose starts fail is a fault, with the reason of the last.
+func TestDoctorFailingCrew(t *testing.T) {
 	newHome(t)
 	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
 	st := storetest.New(t)
@@ -503,14 +503,14 @@ func TestDoctorFailingResident(t *testing.T) {
 	if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.PutResident(ctx, store.Resident{Name: "scribe", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "me"); err != nil {
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "scribe", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetResidentEnabled(ctx, "scribe", true, "", "me"); err != nil {
+	if err := st.SetCrewEnabled(ctx, "scribe", true, "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"scribe", "yardmaster"} {
-		if err := st.ResidentStartFailed(ctx, name, "no workspace", time.Minute); err != nil {
+		if err := st.CrewStartFailed(ctx, name, "no workspace", time.Minute); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -518,17 +518,17 @@ func TestDoctorFailingResident(t *testing.T) {
 	if !errors.Is(err, errCheckFailed) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
-	wantText(t, out, "FAULT  resident    scribe is not running: 1 failed starts so far, the last with: no workspace",
+	wantText(t, out, "FAULT  crew        scribe is not running: 1 failed starts so far, the last with: no workspace",
 		"FAULT  yardmaster  yardmaster is not running: 1 failed starts so far, the last with: no workspace",
-		here("yardr resident start scribe"))
+		here("yardr crew start scribe"))
 	if strings.Contains(out, "none failing") {
 		t.Errorf("output:\n%s", out)
 	}
 }
 
 // Found live (yardr-05dd): a yardmaster whose harness exits at once is given up
-// like any resident, but it is the one who hears resident_gave_up, so doctor
-// is where it is said, with how long the last session lived; resident list
+// like any crew member, but it is the one who hears crew_gave_up, so doctor
+// is where it is said, with how long the last session lived; crew list
 // and show give the count, and the next try while there is one.
 func TestDoctorYardmasterGivenUpAfterSessionsGoneAtOnce(t *testing.T) {
 	newHome(t)
@@ -547,30 +547,30 @@ func TestDoctorYardmasterGivenUpAfterSessionsGoneAtOnce(t *testing.T) {
 	const reason = "the session ended 4s after its start (gone within 1m0s counts as a failed start)"
 	gone := func() {
 		t.Helper()
-		if err := st.ResidentStarted(ctx, "yardmaster", yardmasterHandle()); err != nil {
+		if err := st.CrewStarted(ctx, "yardmaster", yardmasterHandle()); err != nil {
 			t.Fatal(err)
 		}
-		if err := st.ResidentStopped(ctx, "yardmaster", "the session is gone"); err != nil {
+		if err := st.CrewStopped(ctx, "yardmaster", "the session is gone"); err != nil {
 			t.Fatal(err)
 		}
-		if err := st.ResidentStartFailed(ctx, "yardmaster", reason, 2*time.Minute); err != nil {
+		if err := st.CrewStartFailed(ctx, "yardmaster", reason, 2*time.Minute); err != nil {
 			t.Fatal(err)
 		}
 	}
 	gone()
-	wantText(t, cmd("resident", "list"), "stopped (1 failed start, next try in ")
+	wantText(t, cmd("crew", "list"), "stopped (1 failed start, next try in ")
 	gone() // the start in between did not clear the count
 	// The wait itself is a second or so under the two minutes by now.
-	wantText(t, cmd("resident", "list"), "stopped (2 failed starts, next try in ")
-	wantText(t, cmd("resident", "show", "yardmaster"), "  2 failed starts, next try in ", "s, the last with: "+reason,
+	wantText(t, cmd("crew", "list"), "stopped (2 failed starts, next try in ")
+	wantText(t, cmd("crew", "show", "yardmaster"), "  2 failed starts, next try in ", "s, the last with: "+reason,
 		"  yardr doctor --try asks its harness for one real answer")
 	wantText(t, cmd("doctor"), "FAULT  yardmaster  yardmaster is not running: 2 failed starts so far, the last with: "+reason,
 		"note   harness     on PATH is not \"works\"", here("yardr doctor --try")+" makes one real call to each")
 	for i := 2; i < store.MaxStartFails; i++ {
 		gone()
 	}
-	wantText(t, cmd("resident", "list"), "failed (gave up after 5 failed starts; yardr resident start yardmaster tries again)")
-	wantText(t, cmd("resident", "show", "yardmaster"), "gave up after 5 failed starts; yardr resident start yardmaster tries again, the last with: "+reason)
+	wantText(t, cmd("crew", "list"), "failed (gave up after 5 failed starts; yardr crew start yardmaster tries again)")
+	wantText(t, cmd("crew", "show", "yardmaster"), "gave up after 5 failed starts; yardr crew start yardmaster tries again, the last with: "+reason)
 	wantText(t, cmd("doctor"), "FAULT  yardmaster  yardmaster is not running: the daemon gave up after 5 tries, the last with: "+reason)
 }
 
@@ -740,7 +740,7 @@ func TestDoctorLeavesAStoppedServerStopped(t *testing.T) {
 		"\nThe yard\n  note   server      not running ("+here("yardr server start")+", or any command but status and doctor, starts it)\n"+
 			"  ok     daemon      running\n"+
 			"  note   yardmaster  skipped: the server is not running\n"+
-			"  note   residents   skipped: the server is not running\n"+
+			"  note   crew        skipped: the server is not running\n"+
 			"  note   held        skipped: the server is not running\n",
 		"\nSetup\n  note   skipped: the server is not running\n",
 		"  not configured  web view: not running",

@@ -18,7 +18,7 @@ import (
 )
 
 // failing is a store whose write named by on fails: "setting <key>" or
-// "resident". It is how a test cuts init short after the step before.
+// "crew". It is how a test cuts init short after the step before.
 type failing struct {
 	store.API
 	on string
@@ -33,15 +33,15 @@ func (f *failing) SetSetting(ctx context.Context, key, value, actor string) erro
 	return f.API.SetSetting(ctx, key, value, actor)
 }
 
-func (f *failing) PutResident(ctx context.Context, def store.Resident, actor string) (*store.Resident, error) {
-	if f.on == "resident" {
+func (f *failing) PutCrew(ctx context.Context, def store.CrewMember, actor string) (*store.CrewMember, error) {
+	if f.on == "crew" {
 		return nil, errCut
 	}
-	return f.API.PutResident(ctx, def, actor)
+	return f.API.PutCrew(ctx, def, actor)
 }
 
 // startsYardmaster replaces the daemon's start with one that counts and,
-// given a handle, records the session of the resident named as the daemon
+// given a handle, records the session of the crew member named as the daemon
 // would.
 func startsYardmaster(t *testing.T, st store.API, name string, handle map[string]any) *int {
 	t.Helper()
@@ -49,7 +49,7 @@ func startsYardmaster(t *testing.T, st store.API, name string, handle map[string
 	stub(t, &spawnDaemon, func(*config.Config) (<-chan error, error) {
 		n++
 		if handle != nil {
-			if err := st.ResidentStarted(context.Background(), name, handle); err != nil {
+			if err := st.CrewStarted(context.Background(), name, handle); err != nil {
 				t.Errorf("%s not started: %v", name, err)
 			}
 		}
@@ -68,9 +68,9 @@ func wholeYard(t *testing.T, st store.API, home, harness, operator, yardmaster s
 	if got["default_kind"] != harness || got["operator"] != operator || got["yardmaster"] != yardmaster {
 		t.Errorf("settings = %v", got)
 	}
-	rs, _ := st.Residents(ctx)
+	rs, _ := st.Crew(ctx)
 	if len(rs) != 1 || rs[0].Name != yardmaster || rs[0].Config["kind"] != harness {
-		t.Errorf("residents = %+v", rs)
+		t.Errorf("crew members = %+v", rs)
 	}
 	manifest := map[string]string{}
 	b, _ := os.ReadFile(filepath.Join(home, "roles", shippedManifest))
@@ -112,20 +112,20 @@ func TestInitFinishesAfterAFailedRun(t *testing.T) {
 	}{
 		{name: "among the roles", again: []string{"init", "--harness", "codex", "--operator", "Kim", "--yardmaster", "boss"}, operator: "Kim",
 			found: []string{"the role prompts builder.md and merger.md in"},
-			added: []string{"the role prompts reviewer.md and yardmaster.md", "the operator and yardmaster settings", "the resident boss", "the default_kind setting"}},
+			added: []string{"the role prompts reviewer.md and yardmaster.md", "the operator and yardmaster settings", "the crew member boss", "the default_kind setting"}},
 		{name: "after the roles", on: "setting operator", again: first, operator: "Jo",
 			found: []string{"the role prompts builder.md, merger.md, reviewer.md and yardmaster.md in"},
-			added: []string{"the operator and yardmaster settings", "the resident boss", "the default_kind setting"}},
+			added: []string{"the operator and yardmaster settings", "the crew member boss", "the default_kind setting"}},
 		{name: "after the operator setting", on: "setting yardmaster", again: []string{"init", "--harness", "codex", "--yardmaster", "boss"}, operator: "Jo",
 			found: []string{"the setting operator Jo"},
-			added: []string{"the operator and yardmaster settings", "the resident boss"}},
-		{name: "after the settings", on: "resident", again: []string{"init", "--harness", "codex"}, operator: "Jo",
+			added: []string{"the operator and yardmaster settings", "the crew member boss"}},
+		{name: "after the settings", on: "crew", again: []string{"init", "--harness", "codex"}, operator: "Jo",
 			found: []string{"the settings operator Jo and yardmaster boss"},
-			added: []string{"the resident boss", "the default_kind setting"}},
+			added: []string{"the crew member boss", "the default_kind setting"}},
 		// The yardmaster is there, so the home counts as a yard, and
 		// default_kind is not: the harness is the yardmaster's.
 		{name: "after the yardmaster", on: "setting default_kind", again: []string{"init"}, setUp: true, operator: "Jo",
-			found: []string{"the settings operator Jo and yardmaster boss", "the resident boss"},
+			found: []string{"the settings operator Jo and yardmaster boss", "the crew member boss"},
 			added: []string{"the default_kind setting, which marks the yard set up"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -255,7 +255,7 @@ func resumeYard(t *testing.T, answers map[string]any) (string, *former) {
 // says what that run left, and its answers start at what it stored.
 func TestOnboardingAfterAFailedRun(t *testing.T) {
 	home, f := resumeYard(t, nil)
-	st := &failing{API: storetest.New(t), on: "resident"}
+	st := &failing{API: storetest.New(t), on: "crew"}
 	if _, err := run(t, (&app{st: st}).rootCmd(), "init", "--harness", "claude", "--operator", "Jo", "--yardmaster", "boss"); !errors.Is(err, errCut) {
 		t.Fatal(err)
 	}
@@ -269,7 +269,7 @@ func TestOnboardingAfterAFailedRun(t *testing.T) {
 	}
 	wholeYard(t, st, home, "claude", "Jo", "boss")
 	for _, s := range []string{"An earlier setup of this home did not reach its end. It left the role prompts",
-		"the settings operator Jo and yardmaster boss", "finished: part of it was there", "  added      the resident boss",
+		"the settings operator Jo and yardmaster boss", "finished: part of it was there", "  added      the crew member boss",
 		"boss is running, in herdr"} {
 		if !strings.Contains(out, s) {
 			t.Errorf("output lacks %q:\n%s", s, out)
@@ -415,7 +415,7 @@ func TestOnboardingIsTakenUpWhereTheYardmasterDidNotComeUp(t *testing.T) {
 	// The form waits yardmasterWait for the yardmaster; one that is disabled
 	// ends the wait at once.
 	stub(t, &spawnDaemon, func(*config.Config) (<-chan error, error) {
-		if err := st.SetResidentEnabled(context.Background(), "yardmaster", false, "", "me"); err != nil {
+		if err := st.SetCrewEnabled(context.Background(), "yardmaster", false, "", "me"); err != nil {
 			t.Error(err)
 		}
 		return nil, nil
@@ -428,7 +428,7 @@ func TestOnboardingIsTakenUpWhereTheYardmasterDidNotComeUp(t *testing.T) {
 	if got := keysOf(f); !slices.Equal(got, []string{"style", "about", "try"}) {
 		t.Fatalf("asked %q after a yardmaster that is not up", got)
 	}
-	if err := st.SetResidentEnabled(context.Background(), "yardmaster", true, "", "me"); err != nil {
+	if err := st.SetCrewEnabled(context.Background(), "yardmaster", true, "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	started := startsYardmaster(t, st, "yardmaster", yardmasterHandle())
@@ -454,12 +454,12 @@ func TestBareYardrLeavesOtherYardsAlone(t *testing.T) {
 			}
 		}},
 		{"a stopped yardmaster", func(t *testing.T, st store.API, home string) {
-			if err := st.SetResidentEnabled(context.Background(), "yardmaster", false, "", "me"); err != nil {
+			if err := st.SetCrewEnabled(context.Background(), "yardmaster", false, "", "me"); err != nil {
 				t.Fatal(err)
 			}
 			holdDaemon(t, home)
 		}},
-		{"an agent", func(t *testing.T, _ store.API, _ string) { t.Setenv("YARDR_RESIDENT", "yardmaster") }},
+		{"an agent", func(t *testing.T, _ store.API, _ string) { t.Setenv("YARDR_CREW", "yardmaster") }},
 		{"no terminal", func(t *testing.T, _ store.API, _ string) { setInteractive(t, false) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

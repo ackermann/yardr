@@ -24,9 +24,9 @@ func (a *app) identityCmd() *cobra.Command {
 	var id store.Identity
 	var rm bool
 	cmd := &cobra.Command{
-		Use:   "identity <resident>",
-		Short: "Who a resident is in a source (no --source: list)",
-		Long: `A resident's identity in a source is how a hook delivery is matched to it:
+		Use:   "identity <crew member>",
+		Short: "Who a crew member is in a source (no --source: list)",
+		Long: `A crew member's identity in a source is how a hook delivery is matched to it:
 it is mentioned when the delivery mentions its --id or --key, assigned when
 the assignee or the delegate (the agent a Linear issue is handed to) is its
 --id, and never hears of deliveries it is the actor of.
@@ -34,13 +34,13 @@ the assignee or the delegate (the agent a Linear issue is handed to) is its
 In Linear, --id is the user id and --key the profile URL key
 (https://linear.app/<org>/profiles/<key>): markdown mentions carry only the key.
 
-In GitHub, --key is the login, in any case. A resident that speaks as a
+In GitHub, --key is the login, in any case. A crew member that speaks as a
 GitHub App has the App's bot as its login, <slug>[bot]: what the bot does
 is then its own, and @<slug> in a comment mentions it.`,
-		Example: `  yardr resident identity yardmaster --source linear --id 4d3a2b1c-... --key yardmaster
-  yardr resident identity yardmaster --source github --key 'yardr[bot]'
-  yardr resident identity yardmaster
-  yardr resident identity yardmaster --source linear --rm`,
+		Example: `  yardr crew identity yardmaster --source linear --id 4d3a2b1c-... --key yardmaster
+  yardr crew identity yardmaster --source github --key 'yardr[bot]'
+  yardr crew identity yardmaster
+  yardr crew identity yardmaster --source linear --rm`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
@@ -70,7 +70,7 @@ is then its own, and @<slug> in a comment mentions it.`,
 			} else if rm || id.ID != "" || id.Key != "" {
 				return fmt.Errorf("--source is required")
 			}
-			r, err := st.GetResident(c.Context(), name)
+			r, err := st.GetCrew(c.Context(), name)
 			if err != nil {
 				return err
 			}
@@ -85,7 +85,7 @@ is then its own, and @<slug> in a comment mentions it.`,
 	}
 	f := cmd.Flags()
 	f.StringVar(&source, "source", "", "source: "+strings.Join(hooks.Sources(), ", "))
-	f.StringVar(&id.ID, "id", "", "the resident's user id in the source")
+	f.StringVar(&id.ID, "id", "", "the crew member's user id in the source")
 	f.StringVar(&id.Key, "key", "", "another name the source mentions it by (Linear: profile key)")
 	f.BoolVar(&rm, "rm", false, "remove the identity for --source")
 	return cmd
@@ -131,15 +131,15 @@ func (a *app) subscribeCmd() *cobra.Command {
 	var where []string
 	var done bool
 	cmd := &cobra.Command{
-		Use:   "subscribe <resident|group|user> [source]",
-		Short: "Deliver a source's events to a resident's inbox, or a user's as notifications",
-		Long: `Which events reach the resident, decided as each is logged: hook deliveries
+		Use:   "subscribe <crew|group|user> [source]",
+		Short: "Deliver a source's events to a crew member's inbox, or a user's as notifications",
+		Long: `Which events reach the crew member, decided as each is logged: hook deliveries
 from a hook source (` + strings.Join(hooks.Sources(), ", ") + `), or yardr's own bead events from
 the yardr source.
 
   all       every event from the source
   mentions  events that mention it: in a hook source, under its identity
-            (yardr resident identity); in yardr, @<name> in the bead's body
+            (yardr crew identity); in yardr, @<name> in the bead's body
             or a note
   involved  mentions, plus: in a hook source, events on what is assigned
             or (a Linear issue's delegate) delegated to it, or in a thread
@@ -165,17 +165,17 @@ yardr: ` + strings.Join(store.YardrWhereKeys, ", ") + `:
           close; once per bead. --done is short for --where state=done.
 
 The subscriber may be a manual group: its subscriptions deliver to each of
-its members that is a resident (reason "<reason> via <group>").
+its members that is a crew member (reason "<reason> via <group>").
 
-Each delivery records why it reached the resident: all, mentioned,
-assigned (a delegation reads assigned too), participant or done. Events a resident is the actor of never
-reach it. A resident's --on kinds work as implicit "yardr all kind=<k>"
+Each delivery records why it reached the crew member: all, mentioned,
+assigned (a delegation reads assigned too), participant or done. Events a crew member is the actor of never
+reach it. A crew member's --on kinds work as implicit "yardr all kind=<k>"
 subscriptions (and also cover events not about a bead).
 
 The subscriber may be a user: a matching event is then a notification in
 the user's inbox, a line the yard writes, apart from the mail (yardr inbox
 --notifications). The user subscribes themselves, or the operator does it
-for them; a resident does not decide what a person is told. A user has no
+for them; a crew member does not decide what a person is told. A user has no
 identity in a hook source, so of a hook source only --scope all reaches
 them.`,
 		Example: `  yardr subscribe yardmaster linear --scope involved
@@ -221,19 +221,19 @@ them.`,
 			}
 			if user && src != store.SourceYardr && !c.Flags().Changed("scope") {
 				// A person has no source identity or thread participation, so
-				// the hook's resident default (involved) would match nothing.
+				// the hook's crew member default (involved) would match nothing.
 				sub.Scope = store.ScopeAll
 			}
 			if err := st.AddSubscription(c.Context(), args[0], sub, a.who()); err != nil {
 				return err
 			}
-			return a.showSubscriptions(c, st, args[0], func(subs []store.Subscription, r *store.Resident) {
+			return a.showSubscriptions(c, st, args[0], func(subs []store.Subscription, r *store.CrewMember) {
 				fmt.Printf("%s subscribed: %s\n", args[0], subs[len(subs)-1])
 				if r == nil || src == store.SourceYardr {
 					return
 				}
 				if _, ok := r.Identities[src]; !ok && sub.Scope != store.ScopeAll {
-					fmt.Printf("note: %s has no %s identity, so it is never mentioned or assigned: yardr resident identity %s --source %s --id ...\n",
+					fmt.Printf("note: %s has no %s identity, so it is never mentioned or assigned: yardr crew identity %s --source %s --id ...\n",
 						r.Name, src, r.Name, src)
 				}
 			})
@@ -248,10 +248,10 @@ them.`,
 }
 
 // showSubscriptions prints (or outputs) the subscriptions of the
-// resident, user or group called name, looked up in the order the store
+// crew member, user or group called name, looked up in the order the store
 // does; r is nil for a user and a group.
-func (a *app) showSubscriptions(c *cobra.Command, st store.API, name string, text func([]store.Subscription, *store.Resident)) error {
-	r, err := st.GetResident(c.Context(), name)
+func (a *app) showSubscriptions(c *cobra.Command, st store.API, name string, text func([]store.Subscription, *store.CrewMember)) error {
+	r, err := st.GetCrew(c.Context(), name)
 	if errors.Is(err, store.ErrNotFound) {
 		u, uerr := st.GetUser(c.Context(), name)
 		if uerr == nil {
@@ -275,9 +275,9 @@ func (a *app) unsubscribeCmd() *cobra.Command {
 	var source, scope string
 	var where []string
 	cmd := &cobra.Command{
-		Use:   "unsubscribe <resident|group|user> [source]",
+		Use:   "unsubscribe <crew|group|user> [source]",
 		Short: "Remove subscriptions to a source",
-		Long: `Removes every subscription of the resident (or manual group, or user) to the
+		Long: `Removes every subscription of the crew member (or manual group, or user) to the
 source; --scope and --where narrow it to the subscriptions with that scope
 and exactly those filters. A user's are removed by the user and by the
 operator, as they are added.`,
@@ -311,9 +311,9 @@ operator, as they are added.`,
 	return cmd
 }
 
-// printHookDelivery shows a hook event as it reached resident: what
-// happened, who did it, and why the resident hears of it.
-func printHookDelivery(e store.Event, resident string) {
+// printHookDelivery shows a hook event as it reached crew member: what
+// happened, who did it, and why the crew member hears of it.
+func printHookDelivery(e store.Event, member string) {
 	str := func(k string) string { s, _ := e.Data[k].(string); return s }
 	actor, _ := e.Data["actor"].(map[string]any)
 	who, _ := actor["name"].(string)
@@ -330,7 +330,7 @@ func printHookDelivery(e store.Event, resident string) {
 	if title != "" {
 		what += " on " + fmt.Sprintf("%q", title)
 	}
-	fmt.Printf("%6d %s  hook (%s) %s", e.Seq, e.At.Local().Format("01-02 15:04"), or(store.Reason(e, resident), "-"), what)
+	fmt.Printf("%6d %s  hook (%s) %s", e.Seq, e.At.Local().Format("01-02 15:04"), or(store.Reason(e, member), "-"), what)
 	if t := str("text"); t != "" {
 		fmt.Printf(": %s", t)
 	}
@@ -352,16 +352,16 @@ func sortedKeys[V any](m map[string]V) []string {
 func (a *app) threadCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "thread",
-		Short: "Threads a resident participates in, and what is said in them",
-		Long: `A resident participates in a source's thread (in Linear, an issue) once a hook
+		Short: "Threads a crew member participates in, and what is said in them",
+		Long: `A crew member participates in a source's thread (in Linear, an issue) once a hook
 delivery shows it acting there under its identity, once it answers there
 with yardr reply, opens it with yardr thread open, or after yardr thread
 follow. An involved subscription
 then also delivers what others do in the thread, with reason participant.
-Unfollowing stops that until the resident acts in the thread again.
+Unfollowing stops that until the crew member acts in the thread again.
 
 yardr thread show <seq> reads the source thread of a hook delivery, and
-yardr thread state sets the status of a thread the resident takes part in.`,
+yardr thread state sets the status of a thread the crew member takes part in.`,
 	}
 	threadArgs := func(source *string) func(*cobra.Command, []string) error {
 		return func(c *cobra.Command, args []string) error {
@@ -376,8 +376,8 @@ yardr thread state sets the status of a thread the resident takes part in.`,
 	}
 	var source string
 	follow := &cobra.Command{
-		Use:     "follow <resident> <thread-id>",
-		Short:   "Make a resident a participant in a thread",
+		Use:     "follow <crew member> <thread-id>",
+		Short:   "Make a crew member a participant in a thread",
 		Example: `  yardr thread follow yardmaster --source linear 539068e2-ae88-4d09-bd75-22eb4a59612f`,
 		Args:    threadArgs(&source),
 		RunE: func(c *cobra.Command, args []string) error {
@@ -388,14 +388,14 @@ yardr thread state sets the status of a thread the resident takes part in.`,
 			if err := st.FollowThread(c.Context(), args[0], source, args[1], a.who()); err != nil {
 				return err
 			}
-			return a.out(map[string]any{"resident": args[0], "source": source, "thread": args[1]}, func() {
+			return a.out(map[string]any{"crew": args[0], "source": source, "thread": args[1]}, func() {
 				fmt.Printf("%s follows %s thread %s\n", args[0], source, args[1])
 			})
 		},
 	}
 	unfollow := &cobra.Command{
-		Use:   "unfollow <resident> <thread-id>",
-		Short: "End a resident's participation in a thread",
+		Use:   "unfollow <crew member> <thread-id>",
+		Short: "End a crew member's participation in a thread",
 		Args:  threadArgs(&source),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
@@ -405,7 +405,7 @@ yardr thread state sets the status of a thread the resident takes part in.`,
 			if err := st.UnfollowThread(c.Context(), args[0], source, args[1], a.who()); err != nil {
 				return err
 			}
-			return a.out(map[string]any{"resident": args[0], "source": source, "thread": args[1]}, func() {
+			return a.out(map[string]any{"crew": args[0], "source": source, "thread": args[1]}, func() {
 				fmt.Printf("%s unfollowed %s thread %s\n", args[0], source, args[1])
 			})
 		},
@@ -415,8 +415,8 @@ yardr thread state sets the status of a thread the resident takes part in.`,
 		_ = c.MarkFlagRequired("source")
 	}
 	list := &cobra.Command{
-		Use:   "list <resident>",
-		Short: "List the threads a resident participates in",
+		Use:   "list <crew member>",
+		Short: "List the threads a crew member participates in",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
@@ -441,9 +441,9 @@ yardr thread state sets the status of a thread the resident takes part in.`,
 	return cmd
 }
 
-// printBeadDelivery shows a bead event in resident's inbox, with why it
+// printBeadDelivery shows a bead event in crew member's inbox, with why it
 // is there: a subscription's reason, or "on" for a --on kind.
-func printBeadDelivery(e store.Event, resident string) {
+func printBeadDelivery(e store.Event, member string) {
 	data := map[string]any{}
 	for k, v := range e.Data {
 		if k != "deliveries" && k != "watches_ended" && k != "notified" {
@@ -469,26 +469,26 @@ func printBeadDelivery(e store.Event, resident string) {
 		extra = lead + fmtConfig(data)
 	}
 	fmt.Printf("%6d %s  %-8s %s (%s) by %s %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), deref(e.Bead), e.Kind,
-		or(store.Reason(e, resident), "on"), e.Actor, extra)
+		or(store.Reason(e, member), "on"), e.Actor, extra)
 }
 
 // watchCmds are yardr bead watch and unwatch: sugar for yardr subscriptions
 // with bead=<id>, which end when the bead closes.
 func (a *app) watchCmds() []*cobra.Command {
-	var resident, stage, kind string
+	var member, stage, kind string
 	var done bool
 	watch := &cobra.Command{
 		Use:   "watch <id>",
-		Short: "Deliver a bead's events to a resident's inbox until it closes",
-		Long: `Subscribes the resident (or manual group) to the bead's events in yardr:
-yardr subscribe <resident> yardr --where bead=<id>, narrowed by --stage (the
+		Short: "Deliver a bead's events to a crew member's inbox until it closes",
+		Long: `Subscribes the crew member (or manual group) to the bead's events in yardr:
+yardr subscribe <crew member> yardr --where bead=<id>, narrowed by --stage (the
 stage it enters), --kind and --done (it closes, by a terminal stage or a
 close). The watch ends when the bead closes, after the close is delivered.`,
 		Example: `  yardr bead watch yard-k3f9 --done
-  yardr bead watch yard-k3f9 --resident yardmaster --stage review`,
+  yardr bead watch yard-k3f9 --crew yardmaster --stage review`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			name, err := currentResident(resident)
+			name, err := currentCrew(member)
 			if err != nil {
 				return err
 			}
@@ -516,19 +516,20 @@ close). The watch ends when the bead closes, after the close is delivered.`,
 		},
 	}
 	f := watch.Flags()
-	f.StringVar(&resident, "resident", "", "resident or manual group (default $YARDR_RESIDENT)")
+	f.StringVar(&member, "crew", "", "crew member or manual group (default $YARDR_CREW)")
+	oldFlag(watch, "resident", "crew")
 	f.StringVar(&stage, "stage", "", "only when it enters this stage")
 	f.StringVar(&kind, "kind", "", "only events of this kind (advanced, noted, closed, ...)")
 	f.BoolVar(&done, "done", false, "only when it is done")
 
-	var unResident string
+	var unCrew string
 	unwatch := &cobra.Command{
 		Use:   "unwatch <id>",
-		Short: "Stop delivering a bead's events to a resident",
-		Long:  "Removes every yardr subscription of the resident (or manual group) for the bead.",
+		Short: "Stop delivering a bead's events to a crew member",
+		Long:  "Removes every yardr subscription of the crew member (or manual group) for the bead.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			name, err := currentResident(unResident)
+			name, err := currentCrew(unCrew)
 			if err != nil {
 				return err
 			}
@@ -545,6 +546,7 @@ close). The watch ends when the bead closes, after the close is delivered.`,
 			})
 		},
 	}
-	unwatch.Flags().StringVar(&unResident, "resident", "", "resident or manual group (default $YARDR_RESIDENT)")
+	unwatch.Flags().StringVar(&unCrew, "crew", "", "crew member or manual group (default $YARDR_CREW)")
+	oldFlag(unwatch, "resident", "crew")
 	return []*cobra.Command{watch, unwatch}
 }

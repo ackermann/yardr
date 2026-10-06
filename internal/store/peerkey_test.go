@@ -16,7 +16,7 @@ import (
 func renamedAndAddedAnew(t *testing.T) (y *peerYard, second string, forUp, forNorth *store.PeerOut) {
 	t.Helper()
 	y = newPeerYard(t, "")
-	y.resident(t, "yardmaster", "")
+	y.member(t, "yardmaster", "")
 	both := store.PeerAllow{Send: []string{"ping"}, Receive: []string{"ping", "mail"}}
 	y.allow(t, both)
 	forUp, err := y.api.PeerSend(y.ctx, "north", "ping", nil, "jo")

@@ -342,7 +342,7 @@ func TestMenuPages(t *testing.T) {
 		path := l[1]
 		r := f.get(path)
 		switch path {
-		case "/", "/line", "/flows", "/beads", "/sessions", "/residents":
+		case "/", "/line", "/flows", "/beads", "/sessions", "/crew":
 			if r.status != 200 {
 				t.Errorf("%s: status %d", path, r.status)
 			}
@@ -648,7 +648,7 @@ func TestNoOtherHost(t *testing.T) {
 	}
 	// The walk must have reached what it is there to check: every page of
 	// the menu, a bead's own page, the error page.
-	for _, path := range []string{"/", "/line", "/flows", "/beads", "/sessions", "/residents", "/nowhere"} {
+	for _, path := range []string{"/", "/line", "/flows", "/beads", "/sessions", "/crew", "/nowhere"} {
 		if !seen[path] {
 			t.Errorf("the walk did not reach %s: %v", path, seen)
 		}

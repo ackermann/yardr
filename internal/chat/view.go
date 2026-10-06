@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	// Wide is the width from which the residents are a column on the
+	// Wide is the width from which the crew are a column on the
 	// left. Narrower, they fold into one line on top, and the
 	// conversation has the whole width.
 	Wide = 100
@@ -27,7 +27,7 @@ const (
 
 // keys are the keys of the line at the bottom, each with what it does.
 var keys = [][2]string{
-	{"enter", "send"}, {"^j", "new line"}, {"tab", "next resident"},
+	{"enter", "send"}, {"^j", "new line"}, {"tab", "next member"},
 	{"pgup/pgdn", "scroll"}, {"^g", "pane"}, {"^c", "quit"},
 }
 
@@ -52,21 +52,21 @@ func keysLine(keys [][2]string, key, word lipgloss.Style) string {
 	return strings.Join(items, "  ")
 }
 
-// narrow reports whether the residents are folded into a line.
+// narrow reports whether the crew are folded into a line.
 func (m *Model) narrow() bool { return m.width < Wide }
 
 // layout is which of the view's rows a terminal has the height for. One
 // too low for them all gives them up in this order until the view fits:
 // the keys, the line of notices, the rows of the input down to one, the
-// rule above the input, the rule under the residents' line and that line
+// rule above the input, the rule under the crew's line and that line
 // last. The title and one line of the conversation stay, and the input's
 // last row goes only where there is room for nothing but those two.
 type layout struct {
 	keys, notice bool
 	input        int  // the rows of the line to type in
 	rule         bool // the rule above the input, on the yard's row under the notifications
-	foldRule     bool // the rule under the residents' line
-	fold         bool // the residents' line
+	foldRule     bool // the rule under the crew's line
+	fold         bool // the crew's line
 }
 
 // fixed is the rows of the layout that are not the conversation's, the
@@ -81,8 +81,8 @@ func (l layout) fixed() int {
 	return n
 }
 
-// layoutOf is the layout of a terminal of height rows, the residents
-// folded or not, on the yard's row or a resident's. The yard's row has no
+// layoutOf is the layout of a terminal of height rows, the crew
+// folded or not, on the yard's row or a crew member's. The yard's row has no
 // input.
 func layoutOf(height int, folded, yard bool) layout {
 	l := layout{keys: true, notice: true, input: inputRows, rule: true, foldRule: folded, fold: folded}
@@ -121,23 +121,23 @@ func (m *Model) areaRows() int {
 }
 
 // bodyRows is the height the conversation has: the area's, less the
-// notice of a resident that waits in its pane.
+// notice of a crew member that waits in its pane.
 func (m *Model) bodyRows() int {
 	return max(m.areaRows()-len(m.waits(m.bodyWidth())), 1)
 }
 
 // minBody is how much of the conversation stays in view above the notice
-// of a resident that waits in its pane: the notice gives up the pane's
+// of a crew member that waits in its pane: the notice gives up the pane's
 // lines for it, the oldest first.
 const minBody = 3
 
-// waits is the notice above the input for a selected resident that waits
+// waits is the notice above the input for a selected crew member that waits
 // in its pane (Waits), as lines of at most w columns, and nothing for any
 // other: what yardr knows, the pane's last lines, and the key that goes
-// there. It is no mail and nowhere kept: it is there while the resident
+// there. It is no mail and nowhere kept: it is there while the crew member
 // waits.
 func (m *Model) waits(w int) []string {
-	r := m.resident(m.sel)
+	r := m.member(m.sel)
 	if r == nil || !Waits(*r) {
 		return nil
 	}
@@ -217,7 +217,7 @@ func (m *Model) lines(w int) []string {
 		return m.noteLines(w)
 	}
 	if m.sel == "" {
-		return []string{look.faint.Render(fit(fmt.Sprintf("The yard has no residents: %s resident add", m.opt.Yardr), w))}
+		return []string{look.faint.Render(fit(fmt.Sprintf("The yard has no crew: %s crew add", m.opt.Yardr), w))}
 	}
 	c := m.convo[m.sel]
 	if len(c) == 0 {
@@ -232,13 +232,13 @@ func (m *Model) lines(w int) []string {
 		}
 		return []string{look.faint.Render(fit(text, w))}
 	}
-	r := m.resident(m.sel)
+	r := m.member(m.sel)
 	var out []string
 	for i, l := range c {
 		if i > 0 {
 			out = append(out, "")
 		}
-		from := look.resident
+		from := look.member
 		if l.From == m.opt.Me {
 			from = look.own
 		}
@@ -295,9 +295,9 @@ func pad(s string, w int) string {
 	return s + strings.Repeat(" ", max(w-ansi.StringWidth(s), 0))
 }
 
-// column is the yard's row and the residents as the wide view's left
+// column is the yard's row and the crew as the wide view's left
 // column, one a line. The yard's row has no state: its count stands where
-// a resident's does.
+// a crew member's does.
 func (m *Model) column() []string {
 	yardLabel := m.yardLabel()
 	mark, name, unread := "  ", pad(yardLabel, nameWidth), ""
@@ -308,7 +308,7 @@ func (m *Model) column() []string {
 		unread = look.unread.Render(fmt.Sprint(n))
 	}
 	out := []string{pad(mark+name+" "+pad("", len(Failed))+" "+unread, listWidth)}
-	for _, r := range m.residents {
+	for _, r := range m.crew {
 		mark, name := "  ", pad(r.Name, nameWidth)
 		if r.Name == m.sel {
 			mark, name = look.selected.Render("> "), look.selected.Render(name)
@@ -323,8 +323,8 @@ func (m *Model) column() []string {
 	return out
 }
 
-// folded is the yard's row and the residents as one line of w columns: the
-// selected one in brackets, each resident with its state and, in
+// folded is the yard's row and the crew as one line of w columns: the
+// selected one in brackets, each crew member with its state and, in
 // parentheses, the unread count. When they do not all fit, those before
 // the selected one give way first.
 func (m *Model) folded(w int) string {
@@ -337,7 +337,7 @@ func (m *Model) folded(w int) string {
 	}
 	items := []string{yard}
 	sel := 0
-	for i, r := range m.residents {
+	for i, r := range m.crew {
 		name, state, open, shut := r.Name, StateOf(r), "", ""
 		if r.Name == m.sel {
 			name, open, shut, sel = look.selected.Render(name), look.selected.Render("["), look.selected.Render("]"), i+1
@@ -381,7 +381,7 @@ func (m *Model) count() string {
 	return ""
 }
 
-// View is the screen: the title, the residents, the conversation with the
+// View is the screen: the title, the crew, the conversation with the
 // newest mail in view, the line to type in, a line of notices and the
 // keys. On the yard's row the notifications stand for the conversation,
 // and there is no line to type in. A terminal too low for all of it has
@@ -401,7 +401,7 @@ func (m *Model) View() string {
 	all := m.lines(bw)
 	end := len(all) - max(0, min(m.scroll, len(all)-rows))
 	// The conversation, filled to its height, and under it the notice of a
-	// resident that waits in its pane: right above the input.
+	// crew member that waits in its pane: right above the input.
 	body := make([]string, rows, m.areaRows())
 	copy(body, all[max(0, end-rows):end])
 	body = append(body, m.waits(bw)...)
@@ -448,7 +448,7 @@ func (m *Model) View() string {
 		note := m.notice
 		if note == "" {
 			if n, from := m.others(); n > 0 {
-				note = fmt.Sprintf("%d unread from %s, no resident: %s inbox", n, strings.Join(from, ", "), m.opt.Yardr)
+				note = fmt.Sprintf("%d unread from %s, no crew member: %s inbox", n, strings.Join(from, ", "), m.opt.Yardr)
 			}
 		}
 		out = append(out, fit(note, w))

@@ -64,7 +64,7 @@ func edit(t *testing.T, dir string, pairs ...string) {
 // one event saying so.
 func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 	st, o := yard(t)
-	o.Residents = map[string]string{"yardmaster": "boss"}
+	o.Crew = map[string]string{"yardmaster": "boss"}
 	res := apply(t, st, build(t, st, load(t, starter), o), answers)
 	if res.Created != 25 || res.Changed != 0 || res.Unchanged != 0 || !res.Recorded || !res.Wrote() {
 		t.Fatalf("first import = %+v", res)
@@ -83,12 +83,12 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 	if info, err := os.Stat(filepath.Join(o.Home, "packs", "starter", "scripts", "merge-local")); err != nil || info.Mode().Perm() != 0o755 {
 		t.Fatalf("merge-local: %v %v", info, err)
 	}
-	boss, err := st.GetResident(ctx, "boss")
+	boss, err := st.GetCrew(ctx, "boss")
 	if err != nil || len(boss.On) != 16 || len(boss.Subscriptions) != 3 || boss.Config["kind"] != "claude" || boss.Dir == "" {
 		t.Fatalf("boss = %+v, %v", boss, err)
 	}
-	if _, err := st.GetResident(ctx, "yardmaster"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("a resident yardmaster exists beside boss: %v", err)
+	if _, err := st.GetCrew(ctx, "yardmaster"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a crew member yardmaster exists beside boss: %v", err)
 	}
 
 	recs, err := st.Packs(ctx)
@@ -98,21 +98,21 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 	rec := recs[0]
 	abs, _ := filepath.Abs(starter)
 	if rec.Pack != "starter" || rec.Rig != "web" || rec.Source != abs || rec.By != "me" || rec.At.IsZero() || rec.Flow != "default" ||
-		rec.Groups["builders"] != "web-builders" || rec.Groups["backlog"] != "backlog" || !reflect.DeepEqual(rec.Residents, map[string]string{"yardmaster": "boss"}) {
+		rec.Groups["builders"] != "web-builders" || rec.Groups["backlog"] != "backlog" || !reflect.DeepEqual(rec.Crew, map[string]string{"yardmaster": "boss"}) {
 		t.Fatalf("record = %+v", rec)
 	}
 	// The starter pack is in this repository, so its commit is known.
 	if len(rec.Commit) != 40 {
 		t.Fatalf("commit = %q", rec.Commit)
 	}
-	// Everything but the resident, which stays the yard's.
+	// Everything but the crew member, which stays the yard's.
 	if len(rec.Objects) != 24 {
 		t.Fatalf("%d objects recorded: %+v", len(rec.Objects), rec.Objects)
 	}
 
 	// Again, with no flag: the record says who took yardmaster.
 	before := head(t, st)
-	o.Residents = nil
+	o.Crew = nil
 	plan := build(t, st, load(t, starter), o)
 	if len(plan.Questions) != 0 || len(actions(plan, pack.Unchanged)) != 25 {
 		t.Fatalf("second plan: questions %v, unchanged %v", plan.Questions, actions(plan, pack.Unchanged))
@@ -137,7 +137,7 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 // A yard set up by hand under the pack's names is overwritten in what the
 // pack carries and keeps the rest: the agent, model, arguments and env_file
 // of a group, the variables of a script group's command, the members of a
-// people group, a resident's identity and directory. No route is added
+// people group, a crew member's identity and directory. No route is added
 // beside the one a stage has.
 func TestApplyOverAYardSetUpByHand(t *testing.T) {
 	st, o := yard(t)
@@ -156,7 +156,7 @@ func TestApplyOverAYardSetUpByHand(t *testing.T) {
 		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Rig: &rig, Group: group, Priority: 7})
 		must(err)
 	}
-	_, err := st.PutResident(ctx, store.Resident{Name: "boss", Runner: "herdr", Dir: "/home/boss", MaxAge: "6h",
+	_, err := st.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "herdr", Dir: "/home/boss", MaxAge: "6h",
 		Config: map[string]any{"kind": "codex", "prompt": "/old/yardmaster.md", "env_file": "/boss.env"}, On: []string{"held"}}, "me")
 	must(err)
 	must(st.SetIdentity(ctx, "boss", "linear", store.Identity{ID: "u1", Key: "boss"}, "me"))
@@ -165,7 +165,7 @@ func TestApplyOverAYardSetUpByHand(t *testing.T) {
 	// replacing the unfiltered one must leave it.
 	must(st.AddSubscription(ctx, "boss", store.Subscription{Source: "linear", Scope: "all", Where: map[string]string{"team": "ENG"}}, "me"))
 
-	o.Residents = map[string]string{"yardmaster": "boss"}
+	o.Crew = map[string]string{"yardmaster": "boss"}
 	res := apply(t, st, build(t, st, load(t, starter), o), nil)
 	if !res.Wrote() {
 		t.Fatalf("result = %+v", res)
@@ -200,7 +200,7 @@ func TestApplyOverAYardSetUpByHand(t *testing.T) {
 	if want := map[string]int{"backlog": 1, "new": 1, "review": 1, "approved": 1, "decide": 1}; !reflect.DeepEqual(stages, want) {
 		t.Fatalf("routes per stage = %v, want %v", stages, want)
 	}
-	boss, err := st.GetResident(ctx, "boss")
+	boss, err := st.GetCrew(ctx, "boss")
 	must(err)
 	if boss.Dir != "/home/boss" || boss.MaxAge != "6h" || boss.Config["kind"] != "codex" || boss.Config["env_file"] != "/boss.env" ||
 		boss.Identities["linear"].ID != "u1" || boss.Config["prompt"] != filepath.Join(install, "roles", "yardmaster.md") || len(boss.On) != 16 {
@@ -401,8 +401,8 @@ func TestApplyChecksBeforeItWrites(t *testing.T) {
 			full[q.ID] = "claude"
 		}
 	}
-	fails(full, "resident yardmaster needs a directory")
-	full["resident.yardmaster.dir"] = t.TempDir()
+	fails(full, "crew member yardmaster needs a directory")
+	full["crew.yardmaster.dir"] = t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "roles", "builder.md"), []byte("changed under the plan\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -444,7 +444,7 @@ func TestApplyAgainFinishesAnImportThatFailedHalfway(t *testing.T) {
 	}
 
 	plan = build(t, st, load(t, starter), o)
-	// Left to do: three routes, the resident and its three subscriptions.
+	// Left to do: three routes, the crew member and its three subscriptions.
 	if got := actions(plan, pack.Create); len(got) != 7 {
 		t.Fatalf("to create after the failure: %v", got)
 	}
@@ -462,27 +462,27 @@ func TestApplyAgainFinishesAnImportThatFailedHalfway(t *testing.T) {
 	}
 }
 
-// A running resident whose role or subscriptions change keeps running: the
+// A running crew member whose role or subscriptions change keeps running: the
 // plan notes it and the result names it. One the import leaves as it is
 // needs no restart.
-func TestRunningResidentIsNotRestarted(t *testing.T) {
+func TestRunningCrewIsNotRestarted(t *testing.T) {
 	st, o := yard(t)
-	if _, err := st.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr", Config: map[string]any{"kind": "claude"}, On: []string{"held"}}, "me"); err != nil {
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Config: map[string]any{"kind": "claude"}, On: []string{"held"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.ResidentStarted(ctx, "yardmaster", map[string]any{"pane": "p1"}); err != nil {
+	if err := st.CrewStarted(ctx, "yardmaster", map[string]any{"pane": "p1"}); err != nil {
 		t.Fatal(err)
 	}
 	plan := build(t, st, load(t, starter), o)
-	if !find(t, plan, "resident", "yardmaster").Resident.Restart ||
-		!slices.ContainsFunc(plan.Notes, func(n string) bool { return strings.Contains(n, "yardr resident restart yardmaster") }) {
-		t.Fatalf("plan: %+v, notes %v", find(t, plan, "resident", "yardmaster").Resident, plan.Notes)
+	if !find(t, plan, "crew", "yardmaster").CrewMember.Restart ||
+		!slices.ContainsFunc(plan.Notes, func(n string) bool { return strings.Contains(n, "yardr crew restart yardmaster") }) {
+		t.Fatalf("plan: %+v, notes %v", find(t, plan, "crew", "yardmaster").CrewMember, plan.Notes)
 	}
 	res := apply(t, st, plan, answers)
 	if !slices.Equal(res.Restart, []string{"yardmaster"}) {
 		t.Fatalf("restart = %v", res.Restart)
 	}
-	r, err := st.GetResident(ctx, "yardmaster")
+	r, err := st.GetCrew(ctx, "yardmaster")
 	if err != nil || !r.Live() || r.RestartRequested != "" {
 		t.Fatalf("yardmaster = %+v, %v: the import must not restart it", r, err)
 	}
@@ -512,7 +512,7 @@ func rigWithRoles(t *testing.T, st store.API) {
 	if err := st.PutGroup(ctx, store.Group{Name: "web-builders", Runner: "herdr", Config: map[string]any{"kind": "claude", "prompt": "roles/builder.md"}, Limit: 5}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr", Config: map[string]any{"kind": "claude", "prompt": "/home/roles/yardmaster.md"}}, "me"); err != nil {
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Config: map[string]any{"kind": "claude", "prompt": "/home/roles/yardmaster.md"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -527,7 +527,7 @@ func record(t *testing.T, st store.API) store.PackImport {
 	return recs[0]
 }
 
-// The pack's roles win by default, as its flow does: a group and a resident
+// The pack's roles win by default, as its flow does: a group and a crew member
 // are pointed at the pack's copied role though the rig has its own
 // .yardr/roles/<name>.md, the plan shows the change of prompt and names the
 // rig's file that stops being used, and a second import changes nothing.
@@ -546,14 +546,14 @@ func TestPacksRolesWinOverTheRigsOwn(t *testing.T) {
 	if r := find(t, plan, "group", "web-reviewers"); len(r.Shadows) != 0 || r.Group.Config["prompt"] != filepath.Join(install, "roles", "reviewer.md") {
 		t.Fatalf("web-reviewers = %+v", r)
 	}
-	m := find(t, plan, "resident", "yardmaster")
+	m := find(t, plan, "crew", "yardmaster")
 	want = []pack.Diff{{Field: "prompt", Old: "/home/roles/yardmaster.md", New: filepath.Join(install, "roles", "yardmaster.md")}}
 	if m.Action != pack.Change || !slices.Equal(m.Shadows, []string{".yardr/roles/yardmaster.md"}) || len(m.Keeps) != 0 || !reflect.DeepEqual(m.Changes[:1], want) {
 		t.Fatalf("yardmaster = %+v", m)
 	}
 	apply(t, st, plan, nil)
 	g, _ := st.GetGroup(ctx, "web-builders")
-	r, _ := st.GetResident(ctx, "yardmaster")
+	r, _ := st.GetCrew(ctx, "yardmaster")
 	if g.Config["prompt"] != filepath.Join(install, "roles", "builder.md") || r.Config["prompt"] != filepath.Join(install, "roles", "yardmaster.md") {
 		t.Fatalf("after the import: builders %v, yardmaster %v", g.Config["prompt"], r.Config["prompt"])
 	}
@@ -574,7 +574,7 @@ func TestPacksRolesWinOverTheRigsOwn(t *testing.T) {
 	}
 }
 
-// RigRoles is the opposite choice: a group or resident whose rig has its
+// RigRoles is the opposite choice: a group or crew member whose rig has its
 // own role keeps it. The record remembers the choice, so the next import
 // repeats it without the flag and changes nothing; PackRoles undoes it, and
 // RigRoles after that takes a group off the pack's copy again.
@@ -598,8 +598,8 @@ func TestRigRolesKeepsTheRigsOwnAndIsRemembered(t *testing.T) {
 	if r := find(t, plan, "group", "web-reviewers"); len(r.Keeps) != 0 || r.Group.Config["prompt"] != filepath.Join(install, "roles", "reviewer.md") {
 		t.Fatalf("web-reviewers = %+v", r)
 	}
-	m := find(t, plan, "resident", "yardmaster")
-	if m.Resident.Prompt != "/home/roles/yardmaster.md" || len(m.Keeps) != 1 || len(m.Shadows) != 0 || slices.ContainsFunc(m.Changes, func(d pack.Diff) bool { return d.Field == "prompt" }) {
+	m := find(t, plan, "crew", "yardmaster")
+	if m.CrewMember.Prompt != "/home/roles/yardmaster.md" || len(m.Keeps) != 1 || len(m.Shadows) != 0 || slices.ContainsFunc(m.Changes, func(d pack.Diff) bool { return d.Field == "prompt" }) {
 		t.Fatalf("yardmaster = %+v", m)
 	}
 	// Installed all the same, for rigs without their own.
@@ -608,7 +608,7 @@ func TestRigRolesKeepsTheRigsOwnAndIsRemembered(t *testing.T) {
 	}
 	apply(t, st, plan, nil)
 	g, _ := st.GetGroup(ctx, "web-builders")
-	r, _ := st.GetResident(ctx, "yardmaster")
+	r, _ := st.GetCrew(ctx, "yardmaster")
 	if g.Config["prompt"] != "roles/builder.md" || r.Config["prompt"] != "/home/roles/yardmaster.md" {
 		t.Fatalf("after the import: builders %v, yardmaster %v", g.Config["prompt"], r.Config["prompt"])
 	}
@@ -634,8 +634,8 @@ func TestRigRolesKeepsTheRigsOwnAndIsRemembered(t *testing.T) {
 	if plan.RigRoles || len(b.Keeps) != 0 || !reflect.DeepEqual(b.Changes, want) || !slices.Equal(b.Shadows, []string{".yardr/roles/builder.md"}) {
 		t.Fatalf("with PackRoles: %+v", b)
 	}
-	if m := find(t, plan, "resident", "yardmaster"); m.Resident.Prompt != filepath.Join(install, "roles", "yardmaster.md") {
-		t.Fatalf("with PackRoles: yardmaster %+v", m.Resident)
+	if m := find(t, plan, "crew", "yardmaster"); m.CrewMember.Prompt != filepath.Join(install, "roles", "yardmaster.md") {
+		t.Fatalf("with PackRoles: yardmaster %+v", m.CrewMember)
 	}
 	apply(t, st, plan, nil)
 	if rec := record(t, st); rec.RigRoles {
@@ -840,7 +840,7 @@ func TestPruneHoldsTypePointerThatWouldStrandBeads(t *testing.T) {
 	}
 }
 
-// A new agent group and a new resident get the permission arguments the
+// A new agent group and a new crew member get the permission arguments the
 // import was answered with; an empty answer is none. One the yard has keeps
 // its own: the plan does not even ask.
 func TestApplyGivesNewAgentsTheirArguments(t *testing.T) {
@@ -855,7 +855,7 @@ func TestApplyGivesNewAgentsTheirArguments(t *testing.T) {
 			t.Fatalf("asks %s of a group the yard has", q.ID)
 		}
 	}
-	apply(t, st, plan, map[string]string{"group.web-builders.args": "--permission-mode  auto", "resident.yardmaster.args": ""})
+	apply(t, st, plan, map[string]string{"group.web-builders.args": "--permission-mode  auto", "crew.yardmaster.args": ""})
 	args := func(cfg map[string]any) string {
 		if cfg["args"] == nil {
 			return ""
@@ -868,7 +868,7 @@ func TestApplyGivesNewAgentsTheirArguments(t *testing.T) {
 	if g, err := st.GetGroup(ctx, "web-reviewers"); err != nil || args(g.Config) != "[--mine]" {
 		t.Fatalf("web-reviewers = %+v, %v", g, err)
 	}
-	if r, err := st.GetResident(ctx, "yardmaster"); err != nil || args(r.Config) != "" {
+	if r, err := st.GetCrew(ctx, "yardmaster"); err != nil || args(r.Config) != "" {
 		t.Fatalf("yardmaster = %+v, %v", r, err)
 	}
 	// Twice is once: the arguments are the yard's now.
@@ -1089,13 +1089,13 @@ func TestPruneLeavesTheStageFilesOfAFlowItCouldNotRemove(t *testing.T) {
 }
 
 // An import fills the placeholders of the pack's roles and stage files with
-// the yard's names: the operator, and for each resident of the pack the
-// yard's resident that takes it. A script is copied as it is. The record
+// the yard's names: the operator, and for each crew member of the pack the
+// yard's crew member that takes it. A script is copied as it is. The record
 // holds the filled text, so a second import changes nothing and only a real
 // hand edit of the filled copy is refused.
 func TestImportFillsThePlaceholders(t *testing.T) {
 	st, o := yard(t)
-	o.Operator, o.Residents = "Jo", map[string]string{"yardmaster": "boss"}
+	o.Operator, o.Crew = "Jo", map[string]string{"yardmaster": "boss"}
 	dir := copyStarter(t)
 	script := filepath.Join(dir, "scripts", "merge-local")
 	text, _ := os.ReadFile(script)
@@ -1149,15 +1149,15 @@ func TestImportFillsThePlaceholders(t *testing.T) {
 		t.Fatalf("the second import wrote: %+v", res)
 	}
 
-	// Another resident takes yardmaster: the files that name it change, and
+	// Another crew member takes yardmaster: the files that name it change, and
 	// that is no hand edit.
-	o.Residents = map[string]string{"yardmaster": "chief"}
+	o.Crew = map[string]string{"yardmaster": "chief"}
 	moved := build(t, st, load(t, dir), o)
 	if f := find(t, moved, "file", "roles/builder.md"); f.Action != pack.Change || f.Edited {
-		t.Fatalf("builder.md under another resident = %+v", f)
+		t.Fatalf("builder.md under another crew member = %+v", f)
 	}
 	if f := find(t, moved, "file", "roles/yardmaster.md"); f.Action != pack.Unchanged {
-		t.Fatalf("yardmaster.md names no resident, yet = %+v", f)
+		t.Fatalf("yardmaster.md names no crew member, yet = %+v", f)
 	}
 	if len(moved.EditedFiles()) != 0 {
 		t.Fatalf("a changed mapping counts as a hand edit: %v", moved.EditedFiles())
@@ -1210,14 +1210,14 @@ func TestFilledFileChangedSinceThePlanIsRefused(t *testing.T) {
 	}
 }
 
-// The starter pack's resident was called mayor until it became yardmaster.
+// The starter pack's crew member was called mayor until it became yardmaster.
 // For this release what was written with the old name still means that
-// resident: --resident mayor=<name>, the record of an import made before,
-// and {{mayor}} in a role a yard edited. A pack that still has a resident
+// crew member: --crew mayor=<name>, the record of an import made before,
+// and {{mayor}} in a role a yard edited. A pack that still has a crew member
 // mayor of its own is read as it stands.
 func TestThePacksMayorIsItsYardmaster(t *testing.T) {
 	st, o := yard(t)
-	o.Operator, o.Residents = "Jo", map[string]string{"mayor": "boss"}
+	o.Operator, o.Crew = "Jo", map[string]string{"mayor": "boss"}
 	dir := copyStarter(t)
 	builder := filepath.Join(dir, "roles", "builder.md")
 	text, _ := os.ReadFile(builder)
@@ -1225,8 +1225,8 @@ func TestThePacksMayorIsItsYardmaster(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan := build(t, st, load(t, dir), o)
-	if want := map[string]string{"yardmaster": "boss"}; !reflect.DeepEqual(plan.Residents, want) {
-		t.Fatalf("residents = %v, want %v", plan.Residents, want)
+	if want := map[string]string{"yardmaster": "boss"}; !reflect.DeepEqual(plan.Crew, want) {
+		t.Fatalf("crew members = %v, want %v", plan.Crew, want)
 	}
 	apply(t, st, plan, answers)
 	got, _ := os.ReadFile(filepath.Join(o.Home, "packs", "starter", "roles", "builder.md"))
@@ -1238,30 +1238,30 @@ func TestThePacksMayorIsItsYardmaster(t *testing.T) {
 
 	// The record as an import before the rename wrote it.
 	rec := record(t, st)
-	rec.Residents = map[string]string{"mayor": "boss"}
+	rec.Crew = map[string]string{"mayor": "boss"}
 	if _, err := st.RecordPack(ctx, rec, true, "me"); err != nil {
 		t.Fatal(err)
 	}
 	again := build(t, st, load(t, dir), pack.Options{Rig: o.Rig, Home: o.Home, Operator: "Jo"})
-	if want := map[string]string{"yardmaster": "boss"}; !reflect.DeepEqual(again.Residents, want) {
-		t.Fatalf("residents from the old record = %v, want %v", again.Residents, want)
+	if want := map[string]string{"yardmaster": "boss"}; !reflect.DeepEqual(again.Crew, want) {
+		t.Fatalf("crew members from the old record = %v, want %v", again.Crew, want)
 	}
 	if got := append(actions(again, pack.Create), actions(again, pack.Change)...); len(got) != 0 {
 		t.Fatalf("an import over the old record would write %v", got)
 	}
 	for _, n := range again.Notes {
 		if strings.Contains(n, "no longer does") {
-			t.Errorf("the old record reads as another resident: %s", n)
+			t.Errorf("the old record reads as another crew member: %s", n)
 		}
 	}
 
 	// A name the pack never had is still refused.
-	o.Residents = map[string]string{"sheriff": "boss"}
-	if _, err := pack.Build(ctx, st, load(t, dir), o); err == nil || !strings.Contains(err.Error(), "the pack has no resident sheriff") {
-		t.Fatalf("--resident sheriff=boss: %v", err)
+	o.Crew = map[string]string{"sheriff": "boss"}
+	if _, err := pack.Build(ctx, st, load(t, dir), o); err == nil || !strings.Contains(err.Error(), "the pack has no crew member sheriff") {
+		t.Fatalf("--crew sheriff=boss: %v", err)
 	}
 
-	// A pack of a yard's own that still calls its resident mayor.
+	// A pack of a yard's own that still calls its crew member mayor.
 	manifest := filepath.Join(dir, "pack.yaml")
 	text, _ = os.ReadFile(manifest)
 	own := strings.NewReplacer("  yardmaster:\n", "  mayor:\n", "as: yardmaster", "as: mayor").Replace(string(text))
@@ -1269,6 +1269,6 @@ func TestThePacksMayorIsItsYardmaster(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := pack.Load(dir); err == nil || !strings.Contains(err.Error(), "placeholder {{yardmaster}}") {
-		t.Fatalf("a pack with a resident mayor fills {{yardmaster}}: %v", err)
+		t.Fatalf("a pack with a crew member mayor fills {{yardmaster}}: %v", err)
 	}
 }

@@ -17,7 +17,7 @@
 // the event log is their history, and a "versions" bucket that once kept a
 // full snapshot per change (read by nothing but a migration) is dropped on
 // open. The log and the ended sessions are pruned by age (see Prune), the
-// log never past what a running resident has yet to read (within a bound)
+// log never past what a running crew member has yet to read (within a bound)
 // nor past the oldest live session, and a pruned file shrinks only when
 // compacted (Compact) while no server holds it.
 //
@@ -25,7 +25,7 @@
 // open (migrateRigKinds): every rig until then was a repository. The
 // stamp needs no schema bump, an older yardr reads past the field.
 //
-// Reads that serve one resident or follow the log page through indexes
+// Reads that serve one crew member or follow the log page through indexes
 // written at ingest (inbox, events_by_kind) rather than scanning the log
 // in one read transaction, and what needs the live sessions (a claim, the
 // dispatcher's pass) reads them through an index of their own rather than
@@ -40,6 +40,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -71,7 +72,7 @@ var (
 	bNotes    = []byte("notes")    // <bead>\x00<seq>
 	bEvents   = []byte("events")   // <seq>
 	bEventsBy = []byte("events_by_bead")
-	bInbox    = []byte("inbox")          // <resident>\x00<seq>: mail to it, or delivered to it by a subscription
+	bInbox    = []byte("inbox")          // <crew member>\x00<seq>: mail to it, or delivered to it by a subscription
 	bEventsKd = []byte("events_by_kind") // <kind>\x00<seq>
 	bSessions = []byte("sessions")
 	bSessLive = []byte("sessions_live") // <group>\x00<id>: the sessions that are starting or running
@@ -94,11 +95,11 @@ type Store struct {
 	db    *bolt.DB
 	hub   hub
 	repos repoCache
-	// mentions holds each resident's compiled @mention pattern, so matching
-	// an event under the write lock compiles a pattern once per resident.
+	// mentions holds each crew member's compiled @mention pattern, so matching
+	// an event under the write lock compiles a pattern once per crew member.
 	mentions mentionCache
 	// inboxReads counts the events Inbox decoded, so a test can tell it
-	// read only the resident's own.
+	// read only the crew member's own.
 	inboxReads atomic.Int64
 	// sessionReads counts the sessions read through the live index, so a
 	// test can tell Claim never looked at an ended one.
@@ -144,7 +145,22 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("%s: upgrade: %w", path, err)
 	}
+	// The directory goes first: until the store is stamped the paths it
+	// records are read through the link the move leaves.
+	home, moved := filepath.Dir(path), false
+	if err := db.View(func(tx *bolt.Tx) error {
+		if stampedSchema(tx) < 11 {
+			moved = moveCrewDir(home)
+		}
+		return nil
+	}); err != nil {
+		db.Close()
+		return nil, err
+	}
 	err = db.Update(func(tx *bolt.Tx) error {
+		if err := migrateCrewBucket(tx); err != nil {
+			return err
+		}
 		if tx.Bucket(bVersions) != nil {
 			if err := tx.DeleteBucket(bVersions); err != nil {
 				return err
@@ -183,6 +199,9 @@ func Open(path string) (*Store, error) {
 			return err
 		}
 		if err := migrateTrains(tx, stampedSchema(tx)); err != nil {
+			return err
+		}
+		if err := migrateCrew(tx, stampedSchema(tx), home, moved); err != nil {
 			return err
 		}
 		return setSchema(tx)
@@ -379,9 +398,9 @@ func (w *wtx) event(bead, kind, actor string, data map[string]any) error {
 	return put(w.Tx, bEvents, seqKey(seq), e)
 }
 
-// inboxOf lists whom e is addressed to: whom mail is for (a resident, or a
-// user), and the residents a subscription delivered it to. What reaches an inbox through a
-// resident's --on kinds is found through events_by_kind instead, since
+// inboxOf lists whom e is addressed to: whom mail is for (a crew member, or a
+// user), and the crew a subscription delivered it to. What reaches an inbox through a
+// crew member's --on kinds is found through events_by_kind instead, since
 // those are checked when the inbox is read.
 func inboxOf(e Event) []string {
 	var out []string

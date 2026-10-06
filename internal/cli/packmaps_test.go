@@ -46,24 +46,24 @@ func linearHook(t *testing.T, a *app) store.Hook {
 }
 
 // Importing the starter pack into a yard with a linear hook sets the map
-// and the resident on that hook, which yardr hook show prints. The plan and
-// the output name the set_state the resident lacks and the command that
+// and the crew member on that hook, which yardr hook show prints. The plan and
+// the output name the set_state the crew member lacks and the command that
 // grants it, and the import does not grant it. A second apply changes
 // nothing and logs pack_unchanged.
 func TestPackApplySetsTheStageMapOnTheYardsHook(t *testing.T) {
 	a := mapApp(t, "linear")
 	ctx := context.Background()
-	const grant = "resident boss may not set a status in linear, so no issue is moved. The import does not grant it: the operator allows it with yardr resident set boss set_state=linear\n"
+	const grant = "crew member boss may not set a status in linear, so no issue is moved. The import does not grant it: the operator allows it with yardr crew set boss set_state=linear\n"
 
-	out, err := run(t, a.packCmd(), "check", "../../packs/starter", "--rig", "web", "--resident", "yardmaster=boss")
+	out, err := run(t, a.packCmd(), "check", "../../packs/starter", "--rig", "web", "--crew", "yardmaster=boss")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
 		"\nstage maps\n  create           hook linear as boss\n",
-		"\nstage map of source linear, as resident boss\n  the pack says " + starterMapLines + "\n  would be set on hook linear, which has none\n",
+		"\nstage map of source linear, as crew member boss\n  the pack says " + starterMapLines + "\n  would be set on hook linear, which has none\n",
 		"  ok       hook         hook linear\n",
-		"  ok       identity     resident boss has an identity in linear\n",
+		"  ok       identity     crew member boss has an identity in linear\n",
 		"  missing  set state    " + grant,
 	} {
 		if !strings.Contains(out, want) {
@@ -90,7 +90,7 @@ func TestPackApplySetsTheStageMapOnTheYardsHook(t *testing.T) {
 	if err != nil || !strings.Contains(show, "  acts as boss\n  map task:merged=done\n  map task:new=started\n  map task:review=review\n") {
 		t.Fatalf("hook show: %v\n%s", err, show)
 	}
-	if r, _ := a.st.GetResident(ctx, "boss"); len(r.MaySetState()) != 0 {
+	if r, _ := a.st.GetCrew(ctx, "boss"); len(r.MaySetState()) != 0 {
 		t.Fatalf("the import let boss set a status in %v", r.MaySetState())
 	}
 
@@ -105,12 +105,12 @@ func TestPackApplySetsTheStageMapOnTheYardsHook(t *testing.T) {
 	}
 
 	// Once the operator has allowed it, nothing is left to say.
-	boss, _ := a.st.GetResident(ctx, "boss")
+	boss, _ := a.st.GetCrew(ctx, "boss")
 	boss.Config[store.SetState] = "linear"
-	if _, err := a.st.PutResident(ctx, *boss, "me"); err != nil {
+	if _, err := a.st.PutCrew(ctx, *boss, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if out = applyStarter(t, a); strings.Contains(out, "may not set a status") || !strings.Contains(out, "  ok       set state    resident boss may set a status in linear\n") {
+	if out = applyStarter(t, a); strings.Contains(out, "may not set a status") || !strings.Contains(out, "  ok       set state    crew member boss may set a status in linear\n") {
 		t.Fatalf("with set_state:\n%s", out)
 	}
 }
@@ -123,11 +123,11 @@ func TestPackApplyWithoutTheHookSaysWhatToAdd(t *testing.T) {
 	ctx := context.Background()
 	out := applyStarter(t, a)
 	for _, want := range []string{
-		"\nstage map of source linear, as resident boss\n  the pack says " + starterMapLines + "\n  nothing would be set: the import goes through without it",
+		"\nstage map of source linear, as crew member boss\n  the pack says " + starterMapLines + "\n  nothing would be set: the import goes through without it",
 		"  missing  hook         no hook receives linear, and the import makes none: yardr hook add linear --source linear --secret-file <file>, then apply the pack again\n",
 		"\napplied pack starter to rig web: ",
 		"\nthe stage map of linear was not set: no hook receives linear, and the import makes none: yardr hook add linear --source linear --secret-file <file>, then apply the pack again\n",
-		"\nnote: resident boss may not set a status in linear",
+		"\nnote: crew member boss may not set a status in linear",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("pack apply lacks %q:\n%s", want, out)
@@ -153,8 +153,8 @@ func TestPackApplyWithoutTheHookSaysWhatToAdd(t *testing.T) {
 	}
 }
 
-// A hook that acts as a resident speaks as it, so only the operator or that
-// resident's own session has the import set the map: anyone else gets the
+// A hook that acts as a crew member speaks as it, so only the operator or that
+// crew member's own session has the import set the map: anyone else gets the
 // refusal yardr hook add --as gives and the rest of the pack.
 func TestPackApplyByAnotherSessionSetsNoStageMap(t *testing.T) {
 	a := mapApp(t, "linear")
@@ -163,9 +163,9 @@ func TestPackApplyByAnotherSessionSetsNoStageMap(t *testing.T) {
 	const refusal = "only boss's own session or the operator (me) may speak as boss; this is web-builder-1"
 	out := applyStarter(t, a)
 	for _, want := range []string{
-		"\nstage map of source linear, as resident boss\n  the pack says " + starterMapLines + "\n  not set on hook linear: ",
+		"\nstage map of source linear, as crew member boss\n  the pack says " + starterMapLines + "\n  not set on hook linear: ",
 		"\napplied pack starter to rig web: ",
-		"\nthe stage map of linear was not set on hook linear: pack apply: the stage map of linear --resident boss: " + refusal + ". The rest of the import does not depend on it\n",
+		"\nthe stage map of linear was not set on hook linear: pack apply: the stage map of linear --crew boss: " + refusal + ". The rest of the import does not depend on it\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("pack apply lacks %q:\n%s", want, out)
@@ -195,7 +195,7 @@ func TestPackApplyByAnotherSessionSetsNoStageMap(t *testing.T) {
 	}
 	a.json = false
 
-	// The resident's own session may, as it may run hook add --as itself.
+	// The crew member's own session may, as it may run hook add --as itself.
 	a.actor = "boss"
 	if out = applyStarter(t, a); !strings.Contains(out, "\nhook linear now moves tracked linear issues as boss: ") {
 		t.Fatalf("as boss:\n%s", out)

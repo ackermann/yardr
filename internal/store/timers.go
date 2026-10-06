@@ -12,10 +12,10 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// A timer is a resident's or a user's request to be told something later:
+// A timer is a crew member's or a user's request to be told something later:
 // once, or every so often, and not at all when what it waited for came
 // first (Unless). It is a record, fired by the daemon's pass (FireTimers),
-// so it outlives the session that set it. To a resident a firing is an
+// so it outlives the session that set it. To a crew member a firing is an
 // event of kind timer in its inbox, which the usual nudge wakes it for; to
 // a user it is mail from whoever set it, marked as a timer, and wakes
 // nobody.
@@ -60,7 +60,7 @@ const LastFiring = "This was the last; set it again if still wanted."
 // keeps what became of it.
 type Timer struct {
 	ID string `json:"id"`
-	// By set it; To is told. A resident is only ever told by itself.
+	// By set it; To is told. A crew member is only ever told by itself.
 	By     string    `json:"by"`
 	To     string    `json:"to"`
 	ToUser bool      `json:"to_user,omitempty"`
@@ -163,9 +163,9 @@ func timerLimits(tx *bolt.Tx) (limit int, minEvery time.Duration) {
 	return limit, minEvery
 }
 
-// AddTimer sets a timer as actor, who must be a resident or a user. It is
-// for the setter, or, set by a resident, for a user; nobody sets one for
-// another resident. It refuses what the yard's limits do not allow, and a
+// AddTimer sets a timer as actor, who must be a crew member or a user. It is
+// for the setter, or, set by a crew member, for a user; nobody sets one for
+// another crew member. It refuses what the yard's limits do not allow, and a
 // timer whose Unless already holds.
 func (s *Store) AddTimer(ctx context.Context, nt NewTimer, actor string) (*Timer, error) {
 	reason := strings.TrimSpace(nt.Reason)
@@ -195,22 +195,22 @@ func (s *Store) AddTimer(ctx context.Context, nt NewTimer, actor string) (*Timer
 		t.Unless = &TimerUnless{Bead: st.bead, Stage: nt.UnlessStage}
 	}
 	err := s.write(func(w *wtx) error {
-		byResident := w.Bucket(bResidents).Get([]byte(actor)) != nil
+		byCrew := w.Bucket(bCrew).Get([]byte(actor)) != nil
 		byUser := w.Bucket(bUsers).Get([]byte(actor)) != nil
-		if !byResident && !byUser {
-			return fmt.Errorf("timer: %s is neither a resident nor a user of the yard, and only they set timers "+
+		if !byCrew && !byUser {
+			return fmt.Errorf("timer: %s is neither a crew member nor a user of the yard, and only they set timers "+
 				"(an agent working a bead says what it has to say on its bead)", actor)
 		}
-		toResident := w.Bucket(bResidents).Get([]byte(t.To)) != nil
-		t.ToUser = !toResident && w.Bucket(bUsers).Get([]byte(t.To)) != nil
+		toCrew := w.Bucket(bCrew).Get([]byte(t.To)) != nil
+		t.ToUser = !toCrew && w.Bucket(bUsers).Get([]byte(t.To)) != nil
 		switch {
 		case t.To == actor:
-		case toResident:
-			return fmt.Errorf("timer: nobody sets a timer for another resident: mail it (yardr mail %s \"...\"), "+
+		case toCrew:
+			return fmt.Errorf("timer: nobody sets a timer for another crew member: mail it (yardr mail %s \"...\"), "+
 				"and it sets its own if it wants one", t.To)
 		case !t.ToUser:
 			return fmt.Errorf("timer: --to %s: no user of that name (yardr user list): %w", t.To, ErrNotFound)
-		case !byResident:
+		case !byCrew:
 			return fmt.Errorf("timer: a user sets timers for themselves; what %s should know, mail them (yardr mail %s \"...\")", t.To, t.To)
 		}
 		limit, minEvery := timerLimits(w.Tx)
@@ -446,7 +446,7 @@ func (s *Store) FireTimers(ctx context.Context, at time.Time) (*TimerPass, error
 					continue // removed, or fired by another call, meanwhile
 				}
 				if step.drop == "" {
-					bucket := bResidents
+					bucket := bCrew
 					if t.ToUser {
 						bucket = bUsers
 					}
@@ -540,7 +540,7 @@ func (w *wtx) fireTimer(t Timer, stands string, at time.Time) error {
 	return put(w.Tx, bTimers, t.ID, t)
 }
 
-// ReasonTimer is the delivery reason of a fired timer in its resident's
+// ReasonTimer is the delivery reason of a fired timer in its crew member's
 // inbox.
 const ReasonTimer = "timer"
 

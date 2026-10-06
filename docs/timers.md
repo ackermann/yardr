@@ -1,6 +1,6 @@
 # Timers: the yard tells someone later
 
-A timer is a resident's or a user's request to the yard: tell someone this,
+A timer is a crew member's or a user's request to the yard: tell someone this,
 at that time, unless what I am waiting for happened first. It is a record in
 the store and the daemon fires it, so it outlives the session that set it.
 
@@ -9,7 +9,7 @@ yardr timer add --in 40m "look at the deploy again"
 yardr timer add --at 09:00 "read the night's CI"
 yardr timer add --every 1d --for 14d --unless bead=yardr-1a2b "yardr-1a2b is still open"
 yardr timer add --in 30m --to mckean --unless bead=yardr-1a2b,stage=review \
-  "yardr-1a2b is stuck in new"         # a resident, for a user
+  "yardr-1a2b is stuck in new"         # a crew member, for a user
 
 yardr timer list                         # those you set and those that tell you
 yardr timer list --all                   # the operator: every timer of the yard
@@ -39,17 +39,17 @@ Durations are Go's (`90s`, `40m`, `12h`) or whole days (`7d`).
 
 ## Who sets one, and for whom
 
-A resident and a user set timers. An agent working a bead does not: what it
+A crew member and a user set timers. An agent working a bead does not: what it
 has to say goes on its bead.
 
 `--to` names who is told; the default is whoever sets it.
 
 | who sets it | for whom |
 |---|---|
-| a resident | itself, or a user of the yard (`yardr user list`) |
+| a crew member | itself, or a user of the yard (`yardr user list`) |
 | a user | themselves |
 
-Nobody sets a timer for another resident: mail it, and it sets its own if it
+Nobody sets a timer for another crew member: mail it, and it sets its own if it
 wants one. A user who wants another user to know something mails them.
 
 Like every command, `yardr timer` goes by its actor (`--actor`, else
@@ -58,23 +58,23 @@ keyboard ([users.md](users.md#who-is-acting)).
 
 ## What a firing is
 
-**To a resident** it is an event of kind `timer` in its inbox. The usual
-nudge wakes the resident for it when it is idle
-([residents.md](residents.md)):
+**To a crew member** it is an event of kind `timer` in its inbox. The usual
+nudge wakes the crew member for it when it is idle
+([crew.md](crew.md)):
 
 ```
    512 10-05 14:40  timer: look at the deploy again (set 10-05 14:00 by yardmaster).
 ```
 
 **To a user** it is mail from whoever set it, whose text begins `timer:`. It
-is in `yardr inbox` and in the conversation with that resident in
+is in `yardr inbox` and in the conversation with that crew member in
 [`yardr chat`](chat.md), like any other mail, and `yardr mail --with <name>
 --json` marks it with `timer`, the timer's id. Nothing nudges a person, and
-the resident that set it is not woken: "tell mckean if this bead is stuck"
+the crew member that set it is not woken: "tell mckean if this bead is stuck"
 costs no session a turn.
 
 A user's own timer is mail from themselves: `yardr inbox` shows it, and
-`yardr chat`, which shows the conversations with residents, does not.
+`yardr chat`, which shows the conversations with crew members, does not.
 
 The text says the reason, who set the timer and when (in the time zone of
 the yard's server), and, when they apply:
@@ -131,7 +131,7 @@ period: time missed is one firing, never one per period.
 A firing counts as late from one minute after it was due; the daemon wakes
 for the next timer, so a running one fires within about a second.
 
-A timer whose receiver has left the yard (a user removed, a resident
+A timer whose receiver has left the yard (a user removed, a crew member
 deleted) is dropped, with `timer_dropped`.
 
 ## Where timers are seen
@@ -140,9 +140,9 @@ deleted) is dropped, with `timer_dropped`.
   for the operator, every timer. `--json` prints the records: `id`, `by`,
   `to`, `to_user`, `reason`, `set_at`, `due`, `every`, `ends`, `unless`,
   `fired`.
-- `yardr prime --resident <name>`: a resident's live timers, under `##
+- `yardr prime --crew <name>`: a crew member's live timers, under `##
   Timers`, so its next session knows what it asked for.
-- `yardr resident show <name>` and `yardr user show <name>`.
+- `yardr crew show <name>` and `yardr user show <name>`.
 
 `yardr timer rm <id>` removes a timer you set or that tells you; the
 operator removes any.

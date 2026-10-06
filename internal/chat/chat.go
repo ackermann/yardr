@@ -1,7 +1,7 @@
-// Package chat is the view behind yardr chat: the yard's residents, each
+// Package chat is the view behind yardr chat: the yard's crew, each
 // with what its session is doing and how much of its mail is unread, the
 // conversation with the selected one, and a line to write to it
-// (docs/chat.md). Above the residents is the yard itself: the user's
+// (docs/chat.md). Above the crew is the yard itself: the user's
 // notifications, which are no conversation and take no answer (yard.go).
 //
 // It shows what the store keeps and sends through it: a conversation is
@@ -11,9 +11,9 @@
 // asking again in a loop. The model here knows no terminal: Update takes
 // messages and View returns text, which is how it is tested.
 //
-// One thing is not the store's: the last lines of the pane of a resident
+// One thing is not the store's: the last lines of the pane of a crew member
 // that waits there for a person (Waits). They are read from the runtime,
-// through Options.Tail, while such a resident is selected.
+// through Options.Tail, while such a crew member is selected.
 package chat
 
 import (
@@ -35,7 +35,7 @@ import (
 // Store is what the view asks of the yard; store.API has it all.
 type Store interface {
 	Head(ctx context.Context) (uint64, error)
-	Residents(ctx context.Context) ([]store.Resident, error)
+	Crew(ctx context.Context) ([]store.CrewMember, error)
 	GetUser(ctx context.Context, name string) (*store.User, error)
 	UserInbox(ctx context.Context, name string, limit int) (*store.Mailbox, error)
 	AckUserInbox(ctx context.Context, name string, through uint64) error
@@ -50,7 +50,7 @@ type Options struct {
 	// Me is the user the view is for: the sender of what is typed, and
 	// the one whose mail opening a conversation acknowledges.
 	Me string
-	// Select is the resident selected first; "" or one the yard does not
+	// Select is the crew member selected first; "" or one the yard does not
 	// have selects the first of the list.
 	Select string
 	// Yardr is the command's name in the hints the view gives.
@@ -61,15 +61,15 @@ type Options struct {
 	InHerdr bool
 	Focus   func(ctx context.Context, agent string) error
 	// Tail reads the last lines a session's pane shows, blank ones left
-	// out, for the notice of a resident that waits in it (Waits). Without
+	// out, for the notice of a crew member that waits in it (Waits). Without
 	// it, and when it fails, the notice has no lines of the pane.
 	Tail func(ctx context.Context, handle map[string]any, lines int) (string, error)
 	// Refresh is how often the pane is read again while that notice
-	// shows: what a harness asks can change with the resident still
-	// blocked, and no event tells of it. 0 reads it when the resident's
+	// shows: what a harness asks can change with the crew member still
+	// blocked, and no event tells of it. 0 reads it when the crew member's
 	// state changes and not in between.
 	Refresh time.Duration
-	// Expect is a resident whose first mail is on its way: its session was
+	// Expect is a crew member whose first mail is on its way: its session was
 	// asked to greet the user when it started (the onboarding's yardmaster).
 	// Until there is mail between the two, its conversation says so.
 	Expect string
@@ -80,8 +80,8 @@ type State struct {
 	// Head is the newest event when the rest was read; the stream is
 	// followed from after it. What happens while the rest is read comes
 	// again from the stream, and applying it twice changes nothing.
-	Head      uint64
-	Residents []store.Resident
+	Head uint64
+	Crew []store.CrewMember
 	// Cursor is how far the user's mail is acknowledged, and Unread the
 	// mail after it.
 	Cursor uint64
@@ -100,7 +100,7 @@ func Load(ctx context.Context, st Store, me string) (*State, error) {
 		return nil, err
 	}
 	s := &State{Head: head}
-	if s.Residents, err = st.Residents(ctx); err != nil {
+	if s.Crew, err = st.Crew(ctx); err != nil {
 		return nil, err
 	}
 	u, err := st.GetUser(ctx, me)
@@ -146,10 +146,10 @@ type (
 		letters []store.Letter
 		err     error
 	}
-	residentsMsg struct {
-		head      uint64
-		residents []store.Resident
-		err       error
+	crewMsg struct {
+		head uint64
+		crew []store.CrewMember
+		err  error
 	}
 	// sentMsg is how a send ended: sent of the text's of mails went to
 	// to, and when err stopped it, rest is the text that did not.
@@ -177,9 +177,9 @@ type (
 	refreshMsg struct{ gen int }
 )
 
-// paneOf is what the view has of the pane of the selected resident while
+// paneOf is what the view has of the pane of the selected crew member while
 // it waits there: its last lines, as text and nothing else (inert). gen
-// numbers the watch: selecting another resident, or this one going on,
+// numbers the watch: selecting another crew member, or this one going on,
 // starts a new one, and what comes back for an older is dropped. busy says
 // a read or the wait for the next is under way, so that one watch reads
 // once at a time.
@@ -206,13 +206,13 @@ type Model struct {
 	st  Store
 	opt Options
 
-	residents []store.Resident
-	sel       string // the selected resident's name, "" on the yard's row
+	crew []store.CrewMember
+	sel  string // the selected crew member's name, "" on the yard's row
 	// yard says the yard's row is selected: the notifications and no
 	// conversation (yard.go).
 	yard bool
-	// statusAt is the seq of the resident_status event a resident's
-	// status was last taken from: a list of the residents read before it
+	// statusAt is the seq of the crew_status event a crew member's
+	// status was last taken from: a list of the crew read before it
 	// does not put an older status back.
 	statusAt map[string]uint64
 
@@ -241,7 +241,7 @@ type Model struct {
 	height int
 	scroll int // lines the conversation is scrolled up from its end
 	notice string
-	// watched is the pane of the selected resident while it waits there.
+	// watched is the pane of the selected crew member while it waits there.
 	watched paneOf
 }
 
@@ -250,7 +250,7 @@ func New(ctx context.Context, st Store, opt Options, s *State) *Model {
 	if opt.Yardr == "" {
 		opt.Yardr = "yardr"
 	}
-	m := &Model{ctx: ctx, st: st, opt: opt, residents: s.Residents, cursor: s.Cursor, asked: s.Cursor,
+	m := &Model{ctx: ctx, st: st, opt: opt, crew: s.Crew, cursor: s.Cursor, asked: s.Cursor,
 		statusAt: map[string]uint64{}, convo: map[string][]store.Letter{}, loaded: map[string]bool{},
 		unread: map[uint64]*waiting{},
 		notes:  s.Notifications, noteCursor: s.NotificationCursor, noteAsked: s.NotificationCursor}
@@ -270,36 +270,36 @@ func New(ctx context.Context, st Store, opt Options, s *State) *Model {
 	in.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("ctrl+j", "alt+enter"))
 	in.Focus()
 	m.input = in
-	if m.resident(opt.Select) != nil {
+	if m.member(opt.Select) != nil {
 		m.sel = opt.Select
-	} else if len(m.residents) > 0 {
-		m.sel = m.residents[0].Name
+	} else if len(m.crew) > 0 {
+		m.sel = m.crew[0].Name
 	}
 	m.opened()
 	return m
 }
 
 // Init starts the cursor, reads the first conversation and, when the
-// selected resident waits in its pane, that pane.
+// selected crew member waits in its pane, that pane.
 func (m *Model) Init() tea.Cmd {
 	return tea.Batch(textarea.Blink, m.open(), m.watch())
 }
 
-// resident is the resident name, nil when the yard has none of it.
-func (m *Model) resident(name string) *store.Resident {
-	for i := range m.residents {
-		if m.residents[i].Name == name {
-			return &m.residents[i]
+// crew member is the crew member name, nil when the yard has none of it.
+func (m *Model) member(name string) *store.CrewMember {
+	for i := range m.crew {
+		if m.crew[i].Name == name {
+			return &m.crew[i]
 		}
 	}
 	return nil
 }
 
-// Expects is the resident whose first mail the view was told is on its
+// Expects is the crew member whose first mail the view was told is on its
 // way (Options.Expect).
 func (m *Model) Expects() string { return m.opt.Expect }
 
-// Selected is the selected resident's name, "" in a yard without any and
+// Selected is the selected crew member's name, "" in a yard without any and
 // on the yard's row (OnYard).
 func (m *Model) Selected() string { return m.sel }
 
@@ -314,13 +314,13 @@ func (m *Model) Unread(name string) int {
 	return n
 }
 
-// others are the senders of unread mail who are no residents, in name
-// order, and how many mails that is: the view shows residents only, so it
+// others are the senders of unread mail who are no crew members, in name
+// order, and how many mails that is: the view shows crew members only, so it
 // says where the rest is read.
 func (m *Model) others() (int, []string) {
 	n, from := 0, []string{}
 	for _, w := range m.unread {
-		if m.resident(w.from) != nil {
+		if m.member(w.from) != nil {
 			continue
 		}
 		n++
@@ -332,7 +332,7 @@ func (m *Model) others() (int, []string) {
 	return n, from
 }
 
-// The states a resident is listed with.
+// The states a crew member is listed with.
 const (
 	NotRunning = "not running"
 	Working    = "working"
@@ -345,9 +345,9 @@ const (
 )
 
 // StateOf is the state r is listed with: whether its session runs, and
-// what the daemon last saw it do. A resident whose last start failed is
+// what the daemon last saw it do. A crew member whose last start failed is
 // failed to start, parked for good or waiting for the next try.
-func StateOf(r store.Resident) string {
+func StateOf(r store.CrewMember) string {
 	switch {
 	case r.State == "failed" || (!r.Live() && r.Enabled && r.Failures > 0):
 		return Failed
@@ -365,16 +365,16 @@ func StateOf(r store.Resident) string {
 	return Running
 }
 
-// PaneKey is the key that goes to the selected resident's pane, as the
+// PaneKey is the key that goes to the selected crew member's pane, as the
 // view names it in a sentence.
 const PaneKey = "ctrl+g"
 
 // Waits reports whether r's session waits in its pane for a person: its
 // runtime reads it blocked, or its first prompt is still to be delivered
 // and it is not working on one (a harness at a login or a dialog takes no
-// prompt, and a runtime may read it idle there). Such a resident reads no
+// prompt, and a runtime may read it idle there). Such a crew member reads no
 // mail until someone answered it.
-func Waits(r store.Resident) bool {
+func Waits(r store.CrewMember) bool {
 	if !r.Live() {
 		return false
 	}
@@ -392,13 +392,13 @@ func NotReady(kind string) string {
 	return fmt.Sprintf("%s was started in the pane but is not ready for its first prompt: it %s", kind, MayWaitAt)
 }
 
-// AtPrompt says that the resident named waits in its pane: the start of
+// AtPrompt says that the crew member named waits in its pane: the start of
 // the line under a mail it cannot read, and of the notice above the input.
 func AtPrompt(name string) string { return name + " waits at a prompt in its pane" }
 
-// Known is the one line of what yardr knows about a resident that waits
+// Known is the one line of what yardr knows about a crew member that waits
 // in its pane (Waits).
-func Known(r store.Resident) string {
+func Known(r store.CrewMember) string {
 	kind, _ := r.Config["kind"].(string)
 	if kind == "" {
 		kind = "its harness"
@@ -412,7 +412,7 @@ func Known(r store.Resident) string {
 // Standing is where a mail the user sent stands: read, or what its
 // receiver's state means for it. r is nil for a receiver the yard no
 // longer has.
-func Standing(l store.Letter, r *store.Resident, yardr string) string {
+func Standing(l store.Letter, r *store.CrewMember, yardr string) string {
 	switch {
 	case l.Read:
 		return "read"
@@ -429,9 +429,9 @@ func Standing(l store.Letter, r *store.Resident, yardr string) string {
 	case Idle:
 		return fmt.Sprintf("sent; %s is idle", n)
 	case NotRunning:
-		return fmt.Sprintf("%s is not running: %s resident start %s", n, yardr, n)
+		return fmt.Sprintf("%s is not running: %s crew start %s", n, yardr, n)
 	case Failed:
-		return fmt.Sprintf("%s failed to start: %s resident show %s", n, yardr, n)
+		return fmt.Sprintf("%s failed to start: %s crew show %s", n, yardr, n)
 	}
 	return "sent"
 }
@@ -443,7 +443,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.input.SetWidth(max(msg.Width, 10))
-		// The input has the rows a resident's layout gives it at this
+		// The input has the rows a crew member's layout gives it at this
 		// height, whichever row is selected now: the yard's has no input.
 		m.input.SetHeight(max(layoutOf(m.height, m.narrow(), false).input, 1))
 		m.clamp()
@@ -452,7 +452,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.key(msg)
 	case EventMsg:
 		// Whatever the event changed, the pane watched is the one of the
-		// resident now selected, if it waits there.
+		// crew member now selected, if it waits there.
 		cmd := m.event(store.Event(msg))
 		return m, tea.Batch(cmd, m.watch())
 	case StreamMsg:
@@ -469,12 +469,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.clamp()
 		return m, m.ack()
-	case residentsMsg:
+	case crewMsg:
 		if msg.err != nil {
-			m.notice = fmt.Sprintf("the residents could not be read: %v", msg.err)
+			m.notice = fmt.Sprintf("the crew could not be read: %v", msg.err)
 			return m, nil
 		}
-		cmd := m.listed(msg.head, msg.residents)
+		cmd := m.listed(msg.head, msg.crew)
 		return m, tea.Batch(cmd, m.watch())
 	case sentMsg:
 		if msg.err != nil {
@@ -555,7 +555,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) key(k tea.KeyMsg) tea.Cmd {
 	switch k.String() {
 	case "ctrl+c":
-		// Leaving ends the view and nothing else: the residents are the
+		// Leaving ends the view and nothing else: the crew are the
 		// daemon's to keep.
 		return tea.Quit
 	case "tab":
@@ -578,7 +578,7 @@ func (m *Model) key(k tea.KeyMsg) tea.Cmd {
 	if m.yard {
 		// Nothing typed here goes anywhere, and the view says so once
 		// rather than keep it for whoever is selected next.
-		m.notice = "nobody to answer here: the yard reports, tab goes to a resident"
+		m.notice = "nobody to answer here: the yard reports, tab goes to a crew member"
 		return nil
 	}
 	before := m.input.Value()
@@ -598,26 +598,26 @@ func (m *Model) key(k tea.KeyMsg) tea.Cmd {
 }
 
 // step selects the row by rows further down the list, around its ends:
-// the yard's row is the first, the residents follow.
+// the yard's row is the first, the crew follow.
 func (m *Model) step(by int) tea.Cmd {
-	n := 1 + len(m.residents)
+	n := 1 + len(m.crew)
 	i := 0
 	if !m.yard {
-		// In a yard without residents nothing is selected, and the yard's
+		// In a yard without crew members nothing is selected, and the yard's
 		// row is the next either way.
-		i = 1 + slices.IndexFunc(m.residents, func(r store.Resident) bool { return r.Name == m.sel })
+		i = 1 + slices.IndexFunc(m.crew, func(r store.CrewMember) bool { return r.Name == m.sel })
 	}
 	i = ((i+by)%n + n) % n
 	m.yard, m.sel = i == 0, ""
 	if !m.yard {
-		m.sel = m.residents[i-1].Name
+		m.sel = m.crew[i-1].Name
 	}
 	m.notice = ""
 	m.opened()
 	return tea.Batch(m.open(), m.watch())
 }
 
-// opened is what selecting a resident does to the view itself: its
+// opened is what selecting a crew member does to the view itself: its
 // conversation is shown from its end, and the unread mail in it is seen.
 func (m *Model) opened() {
 	m.scroll = 0
@@ -724,7 +724,7 @@ func (m *Model) acked(through uint64) {
 	}
 }
 
-// send mails what is typed to the selected resident: as one mail when one
+// send mails what is typed to the selected crew member: as one mail when one
 // holds it, else as its parts, in order, each numbered (split). A part that
 // is not taken ends the send, so that no later part arrives without it.
 func (m *Model) send() tea.Cmd {
@@ -747,16 +747,16 @@ func (m *Model) send() tea.Cmd {
 	}
 }
 
-// pane goes to the selected resident's pane: in herdr it is brought to
+// pane goes to the selected crew member's pane: in herdr it is brought to
 // the front, elsewhere the view says which herdr command opens it.
 func (m *Model) pane() tea.Cmd {
-	r := m.resident(m.sel)
+	r := m.member(m.sel)
 	if r == nil {
 		return nil
 	}
 	agent, _ := r.Handle["agent"].(string)
 	if !r.Live() || agent == "" {
-		m.notice = fmt.Sprintf("%s has no pane, it is not running: %s resident start %s", r.Name, m.opt.Yardr, r.Name)
+		m.notice = fmt.Sprintf("%s has no pane, it is not running: %s crew start %s", r.Name, m.opt.Yardr, r.Name)
 		return nil
 	}
 	if !m.opt.InHerdr || m.opt.Focus == nil {
@@ -770,11 +770,11 @@ func (m *Model) pane() tea.Cmd {
 // paneRows is how many of the pane's last lines the notice quotes.
 const paneRows = 6
 
-// watch keeps the pane of the selected resident read while it waits there
+// watch keeps the pane of the selected crew member read while it waits there
 // (Waits), and forgets it once it does not: the notice goes with it. It is
 // asked after everything that can change who is selected or what they do.
 func (m *Model) watch() tea.Cmd {
-	r := m.resident(m.sel)
+	r := m.member(m.sel)
 	if r == nil || !Waits(*r) {
 		if m.watched.name != "" {
 			m.watched = paneOf{gen: m.watched.gen + 1}
@@ -794,7 +794,7 @@ func (m *Model) watch() tea.Cmd {
 
 // tail reads the watched pane's last lines.
 func (m *Model) tail() tea.Cmd {
-	r := m.resident(m.watched.name)
+	r := m.member(m.watched.name)
 	if r == nil || m.opt.Tail == nil {
 		m.watched.busy = false
 		return nil
@@ -835,27 +835,27 @@ func (m *Model) event(e store.Event) tea.Cmd {
 		if reader, _ := e.Data["reader"].(string); reader == m.opt.Me {
 			m.notesAcked(number(e.Data["through"]))
 		}
-	case e.Kind == "resident_status":
-		name, _ := e.Data["resident"].(string)
+	case store.EventKind(e.Kind) == "crew_status":
+		name := store.EventCrew(e.Data)
 		status, _ := e.Data["status"].(string)
-		if r := m.resident(name); r != nil && r.Live() {
+		if r := m.member(name); r != nil && r.Live() {
 			r.Status = status
 			m.statusAt[name] = e.Seq
 		}
-	case strings.HasPrefix(e.Kind, "resident_"), strings.HasPrefix(e.Kind, "session_prompt") && e.Data["resident"] != nil:
+	case strings.HasPrefix(store.EventKind(e.Kind), "crew_"), strings.HasPrefix(e.Kind, "session_prompt") && store.EventCrew(e.Data) != "":
 		// A session started, stopped or failed to start, the list itself
-		// changed, or a resident's first prompt arrived or was given up
+		// changed, or a crew member's first prompt arrived or was given up
 		// (its handle then no longer holds it, or says so): one read of
-		// the residents for the event, since what they now are is more
+		// the crew for the event, since what they now are is more
 		// than the event carries.
 		st, ctx := m.st, m.ctx
 		return func() tea.Msg {
 			head, err := st.Head(ctx)
 			if err != nil {
-				return residentsMsg{err: err}
+				return crewMsg{err: err}
 			}
-			rs, err := st.Residents(ctx)
-			return residentsMsg{head: head, residents: rs, err: err}
+			rs, err := st.Crew(ctx)
+			return crewMsg{head: head, crew: rs, err: err}
 		}
 	}
 	return nil
@@ -890,17 +890,17 @@ func (m *Model) mail(e store.Event) tea.Cmd {
 	return nil
 }
 
-// listed takes the residents as read at head. A status the stream told
-// of since is newer than the read and stays. When the selected resident
+// listed takes the crew as read at head. A status the stream told
+// of since is newer than the read and stays. When the selected crew member
 // is gone the first is selected.
-func (m *Model) listed(head uint64, rs []store.Resident) tea.Cmd {
+func (m *Model) listed(head uint64, rs []store.CrewMember) tea.Cmd {
 	for i := range rs {
-		if old := m.resident(rs[i].Name); old != nil && rs[i].Live() && m.statusAt[rs[i].Name] > head {
+		if old := m.member(rs[i].Name); old != nil && rs[i].Live() && m.statusAt[rs[i].Name] > head {
 			rs[i].Status = old.Status
 		}
 	}
-	m.residents = rs
-	if m.yard || m.resident(m.sel) != nil {
+	m.crew = rs
+	if m.yard || m.member(m.sel) != nil {
 		return nil
 	}
 	m.sel = ""
