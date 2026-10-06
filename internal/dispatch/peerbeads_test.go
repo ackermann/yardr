@@ -303,7 +303,7 @@ func TestPeerBeadRefused(t *testing.T) {
 			if len(ns) != 1 || ns[0].Author != "yard" || !strings.Contains(ns[0].Text, "The yard b did not take this bead: it has no intake for this yard's beads") {
 				t.Fatalf("a's note of the refusal = %+v", ns)
 			}
-			if ev := a.beadEvents(t, mine.ID, "peer_bead_refused"); len(ev) != 1 || ev[0].Data["peer"] != "b" || ev[0].Data["reason"] != "it has no intake for this yard's beads" {
+			if ev := a.beadEvents(t, mine.ID, "peer_bead_refused"); len(ev) != 1 || ev[0].Actor != "yard" || ev[0].Data["peer"] != "b" || ev[0].Data["reason"] != "it has no intake for this yard's beads" {
 				t.Fatalf("a's peer_bead_refused = %+v", ev)
 			}
 			if line := a.get(t, mine.ID).Away().Line(); !strings.HasPrefix(line, "was at b: sent ") || !strings.Contains(line, "refused") || !strings.Contains(line, "no intake") {

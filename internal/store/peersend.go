@@ -476,7 +476,9 @@ func (w *wtx) sentGivenUp(m *PeerOut, reason string, refused bool) error {
 	}
 	reason = strings.TrimPrefix(strings.TrimPrefix(reason, "peer "+m.Peer+": "), "refused by the peer: ")
 	if refused {
-		return w.endSent(rec, m.Peer, OutcomeRefused, reason, "peer:"+m.Peer, nil)
+		// The refusal came from the peer, but refused is this yard's
+		// outcome for the stay: keep it attributed to the sender.
+		return w.endSent(rec, m.Peer, OutcomeRefused, reason, "yard", nil)
 	}
 	return w.endSent(rec, m.Peer, OutcomeUndelivered, fmt.Sprintf("%s was not reached in %d tries since %s: %s", m.Peer, m.Attempts, stamp(m.At), reason),
 		"yard", map[string]any{"attempts": m.Attempts})
