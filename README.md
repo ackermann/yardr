@@ -9,14 +9,16 @@ a **stage** to a **group**; a group's **runner** starts the work (an agent in
 herdr, a shell command, or nobody — a human). Whoever works the bead advances
 it to the next stage or closes it, and the next route takes over. Roles are
 not built in: "builder" or "reviewer" is just a group plus a prompt file.
+A **rig** is where a bead is worked: a git repository, or a plain directory.
 
 The yard lives in one file (`~/.yardr/yard.db`, bbolt) owned by one process,
 the yardr server, which every other yardr process reaches over a unix socket.
 Every change is committed together with its event; events carry a sequence
 number, so subscribers get every change pushed in order and resume from where
-they stopped. Nothing polls: the dispatcher wakes on each committed write,
-re-reads state and acts idempotently, so a missed wake-up only costs a delay
-and a restart is just another pass.
+they stopped. Nothing polls the store for changes: the dispatcher wakes on
+each committed write, re-reads state and acts idempotently, so a missed
+wake-up only costs a delay (a pass every 30s is the safety net) and a restart
+is just another pass.
 
 ## Quick start
 
@@ -56,7 +58,8 @@ installs or sets up yardr for you reads [docs/agents.md](docs/agents.md).
 
 The onboarding asks for the agent harness yardr starts by default (each herdr
 kind, marked installed or not), the mayor's name (the always-on resident that
-coordinates the yard), the directory its shell lives in, your name, and how
+coordinates the yard), the directory its shell lives in, its model (optional),
+your name, and how
 agents should work with you: "Guide me", "Show me" (the default), "Work with
 me" or "Just report", with a line of anything they should know about you.
 Every agent reads that answer when its session starts
@@ -143,7 +146,8 @@ hooks, peers, and how many sessions run. It checks nothing, starts nothing
 (a stopped server stays stopped) and exits 0 on any yard
 ([docs/doctor.md](docs/doctor.md#yardr-status)).
 
-A home counts as set up once its store has `default_kind`; a store the server
+A home counts as set up once its store has `default_kind`, or rigs, groups,
+residents or beads (a yard from before the onboarding); a store the server
 created on some earlier command, with nothing in it, still onboards. Without a
 terminal, a command on a home with no yard says so and exits 2. To try the
 onboarding without touching your yard, give it a home of its own; keep it
@@ -166,6 +170,7 @@ Scripts skip the forms and the mayor's conversation (`yardr init --help`):
 yardr init --harness claude [--mayor mayor] [--dir ~/projects] [--model opus] [--operator Jo] [--style show] [--about "..."]
 yardr rig add webapp ~/projects/webapp --base origin/main
 yardr rig init webapp                   # .yardr/roles, .yardr/check, .yardr/flows/default.flow and its stage files; commit them
+                                        # on the base: with origin/main that is a commit and a push
 
 # role prompts: prompt=roles/<name>.md reads the rig's own .yardr/roles/<name>.md
 # (as on its base branch), else the generic ~/.yardr/roles/<name>.md
@@ -180,14 +185,15 @@ yardr group add mckean           --runner manual
 yardr route add --stage new      --rig webapp --group webapp/builders
 yardr route add --stage review   --rig webapp --group webapp/reviewers
 yardr route add --stage approved --rig webapp --group webapp/merger
-yardr route add --stage blocked  --group mckean
+yardr route add --stage decide   --group mckean
 
 yardr daemon &                          # routes and supervises; starts the mayor (or: yardr init --start)
 yardr watch                             # live event stream
 yardr session list --running            # what agents and scripts work on now; without the flag, also the beads a manual group holds for a person
 
 yardr bead create "Add login page" --rig webapp -t feature -b "Use the OAuth flow"
-# it starts in the flow's first stage, backlog; the mayor shapes it and advances it to new
+# it starts in the flow's first stage, backlog (new while the rig's flow is not on its base);
+# the mayor shapes it and advances it to new
 ```
 
 The yardr server starts on first use, in the background, and owns
@@ -226,8 +232,8 @@ epic's children or what lands.
 
 ## Rigs
 
-A rig is a git repository beads are worked in. Register an existing clone,
-or let yardr clone it:
+A rig is a git repository or a plain directory beads are worked in. For a
+git repository, register an existing clone, or let yardr clone it:
 
 ```sh
 yardr rig add webapp ~/projects/webapp                       # existing clone
@@ -247,6 +253,8 @@ while the rig has open beads or live sessions; it touches nothing on disk.
 
 A rig can also be a plain directory, a folder of documents or invoices with no
 git (`--kind dir`): see [docs/dir-rigs.md](docs/dir-rigs.md) for a worked example.
+Its beads are worked in the directory itself: no worktree, no branch, no
+base, nothing to commit or merge.
 
 ## Working a bead (humans and agents alike)
 
@@ -321,7 +329,9 @@ The rest of the documentation is in [docs/](docs/README.md):
   short code one operator reads to the other (`yardr peer pair`) or by hand: signed
   messages both ways, pushed or pulled, proved with a ping, and mail between
   their residents (`yardr mail mayor@north "…"`).
-- **[BDP](docs/bdp.md):** serving the yard over the Beads Protocol.
+- **[Packs](docs/packs.md):** `yardr pack`, a yard's way of working as one directory
+  (flows, groups, roles, residents) that another yard imports.
+- **[BDP](docs/bdp.md):** `yardr bdp serve`, serving the yard over the Bead Protocol.
 - **[Web view](docs/web.md):** `yardr web serve`, the yard in a browser, read-only.
 
 ## Layout
@@ -336,7 +346,23 @@ internal/rpc        the store API over the server's unix socket
 internal/server     the store-owning server process; started on first use
 internal/version    build revisions; notices a new binary installed over a running one
 internal/cli        cobra commands
+internal/config     where yardr keeps its state: --home, YARDR_HOME, ~/.yardr
+internal/agents     the agent CLIs herdr can start: their models and unattended flags
+internal/rigcheck   a rig's merge gate: finding and running .yardr/check
+internal/hooks      webhook endpoints: each delivery becomes one hook event
+internal/chat       the view behind yardr chat
+internal/pack       reads a pack and plans what importing it would change
+internal/yardkey    a yard's key pair and the signatures between linked yards
+internal/pairing    linking two yards from a short code
+internal/yards      messages between this yard and its peers
+internal/otel       trace context for a bead's work; the event log as OTLP
+main.go             the yardr binary
+roles/              the default role prompts yardr init installs
+packs/starter       a starter pack
+docs/               the documentation (docs/README.md is its index)
+conformance/bdp     runs BDP's own Read conformance suite against yardr bdp serve
 contrib/refinery    merge-local, a reference refinery script for an exec group
+contrib/release     builds the release archives and checksums.txt
 contrib/isolated-yard  a throwaway yard and herdr server for tests that start agents (see its README)
 ```
 
@@ -346,3 +372,30 @@ client, so the wire is tested by the same assertions. The tests open
 their stores without waiting for the disk on each commit
 (`YARDR_STORE_NOSYNC`, which they set themselves): that wait was most of a
 run's time. `YARDR_STORE_NOSYNC=0 go test ./...` keeps it.
+
+## Acknowledgements
+
+yardr is built on other people's work, in three ways.
+
+**Required.** yardr needs [herdr](https://herdr.dev): it starts every agent
+through it. A bead's worktree is opened as a herdr workspace with a tab per
+stage and the agent started in it, and yardr reads its agents' state and
+panes from herdr.
+
+**Implemented.** [BDP](https://github.com/gastownhall/bdp), the Bead
+Protocol, is an HTTP protocol for beads and the links between them.
+`yardr bdp serve` serves the yard over its Read profile
+([docs/bdp.md](docs/bdp.md)), and `conformance/bdp` runs BDP's own
+conformance suite against it.
+
+**Inspiration.** yardr does not import or need any of these, and owes them
+its ideas and its vocabulary:
+
+- [Beads](https://github.com/steveyegge/beads): the bead, a durable unit of
+  work with dependencies that agents and people share, comes from there.
+- [Gas Town](https://github.com/steveyegge/gastown), by Steve Yegge, and
+  [Gas City](https://github.com/gastownhall/gascity): the town of agents
+  with a mayor and roles. yardr's mayor and its rigs have their names from
+  Gas Town.
+
+Thank you to everyone who built them.
