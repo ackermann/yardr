@@ -33,7 +33,7 @@ say how it differs.
 | thread | a conversation in a source that a crew member takes part in: in Linear, an issue | | an issue's comments |
 | link | a bead's tie to an outside issue it tracks or relates to | | linked issue |
 | peer | another yard this one is linked with | (federation) | |
-| pack | a way of working as one directory: flows, groups, roles, crew members | (Gas City: pack) | |
+| pack | a way of working as one directory: flows, groups, roles, crew members | | |
 | operator | the person who runs the yard; one of its users | overseer | admin, owner |
 | user | a person of the yard: a name and an inbox | | member |
 
