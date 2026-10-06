@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -418,5 +419,30 @@ func TestPeersRenamed(t *testing.T) {
 	}
 	if pong := a.pong(t, second); pong == nil || pong.Data["peer"] != "b" {
 		t.Fatalf("the pong of the yard added under the old name = %+v", pong)
+	}
+}
+
+// The daemons' own requests carry what each yard's build understands: with
+// only a called, and nothing to deliver, one pass of b tells both. b hears
+// it from a's answer to its question, a from the question.
+func TestPeersSayWhatTheyUnderstand(t *testing.T) {
+	clock := newClock()
+	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
+	link(t, a, b, false, true)
+	said := func(y *peerYard, peer string) *store.PeerSaid {
+		t.Helper()
+		p, err := y.api.GetPeer(context.Background(), peer)
+		must(t, err)
+		return p.Said
+	}
+	a.pass(t) // a calls no one
+	if said(a, "b") != nil || said(b, "a") != nil {
+		t.Fatal("a link nothing crossed has said something")
+	}
+	b.pass(t)
+	for _, got := range []*store.PeerSaid{said(a, "b"), said(b, "a")} {
+		if got == nil || !slices.Equal(got.Understands, store.PeerKinds) || got.At.IsZero() {
+			t.Fatalf("after b's pass: a says of b %+v, b of a %+v", said(a, "b"), said(b, "a"))
+		}
 	}
 }

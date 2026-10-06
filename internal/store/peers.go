@@ -43,8 +43,97 @@ const PeerPing = "ping"
 
 // PeerKinds are the kinds of messages a link can be allowed to carry.
 // PeerMail is in peermail.go and PeerBead, which allows the answer to a
-// bead too, in peerbeads.go.
+// bead too, in peerbeads.go. They are also what this build says it
+// understands (Says).
 var PeerKinds = []string{PeerBead, PeerMail, PeerPing}
+
+// knownKind reports whether this build knows a message of kind: one a link
+// can be allowed to carry, or the answer to a bead, which goes with the
+// bead's word. Any other is a newer yardr's.
+func knownKind(kind string) bool {
+	return kind == PeerBeadReturn || slices.Contains(PeerKinds, kind)
+}
+
+// PeerSays is what a yard states of its build with every signed request
+// and every answer to one: the kinds it understands (PeerKinds, there) and
+// its yardr. Two yards are not upgraded on the same day, and a yard is
+// upgraded long after it was linked, so it is said every time and not at
+// pairing. A build from before it was said ignores the field and says
+// nothing.
+type PeerSays struct {
+	Understands []string `json:"understands"`
+	Yardr       string   `json:"yardr,omitempty"`
+}
+
+// Says is what this build states of itself to a peer; yardr names the
+// build, "" when it has no name (a test binary).
+func Says(yardr string) *PeerSays {
+	return &PeerSays{Understands: slices.Clone(PeerKinds), Yardr: yardr}
+}
+
+// PeerSaid is what a peer last said, and when this yard heard it.
+type PeerSaid struct {
+	PeerSays
+	At time.Time `json:"at"`
+}
+
+// Knows reports whether the peer said its build understands kind; a nil
+// PeerSaid, a peer that has not said, knows of none.
+func (s *PeerSaid) Knows(kind string) bool {
+	return s != nil && slices.Contains(s.Understands, kind)
+}
+
+const (
+	// maxPeerSaidKinds bounds the kinds kept of what a peer said.
+	maxPeerSaidKinds = 32
+	// peerSaidEvery is how old the time kept with what a peer said may
+	// grow while it says the same: a peer asks every few seconds, and a
+	// write for each would wake the daemon each time.
+	peerSaidEvery = time.Hour
+)
+
+// clean is what is kept of what a peer said, which is the peer's text: the
+// kinds that are a kind's few plain characters, each once and sorted, and a
+// build of a version's characters. nil when it named no kinds at all, as a
+// yardr from before this was said does not.
+func (s *PeerSays) clean() *PeerSays {
+	if s == nil || s.Understands == nil {
+		return nil
+	}
+	out := &PeerSays{Understands: []string{}}
+	for _, k := range s.Understands {
+		if len(out.Understands) < maxPeerSaidKinds && peerKind.MatchString(k) && !slices.Contains(out.Understands, k) {
+			out.Understands = append(out.Understands, k)
+		}
+	}
+	slices.Sort(out.Understands)
+	if peerBuild.MatchString(s.Yardr) {
+		out.Yardr = s.Yardr
+	}
+	return out
+}
+
+// heard keeps on p what its yard said with a request or an answer signed
+// with its key, and reports whether p changed and is to be saved. One that
+// said nothing is an older yardr (again, when it had said before): nothing
+// is kept of it. What it says again unchanged is not saved again until the
+// time kept with it is peerSaidEvery old.
+func (p *Peer) heard(says *PeerSays) bool {
+	says = says.clean()
+	switch {
+	case says == nil:
+		if p.Said == nil {
+			return false
+		}
+		p.Said = nil
+		return true
+	case p.Said != nil && p.Said.Yardr == says.Yardr && slices.Equal(p.Said.Understands, says.Understands) &&
+		now().Before(p.Said.At.Add(peerSaidEvery)):
+		return false
+	}
+	p.Said = &PeerSaid{PeerSays: *says, At: now()}
+	return true
+}
 
 // The ways a message crosses a link, as its events name them: posted by the
 // sender, or asked for by the receiver.
@@ -99,6 +188,11 @@ type Peer struct {
 	// own word, kept to show the operator.
 	Intake *PeerIntake `json:"intake,omitempty"`
 	Build  string      `json:"build,omitempty"`
+	// Said is what its yard last said its build understands, and when; nil
+	// for one that has not said, which is an older yardr. Its own word,
+	// which may be stale: kept to show the operator, and nothing is
+	// refused by it.
+	Said *PeerSaid `json:"said,omitempty"`
 	// Beads counts the open beads that came from it, on a peer read by its
 	// name (GetPeer): a listing, which the daemon asks for on every pass,
 	// does not count them. Read only.
@@ -167,6 +261,9 @@ type PeerBatch struct {
 type PeerPage struct {
 	Messages []PeerMessage `json:"messages"`
 	Push     bool          `json:"push,omitempty"`
+	// Says is what the yard asked states of its build, which the receiver
+	// adds to the page it answers with.
+	Says *PeerSays `json:"says,omitempty"`
 }
 
 // PeerTaken says what became of a message that came in.
@@ -174,9 +271,10 @@ type PeerTaken struct {
 	ID string `json:"id"`
 	// Duplicate: the id was taken before, and this one dropped.
 	Duplicate bool `json:"duplicate,omitempty"`
-	// Refused is why the message was not taken ("" when it was): the link
-	// does not carry its kind this way (RefusedKind), or one of the reasons
-	// mail (peermail.go) or a bead (peerbeads.go) is refused for.
+	// Refused is why the message was not taken ("" when it was): this build
+	// does not know its kind (RefusedUnknownKind), the link does not carry
+	// it this way (RefusedKind), or one of the reasons mail (peermail.go)
+	// or a bead (peerbeads.go) is refused for.
 	Refused string `json:"refused,omitempty"`
 }
 
@@ -643,7 +741,7 @@ func (s *Store) PeerHandOver(ctx context.Context, name, key string, after uint64
 		for _, m := range taken {
 			key := join(name, seqKey(m.Seq))
 			if reason, no := refused[m.Seq]; no {
-				if err := m.giveUp(w, "refused by the peer: "+PeerRefusal(m.Kind, reason), map[string]any{"way": PeerPull}); err != nil {
+				if err := m.giveUp(w, "refused by the peer: "+PeerRefusal(m.Peer, m.Kind, reason), map[string]any{"way": PeerPull}); err != nil {
 					return err
 				}
 				if err := put(w.Tx, bPeerOut, key, m); err != nil {
@@ -664,8 +762,10 @@ func (s *Store) PeerHandOver(ctx context.Context, name, key string, after uint64
 }
 
 // receive takes the messages a peer sent, each once: one of an id taken
-// before is dropped, one of a kind the link does not carry in is refused
-// and logged, and every other is logged as peer_message_received. What is
+// before is dropped, one of a kind this build does not know (a newer
+// yardr's) or the link does not carry in is refused and logged, and every
+// other is logged as peer_message_received. A refusal is of that message
+// alone: those that came with it are taken. What is
 // no message at all fails a post whole, and is passed by in a pull. A ping is
 // answered here, in the same write, with a pong in the outbox for the peer,
 // and mail is put in its resident's inbox, or refused (checkMail). A bead
@@ -699,6 +799,14 @@ func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string, repo *RepoFlo
 		switch {
 		case seen.Get(key) != nil:
 			t.Duplicate = true
+		case !knownKind(m.Kind):
+			// Said apart from a kind the link does not carry: no peer allow
+			// here lets it in, only a newer yardr.
+			t.Refused = RefusedUnknownKind
+			extra := map[string]any{"direction": "in", "reason": t.Refused, "way": way, "detail": "this yard's yardr does not know " + m.Kind}
+			if err := w.event("", "peer_message_refused", actor, peerEvent(p.Name, m, extra)); err != nil {
+				return nil, err
+			}
 		case !p.carries(m.Kind, true):
 			t.Refused = RefusedKind
 			if err := w.event("", "peer_message_refused", actor, peerEvent(p.Name, m, map[string]any{"direction": "in", "reason": t.Refused, "way": way})); err != nil {
@@ -771,6 +879,37 @@ func (s *Store) PeerReceive(ctx context.Context, name, key string, msgs []PeerMe
 	return out, err
 }
 
+// PeerHeard keeps what the peer name said of its build with a request
+// signed with key (Peer.heard); says is nil for one that said nothing. A
+// peer asks every few seconds and says the same each time, so it writes
+// only what changed. Like PeerReceive it is not on the API: the receiver
+// has checked whose the request is.
+func (s *Store) PeerHeard(ctx context.Context, name, key string, says *PeerSays) error {
+	changed := false
+	hear := func(tx *bolt.Tx) (*Peer, error) {
+		p, err := loadPeerOf(tx, name, key)
+		if err != nil {
+			return nil, err
+		}
+		changed = p.heard(says)
+		return p, nil
+	}
+	err := s.read(func(tx *bolt.Tx) error {
+		_, err := hear(tx)
+		return err
+	})
+	if err != nil || !changed {
+		return err
+	}
+	return s.write(func(w *wtx) error {
+		p, err := hear(w.Tx)
+		if err != nil || !changed {
+			return err
+		}
+		return put(w.Tx, bPeers, name, p)
+	})
+}
+
 // PeerPulled takes what the peer name handed over when the daemon asked.
 // The peer's signature on the answer is checked here, against the key the
 // link was made with, so the daemon is trusted with nothing: what it passes
@@ -782,12 +921,15 @@ func (s *Store) PeerReceive(ctx context.Context, name, key string, msgs []PeerMe
 // question to tell the peer, and what b says the peer has been told of is
 // forgotten.
 //
-// An answer that hands over nothing and told of nothing writes nothing: the
-// daemon asks every few seconds, and a write would wake it to ask again at
-// once.
+// The answer also says what the peer's build understands, which is kept
+// (Peer.heard): it is under the same signature.
+//
+// An answer that hands over nothing, told of nothing and says nothing new
+// writes nothing: the daemon asks every few seconds, and a write would wake
+// it to ask again at once.
 func (s *Store) PeerPulled(ctx context.Context, name string, b PeerBatch) (*PeerPulled, error) {
 	var page PeerPage
-	told := false
+	told, said := false, false
 	check := func(tx *bolt.Tx) (*Peer, error) {
 		p, err := loadPeer(tx, name)
 		if err != nil {
@@ -806,6 +948,7 @@ func (s *Store) PeerPulled(ctx context.Context, name string, b PeerBatch) (*Peer
 				told = true
 			}
 		}
+		said = p.heard(page.Says)
 		return p, nil
 	}
 	err := s.read(func(tx *bolt.Tx) error {
@@ -816,7 +959,7 @@ func (s *Store) PeerPulled(ctx context.Context, name string, b PeerBatch) (*Peer
 	if err != nil {
 		return nil, err
 	}
-	if len(page.Messages) == 0 && !told {
+	if len(page.Messages) == 0 && !told && !said {
 		return res, nil
 	}
 	repo := s.intakeRepo(ctx, name, page.Messages)

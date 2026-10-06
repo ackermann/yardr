@@ -327,3 +327,70 @@ func TestDoctorPeers(t *testing.T) {
 	part, _ = peerPart(ctx, y.a.cfg, y.st)
 	wantText(t, strings.Join(part.Notes, "\n"), "this yard's key cannot be used", "open to others")
 }
+
+// yardr peer show says which kinds the peer's yardr last said it
+// understands, with its build and when, or that it has not said; and yardr
+// peer allow --send warns, and allows all the same, for a kind the peer has
+// not said it understands.
+func TestPeerShowAndAllowSayWhatThePeerUnderstands(t *testing.T) {
+	north, south := newCLIYard(t, "north"), newCLIYard(t, "south")
+	t.Setenv("YARDR_HOME", south.home)
+	invite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
+	north.must(t, "add", "south", invite)
+	ctx := context.Background()
+	p, err := north.st.GetPeer(ctx, "south")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Nothing has come from south: it has not said.
+	wantText(t, north.must(t, "show", "south"), "  has not said what it understands (an older yardr")
+	errs := captureStderr(t)
+	out := north.must(t, "allow", "south", "--send", "ping", "--receive", "ping")
+	wantText(t, out, "peer south: send ping; receive ping")
+	wantText(t, errs.String(), "warning: south has not said what its yardr understands (an older yardr, or nothing has come from it yet): a ping sent to it may be refused there")
+	if strings.Count(errs.String(), "warning:") != 1 {
+		t.Fatalf("--receive warned, or --send twice:\n%s", errs)
+	}
+
+	// It said, on a build that knows no bead.
+	if err := north.own.PeerHeard(ctx, "south", p.Key, &store.PeerSays{Understands: []string{"ping", "mail"}, Yardr: "v1.2.3"}); err != nil {
+		t.Fatal(err)
+	}
+	show := north.must(t, "show", "south")
+	wantText(t, show, "  understands: mail, ping (yardr v1.2.3, said "+time.Now().Format("2006-01-02"))
+	if strings.Contains(show, "has not said what it understands") {
+		t.Fatalf("show says both:\n%s", show)
+	}
+	errs.Reset()
+	out = north.must(t, "allow", "south", "--send", "bead", "--send", "mail", "--no-receive", "ping")
+	wantText(t, out, "peer south: send bead, mail, ping; receive nothing")
+	wantText(t, errs.String(), "warning: south's yardr (v1.2.3) said at ", " that it understands mail, ping, and not bead: a bead sent to it is refused there until it is upgraded")
+	if strings.Count(errs.String(), "warning:") != 1 {
+		t.Fatalf("a kind south understands was warned of, or bead was not:\n%s", errs)
+	}
+	// Stopping a kind warns of nothing.
+	errs.Reset()
+	north.must(t, "allow", "south", "--no-send", "bead")
+	if errs.Len() != 0 {
+		t.Fatalf("--no-send warned:\n%s", errs)
+	}
+	// As --json it is the peer's record, and the warning stays on stderr.
+	north.a.json = true
+	var got struct {
+		Said *store.PeerSaid `json:"said"`
+		Send []string        `json:"send"`
+	}
+	js := north.must(t, "allow", "south", "--send", "bead")
+	if err := json.Unmarshal([]byte(js), &got); err != nil || got.Said == nil || got.Said.Yardr != "v1.2.3" || len(got.Send) != 3 {
+		t.Fatalf("allow --json = %s, %v", js, err)
+	}
+	wantText(t, errs.String(), "and not bead")
+
+	// The line as yardr peer show prints it for what this build says.
+	at := time.Date(2026, 10, 6, 14, 10, 0, 0, time.Local)
+	line := understandsLine(store.Peer{Name: "south", Said: &store.PeerSaid{PeerSays: *store.Says("v1.3.0+0123456789ab"), At: at}})
+	if want := "understands: bead, mail, ping (yardr v1.3.0+0123456789ab, said 2026-10-06 14:10)"; line != want {
+		t.Fatalf("understandsLine = %q, want %q", line, want)
+	}
+}

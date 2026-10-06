@@ -181,7 +181,7 @@ func TestPeerMailReceive(t *testing.T) {
 	}
 	// What the sender is told names no resident of this yard.
 	for _, reason := range []string{store.RefusedKind, store.RefusedNoResident, store.RefusedTooLarge, store.RefusedRate, store.RefusedNotMail, "mayor, clerk"} {
-		if said := store.PeerRefusal("mail", reason); strings.Contains(said, "mayor") || said == "" {
+		if said := store.PeerRefusal("north", "mail", reason); strings.Contains(said, "mayor") || said == "" {
 			t.Errorf("PeerRefusal(%q) = %q", reason, said)
 		}
 	}

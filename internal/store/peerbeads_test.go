@@ -796,14 +796,14 @@ func TestPeerRefusalOfBeads(t *testing.T) {
 		"not_a_bead":       "it does not read the bead",
 		"made_up":          "it does not say why in words this yard knows",
 	} {
-		if got := store.PeerRefusal(store.PeerBead, reason); got != want {
+		if got := store.PeerRefusal("north", store.PeerBead, reason); got != want {
 			t.Errorf("PeerRefusal(bead, %s) = %q, want %q", reason, got, want)
 		}
 	}
-	if got := store.PeerRefusal(store.PeerBeadReturn, "kind_not_allowed"); got != "its link sends this yard no beads, so it takes no return of one" {
+	if got := store.PeerRefusal("north", store.PeerBeadReturn, "kind_not_allowed"); got != "its link sends this yard no beads, so it takes no return of one" {
 		t.Errorf("PeerRefusal(bead-return, kind_not_allowed) = %q", got)
 	}
-	if got := store.PeerRefusal(store.PeerMail, "too_large"); got != "the text is larger than it takes" {
+	if got := store.PeerRefusal("north", store.PeerMail, "too_large"); got != "the text is larger than it takes" {
 		t.Errorf("PeerRefusal(mail, too_large) = %q", got)
 	}
 }

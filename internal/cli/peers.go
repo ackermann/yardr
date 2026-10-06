@@ -247,6 +247,7 @@ remove the peer first to replace it.`,
 				if p.Build != "" {
 					fmt.Printf("  build    yardr %s, as its last bead said\n", p.Build)
 				}
+				fmt.Println("  " + understandsLine(*p))
 				fmt.Printf("  incoming %s\n", in)
 				if p.Failed > 0 {
 					fmt.Printf("  %d messages for it were given up (peer_message_failed in yardr events)\n", p.Failed)
@@ -355,6 +356,12 @@ already.`,
 it. Nothing is allowed until this says so, and only the operator may allow.
 --no-send and --no-receive stop a kind again, which anyone may.
 
+Each yard tells the other which kinds its yardr understands (yardr peer show).
+--send for a kind the peer has said it does not understand, or for a peer
+that has not said, is allowed and warns: what a peer said may be stale, and a
+message its yardr does not know is refused there and given up here with that
+reason.
+
 A message of a kind not allowed is refused before it leaves, and one that
 comes in is answered 403 and logged (peer_message_refused). The kinds:
   ping   yardr peer ping: a ping, and the pong that answers it. A ping needs
@@ -391,6 +398,10 @@ comes in is answered 403 and logged (peer_message_refused). The kinds:
 			p, err := st.AllowPeer(ctx, args[0], ch, a.who())
 			if err != nil {
 				return err
+			}
+			// To stderr, so --json prints the peer and nothing else.
+			for _, warning := range sendWarnings(*p, ch.Send) {
+				fmt.Fprintln(stderr, "warning: "+warning)
 			}
 			return a.out(p, func() {
 				fmt.Printf("peer %s: send %s; receive %s\n", p.Name, or(strings.Join(p.Send, ", "), "nothing"), or(strings.Join(p.Receive, ", "), "nothing"))
@@ -533,6 +544,36 @@ func intakeLine(p store.Peer) string {
 		line += fmt.Sprintf(". The link does not take its beads yet: yardr peer allow %s --receive bead", p.Name)
 	}
 	return line
+}
+
+// understandsLine is what yardr peer show says of the peer's build: the
+// kinds its yardr last said it understands, or that it has not said. A yard
+// that has not said is one on a yardr from before yards said it, or one
+// nothing has come from since the link was made.
+func understandsLine(p store.Peer) string {
+	if p.Said == nil {
+		return "has not said what it understands (an older yardr, or nothing has come from it yet)"
+	}
+	return fmt.Sprintf("understands: %s (yardr %s, said %s)", or(strings.Join(p.Said.Understands, ", "), "nothing"),
+		or(p.Said.Yardr, "of a build it does not name"), p.Said.At.Local().Format("2006-01-02 15:04"))
+}
+
+// sendWarnings says, for each of the kinds just allowed out to p, that p's
+// yardr may not take it: p said it does not understand the kind, or has not
+// said what it understands. They warn and stop nothing: what a peer said
+// may be stale.
+func sendWarnings(p store.Peer, kinds []string) []string {
+	var out []string
+	for _, k := range kinds {
+		switch {
+		case p.Said == nil:
+			out = append(out, fmt.Sprintf("%s has not said what its yardr understands (an older yardr, or nothing has come from it yet): a %s sent to it may be refused there", p.Name, k))
+		case !p.Said.Knows(k):
+			out = append(out, fmt.Sprintf("%s's yardr (%s) said at %s that it understands %s, and not %s: a %s sent to it is refused there until it is upgraded",
+				p.Name, or(p.Said.Yardr, "a build it does not name"), p.Said.At.Local().Format("2006-01-02 15:04"), or(strings.Join(p.Said.Understands, ", "), "nothing"), k, k))
+		}
+	}
+	return out
 }
 
 // invite is this yard's invite: its name, its public key (made now if it

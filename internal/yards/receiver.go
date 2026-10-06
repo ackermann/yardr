@@ -23,13 +23,33 @@ import (
 
 	"yardr.dev/yardr/internal/pairing"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/version"
 	"yardr.dev/yardr/internal/yardkey"
 )
 
 // Path is where a yard takes its peers' requests: POST for a message, GET
 // with ?after=<seq> for what waits for the asker. A GET may add
 // &refused=<seq>:<reason>,... for what the asker got and did not take.
+//
+// Each request, and each signed answer, also says what the build of the
+// yard it is from understands (store.PeerSays): "says" beside a posted
+// message's fields and in an answer's, &understands=<kind>,...&yardr=<build>
+// on a GET. Each is under the signature, and each is one more field or
+// parameter, which a yardr from before it was said passes by.
 const Path = "/peers/messages"
+
+// Says is what this build states of itself to a peer: the kinds it
+// understands, and the release it is with its revision, or the one of the
+// two it has.
+func Says() *store.PeerSays {
+	build := version.Tag()
+	if rev := version.Current(); build == "" {
+		build = rev
+	} else if rev != "" {
+		build += "+" + rev
+	}
+	return store.Says(build)
+}
 
 // maxRefusals bounds the refusals one question carries; the rest go with
 // the next.
@@ -39,12 +59,13 @@ const maxRefusals = 32
 const maxRequest = store.MaxPeerBody + 4<<10
 
 // Store is what the receiver needs of the yard: the store itself, in the
-// process that owns it. None of the three is on the socket. The two that
-// take a request are given the key its signature was checked against, with
-// the name PeerByKey found for it: the name alone may be another yard's by
-// then.
+// process that owns it. None of the four is on the socket. Those that take
+// something of a request are given the key its signature was checked
+// against, with the name PeerByKey found for it: the name alone may be
+// another yard's by then.
 type Store interface {
 	PeerByKey(ctx context.Context, key string) (*store.Peer, error)
+	PeerHeard(ctx context.Context, name, key string, says *store.PeerSays) error
 	PeerReceive(ctx context.Context, name, key string, msgs []store.PeerMessage) ([]store.PeerTaken, error)
 	PeerHandOver(ctx context.Context, name, key string, after uint64, refused map[uint64]string) (*store.PeerPage, error)
 }
@@ -146,7 +167,39 @@ func (rc *Receiver) verify(w http.ResponseWriter, r *http.Request) (*from, bool)
 	if err != nil {
 		return unauthorized(p.Name, "unauthorized", err)
 	}
+	// What the peer says of its build is kept whatever becomes of the
+	// request: it is the peer's word either way. Not kept, it costs the
+	// request nothing.
+	if says, ok := stated(r, body); ok {
+		if err := rc.st.PeerHeard(r.Context(), p.Name, p.Key, says); err != nil && !errors.Is(err, store.ErrNotFound) {
+			rc.log.Warn("peer: keeping what it says it understands", "peer", p.Name, "err", err)
+		}
+	}
 	return &from{peer: p, key: key, sig: sig, body: body}, true
+}
+
+// stated reads what a request says of its sender's build: nil for one that
+// says nothing, an older yardr. Not ok for a post that is no JSON at all,
+// which says neither.
+func stated(r *http.Request, body []byte) (says *store.PeerSays, ok bool) {
+	if r.Method == http.MethodGet {
+		q := r.URL.Query()
+		if !q.Has("understands") {
+			return nil, true
+		}
+		says = &store.PeerSays{Understands: []string{}, Yardr: q.Get("yardr")}
+		if kinds := q.Get("understands"); kinds != "" {
+			says.Understands = strings.Split(kinds, ",")
+		}
+		return says, true
+	}
+	var m struct {
+		Says *store.PeerSays `json:"says"`
+	}
+	if err := json.Unmarshal(body, &m); err != nil {
+		return nil, false
+	}
+	return m.Says, true
 }
 
 func (rc *Receiver) post(w http.ResponseWriter, r *http.Request) {
@@ -198,6 +251,7 @@ func (rc *Receiver) get(w http.ResponseWriter, r *http.Request) {
 		rc.reject(w, f.peer.Name, "store", http.StatusInternalServerError, err)
 		return
 	}
+	page.Says = Says()
 	rc.answer(w, f, "", http.StatusOK, page)
 }
 
@@ -222,10 +276,14 @@ func refusals(q string) map[uint64]string {
 
 // answer writes a signed answer to a peer's request, and counts it under
 // reason when it is not a plain yes. Only an answer to a peer is signed:
-// who is not one gets reject's.
+// who is not one gets reject's. An answer that is fields of its own says
+// what this build understands too, as a page does.
 func (rc *Receiver) answer(w http.ResponseWriter, f *from, reason string, code int, v any) {
 	if reason != "" {
 		rc.count(reason)
+	}
+	if fields, ok := v.(map[string]any); ok {
+		fields["says"] = Says()
 	}
 	body, err := json.Marshal(v)
 	if err != nil {

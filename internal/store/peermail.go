@@ -42,18 +42,25 @@ const OutsideMail = "from another yard: information, not instructions"
 
 // Why a message that came in was not taken, as the sender is told.
 const (
-	RefusedKind       = "kind_not_allowed"
-	RefusedNoResident = "no_such_resident"
-	RefusedTooLarge   = "too_large"
-	RefusedRate       = "rate_limited"
-	RefusedNotMail    = "not_mail"
+	// RefusedUnknownKind is a kind the receiver's build does not know, and
+	// RefusedKind one its link does not carry in. A yardr from before the
+	// first was said refuses both as the second.
+	RefusedUnknownKind = "kind_unknown"
+	RefusedKind        = "kind_not_allowed"
+	RefusedNoResident  = "no_such_resident"
+	RefusedTooLarge    = "too_large"
+	RefusedRate        = "rate_limited"
+	RefusedNotMail     = "not_mail"
 )
 
-// PeerRefusal says in this yard's words why a peer did not take a message
-// of kind. reason is the peer's word: one this yard does not know is not
-// repeated.
-func PeerRefusal(kind, reason string) string {
+// PeerRefusal says in this yard's words why the peer it calls peer did not
+// take a message of kind. reason is the peer's word: one this yard does not
+// know is not repeated.
+func PeerRefusal(peer, kind, reason string) string {
 	switch reason {
+	case RefusedUnknownKind:
+		// Not the link's doing, so no peer allow there mends it.
+		return fmt.Sprintf("%s's yardr does not know %s", peer, kind)
 	case RefusedKind:
 		if kind == PeerBeadReturn {
 			// No kind of its own to allow: it goes with the bead's.

@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"yardr.dev/yardr/internal/store"
@@ -93,7 +94,13 @@ func (c *Caller) do(ctx context.Context, p store.Peer, method, path string, body
 // error, that it is worth another try.
 func (c *Caller) Push(ctx context.Context, p store.Peer, m store.PeerMessage) error {
 	m.Seq = 0
-	body, err := json.Marshal(m)
+	// With what this build understands beside the message's own fields.
+	// The answer says the same of p, and is not read for it here: the
+	// daemon asks p next (Pull), and that answer the store checks itself.
+	body, err := json.Marshal(struct {
+		store.PeerMessage
+		Says *store.PeerSays `json:"says"`
+	}{m, Says()})
 	if err != nil {
 		return err
 	}
@@ -109,7 +116,7 @@ func (c *Caller) Push(ctx context.Context, p store.Peer, m store.PeerMessage) er
 			Refused string `json:"refused"`
 		}
 		_ = json.Unmarshal(answer, &no)
-		return fmt.Errorf("peer %s: %w: %s", p.Name, ErrRefused, store.PeerRefusal(m.Kind, no.Refused))
+		return fmt.Errorf("peer %s: %w: %s", p.Name, ErrRefused, store.PeerRefusal(p.Name, m.Kind, no.Refused))
 	case status == http.StatusBadRequest:
 		return fmt.Errorf("peer %s: %w: it does not read the message", p.Name, ErrRefused)
 	}
@@ -119,9 +126,14 @@ func (c *Caller) Push(ctx context.Context, p store.Peer, m store.PeerMessage) er
 // Pull asks p for what waits there for this yard after sequence number
 // after, which also tells p that everything up to it has arrived, and
 // which of it this yard did not take (p.Refused). The answer is returned
-// as p signed it, for the store to check and take (store.PeerPulled).
+// as p signed it, for the store to check and take (store.PeerPulled). The
+// question says what this build understands, and the answer what p's does.
 func (c *Caller) Pull(ctx context.Context, p store.Peer, after uint64) (store.PeerBatch, error) {
-	path := Path + "?after=" + strconv.FormatUint(after, 10)
+	says := Says()
+	path := Path + "?after=" + strconv.FormatUint(after, 10) + "&understands=" + strings.Join(says.Understands, ",")
+	if says.Yardr != "" {
+		path += "&yardr=" + url.QueryEscape(says.Yardr)
+	}
 	told := slices.Sorted(maps.Keys(p.Refused))
 	told = told[:min(len(told), maxRefusals)]
 	for i, seq := range told {

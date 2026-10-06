@@ -578,6 +578,63 @@ what this yard may send the peer, `--receive` for what it takes from it.
 A message of a kind not allowed out is refused before it is queued. One that
 comes in is answered 403 and logged. Both log `peer_message_refused`.
 
+## Two yards on different builds
+
+Two yards that are run by two people are not upgraded on the same day, and a
+yard is upgraded long after it was linked. So each yard tells the other what
+its yardr understands, not once at pairing but with every signed request and
+every signed answer: the kinds its build knows, and which build it is. Each
+keeps what the other last said, by the other's key, and `yardr peer show`
+prints it:
+
+```text
+  understands: bead, mail, ping (yardr 3f9c2ab81d04, said 2026-10-06 14:10)
+```
+
+or, for a yard on a yardr from before yards said this, and for a link
+nothing has crossed yet:
+
+```text
+  has not said what it understands (an older yardr, or nothing has come from it yet)
+```
+
+- **It is the peer's word, and may be stale.** `said` is when this yard last
+  wrote it down: at once when it changes, and otherwise once an hour, though
+  the peer says it every few seconds. Nothing is refused by it. `yardr peer
+  allow <peer> --send <kind>` for a kind the peer said it does not
+  understand, or for a peer that has not said, allows the kind and prints a
+  warning.
+- **A kind the receiver's yardr does not know** is refused there as
+  `kind_unknown`, which is another reason than `kind_not_allowed`: no `peer
+  allow` mends it, only an upgrade. It is logged (`peer_message_refused`,
+  with `detail` `this yard's yardr does not know <kind>`), the sender is
+  told as with any refusal (the 403, or the next question), and gives the
+  message up with `refused by the peer: <peer>'s yardr does not know
+  <kind>`. It is never dropped silently, and it fails nothing else: the
+  messages handed over with it are taken, and the link carries on. It is not
+  remembered as taken either, so the same message is taken once the yard is
+  upgraded.
+- **The older of two builds** ignores the statement, which is one more field
+  where it reads the ones it knows, and says nothing itself. The two still
+  exchange every kind both know: `ping` and `mail` cross between a yard on
+  this build and one from before it. A yardr from before `kind_unknown`
+  refuses a kind it does not know as `kind_not_allowed`, since it cannot
+  tell the two apart; for a peer that has not said what it understands,
+  read that reason as either.
+- **A new kind, or a new field,** therefore needs no day on which both yards
+  change: a field is ignored by the yard that does not know it, a kind is
+  refused by name, and the body of a kind that changes shape carries a `v`
+  (as a [bead's](#the-messages) does).
+
+Where it is said: `says` (`{"understands": [...], "yardr": "<build>"}`)
+beside the fields of a posted message and in every signed answer, and
+`&understands=<kind>,…&yardr=<build>` on a question, so each is under the
+signature. This yard keeps what a request said when it takes the request,
+and what the answer to its own question said when the store has checked that
+the answer is the peer's. The kinds and the build are the peer's text: kinds
+are held to a kind's plain characters and the build to a version's, and
+anything else is left out.
+
 ## Mail between residents
 
 A resident of one yard mails a resident of a linked yard, and is answered
@@ -877,7 +934,8 @@ is queued for the peer in that write, and delivered as any message is:
 A field a yard does not know is ignored, so adding one changes no `v`. A `v`
 it does not know is refused as `version`. A yardr from before beads crossed
 a link cannot allow the kind at all, and refuses every `bead` as
-`kind_not_allowed`.
+`kind_not_allowed`; a later one that does not know a kind says
+`kind_unknown` ([above](#two-yards-on-different-builds)).
 
 Neither kind can be sent by hand: the yard writes both from its own beads,
 and the store refuses them to anything else on its socket.
@@ -936,8 +994,12 @@ Both go to `<url>/peers/messages` and carry three headers:
 
 | request | answer |
 |---|---|
-| `POST /peers/messages`, body `{"id", "kind", "re", "body"}` | 200 `{"taken": true}` or `{"duplicate": true}`; 403 `{"refused": "<reason>"}`: `kind_not_allowed`, or one of [mail's](#mail-between-residents); 400 for what is no message |
-| `GET /peers/messages?after=<seq>[&refused=<seq>:<reason>,…]` | 200 `{"messages": [{"seq", "id", "kind", "re", "body"}], "push": <whether the yard asked posts instead>}`. `refused` names what the asker got and did not take: the yard asked gives those up instead of logging them as sent |
+| `POST /peers/messages`, body `{"id", "kind", "re", "body", "says"}` | 200 `{"taken": true}` or `{"duplicate": true}`; 403 `{"refused": "<reason>"}`: `kind_unknown`, `kind_not_allowed`, or one of [mail's](#mail-between-residents); 400 for what is no message. Each with `says` |
+| `GET /peers/messages?after=<seq>&understands=<kind>,…&yardr=<build>[&refused=<seq>:<reason>,…]` | 200 `{"messages": [{"seq", "id", "kind", "re", "body"}], "push": <whether the yard asked posts instead>, "says"}`. `refused` names what the asker got and did not take: the yard asked gives those up instead of logging them as sent |
+
+`says` and `understands` are what the yard's build understands
+([above](#two-yards-on-different-builds)); a yardr from before them sends
+neither and passes both by.
 
 A mail's body is `{"to": "<resident>", "from": "<name>", "text": "…"}`.
 
@@ -987,7 +1049,7 @@ with is 401, as any request that is no peer's.
 | `peer_allowed` | `peer allow`, and a pairing that ended with a link | `peer`, `send`, `receive` as they are now |
 | `peer_message_sent` | the peer has the message | `peer`, `kind`, `id`, `re`, `way` (`push` or `pull`), `attempts` when it took more than one |
 | `peer_message_received` | a message was taken | `peer`, `kind`, `id`, `re`, `way` |
-| `peer_message_refused` | a kind the link does not carry, something pulled that is no message, or mail this yard does not take | `peer`, `kind`, `id`, `direction` (`in` or `out`), `reason` (`kind_not_allowed`; `not_a_message`, with its `seq` and neither id nor kind; for mail `no_such_resident` with `to` when it is a name, `too_large`, `not_mail`, and `rate_limited` once an hour with `limit` and `until`; for a bead `no_intake` with `detail` when the intake's rig or flow is gone, `version` with `v` and `known`, `too_large`, `already_here` with `here`, `busy` with `open` and `limit`, `not_a_bead`, each with the sender's `bead` and `stage` once they are read) |
+| `peer_message_refused` | a kind this yard's yardr does not know, a kind the link does not carry, something pulled that is no message, or mail this yard does not take | `peer`, `kind`, `id`, `direction` (`in` or `out`), `reason` (`kind_unknown` with `detail`; `kind_not_allowed`; `not_a_message`, with its `seq` and neither id nor kind; for mail `no_such_resident` with `to` when it is a name, `too_large`, `not_mail`, and `rate_limited` once an hour with `limit` and `until`; for a bead `no_intake` with `detail` when the intake's rig or flow is gone, `version` with `v` and `known`, `too_large`, `already_here` with `here`, `busy` with `open` and `limit`, `not_a_bead`, each with the sender's `bead` and `stage` once they are read) |
 | `peer_bead_arrived` | a bead from a peer became a bead here; on that bead, by `peer:<peer>` | `peer`, `id` of the message, `from` (the sender's handle), `stage` (its stage), `held`, `way`, `rig`, `flow`, `notes_left_out` |
 | `peer_bead_released` | someone who may lifted the hold a bead arrived with; on the bead | `peer`, `by` |
 | `peer_bead_returned` | a bead from a peer ended and its return was queued; on the bead, by who ended it | `peer`, `id` of the return, `re` (the message that brought the bead), `to` (the sender's handle), `outcome`, `notes` (how many), `notes_left_out` |
@@ -1051,6 +1113,8 @@ error of each, and `yardr doctor` has a `peers` line
 | `answered 401, not signed with its key` | the other yard has not added this one, the clocks are more than five minutes apart, or something between the two answered |
 | `the link does not carry ping out` | `yardr peer allow <name> --send ping` here |
 | `refused by the peer: its link does not carry ping in` | `yardr peer allow <name> --receive ping` there |
+| `refused by the peer: north's yardr does not know <kind>` | the other yard runs a yardr from before that kind: it is upgraded there, and no `peer allow` helps. `yardr peer show north` says what it understands ([above](#two-yards-on-different-builds)) |
+| `warning: north has not said what its yardr understands …`, on `peer allow --send` | nothing has come from it yet, or it runs an older yardr. The kind is allowed all the same; `yardr peer show north` after a ping says which |
 | `resident mayor may not mail residents of north` | the operator: `yardr resident set mayor peers=north` |
 | `peer_message_refused` with `reason=no_intake` | the peer's beads have nowhere to go: `yardr peer intake <name> --rig <rig> --flow <flow>`. With `detail`, the intake names a rig or a flow that is gone |
 | `bead … arrived held from the yard north … this is the resident mayor, which is not` | a user releases it (`yardr bead unhold`), or the operator lets that resident: `yardr resident set mayor release=north` |
