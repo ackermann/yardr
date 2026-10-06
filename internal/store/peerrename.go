@@ -298,6 +298,21 @@ func peerConversation(tx *bolt.Tx, me, with string, after uint64) ([]Letter, err
 	}); err != nil {
 		return nil, err
 	}
+	// One given up long ago is gone from the outbox (prunePeers). Its
+	// peer_message_failed was logged after its mail, so it is in the log
+	// for as long as the mail is.
+	failed := join("peer_message_failed", "")
+	for _, k := range keys(tx, bEventsKd, failed) {
+		var e Event
+		if ok, err := get(tx, bEvents, k[len(failed):], &e); err != nil {
+			return nil, err
+		} else if !ok || e.Seq <= p.Since {
+			continue
+		}
+		if id, _ := e.Data["id"].(string); id != "" {
+			delivery[id] = MailFailed
+		}
+	}
 	rd := &readers{tx: tx}
 	c := tx.Bucket(bEventsKd).Cursor()
 	prefix := []byte(join("mail", ""))

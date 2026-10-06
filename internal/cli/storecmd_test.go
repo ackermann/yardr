@@ -131,3 +131,31 @@ func TestCompactRefusesWhileTheServerRuns(t *testing.T) {
 		t.Fatalf("Compact under the server = %v; want ErrLocked", err)
 	}
 }
+
+// prunedStore is a store whose prune removed res.
+type prunedStore struct {
+	store.API
+	res store.PruneResult
+}
+
+func (p prunedStore) Prune(context.Context, store.Retention, string) (*store.PruneResult, error) {
+	return &p.res, nil
+}
+
+// yardr store prune says what went of each link, as counts.
+func TestStorePrunePrintsWhatWentOfEachPeer(t *testing.T) {
+	a := &app{actor: "jo", st: prunedStore{res: store.PruneResult{Events: 4, Peers: map[string]store.PeerPruned{
+		"north": {Seen: 12, Failed: 1},
+		"alps":  {Seen: 3},
+	}}}}
+	out, err := run(t, a.storeCmd(), "prune")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "pruned 4 events, 0 sessions, 0 webhook bodies\n" +
+		"peer alps: 3 ids of messages taken from it forgotten, 0 messages given up removed\n" +
+		"peer north: 12 ids of messages taken from it forgotten, 1 messages given up removed\n"
+	if out != want {
+		t.Fatalf("store prune printed:\n%s\nwant:\n%s", out, want)
+	}
+}

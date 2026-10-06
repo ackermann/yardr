@@ -624,7 +624,8 @@ So does one whose mail was given up after 24 tries. The operator, who has no
 inbox, reads the event.
 
 **Where a mail's text is.** In the sender's outbox for the peer until the
-peer has it (a mail given up stays there, marked, until `yardr peer rm`),
+peer has it (a mail given up stays there, marked, until `yardr peer rm` or
+until [the prune](#what-a-link-forgets) takes it),
 and in the `mail` event of each yard, as local mail's is, for as long as the
 yard keeps events. The receiver puts it in the inbox in the same write that
 takes the message, so it is nowhere in between.
@@ -656,6 +657,23 @@ the other side's to know.
 
 The same id twice is taken once: the second is answered 200 and dropped, as
 a redelivered webhook is. That is what makes a retry safe.
+
+### What a link forgets
+
+For that, a yard remembers the id of every message it took from a peer, and
+it keeps the messages it gave up in the outbox, with their bodies. Neither
+is kept for good: the prune that keeps the event log short
+([configuration.md](configuration.md#retention-keeping-yarddb-bounded))
+removes an id once it was taken longer ago than events are kept
+(`YARDR_EVENT_RETENTION`, 90 days), and a message given up once it was given
+up that long ago. Until then `yardr peer show` counts it as before. However
+short that retention is set, both are kept for 7 days, well past a sender's
+24 tries (most of a day) and the one question a pull hands a message over
+again for; with the retention `off` they are kept for good. A message that
+still waits is never removed by its age. The cost: a message whose id was
+forgotten and that comes again all the same is taken as new. The prune says
+how many of each it removed per peer (`peers` on `store_pruned`, and in what
+`yardr store prune` prints), never an id or a body.
 
 ## The requests
 

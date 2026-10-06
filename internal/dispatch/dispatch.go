@@ -109,8 +109,9 @@ type Dispatcher struct {
 	Binary *version.Binary
 	// CheckBinary is how often Binary is checked between passes (default 10s).
 	CheckBinary time.Duration
-	// Retention is how long the store keeps events, ended sessions and
-	// webhook bodies, and how long an unread inbox event holds them; the
+	// Retention is how long the store keeps events, ended sessions,
+	// webhook bodies and what a link remembers of its messages
+	// (store.PeerKeep), and how long an unread inbox event holds them; the
 	// daemon prunes on start and every PruneEvery (default 1h). Zero keeps
 	// everything and never prunes.
 	Retention  store.Retention
@@ -523,9 +524,9 @@ func (d *Dispatcher) prune(ctx context.Context) {
 		d.Log.Warn("prune store", "err", err)
 		return
 	}
-	if res.Events+res.HookPayloads+res.Sessions > 0 {
+	if res.Events+res.HookPayloads+res.Sessions+len(res.Peers) > 0 {
 		d.Log.Info("pruned store", "events", res.Events, "sessions", res.Sessions, "hook_payloads", res.HookPayloads,
-			"held_by", res.HeldBy, "expired", res.Expired)
+			"held_by", res.HeldBy, "expired", res.Expired, "peers", res.Peers)
 	}
 }
 

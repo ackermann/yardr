@@ -48,8 +48,13 @@ every hour.
 The newest event and anything since the oldest live session started are kept
 whatever their age, and so is an event a running resident has not read yet,
 for up to the inbox retention (180d, or YARDR_INBOX_RETENTION); a stopped or
-disabled resident holds nothing back. The file does not shrink until it is
-compacted (yardr store compact).`,
+disabled resident holds nothing back.
+
+What a link keeps of its messages goes at the age of events too, but never
+younger than 7 days: the ids of the messages taken from a peer, by which one
+sent twice is taken once, and the messages for it that were given up.
+
+The file does not shrink until it is compacted (yardr store compact).`,
 		Example: `  yardr store prune
   yardr store prune --events 30d --hook-payloads 7d
   yardr store prune --hook-payloads off            # keep every webhook body
@@ -90,6 +95,9 @@ compacted (yardr store compact).`,
 				}
 				for _, name := range slices.Sorted(maps.Keys(res.Expired)) {
 					fmt.Printf("resident %s: %d unread inbox events went with the log\n", name, res.Expired[name])
+				}
+				for _, name := range slices.Sorted(maps.Keys(res.Peers)) {
+					fmt.Printf("peer %s: %d ids of messages taken from it forgotten, %d messages given up removed\n", name, res.Peers[name].Seen, res.Peers[name].Failed)
 				}
 			})
 		},

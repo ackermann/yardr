@@ -1,11 +1,13 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -121,7 +123,8 @@ type PeerOut struct {
 	Error    string     `json:"error,omitempty"`
 	RetryAt  *time.Time `json:"retry_at,omitempty"`
 	// Failed is when the message was given up. It stays in the outbox, out
-	// of the way of those behind it, until the peer is removed.
+	// of the way of those behind it, until the peer is removed or a prune
+	// finds it old enough (prunePeers).
 	Failed *time.Time `json:"failed,omitempty"`
 }
 
@@ -538,8 +541,9 @@ func (s *Store) PeerSendFailed(ctx context.Context, name string, seq uint64, rea
 	})
 }
 
-// giveUp marks the message as given up, for reason: it stays in the outbox,
-// peer_message_failed says why, and mail's sender is told (undelivered).
+// giveUp marks the message as given up, for reason: it stays in the outbox
+// until it is pruned, peer_message_failed says why, and mail's sender is
+// told (undelivered).
 func (m *PeerOut) giveUp(w *wtx, reason string, extra map[string]any) error {
 	gone := now()
 	m.Failed, m.RetryAt, m.Error = &gone, nil, reason
@@ -806,4 +810,93 @@ func (s *Store) PeerPulled(ctx context.Context, name string, b PeerBatch) (*Peer
 type PeerPulled struct {
 	Taken []PeerTaken `json:"taken"`
 	Push  bool        `json:"push,omitempty"`
+}
+
+// PeerKeep is the least a link's seen ids and its messages given up are
+// kept, however short the retention of events is set. An id forgotten is
+// taken again as new, so it must outlast every way the message can come
+// back: a sender gives up after 24 tries, most of a day, and a pull hands a
+// message over again only until the next question.
+const PeerKeep = 7 * 24 * time.Hour
+
+// PeerPruned counts what a prune removed of one link: the ids of messages
+// taken from the peer (Seen) and the messages for it that were given up
+// (Failed).
+type PeerPruned struct {
+	Seen   int `json:"seen,omitempty"`
+	Failed int `json:"failed,omitempty"`
+}
+
+// prunePeers removes up to pruneBatch of the ids taken from peers before
+// cutoff, and as many of the outbox messages given up before it, with
+// their bodies, and counts them in res by peer; more reports that a full
+// batch went. A message that still waits is never removed by its age: it
+// is the daemon's to deliver or give up.
+//
+// A message of a forgotten id that comes again is taken as new. Nothing
+// sends one that late (PeerKeep).
+func (s *Store) prunePeers(cutoff time.Time, res *PruneResult) (more bool, err error) {
+	var counted map[string]PeerPruned
+	err = s.write(func(w *wtx) error {
+		more, counted = false, map[string]PeerPruned{} // a batched write may run this twice
+		count := func(key []byte, seen, failed int) {
+			name, _, _ := bytes.Cut(key, []byte{0})
+			c := counted[string(name)]
+			c.Seen, c.Failed = c.Seen+seen, c.Failed+failed
+			counted[string(name)] = c
+		}
+		var old [][]byte
+		seen := w.Bucket(bPeerSeen)
+		if err := seen.ForEach(func(k, v []byte) error {
+			if len(v) != 8 || int64(binary.BigEndian.Uint64(v)) >= cutoff.Unix() {
+				return nil
+			}
+			if len(old) == pruneBatch {
+				more = true
+				return errStop
+			}
+			old = append(old, bytes.Clone(k))
+			return nil
+		}); err != nil && !errors.Is(err, errStop) {
+			return err
+		}
+		for _, k := range old {
+			if err := seen.Delete(k); err != nil {
+				return err
+			}
+			count(k, 1, 0)
+		}
+		old = nil
+		if err := each(w.Tx, bPeerOut, "", func(k []byte, m *PeerOut) error {
+			if m.Failed == nil || !m.Failed.Before(cutoff) {
+				return nil
+			}
+			if len(old) == pruneBatch {
+				more = true
+				return errStop
+			}
+			old = append(old, bytes.Clone(k))
+			return nil
+		}); err != nil && !errors.Is(err, errStop) {
+			return err
+		}
+		for _, k := range old {
+			if err := w.Bucket(bPeerOut).Delete(k); err != nil {
+				return err
+			}
+			count(k, 0, 1)
+		}
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	for name, c := range counted {
+		if res.Peers == nil {
+			res.Peers = map[string]PeerPruned{}
+		}
+		was := res.Peers[name]
+		res.Peers[name] = PeerPruned{Seen: was.Seen + c.Seen, Failed: was.Failed + c.Failed}
+	}
+	return more, nil
 }

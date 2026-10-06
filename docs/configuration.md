@@ -1265,7 +1265,7 @@ and `--inbox` override the knobs for one run).
 
 | variable | default | what it keeps |
 |---|---|---|
-| `YARDR_EVENT_RETENTION` | `90d` | events, with their index entries, and ended sessions (`yardr session list --all`) |
+| `YARDR_EVENT_RETENTION` | `90d` | events, with their index entries, and ended sessions (`yardr session list --all`); also what a link with another yard remembers of its messages, though never for less than 7 days (below) |
 | `YARDR_HOOK_PAYLOAD_RETENTION` | `30d` | raw webhook bodies (up to 1 MiB each), read only by `yardr hook show`; the `hook` event keeps the envelope routing reads |
 | `YARDR_INBOX_RETENTION` | `180d` | how long an event a running resident has not read holds the log back |
 
@@ -1286,6 +1286,13 @@ the resident's journal with the count, so the resident learns what it never
 read. An ended session goes with the events of its time once the daemon has
 stopped its runner resources and, when it left a worktree, cleaned up after
 the bead closed (`workspace_removed`); a live session is never pruned.
+
+The ids of the messages taken from a linked yard, by which one sent twice is
+taken once, and the messages given up for it go at the age of events as
+well, counted from when the id was taken and the message given up, but
+never younger than 7 days however short the retention
+([peers.md](peers.md#what-a-link-forgets)). The prune reports how many of
+each went per peer (`peers`, also on its `store_pruned` event).
 
 A prune that held events back says why (`held_by`, also on its
 `store_pruned` event). Beads, notes and deps are state, not log, and are

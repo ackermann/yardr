@@ -37,6 +37,8 @@ type PruneResult struct {
 	// deliveries) that went with the log; each resident's journal gets an
 	// inbox_expired event saying so.
 	Expired map[string]int `json:"expired,omitempty"`
+	// Peers counts, per peer, what went of its link (prunePeers).
+	Peers map[string]PeerPruned `json:"peers,omitempty"`
 }
 
 // pruneBatch bounds the events one write transaction removes, so a first
@@ -55,8 +57,10 @@ const pruneBatch = 1000
 // its runner resources and, if it left a worktree, cleaned up after the
 // bead closed; its bead and the bead's notes stay, being state, not log.
 // Webhook bodies are not events: the event keeps the envelope that routing
-// reads, so a body goes by age alone. Logs a store_pruned event when
-// anything was removed.
+// reads, so a body goes by age alone. A link's seen ids and the messages
+// given up for its peer go at the age of events too, though never younger
+// than PeerKeep (prunePeers). Logs a store_pruned event when anything was
+// removed.
 func (s *Store) Prune(ctx context.Context, keep Retention, actor string) (*PruneResult, error) {
 	res := &PruneResult{Expired: map[string]int{}}
 	if keep.Events > 0 {
@@ -82,6 +86,15 @@ func (s *Store) Prune(ctx context.Context, keep Retention, actor string) (*Prune
 		for {
 			n, more, err := s.pruneSessions(now().Add(-keep.Events))
 			res.Sessions += n
+			if err != nil {
+				return res, err
+			}
+			if !more {
+				break
+			}
+		}
+		for {
+			more, err := s.prunePeers(now().Add(-max(keep.Events, PeerKeep)), res)
 			if err != nil {
 				return res, err
 			}
@@ -118,10 +131,14 @@ func (s *Store) Prune(ctx context.Context, keep Retention, actor string) (*Prune
 			return res, err
 		}
 	}
-	if res.Events+res.HookPayloads+res.Sessions == 0 {
+	if res.Events+res.HookPayloads+res.Sessions+len(res.Peers) == 0 {
 		return res, nil
 	}
 	data := map[string]any{"events": res.Events, "hook_payloads": res.HookPayloads, "sessions": res.Sessions}
+	if res.Peers != nil {
+		// Counts, as every event about a link: never an id or a body.
+		data["peers"] = res.Peers
+	}
 	if res.HeldBy != "" {
 		data["held_by"] = res.HeldBy
 	}
