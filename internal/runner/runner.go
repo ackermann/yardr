@@ -96,7 +96,7 @@ func ConfigError(group, runner string, cfg map[string]any) error {
 	case "exec":
 		text = []string{"cmd", "dir", "log", "worktrees"}
 	case "herdr":
-		text = []string{"kind", "model", "prompt", "env_file", "worktrees"}
+		text = []string{"kind", "model", "prompt", "env_file", "worktrees", "label"}
 		words = []string{"args", "env_command"}
 	}
 	check := func(key, want string, ok func(any) bool) error {

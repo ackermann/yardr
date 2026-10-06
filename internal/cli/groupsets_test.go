@@ -32,6 +32,8 @@ func TestGroupAddRefusesASettingTheRunnerCannotRead(t *testing.T) {
 			[]string{"--runner", "herdr", "--set", "env_command=true"}},
 		{`herdr runner needs config.kind as a string, got the JSON null`,
 			[]string{"--runner", "herdr", "--set", "kind=null"}},
+		{`herdr runner needs config.label as a string, got the JSON boolean true; write --set 'label="true"'`,
+			[]string{"--runner", "herdr", "--set", "label=true"}},
 	} {
 		refusedAs(t, st, "jo", c.want, append([]string{"group", "add", "tick"}, c.args...)...)
 	}
