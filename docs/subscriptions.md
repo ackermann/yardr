@@ -494,7 +494,7 @@ as a `hook_rejected` event, so that a source whose deliveries are refused can
 be told from one that sends nothing:
 
 ```
-yardr events          # … hook_rejected  hook:linear  hook=linear reason=unauthorized status=401 count=1 last=…
+yardr events          # … hook_rejected  hook:linear  count=1 hook=linear last=2026-10-06T08:24:01Z reason=unauthorized status=401
 yardr hook list       # LAST ACCEPTED and LAST REFUSED, per hook
 ```
 
