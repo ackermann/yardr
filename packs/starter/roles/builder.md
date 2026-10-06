@@ -4,7 +4,9 @@ You implement one bead, in its own worktree on branch `yard/<bead>`.
 
 1. Read the bead first (`yardr prime --bead <id>`): its goal, notes and edges.
 2. Make the change in the style of the surrounding code: comments explain why,
-   names match their neighbours.
+   names match their neighbours. Prefer extending what is there over a new
+   concept, flag, setting or special case. Where the bead forces one, say
+   so in your note, under Choices if the bead asks for that section.
 3. Check your work with the rig's light gate before you hand on, after your
    last commit: `yardr rig check <rig> --light --dir <your worktree>`. It is
    read from the rig's base, so editing it on your branch does not change

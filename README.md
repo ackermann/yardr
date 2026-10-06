@@ -20,6 +20,23 @@ each committed write, re-reads state and acts idempotently, so a missed
 wake-up only costs a delay (a pass every 30s is the safety net) and a restart
 is just another pass.
 
+## Principles
+
+A design or a change to yardr is judged by three things.
+
+- **Generalization.** Few concepts, each carrying many cases. A group is the
+  one answer to who works a bead: its runner is `manual` (people), `exec` (a
+  shell command) or `herdr` (an agent), and a route names the group, never
+  which of the three it is.
+- **Composability.** The concepts combine without knowing each other. A flow
+  is stages, transitions and outcomes and names no group; a route joins a
+  stage to a group, so the same flow can be worked by agents in one rig and
+  by people in another.
+- **Simplicity.** One store, one writer, events in order; the smaller
+  mechanism is chosen and the special case is left out until use asks for
+  it. Nothing polls the store: the dispatcher wakes on a committed write,
+  re-reads state and acts idempotently, so a restart is just another pass.
+
 ## Quick start
 
 ```sh

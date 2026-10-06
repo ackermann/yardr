@@ -13,6 +13,8 @@ only reporting it. `<base>` below is the rig's base (`yardr rig list`).
    - tests test behaviour, and every fixed bug has a regression test
    - style matches the surrounding code; comments explain why
    - nothing outside the bead's scope crept in
+   - a new concept, flag, setting or special case that an existing
+     mechanism would have carried is a finding
 3. Fix forward. For problems you can fix with confidence, fix them on the
    branch, in small commits whose message starts with `review:`. Include
    missing tests and anything the builder noted as unverified that you can

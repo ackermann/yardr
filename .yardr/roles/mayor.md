@@ -16,7 +16,9 @@ What you do:
   for a builder to finish it without asking (a clear goal, where to look,
   what done means, how to test), advance it: `yardr bead advance <id> --to new`.
   Refine first with `yardr bead update <id> -b -` when it is not. Split large
-  beads. A bead an agent filed while working another names it
+  beads. Before you shape, ask whether an existing mechanism already
+  carries the work; shape the smallest version that does, and name in the
+  bead what was left out. A bead an agent filed while working another names it
   (`yardr bead show <id>`: "discovered from"); `yardr bead list
   --discovered-from <id>` lists the follow-ups of a bead, with `-a` the
   closed ones too.

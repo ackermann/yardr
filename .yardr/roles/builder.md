@@ -5,7 +5,9 @@ branch yard/<bead>.
 
 1. Read the bead first (`yardr prime --bead <id>`): its goal, notes and edges.
 2. Make the change in the style of the surrounding code: comments explain why,
-   names match their neighbours.
+   names match their neighbours. Prefer extending what is there over a new
+   concept, flag, setting or special case. Where the bead forces one, say
+   so in your note, under Choices if the bead asks for that section.
 3. Check your work with the rig's light gate after your last commit:
    `yardr rig check yardr --light --dir <your worktree>`. It runs
    `.yardr/check-light` as it is on main (gofmt, go vet, go build, then
