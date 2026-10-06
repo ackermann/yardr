@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -19,6 +20,7 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/runner"
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -60,7 +62,8 @@ type Options struct {
 
 // Plan is what importing a pack into a depot of a yard would do, object by
 // object and in the order an import would do it: files, groups, flows,
-// pointers, routes, crew members, subscriptions, stage maps. Each object carries the state
+// pointers, routes, crew members, subscriptions, stage maps, declared
+// sources. Each object carries the state
 // the import would leave it in, so applying a plan needs no second look at
 // the pack; what the yard must still be asked is under Questions, by the id
 // the object refers to.
@@ -101,18 +104,22 @@ type Plan struct {
 	// Maps says, for each source whose issues hear the pack's flows, the map,
 	// the yard's crew member it is acted on as, and what the yard has and lacks
 	// for it. A map the import would set is among Objects too, as kind map.
-	Maps  []MapPlan `json:"maps"`
-	Notes []string  `json:"notes"`
+	Maps []MapPlan `json:"maps"`
+	// Declared says, for each source the pack brings by a declaration, what
+	// it declares and what the yard must still be told for it. Each is among
+	// Objects too, as kind source.
+	Declared []DeclaredPlan `json:"declared"`
+	Notes    []string       `json:"notes"`
 	// Refused is why this plan must not be applied as it is; empty when it
 	// may be.
 	Refused []string `json:"refused"`
 }
 
 // Object is one thing in the yard and what the import would do to it. One
-// of File, Group, Flow, Pointer, Route, CrewMember, Subscription and Map is
-// set, by Kind.
+// of File, Group, Flow, Pointer, Route, CrewMember, Subscription, Map and
+// Source is set, by Kind.
 type Object struct {
-	Kind    string   `json:"kind"` // file group flow pointer route crew member subscription map
+	Kind    string   `json:"kind"` // file group flow pointer route crew member subscription map source
 	Name    string   `json:"name"`
 	Action  string   `json:"action"`
 	Changes []Diff   `json:"changes,omitempty"`
@@ -140,6 +147,7 @@ type Object struct {
 	CrewMember   *CrewOp            `json:"crew,omitempty"`
 	Subscription *SubscriptionOp    `json:"subscription,omitempty"`
 	Map          *MapOp             `json:"map,omitempty"`
+	Source       *SourceOp          `json:"source,omitempty"`
 }
 
 // Diff is one field of an object an import would change.
@@ -207,6 +215,16 @@ type MapOp struct {
 	Map    map[string]string `json:"map"`
 }
 
+// SourceOp adds a declared source to the yard, or replaces the one of its
+// name, which keeps its env_file (store.PutSource). A dropped one is removed.
+type SourceOp struct {
+	Name string `json:"name"`
+	// From is the declaration's file in the pack, and Text what it held when
+	// the plan was made: what is added is what was planned.
+	From string `json:"from"`
+	Text string `json:"declaration"`
+}
+
 // Question is something an import must be told, since a pack names no
 // agent, model, permission arguments, person or directory.
 type Question struct {
@@ -245,6 +263,23 @@ type Need struct {
 // NotSet is the Action of a MapPlan the import sets nothing for: the yard
 // has no hook of the source, or the crew member no identity in it.
 const NotSet = "not_set"
+
+// DeclaredPlan is what an import does about a source the pack declares.
+// The import adds the declaration and nothing else: the file the source's
+// credential is read from is named by the operator, never by a pack, and so
+// is the source a user is told through.
+type DeclaredPlan struct {
+	Source string `json:"source"`
+	File   string `json:"file"` // in the pack
+	Base   string `json:"base"`
+	// Calls are the source's calls, each "name (kind)".
+	Calls []string `json:"calls"`
+	// Action is create, change or unchanged.
+	Action string `json:"action"`
+	// Needs are env_file, for a source with a credential, and notify, for
+	// one that can tell a user: each ok or missing, with the command.
+	Needs []Need `json:"needs"`
+}
 
 // MapPlan is what an import does about the stage map a pack carries for
 // one source. The import sets the map and the crew member on a hook the yard
@@ -368,7 +403,7 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 	b := &planner{ctx: ctx, st: st, p: p, o: o, depot: depot, plan: &Plan{
 		Pack: p.Name, Dir: p.Dir, src: p.fsys, Depot: o.Depot, Install: filepath.Join(o.Home, "packs", p.Name), StageFiles: filepath.Join(o.Home, "flows"),
 		Groups: map[string]string{}, Crew: map[string]string{}, Fill: map[string]string{},
-		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, OpenThreads: []OpenThreads{}, Maps: []MapPlan{}, Notes: []string{}, Refused: []string{},
+		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, OpenThreads: []OpenThreads{}, Maps: []MapPlan{}, Declared: []DeclaredPlan{}, Notes: []string{}, Refused: []string{},
 	}}
 	if b.all, err = st.Packs(ctx); err != nil {
 		return nil, err
@@ -403,6 +438,7 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 		func() error { return b.routes(flows) },
 		b.crew,
 		b.maps,
+		b.declared,
 		b.dropped,
 	} {
 		if err := step(); err != nil {
@@ -1515,6 +1551,132 @@ func (b *planner) maps() error {
 	return nil
 }
 
+// declared plans the sources the pack brings by a declaration: each is added
+// under its name, and one the yard has under that name is replaced, with
+// what changes of it shown, since a source is where a credential of the
+// yard is sent. The yard's own settings of the source stay.
+func (b *planner) declared() error {
+	const ok, missing = "ok", "missing"
+	if len(b.p.Declared) == 0 {
+		return nil
+	}
+	users, err := b.st.Users(b.ctx)
+	if err != nil {
+		return err
+	}
+	for _, d := range b.p.Declared {
+		decl := d.Declaration
+		dp := DeclaredPlan{Source: d.Name, File: d.File, Base: decl.Base, Calls: []string{}, Needs: []Need{}}
+		for _, c := range decl.Calls {
+			dp.Calls = append(dp.Calls, c.Name+" ("+c.Kind+")")
+		}
+		have, err := b.st.GetSource(b.ctx, d.Name)
+		exists := err == nil
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
+		var changes []Diff
+		envFile := ""
+		if exists {
+			envFile = have.EnvFile
+			if have.Text != d.Text {
+				was, _ := have.Declaration()
+				changes = declarationDiff(was, decl)
+			}
+		}
+		dp.Action = action(exists, changes)
+		if decl.Credential != nil {
+			if _, state, err := decl.ReadCredential(envFile); err != nil {
+				detail := err.Error()
+				if envFile == "" {
+					detail = fmt.Sprintf("no env_file is set for it, and a pack neither carries nor names one: yardr source set %s env_file=<a file of mode 0600 that sets %s>", d.Name, decl.Credential.Env)
+				}
+				dp.Needs = append(dp.Needs, Need{store.SourceEnvFile, missing, detail})
+			} else {
+				dp.Needs = append(dp.Needs, Need{store.SourceEnvFile, ok, state})
+			}
+		}
+		if n := decl.Notify; n != nil {
+			var told []string
+			for _, u := range users {
+				if u.Notify == d.Name {
+					told = append(told, u.Name)
+				}
+			}
+			if len(told) > 0 {
+				dp.Needs = append(dp.Needs, Need{store.UserNotify, ok, "tells " + strings.Join(told, ", ")})
+			} else {
+				dp.Needs = append(dp.Needs, Need{store.UserNotify, missing, fmt.Sprintf("it can tell a user outside the yard and no user names it. The import names none: yardr user set <user> %s=%s env_file=<a file of mode 0600 that sets %s>", store.UserNotify, d.Name, n.AddressEnv)})
+			}
+		}
+		b.add(Object{Kind: "source", Name: d.Name, Action: dp.Action, Changes: changes,
+			Source: &SourceOp{Name: d.Name, From: filepath.Join(b.p.Dir, filepath.FromSlash(d.File)), Text: d.Text}})
+		b.plan.Declared = append(b.plan.Declared, dp)
+	}
+	return nil
+}
+
+// declarationDiff is what the declaration now changes of the one the yard
+// has, was: where calls go, what they send the credential in, and each call.
+// was is nil for one this build does not read.
+func declarationDiff(was, now *source.Declaration) []Diff {
+	var out []Diff
+	if was == nil {
+		return []Diff{{"declaration", "one this yardr does not read", "the pack's"}}
+	}
+	credential := func(d *source.Declaration) string {
+		if d.Credential == nil {
+			return ""
+		}
+		return strings.TrimSpace(d.Credential.Env + " " + d.Credential.Header)
+	}
+	notify := func(d *source.Declaration) string {
+		if d.Notify == nil {
+			return ""
+		}
+		return "the call " + d.Notify.Call + ", at " + d.Notify.AddressEnv
+	}
+	line := func(c *source.Call) string { return "(" + c.Kind + ") " + c.Request.Line() }
+	for _, f := range []struct{ field, old, new string }{
+		{"base", was.Base, now.Base}, {"credential", credential(was), credential(now)}, {"check", was.Check, now.Check}, {"notify", notify(was), notify(now)},
+	} {
+		if f.old != f.new {
+			out = append(out, Diff{f.field, f.old, f.new})
+		}
+	}
+	for i := range now.Calls {
+		c := &now.Calls[i]
+		old, had := was.Call(c.Name)
+		switch {
+		case !had:
+			out = append(out, Diff{"call " + c.Name, "", line(c)})
+		case !reflect.DeepEqual(asRead(*old), asRead(*c)):
+			// The same line on both sides says the change is in the call's
+			// parameters, body or answer.
+			out = append(out, Diff{"call " + c.Name, line(old), line(c)})
+		}
+	}
+	for i := range was.Calls {
+		if _, has := now.Call(was.Calls[i].Name); !has {
+			out = append(out, Diff{"call " + was.Calls[i].Name, line(&was.Calls[i]), ""})
+		}
+	}
+	if len(out) == 0 {
+		// Another text that declares the same: comments, an about, order.
+		out = append(out, Diff{"declaration", "another text", "the pack's, which declares the same calls"})
+	}
+	return out
+}
+
+// asRead is a call as two readings of it compare: by what the file says,
+// which is all its JSON holds.
+func asRead(c source.Call) any {
+	var v any
+	text, _ := json.Marshal(c)
+	_ = json.Unmarshal(text, &v)
+	return v
+}
+
 // mapName is what a plan calls the stage map on hook, acted on as crew member.
 func mapName(hook, as string) string { return "hook " + hook + " as " + as }
 
@@ -1563,6 +1725,8 @@ func Ident(o Object) (po store.PackObject, ok bool) {
 		return store.PackObject{Kind: o.Kind, CrewMember: o.Subscription.CrewMember, Subscription: o.Subscription.Add}, true
 	case o.Kind == "map" && o.Map != nil:
 		return store.PackObject{Kind: o.Kind, Name: o.Map.Hook, CrewMember: o.Map.As, Map: o.Map.Map}, true
+	case o.Kind == "source" && o.Source != nil:
+		return store.PackObject{Kind: o.Kind, Name: o.Source.Name, SHA256: sum([]byte(o.Source.Text))}, true
 	}
 	return po, false
 }
@@ -1770,6 +1934,35 @@ func (b *planner) gone(po store.PackObject) (*Object, error) {
 			return nil, nil
 		}
 		return &Object{Kind: po.Kind, Name: mapName(h.Name, h.As), Map: &MapOp{Hook: h.Name, Source: h.Source, As: h.As, Map: h.Map}}, nil
+	case "source":
+		src, err := b.st.GetSource(b.ctx, po.Name)
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, nil
+		} else if err != nil {
+			return nil, err
+		}
+		// A declaration added by hand since is the yard's.
+		if sum([]byte(src.Text)) != po.SHA256 {
+			return nil, nil
+		}
+		o := &Object{Kind: po.Kind, Name: po.Name, Source: &SourceOp{Name: po.Name, Text: src.Text}}
+		// A source is the yard's, shared by its depots, and a user who is
+		// told through it would be told nowhere without a word.
+		for _, r := range b.all {
+			if (r.Pack != b.p.Name || r.Depot != b.o.Depot) && slices.ContainsFunc(r.Objects, func(x store.PackObject) bool { return x.Kind == "source" && x.Name == po.Name }) {
+				o.Held = fmt.Sprintf("pack %s in depot %s names it too", r.Pack, r.Depot)
+			}
+		}
+		users, err := b.st.Users(b.ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, u := range users {
+			if o.Held == "" && u.Notify == po.Name {
+				o.Held = fmt.Sprintf("user %s is told through it (yardr user set %s %s= ends that)", u.Name, u.Name, store.UserNotify)
+			}
+		}
+		return o, nil
 	}
 	return nil, nil
 }

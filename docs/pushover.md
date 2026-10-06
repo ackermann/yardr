@@ -1,0 +1,233 @@
+# A push to your phone: Pushover
+
+This page sets up one thing from nothing: what lands in a user's inbox
+(mail, a timer, a notification of a subscription) buzzes that person's
+phone through [Pushover](https://pushover.net). It is the worked example of
+a source that [tells a user outside the yard](integrations.md#tell-a-user-outside-the-yard);
+another service that takes one HTTPS request with a JSON body is the same
+steps with another file.
+
+yardr has no Go for Pushover. The whole integration is the file in step 3.
+
+## What you need
+
+- yardr with its server and daemon running (`yardr status`), and a user in
+  it for the person who is told. The operator is one already: `yardr user
+  list`. Someone else is added by the operator with `yardr user add <name>`.
+- A Pushover account, and its app on the phone, logged in.
+
+The steps use `mckean` as the user. Put your own name there.
+
+## 1. Two keys from Pushover
+
+On pushover.net, logged in:
+
+- **Your user key**: on the first page after login, under "Your User Key".
+  30 letters and digits. It is where *you* are reached.
+- **An application token**: "Create an Application/API Token"
+  (pushover.net/apps/build), with any name, say `yardr`. It gives an "API
+  Token/Key", also 30 letters and digits. It is the *yard's*.
+
+Pushover's free allowance is 10,000 messages a month for an account; yardr
+sends one user at most 20 an hour.
+
+## 2. Each key in a file of its own
+
+The two keys go into two files that only you can read, and nowhere else:
+not into mail, chat, a bead or a pack. yardr keeps the paths and reads the
+files each time it sends.
+
+```sh
+mkdir -p ~/.yardr/sources ~/.yardr/users
+printf 'PUSHOVER_TOKEN=%s\n' 'PASTE-THE-APPLICATION-TOKEN' > ~/.yardr/sources/pushover.env
+printf 'PUSHOVER_USER=%s\n' 'PASTE-YOUR-USER-KEY' > ~/.yardr/users/mckean.env
+chmod 600 ~/.yardr/sources/pushover.env ~/.yardr/users/mckean.env
+```
+
+A file that others can read is refused when it is set (steps 4 and 5), with
+the `chmod` that fixes it.
+
+## 3. The declaration
+
+Save this as `pushover.yaml`, anywhere. It holds no secret: it names the
+variables of step 2, never their values.
+
+```yaml
+name: pushover
+about: A push to a person's phone through Pushover.
+base: https://api.pushover.net/1
+credential:
+  env: PUSHOVER_TOKEN                 # the application's token: the name, never the value
+calls:
+  message:
+    kind: update
+    about: One push to one person
+    params:
+      user:  { type: string, pattern: "^[A-Za-z0-9]{30}$" }
+      title: { type: string, max: 250 }
+      text:  { type: string, max: 1024 }
+      link:  { type: string, max: 512, optional: true }
+    request:
+      method: POST
+      path: /messages.json
+      body: { token: "{credential}", user: "{user}", title: "{title}", message: "{text}", url: "{link}" }
+notify:
+  call: message
+  address: { param: user, env: PUSHOVER_USER }   # the person's own key, read from the user's env_file
+  title: title                                   # yardr's value -> the call's parameter
+  text: text
+  link: link
+```
+
+What it says: one call, `message`, a `POST` to
+`https://api.pushover.net/1/messages.json` with a JSON body of `token`,
+`user`, `title`, `message` and, when there is a link, `url`. The `notify`
+key makes it a source a user can be told through: the call to make, the
+parameter that takes the person's address and the variable that address is
+under in *their* file, and which parameters take the title, the text and
+the link yardr has. The `max` values are Pushover's own limits; yardr cuts
+a title or text that is longer and leaves out a link that is. `yardr source
+--help` has the whole format.
+
+## 4. Add the source and its credential
+
+As the operator:
+
+```sh
+yardr source add pushover.yaml
+yardr source set pushover env_file=~/.yardr/sources/pushover.env
+yardr source show pushover
+```
+
+`source show` prints the call and, for the credential, the variable's name
+and that the file sets it. It never prints the value:
+
+```
+pushover  https://api.pushover.net/1
+  A push to a person's phone through Pushover.
+  credential: PUSHOVER_TOKEN is set in /home/mckean/.yardr/sources/pushover.env
+  check: the file names no call for it
+  call message  update  POST /messages.json  One push to one person
+    user  string  matching ^[A-Za-z0-9]{30}$
+    title  string  at most 250 characters
+    text  string  at most 1024 characters
+    link  string  at most 512 characters  optional
+  notify: the call message tells a user, at the PUSHOVER_USER of their env_file (yardr user set <name> notify=pushover)
+  added 10-07 01:08 by mckean
+```
+
+## 5. Name the source for the user
+
+The user themselves or the operator:
+
+```sh
+yardr user set mckean notify=pushover env_file=~/.yardr/users/mckean.env
+```
+
+It answers `user mckean: told outside the yard: through pushover
+(PUSHOVER_USER is set in …/mckean.env)`.
+
+## 6. One test message
+
+```sh
+yardr source check pushover --user mckean
+```
+
+The phone buzzes with "yardr: a test", and the command prints `pushover:
+told mckean: 200 in …ms`. This is one real message through Pushover, sent
+by the command itself. Anything but 200 fails the command with the status:
+400 from Pushover is a token or a user key it does not take, so look at the
+two files again.
+
+## 7. Something to be told of
+
+Mail to the user and their own timers are told from now on. A bead that
+needs a person is a subscription:
+
+```sh
+yardr subscribe mckean yardr --where stage=decide      # every bead that enters decide
+```
+
+Then, to see it end to end without waiting for a bead:
+
+```sh
+yardr mail mckean "the gate is green, come and look"
+```
+
+About 20 seconds later the phone shows `mail from <you>` and the text.
+
+## What is sent, and when
+
+- **What**: mail to the user (their own too, and a timer set for them) and
+  the notifications of their subscriptions. Nothing else, and nothing for a
+  crew member.
+- **What leaves the machine**: a fixed line that says who and what kind
+  (`mail from yardmaster`, `timer from mckean`, `web-hk7z advanced`), and
+  the first words: of mail the first 200 characters, of a notification its
+  line as `yardr inbox` shows it, with the bead's title. Several at once are
+  `3 new in your yardr inbox` and each kind with its count. No link is
+  sent. This goes to Pushover's servers and onto a lock screen: do not name
+  a source for a user whose mail must not.
+- **When**: once it has been in the inbox for 20 seconds and is still
+  unread. What was read by then (`yardr chat` showing it, `yardr inbox
+  --ack`) is not sent. Everything due for one user goes as one message, and
+  a burst waits until nothing new came for 20 seconds, 60 at most.
+- **How many**: at most 20 messages an hour for one user. The twentieth
+  begins "The 20th message this hour, and the last: what comes next waits
+  in yardr inbox."; the rest goes as one message when the hour has room.
+- **When Pushover does not answer**: the inbox has everything all the same;
+  it never waits for a source. The daemon tries again after 30 seconds,
+  then with doubling waits, for up to 8 tries and 6 hours, then gives up
+  with a `push_failed` event. A 4xx other than 408 and 429 is final at
+  once. `yardr user show mckean` has how the last one ended (`last told:
+  …`), and `yardr doctor` notes a user who was not told.
+
+None of these is a setting yet.
+
+## Ending it
+
+```sh
+yardr user set mckean notify=        # nobody is told; what was still waiting is dropped
+yardr source rm pushover             # the source; the two files stay, and are yours to delete
+```
+
+## In a pack
+
+A pack can bring the declaration, so a yard set up from it has the source
+without step 4's `source add`. The file goes into the pack, and `pack.yaml`
+names it:
+
+```yaml
+sources:
+  pushover:
+    declaration: sources/pushover.yaml
+```
+
+`yardr pack check` shows it and `yardr pack apply` (or `yardr depot init`)
+adds it, as the operator ([packs.md](packs.md#how-a-pack-maps-to-the-yard)).
+A pack carries no key and names no file of yours, so steps 1, 2, the
+`source set` of step 4 and steps 5 to 7 stay as they are; the import prints
+both commands.
+
+## Checked against Pushover's API page
+
+Read on 7 October 2026 at pushover.net/api: messages are a `POST` to
+`https://api.pushover.net/1/messages.json`; parameters are taken
+percent-encoded or as "JSON with a Content-Type of application/json", which
+is what yardr sends; `token`, `user` and `message` are required, `title`
+and `url` optional; a message is at most 1024 characters, a title 250, a
+URL 512; tokens and user keys are 30 characters of `[A-Za-z0-9]`. A valid
+request is answered 200, an invalid one 4xx ("repeating your same request
+will not work"), and on anything else it may be repeated, no sooner than 5
+seconds later. yardr's rule fits that: 200 is taken, 4xx is final, the
+rest is tried again after 30 seconds or more.
+
+## Trying it without Pushover
+
+For someone working on yardr itself: `contrib/isolated-yard` has a stand-in
+that takes messages as Pushover does. In an isolated yard D, with the
+stand-in on the address A it printed, the steps above run as written with
+two changes: `base: http://A/1` in the file (plain http is allowed to this
+machine only), and `PUSHOVER_TOKEN=push-standin` in the source's env file.
+`curl http://A/messages` lists what it took. See
+[contrib/isolated-yard/README.md](../contrib/isolated-yard/README.md).

@@ -53,11 +53,14 @@ type PackImport struct {
 // PackObject is one object of the yard that came from a pack, with what it
 // takes to find it again.
 type PackObject struct {
-	Kind string `json:"kind"` // file group flow pointer route subscription map
-	// Name is the file's path, or the group's or flow's name.
+	Kind string `json:"kind"` // file group flow pointer route subscription map source
+	// Name is the file's path, or the group's, flow's or declared source's
+	// name.
 	Name string `json:"name,omitempty"`
 	// SHA256 is a file's content as the import installed it: a copy that
 	// differs was edited by hand since. Records older than the field lack it.
+	// Of a declared source it is the declaration's text as the import added
+	// it: one added by hand since is the yard's.
 	SHA256 string `json:"sha256,omitempty"`
 	// A route's stage, type and group; a pointer's type and flow.
 	Stage string `json:"stage,omitempty"`

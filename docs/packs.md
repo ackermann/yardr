@@ -96,6 +96,7 @@ sources:
 | `crew members.<name>.open_threads` | optional: the sources (`github`, `linear`) the crew member should be able to open a thread in unasked (`yardr thread open`). The pack only asks: the import puts it to the yard's operator ([below](#yardr-pack-apply)) |
 | `sources.<source>.as` | the crew member of the pack an issue's status is set as, in that source (`github`, `linear`): a key of `crew` |
 | `sources.<source>.hears.<type>.<stage>` | the stage map: when a bead of that type enters that stage, the issue of the source it tracks goes to `started`, `review` or `done`. A stage left out changes nothing. The import sets it on the yard's hook of the source ([Stage maps](#how-a-pack-maps-to-the-yard)) |
+| `sources.<name>.declaration` | for a name that is none of `github`, `linear`, `token`: the file in the pack that declares a service yardr has no Go for, as `yardr source add` takes it. The import adds it to the yard's declared sources ([Declared sources](#how-a-pack-maps-to-the-yard)). Such a source has this key and no other |
 
 A stage's outcomes and manual moves are the flow's transitions, outcomes
 first ([flows.md](flows.md#outcomes-agents-say-how-the-work-ended)): `new`
@@ -430,6 +431,51 @@ stage map of source linear, as crew member boss
 | `identity` | the crew member's identity in the source. A hook acts only as a crew member that has one, which keeps the source's delivery of the change out of that crew member's inbox; a crew member the import itself creates has none yet |
 | `set state` | whether the crew member's definition lets it set a status in the source (`set_state`, [crew.md](crew.md)). **The import never grants it**: with the map set and the grant missing, no issue is moved, and the line names the command the operator runs |
 
+**Declared sources.** `sources.<name>.declaration` names a file of the pack
+that declares a service outside the yard: its address, the credential it
+takes and the requests the yard may make of it (`yardr source --help`;
+[pushover.md](pushover.md) has a whole one). The import adds it to the
+yard's declared sources under the pack's name for it, as `yardr source add
+<file>` would:
+
+```yaml
+sources:
+  pushover:
+    declaration: sources/pushover.yaml
+```
+
+```
+declared sources
+  create           pushover
+
+declared source pushover, from sources/pushover.yaml
+  its calls go to https://api.pushover.net/1: message (update)
+  would be added to the yard's sources
+  missing  env file     no env_file is set for it, and a pack neither carries nor names one: yardr source set pushover env_file=<a file of mode 0600 that sets PUSHOVER_TOKEN>
+  missing  notify       it can tell a user outside the yard and no user names it. The import names none: yardr user set <user> notify=pushover env_file=<a file of mode 0600 that sets PUSHOVER_USER>
+```
+
+- **The file is read as `yardr source add` reads it**, and everything that
+  refuses there makes the pack invalid, named by the declaration's file,
+  line and key. The name in the file is the pack's key.
+- **A declaration in a pack has the keys `name`, `about`, `base`,
+  `credential`, `check`, `calls` and `notify`, and no other.** A key a later
+  yardr reads in a declaration is not thereby one a pack may bring: a pack
+  brings no command the yard runs and no setting that is the operator's.
+- **A declaration the yard has under that name is replaced**, and keeps its
+  `env_file`. The object's lines show what changes: a `base`, the
+  credential's name or header, each call that is new, gone or different
+  (`call message: (update) POST /messages.json -> (update) POST /messages`).
+  Read them: a source is where a credential of the yard is sent, and a new
+  `base` sends it somewhere else.
+- **A pack carries no secret and names no file of the yard.** After the
+  import the source's credential is still to be set, and no user is told
+  through it until one names it; `needs` gives both commands, and `ok` with
+  the file or the users once they are there.
+- **Adding a source is the operator's**, as with `yardr source add`. Run by
+  anyone else the import does the rest, adds no source, says so, and
+  records none; the operator's next apply adds it.
+
 **Sources.** For each source a crew member subscribes to, the plan says what
 the yard has and lacks to hear it and answer in it:
 
@@ -649,7 +695,7 @@ starter in depot web  2026-10-03 18:40 by mckean
 | `flow` | the pack's flow the depot follows |
 | `depot_roles` | `true` when the import was given `--depot-roles`; absent when the pack's roles were set |
 | `groups`, `crew` | pack name -> yard name |
-| `objects` | the files, groups, flows, pointers, routes, subscriptions and stage maps that are the pack's; a file with the `sha256` of its content as installed, placeholders filled; a stage map (`kind: map`) with the hook's `name`, the `crew` it acts as and the `map` as the import set it |
+| `objects` | the files, groups, flows, pointers, routes, subscriptions, stage maps and declared sources that are the pack's; a file with the `sha256` of its content as installed, placeholders filled; a stage map (`kind: map`) with the hook's `name`, the `crew` it acts as and the `map` as the import set it; a declared source (`kind: source`) with its `name` and the `sha256` of the declaration as the import added it |
 | `open_threads` | the answers about opening threads: yard's crew member -> source -> `true` or `false`; absent when nothing was answered. `yardr pack list` prints them as `may open   boss: github no, linear yes` |
 
 An import that changes nothing leaves the record as it is, its commit and
@@ -685,6 +731,13 @@ yard no pack was imported into.
   the import set; `--prune` clears the hook's crew member and map and keeps the
   hook. A map changed by hand since (`yardr hook add`) is the yard's, and
   is neither listed nor pruned.
+- A declared source the pack no longer has under `sources` shows as `no
+  longer in it` while the yard has the declaration the import added;
+  `--prune` removes the source (the file its credential is in stays). It is
+  **held** while a user is told through it (`yardr user set <user> notify=`
+  ends that) or another import names it. One whose declaration was added by
+  hand since (`yardr source add`) is the yard's, and is neither listed nor
+  pruned.
 - A file is removed only under `<home>/packs/<pack>/`, or as a stage file
   of one of the pack's flows, `<home>/flows/<pack>.<flow>/<stage>.md`. A
   dropped stage file is named by that path under the home.
@@ -777,14 +830,16 @@ its role changes; the output names the restart.
 ## The plan as data
 
 `pack check --json` prints the plan an import executes (`pack apply --json`
-prints `{"plan": …, "answers": …, "open_threads": …, "maps_refused": …, "result": …}`, the
+prints `{"plan": …, "answers": …, "open_threads": …, "maps_refused": …, "sources_refused": …, "result": …}`, the
 answers by question id, an `args` answer being the arguments the new agent
 got, space-separated; `open_threads` has `answers`, crew member -> source ->
 yes or no as given by flag or form, and `notes`, what was not granted and
 which flag or who would grant it; `result.granted` lists each crew member with
 the sources it was let open threads in; `maps_refused` is source -> why this
 run set no stage map for it, and `result.mapped` the maps it set, each with
-`hook`, `source`, `as` and `map`):
+`hook`, `source`, `as` and `map`; `sources_refused` is declared source ->
+why this run did not add it, and `result.declared` the names of those it
+added or replaced):
 
 ```json
 {
@@ -815,7 +870,7 @@ for each placeholder, by its name.
 
 Objects come in the order an import does them: files (roles and scripts,
 then stage files), groups, flows,
-pointers, routes, crew members, subscriptions, stage maps; dropped objects come last.
+pointers, routes, crew members, subscriptions, stage maps, declared sources; dropped objects come last.
 `action` is `create`, `change`, `unchanged`, `not_in_pack` or `dropped`.
 Each object carries what the import would write (for a dropped one, what a
 prune removes), under its kind:
@@ -830,6 +885,7 @@ prune removes), under its kind:
 | `crew` | `pack` (its name in the pack), `crew` (in the yard), `prompt`, `on`, and `restart` when it is running and the import changes its role or what it hears |
 | `subscription` | `crew`, `add`, and `remove` when a scope changes |
 | `map` | `hook`, `source`, `as` and `map`: what the hook is set to. Only a map the import can set is an object; `maps` has every source |
+| `source` | `name`, `from` (the declaration's file in the pack) and `declaration`, its text: what is added. `declared` has, per source, `file`, `base`, `calls`, `action` and `needs` |
 
 An object's `asks` are the ids of the questions whose answers it still
 needs, its `keeps` what the import leaves as the yard has it, and its

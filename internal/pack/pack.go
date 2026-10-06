@@ -20,6 +20,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -40,6 +41,9 @@ type Pack struct {
 	// Sources are the outside sources whose issues hear the pack's flows, in
 	// file order.
 	Sources []StageMap `json:"sources,omitempty"`
+	// Declared are the sources the pack brings by a declaration file, in
+	// file order: services yardr has no Go for.
+	Declared []Declared `json:"declared,omitempty"`
 	// fsys is the pack's directory: every path in the pack is a slash path
 	// in it.
 	fsys fs.FS
@@ -56,6 +60,27 @@ type StageMap struct {
 	As     string            `json:"as"`
 	Map    map[string]string `json:"map"`
 }
+
+// Declared is a source the pack brings: the declaration of a service
+// outside the yard (internal/source), which the import adds to the yard's
+// declared sources as yardr source add would. The file holds no secret and
+// names no file of the yard: where the credential is read from stays the
+// operator's to say (yardr source set).
+type Declared struct {
+	Name string `json:"source"`
+	// File is the declaration, a slash path relative to the pack's directory,
+	// and Text what it holds: the store keeps a declaration as its text.
+	File string `json:"file"`
+	Text string `json:"declaration"`
+	// Declaration is the file as read.
+	Declaration *source.Declaration `json:"-"`
+}
+
+// DeclarationKeys are the keys a declaration in a pack may have at its
+// root. The list is the pack's own, not the reader's of internal/source: a
+// key that reader learns later (limits, a command the daemon runs) is
+// not thereby one a pack may bring, and is refused until it is added here.
+var DeclarationKeys = []string{"name", "about", "base", "credential", "check", "calls", "notify"}
 
 type Flow struct {
 	Name string `json:"name"`
@@ -194,6 +219,7 @@ func Load(fsys fs.FS, dir string) (*Pack, error) {
 	}
 	sort.SliceStable(r.errs, func(i, j int) bool { return r.errs[i].Line < r.errs[j].Line })
 	// After the pack's own file, the files it names, each in line order.
+	r.errs = append(r.errs, r.late...)
 	r.errs = append(r.errs, p.placeholderErrors()...)
 	if len(r.errs) > 0 {
 		return nil, r.errs
@@ -328,6 +354,9 @@ type reader struct {
 	dir  string // as given: how an error names a file of the pack
 	fsys fs.FS
 	errs Errors
+	// late are the errors of the declaration files the pack names: they
+	// follow those of pack.yaml, whose lines theirs are not.
+	late Errors
 }
 
 func (r *reader) errf(n *yaml.Node, key, format string, args ...any) {
@@ -506,11 +535,87 @@ func (r *reader) pack(p *Pack, root *yaml.Node) {
 	// Last: a source names a crew member, and its map the flows' stages.
 	if sources != nil {
 		for _, e := range r.entries(sources.v, sources.path) {
+			// A name yardr has no adapter for is a source the pack declares.
+			if _, builtIn := hooks.Adapters[e.key]; !builtIn {
+				if d, ok := r.declared(e); ok {
+					p.Declared = append(p.Declared, d)
+				}
+				continue
+			}
 			if m, ok := r.source(e, p); ok {
 				p.Sources = append(p.Sources, m)
 			}
 		}
 	}
+}
+
+// declared reads a source the pack brings by its declaration file. The file
+// is read as yardr source add reads it, and held to one thing more: only
+// the keys of DeclarationKeys.
+func (r *reader) declared(e entry) (d Declared, ok bool) {
+	d = Declared{Name: e.key}
+	var file *entry
+	var other []entry
+	for _, k := range r.entries(e.v, e.path, "declaration", "as", "hears") {
+		if k.key == "declaration" {
+			file = &k
+		} else {
+			other = append(other, k)
+		}
+	}
+	if e.v.Kind != yaml.MappingNode {
+		return d, false
+	}
+	if file == nil {
+		r.errf(e.k, e.path, "this yardr has no adapter for source %s (it has %s): a source of another name is declared by a file of the pack (declaration: sources/%s.yaml)", e.key, strings.Join(hooks.Sources(), ", "), e.key)
+		return d, false
+	}
+	for _, k := range other {
+		r.errf(k.k, k.path, "a declared source has declaration: <file> and nothing else: a stage map is for a source yardr can set a status in (%s)", strings.Join(hooks.Forwardable(), ", "))
+	}
+	if d.File = r.rel(file.v, file.path, "declaration"); d.File == "" {
+		return d, false
+	}
+	full := filepath.Join(r.dir, filepath.FromSlash(d.File))
+	text, err := fs.ReadFile(r.fsys, d.File)
+	if err != nil {
+		r.errf(file.v, file.path, "declaration %s: %v", d.File, err)
+		return d, false
+	}
+	// The pack's own refusal first, and the reader's of the same key not
+	// after it: one mistake is one line.
+	refused := map[string]bool{}
+	var doc yaml.Node
+	if yaml.Unmarshal(text, &doc) == nil && len(doc.Content) > 0 && doc.Content[0].Kind == yaml.MappingNode {
+		root := doc.Content[0]
+		for i := 0; i+1 < len(root.Content); i += 2 {
+			if k := root.Content[i]; k.Kind == yaml.ScalarNode && !slices.Contains(DeclarationKeys, k.Value) {
+				refused[k.Value] = true
+				r.late = append(r.late, Error{File: full, Line: k.Line, Key: k.Value, Msg: fmt.Sprintf("a declaration in a pack has %s and no other key: what else a source may have is set in the yard, by its operator, and a pack brings no command the yard runs", strings.Join(DeclarationKeys, ", "))})
+			}
+		}
+	}
+	decl, err := source.Parse(full, text)
+	var errs source.Errors
+	switch {
+	case errors.As(err, &errs):
+		for _, e := range errs {
+			if !refused[e.Key] {
+				r.late = append(r.late, Error{File: e.File, Line: e.Line, Key: e.Key, Msg: e.Msg})
+			}
+		}
+		return d, false
+	case err != nil:
+		r.late = append(r.late, Error{File: full, Msg: err.Error()})
+		return d, false
+	case len(refused) > 0:
+		return d, false
+	case decl.Name != e.key:
+		r.errf(file.v, file.path, "%s declares the source %s, and the pack names it %s: one name, since it is the yard's name for the source", d.File, decl.Name, e.key)
+		return d, false
+	}
+	d.Text, d.Declaration = string(text), decl
+	return d, true
 }
 
 // source reads what the issues of one outside source hear. ok is false for

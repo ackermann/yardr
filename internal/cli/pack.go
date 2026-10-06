@@ -238,7 +238,11 @@ yard has a hook and a credential for. For each source the pack carries a
 stage map for (sources.<source>: as, hears), the plan shows the map, the
 yard's crew member it would be acted on as, whether the yard has a hook of
 that source and whether that crew member may set a status there (set_state),
-with the command for whatever is missing. Nothing is written.
+with the command for whatever is missing. For each source the pack declares
+(sources.<name>: declaration), the plan shows where its calls go, the calls,
+what a declaration the yard has under that name would change to, and what
+the yard must still be told: the file its credential is read from, and for a
+source that can tell a user, which user names it. Nothing is written.
 
 The pack's role is set on every agent group and crew member it names, also
 where the depot has its own .yardr/roles/<name>.md: the plan names that file
@@ -327,6 +331,19 @@ the plan and the output say so. As with yardr hook add --as, only the
 operator or that crew member's own session may have a hook act as a crew member:
 run by anyone else the import does the rest and sets no map.
 
+A pack may declare a source (sources.<name>: declaration: <file>): a
+service outside the yard that yardr has no Go for, as yardr source add
+takes it (yardr source --help). The import adds it under the pack's name
+for it, and replaces a declaration the yard has under that name, with every
+changed call and a changed address in the plan. A pack carries no secret
+and names no file of the yard, so afterwards the source's credential is
+still to be set (yardr source set <name> env_file=<file>), and no user is
+told through it until one names it (yardr user set <user> notify=<name>
+env_file=<file>): the plan and the output give both commands. A declaration
+in a pack has the keys ` + strings.Join(pack.DeclarationKeys, ", ") + `
+and no other. As with yardr source add, adding a source is the operator's:
+run by anyone else the import does the rest and adds none.
+
 The one answer with a default is what a new group's or crew member's agent may
 do without asking. <preset> names one of the agent's permission presets by
 the label the group form shows (claude: auto, accept-edits, bypass; none
@@ -395,6 +412,8 @@ type plannedImport struct {
 	answers pack.Answers
 	open    *openAnswers
 	refused map[string]string
+	// sources says, by declared source, why this run does not add it.
+	sources map[string]string
 	prune   bool
 	yes     bool
 }
@@ -466,8 +485,26 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 			refused[o.Map.Source] = err.Error()
 		}
 	}
+	// A source is where a credential of the yard is sent: the line yardr
+	// source add draws. The store holds it for good; said here, the rest
+	// of the import is done.
+	sources := map[string]string{}
+	for _, o := range plan.Objects {
+		if o.Kind != "source" || o.Source == nil || (o.Action != pack.Create && o.Action != pack.Change) {
+			continue
+		}
+		// As the store reads it (maySource): a yard that names no operator
+		// has nobody to hold this to.
+		settings, err := st.Settings(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if operator := settings["operator"]; operator != "" && a.who() != operator {
+			sources[o.Source.Name] = fmt.Sprintf("adding a source is the operator's (%s), and this is %s", operator, a.who())
+		}
+	}
 	if !a.json {
-		printPlan(plan, answers, open.Answers, refused)
+		printPlan(plan, answers, open.Answers, notDone(refused, sources))
 	}
 	// A copy someone edited is not overwritten on a confirmation
 	// alone: the edit is lost for good, and its place is the pack.
@@ -486,6 +523,9 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 	todo := 0
 	for _, o := range plan.Objects {
 		if o.Kind == "map" && o.Map != nil && refused[o.Map.Source] != "" {
+			continue
+		}
+		if o.Kind == "source" && sources[o.Name] != "" {
 			continue
 		}
 		if o.Action == pack.Create || o.Action == pack.Change || (f.prune && o.Action == pack.Dropped && o.Held == "") {
@@ -513,19 +553,19 @@ func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, a
 	if err := open.ask(); err != nil {
 		return nil, cancelled(err)
 	}
-	return &plannedImport{st: st, plan: plan, answers: answers, open: open, refused: refused, prune: f.prune, yes: f.yes}, nil
+	return &plannedImport{st: st, plan: plan, answers: answers, open: open, refused: refused, sources: sources, prune: f.prune, yes: f.yes}, nil
 }
 
 // apply writes a planned import and says what it did. extra is what the
 // command wrote besides, added to --json's output; after prints it, below
 // the import's result.
 func (i *plannedImport) apply(ctx context.Context, a *app, extra map[string]any, after func()) error {
-	res, err := pack.Apply(ctx, i.st, i.plan, pack.ApplyOptions{Answers: i.answers, OpenThreads: i.open.Answers, MapRefused: i.refused, Prune: i.prune, Overwrite: i.yes, Actor: a.who()})
+	res, err := pack.Apply(ctx, i.st, i.plan, pack.ApplyOptions{Answers: i.answers, OpenThreads: i.open.Answers, MapRefused: i.refused, SourceRefused: i.sources, Prune: i.prune, Overwrite: i.yes, Actor: a.who()})
 	if res != nil {
-		v := map[string]any{"plan": i.plan, "answers": i.answers, "open_threads": i.open, "maps_refused": i.refused, "result": res}
+		v := map[string]any{"plan": i.plan, "answers": i.answers, "open_threads": i.open, "maps_refused": i.refused, "sources_refused": i.sources, "result": res}
 		maps.Copy(v, extra)
 		if oerr := a.out(v, func() {
-			printResult(i.plan, res, i.prune, i.answers, i.open, i.refused)
+			printResult(i.plan, res, i.prune, i.answers, i.open, notDone(i.refused, i.sources))
 			if after != nil {
 				after()
 			}
@@ -534,6 +574,15 @@ func (i *plannedImport) apply(ctx context.Context, a *app, extra map[string]any,
 		}
 	}
 	return err
+}
+
+// notDone is why this run leaves out a stage map or a declared source, by
+// source: the two have no name in common, since a declared source never has
+// the name of one yardr has built in.
+func notDone(stageMaps, sources map[string]string) map[string]string {
+	out := maps.Clone(stageMaps)
+	maps.Copy(out, sources)
+	return out
 }
 
 // cancelled turns a form the user left into a plain ending.
@@ -986,6 +1035,22 @@ func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.A
 			fmt.Println("note: " + detail)
 		}
 	}
+	// A declared source: what was added, and what the import leaves to the
+	// operator, each with its command.
+	for _, d := range plan.Declared {
+		switch {
+		case refused[d.Source] != "":
+			fmt.Printf("the source %s was not added: %s. The rest of the import does not depend on it\n", d.Source, refused[d.Source])
+			continue
+		case slices.Contains(res.Declared, d.Source):
+			fmt.Printf("source %s is declared: %s under %s (yardr source show %s)\n", d.Source, plural(len(d.Calls), "call"), d.Base, d.Source)
+		}
+		for _, n := range d.Needs {
+			if n.Status != "ok" {
+				fmt.Printf("next, for source %s: %s\n", d.Source, n.Detail)
+			}
+		}
+	}
 	for _, r := range res.Restart {
 		fmt.Printf("crew member %s is running and was not restarted: its role or subscriptions changed, so restart it (yardr crew restart %s)\n", r, r)
 	}
@@ -1065,13 +1130,14 @@ func kindWord(kind string) string {
 // planKinds are the kinds of object in a plan, in its order, with the
 // heading each is printed under.
 var planKinds = [][2]string{{"file", "files"}, {"group", "groups"}, {"flow", "flows"}, {"pointer", "flow pointers"},
-	{"route", "routes"}, {"crew", "crew"}, {"subscription", "subscriptions"}, {"map", "stage maps"}}
+	{"route", "routes"}, {"crew", "crew"}, {"subscription", "subscriptions"}, {"map", "stage maps"}, {"source", "declared sources"}}
 
 // printPlan prints the plan. answers are those already given: an answered
 // question is printed as what its object gets, and only the open ones are
 // listed as what an import would ask. open are the answers to whether a
 // crew member may open threads, by crew member and source. refused says, by
-// source, why a stage map the plan would set is not set by this run.
+// source, why a stage map the plan would set or a declared source it would
+// add is left out by this run.
 func printPlan(p *pack.Plan, answers pack.Answers, open map[string]map[string]bool, refused map[string]string) {
 	fmt.Printf("pack %s (%s) into depot %s\n", p.Pack, p.Dir, p.Depot)
 	fmt.Printf("its roles and scripts would be copied to %s\n", p.Install)
@@ -1216,6 +1282,23 @@ func printPlan(p *pack.Plan, answers pack.Answers, open map[string]map[string]bo
 			fmt.Println("  nothing would be set: the import goes through without it, and the next one sets it once the yard has what is missing")
 		}
 		for _, n := range m.Needs {
+			fmt.Printf("  %-8s %-12s %s\n", n.Status, strings.ReplaceAll(n.What, "_", " "), n.Detail)
+		}
+	}
+	for _, d := range p.Declared {
+		fmt.Printf("\ndeclared source %s, from %s\n", d.Source, d.File)
+		fmt.Printf("  its calls go to %s: %s\n", d.Base, strings.Join(d.Calls, ", "))
+		switch {
+		case refused[d.Source] != "":
+			fmt.Printf("  not added: %s\n", refused[d.Source])
+		case d.Action == pack.Create:
+			fmt.Println("  would be added to the yard's sources")
+		case d.Action == pack.Change:
+			fmt.Println("  would replace the declaration the yard has under that name, which keeps its env_file (what changes is under declared sources, above)")
+		default:
+			fmt.Println("  the yard has it")
+		}
+		for _, n := range d.Needs {
 			fmt.Printf("  %-8s %-12s %s\n", n.Status, strings.ReplaceAll(n.What, "_", " "), n.Detail)
 		}
 	}

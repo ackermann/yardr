@@ -44,7 +44,13 @@ type ApplyOptions struct {
 	// the import does not depend on it. As with OpenThreads, who the actor is
 	// was checked by whoever fills this in.
 	MapRefused map[string]string
-	Actor      string
+	// SourceRefused says, by source, why a declared source the plan would
+	// add is not added: a source is where a credential of the yard is sent,
+	// so adding or replacing one is the operator's (store.PutSource). The
+	// rest of the import does not depend on it, and who the actor is was
+	// checked by whoever fills this in.
+	SourceRefused map[string]string
+	Actor         string
 }
 
 // Result is what applying a plan did.
@@ -70,6 +76,8 @@ type Result struct {
 	Granted []Grant `json:"granted"`
 	// Mapped are the stage maps the import set on a hook of the yard.
 	Mapped []MapOp `json:"mapped"`
+	// Declared are the sources the import added or replaced.
+	Declared []string `json:"declared"`
 	// Recorded says the yard's record of the import was written; false when
 	// nothing changed.
 	Recorded bool `json:"recorded"`
@@ -110,7 +118,7 @@ func (p *Plan) Missing(a Answers) []Question {
 // removal fails does not undo the import either: the rest is pruned, the
 // record is written with that object still in it, and the error names it.
 func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result, error) {
-	res := &Result{Pack: p.Pack, Depot: p.Depot, Pruned: []string{}, Left: []string{}, PruneErrors: []string{}, Restart: []string{}, Granted: []Grant{}, Mapped: []MapOp{}}
+	res := &Result{Pack: p.Pack, Depot: p.Depot, Pruned: []string{}, Left: []string{}, PruneErrors: []string{}, Restart: []string{}, Granted: []Grant{}, Mapped: []MapOp{}, Declared: []string{}}
 	files, err := check(p, o)
 	if err != nil {
 		return nil, err
@@ -137,6 +145,9 @@ func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result,
 		}
 		if obj.Kind == "map" {
 			res.Mapped = append(res.Mapped, *obj.Map)
+		}
+		if obj.Kind == "source" {
+			res.Declared = append(res.Declared, obj.Source.Name)
 		}
 	}
 	for _, obj := range p.Objects {
@@ -189,9 +200,14 @@ func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result,
 }
 
 // refused reports whether o is a stage map the import was told not to set
-// (ApplyOptions.MapRefused): it is neither written nor recorded.
+// (ApplyOptions.MapRefused) or a declared source it was told not to add
+// (SourceRefused): it is neither written nor recorded.
 func (o Object) refused(a ApplyOptions) bool {
-	return o.Kind == "map" && o.Map != nil && (o.Action == Create || o.Action == Change) && a.MapRefused[o.Map.Source] != ""
+	if o.Action != Create && o.Action != Change {
+		return false
+	}
+	return (o.Kind == "map" && o.Map != nil && a.MapRefused[o.Map.Source] != "") ||
+		(o.Kind == "source" && o.Source != nil && a.SourceRefused[o.Source.Name] != "")
 }
 
 // openAnswers is what the record keeps of the plan's OpenThreads: the
@@ -414,6 +430,9 @@ func write(ctx context.Context, st store.API, p *Plan, obj *Object, o ApplyOptio
 		h.As, h.Map = obj.Map.As, obj.Map.Map
 		_, err = st.PutHook(ctx, *h, o.Actor)
 		return err
+	case "source":
+		_, err := st.PutSource(ctx, obj.Source.From, obj.Source.Text, o.Actor)
+		return err
 	}
 	return fmt.Errorf("the plan has an object of unknown kind %q", obj.Kind)
 }
@@ -499,7 +518,7 @@ func InstallRole(p *Pack, home, member, takes, operator string, replace bool) (p
 // pruneOrder is the order dropped objects are removed in: a route before
 // the group it leads to, a pointer before the flow it points at, a flow
 // before its stage files.
-var pruneOrder = []string{"route", "pointer", "flow", "group", "subscription", "map", "file"}
+var pruneOrder = []string{"route", "pointer", "flow", "group", "subscription", "map", "source", "file"}
 
 // prune removes the plan's dropped objects, or with no prune asked for
 // only lists them as left. It returns the keys of those removed.
@@ -560,6 +579,8 @@ func remove(ctx context.Context, st store.API, obj Object, actor string) (note s
 			h.As, h.Map = "", nil
 			_, err = st.PutHook(ctx, *h, actor)
 		}
+	case "source":
+		err = st.DeleteSource(ctx, obj.Name, actor)
 	case "file":
 		err = os.Remove(obj.File.To)
 	}

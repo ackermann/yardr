@@ -5,12 +5,15 @@ A user is a person as a party of the yard: a name and an inbox, as a
 the user reads it, and the whole exchange with a crew member, without going to
 the crew member's pane. The yard itself tells a user of the events they
 subscribed to, as notifications, in a part of the inbox apart from the mail.
+A user who names a source for it is also told outside the yard, on a phone,
+of what lands in that inbox.
 
 ```sh
 yardr user list                          # the users, who is the operator, unread mail
 yardr user add ada                       # the operator adds a user
 yardr user show ada
 yardr user rm ada                        # the mail stays in the log
+yardr user set ada notify=pushover env_file=~/.yardr/users/ada.env   # told on a phone, through a source
 
 yardr mail mckean "The assembly is red on main: yardr-1a2b"   # a crew member's session, or a user
 yardr inbox                              # as a user: Mail and Notifications, each with its unread
@@ -24,10 +27,12 @@ yardr mail --with yardmaster --after 412 --json
 
 A user has a name, an inbox and the subscriptions that fill its
 notifications ([subscriptions.md](subscriptions.md#users-as-subscribers));
-`yardr user show <name>` lists them. The record is where more about a person
-goes later: who they are in an outside source (as `yardr crew identity`
-says for a crew member) and a user who comes from another yard. Neither is
-built.
+`yardr user show <name>` lists them. It also has the source that tells
+the user outside the yard and the path of the file their address is read
+from ([below](#told-outside-the-yard)). The record is where more about a
+person goes later: who they are in an outside source (as `yardr crew
+identity` says for a crew member) and a user who comes from another yard.
+Neither is built.
 
 **The operator is a user.** `yardr init` and the onboarding add the user
 named by the `operator` setting, and `yardr settings set operator <name>`
@@ -61,7 +66,9 @@ a bead is refused**: what it has to say to a person goes on its bead
 (`yardr bead note`), and a question ends its stage with the `question`
 outcome. That is a rule of the `mail` command, not of the user's record.
 
-**Nothing nudges a person.** `yardr doctor` (the `mail` line) and bare
+**Nothing nudges a person inside the yard.** A user who named a source is
+told on their phone ([below](#told-outside-the-yard)); for everyone else,
+and as well, `yardr doctor` (the `mail` line) and bare
 `yardr` (a last line under its help) say `N unread from <names>` to the
 user who runs them. That count is of mail alone; bare `yardr` adds `and N
 notifications` after it when there are unread ones:
@@ -130,6 +137,92 @@ user had acknowledged is acknowledged in both parts.
 
 The notifications are bounded: the newest 500 are kept and the oldest
 dropped, read or not. Mail is not.
+
+## Told outside the yard
+
+A user names a source that can tell a person
+([integrations.md](integrations.md#tell-a-user-outside-the-yard)), and from
+then on what lands in their inbox is sent through it: to a phone, with
+Pushover as the source ([pushover.md](pushover.md) sets that up from
+nothing).
+
+```sh
+yardr user set ada notify=pushover env_file=~/.yardr/users/ada.env
+yardr source check pushover --user ada      # one real test message
+yardr user show ada                         # notify, the env file, and how the last message ended
+yardr user set ada notify=                  # nowhere; what was still to be told is dropped
+```
+
+`notify` is the source. `env_file` is a file of `KEY=VALUE` lines that sets
+the variable the source's file names for a person's address
+(`notify.address.env`; for Pushover `PUSHOVER_USER`, the person's own user
+key). It is held to the rule of every env file: a regular file of mode 0600
+or stricter, read at each send. The store keeps the path, never what is in
+it, and a file that is open to others or does not set the name is refused
+when it is set. The source's own credential is the yard's and in another
+file (`yardr source set <source> env_file=…`): the application's token is
+one thing, a person's address another.
+
+**Who may.** The user themselves and the operator. It is refused from the
+pane of an agent, whoever the command says it is, and from a crew member:
+whoever sets these two decides where a person's inbox is sent. Like
+every such check in yardr it is a line, not a wall: every agent runs as the
+one OS user ([Who is acting](#who-is-acting)).
+
+**What is told.** Mail to the user, their own too, so also a timer they
+set for themselves; and the notifications of their subscriptions, which
+never include what the user did themselves
+([subscriptions.md](subscriptions.md#users-as-subscribers)). Nothing else,
+and nothing that is not in the inbox: to be told of a kind of event,
+subscribe to it; not to be, do not.
+
+**What leaves the machine.** A fixed line that says who and what kind, and
+the first words of the text. mckean decided this on 7 October 2026: the
+message goes to the service's servers and onto a lock screen.
+
+| in the inbox | title | text |
+|---|---|---|
+| mail | `mail from yardmaster` | the first 200 characters |
+| a fired timer | `timer from mckean` | the first 200 characters (`timer: …`) |
+| a notification of a bead | `web-hk7z advanced` | its line as the inbox has it: `web-hk7z advanced (all) by yardmaster from=new to=decide on "Which port for the hook listener"` |
+| a notification of a hook delivery | `github hook` | its line, without the link it ends with |
+| several | `5 new in your yardr inbox` | each kind once, with how many: `mail from yardmaster (4), web-hk7z advanced` |
+
+No link is sent. The source cuts a title or a text to what its call takes
+(a parameter's `max`).
+
+**When.** The daemon sends, so it must be running. A thing is told once it
+has been in the inbox for 20 seconds and is still unread: what was
+acknowledged by then, by `yardr chat` showing it or `yardr inbox --ack`, is
+not told. Everything due for one user goes as **one message**, and a
+message waits for a burst to end: it goes once nothing new came for 20
+seconds, at the latest 60 seconds after its oldest item. At most **20
+messages an hour** for one user; the twentieth says it is the last of the
+hour, and what is over waits and goes as one when the hour has room.
+
+**When the source fails.** The inbox is filled first, in the same write as
+the mail or notification, and never waits for a source: with the source
+down, misconfigured or removed, `yardr inbox` and `yardr chat` show
+everything at once. A send that gets no answer, a 5xx, a 408 or a 429 is
+tried again after 30 seconds, then with doubling waits, for up to **8
+tries** and until the thing is **6 hours** old; then it is given up. Any
+other 4xx is final at once, and so is a user or a source that is not set
+up (a missing env file, one open to others, a name it does not set). Giving
+up is the event `push_failed`, about no bead: the user, the source, the
+reason (`not_set_up`, `refused`, `gave_up`, `expired`), the status, how
+many of the inbox it covered. The address, the token, the title and the
+text are in no event and no log, and nothing of a request is. A message
+that was taken leaves no event.
+
+**How it stands.** `yardr user show <name>` has `last told: <when> through
+<source>, taken (status 200, 2 of the inbox in one message)`, or `failed
+(…); next try <time>` while the daemon still tries, or `not sent: <reason>
+(…)`. `yardr doctor` notes a user whose last message was not taken
+([doctor.md](doctor.md)). A crew member hears of `push_failed` with `--on
+push_failed`; a user cannot subscribe to it, so a failed message never
+queues another.
+
+None of the numbers above is a setting, and there is one source per user.
 
 ## A conversation
 

@@ -1468,8 +1468,10 @@ pack apply`.
 The store is stamped with its schema version on open, and a yardr whose schema
 is older than the store's refuses to open it
 (`store schema is newer than this yardr knows`) rather than run its migrations
-over it. The schema is 14 (the rename of refinery to assembly stores
-nothing, so it has no version of its own): version 14 keeps, in a user's
+over it. The schema is 15 (the rename of refinery to assembly stores
+nothing, so it has no version of its own): version 15 keeps what is still
+to be told a user outside the yard (the bucket `pushes`) and, in a user's
+record, how the last message ended; version 14 keeps, in a user's
 record, the source that tells them outside the yard and the path of the file
 their address is read from (`yardr user set`), version 12 stores a rig as a depot,
 version 11 stores residents as the crew, version 10 stores the bead types

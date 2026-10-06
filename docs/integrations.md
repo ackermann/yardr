@@ -1,7 +1,8 @@
 # Integrations
 
 An integration is a service outside the yard that the yard hears and, where
-the service allows it, speaks in: Linear, GitHub. This page says what one is
+the service allows it, speaks in: Linear, GitHub, and a service a file
+declares, such as Pushover. This page says what one is
 made of today, how one becomes part of a yard, with Linear as the example
 from nothing to a merged bead closing its issue, and what someone would
 write to add a service. It ends with what is missing.
@@ -18,7 +19,9 @@ Two things, kept in two places:
 - **An adapter**: Go code in `internal/hooks`, compiled into yardr. One per
   service, registered by name in the map `hooks.Adapters`. The name is the
   **source**: `linear`, `github`, `token`. yardr has these three and no way
-  to load another.
+  to load another. Beside them a yard has its **declared sources**: a
+  service added by one YAML file and no Go ([below](#a-declared-source)),
+  which today can do one thing of this list, the last.
 - **Settings in the yard**: a hook (the endpoint and its secret), a
   crew member's credential, identity and grants, subscriptions, links, a stage
   map. They live in the store and in files in the yard's home, and are set
@@ -31,16 +34,16 @@ code asks with a type assertion (`hooks.ReplierFor`, `OpenerFor`,
 source that lacks it, naming those that have it (`yardr cannot open threads
 in token (it can in github, linear)`). Only the first is required.
 
-| capability | interface (file) | `linear` | `github` | `token` |
-|---|---|---|---|---|
-| receive | `Adapter` (`hooks.go`) | yes | yes | yes |
-| identify | none: read from the envelope by the store | mentions, assignee, delegate | mentions, assignee | never |
-| link | `Linker` (`issue.go`) | yes | yes, issues only | no |
-| reply, read a thread | `Replier` (`reply.go`) | yes | yes | no |
-| open a thread | `Opener` (`open.go`) | yes | yes | no |
-| set a thread's status | `Stater` (`state.go`) | `started`, `review`, `done` | `started`, `done` | no |
-| move with a bead's stage | `Forwarder` (`forward.go`) | yes | yes | no |
-| tell a user outside the yard | not built | no | no | no |
+| capability | interface (file) | `linear` | `github` | `token` | a declared source |
+|---|---|---|---|---|---|
+| receive | `Adapter` (`hooks.go`) | yes | yes | yes | no |
+| identify | none: read from the envelope by the store | mentions, assignee, delegate | mentions, assignee | never | no |
+| link | `Linker` (`issue.go`) | yes | yes, issues only | no | no |
+| reply, read a thread | `Replier` (`reply.go`) | yes | yes | no | no |
+| open a thread | `Opener` (`open.go`) | yes | yes | no | no |
+| set a thread's status | `Stater` (`state.go`) | `started`, `review`, `done` | `started`, `done` | no | no |
+| move with a bead's stage | `Forwarder` (`forward.go`) | yes | yes | no | no |
+| tell a user outside the yard | `Notifier` (`notify.go`) | no | no | no | yes, with a `notify` key in its file |
 
 The interfaces build on each other: an `Opener` and a `Stater` are each a
 `Replier`, and a `Forwarder` is a `Stater`. `token` is the smallest
@@ -299,12 +302,78 @@ in a `thread_state` or `thread_state_skipped` event on the bead
 <type>:<stage>=<state>`, `yardr hook list`, `yardr hook show <name>` (the
 map and the moves still to make), `yardr events --bead <id>`.
 
+### Tell a user outside the yard
+
+A crew member is nudged in its pane. A person sees mail and notifications
+when they look (`yardr inbox`, `yardr chat`), and is told on a phone when
+they name a source that can tell them:
+
+```sh
+yardr user set mckean notify=pushover env_file=~/.yardr/users/mckean.env
+yardr source check pushover --user mckean     # one real test message
+```
+
+It is a capability of a source like the others, and a user names the
+**source**: there is no separate thing called a notifier. A declared source
+has it when its file has a `notify` key, which says which of its calls
+tells a person and which of the call's parameters take the four values the
+yard has for it: where the person is reached, a title, a text and a link. A
+compiled adapter would have it by implementing `hooks.Notifier`; none does,
+so no user can name `linear` or `github`, and the refusal lists the sources
+that can.
+
+Everything that decides whether and when a person is told ends at those
+four values; sending them is one declared call. What is told, when, and
+what leaves the machine is in
+[users.md](users.md#told-outside-the-yard). [pushover.md](pushover.md) sets
+one up from nothing.
+
+### A declared source
+
+A service outside the yard, added by one YAML file: its address, the
+credential it takes, and the requests the yard may make of it, each with
+its parameters. `yardr source --help` has the format, and
+[pushover.md](pushover.md) a whole file.
+
+```sh
+yardr source add pushover.yaml                                    # or a pack brings it: sources.<name>.declaration
+yardr source set pushover env_file=~/.yardr/sources/pushover.env  # where its credential is read from
+yardr source list
+yardr source show pushover
+yardr source check pushover                                       # the credential, and the file's check call if it names one
+yardr source rm pushover
+```
+
+- **The file holds no secret.** It names the variable the credential is in;
+  the value is read from the `env_file` at each call (mode 0600, as every
+  env file). So the declaration is kept in the store, shown, and carried by
+  a pack ([packs.md](packs.md#how-a-pack-maps-to-the-yard)).
+- **What a file can say**: JSON over HTTPS. A request that must be signed,
+  an answer in pages or a webhook to verify is not a declared source.
+  Refused when the file is added: an address that is not `https://` (plain
+  `http://` to this machine only, for a stand-in), a path that leaves the
+  address, a credential in a path or a query. No redirect is followed.
+- **Who calls one today**: `yardr source check`, and the daemon for a
+  source a user names as their notify. No agent calls one: grants for
+  groups and crew members, and a `yardr call`, are designed (yardr-3e8x) and
+  not built. Nothing of a request is written to an event or a log.
+- **Adding, setting and removing one is the operator's**, and refused from
+  an agent's pane: a source is where a credential of the yard is sent.
+- **Its name is none of `github`, `linear`, `token`, `yardr`**: it is no
+  hook source, so nothing subscribes to it and no hook receives it.
+
 ### What is not there
 
-Telling a user outside the yard. A crew member is nudged in its pane; a person
-sees mail and notifications only when they look (`yardr inbox`, `yardr
-chat`). No adapter has a method that carries a notification to a person in
-the service, on the desktop or in a chat (*planned, yardr-1481*).
+- Telling a user through Linear or GitHub (a DM, a mention): no adapter
+  implements `Notifier`.
+- A way to be told that is no HTTPS request with a JSON body: a desktop
+  notification, mail by SMTP, a program of the operator's. The place for
+  one is behind the same four values; none is built.
+- Per user: which parts of the inbox are told, how much of the text, quiet
+  hours, the grace and the hourly bound (all fixed), a link a phone can
+  open, several sources at once. For a crew member or a group: nothing.
+- Events in from a declared source (the key `events` is kept for them),
+  and calls by agents (above).
 
 ## How one becomes part of a yard
 
@@ -578,10 +647,14 @@ isolated yard, was recorded as
 | identity, grants, subscriptions | `yardr crew show <name>` |
 | the stage map | `yardr hook list` (MOVES ISSUES), `yardr hook show <name>` |
 | a pack's view of all of it | `yardr pack check` and `pack apply` print, per source a pack names, what the yard has and lacks: hook, secret file, identity, credential, listener ([packs.md](packs.md#how-a-pack-maps-to-the-yard)) |
+| a declared source and its credential | `yardr source show <name>`: `credential: <NAME> is set in <file>`, or why not; `yardr source check <name>` reads it as a call would |
+| that a user is told | `yardr source check <source> --user <name>` sends one test message; `yardr user show <name>`: `last told: …`; doctor notes a user who was not told ([doctor.md](doctor.md)) |
 
 ## Adding a service
 
-What someone writes today to make yardr carry a new service. All of it is
+What someone writes today to make yardr carry a new service. For a service
+that only has to tell a person, it is a file and no Go: [a declared
+source](#a-declared-source) with a `notify` key. For everything else it is
 Go, in yardr's own repository.
 
 **The least: receive.** A new file `internal/hooks/<source>.go` with a type
@@ -667,19 +740,30 @@ a design.
    (`crew members.<name>.subscribe.<source>: <scope>`), the request that the
    crew member may open threads there (`open_threads`, which the import puts
    to the operator), and the stage map with the crew member it acts as
-   (`sources.<source>`). A pack does not make the hook, the secret file or
+   (`sources.<source>`), and the declaration of a declared source
+   (`sources.<name>.declaration`). A pack does not make the hook, the secret file or
    `hook_addr`, does not set the credential or the identity, cannot ask for
-   `set_state`, and carries no subscription with a `--where`. Its plan is
+   `set_state`, and carries no subscription with a `--where`. For a
+   declared source it brings the file and nothing else: not the
+   credential's file, not which user is told through it. Its plan is
    the nearest thing to a check of a whole integration, and it exists only
    for a source a pack names.
 3. **An adapter is Go code inside yardr.** A new service is a change to
    `internal/hooks`, the store's where keys and the tests, and a release.
-   yardr-s48v holds the idea of adapters outside the core.
-4. **A user outside the yard is not told** (yardr-1481): no capability
-   carries a notification to a person.
+   A declared source is the first thing outside the core, and it can only
+   tell a user: receiving, replying and moving an issue cannot be declared.
+   yardr-s48v holds the idea of adapters outside the core, and the
+   direction is that Linear leaves the binary too.
+4. **A user is told through a declared source only, and only by one HTTPS
+   request.** No compiled adapter tells a user, and nothing that is not a
+   JSON request does (a desktop notification, SMTP). What is told is fixed:
+   no setting for the parts of the inbox, the amount of text, the grace,
+   the bound or quiet hours, no link, one source per user
+   ([above](#what-is-not-there)).
 5. **No command says what a source can do.** The capability table above is
    read from the code. A user learns that `token` cannot be answered in
-   from the refusal.
+   from the refusal. The two kinds of source also have two lists: `yardr
+   hook list` for what is heard, `yardr source list` for what is declared.
 6. **Nothing checks a credential until it is used.** `yardr crew show`
    and the pack plan read the names in the `env_file`. A wrong or expired
    token shows at the first reply, and for a stage map as a move that
@@ -715,6 +799,7 @@ a design.
     them.
 16. **The stand-in knows part of the services.**
     `contrib/isolated-yard/sources` answers reading an issue and setting
-    its status, for both services. A reply and an opened thread cannot be
+    its status, for both services, and takes a message for a person as
+    Pushover does. A reply and an opened thread cannot be
     tried in an isolated yard: they are covered by the tests' fake servers
     and by the real service only.
