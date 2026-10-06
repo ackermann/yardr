@@ -136,9 +136,9 @@ waits for an answer, its harness says something no pattern knows) without
 | runner | starts | config |
 |---|---|---|
 | `manual` | nothing; the bead waits on the group | — |
-| `exec` | `sh -c cmd` in the rig, with `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_ACTOR` (the group); for a bead with a rig also `YARDR_RIG`, `YARDR_RIG_PATH`, `YARDR_BASE` (what the bead lands on: the rig's base, or its epic's branch, see [pipeline.md](pipeline.md#epics)), `YARDR_BRANCH` (`yard/<bead>`), `YARDR_WORKTREE` (where herdr groups check that branch out); `YARDR_TYPE` (the bead's type) and `YARDR_EPIC` (the epic it is a child of, empty for none), by which merge-local knows a part of an epic ([pipeline.md](pipeline.md#parts)); and `YARDR_BIN`, `YARDR_HOME` for the script's own `yardr` commands; `YARDR_RIG_KIND` is `git`, or `dir` for a dir rig, whose beads get no base, branch or worktree. A refinery is one ([pipeline.md](pipeline.md#4-approved-the-refinery-lands-it-on-main)), and so is an integrator such as `yardr-integrators`, which integrates an epic's branch once its children have landed ([pipeline.md](pipeline.md#the-epics-own-flow)) | `cmd`, `dir`, `log`, `worktrees` |
+| `exec` | `sh -c cmd` in the rig, with `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_ACTOR` (the group); for a bead with a rig also `YARDR_RIG`, `YARDR_RIG_PATH`, `YARDR_BASE` (what the bead lands on: the rig's base, or its epic's branch, see [pipeline.md](pipeline.md#epics); for a bead from a linked yard that named where its work starts, that commit, see [peers.md](peers.md#code-that-comes-back)), `YARDR_BRANCH` (`yard/<bead>`), `YARDR_WORKTREE` (where herdr groups check that branch out); `YARDR_TYPE` (the bead's type) and `YARDR_EPIC` (the epic it is a child of, empty for none), by which merge-local knows a part of an epic ([pipeline.md](pipeline.md#parts)); and `YARDR_BIN`, `YARDR_HOME` for the script's own `yardr` commands; `YARDR_RIG_KIND` is `git`, or `dir` for a dir rig, whose beads get no base, branch or worktree. A refinery is one ([pipeline.md](pipeline.md#4-approved-the-refinery-lands-it-on-main)), and so is an integrator such as `yardr-integrators`, which integrates an epic's branch once its children have landed ([pipeline.md](pipeline.md#the-epics-own-flow)) | `cmd`, `dir`, `log`, `worktrees` |
 | `herdr` | a herdr worktree workspace on branch `yard/<bead>` (from the bead's base) at `~/.yardr/worktrees/<rig>/<bead>` (reopened for later stages, one tab per stage), an agent in it, in a tab of its own with `YARDR_ACTOR` (the agent), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_BASE` (what it branches from: the rig's base, or its epic's branch), `YARDR_HOME` and `YARDR_BIN` in its environment, prompted with a brief in the worktree's git dir (`git rev-parse --git-path yardr`); a dir rig's bead works in the directory itself (see [Dir rigs](#dir-rigs)) | `kind`, `prompt`, `args`, `model`, `keep`, `worktrees`, `idle`, `max_age`, `grace`, `stall`, `label`, `env_file`, `trust` |
-| `peer` | nothing here: the bead is sent to a linked yard, which works it in a flow of its own and returns how it ended ([Peer groups](#peer-groups)) | `peer`, `tries`, `max_age` |
+| `peer` | nothing here: the bead is sent to a linked yard, which works it in a flow of its own and returns how it ended ([Peer groups](#peer-groups)) | `peer`, `tries`, `remote`, `max_age` |
 
 ### Peer groups
 
@@ -165,14 +165,17 @@ merged terminal
 |---|---|
 | `peer` | the linked yard, by this yard's name for it (`yardr peer list`). Required; refused when there is no such peer or its link does not carry `bead` out. `yardr peer rename` changes it with the link |
 | `--limit` | how many beads may be at that yard at once |
-| `tries` | how often the bead is posted before its stage ends as `undelivered`; 5, about a quarter of an hour |
+| `tries` | how often the bead is posted before its stage ends as `undelivered`; 5, about a quarter of an hour. Also how often a branch that came back is fetched before the bead is held |
+| `remote` | the remote of the bead's rig that a branch the yard returns is fetched from, by its name (`git remote`); `origin` ([peers.md](peers.md#code-that-comes-back)) |
 | `max_age` | how long a bead is away before `session_aged` is raised, once; 24h. Nothing stops the session at that age or after it: `grace` and the cap at twice `max_age` do not apply to a bead at another yard |
 
 A peer group has no members and no prompt. Its session (`yardr session
 list`, runner `peer`) is the bead being away: it ends when the other yard's
 return comes, with that yard's outcome reported by `peer:<name>`, or with
 one of the yard's own, `refused` and `undelivered`. A stage that does not
-name the outcome that came keeps the bead, held, with a note. `yardr bead
+name the outcome that came keeps the bead, held, with a note. A return that
+names a branch moves the bead once that branch is fetched and checked, into
+the bead's own `yard/<bead>`. `yardr bead
 show` says `at north: sent 10-06 14:02, north last heard 10-06 14:10`, and
 `yardr flow show` has `yard north` under MEMBERS. A yard without a key
 (`yardr peer key`) can send nothing: the group is reported as blocked, as a

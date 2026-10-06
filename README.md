@@ -383,6 +383,7 @@ packs/starter       a starter pack
 docs/               the documentation (docs/README.md is its index)
 conformance/bdp     runs BDP's own Read conformance suite against yardr bdp serve
 contrib/refinery    merge-local, a reference refinery script for an exec group
+contrib/peer        return-branch, the script that pushes the branch of a bead worked for a linked yard
 contrib/release     builds the release archives and checksums.txt
 contrib/isolated-yard  a throwaway yard and herdr server for tests that start agents (see its README)
 ```

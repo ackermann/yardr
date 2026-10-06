@@ -598,6 +598,173 @@ The same in the other cases:
   the report"`. After `--hold-for 0`, `peer show a` said `and wait for as
   long as nobody has (--hold-for 0)`.
 
+### Beads, with code
+
+Then with a shared remote, in two bare isolated yards
+(`contrib/isolated-yard/isolated-yard bare`: a server and a daemon each, no
+agents) on free loopback ports. One bare repository, of which each yard has
+a clone as its rig `web` with the base `main`:
+
+```sh
+git init --bare $T/remote.git
+git clone $T/remote.git $A/web          # one commit on main, pushed
+git clone $T/remote.git $B/web
+yardr --home $A/y rig add web $A/web --base main
+yardr --home $B/y rig add web $B/web --base main
+```
+
+On a, the flow and the peer group
+[as before](#beads-the-sending-side), with `--set tries=2`, and an exec
+group for `review` that stands in for a reviewer: it opens the bead's
+worktree on its branch and notes where that is. On b, the flow for beads
+that bring code back, a stand-in builder for `new` (one commit on
+`$YARDR_BRANCH`, made from `$YARDR_BASE`, with a note that ends in a gate
+line), and `return-branch` for `push`:
+
+```sh
+yardr --home $B/y flow set incoming -f incoming.flow    # new -> push -> returned
+yardr --home $B/y peer intake a --rig web --flow incoming --auto
+#   peer a: rig web, flow incoming: its beads arrive ready (--auto): the flow's routes start on them unseen; at most 10 open, 0 now
+#   return-branch installed: /tmp/iy.BbkR0i/y/scripts/return-branch (this build's contrib/peer/return-branch)
+#   Its beads' code goes back when a stage of flow incoming pushes their branch (docs/peers.md, "Code that comes back"):
+#     yardr group add web/return --runner exec --limit 1 --set cmd='YARDR_PUSH=origin /tmp/iy.BbkR0i/y/scripts/return-branch'
+#     yardr route add --stage push --rig web --group web/return
+#   Without such a stage the outcome and the notes go back, and no code.
+yardr --home $B/y group add web/builders --runner exec --limit 1 --set cmd=$B/builder
+yardr --home $B/y route add --stage new --rig web --group web/builders
+yardr --home $B/y group add web/return --runner exec --limit 1 --set cmd="YARDR_PUSH=origin $B/y/scripts/return-branch"
+yardr --home $B/y route add --stage push --rig web --group web/return
+```
+
+**The whole way.** a's `main` got a second commit, `73569b2`, pushed; b's
+clone was still at the first, `568af5c`, and was not fetched by hand.
+
+```sh
+yardr --home $A/y bead create "Add the export" --rig web --stage build -b "As a CSV, one row per order."
+#   web-1bq6
+```
+
+Two seconds later, a's bead and the worktree its review stage opened:
+
+```text
+web-1bq6  Add the export
+  type task · stage review · open · P2 · HELD
+  rig web
+  was at b: sent 10-06 13:07, returned done 10-06 13:07 (its bead web-s43g)
+  branch yard/web-1bq6 came from b: its yard/web-s43g at 2db68ec122ab, fetched 10-06 13:07 from file:///private/tmp/iy.815S1k/remote. No gate of this yard has run on it
+
+Notes:
+  [2026-10-06 13:07 web/builders@b]
+  exported as RFC 4180, from base 73569b224d797e75a33594df7ef148610a616512; gate: yardr rig check web --light @ 2db68ec: pass
+  [2026-10-06 13:07 web/return@b]
+  return-branch: pushed yard/web-s43g at 2db68ec to origin (/tmp/iy.815S1k/remote.git)
+  [2026-10-06 13:07 yard]
+  The yard b returned its branch yard/web-s43g at 2db68ec122ab, which is yard/web-1bq6 here now. The work on it is that yard's, and so is any gate line in its notes: this yard's gate has not run on it.
+  [2026-10-06 13:07 web/reviewers]
+  review: worktree /tmp/iy.815S1k/y/worktrees/web/web-1bq6 on yard/web-1bq6 is at 2db68ec122ab00f3994aa21857af24a08d920703
+
+$ git -C $B/web rev-parse yard/web-s43g          # b's builder's commit
+2db68ec122ab00f3994aa21857af24a08d920703
+$ git -C $A/y/worktrees/web/web-1bq6 log --oneline
+2db68ec Add the export
+73569b2 b.txt
+568af5c a.txt
+```
+
+(The bead is held because the stand-in reviewer holds it, to stay in
+`review`.) a's events for the bead, and b's for its own:
+
+```text
+13:07:21  web-1bq6 peer_bead_sent     yard    base=main base_commit=73569b22… group=at-b id=01a110e5-…-18 peer=b remote=file:///private/tmp/iy.815S1k/remote stage=build tries=2
+13:07:22  web-1bq6 peer_bead_returned peer:b  branch=yard/web-s43g commit=2db68ec1… from=web-s43g notes=2 outcome=done peer=b re=01a110e5-…-18 remote=file:///private/tmp/iy.815S1k/remote stage=build way=push
+13:07:23  web-1bq6 peer_bead_fetched  yard    branch=yard/web-s43g commit=2db68ec1… into=yard/web-1bq6 peer=b remote=file:///private/tmp/iy.815S1k/remote
+13:07:23  web-1bq6 advanced           peer:b  from=build group=at-b outcome=done peer=b to=review
+13:07:23  web-1bq6 claimed            yard    group=web/reviewers stage=review
+
+13:07:21  web-s43g peer_bead_arrived  peer:a       base=main base_commit=73569b22… flow=incoming from=web-1bq6 held=false peer=a rig=web stage=build way=push
+13:07:22  web-s43g advanced           web/builders from=new outcome=done to=push
+13:07:22  web-s43g updated            web/return   metadata={result.branch=yard/web-s43g result.commit=2db68ec1… result.remote=/tmp/iy.815S1k/remote.git}
+13:07:22  web-s43g advanced           web/return   from=push outcome=done to=returned
+13:07:22  web-s43g peer_bead_returned web/return   branch=yard/web-s43g commit=2db68ec1… outcome=done peer=a remote=file:///private/tmp/iy.815S1k/remote to=web-1bq6
+```
+
+b's `main` was still `568af5c` afterwards: its builder started from a's
+commit, which b fetched when the bead arrived.
+
+The other cases:
+
+- **b with a different remote** (`git -C $B/web remote set-url origin
+  $B/other.git`): a's next bead went to `decide` at once, `was at b: sent
+  10-06 13:07, refused 10-06 13:07: it cannot start the work where this
+  yard's bead starts: its rig has another remote than this yard's, or the
+  bead's base commit is not on the remote (push the base, then send the
+  bead again)`, with a note that says the same. b made no bead and logged:
+
+  ```text
+  peer_message_refused peer:a  bead=web-5mq3 detail=the remote origin of rig web is file:///private/tmp/iy.BbkR0i/other here, and the bead starts from file:///private/tmp/iy.815S1k/remote direction=in kind=bead peer=a reason=base_unknown stage=build way=push
+  ```
+
+- **The remote taken away before a's fetch.** a's daemon was stopped once
+  the bead was sent, b built, pushed and returned (a's server took the
+  return), the remote was moved aside (`mv $T/remote.git
+  $T/remote.git.away`), and a's daemon was started at 13:08:41. Six seconds
+  on the bead was in `build`, not held, with the line shown
+  [above](#code-that-comes-back) (`1 try so far, the next at 13:09:12`). At
+  13:09:12, after the second try:
+
+  ```text
+    type task · stage build · open · P2 · HELD
+    was at b: sent 10-06 13:08, returned done 10-06 13:08 (its bead web-aqhq)
+    the branch b returned (yard/web-aqhq at 327aff08fa0f) is not fetched yet, and its outcome done waits for it: given up after 2 tries (fetching yard/web-aqhq from origin: git fetch: exit status 128: fatal: '/tmp/iy.815S1k/remote.git' does not appear to be a git repository; fatal: Could not read from remote repository.); yardr bead unhold web-xh3m tries again
+
+  ID                    BEAD      EPIC  STAGE  GROUP  STATE    RUNNER  STARTED      GATE
+  d2g6r5qar1w7pbx8maps  web-xh3m        build  at-b   running  peer    10-06 13:08  -
+  ```
+
+  with a note by `yard` that ends `The outcome is not applied before the
+  branch is here, so the bead is held. yardr bead unhold web-xh3m tries
+  again; yardr bead advance web-xh3m --to <stage> moves it on without the
+  code.` The remote was moved back; two passes later the bead was still
+  held, in `build`, and a had no `yard/web-xh3m`. Then `yardr --home $A/y
+  bead unhold web-xh3m`, and a's events for the bead:
+
+  ```text
+  13:09:12  web-xh3m peer_bead_not_fetched yard    attempts=2 branch=yard/web-aqhq commit=327aff08… held=true peer=b reason=fetching yard/web-aqhq from origin: …
+  13:09:12  web-xh3m held                  yard    peer=b reason=the branch b returned was not taken
+  13:09:40  web-xh3m unheld                jo
+  13:09:40  web-xh3m peer_bead_fetched     yard    branch=yard/web-aqhq commit=327aff08… into=yard/web-xh3m peer=b
+  13:09:40  web-xh3m advanced              peer:b  from=build group=at-b outcome=done peer=b to=review
+  ```
+
+  The review's worktree was at `327aff08fa0f0f14679b46672635bd9a710bce6d`,
+  b's commit, and b had one bead for it throughout: nothing was sent again.
+
+- **A commit that is not the one the return names.** As the case before,
+  but in place of moving the remote, one more commit was pushed onto
+  `yard/web-rpw0` after b's return had named `81790bb`. a's daemon, started,
+  held the bead on its first look:
+
+  ```text
+    type task · stage build · open · P2 · HELD
+    the branch b returned (yard/web-rpw0 at 81790bbcc09d) is not fetched yet, and its outcome done waits for it: given up after 1 try (yard/web-rpw0 is at 49b13aafcf50 on origin, and the return names 81790bbcc09d: not taken); yardr bead unhold web-69yt tries again
+  ```
+
+  a's rig had no `yard/web-69yt` and no ref of the fetch
+  (`git for-each-ref`).
+
+The trial ran on the build before two changes of wording, which the lines
+above have as they are now: a try count of one reads `1 try`, and git's
+words are its `fatal:` lines on one line. The tests cover both.
+
+herdr's part was checked apart, in an isolated yard with a herdr of its own
+and the stand-in agent: a bead whose branch `yard/web-4mzk` was already
+there at a commit behind `main` (as a fetched one is) entered a stage
+routed to a herdr group, and the agent's worktree was on that branch at
+that commit (`git worktree list`: `…/worktrees/web/web-4mzk  b4dcd25
+[yard/web-4mzk]`, with `main` at `ab063b8`); and `herdr worktree create
+--branch yard/from-sha --base <commit>`, which is what starts the work of a
+bead that names its base commit, made the branch at that commit.
+
 ## Renaming a link
 
 The name of a peer is this yard's own label for the link. `yardr peer rename
@@ -888,8 +1055,10 @@ through a flow its operator chose, and sends back how it ended.
 Both sides are built: a stage of the sender's flow is
 [worked by the linked yard](#the-sending-side-a-stage-worked-by-a-linked-yard),
 and the receiver takes the bead under an intake and returns its outcome and
-notes. Code does not cross yet: the return carries the outcome and the
-notes, no branch.
+notes. Code crosses through a git remote both yards use, never through the
+link: the bead says where its work starts, the yard that built pushes its
+branch, and the yard that asked fetches it
+([Code that comes back](#code-that-comes-back)).
 
 ```sh
 # on the yard that sends
@@ -921,6 +1090,9 @@ yardr route add --stage build --group at-north --rig web
   no such peer, or its link does not carry `bead` out.
 - `--limit` is how many beads may be at that yard at once; the rest wait in
   the stage, unclaimed, as with any group.
+- `remote=<name>` is the remote of the bead's rig that a branch the yard
+  returns is fetched from (`origin` unless set), and `tries` is also how
+  often that fetch is tried ([Code that comes back](#code-that-comes-back)).
 - No members. `--type`, `--label` and the priority of the route choose
   which beads of the stage go there (only those labelled `remote`, say).
 - `yardr flow show <rig>` has the group under GROUP and `yard north` under
@@ -1011,6 +1183,10 @@ web-d5zc  Add the export
   today), `stage` (this yard's), `message`, `at`, `delivered_at`,
   `heard_at`, and once it is over `outcome`, `returned_at`, `detail` and
   `bead` (the other yard's handle). The record is the bead's last sending.
+  A return that named a branch adds `git` (`branch`, `commit`, `remote`)
+  and `fetched_at`, or `not_taken` with why, or while it is neither
+  `fetch_tries`, `fetch_error`, `fetch_retry_at` and `fetch_gave_up`
+  ([Code that comes back](#code-that-comes-back)).
 - `yardr peer show <peer>` has `heard    last heard 10-06 14:10` and how
   many of this yard's beads are there (`away`; `heard_at` and `away` in
   `--json`). The time is the link's: it stays through a rename.
@@ -1182,6 +1358,7 @@ A bead is refused, and nothing of it is kept, when:
 | `not_a_bead` | no title, a handle or a stage that is none, a body that is no object, a path that names what is no key | it does not read the bead |
 | `loop` | this yard's own key is in the bead's `path`: it has been here on its way | the bead has been at that yard on its way here: sent there again it would go round |
 | `too_far` | the path is longer than 8 yards, the sender counted | the bead has passed through more yards than a bead may (8) |
+| `base_unknown` | the bead names where its work starts, the intake's rig is a repository, and the work cannot start there: the rig's remote is not the one the bead names, or the base commit cannot be fetched into the rig (`detail` in the event says which) | it cannot start the work where this yard's bead starts: its rig has another remote than this yard's, or the bead's base commit is not on the remote (push the base, then send the bead again) |
 
 Each is answered 403 (or told with the next question, for a pull) and logged
 as `peer_message_refused`. The sender gives the message up, and its bead
@@ -1212,7 +1389,9 @@ web-4y35  Add the export
 `bead` and `stage` (the sender's), `outcomes`, `message` (the id of the
 message that brought it), `at`, `held`, `released_by`, `released_at`,
 `expires_at` (while it is held as it arrived, unless the intake holds for
-ever), `outcome` and `returned_at`. The listings (`bead list --json`) carry it too.
+ever), `outcome` and `returned_at`, and `git` (`base`, `base_commit`,
+`remote`) when its work starts where the sender said. The listings (`bead
+list --json`) carry it too.
 
 - **After a rename** the line names the peer as it is called now.
 - **After `peer rm`** it says `from y-k3f9@the yard that was laptop (link
@@ -1247,12 +1426,192 @@ is queued for the peer in that write, and delivered as any message is:
   (`--no-receive bead`): that logs `peer_message_refused`, direction `out`,
   and the bead is not marked returned.
 
+### Code that comes back
+
+A link carries words: 256 KB a message, no bundle. Code crosses through a
+git remote that both yards use, each with a clone of its own as its rig.
+The yard that built pushes its bead's branch there and never merges it; the
+yard that asked fetches the branch, checks it, and reviews and lands it
+under its own gate.
+
+```text
+laptop (asks)                         the remote                  north (builds)
+bead web-d5zc enters build
+  bead: base main @ 73569b2  ───────────────────────────────────▶ fetches 73569b2, or refuses (base_unknown)
+                                                                  yard/web-0wzb from 73569b2, built
+                                      yard/web-0wzb @ 2db68ec ◀── return-branch pushes
+  ◀─────────────────────────────────────────────────────────────  bead-return: done, yard/web-0wzb @ 2db68ec
+fetches yard/web-0wzb: is it 2db68ec?
+yard/web-d5zc = 2db68ec, then done → review
+```
+
+**What the bead says.** When its rig is a repository whose base has a
+remote, the `bead` message carries `git`: `base`, the branch's name;
+`base_commit`, where the base stands in this yard's rig when the bead is
+sent; and `remote`, the URL of the base's remote. The remote is found as
+the gate finds it: the remote of a base like `origin/main`, else the
+upstream of the local base branch, else `origin`. A dir rig, and a rig
+with no remote, send no `git`: such a bead crosses with its words, as
+before.
+
+The base commit has to be on the remote. A base that this yard landed on
+and did not push (`merge-local` without `YARDR_PUSH`) is a commit the other
+yard cannot fetch, and the bead comes back `refused`.
+
+**What the yard that takes it does.** With `git` in the message and a
+repository as the intake's rig, before the bead is made:
+
+- its rig's remote (found the same way) must be the remote the bead names,
+  compared in the one form a `remote` crosses in
+  ([the messages](#the-messages)): scheme, host and path. `https://…` and
+  `git@…` of one repository are two remotes to this comparison, so both
+  yards use the same kind of URL;
+- the base commit must be in the rig, or come with a fetch of the branch
+  the bead names, or of the commit by its name.
+
+Either failing refuses the bead as `base_unknown`
+([what arrives](#what-arrives)); `detail` in the yard's
+`peer_message_refused` says which. Otherwise the bead's work starts from
+`base_commit`, not from wherever this yard's base is: its branch
+`yard/<bead>` is made from that commit, and `yardr bead show` says so:
+
+```text
+  from web-1bq6@a, for its stage build
+  its work starts from main at 73569b224d79 (file:///private/tmp/iy.815S1k/remote), as a said
+  …
+  base 73569b224d797e75a33594df7ef148610a616512
+```
+
+A dir rig as the intake's rig takes the bead with its words only, whatever
+it names.
+
+**Pushing the branch: `return-branch`.** The last working stage of the flow
+the beads are taken into is routed to an exec group that runs
+[`contrib/peer/return-branch`](../contrib/peer/return-branch):
+
+```text
+new -> push on done | returned on question | returned on failed
+push -> returned on done | new on failed
+returned terminal
+```
+
+```sh
+yardr group add web/return --runner exec --limit 1 \
+  --set cmd='YARDR_PUSH=origin ~/.yardr/scripts/return-branch'
+yardr route add --stage push --rig web --group web/return
+```
+
+`yardr peer intake` for a rig that is a repository installs the script in
+`~/.yardr/scripts/` (this build's; one that is there is kept, as with
+`merge-local`) and prints these two commands. From a checkout:
+`install contrib/peer/return-branch ~/.yardr/scripts/`, from `main`.
+
+- It pushes `yard/<this yard's bead>` to the remote `YARDR_PUSH` names,
+  under the same name: never the base, never forced. The name on the remote
+  is this yard's own, so a yard pushes no ref a peer chose.
+- It writes where the result is on the bead, as metadata: `result.branch`,
+  `result.commit` and `result.remote` (the remote's URL, without
+  credentials). Then it reports `done`.
+- A push that fails reports `failed`, with git's words in the note; where
+  that leads is the flow's (back to `new` above). A stage that names no
+  `failed` keeps the bead, held. No `YARDR_PUSH`, a remote the rig does not
+  have, or a branch that is not `yard/<bead>` hold the bead and push
+  nothing.
+
+The `bead-return` then carries `git`: `branch`, `commit`, `remote`. A flow
+without such a stage returns the outcome and the notes, as before.
+
+**Taking it back.** A return with `git` does not move the bead at once.
+The daemon first, outside the store:
+
+1. compares the remote the return names with the URL of the bead's rig's
+   remote: `origin`, or what the peer group's `remote` setting says
+   (`yardr group add at-north --runner peer --set peer=north --set
+   remote=upstream`);
+2. refuses a branch name that is not of the form a bead's branch has
+   (`yard/<handle>`), and a commit that is no commit's name;
+3. fetches that branch from that remote, into a ref of its own and no
+   other;
+4. checks that what it fetched is the commit the return names;
+5. sets this yard's `yard/<this yard's bead>` to it: created when it is not
+   there, and moved by fast-forward only when it is (where it is checked
+   out, its tree moves with it).
+
+Then the outcome is applied, and the bead moves. The next stage's group
+opens its worktree on the branch that is there, as a later stage of any
+bead does. The bead logs `peer_bead_fetched` before its `advanced`, and has
+a note by `yard` that says whose work the branch is.
+
+**When the branch cannot be had.** The outcome is not applied before the
+branch is there:
+
+| what happened | what the yard does |
+|---|---|
+| the fetch failed (the remote is down, a credential is missing) | tries again after a wait that doubles from 30s up to an hour, as an issue move does. After the group's `tries` (5; `--set tries=<n>`, the setting that also counts the posts of the bead) the bead is **held**, with a note that has git's words |
+| the branch on the remote is not at the commit the return names | not taken, and held at once: no try changes it |
+| the branch name is no bead's, or the commit no commit's | the same |
+| this yard's `yard/<bead>` exists and the returned commit does not come after it | the same: move or delete the branch first |
+
+The held bead stays in its stage, owned by the peer group, so nothing sends
+it out again. `yardr bead unhold <id>` tries anew, with a full count of
+tries. `yardr bead advance <id> --to <stage>` moves it on without the code;
+the return is then logged as `stale`. `bead show` while it waits:
+
+```text
+  was at b: sent 10-06 13:08, returned done 10-06 13:08 (its bead web-aqhq)
+  the branch b returned (yard/web-aqhq at 327aff08fa0f) is not fetched yet, and its outcome done waits for it: 1 try so far, the next at 13:09:12 (fetching yard/web-aqhq from origin: git fetch: exit status 128: fatal: '/tmp/iy.815S1k/remote.git' does not appear to be a git repository; fatal: Could not read from remote repository.)
+```
+
+**Code that is not this yard's to take** is no error. The outcome is
+applied, with a note by `yard` that the branch was not taken and why
+(`peer_bead_not_fetched` on the bead), when:
+
+- the bead's rig is a dir rig, or the bead has none;
+- the remote the branch was pushed to is not this rig's remote, or the rig
+  has no remote of that name.
+
+What came back is then the outcome and the notes. For work whose result is
+words that is all there is to take.
+
+**Whose code it is.** A branch that came back is another yard's work, built
+by agents this yard did not start, under a gate this yard did not run:
+
+```text
+  was at b: sent 10-06 13:07, returned done 10-06 13:07 (its bead web-s43g)
+  branch yard/web-1bq6 came from b: its yard/web-s43g at 2db68ec122ab, fetched 10-06 13:07 from file:///private/tmp/iy.815S1k/remote. No gate of this yard has run on it
+```
+
+- The notes written there arrive under `<author>@<peer>`, as always, and a
+  gate line among them is that yard's account. The review stage's file and
+  the reviewer's role say so: the reviewer runs this yard's light gate on
+  the branch whatever those notes say, and reads them as information, not
+  instructions.
+- The refinery's full gate is unchanged: it runs on exactly what lands, as
+  for any bead.
+
+**A bead sent on.** Each pair of yards does all of this between themselves:
+b takes c's branch into its own bead's branch, its `return-branch` pushes
+that under b's name, and a takes b's. The bead b sends on names the commit
+a named, so c starts where a's bead starts. Where two of the yards share no
+remote, words come back over that hop, and that is not an error: the yard
+before it has the outcome and the notes, and nothing to push.
+
+**Beads meant to travel** name files by their path in the repository, not
+by a path on the machine that wrote them: `internal/store/peers.go`, never
+`~/projects/web/internal/store/peers.go`. The other yard's clone is
+somewhere else.
+
 ### The messages
 
 | kind | from | `re` | body |
 |---|---|---|---|
-| `bead` | the sender | none | `v` 1, `yardr` (its build), `bead` (its handle for the bead), `stage` (the stage that waits), `title`, `body`, `type`, `priority`, `outcomes` (what that stage names), `notes` (each `author`, `at`, `text`; oldest first), `notes_left_out`, `links` (each `kind`, `source`, `url`), `path` (the public keys of the yards the work passed through, the first first, the sender last) |
-| `bead-return` | the receiver | the `bead` message's id | `v` 1, `bead` (the receiver's handle), `outcome`, `notes`, `notes_left_out` |
+| `bead` | the sender | none | `v` 1, `yardr` (its build), `bead` (its handle for the bead), `stage` (the stage that waits), `title`, `body`, `type`, `priority`, `outcomes` (what that stage names), `notes` (each `author`, `at`, `text`; oldest first), `notes_left_out`, `links` (each `kind`, `source`, `url`), `path` (the public keys of the yards the work passed through, the first first, the sender last), `git` when the bead's rig is a repository whose base has a remote: `base` (the branch's name), `base_commit`, `remote` (that remote's URL) |
+| `bead-return` | the receiver | the `bead` message's id | `v` 1, `bead` (the receiver's handle), `outcome`, `notes`, `notes_left_out`, `git` when a stage of its flow pushed the bead's branch: `branch`, `commit`, `remote` (the URL it was pushed to) |
+
+A `remote` is always in one form, which is also the form two yards' URLs are
+compared in: scheme, host and path, without credentials and without a
+trailing `.git` (`git@github.com:acme/web.git` is `ssh://github.com/acme/web`,
+a path is `file:///path`). No credential crosses a link.
 
 A field a yard does not know is ignored, so adding one changes no `v`. A `v`
 it does not know is refused as `version`. A yardr from before beads crossed
@@ -1378,13 +1737,15 @@ with is 401, as any request that is no peer's.
 | `peer_allowed` | `peer allow`, and a pairing that ended with a link | `peer`, `send`, `receive` as they are now; `beads_away` that ended as `undelivered` because the link stopped carrying `bead` out |
 | `peer_message_sent` | the peer has the message | `peer`, `kind`, `id`, `re`, `way` (`push` or `pull`), `attempts` when it took more than one |
 | `peer_message_received` | a message was taken | `peer`, `kind`, `id`, `re`, `way` |
-| `peer_message_refused` | a kind this yard's yardr does not know, a kind the link does not carry, something pulled that is no message, or mail this yard does not take | `peer`, `kind`, `id`, `direction` (`in` or `out`), `reason` (`kind_unknown` with `detail`; `kind_not_allowed`; `not_a_message`, with its `seq` and neither id nor kind; for mail `no_such_resident` with `to` when it is a name, `too_large`, `not_mail`, and `rate_limited` once an hour with `limit` and `until`; for a bead `no_intake` with `detail` when the intake's rig or flow is gone, `version` with `v` and `known`, `too_large`, `already_here` with `here`, `busy` with `open` and `limit`, `not_a_bead`, `loop`, `too_far` with `yards` and `limit`, each with the sender's `bead` and `stage` once they are read; for a return `version` and `not_a_bead`) |
-| `peer_bead_arrived` | a bead from a peer became a bead here; on that bead, by `peer:<peer>` | `peer`, `id` of the message, `from` (the sender's handle), `stage` (its stage), `held`, `way`, `rig`, `flow`, `notes_left_out` |
+| `peer_message_refused` | a kind this yard's yardr does not know, a kind the link does not carry, something pulled that is no message, or mail this yard does not take | `peer`, `kind`, `id`, `direction` (`in` or `out`), `reason` (`kind_unknown` with `detail`; `kind_not_allowed`; `not_a_message`, with its `seq` and neither id nor kind; for mail `no_such_resident` with `to` when it is a name, `too_large`, `not_mail`, and `rate_limited` once an hour with `limit` and `until`; for a bead `no_intake` with `detail` when the intake's rig or flow is gone, `version` with `v` and `known`, `too_large`, `already_here` with `here`, `busy` with `open` and `limit`, `not_a_bead`, `loop`, `too_far` with `yards` and `limit`, `base_unknown` with `detail`, each with the sender's `bead` and `stage` once they are read; for a return `version` and `not_a_bead`) |
+| `peer_bead_arrived` | a bead from a peer became a bead here; on that bead, by `peer:<peer>` | `peer`, `id` of the message, `from` (the sender's handle), `stage` (its stage), `held`, `way`, `rig`, `flow`, `notes_left_out`; `base` and `base_commit` when its work starts where the sender said |
 | `peer_bead_released` | someone who may lifted the hold a bead arrived with; on the bead | `peer`, `by` |
 | `peer_bead_expiring` | a bead still held as it arrived goes back as `refused` in a day, or in half the time its intake gives when that is shorter than two days; on the bead, by `yard`, once | `peer`, `hold_for`, `expires` (when it goes) |
-| `peer_bead_returned` | a bead from a peer ended and its return was queued; on the bead, by who ended it | `peer`, `id` of the return, `re` (the message that brought the bead), `to` (the sender's handle), `outcome`, `notes` (how many), `notes_left_out` |
-| `peer_bead_sent` | a bead entered a stage a peer works and its message was queued; on the bead, by `yard` | `peer`, `id` of the message, `stage`, `group`, `session`, `tries`, `notes` (how many), `notes_left_out`, `yards_before` for a bead sent on |
-| `peer_bead_returned` | on the yard that sent it: the peer's return came; on the bead, by `peer:<peer>`. The `advanced` (or `held`) that follows has the same actor, with `outcome` and `peer` | `peer`, `id` of the return, `re`, `from` (the peer's handle), `outcome`, `stage`, `way`, `notes`, `notes_left_out`; `stale` with a `reason` for a return that changed nothing |
+| `peer_bead_returned` | a bead from a peer ended and its return was queued; on the bead, by who ended it | `peer`, `id` of the return, `re` (the message that brought the bead), `to` (the sender's handle), `outcome`, `notes` (how many), `notes_left_out`; `branch`, `commit` and `remote` when the return names where the result is |
+| `peer_bead_sent` | a bead entered a stage a peer works and its message was queued; on the bead, by `yard` | `peer`, `id` of the message, `stage`, `group`, `session`, `tries`, `notes` (how many), `notes_left_out`, `yards_before` for a bead sent on; `base`, `base_commit` and `remote` when it says where its work starts |
+| `peer_bead_returned` | on the yard that sent it: the peer's return came; on the bead, by `peer:<peer>`. The `advanced` (or `held`) that follows has the same actor, with `outcome` and `peer` | `peer`, `id` of the return, `re`, `from` (the peer's handle), `outcome`, `stage`, `way`, `notes`, `notes_left_out`; `branch`, `commit` and `remote` when it names a branch; `stale` with a `reason` for a return that changed nothing |
+| `peer_bead_fetched` | the branch a return named is this yard's bead's branch now; on the bead, by `yard`, before the `advanced` | `peer`, `branch` (the peer's), `commit`, `remote`, `into` (this yard's) |
+| `peer_bead_not_fetched` | the branch a return named was not taken; on the bead, by `yard` | `peer`, `branch`, `commit`, `remote`, `reason`; with `held` and `attempts` when the bead is held over it, without when the code is not this yard's to take and the outcome is applied |
 | `peer_bead_refused` | the peer did not take a bead, or it was too large to send; on the bead | `peer`, `id`, `stage`, `outcome` `refused`, `reason` in this yard's words |
 | `peer_bead_undelivered` | a bead was given up: its tries, its link, or its peer went; on the bead, by `yard` | `peer`, `id`, `stage`, `outcome` `undelivered`, `reason`, `attempts` |
 | `peer_message_failed` | a message was given up: after its tries, or because the peer refused it | `peer`, `kind`, `id`, `attempts`, `reason`, `way` `pull` when the peer said so with a question |

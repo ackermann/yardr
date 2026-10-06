@@ -166,6 +166,9 @@ type Dispatcher struct {
 	peerWait   map[string]time.Time
 	peerErr    map[string]string
 	peerKeyErr string
+	// fetchErr is the last error of asking the store which branches came
+	// back from peers (fetches), said once.
+	fetchErr string
 	// ciRead is epic in in-pr -> its revision when its CI was read and
 	// acted on; an event about the epic's pull request removes it, so the
 	// state is read again. ciWait is epic -> the wait after a read GitHub

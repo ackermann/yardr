@@ -30,7 +30,9 @@ import (
 //	YARDR_RIG_KIND  git, or dir for a plain directory: a dir rig's bead gets
 //	                none of the three below, and runs in the rig's directory
 //	YARDR_BASE      what the bead lands on: its epic's branch for a child of
-//	                an epic, else the rig's base (see BaseOf)
+//	                an epic, else the rig's base (see BaseOf). For a bead
+//	                that came from a linked yard which named where its work
+//	                starts, that commit: nothing of it lands here
 //	YARDR_BRANCH    the bead's branch, yard/<bead>
 //	YARDR_WORKTREE  where the herdr runner keeps that branch checked out
 //	                (<worktrees>/<rig>/<bead>; config.worktrees as for herdr)

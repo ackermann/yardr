@@ -28,11 +28,15 @@ const branchTimeout = 60 * time.Second
 func (d *Dispatcher) fetches(ctx context.Context) {
 	fs, err := d.Store.PeerFetches(ctx)
 	if err != nil {
-		if ctx.Err() == nil {
+		// Once per error, not on every pass: a server of a build before
+		// this one does not know the question until it is replaced.
+		if msg := err.Error(); ctx.Err() == nil && msg != d.fetchErr {
+			d.fetchErr = msg
 			d.Log.Warn("peers: reading the branches that came back", "err", err)
 		}
 		return
 	}
+	d.fetchErr = ""
 	for _, f := range fs {
 		if f.RetryAt != nil && d.now().Before(*f.RetryAt) {
 			continue

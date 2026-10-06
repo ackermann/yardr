@@ -39,6 +39,7 @@ internal/cli/testdata/         internal/cli
 internal/web/assets/README.md  internal/web
 contrib/refinery/merge-local   internal/pack
 contrib/refinery/              contrib/refinery
+contrib/peer/                  contrib/peer
 contrib/isolated-yard/         contrib/isolated-yard
 contrib/release/               contrib/release
 README.md                      contrib/release

@@ -79,7 +79,7 @@ fi
 # What the return names. The URL goes without the credentials it may hold:
 # the other yard compares it with its own, and has its own way in.
 url=$(printf '%s\n' "$url" | sed -E 's#^([A-Za-z][A-Za-z0-9+.-]*://)[^/@]*@#\1#')
-"$Y" bead update "$BEAD" --meta "result.branch=$BR" --meta "result.commit=$sha" --meta "result.remote=$url" ||
+"$Y" bead update "$BEAD" --meta "result.branch=$BR" --meta "result.commit=$sha" --meta "result.remote=$url" >/dev/null ||
   hold "pushed $BR at $sha to $PUSH, but could not write that on the bead; unhold to run this stage again"
 short=$(git -C "$REPO" rev-parse --short "$sha")
 printf '%s\n' "return-branch: pushed $BR at $short to $PUSH ($url)" | "$Y" bead done "$BEAD" --note - ||

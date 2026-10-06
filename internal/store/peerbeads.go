@@ -326,9 +326,9 @@ func (p BeadPeer) CodeLine(bead string) string {
 	line := fmt.Sprintf("the branch %s returned (%s at %s) is not fetched yet, and its outcome %s waits for it", p.Yard(), g.Branch, short(g.Commit), p.Outcome)
 	switch {
 	case p.FetchGaveUp != nil:
-		line += fmt.Sprintf(": given up after %d tries (%s); yardr bead unhold %s tries again", p.FetchTries, p.FetchError, bead)
+		line += fmt.Sprintf(": given up after %s (%s); yardr bead unhold %s tries again", tries(p.FetchTries), p.FetchError, bead)
 	case p.FetchTries > 0 && p.FetchRetryAt != nil:
-		line += fmt.Sprintf(": tried %d times, next at %s (%s)", p.FetchTries, p.FetchRetryAt.Local().Format("15:04:05"), p.FetchError)
+		line += fmt.Sprintf(": %s so far, the next at %s (%s)", tries(p.FetchTries), p.FetchRetryAt.Local().Format("15:04:05"), p.FetchError)
 	}
 	return line
 }

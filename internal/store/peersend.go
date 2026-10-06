@@ -1045,17 +1045,25 @@ func (s *Store) PeerFetchFailed(ctx context.Context, bead, message, reason strin
 			"remote": rec.Git.Remote, "reason": reason, "attempts": rec.Attempts, "held": true}); err != nil {
 			return err
 		}
-		note := fmt.Sprintf("The yard %s returned this bead as %s with its branch %s at %s, and this yard could not take the branch (%d tries): %s. The outcome is not applied before the branch is here, so the bead is held. yardr bead unhold %s tries again; yardr bead advance %s --to <stage> moves it on without the code.",
-			name, rec.Outcome, rec.Git.Branch, short(rec.Git.Commit), rec.Attempts, strings.TrimSuffix(reason, "."), row.ID, row.ID)
+		note := fmt.Sprintf("The yard %s returned this bead as %s with its branch %s at %s, and this yard could not take the branch (%s): %s. The outcome is not applied before the branch is here, so the bead is held. yardr bead unhold %s tries again; yardr bead advance %s --to <stage> moves it on without the code.",
+			name, rec.Outcome, rec.Git.Branch, short(rec.Git.Commit), tries(rec.Attempts), strings.TrimSuffix(reason, "."), row.ID, row.ID)
 		if err := w.addNote(rec.Bead, NoteNote, note, "yard"); err != nil {
 			return err
 		}
 		_, err = w.changeBead(rec.Bead, "yard", func(_ *wtx, b *beadRow) (string, map[string]any, error) {
 			b.Hold = true
-			return "held", map[string]any{"peer": name, "reason": "the branch " + name + " returned could not be fetched"}, nil
+			return "held", map[string]any{"peer": name, "reason": "the branch " + name + " returned was not taken"}, nil
 		})
 		return err
 	})
+}
+
+// tries is a count of tries as a line says it.
+func tries(n int) string {
+	if n == 1 {
+		return "1 try"
+	}
+	return fmt.Sprintf("%d tries", n)
 }
 
 // peerNamed is the name of the peer whose key is key, or was when its link

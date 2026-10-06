@@ -206,9 +206,29 @@ func gitFetch(ctx context.Context, dir string, args ...string) error {
 		if ctx.Err() != nil {
 			return fmt.Errorf("git fetch: %w", ctx.Err())
 		}
-		return fmt.Errorf("git fetch: %w: %s", err, strings.TrimSpace(stderr.String()))
+		return fmt.Errorf("git fetch: %w: %s", err, gitWords(stderr.String()))
 	}
 	return nil
+}
+
+// gitWords is what git said on stderr as one line says it: its fatal and
+// error lines when it has any, without the advice around them.
+func gitWords(stderr string) string {
+	var said, all []string
+	for _, line := range strings.Split(stderr, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		all = append(all, line)
+		if strings.HasPrefix(line, "fatal:") || strings.HasPrefix(line, "error:") {
+			said = append(said, line)
+		}
+	}
+	if len(said) == 0 {
+		said = all
+	}
+	return strings.Join(said, "; ")
 }
 
 func hasCommit(ctx context.Context, dir, commit string) bool {
@@ -341,7 +361,9 @@ func TakePeerBranch(ctx context.Context, f PeerFetch) (notTaken string, err erro
 	// is it, and FETCH_HEAD is every fetch's in the repository.
 	tmp := "refs/yardr/returned/" + strings.TrimPrefix(f.Into, "yard/")
 	defer func() { _, _ = git(context.WithoutCancel(ctx), rig.Path, "update-ref", "-d", tmp) }()
-	if err := gitFetch(ctx, rig.Path, f.Remote, "+refs/heads/"+f.Git.Branch+":"+tmp); err != nil {
+	// --refmap= : and into no tracking ref beside it, which git would
+	// otherwise update as it passes.
+	if err := gitFetch(ctx, rig.Path, "--refmap=", f.Remote, "+refs/heads/"+f.Git.Branch+":"+tmp); err != nil {
 		return "", fmt.Errorf("fetching %s from %s: %w", f.Git.Branch, f.Remote, err)
 	}
 	out, err := git(ctx, rig.Path, "rev-parse", "--verify", "--quiet", tmp+"^{commit}")

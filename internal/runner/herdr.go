@@ -161,7 +161,8 @@ var nameUnsafe = regexp.MustCompile(`[^a-z0-9_-]+`)
 func Branch(b store.Bead) string { return store.Branch(b.ID) }
 
 // BaseOf is what the job's bead branches from and lands on: its epic's
-// branch for a child of an epic, else the rig's base.
+// branch for a child of an epic, the commit a linked yard named for a bead
+// that came from it (store.Family), else the rig's base.
 func BaseOf(job dispatch.Job) string {
 	if job.Base != "" || job.Rig == nil {
 		return job.Base

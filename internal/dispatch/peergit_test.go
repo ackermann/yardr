@@ -262,7 +262,7 @@ func TestPeerCodeRemoteDown(t *testing.T) {
 	got := a.get(t, mine.ID)
 	away := got.Away()
 	if got.Stage != "build" || got.Hold || away.Outcome != "done" || away.FetchTries != 1 || away.FetchRetryAt == nil || away.FetchedAt != nil ||
-		!strings.Contains(away.CodeLine(mine.ID), "is not fetched yet, and its outcome done waits for it: tried 1 times, next at ") {
+		!strings.Contains(away.CodeLine(mine.ID), "is not fetched yet, and its outcome done waits for it: 1 try so far, the next at ") {
 		t.Fatalf("a's bead after the first fetch failed = %+v, %+v, %q", got, away, away.CodeLine(mine.ID))
 	}
 	// Not before its wait is over.
