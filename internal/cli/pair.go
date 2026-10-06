@@ -230,6 +230,35 @@ func listenerURL(cfg *config.Config) (string, error) {
 	return "http://" + net.JoinHostPort(host, port), nil
 }
 
+// listenerFix is how a yard that listens on its own machine only comes to
+// listen where another yard reaches it, with yardr as it is typed there.
+// What stands in front of a listener is the operator's own, so no tool for
+// that is named.
+func listenerFix(yardr string) string {
+	return fmt.Sprintf("`%s doctor` says what the server listens on, and `%s settings set hook_addr <host:port>` then `%s server stop` changes it "+
+		"(the form, bare `%s peer pair`, does both)", yardr, yardr, yardr, yardr)
+}
+
+// behindLoopback is what the yard that opens a pairing is told when it
+// gives the other yard an address off this machine while its own server
+// listens on this machine only: "" when that is not so. It is a warning and
+// no refusal, since a proxy of the operator's own may pass the call on.
+func behindLoopback(cfg *config.Config, addr string) string {
+	l, known := hooks.ReadListener(cfg)
+	u, err := url.Parse(addr)
+	if !known || err != nil || !onLoopback(l.Addr) || u.Hostname() == "localhost" || isLoopback(u.Hostname()) {
+		return ""
+	}
+	text := fmt.Sprintf("This yard's server listens on %s, which only this machine can reach, and the other yard is told to call %s. "+
+		"Its call arrives only if something of your own (a tunnel or proxy) passes it on to %s; if nothing does, it reaches no yard. "+
+		"Then end this (Ctrl+C) and let the server listen where the other yard reaches it: %s. After that, open the pairing again.",
+		l.Addr, addr, l.Addr, listenerFix(yardrAt(cfg.Home)))
+	if l.From == hooks.FromVariable {
+		text += "\n" + variableWins(l) + " Change it there, or unset it."
+	}
+	return text
+}
+
 // pairHost opens a pairing on this yard, shows its code and waits: for the
 // other yard to call, for the two operators, and for the ping.
 func (a *app) pairHost(ctx context.Context, cfg *config.Config, st store.API, opt pairOpts) error {
@@ -261,6 +290,12 @@ func (a *app) pairHost(ctx context.Context, cfg *config.Config, st store.API, op
 	defer func() { _ = st.PairClose(context.WithoutCancel(ctx), id, who) }()
 
 	command := fmt.Sprintf("yardr peer pair %s %s", inv.URL, opened.Code)
+	// The form gives the listener's own address, so only the command can
+	// name one the listener is not on.
+	var warn string
+	if opt.form == nil {
+		warn = behindLoopback(cfg, inv.URL)
+	}
 	if opt.form != nil {
 		showCode(inv.URL, opened.Code, opened.Expires)
 	} else if a.json {
@@ -269,9 +304,15 @@ func (a *app) pairHost(ctx context.Context, cfg *config.Config, st store.API, op
 		if err := enc.Encode(map[string]any{"pairing": id, "code": opened.Code, "address": inv.URL, "expires": opened.Expires, "command": command}); err != nil {
 			return err
 		}
+		if warn != "" {
+			a.progress("%s", warn)
+		}
 	} else {
 		fmt.Printf("Pairing is open for %s, until %s, for one yard. Read the code to the other operator, who runs:\n\n  %s\n\n",
 			short(pairing.TTL), opened.Expires.Local().Format("15:04:05"), command)
+		if warn != "" {
+			fmt.Printf("%s\n\n", warn)
+		}
 		fmt.Println("Waiting for the other yard to call. Ctrl+C ends the pairing.")
 	}
 
@@ -550,11 +591,29 @@ func (a *app) callFailed(ctx context.Context, cfg *config.Config, st store.API, 
 		}
 		return errors.New(text + nothingSaved)
 	case errors.As(err, &unreached):
-		return fmt.Errorf("no yard was reached at %s: %w\n"+
+		// A call that is refused or gets no answer is most often one to a
+		// yard that listens on its own machine only: the fix is that yard's
+		// operator's, so the commands are as they are typed there.
+		var there string
+		if unanswered(unreached) {
+			there = fmt.Sprintf("\nIf a yard runs there, its listener may be on that machine only (127.0.0.1), where no other machine reaches it. On that yard: %s. "+
+				"Where %s is set in the environment its server starts in, the variable is used instead of the setting: it is changed or unset there.",
+				listenerFix("yardr"), hooks.FromVariable)
+		}
+		return fmt.Errorf("no yard was reached at %s: %w%s\n"+
 			"One of the two yards has to be reachable by the other (on an address the other can reach, directly or through a tunnel or proxy of your own). "+
-			"If this yard is the one that can be reached, open the pairing here (%s peer pair) and call it from there: docs/peers.md", addr, unreached.Err, yardr)
+			"If this yard is the one that can be reached, open the pairing here (%s peer pair) and call it from there: docs/peers.md", addr, unreached.Err, there, yardr)
 	}
 	return fmt.Errorf("pairing with the yard at %s: %w%s", addr, err, nothingSaved)
+}
+
+// unanswered reports whether a call found nothing that took it: the
+// connection was refused, or no answer came in time. A name that does not
+// resolve, or a TLS failure, is another matter.
+func unanswered(err error) bool {
+	var timeout net.Error
+	return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, context.DeadlineExceeded) ||
+		(errors.As(err, &timeout) && timeout.Timeout())
 }
 
 // clipText keeps another yard's text short and plain where it is shown.

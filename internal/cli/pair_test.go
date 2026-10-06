@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -444,6 +447,8 @@ func TestPeerPairCallFails(t *testing.T) {
 	}
 	wantText(t, err.Error(), "no yard was reached at "+gone.srv.URL, "One of the two yards has to be reachable by the other",
 		"on an address the other can reach, directly or through a tunnel or proxy of your own", "docs/peers.md")
+	// A refused connection: what to look at on the yard that was called.
+	wantText(t, err.Error(), "connection refused\nIf a yard runs there, its listener may be on that machine only (127.0.0.1)", listenerOnTheOtherYard)
 
 	// A wrong code: the caller is told, and so is the host, which counts.
 	out, hostErr, callErr := pairBoth(t, north, laptop, []string{"--yes"}, func(addr, code string) []string {
@@ -468,6 +473,127 @@ func TestPeerPairCallFails(t *testing.T) {
 	}
 	if evs := eventsOf(t, laptop, "peer_pair_refused"); len(evs) != 1 || evs[0].Data["reason"] != pairing.WrongCode {
 		t.Fatalf("laptop's refusals = %+v", evs)
+	}
+}
+
+// listenerOnTheOtherYard is what a caller whose call was refused or not
+// answered is told to do on the yard it called.
+const listenerOnTheOtherYard = "On that yard: `yardr doctor` says what the server listens on, and `yardr settings set hook_addr <host:port>` then `yardr server stop` changes it " +
+	"(the form, bare `yardr peer pair`, does both). Where YARDR_HOOK_ADDR is set in the environment its server starts in, the variable is used instead of the setting"
+
+// A call that gets no answer in time is told what a refused one is: the
+// yard there may listen on its own machine only, with the commands for that
+// yard. A call that failed otherwise (a name that does not resolve) is not,
+// and no vendor's tool is named in either.
+func TestPeerPairCallNotAnswered(t *testing.T) {
+	_, laptop := pairYards(t)
+	setInteractive(t, true)
+	bothStderr(t)
+	// A listener that takes the connection and never answers.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	stub(t, &pairHTTP, &http.Client{Timeout: 50 * time.Millisecond})
+	_, err = laptop.peer(t, "pair", ln.Addr().String(), "K7QM-2XPD")
+	if err == nil {
+		t.Fatal("a call nothing answered succeeded")
+	}
+	wantText(t, err.Error(), "no yard was reached at http://"+ln.Addr().String(), "its listener may be on that machine only (127.0.0.1)",
+		listenerOnTheOtherYard, "One of the two yards has to be reachable by the other")
+
+	cfg, addr := laptop.a.cfg, "http://north.example:8790"
+	text := laptop.a.callFailed(context.Background(), cfg, laptop.st, addr,
+		&url.Error{Op: "Post", URL: addr, Err: &net.DNSError{Err: "no such host", Name: "north.example", IsNotFound: true}}).Error()
+	wantText(t, text, "no yard was reached at "+addr, "no such host\nOne of the two yards has to be reachable by the other")
+	if strings.Contains(text, "hook_addr") {
+		t.Errorf("a name that does not resolve is taken for a listener on one machine only:\n%s", text)
+	}
+	if strings.Contains(strings.ToLower(err.Error()+text), "tailscale") {
+		t.Errorf("a vendor's product is named:\n%v\n%s", err, text)
+	}
+}
+
+// The yard that opens a pairing by the command with a --url off this
+// machine, while its server listens on this machine only, is told so before
+// it waits, with the two commands that change it, and the pairing goes on:
+// a proxy of the operator's own may stand in front. With the address from
+// YARDR_HOOK_ADDR it is told that the variable is used instead of the
+// setting. A --url on this machine, or a listener on every address, gets no
+// such word.
+func TestPeerPairWarnsOfALoopbackListener(t *testing.T) {
+	north, laptop := pairYards(t)
+	setInteractive(t, false)
+	errs := bothStderr(t)
+	listens := strings.TrimPrefix(north.srv.URL, "http://")
+	_, port, _ := net.SplitHostPort(listens)
+	off := "http://north.example:" + port
+	// The call is made to where north really listens: that is the proxy.
+	real := func(_, code string) []string { return []string{north.srv.URL, code, "--yes", "--timeout", "50ms"} }
+	unpair := func() {
+		t.Helper()
+		north.must(t, "rm", "laptop")
+		laptop.must(t, "rm", "north")
+	}
+	const warning = "which only this machine can reach, and the other yard is told to call "
+
+	out, hostErr, callErr := pairBoth(t, north, laptop, []string{"--yes", "--timeout", "50ms", "--url", off}, real)
+	if hostErr != nil || callErr != nil {
+		t.Fatalf("host: %v\ncaller: %v\n%s", hostErr, callErr, out)
+	}
+	yardr := yardrAt(north.a.cfg.Home)
+	wantText(t, out, "This yard's server listens on "+listens+", "+warning+off+". Its call arrives only if something of your own (a tunnel or proxy) passes it on to "+listens,
+		"`"+yardr+" doctor` says what the server listens on, and `"+yardr+" settings set hook_addr <host:port>` then `"+yardr+" server stop` changes it (the form, bare `"+yardr+" peer pair`, does both)",
+		"After that, open the pairing again.")
+	if warned, waits := strings.Index(out, warning), strings.Index(out, "Waiting for the other yard to call"); warned < 0 || waits < warned {
+		t.Errorf("the warning does not come before the wait:\n%s", out)
+	}
+	if strings.Contains(out, hooks.FromVariable) || strings.Contains(strings.ToLower(out), "tailscale") {
+		t.Errorf("the variable is named where the setting is in use, or a vendor's product:\n%s", out)
+	}
+	unpair()
+
+	// The address from the variable: the setting would change nothing.
+	said(t, north.a.cfg, hooks.Listener{Addr: listens, From: hooks.FromVariable})
+	out, hostErr, callErr = pairBoth(t, north, laptop, []string{"--yes", "--timeout", "50ms", "--url", off}, real)
+	if hostErr != nil || callErr != nil {
+		t.Fatalf("host: %v\ncaller: %v\n%s", hostErr, callErr, out)
+	}
+	wantText(t, out, warning, "The running server was started with YARDR_HOOK_ADDR="+listens+", which is used instead of the setting while it is set there. Change it there, or unset it.")
+	unpair()
+
+	// No warning: a --url on this machine, and a listener on every address.
+	for name, tc := range map[string]struct{ listener, url string }{
+		"a loopback --url":              {listens, north.srv.URL},
+		"localhost":                     {listens, "http://localhost:" + port},
+		"a listener on every address":   {":" + port, off},
+		"a listener on 0.0.0.0":         {"0.0.0.0:" + port, off},
+		"a listener on another address": {"10.0.0.5:" + port, off},
+	} {
+		said(t, north.a.cfg, hooks.Listener{Addr: tc.listener, From: hooks.FromSetting})
+		out, hostErr, callErr = pairBoth(t, north, laptop, []string{"--yes", "--timeout", "50ms", "--url", tc.url}, real)
+		if hostErr != nil || callErr != nil {
+			t.Fatalf("%s: host: %v\ncaller: %v\n%s", name, hostErr, callErr, out)
+		}
+		if strings.Contains(out+errs.String(), warning) {
+			t.Errorf("%s: warned:\n%s", name, out)
+		}
+		unpair()
+	}
+
+	// With --json the warning is no part of what is printed: it is on stderr.
+	said(t, north.a.cfg, hooks.Listener{Addr: listens, From: hooks.FromSetting})
+	north.a.json, laptop.a.json = true, true
+	old := pairCommand
+	pairCommand = regexp.MustCompile(`"command": "yardr peer pair (http://\S+) ([0-9A-Z]{4}-[0-9A-Z]{4})"`)
+	defer func() { pairCommand = old }()
+	out, hostErr, callErr = pairBoth(t, north, laptop, []string{"--yes", "--timeout", "50ms", "--url", off}, real)
+	if hostErr != nil || callErr != nil {
+		t.Fatalf("host: %v\ncaller: %v\n%s", hostErr, callErr, out)
+	}
+	if strings.Contains(out, warning) || !strings.Contains(errs.String(), warning+off) {
+		t.Errorf("--json: stdout\n%s\nstderr\n%s", out, errs.String())
 	}
 }
 

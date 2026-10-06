@@ -320,7 +320,14 @@ func receiver(ctx context.Context, cfg *config.Config, st store.API) (listening 
 func hookAddrTakes(cfg *config.Config) string {
 	text := fmt.Sprintf("The server takes it at its next start: %s server stop, and the next command starts it again.", yardrAt(cfg.Home))
 	if l, known := hooks.ReadListener(cfg); known && l.From == hooks.FromVariable {
-		text += fmt.Sprintf("\nThe running server was started with %s=%s, which is used instead of the setting while it is set there.", hooks.FromVariable, l.Addr)
+		text += "\n" + variableWins(l)
 	}
 	return text
+}
+
+// variableWins says that the server was started with the variable, which
+// the hook_addr setting does not change: said wherever the setting is named
+// as what to change.
+func variableWins(l hooks.Listener) string {
+	return fmt.Sprintf("The running server was started with %s=%s, which is used instead of the setting while it is set there.", hooks.FromVariable, l.Addr)
 }

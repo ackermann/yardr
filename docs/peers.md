@@ -750,7 +750,9 @@ error of each, and `yardr doctor` has a `peers` line
 
 | what you see | what it means |
 |---|---|
-| `no yard was reached at …` | nothing listens at the address `peer pair` called. One of the two yards has to be reachable by the other: if this one is, open the pairing here |
+| `no yard was reached at …` | nothing took the call at the address `peer pair` called. One of the two yards has to be reachable by the other: if this one is, open the pairing here |
+| `no yard was reached at …: … connection refused` (or the call ran out of time), `its listener may be on that machine only (127.0.0.1)` | the usual cause: the yard that was called listens where only its own machine reaches it. On that yard, `yardr doctor` says what the server listens on, and `yardr settings set hook_addr <host:port>` then `yardr server stop` changes it (the form, bare `yardr peer pair`, does both). Where `YARDR_HOOK_ADDR` is set in the environment its server starts in, the variable is used instead of the setting: it is changed or unset there |
+| `This yard's server listens on 127.0.0.1:…, which only this machine can reach, and the other yard is told to call …` | a warning on the yard that opens the pairing with a `--url` off this machine: the call arrives only if a tunnel or proxy of your own passes it on to the listener. If none does, Ctrl+C, the two commands above, and open the pairing again |
 | `this yard has no listener, so the other yard cannot call it` | `yardr settings set hook_addr <host:port>`, then `yardr server stop`; or pair from the other side |
 | `that is not the code the yard at … shows` | a wrong code; five end the pairing there, and its operator opens another |
 | `the yard at … has no pairing open` | its operator runs `yardr peer pair`, and reads out the code; or its server restarted, which ends a pairing |

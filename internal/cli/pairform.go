@@ -236,7 +236,7 @@ func (a *app) askListener(ctx context.Context, cfg *config.Config, st store.API,
 func formURL(cfg *config.Config) (string, error) {
 	l, _ := hooks.ReadListener(cfg)
 	if u, err := listenerURL(cfg); err == nil {
-		if host, _, _ := net.SplitHostPort(l.Addr); host == "localhost" || isLoopback(host) {
+		if onLoopback(l.Addr) {
 			fmt.Printf("\nThis yard takes calls on %s, which only a yard on this same machine can reach.\n", l.Addr)
 		}
 		return u, nil
@@ -254,6 +254,13 @@ func formURL(cfg *config.Config) (string, error) {
 		return "", err
 	}
 	return pairAddress(strings.TrimSpace(u))
+}
+
+// onLoopback reports whether a listener's address is on this machine only,
+// where no yard on another machine reaches it.
+func onLoopback(addr string) bool {
+	host, _, _ := net.SplitHostPort(addr)
+	return host == "localhost" || isLoopback(host)
 }
 
 func isLoopback(host string) bool {
