@@ -641,10 +641,10 @@ Where it is said: `says` (`{"understands": [...], "yardr": "<build>"}`)
 beside the fields of a posted message and in every signed answer, and
 `&understands=<kind>,…&yardr=<build>` on a question, so each is under the
 signature. This yard keeps what a request said when it takes the request,
-and what the answer to its own question said when the store has checked that
-the answer is the peer's. The kinds and the build are the peer's text: kinds
-are held to a kind's plain characters and the build to a version's, and
-anything else is left out.
+and what a signed answer to its post or question said when the store has
+checked that the answer is the peer's. The kinds and the build are the
+peer's text: kinds are held to a kind's plain characters and the build to a
+version's, and anything else is left out.
 
 This was tried with a third yard, c, on the yardr from just before this
 (`9503a5df2261`), linked by hand with b, each with the other's URL. Ping

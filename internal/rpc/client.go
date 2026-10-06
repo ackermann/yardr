@@ -641,6 +641,10 @@ func (c *Client) PeerSendFailed(ctx context.Context, name string, seq uint64, re
 func (c *Client) PeerPulled(ctx context.Context, name string, b store.PeerBatch) (*store.PeerPulled, error) {
 	return callV[*store.PeerPulled](c, ctx, "PeerPulled", name, b)
 }
+
+func (c *Client) PeerPostAnswered(ctx context.Context, name string, answer store.PeerAnswer) error {
+	return c.call(ctx, "PeerPostAnswered", nil, name, answer)
+}
 func (c *Client) CheckPeer(ctx context.Context, p store.Peer) error {
 	return c.call(ctx, "CheckPeer", nil, p)
 }

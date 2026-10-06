@@ -78,7 +78,14 @@ func (d *Dispatcher) peers(ctx context.Context) error {
 		return nil
 	}
 	d.peerKeyErr = ""
-	c := &yards.Caller{Key: key, HTTP: d.PeerHTTP, Now: d.now}
+	c := &yards.Caller{
+		Key: key, HTTP: d.PeerHTTP, Now: d.now,
+		Heard: func(ctx context.Context, p store.Peer, answer store.PeerAnswer) {
+			if err := d.Store.PeerPostAnswered(ctx, p.Name, answer); err != nil && !errors.Is(err, store.ErrNotFound) {
+				d.Log.Warn("peer: keeping what it says it understands", "peer", p.Name, "err", err)
+			}
+		},
+	}
 	if c.HTTP == nil {
 		c.HTTP = http.DefaultClient
 	}

@@ -38,6 +38,9 @@ type Caller struct {
 	Key  ed25519.PrivateKey
 	HTTP *http.Client     // nil: http.DefaultClient
 	Now  func() time.Time // nil: time.Now
+	// Heard keeps what a peer says in a signed POST answer. Pull answers
+	// are handed to the store with their signature in PeerBatch instead.
+	Heard func(context.Context, store.Peer, store.PeerAnswer)
 }
 
 // do makes one signed request to p and returns the status and body of an
@@ -95,8 +98,6 @@ func (c *Caller) do(ctx context.Context, p store.Peer, method, path string, body
 func (c *Caller) Push(ctx context.Context, p store.Peer, m store.PeerMessage) error {
 	m.Seq = 0
 	// With what this build understands beside the message's own fields.
-	// The answer says the same of p, and is not read for it here: the
-	// daemon asks p next (Pull), and that answer the store checks itself.
 	body, err := json.Marshal(struct {
 		store.PeerMessage
 		Says *store.PeerSays `json:"says"`
@@ -104,7 +105,13 @@ func (c *Caller) Push(ctx context.Context, p store.Peer, m store.PeerMessage) er
 	if err != nil {
 		return err
 	}
-	status, answer, _, _, err := c.do(ctx, p, http.MethodPost, Path, body)
+	status, answer, reqSig, sig, err := c.do(ctx, p, http.MethodPost, Path, body)
+	if err == nil && c.Heard != nil {
+		// The store checks the signed answer before keeping what it says.
+		// An older yard's valid answer has no says, and clears a stale
+		// statement just like an older request does.
+		c.Heard(ctx, p, store.PeerAnswer{Status: status, RequestSig: reqSig, Signature: sig, Body: answer})
+	}
 	switch {
 	case err != nil:
 		return err

@@ -93,6 +93,27 @@ func TestYardsSayWhatTheyUnderstand(t *testing.T) {
 	}
 }
 
+// A signed answer to a post is kept too; a pull may fail after the post has
+// succeeded, so its answer is not left for a later question to repeat.
+func TestPostAnswerSaysWhatThePeerUnderstands(t *testing.T) {
+	a, b := newYard(t), newYard(t)
+	ctx := context.Background()
+	toB := a.add(t, "b", b, true, ping, ping)
+	b.add(t, "a", a, false, ping, ping)
+	c := a.caller()
+	c.Heard = func(ctx context.Context, p store.Peer, answer store.PeerAnswer) {
+		if err := a.own.PeerPostAnswered(ctx, p.Name, answer); err != nil {
+			t.Errorf("keep what b said: %v", err)
+		}
+	}
+	if err := c.Push(ctx, toB, store.PeerMessage{ID: "post-answer", Kind: "ping", Body: json.RawMessage(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if got := said(t, a, "b"); !understands(got) {
+		t.Fatalf("a did not keep b's signed post answer: %+v", got)
+	}
+}
+
 // A yard on this build and one on the build before it, which says nothing
 // of what it understands, still exchange ping and mail. The older yard's
 // requests are replayed as it signs them, without the statement: each is

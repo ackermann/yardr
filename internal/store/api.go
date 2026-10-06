@@ -164,6 +164,7 @@ type API interface {
 	PeerDelivered(ctx context.Context, name string, seq uint64) error
 	PeerSendFailed(ctx context.Context, name string, seq uint64, reason string, retryAt time.Time, final bool) error
 	PeerPulled(ctx context.Context, name string, b PeerBatch) (*PeerPulled, error)
+	PeerPostAnswered(ctx context.Context, name string, answer PeerAnswer) error
 	CheckPeer(ctx context.Context, p Peer) error
 	PairPeer(ctx context.Context, p Peer, actor string) (*Peer, error)
 	PairRefused(ctx context.Context, reason, peer, actor string) error

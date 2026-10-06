@@ -179,6 +179,37 @@ func TestPeerHeard(t *testing.T) {
 	})
 }
 
+// A signed answer to a post is checked against the peer record before its
+// says is kept; an answer forged with another key cannot update it.
+func TestPeerPostAnswered(t *testing.T) {
+	y := newPeerYard(t, "")
+	page, err := json.Marshal(struct {
+		Taken bool            `json:"taken"`
+		Says  *store.PeerSays `json:"says"`
+	}{true, store.Says("v1.2.3")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	answer := store.PeerAnswer{Status: 200, RequestSig: "post-1", Signature: yardkey.SignResponse(y.north, 200, "post-1", page), Body: page}
+	if err := y.api.PeerPostAnswered(y.ctx, "north", answer); err != nil {
+		t.Fatal(err)
+	}
+	p, err := y.api.GetPeer(y.ctx, "north")
+	if err != nil || p.Said == nil || p.Said.Yardr != "v1.2.3" {
+		t.Fatalf("after signed post answer: %+v, %v", p, err)
+	}
+
+	forged := answer
+	forged.Body = []byte(`{"says":{"understands":["handoff"],"yardr":"v9"}}`)
+	if err := y.api.PeerPostAnswered(y.ctx, "north", forged); err == nil {
+		t.Fatal("an answer signed over other words was accepted")
+	}
+	p, err = y.api.GetPeer(y.ctx, "north")
+	if err != nil || p.Said.Yardr != "v1.2.3" {
+		t.Fatalf("a forged answer changed what was kept: %+v, %v", p.Said, err)
+	}
+}
+
 // The answer to a pull says what the peer's build understands, under the
 // peer's signature: it is kept though the page hands over nothing, an
 // answer that says the same writes nothing, and the page of an older yardr,

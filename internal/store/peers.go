@@ -256,6 +256,15 @@ type PeerBatch struct {
 	Told []uint64 `json:"told,omitempty"`
 }
 
+// PeerAnswer is a signed answer to a posted message. The store checks its
+// signature before keeping what it says, as it does for a pull page.
+type PeerAnswer struct {
+	Status     int    `json:"status"`
+	RequestSig string `json:"request_sig"`
+	Signature  string `json:"signature"`
+	Body       []byte `json:"body"`
+}
+
 // PeerPage is the body of an answer to a pull. Push says that the yard
 // asked posts what it has for the asker, so there is nothing to ask for.
 type PeerPage struct {
@@ -903,6 +912,44 @@ func (s *Store) PeerHeard(ctx context.Context, name, key string, says *PeerSays)
 	}
 	return s.write(func(w *wtx) error {
 		p, err := hear(w.Tx)
+		if err != nil || !changed {
+			return err
+		}
+		return put(w.Tx, bPeers, name, p)
+	})
+}
+
+// PeerPostAnswered keeps what a peer says in its signed answer to a post.
+func (s *Store) PeerPostAnswered(ctx context.Context, name string, answer PeerAnswer) error {
+	var says *PeerSays
+	changed := false
+	check := func(tx *bolt.Tx) (*Peer, error) {
+		p, err := loadPeer(tx, name)
+		if err != nil {
+			return nil, err
+		}
+		if err := yardkey.VerifyResponse(p.Key, answer.Status, answer.RequestSig, answer.Signature, answer.Body); err != nil {
+			return nil, fmt.Errorf("peer %s: %w", name, err)
+		}
+		var reply struct {
+			Says *PeerSays `json:"says"`
+		}
+		if err := json.Unmarshal(answer.Body, &reply); err != nil {
+			return nil, fmt.Errorf("peer %s: its answer is not JSON", name)
+		}
+		says = reply.Says
+		changed = p.heard(says)
+		return p, nil
+	}
+	err := s.read(func(tx *bolt.Tx) error {
+		_, err := check(tx)
+		return err
+	})
+	if err != nil || !changed {
+		return err
+	}
+	return s.write(func(w *wtx) error {
+		p, err := check(w.Tx)
 		if err != nil || !changed {
 			return err
 		}
