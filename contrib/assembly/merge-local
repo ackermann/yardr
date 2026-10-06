@@ -1,0 +1,212 @@
+#!/bin/sh
+# merge-local: an assembly that lands a bead's branch directly on its depot's
+# local base branch. Run it as the cmd of an exec group routed for the stage
+# beads wait to land in (approved); limit 1 on the group makes a serial merge
+# queue. See docs/pipeline.md, section 4.
+#
+# It reads everything from the environment the exec runner gives it:
+# YARDR_BEAD, YARDR_DEPOT, YARDR_DEPOT_PATH, YARDR_BASE, YARDR_BRANCH,
+# YARDR_WORKTREE, YARDR_BIN, YARDR_TYPE and YARDR_TRAIN. Options, set in the
+# group's cmd
+# (cmd='YARDR_PUSH=origin /path/to/merge-local'):
+#
+#   YARDR_PUSH     a remote to push the base to after landing; off when empty
+#   YARDR_NOTIFY   crew member mailed when that push fails (default: the yard's
+#                  yardmaster setting, else yardmaster)
+#
+# For each bead it rebases the branch onto the base if the base moved, runs
+# the depot's gate on exactly what will land, fast-forwards the base to the
+# commit it gated and advances the bead to merged. A conflict goes to
+# merge, a red gate back (outcome failed: new, or open for a train) with a
+# note that names the commit and the file all of the gate's output is in, as
+# does a branch that moved while the gate ran, and a gate that cannot run,
+# or anything it cannot land without touching a dirty tree, is held. A gate
+# ended by a signal is run once more, and held if a signal ends it again. It
+# never forces and never pushes anything but a fast-forward.
+#
+# A car of a train (type car, landing on its train's branch) is gated with
+# the depot's light gate (yardr depot check --light): the full gate, and the one
+# review, are the train's, before the depot's base moves. Everything else gets
+# the full gate, a car with no train included. See docs/pipeline.md, "Cars".
+#
+# Every outcome ends in an advance, a close or a hold: exiting without one
+# counts as a failed session, and three of those hold the bead.
+set -u
+# A dir depot (YARDR_DEPOT_KIND=dir) has no branches: there is nothing here to
+# land, integrate or open a pull request for. A route that hands one over is
+# a mistake in the depot's flow, so refuse to run (exit 2) rather than guess.
+if [ "${YARDR_DEPOT_KIND:-git}" = dir ]; then
+  echo "merge-local: depot ${YARDR_DEPOT:-?} is a dir depot, with no branch to work on; route its stages to other groups" >&2
+  exit 2
+fi
+: "${YARDR_BEAD:?not run by an exec group}" "${YARDR_DEPOT:?bead has no depot}"
+: "${YARDR_DEPOT_PATH:?}" "${YARDR_BASE:?}"
+Y=${YARDR_BIN:-yardr}
+BEAD=$YARDR_BEAD
+DEPOT=$YARDR_DEPOT
+REPO=$YARDR_DEPOT_PATH
+BASE=$YARDR_BASE
+BR=${YARDR_BRANCH:-yard/$BEAD}
+WT=${YARDR_WORKTREE:-${YARDR_HOME:-$HOME/.yardr}/worktrees/$DEPOT/$BEAD}
+PUSH=${YARDR_PUSH:-}
+NOTIFY=${YARDR_NOTIFY:-}
+TAIL=200
+echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') assembly $DEPOT $BEAD ($BR onto $BASE)"
+
+# Each outcome is one advance with its note, so the move and the reason land
+# together. Advancing ends this session (the daemon stops the script), so it
+# is always the last thing done.
+to() { echo "== $BEAD -> $1"; printf '%s\n' "assembly: $2" | "$Y" bead advance "$BEAD" --to "$1" --note -; exit 0; }
+# Back to whoever fixes the branch: the flow's "failed" outcome where it
+# names one (new for a bead, open for a train, see docs/flows.md), else new.
+back() {
+  echo "== $BEAD failed"
+  printf '%s\n' "assembly: $1" | "$Y" bead done "$BEAD" --outcome failed --note - && exit 0
+  to new "$1"
+}
+hold() { echo "== hold $BEAD: $1"; "$Y" bead note "$BEAD" "assembly: $1"; "$Y" bead hold "$BEAD"; exit 0; }
+# A conflict goes to the mergers; if the flow has no merge stage the advance
+# is refused and the bead goes back to the builders.
+conflict() {
+  echo "== $BEAD conflicts"
+  printf '%s\n' "assembly: $1" | "$Y" bead advance "$BEAD" --to merge --note - && exit 0
+  back "$1"
+}
+
+git -C "$REPO" rev-parse --verify -q "refs/heads/$BASE" >/dev/null ||
+  hold "base $BASE is not a local branch of $REPO; merge-local lands only on local branches"
+git -C "$REPO" rev-parse --verify -q "refs/heads/$BR" >/dev/null || hold "branch $BR does not exist"
+if [ ! -d "$WT" ]; then
+  git -C "$REPO" worktree add "$WT" "$BR" || hold "cannot check out $BR at $WT"
+fi
+[ "$(git -C "$WT" symbolic-ref -q HEAD)" = "refs/heads/$BR" ] || hold "$WT is not on $BR"
+[ -z "$(git -C "$WT" status --porcelain)" ] || hold "worktree $WT has uncommitted changes"
+
+# Rebase onto the base when it moved since the branch was made.
+if ! git -C "$REPO" merge-base --is-ancestor "$BASE" "$BR"; then
+  if ! git -C "$WT" rebase "$BASE"; then
+    files=$(git -C "$WT" diff --name-only --diff-filter=U | tr '\n' ' ')
+    git -C "$WT" rebase --abort
+    conflict "rebase onto $BASE conflicts in: $files
+Rebase $BR onto $BASE, keep both changes' intent, re-run the gate."
+  fi
+fi
+
+# The gate runs on exactly what will land, every time, including after a
+# merger's rebase: the depot's check, read from the base so a bead cannot
+# weaken it. The commit it runs on is recorded, and that commit is what
+# lands: a commit pushed to $BR while the gate ran would otherwise land by
+# the branch's name, ungated.
+# Exit 1 is a red gate, the branch's to fix; exit 2 means the gate could not
+# run at all (git, the base, the depot), which no builder can fix: hold.
+# An exit above 128 means the gate was ended by a signal from outside (143:
+# a go test killed with SIGTERM after every package printed ok), which says
+# nothing about the branch and which no builder can fix either. It is run
+# once more, after a note with the first run's tail, so the event is on
+# record however the second ends; ended by a signal twice, the bead is held.
+# depot check's own kill at its deadline is not this: it exits 1, a red gate.
+#
+# A full gate waits for one of the machine's gate slots (yardr depot check
+# --help). This one goes before the others that wait (YARDR_GATE_FIRST, which
+# is depot check --first): every approved bead waits behind it, one at a time,
+# while builders and reviewers gate many at once. It is said in the
+# environment, not as the flag, so a yardr older than the slots runs this
+# script as before instead of failing on a flag it does not know. No slot
+# within depot check's bound is exit 2: hold.
+#
+# The light gate is only for a car that lands on its train's branch, where
+# the full gate still stands before the depot's base (integrate-train runs it on
+# the whole train). All three must hold, as the exec runner says them: the
+# type, a train, and that train's branch as the base. A car with no train
+# lands on the depot's base, so it gets the full gate, as does anything run by
+# a yardr that does not say the type and the train. A depot with no light gate
+# runs its full one under --light, and says so in the output.
+# depot check finds the car from the branch $WT is on and compares its light
+# gate with the train's branch, which the car was just rebased onto, not
+# with the depot's base: what is tested is what this car changed.
+# A yardr from before the types were renamed says part and YARDR_EPIC; both
+# are still read for this release.
+LIGHT= GATE="the gate" TRAIN=${YARDR_TRAIN:-${YARDR_EPIC:-}}
+case ${YARDR_TYPE:-} in car | part) CAR=1 ;; *) CAR= ;; esac
+if [ -n "$CAR" ] && [ -n "$TRAIN" ] && [ "$BASE" = "yard/$TRAIN" ]; then
+  LIGHT=--light GATE="the light gate"
+  echo "== $BEAD is a car of train $TRAIN: light gate here, the full gate on the train"
+fi
+gate() { out=$(YARDR_GATE_FIRST=1 "$Y" depot check "$DEPOT" $LIGHT --dir "$WT" --tail "$TAIL" 2>&1) && rc=0 || rc=$?; printf '%s\n' "$out"; }
+# Where depot check kept all of a red gate's output: its FAIL line ends with
+# the file. $out is what the depot says matters (the lines matching its
+# .yardr/check-fail-pattern, if it has one) and then the last $TAIL lines,
+# which in a long run are what came after the failure, not the failure.
+whole() {
+  f=$(printf '%s\n' "$out" | sed -n 's/^check .*: FAIL (.*); whole output: //p' | tail -n 1)
+  if [ -n "$f" ]; then echo "the whole output is in $f"; else echo "the whole output was not kept"; fi
+}
+gated=$(git -C "$REPO" rev-parse "refs/heads/$BR") || hold "cannot read $BR"
+gate
+if [ "$rc" -gt 128 ]; then
+  first="$GATE on $BR at $(git -C "$REPO" rev-parse --short "$gated") was ended by signal $((rc - 128)) (exit $rc), not by a failing check"
+  echo "== $first; running it once more"
+  "$Y" bead note "$BEAD" "assembly: $first; running it once more on the same commit. Its output:
+$out" || echo "== could not note the first run on $BEAD"
+  out1=$out
+  gate
+  [ "$rc" -le 128 ] || hold "$first, and again by signal $((rc - 128)) (exit $rc) when run once more. Nothing landed, and the branch is not at fault: find what sends the signal, then unhold to gate it again.
+First run:
+$out1
+Second run:
+$out"
+fi
+case $rc in
+0) ;;
+2) hold "$GATE could not run on $BR:
+$out" ;;
+*) back "$GATE failed on $BR at $(git -C "$REPO" rev-parse --short "$gated") rebased onto $BASE; $(whole):
+$out" ;;
+esac
+
+# A branch that moved during the gate holds commits the gate did not see:
+# back to whoever fixes the branch, as a red gate, to be approved and gated
+# again as it is now.
+now=$(git -C "$REPO" rev-parse "refs/heads/$BR")
+[ "$now" = "$gated" ] ||
+  back "$BR moved while the gate ran: gated $(git -C "$REPO" rev-parse --short "$gated"), now $(git -C "$REPO" rev-parse --short "$now"). Nothing landed; the gate must run on what is there now."
+
+# Land the gated commit, by its sha, fast-forward only. Where the base is
+# checked out, only when that checkout is clean (a dirty one is someone's
+# work in progress: hold rather than touch it); otherwise move the ref
+# without touching any tree.
+co=$(git -C "$REPO" worktree list --porcelain |
+  awk -v b="refs/heads/$BASE" '/^worktree /{w=substr($0,10)} $0=="branch "b{print w}')
+if [ -n "$co" ]; then
+  [ -z "$(git -C "$co" status --porcelain)" ] ||
+    hold "$BASE is checked out in $co with uncommitted changes; not landing. Commit or clean it, then unhold."
+  git -C "$co" merge --ff-only "$gated" || back "fast-forward of $BASE in $co to $gated failed"
+else
+  git -C "$REPO" fetch . "$gated:$BASE" || back "fast-forward of $BASE to $gated failed (not a fast-forward?)"
+fi
+sha=$(git -C "$REPO" rev-parse --short "$BASE")
+echo "== landed $BEAD on $BASE at $sha"
+
+# Publish, before advancing: advancing ends this session and the daemon stops
+# the script with it. Never forced. A failed push (offline, the remote moved)
+# leaves the bead merged locally; the next landing's push carries it.
+msg="merged $sha"
+[ -z "$LIGHT" ] || msg="$msg on $BASE under the light gate; the full gate and the review are train $TRAIN's"
+if [ -n "$PUSH" ]; then
+  if git -C "$REPO" push "$PUSH" "$BASE" 2>&1; then
+    echo "== pushed $BASE to $PUSH"
+  else
+    msg="$msg; pushing $BASE to $PUSH failed (not forced)"
+    # Asked only now: a yard names its yardmaster as it likes (a yard from
+    # before the rename has a mayor), and most landings mail nobody.
+    [ -n "$NOTIFY" ] || NOTIFY=$("$Y" settings get yardmaster 2>/dev/null) || NOTIFY=yardmaster
+    "$Y" mail "$NOTIFY" "assembly: merged $BEAD at $sha but pushing $BASE to $PUSH failed. Not forced; check whether $PUSH/$BASE moved." ||
+      echo "== could not mail $NOTIFY"
+  fi
+fi
+
+# A flow with a merged terminal stage closes the bead on entering it; without
+# one, close it directly.
+printf '%s\n' "$msg" | "$Y" bead advance "$BEAD" --to merged --note - ||
+  "$Y" bead close "$BEAD" --reason "$msg"
+echo "== $msg"

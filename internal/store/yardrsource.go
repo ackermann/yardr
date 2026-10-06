@@ -20,7 +20,7 @@ const SourceYardr = "yardr"
 // done. A bead is done when it closes, which entering a terminal stage of
 // its flow does too, in the same transaction. Only its first close counts,
 // so a done subscription hears of a bead once (a later close with another
-// reason, such as the refinery's "merged <sha>" after a terminal stage, or
+// reason, such as the assembly's "merged <sha>" after a terminal stage, or
 // a close after a reopen, is an ordinary closed event).
 const StateDone = "done"
 

@@ -16,7 +16,7 @@ review's: it runs once, on what lands. One note on the bead says how the
 review ended. Outcomes:
 
 - `done`, approved: the note says what you checked, what you fixed (commits),
-  the check results, and any remaining risk. The refinery lands the bead from
+  the check results, and any remaining risk. The assembly lands the bead from
   `approved`.
 - `changes`, it needs the builder: the design is wrong, the bead was misread,
   or a large part is missing. The note gives concrete, actionable findings,

@@ -1,4 +1,4 @@
-package refinery
+package assembly
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"yardr.dev/yardr/internal/rigcheck"
 )
 
-// The refinery's gate waits for a slot of the machine like any other, and
+// The assembly's gate waits for a slot of the machine like any other, and
 // asks to go first. With none free within depot check's bound the gate could
 // not run (exit 2): the bead is held where it is, never sent back to new as
 // a red gate would be. The script's yardr is wrapped here only to give depot
@@ -36,7 +36,7 @@ func TestMergeLocalNoGateSlotHolds(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	y.refinery()
+	y.assembly()
 
 	b := y.bead()
 	if !b.Hold || b.Stage != "approved" {

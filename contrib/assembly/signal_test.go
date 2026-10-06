@@ -1,4 +1,4 @@
-package refinery
+package assembly
 
 // A gate ended by a signal from outside (depot check exits 128+N) is not a
 // red gate: no builder can fix a signal. merge-local and integrate-train run
@@ -44,7 +44,7 @@ func TestMergeLocalGateEndedBySignalIsRunAgain(t *testing.T) {
 	ran := filepath.Join(y.home, "ran")
 	y.gate(`echo run >> ` + ran + `; [ "$(wc -l < ` + ran + `)" -gt 1 ] || { echo "ok every package"; kill -TERM $$; }`)
 
-	y.refinery()
+	y.assembly()
 
 	if b := y.bead(); b.Stage != "merged" || b.Status != "closed" || b.Hold {
 		t.Fatalf("bead %s/%s hold=%v, want merged and closed", b.Stage, b.Status, b.Hold)
@@ -74,7 +74,7 @@ func TestMergeLocalGateEndedBySignalTwiceHolds(t *testing.T) {
 	ran := filepath.Join(y.home, "ran")
 	y.gate(`echo run >> ` + ran + `; echo "output of run $(wc -l < ` + ran + ` | tr -d ' ')"; exit 143`)
 
-	y.refinery()
+	y.assembly()
 
 	b := y.bead()
 	if !b.Hold || b.Stage != "approved" || b.Status != "open" {
@@ -106,7 +106,7 @@ func TestMergeLocalGateEndedBySignalThenRed(t *testing.T) {
 	ran := filepath.Join(y.home, "ran")
 	y.gate(`echo run >> ` + ran + `; [ "$(wc -l < ` + ran + `)" -gt 1 ] || exit 143; echo "really red"; exit 1`)
 
-	y.refinery()
+	y.assembly()
 
 	if b := y.bead(); b.Stage != "new" || b.Hold {
 		t.Fatalf("bead %s hold=%v, want back in new", b.Stage, b.Hold)
@@ -133,7 +133,7 @@ func TestMergeLocalGateDeadlineIsRed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	y.refinery()
+	y.assembly()
 
 	if b := y.bead(); b.Stage != "new" || b.Hold {
 		t.Fatalf("bead %s hold=%v, want back in new", b.Stage, b.Hold)
@@ -153,8 +153,8 @@ func TestMergeLocalGateDeadlineIsRed(t *testing.T) {
 func trainSignalYard(t *testing.T, times int) (y *yard, ran string) {
 	t.Helper()
 	y = newTrainYard(t, "true")
-	y.exec("merge-local", "refinery", "r-1")
-	y.exec("merge-local", "refinery", "r-2")
+	y.exec("merge-local", "assembly", "r-1")
+	y.exec("merge-local", "assembly", "r-2")
 	ran = filepath.Join(y.home, "ran")
 	check := `echo run >> ` + ran + `; echo "output of run $(wc -l < ` + ran + ` | tr -d ' ')"; `
 	if times > 0 {

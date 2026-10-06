@@ -150,9 +150,9 @@ func TestApplyOverAYardSetUpByHand(t *testing.T) {
 	depot := "web"
 	must(st.PutGroup(ctx, store.Group{Name: "web-builders", Runner: "herdr", Limit: 2,
 		Config: map[string]any{"kind": "codex", "model": "luna", "args": []any{"--yolo"}, "env_file": "/secrets.env", "idle": "20m", "prompt": "/old/builder.md"}}))
-	must(st.PutGroup(ctx, store.Group{Name: "web-refinery", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "YARDR_PUSH=origin /old/merge-local --fast"}}))
+	must(st.PutGroup(ctx, store.Group{Name: "web-assembly", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "YARDR_PUSH=origin /old/merge-local --fast"}}))
 	must(st.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Members: []string{"ann"}}))
-	for stage, group := range map[string]string{"new": "web-builders", "approved": "web-refinery", "decide": "decisions"} {
+	for stage, group := range map[string]string{"new": "web-builders", "approved": "web-assembly", "decide": "decisions"} {
 		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Depot: &depot, Group: group, Priority: 7})
 		must(err)
 	}
@@ -178,7 +178,7 @@ func TestApplyOverAYardSetUpByHand(t *testing.T) {
 	if !reflect.DeepEqual(g.Config, want) || g.Limit != 5 {
 		t.Fatalf("web-builders = %+v", g)
 	}
-	g, err = st.GetGroup(ctx, "web-refinery")
+	g, err = st.GetGroup(ctx, "web-assembly")
 	must(err)
 	if got, want := g.Config["cmd"], "YARDR_PUSH=origin "+filepath.Join(install, "scripts", "merge-local")+" --fast"; got != want {
 		t.Fatalf("cmd = %q, want %q", got, want)
@@ -1270,5 +1270,93 @@ func TestThePacksMayorIsItsYardmaster(t *testing.T) {
 	}
 	if _, err := pack.Load(dir); err == nil || !strings.Contains(err.Error(), "placeholder {{yardmaster}}") {
 		t.Fatalf("a pack with a crew member mayor fills {{yardmaster}}: %v", err)
+	}
+}
+
+// The starter pack's group that lands approved beads was called refinery
+// until it became assembly. A yard's group keeps its name: one an import
+// made before the rename, <depot>-refinery, stays the pack's group, with its
+// route, and no <depot>-assembly is made beside it. The record then says so
+// under the new name, which is what a later import goes by.
+func TestThePacksRefineryIsItsAssembly(t *testing.T) {
+	st, o := yard(t)
+	// The pack as it was: the same files, the group under its old name.
+	before := copyStarter(t)
+	manifest := filepath.Join(before, "pack.yaml")
+	text, _ := os.ReadFile(manifest)
+	was := strings.NewReplacer("group: assembly, ", "group: refinery, ", "  assembly:  {", "  refinery:  {").Replace(string(text))
+	if was == string(text) {
+		t.Fatal("the starter pack has no group assembly to call refinery")
+	}
+	if err := os.WriteFile(manifest, []byte(was), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A pack that calls its group refinery is read as it stands.
+	apply(t, st, build(t, st, load(t, before), o), answers)
+	if rec := record(t, st); rec.Groups["refinery"] != "web-refinery" {
+		t.Fatalf("the import before the rename recorded %v", rec.Groups)
+	}
+
+	plan := build(t, st, load(t, starter), o)
+	if got := plan.Groups["assembly"]; got != "web-refinery" {
+		t.Fatalf("the pack's assembly is the yard's %q, want web-refinery", got)
+	}
+	if got := slices.Concat(actions(plan, pack.Create), actions(plan, pack.Change), actions(plan, pack.NotInPack)); len(got) != 0 {
+		t.Fatalf("an import over the yard of before would write or drop %v", got)
+	}
+	if rt := find(t, plan, "route", "depot web stage approved -> web-refinery"); rt.Action != pack.Unchanged {
+		t.Fatalf("route approved = %+v", rt)
+	}
+	apply(t, st, plan, nil)
+	if g, _ := st.GetGroup(ctx, "web-assembly"); g != nil {
+		t.Fatalf("a second group was made: %+v", g)
+	}
+	rec := record(t, st)
+	if _, old := rec.Groups["refinery"]; old || rec.Groups["assembly"] != "web-refinery" {
+		t.Fatalf("the record after the import = %v", rec.Groups)
+	}
+	// By the record alone, as the release that no longer knows the old name
+	// will read it: a group of the new name made since changes nothing.
+	if err := st.PutGroup(ctx, store.Group{Name: "web-assembly", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "/other"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := build(t, st, load(t, starter), o).Groups["assembly"]; got != "web-refinery" {
+		t.Fatalf("with a record and both groups the pack's assembly is %q", got)
+	}
+}
+
+// A yard set up by hand under the old name, with no import behind it: the
+// group <depot>-refinery is taken for the pack's assembly, unless the yard
+// has a <depot>-assembly too.
+func TestAHandMadeRefineryIsThePacksAssembly(t *testing.T) {
+	st, o := yard(t)
+	depot := "web"
+	if err := st.PutGroup(ctx, store.Group{Name: "web-refinery", Runner: "exec", Limit: 1,
+		Config: map[string]any{"cmd": "YARDR_PUSH=origin /old/merge-local", "log": "/logs/refinery.log"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddRoute(ctx, store.Route{Stage: "approved", Depot: &depot, Group: "web-refinery"}); err != nil {
+		t.Fatal(err)
+	}
+	plan := build(t, st, load(t, starter), o)
+	g := find(t, plan, "group", "web-refinery")
+	cmd := "YARDR_PUSH=origin " + filepath.Join(o.Home, "packs", "starter", "scripts", "merge-local")
+	if g.Action != pack.Change || g.Group.Config["cmd"] != cmd || g.Group.Config["log"] != "/logs/refinery.log" {
+		t.Fatalf("web-refinery = %+v %+v", g, g.Group)
+	}
+	if rt := find(t, plan, "route", "depot web stage approved -> web-refinery"); rt.Action != pack.Unchanged {
+		t.Fatalf("route approved = %+v", rt)
+	}
+	for _, o := range plan.Objects {
+		if strings.Contains(o.Name, "web-assembly") {
+			t.Errorf("%s %s is planned beside the yard's group", o.Kind, o.Name)
+		}
+	}
+
+	if err := st.PutGroup(ctx, store.Group{Name: "web-assembly", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "/new/merge-local"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := build(t, st, load(t, starter), o).Groups["assembly"]; got != "web-assembly" {
+		t.Fatalf("with both groups and no record the pack's assembly is %q", got)
 	}
 }

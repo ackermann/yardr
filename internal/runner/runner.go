@@ -106,7 +106,7 @@ func Brief(job dispatch.Job, actor, workdir, home string) (string, error) {
 		fmt.Fprintf(&b, "Work in `%s` directly: it is a plain directory (dir depot `%s`), with no branch to work on. Commit nothing. Do not touch files outside what the bead names. When you report, say in your note what you produced, by path.\n\n", workdir, job.Depot.Name)
 	case workdir != "":
 		// Builders never push: the branch is landed from this worktree (the
-		// refinery reads it here; a train's integrator pushes the train's).
+		// assembly reads it here; a train's integrator pushes the train's).
 		// The brief is the one place that says when a push is allowed, so
 		// the role prompts defer to it: a section below grants one when it
 		// says "you may push".

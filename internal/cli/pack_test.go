@@ -41,7 +41,7 @@ func TestPackCheckPrintsThePlan(t *testing.T) {
 		"in its roles and stage files {{operator}} would read " + defaultOperator() + ", {{yardmaster}} would read boss\n",
 		"  create           roles/builder.md -> " + filepath.Join(install, "roles", "builder.md") + "\n",
 		"  create           web-builders\n                     asks: group.web-builders.kind\n",
-		"  create           depot web stage approved -> web-refinery\n",
+		"  create           depot web stage approved -> web-assembly\n",
 		"  create           boss linear involved\n",
 		"an import would ask\n  group.web-builders.kind: which agent runs group web-builders",
 		"flows governing depot web afterwards\n  the depot's beads: starter.default (store); now: none\n",
@@ -218,8 +218,8 @@ func TestPackApplyWithFlags(t *testing.T) {
 		fmt.Sprint(g.Config["args"]) != "[--dangerously-bypass-approvals-and-sandbox]" {
 		t.Fatalf("web-reviewers = %+v", g)
 	}
-	if g, _ := a.st.GetGroup(ctx, "web-refinery"); g == nil || g.Config["args"] != nil {
-		t.Fatalf("web-refinery, a script group, = %+v", g)
+	if g, _ := a.st.GetGroup(ctx, "web-assembly"); g == nil || g.Config["args"] != nil {
+		t.Fatalf("web-assembly, a script group, = %+v", g)
 	}
 	if g, _ := a.st.GetGroup(ctx, "backlog"); g == nil || len(g.Members) != 0 {
 		t.Fatalf("backlog = %+v", g)
@@ -638,5 +638,24 @@ func TestPackCheckRefusesAnUnknownPlaceholder(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(a.cfg.Home, "packs")); err == nil {
 		t.Fatal("the refused pack was installed")
+	}
+}
+
+// The starter pack's group assembly was refinery until this release: a flag
+// that names it so, as a script written then does, is still about that
+// group, and a name the pack never had is refused as before.
+func TestPackApplyReadsTheGroupsOldName(t *testing.T) {
+	a := packApp(t)
+	setInteractive(t, false)
+	args := append([]string{"apply", "../../packs/starter", "--depot", "web", "--yes", "--members", "refinery=ann", "--bind", "refinery=claude"}, starterFlags...)
+	if out, err := run(t, a.packCmd(), args...); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if g, _ := a.st.GetGroup(context.Background(), "web-assembly"); g == nil || g.Runner != "exec" || len(g.Members) != 0 {
+		t.Fatalf("web-assembly = %+v", g)
+	}
+	args = append([]string{"apply", "../../packs/starter", "--depot", "web", "--yes", "--members", "smelter=ann"}, starterFlags...)
+	if _, err := run(t, a.packCmd(), args...); err == nil || !strings.Contains(err.Error(), "the pack has no group smelter (it has: assembly, ") {
+		t.Fatalf("--members smelter=ann: %v", err)
 	}
 }

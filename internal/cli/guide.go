@@ -19,7 +19,7 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
-	"yardr.dev/yardr/contrib/refinery"
+	"yardr.dev/yardr/contrib/assembly"
 	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/runner"
@@ -60,7 +60,7 @@ it runs:
                         commits them on the base branch
   builders, reviewers   the form of yardr group add, starting at a group on
                         the yard's default harness with the role's prompt
-  landing               a refinery (yardr's merge-local, installed in
+  landing               an assembly (yardr's merge-local, installed in
                         <home>/scripts/, as an exec group) or people who
                         merge by hand (a manual group, routed for approved)
   routes                new, review and approved, each to the group that
@@ -463,14 +463,14 @@ func (g *guide) depotPage(ctx context.Context, _ setupStep) (bool, error) {
 	isGit := detectDepotKind(path) == store.DepotGit
 	base := ""
 	if isGit {
-		// The branch checked out is a local one, which a refinery can land
+		// The branch checked out is a local one, which an assembly can land
 		// on; depot add's own default, origin/main, it cannot.
 		if base, _ = git(ctx, path, "symbolic-ref", "--short", "-q", "HEAD"); base == "" {
 			base = "origin/main"
 		}
 		fields = append(fields, huh.NewInput().Key("base").Title("Base branch").
 			Description("Where a bead's branch starts and where approved work lands. yardr reads the depot's roles, gate and flow from it.\n"+
-				"A local branch (main) is one yardr's refinery can land on; a remote's (origin/main) only people can.").
+				"A local branch (main) is one yardr's assembly can land on; a remote's (origin/main) only people can.").
 			Value(&base).Validate(func(s string) error {
 			if _, err := git(ctx, path, "rev-parse", "--verify", "--quiet", s+"^{commit}"); err != nil {
 				return fmt.Errorf("%q does not resolve in %s (a branch needs a commit)", s, path)
@@ -603,11 +603,11 @@ func setValue(v any) string {
 
 // How approved beads land.
 const (
-	landRefinery = "refinery"
+	landAssembly = "assembly"
 	landByHand   = "hand"
 )
 
-// landingPage asks how approved beads land. A refinery is one answer: the
+// landingPage asks how approved beads land. An assembly is one answer: the
 // page installs merge-local, which this build carries, into the home's
 // scripts and adds the exec group that runs it. By hand is a manual group
 // of the people who merge, and their route for approved with it: a group of
@@ -617,8 +617,8 @@ func (g *guide) landingPage(ctx context.Context, step setupStep) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	how := landRefinery
-	desc := fmt.Sprintf("A refinery is yardr's merge queue: for each approved bead it rebases the branch, runs the depot's gate\n"+
+	how := landAssembly
+	desc := fmt.Sprintf("An assembly is yardr's merge queue: for each approved bead it rebases the branch, runs the depot's gate\n"+
 		"on exactly what will land and fast-forwards %s, one bead at a time. It is the script merge-local,\n"+
 		"which this installs in %s (docs/pipeline.md, section 4).\n"+
 		"By hand, approved beads wait for the people of a group, who merge them and move them on.",
@@ -627,16 +627,16 @@ func (g *guide) landingPage(ctx context.Context, step setupStep) (bool, error) {
 	// depot whose base is a remote's.
 	if _, err := git(ctx, depot.Path, "show-ref", "--verify", "--quiet", "refs/heads/"+depot.Base); err != nil {
 		how = landByHand
-		desc += fmt.Sprintf("\n\nThe base of %s, %s, is not a local branch: the refinery lands on local branches only,\n"+
+		desc += fmt.Sprintf("\n\nThe base of %s, %s, is not a local branch: the assembly lands on local branches only,\n"+
 			"and would hold every bead.", depot.Name, depot.Base)
 	}
 	if err := ask(huh.NewSelect[string]().Key("landing").Title("How do approved beads land?").Description(desc).Options(
-		huh.NewOption("A refinery: yardr lands them, once the gate passes", landRefinery),
+		huh.NewOption("An assembly: yardr lands them, once the gate passes", landAssembly),
 		huh.NewOption("By hand: people merge them", landByHand),
 	).Value(&how)); err != nil {
 		return false, err
 	}
-	if how == landRefinery {
+	if how == landAssembly {
 		script, err := g.installMergeLocal()
 		if err != nil {
 			return false, err
@@ -645,12 +645,12 @@ func (g *guide) landingPage(ctx context.Context, step setupStep) (bool, error) {
 		if err := os.MkdirAll(logs, 0o755); err != nil {
 			return false, err
 		}
-		if err := g.do(ctx, "group", "add", depot.Name+"/refinery", "--runner", "exec",
-			"--set", "cmd="+shellQuote(script), "--set", "log="+filepath.Join(logs, "refinery.log")); err != nil {
+		if err := g.do(ctx, "group", "add", depot.Name+"/assembly", "--runner", "exec",
+			"--set", "cmd="+shellQuote(script), "--set", "log="+filepath.Join(logs, "assembly.log")); err != nil {
 			return false, err
 		}
 		fmt.Printf("It lands on %s by fast-forward and pushes nothing; YARDR_PUSH=origin in front of the cmd makes it push\n"+
-			"the base after each landing (contrib/refinery/README.md). A checkout of %s with uncommitted changes holds\n"+
+			"the base after each landing (contrib/assembly/README.md). A checkout of %s with uncommitted changes holds\n"+
 			"the bead rather than touch them.\n", depot.Base, depot.Base)
 		return true, nil
 	}
@@ -681,13 +681,13 @@ func (g *guide) installMergeLocal() (string, error) {
 	have, err := os.ReadFile(path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		if _, err := writeNew(path, string(refinery.MergeLocal), 0o755); err != nil {
+		if _, err := writeNew(path, string(assembly.MergeLocal), 0o755); err != nil {
 			return "", err
 		}
-		fmt.Printf("\nmerge-local installed: %s (this build's contrib/refinery/merge-local)\n", path)
+		fmt.Printf("\nmerge-local installed: %s (this build's contrib/assembly/merge-local)\n", path)
 	case err != nil:
 		return "", err
-	case bytes.Equal(have, refinery.MergeLocal):
+	case bytes.Equal(have, assembly.MergeLocal):
 		fmt.Printf("\nmerge-local is installed already: %s\n", path)
 	default:
 		fmt.Printf("\nmerge-local is there already and differs from this build's: %s is kept as it is\n", path)

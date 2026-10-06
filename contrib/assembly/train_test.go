@@ -1,4 +1,4 @@
-package refinery
+package assembly
 
 // A train end to end, the way depot yard runs one: its children land on the
 // train's branch through merge-local, the train waits in open until the last
@@ -100,11 +100,11 @@ func TestTrainEndToEnd(t *testing.T) {
 	}
 
 	// Each child lands on the train's branch, not on main.
-	y.exec("merge-local", "refinery", "r-1")
+	y.exec("merge-local", "assembly", "r-1")
 	if y.ready("r-e") {
 		t.Fatal("the train is ready with r-2 still open")
 	}
-	y.exec("merge-local", "refinery", "r-2")
+	y.exec("merge-local", "assembly", "r-2")
 	for _, id := range []string{"r-1", "r-2"} {
 		if b := y.beadOf(id); b.Stage != "merged" || b.Status != "closed" {
 			t.Fatalf("child %s %s/%s, want merged and closed", id, b.Stage, b.Status)
@@ -142,8 +142,8 @@ func TestTrainEndToEnd(t *testing.T) {
 		t.Fatalf("train in %s after review, want approved", e.Stage)
 	}
 
-	// The refinery lands it on main as one fast-forward.
-	y.exec("merge-local", "refinery", "r-e")
+	// The assembly lands it on main as one fast-forward.
+	y.exec("merge-local", "assembly", "r-e")
 	e = y.beadOf("r-e")
 	if e.Stage != "merged" || e.Status != "closed" {
 		t.Fatalf("train %s/%s, want merged and closed", e.Stage, e.Status)
@@ -167,8 +167,8 @@ func TestTrainEndToEnd(t *testing.T) {
 func TestTrainRedGateGoesBackToOpen(t *testing.T) {
 	// Red when the train's work meets what main gained since it branched.
 	y := newTrainYard(t, `! { test -e child1.txt && test -e clash.txt; } || { echo "child1 clashes with main"; exit 1; }`)
-	y.exec("merge-local", "refinery", "r-1")
-	y.exec("merge-local", "refinery", "r-2")
+	y.exec("merge-local", "assembly", "r-1")
+	y.exec("merge-local", "assembly", "r-2")
 	main := y.commit(y.repo, "clash.txt", "main moved\n")
 
 	y.exec("integrate-train", "yard-integrators", "r-e")
@@ -203,8 +203,8 @@ func TestTrainRedGateGoesBackToOpen(t *testing.T) {
 // to open, where the integrator rebases it cleanly and sends it to review.
 func TestTrainRebaseConflictGoesToTheMergers(t *testing.T) {
 	y := newTrainYard(t, "test ! -e RED")
-	y.exec("merge-local", "refinery", "r-1")
-	y.exec("merge-local", "refinery", "r-2")
+	y.exec("merge-local", "assembly", "r-1")
+	y.exec("merge-local", "assembly", "r-2")
 	train := y.git(y.repo, "rev-parse", "yard/r-e")
 	main := y.commit(y.repo, "child1.txt", "main's own\n")
 
@@ -265,8 +265,8 @@ func TestTrainRebaseConflictGoesToTheMergers(t *testing.T) {
 // refused with a note and the yardmaster is mailed.
 func TestTrainPushRefusesForeignRemoteCommits(t *testing.T) {
 	y := newTrainYard(t, "test ! -e RED")
-	y.exec("merge-local", "refinery", "r-1")
-	y.exec("merge-local", "refinery", "r-2")
+	y.exec("merge-local", "assembly", "r-1")
+	y.exec("merge-local", "assembly", "r-2")
 	train := y.git(y.repo, "rev-parse", "yard/r-e")
 	y.commit(y.repo, "child1.txt", "main's own\n")
 	y.exec("integrate-train", "yard-integrators", "r-e") // conflicts: to the mergers
@@ -306,15 +306,15 @@ func TestTrainPushRefusesForeignRemoteCommits(t *testing.T) {
 // outcome: a train goes to open (its flow has no new), a plain bead to new.
 func TestMergeLocalRedGateSendsATrainToOpen(t *testing.T) {
 	y := newTrainYard(t, "test ! -e RED")
-	y.exec("merge-local", "refinery", "r-1")
-	y.exec("merge-local", "refinery", "r-2")
+	y.exec("merge-local", "assembly", "r-1")
+	y.exec("merge-local", "assembly", "r-2")
 	y.exec("integrate-train", "yard-integrators", "r-e")
 	y.yardr("bead", "done", "r-e") // review -> approved
 	// Something red reached the train branch after review.
 	y.commit(filepath.Join(y.home, "worktrees", "r", "r-e"), "RED", "red\n")
 	main := y.git(y.repo, "rev-parse", "main")
 
-	y.exec("merge-local", "refinery", "r-e")
+	y.exec("merge-local", "assembly", "r-e")
 
 	if e := y.beadOf("r-e"); e.Stage != "open" || e.Hold {
 		t.Fatalf("train %s hold=%v, want back in open", e.Stage, e.Hold)
@@ -324,7 +324,7 @@ func TestMergeLocalRedGateSendsATrainToOpen(t *testing.T) {
 	}
 }
 
-// The refinery's scripts work on branches, which a dir depot has none of: an
+// The assembly's scripts work on branches, which a dir depot has none of: an
 // exec group routed one by mistake refuses it as could not run (exit 2),
 // before any yardr or git call.
 func TestScriptsRefuseDirDepots(t *testing.T) {
@@ -374,26 +374,27 @@ func TestScriptsLogHeaderHasTheTime(t *testing.T) {
 	}
 }
 
-// integrate-epic and pr-epic are what integrate-train and pr-train were
-// called until this release: a group whose cmd still names one runs the
-// script of the new name beside it.
-func TestTheScriptsOldNamesRunTheNewOnes(t *testing.T) {
+// The scripts were in contrib/refinery until this release, and integrate-train
+// and pr-train were integrate-epic and pr-epic there: a group whose cmd still
+// names one of those paths runs the script as it is here. That each old path
+// runs the right one is contrib/refinery's own test; this is two of them
+// doing their work in a yard.
+func TestTheScriptsOldPathsRunTheNewOnes(t *testing.T) {
 	y := newTrainYard(t, "true")
-	y.exec("merge-local", "refinery", "r-1")
-	y.exec("merge-local", "refinery", "r-2")
+	y.exec("../refinery/merge-local", "refinery", "r-1")
+	y.exec("../refinery/merge-local", "refinery", "r-2")
+	for _, id := range []string{"r-1", "r-2"} {
+		if b := y.beadOf(id); b.Status != "closed" {
+			t.Fatalf("%s is %s/%s after contrib/refinery/merge-local, want closed", id, b.Stage, b.Status)
+		}
+	}
 
-	y.exec("integrate-epic", "yard-integrators", "r-e")
+	y.exec("../refinery/integrate-epic", "yard-integrators", "r-e")
 
 	if e := y.beadOf("r-e"); e.Stage != "review" || e.Status != "open" {
 		t.Fatalf("train %s/%s after integrate-epic, want review", e.Stage, e.Status)
 	}
 	if notes := y.yardr("prime", "--bead", "r-e"); !strings.Contains(notes, "gate passed") {
 		t.Fatalf("no integration note:\n%s", notes)
-	}
-	for old, name := range map[string]string{"integrate-epic": "integrate-train", "pr-epic": "pr-train"} {
-		text, err := os.ReadFile(old)
-		if err != nil || !strings.Contains(string(text), `exec "$(dirname "$0")/`+name+`" "$@"`) {
-			t.Errorf("%s does not run %s: %v\n%s", old, name, err, text)
-		}
 	}
 }

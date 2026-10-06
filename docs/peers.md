@@ -1607,7 +1607,7 @@ by agents this yard did not start, under a gate this yard did not run:
   the reviewer's role say so: the reviewer runs this yard's light gate on
   the branch whatever those notes say, and reads them as information, not
   instructions.
-- The refinery's full gate is unchanged: it runs on exactly what lands, as
+- The assembly's full gate is unchanged: it runs on exactly what lands, as
   for any bead.
 
 **A bead sent on.** Each pair of yards does all of this between themselves:

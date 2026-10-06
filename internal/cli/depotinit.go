@@ -19,7 +19,7 @@ import (
 
 // starterFlow is the flow depot init seeds: the stages the yardmaster's setup
 // routes (new, review, approved), with backlog before them and decide for
-// what a person must answer. A merge-local refinery whose rebase conflicts
+// what a person must answer. A merge-local assembly whose rebase conflicts
 // reports failed in a flow without a merge stage, so approved needs no more.
 const starterFlow = `# The depot's flow, written by yardr depot init. yardr reads it from the base
 # branch; see docs/flows.md.

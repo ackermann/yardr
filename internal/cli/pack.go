@@ -259,7 +259,7 @@ says so. The import is recorded (yardr pack list). See docs/packs.md.`,
 			// each new group and crew member gets and lists only what is still
 			// open. Where nothing can be asked, or --yes says not to, a new
 			// agent gets its kind's unattended arguments.
-			answers, err := packAnswers(plan, binds, members, cfg.Home, !asking || yes)
+			answers, err := packAnswers(p, plan, binds, members, cfg.Home, !asking || yes)
 			if err != nil {
 				return err
 			}
@@ -434,8 +434,21 @@ func flagsFor(p *pack.Plan, open []pack.Question) []string {
 // crew member works in the yard's home, as one made by crew add does.
 // With unattended, a new agent whose kind is answered and whose --bind names
 // no preset gets its kind's unattended arguments, as yardr init gives them.
-func packAnswers(p *pack.Plan, binds, members []string, home string, unattended bool) (pack.Answers, error) {
+func packAnswers(pk *pack.Pack, p *pack.Plan, binds, members []string, home string, unattended bool) (pack.Answers, error) {
 	answers := pack.Answers{}
+	// The yard's group for a group of the pack, also under the name the
+	// pack's group had until this release (refinery for assembly).
+	group := func(name string) (string, bool) {
+		if yard, ok := p.Groups[name]; ok {
+			return yard, true
+		}
+		for now, yard := range p.Groups {
+			if old, ok := pk.WasGroup(now); ok && old == name {
+				return yard, true
+			}
+		}
+		return "", false
+	}
 	asked := map[string]bool{}
 	for _, q := range p.Questions {
 		asked[q.ID] = true
@@ -467,6 +480,9 @@ func packAnswers(p *pack.Plan, binds, members []string, home string, unattended 
 			obj, names, name = "crew", p.Crew, rest
 		}
 		yard, ok := names[name]
+		if !ok && obj == "group" {
+			yard, ok = group(name)
+		}
 		if !ok {
 			return nil, fmt.Errorf("--bind %q: the pack has no %s %s (it has: %s)", kv, obj, name, strings.Join(sortedKeys(names), ", "))
 		}
@@ -485,7 +501,7 @@ func packAnswers(p *pack.Plan, binds, members []string, home string, unattended 
 		if !ok || name == "" {
 			return nil, fmt.Errorf("--members %q: want <group>=a,b", kv)
 		}
-		yard, ok := p.Groups[name]
+		yard, ok := group(name)
 		if !ok {
 			return nil, fmt.Errorf("--members %q: the pack has no group %s (it has: %s)", kv, name, strings.Join(sortedKeys(p.Groups), ", "))
 		}

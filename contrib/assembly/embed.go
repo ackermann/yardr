@@ -1,8 +1,8 @@
-// Package refinery holds the reference refinery scripts (see README.md) and
+// Package assembly holds the reference assembly scripts (see README.md) and
 // their tests. merge-local is embedded, so a yardr that was installed
-// without a checkout can still set up a refinery: yardr setup writes it to
+// without a checkout can still set up an assembly: yardr setup writes it to
 // <home>/scripts/.
-package refinery
+package assembly
 
 import _ "embed"
 

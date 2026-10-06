@@ -12,7 +12,7 @@ yardr user add ada                       # the operator adds a user
 yardr user show ada
 yardr user rm ada                        # the mail stays in the log
 
-yardr mail mckean "The refinery is red on main: yardr-1a2b"   # a crew member's session, or a user
+yardr mail mckean "The assembly is red on main: yardr-1a2b"   # a crew member's session, or a user
 yardr inbox                              # as a user: Mail and Notifications, each with its unread
 yardr inbox --mail --ack                 # one part, and mark what it shows as read
 yardr subscribe ada yardr --done         # ada is told of every bead that becomes done

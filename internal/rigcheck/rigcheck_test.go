@@ -543,7 +543,7 @@ func TestLightGateSinceABranch(t *testing.T) {
 }
 
 // A gate's command does not get the settings of the yard's server from
-// whoever ran the gate (the daemon's refinery, an agent, a shell they were
+// whoever ran the gate (the daemon's assembly, an agent, a shell they were
 // exported in): its tests start servers, and one that read this yard's
 // YARDR_HOOK_ADDR listened on the yard's webhook address and answered its
 // deliveries with 404 (yardr-t9n1). What else the starter had still reaches it.

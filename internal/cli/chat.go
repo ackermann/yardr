@@ -47,7 +47,7 @@ It is for a user of the yard (yardr user list), and needs a terminal.
 Without one, yardr mail <crew member> <text> sends and yardr mail --with
 <crew member> prints the conversation. Leaving the view (ctrl+c) stops nothing.`,
 		Example: `  yardr chat
-  yardr chat refinery`,
+  yardr chat assembly`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			if a.json || !interactive() {

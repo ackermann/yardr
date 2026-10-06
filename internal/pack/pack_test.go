@@ -43,12 +43,12 @@ flows:
   default:
     stages:
       new:    { group: builders, outcomes: { done: review, question: decide }, manual: [decide] }
-      review: { group: refinery, outcomes: { done: merged } }
+      review: { group: assembly, outcomes: { done: merged } }
       decide: { group: people, manual: [new] }
       merged: { end: true }
 groups:
   builders: { agent: roles/builder.md, limit: 2 }
-  refinery: { run: scripts/land }
+  assembly: { run: scripts/land }
   people:   { people: true }
 crew:
   yardmaster:
@@ -184,7 +184,7 @@ func TestStrictness(t *testing.T) {
 		{name: "boolean key true", old: "    hears:", new: "    true:", key: "crew.yardmaster.true", msg: "as a boolean", line: 16},
 		{name: "boolean word as a stage", old: "manual: [new]", new: "manual: [no]", key: "flows.default.stages.decide.manual", msg: "reads the bare word no as a boolean", line: 7},
 		{name: "yes is not true", old: "end: true", new: "end: yes", key: "flows.default.stages.merged.end", msg: "want true or false", line: 8},
-		{name: "undeclared group", old: "group: refinery", new: "group: refiners", key: "flows.default.stages.review.group", msg: "no group refiners is declared", line: 6},
+		{name: "undeclared group", old: "group: assembly", new: "group: refiners", key: "flows.default.stages.review.group", msg: "no group refiners is declared", line: 6},
 		{name: "unknown outcome stage", old: "question: decide }", new: "question: triage }", key: "flows.default.stages.new.outcomes.question", msg: "no stage triage in this flow", line: 5},
 		{name: "unknown manual stage", old: "manual: [new]", new: "manual: [backlog]", key: "flows.default.stages.decide.manual", msg: "no stage backlog in this flow", line: 7},
 		{name: "flow without an end", old: "merged: { end: true }", new: "merged: { group: people }", key: "flows.default.stages", msg: "has no end", line: 4},
@@ -195,12 +195,12 @@ func TestStrictness(t *testing.T) {
 		{name: "limit below one", old: "limit: 2", new: "limit: 0", key: "groups.builders.limit", msg: "1 or more", line: 10},
 		{name: "missing role", files: map[string]string{"roles/builder.md": ""}, key: "groups.builders.agent", msg: "role roles/builder.md is missing", line: 10},
 		{name: "missing crew member role", files: map[string]string{"roles/yardmaster.md": ""}, key: "crew.yardmaster.role", msg: "role roles/yardmaster.md is missing", line: 15},
-		{name: "missing script", files: map[string]string{"scripts/land": ""}, key: "groups.refinery.run", msg: "script scripts/land is missing", line: 11},
+		{name: "missing script", files: map[string]string{"scripts/land": ""}, key: "groups.assembly.run", msg: "script scripts/land is missing", line: 11},
 		{name: "absolute path", old: "agent: roles/builder.md", new: "agent: /etc/passwd", key: "groups.builders.agent", msg: "relative to its directory, not absolute", line: 10},
 		{name: "path leaving the pack", old: "agent: roles/builder.md", new: "agent: roles/../../builder.md", key: "groups.builders.agent", msg: "leaves the pack's directory", line: 10},
-		{name: "missing stage file", old: "review: { group: refinery,", new: "review: { group: refinery, file: flows/review.md,", key: "flows.default.stages.review.file", msg: "stage file flows/review.md is missing", line: 6},
-		{name: "empty stage file", old: "review: { group: refinery,", new: "review: { group: refinery, file: flows/review.md,", files: map[string]string{"flows/review.md": " \n"}, key: "flows.default.stages.review.file", msg: "stage file flows/review.md is empty", line: 6},
-		{name: "stage file outside the pack", old: "review: { group: refinery,", new: "review: { group: refinery, file: ../review.md,", key: "flows.default.stages.review.file", msg: "leaves the pack's directory", line: 6},
+		{name: "missing stage file", old: "review: { group: assembly,", new: "review: { group: assembly, file: flows/review.md,", key: "flows.default.stages.review.file", msg: "stage file flows/review.md is missing", line: 6},
+		{name: "empty stage file", old: "review: { group: assembly,", new: "review: { group: assembly, file: flows/review.md,", files: map[string]string{"flows/review.md": " \n"}, key: "flows.default.stages.review.file", msg: "stage file flows/review.md is empty", line: 6},
+		{name: "stage file outside the pack", old: "review: { group: assembly,", new: "review: { group: assembly, file: ../review.md,", key: "flows.default.stages.review.file", msg: "leaves the pack's directory", line: 6},
 		{name: "stage file of an end stage", old: "merged: { end: true }", new: "merged: { end: true, file: roles/yardmaster.md }", key: "flows.default.stages.merged", msg: "so it has no file", line: 8},
 		{name: "stage no flow has", old: "stages: [decide]", new: "stages: [triage]", key: "crew.yardmaster.hears.stages", msg: "no flow of this pack has a stage triage", line: 18},
 		{name: "source without an adapter", old: "linear: involved", new: "slack: involved", key: "crew.yardmaster.subscribe.slack", msg: "no adapter for source slack", line: 21},
@@ -263,7 +263,7 @@ func TestQuotedBooleanWordIsAName(t *testing.T) {
 
 // Every mistake is named in one run, in file order.
 func TestAllErrorsAreReported(t *testing.T) {
-	text := strings.NewReplacer("group: refinery", "group: refiners", "linear: involved", "slack: involved").Replace(small)
+	text := strings.NewReplacer("group: assembly", "group: refiners", "linear: involved", "slack: involved").Replace(small)
 	_, err := pack.Load(writePack(t, smallFiles(text)))
 	var errs pack.Errors
 	if !errors.As(err, &errs) || len(errs) != 2 || errs[0].Line > errs[1].Line {
@@ -276,7 +276,7 @@ func TestScriptMustBeExecutable(t *testing.T) {
 	if err := os.Chmod(filepath.Join(dir, "scripts", "land"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pack.Load(dir); err == nil || !strings.Contains(err.Error(), "groups.refinery.run: script scripts/land is not executable") {
+	if _, err := pack.Load(dir); err == nil || !strings.Contains(err.Error(), "groups.assembly.run: script scripts/land is not executable") {
 		t.Fatalf("Load = %v", err)
 	}
 }
@@ -305,12 +305,12 @@ func TestNoPackFile(t *testing.T) {
 }
 
 // The starter's roles and its merge-local are copies of the roles yardr
-// embeds (roles/*.md) and of the reference refinery, and its stage files of
+// embeds (roles/*.md) and of the reference assembly, and its stage files of
 // the ones depot init writes for a git depot, placeholders included: an import
 // fills them as depot init does. Until one is read from the other, a change to
 // either must be made to both.
 func TestStarterMatchesItsSources(t *testing.T) {
-	pairs := map[string]string{"scripts/merge-local": "../../contrib/refinery/merge-local"}
+	pairs := map[string]string{"scripts/merge-local": "../../contrib/assembly/merge-local"}
 	roles, err := filepath.Glob("../../roles/*.md")
 	if err != nil || len(roles) == 0 {
 		t.Fatalf("no roles/*.md: %v", err)
@@ -363,7 +363,7 @@ func TestStarterMatchesItsSources(t *testing.T) {
 // A stage's file is read as the pack's other paths are: relative to its
 // directory, cleaned, and a stage without the key has none.
 func TestStageFileIsRead(t *testing.T) {
-	files := smallFiles(strings.Replace(small, "review: { group: refinery,", "review: { group: refinery, file: ./flows/review.md,", 1))
+	files := smallFiles(strings.Replace(small, "review: { group: assembly,", "review: { group: assembly, file: ./flows/review.md,", 1))
 	files["flows/review.md"] = "review it\n"
 	p, err := pack.Load(writePack(t, files))
 	if err != nil {

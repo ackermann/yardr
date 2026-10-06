@@ -1,4 +1,4 @@
-package refinery
+package assembly
 
 import (
 	"context"
@@ -48,7 +48,7 @@ func TestMergeLocalCarOfATrainGetsTheLightGate(t *testing.T) {
 	y.yardr("bead", "update", "r-1", "--type", "car")
 	trainWas := y.git(y.repo, "rev-parse", "yard/r-e")
 
-	y.exec("merge-local", "refinery", "r-1")
+	y.exec("merge-local", "assembly", "r-1")
 
 	if b := y.beadOf("r-1"); b.Stage != "merged" || b.Status != "closed" {
 		t.Fatalf("car %s/%s, want merged and closed", b.Stage, b.Status)
@@ -64,7 +64,7 @@ func TestMergeLocalCarOfATrainGetsTheLightGate(t *testing.T) {
 	}
 
 	// r-2 is a task under the same train.
-	y.exec("merge-local", "refinery", "r-2")
+	y.exec("merge-local", "assembly", "r-2")
 	if got := ranGates(t, ran); got != "light full" {
 		t.Fatalf("gates run after a task of the train = %q, want the full one for it", got)
 	}
@@ -80,7 +80,7 @@ func TestMergeLocalCarRedLightGate(t *testing.T) {
 	y.yardr("bead", "update", "r-1", "--type", "car")
 	trainWas := y.git(y.repo, "rev-parse", "yard/r-e")
 
-	y.exec("merge-local", "refinery", "r-1")
+	y.exec("merge-local", "assembly", "r-1")
 
 	if b := y.beadOf("r-1"); b.Stage != "new" || b.Hold {
 		t.Fatalf("car %s hold=%v, want back in new", b.Stage, b.Hold)
@@ -107,7 +107,7 @@ func TestMergeLocalCarWithoutATrainGetsTheFullGate(t *testing.T) {
 	y.yardr("bead", "update", "r-1", "--type", "car")
 	y.commit(y.wt, "b.txt", "bead\n")
 
-	y.refinery()
+	y.assembly()
 
 	if b := y.bead(); b.Status != "closed" || y.git(y.repo, "rev-parse", "main") != y.git(y.wt, "rev-parse", "HEAD") {
 		t.Fatalf("car without a train is %s in %s, want landed on main under the full gate and closed", b.Status, b.Stage)
@@ -121,13 +121,13 @@ func TestMergeLocalCarWithoutATrainGetsTheFullGate(t *testing.T) {
 }
 
 // A depot with no light gate: a car of a train runs the full one, and the
-// refinery's note carries depot check's line saying so.
+// assembly's note carries depot check's line saying so.
 func TestMergeLocalCarInADepotWithoutALightGate(t *testing.T) {
 	y := newTrainYard(t, "true")
 	ran := y.gates("exit 1", "", false)
 	y.yardr("bead", "update", "r-1", "--type", "car")
 
-	y.exec("merge-local", "refinery", "r-1")
+	y.exec("merge-local", "assembly", "r-1")
 
 	if b := y.beadOf("r-1"); b.Stage != "new" {
 		t.Fatalf("car is in %s, want back in new: the full gate is red", b.Stage)
@@ -153,9 +153,9 @@ func TestMergeLocalCarLightGateIsComparedWithTheTrain(t *testing.T) {
 	y.yardr("bead", "update", "r-2", "--type", "car")
 	base := y.git(y.repo, "rev-parse", "main")
 
-	y.exec("merge-local", "refinery", "r-1")
+	y.exec("merge-local", "assembly", "r-1")
 	train := y.git(y.repo, "rev-parse", "yard/r-e")
-	y.exec("merge-local", "refinery", "r-2")
+	y.exec("merge-local", "assembly", "r-2")
 
 	for _, id := range []string{"r-1", "r-2"} {
 		if b := y.beadOf(id); b.Stage != "merged" || b.Status != "closed" {
@@ -186,7 +186,7 @@ func TestMergeLocalReadsTheOldWordsForACarOfATrain(t *testing.T) {
 	// runner's environment. YARDR_EPIC is the runner's own, still set.
 	y.opts = "YARDR_TYPE=part YARDR_TRAIN="
 
-	y.exec("merge-local", "refinery", "r-1")
+	y.exec("merge-local", "assembly", "r-1")
 
 	if b := y.beadOf("r-1"); b.Stage != "merged" || b.Status != "closed" {
 		t.Fatalf("car %s/%s, want merged and closed", b.Stage, b.Status)

@@ -23,7 +23,7 @@ pane instead, answer there.
 {{operator}} can take the same steps in their own terminal, as forms:
 `yardr setup` reads this list too, does the first step not done and offers
 after each to come back to you. So a step may be done when you look again,
-and when a step is quicker for them there (the refinery is one answer), say
+and when a step is quicker for them there (the assembly is one answer), say
 so. In your pane `yardr setup` asks nothing and prints the list.
 
 Its other parts say what is wrong with the yard itself. Tell {{operator}} of
@@ -39,10 +39,10 @@ install.
 3. Groups on the default harness (`yardr settings get default_kind`):
    `yardr group add <depot>/builders --runner herdr --limit 2 --set prompt=roles/builder.md`,
    and `<depot>/reviewers` the same with `roles/reviewer.md`.
-4. Ask how approved beads land: a refinery (an exec group running
+4. Ask how approved beads land: an assembly (an exec group running
    `~/.yardr/scripts/merge-local`, which `yardr setup` installs in
    {{operator}}'s terminal, or which is installed from yardr's
-   `contrib/refinery` as its docs/pipeline.md says) or a manual group whose
+   `contrib/assembly` as its docs/pipeline.md says) or a manual group whose
    members merge by hand (`--runner manual --members <them>`), routed for
    `approved`.
 5. Routes for new, review and approved:

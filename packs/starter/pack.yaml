@@ -22,7 +22,7 @@ flows:
       backlog:  { group: backlog,   file: flows/default/backlog.md,  manual: [new, decide] }
       new:      { group: builders,  file: flows/default/new.md,      outcomes: { done: review, question: decide }, manual: [backlog] }
       review:   { group: reviewers, file: flows/default/review.md,   outcomes: { done: approved, changes: new, question: decide } }
-      approved: { group: refinery,  file: flows/default/approved.md, outcomes: { done: merged, failed: new, question: decide } }
+      approved: { group: assembly,  file: flows/default/approved.md, outcomes: { done: merged, failed: new, question: decide } }
       decide:   { group: decisions, file: flows/default/decide.md,   manual: [backlog, new] }
       merged:   { end: true }
 
@@ -31,7 +31,7 @@ flows:
 groups:
   builders:  { agent: roles/builder.md,  limit: 5 }
   reviewers: { agent: roles/reviewer.md, limit: 3 }
-  refinery:  { run: scripts/merge-local, limit: 1 }
+  assembly:  { run: scripts/merge-local, limit: 1 }
   backlog:   { people: true }
   decisions: { people: true }
 

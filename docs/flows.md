@@ -147,7 +147,7 @@ three places until someone moves the bead:
   ```
 
   With a red gate it exits 1 as before. With a green gate it exits 2, not
-  1: no branch can fix a stranded bead, so the refinery holds the bead it
+  1: no branch can fix a stranded bead, so the assembly holds the bead it
   was landing instead of sending it back to its builder. `--json` lists
   them under `stranded`.
 - `yardr flow show <depot>` prints a warning per bead under the flow that
@@ -389,7 +389,7 @@ FLOW default · 6 stages (context: your stage's file below says what you must do
 > new        agents   A builder implements the bead here, on branch `yard/<bead>` in the bead's own worktree.   <- you are here
   decide     people   A bead here waits for a person: Christopher decides.
   review     agents   The finished bead is reviewed against its goal; what the reviewer can fix is fixed, not sent back.
-  approved   script   The refinery gates the bead and lands it on `main`, one bead at a time.
+  approved   script   The assembly gates the bead and lands it on `main`, one bead at a time.
   merged     end
 PATH  new -> review -> new (changes)
 ```
@@ -471,8 +471,8 @@ A line `<stage> terminal` marks a stage that ends the bead: advancing into it
 closes the bead with the stage name as its reason, in one write. A terminal
 stage has no outgoing rules and needs no route. `yardr bead close` still
 works without one, for beads that end outside the flow (the reference
-refinery falls back to it when the flow has no `merged`, see
-[pipeline.md](pipeline.md#4-approved-the-refinery-lands-it-on-main)).
+assembly falls back to it when the flow has no `merged`, see
+[pipeline.md](pipeline.md#4-approved-the-assembly-lands-it-on-main)).
 
 ## Worked example: depot yardr
 
@@ -511,10 +511,10 @@ merged terminal
 | backlog | `backlog` | manual (Christopher and the yardmaster, who shapes beads here) |
 | new | `yardr-builders` | herdr, Claude Code, limit 5, `prompt=roles/builder.md` |
 | review | `yardr-reviewers` | herdr, Codex, limit 3, `prompt=roles/reviewer.md` |
-| approved | `yardr-refinery` | exec, limit 1, [`contrib/refinery/merge-local`](../contrib/refinery/merge-local) |
+| approved | `yardr-refinery` | exec, limit 1, [`contrib/assembly/merge-local`](../contrib/assembly/merge-local) |
 | decide | `decisions` | manual (Christopher and the yardmaster) |
 
-The refinery lands an approved bead and advances it to `merged`, which
+The assembly lands an approved bead and advances it to `merged`, which
 closes it; a red gate sends it back to `new`. The flow has no `merge`
 stage, so a rebase that conflicts goes back to `new` as well: merge-local
 falls back to the `failed` outcome when the flow refuses `merge`. A flow
@@ -556,11 +556,11 @@ the table that the depot lacks are the ones
 | stage | group | runner |
 |---|---|---|
 | backlog | `backlog` | manual (the yardmaster adds children, then advances to open) |
-| open | none yet; `yardr-integrators` (route `--type train`, priority 10) | exec, limit 1, [`contrib/refinery/integrate-train`](../contrib/refinery/integrate-train) |
+| open | none yet; `yardr-integrators` (route `--type train`, priority 10) | exec, limit 1, [`contrib/assembly/integrate-train`](../contrib/assembly/integrate-train) |
 | review | `yardr-reviewers` | as for any bead; the brief says it is a train and gives the range |
-| approved | `yardr-refinery` | merge-local, as for any bead; on the PR path `yardr-pr` (route `--type train`, priority 10): exec, limit 1, [`contrib/refinery/pr-train`](../contrib/refinery/pr-train) with `YARDR_PR=1` |
+| approved | `yardr-refinery` | merge-local, as for any bead; on the PR path `yardr-pr` (route `--type train`, priority 10): exec, limit 1, [`contrib/assembly/pr-train`](../contrib/assembly/pr-train) with `YARDR_PR=1` |
 | in-pr | none yet; `decisions` (route `--type train`), PR path only | manual: `yardr bead done <train>` means "merge it" |
-| land | none yet; `yardr-pr-merge` (route `--type train`), PR path only | exec, limit 1, [`contrib/refinery/pr-merge`](../contrib/refinery/pr-merge) with `YARDR_PR=1` |
+| land | none yet; `yardr-pr-merge` (route `--type train`), PR path only | exec, limit 1, [`contrib/assembly/pr-merge`](../contrib/assembly/pr-merge) with `YARDR_PR=1` |
 | merge | none yet; `mergers` | herdr, Claude Code, `prompt=roles/merger.md`, on branch `yard/<train>`; `done` goes back to `open`, where the integrator gates and pushes it again |
 | decide | `decisions` | manual |
 

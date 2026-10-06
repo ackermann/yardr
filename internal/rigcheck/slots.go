@@ -62,7 +62,7 @@ type Slots struct {
 	// the run takes no slot.
 	Limit int
 	// First: the others waiting stand back for this run, and so does a run
-	// that only arrives. It is for the refinery and the integrator, whose
+	// that only arrives. It is for the assembly and the integrator, whose
 	// one gate at a time is the gate every approved bead waits behind, while
 	// builders and reviewers can be eight to its one.
 	First bool

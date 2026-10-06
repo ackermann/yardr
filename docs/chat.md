@@ -7,7 +7,7 @@ something to it.
 
 ```sh
 yardr chat             # opens on the yardmaster
-yardr chat refinery    # opens on the crew member named
+yardr chat assembly    # opens on the crew member named
 ```
 
 It shows the mail a [user](users.md) and a crew member have written each other,
@@ -81,7 +81,7 @@ At 80 columns:
 
 ```
 yardr chat · ada
-yard (2)  [yardmaster blocked]  refinery idle (1)
+yard (2)  [yardmaster blocked]  assembly idle (1)
 ────────────────────────────────────────────────────────────────────────────────
 10-05 13:20  ada
   deploys are frozen until Friday

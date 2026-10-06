@@ -702,6 +702,34 @@ func sum(b []byte) string {
 	return hex.EncodeToString(h[:])
 }
 
+// groupName is the yard's group for the pack's g: the one the last import
+// recorded for it, else GroupName. A group the pack called something else in
+// an earlier release (WasGroup) is the one that import recorded under the
+// old name, or the one a yard set up by hand has under it where it has none
+// of the new name. So the group stays the pack's under the name it has: a
+// yard's group is never renamed, and no second one is made beside it.
+func (b *planner) groupName(g Group, have []store.Group) string {
+	has := func(name string) bool {
+		return name != "" && slices.ContainsFunc(have, func(h store.Group) bool { return h.Name == name })
+	}
+	old, was := b.p.WasGroup(g.Name)
+	if b.rec != nil {
+		if name := b.rec.Groups[g.Name]; has(name) {
+			return name
+		}
+		if name := b.rec.Groups[old]; was && has(name) {
+			return name
+		}
+	}
+	name := GroupName(b.o.Depot, g)
+	if was && !has(name) {
+		if before := GroupName(b.o.Depot, Group{Name: old, People: g.People}); has(before) {
+			return before
+		}
+	}
+	return name
+}
+
 func (b *planner) groups() error {
 	have, err := b.st.Groups(b.ctx)
 	if err != nil {
@@ -713,7 +741,7 @@ func (b *planner) groups() error {
 	}
 	named := map[string]bool{}
 	for _, g := range b.p.Groups {
-		name := GroupName(b.o.Depot, g)
+		name := b.groupName(g, have)
 		named[name] = true
 		b.plan.Groups[g.Name] = name
 		want := store.Group{Name: name, Config: map[string]any{}, Limit: 1}
@@ -1058,7 +1086,7 @@ func (b *planner) routes(flows []Flow) error {
 				continue
 			}
 			g := b.p.Groups[slices.IndexFunc(b.p.Groups, func(g Group) bool { return g.Name == s.Group })]
-			op := &RouteOp{Stage: s.Name, Depot: b.o.Depot, Type: f.Type, Group: GroupName(b.o.Depot, g)}
+			op := &RouteOp{Stage: s.Name, Depot: b.o.Depot, Type: f.Type, Group: b.plan.Groups[g.Name]}
 			// The depot's routes for the stage (and type), label routes
 			// aside: those say something the pack does not.
 			var old []store.Route

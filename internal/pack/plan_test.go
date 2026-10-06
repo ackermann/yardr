@@ -116,11 +116,11 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 	want := []string{
 		"file roles/builder.md", "file roles/reviewer.md", "file roles/yardmaster.md", "file scripts/merge-local",
 		"file flows/default/backlog.md", "file flows/default/new.md", "file flows/default/review.md", "file flows/default/approved.md", "file flows/default/decide.md",
-		"group web-builders", "group web-reviewers", "group web-refinery", "group backlog", "group decisions",
+		"group web-builders", "group web-reviewers", "group web-assembly", "group backlog", "group decisions",
 		"flow starter.default",
 		"pointer depot web -> starter.default",
 		"route depot web stage backlog -> backlog", "route depot web stage new -> web-builders", "route depot web stage review -> web-reviewers",
-		"route depot web stage approved -> web-refinery", "route depot web stage decide -> decisions",
+		"route depot web stage approved -> web-assembly", "route depot web stage decide -> decisions",
 		"crew yardmaster",
 		"subscription yardmaster yardr all depot=web stage=decide", "subscription yardmaster yardr all depot=web state=done", "subscription yardmaster linear involved",
 	}
@@ -154,9 +154,9 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 	if b.Runner != "herdr" || b.Limit != 5 || b.Config["prompt"] != filepath.Join(install, "roles", "builder.md") {
 		t.Fatalf("web-builders = %+v", b)
 	}
-	r := find(t, plan, "group", "web-refinery").Group
+	r := find(t, plan, "group", "web-assembly").Group
 	if r.Runner != "exec" || r.Limit != 1 || r.Config["cmd"] != filepath.Join(install, "scripts", "merge-local") {
-		t.Fatalf("web-refinery = %+v", r)
+		t.Fatalf("web-assembly = %+v", r)
 	}
 	if g := find(t, plan, "group", "backlog").Group; g.Runner != "manual" {
 		t.Fatalf("backlog = %+v", g)
@@ -315,13 +315,13 @@ func TestYardSetUpByHand(t *testing.T) {
 	must(st.PutGroup(ctx, store.Group{Name: "web-builders", Runner: "herdr", Limit: 5,
 		Config: map[string]any{"kind": "claude", "model": "opus", "idle": "5m", "args": []any{"--permission-mode", "auto"}, "prompt": "roles/builder.md"}}))
 	must(st.PutGroup(ctx, store.Group{Name: "web-reviewers", Runner: "herdr", Limit: 3, Config: map[string]any{"kind": "codex", "prompt": "roles/reviewer.md"}}))
-	must(st.PutGroup(ctx, store.Group{Name: "web-refinery", Runner: "exec", Limit: 1,
+	must(st.PutGroup(ctx, store.Group{Name: "web-assembly", Runner: "exec", Limit: 1,
 		Config: map[string]any{"cmd": "YARDR_PUSH=origin YARDR_NOTIFY=boss /old/scripts/merge-local", "log": "/logs/refinery.log"}}))
 	must(st.PutGroup(ctx, store.Group{Name: "web-mergers", Runner: "herdr", Limit: 1, Config: map[string]any{}}))
 	must(st.PutGroup(ctx, store.Group{Name: "backlog", Runner: "manual", Limit: 50, Members: []string{"ann", "boss"}}))
 	must(st.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Limit: 50, Members: []string{"ann"}}))
 	depot := "web"
-	for stage, group := range map[string]string{"backlog": "backlog", "new": "web-builders", "review": "web-reviewers", "approved": "web-refinery", "decide": "decisions", "merge": "web-mergers"} {
+	for stage, group := range map[string]string{"backlog": "backlog", "new": "web-builders", "review": "web-reviewers", "approved": "web-assembly", "decide": "decisions", "merge": "web-mergers"} {
 		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Depot: &depot, Group: group, Priority: 3})
 		must(err)
 	}
@@ -342,7 +342,7 @@ func TestYardSetUpByHand(t *testing.T) {
 			t.Errorf("%s %s is planned as new", o.Kind, o.Name)
 		}
 	}
-	if got, want := actions(plan, pack.Change), []string{"group web-builders", "group web-reviewers", "group web-refinery", "crew boss", "subscription boss linear involved"}; !reflect.DeepEqual(got, want) {
+	if got, want := actions(plan, pack.Change), []string{"group web-builders", "group web-reviewers", "group web-assembly", "crew boss", "subscription boss linear involved"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("change = %v\nwant %v", got, want)
 	}
 	if got, want := actions(plan, pack.NotInPack), []string{"group web-mergers", "route depot web stage merge -> web-mergers", "subscription boss yardr all label=ui"}; !reflect.DeepEqual(got, want) {
@@ -355,13 +355,13 @@ func TestYardSetUpByHand(t *testing.T) {
 	if c := b.Group.Config; c["kind"] != "claude" || c["model"] != "opus" || c["idle"] != "5m" || !reflect.DeepEqual(c["args"], []any{"--permission-mode", "auto"}) {
 		t.Fatalf("web-builders would lose what the yard chose: %v", c)
 	}
-	r := find(t, plan, "group", "web-refinery")
+	r := find(t, plan, "group", "web-assembly")
 	cmd := "YARDR_PUSH=origin YARDR_NOTIFY=boss " + filepath.Join(install, "scripts", "merge-local")
 	if want := []pack.Diff{{Field: "cmd", Old: "YARDR_PUSH=origin YARDR_NOTIFY=boss /old/scripts/merge-local", New: cmd}}; !reflect.DeepEqual(r.Changes, want) {
-		t.Fatalf("web-refinery changes = %v", r.Changes)
+		t.Fatalf("web-assembly changes = %v", r.Changes)
 	}
 	if r.Group.Config["log"] != "/logs/refinery.log" {
-		t.Fatalf("web-refinery = %+v", r.Group)
+		t.Fatalf("web-assembly = %+v", r.Group)
 	}
 	// People groups: the pack names no limit and no members, so both stay.
 	if g := find(t, plan, "group", "backlog"); g.Action != pack.Unchanged || g.Group.Limit != 50 || !reflect.DeepEqual(g.Group.Members, []string{"ann", "boss"}) {

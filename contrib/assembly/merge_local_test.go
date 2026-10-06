@@ -1,6 +1,6 @@
-package refinery
+package assembly
 
-// These tests run merge-local the way a refinery group does: started by the
+// These tests run merge-local the way an assembly group does: started by the
 // exec runner with the environment it builds, against a yardr server of
 // their own (a short YARDR_HOME in a temp dir, for the unix socket path
 // limit) and a throwaway repository.
@@ -157,9 +157,9 @@ func (y *yard) commit(dir, file, content string) string {
 	return y.git(dir, "rev-parse", "HEAD")
 }
 
-// refinery runs merge-local through the exec runner, as group refinery
+// assembly runs merge-local through the exec runner, as group assembly
 // would, and waits for it to exit.
-func (y *yard) refinery() { y.exec("merge-local", "refinery", "r-1") }
+func (y *yard) assembly() { y.exec("merge-local", "assembly", "r-1") }
 
 // exec runs script (in this directory) for bead id through the exec
 // runner, as the group would whose cmd it is, and waits for it to exit.
@@ -283,7 +283,7 @@ func TestMergeLocalClean(t *testing.T) {
 	y.commit(y.wt, "b.txt", "bead\n")
 	y.commit(y.repo, "c.txt", "main moved\n") // a rebase is needed, cleanly
 
-	y.refinery()
+	y.assembly()
 
 	b := y.bead()
 	if b.Stage != "merged" || b.Status != "closed" {
@@ -317,7 +317,7 @@ func TestMergeLocalBaseNotCheckedOut(t *testing.T) {
 	y.git(y.repo, "checkout", "-q", "--detach")
 	tip := y.commit(y.wt, "b.txt", "bead\n")
 
-	y.refinery()
+	y.assembly()
 
 	short := y.git(y.repo, "rev-parse", "--short", tip)
 	if b := y.bead(); b.Status != "closed" || b.CloseReason == nil || *b.CloseReason != "merged "+short {
@@ -333,7 +333,7 @@ func TestMergeLocalConflict(t *testing.T) {
 	tip := y.commit(y.wt, "a.txt", "bead's\n")
 	main := y.commit(y.repo, "a.txt", "main's\n")
 
-	y.refinery()
+	y.assembly()
 
 	b := y.bead()
 	if b.Stage != "merge" || b.Status == "closed" {
@@ -358,7 +358,7 @@ func TestMergeLocalRedGate(t *testing.T) {
 	main := y.git(y.repo, "rev-parse", "main")
 	y.commit(y.wt, "RED", "red\n")
 
-	y.refinery()
+	y.assembly()
 
 	if b := y.bead(); b.Stage != "new" {
 		t.Fatalf("bead in %s, want new", b.Stage)
@@ -385,7 +385,7 @@ func TestMergeLocalGateNotRunHolds(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	y.refinery()
+	y.assembly()
 
 	b := y.bead()
 	if !b.Hold || b.Stage != "approved" {
@@ -408,7 +408,7 @@ func TestMergeLocalDirtyCheckoutHolds(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	y.refinery()
+	y.assembly()
 
 	b := y.bead()
 	if !b.Hold || b.Stage != "approved" {
@@ -441,7 +441,7 @@ func TestMergeLocalLandsOnlyWhatItGated(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	y.refinery()
+	y.assembly()
 
 	if b := y.bead(); b.Stage != "new" || b.Hold {
 		t.Fatalf("bead %s hold=%v, want back in new", b.Stage, b.Hold)
@@ -483,7 +483,7 @@ func TestMergeLocalChildLandsOnItsTrain(t *testing.T) {
 	main := y.commit(y.repo, "c.txt", "main moved\n")
 	y.commit(y.wt, "b.txt", "bead\n")
 
-	y.refinery()
+	y.assembly()
 
 	b := y.bead()
 	if b.Stage != "merged" || b.Status != "closed" {

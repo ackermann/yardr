@@ -402,7 +402,7 @@ gives the full output, the exit code and the source (`store`, `repo@<sha>`,
 an unknown depot, a base that does not resolve, git failing, no
 [gate slot](#gate-slots-how-many-gates-run-at-once) within `--slot-wait`. A check ended by
 a signal from outside (its process killed, or its own exit status 128+N, as
-a shell reports a killed command) exits 128+N, which the refinery runs once
+a shell reports a killed command) exits 128+N, which the assembly runs once
 more instead of sending the bead back. A red gate's whole output is kept
 in a file that the FAIL line names, and its lines that say what failed are
 printed before the tail when the depot has a pattern for them
@@ -412,14 +412,14 @@ naming them, while open beads of the depot sit in a stage their flow lacks
 [flows.md](flows.md#a-base-change-that-drops-a-stage)). The check is
 killed, with every process it started, after `--timeout` (default 30m), and
 each git call that finds it is bounded (30s; the fetch, 60s).
-Builders run it before handing on, and the refinery runs it too:
-[`contrib/refinery/merge-local`](../contrib/refinery/merge-local) runs
+Builders run it before handing on, and the assembly runs it too:
+[`contrib/assembly/merge-local`](../contrib/assembly/merge-local) runs
 `yardr depot check` on exactly what will land, after any rebase, and sends a
-red gate back to `new` (see [pipeline.md](pipeline.md#4-approved-the-refinery-lands-it-on-main)).
+red gate back to `new` (see [pipeline.md](pipeline.md#4-approved-the-assembly-lands-it-on-main)).
 
 yardr's own CI (`.github/workflows/ci.yml`) runs the same script, on pushes
 to main and on pull requests. CI runs on ubuntu only; macOS is covered by
-the refinery's gate on the yard's own Mac at every landing (decided 3 Oct,
+the assembly's gate on the yard's own Mac at every landing (decided 3 Oct,
 see yardr-msjd).
 
 The gate runs the branch's own code, tests included: it is fixed by the
@@ -433,7 +433,7 @@ The tail of a long run is mostly what came after the failure: with `go test
 ./...` the failing test's lines are followed by the `ok` of every package
 after it. So `yardr depot check` does two more things for a gate that did not
 pass (red, timed out, ended by a signal; the light gate's too), whoever ran
-it: the refinery, a builder, a reviewer.
+it: the assembly, a builder, a reviewer.
 
 **It keeps the whole output**, in
 `<home>/gates/<depot>/<dir>-<UTC time>.log` (`.light.log` for the light gate),
@@ -495,11 +495,11 @@ yardr: got a slot after waiting 3m12s
 | what | how |
 |---|---|
 | how many | the yard's `gate_slots` setting, default 2; `0` is no limit. `YARDR_GATE_SLOTS`, when set, is used instead of the setting (one run told otherwise, a script, a test). |
-| whose | the machine's, for every yard of the same user: a builder, a reviewer, the refinery, the integrator and a person at a terminal all take from the same slots, and so does another yard, and an isolated yard ([contrib/isolated-yard](../contrib/isolated-yard/README.md)). |
+| whose | the machine's, for every yard of the same user: a builder, a reviewer, the assembly, the integrator and a person at a terminal all take from the same slots, and so does another yard, and an isolated yard ([contrib/isolated-yard](../contrib/isolated-yard/README.md)). |
 | where | lock files `slot-1` to `slot-N` in `~/.local/state/yardr/gates`, with `~` the home the user database names, not `$HOME`: a yard run with another `HOME`, `XDG_STATE_HOME` or an emptied environment finds the same directory. `YARDR_GATE_DIR` names another one (tests). A user the database does not know gets `/tmp/yardr-gates-<uid>`. |
 | never leaks | a slot is a `flock` held by the `yardr depot check` process, and by nothing it starts. The kernel drops it when that process ends: a pass, a failure, the timeout, a signal, `kill -9`. The files stay; they are a few bytes saying who held each last. |
-| the timeout | `--timeout` starts when the check starts. The wait has its own bound, `--slot-wait` (default 30m); past it the check could not run and `depot check` exits 2, which the refinery holds on. It is never a red gate. |
-| who goes first | `--first` (or `YARDR_GATE_FIRST=1`, which the refinery scripts set): the runs already waiting, and one that only arrives, stand back for it. Among the others no order is kept; each looks five times a second. |
+| the timeout | `--timeout` starts when the check starts. The wait has its own bound, `--slot-wait` (default 30m); past it the check could not run and `depot check` exits 2, which the assembly holds on. It is never a red gate. |
+| who goes first | `--first` (or `YARDR_GATE_FIRST=1`, which the assembly scripts set): the runs already waiting, and one that only arrives, stand back for it. Among the others no order is kept; each looks five times a second. |
 | the light gate | takes no slot: it is meant to be cheap. `yardr depot add --light-slot` says a depot's light gate takes one. The full gate run under `--light` for want of a light one takes one. |
 | a gate inside a gate | a check under a slot has `YARDR_GATE_SLOT=1` in its environment, and a `yardr depot check` started with it takes none: a gate whose tests run gates would otherwise wait on itself. |
 | who sees it | `yardr status` has a line `gates  2 running, 1 waiting (limit 2)` while any gate of the machine runs or waits and the yard has a limit, followed by the yard's own beads with a gate, light ones too: `; of this yard: yardr-k3f9 gating 6m (full), yardr-2abc waiting 1m (full)` ([whose they are](#session-limits-and-outages)). `depot check --json` has `slot_waited_seconds`. |
@@ -508,7 +508,7 @@ Yards with different limits share the lower slots: a run with limit N takes
 one of the first N, so the highest limit among them is what holds for the
 machine. Give them the same.
 
-The refinery goes first because its gate is the one every approved bead
+The assembly goes first because its gate is the one every approved bead
 waits behind, one at a time, while the gates of builders and reviewers come
 many at once: without it the merge queue would stand in line eight to one.
 A builder's wait holds up one bead.
@@ -852,7 +852,7 @@ the operator, by mail in `yardr chat` when the onboarding took them there
 ([chat.md](chat.md#from-the-onboarding)) and in its pane otherwise: the
 repository and its base branch (`yardr depot add`), `yardr depot init`
 ([below](#seeding-a-depot-yardr-depot-init)), the builder and reviewer groups on
-the default harness, how approved beads land (a refinery or a manual group),
+the default harness, how approved beads land (an assembly or a manual group),
 routes for `new`, `review` and `approved`, and a first bead to try the
 pipeline. `yardr init --help` lists the same as commands, for scripts.
 
@@ -1158,7 +1158,7 @@ they stop, so the home goes last.
 | sessions working beads | a herdr workspace per bead | `yardr session list`, `herdr workspace list` | `herdr workspace close <id>` for each that is left. Look at the bead's worktree first (the home, below) |
 | the daemon | a process holding `<home>/daemon.lock` | `yardr daemon status` | `yardr daemon stop` |
 | the server | a process; `<home>/server.pid`, `yard.sock` | `yardr server status` | `yardr server stop`. Any yardr command after it starts a server again, so run none before the home is gone. A server or daemon still running when the home is removed stops by itself within a minute ([above](#yardrs-own-state)) |
-| the home | `~/.yardr`, or what `YARDR_HOME` names: the store, the roles, the logs, `scripts/merge-local` and `logs/` (a refinery's, from `yardr setup`), `worktrees/`, `depots/` | `ls -a <home>` | `rm -rf <home>`, typed by you with the path. Read the next paragraph first |
+| the home | `~/.yardr`, or what `YARDR_HOME` names: the store, the roles, the logs, `scripts/merge-local` and `logs/` (an assembly's, from `yardr setup`), `worktrees/`, `depots/` | `ls -a <home>` | `rm -rf <home>`, typed by you with the path. Read the next paragraph first |
 | a depot's `.yardr` files | in the repository, committed on its base branch: `.yardr/roles/`, `.yardr/check`, `.yardr/flows/` | `git -C <repo> ls-files .yardr` | keep them: a new yard that adds the repository as a depot reads them as they are. To start the depot's configuration over too: `git -C <repo> rm -r .yardr`, and commit |
 
 **Before the home is removed**, look at two directories in it, because they
@@ -1251,7 +1251,7 @@ Environment variables yardr reads:
 | `YARDR_LINEAR_API`, `YARDR_GITHUB_API` | where `yardr reply`, `yardr thread open` and `yardr thread state` send their calls, read by the command that makes them, and where the daemon sends a hook's issue moves ([links.md](links.md#a-beads-stage-moves-the-issue)), read when it starts (default: Linear's GraphQL endpoint, `https://api.github.com`) |
 | `YARDR_EVENT_RETENTION`, `YARDR_HOOK_PAYLOAD_RETENTION`, `YARDR_INBOX_RETENTION` | how long the daemon and `yardr store prune` keep events, ended sessions and webhook bodies, and how long an unread inbox event holds the log back ([below](#retention-keeping-yarddb-bounded)) |
 | `YARDR_GATE_SLOTS` | how many full gates run at once on the machine, used instead of the `gate_slots` setting when set; `0` is no limit ([gate slots](#gate-slots-how-many-gates-run-at-once)) |
-| `YARDR_GATE_FIRST` | set, `yardr depot check` takes its slot before the other runs waiting for one, as `--first`; the refinery scripts set it |
+| `YARDR_GATE_FIRST` | set, `yardr depot check` takes its slot before the other runs waiting for one, as `--first`; the assembly scripts set it |
 | `YARDR_GATE_DIR` | where the gate slots are, instead of `~/.local/state/yardr/gates` |
 | `YARDR_GATE_SLOT` | set by `yardr depot check` for a check that runs under a slot; a `depot check` started with it takes none |
 | `YARDR_TEST_RPC` | tests: run the store suites through the unix-socket client |
@@ -1356,7 +1356,8 @@ the summary says which ([above](#creating-a-yard-the-onboarding-and-yardr-init))
 The store is stamped with its schema version on open, and a yardr whose schema
 is older than the store's refuses to open it
 (`store schema is newer than this yardr knows`) rather than run its migrations
-over it. The schema is 12: version 12 stores a rig as a depot, version 11
+over it. The schema is 12 (the rename of refinery to assembly stores
+nothing, so it has no version of its own): version 12 stores a rig as a depot, version 11
 the residents as the crew, version 10 the bead types `epic` and `part` as `train` and `car`, and
 version 9 the setting `mayor` as `yardmaster`
 ([below](#words-that-changed)); version 8 keeps, in a peer's intake, how long
@@ -1424,7 +1425,7 @@ the light gate ([pipeline.md](pipeline.md#trains)).
 | `.yardr/flows/type/epic.flow` and `type/part.flow` in a depot, with their stage files in `type/epic/` and `type/part/` | the flows of the depot's trains and cars, where the depot has no `type/train.flow` or `type/car.flow`. `yardr depot init` writes no second file beside one. Rename them with `git mv` when it suits |
 | a flow named for a type, `<name>.epic` or `<name>.part`, in a pointer (`yardr depot flow`) or a pin (`--meta flow=`) | that flow, or `<name>.train` and `<name>.car` when there is none of the old name, and the other way round: a repository can rename `web.epic.flow` to `web.train.flow` before or after the depot is pointed at the new name |
 | `YARDR_EPIC` in the environment of an exec group's command | `YARDR_TRAIN`. Both are set. `merge-local` reads either, and `YARDR_TYPE=part` as `car` |
-| `contrib/refinery/integrate-epic` and `pr-epic` | `integrate-train` and `pr-train`. The old files run the new ones beside them, so a group's `cmd` that names one keeps working from a checkout |
+| `contrib/refinery/integrate-epic` and `pr-epic` | `integrate-train` and `pr-train`, now in `contrib/assembly/` ([below](#words-that-changed)). The old files run the new ones, so a group's `cmd` that names one keeps working from a checkout |
 
 What does not change: a dependency of kind `parent` makes a child of a
 train, and a train's branch is `yard/<bead>`. A flow in the store keeps the
@@ -1434,7 +1435,7 @@ operator's: copies of the scripts under `<home>/scripts/` are not touched.
 Copy `integrate-train` and `pr-train` there and name them in the groups'
 `cmd` (`yardr group add <group>` again, with the new `--set cmd=...`). A
 copy of `merge-local` installed before reads `YARDR_TYPE=part` only, so
-until this build's `contrib/refinery/merge-local` is copied over it a car
+until this build's `contrib/assembly/merge-local` is copied over it a car
 gets the full gate where it would have had the light one: slower, and
 nothing lands that should not. The role and stage files an earlier
 `yardr depot init` wrote under a depot's `.yardr/` are the depot's own too and
@@ -1534,7 +1535,7 @@ was named for its depot keeps the name. Files of your own that say rig (a
 role or stage file an earlier `yardr rig init` or pack import wrote, a
 script, a `.yardr/check`) are yours: the commands, flags and variables they
 name are read as above, so edit them when it suits. The scripts of this
-build (`contrib/refinery/`, `contrib/peer/`, a pack's `scripts/`) read the
+build (`contrib/assembly/`, `contrib/peer/`, a pack's `scripts/`) read the
 new variables and call `yardr depot check`, so they need this build; a copy
 installed before runs on under it as it is.
 
@@ -1564,6 +1565,49 @@ bead and shows it without one; restart it to get the new words.
 Nothing on a link to another yard carried the word: a peer's intake, which
 names the depot its beads go to, is this yard's own setting and is not
 sent. So a yard and its peers can be upgraded in any order.
+
+**refinery is now assembly**: what lands approved beads, one at a time
+([pipeline.md](pipeline.md#4-approved-the-assembly-lands-it-on-main)). It
+was never a thing yardr knows: an assembly is an exec group and the script
+it runs, so the word was in the starter pack, in `yardr setup`, in the
+scripts' directory and in the docs, and nowhere in the store. No schema
+version comes with it and nothing is migrated.
+
+| the old word | still read as |
+|---|---|
+| `contrib/refinery/merge-local`, `integrate-train`, `pr-train` and `pr-merge` in a checkout (and `integrate-epic` and `pr-epic` there) | the scripts of those names in `contrib/assembly/`. The old files run the new ones, so a group's `cmd` that names one keeps working |
+| a group `<depot>-refinery`, which an import of the starter pack made when its group was `refinery`, or which a yard set up by hand has under that name | the pack's group `assembly`. The next `yardr pack apply` goes on changing that group and its route, makes no `<depot>-assembly` beside it, and records it as the pack's `assembly`. A yard that has both groups and no record gets the new one; a pack of your own that still has a group `refinery` is read as it stands |
+| `--bind refinery=…` and `--members refinery=…` of `yardr pack apply` | the pack's group `assembly`. They answered nothing before and answer nothing now (a script group has no agent and no members), so this is only a command that does not fail |
+| a note that starts `refinery: `, as a `merge-local` installed before writes it | `pr-train` takes it for a script's note, like one that starts `assembly: `, when it looks for the review to put on a pull request |
+
+What does not change: a group keeps the name it was given, whoever gave
+it. The group `yardr setup` made is still `<depot>/refinery` with its log
+in `<home>/logs/refinery.log`, a pack's is still `<depot>-refinery`, and
+the yard that builds yardr still lands through `yardr-refinery`; routes,
+sessions and the events that name the group as their actor are as they
+were. `yardr setup` and `yardr doctor` find what lands approved beads by
+what a group does (an exec group whose command merges, or a route for
+`approved`), not by its name, so neither offers a second one. A new group
+from `yardr setup` is `<depot>/assembly` with `<home>/logs/assembly.log`,
+and a first import of the starter pack makes `<depot>-assembly`. To have
+the new name on a yard you already run, add the group under it with the
+same `cmd`, point the route for `approved` at it and remove the old one;
+nothing needs it.
+
+`<home>/scripts/merge-local` is kept as it is, as ever: a copy installed
+before signs its notes and its log lines `refinery:`, and works. This
+build's signs `assembly:`; copy it over the old one (or import the pack
+again, which installs its own) when it suits. Role and stage files an
+earlier `yardr depot init` or pack import wrote say refinery in their
+prose and name no command by it.
+
+Nothing on a link to another yard carried the word, no event kind, setting,
+flag, command, environment variable or template variable had it, and
+nothing that is running is touched, so a yard and its peers can be upgraded
+in any order and mid-flight. The next release drops the files under
+`contrib/refinery/` and the old name in `yardr pack apply`'s flags and
+for a hand-made group; a group an import has recorded as the pack's
+`assembly` stays that, under whatever name it has.
 
 How a newer build takes over:
 

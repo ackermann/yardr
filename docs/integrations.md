@@ -525,7 +525,7 @@ yardr events --bead work-h6ef
 ```
 
 In a yard with a flow the bead reaches `merged` through review and the
-refinery ([pipeline.md](pipeline.md)); the map hears the stage however the
+assembly ([pipeline.md](pipeline.md)); the map hears the stage however the
 bead got there. While a move waits or is retried, `yardr hook show linear`
 lists it (`to do: work-h6ef (task in new) -> https://linear.app/acme/issue/YRD-1 started`).
 

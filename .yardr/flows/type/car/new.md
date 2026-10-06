@@ -30,7 +30,7 @@ Before the bead leaves as `done`:
 
 Outcomes:
 
-- `done`: both hold. The car goes to `approved`, where the refinery lands it
+- `done`: both hold. The car goes to `approved`, where the assembly lands it
   on the train's branch under the same light gate. There is no review stage.
 - `question`: you are stuck, or the car itself is unclear (an unclear goal,
   a design choice). Note the question on the bead first; it goes to `decide`,

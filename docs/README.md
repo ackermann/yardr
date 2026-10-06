@@ -11,7 +11,7 @@ go deeper. Yardr's [Principles](../README.md#principles) explain how a design or
 | [doctor.md](doctor.md) | `yardr doctor`: what a yard has and what it lacks (programs, what runs, setup steps), every line it prints, its JSON; `yardr status`: what runs now and where it is reached |
 | [configuration.md](configuration.md) | what lives in a repo's `.yardr/` and what lives in the store, precedence, where yardr keeps its own state; creating a yard, a setup that did not finish, starting over |
 | [flows.md](flows.md) | bead lifecycles: named flows depots point at, repo flows on the base branch, which flow wins, type flows, terminal stages, outcomes and `bead done` |
-| [pipeline.md](pipeline.md) | how a bead moves in practice, using depot yardr: backlog, yardmaster, builders, review, refinery |
+| [pipeline.md](pipeline.md) | how a bead moves in practice, using depot yardr: backlog, yardmaster, builders, review, assembly |
 | [dir-depots.md](dir-depots.md) | depots that are a plain directory, not a repository: `depot init` for them, their flows, a worked example (summarizing a folder of documents) |
 | [packs.md](packs.md) | packs: a yard's flows, groups, roles and crew members as one directory; `yardr pack check`, `apply` and `list`, how a pack maps to the yard, the import record and pruning |
 | [groups.md](groups.md) | groups and runners (manual, exec, herdr, peer), herdr setup |

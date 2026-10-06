@@ -1,4 +1,4 @@
-package refinery
+package assembly
 
 import (
 	"os"
@@ -53,7 +53,7 @@ func TestMergeLocalRedGateNoteLeadsWithWhatFailed(t *testing.T) {
 	y.pattern("--- FAIL\n")
 	tip := y.commit(y.wt, "b.txt", "bead\n")
 
-	y.refinery()
+	y.assembly()
 
 	if b := y.bead(); b.Stage != "new" || b.Hold {
 		t.Fatalf("bead %s hold=%v, want back in new", b.Stage, b.Hold)
@@ -64,7 +64,7 @@ func TestMergeLocalRedGateNoteLeadsWithWhatFailed(t *testing.T) {
 	}
 	short := y.git(y.repo, "rev-parse", "--short", "yard/r-1")
 	notes := y.notes()
-	file := y.wholeOutput(notes, "refinery: the gate failed on yard/r-1 at "+short+" rebased onto main")
+	file := y.wholeOutput(notes, "assembly: the gate failed on yard/r-1 at "+short+" rebased onto main")
 	if filepath.Base(file)[:4] != "r-1-" {
 		t.Fatalf("kept as %s, want named after the bead", file)
 	}
@@ -86,11 +86,11 @@ func TestMergeLocalRedGateNoteWithoutAPattern(t *testing.T) {
 	y.gate(failsEarly)
 	y.commit(y.wt, "b.txt", "bead\n")
 
-	y.refinery()
+	y.assembly()
 
 	short := y.git(y.repo, "rev-parse", "--short", "yard/r-1")
 	notes := y.notes()
-	y.wholeOutput(notes, "refinery: the gate failed on yard/r-1 at "+short+" rebased onto main")
+	y.wholeOutput(notes, "assembly: the gate failed on yard/r-1 at "+short+" rebased onto main")
 	if strings.Contains(notes, "lines matching") || strings.Contains(notes, "it_test.go:7") ||
 		!strings.Contains(notes, "ok pkg301\n") || strings.Contains(notes, "ok pkg300\n") {
 		t.Fatalf("want the last 200 lines alone:\n%s", notes)
@@ -105,11 +105,11 @@ func TestMergeLocalCarRedLightGateIsKept(t *testing.T) {
 	y.git(y.repo, "branch", "-f", "yard/r-e", "main")
 	y.yardr("bead", "update", "r-1", "--type", "car")
 
-	y.exec("merge-local", "refinery", "r-1")
+	y.exec("merge-local", "assembly", "r-1")
 
 	short := y.git(y.repo, "rev-parse", "--short", "yard/r-1")
 	notes := y.yardr("prime", "--bead", "r-1")
-	file := y.wholeOutput(notes, "refinery: the light gate failed on yard/r-1 at "+short+" rebased onto yard/r-e")
+	file := y.wholeOutput(notes, "assembly: the light gate failed on yard/r-1 at "+short+" rebased onto yard/r-e")
 	if !strings.HasSuffix(file, ".light.log") || !strings.Contains(notes, "it_test.go:7: got 1, want 2") {
 		t.Fatalf("light gate kept in %s; note:\n%s", file, notes)
 	}
@@ -120,8 +120,8 @@ func TestMergeLocalCarRedLightGateIsKept(t *testing.T) {
 // lines, then the tail.
 func TestTrainRedGateFixChildLeadsWithWhatFailed(t *testing.T) {
 	y := newTrainYard(t, "true")
-	y.exec("merge-local", "refinery", "r-1")
-	y.exec("merge-local", "refinery", "r-2")
+	y.exec("merge-local", "assembly", "r-1")
+	y.exec("merge-local", "assembly", "r-2")
 	y.gates(failsEarly, "", false)
 	y.pattern("--- FAIL\n")
 

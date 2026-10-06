@@ -1,8 +1,8 @@
-summary: The refinery gates the bead and lands it on `main`, one bead at a time.
+summary: The assembly gates the bead and lands it on `main`, one bead at a time.
 
-The refinery lands the bead on `main` from here, one bead at a time
-(`contrib/refinery/merge-local`; docs/pipeline.md). No agent works this
-stage. The bead was built, reviewed and approved; the refinery rebases
+The assembly lands the bead on `main` from here, one bead at a time
+(`contrib/assembly/merge-local`; docs/pipeline.md). No agent works this
+stage. The bead was built, reviewed and approved; the assembly rebases
 `yard/<bead>` onto `main` if `main` moved, runs the gate on exactly what will
 land, whatever the builder and the reviewer reported, and fast-forwards
 `main` to that commit.
@@ -17,6 +17,6 @@ Outcomes:
   bead goes back to `new`.
 - `question`: landing it needs a person's decision; to `decide`.
 
-The refinery holds the bead instead, with a note, when no builder could fix
+The assembly holds the bead instead, with a note, when no builder could fix
 what stopped it: the gate could not run at all, or `main`'s checkout or the
 bead's worktree is dirty.

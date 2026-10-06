@@ -136,7 +136,7 @@ you would type, shown before it runs:
    commits `.yardr/` on the base branch;
 2. who builds and who reviews: the form of `yardr group add`, starting at a
    group on the default harness with the role's prompt;
-3. how approved beads land: a refinery (yardr's `merge-local`, which it
+3. how approved beads land: an assembly (yardr's `merge-local`, which it
    installs in `~/.yardr/scripts/`) or people who merge by hand;
 4. the routes for `new`, `review` and `approved`, which follow from the
    groups: shown, confirmed;
@@ -329,7 +329,7 @@ The rest of the documentation is in [docs/](docs/README.md):
   agents finish with `yardr bead done <id> [--outcome <o>]` and the flow
   picks the stage; edges without one are left to `bead advance --to`.
 - **[The pipeline](docs/pipeline.md):** how a bead moves in practice, from
-  backlog through builders, review and the refinery to main, using the depot
+  backlog through builders, review and the assembly to main, using the depot
   yardr is built with.
 - **[Groups and runners](docs/groups.md):** `manual`, `exec` and `herdr`
   runners, the interactive `group add`, and setting up herdr agents.
@@ -387,7 +387,7 @@ roles/              the default role prompts yardr init installs
 packs/starter       a starter pack
 docs/               the documentation (docs/README.md is its index)
 conformance/bdp     runs BDP's own Read conformance suite against yardr bdp serve
-contrib/refinery    merge-local, a reference refinery script for an exec group
+contrib/assembly    merge-local, a reference assembly script for an exec group
 contrib/peer        return-branch, the script that pushes the branch of a bead worked for a linked yard
 contrib/release     builds the release archives and checksums.txt
 contrib/isolated-yard  a throwaway yard and herdr server for tests that start agents (see its README)

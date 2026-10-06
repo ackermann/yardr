@@ -46,7 +46,7 @@ run are the same. With any other style, and with none, the pages show them.
 | the depot's `.yardr` files on its base | whether to commit, after `yardr depot init` has run and said what it wrote and which gate it guessed | `yardr depot init <depot>`, then `git -C <path> add .yardr && git -C <path> commit -m '…' -- .yardr`: only `.yardr/` is committed, whatever else is staged |
 | a group that builds | the questions of `yardr group add`'s form (name, runner, agent, model, permissions, prompt, limit), starting at `<depot>/builders` on the yard's `default_kind`, with its unattended flags, `roles/builder.md` and limit 2 | `yardr group add <depot>/builders --runner herdr --limit 2 --set …`. The command is on the form's last page, "Save this group?" |
 | a group that reviews | the same, starting at `<depot>/reviewers`, `roles/reviewer.md`, limit 1 | `yardr group add <depot>/reviewers --runner herdr --set …` |
-| a group or person that lands approved beads | a refinery, or by hand; for by hand, who merges | see below |
+| a group or person that lands approved beads | an assembly, or by hand; for by hand, who merges | see below |
 | routes for new, review and approved | nothing but a yes: each stage goes to the group that does its work, and the commands are shown | `yardr route add --stage <stage> --depot <depot> --group <group>` for each stage without a route |
 | a first bead | its title and its goal | `yardr bead create "<title>" --depot <depot> -b "<goal>"`, then `yardr bead advance <id> --to new` |
 
@@ -73,18 +73,18 @@ and says where the files have to get to.
 
 ### How approved beads land
 
-**A refinery** is one answer. The page writes `merge-local`, as this yardr
+**An assembly** is one answer. The page writes `merge-local`, as this yardr
 was built with it, to `<home>/scripts/merge-local` (mode 0755) and adds the
 group:
 
 ```sh
-yardr group add <depot>/refinery --runner exec \
-  --set cmd=<home>/scripts/merge-local --set log=<home>/logs/refinery.log
+yardr group add <depot>/assembly --runner exec \
+  --set cmd=<home>/scripts/merge-local --set log=<home>/logs/assembly.log
 ```
 
 A `merge-local` already there is kept as it is, this build's or not. The
 group pushes nothing; put `YARDR_PUSH=origin` in front of its `cmd` to push
-the base after each landing ([pipeline.md](pipeline.md#4-approved-the-refinery-lands-it-on-main)).
+the base after each landing ([pipeline.md](pipeline.md#4-approved-the-assembly-lands-it-on-main)).
 merge-local lands on local branches only: when the depot's base is not one, the
 question starts at "by hand" and says so.
 

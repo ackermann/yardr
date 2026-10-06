@@ -1,9 +1,9 @@
-summary: The refinery lands the car on its train's branch under the light gate, one bead at a time.
+summary: The assembly lands the car on its train's branch under the light gate, one bead at a time.
 
-The refinery lands the car on its train's branch (`yard/<train>`) from here,
-one bead at a time (`contrib/refinery/merge-local`; docs/pipeline.md, "Cars").
+The assembly lands the car on its train's branch (`yard/<train>`) from here,
+one bead at a time (`contrib/assembly/merge-local`; docs/pipeline.md, "Cars").
 No agent works this stage, and nobody reviewed the car: the builder's `done`
-brought it here. The refinery rebases `yard/<bead>` onto the train's branch if
+brought it here. The assembly rebases `yard/<bead>` onto the train's branch if
 that moved, runs the light gate (`yardr depot check yardr --light`) on exactly
 what will land, and fast-forwards the train's branch to that commit. `main`
 does not move: the full gate and the review are the train's.
@@ -18,5 +18,5 @@ Outcomes:
   car goes back to `new`.
 - `question`: landing it needs a person's decision; to `decide`.
 
-The refinery holds the car instead, with a note, when no builder could fix
+The assembly holds the car instead, with a note, when no builder could fix
 what stopped it: the gate could not run at all, or a worktree is dirty.

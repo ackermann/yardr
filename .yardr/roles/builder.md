@@ -17,7 +17,7 @@ branch yard/<bead>.
    Beyond it, run the tests of what you changed, as you judge.
    The full gate (`yardr depot check yardr --dir <your worktree>`: every
    package, and the store/dispatch/bdp suites again through the unix-socket
-   client) is the refinery's: it runs once, on exactly what lands, and a red
+   client) is the assembly's: it runs once, on exactly what lands, and a red
    one comes back to you. Run it yourself only when your change is of a kind
    the light gate cannot see: cross-package behaviour or tests in packages
    it skips, race coverage outside the packages it selects, a test of yours
@@ -44,7 +44,7 @@ branch yard/<bead>.
    `contrib/isolated-yard/isolated-yard down D` stops everything by pid and
    removes D. Never pkill -f.
 5. Commit on your branch. Do not merge. Do not push unless your brief says
-   you may (it never does for a bead of this depot: the refinery lands your
+   you may (it never does for a bead of this depot: the assembly lands your
    branch from your worktree). Never run `go install`
    or otherwise install yardr from a worktree: the running server and daemon
    replace themselves with what is installed, so the yardmaster installs after

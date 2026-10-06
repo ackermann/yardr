@@ -1,5 +1,5 @@
 #!/bin/sh
-# merge-local: a refinery that lands a bead's branch directly on its depot's
+# merge-local: an assembly that lands a bead's branch directly on its depot's
 # local base branch. Run it as the cmd of an exec group routed for the stage
 # beads wait to land in (approved); limit 1 on the group makes a serial merge
 # queue. See docs/pipeline.md, section 4.
@@ -51,25 +51,25 @@ WT=${YARDR_WORKTREE:-${YARDR_HOME:-$HOME/.yardr}/worktrees/$DEPOT/$BEAD}
 PUSH=${YARDR_PUSH:-}
 NOTIFY=${YARDR_NOTIFY:-}
 TAIL=200
-echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') refinery $DEPOT $BEAD ($BR onto $BASE)"
+echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') assembly $DEPOT $BEAD ($BR onto $BASE)"
 
 # Each outcome is one advance with its note, so the move and the reason land
 # together. Advancing ends this session (the daemon stops the script), so it
 # is always the last thing done.
-to() { echo "== $BEAD -> $1"; printf '%s\n' "refinery: $2" | "$Y" bead advance "$BEAD" --to "$1" --note -; exit 0; }
+to() { echo "== $BEAD -> $1"; printf '%s\n' "assembly: $2" | "$Y" bead advance "$BEAD" --to "$1" --note -; exit 0; }
 # Back to whoever fixes the branch: the flow's "failed" outcome where it
 # names one (new for a bead, open for a train, see docs/flows.md), else new.
 back() {
   echo "== $BEAD failed"
-  printf '%s\n' "refinery: $1" | "$Y" bead done "$BEAD" --outcome failed --note - && exit 0
+  printf '%s\n' "assembly: $1" | "$Y" bead done "$BEAD" --outcome failed --note - && exit 0
   to new "$1"
 }
-hold() { echo "== hold $BEAD: $1"; "$Y" bead note "$BEAD" "refinery: $1"; "$Y" bead hold "$BEAD"; exit 0; }
+hold() { echo "== hold $BEAD: $1"; "$Y" bead note "$BEAD" "assembly: $1"; "$Y" bead hold "$BEAD"; exit 0; }
 # A conflict goes to the mergers; if the flow has no merge stage the advance
 # is refused and the bead goes back to the builders.
 conflict() {
   echo "== $BEAD conflicts"
-  printf '%s\n' "refinery: $1" | "$Y" bead advance "$BEAD" --to merge --note - && exit 0
+  printf '%s\n' "assembly: $1" | "$Y" bead advance "$BEAD" --to merge --note - && exit 0
   back "$1"
 }
 
@@ -146,7 +146,7 @@ gate
 if [ "$rc" -gt 128 ]; then
   first="$GATE on $BR at $(git -C "$REPO" rev-parse --short "$gated") was ended by signal $((rc - 128)) (exit $rc), not by a failing check"
   echo "== $first; running it once more"
-  "$Y" bead note "$BEAD" "refinery: $first; running it once more on the same commit. Its output:
+  "$Y" bead note "$BEAD" "assembly: $first; running it once more on the same commit. Its output:
 $out" || echo "== could not note the first run on $BEAD"
   out1=$out
   gate
@@ -200,7 +200,7 @@ if [ -n "$PUSH" ]; then
     # Asked only now: a yard names its yardmaster as it likes (a yard from
     # before the rename has a mayor), and most landings mail nobody.
     [ -n "$NOTIFY" ] || NOTIFY=$("$Y" settings get yardmaster 2>/dev/null) || NOTIFY=yardmaster
-    "$Y" mail "$NOTIFY" "refinery: merged $BEAD at $sha but pushing $BASE to $PUSH failed. Not forced; check whether $PUSH/$BASE moved." ||
+    "$Y" mail "$NOTIFY" "assembly: merged $BEAD at $sha but pushing $BASE to $PUSH failed. Not forced; check whether $PUSH/$BASE moved." ||
       echo "== could not mail $NOTIFY"
   fi
 fi

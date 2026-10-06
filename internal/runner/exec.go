@@ -24,7 +24,7 @@ import (
 // the bead itself; exiting without doing so ends the session as died.
 //
 // Besides Env, the command gets what a script needs to land or test a bead's
-// work without hard-coding the depot (see contrib/refinery/merge-local):
+// work without hard-coding the depot (see contrib/assembly/merge-local):
 //
 //	YARDR_DEPOT, YARDR_DEPOT_PATH   the bead's depot, when it has one
 //	YARDR_DEPOT_KIND  git, or dir for a plain directory: a dir depot's bead gets

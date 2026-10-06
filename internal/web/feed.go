@@ -204,7 +204,7 @@ func (r *reader) entry(ctx context.Context, e store.Event) Entry {
 	case e.Kind == "closed":
 		// A bead that enters a terminal stage is closed in the same write,
 		// with the stage as the reason: it landed. The move's note says
-		// where (the refinery's "merged <commit>").
+		// where (the assembly's "merged <commit>").
 		if p := r.before(ctx, e); p != nil && p.Kind == "advanced" && p.Bead != nil && *p.Bead == out.Bead &&
 			p.Data["to"] == str("reason") && str("reason") != "" {
 			out.Text, out.Tone = "landed in "+str("reason"), "landed"

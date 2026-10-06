@@ -209,6 +209,22 @@ func (p *Pack) Renamed(old string) (string, bool) {
 	return name, true
 }
 
+// oldGroups are the names an earlier release gave a pack's groups, each with
+// the name it has now: the starter pack's group that lands approved beads
+// was refinery until it became assembly.
+var oldGroups = map[string]string{"refinery": "assembly"}
+
+// WasGroup is the name the pack's group name had in an earlier release. A
+// pack that still has a group of the old name has renamed nothing.
+func (p *Pack) WasGroup(name string) (string, bool) {
+	for old, now := range oldGroups {
+		if now == name && !slices.ContainsFunc(p.Groups, func(g Group) bool { return g.Name == old }) {
+			return old, true
+		}
+	}
+	return "", false
+}
+
 // placeholder is anything between double braces on one line. A name the
 // import does not fill is an error of the pack, so what is installed never
 // carries one.

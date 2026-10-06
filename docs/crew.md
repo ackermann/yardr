@@ -464,7 +464,7 @@ auth token`, which is the login of whoever runs the yard. A person at their
 own shell (the operator's `yardr reply --crew yardmaster`) still speaks as
 `gh` has them logged in.
 
-The refinery's scripts and the daemon's reads of pull requests and CI call
+The assembly's scripts and the daemon's reads of pull requests and CI call
 `gh` and so act as its login, not as the App: with the permissions above the
 App cannot push or merge.
 

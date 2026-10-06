@@ -15,7 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 
-	"yardr.dev/yardr/contrib/refinery"
+	"yardr.dev/yardr/contrib/assembly"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -231,11 +231,11 @@ func TestSetupForms(t *testing.T) {
 		"$ " + yardr + " group add web-app/reviewers --runner herdr --set 'args=[\"--permission-mode\",\"auto\"]' --set kind=claude --set prompt=roles/reviewer.md",
 		"Setup: a group or person that lands approved beads",
 		"merge-local installed: " + script,
-		"$ " + yardr + " group add web-app/refinery --runner exec --set cmd=" + script + " --set log=" + filepath.Join(home, "logs", "refinery.log"),
+		"$ " + yardr + " group add web-app/assembly --runner exec --set cmd=" + script + " --set log=" + filepath.Join(home, "logs", "assembly.log"),
 		"Setup: routes for new, review and approved",
 		"$ " + yardr + " route add --stage new --depot web-app --group web-app/builders",
 		"$ " + yardr + " route add --stage review --depot web-app --group web-app/reviewers",
-		"$ " + yardr + " route add --stage approved --depot web-app --group web-app/refinery",
+		"$ " + yardr + " route add --stage approved --depot web-app --group web-app/assembly",
 		"Setup: a first bead",
 		"$ " + yardr + " bead create 'Say hello' --depot web-app -b 'HELLO.md says hello. Done when it is committed.'",
 		"--to new",
@@ -268,8 +268,8 @@ func TestSetupForms(t *testing.T) {
 			"args": []any{"--permission-mode", "auto"}}},
 		"web-app/reviewers": {Runner: "herdr", Limit: 1, Config: map[string]any{"kind": "claude", "prompt": "roles/reviewer.md",
 			"args": []any{"--permission-mode", "auto"}}},
-		"web-app/refinery": {Runner: "exec", Limit: 1, Config: map[string]any{"cmd": script,
-			"log": filepath.Join(home, "logs", "refinery.log")}},
+		"web-app/assembly": {Runner: "exec", Limit: 1, Config: map[string]any{"cmd": script,
+			"log": filepath.Join(home, "logs", "assembly.log")}},
 	}
 	for name, w := range want {
 		g, err := st.GetGroup(ctx, name)
@@ -277,9 +277,9 @@ func TestSetupForms(t *testing.T) {
 			t.Errorf("group %s = %+v, %v", name, g, err)
 		}
 	}
-	// The refinery's script is this build's, executable, and its log has a
+	// The assembly's script is this build's, executable, and its log has a
 	// directory to be in.
-	if b, err := os.ReadFile(script); err != nil || !bytes.Equal(b, refinery.MergeLocal) {
+	if b, err := os.ReadFile(script); err != nil || !bytes.Equal(b, assembly.MergeLocal) {
 		t.Errorf("merge-local: %v", err)
 	}
 	if info, err := os.Stat(script); err != nil || info.Mode().Perm() != 0o755 {
@@ -294,7 +294,7 @@ func TestSetupForms(t *testing.T) {
 		got = append(got, r.Stage+" "+deref(r.Depot)+" "+r.Group)
 	}
 	slices.Sort(got)
-	if w := []string{"approved web-app web-app/refinery", "new web-app web-app/builders", "review web-app web-app/reviewers"}; !slices.Equal(got, w) {
+	if w := []string{"approved web-app web-app/assembly", "new web-app web-app/builders", "review web-app web-app/reviewers"}; !slices.Equal(got, w) {
 		t.Errorf("routes = %v", got)
 	}
 	beads, _ := st.ListBeads(ctx, store.BeadFilter{Depot: "web-app"})
@@ -479,7 +479,7 @@ func TestSetupLandsByHand(t *testing.T) {
 	ctx := context.Background()
 	depot := gitDepot(t, st)
 	commitDepot(t, depot)
-	// A tag resolves as a base and is no branch a refinery could land on.
+	// A tag resolves as a base and is no branch an assembly could land on.
 	gitIn(t, depot.Path, "tag", "v1")
 	depot.Base = "v1"
 	if err := st.PutDepot(ctx, depot, "me"); err != nil {

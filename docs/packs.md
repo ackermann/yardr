@@ -14,7 +14,7 @@ is a directory on this machine.
 
 The pack yardr ships is [`packs/starter`](../packs/starter): the flow `yardr
 depot init` writes with its stage files, the roles yardr embeds and the
-reference refinery, as one pack.
+reference assembly, as one pack.
 
 ```
 packs/starter/
@@ -35,14 +35,14 @@ flows:
       backlog:  { group: backlog,   file: flows/default/backlog.md,  manual: [new, decide] }
       new:      { group: builders,  file: flows/default/new.md,      outcomes: { done: review, question: decide }, manual: [backlog] }
       review:   { group: reviewers, file: flows/default/review.md,   outcomes: { done: approved, changes: new, question: decide } }
-      approved: { group: refinery,  file: flows/default/approved.md, outcomes: { done: merged, failed: new, question: decide } }
+      approved: { group: assembly,  file: flows/default/approved.md, outcomes: { done: merged, failed: new, question: decide } }
       decide:   { group: decisions, file: flows/default/decide.md,   manual: [backlog, new] }
       merged:   { end: true }
 
 groups:
   builders:  { agent: roles/builder.md,  limit: 5 }
   reviewers: { agent: roles/reviewer.md, limit: 3 }
-  refinery:  { run: scripts/merge-local, limit: 1 }
+  assembly:  { run: scripts/merge-local, limit: 1 }
   backlog:   { people: true }
   decisions: { people: true }
 
@@ -602,7 +602,7 @@ starter in depot web  2026-10-03 18:40 by mckean
   source     /Users/me/yardr/packs/starter at 8562e43c1f0a
   flow       default (stored as starter.default)
   roles      the pack's
-  groups     backlog -> backlog, builders -> web-builders, decisions -> decisions, refinery -> web-refinery, reviewers -> web-reviewers
+  groups     assembly -> web-assembly, backlog -> backlog, builders -> web-builders, decisions -> decisions, reviewers -> web-reviewers
   crew       yardmaster -> boss
   objects    9 files, 5 groups, 1 flows, 1 flow pointers, 5 routes, 3 subscriptions
 ```

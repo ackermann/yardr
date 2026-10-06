@@ -459,7 +459,7 @@ ends, however it ends. With none free it waits, and says so on stderr when
 it starts to wait and when it gets one, with how long it waited. --timeout
 starts when the check starts, not while it waits. The wait is bounded by
 --slot-wait; past it the check could not run (exit 2). --first lets this run
-go before the others that wait: it is for the refinery and the integrator
+go before the others that wait: it is for the assembly and the integrator
 (YARDR_GATE_FIRST=1 says the same), whose one gate at a time every approved
 bead waits behind. gate_slots 0 is no limit; YARDR_GATE_SLOTS, when set, is
 used instead of the setting. The light gate takes no slot, unless the depot
@@ -574,7 +574,7 @@ them; yardr depot sources <depot> shows every source.`,
 					fmt.Printf("note: %s\n", n)
 				}
 				// A red gate's line ends with where all of its output is: the
-				// refinery reads the file's name from here (wholeOutput).
+				// assembly reads the file's name from here (wholeOutput).
 				var kept string
 				switch {
 				case res.LogFile != "":
@@ -639,7 +639,7 @@ them; yardr depot sources <depot> shows every source.`,
 	cmd.Flags().IntVar(&tail, "tail", 40, "last lines of output to show (a red gate's lines matching "+rigcheck.FailPatternPath+" are shown before them, and all of it is kept in a file)")
 	cmd.Flags().DurationVar(&timeout, "timeout", rigcheck.DefaultTimeout, "kill the check and fail after this long")
 	cmd.Flags().BoolVar(&light, "light", false, "run the depot's light gate ("+rigcheck.LightPath+"); the full one when the depot has none")
-	cmd.Flags().BoolVar(&first, "first", false, "take a gate slot before the other runs that wait for one (the refinery, the integrator)")
+	cmd.Flags().BoolVar(&first, "first", false, "take a gate slot before the other runs that wait for one (the assembly, the integrator)")
 	cmd.Flags().DurationVar(&slotWait, "slot-wait", rigcheck.DefaultSlotWait, "give up (exit 2) after waiting this long for a gate slot")
 	return cmd
 }
@@ -743,7 +743,7 @@ func (a *app) runDepotCheck(ctx context.Context, depotName, dir string, timeout 
 // the depot's base (rigcheck.Options.Since), or "": the train's branch, when dir
 // is the worktree of a car of depot that is a child of a train. The bead is
 // found by the branch dir is on (store.Branch), so a builder's own run in its
-// worktree and the refinery's are compared with the same thing, with no flag
+// worktree and the assembly's are compared with the same thing, with no flag
 // either could forget. Everything else keeps the depot's base: the depot itself,
 // a detached checkout, a branch that is no bead's, a car with no train, and
 // a child of another type, which lands on the train's branch under the full

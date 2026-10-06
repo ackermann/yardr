@@ -5,7 +5,7 @@ This page follows a bead through the pipeline yardr itself is built with
 (depot yardr, as of 2026-10-03). Its flows are in [flows.md](flows.md#worked-example-depot-yardr).
 
 ```
-backlog ──yardmaster shapes──▶ new ──builder──▶ review ──Codex──▶ approved ──refinery──▶ merged on main
+backlog ──yardmaster shapes──▶ new ──builder──▶ review ──Codex──▶ approved ──assembly──▶ merged on main
    ▲                       ▲                 │                  │
    │                       └──── changes ────┘                  │
    │                       └────────── red check or conflict ───┘
@@ -121,14 +121,14 @@ result with counts), and reports `yardr bead done`, which the flow sends to
 
 The full gate (`.yardr/check`: `go test -race` on every package, then the
 store, dispatch and bdp suites again over the socket) runs once per bead, in
-the refinery, on exactly the commit that lands (section 4). Until 5 Oct 2026
-it ran three times, for the builder, the reviewer and the refinery: about 16
+the assembly, on exactly the commit that lands (section 4). Until 5 Oct 2026
+it ran three times, for the builder, the reviewer and the assembly: about 16
 of a bead's 37 minutes at the median. The builder now runs the light gate,
 and the reviewer the light gate or none: none when the builder's gate line
 names the commit under review and the reviewer committed nothing.
 
 What that costs is that some faults are now found one stage later, in the
-refinery, where a red gate takes a slot of the serial queue and sends the
+assembly, where a red gate takes a slot of the serial queue and sends the
 bead back to a builder. They are the faults depot yardr's light gate cannot
 see:
 
@@ -140,7 +140,7 @@ see:
   flows), and a changed file that is neither Go, embedded nor in the table
   runs every package. What is left is a row that names too few packages;
 - a test that reaches code by building the binary instead of importing it
-  (`contrib/refinery`, `contrib/isolated-yard`, the ask harness);
+  (`contrib/assembly`, `contrib/isolated-yard`, the ask harness);
 - store, dispatch or bdp behaviour that differs over the unix socket: those
   suites run only in the full gate;
 - a test in a package the branch neither changed nor is imported by, which
@@ -151,7 +151,7 @@ For these the builder runs the full gate itself
 ([`.yardr/roles/builder.md`](../.yardr/roles/builder.md), step 3). An edit
 to `.yardr/check` or `.yardr/check-light` is seen by no gate at all, before
 or after this: both are read from `main`. A reviewer's `review:` commits get
-the light gate too, so a fault in one of them is the refinery's to find.
+the light gate too, so a fault in one of them is the assembly's to find.
 
 No more than two full gates run at once on the machine (the yard's
 `gate_slots`), whoever starts them: a third `depot check` says `2 gates are
@@ -166,7 +166,7 @@ run, but it runs in the branch's worktree, against the branch's code and
 the branch's tests. A branch that deletes a test, skips it or makes it
 trivially true passes the gate vacuously. That is the accepted model for
 now: the reviewer reads the diff and is the one who catches a weakened
-test, not the gate. The builder's light gate and the refinery's full gate
+test, not the gate. The builder's light gate and the assembly's full gate
 are the same in this.
 
 ## 3. Review: Codex reviews forward
@@ -178,7 +178,7 @@ each outcome applies). It is the last review
 before merge, so it fixes what it can on the branch (commits starting
 `review:`) rather than only reporting, tries the change, runs the light gate
 if it committed or the builder's gate line is not for the commit under
-review (the full gate is the refinery's), and then:
+review (the full gate is the assembly's), and then:
 
 - **approves**: a note with what it checked and fixed, then `yardr bead
   done` (to `approved`);
@@ -199,21 +199,21 @@ not redo the original feature review. If the resolution is sound, it notes
 the range-diff and advances to `approved`; otherwise it sends the bead to
 `new` or `decide` with a concrete finding.
 
-## 4. Approved: the refinery lands it on main
+## 4. Approved: the assembly lands it on main
 
 yardr takes no position on how work lands: a PR per bead, a shared PR
-several beads funnel into, or a direct merge. The refinery is not built in;
+several beads funnel into, or a direct merge. The assembly is not built in;
 it is a composition. A stage (`approved`) is routed to an `exec` group whose
 script does the landing, and `--limit 1` on the group makes it a serial merge
 queue. yardr provides the mechanism and ships one reference script,
-[`contrib/refinery/merge-local`](../contrib/refinery/merge-local); depot yardr
+[`contrib/assembly/merge-local`](../contrib/assembly/merge-local); depot yardr
 uses it to merge directly to `main`.
 
 **The mechanism.** The exec runner starts the script in the depot with
 everything it needs in its environment ([groups.md](groups.md#runners)):
 `YARDR_BEAD`, `YARDR_DEPOT`, `YARDR_DEPOT_PATH`, `YARDR_BASE`, `YARDR_BRANCH`
 (`yard/<bead>`), `YARDR_WORKTREE`, `YARDR_BIN` (this yardr), and
-`YARDR_ACTOR` set to the group. The refinery runs the gate itself, whatever
+`YARDR_ACTOR` set to the group. The assembly runs the gate itself, whatever
 the builder reported: `yardr depot check "$YARDR_DEPOT" --dir
 "$YARDR_WORKTREE"`, i.e. `.yardr/check` as it is on the base (the fetched
 `origin/main` when the base has a remote), or the depot's `--check`; a depot
@@ -275,18 +275,22 @@ held: merge-local lands only on local branches.
 ### Setup
 
 ```sh
-install contrib/refinery/merge-local ~/.yardr/scripts/    # from main
+install contrib/assembly/merge-local ~/.yardr/scripts/    # from main
 yardr group add yardr-refinery --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin YARDR_NOTIFY=yardmaster ~/.yardr/scripts/merge-local' \
   --set log="$HOME/.yardr/logs/refinery.log"
 yardr route add --stage approved --group yardr-refinery --depot yardr
 ```
 
+The group is `yardr-refinery` because an assembly was called a refinery
+when it was made, and a group keeps the name it was given; in a new yard it
+would be `yardr-assembly`.
+
 The script is installed from `main` rather than run from a checkout: a bead
 branch must not change how it is landed. Without a checkout of yardr,
 `yardr setup` does the same in a terminal: its page for landing writes the
 merge-local this yardr was built with to `~/.yardr/scripts/merge-local`
-(one already there is kept) and adds the group `<depot>/refinery`, without
+(one already there is kept) and adds the group `<depot>/assembly`, without
 `YARDR_PUSH` ([setup.md](setup.md)). The flow gains `merged`:
 
 ```
@@ -332,7 +336,7 @@ instead.
 
 `merge` is routed to `mergers`: a herdr group running Claude Code (Sonnet,
 at most one at a time) with `prompt=roles/merger.md`. The merger reopens the
-bead's worktree on `yard/<bead>` (the refinery aborted its rebase, so it is
+bead's worktree on `yard/<bead>` (the assembly aborted its rebase, so it is
 clean) and:
 
 1. rebases onto the depot's base;
@@ -345,7 +349,7 @@ clean) and:
    `review`.
 
 The reviewer then checks only the resolution with a range-diff and advances
-the bead to `approved`. The refinery picks it up again: `main` no longer
+the bead to `approved`. The assembly picks it up again: `main` no longer
 moved past the branch, so it runs the checks and fast-forwards. If `main`
 moved again in the meantime and conflicts again, the bead goes back to
 `merge`.
@@ -379,7 +383,7 @@ approved -> merged on done | new on failed | merge on conflict | decide on quest
 merge -> review on done | new on rework | decide on question
 ```
 
-and the refinery sends a conflicting bead to `merge` (merge-local does; it
+and the assembly sends a conflicting bead to `merge` (merge-local does; it
 falls back to `new` when the flow has no `merge` stage).
 
 ## Holds
@@ -395,7 +399,7 @@ the next ready bead at once; the worktree and its branch stay. Beads get held:
 - by an agent that is stuck or finds the bead unclear: it notes the question
   and runs `yardr bead hold`;
 - by the reviewer, instead of a third send-back;
-- by the refinery, when it cannot land without touching a dirty tree (the
+- by the assembly, when it cannot land without touching a dirty tree (the
   base checked out with uncommitted changes, or the bead's worktree dirty).
 
 The yardmaster watches held beads, finds out why, and either fixes the cause and
@@ -461,7 +465,7 @@ exist yet, the herdr runner creates it from the depot's base tip (fetched
 first when the base is a remote's) and logs `train_branched` on the train
 with the commit. An existing train branch is never recreated or moved. The
 child's worktree is branched from the train's branch, and `YARDR_BASE` in
-the agent's and the refinery's environment is BaseOf(b), so merge-local
+the agent's and the assembly's environment is BaseOf(b), so merge-local
 rebases the child onto the train's branch, lands it there and pushes that
 branch; main does not move. The gate is still read from the depot's base
 (main), not from the train's branch, so neither a train nor its children can
@@ -498,8 +502,8 @@ child closes; `dep rm <train> <child> -k parent` removes both edges.
 A car is a child of a train that takes a shorter road to the train's
 branch. It is for several pieces of one feature, built in parallel, that
 are not worth having on main one by one: each piece would otherwise pay
-for the full gate three times (builder, reviewer, refinery) and a review of
-its own, and the refinery lands one bead at a time. A car pays for a light
+for the full gate three times (builder, reviewer, assembly) and a review of
+its own, and the assembly lands one bead at a time. A car pays for a light
 gate, twice, and no review; the full gate and one review happen once, on the
 whole train, before main moves. Everything about the train itself is as above
 and below: nothing changes in what a train needs to reach main.
@@ -514,7 +518,7 @@ yardr dep add <train> <car> -k parent
   a flow of its own, [`.yardr/flows/type/car.flow`](../.yardr/flows/type/car.flow):
   the depot's flow without `review` (`new -> approved on done`). The depot's
   routes for `new`, `approved` and `decide` carry no type, so cars go to the
-  same builders and the same refinery as any bead.
+  same builders and the same assembly as any bead.
 - **The light gate.** A depot's second gate, `.yardr/check-light`, read from
   the base and run by `yardr depot check <depot> --light` under every rule of
   the full one ([configuration.md](configuration.md#the-light-gate-yardrcheck-light)).
@@ -572,7 +576,7 @@ path with that setup:
 2. **open**: the train waits while any child is open (they block it). When
    the last child closes it is ready, and the route for type `train` in
    `open` sends it to `yardr-integrators`, an exec group running
-   [`contrib/refinery/integrate-train`](../contrib/refinery/integrate-train).
+   [`contrib/assembly/integrate-train`](../contrib/assembly/integrate-train).
    The integrator fetches the base when it is a remote's, rebases
    `yard/<train>` onto the depot's base in the train's worktree, runs the gate
    on it (`yardr depot check yardr --dir <worktree>`, the gate read from main),
@@ -693,7 +697,7 @@ commit, pushed after the review, is not merged, and the train is held in
   each time after a longer wait (step 2 above); a remote branch with
   commits the train lacks is held.
 - **approved**, `yardr-pr`
-  ([`contrib/refinery/pr-train`](../contrib/refinery/pr-train), with
+  ([`contrib/assembly/pr-train`](../contrib/assembly/pr-train), with
   `YARDR_PR=1`; held without it): pushes
   `yard/<train>`, which may carry the reviewer's commits (with a lease: a
   remote branch with commits of its own is never overwritten), replaces the
@@ -708,7 +712,7 @@ commit, pushed after the review, is not merged, and the train is held in
   itself when the required checks of the reviewed commit are green
   (below).
 - **land**, `yardr-pr-merge`
-  ([`contrib/refinery/pr-merge`](../contrib/refinery/pr-merge), with
+  ([`contrib/assembly/pr-merge`](../contrib/assembly/pr-merge), with
   `YARDR_PR=1`; held without it): runs `gh
   pr merge <pr_url> --rebase --delete-branch --match-head-commit
   <pr_reviewed_sha>`, then `git fetch` and `git
@@ -855,7 +859,7 @@ edge kept for it.
 ### Setup
 
 ```sh
-install contrib/refinery/integrate-train ~/.yardr/scripts/   # from main
+install contrib/assembly/integrate-train ~/.yardr/scripts/   # from main
 yardr depot flow yardr --type train yardr.train                  # the repo's .yardr/flows/yardr.train.flow
 yardr group add yardr-integrators --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin ~/.yardr/scripts/integrate-train' \
@@ -867,7 +871,7 @@ Through pull requests (experimental, see above), every cmd on the path
 carries `YARDR_PR=1`:
 
 ```sh
-install contrib/refinery/pr-train contrib/refinery/pr-merge ~/.yardr/scripts/   # from main
+install contrib/assembly/pr-train contrib/assembly/pr-merge ~/.yardr/scripts/   # from main
 yardr group add yardr-integrators --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin YARDR_PR=1 ~/.yardr/scripts/integrate-train' \
   --set log="$HOME/.yardr/logs/integrator.log"

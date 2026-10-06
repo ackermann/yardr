@@ -193,7 +193,7 @@ through the setup can take over from anyone else.
 | `the depot's .yardr files on its base` (`depot_files`) | every depot has a flow where yardr reads it: under `.yardr/flows/` on its base branch (written by `yardr depot init` and committed), in a dir depot's directory, or in the store when the depot follows a pack's flow |
 | `a group that builds` (`builders`) | a group has the role `builder.md` as its prompt, or a route for stage `new` |
 | `a group that reviews` (`reviewers`) | the same with `reviewer.md` and `review` |
-| `a group or person that lands approved beads` (`landing`) | a group has the role `merger.md`, is an exec group whose command merges (a refinery), or has a route for stage `approved`: people who merge by hand count once they are routed |
+| `a group or person that lands approved beads` (`landing`) | a group has the role `merger.md`, is an exec group whose command merges (an assembly), or has a route for stage `approved`: people who merge by hand count once they are routed |
 | `routes for new, review and approved` (`routes`) | a route exists for each of the three stages. The command for a missing one names the group that does the stage's work (the builders for `new`), once the yard has one |
 | `a first bead` (`first_bead`) | a bead exists in a depot (a crew member's journal and memories do not count) |
 | `a first merged bead` (`merged_bead`) | a bead of a depot was closed by reaching its flow's terminal stage; one closed by hand does not count |
@@ -279,7 +279,7 @@ yard       /Users/jo/.yardr  name yardr  operator Jo
 server     running  pid 4711  build abcdef123456  since 10-05 09:12
 daemon     running (pid 4720)
            login service: not installed
-crew       refinery    not running
+crew       assembly    not running
            yardmaster  idle         herdr agent yardr-yardmaster
 web view   http://127.0.0.1:8791/     pid 4801  build abcdef123456  this machine only
            http://192.168.1.20:9000/  pid 4950  build abcdef123456  open to the network (--unsafe), no login

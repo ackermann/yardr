@@ -32,13 +32,14 @@ set -e
 reads='
 roles/                         internal/pack
 packs/starter/                 internal/pack internal/cli
-.yardr/flows/                  internal/cli internal/dispatch internal/store contrib/refinery
+.yardr/flows/                  internal/cli internal/dispatch internal/store contrib/assembly
 .yardr/check-light             internal/rigcheck
 internal/hooks/testdata/       internal/hooks internal/dispatch
 internal/cli/testdata/         internal/cli
 internal/web/assets/README.md  internal/web
-contrib/refinery/merge-local   internal/pack
-contrib/refinery/              contrib/refinery
+contrib/assembly/merge-local   internal/pack
+contrib/assembly/              contrib/assembly contrib/refinery
+contrib/refinery/              contrib/refinery contrib/assembly
 contrib/peer/                  contrib/peer
 contrib/isolated-yard/         contrib/isolated-yard
 contrib/release/               contrib/release

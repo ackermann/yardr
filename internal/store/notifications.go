@@ -188,7 +188,7 @@ func clip(s string, n int) string {
 }
 
 // commitIn finds a commit in what a closed event carries: a commit of its
-// own, else one its reason names (the refinery's "merged <sha>").
+// own, else one its reason names (the assembly's "merged <sha>").
 var commitIn = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
 
 // beadNotification is bead event e as a notification, its row in the words

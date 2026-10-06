@@ -142,7 +142,7 @@ func (s setupState) steps() []setupStep {
 			}
 		}
 		step := s.groupStep(stepLanding, "a group or person that lands approved beads", "approved",
-			fmt.Sprintf("a refinery (an exec group running merge-local, which yardr setup installs in a terminal; see docs/pipeline.md), or people: "+
+			fmt.Sprintf("an assembly (an exec group running merge-local, which yardr setup installs in a terminal; see docs/pipeline.md), or people: "+
 				"yardr group add %s/mergers --runner manual --members <them>", landDepot))
 		if len(s.depots) > 0 {
 			step.Depot = landDepot
@@ -223,7 +223,7 @@ var stageRoles = map[string]string{"new": "builder.md", "review": "reviewer.md",
 
 // doing are the groups that do the work of stage: one whose prompt is the
 // stage's role file, then one routed for the stage. An exec group whose
-// command merges lands too (a refinery not yet routed).
+// command merges lands too (an assembly not yet routed).
 func (s setupState) doing(stage string) []string {
 	var names []string
 	add := func(name string) {

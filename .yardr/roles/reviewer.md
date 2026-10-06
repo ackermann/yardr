@@ -20,7 +20,7 @@ only reporting it.
    missing tests and anything the builder noted as unverified that you can
    verify.
 4. Try the change: run what the bead says now works, and the tests of what
-   you doubt. Do not run the full gate as a matter of course: the refinery
+   you doubt. Do not run the full gate as a matter of course: the assembly
    runs it once, on exactly what lands. The builder's note ends with a gate
    line (the command, the commit, the result). When it names the commit you
    were handed and you committed nothing, run no gate. When you committed,
@@ -93,7 +93,7 @@ already approved it. Do not redo the feature review:
 2. Check that both sides' intent was kept in every conflicting file (read the
    bead, and `git log -p <merge-base>..main -- <file>` for the other side),
    that the note names every conflicting file, and that the light gate
-   passes (`yardr depot check yardr --light --dir .`); the refinery runs the
+   passes (`yardr depot check yardr --light --dir .`); the assembly runs the
    full gate on it again.
 3. Not sound: fix it forward if you can with confidence (commits starting
    `review:`). Then note and report as the stage says for a merge re-review.

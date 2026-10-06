@@ -2,7 +2,7 @@
 # yardr.train). A train waits in open while its children are open (each child
 # blocks it); once the last closes, yardr-integrators rebases its branch onto
 # main and gates it, Codex reviews the whole diff, and the train lands on main
-# locally, where the refinery fast-forwards main and advances it straight
+# locally, where the assembly fast-forwards main and advances it straight
 # to merged (the bare edge, which no outcome offers), or, experimentally,
 # through a pull request (approved -> in-pr -> land): only pr-train reports
 # done in approved, and without YARDR_PR=1 in its cmd it holds the train

@@ -93,8 +93,8 @@ Where keys:
 `state=done` matches a bead becoming done: its **first close**. Entering a
 terminal stage of its flow closes the bead in the same write (with the stage
 as reason), so this covers both a flow's terminal stage and a direct close
-such as the refinery's `merged <sha>`. A done subscription hears of each
-bead once: the refinery closing a bead that a terminal stage already closed
+such as the assembly's `merged <sha>`. A done subscription hears of each
+bead once: the assembly closing a bead that a terminal stage already closed
 is an ordinary `closed` event, and so is a second close after `yardr bead
 reopen`.
 
@@ -177,7 +177,7 @@ hook (all) github workflow_run completed by jane on "Fix the gate": ci failure o
 The first two are `<bead> <kind> (<reason>) by <actor> <key=value …>`, the
 reason being why it reached the user ([Scopes](#scopes)). A closed bead's
 line carries the commit when the event has one: its own `commit`, or the
-one its reason names, as the refinery's `merged <sha>` does. The third is a
+one its reason names, as the assembly's `merged <sha>` does. The third is a
 hook delivery: source, type and action, who acted, the thread's title, the
 text and the link. The event's part is cut at 300 characters and the title
 at 120, with `…`; the link is never cut.

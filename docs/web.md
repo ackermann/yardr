@@ -194,10 +194,10 @@ Home as JSON:
   "events": [
     {"seq": 1255, "at": "2026-10-03T23:40:12.129975Z", "kind": "closed", "actor": "yardr-refinery",
      "bead": "yardr-tzzc", "title": "web: yardr web serve", "text": "landed in merged at 70dabcd",
-     "note": "refinery: merged 70dabcd", "commit": "70dabcd", "tone": "landed"},
+     "note": "assembly: merged 70dabcd", "commit": "70dabcd", "tone": "landed"},
     {"seq": 1254, "at": "2026-10-03T23:40:12.129659Z", "kind": "advanced", "actor": "yardr-refinery",
      "bead": "yardr-tzzc", "title": "web: yardr web serve", "text": "moved from approved to merged",
-     "note": "refinery: merged 70dabcd"}
+     "note": "assembly: merged 70dabcd"}
   ],
   "head": 1255,
   "older": 1204
@@ -429,7 +429,7 @@ An entry says its event in the yard's words:
   actor's note. Anyone else's note, or an older one, is not shown as the
   reason.
 - A landing's `commit` is the first commit hash in the note of the move
-  that landed the bead, which is where the refinery writes it (`merged
+  that landed the bead, which is where the assembly writes it (`merged
   70dabcd`). The yard records a landing's commit nowhere else, so a merger
   that writes no such note gives a landing without one.
 - `note` is cut at 280 bytes. `title` is the bead's title now, not when

@@ -1,4 +1,4 @@
-package refinery
+package assembly
 
 // A train landing through a pull request: integrate-train with YARDR_PR=1
 // opens the PR (and updates it when the train is integrated again), pr-train
@@ -125,8 +125,8 @@ func TestTrainThroughPullRequest(t *testing.T) {
 	gh := withFakeGh(t)
 	y := newTrainYard(t, "test ! -e RED")
 	y.opts = "YARDR_PR=1"
-	y.exec("merge-local", "refinery", "r-1")
-	y.exec("merge-local", "refinery", "r-2")
+	y.exec("merge-local", "assembly", "r-1")
+	y.exec("merge-local", "assembly", "r-2")
 
 	// Integrated: the PR is opened, once, with the train's children.
 	y.exec("integrate-train", "yard-integrators", "r-e")
@@ -167,6 +167,11 @@ func TestTrainThroughPullRequest(t *testing.T) {
 	wt := filepath.Join(y.home, "worktrees", "r", "r-e")
 	tip := y.commit(wt, "fix.txt", "the reviewer's fix\n")
 	y.yardr("bead", "done", "r-e", "--note", "Approved: the children fit together; fixed a typo in fix.txt.")
+	// Notes a script left since are not the review, whichever word the
+	// script signs with: a merge-local installed before the rename says
+	// refinery.
+	y.yardr("bead", "note", "r-e", "refinery: the gate failed once; running it once more")
+	y.yardr("bead", "note", "r-e", "assembly: the gate failed once; running it once more")
 
 	// pr-train pushes it and puts the review on the PR.
 	y.exec("pr-train", "yard-pr", "r-e")
@@ -233,8 +238,8 @@ func TestIntegrateTrainDoesNotAdoptAnUnboundPR(t *testing.T) {
 	}
 	y := newTrainYard(t, "test ! -e RED")
 	y.opts = "YARDR_PR=1"
-	y.exec("merge-local", "refinery", "r-1")
-	y.exec("merge-local", "refinery", "r-2")
+	y.exec("merge-local", "assembly", "r-1")
+	y.exec("merge-local", "assembly", "r-2")
 
 	y.exec("integrate-train", "yard-integrators", "r-e")
 
@@ -265,8 +270,8 @@ func TestIntegrateTrainHoldsWhenBoundPRHeadRepositoryChanges(t *testing.T) {
 	gh := withFakeGh(t)
 	y := newTrainYard(t, "test ! -e RED")
 	y.opts = "YARDR_PR=1"
-	y.exec("merge-local", "refinery", "r-1")
-	y.exec("merge-local", "refinery", "r-2")
+	y.exec("merge-local", "assembly", "r-1")
+	y.exec("merge-local", "assembly", "r-2")
 	y.exec("integrate-train", "yard-integrators", "r-e")
 	if err := os.WriteFile(filepath.Join(gh, "head-owner"), []byte("mallory\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -289,8 +294,8 @@ func TestIntegrateTrainOpensANewPRWhenTheBoundOneIsClosed(t *testing.T) {
 	gh := withFakeGh(t)
 	y := newTrainYard(t, "test ! -e RED")
 	y.opts = "YARDR_PR=1"
-	y.exec("merge-local", "refinery", "r-1")
-	y.exec("merge-local", "refinery", "r-2")
+	y.exec("merge-local", "assembly", "r-1")
+	y.exec("merge-local", "assembly", "r-2")
 	y.exec("integrate-train", "yard-integrators", "r-e")
 	if err := os.WriteFile(filepath.Join(gh, "state"), []byte("CLOSED\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -316,8 +321,8 @@ func TestIntegrateTrainPRFailureGoesBackToOpen(t *testing.T) {
 	}
 	y := newTrainYard(t, "test ! -e RED")
 	y.opts = "YARDR_PR=1"
-	y.exec("merge-local", "refinery", "r-1")
-	y.exec("merge-local", "refinery", "r-2")
+	y.exec("merge-local", "assembly", "r-1")
+	y.exec("merge-local", "assembly", "r-2")
 
 	y.exec("integrate-train", "yard-integrators", "r-e")
 
@@ -336,8 +341,8 @@ func landYard(t *testing.T) (*yard, string) {
 	gh := withFakeGh(t)
 	y := newTrainYard(t, "test ! -e RED")
 	y.opts = "YARDR_PR=1"
-	y.exec("merge-local", "refinery", "r-1")
-	y.exec("merge-local", "refinery", "r-2")
+	y.exec("merge-local", "assembly", "r-1")
+	y.exec("merge-local", "assembly", "r-2")
 	y.exec("integrate-train", "yard-integrators", "r-e")
 	y.yardr("bead", "done", "r-e")
 	y.exec("pr-train", "yard-pr", "r-e")
@@ -495,8 +500,8 @@ func TestPRTrainHoldsOnAPRFromAnotherHeadRepository(t *testing.T) {
 	gh := withFakeGh(t)
 	y := newTrainYard(t, "test ! -e RED")
 	y.opts = "YARDR_PR=1"
-	y.exec("merge-local", "refinery", "r-1")
-	y.exec("merge-local", "refinery", "r-2")
+	y.exec("merge-local", "assembly", "r-1")
+	y.exec("merge-local", "assembly", "r-2")
 	y.exec("integrate-train", "yard-integrators", "r-e")
 	integrated := y.git(y.repo, "rev-parse", "yard/r-e")
 	y.commit(filepath.Join(y.home, "worktrees", "r", "r-e"), "fix.txt", "the reviewer's fix\n")
@@ -525,8 +530,8 @@ func TestPRTrainClosedPRGoesBackToOpenWithoutPushing(t *testing.T) {
 	gh := withFakeGh(t)
 	y := newTrainYard(t, "test ! -e RED")
 	y.opts = "YARDR_PR=1"
-	y.exec("merge-local", "refinery", "r-1")
-	y.exec("merge-local", "refinery", "r-2")
+	y.exec("merge-local", "assembly", "r-1")
+	y.exec("merge-local", "assembly", "r-2")
 	y.exec("integrate-train", "yard-integrators", "r-e")
 	integrated := y.git(y.repo, "rev-parse", "yard/r-e")
 	y.commit(filepath.Join(y.home, "worktrees", "r", "r-e"), "fix.txt", "the reviewer's fix\n")
@@ -594,8 +599,8 @@ func TestPRMergeDirtyCheckoutHolds(t *testing.T) {
 func TestPRTrainNoPRGoesBackToOpen(t *testing.T) {
 	gh := withFakeGh(t)
 	y := newTrainYard(t, "test ! -e RED")
-	y.exec("merge-local", "refinery", "r-1")
-	y.exec("merge-local", "refinery", "r-2")
+	y.exec("merge-local", "assembly", "r-1")
+	y.exec("merge-local", "assembly", "r-2")
 	y.exec("integrate-train", "yard-integrators", "r-e") // no YARDR_PR: no PR
 	y.yardr("bead", "done", "r-e")
 
@@ -617,8 +622,8 @@ func TestPRTrainConflictingGoesBackToOpen(t *testing.T) {
 	gh := withFakeGh(t)
 	y := newTrainYard(t, "test ! -e RED")
 	y.opts = "YARDR_PR=1"
-	y.exec("merge-local", "refinery", "r-1")
-	y.exec("merge-local", "refinery", "r-2")
+	y.exec("merge-local", "assembly", "r-1")
+	y.exec("merge-local", "assembly", "r-2")
 	y.exec("integrate-train", "yard-integrators", "r-e")
 	y.yardr("bead", "done", "r-e")
 	if err := os.WriteFile(filepath.Join(gh, "mergeable"), []byte("CONFLICTING\n"), 0o644); err != nil {
@@ -642,8 +647,8 @@ func TestPRTrainConflictingGoesBackToOpen(t *testing.T) {
 func TestPRTrainWithoutSwitchHoldsAndTrainLandsLocally(t *testing.T) {
 	gh := withFakeGh(t)
 	y := newTrainYard(t, "test ! -e RED")
-	y.exec("merge-local", "refinery", "r-1")
-	y.exec("merge-local", "refinery", "r-2")
+	y.exec("merge-local", "assembly", "r-1")
+	y.exec("merge-local", "assembly", "r-2")
 	y.exec("integrate-train", "yard-integrators", "r-e")
 	integrated := y.git(y.repo, "rev-parse", "yard/r-e")
 	// The reviewer's commit is what pr-train would push.
@@ -665,9 +670,9 @@ func TestPRTrainWithoutSwitchHoldsAndTrainLandsLocally(t *testing.T) {
 		t.Fatalf("origin yard/r-e is %q, want it left at the integrated %s", pushed, integrated)
 	}
 
-	// Routed to the refinery instead, it lands as any train does locally.
+	// Routed to the assembly instead, it lands as any train does locally.
 	y.yardr("bead", "unhold", "r-e")
-	y.exec("merge-local", "refinery", "r-e")
+	y.exec("merge-local", "assembly", "r-e")
 	if e := y.beadOf("r-e"); e.Stage != "merged" || e.Status != "closed" {
 		t.Fatalf("train %s/%s after merge-local, want merged and closed", e.Stage, e.Status)
 	}

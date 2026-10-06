@@ -1,4 +1,4 @@
-# contrib/refinery
+# contrib/assembly
 
 Four shell scripts, each run as the `cmd` of an `exec` group with `--limit 1`
 (one bead at a time). They are how depot yard lands work; the flow they sit in
@@ -7,6 +7,11 @@ Trains. Install them from `main`, not a checkout, so a branch cannot change
 how it is landed. merge-local is also built into yardr: `yardr setup`
 writes it to `~/.yardr/scripts/` for a yard set up without a checkout
 (docs/setup.md).
+
+Until this release the directory was `contrib/refinery`. The scripts are
+still there under their old paths, each running the one here, so a group
+whose `cmd` names one keeps working; the next release drops them
+(docs/configuration.md, "Upgrading").
 
 **merge-local** lands a bead's branch on its base (the depot's base, or the
 train's branch for a child of a train). It is routed for `approved`. It
@@ -110,11 +115,11 @@ integrate-train, pr-train and pr-merge.
 **Setup** (from docs/pipeline.md):
 
 ```sh
-install contrib/refinery/merge-local contrib/refinery/integrate-train ~/.yardr/scripts/
-yardr group add yard-refinery --runner exec --limit 1 \
+install contrib/assembly/merge-local contrib/assembly/integrate-train ~/.yardr/scripts/
+yardr group add yard-assembly --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin ~/.yardr/scripts/merge-local' \
-  --set log="$HOME/.yardr/logs/refinery.log"
-yardr route add --stage approved --group yard-refinery --depot yard
+  --set log="$HOME/.yardr/logs/assembly.log"
+yardr route add --stage approved --group yard-assembly --depot yard
 
 yardr depot flow yardr --type train yardr.train                  # the repo's .yardr/flows/yardr.train.flow
 yardr group add yard-integrators --runner exec --limit 1 \
