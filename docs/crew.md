@@ -173,7 +173,8 @@ doctor` and bare `yardr` say it.
   (`yardr subscribe <name> linear --scope involved`), and yardr's own bead
   events (`yardr subscribe <name> yardr --done`, `yardr bead watch <id>`).
   Each delivery records why it reached the crew member, and `yardr inbox` shows
-  it. See [subscriptions.md](subscriptions.md).
+  it. `yardr subscribe` without arguments prints who is told what, every
+  subscriber side by side. See [subscriptions.md](subscriptions.md).
 - **Timers:** `yardr timer add --in 40m "…"` has the yard put a `timer`
   event in the inbox later, once or recurring, unless an awaited bead moved
   first (`--unless bead=<id>,stage=<stage>`); `--to <user>` tells a user
@@ -247,9 +248,14 @@ A hold reaches the yardmaster because `held` is among a new crew member's defaul
 `--on` kinds. A crew member made before `held` joined them (or before any kind
 the default gained since) does not hear it until its list is replaced.
 `--on` replaces the list, so give it in full; `yardr crew set` keeps the
-rest of the definition:
+rest of the definition. `yardr subscribe` without arguments shows what was
+left out: under its matrix of every subscriber's `--on` kinds and
+subscriptions, "reaches no one" lists the default kinds that are in nobody's
+`--on` and in no `yardr all kind=<k>` subscription
+([subscriptions.md](subscriptions.md#who-is-told-what)).
 
 ```sh
+yardr subscribe                            # who is told what, and the default kinds that reach no one
 yardr crew show yardmaster --json          # its on today
 yardr crew set yardmaster \
   --on gave_up,session_blocked,unrouted,stranded,no_runner,workspace_kept,crew_gave_up,runtime_down,session_idle,session_aged,session_stalled,session_harness_error,session_model_mismatch,session_prompt_gave_up,move_refused,held

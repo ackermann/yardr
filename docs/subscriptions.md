@@ -28,6 +28,7 @@ yardr subscribe yardmaster yardr --scope involved               # beads it creat
 yardr bead watch yardr-k3f9 --crew yardmaster --done         # this one bead, until it closes
 yardr subscribe yardmaster linear --scope involved              # Linear issues it is mentioned in, assigned, or works on
 yardr crew show yardmaster                                  # lists its subscriptions
+yardr subscribe                                             # who is told what, the whole yard
 yardr unsubscribe yardmaster yardr [--scope …] [--where …]
 ```
 
@@ -113,6 +114,46 @@ subscription with `bead=<id>` ends (the `closed` event lists whose in
 `watches_ended`). A reopened bead is not watched any more. Watching (any
 subscription with `bead=`) a bead that is already closed is refused: its
 watch would have ended already.
+
+## Who is told what
+
+`yardr subscribe` without arguments changes nothing and prints every
+subscriber side by side: a row for each thing subscribed to, a column for
+each crew member, each user and each manual group that subscribes. A `--on`
+kind is the row of the subscription it works as, `yardr all kind=<k>`.
+
+```
+SUBSCRIPTION                 REACHES  clerk          yardmaster  jo (user)  approvers (group)
+yardr all kind=gave_up       1        -              on          -          -
+yardr all kind=held          2        on             on+sub      -          -
+linear involved              1        -              sub         -          -
+yardr all stage=approved     1        via approvers  -           -          sub
+yardr all state=done         3        via approvers  sub         sub        sub
+approvers (group) reaches: clerk
+reaches no one (a new crew member's default --on kinds that nobody has): session_blocked, unrouted, …
+```
+
+- `on`: the kind is in the crew member's `--on`. `sub`: a subscription of
+  its own. `on+sub`: both, so the kind arrives by two paths and one of them
+  can go (an event still arrives once).
+- `via <group>`: the crew member is a member of a manual group that
+  subscribes. The group's own column reads `sub`, and the line under the
+  matrix names the crew members it reaches.
+- `REACHES` counts the inboxes the row arrives in: crew members and users,
+  not groups. 2 or more is an overlap; 0 is a group's subscription with no
+  crew member among its members.
+- `reaches no one` lists the kinds of a new crew member's default `--on`
+  that are in no crew member's `--on` and in no `yardr all kind=<k>`
+  subscription that reaches someone: `--on` replaces the list, so a crew
+  member given a few kinds lost the rest ([below](#--on)). A kind someone
+  has only as a subscription is not listed, though the subscription does
+  not carry its events that are about no bead.
+
+Rows are told apart by their exact source, scope and filters: `yardr all
+kind=held` and `yardr all kind=held depot=web` are two rows, though every
+event of the second is one of the first. `--json` prints the same:
+`subscribers`, `rows` (each with `marks` by subscriber and `reaches`) and
+`reaches_no_one`.
 
 ## Groups as subscribers
 

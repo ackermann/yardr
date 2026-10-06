@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -132,9 +133,26 @@ func (a *app) subscribeCmd() *cobra.Command {
 	var where []string
 	var done bool
 	cmd := &cobra.Command{
-		Use:   "subscribe <crew|group|user> [source]",
-		Short: "Deliver a source's events to a crew member's inbox, or a user's as notifications",
-		Long: `Which events reach the crew member, decided as each is logged: hook deliveries
+		Use:   "subscribe [<crew|group|user> [source]]",
+		Short: "Deliver a source's events to a crew member's inbox, or a user's as notifications (no arguments: who is told what)",
+		Long: `Without arguments it changes nothing and prints who is told what, for the
+whole yard: a row for each thing subscribed to, a column for each subscriber
+(every crew member and user, and each manual group that subscribes).
+
+  on           the kind is in the crew member's --on
+  sub          a subscription of its own
+  on+sub       both: the --on kind is also an explicit "yardr all kind=<k>"
+               subscription, so one of the two can go
+  via <group>  it is a crew member of a manual group that subscribes
+
+REACHES counts the inboxes a row arrives in (crew members and users; a
+group has none of its own), so a row more than one of them gets reads 2 or
+more, and a group's subscription with no crew member among its members
+reads 0. Below the matrix, "reaches no one" lists the kinds of a new crew
+member's default --on that are in nobody's --on and in no "yardr all
+kind=<k>" subscription that reaches someone. --json prints the same.
+
+With a subscriber: which events reach the crew member, decided as each is logged: hook deliveries
 from a hook source (` + strings.Join(hooks.Sources(), ", ") + `), or yardr's own bead events from
 the yardr source.
 
@@ -187,9 +205,18 @@ them.`,
   yardr subscribe yardmaster yardr --done
   yardr subscribe yardmaster yardr --done --where depot=yard --where label=ui
   yardr subscribe approvers yardr --where stage=approved
-  yardr subscribe jo yardr --done --where depot=yard     # jo, a user, is told when a bead lands`,
-		Args: cobra.RangeArgs(1, 2),
+  yardr subscribe jo yardr --done --where depot=yard     # jo, a user, is told when a bead lands
+  yardr subscribe                                        # who is told what`,
+		Args: cobra.RangeArgs(0, 2),
 		RunE: func(c *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				// The view takes none of them, and a subscription typed
+				// without its subscriber must not pass for one made.
+				if sub.Source != "" || c.Flags().Changed("scope") || len(where) > 0 || done {
+					return fmt.Errorf("name who subscribes: yardr subscribe <crew|group|user> [source] (without arguments and flags it prints who is told what)")
+				}
+				return a.showSubscriptionMatrix(c)
+			}
 			src, err := subSource(args, sub.Source)
 			if err != nil {
 				return err
@@ -258,6 +285,181 @@ them.`,
 	f.StringArrayVar(&where, "where", nil, "key=value filter (repeatable, ANDed)")
 	f.BoolVar(&done, "done", false, "yardr: only beads becoming done (--where state=done)")
 	return cmd
+}
+
+// subMatrix is who is told what in the whole yard, as bare yardr subscribe
+// prints it: a row for each thing subscribed to, a column for each
+// subscriber.
+type subMatrix struct {
+	Subscribers []subColumn `json:"subscribers"`
+	Rows        []subRow    `json:"rows"`
+	// ReachesNoOne are the defaultOn kinds no crew member has in --on and
+	// no "yardr all kind=<k>" subscription delivers to anyone.
+	ReachesNoOne []string `json:"reaches_no_one"`
+}
+
+// subColumn is a subscriber: a crew member, a user or a manual group.
+type subColumn struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"` // crew, user, group
+	// Reaches are a group's members that are crew members: the inboxes its
+	// subscriptions arrive in.
+	Reaches []string `json:"reaches,omitempty"`
+}
+
+func (c subColumn) String() string {
+	if c.Kind == "crew" {
+		return c.Name
+	}
+	return c.Name + " (" + c.Kind + ")"
+}
+
+// subRow is one thing subscribed to and who gets it. A --on kind is the
+// row of the subscription it works as, yardr all kind=<k>, so a subscriber
+// with the kind both ways has both marks in one cell.
+type subRow struct {
+	Subscription store.Subscription `json:"subscription"`
+	// Kind is the event kind of a "yardr all kind=<k>" row.
+	Kind string `json:"kind,omitempty"`
+	// Marks are, by subscriber, how it has the row: on, sub, via <group>.
+	Marks map[string][]string `json:"marks"`
+	// Reaches are the inboxes the row arrives in: crew members and users,
+	// not groups.
+	Reaches []string `json:"reaches"`
+}
+
+const (
+	markOn  = "on"
+	markSub = "sub"
+)
+
+// onSubscription is the subscription a --on kind works as.
+func onSubscription(kind string) store.Subscription {
+	return store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll, Where: map[string]string{"kind": kind}}
+}
+
+// subscriptionMatrix lays the yard's subscribers side by side. Every crew
+// member and user has a column; a group has one when it subscribes.
+func subscriptionMatrix(crew []store.CrewMember, users []store.User, groups []store.Group) subMatrix {
+	m := subMatrix{Subscribers: []subColumn{}, Rows: []subRow{}, ReachesNoOne: []string{}}
+	rows := map[string]*subRow{}
+	mark := func(sub store.Subscription, name, how string, inbox bool) {
+		row := rows[sub.String()]
+		if row == nil {
+			row = &subRow{Subscription: sub, Marks: map[string][]string{}, Reaches: []string{}}
+			if k := sub.Where["kind"]; sub.Source == store.SourceYardr && sub.Scope == store.ScopeAll && len(sub.Where) == 1 {
+				row.Kind = k
+			}
+			rows[sub.String()] = row
+		}
+		if !slices.Contains(row.Marks[name], how) {
+			row.Marks[name] = append(row.Marks[name], how)
+		}
+		if inbox && !slices.Contains(row.Reaches, name) {
+			row.Reaches = append(row.Reaches, name)
+		}
+	}
+	isCrew := map[string]bool{}
+	for _, r := range crew {
+		isCrew[r.Name] = true
+		m.Subscribers = append(m.Subscribers, subColumn{Name: r.Name, Kind: "crew"})
+		for _, k := range r.On {
+			mark(onSubscription(k), r.Name, markOn, true)
+		}
+		for _, sub := range r.Subscriptions {
+			mark(sub, r.Name, markSub, true)
+		}
+	}
+	for _, u := range users {
+		m.Subscribers = append(m.Subscribers, subColumn{Name: u.Name, Kind: "user"})
+		for _, sub := range u.Subscriptions {
+			mark(sub, u.Name, markSub, true)
+		}
+	}
+	for _, g := range groups {
+		if len(g.Subscriptions) == 0 {
+			continue
+		}
+		// A group's subscriptions arrive in the inboxes of its members that
+		// are crew members, and in no person's.
+		col := subColumn{Name: g.Name, Kind: "group"}
+		for _, member := range g.Members {
+			if isCrew[member] {
+				col.Reaches = append(col.Reaches, member)
+			}
+		}
+		m.Subscribers = append(m.Subscribers, col)
+		for _, sub := range g.Subscriptions {
+			mark(sub, g.Name, markSub, false)
+			for _, member := range col.Reaches {
+				mark(sub, member, "via "+g.Name, true)
+			}
+		}
+	}
+	for _, key := range sortedKeys(rows) {
+		slices.Sort(rows[key].Reaches)
+		m.Rows = append(m.Rows, *rows[key])
+	}
+	// The kinds first, as crew show lists them before the subscriptions.
+	slices.SortStableFunc(m.Rows, func(a, b subRow) int {
+		if (a.Kind == "") != (b.Kind == "") {
+			if a.Kind != "" {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a.Kind, b.Kind)
+	})
+	for _, k := range defaultOn {
+		if row := rows[onSubscription(k).String()]; row == nil || len(row.Reaches) == 0 {
+			m.ReachesNoOne = append(m.ReachesNoOne, k)
+		}
+	}
+	return m
+}
+
+// showSubscriptionMatrix is yardr subscribe without arguments.
+func (a *app) showSubscriptionMatrix(c *cobra.Command) error {
+	st, err := a.store(c.Context())
+	if err != nil {
+		return err
+	}
+	crew, err := st.Crew(c.Context())
+	if err != nil {
+		return err
+	}
+	users, err := st.Users(c.Context())
+	if err != nil {
+		return err
+	}
+	groups, err := st.Groups(c.Context())
+	if err != nil {
+		return err
+	}
+	m := subscriptionMatrix(crew, users, groups)
+	return a.out(m, func() {
+		header := []string{"SUBSCRIPTION", "REACHES"}
+		for _, col := range m.Subscribers {
+			header = append(header, col.String())
+		}
+		rows := [][]string{}
+		for _, row := range m.Rows {
+			cells := []string{row.Subscription.String(), strconv.Itoa(len(row.Reaches))}
+			for _, col := range m.Subscribers {
+				cells = append(cells, or(strings.Join(row.Marks[col.Name], "+"), "-"))
+			}
+			rows = append(rows, cells)
+		}
+		table(strings.Join(header, "\t"), rows)
+		for _, col := range m.Subscribers {
+			if col.Kind == "group" {
+				fmt.Printf("%s reaches: %s\n", col, or(strings.Join(col.Reaches, ", "), "no crew member"))
+			}
+		}
+		if len(m.ReachesNoOne) > 0 {
+			fmt.Printf("reaches no one (a new crew member's default --on kinds that nobody has): %s\n", strings.Join(m.ReachesNoOne, ", "))
+		}
+	})
 }
 
 // subscriptionsOf are the subscriptions of the crew member, user or group
