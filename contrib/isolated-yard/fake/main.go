@@ -17,6 +17,9 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
+
+	"golang.org/x/term"
 )
 
 const rule = "────────────────────────────────────────────────────────────"
@@ -100,9 +103,26 @@ func main() {
 		logf("logged in")
 	}
 
-	box := func() { fmt.Printf("%s\n❯ \n%s\n", rule, rule) }
+	// The box leaves the cursor after its mark, as Claude Code's does: what
+	// is typed into the pane is echoed by the terminal where the cursor is,
+	// and yardr reads an agent's input from the mark's line (runner.InputText,
+	// promptPlace). Left below the box, the cursor put typed text under the
+	// bottom rule and the input read as empty while text waited in it
+	// (yardr-0g9g).
+	box := func() { fmt.Printf("%s\n❯ \n%s\n\x1b[2A\x1b[2C", rule, rule) }
 	greeted := false
-	process := func(line string) {
+	// process handles a line the stand-in took. below is how many rows under
+	// the mark's line the cursor is: the Enter that sent a typed line moved
+	// it there, and a held line was never typed into the box, so its cursor
+	// is still on the mark's line.
+	process := func(line string, below int) {
+		// Redraw from the mark's line: the typed text and the bottom rule
+		// go, and the message and a new box are drawn in their place.
+		fmt.Print("\r")
+		if below > 0 {
+			fmt.Printf("\x1b[%dA", below)
+		}
+		fmt.Print("\x1b[J")
 		if line = strings.TrimSpace(line); line != "" {
 			logf("prompt %q", line)
 			// As Claude Code echoes a message it took, above its input: that
@@ -122,10 +142,10 @@ func main() {
 	}
 	box()
 	for _, line := range held {
-		process(line)
+		process(line, 0)
 	}
 	for line := range lines {
-		process(line)
+		process(line, typedRows(line))
 	}
 	logf("exit")
 }
@@ -133,6 +153,27 @@ func main() {
 // greet finds, in a first prompt, the mail command it asks to greet with:
 // yardr's path and the user to write to.
 var greet = regexp.MustCompile("greet them with `(\\S+) mail (\\S+) \"<text>\"`")
+
+// typedRows is how many rows of the terminal a typed line took, behind the
+// box's mark: one, or more where the terminal wrapped it, as it does a first
+// prompt longer than the pane is wide. The Enter that ended the line left the
+// cursor that many rows under the mark's line. Each character is counted as
+// one column, and a stand-in that runs in no terminal counts one row.
+func typedRows(line string) int {
+	cols, _, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil || cols <= 0 {
+		return 1
+	}
+	return wrappedRows(utf8.RuneCountInString(line), cols)
+}
+
+// wrappedRows is the rows that n typed characters take after the two columns
+// of the mark, in a terminal cols wide. A line that fills its last row to the
+// end takes no further one: the terminal wraps when the next character comes,
+// not before.
+func wrappedRows(n, cols int) int {
+	return max(1, (2+n+cols-1)/cols)
+}
 
 // stty sets the terminal the stand-in runs in, where it has one.
 func stty(arg string) {
