@@ -37,8 +37,8 @@ branch yard/<bead>.
    stand-in, and D/agents.log shows what each was started with. `D/e`
    isolates environment and sockets, not TCP ports: a server a trial starts
    takes a free loopback port (127.0.0.1:0), never a fixed one. 8791 is
-   yardr web's and 8790 the hooks', and a listener on 127.0.0.1 stands in
-   front of the real one on all addresses. Afterwards
+   yardr web's, and 8790 is the hook listener's suggested port. A listener
+   on 127.0.0.1 stands in front of the real one on all addresses. Afterwards
    `contrib/isolated-yard/isolated-yard down D` stops everything by pid and
    removes D. Never pkill -f.
 5. Commit on your branch. Do not merge. Do not push unless your brief says
