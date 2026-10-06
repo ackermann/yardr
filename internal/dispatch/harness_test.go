@@ -202,6 +202,16 @@ func TestHarnessErrorLines(t *testing.T) {
 		{"claude", "  ⎿  Credit balance is too low", dispatch.ReasonOther},
 		{"claude", "⏺ API Error: 500 {\"type\":\"error\",\"error\":{\"type\":\"api_error\"}}", dispatch.ReasonOther},
 		{"claude", "⏺ The session limit reached its end; see the API Error: 529 above.", ""},
+		{"kimi", "   Error: [provider.auth_error] 403 You've reached your", dispatch.ReasonRateLimited},
+		{"kimi", "   Error: [provider.auth_error] 403 You've reached your 5-hour usage limit. Your quota will reset when the current 5-hour window ends.", dispatch.ReasonRateLimited},
+		{"kimi", "   Error: [provider.rate_limit] 429 Too many requests", dispatch.ReasonRateLimited},
+		{"kimi", "   Error: [provider.overloaded] 529 The engine is", dispatch.ReasonAtCapacity},
+		{"kimi", "   Error: [provider.auth_error] 401 Invalid", dispatch.ReasonNotLoggedIn},
+		{"kimi", "   Error: [auth.login_required] Login required", dispatch.ReasonNotLoggedIn},
+		{"kimi", "   Error: [provider.api_error] 500 Internal error", ""},
+		{"kimi", " ● The pane said Error: [provider.auth_error] 403 You've reached your limit.", ""},
+		{"kimi", " 5-hour usage limit. Your quota will reset when the current", ""},
+		{"claude", "   Error: [provider.auth_error] 403 You've reached your", ""},
 		{"claude", "❯ Why did it say Not logged in?", ""},
 	} {
 		reason, line, ok := dispatch.HarnessError(tc.kind, "⏺ Reading the brief.\n"+tc.line+"\n\n❯ \n")
@@ -211,9 +221,193 @@ func TestHarnessErrorLines(t *testing.T) {
 	}
 	// Only the pane's end counts: what the agent quoted while it still
 	// worked is further up.
-	old := "■ Selected model is at capacity. Please try a different model.\n" + strings.Repeat("• Edited a file\n", 12)
+	old := "■ Selected model is at capacity. Please try a different model.\n" + strings.Repeat("• Edited a file\n", 20)
 	if reason, _, ok := dispatch.HarnessError("codex", old); ok {
-		t.Errorf("an error line 13 lines up was taken for what the harness stopped on: %s", reason)
+		t.Errorf("an error line 21 lines up was taken for what the harness stopped on: %s", reason)
+	}
+	// Kimi's, broken by Kimi into lines of the pane's width, begins 12
+	// lines from the end of a pane of 60 columns, and further up in a
+	// narrower one.
+	if reason, line, ok := dispatch.HarnessError("kimi", kimiLimit); reason != dispatch.ReasonRateLimited || !ok ||
+		line != "Error: [provider.auth_error] 403 You've reached your" {
+		t.Errorf("kimi's usage limit: reason %q line %q", reason, line)
+	}
+	narrow := strings.Replace(kimiLimit, " or upgrade your plan:\n", " or upgrade\n your plan:\n", 1)
+	narrow = strings.Replace(narrow, " file with us for diagnosis.", " file with us\n for diagnosis.", 1)
+	if reason, _, _ := dispatch.HarnessError("kimi", narrow); reason != dispatch.ReasonRateLimited {
+		t.Errorf("kimi's usage limit 14 lines up: reason %q", reason)
+	}
+}
+
+// The pane of the crew member brakeman (kimi, 60 columns) as herdr read it
+// on 6 Oct 2026: its harness had stopped on its usage limit half an hour
+// before, with a review waiting, and nobody had heard (yardr-r9sh). Kimi
+// broke the error into these lines itself.
+const kimiLimit = " ● Used Read (…dr/internal/store/yardrsource.go) · 130 lines\n" +
+	"   Error: [provider.auth_error] 403 You've reached your\n" +
+	" 5-hour usage limit. Your quota will reset when the current\n" +
+	" 5-hour window ends. To continue now, purchase extra usage\n" +
+	" or upgrade your plan:\n" +
+	" https://www.kimi.com/membership/subscription?tab=quota\n" +
+	"   If this persists, run `/export-debug-zip` and share the\n" +
+	" file with us for diagnosis. Please don't share it publicly.\n" +
+	" ╭──────────────────────────────────────────────────────────╮\n" +
+	" │ >                                                        │\n" +
+	" ╰──────────────────────────────────────────────────────────╯\n" +
+	" Ask When Needed  K3 thinking: high  ~         ctrl+o expand\n" +
+	"                                      context: 20% (198k/1M)"
+
+// kimiIdle is such a pane with nothing wrong in it.
+const kimiIdle = " ● The review is noted on the bead.\n" +
+	" ╭──────────────────────────────────────────────────────────╮\n" +
+	" │ >                                                        │\n" +
+	" ╰──────────────────────────────────────────────────────────╯\n" +
+	" Ask When Needed  K3 thinking: high  ~         ctrl+o expand"
+
+// A bead's session of kind kimi that stops on its usage limit is told of as
+// claude's and codex's are.
+func TestKimiSessionAtItsUsageLimitIsReported(t *testing.T) {
+	s, r, d, b := harnessSetup(t, "kimi", nil)
+	r.show("idle", kimiLimit)
+	must(t, d.Reconcile(context.Background()))
+	evs := eventKinds(t, s, b.ID, "session_harness_error")
+	if len(evs) != 1 || evs[0].Data["reason"] != dispatch.ReasonRateLimited || evs[0].Data["kind"] != "kimi" ||
+		evs[0].Data["line"] != "Error: [provider.auth_error] 403 You've reached your" {
+		t.Fatalf("session_harness_error = %v, want one, rate_limited, with kimi's line", evs)
+	}
+}
+
+// A crew member has no idle limit, so one whose harness stopped on an error
+// was never told of. Its pane is read when it is idle with its inbox
+// unread, and the error raises session_harness_error on its journal, with
+// the crew member named, to whoever hears that kind: once while it stands.
+func TestCrewMemberAtItsUsageLimitIsReported(t *testing.T) {
+	s, f, d := crewSetup(t, store.CrewMember{Config: map[string]any{"kind": "kimi"}})
+	ctx := context.Background()
+	// Who hears the kind; its runner is none of the dispatcher's, so it is
+	// an inbox and no session.
+	_, err := s.PutCrew(ctx, store.CrewMember{Name: "ears", Runner: "none", On: []string{"session_harness_error"}}, "me")
+	must(t, err)
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	agent := agentOf(t, s)
+	member := func() *store.CrewMember {
+		t.Helper()
+		r, err := s.GetCrew(ctx, "yardmaster")
+		must(t, err)
+		return r
+	}
+	told := func() []store.Event { t.Helper(); return eventKinds(t, s, member().Journal, "session_harness_error") }
+	pass := func(want int, when string) {
+		t.Helper()
+		must(t, d.Reconcile(ctx))
+		if evs := told(); len(evs) != want {
+			t.Fatalf("%s: session_harness_error events = %d, want %d: %v", when, len(evs), want, evs)
+		}
+	}
+
+	// Idle with nothing in its inbox is what a crew member mostly is: its
+	// pane is not asked, whatever it ends in.
+	f.show(kimiIdle)
+	pass(0, "idle, an empty inbox, no error")
+	f.show(kimiLimit)
+	pass(0, "idle, an empty inbox")
+	// Idle with mail and no error is nudged, and that is all.
+	f.show(kimiIdle)
+	must(t, s.Mail(ctx, "yardmaster", "review yardr-1my8", "chris"))
+	pass(0, "idle, mail, no error")
+	if len(f.nudges) != 1 {
+		t.Fatalf("nudges = %v, want the inbox's", f.nudges)
+	}
+
+	// The nudge is answered with the usage limit.
+	f.show(kimiLimit)
+	pass(1, "idle, mail, the usage limit")
+	data := told()[0].Data
+	if data["crew"] != "yardmaster" || data["kind"] != "kimi" || data["reason"] != dispatch.ReasonRateLimited ||
+		data["line"] != "Error: [provider.auth_error] 403 You've reached your" || data["tail"] != kimiLimit ||
+		!strings.Contains(data["hint"].(string), "yardr crew restart yardmaster") {
+		t.Fatalf("session_harness_error data = %v", data)
+	}
+	if member().Handle[dispatch.HarnessErrorKey] != dispatch.ReasonRateLimited {
+		t.Fatalf("handle = %v, want the reason kept on it", member().Handle)
+	}
+	// It reaches who hears the kind, as a session's does.
+	page, err := s.Inbox(ctx, "ears", 0)
+	must(t, err)
+	if len(page.Events) != 1 || page.Events[0].Kind != "session_harness_error" {
+		t.Fatalf("inbox of who hears session_harness_error = %v, want the event", page.Events)
+	}
+	// Each new item in its inbox is a nudge, which a stopped harness
+	// answers by working for a moment and stopping on the same error: that
+	// is not told again.
+	f.set(agent, "working")
+	pass(1, "working for a moment")
+	f.set(agent, "idle")
+	pass(1, "stopped on the same error")
+	must(t, s.Mail(ctx, "yardmaster", "are you there?", "chris"))
+	pass(1, "more mail")
+	pass(1, "more mail, a pass later")
+	if len(f.nudges) != 2 {
+		t.Fatalf("nudges = %v, want one for each mail", f.nudges)
+	}
+
+	// A daemon that replaced itself reads the mark and does not tell twice.
+	d2 := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f}, PromptSettle: -1, PromptWait: -1}
+	must(t, d2.Reconcile(ctx))
+	if n := len(told()); n != 1 {
+		t.Fatalf("session_harness_error events = %d after a new daemon's pass, want 1", n)
+	}
+
+	// A pane seen without the error ends it: the next one is told.
+	f.show(kimiIdle)
+	pass(1, "got going again")
+	if mark := member().Handle[dispatch.HarnessErrorKey]; mark != nil {
+		t.Fatalf("handle keeps %v with the error gone from the pane", mark)
+	}
+	f.show(kimiLimit)
+	pass(2, "the usage limit again")
+	// So does an inbox that was handled.
+	mine, err := s.Inbox(ctx, "yardmaster", 0)
+	must(t, err)
+	must(t, s.AckInbox(ctx, "yardmaster", mine.Last))
+	pass(2, "the inbox handled")
+	if mark := member().Handle[dispatch.HarnessErrorKey]; mark != nil {
+		t.Fatalf("handle keeps %v with the inbox handled", mark)
+	}
+}
+
+// The pane is read at the start of a spell and after a nudge, not for as
+// long as a crew member leaves its inbox unread: an error drawn into it
+// under a nudge long after is still seen.
+func TestCrewMemberPaneIsReadAgainAfterANudge(t *testing.T) {
+	s, f, d := crewSetup(t, store.CrewMember{Config: map[string]any{"kind": "kimi"}})
+	ctx := context.Background()
+	now := time.Now()
+	dispatch.SetClock(d, func() time.Time { return now })
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	r, err := s.GetCrew(ctx, "yardmaster")
+	must(t, err)
+	told := func() int { t.Helper(); return len(eventKinds(t, s, r.Journal, "session_harness_error")) }
+
+	f.show(kimiIdle)
+	must(t, s.Mail(ctx, "yardmaster", "one", "chris"))
+	must(t, d.Reconcile(ctx)) // nudged, and it leaves the mail unread
+	now = now.Add(time.Hour)
+	f.show(kimiLimit)
+	must(t, d.Reconcile(ctx))
+	if n := told(); n != 0 {
+		t.Fatalf("session_harness_error events = %d; the pane of a crew member idle for an hour was read", n)
+	}
+	f.show(kimiIdle)
+	must(t, s.Mail(ctx, "yardmaster", "two", "chris"))
+	must(t, d.Reconcile(ctx)) // nudged again
+	f.show(kimiLimit)
+	now = now.Add(time.Minute)
+	must(t, d.Reconcile(ctx))
+	if n := told(); n != 1 {
+		t.Fatalf("session_harness_error events = %d, want 1 for the error under the nudge", n)
 	}
 }
 

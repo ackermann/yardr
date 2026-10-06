@@ -40,6 +40,19 @@ type crewRunner struct {
 	open     []string            // agents whose workspace is open, in the order they started
 	busy     map[string]bool     // agents in whose workspace another agent runs now
 	closeErr error               // a workspace cannot be closed
+	tail     string              // what the pane ends in
+}
+
+func (f *crewRunner) Tail(context.Context, map[string]any, int) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.tail, nil
+}
+
+func (f *crewRunner) show(tail string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.tail = tail
 }
 
 // CloseLeft closes the workspace of a session that is gone, as herdr does:

@@ -93,8 +93,11 @@ const (
 	// harnessLines is how many of the pane's last lines are looked at. The
 	// error that stopped a harness is the last thing it printed, above its
 	// input box and status line; further up is what the agent wrote while
-	// it still worked, which may well quote an error.
-	harnessLines = 12
+	// it still worked, which may well quote an error. It is all of the tail
+	// an event carries (stallTail): Kimi breaks its error into lines of the
+	// pane's width itself, and in a pane of 60 columns its usage limit
+	// began 12 lines from the end, under the box and the status (yardr-r9sh).
+	harnessLines = 20
 )
 
 // harnessLine is one error line of a harness: what it means, and how the
@@ -118,6 +121,12 @@ type harnessLine struct {
 // line: an agent that writes about an error mid-sentence is then not taken
 // for a harness that stopped on it. A kind with no list is never reported.
 // Add a case to TestHarnessErrorLines with the line.
+//
+// Kimi prints `Error: [<code>] <message>`, the code from its own list, and
+// breaks the line at the pane's width itself, which no unwrapped read mends:
+// only the line's first part is there to match, so its lines are told by
+// the code, and a usage limit (a 403, so provider.auth_error to Kimi) by
+// the words that still stand before the break in a pane of 60 columns.
 var harnessErrors = map[string][]harnessLine{
 	"claude": {
 		{ReasonNotLoggedIn, regexp.MustCompile(`^(Not logged in|You are not logged in|Invalid API key|Please run /login)`)},
@@ -144,10 +153,17 @@ var harnessErrors = map[string][]harnessLine{
 		{ReasonOther, regexp.MustCompile(`^(stream error: )?stream disconnected before completion`)},
 		{ReasonOther, regexp.MustCompile(`^(exceeded retry limit|unexpected status \d)`)},
 	},
+	"kimi": {
+		{ReasonRateLimited, regexp.MustCompile(`^Error: \[provider\.auth_error\] 403 You.ve reached`)},
+		{ReasonRateLimited, regexp.MustCompile(`^Error: \[provider\.rate_limit\]`)},
+		{ReasonAtCapacity, regexp.MustCompile(`^Error: \[provider\.overloaded\]`)},
+		{ReasonNotLoggedIn, regexp.MustCompile(`^Error: \[(auth\.(login_required|token_missing|token_unauthorized)|provider\.auth_error)\]`)},
+	},
 }
 
 // harnessMarks are what a harness's TUI draws before a message: Claude
-// Code's ⏺ and ⎿, Codex's ■ and •, a box's edge.
+// Code's ⏺ and ⎿, Codex's ■ and •, a box's edge. Kimi draws none before an
+// error, only space.
 const harnessMarks = " \t⏺⎿●■•▌│┃✗✘⚠!"
 
 // HarnessError finds, in the end of a pane, the error line a harness of
@@ -365,4 +381,99 @@ func (d *Dispatcher) markHarnessError(ctx context.Context, s *store.Session, rea
 		return
 	}
 	s.Handle = h
+}
+
+// A crew member's harness stops on the same errors, and it has no idle
+// limit to be told at: on 6 Oct 2026 the crew member brakeman (kimi) sat at
+// its usage limit for half an hour with a review waiting, and nobody heard
+// (yardr-r9sh). So the end of its pane is read too, when it is idle with
+// something unread in its inbox: one that is idle with nothing to do is
+// what a crew member is most of the time, and is left alone.
+//
+// crewHarnessError raises session_harness_error on r's journal, with the
+// crew member named (`crew`) where a session's names its session. The pane
+// is read on each pass in the first harnessLook of a spell of being idle
+// with an unread inbox, and again for as long after each nudge typed there
+// (see crewHarnessLook): the nudge is what a stopped harness answers with
+// its error again.
+//
+// The reason told is kept on r's handle (HarnessErrorKey), as a session's
+// is, and the same reason is not told again while it stands. It stays
+// through the agent working, unlike a session's: a nudge makes a stopped
+// harness work for a moment and stop on the same error, so every new item
+// in its inbox would raise the event again. The mark goes when a look finds
+// the pane without an error, or the inbox empty (see crewHarnessOver).
+// Nothing is tried again for a crew member.
+func (d *Dispatcher) crewHarnessError(ctx context.Context, runner Runner, r *store.CrewMember) {
+	t, ok := runner.(Tailer)
+	if !ok {
+		return
+	}
+	key := "crew:" + r.Name
+	since, ok := d.idleSince[key]
+	if !ok {
+		since = d.now()
+		d.idleSince[key] = since
+	}
+	if d.now().Sub(since) > harnessLook {
+		return
+	}
+	tail, err := t.Tail(ctx, r.Handle, stallTail)
+	if err != nil {
+		return // a pane that cannot be read says nothing either way
+	}
+	kind, _ := r.Config["kind"].(string)
+	if kind == "" {
+		kind = "claude" // as the herdr runner starts one that names none
+	}
+	reason, line, _ := HarnessError(kind, tail)
+	if told, _ := r.Handle[HarnessErrorKey].(string); reason == told {
+		return
+	}
+	if reason != "" {
+		d.Log.Warn("crew member's harness stopped on an error", "crew", r.Name, "kind", kind, "reason", reason, "line", line)
+		if err := d.Store.LogDispatch(ctx, r.Journal, "session_harness_error", actor, map[string]any{
+			"crew": r.Name, "kind": kind, "reason": reason, "line": line, "tail": tail,
+			"hint": "the crew member's harness stopped on an error and sits idle with its inbox unread; the line is " +
+				"in line, its pane's last lines in tail. It is left as it is: get the agent going in its pane, or " +
+				"start a fresh session with `yardr crew restart " + r.Name + "`"}); err != nil {
+			d.Log.Warn("session_harness_error event", "crew", r.Name, "err", err)
+		}
+	}
+	d.markCrewHarnessError(ctx, r, reason)
+}
+
+// crewHarnessLook starts the time r's pane is read in anew: something was
+// typed there, and a harness that is stopped says so again under it.
+func (d *Dispatcher) crewHarnessLook(r store.CrewMember) {
+	d.idleSince["crew:"+r.Name] = d.now()
+}
+
+// crewHarnessOver ends the spell r's pane was read in: r's agent works, or
+// is idle with nothing unread. With its inbox empty the error told of is
+// over as well, since an agent that handled its inbox is not stopped.
+func (d *Dispatcher) crewHarnessOver(ctx context.Context, r *store.CrewMember, handled bool) {
+	delete(d.idleSince, "crew:"+r.Name)
+	if handled && r.Handle[HarnessErrorKey] != nil {
+		d.markCrewHarnessError(ctx, r, "")
+	}
+}
+
+// markCrewHarnessError keeps reason on r's handle, or takes the mark off
+// for "".
+func (d *Dispatcher) markCrewHarnessError(ctx context.Context, r *store.CrewMember, reason string) {
+	h := maps.Clone(r.Handle)
+	if h == nil {
+		h = map[string]any{}
+	}
+	if reason == "" {
+		delete(h, HarnessErrorKey)
+	} else {
+		h[HarnessErrorKey] = reason
+	}
+	if err := d.Store.SetCrewHandle(ctx, r.Name, h); err != nil {
+		d.Log.Warn("mark crew member's harness error", "crew", r.Name, "err", err)
+		return
+	}
+	r.Handle = h
 }

@@ -171,6 +171,7 @@ func (d *Dispatcher) member(ctx context.Context, r store.CrewMember) error {
 	d.Log.Info("crew member started", "crew", r.Name)
 	delete(d.status, "crew:"+r.Name)
 	delete(d.promptIdle, "crew:"+r.Name)
+	delete(d.idleSince, "crew:"+r.Name)
 	delete(d.drafts, "crew:"+r.Name)
 	delete(d.nudged, "crew:"+r.Name)
 	if err := d.Store.CrewStarted(ctx, r.Name, handle); err != nil {
@@ -297,9 +298,17 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, r store.Cre
 	}
 	if !idle {
 		delete(d.drafts, "crew:"+r.Name) // what was in its input was sent
+		d.crewHarnessOver(ctx, &r, false)
 		return nil
 	}
 	page, err := d.Store.Inbox(ctx, r.Name, 5)
+	// Idle with something unread is where a harness stopped on an error
+	// sits (harness.go), nudged already or not.
+	if err == nil && page.Total > 0 {
+		d.crewHarnessError(ctx, runner, &r)
+	} else if err == nil {
+		d.crewHarnessOver(ctx, &r, true)
+	}
 	if err != nil || page.Total == 0 || page.Last <= r.Notified {
 		// Nothing to type: text in the input holds nothing back, and a
 		// wait on it is over.
@@ -337,6 +346,7 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, r store.Cre
 	if err != nil || !typed {
 		return err
 	}
+	d.crewHarnessLook(r)
 	return d.Store.MarkNotified(ctx, r.Name, page.Last)
 }
 

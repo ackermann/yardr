@@ -36,6 +36,7 @@ own session file, found by the session id herdr reports for the pane:
 |---|---|
 | `claude` | `~/.claude/projects/<dir>/<session id>.jsonl` (or under `CLAUDE_CONFIG_DIR`): the `model` of the first assistant message, which is what the API answered with |
 | `codex` | `~/.codex/sessions/<y>/<m>/<d>/rollout-<time>-<session id>.jsonl` (or under `CODEX_HOME`): the `model` of the first `turn_context` |
+| `kimi` | `Error: [provider.overloaded] …` | `Error: [provider.auth_error] 403 You've reached …` (a usage limit: `… your 5-hour usage limit. …`), `Error: [provider.rate_limit] …` | `Error: [auth.login_required] …`, `[auth.token_missing]`, `[auth.token_unauthorized]`, any other `Error: [provider.auth_error] …` | none |
 | any other | none known: nothing is recorded and nothing compared |
 
 The daemon must run as the user whose agents these are, on their machine,
@@ -87,7 +88,7 @@ of it at the `idle` limit, as of any idle agent.
 **`session_harness_error`.** The pane says what herdr's status cannot. On
 each pass in the first 2 minutes of an idle spell (status `idle` or `done`,
 and no gate running for the bead) the daemon reads the end of the agent's
-pane, and a line among its last 12 that is a known error of the group's
+pane, and a line among its last 20 that is a known error of the group's
 `kind` raises one event on the bead, at once and not at the `idle` limit:
 
 | field | |
@@ -142,6 +143,7 @@ message, `⏺ ⎿ ■ •`, aside):
 |---|---|---|---|---|
 | `claude` | `API Error: … 529 …` or `… Overloaded …`, `Repeated 529 Overloaded errors` | `You've hit your …`, `Usage` / `5-hour` / `Weekly` / `Session` / `Fable` / `Opus` / `Sonnet` / `Fast` `limit reached`, `API Error: … 429 …` or `… rate_limit_error …` | `Not logged in`, `You are not logged in`, `Invalid API key`, `Please run /login`, `Session expired. Please run /login`, `API Error: … Please run /login` or `… authentication_error …` | `There's an issue with the selected model`, `Credit balance is too low`, any other `API Error` |
 | `codex` | `Selected model is at capacity`, `Flex capacity unavailable` | `You've hit your usage limit`, `exceeded retry limit, last status: 429` | `Not logged in`, `Sign in with ChatGPT`, `Your access token could not be refreshed`, `… Please sign in again.`, `exceeded retry limit, last status: 401`, `unexpected status 401` | `Quota exceeded`, `stream disconnected before completion`, any other `exceeded retry limit` or `unexpected status <n>` |
+| `kimi` | `Error: [provider.overloaded] …` | `Error: [provider.auth_error] 403 You've reached …` (a usage limit: `… your 5-hour usage limit. …`), `Error: [provider.rate_limit] …` | `Error: [auth.login_required] …`, `[auth.token_missing]`, `[auth.token_unauthorized]`, any other `Error: [provider.auth_error] …` | none |
 | any other | none known: nothing is reported, and `session_idle` with its `tail` is what there is |
 
 A line counts when it begins with one of these, so an agent that writes
@@ -151,6 +153,26 @@ is a reading of the pane, and `tail` is there to check it. The table is
 `harnessErrors` in `internal/dispatch/harness.go`, which says how to add a
 line; a harness's error that is not in it yet shows as a `session_idle`
 whose `tail` ends in it.
+
+Kimi prints `Error: [<code>] <message>` and breaks the line at the pane's
+width itself, so only the line's first part can be matched and `line` is
+that part; the rest is in `tail`. The usage limit is a line read from a pane
+(6 Oct 2026, Kimi Code 2.1.1). The others are known by their code alone,
+from Kimi's list of error codes, and no pane with one has been seen.
+
+**A crew member's harness.** A crew member has no idle limit, so its pane
+is read for the same lines when it is idle with something unread in its
+inbox: on each pass in the first 2 minutes of that, and for 2 minutes after
+each nudge typed into its pane. A known error of its `kind` raises
+`session_harness_error` on its journal, with `crew` (its name) where a
+session's event has `session`, `group` and `stage`, and with `kind`,
+`reason`, `line`, `tail` and `hint`. Whoever hears the kind through `--on`
+hears this one too. A crew member that is idle with nothing unread is not
+looked at. The reason is kept on its handle (`harness_error`, in `yardr crew
+show --json`) and not told again while it stands, through the moments a
+nudge makes a stopped harness work: it is told again once a look has found
+the pane without an error, or the inbox was emptied. Nothing is tried
+again for a crew member, and its nudges are typed as before.
 
 **`session_idle` says what the pane shows.** It carries the same `tail`, so
 the yardmaster reads why an agent sits there (it asks its human something, it
