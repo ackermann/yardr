@@ -409,3 +409,32 @@ func TestExecSessionsGetNoServerSettings(t *testing.T) {
 		}
 	}
 }
+
+// A resident's handle names the shell of its pane, as a bead session's
+// does: by it the store knows a command run in the pane as the resident's,
+// whatever actor the command names (store's release of a peer's bead).
+// A herdr that does not tell leaves the handle without it.
+func TestStartResidentRecordsItsShell(t *testing.T) {
+	h, calls, _ := envHerdr(t, "")
+	h.Bin = fakeHerdrBin(t, `printf '%s\n' "$*" >> `+calls+`
+case "$1 $2" in
+  "pane process-info") echo '{"result":{"process_info":{"pane_id":"p1","shell_pid":`+fmt.Sprint(os.Getpid())+`}}}' ;;
+  *) echo '{"result":{"type":"ok"}}' ;;
+esac`)
+	handle, err := h.StartResident(context.Background(), store.Resident{Name: "mayor", Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := readCalls(t, calls)
+	if handle["shell_pid"] != os.Getpid() || handle["shell_start"] == nil || !strings.Contains(got, "pane process-info --pane ") {
+		t.Fatalf("shell_pid = %v, shell_start = %v, want this process %d:\n%s", handle["shell_pid"], handle["shell_start"], os.Getpid(), got)
+	}
+	// The shell is asked for before the agent is started in it.
+	if strings.Index(got, "pane process-info") > strings.Index(got, "agent start") {
+		t.Fatalf("the shell was asked for after the agent started:\n%s", got)
+	}
+	plain, _, _ := envHerdr(t, "")
+	if handle, err := plain.StartResident(context.Background(), store.Resident{Name: "mayor", Dir: t.TempDir()}); err != nil || handle["shell_pid"] != nil {
+		t.Fatalf("a herdr that tells no shell: handle %v, %v", handle, err)
+	}
+}

@@ -1507,6 +1507,11 @@ func (h *Herdr) StartResident(ctx context.Context, r store.Resident) (map[string
 	}
 	handle := map[string]any{"agent": name, "workspace": ws.Workspace.ID, "tab": ws.Tab.ID,
 		"pane": ws.RootPane.ID, "dir": dir}
+	// As for a bead's session: the store then knows a command run in the
+	// resident's pane as the resident's, whatever actor it names, which is
+	// what keeps a resident from releasing a peer's bead as a user
+	// (store.paneResident).
+	h.shellOn(ctx, ws.RootPane.ID, handle)
 
 	start := []string{"agent", "start", name, "--kind", str(r.Config, "kind", "claude"), "--pane", ws.RootPane.ID}
 	if extra := agentArgs(r.Config, ""); len(extra) > 0 {

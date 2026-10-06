@@ -470,7 +470,7 @@ func (s *Store) PeerSend(ctx context.Context, name, kind string, body json.RawMe
 	case PeerBead, PeerBeadReturn:
 		// Either would be a word about a bead from whoever can reach the
 		// socket: the yard says both itself, from its own beads.
-		return nil, fmt.Errorf("a %s message is the yard's own to send: a bead goes to %s by the stage it is in, and comes back when its flow there ends", kind, name)
+		return nil, fmt.Errorf("a %s message is the yard's own to send to %s, from its own beads: it is not sent by hand", kind, name)
 	}
 	if len(body) == 0 {
 		body = json.RawMessage("{}")

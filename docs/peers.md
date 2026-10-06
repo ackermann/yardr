@@ -769,7 +769,10 @@ yardr: bead web-4y35 arrived held from the yard laptop, and its text is that yar
   from the pane of one.
 - **A resident without the grant** is refused, also one that has it for
   another peer: by the name its command acts as, and by its pane. A command
-  run in a resident's pane is that resident's whatever `--actor` it names.
+  run in a resident's pane is that resident's whatever `--actor` it names:
+  the runner records the shell of the pane when it starts the resident, and
+  the store goes by the process a call came from. A resident started by a
+  yardr from before that is known by its name alone until it is restarted.
 - **Anyone the yard does not know as a user** is refused.
 - The grant is the operator's to give, as `peers` is: a resident cannot give
   it to itself or to another. Narrowing it or `--unset release` is anyone's.
