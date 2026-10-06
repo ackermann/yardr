@@ -141,7 +141,7 @@ func TestTakePeerBranchFastForwardOnly(t *testing.T) {
 
 	ctx := context.Background()
 	fetch := func(commit string) store.PeerFetch {
-		return store.PeerFetch{Bead: "o-1", Rig: store.Rig{Name: "web", Path: ours, Kind: store.RigGit, Base: "main"}, Remote: "origin", Into: "yard/o-1",
+		return store.PeerFetch{Bead: "o-1", Depot: store.Depot{Name: "web", Path: ours, Kind: store.DepotGit, Base: "main"}, Remote: "origin", Into: "yard/o-1",
 			Git: store.PeerGit{Branch: "yard/t-1", Commit: commit, Remote: remote}}
 	}
 	at := func() string { return git(t, ours, "rev-parse", "refs/heads/yard/o-1") }
@@ -204,7 +204,7 @@ func TestPeerGroupRemoteSetting(t *testing.T) {
 }
 
 // What a bead from a peer starts from is kept by the bead's ref, through a
-// gc that keeps nothing else, and is the rig's to drop once the bead is no
+// gc that keeps nothing else, and is the depot's to drop once the bead is no
 // longer among those named.
 func TestKeepPeerBases(t *testing.T) {
 	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -221,10 +221,10 @@ func TestKeepPeerBases(t *testing.T) {
 		return exec.Command("git", "-C", dir, "cat-file", "-e", loose+"^{commit}").Run() == nil
 	}
 	ctx := context.Background()
-	rig := store.Rig{Name: "web", Path: dir, Kind: store.RigGit, Base: "main"}
+	depot := store.Depot{Name: "web", Path: dir, Kind: store.DepotGit, Base: "main"}
 	refs := func() string { return git(t, dir, "for-each-ref", "--format=%(refname) %(objectname)", "refs/yardr") }
-	bases := []store.PeerBase{{Bead: "web-1", Rig: rig, Commit: loose}, {Bead: "web-2", Rig: rig, Commit: first}}
-	if err := store.KeepPeerBases(ctx, rig, bases); err != nil {
+	bases := []store.PeerBase{{Bead: "web-1", Depot: depot, Commit: loose}, {Bead: "web-2", Depot: depot, Commit: first}}
+	if err := store.KeepPeerBases(ctx, depot, bases); err != nil {
 		t.Fatal(err)
 	}
 	if want := "refs/yardr/peer-base/web-1 " + loose + "\nrefs/yardr/peer-base/web-2 " + first; refs() != want || store.PeerBaseRef("web-1") != "refs/yardr/peer-base/web-1" {
@@ -236,7 +236,7 @@ func TestKeepPeerBases(t *testing.T) {
 	// A ref of the fetch of a returned branch is not this one's to remove,
 	// and what is no bead's name or no commit's makes no ref.
 	git(t, dir, "update-ref", "refs/yardr/returned/web-9", first)
-	if err := store.KeepPeerBases(ctx, rig, []store.PeerBase{bases[1], {Bead: "../heads/main", Rig: rig, Commit: loose}, {Bead: "web-3", Rig: rig, Commit: "HEAD"}}); err != nil {
+	if err := store.KeepPeerBases(ctx, depot, []store.PeerBase{bases[1], {Bead: "../heads/main", Depot: depot, Commit: loose}, {Bead: "web-3", Depot: depot, Commit: "HEAD"}}); err != nil {
 		t.Fatal(err)
 	}
 	if want := "refs/yardr/peer-base/web-2 " + first + "\nrefs/yardr/returned/web-9 " + first; refs() != want || git(t, dir, "rev-parse", "main") != first {
@@ -246,7 +246,7 @@ func TestKeepPeerBases(t *testing.T) {
 		t.Fatal("the commit is still there: the test's gc drops nothing, and shows nothing")
 	}
 	// A directory has no refs, and asking is no error.
-	if err := store.KeepPeerBases(ctx, store.Rig{Name: "notes", Path: dir, Kind: store.RigDir}, bases); err != nil || strings.Contains(refs(), "web-1") {
-		t.Fatalf("a dir rig: %v, %s", err, refs())
+	if err := store.KeepPeerBases(ctx, store.Depot{Name: "notes", Path: dir, Kind: store.DepotDir}, bases); err != nil || strings.Contains(refs(), "web-1") {
+		t.Fatalf("a dir depot: %v, %s", err, refs())
 	}
 }

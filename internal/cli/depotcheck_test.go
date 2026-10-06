@@ -16,70 +16,70 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// rig check exits 1 for a red gate and 2 when it could not run, and a red
+// depot check exits 1 for a red gate and 2 when it could not run, and a red
 // gate always prints something, whatever --tail says.
-func TestRigCheckExitsAndTail(t *testing.T) {
+func TestDepotCheckExitsAndTail(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	put := func(check string) {
 		t.Helper()
-		if err := st.PutRig(ctx, store.Rig{Name: "r", Path: t.TempDir(), Base: "main", Check: check}, "me"); err != nil {
+		if err := st.PutDepot(ctx, store.Depot{Name: "r", Path: t.TempDir(), Base: "main", Check: check}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	a := &app{st: st, actor: "me"}
 
 	put("printf 'one\\ntwo\\nthree\\n'; exit 4")
-	out, err := run(t, a.rigCheckCmd(), "r", "--tail", "0")
+	out, err := run(t, a.depotCheckCmd(), "r", "--tail", "0")
 	if exitCode(err) != 1 || !strings.Contains(out, "3 lines of output not shown") || !strings.Contains(out, "FAIL (exit 4)") {
 		t.Fatalf("red gate, --tail 0: %q, %v (exit %d)", out, err, exitCode(err))
 	}
-	if out, _ = run(t, a.rigCheckCmd(), "r", "--tail", "1"); !strings.Contains(out, "three") || strings.Contains(out, "two") {
+	if out, _ = run(t, a.depotCheckCmd(), "r", "--tail", "1"); !strings.Contains(out, "three") || strings.Contains(out, "two") {
 		t.Fatalf("red gate, --tail 1: %q", out)
 	}
 
 	put("exit 1")
-	if out, err = run(t, a.rigCheckCmd(), "r"); exitCode(err) != 1 || !strings.Contains(out, "(the check printed nothing)") {
+	if out, err = run(t, a.depotCheckCmd(), "r"); exitCode(err) != 1 || !strings.Contains(out, "(the check printed nothing)") {
 		t.Fatalf("silent red gate: %q, %v", out, err)
 	}
 
 	put("sleep 30")
-	if out, err = run(t, a.rigCheckCmd(), "r", "--timeout", "200ms"); exitCode(err) != 1 || !strings.Contains(out, "timed out after 200ms") {
+	if out, err = run(t, a.depotCheckCmd(), "r", "--timeout", "200ms"); exitCode(err) != 1 || !strings.Contains(out, "timed out after 200ms") {
 		t.Fatalf("timed out gate: %q, %v", out, err)
 	}
 
 	// Ended by a signal from outside, either way a shell shows it: 128+N,
 	// which the kill at the deadline above is not.
 	put("echo ok; kill -TERM $$")
-	if out, err = run(t, a.rigCheckCmd(), "r"); exitCode(err) != 143 || !errors.Is(err, errCheckFailed) ||
+	if out, err = run(t, a.depotCheckCmd(), "r"); exitCode(err) != 143 || !errors.Is(err, errCheckFailed) ||
 		!strings.Contains(out, "ok\n") || !strings.Contains(out, "FAIL (exit -1, ended by signal 15)") {
 		t.Fatalf("gate killed by SIGTERM: %q, %v (exit %d), want 143", out, err, exitCode(err))
 	}
 	put("exit 143")
-	if out, err = run(t, a.rigCheckCmd(), "r"); exitCode(err) != 143 || !strings.Contains(out, "FAIL (exit 143, ended by signal 15)") {
+	if out, err = run(t, a.depotCheckCmd(), "r"); exitCode(err) != 143 || !strings.Contains(out, "FAIL (exit 143, ended by signal 15)") {
 		t.Fatalf("gate exiting 143: %q, %v (exit %d), want 143", out, err, exitCode(err))
 	}
 
 	put("true")
-	if out, err = run(t, a.rigCheckCmd(), "r"); exitCode(err) != 0 || !strings.Contains(out, ": pass") {
+	if out, err = run(t, a.depotCheckCmd(), "r"); exitCode(err) != 0 || !strings.Contains(out, ": pass") {
 		t.Fatalf("green gate: %q, %v", out, err)
 	}
 
-	// Could not run: an unknown rig, a base that does not resolve.
-	if _, err = run(t, a.rigCheckCmd(), "nope"); exitCode(err) != 2 {
-		t.Fatalf("unknown rig: %v (exit %d), want 2", err, exitCode(err))
+	// Could not run: an unknown depot, a base that does not resolve.
+	if _, err = run(t, a.depotCheckCmd(), "nope"); exitCode(err) != 2 {
+		t.Fatalf("unknown depot: %v (exit %d), want 2", err, exitCode(err))
 	}
-	if err := st.PutRig(ctx, store.Rig{Name: "broken", Path: t.TempDir(), Base: "main"}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "broken", Path: t.TempDir(), Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = run(t, a.rigCheckCmd(), "broken"); exitCode(err) != 2 {
-		t.Fatalf("rig that is not a repo: %v (exit %d), want 2", err, exitCode(err))
+	if _, err = run(t, a.depotCheckCmd(), "broken"); exitCode(err) != 2 {
+		t.Fatalf("depot that is not a repo: %v (exit %d), want 2", err, exitCode(err))
 	}
 }
 
-// rig add without --kind takes a git checkout for a git rig and any other
-// directory for a dir rig, and says which; a dir rig refuses --base.
-func TestRigAddDetectsKind(t *testing.T) {
+// depot add without --kind takes a git checkout for a git depot and any other
+// directory for a dir depot, and says which; a dir depot refuses --base.
+func TestDepotAddDetectsKind(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	a := &app{st: st, actor: "me"}
@@ -90,62 +90,62 @@ func TestRigAddDetectsKind(t *testing.T) {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
-	out, err := run(t, a.rigCmd(), "add", "web", repo, "--base", "main")
+	out, err := run(t, a.depotCmd(), "add", "web", repo, "--base", "main")
 	if err != nil || !strings.Contains(out, "(git, base main)") {
 		t.Fatalf("add a checkout: %q, %v", out, err)
 	}
 	docs := t.TempDir()
-	if out, err = run(t, a.rigCmd(), "add", "docs", docs); err != nil || !strings.Contains(out, "(dir: no git, no base)") {
+	if out, err = run(t, a.depotCmd(), "add", "docs", docs); err != nil || !strings.Contains(out, "(dir: no git, no base)") {
 		t.Fatalf("add a plain directory: %q, %v", out, err)
 	}
-	for name, want := range map[string]string{"web": store.RigGit, "docs": store.RigDir} {
-		if r, err := st.GetRig(ctx, name); err != nil || r.Kind != want {
+	for name, want := range map[string]string{"web": store.DepotGit, "docs": store.DepotDir} {
+		if r, err := st.GetDepot(ctx, name); err != nil || r.Kind != want {
 			t.Fatalf("%s = %+v, %v; want kind %s", name, r, err, want)
 		}
 	}
-	if r, _ := st.GetRig(ctx, "docs"); r.Base != "" {
-		t.Fatalf("dir rig has base %q", r.Base)
+	if r, _ := st.GetDepot(ctx, "docs"); r.Base != "" {
+		t.Fatalf("dir depot has base %q", r.Base)
 	}
-	// --kind dir makes a checkout a dir rig.
-	if out, err = run(t, a.rigCmd(), "add", "flat", repo, "--kind", "dir"); err != nil || !strings.Contains(out, "(dir") {
+	// --kind dir makes a checkout a dir depot.
+	if out, err = run(t, a.depotCmd(), "add", "flat", repo, "--kind", "dir"); err != nil || !strings.Contains(out, "(dir") {
 		t.Fatalf("--kind dir on a checkout: %q, %v", out, err)
 	}
-	if _, err = run(t, a.rigCmd(), "add", "docs", docs, "--base", "main"); err == nil || !strings.Contains(err.Error(), "no base") {
-		t.Fatalf("--base on a dir rig: %v", err)
+	if _, err = run(t, a.depotCmd(), "add", "docs", docs, "--base", "main"); err == nil || !strings.Contains(err.Error(), "no base") {
+		t.Fatalf("--base on a dir depot: %v", err)
 	}
-	if _, err = run(t, a.rigCmd(), "add", "docs", docs, "--kind", "git"); err == nil || !strings.Contains(err.Error(), "not a git checkout") {
+	if _, err = run(t, a.depotCmd(), "add", "docs", docs, "--kind", "git"); err == nil || !strings.Contains(err.Error(), "not a git checkout") {
 		t.Fatalf("--kind git on a plain directory: %v", err)
 	}
-	if _, err = run(t, a.rigCmd(), "add", "docs", docs, "--kind", "svn"); err == nil {
+	if _, err = run(t, a.depotCmd(), "add", "docs", docs, "--kind", "svn"); err == nil {
 		t.Fatal("--kind svn accepted")
 	}
-	if _, err = run(t, a.rigCmd(), "add", "x", filepath.Join(docs, "missing")); err == nil {
+	if _, err = run(t, a.depotCmd(), "add", "x", filepath.Join(docs, "missing")); err == nil {
 		t.Fatal("a path that does not exist registered")
 	}
 
-	out, err = run(t, a.rigCmd(), "show", "docs")
+	out, err = run(t, a.depotCmd(), "show", "docs")
 	if err != nil || !strings.Contains(out, "kind:  dir") || !strings.Contains(out, "base:  none") {
-		t.Fatalf("show dir rig: %q, %v", out, err)
+		t.Fatalf("show dir depot: %q, %v", out, err)
 	}
-	out, err = run(t, a.rigCmd(), "list")
+	out, err = run(t, a.depotCmd(), "list")
 	if err != nil || !strings.Contains(out, "KIND") || !regexp.MustCompile(`docs\s+dir\s`).MatchString(out) || !regexp.MustCompile(`web\s+git\s`).MatchString(out) {
 		t.Fatalf("list: %q, %v", out, err)
 	}
 }
 
-// rig check on a dir rig with no check passes ("no gate"); with one it runs
-// it in --dir, by default the rig's directory.
-func TestRigCheckDirRig(t *testing.T) {
+// depot check on a dir depot with no check passes ("no gate"); with one it runs
+// it in --dir, by default the depot's directory.
+func TestDepotCheckDirDepot(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	dir := t.TempDir()
-	if err := st.PutRig(ctx, store.Rig{Name: "docs", Path: dir, Kind: store.RigDir}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "docs", Path: dir, Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	a := &app{st: st, actor: "me"}
-	out, err := run(t, a.rigCheckCmd(), "docs")
-	if exitCode(err) != 0 || !strings.Contains(out, "dir rig with no check") || !strings.Contains(out, "pass (no gate)") {
-		t.Fatalf("dir rig without a check: %q, %v", out, err)
+	out, err := run(t, a.depotCheckCmd(), "docs")
+	if exitCode(err) != 0 || !strings.Contains(out, "dir depot with no check") || !strings.Contains(out, "pass (no gate)") {
+		t.Fatalf("dir depot without a check: %q, %v", out, err)
 	}
 	if err := os.MkdirAll(filepath.Join(dir, ".yardr"), 0o755); err != nil {
 		t.Fatal(err)
@@ -153,7 +153,7 @@ func TestRigCheckDirRig(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, ".yardr", "check"), []byte("test -f summary.md\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if out, err = run(t, a.rigCheckCmd(), "docs"); exitCode(err) != 1 || !strings.Contains(out, "FAIL (exit 1)") {
+	if out, err = run(t, a.depotCheckCmd(), "docs"); exitCode(err) != 1 || !strings.Contains(out, "FAIL (exit 1)") {
 		t.Fatalf("red dir check: %q, %v", out, err)
 	}
 	sub := filepath.Join(dir, "2025-09")
@@ -163,16 +163,16 @@ func TestRigCheckDirRig(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sub, "summary.md"), []byte("ok"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if out, err = run(t, a.rigCheckCmd(), "docs", "--dir", sub); exitCode(err) != 0 || !strings.Contains(out, "check docs (dir) in "+sub+": pass") {
+	if out, err = run(t, a.depotCheckCmd(), "docs", "--dir", sub); exitCode(err) != 0 || !strings.Contains(out, "check docs (dir) in "+sub+": pass") {
 		t.Fatalf("green dir check in --dir: %q, %v", out, err)
 	}
 }
 
 // A repository flow that drops a stage on the base strands the open beads
-// in it: rig check fails naming each, with exit 2 when the gate itself is
+// in it: depot check fails naming each, with exit 2 when the gate itself is
 // green (no branch can fix it) and 1 when the gate is red as well, and flow
 // show warns under the flow that lacks the stage.
-func TestRigCheckAndFlowShowReportStrandedBeads(t *testing.T) {
+func TestDepotCheckAndFlowShowReportStrandedBeads(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	repo := t.TempDir()
@@ -197,37 +197,37 @@ func TestRigCheckAndFlowShowReportStrandedBeads(t *testing.T) {
 	}
 	put := func(check string) {
 		t.Helper()
-		if err := st.PutRig(ctx, store.Rig{Name: "web", Path: repo, Base: "main", Check: check}, "me"); err != nil {
+		if err := st.PutDepot(ctx, store.Depot{Name: "web", Path: repo, Base: "main", Check: check}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	git("init", "-q", "-b", "main")
 	flow("new -> triage | review\ntriage -> review\nreview -> merged\nmerged terminal\n")
 	put("echo gate ran")
-	b, err := st.CreateBead(ctx, store.NewBead{Title: "in triage", Rig: "web", Stage: "triage"}, "me")
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "in triage", Depot: "web", Stage: "triage"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
 	a := &app{st: st, actor: "me"}
-	if out, err := run(t, a.rigCheckCmd(), "web"); exitCode(err) != 0 || strings.Contains(out, "stranded") {
+	if out, err := run(t, a.depotCheckCmd(), "web"); exitCode(err) != 0 || strings.Contains(out, "stranded") {
 		t.Fatalf("before the flow changed: %q, %v", out, err)
 	}
 
 	flow("new -> review\nreview -> merged\nmerged terminal\n")
 	sha := git("rev-parse", "--short=7", "HEAD")
 	named := "bead " + b.ID + " is in stage triage, which flow default (repo@" + sha + ") lacks"
-	out, err := run(t, a.rigCheckCmd(), "web")
+	out, err := run(t, a.depotCheckCmd(), "web")
 	if exitCode(err) != 2 || !strings.Contains(out, "gate ran") || !strings.Contains(out, "stranded: "+named) ||
-		!strings.Contains(out, "yardr bead advance "+b.ID+" --to <stage>") || !strings.Contains(out, "rig web: FAIL") || strings.Contains(out, ": pass") {
+		!strings.Contains(out, "yardr bead advance "+b.ID+" --to <stage>") || !strings.Contains(out, "depot web: FAIL") || strings.Contains(out, ": pass") {
 		t.Fatalf("green gate, stranded bead: %q, %v (exit %d), want exit 2 naming %s", out, err, exitCode(err), b.ID)
 	}
 	put("exit 3")
-	if out, err = run(t, a.rigCheckCmd(), "web"); exitCode(err) != 1 || !strings.Contains(out, "FAIL (exit 3)") || !strings.Contains(out, "stranded: "+named) {
+	if out, err = run(t, a.depotCheckCmd(), "web"); exitCode(err) != 1 || !strings.Contains(out, "FAIL (exit 3)") || !strings.Contains(out, "stranded: "+named) {
 		t.Fatalf("red gate, stranded bead: %q, %v (exit %d), want exit 1", out, err, exitCode(err))
 	}
 	put("echo gate ran")
 	a.json = true
-	if out, err = run(t, a.rigCheckCmd(), "web"); exitCode(err) != 2 || !strings.Contains(out, `"pass": false`) || !strings.Contains(out, `"bead": "`+b.ID+`"`) {
+	if out, err = run(t, a.depotCheckCmd(), "web"); exitCode(err) != 2 || !strings.Contains(out, `"pass": false`) || !strings.Contains(out, `"bead": "`+b.ID+`"`) {
 		t.Fatalf("--json: %q, %v", out, err)
 	}
 	a.json = false
@@ -247,14 +247,14 @@ func TestRigCheckAndFlowShowReportStrandedBeads(t *testing.T) {
 	if _, err := st.Advance(ctx, b.ID, "new", store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if out, err = run(t, a.rigCheckCmd(), "web"); exitCode(err) != 0 || strings.Contains(out, "stranded") {
+	if out, err = run(t, a.depotCheckCmd(), "web"); exitCode(err) != 0 || strings.Contains(out, "stranded") {
 		t.Fatalf("after advancing: %q, %v", out, err)
 	}
 	if views, err = flowViews(ctx, st, "web", ""); err != nil || slices.ContainsFunc(views[0].Warnings, func(w string) bool { return strings.Contains(w, b.ID) }) {
 		t.Fatalf("flow show after advancing: %+v, %v", views, err)
 	}
 
-	// A bead may pin a flow that is not one of the rig's normal views. Its
+	// A bead may pin a flow that is not one of the depot's normal views. Its
 	// warning still needs a visible heading under that flow.
 	altPath := filepath.Join(repo, ".yardr/flows/alt.flow")
 	if err := os.WriteFile(altPath, []byte("lost -> start\nstart -> finish\nfinish terminal\n"), 0o644); err != nil {
@@ -262,10 +262,10 @@ func TestRigCheckAndFlowShowReportStrandedBeads(t *testing.T) {
 	}
 	git("add", ".yardr/flows/alt.flow")
 	git("commit", "-q", "-m", "add pinned flow")
-	if err := st.PutRig(ctx, store.Rig{Name: "pin-only", Path: repo, Base: "main"}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "pin-only", Path: repo, Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	pinned, err := st.CreateBead(ctx, store.NewBead{Title: "pinned stranded", Rig: "pin-only", Stage: "lost", Metadata: map[string]any{"flow": "alt"}}, "me")
+	pinned, err := st.CreateBead(ctx, store.NewBead{Title: "pinned stranded", Depot: "pin-only", Stage: "lost", Metadata: map[string]any{"flow": "alt"}}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,65 +282,65 @@ func TestRigCheckAndFlowShowReportStrandedBeads(t *testing.T) {
 	}
 }
 
-// rig check --light runs the rig's light gate under the full one's exit
-// statuses, and names it; a rig without one runs the full gate and says so
+// depot check --light runs the depot's light gate under the full one's exit
+// statuses, and names it; a depot without one runs the full gate and says so
 // in one line, first.
-func TestRigCheckLight(t *testing.T) {
+func TestDepotCheckLight(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	put := func(check, light string) {
 		t.Helper()
-		if err := st.PutRig(ctx, store.Rig{Name: "r", Path: t.TempDir(), Base: "main", Check: check, CheckLight: light}, "me"); err != nil {
+		if err := st.PutDepot(ctx, store.Depot{Name: "r", Path: t.TempDir(), Base: "main", Check: check, CheckLight: light}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	a := &app{st: st, actor: "me"}
 
 	put("echo full; exit 4", "echo light")
-	out, err := run(t, a.rigCheckCmd(), "r", "--light")
+	out, err := run(t, a.depotCheckCmd(), "r", "--light")
 	if exitCode(err) != 0 || !strings.Contains(out, "light\n") || strings.Contains(out, "full\n") ||
 		!strings.Contains(out, "check r (light gate, store) in ") || !strings.Contains(out, ": pass") {
 		t.Fatalf("green light gate: %q, %v", out, err)
 	}
-	if out, err = run(t, a.rigCheckCmd(), "r"); exitCode(err) != 1 || strings.Contains(out, "light") {
+	if out, err = run(t, a.depotCheckCmd(), "r"); exitCode(err) != 1 || strings.Contains(out, "light") {
 		t.Fatalf("the full gate beside a light one: %q, %v", out, err)
 	}
 
 	put("true", "echo no; exit 3")
-	if out, err = run(t, a.rigCheckCmd(), "r", "--light"); exitCode(err) != 1 || !strings.Contains(out, "FAIL (exit 3)") {
+	if out, err = run(t, a.depotCheckCmd(), "r", "--light"); exitCode(err) != 1 || !strings.Contains(out, "FAIL (exit 3)") {
 		t.Fatalf("red light gate: %q, %v (exit %d)", out, err, exitCode(err))
 	}
 	put("true", "exit 143")
-	if _, err = run(t, a.rigCheckCmd(), "r", "--light"); exitCode(err) != 143 {
+	if _, err = run(t, a.depotCheckCmd(), "r", "--light"); exitCode(err) != 143 {
 		t.Fatalf("light gate ended by a signal: %v (exit %d), want 143", err, exitCode(err))
 	}
 	put("true", "sleep 30")
-	if out, err = run(t, a.rigCheckCmd(), "r", "--light", "--timeout", "200ms"); exitCode(err) != 1 || !strings.Contains(out, "timed out after 200ms") {
+	if out, err = run(t, a.depotCheckCmd(), "r", "--light", "--timeout", "200ms"); exitCode(err) != 1 || !strings.Contains(out, "timed out after 200ms") {
 		t.Fatalf("timed out light gate: %q, %v", out, err)
 	}
 
 	// No light gate: the full one, said first, and its verdict.
 	put("echo full; exit 4", "")
-	out, err = run(t, a.rigCheckCmd(), "r", "--light")
-	if exitCode(err) != 1 || !strings.HasPrefix(out, "rig r has no light gate (") || !strings.Contains(out, "running the full gate\nfull\n") ||
+	out, err = run(t, a.depotCheckCmd(), "r", "--light")
+	if exitCode(err) != 1 || !strings.HasPrefix(out, "depot r has no light gate (") || !strings.Contains(out, "running the full gate\nfull\n") ||
 		strings.Contains(out, "light gate, ") {
 		t.Fatalf("--light without a light gate: %q, %v (exit %d)", out, err, exitCode(err))
 	}
-	// rig add --check-light is how the store gets one, and rig add says it.
+	// depot add --check-light is how the store gets one, and depot add says it.
 	dir := t.TempDir()
-	out, err = run(t, a.rigCmd(), "add", "d", dir, "--kind", "dir", "--check", "exit 4", "--check-light", "echo from rig add")
-	if err != nil || !strings.Contains(out, "light gate: echo from rig add (store override of .yardr/check-light)") {
-		t.Fatalf("rig add --check-light: %q, %v", out, err)
+	out, err = run(t, a.depotCmd(), "add", "d", dir, "--kind", "dir", "--check", "exit 4", "--check-light", "echo from depot add")
+	if err != nil || !strings.Contains(out, "light gate: echo from depot add (store override of .yardr/check-light)") {
+		t.Fatalf("depot add --check-light: %q, %v", out, err)
 	}
-	if out, err = run(t, a.rigCheckCmd(), "d", "--light"); exitCode(err) != 0 || !strings.Contains(out, "from rig add\n") {
-		t.Fatalf("the light gate rig add stored: %q, %v", out, err)
+	if out, err = run(t, a.depotCheckCmd(), "d", "--light"); exitCode(err) != 0 || !strings.Contains(out, "from depot add\n") {
+		t.Fatalf("the light gate depot add stored: %q, %v", out, err)
 	}
 	// Could not run is still exit 2.
-	if err := st.PutRig(ctx, store.Rig{Name: "broken", Path: t.TempDir(), Base: "main"}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "broken", Path: t.TempDir(), Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = run(t, a.rigCheckCmd(), "broken", "--light"); exitCode(err) != 2 {
-		t.Fatalf("rig that is not a repo, --light: %v (exit %d), want 2", err, exitCode(err))
+	if _, err = run(t, a.depotCheckCmd(), "broken", "--light"); exitCode(err) != 2 {
+		t.Fatalf("depot that is not a repo, --light: %v (exit %d), want 2", err, exitCode(err))
 	}
 }
 
@@ -348,7 +348,7 @@ func TestRigCheckLight(t *testing.T) {
 // names the file in its FAIL line, the light gate's and a timed-out one's
 // too; one that passes keeps nothing. With a pattern on the base the lines
 // that say what failed come before the tail.
-func TestRigCheckKeepsAFailedGatesOutput(t *testing.T) {
+func TestDepotCheckKeepsAFailedGatesOutput(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	repo, home := t.TempDir(), t.TempDir()
@@ -363,7 +363,7 @@ func TestRigCheckKeepsAFailedGatesOutput(t *testing.T) {
 	git("commit", "-q", "--allow-empty", "-m", "init")
 	put := func(check, light string) {
 		t.Helper()
-		if err := st.PutRig(ctx, store.Rig{Name: "r", Path: repo, Base: "main", Check: check, CheckLight: light}, "me"); err != nil {
+		if err := st.PutDepot(ctx, store.Depot{Name: "r", Path: repo, Base: "main", Check: check, CheckLight: light}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -382,7 +382,7 @@ func TestRigCheckKeepsAFailedGatesOutput(t *testing.T) {
 	}
 
 	put("true", "")
-	if out, err := run(t, a.rigCheckCmd(), "r"); exitCode(err) != 0 || strings.Contains(out, "whole output") {
+	if out, err := run(t, a.depotCheckCmd(), "r"); exitCode(err) != 0 || strings.Contains(out, "whole output") {
 		t.Fatalf("green gate: %q, %v", out, err)
 	}
 	if _, err := os.Stat(filepath.Join(home, "gates")); !os.IsNotExist(err) {
@@ -392,7 +392,7 @@ func TestRigCheckKeepsAFailedGatesOutput(t *testing.T) {
 	// The failure, then 500 lines: no pattern, so the tail alone, and the file.
 	fails := `echo '--- FAIL: TestIt'; echo '    it_test.go:7: got 1'; i=0; while [ $i -lt 500 ]; do i=$((i+1)); echo "ok pkg$i"; done; exit 3`
 	put(fails, "echo light; exit 1")
-	out, err := run(t, a.rigCheckCmd(), "r", "--tail", "5")
+	out, err := run(t, a.depotCheckCmd(), "r", "--tail", "5")
 	if exitCode(err) != 1 || strings.Contains(out, "TestIt") || strings.Contains(out, "lines matching") || !strings.HasPrefix(out, "ok pkg496\n") {
 		t.Fatalf("red gate without a pattern: %q, %v", out, err)
 	}
@@ -414,7 +414,7 @@ func TestRigCheckKeepsAFailedGatesOutput(t *testing.T) {
 	}
 	git("add", ".yardr")
 	git("commit", "-q", "-m", "pattern")
-	out, err = run(t, a.rigCheckCmd(), "r", "--tail", "5")
+	out, err = run(t, a.depotCheckCmd(), "r", "--tail", "5")
 	lead := "lines matching .yardr/check-fail-pattern, of 502 lines of output:\n-- line 1\n--- FAIL: TestIt\n    it_test.go:7: got 1\nok pkg1\n"
 	if exitCode(err) != 1 || !strings.HasPrefix(out, lead) || !strings.Contains(out, "ok pkg7\nthe last 5 lines:\nok pkg496\n") ||
 		!strings.Contains(out, "note: .yardr/check-fail-pattern line 2 is not a regular expression") {
@@ -424,29 +424,29 @@ func TestRigCheckKeepsAFailedGatesOutput(t *testing.T) {
 		t.Fatalf("the second run was kept over the first, in %s", file)
 	}
 	// --tail 0 still leads with what failed.
-	if out, _ = run(t, a.rigCheckCmd(), "r", "--tail", "0"); !strings.HasPrefix(out, lead) || strings.Contains(out, "the last") {
+	if out, _ = run(t, a.depotCheckCmd(), "r", "--tail", "0"); !strings.HasPrefix(out, lead) || strings.Contains(out, "the last") {
 		t.Fatalf("red gate with a pattern, --tail 0: %q", out)
 	}
 
 	// The light gate's, a timed-out gate's and a signalled one's are kept too.
-	out, err = run(t, a.rigCheckCmd(), "r", "--light")
+	out, err = run(t, a.depotCheckCmd(), "r", "--light")
 	if f := keptFile(out); exitCode(err) != 1 || !strings.HasSuffix(f, ".light.log") {
 		t.Fatalf("red light gate: %q, %v", out, err)
 	}
 	put("echo slow; sleep 30", "")
-	out, err = run(t, a.rigCheckCmd(), "r", "--timeout", "300ms")
+	out, err = run(t, a.depotCheckCmd(), "r", "--timeout", "300ms")
 	if b, _ := os.ReadFile(keptFile(out)); exitCode(err) != 1 || !strings.HasPrefix(string(b), "slow\n") {
 		t.Fatalf("timed out gate: %q, %v, kept %q", out, err, b)
 	}
 	put("echo ok; exit 143", "")
-	out, err = run(t, a.rigCheckCmd(), "r")
+	out, err = run(t, a.depotCheckCmd(), "r")
 	if keptFile(out); exitCode(err) != 143 {
 		t.Fatalf("signalled gate: %q, %v", out, err)
 	}
 
 	// --json names it as log_file.
 	a.json = true
-	if out, _ = run(t, a.rigCheckCmd(), "r"); !strings.Contains(out, `"log_file": "`+gates) {
+	if out, _ = run(t, a.depotCheckCmd(), "r"); !strings.Contains(out, `"log_file": "`+gates) {
 		t.Fatalf("--json: %s", out)
 	}
 	a.json = false
@@ -457,17 +457,17 @@ func TestRigCheckKeepsAFailedGatesOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.cfg = &config.Config{Home: notDir}
-	if out, err = run(t, a.rigCheckCmd(), "r"); exitCode(err) != 143 || !strings.Contains(out, "ended by signal 15); its output could not be kept: ") {
+	if out, err = run(t, a.depotCheckCmd(), "r"); exitCode(err) != 143 || !strings.Contains(out, "ended by signal 15); its output could not be kept: ") {
 		t.Fatalf("unwritable home: %q, %v", out, err)
 	}
 }
 
 // The light gate of a car of a train is compared with the train's branch,
-// not the rig's base: it sees what the car changed, not the train's earlier
+// not the depot's base: it sees what the car changed, not the train's earlier
 // cars again. The bead is found from the branch --dir is on. The full gate,
-// a car with no train, a task under a train and a run in the rig itself are
+// a car with no train, a task under a train and a run in the depot itself are
 // compared with the base, as they were.
-func TestRigCheckLightOfACarIsComparedWithItsTrain(t *testing.T) {
+func TestDepotCheckLightOfACarIsComparedWithItsTrain(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	repo := t.TempDir()
@@ -494,18 +494,18 @@ func TestRigCheckLightOfACarIsComparedWithItsTrain(t *testing.T) {
 	git(repo, "commit", "-q", "--allow-empty", "-m", "init")
 	// Either gate says what it is compared with and what changed since.
 	gate := `echo "base=$YARDR_CHECK_BASE"; echo "changed=$(git diff --name-only "$(git merge-base "$YARDR_CHECK_BASE" HEAD)" | tr '\n' ' ')"`
-	if err := st.PutRig(ctx, store.Rig{Name: "r", Path: repo, Base: "main", Check: "echo full; " + gate, CheckLight: "echo light; " + gate}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "r", Path: repo, Base: "main", Check: "echo full; " + gate, CheckLight: "echo light; " + gate}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.PutRig(ctx, store.Rig{Name: "other", Path: repo, Base: "main", Check: "true", CheckLight: gate}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "other", Path: repo, Base: "main", Check: "true", CheckLight: gate}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	for _, nb := range []store.NewBead{
-		{ID: "r-e", Title: "train", Type: store.TypeTrain, Rig: "r"},
-		{ID: "r-p1", Title: "car one", Type: store.TypeCar, Rig: "r"},
-		{ID: "r-p2", Title: "car two", Type: store.TypeCar, Rig: "r"},
-		{ID: "r-t", Title: "a task of the train", Rig: "r"},
-		{ID: "r-lone", Title: "a car with no train", Type: store.TypeCar, Rig: "r"},
+		{ID: "r-e", Title: "train", Type: store.TypeTrain, Depot: "r"},
+		{ID: "r-p1", Title: "car one", Type: store.TypeCar, Depot: "r"},
+		{ID: "r-p2", Title: "car two", Type: store.TypeCar, Depot: "r"},
+		{ID: "r-t", Title: "a task of the train", Depot: "r"},
+		{ID: "r-lone", Title: "a car with no train", Type: store.TypeCar, Depot: "r"},
 	} {
 		if _, err := st.CreateBead(ctx, nb, "me"); err != nil {
 			t.Fatal(err)
@@ -536,7 +536,7 @@ func TestRigCheckLightOfACarIsComparedWithItsTrain(t *testing.T) {
 	a := &app{st: st, actor: "me"}
 	check := func(what, wantBase, wantChanged, first string, args ...string) {
 		t.Helper()
-		out, err := run(t, a.rigCheckCmd(), args...)
+		out, err := run(t, a.depotCheckCmd(), args...)
 		if err != nil || !strings.Contains(out, "base="+wantBase+"\n") || !strings.Contains(out, "changed="+wantChanged+"\n") || !strings.HasPrefix(out, first) {
 			t.Fatalf("%s: %v\n%s\nwant base=%s, changed=%s, first %q", what, err, out, wantBase, wantChanged, first)
 		}
@@ -548,14 +548,14 @@ func TestRigCheckLightOfACarIsComparedWithItsTrain(t *testing.T) {
 	check("full gate of a car of a train", base, "p/p.go q/q.go ", "full\n", "r", "--dir", p2)
 	check("light gate of a task of a train", base, "p/p.go q/q.go ", sinceMain, "r", "--light", "--dir", task)
 	check("light gate of a car with no train", base, "q/q.go ", sinceMain, "r", "--light", "--dir", lone)
-	check("light gate in the rig itself", base, "", sinceMain, "r", "--light")
+	check("light gate in the depot itself", base, "", sinceMain, "r", "--light")
 	// The train's own branch, and a detached checkout of the car.
 	check("light gate of the train", base, "p/p.go ", sinceMain, "r", "--light", "--dir", wt("r-e2", "yard/r-e"))
 	git(p2, "checkout", "-q", "--detach")
 	check("light gate on no branch", base, "p/p.go q/q.go ", sinceMain, "r", "--light", "--dir", p2)
 	git(p2, "checkout", "-q", "yard/r-p2")
-	// Another rig's check in the car's worktree is not the car's.
-	check("light gate of another rig", base, "p/p.go q/q.go ", "light gate, changes since main at", "other", "--light", "--dir", p2)
+	// Another depot's check in the car's worktree is not the car's.
+	check("light gate of another depot", base, "p/p.go q/q.go ", "light gate, changes since main at", "other", "--light", "--dir", p2)
 
 	// A train's branch that is not there: the base, which tests more.
 	git(repo, "branch", "-m", "yard/r-e", "elsewhere")
@@ -564,7 +564,7 @@ func TestRigCheckLightOfACarIsComparedWithItsTrain(t *testing.T) {
 	// --json names what it was compared with.
 	git(repo, "branch", "-m", "elsewhere", "yard/r-e")
 	a.json = true
-	if out, err := run(t, a.rigCheckCmd(), "r", "--light", "--dir", p2); err != nil || !strings.Contains(out, `"base_ref": "yard/r-e"`) || !strings.Contains(out, `"base": "`+train+`"`) {
+	if out, err := run(t, a.depotCheckCmd(), "r", "--light", "--dir", p2); err != nil || !strings.Contains(out, `"base_ref": "yard/r-e"`) || !strings.Contains(out, `"base": "`+train+`"`) {
 		t.Fatalf("--json: %v\n%s", err, out)
 	}
 }

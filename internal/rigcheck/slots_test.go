@@ -22,8 +22,8 @@ func TestMain(m *testing.M) {
 	// check under a slot, and be killed.
 	if dir := os.Getenv("RIGCHECK_TEST_HOLD"); dir != "" {
 		os.Unsetenv(SlotVar)
-		rig := store.Rig{Name: "r", Path: dir, Base: "main", Check: "echo $$ > " + filepath.Join(dir, "pid") + "; exec sleep 60"}
-		_, err := RunWith(context.Background(), rig, "", Options{Slots: &Slots{Dir: dir, Limit: 1}})
+		depot := store.Depot{Name: "r", Path: dir, Base: "main", Check: "echo $$ > " + filepath.Join(dir, "pid") + "; exec sleep 60"}
+		_, err := RunWith(context.Background(), depot, "", Options{Slots: &Slots{Dir: dir, Limit: 1}})
 		fmt.Fprintln(os.Stderr, "holder ended:", err)
 		os.Exit(3)
 	}
@@ -35,10 +35,10 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// slotRig is a rig whose gate is the command, with no repository behind it.
-func slotRig(t *testing.T, check string) store.Rig {
+// slotDepot is a depot whose gate is the command, with no repository behind it.
+func slotDepot(t *testing.T, check string) store.Depot {
 	t.Helper()
-	return store.Rig{Name: "r", Path: t.TempDir(), Base: "main", Check: check}
+	return store.Depot{Name: "r", Path: t.TempDir(), Base: "main", Check: check}
 }
 
 // lines collects what a run was told.
@@ -83,7 +83,7 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 func TestSlotsOneAtATime(t *testing.T) {
 	t.Parallel()
 	dir, log := t.TempDir(), filepath.Join(t.TempDir(), "log")
-	rig := slotRig(t, "echo start >> "+log+"; sleep 0.3; echo end >> "+log)
+	depot := slotDepot(t, "echo start >> "+log+"; sleep 0.3; echo end >> "+log)
 	var told lines
 	var wg sync.WaitGroup
 	waits := make([]float64, 2)
@@ -91,7 +91,7 @@ func TestSlotsOneAtATime(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			res, err := RunWith(context.Background(), rig, "", Options{Timeout: time.Minute,
+			res, err := RunWith(context.Background(), depot, "", Options{Timeout: time.Minute,
 				Slots: &Slots{Dir: dir, Limit: 1, Notify: told.add}})
 			if err != nil || !res.Pass {
 				t.Errorf("run %d: %+v, %v", i, res, err)
@@ -118,7 +118,7 @@ func TestSlotsOneAtATime(t *testing.T) {
 }
 
 // A slot is its holder's for as long as the process lives and no longer: a
-// rig check killed with SIGKILL, which runs no cleanup, frees it at once,
+// depot check killed with SIGKILL, which runs no cleanup, frees it at once,
 // even while the check it started still runs.
 func TestSlotFreedWhenItsProcessIsKilled(t *testing.T) {
 	t.Parallel()
@@ -166,7 +166,7 @@ func TestSlotWaitBound(t *testing.T) {
 	take(t, dir, 1)
 	var told lines
 	start := time.Now()
-	res, err := RunWith(context.Background(), slotRig(t, "touch "+ran), "", Options{Timeout: time.Minute,
+	res, err := RunWith(context.Background(), slotDepot(t, "touch "+ran), "", Options{Timeout: time.Minute,
 		Slots: &Slots{Dir: dir, Limit: 1, Wait: 150 * time.Millisecond, Notify: told.add}})
 	if res != nil || !errors.Is(err, ErrSlotWait) {
 		t.Fatalf("got %+v, %v; want ErrSlotWait", res, err)
@@ -202,7 +202,7 @@ func TestSlotWaitDoesNotEatTheTimeout(t *testing.T) {
 		time.Sleep(timeout + 300*time.Millisecond)
 		release()
 	}()
-	res, err := RunWith(context.Background(), slotRig(t, "true"), "", Options{Timeout: timeout,
+	res, err := RunWith(context.Background(), slotDepot(t, "true"), "", Options{Timeout: timeout,
 		Slots: &Slots{Dir: dir, Limit: 1}})
 	if err != nil || !res.Pass || res.TimedOut {
 		t.Fatalf("got %+v, %v; want a pass", res, err)
@@ -211,7 +211,7 @@ func TestSlotWaitDoesNotEatTheTimeout(t *testing.T) {
 		t.Fatalf("waited %.2fs, want more than the timeout of %s", res.SlotWaited, timeout)
 	}
 	// And the timeout still holds for the check itself.
-	res, err = RunWith(context.Background(), slotRig(t, "sleep 30"), "", Options{Timeout: 100 * time.Millisecond,
+	res, err = RunWith(context.Background(), slotDepot(t, "sleep 30"), "", Options{Timeout: 100 * time.Millisecond,
 		Slots: &Slots{Dir: dir, Limit: 1}})
 	if err != nil || res.Pass || !res.TimedOut {
 		t.Fatalf("a check past its timeout: %+v, %v", res, err)
@@ -222,7 +222,7 @@ func TestSlotWaitDoesNotEatTheTimeout(t *testing.T) {
 func TestSlotsNoLimit(t *testing.T) {
 	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "never-made")
-	res, err := RunWith(context.Background(), slotRig(t, `test -z "$`+SlotVar+`"`), "", Options{Timeout: time.Minute,
+	res, err := RunWith(context.Background(), slotDepot(t, `test -z "$`+SlotVar+`"`), "", Options{Timeout: time.Minute,
 		Slots: &Slots{Dir: dir, Limit: 0, Notify: func(s string) { t.Errorf("told %q", s) }}})
 	if err != nil || !res.Pass {
 		t.Fatalf("got %+v, %v", res, err)
@@ -233,7 +233,7 @@ func TestSlotsNoLimit(t *testing.T) {
 }
 
 // The light gate takes no slot, so it runs while every slot is taken. It
-// takes one when the rig says so, and so does the full gate run for want of
+// takes one when the depot says so, and so does the full gate run for want of
 // a light one.
 func TestLightGateTakesNoSlot(t *testing.T) {
 	t.Parallel()
@@ -242,36 +242,36 @@ func TestLightGateTakesNoSlot(t *testing.T) {
 	slots := func() *Slots {
 		return &Slots{Dir: dir, Limit: 1, Wait: 100 * time.Millisecond}
 	}
-	rig := slotRig(t, "exit 4")
-	rig.CheckLight = `test -z "$` + SlotVar + `"`
-	res, err := RunWith(context.Background(), rig, "", Options{Light: true, Timeout: time.Minute, Slots: slots()})
+	depot := slotDepot(t, "exit 4")
+	depot.CheckLight = `test -z "$` + SlotVar + `"`
+	res, err := RunWith(context.Background(), depot, "", Options{Light: true, Timeout: time.Minute, Slots: slots()})
 	if err != nil || !res.Pass || !res.Light || res.SlotWaited != 0 {
 		t.Fatalf("light gate with every slot taken: %+v, %v", res, err)
 	}
-	rig.LightSlot = true
-	if _, err := RunWith(context.Background(), rig, "", Options{Light: true, Timeout: time.Minute, Slots: slots()}); !errors.Is(err, ErrSlotWait) {
-		t.Fatalf("light gate of a rig with light_slot: %v, want ErrSlotWait", err)
+	depot.LightSlot = true
+	if _, err := RunWith(context.Background(), depot, "", Options{Light: true, Timeout: time.Minute, Slots: slots()}); !errors.Is(err, ErrSlotWait) {
+		t.Fatalf("light gate of a depot with light_slot: %v, want ErrSlotWait", err)
 	}
 	// No light gate: --light runs the full one, which is as heavy as ever.
-	rig.LightSlot, rig.CheckLight = false, ""
-	if _, err := RunWith(context.Background(), rig, "", Options{Light: true, Timeout: time.Minute, Slots: slots()}); !errors.Is(err, ErrSlotWait) {
+	depot.LightSlot, depot.CheckLight = false, ""
+	if _, err := RunWith(context.Background(), depot, "", Options{Light: true, Timeout: time.Minute, Slots: slots()}); !errors.Is(err, ErrSlotWait) {
 		t.Fatalf("full gate under --light: %v, want ErrSlotWait", err)
 	}
 }
 
-// A check under a slot is told so, and a rig check started from inside it
+// A check under a slot is told so, and a depot check started from inside it
 // takes none: with every slot held by gates waiting on gates of their own
 // tests, none would end.
 func TestCheckInsideAGateTakesNoSlot(t *testing.T) {
 	dir := t.TempDir()
-	res, err := RunWith(context.Background(), slotRig(t, `test "$`+SlotVar+`" = 1`), "", Options{Timeout: time.Minute,
+	res, err := RunWith(context.Background(), slotDepot(t, `test "$`+SlotVar+`" = 1`), "", Options{Timeout: time.Minute,
 		Slots: &Slots{Dir: dir, Limit: 1}})
 	if err != nil || !res.Pass {
 		t.Fatalf("the check is not told it holds a slot: %+v, %v", res, err)
 	}
 	take(t, dir, 1)
 	t.Setenv(SlotVar, "1")
-	res, err = RunWith(context.Background(), slotRig(t, "true"), "", Options{Timeout: time.Minute,
+	res, err = RunWith(context.Background(), slotDepot(t, "true"), "", Options{Timeout: time.Minute,
 		Slots: &Slots{Dir: dir, Limit: 1, Wait: 100 * time.Millisecond}})
 	if err != nil || !res.Pass {
 		t.Fatalf("inside a gate, with every slot taken: %+v, %v", res, err)

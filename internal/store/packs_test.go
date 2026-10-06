@@ -13,11 +13,11 @@ import (
 // The record of an import is written when the import changed something or
 // says something new, under the time and actor of that import; an import
 // that changed nothing leaves it as it is and logs pack_unchanged. It goes
-// with its rig.
+// with its depot.
 func TestRecordPack(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
-	rec := store.PackImport{Pack: "starter", Rig: "web", Source: "/packs/starter", Commit: "abc", Flow: "default",
+	rec := store.PackImport{Pack: "starter", Depot: "web", Source: "/packs/starter", Commit: "abc", Flow: "default",
 		Groups: map[string]string{"builders": "web-builders"}, Crew: map[string]string{"yardmaster": "boss"},
 		Objects: []store.PackObject{
 			{Kind: "group", Name: "web-builders"},
@@ -25,9 +25,9 @@ func TestRecordPack(t *testing.T) {
 			{Kind: "subscription", CrewMember: "boss", Subscription: &store.Subscription{Source: "linear", Scope: "involved"}},
 		}}
 	if _, err := st.RecordPack(ctx, rec, true, "ann"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("a record for a rig the yard lacks: %v", err)
+		t.Fatalf("a record for a depot the yard lacks: %v", err)
 	}
-	if err := st.PutRig(ctx, store.Rig{Name: "web"}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "web"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	last := func() store.Event {
@@ -42,7 +42,7 @@ func TestRecordPack(t *testing.T) {
 	if wrote, err := st.RecordPack(ctx, rec, true, "ann"); err != nil || !wrote {
 		t.Fatalf("first record: %v, %v", wrote, err)
 	}
-	if e := last(); e.Kind != "pack_applied" || e.Actor != "ann" || e.Data["pack"] != "starter" || e.Data["rig"] != "web" || e.Data["commit"] != "abc" {
+	if e := last(); e.Kind != "pack_applied" || e.Actor != "ann" || e.Data["pack"] != "starter" || e.Data["depot"] != "web" || e.Data["commit"] != "abc" {
 		t.Fatalf("event = %+v", e)
 	}
 	recs, err := st.Packs(ctx)
@@ -74,11 +74,11 @@ func TestRecordPack(t *testing.T) {
 		t.Fatalf("records = %+v", got)
 	}
 
-	if _, err := st.DeleteRig(ctx, "web", "me"); err != nil {
+	if _, err := st.DeleteDepot(ctx, "web", "me"); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := st.Packs(ctx); len(got) != 0 {
-		t.Fatalf("records after the rig was removed = %+v", got)
+		t.Fatalf("records after the depot was removed = %+v", got)
 	}
 }
 
@@ -143,10 +143,10 @@ func TestRemoveSubscriptionIsExact(t *testing.T) {
 func TestRecordPackKeepsOpenThreadsAnswers(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
-	if err := st.PutRig(ctx, store.Rig{Name: "web"}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "web"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	rec := store.PackImport{Pack: "starter", Rig: "web", Crew: map[string]string{"yardmaster": "boss"},
+	rec := store.PackImport{Pack: "starter", Depot: "web", Crew: map[string]string{"yardmaster": "boss"},
 		OpenThreads: map[string]map[string]bool{"boss": {"linear": true}, "scout": {}}}
 	if wrote, err := st.RecordPack(ctx, rec, true, "jo"); err != nil || !wrote {
 		t.Fatalf("first: %v, %v", wrote, err)

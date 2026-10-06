@@ -51,9 +51,9 @@ func titles(cs []web.Card) []string {
 	return out
 }
 
-// /flows as JSON: per rig its flows, each stage with its group, its stage
-// file and the open beads in it, the newest change first. A bead of a rig
-// with no flow is in the rig's elsewhere; a closed one is nowhere.
+// /flows as JSON: per depot its flows, each stage with its group, its stage
+// file and the open beads in it, the newest change first. A bead of a depot
+// with no flow is in the depot's elsewhere; a closed one is nowhere.
 func TestFlowsJSON(t *testing.T) {
 	f := newFixture(t)
 	f.populate()
@@ -61,7 +61,7 @@ func TestFlowsJSON(t *testing.T) {
 	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 1}))
 	must(t, f.st.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Members: []string{"ada"}}))
 	line := "line"
-	_, err := f.st.AddRoute(ctx, store.Route{Stage: "new", Rig: &line, Group: "builders"})
+	_, err := f.st.AddRoute(ctx, store.Route{Stage: "new", Depot: &line, Group: "builders"})
 	must(t, err)
 	_, err = f.st.AddRoute(ctx, store.Route{Stage: "review", Group: "people"})
 	must(t, err)
@@ -74,14 +74,14 @@ func TestFlowsJSON(t *testing.T) {
 
 	var got web.Flows
 	f.getJSON("/flows", &got)
-	if got.Head != head || len(got.Rigs) != 2 {
-		t.Fatalf("head %d, %d rigs, want %d and 2: %+v", got.Head, len(got.Rigs), head, got)
+	if got.Head != head || len(got.Depots) != 2 {
+		t.Fatalf("head %d, %d depots, want %d and 2: %+v", got.Head, len(got.Depots), head, got)
 	}
-	rig := got.Rigs[0]
-	if rig.Name != "line" || len(rig.Flows) != 2 || len(rig.Elsewhere) != 0 || rig.Error != "" {
-		t.Fatalf("rig line: %+v", rig)
+	depot := got.Depots[0]
+	if depot.Name != "line" || len(depot.Flows) != 2 || len(depot.Elsewhere) != 0 || depot.Error != "" {
+		t.Fatalf("depot line: %+v", depot)
 	}
-	code := rig.Flows[0]
+	code := depot.Flows[0]
 	if code.Name != "code" || code.Type != "" || code.Source != "store" || len(code.Stages) != 4 {
 		t.Fatalf("flow code: %+v", code)
 	}
@@ -105,21 +105,21 @@ func TestFlowsJSON(t *testing.T) {
 	if !reflect.DeepEqual(have, want) {
 		t.Errorf("flow code's stages:\n got %+v\nwant %+v", have, want)
 	}
-	if two := code.Stages[0].Beads[0]; !two.Held || two.Working || two.Status != "open" || two.Rig != "line" || two.Stage != "backlog" {
+	if two := code.Stages[0].Beads[0]; !two.Held || two.Working || two.Status != "open" || two.Depot != "line" || two.Stage != "backlog" {
 		t.Errorf("the held bead's card: %+v", two)
 	}
-	bugs := rig.Flows[1]
+	bugs := depot.Flows[1]
 	if bugs.Name != "bugs" || bugs.Type != "bug" || len(bugs.Stages) != 2 || !reflect.DeepEqual(titles(bugs.Stages[0].Beads), []string{"five"}) {
 		t.Errorf("flow bugs: %+v", bugs)
 	}
-	loose := got.Rigs[1]
+	loose := got.Depots[1]
 	if loose.Name != "loose" || len(loose.Flows) != 0 || !reflect.DeepEqual(titles(loose.Elsewhere), []string{"six"}) {
-		t.Errorf("rig loose: %+v", loose)
+		t.Errorf("depot loose: %+v", loose)
 	}
 }
 
 // A bead that pins a flow of its own follows that one, so it stands off
-// the rig's flow even in a stage the rig's flow has (as `yardr flow show`
+// the depot's flow even in a stage the depot's flow has (as `yardr flow show`
 // counts it).
 func TestFlowsPinnedBead(t *testing.T) {
 	f := newFixture(t)
@@ -130,29 +130,29 @@ func TestFlowsPinnedBead(t *testing.T) {
 	fl.Name = "short"
 	_, err = f.st.PutFlow(ctx, *fl, "me")
 	must(t, err)
-	_, err = f.st.CreateBead(ctx, store.NewBead{Title: "pinned", Stage: "new", Rig: "line",
+	_, err = f.st.CreateBead(ctx, store.NewBead{Title: "pinned", Stage: "new", Depot: "line",
 		Metadata: map[string]any{"flow": "short"}}, "me")
 	must(t, err)
 	var got web.Flows
 	f.getJSON("/flows", &got)
-	if rig := got.Rigs[0]; !reflect.DeepEqual(titles(rig.Elsewhere), []string{"pinned"}) ||
-		!reflect.DeepEqual(titles(rig.Flows[0].Stages[1].Beads), []string{"three"}) {
-		t.Errorf("elsewhere %v, new %v", titles(rig.Elsewhere), titles(rig.Flows[0].Stages[1].Beads))
+	if depot := got.Depots[0]; !reflect.DeepEqual(titles(depot.Elsewhere), []string{"pinned"}) ||
+		!reflect.DeepEqual(titles(depot.Flows[0].Stages[1].Beads), []string{"three"}) {
+		t.Errorf("elsewhere %v, new %v", titles(depot.Elsewhere), titles(depot.Flows[0].Stages[1].Beads))
 	}
 }
 
-// A rig whose flows cannot be read still shows its beads, and the other
-// rigs their flows.
+// A depot whose flows cannot be read still shows its beads, and the other
+// depots their flows.
 func TestFlowsReadError(t *testing.T) {
 	f := newFixture(t)
 	f.populate()
-	srv, err := web.NewServer(failingRigFlows{API: f.st, rig: "line"}, f.home, nil)
+	srv, err := web.NewServer(failingDepotFlows{API: f.st, depot: "line"}, f.home, nil)
 	must(t, err)
 	f.ts.Config.Handler = srv
 	var got web.Flows
 	f.getJSON("/flows", &got)
-	if rig := got.Rigs[0]; rig.Error == "" || len(rig.Flows) != 0 || len(rig.Elsewhere) != 4 {
-		t.Errorf("rig line: %+v", rig)
+	if depot := got.Depots[0]; depot.Error == "" || len(depot.Flows) != 0 || len(depot.Elsewhere) != 4 {
+		t.Errorf("depot line: %+v", depot)
 	}
 	if r := f.get("/flows"); r.status != 200 || !strings.Contains(r.body, `id="off/loose"`) {
 		t.Errorf("the page: status %d", r.status)
@@ -323,13 +323,13 @@ func TestFlowsStream(t *testing.T) {
 	var made *store.Bead
 	fr = step(func() {
 		var err error
-		made, err = f.st.CreateBead(ctx, store.NewBead{Title: "seven", Type: "bug", Rig: "line"}, "me")
+		made, err = f.st.CreateBead(ctx, store.NewBead{Title: "seven", Type: "bug", Depot: "line"}, "me")
 		must(t, err)
 	}, 1)
 	if page["bead/"+made.ID] != "at/line/bug/triage" || !strings.Contains(put(fr), "card arrived") {
 		t.Errorf("the new bead: section %q, frame %s", page["bead/"+made.ID], put(fr))
 	}
-	// A bead of a rig with no flow stays off the flow.
+	// A bead of a depot with no flow stays off the flow.
 	step(func() {
 		_, err := f.st.Advance(ctx, six.ID, "anywhere", store.Expect{}, "me")
 		must(t, err)
@@ -392,7 +392,7 @@ func TestCardStreamCursor(t *testing.T) {
 }
 
 // /beads: the open beads, the newest change first, with the query string's
-// filters for rig and stage.
+// filters for depot and stage.
 func TestBeadsJSON(t *testing.T) {
 	f := newFixture(t)
 	f.populate()
@@ -405,17 +405,18 @@ func TestBeadsJSON(t *testing.T) {
 	if want := []string{"two", "six", "five", "three", "one"}; !reflect.DeepEqual(titles(got.Beads), want) {
 		t.Errorf("beads %v, want %v", titles(got.Beads), want)
 	}
-	if got.Head != head || !reflect.DeepEqual(got.Rigs, []string{"line", "loose"}) ||
+	if got.Head != head || !reflect.DeepEqual(got.Depots, []string{"line", "loose"}) ||
 		!reflect.DeepEqual(got.Stages, []string{"backlog", "inbox", "new", "triage"}) {
-		t.Errorf("head %d (want %d), rigs %v, stages %v", got.Head, head, got.Rigs, got.Stages)
+		t.Errorf("head %d (want %d), depots %v, stages %v", got.Head, head, got.Depots, got.Stages)
 	}
 	for target, want := range map[string][]string{
-		"/beads?rig=line":               {"two", "five", "three", "one"},
-		"/beads?stage=backlog":          {"two", "one"},
-		"/beads?rig=line&stage=new":     {"three"},
-		"/beads?rig=loose&stage=new":    {},
-		"/beads?rig=nowhere":            {},
-		"/beads?rig=loose&stage=inbox&": {"six"},
+		"/beads?depot=line":               {"two", "five", "three", "one"},
+		"/beads?stage=backlog":            {"two", "one"},
+		"/beads?depot=line&stage=new":     {"three"},
+		"/beads?depot=loose&stage=new":    {},
+		"/beads?depot=nowhere":            {},
+		"/beads?rig=line&stage=new":       {"three"}, // the filter's name until this release
+		"/beads?depot=loose&stage=inbox&": {"six"},
 	} {
 		var got web.Beads
 		f.getJSON(target, &got)
@@ -423,9 +424,9 @@ func TestBeadsJSON(t *testing.T) {
 			t.Errorf("%s: %v, want %v", target, titles(got.Beads), want)
 		}
 	}
-	// The stages a rig's filter offers are the rig's.
-	f.getJSON("/beads?rig=loose&stage=inbox", &got)
-	if got.Rig != "loose" || got.Stage != "inbox" || !reflect.DeepEqual(got.Stages, []string{"inbox"}) {
+	// The stages a depot's filter offers are the depot's.
+	f.getJSON("/beads?depot=loose&stage=inbox", &got)
+	if got.Depot != "loose" || got.Stage != "inbox" || !reflect.DeepEqual(got.Stages, []string{"inbox"}) {
 		t.Errorf("filtered: %+v", got)
 	}
 }
@@ -437,19 +438,19 @@ func TestBeadsHTML(t *testing.T) {
 	f.populate()
 	head, err := f.st.Head(context.Background())
 	must(t, err)
-	r := f.get("/beads?rig=line&stage=new")
+	r := f.get("/beads?depot=line&stage=new")
 	if r.status != 200 {
 		t.Fatalf("status %d", r.status)
 	}
 	three := f.byTitle()["three"]
 	for _, want := range []string{
 		fmt.Sprintf(`<div class="shell" hx-ext="sse" sse-connect="/events?after=%d&amp;format=seq">`, head),
-		`<div id="beads" hx-get="/beads?rig=line&amp;stage=new" hx-trigger="sse:message" hx-select="#beads > *" hx-swap="innerHTML ignoreTitle:true">`,
+		`<div id="beads" hx-get="/beads?depot=line&amp;stage=new" hx-trigger="sse:message" hx-select="#beads > *" hx-swap="innerHTML ignoreTitle:true">`,
 		`<a href="/beads?stage=new">all</a>`,
-		`<a href="/beads?rig=line&amp;stage=new" aria-current="true">line</a>`,
-		`<a href="/beads?rig=loose&amp;stage=new">loose</a>`,
-		`<a href="/beads?rig=line">all</a>`,
-		`<a href="/beads?rig=line&amp;stage=backlog">backlog</a>`,
+		`<a href="/beads?depot=line&amp;stage=new" aria-current="true">line</a>`,
+		`<a href="/beads?depot=loose&amp;stage=new">loose</a>`,
+		`<a href="/beads?depot=line">all</a>`,
+		`<a href="/beads?depot=line&amp;stage=backlog">backlog</a>`,
 		`<a class="bead" href="/beads/` + three.ID + `">`,
 		`line · new · task`,
 		`<a href="/beads" aria-current="page">`,
@@ -475,7 +476,7 @@ func TestBeadsHTML(t *testing.T) {
 func whole(t *testing.T, f *fixture) (train, blocker, b *store.Bead) {
 	t.Helper()
 	ctx := context.Background()
-	must(t, f.st.PutRig(ctx, store.Rig{Name: "line", Base: "origin/main"}, "me"))
+	must(t, f.st.PutDepot(ctx, store.Depot{Name: "line", Base: "origin/main"}, "me"))
 	fl, err := store.ParseFlow("new -> review on done\nnew -> decide on question\nreview -> merged\nmerged terminal\n")
 	must(t, err)
 	fl.Name = "code"
@@ -487,11 +488,11 @@ func whole(t *testing.T, f *fixture) (train, blocker, b *store.Bead) {
 	// The summary line is for the map in yardr prime: the page leaves it out.
 	must(t, os.WriteFile(file, []byte("summary: Built here.\n\nA builder implements the bead here.\n"), 0o644))
 	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 2}))
-	train, err = f.st.CreateBead(ctx, store.NewBead{Title: "the gate", Type: store.TypeTrain, Stage: "new", Rig: "line"}, "me")
+	train, err = f.st.CreateBead(ctx, store.NewBead{Title: "the gate", Type: store.TypeTrain, Stage: "new", Depot: "line"}, "me")
 	must(t, err)
-	blocker, err = f.st.CreateBead(ctx, store.NewBead{Title: "the posts", Stage: "new", Rig: "line"}, "me")
+	blocker, err = f.st.CreateBead(ctx, store.NewBead{Title: "the posts", Stage: "new", Depot: "line"}, "me")
 	must(t, err)
-	b, err = f.st.CreateBead(ctx, store.NewBead{Title: "a door", Body: "Hang it.\n\n- on two hinges", Stage: "new", Rig: "line",
+	b, err = f.st.CreateBead(ctx, store.NewBead{Title: "a door", Body: "Hang it.\n\n- on two hinges", Stage: "new", Depot: "line",
 		Priority: 1, Labels: []string{"wood"}}, "me")
 	must(t, err)
 	// Claimed first: a blocked bead is not handed to anyone.
@@ -717,12 +718,12 @@ func TestManualClaimIsNotWorking(t *testing.T) {
 	ctx := context.Background()
 	idea := backlogYard(t, f, 1)[0]
 	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
-	door, err := f.st.CreateBead(ctx, store.NewBead{Title: "a door", Stage: "new", Rig: "line"}, "me")
+	door, err := f.st.CreateBead(ctx, store.NewBead{Title: "a door", Stage: "new", Depot: "line"}, "me")
 	must(t, err)
 	sess, err := f.st.Claim(ctx, door.ID, "builders", "new", "yard")
 	must(t, err)
 	must(t, f.st.MarkRunning(ctx, sess.ID, map[string]any{"agent": "door-new"}))
-	train, err := f.st.CreateBead(ctx, store.NewBead{Title: "the gate", Type: store.TypeTrain, Stage: "new", Rig: "line"}, "me")
+	train, err := f.st.CreateBead(ctx, store.NewBead{Title: "the gate", Type: store.TypeTrain, Stage: "new", Depot: "line"}, "me")
 	must(t, err)
 	must(t, f.st.AddDep(ctx, train.ID, idea.ID, store.DepParent, "me"))
 	must(t, f.st.AddDep(ctx, train.ID, door.ID, store.DepParent, "me"))
@@ -740,7 +741,7 @@ func TestManualClaimIsNotWorking(t *testing.T) {
 	want := map[string]bool{"idea a": false, "a door": true}
 	var flows web.Flows
 	flowsJSON := f.getJSON("/flows", &flows)
-	if got := working(flows.Rigs[0].Elsewhere); !reflect.DeepEqual(got, want) {
+	if got := working(flows.Depots[0].Elsewhere); !reflect.DeepEqual(got, want) {
 		t.Errorf("/flows: working %v, want %v", got, want)
 	}
 	var beads web.Beads
@@ -849,12 +850,12 @@ func TestManualClaimIsNotWorking(t *testing.T) {
 func TestFlowsStreamManualClaim(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	must(t, f.st.PutRig(ctx, store.Rig{Name: "line", Base: "origin/main"}, "me"))
+	must(t, f.st.PutDepot(ctx, store.Depot{Name: "line", Base: "origin/main"}, "me"))
 	must(t, f.st.PutGroup(ctx, store.Group{Name: "backlog", Runner: "manual"}))
 	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake"}))
-	idea, err := f.st.CreateBead(ctx, store.NewBead{Title: "an idea", Stage: "backlog", Rig: "line"}, "me")
+	idea, err := f.st.CreateBead(ctx, store.NewBead{Title: "an idea", Stage: "backlog", Depot: "line"}, "me")
 	must(t, err)
-	door, err := f.st.CreateBead(ctx, store.NewBead{Title: "a door", Stage: "new", Rig: "line"}, "me")
+	door, err := f.st.CreateBead(ctx, store.NewBead{Title: "a door", Stage: "new", Depot: "line"}, "me")
 	must(t, err)
 	head, err := f.st.Head(ctx)
 	must(t, err)

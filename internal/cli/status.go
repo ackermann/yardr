@@ -163,7 +163,7 @@ func (a *app) statusCmd() *cobra.Command {
   peers      each linked yard and where it is called
   work       how many sessions run in each group, how many beads wait for
              a person in each manual group, and how many beads are held
-  gates      how many full gates (yardr rig check) run on the machine now and
+  gates      how many full gates (yardr depot check) run on the machine now and
              how many wait for a slot, with the yard's limit (gate_slots);
              they are the machine's, so another yard's gates are counted.
              Then this yard's beads with a gate running, the light gate
@@ -296,7 +296,7 @@ func (a *app) status(ctx context.Context, cfg *config.Config) (*statusReport, er
 			rep.Work.Sessions[s.Group]++
 		}
 	}
-	// A limit that does not read is rig check's to say, not status's.
+	// A limit that does not read is depot check's to say, not status's.
 	var gates gateStatus
 	if limit, err := rigcheck.SlotLimit(all); err == nil && limit > 0 {
 		if c, err := rigcheck.Count(rigcheck.SlotDir()); err == nil && c.Running+c.Waiting > 0 {

@@ -387,8 +387,8 @@ func (x *Exporter) beadAttrs(bead string, b *store.Bead, stage string) []keyValu
 	if b == nil {
 		return attrs
 	}
-	if b.Rig != nil {
-		attrs = append(attrs, strAttr("yardr.rig", *b.Rig))
+	if b.Depot != nil {
+		attrs = append(attrs, strAttr("yardr.depot", *b.Depot))
 	}
 	if x.Text {
 		attrs = append(attrs, strAttr("yardr.title", b.Title))
@@ -437,7 +437,7 @@ func text(data map[string]any, key string) string {
 	return s
 }
 
-// lookup asks the yard what the events do not say (a bead's rig and train,
+// lookup asks the yard what the events do not say (a bead's depot and train,
 // a session's runner, a group's harness), once per batch for each. Nothing
 // it finds missing is an error: a span then lacks the attribute.
 type lookup struct {

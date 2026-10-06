@@ -1,5 +1,5 @@
 #!/bin/sh
-# yardr's light gate, run by `yardr rig check yardr --light` in a bead's
+# yardr's light gate, run by `yardr depot check yardr --light` in a bead's
 # worktree. It is what a builder and a reviewer check their work with
 # (docs/pipeline.md, "One full gate per bead"), and what a car of a train
 # passes to land on its train's branch ("Cars"); the full gate (.yardr/check:
@@ -67,7 +67,7 @@ fi
 # car is tested for what it changed, not for the train's earlier cars
 # again. Without the base nothing can be told apart, which must not read as
 # "nothing changed".
-: "${YARDR_CHECK_BASE:?not set: run this through yardr rig check yardr --light}"
+: "${YARDR_CHECK_BASE:?not set: run this through yardr depot check yardr --light}"
 from=$(git merge-base "$YARDR_CHECK_BASE" HEAD)
 changed=$(git diff --name-only "$from")
 # go.mod or go.sum moves every package.

@@ -17,11 +17,11 @@ import (
 	"yardr.dev/yardr/roles"
 )
 
-// starterFlow is the flow rig init seeds: the stages the yardmaster's setup
+// starterFlow is the flow depot init seeds: the stages the yardmaster's setup
 // routes (new, review, approved), with backlog before them and decide for
 // what a person must answer. A merge-local refinery whose rebase conflicts
 // reports failed in a flow without a merge stage, so approved needs no more.
-const starterFlow = `# The rig's flow, written by yardr rig init. yardr reads it from the base
+const starterFlow = `# The depot's flow, written by yardr depot init. yardr reads it from the base
 # branch; see docs/flows.md.
 backlog -> new | decide
 new -> review on done | decide on question | backlog
@@ -31,10 +31,10 @@ decide -> backlog | new
 merged terminal
 `
 
-// dirFlow is the flow rig init seeds in a dir rig: nothing merges there,
+// dirFlow is the flow depot init seeds in a dir depot: nothing merges there,
 // so a reviewed bead is done, and done closes it.
-const dirFlow = `# The rig's flow, written by yardr rig init for a directory rig. yardr reads
-# it from the directory as it is; see docs/dir-rigs.md.
+const dirFlow = `# The depot's flow, written by yardr depot init for a directory depot. yardr reads
+# it from the directory as it is; see docs/dir-depots.md.
 backlog -> new | decide
 new -> review on done | decide on question | backlog
 review -> done on done | new on changes | decide on question
@@ -42,14 +42,14 @@ decide -> backlog | new
 done terminal
 `
 
-// dirTrainFlow governs a dir rig's trains. They only group their children,
+// dirTrainFlow governs a dir depot's trains. They only group their children,
 // which work in the same directory: there is no train branch to integrate,
 // so once the children are closed the train is reviewed as a whole. Its open
-// stage goes to the rig's reviewers by a route the operator adds.
-const dirTrainFlow = `# The flow of the rig's trains, written by yardr rig init for a directory rig.
+// stage goes to the depot's reviewers by a route the operator adds.
+const dirTrainFlow = `# The flow of the depot's trains, written by yardr depot init for a directory depot.
 # A train waits in open while its children are open (each child blocks it);
-# then a route for open (--type train) hands it to the rig's reviewers, who
-# look at what the children produced as a whole. See docs/dir-rigs.md.
+# then a route for open (--type train) hands it to the depot's reviewers, who
+# look at what the children produced as a whole. See docs/dir-depots.md.
 backlog -> open
 open -> review on done | backlog
 review -> done on done | open on changes | decide on question
@@ -57,19 +57,19 @@ decide -> open | backlog
 done terminal
 `
 
-// starterCommit is the message of the commit that puts rig init's files on
+// starterCommit is the message of the commit that puts depot init's files on
 // the base.
 const starterCommit = "yardr: starter roles, gate, flow and stage files"
 
-// commitCommand is the command line that commits rig init's files in the
+// commitCommand is the command line that commits depot init's files in the
 // checkout at path, and nothing else staged there.
 func commitCommand(path string) string {
 	return fmt.Sprintf("git -C %s add .yardr && git -C %s commit -m %s -- .yardr", shellQuote(path), shellQuote(path), shellQuote(starterCommit))
 }
 
-// rigInitResult is what rig init wrote into a rig's checkout.
-type rigInitResult struct {
-	Rig        string   `json:"rig"`
+// depotInitResult is what depot init wrote into a depot's checkout.
+type depotInitResult struct {
+	Depot      string   `json:"depot"`
 	Path       string   `json:"path"`
 	Kind       string   `json:"kind"`
 	Base       string   `json:"base"`
@@ -80,13 +80,13 @@ type rigInitResult struct {
 	Kept       []string `json:"kept"`       // already there, left as they were
 }
 
-func (a *app) rigInitCmd() *cobra.Command {
+func (a *app) depotInitCmd() *cobra.Command {
 	var operator, yardmaster string
 	var withYardmaster bool
 	cmd := &cobra.Command{
-		Use:   "init <rig> [--operator <name>] [--yardmaster <name>] [--with-yardmaster]",
-		Short: "Seed a rig's repo with starter roles, a gate, a flow and its stage files under .yardr/",
-		Long: `Write a rig's starting configuration into its checkout:
+		Use:   "init <depot> [--operator <name>] [--yardmaster <name>] [--with-yardmaster]",
+		Short: "Seed a depot's repo with starter roles, a gate, a flow and its stage files under .yardr/",
+		Long: `Write a depot's starting configuration into its checkout:
 
   .yardr/roles/{yardmaster,builder,reviewer,merger}.md   the generic roles, naming --operator and --yardmaster
   ` + rigcheck.RepoPath + `                                       the merge gate, guessed from the repo
@@ -103,31 +103,31 @@ test script runs it, anything else passes with a TODO. Read it before relying
 on it.
 
 A file already there is never overwritten, and a flow already there gets no
-stage files: they are written for the flows rig init writes, whose stages
+stage files: they are written for the flows depot init writes, whose stages
 they name. Nothing is committed: yardr reads
-roles, the gate and flows from the rig's base branch, so commit the files
+roles, the gate and flows from the depot's base branch, so commit the files
 there before they take effect.
 
-A dir rig gets less, since nothing merges there (see docs/dir-rigs.md):
+A dir depot gets less, since nothing merges there (see docs/dir-depots.md):
 
   .yardr/roles/{builder,reviewer}.md                plus yardmaster.md with --with-yardmaster
   .yardr/flows/default.flow                         backlog, new, review, done, decide
   .yardr/flows/type/train.flow                      the trains': backlog, open, review, done, decide
   .yardr/flows/{default,type/train}/<stage>.md      a stage file for each stage but done
 
-and no check: a dir rig has no gate unless one adds .yardr/check. The files
-apply at once, as yardr reads a dir rig's .yardr/ from the directory.`,
-		Example: `  yardr rig init webapp
-  yardr rig init webapp --operator Jo --yardmaster boss
-  yardr rig init invoices          # a dir rig
-  yardr rig init invoices --with-yardmaster`,
+and no check: a dir depot has no gate unless one adds .yardr/check. The files
+apply at once, as yardr reads a dir depot's .yardr/ from the directory.`,
+		Example: `  yardr depot init webapp
+  yardr depot init webapp --operator Jo --yardmaster boss
+  yardr depot init invoices          # a dir depot
+  yardr depot init invoices --with-yardmaster`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
 			}
-			rig, err := st.GetRig(c.Context(), args[0])
+			depot, err := st.GetDepot(c.Context(), args[0])
 			if err != nil {
 				return err
 			}
@@ -137,7 +137,7 @@ apply at once, as yardr reads a dir rig's .yardr/ from the directory.`,
 			if yardmaster == "" {
 				yardmaster = yardmasterOf(c.Context(), st)
 			}
-			res, err := rigInit(*rig, operator, yardmaster, withYardmaster)
+			res, err := depotInit(*depot, operator, yardmaster, withYardmaster)
 			if err != nil {
 				return err
 			}
@@ -146,7 +146,7 @@ apply at once, as yardr reads a dir rig's .yardr/ from the directory.`,
 	}
 	cmd.Flags().StringVar(&operator, "operator", "", "who the roles name (default: the yard's operator setting, else your login name)")
 	cmd.Flags().StringVar(&yardmaster, "yardmaster", "", "the yardmaster the roles tell agents to mail (default: the yard's yardmaster setting, else its one crew member, else yardmaster)")
-	cmd.Flags().BoolVar(&withYardmaster, "with-yardmaster", false, "dir rigs: write yardmaster.md too (a git rig always gets it)")
+	cmd.Flags().BoolVar(&withYardmaster, "with-yardmaster", false, "dir depots: write yardmaster.md too (a git depot always gets it)")
 	oldFlag(cmd, "mayor", "yardmaster")
 	oldFlag(cmd, "with-mayor", "with-yardmaster")
 	return cmd
@@ -174,11 +174,11 @@ func yardmasterOf(ctx context.Context, st store.API) string {
 	return "yardmaster"
 }
 
-// rigInit writes the starter files into rig's checkout, keeping any already
-// there. A dir rig gets no merger, the yardmaster's role only when asked
+// depotInit writes the starter files into depot's checkout, keeping any already
+// there. A dir depot gets no merger, the yardmaster's role only when asked
 // (withYardmaster), no check and the dir flows.
-func rigInit(rig store.Rig, operator, yardmaster string, withYardmaster bool) (*rigInitResult, error) {
-	res := &rigInitResult{Rig: rig.Name, Path: rig.Path, Kind: rig.Kind, Base: rig.Base, Operator: operator, Yardmaster: yardmaster}
+func depotInit(depot store.Depot, operator, yardmaster string, withYardmaster bool) (*depotInitResult, error) {
+	res := &depotInitResult{Depot: depot.Name, Path: depot.Path, Kind: depot.Kind, Base: depot.Base, Operator: operator, Yardmaster: yardmaster}
 	type file struct {
 		path string
 		body string
@@ -189,18 +189,18 @@ func rigInit(rig store.Rig, operator, yardmaster string, withYardmaster bool) (*
 	}
 	var only []string
 	var files []file
-	if rig.IsDir() {
+	if depot.IsDir() {
 		only = []string{"builder.md", "reviewer.md"}
 		if withYardmaster {
 			only = append(only, "yardmaster.md")
 		}
-		// A rig set up before a train was called that has its trains' flow
+		// A depot set up before a train was called that has its trains' flow
 		// in type/epic.flow, which still governs them: no second one is
 		// written beside it.
 		trains := filepath.Join(".yardr", "flows", "type", "train.flow")
-		if _, err := os.Stat(filepath.Join(rig.Path, trains)); errors.Is(err, fs.ErrNotExist) {
+		if _, err := os.Stat(filepath.Join(depot.Path, trains)); errors.Is(err, fs.ErrNotExist) {
 			old := filepath.Join(".yardr", "flows", "type", "epic.flow")
-			if _, err := os.Stat(filepath.Join(rig.Path, old)); err == nil {
+			if _, err := os.Stat(filepath.Join(depot.Path, old)); err == nil {
 				trains = old
 			}
 		}
@@ -209,21 +209,21 @@ func rigInit(rig store.Rig, operator, yardmaster string, withYardmaster bool) (*
 			{trains, dirTrainFlow, 0o644, "type/train"},
 		}
 	} else {
-		gate, script := guessGate(rig)
+		gate, script := guessGate(depot)
 		res.Gate = gate
 		files = []file{
 			{rigcheck.RepoPath, script, 0o755, ""},
 			{filepath.Join(".yardr", "flows", "default.flow"), starterFlow, 0o644, "default"},
 		}
 	}
-	// refresh is false: a rig's roles are the checkout's own, never rewritten.
-	inst, err := installRoles(filepath.Join(rig.Path, ".yardr", "roles"), operator, yardmaster, false, only...)
+	// refresh is false: a depot's roles are the checkout's own, never rewritten.
+	inst, err := installRoles(filepath.Join(depot.Path, ".yardr", "roles"), operator, yardmaster, false, only...)
 	if err != nil {
 		return nil, err
 	}
-	res.Written, res.Kept = relAll(rig.Path, inst.Written), relAll(rig.Path, inst.Kept)
+	res.Written, res.Kept = relAll(depot.Path, inst.Written), relAll(depot.Path, inst.Kept)
 	for _, f := range files {
-		ok, err := writeNew(filepath.Join(rig.Path, f.path), f.body, f.mode)
+		ok, err := writeNew(filepath.Join(depot.Path, f.path), f.body, f.mode)
 		if err != nil {
 			return nil, err
 		}
@@ -235,14 +235,14 @@ func rigInit(rig store.Rig, operator, yardmaster string, withYardmaster bool) (*
 		if f.flow == "" {
 			continue
 		}
-		// Only beside a flow written now: a flow already there is the rig's
-		// own, and a file for a stage it lacks would fail the rig's check.
-		stages, err := starterStageFiles(rig, f.flow, f.body, operator, yardmaster)
+		// Only beside a flow written now: a flow already there is the depot's
+		// own, and a file for a stage it lacks would fail the depot's check.
+		stages, err := starterStageFiles(depot, f.flow, f.body, operator, yardmaster)
 		if err != nil {
 			return nil, err
 		}
 		for _, sf := range stages {
-			ok, err := writeNew(filepath.Join(rig.Path, sf.path), sf.body, 0o644)
+			ok, err := writeNew(filepath.Join(depot.Path, sf.path), sf.body, 0o644)
 			if err != nil {
 				return nil, err
 			}
@@ -256,24 +256,24 @@ func rigInit(rig store.Rig, operator, yardmaster string, withYardmaster bool) (*
 	return res, nil
 }
 
-// starterStage is one starter stage file: where it goes in the rig, and its
+// starterStage is one starter stage file: where it goes in the depot, and its
 // text with the names filled in.
 type starterStage struct {
 	path string
 	body string
 }
 
-// starterStageFiles are the stage files rig init writes beside the starter
+// starterStageFiles are the stage files depot init writes beside the starter
 // flow named flow, whose text is body: one for every stage that is not
 // terminal, in the order the flow first names them. A stage without a template is a bug in this
-// build, not the rig's, and an error.
-func starterStageFiles(rig store.Rig, flow, body, operator, yardmaster string) ([]starterStage, error) {
+// build, not the depot's, and an error.
+func starterStageFiles(depot store.Depot, flow, body, operator, yardmaster string) ([]starterStage, error) {
 	f, err := store.ParseFlow(body)
 	if err != nil {
 		return nil, fmt.Errorf("starter flow %s: %w", flow, err)
 	}
 	kind := "git"
-	if rig.IsDir() {
+	if depot.IsDir() {
 		kind = "dir"
 	}
 	// A parsed flow lists a stage once for every rule naming it.
@@ -295,21 +295,21 @@ func starterStageFiles(rig store.Rig, flow, body, operator, yardmaster string) (
 
 // guessGate picks a check command from what the repo holds, and the script
 // that runs it.
-func guessGate(rig store.Rig) (gate, script string) {
+func guessGate(depot store.Depot) (gate, script string) {
 	head := fmt.Sprintf(`#!/bin/sh
-# The merge gate of rig %s: yardr rig check runs it in a bead's worktree, and
+# The merge gate of depot %s: yardr depot check runs it in a bead's worktree, and
 # a bead lands only when it exits 0. yardr reads this file from the base
 # branch (%s), so an edit here counts once it has landed there.
 set -e
-`, rig.Name, rig.Base)
+`, depot.Name, depot.Base)
 	has := func(name string) bool {
-		_, err := os.Stat(filepath.Join(rig.Path, name))
+		_, err := os.Stat(filepath.Join(depot.Path, name))
 		return err == nil
 	}
 	switch {
 	case has("go.mod"):
 		gate = "go vet ./... && go test ./..."
-	case packageTest(filepath.Join(rig.Path, "package.json")):
+	case packageTest(filepath.Join(depot.Path, "package.json")):
 		gate = "npm test"
 		if has("pnpm-lock.yaml") {
 			gate = "pnpm test"
@@ -369,19 +369,19 @@ func relAll(base string, paths []string) []string {
 	return out
 }
 
-func (r *rigInitResult) print() {
+func (r *depotInitResult) print() {
 	if len(r.Written) == 0 {
-		fmt.Printf("rig %s: nothing written, every file is already in %s\n", r.Rig, r.Path)
+		fmt.Printf("depot %s: nothing written, every file is already in %s\n", r.Depot, r.Path)
 		return
 	}
-	fmt.Printf("rig %s: wrote into %s\n\n", r.Rig, r.Path)
+	fmt.Printf("depot %s: wrote into %s\n\n", r.Depot, r.Path)
 	for _, p := range r.Written {
 		fmt.Printf("  %s\n", p)
 	}
 	for _, p := range r.Kept {
 		fmt.Printf("  %s (already there, kept)\n", p)
 	}
-	if r.Kind == store.RigDir {
+	if r.Kind == store.DepotDir {
 		r.printDir()
 		return
 	}
@@ -397,11 +397,11 @@ func (r *rigInitResult) print() {
 		"  %s\n", r.Base, commitCommand(r.Path))
 }
 
-func (r *rigInitResult) printDir() {
-	fmt.Printf("\nThe roles name %s, and %s as the yardmaster. A dir rig has no gate unless one adds %s:\n"+
-		"until then yardr rig check passes with \"no gate\", as nothing merges.\n", r.Operator, r.Yardmaster, rigcheck.RepoPath)
-	fmt.Printf("\nThey apply as they are: yardr reads a dir rig's .yardr/ from %s.\n"+
+func (r *depotInitResult) printDir() {
+	fmt.Printf("\nThe roles name %s, and %s as the yardmaster. A dir depot has no gate unless one adds %s:\n"+
+		"until then yardr depot check passes with \"no gate\", as nothing merges.\n", r.Operator, r.Yardmaster, rigcheck.RepoPath)
+	fmt.Printf("\nThey apply as they are: yardr reads a dir depot's .yardr/ from %s.\n"+
 		"Route new to the builders and review to the reviewers (or a manual group,\n"+
 		"for yardr review); for trains, route open --type train to the reviewers.\n"+
-		"See docs/dir-rigs.md.\n", r.Path)
+		"See docs/dir-depots.md.\n", r.Path)
 }

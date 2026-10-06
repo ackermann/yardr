@@ -851,7 +851,7 @@ func (s *Store) PeerHandOver(ctx context.Context, name, key string, after uint64
 // answered here, in the same write, with a pong in the outbox for the peer,
 // and mail is put in its crew member's inbox, or refused (checkMail). A bead
 // becomes a bead of this yard, or is refused (checkBead); tk is what
-// that needs of its intake's rig (taking) and own this yard's key,
+// that needs of its intake's depot (taking) and own this yard's key,
 // which a bead that has been here before names. The return of a bead ends
 // the stay of this yard's bead at the peer (returnedBead). No other body is
 // kept: what a peer sends is data.

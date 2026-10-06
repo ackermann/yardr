@@ -217,7 +217,7 @@ func (s *Store) FlowMap(ctx context.Context, id string) (*FlowMap, error) {
 	if err != nil {
 		return nil, err
 	}
-	repo, err := s.repoFor(ctx, b.Rig, b.Type, PinnedFlow(b))
+	repo, err := s.repoFor(ctx, b.Depot, b.Type, PinnedFlow(b))
 	if err != nil {
 		return nil, err
 	}
@@ -227,7 +227,7 @@ func (s *Store) FlowMap(ctx context.Context, id string) (*FlowMap, error) {
 		if err != nil {
 			return err
 		}
-		f, src, err := resolveFlow(tx, row.Rig, row.Type, PinnedFlow(&row.Bead), repo)
+		f, src, err := resolveFlow(tx, row.Depot, row.Type, PinnedFlow(&row.Bead), repo)
 		if err != nil || f == nil {
 			return changedMeanwhile(err)
 		}

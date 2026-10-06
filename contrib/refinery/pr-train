@@ -10,7 +10,7 @@
 # a note and nothing is pushed or asked of GitHub.
 #
 # It reads the environment the exec runner gives it, as integrate-train
-# does: YARDR_BEAD (the train), YARDR_RIG_PATH, YARDR_BASE, YARDR_BRANCH,
+# does: YARDR_BEAD (the train), YARDR_DEPOT_PATH, YARDR_BASE, YARDR_BRANCH,
 # YARDR_WORKTREE and YARDR_BIN. Options, set in the group's cmd:
 #
 #   YARDR_PR       1: the switch for the pull-request path; held without it
@@ -30,17 +30,17 @@
 # Every outcome ends in a report or a hold: exiting without one counts as a
 # failed session, and three of those hold the bead.
 set -u
-# A dir rig (YARDR_RIG_KIND=dir) has no branches: there is nothing here to
+# A dir depot (YARDR_DEPOT_KIND=dir) has no branches: there is nothing here to
 # land, integrate or open a pull request for. A route that hands one over is
-# a mistake in the rig's flow, so refuse to run (exit 2) rather than guess.
-if [ "${YARDR_RIG_KIND:-git}" = dir ]; then
-  echo "pr-train: rig ${YARDR_RIG:-?} is a dir rig, with no branch to work on; route its stages to other groups" >&2
+# a mistake in the depot's flow, so refuse to run (exit 2) rather than guess.
+if [ "${YARDR_DEPOT_KIND:-git}" = dir ]; then
+  echo "pr-train: depot ${YARDR_DEPOT:-?} is a dir depot, with no branch to work on; route its stages to other groups" >&2
   exit 2
 fi
-: "${YARDR_BEAD:?not run by an exec group}" "${YARDR_RIG_PATH:?bead has no rig}" "${YARDR_BASE:?}"
+: "${YARDR_BEAD:?not run by an exec group}" "${YARDR_DEPOT_PATH:?bead has no depot}" "${YARDR_BASE:?}"
 Y=${YARDR_BIN:-yardr}
 TRAIN=$YARDR_BEAD
-REPO=$YARDR_RIG_PATH
+REPO=$YARDR_DEPOT_PATH
 BASE=$YARDR_BASE
 BR=${YARDR_BRANCH:-yard/$TRAIN}
 WT=${YARDR_WORKTREE:-}

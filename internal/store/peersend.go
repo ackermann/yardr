@@ -30,7 +30,7 @@ import (
 // How a stay at a peer ends is known inside the write that takes the
 // message, or gives one up. What it does to the bead is done right after
 // that write, in one of its own (settleSent): where the outcome leads is
-// the bead's flow to say, and a flow in the rig's repository is read with
+// the bead's flow to say, and a flow in the depot's repository is read with
 // git, which does not run inside a write. Between the two the record says
 // the outcome is known and not applied, and the daemon applies what a
 // write left (SettlePeerBeads), so nothing is lost to a process that died
@@ -152,7 +152,7 @@ func (g Group) peerTries() int {
 	return PeerBeadTries
 }
 
-// peerRemote is the remote of the rig a branch the group's peer returns is
+// peerRemote is the remote of the depot a branch the group's peer returns is
 // fetched from.
 func (g Group) peerRemote() string {
 	return or(setting(g.Config[GroupRemote]), PeerRemote)
@@ -300,7 +300,7 @@ func (s *Store) PeerBeadSend(ctx context.Context, session string) (*BeadPeer, er
 	if err != nil {
 		return nil, err
 	}
-	repo, err := s.repoFor(ctx, pre.Rig, pre.Type, PinnedFlow(pre))
+	repo, err := s.repoFor(ctx, pre.Depot, pre.Type, PinnedFlow(pre))
 	if err != nil {
 		return nil, err
 	}
@@ -308,8 +308,8 @@ func (s *Store) PeerBeadSend(ctx context.Context, session string) (*BeadPeer, er
 	// What the work starts from, for a bead of a repository whose base has
 	// a remote: read now, since git does not run inside the write.
 	var from *PeerGit
-	if pre.Rig != nil {
-		rig, err := s.GetRig(ctx, *pre.Rig)
+	if pre.Depot != nil {
+		depot, err := s.GetDepot(ctx, *pre.Depot)
 		if err != nil {
 			return nil, err
 		}
@@ -318,7 +318,7 @@ func (s *Store) PeerBeadSend(ctx context.Context, session string) (*BeadPeer, er
 			return nil, err
 		}
 		gctx, cancel := context.WithTimeout(ctx, peerFetchTimeout)
-		from = baseOf(gctx, *rig, fam.Base)
+		from = baseOf(gctx, *depot, fam.Base)
 		cancel()
 	}
 	err = s.write(func(w *wtx) error {
@@ -402,7 +402,7 @@ func (s *Store) PeerBeadSend(ctx context.Context, session string) (*BeadPeer, er
 		// sends the new ones.
 		msg := PeerBeadMessage{V: PeerBeadVersion, Yardr: s.build, Bead: row.ID, Stage: row.Stage, Title: row.Title, Body: row.Body,
 			Type: cmp.Or(oldBeadType(row.Type), row.Type), Priority: row.Priority}
-		f, _, err := resolveFlow(w.Tx, row.Rig, row.Type, PinnedFlow(&row.Bead), repo)
+		f, _, err := resolveFlow(w.Tx, row.Depot, row.Type, PinnedFlow(&row.Bead), repo)
 		if err != nil {
 			return changedMeanwhile(err)
 		}
@@ -767,7 +767,7 @@ func (s *Store) settleSent(ctx context.Context, uuid string) error {
 	if err != nil {
 		return err
 	}
-	repo, err := s.repoFor(ctx, pre.Rig, pre.Type, PinnedFlow(pre))
+	repo, err := s.repoFor(ctx, pre.Depot, pre.Type, PinnedFlow(pre))
 	if err != nil {
 		return err
 	}
@@ -815,7 +815,7 @@ func (s *Store) settleSent(ctx context.Context, uuid string) error {
 				return err
 			}
 		}
-		f, _, err := resolveFlow(w.Tx, row.Rig, row.Type, PinnedFlow(&row.Bead), repo)
+		f, _, err := resolveFlow(w.Tx, row.Depot, row.Type, PinnedFlow(&row.Bead), repo)
 		if err != nil {
 			return changedMeanwhile(err)
 		}
@@ -904,14 +904,14 @@ func leftStay(tx *bolt.Tx, rec *peerSent) (bool, error) {
 
 // PeerFetch is a branch a peer returned for a bead of this yard, to be
 // taken before the bead's outcome is applied: Git as the return names it,
-// from Remote of Rig (the bead's group's GroupRemote), into the bead's own
+// from Remote of Depot (the bead's group's GroupRemote), into the bead's own
 // branch Into. Attempts counts the fetches that failed, of the Tries its
 // group allows, with Error the last one's and RetryAt when the next is due.
 type PeerFetch struct {
 	Bead     string     `json:"bead"`
 	Message  string     `json:"message"`
 	Peer     string     `json:"peer"`
-	Rig      Rig        `json:"rig"`
+	Depot    Depot      `json:"depot"`
 	Remote   string     `json:"remote"`
 	Into     string     `json:"into"`
 	Git      PeerGit    `json:"git"`
@@ -961,14 +961,14 @@ func (s *Store) PeerFetches(ctx context.Context) ([]PeerFetch, error) {
 			} else if ok {
 				f.Remote, f.Tries = g.peerRemote(), g.peerTries()
 			}
-			if row.Rig != nil {
-				if _, err := get(tx, bRigs, *row.Rig, &f.Rig); err != nil {
+			if row.Depot != nil {
+				if _, err := get(tx, bDepots, *row.Depot, &f.Depot); err != nil {
 					return err
 				}
 			}
-			if f.Rig.Name == "" {
-				// A bead of no rig has no repository: said as a directory.
-				f.Rig.Kind = RigDir
+			if f.Depot.Name == "" {
+				// A bead of no depot has no repository: said as a directory.
+				f.Depot.Kind = DepotDir
 			}
 			out = append(out, f)
 			return nil
@@ -993,7 +993,7 @@ func fetching(w *wtx, bead, message string) (*peerSent, *beadRow, error) {
 
 // PeerFetched records that the branch the peer returned for the bead is
 // its own branch now, or with notTaken why it is not this yard's to take
-// (a directory rig, another remote): either way the outcome of the return
+// (a directory depot, another remote): either way the outcome of the return
 // is applied next (settleSent), with a note that says which.
 func (s *Store) PeerFetched(ctx context.Context, bead, message, notTaken string) error {
 	return s.write(func(w *wtx) error {

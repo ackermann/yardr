@@ -39,10 +39,10 @@ type API interface {
 	AddNote(ctx context.Context, id, text, actor string) error
 	Notes(ctx context.Context, id string) ([]Note, error)
 
-	PutRig(ctx context.Context, r Rig, actor string) error
-	Rigs(ctx context.Context) ([]Rig, error)
-	GetRig(ctx context.Context, name string) (*Rig, error)
-	DeleteRig(ctx context.Context, name, actor string) (*RigRemoval, error)
+	PutDepot(ctx context.Context, r Depot, actor string) error
+	Depots(ctx context.Context) ([]Depot, error)
+	GetDepot(ctx context.Context, name string) (*Depot, error)
+	DeleteDepot(ctx context.Context, name, actor string) (*DepotRemoval, error)
 
 	PutGroup(ctx context.Context, g Group) error
 	Groups(ctx context.Context) ([]Group, error)
@@ -56,13 +56,13 @@ type API interface {
 	Flows(ctx context.Context) ([]Flow, error)
 	GetFlow(ctx context.Context, name string) (*Flow, error)
 	DeleteFlow(ctx context.Context, name, actor string) error
-	SetFlowPointer(ctx context.Context, rig, typ, flow, actor string) error
+	SetFlowPointer(ctx context.Context, depot, typ, flow, actor string) error
 	FlowPointers(ctx context.Context) ([]FlowPointer, error)
-	RepoFlows(ctx context.Context, rig string) (*RepoFlows, error)
-	RigFlows(ctx context.Context, rig string) ([]RigFlow, error)
+	RepoFlows(ctx context.Context, depot string) (*RepoFlows, error)
+	DepotFlows(ctx context.Context, depot string) ([]DepotFlow, error)
 	NextStages(ctx context.Context, id string) (*NextStages, error)
 	FlowMap(ctx context.Context, id string) (*FlowMap, error)
-	Stranded(ctx context.Context, rig string) ([]StrandedBead, error)
+	Stranded(ctx context.Context, depot string) ([]StrandedBead, error)
 
 	Claim(ctx context.Context, beadID, group, stage, actor string) (*Session, error)
 	MarkRunning(ctx context.Context, sessionID string, handle map[string]any) error

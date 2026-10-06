@@ -16,11 +16,11 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// yardr rig check run in a bead's worktree, or from one, is known to the
+// yardr depot check run in a bead's worktree, or from one, is known to the
 // yard while it runs: the bead, light or full, and since when. Nothing is
 // left when it has ended, pass or fail, and a run for no bead leaves nothing
 // at all.
-func TestRigCheckIsKnownWhileItRuns(t *testing.T) {
+func TestDepotCheckIsKnownWhileItRuns(t *testing.T) {
 	home := newHome(t)
 	st := storetest.New(t)
 	ctx := t.Context()
@@ -36,11 +36,11 @@ func TestRigCheckIsKnownWhileItRuns(t *testing.T) {
 	// The gate shows what the yard knows of it as it runs.
 	gating := filepath.Join(home, rigcheck.RunningDir)
 	show := `cat ` + gating + `/* 2>/dev/null; echo "files=$(ls ` + gating + ` 2>/dev/null | wc -l | tr -d ' ')"`
-	if err := st.PutRig(ctx, store.Rig{Name: "r", Path: repo, Base: "main", Check: show + `; test ! -e fail`, CheckLight: show}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "r", Path: repo, Base: "main", Check: show + `; test ! -e fail`, CheckLight: show}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"r-b1", "r-b2"} {
-		if _, err := st.CreateBead(ctx, store.NewBead{ID: id, Title: id, Rig: "r"}, "me"); err != nil {
+		if _, err := st.CreateBead(ctx, store.NewBead{ID: id, Title: id, Depot: "r"}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -51,7 +51,7 @@ func TestRigCheckIsKnownWhileItRuns(t *testing.T) {
 	// The gate's own record, as the check read it, and that it is gone after.
 	check := func(what string, wantErr bool, args ...string) *rigcheck.Gate {
 		t.Helper()
-		out, err := run(t, a.rigCheckCmd(), args...)
+		out, err := run(t, a.depotCheckCmd(), args...)
 		if (err != nil) != wantErr {
 			t.Fatalf("%s: %v\n%s", what, err, out)
 		}
@@ -76,7 +76,7 @@ func TestRigCheckIsKnownWhileItRuns(t *testing.T) {
 	}
 
 	g := check("full gate in the bead's worktree", false, "r", "--dir", wt)
-	if g == nil || g.Bead != "r-b1" || g.Rig != "r" || g.Light || g.Waiting || g.Dir != wt || g.Pid != os.Getpid() || g.Since.Before(started) || g.Since.After(time.Now()) {
+	if g == nil || g.Bead != "r-b1" || g.Depot != "r" || g.Light || g.Waiting || g.Dir != wt || g.Pid != os.Getpid() || g.Since.Before(started) || g.Since.After(time.Now()) {
 		t.Fatalf("full gate: %+v", g)
 	}
 	if g := check("light gate in the bead's worktree", false, "r", "--light", "--dir", wt); g == nil || g.Bead != "r-b1" || !g.Light {
@@ -97,15 +97,15 @@ func TestRigCheckIsKnownWhileItRuns(t *testing.T) {
 	if g := check("from the worktree", false, "r"); g == nil || g.Bead != "r-b1" || g.Dir != repo {
 		t.Fatalf("from the worktree: %+v", g)
 	}
-	// In the rig itself, on no bead's branch: nobody's gate.
+	// In the depot itself, on no bead's branch: nobody's gate.
 	t.Chdir(repo)
-	if g := check("in the rig", false, "r"); g != nil {
-		t.Fatalf("in the rig: %+v", g)
+	if g := check("in the depot", false, "r"); g != nil {
+		t.Fatalf("in the depot: %+v", g)
 	}
-	// Unless the session says which bead it works: a dir rig's bead has no
+	// Unless the session says which bead it works: a dir depot's bead has no
 	// worktree of its own.
 	t.Setenv("YARDR_BEAD", "r-b2")
-	if g := check("in the rig, by YARDR_BEAD", false, "r"); g == nil || g.Bead != "r-b2" {
+	if g := check("in the depot, by YARDR_BEAD", false, "r"); g == nil || g.Bead != "r-b2" {
 		t.Fatalf("by YARDR_BEAD: %+v", g)
 	}
 	// The worktree's branch says more than the environment.
@@ -124,7 +124,7 @@ func TestRigCheckIsKnownWhileItRuns(t *testing.T) {
 func TestSessionListShowsTheGate(t *testing.T) {
 	gateSlots(t)
 	home, st, a := statusYard(t, "abcdef123456")
-	if err := st.PutRig(t.Context(), store.Rig{Name: "r", Path: t.TempDir(), Kind: store.RigDir}, "me"); err != nil {
+	if err := st.PutDepot(t.Context(), store.Depot{Name: "r", Path: t.TempDir(), Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	beads := workYard(t, st, "r", []store.Group{
@@ -140,10 +140,10 @@ func TestSessionListShowsTheGate(t *testing.T) {
 		t.Cleanup(r.End)
 	}
 	now := time.Now()
-	mark(rigcheck.Gate{Bead: beads[0], Rig: "r", Light: true, Since: now.Add(-6*time.Minute - 5*time.Second)})
-	mark(rigcheck.Gate{Bead: beads[1], Rig: "r", Waiting: true, Since: now.Add(-2*time.Minute - 5*time.Second)})
+	mark(rigcheck.Gate{Bead: beads[0], Depot: "r", Light: true, Since: now.Add(-6*time.Minute - 5*time.Second)})
+	mark(rigcheck.Gate{Bead: beads[1], Depot: "r", Waiting: true, Since: now.Add(-2*time.Minute - 5*time.Second)})
 	// A gate for a bead a person holds is nobody's wait.
-	mark(rigcheck.Gate{Bead: beads[3], Rig: "r", Since: now})
+	mark(rigcheck.Gate{Bead: beads[3], Depot: "r", Since: now})
 
 	// A command of a real yard has its home from its store's configuration.
 	inHome := func() *app {
@@ -179,7 +179,7 @@ func TestSessionListShowsTheGate(t *testing.T) {
 	for _, s := range listed {
 		switch g := s.Gate; s.Bead {
 		case beads[0]:
-			if g == nil || g.Bead != s.Bead || !g.Light || g.Waiting || g.Rig != "r" || g.Since.IsZero() {
+			if g == nil || g.Bead != s.Bead || !g.Light || g.Waiting || g.Depot != "r" || g.Since.IsZero() {
 				t.Errorf("--json, the light gate: %+v", g)
 			}
 		case beads[1]:

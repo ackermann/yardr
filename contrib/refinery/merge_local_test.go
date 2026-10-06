@@ -82,8 +82,8 @@ new -> approved
 merged terminal
 `
 
-// yard is one isolated yardr with rig r over a fresh repository whose base
-// main is checked out in the rig, and bead r-1 in approved on yard/r-1, one
+// yard is one isolated yardr with depot r over a fresh repository whose base
+// main is checked out in the depot, and bead r-1 in approved on yard/r-1, one
 // commit ahead of main, in its worktree.
 type yard struct {
 	t              *testing.T
@@ -120,10 +120,10 @@ func newYard(t *testing.T) *yard {
 	y.git(".", "init", "-q", "-b", "main", y.repo)
 	y.commit(y.repo, "a.txt", "one\n")
 	// The gate is red when the tree has a file RED.
-	y.yardr("rig", "add", "r", y.repo, "--base", "main", "--check", "test ! -e RED")
+	y.yardr("depot", "add", "r", y.repo, "--base", "main", "--check", "test ! -e RED")
 	y.yardrIn(flow, "flow", "set", "f", "-f", "-")
-	y.yardr("rig", "flow", "r", "f")
-	y.yardr("bead", "create", "work", "--id", "r-1", "-r", "r", "-s", "approved")
+	y.yardr("depot", "flow", "r", "f")
+	y.yardr("bead", "create", "work", "--id", "r-1", "-d", "r", "-s", "approved")
 	y.git(y.repo, "branch", "yard/r-1")
 	y.git(y.repo, "worktree", "add", "-q", y.wt, "yard/r-1")
 	return y
@@ -201,7 +201,7 @@ func (y *yard) exec(script, group, id string) {
 	h, err := e.Start(ctx, dispatch.Job{
 		Bead:     store.Bead{ID: id, Stage: b.Stage, Type: b.Type},
 		Group:    store.Group{Name: group, Config: map[string]any{"cmd": cmd, "log": logPath}},
-		Rig:      &store.Rig{Name: "r", Path: y.repo, Base: "main"},
+		Depot:    &store.Depot{Name: "r", Path: y.repo, Base: "main"},
 		Session:  y.claimFor(ctx, group, id),
 		Train:    fam.Train,
 		Base:     fam.Base,
@@ -371,17 +371,17 @@ func TestMergeLocalRedGate(t *testing.T) {
 	}
 }
 
-// A gate that cannot run at all (rig check exits 2) is no builder's to fix:
+// A gate that cannot run at all (depot check exits 2) is no builder's to fix:
 // the bead is held where it is, not sent back to new.
 func TestMergeLocalGateNotRunHolds(t *testing.T) {
 	y := newYard(t)
 	main := y.git(y.repo, "rev-parse", "main")
 	y.commit(y.wt, "b.txt", "bead\n")
-	// The store's rig now points at a directory that is no repository and
+	// The store's depot now points at a directory that is no repository and
 	// has no --check: finding the gate fails, while the script still works
 	// on the real repo it is given.
 	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
-	if err := st.PutRig(context.Background(), store.Rig{Name: "r", Path: t.TempDir(), Base: "main"}, "test"); err != nil {
+	if err := st.PutDepot(context.Background(), store.Depot{Name: "r", Path: t.TempDir(), Base: "main"}, "test"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -436,7 +436,7 @@ func TestMergeLocalLandsOnlyWhatItGated(t *testing.T) {
 	// The gate itself commits to the branch: the branch moves while it runs,
 	// as a push during the gate would move it.
 	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
-	if err := st.PutRig(context.Background(), store.Rig{Name: "r", Path: y.repo, Base: "main",
+	if err := st.PutDepot(context.Background(), store.Depot{Name: "r", Path: y.repo, Base: "main",
 		Check: "git commit -q --allow-empty -m during-the-gate"}, "test"); err != nil {
 		t.Fatal(err)
 	}
@@ -469,7 +469,7 @@ func TestMergeLocalChildLandsOnItsTrain(t *testing.T) {
 	y.git(y.repo, "remote", "add", "origin", remote)
 	y.git(y.repo, "push", "-q", "origin", "main")
 	y.push = "origin"
-	y.yardr("bead", "create", "the train", "--id", "r-e", "-r", "r", "-t", "train", "-s", "approved")
+	y.yardr("bead", "create", "the train", "--id", "r-e", "-d", "r", "-t", "train", "-s", "approved")
 	y.yardr("dep", "add", "r-e", "r-1", "-k", "parent")
 	if f := y.family(); f.Train != "r-e" || f.Base != "yard/r-e" {
 		t.Fatalf("bead show --json: %+v, want train r-e and base yard/r-e", f)

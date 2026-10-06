@@ -106,7 +106,7 @@ func TestAddDepAcceptsADiamond(t *testing.T) {
 // cycle like one asked for: with the train already blocking the child, and
 // the other way around once the bead is a child.
 func TestAddDepRefusesACycleThroughAParentEdge(t *testing.T) {
-	s, ctx := trainRig(t)
+	s, ctx := trainDepot(t)
 	block(t, s, "web-e web-1")
 	cycleRefused(t, s, "web-e", "web-1", store.DepParent, "web-1 blocks web-e blocks web-1")
 	if f := family(t, s, "web-e"); len(f.Children) != 0 {
@@ -117,7 +117,7 @@ func TestAddDepRefusesACycleThroughAParentEdge(t *testing.T) {
 	}
 	cycleRefused(t, s, "web-e", "web-2", store.DepBlocks, "web-e blocks web-2 blocks web-e")
 	// Through a third bead: the child blocks the train, the train blocks web-3.
-	if _, err := s.CreateBead(ctx, store.NewBead{ID: "web-3", Title: "three", Rig: "web"}, "me"); err != nil {
+	if _, err := s.CreateBead(ctx, store.NewBead{ID: "web-3", Title: "three", Depot: "web"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	block(t, s, "web-e web-3")

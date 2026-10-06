@@ -26,7 +26,7 @@ type Bead struct {
 	Stage       string         `json:"stage"`
 	Status      string         `json:"status"`
 	Priority    int            `json:"priority"`
-	Rig         *string        `json:"rig,omitempty"`
+	Depot       *string        `json:"depot,omitempty"`
 	Labels      []string       `json:"labels"`
 	Metadata    map[string]any `json:"metadata,omitempty"`
 	Hold        bool           `json:"hold,omitempty"`
@@ -73,16 +73,16 @@ type NewBead struct {
 	Type     string
 	Stage    string
 	Priority int
-	Rig      string
+	Depot    string
 	Labels   []string
-	Prefix   string // handle prefix; defaults to the rig name, else "yd"
+	Prefix   string // handle prefix; defaults to the depot name, else "yd"
 	ID       string // explicit handle (imports, journals); must be unused
 	Metadata map[string]any
 	// Links are made with the bead, in the same write: a link that is
 	// refused (the issue has a tracker) creates no bead.
 	Links []NewLink
 	// DiscoveredFrom names the bead this one was found while working on
-	// (a handle or UUID, open or closed, in any rig). The discovered-from
+	// (a handle or UUID, open or closed, in any depot). The discovered-from
 	// edge is made with the bead, in the same write: an origin that does
 	// not exist creates no bead. Nothing of the origin is inherited.
 	DiscoveredFrom string
@@ -96,8 +96,8 @@ type NewBead struct {
 
 var validID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
-// validName is the shape of rig names, bead types and dep kinds. They end up
-// in paths (rig clones, flow files), BDP type URLs and route matches, so no
+// validName is the shape of depot names, bead types and dep kinds. They end up
+// in paths (depot clones, flow files), BDP type URLs and route matches, so no
 // slash or whitespace, and one case so "Bug" and "bug" are not two types.
 var validName = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 
@@ -177,7 +177,7 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 	}
 	prefix := nb.Prefix
 	if prefix == "" {
-		prefix = nb.Rig
+		prefix = nb.Depot
 	}
 	if prefix == "" {
 		prefix = "yd"
@@ -186,9 +186,9 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 	if err := checkName("bead type", typ); err != nil {
 		return nil, err
 	}
-	var rig *string
-	if nb.Rig != "" {
-		rig = &nb.Rig
+	var depot *string
+	if nb.Depot != "" {
+		depot = &nb.Depot
 	}
 	// The links are fixed in a copy: the slice is the caller's.
 	nb.Links = slices.Clone(nb.Links)
@@ -198,16 +198,16 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 		}
 	}
 	pin := PinnedFlow(&Bead{Metadata: nb.Metadata})
-	repo, err := s.repoFor(ctx, rig, typ, pin)
+	repo, err := s.repoFor(ctx, depot, typ, pin)
 	if err != nil {
 		return nil, err
 	}
 	var created *Bead
 	err = s.write(func(w *wtx) error {
-		if nb.Rig != "" && w.Bucket(bRigs).Get([]byte(nb.Rig)) == nil {
-			return fmt.Errorf("rig %s: %w", nb.Rig, ErrNotFound)
+		if nb.Depot != "" && w.Bucket(bDepots).Get([]byte(nb.Depot)) == nil {
+			return fmt.Errorf("depot %s: %w", nb.Depot, ErrNotFound)
 		}
-		f, _, err := resolveFlow(w.Tx, rig, typ, pin, repo)
+		f, _, err := resolveFlow(w.Tx, depot, typ, pin, repo)
 		if err != nil {
 			return changedMeanwhile(err)
 		}
@@ -228,7 +228,7 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 			Status: "open", Priority: nb.Priority, Labels: dedupe(nb.Labels), CreatedAt: now(), CreatedBy: &actor,
 			Metadata: nb.Metadata,
 		}}
-		row.Rig = rig
+		row.Depot = depot
 		if err := w.insertBead(row, prefix, nb.ID, actor); err != nil {
 			return err
 		}
@@ -322,7 +322,7 @@ type BeadFilter struct {
 	All   bool // include closed
 	Stage string
 	Type  string
-	Rig   string
+	Depot string
 	Label string
 	Group string
 	// Train keeps the train (a handle or UUID) and its children, the train
@@ -376,7 +376,7 @@ func (s *Store) ListBeads(ctx context.Context, f BeadFilter) ([]Bead, error) {
 			(f.Stage == "" || b.Stage == f.Stage) &&
 			// Journals and memories are listed only when asked for by type.
 			((f.Type == "" && !NotWork[b.Type]) || b.Type == f.Type) &&
-			(f.Rig == "" || (b.Rig != nil && *b.Rig == f.Rig)) &&
+			(f.Depot == "" || (b.Depot != nil && *b.Depot == f.Depot)) &&
 			(f.Label == "" || slices.Contains(b.Labels, CrewLabel(f.Label))) &&
 			(f.Group == "" || (b.Group != nil && *b.Group == f.Group))
 	})
@@ -458,7 +458,7 @@ type BeadPatch struct {
 	Body        *string
 	Type        *string
 	Priority    *int
-	Rig         *string
+	Depot       *string
 	AddLabels   []string
 	RemoveLabel []string
 	Metadata    map[string]any // merged
@@ -482,14 +482,14 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expe
 		if err != nil {
 			return nil, err
 		}
-		rig, typ := pre.Rig, pre.Type
-		if p.Rig != nil {
-			rig = p.Rig
+		depot, typ := pre.Depot, pre.Type
+		if p.Depot != nil {
+			depot = p.Depot
 		}
 		if p.Type != nil {
 			typ = *p.Type
 		}
-		if repo, err = s.repoFor(ctx, rig, typ, pin); err != nil {
+		if repo, err = s.repoFor(ctx, depot, typ, pin); err != nil {
 			return nil, err
 		}
 	}
@@ -510,11 +510,11 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expe
 		if p.Priority != nil {
 			b.Priority, changed["priority"] = *p.Priority, *p.Priority
 		}
-		if p.Rig != nil {
-			if w.Bucket(bRigs).Get([]byte(*p.Rig)) == nil {
-				return "", nil, fmt.Errorf("rig %s: %w", *p.Rig, ErrNotFound)
+		if p.Depot != nil {
+			if w.Bucket(bDepots).Get([]byte(*p.Depot)) == nil {
+				return "", nil, fmt.Errorf("depot %s: %w", *p.Depot, ErrNotFound)
 			}
-			b.Rig, changed["rig"] = p.Rig, *p.Rig
+			b.Depot, changed["depot"] = p.Depot, *p.Depot
 		}
 		if len(p.AddLabels) > 0 || len(p.RemoveLabel) > 0 {
 			labels := dedupe(append(slices.Clone(b.Labels), p.AddLabels...))
@@ -532,7 +532,7 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expe
 			changed["metadata"] = p.Metadata
 		}
 		if pin != "" {
-			if _, _, err := resolveFlow(w.Tx, b.Rig, b.Type, pin, repo); err != nil {
+			if _, _, err := resolveFlow(w.Tx, b.Depot, b.Type, pin, repo); err != nil {
 				return "", nil, changedMeanwhile(err)
 			}
 		}
@@ -657,7 +657,7 @@ func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor 
 	if err != nil {
 		return nil, err
 	}
-	repo, err := s.repoFor(ctx, pre.Rig, pre.Type, PinnedFlow(pre))
+	repo, err := s.repoFor(ctx, pre.Depot, pre.Type, PinnedFlow(pre))
 	if err != nil {
 		return nil, err
 	}
@@ -683,14 +683,14 @@ func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor 
 }
 
 // moveBead is the move itself, inside a write: the bead goes to the stage
-// pick names under its flow, which is read with repo, the rig's repository
+// pick names under its flow, which is read with repo, the depot's repository
 // flows as read before the write. Entering a terminal stage closes the
 // bead, and returns it to the yard it came from, if it came from one.
 func (w *wtx) moveBead(id, actor string, repo *RepoFlows, pick func(f *Flow, b *beadRow, data map[string]any) (string, error)) (*Bead, error) {
 	var stage, outcome string
 	var terminal bool
 	b, err := w.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
-		f, _, err := resolveFlow(w.Tx, b.Rig, b.Type, PinnedFlow(&b.Bead), repo)
+		f, _, err := resolveFlow(w.Tx, b.Depot, b.Type, PinnedFlow(&b.Bead), repo)
 		if err != nil {
 			return "", nil, changedMeanwhile(err)
 		}

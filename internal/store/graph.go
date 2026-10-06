@@ -576,72 +576,72 @@ func (s *Store) Notes(ctx context.Context, ref string) ([]Note, error) {
 	return out, err
 }
 
-// Rig kinds. A git rig is a repository: beads work on branches in
-// worktrees, start from Base and land on it, and the rig's .yardr/ is read
-// from the base. A dir rig is a plain directory (documents, images, a small
+// Depot kinds. A git depot is a repository: beads work on branches in
+// worktrees, start from Base and land on it, and the depot's .yardr/ is read
+// from the base. A dir depot is a plain directory (documents, images, a small
 // business's files): work happens in the directory itself, there is no
 // base, and .yardr/ is read from the directory as it is.
 const (
-	RigGit = "git"
-	RigDir = "dir"
+	DepotGit = "git"
+	DepotDir = "dir"
 )
 
-type Rig struct {
+type Depot struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
-	// Kind is RigGit or RigDir. Rigs stored before kinds existed are git
-	// rigs (migrateRigKinds).
+	// Kind is DepotGit or DepotDir. Depots stored before kinds existed are git
+	// depots (migrateDepotKinds).
 	Kind string `json:"kind"`
 	Base string `json:"base"`
-	// Check overrides the repo's .yardr/check as the rig's merge gate: a
+	// Check overrides the repo's .yardr/check as the depot's merge gate: a
 	// command run with sh -c in the bead's worktree (see package rigcheck).
 	Check string `json:"check,omitempty"`
-	// CheckLight is the rig's light gate, beside Check: the override of the
+	// CheckLight is the depot's light gate, beside Check: the override of the
 	// repo's .yardr/check-light (see package rigcheck).
 	CheckLight string `json:"check_light,omitempty"`
-	// LightSlot: the rig's light gate takes one of the machine's gate slots,
-	// as its full gate always does (see package rigcheck). For a rig whose
+	// LightSlot: the depot's light gate takes one of the machine's gate slots,
+	// as its full gate always does (see package rigcheck). For a depot whose
 	// light gate is not light.
 	LightSlot bool `json:"light_slot,omitempty"`
-	// AllowNoCheck lets a rig with neither Check nor .yardr/check pass its
+	// AllowNoCheck lets a depot with neither Check nor .yardr/check pass its
 	// gate; without it, no gate fails.
 	AllowNoCheck bool `json:"allow_no_check,omitempty"`
 }
 
-// IsDir reports whether the rig is a directory, not a repository.
-func (r *Rig) IsDir() bool { return r.Kind == RigDir }
+// IsDir reports whether the depot is a directory, not a repository.
+func (r *Depot) IsDir() bool { return r.Kind == DepotDir }
 
-// PutRig adds or replaces a rig, and logs rig_updated with what it now
+// PutDepot adds or replaces a depot, and logs depot_updated with what it now
 // holds: a --check override replaces the repo's gate, so it must not change
-// unseen. A rig given no kind is a git rig.
-func (s *Store) PutRig(ctx context.Context, r Rig, actor string) error {
-	if err := checkName("rig name", r.Name); err != nil {
+// unseen. A depot given no kind is a git depot.
+func (s *Store) PutDepot(ctx context.Context, r Depot, actor string) error {
+	if err := checkName("depot name", r.Name); err != nil {
 		return err
 	}
 	switch r.Kind {
 	case "":
-		r.Kind = RigGit
-	case RigGit:
-	case RigDir:
+		r.Kind = DepotGit
+	case DepotGit:
+	case DepotDir:
 		if r.Base != "" {
-			return fmt.Errorf("rig %s is a directory rig: it has no base (got %q)", r.Name, r.Base)
+			return fmt.Errorf("depot %s is a directory depot: it has no base (got %q)", r.Name, r.Base)
 		}
 	default:
-		return fmt.Errorf("rig %s: kind %q is neither %s nor %s", r.Name, r.Kind, RigGit, RigDir)
+		return fmt.Errorf("depot %s: kind %q is neither %s nor %s", r.Name, r.Kind, DepotGit, DepotDir)
 	}
 	return s.write(func(w *wtx) error {
-		if err := put(w.Tx, bRigs, r.Name, r); err != nil {
+		if err := put(w.Tx, bDepots, r.Name, r); err != nil {
 			return err
 		}
-		return w.event("", "rig_updated", actor, map[string]any{
-			"rig": r.Name, "path": r.Path, "kind": r.Kind, "base": r.Base, "check": r.Check, "check_light": r.CheckLight, "light_slot": r.LightSlot, "allow_no_check": r.AllowNoCheck})
+		return w.event("", "depot_updated", actor, map[string]any{
+			"depot": r.Name, "path": r.Path, "kind": r.Kind, "base": r.Base, "check": r.Check, "check_light": r.CheckLight, "light_slot": r.LightSlot, "allow_no_check": r.AllowNoCheck})
 	})
 }
 
-func (s *Store) Rigs(ctx context.Context) ([]Rig, error) {
-	out := []Rig{}
+func (s *Store) Depots(ctx context.Context) ([]Depot, error) {
+	out := []Depot{}
 	err := s.read(func(tx *bolt.Tx) error {
-		return each(tx, bRigs, "", func(_ []byte, r *Rig) error {
+		return each(tx, bDepots, "", func(_ []byte, r *Depot) error {
 			out = append(out, *r)
 			return nil
 		})
@@ -649,12 +649,12 @@ func (s *Store) Rigs(ctx context.Context) ([]Rig, error) {
 	return out, err
 }
 
-func (s *Store) GetRig(ctx context.Context, name string) (*Rig, error) {
-	r := new(Rig)
+func (s *Store) GetDepot(ctx context.Context, name string) (*Depot, error) {
+	r := new(Depot)
 	err := s.read(func(tx *bolt.Tx) error {
-		ok, err := get(tx, bRigs, name, r)
+		ok, err := get(tx, bDepots, name, r)
 		if err == nil && !ok {
-			err = fmt.Errorf("rig %s: %w", name, ErrNotFound)
+			err = fmt.Errorf("depot %s: %w", name, ErrNotFound)
 		}
 		return err
 	})
@@ -664,37 +664,37 @@ func (s *Store) GetRig(ctx context.Context, name string) (*Rig, error) {
 	return r, nil
 }
 
-// RigRemoval is what DeleteRig took out of the store with the rig.
-type RigRemoval struct {
-	Rig          string        `json:"rig"`
-	Routes       []string      `json:"routes"`        // ids of the routes that matched --rig <name>
-	FlowPointers []FlowPointer `json:"flow_pointers"` // the rig's and its types' flow pointers
+// DepotRemoval is what DeleteDepot took out of the store with the depot.
+type DepotRemoval struct {
+	Depot        string        `json:"depot"`
+	Routes       []string      `json:"routes"`        // ids of the routes that matched --depot <name>
+	FlowPointers []FlowPointer `json:"flow_pointers"` // the depot's and its types' flow pointers
 }
 
-// DeleteRig removes a rig with the routes that match it and its flow
-// pointers, and logs rig_removed. It refuses while the rig has open beads
-// or live sessions, and names them: a bead whose rig is gone could not be
-// routed, worked or merged. Closed beads keep the rig's name as history.
+// DeleteDepot removes a depot with the routes that match it and its flow
+// pointers, and logs depot_removed. It refuses while the depot has open beads
+// or live sessions, and names them: a bead whose depot is gone could not be
+// routed, worked or merged. Closed beads keep the depot's name as history.
 // Only the store changes: the clone, its worktrees and its .yardr/ are not
 // touched.
-func (s *Store) DeleteRig(ctx context.Context, name, actor string) (*RigRemoval, error) {
-	var out *RigRemoval
+func (s *Store) DeleteDepot(ctx context.Context, name, actor string) (*DepotRemoval, error) {
+	var out *DepotRemoval
 	err := s.write(func(w *wtx) error {
 		// Batch reruns this closure when another call in the batch fails, so
 		// what was removed starts over with each attempt.
-		out = &RigRemoval{Rig: name, Routes: []string{}, FlowPointers: []FlowPointer{}}
-		if w.Bucket(bRigs).Get([]byte(name)) == nil {
-			return fmt.Errorf("rig %s: %w", name, ErrNotFound)
+		out = &DepotRemoval{Depot: name, Routes: []string{}, FlowPointers: []FlowPointer{}}
+		if w.Bucket(bDepots).Get([]byte(name)) == nil {
+			return fmt.Errorf("depot %s: %w", name, ErrNotFound)
 		}
-		users, err := s.rigUsers(w.Tx, name)
+		users, err := s.depotUsers(w.Tx, name)
 		if err != nil {
 			return err
 		}
 		if len(users) > 0 {
-			return fmt.Errorf("rig %s is in use by %s; close the beads and end the sessions first", name, strings.Join(users, ", "))
+			return fmt.Errorf("depot %s is in use by %s; close the beads and end the sessions first", name, strings.Join(users, ", "))
 		}
 		if err := each(w.Tx, bRoutes, "", func(k []byte, r *Route) error {
-			if r.Rig != nil && *r.Rig == name {
+			if r.Depot != nil && *r.Depot == name {
 				out.Routes = append(out.Routes, string(k))
 			}
 			return nil
@@ -706,8 +706,8 @@ func (s *Store) DeleteRig(ctx context.Context, name, actor string) (*RigRemoval,
 				return err
 			}
 		}
-		// Pointer keys are <rig>\x00<type>, so the rig's own pointer and its
-		// types' share the prefix; another rig whose name extends this one
+		// Pointer keys are <depot>\x00<type>, so the depot's own pointer and its
+		// types' share the prefix; another depot whose name extends this one
 		// (web, web2) does not.
 		var ptrKeys []string
 		if err := each(w.Tx, bFlowPtrs, name+"\x00", func(k []byte, p *FlowPointer) error {
@@ -722,22 +722,22 @@ func (s *Store) DeleteRig(ctx context.Context, name, actor string) (*RigRemoval,
 				return err
 			}
 		}
-		// The record of what was imported into the rig goes with it: its
+		// The record of what was imported into the depot goes with it: its
 		// routes and pointers just did.
 		for _, k := range keys(w.Tx, bPacks, name+"\x00") {
 			if err := w.Bucket(bPacks).Delete([]byte(k)); err != nil {
 				return err
 			}
 		}
-		if err := w.Bucket(bRigs).Delete([]byte(name)); err != nil {
+		if err := w.Bucket(bDepots).Delete([]byte(name)); err != nil {
 			return err
 		}
 		ptrs := make([]string, 0, len(out.FlowPointers))
 		for _, p := range out.FlowPointers {
 			ptrs = append(ptrs, p.String())
 		}
-		return w.event("", "rig_removed", actor, map[string]any{
-			"rig": name, "routes": out.Routes, "flow_pointers": ptrs})
+		return w.event("", "depot_removed", actor, map[string]any{
+			"depot": name, "routes": out.Routes, "flow_pointers": ptrs})
 	})
 	if err != nil {
 		return nil, err
@@ -745,12 +745,12 @@ func (s *Store) DeleteRig(ctx context.Context, name, actor string) (*RigRemoval,
 	return out, nil
 }
 
-// rigUsers names what still needs the rig: its open beads, and the live
+// depotUsers names what still needs the depot: its open beads, and the live
 // sessions working them.
-func (s *Store) rigUsers(tx *bolt.Tx, name string) ([]string, error) {
+func (s *Store) depotUsers(tx *bolt.Tx, name string) ([]string, error) {
 	var out []string
 	err := each(tx, bBeads, "", func(_ []byte, r *beadRow) error {
-		if r.Status != "closed" && r.Rig != nil && *r.Rig == name {
+		if r.Status != "closed" && r.Depot != nil && *r.Depot == name {
 			out = append(out, "bead "+r.ID)
 		}
 		return nil
@@ -766,7 +766,7 @@ func (s *Store) rigUsers(tx *bolt.Tx, name string) ([]string, error) {
 		var b beadRow
 		if ok, err := get(tx, bBeads, sess.Bead, &b); err != nil {
 			return nil, err
-		} else if ok && b.Rig != nil && *b.Rig == name {
+		} else if ok && b.Depot != nil && *b.Depot == name {
 			out = append(out, "session "+sess.ID+" (bead "+b.ID+")")
 		}
 	}

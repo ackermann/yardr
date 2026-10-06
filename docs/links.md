@@ -12,7 +12,7 @@ yardr link list yardr-k3f9                # the bead's links
 yardr link list --issue https://linear.app/acme/issue/YRD-12             # the issue's beads, its tracker first
 yardr link move https://linear.app/acme/issue/YRD-12 --to yardr-e2ab     # another bead tracks it from now on
 yardr link rm yardr-k3f9 https://linear.app/acme/issue/YRD-12
-yardr bead create "Web view shows links" --rig yardr --tracks https://linear.app/acme/issue/YRD-12
+yardr bead create "Web view shows links" --depot yardr --tracks https://linear.app/acme/issue/YRD-12
 ```
 
 Linking only records, and calls neither Linear nor GitHub. What acts on a
@@ -70,7 +70,7 @@ yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret --as 
     --map task:new=started --map task:review=review --map task:merged=done \
     --map train:open=started --map train:done=done
 
-yardr bead create "Web view shows links" --rig webapp --tracks https://linear.app/acme/issue/YRD-12
+yardr bead create "Web view shows links" --depot webapp --tracks https://linear.app/acme/issue/YRD-12
 yardr bead advance webapp-k3f9 --to new    # YRD-12: Todo -> In Progress
 yardr bead done webapp-k3f9                # into review: In Progress -> In Review
 #   … approved is not in the map: nothing

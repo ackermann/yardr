@@ -51,10 +51,10 @@ func timeless(ws []web.Waiting) []web.Waiting {
 func TestWaitsHeld(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	must(t, f.st.PutRig(ctx, store.Rig{Name: "line", Base: "origin/main"}, "me"))
-	b, err := f.st.CreateBead(ctx, store.NewBead{Title: "a door", Stage: "new", Rig: "line"}, "me")
+	must(t, f.st.PutDepot(ctx, store.Depot{Name: "line", Base: "origin/main"}, "me"))
+	b, err := f.st.CreateBead(ctx, store.NewBead{Title: "a door", Stage: "new", Depot: "line"}, "me")
 	must(t, err)
-	_, err = f.st.CreateBead(ctx, store.NewBead{Title: "a window", Stage: "new", Rig: "line"}, "me")
+	_, err = f.st.CreateBead(ctx, store.NewBead{Title: "a window", Stage: "new", Depot: "line"}, "me")
 	must(t, err)
 	if got := waiting(lineJSON(t, f)); len(got) != 0 {
 		t.Fatalf("nothing is held, and these wait: %+v", got)
@@ -66,7 +66,7 @@ func TestWaitsHeld(t *testing.T) {
 	must(t, f.st.AddNote(ctx, b.ID, "the hinge is <missing>", "builder"))
 	_, err = f.st.SetHold(ctx, b.ID, true, store.Expect{}, "builder")
 	must(t, err)
-	want := []web.Waiting{{Bead: b.ID, Title: "a door", Rig: "line", Stage: "new",
+	want := []web.Waiting{{Bead: b.ID, Title: "a door", Depot: "line", Stage: "new",
 		Why: []web.Reason{{Kind: "held", Text: "held by builder", Note: "the hinge is <missing>"}}}}
 	if got := waiting(lineJSON(t, f)); !reflect.DeepEqual(got, want) {
 		t.Errorf("held\n got %+v\nwant %+v", got, want)
@@ -106,18 +106,18 @@ func TestWaitsHeld(t *testing.T) {
 func TestWaitsManual(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	must(t, f.st.PutRig(ctx, store.Rig{Name: "line", Base: "origin/main"}, "me"))
+	must(t, f.st.PutDepot(ctx, store.Depot{Name: "line", Base: "origin/main"}, "me"))
 	must(t, f.st.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Members: []string{"anna", "ben"}}))
 	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake"}))
 	_, err := f.st.AddRoute(ctx, store.Route{Stage: "decide", Group: "decisions"})
 	must(t, err)
 	_, err = f.st.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
 	must(t, err)
-	_, err = f.st.CreateBead(ctx, store.NewBead{Title: "built by an agent", Stage: "new", Rig: "line"}, "me")
+	_, err = f.st.CreateBead(ctx, store.NewBead{Title: "built by an agent", Stage: "new", Depot: "line"}, "me")
 	must(t, err)
-	unclaimed, err := f.st.CreateBead(ctx, store.NewBead{Title: "which colour", Stage: "decide", Rig: "line"}, "me")
+	unclaimed, err := f.st.CreateBead(ctx, store.NewBead{Title: "which colour", Stage: "decide", Depot: "line"}, "me")
 	must(t, err)
-	claimed, err := f.st.CreateBead(ctx, store.NewBead{Title: "which size", Stage: "decide", Rig: "line"}, "me")
+	claimed, err := f.st.CreateBead(ctx, store.NewBead{Title: "which size", Stage: "decide", Depot: "line"}, "me")
 	must(t, err)
 	sess, err := f.st.Claim(ctx, claimed.ID, "decisions", "decide", "yard")
 	must(t, err)
@@ -126,8 +126,8 @@ func TestWaitsManual(t *testing.T) {
 	why := []web.Reason{{Kind: "manual", Text: "waits for decisions (anna, ben) in decide"}}
 	// The one that began to wait last comes first.
 	want := []web.Waiting{
-		{Bead: claimed.ID, Title: "which size", Rig: "line", Stage: "decide", Why: why},
-		{Bead: unclaimed.ID, Title: "which colour", Rig: "line", Stage: "decide", Why: why},
+		{Bead: claimed.ID, Title: "which size", Depot: "line", Stage: "decide", Why: why},
+		{Bead: unclaimed.ID, Title: "which colour", Depot: "line", Stage: "decide", Why: why},
 	}
 	l := lineJSON(t, f)
 	if got := parked(l); !reflect.DeepEqual(got, want) {
@@ -169,13 +169,13 @@ func sessionsJSON(t *testing.T, f *fixture) web.Sessions {
 func backlogYard(t *testing.T, f *fixture, n int) []*store.Bead {
 	t.Helper()
 	ctx := context.Background()
-	must(t, f.st.PutRig(ctx, store.Rig{Name: "line", Base: "origin/main"}, "me"))
+	must(t, f.st.PutDepot(ctx, store.Depot{Name: "line", Base: "origin/main"}, "me"))
 	must(t, f.st.PutGroup(ctx, store.Group{Name: "backlog", Runner: "manual", Limit: n}))
 	_, err := f.st.AddRoute(ctx, store.Route{Stage: "backlog", Group: "backlog"})
 	must(t, err)
 	var beads []*store.Bead
 	for i := range n {
-		b, err := f.st.CreateBead(ctx, store.NewBead{Title: "idea " + string(rune('a'+i)), Stage: "backlog", Rig: "line"}, "me")
+		b, err := f.st.CreateBead(ctx, store.NewBead{Title: "idea " + string(rune('a'+i)), Stage: "backlog", Depot: "line"}, "me")
 		must(t, err)
 		sess, err := f.st.Claim(ctx, b.ID, "backlog", "backlog", "yard")
 		must(t, err)
@@ -204,8 +204,8 @@ func TestManualClaimsOnly(t *testing.T) {
 		!reflect.DeepEqual(got[0].Why, []web.Reason{{Kind: "manual", Text: "waits for backlog in backlog"}}) {
 		t.Errorf("parked %+v, want the five beads, the last claimed first", got)
 	}
-	if h := homeJSON(t, f, "/"); len(h.Rigs) != 1 || h.Rigs[0].Open != 5 || h.Rigs[0].Working != 0 {
-		t.Errorf("home: %+v, want one rig with 5 open and none working", h.Rigs)
+	if h := homeJSON(t, f, "/"); len(h.Depots) != 1 || h.Depots[0].Open != 5 || h.Depots[0].Working != 0 {
+		t.Errorf("home: %+v, want one depot with 5 open and none working", h.Depots)
 	}
 	s := sessionsJSON(t, f)
 	if len(s.Sessions) != 0 || s.Sessions == nil || len(s.Manual) != 5 {
@@ -258,13 +258,13 @@ func TestManualClaimsMixed(t *testing.T) {
 	ctx := context.Background()
 	beads := backlogYard(t, f, 3)
 	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
-	door, err := f.st.CreateBead(ctx, store.NewBead{Title: "a door", Stage: "new", Rig: "line"}, "me")
+	door, err := f.st.CreateBead(ctx, store.NewBead{Title: "a door", Stage: "new", Depot: "line"}, "me")
 	must(t, err)
 	sess, err := f.st.Claim(ctx, door.ID, "builders", "new", "yard")
 	must(t, err)
 	must(t, f.st.MarkRunning(ctx, sess.ID, map[string]any{"agent": "door-new"}))
 	// A session that is still starting counts too.
-	window, err := f.st.CreateBead(ctx, store.NewBead{Title: "a window", Stage: "new", Rig: "line"}, "me")
+	window, err := f.st.CreateBead(ctx, store.NewBead{Title: "a window", Stage: "new", Depot: "line"}, "me")
 	must(t, err)
 	_, err = f.st.Claim(ctx, window.ID, "builders", "new", "yard")
 	must(t, err)
@@ -275,7 +275,7 @@ func TestManualClaimsMixed(t *testing.T) {
 	if l.Open != 5 || l.Working != 2 || l.Sessions != 2 || l.Held != 1 {
 		t.Errorf("the line: %d open, %d working, %d held, %d sessions, want 5, 2, 1, 2", l.Open, l.Working, l.Held, l.Sessions)
 	}
-	wantWaits := []web.Waiting{{Bead: beads[1].ID, Title: "idea b", Rig: "line", Stage: "backlog", Why: []web.Reason{
+	wantWaits := []web.Waiting{{Bead: beads[1].ID, Title: "idea b", Depot: "line", Stage: "backlog", Why: []web.Reason{
 		{Kind: "held", Text: "held by me"}, {Kind: "manual", Text: "waits for backlog in backlog"}}}}
 	if got := waiting(l); !reflect.DeepEqual(got, wantWaits) {
 		t.Errorf("waits\n got %+v\nwant %+v", got, wantWaits)
@@ -283,8 +283,8 @@ func TestManualClaimsMixed(t *testing.T) {
 	if got := parked(l); len(got) != 2 || got[0].Bead != beads[2].ID || got[1].Bead != beads[0].ID {
 		t.Errorf("parked %+v, want the two beads nothing stops", got)
 	}
-	if h := homeJSON(t, f, "/"); len(h.Rigs) != 1 || h.Rigs[0].Open != 5 || h.Rigs[0].Working != 2 || h.Rigs[0].Held != 1 {
-		t.Errorf("home: %+v, want one rig with 5 open, 2 working, 1 held", h.Rigs)
+	if h := homeJSON(t, f, "/"); len(h.Depots) != 1 || h.Depots[0].Open != 5 || h.Depots[0].Working != 2 || h.Depots[0].Held != 1 {
+		t.Errorf("home: %+v, want one depot with 5 open, 2 working, 1 held", h.Depots)
 	}
 	s := sessionsJSON(t, f)
 	if len(s.Sessions) != 2 || s.Sessions[0].Bead != door.ID || s.Sessions[0].State != "running" ||
@@ -322,9 +322,9 @@ func TestManualClaimsMixed(t *testing.T) {
 func blockedYard(t *testing.T, f *fixture) (*store.Bead, *store.Session) {
 	t.Helper()
 	ctx := context.Background()
-	must(t, f.st.PutRig(ctx, store.Rig{Name: "line", Base: "origin/main"}, "me"))
+	must(t, f.st.PutDepot(ctx, store.Depot{Name: "line", Base: "origin/main"}, "me"))
 	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
-	b, err := f.st.CreateBead(ctx, store.NewBead{Title: "a door", Stage: "new", Rig: "line"}, "me")
+	b, err := f.st.CreateBead(ctx, store.NewBead{Title: "a door", Stage: "new", Depot: "line"}, "me")
 	must(t, err)
 	sess, err := f.st.Claim(ctx, b.ID, "builders", "new", "yard")
 	must(t, err)
@@ -344,7 +344,7 @@ func TestWaitsBlocked(t *testing.T) {
 		t.Fatalf("a running session waits for nobody, and these wait: %+v", got)
 	}
 	must(t, f.st.LogDispatch(ctx, b.ID, "session_blocked", "yard", map[string]any{"session": sess.ID}))
-	want := []web.Waiting{{Bead: b.ID, Title: "a door", Rig: "line", Stage: "new",
+	want := []web.Waiting{{Bead: b.ID, Title: "a door", Depot: "line", Stage: "new",
 		Why: []web.Reason{{Kind: "blocked", Text: "its session waits on a prompt: door-new"}}}}
 	if got := waiting(lineJSON(t, f)); !reflect.DeepEqual(got, want) {
 		t.Errorf("blocked\n got %+v\nwant %+v", got, want)
@@ -377,10 +377,10 @@ func (s strandedStore) Stranded(context.Context, string) ([]store.StrandedBead, 
 func TestWaitsStranded(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	must(t, f.st.PutRig(ctx, store.Rig{Name: "line", Base: "origin/main"}, "me"))
-	b, err := f.st.CreateBead(ctx, store.NewBead{Title: "a door", Stage: "limbo", Rig: "line"}, "me")
+	must(t, f.st.PutDepot(ctx, store.Depot{Name: "line", Base: "origin/main"}, "me"))
+	b, err := f.st.CreateBead(ctx, store.NewBead{Title: "a door", Stage: "limbo", Depot: "line"}, "me")
 	must(t, err)
-	held, err := f.st.CreateBead(ctx, store.NewBead{Title: "a window", Stage: "new", Rig: "line"}, "me")
+	held, err := f.st.CreateBead(ctx, store.NewBead{Title: "a window", Stage: "new", Depot: "line"}, "me")
 	must(t, err)
 	_, err = f.st.SetHold(ctx, held.ID, true, store.Expect{}, "me")
 	must(t, err)
@@ -398,9 +398,9 @@ func TestWaitsStranded(t *testing.T) {
 		}
 		return l
 	}
-	heldWait := web.Waiting{Bead: held.ID, Title: "a window", Rig: "line", Stage: "new",
+	heldWait := web.Waiting{Bead: held.ID, Title: "a window", Depot: "line", Stage: "new",
 		Why: []web.Reason{{Kind: "held", Text: "held by me"}}}
-	want := []web.Waiting{heldWait, {Bead: b.ID, Title: "a door", Rig: "line", Stage: "limbo",
+	want := []web.Waiting{heldWait, {Bead: b.ID, Title: "a door", Depot: "line", Stage: "limbo",
 		Why: []web.Reason{{Kind: "stranded", Text: "stranded in limbo, a stage flow code lacks"}}}}
 	if got := waiting(read(strandedStore{API: f.st, bead: b.ID})); !reflect.DeepEqual(got, want) {
 		t.Errorf("stranded\n got %+v\nwant %+v", got, want)
@@ -467,12 +467,12 @@ func TestSessions(t *testing.T) {
 
 	b, sess := blockedYard(t, f)
 	must(t, f.st.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual"}))
-	other, err := f.st.CreateBead(ctx, store.NewBead{Title: "which <colour>", Stage: "decide", Rig: "line"}, "me")
+	other, err := f.st.CreateBead(ctx, store.NewBead{Title: "which <colour>", Stage: "decide", Depot: "line"}, "me")
 	must(t, err)
 	manual, err := f.st.Claim(ctx, other.ID, "decisions", "decide", "yard")
 	must(t, err)
 	must(t, f.st.MarkRunning(ctx, manual.ID, map[string]any{"manual": true}))
-	gone, err := f.st.CreateBead(ctx, store.NewBead{Title: "ended", Stage: "new", Rig: "line"}, "me")
+	gone, err := f.st.CreateBead(ctx, store.NewBead{Title: "ended", Stage: "new", Depot: "line"}, "me")
 	must(t, err)
 	ended, err := f.st.Claim(ctx, gone.ID, "builders", "new", "yard")
 	must(t, err)
@@ -629,17 +629,17 @@ func TestCrew(t *testing.T) {
 }
 
 // busyStore is a yard in which something happens while a page reads it:
-// each time the rigs are listed, a bead gets a note.
+// each time the depots are listed, a bead gets a note.
 type busyStore struct {
 	store.API
 	bead string
 }
 
-func (s busyStore) Rigs(ctx context.Context) ([]store.Rig, error) {
+func (s busyStore) Depots(ctx context.Context) ([]store.Depot, error) {
 	if err := s.API.AddNote(ctx, s.bead, "meanwhile", "me"); err != nil {
 		return nil, err
 	}
-	return s.API.Rigs(ctx)
+	return s.API.Depots(ctx)
 }
 
 // A page's stream starts after the head its handler read before it read

@@ -12,7 +12,14 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// schemaVersion 11 calls the sessions that are always in a yard its crew:
+// schemaVersion 12 calls the repository or directory beads are worked in a
+// depot: its records are in the bucket depots, where they were in rigs, and
+// the field that names it in a bead, a route, a flow pointer, an imported
+// pack and a peer's intake is depot, where it was rig
+// (migrateDepotRecords), as is the word in what else the store held it in
+// (migrateDepots). A build before it reads the old bucket and field only,
+// so it would find a yard with no depots and beads that are in none.
+// Version 11 calls the sessions that are always in a yard its crew:
 // their records are in the bucket crew, where they were in residents
 // (migrateCrewBucket), and the word is crew where the store held resident
 // (migrateCrew). A build before it reads the old bucket only, so it would
@@ -21,7 +28,7 @@ import (
 // car: the bead types epic and part are train and car, in beads and in all
 // that names a type (migrateTrains). A build before it knows only the old
 // types, so it would take a train for a bead like any other: its children
-// would branch from the rig's base and land there one by one.
+// would branch from the depot's base and land there one by one.
 // Version 9 calls the crew member that coordinates a yard its yardmaster:
 // the setting that names it is yardmaster, where it was mayor
 // (migrateYardmaster). A build before it reads the old key only, so it would
@@ -60,7 +67,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 11
+const schemaVersion = 12
 
 var (
 	kSchema   = []byte("schema")
@@ -145,6 +152,11 @@ func upgrade(db *bolt.DB, path string) error {
 		return fmt.Errorf("backup before migration: %w", err)
 	}
 	return db.Update(func(tx *bolt.Tx) error {
+		// First, as on every open: what follows reads beads by the field
+		// that names their depot now.
+		if _, err := migrateDepotRecords(tx); err != nil {
+			return err
+		}
 		for _, b := range allBuckets {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
@@ -327,12 +339,12 @@ func recreate(tx *bolt.Tx, name []byte) error {
 	return b.SetSequence(seq)
 }
 
-// bLegacyFlows held flows before they had names (yard-9cza): one per rig
-// and one per type in a rig, keyed <rig>\x00<type>.
+// bLegacyFlows held flows before they had names (yard-9cza): one per depot
+// and one per type in a depot, keyed <depot>\x00<type>.
 var bLegacyFlows = []byte("flows")
 
-// migrateFlows turns each rig's flow into the named flow <rig> and each
-// type flow into <rig>.<type>, with the rig and type pointing at them, so
+// migrateFlows turns each depot's flow into the named flow <depot> and each
+// type flow into <depot>.<type>, with the depot and type pointing at them, so
 // every bead keeps the lifecycle it had. It runs once: the old bucket goes.
 func migrateFlows(tx *bolt.Tx) error {
 	if tx.Bucket(bLegacyFlows) == nil {
@@ -340,8 +352,8 @@ func migrateFlows(tx *bolt.Tx) error {
 	}
 	type legacy struct {
 		Flow
-		Rig  string `json:"rig"`
-		Type string `json:"type"`
+		Depot string `json:"rig"` // the word then
+		Type  string `json:"type"`
 	}
 	var rows []*legacy
 	if err := each(tx, bLegacyFlows, "", func(_ []byte, l *legacy) error {
@@ -353,14 +365,14 @@ func migrateFlows(tx *bolt.Tx) error {
 	var names []string
 	for _, l := range rows {
 		f := l.Flow
-		f.Name = l.Rig
+		f.Name = l.Depot
 		if l.Type != "" {
 			f.Name += "." + l.Type
 		}
 		if err := put(tx, bFlows, f.Name, f); err != nil {
 			return err
 		}
-		if err := put(tx, bFlowPtrs, join(l.Rig, l.Type), FlowPointer{Rig: l.Rig, Type: l.Type, Flow: f.Name}); err != nil {
+		if err := put(tx, bFlowPtrs, join(l.Depot, l.Type), FlowPointer{Depot: l.Depot, Type: l.Type, Flow: f.Name}); err != nil {
 			return err
 		}
 		names = append(names, f.Name)
@@ -374,11 +386,11 @@ func migrateFlows(tx *bolt.Tx) error {
 	return (&wtx{Tx: tx}).event("", "flows_migrated", "yardr", map[string]any{"flows": names})
 }
 
-// migrateRigKinds stamps every rig stored without a kind as a git rig,
-// which every rig was before dir rigs. It writes nothing once each has one.
-func migrateRigKinds(tx *bolt.Tx) error {
-	var old []*Rig
-	if err := each(tx, bRigs, "", func(_ []byte, r *Rig) error {
+// migrateDepotKinds stamps every depot stored without a kind as a git depot,
+// which every depot was before dir depots. It writes nothing once each has one.
+func migrateDepotKinds(tx *bolt.Tx) error {
+	var old []*Depot
+	if err := each(tx, bDepots, "", func(_ []byte, r *Depot) error {
 		if r.Kind == "" {
 			old = append(old, r)
 		}
@@ -387,8 +399,8 @@ func migrateRigKinds(tx *bolt.Tx) error {
 		return err
 	}
 	for _, r := range old {
-		r.Kind = RigGit
-		if err := put(tx, bRigs, r.Name, r); err != nil {
+		r.Kind = DepotGit
+		if err := put(tx, bDepots, r.Name, r); err != nil {
 			return err
 		}
 	}
@@ -396,7 +408,7 @@ func migrateRigKinds(tx *bolt.Tx) error {
 }
 
 // migrateSettings gives a yard from before the onboarding (yard-p01r) the
-// default_kind setting that marks a home set up: a store with rigs, groups
+// default_kind setting that marks a home set up: a store with depots, groups
 // or crew members but no default_kind is in use, and without it every command
 // would onboard it again (yard-w6np). The kind is the first herdr group's,
 // else the first herdr crew member's, else claude. The operator setting stays
@@ -406,7 +418,7 @@ func migrateSettings(tx *bolt.Tx) error {
 		return nil
 	}
 	inUse := false
-	for _, b := range [][]byte{bRigs, bGroups, bCrew} {
+	for _, b := range [][]byte{bDepots, bGroups, bCrew} {
 		if k, _ := tx.Bucket(b).Cursor().First(); k != nil {
 			inUse = true
 		}
@@ -562,7 +574,7 @@ func migrateTrains(tx *bolt.Tx, from uint64) error {
 			return k, nil, err
 		}
 		p.Type = BeadType(p.Type)
-		return join(p.Rig, p.Type), p, nil
+		return join(p.Depot, p.Type), p, nil
 	})
 	if err != nil {
 		return err

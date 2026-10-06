@@ -19,9 +19,9 @@ import (
 // The fixtures are yard-11's, for train yard-sv6b's PR 17 at fixtureSHA.
 const fixtureSHA = "4f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b"
 
-// ghRig is a yard whose trains follow yard.train through pull requests, with
+// ghDepot is a yard whose trains follow yard.train through pull requests, with
 // the yard a member of the group that holds in-pr.
-type ghRig struct {
+type ghDepot struct {
 	api store.API
 	own *store.Store
 	d   *dispatch.Dispatcher
@@ -32,11 +32,11 @@ type ghRig struct {
 	asked []dispatch.CIQuery
 }
 
-func newGHRig(t *testing.T, members ...string) *ghRig {
+func newGHDepot(t *testing.T, members ...string) *ghDepot {
 	t.Helper()
 	api, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	must(t, api.PutRig(ctx, store.Rig{Name: "yard", Base: "main"}, "me"))
+	must(t, api.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"))
 	_, err := api.PutFlow(ctx, *trainFlow(t), "me")
 	must(t, err)
 	must(t, api.SetFlowPointer(ctx, "yard", store.TypeTrain, "yard.train", "me"))
@@ -44,15 +44,15 @@ func newGHRig(t *testing.T, members ...string) *ghRig {
 		members = []string{"mckean", "yardmaster", "yard"}
 	}
 	must(t, api.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Limit: 50, Members: members}))
-	rig, train := "yard", store.TypeTrain
-	_, err = api.AddRoute(ctx, store.Route{Stage: "in-pr", Type: &train, Rig: &rig, Group: "decisions"})
+	depot, train := "yard", store.TypeTrain
+	_, err = api.AddRoute(ctx, store.Route{Stage: "in-pr", Type: &train, Depot: &depot, Group: "decisions"})
 	must(t, err)
 	f := &fakeRunner{dead: map[string]bool{}}
 	d := &dispatch.Dispatcher{Store: api, Runners: map[string]dispatch.Runner{"fake": f},
 		PRHead: func(context.Context, dispatch.PRQuery) (string, error) {
 			return "", errors.New("no gh in tests")
 		}}
-	r := &ghRig{api: api, own: own, d: d, f: f, ci: checks(nil)}
+	r := &ghDepot{api: api, own: own, d: d, f: f, ci: checks(nil)}
 	d.CI = func(_ context.Context, q dispatch.CIQuery) (dispatch.CIChecks, error) {
 		r.asked = append(r.asked, q)
 		return r.ci(q)
@@ -62,7 +62,7 @@ func newGHRig(t *testing.T, members ...string) *ghRig {
 
 // train adds a train bound to the fixtures' pull request, acme/yardr#17 with
 // its head in acme/yardr, as integrate-train binds one.
-func (r *ghRig) train(t *testing.T, id, stage string) {
+func (r *ghDepot) train(t *testing.T, id, stage string) {
 	t.Helper()
 	r.unboundTrain(t, id, stage)
 	_, err := r.api.UpdateBead(context.Background(), id, store.BeadPatch{Metadata: map[string]any{
@@ -72,16 +72,16 @@ func (r *ghRig) train(t *testing.T, id, stage string) {
 }
 
 // unboundTrain adds a train with no pull request stored on it.
-func (r *ghRig) unboundTrain(t *testing.T, id, stage string) {
+func (r *ghDepot) unboundTrain(t *testing.T, id, stage string) {
 	t.Helper()
 	_, err := r.api.CreateBead(context.Background(), store.NewBead{ID: id, Title: "train " + id, Type: store.TypeTrain,
-		Rig: "yard", Stage: stage}, "me")
+		Depot: "yard", Stage: stage}, "me")
 	must(t, err)
 }
 
 // deliver records fixture name as GitHub delivered it, retargeted from
 // yard-sv6b to train and, when sha is set, to that head commit.
-func (r *ghRig) deliver(t *testing.T, event, name, train, sha string) {
+func (r *ghDepot) deliver(t *testing.T, event, name, train, sha string) {
 	t.Helper()
 	body, err := os.ReadFile("../hooks/testdata/github/" + name + ".json")
 	must(t, err)
@@ -98,7 +98,7 @@ func (r *ghRig) deliver(t *testing.T, event, name, train, sha string) {
 }
 
 // deliverEdited is deliver with the fixture's text edited first.
-func (r *ghRig) deliverEdited(t *testing.T, event, name, train, sha string, edit func(string) string) {
+func (r *ghDepot) deliverEdited(t *testing.T, event, name, train, sha string, edit func(string) string) {
 	t.Helper()
 	body, err := os.ReadFile("../hooks/testdata/github/" + name + ".json")
 	must(t, err)
@@ -114,35 +114,35 @@ func (r *ghRig) deliverEdited(t *testing.T, event, name, train, sha string, edit
 	must(t, err)
 }
 
-func (r *ghRig) pass(t *testing.T) {
+func (r *ghDepot) pass(t *testing.T) {
 	t.Helper()
 	must(t, r.d.Reconcile(context.Background()))
 }
 
-func (r *ghRig) bead(t *testing.T, id string) *store.Bead {
+func (r *ghDepot) bead(t *testing.T, id string) *store.Bead {
 	t.Helper()
 	b, err := r.api.GetBead(context.Background(), id)
 	must(t, err)
 	return b
 }
 
-func (r *ghRig) stageOf(t *testing.T, id string) string { return r.bead(t, id).Stage }
+func (r *ghDepot) stageOf(t *testing.T, id string) string { return r.bead(t, id).Stage }
 
 // rules are the github_rule events logged on train for hook events, as
 // "rule action" or "rule ignored: why" or "rule error: msg".
-func (r *ghRig) rules(t *testing.T, train string) []string {
+func (r *ghDepot) rules(t *testing.T, train string) []string {
 	t.Helper()
 	return r.ruleEvents(t, train, false)
 }
 
 // ciRules are those logged for reads of the train's CI, which no event has
 // a seq for.
-func (r *ghRig) ciRules(t *testing.T, train string) []string {
+func (r *ghDepot) ciRules(t *testing.T, train string) []string {
 	t.Helper()
 	return r.ruleEvents(t, train, true)
 }
 
-func (r *ghRig) ruleEvents(t *testing.T, train string, ci bool) []string {
+func (r *ghDepot) ruleEvents(t *testing.T, train string, ci bool) []string {
 	t.Helper()
 	evs, err := r.api.Events(context.Background(), train, 200)
 	must(t, err)
@@ -170,7 +170,7 @@ func (r *ghRig) ruleEvents(t *testing.T, train string, ci bool) []string {
 	return out
 }
 
-func (r *ghRig) lastNote(t *testing.T, id string) string {
+func (r *ghDepot) lastNote(t *testing.T, id string) string {
 	t.Helper()
 	notes, err := r.api.Notes(context.Background(), id)
 	must(t, err)
@@ -196,7 +196,7 @@ func wantRules(t *testing.T, got []string, want ...string) {
 // read as state (ci_test.go), and anywhere else it moves and logs nothing.
 // The head a pull_request event carries is still kept.
 func TestGitHubGreenRunIsNoRule(t *testing.T) {
-	r := newGHRig(t)
+	r := newGHDepot(t)
 	for id, stage := range map[string]string{"yard-a": "review", "yard-b": "approved", "yard-c": "land", "yard-d": "open"} {
 		r.train(t, id, stage)
 		r.deliver(t, "pull_request", "pull_request_synchronize", id, "")
@@ -215,7 +215,7 @@ func TestGitHubGreenRunIsNoRule(t *testing.T) {
 // A failure on a commit that is not the PR's head (a push superseded it)
 // files nothing. Without a pull_request event, gh is asked for the head.
 func TestGitHubCIRedNeedsThePRHead(t *testing.T) {
-	r := newGHRig(t)
+	r := newGHDepot(t)
 	ctx := context.Background()
 	r.train(t, "yard-a", "review")
 	r.deliver(t, "pull_request", "pull_request_synchronize", "yard-a", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
@@ -250,7 +250,7 @@ func TestGitHubCIRedNeedsThePRHead(t *testing.T) {
 // The yard must be allowed out of in-pr: with members that leave it out,
 // the refusal is logged and the train stays for a human.
 func TestGitHubRuleRefusedByMembers(t *testing.T) {
-	r := newGHRig(t, "mckean", "yardmaster")
+	r := newGHDepot(t, "mckean", "yardmaster")
 	r.train(t, "yard-a", "in-pr")
 	r.reviewed(t, "yard-a", fixtureSHA)
 	r.ci = checks([]string{"build"}, ck("build", "completed", "success"))
@@ -267,7 +267,7 @@ func TestGitHubRuleRefusedByMembers(t *testing.T) {
 // review. In in-pr the event files nothing: the required checks are read
 // (ci_test.go). Other stages are not the rule's.
 func TestGitHubCIRedFilesAFix(t *testing.T) {
-	r := newGHRig(t)
+	r := newGHDepot(t)
 	ctx := context.Background()
 	r.train(t, "yard-a", "in-pr")
 	r.train(t, "yard-b", "review")
@@ -294,7 +294,7 @@ func TestGitHubCIRedFilesAFix(t *testing.T) {
 	}
 	fix := r.bead(t, "yard-b-ci-4f2c9e1")
 	if fix.Title != "Fix CI on train yard-b: ci" || fix.Type != "bug" || fix.Stage != "backlog" ||
-		fix.Rig == nil || *fix.Rig != "yard" ||
+		fix.Depot == nil || *fix.Depot != "yard" ||
 		!strings.Contains(fix.Body, "https://github.com/acme/yardr/actions/runs/5") || !strings.Contains(fix.Body, "failure") {
 		t.Fatalf("fix child %+v", fix)
 	}
@@ -332,7 +332,7 @@ func TestGitHubCIRedFilesAFix(t *testing.T) {
 // (someone, or a newer push, stopped it), so no fix child is filed until a
 // run fails.
 func TestGitHubCancelledIsNotRed(t *testing.T) {
-	r := newGHRig(t)
+	r := newGHDepot(t)
 	ctx := context.Background()
 	r.train(t, "yard-a", "review")
 	r.deliver(t, "pull_request", "pull_request_synchronize", "yard-a", "")
@@ -352,7 +352,7 @@ func TestGitHubCancelledIsNotRed(t *testing.T) {
 // GitHub reports, and say so in the github_rule event. The event is judged
 // (its seq recorded, the PR head kept), so an un-hold does not replay it.
 func TestGitHubRulesSkipHeldTrains(t *testing.T) {
-	r := newGHRig(t)
+	r := newGHDepot(t)
 	ctx := context.Background()
 	r.train(t, "yard-a", "in-pr")
 	_, err := r.api.SetHold(ctx, "yard-a", true, store.Expect{}, "human")
@@ -382,7 +382,7 @@ func TestGitHubRulesSkipHeldTrains(t *testing.T) {
 // A merged PR closes the train through the flow from land, in-pr and
 // approved; a train in land whose merger still runs is left to it.
 func TestGitHubPRMerged(t *testing.T) {
-	r := newGHRig(t)
+	r := newGHDepot(t)
 	ctx := context.Background()
 	must(t, r.api.PutGroup(ctx, store.Group{Name: "yard-pr-merge", Runner: "fake", Limit: 1}))
 	for id, stage := range map[string]string{"yard-a": "land", "yard-b": "in-pr", "yard-c": "approved",
@@ -422,7 +422,7 @@ func TestGitHubPRMerged(t *testing.T) {
 
 // A PR closed unmerged asks a human whether to reopen it or drop the train.
 func TestGitHubPRClosedUnmerged(t *testing.T) {
-	r := newGHRig(t)
+	r := newGHDepot(t)
 	r.train(t, "yard-a", "in-pr")
 	r.train(t, "yard-b", "open")
 	for _, e := range []string{"yard-a", "yard-b"} {
@@ -445,7 +445,7 @@ func TestGitHubPRClosedUnmerged(t *testing.T) {
 // A human's changes_requested review sends the train to open with the
 // review in a note; approving or commenting reviews, and bots, do not.
 func TestGitHubChangesRequested(t *testing.T) {
-	r := newGHRig(t)
+	r := newGHDepot(t)
 	r.train(t, "yard-a", "in-pr")
 	r.train(t, "yard-b", "open")
 	r.train(t, "yard-c", "in-pr")
@@ -486,9 +486,9 @@ func TestGitHubChangesRequested(t *testing.T) {
 // Hook events for branches that are not a train's, other sources and
 // issue comments move nothing and log nothing.
 func TestGitHubIgnoresOtherEvents(t *testing.T) {
-	r := newGHRig(t)
+	r := newGHDepot(t)
 	r.train(t, "yard-a", "in-pr")
-	_, err := r.api.CreateBead(context.Background(), store.NewBead{ID: "yard-t", Title: "task", Rig: "yard"}, "me")
+	_, err := r.api.CreateBead(context.Background(), store.NewBead{ID: "yard-t", Title: "task", Depot: "yard"}, "me")
 	must(t, err)
 	r.deliver(t, "issue_comment", "issue_comment_pr", "yard-a", "")
 	r.deliver(t, "workflow_run", "workflow_run_success", "yard-t", "") // a task's branch
@@ -508,7 +508,7 @@ func TestGitHubIgnoresOtherEvents(t *testing.T) {
 // branch of the same name in another repository, or for another pull
 // request of the branch, move nothing, set no head and have no CI read.
 func TestGitHubRulesJudgeTheTrainsOwnPR(t *testing.T) {
-	r := newGHRig(t)
+	r := newGHDepot(t)
 	r.train(t, "yard-a", "in-pr")
 	r.reviewed(t, "yard-a", fixtureSHA)
 	r.train(t, "yard-r", "review")
@@ -571,7 +571,7 @@ func TestGitHubRulesJudgeTheTrainsOwnPR(t *testing.T) {
 // its green run nor its merge is the train's. This is the round-three
 // finding (yardr-ca0d): the branch name is anyone's to use.
 func TestGitHubIgnoresAForksPRWithTheTrainsBranch(t *testing.T) {
-	r := newGHRig(t)
+	r := newGHDepot(t)
 	r.train(t, "yard-a", "in-pr")
 	r.reviewed(t, "yard-a", fixtureSHA)
 	r.train(t, "yard-r", "review")
@@ -641,7 +641,7 @@ func TestGitHubIgnoresAForksPRWithTheTrainsBranch(t *testing.T) {
 // number, nor for a train bound to no pull request at all, whose branch
 // name is all the event has.
 func TestGitHubForgedMergeForAnUnknownPRDoesNothing(t *testing.T) {
-	r := newGHRig(t)
+	r := newGHDepot(t)
 	unknown := func(s string) string { return strings.ReplaceAll(s, `"number": 17`, `"number": 99`) }
 	for i, stage := range []string{"land", "in-pr", "approved"} {
 		bound, unbound := "yard-b"+strconv.Itoa(i), "yard-u"+strconv.Itoa(i)

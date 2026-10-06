@@ -14,7 +14,7 @@ import (
 )
 
 // rejections are the hook_rejected events as "hook reason status count".
-func (r *rig) rejections(t *testing.T) []string {
+func (r *depot) rejections(t *testing.T) []string {
 	t.Helper()
 	var out []string
 	for _, e := range r.eventsOfKind(t, store.HookRejected) {
@@ -24,7 +24,7 @@ func (r *rig) rejections(t *testing.T) []string {
 }
 
 // token posts to the token hook adhoc with the bearer token given.
-func (r *rig) token(t *testing.T, bearer, delivery string) int {
+func (r *depot) token(t *testing.T, bearer, delivery string) int {
 	t.Helper()
 	hdr := map[string]string{"Yard-Delivery": delivery}
 	if bearer != "" {
@@ -39,7 +39,7 @@ func (r *rig) token(t *testing.T, bearer, delivery string) int {
 // is counted and said when the window ends. The event names the hook, the
 // reason and the status, and nothing the sender sent.
 func TestRefusedDeliveryIsLogged(t *testing.T) {
-	r := newRig(t)
+	r := newDepot(t)
 	start := time.Now()
 	r.now = start
 	const marker = "MARKER-8wkd-must-not-be-logged"
@@ -107,7 +107,7 @@ func TestRefusedDeliveryIsLogged(t *testing.T) {
 
 // What was counted and not yet said is logged when the receiver stops.
 func TestRefusalsCountedAreLoggedAtStop(t *testing.T) {
-	r := newRig(t)
+	r := newDepot(t)
 	r.now = time.Now()
 	for i := 0; i < 3; i++ {
 		r.token(t, "", "")
@@ -128,7 +128,7 @@ func TestRefusalsCountedAreLoggedAtStop(t *testing.T) {
 // scanner trying names fills neither the log nor the receiver, and does not
 // push a hook's own refusals out of sight.
 func TestRefusedUnknownHookNamesAreBounded(t *testing.T) {
-	r := newRig(t)
+	r := newDepot(t)
 	start := time.Now()
 	r.now = start
 	long := strings.Repeat("a", 100)
@@ -180,7 +180,7 @@ func TestRefusedUnknownHookNamesAreBounded(t *testing.T) {
 // A duplicate is answered 200 and is no refusal. The hook keeps when it
 // last accepted and last refused a delivery, across `hook add` of it again.
 func TestHookKeepsLastAcceptedAndRefused(t *testing.T) {
-	r := newRig(t)
+	r := newDepot(t)
 	ctx := context.Background()
 	r.now = time.Now().Add(-time.Hour)
 	h, err := r.st.GetHook(ctx, "adhoc")

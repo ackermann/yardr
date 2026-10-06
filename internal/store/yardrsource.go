@@ -26,13 +26,13 @@ const StateDone = "done"
 
 // YardrWhereKeys are what --where may filter a yardr subscription on:
 //
-//	bead   the bead (handle)          rig, type   the bead's
+//	bead   the bead (handle)          depot, type   the bead's
 //	label  any of the bead's labels   kind        the event (created, advanced, noted, closed, ...)
 //	stage  the stage entered (created, advanced)  from  the stage left (advanced)
 //	group  the group owning the bead, or whose session the event ended
 //	actor  who acted                  state       done (see StateDone)
 //	train   the bead, or a bead it blocks or is the parent of (direct edges)
-var YardrWhereKeys = []string{"bead", "rig", "type", "label", "stage", "from", "kind", "group", "actor", "train", "state"}
+var YardrWhereKeys = []string{"bead", "depot", "type", "label", "stage", "from", "kind", "group", "actor", "train", "state"}
 
 // deliver decides, as bead event e is logged, which crew members it reaches
 // through yardr subscriptions and why, and records that on the event as
@@ -220,8 +220,8 @@ func beadFields(tx *bolt.Tx, e *Event, row *beadRow, need map[string]bool) map[s
 	f := map[string][]string{
 		"bead": {row.ID}, "type": {row.Type}, "label": row.Labels, "kind": {e.Kind}, "actor": {e.Actor},
 	}
-	if row.Rig != nil {
-		f["rig"] = []string{*row.Rig}
+	if row.Depot != nil {
+		f["depot"] = []string{*row.Depot}
 	}
 	switch e.Kind {
 	case "created":

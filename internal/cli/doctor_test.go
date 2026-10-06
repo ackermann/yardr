@@ -104,7 +104,7 @@ func TestDoctorEmptyHome(t *testing.T) {
 		"ok     git ", "ok     herdr ", "a harness a yard can be created on: answers its version flag (tool 1.2.3)",
 		// A harness nothing runs on yet that does not work is said, and is no fault.
 		"note   grok ", "its version flag fails: exit status 3: broken install",
-		"todo   a rig: ", "todo   a first merged bead: ", "Nothing the yard needs is missing.")
+		"todo   a depot: ", "todo   a first merged bead: ", "Nothing the yard needs is missing.")
 	if strings.Contains(out, "The yard\n") || strings.Contains(out, "Optional") || strings.Contains(out, "Next step") {
 		t.Errorf("a home with no yard has no yard to report on:\n%s", out)
 	}
@@ -131,7 +131,7 @@ func TestDoctorEmptyHome(t *testing.T) {
 }
 
 // After init and before anything else: the daemon and the yardmaster are what
-// is missing (exit 1), no step is done, and the next one is the rig. The
+// is missing (exit 1), no step is done, and the next one is the depot. The
 // store is as it was.
 func TestDoctorFreshYard(t *testing.T) {
 	newHome(t)
@@ -152,24 +152,24 @@ func TestDoctorFreshYard(t *testing.T) {
 	wantText(t, out, "yardr doctor: the yard in ", "Needed on this machine", "The yard", "Setup", "Optional",
 		"the harness of the yard's default, crew member yardmaster: answers its version flag (tool 1.2.3)",
 		"FAULT  daemon ", here("yardr init --start"), "FAULT  yardmaster  ", "yardmaster is not running: the daemon starts it",
-		"ok     crew ", "ok     held ", "todo   a rig: no repository is a rig of this yard yet",
+		"ok     crew ", "ok     held ", "todo   a depot: no repository is a depot of this yard yet",
 		"todo   routes for new, review and approved: no route for new, review and approved",
 		"not configured  web view: ", "not configured  hooks: ", "not configured  packs: ", "not configured  login service: ",
-		"2 faults", "Next step: a rig.\n  ", here("yardr rig add <rig> <path> --base <branch>"))
+		"2 faults", "Next step: a depot.\n  ", here("yardr depot add <depot> <path> --base <branch>"))
 	if strings.Contains(out, "done ") {
 		t.Errorf("a step is done on a fresh yard:\n%s", out)
 	}
 	rep, err := doctorJSON(t, st)
 	if !errors.Is(err, errCheckFailed) || !rep.Yard || rep.State == nil || rep.State.Daemon || rep.State.Yardmaster == nil ||
-		!rep.State.Yardmaster.CrewMember || rep.State.Yardmaster.Running || rep.Next == nil || rep.Next.Key != stepRig || len(rep.Optional) != 5 {
+		!rep.State.Yardmaster.CrewMember || rep.State.Yardmaster.Running || rep.Next == nil || rep.Next.Key != stepDepot || len(rep.Optional) != 5 {
 		t.Fatalf("json: %v %+v", err, rep)
 	}
 	// For a home that is not the default, the next step's command names it
 	// like every other.
-	if !config.IsDefaultHome(rep.Home) && !strings.Contains(out, "\n  yardr --home "+rep.Home+" rig add <rig>") {
+	if !config.IsDefaultHome(rep.Home) && !strings.Contains(out, "\n  yardr --home "+rep.Home+" depot add <depot>") {
 		t.Errorf("the next step's command goes to another yard:\n%s", out)
 	}
-	if rep.Next.Next != "yardr rig add <rig> <path> --base <branch>" {
+	if rep.Next.Next != "yardr depot add <depot> <path> --base <branch>" {
 		t.Errorf("json next = %q", rep.Next.Next)
 	}
 	if after, _ := st.Head(ctx); after != before {
@@ -177,12 +177,12 @@ func TestDoctorFreshYard(t *testing.T) {
 	}
 }
 
-// gitRig makes a repository with rig init's files committed on main and
-// adds it as rig web.
-func gitRig(t *testing.T, st store.API) store.Rig {
+// gitDepot makes a repository with depot init's files committed on main and
+// adds it as depot web.
+func gitDepot(t *testing.T, st store.API) store.Depot {
 	t.Helper()
 	dir := t.TempDir()
-	rig := store.Rig{Name: "web", Path: dir, Base: "main", Kind: store.RigGit}
+	depot := store.Depot{Name: "web", Path: dir, Base: "main", Kind: store.DepotGit}
 	git := func(args ...string) {
 		t.Helper()
 		cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
@@ -191,20 +191,20 @@ func gitRig(t *testing.T, st store.API) store.Rig {
 		}
 	}
 	git("init", "-q", "-b", "main")
-	if _, err := rigInit(rig, "Jo", "yardmaster", true); err != nil {
+	if _, err := depotInit(depot, "Jo", "yardmaster", true); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.PutRig(context.Background(), rig, "me"); err != nil {
+	if err := st.PutDepot(context.Background(), depot, "me"); err != nil {
 		t.Fatal(err)
 	}
-	return rig
+	return depot
 }
 
-// commitRig commits the rig's .yardr files on its base.
-func commitRig(t *testing.T, rig store.Rig) {
+// commitDepot commits the depot's .yardr files on its base.
+func commitDepot(t *testing.T, depot store.Depot) {
 	t.Helper()
 	for _, args := range [][]string{{"add", "-A"}, {"commit", "-q", "-m", "yardr files"}} {
-		cmd := exec.Command("git", append([]string{"-C", rig.Path, "-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
+		cmd := exec.Command("git", append([]string{"-C", depot.Path, "-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v %s", args, err, out)
 		}
@@ -236,10 +236,10 @@ func TestDoctorSetUpYard(t *testing.T) {
 			t.Fatalf("next step = %s, want %s: %+v", got, want, steps)
 		}
 	}
-	next(stepRig)
-	rig := gitRig(t, st)
-	next(stepRigFiles) // written, not committed: not where yardr reads them
-	commitRig(t, rig)
+	next(stepDepot)
+	depot := gitDepot(t, st)
+	next(stepDepotFiles) // written, not committed: not where yardr reads them
+	commitDepot(t, depot)
 	next(stepBuilders)
 
 	group := func(name, runner string, cfg map[string]any) {
@@ -250,7 +250,7 @@ func TestDoctorSetUpYard(t *testing.T) {
 	}
 	route := func(stage, group string) {
 		t.Helper()
-		if _, err := st.AddRoute(ctx, store.Route{Stage: stage, Rig: &rig.Name, Group: group}); err != nil {
+		if _, err := st.AddRoute(ctx, store.Route{Stage: stage, Depot: &depot.Name, Group: group}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -267,7 +267,7 @@ func TestDoctorSetUpYard(t *testing.T) {
 	route("review", "web/reviewers")
 	next(stepFirstBead)
 
-	b, err := st.CreateBead(ctx, store.NewBead{Title: "first", Rig: rig.Name}, "me")
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "first", Depot: depot.Name}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +302,7 @@ func TestDoctorSetUpYard(t *testing.T) {
 	}
 	wantText(t, out, "ok     server      running", "ok     daemon      running", "yardmaster is running (herdr agent y-yardmaster)",
 		"the harness of the yard's default, crew member yardmaster, group web/builders, group web/reviewers",
-		"done   a rig: web", "done   the rig's .yardr files on its base: web has its flow on its base main",
+		"done   a depot: web", "done   the depot's .yardr files on its base: web has its flow on its base main",
 		"done   a group that builds: web/builders", "done   a group that reviews: web/reviewers",
 		"done   a group or person that lands approved beads: web/mergers",
 		"done   routes for new, review and approved: new to web/builders, review to web/reviewers, approved to web/mergers",
@@ -317,7 +317,7 @@ func TestDoctorSetUpYard(t *testing.T) {
 	}
 
 	// What is no fault: a held bead, a yardmaster stopped on purpose.
-	held, err := st.CreateBead(ctx, store.NewBead{Title: "second", Rig: rig.Name}, "me")
+	held, err := st.CreateBead(ctx, store.NewBead{Title: "second", Depot: depot.Name}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,7 +361,7 @@ func TestDoctorMissingDependency(t *testing.T) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
 	wantText(t, out,
-		"FAULT  git         not on PATH: a rig is a git repository: beads are worked on branches, in worktrees. Get it: https://git-scm.com/downloads",
+		"FAULT  git         not on PATH: a depot is a git repository: beads are worked on branches, in worktrees. Get it: https://git-scm.com/downloads",
 		"FAULT  codex       not on PATH: the harness of group b. Get it: npm install -g @openai/codex",
 		"FAULT  cursor-agent  not on PATH: the harness of group c. Get it: see cursor's own documentation; it must be on PATH as cursor-agent")
 	if strings.Contains(out, "kimi") {
@@ -574,13 +574,13 @@ func TestDoctorYardmasterGivenUpAfterSessionsGoneAtOnce(t *testing.T) {
 	wantText(t, cmd("doctor"), "FAULT  yardmaster  yardmaster is not running: the daemon gave up after 5 tries, the last with: "+reason)
 }
 
-// The rigs a launchd agent cannot read are named once the daemon runs as a
+// The depots a launchd agent cannot read are named once the daemon runs as a
 // login service, on macOS, as a note and never as a fault.
-func TestDoctorLoginServiceRigs(t *testing.T) {
+func TestDoctorLoginServiceDepots(t *testing.T) {
 	user := "/Users/jo"
-	rigs := []store.Rig{{Name: "a", Path: user + "/Documents/a"}, {Name: "b", Path: user + "/projects/b"},
+	depots := []store.Depot{{Name: "a", Path: user + "/Documents/a"}, {Name: "b", Path: user + "/projects/b"},
 		{Name: "c", Path: user + "/Desktop"}, {Name: "d", Path: user + "/Downloads/x/d"}, {Name: "e", Path: user + "/Documents2/e"}, {Name: "f"}}
-	if got := protectedRigs(rigs, user); !slices.Equal(got, []string{"a (" + user + "/Documents/a)", "c (" + user + "/Desktop)", "d (" + user + "/Downloads/x/d)"}) {
+	if got := protectedDepots(depots, user); !slices.Equal(got, []string{"a (" + user + "/Documents/a)", "c (" + user + "/Desktop)", "d (" + user + "/Downloads/x/d)"}) {
 		t.Fatalf("protected = %v", got)
 	}
 
@@ -591,14 +591,14 @@ func TestDoctorLoginServiceRigs(t *testing.T) {
 	if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
-	for _, r := range rigs[:2] {
-		if err := st.PutRig(ctx, r, "me"); err != nil {
+	for _, r := range depots[:2] {
+		if err := st.PutDepot(ctx, r, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	stub(t, &userHomeDir, func() (string, error) { return user, nil })
 	stub(t, &goos, "darwin")
-	note := "note            login service: rig a (" + user + "/Documents/a) is in a folder macOS protects"
+	note := "note            login service: depot a (" + user + "/Documents/a) is in a folder macOS protects"
 	// No service: a terminal's daemon has the terminal's access.
 	if out, _ := run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor"); strings.Contains(out, note) || !strings.Contains(out, "not configured  login service") {
 		t.Fatalf("without the service:\n%s", out)
@@ -606,7 +606,7 @@ func TestDoctorLoginServiceRigs(t *testing.T) {
 	stub(t, &loginService, func(*config.Config) bool { return true })
 	out, _ := run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
 	wantText(t, out, "configured      login service: the daemon starts at login", note, "a launchd agent needs its own access there")
-	if strings.Contains(out, "rig b (") || strings.Contains(out, "FAULT  login") {
+	if strings.Contains(out, "depot b (") || strings.Contains(out, "FAULT  login") {
 		t.Errorf("output:\n%s", out)
 	}
 	rep, _ := doctorJSON(t, st)
@@ -621,14 +621,14 @@ func TestDoctorLoginServiceRigs(t *testing.T) {
 	}
 }
 
-// A yard of dir rigs lands nothing: no landing step, no route for approved,
+// A yard of dir depots lands nothing: no landing step, no route for approved,
 // and its last step is a bead through to done.
-func TestSetupStepsDirRig(t *testing.T) {
+func TestSetupStepsDirDepot(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	dir := t.TempDir()
-	rig := store.Rig{Name: "docs", Path: dir, Kind: store.RigDir}
-	if err := st.PutRig(ctx, rig, "me"); err != nil {
+	depot := store.Depot{Name: "docs", Path: dir, Kind: store.DepotDir}
+	if err := st.PutDepot(ctx, depot, "me"); err != nil {
 		t.Fatal(err)
 	}
 	steps, err := setupSteps(ctx, st)
@@ -639,13 +639,13 @@ func TestSetupStepsDirRig(t *testing.T) {
 	for _, s := range steps {
 		keys = append(keys, s.Key)
 	}
-	if !slices.Equal(keys, []string{stepRig, stepRigFiles, stepBuilders, stepReviewers, stepRoutes, stepFirstBead, stepMerged}) {
+	if !slices.Equal(keys, []string{stepDepot, stepDepotFiles, stepBuilders, stepReviewers, stepRoutes, stepFirstBead, stepMerged}) {
 		t.Fatalf("keys = %v", keys)
 	}
-	if n := nextStep(steps); n.Key != stepRigFiles || n.Next != "yardr rig init docs" {
+	if n := nextStep(steps); n.Key != stepDepotFiles || n.Next != "yardr depot init docs" {
 		t.Fatalf("next = %+v", n)
 	}
-	if _, err := rigInit(rig, "Jo", "yardmaster", false); err != nil {
+	if _, err := depotInit(depot, "Jo", "yardmaster", false); err != nil {
 		t.Fatal(err)
 	}
 	steps, err = setupSteps(ctx, st)
@@ -656,7 +656,7 @@ func TestSetupStepsDirRig(t *testing.T) {
 		t.Fatalf("steps = %+v", steps)
 	}
 	// The steps of no yard are those of a yard with a repository to come.
-	if none := noSetup(); len(none) != 8 || none[4].Key != stepLanding || nextStep(none).Key != stepRig {
+	if none := noSetup(); len(none) != 8 || none[4].Key != stepLanding || nextStep(none).Key != stepDepot {
 		t.Fatalf("no yard: %+v", none)
 	}
 }
@@ -684,7 +684,7 @@ func TestPreflightSaysWhereToGet(t *testing.T) {
 type brokenStore struct{ store.API }
 
 func (brokenStore) Settings(context.Context) (map[string]string, error) { return nil, nil }
-func (brokenStore) Rigs(context.Context) ([]store.Rig, error) {
+func (brokenStore) Depots(context.Context) ([]store.Depot, error) {
 	return nil, errors.New("server gone")
 }
 

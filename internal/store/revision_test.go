@@ -15,9 +15,9 @@ import (
 // they decided on it. The current revision is accepted; none expects
 // nothing.
 func TestStaleRevisionRefused(t *testing.T) {
-	s, ctx := flowRig(t)
+	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard", Stage: "new"}, "me")
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,14 +76,14 @@ func TestStaleRevisionRefused(t *testing.T) {
 // dispatchers racing for a limit-1 group leave exactly one live session,
 // whatever their in-memory counts said.
 func TestClaimRespectsGroupLimit(t *testing.T) {
-	s, ctx := flowRig(t)
+	s, ctx := flowDepot(t)
 	if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 1}); err != nil {
 		t.Fatal(err)
 	}
 	const n = 8
 	beads := make([]string, n)
 	for i := range beads {
-		b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard", Stage: "new"}, "me")
+		b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard", Stage: "new"}, "me")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -140,7 +140,7 @@ func TestClaimRespectsGroupLimit(t *testing.T) {
 // ErrConflict and change nothing. The daemon's own bookkeeping is not
 // checked, but moves the revision.
 func TestCrewRevision(t *testing.T) {
-	s, ctx := flowRig(t)
+	s, ctx := flowDepot(t)
 	r, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me")
 	if err != nil {
 		t.Fatal(err)

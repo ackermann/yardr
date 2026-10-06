@@ -12,7 +12,7 @@ import (
 // The operator says once, in the onboarding, how agents should work with
 // them, and every session reads the answer when it starts (yardr prime). It
 // is a setting, not text in the role files: a change reaches the next
-// session with no init, and a role a rig committed needs no edit.
+// session with no init, and a role a depot committed needs no edit.
 
 // The settings the answer is stored in.
 const (

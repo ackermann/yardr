@@ -32,7 +32,7 @@ func run(t *testing.T, c *cobra.Command, args ...string) (string, error) {
 func TestBeadUpdateRejectsUnknownPin(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
-	if err := st.PutRig(ctx, store.Rig{Name: "yard"}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "yard"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	f, err := store.ParseFlow("new -> review\n")
@@ -43,7 +43,7 @@ func TestBeadUpdateRejectsUnknownPin(t *testing.T) {
 	if _, err := st.PutFlow(ctx, *f, "me"); err != nil {
 		t.Fatal(err)
 	}
-	b, err := st.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard"}, "me")
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestBeadUpdateRejectsUnknownPin(t *testing.T) {
 		t.Fatalf("refused pin changed the bead: %+v", got)
 	}
 	// Create refuses it too.
-	if _, err := run(t, a.beadCmd(), "create", "y", "--rig", "yard", "--meta", "flow=ghost"); err == nil || !strings.Contains(err.Error(), "pins flow ghost") {
+	if _, err := run(t, a.beadCmd(), "create", "y", "--depot", "yard", "--meta", "flow=ghost"); err == nil || !strings.Contains(err.Error(), "pins flow ghost") {
 		t.Fatalf("create --meta flow=ghost: %v", err)
 	}
 	if _, err := run(t, a.beadCmd(), "update", b.ID, "--meta", "flow=code"); err != nil {
@@ -71,16 +71,16 @@ func TestBeadUpdateRejectsUnknownPin(t *testing.T) {
 // resolve, and say why next to it.
 func TestBrokenFlowStillShown(t *testing.T) {
 	st, ctx := reviewYard(t, "")
-	b, err := st.CreateBead(ctx, store.NewBead{Title: "stuck", Rig: "yard", Stage: "decide"}, "me")
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "stuck", Depot: "yard", Stage: "decide"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The rig's pointer goes; its checkout is no git repository, so its
+	// The depot's pointer goes; its checkout is no git repository, so its
 	// repo flows cannot be read.
 	if err := st.SetFlowPointer(ctx, "yard", "", "", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.PutRig(ctx, store.Rig{Name: "yard", Path: t.TempDir(), Base: "main"}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "yard", Path: t.TempDir(), Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	a := &app{st: st, actor: "mckean"}
@@ -109,12 +109,12 @@ func TestBrokenFlowStillShown(t *testing.T) {
 func TestDepAddParentPairsBlocks(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
-	if err := st.PutRig(ctx, store.Rig{Name: "yard", Base: "main"}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	for _, nb := range []store.NewBead{
-		{ID: "yard-e", Title: "train", Type: store.TypeTrain, Rig: "yard"},
-		{ID: "yard-1", Title: "child", Rig: "yard"},
+		{ID: "yard-e", Title: "train", Type: store.TypeTrain, Depot: "yard"},
+		{ID: "yard-1", Title: "child", Depot: "yard"},
 	} {
 		if _, err := st.CreateBead(ctx, nb, "me"); err != nil {
 			t.Fatal(err)
@@ -146,13 +146,13 @@ func TestDepAddParentPairsBlocks(t *testing.T) {
 func TestListingsShowTheTrain(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
-	if err := st.PutRig(ctx, store.Rig{Name: "yard", Base: "main"}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	for _, nb := range []store.NewBead{
-		{ID: "yard-e", Title: "train", Type: store.TypeTrain, Rig: "yard"},
-		{ID: "yard-1", Title: "child", Rig: "yard"},
-		{ID: "yard-2", Title: "loose", Rig: "yard"},
+		{ID: "yard-e", Title: "train", Type: store.TypeTrain, Depot: "yard"},
+		{ID: "yard-1", Title: "child", Depot: "yard"},
+		{ID: "yard-2", Title: "loose", Depot: "yard"},
 	} {
 		if _, err := st.CreateBead(ctx, nb, "me"); err != nil {
 			t.Fatal(err)
@@ -286,10 +286,10 @@ func TestListingsShowTheTrain(t *testing.T) {
 func TestBeadDiscoveredFrom(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
-	if err := st.PutRig(ctx, store.Rig{Name: "yard", Base: "main"}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateBead(ctx, store.NewBead{ID: "yard-1", Title: "the origin", Rig: "yard"}, "me"); err != nil {
+	if _, err := st.CreateBead(ctx, store.NewBead{ID: "yard-1", Title: "the origin", Depot: "yard"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	a := &app{st: st, actor: "me"}
@@ -306,8 +306,8 @@ func TestBeadDiscoveredFrom(t *testing.T) {
 	if _, err := st.CloseBead(ctx, shut, "fixed", store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	// Created like any bead: no rig, labels or priority of the origin's.
-	if b, _ := st.GetBead(ctx, open); b == nil || b.Rig != nil || b.Priority != 2 {
+	// Created like any bead: no depot, labels or priority of the origin's.
+	if b, _ := st.GetBead(ctx, open); b == nil || b.Depot != nil || b.Priority != 2 {
 		t.Fatalf("the found bead: %+v", b)
 	}
 
@@ -486,12 +486,12 @@ func TestBlockedByRefusesAnOlderServer(t *testing.T) {
 	}
 }
 
-// rig flow --type epic points the rig's trains, and says so in the word
+// depot flow --type epic points the depot's trains, and says so in the word
 // the type has now: yardr answers an old word with the new one.
-func TestRigFlowAnswersTheOldTypeWithTheNew(t *testing.T) {
+func TestDepotFlowAnswersTheOldTypeWithTheNew(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
-	if err := st.PutRig(ctx, store.Rig{Name: "web"}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "web"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	f, err := store.ParseFlow("backlog -> open\nopen -> merged on done\nmerged terminal\n")
@@ -503,11 +503,11 @@ func TestRigFlowAnswersTheOldTypeWithTheNew(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := &app{st: st, actor: "me"}
-	out, err := run(t, a.rigCmd(), "flow", "web", "--type", "epic", "web.epic")
-	if err != nil || out != "rig web type train → flow web.epic\n" {
-		t.Fatalf("rig flow --type epic: %q, %v", out, err)
+	out, err := run(t, a.depotCmd(), "flow", "web", "--type", "epic", "web.epic")
+	if err != nil || out != "depot web type train → flow web.epic\n" {
+		t.Fatalf("depot flow --type epic: %q, %v", out, err)
 	}
-	if out, err = run(t, a.rigCmd(), "flow", "web", "--type", "epic", "--clear"); err != nil || !strings.HasPrefix(out, "rig web type train points at no flow now") {
-		t.Fatalf("rig flow --type epic --clear: %q, %v", out, err)
+	if out, err = run(t, a.depotCmd(), "flow", "web", "--type", "epic", "--clear"); err != nil || !strings.HasPrefix(out, "depot web type train points at no flow now") {
+		t.Fatalf("depot flow --type epic --clear: %q, %v", out, err)
 	}
 }

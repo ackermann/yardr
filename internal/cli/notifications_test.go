@@ -40,7 +40,7 @@ func TestUserSubscribes(t *testing.T) {
 	if out := mustAs(t, st, "jo", "subscribe", "jo", "yardr", "--done"); out != "jo subscribed: yardr all state=done\n" {
 		t.Fatalf("jo subscribes: %q", out)
 	}
-	if out := mustAs(t, st, "ada", "subscribe", "ada", "yardr", "--where", "kind=noted", "--where", "rig=web"); out != "ada subscribed: yardr all kind=noted rig=web\n" {
+	if out := mustAs(t, st, "ada", "subscribe", "ada", "yardr", "--where", "kind=noted", "--where", "depot=web"); out != "ada subscribed: yardr all depot=web kind=noted\n" {
 		t.Fatalf("ada subscribes: %q", out)
 	}
 	// The operator, for another user.
@@ -83,7 +83,7 @@ func TestUserSubscribes(t *testing.T) {
 	wantText(t, show, "  subscribed: yardr all state=done\n", "  subscribed: github all\n")
 	var v userView
 	if err := json.Unmarshal([]byte(mustAs(t, st, "jo", "user", "show", "ada", "--json")), &v); err != nil ||
-		len(v.Subscriptions) != 2 || v.Subscriptions[0].String() != "yardr all kind=noted rig=web" {
+		len(v.Subscriptions) != 2 || v.Subscriptions[0].String() != "yardr all depot=web kind=noted" {
 		t.Fatalf("user show --json = %+v, %v", v, err)
 	}
 
@@ -255,7 +255,7 @@ func TestBareYardrSaysNotifications(t *testing.T) {
 }
 
 // Where the forms end, yardr setup offers a user to be told when beads
-// land: a yes is the subscribe it shows, for the user and the setup's rig.
+// land: a yes is the subscribe it shows, for the user and the setup's depot.
 // It is not offered again to who has it, nor to who is no user.
 func TestSetupOffersToBeToldOfLandedBeads(t *testing.T) {
 	f := &former{answers: map[string]any{"title": "Say hello", "goal": "HELLO.md says hello.", "landed": true},
@@ -266,12 +266,12 @@ func TestSetupOffersToBeToldOfLandedBeads(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := setup(t, st, "--actor", "me")
-	wantText(t, out, "The forms end here.", "$ yardr --home "+home+" subscribe me yardr --done --where rig=web-app",
-		"me subscribed: yardr all rig=web-app state=done")
+	wantText(t, out, "The forms end here.", "$ yardr --home "+home+" subscribe me yardr --done --where depot=web-app",
+		"me subscribed: yardr all depot=web-app state=done")
 	if keys := keysOf(f); keys[len(keys)-1] != "landed" {
 		t.Fatalf("asked %q\n%s", keys, out)
 	}
-	if u, err := st.GetUser(ctx, "me"); err != nil || len(u.Subscriptions) != 1 || u.Subscriptions[0].String() != "yardr all rig=web-app state=done" {
+	if u, err := st.GetUser(ctx, "me"); err != nil || len(u.Subscriptions) != 1 || u.Subscriptions[0].String() != "yardr all depot=web-app state=done" {
 		t.Fatalf("me = %+v, %v", u, err)
 	}
 	f.asked = nil

@@ -104,8 +104,8 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 	if err := s.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := schemaOf(t, fixture); got != 11 {
-		t.Fatalf("a new store is stamped %d; want 11", got)
+	if got := schemaOf(t, fixture); got != 12 {
+		t.Fatalf("a new store is stamped %d; want 12", got)
 	}
 	want := indexKeys(t, fixture)
 	if len(want["inbox"]) != 2 || len(want["events_by_kind"]) == 0 {
@@ -165,8 +165,8 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 			if err := s.Close(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if got := schemaOf(t, path); got != 11 {
-				t.Fatalf("schema after Open = %d; want 11", got)
+			if got := schemaOf(t, path); got != 12 {
+				t.Fatalf("schema after Open = %d; want 12", got)
 			}
 			got := indexKeys(t, path)
 			for _, name := range indexBuckets {
@@ -174,7 +174,7 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 					t.Errorf("%s after migration = %v\nwant %v", name, got[name], want[name])
 				}
 			}
-			if got := schemaOf(t, fixture); got != 11 || !slices.Equal(indexKeys(t, fixture)["inbox"], want["inbox"]) {
+			if got := schemaOf(t, fixture); got != 12 || !slices.Equal(indexKeys(t, fixture)["inbox"], want["inbox"]) {
 				t.Fatal("the fixture changed; the migration ran on the copy")
 			}
 		})
@@ -212,7 +212,7 @@ func bucketDump(t *testing.T, path string, buckets ...string) map[string]string 
 // since the default name is no longer that one.
 func TestSchema8StoreRenamesTheMayorSetting(t *testing.T) {
 	ctx := context.Background()
-	kept := []string{"crew", "packs", "rigs", "users"}
+	kept := []string{"crew", "packs", "depots", "users"}
 	cases := []struct {
 		name    string
 		member  string
@@ -234,7 +234,7 @@ func TestSchema8StoreRenamesTheMayorSetting(t *testing.T) {
 			if err := s.SetSetting(ctx, "default_kind", "claude", "me"); err != nil {
 				t.Fatal(err)
 			}
-			if err := s.PutRig(ctx, store.Rig{Name: "web", Path: t.TempDir()}, "me"); err != nil {
+			if err := s.PutDepot(ctx, store.Depot{Name: "web", Path: t.TempDir()}, "me"); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := s.PutCrew(ctx, store.CrewMember{Name: tc.member, Runner: "herdr",
@@ -244,7 +244,7 @@ func TestSchema8StoreRenamesTheMayorSetting(t *testing.T) {
 			if err := s.AddSubscription(ctx, tc.member, store.Subscription{Source: "linear", Scope: "involved"}, "me"); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := s.RecordPack(ctx, store.PackImport{Pack: "starter", Rig: "web", Source: "/packs/starter",
+			if _, err := s.RecordPack(ctx, store.PackImport{Pack: "starter", Depot: "web", Source: "/packs/starter",
 				Groups: map[string]string{"builders": "web-builders"}, Crew: map[string]string{"mayor": tc.member},
 				Objects: []store.PackObject{{Kind: "file", Name: "/home/jo/.yardr/packs/starter/roles/mayor.md"}}}, true, "me"); err != nil {
 				t.Fatal(err)
@@ -294,8 +294,8 @@ func TestSchema8StoreRenamesTheMayorSetting(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if got := schemaOf(t, path); got != 11 {
-				t.Fatalf("schema after Open = %d; want 11", got)
+			if got := schemaOf(t, path); got != 12 {
+				t.Fatalf("schema after Open = %d; want 12", got)
 			}
 			after := bucketDump(t, path, append(kept, "events", "settings")...)
 			added := 0
@@ -364,7 +364,7 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 		}
 	}
 	must(s.SetSetting(ctx, "default_kind", "claude", "me"))
-	must(s.PutRig(ctx, store.Rig{Name: "web"}, "me"))
+	must(s.PutDepot(ctx, store.Depot{Name: "web"}, "me"))
 	must(s.PutGroup(ctx, store.Group{Name: "integrators", Runner: "exec", Limit: 1,
 		Config: map[string]any{"cmd": "/home/jo/.yardr/scripts/integrate-epic"}}))
 	must(s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 5}))
@@ -375,9 +375,9 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 	must(err)
 	must(s.SetFlowPointer(ctx, "web", store.TypeTrain, "web.epic", "me"))
 	for _, nb := range []store.NewBead{
-		{ID: "web-e", Title: "the feature", Type: store.TypeTrain, Rig: "web", Labels: []string{"epic"}},
-		{ID: "web-p", Title: "a piece of it", Type: store.TypeCar, Rig: "web"},
-		{ID: "web-t", Title: "a task", Rig: "web"},
+		{ID: "web-e", Title: "the feature", Type: store.TypeTrain, Depot: "web", Labels: []string{"epic"}},
+		{ID: "web-p", Title: "a piece of it", Type: store.TypeCar, Depot: "web"},
+		{ID: "web-t", Title: "a task", Depot: "web"},
 	} {
 		_, err := s.CreateBead(ctx, nb, "me")
 		must(err)
@@ -403,7 +403,7 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 		}
 	}
 	must(s.AddSubscription(ctx, "boss", store.Subscription{Source: "github", Scope: store.ScopeAll, Where: map[string]string{"train": "web-e"}}, "me"))
-	_, err = s.RecordPack(ctx, store.PackImport{Pack: "starter", Rig: "web", Source: "/packs/starter",
+	_, err = s.RecordPack(ctx, store.PackImport{Pack: "starter", Depot: "web", Source: "/packs/starter",
 		Objects: []store.PackObject{
 			{Kind: "route", Stage: "open", Type: "train", Group: "integrators"},
 			{Kind: "pointer", Type: "train", Flow: "web.epic"},
@@ -476,7 +476,7 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 		// The pointer is the type's under its new word, at the flow under
 		// the name the operator gave it, and that flow governs the train.
 		ptrs, err := s.FlowPointers(ctx)
-		if err != nil || len(ptrs) != 1 || ptrs[0] != (store.FlowPointer{Rig: "web", Type: store.TypeTrain, Flow: "web.epic"}) {
+		if err != nil || len(ptrs) != 1 || ptrs[0] != (store.FlowPointer{Depot: "web", Type: store.TypeTrain, Flow: "web.epic"}) {
 			t.Fatalf("%s: pointers = %+v, %v", pass, ptrs, err)
 		}
 		if m, err := s.FlowMap(ctx, "web-e"); err != nil || m == nil || m.Name != "web.epic" {
@@ -524,8 +524,8 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 		}
 		must(s.Close(ctx))
 	}
-	if got := schemaOf(t, path); got != 11 {
-		t.Fatalf("schema after Open = %d; want 11", got)
+	if got := schemaOf(t, path); got != 12 {
+		t.Fatalf("schema after Open = %d; want 12", got)
 	}
 	after := bucketDump(t, path, "events", "named_flows")
 	added := 0
@@ -571,7 +571,7 @@ func TestTheOldTypeWordsAreStillRead(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(s.PutRig(ctx, store.Rig{Name: "web"}, "me"))
+	must(s.PutDepot(ctx, store.Depot{Name: "web"}, "me"))
 	must(s.PutGroup(ctx, store.Group{Name: "integrators", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "true"}}))
 	// A flow called web.train is found by a pointer that says web.epic, and
 	// the other way round; the pointer is the type's under its new word.
@@ -584,11 +584,11 @@ func TestTheOldTypeWordsAreStillRead(t *testing.T) {
 	if ptrs, err := s.FlowPointers(ctx); err != nil || len(ptrs) != 1 || ptrs[0].Type != store.TypeTrain {
 		t.Fatalf("pointers = %+v, %v", ptrs, err)
 	}
-	train, err := s.CreateBead(ctx, store.NewBead{ID: "web-e", Title: "the feature", Type: "epic", Rig: "web"}, "me")
+	train, err := s.CreateBead(ctx, store.NewBead{ID: "web-e", Title: "the feature", Type: "epic", Depot: "web"}, "me")
 	if err != nil || train.Type != store.TypeTrain {
 		t.Fatalf("created as epic: %+v, %v", train, err)
 	}
-	car, err := s.CreateBead(ctx, store.NewBead{ID: "web-p", Title: "a piece", Rig: "web"}, "me")
+	car, err := s.CreateBead(ctx, store.NewBead{ID: "web-p", Title: "a piece", Depot: "web"}, "me")
 	must(err)
 	part := "part"
 	if car, err = s.UpdateBead(ctx, car.ID, store.BeadPatch{Type: &part}, store.Expect{}, "me"); err != nil || car.Type != store.TypeCar {
@@ -669,7 +669,7 @@ func TestSchema10StoreRenamesResidents(t *testing.T) {
 	s, err := store.Open(path)
 	must(err)
 	must(s.SetSetting(ctx, "default_kind", "claude", "me"))
-	must(s.PutRig(ctx, store.Rig{Name: "web", Path: t.TempDir()}, "me"))
+	must(s.PutDepot(ctx, store.Depot{Name: "web", Path: t.TempDir()}, "me"))
 	must(s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 5}))
 	_, err = s.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "herdr", On: []string{"crew_gave_up", "held"},
 		Config: map[string]any{"kind": "claude", "env_file": envFile}}, "me")
@@ -687,7 +687,7 @@ func TestSchema10StoreRenamesResidents(t *testing.T) {
 	_, err = s.Remember(ctx, store.NewMemory{Title: "deploys are frozen", Scope: "crew:boss"}, "boss")
 	must(err)
 	must(s.FollowThread(ctx, "boss", "linear", "ENG-1", "me"))
-	_, err = s.RecordPack(ctx, store.PackImport{Pack: "starter", Rig: "web", Source: "/packs/starter",
+	_, err = s.RecordPack(ctx, store.PackImport{Pack: "starter", Depot: "web", Source: "/packs/starter",
 		Crew: map[string]string{"yardmaster": "boss"},
 		Objects: []store.PackObject{
 			{Kind: "crew", Name: "boss"},
@@ -813,8 +813,8 @@ func TestSchema10StoreRenamesResidents(t *testing.T) {
 		}
 		must(s.Close(ctx))
 
-		if got := schemaOf(t, path); got != 11 {
-			t.Fatalf("%s: schema = %d; want 11", pass, got)
+		if got := schemaOf(t, path); got != 12 {
+			t.Fatalf("%s: schema = %d; want 12", pass, got)
 		}
 		if st, err := os.Lstat(filepath.Dir(oldEnv)); err != nil || st.Mode()&os.ModeSymlink == 0 {
 			t.Fatalf("%s: the old directory is no link: %v, %v", pass, st, err)

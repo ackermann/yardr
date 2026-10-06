@@ -45,12 +45,12 @@ func newHoldYard(t *testing.T, holdFor string) *holdYard {
 	}
 	f.Name = "incoming"
 	for _, err := range []error{
-		s.PutRig(y.ctx, Rig{Name: "web", Base: "origin/main"}, "jo"),
+		s.PutDepot(y.ctx, Depot{Name: "web", Base: "origin/main"}, "jo"),
 		second(s.PutFlow(y.ctx, *f, "jo")),
 		second(s.AddUser(y.ctx, "jo", "jo")),
 		second(s.AddPeer(y.ctx, Peer{Name: "north", Key: y.key}, "jo")),
 		second(s.AllowPeer(y.ctx, "north", PeerAllow{Receive: []string{PeerBead}}, "jo")),
-		second(s.SetPeerIntake(y.ctx, "north", &PeerIntake{Rig: "web", Flow: "incoming", HoldFor: holdFor}, "jo")),
+		second(s.SetPeerIntake(y.ctx, "north", &PeerIntake{Depot: "web", Flow: "incoming", HoldFor: holdFor}, "jo")),
 	} {
 		if err != nil {
 			t.Fatal(err)
@@ -201,7 +201,7 @@ func TestPeerBeadReleasedIsLeft(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := y.SetPeerIntake(y.ctx, "north", &PeerIntake{Rig: "web", Flow: "incoming", Auto: true}, "jo"); err != nil {
+	if _, err := y.SetPeerIntake(y.ctx, "north", &PeerIntake{Depot: "web", Flow: "incoming", Auto: true}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	ready := y.arrive(t)
@@ -235,7 +235,7 @@ func TestPeerBeadHeldForEver(t *testing.T) {
 	if got := y.mustGet(t, b.ID); got.Status != "open" || got.Peer.Expires != nil || len(y.events(t, b.ID, "peer_bead_expiring")) != 0 || len(y.returns(t)) != 0 {
 		t.Fatalf("a bead of an intake that holds for ever = %+v", got)
 	}
-	p, err := y.SetPeerIntake(y.ctx, "north", &PeerIntake{Rig: "web", Flow: "incoming", HoldFor: "9600h"}, "jo")
+	p, err := y.SetPeerIntake(y.ctx, "north", &PeerIntake{Depot: "web", Flow: "incoming", HoldFor: "9600h"}, "jo")
 	if err != nil || p.Intake.HoldFor != "400d" {
 		t.Fatalf("an intake set to 9600h = %+v, %v", p.Intake, err)
 	}
@@ -283,11 +283,11 @@ func TestPeerBeadEndedOtherwiseIsLeft(t *testing.T) {
 func TestPeerIntakeHoldFor(t *testing.T) {
 	y := newHoldYard(t, "")
 	for _, bad := range []string{"soon", "-1h", "0s", "3"} {
-		if _, err := y.SetPeerIntake(y.ctx, "north", &PeerIntake{Rig: "web", Flow: "incoming", HoldFor: bad}, "jo"); err == nil || !strings.Contains(err.Error(), "or 0 for never (unset: 3d)") {
+		if _, err := y.SetPeerIntake(y.ctx, "north", &PeerIntake{Depot: "web", Flow: "incoming", HoldFor: bad}, "jo"); err == nil || !strings.Contains(err.Error(), "or 0 for never (unset: 3d)") {
 			t.Fatalf("--hold-for %s = %v", bad, err)
 		}
 	}
-	p, err := y.SetPeerIntake(y.ctx, "north", &PeerIntake{Rig: "web", Flow: "incoming", HoldFor: " 72h "}, "jo")
+	p, err := y.SetPeerIntake(y.ctx, "north", &PeerIntake{Depot: "web", Flow: "incoming", HoldFor: " 72h "}, "jo")
 	if err != nil || p.Intake.HoldFor != "3d" || p.Intake.Hold() != 3*day {
 		t.Fatalf("72h = %+v, %v", p.Intake, err)
 	}

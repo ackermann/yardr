@@ -43,7 +43,7 @@ const (
 const DefaultSlotWait = 30 * time.Minute
 
 // SlotVar is set in the environment of a check that runs under a slot. A
-// yardr rig check started from inside one (a gate whose tests run a gate)
+// yardr depot check started from inside one (a gate whose tests run a gate)
 // takes no slot of its own: its load is the outer gate's, and with every
 // slot taken by gates waiting on their own tests none would ever end.
 const SlotVar = "YARDR_GATE_SLOT"

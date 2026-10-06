@@ -6,13 +6,13 @@ on it, not on `main`.
 
 This is the default builder's stage with two differences:
 
-1. The light gate (`yardr rig check yardr --light --dir <worktree>`) is the
+1. The light gate (`yardr depot check yardr --light --dir <worktree>`) is the
    only gate, here and where the car lands. It formats, vets and builds
    everything and tests, with the race detector, only the packages your
    car changed (since the train's branch, not `main`: its first line says
    `light gate, changes since yard/<train> at <sha>`) and the packages that
    import them: seconds for a leaf package, close to the full gate for one
-   nearly everything imports (`store`, `config`). Do not run the full gate (`yardr rig check yardr`
+   nearly everything imports (`store`, `config`). Do not run the full gate (`yardr depot check yardr`
    without `--light`), even for a change the light one cannot see: it runs
    once, on the whole train, before `main` moves. Say in your report what the
    light gate did not run.

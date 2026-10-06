@@ -1,6 +1,6 @@
 #!/bin/sh
 # pr-merge: lands a train by merging its pull request on GitHub with a
-# rebase, then brings the rig's local base up to it. Run it as the cmd of an
+# rebase, then brings the depot's local base up to it. Run it as the cmd of an
 # exec group (yard-pr-merge, limit 1) routed for the train flow's land stage
 # (type train). A train reaches land from in-pr, where a human (or, later,
 # the daemon on a green CI) says "merge it". See docs/pipeline.md, section
@@ -11,7 +11,7 @@
 # a note and nothing is merged.
 #
 # It reads the environment the exec runner gives it: YARDR_BEAD (the train),
-# YARDR_RIG_PATH, YARDR_BASE, YARDR_BRANCH and YARDR_BIN. Options, set in
+# YARDR_DEPOT_PATH, YARDR_BASE, YARDR_BRANCH and YARDR_BIN. Options, set in
 # the group's cmd:
 #
 #   YARDR_PR       1: the switch for the pull-request path; held without it
@@ -19,14 +19,14 @@
 #
 # It runs gh pr merge <pr_url> --rebase --delete-branch --match-head-commit
 # <pr_reviewed_sha>, then fetches the remote and fast-forwards the base in
-# the rig's checkout, and reports done (-> merged, which closes the train).
+# the depot's checkout, and reports done (-> merged, which closes the train).
 # The sha is the commit pr-train pushed and stored when the train entered
 # in-pr: only what the reviewer approved is merged. A pull request whose
 # head is another commit, before the merge or when GitHub refuses it for
 # that, holds the train, unmerged; a train with no reviewed sha reports
 # failed. A merge GitHub refuses for anything else (checks
 # pending, review required, conflicts) reports failed (-> open) with gh's
-# message, once: nothing here retries. The rig's checkout must be on the
+# message, once: nothing here retries. The depot's checkout must be on the
 # base and clean, or the train is held before anything is merged; a base
 # that will not fast-forward after the merge is held too, as the PR is
 # merged by then. The PR is the one the train is bound to (pr_number,
@@ -37,17 +37,17 @@
 # Every outcome ends in a report or a hold: exiting without one counts as a
 # failed session, and three of those hold the bead.
 set -u
-# A dir rig (YARDR_RIG_KIND=dir) has no branches: there is nothing here to
+# A dir depot (YARDR_DEPOT_KIND=dir) has no branches: there is nothing here to
 # land, integrate or open a pull request for. A route that hands one over is
-# a mistake in the rig's flow, so refuse to run (exit 2) rather than guess.
-if [ "${YARDR_RIG_KIND:-git}" = dir ]; then
-  echo "pr-merge: rig ${YARDR_RIG:-?} is a dir rig, with no branch to work on; route its stages to other groups" >&2
+# a mistake in the depot's flow, so refuse to run (exit 2) rather than guess.
+if [ "${YARDR_DEPOT_KIND:-git}" = dir ]; then
+  echo "pr-merge: depot ${YARDR_DEPOT:-?} is a dir depot, with no branch to work on; route its stages to other groups" >&2
   exit 2
 fi
-: "${YARDR_BEAD:?not run by an exec group}" "${YARDR_RIG_PATH:?bead has no rig}" "${YARDR_BASE:?}"
+: "${YARDR_BEAD:?not run by an exec group}" "${YARDR_DEPOT_PATH:?bead has no depot}" "${YARDR_BASE:?}"
 Y=${YARDR_BIN:-yardr}
 TRAIN=$YARDR_BEAD
-REPO=$YARDR_RIG_PATH
+REPO=$YARDR_DEPOT_PATH
 BASE=$YARDR_BASE
 BR=${YARDR_BRANCH:-yard/$TRAIN}
 PUSH=${YARDR_PUSH:-origin}
@@ -69,7 +69,7 @@ errf=$(mktemp) && trap 'rm -f "$errf"' EXIT
   hold "the pull-request path is experimental and off: YARDR_PR is not set in this group's cmd; not merging. Set YARDR_PR=1 in the cmd of every group on the path, then unhold, or send the train back to open and land it through the refinery (merge-local)."
 
 # The base branch, without its remote: what the PR merged into and what the
-# rig's checkout must be on.
+# depot's checkout must be on.
 prbase=$BASE
 remote=${BASE%%/*}
 [ "$remote" != "$BASE" ] && git -C "$REPO" remote | grep -qx "$remote" && prbase=${BASE#*/}
@@ -105,7 +105,7 @@ reviewed=$(printf '%s' "$train" | jq -r '.metadata.pr_reviewed_sha // empty')
 [ -n "$reviewed" ] ||
   report failed "$TRAIN has no reviewed commit (pr_reviewed_sha, which pr-train stores as the train enters in-pr); not merging. It is integrated and reviewed again."
 moved() {
-  hold "the head of pull request $url is $1, not the reviewed $reviewed (pr_reviewed_sha): it moved after review. Not merged. Look at what was pushed to $BR on $PUSH: to have it reviewed, bring it into $BR in the rig and send the train back to open, where it is integrated and reviewed again; to drop it, put $PUSH/$BR back at $reviewed, then unhold."
+  hold "the head of pull request $url is $1, not the reviewed $reviewed (pr_reviewed_sha): it moved after review. Not merged. Look at what was pushed to $BR on $PUSH: to have it reviewed, bring it into $BR in the depot and send the train back to open, where it is integrated and reviewed again; to drop it, put $PUSH/$BR back at $reviewed, then unhold."
 }
 head=$(printf '%s' "$pr" | jq -r '.headRefOid // empty')
 [ "$head" = "$reviewed" ] || moved "${head:-unknown}"

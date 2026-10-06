@@ -12,9 +12,9 @@ import (
 )
 
 // The refinery's gate waits for a slot of the machine like any other, and
-// asks to go first. With none free within rig check's bound the gate could
+// asks to go first. With none free within depot check's bound the gate could
 // not run (exit 2): the bead is held where it is, never sent back to new as
-// a red gate would be. The script's yardr is wrapped here only to give rig
+// a red gate would be. The script's yardr is wrapped here only to give depot
 // check a short bound and to see what it was started with.
 func TestMergeLocalNoGateSlotHolds(t *testing.T) {
 	y := newYard(t)
@@ -30,7 +30,7 @@ func TestMergeLocalNoGateSlotHolds(t *testing.T) {
 	defer release()
 	y.opts = "YARDR_GATE_SLOTS=1 YARDR_GATE_DIR=" + slots
 	y.bin = filepath.Join(t.TempDir(), "yardr")
-	wrap := "#!/bin/sh\n[ \"$1 $2\" = \"rig check\" ] && { echo \"first=$YARDR_GATE_FIRST\" > " + first + "; exec " + yardrBin +
+	wrap := "#!/bin/sh\n[ \"$1 $2\" = \"depot check\" ] && { echo \"first=$YARDR_GATE_FIRST\" > " + first + "; exec " + yardrBin +
 		" \"$@\" --slot-wait 300ms; }\nexec " + yardrBin + " \"$@\"\n"
 	if err := os.WriteFile(y.bin, []byte(wrap), 0o755); err != nil {
 		t.Fatal(err)
@@ -49,7 +49,7 @@ func TestMergeLocalNoGateSlotHolds(t *testing.T) {
 		}
 	}
 	if got, _ := os.ReadFile(first); string(got) != "first=1\n" {
-		t.Errorf("rig check was started with %q, want first=1", got)
+		t.Errorf("depot check was started with %q, want first=1", got)
 	}
 	if n := runs(t, ran); n != 0 {
 		t.Errorf("the gate ran %d times without a slot", n)

@@ -1,5 +1,5 @@
 # The lines of yardr's gate (.yardr/check, .yardr/check-light) that say what
-# failed: `yardr rig check` shows each, with the lines around it, before the
+# failed: `yardr depot check` shows each, with the lines around it, before the
 # tail of a red gate's output. Regular expressions, one per line; like the
 # gate, read from the base branch.
 # go test: a failing test, a failing package or build.

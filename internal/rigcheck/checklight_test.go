@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// Rig yardr's own light gate, as it is in this checkout. Its table of files
+// Depot yardr's own light gate, as it is in this checkout. Its table of files
 // that tests read by path is in a shell variable, reads='...'.
 const checkLight = "../../.yardr/check-light"
 

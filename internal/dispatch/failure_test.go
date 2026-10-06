@@ -454,7 +454,7 @@ func TestUnheldBeadSurvivesPruningTheUnheldEvent(t *testing.T) {
 	}
 }
 
-// An agent that waits for its bead's gate (yardr rig check) is idle to
+// An agent that waits for its bead's gate (yardr depot check) is idle to
 // herdr and not to the yard: no session_idle while the gate runs, however
 // long, and none under a grace either. The idle clock starts again when the
 // gate has ended, so the event comes once the limit has passed after that.
@@ -471,12 +471,12 @@ func TestSessionWaitingForItsGateIsNotIdle(t *testing.T) {
 
 	must(t, d.Reconcile(ctx)) // start
 	// Another bead's gate runs throughout, and excuses nobody else.
-	otherGate, err := rigcheck.MarkRunning(d.Home, rigcheck.Gate{Bead: other.ID, Rig: "r", Since: time.Now()})
+	otherGate, err := rigcheck.MarkRunning(d.Home, rigcheck.Gate{Bead: other.ID, Depot: "r", Since: time.Now()})
 	must(t, err)
 	defer otherGate.End()
 	// The agent has committed and started its gate, waiting for a slot at
 	// first, and sits idle.
-	gate, err := rigcheck.MarkRunning(d.Home, rigcheck.Gate{Bead: b.ID, Rig: "r", Light: true, Waiting: true, Since: time.Now()})
+	gate, err := rigcheck.MarkRunning(d.Home, rigcheck.Gate{Bead: b.ID, Depot: "r", Light: true, Waiting: true, Since: time.Now()})
 	must(t, err)
 	r.mu.Lock()
 	r.status = "idle"

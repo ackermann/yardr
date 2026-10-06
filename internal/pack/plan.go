@@ -38,41 +38,41 @@ const (
 
 // Options say where a pack would be imported.
 type Options struct {
-	Rig string
+	Depot string
 	// Home is the yard's home; the pack's files would go under
 	// <Home>/packs/<pack>.
 	Home string
-	// Flow names the pack's flow the rig would follow; "" is the first
+	// Flow names the pack's flow the depot would follow; "" is the first
 	// flow without a type.
 	Flow string
 	// Crew says which crew member of the yard takes each of the pack's:
 	// pack name -> yard name.
 	Crew map[string]string
-	// RigRoles leaves a group or crew member its rig's own role where the rig
+	// DepotRoles leaves a group or crew member its depot's own role where the depot
 	// has one of that name; PackRoles sets the pack's role everywhere, which
 	// is the default. With neither, the choice is the last import's.
-	RigRoles  bool
-	PackRoles bool
+	DepotRoles bool
+	PackRoles  bool
 	// Operator is who the pack's roles and stage files name where they say
 	// {{operator}}; "" is the yard's operator setting.
 	Operator string
 }
 
-// Plan is what importing a pack into a rig of a yard would do, object by
+// Plan is what importing a pack into a depot of a yard would do, object by
 // object and in the order an import would do it: files, groups, flows,
 // pointers, routes, crew members, subscriptions, stage maps. Each object carries the state
 // the import would leave it in, so applying a plan needs no second look at
 // the pack; what the yard must still be asked is under Questions, by the id
 // the object refers to.
 type Plan struct {
-	Pack string `json:"pack"`
-	Dir  string `json:"dir"`
-	Rig  string `json:"rig"`
-	// Flow is the pack's flow the rig would follow, by the pack's name.
+	Pack  string `json:"pack"`
+	Dir   string `json:"dir"`
+	Depot string `json:"depot"`
+	// Flow is the pack's flow the depot would follow, by the pack's name.
 	Flow string `json:"flow,omitempty"`
-	// RigRoles says a rig's own role is kept where it has one, instead of
+	// DepotRoles says a depot's own role is kept where it has one, instead of
 	// the pack's being set.
-	RigRoles bool `json:"rig_roles"`
+	DepotRoles bool `json:"depot_roles"`
 	// Groups and Crew members map the pack's names to the yard's.
 	Groups map[string]string `json:"groups"`
 	Crew   map[string]string `json:"crew"`
@@ -87,7 +87,7 @@ type Plan struct {
 	StageFiles string     `json:"stage_files"`
 	Objects    []Object   `json:"objects"`
 	Questions  []Question `json:"questions"`
-	// Governs says which flow would govern the rig's beads afterwards.
+	// Governs says which flow would govern the depot's beads afterwards.
 	Governs []Governs `json:"governs"`
 	// Sources says, for each outside source a crew member would subscribe to,
 	// what the yard has and lacks to hear it and answer in it.
@@ -116,11 +116,11 @@ type Object struct {
 	Changes []Diff   `json:"changes,omitempty"`
 	Asks    []string `json:"asks,omitempty"` // question ids
 	// Keeps says what the import leaves as the yard has it though the pack
-	// carries it, and why: a prompt, where the rig has its own role and the
+	// carries it, and why: a prompt, where the depot has its own role and the
 	// import was told to keep those.
 	Keeps []string `json:"keeps,omitempty"`
-	// Shadows are the rig's files that are not used while the object is as
-	// the pack sets it: the rig's own role, under a prompt from the pack.
+	// Shadows are the depot's files that are not used while the object is as
+	// the pack sets it: the depot's own role, under a prompt from the pack.
 	Shadows []string `json:"shadows,omitempty"`
 	// Edited says an installed file was changed by hand since the last
 	// import and this one would overwrite it.
@@ -162,13 +162,13 @@ type FileOp struct {
 	Stage  string `json:"stage,omitempty"`
 }
 
-// RouteOp is the route state a rig's stage (and type) would have. The store
+// RouteOp is the route state a depot's stage (and type) would have. The store
 // mints an id per added route, so a route that changes is added anew and
 // the ones it stands in for, listed under Delete, are removed. An empty
 // Group with Delete means the pack leaves that stage without a route.
 type RouteOp struct {
 	Stage    string   `json:"stage"`
-	Rig      string   `json:"rig"`
+	Depot    string   `json:"depot"`
 	Type     string   `json:"type,omitempty"`
 	Group    string   `json:"group"`
 	Priority int      `json:"priority"`
@@ -215,7 +215,7 @@ type Question struct {
 	Default string `json:"default,omitempty"`
 }
 
-// Governs is the flow the rig's beads (of Type, when set) would follow
+// Governs is the flow the depot's beads (of Type, when set) would follow
 // once the plan is applied, and the one they follow now.
 type Governs struct {
 	Type   string `json:"type,omitempty"`
@@ -323,31 +323,31 @@ func (o OpenThreads) Grantable(source string) bool {
 }
 
 // FlowName is the name a pack's flow has in the store. Flow names are the
-// yard's, shared by its rigs, so the pack's name goes in front: two packs
+// yard's, shared by its depots, so the pack's name goes in front: two packs
 // may each have a flow called default.
 func FlowName(pack, flow string) string { return pack + "." + flow }
 
 // FlowQuestion is the id of the question a plan asks when the pack has
-// several flows a rig could follow and nothing says which.
+// several flows a depot could follow and nothing says which.
 const FlowQuestion = "pack.flow"
 
 // GroupName is the name a pack's group has in the yard: agent and script
-// groups are the rig's, people groups the yard's.
-func GroupName(rig string, g Group) string {
+// groups are the depot's, people groups the yard's.
+func GroupName(depot string, g Group) string {
 	if g.People {
 		return g.Name
 	}
-	return rig + "-" + g.Name
+	return depot + "-" + g.Name
 }
 
 type planner struct {
-	ctx  context.Context
-	st   store.API
-	p    *Pack
-	o    Options
-	plan *Plan
-	rig  *store.Rig
-	// rec is the record of this pack's last import into the rig, nil when
+	ctx   context.Context
+	st    store.API
+	p     *Pack
+	o     Options
+	plan  *Plan
+	depot *store.Depot
+	// rec is the record of this pack's last import into the depot, nil when
 	// there was none; all are the records of every import.
 	rec *store.PackImport
 	all []store.PackImport
@@ -359,26 +359,26 @@ type planner struct {
 // Build plans the import of p. It only reads: the store, the pack and the
 // files under the yard's home.
 func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error) {
-	rig, err := st.GetRig(ctx, o.Rig)
+	depot, err := st.GetDepot(ctx, o.Depot)
 	if err != nil {
 		return nil, err
 	}
-	b := &planner{ctx: ctx, st: st, p: p, o: o, rig: rig, plan: &Plan{
-		Pack: p.Name, Dir: p.Dir, Rig: o.Rig, Install: filepath.Join(o.Home, "packs", p.Name), StageFiles: filepath.Join(o.Home, "flows"),
+	b := &planner{ctx: ctx, st: st, p: p, o: o, depot: depot, plan: &Plan{
+		Pack: p.Name, Dir: p.Dir, Depot: o.Depot, Install: filepath.Join(o.Home, "packs", p.Name), StageFiles: filepath.Join(o.Home, "flows"),
 		Groups: map[string]string{}, Crew: map[string]string{}, Fill: map[string]string{},
 		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, OpenThreads: []OpenThreads{}, Maps: []MapPlan{}, Notes: []string{}, Refused: []string{},
 	}}
 	if b.all, err = st.Packs(ctx); err != nil {
 		return nil, err
 	}
-	if i := slices.IndexFunc(b.all, func(r store.PackImport) bool { return r.Pack == p.Name && r.Rig == o.Rig }); i >= 0 {
+	if i := slices.IndexFunc(b.all, func(r store.PackImport) bool { return r.Pack == p.Name && r.Depot == o.Depot }); i >= 0 {
 		b.rec = &b.all[i]
 	}
-	if o.RigRoles && o.PackRoles {
-		return nil, errors.New("--rig-roles and --pack-roles are opposite choices: give one")
+	if o.DepotRoles && o.PackRoles {
+		return nil, errors.New("--depot-roles and --pack-roles are opposite choices: give one")
 	}
 	// Whose roles, as at the last import unless told anew.
-	b.plan.RigRoles = o.RigRoles || (!o.PackRoles && b.rec != nil && b.rec.RigRoles)
+	b.plan.DepotRoles = o.DepotRoles || (!o.PackRoles && b.rec != nil && b.rec.DepotRoles)
 	for name := range o.Crew {
 		if !slices.ContainsFunc(p.Crew, func(r CrewMember) bool { return r.Name == name }) {
 			if _, ok := p.Renamed(name); ok {
@@ -485,10 +485,10 @@ func action(exists bool, changes []Diff) string {
 	return Unchanged
 }
 
-// chosen are the pack's flows an import into the rig would use: the one
-// the rig follows (Options.Flow, else the first without a type) and every
-// flow for a type. Another flow a rig could follow is not imported: it has
-// no rig to point at it, and its stages would get no routes.
+// chosen are the pack's flows an import into the depot would use: the one
+// the depot follows (Options.Flow, else the first without a type) and every
+// flow for a type. Another flow a depot could follow is not imported: it has
+// no depot to point at it, and its stages would get no routes.
 func (b *planner) chosen() ([]Flow, error) {
 	var out, own []Flow
 	for _, f := range b.p.Flows {
@@ -503,11 +503,11 @@ func (b *planner) chosen() ([]Flow, error) {
 			for i, f := range own {
 				names[i] = f.Name
 			}
-			return nil, fmt.Errorf("--flow %s: the pack has no such flow for a rig (it has: %s)", b.o.Flow, strings.Join(names, ", "))
+			return nil, fmt.Errorf("--flow %s: the pack has no such flow for a depot (it has: %s)", b.o.Flow, strings.Join(names, ", "))
 		}
 		own[0], own[i] = own[i], own[0]
 	} else if i := slices.IndexFunc(own, func(f Flow) bool { return b.rec != nil && f.Name == b.rec.Flow }); i >= 0 {
-		// The flow the rig was given by the last import, unless told anew.
+		// The flow the depot was given by the last import, unless told anew.
 		own[0], own[i] = own[i], own[0]
 	} else if len(own) > 1 {
 		names := make([]string, len(own))
@@ -515,13 +515,13 @@ func (b *planner) chosen() ([]Flow, error) {
 			names[i] = f.Name
 		}
 		b.plan.Questions = append(b.plan.Questions, Question{ID: FlowQuestion, Object: "pack " + b.p.Name, Field: "flow",
-			Ask: fmt.Sprintf("which of the pack's flows does rig %s follow (--flow <name>)? It has: %s.", b.o.Rig, strings.Join(names, ", ")), Default: own[0].Name})
+			Ask: fmt.Sprintf("which of the pack's flows does depot %s follow (--flow <name>)? It has: %s.", b.o.Depot, strings.Join(names, ", ")), Default: own[0].Name})
 	}
 	if len(own) > 0 {
 		b.plan.Flow = own[0].Name
 		out = append(out, own[0])
 		for _, f := range own[1:] {
-			b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("flow %s of the pack is not imported: rig %s would follow %s (--flow %s picks this one)", f.Name, b.o.Rig, own[0].Name, f.Name))
+			b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("flow %s of the pack is not imported: depot %s would follow %s (--flow %s picks this one)", f.Name, b.o.Depot, own[0].Name, f.Name))
 		}
 	}
 	for _, f := range b.p.Flows {
@@ -663,7 +663,7 @@ func (p *Plan) Removable(path string) bool {
 }
 
 // installedSums are the contents the imports of this pack recorded for the
-// installed file to, one per rig it was imported into: the rigs share the
+// installed file to, one per depot it was imported into: the depots share the
 // copy, so the last import into any of them may have written it. Empty when
 // no record says, as those older than the field do not.
 func (b *planner) installedSums(to string) []string {
@@ -713,7 +713,7 @@ func (b *planner) groups() error {
 	}
 	named := map[string]bool{}
 	for _, g := range b.p.Groups {
-		name := GroupName(b.o.Rig, g)
+		name := GroupName(b.o.Depot, g)
 		named[name] = true
 		b.plan.Groups[g.Name] = name
 		want := store.Group{Name: name, Config: map[string]any{}, Limit: 1}
@@ -737,22 +737,22 @@ func (b *planner) groups() error {
 		case g.Agent != "":
 			want.Runner, field = "herdr", "prompt"
 			want.Config[field] = b.installed(g.Agent)
-			own, err := b.rigRole(g.Agent)
+			own, err := b.depotRole(g.Agent)
 			if err != nil {
 				return err
 			}
 			switch {
 			case own == "":
-			case b.plan.RigRoles:
-				// Told to keep the rig's own role: an existing prompt stays,
+			case b.plan.DepotRoles:
+				// Told to keep the depot's own role: an existing prompt stays,
 				// and a new group, or one the pack's copy was set on, gets
-				// the role by the name the rig's file is found under.
+				// the role by the name the depot's file is found under.
 				prompt, _ := old.Config[field].(string)
 				if prompt == "" || prompt == b.installed(g.Agent) {
 					prompt = g.Agent
 				}
 				want.Config[field] = prompt
-				o.Keeps = append(o.Keeps, fmt.Sprintf("prompt %s: the rig has its own %s", prompt, own))
+				o.Keeps = append(o.Keeps, fmt.Sprintf("prompt %s: the depot has its own %s", prompt, own))
 			default:
 				o.Shadows = append(o.Shadows, own)
 			}
@@ -794,9 +794,9 @@ func (b *planner) groups() error {
 		o.Action, o.Changes, o.Group = action(exists, changes), changes, &want
 		b.add(o)
 	}
-	// The rig's other groups, by the name an import gives a rig's groups.
+	// The depot's other groups, by the name an import gives a depot's groups.
 	for _, h := range have {
-		if !named[h.Name] && strings.HasPrefix(h.Name, b.o.Rig+"-") {
+		if !named[h.Name] && strings.HasPrefix(h.Name, b.o.Depot+"-") {
 			b.add(Object{Kind: "group", Name: h.Name, Action: NotInPack})
 		}
 	}
@@ -869,14 +869,14 @@ func (b *planner) flows(flows []Flow) error {
 	if err != nil {
 		return err
 	}
-	// The flows that govern the rig now. A checkout git cannot read has
+	// The flows that govern the depot now. A checkout git cannot read has
 	// none to show; the import does not need it, so it is a note.
 	now := map[string]string{}
-	rigFlows, err := b.st.RigFlows(b.ctx, b.o.Rig)
+	depotFlows, err := b.st.DepotFlows(b.ctx, b.o.Depot)
 	if err != nil {
-		b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("the flows governing rig %s now could not be read: %v", b.o.Rig, err))
+		b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("the flows governing depot %s now could not be read: %v", b.o.Depot, err))
 	}
-	for _, rf := range rigFlows {
+	for _, rf := range depotFlows {
 		now[rf.Type] = rf.Flow.Name + " (" + rf.Source.String() + ")"
 	}
 
@@ -893,9 +893,9 @@ func (b *planner) flows(flows []Flow) error {
 		}
 		b.add(Object{Kind: "flow", Name: sf.Name, Action: action(i >= 0, changes), Changes: changes, Flow: &sf})
 
-		ptr := store.FlowPointer{Rig: b.o.Rig, Type: f.Type, Flow: sf.Name}
+		ptr := store.FlowPointer{Depot: b.o.Depot, Type: f.Type, Flow: sf.Name}
 		changes = nil
-		j := slices.IndexFunc(after, func(p store.FlowPointer) bool { return p.Rig == ptr.Rig && p.Type == ptr.Type })
+		j := slices.IndexFunc(after, func(p store.FlowPointer) bool { return p.Depot == ptr.Depot && p.Type == ptr.Type })
 		if j >= 0 {
 			if after[j].Flow != ptr.Flow {
 				changes = []Diff{{"flow", after[j].Flow, ptr.Flow}}
@@ -909,7 +909,7 @@ func (b *planner) flows(flows []Flow) error {
 		if g.Now == "" {
 			g.Now = "none"
 			if f.Type != "" {
-				g.Now = "the rig's flow"
+				g.Now = "the depot's flow"
 			}
 		}
 		b.plan.Governs = append(b.plan.Governs, g)
@@ -918,26 +918,26 @@ func (b *planner) flows(flows []Flow) error {
 		b.add(o)
 	}
 	for _, p := range pointers {
-		if p.Rig != b.o.Rig || slices.ContainsFunc(flows, func(f Flow) bool { return f.Type == p.Type }) {
+		if p.Depot != b.o.Depot || slices.ContainsFunc(flows, func(f Flow) bool { return f.Type == p.Type }) {
 			continue
 		}
 		b.add(Object{Kind: "pointer", Name: p.String() + " -> " + p.Flow, Action: NotInPack, Pointer: &p})
 		b.plan.Governs = append(b.plan.Governs, Governs{Type: p.Type, Flow: p.Flow, Source: "store", Now: now[p.Type]})
 	}
-	// A rig pointer in the store wins over the repository as a whole: its
+	// A depot pointer in the store wins over the repository as a whole: its
 	// default.flow and its type files stop governing, though they stay.
-	own := slices.IndexFunc(after, func(p store.FlowPointer) bool { return p.Rig == b.o.Rig && p.Type == "" })
-	for _, rf := range rigFlows {
+	own := slices.IndexFunc(after, func(p store.FlowPointer) bool { return p.Depot == b.o.Depot && p.Type == "" })
+	for _, rf := range depotFlows {
 		if own < 0 || len(flows) == 0 || rf.Source.Kind != "repo" {
 			continue
 		}
-		what := "the rig's beads"
+		what := "the depot's beads"
 		if rf.Type != "" {
 			what = "beads of type " + rf.Type
 			b.plan.Governs = append(b.plan.Governs, Governs{Type: rf.Type, Flow: after[own].Flow, Source: "store", Now: now[rf.Type]})
 		}
-		b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("rig %s's repository carries %s (%s), which governs %s now. The import points the rig at a flow in the store, and a store pointer wins over the repository's flow files: the file stays where it is and governs nothing until the pointer is cleared (yardr rig flow %s --clear).",
-			b.o.Rig, rf.Source.Path, rf.Source.String(), what, b.o.Rig))
+		b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("depot %s's repository carries %s (%s), which governs %s now. The import points the depot at a flow in the store, and a store pointer wins over the repository's flow files: the file stays where it is and governs nothing until the pointer is cleared (yardr depot flow %s --clear).",
+			b.o.Depot, rf.Source.Path, rf.Source.String(), what, b.o.Depot))
 	}
 	return b.strays(want, after)
 }
@@ -985,9 +985,9 @@ func (b *planner) strays(want map[string]store.Flow, after []store.FlowPointer) 
 	if err != nil {
 		return err
 	}
-	pointer := func(rig, typ string) string {
+	pointer := func(depot, typ string) string {
 		for _, p := range after {
-			if p.Rig == rig && p.Type == typ {
+			if p.Depot == depot && p.Type == typ {
 				return p.Flow
 			}
 		}
@@ -999,9 +999,9 @@ func (b *planner) strays(want map[string]store.Flow, after []store.FlowPointer) 
 			continue
 		}
 		name := store.PinnedFlow(&bead)
-		if name == "" && bead.Rig != nil {
-			if name = pointer(*bead.Rig, bead.Type); name == "" {
-				name = pointer(*bead.Rig, "")
+		if name == "" && bead.Depot != nil {
+			if name = pointer(*bead.Depot, bead.Type); name == "" {
+				name = pointer(*bead.Depot, "")
 			}
 		}
 		if f, ok := want[name]; ok && !slices.Contains(f.Stages, bead.Stage) {
@@ -1029,18 +1029,18 @@ func (b *planner) routes(flows []Flow) error {
 					b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("stage %s of flow %s names no group: the pack routes it to nobody, and a bead there waits for a hand", s.Name, f.Name))
 				}
 				// A stage in the flow with no group still replaces the yard's
-				// route for that rig, stage and type. Leaving that route in
+				// route for that depot, stage and type. Leaving that route in
 				// place would make the stage look unassigned in the plan while
 				// beads continued going to its old group.
 				var old []store.Route
 				for _, r := range have {
-					if r.Stage == s.Name && r.Rig != nil && *r.Rig == b.o.Rig && r.Label == nil && deref(r.Type) == f.Type {
+					if r.Stage == s.Name && r.Depot != nil && *r.Depot == b.o.Depot && r.Label == nil && deref(r.Type) == f.Type {
 						old = append(old, r)
 						taken[r.ID] = true
 					}
 				}
 				if len(old) > 0 {
-					name := "rig " + b.o.Rig + " stage " + s.Name
+					name := "depot " + b.o.Depot + " stage " + s.Name
 					if f.Type != "" {
 						name += " type " + f.Type
 					}
@@ -1053,17 +1053,17 @@ func (b *planner) routes(flows []Flow) error {
 						changes = append(changes, Diff{"routes", fmt.Sprintf("%d for this stage", len(old)), "0"})
 					}
 					b.add(Object{Kind: "route", Name: name + " -> (no route)", Action: Change, Changes: changes,
-						Route: &RouteOp{Stage: s.Name, Rig: b.o.Rig, Type: f.Type, Delete: deletes}})
+						Route: &RouteOp{Stage: s.Name, Depot: b.o.Depot, Type: f.Type, Delete: deletes}})
 				}
 				continue
 			}
 			g := b.p.Groups[slices.IndexFunc(b.p.Groups, func(g Group) bool { return g.Name == s.Group })]
-			op := &RouteOp{Stage: s.Name, Rig: b.o.Rig, Type: f.Type, Group: GroupName(b.o.Rig, g)}
-			// The rig's routes for the stage (and type), label routes
+			op := &RouteOp{Stage: s.Name, Depot: b.o.Depot, Type: f.Type, Group: GroupName(b.o.Depot, g)}
+			// The depot's routes for the stage (and type), label routes
 			// aside: those say something the pack does not.
 			var old []store.Route
 			for _, r := range have {
-				if r.Stage == s.Name && r.Rig != nil && *r.Rig == b.o.Rig && r.Label == nil && deref(r.Type) == f.Type {
+				if r.Stage == s.Name && r.Depot != nil && *r.Depot == b.o.Depot && r.Label == nil && deref(r.Type) == f.Type {
 					old = append(old, r)
 					taken[r.ID] = true
 				}
@@ -1084,7 +1084,7 @@ func (b *planner) routes(flows []Flow) error {
 					}
 				}
 			}
-			name := "rig " + b.o.Rig + " stage " + s.Name
+			name := "depot " + b.o.Depot + " stage " + s.Name
 			if f.Type != "" {
 				name += " type " + f.Type
 			}
@@ -1092,10 +1092,10 @@ func (b *planner) routes(flows []Flow) error {
 		}
 	}
 	for _, r := range have {
-		if r.Rig == nil || *r.Rig != b.o.Rig || taken[r.ID] {
+		if r.Depot == nil || *r.Depot != b.o.Depot || taken[r.ID] {
 			continue
 		}
-		name := "rig " + b.o.Rig + " stage " + r.Stage
+		name := "depot " + b.o.Depot + " stage " + r.Stage
 		if r.Type != nil {
 			name += " type " + *r.Type
 		}
@@ -1103,7 +1103,7 @@ func (b *planner) routes(flows []Flow) error {
 			name += " label " + *r.Label
 		}
 		b.add(Object{Kind: "route", Name: name + " -> " + r.Group, Action: NotInPack,
-			Route: &RouteOp{Stage: r.Stage, Rig: b.o.Rig, Type: deref(r.Type), Group: r.Group, Priority: r.Priority}})
+			Route: &RouteOp{Stage: r.Stage, Depot: b.o.Depot, Type: deref(r.Type), Group: r.Group, Priority: r.Priority}})
 	}
 	return nil
 }
@@ -1142,19 +1142,19 @@ func (b *planner) crew() error {
 		if pr.Role != "" {
 			op.Prompt = b.installed(pr.Role)
 			prompt, _ := old.Config["prompt"].(string)
-			own, err := b.rigRole(pr.Role)
+			own, err := b.depotRole(pr.Role)
 			if err != nil {
 				return err
 			}
 			switch {
 			case own == "":
-			case !b.plan.RigRoles:
+			case !b.plan.DepotRoles:
 				o.Shadows = append(o.Shadows, own)
 			case prompt != "" && prompt != op.Prompt:
-				// A crew member is the yard's, not the rig's, so only one that
+				// A crew member is the yard's, not the depot's, so only one that
 				// has a prompt of its own keeps it; a new one gets the pack's.
 				op.Prompt = prompt
-				o.Keeps = append(o.Keeps, fmt.Sprintf("prompt %s: the rig has its own %s", prompt, own))
+				o.Keeps = append(o.Keeps, fmt.Sprintf("prompt %s: the depot has its own %s", prompt, own))
 			}
 			if exists && prompt != op.Prompt {
 				changes = append(changes, Diff{"prompt", prompt, op.Prompt})
@@ -1185,10 +1185,10 @@ func (b *planner) crew() error {
 
 		var want []store.Subscription
 		for _, s := range pr.Stages {
-			want = append(want, store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll, Where: map[string]string{"rig": b.o.Rig, "stage": s}})
+			want = append(want, store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll, Where: map[string]string{"depot": b.o.Depot, "stage": s}})
 		}
 		if pr.Done {
-			want = append(want, store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll, Where: map[string]string{"rig": b.o.Rig, "state": store.StateDone}})
+			want = append(want, store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll, Where: map[string]string{"depot": b.o.Depot, "state": store.StateDone}})
 		}
 		for _, s := range pr.Subscribe {
 			want = append(want, store.Subscription{Source: s.Name, Scope: s.Scope})
@@ -1480,18 +1480,18 @@ func (b *planner) maps() error {
 // mapName is what a plan calls the stage map on hook, acted on as crew member.
 func mapName(hook, as string) string { return "hook " + hook + " as " + as }
 
-// rigRole names the rig's own role file that stands in for the pack's role
-// rel (roles/builder.md -> .yardr/roles/builder.md), or "" when the rig has
+// depotRole names the depot's own role file that stands in for the pack's role
+// rel (roles/builder.md -> .yardr/roles/builder.md), or "" when the depot has
 // none or the pack's file is no role by yardr's naming (roles/<name>.md).
-// The pack's role is set over it unless the import keeps the rig's roles.
-func (b *planner) rigRole(rel string) (string, error) {
+// The pack's role is set over it unless the import keeps the depot's roles.
+func (b *planner) depotRole(rel string) (string, error) {
 	dir, name := filepath.Split(filepath.FromSlash(rel))
 	if filepath.Clean(dir) != "roles" || filepath.Ext(name) != ".md" {
 		return "", nil
 	}
-	has, err := runner.RigRole(b.rig, name)
+	has, err := runner.DepotRole(b.depot, name)
 	if err != nil {
-		return "", fmt.Errorf("rig %s: looking for its own role %s: %w", b.rig.Name, name, err)
+		return "", fmt.Errorf("depot %s: looking for its own role %s: %w", b.depot.Name, name, err)
 	}
 	if !has {
 		return "", nil
@@ -1529,7 +1529,7 @@ func Ident(o Object) (po store.PackObject, ok bool) {
 	return po, false
 }
 
-// dropped adds what the last import of this pack into the rig brought and
+// dropped adds what the last import of this pack into the depot brought and
 // the pack no longer carries, as far as the yard still has it: a group the
 // pack dropped, the routes and subscriptions of a stage it lost, a file
 // nothing names any more. Each takes the place of the object's "not in the
@@ -1634,11 +1634,11 @@ func (b *planner) gone(po store.PackObject) (*Object, error) {
 			return nil, err
 		}
 		o := &Object{Kind: po.Kind, Name: po.Name}
-		// A people group is the yard's, shared by its rigs: it stays while
-		// another import or another rig's route still uses it.
+		// A people group is the yard's, shared by its depots: it stays while
+		// another import or another depot's route still uses it.
 		for _, r := range b.all {
-			if (r.Pack != b.p.Name || r.Rig != b.o.Rig) && slices.ContainsFunc(r.Objects, func(x store.PackObject) bool { return x.Kind == "group" && x.Name == po.Name }) {
-				o.Held = fmt.Sprintf("pack %s in rig %s names it too", r.Pack, r.Rig)
+			if (r.Pack != b.p.Name || r.Depot != b.o.Depot) && slices.ContainsFunc(r.Objects, func(x store.PackObject) bool { return x.Kind == "group" && x.Name == po.Name }) {
+				o.Held = fmt.Sprintf("pack %s in depot %s names it too", r.Pack, r.Depot)
 			}
 		}
 		routes, err := b.st.Routes(b.ctx)
@@ -1646,8 +1646,8 @@ func (b *planner) gone(po store.PackObject) (*Object, error) {
 			return nil, err
 		}
 		for _, r := range routes {
-			if o.Held == "" && r.Group == po.Name && (r.Rig == nil || *r.Rig != b.o.Rig) {
-				o.Held = "a route outside rig " + b.o.Rig + " leads to it"
+			if o.Held == "" && r.Group == po.Name && (r.Depot == nil || *r.Depot != b.o.Depot) {
+				o.Held = "a route outside depot " + b.o.Depot + " leads to it"
 			}
 		}
 		return o, nil
@@ -1663,7 +1663,7 @@ func (b *planner) gone(po store.PackObject) (*Object, error) {
 			return nil, err
 		}
 		for _, p := range ptrs {
-			if p.Flow == po.Name && p.Rig != b.o.Rig {
+			if p.Flow == po.Name && p.Depot != b.o.Depot {
 				o.Held = p.String() + " follows it"
 			}
 		}
@@ -1673,7 +1673,7 @@ func (b *planner) gone(po store.PackObject) (*Object, error) {
 		if err != nil {
 			return nil, err
 		}
-		p := store.FlowPointer{Rig: b.o.Rig, Type: po.Type, Flow: po.Flow}
+		p := store.FlowPointer{Depot: b.o.Depot, Type: po.Type, Flow: po.Flow}
 		if !slices.Contains(ptrs, p) {
 			return nil, nil
 		}
@@ -1689,9 +1689,9 @@ func (b *planner) gone(po store.PackObject) (*Object, error) {
 		if err != nil {
 			return nil, err
 		}
-		op := &RouteOp{Stage: po.Stage, Rig: b.o.Rig, Type: po.Type, Group: po.Group}
+		op := &RouteOp{Stage: po.Stage, Depot: b.o.Depot, Type: po.Type, Group: po.Group}
 		for _, r := range routes {
-			if r.Stage == po.Stage && r.Rig != nil && *r.Rig == b.o.Rig && r.Label == nil && deref(r.Type) == po.Type && r.Group == po.Group {
+			if r.Stage == po.Stage && r.Depot != nil && *r.Depot == b.o.Depot && r.Label == nil && deref(r.Type) == po.Type && r.Group == po.Group {
 				op.Delete = append(op.Delete, r.ID)
 				op.Priority = r.Priority
 			}
@@ -1699,7 +1699,7 @@ func (b *planner) gone(po store.PackObject) (*Object, error) {
 		if len(op.Delete) == 0 {
 			return nil, nil
 		}
-		name := "rig " + b.o.Rig + " stage " + po.Stage
+		name := "depot " + b.o.Depot + " stage " + po.Stage
 		if po.Type != "" {
 			name += " type " + po.Type
 		}
@@ -1737,7 +1737,7 @@ func (b *planner) gone(po store.PackObject) (*Object, error) {
 }
 
 // strandedTypePointer keeps a dropped type-flow pointer when clearing
-// it would make the type's open beads follow the rig's newly chosen default
+// it would make the type's open beads follow the depot's newly chosen default
 // flow at stages that flow lacks. Clearing a pointer does not itself check
 // for stranded beads, so the import has to protect them before pruning.
 func (b *planner) strandedTypePointer(p *store.FlowPointer) (string, error) {
@@ -1761,7 +1761,7 @@ func (b *planner) strandedTypePointer(p *store.FlowPointer) (string, error) {
 	}
 	var stranded []string
 	for _, bead := range beads {
-		if bead.Status == "closed" || bead.Rig == nil || *bead.Rig != p.Rig || bead.Type != p.Type || store.PinnedFlow(&bead) != "" {
+		if bead.Status == "closed" || bead.Depot == nil || *bead.Depot != p.Depot || bead.Type != p.Type || store.PinnedFlow(&bead) != "" {
 			continue
 		}
 		if !slices.Contains(f.Stages, bead.Stage) {

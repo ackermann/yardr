@@ -53,8 +53,8 @@ type StageMap struct {
 
 type Flow struct {
 	Name string `json:"name"`
-	// Type is the bead type the flow is for, beside the rig's flow; "" for
-	// a flow a rig may follow as its own.
+	// Type is the bead type the flow is for, beside the depot's flow; "" for
+	// a flow a depot may follow as its own.
 	Type   string  `json:"type,omitempty"`
 	Stages []Stage `json:"stages"`
 }
@@ -512,7 +512,7 @@ func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 			for _, t := range types {
 				flows := flowsFor(p.Flows, store.BeadType(t.key))
 				if len(flows) == 0 {
-					r.errf(t.k, t.path, "no flow of this pack is for beads of type %s: it has no flow with type: %s and none a rig follows", t.key, t.key)
+					r.errf(t.k, t.path, "no flow of this pack is for beads of type %s: it has no flow with type: %s and none a depot follows", t.key, t.key)
 					continue
 				}
 				for _, s := range r.entries(t.v, t.path) {
@@ -549,7 +549,7 @@ func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 }
 
 // flowsFor are the pack's flows a bead of type typ may follow: the flow for
-// that type, else every flow a rig could follow as its own, since a rig's
+// that type, else every flow a depot could follow as its own, since a depot's
 // flow governs the types that have none.
 func flowsFor(flows []Flow, typ string) []Flow {
 	var own []Flow
@@ -573,7 +573,7 @@ func lacking(flows []Flow) string {
 	for i, f := range flows {
 		names[i] = f.Name
 	}
-	return "none of the flows a rig could follow (" + strings.Join(names, ", ") + ") has a"
+	return "none of the flows a depot could follow (" + strings.Join(names, ", ") + ") has a"
 }
 
 func stageNames(flows []Flow) []string {

@@ -128,7 +128,7 @@ func TestPipelineThroughStages(t *testing.T) {
 func TestJobCarriesNextStages(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()
-	must(t, s.PutRig(ctx, store.Rig{Name: "web", Path: "/tmp/web"}, "me"))
+	must(t, s.PutDepot(ctx, store.Depot{Name: "web", Path: "/tmp/web"}, "me"))
 	flow, err := store.ParseFlow("new -> review on done | backlog | dropped on abandoned\nreview -> merged\ndropped terminal\nmerged terminal\n")
 	must(t, err)
 	flow.Name = "web"
@@ -145,7 +145,7 @@ func TestJobCarriesNextStages(t *testing.T) {
 	_, err = s.AddRoute(ctx, store.Route{Stage: "dropped", Group: "reviewers"})
 	must(t, err)
 
-	inFlow, err := s.CreateBead(ctx, store.NewBead{Title: "flowed", Rig: "web"}, "me")
+	inFlow, err := s.CreateBead(ctx, store.NewBead{Title: "flowed", Depot: "web"}, "me")
 	must(t, err)
 	free, err := s.CreateBead(ctx, store.NewBead{Title: "free"}, "me")
 	must(t, err)
@@ -196,13 +196,13 @@ func TestBadFlowSkipsOnlyThatBead(t *testing.T) {
 	must(t, os.WriteFile(filepath.Join(repo, ".yardr/flows/alt.flow"), []byte("new -> review\n"), 0o644))
 	git("add", "-A")
 	git("commit", "-q", "-m", "alt flow")
-	must(t, s.PutRig(ctx, store.Rig{Name: "web", Path: repo, Base: "main"}, "me"))
+	must(t, s.PutDepot(ctx, store.Depot{Name: "web", Path: repo, Base: "main"}, "me"))
 	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
 	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
 	must(t, err)
 
 	// Pinned to a repo flow that then leaves the base: the pin names nothing.
-	bad, err := s.CreateBead(ctx, store.NewBead{Title: "pinned", Rig: "web", Metadata: map[string]any{"flow": "alt"}}, "me")
+	bad, err := s.CreateBead(ctx, store.NewBead{Title: "pinned", Depot: "web", Metadata: map[string]any{"flow": "alt"}}, "me")
 	must(t, err)
 	git("rm", "-q", ".yardr/flows/alt.flow")
 	git("commit", "-q", "-m", "drop alt")
@@ -354,11 +354,11 @@ func TestMatchOrder(t *testing.T) {
 	rs := []store.Route{
 		{ID: "a", Stage: "new", Group: "any"},
 		{ID: "b", Stage: "new", Type: &bug, Group: "bugs"},
-		{ID: "c", Stage: "new", Type: &bug, Rig: &web, Group: "webbugs"},
+		{ID: "c", Stage: "new", Type: &bug, Depot: &web, Group: "webbugs"},
 		{ID: "d", Stage: "new", Group: "urgent", Priority: 9},
 	}
 	dispatch.SortRoutes(rs)
-	b := store.Bead{Stage: "new", Type: "bug", Rig: &web}
+	b := store.Bead{Stage: "new", Type: "bug", Depot: &web}
 	if r := dispatch.Match(rs, b); r.Group != "urgent" {
 		t.Fatalf("priority should win, got %s", r.Group)
 	}
@@ -664,7 +664,7 @@ func TestRunPrunesOnATimer(t *testing.T) {
 }
 
 // The job tells the runner a child's train and base; any other bead gets the
-// rig's base. A bead whose train is ambiguous is not started.
+// depot's base. A bead whose train is ambiguous is not started.
 func TestJobCarriesTrainAndBase(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()
@@ -672,14 +672,14 @@ func TestJobCarriesTrainAndBase(t *testing.T) {
 	cmd := exec.Command("git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "A")
 	must(t, exec.Command("git", "init", "-q", "-b", "main", repo).Run())
 	must(t, cmd.Run())
-	must(t, s.PutRig(ctx, store.Rig{Name: "r", Path: repo, Base: "main"}, "me"))
+	must(t, s.PutDepot(ctx, store.Depot{Name: "r", Path: repo, Base: "main"}, "me"))
 	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
 	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
 	must(t, err)
 	for _, nb := range []store.NewBead{
-		{ID: "r-e", Title: "train", Type: store.TypeTrain, Rig: "r", Stage: "backlog"},
-		{ID: "r-1", Title: "child", Rig: "r"},
-		{ID: "r-2", Title: "plain", Rig: "r"},
+		{ID: "r-e", Title: "train", Type: store.TypeTrain, Depot: "r", Stage: "backlog"},
+		{ID: "r-1", Title: "child", Depot: "r"},
+		{ID: "r-2", Title: "plain", Depot: "r"},
 	} {
 		_, err := s.CreateBead(ctx, nb, "me")
 		must(t, err)
@@ -687,9 +687,9 @@ func TestJobCarriesTrainAndBase(t *testing.T) {
 	must(t, s.AddDep(ctx, "r-e", "r-1", store.DepParent, "me"))
 	// r-3 ends up a child of two trains: r-e's type changes away and back
 	// around a second parent edge.
-	_, err = s.CreateBead(ctx, store.NewBead{ID: "r-g", Title: "train", Type: store.TypeTrain, Rig: "r", Stage: "backlog"}, "me")
+	_, err = s.CreateBead(ctx, store.NewBead{ID: "r-g", Title: "train", Type: store.TypeTrain, Depot: "r", Stage: "backlog"}, "me")
 	must(t, err)
-	_, err = s.CreateBead(ctx, store.NewBead{ID: "r-3", Title: "two trains", Rig: "r"}, "me")
+	_, err = s.CreateBead(ctx, store.NewBead{ID: "r-3", Title: "two trains", Depot: "r"}, "me")
 	must(t, err)
 	must(t, s.AddDep(ctx, "r-e", "r-3", store.DepParent, "me"))
 	task, train := "task", store.TypeTrain
@@ -738,13 +738,13 @@ func TestStrandedBeadIsReportedOnceAndNotRouted(t *testing.T) {
 	}
 	git("init", "-q", "-b", "main")
 	flow("new -> triage | review\ntriage -> review\nreview -> merged\nmerged terminal\n", "flow with triage")
-	must(t, s.PutRig(ctx, store.Rig{Name: "web", Path: repo, Base: "main"}, "me"))
+	must(t, s.PutDepot(ctx, store.Depot{Name: "web", Path: repo, Base: "main"}, "me"))
 	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
 	for _, st := range []string{"new", "triage"} {
 		_, err := s.AddRoute(ctx, store.Route{Stage: st, Group: "builders"})
 		must(t, err)
 	}
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "in triage", Rig: "web", Stage: "triage"}, "me")
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "in triage", Depot: "web", Stage: "triage"}, "me")
 	must(t, err)
 
 	flow("new -> review\nreview -> merged\nmerged terminal\n", "drop triage")
@@ -831,8 +831,8 @@ func TestJobCarriesTheStageFile(t *testing.T) {
 	}
 	git("add", "-A")
 	git("commit", "-q", "-m", "flow")
-	must(t, s.PutRig(ctx, store.Rig{Name: "web", Path: repo, Base: "main"}, "me"))
-	must(t, s.PutRig(ctx, store.Rig{Name: "api", Path: repo, Base: "main"}, "me"))
+	must(t, s.PutDepot(ctx, store.Depot{Name: "web", Path: repo, Base: "main"}, "me"))
+	must(t, s.PutDepot(ctx, store.Depot{Name: "api", Path: repo, Base: "main"}, "me"))
 	code, err := store.ParseFlow("new -> shipped\nshipped terminal\n")
 	must(t, err)
 	code.Name = "code"
@@ -842,9 +842,9 @@ func TestJobCarriesTheStageFile(t *testing.T) {
 	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
 	_, err = s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
 	must(t, err)
-	inRepo, err := s.CreateBead(ctx, store.NewBead{Title: "repo flow", Rig: "web"}, "me")
+	inRepo, err := s.CreateBead(ctx, store.NewBead{Title: "repo flow", Depot: "web"}, "me")
 	must(t, err)
-	inStore, err := s.CreateBead(ctx, store.NewBead{Title: "store flow", Rig: "api"}, "me")
+	inStore, err := s.CreateBead(ctx, store.NewBead{Title: "store flow", Depot: "api"}, "me")
 	must(t, err)
 	none, err := s.CreateBead(ctx, store.NewBead{Title: "no flow"}, "me")
 	must(t, err)

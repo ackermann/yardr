@@ -326,12 +326,12 @@ approved -> merged
 merged terminal
 `
 
-// flowBead is a bead of rig web, governed by timerFlow, in new.
+// flowBead is a bead of depot web, governed by timerFlow, in new.
 func (y *timerYard) flowBead(id string) {
 	y.t.Helper()
 	ctx := context.Background()
-	if _, err := y.GetRig(ctx, "web"); errors.Is(err, ErrNotFound) {
-		if err := y.PutRig(ctx, Rig{Name: "web", Base: "main"}, "jo"); err != nil {
+	if _, err := y.GetDepot(ctx, "web"); errors.Is(err, ErrNotFound) {
+		if err := y.PutDepot(ctx, Depot{Name: "web", Base: "main"}, "jo"); err != nil {
 			y.t.Fatal(err)
 		}
 		f, err := ParseFlow(timerFlow)
@@ -346,7 +346,7 @@ func (y *timerYard) flowBead(id string) {
 			y.t.Fatal(err)
 		}
 	}
-	if _, err := y.CreateBead(ctx, NewBead{ID: id, Title: id, Rig: "web", Stage: "new"}, "jo"); err != nil {
+	if _, err := y.CreateBead(ctx, NewBead{ID: id, Title: id, Depot: "web", Stage: "new"}, "jo"); err != nil {
 		y.t.Fatal(err)
 	}
 }

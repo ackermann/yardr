@@ -27,7 +27,7 @@ func TestPrimeShowsTheFlowMap(t *testing.T) {
 	})
 	git("add", "-A")
 	git("commit", "-q", "-m", "stage files")
-	write(home, map[string]string{"flows/code/review.md": "Review for every rig. In full.\n"})
+	write(home, map[string]string{"flows/code/review.md": "Review for every depot. In full.\n"})
 	for name, runner := range map[string]string{"builders": "herdr", "humans": "manual"} {
 		if err := a.st.PutGroup(ctx, store.Group{Name: name, Runner: runner, Config: map[string]any{}}); err != nil {
 			t.Fatal(err)
@@ -54,7 +54,7 @@ func TestPrimeShowsTheFlowMap(t *testing.T) {
 			t.Errorf("prime:\n%s\nwant it to hold:\n%s", out, want)
 		}
 	}
-	b, err := a.st.CreateBead(ctx, store.NewBead{Title: "task", Rig: "web"}, "me")
+	b, err := a.st.CreateBead(ctx, store.NewBead{Title: "task", Depot: "web"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,19 +125,19 @@ STAGE new `)
 
 	// A store flow: the lines are read from the home. Its first stage has no
 	// file, so nothing below says what to do there.
-	api, err := a.st.CreateBead(ctx, store.NewBead{Title: "api", Rig: "api", Stage: "new"}, "me")
+	api, err := a.st.CreateBead(ctx, store.NewBead{Title: "api", Depot: "api", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
 	holds(prime(api.ID, false), `
 FLOW code · 3 stages (context: it does not say what you must do)
 > new       agents   <- you are here
-  review    people   Review for every rig.
+  review    people   Review for every depot.
   shipped   end
 
 OUTCOMES:`)
 
-	// Nothing governs a bead without a rig: no map.
+	// Nothing governs a bead without a depot: no map.
 	free, err := a.st.CreateBead(ctx, store.NewBead{Title: "free"}, "me")
 	if err != nil {
 		t.Fatal(err)
@@ -202,7 +202,7 @@ func TestBriefCarriesPrimesFlowMap(t *testing.T) {
 	})
 	git("add", "-A")
 	git("commit", "-q", "-m", "stage files")
-	write(home, map[string]string{"flows/code/review.md": "Review for every rig. In full.\n"})
+	write(home, map[string]string{"flows/code/review.md": "Review for every depot. In full.\n"})
 	if err := a.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "brief", Limit: 5, Config: map[string]any{}}); err != nil {
 		t.Fatal(err)
 	}
@@ -243,11 +243,11 @@ func TestBriefCarriesPrimesFlowMap(t *testing.T) {
 		}
 	}
 
-	b, err := a.st.CreateBead(ctx, store.NewBead{Title: "task", Rig: "web"}, "me")
+	b, err := a.st.CreateBead(ctx, store.NewBead{Title: "task", Depot: "web"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
-	api, err := a.st.CreateBead(ctx, store.NewBead{Title: "api", Rig: "api", Stage: "new"}, "me")
+	api, err := a.st.CreateBead(ctx, store.NewBead{Title: "api", Depot: "api", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +272,7 @@ func TestBriefCarriesPrimesFlowMap(t *testing.T) {
 	holds(brief(api.ID), "\n## Flow `code`\n\n```text\n"+
 		"FLOW code · 3 stages (context: it does not say what you must do)\n"+
 		"> new       agents   <- you are here\n"+
-		"  review    nobody   Review for every rig.\n"+
+		"  review    nobody   Review for every depot.\n"+
 		"  shipped   end\n"+
 		"```\n\n## Outcomes\n")
 	holds(brief(api.ID), "```text\n"+primes(api.ID)+"```\n")

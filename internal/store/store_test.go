@@ -28,10 +28,10 @@ func ids(bs []store.Bead) []string {
 func TestCreateAndGetBead(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
-	if err := s.PutRig(ctx, store.Rig{Name: "web", Base: "origin/main"}, "me"); err != nil {
+	if err := s.PutDepot(ctx, store.Depot{Name: "web", Base: "origin/main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "fix login", Rig: "web", Labels: []string{"ui", "ui"}}, "me")
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "fix login", Depot: "web", Labels: []string{"ui", "ui"}}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,8 +41,8 @@ func TestCreateAndGetBead(t *testing.T) {
 	if !slices.Equal(b.Labels, []string{"ui"}) {
 		t.Fatalf("labels not deduped: %v", b.Labels)
 	}
-	if b.Rig == nil || *b.Rig != "web" {
-		t.Fatalf("rig = %v", b.Rig)
+	if b.Depot == nil || *b.Depot != "web" {
+		t.Fatalf("depot = %v", b.Depot)
 	}
 	b2, err := s.CreateBead(ctx, store.NewBead{Title: "second"}, "me")
 	if err != nil {
@@ -56,14 +56,14 @@ func TestCreateAndGetBead(t *testing.T) {
 	}
 }
 
-// Rig names, bead types and dep kinds end up in paths, type URLs and route
+// Depot names, bead types and dep kinds end up in paths, type URLs and route
 // matches, so a slash, whitespace or capitals are refused where they enter.
 func TestNamesAreValidated(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
-	for _, bad := range []string{"", "a/b", "my rig", "Web", "-x", ".hidden", "tab\tx"} {
-		if err := s.PutRig(ctx, store.Rig{Name: bad, Base: "main"}, "me"); err == nil {
-			t.Errorf("rig name %q accepted", bad)
+	for _, bad := range []string{"", "a/b", "my depot", "Web", "-x", ".hidden", "tab\tx"} {
+		if err := s.PutDepot(ctx, store.Depot{Name: bad, Base: "main"}, "me"); err == nil {
+			t.Errorf("depot name %q accepted", bad)
 		}
 		if bad == "" {
 			continue // an empty type is the default, task
@@ -72,7 +72,7 @@ func TestNamesAreValidated(t *testing.T) {
 			t.Errorf("bead type %q accepted", bad)
 		}
 	}
-	if err := s.PutRig(ctx, store.Rig{Name: "web.v2_x-1", Base: "main"}, "me"); err != nil {
+	if err := s.PutDepot(ctx, store.Depot{Name: "web.v2_x-1", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	a, err := s.CreateBead(ctx, store.NewBead{Title: "a", Type: "tech-debt"}, "me")
@@ -94,24 +94,24 @@ func TestNamesAreValidated(t *testing.T) {
 	}
 }
 
-// A rig's --check override survives the store (and the RPC client).
-func TestRigKeepsCheckOverride(t *testing.T) {
+// A depot's --check override survives the store (and the RPC client).
+func TestDepotKeepsCheckOverride(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
-	if err := s.PutRig(ctx, store.Rig{Name: "web", Path: "/tmp/web", Base: "main", Check: "make test"}, "me"); err != nil {
+	if err := s.PutDepot(ctx, store.Depot{Name: "web", Path: "/tmp/web", Base: "main", Check: "make test"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	r, err := s.GetRig(ctx, "web")
+	r, err := s.GetDepot(ctx, "web")
 	if err != nil || r.Check != "make test" {
-		t.Fatalf("rig = %+v, %v", r, err)
+		t.Fatalf("depot = %+v, %v", r, err)
 	}
 	// The override replaces the repo's gate, so setting or dropping it is
 	// an event, with who did it.
-	if err := s.PutRig(ctx, store.Rig{Name: "web", Path: "/tmp/web", Base: "main", AllowNoCheck: true}, "op"); err != nil {
+	if err := s.PutDepot(ctx, store.Depot{Name: "web", Path: "/tmp/web", Base: "main", AllowNoCheck: true}, "op"); err != nil {
 		t.Fatal(err)
 	}
-	if r, err = s.GetRig(ctx, "web"); err != nil || r.Check != "" || !r.AllowNoCheck {
-		t.Fatalf("rig = %+v, %v", r, err)
+	if r, err = s.GetDepot(ctx, "web"); err != nil || r.Check != "" || !r.AllowNoCheck {
+		t.Fatalf("depot = %+v, %v", r, err)
 	}
 	evs, err := s.Events(ctx, "", 10)
 	if err != nil {
@@ -119,19 +119,19 @@ func TestRigKeepsCheckOverride(t *testing.T) {
 	}
 	var got []string
 	for _, e := range evs {
-		if e.Kind == "rig_updated" {
-			got = append(got, fmt.Sprintf("%s %v %v %v", e.Actor, e.Data["rig"], e.Data["check"], e.Data["allow_no_check"]))
+		if e.Kind == "depot_updated" {
+			got = append(got, fmt.Sprintf("%s %v %v %v", e.Actor, e.Data["depot"], e.Data["check"], e.Data["allow_no_check"]))
 		}
 	}
 	if want := []string{"me web make test false", "op web  true"}; strings.Join(got, "|") != strings.Join(want, "|") {
-		t.Fatalf("rig_updated events = %q, want %q", got, want)
+		t.Fatalf("depot_updated events = %q, want %q", got, want)
 	}
 }
 
-// rig rm takes the rig's routes and flow pointers with it, leaves other rigs'
+// depot rm takes the depot's routes and flow pointers with it, leaves other depots'
 // alone (web2 shares web's prefix), and is refused, with nothing deleted,
-// while an open bead or a live session still needs the rig.
-func TestDeleteRig(t *testing.T) {
+// while an open bead or a live session still needs the depot.
+func TestDeleteDepot(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
 	must := func(err error) {
@@ -140,16 +140,16 @@ func TestDeleteRig(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, rig := range []string{"web", "web2"} {
-		must(s.PutRig(ctx, store.Rig{Name: rig, Path: "/tmp/" + rig, Base: "main"}, "me"))
+	for _, depot := range []string{"web", "web2"} {
+		must(s.PutDepot(ctx, store.Depot{Name: depot, Path: "/tmp/" + depot, Base: "main"}, "me"))
 	}
 	must(s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
 	web, web2 := "web", "web2"
-	mine, err := s.AddRoute(ctx, store.Route{Stage: "new", Rig: &web, Group: "builders"})
+	mine, err := s.AddRoute(ctx, store.Route{Stage: "new", Depot: &web, Group: "builders"})
 	must(err)
-	other, err := s.AddRoute(ctx, store.Route{Stage: "new", Rig: &web2, Group: "builders"})
+	other, err := s.AddRoute(ctx, store.Route{Stage: "new", Depot: &web2, Group: "builders"})
 	must(err)
-	anyRig, err := s.AddRoute(ctx, store.Route{Stage: "review", Group: "builders"})
+	anyDepot, err := s.AddRoute(ctx, store.Route{Stage: "review", Group: "builders"})
 	must(err)
 	f, err := store.ParseFlow("new -> review\nreview -> done\ndone terminal")
 	must(err)
@@ -161,17 +161,17 @@ func TestDeleteRig(t *testing.T) {
 	must(s.SetFlowPointer(ctx, "web2", "", "code", "me"))
 
 	// A closed bead is history, not a user.
-	done, err := s.CreateBead(ctx, store.NewBead{Title: "done", Rig: "web"}, "me")
+	done, err := s.CreateBead(ctx, store.NewBead{Title: "done", Depot: "web"}, "me")
 	must(err)
 	_, err = s.CloseBead(ctx, done.ID, "merged", store.Expect{}, "me")
 	must(err)
 	// An open bead, and then a session working it, each refuse the removal.
-	open, err := s.CreateBead(ctx, store.NewBead{Title: "open", Rig: "web"}, "me")
+	open, err := s.CreateBead(ctx, store.NewBead{Title: "open", Depot: "web"}, "me")
 	must(err)
 	intact := func(step string) {
 		t.Helper()
-		if _, err := s.GetRig(ctx, "web"); err != nil {
-			t.Fatalf("%s: rig gone: %v", step, err)
+		if _, err := s.GetDepot(ctx, "web"); err != nil {
+			t.Fatalf("%s: depot gone: %v", step, err)
 		}
 		rs, _ := s.Routes(ctx)
 		ps, _ := s.FlowPointers(ctx)
@@ -179,37 +179,37 @@ func TestDeleteRig(t *testing.T) {
 			t.Fatalf("%s: routes %d, pointers %d; refused removal deleted something", step, len(rs), len(ps))
 		}
 	}
-	_, err = s.DeleteRig(ctx, "web", "me")
-	if err == nil || !strings.Contains(err.Error(), "rig web is in use by bead "+open.ID) || strings.Contains(err.Error(), done.ID) {
+	_, err = s.DeleteDepot(ctx, "web", "me")
+	if err == nil || !strings.Contains(err.Error(), "depot web is in use by bead "+open.ID) || strings.Contains(err.Error(), done.ID) {
 		t.Fatalf("open bead: err = %v", err)
 	}
 	intact("open bead")
 	sess, err := s.Claim(ctx, open.ID, "builders", "new", "yard")
 	must(err)
-	_, err = s.DeleteRig(ctx, "web", "me")
+	_, err = s.DeleteDepot(ctx, "web", "me")
 	if err == nil || !strings.Contains(err.Error(), "session "+sess.ID+" (bead "+open.ID+")") {
 		t.Fatalf("live session: err = %v", err)
 	}
 	intact("live session")
 	must(s.EndSession(ctx, sess.ID, "aborted", "test"))
-	if _, err := s.DeleteRig(ctx, "web", "me"); err == nil || !strings.Contains(err.Error(), "bead "+open.ID) || strings.Contains(err.Error(), "session "+sess.ID) {
+	if _, err := s.DeleteDepot(ctx, "web", "me"); err == nil || !strings.Contains(err.Error(), "bead "+open.ID) || strings.Contains(err.Error(), "session "+sess.ID) {
 		t.Fatalf("ended session, bead still open: err = %v", err)
 	}
 	_, err = s.CloseBead(ctx, open.ID, "dropped", store.Expect{}, "me")
 	must(err)
 
-	got, err := s.DeleteRig(ctx, "web", "op")
+	got, err := s.DeleteDepot(ctx, "web", "op")
 	must(err)
-	if got.Rig != "web" || !slices.Equal(got.Routes, []string{mine.ID}) || len(got.FlowPointers) != 2 ||
-		got.FlowPointers[0].String() != "rig web" || got.FlowPointers[1].String() != "rig web type bug" {
+	if got.Depot != "web" || !slices.Equal(got.Routes, []string{mine.ID}) || len(got.FlowPointers) != 2 ||
+		got.FlowPointers[0].String() != "depot web" || got.FlowPointers[1].String() != "depot web type bug" {
 		t.Fatalf("removal = %+v", got)
 	}
-	if _, err := s.GetRig(ctx, "web"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("rig after rm: %v", err)
+	if _, err := s.GetDepot(ctx, "web"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("depot after rm: %v", err)
 	}
-	rs, err := s.Rigs(ctx)
+	rs, err := s.Depots(ctx)
 	if err != nil || len(rs) != 1 || rs[0].Name != "web2" {
-		t.Fatalf("rigs = %+v, %v", rs, err)
+		t.Fatalf("depots = %+v, %v", rs, err)
 	}
 	routes, _ := s.Routes(ctx)
 	var left []string
@@ -217,31 +217,31 @@ func TestDeleteRig(t *testing.T) {
 		left = append(left, r.ID)
 	}
 	slices.Sort(left)
-	want := []string{other.ID, anyRig.ID}
+	want := []string{other.ID, anyDepot.ID}
 	slices.Sort(want)
 	if !slices.Equal(left, want) {
 		t.Fatalf("routes left = %v, want %v", left, want)
 	}
 	ptrs, _ := s.FlowPointers(ctx)
-	if len(ptrs) != 1 || ptrs[0].Rig != "web2" {
+	if len(ptrs) != 1 || ptrs[0].Depot != "web2" {
 		t.Fatalf("pointers left = %+v", ptrs)
 	}
-	// Closed beads keep their rig as history.
-	if b, err := s.GetBead(ctx, done.ID); err != nil || b.Rig == nil || *b.Rig != "web" {
+	// Closed beads keep their depot as history.
+	if b, err := s.GetBead(ctx, done.ID); err != nil || b.Depot == nil || *b.Depot != "web" {
 		t.Fatalf("closed bead after rm: %+v, %v", b, err)
 	}
 	evs, err := s.Events(ctx, "", 50)
 	must(err)
-	i := slices.IndexFunc(evs, func(e store.Event) bool { return e.Kind == "rig_removed" })
-	if i < 0 || evs[i].Actor != "op" || evs[i].Data["rig"] != "web" || fmt.Sprint(evs[i].Data["routes"]) != fmt.Sprintf("[%s]", mine.ID) ||
-		fmt.Sprint(evs[i].Data["flow_pointers"]) != "[rig web rig web type bug]" {
-		t.Fatalf("rig_removed event = %+v", evs)
+	i := slices.IndexFunc(evs, func(e store.Event) bool { return e.Kind == "depot_removed" })
+	if i < 0 || evs[i].Actor != "op" || evs[i].Data["depot"] != "web" || fmt.Sprint(evs[i].Data["routes"]) != fmt.Sprintf("[%s]", mine.ID) ||
+		fmt.Sprint(evs[i].Data["flow_pointers"]) != "[depot web depot web type bug]" {
+		t.Fatalf("depot_removed event = %+v", evs)
 	}
-	if _, err := s.DeleteRig(ctx, "web", "me"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.DeleteDepot(ctx, "web", "me"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("second rm: %v", err)
 	}
-	if _, err := s.DeleteRig(ctx, "nope", "me"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("unknown rig: %v", err)
+	if _, err := s.DeleteDepot(ctx, "nope", "me"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("unknown depot: %v", err)
 	}
 }
 
@@ -459,7 +459,7 @@ func TestRoutesAndUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 	rs, _ := s.Routes(ctx)
-	if len(rs) != 1 || rs[0].ID != r.ID || *rs[0].Type != "bug" || rs[0].Rig != nil {
+	if len(rs) != 1 || rs[0].ID != r.ID || *rs[0].Type != "bug" || rs[0].Depot != nil {
 		t.Fatalf("routes = %+v", rs)
 	}
 	g, _ := s.GetGroup(ctx, "g")

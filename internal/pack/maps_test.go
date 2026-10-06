@@ -41,7 +41,7 @@ func TestStarterCarriesTheLinearStageMap(t *testing.T) {
 }
 
 // A map is read per bead type: a type with a flow of its own is held to
-// that flow's stages, any other to a flow a rig could follow. A stage left
+// that flow's stages, any other to a flow a depot could follow. A stage left
 // out is no line of the map.
 func TestStageMapIsReadPerType(t *testing.T) {
 	text := strings.Replace(smallSources, "groups:\n", "  trains:\n    type: train\n    stages:\n      open: { group: builders, outcomes: { done: done } }\n      done: { end: true }\ngroups:\n", 1)

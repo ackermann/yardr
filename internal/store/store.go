@@ -21,8 +21,8 @@
 // nor past the oldest live session, and a pruned file shrinks only when
 // compacted (Compact) while no server holds it.
 //
-// Rigs stored before rig kinds existed (git or dir) are stamped "git" on
-// open (migrateRigKinds): every rig until then was a repository. The
+// Depots stored before depot kinds existed (git or dir) are stamped "git" on
+// open (migrateDepotKinds): every depot until then was a repository. The
 // stamp needs no schema bump, an older yardr reads past the field.
 //
 // Reads that serve one crew member or follow the log page through indexes
@@ -78,9 +78,9 @@ var (
 	bSessLive = []byte("sessions_live") // <group>\x00<id>: the sessions that are starting or running
 	bGroups   = []byte("groups")
 	bRoutes   = []byte("routes")
-	bRigs     = []byte("rigs")
+	bDepots   = []byte("depots")
 	bFlows    = []byte("named_flows")   // <name>
-	bFlowPtrs = []byte("flow_pointers") // <rig>\x00<type>
+	bFlowPtrs = []byte("flow_pointers") // <depot>\x00<type>
 	bMeta     = []byte("meta")          // schema version
 )
 
@@ -89,7 +89,7 @@ var (
 var bVersions = []byte("versions")
 
 var allBuckets = [][]byte{bBeads, bHandles, bDeps, bDepFrom, bDepTo, bNotes, bEvents, bEventsBy, bInbox, bEventsKd,
-	bSessions, bSessLive, bGroups, bRoutes, bRigs, bFlows, bFlowPtrs, bMeta}
+	bSessions, bSessLive, bGroups, bRoutes, bDepots, bFlows, bFlowPtrs, bMeta}
 
 type Store struct {
 	db    *bolt.DB
@@ -147,10 +147,13 @@ func Open(path string) (*Store, error) {
 	}
 	// The directory goes first: until the store is stamped the paths it
 	// records are read through the link the move leaves.
-	home, moved := filepath.Dir(path), false
+	home, moved, depotsMoved := filepath.Dir(path), false, false
 	if err := db.View(func(tx *bolt.Tx) error {
 		if stampedSchema(tx) < 11 {
-			moved = moveCrewDir(home)
+			moved = moveDir(home, oldCrewDir, CrewDir)
+		}
+		if stampedSchema(tx) < 12 {
+			depotsMoved = moveDir(home, oldDepotsDir, DepotsDir)
 		}
 		return nil
 	}); err != nil {
@@ -158,6 +161,15 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
+		// Once: it reads every bead, and a store stamped 12 has none of
+		// the old.
+		var depots map[string]any
+		if stampedSchema(tx) < 12 {
+			var err error
+			if depots, err = migrateDepotRecords(tx); err != nil {
+				return err
+			}
+		}
 		if err := migrateCrewBucket(tx); err != nil {
 			return err
 		}
@@ -180,7 +192,7 @@ func Open(path string) (*Store, error) {
 		if err := migrateFlows(tx); err != nil {
 			return err
 		}
-		if err := migrateRigKinds(tx); err != nil {
+		if err := migrateDepotKinds(tx); err != nil {
 			return err
 		}
 		if err := migrateSettings(tx); err != nil {
@@ -202,6 +214,9 @@ func Open(path string) (*Store, error) {
 			return err
 		}
 		if err := migrateCrew(tx, stampedSchema(tx), home, moved); err != nil {
+			return err
+		}
+		if err := migrateDepots(tx, stampedSchema(tx), home, depotsMoved, depots); err != nil {
 			return err
 		}
 		return setSchema(tx)
@@ -280,7 +295,7 @@ func (s *Store) write(fn func(*wtx) error) error {
 	}
 	s.hub.ping()
 	// A bead whose stay at a peer ended in the write is moved on now, in a
-	// write of its own. One that cannot be (its rig's repository does not
+	// write of its own. One that cannot be (its depot's repository does not
 	// read) stays as the write left it, for the daemon's next pass
 	// (SettlePeerBeads): the write itself is done either way.
 	for _, uuid := range settle {

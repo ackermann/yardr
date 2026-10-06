@@ -39,7 +39,7 @@ func TestIDsAreDerivedFromWhatTheyName(t *testing.T) {
 }
 
 func TestResourceAttributes(t *testing.T) {
-	got := ResourceAttributes(" team=core, ", Attr{"yardr.bead", "web-3"}, Attr{"yardr.group", "web/builders, a=b"}, Attr{"yardr.rig", ""})
+	got := ResourceAttributes(" team=core, ", Attr{"yardr.bead", "web-3"}, Attr{"yardr.group", "web/builders, a=b"}, Attr{"yardr.depot", ""})
 	want := "team=core,yardr.bead=web-3,yardr.group=web%2Fbuilders%2C%20a%3Db"
 	if got != want {
 		t.Errorf("ResourceAttributes = %q, want %q", got, want)

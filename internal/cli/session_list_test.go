@@ -16,9 +16,9 @@ import (
 func TestSessionListRunning(t *testing.T) {
 	newHome(t)
 	st := storetest.New(t)
-	rig := gitRig(t, st)
-	commitRig(t, rig)
-	beads := workYard(t, st, rig.Name, []store.Group{
+	depot := gitDepot(t, st)
+	commitDepot(t, depot)
+	beads := workYard(t, st, depot.Name, []store.Group{
 		{Name: "builders", Runner: "herdr", Limit: 1},
 		{Name: "refinery", Runner: "exec", Limit: 1},
 		{Name: "backlog", Runner: "manual", Limit: 1},

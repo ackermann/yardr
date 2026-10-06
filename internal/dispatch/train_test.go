@@ -65,23 +65,23 @@ func TestTrainFlowOutcomes(t *testing.T) {
 func TestTrainWaitsForItsChildren(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()
-	must(t, s.PutRig(ctx, store.Rig{Name: "yard", Base: "main"}, "me"))
+	must(t, s.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"))
 	_, err := s.PutFlow(ctx, *trainFlow(t), "me")
 	must(t, err)
 	must(t, s.SetFlowPointer(ctx, "yard", store.TypeTrain, "yard.train", "me"))
 	must(t, s.PutGroup(ctx, store.Group{Name: "yard-integrators", Runner: "fake", Limit: 1}))
 	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
-	rig, train := "yard", store.TypeTrain
-	_, err = s.AddRoute(ctx, store.Route{Stage: "open", Type: &train, Rig: &rig, Group: "yard-integrators", Priority: 10})
+	depot, train := "yard", store.TypeTrain
+	_, err = s.AddRoute(ctx, store.Route{Stage: "open", Type: &train, Depot: &depot, Group: "yard-integrators", Priority: 10})
 	must(t, err)
 	_, err = s.AddRoute(ctx, store.Route{Stage: "open", Group: "builders"})
 	must(t, err)
 	_, err = s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
 	must(t, err)
 	for _, nb := range []store.NewBead{
-		{ID: "yard-e", Title: "train", Type: store.TypeTrain, Rig: "yard", Stage: "open"},
-		{ID: "yard-1", Title: "one", Rig: "yard"},
-		{ID: "yard-2", Title: "two", Rig: "yard"},
+		{ID: "yard-e", Title: "train", Type: store.TypeTrain, Depot: "yard", Stage: "open"},
+		{ID: "yard-1", Title: "one", Depot: "yard"},
+		{ID: "yard-2", Title: "two", Depot: "yard"},
 	} {
 		_, err := s.CreateBead(ctx, nb, "me")
 		must(t, err)
@@ -131,18 +131,18 @@ func TestTrainWaitsForItsChildren(t *testing.T) {
 func TestTrainConflictGoesToTheMergersAndBack(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()
-	must(t, s.PutRig(ctx, store.Rig{Name: "yard", Base: "main"}, "me"))
+	must(t, s.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"))
 	_, err := s.PutFlow(ctx, *trainFlow(t), "me")
 	must(t, err)
 	must(t, s.SetFlowPointer(ctx, "yard", store.TypeTrain, "yard.train", "me"))
 	must(t, s.PutGroup(ctx, store.Group{Name: "yard-integrators", Runner: "fake", Limit: 1}))
 	must(t, s.PutGroup(ctx, store.Group{Name: "mergers", Runner: "fake", Limit: 1}))
-	rig, train := "yard", store.TypeTrain
-	_, err = s.AddRoute(ctx, store.Route{Stage: "open", Type: &train, Rig: &rig, Group: "yard-integrators", Priority: 10})
+	depot, train := "yard", store.TypeTrain
+	_, err = s.AddRoute(ctx, store.Route{Stage: "open", Type: &train, Depot: &depot, Group: "yard-integrators", Priority: 10})
 	must(t, err)
 	_, err = s.AddRoute(ctx, store.Route{Stage: "merge", Group: "mergers"})
 	must(t, err)
-	_, err = s.CreateBead(ctx, store.NewBead{ID: "yard-e", Title: "train", Type: store.TypeTrain, Rig: "yard", Stage: "open"}, "me")
+	_, err = s.CreateBead(ctx, store.NewBead{ID: "yard-e", Title: "train", Type: store.TypeTrain, Depot: "yard", Stage: "open"}, "me")
 	must(t, err)
 
 	must(t, d.Reconcile(ctx))
@@ -182,15 +182,15 @@ func TestReturnToTheSameStageBacksOff(t *testing.T) {
 	var skew time.Duration
 	dispatch.SetClock(d, func() time.Time { return time.Now().Add(skew) })
 	ctx := context.Background()
-	must(t, s.PutRig(ctx, store.Rig{Name: "yard", Base: "main"}, "me"))
+	must(t, s.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"))
 	_, err := s.PutFlow(ctx, *trainFlow(t), "me")
 	must(t, err)
 	must(t, s.SetFlowPointer(ctx, "yard", store.TypeTrain, "yard.train", "me"))
 	must(t, s.PutGroup(ctx, store.Group{Name: "yard-integrators", Runner: "fake", Limit: 1}))
-	rig, train := "yard", store.TypeTrain
-	_, err = s.AddRoute(ctx, store.Route{Stage: "open", Type: &train, Rig: &rig, Group: "yard-integrators", Priority: 10})
+	depot, train := "yard", store.TypeTrain
+	_, err = s.AddRoute(ctx, store.Route{Stage: "open", Type: &train, Depot: &depot, Group: "yard-integrators", Priority: 10})
 	must(t, err)
-	_, err = s.CreateBead(ctx, store.NewBead{ID: "yard-e", Title: "train", Type: store.TypeTrain, Rig: "yard", Stage: "open"}, "me")
+	_, err = s.CreateBead(ctx, store.NewBead{ID: "yard-e", Title: "train", Type: store.TypeTrain, Depot: "yard", Stage: "open"}, "me")
 	must(t, err)
 	fail := func() {
 		t.Helper()
@@ -264,7 +264,7 @@ func TestReturnToTheSameStageBacksOff(t *testing.T) {
 func TestCarWithoutTrainIsNotStarted(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()
-	must(t, s.PutRig(ctx, store.Rig{Name: "yard", Base: "main"}, "me"))
+	must(t, s.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"))
 	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
 	people := &fakeRunner{dead: map[string]bool{}}
 	d.Runners["manual"] = people
@@ -274,12 +274,12 @@ func TestCarWithoutTrainIsNotStarted(t *testing.T) {
 	_, err = s.AddRoute(ctx, store.Route{Stage: "backlog", Group: "yardmaster"})
 	must(t, err)
 	for _, nb := range []store.NewBead{
-		{ID: "yard-e", Title: "train", Type: store.TypeTrain, Rig: "yard", Stage: "open"},
-		{ID: "yard-1", Title: "a car of the train", Type: store.TypeCar, Rig: "yard"},
-		{ID: "yard-2", Title: "a car that lost its train", Type: store.TypeCar, Rig: "yard"},
-		{ID: "yard-3", Title: "a car that never had one", Type: store.TypeCar, Rig: "yard"},
-		{ID: "yard-4", Title: "a car with no train, in backlog", Type: store.TypeCar, Rig: "yard", Stage: "backlog"},
-		{ID: "yard-5", Title: "a task", Rig: "yard"},
+		{ID: "yard-e", Title: "train", Type: store.TypeTrain, Depot: "yard", Stage: "open"},
+		{ID: "yard-1", Title: "a car of the train", Type: store.TypeCar, Depot: "yard"},
+		{ID: "yard-2", Title: "a car that lost its train", Type: store.TypeCar, Depot: "yard"},
+		{ID: "yard-3", Title: "a car that never had one", Type: store.TypeCar, Depot: "yard"},
+		{ID: "yard-4", Title: "a car with no train, in backlog", Type: store.TypeCar, Depot: "yard", Stage: "backlog"},
+		{ID: "yard-5", Title: "a task", Depot: "yard"},
 	} {
 		_, err := s.CreateBead(ctx, nb, "me")
 		must(t, err)

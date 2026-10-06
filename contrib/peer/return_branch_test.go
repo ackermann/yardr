@@ -63,7 +63,7 @@ push -> returned on done | new on failed
 returned terminal
 `
 
-// yard is one isolated yardr with rig r, a clone of a bare repository, and
+// yard is one isolated yardr with depot r, a clone of a bare repository, and
 // bead r-1 in push with yard/r-1 one commit ahead of main.
 type yard struct {
 	t                  *testing.T
@@ -94,10 +94,10 @@ func newYard(t *testing.T) *yard {
 	y.git(y.repo, "checkout", "-q", "-b", "main")
 	y.write("a.txt")
 	y.git(y.repo, "push", "-q", "origin", "main")
-	y.yardr("rig", "add", "r", y.repo, "--base", "main", "--check", "true")
+	y.yardr("depot", "add", "r", y.repo, "--base", "main", "--check", "true")
 	y.run(y.home, yardrBin, flow, "flow", "set", "f", "-f", "-")
-	y.yardr("rig", "flow", "r", "f")
-	y.yardr("bead", "create", "work", "--id", "r-1", "-r", "r", "-s", "push")
+	y.yardr("depot", "flow", "r", "f")
+	y.yardr("bead", "create", "work", "--id", "r-1", "-d", "r", "-s", "push")
 	y.git(y.repo, "checkout", "-q", "-b", "yard/r-1")
 	y.commit = y.write("b.txt")
 	y.git(y.repo, "checkout", "-q", "main")
@@ -176,7 +176,7 @@ func (y *yard) returns(opts string, job func(*dispatch.Job)) {
 	j := dispatch.Job{
 		Bead:    store.Bead{ID: b.ID, Stage: b.Stage, Type: b.Type},
 		Group:   store.Group{Name: "return", Config: map[string]any{"cmd": strings.TrimSpace(opts + " " + script), "log": logPath}},
-		Rig:     &store.Rig{Name: "r", Path: y.repo, Kind: store.RigGit, Base: "main"},
+		Depot:   &store.Depot{Name: "r", Path: y.repo, Kind: store.DepotGit, Base: "main"},
 		Session: *sess,
 		Base:    "main",
 	}
@@ -299,7 +299,7 @@ func TestReturnBranchHolds(t *testing.T) {
 		want string
 	}{
 		"no remote named": {want: "no remote to push to: set YARDR_PUSH"},
-		"no such remote":  {opts: "YARDR_PUSH=upstream", want: "rig r has no remote upstream"},
+		"no such remote":  {opts: "YARDR_PUSH=upstream", want: "depot r has no remote upstream"},
 		"the base":        {opts: "YARDR_PUSH=origin YARDR_BRANCH=main", want: "main is not a bead's branch"},
 	} {
 		t.Run(name, func(t *testing.T) {

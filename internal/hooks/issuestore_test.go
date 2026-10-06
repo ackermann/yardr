@@ -23,11 +23,11 @@ func socketStore(t *testing.T) (store.API, context.Context) {
 		t.Fatalf("storetest.New = %T, want the socket client", s)
 	}
 	ctx := context.Background()
-	if err := s.PutRig(ctx, store.Rig{Name: "web", Base: "main"}, "me"); err != nil {
+	if err := s.PutDepot(ctx, store.Depot{Name: "web", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"web-1", "web-2"} {
-		if _, err := s.CreateBead(ctx, store.NewBead{ID: id, Title: id, Rig: "web"}, "me"); err != nil {
+		if _, err := s.CreateBead(ctx, store.NewBead{ID: id, Title: id, Depot: "web"}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -61,7 +61,7 @@ func TestStoreLinksOneIssueUnderAnySpelling(t *testing.T) {
 		t.Fatalf("a second tracker under another spelling: %v; want it refused: web-1 tracks the issue", err)
 	}
 	// Nor at its creation.
-	_, err = s.CreateBead(ctx, store.NewBead{ID: "web-3", Title: "three", Rig: "web",
+	_, err = s.CreateBead(ctx, store.NewBead{ID: "web-3", Title: "three", Depot: "web",
 		Links: []store.NewLink{{Kind: store.LinkTracks, Source: "linear", URL: cased}}}, "me")
 	if err == nil || !strings.Contains(err.Error(), "is tracked by web-1") {
 		t.Fatalf("a bead created tracking another spelling: %v; want it refused", err)

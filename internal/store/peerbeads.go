@@ -100,12 +100,12 @@ var bPeerBeads = []byte("peer_beads")
 
 func init() { allBuckets = append(allBuckets, bPeerBeads) }
 
-// PeerIntake says where the beads a peer sends go: the rig, and the flow
+// PeerIntake says where the beads a peer sends go: the depot, and the flow
 // each is pinned to, in whose first stage it starts. It is the operator's
 // to set, beside what the link carries.
 type PeerIntake struct {
-	Rig  string `json:"rig"`
-	Flow string `json:"flow"`
+	Depot string `json:"depot"`
+	Flow  string `json:"flow"`
 	// Auto lets a bead arrive ready, so that the flow's routes start an
 	// agent on it unseen. Without it a bead arrives held.
 	Auto bool `json:"auto,omitempty"`
@@ -182,9 +182,9 @@ type PeerBeadMessage struct {
 	// sends a bead on to a yard that sends it back would never end. None,
 	// from a yardr before it was said, is the sender alone.
 	Path []string `json:"path,omitempty"`
-	// Git says what the work starts from, when the sender's rig is a
+	// Git says what the work starts from, when the sender's depot is a
 	// repository whose base has a remote: Base, BaseCommit and Remote. A
-	// yard whose intake's rig is that repository starts there, and one
+	// yard whose intake's depot is that repository starts there, and one
 	// that cannot refuses the bead (RefusedBaseUnknown).
 	Git *PeerGit `json:"git,omitempty"`
 }
@@ -555,15 +555,15 @@ func withPeer(tx *bolt.Tx, b *Bead) error {
 
 // SetPeerIntake says where the beads the peer name sends go, or with a nil
 // intake that it has none, and a bead it sends is refused. An intake whose
-// rig is none of the yard's, or whose flow does not resolve for the rig or
+// depot is none of the yard's, or whose flow does not resolve for the depot or
 // has no stage to start in, is refused: every bead would be.
 func (s *Store) SetPeerIntake(ctx context.Context, name string, in *PeerIntake, actor string) (*Peer, error) {
 	var repo *RepoFlows
 	if in != nil {
-		in = &PeerIntake{Rig: strings.TrimSpace(in.Rig), Flow: strings.TrimSpace(in.Flow), Auto: in.Auto, Limit: in.Limit, HoldFor: strings.TrimSpace(in.HoldFor)}
+		in = &PeerIntake{Depot: strings.TrimSpace(in.Depot), Flow: strings.TrimSpace(in.Flow), Auto: in.Auto, Limit: in.Limit, HoldFor: strings.TrimSpace(in.HoldFor)}
 		switch {
-		case in.Rig == "" || in.Flow == "":
-			return nil, fmt.Errorf("an intake names a rig and a flow")
+		case in.Depot == "" || in.Flow == "":
+			return nil, fmt.Errorf("an intake names a depot and a flow")
 		case in.Limit < 0:
 			return nil, fmt.Errorf("an intake's limit is a number of open beads, at least 1 (unset: %d)", PeerIntakeLimit)
 		}
@@ -575,11 +575,11 @@ func (s *Store) SetPeerIntake(ctx context.Context, name string, in *PeerIntake, 
 			// Kept as it is shown, so 72h and 3d are one setting.
 			in.HoldFor = Span(d)
 		}
-		if _, err := s.GetRig(ctx, in.Rig); err != nil {
+		if _, err := s.GetDepot(ctx, in.Depot); err != nil {
 			return nil, err
 		}
 		var err error
-		if repo, err = s.repoFor(ctx, &in.Rig, peerBeadTypes[0], in.Flow); err != nil {
+		if repo, err = s.repoFor(ctx, &in.Depot, peerBeadTypes[0], in.Flow); err != nil {
 			return nil, err
 		}
 	}
@@ -595,7 +595,7 @@ func (s *Store) SetPeerIntake(ctx context.Context, name string, in *PeerIntake, 
 			if _, _, err := intakeStage(w.Tx, in, repo); err != nil {
 				return changedMeanwhile(err)
 			}
-			data["rig"], data["flow"], data["auto"], data["limit"] = in.Rig, in.Flow, in.Auto, in.Most()
+			data["depot"], data["flow"], data["auto"], data["limit"] = in.Depot, in.Flow, in.Auto, in.Most()
 			data["hold_for"] = PeerHoldNever
 			if hold := in.Hold(); hold > 0 {
 				data["hold_for"] = Span(hold)
@@ -620,13 +620,13 @@ func (s *Store) SetPeerIntake(ctx context.Context, name string, in *PeerIntake, 
 }
 
 // intakeStage is the flow an intake pins its beads to and the stage they
-// start in. repo is the rig's repository flows when the flow is one of
+// start in. repo is the depot's repository flows when the flow is one of
 // them (repoFor).
 func intakeStage(tx *bolt.Tx, in *PeerIntake, repo *RepoFlows) (*Flow, string, error) {
-	if tx.Bucket(bRigs).Get([]byte(in.Rig)) == nil {
-		return nil, "", fmt.Errorf("rig %s: %w", in.Rig, ErrNotFound)
+	if tx.Bucket(bDepots).Get([]byte(in.Depot)) == nil {
+		return nil, "", fmt.Errorf("depot %s: %w", in.Depot, ErrNotFound)
 	}
-	f, _, err := resolveFlow(tx, &in.Rig, peerBeadTypes[0], in.Flow, repo)
+	f, _, err := resolveFlow(tx, &in.Depot, peerBeadTypes[0], in.Flow, repo)
 	if inner := errors.Unwrap(err); inner != nil && errors.Is(err, ErrNotFound) && strings.HasPrefix(err.Error(), "the bead pins ") {
 		// No bead pins anything yet: it is the intake that names the flow.
 		err = fmt.Errorf("the intake names %w", inner)
@@ -638,25 +638,25 @@ func intakeStage(tx *bolt.Tx, in *PeerIntake, repo *RepoFlows) (*Flow, string, e
 	return f, stage, checkCreateStage(f, stage)
 }
 
-// taking is what taking the beads of a batch of messages needs of the rig
+// taking is what taking the beads of a batch of messages needs of the depot
 // their peer's intake names, read before the write: git does not run
 // inside one.
 type taking struct {
-	// repo are the rig's repository flows, when the intake's flow is one.
+	// repo are the depot's repository flows, when the intake's flow is one.
 	repo *RepoFlows
-	// rig is the rig that was looked at, and bases says of each bead
+	// depot is the depot that was looked at, and bases says of each bead
 	// message that names what its work starts from, by its id, why the
-	// work cannot start there in that rig: "" when it can (checkBase). A
-	// message that names none, and every message when the rig is a
+	// work cannot start there in that depot: "" when it can (checkBase). A
+	// message that names none, and every message when the depot is a
 	// directory, is not in it.
-	rig   string
+	depot string
 	bases map[string]string
-	// at is that rig, when it is a repository.
-	at *Rig
+	// at is that depot, when it is a repository.
+	at *Depot
 }
 
 // PeerBases are the commits the open beads that came from peers start
-// from, each with its bead's rig: what the rigs keep by a ref of the
+// from, each with its bead's depot: what the depots keep by a ref of the
 // bead's (KeepPeerBases). A bead that came with words only, or into a
 // directory, has none.
 func (s *Store) PeerBases(ctx context.Context) ([]PeerBase, error) {
@@ -667,11 +667,11 @@ func (s *Store) PeerBases(ctx context.Context) ([]PeerBase, error) {
 				return nil
 			}
 			var row beadRow
-			if ok, err := get(tx, bBeads, rec.Bead, &row); err != nil || !ok || row.Status != "open" || row.Rig == nil {
+			if ok, err := get(tx, bBeads, rec.Bead, &row); err != nil || !ok || row.Status != "open" || row.Depot == nil {
 				return err
 			}
 			b := PeerBase{Bead: row.ID, Commit: rec.Git.BaseCommit}
-			if ok, err := get(tx, bRigs, *row.Rig, &b.Rig); err != nil || !ok || b.Rig.IsDir() {
+			if ok, err := get(tx, bDepots, *row.Depot, &b.Depot); err != nil || !ok || b.Depot.IsDir() {
 				return err
 			}
 			out = append(out, b)
@@ -697,7 +697,7 @@ func (tk *taking) keep(ctx context.Context, s *Store) {
 	if err != nil {
 		return
 	}
-	bases = slices.DeleteFunc(bases, func(b PeerBase) bool { return b.Rig.Name != tk.at.Name })
+	bases = slices.DeleteFunc(bases, func(b PeerBase) bool { return b.Depot.Name != tk.at.Name })
 	_ = KeepPeerBases(context.WithoutCancel(ctx), *tk.at, bases)
 }
 
@@ -720,12 +720,12 @@ func (s *Store) taking(ctx context.Context, name string, msgs []PeerMessage) *ta
 	if in == nil {
 		return tk
 	}
-	tk.repo, _ = s.repoFor(ctx, &in.Rig, peerBeadTypes[0], in.Flow)
-	rig, err := s.GetRig(ctx, in.Rig)
-	if err != nil || rig.IsDir() {
+	tk.repo, _ = s.repoFor(ctx, &in.Depot, peerBeadTypes[0], in.Flow)
+	depot, err := s.GetDepot(ctx, in.Depot)
+	if err != nil || depot.IsDir() {
 		return tk
 	}
-	tk.rig, tk.bases, tk.at = rig.Name, map[string]string{}, rig
+	tk.depot, tk.bases, tk.at = depot.Name, map[string]string{}, depot
 	checked := map[PeerGit]string{}
 	for _, m := range msgs {
 		var b struct {
@@ -737,7 +737,7 @@ func (s *Store) taking(ctx context.Context, name string, msgs []PeerMessage) *ta
 		g := PeerGit{Base: b.Git.Base, BaseCommit: b.Git.BaseCommit, Remote: b.Git.Remote}
 		why, ok := checked[g]
 		if !ok {
-			why = checkBase(ctx, *rig, g)
+			why = checkBase(ctx, *depot, g)
 			checked[g] = why
 		}
 		tk.bases[m.ID] = why
@@ -823,7 +823,7 @@ func (w *wtx) checkBead(p *Peer, m PeerMessage, way string, tk *taking, own stri
 	}
 	_, stage, err := intakeStage(w.Tx, p.Intake, tk.repo)
 	if err != nil {
-		// The intake was good when it was set: its rig or its flow has
+		// The intake was good when it was set: its depot or its flow has
 		// gone since. That is this yard's to mend, and the peer's bead
 		// has nowhere to go until it is.
 		extra["detail"] = changedMeanwhile(err).Error()
@@ -844,13 +844,13 @@ func (w *wtx) checkBead(p *Peer, m PeerMessage, way string, tk *taking, own stri
 	// starts there or is not taken. A directory has no base to be wrong
 	// about, and takes the words.
 	var from *PeerGit
-	var rig Rig
-	if _, err := get(w.Tx, bRigs, p.Intake.Rig, &rig); err != nil {
+	var depot Depot
+	if _, err := get(w.Tx, bDepots, p.Intake.Depot, &depot); err != nil {
 		return nil, "", err
 	}
-	if b.Git != nil && !rig.IsDir() {
+	if b.Git != nil && !depot.IsDir() {
 		why, checked := tk.bases[m.ID]
-		if !checked || tk.rig != rig.Name {
+		if !checked || tk.depot != depot.Name {
 			why = "the intake changed while the bead was taken; sent again it is looked at anew"
 		}
 		if why != "" {
@@ -884,7 +884,7 @@ func (w *wtx) checkBead(p *Peer, m PeerMessage, way string, tk *taking, own stri
 }
 
 // arriveBead makes this yard's bead of the one a brings from p: in the
-// intake's rig, pinned to its flow, in the flow's first stage, labelled
+// intake's depot, pinned to its flow, in the flow's first stage, labelled
 // from-<peer>, and held unless the intake says otherwise. The notes that
 // came with it are its first, under the names the peer gave with @<peer>,
 // and its links to outside issues are kept as relates: one that tracked
@@ -894,9 +894,9 @@ func (w *wtx) checkBead(p *Peer, m PeerMessage, way string, tk *taking, own stri
 func (w *wtx) arriveBead(p *Peer, m PeerMessage, a *arrival, way string) error {
 	in, b, actor := p.Intake, a.msg, "peer:"+p.Name
 	row := &beadRow{Bead: Bead{Title: b.Title, Body: b.Body, Type: b.Type, Stage: a.stage, Status: "open", Priority: b.Priority,
-		Rig: &in.Rig, Labels: []string{"from-" + p.Name}, Metadata: map[string]any{"flow": in.Flow}, Hold: !in.Auto,
+		Depot: &in.Depot, Labels: []string{"from-" + p.Name}, Metadata: map[string]any{"flow": in.Flow}, Hold: !in.Auto,
 		CreatedAt: now(), CreatedBy: &actor}}
-	if err := w.insertBead(row, in.Rig, "", actor); err != nil {
+	if err := w.insertBead(row, in.Depot, "", actor); err != nil {
 		return err
 	}
 	if err := w.event(row.UUID, "created", actor, map[string]any{"title": b.Title}); err != nil {
@@ -931,7 +931,7 @@ func (w *wtx) arriveBead(p *Peer, m PeerMessage, a *arrival, way string) error {
 	if err := put(w.Tx, bPeerBeads, row.UUID, rec); err != nil {
 		return err
 	}
-	data := map[string]any{"peer": p.Name, "id": m.ID, "from": b.Bead, "stage": b.Stage, "held": rec.Held, "way": way, "rig": in.Rig, "flow": in.Flow}
+	data := map[string]any{"peer": p.Name, "id": m.ID, "from": b.Bead, "stage": b.Stage, "held": rec.Held, "way": way, "depot": in.Depot, "flow": in.Flow}
 	if b.NotesLeftOut > 0 {
 		data["notes_left_out"] = b.NotesLeftOut
 	}

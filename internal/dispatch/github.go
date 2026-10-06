@@ -66,14 +66,14 @@ const (
 
 // PRQuery names the pull request whose head PRHead asks GitHub for: by its
 // URL (the train's pr_url) when known, else by the number the train is bound
-// to, in repo or, with no repo known, in the rig's checkout. Never by the
+// to, in repo or, with no repo known, in the depot's checkout. Never by the
 // train's branch, which a fork's pull request has too.
 type PRQuery struct {
 	Train  string
 	URL    string
 	Repo   string
 	Number string
-	Dir    string // the rig's checkout; "" when the train has no rig
+	Dir    string // the depot's checkout; "" when the train has no depot
 }
 
 // ghPRHead asks gh for the head commit of the train's pull request.
@@ -392,7 +392,7 @@ func (d *Dispatcher) applyRule(ctx context.Context, rule string, ev ghEvent, tra
 		note := "PR merged: " + ev.url
 		switch train.Stage {
 		case "land":
-			// pr-merge merged it and still has the rig's checkout to
+			// pr-merge merged it and still has the depot's checkout to
 			// bring up; it reports done itself.
 			if train.Session != nil {
 				return ignored("train in land with session %s, which lands it", *train.Session)
@@ -455,9 +455,9 @@ func (d *Dispatcher) onHead(ctx context.Context, ev ghEvent, train *store.Bead) 
 	if head == "" {
 		pr := boundPR(train)
 		q := PRQuery{Train: train.ID, URL: pr.url, Repo: pr.repo, Number: pr.number}
-		if train.Rig != nil {
-			if rig, err := d.Store.GetRig(ctx, *train.Rig); err == nil {
-				q.Dir = rig.Path
+		if train.Depot != nil {
+			if depot, err := d.Store.GetDepot(ctx, *train.Depot); err == nil {
+				q.Dir = depot.Path
 			}
 		}
 		prHead := d.PRHead
@@ -483,14 +483,14 @@ func (d *Dispatcher) onHead(ctx context.Context, ev ghEvent, train *store.Bead) 
 func (d *Dispatcher) ciFix(ctx context.Context, train *store.Bead, sha, name, conclusion, url string) (id string, made bool, err error) {
 	id = train.ID + "-ci-" + sha[:min(len(sha), 7)]
 	if _, err = d.Store.GetBead(ctx, id); errors.Is(err, store.ErrNotFound) {
-		rig := ""
-		if train.Rig != nil {
-			rig = *train.Rig
+		depot := ""
+		if train.Depot != nil {
+			depot = *train.Depot
 		}
 		body := fmt.Sprintf("%s concluded %s on %s, the head of train %s's pull request (%s): %s\n\nMake it pass on %s.",
 			name, conclusion, sha, train.ID, store.Branch(train.ID), url, store.Branch(train.ID))
 		_, err = d.Store.CreateBead(ctx, store.NewBead{ID: id, Title: fmt.Sprintf("Fix CI on train %s: %s", train.ID, name),
-			Body: body, Type: "bug", Stage: "backlog", Priority: train.Priority, Rig: rig}, actor)
+			Body: body, Type: "bug", Stage: "backlog", Priority: train.Priority, Depot: depot}, actor)
 		made = err == nil
 	}
 	if err != nil {

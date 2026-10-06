@@ -56,7 +56,8 @@ func TestSocketCannotForgeEvents(t *testing.T) {
 
 // A client of the build before this one, which the upgrade does not
 // replace (the web view, a chat left open), calls the crew's methods by
-// the names they had when the crew were the residents.
+// the names they had when the crew were the residents, and the depots'
+// by theirs.
 func TestOldMethodNamesStillAnswer(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "yard.db"))
 	if err != nil {
@@ -86,5 +87,21 @@ func TestOldMethodNamesStillAnswer(t *testing.T) {
 	}
 	if now, err := c.Crew(ctx); err != nil || len(now) != 1 {
 		t.Fatalf("Crew = %+v, %v", now, err)
+	}
+	// And the depots' by the names they had when a depot was a rig.
+	if err := c.call(ctx, "PutRig", nil, store.Depot{Name: "web", Kind: store.DepotDir, Path: t.TempDir()}, "me"); err != nil {
+		t.Fatalf("PutRig: %v", err)
+	}
+	if all, err := callV[[]store.Depot](c, ctx, "Rigs"); err != nil || len(all) != 1 || all[0].Name != "web" {
+		t.Fatalf("Rigs = %+v, %v", all, err)
+	}
+	if got, err := callV[*store.Depot](c, ctx, "GetRig", "web"); err != nil || got.Name != "web" {
+		t.Fatalf("GetRig = %+v, %v", got, err)
+	}
+	if _, err := callV[[]store.DepotFlow](c, ctx, "RigFlows", "web"); err != nil {
+		t.Fatalf("RigFlows: %v", err)
+	}
+	if gone, err := callV[*store.DepotRemoval](c, ctx, "DeleteRig", "web", "me"); err != nil || gone.Depot != "web" {
+		t.Fatalf("DeleteRig = %+v, %v", gone, err)
 	}
 }

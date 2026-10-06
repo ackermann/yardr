@@ -35,8 +35,8 @@ func commitCheck(t *testing.T, dir, script string) {
 	gitT(t, dir, "commit", "-q", "-m", "check")
 }
 
-// A rig on main with .yardr/check, and a bead worktree on yard/b1.
-func rigWithBead(t *testing.T, baseScript string) (store.Rig, string) {
+// A depot on main with .yardr/check, and a bead worktree on yard/b1.
+func depotWithBead(t *testing.T, baseScript string) (store.Depot, string) {
 	t.Helper()
 	repo := t.TempDir()
 	gitT(t, repo, "init", "-q", "-b", "main")
@@ -46,7 +46,7 @@ func rigWithBead(t *testing.T, baseScript string) (store.Rig, string) {
 	}
 	wt := filepath.Join(t.TempDir(), "b1")
 	gitT(t, repo, "worktree", "add", "-q", "-b", "yard/b1", wt)
-	return store.Rig{Name: "r", Path: repo, Base: "main"}, wt
+	return store.Depot{Name: "r", Path: repo, Base: "main"}, wt
 }
 
 func clean(t *testing.T, dir string) {
@@ -60,14 +60,14 @@ func clean(t *testing.T, dir string) {
 // to always pass (or always fail) changes nothing for itself.
 func TestCheckReadsTheBaseNotTheBead(t *testing.T) {
 	ctx := context.Background()
-	rig, wt := rigWithBead(t, "#!/bin/sh\necho base gate in \"$(pwd)\"\nexit 3\n")
+	depot, wt := depotWithBead(t, "#!/bin/sh\necho base gate in \"$(pwd)\"\nexit 3\n")
 	commitCheck(t, wt, "#!/bin/sh\necho bead gate\nexit 0\n")
 
-	res, err := Run(ctx, rig, wt)
+	res, err := Run(ctx, depot, wt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	sha := gitT(t, rig.Path, "rev-parse", "main")
+	sha := gitT(t, depot.Path, "rev-parse", "main")
 	if res.Pass || res.ExitCode != 3 || res.Source != "repo@"+sha[:12] {
 		t.Fatalf("result = %+v", res)
 	}
@@ -78,8 +78,8 @@ func TestCheckReadsTheBaseNotTheBead(t *testing.T) {
 	clean(t, wt)
 
 	// Once the change lands on the base, it is the gate.
-	gitT(t, rig.Path, "merge", "-q", "--ff-only", "yard/b1")
-	if res, err = Run(ctx, rig, wt); err != nil || !res.Pass || !strings.Contains(res.Output, "bead gate") {
+	gitT(t, depot.Path, "merge", "-q", "--ff-only", "yard/b1")
+	if res, err = Run(ctx, depot, wt); err != nil || !res.Pass || !strings.Contains(res.Output, "bead gate") {
 		t.Fatalf("landed gate not used: %+v %v", res, err)
 	}
 }
@@ -87,53 +87,53 @@ func TestCheckReadsTheBaseNotTheBead(t *testing.T) {
 // The store's --check wins over the repo's file.
 func TestCheckStoreOverrideWins(t *testing.T) {
 	ctx := context.Background()
-	rig, wt := rigWithBead(t, "#!/bin/sh\nexit 1\n")
-	rig.Check = "echo override in $YARDR_RIG; test -d .git || test -f .git"
-	res, err := Run(ctx, rig, wt)
+	depot, wt := depotWithBead(t, "#!/bin/sh\nexit 1\n")
+	depot.Check = "echo override in $YARDR_DEPOT; test -d .git || test -f .git"
+	res, err := Run(ctx, depot, wt)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !res.Pass || res.Source != "store" || !strings.Contains(res.Output, "override in r") {
 		t.Fatalf("result = %+v", res)
 	}
-	rig.Check = "exit 5"
-	if res, err = Run(ctx, rig, wt); err != nil || res.Pass || res.ExitCode != 5 {
+	depot.Check = "exit 5"
+	if res, err = Run(ctx, depot, wt); err != nil || res.Pass || res.ExitCode != 5 {
 		t.Fatalf("failing override: %+v %v", res, err)
 	}
 }
 
 func TestCheckNoneAndNoShebang(t *testing.T) {
 	ctx := context.Background()
-	rig, _ := rigWithBead(t, "")
-	res, err := Run(ctx, rig, "")
-	if err != nil || res.Pass || res.Source != "" || res.Dir != rig.Path || !strings.Contains(res.Output, "no gate") {
-		t.Fatalf("a rig without a check must fail with no gate: %+v %v", res, err)
+	depot, _ := depotWithBead(t, "")
+	res, err := Run(ctx, depot, "")
+	if err != nil || res.Pass || res.Source != "" || res.Dir != depot.Path || !strings.Contains(res.Output, "no gate") {
+		t.Fatalf("a depot without a check must fail with no gate: %+v %v", res, err)
 	}
-	rig.AllowNoCheck = true
-	if res, err = Run(ctx, rig, ""); err != nil || !res.Pass || res.Source != "" {
-		t.Fatalf("allow_no_check: a rig without a check must pass: %+v %v", res, err)
+	depot.AllowNoCheck = true
+	if res, err = Run(ctx, depot, ""); err != nil || !res.Pass || res.Source != "" {
+		t.Fatalf("allow_no_check: a depot without a check must pass: %+v %v", res, err)
 	}
 	if res.From != "main (no remote)" {
 		t.Fatalf("from = %q, want the local base with no remote", res.From)
 	}
-	rig.AllowNoCheck = false
+	depot.AllowNoCheck = false
 
-	// A script without #! runs with sh; empty dir means the rig itself.
-	commitCheck(t, rig.Path, "echo plain sh\n")
-	if res, err = Run(ctx, rig, ""); err != nil || !res.Pass || !strings.Contains(res.Output, "plain sh") {
+	// A script without #! runs with sh; empty dir means the depot itself.
+	commitCheck(t, depot.Path, "echo plain sh\n")
+	if res, err = Run(ctx, depot, ""); err != nil || !res.Pass || !strings.Contains(res.Output, "plain sh") {
 		t.Fatalf("no-shebang script: %+v %v", res, err)
 	}
-	clean(t, rig.Path)
+	clean(t, depot.Path)
 
-	rig.Base = "nope"
-	if _, err := Run(ctx, rig, ""); err == nil {
+	depot.Base = "nope"
+	if _, err := Run(ctx, depot, ""); err == nil {
 		t.Fatal("unresolvable base not reported")
 	}
 }
 
-// A rig whose base has a remote: a bare "origin" with main, cloned into the
-// rig, and a bead worktree on yard/b1. base is "main" or "origin/main".
-func rigWithRemote(t *testing.T, base, baseScript string) (store.Rig, string, string) {
+// A depot whose base has a remote: a bare "origin" with main, cloned into the
+// depot, and a bead worktree on yard/b1. base is "main" or "origin/main".
+func depotWithRemote(t *testing.T, base, baseScript string) (store.Depot, string, string) {
 	t.Helper()
 	seed := t.TempDir()
 	gitT(t, seed, "init", "-q", "-b", "main")
@@ -141,11 +141,11 @@ func rigWithRemote(t *testing.T, base, baseScript string) (store.Rig, string, st
 	commitCheck(t, seed, baseScript)
 	origin := filepath.Join(t.TempDir(), "origin.git")
 	gitT(t, seed, "clone", "-q", "--bare", seed, origin)
-	repo := filepath.Join(t.TempDir(), "rig")
+	repo := filepath.Join(t.TempDir(), "depot")
 	gitT(t, seed, "clone", "-q", origin, repo)
 	wt := filepath.Join(t.TempDir(), "b1")
 	gitT(t, repo, "worktree", "add", "-q", "-b", "yard/b1", wt)
-	return store.Rig{Name: "r", Path: repo, Base: base}, wt, seed
+	return store.Depot{Name: "r", Path: repo, Base: base}, wt, seed
 }
 
 // With a remote, the gate is read from the fetched tracking ref: a bead that
@@ -156,13 +156,13 @@ func TestCheckReadsTheFetchedRemote(t *testing.T) {
 	for _, base := range []string{"main", "origin/main"} {
 		t.Run(base, func(t *testing.T) {
 			ctx := context.Background()
-			rig, wt, seed := rigWithRemote(t, base, "#!/bin/sh\necho remote gate\nexit 3\n")
+			depot, wt, seed := depotWithRemote(t, base, "#!/bin/sh\necho remote gate\nexit 3\n")
 			commitCheck(t, wt, "#!/bin/sh\necho bead gate\nexit 0\n")
 			// Refs are shared by every worktree: the bead points them at itself.
 			gitT(t, wt, "update-ref", "refs/heads/main", "HEAD")
 			gitT(t, wt, "update-ref", "refs/remotes/origin/main", "HEAD")
 
-			res, err := Run(ctx, rig, wt)
+			res, err := Run(ctx, depot, wt)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -177,8 +177,8 @@ func TestCheckReadsTheFetchedRemote(t *testing.T) {
 
 			// A new gate on the remote applies at the next check.
 			commitCheck(t, seed, "#!/bin/sh\necho new remote gate\n")
-			gitT(t, seed, "push", "-q", gitT(t, rig.Path, "remote", "get-url", "origin"), "main")
-			if res, err = Run(ctx, rig, wt); err != nil || !res.Pass || !strings.Contains(res.Output, "new remote gate") {
+			gitT(t, seed, "push", "-q", gitT(t, depot.Path, "remote", "get-url", "origin"), "main")
+			if res, err = Run(ctx, depot, wt); err != nil || !res.Pass || !strings.Contains(res.Output, "new remote gate") {
 				t.Fatalf("pushed gate not used: %+v %v", res, err)
 			}
 		})
@@ -189,16 +189,16 @@ func TestCheckReadsTheFetchedRemote(t *testing.T) {
 // and the result says so; a base with no remote reads the local branch.
 func TestCheckFetchFailsOrNoRemote(t *testing.T) {
 	ctx := context.Background()
-	rig, wt, _ := rigWithRemote(t, "main", "#!/bin/sh\necho remote gate\n")
-	gitT(t, rig.Path, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone.git"))
-	res, err := Run(ctx, rig, wt)
+	depot, wt, _ := depotWithRemote(t, "main", "#!/bin/sh\necho remote gate\n")
+	gitT(t, depot.Path, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone.git"))
+	res, err := Run(ctx, depot, wt)
 	if err != nil || !res.Pass || !strings.HasPrefix(res.From, "origin/main (fetch failed, as last fetched") {
 		t.Fatalf("unreachable remote: %+v %v", res, err)
 	}
 
-	gitT(t, rig.Path, "remote", "remove", "origin")
-	commitCheck(t, rig.Path, "#!/bin/sh\necho local gate\n")
-	if res, err = Run(ctx, rig, wt); err != nil || !res.Pass || res.From != "main (no remote)" || !strings.Contains(res.Output, "local gate") {
+	gitT(t, depot.Path, "remote", "remove", "origin")
+	commitCheck(t, depot.Path, "#!/bin/sh\necho local gate\n")
+	if res, err = Run(ctx, depot, wt); err != nil || !res.Pass || res.From != "main (no remote)" || !strings.Contains(res.Output, "local gate") {
 		t.Fatalf("no remote: %+v %v", res, err)
 	}
 }
@@ -218,11 +218,11 @@ func TestTail(t *testing.T) {
 // A check past its deadline is killed with everything it started (a child
 // holding the output open included) and fails as timed out.
 func TestCheckDeadlineKillsTheGroup(t *testing.T) {
-	rig := store.Rig{Name: "r", Path: t.TempDir(), Check: "echo started; sleep 30 & sleep 30"}
+	depot := store.Depot{Name: "r", Path: t.TempDir(), Check: "echo started; sleep 30 & sleep 30"}
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 	began := time.Now()
-	res, err := Run(ctx, rig, "")
+	res, err := Run(ctx, depot, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +251,7 @@ func TestCheckEndedBySignal(t *testing.T) {
 		{"exit 128", 128, 0},
 		{"exit 255", 255, 0},
 	} {
-		res, err := Run(ctx, store.Rig{Name: "r", Path: t.TempDir(), Check: c.check}, "")
+		res, err := Run(ctx, store.Depot{Name: "r", Path: t.TempDir(), Check: c.check}, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -265,24 +265,24 @@ func TestCheckEndedBySignal(t *testing.T) {
 // Each git call finding the gate is bounded: a wedged git fails the run
 // instead of hanging it.
 func TestGitCallsAreBounded(t *testing.T) {
-	rig, wt := rigWithBead(t, "#!/bin/sh\nexit 0\n")
+	depot, wt := depotWithBead(t, "#!/bin/sh\nexit 0\n")
 	old := GitTimeout
 	GitTimeout = time.Nanosecond
 	defer func() { GitTimeout = old }()
-	if _, err := Run(context.Background(), rig, wt); err == nil || !strings.Contains(err.Error(), "deadline") {
+	if _, err := Run(context.Background(), depot, wt); err == nil || !strings.Contains(err.Error(), "deadline") {
 		t.Fatalf("Run with git timing out = %v", err)
 	}
 }
 
-// A dir rig's gate is its directory's .yardr/check, run in place; without
-// one it passes, unlike a git rig: there is nothing to merge.
-func TestCheckDirRig(t *testing.T) {
+// A dir depot's gate is its directory's .yardr/check, run in place; without
+// one it passes, unlike a git depot: there is nothing to merge.
+func TestCheckDirDepot(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	rig := store.Rig{Name: "docs", Path: dir, Kind: store.RigDir}
-	res, err := Run(ctx, rig, "")
-	if err != nil || !res.Pass || res.Source != "" || res.Dir != dir || res.Kind != store.RigDir {
-		t.Fatalf("dir rig without a check must pass with no gate: %+v %v", res, err)
+	depot := store.Depot{Name: "docs", Path: dir, Kind: store.DepotDir}
+	res, err := Run(ctx, depot, "")
+	if err != nil || !res.Pass || res.Source != "" || res.Dir != dir || res.Kind != store.DepotDir {
+		t.Fatalf("dir depot without a check must pass with no gate: %+v %v", res, err)
 	}
 	if err := os.MkdirAll(filepath.Join(dir, ".yardr"), 0o755); err != nil {
 		t.Fatal(err)
@@ -297,24 +297,24 @@ func TestCheckDirRig(t *testing.T) {
 		}
 	}
 	// Not executable, no #!: run with sh, in the directory given.
-	write("pwd; echo $YARDR_RIG; exit 3\n", 0o644)
+	write("pwd; echo $YARDR_DEPOT; exit 3\n", 0o644)
 	sub := filepath.Join(dir, "2025-09")
 	if err := os.Mkdir(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	res, err = Run(ctx, rig, sub)
+	res, err = Run(ctx, depot, sub)
 	if err != nil || res.Pass || res.ExitCode != 3 || res.Source != "dir" || !strings.Contains(res.Output, sub+"\ndocs") {
 		t.Fatalf("failing dir check: %+v %v", res, err)
 	}
 	// Executable with #!: run as is, edits count at once.
 	write("#!/bin/sh\necho shebang\n", 0o755)
-	if res, err = Run(ctx, rig, ""); err != nil || !res.Pass || !strings.Contains(res.Output, "shebang") || res.Dir != dir {
+	if res, err = Run(ctx, depot, ""); err != nil || !res.Pass || !strings.Contains(res.Output, "shebang") || res.Dir != dir {
 		t.Fatalf("passing dir check: %+v %v", res, err)
 	}
 	// The store override wins here too.
-	rig.Check = "exit 7"
-	if res, err = Run(ctx, rig, ""); err != nil || res.Pass || res.Source != "store" || res.ExitCode != 7 {
-		t.Fatalf("override on a dir rig: %+v %v", res, err)
+	depot.Check = "exit 7"
+	if res, err = Run(ctx, depot, ""); err != nil || res.Pass || res.Source != "store" || res.ExitCode != 7 {
+		t.Fatalf("override on a dir depot: %+v %v", res, err)
 	}
 }
 
@@ -336,15 +336,15 @@ func commitLight(t *testing.T, dir, script string) {
 // full gate is not what runs.
 func TestLightReadsTheBaseNotTheBead(t *testing.T) {
 	ctx := context.Background()
-	rig, wt := rigWithBead(t, "#!/bin/sh\necho full gate\nexit 4\n")
-	commitLight(t, rig.Path, "#!/bin/sh\necho base light in \"$(pwd)\"\nexit 3\n")
+	depot, wt := depotWithBead(t, "#!/bin/sh\necho full gate\nexit 4\n")
+	commitLight(t, depot.Path, "#!/bin/sh\necho base light in \"$(pwd)\"\nexit 3\n")
 	commitLight(t, wt, "#!/bin/sh\necho bead light\nexit 0\n")
 
-	res, err := RunLight(ctx, rig, wt)
+	res, err := RunLight(ctx, depot, wt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	sha := gitT(t, rig.Path, "rev-parse", "main")
+	sha := gitT(t, depot.Path, "rev-parse", "main")
 	if res.Pass || res.ExitCode != 3 || res.Source != "repo@"+sha[:12] || !res.Light || res.Fallback != "" || res.Base != sha {
 		t.Fatalf("result = %+v", res)
 	}
@@ -356,23 +356,23 @@ func TestLightReadsTheBaseNotTheBead(t *testing.T) {
 	clean(t, wt)
 
 	// The full gate is still the full gate.
-	if res, err = Run(ctx, rig, wt); err != nil || res.ExitCode != 4 || res.Light || !strings.Contains(res.Output, "full gate") {
+	if res, err = Run(ctx, depot, wt); err != nil || res.ExitCode != 4 || res.Light || !strings.Contains(res.Output, "full gate") {
 		t.Fatalf("full gate beside a light one: %+v %v", res, err)
 	}
 }
 
-// A rig without a light gate runs its full gate when asked for the light
+// A depot without a light gate runs its full gate when asked for the light
 // one, and says so: a light gate only a bead's branch holds is no gate, and
 // asking for one never passes for want of a file.
 func TestLightFallsBackToTheFullGate(t *testing.T) {
 	ctx := context.Background()
-	rig, wt := rigWithBead(t, "#!/bin/sh\necho full gate\nexit 4\n")
+	depot, wt := depotWithBead(t, "#!/bin/sh\necho full gate\nexit 4\n")
 	commitLight(t, wt, "#!/bin/sh\necho bead light\nexit 0\n")
-	res, err := RunLight(ctx, rig, wt)
+	res, err := RunLight(ctx, depot, wt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "rig r has no light gate (no --check-light, no .yardr/check-light on main (no remote)): running the full gate"
+	want := "depot r has no light gate (no --check-light, no .yardr/check-light on main (no remote)): running the full gate"
 	if res.Pass || res.ExitCode != 4 || res.Light || res.Fallback != want || !strings.Contains(res.Output, "full gate") ||
 		strings.Contains(res.Output, "bead light") {
 		t.Fatalf("result = %+v", res)
@@ -382,30 +382,30 @@ func TestLightFallsBackToTheFullGate(t *testing.T) {
 	}
 
 	// No gate of either kind still fails.
-	bare, _ := rigWithBead(t, "")
+	bare, _ := depotWithBead(t, "")
 	if res, err = RunLight(ctx, bare, ""); err != nil || res.Pass || res.Source != "" || !strings.Contains(res.Output, "no gate") {
-		t.Fatalf("a rig with no gate at all must fail under --light too: %+v %v", res, err)
+		t.Fatalf("a depot with no gate at all must fail under --light too: %+v %v", res, err)
 	}
 }
 
-// The store's light override wins over the repo's file; a rig whose full
+// The store's light override wins over the repo's file; a depot whose full
 // gate is a store override, with no light one beside it, runs that full
 // gate, not a light one from its repository.
 func TestLightStoreOverride(t *testing.T) {
 	ctx := context.Background()
-	rig, wt := rigWithBead(t, "#!/bin/sh\nexit 1\n")
-	commitLight(t, rig.Path, "#!/bin/sh\necho repo light\nexit 0\n")
-	rig.CheckLight = "echo store light; exit 6"
-	res, err := RunLight(ctx, rig, wt)
+	depot, wt := depotWithBead(t, "#!/bin/sh\nexit 1\n")
+	commitLight(t, depot.Path, "#!/bin/sh\necho repo light\nexit 0\n")
+	depot.CheckLight = "echo store light; exit 6"
+	res, err := RunLight(ctx, depot, wt)
 	if err != nil || res.Pass || res.ExitCode != 6 || res.Source != "store" || !res.Light || res.Fallback != "" {
 		t.Fatalf("light override: %+v %v", res, err)
 	}
 	// It is not the full gate's override.
-	if res, err = Run(ctx, rig, wt); err != nil || res.ExitCode != 1 || res.Light || strings.Contains(res.Output, "store light") {
+	if res, err = Run(ctx, depot, wt); err != nil || res.ExitCode != 1 || res.Light || strings.Contains(res.Output, "store light") {
 		t.Fatalf("full gate with a light override: %+v %v", res, err)
 	}
-	rig.CheckLight, rig.Check = "", "echo store full; exit 7"
-	res, err = RunLight(ctx, rig, wt)
+	depot.CheckLight, depot.Check = "", "echo store full; exit 7"
+	res, err = RunLight(ctx, depot, wt)
 	if err != nil || res.ExitCode != 7 || res.Light || !strings.Contains(res.Fallback, "store override") ||
 		strings.Contains(res.Output, "repo light") {
 		t.Fatalf("a store gate without a light one: %+v %v", res, err)
@@ -415,15 +415,15 @@ func TestLightStoreOverride(t *testing.T) {
 // The light gate runs under the full one's rules: killed at the deadline,
 // and a signal that ends it is told apart from a failing check.
 func TestLightDeadlineAndSignal(t *testing.T) {
-	rig := store.Rig{Name: "r", Path: t.TempDir(), Check: "exit 0", CheckLight: "echo started; sleep 30 & sleep 30"}
+	depot := store.Depot{Name: "r", Path: t.TempDir(), Check: "exit 0", CheckLight: "echo started; sleep 30 & sleep 30"}
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
-	res, err := RunLight(ctx, rig, "")
+	res, err := RunLight(ctx, depot, "")
 	if err != nil || res.Pass || !res.TimedOut || res.ExitCode != -1 || !res.Light {
 		t.Fatalf("deadline: %+v %v", res, err)
 	}
-	rig.CheckLight = "sh -c 'kill -TERM $$'; exit $?"
-	res, err = RunLight(context.Background(), rig, "")
+	depot.CheckLight = "sh -c 'kill -TERM $$'; exit $?"
+	res, err = RunLight(context.Background(), depot, "")
 	if err != nil || res.Pass || res.ExitCode != 143 || res.Signal != 15 {
 		t.Fatalf("signal: %+v %v", res, err)
 	}
@@ -438,18 +438,18 @@ func TestCheckBaseInEnvironment(t *testing.T) {
 	t.Setenv(BaseVar, "an-outer-checks-base")
 	say := "#!/bin/sh\necho base=${" + BaseVar + "-unset}\n"
 
-	rig, wt, _ := rigWithRemote(t, "main", say)
+	depot, wt, _ := depotWithRemote(t, "main", say)
 	commitLight(t, wt, "#!/bin/sh\nexit 0\n")
-	want := gitT(t, rig.Path, "rev-parse", "origin/main")
-	gitT(t, rig.Path, "update-ref", "refs/heads/main", gitT(t, wt, "rev-parse", "HEAD"))
-	for _, runIt := range []func(context.Context, store.Rig, string) (*Result, error){Run, RunLight} {
-		res, err := runIt(ctx, rig, wt)
+	want := gitT(t, depot.Path, "rev-parse", "origin/main")
+	gitT(t, depot.Path, "update-ref", "refs/heads/main", gitT(t, wt, "rev-parse", "HEAD"))
+	for _, runIt := range []func(context.Context, store.Depot, string) (*Result, error){Run, RunLight} {
+		res, err := runIt(ctx, depot, wt)
 		if err != nil || !res.Pass || res.Base != want || !strings.Contains(res.Output, "base="+want+"\n") {
 			t.Fatalf("base of a repo gate: %+v %v, want %s", res, err, want)
 		}
 	}
 
-	local, lwt := rigWithBead(t, "")
+	local, lwt := depotWithBead(t, "")
 	local.Check = "echo base=${" + BaseVar + "-unset}"
 	want = gitT(t, local.Path, "rev-parse", "main")
 	if res, err := Run(ctx, local, lwt); err != nil || res.Base != want || !strings.Contains(res.Output, "base="+want+"\n") {
@@ -460,20 +460,20 @@ func TestCheckBaseInEnvironment(t *testing.T) {
 		t.Fatalf("a store gate whose base does not resolve: %+v %v", res, err)
 	}
 
-	dir := store.Rig{Name: "docs", Path: t.TempDir(), Kind: store.RigDir, Check: local.Check}
+	dir := store.Depot{Name: "docs", Path: t.TempDir(), Kind: store.DepotDir, Check: local.Check}
 	if res, err := Run(ctx, dir, ""); err != nil || res.Base != "" || !strings.Contains(res.Output, "base=unset") {
-		t.Fatalf("a dir rig has no base: %+v %v", res, err)
+		t.Fatalf("a dir depot has no base: %+v %v", res, err)
 	}
 }
 
-// A dir rig's light gate is its directory's .yardr/check-light, else its
+// A dir depot's light gate is its directory's .yardr/check-light, else its
 // .yardr/check with the fallback said, else no gate, which passes.
-func TestLightDirRig(t *testing.T) {
+func TestLightDirDepot(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	rig := store.Rig{Name: "docs", Path: dir, Kind: store.RigDir}
-	if res, err := RunLight(ctx, rig, ""); err != nil || !res.Pass || res.Source != "" || res.Fallback != "" {
-		t.Fatalf("dir rig without any check: %+v %v", res, err)
+	depot := store.Depot{Name: "docs", Path: dir, Kind: store.DepotDir}
+	if res, err := RunLight(ctx, depot, ""); err != nil || !res.Pass || res.Source != "" || res.Fallback != "" {
+		t.Fatalf("dir depot without any check: %+v %v", res, err)
 	}
 	if err := os.MkdirAll(filepath.Join(dir, ".yardr"), 0o755); err != nil {
 		t.Fatal(err)
@@ -481,15 +481,15 @@ func TestLightDirRig(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, RepoPath), []byte("echo full; exit 3\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res, err := RunLight(ctx, rig, "")
+	res, err := RunLight(ctx, depot, "")
 	if err != nil || res.ExitCode != 3 || res.Light || !strings.Contains(res.Fallback, "running the full gate") {
-		t.Fatalf("dir rig with only a full check: %+v %v", res, err)
+		t.Fatalf("dir depot with only a full check: %+v %v", res, err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, LightPath), []byte("echo light; exit 5\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if res, err = RunLight(ctx, rig, ""); err != nil || res.ExitCode != 5 || !res.Light || res.Fallback != "" {
-		t.Fatalf("dir rig with a light check: %+v %v", res, err)
+	if res, err = RunLight(ctx, depot, ""); err != nil || res.ExitCode != 5 || !res.Light || res.Fallback != "" {
+		t.Fatalf("dir depot with a light check: %+v %v", res, err)
 	}
 }
 
@@ -500,16 +500,16 @@ func TestLightDirRig(t *testing.T) {
 func TestLightGateSinceABranch(t *testing.T) {
 	ctx := context.Background()
 	say := "#!/bin/sh\necho base=${" + BaseVar + "-unset}\n"
-	rig, wt := rigWithBead(t, say)
-	main := gitT(t, rig.Path, "rev-parse", "main")
+	depot, wt := depotWithBead(t, say)
+	main := gitT(t, depot.Path, "rev-parse", "main")
 	// The train's branch is a commit ahead of main: an earlier car's.
 	gitT(t, wt, "commit", "-q", "--allow-empty", "-m", "an earlier car")
-	gitT(t, rig.Path, "branch", "yard/e", "yard/b1")
-	train := gitT(t, rig.Path, "rev-parse", "yard/e")
+	gitT(t, depot.Path, "branch", "yard/e", "yard/b1")
+	train := gitT(t, depot.Path, "rev-parse", "yard/e")
 	gitT(t, wt, "commit", "-q", "--allow-empty", "-m", "this car")
 	run := func(o Options) *Result {
 		t.Helper()
-		res, err := RunWith(ctx, rig, wt, o)
+		res, err := RunWith(ctx, depot, wt, o)
 		if err != nil || !res.Pass || !strings.Contains(res.Output, "base="+res.Base+"\n") {
 			t.Fatalf("%+v: %+v %v", o, res, err)
 		}
@@ -520,8 +520,8 @@ func TestLightGateSinceABranch(t *testing.T) {
 	if res := run(Options{Light: true, Since: "yard/e"}); res.Base != main || res.BaseRef != "main" || res.Fallback == "" {
 		t.Fatalf("full gate for want of a light one: base %s (%s), want main %s", res.Base, res.BaseRef, main)
 	}
-	commitLight(t, rig.Path, say)
-	main = gitT(t, rig.Path, "rev-parse", "main")
+	commitLight(t, depot.Path, say)
+	main = gitT(t, depot.Path, "rev-parse", "main")
 	if res := run(Options{Light: true, Since: "yard/e"}); res.Base != train || res.BaseRef != "yard/e" || res.Source != "repo@"+main[:12] {
 		t.Fatalf("light gate since yard/e: base %s (%s) read at %s, want %s, read at main", res.Base, res.BaseRef, res.Source, train)
 	}
@@ -536,7 +536,7 @@ func TestLightGateSinceABranch(t *testing.T) {
 	}
 
 	// A store override's light gate is compared the same way.
-	rig.Check, rig.CheckLight = "exit 1", "echo base=${"+BaseVar+"-unset}"
+	depot.Check, depot.CheckLight = "exit 1", "echo base=${"+BaseVar+"-unset}"
 	if res := run(Options{Light: true, Since: "yard/e"}); res.Base != train || res.BaseRef != "yard/e" {
 		t.Fatalf("store light gate since yard/e: base %s (%s), want %s", res.Base, res.BaseRef, train)
 	}
@@ -554,10 +554,10 @@ func TestCheckDoesNotInheritServerSettings(t *testing.T) {
 		t.Setenv(n, "the-yards")
 	}
 	t.Setenv("YARDR_T9N1_KEPT", "kept")
-	rig, wt := rigWithBead(t, "")
-	rig.Check, rig.CheckLight = "env", "env"
-	for _, runIt := range []func(context.Context, store.Rig, string) (*Result, error){Run, RunLight} {
-		res, err := runIt(context.Background(), rig, wt)
+	depot, wt := depotWithBead(t, "")
+	depot.Check, depot.CheckLight = "env", "env"
+	for _, runIt := range []func(context.Context, store.Depot, string) (*Result, error){Run, RunLight} {
+		res, err := runIt(context.Background(), depot, wt)
 		if err != nil || !res.Pass {
 			t.Fatalf("%+v %v", res, err)
 		}
@@ -566,7 +566,8 @@ func TestCheckDoesNotInheritServerSettings(t *testing.T) {
 				t.Errorf("the gate's command got %s:\n%s", n, res.Output)
 			}
 		}
-		if !strings.Contains(res.Output, "YARDR_T9N1_KEPT=kept\n") || !strings.Contains(res.Output, "YARDR_RIG="+rig.Name+"\n") {
+		if !strings.Contains(res.Output, "YARDR_T9N1_KEPT=kept\n") || !strings.Contains(res.Output, "YARDR_DEPOT="+depot.Name+"\n") ||
+			!strings.Contains(res.Output, "YARDR_RIG="+depot.Name+"\n") {
 			t.Errorf("the gate's command lost the rest of its environment:\n%s", res.Output)
 		}
 	}

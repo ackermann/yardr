@@ -145,7 +145,7 @@ type Route struct {
 	ID       string  `json:"id"`
 	Stage    string  `json:"stage"`
 	Type     *string `json:"type,omitempty"`
-	Rig      *string `json:"rig,omitempty"`
+	Depot    *string `json:"depot,omitempty"`
 	Label    *string `json:"label,omitempty"`
 	Group    string  `json:"group"`
 	Priority int     `json:"priority"`
@@ -160,8 +160,8 @@ func (s *Store) AddRoute(ctx context.Context, r Route) (*Route, error) {
 		if w.Bucket(bGroups).Get([]byte(r.Group)) == nil {
 			return fmt.Errorf("group %s: %w", r.Group, ErrNotFound)
 		}
-		if r.Rig != nil && w.Bucket(bRigs).Get([]byte(*r.Rig)) == nil {
-			return fmt.Errorf("rig %s: %w", *r.Rig, ErrNotFound)
+		if r.Depot != nil && w.Bucket(bDepots).Get([]byte(*r.Depot)) == nil {
+			return fmt.Errorf("depot %s: %w", *r.Depot, ErrNotFound)
 		}
 		r.ID = newEdgeID()
 		return put(w.Tx, bRoutes, r.ID, r)
@@ -194,7 +194,7 @@ func (s *Store) Routes(ctx context.Context) ([]Route, error) {
 func SortRoutes(rs []Route) {
 	spec := func(r Route) int {
 		n := 0
-		for _, p := range []*string{r.Type, r.Rig, r.Label} {
+		for _, p := range []*string{r.Type, r.Depot, r.Label} {
 			if p != nil {
 				n++
 			}
@@ -222,7 +222,7 @@ func MatchRoute(sorted []Route, b Bead) *Route {
 		if r.Type != nil && *r.Type != b.Type {
 			continue
 		}
-		if r.Rig != nil && (b.Rig == nil || *r.Rig != *b.Rig) {
+		if r.Depot != nil && (b.Depot == nil || *r.Depot != *b.Depot) {
 			continue
 		}
 		if r.Label != nil && !slices.Contains(b.Labels, *r.Label) {
@@ -561,7 +561,7 @@ func (s *Store) Unstopped(ctx context.Context) ([]Session, error) {
 
 // ClosedWithWorkspace lists stopped sessions of closed beads whose runner
 // left something on disk that has not been cleaned up: a worktree
-// (handle.worktree), or a brief in a dir rig's directory (handle.dir).
+// (handle.worktree), or a brief in a dir depot's directory (handle.dir).
 func (s *Store) ClosedWithWorkspace(ctx context.Context) ([]Session, error) {
 	return s.sessionsWhere(func(tx *bolt.Tx, sess *Session) bool {
 		if sess.Cleaned || !sess.Stopped || (sess.Handle["worktree"] == nil && sess.Handle["dir"] == nil) {

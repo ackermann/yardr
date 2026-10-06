@@ -8,7 +8,7 @@ import (
 )
 
 func TestGroupMembersOnlyOnManual(t *testing.T) {
-	s, ctx := flowRig(t)
+	s, ctx := flowDepot(t)
 	err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Members: []string{"mckean"}})
 	if err == nil || !strings.Contains(err.Error(), "only for manual groups") {
 		t.Fatalf("herdr group with members err = %v", err)
@@ -23,7 +23,7 @@ func TestGroupMembersOnlyOnManual(t *testing.T) {
 }
 
 func TestAdvanceMembers(t *testing.T) {
-	s, ctx := flowRig(t)
+	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", yardFlow)
 	must := func(err error) {
 		t.Helper()
@@ -38,7 +38,7 @@ func TestAdvanceMembers(t *testing.T) {
 
 	claimed := func(stage, group string) *store.Bead {
 		t.Helper()
-		b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard", Stage: stage}, "me")
+		b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard", Stage: stage}, "me")
 		must(err)
 		_, err = s.Claim(ctx, b.ID, group, stage, "yard")
 		must(err)
@@ -64,7 +64,7 @@ func TestAdvanceMembers(t *testing.T) {
 
 	// A bead the routes send to the group, not yet claimed (the group at its
 	// limit, say), is guarded too.
-	u, err := s.CreateBead(ctx, store.NewBead{Title: "waiting", Rig: "yard", Stage: "approved"}, "me")
+	u, err := s.CreateBead(ctx, store.NewBead{Title: "waiting", Depot: "yard", Stage: "approved"}, "me")
 	must(err)
 	if _, err := s.Advance(ctx, u.ID, "new", store.Expect{}, "yard-19-new"); err == nil {
 		t.Fatal("non-member moved an unclaimed bead out of a members stage")

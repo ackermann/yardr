@@ -72,11 +72,11 @@ func errOutput(t *testing.T) *bytes.Buffer {
 // B's session, with a line on stderr saying whose environment it was.
 func TestWorktreeNamesTheSessionWhenTheEnvironmentIsAnothers(t *testing.T) {
 	st, ctx := twoBuilders(t)
-	beadA, err := st.CreateBead(ctx, store.NewBead{Title: "a", Rig: "yard", Stage: "new"}, "me")
+	beadA, err := st.CreateBead(ctx, store.NewBead{Title: "a", Depot: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
-	beadB, err := st.CreateBead(ctx, store.NewBead{Title: "b", Rig: "yard", Stage: "new"}, "me")
+	beadB, err := st.CreateBead(ctx, store.NewBead{Title: "b", Depot: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,8 +131,8 @@ func TestWorktreeNamesTheSessionWhenTheEnvironmentIsAnothers(t *testing.T) {
 // act as the environment says, so the done is refused as another session's.
 func TestEnvironmentNamesTheSessionOutsideAWorktree(t *testing.T) {
 	st, ctx := twoBuilders(t)
-	beadA, _ := st.CreateBead(ctx, store.NewBead{Title: "a", Rig: "yard", Stage: "new"}, "me")
-	beadB, _ := st.CreateBead(ctx, store.NewBead{Title: "b", Rig: "yard", Stage: "new"}, "me")
+	beadA, _ := st.CreateBead(ctx, store.NewBead{Title: "a", Depot: "yard", Stage: "new"}, "me")
+	beadB, _ := st.CreateBead(ctx, store.NewBead{Title: "b", Depot: "yard", Stage: "new"}, "me")
 	sessA, err := st.Claim(ctx, beadA.ID, "builders", "new", "yard")
 	if err != nil {
 		t.Fatal(err)
@@ -165,7 +165,7 @@ func TestWorktreeLeavesTheBeadsOwnEnvironmentAlone(t *testing.T) {
 	if err := st.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "herdr"}); err != nil {
 		t.Fatal(err)
 	}
-	b, _ := st.CreateBead(ctx, store.NewBead{Title: "b", Rig: "yard", Stage: "new"}, "me")
+	b, _ := st.CreateBead(ctx, store.NewBead{Title: "b", Depot: "yard", Stage: "new"}, "me")
 	builder, err := st.Claim(ctx, b.ID, "builders", "new", "yard")
 	if err != nil {
 		t.Fatal(err)

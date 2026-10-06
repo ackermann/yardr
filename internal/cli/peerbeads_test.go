@@ -15,7 +15,7 @@ import (
 	"yardr.dev/yardr/internal/yardkey"
 )
 
-// beadYard is userYard linked with a yard it calls north, with a rig web
+// beadYard is userYard linked with a yard it calls north, with a depot web
 // and a flow incoming for the beads north sends. key is north's public key,
 // which a bead from it is taken under.
 func beadYard(t *testing.T) (st store.API, own *store.Store, key string) {
@@ -38,7 +38,7 @@ func beadYard(t *testing.T) (st store.API, own *store.Store, key string) {
 	if _, err := st.AddPeer(ctx, store.Peer{Name: "north", Key: key, Calls: "the-north"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.PutRig(ctx, store.Rig{Name: "web", Base: "origin/main"}, "jo"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "web", Base: "origin/main"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	f, err := store.ParseFlow("arrived -> returned on done | returned on refused\nreturned terminal\n")
@@ -62,7 +62,7 @@ func northSends(t *testing.T, st store.API, own *store.Store, key, id, theirs st
 	if err != nil || got[0].Refused != "" {
 		t.Fatalf("the bead %s = %+v, %v", theirs, got, err)
 	}
-	bs, err := st.ListBeads(ctx, store.BeadFilter{Rig: "web"})
+	bs, err := st.ListBeads(ctx, store.BeadFilter{Depot: "web"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,20 +82,20 @@ func TestPeerIntakeCommand(t *testing.T) {
 	st, _, _ := beadYard(t)
 	for _, actor := range []string{"yardmaster", "web-1-new"} {
 		refusedAs(t, st, actor, "only the operator (jo) may say where a peer's beads go; this is "+actor,
-			"peer", "intake", "north", "--rig", "web", "--flow", "incoming")
+			"peer", "intake", "north", "--depot", "web", "--flow", "incoming")
 		refusedAs(t, st, actor, "only the operator (jo) may allow a peer's messages", "peer", "allow", "north", "--receive", "bead")
 	}
 	for want, args := range map[string][]string{
-		"--rig <rig> --flow <flow>":                {},
-		"say where its beads go":                   {"--rig", "web"},
+		"--depot <depot> --flow <flow>":            {},
+		"say where its beads go":                   {"--depot", "web"},
 		"it goes with no other flag":               {"--none", "--auto"},
-		"--limit: a number of open beads":          {"--rig", "web", "--flow", "incoming", "--limit", "0"},
-		"the intake names flow nothing: not found": {"--rig", "web", "--flow", "nothing"},
-		"rig nowhere":                              {"--rig", "nowhere", "--flow", "incoming"},
+		"--limit: a number of open beads":          {"--depot", "web", "--flow", "incoming", "--limit", "0"},
+		"the intake names flow nothing: not found": {"--depot", "web", "--flow", "nothing"},
+		"depot nowhere":                            {"--depot", "nowhere", "--flow", "incoming"},
 	} {
 		refusedAs(t, st, "jo", want, append([]string{"peer", "intake", "north"}, args...)...)
 	}
-	refusedAs(t, st, "jo", "peer nobody", "peer", "intake", "nobody", "--rig", "web", "--flow", "incoming")
+	refusedAs(t, st, "jo", "peer nobody", "peer", "intake", "nobody", "--depot", "web", "--flow", "incoming")
 	refusedAs(t, st, "jo", `"beads" is no kind of message between yards: there is bead, mail, ping`, "peer", "allow", "north", "--receive", "beads")
 
 	// Without an intake, a link that takes beads says each is refused.
@@ -104,49 +104,49 @@ func TestPeerIntakeCommand(t *testing.T) {
 	}
 	mustAs(t, st, "jo", "peer", "allow", "north", "--receive", "bead")
 	if out := mustAs(t, st, "jo", "peer", "show", "north"); !strings.Contains(out, "receive  bead") ||
-		!strings.Contains(out, "intake   none: a bead it sends is refused (yardr peer intake north --rig <rig> --flow <flow>)") {
+		!strings.Contains(out, "intake   none: a bead it sends is refused (yardr peer intake north --depot <depot> --flow <flow>)") {
 		t.Fatalf("peer show without an intake:\n%s", out)
 	}
-	out := mustAs(t, st, "jo", "peer", "intake", "north", "--rig", "web", "--flow", "incoming")
-	if !strings.Contains(out, "peer north: rig web, flow incoming: its beads arrive held, for a user to release (yardr bead unhold), or a crew member with release=north, and go back as refused when nobody has within 3d; at most 10 open, 0 now") {
+	out := mustAs(t, st, "jo", "peer", "intake", "north", "--depot", "web", "--flow", "incoming")
+	if !strings.Contains(out, "peer north: depot web, flow incoming: its beads arrive held, for a user to release (yardr bead unhold), or a crew member with release=north, and go back as refused when nobody has within 3d; at most 10 open, 0 now") {
 		t.Fatalf("peer intake:\n%s", out)
 	}
-	// The rig is a repository, so it says how its beads' code goes back, and
+	// The depot is a repository, so it says how its beads' code goes back, and
 	// the script for that is in the home's scripts, as merge-local is after
 	// yardr setup. One that is there is kept.
 	script := filepath.Join(os.Getenv("YARDR_HOME"), "scripts", "return-branch")
 	if have, err := os.ReadFile(script); err != nil || !bytes.Equal(have, peerscripts.ReturnBranch) ||
-		!strings.Contains(out, "return-branch installed: "+script) || !strings.Contains(out, "yardr route add --stage push --rig web --group web/return") ||
+		!strings.Contains(out, "return-branch installed: "+script) || !strings.Contains(out, "yardr route add --stage push --depot web --group web/return") ||
 		!strings.Contains(out, "--set cmd='YARDR_PUSH=origin ") {
-		t.Fatalf("peer intake for a git rig (script: %v):\n%s", err, out)
+		t.Fatalf("peer intake for a git depot (script: %v):\n%s", err, out)
 	}
 	if err := os.WriteFile(script, []byte("#!/bin/sh\n# the yard's own\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if out := mustAs(t, st, "jo", "peer", "intake", "north", "--rig", "web", "--flow", "incoming"); !strings.Contains(out, "differs from this build's: "+script+" is kept as it is") {
+	if out := mustAs(t, st, "jo", "peer", "intake", "north", "--depot", "web", "--flow", "incoming"); !strings.Contains(out, "differs from this build's: "+script+" is kept as it is") {
 		t.Fatalf("peer intake over a script of the yard's own:\n%s", out)
 	}
 	if have, _ := os.ReadFile(script); !strings.Contains(string(have), "the yard's own") {
 		t.Fatal("peer intake replaced the yard's own return-branch")
 	}
-	if out := mustAs(t, st, "jo", "peer", "intake", "north", "--rig", "web", "--flow", "incoming", "--json"); strings.Contains(out, "return-branch") {
+	if out := mustAs(t, st, "jo", "peer", "intake", "north", "--depot", "web", "--flow", "incoming", "--json"); strings.Contains(out, "return-branch") {
 		t.Fatalf("peer intake --json says more than the peer:\n%s", out)
 	}
 	// How long a held bead waits is the intake's: a time, or 0 for never.
-	if out := mustAs(t, st, "jo", "peer", "intake", "north", "--rig", "web", "--flow", "incoming", "--hold-for", "36h"); !strings.Contains(out, "and go back as refused when nobody has within 36h; at most") {
+	if out := mustAs(t, st, "jo", "peer", "intake", "north", "--depot", "web", "--flow", "incoming", "--hold-for", "36h"); !strings.Contains(out, "and go back as refused when nobody has within 36h; at most") {
 		t.Fatalf("peer intake --hold-for 36h:\n%s", out)
 	}
-	mustAs(t, st, "jo", "peer", "intake", "north", "--rig", "web", "--flow", "incoming", "--hold-for", "0")
+	mustAs(t, st, "jo", "peer", "intake", "north", "--depot", "web", "--flow", "incoming", "--hold-for", "0")
 	if out := mustAs(t, st, "yardmaster", "peer", "show", "north"); !strings.Contains(out, "release=north, and wait for as long as nobody has (--hold-for 0); at most") {
 		t.Fatalf("peer show with --hold-for 0:\n%s", out)
 	}
-	refusedAs(t, st, "jo", `bad duration "soon" (use e.g. 40m, 12h or 7d), or 0 for never (unset: 3d)`, "peer", "intake", "north", "--rig", "web", "--flow", "incoming", "--hold-for", "soon")
+	refusedAs(t, st, "jo", `bad duration "soon" (use e.g. 40m, 12h or 7d), or 0 for never (unset: 3d)`, "peer", "intake", "north", "--depot", "web", "--flow", "incoming", "--hold-for", "soon")
 	refusedAs(t, st, "jo", "--none removes the intake", "peer", "intake", "north", "--none", "--hold-for", "1d")
-	mustAs(t, st, "jo", "peer", "intake", "north", "--rig", "web", "--flow", "incoming")
-	if out := mustAs(t, st, "yardmaster", "peer", "show", "north"); !strings.Contains(out, "intake   rig web, flow incoming: its beads arrive held") {
+	mustAs(t, st, "jo", "peer", "intake", "north", "--depot", "web", "--flow", "incoming")
+	if out := mustAs(t, st, "yardmaster", "peer", "show", "north"); !strings.Contains(out, "intake   depot web, flow incoming: its beads arrive held") {
 		t.Fatalf("peer show with an intake:\n%s", out)
 	}
-	out = mustAs(t, st, "jo", "peer", "intake", "north", "--rig", "web", "--flow", "incoming", "--auto", "--limit", "3")
+	out = mustAs(t, st, "jo", "peer", "intake", "north", "--depot", "web", "--flow", "incoming", "--auto", "--limit", "3")
 	if !strings.Contains(out, "its beads arrive ready (--auto): the flow's routes start on them unseen; at most 3 open, 0 now") {
 		t.Fatalf("peer intake --auto:\n%s", out)
 	}
@@ -154,7 +154,7 @@ func TestPeerIntakeCommand(t *testing.T) {
 		Peer store.Peer `json:"peer"`
 	}
 	if err := json.Unmarshal([]byte(mustAs(t, st, "jo", "peer", "show", "north", "--json")), &shown); err != nil ||
-		shown.Peer.Intake == nil || !shown.Peer.Intake.Auto || shown.Peer.Intake.Limit != 3 || shown.Peer.Intake.Rig != "web" {
+		shown.Peer.Intake == nil || !shown.Peer.Intake.Auto || shown.Peer.Intake.Limit != 3 || shown.Peer.Intake.Depot != "web" {
 		t.Fatalf("peer show --json = %+v, %v", shown.Peer, err)
 	}
 	// An intake on a link that takes no beads says what is missing.
@@ -174,7 +174,7 @@ func TestPeerIntakeCommand(t *testing.T) {
 func TestBeadFromAPeerInTheCommands(t *testing.T) {
 	st, own, key := beadYard(t)
 	mustAs(t, st, "jo", "peer", "allow", "north", "--receive", "bead")
-	mustAs(t, st, "jo", "peer", "intake", "north", "--rig", "web", "--flow", "incoming")
+	mustAs(t, st, "jo", "peer", "intake", "north", "--depot", "web", "--flow", "incoming")
 	mustAs(t, st, "jo", "crew", "add", "clerk", "--set", "kind=claude")
 	id := northSends(t, st, own, key, "b1", "web-k3f9")
 
@@ -286,12 +286,12 @@ func TestBeadAtAPeerInTheCommands(t *testing.T) {
 	if out := mustAs(t, st, "jo", "group", "add", "at-north", "--runner", "peer", "--set", "peer=north", "--limit", "3"); !strings.Contains(out, "group at-north (peer · yard north · limit 3)") {
 		t.Fatalf("group add:\n%s", out)
 	}
-	mustAs(t, st, "jo", "route", "add", "--stage", "build", "--group", "at-north", "--rig", "web")
+	mustAs(t, st, "jo", "route", "add", "--stage", "build", "--group", "at-north", "--depot", "web")
 	if out := mustAs(t, st, "jo", "flow", "show", "web"); !strings.Contains(strings.Join(strings.Fields(out), " "), "build at-north yard north 0") {
 		t.Fatalf("flow show:\n%s", out)
 	}
 
-	id := strings.Fields(mustAs(t, st, "jo", "bead", "create", "Add the export", "--rig", "web", "--stage", "build"))[0]
+	id := strings.Fields(mustAs(t, st, "jo", "bead", "create", "Add the export", "--depot", "web", "--stage", "build"))[0]
 	b, err := st.GetBead(ctx, id)
 	if err != nil {
 		t.Fatalf("bead create printed %q first: %v", id, err)

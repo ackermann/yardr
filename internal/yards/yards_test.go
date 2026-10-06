@@ -635,7 +635,7 @@ func TestReceiverTakesABead(t *testing.T) {
 	a, b := newYard(t), newYard(t)
 	b.add(t, "a", a, true, nil, nil)
 	ctx := context.Background()
-	if err := b.api.PutRig(ctx, store.Rig{Name: "web", Base: "origin/main"}, "jo"); err != nil {
+	if err := b.api.PutDepot(ctx, store.Depot{Name: "web", Base: "origin/main"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	f, err := store.ParseFlow("arrived -> returned on done\nreturned terminal\n")
@@ -684,7 +684,7 @@ func TestReceiverTakesABead(t *testing.T) {
 	if got := post(bead("b1", 1), http.StatusForbidden); got["refused"] != "no_intake" {
 		t.Fatalf("a bead with no intake = %v", got)
 	}
-	if _, err := b.api.SetPeerIntake(ctx, "a", &store.PeerIntake{Rig: "web", Flow: "incoming"}, "jo"); err != nil {
+	if _, err := b.api.SetPeerIntake(ctx, "a", &store.PeerIntake{Depot: "web", Flow: "incoming"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if got := post(bead("b0", 7), http.StatusForbidden); got["refused"] != "version" {

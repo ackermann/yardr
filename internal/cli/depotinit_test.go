@@ -18,9 +18,9 @@ import (
 	"yardr.dev/yardr/roles"
 )
 
-// rig init seeds a Go repo with the roles naming the yard's operator, a gate
+// depot init seeds a Go repo with the roles naming the yard's operator, a gate
 // guessed from go.mod and the starter flow; a second run changes nothing.
-func TestRigInit(t *testing.T) {
+func TestDepotInit(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -30,7 +30,7 @@ func TestRigInit(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.PutRig(ctx, store.Rig{Name: "web", Path: dir, Base: "origin/main"}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "web", Path: dir, Base: "origin/main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	for k, v := range map[string]string{"operator": "Jo", "yardmaster": "boss"} {
@@ -39,7 +39,7 @@ func TestRigInit(t *testing.T) {
 		}
 	}
 	a := &app{st: st, actor: "me"}
-	out, err := run(t, a.rigCmd(), "init", "web")
+	out, err := run(t, a.depotCmd(), "init", "web")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestRigInit(t *testing.T) {
 	}
 	check := filepath.Join(dir, ".yardr", "check")
 	gate, _ := os.ReadFile(check)
-	if !strings.HasPrefix(string(gate), "#!/bin/sh\n# The merge gate of rig web") ||
+	if !strings.HasPrefix(string(gate), "#!/bin/sh\n# The merge gate of depot web") ||
 		!strings.Contains(string(gate), "\ngo vet ./... && go test ./...\n") {
 		t.Fatalf("check:\n%s", gate)
 	}
@@ -93,7 +93,7 @@ func TestRigInit(t *testing.T) {
 		t.Fatal(err)
 	}
 	snap := snapshot(t, dir)
-	out, err = run(t, a.rigCmd(), "init", "web", "--operator", "Kim")
+	out, err = run(t, a.depotCmd(), "init", "web", "--operator", "Kim")
 	if err != nil || !strings.Contains(out, "nothing written") {
 		t.Fatalf("second run: %v\n%s", err, out)
 	}
@@ -101,23 +101,23 @@ func TestRigInit(t *testing.T) {
 		t.Fatal("second run changed files")
 	}
 
-	if _, err := run(t, a.rigCmd(), "init", "nope"); exitCode(err) != 3 {
-		t.Fatalf("unknown rig: %v", err)
+	if _, err := run(t, a.depotCmd(), "init", "nope"); exitCode(err) != 3 {
+		t.Fatalf("unknown depot: %v", err)
 	}
 }
 
 // --operator names who the roles bring decisions to; without it or the
 // setting, the login user.
-func TestRigInitOperator(t *testing.T) {
+func TestDepotInitOperator(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	t.Setenv("USER", "kim")
 	for name, args := range map[string][]string{"kim": nil, "Ana": {"--operator", "Ana"}} {
 		dir := t.TempDir()
-		if err := st.PutRig(ctx, store.Rig{Name: "r" + strings.ToLower(name), Path: dir, Base: "main"}, "me"); err != nil {
+		if err := st.PutDepot(ctx, store.Depot{Name: "r" + strings.ToLower(name), Path: dir, Base: "main"}, "me"); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := run(t, (&app{st: st}).rigCmd(), append([]string{"init", "r" + strings.ToLower(name)}, args...)...); err != nil {
+		if _, err := run(t, (&app{st: st}).depotCmd(), append([]string{"init", "r" + strings.ToLower(name)}, args...)...); err != nil {
 			t.Fatal(err)
 		}
 		if b, _ := os.ReadFile(filepath.Join(dir, ".yardr", "roles", "yardmaster.md")); !bytes.Contains(b, []byte("bring to "+name)) {
@@ -130,7 +130,7 @@ func TestRigInitOperator(t *testing.T) {
 // else the yardmaster setting yardr init stores, else the one crew member of a
 // yard from before the setting, else init's default name. A yard with several
 // crew members and no setting does not guess among them.
-func TestRigInitYardmaster(t *testing.T) {
+func TestDepotInitYardmaster(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	mailTo := func(t *testing.T, dir string) string {
@@ -145,39 +145,39 @@ func TestRigInitYardmaster(t *testing.T) {
 		}
 		return strings.Fields(after)[0]
 	}
-	initRig := func(t *testing.T, name string, args ...string) string {
+	initDepot := func(t *testing.T, name string, args ...string) string {
 		t.Helper()
 		dir := t.TempDir()
-		if err := st.PutRig(ctx, store.Rig{Name: name, Path: dir, Base: "main"}, "me"); err != nil {
+		if err := st.PutDepot(ctx, store.Depot{Name: name, Path: dir, Base: "main"}, "me"); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := run(t, (&app{st: st}).rigCmd(), append([]string{"init", name}, args...)...); err != nil {
+		if _, err := run(t, (&app{st: st}).depotCmd(), append([]string{"init", name}, args...)...); err != nil {
 			t.Fatal(err)
 		}
 		return dir
 	}
-	if got := mailTo(t, initRig(t, "empty")); got != "yardmaster" {
+	if got := mailTo(t, initDepot(t, "empty")); got != "yardmaster" {
 		t.Errorf("empty yard: mail %s, want yardmaster", got)
 	}
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "manual"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if got := mailTo(t, initRig(t, "one")); got != "boss" {
+	if got := mailTo(t, initDepot(t, "one")); got != "boss" {
 		t.Errorf("one crew member: mail %s, want boss", got)
 	}
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "scribe", Runner: "manual"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if got := mailTo(t, initRig(t, "two")); got != "yardmaster" {
+	if got := mailTo(t, initDepot(t, "two")); got != "yardmaster" {
 		t.Errorf("two crew members, no setting: mail %s, want yardmaster", got)
 	}
 	if _, err := run(t, (&app{st: st}).settingsCmd(), "set", "yardmaster", "boss"); err != nil {
 		t.Fatal(err)
 	}
-	if got := mailTo(t, initRig(t, "set")); got != "boss" {
+	if got := mailTo(t, initDepot(t, "set")); got != "boss" {
 		t.Errorf("yardmaster setting: mail %s, want boss", got)
 	}
-	if got := mailTo(t, initRig(t, "flag", "--yardmaster", "boss")); got != "boss" {
+	if got := mailTo(t, initDepot(t, "flag", "--yardmaster", "boss")); got != "boss" {
 		t.Errorf("--yardmaster: mail %s, want boss", got)
 	}
 	if _, err := run(t, (&app{st: st}).settingsCmd(), "set", "yardmaster", "no spaces"); err == nil {
@@ -204,7 +204,7 @@ func TestGuessGate(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		gate, script := guessGate(store.Rig{Name: "r", Path: dir, Base: "main"})
+		gate, script := guessGate(store.Depot{Name: "r", Path: dir, Base: "main"})
 		if gate != tc.gate {
 			t.Errorf("%v: gate %q, want %q", tc.files, gate, tc.gate)
 		}
@@ -240,19 +240,19 @@ func snapshot(t *testing.T, dir string) map[string]string {
 	return m
 }
 
-// rig init on a dir rig writes the builder and reviewer roles, no merger, no
-// check, and the dir flows, which govern the rig's tasks and trains from the
+// depot init on a dir depot writes the builder and reviewer roles, no merger, no
+// check, and the dir flows, which govern the depot's tasks and trains from the
 // directory without a pointer; the yardmaster's role only with
 // --with-yardmaster.
-func TestRigInitDir(t *testing.T) {
+func TestDepotInitDir(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	dir := t.TempDir()
-	if err := st.PutRig(ctx, store.Rig{Name: "invoices", Path: dir, Kind: store.RigDir}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "invoices", Path: dir, Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	a := &app{st: st, actor: "me"}
-	out, err := run(t, a.rigCmd(), "init", "invoices", "--operator", "Jo")
+	out, err := run(t, a.depotCmd(), "init", "invoices", "--operator", "Jo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,13 +268,13 @@ func TestRigInitDir(t *testing.T) {
 	if slices.Sort(got); !slices.Equal(got, want) {
 		t.Fatalf("files = %v; want %v", got, want)
 	}
-	for _, s := range []string{"no gate", ".yardr/check", "docs/dir-rigs.md", "open --type train"} {
+	for _, s := range []string{"no gate", ".yardr/check", "docs/dir-depots.md", "open --type train"} {
 		if !strings.Contains(out, s) {
 			t.Errorf("output lacks %q:\n%s", s, out)
 		}
 	}
 	if strings.Contains(out, "git -C") || strings.Contains(out, "Nothing is committed") {
-		t.Errorf("a dir rig has nothing to commit:\n%s", out)
+		t.Errorf("a dir depot has nothing to commit:\n%s", out)
 	}
 	tmpl, _ := roles.FS.ReadFile("builder.md")
 	if got, _ := os.ReadFile(filepath.Join(dir, ".yardr", "roles", "builder.md")); !bytes.Equal(got, fillRole(tmpl, "Jo", "yardmaster")) {
@@ -292,7 +292,7 @@ func TestRigInitDir(t *testing.T) {
 		t.Fatalf("pointers = %v, %v", ptrs, err)
 	}
 	for typ, want := range map[string]string{"task": "default (repo (directory))", store.TypeTrain: "type/train (repo (directory), type train)"} {
-		b, err := st.CreateBead(ctx, store.NewBead{Title: typ, Rig: "invoices", Type: typ, Stage: "backlog"}, "me")
+		b, err := st.CreateBead(ctx, store.NewBead{Title: typ, Depot: "invoices", Type: typ, Stage: "backlog"}, "me")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -306,15 +306,15 @@ func TestRigInitDir(t *testing.T) {
 	}
 
 	// --with-yardmaster adds the yardmaster's role and keeps the rest.
-	out, err = run(t, a.rigCmd(), "init", "invoices", "--with-yardmaster")
+	out, err = run(t, a.depotCmd(), "init", "invoices", "--with-yardmaster")
 	if err != nil || !strings.Contains(out, ".yardr/roles/yardmaster.md\n") || !strings.Contains(out, "builder.md (already there, kept)") {
 		t.Fatalf("--with-yardmaster: %v\n%s", err, out)
 	}
 	snap := snapshot(t, dir)
 	if _, ok := snap[filepath.Join(dir, ".yardr/roles/merger.md")]; ok {
-		t.Fatal("a dir rig got the merger's role")
+		t.Fatal("a dir depot got the merger's role")
 	}
-	out, err = run(t, a.rigCmd(), "init", "invoices", "--with-yardmaster")
+	out, err = run(t, a.depotCmd(), "init", "invoices", "--with-yardmaster")
 	if err != nil || !strings.Contains(out, "nothing written") || !maps.Equal(snap, snapshot(t, dir)) {
 		t.Fatalf("third run: %v\n%s", err, out)
 	}
@@ -323,19 +323,19 @@ func TestRigInitDir(t *testing.T) {
 // The dir flows, walked: a task is built, reviewed (sent back once, asked
 // about once) and done, which closes it; a train waits in open, is reviewed
 // as a whole and done.
-func TestDirRigFlowsWalk(t *testing.T) {
+func TestDirDepotFlowsWalk(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
-	rig := store.Rig{Name: "invoices", Path: t.TempDir(), Kind: store.RigDir}
-	if err := st.PutRig(ctx, rig, "me"); err != nil {
+	depot := store.Depot{Name: "invoices", Path: t.TempDir(), Kind: store.DepotDir}
+	if err := st.PutDepot(ctx, depot, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := rigInit(rig, "Jo", "boss", false); err != nil {
+	if _, err := depotInit(depot, "Jo", "boss", false); err != nil {
 		t.Fatal(err)
 	}
 	walk := func(typ string, steps [][2]string) *store.Bead {
 		t.Helper()
-		b, err := st.CreateBead(ctx, store.NewBead{Title: typ, Rig: "invoices", Type: typ, Stage: "backlog"}, "me")
+		b, err := st.CreateBead(ctx, store.NewBead{Title: typ, Depot: "invoices", Type: typ, Stage: "backlog"}, "me")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -367,21 +367,21 @@ func TestDirRigFlowsWalk(t *testing.T) {
 		t.Fatalf("a done train is %s", train.Status)
 	}
 
-	// Neither flow has the git stages: nothing merges in a dir rig.
-	b, err := st.CreateBead(ctx, store.NewBead{Title: "x", Rig: "invoices"}, "me")
+	// Neither flow has the git stages: nothing merges in a dir depot.
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "x", Depot: "invoices"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.Advance(ctx, b.ID, "approved", store.Expect{}, "me"); err == nil {
-		t.Fatal("a dir rig's task reached approved")
+		t.Fatal("a dir depot's task reached approved")
 	}
 }
 
-// rig init writes a stage file for every stage of the flows it writes that
+// depot init writes a stage file for every stage of the flows it writes that
 // is not terminal, names each in its listing, and fills in the names; the
-// rig's check then has no stage to name as lacking one and no stray file,
+// depot's check then has no stage to name as lacking one and no stray file,
 // for the git starter (once committed on the base) and the dir starter.
-func TestRigInitStageFiles(t *testing.T) {
+func TestDepotInitStageFiles(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	repo, folder := t.TempDir(), t.TempDir()
@@ -392,9 +392,9 @@ func TestRigInitStageFiles(t *testing.T) {
 		}
 	}
 	git("init", "-q", "-b", "main")
-	rigs := map[string]store.Rig{
+	depots := map[string]store.Depot{
 		"git": {Name: "web", Path: repo, Base: "main"},
-		"dir": {Name: "invoices", Path: folder, Kind: store.RigDir},
+		"dir": {Name: "invoices", Path: folder, Kind: store.DepotDir},
 	}
 	want := map[string][]string{
 		"git": {"default/approved.md", "default/backlog.md", "default/decide.md", "default/new.md", "default/review.md"},
@@ -402,17 +402,17 @@ func TestRigInitStageFiles(t *testing.T) {
 			"type/train/backlog.md", "type/train/decide.md", "type/train/open.md", "type/train/review.md"},
 	}
 	a := &app{st: st, actor: "me"}
-	for kind, rig := range rigs {
-		if err := st.PutRig(ctx, rig, "me"); err != nil {
+	for kind, depot := range depots {
+		if err := st.PutDepot(ctx, depot, "me"); err != nil {
 			t.Fatal(err)
 		}
-		out, err := run(t, a.rigCmd(), "init", rig.Name, "--operator", "Jo")
+		out, err := run(t, a.depotCmd(), "init", depot.Name, "--operator", "Jo")
 		if err != nil {
 			t.Fatal(err)
 		}
 		var got []string
-		for p, body := range snapshot(t, rig.Path) {
-			rel, ok := strings.CutPrefix(p, filepath.Join(rig.Path, ".yardr", "flows")+"/")
+		for p, body := range snapshot(t, depot.Path) {
+			rel, ok := strings.CutPrefix(p, filepath.Join(depot.Path, ".yardr", "flows")+"/")
 			if !ok || !strings.HasSuffix(rel, ".md") {
 				continue
 			}
@@ -446,34 +446,34 @@ func TestRigInitStageFiles(t *testing.T) {
 	git("add", "-A")
 	git("commit", "-q", "-m", "starter")
 
-	for kind, rig := range rigs {
-		governing, err := st.RigFlows(ctx, rig.Name)
+	for kind, depot := range depots {
+		governing, err := st.DepotFlows(ctx, depot.Name)
 		if wantFlows := map[string]int{"git": 1, "dir": 2}[kind]; err != nil || len(governing) != wantFlows {
 			t.Fatalf("%s: %d governing flows, %v; want %d", kind, len(governing), err, wantFlows)
 		}
-		notes, stray, strayHome, err := stageFileFindings(ctx, st, rig, rig.Path, t.TempDir())
+		notes, stray, strayHome, err := stageFileFindings(ctx, st, depot, depot.Path, t.TempDir())
 		if err != nil || len(notes)+len(stray)+len(strayHome) != 0 {
 			t.Errorf("%s: notes %v, stray %v, stray in home %v, %v; want none", kind, notes, stray, strayHome, err)
 		}
 		// Not for want of looking: a stage file removed is a stage named.
-		if err := os.Remove(filepath.Join(rig.Path, ".yardr", "flows", "default", "review.md")); err != nil {
+		if err := os.Remove(filepath.Join(depot.Path, ".yardr", "flows", "default", "review.md")); err != nil {
 			t.Fatal(err)
 		}
-		notes, _, _, err = stageFileFindings(ctx, st, rig, rig.Path, t.TempDir())
+		notes, _, _, err = stageFileFindings(ctx, st, depot, depot.Path, t.TempDir())
 		if err != nil || len(notes) != 1 || !strings.Contains(notes[0], "flow default has no stage file for review ") {
 			t.Errorf("%s: without review.md: notes %v, %v", kind, notes, err)
 		}
 	}
 }
 
-// A flow already in the rig is the rig's own: rig init keeps it and writes
+// A flow already in the depot is the depot's own: depot init keeps it and writes
 // no starter stage files beside it, which could name stages it lacks and
-// fail the rig's check.
-func TestRigInitKeepsAFlowWithoutStageFiles(t *testing.T) {
+// fail the depot's check.
+func TestDepotInitKeepsAFlowWithoutStageFiles(t *testing.T) {
 	st := storetest.New(t)
 	dir := t.TempDir()
-	rig := store.Rig{Name: "web", Path: dir, Base: "main"}
-	if err := st.PutRig(context.Background(), rig, "me"); err != nil {
+	depot := store.Depot{Name: "web", Path: dir, Base: "main"}
+	if err := st.PutDepot(context.Background(), depot, "me"); err != nil {
 		t.Fatal(err)
 	}
 	flow := filepath.Join(dir, ".yardr", "flows", "default.flow")
@@ -483,7 +483,7 @@ func TestRigInitKeepsAFlowWithoutStageFiles(t *testing.T) {
 	if err := os.WriteFile(flow, []byte("todo -> shipped\nshipped terminal\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res, err := rigInit(rig, "Jo", "boss", false)
+	res, err := depotInit(depot, "Jo", "boss", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -502,7 +502,7 @@ func TestRigInitKeepsAFlowWithoutStageFiles(t *testing.T) {
 }
 
 // This repository's own flows: every stage that is not terminal has a stage
-// file, and no stage file is an orphan, which is what yardr rig check yardr
+// file, and no stage file is an orphan, which is what yardr depot check yardr
 // reports of the tree.
 func TestThisRepoHasItsStageFiles(t *testing.T) {
 	tree, err := store.ReadFlowDir(filepath.Join("..", ".."))
@@ -529,10 +529,10 @@ func TestThisRepoHasItsStageFiles(t *testing.T) {
 	}
 }
 
-// A dir rig set up before a train was called that has its trains' flow in
-// type/epic.flow, which still governs them: rig init keeps it and writes no
+// A dir depot set up before a train was called that has its trains' flow in
+// type/epic.flow, which still governs them: depot init keeps it and writes no
 // type/train.flow beside it.
-func TestRigInitDirKeepsTheOldTrainFlow(t *testing.T) {
+func TestDepotInitDirKeepsTheOldTrainFlow(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -544,11 +544,11 @@ func TestRigInitDirKeepsTheOldTrainFlow(t *testing.T) {
 	if err := os.WriteFile(old, []byte(own), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.PutRig(ctx, store.Rig{Name: "invoices", Path: dir, Kind: store.RigDir}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "invoices", Path: dir, Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	a := &app{st: st, actor: "me"}
-	if _, err := run(t, a.rigCmd(), "init", "invoices", "--operator", "Jo"); err != nil {
+	if _, err := run(t, a.depotCmd(), "init", "invoices", "--operator", "Jo"); err != nil {
 		t.Fatal(err)
 	}
 	if text, err := os.ReadFile(old); err != nil || string(text) != own {
@@ -557,7 +557,7 @@ func TestRigInitDirKeepsTheOldTrainFlow(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, ".yardr", "flows", "type", "train.flow")); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("type/train.flow was written beside type/epic.flow: %v", err)
 	}
-	b, err := st.CreateBead(ctx, store.NewBead{Title: "e", Rig: "invoices", Type: store.TypeTrain}, "me")
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "e", Depot: "invoices", Type: store.TypeTrain}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -155,25 +155,33 @@ func (a *app) daemonCmd() *cobra.Command {
 	return cmd
 }
 
-func (a *app) rigCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "rig", Short: "Repositories (or plain directories) beads are worked in"}
+// oldDepotCmd is depotCmd under the name it had until this release, when a
+// depot was a rig: it does the same, and help lists only the new.
+func (a *app) oldDepotCmd() *cobra.Command {
+	cmd := a.depotCmd()
+	cmd.Use, cmd.Hidden = "rig", true
+	return cmd
+}
+
+func (a *app) depotCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "depot", Short: "Repositories (or plain directories) beads are worked in"}
 	var base, clone, check, checkLight, kind string
 	var allowNoCheck, lightSlot bool
 	add := &cobra.Command{
 		Use:   "add <name> [path]",
-		Short: "Register (or update) a rig: an existing clone, --clone a URL, or a directory",
-		Long: `Register (or update) a rig. A git rig is a repository: beads work on
-branches in worktrees and land on its --base. A dir rig is a plain directory
+		Short: "Register (or update) a depot: an existing clone, --clone a URL, or a directory",
+		Long: `Register (or update) a depot. A git depot is a repository: beads work on
+branches in worktrees and land on its --base. A dir depot is a plain directory
 (documents, images, invoices): beads are worked in it as it is, and it has no
-base. Without --kind, a path git sees as a checkout is a git rig and any
-other directory a dir rig; rig add says which it took.`,
-		Example: `  yardr rig add webapp ~/projects/webapp                 # existing clone
-  yardr rig add invoices ~/Documents/invoices --kind dir # a folder, no git
-  yardr rig add webapp --clone git@github.com:me/webapp.git   # clones to ~/.yardr/rigs/webapp
-  yardr rig add legacy ~/src/legacy --base origin/master
-  yardr rig add webapp ~/projects/webapp --check 'make test'   # overrides .yardr/check
-  yardr rig add webapp ~/projects/webapp --check 'make test' --check-light 'make vet'   # and its light gate
-  yardr rig add scratch ~/src/scratch --allow-no-check         # no gate passes`,
+base. Without --kind, a path git sees as a checkout is a git depot and any
+other directory a dir depot; depot add says which it took.`,
+		Example: `  yardr depot add webapp ~/projects/webapp                 # existing clone
+  yardr depot add invoices ~/Documents/invoices --kind dir # a folder, no git
+  yardr depot add webapp --clone git@github.com:me/webapp.git   # clones to ~/.yardr/depots/webapp
+  yardr depot add legacy ~/src/legacy --base origin/master
+  yardr depot add webapp ~/projects/webapp --check 'make test'   # overrides .yardr/check
+  yardr depot add webapp ~/projects/webapp --check 'make test' --check-light 'make vet'   # and its light gate
+  yardr depot add scratch ~/src/scratch --allow-no-check         # no gate passes`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
@@ -186,18 +194,18 @@ other directory a dir rig; rig add says which it took.`,
 			case len(args) == 2:
 				path = args[1]
 			case clone != "":
-				path = filepath.Join(a.cfg.Home, "rigs", name)
+				path = filepath.Join(a.cfg.Home, store.DepotsDir, name)
 			default:
 				return fmt.Errorf("give a path to an existing clone, or --clone <url>")
 			}
 			if path, err = filepath.Abs(path); err != nil {
 				return err
 			}
-			if kind != "" && kind != store.RigGit && kind != store.RigDir {
-				return fmt.Errorf("--kind %s: give %s or %s", kind, store.RigGit, store.RigDir)
+			if kind != "" && kind != store.DepotGit && kind != store.DepotDir {
+				return fmt.Errorf("--kind %s: give %s or %s", kind, store.DepotGit, store.DepotDir)
 			}
-			if clone != "" && kind == store.RigDir {
-				return fmt.Errorf("--clone makes a git rig; drop --kind dir")
+			if clone != "" && kind == store.DepotDir {
+				return fmt.Errorf("--clone makes a git depot; drop --kind dir")
 			}
 			if clone != "" {
 				if _, err := os.Stat(path); err == nil {
@@ -216,19 +224,19 @@ other directory a dir rig; rig add says which it took.`,
 				return fmt.Errorf("%s is not a directory", path)
 			}
 			if kind == "" {
-				kind = detectRigKind(path)
+				kind = detectDepotKind(path)
 			}
-			if kind == store.RigDir {
+			if kind == store.DepotDir {
 				if c.Flags().Changed("base") {
-					return fmt.Errorf("a dir rig has no base; drop --base, or register a git checkout")
+					return fmt.Errorf("a dir depot has no base; drop --base, or register a git checkout")
 				}
-				r := store.Rig{Name: name, Path: path, Kind: store.RigDir, Check: check, CheckLight: checkLight, LightSlot: lightSlot, AllowNoCheck: allowNoCheck}
-				if err := st.PutRig(c.Context(), r, a.who()); err != nil {
+				r := store.Depot{Name: name, Path: path, Kind: store.DepotDir, Check: check, CheckLight: checkLight, LightSlot: lightSlot, AllowNoCheck: allowNoCheck}
+				if err := st.PutDepot(c.Context(), r, a.who()); err != nil {
 					return err
 				}
 				return a.out(r, func() {
-					fmt.Printf("rig %s → %s (dir: no git, no base)\n", r.Name, r.Path)
-					fmt.Printf("check: %s\n", rigCheckLine(r))
+					fmt.Printf("depot %s → %s (dir: no git, no base)\n", r.Name, r.Path)
+					fmt.Printf("check: %s\n", depotCheckLine(r))
 				})
 			}
 			if out, err := exec.Command("git", "-C", path, "rev-parse", "--show-toplevel").Output(); err != nil {
@@ -244,63 +252,63 @@ other directory a dir rig; rig add says which it took.`,
 				return fmt.Errorf("base %q does not resolve in %s (found: %s); pass --base",
 					base, path, strings.Join(strings.Fields(string(refs)), ", "))
 			}
-			r := store.Rig{Name: name, Path: path, Kind: store.RigGit, Base: base, Check: check, CheckLight: checkLight, LightSlot: lightSlot, AllowNoCheck: allowNoCheck}
-			if err := st.PutRig(c.Context(), r, a.who()); err != nil {
+			r := store.Depot{Name: name, Path: path, Kind: store.DepotGit, Base: base, Check: check, CheckLight: checkLight, LightSlot: lightSlot, AllowNoCheck: allowNoCheck}
+			if err := st.PutDepot(c.Context(), r, a.who()); err != nil {
 				return err
 			}
 			return a.out(r, func() {
-				fmt.Printf("rig %s → %s (git, base %s)\n", r.Name, r.Path, r.Base)
-				fmt.Printf("check: %s\n", rigCheckLine(r))
+				fmt.Printf("depot %s → %s (git, base %s)\n", r.Name, r.Path, r.Base)
+				fmt.Printf("check: %s\n", depotCheckLine(r))
 			})
 		},
 	}
-	add.Flags().StringVar(&base, "base", "origin/main", "ref bead branches start from (git rigs)")
+	add.Flags().StringVar(&base, "base", "origin/main", "ref bead branches start from (git depots)")
 	add.Flags().StringVar(&kind, "kind", "", "git or dir (default: git when the path is a git checkout, else dir)")
-	add.Flags().StringVar(&clone, "clone", "", "clone this URL first (into [path] or ~/.yardr/rigs/<name>)")
+	add.Flags().StringVar(&clone, "clone", "", "clone this URL first (into [path] or ~/.yardr/depots/<name>)")
 	add.Flags().StringVar(&check, "check", "", "merge gate command (sh -c), overriding the repo's "+rigcheck.RepoPath)
-	add.Flags().StringVar(&checkLight, "check-light", "", "light gate command (sh -c), overriding the repo's "+rigcheck.LightPath+" (yardr rig check --light)")
-	add.Flags().BoolVar(&lightSlot, "light-slot", false, "the light gate takes one of the machine's gate slots, as the full gate does (yardr rig check --help)")
-	add.Flags().BoolVar(&allowNoCheck, "allow-no-check", false, "let the gate pass when the rig has no check at all (default: no gate fails)")
+	add.Flags().StringVar(&checkLight, "check-light", "", "light gate command (sh -c), overriding the repo's "+rigcheck.LightPath+" (yardr depot check --light)")
+	add.Flags().BoolVar(&lightSlot, "light-slot", false, "the light gate takes one of the machine's gate slots, as the full gate does (yardr depot check --help)")
+	add.Flags().BoolVar(&allowNoCheck, "allow-no-check", false, "let the gate pass when the depot has no check at all (default: no gate fails)")
 	show := &cobra.Command{
-		Use: "show <rig>", Short: "Show a rig: path, kind, base, flow and gate", Args: cobra.ExactArgs(1),
+		Use: "show <depot>", Short: "Show a depot: path, kind, base, flow and gate", Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
 			}
-			r, err := st.GetRig(c.Context(), args[0])
+			r, err := st.GetDepot(c.Context(), args[0])
 			if err != nil {
 				return err
 			}
 			return a.out(r, func() {
-				fmt.Printf("rig %s\n", r.Name)
+				fmt.Printf("depot %s\n", r.Name)
 				fmt.Printf("  path:  %s\n", r.Path)
 				fmt.Printf("  kind:  %s\n", r.Kind)
 				if r.IsDir() {
-					fmt.Printf("  base:  none (a dir rig)\n")
+					fmt.Printf("  base:  none (a dir depot)\n")
 				} else {
 					fmt.Printf("  base:  %s\n", r.Base)
 				}
-				fmt.Printf("  flow:  %s\n", rigFlow(c.Context(), st, r.Name))
-				fmt.Printf("  check: %s\n", rigCheckLine(*r))
+				fmt.Printf("  flow:  %s\n", depotFlow(c.Context(), st, r.Name))
+				fmt.Printf("  check: %s\n", depotCheckLine(*r))
 			})
 		},
 	}
 	list := &cobra.Command{
-		Use: "list", Short: "List rigs", Args: cobra.NoArgs,
+		Use: "list", Short: "List depots", Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
 			}
-			rs, err := st.Rigs(c.Context())
+			rs, err := st.Depots(c.Context())
 			if err != nil {
 				return err
 			}
 			return a.out(rs, func() {
 				rows := [][]string{}
 				for _, r := range rs {
-					rows = append(rows, []string{r.Name, r.Kind, r.Path, or(r.Base, "-"), rigFlow(c.Context(), st, r.Name)})
+					rows = append(rows, []string{r.Name, r.Kind, r.Path, or(r.Base, "-"), depotFlow(c.Context(), st, r.Name)})
 				}
 				table("NAME\tKIND\tPATH\tBASE\tFLOW", rows)
 			})
@@ -310,20 +318,20 @@ other directory a dir rig; rig add says which it took.`,
 	var flowType string
 	var clear bool
 	flow := &cobra.Command{
-		Use:   "flow <rig> [--type <type>] (<flow> | --clear)",
-		Short: "Point a rig, or its beads of one type, at a named flow",
-		Example: `  yardr rig flow yard code                   # the rig's flow
-  yardr rig flow yard --type decision decide  # wins for decisions
-  yardr rig flow yard --type decision --clear # decisions follow the rig's flow again
+		Use:   "flow <depot> [--type <type>] (<flow> | --clear)",
+		Short: "Point a depot, or its beads of one type, at a named flow",
+		Example: `  yardr depot flow yard code                   # the depot's flow
+  yardr depot flow yard --type decision decide  # wins for decisions
+  yardr depot flow yard --type decision --clear # decisions follow the depot's flow again
 
-The flow is a named flow in the store (yardr flow set) or one in the rig's
+The flow is a named flow in the store (yardr flow set) or one in the depot's
 repository (.yardr/flows/<name>.flow on the base branch). A pointer
 overrides the repository's default.flow and type/<type>.flow.
 
 Setting or clearing a pointer is refused, naming the beads, while an open
 bead it would hand to another flow sits in a stage that flow lacks. Move
 them under the flow they follow now, or pin them to it (yardr bead update
-<id> --meta flow=<name>), then point the rig again.`,
+<id> --meta flow=<name>), then point the depot again.`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(c *cobra.Command, args []string) error {
 			name := ""
@@ -343,26 +351,26 @@ them under the flow they follow now, or pin them to it (yardr bead update
 				return err
 			}
 			// The type as the store holds it: --type epic points the trains.
-			who := store.FlowPointer{Rig: args[0], Type: store.BeadType(flowType)}.String()
+			who := store.FlowPointer{Depot: args[0], Type: store.BeadType(flowType)}.String()
 			if clear {
-				fmt.Printf("%s points at no flow now; it follows %s\n", who, rigFlow(c.Context(), st, args[0]))
+				fmt.Printf("%s points at no flow now; it follows %s\n", who, depotFlow(c.Context(), st, args[0]))
 				return nil
 			}
 			fmt.Printf("%s → flow %s\n", who, name)
 			return nil
 		},
 	}
-	flow.Flags().StringVarP(&flowType, "type", "t", "", "only the rig's beads of this type")
+	flow.Flags().StringVarP(&flowType, "type", "t", "", "only the depot's beads of this type")
 	flow.Flags().BoolVar(&clear, "clear", false, "remove the pointer")
 	rm := &cobra.Command{
 		Use:   "rm <name>",
-		Short: "Remove a rig from the store with its routes and flow pointers (refused while it has open beads or live sessions)",
-		Example: `  yardr rig rm yard          # registered under the wrong name; nothing uses it
-  yardr rig rm legacy --json # what went with it: its routes and flow pointers
+		Short: "Remove a depot from the store with its routes and flow pointers (refused while it has open beads or live sessions)",
+		Example: `  yardr depot rm yard          # registered under the wrong name; nothing uses it
+  yardr depot rm legacy --json # what went with it: its routes and flow pointers
 
 Only the store changes. The clone, its worktrees and its .yardr/ stay where
 they are; remove them yourself if you want them gone. Closed beads keep the
-rig's name as history. A rig with open beads or live sessions is refused and
+depot's name as history. A depot with open beads or live sessions is refused and
 the beads and sessions named: close or move the beads first.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
@@ -370,7 +378,7 @@ the beads and sessions named: close or move the beads first.`,
 			if err != nil {
 				return err
 			}
-			r, err := st.DeleteRig(c.Context(), args[0], a.who())
+			r, err := st.DeleteDepot(c.Context(), args[0], a.who())
 			if err != nil {
 				return err
 			}
@@ -379,7 +387,7 @@ the beads and sessions named: close or move the beads first.`,
 				for _, p := range r.FlowPointers {
 					ptrs = append(ptrs, p.String())
 				}
-				fmt.Printf("removed rig %s; %d route(s) and %d flow pointer(s) went with it\n", r.Rig, len(r.Routes), len(ptrs))
+				fmt.Printf("removed depot %s; %d route(s) and %d flow pointer(s) went with it\n", r.Depot, len(r.Routes), len(ptrs))
 				if len(r.Routes) > 0 {
 					fmt.Printf("  routes: %s\n", strings.Join(r.Routes, " "))
 				}
@@ -390,53 +398,53 @@ the beads and sessions named: close or move the beads first.`,
 			})
 		},
 	}
-	cmd.AddCommand(add, list, show, flow, rm, a.rigCheckCmd(), a.rigInitCmd(), a.rigSourcesCmd(), a.rigSourceCmd())
+	cmd.AddCommand(add, list, show, flow, rm, a.depotCheckCmd(), a.depotInitCmd(), a.depotSourcesCmd(), a.depotSourceCmd())
 	return cmd
 }
 
-func (a *app) rigCheckCmd() *cobra.Command {
+func (a *app) depotCheckCmd() *cobra.Command {
 	var dir string
 	var tail int
 	var timeout, slotWait time.Duration
 	var light, first bool
 	cmd := &cobra.Command{
-		Use:   "check <rig>",
-		Short: "Run the rig's merge gate in a directory and report pass or fail",
-		Long: `Run the rig's merge gate: the store's --check override if set, else
-` + rigcheck.RepoPath + ` as it is at the tip of the rig's base branch. The gate
+		Use:   "check <depot>",
+		Short: "Run the depot's merge gate in a directory and report pass or fail",
+		Long: `Run the depot's merge gate: the store's --check override if set, else
+` + rigcheck.RepoPath + ` as it is at the tip of the depot's base branch. The gate
 is never read from the directory it runs in, so a bead branch that edits
 ` + rigcheck.RepoPath + ` does not change its own gate. When the base has a remote
 the file is read from the remote-tracking ref after a fetch (origin/main),
-not from the local branch, which any worktree can move. A rig with neither
+not from the local branch, which any worktree can move. A depot with neither
 fails ("no gate") unless it was added with --allow-no-check.
 
-A dir rig has no base: its ` + rigcheck.RepoPath + ` is read from the rig's directory
-and run in --dir (default the rig's directory). A dir rig without one passes
+A dir depot has no base: its ` + rigcheck.RepoPath + ` is read from the depot's directory
+and run in --dir (default the depot's directory). A dir depot without one passes
 ("no gate"): nothing of it merges anywhere.
 
---light runs the rig's light gate instead: the store's --check-light if set,
+--light runs the depot's light gate instead: the store's --check-light if set,
 else ` + rigcheck.LightPath + ` at the tip of the base, found and run under
 every rule here (read from the base, the timeout, the exit statuses). It is
 for where the full gate still stands before the base moves: a builder's and a
 reviewer's own check of a bead, and a car of a train, which lands on the
-train's branch under it (docs/pipeline.md). A rig without
+train's branch under it (docs/pipeline.md). A depot without
 a light gate runs its full gate and says so in one line: --light never passes
-for want of a file. A rig whose gate is a store override has its light gate
+for want of a file. A depot whose gate is a store override has its light gate
 in the store too: ` + rigcheck.LightPath + ` in its repository is not read.
 
 Either gate gets ` + rigcheck.BaseVar + ` in its environment: the commit the
 repository's gate was read at (the tip of the base, as fetched), so a check
 can look at what the branch changed against it. Under a store override it is
-the rig's base as it resolves locally; it is unset when that does not
-resolve, and for a dir rig.
+the depot's base as it resolves locally; it is unset when that does not
+resolve, and for a dir depot.
 
 The light gate of a car of a train is compared with the train's branch
 instead, so it tests what the car changed and not the train's earlier cars
-again: when --dir is on branch yard/<bead>, that bead is a car of this rig
+again: when --dir is on branch yard/<bead>, that bead is a car of this depot
 and a child of a train, ` + rigcheck.BaseVar + ` is the tip of yard/<train> as it is
-in --dir's repository. The gate is still read from the rig's base, and the
+in --dir's repository. The gate is still read from the depot's base, and the
 train's full gate runs everything before the base moves. The full gate is
-always compared with the rig's base, as is the light gate of anything else.
+always compared with the depot's base, as is the light gate of anything else.
 A light gate's output starts with what it is compared with:
 "light gate, changes since yard/<train> at <sha>".
 
@@ -454,9 +462,9 @@ starts when the check starts, not while it waits. The wait is bounded by
 go before the others that wait: it is for the refinery and the integrator
 (YARDR_GATE_FIRST=1 says the same), whose one gate at a time every approved
 bead waits behind. gate_slots 0 is no limit; YARDR_GATE_SLOTS, when set, is
-used instead of the setting. The light gate takes no slot, unless the rig
+used instead of the setting. The light gate takes no slot, unless the depot
 was added with --light-slot; the full gate run for want of a light one takes
-one. A rig check started by a check that holds a slot (a gate whose tests
+one. A depot check started by a check that holds a slot (a gate whose tests
 run a gate) takes none: ` + rigcheck.SlotVar + ` in the check's environment says so.
 The slots are lock files in ` + slotDirHelp + `
 (YARDR_GATE_DIR names another directory), held by this process: the kernel
@@ -471,7 +479,7 @@ agent waiting for its gate is not idle. The record is a file in
 <home>/gating that this process holds a lock on, gone when it ends.
 
 Exits 0 when the gate passes, 1 when it fails (including no gate and a
-timeout), 2 when it could not be run at all (unknown rig, base that does not
+timeout), 2 when it could not be run at all (unknown depot, base that does not
 resolve, git failing, no slot within --slot-wait), so a merge script can tell a red branch from a broken
 setup. A check ended by a signal from outside (its process killed, or its own
 exit status 128+N, which is how a shell reports a command killed by signal N)
@@ -481,21 +489,21 @@ than send the bead back. The kill at --timeout is not that: it exits 1.
 The whole output of a gate that did not pass (red, timed out, ended by a
 signal; the light gate's too) is kept in a file, mode 0600, which the FAIL
 line names after "whole output: ":
-<home>/gates/<rig>/<dir>-<UTC time>.log, <dir> being the last element of the
+<home>/gates/<depot>/<dir>-<UTC time>.log, <dir> being the last element of the
 directory it ran in (a bead's worktree is named after the bead), and
 ".light.log" for the light gate. A gate that passed keeps nothing. Each run
-that keeps one removes the rig's kept outputs older than 14 days and, for
+that keeps one removes the depot's kept outputs older than 14 days and, for
 the same <dir>, all but the newest 5. --json has the path as log_file.
 
 Before the tail, a red gate's output is searched for the lines that say what
-failed, when the rig says how to tell them: ` + rigcheck.FailPatternPath + `, read
-where the repository's gate is (the base; a dir rig's directory), holds
+failed, when the depot says how to tell them: ` + rigcheck.FailPatternPath + `, read
+where the repository's gate is (the base; a dir depot's directory), holds
 regular expressions (Go's syntax), one per line, # for a comment. Every line
 matching one is printed with 2 lines before it and 8 after, each line once,
 150 lines at most, each stretch headed by its line number in the output. A
-rig without the file gets the tail alone, and the file.
+depot without the file gets the tail alone, and the file.
 
-The check also fails while an open bead of the rig sits in a stage the flow
+The check also fails while an open bead of the depot sits in a stage the flow
 governing it lacks (a repository flow lost the stage on the base), and names
 each: bead, stage, flow and the commit it was read at. No branch can fix
 that, so with a green gate it exits 2; advance the beads to a stage the flow
@@ -510,16 +518,16 @@ stage of its flow fails the check too, with exit 2 when nothing else does,
 as no branch can fix it. The non-terminal stages without a stage file are
 named in a note, which never fails the check.
 
-So is each file of the rig's repository that nothing reads because a flow in
+So is each file of the depot's repository that nothing reads because a flow in
 the store, or a prompt from a pack or the yard's home, stands in front of
 it: a note, never a failure. They are read on the base, as a brief reads
-them; yardr rig sources <rig> shows every source.`,
-		Example: `  yardr rig check yard                                   # in the rig itself
-  yardr rig check yard --dir ~/.yardr/worktrees/yard/yard-12   # in a bead's worktree
-  yardr rig check yard --light --dir ~/.yardr/worktrees/yard/yard-12   # the light gate, a builder's check`,
+them; yardr depot sources <depot> shows every source.`,
+		Example: `  yardr depot check yard                                   # in the depot itself
+  yardr depot check yard --dir ~/.yardr/worktrees/yard/yard-12   # in a bead's worktree
+  yardr depot check yard --light --dir ~/.yardr/worktrees/yard/yard-12   # the light gate, a builder's check`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			res, err := a.runRigCheck(c.Context(), args[0], dir, timeout, light,
+			res, err := a.runDepotCheck(c.Context(), args[0], dir, timeout, light,
 				rigcheck.Slots{First: first || config.Getenv("GATE_FIRST") != "", Wait: slotWait})
 			if err != nil {
 				return checkNotRun{err}
@@ -530,11 +538,11 @@ them; yardr rig sources <rig> shows every source.`,
 					fmt.Println(res.Fallback)
 				}
 				// And what a light gate looked at: a car's is not the range
-				// its reader would guess from the rig's base.
+				// its reader would guess from the depot's base.
 				if res.Light && res.Base != "" {
 					fmt.Printf("light gate, changes since %s at %s\n", res.BaseRef, res.Base[:min(12, len(res.Base))])
 				}
-				// What failed first, where the rig says how to tell: in a long
+				// What failed first, where the depot says how to tell: in a long
 				// run it is far above the tail.
 				out := rigcheck.Tail(res.Output, tail)
 				if res.Matched != "" {
@@ -582,34 +590,34 @@ them; yardr rig sources <rig> shows every source.`,
 					src = "light gate, " + src
 				}
 				switch {
-				case res.Source == "" && res.Kind == store.RigDir:
-					fmt.Printf("rig %s is a dir rig with no check (no --check, no %s in %s): pass (no gate)\n", res.Rig, rigcheck.RepoPath, res.Dir)
+				case res.Source == "" && res.Kind == store.DepotDir:
+					fmt.Printf("depot %s is a dir depot with no check (no --check, no %s in %s): pass (no gate)\n", res.Depot, rigcheck.RepoPath, res.Dir)
 				case res.Source == "" && gateGreen(res):
-					fmt.Printf("rig %s has no check (no --check, no %s on %s), allowed by allow_no_check: pass\n", res.Rig, rigcheck.RepoPath, res.From)
+					fmt.Printf("depot %s has no check (no --check, no %s on %s), allowed by allow_no_check: pass\n", res.Depot, rigcheck.RepoPath, res.From)
 				case res.Source == "":
-					fmt.Printf("rig %s has no check (no --check, no %s on %s): FAIL (no gate)\n", res.Rig, rigcheck.RepoPath, res.From)
+					fmt.Printf("depot %s has no check (no --check, no %s on %s): FAIL (no gate)\n", res.Depot, rigcheck.RepoPath, res.From)
 				case res.Pass:
-					fmt.Printf("check %s (%s) in %s: pass\n", res.Rig, src, res.Dir)
+					fmt.Printf("check %s (%s) in %s: pass\n", res.Depot, src, res.Dir)
 				case res.TimedOut:
-					fmt.Printf("check %s (%s) in %s: FAIL (timed out after %s)%s\n", res.Rig, src, res.Dir, timeout, kept)
+					fmt.Printf("check %s (%s) in %s: FAIL (timed out after %s)%s\n", res.Depot, src, res.Dir, timeout, kept)
 				case len(res.Stranded)+len(res.StrayStageFiles)+len(res.StrayHomeStageFiles) > 0 && res.ExitCode == 0:
-					fmt.Printf("check %s (%s) in %s: gate passed\n", res.Rig, src, res.Dir)
+					fmt.Printf("check %s (%s) in %s: gate passed\n", res.Depot, src, res.Dir)
 				case res.Signal != 0:
-					fmt.Printf("check %s (%s) in %s: FAIL (exit %d, ended by signal %d)%s\n", res.Rig, src, res.Dir, res.ExitCode, res.Signal, kept)
+					fmt.Printf("check %s (%s) in %s: FAIL (exit %d, ended by signal %d)%s\n", res.Depot, src, res.Dir, res.ExitCode, res.Signal, kept)
 				default:
-					fmt.Printf("check %s (%s) in %s: FAIL (exit %d)%s\n", res.Rig, src, res.Dir, res.ExitCode, kept)
+					fmt.Printf("check %s (%s) in %s: FAIL (exit %d)%s\n", res.Depot, src, res.Dir, res.ExitCode, kept)
 				}
 				for _, sb := range res.Stranded {
 					fmt.Printf("stranded: bead %s; advance it to a stage the flow has (yardr bead advance %s --to <stage>)\n", sb, sb.Bead)
 				}
 				if n := len(res.Stranded); n > 0 {
-					fmt.Printf("rig %s: FAIL (open beads in a stage their flow lacks: %d)\n", res.Rig, n)
+					fmt.Printf("depot %s: FAIL (open beads in a stage their flow lacks: %d)\n", res.Depot, n)
 				}
 				for _, s := range slices.Concat(res.StrayStageFiles, res.StrayHomeStageFiles) {
 					fmt.Printf("stage file: %s\n", s)
 				}
 				if n := len(res.StrayStageFiles) + len(res.StrayHomeStageFiles); n > 0 {
-					fmt.Printf("rig %s: FAIL (stage files that belong to no stage: %d)\n", res.Rig, n)
+					fmt.Printf("depot %s: FAIL (stage files that belong to no stage: %d)\n", res.Depot, n)
 				}
 			}); err != nil {
 				return err
@@ -627,10 +635,10 @@ them; yardr rig sources <rig> shows every source.`,
 			return errCheckFailed
 		},
 	}
-	cmd.Flags().StringVar(&dir, "dir", "", "directory to run it in (default: the rig)")
+	cmd.Flags().StringVar(&dir, "dir", "", "directory to run it in (default: the depot)")
 	cmd.Flags().IntVar(&tail, "tail", 40, "last lines of output to show (a red gate's lines matching "+rigcheck.FailPatternPath+" are shown before them, and all of it is kept in a file)")
 	cmd.Flags().DurationVar(&timeout, "timeout", rigcheck.DefaultTimeout, "kill the check and fail after this long")
-	cmd.Flags().BoolVar(&light, "light", false, "run the rig's light gate ("+rigcheck.LightPath+"); the full one when the rig has none")
+	cmd.Flags().BoolVar(&light, "light", false, "run the depot's light gate ("+rigcheck.LightPath+"); the full one when the depot has none")
 	cmd.Flags().BoolVar(&first, "first", false, "take a gate slot before the other runs that wait for one (the refinery, the integrator)")
 	cmd.Flags().DurationVar(&slotWait, "slot-wait", rigcheck.DefaultSlotWait, "give up (exit 2) after waiting this long for a gate slot")
 	return cmd
@@ -639,17 +647,17 @@ them; yardr rig sources <rig> shows every source.`,
 // slotDirHelp is where the gate slots are, for the help.
 const slotDirHelp = "~/.local/state/yardr/gates"
 
-// runRigCheck runs rig's gate in dir within timeout, its light one when
+// runDepotCheck runs depot's gate in dir within timeout, its light one when
 // light (see rigcheck.RunLight); an error means it could not be run, as
 // opposed to a failing Result. slots says how this run waits for its slot
 // of the machine; where the slots are and how many is filled in here, from
 // the yard.
-func (a *app) runRigCheck(ctx context.Context, rigName, dir string, timeout time.Duration, light bool, slots rigcheck.Slots) (*rigcheck.Result, error) {
+func (a *app) runDepotCheck(ctx context.Context, depotName, dir string, timeout time.Duration, light bool, slots rigcheck.Slots) (*rigcheck.Result, error) {
 	st, err := a.store(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rig, err := st.GetRig(ctx, rigName)
+	depot, err := st.GetDepot(ctx, depotName)
 	if err != nil {
 		return nil, err
 	}
@@ -671,38 +679,38 @@ func (a *app) runRigCheck(ctx context.Context, rigName, dir string, timeout time
 	if slots.Limit, err = rigcheck.SlotLimit(all); err != nil {
 		return nil, err
 	}
-	slots.Dir, slots.Holder = rigcheck.SlotDir(), fmt.Sprintf("rig %s in %s", rig.Name, or(dir, rig.Path))
+	slots.Dir, slots.Holder = rigcheck.SlotDir(), fmt.Sprintf("depot %s in %s", depot.Name, or(dir, depot.Path))
 	// On stderr, and at once: a person who waits must see why, and --json
 	// keeps stdout.
 	slots.Notify = func(line string) { fmt.Fprintln(stderr, "yardr: "+line) }
 	// Before the gate and outside its deadline: a gate that ran out of time
 	// must not hide the stranded beads.
-	stranded, err := st.Stranded(ctx, rig.Name)
+	stranded, err := st.Stranded(ctx, depot.Name)
 	if err != nil {
 		return nil, err
 	}
-	notes, stray, strayHome, err := stageFileFindings(ctx, st, *rig, or(dir, rig.Path), a.home())
+	notes, stray, strayHome, err := stageFileFindings(ctx, st, *depot, or(dir, depot.Path), a.home())
 	if err != nil {
 		return nil, err
 	}
 	var since string
 	if light {
-		if since, err = carBase(ctx, st, *rig, dir); err != nil {
+		if since, err = carBase(ctx, st, *depot, dir); err != nil {
 			return nil, err
 		}
 	}
 	// The yard knows of the gate while it runs: the idle watch leaves the
 	// bead's session alone, and yardr session list shows it. A record that
 	// cannot be made costs the yardmaster a nudge, not the bead its gate.
-	gate, err := rigcheck.MarkRunning(a.home(), rigcheck.Gate{Bead: gateBead(ctx, st, dir), Rig: rig.Name, Light: light,
-		Since: time.Now(), Dir: or(dir, rig.Path)})
+	gate, err := rigcheck.MarkRunning(a.home(), rigcheck.Gate{Bead: gateBead(ctx, st, dir), Depot: depot.Name, Light: light,
+		Since: time.Now(), Dir: or(dir, depot.Path)})
 	if err != nil {
 		fmt.Fprintf(stderr, "yardr: the gate is not recorded as running (yardr session list will not show it): %v\n", err)
 	}
 	defer gate.End()
 	slots.Waiting = gate.SetWaiting
 	// The timeout is the check's own: the wait for a slot does not eat it.
-	res, err := rigcheck.RunWith(ctx, *rig, dir, rigcheck.Options{Light: light, Since: since, Timeout: timeout, Slots: &slots})
+	res, err := rigcheck.RunWith(ctx, *depot, dir, rigcheck.Options{Light: light, Since: since, Timeout: timeout, Slots: &slots})
 	if err != nil {
 		return nil, err
 	}
@@ -718,9 +726,9 @@ func (a *app) runRigCheck(ctx context.Context, rigName, dir string, timeout time
 		}
 	}
 	res.StageNotes = notes
-	// A rig whose sources do not resolve has other trouble; the notes wait.
-	if lines, err := rigSources(ctx, st, rig.Name, a.home()); err == nil {
-		res.ShadowNotes = shadowNotes(rig.Name, lines)
+	// A depot whose sources do not resolve has other trouble; the notes wait.
+	if lines, err := depotSources(ctx, st, depot.Name, a.home()); err == nil {
+		res.ShadowNotes = shadowNotes(depot.Name, lines)
 	}
 	if len(stray) > 0 {
 		res.StrayStageFiles, res.Pass = stray, false
@@ -732,23 +740,23 @@ func (a *app) runRigCheck(ctx context.Context, rigName, dir string, timeout time
 }
 
 // carBase is the branch the light gate in dir is compared with instead of
-// the rig's base (rigcheck.Options.Since), or "": the train's branch, when dir
-// is the worktree of a car of rig that is a child of a train. The bead is
+// the depot's base (rigcheck.Options.Since), or "": the train's branch, when dir
+// is the worktree of a car of depot that is a child of a train. The bead is
 // found by the branch dir is on (store.Branch), so a builder's own run in its
 // worktree and the refinery's are compared with the same thing, with no flag
-// either could forget. Everything else keeps the rig's base: the rig itself,
+// either could forget. Everything else keeps the depot's base: the depot itself,
 // a detached checkout, a branch that is no bead's, a car with no train, and
 // a child of another type, which lands on the train's branch under the full
 // gate (merge-local).
-func carBase(ctx context.Context, st store.API, rig store.Rig, dir string) (string, error) {
-	if dir == "" || rig.IsDir() {
+func carBase(ctx context.Context, st store.API, depot store.Depot, dir string) (string, error) {
+	if dir == "" || depot.IsDir() {
 		return "", nil
 	}
 	b, err := worktreeBead(ctx, st, dir)
 	switch {
 	case err != nil:
 		return "", err
-	case b == nil || b.Type != store.TypeCar || b.Rig == nil || *b.Rig != rig.Name:
+	case b == nil || b.Type != store.TypeCar || b.Depot == nil || *b.Depot != depot.Name:
 		return "", nil
 	}
 	f, err := st.Family(ctx, b.ID)
@@ -780,11 +788,11 @@ func worktreeBead(ctx context.Context, st store.API, dir string) (*store.Bead, e
 	return b, err
 }
 
-// gateBead is the bead a rig check in dir is run for, or "": the bead whose
+// gateBead is the bead a depot check in dir is run for, or "": the bead whose
 // worktree dir is, or, with no --dir, the one whose worktree the command was
 // run from, since an agent that runs the gate from its pane waits for it
-// either way. A directory that is no bead's worktree (a dir rig's bead works
-// in the rig itself) leaves the bead the session was started for,
+// either way. A directory that is no bead's worktree (a dir depot's bead works
+// in the depot itself) leaves the bead the session was started for,
 // YARDR_BEAD. A store that does not answer names none: the gate runs
 // unrecorded.
 func gateBead(ctx context.Context, st store.API, dir string) string {
@@ -802,7 +810,7 @@ func gateBead(ctx context.Context, st store.API, dir string) string {
 	return ""
 }
 
-// stageFileFindings looks at the stage files of the flows governing rig.
+// stageFileFindings looks at the stage files of the flows governing depot.
 // A repository flow's are read in dir, the tree the gate runs in, as they
 // are on disk: read from the base like a brief's, a typo could only be found
 // after it landed, and its fix could not pass the gate. A store flow's are
@@ -810,7 +818,7 @@ func gateBead(ctx context.Context, st store.API, dir string) string {
 // a stage file. stray are the files in dir that belong to no stage (see
 // store.RepoFlows.StrayStageFiles), which the branch can fix; strayHome are
 // those of a store flow in the home, which no branch can.
-func stageFileFindings(ctx context.Context, st store.API, rig store.Rig, dir, home string) (notes, stray, strayHome []string, err error) {
+func stageFileFindings(ctx context.Context, st store.API, depot store.Depot, dir, home string) (notes, stray, strayHome []string, err error) {
 	var tree *store.RepoFlows
 	if dir != "" {
 		if tree, err = store.ReadFlowDir(dir); err != nil {
@@ -818,8 +826,8 @@ func stageFileFindings(ctx context.Context, st store.API, rig store.Rig, dir, ho
 		}
 		stray = tree.StrayStageFiles()
 	}
-	// A rig whose flows do not resolve has other trouble; the notes wait.
-	governing, _ := st.RigFlows(ctx, rig.Name)
+	// A depot whose flows do not resolve has other trouble; the notes wait.
+	governing, _ := st.DepotFlows(ctx, depot.Name)
 	for _, g := range governing {
 		f := g.Flow
 		var has func(stage string) bool
@@ -864,14 +872,14 @@ func stageFileFindings(ctx context.Context, st store.API, rig store.Rig, dir, ho
 const wholeOutput = "; whole output: "
 
 // gateGreen reports whether the gate itself passed in res, whatever else
-// fails the check: it ran to exit 0, or the rig needs none.
+// fails the check: it ran to exit 0, or the depot needs none.
 func gateGreen(res *rigcheck.Result) bool {
 	return res.ExitCode == 0 && !res.TimedOut
 }
 
-// rigCheckLine says what gates a rig's merges, as the store has it: the
+// depotCheckLine says what gates a depot's merges, as the store has it: the
 // --check override if set, else the repo's file on the base.
-func rigCheckLine(r store.Rig) string {
+func depotCheckLine(r store.Depot) string {
 	line := rigcheck.RepoPath + " on " + r.Base
 	if r.IsDir() {
 		line = rigcheck.RepoPath + " in the directory, if any (none: no gate, passes)"
@@ -891,10 +899,10 @@ func rigCheckLine(r store.Rig) string {
 	return line
 }
 
-// rigFlow names the flow governing rig's beads (pins and types aside) and
+// depotFlow names the flow governing depot's beads (pins and types aside) and
 // where it comes from, for listings.
-func rigFlow(ctx context.Context, st store.API, rig string) string {
-	rfs, err := st.RigFlows(ctx, rig)
+func depotFlow(ctx context.Context, st store.API, depot string) string {
+	rfs, err := st.DepotFlows(ctx, depot)
 	if err != nil {
 		return "error: " + err.Error()
 	}
@@ -926,7 +934,7 @@ its stage until that yard returns it, with the outcome its flow there came to.
 --limit is how many beads may be there at once, --set tries=<n> how often the
 bead is posted before it is given up as undelivered (5), and --set max_age how
 long one is away before the yardmaster hears (24h). A branch that yard returns
-is fetched from the bead's rig's remote origin, or --set remote=<name>, before
+is fetched from the bead's depot's remote origin, or --set remote=<name>, before
 the outcome moves the bead. See docs/peers.md, "Beads, the sending side" and
 "Code that comes back".
 
@@ -1066,11 +1074,11 @@ func show(v any) string {
 func (a *app) routeCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "route", Short: "Which group works which stage"}
 	var r store.Route
-	var typ, rig, label string
+	var typ, depot, label string
 	add := &cobra.Command{
 		Use:   "add --stage <stage> --group <group>",
 		Short: "Send open, unblocked beads in a stage to a group",
-		Example: `  yardr route add --stage new --group webapp/builders --rig webapp
+		Example: `  yardr route add --stage new --group webapp/builders --depot webapp
   yardr route add --stage review --group webapp/reviewers
   yardr route add --stage new --type video --group herald --priority 10`,
 		Args: cobra.NoArgs,
@@ -1082,8 +1090,8 @@ func (a *app) routeCmd() *cobra.Command {
 			if fl.Changed("type") {
 				r.Type = &typ
 			}
-			if fl.Changed("rig") {
-				r.Rig = &rig
+			if fl.Changed("depot") {
+				r.Depot = &depot
 			}
 			if fl.Changed("label") {
 				r.Label = &label
@@ -1103,7 +1111,8 @@ func (a *app) routeCmd() *cobra.Command {
 	f.StringVarP(&r.Stage, "stage", "s", "", "stage to match")
 	f.StringVarP(&r.Group, "group", "g", "", "group to send to")
 	f.StringVarP(&typ, "type", "t", "", "only beads of this type")
-	f.StringVarP(&rig, "rig", "r", "", "only beads in this rig")
+	f.StringVarP(&depot, "depot", "d", "", "only beads in this depot")
+	oldFlagP(add, "rig", "r", "depot")
 	f.StringVarP(&label, "label", "l", "", "only beads with this label")
 	f.IntVarP(&r.Priority, "priority", "p", 0, "higher wins when several routes match")
 
@@ -1122,10 +1131,10 @@ func (a *app) routeCmd() *cobra.Command {
 			return a.out(rs, func() {
 				rows := [][]string{}
 				for _, r := range rs {
-					rows = append(rows, []string{r.ID, r.Stage, deref(r.Type), deref(r.Rig), deref(r.Label),
+					rows = append(rows, []string{r.ID, r.Stage, deref(r.Type), deref(r.Depot), deref(r.Label),
 						strconv.Itoa(r.Priority), r.Group})
 				}
-				table("ID\tSTAGE\tTYPE\tRIG\tLABEL\tPRI\tGROUP", rows)
+				table("ID\tSTAGE\tTYPE\tDEPOT\tLABEL\tPRI\tGROUP", rows)
 			})
 		},
 	}
@@ -1183,13 +1192,13 @@ A manual group's claim is among them, though nothing runs in it: the bead
 waits for a person. --running leaves those out, so the list is what an
 agent (herdr) or a script (exec) is working on now.
 
-GATE says that a yardr rig check runs for the session's bead, in its
+GATE says that a yardr depot check runs for the session's bead, in its
 worktree or from it: "gating 6m (light)", the light or the full gate and for
 how long, or "waiting 2m (full)" while it waits for a gate slot of the
-machine (yardr rig check --help). The agent of such a session is idle to
+machine (yardr depot check --help). The agent of such a session is idle to
 herdr, and waiting, not stuck: the daemon raises no session_idle for it
 until the gate has ended and the group's idle limit has passed again.
---json has it as gate: bead, rig, light, waiting, since, dir, pid.`,
+--json has it as gate: bead, depot, light, waiting, since, dir, pid.`,
 		RunE: func(c *cobra.Command, _ []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -1361,11 +1370,11 @@ func or(v, def string) string {
 	return v
 }
 
-// detectRigKind is the kind of rig a path makes when rig add is given no
+// detectDepotKind is the kind of depot a path makes when depot add is given no
 // --kind: git when git sees a repository there, else a plain directory.
-func detectRigKind(path string) string {
+func detectDepotKind(path string) string {
 	if exec.Command("git", "-C", path, "rev-parse", "--git-dir").Run() == nil {
-		return store.RigGit
+		return store.DepotGit
 	}
-	return store.RigDir
+	return store.DepotDir
 }

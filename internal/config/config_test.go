@@ -293,3 +293,31 @@ func TestWithoutServerSettings(t *testing.T) {
 		}
 	}
 }
+
+// YARDR_DEPOT, YARDR_DEPOT_PATH and YARDR_DEPOT_KIND were YARDR_RIG and its
+// two until this release: a script of the operator's reads the old names,
+// and so does a session started before the upgrade.
+func TestRenamedDepotVariables(t *testing.T) {
+	for old, name := range map[string]string{"RIG": "DEPOT", "RIG_PATH": "DEPOT_PATH", "RIG_KIND": "DEPOT_KIND"} {
+		for _, k := range []string{"YARDR_" + name, "YARD_" + name, "YARDR_" + old, "YARD_" + old} {
+			t.Setenv(k, "")
+		}
+		t.Setenv("YARDR_"+old, "old")
+		if got := Getenv(name); got != "old" {
+			t.Fatalf("Getenv(%s) = %q, want the value of YARDR_%s", name, got, old)
+		}
+		t.Setenv("YARDR_"+name, "new")
+		if got := Getenv(name); got != "new" {
+			t.Fatalf("Getenv(%s) = %q, want the new name's value", name, got)
+		}
+		env := Env(name, "web")
+		for _, want := range []string{"YARDR_" + name + "=web", "YARDR_" + old + "=web"} {
+			if !slices.Contains(env, want) {
+				t.Fatalf("Env(%s) = %v, want %s in it", name, env, want)
+			}
+		}
+		if !IsVar("YARDR_"+old, name) || IsVar("YARDR_"+old, "BEAD") {
+			t.Fatalf("IsVar does not take YARDR_%s for %s alone", old, name)
+		}
+	}
+}

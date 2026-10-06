@@ -157,9 +157,9 @@ func TestPackApplyAsksTheOperatorAboutOpeningThreads(t *testing.T) {
 	dir := openPack(t, "linear, github")
 	say := true
 	asked := answerForms(t, &say)
-	args := append([]string{"apply", dir, "--rig", "web"}, starterFlags...)
+	args := append([]string{"apply", dir, "--depot", "web"}, starterFlags...)
 
-	out, err := run(t, a.packCmd(), "check", dir, "--rig", "web", "--crew", "yardmaster=boss")
+	out, err := run(t, a.packCmd(), "check", dir, "--depot", "web", "--crew", "yardmaster=boss")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,14 +252,14 @@ func TestPackApplyAsksTheOperatorAboutOpeningThreads(t *testing.T) {
 func TestPackApplyOpenThreadsFlag(t *testing.T) {
 	ctx := context.Background()
 	dir := openPack(t, "linear, github")
-	args := append([]string{"apply", dir, "--rig", "web", "--yes"}, starterFlags...)
+	args := append([]string{"apply", dir, "--depot", "web", "--yes"}, starterFlags...)
 	const names = "crew member boss was not let open threads in linear: nothing is asked here, and the answer without a flag is no. --open-threads yardmaster=linear grants it, --open-threads yardmaster=none says no for good"
 
 	t.Run("no flag", func(t *testing.T) {
 		a := openApp(t, "linear")
 		setInteractive(t, false)
 		out, err := run(t, a.packCmd(), args...)
-		if err != nil || !strings.Contains(out, "applied pack starter to rig web") || !strings.Contains(out, names) {
+		if err != nil || !strings.Contains(out, "applied pack starter to depot web") || !strings.Contains(out, names) {
 			t.Fatalf("%v\n%s", err, out)
 		}
 		if bossMayOpen(t, a) != "" || openRecord(t, a) != nil {
@@ -293,7 +293,7 @@ func TestPackApplyOpenThreadsFlag(t *testing.T) {
 		a := openApp(t, "linear")
 		setInteractive(t, false)
 		// Without --yes a grant is a change like any other.
-		noYes := append([]string{"apply", dir, "--rig", "web", "--open-threads", "yardmaster=linear"}, starterFlags...)
+		noYes := append([]string{"apply", dir, "--depot", "web", "--open-threads", "yardmaster=linear"}, starterFlags...)
 		if _, err := run(t, a.packCmd(), noYes...); err == nil || !strings.Contains(err.Error(), "give --yes") {
 			t.Fatalf("without --yes: %v", err)
 		}
@@ -380,7 +380,7 @@ func TestPackApplyOpenThreadsFlag(t *testing.T) {
 		}
 		// A pack that asks for nothing takes no answer.
 		plain := openPack(t, "")
-		_, err := run(t, a.packCmd(), append([]string{"apply", plain, "--rig", "web", "--yes", "--open-threads", "yardmaster=linear"}, starterFlags...)...)
+		_, err := run(t, a.packCmd(), append([]string{"apply", plain, "--depot", "web", "--yes", "--open-threads", "yardmaster=linear"}, starterFlags...)...)
 		if err == nil || !strings.Contains(err.Error(), "the pack asks for no source its crew member yardmaster may open threads in") {
 			t.Errorf("a pack without the key: %v", err)
 		}
@@ -400,12 +400,12 @@ func TestPackApplyOnlyTheOperatorGrants(t *testing.T) {
 	ctx := context.Background()
 	dir := openPack(t, "linear")
 	a.actor = "boss"
-	args := append([]string{"apply", dir, "--rig", "web", "--yes"}, starterFlags...)
+	args := append([]string{"apply", dir, "--depot", "web", "--yes"}, starterFlags...)
 	const says = "crew member boss was not let open threads in linear: only the operator (me) may grant that, and this is boss."
 
 	setInteractive(t, false)
 	out, err := run(t, a.packCmd(), append(args, "--open-threads", "yardmaster=linear")...)
-	if err != nil || !strings.Contains(out, "applied pack starter to rig web: ") || !strings.Contains(out, says) || strings.Contains(out, "may now open") {
+	if err != nil || !strings.Contains(out, "applied pack starter to depot web: ") || !strings.Contains(out, says) || strings.Contains(out, "may now open") {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	if g, err := a.st.GetGroup(ctx, "web-builders"); err != nil || g.Config["kind"] != "claude" {
@@ -422,7 +422,7 @@ func TestPackApplyOnlyTheOperatorGrants(t *testing.T) {
 	setInteractive(t, true)
 	say := true
 	asked := answerForms(t, &say)
-	plain := append([]string{"apply", dir, "--rig", "web"}, starterFlags...)
+	plain := append([]string{"apply", dir, "--depot", "web"}, starterFlags...)
 	head, _ := a.st.Head(ctx)
 	if out, err = run(t, a.packCmd(), plain...); err != nil || len(*asked) != 0 || !strings.Contains(out, says) || bossMayOpen(t, a) != "" {
 		t.Fatalf("in a terminal: %v, asked %q\n%s", err, *asked, out)
@@ -447,7 +447,7 @@ func TestPackApplyOnlyAddsToOpenThreads(t *testing.T) {
 	if _, err := a.st.AllowOpening(ctx, "boss", []string{"github"}, "", "me"); err != nil {
 		t.Fatal(err)
 	}
-	flags := append([]string{"--rig", "web", "--yes"}, starterFlags...)
+	flags := append([]string{"--depot", "web", "--yes"}, starterFlags...)
 	plain := openPack(t, "")
 	if out, err := run(t, a.packCmd(), append([]string{"apply", plain}, flags...)...); err != nil || strings.Contains(out, "open threads") || bossMayOpen(t, a) != "github" {
 		t.Fatalf("a pack without the key: %v, may open %q\n%s", err, bossMayOpen(t, a), out)

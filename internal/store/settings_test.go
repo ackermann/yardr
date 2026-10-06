@@ -37,7 +37,7 @@ func TestSettings(t *testing.T) {
 	}
 }
 
-// A yard from before the onboarding (rigs, groups or crew members, no
+// A yard from before the onboarding (depots, groups or crew members, no
 // default_kind) gets default_kind when it is opened, from its first herdr
 // group's kind, else its first herdr crew member's, else claude, once, with
 // settings_migrated; the operator stays unset. An empty store and one that
@@ -91,10 +91,10 @@ func TestMigrateSettings(t *testing.T) {
 	}{
 		{"empty", func(*store.Store) {}, ""},
 		{"set", func(s *store.Store) {
-			must(t, s.PutRig(ctx, store.Rig{Name: "r"}, "me"))
+			must(t, s.PutDepot(ctx, store.Depot{Name: "r"}, "me"))
 			must(t, s.SetSetting(ctx, "default_kind", "gemini", "me"))
 		}, ""},
-		{"rig only", func(s *store.Store) { must(t, s.PutRig(ctx, store.Rig{Name: "r"}, "me")) }, "claude"},
+		{"depot only", func(s *store.Store) { must(t, s.PutDepot(ctx, store.Depot{Name: "r"}, "me")) }, "claude"},
 		{"herdr group", func(s *store.Store) {
 			must(t, s.PutGroup(ctx, store.Group{Name: "a", Runner: "manual", Config: herdr("pi")}))
 			must(t, s.PutGroup(ctx, store.Group{Name: "b", Runner: "herdr", Config: herdr("codex")}))

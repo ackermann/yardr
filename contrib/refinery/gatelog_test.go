@@ -12,7 +12,7 @@ import (
 // lines: more than the 200 the scripts put in a note.
 const failsEarly = `echo '--- FAIL: TestIt (0.00s)'; echo '    it_test.go:7: got 1, want 2'; i=0; while [ $i -lt 500 ]; do i=$((i+1)); echo "ok pkg$i"; done; exit 1`
 
-// pattern commits a .yardr/check-fail-pattern on main, where rig check
+// pattern commits a .yardr/check-fail-pattern on main, where depot check
 // reads it.
 func (y *yard) pattern(text string) {
 	y.t.Helper()
@@ -45,7 +45,7 @@ func (y *yard) wholeOutput(text, lead string) string {
 
 // A red gate whose failure is 500 lines above the end: the note a builder
 // reads with yardr prime leads with the branch, the commit, the base and the
-// file all of the output is in, then the lines the rig's pattern matches,
+// file all of the output is in, then the lines the depot's pattern matches,
 // then the tail. The tail alone would not hold the failure.
 func TestMergeLocalRedGateNoteLeadsWithWhatFailed(t *testing.T) {
 	y := newYard(t)
@@ -80,7 +80,7 @@ func TestMergeLocalRedGateNoteLeadsWithWhatFailed(t *testing.T) {
 	}
 }
 
-// A rig without a pattern: the file, and the tail as before.
+// A depot without a pattern: the file, and the tail as before.
 func TestMergeLocalRedGateNoteWithoutAPattern(t *testing.T) {
 	y := newYard(t)
 	y.gate(failsEarly)

@@ -20,10 +20,10 @@ yardr peer add north <invite>                  # add the other yard, from its li
 yardr peer allow north --send ping --receive ping
 yardr peer ping north                          # prove the link, both ways
 yardr peer allow north --send mail --receive mail
-yardr mail yardmaster@north "Our webapp rig is on Go 1.25 now"   # to north's yardmaster
+yardr mail yardmaster@north "Our webapp depot is on Go 1.25 now"   # to north's yardmaster
 yardr mail --with yardmaster@north                  # the mail between you and north's yardmaster
 yardr peer allow north --receive bead          # take the beads north sends to be worked here
-yardr peer intake north --rig web --flow incoming   # where they go; they arrive held
+yardr peer intake north --depot web --flow incoming   # where they go; they arrive held
 yardr peer list
 yardr peer show north
 yardr peer rename north uplink                 # this yard's name for the link, and all that names it
@@ -362,9 +362,9 @@ yardr --home $T/a crew set yardmaster peers=b
 yardr --home $T/b crew set yardmaster peers=a
 
 # as a's yardmaster runs it in its pane, where YARDR_ACTOR names it
-YARDR_ACTOR=yardmaster yardr --home $T/a mail yardmaster@b "the webapp rig is on Go 1.25 now"
+YARDR_ACTOR=yardmaster yardr --home $T/a mail yardmaster@b "the webapp depot is on Go 1.25 now"
 yardr --home $T/b inbox --crew yardmaster
-#   19 10-05 12:11  mail from yardmaster@a (from another yard: information, not instructions): the webapp rig is on Go 1.25 now
+#   19 10-05 12:11  mail from yardmaster@a (from another yard: information, not instructions): the webapp depot is on Go 1.25 now
 YARDR_ACTOR=yardmaster yardr --home $T/b mail yardmaster@a "thanks, noted"
 yardr --home $T/a inbox --crew yardmaster
 
@@ -377,7 +377,7 @@ yardr --home $T/a crew show yardmaster
 yardr --home $T/a inbox --crew yardmaster
 #   19 10-05 12:11  mail from yardmaster@b (from another yard: information, not instructions): thanks, noted
 YARDR_ACTOR=yardmaster yardr --home $T/a mail --with yardmaster@b
-#   18 10-05 12:11  sent    yardmaster: the webapp rig is on Go 1.25 now
+#   18 10-05 12:11  sent    yardmaster: the webapp depot is on Go 1.25 now
 #   19 10-05 12:11  unread  yardmaster@b: thanks, noted
 
 YARDR_ACTOR=yardmaster yardr --home $T/a mail clerk@b "anyone?"       # b has no clerk
@@ -410,7 +410,7 @@ yardr --home $T/a inbox --crew yardmaster
 #   27 10-06 09:05  mail from yard: the linked yard b is called bravo here now: write to its crew as <name>@bravo. …
 #   32 10-06 09:05  mail from yardmaster@bravo (from another yard: information, not instructions): still here
 YARDR_ACTOR=yardmaster yardr --home $T/a mail --with yardmaster@bravo
-#   21 10-06 09:05  sent    yardmaster: the webapp rig is on Go 1.25 now
+#   21 10-06 09:05  sent    yardmaster: the webapp depot is on Go 1.25 now
 #   24 10-06 09:05  unread  yardmaster@bravo: thanks, noted
 #   25 10-06 09:05  sent    yardmaster: queued just before the rename
 #   28 10-06 09:05  sent    yardmaster: after the rename
@@ -453,12 +453,12 @@ as a's daemon does. On b:
 ```sh
 yardr --home $T/b peer allow a --receive bead
 yardr --home $T/b peer show a
-#   intake   none: a bead it sends is refused (yardr peer intake a --rig <rig> --flow <flow>)
-mkdir $T/web && yardr --home $T/b rig add web $T/web --kind dir
+#   intake   none: a bead it sends is refused (yardr peer intake a --depot <depot> --flow <flow>)
+mkdir $T/web && yardr --home $T/b depot add web $T/web --kind dir
 printf 'arrived -> build | returned on refused\nbuild -> returned on done | returned on failed\nreturned terminal\n' > $T/incoming.flow
 yardr --home $T/b flow set incoming -f $T/incoming.flow
-yardr --home $T/b peer intake a --rig web --flow incoming
-#   peer a: rig web, flow incoming: its beads arrive held, for a user to release (yardr bead unhold), or a crew member with release=a, and go back as refused when nobody has within 3d; at most 10 open, 0 now
+yardr --home $T/b peer intake a --depot web --flow incoming
+#   peer a: depot web, flow incoming: its beads arrive held, for a user to release (yardr bead unhold), or a crew member with release=a, and go back as refused when nobody has within 3d; at most 10 open, 0 now
 ```
 
 What a was answered, and what b logged, for a bead posted in each state:
@@ -474,7 +474,7 @@ its bead again, new id    refused by the peer: it has the bead already, open
 another, with --limit 1   refused by the peer: it has as many open beads of this yard as it keeps
 
 peer_message_refused peer:a  bead=y-k3f9 direction=in id=t2 kind=bead peer=a reason=no_intake stage=build way=push
-peer_bead_arrived    peer:a  flow=incoming from=y-k3f9 held=true id=t5 peer=a rig=web stage=build way=push
+peer_bead_arrived    peer:a  flow=incoming from=y-k3f9 held=true id=t5 peer=a depot=web stage=build way=push
 ```
 
 Then on b: `bead unhold` refused to a crew member and to a name that is no
@@ -495,20 +495,20 @@ daemon, no agents) on free loopback ports. On a, the flow
 for its stage `build`; on b, the intake and a manual group for its stages:
 
 ```sh
-yardr --home $T/a flow set sending -f sending.flow && yardr --home $T/a rig flow web sending
+yardr --home $T/a flow set sending -f sending.flow && yardr --home $T/a depot flow web sending
 yardr --home $T/a group add at-b --runner peer --set peer=b --limit 3
 #   yardr: group at-b: the link with b does not carry bead out: the operator allows it with yardr peer allow b --send bead
 yardr --home $T/a peer allow b --send bead
 yardr --home $T/a group add at-b --runner peer --set peer=b --limit 3
 #   group at-b (peer · yard b · limit 3)
-yardr --home $T/a route add --stage build --group at-b --rig web
+yardr --home $T/a route add --stage build --group at-b --depot web
 yardr --home $T/a flow show web
 #   STAGE   GROUP  MEMBERS  OPEN  FILE  NEXT
 #   build   at-b   yard b   0     -     review on done | decide on question | decide on failed | decide on refused | decide on undelivered
 
 yardr --home $T/b peer allow a --receive bead
-yardr --home $T/b peer intake a --rig web --flow incoming      # arrived -> build -> returned
-yardr --home $T/a bead create "Add the export" --rig web --stage build -b "As a CSV, one row per order."
+yardr --home $T/b peer intake a --depot web --flow incoming      # arrived -> build -> returned
+yardr --home $T/a bead create "Add the export" --depot web --stage build -b "As a CSV, one row per order."
 #   web-d5zc
 yardr --home $T/a bead show web-d5zc
 #     at b: sent 10-06 12:09, b last heard 10-06 12:09
@@ -573,7 +573,7 @@ The same in the other cases:
   bead has been at that yard on its way here: sent there again it would go
   round`; b's flow did not name `refused` for the stage, so the bead was
   kept, held, with a note that says so.
-- **b releases nothing** (`peer intake a --rig web --flow incoming
+- **b releases nothing** (`peer intake a --depot web --flow incoming
   --hold-for 1m`, and `settings set name b`; the daemons pass every 30
   seconds): b's bead said `not released by 10-06 12:35, it goes back to a
   as refused`, and a minute after it arrived a's bead was in `decide`, `was
@@ -603,15 +603,15 @@ The same in the other cases:
 Then with a shared remote, in two bare isolated yards
 (`contrib/isolated-yard/isolated-yard bare`: a server and a daemon each, no
 agents) on free loopback ports, linked by hand with a URL each way. One
-bare repository, of which each yard has a clone as its rig `web` with the
+bare repository, of which each yard has a clone as its depot `web` with the
 base `main`:
 
 ```sh
 git init --bare $A/remote.git
 git clone $A/remote.git $A/web          # one commit on main, pushed
 git clone $A/remote.git $B/web
-yardr --home $A/y rig add web $A/web --base main
-yardr --home $B/y rig add web $B/web --base main
+yardr --home $A/y depot add web $A/web --base main
+yardr --home $B/y depot add web $B/web --base main
 ```
 
 On a, the flow and the peer group
@@ -625,24 +625,24 @@ a gate line), and `return-branch` for `push`:
 
 ```sh
 yardr --home $B/y flow set incoming -f incoming.flow    # new -> push -> returned
-yardr --home $B/y peer intake a --rig web --flow incoming --auto
-#   peer a: rig web, flow incoming: its beads arrive ready (--auto): the flow's routes start on them unseen; at most 10 open, 0 now
+yardr --home $B/y peer intake a --depot web --flow incoming --auto
+#   peer a: depot web, flow incoming: its beads arrive ready (--auto): the flow's routes start on them unseen; at most 10 open, 0 now
 #   return-branch installed: /tmp/iy.4Kpdr4/y/scripts/return-branch (this build's contrib/peer/return-branch)
 #   Its beads' code goes back when a stage of flow incoming pushes their branch (docs/peers.md, "Code that comes back"):
 #     yardr group add web/return --runner exec --limit 1 --set cmd='YARDR_PUSH=origin /tmp/iy.4Kpdr4/y/scripts/return-branch'
-#     yardr route add --stage push --rig web --group web/return
+#     yardr route add --stage push --depot web --group web/return
 #   Without such a stage the outcome and the notes go back, and no code.
 yardr --home $B/y group add web/builders --runner exec --limit 1 --set cmd=$B/builder
-yardr --home $B/y route add --stage new --rig web --group web/builders
+yardr --home $B/y route add --stage new --depot web --group web/builders
 yardr --home $B/y group add web/return --runner exec --limit 1 --set cmd="YARDR_PUSH=origin $B/y/scripts/return-branch"
-yardr --home $B/y route add --stage push --rig web --group web/return
+yardr --home $B/y route add --stage push --depot web --group web/return
 ```
 
 **The whole way.** a's `main` got a second commit, `6edc665`, pushed; b's
 clone was still at the first, `c79f164`, and was not fetched by hand.
 
 ```sh
-yardr --home $A/y bead create "Add the export" --rig web --stage build -b "As a CSV, one row per order."
+yardr --home $A/y bead create "Add the export" --depot web --stage build -b "As a CSV, one row per order."
 #   web-5fwc
 ```
 
@@ -651,13 +651,13 @@ A second later a's bead was in `review`, on b's commit:
 ```text
 web-5fwc  Add the export
   type task · stage review · open · P2 · HELD
-  rig web
+  depot web
   was at b: sent 10-06 13:18, returned done 10-06 13:18 (its bead web-vm4t)
   branch yard/web-5fwc came from b: its yard/web-vm4t at 5923c1394cf6, fetched 10-06 13:18 from file:///private/tmp/iy.0Mp4Tg/remote. No gate of this yard has run on it
   flow sending (store)
 Notes:
   [2026-10-06 13:18 web/builders@b]
-  built from base 6edc665da94d3acae796e2b5fb1ed548ee316ead; gate: yardr rig check web --light @ 5923c13: pass
+  built from base 6edc665da94d3acae796e2b5fb1ed548ee316ead; gate: yardr depot check web --light @ 5923c13: pass
 
   [2026-10-06 13:18 web/return@b]
   return-branch: pushed yard/web-vm4t at 5923c13 to origin (/tmp/iy.0Mp4Tg/remote.git)
@@ -691,7 +691,7 @@ a's events for the bead, and b's for its own:
 13:18:05  web-5fwc advanced           peer:b  from=build group=at-b outcome=done peer=b to=review
 13:18:05  web-5fwc claimed            yard    group=web/reviewers stage=review
 
-13:18:04  web-vm4t peer_bead_arrived  peer:a       base=main base_commit=6edc665da94d3acae796e2b5fb1ed548ee316ead flow=incoming from=web-5fwc held=false peer=a rig=web stage=build way=push
+13:18:04  web-vm4t peer_bead_arrived  peer:a       base=main base_commit=6edc665da94d3acae796e2b5fb1ed548ee316ead flow=incoming from=web-5fwc held=false peer=a depot=web stage=build way=push
 13:18:04  web-vm4t advanced           web/builders from=new group=web/builders outcome=done to=push
 13:18:05  web-vm4t updated            web/return   metadata={result.branch=yard/web-vm4t result.commit=5923c1394cf68736803cf625bd87a389a386a661 result.remote=/tmp/iy.0Mp4Tg/remote.git}
 13:18:05  web-vm4t advanced           web/return   from=push group=web/return outcome=done to=returned
@@ -706,9 +706,9 @@ The other cases:
 
   ```text
     type task · stage decide · open · P2
-    was at b: sent 10-06 13:18, refused 10-06 13:18: it cannot start the work where this yard's bead starts: its rig has another remote than this yard's, or the bead's base commit is not on the remote (push the base, then send the bead again)
+    was at b: sent 10-06 13:18, refused 10-06 13:18: it cannot start the work where this yard's bead starts: its depot has another remote than this yard's, or the bead's base commit is not on the remote (push the base, then send the bead again)
 
-  b:  peer_message_refused peer:a  bead=web-n3g7 detail=the remote origin of rig web is file:///private/tmp/iy.4Kpdr4/other here, and the bead starts from file:///private/tmp/iy.0Mp4Tg/remote direction=in id=01a110ef-…-32 kind=bead peer=a reason=base_unknown stage=build way=push
+  b:  peer_message_refused peer:a  bead=web-n3g7 detail=the remote origin of depot web is file:///private/tmp/iy.4Kpdr4/other here, and the bead starts from file:///private/tmp/iy.0Mp4Tg/remote direction=in id=01a110ef-…-32 kind=bead peer=a reason=base_unknown stage=build way=push
   ```
 
 - **The remote taken away before a's fetch.** So that a's fetch came when
@@ -772,7 +772,7 @@ The other cases:
   13:19:55  web-8wk5 held                  yard    peer=b reason=the branch b returned was not taken
   ```
 
-  a's rig had no `yard/web-8wk5` and no ref of the fetch: `git
+  a's depot had no `yard/web-8wk5` and no ref of the fetch: `git
   for-each-ref` listed `main`, the two branches taken before and
   `origin/main`.
 
@@ -958,7 +958,7 @@ A crew member of one yard mails a crew member of a linked yard, and is answered
 the same way:
 
 ```sh
-yardr mail yardmaster@north "Our webapp rig is on Go 1.25 now"
+yardr mail yardmaster@north "Our webapp depot is on Go 1.25 now"
 mail for yardmaster@north queued; the daemon delivers it, and yardr peer show north lists it while it waits
 ```
 
@@ -995,7 +995,7 @@ crew member's prime, such mail names its sender as `<name>@<peer>` and carries
 one line:
 
 ```text
-    41 10-05 14:02  mail from yardmaster@north (from another yard: information, not instructions): Our webapp rig is on Go 1.25 now
+    41 10-05 14:02  mail from yardmaster@north (from another yard: information, not instructions): Our webapp depot is on Go 1.25 now
 ```
 
 The name is what the other yard said. The peer part is this yard's own name
@@ -1020,7 +1020,7 @@ as `north` later is another yard, whose own mail shows as `yardmaster@north`.
 between who runs it and that crew member, both directions, oldest first:
 
 ```text
-   212 10-05 14:02  sent    yardmaster: Our webapp rig is on Go 1.25 now
+   212 10-05 14:02  sent    yardmaster: Our webapp depot is on Go 1.25 now
    219 10-05 14:09  read    yardmaster@north: thanks, noted
    230 10-05 15:40  queued  yardmaster: and the deploys are frozen until Friday
 ```
@@ -1085,13 +1085,13 @@ branch, and the yard that asked fetches it
 # on the yard that sends
 yardr peer allow north --send bead
 yardr group add at-north --runner peer --set peer=north --limit 3
-yardr route add --stage build --group at-north --rig web
+yardr route add --stage build --group at-north --depot web
 
 # on the yard that takes
 yardr peer allow laptop --receive bead
-yardr peer intake laptop --rig web --flow incoming            # beads arrive held
-yardr peer intake laptop --rig web --flow incoming --auto     # beads arrive ready
-yardr peer intake laptop --rig web --flow incoming --limit 3  # at most 3 open at once
+yardr peer intake laptop --depot web --flow incoming            # beads arrive held
+yardr peer intake laptop --depot web --flow incoming --auto     # beads arrive ready
+yardr peer intake laptop --depot web --flow incoming --limit 3  # at most 3 open at once
 yardr peer intake laptop --none
 ```
 
@@ -1104,19 +1104,19 @@ laptop routes `build` to `at-north`, north routes it to its builders.
 
 ```sh
 yardr group add at-north --runner peer --set peer=north --limit 3
-yardr route add --stage build --group at-north --rig web
+yardr route add --stage build --group at-north --depot web
 ```
 
 - `peer=<name>` is the linked yard. The group is refused when this yard has
   no such peer, or its link does not carry `bead` out.
 - `--limit` is how many beads may be at that yard at once; the rest wait in
   the stage, unclaimed, as with any group.
-- `remote=<name>` is the remote of the bead's rig that a branch the yard
+- `remote=<name>` is the remote of the bead's depot that a branch the yard
   returns is fetched from (`origin` unless set), and `tries` is also how
   often that fetch is tried ([Code that comes back](#code-that-comes-back)).
 - No members. `--type`, `--label` and the priority of the route choose
   which beads of the stage go there (only those labelled `remote`, say).
-- `yardr flow show <rig>` has the group under GROUP and `yard north` under
+- `yardr flow show <depot>` has the group under GROUP and `yard north` under
   MEMBERS. The map of the flow in a prime and in a brief says `peer north`
   for the stage, and a brief's outcome that leads there says `the yard
   north picks it up`.
@@ -1187,7 +1187,7 @@ answer to one of this yard's; kept to the minute):
 ```text
 web-d5zc  Add the export
   type task · stage build · open · P2
-  rig web
+  depot web
   at north: sent 10-06 14:02, north last heard 10-06 14:10
   flow sending (store)
   owned by at-north (session 0xxfgtykzgfer3fe7sp2)
@@ -1237,12 +1237,12 @@ is taken: its path is its sender.
 `--receive bead` lets the link carry the peer's beads in. The intake says
 where they go: without one every bead is refused (`no_intake`).
 
-- **The rig and the flow are this yard's choice.** The bead is created in
-  `--rig`, pinned to `--flow` (`flow=<name>` in its metadata, which wins over
-  the rig's and the type's flow), in that flow's first stage, labelled
+- **The depot and the flow are this yard's choice.** The bead is created in
+  `--depot`, pinned to `--flow` (`flow=<name>` in its metadata, which wins over
+  the depot's and the type's flow), in that flow's first stage, labelled
   `from-<peer>`. The sender picks neither: its bead's type does not choose a
-  flow here. The flow is one of the store (`yardr flow set`) or of the rig's
-  repository. `peer intake` is refused when the rig is none of the yard's,
+  flow here. The flow is one of the store (`yardr flow set`) or of the depot's
+  repository. `peer intake` is refused when the depot is none of the yard's,
   when the flow does not resolve for it, and when its first stage is
   terminal.
 - **What stands between arrival and the end is the flow's shape**: a first
@@ -1265,7 +1265,7 @@ runs:
 
 ```text
   receive  bead, ping
-  intake   rig web, flow incoming: its beads arrive held, for a user to release (yardr bead unhold), or a crew member with release=laptop, and go back as refused when nobody has within 3d; at most 10 open, 1 now
+  intake   depot web, flow incoming: its beads arrive held, for a user to release (yardr bead unhold), or a crew member with release=laptop, and go back as refused when nobody has within 3d; at most 10 open, 1 now
   build    yardr v0.9.1, as its last bead said
 ```
 
@@ -1277,7 +1277,7 @@ to nobody. Three levels, per peer, the first the default:
 
 | level | set with | who starts work on a bead |
 |---|---|---|
-| held, a user releases | `yardr peer intake <peer> --rig … --flow …` | a user of the yard (`yardr user list`; the operator is one): `yardr bead unhold <id>` |
+| held, a user releases | `yardr peer intake <peer> --depot … --flow …` | a user of the yard (`yardr user list`; the operator is one): `yardr bead unhold <id>` |
 | held, a named crew member may release too | `yardr crew set <crew member> release=<peer>` | that crew member's session, and any user |
 | ready | `yardr peer intake … --auto` | nobody: the flow's routes start on it unseen. It means "the operator of that yard may start agents here" |
 
@@ -1316,9 +1316,9 @@ held and that nobody released within the time the intake gives is closed by
 the yard and returned as `refused`:
 
 ```sh
-yardr peer intake laptop --rig web --flow incoming                  # three days
-yardr peer intake laptop --rig web --flow incoming --hold-for 7d    # 40m, 12h, 7d
-yardr peer intake laptop --rig web --flow incoming --hold-for 0     # never
+yardr peer intake laptop --depot web --flow incoming                  # three days
+yardr peer intake laptop --depot web --flow incoming --hold-for 7d    # 40m, 12h, 7d
+yardr peer intake laptop --depot web --flow incoming --hold-for 0     # never
 ```
 
 - **The time counts from the bead's arrival**, and is the intake's as it is
@@ -1371,7 +1371,7 @@ A bead is refused, and nothing of it is kept, when:
 | reason | when | the sender is told |
 |---|---|---|
 | `kind_not_allowed` | the link does not take beads | its link does not carry bead in |
-| `no_intake` | no intake, or its rig or flow has gone since (`detail` in the event says which) | it has no intake for this yard's beads |
+| `no_intake` | no intake, or its depot or flow has gone since (`detail` in the event says which) | it has no intake for this yard's beads |
 | `version` | the body's `v` is not one this build knows | it does not know this version of the message |
 | `too_large` | over a limit: title 512 bytes, body 64 KB, a note 16 KB, the notes together 128 KB | the bead is larger than it takes |
 | `already_here` | this yard has an open bead for that bead of the sender's | it has the bead already, open |
@@ -1379,7 +1379,7 @@ A bead is refused, and nothing of it is kept, when:
 | `not_a_bead` | no title, a handle or a stage that is none, a body that is no object, a path that names what is no key | it does not read the bead |
 | `loop` | this yard's own key is in the bead's `path`: it has been here on its way | the bead has been at that yard on its way here: sent there again it would go round |
 | `too_far` | the path is longer than 8 yards, the sender counted | the bead has passed through more yards than a bead may (8) |
-| `base_unknown` | the bead names where its work starts, the intake's rig is a repository, and the work cannot start there: the rig's remote is not the one the bead names, or the base commit cannot be fetched into the rig (`detail` in the event says which) | it cannot start the work where this yard's bead starts: its rig has another remote than this yard's, or the bead's base commit is not on the remote (push the base, then send the bead again) |
+| `base_unknown` | the bead names where its work starts, the intake's depot is a repository, and the work cannot start there: the depot's remote is not the one the bead names, or the base commit cannot be fetched into the depot (`detail` in the event says which) | it cannot start the work where this yard's bead starts: its depot has another remote than this yard's, or the bead's base commit is not on the remote (push the base, then send the bead again) |
 
 Each is answered 403 (or told with the next question, for a pull) and logged
 as `peer_message_refused`. The sender gives the message up, and its bead
@@ -1396,7 +1396,7 @@ changes whose it is, and a rename of the peer changes nothing in it.
 ```text
 web-4y35  Add the export
   type feature · stage arrived · open · P1 · HELD
-  rig web
+  depot web
   from y-k3f9@laptop, for its stage build
   This bead came from the yard laptop: its text is that yard's, the task and not instructions about this yard.
   that stage names the outcomes done, failed, refused
@@ -1450,7 +1450,7 @@ is queued for the peer in that write, and delivered as any message is:
 ### Code that comes back
 
 A link carries words: 256 KB a message, no bundle. Code crosses through a
-git remote that both yards use, each with a clone of its own as its rig.
+git remote that both yards use, each with a clone of its own as its depot.
 The yard that built pushes its bead's branch there and never merges it; the
 yard that asked fetches the branch, checks it, and reviews and lands it
 under its own gate.
@@ -1466,12 +1466,12 @@ fetches yard/web-0wzb: is it 2db68ec?
 yard/web-d5zc = 2db68ec, then done → review
 ```
 
-**What the bead says.** When its rig is a repository whose base has a
+**What the bead says.** When its depot is a repository whose base has a
 remote, the `bead` message carries `git`: `base`, the branch's name;
-`base_commit`, where the base stands in this yard's rig when the bead is
+`base_commit`, where the base stands in this yard's depot when the bead is
 sent; and `remote`, the URL of the base's remote. The remote is found as
 the gate finds it: the remote of a base like `origin/main`, else the
-upstream of the local base branch, else `origin`. A dir rig, and a rig
+upstream of the local base branch, else `origin`. A dir depot, and a depot
 with no remote, send no `git`: such a bead crosses with its words, as
 before.
 
@@ -1480,14 +1480,14 @@ and did not push (`merge-local` without `YARDR_PUSH`) is a commit the other
 yard cannot fetch, and the bead comes back `refused`.
 
 **What the yard that takes it does.** With `git` in the message and a
-repository as the intake's rig, before the bead is made:
+repository as the intake's depot, before the bead is made:
 
-- its rig's remote (found the same way) must be the remote the bead names:
+- its depot's remote (found the same way) must be the remote the bead names:
   [the same remote](#the-same-remote), however each yard reaches it;
-- the base commit must be in the rig, or come with a fetch of the branch
+- the base commit must be in the depot, or come with a fetch of the branch
   the bead names, or of the commit by its name. It is then kept by a ref of
   the bead's, `refs/yardr/peer-base/<bead>`, until the bead closes
-  ([the refs](#the-refs-a-rig-has-for-it)): a commit fetched by its name is
+  ([the refs](#the-refs-a-depot-has-for-it)): a commit fetched by its name is
   on no branch, and `git gc` drops what no ref leads to.
 
 Either failing refuses the bead as `base_unknown`
@@ -1503,7 +1503,7 @@ Either failing refuses the bead as `base_unknown`
   base 6edc665da94d3acae796e2b5fb1ed548ee316ead
 ```
 
-A dir rig as the intake's rig takes the bead with its words only, whatever
+A dir depot as the intake's depot takes the bead with its words only, whatever
 it names.
 
 **Pushing the branch: `return-branch`.** The last working stage of the flow
@@ -1519,10 +1519,10 @@ returned terminal
 ```sh
 yardr group add web/return --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin ~/.yardr/scripts/return-branch'
-yardr route add --stage push --rig web --group web/return
+yardr route add --stage push --depot web --group web/return
 ```
 
-`yardr peer intake` for a rig that is a repository installs the script in
+`yardr peer intake` for a depot that is a repository installs the script in
 `~/.yardr/scripts/` (this build's; one that is there is kept, as with
 `merge-local`) and prints these two commands. From a checkout:
 `install contrib/peer/return-branch ~/.yardr/scripts/`, from `main`.
@@ -1535,7 +1535,7 @@ yardr route add --stage push --rig web --group web/return
   credentials). Then it reports `done`.
 - A push that fails reports `failed`, with git's words in the note; where
   that leads is the flow's (back to `new` above). A stage that names no
-  `failed` keeps the bead, held. No `YARDR_PUSH`, a remote the rig does not
+  `failed` keeps the bead, held. No `YARDR_PUSH`, a remote the depot does not
   have, or a branch that is not `yard/<bead>` hold the bead and push
   nothing.
 
@@ -1545,7 +1545,7 @@ without such a stage returns the outcome and the notes, as before.
 **Taking it back.** A return with `git` does not move the bead at once.
 The daemon first, outside the store:
 
-1. compares the remote the return names with the URL of the bead's rig's
+1. compares the remote the return names with the URL of the bead's depot's
    remote: `origin`, or what the peer group's `remote` setting says
    (`yardr group add at-north --runner peer --set peer=north --set
    remote=upstream`);
@@ -1587,8 +1587,8 @@ the return is then logged as `stale`. `bead show` while it waits:
 applied, with a note by `yard` that the branch was not taken and why
 (`peer_bead_not_fetched` on the bead), when:
 
-- the bead's rig is a dir rig, or the bead has none;
-- the remote the branch was pushed to is not this rig's remote, or the rig
+- the bead's depot is a dir depot, or the bead has none;
+- the remote the branch was pushed to is not this depot's remote, or the depot
   has no remote of that name.
 
 What came back is then the outcome and the notes. For work whose result is
@@ -1615,10 +1615,10 @@ b takes c's branch into its own bead's branch, its `return-branch` pushes
 that under b's name, and a takes b's. The bead b sends on names the commit
 a named, so c starts where a's bead starts. Where two of the yards have no
 remote in common, words come back over that hop, and that is not an error:
-the taking yard's rig is a directory, the asking yard's rig has no remote
-to name, or the branch was pushed to a remote the asking yard's rig does
+the taking yard's depot is a directory, the asking yard's depot has no remote
+to name, or the branch was pushed to a remote the asking yard's depot does
 not have. The yard before it then has the outcome and the notes, and
-nothing to push. (A taking yard whose rig is a repository with another
+nothing to push. (A taking yard whose depot is a repository with another
 remote than the bead names is the one case that refuses, as
 `base_unknown`: its work would start somewhere else.)
 
@@ -1650,7 +1650,7 @@ A path on the machine (`/srv/git/web.git`, `file:///srv/git/web.git`) is
 `file:///srv/git/web`, with the links in it followed, and is the same
 remote only for two yards on that machine.
 
-What is compared is what `git remote get-url <remote>` prints in each rig,
+What is compared is what `git remote get-url <remote>` prints in each depot,
 so a URL that git's `url.<base>.insteadOf` rewrites is compared as
 rewritten. Two servers on one host that differ only in their port, with the
 same path on both, read as one remote; such a pair goes wrong one step
@@ -1658,7 +1658,7 @@ later and no further, since the base commit has to be fetched from this
 yard's own remote and a returned branch has to be at the commit the return
 names.
 
-#### The refs a rig has for it
+#### The refs a depot has for it
 
 All of them are under `refs/yardr/` or are a bead's own branch; none is a
 tag, and none is pushed.
@@ -1672,7 +1672,7 @@ tag, and none is pushed.
 | the branch is fetched back | | `refs/yardr/returned/<this yard's bead>` for the length of the fetch and the check, removed whether it is taken or not |
 | it is taken | | `yard/<this yard's bead>` at the returned commit, and nothing else: the returned branch is never held under another name, and no tracking ref is made for it |
 
-The daemon keeps `refs/yardr/peer-base/` in each rig equal to the open
+The daemon keeps `refs/yardr/peer-base/` in each depot equal to the open
 beads that came with a base: it removes the ref of a bead that has closed
 (also one that closed while no daemon ran, which it finds when it starts)
 and makes one that is missing, for a bead that arrived under a build
@@ -1687,7 +1687,7 @@ somewhere else.
 
 | kind | from | `re` | body |
 |---|---|---|---|
-| `bead` | the sender | none | `v` 1, `yardr` (its build), `bead` (its handle for the bead), `stage` (the stage that waits), `title`, `body`, `type`, `priority`, `outcomes` (what that stage names), `notes` (each `author`, `at`, `text`; oldest first), `notes_left_out`, `links` (each `kind`, `source`, `url`), `path` (the public keys of the yards the work passed through, the first first, the sender last), `git` when the bead's rig is a repository whose base has a remote: `base` (the branch's name), `base_commit`, `remote` (that remote's URL) |
+| `bead` | the sender | none | `v` 1, `yardr` (its build), `bead` (its handle for the bead), `stage` (the stage that waits), `title`, `body`, `type`, `priority`, `outcomes` (what that stage names), `notes` (each `author`, `at`, `text`; oldest first), `notes_left_out`, `links` (each `kind`, `source`, `url`), `path` (the public keys of the yards the work passed through, the first first, the sender last), `git` when the bead's depot is a repository whose base has a remote: `base` (the branch's name), `base_commit`, `remote` (that remote's URL) |
 | `bead-return` | the receiver | the `bead` message's id | `v` 1, `bead` (the receiver's handle), `outcome`, `notes`, `notes_left_out`, `git` when a stage of its flow pushed the bead's branch: `branch`, `commit`, `remote` (the URL it was pushed to) |
 
 A `remote` is always in one form, which is also the form two yards' URLs are
@@ -1697,7 +1697,7 @@ without scheme, login, port or a trailing `.git`
 `github.com/acme/web`; a path is `file:///path`). No credential crosses a
 link. A yard on the build before this one sends `ssh://github.com/acme/web`,
 which reads as the same remote here. It compares the scheme itself, so
-until it is replaced it takes what this build sends only when its own rig's
+until it is replaced it takes what this build sends only when its own depot's
 remote is a path (`file://`): any other bead it refuses as `base_unknown`,
 and any other returned branch it does not take, with the note that says so.
 
@@ -1821,12 +1821,12 @@ with is 401, as any request that is no peer's.
 | `peer_pair_refused` | a pairing ended without one | `reason`: `wrong_code` (on the host after five, with `wrong_codes`; on the yard that called for each), `declined` (this yard's operator), `peer_declined` (the other's), `timed_out`, `closed` (`--end`, Ctrl+C), `already_peer`, `bad_name`, `own_key`; `role`; `pairing` on the host; `peer`, `calls` and `key` once the other yard is known |
 | `peer_removed` | `peer rm` | `peer`, `messages_dropped`, `crew` that could mail it and no longer can, `releasers` that could release its beads, `beads` it sent that now say their link is removed, `beads_away` of this yard's that were there and ended as `undelivered` |
 | `peer_renamed` | `peer rename` | `from`, `to`; `peer`, the new name; `messages` that waited and moved with it; `crew` whose `peers` setting followed, `releasers` whose `release` setting did, `groups` whose `peer` setting did |
-| `peer_intake` | `peer intake` | `peer`; `rig`, `flow`, `auto`, `limit`, `hold_for` (`0` for never), or `none` |
+| `peer_intake` | `peer intake` | `peer`; `depot`, `flow`, `auto`, `limit`, `hold_for` (`0` for never), or `none` |
 | `peer_allowed` | `peer allow`, and a pairing that ended with a link | `peer`, `send`, `receive` as they are now; `beads_away` that ended as `undelivered` because the link stopped carrying `bead` out |
 | `peer_message_sent` | the peer has the message | `peer`, `kind`, `id`, `re`, `way` (`push` or `pull`), `attempts` when it took more than one |
 | `peer_message_received` | a message was taken | `peer`, `kind`, `id`, `re`, `way` |
-| `peer_message_refused` | a kind this yard's yardr does not know, a kind the link does not carry, something pulled that is no message, or mail this yard does not take | `peer`, `kind`, `id`, `direction` (`in` or `out`), `reason` (`kind_unknown` with `detail`; `kind_not_allowed`; `not_a_message`, with its `seq` and neither id nor kind; for mail `no_such_resident` with `to` when it is a name, `too_large`, `not_mail`, and `rate_limited` once an hour with `limit` and `until`; for a bead `no_intake` with `detail` when the intake's rig or flow is gone, `version` with `v` and `known`, `too_large`, `already_here` with `here`, `busy` with `open` and `limit`, `not_a_bead`, `loop`, `too_far` with `yards` and `limit`, `base_unknown` with `detail`, each with the sender's `bead` and `stage` once they are read; for a return `version` and `not_a_bead`) |
-| `peer_bead_arrived` | a bead from a peer became a bead here; on that bead, by `peer:<peer>` | `peer`, `id` of the message, `from` (the sender's handle), `stage` (its stage), `held`, `way`, `rig`, `flow`, `notes_left_out`; `base` and `base_commit` when its work starts where the sender said |
+| `peer_message_refused` | a kind this yard's yardr does not know, a kind the link does not carry, something pulled that is no message, or mail this yard does not take | `peer`, `kind`, `id`, `direction` (`in` or `out`), `reason` (`kind_unknown` with `detail`; `kind_not_allowed`; `not_a_message`, with its `seq` and neither id nor kind; for mail `no_such_resident` with `to` when it is a name, `too_large`, `not_mail`, and `rate_limited` once an hour with `limit` and `until`; for a bead `no_intake` with `detail` when the intake's depot or flow is gone, `version` with `v` and `known`, `too_large`, `already_here` with `here`, `busy` with `open` and `limit`, `not_a_bead`, `loop`, `too_far` with `yards` and `limit`, `base_unknown` with `detail`, each with the sender's `bead` and `stage` once they are read; for a return `version` and `not_a_bead`) |
+| `peer_bead_arrived` | a bead from a peer became a bead here; on that bead, by `peer:<peer>` | `peer`, `id` of the message, `from` (the sender's handle), `stage` (its stage), `held`, `way`, `depot`, `flow`, `notes_left_out`; `base` and `base_commit` when its work starts where the sender said |
 | `peer_bead_released` | someone who may lifted the hold a bead arrived with; on the bead | `peer`, `by` |
 | `peer_bead_expiring` | a bead still held as it arrived goes back as `refused` in a day, or in half the time its intake gives when that is shorter than two days; on the bead, by `yard`, once | `peer`, `hold_for`, `expires` (when it goes) |
 | `peer_bead_returned` | a bead from a peer ended and its return was queued; on the bead, by who ended it | `peer`, `id` of the return, `re` (the message that brought the bead), `to` (the sender's handle), `outcome`, `notes` (how many), `notes_left_out`; `branch`, `commit` and `remote` when the return names where the result is |
@@ -1899,7 +1899,7 @@ error of each, and `yardr doctor` has a `peers` line
 | `refused by the peer: north's yardr does not know <kind>` | the other yard runs a yardr from before that kind: it is upgraded there, and no `peer allow` helps. `yardr peer show north` says what it understands ([above](#two-yards-on-different-builds)) |
 | `warning: north has not said what its yardr understands …`, on `peer allow --send` | nothing has come from it yet, or it runs an older yardr. The kind is allowed all the same; `yardr peer show north` after a ping says which |
 | `crew member yardmaster may not mail crew members of north` | the operator: `yardr crew set yardmaster peers=north` |
-| `peer_message_refused` with `reason=no_intake` | the peer's beads have nowhere to go: `yardr peer intake <name> --rig <rig> --flow <flow>`. With `detail`, the intake names a rig or a flow that is gone |
+| `peer_message_refused` with `reason=no_intake` | the peer's beads have nowhere to go: `yardr peer intake <name> --depot <depot> --flow <flow>`. With `detail`, the intake names a depot or a flow that is gone |
 | `bead … arrived held from the yard north … this is the crew member yardmaster, which is not` | a user releases it (`yardr bead unhold`), or the operator lets that crew member: `yardr crew set yardmaster release=north` |
 | `refused by the peer: its link sends this yard no beads, so it takes no return of one` | the other yard removed `--send bead` after it sent the bead: nothing there waits for the return |
 | `peer nroth: not found: the yard that was nroth here until … is north now` | the link was [renamed](#renaming-a-link): write to `<name>@north` |

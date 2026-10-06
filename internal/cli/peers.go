@@ -45,7 +45,7 @@ The way by hand, when no code can be passed, or for scripts:
   yardr peer allow <name> --send ping --receive ping
   yardr peer ping <name>               prove the link, both ways
   yardr peer rename <old> <new>        change the name this yard has for a link
-  yardr peer intake <name> --rig <rig> --flow <flow>
+  yardr peer intake <name> --depot <depot> --flow <flow>
                                        where the beads it sends go (with
                                        yardr peer allow <name> --receive bead)
 
@@ -458,16 +458,16 @@ func (a *app) peerIntakeCmd() *cobra.Command {
 	var in store.PeerIntake
 	var none bool
 	cmd := &cobra.Command{
-		Use: "intake <name>", Short: "Say where the beads a peer sends go: the rig and the flow", Args: cobra.ExactArgs(1),
+		Use: "intake <name>", Short: "Say where the beads a peer sends go: the depot and the flow", Args: cobra.ExactArgs(1),
 		Long: `A linked yard can send this one a bead to work (yardr peer allow <name>
 --receive bead). The intake says where such a bead goes: it becomes a bead of
-this yard in --rig, pinned to --flow, in that flow's first stage, labelled
+this yard in --depot, pinned to --flow, in that flow's first stage, labelled
 from-<name>. When the flow ends it (a terminal stage), the outcome and the
 notes written here go back. Without an intake every bead the peer sends is
 refused (no_intake).
 
 The flow is this yard's choice, never the sender's: a flow of the store
-(yardr flow add) or of the rig's repository. What stands between arrival and
+(yardr flow add) or of the depot's repository. What stands between arrival and
 the end is its shape: a first stage a person works, or one routed to builders.
 
 A bead arrives held: its text is another yard's, and it becomes the brief of
@@ -490,21 +490,21 @@ peer_bead_expiring is logged on the bead (yardr subscribe <name> yardr
 nobody releases it. It holds for the beads that wait already.
 
 Only the operator may set an intake, as only the operator allows what a link
-carries. --none removes it, which anyone may. Refused when the rig is none
+carries. --none removes it, which anyone may. Refused when the depot is none
 of the yard's or the flow does not resolve for it.`,
 		Example: `  yardr peer allow north --receive bead
-  yardr peer intake north --rig web --flow incoming
-  yardr peer intake north --rig web --flow incoming --auto
-  yardr peer intake north --rig web --flow incoming --hold-for 7d
+  yardr peer intake north --depot web --flow incoming
+  yardr peer intake north --depot web --flow incoming --auto
+  yardr peer intake north --depot web --flow incoming --hold-for 7d
   yardr peer intake north --none`,
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()
-			set := in.Rig != "" || in.Flow != "" || in.Auto || c.Flags().Changed("limit") || c.Flags().Changed("hold-for")
+			set := in.Depot != "" || in.Flow != "" || in.Auto || c.Flags().Changed("limit") || c.Flags().Changed("hold-for")
 			switch {
 			case none && set:
 				return errors.New("--none removes the intake: it goes with no other flag")
-			case !none && (in.Rig == "" || in.Flow == ""):
-				return errors.New("say where its beads go: --rig <rig> --flow <flow> (--auto to let them arrive ready), or --none")
+			case !none && (in.Depot == "" || in.Flow == ""):
+				return errors.New("say where its beads go: --depot <depot> --flow <flow> (--auto to let them arrive ready), or --none")
 			case c.Flags().Changed("limit") && in.Limit < 1:
 				return errors.New("--limit: a number of open beads, at least 1")
 			}
@@ -533,14 +533,15 @@ of the yard's or the flow does not resolve for it.`,
 				// push, which is a stage of the flow and a script's: said
 				// here, where the operator decides what the peer's beads
 				// become.
-				if rig, err := st.GetRig(ctx, p.Intake.Rig); err == nil && !rig.IsDir() {
-					a.returnBranchHint(p.Intake.Flow, rig.Name)
+				if depot, err := st.GetDepot(ctx, p.Intake.Depot); err == nil && !depot.IsDir() {
+					a.returnBranchHint(p.Intake.Flow, depot.Name)
 				}
 			})
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&in.Rig, "rig", "", "the rig its beads become beads of")
+	f.StringVar(&in.Depot, "depot", "", "the depot its beads become beads of")
+	oldFlag(cmd, "rig", "depot")
 	f.StringVar(&in.Flow, "flow", "", "the flow each is pinned to, and starts in the first stage of")
 	f.BoolVar(&in.Auto, "auto", false, "let its beads arrive ready, not held: the other yard's operator can then start agents here")
 	f.IntVar(&in.Limit, "limit", 0, fmt.Sprintf("open beads from it this yard keeps at once (default %d)", store.PeerIntakeLimit))
@@ -554,7 +555,7 @@ of the yard's or the flow does not resolve for it.`,
 // the intake's flow runs it. One already there is kept as it is: it may be
 // the yard's own. A script that cannot be written is said and stops
 // nothing: the intake is set.
-func (a *app) returnBranchHint(flow, rig string) {
+func (a *app) returnBranchHint(flow, depot string) {
 	cfg, err := a.config()
 	if err != nil {
 		return
@@ -576,9 +577,9 @@ func (a *app) returnBranchHint(flow, rig string) {
 	}
 	fmt.Printf("Its beads' code goes back when a stage of flow %s pushes their branch (docs/peers.md, \"Code that comes back\"):\n"+
 		"  yardr group add %s/return --runner exec --limit 1 --set cmd=%s\n"+
-		"  yardr route add --stage push --rig %s --group %s/return\n"+
+		"  yardr route add --stage push --depot %s --group %s/return\n"+
 		"Without such a stage the outcome and the notes go back, and no code.\n",
-		flow, rig, shellQuote("YARDR_PUSH=origin "+shellQuote(path)), rig, rig)
+		flow, depot, shellQuote("YARDR_PUSH=origin "+shellQuote(path)), depot, depot)
 }
 
 // intakeLine says where a peer's beads go and how they arrive, or that
@@ -590,7 +591,7 @@ func intakeLine(p store.Peer) string {
 		if !takes {
 			return ""
 		}
-		return fmt.Sprintf("none: a bead it sends is refused (yardr peer intake %s --rig <rig> --flow <flow>)", p.Name)
+		return fmt.Sprintf("none: a bead it sends is refused (yardr peer intake %s --depot <depot> --flow <flow>)", p.Name)
 	}
 	how := fmt.Sprintf("its beads arrive held, for a user to release (yardr bead unhold), or a crew member with release=%s, ", p.Name)
 	if hold := p.Intake.Hold(); hold > 0 {
@@ -601,7 +602,7 @@ func intakeLine(p store.Peer) string {
 	if p.Intake.Auto {
 		how = "its beads arrive ready (--auto): the flow's routes start on them unseen"
 	}
-	line := fmt.Sprintf("rig %s, flow %s: %s; at most %d open, %d now", p.Intake.Rig, p.Intake.Flow, how, p.Intake.Most(), p.Beads)
+	line := fmt.Sprintf("depot %s, flow %s: %s; at most %d open, %d now", p.Intake.Depot, p.Intake.Flow, how, p.Intake.Most(), p.Beads)
 	if !takes {
 		line += fmt.Sprintf(". The link does not take its beads yet: yardr peer allow %s --receive bead", p.Name)
 	}

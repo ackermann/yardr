@@ -18,7 +18,7 @@
   {{- end}}
   <section class="item">
     <dl class="facts">
-      {{- with .Bead.Rig}}<div><dt>rig</dt><dd>{{.}}</dd></div>{{end}}
+      {{- with .Bead.Depot}}<div><dt>depot</dt><dd>{{.}}</dd></div>{{end}}
       <div><dt>flow</dt><dd>{{with .Flow}}{{.Name}} <span class="faint">({{.Source}})</span>{{else}}<span class="faint">none: it may move to any stage</span>{{end}}</dd></div>
       {{- with .Base}}<div><dt>base</dt><dd>{{.}}</dd></div>{{end}}
       {{- with .Train}}<div><dt>train</dt><dd><a class="bead" href="/beads/{{.ID}}">{{.ID}}</a> {{.Title}}</dd></div>{{end}}

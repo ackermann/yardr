@@ -3,11 +3,11 @@
 //	manual  nothing is started; a human or outside agent picks the bead up
 //	        with `yardr bead list --group <name>` and advances it. With
 //	        config notify=true a herdr notification says a bead is waiting.
-//	exec    runs config.cmd through sh -c in the rig (or config.dir), with the
-//	        rig, base, branch and worktree in its environment (a dir rig's
+//	exec    runs config.cmd through sh -c in the depot (or config.dir), with the
+//	        depot, base, branch and worktree in its environment (a dir depot's
 //	        bead has no base, branch or worktree).
 //	herdr   opens a worktree per bead in herdr and starts an agent in it; a
-//	        dir rig's bead is worked in the rig's directory itself.
+//	        dir depot's bead is worked in the depot's directory itself.
 //	peer    sends the bead to the linked yard config.peer names, which
 //	        works it in a flow of its own; that yard's return ends the
 //	        session with the outcome its flow came to.
@@ -56,9 +56,9 @@ func All(home string, st store.API, log *slog.Logger, onError func(error)) map[s
 // whether or not anything collects; the resource attributes this process
 // was itself started with are kept in front of the bead's.
 func Env(job dispatch.Job, actor string) []string {
-	rig := ""
-	if job.Rig != nil {
-		rig = job.Rig.Name
+	depot := ""
+	if job.Depot != nil {
+		depot = job.Depot.Name
 	}
 	return slices.Concat(
 		config.Env("BEAD", job.Bead.ID),
@@ -66,7 +66,7 @@ func Env(job dispatch.Job, actor string) []string {
 		config.Env("STAGE", job.Bead.Stage),
 		config.Env("GROUP", job.Group.Name),
 		config.Env("ACTOR", actor),
-		otel.Env(os.Getenv(otel.ResourceVar), job.Bead.ID, job.Session.ID, job.Bead.Stage, job.Group.Name, rig),
+		otel.Env(os.Getenv(otel.ResourceVar), job.Bead.ID, job.Session.ID, job.Bead.Stage, job.Group.Name, depot),
 	)
 }
 
@@ -85,11 +85,11 @@ func strs(cfg map[string]any, key string) []string {
 // prompt file followed by the bead, the yard commands to report back and,
 // when a flow governs the bead, the map of the flow and the stage file it
 // has for the bead's stage.
-// home is the yard's home, where relative prompts not in the rig are found.
+// home is the yard's home, where relative prompts not in the depot are found.
 func Brief(job dispatch.Job, actor, workdir, home string) (string, error) {
 	var b strings.Builder
 	if p := str(job.Group.Config, "prompt", ""); p != "" {
-		text, err := readPrompt(p, job.Rig, home)
+		text, err := readPrompt(p, job.Depot, home)
 		if err != nil {
 			return "", fmt.Errorf("group %s prompt: %w", job.Group.Name, err)
 		}
@@ -100,10 +100,10 @@ func Brief(job dispatch.Job, actor, workdir, home string) (string, error) {
 	fmt.Fprintf(&b, "# yardr session %s\n\n", job.Session.ID)
 	fmt.Fprintf(&b, "You are `%s`, working bead **%s** (%s, stage `%s`) for group `%s`.\n\n",
 		actor, bead.ID, bead.Type, bead.Stage, job.Group.Name)
-	dirRig := job.Rig != nil && job.Rig.IsDir()
+	dirDepot := job.Depot != nil && job.Depot.IsDir()
 	switch {
-	case dirRig && workdir != "":
-		fmt.Fprintf(&b, "Work in `%s` directly: it is a plain directory (dir rig `%s`), with no branch to work on. Commit nothing. Do not touch files outside what the bead names. When you report, say in your note what you produced, by path.\n\n", workdir, job.Rig.Name)
+	case dirDepot && workdir != "":
+		fmt.Fprintf(&b, "Work in `%s` directly: it is a plain directory (dir depot `%s`), with no branch to work on. Commit nothing. Do not touch files outside what the bead names. When you report, say in your note what you produced, by path.\n\n", workdir, job.Depot.Name)
 	case workdir != "":
 		// Builders never push: the branch is landed from this worktree (the
 		// refinery reads it here; a train's integrator pushes the train's).
@@ -113,14 +113,14 @@ func Brief(job dispatch.Job, actor, workdir, home string) (string, error) {
 		fmt.Fprintf(&b, "Work in `%s` (branch `%s`). Commit your work there. Do not push it unless a section below says you may: the branch is landed from this worktree.\n\n", workdir, Branch(bead))
 	}
 	switch {
-	case job.Train != "" && dirRig:
+	case job.Train != "" && dirDepot:
 		fmt.Fprintf(&b, "This bead is a child of train %s, which only groups it with its siblings: they all work in the same directory.\n\n", job.Train)
 	case job.Train != "":
-		fmt.Fprintf(&b, "This bead is a child of train %s: your branch starts from `%s` and your work lands on that branch, not on the rig's base.\n\n",
+		fmt.Fprintf(&b, "This bead is a child of train %s: your branch starts from `%s` and your work lands on that branch, not on the depot's base.\n\n",
 			job.Train, BaseOf(job))
 	}
 	switch {
-	case bead.Type == store.TypeTrain && dirRig:
+	case bead.Type == store.TypeTrain && dirDepot:
 		writeDirTrain(&b, job)
 	case bead.Type == store.TypeTrain:
 		writeTrain(&b, job)
@@ -157,7 +157,7 @@ Your environment already names you to yardr (YARDR_ACTOR=%[1]s, YARDR_BEAD, YARD
 	sf := job.StageFile
 	if sf == nil && job.StoreFlow != "" {
 		// A store flow's stage files are files in the yard's home, like
-		// the roles a rig does not carry.
+		// the roles a depot does not carry.
 		var err error
 		if sf, err = store.HomeStageFile(home, job.StoreFlow, bead.Stage); err != nil {
 			return "", err
@@ -194,7 +194,7 @@ Your environment already names you to yardr (YARDR_ACTOR=%[1]s, YARDR_BEAD, YARD
 }
 
 // writeTrain says what a train's branch is: its children's work, landed on
-// it one by one, which goes to the rig's base as one unit. Whoever works the
+// it one by one, which goes to the depot's base as one unit. Whoever works the
 // train (a reviewer, above all) looks at the whole range, not one child.
 func writeTrain(b *strings.Builder, job dispatch.Job) {
 	branch := Branch(job.Bead)
@@ -203,7 +203,7 @@ func writeTrain(b *strings.Builder, job dispatch.Job) {
 		fmt.Fprintf(b, " Children: %s.", strings.Join(job.Children, ", "))
 	}
 	fmt.Fprintf(b, " The whole change is `%s..%s` (`git log %[1]s..%[2]s`, `git diff %[1]s...%[2]s`): work on it as a whole, not child by child.\n\n", BaseOf(job), branch)
-	fmt.Fprintf(b, "A train sent back to `open` waits there only while a child is open: before sending it back, add the fix as a child (`yardr bead create ... -r <rig>`, then `yardr dep add %s <child> -k parent`), or it is integrated again unchanged.\n\n", job.Bead.ID)
+	fmt.Fprintf(b, "A train sent back to `open` waits there only while a child is open: before sending it back, add the fix as a child (`yardr bead create ... -d <depot>`, then `yardr dep add %s <child> -k parent`), or it is integrated again unchanged.\n\n", job.Bead.ID)
 	// Where done itself goes back to open (merge -> open on done in
 	// yardr.train), the work is on the branch, not a child: say who takes it
 	// from there, so the merger leaves the pushing to the integrator.
@@ -217,16 +217,16 @@ func writeTrain(b *strings.Builder, job dispatch.Job) {
 	}
 }
 
-// writeDirTrain says what a train is in a dir rig: a group of children, all
-// worked in the rig's directory, with no branch that lands. Whoever works
+// writeDirTrain says what a train is in a dir depot: a group of children, all
+// worked in the depot's directory, with no branch that lands. Whoever works
 // the train looks at what its children produced as a whole.
 func writeDirTrain(b *strings.Builder, job dispatch.Job) {
-	fmt.Fprintf(b, "This bead is a train in the dir rig `%s`: it has no branch and lands nowhere; it groups its children, who worked in `%s`.", job.Rig.Name, job.Rig.Path)
+	fmt.Fprintf(b, "This bead is a train in the dir depot `%s`: it has no branch and lands nowhere; it groups its children, who worked in `%s`.", job.Depot.Name, job.Depot.Path)
 	if len(job.Children) > 0 {
 		fmt.Fprintf(b, " Children: %s.", strings.Join(job.Children, ", "))
 	}
 	fmt.Fprintf(b, " Their notes say what each produced, by path: work on that as a whole, not child by child.\n\n")
-	fmt.Fprintf(b, "A train sent back to `open` waits there only while a child is open: before sending it back, add the fix as a child (`yardr bead create ... -r %s`, then `yardr dep add %s <child> -k parent`).\n\n", job.Rig.Name, job.Bead.ID)
+	fmt.Fprintf(b, "A train sent back to `open` waits there only while a child is open: before sending it back, add the fix as a child (`yardr bead create ... -d %s`, then `yardr dep add %s <child> -k parent`).\n\n", job.Depot.Name, job.Bead.ID)
 }
 
 // checksTimeout bounds gh pr checks: a brief is written while the agent's
@@ -246,7 +246,7 @@ func writePR(b *strings.Builder, job dispatch.Job, url string) {
 	branch := Branch(job.Bead)
 	fmt.Fprintf(b, "## Pull request\n\nThis train lands through the pull request %s.", url)
 	fmt.Fprintf(b, " For this bead you may push to `%s` (`git push --force-with-lease origin %[1]s`, after fixing forward; with a lease only, never forced, and only this branch), and you must post your review on the pull request with `gh pr review %s` (`--approve`, `--request-changes` or `--comment`, `--body-file` your note). GitHub refuses `--approve` and `--request-changes` from the login that opened the pull request: when `gh pr view %[2]s --json author --jq .author.login` is your own login (`gh api user --jq .login`), post `--comment` whatever the verdict, with the verdict as the note's first line. Never merge it: it is merged after approval.\n\n", branch, url)
-	fmt.Fprintf(b, "CI on the pull request when this brief was written (`gh pr checks %s`):\n\n```\n%s\n```\n\n", url, prChecks(rigPath(job.Rig), url))
+	fmt.Fprintf(b, "CI on the pull request when this brief was written (`gh pr checks %s`):\n\n```\n%s\n```\n\n", url, prChecks(depotPath(job.Depot), url))
 }
 
 // prChecks is gh pr checks' table for the pull request at url, or
@@ -284,53 +284,53 @@ func prChecks(dir, url string) string {
 // readPrompt reads a group's prompt file. An absolute path is read as is.
 //
 // A role, prompt=roles/<name>.md or bare <name>.md, is looked up where roles
-// live, in order: the rig's own .yardr/roles/<name>.md (a rig's repo says how
-// it is worked, next to .yardr/flows and .yardr/check), the rig's
+// live, in order: the depot's own .yardr/roles/<name>.md (a depot's repo says how
+// it is worked, next to .yardr/flows and .yardr/check), the depot's
 // roles/<name>.md (the older place, still read, with a warning), then the
 // yard's home, ~/.yardr/roles/<name>.md: the generic roles `yardr init`
-// installed, so a new rig works until it commits its own.
+// installed, so a new depot works until it commits its own.
 //
-// A rig's roles are read like its gate: from the tip of the rig's base and
-// from nowhere else in the rig, so a bead cannot rewrite the prompt of the
+// A depot's roles are read like its gate: from the tip of the depot's base and
+// from nowhere else in the depot, so a bead cannot rewrite the prompt of the
 // reviewer that judges it, and a role in a checkout's working tree (or on
 // its current branch) counts once it has landed on the base; until then the
-// home's copy serves. Only a rig that is not a git checkout, or whose base
-// does not resolve, is read from its working tree. A dir rig has no base:
+// home's copy serves. Only a depot that is not a git checkout, or whose base
+// does not resolve, is read from its working tree. A dir depot has no base:
 // its roles are read from its directory as they are.
 //
-// Any other relative path is looked up in the rig's working tree, then in
+// Any other relative path is looked up in the depot's working tree, then in
 // the home.
-func readPrompt(p string, rig *store.Rig, home string) ([]byte, error) {
-	text, src, err := findPrompt(p, rig, home)
-	if err == nil && src.Kind == PromptRig && strings.HasPrefix(src.Path, "roles") {
-		warnRigRootRole(rig, src.Path)
+func readPrompt(p string, depot *store.Depot, home string) ([]byte, error) {
+	text, src, err := findPrompt(p, depot, home)
+	if err == nil && src.Kind == PromptDepot && strings.HasPrefix(src.Path, "roles") {
+		warnDepotRootRole(depot, src.Path)
 	}
 	return text, err
 }
 
 // Where a prompt is found (PromptSource.Kind).
 const (
-	PromptRig  = "rig"  // a file of the rig
-	PromptHome = "home" // a file under the yard's home, found by name
-	PromptFile = "file" // an absolute path, read as it is
+	PromptDepot = "depot" // a file of the depot
+	PromptHome  = "home"  // a file under the yard's home, found by name
+	PromptFile  = "file"  // an absolute path, read as it is
 )
 
 // PromptSource says where readPrompt finds a prompt.
 type PromptSource struct {
 	Kind string
-	// Path is relative to the rig's root for a file of the rig, else
+	// Path is relative to the depot's root for a file of the depot, else
 	// absolute.
 	Path string
-	// Commit is the base commit a rig's file was read at; empty for one
-	// read from the rig's working tree or a dir rig's directory.
+	// Commit is the base commit a depot's file was read at; empty for one
+	// read from the depot's working tree or a dir depot's directory.
 	Commit string
 }
 
-// LocatePrompt says where the prompt p of a group working a bead of rig is
-// read from, by the lookup a brief makes: `yardr rig sources` shows it. An
+// LocatePrompt says where the prompt p of a group working a bead of depot is
+// read from, by the lookup a brief makes: `yardr depot sources` shows it. An
 // error means a brief could not be written either.
-func LocatePrompt(p string, rig *store.Rig, home string) (PromptSource, error) {
-	_, src, err := findPrompt(p, rig, home)
+func LocatePrompt(p string, depot *store.Depot, home string) (PromptSource, error) {
+	_, src, err := findPrompt(p, depot, home)
 	return src, err
 }
 
@@ -340,11 +340,11 @@ var yardmasterRoles = [2]string{"yardmaster.md", "mayor.md"}
 
 // findPrompt is lookPrompt, and for the yardmaster's role under one of its
 // two names, when no file has that name, the other: a yard set up before
-// the rename has mayor.md where a prompt now says yardmaster.md, and a rig
+// the rename has mayor.md where a prompt now says yardmaster.md, and a depot
 // that renamed its file is still named by a crew member's prompt=…/mayor.md.
 // For this release only.
-func findPrompt(p string, rig *store.Rig, home string) ([]byte, PromptSource, error) {
-	text, src, err := lookPrompt(p, rig, home)
+func findPrompt(p string, depot *store.Depot, home string) ([]byte, PromptSource, error) {
+	text, src, err := lookPrompt(p, depot, home)
 	if err == nil {
 		return text, src, nil
 	}
@@ -359,28 +359,28 @@ func findPrompt(p string, rig *store.Rig, home string) ([]byte, PromptSource, er
 		if filepath.IsAbs(p) && !errors.Is(err, fs.ErrNotExist) {
 			break
 		}
-		if text, src, err2 := lookPrompt(dir+yardmasterRoles[1-i], rig, home); err2 == nil {
+		if text, src, err2 := lookPrompt(dir+yardmasterRoles[1-i], depot, home); err2 == nil {
 			return text, src, nil
 		}
 	}
 	return text, src, err
 }
 
-func lookPrompt(p string, rig *store.Rig, home string) ([]byte, PromptSource, error) {
+func lookPrompt(p string, depot *store.Depot, home string) ([]byte, PromptSource, error) {
 	if filepath.IsAbs(p) {
 		text, err := os.ReadFile(p)
 		return text, PromptSource{Kind: PromptFile, Path: p}, err
 	}
 	name, isRole := roleName(p)
 	if !isRole {
-		return findPlain(p, rig, home)
+		return findPlain(p, depot, home)
 	}
 	var tried []string
-	if rig != nil && rig.Path != "" {
+	if depot != nil && depot.Path != "" {
 		for _, rel := range []string{filepath.Join(".yardr", "roles", name), filepath.Join("roles", name)} {
-			text, where, sha, err := readRigFile(rig, rel)
+			text, where, sha, err := readDepotFile(depot, rel)
 			if err == nil {
-				return text, PromptSource{Kind: PromptRig, Path: rel, Commit: sha}, nil
+				return text, PromptSource{Kind: PromptDepot, Path: rel, Commit: sha}, nil
 			} else if !errors.Is(err, fs.ErrNotExist) {
 				return nil, PromptSource{}, err
 			}
@@ -402,15 +402,15 @@ func lookPrompt(p string, rig *store.Rig, home string) ([]byte, PromptSource, er
 	return nil, PromptSource{}, fmt.Errorf("%s not found (looked in %s)", p, strings.Join(tried, ", "))
 }
 
-// RigRole reports whether the rig has its own role prompt called name
+// DepotRole reports whether the depot has its own role prompt called name
 // (builder.md): .yardr/roles/<name> where readPrompt looks for it, at the
-// tip of the rig's base. A pack's import asks: it names the file its role
-// shadows, or keeps the rig's role when told to.
-func RigRole(rig *store.Rig, name string) (bool, error) {
-	if rig == nil || rig.Path == "" {
+// tip of the depot's base. A pack's import asks: it names the file its role
+// shadows, or keeps the depot's role when told to.
+func DepotRole(depot *store.Depot, name string) (bool, error) {
+	if depot == nil || depot.Path == "" {
 		return false, nil
 	}
-	_, _, _, err := readRigFile(rig, filepath.Join(".yardr", "roles", name))
+	_, _, _, err := readDepotFile(depot, filepath.Join(".yardr", "roles", name))
 	if errors.Is(err, fs.ErrNotExist) {
 		return false, nil
 	}
@@ -427,11 +427,11 @@ func roleName(p string) (string, bool) {
 	return file, true
 }
 
-// findPlain reads a relative prompt that is not a role from the rig's
+// findPlain reads a relative prompt that is not a role from the depot's
 // working tree, else the home.
-func findPlain(p string, rig *store.Rig, home string) ([]byte, PromptSource, error) {
+func findPlain(p string, depot *store.Depot, home string) ([]byte, PromptSource, error) {
 	var tried []string
-	for _, dir := range []string{rigPath(rig), home} {
+	for _, dir := range []string{depotPath(depot), home} {
 		if dir == "" {
 			continue
 		}
@@ -440,7 +440,7 @@ func findPlain(p string, rig *store.Rig, home string) ([]byte, PromptSource, err
 		if err == nil || !errors.Is(err, fs.ErrNotExist) {
 			src := PromptSource{Kind: PromptHome, Path: path}
 			if dir != home {
-				src = PromptSource{Kind: PromptRig, Path: p}
+				src = PromptSource{Kind: PromptDepot, Path: p}
 			}
 			return text, src, err
 		}
@@ -453,55 +453,55 @@ func findPlain(p string, rig *store.Rig, home string) ([]byte, PromptSource, err
 	return nil, PromptSource{}, fmt.Errorf("%s not found (looked in %s)", p, strings.Join(tried, ", "))
 }
 
-// gitTimeout bounds the git call reading a role from a rig's base: a
+// gitTimeout bounds the git call reading a role from a depot's base: a
 // brief is written while the agent's pane waits.
 var gitTimeout = 30 * time.Second
 
-// readRigFile reads rel at the tip of the rig's base (rig.Base, which a
+// readDepotFile reads rel at the tip of the depot's base (depot.Base, which a
 // bead's start has just fetched when it is a remote's). A file the base
 // does not have is fs.ErrNotExist, whatever the working tree holds: the
-// working tree is read only when the rig has no base that resolves (a
-// directory that is no git checkout) or is a dir rig. where names the
+// working tree is read only when the depot has no base that resolves (a
+// directory that is no git checkout) or is a dir depot. where names the
 // place looked, for the not-found error, and sha the base commit read, empty
 // for the working tree.
-func readRigFile(rig *store.Rig, rel string) (text []byte, where, sha string, err error) {
+func readDepotFile(depot *store.Depot, rel string) (text []byte, where, sha string, err error) {
 	// A base with a newline in it is no ref, and would be two requests to
 	// the git that reads a line for each.
-	if rig.Base != "" && !rig.IsDir() && !strings.Contains(rig.Base, "\n") {
+	if depot.Base != "" && !depot.IsDir() && !strings.Contains(depot.Base, "\n") {
 		gitPath := filepath.ToSlash(rel)
-		text, sha, found, err := readAtBase(rig, gitPath)
+		text, sha, found, err := readAtBase(depot, gitPath)
 		if err != nil {
 			return nil, "", "", err
 		}
-		// A rig that is not a repo, or whose base does not resolve, has no
+		// A depot that is not a repo, or whose base does not resolve, has no
 		// base to read from: its working tree is all there is.
 		if sha != "" {
-			where := rig.Base + ":" + gitPath
+			where := depot.Base + ":" + gitPath
 			if !found {
 				return nil, where, "", fs.ErrNotExist
 			}
 			return text, where, sha, nil
 		}
 	}
-	path := filepath.Join(rig.Path, rel)
+	path := filepath.Join(depot.Path, rel)
 	text, err = os.ReadFile(path)
 	return text, path, "", err
 }
 
-// readAtBase reads gitPath at the commit the rig's base names, in one git
+// readAtBase reads gitPath at the commit the depot's base names, in one git
 // process: a `git cat-file --batch` asked for the commit and then, with the
 // sha it answered, for the file, so the file is read at the commit that was
 // resolved. sha is empty when there is no base to read from: git does not
 // know it, or ends before it has answered (no checkout here, no git). found
 // is false for a path that commit does not have. A git that is cut off at
 // gitTimeout, or fails once the base is known, is an error.
-func readAtBase(rig *store.Rig, gitPath string) (text []byte, sha string, found bool, err error) {
+func readAtBase(depot *store.Depot, gitPath string) (text []byte, sha string, found bool, err error) {
 	if strings.Contains(gitPath, "\n") {
-		return nil, "", false, fmt.Errorf("%s:%q: a path with a newline in it cannot be read from the base", rig.Base, gitPath)
+		return nil, "", false, fmt.Errorf("%s:%q: a path with a newline in it cannot be read from the base", depot.Base, gitPath)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "-C", rig.Path, "cat-file", "--batch")
+	cmd := exec.CommandContext(ctx, "git", "-C", depot.Path, "cat-file", "--batch")
 	cmd.WaitDelay = time.Second
 	var errb bytes.Buffer
 	cmd.Stderr = &errb
@@ -564,7 +564,7 @@ func readAtBase(rig *store.Rig, gitPath string) (text []byte, sha string, found 
 		return fmt.Errorf("git cat-file --batch: %s: %w: %s", name, cause, strings.TrimSpace(errb.String()))
 	}
 
-	commit := rig.Base + "^{commit}"
+	commit := depot.Base + "^{commit}"
 	sha, _, _, known, err := ask(commit)
 	if err != nil || !known {
 		// A git that ends with nothing said has no base to give, as one
@@ -592,34 +592,34 @@ func readAtBase(rig *store.Rig, gitPath string) (text []byte, sha string, found 
 		return nil, sha, false, nil
 	}
 	if kind != "blob" {
-		return nil, "", false, fmt.Errorf("%s:%s is a %s, not a file", rig.Base, gitPath, kind)
+		return nil, "", false, fmt.Errorf("%s:%s is a %s, not a file", depot.Base, gitPath, kind)
 	}
 	return text, sha, true, nil
 }
 
-// warnedRigRoots holds the rig-root roles already warned about, so a
+// warnedDepotRoots holds the depot-root roles already warned about, so a
 // group's every session does not repeat it.
-var warnedRigRoots sync.Map
+var warnedDepotRoots sync.Map
 
-// warn reports a deprecated rig-root role; tests replace it.
+// warn reports a deprecated depot-root role; tests replace it.
 var warn = func(msg string, args ...any) { slog.Warn(msg, args...) }
 
-// warnRigRootRole says, once per file, that a rig keeps a role at the
+// warnDepotRootRole says, once per file, that a depot keeps a role at the
 // repo's root, the older place, rather than in .yardr/roles/.
-func warnRigRootRole(rig *store.Rig, rel string) {
-	key := filepath.Join(rig.Path, rel)
-	if _, done := warnedRigRoots.LoadOrStore(key, true); done {
+func warnDepotRootRole(depot *store.Depot, rel string) {
+	key := filepath.Join(depot.Path, rel)
+	if _, done := warnedDepotRoots.LoadOrStore(key, true); done {
 		return
 	}
-	warn("role prompt at the rig's root is deprecated; move it to .yardr/roles/",
-		"rig", rig.Name, "file", key, "to", filepath.Join(rig.Path, ".yardr", "roles", filepath.Base(rel)))
+	warn("role prompt at the depot's root is deprecated; move it to .yardr/roles/",
+		"depot", depot.Name, "file", key, "to", filepath.Join(depot.Path, ".yardr", "roles", filepath.Base(rel)))
 }
 
-func rigPath(rig *store.Rig) string {
-	if rig == nil {
+func depotPath(depot *store.Depot) string {
+	if depot == nil {
 		return ""
 	}
-	return rig.Path
+	return depot.Path
 }
 
 // writeNext lists the stages the bead's flow allows from stage, each with

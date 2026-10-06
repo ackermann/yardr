@@ -19,7 +19,7 @@ import (
 // the link itself (docs/peers.md, "Code that comes back"): the bead message
 // says what the work starts from, the yard that built pushes its bead's
 // branch, the return names that branch, and the yard that asked fetches
-// it. This file is the git of that: which remote a rig's base has, the form
+// it. This file is the git of that: which remote a depot's base has, the form
 // two yards' URLs for one remote are compared in, whether a base commit can
 // be had here and the ref that keeps it, and the taking of a branch that
 // came back. All of it runs
@@ -49,14 +49,14 @@ const (
 )
 
 // GroupRemote is the setting of a peer group that names the remote of the
-// rig a returned branch is fetched from; PeerRemote when unset.
+// depot a returned branch is fetched from; PeerRemote when unset.
 const (
 	GroupRemote = "remote"
 	PeerRemote  = "origin"
 )
 
 // RefusedBaseUnknown is the refusal of a bead whose work this yard cannot
-// start where the sender's starts: the intake's rig has another remote
+// start where the sender's starts: the intake's depot has another remote
 // than the bead names, or the base commit cannot be fetched into it.
 const RefusedBaseUnknown = "base_unknown"
 
@@ -158,30 +158,30 @@ func realPath(path string) string {
 	}
 }
 
-// BaseRemote names the remote and branch the rig's base tracks, or "" when
+// BaseRemote names the remote and branch the depot's base tracks, or "" when
 // it has none.
-func BaseRemote(ctx context.Context, rig Rig) (remote, branch string) {
-	if rig.IsDir() || rig.Path == "" {
+func BaseRemote(ctx context.Context, depot Depot) (remote, branch string) {
+	if depot.IsDir() || depot.Path == "" {
 		return "", ""
 	}
-	out, err := git(ctx, rig.Path, "remote")
+	out, err := git(ctx, depot.Path, "remote")
 	if err != nil {
 		return "", ""
 	}
 	remotes := strings.Fields(string(out))
 	has := func(r string) bool { return slices.Contains(remotes, r) }
 	// A remote-tracking base: origin/main.
-	if r, b, ok := strings.Cut(rig.Base, "/"); ok && has(r) {
+	if r, b, ok := strings.Cut(depot.Base, "/"); ok && has(r) {
 		return r, b
 	}
 	// A local branch: its upstream's remote, else origin.
-	if _, err := git(ctx, rig.Path, "rev-parse", "--verify", "--quiet", "refs/heads/"+rig.Base); err != nil {
+	if _, err := git(ctx, depot.Path, "rev-parse", "--verify", "--quiet", "refs/heads/"+depot.Base); err != nil {
 		return "", ""
 	}
-	if out, err := git(ctx, rig.Path, "config", "--get", "branch."+rig.Base+".remote"); err == nil {
+	if out, err := git(ctx, depot.Path, "config", "--get", "branch."+depot.Base+".remote"); err == nil {
 		r := strings.TrimSpace(string(out))
-		b := rig.Base
-		if m, err := git(ctx, rig.Path, "config", "--get", "branch."+rig.Base+".merge"); err == nil {
+		b := depot.Base
+		if m, err := git(ctx, depot.Path, "config", "--get", "branch."+depot.Base+".merge"); err == nil {
 			b = strings.TrimPrefix(strings.TrimSpace(string(m)), "refs/heads/")
 		}
 		if has(r) {
@@ -189,24 +189,24 @@ func BaseRemote(ctx context.Context, rig Rig) (remote, branch string) {
 		}
 	}
 	if has("origin") {
-		return "origin", rig.Base
+		return "origin", depot.Base
 	}
 	return "", ""
 }
 
-// remoteForm is the URL the rig has for remote, in RemoteForm. A path that
-// is written from the rig is made whole first.
-func remoteForm(ctx context.Context, rig Rig, remote string) (string, error) {
+// remoteForm is the URL the depot has for remote, in RemoteForm. A path that
+// is written from the depot is made whole first.
+func remoteForm(ctx context.Context, depot Depot, remote string) (string, error) {
 	if !gitRemoteName.MatchString(remote) {
 		return "", fmt.Errorf("%q is not the name of a remote", remote)
 	}
-	out, err := git(ctx, rig.Path, "remote", "get-url", remote)
+	out, err := git(ctx, depot.Path, "remote", "get-url", remote)
 	if err != nil {
 		return "", err
 	}
 	raw := strings.TrimSpace(string(out))
 	if !strings.Contains(raw, "://") && (scpRemote.FindStringSubmatch(raw) == nil || strings.HasPrefix(raw, ".")) && !filepath.IsAbs(raw) {
-		raw = filepath.Join(rig.Path, raw)
+		raw = filepath.Join(depot.Path, raw)
 	}
 	form := RemoteForm(raw)
 	if form == "" {
@@ -259,78 +259,78 @@ func hasCommit(ctx context.Context, dir, commit string) bool {
 	return err == nil
 }
 
-// baseOf is the git part of the message that sends a bead of rig whose
-// branch starts from base (Family.Base): nil for a dir rig, a rig whose
+// baseOf is the git part of the message that sends a bead of depot whose
+// branch starts from base (Family.Base): nil for a dir depot, a depot whose
 // base has no remote, and a base that does not resolve. Such a bead
 // crosses with its words only.
-func baseOf(ctx context.Context, rig Rig, base string) *PeerGit {
-	remote, branch := BaseRemote(ctx, rig)
+func baseOf(ctx context.Context, depot Depot, base string) *PeerGit {
+	remote, branch := BaseRemote(ctx, depot)
 	if remote == "" || base == "" {
 		return nil
 	}
-	form, err := remoteForm(ctx, rig, remote)
+	form, err := remoteForm(ctx, depot, remote)
 	if err != nil {
 		return nil
 	}
-	out, err := git(ctx, rig.Path, "rev-parse", "--verify", "--quiet", base+"^{commit}")
+	out, err := git(ctx, depot.Path, "rev-parse", "--verify", "--quiet", base+"^{commit}")
 	if err != nil {
 		return nil
 	}
-	if base != rig.Base {
+	if base != depot.Base {
 		// A child of a train, or a bead that came from a yard: what it
-		// starts from is no tracking ref of the rig's base.
+		// starts from is no tracking ref of the depot's base.
 		branch = base
 	}
 	return &PeerGit{Base: branch, BaseCommit: strings.TrimSpace(string(out)), Remote: form}
 }
 
 // checkBase says why a bead whose work starts at g cannot start there in
-// rig, "" when it can: the rig's base has the remote the bead names, and
-// the base commit is in the rig, fetched now when it was not.
-func checkBase(ctx context.Context, rig Rig, g PeerGit) string {
+// depot, "" when it can: the depot's base has the remote the bead names, and
+// the base commit is in the depot, fetched now when it was not.
+func checkBase(ctx context.Context, depot Depot, g PeerGit) string {
 	ctx, cancel := context.WithTimeout(ctx, peerFetchTimeout)
 	defer cancel()
 	if !gitCommit.MatchString(g.BaseCommit) {
 		return "the base commit it names is no commit's name"
 	}
-	remote, _ := BaseRemote(ctx, rig)
+	remote, _ := BaseRemote(ctx, depot)
 	if remote == "" {
-		return fmt.Sprintf("the base of rig %s has no remote here", rig.Name)
+		return fmt.Sprintf("the base of depot %s has no remote here", depot.Name)
 	}
-	own, err := remoteForm(ctx, rig, remote)
+	own, err := remoteForm(ctx, depot, remote)
 	if err != nil {
-		return fmt.Sprintf("rig %s: %v", rig.Name, err)
+		return fmt.Sprintf("depot %s: %v", depot.Name, err)
 	}
 	if theirs := RemoteForm(g.Remote); theirs != own {
-		return fmt.Sprintf("the remote %s of rig %s is %s here, and the bead starts from %s", remote, rig.Name, own, or(theirs, "one that does not read as a URL"))
+		return fmt.Sprintf("the remote %s of depot %s is %s here, and the bead starts from %s", remote, depot.Name, own, or(theirs, "one that does not read as a URL"))
 	}
-	if hasCommit(ctx, rig.Path, g.BaseCommit) {
+	if hasCommit(ctx, depot.Path, g.BaseCommit) {
 		return ""
 	}
 	var ferr error
 	if gitBranchName.MatchString(g.Base) && !strings.Contains(g.Base, "..") {
-		ferr = gitFetch(ctx, rig.Path, remote, "+refs/heads/"+g.Base+":refs/remotes/"+remote+"/"+g.Base)
+		ferr = gitFetch(ctx, depot.Path, remote, "+refs/heads/"+g.Base+":refs/remotes/"+remote+"/"+g.Base)
 	}
-	if !hasCommit(ctx, rig.Path, g.BaseCommit) {
+	if !hasCommit(ctx, depot.Path, g.BaseCommit) {
 		// Not on the branch it names (any more): by its own name, which a
 		// remote may or may not hand out.
-		if err := gitFetch(ctx, rig.Path, remote, g.BaseCommit); err != nil && ferr == nil {
+		if err := gitFetch(ctx, depot.Path, remote, g.BaseCommit); err != nil && ferr == nil {
 			ferr = err
 		}
 	}
-	if hasCommit(ctx, rig.Path, g.BaseCommit) {
+	if hasCommit(ctx, depot.Path, g.BaseCommit) {
 		return ""
 	}
-	why := fmt.Sprintf("the base commit %s is not in rig %s and could not be fetched from %s", short(g.BaseCommit), rig.Name, remote)
+	why := fmt.Sprintf("the base commit %s is not in depot %s and could not be fetched from %s", short(g.BaseCommit), depot.Name, remote)
 	if ferr != nil {
 		why += ": " + ferr.Error()
 	}
 	return why
 }
 
-// peerBaseRefs is where a rig keeps the commits that the open beads from
+// peerBaseRefs is where a depot keeps the commits that the open beads from
 // peers start from: one ref a bead, named as its branch is. A base commit
-// may be on no branch of the rig (fetched by its own name, or on a branch
+// may be on no branch of the depot (fetched by its own name, or on a branch
 // the remote has moved since), and git's gc drops a commit that no ref
 // leads to.
 const peerBaseRefs = "refs/yardr/peer-base/"
@@ -339,25 +339,25 @@ const peerBaseRefs = "refs/yardr/peer-base/"
 func PeerBaseRef(bead string) string { return peerBaseRefs + bead }
 
 // PeerBase is the commit an open bead that came from a peer starts from,
-// which the bead's rig keeps by PeerBaseRef until the bead is closed.
+// which the bead's depot keeps by PeerBaseRef until the bead is closed.
 type PeerBase struct {
 	Bead   string `json:"bead"`
-	Rig    Rig    `json:"rig"`
+	Depot  Depot  `json:"depot"`
 	Commit string `json:"commit"`
 }
 
-// KeepPeerBases makes rig's refs for the bases of beads from peers what
-// bases says, which are the rig's open ones (PeerBases): a ref for each,
+// KeepPeerBases makes depot's refs for the bases of beads from peers what
+// bases says, which are the depot's open ones (PeerBases): a ref for each,
 // at its commit, and no other, so the ref of a bead that has closed goes.
 // It runs outside any write: the store calls it when a bead has arrived,
-// and the daemon when the rig's open beads have changed.
-func KeepPeerBases(ctx context.Context, rig Rig, bases []PeerBase) error {
-	if rig.IsDir() || rig.Path == "" {
+// and the daemon when the depot's open beads have changed.
+func KeepPeerBases(ctx context.Context, depot Depot, bases []PeerBase) error {
+	if depot.IsDir() || depot.Path == "" {
 		return nil
 	}
-	out, err := git(ctx, rig.Path, "for-each-ref", "--format=%(refname) %(objectname)", peerBaseRefs)
+	out, err := git(ctx, depot.Path, "for-each-ref", "--format=%(refname) %(objectname)", peerBaseRefs)
 	if err != nil {
-		return fmt.Errorf("rig %s: reading %s: %w", rig.Name, peerBaseRefs, err)
+		return fmt.Errorf("depot %s: reading %s: %w", depot.Name, peerBaseRefs, err)
 	}
 	have := map[string]string{}
 	for _, line := range strings.Split(string(out), "\n") {
@@ -376,13 +376,13 @@ func KeepPeerBases(ctx context.Context, rig Rig, bases []PeerBase) error {
 		if !validID.MatchString(b.Bead) || !gitCommit.MatchString(b.Commit) {
 			continue
 		}
-		if _, err := git(ctx, rig.Path, "update-ref", ref, b.Commit); err != nil {
-			errs = append(errs, fmt.Errorf("rig %s: keeping %s for %s: %w", rig.Name, short(b.Commit), b.Bead, err))
+		if _, err := git(ctx, depot.Path, "update-ref", ref, b.Commit); err != nil {
+			errs = append(errs, fmt.Errorf("depot %s: keeping %s for %s: %w", depot.Name, short(b.Commit), b.Bead, err))
 		}
 	}
 	for ref := range have {
-		if _, err := git(ctx, rig.Path, "update-ref", "-d", ref); err != nil {
-			errs = append(errs, fmt.Errorf("rig %s: removing %s: %w", rig.Name, ref, err))
+		if _, err := git(ctx, depot.Path, "update-ref", "-d", ref); err != nil {
+			errs = append(errs, fmt.Errorf("depot %s: removing %s: %w", depot.Name, ref, err))
 		}
 	}
 	return errors.Join(errs...)
@@ -402,34 +402,34 @@ func FinalFetch(err error) bool {
 	return errors.As(err, &f)
 }
 
-// TakePeerBranch takes the branch a peer's return names into the rig of
+// TakePeerBranch takes the branch a peer's return names into the depot of
 // the bead it is for: fetched from the remote the bead's peer group names,
 // checked to be the commit the return names, and made the bead's own
 // branch (f.Into), which is created at it or, when it exists, moved to it
 // by fast-forward only. The daemon calls it, outside any write.
 //
 // It returns why the code is not for this yard to take, when that is how
-// the two yards are set up and nothing to mend: the bead's rig is a
+// the two yards are set up and nothing to mend: the bead's depot is a
 // directory, or its remote is not the one the branch was pushed to. An
 // error is a branch that was to be taken and was not: tried again, unless
 // FinalFetch says no try changes it (a branch name that is no bead's, a
 // commit that is not the one named, a local branch it is no fast-forward
 // of).
 func TakePeerBranch(ctx context.Context, f PeerFetch) (notTaken string, err error) {
-	rig := f.Rig
+	depot := f.Depot
 	final := func(format string, a ...any) (string, error) { return "", finalFetch{fmt.Errorf(format, a...)} }
-	if rig.IsDir() {
-		return fmt.Sprintf("rig %s is a directory, which has no branches", rig.Name), nil
+	if depot.IsDir() {
+		return fmt.Sprintf("depot %s is a directory, which has no branches", depot.Name), nil
 	}
-	if rig.Path == "" {
-		return fmt.Sprintf("rig %s has no repository here", rig.Name), nil
+	if depot.Path == "" {
+		return fmt.Sprintf("depot %s has no repository here", depot.Name), nil
 	}
-	own, err := remoteForm(ctx, rig, f.Remote)
+	own, err := remoteForm(ctx, depot, f.Remote)
 	if err != nil {
-		return fmt.Sprintf("rig %s has no remote %s to fetch it from (%v)", rig.Name, f.Remote, err), nil
+		return fmt.Sprintf("depot %s has no remote %s to fetch it from (%v)", depot.Name, f.Remote, err), nil
 	}
 	if theirs := RemoteForm(f.Git.Remote); theirs != own {
-		return fmt.Sprintf("it was pushed to %s, and the remote %s of rig %s is %s here", or(theirs, "a remote whose URL does not read as one"), f.Remote, rig.Name, own), nil
+		return fmt.Sprintf("it was pushed to %s, and the remote %s of depot %s is %s here", or(theirs, "a remote whose URL does not read as one"), f.Remote, depot.Name, own), nil
 	}
 	if !IsBeadBranch(f.Git.Branch) {
 		return final("the branch it names, %q, is not of the form a bead's branch has (yard/<bead>)", f.Git.Branch)
@@ -443,13 +443,13 @@ func TakePeerBranch(ctx context.Context, f PeerFetch) (notTaken string, err erro
 	// Into a ref of its own first: what came is looked at before any branch
 	// is it, and FETCH_HEAD is every fetch's in the repository.
 	tmp := "refs/yardr/returned/" + strings.TrimPrefix(f.Into, "yard/")
-	defer func() { _, _ = git(context.WithoutCancel(ctx), rig.Path, "update-ref", "-d", tmp) }()
+	defer func() { _, _ = git(context.WithoutCancel(ctx), depot.Path, "update-ref", "-d", tmp) }()
 	// --refmap= : and into no tracking ref beside it, which git would
 	// otherwise update as it passes.
-	if err := gitFetch(ctx, rig.Path, "--refmap=", f.Remote, "+refs/heads/"+f.Git.Branch+":"+tmp); err != nil {
+	if err := gitFetch(ctx, depot.Path, "--refmap=", f.Remote, "+refs/heads/"+f.Git.Branch+":"+tmp); err != nil {
 		return "", fmt.Errorf("fetching %s from %s: %w", f.Git.Branch, f.Remote, err)
 	}
-	out, err := git(ctx, rig.Path, "rev-parse", "--verify", "--quiet", tmp+"^{commit}")
+	out, err := git(ctx, depot.Path, "rev-parse", "--verify", "--quiet", tmp+"^{commit}")
 	if err != nil {
 		return "", fmt.Errorf("reading what was fetched of %s: %w", f.Git.Branch, err)
 	}
@@ -457,10 +457,10 @@ func TakePeerBranch(ctx context.Context, f PeerFetch) (notTaken string, err erro
 		return final("%s is at %s on %s, and the return names %s: not taken", f.Git.Branch, short(got), f.Remote, short(f.Git.Commit))
 	}
 	ref := "refs/heads/" + f.Into
-	out, err = git(ctx, rig.Path, "rev-parse", "--verify", "--quiet", ref)
+	out, err = git(ctx, depot.Path, "rev-parse", "--verify", "--quiet", ref)
 	if err != nil {
 		// No such branch: made, and refused should one appear meanwhile.
-		if _, err := git(ctx, rig.Path, "update-ref", ref, f.Git.Commit, ""); err != nil {
+		if _, err := git(ctx, depot.Path, "update-ref", ref, f.Git.Commit, ""); err != nil {
 			return "", fmt.Errorf("making %s: %w", f.Into, err)
 		}
 		return "", nil
@@ -469,19 +469,19 @@ func TakePeerBranch(ctx context.Context, f PeerFetch) (notTaken string, err erro
 	if old == f.Git.Commit {
 		return "", nil
 	}
-	if _, err := git(ctx, rig.Path, "merge-base", "--is-ancestor", old, f.Git.Commit); err != nil {
+	if _, err := git(ctx, depot.Path, "merge-base", "--is-ancestor", old, f.Git.Commit); err != nil {
 		return final("this yard's %s is at %s, which %s does not come after: it is taken by fast-forward only. Move or delete the branch, then yardr bead unhold tries again",
 			f.Into, short(old), short(f.Git.Commit))
 	}
 	// Where the branch is checked out its tree moves with it, which git
 	// refuses over work that is in the way.
-	if wt := worktreeOf(ctx, rig.Path, ref); wt != "" {
+	if wt := worktreeOf(ctx, depot.Path, ref); wt != "" {
 		if _, err := git(ctx, wt, "merge", "--ff-only", f.Git.Commit); err != nil {
 			return final("this yard's %s is checked out in %s and could not be moved to %s: %v", f.Into, wt, short(f.Git.Commit), err)
 		}
 		return "", nil
 	}
-	if _, err := git(ctx, rig.Path, "update-ref", ref, f.Git.Commit, old); err != nil {
+	if _, err := git(ctx, depot.Path, "update-ref", ref, f.Git.Commit, old); err != nil {
 		return "", fmt.Errorf("moving %s: %w", f.Into, err)
 	}
 	return "", nil

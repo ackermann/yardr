@@ -375,8 +375,8 @@ func beadProperties(b *store.Bead) map[string]any {
 	if b.Body != "" {
 		p["description"] = b.Body
 	}
-	if b.Rig != nil {
-		p["rig"] = *b.Rig
+	if b.Depot != nil {
+		p["depot"] = *b.Depot
 	}
 	if b.Group != nil {
 		p["assignee"] = *b.Group

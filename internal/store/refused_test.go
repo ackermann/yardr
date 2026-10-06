@@ -28,14 +28,14 @@ func refusals(t *testing.T, s store.API, id string) []store.Event {
 // sits idle as if it had, and nothing else on the bead says it tried. A
 // move that worked, and a refused one by someone in no session, leave none.
 func TestRefusedMoveOfASessionsAgentIsLogged(t *testing.T) {
-	s, ctx := flowRig(t)
+	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
 	for _, g := range []string{"builders", "reviewers"} {
 		if err := s.PutGroup(ctx, store.Group{Name: g, Runner: "herdr"}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard", Stage: "new"}, "me")
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,18 +134,18 @@ func TestRefusedMoveOfASessionsAgentIsLogged(t *testing.T) {
 // bead it named, with whose session it was; one that names no bead at all
 // is logged on the session's own.
 func TestRefusedMoveOfAnotherBead(t *testing.T) {
-	s, ctx := flowRig(t)
+	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
 	for _, g := range []string{"builders", "others"} {
 		if err := s.PutGroup(ctx, store.Group{Name: g, Runner: "herdr"}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	a, err := s.CreateBead(ctx, store.NewBead{Title: "a", Rig: "yard", Stage: "new"}, "me")
+	a, err := s.CreateBead(ctx, store.NewBead{Title: "a", Depot: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "b", Rig: "yard", Stage: "new"}, "me")
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "b", Depot: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,12 +192,12 @@ func TestRefusedMoveOfAnotherBead(t *testing.T) {
 // A manual group's session is a person's claim: their refused move is
 // theirs to read, like any person's.
 func TestRefusedMoveOfAManualClaimIsNotLogged(t *testing.T) {
-	s, ctx := flowRig(t)
+	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
 	if err := s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual"}); err != nil {
 		t.Fatal(err)
 	}
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard", Stage: "new"}, "me")
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}

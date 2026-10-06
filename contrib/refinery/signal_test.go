@@ -1,6 +1,6 @@
 package refinery
 
-// A gate ended by a signal from outside (rig check exits 128+N) is not a
+// A gate ended by a signal from outside (depot check exits 128+N) is not a
 // red gate: no builder can fix a signal. merge-local and integrate-train run
 // it once more on the same commit, and hold the bead if a signal ends it
 // again. Seen as exit 143 after every package had printed ok (yardr-z0bw).
@@ -17,11 +17,11 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// gate makes check rig r's gate.
+// gate makes check depot r's gate.
 func (y *yard) gate(check string) {
 	y.t.Helper()
 	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
-	if err := st.PutRig(context.Background(), store.Rig{Name: "r", Path: y.repo, Base: "main", Check: check}, "test"); err != nil {
+	if err := st.PutDepot(context.Background(), store.Depot{Name: "r", Path: y.repo, Base: "main", Check: check}, "test"); err != nil {
 		y.t.Fatal(err)
 	}
 }
@@ -119,16 +119,16 @@ func TestMergeLocalGateEndedBySignalThenRed(t *testing.T) {
 	}
 }
 
-// rig check's own kill at its deadline is not a signal from outside: it
+// depot check's own kill at its deadline is not a signal from outside: it
 // exits 1, so the gate is red, goes back to new and is not run again. The
-// script's yardr is wrapped here only to give rig check a short deadline.
+// script's yardr is wrapped here only to give depot check a short deadline.
 func TestMergeLocalGateDeadlineIsRed(t *testing.T) {
 	y := newYard(t)
 	y.commit(y.wt, "b.txt", "bead\n")
 	ran := filepath.Join(y.home, "ran")
 	y.gate(`echo run >> ` + ran + `; sleep 30`)
 	y.bin = filepath.Join(t.TempDir(), "yardr")
-	wrap := "#!/bin/sh\n[ \"$1 $2\" = \"rig check\" ] && exec " + yardrBin + " \"$@\" --timeout 300ms\nexec " + yardrBin + " \"$@\"\n"
+	wrap := "#!/bin/sh\n[ \"$1 $2\" = \"depot check\" ] && exec " + yardrBin + " \"$@\" --timeout 300ms\nexec " + yardrBin + " \"$@\"\n"
 	if err := os.WriteFile(y.bin, []byte(wrap), 0o755); err != nil {
 		t.Fatal(err)
 	}

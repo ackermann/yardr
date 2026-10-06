@@ -28,14 +28,16 @@ type packFlags struct {
 }
 
 func (f *packFlags) register(c *cobra.Command, verb string) {
-	c.Flags().StringVar(&f.opts.Rig, "rig", "", "the rig the pack "+verb+" imported into")
-	c.Flags().StringVar(&f.opts.Flow, "flow", "", "the pack's flow the rig follows (default: the one it was given by the last import, else the pack's first flow without a type)")
+	c.Flags().StringVar(&f.opts.Depot, "depot", "", "the depot the pack "+verb+" imported into")
+	c.Flags().StringVar(&f.opts.Flow, "flow", "", "the pack's flow the depot follows (default: the one it was given by the last import, else the pack's first flow without a type)")
 	c.Flags().StringArrayVar(&f.crew, "crew", nil, "<pack's name>=<yard's crew member>: which crew member takes a crew member of the pack (repeatable; default: as at the last import)")
 	oldFlag(c, "resident", "crew")
-	c.Flags().BoolVar(&f.opts.RigRoles, "rig-roles", false, "leave a group or crew member its rig's own .yardr/roles/<name>.md where the rig has one, instead of setting the pack's role (default: as at the last import, else the pack's)")
-	c.Flags().BoolVar(&f.opts.PackRoles, "pack-roles", false, "set the pack's roles everywhere: the default now, needed only to undo an earlier --rig-roles")
-	c.MarkFlagsMutuallyExclusive("rig-roles", "pack-roles")
-	_ = c.MarkFlagRequired("rig")
+	c.Flags().BoolVar(&f.opts.DepotRoles, "depot-roles", false, "leave a group or crew member its depot's own .yardr/roles/<name>.md where the depot has one, instead of setting the pack's role (default: as at the last import, else the pack's)")
+	c.Flags().BoolVar(&f.opts.PackRoles, "pack-roles", false, "set the pack's roles everywhere: the default now, needed only to undo an earlier --depot-roles")
+	c.MarkFlagsMutuallyExclusive("depot-roles", "pack-roles")
+	oldFlag(c, "rig", "depot")
+	oldFlag(c, "rig-roles", "depot-roles")
+	_ = c.MarkFlagRequired("depot")
 }
 
 // loadPack reads the pack in dir. With --json an invalid pack's mistakes
@@ -58,7 +60,7 @@ func (a *app) loadPack(dir string) (*pack.Pack, error) {
 func (a *app) packOptions(ctx context.Context, f *packFlags) (store.API, *config.Config, error) {
 	if f.opts.PackRoles {
 		// To stderr: --json's output stays the plan alone.
-		fmt.Fprintln(os.Stderr, "--pack-roles: the pack's roles are the default now; the flag is only needed to undo an earlier --rig-roles")
+		fmt.Fprintln(os.Stderr, "--pack-roles: the pack's roles are the default now; the flag is only needed to undo an earlier --depot-roles")
 	}
 	f.opts.Crew = map[string]string{}
 	for _, kv := range f.crew {
@@ -79,7 +81,7 @@ func (a *app) packOptions(ctx context.Context, f *packFlags) (store.API, *config
 		}
 	}
 	f.opts.Home = cfg.Home
-	// Whom yardr init and rig init name in the roles they write.
+	// Whom yardr init and depot init name in the roles they write.
 	f.opts.Operator = yardOperator(ctx, st)
 	return st, cfg, nil
 }
@@ -89,15 +91,15 @@ func (a *app) packCmd() *cobra.Command {
 
 	var cf packFlags
 	check := &cobra.Command{
-		Use:   "check <dir> --rig <rig>",
-		Short: "Read a pack and show what importing it into a rig would change",
+		Use:   "check <dir> --depot <depot>",
+		Short: "Read a pack and show what importing it into a depot would change",
 		Long: `Reads the pack in <dir> (pack.yaml, roles/, scripts/), checks it, and prints
-what importing it into the rig would do to this yard, object by object:
+what importing it into the depot would do to this yard, object by object:
 create, change (field: old -> new), unchanged, not in the pack (the yard
 has it, the pack does not, and an import leaves it alone), or no longer in
 the pack (an earlier import brought it, the pack has dropped it since, and
 pack apply --prune removes it). Then what an import would ask, which flow
-would govern the rig, what each source a crew member subscribes to still
+would govern the depot, what each source a crew member subscribes to still
 lacks, and which sources the pack asks that a crew member may open threads in
 (open_threads): an import asks the operator, and only about a source the
 yard has a hook and a credential for. For each source the pack carries a
@@ -107,8 +109,8 @@ that source and whether that crew member may set a status there (set_state),
 with the command for whatever is missing. Nothing is written.
 
 The pack's role is set on every agent group and crew member it names, also
-where the rig has its own .yardr/roles/<name>.md: the plan names that file
-as shadowed. --rig-roles keeps the rig's own role instead.
+where the depot has its own .yardr/roles/<name>.md: the plan names that file
+as shadowed. --depot-roles keeps the depot's own role instead.
 
 A role or stage file is installed with {{operator}} filled with the yard's
 operator and {{<crew member>}} with the yard's crew member that takes that
@@ -117,8 +119,8 @@ crew member of the pack; any other {{...}} in one makes the pack invalid.
 It exits 1 on a pack that is not valid, naming every mistake by file, line
 and key, and on a plan an import would refuse (open beads in a stage the
 pack's flow lacks). --json prints the plan as data. See docs/packs.md.`,
-		Example: `  yardr pack check packs/starter --rig yardr
-  yardr pack check ~/packs/starter --rig yardr --crew yardmaster=boss`,
+		Example: `  yardr pack check packs/starter --depot yardr
+  yardr pack check ~/packs/starter --depot yardr --crew yardmaster=boss`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			p, err := a.loadPack(args[0])
@@ -153,8 +155,8 @@ pack's flow lacks). --json prints the plan as data. See docs/packs.md.`,
 		prune   bool
 	)
 	apply := &cobra.Command{
-		Use:   "apply <dir> --rig <rig>",
-		Short: "Import a pack into a rig: set the yard to what the pack says",
+		Use:   "apply <dir> --depot <depot>",
+		Short: "Import a pack into a depot: set the yard to what the pack says",
 		Long: `Does what pack check shows: prints the plan, with what the flags answer
 filled in, asks for what a pack cannot say, then sets the yard to the pack's
 state. Everything is matched by name,
@@ -165,8 +167,8 @@ Applying the same pack again changes nothing and logs one pack_unchanged
 event.
 
 The pack's roles win: a group or crew member gets the pack's copied role also
-where the rig has its own .yardr/roles/<name>.md, which the plan names as
-shadowed. --rig-roles keeps the rig's own role instead; the import records
+where the depot has its own .yardr/roles/<name>.md, which the plan names as
+shadowed. --depot-roles keeps the depot's own role instead; the import records
 the choice and the next one repeats it. A copy under <home>/packs/<pack>/
 that was edited by hand is overwritten only with --yes: the edit belongs in
 the pack's source.
@@ -217,8 +219,8 @@ lacks; the message names them. Objects an earlier import brought and the
 pack has dropped since are listed, and removed only with --prune. A running
 crew member whose role or subscriptions change is not restarted; the output
 says so. The import is recorded (yardr pack list). See docs/packs.md.`,
-		Example: `  yardr pack apply packs/starter --rig web
-  yardr pack apply packs/starter --rig web --yes --crew yardmaster=boss \
+		Example: `  yardr pack apply packs/starter --depot web
+  yardr pack apply packs/starter --depot web --yes --crew yardmaster=boss \
     --bind builders=claude:opus --bind reviewers=codex,approve-for-me --members backlog= --members decisions=mckean`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
@@ -309,7 +311,7 @@ says so. The import is recorded (yardr pack list). See docs/packs.md.`,
 			}
 			if todo > 0 && !yes {
 				ok := true
-				title := fmt.Sprintf("Apply pack %s to rig %s?", plan.Pack, plan.Rig)
+				title := fmt.Sprintf("Apply pack %s to depot %s?", plan.Pack, plan.Depot)
 				if err := ask(huh.NewConfirm().Title(title).Description(fmt.Sprintf("%d objects to write or remove.", todo)).Value(&ok)); err != nil {
 					return cancelled(err)
 				}
@@ -350,7 +352,7 @@ says so. The import is recorded (yardr pack list). See docs/packs.md.`,
 			}
 			return a.out(recs, func() {
 				if len(recs) == 0 {
-					fmt.Println("no pack is imported (yardr pack apply <dir> --rig <rig>)")
+					fmt.Println("no pack is imported (yardr pack apply <dir> --depot <depot>)")
 				}
 				for i, r := range recs {
 					if i > 0 {
@@ -376,7 +378,7 @@ func cancelled(err error) error {
 }
 
 // shaping are the plan's questions whose answers change the plan itself:
-// which flow the rig follows, and which crew member takes a pack's.
+// which flow the depot follows, and which crew member takes a pack's.
 func shaping(p *pack.Plan) []pack.Question {
 	var out []pack.Question
 	for _, q := range p.Questions {
@@ -653,7 +655,7 @@ func presetArgs(kind, label string) ([]string, error) {
 	return nil, fmt.Errorf("%s has no permission preset %q (it has: %s)", kind, label, strings.Join(append(have, "none"), ", "))
 }
 
-// askShape asks which flow the rig follows and which crew member takes each
+// askShape asks which flow the depot follows and which crew member takes each
 // of the pack's, and puts the answers into o.
 func (a *app) askShape(ctx context.Context, st store.API, p *pack.Pack, plan *pack.Plan, o *pack.Options) error {
 	for _, q := range shaping(plan) {
@@ -665,7 +667,7 @@ func (a *app) askShape(ctx context.Context, st store.API, p *pack.Pack, plan *pa
 				}
 			}
 			o.Flow = q.Default
-			if err := ask(huh.NewSelect[string]().Title(fmt.Sprintf("Which of the pack's flows does rig %s follow?", plan.Rig)).Options(opts...).Value(&o.Flow)); err != nil {
+			if err := ask(huh.NewSelect[string]().Title(fmt.Sprintf("Which of the pack's flows does depot %s follow?", plan.Depot)).Options(opts...).Value(&o.Flow)); err != nil {
 				return err
 			}
 			continue
@@ -732,13 +734,13 @@ func (a *app) askAnswers(ctx context.Context, st store.API, plan *pack.Plan, ans
 func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.Answers, open *openAnswers, refused map[string]string) {
 	fmt.Println()
 	if res.Wrote() {
-		fmt.Printf("applied pack %s to rig %s: %d created, %d changed, %d unchanged", res.Pack, res.Rig, res.Created, res.Changed, res.Unchanged)
+		fmt.Printf("applied pack %s to depot %s: %d created, %d changed, %d unchanged", res.Pack, res.Depot, res.Created, res.Changed, res.Unchanged)
 		if len(res.Pruned) > 0 {
 			fmt.Printf(", %d pruned", len(res.Pruned))
 		}
 		fmt.Println()
 	} else {
-		fmt.Printf("pack %s is already applied to rig %s: nothing changed\n", res.Pack, res.Rig)
+		fmt.Printf("pack %s is already applied to depot %s: nothing changed\n", res.Pack, res.Depot)
 	}
 	for _, s := range res.Pruned {
 		fmt.Println("  pruned  " + s)
@@ -806,7 +808,7 @@ func printResult(plan *pack.Plan, res *pack.Result, pruning bool, answers pack.A
 }
 
 func printRecord(r store.PackImport) {
-	fmt.Printf("%s in rig %s  %s by %s\n", r.Pack, r.Rig, r.At.Local().Format("2006-01-02 15:04"), r.By)
+	fmt.Printf("%s in depot %s  %s by %s\n", r.Pack, r.Depot, r.At.Local().Format("2006-01-02 15:04"), r.By)
 	src := r.Source
 	if r.Commit != "" {
 		src += " at " + r.Commit[:min(12, len(r.Commit))]
@@ -826,8 +828,8 @@ func printRecord(r store.PackImport) {
 		return or(strings.Join(out, ", "), "none")
 	}
 	roles := "the pack's"
-	if r.RigRoles {
-		roles = "the rig's own where it has them (--rig-roles)"
+	if r.DepotRoles {
+		roles = "the depot's own where it has them (--depot-roles)"
 	}
 	fmt.Printf("  roles      %s\n", roles)
 	fmt.Printf("  groups     %s\n", pairs(r.Groups))
@@ -887,7 +889,7 @@ var planKinds = [][2]string{{"file", "files"}, {"group", "groups"}, {"flow", "fl
 // crew member may open threads, by crew member and source. refused says, by
 // source, why a stage map the plan would set is not set by this run.
 func printPlan(p *pack.Plan, answers pack.Answers, open map[string]map[string]bool, refused map[string]string) {
-	fmt.Printf("pack %s (%s) into rig %s\n", p.Pack, p.Dir, p.Rig)
+	fmt.Printf("pack %s (%s) into depot %s\n", p.Pack, p.Dir, p.Depot)
 	fmt.Printf("its roles and scripts would be copied to %s\n", p.Install)
 	if slices.ContainsFunc(p.Objects, func(o pack.Object) bool { return o.File != nil && o.File.Stage != "" }) {
 		fmt.Printf("its stage files would be copied to %s\n", filepath.Join(p.StageFiles, p.Pack+".<flow>"))
@@ -963,9 +965,9 @@ func printPlan(p *pack.Plan, answers pack.Answers, open map[string]map[string]bo
 		}
 	}
 	if len(p.Governs) > 0 {
-		fmt.Printf("\nflows governing rig %s afterwards\n", p.Rig)
+		fmt.Printf("\nflows governing depot %s afterwards\n", p.Depot)
 		for _, g := range p.Governs {
-			who := "the rig's beads"
+			who := "the depot's beads"
 			if g.Type != "" {
 				who = "type " + g.Type
 			}

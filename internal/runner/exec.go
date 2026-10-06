@@ -24,22 +24,22 @@ import (
 // the bead itself; exiting without doing so ends the session as died.
 //
 // Besides Env, the command gets what a script needs to land or test a bead's
-// work without hard-coding the rig (see contrib/refinery/merge-local):
+// work without hard-coding the depot (see contrib/refinery/merge-local):
 //
-//	YARDR_RIG, YARDR_RIG_PATH   the bead's rig, when it has one
-//	YARDR_RIG_KIND  git, or dir for a plain directory: a dir rig's bead gets
-//	                none of the three below, and runs in the rig's directory
+//	YARDR_DEPOT, YARDR_DEPOT_PATH   the bead's depot, when it has one
+//	YARDR_DEPOT_KIND  git, or dir for a plain directory: a dir depot's bead gets
+//	                none of the three below, and runs in the depot's directory
 //	YARDR_BASE      what the bead lands on: its train's branch for a child of
-//	                a train, else the rig's base (see BaseOf). For a bead
+//	                a train, else the depot's base (see BaseOf). For a bead
 //	                that came from a linked yard which named where its work
 //	                starts, that commit: nothing of it lands here
 //	YARDR_BRANCH    the bead's branch, yard/<bead>
 //	YARDR_WORKTREE  where the herdr runner keeps that branch checked out
-//	                (<worktrees>/<rig>/<bead>; config.worktrees as for herdr)
+//	                (<worktrees>/<depot>/<bead>; config.worktrees as for herdr)
 //	YARDR_TYPE      the bead's type (task, train, car, ...)
 //	YARDR_TRAIN      the train the bead is a child of, empty for none: with
 //	                YARDR_TYPE, how merge-local knows a car of a train,
-//	                which lands under the rig's light gate
+//	                which lands under the depot's light gate
 //	YARDR_BIN       this yardr, so the script's yardr commands reach it
 //	YARDR_HOME      this yardr's state directory
 type Exec struct {
@@ -57,8 +57,8 @@ func (e *Exec) Start(ctx context.Context, job dispatch.Job) (map[string]any, err
 		return nil, fmt.Errorf("group %s: exec runner needs config.cmd", job.Group.Name)
 	}
 	dir := str(job.Group.Config, "dir", "")
-	if dir == "" && job.Rig != nil {
-		dir = job.Rig.Path
+	if dir == "" && job.Depot != nil {
+		dir = job.Depot.Path
 	}
 	if dir == "" {
 		dir = os.TempDir()
@@ -98,12 +98,12 @@ func (e *Exec) Start(ctx context.Context, job dispatch.Job) (map[string]any, err
 
 // inherited is this process's environment as the command inherits it:
 // without the settings of the yard's server, which are not the work's
-// (config.WithoutServerSettings). For a dir rig's bead, which has no base,
+// (config.WithoutServerSettings). For a dir depot's bead, which has no base,
 // branch or worktree, any the daemon was itself started with are dropped
 // too, so they cannot read as the bead's.
 func inherited(job dispatch.Job) []string {
 	env := config.WithoutServerSettings(os.Environ())
-	if job.Rig == nil || !job.Rig.IsDir() {
+	if job.Depot == nil || !job.Depot.IsDir() {
 		return env
 	}
 	var drop []string // "YARDR_BASE=", "YARD_BASE=", ...
@@ -129,22 +129,22 @@ func (e *Exec) env(job dispatch.Job) []string {
 	// EPIC is what TRAIN was called until this release: a copy of
 	// merge-local installed before it reads that one.
 	env = slices.Concat(env, config.Env("TYPE", job.Bead.Type), config.Env("TRAIN", job.Train), config.Env("EPIC", job.Train))
-	if rig := job.Rig; rig != nil && rig.IsDir() {
-		// A dir rig's bead has no branch, base or worktree: it is worked in
-		// the rig's directory itself.
-		return slices.Concat(env, config.Env("RIG", rig.Name), config.Env("RIG_PATH", rig.Path),
-			config.Env("RIG_KIND", rig.Kind))
+	if depot := job.Depot; depot != nil && depot.IsDir() {
+		// A dir depot's bead has no branch, base or worktree: it is worked in
+		// the depot's directory itself.
+		return slices.Concat(env, config.Env("DEPOT", depot.Name), config.Env("DEPOT_PATH", depot.Path),
+			config.Env("DEPOT_KIND", depot.Kind))
 	}
 	env = append(env, config.Env("BRANCH", Branch(job.Bead))...)
-	if rig := job.Rig; rig != nil {
-		env = slices.Concat(env, config.Env("RIG", rig.Name), config.Env("RIG_PATH", rig.Path),
-			config.Env("RIG_KIND", store.RigGit), config.Env("BASE", BaseOf(job)))
+	if depot := job.Depot; depot != nil {
+		env = slices.Concat(env, config.Env("DEPOT", depot.Name), config.Env("DEPOT_PATH", depot.Path),
+			config.Env("DEPOT_KIND", store.DepotGit), config.Env("BASE", BaseOf(job)))
 		root := str(job.Group.Config, "worktrees", "")
 		if root == "" && e.Home != "" {
 			root = filepath.Join(e.Home, "worktrees")
 		}
 		if root != "" {
-			env = append(env, config.Env("WORKTREE", filepath.Join(root, rig.Name, job.Bead.ID))...)
+			env = append(env, config.Env("WORKTREE", filepath.Join(root, depot.Name, job.Bead.ID))...)
 		}
 	}
 	return env

@@ -20,12 +20,12 @@ import (
 // a builder works, and two ways to end.
 const incoming = "arrived -> build | returned on refused\nbuild -> returned on done | returned on failed | gave-up\nreturned terminal\ngave-up terminal\n"
 
-// newBeadYard is a yard linked with north that takes its beads into the rig
+// newBeadYard is a yard linked with north that takes its beads into the depot
 // web, pinned to the flow incoming. jo is its operator and a user.
 func newBeadYard(t *testing.T, auto bool) *peerYard {
 	t.Helper()
 	y := newPeerYard(t, "http://north.test")
-	if err := y.api.PutRig(y.ctx, store.Rig{Name: "web", Base: "origin/main"}, "jo"); err != nil {
+	if err := y.api.PutDepot(y.ctx, store.Depot{Name: "web", Base: "origin/main"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	putNamed(t, y.api, "incoming", incoming)
@@ -33,7 +33,7 @@ func newBeadYard(t *testing.T, auto bool) *peerYard {
 		t.Fatal(err)
 	}
 	y.allow(t, store.PeerAllow{Receive: []string{"bead"}})
-	if _, err := y.api.SetPeerIntake(y.ctx, "north", &store.PeerIntake{Rig: "web", Flow: "incoming", Auto: auto}, "jo"); err != nil {
+	if _, err := y.api.SetPeerIntake(y.ctx, "north", &store.PeerIntake{Depot: "web", Flow: "incoming", Auto: auto}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	return y
@@ -63,7 +63,7 @@ func (y *peerYard) take(t *testing.T, ms ...store.PeerMessage) []store.PeerTaken
 // arrived is the one bead that came from north, as GetBead returns it.
 func (y *peerYard) arrived(t *testing.T) *store.Bead {
 	t.Helper()
-	bs, err := y.api.ListBeads(y.ctx, store.BeadFilter{All: true, Rig: "web"})
+	bs, err := y.api.ListBeads(y.ctx, store.BeadFilter{All: true, Depot: "web"})
 	if err != nil || len(bs) != 1 {
 		t.Fatalf("beads in web = %+v, %v; want one", bs, err)
 	}
@@ -84,7 +84,7 @@ func (y *peerYard) beads(t *testing.T) int {
 }
 
 // A bead a linked yard sends becomes a bead of this yard: in the intake's
-// rig, pinned to its flow, in that flow's first stage, labelled with the
+// depot, pinned to its flow, in that flow's first stage, labelled with the
 // peer, and held. What came with it is kept as data: its notes under the
 // peer's names, its links as relates. The same message a second time makes
 // no second bead.
@@ -110,7 +110,7 @@ func TestPeerBeadArrivesHeld(t *testing.T) {
 	}
 	b := y.arrived(t)
 	if b.Title != "Add the export held: no" || b.Body != "As a CSV." || b.Type != "feature" || b.Priority != 1 || b.Stage != "arrived" ||
-		!b.Hold || b.Status != "open" || *b.Rig != "web" || store.PinnedFlow(b) != "incoming" || !slices.Equal(b.Labels, []string{"from-north"}) ||
+		!b.Hold || b.Status != "open" || *b.Depot != "web" || store.PinnedFlow(b) != "incoming" || !slices.Equal(b.Labels, []string{"from-north"}) ||
 		*b.CreatedBy != "peer:north" || !strings.HasPrefix(b.ID, "web-") {
 		t.Fatalf("the bead that arrived = %+v", b)
 	}
@@ -131,7 +131,7 @@ func TestPeerBeadArrivesHeld(t *testing.T) {
 		t.Fatalf("the bead as JSON = %s", raw)
 	}
 	// Listed, it says the same: a job's bead is read from a listing.
-	if bs, _ := y.api.ListBeads(y.ctx, store.BeadFilter{Rig: "web"}); bs[0].Peer == nil || bs[0].Peer.Bead != "web-k3f9" {
+	if bs, _ := y.api.ListBeads(y.ctx, store.BeadFilter{Depot: "web"}); bs[0].Peer == nil || bs[0].Peer.Bead != "web-k3f9" {
 		t.Fatalf("the bead as listed = %+v", bs[0].Peer)
 	}
 	notes, _ := y.api.Notes(y.ctx, b.ID)
@@ -146,7 +146,7 @@ func TestPeerBeadArrivesHeld(t *testing.T) {
 	ev := peerEvents(t, y.api, "peer_bead_arrived")
 	if len(ev) != 1 || ev[0].Actor != "peer:north" || *ev[0].Bead != b.ID || ev[0].Data["peer"] != "north" || ev[0].Data["id"] != "b1" ||
 		ev[0].Data["from"] != "web-k3f9" || ev[0].Data["stage"] != "build" || ev[0].Data["held"] != true || ev[0].Data["way"] != "push" ||
-		ev[0].Data["rig"] != "web" || ev[0].Data["flow"] != "incoming" || ev[0].Data["notes_left_out"] != float64(3) {
+		ev[0].Data["depot"] != "web" || ev[0].Data["flow"] != "incoming" || ev[0].Data["notes_left_out"] != float64(3) {
 		t.Fatalf("peer_bead_arrived = %+v", ev)
 	}
 	// A peer's note is no event of this yard's: nothing is matched against it.
@@ -155,7 +155,7 @@ func TestPeerBeadArrivesHeld(t *testing.T) {
 	}
 	noBodies(t, y.api)
 	peer, _ := y.api.GetPeer(y.ctx, "north")
-	if peer.Build != "v0.9.1" || peer.Beads != 1 || peer.Intake == nil || peer.Intake.Rig != "web" {
+	if peer.Build != "v0.9.1" || peer.Beads != 1 || peer.Intake == nil || peer.Intake.Depot != "web" {
 		t.Fatalf("the peer after its bead = %+v", peer)
 	}
 
@@ -217,7 +217,7 @@ func TestPeerBeadRefusals(t *testing.T) {
 	if e := refused("no_intake", beadMsg("r1", "web-1", nil)); e.Data["bead"] != "web-1" {
 		t.Fatalf("no_intake names the bead: %+v", e)
 	}
-	if _, err := y.api.SetPeerIntake(y.ctx, "north", &store.PeerIntake{Rig: "web", Flow: "incoming", Limit: 2}, "jo"); err != nil {
+	if _, err := y.api.SetPeerIntake(y.ctx, "north", &store.PeerIntake{Depot: "web", Flow: "incoming", Limit: 2}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -303,36 +303,36 @@ func mustList(t *testing.T, y *peerYard) []store.Bead {
 	return bs
 }
 
-// An intake names a rig of the yard and a flow that resolves for it, with a
+// An intake names a depot of the yard and a flow that resolves for it, with a
 // stage a bead can start in. It is shown with the peer, and removed.
 func TestPeerIntake(t *testing.T) {
 	y := newBeadYard(t, false)
 	putNamed(t, y.api, "ends", "over terminal\n")
 	for want, in := range map[string]store.PeerIntake{
-		"rig nowhere": {Rig: "nowhere", Flow: "incoming"},
+		"depot nowhere": {Depot: "nowhere", Flow: "incoming"},
 		// Not "the bead pins": no bead does yet (found in the trial).
-		"the intake names flow nothing: not found": {Rig: "web", Flow: "nothing"},
-		"terminal":               {Rig: "web", Flow: "ends"},
-		"names a rig and a flow": {Rig: "web"},
-		"limit":                  {Rig: "web", Flow: "incoming", Limit: -1},
+		"the intake names flow nothing: not found": {Depot: "web", Flow: "nothing"},
+		"terminal":                 {Depot: "web", Flow: "ends"},
+		"names a depot and a flow": {Depot: "web"},
+		"limit":                    {Depot: "web", Flow: "incoming", Limit: -1},
 	} {
 		if _, err := y.api.SetPeerIntake(y.ctx, "north", &in, "jo"); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("SetPeerIntake(%+v) = %v, want %q", in, err, want)
 		}
 	}
-	if _, err := y.api.SetPeerIntake(y.ctx, "nobody", &store.PeerIntake{Rig: "web", Flow: "incoming"}, "jo"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := y.api.SetPeerIntake(y.ctx, "nobody", &store.PeerIntake{Depot: "web", Flow: "incoming"}, "jo"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("an intake for no peer = %v", err)
 	}
 	p, _ := y.api.GetPeer(y.ctx, "north")
-	if p.Intake == nil || p.Intake.Rig != "web" || p.Intake.Flow != "incoming" || p.Intake.Auto || p.Intake.Most() != store.PeerIntakeLimit {
+	if p.Intake == nil || p.Intake.Depot != "web" || p.Intake.Flow != "incoming" || p.Intake.Auto || p.Intake.Most() != store.PeerIntakeLimit {
 		t.Fatalf("the intake a refused one left = %+v", p.Intake)
 	}
-	p, err := y.api.SetPeerIntake(y.ctx, "north", &store.PeerIntake{Rig: "web", Flow: "incoming", Auto: true, Limit: 3}, "jo")
+	p, err := y.api.SetPeerIntake(y.ctx, "north", &store.PeerIntake{Depot: "web", Flow: "incoming", Auto: true, Limit: 3}, "jo")
 	if err != nil || !p.Intake.Auto || p.Intake.Most() != 3 {
 		t.Fatalf("SetPeerIntake = %+v, %v", p, err)
 	}
 	ev := peerEvents(t, y.api, "peer_intake")
-	if last := ev[len(ev)-1]; last.Data["peer"] != "north" || last.Data["rig"] != "web" || last.Data["flow"] != "incoming" || last.Data["auto"] != true || last.Data["limit"] != float64(3) {
+	if last := ev[len(ev)-1]; last.Data["peer"] != "north" || last.Data["depot"] != "web" || last.Data["flow"] != "incoming" || last.Data["auto"] != true || last.Data["limit"] != float64(3) {
 		t.Fatalf("peer_intake = %+v", last)
 	}
 	// What the link carries is changed without losing it.
@@ -705,7 +705,7 @@ func TestPeerBeadRenameAndRemove(t *testing.T) {
 		t.Fatal(err)
 	}
 	y.allow(t, store.PeerAllow{Receive: []string{"bead"}})
-	if _, err := y.api.SetPeerIntake(y.ctx, "north", &store.PeerIntake{Rig: "web", Flow: "incoming", Limit: 1}, "jo"); err != nil {
+	if _, err := y.api.SetPeerIntake(y.ctx, "north", &store.PeerIntake{Depot: "web", Flow: "incoming", Limit: 1}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if got := y.take(t, beadMsg("b9", "web-3", nil)); got[0].Refused != "" {

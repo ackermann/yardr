@@ -20,6 +20,7 @@ import (
 
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"golang.org/x/term"
 
 	"yardr.dev/yardr/internal/agents"
@@ -35,7 +36,7 @@ import (
 // default_kind. The store file alone does not say so: the server creates it
 // on the first command that connects, whatever that command was, so a home
 // can hold a store nobody set up. A store without default_kind that already
-// holds rigs, groups, crew members or beads is a yard from before the
+// holds depots, groups, crew members or beads is a yard from before the
 // onboarding, in use, and counts as set up too: onboarding it would refuse
 // its agents' commands and the daemon (yard-w6np). Opening the store writes
 // default_kind into such a yard (store.migrateSettings); this check is the
@@ -48,7 +49,7 @@ func (a *app) initialized(ctx context.Context, cfg *config.Config) (bool, error)
 	if defaultKind(ctx, st) != "" {
 		return true, nil
 	}
-	rigs, err := st.Rigs(ctx)
+	depots, err := st.Depots(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -60,7 +61,7 @@ func (a *app) initialized(ctx context.Context, cfg *config.Config) (bool, error)
 	if err != nil {
 		return false, err
 	}
-	if len(rigs)+len(groups)+len(crew) > 0 {
+	if len(depots)+len(groups)+len(crew) > 0 {
 		return true, nil
 	}
 	beads, err := st.ListBeads(ctx, store.BeadFilter{All: true})
@@ -95,7 +96,7 @@ type partYard struct {
 }
 
 // partYard reads what the home holds of a yard; nil when it holds nothing,
-// when default_kind is set (the yard is set up) and when the store has rigs,
+// when default_kind is set (the yard is set up) and when the store has depots,
 // groups or beads of work (a yard from before the onboarding, in use).
 func (a *app) partYard(ctx context.Context, cfg *config.Config) (*partYard, error) {
 	p := &partYard{}
@@ -118,7 +119,7 @@ func (a *app) partYard(ctx context.Context, cfg *config.Config) (*partYard, erro
 		if all["default_kind"] != "" {
 			return nil, nil
 		}
-		rigs, err := st.Rigs(ctx)
+		depots, err := st.Depots(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -130,7 +131,7 @@ func (a *app) partYard(ctx context.Context, cfg *config.Config) (*partYard, erro
 		if err != nil {
 			return nil, err
 		}
-		if len(rigs)+len(groups) > 0 || slices.ContainsFunc(beads, work) {
+		if len(depots)+len(groups) > 0 || slices.ContainsFunc(beads, work) {
 			return nil, nil
 		}
 		crew, err := st.Crew(ctx)
@@ -314,7 +315,7 @@ func (a *app) goOn(ctx context.Context, cfg *config.Config, res *initResult, opt
 
 // resume is bare yardr in a terminal on a yard whose onboarding did not reach
 // its end: it is set up (or counts as it: an init cut short after the
-// yardmaster was added), has no rig yet, and its default_kind is missing, its
+// yardmaster was added), has no depot yet, and its default_kind is missing, its
 // yardmaster is, no daemon runs, or the yardmaster is not up. It says what is
 // there (the lines yardr doctor prints for the yard), asks, and then does
 // what the onboarding does from that point: init again, which adds only what
@@ -335,8 +336,8 @@ func (a *app) resume(ctx context.Context, cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
-	if next := nextStep(steps); next == nil || next.Key != stepRig {
-		return nil // a yard with a rig is past its onboarding
+	if next := nextStep(steps); next == nil || next.Key != stepDepot {
+		return nil // a yard with a depot is past its onboarding
 	}
 	crew, err := st.Crew(ctx)
 	if err != nil {
@@ -366,7 +367,7 @@ func (a *app) resume(ctx context.Context, cfg *config.Config) error {
 		lines = append(lines, docLine{tagFault, "settings", "default_kind is not set: an earlier setup stopped before it marked the yard set up"})
 	}
 	yardr := yardrAt(cfg.Home)
-	fmt.Printf("The yard in %s has no rig yet, and its onboarding did not reach its end. What is there:\n\n", cfg.Home)
+	fmt.Printf("The yard in %s has no depot yet, and its onboarding did not reach its end. What is there:\n\n", cfg.Home)
 	printLines(lines)
 	fmt.Println()
 	a.onboarded = true // from here on this run is the onboarding, not help
@@ -557,7 +558,7 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 		return nil, err
 	}
 	res.YardmasterKept, res.SettingsKept = yardmasterKept, kept
-	// operator and yardmaster are what rig init fills the roles with later.
+	// operator and yardmaster are what depot init fills the roles with later.
 	for _, kv := range [][2]string{{"operator", res.Operator}, {"yardmaster", o.Yardmaster}} {
 		if err := st.SetSetting(ctx, kv[0], kv[1], a.who()); err != nil {
 			return nil, err
@@ -693,7 +694,7 @@ func defaultOperator() string {
 // an older template, and is refreshed to this build's; one that differs was
 // edited, and is kept. A file from before the manifest is kept too unless
 // it already reads as this build's, which is when it starts being tracked.
-// A rig's .yardr/roles/ gets no manifest: rig init never overwrites, and
+// A depot's .yardr/roles/ gets no manifest: depot init never overwrites, and
 // those files are committed, not refreshed.
 const shippedManifest = ".shipped.json"
 
@@ -871,12 +872,31 @@ func fillRole(body []byte, operator, yardmaster string) []byte {
 }
 
 // oldFlag keeps a flag's earlier name working for this release: the same
-// value under the old name, which help does not list.
-func oldFlag(cmd *cobra.Command, old, name string) {
+// value under the old name, which help does not list. Given under the old
+// name the flag is given: what asks whether it was (Changed), requires it
+// or excludes another with it is answered as under the new.
+func oldFlag(cmd *cobra.Command, old, name string) { oldFlagP(cmd, old, "", name) }
+
+// oldFlagP is oldFlag for a flag whose one-letter name changed with it:
+// short is the letter it had.
+func oldFlagP(cmd *cobra.Command, old, short, name string) {
 	f := cmd.Flags().Lookup(name)
-	cmd.Flags().Var(f.Value, old, f.Usage)
+	cmd.Flags().VarP(oldValue{f}, old, short, f.Usage)
 	cmd.Flags().Lookup(old).NoOptDefVal = f.NoOptDefVal
 	_ = cmd.Flags().MarkHidden(old)
+}
+
+// oldValue sets the flag an old name stands for.
+type oldValue struct{ f *pflag.Flag }
+
+func (v oldValue) String() string { return v.f.Value.String() }
+func (v oldValue) Type() string   { return v.f.Value.Type() }
+func (v oldValue) Set(s string) error {
+	if err := v.f.Value.Set(s); err != nil {
+		return err
+	}
+	v.f.Changed = true
+	return nil
 }
 
 // daemonRunning reports whether a daemon holds the home's daemon lock,
@@ -931,8 +951,8 @@ func (r *initResult) printYard() {
 		fmt.Printf(" (%s)", s)
 	}
 	fmt.Printf("\n             starting points naming %s: edit them to fit your yard; the yardmaster's prompt is %s.\n"+
-		"             A rig's own roles go in its repo under .yardr/roles/, which a group's\n"+
-		"             prompt=roles/<name>.md reads first (from the rig's base branch).\n\n", r.Operator, roleFileIn(r.Roles, "yardmaster.md"))
+		"             A depot's own roles go in its repo under .yardr/roles/, which a group's\n"+
+		"             prompt=roles/<name>.md reads first (from the depot's base branch).\n\n", r.Operator, roleFileIn(r.Roles, "yardmaster.md"))
 	if !config.IsDefaultHome(r.Home) {
 		// Not the default home: without the flag a command goes to
 		// ~/.yardr, the daemon's first of all (yard-0wys).
@@ -1045,7 +1065,7 @@ func onboardForm(home string, part *partYard) (initOptions, error) {
 	}
 	style, _ := styleOf(o.Style)
 	create := true
-	summary := fmt.Sprintf("harness %s\nyardmaster %s in %s\nmodel %s\noperator %s, with whom agents work in the style %s (%q)\nroles %s (starting points; a rig's own go in its repo's .yardr/roles/)",
+	summary := fmt.Sprintf("harness %s\nyardmaster %s in %s\nmodel %s\noperator %s, with whom agents work in the style %s (%q)\nroles %s (starting points; a depot's own go in its repo's .yardr/roles/)",
 		o.Harness, o.Yardmaster, o.Dir, or(o.Model, "the harness's default"), or(o.Operator, defaultOperator()), style.key, style.label, filepath.Join(home, "roles"))
 	if err := ask(huh.NewConfirm().Title("Create this yard?").Description(summary).Value(&create)); err != nil {
 		return o, err
@@ -1091,7 +1111,7 @@ the crew member they mail about what blocks them. A prompt already there is kept
 when it was edited, and replaced with this build's when it still reads as init
 wrote it (<home>/roles/.shipped.json records what was written), so init again
 after an upgrade refreshes the templates; the summary says which. They are
-generic starting points: a rig's own roles belong in its repo under
+generic starting points: a depot's own roles belong in its repo under
 .yardr/roles/, which groups find first. It stores --harness as the yard's
 default_kind, and adds the yardmaster crew member on that harness with its
 unattended flags, rotating every 6h. The daemon starts the yardmaster.
@@ -1124,7 +1144,7 @@ does the same in the foreground, to watch it.
 
 Run yardr in a terminal on a home with no yard to get the same as a form. A
 home counts as set up once init has stored default_kind, or once its store has
-rigs, groups, crew members or beads (a yard from before the onboarding); the
+depots, groups, crew members or beads (a yard from before the onboarding); the
 store file alone does not, since the server creates it on any first command.
 Init again on a yard keeps its default_kind, operator and yardmaster settings
 and an existing yardmaster crew member; only the flags given change them, so
@@ -1145,7 +1165,7 @@ again finishes from it. The settings stored stand in for the flags not given,
 and the yardmaster's kind for --harness once the yardmaster is there; the summary then
 says "finished", with what it found and what it added (--json: found, added).
 On a yard that is set up and did not start, init --start starts and waits
-again. Bare yardr in a terminal does the same on a yard with no rig yet,
+again. Bare yardr in a terminal does the same on a yard with no depot yet,
 after saying what is there and asking, and then goes on as the onboarding
 does. docs/configuration.md has both, and how to remove a yard and start
 over.
@@ -1153,10 +1173,10 @@ over.
 After init the yardmaster sets up the rest in conversation, or yardr setup does in
 a terminal, as forms. For scripts, the same by hand:
 
-  yardr rig add webapp ~/projects/webapp --base origin/main
-  yardr rig init webapp        # starter roles, gate and flow; commit them on the base
+  yardr depot add webapp ~/projects/webapp --base origin/main
+  yardr depot init webapp        # starter roles, gate and flow; commit them on the base
   yardr group add webapp/builders --runner herdr --limit 2 --set prompt=roles/builder.md
-  yardr route add --stage new --rig webapp --group webapp/builders
+  yardr route add --stage new --depot webapp --group webapp/builders
 
 Unattended flags per harness:
 ` + agents.UnattendedHelp(),
@@ -1227,9 +1247,9 @@ var settings = map[string]struct {
 	help  string
 	check func(string) error
 }{
-	"operator": {"who the role prompts name, the person agents bring decisions to (yardr rig init's default)",
+	"operator": {"who the role prompts name, the person agents bring decisions to (yardr depot init's default)",
 		func(string) error { return nil }},
-	store.YardmasterSetting: {"the yardmaster crew member's name, whom the role prompts tell agents to mail (yardr rig init's default)", func(v string) error {
+	store.YardmasterSetting: {"the yardmaster crew member's name, whom the role prompts tell agents to mail (yardr depot init's default)", func(v string) error {
 		if !groupName.MatchString(v) {
 			return fmt.Errorf("yardmaster name %q: letters, digits, '.', '_', '-', '/'", v)
 		}
@@ -1250,7 +1270,7 @@ var settings = map[string]struct {
 		checkTimerLimit},
 	store.TimerMinEverySetting: {fmt.Sprintf("the shortest period of a recurring timer (yardr timer add --every), such as 30m or 1d; default %s",
 		store.Span(store.DefaultTimerMinEvery)), checkTimerMinEvery},
-	rigcheck.SlotsSetting: {fmt.Sprintf("how many full gates (yardr rig check) run at once on the machine, counting every yard of the user; the others wait; 0 for no limit; default %d",
+	rigcheck.SlotsSetting: {fmt.Sprintf("how many full gates (yardr depot check) run at once on the machine, counting every yard of the user; the others wait; 0 for no limit; default %d",
 		rigcheck.DefaultSlots), func(v string) error {
 		_, err := rigcheck.ParseSlots(rigcheck.SlotsSetting, v)
 		return err
@@ -1281,7 +1301,7 @@ nothing. The styles:
 
 ` + styleHelp() + `
 
-gate_slots is how many full gates run at once on the machine (yardr rig
+gate_slots is how many full gates run at once on the machine (yardr depot
 check --help): the limit is the machine's, shared by every yard of the user,
 and a gate that finds no slot free waits. 0 is no limit.
 

@@ -9,7 +9,7 @@ a **stage** to a **group**; a group's **runner** starts the work (an agent in
 herdr, a shell command, or nobody — a human). Whoever works the bead advances
 it to the next stage or closes it, and the next route takes over. Roles are
 not built in: "builder" or "reviewer" is just a group plus a prompt file.
-A **rig** is where a bead is worked: a git repository, or a plain directory.
+A **depot** is where a bead is worked: a git repository, or a plain directory.
 
 The yard lives in one file (`~/.yardr/yard.db`, bbolt) owned by one process,
 the yardr server, which every other yardr process reaches over a unix socket.
@@ -30,7 +30,7 @@ A design or a change to yardr is judged by three things.
   which of the three it is.
 - **Composability.** The concepts combine without knowing each other. A flow
   is stages, transitions and outcomes and names no group; a route joins a
-  stage to a group, so the same flow can be worked by agents in one rig and
+  stage to a group, so the same flow can be worked by agents in one depot and
   by people in another.
 - **Simplicity.** One store, one writer, events in order; the smaller
   mechanism is chosen and the special case is left out until use asks for
@@ -121,8 +121,8 @@ and waits for the yardmaster again. To remove a yard and start over, see
 [docs/configuration.md](docs/configuration.md#starting-over).
 
 The yardmaster's first job is the setup, as a conversation with you: it asks for
-the repository and its base branch, registers the rig, seeds it with
-`yardr rig init` (starter roles, gate, flow and stage files under `.yardr/`, which you
+the repository and its base branch, registers the depot, seeds it with
+`yardr depot init` (starter roles, gate, flow and stage files under `.yardr/`, which you
 commit on the base branch), creates the groups and routes, and offers a first
 bead to try the pipeline. It asks before anything outward, such as a commit.
 
@@ -131,7 +131,7 @@ any later time ([docs/setup.md](docs/setup.md)). It takes the first step that
 is not done, whoever did the ones before, and each page ends in the command
 you would type, shown before it runs:
 
-1. the repository and its base branch (`yardr rig add`), then `yardr rig init`,
+1. the repository and its base branch (`yardr depot add`), then `yardr depot init`,
    which shows what it wrote and the gate it guessed, and asks before it
    commits `.yardr/` on the base branch;
 2. who builds and who reviews: the form of `yardr group add`, starting at a
@@ -162,7 +162,7 @@ hooks, peers, and how many sessions run. It checks nothing, starts nothing
 (a stopped server stays stopped) and exits 0 on any yard
 ([docs/doctor.md](docs/doctor.md#yardr-status)).
 
-A home counts as set up once its store has `default_kind`, or rigs, groups,
+A home counts as set up once its store has `default_kind`, or depots, groups,
 crew members or beads (a yard from before the onboarding); a store the server
 created on some earlier command, with nothing in it, still onboards. Without a
 terminal, a command on a home with no yard says so and exits 2. To try the
@@ -184,11 +184,11 @@ Scripts skip the forms and the yardmaster's conversation (`yardr init --help`):
 
 ```sh
 yardr init --harness claude [--yardmaster yardmaster] [--dir ~/projects] [--model opus] [--operator Jo] [--style show] [--about "..."]
-yardr rig add webapp ~/projects/webapp --base origin/main
-yardr rig init webapp                   # .yardr/roles, .yardr/check, .yardr/flows/default.flow and its stage files; commit them
+yardr depot add webapp ~/projects/webapp --base origin/main
+yardr depot init webapp                 # .yardr/roles, .yardr/check, .yardr/flows/default.flow and its stage files; commit them
                                         # on the base: with origin/main that is a commit and a push
 
-# role prompts: prompt=roles/<name>.md reads the rig's own .yardr/roles/<name>.md
+# role prompts: prompt=roles/<name>.md reads the depot's own .yardr/roles/<name>.md
 # (as on its base branch), else the generic ~/.yardr/roles/<name>.md
 
 # who does the work (--set kind defaults to the yard's default_kind)
@@ -198,17 +198,17 @@ yardr group add webapp/merger    --runner exec  --set cmd='scripts/merge-bead.sh
 yardr group add mckean           --runner manual
 
 # which stage goes where
-yardr route add --stage new      --rig webapp --group webapp/builders
-yardr route add --stage review   --rig webapp --group webapp/reviewers
-yardr route add --stage approved --rig webapp --group webapp/merger
+yardr route add --stage new      --depot webapp --group webapp/builders
+yardr route add --stage review   --depot webapp --group webapp/reviewers
+yardr route add --stage approved --depot webapp --group webapp/merger
 yardr route add --stage decide   --group mckean
 
 yardr daemon &                          # routes and supervises; starts the yardmaster (or: yardr init --start)
 yardr watch                             # live event stream
 yardr session list --running            # what agents and scripts work on now; without the flag, also the beads a manual group holds for a person
 
-yardr bead create "Add login page" --rig webapp -t feature -b "Use the OAuth flow"
-# it starts in the flow's first stage, backlog (new while the rig's flow is not on its base);
+yardr bead create "Add login page" --depot webapp -t feature -b "Use the OAuth flow"
+# it starts in the flow's first stage, backlog (new while the depot's flow is not on its base);
 # the yardmaster shapes it and advances it to new
 ```
 
@@ -223,6 +223,9 @@ yardr was called yard; for one release it still reads `YARD_*` variables and
 `~/.yard` ([details](docs/configuration.md#the-rename-from-yard)).
 The yardmaster was called the mayor; for one release `--mayor`, the setting
 `mayor`, `{{mayor}}` and `mayor.md` are still read
+([details](docs/configuration.md#words-that-changed)).
+A depot was called a rig; for one release `yardr rig`, `--rig`, `-r`,
+`--where rig=`, the `YARDR_RIG…` variables and `~/.yardr/rigs` are still read
 ([details](docs/configuration.md#words-that-changed)).
 
 `yardr watch` streams every event as it commits. Each line starts with the
@@ -241,7 +244,7 @@ from being ready, and only `parent` makes a child of a train; any other kind
 is a record. One has a meaning of its own: `discovered-from`, from a bead to
 a bead that was found while working on it. `yardr bead create "<title>"
 --discovered-from <bead>` makes the bead and the edge in one write (the
-origin may be open or closed, in any rig; an unknown one creates nothing),
+origin may be open or closed, in any depot; an unknown one creates nothing),
 and the new bead inherits nothing from it. `yardr bead show` says
 "discovered from" on the one and "led to" on the other,
 `yardr bead list --discovered-from <bead>` lists what was found from a bead
@@ -249,29 +252,29 @@ and the new bead inherits nothing from it. `yardr bead show` says
 discovered-from` removes it. It never affects `yardr ready`, routing, a
 train's children or what lands.
 
-## Rigs
+## Depots
 
-A rig is a git repository or a plain directory beads are worked in. For a
+A depot is a git repository or a plain directory beads are worked in. For a
 git repository, register an existing clone, or let yardr clone it:
 
 ```sh
-yardr rig add webapp ~/projects/webapp                       # existing clone
-yardr rig add webapp --clone git@github.com:me/webapp.git    # → ~/.yardr/rigs/webapp
-yardr rig add legacy ~/src/legacy --base origin/master       # base must resolve
-yardr rig rm legacy                                          # store only; the clone stays
+yardr depot add webapp ~/projects/webapp                       # existing clone
+yardr depot add webapp --clone git@github.com:me/webapp.git    # → ~/.yardr/depots/webapp
+yardr depot add legacy ~/src/legacy --base origin/master       # base must resolve
+yardr depot rm legacy                                          # store only; the clone stays
 ```
 
-Bead branches (`yard/<bead>`) start from the rig's base, fetched before each
-new worktree. Give beads a rig with `--rig`; routes can match on it, and
-a group's `prompt=roles/<name>.md` reads the rig's `.yardr/roles/<name>.md`
+Bead branches (`yard/<bead>`) start from the depot's base, fetched before each
+new worktree. Give beads a depot with `--depot`; routes can match on it, and
+a group's `prompt=roles/<name>.md` reads the depot's `.yardr/roles/<name>.md`
 from its base, then `~/.yardr/roles/<name>.md`
-([details](docs/configuration.md#role-prompts)). Rig names, like
+([details](docs/configuration.md#role-prompts)). Depot names, like
 bead types and dependency kinds, are lowercase letters, digits, `.`, `_` and
-`-`. `rig rm` removes a rig with its routes and flow pointers, and is refused
-while the rig has open beads or live sessions; it touches nothing on disk.
+`-`. `depot rm` removes a depot with its routes and flow pointers, and is refused
+while the depot has open beads or live sessions; it touches nothing on disk.
 
-A rig can also be a plain directory, a folder of documents or invoices with no
-git (`--kind dir`): see [docs/dir-rigs.md](docs/dir-rigs.md) for a worked example.
+A depot can also be a plain directory, a folder of documents or invoices with no
+git (`--kind dir`): see [docs/dir-depots.md](docs/dir-depots.md) for a worked example.
 Its beads are worked in the directory itself: no worktree, no branch, no
 base, nothing to commit or merge.
 
@@ -291,7 +294,7 @@ acted.
 
 ### Bead ids
 
-Every bead has two names. Its **handle** (`webapp-k3f9`: the rig, or
+Every bead has two names. Its **handle** (`webapp-k3f9`: the depot, or
 `--prefix`, then random base32) is what yardr prints and what branches
 (`yard/<handle>`), worktrees and herdr labels are built from; it is chosen
 once and never changes. Its **UUID** (a UUIDv7) is its identity: the store
@@ -319,14 +322,14 @@ The rest of the documentation is in [docs/](docs/README.md):
   (what the work is: flows, the check gate, roles) and what the store holds
   (who, where and how: groups, runners, routes, crew members), which wins, and
   where yardr keeps its own state.
-- **[Flows](docs/flows.md):** bead lifecycles. Named flows rigs and types
+- **[Flows](docs/flows.md):** bead lifecycles. Named flows depots and types
   point at, flows in the repo's `.yardr/flows/` read from the base branch,
   which stages a bead may move to next, and terminal stages that close it.
   Edges may carry outcomes (`new -> review on done | decide on question`):
   agents finish with `yardr bead done <id> [--outcome <o>]` and the flow
   picks the stage; edges without one are left to `bead advance --to`.
 - **[The pipeline](docs/pipeline.md):** how a bead moves in practice, from
-  backlog through builders, review and the refinery to main, using the rig
+  backlog through builders, review and the refinery to main, using the depot
   yardr is built with.
 - **[Groups and runners](docs/groups.md):** `manual`, `exec` and `herdr`
   runners, the interactive `group add`, and setting up herdr agents.
@@ -370,7 +373,7 @@ internal/version    build revisions; notices a new binary installed over a runni
 internal/cli        cobra commands
 internal/config     where yardr keeps its state: --home, YARDR_HOME, ~/.yardr
 internal/agents     the agent CLIs herdr can start: their models and unattended flags
-internal/rigcheck   a rig's merge gate: finding and running .yardr/check
+internal/rigcheck   a depot's merge gate: finding and running .yardr/check
 internal/hooks      webhook endpoints: each delivery becomes one hook event
 internal/chat       the view behind yardr chat
 internal/pack       reads a pack and plans what importing it would change
@@ -419,7 +422,7 @@ and owes them its ideas and its vocabulary:
   work with dependencies that agents and people share, comes from there.
 - [Gas Town](https://github.com/steveyegge/gastown), by Steve Yegge, and
   [Gas City](https://github.com/gastownhall/gascity): the town of agents
-  with a mayor and roles. yardr's rigs have their name from Gas Town, and
-  its yardmaster was called the mayor after Gas Town's.
+  with a mayor and roles. yardr's depots were called rigs, a name from Gas
+  Town, and its yardmaster was called the mayor after Gas Town's.
 
 Thank you to everyone who built them.

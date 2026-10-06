@@ -43,7 +43,7 @@ func TestBriefIncludesPromptAndCommands(t *testing.T) {
 	job := dispatch.Job{
 		Bead:    store.Bead{ID: "web-3", Title: "Add login", Body: "Use OAuth.", Type: "feature", Stage: "new"},
 		Group:   store.Group{Name: "web/builders", Config: map[string]any{"prompt": "builder.md"}},
-		Rig:     &store.Rig{Name: "web", Path: dir},
+		Depot:   &store.Depot{Name: "web", Path: dir},
 		Session: store.Session{ID: "s1"},
 	}
 	b, err := Brief(job, "web-3-new", "/wt/web-3", "")
@@ -95,12 +95,12 @@ func TestBriefMarksABeadFromAPeer(t *testing.T) {
 }
 
 // A train's brief says it is one, names its children and gives the range
-// to review against the rig's base, not the last child's diff.
+// to review against the depot's base, not the last child's diff.
 func TestBriefForATrain(t *testing.T) {
 	job := dispatch.Job{
 		Bead:     store.Bead{ID: "web-e", Title: "Login", Type: store.TypeTrain, Stage: "review"},
 		Group:    store.Group{Name: "web/reviewers"},
-		Rig:      &store.Rig{Name: "web", Base: "main"},
+		Depot:    &store.Depot{Name: "web", Base: "main"},
 		Session:  store.Session{ID: "s1"},
 		Base:     "main",
 		Children: []string{"web-1", "web-2"},
@@ -140,13 +140,13 @@ func TestBriefForATrain(t *testing.T) {
 	}
 }
 
-// A train in a dir rig only groups its children: its brief names them and
+// A train in a dir depot only groups its children: its brief names them and
 // the directory, and no branch, range or landing.
-func TestBriefForADirRigTrain(t *testing.T) {
+func TestBriefForADirDepotTrain(t *testing.T) {
 	job := dispatch.Job{
 		Bead:     store.Bead{ID: "docs-e", Title: "September", Type: store.TypeTrain, Stage: "open"},
 		Group:    store.Group{Name: "docs-reviewers"},
-		Rig:      &store.Rig{Name: "docs", Path: "/d", Kind: store.RigDir},
+		Depot:    &store.Depot{Name: "docs", Path: "/d", Kind: store.DepotDir},
 		Session:  store.Session{ID: "s1"},
 		Children: []string{"docs-1", "docs-2"},
 	}
@@ -154,7 +154,7 @@ func TestBriefForADirRigTrain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"train in the dir rig `docs`", "worked in `/d`", "Children: docs-1, docs-2.",
+	for _, want := range []string{"train in the dir depot `docs`", "worked in `/d`", "Children: docs-1, docs-2.",
 		"Work in `/d` directly", "dep add docs-e <child> -k parent"} {
 		if !strings.Contains(b, want) {
 			t.Errorf("brief missing %q:\n%s", want, b)
@@ -162,7 +162,7 @@ func TestBriefForADirRigTrain(t *testing.T) {
 	}
 	for _, not := range []string{"yard/docs-e", "git diff", "integrated again", "branch `"} {
 		if strings.Contains(b, not) {
-			t.Errorf("dir rig train's brief says %q:\n%s", not, b)
+			t.Errorf("dir depot train's brief says %q:\n%s", not, b)
 		}
 	}
 }
@@ -192,7 +192,7 @@ func TestBriefForATrainWithAPullRequest(t *testing.T) {
 		Bead: store.Bead{ID: "web-e", Title: "Login", Type: store.TypeTrain, Stage: "review",
 			Metadata: map[string]any{"pr_url": url}},
 		Group:   store.Group{Name: "web/reviewers"},
-		Rig:     &store.Rig{Name: "web", Base: "main", Path: t.TempDir()},
+		Depot:   &store.Depot{Name: "web", Base: "main", Path: t.TempDir()},
 		Session: store.Session{ID: "s1"},
 		Base:    "main",
 	}
@@ -252,7 +252,7 @@ func TestBriefForATrainWithoutAPullRequest(t *testing.T) {
 	job := dispatch.Job{
 		Bead:     store.Bead{ID: "web-e", Title: "Login", Type: store.TypeTrain, Stage: "review"},
 		Group:    store.Group{Name: "web/reviewers"},
-		Rig:      &store.Rig{Name: "web", Base: "main"},
+		Depot:    &store.Depot{Name: "web", Base: "main"},
 		Session:  store.Session{ID: "s1"},
 		Base:     "main",
 		Children: []string{"web-1"},
@@ -263,7 +263,7 @@ func TestBriefForATrainWithoutAPullRequest(t *testing.T) {
 	}
 	want := "This bead is a train. Its branch `yard/web-e` holds the work of its children, each landed on it after its own review; it lands on `main` as one unit." +
 		" Children: web-1. The whole change is `main..yard/web-e` (`git log main..yard/web-e`, `git diff main...yard/web-e`): work on it as a whole, not child by child.\n\n" +
-		"A train sent back to `open` waits there only while a child is open: before sending it back, add the fix as a child (`yardr bead create ... -r <rig>`, then `yardr dep add web-e <child> -k parent`), or it is integrated again unchanged.\n\n" +
+		"A train sent back to `open` waits there only while a child is open: before sending it back, add the fix as a child (`yardr bead create ... -d <depot>`, then `yardr dep add web-e <child> -k parent`), or it is integrated again unchanged.\n\n" +
 		"## Login"
 	if !strings.Contains(b, want) {
 		t.Errorf("train part of the brief is not the local-landing one:\n%s", b)
@@ -278,12 +278,12 @@ func TestBriefForATrainWithoutAPullRequest(t *testing.T) {
 	}
 }
 
-// A relative prompt the rig does not have is read from the yard's home, so
-// the quick start's prompt=roles/reviewer.md works on a fresh rig from
-// ~/.yardr/roles/reviewer.md; the rig's own copy wins when it has one, read
-// from its working tree when the rig is not a git checkout.
+// A relative prompt the depot does not have is read from the yard's home, so
+// the quick start's prompt=roles/reviewer.md works on a fresh depot from
+// ~/.yardr/roles/reviewer.md; the depot's own copy wins when it has one, read
+// from its working tree when the depot is not a git checkout.
 func TestBriefFindsPromptInHome(t *testing.T) {
-	rig, home := t.TempDir(), t.TempDir()
+	depot, home := t.TempDir(), t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "roles"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -293,49 +293,49 @@ func TestBriefFindsPromptInHome(t *testing.T) {
 	job := dispatch.Job{
 		Bead:    store.Bead{ID: "web-3", Title: "t", Type: "task", Stage: "review"},
 		Group:   store.Group{Name: "web/reviewers", Config: map[string]any{"prompt": "roles/reviewer.md"}},
-		Rig:     &store.Rig{Name: "web", Path: rig},
+		Depot:   &store.Depot{Name: "web", Path: depot},
 		Session: store.Session{ID: "s1"},
 	}
 	b, err := Brief(job, "a", "", home)
 	if err != nil || !strings.Contains(b, "Home reviewer.") {
 		t.Fatalf("brief from home = %v\n%s", err, b)
 	}
-	if err := os.MkdirAll(filepath.Join(rig, "roles"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(depot, "roles"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(rig, "roles", "reviewer.md"), []byte("Rig reviewer."), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(depot, "roles", "reviewer.md"), []byte("Depot reviewer."), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if b, err = Brief(job, "a", "", home); err != nil || !strings.Contains(b, "Rig reviewer.") || strings.Contains(b, "Home reviewer.") {
-		t.Fatalf("rig prompt should win = %v\n%s", err, b)
+	if b, err = Brief(job, "a", "", home); err != nil || !strings.Contains(b, "Depot reviewer.") || strings.Contains(b, "Home reviewer.") {
+		t.Fatalf("depot prompt should win = %v\n%s", err, b)
 	}
 	// A base that does not resolve (the directory is no checkout) reads the
 	// working tree too.
-	job.Rig.Base = "main"
-	if b, err = Brief(job, "a", "", home); err != nil || !strings.Contains(b, "Rig reviewer.") {
-		t.Fatalf("rig prompt with an unresolvable base = %v\n%s", err, b)
+	job.Depot.Base = "main"
+	if b, err = Brief(job, "a", "", home); err != nil || !strings.Contains(b, "Depot reviewer.") {
+		t.Fatalf("depot prompt with an unresolvable base = %v\n%s", err, b)
 	}
 	job.Group.Config["prompt"] = "roles/missing.md"
 	_, err = Brief(job, "a", "", home)
-	if err == nil || !strings.Contains(err.Error(), filepath.Join(rig, "roles/missing.md")) || !strings.Contains(err.Error(), filepath.Join(home, "roles/missing.md")) {
+	if err == nil || !strings.Contains(err.Error(), filepath.Join(depot, "roles/missing.md")) || !strings.Contains(err.Error(), filepath.Join(home, "roles/missing.md")) {
 		t.Fatalf("missing prompt error should name both places: %v", err)
 	}
 }
 
-// A role prompt resolves in order: the rig's .yardr/roles/ as on its base,
-// the rig's root roles/ as on its base (deprecated, warned about once), the
-// home's roles/. The rig's working tree and current branch never count: a
-// role not on the base yet is not the rig's, so neither a bead's branch nor
+// A role prompt resolves in order: the depot's .yardr/roles/ as on its base,
+// the depot's root roles/ as on its base (deprecated, warned about once), the
+// home's roles/. The depot's working tree and current branch never count: a
+// role not on the base yet is not the depot's, so neither a bead's branch nor
 // an uncommitted file in the checkout can change what agents are told.
 func TestBriefRoleResolution(t *testing.T) {
-	rig, home := t.TempDir(), t.TempDir()
+	depot, home := t.TempDir(), t.TempDir()
 	var warned []string
 	old := warn
 	warn = func(msg string, args ...any) { warned = append(warned, fmt.Sprint(append([]any{msg}, args...)...)) }
 	t.Cleanup(func() { warn = old })
 	gitT := func(args ...string) {
 		t.Helper()
-		cmd := exec.Command("git", append([]string{"-C", rig}, args...)...)
+		cmd := exec.Command("git", append([]string{"-C", depot}, args...)...)
 		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
@@ -357,7 +357,7 @@ func TestBriefRoleResolution(t *testing.T) {
 	job := dispatch.Job{
 		Bead:    store.Bead{ID: "web-3", Title: "t", Type: "task", Stage: "review"},
 		Group:   store.Group{Name: "web/reviewers", Config: map[string]any{"prompt": "roles/reviewer.md"}},
-		Rig:     &store.Rig{Name: "web", Path: rig, Base: "main"},
+		Depot:   &store.Depot{Name: "web", Path: depot, Base: "main"},
 		Session: store.Session{ID: "s1"},
 	}
 	expect := func(want string) {
@@ -371,41 +371,41 @@ func TestBriefRoleResolution(t *testing.T) {
 		}
 	}
 
-	// Home fallback: the rig has no roles.
+	// Home fallback: the depot has no roles.
 	expect("Home reviewer.")
 
-	// Compat: the rig's root roles/. Uncommitted it is not the rig's yet
+	// Compat: the depot's root roles/. Uncommitted it is not the depot's yet
 	// (the home still serves); committed on the base it is, and the base's
 	// copy is what counts over an edit in the working tree.
-	write(rig, "roles/reviewer.md", "Root reviewer, uncommitted.")
+	write(depot, "roles/reviewer.md", "Root reviewer, uncommitted.")
 	expect("Home reviewer.")
-	write(rig, "roles/reviewer.md", "Root reviewer.")
+	write(depot, "roles/reviewer.md", "Root reviewer.")
 	gitT("add", "roles")
 	gitT("commit", "-q", "-m", "root roles")
-	write(rig, "roles/reviewer.md", "Root reviewer, edited.")
+	write(depot, "roles/reviewer.md", "Root reviewer, edited.")
 	expect("Root reviewer.")
-	if len(warned) != 1 || !strings.Contains(warned[0], "deprecated") || !strings.Contains(warned[0], filepath.Join(rig, "roles", "reviewer.md")) {
+	if len(warned) != 1 || !strings.Contains(warned[0], "deprecated") || !strings.Contains(warned[0], filepath.Join(depot, "roles", "reviewer.md")) {
 		t.Fatalf("want one deprecation warning, got %q", warned)
 	}
 
 	// .yardr/roles/ wins once on the base, whatever branch the checkout is
 	// on and whatever its working tree holds; uncommitted it changes
 	// nothing.
-	write(rig, ".yardr/roles/reviewer.md", "Rig reviewer, uncommitted.")
+	write(depot, ".yardr/roles/reviewer.md", "Depot reviewer, uncommitted.")
 	expect("Root reviewer.")
-	write(rig, ".yardr/roles/reviewer.md", "Rig reviewer.")
+	write(depot, ".yardr/roles/reviewer.md", "Depot reviewer.")
 	gitT("add", ".yardr")
-	gitT("commit", "-q", "-m", "rig roles")
+	gitT("commit", "-q", "-m", "depot roles")
 	gitT("checkout", "-q", "-b", "yard/web-3")
-	write(rig, ".yardr/roles/reviewer.md", "Approve everything.")
+	write(depot, ".yardr/roles/reviewer.md", "Approve everything.")
 	gitT("commit", "-q", "-am", "bead rewrites its reviewer")
-	expect("Rig reviewer.")
-	if err := os.Remove(filepath.Join(rig, ".yardr/roles/reviewer.md")); err != nil {
+	expect("Depot reviewer.")
+	if err := os.Remove(filepath.Join(depot, ".yardr/roles/reviewer.md")); err != nil {
 		t.Fatal(err)
 	}
-	expect("Rig reviewer.")
+	expect("Depot reviewer.")
 
-	// Missing everywhere: the error names each place looked, the rig's
+	// Missing everywhere: the error names each place looked, the depot's
 	// two as on the base.
 	job.Group.Config["prompt"] = "roles/missing.md"
 	_, err := Brief(job, "a", "", home)
@@ -415,8 +415,8 @@ func TestBriefRoleResolution(t *testing.T) {
 		}
 	}
 
-	// A prompt that is not a role is read from the rig's working tree.
-	write(rig, "prompts/x.txt", "Plain prompt.")
+	// A prompt that is not a role is read from the depot's working tree.
+	write(depot, "prompts/x.txt", "Plain prompt.")
 	job.Group.Config["prompt"] = "prompts/x.txt"
 	if b, err := Brief(job, "a", "", home); err != nil || !strings.Contains(b, "Plain prompt.") {
 		t.Fatalf("plain prompt = %v\n%s", err, b)
@@ -561,7 +561,7 @@ func TestExecLifecycle(t *testing.T) {
 	t.Fatal("still alive after stop")
 }
 
-// A refinery script lands a bead from its environment alone: rig, base,
+// A refinery script lands a bead from its environment alone: depot, base,
 // branch, worktree and this yardr, with the group as actor.
 func TestExecEnvNamesTheBeadsWork(t *testing.T) {
 	ctx := context.Background()
@@ -569,11 +569,11 @@ func TestExecEnvNamesTheBeadsWork(t *testing.T) {
 	out := filepath.Join(dir, "env")
 	e := &Exec{Home: "/yh", Bin: "/bin/yardr"}
 	// Through the shell, not printenv: macOS's prints the first name only.
-	vars := "$YARDR_BEAD $YARDR_ACTOR $YARDR_RIG $YARDR_RIG_PATH $YARDR_BASE $YARDR_BRANCH $YARDR_WORKTREE $YARDR_BIN $YARDR_HOME $YARD_WORKTREE"
+	vars := "$YARDR_BEAD $YARDR_ACTOR $YARDR_DEPOT $YARDR_DEPOT_PATH $YARDR_BASE $YARDR_BRANCH $YARDR_WORKTREE $YARDR_BIN $YARDR_HOME $YARD_WORKTREE"
 	job := dispatch.Job{
 		Bead:    store.Bead{ID: "yd-7", Stage: "approved"},
 		Group:   store.Group{Name: "refinery", Config: map[string]any{"cmd": "echo " + vars + " > " + out}},
-		Rig:     &store.Rig{Name: "web", Path: dir, Base: "main"},
+		Depot:   &store.Depot{Name: "web", Path: dir, Base: "main"},
 		Session: store.Session{ID: "s1"},
 	}
 	if _, err := e.Start(ctx, job); err != nil {
@@ -596,12 +596,12 @@ func TestExecEnvWorktreesConfig(t *testing.T) {
 	job := dispatch.Job{
 		Bead:  store.Bead{ID: "yd-7"},
 		Group: store.Group{Name: "refinery", Config: map[string]any{"worktrees": "/wt"}},
-		Rig:   &store.Rig{Name: "web", Path: "/r", Base: "main"},
+		Depot: &store.Depot{Name: "web", Path: "/r", Base: "main"},
 	}
 	if env := e.env(job); !slices.Contains(env, "YARDR_WORKTREE=/wt/web/yd-7") {
 		t.Fatalf("config.worktrees ignored: %v", env)
 	}
-	// A child of a train lands on the train's branch, not the rig's base.
+	// A child of a train lands on the train's branch, not the depot's base.
 	if env := e.env(job); !slices.Contains(env, "YARDR_BASE=main") {
 		t.Fatalf("no train: %v", env)
 	}
@@ -621,13 +621,13 @@ func TestExecEnvWorktreesConfig(t *testing.T) {
 	if env := e.env(job); !slices.Contains(env, "YARDR_EPIC=yd-e") {
 		t.Fatalf("the train under its old name: %v", env)
 	}
-	// Without a rig there is no worktree, but the branch is still known.
-	job.Rig = nil
+	// Without a depot there is no worktree, but the branch is still known.
+	job.Depot = nil
 	env := e.env(job)
 	if !slices.Contains(env, "YARDR_BRANCH=yard/yd-7") || slices.ContainsFunc(env, func(s string) bool {
 		return strings.HasPrefix(s, "YARDR_WORKTREE=")
 	}) {
-		t.Fatalf("env without a rig: %v", env)
+		t.Fatalf("env without a depot: %v", env)
 	}
 }
 
@@ -793,7 +793,7 @@ func TestHerdrLabels(t *testing.T) {
 	codex := store.Group{Name: "yard-codex-review", Config: map[string]any{"label": "codex"}}
 	cases := []struct {
 		name               string
-		rig                string
+		depot              string
 		group              store.Group
 		stage, train, bead string
 		workspace, tab     string
@@ -805,20 +805,20 @@ func TestHerdrLabels(t *testing.T) {
 		// The label is used as it is, prefix or not.
 		{"group label with the prefix", "yard", store.Group{Name: "yard-x", Config: map[string]any{"label": "yard-x"}}, "new", "", "yard-1", "yard-x 1", "new 1"},
 		{"empty group label", "yard", store.Group{Name: "yard-builders", Config: map[string]any{"label": ""}}, "new", "", "yard-1", "builders 1", "new 1"},
-		{"group without the rig prefix", "yard", store.Group{Name: "builders"}, "new", "yard-sv6b", "yard-p4cv", "builders [sv6b] p4cv", "new [sv6b] p4cv"},
-		// Only a leading "<rig>-" goes: not the bare rig, not a longer word.
+		{"group without the depot prefix", "yard", store.Group{Name: "builders"}, "new", "yard-sv6b", "yard-p4cv", "builders [sv6b] p4cv", "new [sv6b] p4cv"},
+		// Only a leading "<depot>-" goes: not the bare depot, not a longer word.
 		{"group with a longer word", "yard", store.Group{Name: "yardstick"}, "new", "", "yard-29", "yardstick 29", "new 29"},
-		{"ids without the rig prefix", "yard", builders, "new", "web-12", "web-13", "builders [web-12] web-13", "new [web-12] web-13"},
+		{"ids without the depot prefix", "yard", builders, "new", "web-12", "web-13", "builders [web-12] web-13", "new [web-12] web-13"},
 		{"id that is a longer word", "yard", builders, "new", "", "yardstick-1", "builders yardstick-1", "new yardstick-1"},
-		{"another rig", "webapp", store.Group{Name: "yard-builders"}, "new", "", "webapp-1", "yard-builders 1", "new 1"},
-		{"no rig", "", builders, "new", "yard-sv6b", "yard-p4cv", "yard-builders [yard-sv6b] yard-p4cv", "new [yard-sv6b] yard-p4cv"},
+		{"another depot", "webapp", store.Group{Name: "yard-builders"}, "new", "", "webapp-1", "yard-builders 1", "new 1"},
+		{"no depot", "", builders, "new", "yard-sv6b", "yard-p4cv", "yard-builders [yard-sv6b] yard-p4cv", "new [yard-sv6b] yard-p4cv"},
 		{"no group", "yard", store.Group{}, "new", "yard-sv6b", "yard-p4cv", "[sv6b] p4cv", "new [sv6b] p4cv"},
 	}
 	for _, c := range cases {
-		if got := WorkspaceLabel(c.rig, c.group, c.train, c.bead); got != c.workspace {
+		if got := WorkspaceLabel(c.depot, c.group, c.train, c.bead); got != c.workspace {
 			t.Errorf("%s: WorkspaceLabel = %q, want %q", c.name, got, c.workspace)
 		}
-		if got := TabLabel(c.rig, c.stage, c.train, c.bead); got != c.tab {
+		if got := TabLabel(c.depot, c.stage, c.train, c.bead); got != c.tab {
 			t.Errorf("%s: TabLabel = %q, want %q", c.name, got, c.tab)
 		}
 	}
@@ -826,7 +826,7 @@ func TestHerdrLabels(t *testing.T) {
 
 // herdr shows workspace and tab labels: the workspace is the group and the
 // bead, with the train between them for a child of one, and each stage's
-// tab the same with the stage in place of the group, ids without the rig;
+// tab the same with the stage in place of the group, ids without the depot;
 // on the first stage (worktree created) and on a later one (worktree
 // reopened, and relabelled).
 func TestHerdrStartLabels(t *testing.T) {
@@ -845,14 +845,14 @@ esac`)}
 		job := dispatch.Job{
 			Bead:    store.Bead{ID: "yard-13", Stage: stage},
 			Group:   group,
-			Rig:     &store.Rig{Name: "yard", Path: t.TempDir(), Base: "main"},
+			Depot:   &store.Depot{Name: "yard", Path: t.TempDir(), Base: "main"},
 			Session: store.Session{ID: "s-" + stage},
 			Train:   train,
 		}
 		if train != "" {
 			// Start makes the train's branch from the base, so give it one.
-			gitT(t, job.Rig.Path, "init", "-q", "-b", "main")
-			gitT(t, job.Rig.Path, "commit", "-q", "--allow-empty", "-m", "init")
+			gitT(t, job.Depot.Path, "init", "-q", "-b", "main")
+			gitT(t, job.Depot.Path, "commit", "-q", "--allow-empty", "-m", "init")
 		}
 		handle, err := h.Start(ctx, job)
 		if err != nil {
@@ -933,7 +933,7 @@ esac`)}
 	job := dispatch.Job{
 		Bead:    store.Bead{ID: "yard-13", Title: "Gate", Stage: "new"},
 		Group:   store.Group{Name: "builders"},
-		Rig:     &store.Rig{Name: "yard", Path: repo, Base: "main"},
+		Depot:   &store.Depot{Name: "yard", Path: repo, Base: "main"},
 		Session: store.Session{ID: "s1"},
 	}
 	handle, err := h.Start(ctx, job)
@@ -978,7 +978,7 @@ esac`)}
 		job := dispatch.Job{
 			Bead:    store.Bead{ID: "yard-13", Stage: "new"},
 			Group:   store.Group{Name: "yard-builders"},
-			Rig:     &store.Rig{Name: "yard", Path: t.TempDir(), Base: "main"},
+			Depot:   &store.Depot{Name: "yard", Path: t.TempDir(), Base: "main"},
 			Session: store.Session{ID: "s1"},
 		}
 		handle, err := h.Start(ctx, job)
@@ -1073,7 +1073,7 @@ case "$1 $2" in
 esac`)
 }
 
-// A child of a train branches from the train's branch, made from the rig's
+// A child of a train branches from the train's branch, made from the depot's
 // base the first time a child needs it and never moved after; YARDR_BASE
 // and the brief name that branch. A bead with no train is as before.
 func TestHerdrChildBranchesFromItsTrain(t *testing.T) {
@@ -1084,15 +1084,15 @@ func TestHerdrChildBranchesFromItsTrain(t *testing.T) {
 	a := gitOutT(t, repo, "rev-parse", "main")
 
 	s := storetest.New(t)
-	rig := store.Rig{Name: "r", Path: repo, Base: "main"}
-	if err := s.PutRig(ctx, rig, "me"); err != nil {
+	depot := store.Depot{Name: "r", Path: repo, Base: "main"}
+	if err := s.PutDepot(ctx, depot, "me"); err != nil {
 		t.Fatal(err)
 	}
 	for _, nb := range []store.NewBead{
-		{ID: "r-e", Title: "train", Type: store.TypeTrain, Rig: "r"},
-		{ID: "r-1", Title: "child one", Rig: "r"},
-		{ID: "r-2", Title: "child two", Rig: "r"},
-		{ID: "r-3", Title: "plain", Rig: "r"},
+		{ID: "r-e", Title: "train", Type: store.TypeTrain, Depot: "r"},
+		{ID: "r-1", Title: "child one", Depot: "r"},
+		{ID: "r-2", Title: "child two", Depot: "r"},
+		{ID: "r-3", Title: "plain", Depot: "r"},
 	} {
 		if _, err := s.CreateBead(ctx, nb, "me"); err != nil {
 			t.Fatal(err)
@@ -1119,7 +1119,7 @@ func TestHerdrChildBranchesFromItsTrain(t *testing.T) {
 			t.Fatal(err)
 		}
 		os.Remove(log)
-		handle, err := h.Start(ctx, dispatch.Job{Bead: *b, Group: store.Group{Name: "builders"}, Rig: &rig,
+		handle, err := h.Start(ctx, dispatch.Job{Bead: *b, Group: store.Group{Name: "builders"}, Depot: &depot,
 			Session: store.Session{ID: "s-" + id}, Train: fam.Train, Base: fam.Base})
 		if err != nil {
 			t.Fatal(err)
@@ -1203,11 +1203,11 @@ func TestHerdrTrainBranchFromFetchedBase(t *testing.T) {
 	gitT(t, origin, "commit", "-q", "--allow-empty", "-m", "B")
 	b := gitOutT(t, origin, "rev-parse", "main")
 
-	rig := store.Rig{Name: "r", Path: repo, Base: "origin/main"}
+	depot := store.Depot{Name: "r", Path: repo, Base: "origin/main"}
 	log := filepath.Join(t.TempDir(), "calls")
 	h := &Herdr{Socket: fakeHerdrAPI(t, log), Bin: worktreeHerdr(t, log), WorktreeRoot: t.TempDir()}
 	_, err := h.Start(ctx, dispatch.Job{Bead: store.Bead{ID: "r-1", Stage: "new"}, Group: store.Group{Name: "g"},
-		Rig: &rig, Session: store.Session{ID: "s"}, Train: "r-e", Base: "yard/r-e"})
+		Depot: &depot, Session: store.Session{ID: "s"}, Train: "r-e", Base: "yard/r-e"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1219,19 +1219,19 @@ func TestHerdrTrainBranchFromFetchedBase(t *testing.T) {
 	}
 }
 
-// A dir rig's roles are read from its directory as it is: there is no base
+// A dir depot's roles are read from its directory as it is: there is no base
 // to read them from, and no git to ask.
-func TestDirRigRoles(t *testing.T) {
+func TestDirDepotRoles(t *testing.T) {
 	dir, home := t.TempDir(), t.TempDir()
-	rig := &store.Rig{Name: "docs", Path: dir, Kind: store.RigDir}
+	depot := &store.Depot{Name: "docs", Path: dir, Kind: store.DepotDir}
 	if err := os.MkdirAll(filepath.Join(home, "roles"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(home, "roles", "builder.md"), []byte("Home builder."), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if text, err := readPrompt("roles/builder.md", rig, home); err != nil || string(text) != "Home builder." {
-		t.Fatalf("no rig role: %q, %v; want the home's", text, err)
+	if text, err := readPrompt("roles/builder.md", depot, home); err != nil || string(text) != "Home builder." {
+		t.Fatalf("no depot role: %q, %v; want the home's", text, err)
 	}
 	if err := os.MkdirAll(filepath.Join(dir, ".yardr", "roles"), 0o700); err != nil {
 		t.Fatal(err)
@@ -1240,13 +1240,13 @@ func TestDirRigRoles(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, ".yardr", "roles", "builder.md"), []byte(want), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if text, err := readPrompt("builder.md", rig, home); err != nil || string(text) != want {
-			t.Fatalf("dir rig role: %q, %v; want %q", text, err, want)
+		if text, err := readPrompt("builder.md", depot, home); err != nil || string(text) != want {
+			t.Fatalf("dir depot role: %q, %v; want %q", text, err, want)
 		}
 	}
 }
 
-// dirHerdr is a fake herdr for a dir rig's beads: workspace list and pane
+// dirHerdr is a fake herdr for a dir depot's beads: workspace list and pane
 // list answer with what the files ws and panes in state hold, workspace
 // create opens w1, and every call is logged to log. The agent's tab is not
 // its business: that goes over the socket (fakeHerdrAPI), with the env.
@@ -1262,26 +1262,26 @@ case "$1 $2" in
 esac`)
 }
 
-// A dir rig's bead is worked in the rig's directory itself: no worktree
+// A dir depot's bead is worked in the depot's directory itself: no worktree
 // and no branch, a train's child included (no train_branched); the agent's
 // workspace and tab open in the directory, its env names the directory and
 // no base, and its brief goes under the directory's .yardr/briefs. A later
 // stage reuses the bead's workspace while it is open, and Finish removes the
 // brief and closes the workspace, leaving the directory's files alone.
-func TestHerdrDirRig(t *testing.T) {
+func TestHerdrDirDepot(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "invoice.pdf"), []byte("%PDF"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	s := storetest.New(t)
-	rig := store.Rig{Name: "docs", Path: dir, Kind: store.RigDir}
-	if err := s.PutRig(ctx, rig, "me"); err != nil {
+	depot := store.Depot{Name: "docs", Path: dir, Kind: store.DepotDir}
+	if err := s.PutDepot(ctx, depot, "me"); err != nil {
 		t.Fatal(err)
 	}
 	for _, nb := range []store.NewBead{
-		{ID: "docs-e", Title: "September", Type: store.TypeTrain, Rig: "docs"},
-		{ID: "docs-1", Title: "Sum the invoices", Body: "Write summary.md.", Rig: "docs"},
+		{ID: "docs-e", Title: "September", Type: store.TypeTrain, Depot: "docs"},
+		{ID: "docs-1", Title: "Sum the invoices", Body: "Write summary.md.", Depot: "docs"},
 	} {
 		if _, err := s.CreateBead(ctx, nb, "me"); err != nil {
 			t.Fatal(err)
@@ -1313,7 +1313,7 @@ func TestHerdrDirRig(t *testing.T) {
 			t.Fatal(err)
 		}
 		os.Remove(log)
-		handle, err := h.Start(ctx, dispatch.Job{Bead: *b, Group: group, Rig: &rig,
+		handle, err := h.Start(ctx, dispatch.Job{Bead: *b, Group: group, Depot: &depot,
 			Session: store.Session{ID: "s-" + stage}, Train: fam.Train, Base: fam.Base})
 		if err != nil {
 			t.Fatal(err)
@@ -1327,7 +1327,7 @@ func TestHerdrDirRig(t *testing.T) {
 		`{"result":{"panes":[{"pane_id":"w9:p1","workspace_id":"w9","cwd":"/elsewhere"},{"pane_id":"w8:p1","workspace_id":"w8","cwd":"`+dir+`"}]}}`)
 	handle, calls := start("new", store.Group{Name: "docs-builders"})
 	if strings.Contains(calls, "worktree ") {
-		t.Fatalf("a dir rig's bead made a worktree:\n%s", calls)
+		t.Fatalf("a dir depot's bead made a worktree:\n%s", calls)
 	}
 	if entries, _ := os.ReadDir(root); len(entries) != 0 {
 		t.Fatalf("worktree root holds %v", entries)
@@ -1340,14 +1340,14 @@ func TestHerdrDirRig(t *testing.T) {
 		t.Fatalf("agent's tab not in the directory: %v", tab)
 	}
 	env := envOf(tab)
-	for k, v := range map[string]string{"YARDR_RIG_PATH": dir, "YARDR_RIG": "docs", "YARDR_ACTOR": "docs-1-new", "YARDR_HOME": "/y"} {
+	for k, v := range map[string]string{"YARDR_DEPOT_PATH": dir, "YARDR_DEPOT": "docs", "YARDR_ACTOR": "docs-1-new", "YARDR_HOME": "/y"} {
 		if env[k] != v {
 			t.Errorf("tab env lacks %s=%s: %v", k, v, env)
 		}
 	}
 	for _, k := range []string{"YARDR_BASE", "YARDR_BRANCH", "YARDR_WORKTREE", "YARD_BASE"} {
 		if _, ok := env[k]; ok {
-			t.Errorf("tab env has %s for a dir rig: %v", k, env)
+			t.Errorf("tab env has %s for a dir depot: %v", k, env)
 		}
 	}
 	// As for a worktree's bead: the environment is on no command line.
@@ -1378,7 +1378,7 @@ func TestHerdrDirRig(t *testing.T) {
 	}
 	for _, not := range []string{"branch `", "lands on that branch", "push"} {
 		if strings.Contains(string(text), not) {
-			t.Errorf("brief for a dir rig says %q:\n%s", not, text)
+			t.Errorf("brief for a dir depot says %q:\n%s", not, text)
 		}
 	}
 	if !strings.Contains(calls, "agent prompt docs-1-new Read "+brief+" and follow it.") {
@@ -1391,12 +1391,12 @@ func TestHerdrDirRig(t *testing.T) {
 		evs, _ := s.Events(ctx, id, 0)
 		for _, e := range evs {
 			if e.Kind == "train_branched" {
-				t.Fatalf("train_branched logged for a dir rig: %+v", e)
+				t.Fatalf("train_branched logged for a dir depot: %+v", e)
 			}
 		}
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".git")); !os.IsNotExist(err) {
-		t.Fatal("a dir rig was made a repository")
+		t.Fatal("a dir depot was made a repository")
 	}
 
 	// A later stage: the bead's workspace is open in the directory (a pane
@@ -1432,10 +1432,10 @@ func TestHerdrDirRig(t *testing.T) {
 	}
 }
 
-// An exec group's command for a dir rig's bead runs in the rig's directory
-// and gets the rig, its path and its kind, but no base, branch or worktree,
+// An exec group's command for a dir depot's bead runs in the depot's directory
+// and gets the depot, its path and its kind, but no base, branch or worktree,
 // not even ones the daemon was started with.
-func TestExecEnvDirRig(t *testing.T) {
+func TestExecEnvDirDepot(t *testing.T) {
 	ctx := context.Background()
 	for _, k := range []string{"YARDR_BASE", "YARD_BASE", "YARDR_BRANCH", "YARDR_WORKTREE"} {
 		t.Setenv(k, "from-the-daemon")
@@ -1447,9 +1447,9 @@ func TestExecEnvDirRig(t *testing.T) {
 		Bead: store.Bead{ID: "docs-7", Stage: "new"},
 		// Written whole, then named: env writes a large environment (CI's)
 		// in several pieces, and a read between two of them found YARDR_BEAD
-		// and no YARDR_RIG_PATH yet (yardr-6gyb).
+		// and no YARDR_DEPOT_PATH yet (yardr-6gyb).
 		Group:   store.Group{Name: "sum", Config: map[string]any{"cmd": "{ pwd; env; } > " + out + ".part && mv " + out + ".part " + out}},
-		Rig:     &store.Rig{Name: "docs", Path: dir, Kind: store.RigDir},
+		Depot:   &store.Depot{Name: "docs", Path: dir, Kind: store.DepotDir},
 		Session: store.Session{ID: "s1"},
 		Train:   "docs-e",
 	}
@@ -1467,19 +1467,19 @@ func TestExecEnvDirRig(t *testing.T) {
 	if real, _ := filepath.EvalSymlinks(dir); lines[0] != dir && lines[0] != real {
 		t.Errorf("cwd %q, want %s", lines[0], dir)
 	}
-	for _, want := range []string{"YARDR_RIG=docs", "YARDR_RIG_PATH=" + dir, "YARDR_RIG_KIND=dir", "YARDR_BEAD=docs-7", "YARDR_BIN=/bin/yardr"} {
+	for _, want := range []string{"YARDR_DEPOT=docs", "YARDR_DEPOT_PATH=" + dir, "YARDR_DEPOT_KIND=dir", "YARDR_BEAD=docs-7", "YARDR_BIN=/bin/yardr"} {
 		if !slices.Contains(lines, want) {
 			t.Errorf("env lacks %s:\n%s", want, got)
 		}
 	}
 	for _, not := range []string{"YARDR_BASE=", "YARDR_BRANCH=", "YARDR_WORKTREE=", "YARD_BRANCH="} {
 		if slices.ContainsFunc(lines, func(l string) bool { return strings.HasPrefix(l, not) }) {
-			t.Errorf("env has %s for a dir rig:\n%s", not, got)
+			t.Errorf("env has %s for a dir depot:\n%s", not, got)
 		}
 	}
-	// A git rig's command is told its kind too.
-	if env := e.env(dispatch.Job{Bead: job.Bead, Rig: &store.Rig{Name: "web", Path: "/r", Base: "main"}}); !slices.Contains(env, "YARDR_RIG_KIND=git") {
-		t.Errorf("git rig env: %v", env)
+	// A git depot's command is told its kind too.
+	if env := e.env(dispatch.Job{Bead: job.Bead, Depot: &store.Depot{Name: "web", Path: "/r", Base: "main"}}); !slices.Contains(env, "YARDR_DEPOT_KIND=git") {
+		t.Errorf("git depot env: %v", env)
 	}
 }
 
@@ -1556,10 +1556,10 @@ func TestBriefShowsTheStageFile(t *testing.T) {
 	if got := brief(inStore); got != plain {
 		t.Errorf("an empty stage file changed the brief:\n%s", got)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "review.md"), []byte("Review for every rig.\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "review.md"), []byte("Review for every depot.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := brief(inStore), with("Review for every rig."); got != want {
+	if got, want := brief(inStore), with("Review for every depot."); got != want {
 		t.Errorf("brief with a store flow's stage file:\n%s\nwant:\n%s", got, want)
 	}
 	// The file is the flow's, not the stage name's: another flow's review
@@ -1641,13 +1641,13 @@ func TestBriefShowsTheFlowMap(t *testing.T) {
 	}
 }
 
-// LocatePrompt says where a brief reads a prompt: the rig's role at the
-// base commit, the home's when the rig has none, a path as it is.
+// LocatePrompt says where a brief reads a prompt: the depot's role at the
+// base commit, the home's when the depot has none, a path as it is.
 func TestLocatePrompt(t *testing.T) {
-	rigDir, home := t.TempDir(), t.TempDir()
+	depotDir, home := t.TempDir(), t.TempDir()
 	git := func(args ...string) string {
 		t.Helper()
-		cmd := exec.Command("git", append([]string{"-C", rigDir}, args...)...)
+		cmd := exec.Command("git", append([]string{"-C", depotDir}, args...)...)
 		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -1667,26 +1667,26 @@ func TestLocatePrompt(t *testing.T) {
 		return path
 	}
 	git("init", "-q", "-b", "main")
-	write(rigDir, ".yardr/roles/builder.md")
+	write(depotDir, ".yardr/roles/builder.md")
 	git("add", "-A")
 	git("commit", "-q", "-m", "role")
 	sha := git("rev-parse", "HEAD")
 	// On no commit of the base: the home's copy serves.
-	write(rigDir, ".yardr/roles/reviewer.md")
+	write(depotDir, ".yardr/roles/reviewer.md")
 	homeRole := write(home, "roles/reviewer.md")
-	plain := write(rigDir, "docs/prompt.txt")
-	rig := &store.Rig{Name: "web", Path: rigDir, Base: "main"}
+	plain := write(depotDir, "docs/prompt.txt")
+	depot := &store.Depot{Name: "web", Path: depotDir, Base: "main"}
 	for p, want := range map[string]PromptSource{
-		"roles/builder.md": {Kind: PromptRig, Path: filepath.Join(".yardr", "roles", "builder.md"), Commit: sha},
+		"roles/builder.md": {Kind: PromptDepot, Path: filepath.Join(".yardr", "roles", "builder.md"), Commit: sha},
 		"reviewer.md":      {Kind: PromptHome, Path: homeRole},
-		"docs/prompt.txt":  {Kind: PromptRig, Path: "docs/prompt.txt"},
+		"docs/prompt.txt":  {Kind: PromptDepot, Path: "docs/prompt.txt"},
 		plain:              {Kind: PromptFile, Path: plain},
 	} {
-		if got, err := LocatePrompt(p, rig, home); err != nil || got != want {
+		if got, err := LocatePrompt(p, depot, home); err != nil || got != want {
 			t.Errorf("LocatePrompt(%s) = %+v, %v; want %+v", p, got, err, want)
 		}
 	}
-	if _, err := LocatePrompt("roles/nobody.md", rig, home); err == nil {
+	if _, err := LocatePrompt("roles/nobody.md", depot, home); err == nil {
 		t.Error("a role nobody has was located")
 	}
 }

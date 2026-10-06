@@ -99,7 +99,7 @@ func TestHerdrStartLoadsGroupEnvFile(t *testing.T) {
 	job := dispatch.Job{
 		Bead:    store.Bead{ID: "yard-13", Stage: "review"},
 		Group:   store.Group{Name: "yard-review", Config: map[string]any{"env_file": envFileT(t, 0o600)}},
-		Rig:     &store.Rig{Name: "yard", Path: t.TempDir(), Base: "main"},
+		Depot:   &store.Depot{Name: "yard", Path: t.TempDir(), Base: "main"},
 		Session: store.Session{ID: "s1"},
 	}
 	handle, err := h.Start(context.Background(), job)
@@ -119,7 +119,7 @@ func TestEnvFileRefusedBlocksStart(t *testing.T) {
 		cfg := map[string]any{"env_file": path}
 		_, rerr := h.StartCrew(context.Background(), store.CrewMember{Name: "yardmaster", Dir: t.TempDir(), Config: cfg})
 		_, gerr := h.Start(context.Background(), dispatch.Job{Bead: store.Bead{ID: "yard-13", Stage: "new"},
-			Group: store.Group{Name: "g", Config: cfg}, Rig: &store.Rig{Name: "yard", Path: t.TempDir(), Base: "main"}})
+			Group: store.Group{Name: "g", Config: cfg}, Depot: &store.Depot{Name: "yard", Path: t.TempDir(), Base: "main"}})
 		for who, err := range map[string]error{"crew": rerr, "group": gerr} {
 			if !dispatch.IsBlocked(err) {
 				t.Errorf("%s %s: err = %v, want Blocked", name, who, err)
@@ -353,7 +353,7 @@ func TestHerdrSessionsGetNoServerSettings(t *testing.T) {
 	job := dispatch.Job{
 		Bead:    store.Bead{ID: "yard-13", Stage: "new"},
 		Group:   store.Group{Name: "yard-builders", Config: map[string]any{"env_file": envFile}},
-		Rig:     &store.Rig{Name: "yard", Path: t.TempDir(), Base: "main"},
+		Depot:   &store.Depot{Name: "yard", Path: t.TempDir(), Base: "main"},
 		Session: store.Session{ID: "s1"},
 	}
 	if _, err := h.Start(context.Background(), job); err != nil {
@@ -372,7 +372,7 @@ func TestHerdrSessionsGetNoServerSettings(t *testing.T) {
 // An exec session's command inherits the daemon's environment, but not the
 // settings of the yard's server: the refinery's gate ran with the daemon's
 // YARDR_HOOK_ADDR, and a server its tests started listened there
-// (yardr-t9n1). A dir rig's bead, whose inherited environment is cut
+// (yardr-t9n1). A dir depot's bead, whose inherited environment is cut
 // further, is no exception.
 func TestExecSessionsGetNoServerSettings(t *testing.T) {
 	for _, n := range serverSettingNames {
@@ -380,15 +380,15 @@ func TestExecSessionsGetNoServerSettings(t *testing.T) {
 	}
 	t.Setenv("YARDR_T9N1_KEPT", "kept")
 	dir := t.TempDir()
-	for name, rig := range map[string]*store.Rig{
+	for name, depot := range map[string]*store.Depot{
 		"git": {Name: "web", Path: dir, Base: "main"},
-		"dir": {Name: "docs", Path: dir, Kind: store.RigDir},
+		"dir": {Name: "docs", Path: dir, Kind: store.DepotDir},
 	} {
 		out := filepath.Join(dir, name+".env")
 		job := dispatch.Job{
 			Bead:    store.Bead{ID: "yd-7", Stage: "approved"},
 			Group:   store.Group{Name: "refinery", Config: map[string]any{"cmd": "env > " + out + ".tmp && mv " + out + ".tmp " + out}},
-			Rig:     rig,
+			Depot:   depot,
 			Session: store.Session{ID: "s1"},
 		}
 		if _, err := (&Exec{Home: "/yh", Bin: "/bin/yardr"}).Start(context.Background(), job); err != nil {
@@ -400,11 +400,11 @@ func TestExecSessionsGetNoServerSettings(t *testing.T) {
 			got = string(b)
 		}
 		if !strings.Contains(got, "YARDR_T9N1_KEPT=kept\n") || !strings.Contains(got, "YARDR_BEAD=yd-7\n") {
-			t.Fatalf("%s rig: the command's environment lacks what it should have:\n%s", name, got)
+			t.Fatalf("%s depot: the command's environment lacks what it should have:\n%s", name, got)
 		}
 		for _, n := range serverSettingNames {
 			if strings.Contains(got, n+"=") {
-				t.Errorf("%s rig: the command got %s:\n%s", name, n, got)
+				t.Errorf("%s depot: the command got %s:\n%s", name, n, got)
 			}
 		}
 	}

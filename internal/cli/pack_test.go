@@ -22,7 +22,7 @@ import (
 func packApp(t *testing.T) *app {
 	t.Helper()
 	st := storetest.New(t)
-	if err := st.PutRig(context.Background(), store.Rig{Name: "web", Base: "main"}, "me"); err != nil {
+	if err := st.PutDepot(context.Background(), store.Depot{Name: "web", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	return &app{st: st, actor: "me", cfg: &config.Config{Home: t.TempDir()}}
@@ -30,21 +30,21 @@ func packApp(t *testing.T) *app {
 
 func TestPackCheckPrintsThePlan(t *testing.T) {
 	a := packApp(t)
-	out, err := run(t, a.packCmd(), "check", "../../packs/starter", "--rig", "web", "--crew", "yardmaster=boss")
+	out, err := run(t, a.packCmd(), "check", "../../packs/starter", "--depot", "web", "--crew", "yardmaster=boss")
 	if err != nil {
 		t.Fatal(err)
 	}
 	install := filepath.Join(a.cfg.Home, "packs", "starter")
 	for _, want := range []string{
-		"into rig web\n",
+		"into depot web\n",
 		"its roles and scripts would be copied to " + install + "\n",
 		"in its roles and stage files {{operator}} would read " + defaultOperator() + ", {{yardmaster}} would read boss\n",
 		"  create           roles/builder.md -> " + filepath.Join(install, "roles", "builder.md") + "\n",
 		"  create           web-builders\n                     asks: group.web-builders.kind\n",
-		"  create           rig web stage approved -> web-refinery\n",
+		"  create           depot web stage approved -> web-refinery\n",
 		"  create           boss linear involved\n",
 		"an import would ask\n  group.web-builders.kind: which agent runs group web-builders",
-		"flows governing rig web afterwards\n  the rig's beads: starter.default (store); now: none\n",
+		"flows governing depot web afterwards\n  the depot's beads: starter.default (store); now: none\n",
 		"source linear, for crew member boss\n  missing  hook ",
 		"its stage files would be copied to " + filepath.Join(a.cfg.Home, "flows", "starter.<flow>") + "\n",
 		"  create           flows/default/new.md -> " + filepath.Join(a.cfg.Home, "flows", "starter.default", "new.md") + "\n",
@@ -63,7 +63,7 @@ func TestPackCheckPrintsThePlan(t *testing.T) {
 	}
 
 	a.json = true
-	out, err = run(t, a.packCmd(), "check", "../../packs/starter", "--rig", "web")
+	out, err = run(t, a.packCmd(), "check", "../../packs/starter", "--depot", "web")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestPackCheckInvalidPackFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := &app{actor: "me"} // no store: reaching for one would fail the test's home
-	_, err := run(t, a.packCmd(), "check", dir, "--rig", "web")
+	_, err := run(t, a.packCmd(), "check", dir, "--depot", "web")
 	if err == nil || exitCode(err) != 1 {
 		t.Fatalf("err = %v (exit %d), want exit 1", err, exitCode(err))
 	}
@@ -98,7 +98,7 @@ func TestPackCheckInvalidPackFails(t *testing.T) {
 	}
 
 	a.json = true
-	out, err := run(t, a.packCmd(), "check", dir, "--rig", "web")
+	out, err := run(t, a.packCmd(), "check", dir, "--depot", "web")
 	var got struct {
 		Errors []pack.Error `json:"errors"`
 	}
@@ -106,19 +106,19 @@ func TestPackCheckInvalidPackFails(t *testing.T) {
 		t.Fatalf("json: %v\n%s", err, out)
 	}
 
-	if _, err := run(t, packApp(t).packCmd(), "check", "../../packs/starter"); err == nil || !strings.Contains(err.Error(), "rig") {
-		t.Fatalf("without --rig: %v", err)
+	if _, err := run(t, packApp(t).packCmd(), "check", "../../packs/starter"); err == nil || !strings.Contains(err.Error(), "depot") {
+		t.Fatalf("without --depot: %v", err)
 	}
 }
 
 // A plan the import would refuse is printed whole, then fails the check.
 func TestPackCheckRefusedPlanFails(t *testing.T) {
 	a := packApp(t)
-	b, err := a.st.CreateBead(context.Background(), store.NewBead{Title: "stray", Rig: "web", Stage: "triage"}, "me")
+	b, err := a.st.CreateBead(context.Background(), store.NewBead{Title: "stray", Depot: "web", Stage: "triage"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := run(t, a.packCmd(), "check", "../../packs/starter", "--rig", "web")
+	out, err := run(t, a.packCmd(), "check", "../../packs/starter", "--depot", "web")
 	if !errors.Is(err, errCheckFailed) {
 		t.Fatalf("err = %v, want the check failed", err)
 	}
@@ -149,13 +149,13 @@ func TestPackApplyWithoutATerminalNeedsEveryAnswer(t *testing.T) {
 		}
 	}
 
-	_, err := run(t, a.packCmd(), "apply", "../../packs/starter", "--rig", "web", "--yes")
+	_, err := run(t, a.packCmd(), "apply", "../../packs/starter", "--depot", "web", "--yes")
 	if err == nil || !strings.Contains(err.Error(), "cannot ask without a terminal") || !strings.Contains(err.Error(), "--crew yardmaster=<crew member>") {
 		t.Fatalf("err = %v, want the --crew flag named", err)
 	}
 	unchanged()
 
-	_, err = run(t, a.packCmd(), "apply", "../../packs/starter", "--rig", "web", "--yes", "--crew", "yardmaster=boss", "--bind", "builders=claude")
+	_, err = run(t, a.packCmd(), "apply", "../../packs/starter", "--depot", "web", "--yes", "--crew", "yardmaster=boss", "--bind", "builders=claude")
 	for _, want := range []string{"cannot ask without a terminal", "--bind reviewers=<kind>[:<model>] for the new group web-reviewers",
 		"--members backlog=<a,b> for the new group backlog", "--bind crew:yardmaster=<kind>[:<model>] for the new crew member boss"} {
 		if err == nil || !strings.Contains(err.Error(), want) {
@@ -167,13 +167,13 @@ func TestPackApplyWithoutATerminalNeedsEveryAnswer(t *testing.T) {
 	}
 	unchanged()
 
-	_, err = run(t, a.packCmd(), append([]string{"apply", "../../packs/starter", "--rig", "web"}, starterFlags...)...)
+	_, err = run(t, a.packCmd(), append([]string{"apply", "../../packs/starter", "--depot", "web"}, starterFlags...)...)
 	if err == nil || !strings.Contains(err.Error(), "give --yes") {
 		t.Fatalf("without --yes: %v", err)
 	}
 	unchanged()
 
-	_, err = run(t, a.packCmd(), "apply", "../../packs/starter", "--rig", "web", "--yes", "--crew", "yardmaster=boss", "--bind", "coders=claude")
+	_, err = run(t, a.packCmd(), "apply", "../../packs/starter", "--depot", "web", "--yes", "--crew", "yardmaster=boss", "--bind", "coders=claude")
 	if err == nil || !strings.Contains(err.Error(), "the pack has no group coders") {
 		t.Fatalf("--bind for a group the pack lacks: %v", err)
 	}
@@ -187,14 +187,14 @@ func TestPackApplyWithFlags(t *testing.T) {
 	a := packApp(t)
 	setInteractive(t, false)
 	ctx := context.Background()
-	args := append([]string{"apply", "../../packs/starter", "--rig", "web", "--yes"}, starterFlags...)
+	args := append([]string{"apply", "../../packs/starter", "--depot", "web", "--yes"}, starterFlags...)
 	out, err := run(t, a.packCmd(), args...)
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	// The plan says what each new agent gets, arguments included: nobody
 	// is given them silently.
-	for _, want := range []string{"pack starter (", "25 to create", "\napplied pack starter to rig web: 25 created, 0 changed, 0 unchanged\n",
+	for _, want := range []string{"pack starter (", "25 to create", "\napplied pack starter to depot web: 25 created, 0 changed, 0 unchanged\n",
 		"  create           web-builders\n                     agent: claude\n                     model: opus\n                     arguments: --permission-mode auto\n",
 		"  create           web-reviewers\n                     agent: codex\n                     model: the agent's own default\n                     arguments: --dangerously-bypass-approvals-and-sandbox\n",
 		"  create           backlog\n                     members: anyone\n",
@@ -234,7 +234,7 @@ func TestPackApplyWithFlags(t *testing.T) {
 
 	head, _ := a.st.Head(ctx)
 	out, err = run(t, a.packCmd(), args...)
-	if err != nil || !strings.Contains(out, "pack starter is already applied to rig web: nothing changed\n") {
+	if err != nil || !strings.Contains(out, "pack starter is already applied to depot web: nothing changed\n") {
 		t.Fatalf("second apply: %v\n%s", err, out)
 	}
 	if evs, _ := a.st.EventsSince(ctx, head, 0); len(evs) != 1 || evs[0].Kind != "pack_unchanged" || evs[0].Actor != "me" {
@@ -242,7 +242,7 @@ func TestPackApplyWithFlags(t *testing.T) {
 	}
 	// And with no flags at all: the record names the crew member, and nothing
 	// is left to ask or to confirm.
-	if out, err = run(t, a.packCmd(), "apply", "../../packs/starter", "--rig", "web"); err != nil || !strings.Contains(out, "nothing changed") {
+	if out, err = run(t, a.packCmd(), "apply", "../../packs/starter", "--depot", "web"); err != nil || !strings.Contains(out, "nothing changed") {
 		t.Fatalf("apply without flags over an applied pack: %v\n%s", err, out)
 	}
 
@@ -250,7 +250,7 @@ func TestPackApplyWithFlags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"starter in rig web  ", " by me\n", "  source     ", "  flow       default (stored as starter.default)\n",
+	for _, want := range []string{"starter in depot web  ", " by me\n", "  source     ", "  flow       default (stored as starter.default)\n",
 		"builders -> web-builders", "  crew       yardmaster -> boss\n", "  objects    9 files, 5 groups, 1 flows, 1 flow pointers, 5 routes, 3 subscriptions\n"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("pack list lacks %q:\n%s", want, out)
@@ -263,7 +263,7 @@ func TestPackApplyWithFlags(t *testing.T) {
 		Plan   pack.Plan   `json:"plan"`
 		Result pack.Result `json:"result"`
 	}
-	if err != nil || json.Unmarshal([]byte(out), &got) != nil || got.Result.Unchanged != 25 || got.Result.Recorded || got.Plan.Rig != "web" {
+	if err != nil || json.Unmarshal([]byte(out), &got) != nil || got.Result.Unchanged != 25 || got.Result.Recorded || got.Plan.Depot != "web" {
 		t.Fatalf("json: %v\n%s", err, out)
 	}
 	out, err = run(t, a.packCmd(), "list")
@@ -291,7 +291,7 @@ func TestPackApplyAsksInATerminal(t *testing.T) {
 		}
 		return nil
 	})
-	args := []string{"apply", "../../packs/starter", "--rig", "web", "--bind", "builders=claude", "--bind", "reviewers=claude", "--bind", "crew:yardmaster=claude"}
+	args := []string{"apply", "../../packs/starter", "--depot", "web", "--bind", "builders=claude", "--bind", "reviewers=claude", "--bind", "crew:yardmaster=claude"}
 	out, err := run(t, a.packCmd(), args...)
 	if !errors.Is(err, errDeclined) {
 		t.Fatalf("err = %v\n%s", err, out)
@@ -306,7 +306,7 @@ func TestPackApplyAsksInATerminal(t *testing.T) {
 	}
 
 	decline = false
-	if out, err = run(t, a.packCmd(), args...); err != nil || !strings.Contains(out, "applied pack starter to rig web: 25 created") {
+	if out, err = run(t, a.packCmd(), args...); err != nil || !strings.Contains(out, "applied pack starter to depot web: 25 created") {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	// The select's default is a new crew member under the pack's name, and
@@ -348,7 +348,7 @@ func TestPackApplyAsksPermissionsInATerminal(t *testing.T) {
 		}
 		return nil
 	})
-	args := []string{"apply", "../../packs/starter", "--rig", "web", "--crew", "yardmaster=boss", "--bind", "builders=claude",
+	args := []string{"apply", "../../packs/starter", "--depot", "web", "--crew", "yardmaster=boss", "--bind", "builders=claude",
 		"--bind", "reviewers=codex,approve-for-me", "--bind", "crew:yardmaster=claude,none", "--members", "backlog=", "--members", "decisions="}
 	out, err := run(t, a.packCmd(), args...)
 	if err != nil {
@@ -383,7 +383,7 @@ func TestPackApplyPresets(t *testing.T) {
 		t.Fatal(err)
 	}
 	apply := func(binds ...string) (string, error) {
-		args := []string{"apply", "../../packs/starter", "--rig", "web", "--yes", "--crew", "yardmaster=boss", "--members", "backlog=", "--members", "decisions="}
+		args := []string{"apply", "../../packs/starter", "--depot", "web", "--yes", "--crew", "yardmaster=boss", "--members", "backlog=", "--members", "decisions="}
 		for _, b := range binds {
 			args = append(args, "--bind", b)
 		}
@@ -439,7 +439,7 @@ func TestPackApplyPresets(t *testing.T) {
 
 	// none is honoured too, and warned about.
 	b := packApp(t)
-	out, err = run(t, b.packCmd(), "apply", "../../packs/starter", "--rig", "web", "--yes", "--crew", "yardmaster=boss", "--members", "backlog=", "--members", "decisions=",
+	out, err = run(t, b.packCmd(), "apply", "../../packs/starter", "--depot", "web", "--yes", "--crew", "yardmaster=boss", "--members", "backlog=", "--members", "decisions=",
 		"--bind", "builders=claude,none", "--bind", "reviewers=codex", "--bind", "crew:yardmaster=claude")
 	if err != nil || !strings.Contains(out, "group web-builders is new and has no agent arguments") || strings.Contains(out, "group web-reviewers is new and has no") {
 		t.Fatalf("none: %v\n%s", err, out)
@@ -455,11 +455,11 @@ var errDeclined = errors.New("declined")
 func TestPackApplyRefused(t *testing.T) {
 	a := packApp(t)
 	setInteractive(t, false)
-	b, err := a.st.CreateBead(context.Background(), store.NewBead{Title: "stray", Rig: "web", Stage: "triage"}, "me")
+	b, err := a.st.CreateBead(context.Background(), store.NewBead{Title: "stray", Depot: "web", Stage: "triage"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := run(t, a.packCmd(), append([]string{"apply", "../../packs/starter", "--rig", "web", "--yes"}, starterFlags...)...)
+	out, err := run(t, a.packCmd(), append([]string{"apply", "../../packs/starter", "--depot", "web", "--yes"}, starterFlags...)...)
 	if !errors.Is(err, errCheckFailed) || !strings.Contains(out, "an import would be refused\n  flow starter.default lacks the stage of open beads that would follow it: "+b.ID+" (triage)") {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
@@ -480,7 +480,7 @@ func TestPackApplyPrune(t *testing.T) {
 	if err := os.Chmod(filepath.Join(dir, "scripts", "merge-local"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	args := append([]string{"apply", dir, "--rig", "web", "--yes"}, starterFlags...)
+	args := append([]string{"apply", dir, "--depot", "web", "--yes"}, starterFlags...)
 	if out, err := run(t, a.packCmd(), args...); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -493,21 +493,21 @@ func TestPackApplyPrune(t *testing.T) {
 	if err := os.WriteFile(path, []byte(s), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	const sub = "boss yardr all rig=web stage=decide"
-	out, err := run(t, a.packCmd(), "check", dir, "--rig", "web")
+	const sub = "boss yardr all depot=web stage=decide"
+	out, err := run(t, a.packCmd(), "check", dir, "--depot", "web")
 	if err != nil || !strings.Contains(out, "  no longer in it  "+sub+" (an earlier import brought it; left alone unless --prune)\n") ||
 		!strings.Contains(out, ", 1 no longer in it\n") {
 		t.Fatalf("check: %v\n%s", err, out)
 	}
-	out, err = run(t, a.packCmd(), "apply", dir, "--rig", "web")
+	out, err = run(t, a.packCmd(), "apply", dir, "--depot", "web")
 	if err != nil || !strings.Contains(out, "no longer in the pack and left in the yard (yardr pack apply … --prune removes them):\n  subscription "+sub+"\n") {
 		t.Fatalf("apply: %v\n%s", err, out)
 	}
 	// A prune writes, so it needs --yes like any other change.
-	if _, err = run(t, a.packCmd(), "apply", dir, "--rig", "web", "--prune"); err == nil || !strings.Contains(err.Error(), "give --yes") {
+	if _, err = run(t, a.packCmd(), "apply", dir, "--depot", "web", "--prune"); err == nil || !strings.Contains(err.Error(), "give --yes") {
 		t.Fatalf("prune without --yes: %v", err)
 	}
-	out, err = run(t, a.packCmd(), "apply", dir, "--rig", "web", "--prune", "--yes")
+	out, err = run(t, a.packCmd(), "apply", dir, "--depot", "web", "--prune", "--yes")
 	if err != nil || !strings.Contains(out, "  pruned  subscription "+sub+"\n") {
 		t.Fatalf("prune: %v\n%s", err, out)
 	}
@@ -517,22 +517,22 @@ func TestPackApplyPrune(t *testing.T) {
 	}
 }
 
-// The roles choice at the command: the plan names the rig's file a pack's
-// role shadows, --rig-roles keeps the rig's own and pack list says which was
+// The roles choice at the command: the plan names the depot's file a pack's
+// role shadows, --depot-roles keeps the depot's own and pack list says which was
 // chosen, a later apply without the flag repeats it, and --pack-roles, the
 // default now, says so and undoes it.
 func TestPackApplyRolesChoice(t *testing.T) {
 	a := packApp(t)
 	setInteractive(t, false)
 	ctx := context.Background()
-	rigDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(rigDir, ".yardr", "roles"), 0o755); err != nil {
+	depotDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(depotDir, ".yardr", "roles"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(rigDir, ".yardr", "roles", "builder.md"), []byte("the rig's own\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(depotDir, ".yardr", "roles", "builder.md"), []byte("the depot's own\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.st.PutRig(ctx, store.Rig{Name: "web", Path: rigDir, Kind: store.RigDir}, "me"); err != nil {
+	if err := a.st.PutDepot(ctx, store.Depot{Name: "web", Path: depotDir, Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	copied := filepath.Join(a.cfg.Home, "packs", "starter", "roles", "builder.md")
@@ -543,21 +543,21 @@ func TestPackApplyRolesChoice(t *testing.T) {
 		}
 		return g.Config["prompt"]
 	}
-	args := append([]string{"apply", "../../packs/starter", "--rig", "web", "--yes"}, starterFlags...)
+	args := append([]string{"apply", "../../packs/starter", "--depot", "web", "--yes"}, starterFlags...)
 
-	out, err := run(t, a.packCmd(), append(args, "--rig-roles")...)
-	if err != nil || !strings.Contains(out, "kept: prompt roles/builder.md: the rig has its own .yardr/roles/builder.md\n") || prompt() != "roles/builder.md" {
-		t.Fatalf("--rig-roles: %v, prompt %v\n%s", err, prompt(), out)
+	out, err := run(t, a.packCmd(), append(args, "--depot-roles")...)
+	if err != nil || !strings.Contains(out, "kept: prompt roles/builder.md: the depot has its own .yardr/roles/builder.md\n") || prompt() != "roles/builder.md" {
+		t.Fatalf("--depot-roles: %v, prompt %v\n%s", err, prompt(), out)
 	}
-	if out, err = run(t, a.packCmd(), "list"); err != nil || !strings.Contains(out, "  roles      the rig's own where it has them (--rig-roles)\n") {
-		t.Fatalf("pack list after --rig-roles: %v\n%s", err, out)
+	if out, err = run(t, a.packCmd(), "list"); err != nil || !strings.Contains(out, "  roles      the depot's own where it has them (--depot-roles)\n") {
+		t.Fatalf("pack list after --depot-roles: %v\n%s", err, out)
 	}
 	// No flag: the recorded choice, so nothing changes.
-	if out, err = run(t, a.packCmd(), "apply", "../../packs/starter", "--rig", "web"); err != nil || !strings.Contains(out, "nothing changed") || prompt() != "roles/builder.md" {
-		t.Fatalf("apply without flags after --rig-roles: %v, prompt %v\n%s", err, prompt(), out)
+	if out, err = run(t, a.packCmd(), "apply", "../../packs/starter", "--depot", "web"); err != nil || !strings.Contains(out, "nothing changed") || prompt() != "roles/builder.md" {
+		t.Fatalf("apply without flags after --depot-roles: %v, prompt %v\n%s", err, prompt(), out)
 	}
 
-	out, err = run(t, a.packCmd(), "check", "../../packs/starter", "--rig", "web", "--pack-roles")
+	out, err = run(t, a.packCmd(), "check", "../../packs/starter", "--depot", "web", "--pack-roles")
 	if err != nil || !strings.Contains(out, "  change           web-builders\n                     shadows .yardr/roles/builder.md\n                     prompt: roles/builder.md -> "+copied+"\n") {
 		t.Fatalf("check --pack-roles: %v\n%s", err, out)
 	}
@@ -567,11 +567,11 @@ func TestPackApplyRolesChoice(t *testing.T) {
 	if out, err = run(t, a.packCmd(), "list"); err != nil || !strings.Contains(out, "  roles      the pack's\n") {
 		t.Fatalf("pack list after --pack-roles: %v\n%s", err, out)
 	}
-	if out, err = run(t, a.packCmd(), "apply", "../../packs/starter", "--rig", "web"); err != nil || !strings.Contains(out, "nothing changed") || prompt() != copied {
+	if out, err = run(t, a.packCmd(), "apply", "../../packs/starter", "--depot", "web"); err != nil || !strings.Contains(out, "nothing changed") || prompt() != copied {
 		t.Fatalf("apply without flags after --pack-roles: %v, prompt %v\n%s", err, prompt(), out)
 	}
-	if _, err = run(t, a.packCmd(), "check", "../../packs/starter", "--rig", "web", "--pack-roles", "--rig-roles"); err == nil {
-		t.Fatal("--pack-roles with --rig-roles was accepted")
+	if _, err = run(t, a.packCmd(), "check", "../../packs/starter", "--depot", "web", "--pack-roles", "--depot-roles"); err == nil {
+		t.Fatal("--pack-roles with --depot-roles was accepted")
 	}
 }
 
@@ -581,7 +581,7 @@ func TestPackApplyRolesChoice(t *testing.T) {
 func TestPackApplyRefusesAHandEditedCopy(t *testing.T) {
 	a := packApp(t)
 	setInteractive(t, false)
-	args := append([]string{"apply", "../../packs/starter", "--rig", "web"}, starterFlags...)
+	args := append([]string{"apply", "../../packs/starter", "--depot", "web"}, starterFlags...)
 	if out, err := run(t, a.packCmd(), append(args, "--yes")...); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -589,7 +589,7 @@ func TestPackApplyRefusesAHandEditedCopy(t *testing.T) {
 	if err := os.WriteFile(copied, []byte("edited in the yard\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, err := run(t, a.packCmd(), "check", "../../packs/starter", "--rig", "web")
+	out, err := run(t, a.packCmd(), "check", "../../packs/starter", "--depot", "web")
 	if err != nil || !strings.Contains(out, "edited by hand since the last import: overwritten or removed only with --yes; the edit belongs in the pack's source\n") {
 		t.Fatalf("check over a hand edit: %v\n%s", err, out)
 	}
@@ -632,7 +632,7 @@ func TestPackCheckRefusesAnUnknownPlaceholder(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := packApp(t)
-	_, err := run(t, a.packCmd(), "check", dir, "--rig", "web")
+	_, err := run(t, a.packCmd(), "check", dir, "--depot", "web")
 	if err == nil || exitCode(err) != 1 || !strings.Contains(err.Error(), role+":3: placeholder {{lead}}: an import fills {{operator}}, {{yardmaster}}") {
 		t.Fatalf("check of a pack with an unknown placeholder: %v (exit %d)", err, exitCode(err))
 	}

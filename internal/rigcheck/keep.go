@@ -2,7 +2,7 @@ package rigcheck
 
 // What is left of a check that did not pass: its whole output in a file
 // under the yard's home (Keep), and the lines of it that say what failed
-// (Matching), picked by a pattern the rig gives. The tail of a long run is
+// (Matching), picked by a pattern the depot gives. The tail of a long run is
 // mostly what came after the failure: with `go test ./...` the failing
 // test's lines are followed by the `ok` of every package after it.
 
@@ -24,12 +24,12 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// FailPatternPath is where a rig says which lines of its gate's output name
+// FailPatternPath is where a depot says which lines of its gate's output name
 // a failure: regular expressions (Go's syntax), one per line, a line matching
 // when any of them does; blank lines and lines starting with # are skipped,
-// and space around a pattern is dropped. It is read where the rig's
-// repository gate is: on the base for a git rig, in the directory for a dir
-// rig. It serves the light gate too. It only chooses what is shown first:
+// and space around a pattern is dropped. It is read where the depot's
+// repository gate is: on the base for a git depot, in the directory for a dir
+// depot. It serves the light gate too. It only chooses what is shown first:
 // it cannot make a check pass or fail.
 const FailPatternPath = ".yardr/check-fail-pattern"
 
@@ -44,9 +44,9 @@ const (
 	MatchMax = 150
 
 	// GatesDir is the directory of kept outputs, in the yard's home, one
-	// directory per rig.
+	// directory per depot.
 	GatesDir = "gates"
-	// KeepPerDir is how many kept outputs outlive a new one per rig and
+	// KeepPerDir is how many kept outputs outlive a new one per depot and
 	// directory the check ran in (a bead's worktree is named after the
 	// bead): the count is per directory so that a builder running a red gate
 	// over and over does not push out the output another bead's note names.
@@ -55,21 +55,21 @@ const (
 	KeepFor = 14 * 24 * time.Hour
 )
 
-// failPattern reads FailPatternPath for rig: at sha for a git rig, in the
-// directory for a dir rig. A rig without one, or whose file cannot be read,
+// failPattern reads FailPatternPath for depot: at sha for a git depot, in the
+// directory for a dir depot. A depot without one, or whose file cannot be read,
 // has none: what is shown first must never be why a gate cannot run.
-func failPattern(ctx context.Context, rig store.Rig, sha string) []byte {
-	if rig.IsDir() {
-		b, _ := os.ReadFile(filepath.Join(rig.Path, filepath.FromSlash(FailPatternPath)))
+func failPattern(ctx context.Context, depot store.Depot, sha string) []byte {
+	if depot.IsDir() {
+		b, _ := os.ReadFile(filepath.Join(depot.Path, filepath.FromSlash(FailPatternPath)))
 		return b
 	}
 	if sha == "" {
 		return nil
 	}
-	if out, err := git(ctx, rig.Path, "ls-tree", "--name-only", sha, "--", FailPatternPath); err != nil || strings.TrimSpace(out) == "" {
+	if out, err := git(ctx, depot.Path, "ls-tree", "--name-only", sha, "--", FailPatternPath); err != nil || strings.TrimSpace(out) == "" {
 		return nil
 	}
-	out, _ := git(ctx, rig.Path, "show", sha+":"+FailPatternPath)
+	out, _ := git(ctx, depot.Path, "show", sha+":"+FailPatternPath)
 	return []byte(out)
 }
 
@@ -148,15 +148,15 @@ func Lines(s string) int {
 // kept is the name of a kept output: <dir>-<UTC time>[-<n>][.light].log.
 var kept = regexp.MustCompile(`^(.+)-(\d{8}T\d{6}Z)(?:-(\d+))?(?:\.light)?\.log$`)
 
-// unsafe is what a rig's or directory's name may hold that a file name
+// unsafe is what a depot's or directory's name may hold that a file name
 // should not.
 var unsafe = regexp.MustCompile(`[^A-Za-z0-9._-]+|^\.+`)
 
 // Keep writes the whole output of res to a file of its own under home,
-// <home>/gates/<rig>/<dir>-<time>.log (".light.log" for the light gate),
+// <home>/gates/<depot>/<dir>-<time>.log (".light.log" for the light gate),
 // mode 0600, and returns its path; <dir> is the last element of the
 // directory the check ran in, which for a bead's worktree is the bead. It
-// then removes the rig's kept outputs older than KeepFor and, of those for
+// then removes the depot's kept outputs older than KeepFor and, of those for
 // the same directory, all but the newest KeepPerDir. Without a home nothing
 // is kept. The caller decides which runs are worth keeping: the ones that
 // did not pass.
@@ -164,7 +164,7 @@ func Keep(home string, res *Result, now time.Time) (string, error) {
 	if home == "" {
 		return "", nil
 	}
-	dir := filepath.Join(home, GatesDir, safe(res.Rig))
+	dir := filepath.Join(home, GatesDir, safe(res.Depot))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
@@ -239,7 +239,7 @@ func prune(dir, just string, now time.Time) {
 	}
 }
 
-// matching fills in what of res's output matches the rig's pattern.
+// matching fills in what of res's output matches the depot's pattern.
 func (c *Check) matching(res *Result) {
 	if len(bytes.TrimSpace(c.FailPattern)) == 0 {
 		return

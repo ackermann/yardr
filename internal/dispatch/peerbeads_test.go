@@ -29,14 +29,14 @@ func putFlow(t *testing.T, y *peerYard, name, text string) {
 	must(t, err)
 }
 
-// sends makes y a yard whose stage build, in its rig web, is worked by the
+// sends makes y a yard whose stage build, in its depot web, is worked by the
 // peer to: the link carries bead out, a peer group names the yard and a
 // route sends the stage to it.
 func (y *peerYard) sends(t *testing.T, to string, set map[string]any) {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := y.api.GetRig(ctx, "web"); err != nil {
-		must(t, y.api.PutRig(ctx, store.Rig{Name: "web", Base: "origin/main"}, "jo"))
+	if _, err := y.api.GetDepot(ctx, "web"); err != nil {
+		must(t, y.api.PutDepot(ctx, store.Depot{Name: "web", Base: "origin/main"}, "jo"))
 		putFlow(t, y, "sending", sending)
 		must(t, y.api.SetFlowPointer(ctx, "web", "", "sending", "jo"))
 	}
@@ -51,13 +51,13 @@ func (y *peerYard) sends(t *testing.T, to string, set map[string]any) {
 	must(t, err)
 }
 
-// takes makes y a yard that takes the beads of the peer from into its rig
+// takes makes y a yard that takes the beads of the peer from into its depot
 // in, pinned to the flow taking, held unless auto; jo is a user of it.
 func (y *peerYard) takes(t *testing.T, from, in string, auto bool) {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := y.api.GetRig(ctx, in); err != nil {
-		must(t, y.api.PutRig(ctx, store.Rig{Name: in, Base: "origin/main"}, "jo"))
+	if _, err := y.api.GetDepot(ctx, in); err != nil {
+		must(t, y.api.PutDepot(ctx, store.Depot{Name: in, Base: "origin/main"}, "jo"))
 	}
 	if _, err := y.api.GetFlow(ctx, "taking"); err != nil {
 		putFlow(t, y, "taking", taking)
@@ -66,14 +66,14 @@ func (y *peerYard) takes(t *testing.T, from, in string, auto bool) {
 	}
 	_, err := y.api.AllowPeer(ctx, from, store.PeerAllow{Receive: []string{"bead"}}, "jo")
 	must(t, err)
-	_, err = y.api.SetPeerIntake(ctx, from, &store.PeerIntake{Rig: in, Flow: "taking", Auto: auto}, "jo")
+	_, err = y.api.SetPeerIntake(ctx, from, &store.PeerIntake{Depot: in, Flow: "taking", Auto: auto}, "jo")
 	must(t, err)
 }
 
 // bead makes a bead of y in the stage its peer works.
 func (y *peerYard) bead(t *testing.T, title string) *store.Bead {
 	t.Helper()
-	b, err := y.api.CreateBead(context.Background(), store.NewBead{Title: title, Body: "As a CSV.", Type: "feature", Rig: "web", Stage: "build", Priority: 1}, "jo")
+	b, err := y.api.CreateBead(context.Background(), store.NewBead{Title: title, Body: "As a CSV.", Type: "feature", Depot: "web", Stage: "build", Priority: 1}, "jo")
 	must(t, err)
 	return b
 }
@@ -603,11 +603,11 @@ func TestPeerBeadSentOn(t *testing.T) {
 	ctx := context.Background()
 	a.sends(t, "b", nil)
 	// b takes a's beads into a flow whose one working stage c works.
-	must(t, b.api.PutRig(ctx, store.Rig{Name: "web", Base: "origin/main"}, "jo"))
+	must(t, b.api.PutDepot(ctx, store.Depot{Name: "web", Base: "origin/main"}, "jo"))
 	putFlow(t, b, "relay", "build -> returned on done | returned on failed\nreturned terminal\n")
 	_, err := b.api.AllowPeer(ctx, "a", store.PeerAllow{Receive: []string{"bead"}}, "jo")
 	must(t, err)
-	_, err = b.api.SetPeerIntake(ctx, "a", &store.PeerIntake{Rig: "web", Flow: "relay", Auto: true}, "jo")
+	_, err = b.api.SetPeerIntake(ctx, "a", &store.PeerIntake{Depot: "web", Flow: "relay", Auto: true}, "jo")
 	must(t, err)
 	_, err = b.api.AllowPeer(ctx, "c", store.PeerAllow{Send: []string{"bead"}}, "jo")
 	must(t, err)
@@ -655,11 +655,11 @@ func TestPeerBeadLoop(t *testing.T) {
 	ctx := context.Background()
 	a.sends(t, "b", nil)
 	a.takes(t, "b", "inbox", true)
-	must(t, b.api.PutRig(ctx, store.Rig{Name: "web", Base: "origin/main"}, "jo"))
+	must(t, b.api.PutDepot(ctx, store.Depot{Name: "web", Base: "origin/main"}, "jo"))
 	putFlow(t, b, "back", "build -> returned on done | returned on refused\nreturned terminal\n")
 	_, err := b.api.AllowPeer(ctx, "a", store.PeerAllow{Receive: []string{"bead"}, Send: []string{"bead"}}, "jo")
 	must(t, err)
-	_, err = b.api.SetPeerIntake(ctx, "a", &store.PeerIntake{Rig: "web", Flow: "back", Auto: true}, "jo")
+	_, err = b.api.SetPeerIntake(ctx, "a", &store.PeerIntake{Depot: "web", Flow: "back", Auto: true}, "jo")
 	must(t, err)
 	must(t, b.api.PutGroup(ctx, store.Group{Name: "at-a", Runner: store.PeerRunner, Config: map[string]any{store.GroupPeer: "a"}}))
 	_, err = b.api.AddRoute(ctx, store.Route{Stage: "build", Group: "at-a"})
@@ -670,7 +670,7 @@ func TestPeerBeadLoop(t *testing.T) {
 		a.pass(t)
 		b.pass(t)
 	}
-	if bs, _ := a.api.ListBeads(ctx, store.BeadFilter{All: true, Rig: "inbox"}); len(bs) != 0 {
+	if bs, _ := a.api.ListBeads(ctx, store.BeadFilter{All: true, Depot: "inbox"}); len(bs) != 0 {
 		t.Fatalf("a took its own bead back as a new one: %+v", bs)
 	}
 	ref := a.events(t, "peer_message_refused")
@@ -742,7 +742,7 @@ func TestPeerBeadNobodyReleased(t *testing.T) {
 			link(t, a, b, true, true)
 			a.sends(t, "b", nil)
 			b.takes(t, "a", "web", false)
-			_, err := b.api.SetPeerIntake(ctx, "a", &store.PeerIntake{Rig: "web", Flow: "taking", HoldFor: "6h"}, "jo")
+			_, err := b.api.SetPeerIntake(ctx, "a", &store.PeerIntake{Depot: "web", Flow: "taking", HoldFor: "6h"}, "jo")
 			must(t, err)
 			kept, mine := a.bead(t, "Add the import"), a.bead(t, "Add the export")
 			a.pass(t)

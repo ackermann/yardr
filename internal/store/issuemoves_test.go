@@ -33,14 +33,14 @@ done terminal
 var linearMap = map[string]string{"task:new": "started", "task:review": "review", "task:merged": "done",
 	"train:open": "started", "train:done": "done"}
 
-// moveYard is a yard whose rig follows moveFlow, with crew member yardmaster, who
+// moveYard is a yard whose depot follows moveFlow, with crew member yardmaster, who
 // has an identity in both sources and may set a status in them, and a
 // linear hook that maps as it.
 func moveYard(t *testing.T) (store.API, *store.Store, context.Context) {
 	t.Helper()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	if err := s.PutRig(ctx, store.Rig{Name: "yard", Base: "origin/main"}, "me"); err != nil {
+	if err := s.PutDepot(ctx, store.Depot{Name: "yard", Base: "origin/main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	putFlow(t, s, "yard", "", moveFlow)
@@ -102,7 +102,7 @@ func wantMoves(t *testing.T, s store.API, want ...string) {
 // tracked creates a bead of typ in stage that tracks the issues.
 func tracked(t *testing.T, s store.API, id, typ, stage string, issues ...string) {
 	t.Helper()
-	nb := store.NewBead{ID: id, Title: id, Rig: "yard", Type: typ, Stage: stage}
+	nb := store.NewBead{ID: id, Title: id, Depot: "yard", Type: typ, Stage: stage}
 	for _, u := range issues {
 		nb.Links = append(nb.Links, tracks(u))
 	}
@@ -237,7 +237,7 @@ func TestStageQueuesIssueMove(t *testing.T) {
 // without a map.
 func TestStageQueuesNothing(t *testing.T) {
 	s, _, ctx := moveYard(t)
-	nb := store.NewBead{ID: "yard-rel", Title: "x", Rig: "yard", Stage: "backlog", Links: []store.NewLink{relates(linA)}}
+	nb := store.NewBead{ID: "yard-rel", Title: "x", Depot: "yard", Stage: "backlog", Links: []store.NewLink{relates(linA)}}
 	if _, err := s.CreateBead(ctx, nb, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -521,7 +521,7 @@ func TestIssueMoveSurvivesRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.PutRig(ctx, store.Rig{Name: "yard", Base: "origin/main"}, "me"); err != nil {
+	if err := s.PutDepot(ctx, store.Depot{Name: "yard", Base: "origin/main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	moveYardmaster(t, s, "linear")

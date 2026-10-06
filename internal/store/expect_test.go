@@ -16,14 +16,14 @@ import (
 // an old snapshot is not applied. Without an expectation (a person acting
 // outside any session) nothing is checked.
 func TestStaleMovesRefused(t *testing.T) {
-	s, ctx := flowRig(t)
+	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
 	for _, g := range []string{"builders", "reviewers"} {
 		if err := s.PutGroup(ctx, store.Group{Name: g, Runner: "herdr"}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard", Stage: "new"}, "me")
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,18 +117,18 @@ func TestStaleMovesRefused(t *testing.T) {
 // record of the session. Unsetting $YARDR_SESSION in the pane is therefore
 // not "no check", and naming another session there is refused.
 func TestPaneIsCheckedAsItsSessionWhateverItSays(t *testing.T) {
-	s, ctx := flowRig(t)
+	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
 	for _, g := range []string{"builders", "reviewers"} {
 		if err := s.PutGroup(ctx, store.Group{Name: g, Runner: "herdr"}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	a, err := s.CreateBead(ctx, store.NewBead{Title: "a", Rig: "yard", Stage: "new"}, "me")
+	a, err := s.CreateBead(ctx, store.NewBead{Title: "a", Depot: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "b", Rig: "yard", Stage: "review"}, "me")
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "b", Depot: "yard", Stage: "review"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,12 +192,12 @@ func TestPaneIsFoundUpTheProcessTree(t *testing.T) {
 	if len(peer.Ancestors(os.Getpid())) < 2 {
 		t.Skip("this OS does not tell a process's parent")
 	}
-	s, ctx := flowRig(t)
+	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
 	if err := s.PutGroup(ctx, store.Group{Name: "integrators", Runner: "exec"}); err != nil {
 		t.Fatal(err)
 	}
-	a, err := s.CreateBead(ctx, store.NewBead{Title: "a", Rig: "yard", Stage: "new"}, "me")
+	a, err := s.CreateBead(ctx, store.NewBead{Title: "a", Depot: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,18 +230,18 @@ func TestPaneIsFoundUpTheProcessTree(t *testing.T) {
 // a shell, except that one owned by a live session is refused rather than
 // taken from under its agent.
 func TestSessionCheckIsForTheSessionsOwnBead(t *testing.T) {
-	s, ctx := flowRig(t)
+	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
 	for _, g := range []string{"builders", "reviewers"} {
 		if err := s.PutGroup(ctx, store.Group{Name: g, Runner: "herdr"}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	a, err := s.CreateBead(ctx, store.NewBead{Title: "a", Rig: "yard", Stage: "new"}, "me")
+	a, err := s.CreateBead(ctx, store.NewBead{Title: "a", Depot: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "b", Rig: "yard", Stage: "new"}, "me")
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "b", Depot: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,18 +308,18 @@ func TestReusedPidIsNobodysPane(t *testing.T) {
 	if !peer.HaveStat() {
 		t.Skip("this OS reports no process start time")
 	}
-	s, ctx := flowRig(t)
+	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
 	for _, g := range []string{"builders", "reviewers"} {
 		if err := s.PutGroup(ctx, store.Group{Name: g, Runner: "herdr"}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	a, err := s.CreateBead(ctx, store.NewBead{Title: "a", Rig: "yard", Stage: "new"}, "me")
+	a, err := s.CreateBead(ctx, store.NewBead{Title: "a", Depot: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "b", Rig: "yard", Stage: "review"}, "me")
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "b", Depot: "yard", Stage: "review"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}

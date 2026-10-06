@@ -23,7 +23,7 @@ someone else leaves on its journal still reaches it.
 
 ```sh
 yardr subscribe yardmaster yardr --done                         # every bead that becomes done
-yardr subscribe yardmaster yardr --done --where rig=yardr --where label=ui
+yardr subscribe yardmaster yardr --done --where depot=yardr --where label=ui
 yardr subscribe yardmaster yardr --scope involved               # beads it created, advanced or noted, and events @mentioning it
 yardr bead watch yardr-k3f9 --crew yardmaster --done         # this one bead, until it closes
 yardr subscribe yardmaster linear --scope involved              # Linear issues it is mentioned in, assigned, or works on
@@ -78,7 +78,7 @@ Where keys:
 | key | matches |
 |---|---|
 | `bead` | the bead (stored as its handle; a UUID works too) |
-| `rig`, `type` | the bead's rig and type |
+| `depot`, `type` | the bead's depot and type |
 | `label` | any of the bead's labels |
 | `kind` | the event: `created`, `advanced`, `noted`, `held`, `unheld`, `released`, `claimed`, `closed`, `reopened`, `gave_up`, `session_blocked`, `session_stalled`, `session_model_mismatch`, … |
 | `stage` | the stage entered: `advanced` events (its `to`) and `created` (the first stage). Other events have no stage, so `stage=…` delivers moves into the stage and nothing else |
@@ -135,7 +135,7 @@ A user ([users.md](users.md)) subscribes as a crew member does, with the same
 sources, scopes and where keys:
 
 ```sh
-yardr subscribe ada yardr --done --where rig=yardr         # every bead of the rig that becomes done
+yardr subscribe ada yardr --done --where depot=yardr         # every bead of the depot that becomes done
 yardr subscribe ada yardr --where stage=decide             # every bead that enters decide
 yardr subscribe ada yardr --where kind=gave_up             # every session that gave up
 yardr subscribe ada github --scope all --where conclusion=failure

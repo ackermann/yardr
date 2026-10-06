@@ -86,7 +86,7 @@ func scriptGit(t *testing.T, script string) {
 // commit it was read at, and the working tree's edit does not count; a base
 // that is a tag is read at the commit it names. Each read is one git
 // process (yardr-b98a: it was three).
-func TestReadRigFileOnTheBase(t *testing.T) {
+func TestReadDepotFileOnTheBase(t *testing.T) {
 	repo, sha := baseRepo(t)
 	calls := countingGit(t)
 	reads := 0
@@ -98,7 +98,7 @@ func TestReadRigFileOnTheBase(t *testing.T) {
 		{"main", "two words.md", "Spaced.\n"},
 	} {
 		rel := filepath.Join(".yardr", "roles", tc.name)
-		text, where, got, err := readRigFile(&store.Rig{Name: "r", Path: repo, Base: tc.base}, rel)
+		text, where, got, err := readDepotFile(&store.Depot{Name: "r", Path: repo, Base: tc.base}, rel)
 		reads++
 		if err != nil || string(text) != tc.want || got != sha || where != tc.base+":.yardr/roles/"+tc.name {
 			t.Errorf("%s at %s = %q, where %q, sha %q, %v; want %q at %s", tc.name, tc.base, text, where, got, err, tc.want, sha)
@@ -115,18 +115,18 @@ func TestReadRigFileOnTheBase(t *testing.T) {
 
 // A role the base does not have is fs.ErrNotExist, named as on the base,
 // though the working tree holds one; and that too is one git process.
-func TestReadRigFileNotOnTheBase(t *testing.T) {
+func TestReadDepotFileNotOnTheBase(t *testing.T) {
 	repo, _ := baseRepo(t)
 	calls := countingGit(t)
-	rig := &store.Rig{Name: "r", Path: repo, Base: "main"}
+	depot := &store.Depot{Name: "r", Path: repo, Base: "main"}
 	for _, name := range []string{"reviewer.md", "nobody.md"} {
-		text, where, sha, err := readRigFile(rig, filepath.Join(".yardr", "roles", name))
+		text, where, sha, err := readDepotFile(depot, filepath.Join(".yardr", "roles", name))
 		if !errors.Is(err, fs.ErrNotExist) || text != nil || sha != "" || where != "main:.yardr/roles/"+name {
 			t.Errorf("%s = %q, where %q, sha %q, %v; want fs.ErrNotExist on the base", name, text, where, sha, err)
 		}
 	}
-	if has, err := RigRole(rig, "reviewer.md"); has || err != nil {
-		t.Errorf("RigRole of a role only in the working tree = %v, %v", has, err)
+	if has, err := DepotRole(depot, "reviewer.md"); has || err != nil {
+		t.Errorf("DepotRole of a role only in the working tree = %v, %v", has, err)
 	}
 	got, _ := os.ReadFile(calls)
 	if n := strings.Count(string(got), "\n"); n != 3 {
@@ -135,9 +135,9 @@ func TestReadRigFileNotOnTheBase(t *testing.T) {
 }
 
 // The working tree is read when there is no base to read from: a base the
-// checkout does not know, a directory that is no checkout, a dir rig (which
-// starts no git at all), a rig without a base.
-func TestReadRigFileWithoutABase(t *testing.T) {
+// checkout does not know, a directory that is no checkout, a dir depot (which
+// starts no git at all), a depot without a base.
+func TestReadDepotFileWithoutABase(t *testing.T) {
 	repo, _ := baseRepo(t)
 	plain := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(plain, ".yardr", "roles"), 0o700); err != nil {
@@ -150,24 +150,24 @@ func TestReadRigFileWithoutABase(t *testing.T) {
 	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(plain))
 	rel := filepath.Join(".yardr", "roles", "builder.md")
 	for _, tc := range []struct {
-		what string
-		rig  store.Rig
-		want string
-		git  int
+		what  string
+		depot store.Depot
+		want  string
+		git   int
 	}{
-		{"unknown base", store.Rig{Path: repo, Base: "origin/gone"}, "Edited in the working tree.", 1},
-		{"a base that is two lines", store.Rig{Path: repo, Base: "main\nmain"}, "Edited in the working tree.", 0},
-		{"no checkout", store.Rig{Path: plain, Base: "main"}, "Plain.", 1},
-		{"dir rig", store.Rig{Path: repo, Base: "main", Kind: store.RigDir}, "Edited in the working tree.", 0},
-		{"no base", store.Rig{Path: repo}, "Edited in the working tree.", 0},
+		{"unknown base", store.Depot{Path: repo, Base: "origin/gone"}, "Edited in the working tree.", 1},
+		{"a base that is two lines", store.Depot{Path: repo, Base: "main\nmain"}, "Edited in the working tree.", 0},
+		{"no checkout", store.Depot{Path: plain, Base: "main"}, "Plain.", 1},
+		{"dir depot", store.Depot{Path: repo, Base: "main", Kind: store.DepotDir}, "Edited in the working tree.", 0},
+		{"no base", store.Depot{Path: repo}, "Edited in the working tree.", 0},
 	} {
 		t.Run(tc.what, func(t *testing.T) {
 			calls := countingGit(t)
-			text, where, sha, err := readRigFile(&tc.rig, rel)
-			if err != nil || string(text) != tc.want || sha != "" || where != filepath.Join(tc.rig.Path, rel) {
+			text, where, sha, err := readDepotFile(&tc.depot, rel)
+			if err != nil || string(text) != tc.want || sha != "" || where != filepath.Join(tc.depot.Path, rel) {
 				t.Errorf("= %q, where %q, sha %q, %v; want %q from the working tree", text, where, sha, err, tc.want)
 			}
-			_, _, _, err = readRigFile(&tc.rig, filepath.Join(".yardr", "roles", "nobody.md"))
+			_, _, _, err = readDepotFile(&tc.depot, filepath.Join(".yardr", "roles", "nobody.md"))
 			if !errors.Is(err, fs.ErrNotExist) {
 				t.Errorf("a role the working tree does not have: %v", err)
 			}
@@ -182,9 +182,9 @@ func TestReadRigFileWithoutABase(t *testing.T) {
 // A git that fails once it has named the base's commit is an error with
 // what git said, not a role the base does not have, and the working tree's
 // copy is not read in its place.
-func TestReadRigFileGitFails(t *testing.T) {
+func TestReadDepotFileGitFails(t *testing.T) {
 	repo, sha := baseRepo(t)
-	rig := &store.Rig{Name: "r", Path: repo, Base: "main"}
+	depot := &store.Depot{Name: "r", Path: repo, Base: "main"}
 	rel := filepath.Join(".yardr", "roles", "builder.md")
 	for what, script := range map[string]string{
 		"dies before the file":  "read name\nprintf '%s commit 0\\n\\n' " + sha + "\nread name\necho 'fatal: object store is gone' >&2\nexit 128\n",
@@ -197,24 +197,24 @@ func TestReadRigFileGitFails(t *testing.T) {
 	} {
 		t.Run(what, func(t *testing.T) {
 			scriptGit(t, script)
-			text, _, _, err := readRigFile(rig, rel)
+			text, _, _, err := readDepotFile(depot, rel)
 			if err == nil || errors.Is(err, fs.ErrNotExist) || text != nil {
 				t.Fatalf("= %q, %v; want git's failure", text, err)
 			}
 			if !strings.Contains(err.Error(), "object store is gone") {
 				t.Errorf("error does not say what git said: %v", err)
 			}
-			if ok, err := RigRole(rig, "builder.md"); ok || err == nil {
-				t.Errorf("RigRole with a failing git = %v, %v", ok, err)
+			if ok, err := DepotRole(depot, "builder.md"); ok || err == nil {
+				t.Errorf("DepotRole with a failing git = %v, %v", ok, err)
 			}
 		})
 	}
 }
 
 // A path of the base that is a directory is an error, not its listing.
-func TestReadRigFileOfADirectory(t *testing.T) {
+func TestReadDepotFileOfADirectory(t *testing.T) {
 	repo, _ := baseRepo(t)
-	text, _, _, err := readRigFile(&store.Rig{Name: "r", Path: repo, Base: "main"}, filepath.Join(".yardr", "roles"))
+	text, _, _, err := readDepotFile(&store.Depot{Name: "r", Path: repo, Base: "main"}, filepath.Join(".yardr", "roles"))
 	if err == nil || errors.Is(err, fs.ErrNotExist) || text != nil || !strings.Contains(err.Error(), "is a tree") {
 		t.Fatalf("= %q, %v", text, err)
 	}
@@ -224,7 +224,7 @@ func TestReadRigFileOfADirectory(t *testing.T) {
 // hangs before it has named the base, after, or after an answer that is
 // none of git's: none is "not on the base", and none falls back to the
 // working tree.
-func TestReadRigFileHasADeadline(t *testing.T) {
+func TestReadDepotFileHasADeadline(t *testing.T) {
 	repo, sha := baseRepo(t)
 	was := gitTimeout
 	gitTimeout = 2 * time.Second // see TestFetchBaseHasADeadline on the margin
@@ -237,7 +237,7 @@ func TestReadRigFileHasADeadline(t *testing.T) {
 		t.Run(what, func(t *testing.T) {
 			scriptGit(t, script)
 			start := time.Now()
-			text, _, _, err := readRigFile(&store.Rig{Name: "r", Path: repo, Base: "main"}, filepath.Join(".yardr", "roles", "builder.md"))
+			text, _, _, err := readDepotFile(&store.Depot{Name: "r", Path: repo, Base: "main"}, filepath.Join(".yardr", "roles", "builder.md"))
 			if took := time.Since(start); took > 10*time.Second {
 				t.Fatalf("returned after %s; the deadline did not hold", took)
 			}

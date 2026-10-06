@@ -69,10 +69,10 @@ func (d *Dispatcher) fetches(ctx context.Context) {
 	}
 }
 
-// bases keeps, in every rig that is a repository, the refs for what the
+// bases keeps, in every depot that is a repository, the refs for what the
 // open beads from peers start from as the store says they are
 // (store.KeepPeerBases): the ref of a bead that has closed is removed, and
-// one that is missing is made. A rig is looked at when its beads have
+// one that is missing is made. A depot is looked at when its beads have
 // changed since it last was, and once after the daemon starts, which is
 // when a ref may be left of a bead that closed while none ran.
 func (d *Dispatcher) bases(ctx context.Context) {
@@ -85,25 +85,25 @@ func (d *Dispatcher) bases(ctx context.Context) {
 		return
 	}
 	d.basesErr = ""
-	rigs, of := map[string]store.Rig{}, map[string][]store.PeerBase{}
+	depots, of := map[string]store.Depot{}, map[string][]store.PeerBase{}
 	if d.basesKept == nil {
-		all, err := d.Store.Rigs(ctx)
+		all, err := d.Store.Depots(ctx)
 		if err != nil {
 			return
 		}
 		d.basesKept = map[string]keptBases{}
 		for _, r := range all {
-			rigs[r.Name] = r
+			depots[r.Name] = r
 		}
 	}
 	for name, k := range d.basesKept {
-		rigs[name] = k.rig
+		depots[name] = k.depot
 	}
 	for _, b := range bases {
-		rigs[b.Rig.Name], of[b.Rig.Name] = b.Rig, append(of[b.Rig.Name], b)
+		depots[b.Depot.Name], of[b.Depot.Name] = b.Depot, append(of[b.Depot.Name], b)
 	}
-	for name, rig := range rigs {
-		if rig.IsDir() || rig.Path == "" {
+	for name, depot := range depots {
+		if depot.IsDir() || depot.Path == "" {
 			continue
 		}
 		slices.SortFunc(of[name], func(a, b store.PeerBase) int { return strings.Compare(a.Bead, b.Bead) })
@@ -111,16 +111,16 @@ func (d *Dispatcher) bases(ctx context.Context) {
 		for _, b := range of[name] {
 			is.WriteString(b.Bead + "=" + b.Commit + " ")
 		}
-		if k, ok := d.basesKept[name]; ok && k.is == is.String() && k.rig.Path == rig.Path {
+		if k, ok := d.basesKept[name]; ok && k.is == is.String() && k.depot.Path == depot.Path {
 			continue
 		}
 		cctx, cancel := context.WithTimeout(ctx, branchTimeout)
-		err := store.KeepPeerBases(cctx, rig, of[name])
+		err := store.KeepPeerBases(cctx, depot, of[name])
 		cancel()
 		if err != nil {
-			// Leave it uncached so the next pass retries. The rig may have
+			// Leave it uncached so the next pass retries. The depot may have
 			// been unavailable temporarily, and its bases must stay rooted.
-			d.Log.Warn("peers: keeping what the beads from peers start from", "rig", name, "err", err)
+			d.Log.Warn("peers: keeping what the beads from peers start from", "depot", name, "err", err)
 			continue
 		}
 		if len(of[name]) == 0 {
@@ -128,13 +128,13 @@ func (d *Dispatcher) bases(ctx context.Context) {
 			delete(d.basesKept, name)
 			continue
 		}
-		d.basesKept[name] = keptBases{rig: rig, is: is.String()}
+		d.basesKept[name] = keptBases{depot: depot, is: is.String()}
 	}
 }
 
-// keptBases is a rig whose refs for the bases of beads from peers were
+// keptBases is a depot whose refs for the bases of beads from peers were
 // made what the store said: is, its beads and their commits then.
 type keptBases struct {
-	rig store.Rig
-	is  string
+	depot store.Depot
+	is    string
 }

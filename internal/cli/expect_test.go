@@ -17,7 +17,7 @@ func TestBeadMovesCarryTheSession(t *testing.T) {
 	if err := st.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "herdr"}); err != nil {
 		t.Fatal(err)
 	}
-	b, err := st.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard", Stage: "new"}, "me")
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,11 +82,11 @@ func TestSessionAppliesToTheOwnBeadOnly(t *testing.T) {
 	if err := st.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "herdr"}); err != nil {
 		t.Fatal(err)
 	}
-	a, err := st.CreateBead(ctx, store.NewBead{Title: "a", Rig: "yard", Stage: "new"}, "me")
+	a, err := st.CreateBead(ctx, store.NewBead{Title: "a", Depot: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := st.CreateBead(ctx, store.NewBead{Title: "b", Rig: "yard", Stage: "new"}, "me")
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "b", Depot: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestSessionAppliesToTheOwnBeadOnly(t *testing.T) {
 // the bead has moved since, the decision is refused rather than applied.
 func TestReviewRefusesStaleDecision(t *testing.T) {
 	st, ctx := reviewYard(t, "/tmp/yard")
-	b, err := st.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard", Stage: "approved"}, "me")
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard", Stage: "approved"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}

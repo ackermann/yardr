@@ -97,7 +97,7 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 	}
 	rec := recs[0]
 	abs, _ := filepath.Abs(starter)
-	if rec.Pack != "starter" || rec.Rig != "web" || rec.Source != abs || rec.By != "me" || rec.At.IsZero() || rec.Flow != "default" ||
+	if rec.Pack != "starter" || rec.Depot != "web" || rec.Source != abs || rec.By != "me" || rec.At.IsZero() || rec.Flow != "default" ||
 		rec.Groups["builders"] != "web-builders" || rec.Groups["backlog"] != "backlog" || !reflect.DeepEqual(rec.Crew, map[string]string{"yardmaster": "boss"}) {
 		t.Fatalf("record = %+v", rec)
 	}
@@ -147,13 +147,13 @@ func TestApplyOverAYardSetUpByHand(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	rig := "web"
+	depot := "web"
 	must(st.PutGroup(ctx, store.Group{Name: "web-builders", Runner: "herdr", Limit: 2,
 		Config: map[string]any{"kind": "codex", "model": "luna", "args": []any{"--yolo"}, "env_file": "/secrets.env", "idle": "20m", "prompt": "/old/builder.md"}}))
 	must(st.PutGroup(ctx, store.Group{Name: "web-refinery", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "YARDR_PUSH=origin /old/merge-local --fast"}}))
 	must(st.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Members: []string{"ann"}}))
 	for stage, group := range map[string]string{"new": "web-builders", "approved": "web-refinery", "decide": "decisions"} {
-		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Rig: &rig, Group: group, Priority: 7})
+		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Depot: &depot, Group: group, Priority: 7})
 		must(err)
 	}
 	_, err := st.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "herdr", Dir: "/home/boss", MaxAge: "6h",
@@ -211,14 +211,14 @@ func TestApplyOverAYardSetUpByHand(t *testing.T) {
 		subs = append(subs, s.String())
 	}
 	slices.Sort(subs)
-	if want := []string{"linear all team=ENG", "linear involved", "yardr all rig=web stage=decide", "yardr all rig=web state=done"}; !slices.Equal(subs, want) {
+	if want := []string{"linear all team=ENG", "linear involved", "yardr all depot=web stage=decide", "yardr all depot=web state=done"}; !slices.Equal(subs, want) {
 		t.Fatalf("subscriptions = %v, want %v", subs, want)
 	}
 }
 
 // A pack that dropped a group: the group, its route and its role file,
 // which the last import brought, are reported and left; --prune removes
-// them, and nothing else, not a group of the rig the pack never had.
+// them, and nothing else, not a group of the depot the pack never had.
 func TestDroppedObjectsAreReportedAndPrunedOnlyWhenAsked(t *testing.T) {
 	st, o := yard(t)
 	dir := copyStarter(t)
@@ -236,7 +236,7 @@ func TestDroppedObjectsAreReportedAndPrunedOnlyWhenAsked(t *testing.T) {
 	plan := build(t, st, load(t, dir), o)
 	// The stage's file goes with it: named by where it is in the home, since
 	// the pack has no path for it any more.
-	gone := []string{"file flows/starter.default/review.md", "file roles/reviewer.md", "group web-reviewers", "route rig web stage review -> web-reviewers"}
+	gone := []string{"file flows/starter.default/review.md", "file roles/reviewer.md", "group web-reviewers", "route depot web stage review -> web-reviewers"}
 	if got := actions(plan, pack.Dropped); !slices.Equal(slices.Sorted(slices.Values(got)), gone) {
 		t.Fatalf("dropped = %v, want %v", got, gone)
 	}
@@ -301,17 +301,17 @@ func TestDroppedObjectsAreReportedAndPrunedOnlyWhenAsked(t *testing.T) {
 	}
 }
 
-// A people group is the yard's: one that a second rig's import names too,
-// or another rig routes to, is held even from a prune.
-func TestPruneHoldsAGroupAnotherRigUses(t *testing.T) {
+// A people group is the yard's: one that a second depot's import names too,
+// or another depot routes to, is held even from a prune.
+func TestPruneHoldsAGroupAnotherDepotUses(t *testing.T) {
 	st, o := yard(t)
-	if err := st.PutRig(ctx, store.Rig{Name: "api", Base: "main"}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "api", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	dir := copyStarter(t)
 	apply(t, st, build(t, st, load(t, dir), o), answers)
 	other := o
-	other.Rig = "api"
+	other.Depot = "api"
 	apply(t, st, build(t, st, load(t, starter), other), answers)
 
 	edit(t, dir,
@@ -319,7 +319,7 @@ func TestPruneHoldsAGroupAnotherRigUses(t *testing.T) {
 		"  decisions: { people: true }\n", "")
 	plan := build(t, st, load(t, dir), o)
 	g := find(t, plan, "group", "decisions")
-	if g.Action != pack.Dropped || !strings.Contains(g.Held, "pack starter in rig api names it too") {
+	if g.Action != pack.Dropped || !strings.Contains(g.Held, "pack starter in depot api names it too") {
 		t.Fatalf("decisions = %+v", g)
 	}
 	res, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Prune: true, Actor: "me"})
@@ -330,18 +330,18 @@ func TestPruneHoldsAGroupAnotherRigUses(t *testing.T) {
 		t.Fatalf("result = %+v", res)
 	}
 	if _, err := st.GetGroup(ctx, "decisions"); err != nil {
-		t.Fatalf("decisions was pruned from under rig api: %v", err)
+		t.Fatalf("decisions was pruned from under depot api: %v", err)
 	}
-	// Rig web's route to it went with the stage's group; rig api's stays.
+	// Depot web's route to it went with the stage's group; depot api's stays.
 	routes, _ := st.Routes(ctx)
-	var rigs []string
+	var depots []string
 	for _, r := range routes {
 		if r.Group == "decisions" {
-			rigs = append(rigs, *r.Rig)
+			depots = append(depots, *r.Depot)
 		}
 	}
-	if !slices.Equal(rigs, []string{"api"}) {
-		t.Fatalf("routes to decisions are of rigs %v, want api alone", rigs)
+	if !slices.Equal(depots, []string{"api"}) {
+		t.Fatalf("routes to decisions are of depots %v, want api alone", depots)
 	}
 }
 
@@ -349,7 +349,7 @@ func TestPruneHoldsAGroupAnotherRigUses(t *testing.T) {
 // written: no file, no group, no event.
 func TestApplyRefusesStrandedBeadsChangingNothing(t *testing.T) {
 	st, o := yard(t)
-	b, err := st.CreateBead(ctx, store.NewBead{Title: "stray", Rig: "web", Stage: "triage"}, "me")
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "stray", Depot: "web", Stage: "triage"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -492,21 +492,21 @@ func TestRunningCrewIsNotRestarted(t *testing.T) {
 	}
 }
 
-// rigWithRoles is the yard's rig web as a directory that has its own
+// depotWithRoles is the yard's depot web as a directory that has its own
 // builder.md and yardmaster.md, a builders group and a yardmaster prompted as
 // a yard set up by hand has them.
-func rigWithRoles(t *testing.T, st store.API) {
+func depotWithRoles(t *testing.T, st store.API) {
 	t.Helper()
-	rigDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(rigDir, ".yardr", "roles"), 0o755); err != nil {
+	depotDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(depotDir, ".yardr", "roles"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"builder.md", "yardmaster.md"} {
-		if err := os.WriteFile(filepath.Join(rigDir, ".yardr", "roles", name), []byte("the rig's own\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(depotDir, ".yardr", "roles", name), []byte("the depot's own\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := st.PutRig(ctx, store.Rig{Name: "web", Path: rigDir, Kind: store.RigDir}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "web", Path: depotDir, Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.PutGroup(ctx, store.Group{Name: "web-builders", Runner: "herdr", Config: map[string]any{"kind": "claude", "prompt": "roles/builder.md"}, Limit: 5}); err != nil {
@@ -517,7 +517,7 @@ func rigWithRoles(t *testing.T, st store.API) {
 	}
 }
 
-// record is the yard's record of the starter pack in rig web.
+// record is the yard's record of the starter pack in depot web.
 func record(t *testing.T, st store.API) store.PackImport {
 	t.Helper()
 	recs, err := st.Packs(ctx)
@@ -528,12 +528,12 @@ func record(t *testing.T, st store.API) store.PackImport {
 }
 
 // The pack's roles win by default, as its flow does: a group and a crew member
-// are pointed at the pack's copied role though the rig has its own
+// are pointed at the pack's copied role though the depot has its own
 // .yardr/roles/<name>.md, the plan shows the change of prompt and names the
-// rig's file that stops being used, and a second import changes nothing.
-func TestPacksRolesWinOverTheRigsOwn(t *testing.T) {
+// depot's file that stops being used, and a second import changes nothing.
+func TestPacksRolesWinOverTheDepotsOwn(t *testing.T) {
 	st, o := yard(t)
-	rigWithRoles(t, st)
+	depotWithRoles(t, st)
 	install := filepath.Join(o.Home, "packs", "starter")
 
 	plan := build(t, st, load(t, starter), o)
@@ -542,7 +542,7 @@ func TestPacksRolesWinOverTheRigsOwn(t *testing.T) {
 	if b.Action != pack.Change || !reflect.DeepEqual(b.Changes, want) || len(b.Keeps) != 0 || !slices.Equal(b.Shadows, []string{".yardr/roles/builder.md"}) {
 		t.Fatalf("web-builders = %+v", b)
 	}
-	// The rig has no reviewer.md of its own: nothing is shadowed there.
+	// The depot has no reviewer.md of its own: nothing is shadowed there.
 	if r := find(t, plan, "group", "web-reviewers"); len(r.Shadows) != 0 || r.Group.Config["prompt"] != filepath.Join(install, "roles", "reviewer.md") {
 		t.Fatalf("web-reviewers = %+v", r)
 	}
@@ -557,8 +557,8 @@ func TestPacksRolesWinOverTheRigsOwn(t *testing.T) {
 	if g.Config["prompt"] != filepath.Join(install, "roles", "builder.md") || r.Config["prompt"] != filepath.Join(install, "roles", "yardmaster.md") {
 		t.Fatalf("after the import: builders %v, yardmaster %v", g.Config["prompt"], r.Config["prompt"])
 	}
-	if rec := record(t, st); rec.RigRoles {
-		t.Fatalf("the record says the rig's roles were kept: %+v", rec)
+	if rec := record(t, st); rec.DepotRoles {
+		t.Fatalf("the record says the depot's roles were kept: %+v", rec)
 	}
 
 	// Again, with no flag: nothing to write, the shadowed file still named.
@@ -574,27 +574,27 @@ func TestPacksRolesWinOverTheRigsOwn(t *testing.T) {
 	}
 }
 
-// RigRoles is the opposite choice: a group or crew member whose rig has its
+// DepotRoles is the opposite choice: a group or crew member whose depot has its
 // own role keeps it. The record remembers the choice, so the next import
 // repeats it without the flag and changes nothing; PackRoles undoes it, and
-// RigRoles after that takes a group off the pack's copy again.
-func TestRigRolesKeepsTheRigsOwnAndIsRemembered(t *testing.T) {
+// DepotRoles after that takes a group off the pack's copy again.
+func TestDepotRolesKeepsTheDepotsOwnAndIsRemembered(t *testing.T) {
 	st, o := yard(t)
-	rigWithRoles(t, st)
-	// The builders group is new here: it gets the role by the rig's name for it.
+	depotWithRoles(t, st)
+	// The builders group is new here: it gets the role by the depot's name for it.
 	if _, err := st.DeleteGroup(ctx, "web-builders", "me"); err != nil {
 		t.Fatal(err)
 	}
 	install := filepath.Join(o.Home, "packs", "starter")
 
-	o.RigRoles = true
+	o.DepotRoles = true
 	plan := build(t, st, load(t, starter), o)
 	b := find(t, plan, "group", "web-builders")
-	if !plan.RigRoles || b.Action != pack.Create || b.Group.Config["prompt"] != "roles/builder.md" || len(b.Shadows) != 0 ||
-		!slices.Equal(b.Keeps, []string{"prompt roles/builder.md: the rig has its own .yardr/roles/builder.md"}) {
+	if !plan.DepotRoles || b.Action != pack.Create || b.Group.Config["prompt"] != "roles/builder.md" || len(b.Shadows) != 0 ||
+		!slices.Equal(b.Keeps, []string{"prompt roles/builder.md: the depot has its own .yardr/roles/builder.md"}) {
 		t.Fatalf("web-builders = %+v, prompt %v", b, b.Group.Config["prompt"])
 	}
-	// The rig has no reviewer.md of its own, so that group gets the pack's.
+	// The depot has no reviewer.md of its own, so that group gets the pack's.
 	if r := find(t, plan, "group", "web-reviewers"); len(r.Keeps) != 0 || r.Group.Config["prompt"] != filepath.Join(install, "roles", "reviewer.md") {
 		t.Fatalf("web-reviewers = %+v", r)
 	}
@@ -602,7 +602,7 @@ func TestRigRolesKeepsTheRigsOwnAndIsRemembered(t *testing.T) {
 	if m.CrewMember.Prompt != "/home/roles/yardmaster.md" || len(m.Keeps) != 1 || len(m.Shadows) != 0 || slices.ContainsFunc(m.Changes, func(d pack.Diff) bool { return d.Field == "prompt" }) {
 		t.Fatalf("yardmaster = %+v", m)
 	}
-	// Installed all the same, for rigs without their own.
+	// Installed all the same, for depots without their own.
 	if f := find(t, plan, "file", "roles/builder.md"); f.Action != pack.Create {
 		t.Fatalf("builder.md = %+v", f)
 	}
@@ -612,15 +612,15 @@ func TestRigRolesKeepsTheRigsOwnAndIsRemembered(t *testing.T) {
 	if g.Config["prompt"] != "roles/builder.md" || r.Config["prompt"] != "/home/roles/yardmaster.md" {
 		t.Fatalf("after the import: builders %v, yardmaster %v", g.Config["prompt"], r.Config["prompt"])
 	}
-	if rec := record(t, st); !rec.RigRoles {
-		t.Fatalf("the record does not say the rig's roles were kept: %+v", rec)
+	if rec := record(t, st); !rec.DepotRoles {
+		t.Fatalf("the record does not say the depot's roles were kept: %+v", rec)
 	}
 
 	// No flag: the recorded choice, so nothing changes.
-	o.RigRoles = false
+	o.DepotRoles = false
 	plan = build(t, st, load(t, starter), o)
-	if got := append(actions(plan, pack.Change), actions(plan, pack.Create)...); !plan.RigRoles || len(got) != 0 {
-		t.Fatalf("a second import, rig roles %v, would write %v", plan.RigRoles, got)
+	if got := append(actions(plan, pack.Change), actions(plan, pack.Create)...); !plan.DepotRoles || len(got) != 0 {
+		t.Fatalf("a second import, depot roles %v, would write %v", plan.DepotRoles, got)
 	}
 	if res := apply(t, st, plan, nil); res.Wrote() || res.Recorded {
 		t.Fatalf("the second import: %+v", res)
@@ -631,23 +631,23 @@ func TestRigRolesKeepsTheRigsOwnAndIsRemembered(t *testing.T) {
 	plan = build(t, st, load(t, starter), o)
 	b = find(t, plan, "group", "web-builders")
 	want := []pack.Diff{{Field: "prompt", Old: "roles/builder.md", New: filepath.Join(install, "roles", "builder.md")}}
-	if plan.RigRoles || len(b.Keeps) != 0 || !reflect.DeepEqual(b.Changes, want) || !slices.Equal(b.Shadows, []string{".yardr/roles/builder.md"}) {
+	if plan.DepotRoles || len(b.Keeps) != 0 || !reflect.DeepEqual(b.Changes, want) || !slices.Equal(b.Shadows, []string{".yardr/roles/builder.md"}) {
 		t.Fatalf("with PackRoles: %+v", b)
 	}
 	if m := find(t, plan, "crew", "yardmaster"); m.CrewMember.Prompt != filepath.Join(install, "roles", "yardmaster.md") {
 		t.Fatalf("with PackRoles: yardmaster %+v", m.CrewMember)
 	}
 	apply(t, st, plan, nil)
-	if rec := record(t, st); rec.RigRoles {
+	if rec := record(t, st); rec.DepotRoles {
 		t.Fatalf("the record after PackRoles: %+v", rec)
 	}
 
-	// And back: a group on the pack's copy gets the rig's role by name.
-	o.PackRoles, o.RigRoles = false, true
+	// And back: a group on the pack's copy gets the depot's role by name.
+	o.PackRoles, o.DepotRoles = false, true
 	b = find(t, build(t, st, load(t, starter), o), "group", "web-builders")
 	want = []pack.Diff{{Field: "prompt", Old: filepath.Join(install, "roles", "builder.md"), New: "roles/builder.md"}}
 	if !reflect.DeepEqual(b.Changes, want) {
-		t.Fatalf("back to RigRoles: %+v", b)
+		t.Fatalf("back to DepotRoles: %+v", b)
 	}
 
 	o.PackRoles = true
@@ -745,9 +745,9 @@ func TestHandEditedDroppedFileIsRefusedByPrune(t *testing.T) {
 	}
 }
 
-// Of several flows a rig could follow, the plan asks which; the import
+// Of several flows a depot could follow, the plan asks which; the import
 // remembers the answer, so the next one need not be told, and a flow the
-// rig is moved off is then reported as dropped.
+// depot is moved off is then reported as dropped.
 func TestFlowChoiceIsAskedAndRemembered(t *testing.T) {
 	st, o := yard(t)
 	dir := copyStarter(t)
@@ -789,7 +789,7 @@ func TestFlowChoiceIsAskedAndRemembered(t *testing.T) {
 }
 
 // Pruning a pack's dropped type-flow pointer must not silently send its
-// open beads to the rig's default flow when that flow lacks their stage.
+// open beads to the depot's default flow when that flow lacks their stage.
 func TestPruneHoldsTypePointerThatWouldStrandBeads(t *testing.T) {
 	st, o := yard(t)
 	dir := copyStarter(t)
@@ -808,7 +808,7 @@ func TestPruneHoldsTypePointerThatWouldStrandBeads(t *testing.T) {
 		t.Fatal(err)
 	}
 	apply(t, st, build(t, st, load(t, dir), o), answers)
-	b, err := st.CreateBead(ctx, store.NewBead{Title: "in triage", Rig: "web", Type: "task", Stage: "triage"}, "me")
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "in triage", Depot: "web", Type: "task", Stage: "triage"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -831,11 +831,11 @@ func TestPruneHoldsTypePointerThatWouldStrandBeads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(res.Left, "pointer rig web type task -> starter.task-flow") {
+	if !slices.Contains(res.Left, "pointer depot web type task -> starter.task-flow") {
 		t.Fatalf("prune result = %+v", res)
 	}
 	ptrs, err := st.FlowPointers(ctx)
-	if err != nil || !slices.Contains(ptrs, store.FlowPointer{Rig: "web", Type: "task", Flow: "starter.task-flow"}) {
+	if err != nil || !slices.Contains(ptrs, store.FlowPointer{Depot: "web", Type: "task", Flow: "starter.task-flow"}) {
 		t.Fatalf("type flow pointer after prune = %v, %v", ptrs, err)
 	}
 }
@@ -1020,11 +1020,11 @@ func TestPruneRemovesAStageFileThePackDropped(t *testing.T) {
 	}
 }
 
-// A flow the rig is moved off stays while another rig follows it, and its
-// stage files stay with it: that rig's beads are still shown them.
-func TestPruneHoldsTheStageFilesOfAFlowAnotherRigFollows(t *testing.T) {
+// A flow the depot is moved off stays while another depot follows it, and its
+// stage files stay with it: that depot's beads are still shown them.
+func TestPruneHoldsTheStageFilesOfAFlowAnotherDepotFollows(t *testing.T) {
 	st, o := yard(t)
-	if err := st.PutRig(ctx, store.Rig{Name: "api", Base: "main"}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "api", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	dir := copyStarter(t)
@@ -1033,16 +1033,16 @@ func TestPruneHoldsTheStageFilesOfAFlowAnotherRigFollows(t *testing.T) {
 	o.Flow = "default"
 	apply(t, st, build(t, st, load(t, dir), o), answers)
 	other := o
-	other.Rig = "api"
+	other.Depot = "api"
 	apply(t, st, build(t, st, load(t, dir), other), answers)
 
 	o.Flow = "short"
 	plan := build(t, st, load(t, dir), o)
 	f := find(t, plan, "file", "flows/starter.default/new.md")
-	if f.Action != pack.Dropped || !strings.Contains(f.Held, "flow starter.default is kept: rig api follows it") {
-		t.Fatalf("new.md of the flow rig api follows = %+v", f)
+	if f.Action != pack.Dropped || !strings.Contains(f.Held, "flow starter.default is kept: depot api follows it") {
+		t.Fatalf("new.md of the flow depot api follows = %+v", f)
 	}
-	// The same file of the pack, under the flow the rig follows now.
+	// The same file of the pack, under the flow the depot follows now.
 	if c := find(t, plan, "file", "flows/default/new.md"); c.Action != pack.Create || c.File.To != filepath.Join(o.Home, "flows", "starter.short", "new.md") {
 		t.Fatalf("new.md of flow short = %+v, %+v", c, c.File)
 	}
@@ -1054,7 +1054,7 @@ func TestPruneHoldsTheStageFilesOfAFlowAnotherRigFollows(t *testing.T) {
 		t.Fatalf("result = %+v", res)
 	}
 	if sf, err := store.HomeStageFile(o.Home, "starter.default", "new"); err != nil || sf == nil {
-		t.Fatalf("rig api's stage file was pruned from under it: %+v, %v", sf, err)
+		t.Fatalf("depot api's stage file was pruned from under it: %+v, %v", sf, err)
 	}
 }
 
@@ -1067,7 +1067,7 @@ func TestPruneLeavesTheStageFilesOfAFlowItCouldNotRemove(t *testing.T) {
 		"      merged:   { end: true }\n  short:\n    stages:\n      new:    { group: builders, file: flows/default/new.md, outcomes: { done: merged } }\n      merged: { end: true }\n")
 	o.Flow = "short"
 	apply(t, st, build(t, st, load(t, dir), o), answers)
-	if _, err := st.CreateBead(ctx, store.NewBead{Title: "pinned", Rig: "web", Stage: "new", Metadata: map[string]any{"flow": "starter.short"}}, "me"); err != nil {
+	if _, err := st.CreateBead(ctx, store.NewBead{Title: "pinned", Depot: "web", Stage: "new", Metadata: map[string]any{"flow": "starter.short"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1141,7 +1141,7 @@ func TestImportFillsThePlaceholders(t *testing.T) {
 	}
 
 	// Again: nothing to write, and nothing marked edited.
-	again := build(t, st, load(t, dir), pack.Options{Rig: o.Rig, Home: o.Home, Operator: "Jo"})
+	again := build(t, st, load(t, dir), pack.Options{Depot: o.Depot, Home: o.Home, Operator: "Jo"})
 	if got := append(actions(again, pack.Create), actions(again, pack.Change)...); len(got) != 0 || len(again.EditedFiles()) != 0 {
 		t.Fatalf("a second import would write %v, edited %v", got, again.EditedFiles())
 	}
@@ -1167,7 +1167,7 @@ func TestImportFillsThePlaceholders(t *testing.T) {
 	if err := os.WriteFile(builder, append(got, "edited in the yard\n"...), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	edited := build(t, st, load(t, dir), pack.Options{Rig: o.Rig, Home: o.Home, Operator: "Jo"})
+	edited := build(t, st, load(t, dir), pack.Options{Depot: o.Depot, Home: o.Home, Operator: "Jo"})
 	if f := find(t, edited, "file", "roles/builder.md"); f.Action != pack.Change || !f.Edited {
 		t.Fatalf("builder.md after a hand edit = %+v", f)
 	}
@@ -1242,7 +1242,7 @@ func TestThePacksMayorIsItsYardmaster(t *testing.T) {
 	if _, err := st.RecordPack(ctx, rec, true, "me"); err != nil {
 		t.Fatal(err)
 	}
-	again := build(t, st, load(t, dir), pack.Options{Rig: o.Rig, Home: o.Home, Operator: "Jo"})
+	again := build(t, st, load(t, dir), pack.Options{Depot: o.Depot, Home: o.Home, Operator: "Jo"})
 	if want := map[string]string{"yardmaster": "boss"}; !reflect.DeepEqual(again.Crew, want) {
 		t.Fatalf("crew members from the old record = %v, want %v", again.Crew, want)
 	}

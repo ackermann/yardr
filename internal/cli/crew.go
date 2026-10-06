@@ -1030,7 +1030,7 @@ more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
   yardr mail mckean "The refinery is red on main: yardr-1a2b"
   yardr mail --with yardmaster
   yardr mail --with yardmaster --after 412 --json
-  yardr mail yardmaster@north "Our webapp rig is on Go 1.25 now"
+  yardr mail yardmaster@north "Our webapp depot is on Go 1.25 now"
   yardr mail --with yardmaster@north`,
 		Args: func(c *cobra.Command, args []string) error {
 			if with != "" {

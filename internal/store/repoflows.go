@@ -15,16 +15,16 @@ import (
 	"sync"
 )
 
-// RepoFlowDir holds a rig's flows in its repository:
+// RepoFlowDir holds a depot's flows in its repository:
 //
-//	.yardr/flows/<name>.flow        a named flow; default.flow governs the rig
-//	.yardr/flows/type/<type>.flow   governs the rig's beads of <type>
+//	.yardr/flows/<name>.flow        a named flow; default.flow governs the depot
+//	.yardr/flows/type/<type>.flow   governs the depot's beads of <type>
 //
-// They are read from the tip of the rig's base branch, never a bead's
+// They are read from the tip of the depot's base branch, never a bead's
 // branch or worktree, so a bead cannot change its own lifecycle: an edit
 // takes effect once it has been reviewed and landed on the base.
 //
-// A dir rig has no base: its flows are read from the directory as it is,
+// A dir depot has no base: its flows are read from the directory as it is,
 // <path>/.yardr/flows/, and reread when a file's mtime or size changes.
 //
 // Beside a flow file, a directory of its name holds the flow's stage files
@@ -42,13 +42,13 @@ const RepoFlowDir = ".yardr/flows"
 // Whoever works a bead in the stage reads it, whichever group they are in.
 // It is optional: a stage without one has only its name.
 type StageFile struct {
-	// Path is the file: in the rig's repository for a repository flow,
+	// Path is the file: in the depot's repository for a repository flow,
 	// absolute in the yard's home for a flow in the store.
 	Path string `json:"path"`
 	Text string `json:"text"`
 }
 
-// StageFilePath is where the stage file of flow's stage lives in a rig's
+// StageFilePath is where the stage file of flow's stage lives in a depot's
 // repository. flow is the flow's name: <name>, or type/<type> for a type's
 // file. The file belongs to the flow, not to the stage name: review in
 // default and review in yardr.train are two files.
@@ -65,7 +65,7 @@ func stageFile(p string) bool {
 	return ok && strings.HasSuffix(rel, ".md") && strings.Contains(rel, "/")
 }
 
-// RepoFlow is one flow file in a rig's repository.
+// RepoFlow is one flow file in a depot's repository.
 type RepoFlow struct {
 	Path string `json:"path"`
 	Name string `json:"name,omitempty"` // .yardr/flows/<name>.flow
@@ -83,23 +83,23 @@ func (rf *RepoFlow) flow() (*Flow, error) {
 	return rf.Flow, nil
 }
 
-// RepoFlows is what a rig's repository says about flows at the tip of its
-// base branch. Commit is empty when the rig has no path or its base does
+// RepoFlows is what a depot's repository says about flows at the tip of its
+// base branch. Commit is empty when the depot has no path or its base does
 // not exist in the checkout: then the repository has no flows. Any other
 // git failure (the path is not a checkout, git is missing) is an error, so
 // a broken checkout does not silently leave its beads without their flow.
 type RepoFlows struct {
-	Rig    string `json:"rig"`
+	Depot  string `json:"depot"`
 	Base   string `json:"base"`
 	Commit string `json:"commit,omitempty"`
-	// Dir is the directory a dir rig's flows were read from; then Base and
+	// Dir is the directory a dir depot's flows were read from; then Base and
 	// Commit are empty.
 	Dir   string     `json:"dir,omitempty"`
 	Flows []RepoFlow `json:"flows"`
 	// StageFiles are the markdown files in the flows' directories, read
 	// with the flows.
 	StageFiles []StageFile `json:"stage_files,omitempty"`
-	// stamp is what a dir rig's cached flows and stage files were read at:
+	// stamp is what a dir depot's cached flows and stage files were read at:
 	// each file's path, mtime and size.
 	stamp string
 }
@@ -199,9 +199,9 @@ func (r *RepoFlows) StrayStageFiles() []string {
 
 // HomeStageDir is where the stage files of the store flow named flow live:
 // plain files in the yard's home, <home>/flows/<name>/<stage>.md, the way
-// role prompts outside a rig are files under the home. The store holds no
-// prose. Every rig following the flow reads the same files, and they are in
-// no rig, so no bead's branch can change them.
+// role prompts outside a depot are files under the home. The store holds no
+// prose. Every depot following the flow reads the same files, and they are in
+// no depot, so no bead's branch can change them.
 func HomeStageDir(home, flow string) string { return filepath.Join(home, "flows", flow) }
 
 // HomeStageFile reads the stage file of a store flow's stage from the
@@ -265,11 +265,11 @@ func HomeStageFiles(home string, f *Flow) (have map[string]string, stray []strin
 // they are on disk, whatever dir is: the gate asks it of the tree it runs
 // in, which is what would land.
 func ReadFlowDir(dir string) (*RepoFlows, error) {
-	return new(repoCache).loadDir(Rig{Kind: RigDir, Path: dir})
+	return new(repoCache).loadDir(Depot{Kind: DepotDir, Path: dir})
 }
 
-// repoCache keeps each rig checkout's flows by base commit, so resolving a
-// flow costs one rev-parse until the base moves, and each dir rig's by its
+// repoCache keeps each depot checkout's flows by base commit, so resolving a
+// flow costs one rev-parse until the base moves, and each dir depot's by its
 // files' mtimes and sizes, so it costs a listing until a file changes. The
 // flows' stage files are kept with them.
 type repoCache struct {
@@ -277,22 +277,22 @@ type repoCache struct {
 	m  map[string]*RepoFlows // <path>\x00<base>, or <path>\x00\x00dir
 }
 
-// RepoFlows reads rig's flows from the tip of its base branch, or a dir
-// rig's from its directory.
-func (s *Store) RepoFlows(ctx context.Context, rig string) (*RepoFlows, error) {
-	r, err := s.GetRig(ctx, rig)
+// RepoFlows reads depot's flows from the tip of its base branch, or a dir
+// depot's from its directory.
+func (s *Store) RepoFlows(ctx context.Context, depot string) (*RepoFlows, error) {
+	r, err := s.GetDepot(ctx, depot)
 	if err != nil {
 		return nil, err
 	}
 	return s.repos.load(ctx, *r)
 }
 
-func (c *repoCache) load(ctx context.Context, r Rig) (*RepoFlows, error) {
+func (c *repoCache) load(ctx context.Context, r Depot) (*RepoFlows, error) {
 	if r.IsDir() {
 		return c.loadDir(r)
 	}
 	base := or(r.Base, "origin/main")
-	out := &RepoFlows{Rig: r.Name, Base: base, Flows: []RepoFlow{}}
+	out := &RepoFlows{Depot: r.Name, Base: base, Flows: []RepoFlow{}}
 	if r.Path == "" {
 		return out, nil // git -C "" would read whatever the server runs in
 	}
@@ -300,7 +300,7 @@ func (c *repoCache) load(ctx context.Context, r Rig) (*RepoFlows, error) {
 	if errors.Is(err, errGitNotFound) {
 		return out, nil
 	} else if err != nil {
-		return nil, fmt.Errorf("rig %s: resolving base %s in %s: %w", r.Name, base, r.Path, err)
+		return nil, fmt.Errorf("depot %s: resolving base %s in %s: %w", r.Name, base, r.Path, err)
 	}
 	out.Commit = strings.TrimSpace(string(sha))
 	key := join(r.Path, base)
@@ -308,13 +308,13 @@ func (c *repoCache) load(ctx context.Context, r Rig) (*RepoFlows, error) {
 	hit := c.m[key]
 	c.mu.Unlock()
 	if hit != nil && hit.Commit == out.Commit {
-		cp := *hit // shared and read only; the rig's name may differ
-		cp.Rig = r.Name
+		cp := *hit // shared and read only; the depot's name may differ
+		cp.Depot = r.Name
 		return &cp, nil
 	}
 	list, err := git(ctx, r.Path, "ls-tree", "-r", "-z", "--name-only", out.Commit, "--", RepoFlowDir+"/")
 	if err != nil {
-		return nil, fmt.Errorf("rig %s: listing %s at %s: %w", r.Name, RepoFlowDir, base, err)
+		return nil, fmt.Errorf("depot %s: listing %s at %s: %w", r.Name, RepoFlowDir, base, err)
 	}
 	for _, p := range strings.Split(string(list), "\x00") {
 		rf, isFlow := flowFile(p)
@@ -323,7 +323,7 @@ func (c *repoCache) load(ctx context.Context, r Rig) (*RepoFlows, error) {
 		}
 		text, err := git(ctx, r.Path, "cat-file", "blob", out.Commit+":"+p)
 		if err != nil {
-			return nil, fmt.Errorf("rig %s: reading %s at %s: %w", r.Name, p, base, err)
+			return nil, fmt.Errorf("depot %s: reading %s at %s: %w", r.Name, p, base, err)
 		}
 		if isFlow {
 			out.Flows = append(out.Flows, rf.parse(text))
@@ -336,15 +336,15 @@ func (c *repoCache) load(ctx context.Context, r Rig) (*RepoFlows, error) {
 	return &cp, nil
 }
 
-// loadDir reads a dir rig's flows and stage files from <path>/.yardr/flows/
+// loadDir reads a dir depot's flows and stage files from <path>/.yardr/flows/
 // as they are on disk. The cache holds them until one is added, removed, or
 // its mtime or size changes; a missing directory is no flows.
-func (c *repoCache) loadDir(r Rig) (*RepoFlows, error) {
-	out := &RepoFlows{Rig: r.Name, Dir: r.Path, Flows: []RepoFlow{}}
+func (c *repoCache) loadDir(r Depot) (*RepoFlows, error) {
+	out := &RepoFlows{Depot: r.Name, Dir: r.Path, Flows: []RepoFlow{}}
 	if r.Path == "" {
 		return out, nil
 	}
-	var files []string // flow and stage files, by their path in the rig
+	var files []string // flow and stage files, by their path in the depot
 	var stamp strings.Builder
 	// A directory's files before its directories: the named flows, then
 	// type/, then each flow's stage files.
@@ -354,7 +354,7 @@ func (c *repoCache) loadDir(r Rig) (*RepoFlows, error) {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil
 		} else if err != nil {
-			return fmt.Errorf("rig %s: listing %s in %s: %w", r.Name, RepoFlowDir, r.Path, err)
+			return fmt.Errorf("depot %s: listing %s in %s: %w", r.Name, RepoFlowDir, r.Path, err)
 		}
 		for _, e := range ents {
 			p := RepoFlowDir + "/" + sub + e.Name()
@@ -365,7 +365,7 @@ func (c *repoCache) loadDir(r Rig) (*RepoFlows, error) {
 			if errors.Is(err, fs.ErrNotExist) {
 				continue // removed since the listing
 			} else if err != nil {
-				return fmt.Errorf("rig %s: %s: %w", r.Name, p, err)
+				return fmt.Errorf("depot %s: %s: %w", r.Name, p, err)
 			}
 			fmt.Fprintf(&stamp, "%s\x00%d\x00%d\x00", p, info.ModTime().UnixNano(), info.Size())
 			files = append(files, p)
@@ -389,13 +389,13 @@ func (c *repoCache) loadDir(r Rig) (*RepoFlows, error) {
 	c.mu.Unlock()
 	if hit != nil && hit.stamp == out.stamp {
 		cp := *hit
-		cp.Rig = r.Name
+		cp.Depot = r.Name
 		return &cp, nil
 	}
 	for _, p := range files {
 		text, err := os.ReadFile(filepath.Join(r.Path, filepath.FromSlash(p)))
 		if err != nil {
-			return nil, fmt.Errorf("rig %s: reading %s in %s: %w", r.Name, p, r.Path, err)
+			return nil, fmt.Errorf("depot %s: reading %s in %s: %w", r.Name, p, r.Path, err)
 		}
 		if rf, ok := flowFile(p); ok {
 			out.Flows = append(out.Flows, rf.parse(text))
@@ -431,7 +431,7 @@ func flowFile(p string) (RepoFlow, bool) {
 		rf.Name = file
 	case "type/":
 		// type/epic.flow, in a repository from before the types were
-		// renamed, governs the rig's trains.
+		// renamed, governs the depot's trains.
 		rf.Type = BeadType(file)
 	default:
 		return RepoFlow{}, false

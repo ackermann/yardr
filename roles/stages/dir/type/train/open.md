@@ -1,10 +1,10 @@
 The train waits here while any child is open: each child blocks it. Once the
 last child closes the train is ready, and whoever the stage is routed to (the
-rig's reviewers, by a route for `open --type train`) takes it up.
+depot's reviewers, by a route for `open --type train`) takes it up.
 
-Nothing is integrated in a directory rig: the children's outputs are already
+Nothing is integrated in a directory depot: the children's outputs are already
 in the directory. Before the train leaves, every child is closed and the
-rig's gate passes if it has one (`yardr rig check <rig>`).
+depot's gate passes if it has one (`yardr depot check <depot>`).
 
 Outcomes:
 

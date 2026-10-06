@@ -22,7 +22,7 @@ type Card struct {
 	// Status is open or closed: a list of open beads holds only open ones,
 	// a train's children may be either.
 	Status string `json:"status"`
-	Rig    string `json:"rig,omitempty"`
+	Depot  string `json:"depot,omitempty"`
 	// Held is a bead on hold; Working one an agent's or a command's session
 	// has claimed. A manual group's claim is a person's turn and no work in
 	// progress, as on Home and the line.
@@ -34,7 +34,7 @@ type Card struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	// Live is a card on /flows, which the stream takes out when its bead
 	// moves or closes; Placed one under its stage's heading there, which
-	// says its rig and stage already.
+	// says its depot and stage already.
 	Live   bool `json:"-"`
 	Placed bool `json:"-"`
 	// Arrived is a card the stream brings because its bead entered a
@@ -72,8 +72,8 @@ func working(b *store.Bead, manual map[string]bool) bool {
 func card(b *store.Bead, manual map[string]bool) Card {
 	c := Card{ID: b.ID, Title: b.Title, Type: b.Type, Stage: b.Stage, Status: b.Status, Held: b.Hold,
 		Working: working(b, manual), Train: b.Train, UpdatedAt: b.UpdatedAt}
-	if b.Rig != nil {
-		c.Rig = *b.Rig
+	if b.Depot != nil {
+		c.Depot = *b.Depot
 	}
 	if b.Group != nil {
 		c.Group = *b.Group
@@ -93,7 +93,7 @@ func newestFirst(cs []Card) {
 }
 
 // domID is an element id made of parts that are names from the yard (a
-// rig, a bead type, a stage, a bead). Each part is escaped, so no name can
+// depot, a bead type, a stage, a bead). Each part is escaped, so no name can
 // run into the next, and the id has no space, comma or newline: it is also
 // the name of an event of the stream, in a list the page's markup gives.
 func domID(kind string, parts ...string) string {
@@ -104,32 +104,32 @@ func domID(kind string, parts ...string) string {
 	return id
 }
 
-// Flows is the /flows page: per rig, the flows that govern it, each with
+// Flows is the /flows page: per depot, the flows that govern it, each with
 // its stages in order and the open beads in every stage.
 type Flows struct {
-	Rigs []FlowsRig `json:"rigs"`
+	Depots []FlowsDepot `json:"depots"`
 	// Head is the yard's newest seq when the page was read, before its
 	// beads: the stream after it (/events?after=) brings every later move.
 	Head uint64 `json:"head"`
 }
 
-type FlowsRig struct {
+type FlowsDepot struct {
 	Name  string       `json:"name"`
 	Kind  string       `json:"kind"`
 	Flows []FlowColumn `json:"flows"`
-	// Elsewhere are the rig's open beads in no stage of the flows above: a
+	// Elsewhere are the depot's open beads in no stage of the flows above: a
 	// bead that pins a flow of its own, one a changed flow left behind,
-	// and every bead of a rig with no flow.
+	// and every bead of a depot with no flow.
 	Elsewhere []Card `json:"elsewhere"`
-	// Error is why the rig's flows could not be read; its beads are then
+	// Error is why the depot's flows could not be read; its beads are then
 	// all in Elsewhere.
 	Error string `json:"error,omitempty"`
 }
 
-// Section is the id of the element that holds the rig's Elsewhere cards.
-func (r FlowsRig) Section() string { return domID("off", r.Name) }
+// Section is the id of the element that holds the depot's Elsewhere cards.
+func (r FlowsDepot) Section() string { return domID("off", r.Name) }
 
-// FlowColumn is one flow of a rig: the rig's own (Type "") or a bead type's.
+// FlowColumn is one flow of a depot: the depot's own (Type "") or a bead type's.
 type FlowColumn struct {
 	Name string `json:"name"`
 	Type string `json:"type,omitempty"`
@@ -149,7 +149,7 @@ type FlowStage struct {
 	Human   bool     `json:"human,omitempty"`
 	Members []string `json:"members,omitempty"`
 	// StageFile is the path of the stage's file when it has one: in the
-	// rig's repository, or in the yard's home for a flow in the store.
+	// depot's repository, or in the yard's home for a flow in the store.
 	StageFile string   `json:"stage_file,omitempty"`
 	Next      []string `json:"next"`
 	// Terminal is a stage that closes the bead entering it.
@@ -161,17 +161,17 @@ type FlowStage struct {
 	Section string `json:"-"`
 }
 
-// placer says where on /flows a bead of one rig stands. The page and the
+// placer says where on /flows a bead of one depot stands. The page and the
 // stream both ask it, so a card the stream moves lands where a reload
 // would show it.
 type placer struct {
-	rig   string
-	flows []store.RigFlow
+	depot string
+	flows []store.DepotFlow
 }
 
 // section is the id of the element that holds b's card: the stage of the
-// flow that governs b, or the rig's Elsewhere. A bead that pins its flow
-// follows that one, not the rig's (as `yardr flow show` counts).
+// flow that governs b, or the depot's Elsewhere. A bead that pins its flow
+// follows that one, not the depot's (as `yardr flow show` counts).
 func (p placer) section(b *store.Bead) string {
 	if store.PinnedFlow(b) == "" {
 		own, typed := -1, -1
@@ -187,10 +187,10 @@ func (p placer) section(b *store.Bead) string {
 			typed = own
 		}
 		if typed >= 0 && slices.Contains(p.flows[typed].Flow.Stages, b.Stage) {
-			return domID("at", p.rig, p.flows[typed].Type, b.Stage)
+			return domID("at", p.depot, p.flows[typed].Type, b.Stage)
 		}
 	}
-	return domID("off", p.rig)
+	return domID("off", p.depot)
 }
 
 // flows reads the yard for /flows.
@@ -201,7 +201,7 @@ func (s *Server) flows(ctx context.Context) (*Flows, error) {
 	if err != nil {
 		return nil, err
 	}
-	rigs, err := s.st.Rigs(ctx)
+	depots, err := s.st.Depots(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -219,16 +219,16 @@ func (s *Server) flows(ctx context.Context) (*Flows, error) {
 		return nil, err
 	}
 	manual := manualClaims(sessions)
-	out := &Flows{Rigs: []FlowsRig{}, Head: head}
-	for _, rig := range rigs {
-		beads, err := s.st.ListBeads(ctx, store.BeadFilter{Rig: rig.Name})
+	out := &Flows{Depots: []FlowsDepot{}, Head: head}
+	for _, depot := range depots {
+		beads, err := s.st.ListBeads(ctx, store.BeadFilter{Depot: depot.Name})
 		if err != nil {
 			return nil, err
 		}
-		fr := FlowsRig{Name: rig.Name, Kind: rig.Kind, Flows: []FlowColumn{}, Elsewhere: []Card{}}
-		// As on Home: a rig whose repository cannot be read still shows
-		// its beads, and the other rigs their flows.
-		rfs, err := s.st.RigFlows(ctx, rig.Name)
+		fr := FlowsDepot{Name: depot.Name, Kind: depot.Kind, Flows: []FlowColumn{}, Elsewhere: []Card{}}
+		// As on Home: a depot whose repository cannot be read still shows
+		// its beads, and the other depots their flows.
+		rfs, err := s.st.DepotFlows(ctx, depot.Name)
 		if err != nil {
 			fr.Error = err.Error()
 		}
@@ -242,13 +242,13 @@ func (s *Server) flows(ctx context.Context) (*Flows, error) {
 			}
 			for _, st := range rf.Flow.Stages {
 				fs := FlowStage{Stage: st, StageFile: files[st], Next: []string{}, Terminal: rf.Flow.IsTerminal(st),
-					Beads: []Card{}, Section: domID("at", rig.Name, rf.Type, st)}
+					Beads: []Card{}, Section: domID("at", depot.Name, rf.Type, st)}
 				if next := rf.Flow.Transitions[st]; len(next) > 0 {
 					fs.Next = next
 				}
-				// Routes may match on type; the rig's own flow is shown
+				// Routes may match on type; the depot's own flow is shown
 				// for the default type, as `yardr flow show` does.
-				probe := store.Bead{Stage: st, Type: cmp.Or(rf.Type, "task"), Rig: &rig.Name}
+				probe := store.Bead{Stage: st, Type: cmp.Or(rf.Type, "task"), Depot: &depot.Name}
 				if r := store.MatchRoute(routes, probe); r != nil {
 					fs.Group = r.Group
 					if i := slices.IndexFunc(groups, func(g store.Group) bool { return g.Name == r.Group }); i >= 0 && groups[i].Runner == "manual" {
@@ -265,7 +265,7 @@ func (s *Server) flows(ctx context.Context) (*Flows, error) {
 				sections[fr.Flows[i].Stages[j].Section] = &fr.Flows[i].Stages[j].Beads
 			}
 		}
-		p := placer{rig: rig.Name, flows: rfs}
+		p := placer{depot: depot.Name, flows: rfs}
 		for _, b := range beads {
 			c := card(&b, manual)
 			dst, ok := sections[p.section(&b)]
@@ -278,7 +278,7 @@ func (s *Server) flows(ctx context.Context) (*Flows, error) {
 			newestFirst(*cards)
 		}
 		newestFirst(fr.Elsewhere)
-		out.Rigs = append(out.Rigs, fr)
+		out.Depots = append(out.Depots, fr)
 	}
 	return out, nil
 }
@@ -326,11 +326,11 @@ func (s *Server) place(ctx context.Context, e store.Event) (p placement, ok bool
 		}
 	}
 	p.Card = card(b, manual)
-	if b.Status == "open" && b.Rig != nil && !store.NotWork[b.Type] {
-		// A rig whose flows cannot be read has every bead in Elsewhere.
-		rfs, _ := s.st.RigFlows(ctx, *b.Rig)
-		p.Section = placer{rig: *b.Rig, flows: rfs}.section(b)
-		p.Card.Live, p.Card.Placed = true, p.Section != domID("off", *b.Rig)
+	if b.Status == "open" && b.Depot != nil && !store.NotWork[b.Type] {
+		// A depot whose flows cannot be read has every bead in Elsewhere.
+		rfs, _ := s.st.DepotFlows(ctx, *b.Depot)
+		p.Section = placer{depot: *b.Depot, flows: rfs}.section(b)
+		p.Card.Live, p.Card.Placed = true, p.Section != domID("off", *b.Depot)
 		p.Card.Arrived = slices.Contains(arrives, e.Kind)
 	}
 	return p, true
@@ -361,22 +361,22 @@ func (s *Server) placed(b *bytes.Buffer, seq uint64, p placement) {
 
 // Beads is the /beads page: the open beads, the newest change first.
 type Beads struct {
-	// Rig and Stage are the filters of the query string, "" for none.
-	Rig   string `json:"rig,omitempty"`
+	// Depot and Stage are the filters of the query string, "" for none.
+	Depot string `json:"depot,omitempty"`
 	Stage string `json:"stage,omitempty"`
 	Beads []Card `json:"beads"`
-	// Rigs and Stages are what the filters can be set to: the yard's rigs,
-	// and the stages that hold an open bead (of Rig, when it is set).
-	Rigs   []string `json:"rigs"`
+	// Depots and Stages are what the filters can be set to: the yard's depots,
+	// and the stages that hold an open bead (of Depot, when it is set).
+	Depots []string `json:"depots"`
 	Stages []string `json:"stages"`
 	Head   uint64   `json:"head"`
 }
 
-// Link is the page with its filters set to rig and stage.
-func (b Beads) Link(rig, stage string) string {
+// Link is the page with its filters set to depot and stage.
+func (b Beads) Link(depot, stage string) string {
 	q := url.Values{}
-	if rig != "" {
-		q.Set("rig", rig)
+	if depot != "" {
+		q.Set("depot", depot)
 	}
 	if stage != "" {
 		q.Set("stage", stage)
@@ -389,25 +389,27 @@ func (b Beads) Link(rig, stage string) string {
 
 // Self is the page as it was asked for, which it asks for again when
 // something happens in the yard.
-func (b Beads) Self() string { return b.Link(b.Rig, b.Stage) }
+func (b Beads) Self() string { return b.Link(b.Depot, b.Stage) }
 
 func (s *Server) handleBeads(w http.ResponseWriter, r *http.Request) {
 	ctx, q := r.Context(), r.URL.Query()
-	d := Beads{Rig: q.Get("rig"), Stage: q.Get("stage"), Beads: []Card{}, Rigs: []string{}, Stages: []string{}}
+	// rig is what the filter was called until this release: a bookmark, or
+	// a page an older build's web view left open, still asks by it.
+	d := Beads{Depot: cmp.Or(q.Get("depot"), q.Get("rig")), Stage: q.Get("stage"), Beads: []Card{}, Depots: []string{}, Stages: []string{}}
 	var err error
 	if d.Head, err = s.st.Head(ctx); err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	rigs, err := s.st.Rigs(ctx)
+	depots, err := s.st.Depots(ctx)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	for _, rig := range rigs {
-		d.Rigs = append(d.Rigs, rig.Name)
+	for _, depot := range depots {
+		d.Depots = append(d.Depots, depot.Name)
 	}
-	beads, err := s.st.ListBeads(ctx, store.BeadFilter{Rig: d.Rig})
+	beads, err := s.st.ListBeads(ctx, store.BeadFilter{Depot: d.Depot})
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -441,7 +443,7 @@ type BeadPage struct {
 	// bead may then move to any stage.
 	Flow *BeadFlow `json:"flow,omitempty"`
 	// Base is what the bead's branch starts from and lands on: its train's
-	// branch, else the rig's base.
+	// branch, else the depot's base.
 	Base string `json:"base,omitempty"`
 	// Train is the train the bead is a child of; Children are a train's own.
 	Train    *Card  `json:"train,omitempty"`

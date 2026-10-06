@@ -21,7 +21,7 @@ merged terminal
 `
 
 func TestParseFlowOutcomes(t *testing.T) {
-	s, ctx := flowRig(t)
+	s, ctx := flowDepot(t)
 	saved := putNamed(t, s, "yard", outcomeFlow)
 	want := []store.Outcome{{Name: "done", To: "approved"}, {Name: "changes", To: "new"}, {Name: "question", To: "decide"}}
 	if got := saved.Outcomes["review"]; !slices.Equal(got, want) {
@@ -71,7 +71,7 @@ func TestParseFlowOutcomes(t *testing.T) {
 // Outcomes are unique per stage, named sensibly, and never leave a
 // terminal stage; flow set refuses the rest.
 func TestPutFlowValidatesOutcomes(t *testing.T) {
-	s, ctx := flowRig(t)
+	s, ctx := flowDepot(t)
 	for name, text := range map[string]string{
 		"duplicate on a line":   "a -> b on done | c on done\n",
 		"duplicate over lines":  "a -> b on done\na -> c on done\n",
@@ -120,9 +120,9 @@ func TestOutcomesFrom(t *testing.T) {
 }
 
 func TestDone(t *testing.T) {
-	s, ctx := flowRig(t)
+	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", outcomeFlow)
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard", Stage: "new"}, "me")
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,8 +206,8 @@ func TestDone(t *testing.T) {
 
 // A bead no flow governs has no outcomes; the error says to advance.
 func TestDoneWithoutFlow(t *testing.T) {
-	s, ctx := flowRig(t)
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "free", Rig: "yard"}, "me")
+	s, ctx := flowDepot(t)
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "free", Depot: "yard"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,9 +222,9 @@ func TestDoneWithoutFlow(t *testing.T) {
 
 // Done into a terminal stage closes the bead, like advance.
 func TestDoneIntoTerminalCloses(t *testing.T) {
-	s, ctx := flowRig(t)
+	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", "new -> merged on done | new on retry\nmerged terminal\n")
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard"}, "me")
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -29,7 +29,7 @@ func checks(required []string, cks ...dispatch.CICheck) func(dispatch.CIQuery) (
 }
 
 // reviewed stores sha as the commit pr-train pushed for the train.
-func (r *ghRig) reviewed(t *testing.T, id, sha string) {
+func (r *ghDepot) reviewed(t *testing.T, id, sha string) {
 	t.Helper()
 	_, err := r.api.UpdateBead(context.Background(), id, store.BeadPatch{Metadata: map[string]any{"pr_reviewed_sha": sha}},
 		store.Expect{}, "me")
@@ -38,7 +38,7 @@ func (r *ghRig) reviewed(t *testing.T, id, sha string) {
 
 // enterInPR moves a train in review through approved to in-pr as pr-train
 // does, with sha as the reviewed commit.
-func (r *ghRig) enterInPR(t *testing.T, id, sha string) {
+func (r *ghDepot) enterInPR(t *testing.T, id, sha string) {
 	t.Helper()
 	ctx := context.Background()
 	_, err := r.api.AdvanceNote(ctx, id, "approved", "", store.Expect{Stage: "review"}, "me")
@@ -54,7 +54,7 @@ func (r *ghRig) enterInPR(t *testing.T, id, sha string) {
 // round-three finding (yardr-7daf): green was taken from the event, so a
 // train whose CI was done before it reached in-pr waited for a human.
 func TestCIFinishedDuringReviewIsSeenOnEnteringInPR(t *testing.T) {
-	r := newGHRig(t)
+	r := newGHDepot(t)
 	r.train(t, "yard-a", "review")
 	r.ci = checks([]string{"build"}, ck("build", "completed", "success"))
 	r.deliver(t, "pull_request", "pull_request_synchronize", "yard-a", "")
@@ -96,7 +96,7 @@ func TestCIFinishedDuringReviewIsSeenOnEnteringInPR(t *testing.T) {
 // lands when the last required check is green. An event is only a reason
 // to read the state again; without one nothing is read.
 func TestCIOneGreenAmongRequiredIsNotGreen(t *testing.T) {
-	r := newGHRig(t)
+	r := newGHDepot(t)
 	r.train(t, "yard-a", "in-pr")
 	r.reviewed(t, "yard-a", fixtureSHA)
 	required := []string{"build", "test", "lint"}
@@ -141,7 +141,7 @@ func TestCIOneGreenAmongRequiredIsNotGreen(t *testing.T) {
 // child, one per commit, also while other required checks still run. A
 // cancelled one is not red: the train waits for it to run again.
 func TestCIRedRequiredCheckFilesAFix(t *testing.T) {
-	r := newGHRig(t)
+	r := newGHDepot(t)
 	ctx := context.Background()
 	r.train(t, "yard-a", "in-pr")
 	r.reviewed(t, "yard-a", fixtureSHA)
@@ -165,7 +165,7 @@ func TestCIRedRequiredCheckFilesAFix(t *testing.T) {
 	}
 	fix := r.bead(t, "yard-a-ci-4f2c9e1")
 	if fix.Title != "Fix CI on train yard-a: build" || fix.Type != "bug" || fix.Stage != "backlog" ||
-		fix.Rig == nil || *fix.Rig != "yard" ||
+		fix.Depot == nil || *fix.Depot != "yard" ||
 		!strings.Contains(fix.Body, "https://github.com/acme/yardr/actions/runs/5/job/build") || !strings.Contains(fix.Body, "failure") {
 		t.Fatalf("fix child %+v", fix)
 	}
@@ -191,7 +191,7 @@ func TestCIRedRequiredCheckFilesAFix(t *testing.T) {
 // workflow that has not reported yet cannot be told from one that does
 // not exist. A failed check still sends it back.
 func TestCIWithoutRequiredChecksIsNeverGreen(t *testing.T) {
-	r := newGHRig(t)
+	r := newGHDepot(t)
 	r.train(t, "yard-a", "in-pr")
 	r.reviewed(t, "yard-a", fixtureSHA)
 	r.ci = checks(nil, ck("build", "completed", "success"))
@@ -213,7 +213,7 @@ func TestCIWithoutRequiredChecksIsNeverGreen(t *testing.T) {
 // pushed since is not what was reviewed, and a train with no reviewed
 // commit, or whose PR is closed, is not judged.
 func TestCIIsReadForTheReviewedCommit(t *testing.T) {
-	r := newGHRig(t)
+	r := newGHDepot(t)
 	moved := "cccccccccccccccccccccccccccccccccccccccc"
 	green := checks([]string{"build"}, ck("build", "completed", "success"))
 	r.ci = func(q dispatch.CIQuery) (dispatch.CIChecks, error) {
@@ -245,7 +245,7 @@ func TestCIIsReadForTheReviewedCommit(t *testing.T) {
 // A held train is a human's: its CI is not read while it is held, and is
 // read when it is un-held, with no event needed.
 func TestCISkipsHeldTrains(t *testing.T) {
-	r := newGHRig(t)
+	r := newGHDepot(t)
 	ctx := context.Background()
 	r.train(t, "yard-a", "in-pr")
 	r.reviewed(t, "yard-a", fixtureSHA)
@@ -269,7 +269,7 @@ func TestCISkipsHeldTrains(t *testing.T) {
 // is logged, and the read is tried again after a wait that doubles, with
 // no event needed.
 func TestCIReadFailureIsRetried(t *testing.T) {
-	r := newGHRig(t)
+	r := newGHDepot(t)
 	now := time.Now()
 	dispatch.SetClock(r.d, func() time.Time { return now })
 	r.train(t, "yard-a", "in-pr")

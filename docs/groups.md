@@ -136,8 +136,8 @@ waits for an answer, its harness says something no pattern knows) without
 | runner | starts | config |
 |---|---|---|
 | `manual` | nothing; the bead waits on the group | — |
-| `exec` | `sh -c cmd` in the rig, with `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_ACTOR` (the group); for a bead with a rig also `YARDR_RIG`, `YARDR_RIG_PATH`, `YARDR_BASE` (what the bead lands on: the rig's base, or its train's branch, see [pipeline.md](pipeline.md#trains); for a bead from a linked yard that named where its work starts, that commit, see [peers.md](peers.md#code-that-comes-back)), `YARDR_BRANCH` (`yard/<bead>`), `YARDR_WORKTREE` (where herdr groups check that branch out); `YARDR_TYPE` (the bead's type) and `YARDR_TRAIN` (the train it is a child of, empty for none), by which merge-local knows a car of a train ([pipeline.md](pipeline.md#cars)); and `YARDR_BIN`, `YARDR_HOME` for the script's own `yardr` commands; `YARDR_RIG_KIND` is `git`, or `dir` for a dir rig, whose beads get no base, branch or worktree. A refinery is one ([pipeline.md](pipeline.md#4-approved-the-refinery-lands-it-on-main)), and so is an integrator such as `yardr-integrators`, which integrates a train's branch once its children have landed ([pipeline.md](pipeline.md#the-trains-own-flow)) | `cmd`, `dir`, `log`, `worktrees` |
-| `herdr` | a herdr worktree workspace on branch `yard/<bead>` (from the bead's base) at `~/.yardr/worktrees/<rig>/<bead>` (reopened for later stages, one tab per stage), an agent in it, in a tab of its own with `YARDR_ACTOR` (the agent), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_BASE` (what it branches from: the rig's base, or its train's branch), `YARDR_HOME` and `YARDR_BIN` in its environment, prompted with a brief in the worktree's git dir (`git rev-parse --git-path yardr`); a dir rig's bead works in the directory itself (see [Dir rigs](#dir-rigs)) | `kind`, `prompt`, `args`, `model`, `keep`, `worktrees`, `idle`, `max_age`, `grace`, `stall`, `label`, `env_file`, `trust` |
+| `exec` | `sh -c cmd` in the depot, with `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_ACTOR` (the group); for a bead with a depot also `YARDR_DEPOT`, `YARDR_DEPOT_PATH`, `YARDR_BASE` (what the bead lands on: the depot's base, or its train's branch, see [pipeline.md](pipeline.md#trains); for a bead from a linked yard that named where its work starts, that commit, see [peers.md](peers.md#code-that-comes-back)), `YARDR_BRANCH` (`yard/<bead>`), `YARDR_WORKTREE` (where herdr groups check that branch out); `YARDR_TYPE` (the bead's type) and `YARDR_TRAIN` (the train it is a child of, empty for none), by which merge-local knows a car of a train ([pipeline.md](pipeline.md#cars)); and `YARDR_BIN`, `YARDR_HOME` for the script's own `yardr` commands; `YARDR_DEPOT_KIND` is `git`, or `dir` for a dir depot, whose beads get no base, branch or worktree. A refinery is one ([pipeline.md](pipeline.md#4-approved-the-refinery-lands-it-on-main)), and so is an integrator such as `yardr-integrators`, which integrates a train's branch once its children have landed ([pipeline.md](pipeline.md#the-trains-own-flow)) | `cmd`, `dir`, `log`, `worktrees` |
+| `herdr` | a herdr worktree workspace on branch `yard/<bead>` (from the bead's base) at `~/.yardr/worktrees/<depot>/<bead>` (reopened for later stages, one tab per stage), an agent in it, in a tab of its own with `YARDR_ACTOR` (the agent), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_BASE` (what it branches from: the depot's base, or its train's branch), `YARDR_HOME` and `YARDR_BIN` in its environment, prompted with a brief in the worktree's git dir (`git rev-parse --git-path yardr`); a dir depot's bead works in the directory itself (see [Dir depots](#dir-depots)) | `kind`, `prompt`, `args`, `model`, `keep`, `worktrees`, `idle`, `max_age`, `grace`, `stall`, `label`, `env_file`, `trust` |
 | `peer` | nothing here: the bead is sent to a linked yard, which works it in a flow of its own and returns how it ended ([Peer groups](#peer-groups)) | `peer`, `tries`, `remote`, `max_age` |
 
 ### Peer groups
@@ -150,7 +150,7 @@ them it is a matter of the route, not of the flow file:
 ```sh
 yardr peer allow north --send bead
 yardr group add at-north --runner peer --set peer=north --limit 3
-yardr route add --stage build --group at-north --rig web
+yardr route add --stage build --group at-north --depot web
 ```
 
 ```text
@@ -166,7 +166,7 @@ merged terminal
 | `peer` | the linked yard, by this yard's name for it (`yardr peer list`). Required; refused when there is no such peer or its link does not carry `bead` out. `yardr peer rename` changes it with the link |
 | `--limit` | how many beads may be at that yard at once |
 | `tries` | how often the bead is posted before its stage ends as `undelivered`; 5, about a quarter of an hour. Also how often a branch that came back is fetched before the bead is held |
-| `remote` | the remote of the bead's rig that a branch the yard returns is fetched from, by its name (`git remote`); `origin` ([peers.md](peers.md#code-that-comes-back)) |
+| `remote` | the remote of the bead's depot that a branch the yard returns is fetched from, by its name (`git remote`); `origin` ([peers.md](peers.md#code-that-comes-back)) |
 | `max_age` | how long a bead is away before `session_aged` is raised, once; 24h. Nothing stops the session at that age or after it: `grace` and the cap at twice `max_age` do not apply to a bead at another yard |
 
 A peer group has no members and no prompt. Its session (`yardr session
@@ -181,25 +181,25 @@ show` says `at north: sent 10-06 14:02, north last heard 10-06 14:10`, and
 (`yardr peer key`) can send nothing: the group is reported as blocked, as a
 group whose `env_file` is refused is, and its beads wait.
 
-### Dir rigs
+### Dir depots
 
-A dir rig ([configuration.md](configuration.md#rig-kinds-git-and-dir)) is a plain directory,
+A dir depot ([configuration.md](configuration.md#depot-kinds-git-and-dir)) is a plain directory,
 with no git, base or branches, so its beads are worked in the directory
 itself. A herdr group opens a workspace there for the bead (`herdr
 workspace create --cwd <dir>`, labelled as any bead's; later stages reuse
-it while it is open), a tab per stage with `YARDR_RIG` and `YARDR_RIG_PATH`
+it while it is open), a tab per stage with `YARDR_DEPOT` and `YARDR_DEPOT_PATH`
 in place of `YARDR_BASE`, and writes the brief to `<dir>/.yardr/briefs/`.
 The brief says to work in the directory directly, commit nothing, touch
 only what the bead names and say in the note what was produced, by path.
 Once the bead closes its briefs are removed and its workspace closed; the
 directory is left as it is, so there is nothing to `keep`. An exec group
-runs in the directory with `YARDR_RIG_KIND=dir` and no `YARDR_BASE`,
+runs in the directory with `YARDR_DEPOT_KIND=dir` and no `YARDR_BASE`,
 `YARDR_BRANCH` or `YARDR_WORKTREE` (not even ones the daemon inherited).
 Trains there only group: no train branch is made and children work in the
 same directory. The integrator, refinery and pull request scripts in
-`contrib/refinery` work on branches, so a dir rig's flow must not route to
-them (routes are per rig): its train flow sends `open` to reviewers instead,
-and each script refuses a dir rig's bead with exit 2 as a guard. Several
+`contrib/refinery` work on branches, so a dir depot's flow must not route to
+them (routes are per depot): its train flow sends `open` to reviewers instead,
+and each script refuses a dir depot's bead with exit 2 as a guard. Several
 beads may work the same directory at once; the group's `limit` is the only
 control, so set it to 1 where their files could collide.
 
@@ -211,7 +211,7 @@ A runner that cannot start anything (herdr missing or down) is an outage, not
 a failure of the bead: the group backs off and logs `runtime_down` once.
 Groups can also limit how long a session sits idle or runs (`idle`,
 `max_age`, `grace`; [configuration.md](configuration.md#session-limits-and-outages)).
-A session whose bead has a gate running (`yardr rig check` in its worktree)
+A session whose bead has a gate running (`yardr depot check` in its worktree)
 is not idle, however long the gate takes: no `session_idle` is raised for it
 until the gate has ended and `idle` has passed again, and `yardr session
 list` says `gating 6m (light)` in its `GATE` column meanwhile.
@@ -223,11 +223,11 @@ whose harness stopped on an error is reported sooner, as
 ### The prompt
 
 A herdr group's `prompt` is the role its agents start from, at the head of
-their brief. `--set prompt=roles/builder.md` reads the rig's own
-`.yardr/roles/builder.md` as it is on the rig's base branch (a bead cannot
+their brief. `--set prompt=roles/builder.md` reads the depot's own
+`.yardr/roles/builder.md` as it is on the depot's base branch (a bead cannot
 change its own reviewer's prompt), else the generic
 `~/.yardr/roles/builder.md` that `yardr init` installed; an absolute path is
-read as is. The order and the older rig-root `roles/` are in
+read as is. The order and the older depot-root `roles/` are in
 [configuration.md](configuration.md#role-prompts).
 
 ### Role file or stage file
@@ -305,7 +305,7 @@ against that:
   crew member) acts as itself. A pane the store knows still wins: a call from
   another session's own pane is refused, wherever it stands.
 
-A dir rig's beads share one directory, which names no session: there only
+A dir depot's beads share one directory, which names no session: there only
 `--no-daemon` holds. Sessions started before this (still on the shared
 server) keep the wrong environment until they end; spell the values out
 for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`.
@@ -317,10 +317,10 @@ for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`
   setting that skips the question in an interactive session. yardr answers it:
   when the agent stops at the dialog, yardr selects "Yes, I trust this folder"
   in its pane and sends the first prompt as soon as the agent is ready. Making
-  a folder a rig (or a crew member's directory) is what says you trust it. The
+  a folder a depot (or a crew member's directory) is what says you trust it. The
   session's `started` event carries `trust_accepted: true` when this
   happened. Claude Code records the answer against the repository, so it
-  comes up once per rig, not per worktree. Set `--set trust=false` on a group
+  comes up once per depot, not per worktree. Set `--set trust=false` on a group
   (or crew member) to answer it yourself: the session then waits as
   `session_blocked` and gets its first prompt once you have. yardr answers
   only this dialog, and only when its cursor is seen on the accepting answer;
@@ -376,15 +376,15 @@ for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`
   is kept (a `workspace_kept` event says why) and `yard/<bead>` branches are
   never deleted. Set `--set cleanup=false` on a group to keep its worktrees.
   Reopening a bead checks its branch out again.
-- **Labels.** herdr nests each workspace under its rig's node, so labels
-  leave the rig out: a bead's workspace is `<group> [<train>] <bead>` (the
+- **Labels.** herdr nests each workspace under its depot's node, so labels
+  leave the depot out: a bead's workspace is `<group> [<train>] <bead>` (the
   train only for a child of one) and its stage's tab `<stage> [<train>]
   <bead>`, with `yardr-` trimmed from `yardr-sv6b`: `builders [sv6b] p4cv`
   and `new [sv6b] p4cv`, or `builders cbdc` and `new cbdc`. An id that does
-  not start with `<rig>-` stays whole, and ids everywhere else in yardr stay
+  not start with `<depot>-` stays whole, and ids everywhere else in yardr stay
   full. The group appears as its `label` config when set (`--set
   label=codex` on `yardr-reviewers` gives `codex [sv6b] p4cv`), else as
-  its name without the `<rig>-` prefix. Crew members' workspaces are labelled
+  its name without the `<depot>-` prefix. Crew members' workspaces are labelled
   with the crew member's name.
 - The daemon subscribes to herdr's event stream, so an agent that exits is
   noticed within a second; the reconcile timer remains the fallback.

@@ -30,13 +30,13 @@ func must(t *testing.T, err error) {
 	}
 }
 
-// landing gives the yard a rig with a flow, a crew member with a journal, and
+// landing gives the yard a depot with a flow, a crew member with a journal, and
 // one bead that goes the whole way: created, held with a reason, unheld,
 // moved with an outcome, landed with a commit. It returns the bead.
 func landing(t *testing.T, st store.API) *store.Bead {
 	t.Helper()
 	ctx := context.Background()
-	must(t, st.PutRig(ctx, store.Rig{Name: "line", Base: "origin/main"}, "me"))
+	must(t, st.PutDepot(ctx, store.Depot{Name: "line", Base: "origin/main"}, "me"))
 	fl, err := store.ParseFlow("new -> review on done\nreview -> merged\nmerged terminal\n")
 	must(t, err)
 	fl.Name = "code"
@@ -45,7 +45,7 @@ func landing(t *testing.T, st store.API) *store.Bead {
 	must(t, st.SetFlowPointer(ctx, "line", "", "code", "me"))
 	_, err = st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me")
 	must(t, err)
-	b, err := st.CreateBead(ctx, store.NewBead{Title: "a door", Stage: "new", Rig: "line"}, "me")
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "a door", Stage: "new", Depot: "line"}, "me")
 	must(t, err)
 	must(t, st.AddNote(ctx, b.ID, "someone else's remark", "passer"))
 	must(t, st.Journal(ctx, "yardmaster", store.NoteJournal, "dear diary", "yardmaster"))

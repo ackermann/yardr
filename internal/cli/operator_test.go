@@ -25,10 +25,10 @@ func styledYard(t *testing.T, args ...string) (*app, store.API, string) {
 	if out, err := run(t, a.rootCmd(), append([]string{"init", "--harness", "claude", "--operator", "Jo"}, args...)...); err != nil {
 		t.Fatalf("init %v: %v\n%s", args, err, out)
 	}
-	if err := st.PutRig(ctx, store.Rig{Name: "yard"}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "yard"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	b, err := st.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard"}, "me")
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}

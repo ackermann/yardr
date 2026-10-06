@@ -55,7 +55,7 @@ func TestMain(m *testing.M) {
 	for _, name := range []string{"SESSION", "BEAD", "CREW", "ACTOR"} {
 		config.Unsetenv(name)
 	}
-	// Nor does a rig check here take one of the machine's gate slots, which
+	// Nor does a depot check here take one of the machine's gate slots, which
 	// are real: a test of the slots sets its own limit and directory.
 	os.Setenv("YARDR_GATE_SLOTS", "0")
 	// No test starts a real daemon or talks to a real herdr: the test

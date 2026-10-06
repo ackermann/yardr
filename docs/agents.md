@@ -16,7 +16,7 @@ as it stands; follow its order, not a list from the beginning. See
 
 ## Ask the person
 
-- Which repository, rig name, and base branch to use. If there is no rig yet,
+- Which repository, depot name, and base branch to use. If there is no depot yet,
   stop at “name the repository.”
 - Anything that grants an agent permission: `yardr init`'s harness defaults,
   group or crew member flags, `YARDR_PUSH`, credential files.

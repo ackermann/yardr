@@ -4,14 +4,10 @@ import (
 	"cmp"
 	"encoding/json"
 	"maps"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 
 	bolt "go.etcd.io/bbolt"
-
-	"yardr.dev/yardr/internal/config"
 )
 
 // Until schema 11 the crew were the residents (migrateCrew). The old word
@@ -26,7 +22,7 @@ const (
 	// CrewDir is the directory of a yard's home where the operator keeps
 	// what a crew member runs with (an env_file, a key): a convention of
 	// the docs, which yardr makes nowhere, and <home>/residents until
-	// schema 11 (moveCrewDir).
+	// schema 11 (moveDir).
 	CrewDir = "crew"
 )
 
@@ -42,17 +38,20 @@ var oldCrewKinds = map[string]string{
 	"resident_blocked": "crew_blocked",
 }
 
+// oldKinds are the kinds earlier releases logged, each with the kind new
+// events carry, by the rename that replaced them.
+var oldKinds = []map[string]string{oldDepotKinds, oldCrewKinds, OldTrainKinds}
+
 // EventKind is the event kind the word kind names: kind itself, or the one
 // that replaced it when kind is one an earlier release logged
-// (OldTrainKinds, and the kinds that said resident). What reads the log by
+// (OldTrainKinds, and the kinds that said resident or rig). What reads the log by
 // kind goes by it, so an event from before the upgrade is read as one from
 // after.
 func EventKind(kind string) string {
-	if k := oldCrewKinds[kind]; k != "" {
-		return k
-	}
-	if k := OldTrainKinds[kind]; k != "" {
-		return k
+	for _, olds := range oldKinds {
+		if k := olds[kind]; k != "" {
+			return k
+		}
 	}
 	return kind
 }
@@ -61,7 +60,7 @@ func EventKind(kind string) string {
 // as new events carry it, and what an earlier release called it.
 func kindSpellings(kind string) []string {
 	out := []string{kind}
-	for _, olds := range []map[string]string{oldCrewKinds, OldTrainKinds} {
+	for _, olds := range oldKinds {
 		for old, k := range olds {
 			if k == kind {
 				out = append(out, old)
@@ -163,54 +162,6 @@ func crewWhere(where map[string]string) (map[string]string, bool) {
 	return out, changed
 }
 
-// moveCrewDir renames <home>/residents, where the docs had the operator
-// keep a crew member's env_file, to <home>/crew, and leaves a link of the
-// old name to it: an env_file names other files by path (a GitHub App's
-// key), and so may a script of the operator's. It reports whether the
-// directory is at the new name, having moved it now or on an earlier open
-// that did not get to stamp the store. A home with both directories is the
-// operator's to sort out, and one that cannot be renamed is left: nothing
-// is moved, and the paths recorded stay as they are, which still work.
-func moveCrewDir(home string) bool {
-	old, dir := filepath.Join(home, oldCrewDir), filepath.Join(home, CrewDir)
-	st, err := os.Lstat(old)
-	if err != nil {
-		return false
-	}
-	if st.Mode()&os.ModeSymlink != 0 {
-		to, err := os.Readlink(old)
-		return err == nil && (to == CrewDir || to == dir)
-	}
-	if !st.IsDir() {
-		return false
-	}
-	if _, err := os.Lstat(dir); err == nil || os.Rename(old, dir) != nil {
-		return false
-	}
-	// Relative, so the home can be moved with it.
-	_ = os.Symlink(CrewDir, old)
-	return true
-}
-
-// crewPath is an env_file's path with <home>/residents replaced by
-// <home>/crew, spelled as it was (a leading ~ stays), and whether it was
-// under that directory.
-func crewPath(path, home string) (string, bool) {
-	full, err := config.ExpandPath(path)
-	if err != nil {
-		return path, false
-	}
-	rest, ok := strings.CutPrefix(full, filepath.Join(home, oldCrewDir)+string(filepath.Separator))
-	if !ok {
-		return path, false
-	}
-	rest = string(filepath.Separator) + rest
-	if head, ok := strings.CutSuffix(path, oldCrewDir+rest); ok {
-		return head + CrewDir + rest, true
-	}
-	return filepath.Join(home, CrewDir) + rest, true
-}
-
 // migrateCrewBucket moves the crew's records from the bucket they were in
 // until schema 11 to bCrew. It runs before every other migration, which
 // read the crew where it is now, and once: the old bucket goes.
@@ -240,7 +191,7 @@ func migrateCrewBucket(tx *bolt.Tx) error {
 // scope of their memories (resident:<name>), the kinds in a crew member's
 // --on and in the filters of subscriptions, the field that names the crew
 // member in a thread it takes part in and in the record of an imported
-// pack, and, when the directory was moved (moveCrewDir), an env_file under
+// pack, and, when the directory was moved (moveDir), an env_file under
 // <home>/residents. The records themselves are moved by migrateCrewBucket.
 // Events already logged are not rewritten.
 func migrateCrew(tx *bolt.Tx, from uint64, home string, moved bool) error {
@@ -291,7 +242,7 @@ func migrateCrew(tx *bolt.Tx, from uint64, home string, moved bool) error {
 			r.On, changed = on, true
 		}
 		if path, _ := r.Config["env_file"].(string); moved && path != "" {
-			if p, ok := crewPath(path, home); ok {
+			if p, ok := movedPath(path, home, oldCrewDir, CrewDir); ok {
 				r.Config, changed = maps.Clone(r.Config), true
 				r.Config["env_file"] = p
 			}

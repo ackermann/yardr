@@ -48,8 +48,8 @@ type ApplyOptions struct {
 
 // Result is what applying a plan did.
 type Result struct {
-	Pack string `json:"pack"`
-	Rig  string `json:"rig"`
+	Pack  string `json:"pack"`
+	Depot string `json:"depot"`
 	// Created, Changed and Unchanged count the plan's objects by what was
 	// done to them.
 	Created   int `json:"created"`
@@ -109,7 +109,7 @@ func (p *Plan) Missing(a Answers) []Question {
 // removal fails does not undo the import either: the rest is pruned, the
 // record is written with that object still in it, and the error names it.
 func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result, error) {
-	res := &Result{Pack: p.Pack, Rig: p.Rig, Pruned: []string{}, Left: []string{}, PruneErrors: []string{}, Restart: []string{}, Granted: []Grant{}, Mapped: []MapOp{}}
+	res := &Result{Pack: p.Pack, Depot: p.Depot, Pruned: []string{}, Left: []string{}, PruneErrors: []string{}, Restart: []string{}, Granted: []Grant{}, Mapped: []MapOp{}}
 	files, err := check(p, o)
 	if err != nil {
 		return nil, err
@@ -168,7 +168,7 @@ func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result,
 	if abs, err := filepath.Abs(dir); err == nil {
 		dir = abs
 	}
-	rec := store.PackImport{Pack: p.Pack, Rig: p.Rig, Source: dir, Flow: p.Flow, RigRoles: p.RigRoles, Groups: p.Groups, Crew: p.Crew}
+	rec := store.PackImport{Pack: p.Pack, Depot: p.Depot, Source: dir, Flow: p.Flow, DepotRoles: p.DepotRoles, Groups: p.Groups, Crew: p.Crew}
 	rec.Commit, rec.Dirty = Commit(dir)
 	rec.OpenThreads = p.openAnswers(o.OpenThreads)
 	for _, obj := range p.Objects {
@@ -331,13 +331,13 @@ func write(ctx context.Context, st store.API, p *Plan, obj *Object, o ApplyOptio
 		_, err := st.PutFlow(ctx, *obj.Flow, o.Actor)
 		return err
 	case "pointer":
-		return st.SetFlowPointer(ctx, obj.Pointer.Rig, obj.Pointer.Type, obj.Pointer.Flow, o.Actor)
+		return st.SetFlowPointer(ctx, obj.Pointer.Depot, obj.Pointer.Type, obj.Pointer.Flow, o.Actor)
 	case "route":
 		// The new route first: a stage is then never without one, and
 		// should a delete fail, the next import sees two routes for the
 		// stage and replaces both by one.
 		if obj.Route.Group != "" {
-			r := store.Route{Stage: obj.Route.Stage, Rig: &obj.Route.Rig, Group: obj.Route.Group, Priority: obj.Route.Priority}
+			r := store.Route{Stage: obj.Route.Stage, Depot: &obj.Route.Depot, Group: obj.Route.Group, Priority: obj.Route.Priority}
 			if obj.Route.Type != "" {
 				r.Type = &obj.Route.Type
 			}
@@ -489,7 +489,7 @@ func remove(ctx context.Context, st store.API, obj Object, actor string) (note s
 			}
 		}
 	case "pointer":
-		err = st.SetFlowPointer(ctx, obj.Pointer.Rig, obj.Pointer.Type, "", actor)
+		err = st.SetFlowPointer(ctx, obj.Pointer.Depot, obj.Pointer.Type, "", actor)
 	case "flow":
 		err = st.DeleteFlow(ctx, obj.Name, actor)
 	case "group":

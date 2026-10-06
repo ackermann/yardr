@@ -35,7 +35,7 @@ esac`)}
 	job := dispatch.Job{
 		Bead:    store.Bead{ID: "yard-13", Title: "Gate", Stage: "new"},
 		Group:   store.Group{Name: "builders"},
-		Rig:     &store.Rig{Name: "yard", Path: repo, Base: "main"},
+		Depot:   &store.Depot{Name: "yard", Path: repo, Base: "main"},
 		Session: store.Session{ID: "s1"},
 	}
 	if _, err := h.Start(ctx, job); err != nil {
@@ -58,7 +58,7 @@ esac`)}
 	if ws := SessionOf(ctx, sub); ws == nil || *ws != want {
 		t.Fatalf("after the next stage the worktree names %+v, want %+v", ws, want)
 	}
-	// The rig's own checkout and a plain directory are nobody's.
+	// The depot's own checkout and a plain directory are nobody's.
 	for _, dir := range []string{repo, t.TempDir()} {
 		if ws := SessionOf(ctx, dir); ws != nil {
 			t.Fatalf("%s names %+v", dir, ws)

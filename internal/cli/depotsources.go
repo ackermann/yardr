@@ -17,82 +17,82 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// Where an object of a rig comes from (rigSource.Source).
+// Where an object of a depot comes from (depotSource.Source).
 const (
-	sourceRig   = "rig"   // the rig's repository, or a dir rig's directory
+	sourceDepot = "depot" // the depot's repository, or a dir depot's directory
 	sourcePack  = "pack"  // a pack's flow in the store, or its installed copy under the home
-	sourceStore = "store" // a named flow in the store that no pack of the rig brought
+	sourceStore = "store" // a named flow in the store that no pack of the depot brought
 	sourceHome  = "home"  // a file under the yard's home
 	sourceFile  = "file"  // a file elsewhere, named by its absolute path
 	sourceNone  = "none"  // nothing: no flow governs, the stage has no file, the group no prompt
 )
 
-// rigSource is one flow, stage file or role of a rig and where it comes
+// depotSource is one flow, stage file or role of a depot and where it comes
 // from. Nothing here is decided by this view: the store's flow pointers and
 // each group's and crew member's prompt decide, and the view reads them the
 // way a brief does.
-type rigSource struct {
+type depotSource struct {
 	Kind string `json:"kind"` // flow, stage or role
-	// Name is the flow's place in the rig (default, or type/<type>), the
+	// Name is the flow's place in the depot (default, or type/<type>), the
 	// stage, or the group or crew member.
 	Name string `json:"name"`
 	// Flow is the governing flow, of a flow and of each of its stages; Type
-	// the bead type it governs, "" for the rig's own.
+	// the bead type it governs, "" for the depot's own.
 	Flow   string `json:"flow,omitempty"`
 	Type   string `json:"type,omitempty"`
 	Source string `json:"source"`
 	Pack   string `json:"pack,omitempty"`
-	// Path is the file: relative to the rig's root for a file of the rig,
+	// Path is the file: relative to the depot's root for a file of the depot,
 	// else absolute. A flow in the store has none.
 	Path string `json:"path,omitempty"`
-	// Commit is the base commit a file of the rig was read at.
+	// Commit is the base commit a file of the depot was read at.
 	Commit string `json:"commit,omitempty"`
-	// Shadows are the rig's files that nothing reads while the object comes
+	// Shadows are the depot's files that nothing reads while the object comes
 	// from where it does.
 	Shadows []string `json:"shadows,omitempty"`
-	// Available says what else the rig could take the object from.
+	// Available says what else the depot could take the object from.
 	Available []string `json:"available,omitempty"`
 	// Error says why the source could not be read: a prompt that names a
 	// file nobody has.
 	Error string `json:"error,omitempty"`
 }
 
-func (a *app) rigSourcesCmd() *cobra.Command {
+func (a *app) depotSourcesCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "sources <rig>",
-		Short: "Show where each flow, stage file and role of a rig comes from: its repository, a pack or the yard",
-		Long: `Show, one line per object, where each flow, stage file and role of a rig
-comes from, and which file of the rig's repository it shadows:
+		Use:   "sources <depot>",
+		Short: "Show where each flow, stage file and role of a depot comes from: its repository, a pack or the yard",
+		Long: `Show, one line per object, where each flow, stage file and role of a depot
+comes from, and which file of the depot's repository it shadows:
 
-  flow   the flows governing the rig's beads, the rig's own (default) first,
-         then one per type (type/<type>), as yardr flow show <rig> resolves them
+  flow   the flows governing the depot's beads, the depot's own (default) first,
+         then one per type (type/<type>), as yardr flow show <depot> resolves them
   stage  each non-terminal stage of those flows: its stage file
-  role   the prompt of each agent group a route of the rig leads to, and of
-         each crew member a pack imported into the rig names
+  role   the prompt of each agent group a route of the depot leads to, and of
+         each crew member a pack imported into the depot names
 
-The source is one of: rig (` + store.RepoFlowDir + `, .yardr/roles on the base branch, with
+The source is one of: depot (` + store.RepoFlowDir + `, .yardr/roles on the base branch, with
 the commit read), pack <name> (the pack's flow in the store, a stage file of
 that flow or the pack's installed role, under the yard's home), store (a
-named flow no pack of the rig brought), home (a file under the yard's home),
+named flow no pack of the depot brought), home (a file under the yard's home),
 file (any other path) and none.
 
-"shadows <file>" names a file of the rig's repository that nothing reads
+"shadows <file>" names a file of the depot's repository that nothing reads
 while the line is as it is: the flow file behind a store pointer, the stage
-file of a repository flow that does not govern, the rig's own role behind a
-group prompted from elsewhere. yardr rig check names the same files in notes.
+file of a repository flow that does not govern, the depot's own role behind a
+group prompted from elsewhere. yardr depot check names the same files in notes.
 
-This view changes nothing. yardr rig source switches one flow or role
-between the rig's and the pack's; yardr rig flow points the rig at any flow,
-and yardr pack apply --rig-roles or --pack-roles chooses every role at once.`,
-		Example: `  yardr rig sources yard
-  yardr rig sources yard --json`,
+This view changes nothing. yardr depot source switches one flow or role
+between the depot's and the pack's; yardr depot flow points the depot at any flow,
+and yardr pack apply --depot-roles or --pack-roles chooses every role at once.`,
+		Example: `  yardr depot sources yard
+  yardr depot sources yard --json`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
 			}
-			lines, err := rigSources(c.Context(), st, args[0], a.home())
+			lines, err := depotSources(c.Context(), st, args[0], a.home())
 			if err != nil {
 				return err
 			}
@@ -101,8 +101,8 @@ and yardr pack apply --rig-roles or --pack-roles chooses every role at once.`,
 	}
 }
 
-// sourceTable prints the lines as yardr rig sources lists them.
-func sourceTable(lines []rigSource) {
+// sourceTable prints the lines as yardr depot sources lists them.
+func sourceTable(lines []depotSource) {
 	qualify := false
 	for _, l := range lines {
 		qualify = qualify || (l.Kind == "stage" && l.Type != "")
@@ -124,7 +124,7 @@ func sourceTable(lines []rigSource) {
 }
 
 // where says the line's source the way the listing prints it.
-func (l rigSource) where() string {
+func (l depotSource) where() string {
 	at := tilde(l.Path)
 	if l.Commit != "" {
 		at += "@" + l.Commit[:min(len(l.Commit), 7)]
@@ -146,7 +146,7 @@ func (l rigSource) where() string {
 }
 
 // aside says what the line shadows and what else is available.
-func (l rigSource) aside() string {
+func (l depotSource) aside() string {
 	var out []string
 	if len(l.Shadows) > 0 {
 		out = append(out, "shadows "+strings.Join(l.Shadows, ", "))
@@ -165,10 +165,10 @@ func tilde(p string) string {
 	return p
 }
 
-// rigSources lists where each flow, stage file and role of rig comes from.
+// depotSources lists where each flow, stage file and role of depot comes from.
 // home is the yard's home.
-func rigSources(ctx context.Context, st store.API, rigName, home string) ([]rigSource, error) {
-	rig, err := st.GetRig(ctx, rigName)
+func depotSources(ctx context.Context, st store.API, depotName, home string) ([]depotSource, error) {
+	depot, err := st.GetDepot(ctx, depotName)
 	if err != nil {
 		return nil, err
 	}
@@ -178,11 +178,11 @@ func rigSources(ctx context.Context, st store.API, rigName, home string) ([]rigS
 	}
 	var packs []store.PackImport
 	for _, p := range all {
-		if p.Rig == rig.Name {
+		if p.Depot == depot.Name {
 			packs = append(packs, p)
 		}
 	}
-	b := &sourcer{ctx: ctx, st: st, rig: rig, home: home, packs: packs}
+	b := &sourcer{ctx: ctx, st: st, depot: depot, home: home, packs: packs}
 	for _, step := range []func() error{b.flows, b.groups, b.crew} {
 		if err := step(); err != nil {
 			return nil, err
@@ -194,16 +194,16 @@ func rigSources(ctx context.Context, st store.API, rigName, home string) ([]rigS
 type sourcer struct {
 	ctx   context.Context
 	st    store.API
-	rig   *store.Rig
+	depot *store.Depot
 	home  string
-	packs []store.PackImport // those imported into the rig
-	lines []rigSource
+	packs []store.PackImport // those imported into the depot
+	lines []depotSource
 	// staged are the groups the stages of the governing flows lead to, in
 	// the flows' order.
 	staged []string
 }
 
-// flowPack names the pack of the rig that brought the store flow name.
+// flowPack names the pack of the depot that brought the store flow name.
 func (b *sourcer) flowPack(name string) string {
 	for _, p := range b.packs {
 		if slices.ContainsFunc(p.Objects, func(o store.PackObject) bool { return o.Kind == "flow" && o.Name == name }) {
@@ -213,8 +213,8 @@ func (b *sourcer) flowPack(name string) string {
 	return ""
 }
 
-// packFlows says which flows the packs imported into the rig left in the
-// store for it to follow: what the rig could point at while its repository,
+// packFlows says which flows the packs imported into the depot left in the
+// store for it to follow: what the depot could point at while its repository,
 // or nothing, governs.
 func (b *sourcer) packFlows() []string {
 	var out []string
@@ -229,15 +229,15 @@ func (b *sourcer) packFlows() []string {
 	return out
 }
 
-// flows adds a line per flow governing the rig and per non-terminal stage of
+// flows adds a line per flow governing the depot and per non-terminal stage of
 // each. A flow the store points at stands in front of the repository's flow
 // files and of the stage files beside them.
 func (b *sourcer) flows() error {
-	governing, err := b.st.RigFlows(b.ctx, b.rig.Name)
+	governing, err := b.st.DepotFlows(b.ctx, b.depot.Name)
 	if err != nil {
 		return err
 	}
-	repo, err := b.st.RepoFlows(b.ctx, b.rig.Name)
+	repo, err := b.st.RepoFlows(b.ctx, b.depot.Name)
 	if err != nil {
 		return err
 	}
@@ -246,8 +246,8 @@ func (b *sourcer) flows() error {
 		return err
 	}
 	dispatch.SortRoutes(routes)
-	if !slices.ContainsFunc(governing, func(g store.RigFlow) bool { return g.Type == "" }) {
-		b.lines = append(b.lines, rigSource{Kind: "flow", Name: "default", Source: sourceNone, Available: b.packFlows()})
+	if !slices.ContainsFunc(governing, func(g store.DepotFlow) bool { return g.Type == "" }) {
+		b.lines = append(b.lines, depotSource{Kind: "flow", Name: "default", Source: sourceNone, Available: b.packFlows()})
 	}
 	// The types whose pointer in the store answers for their own file.
 	pointed := map[string]bool{}
@@ -260,17 +260,17 @@ func (b *sourcer) flows() error {
 		if g.Type != "" {
 			place = "type/" + g.Type
 		}
-		fl := rigSource{Kind: "flow", Name: place, Flow: f.Name, Type: g.Type}
+		fl := depotSource{Kind: "flow", Name: place, Flow: f.Name, Type: g.Type}
 		switch {
 		case !g.Source.InStore():
-			fl.Source, fl.Path, fl.Commit = sourceRig, g.Source.Path, g.Source.Commit
+			fl.Source, fl.Path, fl.Commit = sourceDepot, g.Source.Path, g.Source.Commit
 		case b.flowPack(f.Name) != "":
 			fl.Source, fl.Pack = sourcePack, b.flowPack(f.Name)
 		default:
 			fl.Source = sourceStore
 		}
 		// The repository flows this one stands in front of, by name: its
-		// own place, and under the rig's pointer every type's file too,
+		// own place, and under the depot's pointer every type's file too,
 		// since the store wins as a whole.
 		var behind []string
 		if g.Source.Kind == "store" {
@@ -297,16 +297,16 @@ func (b *sourcer) flows() error {
 			}
 		}
 		claimed := map[string]bool{}
-		var stages []rigSource
+		var stages []depotSource
 		for _, s := range f.Stages {
 			for _, r := range routes {
-				if r.Stage != s || (r.Rig != nil && *r.Rig != b.rig.Name) ||
+				if r.Stage != s || (r.Depot != nil && *r.Depot != b.depot.Name) ||
 					(g.Type != "" && r.Type != nil && *r.Type != g.Type) {
 					continue
 				}
-				// Labels and (for the rig's default flow) bead types are not
+				// Labels and (for the depot's default flow) bead types are not
 				// known here. Every route matching the known selectors may be
-				// the one dispatch uses for some bead of this rig.
+				// the one dispatch uses for some bead of this depot.
 				if !slices.Contains(b.staged, r.Group) {
 					b.staged = append(b.staged, r.Group)
 				}
@@ -314,7 +314,7 @@ func (b *sourcer) flows() error {
 			if f.IsTerminal(s) {
 				continue
 			}
-			sl := rigSource{Kind: "stage", Name: s, Flow: f.Name, Type: g.Type, Source: sourceNone}
+			sl := depotSource{Kind: "stage", Name: s, Flow: f.Name, Type: g.Type, Source: sourceNone}
 			if path := files[s]; path != "" {
 				sl.Source, sl.Pack, sl.Path = fl.Source, fl.Pack, path
 				switch {
@@ -349,10 +349,10 @@ func (b *sourcer) flows() error {
 		}
 		b.lines = append(append(b.lines, fl), stages...)
 	}
-	// A route of the rig no stage of its flows uses still leads to a group.
+	// A route of the depot no stage of its flows uses still leads to a group.
 	var rest []string
 	for _, r := range routes {
-		if (r.Rig == nil || *r.Rig == b.rig.Name) && !slices.Contains(b.staged, r.Group) && !slices.Contains(rest, r.Group) {
+		if (r.Depot == nil || *r.Depot == b.depot.Name) && !slices.Contains(b.staged, r.Group) && !slices.Contains(rest, r.Group) {
 			rest = append(rest, r.Group)
 		}
 	}
@@ -361,8 +361,8 @@ func (b *sourcer) flows() error {
 	return nil
 }
 
-// groups adds a line per agent group a route of the rig leads to: where a
-// brief for a bead of the rig reads the group's prompt. Script and people
+// groups adds a line per agent group a route of the depot leads to: where a
+// brief for a bead of the depot reads the group's prompt. Script and people
 // groups have no role.
 func (b *sourcer) groups() error {
 	groups, err := b.st.Groups(b.ctx)
@@ -378,9 +378,9 @@ func (b *sourcer) groups() error {
 		if prompt == "" && groups[i].Runner != "herdr" {
 			continue
 		}
-		l := rigSource{Kind: "role", Name: name, Source: sourceNone}
+		l := depotSource{Kind: "role", Name: name, Source: sourceNone}
 		if prompt != "" {
-			src, err := runner.LocatePrompt(prompt, b.rig, b.home)
+			src, err := runner.LocatePrompt(prompt, b.depot, b.home)
 			if err != nil {
 				l.Error = err.Error()
 			} else if err := b.role(&l, src); err != nil {
@@ -392,8 +392,8 @@ func (b *sourcer) groups() error {
 	return nil
 }
 
-// crew members adds a line per crew member a pack imported into the rig names. A
-// crew member is the yard's, not the rig's: its prompt is a path, read as it
+// crew members adds a line per crew member a pack imported into the depot names. A
+// crew member is the yard's, not the depot's: its prompt is a path, read as it
 // is, or from the crew member's directory when it is relative.
 func (b *sourcer) crew() error {
 	var names []string
@@ -412,7 +412,7 @@ func (b *sourcer) crew() error {
 		} else if err != nil {
 			return err
 		}
-		l := rigSource{Kind: "role", Name: name, Source: sourceNone}
+		l := depotSource{Kind: "role", Name: name, Source: sourceNone}
 		if path, _ := r.Config["prompt"].(string); path != "" {
 			if !filepath.IsAbs(path) && r.Dir != "" {
 				path = filepath.Join(r.Dir, path)
@@ -430,14 +430,14 @@ func (b *sourcer) crew() error {
 }
 
 // role fills in a role's line from where its prompt was found. A prompt
-// from outside the rig, named like a role (roles/<name>.md), shadows the
-// rig's own .yardr/roles/<name>.md; a rig's role that a pack of the rig has
+// from outside the depot, named like a role (roles/<name>.md), shadows the
+// depot's own .yardr/roles/<name>.md; a depot's role that a pack of the depot has
 // a copy of could be the pack's instead.
-func (b *sourcer) role(l *rigSource, src runner.PromptSource) error {
+func (b *sourcer) role(l *depotSource, src runner.PromptSource) error {
 	l.Path, l.Commit = src.Path, src.Commit
-	// The rig's own role name, which a pack of the rig may have a copy of.
-	rigRole := func(name string) error {
-		l.Source = sourceRig
+	// The depot's own role name, which a pack of the depot may have a copy of.
+	depotRole := func(name string) error {
+		l.Source = sourceDepot
 		for _, p := range b.packs {
 			if _, err := os.Stat(filepath.Join(b.home, "packs", p.Pack, "roles", name)); err == nil {
 				l.Available = append(l.Available, fmt.Sprintf("pack %s has a copy", p.Pack))
@@ -446,22 +446,22 @@ func (b *sourcer) role(l *rigSource, src runner.PromptSource) error {
 		return nil
 	}
 	switch src.Kind {
-	case runner.PromptRig:
+	case runner.PromptDepot:
 		if name, ok := strings.CutPrefix(filepath.ToSlash(src.Path), ".yardr/roles/"); ok {
-			return rigRole(name)
+			return depotRole(name)
 		}
-		l.Source = sourceRig
+		l.Source = sourceDepot
 		return nil
 	case runner.PromptHome:
-		// Found in the home because the rig has no role of the name.
+		// Found in the home because the depot has no role of the name.
 		l.Source = sourceHome
 		return nil
 	}
-	// A file of the rig's checkout named by its path, as a crew member reads
-	// the rig's role (yardr rig source): the rig's, at no commit.
-	if rel, err := filepath.Rel(b.rig.Path, src.Path); b.rig.Path != "" && err == nil && strings.HasPrefix(filepath.ToSlash(rel), ".yardr/roles/") {
+	// A file of the depot's checkout named by its path, as a crew member reads
+	// the depot's role (yardr depot source): the depot's, at no commit.
+	if rel, err := filepath.Rel(b.depot.Path, src.Path); b.depot.Path != "" && err == nil && strings.HasPrefix(filepath.ToSlash(rel), ".yardr/roles/") {
 		l.Path = rel
-		return rigRole(filepath.Base(rel))
+		return depotRole(filepath.Base(rel))
 	}
 	l.Source = sourceFile
 	if rel, err := filepath.Rel(b.home, src.Path); b.home != "" && err == nil && filepath.IsLocal(rel) {
@@ -474,9 +474,9 @@ func (b *sourcer) role(l *rigSource, src runner.PromptSource) error {
 	if filepath.Base(dir) != "roles" || filepath.Ext(name) != ".md" {
 		return nil
 	}
-	has, err := runner.RigRole(b.rig, name)
+	has, err := runner.DepotRole(b.depot, name)
 	if err != nil {
-		return fmt.Errorf("rig %s: looking for its own role %s: %w", b.rig.Name, name, err)
+		return fmt.Errorf("depot %s: looking for its own role %s: %w", b.depot.Name, name, err)
 	}
 	if has {
 		l.Shadows = append(l.Shadows, ".yardr/roles/"+name)
@@ -484,9 +484,9 @@ func (b *sourcer) role(l *rigSource, src runner.PromptSource) error {
 	return nil
 }
 
-// shadowNotes says, per file of the rig's repository that nothing reads,
-// what stands in front of it, for yardr rig check.
-func shadowNotes(rig string, lines []rigSource) []string {
+// shadowNotes says, per file of the depot's repository that nothing reads,
+// what stands in front of it, for yardr depot check.
+func shadowNotes(depot string, lines []depotSource) []string {
 	var out []string
 	for _, l := range lines {
 		by := l.where()
@@ -501,7 +501,7 @@ func shadowNotes(rig string, lines []rigSource) []string {
 			by = "the prompt of " + l.Name + ", " + l.where()
 		}
 		for _, s := range l.Shadows {
-			out = append(out, fmt.Sprintf("%s is shadowed by %s (yardr rig sources %s)", s, by, rig))
+			out = append(out, fmt.Sprintf("%s is shadowed by %s (yardr depot sources %s)", s, by, depot))
 		}
 	}
 	return out

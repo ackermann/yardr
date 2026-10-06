@@ -1,12 +1,12 @@
 # Starter pack for yardr: one yard's way of working, as one file.
-# It names no agent product, model, rig, person or secret. Those are asked
+# It names no agent product, model, depot, person or secret. Those are asked
 # for when the pack is imported and stay in the yard.
 
 name: starter
 
-# Flows, by name. A rig uses one of them; the import asks which, and the first
+# Flows, by name. A depot uses one of them; the import asks which, and the first
 # is the default. A flow with "type:" applies to beads of that type only, next
-# to the rig's flow (a train flow beside the task flow, say).
+# to the depot's flow (a train flow beside the task flow, say).
 #
 # Each flow lists the stages a bead passes through; the first is where a new
 # bead starts.

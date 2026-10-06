@@ -99,14 +99,14 @@ func escape(v string) string {
 
 // Env is the trace context of a session as environment entries: TRACEPARENT
 // and OTEL_RESOURCE_ATTRIBUTES (yardr.bead, yardr.stage, yardr.group and,
-// for a bead with a rig, yardr.rig), the latter after base (see
+// for a bead with a depot, yardr.depot), the latter after base (see
 // ResourceAttributes).
-func Env(base, bead, session, stage, group, rig string) []string {
+func Env(base, bead, session, stage, group, depot string) []string {
 	return []string{
 		"TRACEPARENT=" + Traceparent(bead, session),
 		ResourceVar + "=" + ResourceAttributes(base,
 			Attr{"yardr.bead", bead}, Attr{"yardr.stage", stage},
-			Attr{"yardr.group", group}, Attr{"yardr.rig", rig}),
+			Attr{"yardr.group", group}, Attr{"yardr.depot", depot}),
 	}
 }
 

@@ -41,7 +41,7 @@ const (
 // peers posts and asks every peer that can be called.
 func (d *Dispatcher) peers(ctx context.Context) error {
 	// What a bead's stay at a peer came to and the store's own write could
-	// not apply (its rig's repository did not read) is applied now.
+	// not apply (its depot's repository did not read) is applied now.
 	if err := d.Store.SettlePeerBeads(ctx); err != nil {
 		d.Log.Warn("peers: moving on a bead whose stay at a peer ended", "err", err)
 	}

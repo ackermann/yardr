@@ -499,7 +499,7 @@ raw body.
 the bead and the link.*
 
 ```sh
-yardr bead create "Web view shows links" --rig work --tracks 16   # the issue of delivery 16
+yardr bead create "Web view shows links" --depot work --tracks 16   # the issue of delivery 16
 # work-h6ef
 yardr link list work-h6ef
 # tracks  https://linear.app/acme/issue/YRD-1 (linear)

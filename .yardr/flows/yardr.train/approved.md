@@ -1,6 +1,6 @@
 The reviewed train lands on `main` from here. No agent works this stage.
 
-Locally, which is how rig yardr lands trains: the refinery
+Locally, which is how depot yardr lands trains: the refinery
 (`contrib/refinery/merge-local`) rebases `yard/<train>` onto `main` if `main`
 moved, runs the gate on what will land, fast-forwards `main` to it and
 advances the train straight to `merged`, by the edge no outcome offers; that

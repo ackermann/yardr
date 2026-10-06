@@ -1,6 +1,6 @@
 package refinery
 
-// A train end to end, the way rig yard runs one: its children land on the
+// A train end to end, the way depot yard runs one: its children land on the
 // train's branch through merge-local, the train waits in open until the last
 // closes, integrate-train rebases and gates its branch and sends it to
 // review, and merge-local lands it on main. The herdr side (branching the
@@ -24,7 +24,7 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// childFlow is rig yard's flow, with the outcomes merge-local reports.
+// childFlow is depot yard's flow, with the outcomes merge-local reports.
 const childFlow = `backlog -> new
 new -> review on done | backlog
 review -> approved on done | new on changes
@@ -33,10 +33,10 @@ merge -> review on done | new on rework
 merged terminal
 `
 
-// newTrainYard is an isolated yardr with rig r over a fresh repository (main
+// newTrainYard is an isolated yardr with depot r over a fresh repository (main
 // checked out in it, pushed to a bare origin), train r-e in open under the
 // repo's yard.train flow, and its children r-1 and r-2 in approved, each one
-// commit ahead of the train's branch in its worktree. check is the rig's gate.
+// commit ahead of the train's branch in its worktree. check is the depot's gate.
 func newTrainYard(t *testing.T, check string) *yard {
 	t.Helper()
 	t.Parallel() // as newYard
@@ -64,17 +64,17 @@ func newTrainYard(t *testing.T, check string) *yard {
 	y.git(y.repo, "push", "-q", "origin", "main")
 	y.push = "origin"
 
-	y.yardr("rig", "add", "r", y.repo, "--base", "main", "--check", check)
+	y.yardr("depot", "add", "r", y.repo, "--base", "main", "--check", check)
 	y.yardrIn(childFlow, "flow", "set", "code", "-f", "-")
-	y.yardr("rig", "flow", "r", "code")
+	y.yardr("depot", "flow", "r", "code")
 	// The train flow exactly as the repo carries it, under the test's name.
 	y.yardr("flow", "set", "yard.train", "-f", storetest.RepoFlow(t, "yardr.train"))
-	y.yardr("rig", "flow", "r", "--type", "train", "yard.train")
+	y.yardr("depot", "flow", "r", "--type", "train", "yard.train")
 
-	y.yardr("bead", "create", "the train", "--id", "r-e", "-r", "r", "-t", "train", "-s", "open")
+	y.yardr("bead", "create", "the train", "--id", "r-e", "-d", "r", "-t", "train", "-s", "open")
 	y.git(y.repo, "branch", "yard/r-e") // the herdr runner branches it from main
 	for i, id := range []string{"r-1", "r-2"} {
-		y.yardr("bead", "create", "child", "--id", id, "-r", "r", "-s", "approved")
+		y.yardr("bead", "create", "child", "--id", id, "-d", "r", "-s", "approved")
 		y.yardr("dep", "add", "r-e", id, "-k", "parent")
 		wt := filepath.Join(home, "worktrees", "r", id)
 		y.git(y.repo, "worktree", "add", "-q", "-b", "yard/"+id, wt, "yard/r-e")
@@ -324,10 +324,10 @@ func TestMergeLocalRedGateSendsATrainToOpen(t *testing.T) {
 	}
 }
 
-// The refinery's scripts work on branches, which a dir rig has none of: an
+// The refinery's scripts work on branches, which a dir depot has none of: an
 // exec group routed one by mistake refuses it as could not run (exit 2),
 // before any yardr or git call.
-func TestScriptsRefuseDirRigs(t *testing.T) {
+func TestScriptsRefuseDirDepots(t *testing.T) {
 	dir := t.TempDir()
 	calls := filepath.Join(t.TempDir(), "calls")
 	bin := filepath.Join(t.TempDir(), "yardr")
@@ -336,16 +336,16 @@ func TestScriptsRefuseDirRigs(t *testing.T) {
 	}
 	for _, script := range []string{"integrate-train", "pr-train", "pr-merge", "merge-local"} {
 		cmd := exec.Command("sh", script)
-		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "YARDR_BEAD=d-e", "YARDR_RIG=d", "YARDR_RIG_PATH=" + dir,
-			"YARDR_RIG_KIND=dir", "YARDR_BIN=" + bin, "YARDR_HOME=" + t.TempDir()}
+		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "YARDR_BEAD=d-e", "YARDR_DEPOT=d", "YARDR_DEPOT_PATH=" + dir,
+			"YARDR_DEPOT_KIND=dir", "YARDR_BIN=" + bin, "YARDR_HOME=" + t.TempDir()}
 		out, err := cmd.CombinedOutput()
 		var ee *exec.ExitError
-		if !errors.As(err, &ee) || ee.ExitCode() != 2 || !strings.Contains(string(out), "dir rig") {
-			t.Errorf("%s on a dir rig: %v\n%s", script, err, out)
+		if !errors.As(err, &ee) || ee.ExitCode() != 2 || !strings.Contains(string(out), "dir depot") {
+			t.Errorf("%s on a dir depot: %v\n%s", script, err, out)
 		}
 	}
 	if b, err := os.ReadFile(calls); err == nil {
-		t.Fatalf("scripts called yardr for a dir rig:\n%s", b)
+		t.Fatalf("scripts called yardr for a dir depot:\n%s", b)
 	}
 }
 

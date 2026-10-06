@@ -9,38 +9,38 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// Home is the yard's home page: its rigs and where each rig's open beads
+// Home is the yard's home page: its depots and where each depot's open beads
 // stand, and the feed of what happened.
 type Home struct {
-	Yard string    `json:"yard"`
-	Rigs []HomeRig `json:"rigs"`
+	Yard   string      `json:"yard"`
+	Depots []HomeDepot `json:"depots"`
 	Feed
 	// sessions are the live sessions the counts were made with, for the
 	// line, which counts them too.
 	sessions []store.Session
 }
 
-// HomeRig is one rig's open beads, counted per stage of the flows that
-// govern the rig.
-type HomeRig struct {
+// HomeDepot is one depot's open beads, counted per stage of the flows that
+// govern the depot.
+type HomeDepot struct {
 	Name string `json:"name"`
 	Kind string `json:"kind"`
-	// Open, Working and Held count the rig's open beads: all of them,
+	// Open, Working and Held count the depot's open beads: all of them,
 	// those an agent's or a command's session has claimed, and those held.
 	// A manual group's claim is a person's turn and no work in progress.
 	Open    int        `json:"open"`
 	Working int        `json:"working"`
 	Held    int        `json:"held"`
 	Flows   []HomeFlow `json:"flows"`
-	// Elsewhere counts the open beads in a stage their rig's flow lacks: a
+	// Elsewhere counts the open beads in a stage their depot's flow lacks: a
 	// bead pinned to another flow, or one a changed flow left behind.
 	Elsewhere []StageCount `json:"elsewhere,omitempty"`
-	// Error is why the rig's flows could not be read (a checkout git cannot
+	// Error is why the depot's flows could not be read (a checkout git cannot
 	// read); its beads are then all counted in Elsewhere.
 	Error string `json:"error,omitempty"`
 }
 
-// HomeFlow is one flow of a rig: the rig's own (Type "") or a bead type's.
+// HomeFlow is one flow of a depot: the depot's own (Type "") or a bead type's.
 type HomeFlow struct {
 	Name string `json:"name"`
 	Type string `json:"type,omitempty"`
@@ -56,7 +56,7 @@ type StageCount struct {
 
 // overview reads the yard for the home page and for the shell's line.
 func (s *Server) overview(ctx context.Context) (*Home, error) {
-	rigs, err := s.st.Rigs(ctx)
+	depots, err := s.st.Depots(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -64,21 +64,21 @@ func (s *Server) overview(ctx context.Context) (*Home, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := &Home{Yard: s.yardName(ctx), Rigs: []HomeRig{}, sessions: sessions}
+	out := &Home{Yard: s.yardName(ctx), Depots: []HomeDepot{}, sessions: sessions}
 	manual := manualClaims(sessions)
-	for _, rig := range rigs {
-		beads, err := s.st.ListBeads(ctx, store.BeadFilter{Rig: rig.Name})
+	for _, depot := range depots {
+		beads, err := s.st.ListBeads(ctx, store.BeadFilter{Depot: depot.Name})
 		if err != nil {
 			return nil, err
 		}
-		hr := HomeRig{Name: rig.Name, Kind: rig.Kind, Flows: []HomeFlow{}}
-		// One rig whose repository cannot be read must not take the page
+		hr := HomeDepot{Name: depot.Name, Kind: depot.Kind, Flows: []HomeFlow{}}
+		// One depot whose repository cannot be read must not take the page
 		// down with it: the others still show.
-		flows, err := s.st.RigFlows(ctx, rig.Name)
+		flows, err := s.st.DepotFlows(ctx, depot.Name)
 		if err != nil {
 			hr.Error = err.Error()
 		}
-		// byType maps a bead type to the index of its flow; the rig's own
+		// byType maps a bead type to the index of its flow; the depot's own
 		// flow, when it has one, takes every other type.
 		byType, own := map[string]int{}, -1
 		for _, rf := range flows {
@@ -119,7 +119,7 @@ func (s *Server) overview(ctx context.Context) (*Home, error) {
 			}
 			return 1
 		})
-		out.Rigs = append(out.Rigs, hr)
+		out.Depots = append(out.Depots, hr)
 	}
 	return out, nil
 }

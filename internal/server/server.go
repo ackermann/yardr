@@ -514,7 +514,7 @@ func Start(ctx context.Context, c *config.Config) error {
 }
 
 // ServerEnv is the environment a detached server starts with, from the
-// starter's environ: PATH and HOME (git, which reads the rigs' .yardr/ from
+// starter's environ: PATH and HOME (git, which reads the depots' .yardr/ from
 // their base, needs both), the settings the server reads
 // (config.ServerSettings, under the old names too, while those are read),
 // and the home it serves, under both names, in place of whatever YARDR_HOME

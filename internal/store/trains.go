@@ -14,7 +14,7 @@ import (
 // Trains. A train is work that spans several beads and lands on the base as
 // one unit. It owns a branch, Branch(train), and its children (beads with a
 // parent edge from it: `yardr dep add <train> <child> -k parent`) branch
-// from that branch and land on it instead of the rig's base.
+// from that branch and land on it instead of the depot's base.
 const (
 	TypeTrain = "train"
 	// DepParent is the edge kind from a train to each of its children.
@@ -22,7 +22,7 @@ const (
 )
 
 // Cars. A car is a piece of a train that is not worth having on the base
-// by itself: it lands on its train's branch under the rig's light gate, with
+// by itself: it lands on its train's branch under the depot's light gate, with
 // no review of its own, and the full gate and the one review are the
 // train's (docs/pipeline.md, "Cars"). That is only safe under a train, so a
 // car with no parent train stays where its flow starts: checkCar refuses
@@ -92,12 +92,13 @@ func mapWords(m map[string]string) (map[string]string, bool) {
 }
 
 // whereWords is a subscription's filter with the words an earlier release
-// used replaced, and whether any was: those of trains (trainWhere) and
-// those of the crew (crewWhere).
+// used replaced, and whether any was: those of trains (trainWhere), those
+// of the crew (crewWhere) and those of depots (depotWhere).
 func whereWords(where map[string]string) (map[string]string, bool) {
 	where, trains := trainWhere(where)
 	where, crew := crewWhere(where)
-	return where, trains || crew
+	where, depots := depotWhere(where)
+	return where, trains || crew || depots
 }
 
 // trainWhere is a subscription's filter with the words trains had until
@@ -131,7 +132,7 @@ func trainWhere(where map[string]string) (map[string]string, bool) {
 
 // flowNames are the names a flow called name is looked up under: name, and
 // when it ends in a type that was renamed (yardr.epic, web.part, or the new
-// words), the same name with the other spelling. So a rig's pointer at
+// words), the same name with the other spelling. So a depot's pointer at
 // yardr.epic finds yardr.train.flow once the repository renamed its file,
 // and one at yardr.train finds the yardr.epic the store still has. For this
 // release only.
@@ -183,8 +184,8 @@ type Family struct {
 	// Base is BaseOf(bead): what its branch starts from and lands on.
 	// Branch(Train) for a child of a train; the commit a linked yard named
 	// for a bead that came from it (PeerGit.BaseCommit); for everything
-	// else, the train itself included, the rig's base ("" without a rig,
-	// and always "" in a dir rig, which has no branches).
+	// else, the train itself included, the depot's base ("" without a depot,
+	// and always "" in a dir depot, which has no branches).
 	Base string `json:"base,omitempty"`
 	// Children are a train's children, oldest edge first by CreatedAt, then id.
 	Children []string `json:"children,omitempty"`
@@ -212,16 +213,16 @@ func familyOf(tx *bolt.Tx, row *beadRow) (*Family, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", row.ID, err)
 	}
-	var r Rig
-	if row.Rig != nil {
-		if _, err := get(tx, bRigs, *row.Rig, &r); err != nil {
+	var r Depot
+	if row.Depot != nil {
+		if _, err := get(tx, bDepots, *row.Depot, &r); err != nil {
 			return nil, err
 		}
 	}
 	switch {
 	case r.IsDir():
-		// A dir rig has no branches: a train only groups its children,
-		// who work in the rig's directory like any bead.
+		// A dir depot has no branches: a train only groups its children,
+		// who work in the depot's directory like any bead.
 		if train != nil {
 			f.Train = train.ID
 		}
@@ -247,7 +248,7 @@ func familyOf(tx *bolt.Tx, row *beadRow) (*Family, error) {
 
 // parentTrain is the train bead u is a child of, nil when it has none. Only a
 // parent edge from a bead of type train counts: a parent edge from anything
-// else (one imported from beads, say) leaves the bead on the rig's base, as
+// else (one imported from beads, say) leaves the bead on the depot's base, as
 // it always was.
 func parentTrain(tx *bolt.Tx, u string) (*beadRow, error) {
 	var train *beadRow
@@ -297,8 +298,8 @@ func edges(tx *bolt.Tx, index []byte, u, kind string) []depRow {
 // child of one open train: from must be a train that is not closed (a
 // closed train has landed, or was dropped; a child added now would branch
 // from and land on a branch nothing integrates again), to not already a
-// child of one, and both in the same rig (the child branches from the
-// train's branch in that rig's repository).
+// child of one, and both in the same depot (the child branches from the
+// train's branch in that depot's repository).
 func checkParent(tx *bolt.Tx, from, to *beadRow) error {
 	if from.Type != TypeTrain {
 		return fmt.Errorf("%s is a %s, not a train: only a train can be a parent", from.ID, from.Type)
@@ -309,9 +310,9 @@ func checkParent(tx *bolt.Tx, from, to *beadRow) error {
 	if to.Type == TypeTrain {
 		return fmt.Errorf("%s is a train: trains do not nest", to.ID)
 	}
-	if rigOf(from) != rigOf(to) {
-		return fmt.Errorf("train %s is in rig %q and %s in rig %q: a child must be in its train's rig",
-			from.ID, rigOf(from), to.ID, rigOf(to))
+	if depotOf(from) != depotOf(to) {
+		return fmt.Errorf("train %s is in depot %q and %s in depot %q: a child must be in its train's depot",
+			from.ID, depotOf(from), to.ID, depotOf(to))
 	}
 	train, err := parentTrain(tx, to.UUID)
 	if err != nil {
@@ -323,9 +324,9 @@ func checkParent(tx *bolt.Tx, from, to *beadRow) error {
 	return nil
 }
 
-func rigOf(row *beadRow) string {
-	if row.Rig == nil {
+func depotOf(row *beadRow) string {
+	if row.Depot == nil {
 		return ""
 	}
-	return *row.Rig
+	return *row.Depot
 }

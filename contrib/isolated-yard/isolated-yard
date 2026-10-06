@@ -225,7 +225,7 @@ build() {
   printf '%s\n' "$d" >"$d/.isolated-yard"
   go build -o "$d/bin/yardr" .
   (cd "$src/fake" && go build -o "$d/bin/claude" .)
-  # Commits in a test rig need an author; the caller's gitconfig is not read.
+  # Commits in a test depot need an author; the caller's gitconfig is not read.
   printf '[user]\n\tname = tester\n\temail = tester@example.invalid\n[init]\n\tdefaultBranch = main\n' >"$d/h/.gitconfig"
   cat >"$d/e" <<WRAP
 #!/bin/sh

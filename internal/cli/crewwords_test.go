@@ -72,10 +72,10 @@ func TestTheResidentsWordsStillWork(t *testing.T) {
 	if clerk, _ = st.GetCrew(ctx, "clerk"); len(clerk.Subscriptions) != 0 {
 		t.Fatalf("subscriptions after unsubscribe = %v", clerk.Subscriptions)
 	}
-	if err := st.PutRig(ctx, store.Rig{Name: "notes", Path: t.TempDir(), Kind: store.RigDir}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "notes", Path: t.TempDir(), Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	b, err := st.CreateBead(ctx, store.NewBead{Title: "a task", Rig: "notes"}, "jo")
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "a task", Depot: "notes"}, "jo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestTheResidentsWordsStillWork(t *testing.T) {
 func TestPackApplyTakesTheResidentsFlags(t *testing.T) {
 	a := packApp(t)
 	setInteractive(t, false)
-	args := []string{"apply", "../../packs/starter", "--rig", "web", "--yes", "--resident", "yardmaster=boss",
+	args := []string{"apply", "../../packs/starter", "--depot", "web", "--yes", "--resident", "yardmaster=boss",
 		"--bind", "builders=claude:opus", "--bind", "reviewers=codex", "--bind", "resident:yardmaster=claude",
 		"--members", "backlog=", "--members", "decisions=ann,boss"}
 	if out, err := run(t, a.packCmd(), args...); err != nil {

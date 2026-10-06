@@ -19,7 +19,7 @@ fails it tears the yard down and exits 1. `D/e` is `env -i` with `HOME`,
 `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `YARDR_HOME` under D, so nothing of
 the calling session (no `HERDR_SOCKET_PATH`, no `YARDR_*`) reaches a command
 run through it. One thing of the machine it does share, on purpose: the
-gate slots (`yardr rig check --help`). A `D/e yardr rig check` runs on the
+gate slots (`yardr depot check --help`). A `D/e yardr depot check` runs on the
 same cores as every other gate, so it takes one of the same slots, which
 yardr finds by the user database's home, not by `HOME`. Use agent kind `claude` only: `D/agents.log` shows what each
 stand-in was started with. Started as `claude -p <prompt>` (what `yardr

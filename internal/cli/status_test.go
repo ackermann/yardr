@@ -257,11 +257,11 @@ func TestStatusRunningYard(t *testing.T) {
 		}
 	}
 
-	rig := gitRig(t, st)
-	commitRig(t, rig)
+	depot := gitDepot(t, st)
+	commitDepot(t, depot)
 	// Two beads an agent works, one a script works, three that two manual
 	// groups hold for a person, and one held.
-	claimed := workYard(t, st, rig.Name, []store.Group{
+	claimed := workYard(t, st, depot.Name, []store.Group{
 		{Name: "web/builders", Runner: "herdr", Limit: 2},
 		{Name: "web/refinery", Runner: "exec", Limit: 1},
 		{Name: "backlog", Runner: "manual", Limit: 5},
@@ -316,7 +316,7 @@ func TestStatusRunningYard(t *testing.T) {
 
 // workYard puts the groups and a bead per name in claims, claimed by the
 // group of that name ("" for none), and returns the beads.
-func workYard(t *testing.T, st store.API, rig string, groups []store.Group, claims ...string) []string {
+func workYard(t *testing.T, st store.API, depot string, groups []store.Group, claims ...string) []string {
 	t.Helper()
 	ctx := context.Background()
 	for _, g := range groups {
@@ -326,7 +326,7 @@ func workYard(t *testing.T, st store.API, rig string, groups []store.Group, clai
 	}
 	var beads []string
 	for i, group := range claims {
-		b, err := st.CreateBead(ctx, store.NewBead{Title: "bead " + strconv.Itoa(i), Rig: rig}, "me")
+		b, err := st.CreateBead(ctx, store.NewBead{Title: "bead " + strconv.Itoa(i), Depot: depot}, "me")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -349,9 +349,9 @@ func TestStatusWorkLine(t *testing.T) {
 	work := func(t *testing.T, groups []store.Group, claims ...string) (string, *workCounts) {
 		t.Helper()
 		_, st, a := statusYard(t, "abcdef123456")
-		rig := gitRig(t, st)
-		commitRig(t, rig)
-		workYard(t, st, rig.Name, groups, claims...)
+		depot := gitDepot(t, st)
+		commitDepot(t, depot)
+		workYard(t, st, depot.Name, groups, claims...)
 		out, err := run(t, a().rootCmd(), "status")
 		if err != nil {
 			t.Fatalf("err = %v\n%s", err, out)

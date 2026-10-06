@@ -2,11 +2,11 @@
 {{- with .Data}}
 {{- /* Where the beads stand, above the first page of the feed only. */}}
 {{- if not .Before}}
-{{- range .Rigs}}
+{{- range .Depots}}
 <article class="item">
   <header class="item-head">
     <h2>{{.Name}}</h2>
-    <span class="label">{{.Kind}} rig</span>
+    <span class="label">{{.Kind}} depot</span>
     <span class="item-count">{{.Open}} open{{if .Held}} · <span class="held">{{.Held}} held</span>{{end}}</span>
   </header>
   {{- if .Error}}
@@ -22,7 +22,7 @@
     </ol>
   </section>
   {{- else}}
-  {{- if not .Error}}<p class="faint">No flow governs this rig.</p>{{end}}
+  {{- if not .Error}}<p class="faint">No flow governs this depot.</p>{{end}}
   {{- end}}
   {{- if .Elsewhere}}
   <section class="flow">
@@ -36,7 +36,7 @@
   {{- end}}
 </article>
 {{- else}}
-<p class="item faint">This yard has no rig yet.</p>
+<p class="item faint">This yard has no depot yet.</p>
 {{- end}}
 {{- end}}
 {{- /* The feed, newest first. On the first page the shell's stream

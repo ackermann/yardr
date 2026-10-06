@@ -2,7 +2,7 @@
 
 yardr builds no pipeline in: stages, groups, routes and a flow compose one.
 This page follows a bead through the pipeline yardr itself is built with
-(rig yardr, as of 2026-10-03). Its flows are in [flows.md](flows.md#worked-example-rig-yardr).
+(depot yardr, as of 2026-10-03). Its flows are in [flows.md](flows.md#worked-example-depot-yardr).
 
 ```
 backlog ──yardmaster shapes──▶ new ──builder──▶ review ──Codex──▶ approved ──refinery──▶ merged on main
@@ -109,7 +109,7 @@ permission prompt it waits on, a hook that denied it). The first two print
 their error in the pane, which `session_idle` carries as `tail`.
 
 The builder implements the change, commits on its branch (never pushes or
-merges), runs the light gate on the last commit (`yardr rig check yardr
+merges), runs the light gate on the last commit (`yardr depot check yardr
 --light --dir <worktree>`, which runs `.yardr/check-light` from fetched
 `origin/main`: `gofmt`, `go vet`, `go build`, then `go test -race` on the
 packages the branch changed and their importers), leaves a note with what it
@@ -129,7 +129,7 @@ names the commit under review and the reviewer committed nothing.
 
 What that costs is that some faults are now found one stage later, in the
 refinery, where a red gate takes a slot of the serial queue and sends the
-bead back to a builder. They are the faults rig yardr's light gate cannot
+bead back to a builder. They are the faults depot yardr's light gate cannot
 see:
 
 - a test that reads a file by path, when the table in `.yardr/check-light`
@@ -154,7 +154,7 @@ or after this: both are read from `main`. A reviewer's `review:` commits get
 the light gate too, so a fault in one of them is the refinery's to find.
 
 No more than two full gates run at once on the machine (the yard's
-`gate_slots`), whoever starts them: a third `rig check` says `2 gates are
+`gate_slots`), whoever starts them: a third `depot check` says `2 gates are
 running on this machine; waiting for a slot` and starts when one ends. The
 wait is not part of the check's timeout
 ([configuration.md](configuration.md#gate-slots-how-many-gates-run-at-once)).
@@ -189,7 +189,7 @@ review (the full gate is the refinery's), and then:
 - **asks**: a question only Christopher can answer goes to `decide`
   (`--outcome question`).
 
-In a flow with a `merge` stage (section 5; rig yardr's has none), when a
+In a flow with a `merge` stage (section 5; depot yardr's has none), when a
 merger sends a bead back for a `merge re-review`, the reviewer records
 the old tip from the merger's note and runs
 `git range-diff <base>...<old-tip> <base>...HEAD`. It checks only the
@@ -206,17 +206,17 @@ several beads funnel into, or a direct merge. The refinery is not built in;
 it is a composition. A stage (`approved`) is routed to an `exec` group whose
 script does the landing, and `--limit 1` on the group makes it a serial merge
 queue. yardr provides the mechanism and ships one reference script,
-[`contrib/refinery/merge-local`](../contrib/refinery/merge-local); rig yardr
+[`contrib/refinery/merge-local`](../contrib/refinery/merge-local); depot yardr
 uses it to merge directly to `main`.
 
-**The mechanism.** The exec runner starts the script in the rig with
+**The mechanism.** The exec runner starts the script in the depot with
 everything it needs in its environment ([groups.md](groups.md#runners)):
-`YARDR_BEAD`, `YARDR_RIG`, `YARDR_RIG_PATH`, `YARDR_BASE`, `YARDR_BRANCH`
+`YARDR_BEAD`, `YARDR_DEPOT`, `YARDR_DEPOT_PATH`, `YARDR_BASE`, `YARDR_BRANCH`
 (`yard/<bead>`), `YARDR_WORKTREE`, `YARDR_BIN` (this yardr), and
 `YARDR_ACTOR` set to the group. The refinery runs the gate itself, whatever
-the builder reported: `yardr rig check "$YARDR_RIG" --dir
+the builder reported: `yardr depot check "$YARDR_DEPOT" --dir
 "$YARDR_WORKTREE"`, i.e. `.yardr/check` as it is on the base (the fetched
-`origin/main` when the base has a remote), or the rig's `--check`; a rig
+`origin/main` when the base has a remote), or the depot's `--check`; a depot
 with neither fails with "no gate" unless it allows that
 ([configuration.md](configuration.md#the-merge-gate-yardrcheck)). Its gate takes a
 [gate slot](configuration.md#gate-slots-how-many-gates-run-at-once) like any
@@ -233,18 +233,18 @@ the session and the daemon stops the script, so it is the script's last step.
 1. rebases `yard/<bead>` onto the base in the bead's worktree, if the base
    moved; on a conflict it aborts the rebase and advances to `merge` with the
    conflicting files (section 5), or to `new` if the flow has no `merge`,
-   as in rig yardr;
+   as in depot yardr;
 2. runs the gate on exactly what will land, every time, including after a
    merger's rebase, and records the commit it ran on; red (exit 1) reports
    the outcome `failed` (to `new`; to `open` for a train), or advances to
    `new` in a flow without outcomes. The note starts with the branch, the
-   commit the gate ran on, the base and the file `rig check` kept the whole
-   output in (`<home>/gates/<rig>/<bead>-<time>.log`); then come the lines
-   of the output matching the rig's `.yardr/check-fail-pattern`, each with
-   the lines around it, when the rig has one, and then the last 200 lines
+   commit the gate ran on, the base and the file `depot check` kept the whole
+   output in (`<home>/gates/<depot>/<bead>-<time>.log`); then come the lines
+   of the output matching the depot's `.yardr/check-fail-pattern`, each with
+   the lines around it, when the depot has one, and then the last 200 lines
    ([configuration.md](configuration.md#a-red-gates-output-the-file-and-yardrcheck-fail-pattern)).
    The builder reads it with `yardr prime --bead <id>`, which shows every
-   note whole. A gate that could not run at all (exit 2: git, the base, the rig) holds
+   note whole. A gate that could not run at all (exit 2: git, the base, the depot) holds
    the bead, since no builder can fix that. Nor can one fix a gate ended
    by a signal from outside (exit 128+N; 143 is a `go test` killed with
    SIGTERM after every package printed `ok`): it is run once more on the
@@ -259,7 +259,7 @@ the session and the daemon stops the script, so it is the script's last step.
    dirty one is someone's work in progress, so the bead is held with a note
    saying so and the tree is never touched. Where the base is checked out
    nowhere it moves the ref alone (`git fetch . <sha>:<base>`), which works
-   whatever state the rig's checkout is in: keep the base checked out
+   whatever state the depot's checkout is in: keep the base checked out
    nowhere and a dirty checkout never blocks the queue;
 4. pushes the base if `YARDR_PUSH` names a remote (off by default, never
    forced). A failed push leaves the bead merged; the next landing's push
@@ -279,14 +279,14 @@ install contrib/refinery/merge-local ~/.yardr/scripts/    # from main
 yardr group add yardr-refinery --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin YARDR_NOTIFY=yardmaster ~/.yardr/scripts/merge-local' \
   --set log="$HOME/.yardr/logs/refinery.log"
-yardr route add --stage approved --group yardr-refinery --rig yardr
+yardr route add --stage approved --group yardr-refinery --depot yardr
 ```
 
 The script is installed from `main` rather than run from a checkout: a bead
 branch must not change how it is landed. Without a checkout of yardr,
 `yardr setup` does the same in a terminal: its page for landing writes the
 merge-local this yardr was built with to `~/.yardr/scripts/merge-local`
-(one already there is kept) and adds the group `<rig>/refinery`, without
+(one already there is kept) and adds the group `<depot>/refinery`, without
 `YARDR_PUSH` ([setup.md](setup.md)). The flow gains `merged`:
 
 ```
@@ -319,8 +319,8 @@ builders keep advancing beads through it
 
 ## 5. Merge: a merger resolves conflicts
 
-Rig yardr does not run this stage as of 2026-10-03: its flow has no
-`merge`, so a conflict goes back to `new`. The rig it was before the rename
+Depot yardr does not run this stage as of 2026-10-03: its flow has no
+`merge`, so a conflict goes back to `new`. The depot it was before the rename
 did, and the merger's role is still in the repository
 (`.yardr/roles/merger.md`); this section is how the stage works where it is
 set up.
@@ -335,11 +335,11 @@ at most one at a time) with `prompt=roles/merger.md`. The merger reopens the
 bead's worktree on `yard/<bead>` (the refinery aborted its rebase, so it is
 clean) and:
 
-1. rebases onto the rig's base;
+1. rebases onto the depot's base;
 2. resolves each conflict keeping the intent of both sides, from the bead and
    its notes on one side and the base's commits on the file
    (`git log -p <merge-base>..main -- <file>`) on the other;
-3. runs the gate, `yardr rig check yardr --dir .`;
+3. runs the gate, `yardr depot check yardr --dir .`;
 4. leaves one `merge re-review:` note naming the old tip, each conflict and
    its resolution, and reports `yardr bead done`, which the flow sends to
    `review`.
@@ -367,10 +367,10 @@ The yardmaster would wire this in the store; nothing in `~/.yardr` is versioned:
 yardr group add mergers --runner herdr --limit 1 \
   --set kind=claude --set model=sonnet --set prompt=roles/merger.md \
   --set args='--permission-mode auto'      # as yardr-builders: it works unattended
-yardr route add --stage merge --group mergers --rig yardr
+yardr route add --stage merge --group mergers --depot yardr
 ```
 
-The flow gains two rules (the rest of [`default.flow`](flows.md#worked-example-rig-yardr)
+The flow gains two rules (the rest of [`default.flow`](flows.md#worked-example-depot-yardr)
 is unchanged), with outcomes so the merger reports how the merge ended
 instead of naming stages:
 
@@ -418,7 +418,7 @@ move the yard refused raises `move_refused`, with the command and why
 sits idle 30m or runs 4h
 raises `session_idle` (with the end of its pane) or `session_aged` in the
 yardmaster's inbox (one waiting
-for its own `yardr rig check` is not idle, and `yardr session list` shows
+for its own `yardr depot check` is not idle, and `yardr session list` shows
 the gate); with a group `grace` set it is then
 stopped, and without one a session that has run twice its `max_age` is
 stopped anyway and the bead released with a note; see
@@ -432,7 +432,7 @@ answers in `yardr review -g decisions` (or with a note and
 `yardr bead advance`), and the bead goes back to `backlog` or `new`.
 
 Decisions that are not about one piece of code are beads created straight
-into `decide` and closed with the answer as the reason. The rig before the
+into `decide` and closed with the answer as the reason. The depot before the
 rename gave them a type of their own, `decision`, whose type flow had one
 move, to the terminal stage `decided`; yard-17, which settled the
 repo/store split in [configuration.md](configuration.md), was one.
@@ -444,34 +444,34 @@ unit. It is a bead of type `train`; its children are the beads with a
 `parent` edge from it:
 
 ```sh
-yardr bead create "Trains" -t train -r yardr
+yardr bead create "Trains" -t train -d yardr
 yardr dep add <train> <child> -k parent
 ```
 
 - **Branch(b)** is `yard/<id>` for every bead; the train's branch is
   Branch(train).
-- **BaseOf(b)** is Branch(parent train) for a child of a train, and the rig's
+- **BaseOf(b)** is Branch(parent train) for a child of a train, and the depot's
   base for everything else, the train itself included. `yardr bead show`
   prints it as `base` (and `train`, and a train's `children`; the same
   fields are in `--json`).
 
 A child goes through the same flow, groups and gate as any bead; only its
 base differs. When a child is first started and the train's branch does not
-exist yet, the herdr runner creates it from the rig's base tip (fetched
+exist yet, the herdr runner creates it from the depot's base tip (fetched
 first when the base is a remote's) and logs `train_branched` on the train
 with the commit. An existing train branch is never recreated or moved. The
 child's worktree is branched from the train's branch, and `YARDR_BASE` in
 the agent's and the refinery's environment is BaseOf(b), so merge-local
 rebases the child onto the train's branch, lands it there and pushes that
-branch; main does not move. The gate is still read from the rig's base
+branch; main does not move. The gate is still read from the depot's base
 (main), not from the train's branch, so neither a train nor its children can
 change the bar they land under; it runs on the child's branch as before.
 
 `dep add -k parent` refuses a parent that is not a train, a closed train
 (it has landed, or was dropped: a child added now would land on a branch
 nothing integrates again), a child already in another train, a train as a
-child (trains do not nest) and a child in another rig. Only parent edges
-from a train count: a bead whose parent is not a train keeps the rig's
+child (trains do not nest) and a child in another depot. Only parent edges
+from a train count: a bead whose parent is not a train keeps the depot's
 base. A bead that is a child of two trains
 anyway (a type changed to `train` later) is not dispatched; yardr logs
 `bad_train` until one parent edge is removed.
@@ -482,7 +482,7 @@ train), and their `--json` rows carry it as `train`. `yardr bead list --train
 <train>` lists only that train, first, and its children. In herdr, a child's
 workspace is labelled `<group> [<train>] <bead>` (e.g. `builders [sv6b]
 2cet` for `yardr-2cet`) and any other bead's `<group> <bead>` (`builders
-cbdc`): the workspace sits under the rig's node, so the rig prefix is
+cbdc`): the workspace sits under the depot's node, so the depot prefix is
 trimmed from the ids and the group, and the group goes by its `label`
 config when set ([groups.md](groups.md#herdr-setup)). The workspace is
 reused across stages and relabelled with the current group on each; each
@@ -505,41 +505,41 @@ whole train, before main moves. Everything about the train itself is as above
 and below: nothing changes in what a train needs to reach main.
 
 ```sh
-yardr bead create "Trains" -t train -r yardr
-yardr bead create "The parser" -t car -r yardr
+yardr bead create "Trains" -t train -d yardr
+yardr bead create "The parser" -t car -d yardr
 yardr dep add <train> <car> -k parent
 ```
 
-- **The type.** A car is a bead of type `car`. In rig yardr the type has
+- **The type.** A car is a bead of type `car`. In depot yardr the type has
   a flow of its own, [`.yardr/flows/type/car.flow`](../.yardr/flows/type/car.flow):
-  the rig's flow without `review` (`new -> approved on done`). The rig's
+  the depot's flow without `review` (`new -> approved on done`). The depot's
   routes for `new`, `approved` and `decide` carry no type, so cars go to the
   same builders and the same refinery as any bead.
-- **The light gate.** A rig's second gate, `.yardr/check-light`, read from
-  the base and run by `yardr rig check <rig> --light` under every rule of
+- **The light gate.** A depot's second gate, `.yardr/check-light`, read from
+  the base and run by `yardr depot check <depot> --light` under every rule of
   the full one ([configuration.md](configuration.md#the-light-gate-yardrcheck-light)).
-  Rig yardr's formats, vets and builds everything and tests, with the race
+  Depot yardr's formats, vets and builds everything and tests, with the race
   detector, only the packages the branch changed and the packages that
   import them. The builder runs it before `done`, as the builder of any
   bead does; merge-local runs it again on exactly what lands, where any
   other bead gets the full gate.
 - **What a car's light gate is compared with.** Its train's branch, not the
-  rig's base: "what the branch changed" is what this car changed, not the
-  train's earlier cars again. `rig check --light` finds the car from the
+  depot's base: "what the branch changed" is what this car changed, not the
+  train's earlier cars again. `depot check --light` finds the car from the
   branch its `--dir` is on (`yard/<car>`) and gives the gate the tip of
   `yard/<train>`, for the builder as that branch is locally, for merge-local
   as it has just rebased the car onto it; the first line of the output
   says so (`light gate, changes since yard/<train> at <sha>`). The gate is
-  still read from the rig's base, and the train's full gate runs everything
+  still read from the depot's base, and the train's full gate runs everything
   before main moves
   ([configuration.md](configuration.md#the-light-gate-yardrcheck-light)).
 - **Which gate merge-local runs.** The exec runner tells a script the
   bead's type and its train (`YARDR_TYPE`, `YARDR_TRAIN`, the latter empty for
-  a bead with no train). merge-local runs `rig check --light` only when all
+  a bead with no train). merge-local runs `depot check --light` only when all
   three hold: the type is `car`, there is a train, and the base it lands on
   is that train's branch. Everything else gets the full gate, as before: a
   task that is a child of a train, and a car with no train, which would land
-  on the rig's base. A rig with no light gate runs its full gate under
+  on the depot's base. A depot with no light gate runs its full gate under
   `--light` and says so in the output. A car's landing note says
   `merged <sha> on yard/<train> under the light gate`.
 - **A car needs a train.** The light gate and the missing review are only
@@ -561,8 +561,8 @@ yardr dep add <train> <car> -k parent
 
 ### The train's own flow
 
-A train follows `yardr.train` ([flows.md](flows.md#worked-example-rig-yardr)).
-As of 2026-10-03 rig yardr has the flow but not the groups for it: `open`,
+A train follows `yardr.train` ([flows.md](flows.md#worked-example-depot-yardr)).
+As of 2026-10-03 depot yardr has the flow but not the groups for it: `open`,
 `merge`, `in-pr` and `land` have no route, so a train there waits for a
 human until the [setup below](#setup-2) is done. The steps describe the
 path with that setup:
@@ -574,15 +574,15 @@ path with that setup:
    `open` sends it to `yardr-integrators`, an exec group running
    [`contrib/refinery/integrate-train`](../contrib/refinery/integrate-train).
    The integrator fetches the base when it is a remote's, rebases
-   `yard/<train>` onto the rig's base in the train's worktree, runs the gate
-   on it (`yardr rig check yardr --dir <worktree>`, the gate read from main),
+   `yard/<train>` onto the depot's base in the train's worktree, runs the gate
+   on it (`yardr depot check yardr --dir <worktree>`, the gate read from main),
    pushes the rebased branch when `YARDR_PUSH` is set (replacing the remote
    branch only when everything on it was in what it rebased, or in a
    recorded old tip; step 5), and reports `done`, to review. A red gate
    reports `failed`, back to `open`, after adding a child in `backlog` to
    fix it ("Fix the gate on train <id>", type bug). The note and the child's
    body carry what merge-local's note does: the branch, the commit, the base
-   and the file the whole output is in, then the lines matching the rig's
+   and the file the whole output is in, then the lines matching the depot's
    `.yardr/check-fail-pattern`, then the gate's tail. The child
    blocks the train, so it is not integrated again until the fix has landed
    on its branch. A rebase that conflicts aborts it and reports
@@ -607,12 +607,12 @@ path with that setup:
    range. Changes go back to `open` (`--outcome changes`) after adding the
    fix as a child; without one the train would be integrated again unchanged.
 4. **approved**: the train lands, through a pull request (below) or
-   locally: `yardr-refinery` and merge-local land `yard/<train>` on the rig's
-   base exactly as a bead's branch (BaseOf(train) is the rig's base) and
+   locally: `yardr-refinery` and merge-local land `yard/<train>` on the depot's
+   base exactly as a bead's branch (BaseOf(train) is the depot's base) and
    advance it to `merged` by the flow's bare `approved -> merged` edge. A
    red gate there reports the flow's `failed` outcome, which for a train is
    `open` (merge-local falls back to `new` only for flows without it).
-5. **merge**: a conflict between the train's branch and the rig's base,
+5. **merge**: a conflict between the train's branch and the depot's base,
    from the integrator in `open` or from merge-local or pr-train in
    `approved`, goes to the mergers as any bead's does. The merger rebases
    `yard/<train>` onto the base in the train's worktree, keeping both sides'
@@ -657,7 +657,7 @@ against while it is experimental. Its known limits:
   event about its pull request.
 
 With `YARDR_PR=1` set, a train goes to main as a pull
-request against the rig's base instead of a local fast-forward. Three exec
+request against the depot's base instead of a local fast-forward. Three exec
 groups (limit 1 each) and two type routes do it, besides the integrators.
 
 A train is bound to one pull request, not to its branch's name, which a
@@ -712,7 +712,7 @@ commit, pushed after the review, is not merged, and the train is held in
   `YARDR_PR=1`; held without it): runs `gh
   pr merge <pr_url> --rebase --delete-branch --match-head-commit
   <pr_reviewed_sha>`, then `git fetch` and `git
-  merge --ff-only <remote>/<base>` in the rig's checkout, and reports
+  merge --ff-only <remote>/<base>` in the depot's checkout, and reports
   `done`, to `merged`, which closes the train. A PR whose head is not the
   reviewed commit, when pr-merge looks or when GitHub refuses the merge for
   it, holds the train, unmerged: bring the new commits into the train's
@@ -753,7 +753,7 @@ is held, and is read when it is un-held.
    true. From `land` the train is reported `done`, to `merged`; from `in-pr`
    (merged by hand) it goes `land` then `merged`; from `approved` by the
    bare edge to `merged`. A train in `land` whose yardr-pr-merge session is
-   still running is left to it, as it has the rig's checkout to fast-forward.
+   still running is left to it, as it has the depot's checkout to fast-forward.
    Merged by hand, the checkout catches up at the next fetch. **PR closed
    unmerged** (`pr_closed`): a train in `in-pr` or `review` goes to `decide`
    with the question "PR closed unmerged: reopen, or drop the train?".
@@ -856,11 +856,11 @@ edge kept for it.
 
 ```sh
 install contrib/refinery/integrate-train ~/.yardr/scripts/   # from main
-yardr rig flow yardr --type train yardr.train                  # the repo's .yardr/flows/yardr.train.flow
+yardr depot flow yardr --type train yardr.train                  # the repo's .yardr/flows/yardr.train.flow
 yardr group add yardr-integrators --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin ~/.yardr/scripts/integrate-train' \
   --set log="$HOME/.yardr/logs/integrator.log"
-yardr route add --stage open --type train --rig yardr --group yardr-integrators --priority 10
+yardr route add --stage open --type train --depot yardr --group yardr-integrators --priority 10
 ```
 
 Through pull requests (experimental, see above), every cmd on the path
@@ -877,10 +877,10 @@ yardr group add yardr-pr --runner exec --limit 1 \
 yardr group add yardr-pr-merge --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin YARDR_PR=1 ~/.yardr/scripts/pr-merge' \
   --set log="$HOME/.yardr/logs/pr-merge.log"
-yardr route add --stage approved --type train --rig yardr --group yardr-pr --priority 10
+yardr route add --stage approved --type train --depot yardr --group yardr-pr --priority 10
 yardr group add decisions --runner manual --limit 50 --members mckean,yardmaster,yard   # yard: the daemon, for the github rules
-yardr route add --stage in-pr --type train --rig yardr --group decisions
-yardr route add --stage land --type train --rig yardr --group yardr-pr-merge
+yardr route add --stage in-pr --type train --depot yardr --group decisions
+yardr route add --stage land --type train --depot yardr --group yardr-pr-merge
 ```
 
 The train flow's stage file for review (`.yardr/flows/yardr.train/review.md`,

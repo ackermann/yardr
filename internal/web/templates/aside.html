@@ -45,10 +45,10 @@
     {{- end}}
   </ul>
   {{- end}}
-  {{- if .Rigs}}
-  <h3 class="label">Open per rig</h3>
+  {{- if .Depots}}
+  <h3 class="label">Open per depot</h3>
   <ul class="rows">
-    {{- range .Rigs}}
+    {{- range .Depots}}
     <li><span>{{.Name}}</span><span class="num{{if not .Open}} zero{{end}}">{{.Open}}</span></li>
     {{- end}}
   </ul>

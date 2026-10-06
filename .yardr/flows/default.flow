@@ -1,4 +1,4 @@
-# The rig's flow, written by yardr rig init. yardr reads it from the base
+# The depot's flow, written by yardr depot init. yardr reads it from the base
 # branch; see docs/flows.md.
 backlog -> new | decide
 new -> review on done | decide on question | backlog

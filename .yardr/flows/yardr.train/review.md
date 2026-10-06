@@ -18,7 +18,7 @@ name each in your note.
    do the docs describe the end state, is anything a child left "for a later
    child" actually done.
 3. Fix forward as for any bead, in commits starting `review:`, on the train
-   branch. Run the gate (`yardr rig check yardr --dir .`) after your changes.
+   branch. Run the gate (`yardr depot check yardr --dir .`) after your changes.
 
 Approval here is the last review before the train lands on `main`. Before the
 train leaves, one note on it says how the review ended. Outcomes:

@@ -8,11 +8,11 @@
        time finds a card that does not yet hear it leave, and the page has
        two. */}}
 <div id="flows">
-{{- range .Rigs}}
+{{- range .Depots}}
 <article class="item">
   <header class="item-head">
     <h2>{{.Name}}</h2>
-    <span class="label">{{.Kind}} rig</span>
+    <span class="label">{{.Kind}} depot</span>
   </header>
   {{- if .Error}}
   <p class="held">{{.Error}}</p>
@@ -42,7 +42,7 @@
     </ol>
   </section>
   {{- else}}
-  {{- if not .Error}}<p class="faint">No flow governs this rig.</p>{{end}}
+  {{- if not .Error}}<p class="faint">No flow governs this depot.</p>{{end}}
   {{- end}}
   <section class="flow off">
     <h3 class="label">off the flow</h3>
@@ -52,7 +52,7 @@
   </section>
 </article>
 {{- else}}
-<p class="item faint">This yard has no rig yet.</p>
+<p class="item faint">This yard has no depot yet.</p>
 {{- end}}
 </div>
 {{- end}}

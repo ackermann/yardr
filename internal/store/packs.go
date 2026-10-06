@@ -10,34 +10,34 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// bPacks holds what the yard imported, <rig>\x00<pack> -> PackImport: one
-// record per pack and rig, replaced by the next import of that pack there.
+// bPacks holds what the yard imported, <depot>\x00<pack> -> PackImport: one
+// record per pack and depot, replaced by the next import of that pack there.
 var bPacks = []byte("packs")
 
 func init() { allBuckets = append(allBuckets, bPacks) }
 
-// PackImport is the yard's record of a pack imported into a rig: where it
+// PackImport is the yard's record of a pack imported into a depot: where it
 // came from, who imported it and when, how the pack's names map to the
 // yard's, and the objects that are the pack's, so a later import can tell
 // what the pack has dropped since. What a pack is, and how it maps to the
 // yard, is package pack's business; the store keeps the record.
 type PackImport struct {
-	Pack string `json:"pack"`
-	Rig  string `json:"rig"`
+	Pack  string `json:"pack"`
+	Depot string `json:"depot"`
 	// Source is the directory the pack was read from; Commit its git commit
 	// when it is (in) a repository, Dirty whether it then had changes the
 	// commit does not hold.
 	Source string `json:"source"`
 	Commit string `json:"commit,omitempty"`
 	Dirty  bool   `json:"dirty,omitempty"`
-	// Flow is the pack's flow the rig follows, by the pack's name for it.
+	// Flow is the pack's flow the depot follows, by the pack's name for it.
 	Flow string `json:"flow,omitempty"`
-	// RigRoles says the import was told to leave a group or crew member its
-	// rig's own role (--rig-roles); otherwise the pack's roles were set, the
+	// DepotRoles says the import was told to leave a group or crew member its
+	// depot's own role (--depot-roles); otherwise the pack's roles were set, the
 	// default. The next import repeats the choice unless told anew.
-	RigRoles bool      `json:"rig_roles,omitempty"`
-	At       time.Time `json:"at"`
-	By       string    `json:"by"`
+	DepotRoles bool      `json:"depot_roles,omitempty"`
+	At         time.Time `json:"at"`
+	By         string    `json:"by"`
 	// Groups and Crew members map the pack's names to the yard's.
 	Groups  map[string]string `json:"groups"`
 	Crew    map[string]string `json:"crew"`
@@ -133,30 +133,30 @@ func normalPack(p PackImport) PackImport {
 	return p
 }
 
-// RecordPack ends an import of rec.Pack into rec.Rig. changed says whether
+// RecordPack ends an import of rec.Pack into rec.Depot. changed says whether
 // the import wrote anything. One that did, or whose record differs from the
 // stored one, is recorded under the time and actor of this call and logged
 // as pack_applied. One that changed nothing leaves the record as it is and
 // logs pack_unchanged, the only trace such an import leaves. It reports
 // whether the record was written.
 func (s *Store) RecordPack(ctx context.Context, rec PackImport, changed bool, actor string) (bool, error) {
-	if rec.Pack == "" || rec.Rig == "" {
-		return false, fmt.Errorf("pack record: pack and rig are required")
+	if rec.Pack == "" || rec.Depot == "" {
+		return false, fmt.Errorf("pack record: pack and depot are required")
 	}
 	rec = normalPack(rec)
 	written := false
 	err := s.write(func(w *wtx) error {
 		written = false
-		if w.Bucket(bRigs).Get([]byte(rec.Rig)) == nil {
-			return fmt.Errorf("rig %s: %w", rec.Rig, ErrNotFound)
+		if w.Bucket(bDepots).Get([]byte(rec.Depot)) == nil {
+			return fmt.Errorf("depot %s: %w", rec.Depot, ErrNotFound)
 		}
-		key := join(rec.Rig, rec.Pack)
+		key := join(rec.Depot, rec.Pack)
 		var old PackImport
 		had, err := get(w.Tx, bPacks, key, &old)
 		if err != nil {
 			return err
 		}
-		data := map[string]any{"pack": rec.Pack, "rig": rec.Rig, "source": rec.Source}
+		data := map[string]any{"pack": rec.Pack, "depot": rec.Depot, "source": rec.Source}
 		if rec.Commit != "" {
 			data["commit"] = rec.Commit
 		}
@@ -173,7 +173,7 @@ func (s *Store) RecordPack(ctx context.Context, rec PackImport, changed bool, ac
 	return written, err
 }
 
-// Packs lists what the yard imported, by rig and pack.
+// Packs lists what the yard imported, by depot and pack.
 func (s *Store) Packs(ctx context.Context) ([]PackImport, error) {
 	out := []PackImport{}
 	err := s.read(func(tx *bolt.Tx) error {

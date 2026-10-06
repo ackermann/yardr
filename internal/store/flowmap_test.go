@@ -12,7 +12,7 @@ import (
 )
 
 // mapFlow has a stage for every kind of worker, one nobody is routed to
-// and one that ends the bead; mapTrain is the flow of the rig's trains.
+// and one that ends the bead; mapTrain is the flow of the depot's trains.
 const (
 	mapFlow = "backlog -> new\nnew -> review on done | decide on question | backlog\n" +
 		"review -> approved on done | new on changes | parked\napproved -> merged on done | new on failed\n" +
@@ -20,16 +20,16 @@ const (
 	mapTrain = "open -> review on done | open on failed\nreview -> merged on done | open on changes\nmerged terminal\n"
 )
 
-// mapRig is a rig "web" following mapFlow, its trains mapTrain, with the
+// mapDepot is a depot "web" following mapFlow, its trains mapTrain, with the
 // groups and routes that give every stage but parked someone to work it.
-func mapRig(t *testing.T, files map[string]string) (store.API, context.Context) {
+func mapDepot(t *testing.T, files map[string]string) (store.API, context.Context) {
 	t.Helper()
 	all := map[string]string{".yardr/flows/default.flow": mapFlow, ".yardr/flows/type/train.flow": mapTrain}
 	for name, text := range files {
 		all[name] = text
 	}
 	s, ctx := storetest.New(t), context.Background()
-	if err := s.PutRig(ctx, store.Rig{Name: "web", Path: gitRepo(t, all), Base: "main"}, "me"); err != nil {
+	if err := s.PutDepot(ctx, store.Depot{Name: "web", Path: gitRepo(t, all), Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	for name, runner := range map[string]string{"builders": "herdr", "refinery": "exec", "humans": "manual"} {
@@ -37,9 +37,9 @@ func mapRig(t *testing.T, files map[string]string) (store.API, context.Context) 
 			t.Fatal(err)
 		}
 	}
-	rig, train := "web", "train"
+	depot, train := "web", "train"
 	for _, r := range []store.Route{
-		{Stage: "backlog", Group: "humans"}, {Stage: "new", Rig: &rig, Group: "builders"},
+		{Stage: "backlog", Group: "humans"}, {Stage: "new", Depot: &depot, Group: "builders"},
 		{Stage: "review", Group: "builders"}, {Stage: "approved", Group: "refinery"},
 		{Stage: "decide", Group: "humans"}, {Stage: "merged", Group: "builders"},
 		// A train's review is a person's; its open stage is a script's.
@@ -82,7 +82,7 @@ func pathOf(m *store.FlowMap) string {
 // end whatever is routed there.
 func TestFlowMapStages(t *testing.T) {
 	long := "The finished bead is reviewed here against its goal and its done-when and the notes of the builder who made it and more. Second sentence."
-	s, ctx := mapRig(t, map[string]string{
+	s, ctx := mapDepot(t, map[string]string{
 		".yardr/flows/default/backlog.md":  "summary: Shaped until a builder can finish it without asking.\n\nNew beads wait here. Nobody reads this on the map.\n",
 		".yardr/flows/default/new.md":      "A builder implements the bead\non its own branch (see docs/pipeline.md). The rest\nis not on the map.\n\nNor is this.\n",
 		".yardr/flows/default/review.md":   long + "\n",
@@ -90,7 +90,7 @@ func TestFlowMapStages(t *testing.T) {
 		".yardr/flows/default/parked.md":   "No full stop here\n\nSecond paragraph.\n",
 		".yardr/flows/type/train/open.md":  "The train waits for its children.\n",
 	})
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "t", Rig: "web", Stage: "new"}, "me")
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "t", Depot: "web", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestFlowMapStages(t *testing.T) {
 	}
 
 	// A train gets the map of its own flow, and its own routes.
-	e, err := s.CreateBead(ctx, store.NewBead{Title: "e", Rig: "web", Type: "train"}, "me")
+	e, err := s.CreateBead(ctx, store.NewBead{Title: "e", Depot: "web", Type: "train"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,10 +132,10 @@ func TestFlowMapStages(t *testing.T) {
 	}
 
 	// No flow, no map.
-	if err := s.PutRig(ctx, store.Rig{Name: "bare"}, "me"); err != nil {
+	if err := s.PutDepot(ctx, store.Depot{Name: "bare"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	free, err := s.CreateBead(ctx, store.NewBead{Title: "f", Rig: "bare"}, "me")
+	free, err := s.CreateBead(ctx, store.NewBead{Title: "f", Depot: "bare"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,8 +149,8 @@ func TestFlowMapStages(t *testing.T) {
 // that took it there, or as made by hand; a forward move is not marked,
 // whatever it reported.
 func TestFlowMapPath(t *testing.T) {
-	s, ctx := mapRig(t, nil)
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "t", Rig: "web", Stage: "new"}, "me")
+	s, ctx := mapDepot(t, nil)
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "t", Depot: "web", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestFlowMapPath(t *testing.T) {
 
 	// A stage tried again is not forward either. The move is an event
 	// because it ends the session that tried.
-	e, err := s.CreateBead(ctx, store.NewBead{Title: "e", Rig: "web", Type: "train"}, "me")
+	e, err := s.CreateBead(ctx, store.NewBead{Title: "e", Depot: "web", Type: "train"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}

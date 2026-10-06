@@ -173,12 +173,12 @@ approved -> merged on done
 merged terminal
 `
 
-// yard is a store with a rig whose beads follow lineFlow, a herdr group of
+// yard is a store with a depot whose beads follow lineFlow, a herdr group of
 // builders and an exec group of reviewers.
 func yard(t *testing.T) (store.API, context.Context) {
 	t.Helper()
 	st, ctx := storetest.New(t), context.Background()
-	must(t, st.PutRig(ctx, store.Rig{Name: "web", Base: "origin/main"}, "me"))
+	must(t, st.PutDepot(ctx, store.Depot{Name: "web", Base: "origin/main"}, "me"))
 	f, err := store.ParseFlow(lineFlow)
 	must(t, err)
 	f.Name = "web"
@@ -240,9 +240,9 @@ var secrets = []string{"SECRET-TITLE", "SECRET-BODY", "SECRET-NOTE", "SECRET-REA
 // the spans of the sessions that worked in it.
 func TestSpansOfABeadsLife(t *testing.T) {
 	st, ctx := yard(t)
-	train, err := st.CreateBead(ctx, store.NewBead{Title: "the train", Type: "train", Stage: "new", Rig: "web", ID: "web-e"}, "me")
+	train, err := st.CreateBead(ctx, store.NewBead{Title: "the train", Type: "train", Stage: "new", Depot: "web", ID: "web-e"}, "me")
 	must(t, err)
-	b, err := st.CreateBead(ctx, store.NewBead{Title: "SECRET-TITLE", Body: "SECRET-BODY", Stage: "new", Rig: "web"}, "me")
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "SECRET-TITLE", Body: "SECRET-BODY", Stage: "new", Depot: "web"}, "me")
 	must(t, err)
 	must(t, st.AddDep(ctx, train.ID, b.ID, store.DepParent, "me"))
 
@@ -281,7 +281,7 @@ func TestSpansOfABeadsLife(t *testing.T) {
 		if s.TraceID != trace || s.ParentSpanID != "" {
 			t.Errorf("%s: trace %s parent %q, want the bead's trace %s and no parent", s.Name, s.TraceID, s.ParentSpanID, trace)
 		}
-		if s.Attributes.get("yardr.rig") != "web" || "stage "+s.Attributes.get("yardr.stage") != s.Name {
+		if s.Attributes.get("yardr.depot") != "web" || "stage "+s.Attributes.get("yardr.stage") != s.Name {
 			t.Errorf("%s: attributes %+v", s.Name, s.Attributes)
 		}
 		if len(s.Links) != 1 || s.Links[0].TraceID != otel.TraceID(train.ID) || s.Links[0].SpanID == "" {
@@ -330,7 +330,7 @@ func TestSpansOfABeadsLife(t *testing.T) {
 		if s.Name != "session "+w.group || a.get("yardr.group") != w.group || a.get("yardr.runner") != w.runner ||
 			a.get("yardr.attempt") != w.attempt || a.get("yardr.outcome") != w.outcome ||
 			a.get("yardr.harness") != w.harness || a.get("yardr.model") != w.model ||
-			a.get("yardr.bead") != b.ID || a.get("yardr.rig") != "web" || a.get("yardr.session") != sessions[i] ||
+			a.get("yardr.bead") != b.ID || a.get("yardr.depot") != "web" || a.get("yardr.session") != sessions[i] ||
 			"stage "+a.get("yardr.stage") != stays[w.parent].Name {
 			t.Errorf("session %d: %s %+v, want %+v", i, s.Name, a, w)
 		}
@@ -387,7 +387,7 @@ func mustInt(t *testing.T, s string) int64 {
 // Text is the one way a title or a reason leaves: with it they do.
 func TestTextIsSentOnlyWhenAsked(t *testing.T) {
 	st, ctx := yard(t)
-	b, err := st.CreateBead(ctx, store.NewBead{Title: "SECRET-TITLE", Body: "SECRET-BODY", Stage: "new", Rig: "web"}, "me")
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "SECRET-TITLE", Body: "SECRET-BODY", Stage: "new", Depot: "web"}, "me")
 	must(t, err)
 	must(t, st.EndSession(ctx, claim(t, st, b.ID, "builders", "new"), "failed", "SECRET-REASON"))
 	_, err = st.CloseBead(ctx, b.ID, "SECRET-REASON", store.Expect{}, "me")
@@ -417,7 +417,7 @@ func TestResumesWhereItStopped(t *testing.T) {
 	state := filepath.Join(t.TempDir(), "home", "otel-export.json")
 	c := newCollector(t)
 
-	b, err := st.CreateBead(ctx, store.NewBead{Title: "t", Stage: "new", Rig: "web"}, "me")
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "t", Stage: "new", Depot: "web"}, "me")
 	must(t, err)
 	first := claim(t, st, b.ID, "builders", "new")
 	must(t, export(t, st, c, state, nil))
@@ -484,7 +484,7 @@ func TestResumesWhereItStopped(t *testing.T) {
 // it gets everything, once.
 func TestWaitsForACollectorThatIsDown(t *testing.T) {
 	st, ctx := yard(t)
-	b, err := st.CreateBead(ctx, store.NewBead{Title: "t", Stage: "new", Rig: "web"}, "me")
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "t", Stage: "new", Depot: "web"}, "me")
 	must(t, err)
 	claim(t, st, b.ID, "builders", "new")
 	done(t, st, b.ID, "done", "")
@@ -507,7 +507,7 @@ func TestWaitsForACollectorThatIsDown(t *testing.T) {
 // the logs alone when the exporter is started again.
 func TestALostLogsRequestDoesNotRepeatTheSpans(t *testing.T) {
 	st, ctx := yard(t)
-	b, err := st.CreateBead(ctx, store.NewBead{Title: "t", Stage: "new", Rig: "web"}, "me")
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "t", Stage: "new", Depot: "web"}, "me")
 	must(t, err)
 	claim(t, st, b.ID, "builders", "new")
 	done(t, st, b.ID, "done", "")
@@ -552,7 +552,7 @@ func TestALostLogsRequestDoesNotRepeatTheSpans(t *testing.T) {
 // collector's answer, and the state does not move: nothing is dropped.
 func TestARefusedRequestIsAnErrorAndLosesNothing(t *testing.T) {
 	st, ctx := yard(t)
-	_, err := st.CreateBead(ctx, store.NewBead{Title: "t", Stage: "new", Rig: "web"}, "me")
+	_, err := st.CreateBead(ctx, store.NewBead{Title: "t", Stage: "new", Depot: "web"}, "me")
 	must(t, err)
 	c := newCollector(t, 401)
 	state := filepath.Join(t.TempDir(), "state.json")

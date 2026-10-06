@@ -91,7 +91,7 @@ func shortTrustWait(t *testing.T) {
 	t.Cleanup(func() { trustWait = old })
 }
 
-// Found live (yardr-1znz): the first builder of a rig Claude Code had not
+// Found live (yardr-1znz): the first builder of a depot Claude Code had not
 // seen stopped at the folder-trust dialog until someone answered it in its
 // pane. yardr answers it, moving the cursor off "No, exit" first, and the
 // agent gets its first prompt at once.

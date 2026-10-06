@@ -11,7 +11,7 @@ landed on `main`, so read its children's beads for its side. Do not push
 `yard/<train>`: the integrator pushes it, with a lease.
 
 Before the train leaves as `done`, the branch is rebased onto `main`, the gate
-passes on it (`yardr rig check yardr --dir .`), and one note on the train
+passes on it (`yardr depot check yardr --dir .`), and one note on the train
 begins exactly `merge re-review:`. It lists the old tip (`old tip: <sha>`),
 every conflicting file, what each side wanted, how both were kept, and the
 gate result.

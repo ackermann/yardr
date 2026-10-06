@@ -32,16 +32,16 @@ func failsEarly(after int) string {
 		"i=0; while [ $i -lt %d ]; do i=$((i+1)); echo \"ok pkg$i\"; done\necho FAIL\nexit 1\n", after)
 }
 
-// A failure 500 lines above the end is not in the tail: the rig's pattern
+// A failure 500 lines above the end is not in the tail: the depot's pattern
 // finds it, with the lines around it, and the kept file holds all of it.
 func TestFailureAboveTheTailIsMatchedAndKept(t *testing.T) {
 	ctx := context.Background()
-	rig, wt := rigWithBead(t, failsEarly(500))
-	commitPattern(t, rig.Path, "# go\n--- FAIL\n^FAIL\n")
+	depot, wt := depotWithBead(t, failsEarly(500))
+	commitPattern(t, depot.Path, "# go\n--- FAIL\n^FAIL\n")
 	// The bead's own pattern is not read, as its own gate is not.
 	commitPattern(t, wt, "^ok\n")
 
-	res, err := Run(ctx, rig, wt)
+	res, err := Run(ctx, depot, wt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,12 +89,12 @@ func TestFailureAboveTheTailIsMatchedAndKept(t *testing.T) {
 	}
 }
 
-// A rig without a pattern has no matched lines, and a passing check none
+// A depot without a pattern has no matched lines, and a passing check none
 // either, whatever it printed.
 func TestNoPatternNoMatch(t *testing.T) {
 	ctx := context.Background()
-	rig, wt := rigWithBead(t, failsEarly(10))
-	res, err := Run(ctx, rig, wt)
+	depot, wt := depotWithBead(t, failsEarly(10))
+	res, err := Run(ctx, depot, wt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,23 +102,23 @@ func TestNoPatternNoMatch(t *testing.T) {
 		t.Fatalf("no pattern: pass=%v matched %q notes %v", res.Pass, res.Matched, res.PatternNotes)
 	}
 
-	rig, wt = rigWithBead(t, "#!/bin/sh\necho '--- FAIL: but exits 0'\n")
-	commitPattern(t, rig.Path, "--- FAIL\n")
-	if res, err = Run(ctx, rig, wt); err != nil || !res.Pass || res.Matched != "" {
+	depot, wt = depotWithBead(t, "#!/bin/sh\necho '--- FAIL: but exits 0'\n")
+	commitPattern(t, depot.Path, "--- FAIL\n")
+	if res, err = Run(ctx, depot, wt); err != nil || !res.Pass || res.Matched != "" {
 		t.Fatalf("passing check: %+v, %v", res, err)
 	}
 }
 
 // The pattern is the repository's under a store override too (at the base
-// as it is locally), and a dir rig's is in its directory. A line that is no
+// as it is locally), and a dir depot's is in its directory. A line that is no
 // regular expression is named and skipped; the others count.
 func TestPatternSources(t *testing.T) {
 	ctx := context.Background()
-	rig, wt := rigWithBead(t, "")
-	commitPattern(t, rig.Path, "(\nboom\n")
-	rig.Check, rig.CheckLight = "echo boom; echo after; exit 1", "echo light boom; exit 1"
-	for _, run := range []func(context.Context, store.Rig, string) (*Result, error){Run, RunLight} {
-		res, err := run(ctx, rig, wt)
+	depot, wt := depotWithBead(t, "")
+	commitPattern(t, depot.Path, "(\nboom\n")
+	depot.Check, depot.CheckLight = "echo boom; echo after; exit 1", "echo light boom; exit 1"
+	for _, run := range []func(context.Context, store.Depot, string) (*Result, error){Run, RunLight} {
+		res, err := run(ctx, depot, wt)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -137,9 +137,9 @@ func TestPatternSources(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	res, err := Run(ctx, store.Rig{Name: "d", Kind: store.RigDir, Path: dir}, "")
+	res, err := Run(ctx, store.Depot{Name: "d", Kind: store.DepotDir, Path: dir}, "")
 	if err != nil || res.Matched != "-- line 1\none\nboom" {
-		t.Fatalf("dir rig: %+v, %v", res, err)
+		t.Fatalf("dir depot: %+v, %v", res, err)
 	}
 }
 
@@ -201,21 +201,21 @@ func TestMatching(t *testing.T) {
 }
 
 // Kept outputs are bounded: per directory the check ran in the newest
-// KeepPerDir stay, and nothing older than KeepFor, whichever rig or bead.
+// KeepPerDir stay, and nothing older than KeepFor, whichever depot or bead.
 func TestKeepIsBounded(t *testing.T) {
 	home := t.TempDir()
 	now := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
-	keep := func(rig, dir string, at time.Time) string {
+	keep := func(depot, dir string, at time.Time) string {
 		t.Helper()
-		file, err := Keep(home, &Result{Rig: rig, Dir: filepath.Join("/wt", dir), Output: "x\n"}, at)
+		file, err := Keep(home, &Result{Depot: depot, Dir: filepath.Join("/wt", dir), Output: "x\n"}, at)
 		if err != nil {
 			t.Fatal(err)
 		}
 		return filepath.Base(file)
 	}
-	names := func(rig string) []string {
+	names := func(depot string) []string {
 		t.Helper()
-		entries, err := os.ReadDir(filepath.Join(home, GatesDir, rig))
+		entries, err := os.ReadDir(filepath.Join(home, GatesDir, depot))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -248,11 +248,11 @@ func TestKeepIsBounded(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Fatalf("kept %v, want %v (the newest %d of r-1, r-2's, not %s)", got, want, KeepPerDir, old)
 	}
-	// Another rig's are not this run's to remove.
+	// Another depot's are not this run's to remove.
 	if got := names("s"); !slices.Equal(got, []string{elsewhere}) {
-		t.Fatalf("rig s: %v", got)
+		t.Fatalf("depot s: %v", got)
 	}
-	// A name that is no file name stays inside the rig's directory.
+	// A name that is no file name stays inside the depot's directory.
 	if file := keep("../x", "..", now); file != "_-20261005T120000Z.log" || len(names("__x")) != 1 {
 		t.Fatalf("unsafe names kept as %s", file)
 	}

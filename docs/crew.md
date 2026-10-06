@@ -48,8 +48,8 @@ greet that user by mail: its first prompt asks for it. `yardr init` sets it
 on the yardmaster, to the operator, because the onboarding ends in
 [`yardr chat`](chat.md#from-the-onboarding).
 
-A crew member has no rig, so its `prompt` is an absolute path (a relative one is
-read from its `--dir`): a rig's own `.yardr/roles/yardmaster.md`, or the
+A crew member has no depot, so its `prompt` is an absolute path (a relative one is
+read from its `--dir`): a depot's own `.yardr/roles/yardmaster.md`, or the
 generic `~/.yardr/roles/yardmaster.md` that `yardr init` installs and points
 the yardmaster at.
 

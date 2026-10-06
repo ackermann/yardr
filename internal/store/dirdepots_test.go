@@ -14,50 +14,50 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// A rig is a git rig unless it says otherwise; a dir rig has no base, and
+// A depot is a git depot unless it says otherwise; a dir depot has no base, and
 // a kind is one of the two.
-func TestRigKinds(t *testing.T) {
+func TestDepotKinds(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
-	if err := s.PutRig(ctx, store.Rig{Name: "web", Path: "/x", Base: "main"}, "me"); err != nil {
+	if err := s.PutDepot(ctx, store.Depot{Name: "web", Path: "/x", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if r, err := s.GetRig(ctx, "web"); err != nil || r.Kind != store.RigGit || r.IsDir() {
-		t.Fatalf("rig without a kind = %+v, %v; want git", r, err)
+	if r, err := s.GetDepot(ctx, "web"); err != nil || r.Kind != store.DepotGit || r.IsDir() {
+		t.Fatalf("depot without a kind = %+v, %v; want git", r, err)
 	}
-	if err := s.PutRig(ctx, store.Rig{Name: "docs", Path: "/d", Kind: store.RigDir}, "me"); err != nil {
+	if err := s.PutDepot(ctx, store.Depot{Name: "docs", Path: "/d", Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if r, err := s.GetRig(ctx, "docs"); err != nil || r.Kind != store.RigDir || !r.IsDir() || r.Base != "" {
-		t.Fatalf("dir rig = %+v, %v", r, err)
+	if r, err := s.GetDepot(ctx, "docs"); err != nil || r.Kind != store.DepotDir || !r.IsDir() || r.Base != "" {
+		t.Fatalf("dir depot = %+v, %v", r, err)
 	}
-	err := s.PutRig(ctx, store.Rig{Name: "docs", Path: "/d", Kind: store.RigDir, Base: "main"}, "me")
+	err := s.PutDepot(ctx, store.Depot{Name: "docs", Path: "/d", Kind: store.DepotDir, Base: "main"}, "me")
 	if err == nil || !strings.Contains(err.Error(), "has no base") {
-		t.Fatalf("dir rig with a base: %v", err)
+		t.Fatalf("dir depot with a base: %v", err)
 	}
-	if err := s.PutRig(ctx, store.Rig{Name: "x", Path: "/d", Kind: "svn"}, "me"); err == nil || !strings.Contains(err.Error(), `kind "svn"`) {
+	if err := s.PutDepot(ctx, store.Depot{Name: "x", Path: "/d", Kind: "svn"}, "me"); err == nil || !strings.Contains(err.Error(), `kind "svn"`) {
 		t.Fatalf("unknown kind: %v", err)
 	}
 	evs, _ := s.EventsSince(ctx, 0, 0)
-	if last := evs[len(evs)-1]; last.Kind != "rig_updated" || last.Data["kind"] != store.RigDir {
-		t.Fatalf("last event = %+v; want rig_updated with the kind", last)
+	if last := evs[len(evs)-1]; last.Kind != "depot_updated" || last.Data["kind"] != store.DepotDir {
+		t.Fatalf("last event = %+v; want depot_updated with the kind", last)
 	}
 }
 
-// A store written before rig kinds holds rigs without one: they open as git
-// rigs, and stay so.
-func TestMigrateRigKinds(t *testing.T) {
+// A store written before depot kinds holds depots without one: they open as git
+// depots, and stay so.
+func TestMigrateDepotKinds(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "yard.db")
 	db, err := bolt.Open(path, 0o600, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
-		rigs, err := tx.CreateBucket([]byte("rigs"))
+		depots, err := tx.CreateBucket([]byte("depots"))
 		if err != nil {
 			return err
 		}
-		return rigs.Put([]byte("yard"), []byte(`{"name":"yard","path":"/tmp/yard","base":"origin/main"}`))
+		return depots.Put([]byte("yard"), []byte(`{"name":"yard","path":"/tmp/yard","base":"origin/main"}`))
 	})
 	db.Close()
 	if err != nil {
@@ -69,10 +69,10 @@ func TestMigrateRigKinds(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		r, err := s.GetRig(ctx, "yard")
+		r, err := s.GetDepot(ctx, "yard")
 		s.Close(ctx)
-		if err != nil || r.Kind != store.RigGit || r.Base != "origin/main" {
-			t.Fatalf("migrated rig = %+v, %v", r, err)
+		if err != nil || r.Kind != store.DepotGit || r.Base != "origin/main" {
+			t.Fatalf("migrated depot = %+v, %v", r, err)
 		}
 	}
 	// The migration wrote the kind to the file, not just a default on read.
@@ -82,8 +82,8 @@ func TestMigrateRigKinds(t *testing.T) {
 	}
 	defer db.Close()
 	_ = db.View(func(tx *bolt.Tx) error {
-		if raw := string(tx.Bucket([]byte("rigs")).Get([]byte("yard"))); !strings.Contains(raw, `"kind":"git"`) {
-			t.Fatalf("stored rig = %s", raw)
+		if raw := string(tx.Bucket([]byte("depots")).Get([]byte("yard"))); !strings.Contains(raw, `"kind":"git"`) {
+			t.Fatalf("stored depot = %s", raw)
 		}
 		return nil
 	})
@@ -102,9 +102,9 @@ func writeFiles(t *testing.T, dir string, files map[string]string) {
 	}
 }
 
-// A dir rig's flows are read from its directory as it is (there is no base
+// A dir depot's flows are read from its directory as it is (there is no base
 // to read them from), and reread when a file changes, even to the same size.
-func TestDirRigFlows(t *testing.T) {
+func TestDirDepotFlows(t *testing.T) {
 	dir := t.TempDir()
 	writeFiles(t, dir, map[string]string{
 		".yardr/flows/default.flow":       repoDefault,
@@ -113,14 +113,14 @@ func TestDirRigFlows(t *testing.T) {
 	})
 	s := storetest.New(t)
 	ctx := context.Background()
-	if err := s.PutRig(ctx, store.Rig{Name: "docs", Path: dir, Kind: store.RigDir}, "me"); err != nil {
+	if err := s.PutDepot(ctx, store.Depot{Name: "docs", Path: dir, Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "t", Rig: "docs"}, "me")
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "t", Depot: "docs"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
-	q, err := s.CreateBead(ctx, store.NewBead{Title: "q", Rig: "docs", Type: "decision", Stage: "ask"}, "me")
+	q, err := s.CreateBead(ctx, store.NewBead{Title: "q", Depot: "docs", Type: "decision", Stage: "ask"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,11 +155,11 @@ func TestDirRigFlows(t *testing.T) {
 
 	// A broken flow refuses moves rather than leave beads ungoverned.
 	writeFiles(t, dir, map[string]string{".yardr/flows/default.flow": "new => review\n"})
-	if _, err := s.CreateBead(ctx, store.NewBead{Title: "t2", Rig: "docs"}, "me"); err == nil || !strings.Contains(err.Error(), ".yardr/flows/default.flow") {
+	if _, err := s.CreateBead(ctx, store.NewBead{Title: "t2", Depot: "docs"}, "me"); err == nil || !strings.Contains(err.Error(), ".yardr/flows/default.flow") {
 		t.Fatalf("create under a broken dir flow: %v", err)
 	}
 
-	// Removing the file leaves the rig's beads ungoverned, as a git rig
+	// Removing the file leaves the depot's beads ungoverned, as a git depot
 	// without flows.
 	if err := os.Remove(flow); err != nil {
 		t.Fatal(err)
@@ -172,11 +172,11 @@ func TestDirRigFlows(t *testing.T) {
 	if err := s.SetFlowPointer(ctx, "docs", "", "ghost", "me"); err == nil || !strings.Contains(err.Error(), "in "+dir) {
 		t.Fatalf("pointer to a missing dir flow: %v", err)
 	}
-	// The rig pointer would govern the decision too, whose stage ask the
+	// The depot pointer would govern the decision too, whose stage ask the
 	// flow lacks: it is refused until the decision is out of the way.
 	writeFiles(t, dir, map[string]string{".yardr/flows/alt.flow": repoAlt})
 	if err := s.SetFlowPointer(ctx, "docs", "", "alt", "me"); err == nil || !strings.Contains(err.Error(), q.ID+" (ask)") {
-		t.Fatalf("rig pointer to a dir flow over a decision in ask: %v", err)
+		t.Fatalf("depot pointer to a dir flow over a decision in ask: %v", err)
 	}
 	if q, err = s.Advance(ctx, q.ID, "answered", store.Expect{}, "me"); err != nil || q.Status != "closed" {
 		t.Fatalf("decision: %v %+v", err, q)
@@ -189,32 +189,32 @@ func TestDirRigFlows(t *testing.T) {
 	}
 
 	// A directory with no .yardr at all has no flows; that is not an error.
-	if err := s.PutRig(ctx, store.Rig{Name: "bare", Path: t.TempDir(), Kind: store.RigDir}, "me"); err != nil {
+	if err := s.PutDepot(ctx, store.Depot{Name: "bare", Path: t.TempDir(), Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if rf, err := s.RepoFlows(ctx, "bare"); err != nil || len(rf.Flows) != 0 {
-		t.Fatalf("bare dir rig: %+v, %v", rf, err)
+		t.Fatalf("bare dir depot: %+v, %v", rf, err)
 	}
 }
 
-// Trains in a dir rig only group their children: nobody has a base, as
+// Trains in a dir depot only group their children: nobody has a base, as
 // there are no branches.
-func TestDirRigTrains(t *testing.T) {
+func TestDirDepotTrains(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
-	if err := s.PutRig(ctx, store.Rig{Name: "docs", Path: t.TempDir(), Kind: store.RigDir}, "me"); err != nil {
+	if err := s.PutDepot(ctx, store.Depot{Name: "docs", Path: t.TempDir(), Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	train, err := s.CreateBead(ctx, store.NewBead{Title: "e", Rig: "docs", Type: store.TypeTrain}, "me")
+	train, err := s.CreateBead(ctx, store.NewBead{Title: "e", Depot: "docs", Type: store.TypeTrain}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
-	child, err := s.CreateBead(ctx, store.NewBead{Title: "c", Rig: "docs"}, "me")
+	child, err := s.CreateBead(ctx, store.NewBead{Title: "c", Depot: "docs"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AddDep(ctx, train.ID, child.ID, store.DepParent, "me"); err != nil {
-		t.Fatalf("parent edge in a dir rig: %v", err)
+		t.Fatalf("parent edge in a dir depot: %v", err)
 	}
 	f, err := s.Family(ctx, child.ID)
 	if err != nil || f.Train != train.ID || f.Base != "" {
@@ -226,12 +226,12 @@ func TestDirRigTrains(t *testing.T) {
 	}
 }
 
-// A session of a dir rig's bead leaves a brief in the rig's directory, not
+// A session of a dir depot's bead leaves a brief in the depot's directory, not
 // a worktree: once the bead closes it is still found for cleanup.
-func TestClosedWithWorkspaceDirRig(t *testing.T) {
+func TestClosedWithWorkspaceDirDepot(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
-	if err := s.PutRig(ctx, store.Rig{Name: "docs", Path: "/d", Kind: store.RigDir}, "me"); err != nil {
+	if err := s.PutDepot(ctx, store.Depot{Name: "docs", Path: "/d", Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "herdr"}); err != nil {
@@ -242,7 +242,7 @@ func TestClosedWithWorkspaceDirRig(t *testing.T) {
 		"dir":  {"agent": "a", "dir": "/d", "brief": "/d/.yardr/briefs/brief-s.md"},
 		"none": {"agent": "b"},
 	} {
-		b, err := s.CreateBead(ctx, store.NewBead{Title: name, Rig: "docs", Stage: "new"}, "me")
+		b, err := s.CreateBead(ctx, store.NewBead{Title: name, Depot: "docs", Stage: "new"}, "me")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -267,10 +267,10 @@ func TestClosedWithWorkspaceDirRig(t *testing.T) {
 	}
 }
 
-// rig rm works on a dir rig as on a git one: the rig, the routes that name
+// depot rm works on a dir depot as on a git one: the depot, the routes that name
 // it and its flow pointers leave the store, and the directory, with its
 // .yardr/, stays as it is (there are no worktrees to speak of).
-func TestDeleteDirRig(t *testing.T) {
+func TestDeleteDirDepot(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -281,14 +281,14 @@ func TestDeleteDirRig(t *testing.T) {
 	if err := os.WriteFile(flow, []byte("new -> done\ndone terminal\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.PutRig(ctx, store.Rig{Name: "docs", Path: dir, Kind: store.RigDir}, "me"); err != nil {
+	if err := s.PutDepot(ctx, store.Depot{Name: "docs", Path: dir, Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "herdr"}); err != nil {
 		t.Fatal(err)
 	}
 	docs := "docs"
-	route, err := s.AddRoute(ctx, store.Route{Stage: "new", Rig: &docs, Group: "g"})
+	route, err := s.AddRoute(ctx, store.Route{Stage: "new", Depot: &docs, Group: "g"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -303,13 +303,13 @@ func TestDeleteDirRig(t *testing.T) {
 	if err := s.SetFlowPointer(ctx, "docs", "", "named", "me"); err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.DeleteRig(ctx, "docs", "me")
-	if err != nil || got.Rig != "docs" || len(got.Routes) != 1 || got.Routes[0] != route.ID ||
-		len(got.FlowPointers) != 1 || got.FlowPointers[0].String() != "rig docs" {
-		t.Fatalf("DeleteRig = %+v, %v", got, err)
+	got, err := s.DeleteDepot(ctx, "docs", "me")
+	if err != nil || got.Depot != "docs" || len(got.Routes) != 1 || got.Routes[0] != route.ID ||
+		len(got.FlowPointers) != 1 || got.FlowPointers[0].String() != "depot docs" {
+		t.Fatalf("DeleteDepot = %+v, %v", got, err)
 	}
-	if _, err := s.GetRig(ctx, "docs"); err == nil {
-		t.Fatal("dir rig still in the store")
+	if _, err := s.GetDepot(ctx, "docs"); err == nil {
+		t.Fatal("dir depot still in the store")
 	}
 	if rs, _ := s.Routes(ctx); len(rs) != 0 {
 		t.Fatalf("routes left: %+v", rs)
@@ -338,14 +338,14 @@ func TestRepoFlowsUnderTheOldTypeWords(t *testing.T) {
 		".yardr/flows/type/epic/open.md": "The train waits for its children.\n",
 		".yardr/flows/type/part.flow":    "backlog -> new\nnew -> landed\nlanded terminal\n",
 	})
-	if err := s.PutRig(ctx, store.Rig{Name: "docs", Path: dir, Kind: store.RigDir}, "me"); err != nil {
+	if err := s.PutDepot(ctx, store.Depot{Name: "docs", Path: dir, Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	train, err := s.CreateBead(ctx, store.NewBead{Title: "e", Rig: "docs", Type: store.TypeTrain}, "me")
+	train, err := s.CreateBead(ctx, store.NewBead{Title: "e", Depot: "docs", Type: store.TypeTrain}, "me")
 	if err != nil || train.Stage != "backlog" {
 		t.Fatalf("train = %+v, %v", train, err)
 	}
-	car, err := s.CreateBead(ctx, store.NewBead{Title: "c", Rig: "docs", Type: store.TypeCar}, "me")
+	car, err := s.CreateBead(ctx, store.NewBead{Title: "c", Depot: "docs", Type: store.TypeCar}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}

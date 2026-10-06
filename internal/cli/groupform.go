@@ -223,9 +223,9 @@ func (a *app) askGroup(ctx context.Context, st store.API, groups []store.Group, 
 		}
 	case "exec":
 		if err := ask(
-			huh.NewText().Title("Command").Description("Runs with sh -c in the rig, with $YARDR_BEAD set. It should advance or close the bead.").
+			huh.NewText().Title("Command").Description("Runs with sh -c in the depot, with $YARDR_BEAD set. It should advance or close the bead.").
 				Value(&ans.Cmd).Validate(nonEmpty),
-			huh.NewInput().Title("Directory").Description("Optional; defaults to the bead's rig.").Value(&ans.Dir),
+			huh.NewInput().Title("Directory").Description("Optional; defaults to the bead's depot.").Value(&ans.Dir),
 		); err != nil {
 			return nil, err
 		}
@@ -287,7 +287,7 @@ func (a *app) agentFields(ctx context.Context, ans *groupAnswers) error {
 		return err
 	}
 	return ask(
-		huh.NewInput().Title("Prompt file").Description("Optional; roles/builder.md reads the rig's .yardr/roles/builder.md, else ~/.yardr/roles/.").
+		huh.NewInput().Title("Prompt file").Description("Optional; roles/builder.md reads the depot's .yardr/roles/builder.md, else ~/.yardr/roles/.").
 			Value(&ans.Prompt),
 		huh.NewInput().Title("Extra agent arguments").Description("Optional, space-separated.").Value(&ans.Extra),
 	)

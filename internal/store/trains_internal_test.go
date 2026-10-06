@@ -26,16 +26,16 @@ func TestEdgesOldestFirstAcrossIDWrap(t *testing.T) {
 	}
 	defer s.Close(context.Background())
 	ctx := context.Background()
-	if err := s.PutRig(ctx, Rig{Name: "web", Base: "main"}, "me"); err != nil {
+	if err := s.PutDepot(ctx, Depot{Name: "web", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	uuid := map[string]string{}
 	children := []string{"web-1", "web-2", "web-3"}
 	for _, nb := range []NewBead{
-		{ID: "web-e", Title: "train", Type: TypeTrain, Rig: "web"},
-		{ID: "web-1", Title: "one", Rig: "web"},
-		{ID: "web-2", Title: "two", Rig: "web"},
-		{ID: "web-3", Title: "three", Rig: "web"},
+		{ID: "web-e", Title: "train", Type: TypeTrain, Depot: "web"},
+		{ID: "web-1", Title: "one", Depot: "web"},
+		{ID: "web-2", Title: "two", Depot: "web"},
+		{ID: "web-3", Title: "three", Depot: "web"},
 	} {
 		b, err := s.CreateBead(ctx, nb, "me")
 		if err != nil {

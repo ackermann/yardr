@@ -7,18 +7,18 @@ You implement one bead, in its own worktree on branch `yard/<bead>`.
    names match their neighbours. Prefer extending what is there over a new
    concept, flag, setting or special case. Where the bead forces one, say
    so in your note, under Choices if the bead asks for that section.
-3. Check your work with the rig's light gate before you hand on, after your
-   last commit: `yardr rig check <rig> --light --dir <your worktree>`. It is
-   read from the rig's base, so editing it on your branch does not change
-   what you must pass. A rig without a light gate runs its full gate there,
+3. Check your work with the depot's light gate before you hand on, after your
+   last commit: `yardr depot check <depot> --light --dir <your worktree>`. It is
+   read from the depot's base, so editing it on your branch does not change
+   what you must pass. A depot without a light gate runs its full gate there,
    and the first line of the output says so. Beyond it, run the tests of
    what you changed, as you judge.
-   The full gate (`yardr rig check <rig> --dir <your worktree>`) runs once,
+   The full gate (`yardr depot check <depot> --dir <your worktree>`) runs once,
    on exactly what lands, after review, and a red one comes back to you. Run
    it yourself only when your change is of a kind the light gate cannot see:
    cross-package behaviour or tests in packages it skips, race coverage
    outside the packages it selects, slow suites, or code reached only by
-   building the binary. What those are depends on the rig's light gate (its
+   building the binary. What those are depends on the depot's light gate (its
    `.yardr/check-light` says). An edit to a gate's own script is run by
    neither gate: run your copy by hand.
    Every bug you find or fix gets a regression test.
@@ -49,7 +49,7 @@ You implement one bead, in its own worktree on branch `yard/<bead>`.
    on (`git rev-parse --short HEAD`, the branch's last commit) and the
    result, with the counts the gate printed (tests or packages passed and
    failed):
-   `gate: yardr rig check <rig> --light --dir <worktree> @ <commit>: pass, <n> ok, 0 failed`
+   `gate: yardr depot check <depot> --light --dir <worktree> @ <commit>: pass, <n> ok, 0 failed`
    The reviewer goes by that line instead of running the gate again, so it
    must be true of the commit you hand on: commit after it, and you run the
    gate again.
@@ -62,7 +62,7 @@ yardmaster's inbox.
 
 1. It does not block you (a bug elsewhere, a stale doc, a flaky test): file
    it and carry on, never fix it on your branch. `yardr bead create "<title>"
-   --rig <rig> --stage backlog -b - --discovered-from <your bead>`, with what
+   --depot <depot> --stage backlog -b - --discovered-from <your bead>`, with what
    you saw, where, and how to reproduce. The new bead names the bead it was
    found from. The yardmaster shapes it from backlog.
 2. It blocks you but is no question about the bead (the gate is red on the
@@ -75,12 +75,12 @@ yardmaster's inbox.
    choice): that is for the stage's outcomes, not for a new bead. Your brief
    says which outcome takes a question, or hold as above.
 
-## In a directory rig
+## In a directory depot
 
-If you work in a directory rig (the brief says which kind of rig it is): no
-branches, no commits. You work in the rig's directory itself, where other
+If you work in a directory depot (the brief says which kind of depot it is): no
+branches, no commits. You work in the depot's directory itself, where other
 beads may be at work too, so touch only the files and folders your bead names.
-The gate is the rig's `.yardr/check` if it has one (`yardr rig check <rig>`
+The gate is the depot's `.yardr/check` if it has one (`yardr depot check <depot>`
 passes with "no gate" otherwise), the full one and not the light: nothing
-lands from a directory rig, so no later stage runs it for you. The gate line
+lands from a directory depot, so no later stage runs it for you. The gate line
 has no commit. Steps 3 and 5 apply only as far as that.

@@ -346,7 +346,7 @@ func TestBareYardrStartsAYardThatDidNotStart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	for _, s := range []string{"The yard in " + home + " has no rig yet, and its onboarding did not reach its end",
+	for _, s := range []string{"The yard in " + home + " has no depot yet, and its onboarding did not reach its end",
 		"FAULT  daemon      not running", "FAULT  yardmaster  yardmaster is not running: the daemon starts it",
 		"The daemon is started, in the background", "yardmaster is running, in herdr"} {
 		if !strings.Contains(out, s) {
@@ -441,15 +441,15 @@ func TestOnboardingIsTakenUpWhereTheYardmasterDidNotComeUp(t *testing.T) {
 }
 
 // Bare yardr takes up nothing where it is not the onboarding's to finish: a
-// yard with a rig, a yardmaster stopped on purpose, an agent's session, --json,
+// yard with a depot, a yardmaster stopped on purpose, an agent's session, --json,
 // no terminal. It is help there, and asks nothing.
 func TestBareYardrLeavesOtherYardsAlone(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		prep func(t *testing.T, st store.API, home string)
 	}{
-		{"a rig", func(t *testing.T, st store.API, _ string) {
-			if err := st.PutRig(context.Background(), store.Rig{Name: "web", Path: shortDir(t, "yg"), Kind: store.RigDir}, "me"); err != nil {
+		{"a depot", func(t *testing.T, st store.API, _ string) {
+			if err := st.PutDepot(context.Background(), store.Depot{Name: "web", Path: shortDir(t, "yg"), Kind: store.DepotDir}, "me"); err != nil {
 				t.Fatal(err)
 			}
 		}},

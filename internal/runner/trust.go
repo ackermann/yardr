@@ -11,9 +11,9 @@ import (
 
 // Claude Code asks whether a folder is trusted the first time it is started
 // in a repository (a linked worktree counts as its repository, so one answer
-// covers every bead of a rig) or in a plain directory. Nobody watches an
+// covers every bead of a depot) or in a plain directory. Nobody watches an
 // agent yardr starts, and the operator already said the folder is theirs by
-// making it a rig or a crew member's directory, so yardr answers the dialog.
+// making it a depot or a crew member's directory, so yardr answers the dialog.
 //
 // Claude Code has no flag, setting or environment variable that skips the
 // dialog in an interactive session (2.1.288). The other way is to write

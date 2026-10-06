@@ -75,7 +75,7 @@ func newIssueYard(t *testing.T) *issueYard {
 	y.src.Add(standin.Issue{Source: "github", Key: "acme/webapp#7", Title: "Retries", Status: "open"})
 
 	must(t, os.WriteFile(y.env, []byte("LINEAR_API_KEY=lin_api_yardmaster\nGITHUB_TOKEN=gh-yardmaster\n"), 0o600))
-	must(t, api.PutRig(ctx, store.Rig{Name: "yard", Base: "main"}, "me"))
+	must(t, api.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"))
 	flow, err := store.ParseFlow(issueFlow)
 	must(t, err)
 	flow.Name = "yard"
@@ -117,7 +117,7 @@ func (y *issueYard) yardmaster(t *testing.T, sources string) {
 // bead creates a task in backlog tracking the issues, linked by URL alone.
 func (y *issueYard) bead(t *testing.T, id string, issues ...string) {
 	t.Helper()
-	nb := store.NewBead{ID: id, Title: id, Rig: "yard", Stage: "backlog"}
+	nb := store.NewBead{ID: id, Title: id, Depot: "yard", Stage: "backlog"}
 	for _, u := range issues {
 		source, fixed, err := hooks.Issue(u)
 		must(t, err)

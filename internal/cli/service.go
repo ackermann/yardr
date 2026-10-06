@@ -612,19 +612,19 @@ func (d daemonState) line() string {
 	return "not running"
 }
 
-// protectedNote is what a daemon started at login cannot do in the rigs
+// protectedNote is what a daemon started at login cannot do in the depots
 // named, and what to grant. macOS only.
-func protectedNote(rigs []string, program string) string {
+func protectedNote(depots []string, program string) string {
 	return fmt.Sprintf("%s in a folder macOS protects (~/Desktop, ~/Documents, ~/Downloads). A daemon started at login "+
-		"does not have your terminal's access there: until yardr has its own, work in such a rig can fail with \"operation not permitted\". "+
+		"does not have your terminal's access there: until yardr has its own, work in such a depot can fail with \"operation not permitted\". "+
 		"Grant it in System Settings, Privacy & Security: Full Disk Access (add %s), or Files and Folders once macOS has asked. "+
 		"A new build of yardr can need the grant again (docs/configuration.md, \"Login services\")",
-		list(rigs)+isAre(rigs), program)
+		list(depots)+isAre(depots), program)
 }
 
 // daemonWarnings are what the daemon as a service will lack, as far as it
 // shows now: a program not on the PATH written into it, and on macOS the
-// rigs it has no access to.
+// depots it has no access to.
 func (a *app) daemonWarnings(ctx context.Context, cfg *config.Config, program string) ([]string, error) {
 	var out []string
 	needs := basicNeeds()
@@ -648,14 +648,14 @@ func (a *app) daemonWarnings(ctx context.Context, cfg *config.Config, program st
 		for _, u := range harnessUses(defaultKind(ctx, st), groups, crew) {
 			needs = append(needs, harnessNeed(u.kind, "the harness of "+strings.Join(u.by, ", ")))
 		}
-		rigs, err := st.Rigs(ctx)
+		depots, err := st.Depots(ctx)
 		if err != nil {
 			return nil, err
 		}
 		if home, err := userHomeDir(); goos == "darwin" && err == nil {
-			if in := protectedRigs(rigs, home); len(in) > 0 {
+			if in := protectedDepots(depots, home); len(in) > 0 {
 				for i := range in {
-					in[i] = "rig " + in[i]
+					in[i] = "depot " + in[i]
 				}
 				out = append(out, protectedNote(in, program))
 			}
@@ -689,7 +689,7 @@ herdr, git and the harnesses have to be found. It gets nothing else of that
 shell: an install says what is not on that PATH. It logs to
 <home>/daemon.log.
 
-On macOS it also says which rigs are in ~/Desktop, ~/Documents or
+On macOS it also says which depots are in ~/Desktop, ~/Documents or
 ~/Downloads, where a daemon started at login has no access until it is
 granted its own. On any other system it says that it is not supported and how
 to run the daemon by hand.

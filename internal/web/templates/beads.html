@@ -5,23 +5,23 @@
        the shell's stream carries each event's seq and nothing else. */}}
 <div id="beads" hx-get="{{.Self}}" hx-trigger="sse:message" hx-select="#beads > *" hx-swap="innerHTML ignoreTitle:true">
   <nav class="item filters" aria-label="Filters">
-    <p><span class="label">rig</span>
-      <a href="{{.Link "" .Stage}}"{{if not .Rig}} aria-current="true"{{end}}>all</a>
-      {{- range .Rigs}}
-      <a href="{{$d.Link . $d.Stage}}"{{if eq . $d.Rig}} aria-current="true"{{end}}>{{.}}</a>
+    <p><span class="label">depot</span>
+      <a href="{{.Link "" .Stage}}"{{if not .Depot}} aria-current="true"{{end}}>all</a>
+      {{- range .Depots}}
+      <a href="{{$d.Link . $d.Stage}}"{{if eq . $d.Depot}} aria-current="true"{{end}}>{{.}}</a>
       {{- end}}
     </p>
     <p><span class="label">stage</span>
-      <a href="{{.Link .Rig ""}}"{{if not .Stage}} aria-current="true"{{end}}>all</a>
+      <a href="{{.Link .Depot ""}}"{{if not .Stage}} aria-current="true"{{end}}>all</a>
       {{- range .Stages}}
-      <a href="{{$d.Link $d.Rig .}}"{{if eq . $d.Stage}} aria-current="true"{{end}}>{{.}}</a>
+      <a href="{{$d.Link $d.Depot .}}"{{if eq . $d.Stage}} aria-current="true"{{end}}>{{.}}</a>
       {{- end}}
     </p>
   </nav>
   {{- range .Beads}}
   <div class="item">{{template "card" .}}</div>
   {{- else}}
-  <p class="item faint">No open bead{{if or .Rig .Stage}} matches{{end}}.</p>
+  <p class="item faint">No open bead{{if or .Depot .Stage}} matches{{end}}.</p>
   {{- end}}
 </div>
 {{- end}}

@@ -4,7 +4,7 @@ The refinery lands the car on its train's branch (`yard/<train>`) from here,
 one bead at a time (`contrib/refinery/merge-local`; docs/pipeline.md, "Cars").
 No agent works this stage, and nobody reviewed the car: the builder's `done`
 brought it here. The refinery rebases `yard/<bead>` onto the train's branch if
-that moved, runs the light gate (`yardr rig check yardr --light`) on exactly
+that moved, runs the light gate (`yardr depot check yardr --light`) on exactly
 what will land, and fast-forwards the train's branch to that commit. `main`
 does not move: the full gate and the review are the train's.
 

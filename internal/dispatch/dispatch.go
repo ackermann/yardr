@@ -24,11 +24,11 @@ import (
 type Job struct {
 	Bead    store.Bead
 	Group   store.Group
-	Rig     *store.Rig // nil when the bead has no rig
+	Depot   *store.Depot // nil when the bead has no depot
 	Session store.Session
 	// Train is the train the bead is a child of ("" for none), and Base what
 	// its branch starts from and lands on: the train's branch for a child,
-	// else the rig's base (see store.Family).
+	// else the depot's base (see store.Family).
 	Train, Base string
 	// Children are a train's children, for its brief; nil for other beads.
 	Children []string
@@ -40,7 +40,7 @@ type Job struct {
 	// agent then picks from Next.
 	Outcomes []NextOutcome
 	// StageFile is what the bead's flow says about the stage it is in, when
-	// the flow is in the rig's repository and has a stage file for it.
+	// the flow is in the depot's repository and has a stage file for it.
 	// StoreFlow names the flow when it is in the store instead: its stage
 	// files are in the yard's home, read when the brief is written.
 	StageFile *store.StageFile
@@ -169,7 +169,7 @@ type Dispatcher struct {
 	// fetchErr is the last error of asking the store which branches came
 	// back from peers (fetches), said once.
 	fetchErr string
-	// basesKept is rig -> the bases of beads from peers its refs were last
+	// basesKept is depot -> the bases of beads from peers its refs were last
 	// made to keep (bases), nil until the first pass; basesErr is the last
 	// error of asking the store for them, said once.
 	basesKept map[string]keptBases
@@ -943,7 +943,7 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		return err
 	}
 	SortRoutes(routes)
-	rigs := map[string]*store.Rig{}
+	depots := map[string]*store.Depot{}
 	// Beads in a stage their flow lacks: a repository flow lost the stage on
 	// the base. The stage's route may well still be there, and would hand
 	// the bead to its old group with the flow's first stage as the only way
@@ -1005,19 +1005,19 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 			continue
 		}
 
-		var rig *store.Rig
-		if b.Rig != nil {
-			if rig = rigs[*b.Rig]; rig == nil {
-				if rig, err = d.Store.GetRig(ctx, *b.Rig); err != nil {
-					d.reportOnce(ctx, b, "bad_rig", err.Error())
+		var depot *store.Depot
+		if b.Depot != nil {
+			if depot = depots[*b.Depot]; depot == nil {
+				if depot, err = d.Store.GetDepot(ctx, *b.Depot); err != nil {
+					d.reportOnce(ctx, b, "bad_depot", err.Error())
 					continue
 				}
-				rigs[*b.Rig] = rig
+				depots[*b.Depot] = depot
 			}
 		}
 
 		// A bead whose flow does not resolve (a pin naming nothing, a broken
-		// repo flow, a rig checkout git cannot read) stays put until fixed;
+		// repo flow, a depot checkout git cannot read) stays put until fixed;
 		// the beads after it still dispatch.
 		next, outcomes, stage, err := d.nextStages(ctx, b, routes, groups)
 		if err != nil {
@@ -1036,7 +1036,7 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		// A car with no train is moved nowhere by the store, so one found
 		// here lost its train after it moved (its parent edge was removed).
 		// Nothing works it until it has one again: its flow has no review,
-		// and its builder's brief would name the light gate, on the rig's
+		// and its builder's brief would name the light gate, on the depot's
 		// base. People still get it: someone has to see it to fix it.
 		if b.Type == store.TypeCar && fam.Train == "" && g.Runner != "manual" {
 			d.reportOnce(ctx, b, "car_without_train", fmt.Sprintf(
@@ -1056,7 +1056,7 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		active[g.Name]++
 		d.Log.Info("dispatching", "bead", b.ID, "stage", b.Stage, "group", g.Name, "session", sess.ID)
 
-		handle, err := runner.Start(ctx, Job{Bead: b, Group: g, Rig: rig, Session: *sess, Train: fam.Train, Base: fam.Base,
+		handle, err := runner.Start(ctx, Job{Bead: b, Group: g, Depot: depot, Session: *sess, Train: fam.Train, Base: fam.Base,
 			Children: fam.Children, Next: next, Outcomes: outcomes, StageFile: stage.file, StoreFlow: stage.storeFlow, FlowMap: stage.flowMap})
 		if IsRuntime(err) || IsBlocked(err) {
 			// Not the bead's fault: abort the session (no failure), leave

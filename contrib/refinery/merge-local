@@ -1,11 +1,11 @@
 #!/bin/sh
-# merge-local: a refinery that lands a bead's branch directly on its rig's
+# merge-local: a refinery that lands a bead's branch directly on its depot's
 # local base branch. Run it as the cmd of an exec group routed for the stage
 # beads wait to land in (approved); limit 1 on the group makes a serial merge
 # queue. See docs/pipeline.md, section 4.
 #
 # It reads everything from the environment the exec runner gives it:
-# YARDR_BEAD, YARDR_RIG, YARDR_RIG_PATH, YARDR_BASE, YARDR_BRANCH,
+# YARDR_BEAD, YARDR_DEPOT, YARDR_DEPOT_PATH, YARDR_BASE, YARDR_BRANCH,
 # YARDR_WORKTREE, YARDR_BIN, YARDR_TYPE and YARDR_TRAIN. Options, set in the
 # group's cmd
 # (cmd='YARDR_PUSH=origin /path/to/merge-local'):
@@ -15,7 +15,7 @@
 #                  yardmaster setting, else yardmaster)
 #
 # For each bead it rebases the branch onto the base if the base moved, runs
-# the rig's gate on exactly what will land, fast-forwards the base to the
+# the depot's gate on exactly what will land, fast-forwards the base to the
 # commit it gated and advances the bead to merged. A conflict goes to
 # merge, a red gate back (outcome failed: new, or open for a train) with a
 # note that names the commit and the file all of the gate's output is in, as
@@ -25,33 +25,33 @@
 # never forces and never pushes anything but a fast-forward.
 #
 # A car of a train (type car, landing on its train's branch) is gated with
-# the rig's light gate (yardr rig check --light): the full gate, and the one
-# review, are the train's, before the rig's base moves. Everything else gets
+# the depot's light gate (yardr depot check --light): the full gate, and the one
+# review, are the train's, before the depot's base moves. Everything else gets
 # the full gate, a car with no train included. See docs/pipeline.md, "Cars".
 #
 # Every outcome ends in an advance, a close or a hold: exiting without one
 # counts as a failed session, and three of those hold the bead.
 set -u
-# A dir rig (YARDR_RIG_KIND=dir) has no branches: there is nothing here to
+# A dir depot (YARDR_DEPOT_KIND=dir) has no branches: there is nothing here to
 # land, integrate or open a pull request for. A route that hands one over is
-# a mistake in the rig's flow, so refuse to run (exit 2) rather than guess.
-if [ "${YARDR_RIG_KIND:-git}" = dir ]; then
-  echo "merge-local: rig ${YARDR_RIG:-?} is a dir rig, with no branch to work on; route its stages to other groups" >&2
+# a mistake in the depot's flow, so refuse to run (exit 2) rather than guess.
+if [ "${YARDR_DEPOT_KIND:-git}" = dir ]; then
+  echo "merge-local: depot ${YARDR_DEPOT:-?} is a dir depot, with no branch to work on; route its stages to other groups" >&2
   exit 2
 fi
-: "${YARDR_BEAD:?not run by an exec group}" "${YARDR_RIG:?bead has no rig}"
-: "${YARDR_RIG_PATH:?}" "${YARDR_BASE:?}"
+: "${YARDR_BEAD:?not run by an exec group}" "${YARDR_DEPOT:?bead has no depot}"
+: "${YARDR_DEPOT_PATH:?}" "${YARDR_BASE:?}"
 Y=${YARDR_BIN:-yardr}
 BEAD=$YARDR_BEAD
-RIG=$YARDR_RIG
-REPO=$YARDR_RIG_PATH
+DEPOT=$YARDR_DEPOT
+REPO=$YARDR_DEPOT_PATH
 BASE=$YARDR_BASE
 BR=${YARDR_BRANCH:-yard/$BEAD}
-WT=${YARDR_WORKTREE:-${YARDR_HOME:-$HOME/.yardr}/worktrees/$RIG/$BEAD}
+WT=${YARDR_WORKTREE:-${YARDR_HOME:-$HOME/.yardr}/worktrees/$DEPOT/$BEAD}
 PUSH=${YARDR_PUSH:-}
 NOTIFY=${YARDR_NOTIFY:-}
 TAIL=200
-echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') refinery $RIG $BEAD ($BR onto $BASE)"
+echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') refinery $DEPOT $BEAD ($BR onto $BASE)"
 
 # Each outcome is one advance with its note, so the move and the reason land
 # together. Advancing ends this session (the daemon stops the script), so it
@@ -93,37 +93,37 @@ Rebase $BR onto $BASE, keep both changes' intent, re-run the gate."
 fi
 
 # The gate runs on exactly what will land, every time, including after a
-# merger's rebase: the rig's check, read from the base so a bead cannot
+# merger's rebase: the depot's check, read from the base so a bead cannot
 # weaken it. The commit it runs on is recorded, and that commit is what
 # lands: a commit pushed to $BR while the gate ran would otherwise land by
 # the branch's name, ungated.
 # Exit 1 is a red gate, the branch's to fix; exit 2 means the gate could not
-# run at all (git, the base, the rig), which no builder can fix: hold.
+# run at all (git, the base, the depot), which no builder can fix: hold.
 # An exit above 128 means the gate was ended by a signal from outside (143:
 # a go test killed with SIGTERM after every package printed ok), which says
 # nothing about the branch and which no builder can fix either. It is run
 # once more, after a note with the first run's tail, so the event is on
 # record however the second ends; ended by a signal twice, the bead is held.
-# rig check's own kill at its deadline is not this: it exits 1, a red gate.
+# depot check's own kill at its deadline is not this: it exits 1, a red gate.
 #
-# A full gate waits for one of the machine's gate slots (yardr rig check
+# A full gate waits for one of the machine's gate slots (yardr depot check
 # --help). This one goes before the others that wait (YARDR_GATE_FIRST, which
-# is rig check --first): every approved bead waits behind it, one at a time,
+# is depot check --first): every approved bead waits behind it, one at a time,
 # while builders and reviewers gate many at once. It is said in the
 # environment, not as the flag, so a yardr older than the slots runs this
 # script as before instead of failing on a flag it does not know. No slot
-# within rig check's bound is exit 2: hold.
+# within depot check's bound is exit 2: hold.
 #
 # The light gate is only for a car that lands on its train's branch, where
-# the full gate still stands before the rig's base (integrate-train runs it on
+# the full gate still stands before the depot's base (integrate-train runs it on
 # the whole train). All three must hold, as the exec runner says them: the
 # type, a train, and that train's branch as the base. A car with no train
-# lands on the rig's base, so it gets the full gate, as does anything run by
-# a yardr that does not say the type and the train. A rig with no light gate
+# lands on the depot's base, so it gets the full gate, as does anything run by
+# a yardr that does not say the type and the train. A depot with no light gate
 # runs its full one under --light, and says so in the output.
-# rig check finds the car from the branch $WT is on and compares its light
+# depot check finds the car from the branch $WT is on and compares its light
 # gate with the train's branch, which the car was just rebased onto, not
-# with the rig's base: what is tested is what this car changed.
+# with the depot's base: what is tested is what this car changed.
 # A yardr from before the types were renamed says part and YARDR_EPIC; both
 # are still read for this release.
 LIGHT= GATE="the gate" TRAIN=${YARDR_TRAIN:-${YARDR_EPIC:-}}
@@ -132,9 +132,9 @@ if [ -n "$CAR" ] && [ -n "$TRAIN" ] && [ "$BASE" = "yard/$TRAIN" ]; then
   LIGHT=--light GATE="the light gate"
   echo "== $BEAD is a car of train $TRAIN: light gate here, the full gate on the train"
 fi
-gate() { out=$(YARDR_GATE_FIRST=1 "$Y" rig check "$RIG" $LIGHT --dir "$WT" --tail "$TAIL" 2>&1) && rc=0 || rc=$?; printf '%s\n' "$out"; }
-# Where rig check kept all of a red gate's output: its FAIL line ends with
-# the file. $out is what the rig says matters (the lines matching its
+gate() { out=$(YARDR_GATE_FIRST=1 "$Y" depot check "$DEPOT" $LIGHT --dir "$WT" --tail "$TAIL" 2>&1) && rc=0 || rc=$?; printf '%s\n' "$out"; }
+# Where depot check kept all of a red gate's output: its FAIL line ends with
+# the file. $out is what the depot says matters (the lines matching its
 # .yardr/check-fail-pattern, if it has one) and then the last $TAIL lines,
 # which in a long run are what came after the failure, not the failure.
 whole() {

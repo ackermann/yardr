@@ -90,7 +90,7 @@ Attributes:
 | attribute | on | value |
 |---|---|---|
 | `yardr.bead` | both | the bead's handle |
-| `yardr.rig` | both | its rig, when it has one |
+| `yardr.depot` | both | its depot, when it has one |
 | `yardr.stage` | both | the stage |
 | `yardr.outcome` | both | how it ended. Stage: the outcome reported (`done`, `changes`, ...), `advanced` for a move with no outcome, `closed`. Session: the same, or `held`, `released`, `died`, `failed`, `aborted` |
 | `yardr.sessions` | stage | how many sessions were started in the stay |
@@ -103,7 +103,7 @@ Attributes:
 
 A session that died or failed has status Error.
 
-The rig, runner, harness and model are not in the events; the exporter asks
+The depot, runner, harness and model are not in the events; the exporter asks
 the yard for them when the span ends. For a bead, session or group that is
 gone by then (an old log replayed after a prune) the span lacks them.
 
@@ -160,7 +160,7 @@ Severity is INFO for all of them.
 
 By default nothing a person or an agent wrote leaves the machine: no title,
 body, note, reason, mail text or prompt. What is sent are handles and names:
-beads, rigs, stages, groups, sessions, crew members, flows, hooks and actors.
+beads, depots, stages, groups, sessions, crew members, flows, hooks and actors.
 An actor is often a person's login name.
 
 `--include-text` adds:
@@ -182,7 +182,7 @@ environment:
 | variable | value |
 |---|---|
 | `TRACEPARENT` | `00-<the bead's trace id>-<the session's span id>-01`, the [W3C trace context](https://www.w3.org/TR/trace-context/) of the session's span |
-| `OTEL_RESOURCE_ATTRIBUTES` | `yardr.bead=<bead>,yardr.stage=<stage>,yardr.group=<group>,yardr.rig=<rig>` (no `yardr.rig` for a bead with no rig), values percent-encoded |
+| `OTEL_RESOURCE_ATTRIBUTES` | `yardr.bead=<bead>,yardr.stage=<stage>,yardr.group=<group>,yardr.depot=<depot>` (no `yardr.depot` for a bead with no depot), values percent-encoded |
 
 They are set whether or not anything collects; a program that exports no
 telemetry ignores them. yardr turns no harness's telemetry on.

@@ -11,7 +11,7 @@
 #   returned terminal
 #
 # It reads everything from the environment the exec runner gives it:
-# YARDR_BEAD, YARDR_RIG, YARDR_RIG_PATH, YARDR_BASE, YARDR_BRANCH and
+# YARDR_BEAD, YARDR_DEPOT, YARDR_DEPOT_PATH, YARDR_BASE, YARDR_BRANCH and
 # YARDR_BIN. One option, set in the group's cmd
 # (cmd='YARDR_PUSH=origin /path/to/return-branch'):
 #
@@ -28,21 +28,21 @@
 # Every outcome ends in a done or a hold: exiting without one counts as a
 # failed session, and three of those hold the bead.
 set -u
-# A dir rig (YARDR_RIG_KIND=dir) has no branches: there is nothing to push,
+# A dir depot (YARDR_DEPOT_KIND=dir) has no branches: there is nothing to push,
 # and a flow for its beads returns their words without this stage. A route
 # that hands one over is a mistake in the flow, so refuse to run (exit 2).
-if [ "${YARDR_RIG_KIND:-git}" = dir ]; then
-  echo "return-branch: rig ${YARDR_RIG:-?} is a dir rig, with no branch to push; its flow needs no stage for this" >&2
+if [ "${YARDR_DEPOT_KIND:-git}" = dir ]; then
+  echo "return-branch: depot ${YARDR_DEPOT:-?} is a dir depot, with no branch to push; its flow needs no stage for this" >&2
   exit 2
 fi
-: "${YARDR_BEAD:?not run by an exec group}" "${YARDR_RIG:?bead has no rig}"
-: "${YARDR_RIG_PATH:?}"
+: "${YARDR_BEAD:?not run by an exec group}" "${YARDR_DEPOT:?bead has no depot}"
+: "${YARDR_DEPOT_PATH:?}"
 Y=${YARDR_BIN:-yardr}
 BEAD=$YARDR_BEAD
-REPO=$YARDR_RIG_PATH
+REPO=$YARDR_DEPOT_PATH
 BR=${YARDR_BRANCH:-yard/$BEAD}
 PUSH=${YARDR_PUSH:-}
-echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') return-branch ${YARDR_RIG} $BEAD ($BR to ${PUSH:-no remote})"
+echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') return-branch ${YARDR_DEPOT} $BEAD ($BR to ${PUSH:-no remote})"
 
 hold() { echo "== hold $BEAD: $1"; "$Y" bead note "$BEAD" "return-branch: $1"; "$Y" bead hold "$BEAD"; exit 0; }
 # Back to whoever fixes it: the flow's "failed" outcome, which goes back to
@@ -61,7 +61,7 @@ yard/?*) ;;
 *) hold "$BR is not a bead's branch (yard/<bead>); nothing pushed" ;;
 esac
 [ "$BR" != "${YARDR_BASE:-}" ] || hold "$BR is the bead's base; nothing pushed"
-url=$(git -C "$REPO" remote get-url "$PUSH" 2>&1) || hold "rig $YARDR_RIG has no remote $PUSH: $url"
+url=$(git -C "$REPO" remote get-url "$PUSH" 2>&1) || hold "depot $YARDR_DEPOT has no remote $PUSH: $url"
 sha=$(git -C "$REPO" rev-parse --verify -q "refs/heads/$BR^{commit}") ||
   failed "branch $BR does not exist in $REPO: nothing was committed for this bead, so there is nothing to push"
 

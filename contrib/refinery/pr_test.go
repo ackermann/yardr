@@ -3,7 +3,7 @@ package refinery
 // A train landing through a pull request: integrate-train with YARDR_PR=1
 // opens the PR (and updates it when the train is integrated again), pr-train
 // pushes the reviewed branch and updates the PR, and pr-merge merges it and
-// fast-forwards the rig's base. GitHub is a fake gh on PATH that records
+// fast-forwards the depot's base. GitHub is a fake gh on PATH that records
 // its argv and keeps one pull request's state in a directory.
 
 import (
@@ -201,7 +201,7 @@ func TestTrainThroughPullRequest(t *testing.T) {
 		t.Fatalf("local main at %s, want the merged %s", got, tip)
 	}
 	if y.git(y.repo, "status", "--porcelain") != "" {
-		t.Fatal("the rig's checkout is not clean after the fast-forward")
+		t.Fatal("the depot's checkout is not clean after the fast-forward")
 	}
 	if _, err := os.Stat(filepath.Join(y.repo, "fix.txt")); err != nil {
 		t.Fatalf("checkout of main lacks the reviewer's fix: %v", err)
@@ -572,7 +572,7 @@ func TestPRMergeNeedsTheBinding(t *testing.T) {
 	}
 }
 
-// A dirty rig checkout holds the train in land before anything is merged.
+// A dirty depot checkout holds the train in land before anything is merged.
 func TestPRMergeDirtyCheckoutHolds(t *testing.T) {
 	y, gh := landYard(t)
 	if err := os.WriteFile(filepath.Join(y.repo, "a.txt"), []byte("someone's work\n"), 0o644); err != nil {

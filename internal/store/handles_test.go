@@ -207,7 +207,7 @@ func TestMigrateCounterIDs(t *testing.T) {
 		t.Fatalf("dep_added event = %+v", evs[1])
 	}
 	allEvents, err := s.Events(ctx, "", 0)
-	// The legacy yard has a rig and no default_kind: opening it also wrote
+	// The legacy yard has a depot and no default_kind: opening it also wrote
 	// settings_migrated (yard-w6np).
 	if err != nil || len(allEvents) != 7 || allEvents[4].Kind != "mail" || allEvents[4].Bead != nil ||
 		allEvents[5].Kind != "settings_migrated" {
@@ -229,7 +229,7 @@ func TestMigrateCounterIDs(t *testing.T) {
 	}
 	// New beads get random handles, not the next counter, and sort after
 	// the migrated ones.
-	nb, err := s.CreateBead(ctx, store.NewBead{Title: "new", Rig: "yard"}, "me")
+	nb, err := s.CreateBead(ctx, store.NewBead{Title: "new", Depot: "yard"}, "me")
 	if err != nil || nb.ID == "yard-11" || !strings.HasPrefix(nb.ID, "yard-") || nb.UUID <= b1.UUID {
 		t.Fatalf("new bead = %+v %v", nb, err)
 	}

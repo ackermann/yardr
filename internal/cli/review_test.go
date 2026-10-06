@@ -22,7 +22,7 @@ decide -> backlog
 merged terminal
 `
 
-func reviewYard(t *testing.T, rigPath string) (store.API, context.Context) {
+func reviewYard(t *testing.T, depotPath string) (store.API, context.Context) {
 	t.Helper()
 	st := storetest.New(t)
 	ctx := context.Background()
@@ -32,7 +32,7 @@ func reviewYard(t *testing.T, rigPath string) (store.API, context.Context) {
 			t.Fatal(err)
 		}
 	}
-	must(st.PutRig(ctx, store.Rig{Name: "yard", Path: rigPath, Base: "main"}, "me"))
+	must(st.PutDepot(ctx, store.Depot{Name: "yard", Path: depotPath, Base: "main"}, "me"))
 	must(st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}))
 	must(st.PutGroup(ctx, store.Group{Name: "approved", Runner: "manual", Limit: 1}))
 	must(st.PutGroup(ctx, store.Group{Name: "deciders", Runner: "manual", Members: []string{"mckean", "yardmaster"}}))
@@ -53,7 +53,7 @@ func TestReviewQueue(t *testing.T) {
 	st, ctx := reviewYard(t, "/tmp/yard")
 	create := func(title, stage string) store.Bead {
 		t.Helper()
-		b, err := st.CreateBead(ctx, store.NewBead{Title: title, Rig: "yard", Stage: stage}, "me")
+		b, err := st.CreateBead(ctx, store.NewBead{Title: title, Depot: "yard", Stage: stage}, "me")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -121,7 +121,7 @@ func TestReviewActions(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.Name = "yard"
-	rig := "yard"
+	depot := "yard"
 	routes := []store.Route{{Stage: "new"}, {Stage: "approved"}, {Stage: "decide"}, {Stage: "new"}}
 
 	type act struct {
@@ -139,7 +139,7 @@ func TestReviewActions(t *testing.T) {
 
 	// Under a flow: its next stages; going back needs a note, a terminal
 	// stage closes the bead.
-	got := reviewActions(store.Bead{Stage: "approved", Rig: &rig}, f, routes)
+	got := reviewActions(store.Bead{Stage: "approved", Depot: &depot}, f, routes)
 	want := append([]act{{actAdvance, "merged", false, true}, {actAdvance, "new", true, false}}, tail...)
 	if !slices.Equal(flat(got), want) {
 		t.Fatalf("approved actions = %+v, want %+v", flat(got), want)
@@ -147,7 +147,7 @@ func TestReviewActions(t *testing.T) {
 	if !strings.Contains(got[1].Label, "Send back to new") || !strings.Contains(got[0].Label, "closes the bead") {
 		t.Errorf("labels = %q, %q", got[0].Label, got[1].Label)
 	}
-	got = reviewActions(store.Bead{Stage: "review", Rig: &rig}, f, routes)
+	got = reviewActions(store.Bead{Stage: "review", Depot: &depot}, f, routes)
 	want = append([]act{{actAdvance, "approved", false, false}, {actAdvance, "new", true, false}}, tail...)
 	if !slices.Equal(flat(got), want) {
 		t.Fatalf("review actions = %+v, want %+v", flat(got), want)
@@ -155,7 +155,7 @@ func TestReviewActions(t *testing.T) {
 	// decide is written after backlog in the flow, so decide -> backlog is
 	// a move back too: the answer goes in the note. Its single way out is
 	// offered as the done outcome.
-	got = reviewActions(store.Bead{Stage: "decide", Rig: &rig}, f, routes)
+	got = reviewActions(store.Bead{Stage: "decide", Depot: &depot}, f, routes)
 	if want := append([]act{{actDone, "backlog", true, false}}, tail...); !slices.Equal(flat(got), want) {
 		t.Fatalf("decide actions = %+v, want %+v", flat(got), want)
 	}
@@ -169,7 +169,7 @@ func TestReviewActions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got = reviewActions(store.Bead{Stage: "review", Rig: &rig}, of, routes)
+	got = reviewActions(store.Bead{Stage: "review", Depot: &depot}, of, routes)
 	want = append([]act{{actDone, "approved", false, false}, {actDone, "new", true, false}, {actDone, "decide", false, false}}, tail...)
 	if !slices.Equal(flat(got), want) {
 		t.Fatalf("review outcome actions = %+v, want %+v", flat(got), want)
@@ -181,7 +181,7 @@ func TestReviewActions(t *testing.T) {
 	if wantL := []string{"done|done: move to approved", "changes|changes: send back to new (note required)", "question|question: move to decide"}; !slices.Equal(labels, wantL) {
 		t.Errorf("labels = %q, want %q", labels, wantL)
 	}
-	got = reviewActions(store.Bead{Stage: "approved", Rig: &rig}, of, routes)
+	got = reviewActions(store.Bead{Stage: "approved", Depot: &depot}, of, routes)
 	if got[0].Kind != actDone || !got[0].Terminal || got[0].Label != "done: finish as merged (closes the bead)" {
 		t.Errorf("terminal outcome action = %+v", got[0])
 	}
@@ -206,7 +206,7 @@ func TestDiffStat(t *testing.T) {
 	git("init", "-q", "-b", "main")
 	git("commit", "-q", "--allow-empty", "-m", "base")
 	st, ctx := reviewYard(t, repo)
-	b, err := st.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard", Stage: "approved"}, "me")
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard", Stage: "approved"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,21 +235,21 @@ func TestDiffStat(t *testing.T) {
 	}
 }
 
-// A dir rig's bead has no branch to diff: review says where its outputs are
+// A dir depot's bead has no branch to diff: review says where its outputs are
 // rather than that a branch is missing.
-func TestDiffStatDirRig(t *testing.T) {
+func TestDiffStatDirDepot(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	dir := t.TempDir()
-	if err := st.PutRig(ctx, store.Rig{Name: "invoices", Path: dir, Kind: store.RigDir}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "invoices", Path: dir, Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	b, err := st.CreateBead(ctx, store.NewBead{Title: "x", Rig: "invoices", Stage: "review"}, "me")
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "x", Depot: "invoices", Stage: "review"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := diffStat(ctx, st, *b); got != "no diff in dir rig invoices: the outputs are in "+dir+", as the notes name them" {
-		t.Fatalf("dir rig: %q", got)
+	if got := diffStat(ctx, st, *b); got != "no diff in dir depot invoices: the outputs are in "+dir+", as the notes name them" {
+		t.Fatalf("dir depot: %q", got)
 	}
 }
 
@@ -257,7 +257,7 @@ func TestDiffStatDirRig(t *testing.T) {
 // nobody can answer.
 func TestReviewListsWhenNotATerminal(t *testing.T) {
 	st, ctx := reviewYard(t, t.TempDir())
-	b, err := st.CreateBead(ctx, store.NewBead{Title: "which way", Rig: "yard", Stage: "decide"}, "me")
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "which way", Depot: "yard", Stage: "decide"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -3,7 +3,7 @@
        which comes when its bead moved or closed, and takes itself out. */ -}}
 {{define "card"}}
 <article class="card{{if .Arrived}} arrived{{end}}" id="{{.DOM}}"{{if .Live}} sse-swap="{{.DOM}}" hx-swap="delete"{{end}}>
-  <p class="card-head"><span class="dot{{if .Held}} held{{else if .Working}} working{{end}}"></span><a class="bead" href="/beads/{{.ID}}">{{.ID}}</a> <span class="label">{{if not .Placed}}{{with .Rig}}{{.}} · {{end}}{{.Stage}} · {{end}}{{.Type}}{{if .Held}} · <span class="held">held</span>{{else if .Working}} · working{{end}}{{if eq .Status "closed"}} · closed{{end}}</span></p>
+  <p class="card-head"><span class="dot{{if .Held}} held{{else if .Working}} working{{end}}"></span><a class="bead" href="/beads/{{.ID}}">{{.ID}}</a> <span class="label">{{if not .Placed}}{{with .Depot}}{{.}} · {{end}}{{.Stage}} · {{end}}{{.Type}}{{if .Held}} · <span class="held">held</span>{{else if .Working}} · working{{end}}{{if eq .Status "closed"}} · closed{{end}}</span></p>
   <p class="card-title">{{.Title}}</p>
 </article>
 {{end}}

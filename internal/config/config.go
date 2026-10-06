@@ -26,11 +26,12 @@ const (
 )
 
 // renamed are the variables that had another name until this release, each
-// with that name: YARDR_CREW was YARDR_RESIDENT. Like the old prefix, the old
+// with that name: YARDR_CREW was YARDR_RESIDENT, and YARDR_DEPOT, with its
+// _PATH and _KIND, YARDR_RIG. Like the old prefix, the old
 // name is still read when the new one is unset, and set beside it for the
 // processes yardr starts: a session started before the upgrade has only the
 // old one, and a script may still read it.
-var renamed = map[string]string{"CREW": "RESIDENT"}
+var renamed = map[string]string{"CREW": "RESIDENT", "DEPOT": "RIG", "DEPOT_PATH": "RIG_PATH", "DEPOT_KIND": "RIG_KIND"}
 
 // spellings are the full names name is read and set under, the current
 // one first.

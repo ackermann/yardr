@@ -194,7 +194,7 @@ func TestDaemonInstallUninstall(t *testing.T) {
 		t.Fatal(err)
 	}
 	stub(t, &userHomeDir, func() (string, error) { return "/Users/jo", nil })
-	if err := st.PutRig(context.Background(), store.Rig{Name: "notes", Path: "/Users/jo/Documents/notes"}, "me"); err != nil {
+	if err := st.PutDepot(context.Background(), store.Depot{Name: "notes", Path: "/Users/jo/Documents/notes"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	other := filepath.Join(dir, "com.example.other.plist")
@@ -220,10 +220,10 @@ func TestDaemonInstallUninstall(t *testing.T) {
 		"<key>YARDR_HOME</key>\n\t\t<string>"+home+"</string>", "<key>PATH</key>\n\t\t<string>/opt/yardr/bin:/usr/bin:/bin</string>",
 		"<string>"+home+"/daemon.log</string>")
 	wantText(t, out, "launchd agent "+label+" written: "+file, "launchd has started the daemon and starts it at every login",
-		// The harness is not on the PATH the service gets, and one rig is
+		// The harness is not on the PATH the service gets, and one depot is
 		// where a login daemon has no access.
 		"Mind: claude is not on the PATH written into the service",
-		"Mind: rig notes (/Users/jo/Documents/notes) is in a folder macOS protects", "Full Disk Access (add /opt/yardr/bin/yardr)",
+		"Mind: depot notes (/Users/jo/Documents/notes) is in a folder macOS protects", "Full Disk Access (add /opt/yardr/bin/yardr)",
 		here("yardr daemon uninstall"))
 	if strings.Contains(out, "herdr is not on the PATH") {
 		t.Errorf("herdr is on PATH:\n%s", out)
@@ -234,7 +234,7 @@ func TestDaemonInstallUninstall(t *testing.T) {
 	}
 	out, _ = run(t, a().rootCmd(), "doctor")
 	wantText(t, out, "configured      login service: the daemon starts at login ("+file+")",
-		"note            login service: rig notes (/Users/jo/Documents/notes) is in a folder macOS protects")
+		"note            login service: depot notes (/Users/jo/Documents/notes) is in a folder macOS protects")
 	out, _ = run(t, a().rootCmd(), "daemon", "status")
 	wantText(t, out, "daemon   not running", "service  installed and loaded: launchd starts it at login ("+file+")")
 

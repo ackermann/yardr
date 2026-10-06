@@ -1,4 +1,4 @@
-# yardr.train: the flow of rig yardr's trains (yardr rig flow yardr --type train
+# yardr.train: the flow of depot yardr's trains (yardr depot flow yardr --type train
 # yardr.train). A train waits in open while its children are open (each child
 # blocks it); once the last closes, yardr-integrators rebases its branch onto
 # main and gates it, Codex reviews the whole diff, and the train lands on main

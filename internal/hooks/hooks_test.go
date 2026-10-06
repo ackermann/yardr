@@ -50,7 +50,7 @@ func sign(key string, body []byte) string {
 	return hex.EncodeToString(m.Sum(nil))
 }
 
-type rig struct {
+type depot struct {
 	st  store.API
 	own *store.Store // what the receiver records on: it runs in the owning process
 	rc  *hooks.Receiver
@@ -58,7 +58,7 @@ type rig struct {
 	now time.Time
 }
 
-func newRig(t *testing.T) *rig {
+func newDepot(t *testing.T) *depot {
 	t.Helper()
 	st, own := storetest.NewOwned(t)
 	dir := t.TempDir()
@@ -71,14 +71,14 @@ func newRig(t *testing.T) *rig {
 			t.Fatal(err)
 		}
 	}
-	r := &rig{st: st, own: own, rc: hooks.NewReceiver(own, nil)}
+	r := &depot{st: st, own: own, rc: hooks.NewReceiver(own, nil)}
 	r.rc.SetClock(func() time.Time { return r.now })
 	r.srv = httptest.NewServer(r.rc.Handler())
 	t.Cleanup(r.srv.Close)
 	return r
 }
 
-func (r *rig) post(t *testing.T, path string, body []byte, hdr map[string]string) int {
+func (r *depot) post(t *testing.T, path string, body []byte, hdr map[string]string) int {
 	t.Helper()
 	req, _ := http.NewRequest(http.MethodPost, r.srv.URL+path, strings.NewReader(string(body)))
 	for k, v := range hdr {
@@ -93,13 +93,13 @@ func (r *rig) post(t *testing.T, path string, body []byte, hdr map[string]string
 }
 
 // linear posts body signed with key as Linear would.
-func (r *rig) linear(t *testing.T, body []byte, key, delivery string) int {
+func (r *depot) linear(t *testing.T, body []byte, key, delivery string) int {
 	return r.post(t, "/hooks/linear", body, map[string]string{
 		"Linear-Signature": sign(key, body), "Linear-Delivery": delivery, "Linear-Event": "Comment",
 		"Content-Type": "application/json; charset=utf-8"})
 }
 
-func (r *rig) hookEvents(t *testing.T) []store.Event {
+func (r *depot) hookEvents(t *testing.T) []store.Event {
 	t.Helper()
 	evs, err := r.st.Events(context.Background(), "", 1000)
 	if err != nil {
@@ -115,7 +115,7 @@ func (r *rig) hookEvents(t *testing.T) []store.Event {
 }
 
 func TestLinearSignature(t *testing.T) {
-	r := newRig(t)
+	r := newDepot(t)
 	body := fixture(t, "linear_comment_create.json")
 	r.now = sentAt(t, body).Add(2 * time.Second)
 
@@ -158,7 +158,7 @@ func TestLinearSignature(t *testing.T) {
 }
 
 func TestLinearStaleTimestamp(t *testing.T) {
-	r := newRig(t)
+	r := newDepot(t)
 	body := fixture(t, "linear_issue_create.json")
 	sent := sentAt(t, body)
 	for _, at := range []time.Time{sent.Add(61 * time.Second), sent.Add(-61 * time.Second)} {
@@ -182,7 +182,7 @@ func TestLinearStaleTimestamp(t *testing.T) {
 }
 
 func TestLinearDuplicateDelivery(t *testing.T) {
-	r := newRig(t)
+	r := newDepot(t)
 	body := fixture(t, "linear_comment_create.json")
 	r.now = sentAt(t, body)
 	for i := 0; i < 3; i++ {
@@ -224,7 +224,7 @@ func TestLinearDuplicateDelivery(t *testing.T) {
 // Regression: two copies of one delivery arriving together must not both
 // pass the duplicate check before either is recorded.
 func TestConcurrentRedeliveryRecordsOnce(t *testing.T) {
-	r := newRig(t)
+	r := newDepot(t)
 	body := fixture(t, "linear_comment_create.json")
 	r.now = sentAt(t, body)
 	const copies = 8
@@ -265,7 +265,7 @@ func TestConcurrentRedeliveryRecordsOnce(t *testing.T) {
 // A token sender may repeat a body on purpose; only a repeated
 // Yard-Delivery is a redelivery.
 func TestTokenDedupesOnDeliveryIDOnly(t *testing.T) {
-	r := newRig(t)
+	r := newDepot(t)
 	r.now = time.Now()
 	send := func(body, id string) {
 		t.Helper()
@@ -291,7 +291,7 @@ func TestTokenDedupesOnDeliveryIDOnly(t *testing.T) {
 // An issue update re-sends the whole description; a crew member it already
 // mentioned is not told again, one newly mentioned is.
 func TestIssueUpdateDeliversOnlyNewMentions(t *testing.T) {
-	r := newRig(t)
+	r := newDepot(t)
 	ctx := context.Background()
 	for name, id := range map[string]store.Identity{
 		"yardmaster": {ID: "4d3a2b1c-0000-4000-8000-00000000mayr", Key: "yardmaster"},
@@ -362,7 +362,7 @@ func TestIssueUpdateDeliversOnlyNewMentions(t *testing.T) {
 // description: a crew member the comment already mentioned is not told
 // again, one newly mentioned is, and a removed comment is forgotten.
 func TestCommentEditDeliversOnlyNewMentions(t *testing.T) {
-	r := newRig(t)
+	r := newDepot(t)
 	ctx := context.Background()
 	for name, id := range map[string]store.Identity{"yardmaster": {ID: "u-yardmaster", Key: "yardmaster"}, "jane": {ID: "u-jane", Key: "jane.doe"}} {
 		if _, err := r.st.PutCrew(ctx, store.CrewMember{Name: name}, "me"); err != nil {
@@ -422,7 +422,7 @@ func TestCommentEditDeliversOnlyNewMentions(t *testing.T) {
 // Regression: a delivery refused after its id was remembered must not make
 // the corrected retry look like a duplicate.
 func TestRefusedDeliveryIsNotRemembered(t *testing.T) {
-	r := newRig(t)
+	r := newDepot(t)
 	r.now = time.UnixMilli(1791018843600)
 	noType := []byte(`{"action":"create","data":{},"webhookTimestamp":1791018843600}`)
 	if code := r.linear(t, noType, secret, "retry-1"); code != http.StatusBadRequest {
@@ -435,7 +435,7 @@ func TestRefusedDeliveryIsNotRemembered(t *testing.T) {
 }
 
 func TestOversizeBody(t *testing.T) {
-	r := newRig(t)
+	r := newDepot(t)
 	big := []byte(`{"type":"Comment","pad":"` + strings.Repeat("a", store.MaxHookPayload) + `"}`)
 	r.now = time.Now()
 	if code := r.linear(t, big, secret, "big"); code != http.StatusRequestEntityTooLarge {
@@ -450,7 +450,7 @@ func TestOversizeBody(t *testing.T) {
 }
 
 func TestReceiverServesOnlyHooks(t *testing.T) {
-	r := newRig(t)
+	r := newDepot(t)
 	for _, c := range []struct {
 		method, path string
 		want         int
@@ -475,7 +475,7 @@ func TestReceiverServesOnlyHooks(t *testing.T) {
 }
 
 func TestTokenSource(t *testing.T) {
-	r := newRig(t)
+	r := newDepot(t)
 	r.now = time.Now()
 	body := []byte(`{"type":"Deploy","action":"finished","text":"prod is on v42","actor":{"id":"ci","name":"CI"}}`)
 	for _, auth := range []string{"", "Bearer", "Bearer wrong", "Basic " + secret, "Bearer " + secret + "x"} {
@@ -505,7 +505,7 @@ func TestTokenSource(t *testing.T) {
 // An empty secret would let anyone through (an empty bearer token, or an
 // HMAC with an empty key), so it fails closed.
 func TestEmptySecretFailsClosed(t *testing.T) {
-	r := newRig(t)
+	r := newDepot(t)
 	empty := filepath.Join(t.TempDir(), "empty")
 	if err := os.WriteFile(empty, []byte("\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -683,7 +683,7 @@ func TestTextIsTruncated(t *testing.T) {
 // by profile key from markdown (a profile URL or a plain @key), by user id
 // from bodyData.
 func TestLinearMentionReachesInbox(t *testing.T) {
-	r := newRig(t)
+	r := newDepot(t)
 	ctx := context.Background()
 	if _, err := r.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster"}, "me"); err != nil {
 		t.Fatal(err)
@@ -724,7 +724,7 @@ func TestLinearDelegateReachesInbox(t *testing.T) {
 	const yardmaster, other = "4d3a2b1c-0000-4000-8000-00000000mayr", "9e8d7c6b-0000-4000-8000-0000000other"
 	inbox := func(t *testing.T, delegate string, files ...string) []store.Event {
 		t.Helper()
-		r := newRig(t)
+		r := newDepot(t)
 		ctx := context.Background()
 		if _, err := r.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster"}, "me"); err != nil {
 			t.Fatal(err)
@@ -780,7 +780,7 @@ func TestLinearDelegateReachesInbox(t *testing.T) {
 	}
 }
 
-func (r *rig) eventsOfKind(t *testing.T, kind string) []store.Event {
+func (r *depot) eventsOfKind(t *testing.T, kind string) []store.Event {
 	t.Helper()
 	evs, err := r.st.Events(context.Background(), "", 1000)
 	if err != nil {
@@ -800,7 +800,7 @@ func (r *rig) eventsOfKind(t *testing.T, kind string) []store.Event {
 // delivery the secret in it would verify), with one hook_blocked event for
 // the whole stretch, and fixing the file unblocks it. (yardr-7730)
 func TestSecretFileLoosenedAfterAddBlocksHook(t *testing.T) {
-	r := newRig(t)
+	r := newDepot(t)
 	ctx := context.Background()
 	h, err := r.st.GetHook(ctx, "adhoc")
 	if err != nil {
@@ -864,7 +864,7 @@ func TestSecretFileLoosenedAfterAddBlocksHook(t *testing.T) {
 // A hook whose secret file is gone is blocked the same way, and a file put
 // back takes deliveries again.
 func TestMissingSecretFileBlocksHook(t *testing.T) {
-	r := newRig(t)
+	r := newDepot(t)
 	ctx := context.Background()
 	h, err := r.st.GetHook(ctx, "adhoc")
 	if err != nil {

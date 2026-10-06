@@ -114,7 +114,7 @@ func TestInitHarnessClaude(t *testing.T) {
 	if strings.Contains(out, "route add") {
 		t.Errorf("summary still lists the setup commands:\n%s", out)
 	}
-	if help, _ := run(t, a.rootCmd(), "init", "--help"); !strings.Contains(help, "yardr rig init webapp") ||
+	if help, _ := run(t, a.rootCmd(), "init", "--help"); !strings.Contains(help, "yardr depot init webapp") ||
 		!strings.Contains(help, "yardr route add") {
 		t.Errorf("init --help lacks the commands for scripts:\n%s", help)
 	}
@@ -425,11 +425,11 @@ func TestInitialized(t *testing.T) {
 		t.Fatalf("store with default_kind: %v %v", ok, err)
 	}
 	old := storetest.New(t)
-	if err := old.PutRig(ctx, store.Rig{Name: "r", Path: "/x", Base: "main"}, "me"); err != nil {
+	if err := old.PutDepot(ctx, store.Depot{Name: "r", Path: "/x", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if ok, err := (&app{st: old}).initialized(ctx, cfg); !ok || err != nil {
-		t.Fatalf("store with a rig, without default_kind: %v %v", ok, err)
+		t.Fatalf("store with a depot, without default_kind: %v %v", ok, err)
 	}
 	for name, fill := range map[string]func(store.API) error{
 		"group": func(st store.API) error { return st.PutGroup(ctx, store.Group{Name: "g", Runner: "manual"}) },
@@ -452,7 +452,7 @@ func TestInitialized(t *testing.T) {
 	}
 }
 
-// A yard from before the onboarding (one rig, no settings) keeps working
+// A yard from before the onboarding (one depot, no settings) keeps working
 // without a terminal: its commands run and bare yardr is help. Only an
 // empty store refuses (yard-w6np: an upgrade locked ~/.yardr out).
 func TestOldYardIsNotOnboarded(t *testing.T) {
@@ -460,7 +460,7 @@ func TestOldYardIsNotOnboarded(t *testing.T) {
 	setInteractive(t, false)
 	ctx := context.Background()
 	st := storetest.New(t)
-	if err := st.PutRig(ctx, store.Rig{Name: "r", Path: "/x", Base: "main"}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "r", Path: "/x", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := run(t, (&app{st: st}).rootCmd(), "session", "list"); err != nil {
@@ -815,29 +815,29 @@ func TestInitRefreshesUntouchedRoles(t *testing.T) {
 	}
 }
 
-// A rig's .yardr/roles/ is never refreshed: the files are committed, and rig
+// A depot's .yardr/roles/ is never refreshed: the files are committed, and depot
 // init writes no manifest there.
-func TestRigInitWritesNoManifest(t *testing.T) {
+func TestDepotInitWritesNoManifest(t *testing.T) {
 	st := storetest.New(t)
 	dir := t.TempDir()
-	if err := st.PutRig(context.Background(), store.Rig{Name: "web", Path: dir, Base: "main"}, "me"); err != nil {
+	if err := st.PutDepot(context.Background(), store.Depot{Name: "web", Path: dir, Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	a := &app{st: st, actor: "me"}
-	if _, err := run(t, a.rigCmd(), "init", "web"); err != nil {
+	if _, err := run(t, a.depotCmd(), "init", "web"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".yardr", "roles", shippedManifest)); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("rig init wrote a manifest: %v", err)
+		t.Fatalf("depot init wrote a manifest: %v", err)
 	}
 	old := []byte("older template, untouched")
 	if err := os.WriteFile(filepath.Join(dir, ".yardr", "roles", "builder.md"), old, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := run(t, a.rigCmd(), "init", "web"); err != nil {
+	if _, err := run(t, a.depotCmd(), "init", "web"); err != nil {
 		t.Fatal(err)
 	}
 	if b, _ := os.ReadFile(filepath.Join(dir, ".yardr", "roles", "builder.md")); !bytes.Equal(b, old) {
-		t.Fatalf("rig init refreshed a committed role:\n%s", b)
+		t.Fatalf("depot init refreshed a committed role:\n%s", b)
 	}
 }

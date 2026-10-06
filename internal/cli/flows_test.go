@@ -20,11 +20,11 @@ func TestFlowViews(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(st.PutRig(ctx, store.Rig{Name: "yard"}, "me"))
+	must(st.PutDepot(ctx, store.Depot{Name: "yard"}, "me"))
 	must(st.PutGroup(ctx, store.Group{Name: "builders", Runner: "manual"}))
 	must(st.PutGroup(ctx, store.Group{Name: "deciders", Runner: "manual", Members: []string{"mckean", "yardmaster"}}))
-	rig, decision := "yard", "decision"
-	_, err := st.AddRoute(ctx, store.Route{Stage: "new", Rig: &rig, Group: "builders"})
+	depot, decision := "yard", "decision"
+	_, err := st.AddRoute(ctx, store.Route{Stage: "new", Depot: &depot, Group: "builders"})
 	must(err)
 	_, err = st.AddRoute(ctx, store.Route{Stage: "open", Type: &decision, Group: "deciders"})
 	must(err)
@@ -43,8 +43,8 @@ func TestFlowViews(t *testing.T) {
 	must(st.SetFlowPointer(ctx, "yard", "decision", "decision", "me"))
 
 	for _, nb := range []store.NewBead{
-		{Title: "a", Rig: "yard"}, {Title: "b", Rig: "yard"}, {Title: "c", Rig: "yard", Stage: "review"},
-		{Title: "q", Rig: "yard", Type: "decision", Stage: "open"},
+		{Title: "a", Depot: "yard"}, {Title: "b", Depot: "yard"}, {Title: "c", Depot: "yard", Stage: "review"},
+		{Title: "q", Depot: "yard", Type: "decision", Stage: "open"},
 	} {
 		_, err := st.CreateBead(ctx, nb, "me")
 		must(err)
@@ -71,7 +71,7 @@ func TestFlowViews(t *testing.T) {
 	if len(rv.Warnings) != 1 || rv.Warnings[0] != "stage review has no route: beads there wait for a human" {
 		t.Errorf("warnings = %v", rv.Warnings)
 	}
-	// The decision bead counts under its own flow, not the rig's.
+	// The decision bead counts under its own flow, not the depot's.
 	dv := views[1]
 	if dv.Stages[0].Group != "deciders" || dv.Stages[0].Open != 1 || len(dv.Warnings) != 0 {
 		t.Errorf("decision view = %+v", dv)
@@ -82,11 +82,11 @@ func TestFlowViews(t *testing.T) {
 		t.Errorf("deciders stage = %+v", dv.Stages[0])
 	}
 	if !rv.Stages[0].Human || rv.Stages[0].Members != nil || rv.Stages[1].Human {
-		t.Errorf("rig stages = %+v", rv.Stages)
+		t.Errorf("depot stages = %+v", rv.Stages)
 	}
 
 	if _, err := flowViews(ctx, st, "nope", ""); err == nil {
-		t.Error("unknown rig accepted")
+		t.Error("unknown depot accepted")
 	}
 
 	// flow list: each named flow with what it governs; unused ones govern nothing.
@@ -101,7 +101,7 @@ func TestFlowViews(t *testing.T) {
 	for _, r := range rows {
 		got[r.Name] = r.Source + ": " + strings.Join(r.Governs, ", ")
 	}
-	wantRows := map[string]string{"code": "store: rig yard", "decision": "store: rig yard type decision", "spare": "store: "}
+	wantRows := map[string]string{"code": "store: depot yard", "decision": "store: depot yard type decision", "spare": "store: "}
 	if !maps.Equal(got, wantRows) {
 		t.Errorf("flow list = %v, want %v", got, wantRows)
 	}

@@ -21,12 +21,12 @@ func beadRows(bs []store.Bead) [][]string {
 			flags += ",hold"
 		}
 		rows[i] = []string{b.ID, b.Train, "P" + strconv.Itoa(b.Priority), b.Type, b.Stage, flags,
-			deref(b.Group), deref(b.Rig), b.Title}
+			deref(b.Group), deref(b.Depot), b.Title}
 	}
 	return rows
 }
 
-const beadHeader = "ID\tTRAIN\tPRI\tTYPE\tSTAGE\tSTATUS\tGROUP\tRIG\tTITLE"
+const beadHeader = "ID\tTRAIN\tPRI\tTYPE\tSTAGE\tSTATUS\tGROUP\tDEPOT\tTITLE"
 
 func (a *app) printBead(b *store.Bead) error { return a.printBeadFlow(b, nil, nil, nil, nil) }
 
@@ -53,8 +53,8 @@ func (a *app) printBeadFlow(b *store.Bead, next *store.NextStages, flowErr error
 			fmt.Print(" · HELD")
 		}
 		fmt.Println()
-		if b.Rig != nil {
-			fmt.Printf("  rig %s\n", *b.Rig)
+		if b.Depot != nil {
+			fmt.Printf("  depot %s\n", *b.Depot)
 		}
 		if b.Peer != nil {
 			printBeadPeer(b)
@@ -228,13 +228,14 @@ func (a *app) beadCmd() *cobra.Command {
 	f.StringVarP(&nb.Type, "type", "t", "", "bead type (default task)")
 	f.StringVarP(&nb.Stage, "stage", "s", "", "initial stage (default: the flow's first stage, backlog in the starter flow; new without a flow)")
 	f.IntVarP(&nb.Priority, "priority", "p", 2, "priority, 0 is highest")
-	f.StringVarP(&nb.Rig, "rig", "r", "", "rig the work happens in")
+	f.StringVarP(&nb.Depot, "depot", "d", "", "depot the work happens in")
+	oldFlagP(create, "rig", "r", "depot")
 	f.StringSliceVarP(&nb.Labels, "label", "l", nil, "labels")
-	f.StringVar(&nb.Prefix, "prefix", "", "id prefix (default rig name, else yd)")
+	f.StringVar(&nb.Prefix, "prefix", "", "id prefix (default depot name, else yd)")
 	f.StringVar(&nb.ID, "id", "", "explicit handle instead of a minted one (imports; must be unused)")
 	f.StringArrayVar(&createMeta, "meta", nil, "metadata key=value (repeatable), e.g. model=opus")
 	f.StringSliceVar(&nb.BlockedBy, "blocked-by", nil, "beads that must close first; made with the bead, so an unknown one creates nothing")
-	f.StringVar(&nb.DiscoveredFrom, "discovered-from", "", "the bead this one was found while working on (open or closed, any rig); recorded as an edge, never blocks")
+	f.StringVar(&nb.DiscoveredFrom, "discovered-from", "", "the bead this one was found while working on (open or closed, any depot); recorded as an edge, never blocks")
 	f.StringArrayVar(&tracks, "tracks", nil, "outside issue the bead tracks: its URL, or the seq of a hook delivery from it (one per source; see yardr link)")
 	f.StringArrayVar(&relates, "relates", nil, "outside issue the bead relates to, never moves (repeatable)")
 
@@ -307,7 +308,8 @@ func (a *app) beadCmd() *cobra.Command {
 	lf2.BoolVarP(&lf.All, "all", "a", false, "include closed beads")
 	lf2.StringVarP(&lf.Stage, "stage", "s", "", "filter by stage")
 	lf2.StringVarP(&lf.Type, "type", "t", "", "filter by type")
-	lf2.StringVarP(&lf.Rig, "rig", "r", "", "filter by rig")
+	lf2.StringVarP(&lf.Depot, "depot", "d", "", "filter by depot")
+	oldFlagP(list, "rig", "r", "depot")
 	lf2.StringVarP(&lf.Label, "label", "l", "", "filter by label")
 	lf2.StringVarP(&lf.Group, "group", "g", "", "filter by owning group")
 	lf2.StringVar(&lf.Train, "train", "", "only this train and its children, the train first")
@@ -324,9 +326,9 @@ func (a *app) beadCmd() *cobra.Command {
 	}
 
 	var up struct {
-		title, body, typ, rig string
-		pri                   int
-		add, rm, meta         []string
+		title, body, typ, depot string
+		pri                     int
+		add, rm, meta           []string
 	}
 	update := &cobra.Command{
 		Use:   "update <id>",
@@ -353,8 +355,8 @@ func (a *app) beadCmd() *cobra.Command {
 			if fl.Changed("type") {
 				p.Type = &up.typ
 			}
-			if fl.Changed("rig") {
-				p.Rig = &up.rig
+			if fl.Changed("depot") {
+				p.Depot = &up.depot
 			}
 			if fl.Changed("priority") {
 				p.Priority = &up.pri
@@ -376,7 +378,8 @@ func (a *app) beadCmd() *cobra.Command {
 	uf.StringVar(&up.title, "title", "", "new title")
 	uf.StringVarP(&up.body, "body", "b", "", "new description (- reads stdin)")
 	uf.StringVarP(&up.typ, "type", "t", "", "new type")
-	uf.StringVarP(&up.rig, "rig", "r", "", "new rig")
+	uf.StringVarP(&up.depot, "depot", "d", "", "new depot")
+	oldFlagP(update, "rig", "r", "depot")
 	uf.IntVarP(&up.pri, "priority", "p", 0, "new priority")
 	uf.StringSliceVar(&up.add, "add-label", nil, "labels to add")
 	uf.StringSliceVar(&up.rm, "remove-label", nil, "labels to remove")

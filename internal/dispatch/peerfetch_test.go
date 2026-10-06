@@ -14,7 +14,7 @@ import (
 
 type basesTestStore struct {
 	store.API
-	rig   store.Rig
+	depot store.Depot
 	bases []store.PeerBase
 }
 
@@ -22,14 +22,14 @@ func (s basesTestStore) PeerBases(context.Context) ([]store.PeerBase, error) {
 	return s.bases, nil
 }
 
-func (s basesTestStore) Rigs(context.Context) ([]store.Rig, error) {
-	return []store.Rig{s.rig}, nil
+func (s basesTestStore) Depots(context.Context) ([]store.Depot, error) {
+	return []store.Depot{s.depot}, nil
 }
 
-func TestBasesRetriesAfterRigBecomesAvailable(t *testing.T) {
+func TestBasesRetriesAfterDepotBecomesAvailable(t *testing.T) {
 	ctx := context.Background()
 	dir := filepath.Join(t.TempDir(), "repo")
-	rig := store.Rig{Name: "web", Path: dir, Kind: store.RigGit, Base: "main"}
+	depot := store.Depot{Name: "web", Path: dir, Kind: store.DepotGit, Base: "main"}
 	commit := func(args ...string) string {
 		t.Helper()
 		out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
@@ -38,9 +38,9 @@ func TestBasesRetriesAfterRigBecomesAvailable(t *testing.T) {
 		}
 		return string(out)
 	}
-	api := basesTestStore{rig: rig, bases: []store.PeerBase{{Bead: "web-1", Rig: rig, Commit: ""}}}
+	api := basesTestStore{depot: depot, bases: []store.PeerBase{{Bead: "web-1", Depot: depot, Commit: ""}}}
 	d := &Dispatcher{Store: api, Log: slog.Default()}
-	d.bases(ctx) // Git cannot update the refs while the rig path is absent.
+	d.bases(ctx) // Git cannot update the refs while the depot path is absent.
 	if len(d.basesKept["web"].is) != 0 {
 		t.Fatal("failed ref reconciliation was cached")
 	}

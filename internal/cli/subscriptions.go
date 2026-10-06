@@ -154,7 +154,7 @@ Hook sources: ` + strings.Join(store.WhereKeys, ", ") + `. Linear exposes team
 repo (owner/name) and label, and also ` + strings.Join(store.GitHubWhereKeys, ", ") + `
 (train: the yardr train whose yard/<train> branch a pull request or CI run is on).
 yardr: ` + strings.Join(store.YardrWhereKeys, ", ") + `:
-  bead, rig, type, label  the bead's (label: any of its labels)
+  bead, depot, type, label  the bead's (label: any of its labels)
   kind    the event: created, advanced, noted, held, unheld, closed,
           gave_up, session_blocked, ...
   stage   the stage entered (created and advanced events); from: the stage left
@@ -182,9 +182,9 @@ them.`,
   yardr subscribe triage linear --scope all --where type=issue --where action=create --where team=ENG
   yardr subscribe yardmaster github --scope all --where train=yard-sv6b --where conclusion=failure
   yardr subscribe yardmaster yardr --done
-  yardr subscribe yardmaster yardr --done --where rig=yard --where label=ui
+  yardr subscribe yardmaster yardr --done --where depot=yard --where label=ui
   yardr subscribe approvers yardr --where stage=approved
-  yardr subscribe jo yardr --done --where rig=yard     # jo, a user, is told when a bead lands`,
+  yardr subscribe jo yardr --done --where depot=yard     # jo, a user, is told when a bead lands`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(c *cobra.Command, args []string) error {
 			src, err := subSource(args, sub.Source)

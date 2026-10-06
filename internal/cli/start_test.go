@@ -184,7 +184,7 @@ func TestOnboardingPreflight(t *testing.T) {
 	if err != nil || asked != 11 || *started != 1 {
 		t.Fatalf("no git: %d pages, %d started, %v\n%s", asked, *started, err, text)
 	}
-	if !strings.Contains(text, "git is not on PATH: a rig is a git repository") || strings.Contains(text, "herdr is not on PATH") {
+	if !strings.Contains(text, "git is not on PATH: a depot is a git repository") || strings.Contains(text, "herdr is not on PATH") {
 		t.Fatalf("output:\n%s", text)
 	}
 }

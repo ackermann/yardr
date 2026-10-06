@@ -18,11 +18,11 @@ func otelJob(cfg map[string]any) (job dispatch.Job, traceparent, attrs string) {
 	job = dispatch.Job{
 		Bead:    store.Bead{ID: "yard-13", Stage: "review"},
 		Group:   store.Group{Name: "yard-review", Config: cfg},
-		Rig:     &store.Rig{Name: "yard", Path: os.TempDir(), Base: "main"},
+		Depot:   &store.Depot{Name: "yard", Path: os.TempDir(), Base: "main"},
 		Session: store.Session{ID: "s1"},
 	}
 	return job, otel.Traceparent("yard-13", "s1"),
-		"yardr.bead=yard-13,yardr.stage=review,yardr.group=yard-review,yardr.rig=yard"
+		"yardr.bead=yard-13,yardr.stage=review,yardr.group=yard-review,yardr.depot=yard"
 }
 
 // An agent's tab gets the session's trace context, so a harness that
@@ -85,11 +85,11 @@ func TestExecCommandGetsTraceContext(t *testing.T) {
 	}
 }
 
-// A bead with no rig has no yardr.rig attribute.
-func TestTraceContextWithoutARig(t *testing.T) {
+// A bead with no depot has no yardr.depot attribute.
+func TestTraceContextWithoutADepot(t *testing.T) {
 	t.Setenv(otel.ResourceVar, "")
 	job, _, _ := otelJob(nil)
-	job.Rig = nil
+	job.Depot = nil
 	env := Env(job, "x")
 	if want := otel.ResourceVar + "=yardr.bead=yard-13,yardr.stage=review,yardr.group=yard-review"; env[len(env)-1] != want {
 		t.Errorf("env = %v, want it to end with %q", env, want)

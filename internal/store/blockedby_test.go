@@ -13,7 +13,7 @@ import (
 // however many blockers there are and whether each is named by its handle or
 // its UUID. The bead is never ready before its blockers close.
 func TestCreateBlockedBy(t *testing.T) {
-	s, ctx := trainRig(t)
+	s, ctx := trainDepot(t)
 	two, err := s.GetBead(ctx, "web-2")
 	if err != nil {
 		t.Fatal(err)
@@ -22,7 +22,7 @@ func TestCreateBlockedBy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := s.CreateBead(ctx, store.NewBead{ID: "web-3", Title: "three", Rig: "web", BlockedBy: []string{"web-1", two.UUID}}, "me")
+	b, err := s.CreateBead(ctx, store.NewBead{ID: "web-3", Title: "three", Depot: "web", BlockedBy: []string{"web-1", two.UUID}}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestCreateBlockedBy(t *testing.T) {
 // bead, no event, and no edge on a blocker that came before it in the list.
 // CheckBlockers gives the same answer without creating.
 func TestCreateBlockedByRefused(t *testing.T) {
-	s, ctx := trainRig(t)
+	s, ctx := trainDepot(t)
 	one, err := s.GetBead(ctx, "web-1")
 	if err != nil {
 		t.Fatal(err)
@@ -105,7 +105,7 @@ func TestCreateBlockedByRefused(t *testing.T) {
 		if err := s.CheckBlockers(ctx, tc.blockers); !tc.refused(err) {
 			t.Fatalf("%s: CheckBlockers: %v", tc.name, err)
 		}
-		_, err := s.CreateBead(ctx, store.NewBead{ID: "web-9", Title: "orphan", Rig: "web", BlockedBy: tc.blockers}, "me")
+		_, err := s.CreateBead(ctx, store.NewBead{ID: "web-9", Title: "orphan", Depot: "web", BlockedBy: tc.blockers}, "me")
 		if !tc.refused(err) || !strings.Contains(err.Error(), "blocked by: ") {
 			t.Fatalf("%s: create: %v", tc.name, err)
 		}

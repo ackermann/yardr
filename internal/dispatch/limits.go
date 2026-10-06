@@ -20,7 +20,7 @@ import (
 //	         on an error is told apart sooner, at the start of the spell
 //	         and whatever idle is set to (session_harness_error, see
 //	         harness.go). An agent whose
-//	         bead has a gate running (yardr rig check) is not idle but
+//	         bead has a gate running (yardr depot check) is not idle but
 //	         waiting for it: the count starts when the gate has ended
 //	max_age  how long a session may run before a session_aged event;
 //	         default 4h
@@ -184,7 +184,7 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 	return true
 }
 
-// gateOf is the gate running for bead, if one is: a yardr rig check in its
+// gateOf is the gate running for bead, if one is: a yardr depot check in its
 // worktree, as the yard's home records it (rigcheck.Gates). The home is read
 // once a pass, and only when a session is idle. One that cannot be read has
 // no gates: the idle watch then goes on as it did without them.

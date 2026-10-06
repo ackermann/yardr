@@ -3,7 +3,7 @@ summary: The train's pull request is merged, at the reviewed commit and no other
 The train's pull request is merged here (`contrib/refinery/pr-merge`;
 docs/pipeline.md#through-a-pull-request). No agent works this stage. What is
 merged is the reviewed commit and no other: the merge names
-`pr_reviewed_sha`, and afterwards the rig's checkout of `main` is
+`pr_reviewed_sha`, and afterwards the depot's checkout of `main` is
 fast-forwarded to the remote's.
 
 Outcomes:

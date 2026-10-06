@@ -10,16 +10,16 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// Every yard installs these, so they must not carry one yard's person, rig,
-// language or tools: those belong in the rig's own .yardr/roles/.
+// Every yard installs these, so they must not carry one yard's person, depot,
+// language or tools: those belong in the depot's own .yardr/roles/.
 func TestTemplatesAreGeneric(t *testing.T) {
-	specific := regexp.MustCompile(`(?i)christopher|mckean|\byard\b(?:[^/]|$)|rig check yard|go vet|go test|go install|\(Go\)|herdr|XDG_|YARDR_HOME|\bmain\b|unix.socket`)
+	specific := regexp.MustCompile(`(?i)christopher|mckean|\byard\b(?:[^/]|$)|depot check yard|go vet|go test|go install|\(Go\)|herdr|XDG_|YARDR_HOME|\bmain\b|unix.socket`)
 	files, err := fs.Glob(FS, "*.md")
 	if err != nil || len(files) != 4 {
 		t.Fatalf("embedded roles = %v, %v", files, err)
 	}
-	// The starter stage files are held to the same: rig init writes them
-	// into any rig.
+	// The starter stage files are held to the same: depot init writes them
+	// into any depot.
 	if err := fs.WalkDir(Stages, "stages", func(p string, d fs.DirEntry, err error) error {
 		if err == nil && !d.IsDir() {
 			files = append(files, p)
@@ -40,7 +40,7 @@ func TestTemplatesAreGeneric(t *testing.T) {
 		body := read(name)
 		for i, line := range strings.Split(string(body), "\n") {
 			// "this yard", "the yard" and "another yard" (one it is linked
-			// with) are yardr's word for the installation, not a rig's name.
+			// with) are yardr's word for the installation, not a depot's name.
 			l := regexp.MustCompile(`(?i)\b(this|the|another) yard\b`).ReplaceAllString(line, "")
 			// The yardmaster's setup names the runner group add needs; the
 			// herdr rules that are one yard's are what this keeps out.
@@ -67,7 +67,7 @@ func TestTemplatesAreGeneric(t *testing.T) {
 	// the chain leaves the yardmaster never reaching for a train.
 	if body, _ := FS.ReadFile("yardmaster.md"); !strings.Contains(string(body), "is a chain unless it has to be a train") ||
 		!strings.Contains(string(body), "`yardr dep add <blocker> <bead>` gives the order") ||
-		!strings.Contains(string(body), "-t train -r <rig>") ||
+		!strings.Contains(string(body), "-t train -d <depot>") ||
 		!strings.Contains(string(body), "`yardr dep add <train> <child> -k parent`") ||
 		!strings.Contains(string(body), "until the whole train is reviewed and\n  merged") ||
 		!strings.Contains(string(body), "the train\n  tracks it") || !strings.Contains(string(body), "the last bead tracks it") {
@@ -95,31 +95,31 @@ func TestTemplatesAreGeneric(t *testing.T) {
 	// A builder and a reviewer check with the light gate and leave the full
 	// one to what lands, and the builder's note ends in a gate line the
 	// reviewer goes by. The stage files a brief carries beside the role say
-	// the same, or the brief contradicts itself. In a directory rig nothing
+	// the same, or the brief contradicts itself. In a directory depot nothing
 	// lands, so the gate there stays the full one.
 	for name, wants := range map[string][]string{
 		"builder.md": {
-			"`yardr rig check <rig> --light --dir <your worktree>`",
-			"A rig without a light gate runs its full gate there",
+			"`yardr depot check <depot> --light --dir <your worktree>`",
+			"A depot without a light gate runs its full gate there",
 			"Run\n   it yourself only when your change is of a kind the light gate cannot see",
 			"cross-package behaviour or tests in packages it skips",
 			"race coverage\n   outside the packages it selects",
-			"`gate: yardr rig check <rig> --light --dir <worktree> @ <commit>: pass, <n> ok, 0 failed`",
+			"`gate: yardr depot check <depot> --light --dir <worktree> @ <commit>: pass, <n> ok, 0 failed`",
 			"the full one and not the light",
 		},
 		"reviewer.md": {
 			"Do not run the full gate as a matter of course",
 			"When it names the commit you\n   were handed and you committed nothing, run no gate.",
-			"`yardr rig check <rig> --light --dir .`",
+			"`yardr depot check <depot> --light --dir .`",
 			"cross-package behaviour or tests in\n   packages it skips",
 			"race coverage outside the packages it selects",
 		},
 		"stages/git/default/new.md": {
-			"(`yardr rig check <rig> --light --dir <worktree>`)",
+			"(`yardr depot check <depot> --light --dir <worktree>`)",
 			"ends with the gate line",
 		},
-		"stages/git/default/review.md": {"(`yardr rig check <rig> --light --dir .`)"},
-		"stages/dir/default/new.md":    {"(`yardr rig check <rig>`; \"no gate\" passes)"},
+		"stages/git/default/review.md": {"(`yardr depot check <depot> --light --dir .`)"},
+		"stages/dir/default/new.md":    {"(`yardr depot check <depot>`; \"no gate\" passes)"},
 	} {
 		body := string(read(name))
 		for _, want := range wants {
@@ -132,7 +132,7 @@ func TestTemplatesAreGeneric(t *testing.T) {
 
 // A starter stage file's one line on the map of the flow (yardr prime
 // --bead, the brief) is its `summary:` line, else its first sentence, and
-// the map cuts it at store.SummaryMax characters. Every yard rig init seeds
+// the map cuts it at store.SummaryMax characters. Every yard depot init seeds
 // shows these lines, so none may be cut, with the longest name an operator
 // may have filled in.
 func TestStarterStageFilesFitTheFlowMap(t *testing.T) {

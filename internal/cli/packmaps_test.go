@@ -28,7 +28,7 @@ func mapApp(t *testing.T, sources ...string) *app {
 
 func applyStarter(t *testing.T, a *app, more ...string) string {
 	t.Helper()
-	args := append(append([]string{"apply", "../../packs/starter", "--rig", "web", "--yes"}, starterFlags...), more...)
+	args := append(append([]string{"apply", "../../packs/starter", "--depot", "web", "--yes"}, starterFlags...), more...)
 	out, err := run(t, a.packCmd(), args...)
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
@@ -55,7 +55,7 @@ func TestPackApplySetsTheStageMapOnTheYardsHook(t *testing.T) {
 	ctx := context.Background()
 	const grant = "crew member boss may not set a status in linear, so no issue is moved. The import does not grant it: the operator allows it with yardr crew set boss set_state=linear\n"
 
-	out, err := run(t, a.packCmd(), "check", "../../packs/starter", "--rig", "web", "--crew", "yardmaster=boss")
+	out, err := run(t, a.packCmd(), "check", "../../packs/starter", "--depot", "web", "--crew", "yardmaster=boss")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestPackApplyWithoutTheHookSaysWhatToAdd(t *testing.T) {
 	for _, want := range []string{
 		"\nstage map of source linear, as crew member boss\n  the pack says " + starterMapLines + "\n  nothing would be set: the import goes through without it",
 		"  missing  hook         no hook receives linear, and the import makes none: yardr hook add linear --source linear --secret-file <file>, then apply the pack again\n",
-		"\napplied pack starter to rig web: ",
+		"\napplied pack starter to depot web: ",
 		"\nthe stage map of linear was not set: no hook receives linear, and the import makes none: yardr hook add linear --source linear --secret-file <file>, then apply the pack again\n",
 		"\nnote: crew member boss may not set a status in linear",
 	} {
@@ -164,7 +164,7 @@ func TestPackApplyByAnotherSessionSetsNoStageMap(t *testing.T) {
 	out := applyStarter(t, a)
 	for _, want := range []string{
 		"\nstage map of source linear, as crew member boss\n  the pack says " + starterMapLines + "\n  not set on hook linear: ",
-		"\napplied pack starter to rig web: ",
+		"\napplied pack starter to depot web: ",
 		"\nthe stage map of linear was not set on hook linear: pack apply: the stage map of linear --crew boss: " + refusal + ". The rest of the import does not depend on it\n",
 	} {
 		if !strings.Contains(out, want) {

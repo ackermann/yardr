@@ -115,9 +115,9 @@ func TestStarterPackLoads(t *testing.T) {
 	}
 }
 
-// The starter's flow, as the store would keep it, is the flow yardr rig
+// The starter's flow, as the store would keep it, is the flow yardr depot
 // init writes: the same rules, written in the pack's format.
-func TestStarterFlowIsTheRigInitFlow(t *testing.T) {
+func TestStarterFlowIsTheDepotInitFlow(t *testing.T) {
 	p, err := pack.Load(starter)
 	if err != nil {
 		t.Fatal(err)
@@ -306,8 +306,8 @@ func TestNoPackFile(t *testing.T) {
 
 // The starter's roles and its merge-local are copies of the roles yardr
 // embeds (roles/*.md) and of the reference refinery, and its stage files of
-// the ones rig init writes for a git rig, placeholders included: an import
-// fills them as rig init does. Until one is read from the other, a change to
+// the ones depot init writes for a git depot, placeholders included: an import
+// fills them as depot init does. Until one is read from the other, a change to
 // either must be made to both.
 func TestStarterMatchesItsSources(t *testing.T) {
 	pairs := map[string]string{"scripts/merge-local": "../../contrib/refinery/merge-local"}

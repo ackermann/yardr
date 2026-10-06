@@ -28,13 +28,13 @@ type Line struct {
 	// Sessions counts the sessions running: a manual group's claim is no
 	// process and is not among them.
 	Sessions int `json:"sessions"`
-	// Stages are the stages that hold an open bead, summed over the rigs, in
+	// Stages are the stages that hold an open bead, summed over the depots, in
 	// the order of their flows.
 	Stages []StageCount `json:"stages"`
-	Rigs   []LineRig    `json:"rigs"`
+	Depots []LineDepot  `json:"depots"`
 }
 
-type LineRig struct {
+type LineDepot struct {
 	Name string `json:"name"`
 	Open int    `json:"open"`
 }
@@ -43,7 +43,7 @@ type LineRig struct {
 type Waiting struct {
 	Bead  string `json:"bead"`
 	Title string `json:"title"`
-	Rig   string `json:"rig,omitempty"`
+	Depot string `json:"depot,omitempty"`
 	Stage string `json:"stage"`
 	// Since is when the bead last changed: about when it began to wait.
 	Since time.Time `json:"since"`
@@ -74,7 +74,7 @@ func (s *Server) line(ctx context.Context, ov *Home) (*Line, error) {
 			return nil, err
 		}
 	}
-	l := &Line{Stages: []StageCount{}, Rigs: []LineRig{}}
+	l := &Line{Stages: []StageCount{}, Depots: []LineDepot{}}
 	add := func(counts []StageCount) {
 		for _, c := range counts {
 			if c.Open == 0 {
@@ -87,11 +87,11 @@ func (s *Server) line(ctx context.Context, ov *Home) (*Line, error) {
 			}
 		}
 	}
-	for _, r := range ov.Rigs {
+	for _, r := range ov.Depots {
 		l.Open += r.Open
 		l.Working += r.Working
 		l.Held += r.Held
-		l.Rigs = append(l.Rigs, LineRig{Name: r.Name, Open: r.Open})
+		l.Depots = append(l.Depots, LineDepot{Name: r.Name, Open: r.Open})
 		for _, f := range r.Flows {
 			add(f.Stages)
 		}
@@ -134,7 +134,7 @@ func (s *Server) waits(ctx context.Context, sessions []store.Session) (waits, pa
 		return nil, nil, err
 	}
 	store.SortRoutes(routes)
-	// A rig whose repository cannot be read must not take the column, and
+	// A depot whose repository cannot be read must not take the column, and
 	// with it every page, down: its beads are then not known to be stranded.
 	stranded, err := s.st.Stranded(ctx, "")
 	if err != nil {
@@ -178,8 +178,8 @@ func (s *Server) waits(ctx context.Context, sessions []store.Session) (waits, pa
 			continue
 		}
 		w := Waiting{Bead: b.ID, Title: b.Title, Stage: b.Stage, Since: b.UpdatedAt, Why: why}
-		if b.Rig != nil {
-			w.Rig = *b.Rig
+		if b.Depot != nil {
+			w.Depot = *b.Depot
 		}
 		if !slices.ContainsFunc(why, func(r Reason) bool { return r.Kind != "manual" }) {
 			parked = append(parked, w)

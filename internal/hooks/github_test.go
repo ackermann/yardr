@@ -22,14 +22,14 @@ func ghFixture(t *testing.T, name string) []byte {
 }
 
 // github posts body for event signed with key as GitHub would.
-func (r *rig) github(t *testing.T, event string, body []byte, key, delivery string) int {
+func (r *depot) github(t *testing.T, event string, body []byte, key, delivery string) int {
 	return r.post(t, "/hooks/gh", body, map[string]string{
 		"X-Hub-Signature-256": "sha256=" + sign(key, body), "X-GitHub-Delivery": delivery,
 		"X-GitHub-Event": event, "Content-Type": "application/json", "User-Agent": "GitHub-Hookshot/0"})
 }
 
 func TestGitHubSignature(t *testing.T) {
-	r := newRig(t)
+	r := newDepot(t)
 	r.now = time.Now()
 	body := ghFixture(t, "pull_request_opened")
 
@@ -80,7 +80,7 @@ func TestGitHubSignature(t *testing.T) {
 // GitHub keeps the delivery id when a delivery is redelivered, and the id
 // alone drops a repeat of it.
 func TestGitHubDuplicateDelivery(t *testing.T) {
-	r := newRig(t)
+	r := newDepot(t)
 	r.now = time.Now()
 	body := ghFixture(t, "issue_comment_pr")
 	for i := 0; i < 3; i++ {
@@ -114,7 +114,7 @@ func TestGitHubDuplicateDelivery(t *testing.T) {
 // can be sent again under a fresh id. The body is signed, and a body the
 // hook has recorded is a duplicate whatever id or event it claims.
 func TestGitHubReplayUnderNewDeliveryID(t *testing.T) {
-	r := newRig(t)
+	r := newDepot(t)
 	r.now = time.Now()
 	f := filepath.Join(t.TempDir(), "gh2.secret")
 	if err := os.WriteFile(f, []byte(secret+"\n"), 0o600); err != nil {
@@ -303,7 +303,7 @@ func TestGitHubMentions(t *testing.T) {
 // through a where filter on the train, CI on the train's branch. Its own
 // actions and a description that mentioned it before do not.
 func TestGitHubMentionReachesInbox(t *testing.T) {
-	r := newRig(t)
+	r := newDepot(t)
 	r.now = time.Now()
 	ctx := context.Background()
 	if _, err := r.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster"}, "me"); err != nil {
@@ -350,7 +350,7 @@ func TestGitHubMentionReachesInbox(t *testing.T) {
 // not told again, one newly mentioned is, and a deleted comment tells no
 // one and is forgotten.
 func TestGitHubCommentEditDeliversOnlyNewMentions(t *testing.T) {
-	r := newRig(t)
+	r := newDepot(t)
 	ctx := context.Background()
 	for _, name := range []string{"yardmaster", "ops"} {
 		if _, err := r.st.PutCrew(ctx, store.CrewMember{Name: name}, "me"); err != nil {

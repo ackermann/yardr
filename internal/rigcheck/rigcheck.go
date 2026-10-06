@@ -1,37 +1,37 @@
-// Package rigcheck finds and runs a rig's merge gate: the command that must
-// exit 0 before a bead's branch may land on the rig's base.
+// Package rigcheck finds and runs a depot's merge gate: the command that must
+// exit 0 before a bead's branch may land on the depot's base.
 //
-// The gate comes from the store (`yardr rig add --check <cmd>`, the
+// The gate comes from the store (`yardr depot add --check <cmd>`, the
 // operator's override) or else from the repo: .yardr/check at the tip of the
-// rig's base branch. It is never read from the bead's branch or worktree, so
+// depot's base branch. It is never read from the bead's branch or worktree, so
 // a bead cannot lower its own bar; an edit to .yardr/check counts only once
 // it has landed on the base.
 //
 // When the base has a remote, the check is read from the remote-tracking
 // ref after fetching it, not from the local branch: refs are shared by every
-// worktree of the rig, so a bead could `git update-ref` the local base to a
-// commit of its own choosing. A rig without a remote reads the local base.
+// worktree of the depot, so a bead could `git update-ref` the local base to a
+// commit of its own choosing. A depot without a remote reads the local base.
 //
 // A child of a train lands on the train's branch, not the base, but its gate
 // is still the base's: read from the base exactly as above, and run on the
 // child's branch. So a train cannot change the bar its children land under.
 //
-// A rig with no gate at all fails ("no gate") unless it opts out with
+// A depot with no gate at all fails ("no gate") unless it opts out with
 // allow_no_check: a missing file must not read as a passing one.
 //
-// A dir rig is not a repository and has no base: its .yardr/check is read
-// from the rig's directory as it is, and run in place. Without one a dir rig
-// passes ("no gate"), the opposite of a git rig on purpose: nothing of a dir
-// rig's merges anywhere, so there is no bar to lower.
+// A dir depot is not a repository and has no base: its .yardr/check is read
+// from the depot's directory as it is, and run in place. Without one a dir depot
+// passes ("no gate"), the opposite of a git depot on purpose: nothing of a dir
+// depot's merges anywhere, so there is no bar to lower.
 //
-// A rig may have a second, light gate (RunLight): `--check-light <cmd>` in
+// A depot may have a second, light gate (RunLight): `--check-light <cmd>` in
 // the store, or .yardr/check-light in the repo, found and run under every
 // rule above. It is for a branch that lands where the full gate still
 // stands before the base moves: a car of a train, landing on the train's
-// branch (docs/pipeline.md, "Cars"). A rig without one runs its full gate
+// branch (docs/pipeline.md, "Cars"). A depot without one runs its full gate
 // instead and says so (Result.Fallback): asking for the light gate never
 // passes for want of a file. The light gate comes from where the full one
-// does: a rig whose gate is a store override has its light gate in the store
+// does: a depot whose gate is a store override has its light gate in the store
 // too, and a .yardr/check-light in its repo is not read.
 //
 // No more than N full gates run at once on the machine (slots.go): RunWith
@@ -40,12 +40,12 @@
 // Either gate is told what it is compared with: YARDR_CHECK_BASE is the
 // commit the repo's gate was read at (the tip of the base, as fetched), so
 // a check can look at what the branch changed (git diff against the merge
-// base with it). Under a store override it is the rig's base as it resolves
-// locally, and it is unset when that does not resolve and for a dir rig: a
+// base with it). Under a store override it is the depot's base as it resolves
+// locally, and it is unset when that does not resolve and for a dir depot: a
 // check that needs it must fail without it.
 //
 // The light gate of a car of a train is compared with the train's branch
-// instead (Options.Since): the range from the rig's base holds the train's
+// instead (Options.Since): the range from the depot's base holds the train's
 // earlier cars, so every car after one that touched a widely imported
 // package would test nearly everything again. Only what the gate is compared
 // with changes: the gate is still read from the base, and the train's own
@@ -71,10 +71,10 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// RepoPath is where a rig keeps its check, relative to the repo root.
+// RepoPath is where a depot keeps its check, relative to the repo root.
 const RepoPath = ".yardr/check"
 
-// LightPath is where a rig keeps its light check, beside the full one.
+// LightPath is where a depot keeps its light check, beside the full one.
 const LightPath = ".yardr/check-light"
 
 // checkEnv is what a check's command inherits of environ. An outer check's
@@ -102,14 +102,14 @@ var FetchTimeout = 60 * time.Second
 var GitTimeout = 30 * time.Second
 
 // DefaultTimeout bounds a check run when the caller sets no deadline of its
-// own (yardr rig check --timeout).
+// own (yardr depot check --timeout).
 const DefaultTimeout = 30 * time.Minute
 
-// Check is a rig's gate as resolved right now.
+// Check is a depot's gate as resolved right now.
 type Check struct {
 	// Source says where the gate came from: "store", "repo@<sha>" (the base
-	// commit it was read from), "dir" (a dir rig's own file), or "" when
-	// the rig has none.
+	// commit it was read from), "dir" (a dir depot's own file), or "" when
+	// the depot has none.
 	Source string `json:"source"`
 	// From says which ref the repo's check was read from and how, e.g.
 	// "origin/main (fetched)" or "main (no remote)".
@@ -118,55 +118,55 @@ type Check struct {
 	Cmd string `json:"cmd,omitempty"`
 	// Script is the content of .yardr/check at the base.
 	Script []byte `json:"-"`
-	// File is a dir rig's .yardr/check, run where it is.
+	// File is a dir depot's .yardr/check, run where it is.
 	File string `json:"file,omitempty"`
 	// Base is the commit the check is compared with (BaseVar); "" when
 	// there is none. BaseRef names it: the ref it is the tip of.
 	Base    string `json:"base,omitempty"`
 	BaseRef string `json:"base_ref,omitempty"`
-	// Light: this is the rig's light gate. Fallback says, when the light
-	// gate was asked for and the rig has none, why this is the full one.
+	// Light: this is the depot's light gate. Fallback says, when the light
+	// gate was asked for and the depot has none, why this is the full one.
 	Light    bool   `json:"light,omitempty"`
 	Fallback string `json:"fallback,omitempty"`
-	// FailPattern is the content of the rig's FailPatternPath, read where
-	// the repo's gate is; empty when the rig has none.
+	// FailPattern is the content of the depot's FailPatternPath, read where
+	// the repo's gate is; empty when the depot has none.
 	FailPattern []byte `json:"-"`
 }
 
-// None reports whether the rig has no gate.
+// None reports whether the depot has no gate.
 func (c *Check) None() bool { return c.Source == "" }
 
-// Resolve finds the rig's gate. The store override wins; otherwise
+// Resolve finds the depot's gate. The store override wins; otherwise
 // .yardr/check is read from the base commit with git, not from any
 // checkout, so whatever a bead's branch holds there does not matter.
-func Resolve(ctx context.Context, rig store.Rig) (*Check, error) {
-	return resolve(ctx, rig, false)
+func Resolve(ctx context.Context, depot store.Depot) (*Check, error) {
+	return resolve(ctx, depot, false)
 }
 
-// ResolveLight finds the rig's light gate the same way (--check-light, else
+// ResolveLight finds the depot's light gate the same way (--check-light, else
 // .yardr/check-light on the base), or its full gate, with Fallback set,
 // when it has no light one.
-func ResolveLight(ctx context.Context, rig store.Rig) (*Check, error) {
-	return resolve(ctx, rig, true)
+func ResolveLight(ctx context.Context, depot store.Depot) (*Check, error) {
+	return resolve(ctx, depot, true)
 }
 
-func resolve(ctx context.Context, rig store.Rig, light bool) (*Check, error) {
+func resolve(ctx context.Context, depot store.Depot, light bool) (*Check, error) {
 	switch {
-	case light && rig.CheckLight != "":
-		c := &Check{Source: "store", Cmd: rig.CheckLight, Base: localBase(ctx, rig), Light: true}
-		c.nameBase(rig.Base)
-		c.FailPattern = failPattern(ctx, rig, c.Base)
+	case light && depot.CheckLight != "":
+		c := &Check{Source: "store", Cmd: depot.CheckLight, Base: localBase(ctx, depot), Light: true}
+		c.nameBase(depot.Base)
+		c.FailPattern = failPattern(ctx, depot, c.Base)
 		return c, nil
-	case rig.Check != "":
+	case depot.Check != "":
 		// The pattern is still the repository's, at the base as it is
 		// locally: the store has no setting for it, and it lowers no bar.
-		c := &Check{Source: "store", Cmd: rig.Check, Base: localBase(ctx, rig)}
-		c.nameBase(rig.Base)
-		c.FailPattern = failPattern(ctx, rig, c.Base)
+		c := &Check{Source: "store", Cmd: depot.Check, Base: localBase(ctx, depot)}
+		c.nameBase(depot.Base)
+		c.FailPattern = failPattern(ctx, depot, c.Base)
 		if light {
 			// The operator took the gate out of the repo's hands: a light
 			// gate in the repo does not take it back.
-			c.Fallback = fmt.Sprintf("rig %s has no light gate (its gate is a store override, with no --check-light beside it): running the full gate", rig.Name)
+			c.Fallback = fmt.Sprintf("depot %s has no light gate (its gate is a store override, with no --check-light beside it): running the full gate", depot.Name)
 		}
 		return c, nil
 	}
@@ -174,35 +174,35 @@ func resolve(ctx context.Context, rig store.Rig, light bool) (*Check, error) {
 	if light {
 		paths = []string{LightPath, RepoPath}
 	}
-	if rig.IsDir() {
-		return resolveDir(rig, paths)
+	if depot.IsDir() {
+		return resolveDir(depot, paths)
 	}
-	ref, from, err := BaseRef(ctx, rig)
+	ref, from, err := BaseRef(ctx, depot)
 	if err != nil {
 		return nil, err
 	}
-	sha, err := git(ctx, rig.Path, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+	sha, err := git(ctx, depot.Path, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
 	if err != nil {
-		return nil, fmt.Errorf("rig %s: base %q does not resolve: %w", rig.Name, ref, err)
+		return nil, fmt.Errorf("depot %s: base %q does not resolve: %w", depot.Name, ref, err)
 	}
 	sha = strings.TrimSpace(sha)
 	for _, path := range paths {
 		// ls-tree tells "no check" apart from a failing git: an absent file is
 		// no gate, which Run decides about, not a broken one.
-		if out, err := git(ctx, rig.Path, "ls-tree", "--name-only", sha, "--", path); err != nil {
+		if out, err := git(ctx, depot.Path, "ls-tree", "--name-only", sha, "--", path); err != nil {
 			return nil, err
 		} else if strings.TrimSpace(out) == "" {
 			continue
 		}
-		script, err := git(ctx, rig.Path, "show", sha+":"+path)
+		script, err := git(ctx, depot.Path, "show", sha+":"+path)
 		if err != nil {
 			return nil, err
 		}
 		c := &Check{Source: "repo@" + sha[:min(12, len(sha))], From: from, Script: []byte(script), Base: sha, Light: path == LightPath}
 		c.nameBase(strings.TrimPrefix(ref, "refs/remotes/"))
-		c.FailPattern = failPattern(ctx, rig, sha)
+		c.FailPattern = failPattern(ctx, depot, sha)
 		if light && !c.Light {
-			c.Fallback = fmt.Sprintf("rig %s has no light gate (no --check-light, no %s on %s): running the full gate", rig.Name, LightPath, from)
+			c.Fallback = fmt.Sprintf("depot %s has no light gate (no --check-light, no %s on %s): running the full gate", depot.Name, LightPath, from)
 		}
 		return c, nil
 	}
@@ -217,7 +217,7 @@ func (c *Check) nameBase(ref string) {
 }
 
 // since compares a light gate with the tip of branch, as it is in dir's
-// repository, instead of the rig's base. A full gate keeps its base, and so
+// repository, instead of the depot's base. A full gate keeps its base, and so
 // does a light one whose branch does not resolve there: the wider range
 // tests more, never less.
 func (c *Check) since(ctx context.Context, dir, branch string) {
@@ -231,67 +231,67 @@ func (c *Check) since(ctx context.Context, dir, branch string) {
 	c.Base, c.BaseRef = strings.TrimSpace(sha), branch
 }
 
-// localBase is the rig's base as it resolves in the rig's checkout, with no
+// localBase is the depot's base as it resolves in the depot's checkout, with no
 // fetch, or "": what a store override is compared with. The override never
 // needed the repository to resolve, so a base that does not is no error.
-func localBase(ctx context.Context, rig store.Rig) string {
-	if rig.IsDir() || rig.Base == "" {
+func localBase(ctx context.Context, depot store.Depot) string {
+	if depot.IsDir() || depot.Base == "" {
 		return ""
 	}
-	sha, err := git(ctx, rig.Path, "rev-parse", "--verify", "--quiet", rig.Base+"^{commit}")
+	sha, err := git(ctx, depot.Path, "rev-parse", "--verify", "--quiet", depot.Base+"^{commit}")
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(sha)
 }
 
-// resolveDir finds a dir rig's check in its directory: the first of paths
+// resolveDir finds a dir depot's check in its directory: the first of paths
 // that is there.
-func resolveDir(rig store.Rig, paths []string) (*Check, error) {
+func resolveDir(depot store.Depot, paths []string) (*Check, error) {
 	for _, path := range paths {
-		file := filepath.Join(rig.Path, filepath.FromSlash(path))
+		file := filepath.Join(depot.Path, filepath.FromSlash(path))
 		info, err := os.Stat(file)
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
 			continue
 		case err != nil:
-			return nil, fmt.Errorf("rig %s: %w", rig.Name, err)
+			return nil, fmt.Errorf("depot %s: %w", depot.Name, err)
 		case info.IsDir():
-			return nil, fmt.Errorf("rig %s: %s is a directory, not a check", rig.Name, file)
+			return nil, fmt.Errorf("depot %s: %s is a directory, not a check", depot.Name, file)
 		}
 		script, err := os.ReadFile(file)
 		if err != nil {
-			return nil, fmt.Errorf("rig %s: %w", rig.Name, err)
+			return nil, fmt.Errorf("depot %s: %w", depot.Name, err)
 		}
 		c := &Check{Source: "dir", Script: script, File: file, Light: path == LightPath}
-		c.FailPattern = failPattern(context.Background(), rig, "")
+		c.FailPattern = failPattern(context.Background(), depot, "")
 		if len(paths) > 1 && !c.Light {
-			c.Fallback = fmt.Sprintf("rig %s has no light gate (no --check-light, no %s in %s): running the full gate", rig.Name, LightPath, rig.Path)
+			c.Fallback = fmt.Sprintf("depot %s has no light gate (no --check-light, no %s in %s): running the full gate", depot.Name, LightPath, depot.Path)
 		}
 		return c, nil
 	}
 	return &Check{}, nil
 }
 
-// BaseRef is the ref the rig's repo config is read from, and a note on how
-// it was chosen. When the base has a remote (rig.Base is "<remote>/<branch>",
+// BaseRef is the ref the depot's repo config is read from, and a note on how
+// it was chosen. When the base has a remote (depot.Base is "<remote>/<branch>",
 // or a local branch whose upstream, or else origin, has it) the
 // remote-tracking ref is fetched, bounded by FetchTimeout, with a forced
 // refspec, so a tracking ref moved by hand is put back. A fetch that fails
-// leaves the tracking ref as last fetched, and the note says so; only a rig
+// leaves the tracking ref as last fetched, and the note says so; only a depot
 // with no remote, or whose remote lacks the branch, reads the local base.
-func BaseRef(ctx context.Context, rig store.Rig) (ref, from string, err error) {
-	remote, branch := remoteOf(ctx, rig)
+func BaseRef(ctx context.Context, depot store.Depot) (ref, from string, err error) {
+	remote, branch := remoteOf(ctx, depot)
 	if remote == "" {
-		return rig.Base, rig.Base + " (no remote)", nil
+		return depot.Base, depot.Base + " (no remote)", nil
 	}
 	tracking := remote + "/" + branch
-	ferr := fetch(ctx, rig.Path, remote, "+refs/heads/"+branch+":refs/remotes/"+tracking)
-	if _, err := git(ctx, rig.Path, "rev-parse", "--verify", "--quiet", "refs/remotes/"+tracking+"^{commit}"); err != nil {
-		if tracking == rig.Base {
-			return "", "", fmt.Errorf("rig %s: base %q does not resolve (fetch: %v)", rig.Name, rig.Base, ferr)
+	ferr := fetch(ctx, depot.Path, remote, "+refs/heads/"+branch+":refs/remotes/"+tracking)
+	if _, err := git(ctx, depot.Path, "rev-parse", "--verify", "--quiet", "refs/remotes/"+tracking+"^{commit}"); err != nil {
+		if tracking == depot.Base {
+			return "", "", fmt.Errorf("depot %s: base %q does not resolve (fetch: %v)", depot.Name, depot.Base, ferr)
 		}
-		return rig.Base, fmt.Sprintf("%s (%s has no %s)", rig.Base, remote, branch), nil
+		return depot.Base, fmt.Sprintf("%s (%s has no %s)", depot.Base, remote, branch), nil
 	}
 	if ferr != nil {
 		return "refs/remotes/" + tracking, fmt.Sprintf("%s (fetch failed, as last fetched: %v)", tracking, ferr), nil
@@ -299,12 +299,12 @@ func BaseRef(ctx context.Context, rig store.Rig) (ref, from string, err error) {
 	return "refs/remotes/" + tracking, tracking + " (fetched)", nil
 }
 
-// remoteOf names the remote and branch the rig's base tracks, or "" when it
+// remoteOf names the remote and branch the depot's base tracks, or "" when it
 // has none (store.BaseRemote: a bead sent to a linked yard names the same).
-func remoteOf(ctx context.Context, rig store.Rig) (remote, branch string) {
+func remoteOf(ctx context.Context, depot store.Depot) (remote, branch string) {
 	ctx, cancel := context.WithTimeout(ctx, GitTimeout)
 	defer cancel()
-	return store.BaseRemote(ctx, rig)
+	return store.BaseRemote(ctx, depot)
 }
 
 func fetch(ctx context.Context, repo, remote, refspec string) error {
@@ -330,17 +330,17 @@ func fetch(ctx context.Context, repo, remote, refspec string) error {
 
 // Result is one run of a check.
 type Result struct {
-	Rig    string `json:"rig"`
-	Kind   string `json:"kind,omitempty"` // the rig's: git or dir
+	Depot  string `json:"depot"`
+	Kind   string `json:"kind,omitempty"` // the depot's: git or dir
 	Dir    string `json:"dir"`
 	Source string `json:"source"`
 	From   string `json:"from,omitempty"`
-	// Light: the rig's light gate ran. Fallback: it was asked for, the rig
+	// Light: the depot's light gate ran. Fallback: it was asked for, the depot
 	// has none, and the full gate ran instead; the line says so.
 	Light    bool   `json:"light,omitempty"`
 	Fallback string `json:"light_fallback,omitempty"`
 	// Base is the commit the check was given to compare with (BaseVar), and
-	// BaseRef the ref it is the tip of: the rig's base, or, for the light
+	// BaseRef the ref it is the tip of: the depot's base, or, for the light
 	// gate of a car of a train, the train's branch (Options.Since).
 	Base    string `json:"base,omitempty"`
 	BaseRef string `json:"base_ref,omitempty"`
@@ -360,7 +360,7 @@ type Result struct {
 	// the branch: the caller reports it apart from a red gate.
 	Signal int    `json:"signal,omitempty"`
 	Output string `json:"output"` // stdout and stderr, interleaved
-	// Matched is, for a check that did not pass in a rig with a
+	// Matched is, for a check that did not pass in a depot with a
 	// FailPatternPath, the lines of Output matching it, with their context
 	// (see Matching); MatchedMore is how many matching lines it left out.
 	// PatternNotes name the lines of the pattern file that were skipped.
@@ -372,61 +372,61 @@ type Result struct {
 	// them in: Run does not know the yard's home.
 	LogFile  string `json:"log_file,omitempty"`
 	LogError string `json:"log_error,omitempty"`
-	// Stranded are the rig's open beads in a stage their flow lacks, which
+	// Stranded are the depot's open beads in a stage their flow lacks, which
 	// fail the check whatever the gate said. The caller fills it in: Run
 	// has no store.
 	Stranded []store.StrandedBead `json:"stranded,omitempty"`
-	// StageNotes name, per flow governing the rig, the non-terminal stages
+	// StageNotes name, per flow governing the depot, the non-terminal stages
 	// without a stage file: in Dir for a repository flow, in the yard's
 	// home for a store flow. They never fail the check: stage files are
 	// optional. The caller fills them in, as it does StrayStageFiles.
 	StageNotes []string `json:"stage_notes,omitempty"`
-	// ShadowNotes name each file of the rig's repository that nothing reads
+	// ShadowNotes name each file of the depot's repository that nothing reads
 	// while a flow in the store, or a prompt from a pack or the yard's home,
 	// stands in front of it. They never fail the check: shadowing is how a
-	// pack governs a rig. The caller fills them in.
+	// pack governs a depot. The caller fills them in.
 	ShadowNotes []string `json:"shadow_notes,omitempty"`
 	// StrayStageFiles are the stage files in Dir named after no stage of
 	// their flow, which fail the check whatever the gate said: nobody is
 	// ever shown one, so nobody else would see the typo.
 	StrayStageFiles []string `json:"stray_stage_files,omitempty"`
 	// StrayHomeStageFiles are the same for the store flows governing the
-	// rig, whose stage files are in the yard's home: no branch's to fix.
+	// depot, whose stage files are in the yard's home: no branch's to fix.
 	StrayHomeStageFiles []string `json:"stray_home_stage_files,omitempty"`
 }
 
-// Run resolves the rig's gate and runs it in dir (a bead's worktree, or the
-// rig itself when dir is empty). A failing check is a Result with Pass
-// false, not an error; errors mean the check could not be run at all. A rig
-// with no gate fails too, unless it sets AllowNoCheck or is a dir rig. A check still running
+// Run resolves the depot's gate and runs it in dir (a bead's worktree, or the
+// depot itself when dir is empty). A failing check is a Result with Pass
+// false, not an error; errors mean the check could not be run at all. A depot
+// with no gate fails too, unless it sets AllowNoCheck or is a dir depot. A check still running
 // at ctx's deadline is killed and fails (TimedOut); finding the gate past
 // the deadline is an error.
-func Run(ctx context.Context, rig store.Rig, dir string) (*Result, error) {
-	return run(ctx, rig, dir, Options{})
+func Run(ctx context.Context, depot store.Depot, dir string) (*Result, error) {
+	return run(ctx, depot, dir, Options{})
 }
 
-// RunLight is Run for the rig's light gate, and for its full gate when it
+// RunLight is Run for the depot's light gate, and for its full gate when it
 // has no light one (Result.Fallback then says so).
-func RunLight(ctx context.Context, rig store.Rig, dir string) (*Result, error) {
-	return run(ctx, rig, dir, Options{Light: true})
+func RunLight(ctx context.Context, depot store.Depot, dir string) (*Result, error) {
+	return run(ctx, depot, dir, Options{Light: true})
 }
 
 // Options are how RunWith runs a gate.
 type Options struct {
-	// Light asks for the rig's light gate (RunLight).
+	// Light asks for the depot's light gate (RunLight).
 	Light bool
-	// Since is a branch the light gate is compared with instead of the rig's
+	// Since is a branch the light gate is compared with instead of the depot's
 	// base: the train's, for a car of one (see the package comment). The
 	// caller finds it: this package has no store. It is read in the
 	// directory the check runs in, and changes nothing for a full gate, a
-	// dir rig, or a branch that is not there.
+	// dir depot, or a branch that is not there.
 	Since string
 	// Timeout bounds the check itself, from when it starts: finding the gate
 	// and waiting for a slot are not counted. 0 leaves ctx's deadline alone.
 	Timeout time.Duration
 	// Slots is how the run takes its slot of the machine (see slots.go);
-	// nil takes none. A light gate takes none either, unless the rig says
-	// its light gate takes one (store.Rig.LightSlot): it is meant to be
+	// nil takes none. A light gate takes none either, unless the depot says
+	// its light gate takes one (store.Depot.LightSlot): it is meant to be
 	// cheap. The full gate run for want of a light one takes one. So does
 	// no check started from inside a check that has one (SlotVar).
 	Slots *Slots
@@ -434,33 +434,33 @@ type Options struct {
 
 // RunWith is Run with options. A wait for a slot that runs past its bound
 // is an error wrapping ErrSlotWait: the check could not run.
-func RunWith(ctx context.Context, rig store.Rig, dir string, o Options) (*Result, error) {
-	return run(ctx, rig, dir, o)
+func RunWith(ctx context.Context, depot store.Depot, dir string, o Options) (*Result, error) {
+	return run(ctx, depot, dir, o)
 }
 
-func run(ctx context.Context, rig store.Rig, dir string, o Options) (*Result, error) {
+func run(ctx context.Context, depot store.Depot, dir string, o Options) (*Result, error) {
 	if dir == "" {
-		dir = rig.Path
+		dir = depot.Path
 	}
-	c, err := resolve(ctx, rig, o.Light)
+	c, err := resolve(ctx, depot, o.Light)
 	if err != nil {
 		return nil, err
 	}
-	if !rig.IsDir() {
+	if !depot.IsDir() {
 		c.since(ctx, dir, o.Since)
 	}
-	res := &Result{Rig: rig.Name, Kind: rig.Kind, Dir: dir, Source: c.Source, From: c.From,
+	res := &Result{Depot: depot.Name, Kind: depot.Kind, Dir: dir, Source: c.Source, From: c.From,
 		Light: c.Light, Fallback: c.Fallback, Base: c.Base, BaseRef: c.BaseRef}
 	if c.None() {
-		res.Pass = rig.AllowNoCheck || rig.IsDir()
+		res.Pass = depot.AllowNoCheck || depot.IsDir()
 		if !res.Pass {
 			res.ExitCode = 1
-			res.Output = fmt.Sprintf("no gate: rig %s has no --check and no %s on %s; add one, or set allow_no_check\n", rig.Name, RepoPath, c.From)
+			res.Output = fmt.Sprintf("no gate: depot %s has no --check and no %s on %s; add one, or set allow_no_check\n", depot.Name, RepoPath, c.From)
 		}
 		return res, nil
 	}
 	slot := false
-	if o.Slots != nil && o.Slots.Limit > 0 && os.Getenv(SlotVar) == "" && (!c.Light || rig.LightSlot) {
+	if o.Slots != nil && o.Slots.Limit > 0 && os.Getenv(SlotVar) == "" && (!c.Light || depot.LightSlot) {
 		release, waited, err := o.Slots.Acquire(ctx)
 		if err != nil {
 			return nil, err
@@ -478,7 +478,7 @@ func run(ctx context.Context, rig store.Rig, dir string, o Options) (*Result, er
 	case c.Cmd != "":
 		cmd = exec.CommandContext(ctx, "sh", "-c", c.Cmd)
 	case c.File != "":
-		// A dir rig's check is a file already, with no git directory to
+		// A dir depot's check is a file already, with no git directory to
 		// copy it to: run it in place, with sh unless it is executable.
 		if info, err := os.Stat(c.File); err == nil && bytes.HasPrefix(c.Script, []byte("#!")) && info.Mode()&0o111 != 0 {
 			cmd = exec.CommandContext(ctx, c.File)
@@ -487,9 +487,9 @@ func run(ctx context.Context, rig store.Rig, dir string, o Options) (*Result, er
 		}
 	default:
 		// The script is a blob in git, not a file: write it out to run it.
-		// It goes under the rig's git dir, not /tmp, which may be noexec,
+		// It goes under the depot's git dir, not /tmp, which may be noexec,
 		// and not the worktree, where it would show up as a change.
-		path, err := writeScript(ctx, rig.Path, c.Script)
+		path, err := writeScript(ctx, depot.Path, c.Script)
 		if err != nil {
 			return nil, err
 		}
@@ -503,7 +503,8 @@ func run(ctx context.Context, rig store.Rig, dir string, o Options) (*Result, er
 	var out bytes.Buffer
 	cmd.Dir = dir
 	cmd.Stdout, cmd.Stderr = &out, &out
-	cmd.Env = append(checkEnv(os.Environ()), "YARDR_RIG="+rig.Name)
+	// Under the name it had too (YARDR_RIG): a repository's check may read it.
+	cmd.Env = append(checkEnv(os.Environ()), config.Env("DEPOT", depot.Name)...)
 	if c.Base != "" {
 		cmd.Env = append(cmd.Env, BaseVar+"="+c.Base)
 	}

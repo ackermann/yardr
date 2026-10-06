@@ -20,8 +20,8 @@ type setupStep struct {
 	Detail string `json:"detail,omitempty"`
 	// Next is how to do the step, when it is not done.
 	Next string `json:"next,omitempty"`
-	// Rig is the rig the step's command names, once the yard has one.
-	Rig string `json:"rig,omitempty"`
+	// Depot is the depot the step's command names, once the yard has one.
+	Depot string `json:"depot,omitempty"`
 	// args are the yardr command lines that do the step, when they follow
 	// from the store alone with nothing left to ask: what the guided setup
 	// shows and runs for it (yardr setup).
@@ -30,41 +30,41 @@ type setupStep struct {
 
 // The setup steps' keys, in their order.
 const (
-	stepRig       = "rig"
-	stepRigFiles  = "rig_files"
-	stepBuilders  = "builders"
-	stepReviewers = "reviewers"
-	stepLanding   = "landing"
-	stepRoutes    = "routes"
-	stepFirstBead = "first_bead"
-	stepMerged    = "merged_bead"
+	stepDepot      = "depot"
+	stepDepotFiles = "depot_files"
+	stepBuilders   = "builders"
+	stepReviewers  = "reviewers"
+	stepLanding    = "landing"
+	stepRoutes     = "routes"
+	stepFirstBead  = "first_bead"
+	stepMerged     = "merged_bead"
 )
 
 // setupState is what the setup steps are read from.
 type setupState struct {
-	rigs   []store.Rig
+	depots []store.Depot
 	groups []store.Group
 	routes []store.Route
 	beads  []store.Bead // closed ones too
-	// flows are the flows on each rig's base (in a dir rig's directory), by
-	// rig; flowErr is why a rig's could not be read.
+	// flows are the flows on each depot's base (in a dir depot's directory), by
+	// depot; flowErr is why a depot's could not be read.
 	flows   map[string]int
 	flowErr map[string]string
-	// pointed are the rigs that follow a flow in the store (a pack's, say)
+	// pointed are the depots that follow a flow in the store (a pack's, say)
 	// rather than their own file, with the flow's name.
 	pointed map[string]string
 }
 
 // setupSteps are the steps of a yard's setup, each done or not, in the order
 // they are taken. They are read from the store and nothing else (the store
-// reads a rig's files from its base), so everything that walks a person
+// reads a depot's files from its base), so everything that walks a person
 // through the setup sees the same list and can take over from any other:
 // yardr doctor, the yardmaster on its first run, a guided form. The first
 // step not done is where the setup goes on (nextStep).
 func setupSteps(ctx context.Context, st store.API) ([]setupStep, error) {
 	var s setupState
 	var err error
-	if s.rigs, err = st.Rigs(ctx); err != nil {
+	if s.depots, err = st.Depots(ctx); err != nil {
 		return nil, err
 	}
 	if s.groups, err = st.Groups(ctx); err != nil {
@@ -83,10 +83,10 @@ func setupSteps(ctx context.Context, st store.API) ([]setupStep, error) {
 	}
 	for _, p := range ptrs {
 		if p.Type == "" {
-			s.pointed[p.Rig] = p.Flow
+			s.pointed[p.Depot] = p.Flow
 		}
 	}
-	for _, r := range s.rigs {
+	for _, r := range s.depots {
 		if s.pointed[r.Name] != "" {
 			continue // its base is not where its flow is read
 		}
@@ -116,77 +116,77 @@ func nextStep(steps []setupStep) *setupStep {
 }
 
 func (s setupState) steps() []setupStep {
-	rig := "<rig>"
-	if len(s.rigs) > 0 {
-		rig = s.rigs[0].Name
+	depot := "<depot>"
+	if len(s.depots) > 0 {
+		depot = s.depots[0].Name
 	}
-	// A yard of dir rigs only lands nothing: its flow ends at review, so it
+	// A yard of dir depots only lands nothing: its flow ends at review, so it
 	// has no step for landing and no route for approved.
-	lands := len(s.rigs) == 0
-	for _, r := range s.rigs {
+	lands := len(s.depots) == 0
+	for _, r := range s.depots {
 		lands = lands || !r.IsDir()
 	}
-	out := []setupStep{s.rigStep(), s.filesStep()}
+	out := []setupStep{s.depotStep(), s.filesStep()}
 	out = append(out,
 		s.groupStep(stepBuilders, "a group that builds", "new",
-			fmt.Sprintf("yardr group add %s/builders --runner herdr --limit 2 --set prompt=roles/builder.md", rig)),
+			fmt.Sprintf("yardr group add %s/builders --runner herdr --limit 2 --set prompt=roles/builder.md", depot)),
 		s.groupStep(stepReviewers, "a group that reviews", "review",
-			fmt.Sprintf("yardr group add %s/reviewers --runner herdr --set prompt=roles/reviewer.md", rig)))
+			fmt.Sprintf("yardr group add %s/reviewers --runner herdr --set prompt=roles/reviewer.md", depot)))
 	if lands {
-		// Beads land in a git rig: the first of them is the one its command names.
-		landRig := rig
-		for _, r := range s.rigs {
+		// Beads land in a git depot: the first of them is the one its command names.
+		landDepot := depot
+		for _, r := range s.depots {
 			if !r.IsDir() {
-				landRig = r.Name
+				landDepot = r.Name
 				break
 			}
 		}
 		step := s.groupStep(stepLanding, "a group or person that lands approved beads", "approved",
 			fmt.Sprintf("a refinery (an exec group running merge-local, which yardr setup installs in a terminal; see docs/pipeline.md), or people: "+
-				"yardr group add %s/mergers --runner manual --members <them>", landRig))
-		if len(s.rigs) > 0 {
-			step.Rig = landRig
+				"yardr group add %s/mergers --runner manual --members <them>", landDepot))
+		if len(s.depots) > 0 {
+			step.Depot = landDepot
 		}
 		out = append(out, step)
 	}
-	out = append(out, s.routesStep(rig, lands), s.beadStep(rig), s.mergedStep(lands))
-	if len(s.rigs) > 0 {
+	out = append(out, s.routesStep(depot, lands), s.beadStep(depot), s.mergedStep(lands))
+	if len(s.depots) > 0 {
 		for i := range out {
-			out[i].Rig = or(out[i].Rig, rig)
+			out[i].Depot = or(out[i].Depot, depot)
 		}
 	}
 	return out
 }
 
-func (s setupState) rigStep() setupStep {
-	step := setupStep{Key: stepRig, Title: "a rig"}
-	if len(s.rigs) == 0 {
-		step.Detail = "no repository is a rig of this yard yet"
-		step.Next = "yardr rig add <rig> <path> --base <branch>"
+func (s setupState) depotStep() setupStep {
+	step := setupStep{Key: stepDepot, Title: "a depot"}
+	if len(s.depots) == 0 {
+		step.Detail = "no repository is a depot of this yard yet"
+		step.Next = "yardr depot add <depot> <path> --base <branch>"
 		return step
 	}
 	var names []string
-	for _, r := range s.rigs {
+	for _, r := range s.depots {
 		names = append(names, r.Name)
 	}
 	step.Done, step.Detail = true, strings.Join(names, ", ")
 	return step
 }
 
-// filesStep is done when every rig has a flow where yardr reads it: under
-// .yardr/flows/ on its base (in a dir rig's directory), or in the store
-// when the rig points at one there, as a pack's import makes it. The flow
-// stands for the rig's files: rig init writes it with the roles and the
+// filesStep is done when every depot has a flow where yardr reads it: under
+// .yardr/flows/ on its base (in a dir depot's directory), or in the store
+// when the depot points at one there, as a pack's import makes it. The flow
+// stands for the depot's files: depot init writes it with the roles and the
 // gate, and it is the one of them the store reads.
 func (s setupState) filesStep() setupStep {
-	step := setupStep{Key: stepRigFiles, Title: "the rig's .yardr files on its base",
-		Detail: "there is no rig yet", Next: "yardr rig init <rig>, then commit .yardr/ on its base"}
-	if len(s.rigs) == 0 {
+	step := setupStep{Key: stepDepotFiles, Title: "the depot's .yardr files on its base",
+		Detail: "there is no depot yet", Next: "yardr depot init <depot>, then commit .yardr/ on its base"}
+	if len(s.depots) == 0 {
 		return step
 	}
 	var have, lack []string
 	step.Next = ""
-	for _, r := range s.rigs {
+	for _, r := range s.depots {
 		where, next := "on its base "+or(r.Base, "origin/main"), ""
 		if r.IsDir() {
 			where = "in " + r.Path
@@ -200,13 +200,13 @@ func (s setupState) filesStep() setupStep {
 		case s.flowErr[r.Name] != "":
 			lack = append(lack, s.flowErr[r.Name])
 		case s.flows[r.Name] == 0:
-			lack = append(lack, fmt.Sprintf("rig %s has no flow under .yardr/flows/ %s", r.Name, where))
+			lack = append(lack, fmt.Sprintf("depot %s has no flow under .yardr/flows/ %s", r.Name, where))
 		default:
 			have = append(have, fmt.Sprintf("%s has its flow %s", r.Name, where))
 			continue
 		}
 		if step.Next == "" {
-			step.Next, step.Rig = "yardr rig init "+r.Name+next, r.Name
+			step.Next, step.Depot = "yardr depot init "+r.Name+next, r.Name
 		}
 	}
 	if len(lack) > 0 {
@@ -259,7 +259,7 @@ func (s setupState) groupStep(key, title, stage, next string) setupStep {
 	return step
 }
 
-func (s setupState) routesStep(rig string, lands bool) setupStep {
+func (s setupState) routesStep(depot string, lands bool) setupStep {
 	stages := []string{"new", "review"}
 	if lands {
 		stages = append(stages, "approved")
@@ -290,20 +290,20 @@ func (s setupState) routesStep(rig string, lands bool) setupStep {
 		group := "<group>"
 		if names := s.doing(stage); len(names) > 0 {
 			group = names[0]
-			step.args = append(step.args, []string{"route", "add", "--stage", stage, "--rig", rig, "--group", group})
+			step.args = append(step.args, []string{"route", "add", "--stage", stage, "--depot", depot, "--group", group})
 		}
 		if step.Next == "" {
-			step.Next = fmt.Sprintf("yardr route add --stage %s --rig %s --group %s", stage, rig, group)
+			step.Next = fmt.Sprintf("yardr route add --stage %s --depot %s --group %s", stage, depot, group)
 		}
 	}
 	return step
 }
 
-// work reports whether b is a bead of work in a rig: not a crew member's
+// work reports whether b is a bead of work in a depot: not a crew member's
 // journal or a memory.
-func work(b store.Bead) bool { return b.Rig != nil && !store.NotWork[b.Type] }
+func work(b store.Bead) bool { return b.Depot != nil && !store.NotWork[b.Type] }
 
-func (s setupState) beadStep(rig string) setupStep {
+func (s setupState) beadStep(depot string) setupStep {
 	step := setupStep{Key: stepFirstBead, Title: "a first bead"}
 	for _, b := range s.beads {
 		if work(b) {
@@ -311,13 +311,13 @@ func (s setupState) beadStep(rig string) setupStep {
 			return step
 		}
 	}
-	step.Detail = "no bead was created in a rig yet"
-	step.Next = fmt.Sprintf(`yardr bead create "<title>" --rig %s -b "<goal, done when>", then yardr bead advance <id> --to new`, rig)
+	step.Detail = "no bead was created in a depot yet"
+	step.Next = fmt.Sprintf(`yardr bead create "<title>" --depot %s -b "<goal, done when>", then yardr bead advance <id> --to new`, depot)
 	return step
 }
 
 // mergedStep is done once a bead of work went through to its flow's end:
-// closed by entering a terminal stage (merged, or a dir rig's done), which
+// closed by entering a terminal stage (merged, or a dir depot's done), which
 // leaves the stage as the reason. A bead closed by hand does not show that
 // the pipeline works.
 func (s setupState) mergedStep(lands bool) setupStep {

@@ -12,19 +12,19 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// trainRig is a store with rig web (base main), train web-e and beads web-1
+// trainDepot is a store with depot web (base main), train web-e and beads web-1
 // and web-2.
-func trainRig(t *testing.T) (store.API, context.Context) {
+func trainDepot(t *testing.T) (store.API, context.Context) {
 	t.Helper()
 	s := storetest.New(t)
 	ctx := context.Background()
-	if err := s.PutRig(ctx, store.Rig{Name: "web", Base: "main"}, "me"); err != nil {
+	if err := s.PutDepot(ctx, store.Depot{Name: "web", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	for _, nb := range []store.NewBead{
-		{ID: "web-e", Title: "train", Type: store.TypeTrain, Rig: "web"},
-		{ID: "web-1", Title: "one", Rig: "web"},
-		{ID: "web-2", Title: "two", Rig: "web"},
+		{ID: "web-e", Title: "train", Type: store.TypeTrain, Depot: "web"},
+		{ID: "web-1", Title: "one", Depot: "web"},
+		{ID: "web-2", Title: "two", Depot: "web"},
 	} {
 		if _, err := s.CreateBead(ctx, nb, "me"); err != nil {
 			t.Fatal(err)
@@ -43,9 +43,9 @@ func family(t *testing.T, s store.API, id string) store.Family {
 }
 
 // BaseOf: a child of a train lands on the train's branch; everything else,
-// the train itself included, on the rig's base.
+// the train itself included, on the depot's base.
 func TestBaseOf(t *testing.T) {
-	s, ctx := trainRig(t)
+	s, ctx := trainDepot(t)
 	if f := family(t, s, "web-1"); f.Base != "main" || f.Train != "" {
 		t.Fatalf("before the edge: %+v, want base main and no train", f)
 	}
@@ -61,15 +61,15 @@ func TestBaseOf(t *testing.T) {
 	if f.Base != "main" || f.Train != "" || !slices.Equal(f.Children, []string{"web-1", "web-2"}) {
 		t.Fatalf("train: %+v, want base main and children web-1, web-2", f)
 	}
-	// A rigless bead with no train has no base.
+	// A depotless bead with no train has no base.
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "loose"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if f := family(t, s, b.ID); f.Base != "" {
-		t.Fatalf("rigless bead: %+v", f)
+		t.Fatalf("depotless bead: %+v", f)
 	}
-	// Removing the edge puts the child back on the rig's base.
+	// Removing the edge puts the child back on the depot's base.
 	if err := s.RemoveDep(ctx, "web-e", "web-2", store.DepParent, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -79,17 +79,17 @@ func TestBaseOf(t *testing.T) {
 }
 
 func TestParentEdgeRules(t *testing.T) {
-	s, ctx := trainRig(t)
-	if _, err := s.CreateBead(ctx, store.NewBead{ID: "web-f", Title: "other train", Type: store.TypeTrain, Rig: "web"}, "me"); err != nil {
+	s, ctx := trainDepot(t)
+	if _, err := s.CreateBead(ctx, store.NewBead{ID: "web-f", Title: "other train", Type: store.TypeTrain, Depot: "web"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.PutRig(ctx, store.Rig{Name: "api", Base: "main"}, "me"); err != nil {
+	if err := s.PutDepot(ctx, store.Depot{Name: "api", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateBead(ctx, store.NewBead{ID: "api-1", Title: "elsewhere", Rig: "api"}, "me"); err != nil {
+	if _, err := s.CreateBead(ctx, store.NewBead{ID: "api-1", Title: "elsewhere", Depot: "api"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateBead(ctx, store.NewBead{ID: "web-g", Title: "landed train", Type: store.TypeTrain, Rig: "web"}, "me"); err != nil {
+	if _, err := s.CreateBead(ctx, store.NewBead{ID: "web-g", Title: "landed train", Type: store.TypeTrain, Depot: "web"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.CloseBead(ctx, "web-g", "merged", store.Expect{}, "me"); err != nil {
@@ -102,7 +102,7 @@ func TestParentEdgeRules(t *testing.T) {
 		{"web-2", "web-1", "not a train"},                    // parent must be a train
 		{"web-f", "web-1", "already a child of train web-e"}, // one train parent at most
 		{"web-e", "web-f", "trains do not nest"},
-		{"web-e", "api-1", "a child must be in its train's rig"},
+		{"web-e", "api-1", "a child must be in its train's depot"},
 		{"web-e", "web-1", "already parent"},  // the same edge twice
 		{"web-g", "web-2", "web-g is closed"}, // a landed train takes no more children
 	} {
@@ -121,10 +121,10 @@ func TestParentEdgeRules(t *testing.T) {
 }
 
 // A parent edge from a bead that is not a train (imported, or its type
-// changed since) does not make a child: the bead keeps the rig's base. A
+// changed since) does not make a child: the bead keeps the depot's base. A
 // bead left with two train parents has no base until one edge goes.
 func TestOnlyTrainParentsCount(t *testing.T) {
-	s, ctx := trainRig(t)
+	s, ctx := trainDepot(t)
 	if err := s.AddDep(ctx, "web-e", "web-1", store.DepParent, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -133,10 +133,10 @@ func TestOnlyTrainParentsCount(t *testing.T) {
 		t.Fatal(err)
 	}
 	if f := family(t, s, "web-1"); f.Base != "main" || f.Train != "" {
-		t.Fatalf("parent no longer a train: %+v, want the rig's base", f)
+		t.Fatalf("parent no longer a train: %+v, want the depot's base", f)
 	}
 
-	if _, err := s.CreateBead(ctx, store.NewBead{ID: "web-f", Title: "train", Type: store.TypeTrain, Rig: "web"}, "me"); err != nil {
+	if _, err := s.CreateBead(ctx, store.NewBead{ID: "web-f", Title: "train", Type: store.TypeTrain, Depot: "web"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AddDep(ctx, "web-f", "web-1", store.DepParent, "me"); err != nil {
@@ -156,7 +156,7 @@ func TestOnlyTrainParentsCount(t *testing.T) {
 // closes; a blocks edge already there is not doubled. Removing the parent
 // edge removes the blocks edge with it.
 func TestParentEdgeBlocksTheTrain(t *testing.T) {
-	s, ctx := trainRig(t)
+	s, ctx := trainDepot(t)
 	if err := s.AddDep(ctx, "web-2", "web-e", store.DepBlocks, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func TestParentEdgeBlocksTheTrain(t *testing.T) {
 // Listings carry each bead's train (and each session's bead's), worked out
 // from the parent edges when listed, so a table needs no lookup per row.
 func TestListingsCarryTheTrain(t *testing.T) {
-	s, ctx := trainRig(t)
+	s, ctx := trainDepot(t)
 	if err := s.AddDep(ctx, "web-e", "web-1", store.DepParent, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -286,13 +286,13 @@ func TestListingsCarryTheTrain(t *testing.T) {
 // bead list --train: the train first, whatever its priority, then its
 // children; nothing else.
 func TestListBeadsByTrain(t *testing.T) {
-	s, ctx := trainRig(t)
+	s, ctx := trainDepot(t)
 	for _, c := range []string{"web-1", "web-2"} {
 		if err := s.AddDep(ctx, "web-e", c, store.DepParent, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := s.CreateBead(ctx, store.NewBead{ID: "web-3", Title: "three", Rig: "web"}, "me"); err != nil {
+	if _, err := s.CreateBead(ctx, store.NewBead{ID: "web-3", Title: "three", Depot: "web"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	low := 4
@@ -318,11 +318,11 @@ func TestListBeadsByTrain(t *testing.T) {
 	}
 }
 
-// carRig is trainRig with the repository's car flow governing rig web's
+// carDepot is trainDepot with the repository's car flow governing depot web's
 // cars, and car web-p in backlog.
-func carRig(t *testing.T) (store.API, context.Context) {
+func carDepot(t *testing.T) (store.API, context.Context) {
 	t.Helper()
-	s, ctx := trainRig(t)
+	s, ctx := trainDepot(t)
 	text, err := os.ReadFile(storetest.RepoFlow(t, "type/car"))
 	if err != nil {
 		t.Fatal(err)
@@ -338,7 +338,7 @@ func carRig(t *testing.T) (store.API, context.Context) {
 	if err := s.SetFlowPointer(ctx, "web", store.TypeCar, "web.car", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if b, err := s.CreateBead(ctx, store.NewBead{ID: "web-p", Title: "car", Type: store.TypeCar, Rig: "web"}, "me"); err != nil || b.Stage != "backlog" {
+	if b, err := s.CreateBead(ctx, store.NewBead{ID: "web-p", Title: "car", Type: store.TypeCar, Depot: "web"}, "me"); err != nil || b.Stage != "backlog" {
 		t.Fatalf("car = %+v, %v; want it created in backlog", b, err)
 	}
 	return s, ctx
@@ -349,7 +349,7 @@ func carRig(t *testing.T) (store.API, context.Context) {
 // Neither a move nor an outcome takes it on, nor can one be created further
 // along; as a child of a train it moves like any bead.
 func TestCarNeedsATrain(t *testing.T) {
-	s, ctx := carRig(t)
+	s, ctx := carDepot(t)
 	refused := func(err error) {
 		t.Helper()
 		if err == nil || !strings.Contains(err.Error(), "is a car with no train, so it stays in backlog") ||
@@ -364,7 +364,7 @@ func TestCarNeedsATrain(t *testing.T) {
 	if b, _ := s.GetBead(ctx, "web-p"); b.Stage != "backlog" {
 		t.Fatalf("stage = %s after refused moves", b.Stage)
 	}
-	if _, err := s.CreateBead(ctx, store.NewBead{Title: "late", Type: store.TypeCar, Rig: "web", Stage: "new"}, "me"); err == nil ||
+	if _, err := s.CreateBead(ctx, store.NewBead{Title: "late", Type: store.TypeCar, Depot: "web", Stage: "new"}, "me"); err == nil ||
 		!strings.Contains(err.Error(), "a new car has no train yet, so it is created in backlog, not new") {
 		t.Fatalf("creating a car in new = %v, want it refused", err)
 	}
@@ -394,10 +394,10 @@ func TestCarNeedsATrain(t *testing.T) {
 	if _, err := s.Advance(ctx, "web-1", "review", store.Expect{}, "me"); err != nil {
 		t.Fatalf("a task with no train: %v", err)
 	}
-	if err := s.PutRig(ctx, store.Rig{Name: "bare", Base: "main"}, "me"); err != nil {
+	if err := s.PutDepot(ctx, store.Depot{Name: "bare", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateBead(ctx, store.NewBead{Title: "flowless", Type: store.TypeCar, Rig: "bare", Stage: "anywhere"}, "me"); err != nil {
+	if _, err := s.CreateBead(ctx, store.NewBead{Title: "flowless", Type: store.TypeCar, Depot: "bare", Stage: "anywhere"}, "me"); err != nil {
 		t.Fatalf("a car no flow governs: %v", err)
 	}
 }

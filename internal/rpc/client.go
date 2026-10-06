@@ -276,17 +276,17 @@ func (c *Client) Notes(ctx context.Context, id string) ([]store.Note, error) {
 	return callV[[]store.Note](c, ctx, "Notes", id)
 }
 
-func (c *Client) PutRig(ctx context.Context, r store.Rig, actor string) error {
-	return c.call(ctx, "PutRig", nil, r, actor)
+func (c *Client) PutDepot(ctx context.Context, r store.Depot, actor string) error {
+	return c.call(ctx, "PutDepot", nil, r, actor)
 }
-func (c *Client) Rigs(ctx context.Context) ([]store.Rig, error) {
-	return callV[[]store.Rig](c, ctx, "Rigs")
+func (c *Client) Depots(ctx context.Context) ([]store.Depot, error) {
+	return callV[[]store.Depot](c, ctx, "Depots")
 }
-func (c *Client) GetRig(ctx context.Context, name string) (*store.Rig, error) {
-	return callV[*store.Rig](c, ctx, "GetRig", name)
+func (c *Client) GetDepot(ctx context.Context, name string) (*store.Depot, error) {
+	return callV[*store.Depot](c, ctx, "GetDepot", name)
 }
-func (c *Client) DeleteRig(ctx context.Context, name, actor string) (*store.RigRemoval, error) {
-	return callV[*store.RigRemoval](c, ctx, "DeleteRig", name, actor)
+func (c *Client) DeleteDepot(ctx context.Context, name, actor string) (*store.DepotRemoval, error) {
+	return callV[*store.DepotRemoval](c, ctx, "DeleteDepot", name, actor)
 }
 
 func (c *Client) PutGroup(ctx context.Context, g store.Group) error {
@@ -322,17 +322,17 @@ func (c *Client) GetFlow(ctx context.Context, name string) (*store.Flow, error) 
 func (c *Client) DeleteFlow(ctx context.Context, name, actor string) error {
 	return c.call(ctx, "DeleteFlow", nil, name, actor)
 }
-func (c *Client) SetFlowPointer(ctx context.Context, rig, typ, flow, actor string) error {
-	return c.call(ctx, "SetFlowPointer", nil, rig, typ, flow, actor)
+func (c *Client) SetFlowPointer(ctx context.Context, depot, typ, flow, actor string) error {
+	return c.call(ctx, "SetFlowPointer", nil, depot, typ, flow, actor)
 }
 func (c *Client) FlowPointers(ctx context.Context) ([]store.FlowPointer, error) {
 	return callV[[]store.FlowPointer](c, ctx, "FlowPointers")
 }
-func (c *Client) RepoFlows(ctx context.Context, rig string) (*store.RepoFlows, error) {
-	return callV[*store.RepoFlows](c, ctx, "RepoFlows", rig)
+func (c *Client) RepoFlows(ctx context.Context, depot string) (*store.RepoFlows, error) {
+	return callV[*store.RepoFlows](c, ctx, "RepoFlows", depot)
 }
-func (c *Client) RigFlows(ctx context.Context, rig string) ([]store.RigFlow, error) {
-	return callV[[]store.RigFlow](c, ctx, "RigFlows", rig)
+func (c *Client) DepotFlows(ctx context.Context, depot string) ([]store.DepotFlow, error) {
+	return callV[[]store.DepotFlow](c, ctx, "DepotFlows", depot)
 }
 func (c *Client) NextStages(ctx context.Context, id string) (*store.NextStages, error) {
 	return callV[*store.NextStages](c, ctx, "NextStages", id)
@@ -340,8 +340,8 @@ func (c *Client) NextStages(ctx context.Context, id string) (*store.NextStages, 
 func (c *Client) FlowMap(ctx context.Context, id string) (*store.FlowMap, error) {
 	return callV[*store.FlowMap](c, ctx, "FlowMap", id)
 }
-func (c *Client) Stranded(ctx context.Context, rig string) ([]store.StrandedBead, error) {
-	return callV[[]store.StrandedBead](c, ctx, "Stranded", rig)
+func (c *Client) Stranded(ctx context.Context, depot string) ([]store.StrandedBead, error) {
+	return callV[[]store.StrandedBead](c, ctx, "Stranded", depot)
 }
 
 func (c *Client) Claim(ctx context.Context, beadID, group, stage, actor string) (*store.Session, error) {

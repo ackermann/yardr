@@ -36,7 +36,7 @@ jobs:
       # -race over every package, and the store/dispatch/bdp suites again
       # through the unix-socket client. Running the script itself keeps CI
       # and the gate from drifting apart.
-      - name: rig gate (.yardr/check)
+      - name: depot gate (.yardr/check)
         run: sh .yardr/check
       # What the gate leaves out: the plain (non-race) build, and every
       # package, not just three, through the unix-socket client.

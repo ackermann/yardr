@@ -6,4 +6,4 @@ each child block the train). No agent works this stage.
 
 The train leaves for `open` once it has its children and they cover its goal:
 `yardr bead advance <train> --to open`. The stage has no outcomes. The
-children are shaped and advanced on their own, in the rig's flow.
+children are shaped and advanced on their own, in the depot's flow.

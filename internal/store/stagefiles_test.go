@@ -33,7 +33,7 @@ func stageFileOf(t *testing.T, s store.API, id string) (string, string) {
 // flow's each from the directory of that flow's name. A file on a bead's
 // branch or in the working tree is not read until it lands.
 func TestStageFilesReadFromBase(t *testing.T) {
-	s, ctx, dir := repoRig(t)
+	s, ctx, dir := repoDepot(t)
 	commitFiles(t, dir, map[string]string{
 		".yardr/flows/default/new.md":       "Build it.\n",
 		".yardr/flows/default/done.md":      " \n", // nothing in it: no stage file
@@ -41,15 +41,15 @@ func TestStageFilesReadFromBase(t *testing.T) {
 		".yardr/flows/alt/new.md":           "The alt way.\n",
 		".yardr/flows/README.md":            "not a stage file\n",
 	})
-	task, err := s.CreateBead(ctx, store.NewBead{Title: "t", Rig: "web"}, "me")
+	task, err := s.CreateBead(ctx, store.NewBead{Title: "t", Depot: "web"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
-	q, err := s.CreateBead(ctx, store.NewBead{Title: "q", Rig: "web", Type: "decision", Stage: "ask"}, "me")
+	q, err := s.CreateBead(ctx, store.NewBead{Title: "q", Depot: "web", Type: "decision", Stage: "ask"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
-	pinned, err := s.CreateBead(ctx, store.NewBead{Title: "p", Rig: "web", Metadata: map[string]any{"flow": "alt"}}, "me")
+	pinned, err := s.CreateBead(ctx, store.NewBead{Title: "p", Depot: "web", Metadata: map[string]any{"flow": "alt"}}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestStageFilesReadFromBase(t *testing.T) {
 	}
 
 	// A bead's branch that writes review's stage file, checked out in the
-	// rig with an uncommitted edit to another on top: neither is read.
+	// depot with an uncommitted edit to another on top: neither is read.
 	runGit(t, dir, "checkout", "-q", "-b", "web/"+task.ID)
 	commitFiles(t, dir, map[string]string{".yardr/flows/default/review.md": "Wave it through.\n"})
 	if err := os.WriteFile(filepath.Join(dir, ".yardr/flows/alt/new.md"), []byte("edited\n"), 0o644); err != nil {
@@ -93,7 +93,7 @@ func TestStageFilesReadFromBase(t *testing.T) {
 		t.Errorf("after landing: %q %q", path, text)
 	}
 
-	// A flow in the store has no stage files in any repository: a rig that
+	// A flow in the store has no stage files in any repository: a depot that
 	// follows it by pointer is not asked for them, whatever it holds under
 	// the flow's name. They are in the yard's home (TestHomeStageFiles).
 	f, err := store.ParseFlow("new -> review\nreview -> shipped\nshipped terminal\n")
@@ -107,17 +107,17 @@ func TestStageFilesReadFromBase(t *testing.T) {
 	if err := s.SetFlowPointer(ctx, "web", "task", "code", "me"); err != nil {
 		t.Fatal(err)
 	}
-	commitFiles(t, dir, map[string]string{".yardr/flows/code/review.md": "The rig's own.\n"})
+	commitFiles(t, dir, map[string]string{".yardr/flows/code/review.md": "The depot's own.\n"})
 	next, err := s.NextStages(ctx, task.ID)
 	if err != nil || next.StageFile != nil || next.Flow.Name != "code" || !next.Source.InStore() {
-		t.Fatalf("a store flow read a stage file from the rig: %+v, %v", next, err)
+		t.Fatalf("a store flow read a stage file from the depot: %+v, %v", next, err)
 	}
 	if next, err = s.NextStages(ctx, q.ID); err != nil || next.Source.InStore() {
 		t.Fatalf("a repository flow counted as the store's: %+v, %v", next, err)
 	}
 
-	// RigFlows says which stages have one; an empty file is none.
-	flows, err := s.RigFlows(ctx, "web")
+	// DepotFlows says which stages have one; an empty file is none.
+	flows, err := s.DepotFlows(ctx, "web")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,26 +134,26 @@ func TestStageFilesReadFromBase(t *testing.T) {
 		}
 	}
 	if len(flows) != 3 {
-		t.Errorf("rig flows = %+v", flows)
+		t.Errorf("depot flows = %+v", flows)
 	}
 
-	// A rig with no stage files, and a bead with no rig, have none.
-	if err := s.PutRig(ctx, store.Rig{Name: "bare", Path: gitRepo(t, map[string]string{".yardr/flows/default.flow": repoDefault}), Base: "main"}, "me"); err != nil {
+	// A depot with no stage files, and a bead with no depot, have none.
+	if err := s.PutDepot(ctx, store.Depot{Name: "bare", Path: gitRepo(t, map[string]string{".yardr/flows/default.flow": repoDefault}), Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	bare, err := s.CreateBead(ctx, store.NewBead{Title: "b", Rig: "bare"}, "me")
+	bare, err := s.CreateBead(ctx, store.NewBead{Title: "b", Depot: "bare"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if next, err = s.NextStages(ctx, bare.ID); err != nil || next.StageFile != nil || next.Flow == nil {
-		t.Fatalf("rig without stage files: %+v, %v", next, err)
+		t.Fatalf("depot without stage files: %+v, %v", next, err)
 	}
 }
 
-// A dir rig's stage files are read from its directory as they are, and
+// A dir depot's stage files are read from its directory as they are, and
 // reread when one changes or appears. A stage whose name holds a slash has
 // its file a directory deeper.
-func TestDirRigStageFiles(t *testing.T) {
+func TestDirDepotStageFiles(t *testing.T) {
 	dir := t.TempDir()
 	writeFiles(t, dir, map[string]string{
 		".yardr/flows/default.flow":   "new -> qa/smoke\nqa/smoke -> done\ndone terminal\n",
@@ -161,15 +161,15 @@ func TestDirRigStageFiles(t *testing.T) {
 	})
 	s := storetest.New(t)
 	ctx := context.Background()
-	if err := s.PutRig(ctx, store.Rig{Name: "docs", Path: dir, Kind: store.RigDir}, "me"); err != nil {
+	if err := s.PutDepot(ctx, store.Depot{Name: "docs", Path: dir, Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "t", Rig: "docs"}, "me")
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "t", Depot: "docs"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if path, text := stageFileOf(t, s, b.ID); path != ".yardr/flows/default/new.md" || text != "Write it.\n" {
-		t.Fatalf("dir rig stage file = %q %q", path, text)
+		t.Fatalf("dir depot stage file = %q %q", path, text)
 	}
 	// Same size, so only the mtime tells.
 	writeFiles(t, dir, map[string]string{".yardr/flows/default/new.md": "Draw it.\n"})

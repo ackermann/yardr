@@ -25,13 +25,13 @@ import (
 
 // Herdr runs each bead in its own git worktree (branch yard/<bead>) opened as
 // a herdr workspace, with one tab per stage and an agent started in it. A
-// dir rig's bead has no branch: its workspace is opened in the rig's
+// dir depot's bead has no branch: its workspace is opened in the depot's
 // directory itself (see startDir).
 //
 // Group config:
 //
 //	kind       agent kind herdr knows (claude, codex, ...); default claude
-//	prompt     prompt file, relative to the rig or absolute
+//	prompt     prompt file, relative to the depot or absolute
 //	args    extra agent arguments (list or space-separated string)
 //	model      agent model (passed as --model); a bead's metadata.model
 //	           overrides it for that bead
@@ -51,7 +51,7 @@ import (
 //	trust      false to leave Claude Code's folder-trust dialog for a human;
 //	           by default yardr answers it (see acceptTrust)
 //
-// Worktrees live at <root>/<rig>/<bead>.
+// Worktrees live at <root>/<depot>/<bead>.
 type Herdr struct {
 	Bin          string
 	WorktreeRoot string
@@ -162,12 +162,12 @@ func Branch(b store.Bead) string { return store.Branch(b.ID) }
 
 // BaseOf is what the job's bead branches from and lands on: its train's
 // branch for a child of a train, the commit a linked yard named for a bead
-// that came from it (store.Family), else the rig's base.
+// that came from it (store.Family), else the depot's base.
 func BaseOf(job dispatch.Job) string {
-	if job.Base != "" || job.Rig == nil {
+	if job.Base != "" || job.Depot == nil {
 		return job.Base
 	}
-	return job.Rig.Base
+	return job.Depot.Base
 }
 
 // AgentName derives a herdr agent name ([a-z][a-z0-9_-]{0,31}) from the bead
@@ -205,63 +205,63 @@ func agentName(raw string) string {
 // or "builders jtyz" for a bead with no train). The workspace is reused
 // across stages and relabelled on each reopen, so the group in it is always
 // the current one.
-func WorkspaceLabel(rig string, group store.Group, train, bead string) string {
-	return joinLabel(GroupLabel(rig, group), rig, train, bead)
+func WorkspaceLabel(depot string, group store.Group, train, bead string) string {
+	return joinLabel(GroupLabel(depot, group), depot, train, bead)
 }
 
 // TabLabel is the herdr label for a stage's tab: the workspace's label with
 // the stage in place of the group ("review [sv6b] 2cet"). The group is not
 // repeated, since the workspace above the tab names it.
-func TabLabel(rig, stage, train, bead string) string {
-	return joinLabel(stage, rig, train, bead)
+func TabLabel(depot, stage, train, bead string) string {
+	return joinLabel(stage, depot, train, bead)
 }
 
 // GroupLabel is the name a group goes by in herdr labels: its `label`
 // config when set, else its name. herdr already nests workspaces under the
-// rig's repo, so a leading "<rig>-" on the name is noise that only gets the
+// depot's repo, so a leading "<depot>-" on the name is noise that only gets the
 // label truncated in the sidebar.
-func GroupLabel(rig string, group store.Group) string {
+func GroupLabel(depot string, group store.Group) string {
 	if l := str(group.Config, "label", ""); l != "" {
 		return l
 	}
-	return ShortID(rig, group.Name)
+	return ShortID(depot, group.Name)
 }
 
-// ShortID drops the leading "<rig>-" from an id for a herdr label, where
-// the rig is already the node above. An id without it stays whole; ids
+// ShortID drops the leading "<depot>-" from an id for a herdr label, where
+// the depot is already the node above. An id without it stays whole; ids
 // anywhere else in yardr stay full.
-func ShortID(rig, id string) string {
-	if rig == "" {
+func ShortID(depot, id string) string {
+	if depot == "" {
 		return id
 	}
-	return strings.TrimPrefix(id, rig+"-")
+	return strings.TrimPrefix(id, depot+"-")
 }
 
 // joinLabel is "<head> [<train>] <bead>", the parts that are empty left out
 // and the ids shortened.
-func joinLabel(head, rig, train, bead string) string {
+func joinLabel(head, depot, train, bead string) string {
 	var parts []string
 	if head != "" {
 		parts = append(parts, head)
 	}
 	if train != "" {
-		parts = append(parts, "["+ShortID(rig, train)+"]")
+		parts = append(parts, "["+ShortID(depot, train)+"]")
 	}
-	return strings.Join(append(parts, ShortID(rig, bead)), " ")
+	return strings.Join(append(parts, ShortID(depot, bead)), " ")
 }
 
 func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, error) {
-	if job.Rig == nil {
-		return nil, fmt.Errorf("herdr runner needs the bead to have a rig")
+	if job.Depot == nil {
+		return nil, fmt.Errorf("herdr runner needs the bead to have a depot")
 	}
-	rig := job.Rig
-	if rig.IsDir() {
+	depot := job.Depot
+	if depot.IsDir() {
 		return h.startDir(ctx, job)
 	}
 	branch := Branch(job.Bead)
 	name := AgentName(job.Bead.ID, job.Bead.Stage)
-	handle := map[string]any{"agent": name, "branch": branch, "repo": rig.Path}
-	label := WorkspaceLabel(rig.Name, job.Group, job.Train, job.Bead.ID)
+	handle := map[string]any{"agent": name, "branch": branch, "repo": depot.Path}
+	label := WorkspaceLabel(depot.Name, job.Group, job.Train, job.Bead.ID)
 	// Before anything is made: a group whose env_file is refused starts
 	// nothing until it is fixed.
 	secrets, err := h.envFile(job.Group.Config, "group "+job.Group.Name)
@@ -269,7 +269,7 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 		return nil, err
 	}
 
-	h.fetchBase(ctx, rig)
+	h.fetchBase(ctx, depot)
 	if job.Train != "" {
 		if err := h.trainBranch(ctx, job); err != nil {
 			return nil, err
@@ -278,10 +278,10 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 
 	// First stage creates the worktree; later stages reopen it.
 	root := str(job.Group.Config, "worktrees", h.WorktreeRoot)
-	createArgs := []string{"worktree", "create", "--cwd", rig.Path, "--branch", branch,
+	createArgs := []string{"worktree", "create", "--cwd", depot.Path, "--branch", branch,
 		"--base", BaseOf(job), "--label", label}
 	if root != "" {
-		createArgs = append(createArgs, "--path", filepath.Join(root, rig.Name, job.Bead.ID))
+		createArgs = append(createArgs, "--path", filepath.Join(root, depot.Name, job.Bead.ID))
 	}
 	raw, err := h.run(ctx, createArgs...)
 	reopened := false
@@ -292,15 +292,15 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 			return nil, err
 		}
 		createErr := err
-		raw, err = h.run(ctx, "worktree", "open", "--cwd", rig.Path, "--branch", branch, "--label", label)
+		raw, err = h.run(ctx, "worktree", "open", "--cwd", depot.Path, "--branch", branch, "--label", label)
 		if err != nil && root != "" {
 			// The branch exists but its worktree was cleaned up (a reopened
 			// bead): check the branch out again and open that.
-			path := filepath.Join(root, rig.Name, job.Bead.ID)
-			if gerr := git(ctx, rig.Path, "worktree", "add", path, branch); gerr != nil {
+			path := filepath.Join(root, depot.Name, job.Bead.ID)
+			if gerr := git(ctx, depot.Path, "worktree", "add", path, branch); gerr != nil {
 				return nil, fmt.Errorf("worktree for %s: create: %v; open: %v; re-add: %w", branch, createErr, err, gerr)
 			}
-			raw, err = h.run(ctx, "worktree", "open", "--cwd", rig.Path, "--path", path, "--label", label)
+			raw, err = h.run(ctx, "worktree", "open", "--cwd", depot.Path, "--path", path, "--label", label)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("worktree for %s: create: %v; open: %w", branch, createErr, err)
@@ -333,7 +333,7 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	// socket, never on a command line (see call).
 	raw, err = h.call(ctx, "tab.create", map[string]any{
 		"workspace_id": wt.Workspace.ID, "cwd": wt.Worktree.Path,
-		"label": TabLabel(rig.Name, job.Bead.Stage, job.Train, job.Bead.ID),
+		"label": TabLabel(depot.Name, job.Bead.Stage, job.Train, job.Bead.ID),
 		"env":   envMap(withEnvFile(h.agentEnv(job, name), secrets)),
 	})
 	if err != nil {
@@ -387,34 +387,34 @@ func (h *Herdr) brief(ctx context.Context, job dispatch.Job, name, workdir, dir,
 	return h.startAgent(ctx, args, name, prompt, handle, trusts(job.Group.Config))
 }
 
-// startDir starts a bead of a dir rig. There is no branch and no worktree:
-// the agent works in the rig's directory itself, in a workspace opened
+// startDir starts a bead of a dir depot. There is no branch and no worktree:
+// the agent works in the depot's directory itself, in a workspace opened
 // there for the bead (reused by its later stages), and its brief goes under
 // the directory's .yardr/briefs/. A train's child is no different: a train
-// in a dir rig only groups, so no train branch is made either.
+// in a dir depot only groups, so no train branch is made either.
 func (h *Herdr) startDir(ctx context.Context, job dispatch.Job) (map[string]any, error) {
-	rig := job.Rig
+	depot := job.Depot
 	name := AgentName(job.Bead.ID, job.Bead.Stage)
-	if st, err := os.Stat(rig.Path); err != nil || !st.IsDir() {
-		return nil, fmt.Errorf("rig %s: directory %q does not exist", rig.Name, rig.Path)
+	if st, err := os.Stat(depot.Path); err != nil || !st.IsDir() {
+		return nil, fmt.Errorf("depot %s: directory %q does not exist", depot.Name, depot.Path)
 	}
 	secrets, err := h.envFile(job.Group.Config, "group "+job.Group.Name)
 	if err != nil {
 		return nil, err
 	}
-	label := WorkspaceLabel(rig.Name, job.Group, job.Train, job.Bead.ID)
-	ws, err := h.dirWorkspace(ctx, rig, job.Bead.ID, label)
+	label := WorkspaceLabel(depot.Name, job.Group, job.Train, job.Bead.ID)
+	ws, err := h.dirWorkspace(ctx, depot, job.Bead.ID, label)
 	if err != nil {
 		return nil, err
 	}
-	handle := map[string]any{"agent": name, "dir": rig.Path, "rig": rig.Name, "bead": job.Bead.ID,
+	handle := map[string]any{"agent": name, "dir": depot.Path, "depot": depot.Name, "bead": job.Bead.ID,
 		"workspace": ws.Workspace.ID}
 
 	// As for a worktree: the environment goes over the socket, never on a
 	// command line (see call).
 	raw, err := h.call(ctx, "tab.create", map[string]any{
-		"workspace_id": ws.Workspace.ID, "cwd": rig.Path,
-		"label": TabLabel(rig.Name, job.Bead.Stage, job.Train, job.Bead.ID),
+		"workspace_id": ws.Workspace.ID, "cwd": depot.Path,
+		"label": TabLabel(depot.Name, job.Bead.Stage, job.Train, job.Bead.ID),
 		"env":   envMap(withEnvFile(h.agentEnv(job, name), secrets)),
 	})
 	if err != nil {
@@ -432,26 +432,26 @@ func (h *Herdr) startDir(ctx context.Context, job dispatch.Job) (map[string]any,
 		_, _ = h.run(ctx, "tab", "close", ws.Tab.ID)
 	}
 
-	dir := DirBriefDir(rig.Path)
+	dir := DirBriefDir(depot.Path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return handle, err
 	}
-	// A dir rig may still be inside a checkout; its briefs are no change.
+	// A dir depot may still be inside a checkout; its briefs are no change.
 	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("*\n"), 0o600); err != nil {
 		return handle, err
 	}
-	return h.brief(ctx, job, name, rig.Path, dir, pane, handle)
+	return h.brief(ctx, job, name, depot.Path, dir, pane, handle)
 }
 
-// dirWorkspace opens the herdr workspace a dir rig's bead works in: the one
+// dirWorkspace opens the herdr workspace a dir depot's bead works in: the one
 // an earlier stage opened, while it is still open, else a new one in the
-// rig's directory. herdr reports no checkout for a plain directory, so the
+// depot's directory. herdr reports no checkout for a plain directory, so the
 // earlier one is found by its label, which ends in the bead's id, and a
-// pane in it that sits in the rig's directory. A reused workspace is
+// pane in it that sits in the depot's directory. A reused workspace is
 // relabelled for the current group.
-func (h *Herdr) dirWorkspace(ctx context.Context, rig *store.Rig, bead, label string) (herdrResult, error) {
+func (h *Herdr) dirWorkspace(ctx context.Context, depot *store.Depot, bead, label string) (herdrResult, error) {
 	var ws herdrResult
-	id, err := h.findDirWorkspace(ctx, rig, bead)
+	id, err := h.findDirWorkspace(ctx, depot, bead)
 	if err != nil {
 		return ws, err
 	}
@@ -460,9 +460,9 @@ func (h *Herdr) dirWorkspace(ctx context.Context, rig *store.Rig, bead, label st
 		ws.Workspace.ID, ws.AlreadyOpen = id, true
 		return ws, nil
 	}
-	raw, err := h.run(ctx, "workspace", "create", "--cwd", rig.Path, "--label", label, "--no-focus")
+	raw, err := h.run(ctx, "workspace", "create", "--cwd", depot.Path, "--label", label, "--no-focus")
 	if err != nil {
-		return ws, fmt.Errorf("workspace for %s in %s: %w", bead, rig.Path, err)
+		return ws, fmt.Errorf("workspace for %s in %s: %w", bead, depot.Path, err)
 	}
 	if err := json.Unmarshal(raw, &ws); err != nil {
 		return ws, fmt.Errorf("workspace result: %w", err)
@@ -470,9 +470,9 @@ func (h *Herdr) dirWorkspace(ctx context.Context, rig *store.Rig, bead, label st
 	return ws, nil
 }
 
-// findDirWorkspace is the id of the open workspace of bead in the dir rig,
+// findDirWorkspace is the id of the open workspace of bead in the dir depot,
 // or "" when there is none (see dirWorkspace).
-func (h *Herdr) findDirWorkspace(ctx context.Context, rig *store.Rig, bead string) (string, error) {
+func (h *Herdr) findDirWorkspace(ctx context.Context, depot *store.Depot, bead string) (string, error) {
 	raw, err := h.run(ctx, "workspace", "list")
 	if err != nil {
 		return "", err
@@ -487,7 +487,7 @@ func (h *Herdr) findDirWorkspace(ctx context.Context, rig *store.Rig, bead strin
 	if err := json.Unmarshal(raw, &wl); err != nil {
 		return "", fmt.Errorf("workspace list: %w", err)
 	}
-	short := ShortID(rig.Name, bead)
+	short := ShortID(depot.Name, bead)
 	var ids []string
 	for _, w := range wl.Workspaces {
 		f := strings.Fields(w.Label)
@@ -513,7 +513,7 @@ func (h *Herdr) findDirWorkspace(ctx context.Context, rig *store.Rig, bead strin
 	}
 	for _, id := range ids {
 		for _, p := range pl.Panes {
-			if p.Workspace == id && sameDir(p.Cwd, rig.Path) {
+			if p.Workspace == id && sameDir(p.Cwd, depot.Path) {
 				return id, nil
 			}
 		}
@@ -536,17 +536,17 @@ func sameDir(a, b string) bool {
 	return real(a) == real(b)
 }
 
-// FetchTimeout bounds the fetch of a rig's base before a bead branches
+// FetchTimeout bounds the fetch of a depot's base before a bead branches
 // from it. Start runs inside the dispatcher's pass, so a fetch hanging on a
 // dead remote would stall every group.
 const FetchTimeout = 60 * time.Second
 
-// fetchBase brings the rig's base ref up to date, best effort: a fetch that
+// fetchBase brings the depot's base ref up to date, best effort: a fetch that
 // fails or times out leaves the bead branching from the base as it is. A
 // remote asking for credentials fails at once instead of waiting on a
 // terminal nobody watches.
-func (h *Herdr) fetchBase(ctx context.Context, rig *store.Rig) {
-	remote, _, ok := strings.Cut(rig.Base, "/")
+func (h *Herdr) fetchBase(ctx context.Context, depot *store.Depot) {
+	remote, _, ok := strings.Cut(depot.Base, "/")
 	if !ok {
 		return
 	}
@@ -556,7 +556,7 @@ func (h *Herdr) fetchBase(ctx context.Context, rig *store.Rig) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "-C", rig.Path, "fetch", "--quiet", remote)
+	cmd := exec.CommandContext(ctx, "git", "-C", depot.Path, "fetch", "--quiet", remote)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=true", "SSH_ASKPASS=true")
 	// git may leave a child (ssh, a credential helper) holding its output
 	// open after it is killed; do not wait on that past the deadline.
@@ -565,48 +565,48 @@ func (h *Herdr) fetchBase(ctx context.Context, rig *store.Rig) {
 }
 
 // trainBranch makes sure the branch of the job's train exists before a child
-// branches from it: when it does not yet, it is created from the rig's base
+// branches from it: when it does not yet, it is created from the depot's base
 // tip (just fetched, when the base is a remote's) and train_branched is
 // logged on the train. An existing train branch is never recreated or moved:
 // it holds the children that already landed.
 func (h *Herdr) trainBranch(ctx context.Context, job dispatch.Job) error {
-	rig, train := job.Rig, store.Branch(job.Train)
-	if _, err := gitOut(ctx, rig.Path, "rev-parse", "--verify", "-q", "refs/heads/"+train); err == nil {
+	depot, train := job.Depot, store.Branch(job.Train)
+	if _, err := gitOut(ctx, depot.Path, "rev-parse", "--verify", "-q", "refs/heads/"+train); err == nil {
 		return nil
 	}
 	// --no-track: the train branch lands on the base later as a unit; it is
 	// not a local copy of the base. Without -f git refuses to replace a
 	// branch made meanwhile.
-	if err := git(ctx, rig.Path, "branch", "--no-track", train, rig.Base); err != nil {
+	if err := git(ctx, depot.Path, "branch", "--no-track", train, depot.Base); err != nil {
 		// Another child of the same train may have created the branch after
 		// our check. Treat that race like the already-existed case, but do
 		// not hide failures that left no branch behind.
-		if _, verifyErr := gitOut(ctx, rig.Path, "rev-parse", "--verify", "-q", "refs/heads/"+train); verifyErr == nil {
+		if _, verifyErr := gitOut(ctx, depot.Path, "rev-parse", "--verify", "-q", "refs/heads/"+train); verifyErr == nil {
 			return nil
 		}
-		return fmt.Errorf("train branch %s from %s: %w", train, rig.Base, err)
+		return fmt.Errorf("train branch %s from %s: %w", train, depot.Base, err)
 	}
-	commit, err := gitOut(ctx, rig.Path, "rev-parse", "refs/heads/"+train)
+	commit, err := gitOut(ctx, depot.Path, "rev-parse", "refs/heads/"+train)
 	if err != nil {
 		return err
 	}
 	if h.Store != nil {
 		// Best effort: the branch is made; the event only reports it.
 		_ = h.Store.LogDispatch(ctx, job.Train, "train_branched", "yard", map[string]any{
-			"branch": train, "from": rig.Base, "commit": commit, "child": job.Bead.ID})
+			"branch": train, "from": depot.Base, "commit": commit, "child": job.Bead.ID})
 	}
 	return nil
 }
 
 // agentEnv is the environment of a bead agent's tab: what every started
 // process gets (see Env), with the agent as actor, plus this yard's home and
-// binary so its yardr commands reach this yard. A bead of a git rig gets
-// what it lands on (YARDR_BASE); one of a dir rig, which has no base or
-// branch, gets the directory it works in (YARDR_RIG, YARDR_RIG_PATH).
+// binary so its yardr commands reach this yard. A bead of a git depot gets
+// what it lands on (YARDR_BASE); one of a dir depot, which has no base or
+// branch, gets the directory it works in (YARDR_DEPOT, YARDR_DEPOT_PATH).
 func (h *Herdr) agentEnv(job dispatch.Job, name string) []string {
 	env := Env(job, name)
-	if rig := job.Rig; rig != nil && rig.IsDir() {
-		env = slices.Concat(env, config.Env("RIG", rig.Name), config.Env("RIG_PATH", rig.Path))
+	if depot := job.Depot; depot != nil && depot.IsDir() {
+		env = slices.Concat(env, config.Env("DEPOT", depot.Name), config.Env("DEPOT_PATH", depot.Path))
 	} else if base := BaseOf(job); base != "" {
 		env = append(env, config.Env("BASE", base)...)
 	}
@@ -663,9 +663,9 @@ func BriefDir(ctx context.Context, worktree string) (string, error) {
 	return rigcheck.GitPath(ctx, worktree, "yardr")
 }
 
-// DirBriefDir is where briefs for a bead of the dir rig at path go:
+// DirBriefDir is where briefs for a bead of the dir depot at path go:
 // .yardr/briefs/ in the directory itself, since there is no git directory
-// to hide them in. The folder ignores itself, for a dir rig that happens to
+// to hide them in. The folder ignores itself, for a dir depot that happens to
 // be a checkout.
 func DirBriefDir(path string) string {
 	return filepath.Join(path, ".yardr", "briefs")
@@ -709,7 +709,7 @@ func writeWorktreeSession(dir string, job dispatch.Job, actor string) error {
 
 // SessionOf is the session working the bead worktree that dir is in, nil
 // when dir is in none: outside a checkout, in one no herdr group started a
-// session in, or in a dir rig, whose beads share one directory.
+// session in, or in a dir depot, whose beads share one directory.
 func SessionOf(ctx context.Context, dir string) *WorktreeSession {
 	briefs, err := BriefDir(ctx, dir)
 	if err != nil {
@@ -1186,7 +1186,7 @@ func (h *Herdr) Stop(ctx context.Context, handle map[string]any) error {
 // Finish removes the bead's worktree once the bead is closed. It never
 // forces: uncommitted or untracked changes keep the worktree in place, and
 // the branch is always kept, so committed work survives either way. A dir
-// rig's bead has no worktree (see finishDir).
+// depot's bead has no worktree (see finishDir).
 func (h *Herdr) Finish(ctx context.Context, handle map[string]any) error {
 	if dir, _ := handle["dir"].(string); dir != "" {
 		return h.finishDir(ctx, handle)
@@ -1223,9 +1223,9 @@ func (h *Herdr) Finish(ctx context.Context, handle map[string]any) error {
 	return nil
 }
 
-// finishDir cleans up after a closed bead of a dir rig: its session's
+// finishDir cleans up after a closed bead of a dir depot: its session's
 // brief is removed and the bead's workspace closed, if still open. The
-// directory itself is the rig's and is left as it is; there is no worktree
+// directory itself is the depot's and is left as it is; there is no worktree
 // to keep or remove.
 func (h *Herdr) finishDir(ctx context.Context, handle map[string]any) error {
 	brief, _ := handle["brief"].(string)
@@ -1239,12 +1239,16 @@ func (h *Herdr) finishDir(ctx context.Context, handle map[string]any) error {
 		}
 	}
 	dir, _ := handle["dir"].(string)
-	rig, _ := handle["rig"].(string)
+	depot, ok := handle["depot"].(string)
+	if !ok {
+		// A session started before a depot was called that.
+		depot, _ = handle["rig"].(string)
+	}
 	bead, _ := handle["bead"].(string)
 	if bead != "" {
 		// Found as a later stage would find it, so a workspace id herdr
 		// handed out again since is never closed.
-		if id, err := h.findDirWorkspace(ctx, &store.Rig{Name: rig, Path: dir, Kind: store.RigDir}, bead); err == nil && id != "" {
+		if id, err := h.findDirWorkspace(ctx, &store.Depot{Name: depot, Path: dir, Kind: store.DepotDir}, bead); err == nil && id != "" {
 			_, _ = h.run(ctx, "workspace", "close", id)
 		}
 	}
@@ -1254,7 +1258,7 @@ func (h *Herdr) finishDir(ctx context.Context, handle map[string]any) error {
 	return nil
 }
 
-// checkoutTimeout bounds every git call Start and Finish make on a rig (a
+// checkoutTimeout bounds every git call Start and Finish make on a depot (a
 // worktree added or removed, a branch made, a status). Like the fetch they
 // run inside the dispatcher's pass, so one hanging on a slow disk or a hook
 // would stall every group. Two minutes is herdr's own bound on the same
@@ -1633,7 +1637,7 @@ func lastLines(text string, n int) string {
 
 // Worked reports whether the session changed anything in its worktree: a
 // commit since it started (its handle keeps the head it started on) or an
-// uncommitted change. A dir rig's bead has no checkout to ask; there only
+// uncommitted change. A dir depot's bead has no checkout to ask; there only
 // the bead's events tell.
 func (h *Herdr) Worked(ctx context.Context, handle map[string]any) (bool, error) {
 	path, _ := handle["worktree"].(string)

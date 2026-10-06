@@ -181,7 +181,7 @@ func (s *Store) AddTimer(ctx context.Context, nt NewTimer, actor string) (*Timer
 	t := &Timer{By: actor, To: or(nt.To, actor), Reason: reason}
 	if nt.UnlessBead != "" {
 		// Outside the write: a stage's place in the flow may need the
-		// rig's repository read.
+		// depot's repository read.
 		st, err := s.unlessState(ctx, TimerUnless{Bead: nt.UnlessBead, Stage: nt.UnlessStage}, true)
 		if err != nil {
 			return nil, fmt.Errorf("timer: --unless: %w", err)
@@ -360,7 +360,7 @@ func (s *Store) unlessState(ctx context.Context, u TimerUnless, checkStage bool)
 		return st, nil
 	}
 	entered := b.Stage == u.Stage
-	// A flow that cannot be read (its rig's repository is away) leaves the
+	// A flow that cannot be read (its depot's repository is away) leaves the
 	// bead's own stage to go by: the timer fires rather than be lost.
 	if m, err := s.FlowMap(ctx, b.ID); err == nil && m != nil {
 		at, want := -1, -1

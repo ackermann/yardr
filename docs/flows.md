@@ -17,62 +17,62 @@ merged terminal
 
 ## Named flows and pointers
 
-Flows are stored once under a name, and rigs point at them, so several rigs
+Flows are stored once under a name, and depots point at them, so several depots
 share one flow instead of copying it:
 
 ```sh
 yardr flow set code -f flows/code.flow        # store (replace) the named flow
 yardr flow list                               # store and repo flows, and what each governs
 yardr flow show code                          # one named flow and who points at it
-yardr flow rm code                            # refused while a rig, type or open bead uses it
+yardr flow rm code                            # refused while a depot, type or open bead uses it
 
-yardr rig flow yardr code                     # rig yardr's beads follow code
-yardr rig flow webapp code                    # and webapp's
-yardr rig flow yardr --type decision decide   # yardr's decisions follow decide
-yardr rig flow yardr --type decision --clear  # back to the rig's flow
-yardr rig list                                # shows each rig's flow and its source
+yardr depot flow yardr code                     # depot yardr's beads follow code
+yardr depot flow webapp code                    # and webapp's
+yardr depot flow yardr --type decision decide   # yardr's decisions follow decide
+yardr depot flow yardr --type decision --clear  # back to the depot's flow
+yardr depot list                                # shows each depot's flow and its source
 
-yardr flow show yardr                         # a rig: every flow governing it, per stage
+yardr flow show yardr                         # a depot: every flow governing it, per stage
 ```
 
-Changing a named flow with `flow set` changes it for every rig and type
-pointing at it, and every bead pinning it, at once. `flow rm` names what still uses the flow (`rig
-yardr`, `rig yardr type decision`, `bead yardr-x` for an open bead pinning it)
+Changing a named flow with `flow set` changes it for every depot and type
+pointing at it, and every bead pinning it, at once. `flow rm` names what still uses the flow (`depot
+yardr`, `depot yardr type decision`, `bead yardr-x` for an open bead pinning it)
 and removes nothing until they point elsewhere.
 
-`rig flow`, setting or clearing a pointer, checks every open bead the
-change would hand to another flow: the rig's beads, or the type's, that
-are not pinned and, for the rig's pointer, whose type has no pointer of its
+`depot flow`, setting or clearing a pointer, checks every open bead the
+change would hand to another flow: the depot's beads, or the type's, that
+are not pinned and, for the depot's pointer, whose type has no pointer of its
 own. A bead sitting in a stage the new flow lacks is named and the change
 refused, so a configuration command never moves a bead or leaves one in a
 stage nobody is routed to:
 
 ```
-flow code lacks the stage of open beads in rig yardr: yardr-x (triage),
+flow code lacks the stage of open beads in depot yardr: yardr-x (triage),
 yardr-y (triage); advance them to a stage the flow has, or pin them to the
 flow they follow now (yardr bead update <id> --meta flow=<name>), then
-point the rig again
+point the depot again
 ```
 
-Clearing a pointer checks against whatever would govern next (the rig's
+Clearing a pointer checks against whatever would govern next (the depot's
 pointer, the repository's `type/<type>.flow` or `default.flow`), and
-names that flow per bead (`yardr-x (triage, not in flow default)`). A rig
+names that flow per bead (`yardr-x (triage, not in flow default)`). A depot
 whose flows would come from a checkout git cannot read is refused with
 git's error.
 
 `flow set`, replacing a named flow, makes the same check for every open
-bead that follows the name: those a rig's or type's pointer at it reaches
+bead that follows the name: those a depot's or type's pointer at it reaches
 (as above), and those pinning it. A bead in a stage the new version lacks
 is named with what leads it to the flow, and the stored flow is kept:
 
 ```
-the new flow code lacks the stage of open beads in rig yardr: yardr-x
-(triage); in rig webapp type bug: webapp-y (triage); pinning it: yardr-z
+the new flow code lacks the stage of open beads in depot yardr: yardr-x
+(triage); in depot webapp type bug: webapp-y (triage); pinning it: yardr-z
 (triage); advance them to a stage it has, or pin them to another flow
 (yardr bead update <id> --meta flow=<name>), then set the flow again
 ```
 
-A flow in a rig's repository has no such check, since no command changes
+A flow in a depot's repository has no such check, since no command changes
 it and yardr cannot refuse a commit on the base branch: when the base moves
 to a version of the file without a stage, an open bead in that stage stays
 there, **stranded**. yardr reports it instead (see
@@ -85,7 +85,7 @@ matters: the **first stage** is where a bead in a stage the flow does not
 know may rejoin it, by an explicit `yardr bead advance`, and `yardr flow
 show` lists stages in it. Such a bead
 comes from a repository flow that lost a stage on the base branch, or
-from before the rig had a flow: `flow set` and `rig flow` refuse a change
+from before the depot had a flow: `flow set` and `depot flow` refuse a change
 that would leave one (above). The line
 format carries the order as written. A JSON flow lists it under
 `"stages"`, in full or in part; stages left out follow in the order the
@@ -100,26 +100,26 @@ repository is held to the same rule; an ambiguous one counts as a file
 that does not parse (below).
 
 Flow names use letters, digits, `.`, `_` and `-`. Stores from before named
-flows were migrated when the server first opened them: each rig's flow
-became the named flow `<rig>`, each type flow `<rig>.<type>`, with the rig
+flows were migrated when the server first opened them: each depot's flow
+became the named flow `<depot>`, each type flow `<depot>.<type>`, with the depot
 and type pointing at them, so no bead changed lifecycle.
 
 ## Repo flows
 
-A rig's repository can carry its flows under `.yardr/flows/`:
+A depot's repository can carry its flows under `.yardr/flows/`:
 
 ```
-.yardr/flows/default.flow          the rig's flow
-.yardr/flows/type/<type>.flow      the flow for the rig's beads of <type>
+.yardr/flows/default.flow          the depot's flow
+.yardr/flows/type/<type>.flow      the flow for the depot's beads of <type>
 .yardr/flows/<name>.flow           a named flow, for pins and pointers
 ```
 
-yardr reads them from the tip of the rig's **base branch**
+yardr reads them from the tip of the depot's **base branch**
 (`git cat-file blob <base>:.yardr/flows/...`), never from a bead's branch
 or the checkout's working tree: a builder who edits a flow on `yard/<bead>`
 changes nothing for that bead. The edit applies once it has been reviewed
 and landed on the base. yardr resolves the base on every check and re-reads
-the files when its commit moves (it caches them by commit). A rig without a
+the files when its commit moves (it caches them by commit). A depot without a
 path, or whose base does not exist in its checkout (`git rev-parse --verify
 --quiet` finds nothing), has no repo flows. Any other git failure, such as a
 path that is not a checkout, is an error for the beads that need the repo's
@@ -138,19 +138,19 @@ the removed stage is **stranded**: its stage is not in the flow that governs
 it. yardr does not move it and does not refuse the commit; it says so in
 three places until someone moves the bead:
 
-- `yardr rig check <rig>` names each stranded bead of the rig, with its
+- `yardr depot check <depot>` names each stranded bead of the depot, with its
   stage, the flow and the commit the flow was read at, and fails:
 
   ```
   stranded: bead yardr-x is in stage triage, which flow default (repo@9bf658a) lacks; advance it to a stage the flow has (yardr bead advance yardr-x --to <stage>)
-  rig yardr: FAIL (open beads in a stage their flow lacks: 1)
+  depot yardr: FAIL (open beads in a stage their flow lacks: 1)
   ```
 
   With a red gate it exits 1 as before. With a green gate it exits 2, not
   1: no branch can fix a stranded bead, so the refinery holds the bead it
   was landing instead of sending it back to its builder. `--json` lists
   them under `stranded`.
-- `yardr flow show <rig>` prints a warning per bead under the flow that
+- `yardr flow show <depot>` prints a warning per bead under the flow that
   lacks its stage, next to "stage has no route".
 - The dispatcher logs one `stranded` event for the bead (`stage`, `flow`,
   `source` with the commit), which a crew member hears like `unrouted` (it is
@@ -192,24 +192,24 @@ pin on the bead  >  store pointer  >  repo .yardr/flows  >  none
 
 - **Pin**: the bead names its flow in its metadata
   (`yardr bead update <id> --meta flow=<name>`, or `bead create --meta`).
-  The pin governs even a bead without a rig. `create` and `update` refuse a
+  The pin governs even a bead without a depot. `create` and `update` refuse a
   pin naming no flow (`the bead pins flow ghost: not found`); a pin that
   stops resolving later, say a repo flow removed from the base, refuses the
   bead's moves (see above).
-- **Store pointer**: the type's pointer, else the rig's (`yardr rig flow`).
+- **Store pointer**: the type's pointer, else the depot's (`yardr depot flow`).
 - **Repo**: `type/<type>.flow`, else `default.flow`, on the base branch.
 - **None**: any stage is allowed.
 
-The store wins as a whole: a rig pointer in the store overrides the repo's
+The store wins as a whole: a depot pointer in the store overrides the repo's
 type files too. A name, pinned or pointed at, is looked up among the store's
-named flows, then in the rig's repository (`.yardr/flows/<name>.flow`).
+named flows, then in the depot's repository (`.yardr/flows/<name>.flow`).
 Journals and memories are never governed.
 
 `yardr bead show` and `yardr prime --bead` say which flow governs a bead
 and where it came from:
 
 ```
-  flow code (store)                       a store pointer for the rig
+  flow code (store)                       a store pointer for the depot
   flow decide (store, type decision)      a store pointer for the type
   flow default (repo@9bf658a)             the repo's default.flow at that base commit
   flow type/bug (repo@9bf658a, type bug)
@@ -301,39 +301,39 @@ stage section, `prime` no `STAGE` block, and its line on
 A stage file belongs to one flow, not to a stage name: `review` in `default`
 and `review` in `yardr.train` are two files. It lives where its flow lives.
 
-**A flow in a rig's repository** has them beside the flow file, in a
+**A flow in a depot's repository** has them beside the flow file, in a
 directory of the flow's name:
 
 ```
 .yardr/flows/default.flow
-.yardr/flows/default/review.md         review, in the rig's flow
+.yardr/flows/default/review.md         review, in the depot's flow
 .yardr/flows/type/train.flow
 .yardr/flows/type/train/review.md       review, in the flow of type train
 .yardr/flows/<name>.flow
 .yardr/flows/<name>/<stage>.md
 ```
 
-They are read like the flow itself: from the tip of the rig's base branch,
+They are read like the flow itself: from the tip of the depot's base branch,
 never from a bead's branch or the working tree, so a bead cannot rewrite the
 definition of the stage it is in. An edit applies once it has landed on the
-base. A dir rig has no base and reads the directory as it is.
+base. A dir depot has no base and reads the directory as it is.
 
-**A flow in the store** (`yardr flow set <name>`, followed with `yardr rig
-flow <rig> <name>`) has them as plain files in the yard's home, outside any
-rig:
+**A flow in the store** (`yardr flow set <name>`, followed with `yardr depot
+flow <depot> <name>`) has them as plain files in the yard's home, outside any
+depot:
 
 ```
 ~/.yardr/flows/<name>/<stage>.md       e.g. ~/.yardr/flows/code/review.md
 ```
 
-The store holds no prose, as with role prompts. Every rig that follows the
+The store holds no prose, as with role prompts. Every depot that follows the
 flow reads the same files, as they are on disk when the brief is written,
 and no bead's branch can change them. A pack's import copies the stage
 files of its flows there ([packs.md](packs.md#how-a-pack-maps-to-the-yard)).
-The rig's repository is not asked: a
-`.yardr/flows/code/review.md` in a rig that follows the store flow `code` is
-shown to nobody (and fails the rig's check, below). A name that a pin or a
-pointer finds only in the rig's repository is a repository flow.
+The depot's repository is not asked: a
+`.yardr/flows/code/review.md` in a depot that follows the store flow `code` is
+shown to nobody (and fails the depot's check, below). A name that a pin or a
+pointer finds only in the depot's repository is a repository flow.
 
 A stage whose name holds a slash has its file a directory deeper
 (`default/qa/smoke.md` for `qa/smoke`). An empty file counts as none.
@@ -347,10 +347,10 @@ Where it shows:
   `OUTCOMES:`, and in `--json` as `next.stage_file` (`path`, `text`). Above
   it, the `FLOW` block has one line of every stage's file
   ([The map of the flow](#the-map-of-the-flow)).
-- **`yardr flow show <rig>`.** The `FILE` column says per stage whether it
+- **`yardr flow show <depot>`.** The `FILE` column says per stage whether it
   has one (`stage_file`, the path, in `--json`). `yardr flow show <name>`
   lists the stages of a store flow that have one and where the files live.
-- **`yardr rig check`.** A note names, per flow governing the rig, the
+- **`yardr depot check`.** A note names, per flow governing the depot, the
   non-terminal stages without a stage file; it never fails the check. A
   stage file named after no stage of its flow does fail it, since nobody
   would otherwise see the typo: `default/reveiw.md`, or a file in a
@@ -360,16 +360,16 @@ Where it shows:
   the branch's to fix. A stray file of a store flow in the yard's home is no
   branch's to fix: exit 2 when nothing else fails, and `yardr flow show`
   warns of it too.
-- **`yardr rig sources <rig>`.** One line per non-terminal stage of the
-  flows governing the rig: where its stage file comes from, or `none`, and
+- **`yardr depot sources <depot>`.** One line per non-terminal stage of the
+  flows governing the depot: where its stage file comes from, or `none`, and
   the repository's stage file it shadows when a store flow governs
-  ([configuration.md](configuration.md#where-a-rigs-flows-stage-files-and-roles-come-from)).
-  `yardr rig check` names each shadowed file in a note.
+  ([configuration.md](configuration.md#where-a-depots-flows-stage-files-and-roles-come-from)).
+  `yardr depot check` names each shadowed file in a note.
 
 What goes in a stage file and what in a role prompt is in
-[groups.md](groups.md#role-file-or-stage-file). `yardr rig init` writes a
+[groups.md](groups.md#role-file-or-stage-file). `yardr depot init` writes a
 starter stage file for every stage of the flows it seeds
-([configuration.md](configuration.md#seeding-a-rig-yardr-rig-init)), and rig
+([configuration.md](configuration.md#seeding-a-depot-yardr-depot-init)), and depot
 yardr has one for every stage of both its flows
 ([`.yardr/flows/default/`](../.yardr/flows/default),
 [`.yardr/flows/yardr.train/`](../.yardr/flows/yardr.train)).
@@ -406,7 +406,7 @@ and in its brief. An exec group's script gets no brief and no map.
   what a rule leads to comes before the stage of the next rule (`decide`
   above, which `backlog -> new | decide` names). A train, or any bead of a
   type with its own flow, gets the map of that flow.
-- **Who.** From the route a bead of this rig and type (and these labels)
+- **Who.** From the route a bead of this depot and type (and these labels)
   would take in the stage, by the group's runner: `agents`, `script` for an
   exec group, `people` for a manual one, `end` for a terminal stage whatever
   is routed there, `nobody` for a stage without a route. Groups are not
@@ -433,20 +433,20 @@ and in its brief. An exec group's script gets no brief and no map.
 
 ## Type flows
 
-A type's flow governs that type's beads in the rig; every other type
-follows the rig's flow. `yardr flow show <rig>` lists the rig's flow first,
+A type's flow governs that type's beads in the depot; every other type
+follows the depot's flow. `yardr flow show <depot>` lists the depot's flow first,
 then one per type, and warns about non-terminal stages no route sends
 anywhere: beads there wait for a human.
 
-Type `train` has its own flow in rig yardr, `yardr.train` (below), for
+Type `train` has its own flow in depot yardr, `yardr.train` (below), for
 integrating a train's branch and landing it on main. Its children follow the
-rig's flow like any bead; what a train changes for them is only their base,
+depot's flow like any bead; what a train changes for them is only their base,
 see [pipeline.md](pipeline.md#trains).
 
-Type `car` has its own flow in rig yardr too, the repository's
+Type `car` has its own flow in depot yardr too, the repository's
 [`.yardr/flows/type/car.flow`](../.yardr/flows/type/car.flow), with its
 stage files in `.yardr/flows/type/car/`. No pointer is needed: a
-`type/<type>.flow` governs the type by being there. It is the rig's flow
+`type/<type>.flow` governs the type by being there. It is the depot's flow
 without the review stage:
 
 ```
@@ -459,9 +459,9 @@ merged terminal
 ```
 
 A car is a child of a train that lands on the train's branch under the
-rig's light gate, with no review of its own; the full gate and the review
+depot's light gate, with no review of its own; the full gate and the review
 are the train's ([pipeline.md](pipeline.md#cars)). The stage names are the
-rig's, so the rig's routes send cars to the same groups. One rule is
+depot's, so the depot's routes send cars to the same groups. One rule is
 yardr's, whatever the flow says: a car with no parent train stays in its
 flow's first stage. Moving or creating it anywhere else is refused.
 
@@ -474,9 +474,9 @@ works without one, for beads that end outside the flow (the reference
 refinery falls back to it when the flow has no `merged`, see
 [pipeline.md](pipeline.md#4-approved-the-refinery-lands-it-on-main)).
 
-## Worked example: rig yardr
+## Worked example: depot yardr
 
-This is the rig flow yardr reports in `yardr flow show yardr` (as of
+This is the depot flow yardr reports in `yardr flow show yardr` (as of
 2026-10-03). The live `OPEN` counts are omitted because they change as beads
 move:
 
@@ -491,7 +491,7 @@ approved  yardr-refinery   -                  merged on done | new on failed | d
 merged    -                -                  (terminal: closes the bead)
 ```
 
-The rig's flow is the repository's
+The depot's flow is the repository's
 [`.yardr/flows/default.flow`](../.yardr/flows/default.flow), read from main;
 no store pointer overrides it. It governs every bead that is not a train
 (tasks, features, bugs):
@@ -521,15 +521,15 @@ falls back to the `failed` outcome when the flow refuses `merge`. A flow
 with a `merge` stage and a merger group resolves conflicts without a
 builder ([pipeline.md](pipeline.md#5-merge-a-merger-resolves-conflicts)).
 
-Before the rename the rig was `yard`, and its flows lived in the store as
-the named flows `yard` and `yard.decision` (migrated from the rig and type
+Before the rename the depot was `yard`, and its flows lived in the store as
+the named flows `yard` and `yard.decision` (migrated from the depot and type
 flows they were), the second a type flow for decision beads (`decide ->
-decided`, `decided terminal`). Rig yardr has neither: a decision is a bead
+decided`, `decided terminal`). Depot yardr has neither: a decision is a bead
 in `decide`, closed with the answer as its reason.
 
 Trains follow `yardr.train`, which the repository carries as
 [`.yardr/flows/yardr.train.flow`](../.yardr/flows/yardr.train.flow) (a named
-repo flow, read from main; `yardr rig flow yardr --type train yardr.train`
+repo flow, read from main; `yardr depot flow yardr --type train yardr.train`
 points the type at it, which `flow show` prints as `flow yardr.train (store,
 type train, from repo@2c2a589)`):
 
@@ -546,11 +546,11 @@ decide -> open | backlog
 merged terminal
 ```
 
-Rig yardr has the flow but, as of 2026-10-03, only the rig's stage routes:
+Depot yardr has the flow but, as of 2026-10-03, only the depot's stage routes:
 a train in `backlog`, `review`, `approved` or `decide` goes to the same
 group as any bead, and `open`, `merge`, `in-pr` and `land` have no route
 (`flow show` warns for each: beads there wait for a human). The groups in
-the table that the rig lacks are the ones
+the table that the depot lacks are the ones
 [pipeline.md](pipeline.md#setup-2) sets up.
 
 | stage | group | runner |

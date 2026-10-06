@@ -42,13 +42,13 @@ run are the same. With any other style, and with none, the pages show them.
 
 | step | the page asks | and runs |
 |---|---|---|
-| a rig | the repository's path (it starts at the directory you are in, when that is a checkout's top), the rig's name (the directory's, in lowercase), the base branch (the branch checked out) | `yardr rig add <rig> <path> --base <branch>`. A directory that is no git checkout is asked for no base and becomes a dir rig |
-| the rig's `.yardr` files on its base | whether to commit, after `yardr rig init` has run and said what it wrote and which gate it guessed | `yardr rig init <rig>`, then `git -C <path> add .yardr && git -C <path> commit -m '…' -- .yardr`: only `.yardr/` is committed, whatever else is staged |
-| a group that builds | the questions of `yardr group add`'s form (name, runner, agent, model, permissions, prompt, limit), starting at `<rig>/builders` on the yard's `default_kind`, with its unattended flags, `roles/builder.md` and limit 2 | `yardr group add <rig>/builders --runner herdr --limit 2 --set …`. The command is on the form's last page, "Save this group?" |
-| a group that reviews | the same, starting at `<rig>/reviewers`, `roles/reviewer.md`, limit 1 | `yardr group add <rig>/reviewers --runner herdr --set …` |
+| a depot | the repository's path (it starts at the directory you are in, when that is a checkout's top), the depot's name (the directory's, in lowercase), the base branch (the branch checked out) | `yardr depot add <depot> <path> --base <branch>`. A directory that is no git checkout is asked for no base and becomes a dir depot |
+| the depot's `.yardr` files on its base | whether to commit, after `yardr depot init` has run and said what it wrote and which gate it guessed | `yardr depot init <depot>`, then `git -C <path> add .yardr && git -C <path> commit -m '…' -- .yardr`: only `.yardr/` is committed, whatever else is staged |
+| a group that builds | the questions of `yardr group add`'s form (name, runner, agent, model, permissions, prompt, limit), starting at `<depot>/builders` on the yard's `default_kind`, with its unattended flags, `roles/builder.md` and limit 2 | `yardr group add <depot>/builders --runner herdr --limit 2 --set …`. The command is on the form's last page, "Save this group?" |
+| a group that reviews | the same, starting at `<depot>/reviewers`, `roles/reviewer.md`, limit 1 | `yardr group add <depot>/reviewers --runner herdr --set …` |
 | a group or person that lands approved beads | a refinery, or by hand; for by hand, who merges | see below |
-| routes for new, review and approved | nothing but a yes: each stage goes to the group that does its work, and the commands are shown | `yardr route add --stage <stage> --rig <rig> --group <group>` for each stage without a route |
-| a first bead | its title and its goal | `yardr bead create "<title>" --rig <rig> -b "<goal>"`, then `yardr bead advance <id> --to new` |
+| routes for new, review and approved | nothing but a yes: each stage goes to the group that does its work, and the commands are shown | `yardr route add --stage <stage> --depot <depot> --group <group>` for each stage without a route |
+| a first bead | its title and its goal | `yardr bead create "<title>" --depot <depot> -b "<goal>"`, then `yardr bead advance <id> --to new` |
 
 The last step, a first merged bead, has no page: it is the pipeline's to do.
 There the forms end and say where the first bead is and how to watch it:
@@ -57,12 +57,12 @@ There the forms end and say where the first bead is and how to watch it:
 view is installed as a login service, its address instead). They also say
 so when no daemon is running, since nothing is dispatched then.
 
-### Committing the rig's files
+### Committing the depot's files
 
-yardr reads a rig's roles, gate and flow from its base branch, not from the
+yardr reads a depot's roles, gate and flow from its base branch, not from the
 files in the checkout, so the step is done only once `.yardr/` is committed
 there. The page commits when you say yes and the base is the branch checked
-out in the rig.
+out in the depot.
 
 Answer no to commit by hand: the files stay in the checkout, the page prints
 the command, and the setup waits at this step. Read the files, edit the gate
@@ -78,14 +78,14 @@ was built with it, to `<home>/scripts/merge-local` (mode 0755) and adds the
 group:
 
 ```sh
-yardr group add <rig>/refinery --runner exec \
+yardr group add <depot>/refinery --runner exec \
   --set cmd=<home>/scripts/merge-local --set log=<home>/logs/refinery.log
 ```
 
 A `merge-local` already there is kept as it is, this build's or not. The
 group pushes nothing; put `YARDR_PUSH=origin` in front of its `cmd` to push
 the base after each landing ([pipeline.md](pipeline.md#4-approved-the-refinery-lands-it-on-main)).
-merge-local lands on local branches only: when the rig's base is not one, the
+merge-local lands on local branches only: when the depot's base is not one, the
 question starts at "by hand" and says so.
 
 **By hand** asks who merges (it starts at you) and runs two commands, the
@@ -93,8 +93,8 @@ group and its route, since a group of people shows as landing only once it is
 routed:
 
 ```sh
-yardr group add <rig>/mergers --runner manual --members <them>
-yardr route add --stage approved --rig <rig> --group <rig>/mergers
+yardr group add <depot>/mergers --runner manual --members <them>
+yardr route add --stage approved --depot <depot> --group <depot>/mergers
 ```
 
 ## After each page
@@ -119,8 +119,8 @@ It asks how to go on with the step that is next:
 
 Not a step either. Where the forms end, before the question below, `yardr
 setup` asks a [user](users.md) "Be told when beads land?", which starts at
-no. Yes runs `yardr subscribe <you> yardr --done --where rig=<rig>` for the
-setup's rig: each bead of it that becomes done is then a notification in
+no. Yes runs `yardr subscribe <you> yardr --done --where depot=<depot>` for the
+setup's depot: each bead of it that becomes done is then a notification in
 your inbox, apart from your mail
 ([subscriptions.md](subscriptions.md#users-as-subscribers)). It is not
 asked of who already has a `--done` subscription to yardr, nor of who is
@@ -145,9 +145,9 @@ on; `yardr peer pair` in a terminal opens the form at any time.
 A page that is cancelled (ctrl+c, or no at its last question) has run none
 of its commands: the yard is as the finished pages made it, and
 `yardr setup` goes on from the same step. One thing is left behind by a
-cancelled page: `yardr rig init` writes the rig's files into the checkout
+cancelled page: `yardr depot init` writes the depot's files into the checkout
 before the question whether to commit them. They stay there, uncommitted, and
-rig init never overwrites a file, so the page can be taken again.
+depot init never overwrites a file, so the page can be taken again.
 
 A command that fails ends the run with its error; what the page ran before
 it stays done.

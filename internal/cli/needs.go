@@ -27,7 +27,7 @@ import (
 var requirements = []struct{ exe, need, get string }{
 	{"herdr", "it starts every agent in a pane of its own, the yardmaster first: without it nothing runs",
 		"https://herdr.dev"},
-	{"git", "a rig is a git repository: beads are worked on branches, in worktrees",
+	{"git", "a depot is a git repository: beads are worked on branches, in worktrees",
 		"https://git-scm.com/downloads (on macOS: xcode-select --install)"},
 }
 
@@ -518,11 +518,11 @@ func harnessUses(def string, groups []store.Group, crew []store.CrewMember) []ha
 // daemon started in a terminal has the terminal's.
 var protectedDirs = []string{"Desktop", "Documents", "Downloads"}
 
-// protectedRigs are the rigs whose path is in one of userHome's protected
-// folders, as "<rig> (<path>)".
-func protectedRigs(rigs []store.Rig, userHome string) []string {
+// protectedDepots are the depots whose path is in one of userHome's protected
+// folders, as "<depot> (<path>)".
+func protectedDepots(depots []store.Depot, userHome string) []string {
 	var out []string
-	for _, r := range rigs {
+	for _, r := range depots {
 		for _, d := range protectedDirs {
 			if rel, err := filepath.Rel(filepath.Join(userHome, d), r.Path); r.Path != "" && err == nil &&
 				rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {

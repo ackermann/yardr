@@ -9,7 +9,7 @@ import (
 // The yardmaster's role was mayor.md until the crew member was renamed. For
 // this release a prompt that names the file by one of the two names reads
 // the other when no file has the name asked for: a yard set up before the
-// rename has only mayor.md, and a rig that renamed its file is still named
+// rename has only mayor.md, and a depot that renamed its file is still named
 // by a prompt stored before. A file that is there under the name asked for
 // always wins, and no other role is looked up under another name.
 func TestYardmasterRoleIsReadUnderItsOldName(t *testing.T) {

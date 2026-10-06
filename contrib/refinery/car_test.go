@@ -12,18 +12,18 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// gates gives rig r a full gate that appends "full" to a file and a light
+// gates gives depot r a full gate that appends "full" to a file and a light
 // one that appends "light" (none when light is false), each then running
 // what it is given, and returns the file: what it holds is which gates ran.
 func (y *yard) gates(full, light string, hasLight bool) string {
 	y.t.Helper()
 	ran := filepath.Join(y.home, "ran")
-	r := store.Rig{Name: "r", Path: y.repo, Base: "main", Check: "echo full >>" + ran + "; " + full}
+	r := store.Depot{Name: "r", Path: y.repo, Base: "main", Check: "echo full >>" + ran + "; " + full}
 	if hasLight {
 		r.CheckLight = "echo light >>" + ran + "; " + light
 	}
 	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
-	if err := st.PutRig(context.Background(), r, "test"); err != nil {
+	if err := st.PutDepot(context.Background(), r, "test"); err != nil {
 		y.t.Fatal(err)
 	}
 	return ran
@@ -96,7 +96,7 @@ func TestMergeLocalCarRedLightGate(t *testing.T) {
 	}
 }
 
-// A car with no train lands on the rig's base, where no full gate would
+// A car with no train lands on the depot's base, where no full gate would
 // follow: it gets the full gate. (yardr moves no such car out of the stage
 // its flow starts in, and the dispatcher starts no script for one; this
 // one's type was changed after it was approved, and the script is run
@@ -120,9 +120,9 @@ func TestMergeLocalCarWithoutATrainGetsTheFullGate(t *testing.T) {
 	}
 }
 
-// A rig with no light gate: a car of a train runs the full one, and the
-// refinery's note carries rig check's line saying so.
-func TestMergeLocalCarInARigWithoutALightGate(t *testing.T) {
+// A depot with no light gate: a car of a train runs the full one, and the
+// refinery's note carries depot check's line saying so.
+func TestMergeLocalCarInADepotWithoutALightGate(t *testing.T) {
 	y := newTrainYard(t, "true")
 	ran := y.gates("exit 1", "", false)
 	y.yardr("bead", "update", "r-1", "--type", "car")
@@ -135,14 +135,14 @@ func TestMergeLocalCarInARigWithoutALightGate(t *testing.T) {
 	if got := ranGates(t, ran); got != "full" {
 		t.Fatalf("gates run = %q, want the full one", got)
 	}
-	if notes := y.yardr("prime", "--bead", "r-1"); !strings.Contains(notes, "rig r has no light gate") ||
+	if notes := y.yardr("prime", "--bead", "r-1"); !strings.Contains(notes, "depot r has no light gate") ||
 		!strings.Contains(notes, "running the full gate") {
 		t.Fatalf("the note does not say the full gate ran for want of a light one:\n%s", notes)
 	}
 }
 
 // A car's light gate is compared with its train's branch as the car was
-// just rebased onto it, not with the rig's base: the second car to land is
+// just rebased onto it, not with the depot's base: the second car to land is
 // gated on its own change, not on the first car's again.
 func TestMergeLocalCarLightGateIsComparedWithTheTrain(t *testing.T) {
 	y := newTrainYard(t, "true")
@@ -169,7 +169,7 @@ func TestMergeLocalCarLightGateIsComparedWithTheTrain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The train's branch was at the rig's base when the first car was gated.
+	// The train's branch was at the depot's base when the first car was gated.
 	if want := base + " child1.txt \n" + train + " child2.txt \n"; string(b) != want {
 		t.Fatalf("the light gates saw (base, then what changed):\n%swant:\n%s", b, want)
 	}

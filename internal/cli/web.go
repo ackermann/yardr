@@ -26,7 +26,7 @@ func (a *app) webCmd() *cobra.Command {
 		Use:   "serve",
 		Short: "Serve a read-only view of the yard over HTTP",
 		Long: `Serve the yard as web pages: a feed of what happens, the flows of its
-rigs with the beads in each stage, every bead, what waits for a person, the
+depots with the beads in each stage, every bead, what waits for a person, the
 running sessions and the crew, live. The view reads the yard and
 changes nothing. Every page answers a request with "Accept:
 application/json" with the data it shows, and /events streams the yard's

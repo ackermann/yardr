@@ -15,7 +15,7 @@ import (
 )
 
 // The yardmaster was the mayor until this release. What a script typed then
-// still works and is not listed: --mayor of init and rig init, --with-mayor,
+// still works and is not listed: --mayor of init and depot init, --with-mayor,
 // the setting mayor. yardr answers with the new word.
 func TestTheMayorsFlagsAndSettingStillWork(t *testing.T) {
 	newHome(t)
@@ -51,11 +51,11 @@ func TestTheMayorsFlagsAndSettingStillWork(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	if err := st.PutRig(ctx, store.Rig{Name: "notes", Path: dir, Kind: store.RigDir}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "notes", Path: dir, Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := run(t, a.rigCmd(), "init", "notes", "--mayor", "lead", "--with-mayor"); err != nil {
-		t.Fatalf("rig init --mayor --with-mayor: %v\n%s", err, out)
+	if out, err := run(t, a.depotCmd(), "init", "notes", "--mayor", "lead", "--with-mayor"); err != nil {
+		t.Fatalf("depot init --mayor --with-mayor: %v\n%s", err, out)
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".yardr", "roles", "yardmaster.md")); err != nil {
 		t.Errorf("--with-mayor wrote no yardmaster.md: %v", err)
@@ -64,7 +64,7 @@ func TestTheMayorsFlagsAndSettingStillWork(t *testing.T) {
 		t.Errorf("--mayor lead is not whom the builder mails:\n%s", b)
 	}
 
-	for _, args := range [][]string{{"init", "--help"}, {"rig", "init", "--help"}} {
+	for _, args := range [][]string{{"init", "--help"}, {"depot", "init", "--help"}} {
 		out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), args...)
 		if err != nil || !strings.Contains(out, "yardmaster") || strings.Contains(strings.ToLower(out), "mayor") {
 			t.Errorf("yardr %s names the mayor, or not the yardmaster: %v\n%s", strings.Join(args, " "), err, out)

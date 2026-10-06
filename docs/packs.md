@@ -4,7 +4,7 @@ A pack is one yard's way of working as a directory: the flows a bead passes
 through and what each of their stages is for, the groups that work the
 stages, the role prompts and scripts those groups run, and what an always-on
 crew member hears. A yard imports a
-pack into a rig; the pack names no agent product, model, argument, rig,
+pack into a depot; the pack names no agent product, model, argument, depot,
 person, secret or identity, which are the yard's and stay in it.
 
 `yardr pack check` reads a pack and shows what importing it would change;
@@ -13,7 +13,7 @@ imported. Fetching a pack from a git URL is **planned**; until then a pack
 is a directory on this machine.
 
 The pack yardr ships is [`packs/starter`](../packs/starter): the flow `yardr
-rig init` writes with its stage files, the roles yardr embeds and the
+depot init` writes with its stage files, the roles yardr embeds and the
 reference refinery, as one pack.
 
 ```
@@ -68,7 +68,7 @@ sources:
 |---|---|
 | `name` | the pack's name: letters, digits, `.`, `_`, `-`. It names the directory its files are copied to and goes in front of its flows' names |
 | `flows.<flow>.stages` | the flow's stages, **in file order**: the first is where a bead starts |
-| `flows.<flow>.type` | optional: the flow is for beads of this type, beside the rig's flow (a train flow beside the task flow). A type follows one flow |
+| `flows.<flow>.type` | optional: the flow is for beads of this type, beside the depot's flow (a train flow beside the task flow). A type follows one flow |
 | `…stages.<stage>.group` | who works the stage: a key of `groups`. A stage without one is routed to nobody |
 | `…stages.<stage>.file` | optional: the stage's stage file in the pack, markdown saying what the stage is for, what must be true to leave it and when each outcome applies ([flows.md](flows.md)). Whoever works a bead in the stage is shown it. A stage without the key has none |
 | `…stages.<stage>.outcomes` | outcome reported (`yardr bead done --outcome`) -> next stage, in file order |
@@ -97,7 +97,7 @@ leaving the directory (`..`) and a file that is not a regular file there (a
 link) are errors, a script must be executable, and a stage file must have
 something in it. Where a stage file is in the pack is the pack's choice, and
 two stages may name the same one; the starter keeps them as
-`flows/<flow>/<stage>.md`, the layout a rig's repository and the yard's home
+`flows/<flow>/<stage>.md`, the layout a depot's repository and the yard's home
 use.
 
 **Placeholders.** A pack names no person and no crew member of a yard, so its
@@ -106,7 +106,7 @@ puts the yard's names there:
 
 | placeholder | filled with |
 |---|---|
-| `{{operator}}` | the yard's operator: its `operator` setting, the name `yardr init` and `yardr rig init` put in the roles they write |
+| `{{operator}}` | the yard's operator: its `operator` setting, the name `yardr init` and `yardr depot init` put in the roles they write |
 | `{{<crew member>}}`, for a key of `crew` | the yard's crew member that takes it: `{{yardmaster}}` reads `boss` under `--crew yardmaster=boss`. A pack whose crew member is called `lead` writes `{{lead}}` |
 
 So the starter's builder is told to run ``yardr mail {{yardmaster}} "…"`` and an
@@ -157,17 +157,17 @@ packs/mine/pack.yaml:7: flows.default.stages.decide.group: no group deciders is 
   `review` is refused there as `yardr hook add --map` refuses it).
 
 Which flow a type's stages are held to: the flow with that `type:`, else a
-flow a rig could follow, since a rig's flow governs every type that has
+flow a depot could follow, since a depot's flow governs every type that has
 none of its own. A pack with several such flows may name a stage any of
 them has.
 
 ## yardr pack check
 
 ```sh
-yardr pack check <dir> --rig <rig> [--crew <pack's>=<yard's>]… [--flow <flow>] [--rig-roles] [--json]
+yardr pack check <dir> --depot <depot> [--crew <pack's>=<yard's>]… [--flow <flow>] [--depot-roles] [--json]
 ```
 
-It prints what an import into the rig would do, object by object, and
+It prints what an import into the depot would do, object by object, and
 writes nothing, neither to the store nor under the home:
 
 | it says | meaning |
@@ -176,12 +176,12 @@ writes nothing, neither to the store nor under the home:
 | `change`, then `field: old -> new` per field | it has one that differs in what the pack carries |
 | `unchanged` | it has one and nothing would change |
 | `not in the pack` | the yard has it, the pack does not, and no import of this pack brought it: an import leaves it alone |
-| `no longer in it` | an earlier import of this pack into the rig brought it and the pack has dropped it since: left alone unless the import is told to prune ([Pruning](#pruning)) |
-| `shadows …` under an object | a file of the rig that is not used while the object is as the pack sets it: the rig's own `.yardr/roles/builder.md`, under a group prompted from the pack's copy |
-| `kept: …` under an object | something the pack carries and the import leaves as the yard has it, with the reason: a prompt, where the rig has its own role and the import was given `--rig-roles` |
+| `no longer in it` | an earlier import of this pack into the depot brought it and the pack has dropped it since: left alone unless the import is told to prune ([Pruning](#pruning)) |
+| `shadows …` under an object | a file of the depot that is not used while the object is as the pack sets it: the depot's own `.yardr/roles/builder.md`, under a group prompted from the pack's copy |
+| `kept: …` under an object | something the pack carries and the import leaves as the yard has it, with the reason: a prompt, where the depot has its own role and the import was given `--depot-roles` |
 | `edited by hand since the last import: …` under a file | the installed copy is neither what the last import installed nor what the pack has now: `pack apply` overwrites it only with `--yes` ([below](#yardr-pack-apply)) |
 
-then what an import would ask, which flow would govern the rig afterwards,
+then what an import would ask, which flow would govern the depot afterwards,
 what each subscribed source has and lacks, what each crew member would be let
 open threads in ([Opening threads](#how-a-pack-maps-to-the-yard)), and notes. `--json` prints the
 same plan as data ([below](#the-plan-as-data)). It exits 1 on an invalid
@@ -204,7 +204,7 @@ the copy differs from the pack's file where that names the operator or a
 crew member; a script is copied byte for byte. The plan says what it would
 fill in (`in its roles and stage files {{operator}} would read Jo,
 {{yardmaster}} would read boss`), and compares, hashes and records the
-filled text: a fresh import shows no change. The rigs a pack is imported
+filled text: a fresh import shows no change. The depots a pack is imported
 into share its copies, so when another crew member takes one of the pack's
 (`--crew yardmaster=boss`), the files naming it show as `change` and are
 written again.
@@ -216,19 +216,19 @@ is copied to `<home>/flows/<pack>.<flow>/<stage>.md`
 whatever the file is called in the pack. The plan lists each with the
 pack's other files, as `flows/default/review.md -> <where it goes>`; only
 the flows the import uses have theirs copied. They are filled, recorded,
-checked for hand edits and pruned as roles are. Every rig following the
+checked for hand edits and pruned as roles are. Every depot following the
 flow reads the same copies. A stage file in that directory the pack does
 not carry (one written by hand for a stage the pack names no file for)
 shows as `not in the pack`, by its path under the home
 (`flows/starter.default/<stage>.md`), and is left alone. The stage files in
-a rig's repository are not touched; like its flow files, they are not read
-while the rig's pointer is at the pack's flow.
+a depot's repository are not touched; like its flow files, they are not read
+while the depot's pointer is at the pack's flow.
 
-**The pack's roles win.** An import gives the rig the pack's way of working
+**The pack's roles win.** An import gives the depot the pack's way of working
 whole, its roles as its flow. Every agent group and crew member the pack names
-is pointed at the pack's copied role, also where the rig has
+is pointed at the pack's copied role, also where the depot has
 `.yardr/roles/<name>.md` on its base branch (in its directory, for a dir
-rig) and the pack's role is `roles/<name>.md`. The rig's file stays where it
+depot) and the pack's role is `roles/<name>.md`. The depot's file stays where it
 is and is read by nothing; the plan shows the `change` of `prompt` and names
 the file under the object:
 
@@ -238,34 +238,34 @@ the file under the object:
                      prompt: roles/builder.md -> /Users/me/.yardr/packs/starter/roles/builder.md
 ```
 
-`--rig-roles` is the opposite choice. A group whose rig has its own role
+`--depot-roles` is the opposite choice. A group whose depot has its own role
 keeps its prompt as it is; a new group, and one the pack's copy was set on
-before, gets `roles/<name>.md`, which yardr resolves to the rig's file; and
-the plan says `kept: prompt roles/builder.md: the rig has its own
+before, gets `roles/<name>.md`, which yardr resolves to the depot's file; and
+the plan says `kept: prompt roles/builder.md: the depot has its own
 .yardr/roles/builder.md`. A crew member that has a prompt of its own keeps it
-the same way. Groups and crew members whose role the rig lacks get the pack's
+the same way. Groups and crew members whose role the depot lacks get the pack's
 copy either way, and every copy is installed all the same.
 
-`yardr rig sources <rig>` shows the outcome for a rig as it is now: one line
-per flow, stage file and role, with where it comes from and the rig's file
-it shadows ([configuration.md](configuration.md#where-a-rigs-flows-stage-files-and-roles-come-from)).
+`yardr depot sources <depot>` shows the outcome for a depot as it is now: one line
+per flow, stage file and role, with where it comes from and the depot's file
+it shadows ([configuration.md](configuration.md#where-a-depots-flows-stage-files-and-roles-come-from)).
 
-`yardr rig source <rig> role <group|crew> rig|pack` switches one of
-them afterwards, without a new import: it sets the prompt to the rig's role
-or to the pack's copy, prints the line as `rig sources` then has it, and
-refuses when the rig has no such role or no pack of the rig installed one
+`yardr depot source <depot> role <group|crew> depot|pack` switches one of
+them afterwards, without a new import: it sets the prompt to the depot's role
+or to the pack's copy, prints the line as `depot sources` then has it, and
+refuses when the depot has no such role or no pack of the depot installed one
 ([configuration.md](configuration.md#switching-one-of-them)).
 
 The record remembers which of the two was chosen (`roles` in `yardr pack
 list`), and an import without the flag repeats it, for every role: one
-switched the other way by `yardr rig source` is set back, and that command
+switched the other way by `yardr depot source` is set back, and that command
 says so when it applies. `--pack-roles` chooses
-the pack's roles again after an import with `--rig-roles`; it is the default
+the pack's roles again after an import with `--depot-roles`; it is the default
 otherwise, and says so in one line.
 
-**Groups.** An agent or script group is the rig's, named `<rig>-<group>`
+**Groups.** An agent or script group is the depot's, named `<depot>-<group>`
 (`yardr-builders`); a people group keeps its name and is the yard's, shared
-by every rig that imports a pack naming it.
+by every depot that imports a pack naming it.
 
 | pack | group in the yard | the pack sets | the yard keeps |
 |---|---|---|---|
@@ -277,22 +277,22 @@ A group the yard lacks needs what a pack cannot say: the agent kind, model
 and permission arguments, or the members. These are the import's questions.
 
 **Flows.** A flow is stored as the named flow `<pack>.<flow>`
-(`starter.default`), and the rig is pointed at it (`yardr rig flow`); a
+(`starter.default`), and the depot is pointed at it (`yardr depot flow`); a
 flow with `type:` becomes that type's pointer. Of several flows without a
-type the rig follows one: `--flow`, else the first; the others are not
+type the depot follows one: `--flow`, else the first; the others are not
 imported.
 
-A pointer in the store wins over the flow files in the rig's repository
+A pointer in the store wins over the flow files in the depot's repository
 ([flows.md](flows.md#which-flow-governs-a-bead)), and it wins as a whole: a
-rig whose base branch carries `.yardr/flows/default.flow` (what `yardr rig
+depot whose base branch carries `.yardr/flows/default.flow` (what `yardr depot
 init` writes) is governed by the pack's flow once the import has pointed it
 there, and its `type/<type>.flow` files stop governing too. The files stay
-and govern again when the pointer is cleared (`yardr rig flow <rig>
---clear`). `yardr rig sources <rig>` names each of them, and the stage files
-beside them, as shadowed. `yardr rig source <rig> flow [--type <type>]
-rig|pack` moves the rig between the two: `rig` clears the pointer, `pack`
+and govern again when the pointer is cleared (`yardr depot flow <depot>
+--clear`). `yardr depot sources <depot>` names each of them, and the stage files
+beside them, as shadowed. `yardr depot source <depot> flow [--type <type>]
+depot|pack` moves the depot between the two: `depot` clears the pointer, `pack`
 points it at the pack's flow again, and either way the flow switches whole,
-its stage files with it. The plan says which flow would govern the rig's beads and each
+its stage files with it. The plan says which flow would govern the depot's beads and each
 type's afterwards, and which does now. A type pointer the pack has no flow
 for is left alone.
 
@@ -302,13 +302,13 @@ The plan makes the same check for every flow of the pack, over the beads
 that would follow it by a pointer or a pin, and marks the import
 **refused**, naming the beads: move or pin them first.
 
-**Routes.** Each stage with a group gets the one route `rig, stage ->
-group` (with the type, for a type's flow). A route the rig has for the
+**Routes.** Each stage with a group gets the one route `depot, stage ->
+group` (with the type, for a type's flow). A route the depot has for the
 stage is that route: unchanged when it leads to the same group, else
 replaced. `yardr route add` mints a new id per call, so a replacement is
-an add and a delete of every route the rig had for the stage; two routes
-for one rig and stage never remain. A stage with no group clears the
-matching rig, stage and type routes, so its beads wait for a hand. The
+an add and a delete of every route the depot had for the stage; two routes
+for one depot and stage never remain. A stage with no group clears the
+matching depot, stage and type routes, so its beads wait for a hand. The
 route's priority is kept when a stage has a group. Routes with a label, and
 routes for stages the pack lacks, are left alone.
 
@@ -323,8 +323,8 @@ yard's):
 |---|---|
 | `role` | its `prompt`, the copied file |
 | `hears.events` | its `--on` kinds: the list is replaced, so a pack carries every kind its crew member should hear |
-| `hears.stages` | one subscription per stage: `yardr all rig=<rig> stage=<stage>` |
-| `hears.done` | `yardr all rig=<rig> state=done` |
+| `hears.stages` | one subscription per stage: `yardr all depot=<depot> stage=<stage>` |
+| `hears.done` | `yardr all depot=<depot> state=done` |
 | `subscribe.<source>: <scope>` | `<source> <scope>`; a subscription to the source without filters has its scope changed |
 
 Its other subscriptions are left alone
@@ -411,10 +411,10 @@ the yard has and lacks to hear it and answer in it:
 ## yardr pack apply
 
 ```sh
-yardr pack apply <dir> --rig <rig> [--yes] [--prune]
+yardr pack apply <dir> --depot <depot> [--yes] [--prune]
     [--bind <group>=<kind>[:<model>][,<preset>]]… [--members <group>=a,b]…
     [--crew <pack's>=<yard's>]… [--open-threads <pack's>=<source>,…|none]…
-    [--flow <flow>] [--rig-roles] [--json]
+    [--flow <flow>] [--depot-roles] [--json]
 ```
 
 It makes the plan `pack check` shows, prints it with what the flags answer
@@ -433,7 +433,7 @@ answers it instead:
 | the members of a people group the yard lacks | `--members <group>=a,b`; `--members <group>=` for anyone |
 | which crew member of the yard takes a crew member of the pack | `--crew <pack's>=<yard's>` |
 | the agent, model and permissions of a crew member the yard lacks | `--bind crew:<pack's>=<kind>[:<model>][,<preset>]` |
-| which flow the rig follows, when the pack has several without a type | `--flow <name>` |
+| which flow the depot follows, when the pack has several without a type | `--flow <name>` |
 | whether a crew member may open threads in the sources the pack asks for | `--open-threads <pack's>=linear,github`, or `=none`; see below for what happens without it |
 
 `<group>` is the pack's name for the group (`builders`, not
@@ -445,11 +445,11 @@ creates works in the yard's home, as one made by `yardr crew add` does.
 **One answer to `--crew` per yard.** The filled copies of a pack's
 roles and stage files are installed once per pack
 (`<home>/packs/<pack>/roles/…`, `<home>/flows/<pack>.<flow>/…`), and every
-rig that imports the pack reads those shared files ([above](#how-a-pack-maps-to-the-yard)).
-A second rig importing the pack with another `--crew <pack's>=<yard's>`
-rewrites them for the first rig too, so its agents read the second rig's
+depot that imports the pack reads those shared files ([above](#how-a-pack-maps-to-the-yard)).
+A second depot importing the pack with another `--crew <pack's>=<yard's>`
+rewrites them for the first depot too, so its agents read the second depot's
 crew member in their roles and stage files. Import a pack with the same
-crew members in every rig of a yard.
+crew members in every depot of a yard.
 
 Without a terminal, or with `--json`, nothing is asked: a question without
 its flag is an error that names the flag, never a default, with two
@@ -542,7 +542,7 @@ gets the pack's.
 **Twice is once.** Applying a pack that is already applied writes no object
 and logs one event, `pack_unchanged`. A hook that has the pack's map and
 acts as the crew member that takes the pack's is left as it is. It needs no flag and no `--yes`: the
-record says which crew member took each of the pack's, which flow the rig
+record says which crew member took each of the pack's, which flow the depot
 follows and whose roles were chosen. It also keeps each answer about
 opening threads, by crew member and source, yes or no: the same pack asks
 nothing the second time, and one that asks for a further source later asks
@@ -564,7 +564,7 @@ nothing was changed: /Users/me/.yardr/packs/starter/roles/builder.md was edited 
 ```
 
 Make the edit in the pack and apply again, or give `--yes` to drop it. The
-rigs a pack is imported into share its copies, so a copy that is as the
+depots a pack is imported into share its copies, so a copy that is as the
 import into any of them left it counts as not edited. A record written
 before yardr kept the content says nothing, and such a copy is overwritten
 as before.
@@ -593,12 +593,12 @@ session starts.
 
 ### The record
 
-The yard records each import, one record per pack and rig, replaced by the
+The yard records each import, one record per pack and depot, replaced by the
 next import that changes something:
 
 ```
 $ yardr pack list
-starter in rig web  2026-10-03 18:40 by mckean
+starter in depot web  2026-10-03 18:40 by mckean
   source     /Users/me/yardr/packs/starter at 8562e43c1f0a
   flow       default (stored as starter.default)
   roles      the pack's
@@ -609,12 +609,12 @@ starter in rig web  2026-10-03 18:40 by mckean
 
 | field (`--json`) | meaning |
 |---|---|
-| `pack`, `rig` | what was imported into which rig |
+| `pack`, `depot` | what was imported into which depot |
 | `source` | the directory it was read from |
 | `commit`, `dirty` | that directory's git commit when it is in a repository, and whether it held changes the commit does not |
 | `at`, `by` | when, and the actor who applied it |
-| `flow` | the pack's flow the rig follows |
-| `rig_roles` | `true` when the import was given `--rig-roles`; absent when the pack's roles were set |
+| `flow` | the pack's flow the depot follows |
+| `depot_roles` | `true` when the import was given `--depot-roles`; absent when the pack's roles were set |
 | `groups`, `crew` | pack name -> yard name |
 | `objects` | the files, groups, flows, pointers, routes, subscriptions and stage maps that are the pack's; a file with the `sha256` of its content as installed, placeholders filled; a stage map (`kind: map`) with the hook's `name`, the `crew` it acts as and the `map` as the import set it |
 | `open_threads` | the answers about opening threads: yard's crew member -> source -> `true` or `false`; absent when nothing was answered. `yardr pack list` prints them as `may open   boss: github no, linear yes` |
@@ -622,7 +622,7 @@ starter in rig web  2026-10-03 18:40 by mckean
 An import that changes nothing leaves the record as it is, its commit and
 time included: it is the record of the last import that did something. The
 import is logged as `pack_applied` when the record was written and
-`pack_unchanged` when not, with pack, rig, source and commit. Removing a rig
+`pack_unchanged` when not, with pack, depot, source and commit. Removing a depot
 removes its records.
 
 A crew member is in the mapping and not among the objects: it is the yard's.
@@ -640,9 +640,9 @@ yard no pack was imported into.
 
 - A group is removed as `yardr group rm` does: with the routes that lead to
   it, releasing the beads its live sessions hold.
-- A people group is the yard's, shared by its rigs: one that another import
-  names, or that a route outside the rig leads to, is **held** and stays
-  even with `--prune`. So does a flow another rig follows. The plan says
+- A people group is the yard's, shared by its depots: one that another import
+  names, or that a route outside the depot leads to, is **held** and stays
+  even with `--prune`. So does a flow another depot follows. The plan says
   why.
 - A crew member is never removed. One that no longer takes a crew member of the
   pack keeps its role and `--on` kinds as the import left them; its
@@ -658,7 +658,7 @@ yard no pack was imported into.
 - A flow's stage files stay while the flow does: with a flow that is held,
   and with one the store refused to remove.
 - The stage file of a stage the flow lost is named after no stage of the
-  flow any more, which `yardr rig check` reports as a stray file in the
+  flow any more, which `yardr depot check` reports as a stray file in the
   yard's home ([flows.md](flows.md#stage-files-what-a-stage-is-for)) until
   it is pruned.
 
@@ -681,8 +681,8 @@ run set no stage map for it, and `result.mapped` the maps it set, each with
 
 ```json
 {
-  "pack": "starter", "dir": "/…/packs/starter", "rig": "yardr",
-  "flow": "default", "rig_roles": false, "groups": {"builders": "yardr-builders"}, "crew": {"yardmaster": "boss"},
+  "pack": "starter", "dir": "/…/packs/starter", "depot": "yardr",
+  "flow": "default", "depot_roles": false, "groups": {"builders": "yardr-builders"}, "crew": {"yardmaster": "boss"},
   "fill": {"operator": "Jo", "yardmaster": "boss"},
   "install": "/Users/me/.yardr/packs/starter", "stage_files": "/Users/me/.yardr/flows",
   "objects": [
@@ -718,20 +718,20 @@ prune removes), under its kind:
 | `file` | `from`, `to`, `mode`, `sha256` (of the content as installed), and `fill: true` on a role or stage file, whose placeholders are filled; a stage file also `flow`, the store flow it belongs to, and `stage` |
 | `group` | the whole group as it would be stored, what the yard keeps included |
 | `flow` | the whole flow, its stages in order |
-| `pointer` | `rig`, `type`, `flow` |
-| `route` | `stage`, `rig`, `type`, `group`, `priority`, and `delete`: the ids of the routes it replaces |
+| `pointer` | `depot`, `type`, `flow` |
+| `route` | `stage`, `depot`, `type`, `group`, `priority`, and `delete`: the ids of the routes it replaces |
 | `crew` | `pack` (its name in the pack), `crew` (in the yard), `prompt`, `on`, and `restart` when it is running and the import changes its role or what it hears |
 | `subscription` | `crew`, `add`, and `remove` when a scope changes |
 | `map` | `hook`, `source`, `as` and `map`: what the hook is set to. Only a map the import can set is an object; `maps` has every source |
 
 An object's `asks` are the ids of the questions whose answers it still
 needs, its `keeps` what the import leaves as the yard has it, and its
-`shadows` the rig's files the pack's role stands in front of. A file has
-`edited: true` when its installed copy was edited by hand. `rig_roles` says
+`shadows` the depot's files the pack's role stands in front of. A file has
+`edited: true` when its installed copy was edited by hand. `depot_roles` says
 whose roles the plan sets. A dropped
 object has `owned`, the record's entry for it, and `held` when not even a
 prune removes it. The question `pack.flow` belongs to no object: it is
-asked when the pack has several flows a rig could follow. A plan with
+asked when the pack has several flows a depot could follow. A plan with
 anything under `refused` must not be applied.
 
 `maps` has one entry per source under the pack's `sources`: the `map` keyed

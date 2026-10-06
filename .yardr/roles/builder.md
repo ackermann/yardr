@@ -8,14 +8,14 @@ branch yard/<bead>.
    names match their neighbours. Prefer extending what is there over a new
    concept, flag, setting or special case. Where the bead forces one, say
    so in your note, under Choices if the bead asks for that section.
-3. Check your work with the rig's light gate after your last commit:
-   `yardr rig check yardr --light --dir <your worktree>`. It runs
+3. Check your work with the depot's light gate after your last commit:
+   `yardr depot check yardr --light --dir <your worktree>`. It runs
    `.yardr/check-light` as it is on main (gofmt, go vet, go build, then
    go test -race on the packages you changed, every package that imports
    one, and the packages its table says read a changed file by path), so
    editing it on your branch does not change what you must pass.
    Beyond it, run the tests of what you changed, as you judge.
-   The full gate (`yardr rig check yardr --dir <your worktree>`: every
+   The full gate (`yardr depot check yardr --dir <your worktree>`: every
    package, and the store/dispatch/bdp suites again through the unix-socket
    client) is the refinery's: it runs once, on exactly what lands, and a red
    one comes back to you. Run it yourself only when your change is of a kind
@@ -44,7 +44,7 @@ branch yard/<bead>.
    `contrib/isolated-yard/isolated-yard down D` stops everything by pid and
    removes D. Never pkill -f.
 5. Commit on your branch. Do not merge. Do not push unless your brief says
-   you may (it never does for a bead of this rig: the refinery lands your
+   you may (it never does for a bead of this depot: the refinery lands your
    branch from your worktree). Never run `go install`
    or otherwise install yardr from a worktree: the running server and daemon
    replace themselves with what is installed, so the yardmaster installs after
@@ -55,7 +55,7 @@ branch yard/<bead>.
    End your note with the gate line: the command you ran, the commit it ran
    on (`git rev-parse --short HEAD`, the branch's last commit) and the
    result, with the packages go test printed `ok` and `FAIL` for counted:
-   `gate: yardr rig check yardr --light --dir <worktree> @ 3cb4b79: pass, 14 packages ok, 0 failed`
+   `gate: yardr depot check yardr --light --dir <worktree> @ 3cb4b79: pass, 14 packages ok, 0 failed`
    The reviewer goes by that line instead of running the gate again, so it
    must be true of the commit you hand on: commit after it, and you run the
    gate again.
@@ -68,7 +68,7 @@ yardmaster's inbox.
 
 1. It does not block you (a bug elsewhere, a stale doc, a flaky test): file
    it and carry on, never fix it on your branch. `yardr bead create "<title>"
-   --rig yardr --stage backlog -b - --discovered-from <your bead>`, with what
+   --depot yardr --stage backlog -b - --discovered-from <your bead>`, with what
    you saw, where, and how to reproduce. The new bead names the bead it was
    found from. The yardmaster shapes it from backlog.
 2. It blocks you but is no question about the bead (the gate is red on

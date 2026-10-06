@@ -52,13 +52,13 @@ const (
 
 // CIQuery names the commit whose checks CI reads: SHA, in the pull request
 // Number of Repo (owner/name) or, with no repo known, of the repository of
-// the rig's checkout.
+// the depot's checkout.
 type CIQuery struct {
 	Train  string
 	Repo   string
 	Number string
 	SHA    string
-	Dir    string // the rig's checkout; "" when the train has no rig
+	Dir    string // the depot's checkout; "" when the train has no depot
 }
 
 // CIChecks is what GitHub says of a pull request and one commit of it.
@@ -358,9 +358,9 @@ func (d *Dispatcher) judgeCI(ctx context.Context, train *store.Bead, sha string)
 		return ignored("train has no %s: pr-train stores it as the train enters in-pr", metaPRReviewed), true
 	}
 	q := CIQuery{Train: train.ID, Repo: pr.repo, Number: pr.number, SHA: sha}
-	if train.Rig != nil {
-		if rig, err := d.Store.GetRig(ctx, *train.Rig); err == nil {
-			q.Dir = rig.Path
+	if train.Depot != nil {
+		if depot, err := d.Store.GetDepot(ctx, *train.Depot); err == nil {
+			q.Dir = depot.Path
 		}
 	}
 	read := d.CI

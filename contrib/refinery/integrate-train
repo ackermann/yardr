@@ -1,13 +1,13 @@
 #!/bin/sh
-# integrate-train: brings a train's branch up to date with its rig's base
+# integrate-train: brings a train's branch up to date with its depot's base
 # and gates it, once its last child has landed on it, so the train goes to
 # review as exactly what would land. Run it as the cmd of an exec group
 # routed for the train flow's open stage (type train); limit 1 on the group
 # integrates one train at a time. See docs/pipeline.md, section Trains.
 #
 # It reads everything from the environment the exec runner gives it, as
-# merge-local does: YARDR_BEAD (the train), YARDR_RIG, YARDR_RIG_PATH,
-# YARDR_BASE (the rig's base), YARDR_BRANCH (yard/<train>), YARDR_WORKTREE
+# merge-local does: YARDR_BEAD (the train), YARDR_DEPOT, YARDR_DEPOT_PATH,
+# YARDR_BASE (the depot's base), YARDR_BRANCH (yard/<train>), YARDR_WORKTREE
 # and YARDR_BIN. Options, set in the group's cmd:
 #
 #   YARDR_PUSH     a remote to push the train branch to; off when empty
@@ -20,9 +20,9 @@
 #                  logged in as the operator
 #
 # It fetches the base when it is a remote's, rebases the train branch onto
-# the base, runs the rig's gate on the result and reports done (-> review).
+# the base, runs the depot's gate on the result and reports done (-> review).
 # A red gate reports failed (-> open) with the commit, the file all of the
-# gate's output is in, the lines the rig says matter and the gate's tail,
+# gate's output is in, the lines the depot says matter and the gate's tail,
 # after adding a child to fix it, which carries the same: the child blocks
 # the train, so it is not integrated again until the fix has landed on its
 # branch. A rebase that conflicts reports
@@ -34,27 +34,27 @@
 # Every outcome ends in a report or a hold: exiting without one counts as a
 # failed session, and three of those hold the bead.
 set -u
-# A dir rig (YARDR_RIG_KIND=dir) has no branches: there is nothing here to
+# A dir depot (YARDR_DEPOT_KIND=dir) has no branches: there is nothing here to
 # land, integrate or open a pull request for. A route that hands one over is
-# a mistake in the rig's flow, so refuse to run (exit 2) rather than guess.
-if [ "${YARDR_RIG_KIND:-git}" = dir ]; then
-  echo "integrate-train: rig ${YARDR_RIG:-?} is a dir rig, with no branch to work on; route its stages to other groups" >&2
+# a mistake in the depot's flow, so refuse to run (exit 2) rather than guess.
+if [ "${YARDR_DEPOT_KIND:-git}" = dir ]; then
+  echo "integrate-train: depot ${YARDR_DEPOT:-?} is a dir depot, with no branch to work on; route its stages to other groups" >&2
   exit 2
 fi
-: "${YARDR_BEAD:?not run by an exec group}" "${YARDR_RIG:?bead has no rig}"
-: "${YARDR_RIG_PATH:?}" "${YARDR_BASE:?}"
+: "${YARDR_BEAD:?not run by an exec group}" "${YARDR_DEPOT:?bead has no depot}"
+: "${YARDR_DEPOT_PATH:?}" "${YARDR_BASE:?}"
 Y=${YARDR_BIN:-yardr}
 TRAIN=$YARDR_BEAD
-RIG=$YARDR_RIG
-REPO=$YARDR_RIG_PATH
+DEPOT=$YARDR_DEPOT
+REPO=$YARDR_DEPOT_PATH
 BASE=$YARDR_BASE
 BR=${YARDR_BRANCH:-yard/$TRAIN}
-WT=${YARDR_WORKTREE:-${YARDR_HOME:-$HOME/.yardr}/worktrees/$RIG/$TRAIN}
+WT=${YARDR_WORKTREE:-${YARDR_HOME:-$HOME/.yardr}/worktrees/$DEPOT/$TRAIN}
 PUSH=${YARDR_PUSH:-}
 NOTIFY=${YARDR_NOTIFY:-}
 PR=${YARDR_PR:-}
 TAIL=200
-echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') integrate $RIG $TRAIN ($BR onto $BASE)"
+echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') integrate $DEPOT $TRAIN ($BR onto $BASE)"
 
 # Reporting ends this session (the daemon stops the script), so it is
 # always the last thing done.
@@ -107,19 +107,19 @@ Rebase $BR onto $BASE in $WT keeping both sides' intent, and do not push it: bac
   fi
 fi
 
-# The gate runs on exactly what goes to review and then lands: the rig's
+# The gate runs on exactly what goes to review and then lands: the depot's
 # check, read from the base, run in the train's worktree. Exit 2 means the
 # gate could not run at all, which no child can fix.
 # An exit above 128 means the gate was ended by a signal from outside, which
 # says nothing about the branch and which no child can fix either: as in
 # merge-local, it is run once more, after a note with the first run's tail,
-# and ended by a signal twice the train is held. rig check's own kill at its
+# and ended by a signal twice the train is held. depot check's own kill at its
 # deadline is not this: it exits 1, a red gate.
 # As in merge-local, it goes before the other gates waiting for a slot of the
 # machine (YARDR_GATE_FIRST): the train's children wait behind it.
-gate() { out=$(YARDR_GATE_FIRST=1 "$Y" rig check "$RIG" --dir "$WT" --tail "$TAIL" 2>&1) && rc=0 || rc=$?; printf '%s\n' "$out"; }
-# Where rig check kept all of a red gate's output: its FAIL line ends with
-# the file. $out is what the rig says matters (the lines matching its
+gate() { out=$(YARDR_GATE_FIRST=1 "$Y" depot check "$DEPOT" --dir "$WT" --tail "$TAIL" 2>&1) && rc=0 || rc=$?; printf '%s\n' "$out"; }
+# Where depot check kept all of a red gate's output: its FAIL line ends with
+# the file. $out is what the depot says matters (the lines matching its
 # .yardr/check-fail-pattern, if it has one) and then the last $TAIL lines,
 # which in a long run are what came after the failure, not the failure.
 whole() {
@@ -156,7 +156,7 @@ $out" ;;
 $out"
   fix=$(printf '%s\n' "The gate failed on train $TRAIN's branch $at. Make it pass on $BR.
 
-$out" | "$Y" bead create "Fix the gate on train $TRAIN" -r "$RIG" -t bug -s backlog -b -) &&
+$out" | "$Y" bead create "Fix the gate on train $TRAIN" -d "$DEPOT" -t bug -s backlog -b -) &&
     "$Y" dep add "$TRAIN" "$fix" -k parent ||
     hold "$msg
 (adding a child to fix it failed; add one, then unhold)"
@@ -209,7 +209,7 @@ if [ -n "$PUSH" ]; then
 fi
 
 # The pull request, once the branch it shows is on the remote. Run from the
-# rig so gh finds the GitHub repository from its remote. The train's PR is
+# depot so gh finds the GitHub repository from its remote. The train's PR is
 # the one stored on it, never one looked up by the branch's name: a fork's
 # pull request can carry the same name.
 if [ -n "$PR" ]; then

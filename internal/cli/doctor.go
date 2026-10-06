@@ -266,7 +266,7 @@ func stoppedYard(ctx context.Context, cfg *config.Config) *doctorReport {
 	skip := func(key, title string) optionalPart {
 		return optionalPart{Key: key, Title: title, Skipped: true, Detail: skippedWhy}
 	}
-	// The login service's notes on its rigs are the store's too, and left
+	// The login service's notes on its depots are the store's too, and left
 	// out.
 	rep.Optional = []optionalPart{webPart(cfg), skip("hooks", "hooks"), skip("peers", "peers"), skip("packs", "packs"), servicePart(cfg)}
 	rep.faults()
@@ -412,23 +412,23 @@ func optionalParts(ctx context.Context, cfg *config.Config, st store.API) ([]opt
 		return nil, err
 	}
 	pack := optionalPart{Key: "packs", Title: "packs",
-		Detail: fmt.Sprintf("no pack is imported; %s pack apply <dir> --rig <rig> (docs/packs.md)", yardr)}
+		Detail: fmt.Sprintf("no pack is imported; %s pack apply <dir> --depot <depot> (docs/packs.md)", yardr)}
 	if len(packs) > 0 {
 		var names []string
 		for _, p := range packs {
-			names = append(names, fmt.Sprintf("%s into %s", p.Pack, p.Rig))
+			names = append(names, fmt.Sprintf("%s into %s", p.Pack, p.Depot))
 		}
 		pack.Configured, pack.Detail = true, strings.Join(names, ", ")
 	}
 	svc := servicePart(cfg)
 	if svc.Configured {
-		rigs, err := st.Rigs(ctx)
+		depots, err := st.Depots(ctx)
 		if err != nil {
 			return nil, err
 		}
 		if home, err := userHomeDir(); goos == "darwin" && err == nil {
-			for _, r := range protectedRigs(rigs, home) {
-				svc.Notes = append(svc.Notes, "rig "+r+" is in a folder macOS protects (~/Desktop, ~/Documents, ~/Downloads): "+
+			for _, r := range protectedDepots(depots, home) {
+				svc.Notes = append(svc.Notes, "depot "+r+" is in a folder macOS protects (~/Desktop, ~/Documents, ~/Downloads): "+
 					"a launchd agent needs its own access there (System Settings, Privacy & Security, Files and Folders), "+
 					"which a daemon started in a terminal has from the terminal")
 			}
@@ -442,7 +442,7 @@ func optionalParts(ctx context.Context, cfg *config.Config, st store.API) ([]opt
 }
 
 // servicePart is the daemon's login service as the home says it is,
-// without the notes on the yard's rigs.
+// without the notes on the yard's depots.
 func servicePart(cfg *config.Config) optionalPart {
 	yardr := yardrAt(cfg.Home)
 	if loginService(cfg) {

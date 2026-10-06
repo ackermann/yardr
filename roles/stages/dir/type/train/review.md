@@ -1,13 +1,13 @@
-summary: The whole of a train is reviewed here: the sum of what its children produced in the rig's directory.
+summary: The whole of a train is reviewed here: the sum of what its children made in the depot's directory.
 
 The whole of a train is reviewed here: what its children produced in the
-rig's directory, as a whole. Each child was reviewed when it was done; the
+depot's directory, as a whole. Each child was reviewed when it was done; the
 job here is the sum.
 
 Read the train and every child (`yardr bead show <child>`; their notes name
 the files). Check the whole against the train's goal and "done when": do the
 children's outputs fit together, is anything a child left "for later"
-actually done. Fix forward by editing in place, and run the rig's gate if it
+actually done. Fix forward by editing in place, and run the depot's gate if it
 has one.
 
 Approval here closes the train. Before it leaves, one note on it says how the

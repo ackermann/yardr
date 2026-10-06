@@ -16,7 +16,7 @@ import (
 const away = "build -> review on done | decide on refused | decide on undelivered\nreview -> merged\ndecide -> build\nmerged terminal\n"
 
 // newSendingYard is a yard linked with north that has its stage build, in
-// the rig web, worked there: the link carries bead out, the group at-north
+// the depot web, worked there: the link carries bead out, the group at-north
 // names the yard and a route sends the stage to it. It returns the yard and
 // its own public key.
 func newSendingYard(t *testing.T) (*peerYard, string) {
@@ -28,7 +28,7 @@ func newSendingYard(t *testing.T) (*peerYard, string) {
 		t.Fatal(err)
 	}
 	y.own.SetYard(keyFile, "v0.9.2")
-	if err := y.api.PutRig(y.ctx, store.Rig{Name: "web", Base: "origin/main"}, "jo"); err != nil {
+	if err := y.api.PutDepot(y.ctx, store.Depot{Name: "web", Base: "origin/main"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	putNamed(t, y.api, "away", away)
@@ -46,7 +46,7 @@ func newSendingYard(t *testing.T) (*peerYard, string) {
 // does and has it sent; it returns the bead and its session.
 func (y *peerYard) send(t *testing.T, nb store.NewBead) (*store.Bead, *store.Session) {
 	t.Helper()
-	nb.Rig, nb.Stage = "web", "build"
+	nb.Depot, nb.Stage = "web", "build"
 	b, err := y.api.CreateBead(y.ctx, nb, "jo")
 	if err != nil {
 		t.Fatal(err)
@@ -117,7 +117,7 @@ func TestPeerGroup(t *testing.T) {
 // types were renamed: what is on the wire does not change in this release.
 func TestPeerBeadSendSaysTheOldTypeWord(t *testing.T) {
 	y, _ := newSendingYard(t)
-	b, err := y.api.CreateBead(y.ctx, store.NewBead{Title: "The export", Type: store.TypeTrain, Rig: "web", Stage: "build"}, "jo")
+	b, err := y.api.CreateBead(y.ctx, store.NewBead{Title: "The export", Type: store.TypeTrain, Depot: "web", Stage: "build"}, "jo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestPeerBeadSendSaysTheOldTypeWord(t *testing.T) {
 // the stage, so a second claim in the same stay sends nothing new.
 func TestPeerBeadSend(t *testing.T) {
 	y, own := newSendingYard(t)
-	b, err := y.api.CreateBead(y.ctx, store.NewBead{Title: "Add the export", Body: "As a CSV.", Type: "feature", Priority: 1, Rig: "web", Stage: "build",
+	b, err := y.api.CreateBead(y.ctx, store.NewBead{Title: "Add the export", Body: "As a CSV.", Type: "feature", Priority: 1, Depot: "web", Stage: "build",
 		Links: []store.NewLink{{Kind: store.LinkTracks, Source: "linear", URL: "https://linear.app/x/issue/YRD-1"}}}, "jo")
 	if err != nil {
 		t.Fatal(err)
@@ -224,7 +224,7 @@ func TestPeerBeadTooLargeToSend(t *testing.T) {
 		t.Fatalf("what it says = %+v", away)
 	}
 
-	b, err := y.api.CreateBead(y.ctx, store.NewBead{Title: "Many notes", Rig: "web", Stage: "build"}, "jo")
+	b, err := y.api.CreateBead(y.ctx, store.NewBead{Title: "Many notes", Depot: "web", Stage: "build"}, "jo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +257,7 @@ func TestPeerBeadPath(t *testing.T) {
 	}
 	putNamed(t, y.api, "incoming", "build -> returned on done\nreturned terminal\n")
 	y.allow(t, store.PeerAllow{Receive: []string{"bead"}})
-	if _, err := y.api.SetPeerIntake(y.ctx, "north", &store.PeerIntake{Rig: "web", Flow: "incoming", Auto: true, Limit: 50}, "jo"); err != nil {
+	if _, err := y.api.SetPeerIntake(y.ctx, "north", &store.PeerIntake{Depot: "web", Flow: "incoming", Auto: true, Limit: 50}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	keys := func(n int) []string {
@@ -301,7 +301,7 @@ func TestPeerBeadPath(t *testing.T) {
 
 	// Sent on, each says where it has been: its path, with the sender it
 	// came from last whatever it wrote, and this yard.
-	bs, err := y.api.ListBeads(y.ctx, store.BeadFilter{Rig: "web", Stage: "build"})
+	bs, err := y.api.ListBeads(y.ctx, store.BeadFilter{Depot: "web", Stage: "build"})
 	if err != nil || len(bs) != 3 {
 		t.Fatalf("the beads that were taken = %d, %v", len(bs), err)
 	}
@@ -378,7 +378,7 @@ func TestFlowMapOfAPeerStage(t *testing.T) {
 	if _, err := y.api.AddRoute(y.ctx, store.Route{Stage: "build", Group: "at-north"}); err != nil {
 		t.Fatal(err)
 	}
-	b, err := y.api.CreateBead(y.ctx, store.NewBead{Title: "Add the export", Rig: "web", Stage: "build"}, "jo")
+	b, err := y.api.CreateBead(y.ctx, store.NewBead{Title: "Add the export", Depot: "web", Stage: "build"}, "jo")
 	if err != nil {
 		t.Fatal(err)
 	}

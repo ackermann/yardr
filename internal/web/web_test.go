@@ -82,7 +82,7 @@ func (f *fixture) get(target string, headers ...string) resp {
 	return f.do(http.MethodGet, target, headers...)
 }
 
-// populate gives the yard two rigs: line, with a flow of its own and one
+// populate gives the yard two depots: line, with a flow of its own and one
 // for its bug beads, and loose, with no flow.
 //
 //	line   task beads: backlog 2 (one held), new 1; a closed one, not counted
@@ -97,8 +97,8 @@ func (f *fixture) populate() {
 			f.t.Fatal(err)
 		}
 	}
-	for _, rig := range []string{"line", "loose"} {
-		must(f.st.PutRig(ctx, store.Rig{Name: rig, Base: "origin/main"}, "me"))
+	for _, depot := range []string{"line", "loose"} {
+		must(f.st.PutDepot(ctx, store.Depot{Name: depot, Base: "origin/main"}, "me"))
 	}
 	flow := func(name, typ, text string) {
 		f.t.Helper()
@@ -111,9 +111,9 @@ func (f *fixture) populate() {
 	}
 	flow("code", "", "backlog -> new\nnew -> review | backlog\nreview -> merged | new\nmerged terminal\n")
 	flow("bugs", "bug", "triage -> fixed\nfixed terminal\n")
-	bead := func(rig, typ, stage, title string) *store.Bead {
+	bead := func(depot, typ, stage, title string) *store.Bead {
 		f.t.Helper()
-		b, err := f.st.CreateBead(ctx, store.NewBead{Title: title, Type: typ, Stage: stage, Rig: rig}, "me")
+		b, err := f.st.CreateBead(ctx, store.NewBead{Title: title, Type: typ, Stage: stage, Depot: depot}, "me")
 		must(err)
 		return b
 	}
@@ -129,16 +129,16 @@ func (f *fixture) populate() {
 	must(err)
 }
 
-var wantHome = web.Home{Yard: "depot", Rigs: []web.HomeRig{
-	{Name: "line", Kind: store.RigGit, Open: 4, Held: 1, Flows: []web.HomeFlow{
+var wantHome = web.Home{Yard: "depot", Depots: []web.HomeDepot{
+	{Name: "line", Kind: store.DepotGit, Open: 4, Held: 1, Flows: []web.HomeFlow{
 		{Name: "code", Stages: []web.StageCount{{Stage: "backlog", Open: 2}, {Stage: "new", Open: 1}, {Stage: "review"}}},
 		{Name: "bugs", Type: "bug", Stages: []web.StageCount{{Stage: "triage", Open: 1}}},
 	}},
-	{Name: "loose", Kind: store.RigGit, Open: 1, Flows: []web.HomeFlow{},
+	{Name: "loose", Kind: store.DepotGit, Open: 1, Flows: []web.HomeFlow{},
 		Elsewhere: []web.StageCount{{Stage: "inbox", Open: 1}}},
 }}
 
-// The home page as JSON: the yard's name, its rigs, and per rig the open
+// The home page as JSON: the yard's name, its depots, and per depot the open
 // beads per stage of its flows. A terminal stage holds no open bead and is
 // left out; a closed bead is not counted.
 func TestHomeJSON(t *testing.T) {
@@ -212,42 +212,42 @@ func TestYardNameSetting(t *testing.T) {
 	if err := json.Unmarshal([]byte(f.get("/", "Accept", "application/json").body), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Yard != "north" || len(got.Rigs) != 0 || got.Rigs == nil {
-		t.Errorf("got %+v, want yard north and an empty list of rigs", got)
+	if got.Yard != "north" || len(got.Depots) != 0 || got.Depots == nil {
+		t.Errorf("got %+v, want yard north and an empty list of depots", got)
 	}
-	if r := f.get("/"); !strings.Contains(r.body, "This yard has no rig yet.") {
+	if r := f.get("/"); !strings.Contains(r.body, "This yard has no depot yet.") {
 		t.Errorf("an empty yard's page does not say so: %s", r.body)
 	}
 }
 
-// A rig whose repository flows cannot be read is still shown, and must not
-// hide the other rigs. Its open beads are counted under "off the flow".
-type failingRigFlows struct {
+// A depot whose repository flows cannot be read is still shown, and must not
+// hide the other depots. Its open beads are counted under "off the flow".
+type failingDepotFlows struct {
 	store.API
-	rig string
+	depot string
 }
 
-func (s failingRigFlows) RigFlows(ctx context.Context, rig string) ([]store.RigFlow, error) {
-	if rig == s.rig {
+func (s failingDepotFlows) DepotFlows(ctx context.Context, depot string) ([]store.DepotFlow, error) {
+	if depot == s.depot {
 		return nil, errors.New("repository is unavailable")
 	}
-	return s.API.RigFlows(ctx, rig)
+	return s.API.DepotFlows(ctx, depot)
 }
 
-func TestFlowReadErrorKeepsOtherRigs(t *testing.T) {
+func TestFlowReadErrorKeepsOtherDepots(t *testing.T) {
 	base := storetest.New(t)
 	ctx := context.Background()
 	for _, name := range []string{"broken", "healthy"} {
-		if err := base.PutRig(ctx, store.Rig{Name: name, Base: "origin/main"}, "me"); err != nil {
+		if err := base.PutDepot(ctx, store.Depot{Name: name, Base: "origin/main"}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, rig := range []string{"broken", "healthy"} {
-		if _, err := base.CreateBead(ctx, store.NewBead{Title: rig + " bead", Type: "task", Stage: "new", Rig: rig}, "me"); err != nil {
+	for _, depot := range []string{"broken", "healthy"} {
+		if _, err := base.CreateBead(ctx, store.NewBead{Title: depot + " bead", Type: "task", Stage: "new", Depot: depot}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	srv, err := web.NewServer(failingRigFlows{API: base, rig: "broken"}, t.TempDir(), nil)
+	srv, err := web.NewServer(failingDepotFlows{API: base, depot: "broken"}, t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,18 +262,18 @@ func TestFlowReadErrorKeepsOtherRigs(t *testing.T) {
 	if err := json.Unmarshal(r.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Rigs) != 2 {
-		t.Fatalf("got rigs %+v, want broken and healthy", got.Rigs)
+	if len(got.Depots) != 2 {
+		t.Fatalf("got depots %+v, want broken and healthy", got.Depots)
 	}
-	broken := got.Rigs[0]
+	broken := got.Depots[0]
 	if broken.Name != "broken" || broken.Error != "repository is unavailable" || len(broken.Flows) != 0 ||
 		!reflect.DeepEqual(broken.Elsewhere, []web.StageCount{{Stage: "new", Open: 1}}) {
-		t.Errorf("broken rig = %+v", broken)
+		t.Errorf("broken depot = %+v", broken)
 	}
-	healthy := got.Rigs[1]
+	healthy := got.Depots[1]
 	if healthy.Name != "healthy" || healthy.Error != "" || healthy.Open != 1 ||
 		!reflect.DeepEqual(healthy.Elsewhere, []web.StageCount{{Stage: "new", Open: 1}}) {
-		t.Errorf("healthy rig = %+v", healthy)
+		t.Errorf("healthy depot = %+v", healthy)
 	}
 }
 
@@ -312,7 +312,7 @@ func TestLine(t *testing.T) {
 	if err := json.Unmarshal([]byte(f.get("/line", "Accept", "application/json").body), &got); err != nil {
 		t.Fatal(err)
 	}
-	want := web.Line{Open: 5, Held: 1, Parked: []web.Waiting{}, Rigs: []web.LineRig{{Name: "line", Open: 4}, {Name: "loose", Open: 1}},
+	want := web.Line{Open: 5, Held: 1, Parked: []web.Waiting{}, Depots: []web.LineDepot{{Name: "line", Open: 4}, {Name: "loose", Open: 1}},
 		Stages: []web.StageCount{{Stage: "backlog", Open: 2}, {Stage: "new", Open: 1}, {Stage: "triage", Open: 1}, {Stage: "inbox", Open: 1}}}
 	// What waits has tests of its own (line_test.go).
 	if len(got.Waits) != 1 {

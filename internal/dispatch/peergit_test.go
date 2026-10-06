@@ -17,7 +17,7 @@ import (
 // The tests of code that crosses with a bead (docs/peers.md, "Code that
 // comes back"): the yards are real stores and daemons over HTTP, as in
 // peerbeads_test.go, and what they share is a bare repository, of which
-// each has a clone of its own as its rig web.
+// each has a clone of its own as its depot web.
 
 // gitIn runs git in dir, off the developer's configuration and with a name
 // to commit as.
@@ -59,16 +59,16 @@ func sharedRemote(t *testing.T) string {
 	return remote
 }
 
-// clones makes y's rig web a clone of remote, with the base main.
+// clones makes y's depot web a clone of remote, with the base main.
 func (y *peerYard) clones(t *testing.T, remote string) string {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "web")
 	gitIn(t, filepath.Dir(dir), "clone", "-q", remote, dir)
-	must(t, y.api.PutRig(context.Background(), store.Rig{Name: "web", Path: dir, Kind: store.RigGit, Base: "main"}, "jo"))
+	must(t, y.api.PutDepot(context.Background(), store.Depot{Name: "web", Path: dir, Kind: store.DepotGit, Base: "main"}, "jo"))
 	return dir
 }
 
-// sendsFrom makes y a yard whose stage build of its rig web, a clone of
+// sendsFrom makes y a yard whose stage build of its depot web, a clone of
 // remote, is worked by the peer to.
 func (y *peerYard) sendsFrom(t *testing.T, remote, to string, set map[string]any) string {
 	t.Helper()
@@ -198,7 +198,7 @@ func TestPeerCodeComesBack(t *testing.T) {
 }
 
 // A bead whose work b cannot start where a's starts is refused as
-// base_unknown: b's rig is of another repository, or the base commit is on
+// base_unknown: b's depot is of another repository, or the base commit is on
 // no remote. Nothing of it is kept, and a's stage ends as refused.
 func TestPeerBeadBaseUnknown(t *testing.T) {
 	for name, tc := range map[string]struct {
@@ -376,15 +376,15 @@ func TestPeerCodeNotWhatTheReturnNames(t *testing.T) {
 
 // Code that is not this yard's to take is no error: the outcome is
 // applied, with a note that says why the branch was not taken. A bead of a
-// dir rig, and a peer group whose remote is another repository than the
+// dir depot, and a peer group whose remote is another repository than the
 // branch was pushed to.
 func TestPeerCodeNotTaken(t *testing.T) {
 	for name, tc := range map[string]struct {
 		dir  bool
 		want string
 	}{
-		"a dir rig":      {dir: true, want: "rig web is a directory, which has no branches"},
-		"another remote": {want: "and the remote upstream of rig web is file://"},
+		"a dir depot":    {dir: true, want: "depot web is a directory, which has no branches"},
+		"another remote": {want: "and the remote upstream of depot web is file://"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			clock := newClock()
@@ -396,7 +396,7 @@ func TestPeerCodeNotTaken(t *testing.T) {
 			ctx := context.Background()
 			aRepo := ""
 			if tc.dir {
-				must(t, a.api.PutRig(ctx, store.Rig{Name: "web", Path: t.TempDir(), Kind: store.RigDir}, "jo"))
+				must(t, a.api.PutDepot(ctx, store.Depot{Name: "web", Path: t.TempDir(), Kind: store.DepotDir}, "jo"))
 				putFlow(t, a, "sending", sending)
 				must(t, a.api.SetFlowPointer(ctx, "web", "", "sending", "jo"))
 				a.sends(t, "b", nil)
@@ -408,7 +408,7 @@ func TestPeerCodeNotTaken(t *testing.T) {
 			a.pass(t)
 			theirs := b.from(t, "a")
 			if tc.dir && theirs.Peer.Git != nil {
-				t.Fatalf("a dir rig's bead came with a base: %+v", theirs.Peer.Git)
+				t.Fatalf("a dir depot's bead came with a base: %+v", theirs.Peer.Git)
 			}
 			b.builds(t, bRepo, theirs)
 			b.done(t, theirs.ID)
@@ -433,14 +433,14 @@ func TestPeerCodeNotTaken(t *testing.T) {
 	}
 }
 
-// A yard whose intake's rig is a directory takes a bead that names its
+// A yard whose intake's depot is a directory takes a bead that names its
 // base with its words only, as a bead that names none, and returns words.
-func TestPeerCodeIntoADirRig(t *testing.T) {
+func TestPeerCodeIntoADirDepot(t *testing.T) {
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, true, true)
 	remote := sharedRemote(t)
-	must(t, b.api.PutRig(context.Background(), store.Rig{Name: "docs", Path: t.TempDir(), Kind: store.RigDir}, "jo"))
+	must(t, b.api.PutDepot(context.Background(), store.Depot{Name: "docs", Path: t.TempDir(), Kind: store.DepotDir}, "jo"))
 	b.takes(t, "a", "docs", true)
 	a.sendsFrom(t, remote, "b", nil)
 	mine := a.bead(t, "Write it up")
@@ -452,7 +452,7 @@ func TestPeerCodeIntoADirRig(t *testing.T) {
 	fam, err := b.api.Family(context.Background(), theirs.ID)
 	must(t, err)
 	if theirs.Peer.Git != nil || fam.Base != "" {
-		t.Fatalf("b's bead in a dir rig has a base: %+v, %+v", theirs.Peer.Git, fam)
+		t.Fatalf("b's bead in a dir depot has a base: %+v, %+v", theirs.Peer.Git, fam)
 	}
 	b.done(t, theirs.ID)
 	b.pass(t)
@@ -478,7 +478,7 @@ func TestPeerCodeSentOn(t *testing.T) {
 	putFlow(t, b, "relay", "build -> push on done | returned on failed\npush -> returned on done\nreturned terminal\n")
 	_, err := b.api.AllowPeer(ctx, "a", store.PeerAllow{Receive: []string{"bead"}}, "jo")
 	must(t, err)
-	_, err = b.api.SetPeerIntake(ctx, "a", &store.PeerIntake{Rig: "web", Flow: "relay", Auto: true}, "jo")
+	_, err = b.api.SetPeerIntake(ctx, "a", &store.PeerIntake{Depot: "web", Flow: "relay", Auto: true}, "jo")
 	must(t, err)
 	_, err = b.api.AllowPeer(ctx, "c", store.PeerAllow{Send: []string{"bead"}}, "jo")
 	must(t, err)
@@ -515,7 +515,7 @@ func TestPeerCodeSentOn(t *testing.T) {
 
 // spells makes git name url as the URL of origin in repo, which stays the
 // clone of a directory it is: a stand-in git before the real one answers
-// `remote get-url origin` there, and hands on everything else. So a rig
+// `remote get-url origin` there, and hands on everything else. So a depot
 // reads as reached by ssh or https, and its fetches and pushes still work.
 // (git's own insteadOf would not do: get-url gives the URL it rewrote.)
 func spells(t *testing.T, repo, url string) {
@@ -649,13 +649,13 @@ func TestPeerCodeTwoRepositoriesOnOneHost(t *testing.T) {
 	b.pass(t)
 	a.pass(t)
 	got := a.get(t, mine.ID)
-	if got.Stage != "review" || !strings.Contains(got.Away().NotTaken, "it was pushed to git.example.test/acme/api, and the remote origin of rig web is git.example.test/acme/web here") ||
+	if got.Stage != "review" || !strings.Contains(got.Away().NotTaken, "it was pushed to git.example.test/acme/api, and the remote origin of depot web is git.example.test/acme/web here") ||
 		branchAt(t, aRepo, store.Branch(mine.ID)) != "" {
 		t.Fatalf("a's bead = %+v, %+v", got, got.Away())
 	}
 }
 
-// A base commit that is on no branch of the taking rig, fetched by its own
+// A base commit that is on no branch of the taking depot, fetched by its own
 // name, is kept by the bead's ref from the moment the bead is taken: a gc
 // that prunes at once leaves it, and the builder starts from it. The ref
 // goes when the bead has closed.
@@ -716,7 +716,7 @@ func TestPeerBaseKeptByARef(t *testing.T) {
 	gitIn(t, bRepo, "update-ref", store.PeerBaseRef("web-gone"), base)
 	b.pass(t)
 	if refs() == "" {
-		t.Fatal("a daemon that had looked at the rig looked again with nothing changed")
+		t.Fatal("a daemon that had looked at the depot looked again with nothing changed")
 	}
 	b.d = &dispatch.Dispatcher{Store: b.api, Runners: b.d.Runners, PeerKey: b.d.PeerKey}
 	dispatch.SetClock(b.d, func() time.Time { return clock.now })

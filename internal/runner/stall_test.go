@@ -75,11 +75,11 @@ func TestHerdrWorkedSeesCommitsAndEdits(t *testing.T) {
 	repo := t.TempDir()
 	gitT(t, repo, "init", "-q", "-b", "main")
 	gitT(t, repo, "commit", "-q", "--allow-empty", "-m", "A")
-	rig := store.Rig{Name: "r", Path: repo, Base: "main"}
+	depot := store.Depot{Name: "r", Path: repo, Base: "main"}
 	log := filepath.Join(t.TempDir(), "calls")
 	h := &Herdr{Socket: fakeHerdrAPI(t, log), Bin: worktreeHerdr(t, log), WorktreeRoot: t.TempDir()}
 	handle, err := h.Start(ctx, dispatch.Job{Bead: store.Bead{ID: "r-1", Title: "x", Stage: "new"},
-		Group: store.Group{Name: "builders"}, Rig: &rig, Session: store.Session{ID: "s1"}})
+		Group: store.Group{Name: "builders"}, Depot: &depot, Session: store.Session{ID: "s1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,8 +106,8 @@ func TestHerdrWorkedSeesCommitsAndEdits(t *testing.T) {
 	if !worked() {
 		t.Fatal("a commit on a clean worktree is no work")
 	}
-	// A dir rig's bead has no checkout: nothing to tell from.
+	// A dir depot's bead has no checkout: nothing to tell from.
 	if w, err := h.Worked(ctx, map[string]any{"dir": repo}); w || err != nil {
-		t.Fatalf("dir rig: worked = %v, %v", w, err)
+		t.Fatalf("dir depot: worked = %v, %v", w, err)
 	}
 }

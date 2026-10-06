@@ -13,7 +13,7 @@ import (
 
 // yardFlow is the example lifecycle from the yard-18 bead.
 const yardFlow = `
-# the yard rig
+# the yard depot
 backlog -> new
 new -> review | backlog
 review -> approved | new
@@ -23,26 +23,26 @@ decide -> backlog
 merged terminal
 `
 
-func flowRig(t *testing.T) (store.API, context.Context) {
+func flowDepot(t *testing.T) (store.API, context.Context) {
 	t.Helper()
 	s := storetest.New(t)
 	ctx := context.Background()
-	if err := s.PutRig(ctx, store.Rig{Name: "yard", Base: "origin/main"}, "me"); err != nil {
+	if err := s.PutDepot(ctx, store.Depot{Name: "yard", Base: "origin/main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	return s, ctx
 }
 
-// putFlow stores text as the named flow <rig> (or <rig>.<typ>) and points
-// the rig (or its type) at it, the shape migrated rig flows take.
-func putFlow(t *testing.T, s store.API, rig, typ, text string) *store.Flow {
+// putFlow stores text as the named flow <depot> (or <depot>.<typ>) and points
+// the depot (or its type) at it, the shape migrated depot flows take.
+func putFlow(t *testing.T, s store.API, depot, typ, text string) *store.Flow {
 	t.Helper()
-	name := rig
+	name := depot
 	if typ != "" {
 		name += "." + typ
 	}
 	saved := putNamed(t, s, name, text)
-	if err := s.SetFlowPointer(context.Background(), rig, typ, name, "me"); err != nil {
+	if err := s.SetFlowPointer(context.Background(), depot, typ, name, "me"); err != nil {
 		t.Fatal(err)
 	}
 	return saved
@@ -68,7 +68,7 @@ func TestParseFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.Name = "yard"
-	s, ctx := flowRig(t)
+	s, ctx := flowDepot(t)
 	saved, err := s.PutFlow(ctx, *f, "me")
 	if err != nil {
 		t.Fatal(err)
@@ -115,7 +115,7 @@ func TestParseFlow(t *testing.T) {
 // a list, two source stages that no rule leads to have no order, and the
 // flow is refused.
 func TestJSONFlowStageOrder(t *testing.T) {
-	s, ctx := flowRig(t)
+	s, ctx := flowDepot(t)
 	save := func(text string) (*store.Flow, error) {
 		f, err := store.ParseFlow(text)
 		if err != nil {
@@ -173,7 +173,7 @@ func TestJSONFlowStageOrder(t *testing.T) {
 }
 
 func TestPutFlowValidates(t *testing.T) {
-	s, ctx := flowRig(t)
+	s, ctx := flowDepot(t)
 	cases := map[string]store.Flow{
 		"no name":           {Transitions: map[string][]string{"a": {"b"}}},
 		"bad name":          {Name: "a/b", Transitions: map[string][]string{"a": {"b"}}},
@@ -187,10 +187,10 @@ func TestPutFlowValidates(t *testing.T) {
 			t.Errorf("%s: accepted", name)
 		}
 	}
-	// Pointers need a rig and a flow that exist.
+	// Pointers need a depot and a flow that exist.
 	putNamed(t, s, "code", yardFlow)
 	if err := s.SetFlowPointer(ctx, "nope", "", "code", "me"); !errors.Is(err, store.ErrNotFound) {
-		t.Errorf("unknown rig err = %v, want ErrNotFound", err)
+		t.Errorf("unknown depot err = %v, want ErrNotFound", err)
 	}
 	if err := s.SetFlowPointer(ctx, "yard", "", "nope", "me"); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("unknown flow err = %v, want ErrNotFound", err)
@@ -201,32 +201,32 @@ func TestPutFlowValidates(t *testing.T) {
 }
 
 func TestNoFlowPassesThrough(t *testing.T) {
-	s, ctx := flowRig(t)
-	// A rig without a flow, and a bead without a rig while flows exist
+	s, ctx := flowDepot(t)
+	// A depot without a flow, and a bead without a depot while flows exist
 	// elsewhere, move anywhere and start in any stage.
-	if err := s.PutRig(ctx, store.Rig{Name: "other", Base: "origin/main"}, "me"); err != nil {
+	if err := s.PutDepot(ctx, store.Depot{Name: "other", Base: "origin/main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	putFlow(t, s, "other", "", yardFlow)
-	for _, rig := range []string{"yard", ""} {
-		b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: rig, Stage: "whatever"}, "me")
+	for _, depot := range []string{"yard", ""} {
+		b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: depot, Stage: "whatever"}, "me")
 		if err != nil {
-			t.Fatalf("rig %q: create: %v", rig, err)
+			t.Fatalf("depot %q: create: %v", depot, err)
 		}
 		for _, to := range []string{"merged", "anything", "new"} {
 			if b, err = s.Advance(ctx, b.ID, to, store.Expect{}, "me"); err != nil {
-				t.Fatalf("rig %q: advance to %s: %v", rig, to, err)
+				t.Fatalf("depot %q: advance to %s: %v", depot, to, err)
 			}
 		}
 		if b.Status != "open" {
-			t.Fatalf("rig %q: no flow, but 'merged' closed the bead", rig)
+			t.Fatalf("depot %q: no flow, but 'merged' closed the bead", depot)
 		}
 		next, err := s.NextStages(ctx, b.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if next.Flow != nil || len(next.Stages) != 0 || next.Stage != "new" {
-			t.Fatalf("rig %q: next = %+v, want no flow", rig, next)
+			t.Fatalf("depot %q: next = %+v, want no flow", depot, next)
 		}
 	}
 	// Clearing the pointer, then removing the flow, restores passthrough.
@@ -236,7 +236,7 @@ func TestNoFlowPassesThrough(t *testing.T) {
 	if err := s.DeleteFlow(ctx, "other", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateBead(ctx, store.NewBead{Title: "y", Rig: "other", Stage: "whatever"}, "me"); err != nil {
+	if _, err := s.CreateBead(ctx, store.NewBead{Title: "y", Depot: "other", Stage: "whatever"}, "me"); err != nil {
 		t.Fatalf("after rm: %v", err)
 	}
 	if err := s.DeleteFlow(ctx, "other", "me"); !errors.Is(err, store.ErrNotFound) {
@@ -248,9 +248,9 @@ func TestNoFlowPassesThrough(t *testing.T) {
 }
 
 func TestFlowAllowsAndRefusesTransitions(t *testing.T) {
-	s, ctx := flowRig(t)
+	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", yardFlow)
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard", Stage: "new"}, "me")
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,45 +287,45 @@ func TestFlowAllowsAndRefusesTransitions(t *testing.T) {
 }
 
 func TestFlowCreateStage(t *testing.T) {
-	s, ctx := flowRig(t)
+	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", yardFlow)
-	if _, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard", Stage: "backlog"}, "me"); err != nil {
+	if _, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard", Stage: "backlog"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	// No stage: the flow's first, where the yardmaster shapes it; without a
 	// flow, new, as before flows.
-	if b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard"}, "me"); err != nil || b.Stage != "backlog" {
+	if b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard"}, "me"); err != nil || b.Stage != "backlog" {
 		t.Fatalf("created without a stage = %+v, %v; want the flow's first stage", b, err)
 	}
-	if err := s.PutRig(ctx, store.Rig{Name: "free", Base: "origin/main"}, "me"); err != nil {
+	if err := s.PutDepot(ctx, store.Depot{Name: "free", Base: "origin/main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "free"}, "me"); err != nil || b.Stage != "new" {
+	if b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "free"}, "me"); err != nil || b.Stage != "new" {
 		t.Fatalf("created without a flow = %+v, %v; want new", b, err)
 	}
 	if b, err := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me"); err != nil || b.Stage != "new" {
-		t.Fatalf("created without a rig = %+v, %v; want new", b, err)
+		t.Fatalf("created without a depot = %+v, %v; want new", b, err)
 	}
-	_, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard", Stage: "nope"}, "me")
+	_, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard", Stage: "nope"}, "me")
 	if err == nil || !strings.Contains(err.Error(), "stages: backlog, new,") {
 		t.Fatalf("create in unknown stage err = %v", err)
 	}
-	if _, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard", Stage: "merged"}, "me"); err == nil {
+	if _, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard", Stage: "merged"}, "me"); err == nil {
 		t.Fatal("created an open bead in a terminal stage")
 	}
 	// Knowledge beads are never governed.
-	if _, err := s.CreateBead(ctx, store.NewBead{Title: "j", Rig: "yard", Type: store.TypeJournal, Stage: "journal"}, "me"); err != nil {
+	if _, err := s.CreateBead(ctx, store.NewBead{Title: "j", Depot: "yard", Type: store.TypeJournal, Stage: "journal"}, "me"); err != nil {
 		t.Fatalf("journal bead: %v", err)
 	}
 }
 
 func TestFlowTerminalStageCloses(t *testing.T) {
-	s, ctx := flowRig(t)
+	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", yardFlow)
 	if err := s.PutGroup(ctx, store.Group{Name: "mergers", Runner: "manual"}); err != nil {
 		t.Fatal(err)
 	}
-	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard", Stage: "approved"}, "me")
+	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard", Stage: "approved"}, "me")
 	sess, err := s.Claim(ctx, b.ID, "mergers", "approved", "yard")
 	if err != nil {
 		t.Fatal(err)
@@ -373,17 +373,17 @@ func TestFlowTerminalStageCloses(t *testing.T) {
 }
 
 func TestFlowStageUnknownToFlowCanRejoin(t *testing.T) {
-	// A bead in a stage the flow then loses. Pointing the rig at a flow
+	// A bead in a stage the flow then loses. Pointing the depot at a flow
 	// without the stage, or replacing a named flow with one, is refused
 	// (TestSetFlowPointerRefusesStrays, TestPutFlowRefusesStrays); a flow
-	// in the rig's repository loses it when the base moves, which no
+	// in the depot's repository loses it when the base moves, which no
 	// command stands in front of.
 	dir := gitRepo(t, map[string]string{".yardr/flows/default.flow": "blocked -> new\n" + yardFlow})
 	s, ctx := storetest.New(t), context.Background()
-	if err := s.PutRig(ctx, store.Rig{Name: "yard", Path: dir, Base: "main"}, "me"); err != nil {
+	if err := s.PutDepot(ctx, store.Depot{Name: "yard", Path: dir, Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "old", Rig: "yard", Stage: "blocked"}, "me")
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "old", Depot: "yard", Stage: "blocked"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,16 +419,16 @@ func TestFlowNextFromDeadFirstStage(t *testing.T) {
 	}
 }
 
-func TestFlowTypeOverridesRig(t *testing.T) {
-	s, ctx := flowRig(t)
+func TestFlowTypeOverridesDepot(t *testing.T) {
+	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", yardFlow)
 	putFlow(t, s, "yard", "decision", "open -> decided | dropped\ndecided terminal\ndropped terminal")
 
-	d, err := s.CreateBead(ctx, store.NewBead{Title: "q1", Rig: "yard", Type: "decision", Stage: "open"}, "me")
+	d, err := s.CreateBead(ctx, store.NewBead{Title: "q1", Depot: "yard", Type: "decision", Stage: "open"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if q2, err := s.CreateBead(ctx, store.NewBead{Title: "q2", Rig: "yard", Type: "decision"}, "me"); err != nil || q2.Stage != "open" {
+	if q2, err := s.CreateBead(ctx, store.NewBead{Title: "q2", Depot: "yard", Type: "decision"}, "me"); err != nil || q2.Stage != "open" {
 		t.Fatalf("decision without a stage = %+v, %v; want the type flow's first stage", q2, err)
 	}
 	if _, err := s.Advance(ctx, d.ID, "review", store.Expect{}, "me"); err == nil || !strings.Contains(err.Error(), "allowed next: decided, dropped") {
@@ -442,8 +442,8 @@ func TestFlowTypeOverridesRig(t *testing.T) {
 		t.Fatalf("dropped: %v %+v", err, d)
 	}
 
-	// Other types still follow the rig's flow.
-	f, _ := s.CreateBead(ctx, store.NewBead{Title: "feat", Rig: "yard", Type: "feature", Stage: "new"}, "me")
+	// Other types still follow the depot's flow.
+	f, _ := s.CreateBead(ctx, store.NewBead{Title: "feat", Depot: "yard", Type: "feature", Stage: "new"}, "me")
 	if _, err := s.Advance(ctx, f.ID, "decided", store.Expect{}, "me"); err == nil {
 		t.Fatal("feature used the decision flow")
 	}
@@ -462,9 +462,9 @@ func TestFlowTypeOverridesRig(t *testing.T) {
 }
 
 func TestAdvanceNote(t *testing.T) {
-	s, ctx := flowRig(t)
+	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", yardFlow)
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard", Stage: "review"}, "me")
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard", Stage: "review"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}

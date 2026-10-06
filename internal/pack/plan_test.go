@@ -19,14 +19,14 @@ import (
 
 var ctx = context.Background()
 
-// yard is a store with one rig, and a home for the pack's files.
+// yard is a store with one depot, and a home for the pack's files.
 func yard(t *testing.T) (store.API, pack.Options) {
 	t.Helper()
 	st := storetest.New(t)
-	if err := st.PutRig(ctx, store.Rig{Name: "web", Base: "main"}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "web", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	return st, pack.Options{Rig: "web", Home: t.TempDir()}
+	return st, pack.Options{Depot: "web", Home: t.TempDir()}
 }
 
 func load(t *testing.T, dir string) *pack.Pack {
@@ -118,11 +118,11 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 		"file flows/default/backlog.md", "file flows/default/new.md", "file flows/default/review.md", "file flows/default/approved.md", "file flows/default/decide.md",
 		"group web-builders", "group web-reviewers", "group web-refinery", "group backlog", "group decisions",
 		"flow starter.default",
-		"pointer rig web -> starter.default",
-		"route rig web stage backlog -> backlog", "route rig web stage new -> web-builders", "route rig web stage review -> web-reviewers",
-		"route rig web stage approved -> web-refinery", "route rig web stage decide -> decisions",
+		"pointer depot web -> starter.default",
+		"route depot web stage backlog -> backlog", "route depot web stage new -> web-builders", "route depot web stage review -> web-reviewers",
+		"route depot web stage approved -> web-refinery", "route depot web stage decide -> decisions",
 		"crew yardmaster",
-		"subscription yardmaster yardr all rig=web stage=decide", "subscription yardmaster yardr all rig=web state=done", "subscription yardmaster linear involved",
+		"subscription yardmaster yardr all depot=web stage=decide", "subscription yardmaster yardr all depot=web state=done", "subscription yardmaster linear involved",
 	}
 	if got := actions(plan, pack.Create); !reflect.DeepEqual(got, want) {
 		t.Fatalf("create =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -302,7 +302,7 @@ func TestSecondImportChangesNothing(t *testing.T) {
 }
 
 // A yard set up by hand, as the one that builds yardr was: its groups keep
-// what the pack does not carry, its routes are recognized by rig and stage,
+// what the pack does not carry, its routes are recognized by depot and stage,
 // and nothing it has is planned as new.
 func TestYardSetUpByHand(t *testing.T) {
 	st, o := yard(t)
@@ -320,9 +320,9 @@ func TestYardSetUpByHand(t *testing.T) {
 	must(st.PutGroup(ctx, store.Group{Name: "web-mergers", Runner: "herdr", Limit: 1, Config: map[string]any{}}))
 	must(st.PutGroup(ctx, store.Group{Name: "backlog", Runner: "manual", Limit: 50, Members: []string{"ann", "boss"}}))
 	must(st.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Limit: 50, Members: []string{"ann"}}))
-	rig := "web"
+	depot := "web"
 	for stage, group := range map[string]string{"backlog": "backlog", "new": "web-builders", "review": "web-reviewers", "approved": "web-refinery", "decide": "decisions", "merge": "web-mergers"} {
-		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Rig: &rig, Group: group, Priority: 3})
+		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Depot: &depot, Group: group, Priority: 3})
 		must(err)
 	}
 	_, err := st.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "herdr", Dir: "/home/boss", MaxAge: "6h",
@@ -345,7 +345,7 @@ func TestYardSetUpByHand(t *testing.T) {
 	if got, want := actions(plan, pack.Change), []string{"group web-builders", "group web-reviewers", "group web-refinery", "crew boss", "subscription boss linear involved"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("change = %v\nwant %v", got, want)
 	}
-	if got, want := actions(plan, pack.NotInPack), []string{"group web-mergers", "route rig web stage merge -> web-mergers", "subscription boss yardr all label=ui"}; !reflect.DeepEqual(got, want) {
+	if got, want := actions(plan, pack.NotInPack), []string{"group web-mergers", "route depot web stage merge -> web-mergers", "subscription boss yardr all label=ui"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("not in the pack = %v\nwant %v", got, want)
 	}
 	b := find(t, plan, "group", "web-builders")
@@ -367,7 +367,7 @@ func TestYardSetUpByHand(t *testing.T) {
 	if g := find(t, plan, "group", "backlog"); g.Action != pack.Unchanged || g.Group.Limit != 50 || !reflect.DeepEqual(g.Group.Members, []string{"ann", "boss"}) {
 		t.Fatalf("backlog = %+v %+v", g, g.Group)
 	}
-	if rt := find(t, plan, "route", "rig web stage new -> web-builders"); rt.Action != pack.Unchanged || rt.Route.Priority != 3 || len(rt.Route.Delete) != 0 {
+	if rt := find(t, plan, "route", "depot web stage new -> web-builders"); rt.Action != pack.Unchanged || rt.Route.Priority != 3 || len(rt.Route.Delete) != 0 {
 		t.Fatalf("route new = %+v %+v", rt, rt.Route)
 	}
 	res := find(t, plan, "crew", "boss")
@@ -397,9 +397,9 @@ func TestYardSetUpByHand(t *testing.T) {
 	}
 }
 
-// A directory rig has no git base, but its repository flow still governs it
+// A directory depot has no git base, but its repository flow still governs it
 // until the import points it at the pack's stored flow.
-func TestDirRigFlowIsReportedBeforeAndAfterImport(t *testing.T) {
+func TestDirDepotFlowIsReportedBeforeAndAfterImport(t *testing.T) {
 	dir := t.TempDir()
 	flowDir := filepath.Join(dir, ".yardr", "flows")
 	if err := os.MkdirAll(flowDir, 0o755); err != nil {
@@ -409,40 +409,40 @@ func TestDirRigFlowIsReportedBeforeAndAfterImport(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := storetest.New(t)
-	if err := st.PutRig(ctx, store.Rig{Name: "web", Path: dir, Kind: store.RigDir}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "web", Path: dir, Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	o := pack.Options{Rig: "web", Home: t.TempDir()}
+	o := pack.Options{Depot: "web", Home: t.TempDir()}
 	plan := build(t, st, load(t, starter), o)
 	if len(plan.Governs) == 0 || plan.Governs[0].Now != "default (repo (directory))" || plan.Governs[0].Flow != "starter.default" || plan.Governs[0].Source != "store" {
-		t.Fatalf("flows governing dir rig = %+v", plan.Governs)
+		t.Fatalf("flows governing dir depot = %+v", plan.Governs)
 	}
 	if !slices.ContainsFunc(plan.Notes, func(n string) bool {
 		return strings.Contains(n, ".yardr/flows/default.flow") && strings.Contains(n, "governs nothing until the pointer is cleared")
 	}) {
-		t.Fatalf("dir rig repository flow note missing: %v", plan.Notes)
+		t.Fatalf("dir depot repository flow note missing: %v", plan.Notes)
 	}
 }
 
 // yardr route add mints an id per call, so a yard may hold two routes for
-// one rig and stage, and a route to another group cannot be changed in
+// one depot and stage, and a route to another group cannot be changed in
 // place. The plan replaces them all by one.
 func TestRoutesAreReplacedNotAdded(t *testing.T) {
 	st, o := yard(t)
 	apply(t, st, build(t, st, load(t, starter), o), answers)
-	rig := "web"
+	depot := "web"
 	if err := st.PutGroup(ctx, store.Group{Name: "others", Runner: "manual"}); err != nil {
 		t.Fatal(err)
 	}
-	extra, err := st.AddRoute(ctx, store.Route{Stage: "new", Rig: &rig, Group: "others", Priority: 9})
+	extra, err := st.AddRoute(ctx, store.Route{Stage: "new", Depot: &depot, Group: "others", Priority: 9})
 	if err != nil {
 		t.Fatal(err)
 	}
 	plan := build(t, st, load(t, starter), o)
-	if got, want := actions(plan, pack.Change), []string{"route rig web stage new -> web-builders"}; !reflect.DeepEqual(got, want) {
+	if got, want := actions(plan, pack.Change), []string{"route depot web stage new -> web-builders"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("change = %v, want %v", got, want)
 	}
-	rt := find(t, plan, "route", "rig web stage new -> web-builders")
+	rt := find(t, plan, "route", "depot web stage new -> web-builders")
 	if len(rt.Route.Delete) != 2 || !slices.Contains(rt.Route.Delete, extra.ID) {
 		t.Fatalf("route = %+v, want both routes of the stage deleted", rt.Route)
 	}
@@ -469,8 +469,8 @@ func TestStageWithoutGroupRemovesExistingRoute(t *testing.T) {
 	if err := st.PutGroup(ctx, store.Group{Name: "old", Runner: "manual"}); err != nil {
 		t.Fatal(err)
 	}
-	rig := "web"
-	old, err := st.AddRoute(ctx, store.Route{Stage: "triage", Rig: &rig, Group: "old"})
+	depot := "web"
+	old, err := st.AddRoute(ctx, store.Route{Stage: "triage", Depot: &depot, Group: "old"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -480,7 +480,7 @@ func TestStageWithoutGroupRemovesExistingRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan := build(t, st, load(t, dir), o)
-	want := "rig web stage triage -> (no route)"
+	want := "depot web stage triage -> (no route)"
 	if got := actions(plan, pack.Change); !slices.Contains(got, "route "+want) {
 		t.Fatalf("changes = %v, want %q", got, "route "+want)
 	}
@@ -488,7 +488,7 @@ func TestStageWithoutGroupRemovesExistingRoute(t *testing.T) {
 	if route.Route.Group != "" || !slices.Equal(route.Route.Delete, []string{old.ID}) || route.Changes[0].New != "(no route)" {
 		t.Fatalf("route operation = %+v", route)
 	}
-	if got := actions(plan, pack.NotInPack); slices.Contains(got, "route rig web stage triage -> old") {
+	if got := actions(plan, pack.NotInPack); slices.Contains(got, "route depot web stage triage -> old") {
 		t.Fatalf("old route also shown as left alone: %v", got)
 	}
 	apply(t, st, plan, nil)
@@ -497,7 +497,7 @@ func TestStageWithoutGroupRemovesExistingRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, r := range routes {
-		if r.Stage == "triage" && r.Rig != nil && *r.Rig == rig {
+		if r.Stage == "triage" && r.Depot != nil && *r.Depot == depot {
 			t.Fatalf("route survived import: %+v", r)
 		}
 	}
@@ -508,10 +508,10 @@ func TestStageWithoutGroupRemovesExistingRoute(t *testing.T) {
 // with its own pointer, a pinned bead and a closed one are not the flow's.
 func TestOpenBeadInAStageTheFlowLacks(t *testing.T) {
 	st, o := yard(t)
-	rig := "web"
+	depot := "web"
 	mk := func(nb store.NewBead) string {
 		t.Helper()
-		nb.Rig = rig
+		nb.Depot = depot
 		b, err := st.CreateBead(ctx, nb, "me")
 		if err != nil {
 			t.Fatal(err)
@@ -537,7 +537,7 @@ func TestOpenBeadInAStageTheFlowLacks(t *testing.T) {
 	if len(plan.Refused) != 1 || !strings.Contains(plan.Refused[0], "flow starter.default lacks the stage of open beads that would follow it: "+stray+" (triage);") {
 		t.Fatalf("refused = %q", plan.Refused)
 	}
-	if got, want := actions(plan, pack.NotInPack), []string{"pointer rig web type train -> trains"}; !reflect.DeepEqual(got, want) {
+	if got, want := actions(plan, pack.NotInPack), []string{"pointer depot web type train -> trains"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("not in the pack = %v", got)
 	}
 	if g := plan.Governs; len(g) != 2 || g[1].Type != "train" || g[1].Flow != "trains" || g[1].InPack {
@@ -553,7 +553,7 @@ func TestOpenBeadInAStageTheFlowLacks(t *testing.T) {
 }
 
 // A flow for a type becomes the type's pointer and routes of that type;
-// of two flows a rig could follow, one is imported.
+// of two flows a depot could follow, one is imported.
 func TestTypeFlowsAndFlowChoice(t *testing.T) {
 	st, o := yard(t)
 	dir := writePack(t, map[string]string{"pack.yaml": `name: two
@@ -576,8 +576,8 @@ groups:
   people: { people: true, limit: 7 }
 `})
 	plan := build(t, st, load(t, dir), o)
-	want := []string{"group people", "flow two.quick", "flow two.trains", "pointer rig web -> two.quick", "pointer rig web type train -> two.trains",
-		"route rig web stage new -> people", "route rig web stage open type train -> people"}
+	want := []string{"group people", "flow two.quick", "flow two.trains", "pointer depot web -> two.quick", "pointer depot web type train -> two.trains",
+		"route depot web stage new -> people", "route depot web stage open type train -> people"}
 	if got := actions(plan, pack.Create); !reflect.DeepEqual(got, want) {
 		t.Fatalf("create = %v\nwant %v", got, want)
 	}
@@ -590,7 +590,7 @@ groups:
 
 	o.Flow = "slow"
 	plan = build(t, st, load(t, dir), o)
-	find(t, plan, "pointer", "rig web -> two.slow")
+	find(t, plan, "pointer", "depot web -> two.slow")
 	if !slices.ContainsFunc(plan.Notes, func(n string) bool { return strings.Contains(n, "stage check of flow slow names no group") }) {
 		t.Fatalf("notes = %v", plan.Notes)
 	}
@@ -599,7 +599,7 @@ groups:
 	if c, ch := actions(plan, pack.Create), actions(plan, pack.Change); len(c)+len(ch) != 0 {
 		t.Fatalf("after the import: create %v, change %v", c, ch)
 	}
-	rt := find(t, plan, "route", "rig web stage open type train -> people")
+	rt := find(t, plan, "route", "depot web stage open type train -> people")
 	if rt.Action != pack.Unchanged || rt.Route.Type != "train" {
 		t.Fatalf("train route = %+v", rt)
 	}
@@ -628,13 +628,13 @@ func TestChangedFlowIsShownByStage(t *testing.T) {
 	}
 }
 
-func TestUnknownRigAndCrew(t *testing.T) {
+func TestUnknownDepotAndCrew(t *testing.T) {
 	st, o := yard(t)
 	o.Crew = map[string]string{"sheriff": "boss"}
 	if _, err := pack.Build(ctx, st, load(t, starter), o); err == nil || !strings.Contains(err.Error(), "the pack has no crew member sheriff") {
 		t.Fatalf("Build = %v", err)
 	}
-	o.Crew, o.Rig = nil, "nope"
+	o.Crew, o.Depot = nil, "nope"
 	if _, err := pack.Build(ctx, st, load(t, starter), o); err == nil || !strings.Contains(err.Error(), "nope") {
 		t.Fatalf("Build = %v", err)
 	}

@@ -1,6 +1,7 @@
 package rigcheck
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,7 +12,7 @@ import (
 	"time"
 )
 
-// A yardr rig check run for a bead is known to the yard while it runs: an
+// A yardr depot check run for a bead is known to the yard while it runs: an
 // agent that has committed and waits for its gate is idle to herdr, and
 // without this the idle watch tells the yardmaster of every one of them (a gate
 // takes five to ten minutes, a builders' idle limit is five).
@@ -30,11 +31,11 @@ import (
 // RunningDir is the directory of the running gates, in the yard's home.
 const RunningDir = "gating"
 
-// Gate is one yardr rig check running for a bead.
+// Gate is one yardr depot check running for a bead.
 type Gate struct {
-	Bead string `json:"bead"`
-	Rig  string `json:"rig"`
-	// Light: the light gate was asked for (--light), also when the rig has
+	Bead  string `json:"bead"`
+	Depot string `json:"depot"`
+	// Light: the light gate was asked for (--light), also when the depot has
 	// none and its full gate runs instead.
 	Light bool `json:"light,omitempty"`
 	// Waiting: the run has no slot of the machine yet.
@@ -163,7 +164,12 @@ func Gates(home string) ([]Gate, error) {
 		if err != nil {
 			continue
 		}
-		var g Gate
+		// A gate started by the build before this one, and still running,
+		// names its depot as that build did.
+		var g struct {
+			Gate
+			Old string `json:"rig"`
+		}
 		// The first value only: see write. A file not written yet is a gate
 		// seen at the next look.
 		err = json.NewDecoder(f).Decode(&g)
@@ -171,7 +177,8 @@ func Gates(home string) ([]Gate, error) {
 		if err != nil || g.Bead == "" {
 			continue
 		}
-		gates = append(gates, g)
+		g.Depot = cmp.Or(g.Depot, g.Old)
+		gates = append(gates, g.Gate)
 	}
 	slices.SortFunc(gates, func(a, b Gate) int {
 		if c := a.Since.Compare(b.Since); c != 0 {

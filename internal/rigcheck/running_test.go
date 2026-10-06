@@ -16,11 +16,11 @@ func TestGatesAreKnownWhileTheyRun(t *testing.T) {
 		t.Fatalf("a home with no gates: %v, %v", gates, err)
 	}
 	since := time.Now().Add(-6 * time.Minute).Truncate(time.Second)
-	full, err := MarkRunning(home, Gate{Bead: "y-1", Rig: "y", Since: since, Dir: "/w/y-1"})
+	full, err := MarkRunning(home, Gate{Bead: "y-1", Depot: "y", Since: since, Dir: "/w/y-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	light, err := MarkRunning(home, Gate{Bead: "y-2", Rig: "y", Light: true, Since: since.Add(time.Minute)})
+	light, err := MarkRunning(home, Gate{Bead: "y-2", Depot: "y", Light: true, Since: since.Add(time.Minute)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func TestGatesAreKnownWhileTheyRun(t *testing.T) {
 	if err != nil || len(gates) != 2 {
 		t.Fatalf("gates = %+v, %v", gates, err)
 	}
-	if g := gates[0]; g.Bead != "y-1" || g.Rig != "y" || g.Light || g.Waiting || !g.Since.Equal(since) || g.Dir != "/w/y-1" || g.Pid != os.Getpid() {
+	if g := gates[0]; g.Bead != "y-1" || g.Depot != "y" || g.Light || g.Waiting || !g.Since.Equal(since) || g.Dir != "/w/y-1" || g.Pid != os.Getpid() {
 		t.Fatalf("the full gate: %+v", g)
 	}
 	now := since.Add(6*time.Minute + 20*time.Second)
@@ -60,6 +60,29 @@ func TestGatesAreKnownWhileTheyRun(t *testing.T) {
 	}
 }
 
+// A gate the build before this one started, when a depot was a rig, is
+// still running when the yard is upgraded: its file names the depot as that
+// build did.
+func TestAGateOfTheBuildBeforeNamesItsDepot(t *testing.T) {
+	home := t.TempDir()
+	run, err := MarkRunning(home, Gate{Bead: "y-1", Depot: "y", Since: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer run.End()
+	entries, err := os.ReadDir(filepath.Join(home, RunningDir))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("the gate's file: %v, %v", entries, err)
+	}
+	old := `{"bead":"y-1","rig":"y","since":"2026-10-06T12:00:00Z"}` + "\n"
+	if err := os.WriteFile(filepath.Join(home, RunningDir, entries[0].Name()), []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if gates := mustGates(t, home); len(gates) != 1 || gates[0].Bead != "y-1" || gates[0].Depot != "y" {
+		t.Fatalf("gates = %+v, want the one of depot y", gates)
+	}
+}
+
 func mustGates(t *testing.T, home string) []Gate {
 	t.Helper()
 	gates, err := Gates(home)
@@ -69,11 +92,11 @@ func mustGates(t *testing.T, home string) []Gate {
 	return gates
 }
 
-// A rig check that was killed removed nothing, and holds nothing: its file
+// A depot check that was killed removed nothing, and holds nothing: its file
 // is no gate, and whoever reads the directory removes it.
 func TestAGateWhoseRunIsGoneIsNoGate(t *testing.T) {
 	home := t.TempDir()
-	r, err := MarkRunning(home, Gate{Bead: "y-1", Rig: "y", Since: time.Now()})
+	r, err := MarkRunning(home, Gate{Bead: "y-1", Depot: "y", Since: time.Now()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +118,7 @@ func TestNoBeadNoRecord(t *testing.T) {
 	for _, r := range []struct {
 		home string
 		g    Gate
-	}{{home, Gate{Rig: "y"}}, {"", Gate{Bead: "y-1"}}} {
+	}{{home, Gate{Depot: "y"}}, {"", Gate{Bead: "y-1"}}} {
 		got, err := MarkRunning(r.home, r.g)
 		if got != nil || err != nil {
 			t.Fatalf("MarkRunning(%q, %+v) = %v, %v", r.home, r.g, got, err)

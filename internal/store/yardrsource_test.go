@@ -21,18 +21,18 @@ func yardrSub(scope string, where ...string) store.Subscription {
 	return sub
 }
 
-// yardrRig is the yard rig with yardFlow, crew members with no subscriptions
+// yardrDepot is the yard depot with yardFlow, crew members with no subscriptions
 // yet, and a bead in stage new.
-func yardrRig(t *testing.T, crew ...string) (store.API, context.Context, *store.Bead) {
+func yardrDepot(t *testing.T, crew ...string) (store.API, context.Context, *store.Bead) {
 	t.Helper()
-	s, ctx := flowRig(t)
+	s, ctx := flowDepot(t)
 	putFlow(t, s, "yard", "", yardFlow)
 	for _, r := range crew {
 		if _, err := s.PutCrew(ctx, store.CrewMember{Name: r, Runner: "herdr"}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "work", Rig: "yard", Stage: "new", Labels: []string{"ui"}}, "jane")
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "work", Depot: "yard", Stage: "new", Labels: []string{"ui"}}, "jane")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,8 +71,8 @@ func wantHeard(t *testing.T, s store.API, bead, member string, want ...string) {
 }
 
 func TestYardrPerBeadAndPerStage(t *testing.T) {
-	s, ctx, b := yardrRig(t, "watcher", "stager", "other")
-	other, err := s.CreateBead(ctx, store.NewBead{Title: "other", Rig: "yard", Stage: "new"}, "jane")
+	s, ctx, b := yardrDepot(t, "watcher", "stager", "other")
+	other, err := s.CreateBead(ctx, store.NewBead{Title: "other", Depot: "yard", Stage: "new"}, "jane")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,17 +100,17 @@ func TestYardrPerBeadAndPerStage(t *testing.T) {
 	wantHeard(t, s, other.ID, "other")
 }
 
-func TestYardrLabelRigTypeFilters(t *testing.T) {
-	s, ctx, b := yardrRig(t, "ui", "yard", "bugs")
-	if err := s.PutRig(ctx, store.Rig{Name: "web", Base: "origin/main"}, "me"); err != nil {
+func TestYardrLabelDepotTypeFilters(t *testing.T) {
+	s, ctx, b := yardrDepot(t, "ui", "yard", "bugs")
+	if err := s.PutDepot(ctx, store.Depot{Name: "web", Base: "origin/main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	web, err := s.CreateBead(ctx, store.NewBead{Title: "web", Rig: "web", Type: "bug", Labels: []string{"ui"}}, "jane")
+	web, err := s.CreateBead(ctx, store.NewBead{Title: "web", Depot: "web", Type: "bug", Labels: []string{"ui"}}, "jane")
 	if err != nil {
 		t.Fatal(err)
 	}
 	subscribe(t, s, "ui", yardrSub(store.ScopeAll, "label=ui", "kind=noted"))
-	subscribe(t, s, "yard", yardrSub(store.ScopeAll, "rig=yard", "kind=noted"))
+	subscribe(t, s, "yard", yardrSub(store.ScopeAll, "depot=yard", "kind=noted"))
 	subscribe(t, s, "bugs", yardrSub(store.ScopeAll, "type=bug", "kind=noted"))
 	for _, id := range []string{b.ID, web.ID} {
 		if err := s.AddNote(ctx, id, "hi", "jane"); err != nil {
@@ -142,7 +142,7 @@ func TestYardrLabelRigTypeFilters(t *testing.T) {
 // it (and not again when the refinery closes it as merged), or when it is
 // closed directly.
 func TestYardrDoneOnce(t *testing.T) {
-	s, ctx, b := yardrRig(t, "done")
+	s, ctx, b := yardrDepot(t, "done")
 	subscribe(t, s, "done", yardrSub(store.ScopeAll, "state=done"))
 
 	for _, st := range []string{"review", "approved", "merged"} {
@@ -155,7 +155,7 @@ func TestYardrDoneOnce(t *testing.T) {
 	}
 	wantHeard(t, s, b.ID, "done", "closed:done")
 
-	direct, err := s.CreateBead(ctx, store.NewBead{Title: "direct", Rig: "yard"}, "jane")
+	direct, err := s.CreateBead(ctx, store.NewBead{Title: "direct", Depot: "yard"}, "jane")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestYardrDoneOnce(t *testing.T) {
 }
 
 func TestYardrInvolved(t *testing.T) {
-	s, ctx, b := yardrRig(t, "jane", "noter", "mentioned", "bystander")
+	s, ctx, b := yardrDepot(t, "jane", "noter", "mentioned", "bystander")
 	for _, r := range []string{"jane", "noter", "mentioned", "bystander"} {
 		subscribe(t, s, r, yardrSub(store.ScopeInvolved))
 	}
@@ -203,7 +203,7 @@ func TestYardrInvolved(t *testing.T) {
 }
 
 func TestBeadWatchEndsOnClose(t *testing.T) {
-	s, ctx, b := yardrRig(t, "yardmaster")
+	s, ctx, b := yardrDepot(t, "yardmaster")
 	subscribe(t, s, "yardmaster", yardrSub(store.ScopeAll, "bead="+b.UUID)) // stored as the handle
 	subscribe(t, s, "yardmaster", yardrSub(store.ScopeAll, "bead="+b.ID, "state=done"))
 	subscribe(t, s, "yardmaster", yardrSub(store.ScopeAll, "kind=closed"))
@@ -243,7 +243,7 @@ func TestBeadWatchEndsOnClose(t *testing.T) {
 
 // A watch on a bead that is already closed would end before it began.
 func TestWatchOnClosedBeadRefused(t *testing.T) {
-	s, ctx, b := yardrRig(t, "yardmaster")
+	s, ctx, b := yardrDepot(t, "yardmaster")
 	if _, err := s.CloseBead(ctx, b.ID, "done", store.Expect{}, "jane"); err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +279,7 @@ func deliveredTo(t *testing.T, s store.API, member string) int {
 // journals without nudging each other forever: a mention counts in the
 // entry that makes it, not in every later entry on the same journal.
 func TestYardrJournalMentionsDoNotPingPong(t *testing.T) {
-	s, ctx, _ := yardrRig(t, "a", "b")
+	s, ctx, _ := yardrDepot(t, "a", "b")
 	subscribe(t, s, "a", yardrSub(store.ScopeAll))
 	subscribe(t, s, "b", yardrSub(store.ScopeAll))
 	journal := func(who, text string) {
@@ -319,7 +319,7 @@ func TestYardrJournalMentionsDoNotPingPong(t *testing.T) {
 
 // Memory beads are knowledge, not events to hear about, unless asked for.
 func TestYardrMemoryOutOfSource(t *testing.T) {
-	s, ctx, _ := yardrRig(t, "all", "memories")
+	s, ctx, _ := yardrDepot(t, "all", "memories")
 	subscribe(t, s, "all", yardrSub(store.ScopeAll))
 	subscribe(t, s, "memories", yardrSub(store.ScopeAll, "type="+store.TypeMemory))
 	m, err := s.CreateBead(ctx, store.NewBead{Title: "lesson", Type: store.TypeMemory, Stage: "memory"}, "jane")
@@ -334,7 +334,7 @@ func TestYardrMemoryOutOfSource(t *testing.T) {
 // own journal entries, whoever logs them (the daemon acts as "yard"), not
 // even when it subscribes to its journal or has the kind in --on.
 func TestCrewDoesNotHearOfItself(t *testing.T) {
-	s, ctx, _ := yardrRig(t, "other")
+	s, ctx, _ := yardrDepot(t, "other")
 	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr",
 		On: []string{"crew_started", "crew_stopped"}}, "me"); err != nil {
 		t.Fatal(err)
@@ -381,7 +381,7 @@ func TestCrewDoesNotHearOfItself(t *testing.T) {
 }
 
 func TestGroupSubscriptionDeliversToMemberCrew(t *testing.T) {
-	s, ctx, b := yardrRig(t, "yardmaster", "outsider")
+	s, ctx, b := yardrDepot(t, "yardmaster", "outsider")
 	if err := s.PutGroup(ctx, store.Group{Name: "approvers", Runner: "manual", Members: []string{"mckean", "yardmaster"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -419,7 +419,7 @@ func TestGroupSubscriptionDeliversToMemberCrew(t *testing.T) {
 // --on keeps working as implicit "yardr all kind=<k>" subscriptions: a
 // crew member with --on gave_up and one subscribed to it hear the same.
 func TestOnMatchesKindSubscription(t *testing.T) {
-	s, ctx, b := yardrRig(t, "subbed")
+	s, ctx, b := yardrDepot(t, "subbed")
 	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "legacy", Runner: "herdr", On: []string{"gave_up"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -439,18 +439,18 @@ func TestOnMatchesKindSubscription(t *testing.T) {
 }
 
 func TestYardrTrainAndGroupKeys(t *testing.T) {
-	s, ctx, train := yardrRig(t, "train", "builders")
+	s, ctx, train := yardrDepot(t, "train", "builders")
 	// Only a train can be a parent.
 	typ := store.TypeTrain
 	train, err := s.UpdateBead(ctx, train.ID, store.BeadPatch{Type: &typ}, store.Expect{}, "jane")
 	if err != nil {
 		t.Fatal(err)
 	}
-	child, err := s.CreateBead(ctx, store.NewBead{Title: "child", Rig: "yard", Stage: "new"}, "jane")
+	child, err := s.CreateBead(ctx, store.NewBead{Title: "child", Depot: "yard", Stage: "new"}, "jane")
 	if err != nil {
 		t.Fatal(err)
 	}
-	stranger, err := s.CreateBead(ctx, store.NewBead{Title: "stranger", Rig: "yard", Stage: "new"}, "jane")
+	stranger, err := s.CreateBead(ctx, store.NewBead{Title: "stranger", Depot: "yard", Stage: "new"}, "jane")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -489,7 +489,7 @@ func TestYardrTrainAndGroupKeys(t *testing.T) {
 func TestYardrMentionPatternCompiledOncePerCrew(t *testing.T) {
 	s, owned := storetest.NewOwned(t)
 	ctx := context.Background()
-	if err := s.PutRig(ctx, store.Rig{Name: "yard", Base: "origin/main"}, "me"); err != nil {
+	if err := s.PutDepot(ctx, store.Depot{Name: "yard", Base: "origin/main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	names := []string{"a", "b", "c"}
@@ -499,7 +499,7 @@ func TestYardrMentionPatternCompiledOncePerCrew(t *testing.T) {
 		}
 		subscribe(t, s, r, yardrSub(store.ScopeMentions))
 	}
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "work", Rig: "yard", Stage: "new"}, "jane")
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "work", Depot: "yard", Stage: "new"}, "jane")
 	if err != nil {
 		t.Fatal(err)
 	}

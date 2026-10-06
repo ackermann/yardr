@@ -159,20 +159,20 @@ none: scripts and styles live in the asset files.
 
 | path | page | JSON |
 |---|---|---|
-| `/` | Home: the feed of what happened, newest first and live, under the yard's rigs with the open beads per stage of their flows | `Home` |
+| `/` | Home: the feed of what happened, newest first and live, under the yard's depots with the open beads per stage of their flows | `Home` |
 | `/?before=<seq>` | an older page of the feed: the 50 entries under that seq | `Home` |
 | `/events` | the yard's events as they happen, as server-sent events ([The stream](#the-stream)) | `?format=json` |
 | `/line` | the right column as a page, for a window too narrow for the column: what waits for a person, and the line in numbers ([The right column](#the-right-column)) | `Line` |
-| `/flows` | per rig, the flows that govern it: each stage a section with its group and the open beads in it as cards, which move as the beads do ([Flows](#flows)) | `Flows` |
+| `/flows` | per depot, the flows that govern it: each stage a section with its group and the open beads in it as cards, which move as the beads do ([Flows](#flows)) | `Flows` |
 | `/beads` | the open beads, the newest change first ([Beads](#beads)) | `Beads` |
-| `/beads?rig=<rig>&stage=<stage>` | the same, of one rig, in one stage, or both | `Beads` |
+| `/beads?depot=<depot>&stage=<stage>` | the same, of one depot, in one stage, or both | `Beads` |
 | `/beads/<id>` | one bead: what `yardr prime --bead <id>` knows, for a person ([One bead](#one-bead)) | `BeadPage` |
 | `/sessions` | the running sessions, the oldest first, with bead, stage, group, runner, state and age (`yardr session list`), and under them the claims of manual groups, live | `Sessions` |
 | `/crew` | each crew member: whether it runs, since when, and its unread inbox count, live. Journals and handoffs are not shown | `Crew` |
 | `/assets/<file>` | the stylesheet and the two scripts | |
 
 The feed, the right column, `/flows`, `/beads`, a bead's page, the sessions
-and the crew are live ([Live pages](#live-pages)). The rigs' stage
+and the crew are live ([Live pages](#live-pages)). The depots' stage
 counts above the feed are a snapshot: reload the page to see them change.
 
 Home as JSON:
@@ -180,7 +180,7 @@ Home as JSON:
 ```json
 {
   "yard": "yardr",
-  "rigs": [
+  "depots": [
     {
       "name": "yardr", "kind": "git",
       "open": 6, "working": 1, "held": 1,
@@ -206,21 +206,21 @@ Home as JSON:
 
 - `yard` is the `name` setting, else the home's directory name, as for
   crew members ([configuration.md](configuration.md)).
-- `open` counts the rig's open beads, `working` those an agent's or a
+- `open` counts the depot's open beads, `working` those an agent's or a
   command's session has claimed, `held` those on hold. A bead a manual
   group has claimed is not `working`: it is a person's turn
   ([Manual claims](#manual-claims)).
-- `flows` are the flows that govern the rig (`yardr flow show <rig>`): its
+- `flows` are the flows that govern the depot (`yardr flow show <depot>`): its
   own first, then one per bead type that has its own (`type`). A bead is
-  counted under its type's flow when there is one, else under the rig's.
+  counted under its type's flow when there is one, else under the depot's.
   Terminal stages are left out: entering one closes the bead, so no open
   bead sits there.
 - `elsewhere` counts open beads in a stage their flow lacks: a bead pinned
-  to another flow, one a changed flow left behind, or every bead of a rig
+  to another flow, one a changed flow left behind, or every bead of a depot
   with no flow.
-- `error`, on a rig, is why its flows could not be read (a checkout git
-  cannot read). The rig's beads are then all in `elsewhere`, and the other
-  rigs still show.
+- `error`, on a depot, is why its flows could not be read (a checkout git
+  cannot read). The depot's beads are then all in `elsewhere`, and the other
+  depots still show.
 
 - `events` is the feed, newest first: at most 50 entries, one per event
   ([The feed](#the-feed) says what each field holds).
@@ -304,18 +304,18 @@ has no room for it. As JSON (`/line`):
 ```json
 {
   "waits": [
-    {"bead": "yardr-9c2k", "title": "pick the port", "rig": "yardr", "stage": "new",
+    {"bead": "yardr-9c2k", "title": "pick the port", "depot": "yardr", "stage": "new",
      "since": "2026-10-04T00:31:40Z",
      "why": [{"kind": "held", "text": "held by yardr-9c2k-new", "note": "8791 or 8080? the brief names both"}]}
   ],
   "parked": [
-    {"bead": "yardr-41ma", "title": "name the command", "rig": "yardr", "stage": "decide",
+    {"bead": "yardr-41ma", "title": "name the command", "depot": "yardr", "stage": "decide",
      "since": "2026-10-03T23:58:07Z",
      "why": [{"kind": "manual", "text": "waits for decisions (mckean) in decide"}]}
   ],
   "open": 6, "working": 2, "held": 1, "sessions": 2,
   "stages": [{"stage": "backlog", "open": 3}, {"stage": "new", "open": 2}, {"stage": "decide", "open": 1}],
-  "rigs": [{"name": "yardr", "open": 6}]
+  "depots": [{"name": "yardr", "open": 6}]
 }
 ```
 
@@ -326,7 +326,7 @@ every reason (`why`) that holds for it:
 |---|---|---|
 | `held` | is on hold | `held by <actor>`, and as `note` the reason: the note that actor left right before, as in [the feed](#the-feed) |
 | `blocked` | has a running session that waits on a permission prompt or a question | `its session waits on a prompt: <agent>`, the agent's name in its runner, else the session's id |
-| `stranded` | sits in a stage its flow lacks (`yardr rig check`) | `stranded in <stage>, a stage flow <flow> lacks` |
+| `stranded` | sits in a stage its flow lacks (`yardr depot check`) | `stranded in <stage>, a stage flow <flow> lacks` |
 | `manual` | is in a stage of a manual group: the group that claimed it, else the one its stage is routed to | `waits for <group> (<members>) in <stage>` |
 
 - A bead whose only reason is `manual` is in `parked`, every other one in
@@ -345,11 +345,11 @@ every reason (`why`) that holds for it:
 - When the yard cannot say which beads are stranded, the error is logged
   and the column shows the rest.
 
-Under them, the line in numbers, summed over the rigs: `open` beads,
+Under them, the line in numbers, summed over the depots: `open` beads,
 those an agent's or a command's session has claimed (`working`), those on
 hold (`held`), the `sessions` running, and the open beads per stage
 (`stages`, in the order of the flows, a stage with none left out) and per
-rig (`rigs`).
+depot (`depots`).
 
 ### Manual claims
 
@@ -440,8 +440,8 @@ An entry says its event in the yard's words:
 
 ## Flows
 
-`/flows` shows, per rig, each flow that governs it, as `yardr flow show
-<rig>` does: the rig's own first, then one per bead type that has its own.
+`/flows` shows, per depot, each flow that governs it, as `yardr flow show
+<depot>` does: the depot's own first, then one per bead type that has its own.
 A flow is one column: its stages in the flow's order, each a section with
 
 - the group a bead there is routed to (`by hand` with its members for a
@@ -450,14 +450,14 @@ A flow is one column: its stages in the flow's order, each a section with
 - the open beads in it as cards, the newest change first, and their count.
 
 A terminal stage is there too, to show where the flow ends; it holds a bead
-only when one was reopened. Under a rig's flows, `off the flow` holds the
+only when one was reopened. Under a depot's flows, `off the flow` holds the
 open beads in no stage of them: a bead that pins a flow of its own
-(`--meta flow=`), one a changed flow left behind, and every bead of a rig
+(`--meta flow=`), one a changed flow left behind, and every bead of a depot
 with no flow. It shows only while there is one.
 
 ```json
 {
-  "rigs": [
+  "depots": [
     {
       "name": "yardr", "kind": "git",
       "flows": [
@@ -467,7 +467,7 @@ with no flow. It shows only while there is one.
             {"stage": "new", "group": "yardr-builders", "stage_file": ".yardr/flows/default/new.md",
              "next": ["review", "decide", "backlog"],
              "beads": [{"id": "yardr-822r", "title": "web: flows and beads, live", "type": "task", "stage": "new",
-                        "status": "open", "rig": "yardr", "working": true, "group": "yardr-builders",
+                        "status": "open", "depot": "yardr", "working": true, "group": "yardr-builders",
                         "train": "yardr-e3rg", "updated_at": "2026-10-04T00:09:51.2Z"}]},
             {"stage": "decide", "group": "decisions", "human": true, "members": ["mckean"], "next": ["new"], "beads": []},
             {"stage": "merged", "terminal": true, "next": [], "beads": []}
@@ -483,12 +483,12 @@ with no flow. It shows only while there is one.
 ```
 
 - A card (`beads`, `elsewhere`, and every list of beads on the other pages)
-  is `{"id", "title", "type", "stage", "status", "rig", "held", "working",
+  is `{"id", "title", "type", "stage", "status", "depot", "held", "working",
   "group", "train", "updated_at"}`: `held` is a bead on hold, `working` one a
   session has claimed.
 - `source` is where the flow comes from, in `yardr flow show`'s words.
-- `error`, on a rig, is why its flows could not be read; its beads are then
-  all in `elsewhere`, and the other rigs still show.
+- `error`, on a depot, is why its flows could not be read; its beads are then
+  all in `elsewhere`, and the other depots still show.
 - `head` is the yard's newest seq when the page was read, read before the
   beads: `/events?after=<head>&format=card` continues the page.
 
@@ -514,23 +514,23 @@ bead: reload the page to see it.
 
 ## Beads
 
-`/beads` lists the open beads, the newest change first. `?rig=` keeps one
-rig's, `?stage=` one stage's; the page offers both as links, each keeping
-the other. A rig or stage nobody has gives an empty list, not an error.
+`/beads` lists the open beads, the newest change first. `?depot=` keeps one
+depot's, `?stage=` one stage's; the page offers both as links, each keeping
+the other. A depot or stage nobody has gives an empty list, not an error.
 
 ```json
 {
-  "rig": "yardr", "stage": "new",
+  "depot": "yardr", "stage": "new",
   "beads": [{"id": "yardr-822r", "title": "web: flows and beads, live", "type": "task", "stage": "new",
-             "status": "open", "rig": "yardr", "working": true, "updated_at": "2026-10-04T00:09:51.2Z"}],
-  "rigs": ["yardr"],
+             "status": "open", "depot": "yardr", "working": true, "updated_at": "2026-10-04T00:09:51.2Z"}],
+  "depots": ["yardr"],
   "stages": ["backlog", "new", "review"],
   "head": 1301
 }
 ```
 
-`rigs` and `stages` are what the filters can be set to: the yard's rigs,
-and the stages that hold an open bead (of `rig`, when it is set). Journals
+`depots` and `stages` are what the filters can be set to: the yard's depots,
+and the stages that hold an open bead (of `depot`, when it is set). Journals
 and memories are not work and not listed, as in `yardr bead list`.
 
 The page is live by reading itself again: its stream is the shell's, with
@@ -540,7 +540,7 @@ time.
 ## One bead
 
 `/beads/<id>` is what `yardr prime --bead <id>` knows, for a person: title,
-type, stage, status and priority; its rig, the flow that governs it and
+type, stage, status and priority; its depot, the flow that governs it and
 where that comes from, its base, its train, the bead it was discovered from;
 the open beads that block it; a train's children; the beads it led to; the
 body; the stage file of its stage (without its
@@ -553,7 +553,7 @@ sessions that worked it. A closed bead has a page too. An unknown id is a
 ```json
 {
   "bead": {"id": "yardr-822r", "title": "web: flows and beads, live", "body": "Child 3 of train …", "type": "task",
-           "stage": "new", "status": "open", "priority": 2, "rig": "yardr", "labels": [], "group": "yardr-builders",
+           "stage": "new", "status": "open", "priority": 2, "depot": "yardr", "labels": [], "group": "yardr-builders",
            "session": "vf0dsef5y990pzq0ybnh", "created_at": "…", "updated_at": "…", "revision": "…"},
   "flow": {"name": "default", "source": "repo@0f415ee"},
   "base": "yard/yardr-e3rg",
@@ -641,9 +641,9 @@ So:
   of a bead first moves the bead's card on `/flows`, in two messages named
   after elements of the page, which listen for them (`sse-swap`): first
   `event: bead/<id>`, at which the card the page has takes itself out,
-  then `event: at/<rig>/<type>/<stage>` (the section of that stage in the
-  rig's flow for that bead type, the type empty for the rig's own flow;
-  `off/<rig>` for a bead off the flow), whose `data` is the card as the
+  then `event: at/<depot>/<type>/<stage>` (the section of that stage in the
+  depot's flow for that bead type, the type empty for the depot's own flow;
+  `off/<depot>` for a bead off the flow), whose `data` is the card as the
   bead is now. A bead that closed gets the first alone. Only the last
   message, the unnamed one with the seq, carries the `id`, so a browser cut
   off between them is sent the whole move again. A note changes no card

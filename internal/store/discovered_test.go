@@ -27,10 +27,10 @@ func discovery(t *testing.T, s store.API, id string) (from, ledTo []string) {
 
 // bead create --discovered-from: the bead and its edge are one write. The
 // edge runs origin -> found bead, the origin may be closed and in another
-// rig, and the found bead takes nothing from it.
+// depot, and the found bead takes nothing from it.
 func TestCreateDiscoveredFrom(t *testing.T) {
-	s, ctx := trainRig(t)
-	if err := s.PutRig(ctx, store.Rig{Name: "api", Base: "main"}, "me"); err != nil {
+	s, ctx := trainDepot(t)
+	if err := s.PutDepot(ctx, store.Depot{Name: "api", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	p0 := 0
@@ -44,11 +44,11 @@ func TestCreateDiscoveredFrom(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	found, err := s.CreateBead(ctx, store.NewBead{Title: "a leak", Rig: "api", Priority: 2, DiscoveredFrom: "web-1"}, "builder")
+	found, err := s.CreateBead(ctx, store.NewBead{Title: "a leak", Depot: "api", Priority: 2, DiscoveredFrom: "web-1"}, "builder")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if found.Rig == nil || *found.Rig != "api" || found.Priority != 2 || len(found.Labels) != 0 || found.Stage != "new" {
+	if found.Depot == nil || *found.Depot != "api" || found.Priority != 2 || len(found.Labels) != 0 || found.Stage != "new" {
 		t.Fatalf("the found bead took something from its origin: %+v", found)
 	}
 	// What create returns is the bead as stored, after the edge re-minted it.
@@ -83,13 +83,13 @@ func TestCreateDiscoveredFrom(t *testing.T) {
 // An origin that does not exist refuses the create, and no bead is left
 // without the edge it was asked for.
 func TestCreateDiscoveredFromUnknownOrigin(t *testing.T) {
-	s, ctx := trainRig(t)
+	s, ctx := trainDepot(t)
 	before, err := s.ListBeads(ctx, store.BeadFilter{All: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	head, _ := s.Head(ctx)
-	_, err = s.CreateBead(ctx, store.NewBead{ID: "web-9", Title: "orphan", Rig: "web", DiscoveredFrom: "web-nope"}, "me")
+	_, err = s.CreateBead(ctx, store.NewBead{ID: "web-9", Title: "orphan", Depot: "web", DiscoveredFrom: "web-nope"}, "me")
 	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("unknown origin: %v, want not found", err)
 	}
@@ -106,7 +106,7 @@ func TestCreateDiscoveredFromUnknownOrigin(t *testing.T) {
 // open or closed, the same beads are ready and dispatchable, none has a
 // blocker, and a train origin gets no child.
 func TestDiscoveredFromNeverBlocks(t *testing.T) {
-	s, ctx := trainRig(t)
+	s, ctx := trainDepot(t)
 	state := func() (ready, dispatchable []string) {
 		t.Helper()
 		r, err := s.Ready(ctx)
@@ -160,7 +160,7 @@ func TestDiscoveredFromNeverBlocks(t *testing.T) {
 // --discovered-from lists what was found from a bead; dep rm removes the
 // edge like any other.
 func TestDiscoveryAndListing(t *testing.T) {
-	s, ctx := trainRig(t)
+	s, ctx := trainDepot(t)
 	var found []string
 	for _, title := range []string{"first", "second"} {
 		b, err := s.CreateBead(ctx, store.NewBead{Title: title, DiscoveredFrom: "web-1"}, "me")

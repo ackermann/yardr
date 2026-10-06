@@ -54,8 +54,8 @@ again at any time.
 Every page ends in a command that exists, and shows its command line before
 it runs:
 
-  a rig                 the repository and its base branch: yardr rig add
-  the rig's files       yardr rig init, which writes starter roles, a gate
+  a depot                 the repository and its base branch: yardr depot add
+  the depot's files       yardr depot init, which writes starter roles, a gate
                         and a flow under .yardr/; then it asks before it
                         commits them on the base branch
   builders, reviewers   the form of yardr group add, starting at a group on
@@ -75,13 +75,13 @@ the yardmaster's pane is and brings it to the front instead. When the
 yardmaster is not running it opens nothing and prints what yardr doctor says
 of it. A page that is cancelled (ctrl+c, or no at its last question) has run
 no command: the yard is as the finished pages made it. The one exception is
-the rig's files, which yardr rig init has written into the checkout before the
-question whether to commit them; they stay there, and rig init never
+the depot's files, which yardr depot init has written into the checkout before the
+question whether to commit them; they stay there, and depot init never
 overwrites a file.
 
 Where the forms end it asks a user whether to be told when beads land: a
-yes is yardr subscribe <you> yardr --done --where rig=<rig>, and each bead
-of the rig that is done is then a notification in your inbox (yardr inbox).
+yes is yardr subscribe <you> yardr --done --where depot=<depot>, and each bead
+of the depot that is done is then a notification in your inbox (yardr inbox).
 
 Without a terminal, with --json, and in an agent's session it runs no form:
 it prints the steps and the command for the next one.`,
@@ -220,13 +220,13 @@ type page func(ctx context.Context, step setupStep) (done bool, err error)
 // first merged bead, has none: it is the pipeline's to do.
 func (g *guide) pages() map[string]page {
 	return map[string]page{
-		stepRig:       g.rigPage,
-		stepRigFiles:  g.filesPage,
-		stepBuilders:  g.groupPage("builder", 2, "Builders implement the beads in stage new, each in a worktree of its own."),
-		stepReviewers: g.groupPage("reviewer", 1, "Reviewers check what the builders report done, in stage review."),
-		stepLanding:   g.landingPage,
-		stepRoutes:    g.routesPage,
-		stepFirstBead: g.beadPage,
+		stepDepot:      g.depotPage,
+		stepDepotFiles: g.filesPage,
+		stepBuilders:   g.groupPage("builder", 2, "Builders implement the beads in stage new, each in a worktree of its own."),
+		stepReviewers:  g.groupPage("reviewer", 1, "Reviewers check what the builders report done, in stage review."),
+		stepLanding:    g.landingPage,
+		stepRoutes:     g.routesPage,
+		stepFirstBead:  g.beadPage,
 	}
 }
 
@@ -414,19 +414,19 @@ func git(ctx context.Context, dir string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
-// notRigName is what a directory's name may hold and a rig's may not.
-var notRigName = regexp.MustCompile(`[^a-z0-9._-]+`)
+// notDepotName is what a directory's name may hold and a depot's may not.
+var notDepotName = regexp.MustCompile(`[^a-z0-9._-]+`)
 
-// rigNameFor is a rig name from a directory's: lowercase, with what a rig
+// depotNameFor is a depot name from a directory's: lowercase, with what a depot
 // name cannot hold made a dash.
-func rigNameFor(dir string) string {
-	return strings.Trim(notRigName.ReplaceAllString(strings.ToLower(filepath.Base(dir)), "-"), "-._")
+func depotNameFor(dir string) string {
+	return strings.Trim(notDepotName.ReplaceAllString(strings.ToLower(filepath.Base(dir)), "-"), "-._")
 }
 
-// rigPage asks for the repository, the rig's name and its base branch, and
-// adds the rig. The answers start at the directory yardr was run in, when
+// depotPage asks for the repository, the depot's name and its base branch, and
+// adds the depot. The answers start at the directory yardr was run in, when
 // that is a checkout's top, and the branch checked out there.
-func (g *guide) rigPage(ctx context.Context, _ setupStep) (bool, error) {
+func (g *guide) depotPage(ctx context.Context, _ setupStep) (bool, error) {
 	path := ""
 	if wd, err := os.Getwd(); err == nil {
 		if top, err := git(ctx, wd, "rev-parse", "--show-toplevel"); err == nil && top == resolve(wd) {
@@ -434,8 +434,8 @@ func (g *guide) rigPage(ctx context.Context, _ setupStep) (bool, error) {
 		}
 	}
 	if err := ask(huh.NewInput().Key("path").Title("Repository").
-		Description("The checkout the work happens in: a rig. Every bead gets a branch of it and a worktree of its own.\n" +
-			"A directory that is no git checkout becomes a dir rig, worked in as it is (docs/dir-rigs.md).").
+		Description("The checkout the work happens in: a depot. Every bead gets a branch of it and a worktree of its own.\n" +
+			"A directory that is no git checkout becomes a dir depot, worked in as it is (docs/dir-depots.md).").
 		Value(&path).Validate(func(s string) error {
 		dir, err := absDir(strings.TrimSpace(s))
 		if err != nil {
@@ -452,24 +452,24 @@ func (g *guide) rigPage(ctx context.Context, _ setupStep) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	name := rigNameFor(path)
-	fields := []huh.Field{huh.NewInput().Key("name").Title("Rig name").
+	name := depotNameFor(path)
+	fields := []huh.Field{huh.NewInput().Key("name").Title("Depot name").
 		Description("How beads, groups and routes name it.").Value(&name).Validate(func(s string) error {
-		if notRigName.MatchString(s) || s == "" {
+		if notDepotName.MatchString(s) || s == "" {
 			return errors.New("lowercase letters, digits, '.', '_', '-'")
 		}
 		return nil
 	})}
-	isGit := detectRigKind(path) == store.RigGit
+	isGit := detectDepotKind(path) == store.DepotGit
 	base := ""
 	if isGit {
 		// The branch checked out is a local one, which a refinery can land
-		// on; rig add's own default, origin/main, it cannot.
+		// on; depot add's own default, origin/main, it cannot.
 		if base, _ = git(ctx, path, "symbolic-ref", "--short", "-q", "HEAD"); base == "" {
 			base = "origin/main"
 		}
 		fields = append(fields, huh.NewInput().Key("base").Title("Base branch").
-			Description("Where a bead's branch starts and where approved work lands. yardr reads the rig's roles, gate and flow from it.\n"+
+			Description("Where a bead's branch starts and where approved work lands. yardr reads the depot's roles, gate and flow from it.\n"+
 				"A local branch (main) is one yardr's refinery can land on; a remote's (origin/main) only people can.").
 			Value(&base).Validate(func(s string) error {
 			if _, err := git(ctx, path, "rev-parse", "--verify", "--quiet", s+"^{commit}"); err != nil {
@@ -481,65 +481,65 @@ func (g *guide) rigPage(ctx context.Context, _ setupStep) (bool, error) {
 	if err := ask(fields...); err != nil {
 		return false, err
 	}
-	args := []string{"rig", "add", name, path}
+	args := []string{"depot", "add", name, path}
 	if isGit {
 		args = append(args, "--base", base)
 	}
 	return true, g.do(ctx, args...)
 }
 
-// filesPage seeds the rig with yardr rig init, which says what it wrote and
+// filesPage seeds the depot with yardr depot init, which says what it wrote and
 // which gate it guessed, and asks before it commits the files on the base.
 // It commits only where that is plain: the base is the branch checked out in
-// the rig. Anywhere else the commit is the person's.
+// the depot. Anywhere else the commit is the person's.
 func (g *guide) filesPage(ctx context.Context, step setupStep) (bool, error) {
-	rig, err := g.st.GetRig(ctx, step.Rig)
+	depot, err := g.st.GetDepot(ctx, step.Depot)
 	if err != nil {
 		return false, err
 	}
-	if err := g.do(ctx, "rig", "init", rig.Name); err != nil {
+	if err := g.do(ctx, "depot", "init", depot.Name); err != nil {
 		return false, err
 	}
-	if rig.IsDir() {
+	if depot.IsDir() {
 		return true, nil // read from the directory as they are
 	}
 	yardr := yardrAt(g.cfg.Home)
-	byHand := commitCommand(rig.Path)
-	if head, _ := git(ctx, rig.Path, "symbolic-ref", "--short", "-q", "HEAD"); head != rig.Base {
+	byHand := commitCommand(depot.Path)
+	if head, _ := git(ctx, depot.Path, "symbolic-ref", "--short", "-q", "HEAD"); head != depot.Base {
 		fmt.Printf("\nThe base, %s, is not the branch checked out in %s (%s), so this form does not commit there.\n"+
 			"Get .yardr/ onto %s yourself (commit it there; push it, when the base is a remote's branch).\n"+
 			"yardr reads the files from the base only, so the setup waits for that.\n",
-			rig.Base, rig.Path, or(head, "no branch"), rig.Base)
+			depot.Base, depot.Path, or(head, "no branch"), depot.Base)
 		return false, nil
 	}
 	commit := true
 	fmt.Println()
-	if err := ask(huh.NewConfirm().Key("commit").Title("Commit these files on " + rig.Base + "?").
+	if err := ask(huh.NewConfirm().Key("commit").Title("Commit these files on " + depot.Base + "?").
 		Description(fmt.Sprintf("yardr reads the roles, the gate and the flow from %s, not from the files in the checkout:\n"+
 			"they take effect once they are committed there. Only .yardr/ is committed; other changes\n"+
 			"in the checkout stay as they are.\n\n"+
 			"No leaves the files where they are, uncommitted, and the setup waits. Read them, edit the\n"+
-			"gate (it is a guess), commit them yourself, and `%s setup` goes on from there.", rig.Base, yardr)).
+			"gate (it is a guess), commit them yourself, and `%s setup` goes on from there.", depot.Base, yardr)).
 		Value(&commit)); err != nil {
 		return false, err
 	}
 	if !commit {
-		fmt.Printf("Not committed. The files are in %s/.yardr; to commit them:\n\n  %s\n", rig.Path, byHand)
+		fmt.Printf("Not committed. The files are in %s/.yardr; to commit them:\n\n  %s\n", depot.Path, byHand)
 		return false, nil
 	}
 	g.show(ctx, byHand)
 	for _, args := range [][]string{{"add", ".yardr"}, {"commit", "-m", starterCommit, "--", ".yardr"}} {
-		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", rig.Path}, args...)...)
+		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", depot.Path}, args...)...)
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 		if err := cmd.Run(); err != nil {
-			return false, fmt.Errorf("git %s in %s: %w", args[0], rig.Path, err)
+			return false, fmt.Errorf("git %s in %s: %w", args[0], depot.Path, err)
 		}
 	}
 	return true, nil
 }
 
 // groupPage is the page of a group of agents with a role: the group form
-// (askGroup), starting at <rig>/<role>s on the yard's default harness with
+// (askGroup), starting at <depot>/<role>s on the yard's default harness with
 // its unattended flags and the role's prompt, and ending in yardr group add.
 func (g *guide) groupPage(role string, limit int, what string) page {
 	return func(ctx context.Context, step setupStep) (bool, error) {
@@ -548,9 +548,9 @@ func (g *guide) groupPage(role string, limit int, what string) page {
 			return false, err
 		}
 		kind := or(defaultKind(ctx, g.st), "claude")
-		ans := groupAnswers{Name: step.Rig + "/" + role + "s", Runner: "herdr", Kind: kind, PermArgs: agents.UnattendedArgs(kind),
+		ans := groupAnswers{Name: step.Depot + "/" + role + "s", Runner: "herdr", Kind: kind, PermArgs: agents.UnattendedArgs(kind),
 			Prompt: "roles/" + role + ".md", Limit: strconv.Itoa(limit), Other: map[string]any{}}
-		fmt.Printf("%s\nThe form starts at a group on %s with the prompt %s (the rig's own\n"+
+		fmt.Printf("%s\nThe form starts at a group on %s with the prompt %s (the depot's own\n"+
 			".yardr/roles/%s.md), which is what makes the group the %ss, and with the flags that keep\n"+
 			"%s from stopping to ask, where it has them. Change what you like.\n\n", what, kind, ans.Prompt, role, role, kind)
 		note := func(grp store.Group) string {
@@ -613,22 +613,22 @@ const (
 // of the people who merge, and their route for approved with it: a group of
 // people shows as landing only once it is routed (see doing).
 func (g *guide) landingPage(ctx context.Context, step setupStep) (bool, error) {
-	rig, err := g.st.GetRig(ctx, step.Rig)
+	depot, err := g.st.GetDepot(ctx, step.Depot)
 	if err != nil {
 		return false, err
 	}
 	how := landRefinery
-	desc := fmt.Sprintf("A refinery is yardr's merge queue: for each approved bead it rebases the branch, runs the rig's gate\n"+
+	desc := fmt.Sprintf("A refinery is yardr's merge queue: for each approved bead it rebases the branch, runs the depot's gate\n"+
 		"on exactly what will land and fast-forwards %s, one bead at a time. It is the script merge-local,\n"+
 		"which this installs in %s (docs/pipeline.md, section 4).\n"+
 		"By hand, approved beads wait for the people of a group, who merge them and move them on.",
-		rig.Base, filepath.Join(g.cfg.Home, "scripts"))
+		depot.Base, filepath.Join(g.cfg.Home, "scripts"))
 	// merge-local lands on local branches only, and holds every bead of a
-	// rig whose base is a remote's.
-	if _, err := git(ctx, rig.Path, "show-ref", "--verify", "--quiet", "refs/heads/"+rig.Base); err != nil {
+	// depot whose base is a remote's.
+	if _, err := git(ctx, depot.Path, "show-ref", "--verify", "--quiet", "refs/heads/"+depot.Base); err != nil {
 		how = landByHand
 		desc += fmt.Sprintf("\n\nThe base of %s, %s, is not a local branch: the refinery lands on local branches only,\n"+
-			"and would hold every bead.", rig.Name, rig.Base)
+			"and would hold every bead.", depot.Name, depot.Base)
 	}
 	if err := ask(huh.NewSelect[string]().Key("landing").Title("How do approved beads land?").Description(desc).Options(
 		huh.NewOption("A refinery: yardr lands them, once the gate passes", landRefinery),
@@ -645,13 +645,13 @@ func (g *guide) landingPage(ctx context.Context, step setupStep) (bool, error) {
 		if err := os.MkdirAll(logs, 0o755); err != nil {
 			return false, err
 		}
-		if err := g.do(ctx, "group", "add", rig.Name+"/refinery", "--runner", "exec",
+		if err := g.do(ctx, "group", "add", depot.Name+"/refinery", "--runner", "exec",
 			"--set", "cmd="+shellQuote(script), "--set", "log="+filepath.Join(logs, "refinery.log")); err != nil {
 			return false, err
 		}
 		fmt.Printf("It lands on %s by fast-forward and pushes nothing; YARDR_PUSH=origin in front of the cmd makes it push\n"+
 			"the base after each landing (contrib/refinery/README.md). A checkout of %s with uncommitted changes holds\n"+
-			"the bead rather than touch them.\n", rig.Base, rig.Base)
+			"the bead rather than touch them.\n", depot.Base, depot.Base)
 		return true, nil
 	}
 	members := g.a.who()
@@ -660,11 +660,11 @@ func (g *guide) landingPage(ctx context.Context, step setupStep) (bool, error) {
 		Value(&members).Validate(nonEmpty)); err != nil {
 		return false, err
 	}
-	group := rig.Name + "/mergers"
+	group := depot.Name + "/mergers"
 	if err := g.do(ctx, "group", "add", group, "--runner", "manual", "--members", strings.Join(splitMembers(members), ",")); err != nil {
 		return false, err
 	}
-	if err := g.do(ctx, "route", "add", "--stage", "approved", "--rig", rig.Name, "--group", group); err != nil {
+	if err := g.do(ctx, "route", "add", "--stage", "approved", "--depot", depot.Name, "--group", group); err != nil {
 		return false, err
 	}
 	fmt.Printf("An approved bead now waits for them: they merge its branch, yard/<bead>, and report it with\n"+
@@ -734,11 +734,11 @@ func routeWords(args []string) string {
 			flag[name] = args[i+1]
 		}
 	}
-	rig := ""
-	if flag["rig"] != "" {
-		rig = " of " + flag["rig"]
+	depot := ""
+	if flag["depot"] != "" {
+		depot = " of " + flag["depot"]
 	}
-	return fmt.Sprintf("stage %s%s goes to %s", flag["stage"], rig, flag["group"])
+	return fmt.Sprintf("stage %s%s goes to %s", flag["stage"], depot, flag["group"])
 }
 
 // beadPage asks for a first bead's title and goal, creates it and advances
@@ -748,7 +748,7 @@ func (g *guide) beadPage(ctx context.Context, step setupStep) (bool, error) {
 	if err := ask(
 		huh.NewInput().Key("title").Title("A first bead").
 			Description(fmt.Sprintf("Something small in %s to try the pipeline on, end to end: a builder implements it,\n"+
-				"a reviewer checks it, and it lands.", step.Rig)).
+				"a reviewer checks it, and it lands.", step.Depot)).
 			Placeholder("Say what the project is in the README's first paragraph").Value(&title).Validate(nonEmpty),
 		huh.NewText().Key("goal").Title("Goal").
 			Description("What is true when it is done, and how to tell. The builder gets this and nothing else.").
@@ -757,14 +757,14 @@ func (g *guide) beadPage(ctx context.Context, step setupStep) (bool, error) {
 		return false, err
 	}
 	title, goal = strings.TrimSpace(title), strings.TrimSpace(goal)
-	before, err := g.st.ListBeads(ctx, store.BeadFilter{All: true, Rig: step.Rig})
+	before, err := g.st.ListBeads(ctx, store.BeadFilter{All: true, Depot: step.Depot})
 	if err != nil {
 		return false, err
 	}
-	if err := g.do(ctx, "bead", "create", title, "--rig", step.Rig, "-b", goal); err != nil {
+	if err := g.do(ctx, "bead", "create", title, "--depot", step.Depot, "-b", goal); err != nil {
 		return false, err
 	}
-	after, err := g.st.ListBeads(ctx, store.BeadFilter{All: true, Rig: step.Rig})
+	after, err := g.st.ListBeads(ctx, store.BeadFilter{All: true, Depot: step.Depot})
 	if err != nil {
 		return false, err
 	}
@@ -775,7 +775,7 @@ func (g *guide) beadPage(ctx context.Context, step setupStep) (bool, error) {
 			return true, g.do(ctx, "bead", "advance", b.ID, "--to", "new")
 		}
 	}
-	return false, fmt.Errorf("yardr bead create printed no error, and rig %s has no new bead", step.Rig)
+	return false, fmt.Errorf("yardr bead create printed no error, and depot %s has no new bead", step.Depot)
 }
 
 // watch is where the forms end: every step but the last is done, and the
@@ -818,7 +818,7 @@ func (g *guide) watch(ctx context.Context) error {
 
 // offerLanded asks, where the forms end, whether the person wants to be
 // told when beads land: a subscription of their own to the beads of the
-// setup's rig becoming done, which the yard then writes into their inbox
+// setup's depot becoming done, which the yard then writes into their inbox
 // as notifications. It is asked of a user, since a subscription is the
 // user's own to make, and not of one who is told of done beads already. A
 // subscribe that fails says so and the setup goes on.
@@ -832,16 +832,16 @@ func (g *guide) offerLanded(ctx context.Context) error {
 	}) {
 		return nil
 	}
-	rigs, err := g.st.Rigs(ctx)
-	if err != nil || len(rigs) == 0 {
+	depots, err := g.st.Depots(ctx)
+	if err != nil || len(depots) == 0 {
 		return err
 	}
-	args := []string{"subscribe", u.Name, store.SourceYardr, "--done", "--where", "rig=" + rigs[0].Name}
+	args := []string{"subscribe", u.Name, store.SourceYardr, "--done", "--where", "depot=" + depots[0].Name}
 	line, told := commandLine(g.cfg.Home, args), false
 	if err := ask(huh.NewConfirm().Key("landed").Title("Be told when beads land?").
 		Description(fmt.Sprintf("Yes subscribes you to the beads of %s that are done: the yard then writes a line for each\n"+
 			"into your inbox, as a notification, apart from your mail (%s inbox).\n"+
-			"Later: %s", rigs[0].Name, yardrAt(g.cfg.Home), line)).Value(&told)); err != nil || !told {
+			"Later: %s", depots[0].Name, yardrAt(g.cfg.Home), line)).Value(&told)); err != nil || !told {
 		return err
 	}
 	if err := g.do(ctx, args...); err != nil {

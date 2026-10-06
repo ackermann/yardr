@@ -7,10 +7,10 @@ forward: what the reviewer can fix with confidence is fixed on the branch
 
 Approval here is the last review before the bead is merged, so be thorough.
 
-Before the bead leaves, the rig's light gate has passed on the branch as it
+Before the bead leaves, the depot's light gate has passed on the branch as it
 now is: the builder's gate line names the commit under review and you
 committed nothing, or you ran it yourself
-(`yardr rig check <rig> --light --dir .`). The full gate is not the
+(`yardr depot check <depot> --light --dir .`). The full gate is not the
 review's: it runs once, on what lands. One note on the bead says how the
 review ended. Outcomes:
 

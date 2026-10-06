@@ -16,8 +16,8 @@ import (
 // Flow is a bead lifecycle: which stages exist, which moves between them
 // are allowed, and which stages end the bead. Routes still decide who works
 // a stage; a flow only decides where a bead may go next. Flows are stored
-// once under a name and rigs point at them (FlowPointer), or come from the
-// rig's repository (RepoFlows); resolveFlow decides which one governs a
+// once under a name and depots point at them (FlowPointer), or come from the
+// depot's repository (RepoFlows); resolveFlow decides which one governs a
 // bead. A bead no flow governs may move to any stage.
 type Flow struct {
 	Name        string              `json:"name"`
@@ -43,7 +43,7 @@ type Outcome struct {
 const DefaultOutcome = "done"
 
 // validFlowName keeps names usable as file names (.yardr/flows/<name>.flow)
-// and in the migrated <rig>.<type> form.
+// and in the migrated <depot>.<type> form.
 var validFlowName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 var validStage = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
@@ -308,7 +308,7 @@ func (f *Flow) Edges(stage string) []string {
 	return out
 }
 
-// PutFlow saves (replacing) the named flow f.Name. Every rig and type that
+// PutFlow saves (replacing) the named flow f.Name. Every depot and type that
 // points at the name, and every bead pinning it, follows the new version at
 // once, so the save is refused, naming the beads and what leads them to the
 // flow, while an open bead among them sits in a stage the new version lacks
@@ -345,12 +345,12 @@ func (s *Store) PutFlow(ctx context.Context, f Flow, actor string) (*Flow, error
 }
 
 // flowStrays names the open beads that follow the stored flow f.Name and
-// sit in a stage f lacks, grouped by what leads them to it: "in rig yard:
+// sit in a stage f lacks, grouped by what leads them to it: "in depot yard:
 // <id> (<stage>), ..." per pointer at the name, then "pinning it: ..." for
 // beads that name the flow themselves. It runs after f is saved, inside the
 // same transaction. A name is looked up in the store before any
 // repository, so the beads a pointer reaches resolve to f without the
-// rig's repository flows; that also covers a first save under a name the
+// depot's repository flows; that also covers a first save under a name the
 // pointers so far found in a repository.
 func flowStrays(tx *bolt.Tx, f Flow) ([]string, error) {
 	var out []string
@@ -365,7 +365,7 @@ func flowStrays(tx *bolt.Tx, f Flow) ([]string, error) {
 		return nil, err
 	}
 	for _, p := range ptrs {
-		strays, err := strayBeads(tx, p.Rig, p.Type, false, nil, nil)
+		strays, err := strayBeads(tx, p.Depot, p.Type, false, nil, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -414,7 +414,7 @@ func (s *Store) GetFlow(ctx context.Context, name string) (*Flow, error) {
 	return f, nil
 }
 
-// DeleteFlow removes a named flow. It refuses while a rig or type points at
+// DeleteFlow removes a named flow. It refuses while a depot or type points at
 // it, or an open bead pins it, and names them: removing the flow would
 // silently change their lifecycle.
 func (s *Store) DeleteFlow(ctx context.Context, name, actor string) error {
@@ -437,7 +437,7 @@ func (s *Store) DeleteFlow(ctx context.Context, name, actor string) error {
 	})
 }
 
-// flowUsers names what depends on the named flow: rigs and types pointing
+// flowUsers names what depends on the named flow: depots and types pointing
 // at it, and open beads pinning it.
 func flowUsers(tx *bolt.Tx, name string) ([]string, error) {
 	var out []string
@@ -459,36 +459,36 @@ func flowUsers(tx *bolt.Tx, name string) ([]string, error) {
 	return out, err
 }
 
-// FlowPointer says which named flow governs a rig's beads, or, with Type,
-// the rig's beads of that type.
+// FlowPointer says which named flow governs a depot's beads, or, with Type,
+// the depot's beads of that type.
 type FlowPointer struct {
-	Rig  string `json:"rig"`
-	Type string `json:"type,omitempty"`
-	Flow string `json:"flow"`
+	Depot string `json:"depot"`
+	Type  string `json:"type,omitempty"`
+	Flow  string `json:"flow"`
 }
 
 func (p FlowPointer) String() string {
 	if p.Type != "" {
-		return "rig " + p.Rig + " type " + p.Type
+		return "depot " + p.Depot + " type " + p.Type
 	}
-	return "rig " + p.Rig
+	return "depot " + p.Depot
 }
 
-// SetFlowPointer points rig, or with typ its beads of that type, at the
+// SetFlowPointer points depot, or with typ its beads of that type, at the
 // named flow; an empty flow clears the pointer. The flow must exist, in the
-// store or in the rig's repository. The change is refused, naming the
+// store or in the depot's repository. The change is refused, naming the
 // beads, while an open bead it would hand to a new flow sits in a stage
 // that flow lacks (strayBeads): such a bead could only rejoin the flow at
 // its first stage, and its stage, routed under the old flow, may be nobody's
 // under the new. Refusing keeps a configuration command from moving beads;
 // the operator moves them under the flow they still follow, or pins them
-// to it, and points the rig again.
-func (s *Store) SetFlowPointer(ctx context.Context, rig, typ, flow, actor string) error {
+// to it, and points the depot again.
+func (s *Store) SetFlowPointer(ctx context.Context, depot, typ, flow, actor string) error {
 	typ = BeadType(typ)
 	// Read before the transaction: git must not run inside one. A checkout
 	// git cannot read matters only when a flow is looked for in it, so the
 	// error waits until then.
-	repo, repoErr := s.RepoFlows(ctx, rig)
+	repo, repoErr := s.RepoFlows(ctx, depot)
 	inRepo := false
 	if flow != "" {
 		// Under either spelling of a name that ends in a renamed type, as
@@ -504,20 +504,20 @@ func (s *Store) SetFlowPointer(ctx context.Context, rig, typ, flow, actor string
 				return repoErr
 			}
 			if repo.find(flow, "") == nil {
-				return fmt.Errorf("flow %s: %w (not in the store, nor in rig %s's %s %s)", flow, ErrNotFound, rig, RepoFlowDir, repo.where())
+				return fmt.Errorf("flow %s: %w (not in the store, nor in depot %s's %s %s)", flow, ErrNotFound, depot, RepoFlowDir, repo.where())
 			}
 			inRepo = true
 		} else if err != nil {
 			return err
 		}
 	}
-	p := FlowPointer{Rig: rig, Type: typ, Flow: flow}
+	p := FlowPointer{Depot: depot, Type: typ, Flow: flow}
 	return s.write(func(w *wtx) error {
-		if w.Bucket(bRigs).Get([]byte(rig)) == nil {
-			return fmt.Errorf("rig %s: %w", rig, ErrNotFound)
+		if w.Bucket(bDepots).Get([]byte(depot)) == nil {
+			return fmt.Errorf("depot %s: %w", depot, ErrNotFound)
 		}
-		k := []byte(join(rig, typ))
-		data := map[string]any{"rig": rig, "type": typ}
+		k := []byte(join(depot, typ))
+		data := map[string]any{"depot": depot, "type": typ}
 		kind := "flow_pointer_set"
 		if flow == "" {
 			if w.Bucket(bFlowPtrs).Get(k) == nil {
@@ -539,12 +539,12 @@ func (s *Store) SetFlowPointer(ctx context.Context, rig, typ, flow, actor string
 		}
 		// With the change in place, every bead it affects resolves to the
 		// flow that would govern it; an error here rolls the change back.
-		strays, err := strayBeads(w.Tx, rig, typ, flow == "", repo, repoErr)
+		strays, err := strayBeads(w.Tx, depot, typ, flow == "", repo, repoErr)
 		if err != nil {
 			return err
 		}
 		if len(strays) > 0 {
-			return fmt.Errorf("%s: %s; advance them to a stage the flow has, or pin them to the flow they follow now (yardr bead update <id> --meta flow=<name>), then point the rig again",
+			return fmt.Errorf("%s: %s; advance them to a stage the flow has, or pin them to the flow they follow now (yardr bead update <id> --meta flow=<name>), then point the depot again",
 				p.change(), strings.Join(strays, ", "))
 		}
 		return w.event("", kind, actor, data)
@@ -559,26 +559,26 @@ func (p FlowPointer) change() string {
 	return "flow " + p.Flow + " lacks the stage of open beads in " + p.String()
 }
 
-// strayBeads names the open beads a change to the pointer (rig, typ)
+// strayBeads names the open beads a change to the pointer (depot, typ)
 // hands to a flow that lacks their stage, as "<id> (<stage>)". It runs
 // after the change, inside its transaction, so each bead resolves to the
 // flow that would govern it; cleared says the pointer was removed, which
 // may leave each type to its own flow, so the flow is named per bead. A
 // pinned bead follows its pin and a knowledge bead no flow, so neither is
-// affected; the rig's pointer does not reach beads whose type has its own
-// pointer. repo is the rig's repository flows, or nil with repoErr saying
+// affected; the depot's pointer does not reach beads whose type has its own
+// pointer. repo is the depot's repository flows, or nil with repoErr saying
 // why they could not be read; a bead whose flow would come from there
 // fails with it.
-func strayBeads(tx *bolt.Tx, rig, typ string, cleared bool, repo *RepoFlows, repoErr error) ([]string, error) {
+func strayBeads(tx *bolt.Tx, depot, typ string, cleared bool, repo *RepoFlows, repoErr error) ([]string, error) {
 	var out []string
 	err := each(tx, bBeads, "", func(_ []byte, r *beadRow) error {
-		if r.Status == "closed" || r.Rig == nil || *r.Rig != rig || NotWork[r.Type] || PinnedFlow(&r.Bead) != "" {
+		if r.Status == "closed" || r.Depot == nil || *r.Depot != depot || NotWork[r.Type] || PinnedFlow(&r.Bead) != "" {
 			return nil
 		}
 		if typ != "" && r.Type != typ {
 			return nil
 		}
-		if typ == "" && tx.Bucket(bFlowPtrs).Get([]byte(join(rig, r.Type))) != nil {
+		if typ == "" && tx.Bucket(bFlowPtrs).Get([]byte(join(depot, r.Type))) != nil {
 			return nil
 		}
 		f, _, err := lacksStage(tx, r, repo)
@@ -610,7 +610,7 @@ func lacksStage(tx *bolt.Tx, r *beadRow, repo *RepoFlows) (*Flow, *FlowSource, e
 	if r.Status == "closed" || NotWork[r.Type] {
 		return nil, nil, nil
 	}
-	f, src, err := resolveFlow(tx, r.Rig, r.Type, PinnedFlow(&r.Bead), repo)
+	f, src, err := resolveFlow(tx, r.Depot, r.Type, PinnedFlow(&r.Bead), repo)
 	if err != nil || f == nil || slices.Contains(f.Stages, r.Stage) {
 		return nil, nil, err
 	}
@@ -629,25 +629,25 @@ func (b StrandedBead) String() string {
 	return fmt.Sprintf("%s is in stage %s, which flow %s (%s) lacks", b.Bead, b.Stage, b.Flow, b.Source)
 }
 
-// Stranded lists rig's open beads that sit in a stage the flow governing
-// them lacks, by id; with an empty rig, every such bead in the store. The
+// Stranded lists depot's open beads that sit in a stage the flow governing
+// them lacks, by id; with an empty depot, every such bead in the store. The
 // commands that change a flow refuse to leave one (PutFlow,
 // SetFlowPointer), so these come from a repository flow that lost a stage
 // when the base branch moved, which no command can refuse, or from before
-// the rig had a flow. A bead whose flow does not resolve is not listed: its
+// the depot had a flow. A bead whose flow does not resolve is not listed: its
 // moves are refused and the dispatcher reports it as bad_flow.
-func (s *Store) Stranded(ctx context.Context, rig string) ([]StrandedBead, error) {
-	in := func(r *beadRow) bool { return rig == "" || (r.Rig != nil && *r.Rig == rig) }
-	// Which rigs' repositories the answer depends on, read before the
+func (s *Store) Stranded(ctx context.Context, depot string) ([]StrandedBead, error) {
+	in := func(r *beadRow) bool { return depot == "" || (r.Depot != nil && *r.Depot == depot) }
+	// Which depots' repositories the answer depends on, read before the
 	// transaction that answers: git must not run inside one.
 	var need []string
 	err := s.read(func(tx *bolt.Tx) error {
 		return each(tx, bBeads, "", func(_ []byte, r *beadRow) error {
-			if !in(r) || r.Rig == nil || slices.Contains(need, *r.Rig) {
+			if !in(r) || r.Depot == nil || slices.Contains(need, *r.Depot) {
 				return nil
 			}
 			if _, _, err := lacksStage(tx, r, nil); errors.Is(err, errNeedRepo) {
-				need = append(need, *r.Rig)
+				need = append(need, *r.Depot)
 			}
 			return nil
 		})
@@ -669,8 +669,8 @@ func (s *Store) Stranded(ctx context.Context, rig string) ([]StrandedBead, error
 				return nil
 			}
 			var repo *RepoFlows
-			if r.Rig != nil {
-				repo = repos[*r.Rig]
+			if r.Depot != nil {
+				repo = repos[*r.Depot]
 			}
 			if f, src, err := lacksStage(tx, r, repo); err == nil && f != nil {
 				out = append(out, StrandedBead{Bead: r.ID, Stage: r.Stage, Flow: f.Name, Source: *src})
@@ -682,7 +682,7 @@ func (s *Store) Stranded(ctx context.Context, rig string) ([]StrandedBead, error
 	return out, err
 }
 
-// FlowPointers lists every rig's pointers, the rig's own before its types'.
+// FlowPointers lists every depot's pointers, the depot's own before its types'.
 func (s *Store) FlowPointers(ctx context.Context) ([]FlowPointer, error) {
 	out := []FlowPointer{}
 	err := s.read(func(tx *bolt.Tx) error {
@@ -703,16 +703,16 @@ func PinnedFlow(b *Bead) string {
 // FlowSource says where the flow governing a bead came from.
 type FlowSource struct {
 	Kind string `json:"kind"`           // pin, store or repo
-	Type string `json:"type,omitempty"` // the bead type whose pointer or file matched; "" for the rig's
+	Type string `json:"type,omitempty"` // the bead type whose pointer or file matched; "" for the depot's
 	// Commit is the base commit a repository flow was read at, also when a
 	// pin or pointer names a flow found only in the repository. A dir
-	// rig's flows have none: they are read from its directory.
+	// depot's flows have none: they are read from its directory.
 	Commit string `json:"commit,omitempty"`
 	Path   string `json:"path,omitempty"` // the file in the repository
 }
 
 // InStore reports whether the flow itself is in the store, rather than a
-// file in the rig's repository: its stage files are then in the yard's
+// file in the depot's repository: its stage files are then in the yard's
 // home (HomeStageFile), not in the repository.
 func (s FlowSource) InStore() bool { return s.Path == "" }
 
@@ -734,26 +734,26 @@ func (s FlowSource) String() string {
 
 func shortSHA(sha string) string { return sha[:min(len(sha), 7)] }
 
-// errNeedRepo means the answer depends on the rig's repository flows,
+// errNeedRepo means the answer depends on the depot's repository flows,
 // which are read before the transaction: git must not run inside one.
-var errNeedRepo = errors.New("flow resolution needs the rig's repository")
+var errNeedRepo = errors.New("flow resolution needs the depot's repository")
 
-// resolveFlow finds the flow governing a bead of typ in rig that pins
+// resolveFlow finds the flow governing a bead of typ in depot that pins
 // pin ("" for none):
 //
 //	pin on the bead > store pointer > repo .yardr/flows > none
 //
 // Within the store and within the repository the type's flow wins over
-// the rig's. A name, pinned or pointed at, is looked up in the store, then
-// in the rig's repository. repo is nil until loaded; when the answer
+// the depot's. A name, pinned or pointed at, is looked up in the store, then
+// in the depot's repository. repo is nil until loaded; when the answer
 // depends on it, resolveFlow returns errNeedRepo. Knowledge beads are never
-// governed, and beads without a rig only by a pin.
-func resolveFlow(tx *bolt.Tx, rig *string, typ, pin string, repo *RepoFlows) (*Flow, *FlowSource, error) {
+// governed, and beads without a depot only by a pin.
+func resolveFlow(tx *bolt.Tx, depot *string, typ, pin string, repo *RepoFlows) (*Flow, *FlowSource, error) {
 	if NotWork[typ] {
 		return nil, nil, nil
 	}
-	if repo != nil && (rig == nil || repo.Rig != *rig) {
-		return nil, nil, errNeedRepo // loaded for another rig
+	if repo != nil && (depot == nil || repo.Depot != *depot) {
+		return nil, nil, errNeedRepo // loaded for another depot
 	}
 	byName := func(name string, src FlowSource) (*Flow, *FlowSource, error) {
 		for _, n := range flowNames(name) {
@@ -762,7 +762,7 @@ func resolveFlow(tx *bolt.Tx, rig *string, typ, pin string, repo *RepoFlows) (*F
 				return f, &src, err
 			}
 		}
-		if rig == nil {
+		if depot == nil {
 			return nil, nil, fmt.Errorf("flow %s: %w", name, ErrNotFound)
 		}
 		if repo == nil {
@@ -770,7 +770,7 @@ func resolveFlow(tx *bolt.Tx, rig *string, typ, pin string, repo *RepoFlows) (*F
 		}
 		rf := repo.find(name, "")
 		if rf == nil {
-			return nil, nil, fmt.Errorf("flow %s: %w (not in the store, nor in rig %s's %s %s)", name, ErrNotFound, *rig, RepoFlowDir, repo.where())
+			return nil, nil, fmt.Errorf("flow %s: %w (not in the store, nor in depot %s's %s %s)", name, ErrNotFound, *depot, RepoFlowDir, repo.where())
 		}
 		src.Commit, src.Path = repo.Commit, rf.Path
 		f, err := rf.flow()
@@ -783,13 +783,13 @@ func resolveFlow(tx *bolt.Tx, rig *string, typ, pin string, repo *RepoFlows) (*F
 		}
 		return f, src, err
 	}
-	if rig == nil {
+	if depot == nil {
 		return nil, nil, nil
 	}
 	types := []string{typ, ""}
 	for _, t := range types {
 		p := new(FlowPointer)
-		if ok, err := get(tx, bFlowPtrs, join(*rig, t), p); err != nil {
+		if ok, err := get(tx, bFlowPtrs, join(*depot, t), p); err != nil {
 			return nil, nil, err
 		} else if ok {
 			f, src, err := byName(p.Flow, FlowSource{Kind: "store", Type: t})
@@ -811,19 +811,19 @@ func resolveFlow(tx *bolt.Tx, rig *string, typ, pin string, repo *RepoFlows) (*F
 	return nil, nil, nil
 }
 
-// repoFor reads the rig's repository flows when resolving the flow of a
-// bead of typ in rig pinning pin depends on them; nil when it does not.
-func (s *Store) repoFor(ctx context.Context, rig *string, typ, pin string) (*RepoFlows, error) {
+// repoFor reads the depot's repository flows when resolving the flow of a
+// bead of typ in depot pinning pin depends on them; nil when it does not.
+func (s *Store) repoFor(ctx context.Context, depot *string, typ, pin string) (*RepoFlows, error) {
 	need := false
 	_ = s.read(func(tx *bolt.Tx) error {
-		_, _, err := resolveFlow(tx, rig, typ, pin, nil)
+		_, _, err := resolveFlow(tx, depot, typ, pin, nil)
 		need = errors.Is(err, errNeedRepo)
 		return nil // any other error surfaces when resolving for real
 	})
 	if !need {
 		return nil, nil
 	}
-	return s.RepoFlows(ctx, *rig)
+	return s.RepoFlows(ctx, *depot)
 }
 
 // changedMeanwhile explains an errNeedRepo met inside a write: the flow
@@ -838,7 +838,7 @@ func changedMeanwhile(err error) error {
 
 // stageFileOf is the stage file of stage in f, which came from src: a
 // repository flow's is the file beside it in repo, read with it. A store
-// flow has none in any repository, whatever a rig holds under its name.
+// flow has none in any repository, whatever a depot holds under its name.
 func stageFileOf(f *Flow, src *FlowSource, repo *RepoFlows, stage string) *StageFile {
 	if src.InStore() {
 		return nil
@@ -861,31 +861,31 @@ func stageFilesOf(f *Flow, src *FlowSource, repo *RepoFlows) map[string]string {
 	return out
 }
 
-// RigFlow is a flow governing a rig's beads: the rig's own (Type "") or
+// DepotFlow is a flow governing a depot's beads: the depot's own (Type "") or
 // the one for its beads of Type.
-type RigFlow struct {
+type DepotFlow struct {
 	Type   string     `json:"type,omitempty"`
 	Flow   *Flow      `json:"flow"`
 	Source FlowSource `json:"source"`
 	// StageFiles maps each stage of a repository flow that has a stage
-	// file to the file's path in the rig's repository. A store flow's are
+	// file to the file's path in the depot's repository. A store flow's are
 	// files in the yard's home, which the store does not read
 	// (HomeStageFiles).
 	StageFiles map[string]string `json:"stage_files,omitempty"`
 }
 
-// RigFlows lists the flows that govern rig's beads (pins aside): the rig's
+// DepotFlows lists the flows that govern depot's beads (pins aside): the depot's
 // own first, then one per type that has its own, by type.
-func (s *Store) RigFlows(ctx context.Context, rig string) ([]RigFlow, error) {
-	repo, err := s.RepoFlows(ctx, rig)
+func (s *Store) DepotFlows(ctx context.Context, depot string) ([]DepotFlow, error) {
+	repo, err := s.RepoFlows(ctx, depot)
 	if err != nil {
 		return nil, err
 	}
-	out := []RigFlow{}
+	out := []DepotFlow{}
 	err = s.read(func(tx *bolt.Tx) error {
 		var types []string
-		if err := each(tx, bFlowPtrs, join(rig, ""), func(_ []byte, p *FlowPointer) error {
-			if p.Rig == rig && p.Type != "" {
+		if err := each(tx, bFlowPtrs, join(depot, ""), func(_ []byte, p *FlowPointer) error {
+			if p.Depot == depot && p.Type != "" {
 				types = append(types, p.Type)
 			}
 			return nil
@@ -899,13 +899,13 @@ func (s *Store) RigFlows(ctx context.Context, rig string) ([]RigFlow, error) {
 		}
 		slices.Sort(types)
 		for _, t := range append([]string{""}, slices.Compact(types)...) {
-			f, src, err := resolveFlow(tx, &rig, t, "", repo)
+			f, src, err := resolveFlow(tx, &depot, t, "", repo)
 			if err != nil {
 				return err
 			}
-			// A type's file shadowed by a rig pointer in the store does not govern.
+			// A type's file shadowed by a depot pointer in the store does not govern.
 			if f != nil && src.Type == t {
-				out = append(out, RigFlow{Type: t, Flow: f, Source: *src, StageFiles: stageFilesOf(f, src, repo)})
+				out = append(out, DepotFlow{Type: t, Flow: f, Source: *src, StageFiles: stageFilesOf(f, src, repo)})
 			}
 		}
 		return nil
@@ -938,7 +938,7 @@ func (s *Store) NextStages(ctx context.Context, id string) (*NextStages, error) 
 	if err != nil {
 		return nil, err
 	}
-	repo, err := s.repoFor(ctx, b.Rig, b.Type, PinnedFlow(b))
+	repo, err := s.repoFor(ctx, b.Depot, b.Type, PinnedFlow(b))
 	if err != nil {
 		return nil, err
 	}
@@ -949,7 +949,7 @@ func (s *Store) NextStages(ctx context.Context, id string) (*NextStages, error) 
 			return err
 		}
 		out = &NextStages{Bead: row.ID, Stage: row.Stage, Stages: []string{}}
-		f, src, err := resolveFlow(tx, row.Rig, row.Type, PinnedFlow(&row.Bead), repo)
+		f, src, err := resolveFlow(tx, row.Depot, row.Type, PinnedFlow(&row.Bead), repo)
 		if err != nil || f == nil {
 			return changedMeanwhile(err)
 		}

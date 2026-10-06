@@ -18,13 +18,13 @@ func linkYard(t *testing.T) (*app, store.API, *store.Store) {
 	t.Helper()
 	st, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	if err := st.PutRig(ctx, store.Rig{Name: "yard", Base: "main"}, "me"); err != nil {
+	if err := st.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	for _, nb := range []store.NewBead{
-		{ID: "yard-e", Title: "train", Type: store.TypeTrain, Rig: "yard"},
-		{ID: "yard-1", Title: "one", Rig: "yard"},
-		{ID: "yard-2", Title: "two", Rig: "yard"},
+		{ID: "yard-e", Title: "train", Type: store.TypeTrain, Depot: "yard"},
+		{ID: "yard-1", Title: "one", Depot: "yard"},
+		{ID: "yard-2", Title: "two", Depot: "yard"},
 	} {
 		if _, err := st.CreateBead(ctx, nb, "me"); err != nil {
 			t.Fatal(err)
@@ -203,7 +203,7 @@ func TestBeadCreateAndShowLinks(t *testing.T) {
 	ctx := context.Background()
 	const lin, gh = "https://linear.app/acme/issue/YRD-1", "https://github.com/acme/webapp/issues/7"
 
-	out, err := run(t, a.beadCmd(), "create", "three", "--rig", "yard", "--id", "yard-3", "-t", "train",
+	out, err := run(t, a.beadCmd(), "create", "three", "--depot", "yard", "--id", "yard-3", "-t", "train",
 		"--tracks", lin+"/web-view", "--tracks", gh, "--relates", "https://linear.app/acme/issue/YRD-2")
 	if err != nil || out != "yard-3\n" {
 		t.Fatalf("create: %q, %v", out, err)
@@ -248,7 +248,7 @@ func TestBeadCreateAndShowLinks(t *testing.T) {
 		"--relates nonsense":                             "is not the URL of an issue",
 		"--tracks https://linear.app/acme/issue/YRD-8 --tracks https://linear.app/acme/issue/YRD-9": "already tracks https://linear.app/acme/issue/YRD-8",
 	} {
-		_, err := run(t, a.beadCmd(), append([]string{"create", "four", "--rig", "yard"}, strings.Fields(args)...)...)
+		_, err := run(t, a.beadCmd(), append([]string{"create", "four", "--depot", "yard"}, strings.Fields(args)...)...)
 		if err == nil || !strings.Contains(err.Error(), why) {
 			t.Fatalf("create %s: %v; want %q", args, err, why)
 		}

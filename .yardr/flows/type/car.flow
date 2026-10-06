@@ -1,5 +1,5 @@
-# car: the flow of rig yardr's cars. A car is one piece of a train, built
-# in parallel with its siblings: the builder gates it with the rig's light
+# car: the flow of depot yardr's cars. A car is one piece of a train, built
+# in parallel with its siblings: the builder gates it with the depot's light
 # gate (.yardr/check-light: only what it changed and what imports that is
 # tested), the refinery lands it on the train's
 # branch under the same light gate, and nobody reviews it by itself. The full

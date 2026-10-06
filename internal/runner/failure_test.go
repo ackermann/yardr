@@ -33,16 +33,16 @@ func TestHerdrMissingHoldsNoBead(t *testing.T) {
 	h := &Herdr{Bin: "herdr", WorktreeRoot: t.TempDir()}
 	d := &dispatch.Dispatcher{Store: st, Runners: map[string]dispatch.Runner{"herdr": h},
 		Backoff: time.Nanosecond, RuntimeBackoff: time.Nanosecond, MaxAttempts: 1}
-	mustT(t, st.PutRig(ctx, store.Rig{Name: "r", Path: repo, Base: "main"}, "me"))
+	mustT(t, st.PutDepot(ctx, store.Depot{Name: "r", Path: repo, Base: "main"}, "me"))
 	for _, g := range []string{"builders", "reviewers"} {
 		mustT(t, st.PutGroup(ctx, store.Group{Name: g, Runner: "herdr", Limit: 2}))
 	}
 	_, _ = st.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
 	_, _ = st.AddRoute(ctx, store.Route{Stage: "review", Group: "reviewers"})
-	rig := "r"
+	depot := "r"
 	var beads []*store.Bead
 	for i, stage := range []string{"new", "new", "review"} {
-		b, err := st.CreateBead(ctx, store.NewBead{Title: fmt.Sprint("b", i), Stage: stage, Rig: rig}, "me")
+		b, err := st.CreateBead(ctx, store.NewBead{Title: fmt.Sprint("b", i), Stage: stage, Depot: depot}, "me")
 		mustT(t, err)
 		beads = append(beads, b)
 	}
@@ -110,8 +110,8 @@ func noPrompt(t *testing.T, envOut string) {
 // off at the deadline, and git is told never to prompt.
 func TestFetchBaseHasADeadline(t *testing.T) {
 	envOut := hangingGit(t)
-	rig := &store.Rig{Path: t.TempDir(), Base: "origin/main"}
-	(&Herdr{}).fetchBase(context.Background(), rig)
+	depot := &store.Depot{Path: t.TempDir(), Base: "origin/main"}
+	(&Herdr{}).fetchBase(context.Background(), depot)
 	noPrompt(t, envOut)
 
 	// Well short of the 30s sleep. Whether the fake has started by then
@@ -119,7 +119,7 @@ func TestFetchBaseHasADeadline(t *testing.T) {
 	t.Setenv("FAKE_GIT_HANG", "1")
 	h := &Herdr{FetchTimeout: 2 * time.Second}
 	start := time.Now()
-	h.fetchBase(context.Background(), rig)
+	h.fetchBase(context.Background(), depot)
 	if took := time.Since(start); took > 10*time.Second {
 		t.Fatalf("fetch returned after %s; the deadline did not hold", took)
 	}
@@ -194,7 +194,7 @@ func TestHerdrDownErrorObjectIsAnOutage(t *testing.T) {
 	job := dispatch.Job{
 		Bead:    store.Bead{ID: "r-1", Stage: "new"},
 		Group:   store.Group{Name: "builders"},
-		Rig:     &store.Rig{Name: "r", Path: repo, Base: "main"},
+		Depot:   &store.Depot{Name: "r", Path: repo, Base: "main"},
 		Session: store.Session{ID: "s1"},
 	}
 	_, err := h.Start(ctx, job)

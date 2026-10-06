@@ -43,7 +43,7 @@ without the store:
   this machine`: which ones the yard runs on is in the store, so one that
   does not work is a note there, not a fault;
 - the daemon, and of the optional parts the web view and the login service
-  (without its notes on rigs);
+  (without its notes on depots);
 - the yardmaster, the crew, the held beads, the setup steps, hooks, peers
   and packs as `skipped: the server is not running`, each on the line it
   always has. Cycles, mail and names, which have a line only when there is
@@ -182,23 +182,23 @@ the server is not running`, and no next step is named.
 The steps from a yard to a first merged bead, in the order they are taken.
 Each line is `done` or `todo`, the step, and what in the store shows it done
 or what is lacking. The steps are read from the store and nothing else (the
-store reads a rig's flow from its base branch), by one function: the
+store reads a depot's flow from its base branch), by one function: the
 yardmaster's first run uses it through this command, and `yardr setup` takes
 the first step not done as a form ([setup.md](setup.md)), so whoever walks you
 through the setup can take over from anyone else.
 
 | step (`key` in JSON) | done when |
 |---|---|
-| `a rig` (`rig`) | the yard has a rig |
-| `the rig's .yardr files on its base` (`rig_files`) | every rig has a flow where yardr reads it: under `.yardr/flows/` on its base branch (written by `yardr rig init` and committed), in a dir rig's directory, or in the store when the rig follows a pack's flow |
+| `a depot` (`depot`) | the yard has a depot |
+| `the depot's .yardr files on its base` (`depot_files`) | every depot has a flow where yardr reads it: under `.yardr/flows/` on its base branch (written by `yardr depot init` and committed), in a dir depot's directory, or in the store when the depot follows a pack's flow |
 | `a group that builds` (`builders`) | a group has the role `builder.md` as its prompt, or a route for stage `new` |
 | `a group that reviews` (`reviewers`) | the same with `reviewer.md` and `review` |
 | `a group or person that lands approved beads` (`landing`) | a group has the role `merger.md`, is an exec group whose command merges (a refinery), or has a route for stage `approved`: people who merge by hand count once they are routed |
 | `routes for new, review and approved` (`routes`) | a route exists for each of the three stages. The command for a missing one names the group that does the stage's work (the builders for `new`), once the yard has one |
-| `a first bead` (`first_bead`) | a bead exists in a rig (a crew member's journal and memories do not count) |
-| `a first merged bead` (`merged_bead`) | a bead of a rig was closed by reaching its flow's terminal stage; one closed by hand does not count |
+| `a first bead` (`first_bead`) | a bead exists in a depot (a crew member's journal and memories do not count) |
+| `a first merged bead` (`merged_bead`) | a bead of a depot was closed by reaching its flow's terminal stage; one closed by hand does not count |
 
-A yard whose rigs are all dir rigs lands nothing: it has no landing step, its
+A yard whose depots are all dir depots lands nothing: it has no landing step, its
 routes are `new and review`, and its last step reads `a first bead through to
 the flow's end`.
 
@@ -232,11 +232,11 @@ never a fault. Not printed on a home with no yard.
 | `note peers: this yard's key cannot be used, so nothing is sent to or taken from its peers: <why>` | `peer.key` is open to others, or does not hold a key |
 | `note peers: no listener, no incoming: nothing can be posted to this yard, so it gets its peers' messages only by asking those it can call: <what the server says of its listener>` | the server takes nothing in. `; <names> cannot be called and so cannot be heard at all` follows the first part when a peer has no URL |
 | `note peers: <N> messages for peer <name> were given up (yardr peer show <name>)` | posts to it failed 24 times, or it refused them |
-| `not configured packs: no pack is imported; yardr pack apply <dir> --rig <rig> (docs/packs.md)` | |
-| `configured packs: <pack> into <rig>, …` | |
+| `not configured packs: no pack is imported; yardr pack apply <dir> --depot <depot> (docs/packs.md)` | |
+| `configured packs: <pack> into <depot>, …` | |
 | `not configured login service: the daemon runs while its terminal or the session that started it does (yardr daemon, yardr init --start); it does not come back after a reboot; yardr daemon install starts it at login` | no login service for the daemon is installed for this home |
 | `configured login service: the daemon starts at login (<file>)` | `yardr daemon install` wrote `<file>`, a launchd agent or a systemd user unit ([configuration.md](configuration.md#login-services)); `yardr daemon status` asks the service manager whether it is loaded |
-| `note login service: rig <rig> (<path>) is in a folder macOS protects (~/Desktop, ~/Documents, ~/Downloads): a launchd agent needs its own access there (System Settings, Privacy & Security, Files and Folders), which a daemon started in a terminal has from the terminal` | macOS, with the login service configured: one line per such rig |
+| `note login service: depot <depot> (<path>) is in a folder macOS protects (~/Desktop, ~/Documents, ~/Downloads): a launchd agent needs its own access there (System Settings, Privacy & Security, Files and Folders), which a daemon started in a terminal has from the terminal` | macOS, with the login service configured: one line per such depot |
 
 ### The last lines
 
@@ -262,7 +262,7 @@ For a home other than the default, every command doctor prints is `yardr
 | `machine` | the programs: `program`, `for`, `found`, `path`, `get` (when missing), `login_shell_path` (where the login shell finds one that is missing), `harness` (the kind, for a harness), `optional` (a harness nothing runs on yet), `version` with `state` (`answers`, `fails`, `hangs`, `not_checked`) and `output`; for herdr, `server` with `state` (`running`, `not_running`, `unknown`) and `output` (what herdr said); under `--try`, for a harness, `try` with `state` (`ok`, `fails`, `hangs`, `not_tried`) and `output` (the answer's last line, what it printed, or why it was not tried) |
 | `tried` | whether `--try` was given |
 | `state` | `server` (`running`, `not_running`, `unreachable`), `server_error`, `daemon`, `yardmaster` (`name`, `crew`, `enabled`, `running`, `state`, `agent`, `failures`, `reason`), `crew`, `failing`, `held`, `cycles` (each a list of ids in blocking order, the first repeated at the end; absent when there is none), `mail` (`user`, `unread`, `from`; only when who runs it is a user), `parties` (the `names` notes); absent with no yard |
-| `steps` | each `key`, `title`, `done`, `detail`, `next` (the command) when not done, and `rig` (the rig the command names) once the yard has one |
+| `steps` | each `key`, `title`, `done`, `detail`, `next` (the command) when not done, and `depot` (the depot the command names) once the yard has one |
 | `next` | the first step not done; absent when all are |
 | `optional` | each `key` (`web`, `hooks`, `peers`, `packs`, `login_service`), `title`, `configured`, `detail`, `notes`; `skipped` (true on a part that was not looked at, whose `configured` then says nothing); on `web`, `views`: the views that run, as `yardr status --json` lists them |
 | `skipped` | the checks that were not made, on a yard whose server is not running: `yardmaster`, `crew`, `held`, `cycles`, `mail`, `names`, `steps`, `hooks`, `peers`, `packs`. `state` then holds `server` and `daemon` and nothing that was read, and `steps` is empty. Absent otherwise |
