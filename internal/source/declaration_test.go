@@ -326,3 +326,88 @@ calls:
 		t.Fatalf("a required parameter as the whole body: %v", err)
 	}
 }
+
+// aiquokka is the file of the design the limits key was built for
+// (yardr-m71s), whole: a source that is its limits command and has no call.
+const aiquokka = `name: aiquokka
+about: Usage limits of the subscriptions the agents' CLIs are logged in to (github.com/McKean/aiquokka).
+limits:
+  command: [/Users/mckean/go/bin/aiquokka, "{provider}", --json]
+  kinds:              # harness kind -> the provider's own name for it
+    claude: claude
+    codex: codex
+    kimi: kimi
+    grok: grok
+    copilot: copilot
+    kiro: kiro
+`
+
+func TestParseLimits(t *testing.T) {
+	d, err := Parse("aiquokka.yaml", []byte(aiquokka))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Name != "aiquokka" || d.Base != "" || len(d.Calls) != 0 || d.Credential != nil || d.Notify != nil || d.Limits == nil {
+		t.Fatalf("declaration = %+v", d)
+	}
+	if got := strings.Join(d.Limits.KindNames(), " "); got != "claude codex copilot grok kimi kiro" {
+		t.Fatalf("kinds = %q", got)
+	}
+	argv, ok := d.Limits.Argv("kimi")
+	if !ok || strings.Join(argv, " ") != "/Users/mckean/go/bin/aiquokka kimi --json" {
+		t.Fatalf("Argv(kimi) = %q, %v", argv, ok)
+	}
+	if _, ok := d.Limits.Argv("gemini"); ok {
+		t.Fatal("Argv of a kind the file does not list")
+	}
+	// The provider's name is its own: it need not be the kind's.
+	other := strings.Replace(aiquokka, "kimi: kimi", "kimi: moonshot-ai", 1)
+	other = strings.Replace(other, `"{provider}", --json`, `"--provider={provider}", "--as={provider}.json"`, 1)
+	if d, err = Parse("f", []byte(other)); err != nil {
+		t.Fatal(err)
+	}
+	if argv, _ = d.Limits.Argv("kimi"); strings.Join(argv, " ") != "/Users/mckean/go/bin/aiquokka --provider=moonshot-ai --as=moonshot-ai.json" {
+		t.Fatalf("Argv = %q", argv)
+	}
+	// With calls it is a source as before, which says limits too.
+	both := pushover + "limits:\n  command: [aiquokka, \"{provider}\"]\n  kinds: { kimi: kimi }\n"
+	if d, err = Parse("f", []byte(both)); err != nil || d.Limits == nil || len(d.Calls) != 1 || d.Notify == nil {
+		t.Fatalf("calls and limits = %+v, %v", d, err)
+	}
+}
+
+func TestParseLimitsRefusals(t *testing.T) {
+	limits := func(body string) string { return "name: q\nlimits:\n" + body }
+	cmd := "  command: [q, \"{provider}\"]\n"
+	kinds := "  kinds: { kimi: kimi }\n"
+	for name, tc := range map[string]struct{ text, want string }{
+		"a command that is a string":      {limits("  command: q {provider} --json\n" + kinds), `f:3: limits.command: want a list of strings ([program, "{provider}", --json]), got "q {provider} --json"`},
+		"a number among the words":        {limits("  command: [q, \"{provider}\", 5]\n" + kinds), "f:3: limits.command: want a string, got int 5"},
+		"an empty command":                {limits("  command: []\n" + kinds), "limits.command: an empty list"},
+		"no place for the provider":       {limits("  command: [q, --json]\n" + kinds), "f:3: limits.command: no {provider} among the arguments"},
+		"the provider as the program":     {limits("  command: [\"/bin/{provider}\", \"{provider}\"]\n" + kinds), "limits.command: {provider} in the program"},
+		"a kind herdr does not start":     {limits(cmd + "  kinds: { kimi: kimi, chatgpt: codex }\n"), "f:4: limits.kinds.chatgpt: chatgpt is no harness kind herdr starts (it starts: pi, claude,"},
+		"a provider's name like a flag":   {limits(cmd + "  kinds: { kimi: --all }\n"), `limits.kinds.kimi: "--all" is no name of a provider`},
+		"a provider's name that is a map": {limits(cmd + "  kinds: { kimi: { name: kimi } }\n"), "limits.kinds.kimi: want a string, got a mapping"},
+		"no kinds":                        {limits(cmd), "limits.kinds: missing: the harness kinds the source answers for"},
+		"kinds that are empty":            {limits(cmd + "  kinds: {}\n"), "limits.kinds: no kind"},
+		"no command":                      {limits(kinds), "limits.command: missing: the program that says the limits"},
+		"a key it does not have":          {limits(cmd + kinds + "  timeout: 5\n"), "limits.timeout: unknown key (known here: command, kinds)"},
+		"a base and no calls":             {"name: q\nbase: https://q.example.com\n" + limits(cmd + kinds)[len("name: q\n"):], "f:2: base: is for the calls of a source, and this file declares none"},
+		"a credential and no calls":       {"name: q\ncredential: { env: Q }\n" + limits(cmd + kinds)[len("name: q\n"):], "f:2: credential: is for the calls of a source"},
+		"neither calls nor limits":        {"name: q\n", "calls: missing: a source is the calls it declares, or its limits command"},
+		"calls, limits and no base":       {strings.Replace(pushover, "base: https://api.pushover.net/1\n", "", 1) + "limits:\n" + cmd + kinds, "base: missing: the address every call's path is under"},
+	} {
+		_, err := Parse("f", []byte(tc.text))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want %q", name, err, tc.want)
+		}
+	}
+	// One mistake is one line: a file that is its limits alone is not told
+	// of a base it has no use for.
+	_, err := Parse("f", []byte(limits("  command: [q]\n"+kinds)))
+	var errs Errors
+	if !errors.As(err, &errs) || len(errs) != 1 {
+		t.Fatalf("errors = %v, want one", err)
+	}
+}

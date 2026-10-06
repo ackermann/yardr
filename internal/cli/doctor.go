@@ -14,6 +14,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
@@ -57,7 +58,7 @@ const skippedWhy = "the server is not running"
 
 // storeChecks are the checks that read the store, as Skipped names them:
 // the lines of the yard's part, the setup steps, and the optional parts.
-var storeChecks = []string{"yardmaster", "crew", "held", "cycles", "mail", "names", "steps", "hooks", "peers", "packs"}
+var storeChecks = []string{"yardmaster", "crew", "held", "cycles", "mail", "names", "steps", "hooks", "peers", "packs", "limits"}
 
 // yardState is the second part: what of the yard runs.
 type yardState struct {
@@ -162,7 +163,8 @@ func (a *app) doctorCmd() *cobra.Command {
                           done or todo, and the command for the first one
                           not done. Then what a yard runs without, as
                           configured or not configured: the web view, hooks,
-                          peers, packs, the daemon as a login service.
+                          peers, packs, limits, the daemon as a login
+                          service.
 
 It is read-only: it installs nothing (it prints where to get a program and
 never runs that), changes nothing in the store and starts no daemon and no
@@ -170,7 +172,7 @@ server. It runs each harness's version flag, for up to ` + versionTimeout.String
 yardr knows no version flag for is not run. On a yard whose server is not
 running it says so, checks the machine and the daemon, and lists what only
 the store knows (the yardmaster, the crew, held beads, the setup steps,
-hooks, peers, packs) as skipped: that is a note, not a fault. On a home with
+hooks, peers, packs, limits) as skipped: that is a note, not a fault. On a home with
 no yard it says so, checks the machine and creates nothing. For a program
 that is not on PATH it runs your login shell ($SHELL -l -c) once, to ask
 where that finds it.
@@ -180,9 +182,12 @@ codex exec, ...) with a prompt that asks for one word, stdin closed, for up
 to ` + tryTimeout.String() + ` each. It says what the harness printed when that fails: a login
 that is needed, a flag it does not know. It costs a model call per harness,
 on your account with it, so doctor never makes it unasked. A kind yardr
-knows no one-shot form for is reported as not tried. On a yard whose server
-is not running --try is refused: which harnesses the yard runs on is in its
-store.
+knows no one-shot form for is reported as not tried. With a source that says
+limits (yardr limits --help) it also asks that source, once for each kind
+the yard runs on that the source answers for, for up to ` + limits.Timeout.String() + ` each: without
+--try doctor says which source answers for which kinds and asks nothing. On
+a yard whose server is not running --try is refused: which harnesses the
+yard runs on is in its store.
 
 The exit status is 1 when something the yard needs is missing or not working
 (the lines marked FAULT), 0 otherwise. A step not done, a held bead, a stopped
@@ -268,7 +273,7 @@ func stoppedYard(ctx context.Context, cfg *config.Config) *doctorReport {
 	}
 	// The login service's notes on its depots are the store's too, and left
 	// out.
-	rep.Optional = []optionalPart{webPart(cfg), skip("hooks", "hooks"), skip("peers", "peers"), skip("packs", "packs"), servicePart(cfg)}
+	rep.Optional = []optionalPart{webPart(cfg), skip("hooks", "hooks"), skip("peers", "peers"), skip("packs", "packs"), skip("limits", "limits"), servicePart(cfg)}
 	rep.faults()
 	return rep
 }
@@ -308,7 +313,8 @@ func (a *app) examine(ctx context.Context, cfg *config.Config, try, set bool, er
 	if err != nil {
 		return nil, err
 	}
-	rep.Machine = machineNeeds(ctx, harnessUses(defaultKind(ctx, st), groups, crew), try)
+	uses := harnessUses(defaultKind(ctx, st), groups, crew)
+	rep.Machine = machineNeeds(ctx, uses, try)
 	if rep.State, err = readState(ctx, cfg, st, crew); err != nil {
 		return nil, err
 	}
@@ -322,7 +328,7 @@ func (a *app) examine(ctx context.Context, cfg *config.Config, try, set bool, er
 		return nil, err
 	}
 	rep.Next = nextStep(rep.Steps)
-	if rep.Optional, err = optionalParts(ctx, cfg, st); err != nil {
+	if rep.Optional, err = optionalParts(ctx, cfg, st, uses, try); err != nil {
 		return nil, err
 	}
 	rep.faults()
@@ -377,8 +383,10 @@ func readState(ctx context.Context, cfg *config.Config, st store.API, crew []sto
 	return state, nil
 }
 
-// optionalParts are what a yard runs without, each configured or not.
-func optionalParts(ctx context.Context, cfg *config.Config, st store.API) ([]optionalPart, error) {
+// optionalParts are what a yard runs without, each configured or not. uses
+// are the harness kinds the yard runs on; with try, the source that says
+// their limits is asked (see limitsPart).
+func optionalParts(ctx context.Context, cfg *config.Config, st store.API, uses []harnessUse, try bool) ([]optionalPart, error) {
 	yardr := yardrAt(cfg.Home)
 	web := webPart(cfg)
 	hs, err := st.Hooks(ctx)
@@ -438,7 +446,11 @@ func optionalParts(ctx context.Context, cfg *config.Config, st store.API) ([]opt
 	if err != nil {
 		return nil, err
 	}
-	return []optionalPart{web, hook, peers, pack, svc}, nil
+	lim, err := limitsPart(ctx, cfg, st, uses, try)
+	if err != nil {
+		return nil, err
+	}
+	return []optionalPart{web, hook, peers, pack, lim, svc}, nil
 }
 
 // servicePart is the daemon's login service as the home says it is,

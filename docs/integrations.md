@@ -21,7 +21,7 @@ Two things, kept in two places:
   **source**: `linear`, `github`, `token`. yardr has these three and no way
   to load another. Beside them a yard has its **declared sources**: a
   service added by one YAML file and no Go ([below](#a-declared-source)),
-  which today can do one thing of this list, the last.
+  which today can do two things of this list, the last two.
 - **Settings in the yard**: a hook (the endpoint and its secret), a
   crew member's credential, identity and grants, subscriptions, links, a stage
   map. They live in the store and in files in the yard's home, and are set
@@ -44,6 +44,7 @@ in token (it can in github, linear)`). Only the first is required.
 | set a thread's status | `Stater` (`state.go`) | `started`, `review`, `done` | `started`, `done` | no | no |
 | move with a bead's stage | `Forwarder` (`forward.go`) | yes | yes | no | no |
 | tell a user outside the yard | `Notifier` (`notify.go`) | no | no | no | yes, with a `notify` key in its file |
+| say what a harness kind's subscription still carries | none: a command the source's file names, run by `internal/limits` | no | no | no | yes, with a `limits` key in its file |
 
 The interfaces build on each other: an `Opener` and a `Stater` are each a
 `Replier`, and a `Forwarder` is a `Stater`. `token` is the smallest
@@ -328,6 +329,105 @@ what leaves the machine is in
 [users.md](users.md#told-outside-the-yard). [pushover.md](pushover.md) sets
 one up from nothing.
 
+### Say what a subscription still carries
+
+An agent runs on a subscription with a usage limit: so much in five hours,
+so much in a week. When a harness stops on it, its pane says so and the
+yard raises `session_harness_error` with the reason `rate_limited`
+([groups.md](groups.md)); which window it was and when it opens again, the
+pane does not reliably say. A source of the yard can:
+
+```sh
+yardr limits kimi
+# kimi  aiquokka says (provider Kimi):
+#   5h      100% used (100 of 100)  resets 00:02 (in 42m)             used up
+#   Weekly  38% used (38 of 100)    resets Sat 10 Oct 09:02 (in 3d 9h)
+#   an agent of kind kimi waits for the 5h window, which resets 00:02 (in 42m)
+```
+
+yardr holds no logic of any provider. A declared source has the capability
+when its file has a `limits` key: **a command**, and the harness kinds it
+answers for, each with the provider's own name for it. Such a file needs no
+`base` and no `calls`. This one is whole, for
+[aiquokka](https://github.com/McKean/aiquokka), which reads the limits of
+Claude, Codex, Kimi and others from the logins their CLIs store:
+
+```yaml
+name: aiquokka
+about: Usage limits of the subscriptions the agents' CLIs are logged in to (github.com/McKean/aiquokka).
+limits:
+  command: [/Users/mckean/go/bin/aiquokka, "{provider}", --json]
+  kinds:              # harness kind -> the provider's own name for it
+    claude: claude
+    codex: codex
+    kimi: kimi
+    grok: grok
+    copilot: copilot
+    kiro: kiro
+```
+
+```sh
+yardr source add aiquokka.yaml
+yardr source check aiquokka     # asks for each kind the file lists
+yardr limits                    # every kind the yard runs on that a source lists
+yardr limits kimi --json        # the report, for a program
+```
+
+Leave out of `kinds` the harnesses that are not logged in on the machine:
+they have no answer, and `source check` fails for them.
+
+- **The question** is a harness kind: a group's or a crew member's `kind`.
+  Not a model: no provider answers by model. A kind no source lists has no
+  limits known, which is the yard as it was before.
+- **The command** is run by yardr itself, as the user yardr runs as:
+  without a shell (each word is one element of the list), its stdin closed,
+  in the yard's home, with the environment of whoever asks and nothing
+  added, `{provider}` replaced by the name the kind maps to. It has 30
+  seconds; then it and everything it started are killed as one process
+  group. Name the program by its whole path: the daemon's `PATH` need not
+  be your shell's.
+- **Its answer** is exit status 0 and one JSON object on stdout, at most
+  64 KB: `provider` (a string) and `windows` (a list), each window with a
+  `label` (a string) and, where the provider knows them, `used_percent` (a
+  number), `resets_at` (a time as RFC 3339 writes one), `used` and `limit`
+  (whole numbers); `plan` (a string) beside them. Other keys are passed
+  over. A `resets_at` before 2020 is read as not known: it is how a time
+  that was never set gets printed.
+- **What the yard reads from it itself** is one thing: a window is used up
+  at `used_percent` 100 or more, or when `used` has reached a `limit` above
+  0. Of several that are used up, the one that resets last is the window an
+  agent waits for (`window` and `resets_at` in `--json`).
+- **Anything else is no answer**: another exit status, nothing within the
+  30 seconds, output that is not that object. The limits are then *not
+  known*, with a reason in one line that ends with the last lines the
+  command printed on stderr, never what it printed on stdout. `yardr limits`
+  prints it and exits 1; `--json` has it as `limits_unknown`.
+- **Whose subscription.** The answer is for the login the provider reads on
+  this machine, the operator's. A group or crew member whose `env_file`
+  gives its harness another account is not described by it.
+- **When it is asked.** A provider is slow next to everything else here,
+  may itself be bounded in how often it answers, and may renew a stored
+  login as it reads one (aiquokka does, and writes the new one back where
+  the CLI keeps it, which is why 30 seconds are never cut short). So the
+  command is run **only when a person asks**: once per kind by `yardr
+  limits`, once per listed kind by `yardr source check <name>`, and once
+  per kind in use by `yardr doctor --try`. Nothing remembers an answer, and
+  nothing asks by itself: not the daemon, not a dispatcher pass, not a
+  session's start, not a timer. `yardr doctor` without `--try` says which
+  source answers for which kinds and runs nothing
+  ([doctor.md](doctor.md#optional)).
+- **Refused when the file is added**: a `command` that is no list of
+  strings, has no `{provider}` among its arguments or has it in the
+  program; a kind herdr starts no agent of; a provider's name that could
+  be read as a flag; a kind another source of the yard already answers for
+  (one source answers for a kind); `base`, `credential`, `check` or
+  `notify` in a file with no `calls`.
+- **It is the operator's.** Adding the file is refused from an agent's
+  pane, as for every source, and here for a second reason: the yard runs
+  what it names. For the same reason no pack brings one: a declaration in a
+  pack with a `limits` key is refused by `yardr pack check`
+  ([packs.md](packs.md#how-a-pack-maps-to-the-yard)).
+
 ### A declared source
 
 A service outside the yard, added by one YAML file: its address, the
@@ -348,17 +448,22 @@ yardr source rm pushover
   the value is read from the `env_file` at each call (mode 0600, as every
   env file). So the declaration is kept in the store, shown, and carried by
   a pack ([packs.md](packs.md#how-a-pack-maps-to-the-yard)).
-- **What a file can say**: JSON over HTTPS. A request that must be signed,
+- **What a file can say**: JSON over HTTPS, and one thing that is no
+  request: the command that says a subscription's limits
+  ([above](#say-what-a-subscription-still-carries)). A request that must be signed,
   an answer in pages or a webhook to verify is not a declared source.
   Refused when the file is added: an address that is not `https://` (plain
   `http://` to this machine only, for a stand-in), a path that leaves the
   address, a credential in a path or a query. No redirect is followed.
 - **Who calls one today**: `yardr source check`, and the daemon for a
-  source a user names as their notify. No agent calls one: grants for
+  source a user names as their notify. A limits command is run by `yardr
+  limits`, `yardr source check` and `yardr doctor --try`, never by the
+  daemon. No agent calls one: grants for
   groups and crew members, and a `yardr call`, are designed (yardr-3e8x) and
   not built. Nothing of a request is written to an event or a log.
 - **Adding, setting and removing one is the operator's**, and refused from
-  an agent's pane: a source is where a credential of the yard is sent.
+  an agent's pane: a source is where a credential of the yard is sent, and
+  its file may name a command the yard runs.
 - **Its name is none of `github`, `linear`, `token`, `yardr`**: it is no
   hook source, so nothing subscribes to it and no hook receives it.
 
@@ -374,6 +479,14 @@ yardr source rm pushover
   open, several sources at once. For a crew member or a group: nothing.
 - Events in from a declared source (the key `events` is kept for them),
   and calls by agents (above).
+- Limits, beyond showing them: the yard does nothing with a report yet.
+  A `session_harness_error` does not carry the window or its reset, a
+  stopped agent is not prompted again when the window opens, and a group
+  starts a session whatever a window says. With those comes a memory of an
+  answer for a minute in the daemon, so that several agents stopping
+  together are one ask. Also not there: a second way to an answer (a
+  declared HTTPS call, an adapter in Go), limits by model, the limits of an
+  account that is not the operator's.
 
 ## How one becomes part of a yard
 

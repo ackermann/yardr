@@ -44,8 +44,8 @@ without the store:
   does not work is a note there, not a fault;
 - the daemon, and of the optional parts the web view and the login service
   (without its notes on depots);
-- the yardmaster, the crew, the held beads, the setup steps, hooks, peers
-  and packs as `skipped: the server is not running`, each on the line it
+- the yardmaster, the crew, the held beads, the setup steps, hooks, peers,
+  packs and limits as `skipped: the server is not running`, each on the line it
   always has. Cycles, mail and names, which have a line only when there is
   something to say, are skipped without one.
 
@@ -86,6 +86,12 @@ before it starts the yardmaster
 Any other kind is reported as not tried. `--try` makes this call even when
 the separate version check fails or hangs, so it can show what the call
 itself says.
+
+With a source that says limits
+([integrations.md](integrations.md#say-what-a-subscription-still-carries))
+`--try` also runs that source's command, once for each kind the yard runs
+on that the source lists, for up to 30 seconds each, and says what it
+answered. It is the one place doctor asks a provider of limits.
 
 **It costs a model call per harness**, on your account with it, so doctor
 never makes it unasked: without `--try` one line says that no harness was
@@ -216,7 +222,7 @@ never a fault. Not printed on a home with no yard.
 
 | line | meaning |
 |---|---|
-| `skipped hooks: the server is not running` | the yard's server is not running; the same for `peers` and `packs` |
+| `skipped hooks: the server is not running` | the yard's server is not running; the same for `peers`, `packs` and `limits` |
 | `not configured web view: not running, and nothing keeps it running; yardr web serve shows the yard in a browser while it runs, yardr web install keeps it running from login on (docs/web.md)` | no web view runs, and no login service for one is installed for this home |
 | `not configured web view: running at <URL> (pid <pid>, this machine only), …; nothing keeps it running: yardr web install keeps it running from login on (docs/web.md)` | a view started by hand (`yardr web serve`, `yardr web start`) runs, each with the URL to open; no login service is installed. `not configured` is about the service alone. A view that is `open to the network (--unsafe), no login` says that in place of `this machine only` |
 | `configured web view: kept running as a login service at http://<addr>/ (<file>); running at <URL> (pid <pid>, this machine only), …` | `yardr web install` wrote `<file>` ([web.md](web.md#keeping-it-running)), and these views run now, the service's or others; whether the service manager has it loaded is not asked |
@@ -241,6 +247,13 @@ never a fault. Not printed on a home with no yard.
 | `note peers: <N> messages for peer <name> were given up (yardr peer show <name>)` | posts to it failed 24 times, or it refused them |
 | `not configured packs: no pack is imported; yardr pack apply <dir> --depot <depot> (docs/packs.md)` | |
 | `configured packs: <pack> into <depot>, …` | |
+| `not configured limits: no source says what a harness kind's subscription still carries, so a usage limit is known only by the harness stopping on it; a source with a limits key says it (yardr source --help, docs/integrations.md)` | no declared source has a `limits` key ([integrations.md](integrations.md#say-what-a-subscription-still-carries)) |
+| `configured limits: <source> for <kind>, <kind>; …; not asked (yardr limits asks, and yardr doctor --try)` | which source says the limits of which harness kinds, read from the sources' files. Its command was not run: a provider is slow, and asking is a person's to want |
+| `configured limits: <source> for <kind>, <kind>; …` | the same under `--try`, followed by a `tried:` line per kind |
+| `note limits: source <source> gives no answer as this command finds it: limits command <program>: <error>. The daemon's PATH is its own: name the program by its whole path` | the program the source's file names is not found by this command; nothing was run to find out |
+| `note limits: <kind> is in use (<who names it>) and no source says its limits (limits.kinds)` | a source says limits, and the yard's default, a group or a crew member runs on a kind none lists |
+| `note limits: tried: <source> answered for <kind>: <n> windows; <no window is used up, or: an agent of kind <kind> waits for the <label> window, which resets <when> (in <how long>)>` | `--try`: the source's command was run once for a kind the yard runs on, for up to 30 seconds |
+| `note limits: tried: <kind> is not known: <reason>` | `--try`: the command gave no answer: its exit status or the timeout with the last lines of its stderr, or what of its output is not the report |
 | `not configured login service: the daemon runs while its terminal or the session that started it does (yardr daemon, yardr init --start); it does not come back after a reboot; yardr daemon install starts it at login` | no login service for the daemon is installed for this home |
 | `configured login service: the daemon starts at login (<file>)` | `yardr daemon install` wrote `<file>`, a launchd agent or a systemd user unit ([configuration.md](configuration.md#login-services)); `yardr daemon status` asks the service manager whether it is loaded |
 | `note login service: depot <depot> (<path>) is in a folder macOS protects (~/Desktop, ~/Documents, ~/Downloads): a launchd agent needs its own access there (System Settings, Privacy & Security, Files and Folders), which a daemon started in a terminal has from the terminal` | macOS, with the login service configured: one line per such depot |
@@ -271,8 +284,8 @@ For a home other than the default, every command doctor prints is `yardr
 | `state` | `server` (`running`, `not_running`, `unreachable`), `server_error`, `daemon`, `yardmaster` (`name`, `crew`, `enabled`, `running`, `state`, `agent`, `failures`, `reason`), `crew`, `failing`, `held`, `cycles` (each a list of ids in blocking order, the first repeated at the end; absent when there is none), `mail` (`user`, `unread`, `from`; only when who runs it is a user), `parties` (the `names` notes); absent with no yard |
 | `steps` | each `key`, `title`, `done`, `detail`, `next` (the command) when not done, and `depot` (the depot the command names) once the yard has one |
 | `next` | the first step not done; absent when all are |
-| `optional` | each `key` (`web`, `hooks`, `peers`, `packs`, `login_service`), `title`, `configured`, `detail`, `notes`; `skipped` (true on a part that was not looked at, whose `configured` then says nothing); on `web`, `views`: the views that run, as `yardr status --json` lists them |
-| `skipped` | the checks that were not made, on a yard whose server is not running: `yardmaster`, `crew`, `held`, `cycles`, `mail`, `names`, `steps`, `hooks`, `peers`, `packs`. `state` then holds `server` and `daemon` and nothing that was read, and `steps` is empty. Absent otherwise |
+| `optional` | each `key` (`web`, `hooks`, `peers`, `packs`, `limits`, `login_service`), `title`, `configured`, `detail`, `notes`; `skipped` (true on a part that was not looked at, whose `configured` then says nothing); on `web`, `views`: the views that run, as `yardr status --json` lists them |
+| `skipped` | the checks that were not made, on a yard whose server is not running: `yardmaster`, `crew`, `held`, `cycles`, `mail`, `names`, `steps`, `hooks`, `peers`, `packs`, `limits`. `state` then holds `server` and `daemon` and nothing that was read, and `steps` is empty. Absent otherwise |
 | `faults` | the `FAULT` lines, one string each; empty when the exit status is 0 |
 
 ## yardr status

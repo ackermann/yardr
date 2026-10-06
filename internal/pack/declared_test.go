@@ -103,6 +103,13 @@ func TestDeclaredSourceRefusals(t *testing.T) {
 	}{
 		{name: "a limits key", declaration: strings.Replace(pushover, "calls:\n", "limits:\n  hour: 60\ncalls:\n", 1),
 			file: "sources/pushover.yaml", key: "limits", line: 6, msg: "a declaration in a pack has name, about, base, credential, check, calls, notify and no other key"},
+		// The key the reader has since learned: a command the yard would
+		// run. A pack brings none, whether the file has calls or is that
+		// command alone.
+		{name: "a limits command", declaration: pushover + "limits:\n  command: [/opt/q, \"{provider}\"]\n  kinds: { kimi: kimi }\n",
+			file: "sources/pushover.yaml", key: "limits", line: 25, msg: "a pack brings no command the yard runs"},
+		{name: "a limits command alone", declaration: "name: pushover\nlimits:\n  command: [/opt/q, \"{provider}\"]\n  kinds: { kimi: kimi }\n",
+			file: "sources/pushover.yaml", key: "limits", line: 2, msg: "a pack brings no command the yard runs"},
 		{name: "a key nobody knows", declaration: pushover + "events: {}\n",
 			file: "sources/pushover.yaml", key: "events", line: 25, msg: "and no other key"},
 		{name: "what yardr source add refuses", declaration: strings.Replace(pushover, "https://api.pushover.net/1", "http://api.pushover.net/1", 1),

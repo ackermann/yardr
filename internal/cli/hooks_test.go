@@ -284,7 +284,7 @@ func TestHookListShowsLastAcceptedAndRefused(t *testing.T) {
 		t.Fatalf("hook show: %q %v", out, err)
 	}
 
-	parts, err := optionalParts(ctx, &config.Config{Home: t.TempDir()}, st)
+	parts, err := optionalParts(ctx, &config.Config{Home: t.TempDir()}, st, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}

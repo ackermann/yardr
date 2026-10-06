@@ -126,8 +126,8 @@ func TestDeclaredSourceIsTheOperators(t *testing.T) {
 	}
 	moved := strings.Replace(sourceFile, "https://api.pushover.net/1", "https://collector.example.com", 1)
 	for actor, want := range map[string]string{
-		"yardmaster":     "adding a source is the operator's (jo): a source is where a credential of the yard is sent; yardmaster is a crew member",
-		"yardr-26a0-new": "adding a source is the operator's (jo): a source is where a credential of the yard is sent; this is yardr-26a0-new",
+		"yardmaster":     "adding a source is the operator's (jo): a source is where a credential of the yard is sent, and its file may name a command the yard runs; yardmaster is a crew member",
+		"yardr-26a0-new": "adding a source is the operator's (jo): a source is where a credential of the yard is sent, and its file may name a command the yard runs; this is yardr-26a0-new",
 		"":               "this is nobody",
 	} {
 		if _, err := api.PutSource(ctx, "p.yaml", moved, actor); err == nil || !strings.Contains(err.Error(), want) {
@@ -202,7 +202,60 @@ func TestDeclaredSourceRefusedFromASessionsPane(t *testing.T) {
 	if _, err := s.PutSource(pane, "p.yaml", sourceFile, "jo"); err == nil || !strings.Contains(err.Error(), "this is the session "+sess.ID+" of a bead's agent") {
 		t.Fatalf("PutSource from a session's pane as jo = %v", err)
 	}
+	// A file that is a command the yard would run, the same: what an agent
+	// could add there, the daemon would run as the operator.
+	if _, err := s.PutSource(pane, "q.yaml", limitsFile, "jo"); err == nil || !strings.Contains(err.Error(), "this is the session "+sess.ID+" of a bead's agent") ||
+		!strings.Contains(err.Error(), "its file may name a command the yard runs") {
+		t.Fatalf("PutSource of a limits command from a session's pane as jo = %v", err)
+	}
 	if all, _ := s.Sources(ctx); len(all) != 0 {
 		t.Fatalf("a refused source was kept: %+v", all)
+	}
+}
+
+const limitsFile = `name: aiquokka
+limits:
+  command: [/opt/aiquokka, "{provider}", --json]
+  kinds: { claude: claude, kimi: kimi }
+`
+
+// A source that says limits is kept like any other, with no call and no
+// base, and its event names the kinds it answers for. One source answers
+// for a harness kind: a second that lists the kind is refused, and names
+// the first.
+func TestDeclaredSourceWithLimits(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	src, err := st.PutSource(ctx, "aiquokka.yaml", limitsFile, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := src.Declaration()
+	if err != nil || d.Limits == nil || len(d.Calls) != 0 || d.Limits.Kinds["kimi"] != "kimi" {
+		t.Fatalf("declaration = %+v, %v", d, err)
+	}
+	evs, err := st.EventsSince(ctx, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := evs[len(evs)-1]
+	if kinds, _ := json.Marshal(last.Data["limits"]); last.Kind != "source_added" || string(kinds) != `["claude","kimi"]` {
+		t.Fatalf("event = %s %v", last.Kind, last.Data)
+	}
+	// The same source again, changed, is itself and no second one.
+	if _, err := st.PutSource(ctx, "aiquokka.yaml", strings.Replace(limitsFile, "claude: claude, ", "", 1), "jo"); err != nil {
+		t.Fatalf("replacing it: %v", err)
+	}
+	second := strings.Replace(strings.Replace(limitsFile, "name: aiquokka", "name: other", 1), "claude: claude", "codex: codex", 1)
+	_, err = st.PutSource(ctx, "other.yaml", second, "jo")
+	if err == nil || !strings.Contains(err.Error(), "source other: the source aiquokka already says the limits of kimi: one source answers for a harness kind") {
+		t.Fatalf("a second source for kimi = %v", err)
+	}
+	if all, _ := st.Sources(ctx); len(all) != 1 {
+		t.Fatalf("a refused source was kept: %+v", all)
+	}
+	// Another kind is another matter.
+	if _, err := st.PutSource(ctx, "other.yaml", strings.Replace(second, ", kimi: kimi", "", 1), "jo"); err != nil {
+		t.Fatalf("a second source for codex alone: %v", err)
 	}
 }

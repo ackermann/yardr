@@ -600,7 +600,8 @@ func (r *reader) declared(e entry) (d Declared, ok bool) {
 	switch {
 	case errors.As(err, &errs):
 		for _, e := range errs {
-			if !refused[e.Key] {
+			// A key under a refused one is the same mistake.
+			if top, _, _ := strings.Cut(e.Key, "."); !refused[top] {
 				r.late = append(r.late, Error{File: e.File, Line: e.Line, Key: e.Key, Msg: e.Msg})
 			}
 		}

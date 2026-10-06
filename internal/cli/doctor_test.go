@@ -161,7 +161,7 @@ func TestDoctorFreshYard(t *testing.T) {
 	}
 	rep, err := doctorJSON(t, st)
 	if !errors.Is(err, errCheckFailed) || !rep.Yard || rep.State == nil || rep.State.Daemon || rep.State.Yardmaster == nil ||
-		!rep.State.Yardmaster.CrewMember || rep.State.Yardmaster.Running || rep.Next == nil || rep.Next.Key != stepDepot || len(rep.Optional) != 5 {
+		!rep.State.Yardmaster.CrewMember || rep.State.Yardmaster.Running || rep.Next == nil || rep.Next.Key != stepDepot || len(rep.Optional) != 6 {
 		t.Fatalf("json: %v %+v", err, rep)
 	}
 	// For a home that is not the default, the next step's command names it
@@ -757,7 +757,7 @@ func TestDoctorLeavesAStoppedServerStopped(t *testing.T) {
 		t.Fatalf("json: %v %+v", err, rep)
 	}
 	for _, p := range rep.Optional {
-		if store := slices.Contains([]string{"hooks", "peers", "packs"}, p.Key); p.Skipped != store {
+		if store := slices.Contains([]string{"hooks", "peers", "packs", "limits"}, p.Key); p.Skipped != store {
 			t.Errorf("optional %s: skipped = %v", p.Key, p.Skipped)
 		}
 	}

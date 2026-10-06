@@ -115,7 +115,7 @@ func (a *app) rootCmd() *cobra.Command {
 	root.PersistentFlags().StringVar(&a.actor, "actor", "", "who is acting (default $YARDR_ACTOR, else $USER)")
 	root.AddCommand(a.serverCmd(), a.daemonCmd(), a.depotCmd(), a.oldDepotCmd(), a.beadCmd(), a.readyCmd(),
 		a.depCmd(), a.linkCmd(), a.groupCmd(), a.routeCmd(), a.flowCmd(), a.sessionCmd(), a.eventsCmd(), a.watchCmd(), a.primeCmd(),
-		a.bdpCmd(), a.webCmd(), a.crewCmd(), a.oldCrewCmd(), a.userCmd(), a.inboxCmd(), a.mailCmd(), a.timerCmd(), a.chatCmd(), a.rememberCmd(), a.recallCmd(), a.hookCmd(), a.sourceCmd(),
+		a.bdpCmd(), a.webCmd(), a.crewCmd(), a.oldCrewCmd(), a.userCmd(), a.inboxCmd(), a.mailCmd(), a.timerCmd(), a.chatCmd(), a.rememberCmd(), a.recallCmd(), a.hookCmd(), a.sourceCmd(), a.limitsCmd(),
 		a.peerCmd(), a.subscribeCmd(), a.unsubscribeCmd(), a.threadCmd(), a.replyCmd(), a.reviewCmd(), a.storeCmd(), a.packCmd(),
 		a.initCmd(), a.settingsCmd(), a.doctorCmd(), a.statusCmd(), a.setupCmd(), a.otelCmd(), a.versionCmd())
 	return root

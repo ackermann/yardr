@@ -49,7 +49,8 @@ func (s Source) Declaration() (*source.Declaration, error) {
 // maySource refuses a change to the declared sources by anyone but the
 // operator. A source is where a credential of the yard is sent: whoever
 // may replace its file can point the next call, and the credential with
-// it, at an address of their own. Who asks is told by the store's own
+// it, at an address of their own. And its file may name a command the yard
+// runs (limits), as the user the daemon runs as. Who asks is told by the store's own
 // records before the caller's word, as for the release of a peer's bead
 // (mayRelease): a call from the pane of a bead's session or of a crew
 // member is that session's or that crew member's, whatever actor it
@@ -64,7 +65,7 @@ func (w *wtx) maySource(ctx context.Context, actor, does string) error {
 	if operator != "" {
 		why += " (" + operator + ")"
 	}
-	why += ": a source is where a credential of the yard is sent"
+	why += ": a source is where a credential of the yard is sent, and its file may name a command the yard runs"
 	sess, err := paneSession(w.Tx, callerOf(ctx))
 	if err != nil {
 		return err
@@ -108,6 +109,11 @@ func (s *Store) PutSource(ctx context.Context, file, text, actor string) (*Sourc
 			return err
 		}
 		src.EnvFile = was.EnvFile
+		if d.Limits != nil {
+			if err := limitsKindsFree(w.Tx, d); err != nil {
+				return err
+			}
+		}
 		if err := put(w.Tx, bSources, d.Name, src); err != nil {
 			return err
 		}
@@ -116,6 +122,9 @@ func (s *Store) PutSource(ctx context.Context, file, text, actor string) (*Sourc
 			calls[i] = c.Name
 		}
 		data := map[string]any{"source": d.Name, "base": d.Base, "calls": calls}
+		if d.Limits != nil {
+			data["limits"] = d.Limits.KindNames()
+		}
 		if replaced {
 			data["replaced"] = true
 		}
@@ -125,6 +134,29 @@ func (s *Store) PutSource(ctx context.Context, file, text, actor string) (*Sourc
 		return nil, err
 	}
 	return &src, nil
+}
+
+// limitsKindsFree refuses d when another source of the yard already says
+// the limits of a harness kind d maps: one source answers for a kind, so
+// that which one is asked does not depend on the order they are read in.
+func limitsKindsFree(tx *bolt.Tx, d *source.Declaration) error {
+	return each(tx, bSources, "", func(_ []byte, other *Source) error {
+		if other.Name == d.Name {
+			return nil
+		}
+		// One this build does not read maps nothing this build would ask.
+		od, err := other.Declaration()
+		if err != nil || od.Limits == nil {
+			return nil
+		}
+		for _, kind := range d.Limits.KindNames() {
+			if _, taken := od.Limits.Kinds[kind]; taken {
+				return fmt.Errorf("source %s: the source %s already says the limits of %s: one source answers for a harness kind. Take %s out of one of the two (limits.kinds)",
+					d.Name, od.Name, kind, kind)
+			}
+		}
+		return nil
+	})
 }
 
 func (s *Store) Sources(ctx context.Context) ([]Source, error) {

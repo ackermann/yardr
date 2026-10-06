@@ -47,6 +47,7 @@ contrib/isolated-yard/         contrib/isolated-yard .
 contrib/release/               contrib/release .
 README.md                      contrib/release
 docs/pushover.md               internal/cli
+docs/integrations.md           internal/cli
 docs/                          -
 .yardr/roles/                  -
 .yardr/check                   -

@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/notify"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
@@ -85,11 +87,51 @@ required. A title or a text longer than its parameter's max is cut to it; a
 link that is too long is left out. A user is given the source with
 yardr user set <name> notify=<source> env_file=<file>.
 
+A source can say what the subscription of a harness kind still carries (the
+windows of its usage limit, how far each is used, when it resets) when its
+file has a limits key: a command, and the harness kinds it answers for.
+Such a file needs no base and no calls, and with neither has no credential,
+check or notify either.
+
+  name: aiquokka
+  about: Usage limits of the subscriptions the agents' CLIs are logged in to.
+  limits:
+    command: [/Users/me/go/bin/aiquokka, "{provider}", --json]
+    kinds:              # harness kind: the provider's own name for it
+      claude: claude
+      kimi: kimi
+
+The command is run by yardr itself, as the user yardr runs as: without a
+shell (each word is one element of the list), its stdin closed, in the
+yard's home, with {provider} replaced by the name the kind maps to, for at
+most ` + limits.Timeout.String() + `, after which it and everything it started are killed. Name the
+program by its whole path: the daemon's PATH need not be your shell's. It
+answers with exit status 0 and one JSON object on stdout, at most 64 KB:
+
+  {"provider": "Kimi", "plan": "…", "windows": [
+    {"label": "5h", "used_percent": 100, "resets_at": "2026-10-07T00:02:32Z", "used": 100, "limit": 100}]}
+
+provider and windows are required, and each window's label; used_percent is
+a number, used and limit whole numbers, resets_at a time as RFC 3339 writes
+one, plan a string, each left out when the provider does not know it. Other
+keys are passed over. A window is used up at used_percent 100 or more, or
+when used has reached limit. Anything else (another exit status, no answer
+in time, other output) is no answer: the limits are then not known, and the
+reason is the last lines the command printed on stderr.
+
+Refused when the file is added: a command that is no list of strings, has no
+{provider} among its arguments or has it in the program; a kind herdr starts
+no agent of; a kind another source of the yard already answers for. No pack
+brings a limits key: it is a command the yard runs, so it is the operator's.
+What runs the command today: yardr limits, yardr source check and yardr
+doctor --try, each when a person asks. yardr limits --help says more.
+
 Adding, setting and removing a source is the operator's, and is refused from
-the pane of an agent: a source is where a credential of the yard is sent.
-What calls a declared source is yardr source check, and the daemon for a
-source a user names as their notify: it sends the user what landed in their
-inbox (yardr user set --help).`,
+the pane of an agent: a source is where a credential of the yard is sent,
+and its limits command is run by the yard. What calls a declared source is
+yardr source check, and the daemon for a source a user names as their
+notify: it sends the user what landed in their inbox (yardr user set
+--help).`,
 	}
 
 	add := &cobra.Command{
@@ -128,12 +170,20 @@ env_file; what the new file changes of its calls is printed.`,
 			}
 			changes := callChanges(before, d)
 			return a.out(map[string]any{"source": saved, "declaration": d, "changes": changes}, func() {
-				fmt.Printf("source %s saved: %s under %s\n", d.Name, plural(len(d.Calls), "call"), d.Base)
+				if len(d.Calls) == 0 {
+					fmt.Printf("source %s saved: no call, its limits command alone\n", d.Name)
+				} else {
+					fmt.Printf("source %s saved: %s under %s\n", d.Name, plural(len(d.Calls), "call"), d.Base)
+				}
 				for _, l := range changes {
 					fmt.Println("  " + l)
 				}
 				if d.Notify != nil {
 					fmt.Println("  " + notifyLine(d))
+				}
+				if d.Limits != nil {
+					fmt.Println("  " + limitsLine(d))
+					fmt.Printf("next: yardr source check %s (it asks for each of those kinds)\n", d.Name)
 				}
 				if d.Credential != nil && saved.EnvFile == "" {
 					fmt.Printf("next: yardr source set %s env_file=<a file of mode 0600 that sets %s>\n", d.Name, d.Credential.Env)
@@ -158,7 +208,7 @@ env_file; what the new file changes of its calls is printed.`,
 				for _, src := range srcs {
 					d, err := src.Declaration()
 					if err != nil {
-						rows = append(rows, []string{src.Name, "-", "not read by this yardr: yardr source show " + src.Name, "-", "-", "-"})
+						rows = append(rows, []string{src.Name, "-", "not read by this yardr: yardr source show " + src.Name, "-", "-", "-", "-"})
 						continue
 					}
 					names := make([]string, len(d.Calls))
@@ -173,9 +223,13 @@ env_file; what the new file changes of its calls is printed.`,
 					if d.Notify != nil {
 						notify = d.Notify.Call
 					}
-					rows = append(rows, []string{d.Name, d.Base, strings.Join(names, ", "), cred, or(d.Check, "-"), notify})
+					kinds := "-"
+					if d.Limits != nil {
+						kinds = strings.Join(d.Limits.KindNames(), ", ")
+					}
+					rows = append(rows, []string{d.Name, or(d.Base, "-"), or(strings.Join(names, ", "), "-"), cred, or(d.Check, "-"), notify, kinds})
 				}
-				table("NAME\tBASE\tCALLS\tCREDENTIAL\tCHECK\tNOTIFY", rows)
+				table("NAME\tBASE\tCALLS\tCREDENTIAL\tCHECK\tNOTIFY\tLIMITS", rows)
 			})
 		},
 	}
@@ -203,14 +257,15 @@ the variable and whether the env_file sets it. The value is never printed.
 				state = credErr.Error()
 			}
 			return a.out(map[string]any{"source": src, "declaration": d, "credential": state}, func() {
-				fmt.Printf("%s  %s\n", d.Name, d.Base)
+				fmt.Printf("%s  %s\n", d.Name, or(d.Base, "no calls"))
 				if d.About != "" {
 					fmt.Printf("  %s\n", d.About)
 				}
 				fmt.Printf("  credential: %s\n", state)
-				if d.Check != "" {
+				switch {
+				case d.Check != "":
 					fmt.Printf("  check: the call %s (yardr source check %s)\n", d.Check, d.Name)
-				} else {
+				case len(d.Calls) > 0:
 					fmt.Println("  check: the file names no call for it")
 				}
 				for _, call := range d.Calls {
@@ -230,6 +285,13 @@ the variable and whether the env_file sets it. The value is never printed.
 					fmt.Println("  " + notifyLine(d))
 				} else {
 					fmt.Println("  notify: the file has no notify key, so no user is told through it")
+				}
+				if d.Limits != nil {
+					fmt.Println("  " + limitsLine(d))
+					fmt.Printf("    command: %s\n", strings.Join(d.Limits.Command, " "))
+					for _, kind := range d.Limits.KindNames() {
+						fmt.Printf("    kind %s is asked as %s\n", kind, d.Limits.Kinds[kind])
+					}
 				}
 				fmt.Printf("  added %s by %s\n", since(src.AddedAt), src.AddedBy)
 			})
@@ -303,12 +365,18 @@ env_file= with nothing after it takes the setting away.`,
 	var checkUser string
 	check := &cobra.Command{
 		Use:   "check <name>",
-		Short: "See that a source's credential is set up, and make its check call",
+		Short: "See that a source's credential is set up, make its check call, and ask its limits command",
 		Long: `Reads the source's env_file as a call would, and makes the one call its
 declaration names as check: a read call without parameters. Prints the
 status the service answered with, and fails on anything but a success. A
 source whose file names no check call is sent nothing: its credential is
 looked at and that is all.
+
+A source that says limits (a limits key) has its command run once for each
+harness kind its file lists, one after the other, and what each answered is
+printed as yardr limits prints it. It fails when a kind got no answer, so a
+kind whose harness is not logged in on this machine is better left out of
+the file. Each run may take up to ` + limits.Timeout.String() + `.
 
 With --user it tells that user through the source instead: one real
 message, a line that says it is a test, sent as everything the yard tells
@@ -342,27 +410,55 @@ process for it. Nothing of the request is written anywhere.`,
 			if err != nil {
 				return fmt.Errorf("source %s: %w", d.Name, err)
 			}
-			out := map[string]any{"source": d.Name, "credential": state}
-			if d.Check == "" {
-				out["sent"] = false
-				return a.out(out, func() {
+			out := map[string]any{"source": d.Name, "credential": state, "sent": false}
+			// said is the part on the calls, for a person; limits follows it.
+			said := func() {}
+			switch {
+			case len(d.Calls) == 0:
+			case d.Check == "":
+				said = func() {
 					fmt.Printf("%s: credential: %s\n", d.Name, state)
 					fmt.Printf("%s: its file names no check call (check: <a read call without parameters>), so nothing was sent\n", d.Name)
-				})
+				}
+			default:
+				res, err := source.Do(c.Context(), d, d.Check, nil, cred)
+				if err != nil {
+					return err
+				}
+				call, _ := d.Call(d.Check)
+				out["sent"], out["call"], out["status"], out["ms"], out["bytes"] = true, d.Check, res.Status, res.Took.Milliseconds(), res.Bytes
+				if !res.OK() {
+					return fmt.Errorf("source %s: the check call %s (%s) was answered %d%s", d.Name, d.Check, call.Request.Line(), res.Status, statusHint(res.Status, d))
+				}
+				said = func() {
+					fmt.Printf("%s: credential: %s\n", d.Name, state)
+					fmt.Printf("%s: check call %s (%s): %d in %dms, %d bytes\n", d.Name, d.Check, call.Request.Line(), res.Status, res.Took.Milliseconds(), res.Bytes)
+				}
 			}
-			res, err := source.Do(c.Context(), d, d.Check, nil, cred)
+			if d.Limits == nil {
+				return a.out(out, said)
+			}
+			cfg, err := config.Load()
 			if err != nil {
 				return err
 			}
-			call, _ := d.Call(d.Check)
-			out["sent"], out["call"], out["status"], out["ms"], out["bytes"] = true, d.Check, res.Status, res.Took.Milliseconds(), res.Bytes
-			if !res.OK() {
-				return fmt.Errorf("source %s: the check call %s (%s) was answered %d%s", d.Name, d.Check, call.Request.Line(), res.Status, statusHint(res.Status, d))
+			asked, ok := checkLimits(c.Context(), limits.Answerer{Source: d.Name, Limits: d.Limits, Home: cfg.Home})
+			out["limits"] = asked
+			if err := a.out(out, func() {
+				said()
+				now := time.Now()
+				for _, k := range asked {
+					for _, l := range k.lines(now) {
+						fmt.Printf("%s: limits: %s\n", d.Name, l)
+					}
+				}
+			}); err != nil {
+				return err
 			}
-			return a.out(out, func() {
-				fmt.Printf("%s: credential: %s\n", d.Name, state)
-				fmt.Printf("%s: check call %s (%s): %d in %dms, %d bytes\n", d.Name, d.Check, call.Request.Line(), res.Status, res.Took.Milliseconds(), res.Bytes)
-			})
+			if !ok {
+				return errCheckFailed // the lines said which kind and why
+			}
+			return nil
 		},
 	}
 
@@ -409,6 +505,11 @@ func (a *app) checkTells(ctx context.Context, st store.API, name, user string) e
 func notifyLine(d *source.Declaration) string {
 	n := d.Notify
 	return fmt.Sprintf("notify: the call %s tells a user, at the %s of their env_file (yardr user set <name> %s=%s)", n.Call, n.AddressEnv, store.UserNotify, d.Name)
+}
+
+// limitsLine says in a line that a source says limits, and of which kinds.
+func limitsLine(d *source.Declaration) string {
+	return fmt.Sprintf("limits: its command says what the subscription of %s still carries (yardr limits <kind>)", strings.Join(d.Limits.KindNames(), ", "))
 }
 
 // statusHint says what a status of a check call most likely means.
@@ -464,7 +565,7 @@ func callChanges(was, now *source.Declaration) []string {
 		}
 	}
 	if was.Base != now.Base {
-		out = append(out, fmt.Sprintf("base was %s", was.Base))
+		out = append(out, fmt.Sprintf("base was %s", or(was.Base, "none: it had no calls")))
 	}
 	if len(out) == 0 {
 		out = append(out, "replaces the one of that name: its calls are as they were")

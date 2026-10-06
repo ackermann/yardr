@@ -3,13 +3,10 @@ package config
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -17,10 +14,6 @@ import (
 // for someone (a locked vault asking for a password) must not hold up the
 // daemon's pass.
 var EnvCommandTimeout = 10 * time.Second
-
-// envCommandKillAgain is how long after the kill of a provider's group the
-// group is killed again: time for a child that was being forked to be there.
-const envCommandKillAgain = 50 * time.Millisecond
 
 // envCommandMax bounds what an env_command may print: an environment, not a
 // stream.
@@ -176,14 +169,7 @@ func EnvCommandMissing(dir string, cfg map[string]any) error {
 	if len(argv) == 0 {
 		return nil
 	}
-	prog, err := envProgram(argv[0], dir)
-	if err == nil {
-		_, err = exec.LookPath(prog)
-	}
-	if err != nil {
-		return fmt.Errorf("env_command %s: %w", strings.Join(argv, " "), err)
-	}
-	return nil
+	return Command{What: "env_command " + strings.Join(argv, " "), Argv: argv, Dir: dir}.Missing()
 }
 
 // envProgram is the program an env_command names: a leading ~/ is the
@@ -203,103 +189,13 @@ func envProgram(prog, dir string) (string, error) {
 // runEnvCommand runs argv and reads its stdout as an env_file.
 func runEnvCommand(ctx context.Context, argv []string, member, dir, home string) ([]string, error) {
 	what := "env_command " + strings.Join(argv, " ")
-	prog, err := envProgram(argv[0], dir)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", what, err)
-	}
-	ctx, cancel := context.WithTimeout(ctx, EnvCommandTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, prog, argv[1:]...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), Env("CREW", member)...)
+	env := append(os.Environ(), Env("CREW", member)...)
 	if home != "" {
-		cmd.Env = append(cmd.Env, Env("HOME", home)...)
+		env = append(env, Env("HOME", home)...)
 	}
-	stdout, stderr := &capped{max: envCommandMax}, &tail{max: 4096}
-	cmd.Stdout, cmd.Stderr = stdout, stderr
-	// The whole group is killed at the timeout, and the pipes are given up
-	// a moment later: a provider that is a script leaves a child behind
-	// (the tool it waits on) which would hold them open otherwise.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	kill := func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
-	// One kill is not enough: a child the provider's shell is forking as
-	// the kill lands is missed by it (seen on macOS) and left running, in
-	// the group, when the shell is gone. It is there a moment later, so
-	// the group is killed again then, and once more when the pipes have
-	// been given up, for a child that took longer to appear.
-	cmd.Cancel = func() error {
-		err := kill()
-		time.Sleep(envCommandKillAgain)
-		kill()
-		return err
+	out, err := Command{What: what, Argv: argv, Dir: dir, Env: env, Timeout: EnvCommandTimeout, Max: envCommandMax}.Output(ctx)
+	if err != nil {
+		return nil, err
 	}
-	cmd.WaitDelay = time.Second
-	err = cmd.Run()
-	if ctx.Err() != nil && cmd.Process != nil {
-		kill()
-	}
-	switch {
-	case errors.Is(ctx.Err(), context.DeadlineExceeded):
-		return nil, fmt.Errorf("%s: no answer within %s%s", what, EnvCommandTimeout, stderr.lines())
-	case ctx.Err() != nil:
-		return nil, fmt.Errorf("%s: %w", what, ctx.Err())
-	case err != nil:
-		// An exit status, or why it could not be run: neither holds
-		// anything the command printed.
-		return nil, fmt.Errorf("%s: %w%s", what, err, stderr.lines())
-	case stdout.over:
-		return nil, fmt.Errorf("%s: printed more than %d bytes", what, envCommandMax)
-	}
-	return parseEnv(&stdout.buf, what)
-}
-
-// capped keeps the first max bytes written to it and notes that there were
-// more.
-type capped struct {
-	buf  bytes.Buffer
-	max  int
-	over bool
-}
-
-func (c *capped) Write(p []byte) (int, error) {
-	if room := c.max - c.buf.Len(); len(p) > room {
-		c.over = true
-		c.buf.Write(p[:max(room, 0)])
-	} else {
-		c.buf.Write(p)
-	}
-	return len(p), nil
-}
-
-// tail keeps the last max bytes written to it.
-type tail struct {
-	buf []byte
-	max int
-}
-
-func (t *tail) Write(p []byte) (int, error) {
-	t.buf = append(t.buf, p...)
-	if over := len(t.buf) - t.max; over > 0 {
-		t.buf = t.buf[over:]
-	}
-	return len(p), nil
-}
-
-// lines is the last few lines kept, as the end of an error: what the
-// command said went wrong. Empty when it said nothing.
-func (t *tail) lines() string {
-	const keep = 5
-	var out []string
-	for _, l := range strings.Split(string(t.buf), "\n") {
-		if l = strings.TrimSpace(l); l != "" {
-			out = append(out, l)
-		}
-	}
-	if len(out) == 0 {
-		return ""
-	}
-	if len(out) > keep {
-		out = out[len(out)-keep:]
-	}
-	return "; its stderr ended: " + strings.Join(out, " | ")
+	return parseEnv(bytes.NewReader(out), what)
 }
