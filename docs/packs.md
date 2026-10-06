@@ -442,6 +442,15 @@ answers nothing, since its binding is the yard's and is kept; that is not
 an error, so the same command can be run again. A resident the import
 creates works in the yard's home, as one made by `yardr resident add` does.
 
+**One answer to `--resident` per yard.** The filled copies of a pack's
+roles and stage files are installed once per pack
+(`<home>/packs/<pack>/roles/…`, `<home>/flows/<pack>.<flow>/…`), not once
+per rig, and every rig that imports the pack reads them
+([above](#how-a-pack-maps-to-the-yard)). So a second rig importing the pack
+with another `--resident <pack's>=<yard's>` rewrites them for the first rig
+too: its agents then read the second rig's resident in their roles and
+stage files. Import a pack with the same residents in every rig of a yard.
+
 Without a terminal, or with `--json`, nothing is asked: a question without
 its flag is an error that names the flag, never a default, with two
 exceptions: the permission arguments, and whether a resident may open
