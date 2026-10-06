@@ -216,3 +216,197 @@ func TestHarnessErrorLines(t *testing.T) {
 		t.Errorf("an error line 13 lines up was taken for what the harness stopped on: %s", reason)
 	}
 }
+
+// retryRunner is an agentRunner whose agents can be told their first prompt
+// again: it knows the prompt, and keeps what was typed.
+type retryRunner struct {
+	*agentRunner
+	nudges []string
+	input  string // what is typed in the agent's input and not sent
+}
+
+func (n *retryRunner) FirstPrompt(map[string]any) string { return "Read brief.md and follow it." }
+
+func (n *retryRunner) Nudge(_ context.Context, _ map[string]any, text string) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.nudges = append(n.nudges, text)
+	return nil
+}
+
+func (n *retryRunner) InputText(context.Context, map[string]any) (string, bool, error) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.input, true, nil
+}
+
+// retrySetup is a yard with one codex session whose agent answered its
+// first prompt with tail and sits idle, having done nothing, and a clock
+// the test moves: at(by) puts the dispatcher by after the start.
+func retrySetup(t *testing.T, tail string) (s store.API, r *retryRunner, d *dispatch.Dispatcher, b store.Bead, at func(time.Duration)) {
+	t.Helper()
+	s = storetest.New(t)
+	r = &retryRunner{agentRunner: &agentRunner{statusRunner: &statusRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}},
+		status: "idle"}, tail: tail}}
+	d = &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, Backoff: time.Hour}
+	var skew time.Duration
+	dispatch.SetClock(d, func() time.Time { return time.Now().Add(skew) })
+	ctx := context.Background()
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: map[string]any{"kind": "codex"}}))
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	must(t, err)
+	bead, err := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
+	must(t, err)
+	must(t, d.Reconcile(ctx)) // start
+	must(t, d.Reconcile(ctx)) // seen idle, its pane read
+	return s, r, d, *bead, func(by time.Duration) { skew = by }
+}
+
+// The 6 Oct case (yardr-f7aw): a harness that answers its first prompt with
+// "at capacity" is given the prompt again by yardr, five minutes on. The
+// agent gets going, and the yardmaster hears nothing: no
+// session_harness_error, and no session_stalled for the wait either.
+func TestAtCapacityIsPromptedAgain(t *testing.T) {
+	s, r, d, b, at := retrySetup(t, atCapacity)
+	ctx := context.Background()
+	tries := func() []store.Event { t.Helper(); return eventKinds(t, s, b.ID, "session_harness_retry") }
+	quiet := func(when string) {
+		t.Helper()
+		for _, kind := range []string{"session_harness_error", "session_stalled"} {
+			if evs := eventKinds(t, s, b.ID, kind); len(evs) != 0 {
+				t.Fatalf("%s: %s = %v, want none", when, kind, evs[0].Data)
+			}
+		}
+	}
+
+	// The wait is not over: nothing is typed.
+	at(4 * time.Minute)
+	must(t, d.Reconcile(ctx))
+	if len(tries()) != 0 || len(r.nudges) != 0 {
+		t.Fatalf("after 4m: %d tries, typed %q; the wait is 5m", len(tries()), r.nudges)
+	}
+	quiet("in the wait")
+
+	at(5*time.Minute + time.Second)
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	evs := tries()
+	if len(evs) != 1 || len(r.nudges) != 1 || r.nudges[0] != "Read brief.md and follow it." {
+		t.Fatalf("after 5m: tries = %v, typed %q; want the first prompt given again once", evs, r.nudges)
+	}
+	got, _ := s.GetBead(ctx, b.ID)
+	if data := evs[0].Data; data["try"] != float64(1) || data["of"] != float64(dispatch.HarnessRetries) ||
+		data["reason"] != dispatch.ReasonAtCapacity || data["session"] != *got.Session || data["kind"] != "codex" ||
+		data["line"] != "■ Selected model is at capacity. Please try a different model." {
+		t.Fatalf("session_harness_retry data = %v", data)
+	}
+
+	// It works this time, and what it then stops for is its own business.
+	r.show("working", "• Reading the brief")
+	must(t, d.Reconcile(ctx))
+	r.show("idle", "• Done. Reported the outcome.\n› Ask Codex to do anything")
+	at(30 * time.Minute)
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	if len(tries()) != 1 || len(r.nudges) != 1 {
+		t.Fatalf("an agent that got going was prompted again: tries %d, typed %q", len(tries()), r.nudges)
+	}
+	quiet("after the try worked")
+}
+
+// The model stays at capacity: three tries, five minutes apart, each an
+// event; then session_harness_error once, saying how often yardr tried. A
+// daemon that replaces itself on the way neither starts the count again nor
+// forgets the wait.
+func TestAtCapacityIsRaisedWhenTheTriesAreUsedUp(t *testing.T) {
+	s, r, d, b, at := retrySetup(t, atCapacity)
+	ctx := context.Background()
+	count := func(kind string) int { t.Helper(); return len(eventKinds(t, s, b.ID, kind)) }
+
+	at(5*time.Minute + time.Second)
+	must(t, d.Reconcile(ctx))
+	if count("session_harness_retry") != 1 {
+		t.Fatalf("tries after 5m = %d, want 1", count("session_harness_retry"))
+	}
+
+	var skew time.Duration
+	d2 := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, Backoff: time.Hour}
+	dispatch.SetClock(d2, func() time.Time { return time.Now().Add(skew) })
+	for i, min := range []int{6, 10, 11, 15, 16} {
+		skew = time.Duration(min)*time.Minute + 2*time.Second
+		must(t, d2.Reconcile(ctx))
+		must(t, d2.Reconcile(ctx))
+		if want := []int{1, 2, 2, 3, 3}[i]; count("session_harness_retry") != want || len(r.nudges) != want {
+			t.Fatalf("after %dm: %d tries, typed %d times; want %d", min, count("session_harness_retry"), len(r.nudges), want)
+		}
+		if n := count("session_harness_error"); n != 0 {
+			t.Fatalf("after %dm: session_harness_error raised with a try still to make or to wait for", min)
+		}
+	}
+
+	skew = 20*time.Minute + 3*time.Second
+	must(t, d2.Reconcile(ctx))
+	must(t, d2.Reconcile(ctx))
+	skew = 40 * time.Minute
+	must(t, d2.Reconcile(ctx))
+	evs := eventKinds(t, s, b.ID, "session_harness_error")
+	if len(evs) != 1 {
+		t.Fatalf("session_harness_error events = %d, want 1 once the tries are used up", len(evs))
+	}
+	data := evs[0].Data
+	if data["reason"] != dispatch.ReasonAtCapacity || data["tries"] != float64(dispatch.HarnessRetries) ||
+		data["tail"] != atCapacity || !strings.Contains(data["hint"].(string), "first prompt again 3 times") ||
+		!strings.Contains(data["hint"].(string), "yardr bead release "+b.ID) {
+		t.Fatalf("session_harness_error data = %v", data)
+	}
+	if count("session_harness_retry") != dispatch.HarnessRetries || len(r.nudges) != dispatch.HarnessRetries {
+		t.Fatalf("%d tries, typed %d times; want %d", count("session_harness_retry"), len(r.nudges), dispatch.HarnessRetries)
+	}
+}
+
+// Only at_capacity on a first prompt is retried. Another reason, a session
+// that has done something (it stopped mid-work, where the first prompt is
+// not what it needs), and one with text in its input are raised at once, as
+// they always were, and nothing is typed however long they sit.
+func TestHarnessErrorThatIsNotPromptedAgain(t *testing.T) {
+	const limited = "■ You've hit your usage limit. Upgrade to Plus to continue using Codex.\n› Ask Codex to do anything"
+	for name, tc := range map[string]struct {
+		tail   string
+		worked bool
+		input  string
+		want   string
+	}{
+		"another reason": {tail: limited, want: dispatch.ReasonRateLimited},
+		"mid-work":       {tail: atCapacity, worked: true, want: dispatch.ReasonAtCapacity},
+		"text in input":  {tail: atCapacity, input: "wait, try the other", want: dispatch.ReasonAtCapacity},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, r, d, b, at := retrySetup(t, "› Ask Codex to do anything")
+			ctx := context.Background()
+			r.show("working", "• Reading the brief")
+			must(t, d.Reconcile(ctx))
+			r.mu.Lock()
+			r.worked, r.input = tc.worked, tc.input
+			r.mu.Unlock()
+			r.show("idle", tc.tail)
+			must(t, d.Reconcile(ctx))
+			evs := eventKinds(t, s, b.ID, "session_harness_error")
+			if len(evs) != 1 || evs[0].Data["reason"] != tc.want {
+				t.Fatalf("session_harness_error = %v, want one at once with reason %s", evs, tc.want)
+			}
+			if _, has := evs[0].Data["tries"]; has {
+				t.Fatalf("session_harness_error data = %v; tries of a session that was never prompted again", evs[0].Data)
+			}
+			at(6 * time.Minute)
+			must(t, d.Reconcile(ctx))
+			at(12 * time.Minute)
+			must(t, d.Reconcile(ctx))
+			if n := len(eventKinds(t, s, b.ID, "session_harness_retry")); n != 0 || len(r.nudges) != 0 {
+				t.Fatalf("%d tries, typed %q; want none", n, r.nudges)
+			}
+			if n := len(eventKinds(t, s, b.ID, "session_harness_error")); n != 1 {
+				t.Fatalf("session_harness_error events = %d, want 1", n)
+			}
+		})
+	}
+}

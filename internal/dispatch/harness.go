@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"regexp"
 	"strings"
@@ -22,6 +23,25 @@ import (
 //
 // The session is left as it is: whether to wait, to get the agent going in
 // its pane or to end the session is the yardmaster's to decide.
+//
+// But for one case, which needs no judgement (yardr-f7aw): on 6 Oct 2026 a
+// reviewer's harness answered its first prompt with "Selected model is at
+// capacity", and all the yardmaster did was give it the same prompt again
+// by hand. So a session that stopped on at_capacity and has done nothing
+// yet is given its first prompt again by yardr: harnessRetryWait after the
+// error is seen, and again that long after each try while the error still
+// ends its pane, HarnessRetries times in the session's life. Each try is a
+// session_harness_retry event. Only when the tries are used up is
+// session_harness_error raised, as it always was, with how often yardr
+// tried (`tries`).
+//
+// Only the first prompt is sent again, since only that is known to be the
+// right thing to say: a session that has left anything behind (worked, as
+// for a stall) stopped mid-work, where "continue" may be right or its last
+// message may, and that is the yardmaster's as before. So is one whose
+// input holds text, whose first prompt is still being delivered, or whose
+// runner cannot say what the first prompt was. The other reasons are never
+// retried: a login or a usage limit does not come back by asking again.
 
 // Reasons a session_harness_error gives. ReasonOther is an error line that
 // is known to stop the harness and is none of the others (a model it may
@@ -38,6 +58,31 @@ const (
 // in memory, so a daemon that replaces itself does not tell the yardmaster
 // again, and it is taken off when the agent is seen doing something.
 const HarnessErrorKey = "harness_error"
+
+// Handle keys of the tries yardr makes for a session stopped on
+// at_capacity. They are on the handle, as a pending prompt's are (prompt.go),
+// so a daemon that replaces itself neither starts the count again nor
+// forgets the wait.
+const (
+	harnessRetries = "harness_retries"  // how often the first prompt was given again
+	harnessRetryAt = "harness_retry_at" // when the pane is next looked at for a try (RFC 3339); only while one waits
+)
+
+// HarnessRetries is how often yardr gives a session stopped on at_capacity
+// its first prompt again before the yardmaster hears of it.
+const HarnessRetries = 3
+
+// harnessRetryWait is how long the error stands before each try, and after
+// the last one before it is raised: capacity that is gone is not back in
+// seconds, and four waits still end before the idle limit (30m).
+const harnessRetryWait = 5 * time.Minute
+
+// FirstPrompter is implemented by runners that can say what a session's
+// agent was first told (a herdr agent is pointed at its brief), so that it
+// can be told again. "" is a session whose first prompt is not known.
+type FirstPrompter interface {
+	FirstPrompt(handle map[string]any) string
+}
 
 const (
 	// harnessLook is how long into an idle spell the pane is read on each
@@ -145,10 +190,33 @@ func (d *Dispatcher) paneTail(ctx context.Context, r Runner, s store.Session) (t
 	return tail, true
 }
 
+// harnessWaits reports whether a try for s waits (see harnessRetry), and
+// when it is due.
+func harnessWaits(s *store.Session) (due time.Time, waits bool) {
+	at, _ := s.Handle[harnessRetryAt].(string)
+	due, err := time.Parse(time.RFC3339Nano, at)
+	return due, err == nil
+}
+
+// harnessLooks reports whether the pane of s, idle for idleFor, is read on
+// this pass for an error of its harness: while the spell is young, and when
+// a try that waits is due. Until it is due, Run is told when to look.
+func (d *Dispatcher) harnessLooks(s *store.Session, idleFor time.Duration) bool {
+	if due, waits := harnessWaits(s); waits {
+		if d.now().Before(due) {
+			d.lookAt(due)
+			return false
+		}
+		return true
+	}
+	return idleFor <= harnessLook && s.Handle[HarnessErrorKey] == nil
+}
+
 // harnessError raises session_harness_error for the idle session s when
 // tail, the end of its pane, shows a known error of its harness, once per
-// idle spell. s.Handle is updated with the mark it stores.
-func (d *Dispatcher) harnessError(ctx context.Context, s *store.Session, g store.Group, tail string) {
+// idle spell. One that is at_capacity is first left to harnessRetry.
+// s.Handle is updated with the marks it stores.
+func (d *Dispatcher) harnessError(ctx context.Context, r Runner, s *store.Session, g store.Group, tail string) {
 	if s.Handle[HarnessErrorKey] != nil {
 		return
 	}
@@ -158,35 +226,135 @@ func (d *Dispatcher) harnessError(ctx context.Context, s *store.Session, g store
 	}
 	reason, line, ok := HarnessError(kind, tail)
 	if !ok {
+		// The error a try waited on has left the pane.
+		if _, waits := harnessWaits(s); waits {
+			d.markHarnessError(ctx, s, "")
+		}
+		return
+	}
+	data := map[string]any{"session": s.ID, "group": s.Group, "stage": s.Stage, "kind": kind,
+		"reason": reason, "line": line}
+	if reason == ReasonAtCapacity && d.harnessRetry(ctx, r, s, data) {
 		return
 	}
 	d.Log.Warn("session's harness stopped on an error", "session", s.ID, "bead", s.Bead, "group", s.Group,
 		"kind", kind, "reason", reason, "line", line)
-	data := map[string]any{"session": s.ID, "group": s.Group, "stage": s.Stage, "kind": kind,
-		"reason": reason, "line": line, "tail": tail,
-		"hint": "the agent's harness stopped on an error and sits idle; the line is in line, its pane's last " +
-			"lines in tail. The session is left as it is: get the agent going in its pane, or end the " +
-			"session with `yardr bead release " + s.Bead + "`"}
+	data["tail"] = tail
+	data["hint"] = "the agent's harness stopped on an error and sits idle; the line is in line, its pane's last " +
+		"lines in tail. The session is left as it is: get the agent going in its pane, or end the " +
+		"session with `yardr bead release " + s.Bead + "`"
+	if tries := handleInt(s.Handle[harnessRetries]); reason == ReasonAtCapacity && tries > 0 {
+		data["tries"] = tries
+		data["hint"] = fmt.Sprintf("yardr gave the agent its first prompt again %d times, %s apart; ", tries, harnessRetryWait) +
+			data["hint"].(string)
+	}
 	if err := d.Store.LogDispatch(ctx, s.Bead, "session_harness_error", actor, data); err != nil {
 		d.Log.Warn("session_harness_error event", "session", s.ID, "err", err)
 	}
 	d.markHarnessError(ctx, s, reason)
 }
 
-// harnessOver ends the spell a session_harness_error was raised in: s's
-// agent is doing something again, so its next error is told again.
+// harnessRetry takes one step for s, idle with at_capacity at the end of
+// its pane: it starts the wait for a try, leaves a wait that is not over
+// alone, or, with the wait over, gives the agent its first prompt again and
+// waits once more. data is what the try's event says of the error. It
+// reports false when the error is to be raised instead: the tries are used
+// up, or s is not a session yardr may prompt (see harnessPrompt).
+//
+// The wait after a try is on the handle with the try, not started by the
+// next look at the pane: an agent that never left idle is past harnessLook
+// by then and would not be looked at again. And the error is raised at the
+// end of a wait, not at the try, so the last try has had as long as the
+// others to show what it did; until the harness prints something, the old
+// error still ends its pane.
+func (d *Dispatcher) harnessRetry(ctx context.Context, r Runner, s *store.Session, data map[string]any) bool {
+	now := d.now()
+	due, waits := harnessWaits(s)
+	if waits && now.Before(due) {
+		return true
+	}
+	tries := handleInt(s.Handle[harnessRetries])
+	if tries >= HarnessRetries {
+		return false
+	}
+	prompt := d.harnessPrompt(ctx, r, s)
+	if prompt == "" {
+		return false
+	}
+	next := now.Add(harnessRetryWait)
+	h := withHandle(s.Handle, harnessRetryAt, next.UTC().Format(time.RFC3339Nano))
+	if waits {
+		if err := r.(Nudger).Nudge(ctx, s.Handle, prompt); err != nil {
+			d.Log.Warn("give a session at capacity its first prompt again", "session", s.ID, "err", err)
+			return true // try again next pass
+		}
+		tries++
+		h[harnessRetries] = tries
+	}
+	if err := d.Store.SetHandle(ctx, s.ID, h); err != nil {
+		d.Log.Warn("mark session's harness retry", "session", s.ID, "err", err)
+		return !waits // a try that is not counted is not made again: raised
+	}
+	s.Handle = h
+	d.lookAt(next)
+	if !waits {
+		return true
+	}
+	d.Log.Warn("session's harness stopped at capacity: first prompt given again", "session", s.ID, "bead", s.Bead,
+		"try", tries, "of", HarnessRetries)
+	data = maps.Clone(data)
+	data["try"], data["of"] = tries, HarnessRetries
+	if err := d.Store.LogDispatch(ctx, s.Bead, "session_harness_retry", actor, data); err != nil {
+		d.Log.Warn("session_harness_retry event", "session", s.ID, "err", err)
+	}
+	return true
+}
+
+// harnessPrompt is the prompt a try gives s's agent, "" when yardr may not
+// prompt it: the first prompt, of a session that has done nothing with it
+// yet (worked, as a stall asks) and whose input is empty. Whether it did
+// anything is asked before each try, so a session a person got going and
+// that stopped again mid-work is not sent back to its brief.
+func (d *Dispatcher) harnessPrompt(ctx context.Context, r Runner, s *store.Session) string {
+	fp, ok := r.(FirstPrompter)
+	if _, nudges := r.(Nudger); !ok || !nudges || s.Handle[PendingPrompt] != nil {
+		return ""
+	}
+	prompt := fp.FirstPrompt(s.Handle)
+	if prompt == "" {
+		return ""
+	}
+	if worked, err := d.worked(ctx, r, *s); err != nil || worked {
+		return ""
+	}
+	// Text in the input is someone's (see inputHeld): nothing is typed
+	// after it, and the session is theirs.
+	if ir, ok := r.(InputReader); ok {
+		if text, known, err := ir.InputText(ctx, s.Handle); err == nil && known && strings.TrimSpace(text) != "" {
+			return ""
+		}
+	}
+	return prompt
+}
+
+// harnessOver ends the spell a session_harness_error was raised in, or a
+// try waited in: s's agent is doing something again, so its next error is
+// told again. The count of tries stays: it is for the session's life, or an
+// agent that works for a moment after each would be prompted for ever.
 func (d *Dispatcher) harnessOver(ctx context.Context, s *store.Session) {
-	if s.Handle[HarnessErrorKey] != nil {
+	if s.Handle[HarnessErrorKey] != nil || s.Handle[harnessRetryAt] != nil {
 		d.markHarnessError(ctx, s, "")
 	}
 }
 
 // markHarnessError keeps reason on s's handle, or takes the mark off for "".
+// Either ends a wait for a try.
 func (d *Dispatcher) markHarnessError(ctx context.Context, s *store.Session, reason string) {
 	h := maps.Clone(s.Handle)
 	if h == nil {
 		h = map[string]any{}
 	}
+	delete(h, harnessRetryAt)
 	if reason == "" {
 		delete(h, HarnessErrorKey)
 	} else {

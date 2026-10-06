@@ -278,7 +278,11 @@ kind=session_stalled`).
 error of its own and sits idle. Its `reason` is `at_capacity`,
 `not_logged_in`, `rate_limited` or `other`, `line` is the error as the
 harness printed it and `tail` the end of the pane
-([groups.md](groups.md#a-harness-that-stopped-on-an-error)). `session_idle`
+([groups.md](groups.md#a-harness-that-stopped-on-an-error)). A session
+that hit `at_capacity` on its first prompt is given the prompt again by the
+daemon first (`session_harness_retry`, one per try, in nobody's default
+`--on`); its `session_harness_error` comes when the tries are used up and
+says how many there were (`tries`). `session_idle`
 carries the same `tail`, so the inbox shows what an idle agent's pane ends
 in.
 

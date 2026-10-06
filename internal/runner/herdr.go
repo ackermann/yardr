@@ -380,11 +380,23 @@ func (h *Herdr) brief(ctx context.Context, job dispatch.Job, name, workdir, dir,
 	if extra := AgentArgs(job); len(extra) > 0 {
 		args = append(append(args, "--"), extra...)
 	}
+	return h.startAgent(ctx, args, name, h.FirstPrompt(handle), handle, trusts(job.Group.Config))
+}
+
+// FirstPrompt is what the agent of a bead's session is first told: where
+// its brief is. The dispatcher gives it again to a session whose harness
+// answered it with "at capacity" (dispatch.FirstPrompter). "" is a handle
+// with no brief: a crew member's, whose first prompt is another.
+func (h *Herdr) FirstPrompt(handle map[string]any) string {
+	briefPath, _ := handle["brief"].(string)
+	if briefPath == "" {
+		return ""
+	}
 	prompt := fmt.Sprintf("Read %s and follow it.", briefPath)
 	if h.YardBin != "" {
 		prompt += fmt.Sprintf(" Run yardr as %s.", h.YardBin)
 	}
-	return h.startAgent(ctx, args, name, prompt, handle, trusts(job.Group.Config))
+	return prompt
 }
 
 // startDir starts a bead of a dir depot. There is no branch and no worktree:

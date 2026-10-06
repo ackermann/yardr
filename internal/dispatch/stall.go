@@ -65,8 +65,9 @@ func (d *Dispatcher) prompted(r Runner, id string) {
 // updated with the mark it stores.
 func (d *Dispatcher) stall(ctx context.Context, r Runner, s *store.Session, g store.Group) {
 	since, ok := d.fresh[s.ID]
-	// A prompt still on the handle has not arrived yet.
-	if !ok || s.Handle[PendingPrompt] != nil {
+	// A prompt still on the handle has not arrived yet, and one yardr is
+	// about to give again (harness.go) has not been answered yet.
+	if !ok || s.Handle[PendingPrompt] != nil || s.Handle[harnessRetryAt] != nil {
 		return
 	}
 	lim, on := limit(g.Config, "stall", DefaultStallLimit, true)

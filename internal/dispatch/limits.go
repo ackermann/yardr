@@ -19,7 +19,8 @@ import (
 //	         pane as `tail`; default 30m. An agent whose harness stopped
 //	         on an error is told apart sooner, at the start of the spell
 //	         and whatever idle is set to (session_harness_error, see
-//	         harness.go). An agent whose
+//	         harness.go, which also says when yardr prompts it again
+//	         itself). An agent whose
 //	         bead has a gate running (yardr depot check) is not idle but
 //	         waiting for it: the count starts when the gate has ended
 //	max_age  how long a session may run before a session_aged event;
@@ -109,11 +110,12 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 			tell := idleOn && idleFor >= idle && !d.idleTold[s.ID]
 			// The pane says why an agent is idle, where a status cannot: it
 			// is read while the spell is young, for a harness that stopped
-			// on an error (harness.go), and once more for session_idle.
+			// on an error (harness.go), when a try for one is due, and once
+			// more for session_idle.
 			tail, read := "", false
-			if tell || (idleFor <= harnessLook && s.Handle[HarnessErrorKey] == nil) {
+			if d.harnessLooks(s, idleFor) || tell {
 				if tail, read = d.paneTail(ctx, r, *s); read {
-					d.harnessError(ctx, s, g, tail)
+					d.harnessError(ctx, r, s, g, tail)
 				}
 			}
 			if tell {

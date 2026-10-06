@@ -958,6 +958,14 @@ esac`)}
 	if !strings.Contains(string(calls), "agent prompt yard-13-new Read "+brief+" and follow it.\n") {
 		t.Fatalf("agent not pointed at the brief by its path:\n%s", calls)
 	}
+	// What the dispatcher gives again to a harness that was at capacity is
+	// that same prompt, from the handle alone.
+	if got, want := h.FirstPrompt(handle), "Read "+brief+" and follow it."; got != want {
+		t.Fatalf("FirstPrompt = %q, want %q", got, want)
+	}
+	if got := h.FirstPrompt(map[string]any{"agent": "yardmaster"}); got != "" {
+		t.Fatalf("FirstPrompt of a handle with no brief = %q, want none", got)
+	}
 }
 
 // A bead agent's identity is in its environment, set by herdr on the tab

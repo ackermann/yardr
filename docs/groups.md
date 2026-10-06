@@ -95,6 +95,7 @@ pane, and a line among its last 12 that is a known error of the group's
 | `reason` | `at_capacity` (the model or the API has no room: try later, or another model), `not_logged_in` (log in in its pane, or fix the group's `env_file`), `rate_limited` (a usage or rate limit: it says when it resets), `other` (an error line that stops the harness and is none of these: a model it may not use, no credit, an API error) |
 | `line` | the error line, as the harness printed it |
 | `tail` | the last 20 lines of the pane that say anything, as `session_stalled` carries them |
+| `tries` | only with `at_capacity`, and only when the daemon gave the agent its first prompt again before it raised this: how often (see below) |
 | `kind`, `session`, `group`, `stage`, `hint` | which harness, whose session, and what can be done |
 
 It is raised once per idle spell: when the agent is seen working again the
@@ -108,6 +109,31 @@ its pane or to end the session (`yardr bead release
 <bead>`) is the yardmaster's to decide. It is in a new crew member's default
 `--on`; a crew member from before it was gets it with `yardr crew set <name>
 --on` naming every kind wanted ([crew.md](crew.md)).
+
+**`at_capacity` on a first prompt is tried again first.** A harness that
+answers its first prompt with "at capacity" needs the same prompt again,
+later, and nothing else. So for a session whose reason is `at_capacity` and
+whose agent has done nothing yet (no note or move on its bead, no change in
+its worktree: what `session_stalled` asks), the daemon raises nothing at
+first. It waits 5 minutes; if the error still ends the idle agent's pane it
+gives the agent its first prompt again (`Read <brief> and follow it.`) and
+waits 5 minutes more, up to 3 times in the session's life. Each try is a
+`session_harness_retry` event on the bead (`try`, `of`, and the `reason`,
+`line`, `kind`, `session`, `group`, `stage` of the error); nobody is told of
+it by default. An agent that gets going ends it: nothing is raised. When
+the error still stands 5 minutes after the third try,
+`session_harness_error` is raised as above, with `tries: 3`, 20 minutes
+after the error was first seen. No `session_stalled` is raised while a try
+waits; it can follow the `session_harness_error`, as it did before. The
+count and the wait are on the session's handle (`harness_retries`,
+`harness_retry_at`), so a daemon that replaced itself goes on where the
+last one was. Both numbers are fixed; no key sets them.
+
+Nothing else is tried again. A session that had done something when it hit
+`at_capacity` stopped mid-work, where its first prompt is the wrong thing
+to say, and one with text in its input has someone typing there: both are
+raised at once, with no `tries`. So are `rate_limited`, `not_logged_in` and
+`other`, which asking again does not mend.
 
 The lines known, as each harness prints them (a mark its TUI draws before a
 message, `⏺ ⎿ ■ •`, aside):

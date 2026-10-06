@@ -420,7 +420,9 @@ agent reports another model than asked raises `session_model_mismatch`
 ([groups.md](groups.md#models)). One whose harness stops on an error of its
 own later (the model at capacity, a usage limit, a login that ran out)
 raises `session_harness_error` on the first pass that finds it idle, with
-the reason and the end of its pane
+the reason and the end of its pane (a model at capacity in answer to the
+first prompt is given the prompt again first, 3 times 5 minutes apart, and
+raised when that did not help)
 ([groups.md](groups.md#a-harness-that-stopped-on-an-error)). An agent whose
 move the yard refused raises `move_refused`, with the command and why
 ([above](#2-new-a-builder-implements-it)). A session that
