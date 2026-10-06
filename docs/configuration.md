@@ -1221,6 +1221,47 @@ read from the base branch, so they take effect once the operator (or the
 yardmaster, with their OK) commits them there. It prints what it wrote and the
 commit to make.
 
+#### From a pack: `--pack`
+
+`yardr depot init <depot> --pack <pack>` sets the depot up from a
+[pack](packs.md) instead. It writes none of the files above but the gate:
+
+| what | where |
+|---|---|
+| `.yardr/check` | the checkout, guessed as above, and only when the depot has no gate: no `.yardr/check` in the checkout and no `--check` in the store. It prints the commit that puts that one file on the base |
+| the pack's roles, scripts and stage files; the depot's groups, routes and flow pointer | the yard's home and store, exactly as `yardr pack apply <pack> --depot <depot>` writes them ([packs.md](packs.md#yardr-pack-apply)) |
+
+`<pack>` is named as for `yardr pack apply`
+([packs.md](packs.md#naming-a-pack)): a directory, or a name such as
+`starter`, the pack in the binary. The plan is printed first and the import
+asks what `pack apply` asks, answered by the same flags (`--bind`,
+`--members`, `--crew`, `--flow`, `--open-threads`, `--depot-roles`). Nothing
+is written, the gate included, before a yes in the terminal or `--yes`.
+
+A depot that already has `.yardr/roles/` keeps the files, and the pack's
+roles win: the plan names each one a group or crew member would have read as
+`shadows .yardr/roles/<name>.md` before anything is written, and
+`yardr depot sources <depot>` shows it afterwards. `--depot-roles` keeps the
+depot's own instead.
+
+`--operator`, `--yardmaster` and `--with-yardmaster` do not go with `--pack`:
+a pack's roles name the yard's `operator` setting and the crew member `--crew`
+gives. A dir depot is refused: a pack's flow lands a bead on a base branch
+through an assembly, and nothing merges in a directory. To apply the pack
+again after it changed, use `yardr pack apply`, which never writes a gate.
+
+```
+$ yardr depot add web ~/src/web --base main
+$ yardr depot init web --pack starter --yes --crew yardmaster=yardmaster \
+    --bind builders=claude --bind reviewers=claude --members backlog= --members decisions=jo
+…the plan, then:
+applied pack starter to depot web: 24 created, 1 changed, 0 unchanged
+
+gate: wrote .yardr/check in /Users/jo/src/web: go vet ./... && go test ./... (a guess from the repo: check it)
+Nothing is committed. yardr reads the gate from main:
+  git -C /Users/jo/src/web add .yardr/check && git -C /Users/jo/src/web commit -m 'yardr: gate' -- .yardr/check
+```
+
 ### Settings
 
 `yardr settings get [<key>]` and `yardr settings set <key> <value>` (an empty

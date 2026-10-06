@@ -32,15 +32,41 @@ type packFlags struct {
 
 func (f *packFlags) register(c *cobra.Command, verb string) {
 	c.Flags().StringVar(&f.opts.Depot, "depot", "", "the depot the pack "+verb+" imported into")
-	c.Flags().StringVar(&f.opts.Flow, "flow", "", "the pack's flow the depot follows (default: the one it was given by the last import, else the pack's first flow without a type)")
-	c.Flags().StringArrayVar(&f.crew, "crew", nil, "<pack's name>=<yard's crew member>: which crew member takes a crew member of the pack (repeatable; default: as at the last import)")
+	f.registerShape(c)
 	oldFlag(c, "resident", "crew")
-	c.Flags().BoolVar(&f.opts.DepotRoles, "depot-roles", false, "leave a group or crew member its depot's own .yardr/roles/<name>.md where the depot has one, instead of setting the pack's role (default: as at the last import, else the pack's)")
 	c.Flags().BoolVar(&f.opts.PackRoles, "pack-roles", false, "set the pack's roles everywhere: the default now, needed only to undo an earlier --depot-roles")
 	c.MarkFlagsMutuallyExclusive("depot-roles", "pack-roles")
 	oldFlag(c, "rig", "depot")
 	oldFlag(c, "rig-roles", "depot-roles")
 	_ = c.MarkFlagRequired("depot")
+}
+
+// registerShape registers what shapes an import's plan wherever the depot
+// comes from: depot init --pack takes these and has the depot as its
+// argument.
+func (f *packFlags) registerShape(c *cobra.Command) {
+	c.Flags().StringVar(&f.opts.Flow, "flow", "", "the pack's flow the depot follows (default: the one it was given by the last import, else the pack's first flow without a type)")
+	c.Flags().StringArrayVar(&f.crew, "crew", nil, "<pack's name>=<yard's crew member>: which crew member takes a crew member of the pack (repeatable; default: as at the last import)")
+	c.Flags().BoolVar(&f.opts.DepotRoles, "depot-roles", false, "leave a group or crew member its depot's own .yardr/roles/<name>.md where the depot has one, instead of setting the pack's role (default: as at the last import, else the pack's)")
+}
+
+// importFlags are what an import takes: pack apply's flags, and depot
+// init's with --pack.
+type importFlags struct {
+	packFlags
+	binds   []string
+	members []string
+	opens   []string
+	yes     bool
+	prune   bool // pack apply's alone
+}
+
+// registerAnswers registers the flags that answer what an import asks.
+func (f *importFlags) registerAnswers(c *cobra.Command) {
+	c.Flags().StringArrayVar(&f.binds, "bind", nil, "<group>=<kind>[:<model>][,<preset>]: the agent, model and permission preset of a group the yard lacks; crew:<name>=… for a crew member (repeatable)")
+	c.Flags().StringArrayVar(&f.members, "members", nil, "<group>=a,b: the members of a people group the yard lacks; empty for anyone (repeatable)")
+	c.Flags().StringArrayVar(&f.opens, "open-threads", nil, "<pack's crew member>=linear,github: let the crew member that takes it open threads in these of the sources the pack asks for, and in no other; =none for no (repeatable)")
+	c.Flags().BoolVar(&f.yes, "yes", false, "apply without asking for confirmation, and overwrite an installed file that was edited by hand")
 }
 
 // loadPack reads the pack arg names (resolvePack). With --json an invalid
@@ -66,8 +92,7 @@ func (a *app) loadPack(ctx context.Context, st store.API, arg, depot string) (*p
 // so what `starter` means does not depend on where the command is run:
 // ./starter is the directory.
 func resolvePack(ctx context.Context, st store.API, arg, depot string) (*pack.Pack, error) {
-	// . and .. have no separator and can be no pack's name.
-	if strings.ContainsRune(arg, filepath.Separator) || strings.Contains(arg, "/") || arg == "." || arg == ".." {
+	if packDir(arg) {
 		return pack.LoadDir(arg)
 	}
 	recs, err := st.Packs(ctx)
@@ -114,6 +139,37 @@ func resolvePack(ctx context.Context, st store.API, arg, depot string) (*pack.Pa
 		hint = fmt.Sprintf("for the directory %s here, write ./%s", arg, arg)
 	}
 	return nil, fmt.Errorf("no pack named %q: this yard has imported %s, yardr embeds %s; %s", arg, or(strings.Join(imported, ", "), "none"), or(strings.Join(embedded, ", "), "none"), hint)
+}
+
+// packDir reports whether arg, a command's pack, is a directory and no
+// name: it has a path separator in it, or is . or .., which have none and
+// can be no pack's name.
+func packDir(arg string) bool {
+	return strings.ContainsRune(arg, filepath.Separator) || strings.Contains(arg, "/") || arg == "." || arg == ".."
+}
+
+// openPack completes f's options for this yard (packOptions) and reads the
+// pack arg names. A directory is read first, before the store is opened: a
+// pack that is not valid is told its mistakes wherever it is checked, with
+// no yard there to ask. A name is the yard's to resolve.
+func (a *app) openPack(ctx context.Context, arg string, f *packFlags) (store.API, *config.Config, *pack.Pack, error) {
+	var p *pack.Pack
+	if packDir(arg) {
+		var err error
+		if p, err = a.loadPack(ctx, nil, arg, f.opts.Depot); err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	st, cfg, err := a.packOptions(ctx, f)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if p == nil {
+		if p, err = a.loadPack(ctx, st, arg, f.opts.Depot); err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	return st, cfg, p, nil
 }
 
 // fromEmbedded reports whether source, as an import recorded it, is a pack
@@ -200,11 +256,7 @@ pack's flow lacks). --json prints the plan as data. See docs/packs.md.
   yardr pack check ~/packs/starter --depot yardr --crew yardmaster=boss`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			st, _, err := a.packOptions(c.Context(), &cf)
-			if err != nil {
-				return err
-			}
-			p, err := a.loadPack(c.Context(), st, args[0], cf.opts.Depot)
+			st, _, p, err := a.openPack(c.Context(), args[0], &cf)
 			if err != nil {
 				return err
 			}
@@ -223,14 +275,7 @@ pack's flow lacks). --json prints the plan as data. See docs/packs.md.
 	}
 	cf.register(check, "would be")
 
-	var (
-		af      packFlags
-		binds   []string
-		members []string
-		opens   []string
-		yes     bool
-		prune   bool
-	)
+	var af importFlags
 	apply := &cobra.Command{
 		Use:   "apply <pack> --depot <depot>",
 		Short: "Import a pack into a depot: set the yard to what the pack says",
@@ -302,120 +347,16 @@ says so. The import is recorded (yardr pack list). See docs/packs.md.
     --bind builders=claude:opus --bind reviewers=codex,approve-for-me --members backlog= --members decisions=mckean`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			ctx := c.Context()
-			st, cfg, err := a.packOptions(ctx, &af)
-			if err != nil {
+			imp, err := a.planImport(c.Context(), "pack apply", args[0], &af, "")
+			if imp == nil || err != nil {
 				return err
 			}
-			p, err := a.loadPack(ctx, st, args[0], af.opts.Depot)
-			if err != nil {
-				return err
-			}
-			asking := interactive() && !a.json
-			plan, err := pack.Build(ctx, st, p, af.opts)
-			if err != nil {
-				return err
-			}
-			// Which flow and which crew members shape the plan itself, so they
-			// are settled first and the plan made again.
-			if open := shaping(plan); len(open) > 0 {
-				if !asking {
-					return fmt.Errorf("pack apply cannot ask without a terminal: %s", strings.Join(flagsFor(plan, open), "; "))
-				}
-				if err := a.askShape(ctx, st, p, plan, &af.opts); err != nil {
-					return cancelled(err)
-				}
-				if plan, err = pack.Build(ctx, st, p, af.opts); err != nil {
-					return err
-				}
-			}
-			if len(plan.Refused) > 0 {
-				_ = a.out(plan, func() { printPlan(plan, nil, nil, nil) })
-				return errCheckFailed
-			}
-			// The flags' answers go into the printed plan, so it shows what
-			// each new group and crew member gets and lists only what is still
-			// open. Where nothing can be asked, or --yes says not to, a new
-			// agent gets its kind's unattended arguments.
-			answers, err := packAnswers(p, plan, binds, members, cfg.Home, !asking || yes)
-			if err != nil {
-				return err
-			}
-			// Whether a crew member may open threads is asked last, and only
-			// where a no can be said: --yes says not to ask.
-			open, err := a.openThreads(ctx, st, plan, opens, asking && !yes)
-			if err != nil {
-				return err
-			}
-			// A hook that acts as a crew member speaks as it: the line yardr
-			// hook add --as draws, and the rest of the import is done.
-			refused := map[string]string{}
-			for _, o := range plan.Objects {
-				if o.Kind != "map" || o.Map == nil || (o.Action != pack.Create && o.Action != pack.Change) {
-					continue
-				}
-				if err := a.maySpeakAs(ctx, st, "pack apply: the stage map of "+o.Map.Source, o.Map.As); err != nil {
-					refused[o.Map.Source] = err.Error()
-				}
-			}
-			if !a.json {
-				printPlan(plan, answers, open.Answers, refused)
-			}
-			// A copy someone edited is not overwritten on a confirmation
-			// alone: the edit is lost for good, and its place is the pack.
-			if edited := plan.EditedFiles(); len(edited) > 0 && !yes {
-				return fmt.Errorf("nothing was changed: %s; --yes proceeds", strings.Join(edited, "; "))
-			}
-			if missing := plan.Missing(answers); len(missing) > 0 {
-				if !asking {
-					return fmt.Errorf("pack apply cannot ask without a terminal: %s", strings.Join(flagsFor(plan, missing), "; "))
-				}
-				fmt.Println()
-				if err := a.askAnswers(ctx, st, plan, answers); err != nil {
-					return cancelled(err)
-				}
-			}
-			todo := 0
-			for _, o := range plan.Objects {
-				if o.Kind == "map" && o.Map != nil && refused[o.Map.Source] != "" {
-					continue
-				}
-				if o.Action == pack.Create || o.Action == pack.Change || (prune && o.Action == pack.Dropped && o.Held == "") {
-					todo++
-				}
-			}
-			if !asking && !yes && todo+len(open.Answers) > 0 {
-				return errors.New("pack apply changes the yard: give --yes, or run it in a terminal to be asked")
-			}
-			if todo > 0 && !yes {
-				ok := true
-				title := fmt.Sprintf("Apply pack %s to depot %s?", plan.Pack, plan.Depot)
-				if err := ask(huh.NewConfirm().Title(title).Description(fmt.Sprintf("%d objects to write or remove.", todo)).Value(&ok)); err != nil {
-					return cancelled(err)
-				}
-				if !ok {
-					fmt.Println("not applied")
-					return nil
-				}
-			}
-			if err := open.ask(); err != nil {
-				return cancelled(err)
-			}
-			res, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: answers, OpenThreads: open.Answers, MapRefused: refused, Prune: prune, Overwrite: yes, Actor: a.who()})
-			if res != nil {
-				if oerr := a.out(map[string]any{"plan": plan, "answers": answers, "open_threads": open, "maps_refused": refused, "result": res}, func() { printResult(plan, res, prune, answers, open, refused) }); oerr != nil {
-					return oerr
-				}
-			}
-			return err
+			return imp.apply(c.Context(), a, nil, nil)
 		},
 	}
 	af.register(apply, "is")
-	apply.Flags().StringArrayVar(&binds, "bind", nil, "<group>=<kind>[:<model>][,<preset>]: the agent, model and permission preset of a group the yard lacks; crew:<name>=… for a crew member (repeatable)")
-	apply.Flags().StringArrayVar(&members, "members", nil, "<group>=a,b: the members of a people group the yard lacks; empty for anyone (repeatable)")
-	apply.Flags().StringArrayVar(&opens, "open-threads", nil, "<pack's crew member>=linear,github: let the crew member that takes it open threads in these of the sources the pack asks for, and in no other; =none for no (repeatable)")
-	apply.Flags().BoolVar(&yes, "yes", false, "apply without asking for confirmation, and overwrite an installed file that was edited by hand")
-	apply.Flags().BoolVar(&prune, "prune", false, "remove what an earlier import of this pack brought and the pack has dropped since")
+	af.registerAnswers(apply)
+	apply.Flags().BoolVar(&af.prune, "prune", false, "remove what an earlier import of this pack brought and the pack has dropped since")
 
 	list := &cobra.Command{
 		Use: "list", Short: "List the packs imported into this yard", Args: cobra.NoArgs,
@@ -444,6 +385,148 @@ says so. The import is recorded (yardr pack list). See docs/packs.md.
 
 	cmd.AddCommand(check, apply, list)
 	return cmd
+}
+
+// plannedImport is an import settled up to the writing: the plan, every
+// answer, and the operator's yes.
+type plannedImport struct {
+	st      store.API
+	plan    *pack.Plan
+	answers pack.Answers
+	open    *openAnswers
+	refused map[string]string
+	prune   bool
+	yes     bool
+}
+
+// planImport is an import up to the writing, as pack apply and depot init
+// --pack both run it: it reads the pack arg names, prints the plan with
+// the flags' answers filled in, asks for what is open and for the
+// confirmation. cmd is the command's name in what it says. also names what
+// cmd writes besides the import once it is confirmed (depot init's gate),
+// "" for nothing: the confirmation then covers it, and is asked for it
+// alone when the import itself changes nothing. A nil import with no error
+// means the operator left a form or said no, and nothing is to be written.
+func (a *app) planImport(ctx context.Context, cmd, arg string, f *importFlags, also string) (*plannedImport, error) {
+	st, cfg, p, err := a.openPack(ctx, arg, &f.packFlags)
+	if err != nil {
+		return nil, err
+	}
+	asking := interactive() && !a.json
+	plan, err := pack.Build(ctx, st, p, f.opts)
+	if err != nil {
+		return nil, err
+	}
+	// Which flow and which crew members shape the plan itself, so they
+	// are settled first and the plan made again.
+	if open := shaping(plan); len(open) > 0 {
+		if !asking {
+			return nil, fmt.Errorf("%s cannot ask without a terminal: %s", cmd, strings.Join(flagsFor(plan, open), "; "))
+		}
+		if err := a.askShape(ctx, st, p, plan, &f.opts); err != nil {
+			return nil, cancelled(err)
+		}
+		if plan, err = pack.Build(ctx, st, p, f.opts); err != nil {
+			return nil, err
+		}
+	}
+	if len(plan.Refused) > 0 {
+		_ = a.out(plan, func() { printPlan(plan, nil, nil, nil) })
+		return nil, errCheckFailed
+	}
+	// The flags' answers go into the printed plan, so it shows what
+	// each new group and crew member gets and lists only what is still
+	// open. Where nothing can be asked, or --yes says not to, a new
+	// agent gets its kind's unattended arguments.
+	answers, err := packAnswers(p, plan, f.binds, f.members, cfg.Home, !asking || f.yes)
+	if err != nil {
+		return nil, err
+	}
+	// Whether a crew member may open threads is asked last, and only
+	// where a no can be said: --yes says not to ask.
+	open, err := a.openThreads(ctx, st, plan, f.opens, asking && !f.yes)
+	if err != nil {
+		return nil, err
+	}
+	// A hook that acts as a crew member speaks as it: the line yardr
+	// hook add --as draws, and the rest of the import is done.
+	refused := map[string]string{}
+	for _, o := range plan.Objects {
+		if o.Kind != "map" || o.Map == nil || (o.Action != pack.Create && o.Action != pack.Change) {
+			continue
+		}
+		if err := a.maySpeakAs(ctx, st, cmd+": the stage map of "+o.Map.Source, o.Map.As); err != nil {
+			refused[o.Map.Source] = err.Error()
+		}
+	}
+	if !a.json {
+		printPlan(plan, answers, open.Answers, refused)
+	}
+	// A copy someone edited is not overwritten on a confirmation
+	// alone: the edit is lost for good, and its place is the pack.
+	if edited := plan.EditedFiles(); len(edited) > 0 && !f.yes {
+		return nil, fmt.Errorf("nothing was changed: %s; --yes proceeds", strings.Join(edited, "; "))
+	}
+	if missing := plan.Missing(answers); len(missing) > 0 {
+		if !asking {
+			return nil, fmt.Errorf("%s cannot ask without a terminal: %s", cmd, strings.Join(flagsFor(plan, missing), "; "))
+		}
+		fmt.Println()
+		if err := a.askAnswers(ctx, st, plan, answers); err != nil {
+			return nil, cancelled(err)
+		}
+	}
+	todo := 0
+	for _, o := range plan.Objects {
+		if o.Kind == "map" && o.Map != nil && refused[o.Map.Source] != "" {
+			continue
+		}
+		if o.Action == pack.Create || o.Action == pack.Change || (f.prune && o.Action == pack.Dropped && o.Held == "") {
+			todo++
+		}
+	}
+	if !asking && !f.yes && (todo+len(open.Answers) > 0 || also != "") {
+		return nil, fmt.Errorf("%s changes the yard: give --yes, or run it in a terminal to be asked", cmd)
+	}
+	if (todo > 0 || also != "") && !f.yes {
+		ok := true
+		title := fmt.Sprintf("Apply pack %s to depot %s?", plan.Pack, plan.Depot)
+		desc := fmt.Sprintf("%d objects to write or remove.", todo)
+		if also != "" {
+			desc += " Also written: " + also + "."
+		}
+		if err := ask(huh.NewConfirm().Title(title).Description(desc).Value(&ok)); err != nil {
+			return nil, cancelled(err)
+		}
+		if !ok {
+			fmt.Println("not applied")
+			return nil, nil
+		}
+	}
+	if err := open.ask(); err != nil {
+		return nil, cancelled(err)
+	}
+	return &plannedImport{st: st, plan: plan, answers: answers, open: open, refused: refused, prune: f.prune, yes: f.yes}, nil
+}
+
+// apply writes a planned import and says what it did. extra is what the
+// command wrote besides, added to --json's output; after prints it, below
+// the import's result.
+func (i *plannedImport) apply(ctx context.Context, a *app, extra map[string]any, after func()) error {
+	res, err := pack.Apply(ctx, i.st, i.plan, pack.ApplyOptions{Answers: i.answers, OpenThreads: i.open.Answers, MapRefused: i.refused, Prune: i.prune, Overwrite: i.yes, Actor: a.who()})
+	if res != nil {
+		v := map[string]any{"plan": i.plan, "answers": i.answers, "open_threads": i.open, "maps_refused": i.refused, "result": res}
+		maps.Copy(v, extra)
+		if oerr := a.out(v, func() {
+			printResult(i.plan, res, i.prune, i.answers, i.open, i.refused)
+			if after != nil {
+				after()
+			}
+		}); oerr != nil {
+			return oerr
+		}
+	}
+	return err
 }
 
 // cancelled turns a form the user left into a plain ending.

@@ -81,7 +81,10 @@ func TestPackCheckInvalidPackFails(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "pack.yaml"), []byte(text), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	a := &app{actor: "me"} // no store: reaching for one would fail the test's home
+	// No store, and a home with no yard in it: reaching for one fails, where
+	// the home of whoever runs the tests may have a server to answer.
+	t.Setenv("YARDR_HOME", t.TempDir())
+	a := &app{actor: "me"}
 	_, err := run(t, a.packCmd(), "check", dir, "--depot", "web")
 	if err == nil || exitCode(err) != 1 {
 		t.Fatalf("err = %v (exit %d), want exit 1", err, exitCode(err))
@@ -104,6 +107,12 @@ func TestPackCheckInvalidPackFails(t *testing.T) {
 	}
 	if !errors.Is(err, errCheckFailed) || json.Unmarshal([]byte(out), &got) != nil || len(got.Errors) != 3 || got.Errors[0].Line != 4 {
 		t.Fatalf("json: %v\n%s", err, out)
+	}
+
+	// pack apply reads a directory first too.
+	a.json = false
+	if _, err := run(t, a.packCmd(), "apply", dir, "--depot", "web", "--yes"); err == nil || !strings.Contains(err.Error(), file+":4: flows.default.stages: flow default has no end") {
+		t.Fatalf("apply: %v", err)
 	}
 
 	if _, err := run(t, packApp(t).packCmd(), "check", "../../packs/starter"); err == nil || !strings.Contains(err.Error(), "depot") {

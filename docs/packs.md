@@ -166,7 +166,7 @@ them has.
 ## Naming a pack
 
 `yardr pack check` and `yardr pack apply` take the pack as their argument,
-which is one of:
+and `yardr depot init` as its `--pack`, which is one of:
 
 | written | is |
 |---|---|
@@ -687,6 +687,21 @@ Pruning happens after the import, before the record. A removal the store
 refuses (a flow an open bead still pins) does not undo the rest: what could
 be removed is, the record keeps the object so the next `--prune` tries
 again, and the command exits 1 naming it.
+
+## yardr depot init --pack
+
+`yardr depot init <depot> --pack <pack>` is the import above for a depot
+that is new to the yard, with the one thing a pack cannot carry: the depot's
+gate. It writes `.yardr/check` into the checkout, guessed from the
+repository, when the depot has no gate (no such file in the checkout, no
+`--check` in the store), then imports the pack as `yardr pack apply <pack>
+--depot <depot>` does, with that command's plan, questions and flags
+(`--bind`, `--members`, `--crew`, `--flow`, `--open-threads`,
+`--depot-roles`, `--yes`; not `--prune`). The gate is part of what is
+confirmed: nothing is written before a yes in the terminal or `--yes`. It
+writes no role, flow or stage file into the depot, and prints the commit
+that puts the gate on the base. A dir depot is refused.
+[configuration.md](configuration.md#from-a-pack---pack) has the details.
 
 ## The plan as data
 
