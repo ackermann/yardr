@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -226,11 +227,21 @@ them.`,
 				// the hook's crew member default (involved) would match nothing.
 				sub.Scope = store.ScopeAll
 			}
+			// How many there were: the store keeps an identical subscription
+			// once, so only a list that grew ends in the one added. An unknown
+			// subscriber is the store's to refuse, below.
+			before, _, _ := subscriptionsOf(c.Context(), st, args[0])
 			if err := st.AddSubscription(c.Context(), args[0], sub, a.who()); err != nil {
 				return err
 			}
 			return a.showSubscriptions(c, st, args[0], func(subs []store.Subscription, r *store.CrewMember) {
-				fmt.Printf("%s subscribed: %s\n", args[0], subs[len(subs)-1])
+				if len(subs) > len(before) {
+					fmt.Printf("%s subscribed: %s\n", args[0], subs[len(subs)-1])
+				} else {
+					// As asked: which of the list it is, in the words the
+					// store keeps, only the store knows.
+					fmt.Printf("%s already subscribed: %s\n", args[0], sub)
+				}
 				if r == nil || src == store.SourceYardr {
 					return
 				}
@@ -249,28 +260,38 @@ them.`,
 	return cmd
 }
 
-// showSubscriptions prints (or outputs) the subscriptions of the
-// crew member, user or group called name, looked up in the order the store
-// does; r is nil for a user and a group.
-func (a *app) showSubscriptions(c *cobra.Command, st store.API, name string, text func([]store.Subscription, *store.CrewMember)) error {
-	r, err := st.GetCrew(c.Context(), name)
+// subscriptionsOf are the subscriptions of the crew member, user or group
+// called name, looked up in the order the store does; r is nil for a user
+// and a group.
+func subscriptionsOf(ctx context.Context, st store.API, name string) (subs []store.Subscription, r *store.CrewMember, err error) {
+	r, err = st.GetCrew(ctx, name)
 	if errors.Is(err, store.ErrNotFound) {
-		u, uerr := st.GetUser(c.Context(), name)
+		u, uerr := st.GetUser(ctx, name)
 		if uerr == nil {
-			return a.out(u.Subscriptions, func() { text(u.Subscriptions, nil) })
+			return u.Subscriptions, nil, nil
 		} else if !errors.Is(uerr, store.ErrNotFound) {
-			return uerr
+			return nil, nil, uerr
 		}
-		g, gerr := st.GetGroup(c.Context(), name)
+		g, gerr := st.GetGroup(ctx, name)
 		if gerr != nil {
-			return gerr
+			return nil, nil, gerr
 		}
-		return a.out(g.Subscriptions, func() { text(g.Subscriptions, nil) })
+		return g.Subscriptions, nil, nil
 	}
+	if err != nil {
+		return nil, nil, err
+	}
+	return r.Subscriptions, r, nil
+}
+
+// showSubscriptions prints (or outputs) the subscriptions of the
+// crew member, user or group called name.
+func (a *app) showSubscriptions(c *cobra.Command, st store.API, name string, text func([]store.Subscription, *store.CrewMember)) error {
+	subs, r, err := subscriptionsOf(c.Context(), st, name)
 	if err != nil {
 		return err
 	}
-	return a.out(r.Subscriptions, func() { text(r.Subscriptions, r) })
+	return a.out(subs, func() { text(subs, r) })
 }
 
 func (a *app) unsubscribeCmd() *cobra.Command {

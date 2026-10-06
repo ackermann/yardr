@@ -11,6 +11,25 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
+// Subscribing to what is already there says so and names what was asked for,
+// not the last subscription of the list, which is another one (yardr-kk3a).
+func TestSubscribeAlreadyThere(t *testing.T) {
+	st := userYard(t)
+	if out := mustAs(t, st, "jo", "subscribe", "jo", "yardr", "--where", "type=part"); out != "jo subscribed: yardr all type=wagon\n" {
+		t.Fatalf("first: %q", out)
+	}
+	if out := mustAs(t, st, "jo", "subscribe", "jo", "yardr", "--where", "kind=noted"); out != "jo subscribed: yardr all kind=noted\n" {
+		t.Fatalf("second: %q", out)
+	}
+	if out := mustAs(t, st, "jo", "subscribe", "jo", "yardr", "--where", "type=part"); out != "jo already subscribed: yardr all type=part\n" {
+		t.Fatalf("the first again: %q", out)
+	}
+	u, err := st.GetUser(context.Background(), "jo")
+	if err != nil || len(u.Subscriptions) != 2 {
+		t.Fatalf("subscriptions = %+v, %v", u, err)
+	}
+}
+
 // notedBead is a bead whose notes, written by jane, notify whoever
 // subscribed to kind=noted.
 func notedBead(t *testing.T, st store.API) (note func(string), id string) {
