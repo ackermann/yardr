@@ -18,6 +18,10 @@ import (
 // daemon's pass.
 var EnvCommandTimeout = 10 * time.Second
 
+// envCommandKillAgain is how long after the kill of a provider's group the
+// group is killed again: time for a child that was being forked to be there.
+const envCommandKillAgain = 50 * time.Millisecond
+
 // envCommandMax bounds what an env_command may print: an environment, not a
 // stream.
 const envCommandMax = 1 << 20
@@ -217,9 +221,23 @@ func runEnvCommand(ctx context.Context, argv []string, resident, dir, home strin
 	// a moment later: a provider that is a script leaves a child behind
 	// (the tool it waits on) which would hold them open otherwise.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	kill := func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	// One kill is not enough: a child the provider's shell is forking as
+	// the kill lands is missed by it (seen on macOS) and left running, in
+	// the group, when the shell is gone. It is there a moment later, so
+	// the group is killed again then, and once more when the pipes have
+	// been given up, for a child that took longer to appear.
+	cmd.Cancel = func() error {
+		err := kill()
+		time.Sleep(envCommandKillAgain)
+		kill()
+		return err
+	}
 	cmd.WaitDelay = time.Second
 	err = cmd.Run()
+	if ctx.Err() != nil && cmd.Process != nil {
+		kill()
+	}
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		return nil, fmt.Errorf("%s: no answer within %s%s", what, EnvCommandTimeout, stderr.lines())

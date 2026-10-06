@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -231,5 +232,59 @@ func TestEnvCommandMissing(t *testing.T) {
 	}
 	if _, err := os.Stat(ran); err == nil {
 		t.Error("the command was run")
+	}
+}
+
+// A provider whose shell starts its next command just as its time is up
+// leaves nothing running. The kill of its group can land while the shell
+// forks, and on macOS the child then outlives it; whether one round lands
+// so is chance, hence the rounds.
+func TestResidentEnvCommandKillsChildForkedAtTheLimit(t *testing.T) {
+	old := EnvCommandTimeout
+	EnvCommandTimeout = time.Hour
+	t.Cleanup(func() { EnvCommandTimeout = old })
+	dir := t.TempDir()
+	hanging, pidfile := filepath.Join(dir, "hanging"), filepath.Join(dir, "pid")
+	if err := syscall.Mkfifo(hanging, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The time is up when the shell has opened the fifo, and what it does
+	// next is fork the sleep.
+	p := providerT(t, `echo $$ >`+pidfile+`; echo "waiting for a password" >&2; : >`+hanging+`; sleep 300`)
+	left := 0
+	for round := 0; round < 20; round++ {
+		ctx, timeUp := reached()
+		go func() {
+			if f, err := os.Open(hanging); err == nil {
+				f.Close()
+			}
+			timeUp()
+		}()
+		_, err := ReadResidentEnv(ctx, "mayor", "", "", map[string]any{"env_command": p})
+		if err == nil || !strings.Contains(err.Error(), "no answer within 1h0m0s") {
+			t.Fatalf("round %d: err = %v", round, err)
+		}
+		b, err := os.ReadFile(pidfile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The provider is its group's leader, so the group has its pid.
+		pgid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+		if err != nil || pgid <= 1 {
+			t.Fatalf("round %d: pid %q: %v", round, b, err)
+		}
+		// A killed child is in the group until it is reaped, which is not
+		// ours to do: it is given a moment.
+		gone := false
+		for wait := time.Now().Add(5 * time.Second); !gone && time.Now().Before(wait); time.Sleep(10 * time.Millisecond) {
+			gone = syscall.Kill(-pgid, 0) == syscall.ESRCH
+		}
+		if !gone {
+			left++
+			syscall.Kill(-pgid, syscall.SIGKILL)
+		}
+	}
+	if left > 0 {
+		t.Errorf("%d of 20 providers left a process running", left)
 	}
 }
