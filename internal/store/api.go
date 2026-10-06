@@ -163,6 +163,9 @@ type API interface {
 	PeerOutbox(ctx context.Context, name string, limit int) ([]PeerOut, error)
 	PeerDelivered(ctx context.Context, name string, seq uint64) error
 	PeerSendFailed(ctx context.Context, name string, seq uint64, reason string, retryAt time.Time, final bool) error
+	PeerRefused(ctx context.Context, name string, seq uint64, reason string) error
+	PeerBeadSend(ctx context.Context, session string) (*BeadPeer, error)
+	SettlePeerBeads(ctx context.Context) error
 	PeerPulled(ctx context.Context, name string, b PeerBatch) (*PeerPulled, error)
 	PeerPostAnswered(ctx context.Context, name string, answer PeerAnswer) error
 	CheckPeer(ctx context.Context, p Peer) error

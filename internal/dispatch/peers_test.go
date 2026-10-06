@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 	"yardr.dev/yardr/internal/yardkey"
@@ -26,6 +27,7 @@ type peerClock struct{ now time.Time }
 type peerYard struct {
 	name  string
 	api   store.API
+	own   *store.Store
 	pub   string
 	srv   *httptest.Server
 	rc    *yards.Receiver
@@ -40,7 +42,10 @@ func newPeerYard(t *testing.T, name string, clock *peerClock) *peerYard {
 	keyFile := filepath.Join(t.TempDir(), "peer.key")
 	key, _, err := yardkey.Ensure(keyFile)
 	must(t, err)
-	y := &peerYard{name: name, api: api, pub: yardkey.Public(key)}
+	y := &peerYard{name: name, api: api, own: own, pub: yardkey.Public(key)}
+	// As the server says it on opening the store: a bead that crosses a
+	// link names the yards it passes by their keys.
+	own.SetYard(keyFile, "test")
 	y.rc = yards.NewReceiver(own, keyFile, nil)
 	y.rc.SetClock(func() time.Time { return clock.now })
 	inner := y.rc.Handler()
@@ -53,7 +58,7 @@ func newPeerYard(t *testing.T, name string, clock *peerClock) *peerYard {
 		inner.ServeHTTP(w, r)
 	}))
 	t.Cleanup(y.srv.Close)
-	y.d = &dispatch.Dispatcher{Store: api, Runners: map[string]dispatch.Runner{}, PeerKey: keyFile}
+	y.d = &dispatch.Dispatcher{Store: api, Runners: map[string]dispatch.Runner{store.PeerRunner: &runner.Peer{Store: api}}, PeerKey: keyFile}
 	dispatch.SetClock(y.d, func() time.Time { return clock.now })
 	return y
 }

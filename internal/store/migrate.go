@@ -11,7 +11,15 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// schemaVersion 6 has peers that send beads: a peer's record holds the
+// schemaVersion 7 has beads that are sent on from yard to yard: the record
+// of a bead that came from a peer holds the yards it had passed through
+// (peerBead.Path), which a build before it would drop from a record it
+// rewrites, when the bead is released, say. Sent on after that, the bead
+// would no longer say where it began, and the yard it began in would take
+// it again: the loop the path is there to stop. Nothing is migrated: a
+// record without a path is one whose bead came from its peer alone, and
+// the beads sent out are in a bucket of their own (peer_beads_out).
+// Version 6 has peers that send beads: a peer's record holds the
 // intake its operator set for them (PeerIntake), which a build before it
 // would drop from a record it rewrites, as it does with every message it
 // takes from the peer. The beads would then be refused until the operator
@@ -31,7 +39,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 6
+const schemaVersion = 7
 
 var (
 	kSchema   = []byte("schema")

@@ -908,7 +908,7 @@ func (a *app) groupCmd() *cobra.Command {
 	var g store.Group
 	var sets []string
 	add := &cobra.Command{
-		Use:   "add [<name> --runner <manual|exec|herdr>]",
+		Use:   "add [<name> --runner <manual|exec|herdr|peer>]",
 		Short: "Create or replace a group (no name: an interactive form)",
 		Long: `Create or replace a group. With no name, in a terminal, an interactive form
 lists the existing groups to edit or creates a new one, and for herdr groups
@@ -919,6 +919,14 @@ With a name, the group is replaced by exactly what the flags say, except that
 a herdr group without --set kind gets the yard's default_kind (yardr settings
 get default_kind).
 
+A peer group hands its beads to a linked yard (--set peer=<name>, a peer whose
+link carries bead out: yardr peer allow <name> --send bead). The bead waits in
+its stage until that yard returns it, with the outcome its flow there came to.
+--limit is how many beads may be there at once, --set tries=<n> how often the
+bead is posted before it is given up as undelivered (5), and --set max_age how
+long one is away before the mayor hears (24h). See docs/peers.md, "Beads, the
+sending side".
+
 An agent nobody watches stops at every permission prompt. These flags keep it
 going (pass them as --set 'args=[...]'; yardr init gives them to the mayor):
 ` + agents.UnattendedHelp(),
@@ -926,7 +934,8 @@ going (pass them as --set 'args=[...]'; yardr init gives them to the mayor):
   yardr group add webapp/builders --runner herdr --limit 2 --set kind=claude --set prompt=roles/builder.md
   yardr group add webapp/merger --runner exec --set cmd='make merge-bead'
   yardr group add humans --runner manual --set notify=true   # herdr notification per waiting bead
-  yardr group add approvers --runner manual --members mckean,mayor   # only they may advance beads it holds`,
+  yardr group add approvers --runner manual --members mckean,mayor   # only they may advance beads it holds
+  yardr group add at-north --runner peer --set peer=north --limit 3   # the linked yard north works its beads`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			if len(args) == 0 {
@@ -969,8 +978,8 @@ going (pass them as --set 'args=[...]'; yardr init gives them to the mayor):
 			return a.out(saved, func() { fmt.Printf("group %s (%s)\n", saved.Name, describe(*saved)) })
 		},
 	}
-	add.Flags().StringVar(&g.Runner, "runner", "", "runner: manual, exec, herdr")
-	add.Flags().IntVar(&g.Limit, "limit", 1, "max concurrent sessions")
+	add.Flags().StringVar(&g.Runner, "runner", "", "runner: manual, exec, herdr, peer")
+	add.Flags().IntVar(&g.Limit, "limit", 1, "max concurrent sessions; for a peer group, how many beads may be at that yard at once")
 	add.Flags().StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable)")
 	add.Flags().StringSliceVar(&g.Members, "members", nil, "manual groups: actors who may move a bead out of its stages (comma-separated)")
 

@@ -248,6 +248,10 @@ remove the peer first to replace it.`,
 					fmt.Printf("  build    yardr %s, as its last bead said\n", p.Build)
 				}
 				fmt.Println("  " + understandsLine(*p))
+				fmt.Printf("  heard    %s\n", store.HeardLine(p.HeardAt))
+				if p.Away > 0 {
+					fmt.Printf("  away     %d of this yard's beads are there (yardr bead show <bead> says since when)\n", p.Away)
+				}
 				fmt.Printf("  incoming %s\n", in)
 				if p.Failed > 0 {
 					fmt.Printf("  %d messages for it were given up (peer_message_failed in yardr events)\n", p.Failed)

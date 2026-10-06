@@ -88,6 +88,10 @@ func PeerRefusal(peer, kind, reason string) string {
 		return "it does not know this version of the message"
 	case RefusedNotBead:
 		return "it does not read the bead"
+	case RefusedLoop:
+		return "the bead has been at that yard on its way here: sent there again it would go round"
+	case RefusedTooFar:
+		return fmt.Sprintf("the bead has passed through more yards than a bead may (%d)", MaxPeerPath)
 	}
 	return "it does not say why in words this yard knows"
 }

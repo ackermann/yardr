@@ -116,6 +116,8 @@ func (r *runner) serve(ctx context.Context) (string, error) {
 		return "", err
 	}
 	defer st.Close(context.Background())
+	// What a bead this yard sends to a linked one says of the yard.
+	st.SetYard(c.PeerKey(), yards.Says().Yardr)
 
 	// We own the store, so a socket file left behind is stale.
 	_ = os.Remove(c.Socket())

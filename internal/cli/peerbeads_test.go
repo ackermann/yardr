@@ -218,3 +218,123 @@ func TestBeadFromAPeerInTheCommands(t *testing.T) {
 		t.Fatalf("bead show after the link is removed:\n%s", show)
 	}
 }
+
+// A stage worked by a linked yard, in the commands: the group is refused
+// until the link carries beads out, flow show names the yard where a human
+// stage names its members, and a bead that is there says so, with when the
+// yard was last heard from, in bead show, its JSON and peer show.
+func TestBeadAtAPeerInTheCommands(t *testing.T) {
+	st, own, key := beadYard(t)
+	ctx := context.Background()
+	keyFile := filepath.Join(t.TempDir(), "peer.key")
+	if _, _, err := yardkey.Ensure(keyFile); err != nil {
+		t.Fatal(err)
+	}
+	own.SetYard(keyFile, "test")
+	f, err := store.ParseFlow("build -> review on done | decide on refused | decide on undelivered\nreview -> merged\ndecide -> build\nmerged terminal\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Name = "away"
+	if _, err := st.PutFlow(ctx, *f, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetFlowPointer(ctx, "web", "", "away", "jo"); err != nil {
+		t.Fatal(err)
+	}
+
+	refusedAs(t, st, "jo", "a peer group names the yard that works its beads: --set peer=<peer>", "group", "add", "at-north", "--runner", "peer")
+	refusedAs(t, st, "jo", "peer south: not found", "group", "add", "at-north", "--runner", "peer", "--set", "peer=south")
+	refusedAs(t, st, "jo", "the link with north does not carry bead out: the operator allows it with yardr peer allow north --send bead",
+		"group", "add", "at-north", "--runner", "peer", "--set", "peer=north")
+	mustAs(t, st, "jo", "peer", "allow", "north", "--send", "bead")
+	if out := mustAs(t, st, "jo", "group", "add", "at-north", "--runner", "peer", "--set", "peer=north", "--limit", "3"); !strings.Contains(out, "group at-north (peer · yard north · limit 3)") {
+		t.Fatalf("group add:\n%s", out)
+	}
+	mustAs(t, st, "jo", "route", "add", "--stage", "build", "--group", "at-north", "--rig", "web")
+	if out := mustAs(t, st, "jo", "flow", "show", "web"); !strings.Contains(strings.Join(strings.Fields(out), " "), "build at-north yard north 0") {
+		t.Fatalf("flow show:\n%s", out)
+	}
+
+	id := strings.Fields(mustAs(t, st, "jo", "bead", "create", "Add the export", "--rig", "web", "--stage", "build"))[0]
+	b, err := st.GetBead(ctx, id)
+	if err != nil {
+		t.Fatalf("bead create printed %q first: %v", id, err)
+	}
+	sess, err := st.Claim(ctx, b.ID, "at-north", "build", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PeerBeadSend(ctx, sess.ID); err != nil {
+		t.Fatal(err)
+	}
+	show := mustAs(t, st, "jo", "bead", "show", id)
+	if !strings.Contains(show, "  at north: sent ") || !strings.Contains(show, ", not delivered yet, north not heard from yet\n") ||
+		strings.Contains(show, "came from") {
+		t.Fatalf("bead show of a bead at a peer:\n%s", show)
+	}
+	if prime := mustAs(t, st, "jo", "prime", "--bead", id); !strings.Contains(prime, "at north: sent ") || !strings.Contains(prime, "build    peer north") ||
+		strings.Contains(prime, "This bead came from") {
+		t.Fatalf("the prime of a bead at a peer:\n%s", prime)
+	}
+	// north asks for what waits, which is hearing from it, and says with
+	// its next question that it has the bead.
+	page, err := own.PeerHandOver(ctx, "north", key, 0, nil)
+	if err != nil || len(page.Messages) != 1 {
+		t.Fatalf("what waits for north = %+v, %v", page, err)
+	}
+	if err := own.PeerHeard(ctx, "north", key, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := own.PeerHandOver(ctx, "north", key, page.Messages[0].Seq, nil); err != nil {
+		t.Fatal(err)
+	}
+	show = mustAs(t, st, "jo", "bead", "show", id)
+	if !strings.Contains(show, ", north last heard ") || strings.Contains(show, "not delivered") {
+		t.Fatalf("bead show once north has it:\n%s", show)
+	}
+	var asJSON struct {
+		Peer *store.BeadPeer `json:"peer"`
+	}
+	if err := json.Unmarshal([]byte(mustAs(t, st, "jo", "bead", "show", id, "--json")), &asJSON); err != nil || asJSON.Peer == nil ||
+		asJSON.Peer.Direction != "out" || asJSON.Peer.Peer != "north" || asJSON.Peer.Stage != "build" || asJSON.Peer.HeardAt == nil || asJSON.Peer.DeliveredAt == nil {
+		t.Fatalf("bead show --json = %+v, %v", asJSON.Peer, err)
+	}
+	if out := mustAs(t, st, "jo", "peer", "show", "north"); !strings.Contains(out, "  heard    last heard ") || !strings.Contains(out, "  away     1 of this yard's beads are there") {
+		t.Fatalf("peer show with a bead there:\n%s", out)
+	}
+	// The time it was heard at is the link's, whatever it is called.
+	mustAs(t, st, "jo", "peer", "rename", "north", "nord")
+	if show := mustAs(t, st, "jo", "bead", "show", id); !strings.Contains(show, "  at nord: sent ") || !strings.Contains(show, ", nord last heard ") {
+		t.Fatalf("bead show after the rename:\n%s", show)
+	}
+	if out := mustAs(t, st, "jo", "peer", "show", "nord"); !strings.Contains(out, "  heard    last heard ") {
+		t.Fatalf("peer show after the rename:\n%s", out)
+	}
+	if out := mustAs(t, st, "jo", "group", "list"); !strings.Contains(out, "peer=nord") {
+		t.Fatalf("group list after the rename:\n%s", out)
+	}
+}
+
+// The group form keeps a peer group what it is: its yard is a field of the
+// form, its other settings stay, and a group of another runner that has a
+// setting called peer keeps that too.
+func TestGroupFormKeepsAPeerGroup(t *testing.T) {
+	g := store.Group{Name: "at-north", Runner: store.PeerRunner, Limit: 3, Config: map[string]any{"peer": "north", "tries": float64(2), "max_age": "48h"}}
+	a := answersFrom(g)
+	if a.Peer != "north" || a.Other["peer"] != nil {
+		t.Fatalf("the form's answers for a peer group = %+v", a)
+	}
+	back := a.group()
+	if back.Runner != store.PeerRunner || back.AtPeer() != "north" || back.Limit != 3 || back.Config["tries"] != float64(2) || back.Config["max_age"] != "48h" {
+		t.Fatalf("the group the form saves = %+v", back)
+	}
+	a.Peer = "south"
+	if got := a.group(); got.AtPeer() != "south" {
+		t.Fatalf("the form's yard is not what is saved: %+v", got)
+	}
+	other := answersFrom(store.Group{Name: "x", Runner: "exec", Config: map[string]any{"cmd": "true", "peer": "kept"}}).group()
+	if other.Config["peer"] != "kept" {
+		t.Fatalf("an exec group's own setting was dropped: %+v", other.Config)
+	}
+}

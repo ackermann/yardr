@@ -14,7 +14,7 @@ go deeper. Yardr's [Principles](../README.md#principles) explain how a design or
 | [pipeline.md](pipeline.md) | how a bead moves in practice, using rig yardr: backlog, mayor, builders, review, refinery |
 | [dir-rigs.md](dir-rigs.md) | rigs that are a plain directory, not a repository: `rig init` for them, their flows, a worked example (summarizing a folder of documents) |
 | [packs.md](packs.md) | packs: a yard's flows, groups, roles and residents as one directory; `yardr pack check`, `apply` and `list`, how a pack maps to the yard, the import record and pruning |
-| [groups.md](groups.md) | groups and runners (manual, exec, herdr), herdr setup |
+| [groups.md](groups.md) | groups and runners (manual, exec, herdr, peer), herdr setup |
 | [review.md](review.md) | `yardr review`: working through beads waiting on humans |
 | [residents.md](residents.md) | always-on sessions (a mayor): inbox, hooks, journal, prime, memories |
 | [users.md](users.md) | users, the people of a yard: `yardr user`, the operator as one of them, mailing a user, a user's `yardr inbox` in its two parts (mail and notifications, acknowledged apart), a conversation read back (`yardr mail --with`), read state |

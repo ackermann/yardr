@@ -638,6 +638,15 @@ func (c *Client) PeerDelivered(ctx context.Context, name string, seq uint64) err
 func (c *Client) PeerSendFailed(ctx context.Context, name string, seq uint64, reason string, retryAt time.Time, final bool) error {
 	return c.call(ctx, "PeerSendFailed", nil, name, seq, reason, retryAt, final)
 }
+func (c *Client) PeerRefused(ctx context.Context, name string, seq uint64, reason string) error {
+	return c.call(ctx, "PeerRefused", nil, name, seq, reason)
+}
+func (c *Client) PeerBeadSend(ctx context.Context, session string) (*store.BeadPeer, error) {
+	return callV[*store.BeadPeer](c, ctx, "PeerBeadSend", session)
+}
+func (c *Client) SettlePeerBeads(ctx context.Context) error {
+	return c.call(ctx, "SettlePeerBeads", nil)
+}
 func (c *Client) PeerPulled(ctx context.Context, name string, b store.PeerBatch) (*store.PeerPulled, error) {
 	return callV[*store.PeerPulled](c, ctx, "PeerPulled", name, b)
 }

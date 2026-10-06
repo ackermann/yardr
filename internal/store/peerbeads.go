@@ -145,6 +145,12 @@ type PeerBeadMessage struct {
 	Notes        []PeerNote `json:"notes,omitempty"`
 	NotesLeftOut int        `json:"notes_left_out,omitempty"`
 	Links        []PeerLink `json:"links,omitempty"`
+	// Path are the yards the work has passed through on its way, by their
+	// public keys, the one it began in first and the sender last. A yard
+	// that finds itself in it refuses the bead (RefusedLoop): a flow that
+	// sends a bead on to a yard that sends it back would never end. None,
+	// from a yardr before it was said, is the sender alone.
+	Path []string `json:"path,omitempty"`
 }
 
 // PeerReturnMessage is the body of a message of kind PeerBeadReturn, which
@@ -175,6 +181,9 @@ type peerBead struct {
 	// answers.
 	Message string    `json:"message"`
 	At      time.Time `json:"at"`
+	// Path is where the bead had been when it arrived (PeerBeadMessage.Path),
+	// the peer it came from last: what it is sent on with.
+	Path []string `json:"path,omitempty"`
 	// Notes is the last note written when the bead had arrived: what came
 	// with it. The notes after it are this yard's, and are what returns.
 	Notes uint64 `json:"notes,omitempty"`
@@ -197,6 +206,11 @@ type peerBead struct {
 // peer under the name it has today, the other yard's handle for its bead
 // and the stage that waits for this one. It is read from the record with
 // the bead (GetBead and the listings), never stored on it.
+//
+// Direction says which way the bead went. "in": it came from the peer, and
+// Stage is the stage that waits for it there. "out": it is this yard's and
+// was sent to the peer, from Stage of this yard, at At; Bead is the peer's
+// handle once its return named it.
 type BeadPeer struct {
 	// Peer is "" once the link is removed, when Was is the name it had and
 	// Unlinked is set.
@@ -217,6 +231,35 @@ type BeadPeer struct {
 	ReleasedAt *time.Time `json:"released_at,omitempty"`
 	Outcome    string     `json:"outcome,omitempty"`
 	ReturnedAt *time.Time `json:"returned_at,omitempty"`
+	// Of a bead sent out: when the peer had the message (nil while it
+	// waits to be delivered), why the stay ended when the outcome is this
+	// yard's own (refused, undelivered), and when the peer was last heard
+	// from (Peer.HeardAt).
+	DeliveredAt *time.Time `json:"delivered_at,omitempty"`
+	Detail      string     `json:"detail,omitempty"`
+	HeardAt     *time.Time `json:"heard_at,omitempty"`
+	// Onward is where a bead that came from one yard was sent on to: the
+	// record of the other direction, for a bead that has both.
+	Onward *BeadPeer `json:"onward,omitempty"`
+}
+
+// From is the yard the bead came from, nil for a bead of this yard's own.
+func (b *Bead) From() *BeadPeer {
+	if b.Peer != nil && b.Peer.Direction == "in" {
+		return b.Peer
+	}
+	return nil
+}
+
+// Away is the yard the bead was last sent to, nil for one never sent.
+func (b *Bead) Away() *BeadPeer {
+	switch {
+	case b.Peer == nil:
+		return nil
+	case b.Peer.Direction == "out":
+		return b.Peer
+	}
+	return b.Peer.Onward
 }
 
 // Yard is the other yard as a line names it: its name, or that it was
@@ -228,9 +271,42 @@ func (p BeadPeer) Yard() string {
 	return p.Peer
 }
 
-// Line is how yardr bead show says where the bead came from.
+// Line is how yardr bead show says where the bead came from, or for a
+// bead sent out where it is: at the peer since when, and when that yard
+// was last heard from, or how its stay there ended.
 func (p BeadPeer) Line() string {
-	return fmt.Sprintf("from %s@%s, for its stage %s", p.Bead, p.Yard(), p.Stage)
+	if p.Direction != "out" {
+		return fmt.Sprintf("from %s@%s, for its stage %s", p.Bead, p.Yard(), p.Stage)
+	}
+	if p.ReturnedAt != nil {
+		line := fmt.Sprintf("was at %s: sent %s, ", p.Yard(), stamp(p.At))
+		switch {
+		case p.Detail != "":
+			line += fmt.Sprintf("%s %s: %s", p.Outcome, stamp(*p.ReturnedAt), p.Detail)
+		default:
+			line += fmt.Sprintf("returned %s %s", p.Outcome, stamp(*p.ReturnedAt))
+		}
+		if p.Bead != "" {
+			line += fmt.Sprintf(" (its bead %s)", p.Bead)
+		}
+		return line
+	}
+	line := fmt.Sprintf("at %s: sent %s", p.Yard(), stamp(p.At))
+	if p.DeliveredAt == nil {
+		line += ", not delivered yet"
+	}
+	if !p.Unlinked {
+		line += ", " + p.Peer + " " + HeardLine(p.HeardAt)
+	}
+	return line
+}
+
+// HeardLine says when a peer was last heard from.
+func HeardLine(at *time.Time) string {
+	if at == nil {
+		return "not heard from yet"
+	}
+	return "last heard " + stamp(*at)
 }
 
 // Marking is the line a brief and a prime of the bead carry: its title,
@@ -266,6 +342,9 @@ var (
 	// before it is kept: a peer's word, shown in lines and events.
 	peerStage = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 	peerBuild = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$`)
+	// peerPathKey is what a yard on a bead's path is held to: a public key
+	// as yardkey writes one, which is what it is compared as.
+	peerPathKey = regexp.MustCompile(`^[A-Za-z0-9_-]{16,128}$`)
 )
 
 // peerBeadTypes are the types a bead from a peer may have here. An epic
@@ -333,22 +412,49 @@ func beadsOf(tx *bolt.Tx, p *Peer) error {
 }
 
 // withPeer puts on b what it says of its counterpart in another yard, when
-// it has one.
+// it has one: the yard it came from, the yard it was sent to, or for a
+// bead sent on both, the second under the first (BeadPeer.Onward).
 func withPeer(tx *bolt.Tx, b *Bead) error {
-	rec, err := peerBeadOf(tx, b.UUID)
-	if err != nil || rec == nil {
-		return err
-	}
-	v := &BeadPeer{Direction: rec.Direction, Bead: rec.Theirs, Stage: rec.Stage, Outcomes: rec.Outcomes, Message: rec.Message, At: rec.At,
-		Held: rec.Held, ReleasedBy: rec.ReleasedBy, ReleasedAt: rec.ReleasedAt, Outcome: rec.Outcome, ReturnedAt: rec.ReturnedAt}
-	if rec.Was != "" {
-		v.Was, v.Unlinked = rec.Was, true
-	} else if p, err := peerByKey(tx, rec.Key); err != nil {
-		return err
-	} else if p != nil {
+	named := func(v *BeadPeer, key, was string) error {
+		if was != "" {
+			v.Was, v.Unlinked = was, true
+			return nil
+		}
+		p, err := peerByKey(tx, key)
+		if err != nil || p == nil {
+			return err
+		}
 		v.Peer = p.Name
+		if v.Direction == "out" {
+			v.HeardAt = p.HeardAt
+		}
+		return nil
 	}
-	b.Peer = v
+	rec, err := peerBeadOf(tx, b.UUID)
+	if err != nil {
+		return err
+	}
+	if rec != nil {
+		b.Peer = &BeadPeer{Direction: rec.Direction, Bead: rec.Theirs, Stage: rec.Stage, Outcomes: rec.Outcomes, Message: rec.Message, At: rec.At,
+			Held: rec.Held, ReleasedBy: rec.ReleasedBy, ReleasedAt: rec.ReleasedAt, Outcome: rec.Outcome, ReturnedAt: rec.ReturnedAt}
+		if err := named(b.Peer, rec.Key, rec.Was); err != nil {
+			return err
+		}
+	}
+	sent, err := peerSentOf(tx, b.UUID)
+	if err != nil || sent == nil {
+		return err
+	}
+	out := &BeadPeer{Direction: "out", Bead: sent.Theirs, Stage: sent.Stage, Message: sent.Message, At: sent.At,
+		Outcome: sent.Outcome, ReturnedAt: sent.EndedAt, DeliveredAt: sent.Delivered, Detail: sent.Detail}
+	if err := named(out, sent.Key, sent.Was); err != nil {
+		return err
+	}
+	if b.Peer == nil {
+		b.Peer = out
+	} else {
+		b.Peer.Onward = out
+	}
 	return nil
 }
 
@@ -471,7 +577,7 @@ func cleanTitle(s string) string {
 // the arrival, or why not. Nothing of a bead that is refused is kept, and
 // the refusal is logged as peer_message_refused. It changes p (the build
 // its message names).
-func (w *wtx) checkBead(p *Peer, m PeerMessage, way string, repo *RepoFlows) (*arrival, string, error) {
+func (w *wtx) checkBead(p *Peer, m PeerMessage, way string, repo *RepoFlows, own string) (*arrival, string, error) {
 	extra := map[string]any{"direction": "in", "way": way}
 	refuse := func(reason string) (*arrival, string, error) {
 		extra["reason"] = reason
@@ -503,6 +609,21 @@ func (w *wtx) checkBead(p *Peer, m PeerMessage, way string, repo *RepoFlows) (*a
 	extra["bead"], extra["stage"] = b.Bead, b.Stage
 	if peerBuild.MatchString(b.Yardr) {
 		p.Build = b.Yardr
+	}
+	// Where it has been, which ends with the yard that sent it whatever
+	// that yard wrote: whose the message is, is the one thing known of it.
+	path := slices.DeleteFunc(slices.Clone(b.Path), func(k string) bool { return k == p.Key })
+	if !slices.ContainsFunc(path, func(k string) bool { return !peerPathKey.MatchString(k) }) {
+		b.Path = append(path, p.Key)
+	} else {
+		return refuse(RefusedNotBead)
+	}
+	switch {
+	case own != "" && slices.Contains(b.Path, own):
+		return refuse(RefusedLoop)
+	case len(b.Path) > MaxPeerPath:
+		extra["yards"], extra["limit"] = len(b.Path), MaxPeerPath
+		return refuse(RefusedTooFar)
 	}
 	if p.Intake == nil {
 		return refuse(RefusedNoIntake)
@@ -568,34 +689,9 @@ func (w *wtx) arriveBead(p *Peer, m PeerMessage, a *arrival, way string) error {
 	if err := w.event(row.UUID, "created", actor, map[string]any{"title": b.Title}); err != nil {
 		return err
 	}
-	// Written as records, not through addNote: a noted event is matched
-	// against what residents and users subscribe to, and a peer's note is
-	// not this yard's to be told of line by line. Oldest first, whatever
-	// order they came in, so they read as they were written.
-	notes := slices.Clone(b.Notes)
-	sort.SliceStable(notes, func(i, j int) bool { return notes[i].At.Before(notes[j].At) })
-	last := uint64(0)
-	for _, n := range notes {
-		if strings.TrimSpace(n.Text) == "" {
-			continue
-		}
-		seq, err := w.Bucket(bNotes).NextSequence()
-		if err != nil {
-			return err
-		}
-		author := "someone"
-		if peerMailName.MatchString(n.Author) {
-			author = n.Author
-		}
-		at := n.At.UTC()
-		if at.IsZero() || at.After(now()) {
-			at = now()
-		}
-		if err := put(w.Tx, bNotes, join(row.UUID, seqKey(seq)), Note{Bead: row.UUID, Kind: NoteNote, Author: author + "@" + p.Name, Text: n.Text, At: at, Seq: seq}); err != nil {
-			return err
-		}
-		row.Notes++
-		last = seq
+	last, err := w.peerNotes(row, p.Name, b.Notes)
+	if err != nil {
+		return err
 	}
 	if last == 0 {
 		// What is written here comes after every note there is.
@@ -618,7 +714,7 @@ func (w *wtx) arriveBead(p *Peer, m PeerMessage, a *arrival, way string) error {
 		linked = append(linked, nl.URL)
 	}
 	rec := peerBead{Bead: row.UUID, Key: p.Key, Direction: "in", Theirs: b.Bead, Stage: b.Stage, Outcomes: b.Outcomes,
-		Message: m.ID, At: now(), Notes: last, Held: !in.Auto}
+		Message: m.ID, At: now(), Path: b.Path, Notes: last, Held: !in.Auto}
 	if err := put(w.Tx, bPeerBeads, row.UUID, rec); err != nil {
 		return err
 	}
@@ -627,6 +723,44 @@ func (w *wtx) arriveBead(p *Peer, m PeerMessage, a *arrival, way string) error {
 		data["notes_left_out"] = b.NotesLeftOut
 	}
 	return w.event(row.UUID, "peer_bead_arrived", actor, data)
+}
+
+// peerNotes writes the notes a peer sent with or for the bead row as notes
+// of it, under the names the peer gave with @<peer>, and counts them on
+// row, which the caller saves. It returns the last one's number, 0 for
+// none.
+//
+// They are written as records, not through addNote: a noted event is
+// matched against what residents and users subscribe to, and a peer's note
+// is not this yard's to be told of line by line. Oldest first, whatever
+// order they came in, so they read as they were written.
+func (w *wtx) peerNotes(row *beadRow, peer string, from []PeerNote) (uint64, error) {
+	notes := slices.Clone(from)
+	sort.SliceStable(notes, func(i, j int) bool { return notes[i].At.Before(notes[j].At) })
+	last := uint64(0)
+	for _, n := range notes {
+		if strings.TrimSpace(n.Text) == "" {
+			continue
+		}
+		seq, err := w.Bucket(bNotes).NextSequence()
+		if err != nil {
+			return 0, err
+		}
+		author := "someone"
+		if peerMailName.MatchString(n.Author) {
+			author = n.Author
+		}
+		at := n.At.UTC()
+		if at.IsZero() || at.After(now()) {
+			at = now()
+		}
+		if err := put(w.Tx, bNotes, join(row.UUID, seqKey(seq)), Note{Bead: row.UUID, Kind: NoteNote, Author: author + "@" + peer, Text: n.Text, At: at, Seq: seq}); err != nil {
+			return 0, err
+		}
+		row.Notes++
+		last = seq
+	}
+	return last, nil
 }
 
 // returnPeerBead queues the return of the bead b when it came from a peer
@@ -688,26 +822,10 @@ func (w *wtx) returnPeerBead(b *Bead, outcome string, closed *string, actor stri
 // oldest are left out, and counted, until the rest fit. It returns how
 // many were left out.
 func returnBody(r PeerReturnMessage, notes []PeerNote) (json.RawMessage, int) {
-	for i, n := range notes {
-		notes[i].Text = cutNote(n.Text)
-	}
-	size, from := 0, len(notes)
-	for from > 0 && size+len(notes[from-1].Text) <= MaxPeerNotes {
-		from--
-		size += len(notes[from].Text)
-	}
-	for {
-		r.Notes, r.NotesLeftOut = notes[from:], from
-		body, err := json.Marshal(r)
-		// Escaped, a text takes more room than it has bytes.
-		if err == nil && (len(body) <= MaxPeerBody || from == len(notes)) {
-			return body, from
-		}
-		if err != nil {
-			return json.RawMessage(`{}`), len(notes)
-		}
-		from++
-	}
+	return fitNotes(notes, func(kept []PeerNote, left int) any {
+		r.Notes, r.NotesLeftOut = kept, left
+		return r
+	})
 }
 
 // cutNote cuts a note to what crosses a link, at a character, and says so

@@ -27,10 +27,12 @@ type FlowMap struct {
 type FlowMapStage struct {
 	Name string `json:"name"`
 	// Who works a bead like this one in the stage, by the route it would
-	// take there: WhoAgents, WhoScript, WhoPeople, WhoEnd for a terminal
-	// stage, WhoNobody without a route. The group is not named: it says
-	// nothing to someone in another stage.
-	Who string `json:"who"`
+	// take there: WhoAgents, WhoScript, WhoPeople, WhoPeer, WhoEnd for a
+	// terminal stage, WhoNobody without a route. The group is not named: it
+	// says nothing to someone in another stage. Yard is the linked yard
+	// that works the stage, for WhoPeer, under this yard's name for it.
+	Who  string `json:"who"`
+	Yard string `json:"yard,omitempty"`
 	// Summary is the stage file's one line (StageFile.Summary); empty for a
 	// stage without a file. A store flow's files are in the yard's home,
 	// which the store does not read: whoever knows the home fills it in.
@@ -51,6 +53,7 @@ const (
 	WhoAgents = "agents"
 	WhoScript = "script"
 	WhoPeople = "people"
+	WhoPeer   = "peer"
 	WhoEnd    = "end"
 	WhoNobody = "nobody"
 
@@ -172,14 +175,14 @@ func (m *FlowMap) Text(hasFile bool) string {
 	fmt.Fprintf(&b, "FLOW %s · %d stage%s (%s)\n", m.Name, len(m.Stages), plural, hint)
 	name, who := 0, 0
 	for _, s := range m.Stages {
-		name, who = max(name, len(s.Name)), max(who, len(s.Who))
+		name, who = max(name, len(s.Name)), max(who, len(s.worker()))
 	}
 	for _, s := range m.Stages {
 		mark, here := " ", ""
 		if s.Current {
 			mark, here = ">", "   <- you are here"
 		}
-		line := fmt.Sprintf("%s %-*s   %-*s   %s", mark, name, s.Name, who, s.Who, s.Summary)
+		line := fmt.Sprintf("%s %-*s   %-*s   %s", mark, name, s.Name, who, s.worker(), s.Summary)
 		b.WriteString(strings.TrimRight(line, " ") + here + "\n")
 	}
 	if len(m.Path) > 0 {
@@ -197,6 +200,15 @@ func (m *FlowMap) Text(hasFile bool) string {
 		fmt.Fprintf(&b, "PATH  %s\n", strings.Join(steps, " -> "))
 	}
 	return b.String()
+}
+
+// worker is the stage's Who as the map prints it: a stage worked by
+// another yard says which.
+func (s FlowMapStage) worker() string {
+	if s.Who == WhoPeer && s.Yard != "" {
+		return s.Who + " " + s.Yard
+	}
+	return s.Who
 }
 
 // FlowMap draws the flow governing bead id; nil when none does.
@@ -229,11 +241,11 @@ func (s *Store) FlowMap(ctx context.Context, id string) (*FlowMap, error) {
 		SortRoutes(routes)
 		out = &FlowMap{Name: f.Name, Stages: make([]FlowMapStage, 0, len(f.Stages))}
 		for _, st := range f.Stages {
-			who, err := stageWho(tx, f, routes, row.Bead, st)
+			who, yard, err := stageWho(tx, f, routes, row.Bead, st)
 			if err != nil {
 				return err
 			}
-			out.Stages = append(out.Stages, FlowMapStage{Name: st, Who: who,
+			out.Stages = append(out.Stages, FlowMapStage{Name: st, Who: who, Yard: yard,
 				Summary: stageFileOf(f, src, repo, st).Summary(), Current: st == row.Stage})
 		}
 		out.Path, err = beadPath(tx, f, row.UUID)
@@ -244,26 +256,29 @@ func (s *Store) FlowMap(ctx context.Context, id string) (*FlowMap, error) {
 
 // stageWho says who would work b in stage of f: the runner of the group
 // the routes send it to there decides, as it does in a brief's outcomes.
-func stageWho(tx *bolt.Tx, f *Flow, sorted []Route, b Bead, stage string) (string, error) {
+// For a stage another yard works it also says which.
+func stageWho(tx *bolt.Tx, f *Flow, sorted []Route, b Bead, stage string) (who, yard string, err error) {
 	if f.IsTerminal(stage) {
-		return WhoEnd, nil
+		return WhoEnd, "", nil
 	}
 	b.Stage = stage
 	r := MatchRoute(sorted, b)
 	if r == nil {
-		return WhoNobody, nil
+		return WhoNobody, "", nil
 	}
 	g := new(Group)
 	if ok, err := get(tx, bGroups, r.Group, g); err != nil || !ok {
-		return WhoNobody, err
+		return WhoNobody, "", err
 	}
 	switch g.Runner {
 	case "manual":
-		return WhoPeople, nil
+		return WhoPeople, "", nil
 	case "exec":
-		return WhoScript, nil
+		return WhoScript, "", nil
+	case PeerRunner:
+		return WhoPeer, g.AtPeer(), nil
 	}
-	return WhoAgents, nil
+	return WhoAgents, "", nil
 }
 
 // beadPath reads the stages the bead entered off its advanced events. A

@@ -446,8 +446,9 @@ above, add it again once the yards are linked.
 
 ### Beads, the receiving side
 
-Nothing sends a bead yet, so this part of the trial posted `bead` messages
-with a small program that signs them with a's key, as a's daemon will. On b:
+This part of the trial was made before a yard could send a bead, so it
+posted `bead` messages with a small program that signs them with a's key,
+as a's daemon does. On b:
 
 ```sh
 yardr --home $T/b peer allow a --receive bead
@@ -482,10 +483,96 @@ release=a`; `bead done` queued the return, which b's daemon posted. While a
 did not have `--send bead` it refused the return, and b gave it up
 (`peer_message_failed … its link sends this yard no beads, so it takes no
 return of one`); with it, a took it (`peer_message_received kind=bead-return
-re=t8`) and did nothing with it, since the side that reads a return is not
-built. After `peer rename a laptop` the bead said `from y-k3f9@laptop`, and
+re=t8`), as a return for no bead of its own. After `peer rename a laptop` the bead said `from y-k3f9@laptop`, and
 after `peer rm laptop`, `from y-k3f9@the yard that was laptop (link
 removed)`.
+
+### Beads, the sending side
+
+Then with both sides, in three bare yards (a, b and c, each a server and a
+daemon, no agents) on free loopback ports. On a, the flow
+[above](#the-sending-side-a-stage-worked-by-a-linked-yard) and a peer group
+for its stage `build`; on b, the intake and a manual group for its stages:
+
+```sh
+yardr --home $T/a flow set sending -f sending.flow && yardr --home $T/a rig flow web sending
+yardr --home $T/a group add at-b --runner peer --set peer=b --limit 3
+#   yardr: group at-b: the link with b does not carry bead out: the operator allows it with yardr peer allow b --send bead
+yardr --home $T/a peer allow b --send bead
+yardr --home $T/a group add at-b --runner peer --set peer=b --limit 3
+#   group at-b (peer · yard b · limit 3)
+yardr --home $T/a route add --stage build --group at-b --rig web
+yardr --home $T/a flow show web
+#   STAGE   GROUP  MEMBERS  OPEN  FILE  NEXT
+#   build   at-b   yard b   0     -     review on done | decide on question | decide on failed | decide on refused | decide on undelivered
+
+yardr --home $T/b peer allow a --receive bead
+yardr --home $T/b peer intake a --rig web --flow incoming      # arrived -> build -> returned
+yardr --home $T/a bead create "Add the export" --rig web --stage build -b "As a CSV, one row per order."
+#   web-d5zc
+yardr --home $T/a bead show web-d5zc
+#     at b: sent 10-06 12:09, b last heard 10-06 12:09
+#     owned by at-b (session 0xxfgtykzgfer3fe7sp2)
+yardr --home $T/b bead list
+#   web-0wzb        P2   task  arrived  open,hold  -      web  Add the export
+yardr --home $T/b bead unhold web-0wzb                         # as a user of b
+yardr --home $T/b bead done web-0wzb
+yardr --home $T/b bead note web-0wzb "exported as RFC 4180, one row per order; 3 tests"
+yardr --home $T/b bead done web-0wzb
+#   web-0wzb → returned
+yardr --home $T/a bead show web-d5zc
+#     type task · stage review · open · P2
+#     was at b: sent 10-06 12:09, returned done 10-06 12:09 (its bead web-0wzb)
+yardr --home $T/a prime --bead web-d5zc
+#   Notes:
+#     [2026-10-06 12:09 jo@b]
+#     exported as RFC 4180, one row per order; 3 tests
+```
+
+a's events for the bead:
+
+```text
+peer_bead_sent     yard    group=at-b id=01a110b0-773e-7581-9a5f-b123d6f694d6-20 notes=0 peer=b session=0xxf… stage=build tries=5
+peer_bead_returned peer:b  from=web-0wzb id=162bb914… notes=1 outcome=done peer=b re=01a110b0-…-20 stage=build way=push
+advanced           peer:b  from=build group=at-b outcome=done peer=b to=review
+```
+
+The same in the other cases:
+
+- **b refuses** (`peer intake a --none`): a's bead went to `decide` at
+  once, `was at b: sent 10-06 12:09, refused 10-06 12:09: it has no intake
+  for this yard's beads`, with the note `The yard b did not take this bead:
+  it has no intake for this yard's beads.`, and b logged
+  `peer_message_refused … reason=no_intake` and made no bead.
+- **b stopped for the whole exchange and started later** (its server and
+  daemon killed): a's bead said `at b: sent 10-06 12:10, not delivered yet,
+  b last heard 10-06 12:09`, and `peer show b` had `waiting: bead … tried 2
+  times, next at 12:11:41: … connection refused`. b was started at
+  12:10:51, took the bead at a's next try, and after `bead done` there a's
+  bead was in `review` with b's note.
+- **The `bead` message delivered twice** (the same id posted again, signed
+  with a's key): b's server logged `peer message dropped as duplicate` and
+  b had no second bead.
+- **b stopped for as long as a tries** (a group with `--set tries=2`, to
+  keep the wait short): after the second try, 32 seconds on, a's bead was
+  in `decide`, `was at b: … undelivered 10-06 12:12: b was not reached in 2
+  tries since 10-06 12:12: … connection refused`, with a note that ends
+  `Sending it again is moving it back into the stage: yardr bead advance
+  web-wvx8 --to build`. With b started and that command run, the bead
+  arrived at b as a new bead.
+- **a to b to c**: with b's stage `build` routed to a peer group for c,
+  b's bead said both `from web-wvx8@a, for its stage build` and `at c: sent
+  10-06 12:13, c last heard 10-06 12:13`. `bead done` at c closed b's bead
+  (`returned to it as done`, `was at c: … returned done … (its bead
+  web-7sv8)`), which returned to a, whose bead went to `review` with c's
+  note, by `someone@b`: a knows b, and a name with a yard in it is not
+  passed on.
+- **a to b to a**: with b's `build` routed to a peer group for a, and a
+  taking b's beads, a refused its own bead (`peer_message_refused …
+  reason=loop`) and made none. b's bead said `was at a: … refused …: the
+  bead has been at that yard on its way here: sent there again it would go
+  round`; b's flow did not name `refused` for the stage, so the bead was
+  kept, held, with a note that says so.
 
 ## Renaming a link
 
@@ -774,19 +861,155 @@ store, and each yard writes only its own: the sender's bead waits in a
 stage, the receiver makes a bead of its own from the message, works it
 through a flow its operator chose, and sends back how it ended.
 
-**What is built is the receiving side.** A yard takes a bead a linked yard
-sends, under an intake, and returns its outcome and notes. Nothing sends a
-bead yet: the stage whose worker is another yard is the next step. Code
-does not cross either: the return carries the outcome and the notes, no
-branch.
+Both sides are built: a stage of the sender's flow is
+[worked by the linked yard](#the-sending-side-a-stage-worked-by-a-linked-yard),
+and the receiver takes the bead under an intake and returns its outcome and
+notes. Code does not cross yet: the return carries the outcome and the
+notes, no branch.
 
 ```sh
+# on the yard that sends
+yardr peer allow north --send bead
+yardr group add at-north --runner peer --set peer=north --limit 3
+yardr route add --stage build --group at-north --rig web
+
+# on the yard that takes
 yardr peer allow laptop --receive bead
 yardr peer intake laptop --rig web --flow incoming            # beads arrive held
 yardr peer intake laptop --rig web --flow incoming --auto     # beads arrive ready
 yardr peer intake laptop --rig web --flow incoming --limit 3  # at most 3 open at once
 yardr peer intake laptop --none
 ```
+
+### The sending side: a stage worked by a linked yard
+
+A flow does not say that a stage is worked elsewhere. The stage is routed to
+a group whose runner is `peer`, as any stage is routed to who works it, so
+two yards with the same flow file can place the same stage differently: the
+laptop routes `build` to `at-north`, north routes it to its builders.
+
+```sh
+yardr group add at-north --runner peer --set peer=north --limit 3
+yardr route add --stage build --group at-north --rig web
+```
+
+- `peer=<name>` is the linked yard. The group is refused when this yard has
+  no such peer, or its link does not carry `bead` out.
+- `--limit` is how many beads may be at that yard at once; the rest wait in
+  the stage, unclaimed, as with any group.
+- No members. `--type`, `--label` and the priority of the route choose
+  which beads of the stage go there (only those labelled `remote`, say).
+- `yardr flow show <rig>` has the group under GROUP and `yard north` under
+  MEMBERS. The map of the flow in a prime and in a brief says `peer north`
+  for the stage, and a brief's outcome that leads there says `the yard
+  north picks it up`.
+
+The flow of the yard that sends, with what the peer's outcomes and the two
+of the yard's own lead to:
+
+```text
+new -> build
+build -> review on done | decide on question | decide on failed | decide on refused | decide on undelivered
+review -> merged
+decide -> build
+merged terminal
+```
+
+**What happens.** A bead that enters `build` is claimed for the group, which
+makes a session as for any group (`yardr session list` shows it with runner
+`peer`), and a `bead` message is queued for the yard: the bead's title,
+body, type, priority, notes and links, its handle, the stage and the
+outcomes that stage names. The bead logs `peer_bead_sent`. From there the
+message is delivered as any is ([push and pull](#push-and-pull)).
+
+**The stage ends** when the yard's return comes: its outcome is reported as
+`yardr bead done` reports one, by the actor `peer:<name>`, and the flow moves
+the bead. The notes written at the other yard are added to the bead first,
+each by `<author>@<peer>`, as the notes that come with a bead are. Whatever
+the other yard's flow names can come back; the flow here routes on it as on
+any outcome.
+
+Two outcomes are this yard's own, reported by the actor `yard`, each with a
+note that says why:
+
+| outcome | when |
+|---|---|
+| `refused` | the other yard did not take the bead (the reasons [below](#what-arrives), in this yard's words), or the bead is too large to send: a title over 512 bytes, a body over 64 KB |
+| `undelivered` | the message was posted as often as the group's `tries` (5, about a quarter of an hour with the daemon's waits; `--set tries=<n>`) and the yard was never reached; the link stopped carrying `bead` out (`peer allow --no-send bead`); or the link was removed while the bead was there |
+
+A try that does not reach the yard counts for every bead that waits for it,
+also one behind mail the yard does not take: what is counted is that the
+yard was not reached. Mail and pings keep their own count (24). The note of
+an `undelivered` bead says since when the yard was not reached, and that
+sending again is moving the bead back into the stage (`yardr bead advance
+<id> --to build`): that queues a new message.
+
+**A stage that does not name the outcome that came** (these two, or one of
+the other yard's) keeps the bead, held, with a note that names the outcome
+and the stage's own. A hold reaches the mayor. `yardr bead unhold` sends it
+to the yard again, as a new message; `yardr bead advance` moves it on by
+hand.
+
+**No answer.** The bead waits in its stage, owned by the peer group. Nothing
+ends the stage by a clock: a laptop that sleeps for a night is a normal
+case, and a message that waits to be asked for is never given up.
+
+- The group's `max_age` raises `session_aged` once, so the mayor hears;
+  for a peer group it is 24h unless set. Neither `grace` nor the cap that
+  ends other sessions at twice their `max_age` applies: ending the session
+  would send the bead out again while the other yard may be at work on it.
+- Taking the bead back is a person's move: `yardr bead advance <id> --to
+  <stage>`. A return that comes later is logged (`peer_bead_returned` with
+  `stale`) and changes nothing.
+- A bead held here while it is away stays away: the return still moves it.
+
+**What `bead show` says.** Where the bead is, since when, and when that yard
+was last heard from (a request it signed that this yard took, or its signed
+answer to one of this yard's; kept to the minute):
+
+```text
+web-d5zc  Add the export
+  type task · stage build · open · P2
+  rig web
+  at north: sent 10-06 14:02, north last heard 10-06 14:10
+  flow sending (store)
+  owned by at-north (session 0xxfgtykzgfer3fe7sp2)
+```
+
+- `, not delivered yet` after the time while the message still waits in the
+  outbox; `yardr peer show north` then has it under `waiting:` with its
+  tries. A yard that takes its messages by asking has it once its next
+  question says so.
+- Afterwards: `was at north: sent 10-06 14:02, returned done 10-06 15:10
+  (its bead web-0wzb)`, or `… refused 10-06 14:02: it has no intake for
+  this yard's beads`, or `… undelivered …` with the reason.
+- `--json` has it as `peer`, with `direction` `out`: `peer` (the name
+  today), `stage` (this yard's), `message`, `at`, `delivered_at`,
+  `heard_at`, and once it is over `outcome`, `returned_at`, `detail` and
+  `bead` (the other yard's handle). The record is the bead's last sending.
+- `yardr peer show <peer>` has `heard    last heard 10-06 14:10` and how
+  many of this yard's beads are there (`away`; `heard_at` and `away` in
+  `--json`). The time is the link's: it stays through a rename.
+- After `peer rename` the group names the yard as it is called now, and so
+  do the lines; after `peer rm` they say `the yard that was north (link
+  removed)`.
+
+**Sending a bead on.** A bead that came from a yard may be sent on to a
+third by a peer stage of the flow it was taken into, as any bead: trust is
+between two linked yards, and the yard that takes a bead judges the yard
+that sends it and nothing behind it. The flow it was taken into still ends
+by returning to the yard it came from, so a chain unwinds hop by hop: c's
+outcome ends b's stage, b's flow ends and returns to a. Such a bead has both
+lines in `bead show` (`from …` and `at …`), and in `--json` the second as
+`onward` under `peer`.
+
+One thing is guarded: loops. A `bead` message carries `path`, the public
+keys of the yards the work has passed through, the one it began in first; a
+yard that sends a bead on adds its own. A yard that finds its own key in
+the path refuses the bead as `loop`, and one that would be the ninth
+refuses it as `too_far`. Both end the sender's stage as `refused`, with
+words that say which. A message without a path, from a yardr before this,
+is taken: its path is its sender.
 
 ### The intake
 
@@ -882,12 +1105,15 @@ A bead is refused, and nothing of it is kept, when:
 | `too_large` | over a limit: title 512 bytes, body 64 KB, a note 16 KB, the notes together 128 KB | the bead is larger than it takes |
 | `already_here` | this yard has an open bead for that bead of the sender's | it has the bead already, open |
 | `busy` | as many open beads from the peer as the intake keeps | it has as many open beads of this yard as it keeps |
-| `not_a_bead` | no title, a handle or a stage that is none, a body that is no object | it does not read the bead |
+| `not_a_bead` | no title, a handle or a stage that is none, a body that is no object, a path that names what is no key | it does not read the bead |
+| `loop` | this yard's own key is in the bead's `path`: it has been here on its way | the bead has been at that yard on its way here: sent there again it would go round |
+| `too_far` | the path is longer than 8 yards, the sender counted | the bead has passed through more yards than a bead may (8) |
 
 Each is answered 403 (or told with the next question, for a pull) and logged
-as `peer_message_refused`. The sender gives the message up. The same message
-twice is taken once, by its id, as every message is; a refused one may be
-sent again under its id once the reason is gone.
+as `peer_message_refused`. The sender gives the message up, and its bead
+ends the stage as `refused`. The same message twice is taken once, by its
+id, as every message is; a refused one may be sent again under its id once
+the reason is gone.
 
 ### The record, and what `bead show` says
 
@@ -947,7 +1173,7 @@ is queued for the peer in that write, and delivered as any message is:
 
 | kind | from | `re` | body |
 |---|---|---|---|
-| `bead` | the sender | none | `v` 1, `yardr` (its build), `bead` (its handle for the bead), `stage` (the stage that waits), `title`, `body`, `type`, `priority`, `outcomes` (what that stage names), `notes` (each `author`, `at`, `text`; oldest first), `notes_left_out`, `links` (each `kind`, `source`, `url`) |
+| `bead` | the sender | none | `v` 1, `yardr` (its build), `bead` (its handle for the bead), `stage` (the stage that waits), `title`, `body`, `type`, `priority`, `outcomes` (what that stage names), `notes` (each `author`, `at`, `text`; oldest first), `notes_left_out`, `links` (each `kind`, `source`, `url`), `path` (the public keys of the yards the work passed through, the first first, the sender last) |
 | `bead-return` | the receiver | the `bead` message's id | `v` 1, `bead` (the receiver's handle), `outcome`, `notes`, `notes_left_out` |
 
 A field a yard does not know is ignored, so adding one changes no `v`. A `v`
@@ -955,6 +1181,10 @@ it does not know is refused as `version`. A yardr from before beads crossed
 a link cannot allow the kind at all, and refuses every `bead` as
 `kind_not_allowed`; a later one that does not know a kind says
 `kind_unknown` ([above](#two-yards-on-different-builds)).
+
+The id of a `bead` message is made of the bead and the number of the event
+that put it in the stage, so a bead claimed twice in one stay (a daemon that
+died while it started the session) is sent under one id, and taken once.
 
 Neither kind can be sent by hand: the yard writes both from its own beads,
 and the store refuses them to anything else on its socket.
@@ -968,7 +1198,9 @@ number, an id the sender minted, a kind and a JSON body of up to 256 KB.
   post that fails is tried again after a wait that doubles from 30s up to an
   hour. After 24 tries the message is given up: it is marked failed, logs
   `peer_message_failed`, and the ones behind it go on. A message never
-  overtakes one before it.
+  overtakes one before it. A `bead` message is given up after its group's
+  `tries` (5), and a try that does not reach the yard counts for each bead
+  that waits for it ([above](#the-sending-side-a-stage-worked-by-a-linked-yard)).
 - **Pull.** A peer without a URL is never called. Its daemon asks, every few
   seconds, for what waits for it after the last sequence number it took. The
   question also says that everything up to that number has arrived, which is
@@ -1062,16 +1294,20 @@ with is 401, as any request that is no peer's.
 | `peer_pair_opened` | `peer pair` opened a pairing on this yard | `pairing`, its id; `expires`; `url`; `role` `host` |
 | `peer_paired` | a pairing ended with a link: with it `peer_added` and `peer_allowed`, in the same write | `peer`, `key`, `url`, `calls`, `role` (`host`: this yard was called; `joiner`: it called), `pairing` on the host |
 | `peer_pair_refused` | a pairing ended without one | `reason`: `wrong_code` (on the host after five, with `wrong_codes`; on the yard that called for each), `declined` (this yard's operator), `peer_declined` (the other's), `timed_out`, `closed` (`--end`, Ctrl+C), `already_peer`, `bad_name`, `own_key`; `role`; `pairing` on the host; `peer`, `calls` and `key` once the other yard is known |
-| `peer_removed` | `peer rm` | `peer`, `messages_dropped`, `residents` that could mail it and no longer can, `releasers` that could release its beads, `beads` it sent that now say their link is removed |
-| `peer_renamed` | `peer rename` | `from`, `to`; `peer`, the new name; `messages` that waited and moved with it; `residents` whose `peers` setting followed, `releasers` whose `release` setting did |
+| `peer_removed` | `peer rm` | `peer`, `messages_dropped`, `residents` that could mail it and no longer can, `releasers` that could release its beads, `beads` it sent that now say their link is removed, `beads_away` of this yard's that were there and ended as `undelivered` |
+| `peer_renamed` | `peer rename` | `from`, `to`; `peer`, the new name; `messages` that waited and moved with it; `residents` whose `peers` setting followed, `releasers` whose `release` setting did, `groups` whose `peer` setting did |
 | `peer_intake` | `peer intake` | `peer`; `rig`, `flow`, `auto`, `limit`, or `none` |
-| `peer_allowed` | `peer allow`, and a pairing that ended with a link | `peer`, `send`, `receive` as they are now |
+| `peer_allowed` | `peer allow`, and a pairing that ended with a link | `peer`, `send`, `receive` as they are now; `beads_away` that ended as `undelivered` because the link stopped carrying `bead` out |
 | `peer_message_sent` | the peer has the message | `peer`, `kind`, `id`, `re`, `way` (`push` or `pull`), `attempts` when it took more than one |
 | `peer_message_received` | a message was taken | `peer`, `kind`, `id`, `re`, `way` |
-| `peer_message_refused` | a kind this yard's yardr does not know, a kind the link does not carry, something pulled that is no message, or mail this yard does not take | `peer`, `kind`, `id`, `direction` (`in` or `out`), `reason` (`kind_unknown` with `detail`; `kind_not_allowed`; `not_a_message`, with its `seq` and neither id nor kind; for mail `no_such_resident` with `to` when it is a name, `too_large`, `not_mail`, and `rate_limited` once an hour with `limit` and `until`; for a bead `no_intake` with `detail` when the intake's rig or flow is gone, `version` with `v` and `known`, `too_large`, `already_here` with `here`, `busy` with `open` and `limit`, `not_a_bead`, each with the sender's `bead` and `stage` once they are read) |
+| `peer_message_refused` | a kind this yard's yardr does not know, a kind the link does not carry, something pulled that is no message, or mail this yard does not take | `peer`, `kind`, `id`, `direction` (`in` or `out`), `reason` (`kind_unknown` with `detail`; `kind_not_allowed`; `not_a_message`, with its `seq` and neither id nor kind; for mail `no_such_resident` with `to` when it is a name, `too_large`, `not_mail`, and `rate_limited` once an hour with `limit` and `until`; for a bead `no_intake` with `detail` when the intake's rig or flow is gone, `version` with `v` and `known`, `too_large`, `already_here` with `here`, `busy` with `open` and `limit`, `not_a_bead`, `loop`, `too_far` with `yards` and `limit`, each with the sender's `bead` and `stage` once they are read; for a return `version` and `not_a_bead`) |
 | `peer_bead_arrived` | a bead from a peer became a bead here; on that bead, by `peer:<peer>` | `peer`, `id` of the message, `from` (the sender's handle), `stage` (its stage), `held`, `way`, `rig`, `flow`, `notes_left_out` |
 | `peer_bead_released` | someone who may lifted the hold a bead arrived with; on the bead | `peer`, `by` |
 | `peer_bead_returned` | a bead from a peer ended and its return was queued; on the bead, by who ended it | `peer`, `id` of the return, `re` (the message that brought the bead), `to` (the sender's handle), `outcome`, `notes` (how many), `notes_left_out` |
+| `peer_bead_sent` | a bead entered a stage a peer works and its message was queued; on the bead, by `yard` | `peer`, `id` of the message, `stage`, `group`, `session`, `tries`, `notes` (how many), `notes_left_out`, `yards_before` for a bead sent on |
+| `peer_bead_returned` | on the yard that sent it: the peer's return came; on the bead, by `peer:<peer>`. The `advanced` (or `held`) that follows has the same actor, with `outcome` and `peer` | `peer`, `id` of the return, `re`, `from` (the peer's handle), `outcome`, `stage`, `way`, `notes`, `notes_left_out`; `stale` with a `reason` for a return that changed nothing |
+| `peer_bead_refused` | the peer did not take a bead, or it was too large to send; on the bead | `peer`, `id`, `stage`, `outcome` `refused`, `reason` in this yard's words |
+| `peer_bead_undelivered` | a bead was given up: its tries, its link, or its peer went; on the bead, by `yard` | `peer`, `id`, `stage`, `outcome` `undelivered`, `reason`, `attempts` |
 | `peer_message_failed` | a message was given up: after its tries, or because the peer refused it | `peer`, `kind`, `id`, `attempts`, `reason`, `way` `pull` when the peer said so with a question |
 | `mail` | mail was queued for a peer, or mail from one reached an inbox | as local mail (`to`, `text`), with `id`, and `to_peer` where it left or `from` and `from_peer` where it came in. The actor of mail that came in is `<name>@<peer>` |
 

@@ -20,7 +20,7 @@ import (
 // and from the stored group, so editing prefills every field.
 type groupAnswers struct {
 	Name     string
-	Runner   string // herdr, exec, manual
+	Runner   string // herdr, exec, manual, peer
 	Kind     string // herdr agent kind
 	Model    string // "" = the agent's default
 	PermArgs []string
@@ -29,6 +29,7 @@ type groupAnswers struct {
 	Cmd, Dir string // exec
 	Notify   bool   // manual: herdr notification when a bead arrives
 	Members  string // manual: comma-separated actors who may move beads on
+	Peer     string // peer: the linked yard that works the group's beads
 	Limit    string
 	Other    map[string]any // config keys the form does not edit, kept as is
 	// For goes into the titles of the agent questions when they are asked
@@ -67,6 +68,8 @@ func (a groupAnswers) group() store.Group {
 		if a.Notify {
 			cfg["notify"] = true
 		}
+	case store.PeerRunner:
+		cfg[store.GroupPeer] = a.Peer
 	}
 	var members []string
 	if a.Runner == "manual" {
@@ -82,12 +85,18 @@ func answersFrom(g store.Group) groupAnswers {
 	for k, v := range g.Config {
 		switch k {
 		case "kind", "model", "prompt", "args", "cmd", "dir", "notify":
+		case store.GroupPeer:
+			// The form's own only for a peer group; any other keeps the key.
+			if g.Runner != store.PeerRunner {
+				a.Other[k] = v
+			}
 		default:
 			a.Other[k] = v
 		}
 	}
 	a.Kind, a.Model, a.Prompt, a.Cmd, a.Dir = str("kind"), str("model"), str("prompt"), str("cmd"), str("dir")
 	a.Notify = g.Config["notify"] == true || str("notify") == "true"
+	a.Peer = g.AtPeer()
 	a.Members = strings.Join(g.Members, ", ")
 	var args []string
 	if list, ok := g.Config["args"].([]any); ok {
@@ -202,6 +211,7 @@ func (a *app) askGroup(ctx context.Context, st store.API, groups []store.Group, 
 		huh.NewOption("herdr   — a coding agent in its own worktree", "herdr"),
 		huh.NewOption("exec    — a shell command (checks, merges)", "exec"),
 		huh.NewOption("manual  — a human; nothing is started", "manual"),
+		huh.NewOption("peer    — a linked yard works the bead and returns its outcome", store.PeerRunner),
 	)); err != nil {
 		return nil, err
 	}
@@ -226,6 +236,12 @@ func (a *app) askGroup(ctx context.Context, st store.API, groups []store.Group, 
 			huh.NewInput().Title("Members").Placeholder("mckean, mayor").
 				Description("Optional, comma-separated actors (YARDR_ACTOR). If set, only they may advance beads out of this group's stages.").
 				Value(&ans.Members)); err != nil {
+			return nil, err
+		}
+	case store.PeerRunner:
+		if err := ask(huh.NewInput().Title("Yard").
+			Description("The linked yard, by its name in yardr peer list. Its link must carry bead out: yardr peer allow <name> --send bead.").
+			Value(&ans.Peer).Validate(nonEmpty)); err != nil {
 			return nil, err
 		}
 	}
@@ -410,6 +426,9 @@ func describe(g store.Group) string {
 	}
 	if m, _ := g.Config["model"].(string); m != "" {
 		parts = append(parts, m)
+	}
+	if yard := g.AtPeer(); yard != "" {
+		parts = append(parts, "yard "+yard)
 	}
 	if len(g.Members) > 0 {
 		parts = append(parts, "members "+strings.Join(g.Members, ","))

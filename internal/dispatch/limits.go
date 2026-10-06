@@ -37,6 +37,10 @@ import (
 // "off" or "0" turns a limit off. The defaults apply to runners that report
 // an agent's status (herdr); for others (exec, manual) a limit applies only
 // when the group sets it, and idle never does, since they cannot tell.
+//
+// A peer group's session is a bead at another yard (Waiter): its max_age
+// is 24h unless set, session_aged is raised at it once, and neither grace
+// nor the cap stops it.
 const (
 	DefaultIdleLimit = 30 * time.Minute
 	DefaultAgeLimit  = 4 * time.Hour
@@ -62,6 +66,13 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 	idle, idleOn := limit(g.Config, "idle", DefaultIdleLimit, agent)
 	age, ageOn := limit(g.Config, "max_age", DefaultAgeLimit, agent)
 	grace, stops := limit(g.Config, "grace", 0, false)
+	// A session that waits for another yard is told of at its age and
+	// never stopped for it, grace or none.
+	waiter, waits := r.(Waiter)
+	if waits {
+		age, ageOn = limit(g.Config, "max_age", waiter.WaitLimit(), true)
+		stops = false
+	}
 	now := time.Now()
 
 	// Before the limits, so the marks these leave on the handle are not lost
@@ -140,7 +151,7 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 			if !stops {
 				stopAfter = hardCap - age
 			}
-			d.limitEvent(ctx, *s, "session_aged", "age", ranFor, age, stopAfter, true, nil)
+			d.limitEvent(ctx, *s, "session_aged", "age", ranFor, age, stopAfter, !waits, nil)
 			h := maps.Clone(s.Handle)
 			if h == nil {
 				h = map[string]any{}
@@ -155,7 +166,7 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 				round(ranFor), age, grace))
 			return false
 		}
-		if !stops && ranFor >= hardCap {
+		if !stops && !waits && ranFor >= hardCap {
 			// No grace to say when a long run becomes a stuck one, so a
 			// generous default does: the note tells the next agent (or the
 			// mayor, reading the bead) why its predecessor stopped.

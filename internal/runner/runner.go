@@ -8,6 +8,9 @@
 //	        bead has no base, branch or worktree).
 //	herdr   opens a worktree per bead in herdr and starts an agent in it; a
 //	        dir rig's bead is worked in the rig's directory itself.
+//	peer    sends the bead to the linked yard config.peer names, which
+//	        works it in a flow of its own; that yard's return ends the
+//	        session with the outcome its flow came to.
 package runner
 
 import (
@@ -42,6 +45,7 @@ func All(home string, st store.API, log *slog.Logger, onError func(error)) map[s
 		"exec":   &Exec{Home: home, Bin: self()},
 		"herdr": &Herdr{Bin: "herdr", WorktreeRoot: filepath.Join(home, "worktrees"), YardHome: home,
 			YardBin: self(), OnError: onError, Store: st, Log: log},
+		store.PeerRunner: &Peer{Store: st, Home: home},
 	}
 }
 
@@ -123,8 +127,8 @@ func Brief(job dispatch.Job, actor, workdir, home string) (string, error) {
 	}
 	// Before the text it is about: what follows was written in another
 	// yard, and is read by an agent with this yard's permissions.
-	if bead.Peer != nil {
-		fmt.Fprintf(&b, "%s\n\n", bead.Peer.Marking())
+	if from := bead.From(); from != nil {
+		fmt.Fprintf(&b, "%s\n\n", from.Marking())
 	}
 	fmt.Fprintf(&b, "## %s\n\n%s\n\n", bead.Title, strings.TrimSpace(bead.Body))
 	advance := "- When your part is done, hand the bead to the next stage: `yardr bead advance " + bead.ID + " --to <stage>`\n"
@@ -629,6 +633,8 @@ func nextWhen(n dispatch.NextStage) string {
 		return fmt.Sprintf("a human in `%s` picks it up; use it when a person must act next.", n.Group)
 	case n.Runner == "exec":
 		return fmt.Sprintf("`%s` runs its command on it; use it when your part is ready for that step.", n.Group)
+	case n.Runner == store.PeerRunner:
+		return fmt.Sprintf("the yard %s picks it up (`%s` sends it there); use it when your part is ready for that yard.", n.Peer, n.Group)
 	default:
 		return fmt.Sprintf("an agent in `%s` picks it up; use it when your part is ready for them.", n.Group)
 	}

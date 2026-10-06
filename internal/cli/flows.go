@@ -124,6 +124,9 @@ flow in a rig's repository has them beside it: ` + store.RepoFlowDir + `/<name>/
 						members := "-"
 						if s.Human {
 							members = or(strings.Join(s.Members, ","), "anyone")
+						} else if s.Yard != "" {
+							// Who works it is another yard, not anyone here.
+							members = "yard " + s.Yard
 						}
 						file := "-"
 						if s.StageFile != "" {
@@ -306,6 +309,7 @@ type stageView struct {
 	Group    string   `json:"group,omitempty"`   // the route a bead of the flow's type in the rig would take
 	Human    bool     `json:"human,omitempty"`   // Group is a manual group
 	Members  []string `json:"members,omitempty"` // who may move a bead on from a human stage; none = anyone
+	Yard     string   `json:"yard,omitempty"`    // the linked yard that works the stage: Group is a peer group
 	Next     []string `json:"next"`
 	Terminal bool     `json:"terminal,omitempty"`
 	Open     int      `json:"open"` // open beads in the stage that this flow governs
@@ -366,6 +370,8 @@ func flowViews(ctx context.Context, st store.API, rig, home string) ([]flowView,
 				sv.Group = r.Group
 				if i := slices.IndexFunc(groups, func(g store.Group) bool { return g.Name == r.Group }); i >= 0 && groups[i].Runner == "manual" {
 					sv.Human, sv.Members = true, groups[i].Members
+				} else if i >= 0 {
+					sv.Yard = groups[i].AtPeer()
 				}
 			} else if !sv.Terminal {
 				v.Warnings = append(v.Warnings, fmt.Sprintf("stage %s has no route: beads there wait for a human", s))

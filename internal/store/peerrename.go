@@ -153,6 +153,13 @@ func (s *Store) RenamePeer(ctx context.Context, name, to, actor string) (*Peer, 
 		if err := w.relabelPeerBeads(p, name, to, actor); err != nil {
 			return err
 		}
+		// A group that sends its beads there names it, and is given the new
+		// name: the beads that are away say whose they are by its key.
+		if groups, err := renamePeerGroups(w.Tx, name, to); err != nil {
+			return err
+		} else if len(groups) > 0 {
+			data["groups"] = groups
+		}
 		if err := w.event("", "peer_renamed", actor, data); err != nil {
 			return err
 		}

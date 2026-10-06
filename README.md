@@ -359,7 +359,7 @@ The rest of the documentation is in [docs/](docs/README.md):
 ```
 internal/store      the bbolt store: records, indexes, revisions, event log and push hub
 internal/dispatch   routing, claims, liveness, teardown (the only control loop)
-internal/runner     manual, exec, herdr
+internal/runner     manual, exec, herdr, peer
 internal/bdp        the BDP Read server (protocol rules, selector, paging)
 internal/web        the read-only web view (pages as HTML or JSON, embedded assets)
 internal/rpc        the store API over the server's unix socket

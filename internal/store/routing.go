@@ -12,7 +12,9 @@ import (
 )
 
 // Group is whoever works a stage. Runner names the implementation (herdr,
-// exec, manual, ...); Config is runner-specific and opaque to the engine.
+// exec, manual, peer); Config is runner-specific and opaque to the engine,
+// but for a peer group's, which the store reads to send the bead
+// (peersend.go).
 type Group struct {
 	Name   string         `json:"name"`
 	Runner string         `json:"runner"`
@@ -46,6 +48,9 @@ func (s *Store) PutGroup(ctx context.Context, g Group) error {
 		g.Subscriptions = old.Subscriptions
 		if len(g.Subscriptions) > 0 && g.Runner != "manual" {
 			return fmt.Errorf("group %s has subscriptions, which only manual groups may: unsubscribe it first", g.Name)
+		}
+		if err := checkPeerGroup(w.Tx, &g); err != nil {
+			return err
 		}
 		return put(w.Tx, bGroups, g.Name, g)
 	})

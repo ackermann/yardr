@@ -106,6 +106,10 @@ type Store struct {
 	// pair is the pairing this yard has open with another (pairing.go):
 	// in memory only, so a code is never in the file.
 	pair pairings
+	// yardKeyFile is the file of this yard's own key and build the yardr
+	// it runs, both said by the process that opened the store (SetYard):
+	// what a bead that crosses a link says of the yard it passes.
+	yardKeyFile, build string
 
 	// pump publishes committed events in seq order; writers only nudge it.
 	nudge  chan struct{}
@@ -227,12 +231,21 @@ func (s *Store) pump(published uint64) {
 type wtx struct {
 	*bolt.Tx
 	mentions *mentionCache // nil outside Store.write: compiled per use
+	// settle are the beads whose stay at a peer ended in this write, by
+	// UUID: what that does to each is done after it (settleSent).
+	settle []string
 }
 
 // write runs fn in a batched write transaction, then nudges the pump to
 // publish what was committed and wakes wakers.
 func (s *Store) write(fn func(*wtx) error) error {
-	err := s.db.Batch(func(tx *bolt.Tx) error { return fn(&wtx{Tx: tx, mentions: &s.mentions}) })
+	var settle []string
+	err := s.db.Batch(func(tx *bolt.Tx) error {
+		w := &wtx{Tx: tx, mentions: &s.mentions}
+		err := fn(w)
+		settle = w.settle // of the run that is committed: a batch may run fn twice
+		return err
+	})
 	if err != nil {
 		return err
 	}
@@ -241,8 +254,21 @@ func (s *Store) write(fn func(*wtx) error) error {
 	default: // a nudge is already pending; the pump reads everything new
 	}
 	s.hub.ping()
+	// A bead whose stay at a peer ended in the write is moved on now, in a
+	// write of its own. One that cannot be (its rig's repository does not
+	// read) stays as the write left it, for the daemon's next pass
+	// (SettlePeerBeads): the write itself is done either way.
+	for _, uuid := range settle {
+		ctx, cancel := context.WithTimeout(context.Background(), settleTimeout)
+		_ = s.settleSent(ctx, uuid)
+		cancel()
+	}
 	return nil
 }
+
+// settleTimeout bounds what a write waits for a bead it ended the stay of
+// at a peer to be moved on: reading its flow may run git.
+const settleTimeout = 30 * time.Second
 
 func (s *Store) read(fn func(*bolt.Tx) error) error { return s.db.View(fn) }
 

@@ -58,6 +58,7 @@ type NextStage struct {
 	Terminal bool   // entering it closes the bead
 	Group    string // the group routed for the stage; "" when none is
 	Runner   string // that group's runner
+	Peer     string // the linked yard that works the stage, for a peer group
 }
 
 // NextOutcome is one outcome the bead's stage offers and where it leads.
@@ -132,7 +133,8 @@ type Dispatcher struct {
 	// PeerKey is the file of the yard's key, with which requests to its
 	// peers are signed; PeerHTTP makes them (nil: http.DefaultClient).
 	// PeerTries is how often a message is posted to a peer before it is
-	// given up (default 24, as IssueTries), and PeerPoll how often peers
+	// given up (default 24, as IssueTries; a bead's message carries its
+	// group's own count), and PeerPoll how often peers
 	// are asked for what waits there between passes (default 5s). See
 	// peers.go.
 	PeerKey   string
@@ -349,6 +351,15 @@ const PromptLook = "prompt_look"
 // prompt or a question) gets a session_blocked event so a human can step in.
 type Statuser interface {
 	Status(ctx context.Context, handle map[string]any) (string, error)
+}
+
+// Waiter is implemented by a runner whose session is a wait for work done
+// elsewhere (another yard's): WaitLimit is its max_age when the group sets
+// none, at which session_aged is raised once so the mayor hears. Nothing
+// stops such a session by its age: ending it would send the work out
+// again while the other side may still be at it.
+type Waiter interface {
+	WaitLimit() time.Duration
 }
 
 // Finisher is implemented by runners that leave resources behind after a
@@ -1115,7 +1126,7 @@ func (d *Dispatcher) nextStages(ctx context.Context, b store.Bead, routes []stor
 		moved := b
 		moved.Stage = st
 		if r := Match(routes, moved); r != nil && !n.Terminal {
-			n.Group, n.Runner = r.Group, groups[r.Group].Runner
+			n.Group, n.Runner, n.Peer = r.Group, groups[r.Group].Runner, groups[r.Group].AtPeer()
 		}
 		return n
 	}

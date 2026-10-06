@@ -88,9 +88,17 @@ func (a *app) printBeadFlow(b *store.Bead, next *store.NextStages, flowErr error
 
 // printBeadPeer adds to bead show's text where a bead that came from
 // another yard came from, and what stands between it and that yard: the
-// hold it arrived with, or the outcome that went back.
+// hold it arrived with, or the outcome that went back. For a bead sent to
+// another yard it says where it is, since when, and when that yard was
+// last heard from, or how its stay there ended.
 func printBeadPeer(b *store.Bead) {
-	p := b.Peer
+	if away := b.Away(); away != nil {
+		defer fmt.Printf("  %s\n", away.Line())
+	}
+	p := b.From()
+	if p == nil {
+		return
+	}
 	fmt.Printf("  %s\n", p.Line())
 	// Above the text it is about, in bead show and in a prime alike.
 	fmt.Printf("  %s\n", p.Marking())

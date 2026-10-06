@@ -40,6 +40,11 @@ const (
 
 // peers posts and asks every peer that can be called.
 func (d *Dispatcher) peers(ctx context.Context) error {
+	// What a bead's stay at a peer came to and the store's own write could
+	// not apply (its rig's repository did not read) is applied now.
+	if err := d.Store.SettlePeerBeads(ctx); err != nil {
+		d.Log.Warn("peers: moving on a bead whose stay at a peer ended", "err", err)
+	}
 	ps, err := d.Store.Peers(ctx)
 	if err != nil {
 		return err
@@ -140,7 +145,7 @@ func (d *Dispatcher) push(ctx context.Context, c *yards.Caller, p store.Peer) bo
 		}
 		return false
 	}
-	for _, m := range msgs {
+	for i, m := range msgs {
 		if m.RetryAt != nil && d.now().Before(*m.RetryAt) {
 			return true
 		}
@@ -159,14 +164,28 @@ func (d *Dispatcher) push(ctx context.Context, c *yards.Caller, p store.Peer) bo
 		case errors.Is(err, yards.ErrRefused):
 			// The peer's own word, signed: no try will change it.
 			d.Log.Warn("message refused by peer", "peer", p.Name, "kind", m.Kind, "id", m.ID, "err", err)
-			d.peerGaveUp(ctx, m, err.Error(), d.now(), true)
+			if err := d.Store.PeerRefused(ctx, m.Peer, m.Seq, err.Error()); err != nil && !errors.Is(err, store.ErrNotFound) {
+				d.Log.Warn("peer message: recording the refusal", "peer", m.Peer, "id", m.ID, "err", err)
+			}
 		default:
 			tries := m.Attempts + 1
-			final := tries >= d.PeerTries
+			// A bead is given up sooner than mail: its group says after how
+			// many tries the mayor is to hear that the yard is not reached.
+			final := tries >= d.PeerTries || m.Tries > 0 && tries >= m.Tries
 			if m.Attempts == 0 || final {
 				d.Log.Warn("message not sent to peer", "peer", p.Name, "kind", m.Kind, "id", m.ID, "tries", tries, "given_up", final, "err", err)
 			}
-			d.peerGaveUp(ctx, m, err.Error(), d.now().Add(min(d.Backoff<<min(tries-1, 30), d.BackoffMax)), final)
+			retry := d.now().Add(min(d.Backoff<<min(tries-1, 30), d.BackoffMax))
+			d.peerGaveUp(ctx, m, err.Error(), retry, final)
+			// The yard was not reached, which is what a bead's tries count:
+			// one that waits behind this message has had this try too, or
+			// mail the yard never takes would keep a bead waiting for most
+			// of a day before anyone heard.
+			for _, o := range msgs[i+1:] {
+				if o.Tries > 0 {
+					d.peerGaveUp(ctx, o, err.Error(), retry, o.Attempts+1 >= o.Tries)
+				}
+			}
 			d.peerWait[p.Key] = d.now().Add(d.Backoff)
 			return false
 		}

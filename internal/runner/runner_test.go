@@ -493,6 +493,7 @@ func TestBriefListsOutcomes(t *testing.T) {
 		Outcomes: []dispatch.NextOutcome{
 			{Outcome: "done", NextStage: dispatch.NextStage{Stage: "review", Group: "reviewers", Runner: "herdr"}},
 			{Outcome: "question", NextStage: dispatch.NextStage{Stage: "decide", Group: "deciders", Runner: "manual"}},
+			{Outcome: "elsewhere", NextStage: dispatch.NextStage{Stage: "build", Group: "at-north", Runner: "peer", Peer: "north"}},
 		},
 	}
 	b, err := Brief(job, "a", "", "")
@@ -500,6 +501,7 @@ func TestBriefListsOutcomes(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
+		"- `elsewhere` (to `build`): the yard north picks it up (`at-north` sends it there)",
 		"report how it ended with one of the outcomes below; the flow picks the next stage",
 		"Reporting an outcome, closing or holding ends your session",
 		"## Outcomes",

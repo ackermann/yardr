@@ -46,9 +46,10 @@ type Bead struct {
 	// bead returned by anything other than a listing.
 	Epic string `json:"epic,omitempty"`
 	// Peer is the bead's counterpart in a linked yard, for a bead that came
-	// from one (peerbeads.go): read from its record where a bead is read
-	// (GetBead and the listings), never stored on the bead, and nil on a
-	// bead returned by a write.
+	// from one (peerbeads.go) or was sent to one (peersend.go): read from
+	// its record where a bead is read (GetBead and the listings), never
+	// stored on the bead, and nil on a bead returned by a write. From and
+	// Away say which it is.
 	Peer *BeadPeer `json:"peer,omitempty"`
 }
 
@@ -672,49 +673,58 @@ func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor 
 				return err
 			}
 		}
-		var stage, outcome string
-		var terminal bool
-		b, err := w.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
-			f, _, err := resolveFlow(w.Tx, b.Rig, b.Type, PinnedFlow(&b.Bead), repo)
-			if err != nil {
-				return "", nil, changedMeanwhile(err)
-			}
-			data := withGroup(b, map[string]any{"from": b.Stage})
-			if stage, err = pick(f, b, data); err != nil {
-				return "", nil, refuse(RefusedNotAllowed, err)
-			}
-			data["to"] = stage
-			outcome, _ = data["outcome"].(string)
-			if err := checkPart(w.Tx, f, b, stage); err != nil {
-				return "", nil, refuse(RefusedNotAllowed, err)
-			}
-			g, err := stageGroup(w.Tx, b)
-			if err != nil {
-				return "", nil, err
-			}
-			if err := checkMembers(g, b.ID, b.Stage, actor); err != nil {
-				return "", nil, refuse(RefusedNotMember, err)
-			}
-			terminal = f != nil && f.IsTerminal(stage)
-			if err := w.endSession(b, "done"); err != nil {
-				return "", nil, err
-			}
-			b.Stage = stage
-			return "advanced", data, nil
-		})
-		result = b
-		if err != nil || !terminal {
-			return err
-		}
-		if result, err = w.changeBead(b.UUID, actor, closeWith(stage)); err != nil {
-			return err
-		}
-		// A bead of another yard's ends here: what its flow came to goes
-		// back in this write. A move that named no outcome is told by the
-		// stage it ended in.
-		return w.returnPeerBead(result, or(outcome, stage), nil, actor)
+		result, err = w.moveBead(id, actor, repo, pick)
+		return err
 	})
 	return result, err
+}
+
+// moveBead is the move itself, inside a write: the bead goes to the stage
+// pick names under its flow, which is read with repo, the rig's repository
+// flows as read before the write. Entering a terminal stage closes the
+// bead, and returns it to the yard it came from, if it came from one.
+func (w *wtx) moveBead(id, actor string, repo *RepoFlows, pick func(f *Flow, b *beadRow, data map[string]any) (string, error)) (*Bead, error) {
+	var stage, outcome string
+	var terminal bool
+	b, err := w.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
+		f, _, err := resolveFlow(w.Tx, b.Rig, b.Type, PinnedFlow(&b.Bead), repo)
+		if err != nil {
+			return "", nil, changedMeanwhile(err)
+		}
+		data := withGroup(b, map[string]any{"from": b.Stage})
+		if stage, err = pick(f, b, data); err != nil {
+			return "", nil, refuse(RefusedNotAllowed, err)
+		}
+		data["to"] = stage
+		outcome, _ = data["outcome"].(string)
+		if err := checkPart(w.Tx, f, b, stage); err != nil {
+			return "", nil, refuse(RefusedNotAllowed, err)
+		}
+		g, err := stageGroup(w.Tx, b)
+		if err != nil {
+			return "", nil, err
+		}
+		if err := checkMembers(g, b.ID, b.Stage, actor); err != nil {
+			return "", nil, refuse(RefusedNotMember, err)
+		}
+		terminal = f != nil && f.IsTerminal(stage)
+		if err := w.endSession(b, "done"); err != nil {
+			return "", nil, err
+		}
+		b.Stage = stage
+		return "advanced", data, nil
+	})
+	if err != nil || !terminal {
+		return b, err
+	}
+	result, err := w.changeBead(b.UUID, actor, closeWith(stage))
+	if err != nil {
+		return result, err
+	}
+	// A bead of another yard's ends here: what its flow came to goes
+	// back in this write. A move that named no outcome is told by the
+	// stage it ended in.
+	return result, w.returnPeerBead(result, or(outcome, stage), nil, actor)
 }
 
 // CloseBead closes the bead, ending its session. A stale exp refuses it
