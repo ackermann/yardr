@@ -401,6 +401,10 @@ func TestCredentials(t *testing.T) {
 	if got, err := (hooks.Linear{}).Credential(ctx); err != nil || got != "lin_api_x" {
 		t.Errorf("set: %q %v", got, err)
 	}
+	// A person's own shell, with no GitHub App in it: an App goes before
+	// the token.
+	asCrew(t, "")
+	noGitHubCredential(t)
 	t.Setenv("GITHUB_TOKEN", "ghp_x")
 	if got, err := (hooks.GitHub{}).Credential(ctx); err != nil || got != "ghp_x" {
 		t.Errorf("github: %q %v", got, err)
@@ -408,10 +412,6 @@ func TestCredentials(t *testing.T) {
 	// Without GITHUB_TOKEN a person's shell asks gh; with no gh on PATH
 	// there is none.
 	t.Setenv("GITHUB_TOKEN", "")
-	t.Setenv("GITHUB_APP_ID", "")
-	t.Setenv("GITHUB_APP_PRIVATE_KEY_FILE", "")
-	t.Setenv("YARDR_CREW", "")
-	t.Setenv("YARD_CREW", "")
 	bin := t.TempDir()
 	t.Setenv("PATH", bin)
 	if _, err := (hooks.GitHub{}).Credential(ctx); err == nil || !strings.Contains(err.Error(), "gh auth token") {

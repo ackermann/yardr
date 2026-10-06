@@ -337,10 +337,8 @@ func TestGitHubCredentialOfACrew(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	for _, name := range []string{"GITHUB_TOKEN", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY_FILE", "YARD_CREW"} {
-		t.Setenv(name, "")
-	}
-	t.Setenv("YARDR_CREW", "yardmaster")
+	noGitHubCredential(t)
+	asCrew(t, "yardmaster")
 	_, err := hooks.GitHub{}.Credential(ctx)
 	if err == nil {
 		t.Fatal("a crew member with no GitHub credential got one")
@@ -374,7 +372,7 @@ func TestGitHubCredentialOfACrew(t *testing.T) {
 	// has them logged in.
 	t.Setenv("GITHUB_APP_ID", "")
 	t.Setenv("GITHUB_APP_PRIVATE_KEY_FILE", "")
-	t.Setenv("YARDR_CREW", "")
+	asCrew(t, "")
 	if c, err := (hooks.GitHub{}).Credential(ctx); err != nil || c != "gho_the_operators" {
 		t.Errorf("a person: %q, %v", c, err)
 	}
