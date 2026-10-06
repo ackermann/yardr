@@ -1357,9 +1357,10 @@ The store is stamped with its schema version on open, and a yardr whose schema
 is older than the store's refuses to open it
 (`store schema is newer than this yardr knows`) rather than run its migrations
 over it. The schema is 13 (the rename of refinery to assembly stores
-nothing, so it has no version of its own): version 12 stores a rig as a depot, version 11
-the residents as the crew, versions 10 and 13 the bead types `epic` and `part` as `train` and `wagon`, and
-version 9 the setting `mayor` as `yardmaster`
+nothing, so it has no version of its own): version 12 stores a rig as a depot,
+version 11 stores residents as the crew, version 10 stores the bead types
+`epic` and `part` as `train` and `wagon`, version 13 renames the transitional
+type to `wagon`, and version 9 renames the setting `mayor` to `yardmaster`
 ([below](#words-that-changed)); version 8 keeps, in a peer's intake, how long
 a bead it sent waits to be released
 ([peers.md](peers.md#a-held-bead-that-nobody-releases)); version 7 keeps, with
