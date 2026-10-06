@@ -521,8 +521,15 @@ func credentialSummary(r store.Resident, keys []string) map[string]sourceCredent
 
 func firstLine(s string) string {
 	line, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
-	if len(line) > 100 {
-		line = line[:100] + "…"
+	// The limit is counted in characters, and the cut falls where one starts:
+	// cut by bytes, a line of multi-byte characters ends inside one and prints
+	// as "�…".
+	n := 0
+	for i := range line {
+		if n == 100 {
+			return line[:i] + "…"
+		}
+		n++
 	}
 	return line
 }
