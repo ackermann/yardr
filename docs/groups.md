@@ -415,3 +415,81 @@ for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`
   with the crew member's name.
 - The daemon subscribes to herdr's event stream, so an agent that exits is
   noticed within a second; the reconcile timer remains the fallback.
+
+## Example: a crew member reviews the beads with a label
+
+A crew member, or one person, can be the reviewer of some beads while the
+depot's reviewers keep the rest. No command assigns one bead to one
+reviewer; a label on the bead and a route for that label do it. The case
+here is from the yard that builds yardr: the crew member `brakeman`, a
+second opinion on another model, reviews the beads labelled
+`brakeman-review`.
+
+```sh
+yardr group add brakeman-reviews --runner manual --members brakeman,yardmaster --limit 3
+yardr route add --stage review --depot yardr --label brakeman-review --priority 10 --group brakeman-reviews
+yardr subscribe brakeman yardr --where stage=review --where label=brakeman-review
+yardr bead update <id> --add-label brakeman-review        # per bead, before it reaches review
+```
+
+What each piece is for:
+
+- **The group** holds the bead while it is reviewed. Its runner is `manual`,
+  so nothing is started: the bead waits there until a member moves it.
+  `--members` are the only ones who may: anyone else is refused (`only
+  members of group brakeman-reviews may move it out of stage review`). The
+  yardmaster is a member so that it can move a bead the crew member leaves
+  lying. `--limit 3` is how many beads the group holds at once; a fourth
+  waits in review, unclaimed, until one leaves.
+- **The route** sends the depot's beads with the label to that group when
+  they are in `review`. `--priority 10` puts it before the depot's own route
+  for `review`, which has priority 0. A bead without the label matches only
+  that other route and goes to the depot's reviewers as before.
+- **The subscription** is what tells the crew member. A manual group does
+  not nudge its members when a bead arrives: `--set notify=true` on the
+  group shows a herdr notification, which is for a person at the terminal
+  and reaches no crew member. With the subscription the move into `review`
+  lands in the crew member's inbox and the daemon nudges it (`yardr: 1 new
+  in your inbox (advanced)`).
+- **The label** picks the beads, one `bead update` each.
+- **The crew member's role** needs a section that says what a review is and
+  how it ends, since a manual group gives no brief: read the bead and its
+  outcomes with `yardr prime --bead <id>`, read the diff, commit nothing,
+  and report from its own pane with `yardr bead done <id> --note -`,
+  `--outcome changes` or `--outcome question`, as the flow's `review` stage
+  names them. A changed role reaches a running crew member at its next
+  session (`yardr crew restart <name>`, which costs it its context) or by
+  mail.
+
+On the first bead reviewed this way the crew member ran `yardr bead done
+<id> --note -` in its pane; the bead went to `approved`, and the assembly
+gated and merged it within a minute. The assembly asked for nothing from the
+reviewer: the builder's gate line named the branch's last commit, and the
+reviewer had committed nothing.
+
+The limits:
+
+- **The label must be on before the bead enters review.** Routing and the
+  subscription both act on the move into the stage. A bead labelled later
+  stays with the group that has it and the crew member hears nothing. `yardr
+  bead release <id>` has it routed again, by its labels as they are now;
+  the crew member is still not told, so mail it.
+- **A manual group raises nothing while a bead waits in it.** No session
+  stalls or goes idle there, so no event says a review is overdue; `yardr
+  review list -g brakeman-reviews` shows how long each bead has waited.
+  When the crew member goes, the group, route and subscription go too:
+  `yardr group rm brakeman-reviews` deletes the group with its routes and
+  releases the beads it holds, which are then routed again (a bead that
+  still has the label goes to the depot's reviewers), and `yardr
+  unsubscribe brakeman yardr --where stage=review --where
+  label=brakeman-review` removes the subscription. The same release happens
+  when a group is deleted to be made again under another name or runner.
+- **One route per depot.** The route names one depot; each further depot
+  gets a `route add` of its own to the same group, and a subscription
+  without `--where depot=` already covers them all.
+
+For a person in place of the crew member, put their name in `--members`.
+The subscription then is a notification in their inbox (`yardr subscribe
+<user> yardr …`, see [subscriptions.md](subscriptions.md#users-as-subscribers)),
+nothing nudges a person, and [`yardr review`](review.md) walks the beads
+that wait on them.

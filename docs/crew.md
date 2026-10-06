@@ -175,6 +175,10 @@ doctor` and bare `yardr` say it.
   Each delivery records why it reached the crew member, and `yardr inbox` shows
   it. `yardr subscribe` without arguments prints who is told what, every
   subscriber side by side. See [subscriptions.md](subscriptions.md).
+- **Reviewing beads:** a crew member reviews the beads that carry a label
+  through a manual group it is a member of, a route for the label and a
+  subscription. The worked example is in
+  [groups.md](groups.md#example-a-crew-member-reviews-the-beads-with-a-label).
 - **Timers:** `yardr timer add --in 40m "…"` has the yard put a `timer`
   event in the inbox later, once or recurring, unless an awaited bead moved
   first (`--unless bead=<id>,stage=<stage>`); `--to <user>` tells a user

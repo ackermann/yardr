@@ -16,3 +16,7 @@ yardr review list               # the same queue for scripts (--json for actions
 yardr bead done <id> [--outcome <outcome>] [--note <text>]
 yardr bead advance <id> --to <stage> [--note <text>]
 ```
+
+To have one person, or one crew member, review the beads with a certain
+label, see
+[groups.md](groups.md#example-a-crew-member-reviews-the-beads-with-a-label).
