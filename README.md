@@ -416,8 +416,8 @@ Protocol, is an HTTP protocol for beads and the links between them.
 ([docs/bdp.md](docs/bdp.md)), and `conformance/bdp` runs BDP's own
 conformance suite against it.
 
-**Inspiration.** yardr does not import or need Beads, Gas Town or Gas City,
-and owes them its ideas and its vocabulary:
+**Inspiration.** yardr is inspired by Beads, Gas Town and Gas City, and
+owes them its ideas and its vocabulary:
 
 - [Beads](https://github.com/steveyegge/beads): the bead, a durable unit of
   work with dependencies that agents and people share, comes from there.
