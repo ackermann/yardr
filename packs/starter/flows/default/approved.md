@@ -1,3 +1,5 @@
+summary: The approved bead is landed on the rig's base from here, one bead at a time.
+
 The approved bead is landed on the rig's base from here, one bead at a time:
 by a refinery script or by a person merging by hand, as the yard is set up.
 The bead was built, reviewed and approved; nothing about it is changed here
