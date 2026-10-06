@@ -27,7 +27,7 @@ type Card struct {
 	// has claimed. A manual group's claim is a person's turn and no work in
 	// progress, as on Home and the line.
 	Held    bool   `json:"held,omitempty"`
-	Working bool   `json:"working,omitempty"`
+	Working bool   `json:"working"`
 	Group   string `json:"group,omitempty"`
 	// Epic is the epic the bead is a child of, on the cards of a listing.
 	Epic      string    `json:"epic,omitempty"`

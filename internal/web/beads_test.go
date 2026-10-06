@@ -739,17 +739,17 @@ func TestManualClaimIsNotWorking(t *testing.T) {
 	}
 	want := map[string]bool{"idea a": false, "a door": true}
 	var flows web.Flows
-	f.getJSON("/flows", &flows)
+	flowsJSON := f.getJSON("/flows", &flows)
 	if got := working(flows.Rigs[0].Elsewhere); !reflect.DeepEqual(got, want) {
 		t.Errorf("/flows: working %v, want %v", got, want)
 	}
 	var beads web.Beads
-	f.getJSON("/beads", &beads)
+	beadsJSON := f.getJSON("/beads", &beads)
 	if got := working(beads.Beads); !reflect.DeepEqual(got, want) {
 		t.Errorf("/beads: working %v, want %v", got, want)
 	}
 	var ep, claimed, built web.BeadPage
-	f.getJSON("/beads/"+epic.ID, &ep)
+	epicJSON := f.getJSON("/beads/"+epic.ID, &ep)
 	if got := working(ep.Children); !reflect.DeepEqual(got, want) {
 		t.Errorf("the epic's children: working %v, want %v", got, want)
 	}
@@ -760,6 +760,46 @@ func TestManualClaimIsNotWorking(t *testing.T) {
 	}
 	if r := f.get("/beads/"+idea.ID, "Accept", "application/json"); !strings.Contains(r.body, `"working": false`) {
 		t.Errorf("the manual claim's page as JSON lacks \"working\":false: %s", r.body)
+	}
+	assertCardWorking := func(label string, body, id string, want bool) {
+		t.Helper()
+		var root any
+		if err := json.Unmarshal([]byte(body), &root); err != nil {
+			t.Fatalf("%s: decode JSON: %v", label, err)
+		}
+		var find func(any) (bool, bool)
+		find = func(v any) (bool, bool) {
+			switch v := v.(type) {
+			case map[string]any:
+				if v["id"] == id {
+					got, ok := v["working"].(bool)
+					return got, ok
+				}
+				for _, child := range v {
+					if got, ok := find(child); ok {
+						return got, true
+					}
+				}
+			case []any:
+				for _, child := range v {
+					if got, ok := find(child); ok {
+						return got, true
+					}
+				}
+			}
+			return false, false
+		}
+		if got, ok := find(root); !ok || got != want {
+			t.Errorf("%s: card %s working = %v (present %v), want %v", label, id, got, ok, want)
+		}
+	}
+	for _, check := range []struct {
+		label, body string
+	}{
+		{"/flows JSON", flowsJSON.body}, {"/beads JSON", beadsJSON.body}, {"epic page JSON", epicJSON.body},
+	} {
+		assertCardWorking(check.label, check.body, idea.ID, false)
+		assertCardWorking(check.label, check.body, door.ID, true)
 	}
 
 	// cardOf is the bead's card on a page, "" when the page has none.
