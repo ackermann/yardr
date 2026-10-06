@@ -103,11 +103,13 @@ refinery, where a red gate takes a slot of the serial queue and sends the
 bead back to a builder. They are the faults rig yardr's light gate cannot
 see:
 
-- a test that reads a file no Go package compiles in. The light gate picks
-  packages by changed `.go` and embedded files, so a change to a doc, a
-  stage file under `.yardr/flows/`, the starter pack or a script runs no
-  test, though `internal/pack` compares the starter pack with `roles/` and
-  `internal/cli` reads the pack and the repository's own flows by path;
+- a test that reads a file by path, when the table in `.yardr/check-light`
+  leaves it out. `go list` knows what a package imports and embeds, not
+  what its tests open, so the script has a table of path to packages
+  (`roles/` and the starter pack run `internal/pack`, which compares them;
+  `.yardr/flows/` runs the four packages that read the repository's own
+  flows), and a changed file that is neither Go, embedded nor in the table
+  runs every package. What is left is a row that names too few packages;
 - a test that reaches code by building the binary instead of importing it
   (`contrib/refinery`, `contrib/isolated-yard`, the ask harness);
 - store, dispatch or bdp behaviour that differs over the unix socket: those

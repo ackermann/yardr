@@ -11,15 +11,55 @@
 # makes it nearly the full gate, which is right; a leaf package takes
 # seconds.
 # Like .yardr/check, yardr reads it from the base branch.
+#
+# YARDR_CHECK_PLAN=1 says what would be tested and stops: no gofmt, vet,
+# build or test. internal/rigcheck's test of this script runs it so.
 set -e
-out=$(gofmt -l .)
-if [ -n "$out" ]; then
-  echo "gofmt needed on:"
-  echo "$out"
-  exit 1
+# Files a test reads by path. go list knows what a package imports and
+# embeds, not what its tests open (os.ReadFile("../../roles/builder.md")),
+# so that is written down here: a path, then the directories of the packages
+# whose tests read it, or - when no test does. A path ending in / is
+# everything under that directory; any other is that one file. Every row a
+# changed file matches fires, and its packages' own tests run (not their
+# importers: nothing was compiled differently).
+# Add a row when a test starts reading a file outside what its package
+# compiles in: `grep -rn '"\.\./' --include='*_test.go' .` finds most, a
+# helper that walks up to the repository (storetest.RepoFlow) the rest. A
+# changed file that is not .go, not embedded and in no row tests every
+# package, so a missing row costs time, not a fault found late; a row that
+# leaves a reader out is what lets one through. A - row is a promise that no
+# test reads the path: check before adding one.
+reads='
+roles/                         internal/pack
+packs/starter/                 internal/pack internal/cli
+.yardr/flows/                  internal/cli internal/dispatch internal/store contrib/refinery
+.yardr/check-light             internal/rigcheck
+internal/hooks/testdata/       internal/hooks internal/dispatch
+internal/cli/testdata/         internal/cli
+internal/web/assets/README.md  internal/web
+contrib/refinery/merge-local   internal/pack
+contrib/refinery/              contrib/refinery
+contrib/isolated-yard/         contrib/isolated-yard
+contrib/release/               contrib/release
+README.md                      contrib/release
+docs/                          -
+.yardr/roles/                  -
+.yardr/check                   -
+.yardr/check-fail-pattern      -
+.github/                       -
+.gitignore                     -
+conformance/                   -
+'
+if [ -z "$YARDR_CHECK_PLAN" ]; then
+  out=$(gofmt -l .)
+  if [ -n "$out" ]; then
+    echo "gofmt needed on:"
+    echo "$out"
+    exit 1
+  fi
+  go vet ./...
+  go build ./...
 fi
-go vet ./...
-go build ./...
 # What the branch changed: against the commit yardr gives, from where the
 # branch left it. That is the commit the gate was read at (the tip of main
 # as fetched), and for a part of an epic the tip of its epic's branch, so a
@@ -32,6 +72,7 @@ changed=$(git diff --name-only "$from")
 # go.mod or go.sum moves every package.
 if printf '%s\n' "$changed" | grep -qx -e go.mod -e go.sum; then
   echo "light gate: go.mod or go.sum changed; testing every package"
+  [ -z "$YARDR_CHECK_PLAN" ] || exit 0
   exec go test -race ./...
 fi
 # What is tested, with the race detector: the packages that changed, and
@@ -43,24 +84,28 @@ fi
 # Deps changed). A package changed when a .go file in its directory did, or
 # a file it embeds, which is compiled in like one. A _test.go file is
 # imported by nobody: it runs its own package's tests only. Any other file
-# (docs, a flow, a script nothing embeds) is no package's, and runs no test.
+# is no package's: the table above says whose tests read it, and a file the
+# table does not know either runs every package.
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
+printf '%s\n' "$reads" >"$tmp/reads"
 printf '%s\n' "$changed" >"$tmp/changed"
 go list -test -f '{{.ImportPath}}|{{.Dir}}|{{join .Deps ","}}|{{join .EmbedFiles ","}},{{join .TestEmbedFiles ","}},{{join .XTestEmbedFiles ","}}' ./... >"$tmp/pkgs"
 # Not in a pipe or a $(...): a go list or awk that fails must fail the gate,
 # not read as an empty list.
-awk -F'|' -v root="$(git rev-parse --show-toplevel)" '
+awk -F'|' -v root="$(git rev-parse --show-toplevel)" -v rows="$tmp/rows" -v stray="$tmp/stray" '
   # "p [p.test]", "p_test [p.test]" and "p.test" are all package p.
   function base(p) { sub(/ \[.*/, "", p); sub(/\.test$/, "", p); sub(/_test$/, "", p); return p }
-  FNR == NR { if ($0 != "") { file[$0] = 1; if ($0 ~ /\.go$/) { gd = $0; if (!sub(/\/[^\/]*$/, "", gd)) gd = "."; if ($0 ~ /_test\.go$/) testdir[gd] = 1; else godir[gd] = 1 } } next }
+  FILENAME == ARGV[1] { if (split($0, w, " ") > 1) { r++; at[r] = w[1]; by[r] = w[2]; for (i = 3; i in w; i++) by[r] = by[r] " " w[i] } next }
+  FILENAME == ARGV[2] { if ($0 != "") { file[$0] = 1; order[++nf] = $0; if ($0 ~ /\.go$/) { gd = $0; if (!sub(/\/[^\/]*$/, "", gd)) gd = "."; if ($0 ~ /_test\.go$/) testdir[gd] = 1; else godir[gd] = 1 } } next }
   {
     n++; path[n] = base($1); deps[n] = $3
     dir = substr($2, length(root) + 2); if (dir == "") dir = "."
+    indir[dir] = path[n]
     if (dir in godir) hit[path[n]] = 1
     if (dir in testdir) run[path[n]] = 1
     m = split($4, e, ",")
-    for (i = 1; i <= m; i++) if (e[i] != "" && ((dir == "." ? "" : dir "/") e[i]) in file) hit[path[n]] = 1
+    for (i = 1; i <= m; i++) if (e[i] != "" && (f = (dir == "." ? "" : dir "/") e[i]) in file) { hit[path[n]] = 1; known[f] = 1 }
   }
   END {
     for (k = 1; k <= n; k++) {
@@ -68,13 +113,41 @@ awk -F'|' -v root="$(git rev-parse --show-toplevel)" '
       m = split(deps[k], d, ",")
       for (i = 1; i <= m; i++) if (base(d[i]) in hit) { run[path[k]] = 1; break }
     }
+    # The table: which rows the changed files fire, and which changed file
+    # nothing accounts for. A row naming a directory that is no package
+    # fails the gate whether it fired or not, so a stale row is found by
+    # the next run, not by the change it would have missed.
+    for (j = 1; j <= r; j++) {
+      m = split(by[j], d, " ")
+      for (i = 1; i <= m; i++) if (d[i] != "-" && !(d[i] in indir)) { print "light gate: the row for " at[j] " in .yardr/check-light names " d[i] ", which is no package here" >"/dev/stderr"; bad = 1 }
+    }
+    if (bad) exit 1
+    for (k = 1; k <= nf; k++) {
+      f = order[k]; rowed = 0
+      for (j = 1; j <= r; j++) if (at[j] ~ /\/$/ ? index(f, at[j]) == 1 : f == at[j]) { rowed = 1; if (!fired[j]++) first[j] = f }
+      if (!rowed && f !~ /\.go$/ && !(f in known) && !strays++) print f >stray
+    }
+    if (strays > 1) print strays - 1 >stray
+    for (j = 1; j <= r; j++) if (fired[j]) {
+      m = split(by[j], d, " ")
+      for (i = 1; i <= m; i++) if (d[i] != "-") run[indir[d[i]]] = 1
+      print "light gate: " first[j] (fired[j] > 1 ? " and " fired[j] - 1 " more under " at[j] : "") (by[j] == "-" ? " changed: no test reads it" : " changed: read by the tests of " by[j]) >rows
+    }
     for (p in run) print p
-  }' "$tmp/changed" "$tmp/pkgs" >"$tmp/run"
+  }' "$tmp/reads" "$tmp/changed" "$tmp/pkgs" >"$tmp/run"
+if [ -s "$tmp/stray" ]; then
+  { read -r file; read -r more || more=; } <"$tmp/stray"
+  echo "light gate: $file${more:+ (and $more more)} is read by no known package: testing everything"
+  [ -z "$YARDR_CHECK_PLAN" ] || exit 0
+  exec go test -race ./...
+fi
+[ ! -s "$tmp/rows" ] || cat "$tmp/rows"
 pkgs=$(sort "$tmp/run")
 if [ -z "$pkgs" ]; then
   echo "light gate: no package changed since $(git rev-parse --short "$from"); no tests to run"
   exit 0
 fi
-echo "light gate: testing, with -race, what changed and what imports it:" $pkgs
+echo "light gate: testing, with -race, what changed, what imports it and what reads it:" $pkgs
+[ -z "$YARDR_CHECK_PLAN" ] || exit 0
 # shellcheck disable=SC2086
 go test -race $pkgs

@@ -564,15 +564,41 @@ changed or one of its `Deps` did. A package changed when a `.go` file in its
 directory did, or a file it embeds (`go:embed`: a role, merge-local), which
 is compiled in like one. A changed `_test.go` file runs its own package
 only, as nobody imports it. Every package is tested when `go.mod` or
-`go.sum` changed, and nothing when only other files did (docs, a flow, a
-script nothing embeds).
+`go.sum` changed.
+
+A file a test reads by path (`os.ReadFile("../../roles/builder.md")`) is in
+nothing `go list` prints, so the script starts with a table of them: a
+path, then the packages whose tests read it, or `-` when none does.
+
+```text
+roles/                         internal/pack
+packs/starter/                 internal/pack internal/cli
+internal/hooks/testdata/       internal/hooks internal/dispatch
+docs/                          -
+```
+
+A path ending in `/` is everything under it; any other is that one file.
+Every row a changed file matches adds its packages' own tests (not their
+importers), and the output says so: `light gate:
+packs/starter/roles/builder.md changed: read by the tests of internal/pack
+internal/cli`. A changed file that is not `.go`, not embedded and in no row
+tests every package: `light gate: contrib/x.txt is read by no known
+package: testing everything`. So a missing row costs time, and a new test
+that reads a file by path gets a row; a `-` row (docs, the rig's own roles,
+CI's workflows) is a promise that no test reads the path. A row naming a
+directory that is no package fails the gate. `YARDR_CHECK_PLAN=1` makes the
+script say what it would test and stop, which is how
+`internal/rigcheck`'s test of the table runs it.
 
 What it costs follows from the import graph. A change in a leaf package
 takes well under a minute; a change in a package nearly everything imports
 (`internal/store`, `internal/config`) tests nearly everything, which is
 right, and is then close to the full gate without its second run of three
 suites over the socket. In this repository `internal/cli` imports almost
-every package, so most changes to non-test Go code run its tests.
+every package, so most changes to non-test Go code run its tests. The table
+adds little to that: a change under `roles/` already runs `internal/cli`
+(it imports the embedded roles), and its row adds `internal/pack`, about 6
+seconds with the race detector.
 
 ## Briefs are not config
 

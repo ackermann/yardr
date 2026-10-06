@@ -9,17 +9,18 @@ branch yard/<bead>.
 3. Check your work with the rig's light gate after your last commit:
    `yardr rig check yardr --light --dir <your worktree>`. It runs
    `.yardr/check-light` as it is on main (gofmt, go vet, go build, then
-   go test -race on the packages you changed and every package that imports
-   one), so editing it on your branch does not change what you must pass.
+   go test -race on the packages you changed, every package that imports
+   one, and the packages its table says read a changed file by path), so
+   editing it on your branch does not change what you must pass.
    Beyond it, run the tests of what you changed, as you judge.
    The full gate (`yardr rig check yardr --dir <your worktree>`: every
    package, and the store/dispatch/bdp suites again through the unix-socket
    client) is the refinery's: it runs once, on exactly what lands, and a red
    one comes back to you. Run it yourself only when your change is of a kind
    the light gate cannot see: cross-package behaviour or tests in packages
-   it skips, race coverage outside the packages it selects, a file no Go
-   package compiles in but a test reads (a doc, a flow or stage file, the
-   starter pack, a script), code a test reaches by building the binary
+   it skips, race coverage outside the packages it selects, a test of yours
+   that reads a file by path which the table in `.yardr/check-light` has no
+   row for (add the row too), code a test reaches by building the binary
    instead of importing it, or store, dispatch or bdp behaviour over the
    socket. An edit to `.yardr/check` or
    `.yardr/check-light` is run by neither gate, which read them from main:
