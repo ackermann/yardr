@@ -215,6 +215,36 @@ func TestGitHubWhereKeys(t *testing.T) {
 	}
 }
 
+// head_repo is a github where key like the other fields the adapter sets:
+// it is what leaves out a fork's pull request, whose head branch may have
+// the name of the yard's own.
+func TestGitHubWhereHeadRepo(t *testing.T) {
+	s, own := storetest.NewOwned(t)
+	member(t, s, "all", false, store.Subscription{Source: "github", Scope: store.ScopeAll,
+		Where: map[string]string{"head_repo": "acme/webapp"}})
+	if err := s.AddSubscription(context.Background(), "all", store.Subscription{Source: "linear", Scope: "all",
+		Where: map[string]string{"head_repo": "acme/webapp"}}, "me"); err == nil {
+		t.Error("accepted linear --where head_repo")
+	}
+	opened := func(headRepo string) hooks.Envelope {
+		return hooks.Envelope{Source: "github", Type: "pull_request", Action: "opened",
+			Fields: map[string][]string{"repo": {"acme/webapp"}, "head_repo": {headRepo},
+				"head_branch": {"yard/yard-sv6b"}, "train": {"yard-sv6b"}}}
+	}
+	for _, c := range []struct {
+		name string
+		env  hooks.Envelope
+		want map[string]string
+	}{
+		{"the yard's own", opened("acme/webapp"), map[string]string{"all": "all"}},
+		{"a fork's, same head branch", opened("mallory/webapp"), map[string]string{}},
+	} {
+		if got := deliveries(t, s, own, c.env); !same(got, c.want) {
+			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
 func TestHookDeliveryInInbox(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()

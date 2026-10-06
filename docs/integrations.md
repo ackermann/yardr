@@ -555,8 +555,8 @@ The same steps, with these differences:
   reopened by a map, and a pull request is never touched.
 - **Links** are to issues only: a pull request's URL is refused.
 - **Where keys.** Besides the common ones: `event`, `number`, `state`,
-  `merged`, `conclusion`, `workflow`, `head_branch`, `head_sha`, `base`,
-  `train`.
+  `merged`, `conclusion`, `workflow`, `head_branch`, `head_sha`, `head_repo`,
+  `base`, `train`.
 - **A thread** is `<owner>/<repo>#<number>`, and `yardr thread open github
   --in <owner>/<repo>` names a repository where Linear names a team.
 
@@ -694,8 +694,8 @@ a design.
    pointing at a yard that is gone stays in the service.
 10. **Where keys are a list in the store, not the adapter's.** A field an
     adapter sets is filterable only when `internal/store/subscriptions.go`
-    names it. GitHub's `head_repo` is set by the adapter and is not in the
-    list, so `--where head_repo=…` is refused.
+    names it, and nothing checks that the two agree: `--where` on a field
+    the list leaves out is refused.
 11. **Conformance is not checked** beyond the three methods of `Adapter`
     (above).
 12. **A reply needs a delivery.** `yardr reply` answers a hook event by its

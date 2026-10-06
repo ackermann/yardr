@@ -152,7 +152,9 @@ The scope defaults to involved for a hook source and to all for yardr.
 Hook sources: ` + strings.Join(store.WhereKeys, ", ") + `. Linear exposes team
 (key or name), project and label (any of the issue's labels). GitHub exposes
 repo (owner/name) and label, and also ` + strings.Join(store.GitHubWhereKeys, ", ") + `
-(train: the yardr train whose yard/<train> branch a pull request or CI run is on).
+(train: the yardr train whose yard/<train> branch a pull request or CI run is on;
+head_repo: owner/name of the repository the head branch is in, a fork's for a
+fork's pull request).
 yardr: ` + strings.Join(store.YardrWhereKeys, ", ") + `:
   bead, depot, type, label  the bead's (label: any of its labels)
   kind    the event: created, advanced, noted, held, unheld, closed,
