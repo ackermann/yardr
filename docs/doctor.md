@@ -218,6 +218,7 @@ never a fault. Not printed on a home with no yard.
 | `not configured hooks: no source outside the yard reaches it; yardr hook add --help (docs/subscriptions.md)` | no hook |
 | `configured hooks: <name> (<source>), …` | |
 | `note hooks: hook <name> is blocked: <why>` | the receiver refuses its deliveries |
+| `note hooks: hook <name>: its last delivery was refused (<reason>, <when>); it last accepted one <when>. Events of kind hook_rejected say how many` | the source reaches the yard and is turned away: a wrong or missing signature as a rule (`unauthorized`). `it has accepted none` when it never took one. The reasons, and how the events are bounded: [subscriptions.md](subscriptions.md#a-refused-delivery) |
 | `note hooks: the server takes webhooks on <addr> (the hook_addr setting)` | hooks exist, or the yard has an address without one: what the running server listens on, and that the address is the yard's `hook_addr` setting ([configuration.md](configuration.md#settings)) |
 | `note hooks: the server takes webhooks on <addr> (YARDR_HOOK_ADDR, set where the server started)` | the same, with the variable's address: set where the server starts, it is the one in use. `; the hook_addr setting (<addr>) is not used while the variable is set there` follows when the setting names another |
 | `… ; hook_addr is <addr> now, which it takes at its next start: yardr server stop (the next command starts it again)` | the setting was changed (or unset) after the server read it |

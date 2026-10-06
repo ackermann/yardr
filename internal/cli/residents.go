@@ -36,7 +36,7 @@ var knownKinds = []string{"gave_up", "session_blocked", "session_died", "session
 	"runtime_down", "runtime_up", "session_idle", "session_aged", "session_stalled", "session_harness_error",
 	"session_model_mismatch", "session_prompt_gave_up", "session_prompt_lost", "session_prompt_typed", "move_refused", "nudge_held",
 	"no_runner", "workspace_kept", "resident_gave_up", "created", "claimed", "advanced", "closed",
-	"held", "released", "noted", "dep_added"}
+	"held", "released", "noted", "dep_added", "hook_rejected"}
 
 func (a *app) residentCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "resident", Short: "Always-on sessions not tied to a bead (a mayor)"}

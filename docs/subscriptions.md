@@ -254,6 +254,14 @@ gives the agent the prompt by hand, or, with `typed: true`, the Enter that
 submits the prompt sitting in its input. A resident added before this kind joined
 the default does not hear it until its `--on` names it.
 
+`hook_rejected`: the webhook listener refused a delivery
+([below](#a-refused-delivery)). It is in no resident's default `--on`: add
+it to the list of the resident that should hear of it, `yardr resident set
+<name> --on <its kinds>,hook_rejected` (`--on` replaces the list). The event
+is about no bead, so a `yardr subscribe <name> yardr --where
+kind=hook_rejected` does not carry it: subscriptions to yardr match bead
+events, `--on` kinds every event.
+
 To move a resident to subscriptions, add `yardr subscribe <name> yardr
 --where kind=<k>` for each kind and drop those kinds from its `--on`.
 
@@ -478,6 +486,58 @@ A blocked hook shows in three places:
 Fix the file and the next delivery clears the state; so does `yardr hook add`
 of the same hook again. A file that passes the rule but is empty is not a
 block: its deliveries are answered 500, as before.
+
+### A refused delivery
+
+A delivery the listener does not take is answered with its status and logged
+as a `hook_rejected` event, so that a source whose deliveries are refused can
+be told from one that sends nothing:
+
+```
+yardr events          # … hook_rejected  hook:linear  hook=linear reason=unauthorized status=401 count=1 last=…
+yardr hook list       # LAST ACCEPTED and LAST REFUSED, per hook
+```
+
+| reason | status | the delivery |
+|---|---|---|
+| `unknown_hook` | 404 | named no hook: a mistyped URL, a hook removed, or another yard's listener on the address |
+| `unauthorized` | 401 | had no signature or token, a wrong one, or a timestamp too old |
+| `bad_request` | 400 | was signed but is not what the source sends (no JSON, a missing header) |
+| `too_large` | 413 | was larger than 1 MiB |
+| `blocked` | 503 | came while the hook's secret file fails the rule (above) |
+| `secret` | 500 | came while the secret file is empty |
+| `read`, `store`, `unknown_source` | 400, 500 | could not be read or recorded |
+
+The event carries `hook` (the name asked for, cut to 64 characters),
+`reason`, `status`, `count` and `last`, and never the body, a header or the
+secret. Anyone who reaches the listener can have it refuse them, so the
+events are bounded:
+
+- one name and reason log **one event in ten minutes**. The first refusal is
+  logged at once, with `count` 1; those after it are counted, and the count
+  is logged when the ten minutes end (within a minute of that), or with the
+  next refusal after them, whichever comes first, and when the server stops.
+  `count` is how many were refused since the pair's last event and `last`
+  when the last of them was;
+- of the names that are no hook's, **32 are told apart** at a time; a
+  refusal under a further one is logged under `(other)`. A name is forgotten
+  ten minutes after its last event when nothing was refused since. A hook's
+  own name is always its own, so a scanner trying names does not hide a
+  broken hook.
+
+A duplicate is no refusal and logs nothing.
+
+`yardr hook list` and `yardr hook show <name>` say when each hook last
+accepted a delivery and when it last refused one, with the reason. The time
+of the refusal is that of the hook's last `hook_rejected` event, so it can
+trail a refusal by the ten minutes. Both times are kept on the hook, also
+when it is added again. A hook whose last delivery was refused is a note on
+`yardr doctor`'s hooks line; one with neither time has been sent nothing
+this yard's server saw (then look at the source's own delivery log: the
+delivery went elsewhere, or was not sent).
+
+To have a resident hear of it, add the kind to its [`--on`](#--on); it is in
+no default.
 
 Only the server's webhook listener records deliveries. The store socket has no
 method to record one, nor to log an event of an arbitrary kind: clients log

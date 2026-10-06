@@ -231,6 +231,13 @@ yardr resident set mayor \
   --on gave_up,session_blocked,unrouted,stranded,no_runner,workspace_kept,resident_gave_up,runtime_down,session_idle,session_aged,session_stalled,session_harness_error,session_model_mismatch,session_prompt_gave_up,move_refused,held
 ```
 
+A kind outside the default is added the same way. `hook_rejected`, a
+webhook delivery the listener refused
+([subscriptions.md](subscriptions.md#a-refused-delivery)), is one: append
+`,hook_rejected` to the list above for the resident that looks after the
+hooks. It is about no bead, so `--on` carries it and a `yardr subscribe
+<name> yardr --where kind=hook_rejected` does not.
+
 Its journal, inbox position and runtime state are kept across a change of
 its definition, by `set` or by `add`.
 

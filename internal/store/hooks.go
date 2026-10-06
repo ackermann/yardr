@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	bolt "go.etcd.io/bbolt"
 )
@@ -46,7 +47,25 @@ type Hook struct {
 	// its definition allows it (SetState).
 	As  string            `json:"as,omitempty"`
 	Map map[string]string `json:"map,omitempty"`
+	// Accepted is when the hook last took a delivery (RecordHook), and
+	// Refused when the receiver last refused one and logged it, with the
+	// reason in RefusedFor (RejectHook). Refusals are logged at most once per
+	// reason in a while, so Refused can trail the last refusal by that long.
+	// Only the receiver's process sets them: PutHook keeps what the hook has.
+	Accepted   *time.Time `json:"accepted,omitempty"`
+	Refused    *time.Time `json:"refused,omitempty"`
+	RefusedFor string     `json:"refused_for,omitempty"`
 }
+
+// LastRefused reports whether the hook's last delivery the yard knows of
+// was refused: it refused one and has accepted none since.
+func (h Hook) LastRefused() bool {
+	return h.Refused != nil && (h.Accepted == nil || h.Refused.After(*h.Accepted))
+}
+
+// HookRejected is the kind of the event a refused delivery is logged as
+// (RejectHook).
+const HookRejected = "hook_rejected"
 
 // ThreadStates are the words a thread's status is asked for by, in the
 // order work passes through them (hooks.States, which a test holds equal).
@@ -81,7 +100,8 @@ func (h Hook) checkMap() error {
 }
 
 // PutHook creates or replaces a hook. A replaced hook starts unblocked: the
-// receiver finds out again on the next delivery. A hook that acts as a
+// receiver finds out again on the next delivery. It keeps when it last
+// accepted and refused a delivery, which the caller cannot set. A hook that acts as a
 // resident (As) is refused when there is no such resident, or when it has
 // no identity in the hook's source: the source's delivery of a change made
 // as the resident is kept from the resident's inbox by that identity alone.
@@ -114,6 +134,11 @@ func (s *Store) PutHook(ctx context.Context, h Hook, actor string) (*Hook, error
 		if len(h.Map) > 0 {
 			data["map"] = h.Map
 		}
+		var was Hook
+		if _, err := get(w.Tx, bHooks, h.Name, &was); err != nil {
+			return err
+		}
+		h.Accepted, h.Refused, h.RefusedFor = was.Accepted, was.Refused, was.RefusedFor
 		if err := put(w.Tx, bHooks, h.Name, h); err != nil {
 			return err
 		}
@@ -207,6 +232,39 @@ func (s *Store) BlockHook(ctx context.Context, name, reason string) error {
 	})
 }
 
+// RejectHook logs deliveries the receiver refused as one `hook_rejected`
+// event: the name they were sent to (hook), why (reason, the receiver's
+// word), the status answered, how many were refused since the last such
+// event for that name and reason (count) and when the last of them was
+// (last). It never carries a body, a header or the secret. A name that is a
+// hook's has the time and the reason kept on the hook (Refused), for `yardr
+// hook list` and doctor; a name that is no hook's is logged all the same,
+// since a source sending to a mistyped URL is what the event is for.
+//
+// The receiver bounds how often it calls this (hooks.RejectWindow), so a
+// scanner cannot grow the log. Like RecordHook it is not on the API: no
+// client can log a refusal that did not happen.
+func (s *Store) RejectHook(ctx context.Context, name, reason string, status, count int, last time.Time) error {
+	return s.write(func(w *wtx) error {
+		last := last.UTC().Truncate(time.Microsecond)
+		actor := "yard"
+		var h Hook
+		if ok, err := get(w.Tx, bHooks, name, &h); err != nil {
+			return err
+		} else if ok {
+			actor = "hook:" + name
+			if h.Refused == nil || last.After(*h.Refused) {
+				h.Refused, h.RefusedFor = &last, reason
+				if err := put(w.Tx, bHooks, name, h); err != nil {
+					return err
+				}
+			}
+		}
+		return w.event("", HookRejected, actor, map[string]any{
+			"hook": name, "reason": reason, "status": status, "count": count, "last": last.Format(time.RFC3339)})
+	})
+}
+
 // RecordHook logs an accepted delivery as one `hook` event carrying the
 // normalized envelope, and keeps the raw payload beside it under the
 // event's seq. The envelope is what routing reads; the payload is there
@@ -278,6 +336,18 @@ func (s *Store) RecordHook(ctx context.Context, name string, envelope map[string
 		}
 		for _, k := range dedupe {
 			if err := seen.Put([]byte(k), []byte(seqKey(seq))); err != nil {
+				return err
+			}
+		}
+		// A delivery under a name that is no hook's (a test's, a hook removed
+		// meanwhile) has no record to say so on.
+		var h Hook
+		if ok, err := get(w.Tx, bHooks, name, &h); err != nil {
+			return err
+		} else if ok {
+			at := now()
+			h.Accepted = &at
+			if err := put(w.Tx, bHooks, name, h); err != nil {
 				return err
 			}
 		}

@@ -393,6 +393,9 @@ func optionalParts(ctx context.Context, cfg *config.Config, st store.API) ([]opt
 			if h.Blocked != "" {
 				hook.Notes = append(hook.Notes, fmt.Sprintf("hook %s is blocked: %s", h.Name, h.Blocked))
 			}
+			if h.LastRefused() {
+				hook.Notes = append(hook.Notes, lastRefused(h))
+			}
 		}
 		hook.Configured, hook.Detail = true, strings.Join(names, ", ")
 	}

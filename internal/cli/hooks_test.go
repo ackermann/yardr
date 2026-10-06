@@ -4,10 +4,12 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -223,5 +225,89 @@ func TestHookAddMap(t *testing.T) {
 	}
 	if h, _ := st.GetHook(ctx, "linear"); h.As != "" || h.Map != nil {
 		t.Fatalf("replaced %+v", h)
+	}
+}
+
+// hook list and hook show say when each hook last accepted and last refused
+// a delivery, and doctor says so of a hook whose last one was refused: its
+// source reaches the yard and is turned away.
+func TestHookListShowsLastAcceptedAndRefused(t *testing.T) {
+	st, own := storetest.NewOwned(t)
+	a := &app{st: st, actor: "me"}
+	ctx := context.Background()
+	f := filepath.Join(t.TempDir(), "t.secret")
+	if err := os.WriteFile(f, []byte("s3cret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"quiet", "broken", "mended"} {
+		if _, err := run(t, a.hookCmd(), "add", name, "--source", "token", "--secret-file", f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	refused := time.Now().Add(-time.Hour)
+	for _, name := range []string{"broken", "mended"} {
+		if err := own.RejectHook(ctx, name, "unauthorized", 401, 3, refused); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := own.RecordHook(ctx, "mended", map[string]any{"source": "token"}, []byte("ok"), nil); err != nil {
+		t.Fatal(err)
+	}
+	mended, err := st.GetHook(ctx, "mended")
+	if err != nil || mended.Accepted == nil {
+		t.Fatalf("mended: %+v %v", mended, err)
+	}
+	out, err := run(t, a.hookCmd(), "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := map[string][]string{}
+	for _, l := range strings.Split(out, "\n") {
+		if fs := strings.Fields(l); len(fs) > 0 {
+			lines[fs[0]] = fs
+		}
+	}
+	at, on := strings.Fields(since(refused)), strings.Fields(since(*mended.Accepted))
+	for name, want := range map[string][]string{
+		"NAME":   {"NAME", "SOURCE", "PATH", "SECRET", "FILE", "STATE", "LAST", "ACCEPTED", "LAST", "REFUSED", "MOVES", "ISSUES"},
+		"quiet":  {"quiet", "token", "/hooks/quiet", f, "ok", "-", "-", "-"},
+		"broken": {"broken", "token", "/hooks/broken", f, "ok", "-", at[0], at[1], "unauthorized", "-"},
+		"mended": {"mended", "token", "/hooks/mended", f, "ok", on[0], on[1], at[0], at[1], "unauthorized", "-"},
+	} {
+		if !slices.Equal(lines[name], want) {
+			t.Fatalf("hook list, %s: %q, want %q\n%s", name, lines[name], want, out)
+		}
+	}
+	out, err = run(t, a.hookCmd(), "show", "mended")
+	if err != nil || !strings.Contains(out, "  last accepted a delivery "+since(*mended.Accepted)+"\n") ||
+		!strings.Contains(out, "  last refused one "+since(refused)+": unauthorized\n") {
+		t.Fatalf("hook show: %q %v", out, err)
+	}
+
+	parts, err := optionalParts(ctx, &config.Config{Home: t.TempDir()}, st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var notes []string
+	for _, p := range parts {
+		if p.Key == "hooks" {
+			for _, n := range p.Notes {
+				if strings.Contains(n, "refused") {
+					notes = append(notes, n)
+				}
+			}
+		}
+	}
+	want := "hook broken: its last delivery was refused (unauthorized, " + since(refused) + "); it has accepted none. Events of kind hook_rejected say how many"
+	if len(notes) != 1 || notes[0] != want {
+		t.Fatalf("doctor's hooks notes: %q\nwant only %q", notes, want)
+	}
+	// One refused after it last accepted says when it did.
+	if err := own.RejectHook(ctx, "mended", "bad_request", 400, 1, time.Now().Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	h, _ := st.GetHook(ctx, "mended")
+	if got := lastRefused(*h); !strings.Contains(got, "(bad_request, ") || !strings.Contains(got, "; it last accepted one "+since(*h.Accepted)+".") {
+		t.Fatalf("lastRefused: %q", got)
 	}
 }

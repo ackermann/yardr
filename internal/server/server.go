@@ -212,7 +212,7 @@ func (r *runner) serve(ctx context.Context) (string, error) {
 	// Streams (events, wake) never finish on their own; end them when
 	// shutdown starts so it only waits for calls in flight.
 	srv.RegisterOnShutdown(stopStreams)
-	hookSrv := serveHooks(ctx, c, st, log)
+	stopHooks := serveHooks(ctx, c, st, log)
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(ln) }()
 	log.Info("yardr server ready", "store", c.DBPath(), "socket", c.Socket(), "revision", version.Show(r.rev))
@@ -260,9 +260,7 @@ wait:
 			break wait
 		}
 	}
-	if hookSrv != nil {
-		hookSrv.Close()
-	}
+	stopHooks()
 	sctx, cancel := context.WithTimeout(context.Background(), r.grace)
 	defer cancel()
 	if srv.Shutdown(sctx) != nil {
@@ -339,7 +337,11 @@ func (r *runner) handler(st *store.Store, offer func(string) bool, streams conte
 // cannot listen is not fatal, the yard itself works: two yards given one
 // address is the usual cause, so it is logged as an event and left in the
 // receiver's state for doctor to say.
-func serveHooks(ctx context.Context, c *config.Config, st *store.Store, log *slog.Logger) *http.Server {
+//
+// The function returned stops the listener and has the receiver log the
+// refusals it had still counted (hooks.Receiver.Run); it is called while the
+// store is open.
+func serveHooks(ctx context.Context, c *config.Config, st *store.Store, log *slog.Logger) (stop func()) {
 	l := hooks.Listener{Addr: c.HookAddr, From: hooks.FromVariable}
 	if l.Addr == "" {
 		all, err := st.Settings(ctx)
@@ -357,7 +359,7 @@ func serveHooks(ctx context.Context, c *config.Config, st *store.Store, log *slo
 		}
 	}()
 	if l.Addr == "" {
-		return nil
+		return func() {}
 	}
 	ln, err := net.Listen("tcp", l.Addr)
 	if err != nil {
@@ -367,12 +369,19 @@ func serveHooks(ctx context.Context, c *config.Config, st *store.Store, log *slo
 			map[string]any{"addr": l.Addr, "from": l.From, "error": l.Error}); err != nil {
 			log.Warn("hook_listener_failed event", "err", err)
 		}
-		return nil
+		return func() {}
 	}
 	// Beside the hooks, under /peers/: the yards this one is linked with
 	// (docs/peers.md). Each handler serves its own paths and nothing else.
 	mux := http.NewServeMux()
-	mux.Handle("/hooks/", hooks.NewReceiver(st, log).Handler())
+	rc := hooks.NewReceiver(st, log)
+	running, stopRunning := context.WithCancel(context.Background())
+	flushed := make(chan struct{})
+	go func() {
+		defer close(flushed)
+		rc.Run(running)
+	}()
+	mux.Handle("/hooks/", rc.Handler())
 	mux.Handle("/peers/", yards.NewReceiver(st, c.PeerKey(), log).Handler())
 	srv := &http.Server{Handler: mux,
 		ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second}
@@ -382,7 +391,11 @@ func serveHooks(ctx context.Context, c *config.Config, st *store.Store, log *slo
 		}
 	}()
 	log.Info("hook receiver ready", "addr", ln.Addr().String(), "from", l.From)
-	return srv
+	return func() {
+		srv.Close()
+		stopRunning()
+		<-flushed
+	}
 }
 
 // Connect returns a client for the running server, starting one if none

@@ -121,6 +121,19 @@ identity), which keeps the source's delivery of the change out of its inbox.`,
 
 	list := &cobra.Command{
 		Use: "list", Short: "List hooks", Args: cobra.NoArgs,
+		Long: `Lists the hooks: the path each is served on, its secret file, whether the
+receiver takes its deliveries (STATE), and when it last accepted and last
+refused one.
+
+LAST REFUSED is the time and the reason of the hook's last hook_rejected
+event: unauthorized (no signature, a wrong one, or a timestamp too old),
+bad_request, too_large, blocked (the secret file), secret (it is empty). A
+hook that was last refused after it last accepted is not reached by its
+source as it is set up; one with neither time has been sent nothing the
+server saw. Refusals are logged at most once per hook and reason in ten
+minutes, with a count, so the time can trail the last refusal by that long.
+yardr events shows them as hook_rejected, also those sent to a name that is
+no hook's (unknown_hook). See docs/subscriptions.md.`,
 		RunE: func(c *cobra.Command, _ []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -141,9 +154,16 @@ identity), which keeps the source's delivery of the change out of its inbox.`,
 					if len(h.Map) > 0 {
 						moves = "as " + h.As + ": " + strings.Join(mapLines(h.Map), " ")
 					}
-					rows = append(rows, []string{h.Name, h.Source, "/hooks/" + h.Name, h.SecretFile, state, moves})
+					accepted, refused := "-", "-"
+					if h.Accepted != nil {
+						accepted = since(*h.Accepted)
+					}
+					if h.Refused != nil {
+						refused = since(*h.Refused) + " " + h.RefusedFor
+					}
+					rows = append(rows, []string{h.Name, h.Source, "/hooks/" + h.Name, h.SecretFile, state, accepted, refused, moves})
 				}
-				table("NAME\tSOURCE\tPATH\tSECRET FILE\tSTATE\tMOVES ISSUES", rows)
+				table("NAME\tSOURCE\tPATH\tSECRET FILE\tSTATE\tLAST ACCEPTED\tLAST REFUSED\tMOVES ISSUES", rows)
 			})
 		},
 	}
@@ -287,6 +307,12 @@ func (a *app) showHook(ctx context.Context, name string) error {
 		if h.Blocked != "" {
 			fmt.Printf("  blocked: %s\n", h.Blocked)
 		}
+		if h.Accepted != nil {
+			fmt.Printf("  last accepted a delivery %s\n", since(*h.Accepted))
+		}
+		if h.Refused != nil {
+			fmt.Printf("  last refused one %s: %s\n", since(*h.Refused), h.RefusedFor)
+		}
 		if h.As != "" {
 			fmt.Printf("  acts as %s\n", h.As)
 		}
@@ -301,6 +327,18 @@ func (a *app) showHook(ctx context.Context, name string) error {
 			fmt.Println(line)
 		}
 	})
+}
+
+// lastRefused is what doctor says of a hook whose last delivery was
+// refused (store.Hook.LastRefused): it is set up, and its source is not
+// getting through.
+func lastRefused(h store.Hook) string {
+	accepted := "it has accepted none"
+	if h.Accepted != nil {
+		accepted = "it last accepted one " + since(*h.Accepted)
+	}
+	return fmt.Sprintf("hook %s: its last delivery was refused (%s, %s); %s. Events of kind %s say how many",
+		h.Name, h.RefusedFor, since(*h.Refused), accepted, store.HookRejected)
 }
 
 // receiver says whether the yard's server takes webhooks and on what, with
