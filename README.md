@@ -41,11 +41,11 @@ archives, not inside them. The archives need a login while the repository is
 private, so download with `gh`:
 
 ```sh
-gh release download v1.2.3 --repo McKean/yardr \
-  --pattern 'yardr_1.2.3_darwin_arm64.tar.gz' --pattern checksums.txt
+gh release download v0.2.0 --repo McKean/yardr \
+  --pattern 'yardr_0.2.0_darwin_arm64.tar.gz' --pattern checksums.txt
 shasum -a 256 --ignore-missing -c checksums.txt   # must say OK; Linux: sha256sum --ignore-missing -c checksums.txt
-tar -xzf yardr_1.2.3_darwin_arm64.tar.gz yardr && mv yardr ~/.local/bin/
-yardr --version                                   # v1.2.3 (<revision>); yardr version prints the same
+tar -xzf yardr_0.2.0_darwin_arm64.tar.gz yardr && mv yardr ~/.local/bin/
+yardr --version                                   # v0.2.0 (<revision>); yardr version prints the same
 ```
 
 Either way yardr still needs git, herdr and an agent harness (claude, codex,
@@ -354,6 +354,7 @@ internal/chat       the view behind yardr chat
 internal/pack       reads a pack and plans what importing it would change
 internal/yardkey    a yard's key pair and the signatures between linked yards
 internal/pairing    linking two yards from a short code
+internal/peer       unix-socket peer identity for the store and exec runner
 internal/yards      messages between this yard and its peers
 internal/otel       trace context for a bead's work; the event log as OTLP
 main.go             the yardr binary
@@ -382,14 +383,15 @@ through it. A bead's worktree is opened as a herdr workspace with a tab per
 stage and the agent started in it, and yardr reads its agents' state and
 panes from herdr.
 
-**Implemented.** [BDP](https://github.com/gastownhall/bdp), the Bead
-Protocol, is an HTTP protocol for beads and the links between them.
+**Implemented.** [BDP](https://github.com/gastownhall/bdp), the Bead Data
+Protocol (called the Bead Protocol on its project page), is an HTTP protocol
+for beads and the links between them.
 `yardr bdp serve` serves the yard over its Read profile
 ([docs/bdp.md](docs/bdp.md)), and `conformance/bdp` runs BDP's own
 conformance suite against it.
 
-**Inspiration.** yardr does not import or need any of these, and owes them
-its ideas and its vocabulary:
+**Inspiration.** yardr does not import or need Beads, Gas Town or Gas City,
+and owes them its ideas and its vocabulary:
 
 - [Beads](https://github.com/steveyegge/beads): the bead, a durable unit of
   work with dependencies that agents and people share, comes from there.
