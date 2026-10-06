@@ -885,13 +885,14 @@ func TestDoctorTry(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	called := filepath.Join(t.TempDir(), "called")
-	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers,
+	tools := map[string]string{"git": toolAnswers, "herdr": toolAnswers,
 		"claude": tryTool(called, "echo 'some banner'; echo ok"),
 		"codex": tryTool(called, "echo 'model: gpt' >&2\necho 'ERROR: refresh token was already used' >&2\n"+
 			"echo 'Please log out and sign in again.' >&2\nexit 1"),
-		"kimi":         tryTool(called, "echo 'thinking'; sleep 30"),
+		"kimi":         tryTool(called, "echo ok"),
 		"cursor-agent": tryTool(called, "echo ok"),
-		"pi":           toolFails})
+		"pi":           toolFails}
+	fakeTools(t, tools)
 	if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
@@ -900,7 +901,12 @@ func TestDoctorTry(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	stub(t, &tryTimeout, 2*time.Second)
+	// Two reports with --try, for one timeout is not right for both (as in
+	// TestDoctorVersionCheck): a call that answers or fails needs one long
+	// enough to do so on any machine, where a script's start alone took
+	// over 2s (yardr-r4q3), and a call that hangs costs all of it. First
+	// the ones that answer or fail, kimi's among them.
+	stub(t, &tryTimeout, fakeToolsTimeout)
 	stub(t, &tryHarnessCall, realTry)
 	// The calls make their directories in a temp directory of this test's
 	// own. In the one every go test on the machine shares, the directory of
@@ -937,7 +943,7 @@ func TestDoctorTry(t *testing.T) {
 	wantText(t, out,
 		"ok     claude     tried: one real call answered (ok)",
 		"FAULT  codex      tried: one real call failed: exit status 1: model: gpt / ERROR: refresh token was already used / Please log out and sign in again.",
-		"FAULT  kimi       tried: one real call did not end within 2s; it printed: thinking",
+		"ok     kimi       tried: one real call answered (ok)",
 		"note   cursor-agent  not tried: yardr knows no one-shot call for cursor",
 		"FAULT  pi         tried: one real call failed: exit status 3: broken install")
 	if strings.Contains(out, "no harness was asked") {
@@ -978,12 +984,44 @@ func TestDoctorTry(t *testing.T) {
 			states[n.Harness] = *n.Try
 		}
 	}
-	if !rep.Tried || states["claude"] != (tryCheck{State: tryOK, Output: "ok"}) || states["codex"].State != tryFails || states["kimi"].State != tryHangs ||
+	if !rep.Tried || states["claude"] != (tryCheck{State: tryOK, Output: "ok"}) || states["codex"].State != tryFails || states["kimi"].State != tryOK ||
 		states["cursor"].State != tryNotTried || states["pi"].State != tryFails {
 		t.Fatalf("tried %v, states = %+v", rep.Tried, states)
 	}
 	if !slices.ContainsFunc(rep.Faults, func(f string) bool { return strings.HasPrefix(f, "codex: tried: one real call failed") }) {
 		t.Errorf("faults = %v", rep.Faults)
+	}
+
+	// Then a call that hangs, with a timeout it is quick to run out of.
+	// Only kimi is looked at: in so short a time the others may hang too.
+	// So may kimi before it has printed anything, and then it gets longer:
+	// the line says what a call that hangs printed.
+	tools["kimi"] = tryTool(called, "echo 'thinking'; sleep 30")
+	fakeTools(t, tools)
+	limits := []time.Duration{300 * time.Millisecond, 2 * time.Second, 10 * time.Second}
+	for i, limit := range limits {
+		stub(t, &tryTimeout, limit)
+		began := time.Now()
+		out, err = run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor", "--try")
+		if !errors.Is(err, errCheckFailed) {
+			t.Fatalf("err = %v\n%s", err, out)
+		}
+		hangs := "FAULT  kimi       tried: one real call did not end within " + limit.String()
+		wantText(t, out, hangs)
+		// A hang ends on the timeout, the script's sleep with it.
+		if d := time.Since(began); d > 25*time.Second {
+			t.Errorf("the report with a hanging call took %s", d)
+		}
+		if strings.Contains(out, hangs+"; it printed: thinking") {
+			break
+		}
+		if i == len(limits)-1 {
+			t.Fatalf("the hanging call's line lacks what it printed:\n%s", out)
+		}
+	}
+	rep, _ = doctorJSON(t, st, "--try")
+	if !slices.ContainsFunc(rep.Machine, func(n need) bool { return n.Harness == "kimi" && n.Try != nil && n.Try.State == tryHangs }) {
+		t.Fatalf("kimi's call is not one that hangs: %+v", rep.Machine)
 	}
 }
 
