@@ -11,10 +11,12 @@
 package runner
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -410,7 +412,7 @@ func findPlain(p string, rig *store.Rig, home string) ([]byte, PromptSource, err
 	return nil, PromptSource{}, fmt.Errorf("%s not found (looked in %s)", p, strings.Join(tried, ", "))
 }
 
-// gitTimeout bounds each git call reading a role from a rig's base: a
+// gitTimeout bounds the git call reading a role from a rig's base: a
 // brief is written while the agent's pane waits.
 var gitTimeout = 30 * time.Second
 
@@ -422,46 +424,134 @@ var gitTimeout = 30 * time.Second
 // place looked, for the not-found error, and sha the base commit read, empty
 // for the working tree.
 func readRigFile(rig *store.Rig, rel string) (text []byte, where, sha string, err error) {
-	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
-	defer cancel()
-	git := func(args ...string) ([]byte, error) {
-		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", rig.Path}, args...)...)
-		cmd.WaitDelay = time.Second
-		var errb bytes.Buffer
-		cmd.Stderr = &errb
-		out, err := cmd.Output()
+	// A base with a newline in it is no ref, and would be two requests to
+	// the git that reads a line for each.
+	if rig.Base != "" && !rig.IsDir() && !strings.Contains(rig.Base, "\n") {
+		gitPath := filepath.ToSlash(rel)
+		text, sha, found, err := readAtBase(rig, gitPath)
 		if err != nil {
-			if ctx.Err() != nil {
-				return nil, fmt.Errorf("git %s: %w", strings.Join(args, " "), ctx.Err())
-			}
-			return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(errb.String()))
+			return nil, "", "", err
 		}
-		return out, nil
-	}
-	gitPath := filepath.ToSlash(rel)
-	if rig.Base != "" && !rig.IsDir() {
 		// A rig that is not a repo, or whose base does not resolve, has no
 		// base to read from: its working tree is all there is.
-		if out, err := git("rev-parse", "--verify", "--quiet", rig.Base+"^{commit}"); err == nil {
-			sha = strings.TrimSpace(string(out))
-			// ls-tree tells "not on the base yet" apart from a failing git.
-			out, err := git("ls-tree", "--name-only", sha, "--", gitPath)
-			if err != nil {
-				return nil, "", "", err
-			}
+		if sha != "" {
 			where := rig.Base + ":" + gitPath
-			if strings.TrimSpace(string(out)) == "" {
+			if !found {
 				return nil, where, "", fs.ErrNotExist
 			}
-			text, err := git("show", sha+":"+gitPath)
-			return text, where, sha, err
-		} else if ctx.Err() != nil {
-			return nil, "", "", err
+			return text, where, sha, nil
 		}
 	}
 	path := filepath.Join(rig.Path, rel)
 	text, err = os.ReadFile(path)
 	return text, path, "", err
+}
+
+// readAtBase reads gitPath at the commit the rig's base names, in one git
+// process: a `git cat-file --batch` asked for the commit and then, with the
+// sha it answered, for the file, so the file is read at the commit that was
+// resolved. sha is empty when there is no base to read from: git does not
+// know it, or ends before it has answered (no checkout here, no git). found
+// is false for a path that commit does not have. A git that is cut off at
+// gitTimeout, or fails once the base is known, is an error.
+func readAtBase(rig *store.Rig, gitPath string) (text []byte, sha string, found bool, err error) {
+	if strings.Contains(gitPath, "\n") {
+		return nil, "", false, fmt.Errorf("%s:%q: a path with a newline in it cannot be read from the base", rig.Base, gitPath)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", rig.Path, "cat-file", "--batch")
+	cmd.WaitDelay = time.Second
+	var errb bytes.Buffer
+	cmd.Stderr = &errb
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, "", false, err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, "", false, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, "", false, nil
+	}
+	out := bufio.NewReader(stdout)
+	// ask sends one object name and reads git's answer to it: the object's
+	// id, type and content, or known false for the "missing" (or
+	// "ambiguous") git says of a name it cannot give an object for.
+	ask := func(name string) (oid, kind string, body []byte, known bool, err error) {
+		// A failed write shows as the read that follows it failing.
+		io.WriteString(stdin, name+"\n")
+		line, err := out.ReadString('\n')
+		if err != nil {
+			return "", "", nil, false, err
+		}
+		head, ok := strings.CutPrefix(strings.TrimSuffix(line, "\n"), name+" ")
+		if ok && (head == "missing" || head == "ambiguous") {
+			return "", "", nil, false, nil
+		}
+		var size int64
+		if n, _ := fmt.Sscanf(line, "%s %s %d\n", &oid, &kind, &size); n != 3 || size < 0 {
+			return "", "", nil, false, fmt.Errorf("unexpected answer %q", strings.TrimSpace(line))
+		}
+		// The content is followed by a newline of git's own.
+		body = make([]byte, size+1)
+		if _, err := io.ReadFull(out, body); err != nil {
+			return "", "", nil, false, err
+		}
+		return oid, kind, body[:size], true, nil
+	}
+	// failed ends git and says why the answer to name could not be read:
+	// the deadline, else what git said as it went.
+	failed := func(name string, cause error) error {
+		timedOut := ctx.Err()
+		stdin.Close()
+		cancel()
+		werr := cmd.Wait()
+		if timedOut != nil {
+			return fmt.Errorf("git cat-file --batch: %s: %w", name, timedOut)
+		}
+		if errors.Is(cause, io.EOF) || errors.Is(cause, io.ErrUnexpectedEOF) {
+			if werr != nil {
+				cause = werr
+			} else {
+				cause = errors.New("git ended without an answer")
+			}
+		}
+		return fmt.Errorf("git cat-file --batch: %s: %w: %s", name, cause, strings.TrimSpace(errb.String()))
+	}
+
+	commit := rig.Base + "^{commit}"
+	sha, _, _, known, err := ask(commit)
+	if err != nil || !known {
+		// A git that ends with nothing said has no base to give, as one
+		// that says so: only the deadline or an answer that is none of
+		// git's is a failure here.
+		ferr := failed(commit, err)
+		if err == nil || (errors.Is(err, io.EOF) && !errors.Is(ferr, context.DeadlineExceeded)) {
+			return nil, "", false, nil
+		}
+		return nil, "", false, ferr
+	}
+	blob := sha + ":" + gitPath
+	_, kind, text, known, err := ask(blob)
+	if err != nil {
+		return nil, "", false, failed(blob, err)
+	}
+	stdin.Close()
+	if err := cmd.Wait(); err != nil {
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
+		return nil, "", false, fmt.Errorf("git cat-file --batch: %s: %w: %s", blob, err, strings.TrimSpace(errb.String()))
+	}
+	if !known {
+		return nil, sha, false, nil
+	}
+	if kind != "blob" {
+		return nil, "", false, fmt.Errorf("%s:%s is a %s, not a file", rig.Base, gitPath, kind)
+	}
+	return text, sha, true, nil
 }
 
 // warnedRigRoots holds the rig-root roles already warned about, so a
