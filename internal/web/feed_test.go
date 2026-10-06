@@ -142,6 +142,9 @@ func TestFeedOtherWords(t *testing.T) {
 	must(t, api.LogDispatch(ctx, b.ID, "session_idle", "yard", map[string]any{"session": "s1"}))
 	must(t, api.LogDispatch(ctx, b.ID, "session_harness_error", "yard", map[string]any{"session": "s1", "reason": "at_capacity",
 		"line": "■ Selected model is at capacity.", "hint": "a long hint", "tail": "› \n■ Selected model is at capacity."}))
+	must(t, api.LogDispatch(ctx, b.ID, "session_blocked", "yard", map[string]any{"session": "s1",
+		"handle": map[string]any{"agent": "window-new"},
+		"tail":   strings.Repeat("⏺ an earlier line of the pane\n", 20) + "│ Do you want to proceed?\n│ ❯ 1. Yes"}))
 	must(t, api.LogDispatch(ctx, b.ID, "move_refused", "yard", map[string]any{"session": "s1", "reason": "not_allowed",
 		"command": "yardr bead done " + b.ID + " --outcome shipped", "error": "flow has no outcome shipped", "hint": "a long hint"}))
 	_, err = api.CloseBead(ctx, b.ID, "dropped", store.Expect{}, "me")
@@ -170,6 +173,11 @@ func TestFeedOtherWords(t *testing.T) {
 			t.Errorf("%s: got %q, note %q, tone %q, commit %q; want %q, %q, %q and no commit",
 				kind, e.Text, e.Note, e.Tone, e.Commit, want.Text, want.Note, want.Tone)
 		}
+	}
+	// A blocked session's note is the end of its pane, where the question is.
+	if n := got["session_blocked"]; n.Text != "session blocked" || len(n.Note) > 280 || !strings.HasPrefix(n.Note, "…") ||
+		!strings.HasSuffix(n.Note, "│ Do you want to proceed?\n│ ❯ 1. Yes") {
+		t.Errorf("session_blocked: got %q, note %q (%d bytes); want the pane's end in at most 280", n.Text, n.Note, len(n.Note))
 	}
 	if n := got["noted"].Note; len(n) > 300 || !strings.HasSuffix(n, "…") {
 		t.Errorf("a 500-byte note is shown as %d bytes ending %q, want it cut short", len(n), n[max(0, len(n)-8):])

@@ -57,6 +57,24 @@ func TestHarnessErrorLineLeadsWithItsReason(t *testing.T) {
 	}
 }
 
+// The inbox row of a blocked session ends with its pane's last lines: tail
+// is the last of the event's fields by name, so the question the agent
+// waits on stands under the row, as the pane shows it.
+func TestBlockedLineEndsWithThePane(t *testing.T) {
+	bead := "yardr-cdmr"
+	e := store.Event{Seq: 16, Kind: "session_blocked", Actor: "yard", Bead: &bead,
+		At: time.Date(2026, 10, 6, 21, 5, 0, 0, time.Local), Data: map[string]any{
+			"session": "s1", "handle": map[string]any{"agent": "yardr-cdmr-new"},
+			"tail": "⏺ Bash(git push)\n│ Do you want to proceed?\n│ ❯ 1. Yes",
+		}}
+	got := capture(t, func() { printInboxEvent(e, "yardmaster") })
+	want := "    16 10-06 21:05  yardr-cdmr session_blocked (on) by yard handle={agent=yardr-cdmr-new} session=s1 " +
+		"tail=⏺ Bash(git push)\n│ Do you want to proceed?\n│ ❯ 1. Yes\n"
+	if got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+}
+
 // The inbox row of a refused move begins with why, the command the agent
 // ran and the yard's answer to it.
 func TestMoveRefusedLineLeadsWithTheCommand(t *testing.T) {

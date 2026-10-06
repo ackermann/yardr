@@ -262,3 +262,80 @@ func later(d *dispatch.Dispatcher) {
 
 // skew is how far later has moved each dispatcher's clock.
 var skew = map[*dispatch.Dispatcher]time.Duration{}
+
+// permissionQuestion is the end of a Claude Code pane that waits on a
+// permission prompt.
+const permissionQuestion = "⏺ Bash(git push origin yard/x)\n" +
+	"╭──────────────────────────────────────────╮\n" +
+	"│ Bash command                             │\n" +
+	"│   git push origin yard/x                 │\n" +
+	"│ Do you want to proceed?                  │\n" +
+	"│ ❯ 1. Yes                                 │\n" +
+	"│   2. No, and tell Claude what to do      │\n" +
+	"╰──────────────────────────────────────────╯"
+
+// An agent that waits on a permission prompt is reported with the end of
+// its pane, so the question is in the event and nobody reads the pane to
+// learn what to answer (yardr-cdmr: the yardmaster ran `herdr agent read`
+// for each session_blocked, 7 times in a day).
+func TestBlockedSessionCarriesItsPane(t *testing.T) {
+	s, r, d := stallSetup(t, "working", nil)
+	ctx := context.Background()
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
+	must(t, err)
+	must(t, d.Reconcile(ctx)) // start
+
+	r.mu.Lock()
+	r.status, r.tail = "blocked", permissionQuestion
+	r.mu.Unlock()
+	must(t, d.Reconcile(ctx))
+
+	evs, err := s.Events(ctx, b.ID, 100)
+	must(t, err)
+	var blocked []store.Event
+	for _, e := range evs {
+		if e.Kind == "session_blocked" {
+			blocked = append(blocked, e)
+		}
+	}
+	if len(blocked) != 1 {
+		t.Fatalf("session_blocked events = %d, want 1", len(blocked))
+	}
+	tail, _ := blocked[0].Data["tail"].(string)
+	if tail != permissionQuestion || !strings.Contains(tail, "Do you want to proceed?") {
+		t.Errorf("tail = %q, want the pane with its question", tail)
+	}
+	if blocked[0].Data["handle"] == nil || blocked[0].Data["session"] == nil {
+		t.Errorf("data = %v, want the session and its handle as before", blocked[0].Data)
+	}
+}
+
+// A runner with no pane to read reports a blocked session without one.
+func TestBlockedSessionWithoutAPane(t *testing.T) {
+	s := storetest.New(t)
+	r := &statusRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "working"}
+	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}}
+	ctx := context.Background()
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}))
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	must(t, err)
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
+	must(t, err)
+	must(t, d.Reconcile(ctx))
+	r.mu.Lock()
+	r.status = "blocked"
+	r.mu.Unlock()
+	must(t, d.Reconcile(ctx))
+
+	evs, err := s.Events(ctx, b.ID, 100)
+	must(t, err)
+	for _, e := range evs {
+		if e.Kind == "session_blocked" {
+			if _, has := e.Data["tail"]; has {
+				t.Errorf("data = %v, want no tail from a runner without a pane", e.Data)
+			}
+			return
+		}
+	}
+	t.Fatal("no session_blocked event")
+}

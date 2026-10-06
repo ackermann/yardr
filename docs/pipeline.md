@@ -106,7 +106,12 @@ What never reaches the store is not logged: a command `yardr` itself
 refuses for its shape (`advance` without `--to`, a missing id, an unknown
 flag), one that finds no server, and one the harness never ran (a
 permission prompt it waits on, a hook that denied it). The first two print
-their error in the pane, which `session_idle` carries as `tail`.
+their error in the pane, which `session_idle` carries as `tail`. A
+permission prompt raises `session_blocked` when the agent's status turns
+to it, and that event carries the end of the pane as `tail` too (its last
+20 lines, as `session_stalled` and `session_harness_error` do): the
+question the agent waits on is in `yardr inbox`, with no `herdr agent read`
+to get it.
 
 The builder implements the change, commits on its branch (never pushes or
 merges), runs the light gate on the last commit (`yardr depot check yardr

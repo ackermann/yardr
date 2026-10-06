@@ -246,6 +246,10 @@ func (r *reader) entry(ctx context.Context, e store.Event) Entry {
 		// The reason and the harness's own line, not everything the event
 		// carries: its hint and the pane's end would be all an entry shows.
 		out.Text, out.Note, out.Tone = "harness stopped on an error: "+strings.ReplaceAll(str("reason"), "_", " "), str("line"), "held"
+	case e.Kind == "session_blocked":
+		// What the agent asks stands at the end of its pane, so the note is
+		// cut from the front, where every other is cut at the end.
+		out.Text, out.Note = "session blocked", ending(str("tail"))
 	case e.Kind == store.MoveRefused:
 		// What the agent ran and the yard's answer, not the hint.
 		out.Text, out.Note, out.Tone = "move refused ("+strings.ReplaceAll(str("reason"), "_", " ")+"): "+str("command"), str("error"), "held"
@@ -295,6 +299,19 @@ func short(s string) string {
 		cut--
 	}
 	return strings.TrimSpace(s[:cut]) + "…"
+}
+
+// ending is the end of a pane's tail in maxNote bytes, from a rune on.
+func ending(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= maxNote {
+		return s
+	}
+	cut := len(s) - maxNote + len("…")
+	for cut < len(s) && !utf8.RuneStart(s[cut]) {
+		cut++
+	}
+	return "…" + strings.TrimSpace(s[cut:])
 }
 
 // number reads a seq from an event's data: a uint64 in an event straight

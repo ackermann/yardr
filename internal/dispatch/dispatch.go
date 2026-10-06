@@ -356,7 +356,8 @@ const PromptLook = "prompt_look"
 
 // Statuser is implemented by runners that can tell more than alive/dead.
 // A session whose status turns "blocked" (the agent waits on a permission
-// prompt or a question) gets a session_blocked event so a human can step in.
+// prompt or a question) gets a session_blocked event so a human can step in,
+// with the end of its pane as `tail` where the runner can read one (Tailer).
 type Statuser interface {
 	Status(ctx context.Context, handle map[string]any) (string, error)
 }
@@ -776,8 +777,13 @@ func (d *Dispatcher) alive(ctx context.Context, r Runner, s *store.Session) (boo
 	if status != prev {
 		if status == "blocked" {
 			d.Log.Warn("session blocked; needs a human", "session", s.ID, "bead", s.Bead)
-			_ = d.Store.LogDispatch(ctx, s.Bead, "session_blocked", actor, map[string]any{
-				"session": s.ID, "handle": s.Handle})
+			data := map[string]any{"session": s.ID, "handle": s.Handle}
+			// What the agent asks is in its pane: with it, whoever is told
+			// can answer without reading the pane first.
+			if tail, read := d.paneTail(ctx, r, *s); read {
+				data["tail"] = tail
+			}
+			_ = d.Store.LogDispatch(ctx, s.Bead, "session_blocked", actor, data)
 		} else if prev == "blocked" {
 			_ = d.Store.LogDispatch(ctx, s.Bead, "session_unblocked", actor, map[string]any{"session": s.ID})
 		}

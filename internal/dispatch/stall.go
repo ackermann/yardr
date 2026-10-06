@@ -32,7 +32,7 @@ const (
 )
 
 // stallTail is how many lines of the pane a session_stalled event carries,
-// and a session_idle and a session_harness_error with it.
+// and a session_idle, a session_harness_error and a session_blocked with it.
 const stallTail = 20
 
 // Tailer is implemented by runners that can show what a session's agent
