@@ -95,6 +95,8 @@ type API interface {
 	ResidentStarted(ctx context.Context, name string, handle map[string]any) error
 	ResidentSettled(ctx context.Context, name string) error
 	ResidentStopped(ctx context.Context, name, reason string) error
+	ResidentGone(ctx context.Context, name, reason string) error
+	ResidentLeft(ctx context.Context, name string, left []map[string]any) error
 	ResidentStatus(ctx context.Context, name, status string) error
 	SetResidentHandle(ctx context.Context, name string, handle map[string]any) error
 	ResidentStartFailed(ctx context.Context, name, reason string, backoff time.Duration) error

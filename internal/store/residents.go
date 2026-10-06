@@ -75,6 +75,12 @@ type Resident struct {
 	LastHandoffAt      *time.Time     `json:"last_handoff_at,omitempty"`
 	Cursor             uint64         `json:"cursor"`   // inbox acknowledged through this event seq
 	Notified           uint64         `json:"notified"` // nudged about events through this seq
+
+	// Left are the handles of sessions that were gone when the daemon
+	// looked (ResidentGone), oldest first: what they ran in is still open
+	// in the runtime, and the handle is how the daemon knows it as its own
+	// when it closes all but the latest (ResidentLeft).
+	Left []map[string]any `json:"left,omitempty"`
 }
 
 func (r Resident) Live() bool { return r.State == "running" }
@@ -321,6 +327,31 @@ func (s *Store) ResidentStopped(ctx context.Context, name, reason string) error 
 		}
 		r.State, r.Status, r.Handle = "stopped", "", nil
 		return w.event(r.Journal, "resident_stopped", "yard", map[string]any{"resident": name, "reason": reason})
+	})
+}
+
+// ResidentGone is ResidentStopped for a session that ended by itself in a
+// runtime that keeps what it ran in open: its handle goes to the end of
+// Left, in the same write, so no session's leavings are lost track of.
+func (s *Store) ResidentGone(ctx context.Context, name, reason string) error {
+	return s.changeResident(name, func(w *wtx, r *Resident) error {
+		if r.State != "running" {
+			return nil
+		}
+		if len(r.Handle) > 0 {
+			r.Left = append(r.Left, r.Handle)
+		}
+		r.State, r.Status, r.Handle = "stopped", "", nil
+		return w.event(r.Journal, "resident_stopped", "yard", map[string]any{"resident": name, "reason": reason})
+	})
+}
+
+// ResidentLeft replaces Left, once the daemon has closed some of what it
+// lists.
+func (s *Store) ResidentLeft(ctx context.Context, name string, left []map[string]any) error {
+	return s.changeResident(name, func(_ *wtx, r *Resident) error {
+		r.Left = left
+		return nil
 	})
 }
 

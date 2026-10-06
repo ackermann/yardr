@@ -37,6 +37,31 @@ type residentRunner struct {
 	submits  int                 // times Enter was sent
 	input    string              // what is in the agent's input, not sent
 	noInput  bool                // the harness's input cannot be told
+	open     []string            // agents whose workspace is open, in the order they started
+	busy     map[string]bool     // agents in whose workspace another agent runs now
+	closeErr error               // a workspace cannot be closed
+}
+
+// CloseLeft closes the workspace of a session that is gone, as herdr does:
+// not one with an agent in it.
+func (f *residentRunner) CloseLeft(_ context.Context, _ store.Resident, h map[string]any) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	agent := h["agent"].(string)
+	if f.closeErr != nil {
+		return false, f.closeErr
+	}
+	if f.busy[agent] || f.status[agent] != "" {
+		return true, nil
+	}
+	f.open = slices.DeleteFunc(f.open, func(a string) bool { return a == agent })
+	return false, nil
+}
+
+func (f *residentRunner) workspaces() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return strings.Join(f.open, " ")
 }
 
 func (f *residentRunner) InputText(context.Context, map[string]any) (string, bool, error) {
@@ -89,6 +114,7 @@ func (f *residentRunner) StartResident(_ context.Context, r store.Resident) (map
 	f.n++
 	agent := fmt.Sprintf("%s-%d", r.Name, f.n)
 	f.status[agent] = "idle"
+	f.open = append(f.open, agent)
 	if f.blocked {
 		f.blocked = false
 		f.status[agent] = "blocked"
@@ -109,6 +135,7 @@ func (f *residentRunner) Stop(_ context.Context, h map[string]any) error {
 	defer f.mu.Unlock()
 	f.stops++
 	delete(f.status, h["agent"].(string))
+	f.open = slices.DeleteFunc(f.open, func(a string) bool { return a == h["agent"] })
 	return nil
 }
 func (f *residentRunner) Status(_ context.Context, h map[string]any) (string, error) {
@@ -983,6 +1010,91 @@ func TestResidentSessionGoneAtOnceIsAFailedStart(t *testing.T) {
 	}
 	if !strings.Contains(reason, "the session ended 1s after its start") {
 		t.Fatalf("resident_gave_up reason %q does not say how long the session lived", reason)
+	}
+}
+
+// Found live (yardr-ybxk): a session that was gone left its workspace open,
+// one for each, five by the time the daemon gave the resident up. The
+// daemon keeps the handle of every such session and, when the next one has
+// started, closes them all but the latest, whose pane is the only place
+// that shows why the harness exited.
+func TestResidentSessionsGoneLeaveOneWorkspace(t *testing.T) {
+	s, f, d, at := shortLived(t)
+	ctx := context.Background()
+	must(t, d.Reconcile(ctx))
+	for n := 1; n <= store.MaxStartFails; n++ {
+		f.set(agentOf(t, s), "") // the harness exits; the pane's shell stays
+		at(time.Second)
+		must(t, d.Reconcile(ctx))
+		r, _ := s.GetResident(ctx, "mayor")
+		// Gone, and nothing started since: the one before it is still open
+		// too, and no more than that, however many went before.
+		want := fmt.Sprintf("mayor-%d", n)
+		if n > 1 {
+			want = fmt.Sprintf("mayor-%d mayor-%d", n-1, n)
+		}
+		if got := f.workspaces(); got != want || len(r.Left) != len(strings.Fields(want)) {
+			t.Fatalf("after %d sessions gone: workspaces %q, left %v; want %q", n, got, r.Left, want)
+		}
+		if n < store.MaxStartFails {
+			at(time.Until(*r.RetryAfter) + time.Second)
+			must(t, d.Reconcile(ctx))
+		}
+	}
+	if r, _ := s.GetResident(ctx, "mayor"); r.State != "failed" || f.n != store.MaxStartFails {
+		t.Fatalf("state %s after %d sessions", r.State, f.n)
+	}
+	// Five sessions gone; the next start leaves the last one's workspace
+	// beside its own.
+	must(t, s.SetResidentEnabled(ctx, "mayor", true, "", "me"))
+	must(t, d.Reconcile(ctx))
+	r, _ := s.GetResident(ctx, "mayor")
+	if got := f.workspaces(); got != "mayor-5 mayor-6" || !r.Live() || len(r.Left) != 1 || r.Left[0]["agent"] != "mayor-5" {
+		t.Fatalf("after the next start: workspaces %q, resident %+v", got, r)
+	}
+	// A session ended by yardr (here a restart) is stopped, which closes
+	// what it ran in: nothing of it is kept, and the latest that was gone
+	// stays.
+	must(t, s.RequestRestart(ctx, "mayor", "test", "", "me"))
+	must(t, d.Reconcile(ctx))
+	r, _ = s.GetResident(ctx, "mayor")
+	if got := f.workspaces(); got != "mayor-5 mayor-7" || len(r.Left) != 1 {
+		t.Fatalf("after a restart: workspaces %q, left %v", got, r.Left)
+	}
+}
+
+// A workspace left by a gone session is not closed while an agent runs in
+// it (someone started one there by hand), nor forgotten when herdr could
+// not close it: its handle is kept and it is tried at the next start.
+func TestResidentWorkspaceLeftWithAnAgentIsKept(t *testing.T) {
+	s, f, d, at := shortLived(t)
+	ctx := context.Background()
+	gone := func() {
+		t.Helper()
+		f.set(agentOf(t, s), "")
+		must(t, d.Reconcile(ctx)) // lived long enough: started again on this pass
+	}
+	must(t, d.Reconcile(ctx))
+	at(2 * store.MinSessionLife)
+	f.busy = map[string]bool{"mayor-1": true}
+	gone()
+	gone()
+	gone()
+	r, _ := s.GetResident(ctx, "mayor")
+	if got := f.workspaces(); got != "mayor-1 mayor-3 mayor-4" || len(r.Left) != 2 || r.Left[0]["agent"] != "mayor-1" {
+		t.Fatalf("with an agent in the first: workspaces %q, left %v", got, r.Left)
+	}
+	f.busy, f.closeErr = nil, errors.New("herdr is down")
+	gone()
+	r, _ = s.GetResident(ctx, "mayor")
+	if got := f.workspaces(); got != "mayor-1 mayor-3 mayor-4 mayor-5" || len(r.Left) != 3 {
+		t.Fatalf("herdr could not close: workspaces %q, left %v", got, r.Left)
+	}
+	f.closeErr = nil
+	gone()
+	r, _ = s.GetResident(ctx, "mayor")
+	if got := f.workspaces(); got != "mayor-5 mayor-6" || len(r.Left) != 1 || r.Left[0]["agent"] != "mayor-5" {
+		t.Fatalf("once it can be closed: workspaces %q, left %v", got, r.Left)
 	}
 }
 

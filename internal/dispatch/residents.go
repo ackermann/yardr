@@ -29,6 +29,20 @@ type ResidentFinder interface {
 	LiveResident(ctx context.Context, r store.Resident) (*LiveAgent, error)
 }
 
+// ResidentCloser is a ResidentRunner in whose runtime a session that ends
+// by itself leaves something open (herdr: the workspace, whose pane's shell
+// outlives the harness). The dispatcher keeps the handle of every such
+// session (store.Resident.Left) and has all but the latest closed when the
+// resident's next session starts. One that leaves nothing does not
+// implement it, and no handle is kept.
+type ResidentCloser interface {
+	// CloseLeft closes what the gone session of handle left open. kept is
+	// true when it was left alone because an agent runs in it now: it is
+	// asked again at a later start. What is closed already, or no longer
+	// what yardr opened for r, is neither kept nor an error.
+	CloseLeft(ctx context.Context, r store.Resident, handle map[string]any) (kept bool, err error)
+}
+
 // Nudger delivers a short message to a running session (an idle agent
 // reads it as its next prompt).
 type Nudger interface {
@@ -87,7 +101,18 @@ func (d *Dispatcher) resident(ctx context.Context, r store.Resident) error {
 		case !r.Enabled:
 			return d.stopResident(ctx, runner, r, "disabled")
 		case status == "":
-			if err := d.Store.ResidentStopped(ctx, r.Name, "the session is gone"); err != nil {
+			// Nothing is closed here: the pane it leaves shows what the
+			// harness printed before it exited, the only place the reason
+			// can be read. The handle is kept instead, where the runtime
+			// has something to close later (see closeLeft).
+			gone := d.Store.ResidentStopped
+			if _, ok := runner.(ResidentCloser); ok {
+				gone = d.Store.ResidentGone
+				if len(r.Handle) > 0 {
+					r.Left = append(r.Left, r.Handle)
+				}
+			}
+			if err := gone(ctx, r.Name, "the session is gone"); err != nil {
 				return err
 			}
 			r.State = "stopped"
@@ -148,7 +173,41 @@ func (d *Dispatcher) resident(ctx context.Context, r store.Resident) error {
 	delete(d.promptIdle, "resident:"+r.Name)
 	delete(d.drafts, "resident:"+r.Name)
 	delete(d.nudged, "resident:"+r.Name)
-	return d.Store.ResidentStarted(ctx, r.Name, handle)
+	if err := d.Store.ResidentStarted(ctx, r.Name, handle); err != nil {
+		return err
+	}
+	return d.closeLeft(ctx, runner, r)
+}
+
+// closeLeft closes what r's sessions that were gone left open in the
+// runtime, all but the latest: that one still shows why the last session
+// that died did. It runs when a session has started, so a resident that is
+// given up keeps at most two, and one that is started again goes back to
+// one. Only handles yardr recorded are closed, never what merely carries
+// the resident's label; one the runner keeps or cannot close stays listed
+// for the next start.
+func (d *Dispatcher) closeLeft(ctx context.Context, runner Runner, r store.Resident) error {
+	closer, ok := runner.(ResidentCloser)
+	if !ok || len(r.Left) < 2 {
+		return nil
+	}
+	latest := len(r.Left) - 1
+	left := make([]map[string]any, 0, 1)
+	for _, h := range r.Left[:latest] {
+		kept, err := closer.CloseLeft(ctx, r, h)
+		if err != nil {
+			d.Log.Warn("resident: closing what a gone session left", "resident", r.Name, "err", err)
+			kept = true
+		}
+		if kept {
+			left = append(left, h)
+		}
+	}
+	left = append(left, r.Left[latest])
+	if len(left) == len(r.Left) {
+		return nil
+	}
+	return d.Store.ResidentLeft(ctx, r.Name, left)
 }
 
 // residentSeen records what the runtime says r's session is doing, so that

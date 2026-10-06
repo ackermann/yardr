@@ -98,6 +98,26 @@ says. A session that lives longer, still running or ended since, clears the
 count. An ending that was asked for never counts, however soon: a handoff, a
 rotation, `yardr resident restart` or `stop`.
 
+**What a session that is gone leaves in herdr.** When a harness exits by
+itself, its pane's shell stays, and with it the workspace `<yard> <name>`.
+yardr does not close it then: the pane shows what the harness printed before
+it exited (`Not logged in · Run /login`), and that is the only place to read
+it. When the resident's next session has started, yardr closes the
+workspaces its earlier sessions that were gone left, all but the latest. So
+a resident has at most two of them beside its running session's: after five
+failed starts, the last two; after `yardr resident start`, the last one.
+
+yardr closes only a workspace it opened for that resident, which it knows by
+the id it recorded at the start (`left` in `yardr resident show <name>
+--json`), never by the label: a workspace you named `<yard> <name>` yourself
+is not touched. A recorded workspace is left alone, and forgotten, once it
+no longer carries the resident's label or no longer holds the pane yardr
+opened in it; one with an agent in any of its panes is kept open and looked
+at again at the next start. A session yardr ends itself (a handoff, a
+rotation, a restart, `yardr resident stop`) has its tab closed at once and
+leaves nothing. The workspaces of a resident that is deleted, or never
+started again, stay until you close them (`herdr workspace close <id>`).
+
 ```sh
 yardr resident list          # mayor  stopped (2 failed starts, next try in 48s)  …
 yardr resident show mayor    # 2 failed starts, next try in 48s, the last with: <reason>

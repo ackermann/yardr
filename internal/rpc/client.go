@@ -435,6 +435,12 @@ func (c *Client) SetResidentHandle(ctx context.Context, name string, handle map[
 func (c *Client) ResidentStopped(ctx context.Context, name, reason string) error {
 	return c.call(ctx, "ResidentStopped", nil, name, reason)
 }
+func (c *Client) ResidentGone(ctx context.Context, name, reason string) error {
+	return c.call(ctx, "ResidentGone", nil, name, reason)
+}
+func (c *Client) ResidentLeft(ctx context.Context, name string, left []map[string]any) error {
+	return c.call(ctx, "ResidentLeft", nil, name, left)
+}
 func (c *Client) ResidentStartFailed(ctx context.Context, name, reason string, backoff time.Duration) error {
 	return c.call(ctx, "ResidentStartFailed", nil, name, reason, backoff)
 }

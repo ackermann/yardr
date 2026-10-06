@@ -46,6 +46,62 @@ func TestResidentJournalIsNotWork(t *testing.T) {
 	}
 }
 
+// A session that was gone keeps its handle in Left, in the write that
+// stops it; one that yardr stopped leaves none.
+func TestResidentGoneKeepsItsHandle(t *testing.T) {
+	s := storetest.New(t)
+	ctx := context.Background()
+	mayor(t, s)
+	left := func() string {
+		t.Helper()
+		r, err := s.GetResident(ctx, "mayor")
+		if err != nil || r.Live() || r.Handle != nil {
+			t.Fatalf("resident %+v, %v", r, err)
+		}
+		var ws []string
+		for _, h := range r.Left {
+			ws = append(ws, h["workspace"].(string))
+		}
+		return strings.Join(ws, " ")
+	}
+	for _, ws := range []string{"w1", "w2", "w3"} {
+		if err := s.ResidentStarted(ctx, "mayor", map[string]any{"agent": "mayor", "workspace": ws}); err != nil {
+			t.Fatal(err)
+		}
+		end := s.ResidentGone
+		if ws == "w2" {
+			end = s.ResidentStopped
+		}
+		if err := end(ctx, "mayor", "the session is gone"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := left(); got != "w1 w3" {
+		t.Fatalf("left = %q, want w1 w3", got)
+	}
+	// Not running: nothing to keep, and no second event.
+	if err := s.ResidentGone(ctx, "mayor", "again"); err != nil || left() != "w1 w3" {
+		t.Fatalf("gone twice: left %q, %v", left(), err)
+	}
+	evs, _ := s.Events(ctx, "mayor-journal", 100)
+	stopped := 0
+	for _, e := range evs {
+		if e.Kind == "resident_stopped" {
+			stopped++
+		}
+	}
+	if stopped != 3 {
+		t.Fatalf("%d resident_stopped events, want 3", stopped)
+	}
+	if err := s.ResidentLeft(ctx, "mayor", []map[string]any{{"workspace": "w3"}}); err != nil || left() != "w3" {
+		t.Fatalf("after ResidentLeft: left %q, %v", left(), err)
+	}
+	// Redefining the resident keeps them.
+	if _, err := s.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr"}, "me"); err != nil || left() != "w3" {
+		t.Fatalf("after a redefinition: left %q, %v", left(), err)
+	}
+}
+
 func TestJournalCapsAndHandoff(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
