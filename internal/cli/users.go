@@ -9,6 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/notify"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -30,7 +32,10 @@ Only the operator adds and removes users, and the operator's own is not
 removed. Crew members and users share one space of names.
 
 A command acts as a user when its actor (--actor, $YARDR_ACTOR, else the
-login name) is the user's name. yardr does not check who is at the keyboard.`}
+login name) is the user's name. yardr does not check who is at the keyboard.
+
+A user is told outside the yard through the source they name with
+yardr user set <name> notify=<source>.`}
 	add := &cobra.Command{
 		Use: "add <name>", Short: "Add a user", Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
@@ -92,6 +97,7 @@ login name) is the user's name. yardr does not check who is at the keyboard.`}
 				return err
 			}
 			v.Notifications = notes.Unread
+			v.Told = told(c.Context(), st, &v.User)
 			return a.out(v, func() {
 				fmt.Print(v.Name)
 				if v.Operator {
@@ -108,6 +114,9 @@ login name) is the user's name. yardr does not check who is at the keyboard.`}
 				}
 				for _, sub := range v.Subscriptions {
 					fmt.Printf("  subscribed: %s\n", sub)
+				}
+				if v.Told != "" {
+					fmt.Printf("  told outside the yard: %s\n", v.Told)
 				}
 				printTimers(v.Timers, v.Name, "  ")
 			})
@@ -129,8 +138,100 @@ login name) is the user's name. yardr does not check who is at the keyboard.`}
 			return a.out(map[string]string{"removed": args[0]}, func() { fmt.Printf("user %s removed\n", args[0]) })
 		},
 	}
-	cmd.AddCommand(add, list, show, rm)
+	set := &cobra.Command{
+		Use:   "set <name> [notify=<source>] [env_file=<file>]",
+		Short: "Say which source tells a user outside the yard, and where their address is",
+		Long: `notify is the source that tells the user outside the yard: a declared source
+whose file has a notify key (yardr source list shows which), or a source
+yardr has built in that can. One that cannot is refused, with the ones that
+can. notify= with nothing after it is nowhere.
+
+env_file is a file of KEY=VALUE lines that sets what the source needs of
+this person: for a declared source the variable its notify key names
+(notify.address.env), the person's own address in it. It is held to the rule
+of every env_file: a regular file of mode 0600 or stricter, read at each
+send. The store keeps its path, never what is in it. A file that is open to
+others or does not set the name is refused here.
+
+The user sets their own, or the operator does it for them. It is refused
+from the pane of an agent, whoever the command says it is: what lands in a
+person's inbox goes where these point.`,
+		Example: `  printf 'PUSHOVER_USER=%s\n' '<your user key>' > ~/.yardr/users/mckean.env
+  chmod 600 ~/.yardr/users/mckean.env
+  yardr user set mckean notify=pushover env_file=~/.yardr/users/mckean.env
+  yardr source check pushover --user mckean`,
+		Args: cobra.MinimumNArgs(2),
+		RunE: func(c *cobra.Command, args []string) error {
+			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			u, err := st.GetUser(c.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			set := map[string]string{}
+			for _, arg := range args[1:] {
+				key, value, ok := strings.Cut(arg, "=")
+				if _, twice := set[key]; !ok || twice || (key != store.UserNotify && key != store.UserEnvFile) {
+					return fmt.Errorf("%q: want %s=<source> or %s=<file>, each once", arg, store.UserNotify, store.UserEnvFile)
+				}
+				if key == store.UserEnvFile && value != "" {
+					if value, err = config.ExpandPath(value); err != nil {
+						return err
+					}
+					// Refused before it is kept, whatever it is to set.
+					if _, err := config.ReadEnvFile(value); err != nil {
+						return err
+					}
+				}
+				if key == store.UserEnvFile {
+					u.EnvFile = value
+				} else {
+					u.Notify = value
+				}
+				set[key] = value
+			}
+			// With both there, the file is held to what the source reads of
+			// it. A source that cannot tell anyone is the store's to refuse,
+			// which names the ones that can.
+			if _, err := notify.Names(c.Context(), st, u.Notify); err == nil && u.EnvFile != "" {
+				if _, err := notify.Ready(c.Context(), st, u); err != nil {
+					return err
+				}
+			}
+			saved, err := st.SetUser(c.Context(), args[0], set, a.who())
+			if err != nil {
+				return err
+			}
+			state := told(c.Context(), st, saved)
+			return a.out(map[string]any{"user": saved, "told": state}, func() {
+				fmt.Printf("user %s: told outside the yard: %s\n", saved.Name, or(state, "nowhere"))
+				if saved.Notify != "" && saved.EnvFile != "" {
+					fmt.Printf("next: yardr source check %s --user %s sends one test message\n", saved.Notify, saved.Name)
+				}
+			})
+		},
+	}
+	cmd.AddCommand(add, list, show, rm, set)
 	return cmd
+}
+
+// told says in a line where a user is told outside the yard and whether
+// that is set up, "" for a user who is told nowhere. It reads the user's
+// env file for the names it sets and never prints a value.
+func told(ctx context.Context, st store.API, u *store.User) string {
+	if u.Notify == "" {
+		if u.EnvFile != "" {
+			return "nowhere (env_file " + u.EnvFile + " is set, and no notify)"
+		}
+		return ""
+	}
+	state, err := notify.Ready(ctx, st, u)
+	if err != nil {
+		return "through " + u.Notify + ", which is not set up: " + err.Error()
+	}
+	return "through " + u.Notify + " (" + state + ")"
 }
 
 // userView is a user as yardr user list and show print one.
@@ -145,6 +246,9 @@ type userView struct {
 	// Notifications are the unread notifications, counted apart from the
 	// mail (Unread); only yardr user show reads them.
 	Notifications int `json:"unread_notifications"`
+	// Told is where the user is told outside the yard and whether that is
+	// set up, in words; only yardr user show reads it.
+	Told string `json:"told,omitempty"`
 }
 
 // userViews reads the user name, or all of them for "".

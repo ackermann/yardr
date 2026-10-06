@@ -13,7 +13,14 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// schemaVersion 13 calls a piece of a train a wagon. Version 10 to 12 of
+// schemaVersion 14 has users that are told outside the yard: a user's
+// record holds the source that tells them and the path of the file their
+// address is read from (User.Notify, User.EnvFile), which a build before it
+// would drop from a record it rewrites, as it does when the user
+// acknowledges their inbox. The person would then stop being told, with
+// nothing to say so. Nothing is migrated: a user without them is told
+// nowhere, as before.
+// Version 13 calls a piece of a train a wagon. Version 10 to 12 of
 // main, in no release, called it a car, and a yard that ran one has that
 // type in beads and in all that names a type (migrateWagons). A build before
 // it knows no wagon, so it would take one for a bead like any other: under
@@ -73,7 +80,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 13
+const schemaVersion = 14
 
 var (
 	kSchema   = []byte("schema")

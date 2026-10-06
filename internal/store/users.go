@@ -33,7 +33,8 @@ func init() { allBuckets = append(allBuckets, bUsers) }
 // User is a person with an inbox. The record is the place for what a
 // person is elsewhere (an identity in an outside source, an origin in
 // another yard) once there is such a thing; today it is the name, what
-// the user subscribes to, and how far each part of its inbox is read.
+// the user subscribes to, how far each part of its inbox is read, and
+// which source tells them outside the yard.
 type User struct {
 	Name      string    `json:"name"`
 	CreatedAt time.Time `json:"created_at"`
@@ -45,6 +46,14 @@ type User struct {
 	// Subscriptions make matching events notifications in the inbox (see
 	// Notification). The user and the operator change them.
 	Subscriptions []Subscription `json:"subscriptions,omitempty"`
+	// Notify is the source that tells the user outside the yard, a declared
+	// one with a notify key or an adapter that can; "" for none. EnvFile is
+	// the path of the file that holds the user's own address in it (and
+	// whatever else of theirs the source needs), read at each send under
+	// the rule of every env_file (config.ReadEnvFile). The store has the
+	// path and never what is in the file. See SetUser.
+	Notify  string `json:"notify,omitempty"`
+	EnvFile string `json:"env_file,omitempty"`
 }
 
 // Letter is one mail as a conversation and a user's inbox show it.

@@ -21,7 +21,7 @@ calls:
     kind: update
     params: { user: { type: string }, text: { type: string, max: 1024 } }
     request: { method: POST, path: /messages.json, body: { token: "{credential}", user: "{user}", message: "{text}" } }
-notify: { call: message }
+notify: { call: message, address: { param: user, env: PUSHOVER_USER }, text: text }
 `
 
 // A declared source is kept as its file, under the name the file gives it;
@@ -37,7 +37,7 @@ func TestDeclaredSource(t *testing.T) {
 		t.Fatalf("saved = %+v", src)
 	}
 	d, err := src.Declaration()
-	if err != nil || len(d.Calls) != 1 || d.Unread[0] != "notify" {
+	if err != nil || len(d.Calls) != 1 || d.Notify == nil || d.Notify.Call != "message" {
 		t.Fatalf("declaration = %+v, %v", d, err)
 	}
 	if _, err := st.SetSource(ctx, "pushover", store.SourceEnvFile, "/home/jo/.yardr/sources/pushover.env", "jo"); err != nil {

@@ -110,6 +110,7 @@ type API interface {
 	AddUser(ctx context.Context, name, actor string) (*User, error)
 	Users(ctx context.Context) ([]User, error)
 	GetUser(ctx context.Context, name string) (*User, error)
+	SetUser(ctx context.Context, name string, set map[string]string, actor string) (*User, error)
 	DeleteUser(ctx context.Context, name, actor string) error
 	UserInbox(ctx context.Context, name string, limit int) (*Mailbox, error)
 	AckUserInbox(ctx context.Context, name string, through uint64) error

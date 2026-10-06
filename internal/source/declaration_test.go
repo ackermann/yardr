@@ -7,7 +7,7 @@ import (
 )
 
 // pushover is the file of the design this package was built for
-// (yardr-1481), whole: the notify key is the next step's, kept and not read.
+// (yardr-1481), whole.
 const pushover = `name: pushover
 about: A push to a person's phone through Pushover.
 base: https://api.pushover.net/1
@@ -65,8 +65,8 @@ func TestParsePushover(t *testing.T) {
 	if d.Name != "pushover" || d.Base != "https://api.pushover.net/1" || d.Credential == nil || d.Credential.Env != "PUSHOVER_TOKEN" || d.Credential.Header != "" || d.Check != "" {
 		t.Fatalf("declaration = %+v", d)
 	}
-	if len(d.Unread) != 1 || d.Unread[0] != "notify" {
-		t.Fatalf("unread = %v, want notify: the key is the next step's and is kept", d.Unread)
+	if n := d.Notify; n == nil || *n != (Notify{Call: "message", Address: "user", AddressEnv: "PUSHOVER_USER", Title: "title", Text: "text", Link: "link"}) {
+		t.Fatalf("notify = %+v", n)
 	}
 	c, ok := d.Call("message")
 	if !ok || len(d.Calls) != 1 || c.Kind != Update || c.Request.Line() != "POST /messages.json" || c.Answer.Max != AnswerMax {
@@ -86,7 +86,7 @@ func TestParseCRM(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Check != "ping" || d.Credential.Header != "Authorization: Bearer {credential}" || len(d.Calls) != 3 {
+	if d.Check != "ping" || d.Credential.Header != "Authorization: Bearer {credential}" || len(d.Calls) != 3 || d.Notify != nil {
 		t.Fatalf("declaration = %+v", d)
 	}
 	if c, _ := d.Call("customer"); c.Kind != Read || len(c.Answer.Select) != 5 || c.Request.Path != "/customers/{id}" {
@@ -235,5 +235,94 @@ func TestParseTakesHTTPToTheLoopback(t *testing.T) {
 		if _, err := Parse("x.yaml", []byte(strings.Replace(crm, "https://crm.example.com/api/v2", base, 1))); err == nil {
 			t.Errorf("%s was taken", base)
 		}
+	}
+}
+
+// Every refusal of a notify key: what would fail at every send, or at the
+// sends that have no link, is refused when the file is read.
+func TestParseRefusesNotify(t *testing.T) {
+	with := func(old, new string) string {
+		if !strings.Contains(pushover, old) {
+			t.Fatalf("the Pushover file has no %q", old)
+		}
+		return strings.Replace(pushover, old, new, 1)
+	}
+	const address = "  address: { param: user, env: PUSHOVER_USER }   # the person's own key, read from the user's env_file\n"
+	for _, tc := range []struct {
+		name, text, key, want string
+	}{
+		{"a call that is not in the file", with("  call: message", "  call: push"),
+			"notify.call", "push is no call of this file"},
+		{"a read call", with("    kind: update", "    kind: read"),
+			"notify.call", "message is a read call: telling a person sends something"},
+		{"no call", with("  call: message\n", ""),
+			"notify.call", "missing: the call that tells a person"},
+		{"a parameter the call does not have", with("  text: text", "  text: body"),
+			"notify.text", "body is no parameter of the call message (it takes: user, title, text, link)"},
+		{"an address the call does not have", with("param: user, env", "param: to, env"),
+			"notify.address.param", "to is no parameter of the call message"},
+		{"a parameter that is no text", with("title: { type: string, max: 250 }", "title: { type: int }"),
+			"notify.title", "the parameter title is int"},
+		{"a required parameter nothing fills", with("  text: text\n", ""),
+			"notify", "the call message needs the parameter text, and nothing here fills it"},
+		{"one parameter for two values", with("  text: text", "  text: title"),
+			"notify.text", "the parameter title is filled by notify.title already"},
+		{"a link the call insists on", with("link:  { type: string, max: 512, optional: true }", "link:  { type: string, max: 512 }"),
+			"notify.link", "the parameter link is required, and most of what the yard tells has no link"},
+		{"no address", with(address, ""),
+			"notify.address", "missing"},
+		{"an address without the name of its variable", with("param: user, env: PUSHOVER_USER", "param: user"),
+			"notify.address.env", "missing: the name of the variable the address is in, in a user's env file"},
+		{"an address written into the file", with("env: PUSHOVER_USER", "env: u-9f2k"),
+			"notify.address.env", "never the address"},
+		{"a key it does not know", with("  link: link\n", "  link: link\n  priority: high\n"),
+			"notify.priority", "unknown key"},
+		{"nothing to say", strings.NewReplacer("title: { type: string, max: 250 }", "title: { type: string, max: 250, optional: true }",
+			"text:  { type: string, max: 1024 }", "text:  { type: string, max: 1024, optional: true }",
+			"  title: title                                   # yardr's value -> the call's parameter\n", "", "  text: text\n", "").Replace(pushover),
+			"notify", "neither title nor text"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, err := Parse("pushover.yaml", []byte(tc.text))
+			var errs Errors
+			if !errors.As(err, &errs) || d != nil {
+				t.Fatalf("Parse = %+v, %v; want it refused", d, err)
+			}
+			for _, e := range errs {
+				if e.Key == tc.key && strings.Contains(e.Msg, tc.want) && e.Line > 0 {
+					return
+				}
+			}
+			t.Fatalf("no error at %s with %q in:\n%v", tc.key, tc.want, err)
+		})
+	}
+	// A call with no place for a title or a link is told through as it is.
+	plain := strings.NewReplacer("      title: { type: string, max: 250 }\n", "", "      link:  { type: string, max: 512, optional: true }\n", "",
+		`title: "{title}", `, "", `, url: "{link}"`, "",
+		"  title: title                                   # yardr's value -> the call's parameter\n", "", "  link: link\n", "").Replace(pushover)
+	d, err := Parse("pushover.yaml", []byte(plain))
+	if err != nil || d.Notify.Text != "text" || d.Notify.Title != "" || d.Notify.Link != "" {
+		t.Fatalf("a notify with a text alone: %+v, %v", d, err)
+	}
+}
+
+// A body that is one optional parameter and nothing else has nothing to
+// leave it out of: not given, it was sent as null (found reviewing
+// yardr-26a0).
+func TestParseRefusesABodyThatIsOneOptionalParameter(t *testing.T) {
+	const file = `name: x
+base: https://x.example.com
+calls:
+  put:
+    kind: update
+    params: { v: { type: string%s } }
+    request: { method: POST, path: /a, body: "{v}" }
+`
+	_, err := Parse("x.yaml", []byte(strings.Replace(file, "%s", ", optional: true", 1)))
+	if err == nil || !strings.Contains(err.Error(), "x.yaml:7: calls.put.request.body: {v} is optional, and it is the whole body") {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := Parse("x.yaml", []byte(strings.Replace(file, "%s", "", 1))); err != nil {
+		t.Fatalf("a required parameter as the whole body: %v", err)
 	}
 }

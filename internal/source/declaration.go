@@ -56,9 +56,28 @@ type Declaration struct {
 	// needs no parameter. Empty when the file names none.
 	Check string `json:"check,omitempty"`
 	Calls []Call `json:"calls"` // in file order
-	// Unread are the keys of the file this build keeps with it and does
-	// not read: what a later one adds to a declaration (notify).
-	Unread []string `json:"unread,omitempty"`
+	// Notify is the call the yard makes to tell a person outside the yard,
+	// nil for a source that cannot: the capability a user names a source
+	// for (yardr user set <name> notify=<source>).
+	Notify *Notify `json:"notify,omitempty"`
+}
+
+// Notify says which call of a source tells a person, and which of the
+// call's parameters take the four values the yard has for it: where the
+// person is reached, a title, a text and a link.
+type Notify struct {
+	Call string `json:"call"`
+	// Address is the parameter that takes where the person is reached, and
+	// AddressEnv the name of the variable that holds it in the user's own
+	// env file: it is one person's and often private, so it is kept as the
+	// source's credential is, and is no more in the store.
+	Address    string `json:"address"`
+	AddressEnv string `json:"address_env"`
+	// Title, Text and Link are the parameters that take each; "" for one
+	// the call has no place for. One of Title and Text is always there.
+	Title string `json:"title,omitempty"`
+	Text  string `json:"text,omitempty"`
+	Link  string `json:"link,omitempty"`
 }
 
 // Credential is where a source's credential comes from and where it goes.
@@ -133,6 +152,9 @@ func (d *Declaration) Call(name string) (*Call, bool) {
 }
 
 func (c *Call) param(name string) (*Param, bool) {
+	if c == nil {
+		return nil, false
+	}
 	for i := range c.Params {
 		if c.Params[i].Name == name {
 			return &c.Params[i], true
@@ -349,7 +371,7 @@ func (r *reader) count(n *yaml.Node, key string, most int) (int, bool) {
 }
 
 func (r *reader) declaration(d *Declaration, root *yaml.Node) {
-	var calls, check *entry
+	var calls, check, notify *entry
 	named, based := false, false
 	for _, e := range r.entries(root, "", "name", "about", "base", "credential", "check", "calls", "notify", "events") {
 		switch e.key {
@@ -379,10 +401,7 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 		case "calls":
 			calls = &e
 		case "notify":
-			// The key of the step after this one: which call the yard makes
-			// for a user's inbox. Its file is kept whole, so the build that
-			// reads the key finds it in what was added before.
-			d.Unread = append(d.Unread, e.key)
+			notify = &e
 		case "events":
 			// Kept for what a source sends in, which has its own format to
 			// come: taken now, it would be a file this build half reads.
@@ -431,6 +450,117 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 			d.Check = name
 		}
 	}
+	if notify != nil {
+		d.Notify = r.notify(d, *notify)
+	}
+}
+
+// notify reads the key that makes a source one a user can be told through.
+// What it refuses is what would fail at every send, or at some: a call that
+// is not there or only reads, a value given to no parameter or to one that
+// is no text, a required parameter nothing fills, and a link the call
+// insists on, since most of what the yard tells has none.
+func (r *reader) notify(d *Declaration, e entry) *Notify {
+	n := &Notify{}
+	var c *Call
+	called, addressed := false, false
+	fills := map[string]string{} // parameter -> the key that fills it
+	// param reads the name of a parameter of the call that takes text.
+	param := func(f entry) string {
+		name, ok := r.str(f.v, f.path)
+		if !ok || c == nil {
+			return ""
+		}
+		p, found := c.param(name)
+		switch {
+		case !found:
+			r.errf(f.v, f.path, "%s is no parameter of the call %s (it takes: %s)", name, c.Name, or(strings.Join(c.names(), ", "), "none"))
+		case p.Type != "string":
+			r.errf(f.v, f.path, "the parameter %s is %s: what the yard gives is text, so it is a string", name, p.Type)
+		case fills[name] != "":
+			r.errf(f.v, f.path, "the parameter %s is filled by %s already", name, fills[name])
+		default:
+			fills[name] = f.path
+			return name
+		}
+		return ""
+	}
+	fields := r.entries(e.v, e.path, "call", "address", "title", "text", "link")
+	// The call first, wherever the file has it: the others name its
+	// parameters.
+	for _, f := range fields {
+		if f.key != "call" {
+			continue
+		}
+		called = true
+		name, ok := r.str(f.v, f.path)
+		found, has := d.Call(name)
+		switch {
+		case !ok:
+		case !has:
+			r.errf(f.v, f.path, "%s is no call of this file", name)
+		case found.Kind != Update:
+			r.errf(f.v, f.path, "%s is a %s call: telling a person sends something, so it is an %s", name, Read, Update)
+		default:
+			n.Call, c = name, found
+		}
+	}
+	for _, f := range fields {
+		switch f.key {
+		case "address":
+			addressed = true
+			var hasParam, hasEnv bool
+			for _, g := range r.entries(f.v, f.path, "param", "env") {
+				switch g.key {
+				case "param":
+					hasParam = true
+					n.Address = param(g)
+				case "env":
+					hasEnv = true
+					if s, ok := r.str(g.v, g.path); ok && !paramName.MatchString(s) {
+						r.errf(g.v, g.path, "%q is no name of a variable: this is the name the address is under in a user's env file, never the address", s)
+					} else if ok {
+						n.AddressEnv = s
+					}
+				}
+			}
+			if f.v.Kind == yaml.MappingNode && !hasParam {
+				r.errf(f.v, join(f.path, "param"), "missing: the parameter that takes where the person is reached")
+			}
+			if f.v.Kind == yaml.MappingNode && !hasEnv {
+				r.errf(f.v, join(f.path, "env"), "missing: the name of the variable the address is in, in a user's env file")
+			}
+		case "title":
+			n.Title = param(f)
+		case "text":
+			n.Text = param(f)
+		case "link":
+			n.Link = param(f)
+			if p, ok := c.param(n.Link); ok && !p.Optional {
+				r.errf(f.v, f.path, "the parameter %s is required, and most of what the yard tells has no link: make it optional: true", n.Link)
+			}
+		}
+	}
+	if e.v.Kind != yaml.MappingNode {
+		return n
+	}
+	if !called {
+		r.errf(e.v, join(e.path, "call"), "missing: the call that tells a person")
+	}
+	if !addressed {
+		r.errf(e.v, join(e.path, "address"), "missing: { param: <the parameter that takes where the person is reached>, env: <its name in a user's env file> }")
+	}
+	if !slices.ContainsFunc(fields, func(f entry) bool { return f.key == "title" || f.key == "text" }) {
+		r.errf(e.v, e.path, "neither title nor text: the call is given nothing to say")
+	}
+	if c != nil {
+		for _, p := range c.Params {
+			if !p.Optional && fills[p.Name] == "" {
+				r.errf(e.v, e.path, "the call %s needs the parameter %s, and nothing here fills it (address, title, text and link are what the yard has)", c.Name, p.Name)
+			}
+		}
+	}
+	return n
 }
 
 // base reads the address calls are under. Anything but https is refused,
@@ -692,6 +822,14 @@ func (r *reader) request(c *Call, e entry, credential bool) {
 			}
 		case "body":
 			c.Request.Body = r.body(c, f.v, f.path, credential)
+			// Left out of a mapping or a list, an optional parameter that is
+			// not given leaves a body. As the whole body it leaves none to
+			// send, and what went instead was null.
+			if m := mark.FindStringSubmatch(f.v.Value); f.v.Kind == yaml.ScalarNode && m != nil && m[0] == f.v.Value {
+				if p, ok := c.param(m[1]); ok && p.Optional {
+					r.errf(f.v, f.path, "%s is optional, and it is the whole body: not given, there is no body to leave it out of. Put it in a mapping ({ key: %q }), or make it required", m[0], m[0])
+				}
+			}
 		}
 	}
 	if e.v.Kind != yaml.MappingNode {

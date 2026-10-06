@@ -28,7 +28,7 @@ func TestSourceAddShowRemove(t *testing.T) {
 	}
 	for _, want := range []string{
 		"source pushover saved: 1 call under https://api.pushover.net/1",
-		"note: the file's notify is kept with it and not read by this yardr",
+		"notify: the call message tells a user, at the PUSHOVER_USER of their env_file (yardr user set <name> notify=pushover)",
 		"next: yardr source set pushover env_file=<a file of mode 0600 that sets PUSHOVER_TOKEN>",
 	} {
 		if !strings.Contains(out, want) {
@@ -47,7 +47,7 @@ func TestSourceAddShowRemove(t *testing.T) {
 		"call message  update  POST /messages.json  One push to one person",
 		"user  string  matching ^[A-Za-z0-9]{30}$",
 		"link  string  at most 512 characters  optional",
-		"kept with the file and not read by this yardr: notify",
+		"notify: the call message tells a user, at the PUSHOVER_USER of their env_file",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("show printed no %q:\n%s", want, out)

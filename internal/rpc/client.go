@@ -477,6 +477,9 @@ func (c *Client) Users(ctx context.Context) ([]store.User, error) {
 func (c *Client) GetUser(ctx context.Context, name string) (*store.User, error) {
 	return callV[*store.User](c, ctx, "GetUser", name)
 }
+func (c *Client) SetUser(ctx context.Context, name string, set map[string]string, actor string) (*store.User, error) {
+	return callV[*store.User](c, ctx, "SetUser", name, set, actor)
+}
 func (c *Client) DeleteUser(ctx context.Context, name, actor string) error {
 	return c.call(ctx, "DeleteUser", nil, name, actor)
 }

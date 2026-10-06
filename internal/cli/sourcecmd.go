@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/notify"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
@@ -62,6 +64,27 @@ or DELETE; a name yardr has built in (` + strings.Join(source.BuiltIn, ", ") + `
 no redirect is followed, the call ends after ` + source.Timeout.String() + `, and an answer over its
 bound is refused, not cut.
 
+A source can tell a person outside the yard when its file has a notify key:
+the update call that does it, and which of the call's parameters take what
+the yard has to say.
+
+  notify:
+    call: message
+    address: { param: user, env: PUSHOVER_USER }  # where the person is reached
+    title: title                                  # the yard's value: the call's parameter
+    text: text
+    link: link
+
+address.env is the name of a variable in the env file of the user who is
+told, not of the source's: the address is one person's. title, text and link
+are each left out for a call that has no place for one; one of title and
+text is there. Refused: a call that is not in the file or is a read call; a
+parameter the call does not have, or one that is no string; a required
+parameter of the call that nothing here fills; a link parameter that is
+required. A title or a text longer than its parameter's max is cut to it; a
+link that is too long is left out. A user is given the source with
+yardr user set <name> notify=<source> env_file=<file>.
+
 Adding, setting and removing a source is the operator's, and is refused from
 the pane of an agent: a source is where a credential of the yard is sent.
 Nothing in the yard calls a declared source yet but yardr source check.`,
@@ -107,8 +130,8 @@ env_file; what the new file changes of its calls is printed.`,
 				for _, l := range changes {
 					fmt.Println("  " + l)
 				}
-				if len(d.Unread) > 0 {
-					fmt.Printf("note: the file's %s is kept with it and not read by this yardr\n", strings.Join(d.Unread, ", "))
+				if d.Notify != nil {
+					fmt.Println("  " + notifyLine(d))
 				}
 				if d.Credential != nil && saved.EnvFile == "" {
 					fmt.Printf("next: yardr source set %s env_file=<a file of mode 0600 that sets %s>\n", d.Name, d.Credential.Env)
@@ -133,7 +156,7 @@ env_file; what the new file changes of its calls is printed.`,
 				for _, src := range srcs {
 					d, err := src.Declaration()
 					if err != nil {
-						rows = append(rows, []string{src.Name, "-", "not read by this yardr: yardr source show " + src.Name, "-", "-"})
+						rows = append(rows, []string{src.Name, "-", "not read by this yardr: yardr source show " + src.Name, "-", "-", "-"})
 						continue
 					}
 					names := make([]string, len(d.Calls))
@@ -144,9 +167,13 @@ env_file; what the new file changes of its calls is printed.`,
 					if d.Credential != nil {
 						cred = d.Credential.Env + " in " + or(src.EnvFile, "no env_file yet")
 					}
-					rows = append(rows, []string{d.Name, d.Base, strings.Join(names, ", "), cred, or(d.Check, "-")})
+					notify := "-"
+					if d.Notify != nil {
+						notify = d.Notify.Call
+					}
+					rows = append(rows, []string{d.Name, d.Base, strings.Join(names, ", "), cred, or(d.Check, "-"), notify})
 				}
-				table("NAME\tBASE\tCALLS\tCREDENTIAL\tCHECK", rows)
+				table("NAME\tBASE\tCALLS\tCREDENTIAL\tCHECK\tNOTIFY", rows)
 			})
 		},
 	}
@@ -169,7 +196,7 @@ the variable and whether the env_file sets it. The value is never printed.
 			if err != nil {
 				return err
 			}
-			_, state, credErr := declaredCredential(src, d)
+			_, state, credErr := d.ReadCredential(src.EnvFile)
 			if credErr != nil {
 				state = credErr.Error()
 			}
@@ -197,8 +224,10 @@ the variable and whether the env_file sets it. The value is never printed.
 						fmt.Printf("    answers %s\n", strings.Join(call.Answer.Select, ", "))
 					}
 				}
-				if len(d.Unread) > 0 {
-					fmt.Printf("  kept with the file and not read by this yardr: %s\n", strings.Join(d.Unread, ", "))
+				if d.Notify != nil {
+					fmt.Println("  " + notifyLine(d))
+				} else {
+					fmt.Println("  notify: the file has no notify key, so no user is told through it")
 				}
 				fmt.Printf("  added %s by %s\n", since(src.AddedAt), src.AddedBy)
 			})
@@ -257,8 +286,7 @@ env_file= with nothing after it takes the setting away.`,
 				if value, err = config.ExpandPath(value); err != nil {
 					return err
 				}
-				src.EnvFile = value
-				if _, state, err = declaredCredential(src, d); err != nil {
+				if _, state, err = d.ReadCredential(value); err != nil {
 					return err
 				}
 			}
@@ -270,6 +298,7 @@ env_file= with nothing after it takes the setting away.`,
 		},
 	}
 
+	var checkUser string
 	check := &cobra.Command{
 		Use:   "check <name>",
 		Short: "See that a source's credential is set up, and make its check call",
@@ -279,13 +308,25 @@ status the service answered with, and fails on anything but a success. A
 source whose file names no check call is sent nothing: its credential is
 looked at and that is all.
 
+With --user it tells that user through the source instead: one real
+message, a line that says it is a test, sent as everything the yard tells
+them will be, with the address their env_file sets. It is the user's own to
+ask for, or the operator's, and works before the user names the source as
+their notify, to try it first. A source yardr has built in is checked this
+way too, once one can tell a person.
+
 The call is made by this command, with the credential read into this
 process for it. Nothing of the request is written anywhere.`,
+		Example: `  yardr source check pushover
+  yardr source check pushover --user mckean`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
+			}
+			if checkUser != "" {
+				return a.checkTells(c.Context(), st, args[0], checkUser)
 			}
 			src, err := st.GetSource(c.Context(), args[0])
 			if err != nil {
@@ -295,7 +336,7 @@ process for it. Nothing of the request is written anywhere.`,
 			if err != nil {
 				return err
 			}
-			cred, state, err := declaredCredential(src, d)
+			cred, state, err := d.ReadCredential(src.EnvFile)
 			if err != nil {
 				return fmt.Errorf("source %s: %w", d.Name, err)
 			}
@@ -323,8 +364,49 @@ process for it. Nothing of the request is written anywhere.`,
 		},
 	}
 
+	check.Flags().StringVar(&checkUser, "user", "", "tell this user through the source: one real test message")
+
 	cmd.AddCommand(add, list, show, rm, set, check)
 	return cmd
+}
+
+// checkTells is yardr source check <name> --user <user>: one message to
+// the user through the source, which says that it is a test.
+func (a *app) checkTells(ctx context.Context, st store.API, name, user string) error {
+	u, err := st.GetUser(ctx, user)
+	if err != nil {
+		return err
+	}
+	// The message buzzes a person's phone: theirs to ask for, or the
+	// operator's. Like maySpeakAs it is a line, not a wall: the command
+	// reads files its caller can read, and no store is asked.
+	if operator, is, err := a.operator(ctx, st); err != nil {
+		return err
+	} else if !is && a.who() != u.Name {
+		return fmt.Errorf("a test message to %s is theirs to ask for, or the operator's (%s); this is %s", u.Name, operator, a.who())
+	}
+	sent, err := notify.Through(ctx, st, name, u, notify.Message{
+		Title: "yardr: a test",
+		Text:  fmt.Sprintf("%s is told here by the yard, through the source %s. Sent by yardr source check %s --user %s.", u.Name, name, name, u.Name),
+	})
+	if err != nil {
+		return err
+	}
+	if !sent.OK() {
+		return fmt.Errorf("source %s: telling %s was answered %d: nothing reached them", name, u.Name, sent.Status)
+	}
+	return a.out(sent, func() {
+		fmt.Printf("%s: told %s: %d in %dms\n", name, u.Name, sent.Status, sent.Took.Milliseconds())
+		if u.Notify != name {
+			fmt.Printf("next: yardr user set %s %s=%s\n", u.Name, store.UserNotify, name)
+		}
+	})
+}
+
+// notifyLine says in a line how a source tells a person.
+func notifyLine(d *source.Declaration) string {
+	n := d.Notify
+	return fmt.Sprintf("notify: the call %s tells a user, at the %s of their env_file (yardr user set <name> %s=%s)", n.Call, n.AddressEnv, store.UserNotify, d.Name)
 }
 
 // statusHint says what a status of a check call most likely means.
@@ -333,33 +415,6 @@ func statusHint(status int, d *source.Declaration) string {
 		return ": the service does not take what " + d.Credential.Env + " is set to"
 	}
 	return ""
-}
-
-// declaredCredential reads the credential of src as a call needs it: the
-// value of the variable d names, from the source's env_file, read now.
-// state says in words where it is, for showing, and never holds the value;
-// err says why there is none, with the command that sets it up.
-func declaredCredential(src *store.Source, d *source.Declaration) (value, state string, err error) {
-	if d.Credential == nil {
-		return "", "none: the file names no credential", nil
-	}
-	name := d.Credential.Env
-	if src.EnvFile == "" {
-		return "", "", fmt.Errorf("%s is not set up: yardr source set %s %s=<a file of mode 0600 that sets %s>", name, src.Name, store.SourceEnvFile, name)
-	}
-	f, err := config.ReadEnvFile(src.EnvFile)
-	if err != nil {
-		return "", "", err
-	}
-	for _, e := range f.Env {
-		if k, v, _ := strings.Cut(e, "="); k == name {
-			value = v // of a name set twice the last, as in a pane's environment
-		}
-	}
-	if value == "" {
-		return "", "", fmt.Errorf("env_file %s does not set %s", f.Path, name)
-	}
-	return value, name + " is set in " + f.Path, nil
 }
 
 // paramLine is a parameter in a line of yardr source show.
