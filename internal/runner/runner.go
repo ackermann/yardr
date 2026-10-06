@@ -502,12 +502,14 @@ func readAtBase(rig *store.Rig, gitPath string) (text []byte, sha string, found 
 		return oid, kind, body[:size], true, nil
 	}
 	// failed ends git and says why the answer to name could not be read:
-	// the deadline, else what git said as it went.
+	// the deadline, else what git said as it went. Git is ended by closing
+	// its stdin and waited for, not killed: one that has answered on stdout
+	// may not have said why on stderr yet, and a kill would take that with
+	// it. One that does not go at the end of its input goes at the deadline.
 	failed := func(name string, cause error) error {
-		timedOut := ctx.Err()
 		stdin.Close()
-		cancel()
 		werr := cmd.Wait()
+		timedOut := ctx.Err()
 		if timedOut != nil {
 			return fmt.Errorf("git cat-file --batch: %s: %w", name, timedOut)
 		}

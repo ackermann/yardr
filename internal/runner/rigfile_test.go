@@ -191,6 +191,9 @@ func TestReadRigFileGitFails(t *testing.T) {
 		"dies in the file":      "read name\nprintf '%s commit 0\\n\\n' " + sha + "\nread name\nprintf '%s blob 500\\nBase b' " + sha + "\necho 'fatal: object store is gone' >&2\nexit 128\n",
 		"fails after the file":  "read name\nprintf '%s commit 0\\n\\n' " + sha + "\nread name\nprintf '%s blob 2\\nhi\\n' " + sha + "\necho 'fatal: object store is gone' >&2\nexit 128\n",
 		"answers what git does": "read name\necho 'usage: git cat-file'\necho 'fatal: object store is gone' >&2\nexit 129\n",
+		// The answer is read long before git has said why: the error waits
+		// for git to end, it is not made from the stderr there is so far.
+		"says why after a while": "read name\necho 'usage: git cat-file'\nsleep 0.3\necho 'fatal: object store is gone' >&2\nexit 129\n",
 	} {
 		t.Run(what, func(t *testing.T) {
 			scriptGit(t, script)
@@ -218,16 +221,18 @@ func TestReadRigFileOfADirectory(t *testing.T) {
 }
 
 // A git that hangs is cut off at gitTimeout and is an error, whether it
-// hangs before it has named the base or after: neither is "not on the
-// base", and neither falls back to the working tree.
+// hangs before it has named the base, after, or after an answer that is
+// none of git's: none is "not on the base", and none falls back to the
+// working tree.
 func TestReadRigFileHasADeadline(t *testing.T) {
 	repo, sha := baseRepo(t)
 	was := gitTimeout
 	gitTimeout = 2 * time.Second // see TestFetchBaseHasADeadline on the margin
 	t.Cleanup(func() { gitTimeout = was })
 	for what, script := range map[string]string{
-		"at once":        "exec sleep 30\n",
-		"after the base": "read name\nprintf '%s commit 0\\n\\n' " + sha + "\nexec sleep 30\n",
+		"at once":                               "exec sleep 30\n",
+		"after the base":                        "read name\nprintf '%s commit 0\\n\\n' " + sha + "\nexec sleep 30\n",
+		"after an answer that is none of git's": "read name\necho 'usage: git cat-file'\nexec sleep 30\n",
 	} {
 		t.Run(what, func(t *testing.T) {
 			scriptGit(t, script)
