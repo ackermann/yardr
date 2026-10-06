@@ -15,6 +15,10 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
+// stalledHeader marks the request of the subscriber that never reads, so
+// the test's server can say when its handler has returned.
+const stalledHeader = "X-Test-Stalled"
+
 // A stream whose reader has stopped taking is closed once a write has
 // waited the timeout, rather than holding the handler in Write for good
 // (past a drain's settle); a reader that keeps up is never cut off.
@@ -25,10 +29,22 @@ func TestStalledStreamReaderIsCutOff(t *testing.T) {
 	}
 	defer st.Close(context.Background())
 	sock := socket(t)
-	serve(t, sock, handler(st, nil, 200*time.Millisecond).ServeHTTP)
+	// Seconds, not the 200ms of the tests beside this one: the live reader
+	// below takes 256KB events through HTTP and JSON under -race, and on a
+	// loaded machine went longer than 200ms over one, so the server cut it
+	// off by its own rule. The stalled reader never reads at all, so its
+	// cut-off needs no short timeout to show, only one wait of this one.
+	const writeTimeout = 5 * time.Second
+	h := handler(st, nil, writeTimeout)
+	cut := make(chan struct{})
+	serve(t, sock, func(w http.ResponseWriter, r *http.Request) {
+		h.ServeHTTP(w, r)
+		if r.Header.Get(stalledHeader) != "" {
+			close(cut)
+		}
+	})
 	ctx := context.Background()
 
-	// A reader that keeps up sees everything, however long the stream is quiet.
 	c := NewClient(sock)
 	sub, err := c.Subscribe(ctx, 0)
 	if err != nil {
@@ -44,18 +60,6 @@ func TestStalledStreamReaderIsCutOff(t *testing.T) {
 			live <- e
 		}
 	}()
-	time.Sleep(500 * time.Millisecond) // quiet for longer than the timeout
-	if err := st.LogEvent(ctx, "", "noise", "test", map[string]any{"n": 0}); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case e := <-live:
-		if e.Kind != "noise" {
-			t.Fatalf("event = %+v", e)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("a quiet stream was cut off, or the event never came")
-	}
 
 	// A raw subscriber that never reads: the socket fills and the server's
 	// write blocks.
@@ -64,16 +68,23 @@ func TestStalledStreamReaderIsCutOff(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Close()
-	fmt.Fprint(conn, "GET /events?after=0 HTTP/1.1\r\nHost: yard\r\n\r\n")
+	fmt.Fprintf(conn, "GET /events?after=0 HTTP/1.1\r\nHost: yard\r\n%s: 1\r\n\r\n", stalledHeader)
 	pad := strings.Repeat("x", 256<<10)
 	for i := 0; i < 16; i++ { // 4MB: more than any socket buffers between them
 		if err := st.LogEvent(ctx, "", "noise", "test", map[string]any{"pad": pad}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	time.Sleep(600 * time.Millisecond) // the blocked write hits its deadline
+	// The blocked write hits its deadline and the handler returns. Waited
+	// for, not slept through: nothing is read from conn before then, so the
+	// reader stays stalled however late the server comes to that write.
+	select {
+	case <-cut:
+	case <-time.After(writeTimeout + 30*time.Second):
+		t.Fatal("the stream's handler is still in Write after its reader stalled")
+	}
 	// Draining the connection now ends in EOF only if the server closed it.
-	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+	if err := conn.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := io.Copy(io.Discard, conn); err != nil {
@@ -90,8 +101,46 @@ func TestStalledStreamReaderIsCutOff(t *testing.T) {
 			if e.Kind != "noise" {
 				t.Fatalf("event = %+v", e)
 			}
-		case <-time.After(5 * time.Second):
+		case <-time.After(30 * time.Second):
 			t.Fatalf("the live subscriber got %d of 16 events", i)
+		}
+	}
+}
+
+// A stream that is merely quiet is never cut off: the deadline belongs to
+// one write, so a reader is still served after going longer than the
+// timeout without an event, before the first one and after it. The events
+// are small enough that no write waits on the reader, so the short timeout
+// is no matter of the machine here.
+func TestQuietStreamIsNotCutOff(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "yard.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close(context.Background())
+	sock := socket(t)
+	serve(t, sock, handler(st, nil, 200*time.Millisecond).ServeHTTP)
+	ctx := context.Background()
+
+	sub, err := NewClient(sock).Subscribe(ctx, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for n := 0; n < 2; n++ {
+		time.Sleep(500 * time.Millisecond) // quiet for longer than the timeout
+		if err := st.LogEvent(ctx, "", "noise", "test", map[string]any{"n": n}); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case e, ok := <-sub:
+			if !ok {
+				t.Fatalf("a quiet stream was cut off before event %d", n)
+			}
+			if e.Kind != "noise" {
+				t.Fatalf("event = %+v", e)
+			}
+		case <-time.After(30 * time.Second):
+			t.Fatalf("event %d never came", n)
 		}
 	}
 }
