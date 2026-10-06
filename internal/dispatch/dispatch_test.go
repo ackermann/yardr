@@ -638,7 +638,17 @@ func TestRunPrunesOnATimer(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan error)
 		go func() { done <- d.Run(ctx) }()
-		time.Sleep(300 * time.Millisecond)
+		if keep == (store.Retention{}) {
+			// Nothing to wait for: a window in which a prune would have
+			// shown. Load can only make it miss one, never report one.
+			time.Sleep(300 * time.Millisecond)
+		} else {
+			// The second prune is the timer's. How long the daemon takes to
+			// reach it is the machine's business (a slow disk, a loaded one:
+			// yardr-km55), so the test waits for the count, not for a time.
+			for deadline := time.Now().Add(time.Minute); pc.count() < 2 && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			}
+		}
 		cancel()
 		if err := <-done; err != nil {
 			t.Fatal(err)
