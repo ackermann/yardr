@@ -438,7 +438,7 @@ var (
 )
 
 // peerBeadTypes are the types a bead from a peer may have here. A train
-// and a car mean something about branches in this yard, and a journal or
+// and a wagon mean something about branches in this yard, and a journal or
 // a memory is no work: each arrives as a task.
 var peerBeadTypes = []string{"task", "bug", "feature"}
 

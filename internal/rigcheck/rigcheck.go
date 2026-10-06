@@ -27,8 +27,8 @@
 // A depot may have a second, light gate (RunLight): `--check-light <cmd>` in
 // the store, or .yardr/check-light in the repo, found and run under every
 // rule above. It is for a branch that lands where the full gate still
-// stands before the base moves: a car of a train, landing on the train's
-// branch (docs/pipeline.md, "Cars"). A depot without one runs its full gate
+// stands before the base moves: a wagon of a train, landing on the train's
+// branch (docs/pipeline.md, "Wagons"). A depot without one runs its full gate
 // instead and says so (Result.Fallback): asking for the light gate never
 // passes for want of a file. The light gate comes from where the full one
 // does: a depot whose gate is a store override has its light gate in the store
@@ -44,9 +44,9 @@
 // locally, and it is unset when that does not resolve and for a dir depot: a
 // check that needs it must fail without it.
 //
-// The light gate of a car of a train is compared with the train's branch
+// The light gate of a wagon of a train is compared with the train's branch
 // instead (Options.Since): the range from the depot's base holds the train's
-// earlier cars, so every car after one that touched a widely imported
+// earlier wagons, so every wagon after one that touched a widely imported
 // package would test nearly everything again. Only what the gate is compared
 // with changes: the gate is still read from the base, and the train's own
 // full gate runs everything before the base moves. The full gate, the one
@@ -341,7 +341,7 @@ type Result struct {
 	Fallback string `json:"light_fallback,omitempty"`
 	// Base is the commit the check was given to compare with (BaseVar), and
 	// BaseRef the ref it is the tip of: the depot's base, or, for the light
-	// gate of a car of a train, the train's branch (Options.Since).
+	// gate of a wagon of a train, the train's branch (Options.Since).
 	Base    string `json:"base,omitempty"`
 	BaseRef string `json:"base_ref,omitempty"`
 	// SlotWaited is how long the run waited for a slot of the machine, in
@@ -416,7 +416,7 @@ type Options struct {
 	// Light asks for the depot's light gate (RunLight).
 	Light bool
 	// Since is a branch the light gate is compared with instead of the depot's
-	// base: the train's, for a car of one (see the package comment). The
+	// base: the train's, for a wagon of one (see the package comment). The
 	// caller finds it: this package has no store. It is read in the
 	// directory the check runs in, and changes nothing for a full gate, a
 	// dir depot, or a branch that is not there.

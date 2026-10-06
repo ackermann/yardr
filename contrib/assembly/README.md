@@ -38,11 +38,11 @@ both commits, so nothing ungated lands. With `YARDR_PUSH` set it pushes the base
 never forced; a failed push mails `YARDR_NOTIFY` and leaves the bead merged.
 Finally it advances the bead to `merged` with `merged <sha>`.
 
-A car of a train (`YARDR_TYPE=car`, `YARDR_TRAIN` set, and that train's
+A wagon of a train (`YARDR_TYPE=wagon`, `YARDR_TRAIN` set, and that train's
 branch as `YARDR_BASE`) is gated with `yardr depot check --light`, the depot's
 light gate; the full gate is integrate-train's, on the whole train. Everything
-else gets the full gate, a car with no train included. See
-[docs/pipeline.md](../../docs/pipeline.md#cars).
+else gets the full gate, a wagon with no train included. See
+[docs/pipeline.md](../../docs/pipeline.md#wagons).
 
 **integrate-train** runs once a train's last child has landed on its branch,
 routed for the train flow's `open` stage (type `train`). It fetches the base

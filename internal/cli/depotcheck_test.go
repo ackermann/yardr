@@ -462,12 +462,12 @@ func TestDepotCheckKeepsAFailedGatesOutput(t *testing.T) {
 	}
 }
 
-// The light gate of a car of a train is compared with the train's branch,
-// not the depot's base: it sees what the car changed, not the train's earlier
-// cars again. The bead is found from the branch --dir is on. The full gate,
-// a car with no train, a task under a train and a run in the depot itself are
+// The light gate of a wagon of a train is compared with the train's branch,
+// not the depot's base: it sees what the wagon changed, not the train's earlier
+// wagons again. The bead is found from the branch --dir is on. The full gate,
+// a wagon with no train, a task under a train and a run in the depot itself are
 // compared with the base, as they were.
-func TestDepotCheckLightOfACarIsComparedWithItsTrain(t *testing.T) {
+func TestDepotCheckLightOfAWagonIsComparedWithItsTrain(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	repo := t.TempDir()
@@ -502,10 +502,10 @@ func TestDepotCheckLightOfACarIsComparedWithItsTrain(t *testing.T) {
 	}
 	for _, nb := range []store.NewBead{
 		{ID: "r-e", Title: "train", Type: store.TypeTrain, Depot: "r"},
-		{ID: "r-p1", Title: "car one", Type: store.TypeCar, Depot: "r"},
-		{ID: "r-p2", Title: "car two", Type: store.TypeCar, Depot: "r"},
+		{ID: "r-p1", Title: "wagon one", Type: store.TypeWagon, Depot: "r"},
+		{ID: "r-p2", Title: "wagon two", Type: store.TypeWagon, Depot: "r"},
 		{ID: "r-t", Title: "a task of the train", Depot: "r"},
-		{ID: "r-lone", Title: "a car with no train", Type: store.TypeCar, Depot: "r"},
+		{ID: "r-lone", Title: "a wagon with no train", Type: store.TypeWagon, Depot: "r"},
 	} {
 		if _, err := st.CreateBead(ctx, nb, "me"); err != nil {
 			t.Fatal(err)
@@ -516,7 +516,7 @@ func TestDepotCheckLightOfACarIsComparedWithItsTrain(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// Car one has landed on the train's branch with its change to package p.
+	// Wagon one has landed on the train's branch with its change to package p.
 	git(repo, "branch", "yard/r-e")
 	wt := func(id, from string) string {
 		t.Helper()
@@ -527,7 +527,7 @@ func TestDepotCheckLightOfACarIsComparedWithItsTrain(t *testing.T) {
 	p1 := wt("r-p1", "yard/r-e")
 	commit(p1, "p/p.go")
 	git(repo, "branch", "-f", "yard/r-e", "yard/r-p1")
-	// Car two, a task of the train and a car with no train change package q.
+	// Wagon two, a task of the train and a wagon with no train change package q.
 	p2, task, lone := wt("r-p2", "yard/r-e"), wt("r-t", "yard/r-e"), wt("r-lone", "main")
 	for _, dir := range []string{p2, task, lone} {
 		commit(dir, "q/q.go")
@@ -544,22 +544,22 @@ func TestDepotCheckLightOfACarIsComparedWithItsTrain(t *testing.T) {
 	sinceTrain := "light gate, changes since yard/r-e at " + train[:12] + "\nlight\n"
 	sinceMain := "light gate, changes since main at " + base[:12] + "\nlight\n"
 
-	check("light gate of a car of a train", train, "q/q.go ", sinceTrain, "r", "--light", "--dir", p2)
-	check("full gate of a car of a train", base, "p/p.go q/q.go ", "full\n", "r", "--dir", p2)
+	check("light gate of a wagon of a train", train, "q/q.go ", sinceTrain, "r", "--light", "--dir", p2)
+	check("full gate of a wagon of a train", base, "p/p.go q/q.go ", "full\n", "r", "--dir", p2)
 	check("light gate of a task of a train", base, "p/p.go q/q.go ", sinceMain, "r", "--light", "--dir", task)
-	check("light gate of a car with no train", base, "q/q.go ", sinceMain, "r", "--light", "--dir", lone)
+	check("light gate of a wagon with no train", base, "q/q.go ", sinceMain, "r", "--light", "--dir", lone)
 	check("light gate in the depot itself", base, "", sinceMain, "r", "--light")
-	// The train's own branch, and a detached checkout of the car.
+	// The train's own branch, and a detached checkout of the wagon.
 	check("light gate of the train", base, "p/p.go ", sinceMain, "r", "--light", "--dir", wt("r-e2", "yard/r-e"))
 	git(p2, "checkout", "-q", "--detach")
 	check("light gate on no branch", base, "p/p.go q/q.go ", sinceMain, "r", "--light", "--dir", p2)
 	git(p2, "checkout", "-q", "yard/r-p2")
-	// Another depot's check in the car's worktree is not the car's.
+	// Another depot's check in the wagon's worktree is not the wagon's.
 	check("light gate of another depot", base, "p/p.go q/q.go ", "light gate, changes since main at", "other", "--light", "--dir", p2)
 
 	// A train's branch that is not there: the base, which tests more.
 	git(repo, "branch", "-m", "yard/r-e", "elsewhere")
-	check("light gate of a car whose train has no branch", base, "p/p.go q/q.go ", sinceMain, "r", "--light", "--dir", p2)
+	check("light gate of a wagon whose train has no branch", base, "p/p.go q/q.go ", sinceMain, "r", "--light", "--dir", p2)
 
 	// --json names what it was compared with.
 	git(repo, "branch", "-m", "elsewhere", "yard/r-e")

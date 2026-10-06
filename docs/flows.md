@@ -443,14 +443,14 @@ integrating a train's branch and landing it on main. Its children follow the
 depot's flow like any bead; what a train changes for them is only their base,
 see [pipeline.md](pipeline.md#trains).
 
-Type `car` has its own flow in depot yardr too, the repository's
-[`.yardr/flows/type/car.flow`](../.yardr/flows/type/car.flow), with its
-stage files in `.yardr/flows/type/car/`. No pointer is needed: a
+Type `wagon` has its own flow in depot yardr too, the repository's
+[`.yardr/flows/type/wagon.flow`](../.yardr/flows/type/wagon.flow), with its
+stage files in `.yardr/flows/type/wagon/`. No pointer is needed: a
 `type/<type>.flow` governs the type by being there. It is the depot's flow
 without the review stage:
 
 ```
-# type/car.flow
+# type/wagon.flow
 backlog -> new
 new -> approved on done | decide on question | backlog
 approved -> merged on done | new on failed | decide on question
@@ -458,11 +458,11 @@ decide -> backlog | new
 merged terminal
 ```
 
-A car is a child of a train that lands on the train's branch under the
+A wagon is a child of a train that lands on the train's branch under the
 depot's light gate, with no review of its own; the full gate and the review
-are the train's ([pipeline.md](pipeline.md#cars)). The stage names are the
-depot's, so the depot's routes send cars to the same groups. One rule is
-yardr's, whatever the flow says: a car with no parent train stays in its
+are the train's ([pipeline.md](pipeline.md#wagons)). The stage names are the
+depot's, so the depot's routes send wagons to the same groups. One rule is
+yardr's, whatever the flow says: a wagon with no parent train stays in its
 flow's first stage. Moving or creating it anywhere else is refused.
 
 ## Terminal stages

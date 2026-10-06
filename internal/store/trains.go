@@ -21,23 +21,29 @@ const (
 	DepParent = "parent"
 )
 
-// Cars. A car is a piece of a train that is not worth having on the base
+// Wagons. A wagon is a piece of a train that is not worth having on the base
 // by itself: it lands on its train's branch under the depot's light gate, with
 // no review of its own, and the full gate and the one review are the
-// train's (docs/pipeline.md, "Cars"). That is only safe under a train, so a
-// car with no parent train stays where its flow starts: checkCar refuses
+// train's (docs/pipeline.md, "Wagons"). That is only safe under a train, so a
+// wagon with no parent train stays where its flow starts: checkWagon refuses
 // to move or create it anywhere else, and the dispatcher starts no agent or
 // script for one that got there some other way (its parent edge removed
 // after it moved, or no flow governing it).
-const TypeCar = "car"
+const TypeWagon = "wagon"
 
-// Until schema 10 a train was an epic and a car a part (migrateTrains). The
+// Until schema 10 a train was an epic and a wagon a part (migrateTrains). The
 // old words are still read for this release, wherever a type, a filter or a
 // flow's name is given: BeadType, whereKey, flowNames.
 const (
 	oldTypeTrain = "epic"
-	oldTypeCar   = "part"
+	oldTypeWagon = "part"
 )
+
+// typeCar is what main called a wagon between two releases, in a store of
+// schema 10 to 12. No release had the word, so it is no alias: migrateWagons
+// renames what such a yard stored, and flowNames finds a flow whose name
+// ends in it.
+const typeCar = "car"
 
 // BeadType is the bead type t names: t itself, or the type that replaced
 // it when t is one an earlier release used.
@@ -45,8 +51,8 @@ func BeadType(t string) string {
 	switch t {
 	case oldTypeTrain:
 		return TypeTrain
-	case oldTypeCar:
-		return TypeCar
+	case oldTypeWagon:
+		return TypeWagon
 	}
 	return t
 }
@@ -57,8 +63,8 @@ func oldBeadType(t string) string {
 	switch t {
 	case TypeTrain:
 		return oldTypeTrain
-	case TypeCar:
-		return oldTypeCar
+	case TypeWagon:
+		return oldTypeWagon
 	}
 	return ""
 }
@@ -67,25 +73,31 @@ func oldBeadType(t string) string {
 // 10, each with the kind new events carry. Events already in the log keep
 // the old kind; a filter that names one means the new.
 var OldTrainKinds = map[string]string{
-	"epic_branched": "train_branched", "bad_epic": "bad_train", "part_without_epic": "car_without_train",
+	"epic_branched": "train_branched", "bad_epic": "bad_train", "part_without_epic": "wagon_without_train",
 }
 
 // mapWords is a hook's stage map (MapKey) with the bead types an earlier
 // release used replaced, and whether any was. A line under the new word
 // stands when both are given.
 func mapWords(m map[string]string) (map[string]string, bool) {
+	return mapTypes(m, BeadType)
+}
+
+// mapTypes is a hook's stage map with each bead type replaced by what typ
+// gives for it, and whether any was.
+func mapTypes(m map[string]string, typ func(string) string) (map[string]string, bool) {
 	changed := false
 	for k, state := range m {
-		typ, stage, ok := strings.Cut(k, ":")
-		if !ok || BeadType(typ) == typ {
+		t, stage, ok := strings.Cut(k, ":")
+		if !ok || typ(t) == t {
 			continue
 		}
 		if !changed {
 			m, changed = maps.Clone(m), true
 		}
 		delete(m, k)
-		if _, has := m[MapKey(BeadType(typ), stage)]; !has {
-			m[MapKey(BeadType(typ), stage)] = state
+		if _, has := m[MapKey(typ(t), stage)]; !has {
+			m[MapKey(typ(t), stage)] = state
 		}
 	}
 	return m, changed
@@ -135,32 +147,39 @@ func trainWhere(where map[string]string) (map[string]string, bool) {
 // words), the same name with the other spelling. So a depot's pointer at
 // yardr.epic finds yardr.train.flow once the repository renamed its file,
 // and one at yardr.train finds the yardr.epic the store still has. For this
-// release only.
+// release only. A name that ends in car, from a yard that ran main between
+// two releases, pairs with wagon the same way.
 func flowNames(name string) []string {
 	i := strings.LastIndexAny(name, "./")
 	head, last := name[:i+1], name[i+1:]
+	names := []string{name}
 	if other := oldBeadType(last); other != "" {
-		return []string{name, head + other}
+		names = append(names, head+other)
+	} else if other := BeadType(last); other != last {
+		names = append(names, head+other)
 	}
-	if other := BeadType(last); other != last {
-		return []string{name, head + other}
+	switch last {
+	case TypeWagon:
+		names = append(names, head+typeCar)
+	case typeCar:
+		names = append(names, head+TypeWagon)
 	}
-	return []string{name}
+	return names
 }
 
-// checkCar refuses putting row, a car, in stage of its flow f while it is
+// checkWagon refuses putting row, a wagon, in stage of its flow f while it is
 // no child of a train. The flow's first stage is always allowed: it is
-// where a car waits for its train, and where it is taken back to.
-func checkCar(tx *bolt.Tx, f *Flow, row *beadRow, stage string) error {
+// where a wagon waits for its train, and where it is taken back to.
+func checkWagon(tx *bolt.Tx, f *Flow, row *beadRow, stage string) error {
 	// No flow, no stage it starts in: the dispatcher alone keeps such a
-	// car from being worked.
-	if row.Type != TypeCar || f == nil || stage == firstStage(f) {
+	// wagon from being worked.
+	if row.Type != TypeWagon || f == nil || stage == firstStage(f) {
 		return nil
 	}
-	const why = "a car lands under the light gate with no review of its own, which is only safe on a train's branch"
+	const why = "a wagon lands under the light gate with no review of its own, which is only safe on a train's branch"
 	// A new bead has no UUID and no edges yet: it cannot be a child.
 	if row.UUID == "" {
-		return fmt.Errorf("a new car has no train yet, so it is created in %s, not %s: %s. Create it without a stage, make it a child (yardr dep add <train> <car> -k parent), then advance it",
+		return fmt.Errorf("a new wagon has no train yet, so it is created in %s, not %s: %s. Create it without a stage, make it a child (yardr dep add <train> <wagon> -k parent), then advance it",
 			firstStage(f), stage, why)
 	}
 	if train, err := parentTrain(tx, row.UUID); err != nil {
@@ -168,7 +187,7 @@ func checkCar(tx *bolt.Tx, f *Flow, row *beadRow, stage string) error {
 	} else if train != nil {
 		return nil
 	}
-	return fmt.Errorf("bead %s is a car with no train, so it stays in %s: %s. Make it a child first (yardr dep add <train> %s -k parent), or make it a task (yardr bead update %s --type task)",
+	return fmt.Errorf("bead %s is a wagon with no train, so it stays in %s: %s. Make it a child first (yardr dep add <train> %s -k parent), or make it a task (yardr bead update %s --type task)",
 		row.ID, firstStage(f), why, row.ID, row.ID)
 }
 

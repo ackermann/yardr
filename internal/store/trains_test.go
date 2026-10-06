@@ -318,12 +318,12 @@ func TestListBeadsByTrain(t *testing.T) {
 	}
 }
 
-// carDepot is trainDepot with the repository's car flow governing depot web's
-// cars, and car web-p in backlog.
-func carDepot(t *testing.T) (store.API, context.Context) {
+// wagonDepot is trainDepot with the repository's wagon flow governing depot web's
+// wagons, and wagon web-p in backlog.
+func wagonDepot(t *testing.T) (store.API, context.Context) {
 	t.Helper()
 	s, ctx := trainDepot(t)
-	text, err := os.ReadFile(storetest.RepoFlow(t, "type/car"))
+	text, err := os.ReadFile(storetest.RepoFlow(t, "type/wagon"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,30 +331,30 @@ func carDepot(t *testing.T) (store.API, context.Context) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.Name = "web.car"
+	f.Name = "web.wagon"
 	if _, err := s.PutFlow(ctx, *f, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetFlowPointer(ctx, "web", store.TypeCar, "web.car", "me"); err != nil {
+	if err := s.SetFlowPointer(ctx, "web", store.TypeWagon, "web.wagon", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if b, err := s.CreateBead(ctx, store.NewBead{ID: "web-p", Title: "car", Type: store.TypeCar, Depot: "web"}, "me"); err != nil || b.Stage != "backlog" {
-		t.Fatalf("car = %+v, %v; want it created in backlog", b, err)
+	if b, err := s.CreateBead(ctx, store.NewBead{ID: "web-p", Title: "wagon", Type: store.TypeWagon, Depot: "web"}, "me"); err != nil || b.Stage != "backlog" {
+		t.Fatalf("wagon = %+v, %v; want it created in backlog", b, err)
 	}
 	return s, ctx
 }
 
-// A car with no train stays where its flow starts: it lands under the light
+// A wagon with no train stays where its flow starts: it lands under the light
 // gate with no review of its own, which is only safe on a train's branch.
 // Neither a move nor an outcome takes it on, nor can one be created further
 // along; as a child of a train it moves like any bead.
-func TestCarNeedsATrain(t *testing.T) {
-	s, ctx := carDepot(t)
+func TestWagonNeedsATrain(t *testing.T) {
+	s, ctx := wagonDepot(t)
 	refused := func(err error) {
 		t.Helper()
-		if err == nil || !strings.Contains(err.Error(), "is a car with no train, so it stays in backlog") ||
+		if err == nil || !strings.Contains(err.Error(), "is a wagon with no train, so it stays in backlog") ||
 			!strings.Contains(err.Error(), "yardr dep add <train> web-p -k parent") {
-			t.Fatalf("err = %v, want the car refused with what to do", err)
+			t.Fatalf("err = %v, want the wagon refused with what to do", err)
 		}
 	}
 	_, err := s.Advance(ctx, "web-p", "new", store.Expect{}, "me")
@@ -364,20 +364,20 @@ func TestCarNeedsATrain(t *testing.T) {
 	if b, _ := s.GetBead(ctx, "web-p"); b.Stage != "backlog" {
 		t.Fatalf("stage = %s after refused moves", b.Stage)
 	}
-	if _, err := s.CreateBead(ctx, store.NewBead{Title: "late", Type: store.TypeCar, Depot: "web", Stage: "new"}, "me"); err == nil ||
-		!strings.Contains(err.Error(), "a new car has no train yet, so it is created in backlog, not new") {
-		t.Fatalf("creating a car in new = %v, want it refused", err)
+	if _, err := s.CreateBead(ctx, store.NewBead{Title: "late", Type: store.TypeWagon, Depot: "web", Stage: "new"}, "me"); err == nil ||
+		!strings.Contains(err.Error(), "a new wagon has no train yet, so it is created in backlog, not new") {
+		t.Fatalf("creating a wagon in new = %v, want it refused", err)
 	}
 	// A parent that is no train does not count (it makes no train's branch).
 	if err := s.AddDep(ctx, "web-1", "web-p", store.DepParent, "me"); err == nil {
-		t.Fatal("a task took a car as its child")
+		t.Fatal("a task took a wagon as its child")
 	}
 
 	if err := s.AddDep(ctx, "web-e", "web-p", store.DepParent, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if b, err := s.Advance(ctx, "web-p", "new", store.Expect{}, "me"); err != nil || b.Stage != "new" {
-		t.Fatalf("a car of a train: %+v, %v", b, err)
+		t.Fatalf("a wagon of a train: %+v, %v", b, err)
 	}
 	// Having lost its train, it can only be taken back to where it started.
 	if err := s.RemoveDep(ctx, "web-e", "web-p", store.DepParent, "me"); err != nil {
@@ -389,7 +389,7 @@ func TestCarNeedsATrain(t *testing.T) {
 		t.Fatalf("back to backlog: %+v, %v", b, err)
 	}
 
-	// Other types are not held to it, and a car no flow governs has no
+	// Other types are not held to it, and a wagon no flow governs has no
 	// first stage to stay in: the dispatcher keeps that one from being worked.
 	if _, err := s.Advance(ctx, "web-1", "review", store.Expect{}, "me"); err != nil {
 		t.Fatalf("a task with no train: %v", err)
@@ -397,7 +397,7 @@ func TestCarNeedsATrain(t *testing.T) {
 	if err := s.PutDepot(ctx, store.Depot{Name: "bare", Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateBead(ctx, store.NewBead{Title: "flowless", Type: store.TypeCar, Depot: "bare", Stage: "anywhere"}, "me"); err != nil {
-		t.Fatalf("a car no flow governs: %v", err)
+	if _, err := s.CreateBead(ctx, store.NewBead{Title: "flowless", Type: store.TypeWagon, Depot: "bare", Stage: "anywhere"}, "me"); err != nil {
+		t.Fatalf("a wagon no flow governs: %v", err)
 	}
 }

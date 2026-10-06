@@ -497,27 +497,27 @@ stage's tab mirrors it with the stage in front, `<stage> [<train>] <bead>`
 one command makes the child and keeps the train from being ready until the
 child closes; `dep rm <train> <child> -k parent` removes both edges.
 
-### Cars
+### Wagons
 
-A car is a child of a train that takes a shorter road to the train's
+A wagon is a child of a train that takes a shorter road to the train's
 branch. It is for several pieces of one feature, built in parallel, that
 are not worth having on main one by one: each piece would otherwise pay
 for the full gate three times (builder, reviewer, assembly) and a review of
-its own, and the assembly lands one bead at a time. A car pays for a light
+its own, and the assembly lands one bead at a time. A wagon pays for a light
 gate, twice, and no review; the full gate and one review happen once, on the
 whole train, before main moves. Everything about the train itself is as above
 and below: nothing changes in what a train needs to reach main.
 
 ```sh
 yardr bead create "Trains" -t train -d yardr
-yardr bead create "The parser" -t car -d yardr
-yardr dep add <train> <car> -k parent
+yardr bead create "The parser" -t wagon -d yardr
+yardr dep add <train> <wagon> -k parent
 ```
 
-- **The type.** A car is a bead of type `car`. In depot yardr the type has
-  a flow of its own, [`.yardr/flows/type/car.flow`](../.yardr/flows/type/car.flow):
+- **The type.** A wagon is a bead of type `wagon`. In depot yardr the type has
+  a flow of its own, [`.yardr/flows/type/wagon.flow`](../.yardr/flows/type/wagon.flow):
   the depot's flow without `review` (`new -> approved on done`). The depot's
-  routes for `new`, `approved` and `decide` carry no type, so cars go to the
+  routes for `new`, `approved` and `decide` carry no type, so wagons go to the
   same builders and the same assembly as any bead.
 - **The light gate.** A depot's second gate, `.yardr/check-light`, read from
   the base and run by `yardr depot check <depot> --light` under every rule of
@@ -527,12 +527,12 @@ yardr dep add <train> <car> -k parent
   import them. The builder runs it before `done`, as the builder of any
   bead does; merge-local runs it again on exactly what lands, where any
   other bead gets the full gate.
-- **What a car's light gate is compared with.** Its train's branch, not the
-  depot's base: "what the branch changed" is what this car changed, not the
-  train's earlier cars again. `depot check --light` finds the car from the
-  branch its `--dir` is on (`yard/<car>`) and gives the gate the tip of
+- **What a wagon's light gate is compared with.** Its train's branch, not the
+  depot's base: "what the branch changed" is what this wagon changed, not the
+  train's earlier wagons again. `depot check --light` finds the wagon from the
+  branch its `--dir` is on (`yard/<wagon>`) and gives the gate the tip of
   `yard/<train>`, for the builder as that branch is locally, for merge-local
-  as it has just rebased the car onto it; the first line of the output
+  as it has just rebased the wagon onto it; the first line of the output
   says so (`light gate, changes since yard/<train> at <sha>`). The gate is
   still read from the depot's base, and the train's full gate runs everything
   before main moves
@@ -540,27 +540,27 @@ yardr dep add <train> <car> -k parent
 - **Which gate merge-local runs.** The exec runner tells a script the
   bead's type and its train (`YARDR_TYPE`, `YARDR_TRAIN`, the latter empty for
   a bead with no train). merge-local runs `depot check --light` only when all
-  three hold: the type is `car`, there is a train, and the base it lands on
+  three hold: the type is `wagon`, there is a train, and the base it lands on
   is that train's branch. Everything else gets the full gate, as before: a
-  task that is a child of a train, and a car with no train, which would land
+  task that is a child of a train, and a wagon with no train, which would land
   on the depot's base. A depot with no light gate runs its full gate under
-  `--light` and says so in the output. A car's landing note says
+  `--light` and says so in the output. A wagon's landing note says
   `merged <sha> on yard/<train> under the light gate`.
-- **A car needs a train.** The light gate and the missing review are only
+- **A wagon needs a train.** The light gate and the missing review are only
   safe where the full gate and a review still stand before main, so yardr
-  keeps a car with no parent train in the stage its flow starts in
+  keeps a wagon with no parent train in the stage its flow starts in
   (`backlog`): `bead advance`, `bead done` and `bead create -s <stage>`
   refuse to put it anywhere else, saying how to give it a train
-  (`dep add <train> <car> -k parent`) or make it a task
-  (`bead update <car> --type task`). A car that lost its train after it
+  (`dep add <train> <wagon> -k parent`) or make it a task
+  (`bead update <wagon> --type task`). A wagon that lost its train after it
   moved (`dep rm -k parent`), or that no flow governs, is not started by any
-  agent or script: the dispatcher logs `car_without_train` once, and only a
+  agent or script: the dispatcher logs `wagon_without_train` once, and only a
   manual group still gets it. It can be taken back to `backlog`.
 - **The train pays.** integrate-train rebases the train's branch and runs the
   full gate on it as for any train, and a red gate adds a fix child. The
-  train's reviewer is told that cars were not reviewed or fully gated one by
+  train's reviewer is told that wagons were not reviewed or fully gated one by
   one ([`.yardr/flows/yardr.train/review.md`](../.yardr/flows/yardr.train/review.md)),
-  and reviews each. So keep a train to about five cars, which one review
+  and reviews each. So keep a train to about five wagons, which one review
   can hold, and leave single fixes on the normal path.
 
 ### The train's own flow

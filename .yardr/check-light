@@ -1,8 +1,8 @@
 #!/bin/sh
 # yardr's light gate, run by `yardr depot check yardr --light` in a bead's
 # worktree. It is what a builder and a reviewer check their work with
-# (docs/pipeline.md, "One full gate per bead"), and what a car of a train
-# passes to land on its train's branch ("Cars"); the full gate (.yardr/check:
+# (docs/pipeline.md, "One full gate per bead"), and what a wagon of a train
+# passes to land on its train's branch ("Wagons"); the full gate (.yardr/check:
 # the race detector, every package, the suites again over the socket) runs
 # once, on what lands on main. So this one is meant to take seconds:
 # everything still has to be formatted, vetted and built, but only the
@@ -64,8 +64,8 @@ if [ -z "$YARDR_CHECK_PLAN" ]; then
 fi
 # What the branch changed: against the commit yardr gives, from where the
 # branch left it. That is the commit the gate was read at (the tip of main
-# as fetched), and for a car of a train the tip of its train's branch, so a
-# car is tested for what it changed, not for the train's earlier cars
+# as fetched), and for a wagon of a train the tip of its train's branch, so a
+# wagon is tested for what it changed, not for the train's earlier wagons
 # again. Without the base nothing can be told apart, which must not read as
 # "nothing changed".
 : "${YARDR_CHECK_BASE:?not set: run this through yardr depot check yardr --light}"

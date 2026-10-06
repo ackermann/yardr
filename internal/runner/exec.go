@@ -36,9 +36,9 @@ import (
 //	YARDR_BRANCH    the bead's branch, yard/<bead>
 //	YARDR_WORKTREE  where the herdr runner keeps that branch checked out
 //	                (<worktrees>/<depot>/<bead>; config.worktrees as for herdr)
-//	YARDR_TYPE      the bead's type (task, train, car, ...)
+//	YARDR_TYPE      the bead's type (task, train, wagon, ...)
 //	YARDR_TRAIN      the train the bead is a child of, empty for none: with
-//	                YARDR_TYPE, how merge-local knows a car of a train,
+//	                YARDR_TYPE, how merge-local knows a wagon of a train,
 //	                which lands under the depot's light gate
 //	YARDR_BIN       this yardr, so the script's yardr commands reach it
 //	YARDR_HOME      this yardr's state directory

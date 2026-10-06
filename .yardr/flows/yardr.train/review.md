@@ -4,9 +4,9 @@ The whole of a train is reviewed here: branch `yard/<train>`, which the
 integrator already rebased onto `main` and gated. The brief says the bead is
 a train and lists its children. The children were each reviewed when they
 landed on the train branch; the job here is the thing nobody has seen yet: the
-sum. Children of type `car` are the exception: they were not reviewed or
+sum. Children of type `wagon` are the exception: they were not reviewed or
 fully gated one by one (they landed under the light gate, straight from
-their builders), so review each car as you would a bead of its own, and
+their builders), so review each wagon as you would a bead of its own, and
 name each in your note.
 
 1. Read the train and every child (`yardr bead show <child>` for each; their

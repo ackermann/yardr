@@ -606,10 +606,10 @@ func TestExecEnvWorktreesConfig(t *testing.T) {
 		t.Fatalf("no train: %v", env)
 	}
 	// The type and the train are always said, the train empty for none, so a
-	// script can tell a car of a train (merge-local's light gate) and no
+	// script can tell a wagon of a train (merge-local's light gate) and no
 	// value the daemon was started with reads as the bead's.
-	job.Bead.Type = "car"
-	if env := e.env(job); !slices.Contains(env, "YARDR_TYPE=car") || !slices.Contains(env, "YARDR_TRAIN=") {
+	job.Bead.Type = "wagon"
+	if env := e.env(job); !slices.Contains(env, "YARDR_TYPE=wagon") || !slices.Contains(env, "YARDR_TRAIN=") {
 		t.Fatalf("no train: %v", env)
 	}
 	job.Train, job.Base = "yd-e", "yard/yd-e"

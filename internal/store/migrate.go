@@ -6,13 +6,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
 )
 
-// schemaVersion 12 calls the repository or directory beads are worked in a
+// schemaVersion 13 calls a piece of a train a wagon. Version 10 to 12 of
+// main, in no release, called it a car, and a yard that ran one has that
+// type in beads and in all that names a type (migrateWagons). A build before
+// it knows no wagon, so it would take one for a bead like any other: under
+// the depot's default flow, and landing on the base by itself.
+// Version 12 calls the repository or directory beads are worked in a
 // depot: its records are in the bucket depots, where they were in rigs, and
 // the field that names it in a bead, a route, a flow pointer, an imported
 // pack and a peer's intake is depot, where it was rig
@@ -25,7 +31,7 @@ import (
 // (migrateCrew). A build before it reads the old bucket only, so it would
 // find a yard with nobody in it and make a second yardmaster.
 // Version 10 calls work that lands as one a train and a piece of it a
-// car: the bead types epic and part are train and car, in beads and in all
+// wagon: the bead types epic and part are train and wagon, in beads and in all
 // that names a type (migrateTrains). A build before it knows only the old
 // types, so it would take a train for a bead like any other: its children
 // would branch from the depot's base and land there one by one.
@@ -67,7 +73,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 12
+const schemaVersion = 13
 
 var (
 	kSchema   = []byte("schema")
@@ -486,7 +492,7 @@ func migrateYardmaster(tx *bolt.Tx, from uint64) error {
 }
 
 // migrateTrains renames the bead types epic and part, as they were until
-// schema 10, to train and car wherever the store holds one: beads, routes,
+// schema 10, to train and wagon wherever the store holds one: beads, routes,
 // flow pointers, hooks' stage maps, the filters of subscriptions (where
 // the key epic becomes train too, and a kind that said epic or part the
 // kind new events carry) and the records of imported packs. What the
@@ -497,6 +503,49 @@ func migrateTrains(tx *bolt.Tx, from uint64) error {
 	if from >= 10 {
 		return nil
 	}
+	return renameTypes(tx, "types "+oldTypeTrain+" and "+oldTypeWagon, BeadType, trainWhere)
+}
+
+// migrateWagons renames the bead type car to wagon in a store of schema 10
+// to 12: main called a wagon a car between two releases, and a yard that
+// ran it then stored the word in every place migrateTrains writes a type,
+// and the kind car_without_train in a subscription's filter. No release had
+// the word, so nothing reads it afterwards but flowNames.
+func migrateWagons(tx *bolt.Tx, from uint64) error {
+	if from < 10 || from >= 13 {
+		return nil
+	}
+	typ := func(t string) string {
+		if t == typeCar {
+			return TypeWagon
+		}
+		return t
+	}
+	where := func(where map[string]string) (map[string]string, bool) {
+		v, changed := where["type"], false
+		out := where
+		if v == typeCar {
+			out, changed = maps.Clone(where), true
+			out["type"] = TypeWagon
+		}
+		if where["kind"] == typeCar+"_without_train" {
+			if !changed {
+				out, changed = maps.Clone(where), true
+			}
+			out["kind"] = TypeWagon + "_without_train"
+		}
+		return out, changed
+	}
+	return renameTypes(tx, "type "+typeCar, typ, where)
+}
+
+// renameTypes rewrites every record that names a bead type typ replaces, or
+// holds a subscription's filter where does: beads, routes, flow pointers
+// (their key too), hooks' stage maps, the subscriptions of the crew, of
+// users and of groups, and the records of imported packs. It logs one
+// types_migrated event with the counts, saying they were renamed from what
+// from names, and none when nothing was.
+func renameTypes(tx *bolt.Tx, from string, typ func(string) string, where func(map[string]string) (map[string]string, bool)) error {
 	counts := map[string]any{}
 	// rewrite puts back each record of bucket that fix changed, under the
 	// key fix gives it, and counts them as what.
@@ -539,7 +588,7 @@ func migrateTrains(tx *bolt.Tx, from uint64) error {
 	subs := func(list []Subscription) bool {
 		changed := false
 		for i := range list {
-			if w, ok := trainWhere(list[i].Where); ok {
+			if w, ok := where(list[i].Where); ok {
 				list[i].Where, changed = w, true
 			}
 		}
@@ -547,10 +596,10 @@ func migrateTrains(tx *bolt.Tx, from uint64) error {
 	}
 	err := rewrite("beads", bBeads, func(k string, raw []byte) (string, any, error) {
 		var r beadRow
-		if err := json.Unmarshal(raw, &r); err != nil || BeadType(r.Type) == r.Type {
+		if err := json.Unmarshal(raw, &r); err != nil || typ(r.Type) == r.Type {
 			return k, nil, err
 		}
-		r.Type = BeadType(r.Type)
+		r.Type = typ(r.Type)
 		return k, r, nil
 	})
 	if err != nil {
@@ -558,10 +607,10 @@ func migrateTrains(tx *bolt.Tx, from uint64) error {
 	}
 	err = rewrite("routes", bRoutes, func(k string, raw []byte) (string, any, error) {
 		var r Route
-		if err := json.Unmarshal(raw, &r); err != nil || r.Type == nil || BeadType(*r.Type) == *r.Type {
+		if err := json.Unmarshal(raw, &r); err != nil || r.Type == nil || typ(*r.Type) == *r.Type {
 			return k, nil, err
 		}
-		typ := BeadType(*r.Type)
+		typ := typ(*r.Type)
 		r.Type = &typ
 		return k, r, nil
 	})
@@ -570,10 +619,10 @@ func migrateTrains(tx *bolt.Tx, from uint64) error {
 	}
 	err = rewrite("flow_pointers", bFlowPtrs, func(k string, raw []byte) (string, any, error) {
 		var p FlowPointer
-		if err := json.Unmarshal(raw, &p); err != nil || BeadType(p.Type) == p.Type {
+		if err := json.Unmarshal(raw, &p); err != nil || typ(p.Type) == p.Type {
 			return k, nil, err
 		}
-		p.Type = BeadType(p.Type)
+		p.Type = typ(p.Type)
 		return join(p.Depot, p.Type), p, nil
 	})
 	if err != nil {
@@ -584,7 +633,7 @@ func migrateTrains(tx *bolt.Tx, from uint64) error {
 		if err := json.Unmarshal(raw, &h); err != nil {
 			return k, nil, err
 		}
-		m, changed := mapWords(h.Map)
+		m, changed := mapTypes(h.Map, typ)
 		if !changed {
 			return k, nil, nil
 		}
@@ -632,14 +681,14 @@ func migrateTrains(tx *bolt.Tx, from uint64) error {
 		changed := false
 		for i := range rec.Objects {
 			o := &rec.Objects[i]
-			if BeadType(o.Type) != o.Type {
-				o.Type, changed = BeadType(o.Type), true
+			if typ(o.Type) != o.Type {
+				o.Type, changed = typ(o.Type), true
 			}
-			if m, ok := mapWords(o.Map); ok {
+			if m, ok := mapTypes(o.Map, typ); ok {
 				o.Map, changed = m, true
 			}
 			if o.Subscription != nil {
-				if w, ok := trainWhere(o.Subscription.Where); ok {
+				if w, ok := where(o.Subscription.Where); ok {
 					o.Subscription.Where, changed = w, true
 				}
 			}
@@ -652,6 +701,6 @@ func migrateTrains(tx *bolt.Tx, from uint64) error {
 	if err != nil || len(counts) == 0 {
 		return err
 	}
-	counts["from"] = "types " + oldTypeTrain + " and " + oldTypeCar
+	counts["from"] = from
 	return (&wtx{Tx: tx}).event("", "types_migrated", "yardr", counts)
 }

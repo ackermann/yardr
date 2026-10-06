@@ -396,7 +396,7 @@ func (s *Store) PeerBeadSend(ctx context.Context, session string) (*BeadPeer, er
 		if own == "" {
 			return fmt.Errorf("this yard has no key, so bead %s cannot say which yard it comes from: yardr peer key makes one", row.ID)
 		}
-		// A train and a car are sent under the words they had until this
+		// A train and a wagon are sent under the words they had until this
 		// release, epic and part, as the message always said them: a yard
 		// takes either for a task (peerBeadTypes), and the next release
 		// sends the new ones.

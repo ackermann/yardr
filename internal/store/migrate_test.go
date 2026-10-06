@@ -104,8 +104,8 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 	if err := s.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := schemaOf(t, fixture); got != 12 {
-		t.Fatalf("a new store is stamped %d; want 12", got)
+	if got := schemaOf(t, fixture); got != 13 {
+		t.Fatalf("a new store is stamped %d; want 13", got)
 	}
 	want := indexKeys(t, fixture)
 	if len(want["inbox"]) != 2 || len(want["events_by_kind"]) == 0 {
@@ -165,8 +165,8 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 			if err := s.Close(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if got := schemaOf(t, path); got != 12 {
-				t.Fatalf("schema after Open = %d; want 12", got)
+			if got := schemaOf(t, path); got != 13 {
+				t.Fatalf("schema after Open = %d; want 13", got)
 			}
 			got := indexKeys(t, path)
 			for _, name := range indexBuckets {
@@ -174,7 +174,7 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 					t.Errorf("%s after migration = %v\nwant %v", name, got[name], want[name])
 				}
 			}
-			if got := schemaOf(t, fixture); got != 12 || !slices.Equal(indexKeys(t, fixture)["inbox"], want["inbox"]) {
+			if got := schemaOf(t, fixture); got != 13 || !slices.Equal(indexKeys(t, fixture)["inbox"], want["inbox"]) {
 				t.Fatal("the fixture changed; the migration ran on the copy")
 			}
 		})
@@ -294,8 +294,8 @@ func TestSchema8StoreRenamesTheMayorSetting(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if got := schemaOf(t, path); got != 12 {
-				t.Fatalf("schema after Open = %d; want 12", got)
+			if got := schemaOf(t, path); got != 13 {
+				t.Fatalf("schema after Open = %d; want 13", got)
 			}
 			after := bucketDump(t, path, append(kept, "events", "settings")...)
 			added := 0
@@ -343,7 +343,7 @@ func TestTheMayorSettingIsTheYardmasterSetting(t *testing.T) {
 	}
 }
 
-// A store of schema 9, from when a train was an epic and a car a part,
+// A store of schema 9, from when a train was an epic and a wagon a part,
 // comes out of Open with the new types wherever it holds a type: beads,
 // routes, flow pointers, a hook's stage map, the filters of a crew member's,
 // a user's and a group's subscriptions, and the record of a pack. What the
@@ -376,7 +376,7 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 	must(s.SetFlowPointer(ctx, "web", store.TypeTrain, "web.epic", "me"))
 	for _, nb := range []store.NewBead{
 		{ID: "web-e", Title: "the feature", Type: store.TypeTrain, Depot: "web", Labels: []string{"epic"}},
-		{ID: "web-p", Title: "a piece of it", Type: store.TypeCar, Depot: "web"},
+		{ID: "web-p", Title: "a piece of it", Type: store.TypeWagon, Depot: "web"},
 		{ID: "web-t", Title: "a task", Depot: "web"},
 	} {
 		_, err := s.CreateBead(ctx, nb, "me")
@@ -390,12 +390,12 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 	must(err)
 	must(s.SetIdentity(ctx, "boss", "linear", store.Identity{ID: "u-boss"}, "me"))
 	_, err = s.PutHook(ctx, store.Hook{Name: "linear", Source: "linear", SecretFile: "/home/jo/.yardr/linear.secret", As: "boss",
-		Map: map[string]string{"train:open": "started", "car:new": "started", "task:new": "started"}}, "me")
+		Map: map[string]string{"train:open": "started", "wagon:new": "started", "task:new": "started"}}, "me")
 	must(err)
 	_, err = s.AddUser(ctx, "jo", "me")
 	must(err)
 	wheres := []map[string]string{
-		{"train": "web-e"}, {"type": "car"}, {"kind": "train_branched"}, {"type": "task"},
+		{"train": "web-e"}, {"type": "wagon"}, {"kind": "train_branched"}, {"type": "task"},
 	}
 	for _, who := range []struct{ name, actor string }{{"boss", "me"}, {"jo", "jo"}, {"people", "me"}} {
 		for _, w := range wheres {
@@ -416,8 +416,8 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 	// Age it: every word as a build of schema 9 stored it, under that
 	// build's stamp. An event of that build has the old kind.
 	old := strings.NewReplacer(
-		`"type":"train"`, `"type":"epic"`, `"type":"car"`, `"type":"part"`,
-		`"train:open"`, `"epic:open"`, `"car:new"`, `"part:new"`,
+		`"type":"train"`, `"type":"epic"`, `"type":"wagon"`, `"type":"part"`,
+		`"train:open"`, `"epic:open"`, `"wagon:new"`, `"part:new"`,
 		`"train":"web-e"`, `"epic":"web-e"`, `"kind":"train_branched"`, `"kind":"epic_branched"`,
 	)
 	aged := []string{"beads", "routes", "flow_pointers", "hooks", "crew", "users", "groups", "packs"}
@@ -467,11 +467,11 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 		if err != nil || train.Type != store.TypeTrain || !slices.Equal(train.Labels, []string{"epic"}) {
 			t.Fatalf("%s: the train = %+v, %v", pass, train, err)
 		}
-		if car, err := s.GetBead(ctx, "web-p"); err != nil || car.Type != store.TypeCar {
-			t.Fatalf("%s: the car = %+v, %v", pass, car, err)
+		if wagon, err := s.GetBead(ctx, "web-p"); err != nil || wagon.Type != store.TypeWagon {
+			t.Fatalf("%s: the wagon = %+v, %v", pass, wagon, err)
 		}
 		if fam, err := s.Family(ctx, "web-p"); err != nil || fam.Train != "web-e" || fam.Base != "yard/web-e" {
-			t.Fatalf("%s: the car's family = %+v, %v", pass, fam, err)
+			t.Fatalf("%s: the wagon's family = %+v, %v", pass, fam, err)
 		}
 		// The pointer is the type's under its new word, at the flow under
 		// the name the operator gave it, and that flow governs the train.
@@ -487,7 +487,7 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 			t.Fatalf("%s: routes = %+v, %v", pass, routes, err)
 		}
 		hooks, err := s.Hooks(ctx)
-		if err != nil || len(hooks) != 1 || !maps.Equal(hooks[0].Map, map[string]string{"train:open": "started", "car:new": "started", "task:new": "started"}) {
+		if err != nil || len(hooks) != 1 || !maps.Equal(hooks[0].Map, map[string]string{"train:open": "started", "wagon:new": "started", "task:new": "started"}) {
 			t.Fatalf("%s: hooks = %+v, %v", pass, hooks, err)
 		}
 		subs := func(list []store.Subscription) []string {
@@ -498,7 +498,7 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 			slices.Sort(out)
 			return out
 		}
-		want := []string{"yardr all kind=train_branched", "yardr all train=web-e", "yardr all type=car", "yardr all type=task"}
+		want := []string{"yardr all kind=train_branched", "yardr all train=web-e", "yardr all type=task", "yardr all type=wagon"}
 		boss, err := s.GetCrew(ctx, "boss")
 		if err != nil || !slices.Equal(subs(boss.Subscriptions), append([]string{"github all train=web-e"}, want...)) {
 			t.Fatalf("%s: the crew member's subscriptions = %v, %v", pass, subs(boss.Subscriptions), err)
@@ -524,8 +524,8 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 		}
 		must(s.Close(ctx))
 	}
-	if got := schemaOf(t, path); got != 12 {
-		t.Fatalf("schema after Open = %d; want 12", got)
+	if got := schemaOf(t, path); got != 13 {
+		t.Fatalf("schema after Open = %d; want 13", got)
 	}
 	after := bucketDump(t, path, "events", "named_flows")
 	added := 0
@@ -555,7 +555,248 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 	}
 }
 
-// The words a train and a car had until schema 10 are still read where a
+// A store of schema 10, from the hours main called a wagon a car, comes out
+// of Open with wagon wherever it holds the type: beads, routes, flow
+// pointers (key and record), a hook's stage map, the filters of a crew
+// member's, a user's and a group's subscriptions (type=car and
+// kind=car_without_train), and the record of a pack. A pointer at a flow
+// named web.car finds web.wagon, and the events already logged are not
+// rewritten. Afterwards car is no word for a wagon: no release had it.
+func TestSchema10StoreRenamesCars(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "yard.db")
+	s, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(s.SetSetting(ctx, "default_kind", "claude", "me"))
+	must(s.PutDepot(ctx, store.Depot{Name: "web"}, "me"))
+	must(s.PutGroup(ctx, store.Group{Name: "builders", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "true"}}))
+	must(s.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 5}))
+	f, err := store.ParseFlow("backlog -> new\nnew -> merged on done\nmerged terminal\n")
+	must(err)
+	f.Name = "web.wagon"
+	_, err = s.PutFlow(ctx, *f, "me")
+	must(err)
+	must(s.SetFlowPointer(ctx, "web", store.TypeWagon, "web.wagon", "me"))
+	for _, nb := range []store.NewBead{
+		{ID: "web-e", Title: "the feature", Type: store.TypeTrain, Depot: "web"},
+		{ID: "web-p", Title: "a piece of it", Type: store.TypeWagon, Depot: "web", Labels: []string{"car"}},
+		{ID: "web-t", Title: "a task", Depot: "web"},
+	} {
+		_, err := s.CreateBead(ctx, nb, "me")
+		must(err)
+	}
+	must(s.AddDep(ctx, "web-e", "web-p", store.DepParent, "me"))
+	typ := store.TypeWagon
+	_, err = s.AddRoute(ctx, store.Route{Stage: "new", Type: &typ, Group: "builders"})
+	must(err)
+	_, err = s.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "me")
+	must(err)
+	must(s.SetIdentity(ctx, "boss", "linear", store.Identity{ID: "u-boss"}, "me"))
+	_, err = s.PutHook(ctx, store.Hook{Name: "linear", Source: "linear", SecretFile: "/home/jo/.yardr/linear.secret", As: "boss",
+		Map: map[string]string{"train:open": "started", "wagon:new": "started"}}, "me")
+	must(err)
+	_, err = s.AddUser(ctx, "jo", "me")
+	must(err)
+	wheres := []map[string]string{{"type": "wagon"}, {"kind": "wagon_without_train"}, {"type": "train"}}
+	for _, who := range []struct{ name, actor string }{{"boss", "me"}, {"jo", "jo"}, {"people", "me"}} {
+		for _, w := range wheres {
+			must(s.AddSubscription(ctx, who.name, store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll, Where: w}, who.actor))
+		}
+	}
+	_, err = s.RecordPack(ctx, store.PackImport{Pack: "starter", Depot: "web", Source: "/packs/starter",
+		Objects: []store.PackObject{
+			{Kind: "route", Stage: "new", Type: "wagon", Group: "builders"},
+			{Kind: "pointer", Type: "wagon", Flow: "web.wagon"},
+			{Kind: "map", Name: "linear", CrewMember: "boss", Map: map[string]string{"wagon:new": "started"}},
+			{Kind: "subscription", CrewMember: "boss", Subscription: &store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll, Where: map[string]string{"type": "wagon"}}},
+		}}, true, "me")
+	must(err)
+	// What that build logged for a car with no train.
+	must(s.LogEvent(ctx, "web-t", "car_without_train", "yardr", map[string]any{"reason": "a car with no train is not started"}))
+	must(s.Close(ctx))
+
+	// Age it: every word as a build of schema 10 stored it, under that
+	// build's stamp. The pointer names the flow as that build would have.
+	old := strings.NewReplacer(
+		`"type":"wagon"`, `"type":"car"`, `"wagon:new"`, `"car:new"`,
+		`"kind":"wagon_without_train"`, `"kind":"car_without_train"`, `"flow":"web.wagon"`, `"flow":"web.car"`,
+	)
+	aged := []string{"beads", "routes", "flow_pointers", "hooks", "crew", "users", "groups", "packs"}
+	db, err := bolt.Open(path, 0o600, nil)
+	must(err)
+	err = db.Update(func(tx *bolt.Tx) error {
+		for _, name := range aged {
+			b := tx.Bucket([]byte(name))
+			rows := map[string]string{}
+			_ = b.ForEach(func(k, v []byte) error {
+				rows[string(k)] = string(v)
+				return nil
+			})
+			for k, v := range rows {
+				if err := b.Delete([]byte(k)); err != nil {
+					return err
+				}
+				if name == "flow_pointers" {
+					k = strings.Replace(k, "\x00wagon", "\x00car", 1)
+				}
+				if err := b.Put([]byte(k), []byte(old.Replace(v))); err != nil {
+					return err
+				}
+			}
+		}
+		return tx.Bucket([]byte("meta")).Put([]byte("schema"), binary.BigEndian.AppendUint64(nil, 10))
+	})
+	db.Close()
+	must(err)
+	before := bucketDump(t, path, append(aged, "events", "named_flows")...)
+	for _, want := range aged {
+		found := false
+		for k, v := range before {
+			if strings.HasPrefix(k, want+"\x00") && (strings.Contains(v, `"car"`) || strings.Contains(v, `"car:`) || strings.Contains(v, `"car_`)) {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("the aged store has no car in %s", want)
+		}
+	}
+	if _, ok := before["flow_pointers\x00web\x00car"]; !ok {
+		t.Fatalf("the aged store has no pointer under the key of type car")
+	}
+
+	for _, pass := range []string{"the upgrade", "the next start"} {
+		s, err = store.Open(path)
+		must(err)
+		wagon, err := s.GetBead(ctx, "web-p")
+		if err != nil || wagon.Type != store.TypeWagon || !slices.Equal(wagon.Labels, []string{"car"}) {
+			t.Fatalf("%s: the wagon = %+v, %v", pass, wagon, err)
+		}
+		if train, err := s.GetBead(ctx, "web-e"); err != nil || train.Type != store.TypeTrain {
+			t.Fatalf("%s: the train = %+v, %v", pass, train, err)
+		}
+		if fam, err := s.Family(ctx, "web-p"); err != nil || fam.Train != "web-e" || fam.Base != "yard/web-e" {
+			t.Fatalf("%s: the wagon's family = %+v, %v", pass, fam, err)
+		}
+		// The pointer is the type's under its new word and still says
+		// web.car, which finds the flow web.wagon: it governs the wagon.
+		ptrs, err := s.FlowPointers(ctx)
+		if err != nil || len(ptrs) != 1 || ptrs[0] != (store.FlowPointer{Depot: "web", Type: store.TypeWagon, Flow: "web.car"}) {
+			t.Fatalf("%s: pointers = %+v, %v", pass, ptrs, err)
+		}
+		if m, err := s.FlowMap(ctx, "web-p"); err != nil || m == nil || m.Name != "web.wagon" {
+			t.Fatalf("%s: the wagon's flow = %+v, %v", pass, m, err)
+		}
+		routes, err := s.Routes(ctx)
+		if err != nil || len(routes) != 1 || routes[0].Type == nil || *routes[0].Type != store.TypeWagon {
+			t.Fatalf("%s: routes = %+v, %v", pass, routes, err)
+		}
+		hooks, err := s.Hooks(ctx)
+		if err != nil || len(hooks) != 1 || !maps.Equal(hooks[0].Map, map[string]string{"train:open": "started", "wagon:new": "started"}) {
+			t.Fatalf("%s: hooks = %+v, %v", pass, hooks, err)
+		}
+		subs := func(list []store.Subscription) []string {
+			var out []string
+			for _, sub := range list {
+				out = append(out, sub.String())
+			}
+			slices.Sort(out)
+			return out
+		}
+		want := []string{"yardr all kind=wagon_without_train", "yardr all type=train", "yardr all type=wagon"}
+		if boss, err := s.GetCrew(ctx, "boss"); err != nil || !slices.Equal(subs(boss.Subscriptions), want) {
+			t.Fatalf("%s: the crew member's subscriptions = %v, %v", pass, subs(boss.Subscriptions), err)
+		}
+		if jo, err := s.GetUser(ctx, "jo"); err != nil || !slices.Equal(subs(jo.Subscriptions), want) {
+			t.Fatalf("%s: the user's subscriptions = %v, %v", pass, subs(jo.Subscriptions), err)
+		}
+		if g, err := s.GetGroup(ctx, "people"); err != nil || !slices.Equal(subs(g.Subscriptions), want) {
+			t.Fatalf("%s: the group's subscriptions = %v, %v", pass, subs(g.Subscriptions), err)
+		}
+		packs, err := s.Packs(ctx)
+		if err != nil || len(packs) != 1 {
+			t.Fatalf("%s: packs = %+v, %v", pass, packs, err)
+		}
+		o := packs[0].Objects
+		if o[0].Type != store.TypeWagon || o[1].Type != store.TypeWagon || o[1].Flow != "web.car" ||
+			!maps.Equal(o[2].Map, map[string]string{"wagon:new": "started"}) || o[3].Subscription.String() != "yardr all type=wagon" {
+			t.Fatalf("%s: the pack's record = %+v", pass, o)
+		}
+		must(s.Close(ctx))
+	}
+	if got := schemaOf(t, path); got != 13 {
+		t.Fatalf("schema after Open = %d; want 13", got)
+	}
+	after := bucketDump(t, path, "events", "named_flows")
+	added := 0
+	for k, v := range after {
+		was, ok := before[k]
+		switch {
+		case ok && was != v:
+			t.Errorf("%q changed:\n was %s\n now %s", k, was, v)
+		case !ok && strings.HasPrefix(k, "events\x00") && strings.Contains(v, `"types_migrated"`):
+			added++
+			for _, part := range []string{`"beads":1`, `"routes":1`, `"flow_pointers":1`, `"hooks":1`, `"subscriptions":1`, `"user_subscriptions":1`, `"group_subscriptions":1`, `"packs":1`, `"from":"type car"`} {
+				if !strings.Contains(v, part) {
+					t.Errorf("types_migrated lacks %s: %s", part, v)
+				}
+			}
+		case !ok:
+			t.Errorf("%q was added: %s", k, v)
+		}
+	}
+	for k := range before {
+		if _, ok := after[k]; !ok && (strings.HasPrefix(k, "events\x00") || strings.HasPrefix(k, "named_flows\x00")) {
+			t.Errorf("%q is gone", k)
+		}
+	}
+	if added != 1 {
+		t.Errorf("%d types_migrated events, want one: the next start adds none", added)
+	}
+
+	// No release had the word, so it names no wagon now: a bead of type car
+	// is one of a type yardr knows nothing of, like any other word.
+	s, err = store.Open(path)
+	must(err)
+	defer s.Close(ctx)
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "typed with the old word", Type: "car", Depot: "web", Stage: "new"}, "me")
+	if err != nil || b.Type != "car" {
+		t.Fatalf("a bead of type car = %+v, %v; want the type kept as given, as for any word", b, err)
+	}
+	if got := store.BeadType("car"); got != "car" {
+		t.Fatalf("BeadType(car) = %q; car is no alias", got)
+	}
+	// A store older than the car has none to rename: there a type car is
+	// the operator's own word.
+	old9 := filepath.Join(t.TempDir(), "yard.db")
+	s9, err := store.Open(old9)
+	must(err)
+	must(s9.PutDepot(ctx, store.Depot{Name: "web"}, "me"))
+	_, err = s9.CreateBead(ctx, store.NewBead{ID: "web-c", Title: "a rail car", Type: "car", Depot: "web"}, "me")
+	must(err)
+	must(s9.Close(ctx))
+	db, err = bolt.Open(old9, 0o600, nil)
+	must(err)
+	must(db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket([]byte("meta")).Put([]byte("schema"), binary.BigEndian.AppendUint64(nil, 9))
+	}))
+	db.Close()
+	s9, err = store.Open(old9)
+	must(err)
+	defer s9.Close(ctx)
+	if b, err := s9.GetBead(ctx, "web-c"); err != nil || b.Type != "car" {
+		t.Fatalf("a schema-9 store's bead of type car = %+v, %v; want it left", b, err)
+	}
+}
+
+// The words a train and a wagon had until schema 10 are still read where a
 // type, a filter or a flow's name is given, and what is stored and printed
 // has the new ones.
 func TestTheOldTypeWordsAreStillRead(t *testing.T) {
@@ -588,11 +829,11 @@ func TestTheOldTypeWordsAreStillRead(t *testing.T) {
 	if err != nil || train.Type != store.TypeTrain {
 		t.Fatalf("created as epic: %+v, %v", train, err)
 	}
-	car, err := s.CreateBead(ctx, store.NewBead{ID: "web-p", Title: "a piece", Depot: "web"}, "me")
+	wagon, err := s.CreateBead(ctx, store.NewBead{ID: "web-p", Title: "a piece", Depot: "web"}, "me")
 	must(err)
 	part := "part"
-	if car, err = s.UpdateBead(ctx, car.ID, store.BeadPatch{Type: &part}, store.Expect{}, "me"); err != nil || car.Type != store.TypeCar {
-		t.Fatalf("updated to part: %+v, %v", car, err)
+	if wagon, err = s.UpdateBead(ctx, wagon.ID, store.BeadPatch{Type: &part}, store.Expect{}, "me"); err != nil || wagon.Type != store.TypeWagon {
+		t.Fatalf("updated to part: %+v, %v", wagon, err)
 	}
 	must(s.AddDep(ctx, "web-e", "web-p", store.DepParent, "me"))
 	if bs, err := s.ListBeads(ctx, store.BeadFilter{Type: "epic"}); err != nil || len(bs) != 1 || bs[0].ID != "web-e" {
@@ -623,13 +864,13 @@ func TestTheOldTypeWordsAreStillRead(t *testing.T) {
 	for _, sub := range boss.Subscriptions {
 		got = append(got, sub.String())
 	}
-	if want := []string{"yardr all train=web-e", "yardr all type=car", "yardr all kind=car_without_train"}; !slices.Equal(got, want) {
+	if want := []string{"yardr all train=web-e", "yardr all type=wagon", "yardr all kind=wagon_without_train"}; !slices.Equal(got, want) {
 		t.Fatalf("subscriptions = %v, want %v", got, want)
 	}
 	if n, err := s.RemoveSubscriptions(ctx, "boss", store.SourceYardr, "", map[string]string{"epic": "web-e"}, "me"); err != nil || n != 1 {
 		t.Fatalf("removed by the old key: %d, %v", n, err)
 	}
-	// The car's events reach the subscription that said type=part.
+	// The wagon's events reach the subscription that said type=part.
 	must(s.AddNote(ctx, "web-p", "a note", "me"))
 	if page, err := s.Inbox(ctx, "boss", 0); err != nil || page.Total == 0 {
 		t.Fatalf("boss's inbox = %+v, %v", page, err)
@@ -638,7 +879,7 @@ func TestTheOldTypeWordsAreStillRead(t *testing.T) {
 	must(s.SetIdentity(ctx, "boss", "linear", store.Identity{ID: "u-boss"}, "me"))
 	h, err := s.PutHook(ctx, store.Hook{Name: "linear", Source: "linear", SecretFile: "/s", As: "boss",
 		Map: map[string]string{"epic:open": "started", "part:new": "started"}}, "me")
-	if err != nil || !maps.Equal(h.Map, map[string]string{"train:open": "started", "car:new": "started"}) {
+	if err != nil || !maps.Equal(h.Map, map[string]string{"train:open": "started", "wagon:new": "started"}) {
 		t.Fatalf("a map that says epic and part: %+v, %v", h, err)
 	}
 }
@@ -813,8 +1054,8 @@ func TestSchema10StoreRenamesResidents(t *testing.T) {
 		}
 		must(s.Close(ctx))
 
-		if got := schemaOf(t, path); got != 12 {
-			t.Fatalf("%s: schema = %d; want 12", pass, got)
+		if got := schemaOf(t, path); got != 13 {
+			t.Fatalf("%s: schema = %d; want 13", pass, got)
 		}
 		if st, err := os.Lstat(filepath.Dir(oldEnv)); err != nil || st.Mode()&os.ModeSymlink == 0 {
 			t.Fatalf("%s: the old directory is no link: %v, %v", pass, st, err)

@@ -97,13 +97,13 @@ func TestMergeLocalRedGateNoteWithoutAPattern(t *testing.T) {
 	}
 }
 
-// A car's red light gate is kept and noted the same way.
-func TestMergeLocalCarRedLightGateIsKept(t *testing.T) {
+// A wagon's red light gate is kept and noted the same way.
+func TestMergeLocalWagonRedLightGateIsKept(t *testing.T) {
 	y := newTrainYard(t, "true")
 	y.gates("true", failsEarly, true)
 	y.pattern("--- FAIL\n")
 	y.git(y.repo, "branch", "-f", "yard/r-e", "main")
-	y.yardr("bead", "update", "r-1", "--type", "car")
+	y.yardr("bead", "update", "r-1", "--type", "wagon")
 
 	y.exec("merge-local", "assembly", "r-1")
 

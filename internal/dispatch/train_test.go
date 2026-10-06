@@ -257,11 +257,11 @@ func TestReturnToTheSameStageBacksOff(t *testing.T) {
 	}
 }
 
-// A car is started only as a child of a train. One that lost its train
+// A wagon is started only as a child of a train. One that lost its train
 // after it moved on, or that no flow governs, is not handed to an agent or
 // a script, and the reason is logged once; a manual group still gets it, as
 // someone has to see it to fix it.
-func TestCarWithoutTrainIsNotStarted(t *testing.T) {
+func TestWagonWithoutTrainIsNotStarted(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()
 	must(t, s.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"))
@@ -275,10 +275,10 @@ func TestCarWithoutTrainIsNotStarted(t *testing.T) {
 	must(t, err)
 	for _, nb := range []store.NewBead{
 		{ID: "yard-e", Title: "train", Type: store.TypeTrain, Depot: "yard", Stage: "open"},
-		{ID: "yard-1", Title: "a car of the train", Type: store.TypeCar, Depot: "yard"},
-		{ID: "yard-2", Title: "a car that lost its train", Type: store.TypeCar, Depot: "yard"},
-		{ID: "yard-3", Title: "a car that never had one", Type: store.TypeCar, Depot: "yard"},
-		{ID: "yard-4", Title: "a car with no train, in backlog", Type: store.TypeCar, Depot: "yard", Stage: "backlog"},
+		{ID: "yard-1", Title: "a wagon of the train", Type: store.TypeWagon, Depot: "yard"},
+		{ID: "yard-2", Title: "a wagon that lost its train", Type: store.TypeWagon, Depot: "yard"},
+		{ID: "yard-3", Title: "a wagon that never had one", Type: store.TypeWagon, Depot: "yard"},
+		{ID: "yard-4", Title: "a wagon with no train, in backlog", Type: store.TypeWagon, Depot: "yard", Stage: "backlog"},
 		{ID: "yard-5", Title: "a task", Depot: "yard"},
 	} {
 		_, err := s.CreateBead(ctx, nb, "me")
@@ -296,15 +296,15 @@ func TestCarWithoutTrainIsNotStarted(t *testing.T) {
 		t.Fatalf("started %v, want %v", got, want)
 	}
 	for _, id := range []string{"yard-2", "yard-3"} {
-		evs := eventKinds(t, s, id, "car_without_train")
+		evs := eventKinds(t, s, id, "wagon_without_train")
 		if len(evs) != 1 || !strings.Contains(fmt.Sprint(evs[0].Data["reason"]), "yardr dep add <train> "+id+" -k parent") {
-			t.Fatalf("car_without_train events for %s = %+v, want one saying what to do", id, evs)
+			t.Fatalf("wagon_without_train events for %s = %+v, want one saying what to do", id, evs)
 		}
 	}
-	if evs := eventKinds(t, s, "yard-4", "car_without_train"); len(evs) != 0 {
-		t.Fatalf("a car waiting with people was reported: %+v", evs)
+	if evs := eventKinds(t, s, "yard-4", "wagon_without_train"); len(evs) != 0 {
+		t.Fatalf("a wagon waiting with people was reported: %+v", evs)
 	}
 	if got := people.starts(); !slices.Equal(got, []string{"yard-4"}) {
-		t.Fatalf("people were handed %v, want the car in backlog", got)
+		t.Fatalf("people were handed %v, want the wagon in backlog", got)
 	}
 }

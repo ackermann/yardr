@@ -502,11 +502,11 @@ func TestLightGateSinceABranch(t *testing.T) {
 	say := "#!/bin/sh\necho base=${" + BaseVar + "-unset}\n"
 	depot, wt := depotWithBead(t, say)
 	main := gitT(t, depot.Path, "rev-parse", "main")
-	// The train's branch is a commit ahead of main: an earlier car's.
-	gitT(t, wt, "commit", "-q", "--allow-empty", "-m", "an earlier car")
+	// The train's branch is a commit ahead of main: an earlier wagon's.
+	gitT(t, wt, "commit", "-q", "--allow-empty", "-m", "an earlier wagon")
 	gitT(t, depot.Path, "branch", "yard/e", "yard/b1")
 	train := gitT(t, depot.Path, "rev-parse", "yard/e")
-	gitT(t, wt, "commit", "-q", "--allow-empty", "-m", "this car")
+	gitT(t, wt, "commit", "-q", "--allow-empty", "-m", "this wagon")
 	run := func(o Options) *Result {
 		t.Helper()
 		res, err := RunWith(ctx, depot, wt, o)

@@ -323,7 +323,7 @@ func TestDeleteDirDepot(t *testing.T) {
 }
 
 // A repository from before a train was called that keeps its trains' flow
-// in type/epic.flow, and its cars' in type/part.flow: they still govern
+// in type/epic.flow, and its wagons' in type/part.flow: they still govern
 // them, under the names the files have. A file named after the new word
 // governs once there is one. A pointer that names a flow by a type's old
 // word finds the file the repository renamed, and the other way round.
@@ -345,7 +345,7 @@ func TestRepoFlowsUnderTheOldTypeWords(t *testing.T) {
 	if err != nil || train.Stage != "backlog" {
 		t.Fatalf("train = %+v, %v", train, err)
 	}
-	car, err := s.CreateBead(ctx, store.NewBead{Title: "c", Depot: "docs", Type: store.TypeCar}, "me")
+	wagon, err := s.CreateBead(ctx, store.NewBead{Title: "c", Depot: "docs", Type: store.TypeWagon}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,7 +356,7 @@ func TestRepoFlowsUnderTheOldTypeWords(t *testing.T) {
 		}
 	}
 	follows(train.ID, "type/epic")
-	follows(car.ID, "type/part")
+	follows(wagon.ID, "type/part")
 	rf, err := s.RepoFlows(ctx, "docs")
 	if err != nil || len(rf.StrayStageFiles()) != 0 {
 		t.Fatalf("stray stage files = %v, %v", rf.StrayStageFiles(), err)
@@ -377,8 +377,8 @@ func TestRepoFlowsUnderTheOldTypeWords(t *testing.T) {
 		t.Fatal(err)
 	}
 	follows(train.ID, "docs.train")
-	if _, err := s.UpdateBead(ctx, car.ID, store.BeadPatch{Metadata: map[string]any{"flow": "docs.car"}}, store.Expect{}, "me"); err != nil {
+	if _, err := s.UpdateBead(ctx, wagon.ID, store.BeadPatch{Metadata: map[string]any{"flow": "docs.wagon"}}, store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	follows(car.ID, "docs.part")
+	follows(wagon.ID, "docs.part")
 }

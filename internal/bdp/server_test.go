@@ -164,6 +164,12 @@ func TestBeadRecordAndHTTPRules(t *testing.T) {
 	if rec := f.get("beads/" + train.ID).json(t); rec["type"] != "https://work.example/types/epic" {
 		t.Fatalf("a train's record = %v", rec)
 	}
+	// A wagon is no reference type: it has one this yard mints, under the
+	// word yardr calls it.
+	wagon := f.bead("a piece of it", store.TypeWagon)
+	if rec := f.get("beads/" + wagon.ID).json(t); rec["type"] != scope+"types/wagon" {
+		t.Fatalf("a wagon's record = %v", rec)
+	}
 	if a := rec["attribution"].(map[string]any); a["principal"] != "tester" || a["status"] != "claimed" {
 		t.Fatalf("attribution = %v", a)
 	}

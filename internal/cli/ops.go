@@ -426,7 +426,7 @@ and run in --dir (default the depot's directory). A dir depot without one passes
 else ` + rigcheck.LightPath + ` at the tip of the base, found and run under
 every rule here (read from the base, the timeout, the exit statuses). It is
 for where the full gate still stands before the base moves: a builder's and a
-reviewer's own check of a bead, and a car of a train, which lands on the
+reviewer's own check of a bead, and a wagon of a train, which lands on the
 train's branch under it (docs/pipeline.md). A depot without
 a light gate runs its full gate and says so in one line: --light never passes
 for want of a file. A depot whose gate is a store override has its light gate
@@ -438,9 +438,9 @@ can look at what the branch changed against it. Under a store override it is
 the depot's base as it resolves locally; it is unset when that does not
 resolve, and for a dir depot.
 
-The light gate of a car of a train is compared with the train's branch
-instead, so it tests what the car changed and not the train's earlier cars
-again: when --dir is on branch yard/<bead>, that bead is a car of this depot
+The light gate of a wagon of a train is compared with the train's branch
+instead, so it tests what the wagon changed and not the train's earlier wagons
+again: when --dir is on branch yard/<bead>, that bead is a wagon of this depot
 and a child of a train, ` + rigcheck.BaseVar + ` is the tip of yard/<train> as it is
 in --dir's repository. The gate is still read from the depot's base, and the
 train's full gate runs everything before the base moves. The full gate is
@@ -537,7 +537,7 @@ them; yardr depot sources <depot> shows every source.`,
 				if res.Fallback != "" {
 					fmt.Println(res.Fallback)
 				}
-				// And what a light gate looked at: a car's is not the range
+				// And what a light gate looked at: a wagon's is not the range
 				// its reader would guess from the depot's base.
 				if res.Light && res.Base != "" {
 					fmt.Printf("light gate, changes since %s at %s\n", res.BaseRef, res.Base[:min(12, len(res.Base))])
@@ -695,7 +695,7 @@ func (a *app) runDepotCheck(ctx context.Context, depotName, dir string, timeout 
 	}
 	var since string
 	if light {
-		if since, err = carBase(ctx, st, *depot, dir); err != nil {
+		if since, err = wagonBase(ctx, st, *depot, dir); err != nil {
 			return nil, err
 		}
 	}
@@ -739,16 +739,16 @@ func (a *app) runDepotCheck(ctx context.Context, depotName, dir string, timeout 
 	return res, nil
 }
 
-// carBase is the branch the light gate in dir is compared with instead of
+// wagonBase is the branch the light gate in dir is compared with instead of
 // the depot's base (rigcheck.Options.Since), or "": the train's branch, when dir
-// is the worktree of a car of depot that is a child of a train. The bead is
+// is the worktree of a wagon of depot that is a child of a train. The bead is
 // found by the branch dir is on (store.Branch), so a builder's own run in its
 // worktree and the assembly's are compared with the same thing, with no flag
 // either could forget. Everything else keeps the depot's base: the depot itself,
-// a detached checkout, a branch that is no bead's, a car with no train, and
+// a detached checkout, a branch that is no bead's, a wagon with no train, and
 // a child of another type, which lands on the train's branch under the full
 // gate (merge-local).
-func carBase(ctx context.Context, st store.API, depot store.Depot, dir string) (string, error) {
+func wagonBase(ctx context.Context, st store.API, depot store.Depot, dir string) (string, error) {
 	if dir == "" || depot.IsDir() {
 		return "", nil
 	}
@@ -756,7 +756,7 @@ func carBase(ctx context.Context, st store.API, depot store.Depot, dir string) (
 	switch {
 	case err != nil:
 		return "", err
-	case b == nil || b.Type != store.TypeCar || b.Depot == nil || *b.Depot != depot.Name:
+	case b == nil || b.Type != store.TypeWagon || b.Depot == nil || *b.Depot != depot.Name:
 		return "", nil
 	}
 	f, err := st.Family(ctx, b.ID)

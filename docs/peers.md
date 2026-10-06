@@ -1360,7 +1360,7 @@ A crew member that hears of it can release the bead only with the grant
 | of the sender's bead | here |
 |---|---|
 | title, body | the bead's. Line breaks in a title become spaces |
-| type | kept when it is `task`, `bug` or `feature`, else `task`: a `train` or a `car` means something about branches in this yard |
+| type | kept when it is `task`, `bug` or `feature`, else `task`: a `train` or a `wagon` means something about branches in this yard |
 | priority | kept, held to 0–4 |
 | notes | the bead's first notes, by `<author>@<peer>`, with the time they were written. No `noted` event is logged for them: a peer's note is matched against nobody's subscription |
 | links to outside issues | kept as `relates`, never `tracks`: a `tracks` link would let a hook's map here move an issue that is the sender's to move. A link this store refuses is left out |

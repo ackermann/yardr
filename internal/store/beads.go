@@ -219,8 +219,8 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 		if err := checkCreateStage(f, stage); err != nil {
 			return err
 		}
-		// A car is created before it can be a train's child.
-		if err := checkCar(w.Tx, f, &beadRow{Bead: Bead{Type: typ}}, stage); err != nil {
+		// A wagon is created before it can be a train's child.
+		if err := checkWagon(w.Tx, f, &beadRow{Bead: Bead{Type: typ}}, stage); err != nil {
 			return err
 		}
 		row := &beadRow{Bead: Bead{
@@ -700,7 +700,7 @@ func (w *wtx) moveBead(id, actor string, repo *RepoFlows, pick func(f *Flow, b *
 		}
 		data["to"] = stage
 		outcome, _ = data["outcome"].(string)
-		if err := checkCar(w.Tx, f, b, stage); err != nil {
+		if err := checkWagon(w.Tx, f, b, stage); err != nil {
 			return "", nil, refuse(RefusedNotAllowed, err)
 		}
 		g, err := stageGroup(w.Tx, b)

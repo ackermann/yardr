@@ -1033,14 +1033,14 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 			continue
 		}
 
-		// A car with no train is moved nowhere by the store, so one found
+		// A wagon with no train is moved nowhere by the store, so one found
 		// here lost its train after it moved (its parent edge was removed).
 		// Nothing works it until it has one again: its flow has no review,
 		// and its builder's brief would name the light gate, on the depot's
 		// base. People still get it: someone has to see it to fix it.
-		if b.Type == store.TypeCar && fam.Train == "" && g.Runner != "manual" {
-			d.reportOnce(ctx, b, "car_without_train", fmt.Sprintf(
-				"a car with no train is not started; make it a child (yardr dep add <train> %s -k parent) or a task (yardr bead update %s --type task)", b.ID, b.ID))
+		if b.Type == store.TypeWagon && fam.Train == "" && g.Runner != "manual" {
+			d.reportOnce(ctx, b, "wagon_without_train", fmt.Sprintf(
+				"a wagon with no train is not started; make it a child (yardr dep add <train> %s -k parent) or a task (yardr bead update %s --type task)", b.ID, b.ID))
 			continue
 		}
 

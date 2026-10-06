@@ -24,10 +24,10 @@
 # ended by a signal is run once more, and held if a signal ends it again. It
 # never forces and never pushes anything but a fast-forward.
 #
-# A car of a train (type car, landing on its train's branch) is gated with
+# A wagon of a train (type wagon, landing on its train's branch) is gated with
 # the depot's light gate (yardr depot check --light): the full gate, and the one
 # review, are the train's, before the depot's base moves. Everything else gets
-# the full gate, a car with no train included. See docs/pipeline.md, "Cars".
+# the full gate, a wagon with no train included. See docs/pipeline.md, "Wagons".
 #
 # Every outcome ends in an advance, a close or a hold: exiting without one
 # counts as a failed session, and three of those hold the bead.
@@ -114,23 +114,23 @@ fi
 # script as before instead of failing on a flag it does not know. No slot
 # within depot check's bound is exit 2: hold.
 #
-# The light gate is only for a car that lands on its train's branch, where
+# The light gate is only for a wagon that lands on its train's branch, where
 # the full gate still stands before the depot's base (integrate-train runs it on
 # the whole train). All three must hold, as the exec runner says them: the
-# type, a train, and that train's branch as the base. A car with no train
+# type, a train, and that train's branch as the base. A wagon with no train
 # lands on the depot's base, so it gets the full gate, as does anything run by
 # a yardr that does not say the type and the train. A depot with no light gate
 # runs its full one under --light, and says so in the output.
-# depot check finds the car from the branch $WT is on and compares its light
-# gate with the train's branch, which the car was just rebased onto, not
-# with the depot's base: what is tested is what this car changed.
+# depot check finds the wagon from the branch $WT is on and compares its light
+# gate with the train's branch, which the wagon was just rebased onto, not
+# with the depot's base: what is tested is what this wagon changed.
 # A yardr from before the types were renamed says part and YARDR_EPIC; both
 # are still read for this release.
 LIGHT= GATE="the gate" TRAIN=${YARDR_TRAIN:-${YARDR_EPIC:-}}
-case ${YARDR_TYPE:-} in car | part) CAR=1 ;; *) CAR= ;; esac
-if [ -n "$CAR" ] && [ -n "$TRAIN" ] && [ "$BASE" = "yard/$TRAIN" ]; then
+case ${YARDR_TYPE:-} in wagon | part) WAGON=1 ;; *) WAGON= ;; esac
+if [ -n "$WAGON" ] && [ -n "$TRAIN" ] && [ "$BASE" = "yard/$TRAIN" ]; then
   LIGHT=--light GATE="the light gate"
-  echo "== $BEAD is a car of train $TRAIN: light gate here, the full gate on the train"
+  echo "== $BEAD is a wagon of train $TRAIN: light gate here, the full gate on the train"
 fi
 gate() { out=$(YARDR_GATE_FIRST=1 "$Y" depot check "$DEPOT" $LIGHT --dir "$WT" --tail "$TAIL" 2>&1) && rc=0 || rc=$?; printf '%s\n' "$out"; }
 # Where depot check kept all of a red gate's output: its FAIL line ends with
