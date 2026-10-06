@@ -57,6 +57,23 @@ func TestHarnessErrorLineLeadsWithItsReason(t *testing.T) {
 	}
 }
 
+// The inbox row of a refused move begins with why, the command the agent
+// ran and the yard's answer to it.
+func TestMoveRefusedLineLeadsWithTheCommand(t *testing.T) {
+	bead := "yardr-87dd"
+	e := store.Event{Seq: 15, Kind: store.MoveRefused, Actor: "yard", Bead: &bead,
+		At: time.Date(2026, 10, 6, 9, 5, 0, 0, time.Local), Data: map[string]any{
+			"reason": "stale", "command": "yardr bead done yardr-87dd", "error": "stale: bead yardr-87dd is now in review",
+			"agent": "yardr-87dd-new", "hint": "it did not move", "session": "s1",
+		}}
+	got := capture(t, func() { printInboxEvent(e, "mayor") })
+	want := "    15 10-06 09:05  yardr-87dd move_refused (on) by yard reason=stale command=yardr bead done yardr-87dd " +
+		"error=stale: bead yardr-87dd is now in review agent=yardr-87dd-new hint=it did not move session=s1\n"
+	if got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+}
+
 // capture returns what fn prints to stdout.
 func capture(t *testing.T, fn func()) string {
 	t.Helper()

@@ -145,7 +145,7 @@ doctor` and bare `yardr` say it.
   instructions`, in the inbox, the nudge and the prime. See
   [peers.md](peers.md#mail-between-residents).
 - **Subscriptions:** `--on` kinds (default: things that went wrong or need a
-  decision: `gave_up`, `session_blocked`, `session_stalled`, `session_harness_error`, `session_model_mismatch`, `session_prompt_gave_up`, `unrouted`, `stranded`, `held`, …; `yardr
+  decision: `gave_up`, `session_blocked`, `session_stalled`, `session_harness_error`, `session_model_mismatch`, `session_prompt_gave_up`, `move_refused`, `unrouted`, `stranded`, `held`, …; `yardr
   resident add --help` lists them), webhook deliveries
   (`yardr subscribe <name> linear --scope involved`), and yardr's own bead
   events (`yardr subscribe <name> yardr --done`, `yardr bead watch <id>`).
@@ -228,7 +228,7 @@ rest of the definition:
 ```sh
 yardr resident show mayor --json          # its on today
 yardr resident set mayor \
-  --on gave_up,session_blocked,unrouted,stranded,no_runner,workspace_kept,resident_gave_up,runtime_down,session_idle,session_aged,session_stalled,session_harness_error,session_model_mismatch,session_prompt_gave_up,held
+  --on gave_up,session_blocked,unrouted,stranded,no_runner,workspace_kept,resident_gave_up,runtime_down,session_idle,session_aged,session_stalled,session_harness_error,session_model_mismatch,session_prompt_gave_up,move_refused,held
 ```
 
 Its journal, inbox position and runtime state are kept across a change of

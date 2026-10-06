@@ -84,7 +84,7 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 		t.Fatalf("merge-local: %v %v", info, err)
 	}
 	boss, err := st.GetResident(ctx, "boss")
-	if err != nil || len(boss.On) != 15 || len(boss.Subscriptions) != 3 || boss.Config["kind"] != "claude" || boss.Dir == "" {
+	if err != nil || len(boss.On) != 16 || len(boss.Subscriptions) != 3 || boss.Config["kind"] != "claude" || boss.Dir == "" {
 		t.Fatalf("boss = %+v, %v", boss, err)
 	}
 	if _, err := st.GetResident(ctx, "mayor"); !errors.Is(err, store.ErrNotFound) {
@@ -203,7 +203,7 @@ func TestApplyOverAYardSetUpByHand(t *testing.T) {
 	boss, err := st.GetResident(ctx, "boss")
 	must(err)
 	if boss.Dir != "/home/boss" || boss.MaxAge != "6h" || boss.Config["kind"] != "codex" || boss.Config["env_file"] != "/boss.env" ||
-		boss.Identities["linear"].ID != "u1" || boss.Config["prompt"] != filepath.Join(install, "roles", "mayor.md") || len(boss.On) != 15 {
+		boss.Identities["linear"].ID != "u1" || boss.Config["prompt"] != filepath.Join(install, "roles", "mayor.md") || len(boss.On) != 16 {
 		t.Fatalf("boss = %+v", boss)
 	}
 	var subs []string

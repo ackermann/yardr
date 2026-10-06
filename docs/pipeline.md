@@ -79,6 +79,35 @@ decision on a bead that moved or changed since. Every move takes
 `--revision <rev>` for the same compare-and-swap, as BDP writes take
 `If-Match`.
 
+**A move refused to an agent is logged.** A move that works ends the
+agent's session, so an agent whose `yardr bead done` was refused sits idle
+with "done" as its last word, and the bead shows nothing of it. The store
+therefore logs `move_refused` on the bead when it refuses `done`, `advance`,
+`close`, `hold` or `release` to the agent of a session (the session the
+move was checked as: the pane's, else the one `YARDR_SESSION` names):
+
+| field | |
+|---|---|
+| `reason` | `stale` (the session no longer owns the bead, or the bead changed since `--revision`), `not_allowed` (the flow has no such move or outcome for the stage, or a part has no epic), `not_member` (the stage's group has members and the agent is none), `not_found` (no such bead), `other` (anything else that failed the move: a flow that does not resolve, say) |
+| `command` | the move as `yardr` words, with the bead as the agent named it: `yardr bead done <id> --outcome shipped` |
+| `error` | what the agent was told |
+| `session`, `agent`, `group`, `stage` | whose session it was and the stage it was started for |
+| `session_bead` | the session's own bead, when the move named another |
+
+It is on the bead the move named, or on the session's own for `not_found`,
+and at most once per bead, session and reason, so an agent that retries
+says it once. A person's or a resident's refused command logs nothing (they
+are in no session and read the error where they typed it), nor does a
+manual group's claim. It is in a new resident's default `--on`, so the
+mayor hears it; `yardr inbox` leads its row with `reason`, `command` and
+`error`.
+
+What never reaches the store is not logged: a command `yardr` itself
+refuses for its shape (`advance` without `--to`, a missing id, an unknown
+flag), one that finds no server, and one the harness never ran (a
+permission prompt it waits on, a hook that denied it). The first two print
+their error in the pane, which `session_idle` carries as `tail`.
+
 The builder implements the change, commits on its branch (never pushes or
 merges), runs the light gate on the last commit (`yardr rig check yardr
 --light --dir <worktree>`, which runs `.yardr/check-light` from fetched
@@ -382,7 +411,9 @@ agent reports another model than asked raises `session_model_mismatch`
 own later (the model at capacity, a usage limit, a login that ran out)
 raises `session_harness_error` on the first pass that finds it idle, with
 the reason and the end of its pane
-([groups.md](groups.md#a-harness-that-stopped-on-an-error)). A session that
+([groups.md](groups.md#a-harness-that-stopped-on-an-error)). An agent whose
+move the yard refused raises `move_refused`, with the command and why
+([above](#2-new-a-builder-implements-it)). A session that
 sits idle 30m or runs 4h
 raises `session_idle` (with the end of its pane) or `session_aged` in the
 mayor's inbox (one waiting

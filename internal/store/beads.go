@@ -605,9 +605,10 @@ func (s *Store) Advance(ctx context.Context, id, stage string, exp Expect, actor
 // next stage already sees it (a reviewer's requested changes). An empty
 // note adds none. A stale exp refuses the move (see Expect).
 func (s *Store) AdvanceNote(ctx context.Context, id, stage, note string, exp Expect, actor string) (*Bead, error) {
-	return s.advance(ctx, id, note, exp, actor, func(f *Flow, b *beadRow, data map[string]any) (string, error) {
+	b, err := s.advance(ctx, id, note, exp, actor, func(f *Flow, b *beadRow, data map[string]any) (string, error) {
 		return stage, checkAdvance(f, b.ID, b.Stage, stage)
 	})
+	return b, s.refused(ctx, id, "yardr bead advance "+id+" --to "+stage, exp, actor, err)
 }
 
 // Done reports how the work in the bead's stage ended and moves it where
@@ -616,7 +617,11 @@ func (s *Store) AdvanceNote(ctx context.Context, id, stage, note string, exp Exp
 // A bead no flow governs has no outcomes: it is moved with Advance.
 func (s *Store) Done(ctx context.Context, id, outcome, note string, exp Expect, actor string) (*Bead, error) {
 	outcome = or(strings.TrimSpace(outcome), DefaultOutcome)
-	return s.advance(ctx, id, note, exp, actor, func(f *Flow, b *beadRow, data map[string]any) (string, error) {
+	command := "yardr bead done " + id
+	if outcome != DefaultOutcome {
+		command += " --outcome " + outcome
+	}
+	b, err := s.advance(ctx, id, note, exp, actor, func(f *Flow, b *beadRow, data map[string]any) (string, error) {
 		if f == nil {
 			return "", fmt.Errorf("bead %s: no flow governs it, so it has no outcomes; move it with yardr bead advance %s --to <stage>", b.ID, b.ID)
 		}
@@ -627,11 +632,13 @@ func (s *Store) Done(ctx context.Context, id, outcome, note string, exp Expect, 
 		data["outcome"] = outcome
 		return to, nil
 	})
+	return b, s.refused(ctx, id, command, exp, actor, err)
 }
 
 // advance is the move AdvanceNote and Done share: pick names the stage
 // under the bead's flow (nil without one), may add to the event's data,
-// and refuses by returning an error.
+// and refuses by returning an error. A move the flow or the stage's group
+// refuses says which, for move_refused (see refused).
 func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor string, pick func(f *Flow, b *beadRow, data map[string]any) (string, error)) (*Bead, error) {
 	pre, err := s.GetBead(ctx, id)
 	if err != nil {
@@ -665,18 +672,18 @@ func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor 
 			}
 			data := withGroup(b, map[string]any{"from": b.Stage})
 			if stage, err = pick(f, b, data); err != nil {
-				return "", nil, err
+				return "", nil, refuse(RefusedNotAllowed, err)
 			}
 			data["to"] = stage
 			if err := checkPart(w.Tx, f, b, stage); err != nil {
-				return "", nil, err
+				return "", nil, refuse(RefusedNotAllowed, err)
 			}
 			g, err := stageGroup(w.Tx, b)
 			if err != nil {
 				return "", nil, err
 			}
 			if err := checkMembers(g, b.ID, b.Stage, actor); err != nil {
-				return "", nil, err
+				return "", nil, refuse(RefusedNotMember, err)
 			}
 			terminal = f != nil && f.IsTerminal(stage)
 			if err := w.endSession(b, "done"); err != nil {
@@ -699,12 +706,13 @@ func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor 
 // (see Expect).
 func (s *Store) CloseBead(ctx context.Context, id, reason string, exp Expect, actor string) (*Bead, error) {
 	close := closeWith(reason)
-	return s.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
+	b, err := s.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
 		if err := w.check(ctx, exp, b); err != nil {
 			return "", nil, err
 		}
 		return close(w, b)
 	})
+	return b, s.refused(ctx, id, "yardr bead close "+id, exp, actor, err)
 }
 
 // Expect is what a caller believes about a bead it changes: the session it
@@ -859,7 +867,7 @@ func (s *Store) Reopen(ctx context.Context, id string, exp Expect, actor string)
 // fresh attempts (its failure count starts over). A stale exp refuses it
 // (see Expect).
 func (s *Store) SetHold(ctx context.Context, id string, hold bool, exp Expect, actor string) (*Bead, error) {
-	return s.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
+	b, err := s.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
 		if err := w.check(ctx, exp, b); err != nil {
 			return "", nil, err
 		}
@@ -874,6 +882,10 @@ func (s *Store) SetHold(ctx context.Context, id string, hold bool, exp Expect, a
 		b.Failures = 0
 		return "unheld", nil, nil
 	})
+	if !hold {
+		return b, err
+	}
+	return b, s.refused(ctx, id, "yardr bead hold "+id, exp, actor, err)
 }
 
 // Release takes a bead away from its group so it is routed again, ending
@@ -881,7 +893,7 @@ func (s *Store) SetHold(ctx context.Context, id string, hold bool, exp Expect, a
 // an agent orphaned by a restart cannot release the bead from under the
 // session that owns it now.
 func (s *Store) Release(ctx context.Context, id, reason string, exp Expect, actor string) (*Bead, error) {
-	return s.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
+	b, err := s.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
 		if err := w.check(ctx, exp, b); err != nil {
 			return "", nil, err
 		}
@@ -890,6 +902,7 @@ func (s *Store) Release(ctx context.Context, id, reason string, exp Expect, acto
 		}
 		return "released", map[string]any{"reason": reason}, nil
 	})
+	return b, s.refused(ctx, id, "yardr bead release "+id, exp, actor, err)
 }
 
 func or(v, def string) string {

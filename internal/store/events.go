@@ -115,9 +115,12 @@ func (s *Store) LogEvent(ctx context.Context, bead, kind, actor string, data map
 
 // DispatchKinds are the events LogDispatch accepts: what the daemon and its
 // runners report about the work they supervise, none of which changes state.
+// move_refused is the store's own (see Store.refused) and is here as what
+// it is: a report on a session that changes nothing.
 var DispatchKinds = []string{
 	"daemon_replaced", "replace_skipped",
 	"session_prompted", "session_prompt_lost", "session_prompt_typed", "session_prompt_gave_up", "session_blocked", "session_unblocked", "session_idle", "session_aged", "session_stalled", "session_harness_error", "session_model_mismatch",
+	"move_refused",
 	"runtime_down", "runtime_up",
 	"workspace_kept", "workspace_removed",
 	"gave_up", "backoff", "unrouted", "no_runner", "bad_rig", "bad_flow", "stranded",

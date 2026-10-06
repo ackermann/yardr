@@ -452,9 +452,12 @@ func printBeadDelivery(e store.Event, resident string) {
 	}
 	// A harness's error leads with what it is: among the event's fields in
 	// the order of their names, the reason comes after a hint of three lines.
+	// A refused move leads the same way, with the command and the yard's
+	// answer to it.
 	lead := ""
-	if e.Kind == "session_harness_error" {
-		for _, k := range []string{"reason", "line"} {
+	if first := map[string][]string{"session_harness_error": {"reason", "line"},
+		store.MoveRefused: {"reason", "command", "error"}}[e.Kind]; first != nil {
+		for _, k := range first {
 			if v, ok := data[k]; ok {
 				lead += k + "=" + show(v) + " "
 				delete(data, k)

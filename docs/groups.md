@@ -239,7 +239,8 @@ server shared by all of the user's Codex sessions (`codex app-server
 that session's environment. Every later session's `yardr` commands then
 carry the first one's `YARDR_ACTOR`, `YARDR_SESSION` and `YARDR_BEAD`:
 notes are attributed to another bead's agent, and `yardr bead done` is
-refused as stale, leaving the bead with an idle session. Two things hold
+refused as stale, leaving the bead with an idle session (the refusal is on
+the bead as `move_refused`). Two things hold
 against that:
 
 - **A `kind=codex` agent is started with `--no-daemon`**, bead agent and

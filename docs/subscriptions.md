@@ -216,7 +216,7 @@ would carry.
 ## `--on`
 
 A resident's `--on` kinds (default: `gave_up`, `session_blocked`,
-`session_stalled`, `session_harness_error`, `session_model_mismatch`, `unrouted`, …) keep working, as **implicit `yardr all kind=<k>`
+`session_stalled`, `session_harness_error`, `session_model_mismatch`, `move_refused`, `unrouted`, …) keep working, as **implicit `yardr all kind=<k>`
 subscriptions**. They are not migrated into stored subscriptions. They are
 checked when the inbox is read, not when the event is logged, so changing
 `--on` also changes which unread events are in the inbox. Unlike the yardr
@@ -240,6 +240,13 @@ harness printed it and `tail` the end of the pane
 ([groups.md](groups.md#a-harness-that-stopped-on-an-error)). `session_idle`
 carries the same `tail`, so the inbox shows what an idle agent's pane ends
 in.
+
+`move_refused`: a move (`yardr bead done`, `advance`, `close`, `hold`,
+`release`) the yard refused to a session's agent, which may sit idle as if
+it had worked. Its `reason` is `stale`, `not_allowed`, `not_member`,
+`not_found` or `other`, `command` is what the agent ran and `error` what it
+was told ([pipeline.md](pipeline.md#2-new-a-builder-implements-it)). Once
+per bead, session and reason; a person's refused command logs none.
 
 `session_prompt_gave_up`: a session whose agent never took its first prompt
 ([groups.md](groups.md#herdr-setup)). Its `hint` is the command that

@@ -142,6 +142,8 @@ func TestFeedOtherWords(t *testing.T) {
 	must(t, api.LogDispatch(ctx, b.ID, "session_idle", "yard", map[string]any{"session": "s1"}))
 	must(t, api.LogDispatch(ctx, b.ID, "session_harness_error", "yard", map[string]any{"session": "s1", "reason": "at_capacity",
 		"line": "■ Selected model is at capacity.", "hint": "a long hint", "tail": "› \n■ Selected model is at capacity."}))
+	must(t, api.LogDispatch(ctx, b.ID, "move_refused", "yard", map[string]any{"session": "s1", "reason": "not_allowed",
+		"command": "yardr bead done " + b.ID + " --outcome shipped", "error": "flow has no outcome shipped", "hint": "a long hint"}))
 	_, err = api.CloseBead(ctx, b.ID, "dropped", store.Expect{}, "me")
 	must(t, err)
 	must(t, api.SetSetting(ctx, "name", "north", "me"))
@@ -158,6 +160,8 @@ func TestFeedOtherWords(t *testing.T) {
 		"session_idle":   {Text: "session idle", Note: "session s1"},
 		"session_harness_error": {Text: "harness stopped on an error: at capacity", Note: "■ Selected model is at capacity.",
 			Tone: "held"},
+		"move_refused": {Text: "move refused (not allowed): yardr bead done " + b.ID + " --outcome shipped",
+			Note: "flow has no outcome shipped", Tone: "held"},
 		"closed":          {Text: "closed: dropped"},
 		"setting_changed": {Text: "setting changed", Note: "key name · value north"},
 	} {

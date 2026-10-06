@@ -244,6 +244,9 @@ func (r *reader) entry(ctx context.Context, e store.Event) Entry {
 		// The reason and the harness's own line, not everything the event
 		// carries: its hint and the pane's end would be all an entry shows.
 		out.Text, out.Note, out.Tone = "harness stopped on an error: "+strings.ReplaceAll(str("reason"), "_", " "), str("line"), "held"
+	case e.Kind == store.MoveRefused:
+		// What the agent ran and the yard's answer, not the hint.
+		out.Text, out.Note, out.Tone = "move refused ("+strings.ReplaceAll(str("reason"), "_", " ")+"): "+str("command"), str("error"), "held"
 	case e.Kind == "timer":
 		out.Text, out.Note = fmt.Sprintf("timer of %s for %s", str("by"), str("to")), strings.TrimPrefix(str("text"), "timer: ")
 		if str("by") == str("to") {
