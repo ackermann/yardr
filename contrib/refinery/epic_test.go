@@ -280,6 +280,10 @@ func TestEpicPushRefusesForeignRemoteCommits(t *testing.T) {
 	// branch: in no tip the integrator knows.
 	foreign := y.git(y.repo, "commit-tree", epic+"^{tree}", "-p", epic, "-m", "someone's push")
 	y.git(y.repo, "push", "-q", "origin", foreign+":refs/heads/yard/r-e")
+	// The yard's yardmaster has a name of its own, which YARDR_NOTIFY, unset
+	// here, leaves to the yard's setting.
+	y.yardr("resident", "add", "lead", "--runner", "manual")
+	y.yardr("settings", "set", "yardmaster", "lead")
 
 	y.exec("integrate-epic", "yard-integrators", "r-e")
 
@@ -292,6 +296,9 @@ func TestEpicPushRefusesForeignRemoteCommits(t *testing.T) {
 	notes := y.yardr("prime", "--bead", "r-e")
 	if !strings.Contains(notes, "did not have before the rebase") || !strings.Contains(notes, "not forced") {
 		t.Fatalf("no note on the refused push:\n%s", notes)
+	}
+	if mail := y.yardr("resident", "show", "lead"); !strings.Contains(mail, "integrator: r-e integrated at") {
+		t.Fatalf("the yardmaster was not mailed:\n%s", mail)
 	}
 }
 

@@ -930,7 +930,7 @@ func (r *initResult) printYard() {
 	if s := r.summary(); s != "" {
 		fmt.Printf(" (%s)", s)
 	}
-	fmt.Printf("\n           starting points naming %s: edit them to fit your yard; the yardmaster's prompt is %s.\n"+
+	fmt.Printf("\n             starting points naming %s: edit them to fit your yard; the yardmaster's prompt is %s.\n"+
 		"             A rig's own roles go in its repo under .yardr/roles/, which a group's\n"+
 		"             prompt=roles/<name>.md reads first (from the rig's base branch).\n\n", r.Operator, roleFileIn(r.Roles, "yardmaster.md"))
 	if !config.IsDefaultHome(r.Home) {
