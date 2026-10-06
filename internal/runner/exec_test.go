@@ -103,3 +103,38 @@ func TestExecStalePidIsNotOurs(t *testing.T) {
 	case <-time.After(300 * time.Millisecond):
 	}
 }
+
+// A cmd that is no string (`--set cmd=true` stores the boolean) fails the
+// session with what was stored and how the string is written, where it said
+// only that the group has no cmd. group add refuses such a group; this is
+// for one that came another way.
+func TestExecSaysWhatCmdIsWhenItIsNoString(t *testing.T) {
+	ctx := context.Background()
+	start := func(cfg map[string]any) error {
+		_, err := (&Exec{noReap: true}).Start(ctx, dispatch.Job{
+			Bead:    store.Bead{ID: "b-1"},
+			Session: store.Session{ID: "s-1"},
+			Group:   store.Group{Name: "tick", Runner: "exec", Config: cfg},
+		})
+		return err
+	}
+	for want, cfg := range map[string]map[string]any{
+		`group tick: exec runner needs config.cmd as a string, got the JSON boolean true; write --set 'cmd="true"'`:  {"cmd": true},
+		`group tick: exec runner needs config.cmd as a string, got the JSON number 1.5; write --set 'cmd="1.5"'`:     {"cmd": 1.5},
+		`group tick: exec runner needs config.dir as a string, got the JSON object {"a":1}; write --set 'dir="..."'`: {"cmd": "true", "dir": map[string]any{"a": 1.0}},
+		"group tick: exec runner needs config.cmd": {},
+	} {
+		if err := start(cfg); err == nil || err.Error() != want {
+			t.Errorf("Start(%v) = %v, want %s", cfg, err, want)
+		}
+	}
+	if err := start(map[string]any{"cmd": "true", "dir": t.TempDir(), "log": t.TempDir() + "/log"}); err != nil {
+		t.Fatalf("the string true is a command: %v", err)
+	}
+	// A runner with nothing it must have, and one ConfigError does not know.
+	for _, r := range []string{"manual", "peer", "other"} {
+		if err := ConfigError("g", r, map[string]any{"cmd": true, "prompt": 1.0}); err != nil {
+			t.Errorf("ConfigError(%s) = %v", r, err)
+		}
+	}
+}

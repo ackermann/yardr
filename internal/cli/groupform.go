@@ -256,7 +256,7 @@ func (a *app) askGroup(ctx context.Context, st store.API, groups []store.Group, 
 	}
 
 	g := ans.group()
-	summary := fmt.Sprintf("%s: %s, limit %d\n%s", g.Name, g.Runner, g.Limit, fmtConfig(g.Config))
+	summary := fmt.Sprintf("%s: %s, limit %d\n%s", g.Name, g.Runner, g.Limit, fmtSets(g.Config))
 	if editing && oldRunner != ans.Runner {
 		if live, _ := st.Sessions(ctx, false); slices.ContainsFunc(live, func(s store.Session) bool { return s.Group == g.Name }) {
 			summary += fmt.Sprintf("\n\nThis group has running sessions; they keep their %s runner. "+

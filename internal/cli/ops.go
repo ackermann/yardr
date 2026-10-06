@@ -2,9 +2,11 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math"
 	"os"
 	"os/exec"
@@ -978,8 +980,13 @@ yardmaster):
 			if g.Config, err = parseSets(sets); err != nil {
 				return err
 			}
-			withDefaultKind(c.Context(), st, g.Runner, g.Config)
 			g.Name = args[0]
+			// Asked before anything is stored: a group the runner cannot
+			// run would fail every session it is given.
+			if err := runner.ConfigError(g.Name, g.Runner, g.Config); err != nil {
+				return err
+			}
+			withDefaultKind(c.Context(), st, g.Runner, g.Config)
 			if err := st.PutGroup(c.Context(), g); err != nil {
 				return err
 			}
@@ -992,7 +999,7 @@ yardmaster):
 	}
 	add.Flags().StringVar(&g.Runner, "runner", "", "runner: manual, exec, herdr, peer")
 	add.Flags().IntVar(&g.Limit, "limit", 1, "max concurrent sessions; for a peer group, how many beads may be at that yard at once")
-	add.Flags().StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable)")
+	add.Flags().StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable); a value that is JSON (true, 3, [\"a\"]) keeps its type, so a string that reads as JSON is written as one: 'cmd=\"true\"'")
 	add.Flags().StringSliceVar(&g.Members, "members", nil, "manual groups: actors who may move a bead out of its stages (comma-separated)")
 
 	list := &cobra.Command{
@@ -1009,7 +1016,7 @@ yardmaster):
 			return a.out(gs, func() {
 				rows := [][]string{}
 				for _, g := range gs {
-					rows = append(rows, []string{g.Name, g.Runner, strconv.Itoa(g.Limit), or(strings.Join(g.Members, ","), "-"), fmtConfig(g.Config)})
+					rows = append(rows, []string{g.Name, g.Runner, strconv.Itoa(g.Limit), or(strings.Join(g.Members, ","), "-"), fmtSets(g.Config)})
 				}
 				table("NAME\tRUNNER\tLIMIT\tMEMBERS\tCONFIG", rows)
 			})
@@ -1046,6 +1053,30 @@ func fmtConfig(m map[string]any) string {
 	parts := make([]string, len(keys))
 	for i, k := range keys {
 		parts[i] = k + "=" + show(m[k])
+	}
+	return strings.Join(parts, " ")
+}
+
+// fmtSets prints a group's config as --set would take it back: a string as
+// it is, anything else as JSON, and a string that --set would read as JSON
+// (the command "true", the model "5") as the JSON string. So cmd=true is the
+// boolean and cmd="true" the command, which fmtConfig prints alike.
+func fmtSets(m map[string]any) string {
+	parts := make([]string, 0, len(m))
+	for _, k := range slices.Sorted(maps.Keys(m)) {
+		v := m[k]
+		if s, ok := v.(string); ok && !json.Valid([]byte(s)) {
+			parts = append(parts, k+"="+s)
+			continue
+		}
+		var b strings.Builder
+		enc := json.NewEncoder(&b)
+		enc.SetEscapeHTML(false) // a command's & and < as they were typed
+		if err := enc.Encode(v); err != nil {
+			parts = append(parts, k+"="+show(v))
+			continue
+		}
+		parts = append(parts, k+"="+strings.TrimSuffix(b.String(), "\n"))
 	}
 	return strings.Join(parts, " ")
 }

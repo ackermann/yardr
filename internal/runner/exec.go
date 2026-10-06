@@ -52,10 +52,10 @@ type Exec struct {
 func NewExec() *Exec { return &Exec{} }
 
 func (e *Exec) Start(ctx context.Context, job dispatch.Job) (map[string]any, error) {
-	cmdline := str(job.Group.Config, "cmd", "")
-	if cmdline == "" {
-		return nil, fmt.Errorf("group %s: exec runner needs config.cmd", job.Group.Name)
+	if err := ConfigError(job.Group.Name, "exec", job.Group.Config); err != nil {
+		return nil, err
 	}
+	cmdline := str(job.Group.Config, "cmd", "")
 	dir := str(job.Group.Config, "dir", "")
 	if dir == "" && job.Depot != nil {
 		dir = job.Depot.Path
