@@ -1004,8 +1004,8 @@ func (s *Store) ExpirePeerBeads(ctx context.Context, at time.Time) error {
 				}
 				return w.returnPeerBead(b, OutcomeRefused, &reason, "yard")
 			case warn:
-				now := now()
-				rec.Warned = &now
+				t := now()
+				rec.Warned = &t
 				if err := put(w.Tx, bPeerBeads, rec.Bead, rec); err != nil {
 					return err
 				}
