@@ -1,0 +1,32 @@
+#!/bin/sh
+# bench: measures yardr at 250, 2,000 and 20,000 beads and prints one table.
+# README.md beside it says what the numbers are.
+#
+#   contrib/bench/bench                          from the checkout to measure
+#   contrib/bench/bench -sizes 250,2000 -idle 1m -out results.json
+#
+# It builds an isolated yard (contrib/isolated-yard up: its own home, herdr
+# server and stand-in agent), builds the benchmark into it, runs it there
+# through D/e and takes the yard down again, whatever the outcome. Nothing
+# of the caller's yard or herdr session is read or written: the benchmark
+# refuses any home that is not an isolated yard's.
+#
+# BENCH_KEEP=1 leaves the yard standing and says where it is.
+set -eu
+here=$(cd "$(dirname "$0")" && pwd)
+cd "$here/../.."
+
+up=$(contrib/isolated-yard/isolated-yard up) || { printf '%s\n' "$up" >&2; exit 1; }
+printf '%s\n' "$up" >&2
+d=$(printf '%s\n' "$up" | sed -n 's/^isolated yard: \(\/tmp\/iy\.[A-Za-z0-9]*\) .*/\1/p')
+[ -n "$d" ] || { echo "bench: isolated-yard up did not say where the yard is" >&2; exit 1; }
+
+status=0
+go build -o "$d/bin/yardr-bench" ./contrib/bench && "$d/e" yardr-bench "$@" || status=$?
+
+if [ -n "${BENCH_KEEP:-}" ]; then
+  echo "bench: the yard is kept: $d (end it with contrib/isolated-yard/isolated-yard down $d)" >&2
+else
+  contrib/isolated-yard/isolated-yard down "$d" >&2 || status=1
+fi
+exit "$status"
