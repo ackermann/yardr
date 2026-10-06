@@ -27,11 +27,20 @@ const (
 	toolHangs   = "#!/bin/sh\nsleep 30\n"
 )
 
+// fakeToolsTimeout is the time a fake tool gets for its version flag.
+const fakeToolsTimeout = 30 * time.Second
+
 // fakeTools puts an executable per name on a PATH of their own, each a
 // script with the given body, and makes lookPath find those and nothing
 // else. It returns the directory.
+//
+// It also gives a version flag far longer than a person gets: on a loaded
+// machine a script's start alone took over 2s, and an answer or a failure
+// was read as a hang (yardr-r4q3, yardr-dywt). A test about the limit sets
+// versionTimeout itself, after this.
 func fakeTools(t *testing.T, tools map[string]string) string {
 	t.Helper()
+	stub(t, &versionTimeout, fakeToolsTimeout)
 	dir := t.TempDir()
 	for name, body := range tools {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o755); err != nil {
@@ -374,6 +383,22 @@ func TestDoctorMissingDependency(t *testing.T) {
 	}
 }
 
+// A test with fake tools on PATH does not run them under the limit a person
+// gets (yardr-dywt): the limit is fakeTools' for as long as the test runs,
+// and the one before it afterwards.
+func TestFakeToolsVersionTimeout(t *testing.T) {
+	before := versionTimeout
+	t.Run("with fake tools", func(t *testing.T) {
+		fakeTools(t, map[string]string{"claude": toolAnswers})
+		if versionTimeout != fakeToolsTimeout || versionTimeout <= before {
+			t.Errorf("versionTimeout = %s with fake tools, %s without", versionTimeout, before)
+		}
+	})
+	if versionTimeout != before {
+		t.Errorf("versionTimeout = %s after the test, %s before it", versionTimeout, before)
+	}
+}
+
 // On PATH is not "works": a harness that is found is run with its version
 // flag and answers, fails or hangs; a kind with no known flag is not run.
 func TestDoctorVersionCheck(t *testing.T) {
@@ -385,10 +410,8 @@ func TestDoctorVersionCheck(t *testing.T) {
 			t.Errorf("%s: %+v, want %+v", kind, got, want)
 		}
 	}
-	// These are not about the timeout, so it is far longer than a person
-	// gets: on a loaded machine a script's start alone took longer than
-	// that, and an answer or a failure was read as a hang (yardr-r4q3).
-	stub(t, &versionTimeout, 30*time.Second)
+	// These are not about the timeout, and run under the long one fakeTools
+	// set.
 	check("claude", versionCheck{versionAnswers, "tool 1.2.3"})
 	check("codex", versionCheck{versionFails, "exit status 3: broken install"})
 	check("cursor", versionCheck{versionNotChecked, ""}) // would hang, were it run
@@ -413,11 +436,10 @@ func TestDoctorVersionCheck(t *testing.T) {
 	// timeout is not right for both: the failing harness needs one long
 	// enough to fail in on any machine, and a hanging one costs all of it.
 	// First the failing one, with a mayor's harness that answers.
-	stub(t, &versionTimeout, 30*time.Second)
 	newHome(t)
 	st := storetest.New(t)
 	tools := map[string]string{"git": toolAnswers, "herdr": toolAnswers, "kimi": toolAnswers, "codex": toolFails, "cursor-agent": toolHangs}
-	fakeTools(t, tools)
+	fakeTools(t, tools) // and the long timeout again
 	if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "kimi"); err != nil {
 		t.Fatal(err)
 	}

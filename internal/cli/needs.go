@@ -428,7 +428,7 @@ func presetKinds() []string {
 }
 
 // versionTimeout is how long a harness gets to print its version; tests
-// shorten it. A harness answers in well under a second; the rest is room
+// replace it. A harness answers in well under a second; the rest is room
 // for a cold start.
 var versionTimeout = 5 * time.Second
 
