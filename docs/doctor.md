@@ -190,13 +190,19 @@ through the setup can take over from anyone else.
 | step (`key` in JSON) | done when |
 |---|---|
 | `a depot` (`depot`) | the yard has a depot |
-| `the depot's .yardr files on its base` (`depot_files`) | every depot has a flow where yardr reads it: under `.yardr/flows/` on its base branch (written by `yardr depot init` and committed), in a dir depot's directory, or in the store when the depot follows a pack's flow |
-| `a group that builds` (`builders`) | a group has the role `builder.md` as its prompt, or a route for stage `new` |
-| `a group that reviews` (`reviewers`) | the same with `reviewer.md` and `review` |
-| `a group or person that lands approved beads` (`landing`) | a group has the role `merger.md`, is an exec group whose command merges (an assembly), or has a route for stage `approved`: people who merge by hand count once they are routed |
-| `routes for new, review and approved` (`routes`) | a route exists for each of the three stages. The command for a missing one names the group that does the stage's work (the builders for `new`), once the yard has one |
+| `the depot's .yardr files on its base` (`depot_files`) | every depot has a flow where yardr reads it: in the store when the depot follows a pack's flow (`yardr depot init <depot> --pack <pack>`), under `.yardr/flows/` on its base branch (written by `yardr depot init` without a pack and committed), or in a dir depot's directory |
+| `a group that builds` (`builders`) | a route sends stage `new` to a group |
+| `a group that reviews` (`reviewers`) | the same for stage `review` |
+| `a group or person that lands approved beads` (`landing`) | the same for stage `approved`: an assembly or people who merge by hand, either counts once it is routed |
+| `routes for new, review and approved` (`routes`) | a route exists for each of the three stages |
 | `a first bead` (`first_bead`) | a bead exists in a depot (a crew member's journal and memories do not count) |
 | `a first merged bead` (`merged_bead`) | a bead of a depot was closed by reaching its flow's terminal stage; one closed by hand does not count |
+
+A group is told by its route and not by its role or its name, so the list
+reads the same for a yard set up from a pack and for one set up by hand. The
+command named for each of the five steps above while it is `todo` is the
+import that does them all, `yardr depot init <depot> --pack starter`
+(`--pack dir` for a dir depot): [`yardr setup`](setup.md) runs it as one page.
 
 A yard whose depots are all dir depots lands nothing: it has no landing step, its
 routes are `new and review`, and its last step reads `a first bead through to

@@ -122,9 +122,10 @@ and waits for the yardmaster again. To remove a yard and start over, see
 [docs/configuration.md](docs/configuration.md#starting-over).
 
 The yardmaster's first job is the setup, as a conversation with you: it asks for
-the repository and its base branch, registers the depot, seeds it with
-`yardr depot init` (starter roles, gate, flow and stage files under `.yardr/`, which you
-commit on the base branch), creates the groups and routes, and offers a first
+the repository and its base branch, registers the depot, sets it up from the
+starter pack with `yardr depot init --pack` (the flow, the groups that build,
+review and land, and their routes; in the repository only a gate,
+`.yardr/check`, which you commit on the base branch), and offers a first
 bead to try the pipeline. It asks before anything outward, such as a commit.
 
 "Keep going here" is the same setup as forms, and `yardr setup` runs them at
@@ -132,16 +133,12 @@ any later time ([docs/setup.md](docs/setup.md)). It takes the first step that
 is not done, whoever did the ones before, and each page ends in the command
 you would type, shown before it runs:
 
-1. the repository and its base branch (`yardr depot add`), then `yardr depot init`,
-   which shows what it wrote and the gate it guessed, and asks before it
-   commits `.yardr/` on the base branch;
-2. who builds and who reviews: the form of `yardr group add`, starting at a
-   group on the default harness with the role's prompt;
-3. how approved beads land: an assembly (yardr's `merge-local`, which it
-   installs in `~/.yardr/scripts/`) or people who merge by hand;
-4. the routes for `new`, `review` and `approved`, which follow from the
-   groups: shown, confirmed;
-5. a first small bead, created and advanced to `new`, and how to watch it.
+1. the repository and its base branch (`yardr depot add`);
+2. the depot's way of working, from the pack: `yardr depot init --pack`
+   prints what it would write, asks for the agent of each group and who is
+   in each group of people, and writes nothing before a yes; then the page
+   asks before it commits the gate the command guessed on the base branch;
+3. a first small bead, created and advanced to `new`, and how to watch it.
 
 After each page it asks again: keep going, talk to the yardmaster, or stop here.
 The yardmaster and the forms read one list of steps, the one `yardr doctor`

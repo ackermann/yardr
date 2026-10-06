@@ -1,27 +1,21 @@
 package cli
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
-	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
-	"yardr.dev/yardr/contrib/assembly"
-	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
 )
@@ -55,18 +49,22 @@ Every page ends in a command that exists, and shows its command line before
 it runs:
 
   a depot                 the repository and its base branch: yardr depot add
-  the depot's files       yardr depot init, which writes starter roles, a gate
-                        and a flow under .yardr/; then it asks before it
-                        commits them on the base branch
-  builders, reviewers   the form of yardr group add, starting at a group on
-                        the yard's default harness with the role's prompt
-  landing               an assembly (yardr's merge-local, installed in
-                        <home>/scripts/, as an exec group) or people who
-                        merge by hand (a manual group, routed for approved)
-  routes                new, review and approved, each to the group that
-                        does its work: shown, confirmed, yardr route add
+  the depot's way of    yardr depot init --pack, with the pack yardr carries
+  working               for the depot's kind (starter, or dir for a dir
+                        depot): one import for the flow, the groups that
+                        build, review and land, and their routes. It prints
+                        its plan, asks what yardr pack apply asks (each
+                        group's agent, model and permissions, who is in a
+                        group of people) and writes nothing before a yes;
+                        then the page asks before it commits the gate the
+                        command wrote, .yardr/check, on the base branch
   a first bead          its title and goal: yardr bead create, then
                         yardr bead advance --to new; and how to watch it
+
+The import does five of the steps yardr doctor lists (the depot's files, a
+group that builds, one that reviews, one that lands, the routes), so they
+have one page between them. A yard where some of them were done by hand gets
+the same page for the rest: the plan says what the import would change.
 
 After each page it asks how to go on: keep going here, talk to the yardmaster
 (opens yardr chat on the yardmaster in this terminal; the yardmaster goes on
@@ -74,10 +72,9 @@ from the same steps), or stop here. With --no-chat that choice prints where
 the yardmaster's pane is and brings it to the front instead. When the
 yardmaster is not running it opens nothing and prints what yardr doctor says
 of it. A page that is cancelled (ctrl+c, or no at its last question) has run
-no command: the yard is as the finished pages made it. The one exception is
-the depot's files, which yardr depot init has written into the checkout before the
-question whether to commit them; they stay there, and depot init never
-overwrites a file.
+no command: the yard is as the finished pages made it. A no to whether to
+commit the gate leaves the import done and the file in the checkout, with
+the command that commits it.
 
 Where the forms end it asks a user whether to be told when beads land: a
 yes is yardr subscribe <you> yardr --done --where depot=<depot>, and each bead
@@ -216,16 +213,17 @@ type guide struct {
 // without doing the step (an answer of no), having said why.
 type page func(ctx context.Context, step setupStep) (done bool, err error)
 
-// pages are the pages by the key of the step each does. The last step, a
-// first merged bead, has none: it is the pipeline's to do.
+// pages are the pages by the key of the step each does. One import does the
+// five steps between the depot and the first bead, so they share a page.
+// The last step, a first merged bead, has none: it is the pipeline's to do.
 func (g *guide) pages() map[string]page {
 	return map[string]page{
 		stepDepot:      g.depotPage,
-		stepDepotFiles: g.filesPage,
-		stepBuilders:   g.groupPage("builder", 2, "Builders implement the beads in stage new, each in a worktree of its own."),
-		stepReviewers:  g.groupPage("reviewer", 1, "Reviewers check what the builders report done, in stage review."),
-		stepLanding:    g.landingPage,
-		stepRoutes:     g.routesPage,
+		stepDepotFiles: g.packPage,
+		stepBuilders:   g.packPage,
+		stepReviewers:  g.packPage,
+		stepLanding:    g.packPage,
+		stepRoutes:     g.packPage,
 		stepFirstBead:  g.beadPage,
 	}
 }
@@ -275,8 +273,8 @@ func (a *app) guide(ctx context.Context, cfg *config.Config, st store.API) error
 		case after == nil:
 			continue
 		case after.Key == next.Key:
-			// Answers that leave the step undone (a builders' group without
-			// the builder's role, say): going on would ask the same again.
+			// Answers that leave the step undone (a no to the import, say):
+			// going on would ask the same again.
 			fmt.Printf("\nStill to do: %s: %s.\n  %s\n", after.Title, after.Detail, strings.ReplaceAll(after.Next, "yardr ", yardr+" "))
 			return nil
 		}
@@ -488,257 +486,87 @@ func (g *guide) depotPage(ctx context.Context, _ setupStep) (bool, error) {
 	return true, g.do(ctx, args...)
 }
 
-// filesPage seeds the depot with yardr depot init, which says what it wrote and
-// which gate it guessed, and asks before it commits the files on the base.
-// It commits only where that is plain: the base is the branch checked out in
-// the depot. Anywhere else the commit is the person's.
-func (g *guide) filesPage(ctx context.Context, step setupStep) (bool, error) {
+// packPage sets the step's depot up from a pack with yardr depot init
+// --pack: one import for the depot's flow and stage files, its groups and
+// their routes, which the setup did by hand before, a page each. The pack is
+// the one yardr carries for the depot's kind. The command prints its plan,
+// asks what an import asks and for a yes; the page adds the one thing the
+// command leaves to a person, the commit of the gate it wrote.
+func (g *guide) packPage(ctx context.Context, step setupStep) (bool, error) {
 	depot, err := g.st.GetDepot(ctx, step.Depot)
 	if err != nil {
 		return false, err
 	}
-	if err := g.do(ctx, "depot", "init", depot.Name); err != nil {
+	pack := setupPack(*depot)
+	fmt.Printf("This sets depot %s up from the pack %s, which yardr carries: its groups, the routes that send each\n"+
+		"stage to its group, and the flow with its stage files, in one import. The plan below names each.\n"+
+		"It asks for the agent, model and permissions of each group of agents and for who is in each group\n"+
+		"of people, and writes nothing before a yes at its last question.\n", depot.Name, pack)
+	gate := filepath.Join(depot.Path, rigcheck.RepoPath)
+	had := true // a dir depot is written no gate
+	if !depot.IsDir() {
+		// The pack's assembly lands on local branches only, and holds every
+		// bead of a depot whose base is a remote's.
+		if _, err := git(ctx, depot.Path, "show-ref", "--verify", "--quiet", "refs/heads/"+depot.Base); err != nil {
+			fmt.Printf("\nThe base of %s, %s, is not a local branch: the pack's assembly lands on local branches only,\n"+
+				"and would hold every approved bead (docs/pipeline.md, section 4). Read that before the yes.\n", depot.Name, depot.Base)
+		}
+		_, err := os.Lstat(gate)
+		had = err == nil
+	}
+	if err := g.do(ctx, "depot", "init", depot.Name, "--pack", pack); err != nil {
 		return false, err
 	}
-	if depot.IsDir() {
-		return true, nil // read from the directory as they are
+	// The gate is there now and was not before: the import was confirmed,
+	// and depot init wrote it. A no to the import wrote nothing, and the
+	// caller says what is still to do.
+	if _, err := os.Lstat(gate); had || err != nil {
+		return true, nil
 	}
-	yardr := yardrAt(g.cfg.Home)
-	byHand := commitCommand(depot.Path)
+	return true, g.commitGate(ctx, *depot)
+}
+
+// commitGate asks whether to commit the gate depot init --pack wrote, and
+// commits it. It commits only where that is plain: the base is the branch
+// checked out in the depot. Anywhere else, and after a no, the commit is the
+// person's, and it says what the depot lacks until then. The depot is set up
+// either way, so leaving the question is a no and not a cancelled page.
+func (g *guide) commitGate(ctx context.Context, depot store.Depot) error {
+	byHand := gateCommand(depot.Path)
+	lacks := fmt.Sprintf("Until %s is on %s the depot has no gate, and no bead of it lands: `%s depot check %s` fails with \"no gate\".",
+		rigcheck.RepoPath, depot.Base, yardrAt(g.cfg.Home), depot.Name)
 	if head, _ := git(ctx, depot.Path, "symbolic-ref", "--short", "-q", "HEAD"); head != depot.Base {
 		fmt.Printf("\nThe base, %s, is not the branch checked out in %s (%s), so this form does not commit there.\n"+
-			"Get .yardr/ onto %s yourself (commit it there; push it, when the base is a remote's branch).\n"+
-			"yardr reads the files from the base only, so the setup waits for that.\n",
-			depot.Base, depot.Path, or(head, "no branch"), depot.Base)
-		return false, nil
+			"Get %s onto %s yourself (commit it there; push it, when the base is a remote's branch).\n%s\n",
+			depot.Base, depot.Path, or(head, "no branch"), rigcheck.RepoPath, depot.Base, lacks)
+		return nil
 	}
 	commit := true
 	fmt.Println()
-	if err := ask(huh.NewConfirm().Key("commit").Title("Commit these files on " + depot.Base + "?").
-		Description(fmt.Sprintf("yardr reads the roles, the gate and the flow from %s, not from the files in the checkout:\n"+
-			"they take effect once they are committed there. Only .yardr/ is committed; other changes\n"+
-			"in the checkout stay as they are.\n\n"+
-			"No leaves the files where they are, uncommitted, and the setup waits. Read them, edit the\n"+
-			"gate (it is a guess), commit them yourself, and `%s setup` goes on from there.", depot.Base, yardr)).
-		Value(&commit)); err != nil {
-		return false, err
+	err := ask(huh.NewConfirm().Key("commit").Title("Commit the gate on " + depot.Base + "?").
+		Description(fmt.Sprintf("yardr reads the gate from %s, not from the file in the checkout: it holds once it is\n"+
+			"committed there. Only %s is committed; other changes in the checkout stay as they are.\n\n"+
+			"No leaves it where it is, uncommitted. Read it, edit it (it is a guess from the repository)\n"+
+			"and commit it yourself.", depot.Base, rigcheck.RepoPath)).
+		Value(&commit))
+	if errors.Is(err, huh.ErrUserAborted) {
+		commit = false
+	} else if err != nil {
+		return err
 	}
 	if !commit {
-		fmt.Printf("Not committed. The files are in %s/.yardr; to commit them:\n\n  %s\n", depot.Path, byHand)
-		return false, nil
+		fmt.Printf("Not committed. %s\nTo commit it:\n\n  %s\n", lacks, byHand)
+		return nil
 	}
 	g.show(ctx, byHand)
-	for _, args := range [][]string{{"add", ".yardr"}, {"commit", "-m", starterCommit, "--", ".yardr"}} {
+	for _, args := range [][]string{{"add", rigcheck.RepoPath}, {"commit", "-m", gateCommit, "--", rigcheck.RepoPath}} {
 		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", depot.Path}, args...)...)
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 		if err := cmd.Run(); err != nil {
-			return false, fmt.Errorf("git %s in %s: %w", args[0], depot.Path, err)
+			return fmt.Errorf("git %s in %s: %w", args[0], depot.Path, err)
 		}
 	}
-	return true, nil
-}
-
-// groupPage is the page of a group of agents with a role: the group form
-// (askGroup), starting at <depot>/<role>s on the yard's default harness with
-// its unattended flags and the role's prompt, and ending in yardr group add.
-func (g *guide) groupPage(role string, limit int, what string) page {
-	return func(ctx context.Context, step setupStep) (bool, error) {
-		groups, err := g.st.Groups(ctx)
-		if err != nil {
-			return false, err
-		}
-		kind := or(defaultKind(ctx, g.st), "claude")
-		ans := groupAnswers{Name: step.Depot + "/" + role + "s", Runner: "herdr", Kind: kind, PermArgs: agents.UnattendedArgs(kind),
-			Prompt: "roles/" + role + ".md", Limit: strconv.Itoa(limit), Other: map[string]any{}}
-		fmt.Printf("%s\nThe form starts at a group on %s with the prompt %s (the depot's own\n"+
-			".yardr/roles/%s.md), which is what makes the group the %ss, and with the flags that keep\n"+
-			"%s from stopping to ask, where it has them. Change what you like.\n\n", what, kind, ans.Prompt, role, role, kind)
-		note := func(grp store.Group) string {
-			return "As a command:\n" + commandLine(g.cfg.Home, groupArgs(grp))
-		}
-		if guided(ctx, g.st) {
-			note = nil // the summary above it says the same in words
-		}
-		grp, err := g.a.askGroup(ctx, g.st, groups, ans, false, note)
-		if err != nil || grp == nil {
-			return false, err
-		}
-		return true, g.do(ctx, groupArgs(*grp)...)
-	}
-}
-
-// groupArgs is the yardr group add command line that stores g.
-func groupArgs(g store.Group) []string {
-	args := []string{"group", "add", g.Name, "--runner", g.Runner}
-	if g.Limit > 1 {
-		args = append(args, "--limit", strconv.Itoa(g.Limit))
-	}
-	if len(g.Members) > 0 {
-		args = append(args, "--members", strings.Join(g.Members, ","))
-	}
-	keys := make([]string, 0, len(g.Config))
-	for k := range g.Config {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		args = append(args, "--set", k+"="+setValue(g.Config[k]))
-	}
-	return args
-}
-
-// setValue is v as --set reads it back (parseSets): a string as it is,
-// unless it would read as JSON of another type ("3", "true"), and anything
-// else as JSON.
-func setValue(v any) string {
-	if s, ok := v.(string); ok {
-		var js any
-		if json.Unmarshal([]byte(s), &js) != nil {
-			return s
-		}
-	}
-	b, _ := json.Marshal(v)
-	return string(b)
-}
-
-// How approved beads land.
-const (
-	landAssembly = "assembly"
-	landByHand   = "hand"
-)
-
-// landingPage asks how approved beads land. An assembly is one answer: the
-// page installs merge-local, which this build carries, into the home's
-// scripts and adds the exec group that runs it. By hand is a manual group
-// of the people who merge, and their route for approved with it: a group of
-// people shows as landing only once it is routed (see doing).
-func (g *guide) landingPage(ctx context.Context, step setupStep) (bool, error) {
-	depot, err := g.st.GetDepot(ctx, step.Depot)
-	if err != nil {
-		return false, err
-	}
-	how := landAssembly
-	desc := fmt.Sprintf("An assembly is yardr's merge queue: for each approved bead it rebases the branch, runs the depot's gate\n"+
-		"on exactly what will land and fast-forwards %s, one bead at a time. It is the script merge-local,\n"+
-		"which this installs in %s (docs/pipeline.md, section 4).\n"+
-		"By hand, approved beads wait for the people of a group, who merge them and move them on.",
-		depot.Base, filepath.Join(g.cfg.Home, "scripts"))
-	// merge-local lands on local branches only, and holds every bead of a
-	// depot whose base is a remote's.
-	if _, err := git(ctx, depot.Path, "show-ref", "--verify", "--quiet", "refs/heads/"+depot.Base); err != nil {
-		how = landByHand
-		desc += fmt.Sprintf("\n\nThe base of %s, %s, is not a local branch: the assembly lands on local branches only,\n"+
-			"and would hold every bead.", depot.Name, depot.Base)
-	}
-	if err := ask(huh.NewSelect[string]().Key("landing").Title("How do approved beads land?").Description(desc).Options(
-		huh.NewOption("An assembly: yardr lands them, once the gate passes", landAssembly),
-		huh.NewOption("By hand: people merge them", landByHand),
-	).Value(&how)); err != nil {
-		return false, err
-	}
-	if how == landAssembly {
-		script, err := g.installMergeLocal()
-		if err != nil {
-			return false, err
-		}
-		logs := filepath.Join(g.cfg.Home, "logs")
-		if err := os.MkdirAll(logs, 0o755); err != nil {
-			return false, err
-		}
-		if err := g.do(ctx, "group", "add", depot.Name+"/assembly", "--runner", "exec",
-			"--set", "cmd="+shellQuote(script), "--set", "log="+filepath.Join(logs, "assembly.log")); err != nil {
-			return false, err
-		}
-		fmt.Printf("It lands on %s by fast-forward and pushes nothing; YARDR_PUSH=origin in front of the cmd makes it push\n"+
-			"the base after each landing (contrib/assembly/README.md). A checkout of %s with uncommitted changes holds\n"+
-			"the bead rather than touch them.\n", depot.Base, depot.Base)
-		return true, nil
-	}
-	members := g.a.who()
-	if err := ask(huh.NewInput().Key("members").Title("Who merges?").
-		Description("Comma-separated, as yardr knows them: $USER, or what YARDR_ACTOR says. Only they may move a bead out of approved.").
-		Value(&members).Validate(nonEmpty)); err != nil {
-		return false, err
-	}
-	group := depot.Name + "/mergers"
-	if err := g.do(ctx, "group", "add", group, "--runner", "manual", "--members", strings.Join(splitMembers(members), ",")); err != nil {
-		return false, err
-	}
-	if err := g.do(ctx, "route", "add", "--stage", "approved", "--depot", depot.Name, "--group", group); err != nil {
-		return false, err
-	}
-	fmt.Printf("An approved bead now waits for them: they merge its branch, yard/<bead>, and report it with\n"+
-		"`%s bead done <bead>`. `%s review` goes through what waits for a person.\n", yardrAt(g.cfg.Home), yardrAt(g.cfg.Home))
-	return true, nil
-}
-
-// installMergeLocal writes this build's merge-local into the home's scripts
-// directory and returns its path. One already there is kept as it is, this
-// build's or not: it may be the yard's own, and a script a group runs is not
-// replaced under it.
-func (g *guide) installMergeLocal() (string, error) {
-	path := filepath.Join(g.cfg.Home, "scripts", "merge-local")
-	have, err := os.ReadFile(path)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		if _, err := writeNew(path, string(assembly.MergeLocal), 0o755); err != nil {
-			return "", err
-		}
-		fmt.Printf("\nmerge-local installed: %s (this build's contrib/assembly/merge-local)\n", path)
-	case err != nil:
-		return "", err
-	case bytes.Equal(have, assembly.MergeLocal):
-		fmt.Printf("\nmerge-local is installed already: %s\n", path)
-	default:
-		fmt.Printf("\nmerge-local is there already and differs from this build's: %s is kept as it is\n", path)
-	}
-	return path, nil
-}
-
-// routesPage asks nothing but a yes: the routes follow from the groups the
-// yard has (the step's args), and are shown as the commands they are.
-func (g *guide) routesPage(ctx context.Context, step setupStep) (bool, error) {
-	if len(step.args) == 0 {
-		return true, nil // no group to route to: the caller says what is left
-	}
-	lines := make([]string, len(step.args))
-	for i, args := range step.args {
-		lines[i] = commandLine(g.cfg.Home, args)
-		if guided(ctx, g.st) {
-			lines[i] = routeWords(args)
-		}
-	}
-	add := true
-	if err := ask(huh.NewConfirm().Key("routes").Title("Add these routes?").
-		Description("A route sends the open beads of a stage to a group. These follow from the groups the yard has:\n\n" +
-			strings.Join(lines, "\n")).Value(&add)); err != nil {
-		return false, err
-	}
-	if !add {
-		return false, nil
-	}
-	for _, args := range step.args {
-		if err := g.do(ctx, args...); err != nil {
-			return false, err
-		}
-	}
-	return true, nil
-}
-
-// routeWords is a yardr route add command line in words, for an operator who
-// asked for no raw commands: "stage new of web goes to web/builders".
-func routeWords(args []string) string {
-	flag := map[string]string{}
-	for i := 0; i+1 < len(args); i++ {
-		if name, ok := strings.CutPrefix(args[i], "--"); ok {
-			flag[name] = args[i+1]
-		}
-	}
-	depot := ""
-	if flag["depot"] != "" {
-		depot = " of " + flag["depot"]
-	}
-	return fmt.Sprintf("stage %s%s goes to %s", flag["stage"], depot, flag["group"])
+	return nil
 }
 
 // beadPage asks for a first bead's title and goal, creates it and advances

@@ -29,25 +29,20 @@ is no second list to keep in step with it.
 
 ## The pages
 
-One page per step. Each asks what its command needs, shows the command line
-as you would type it (after `$`, as `yardr --home <home> …` for a home other
-than the default) and runs that command.
+Each page asks what its command needs, shows the command line as you would
+type it (after `$`, as `yardr --home <home> …` for a home other than the
+default) and runs that command.
 
 On a yard whose `operator_style` is `guide`
 ([configuration.md](configuration.md#how-agents-work-with-you)) the pages
 print no command lines: the questions and what each command prints say what
-happens, the group page's summary has no "As a command:", and the routes are
-asked in words (`stage new of webapp goes to webapp/builders`). The commands
-run are the same. With any other style, and with none, the pages show them.
+happens. The commands run are the same. With any other style, and with none,
+the pages show them.
 
 | step | the page asks | and runs |
 |---|---|---|
 | a depot | the repository's path (it starts at the directory you are in, when that is a checkout's top), the depot's name (the directory's, in lowercase), the base branch (the branch checked out) | `yardr depot add <depot> <path> --base <branch>`. A directory that is no git checkout is asked for no base and becomes a dir depot |
-| the depot's `.yardr` files on its base | whether to commit, after `yardr depot init` has run and said what it wrote and which gate it guessed | `yardr depot init <depot>`, then `git -C <path> add .yardr && git -C <path> commit -m '…' -- .yardr`: only `.yardr/` is committed, whatever else is staged |
-| a group that builds | the questions of `yardr group add`'s form (name, runner, agent, model, permissions, prompt, limit), starting at `<depot>/builders` on the yard's `default_kind`, with its unattended flags, `roles/builder.md` and limit 2 | `yardr group add <depot>/builders --runner herdr --limit 2 --set …`. The command is on the form's last page, "Save this group?" |
-| a group that reviews | the same, starting at `<depot>/reviewers`, `roles/reviewer.md`, limit 1 | `yardr group add <depot>/reviewers --runner herdr --set …` |
-| a group or person that lands approved beads | an assembly, or by hand; for by hand, who merges | see below |
-| routes for new, review and approved | nothing but a yes: each stage goes to the group that does its work, and the commands are shown | `yardr route add --stage <stage> --depot <depot> --group <group>` for each stage without a route |
+| the depot's `.yardr` files on its base; a group that builds; a group that reviews; a group or person that lands approved beads; routes for new, review and approved | what the import asks (below), then whether to commit the gate | `yardr depot init <depot> --pack starter`, or `--pack dir` for a dir depot; then `git -C <path> add .yardr/check && git -C <path> commit -m 'yardr: gate' -- .yardr/check` |
 | a first bead | its title and its goal | `yardr bead create "<title>" --depot <depot> -b "<goal>"`, then `yardr bead advance <id> --to new` |
 
 The last step, a first merged bead, has no page: it is the pipeline's to do.
@@ -57,45 +52,59 @@ There the forms end and say where the first bead is and how to watch it:
 view is installed as a login service, its address instead). They also say
 so when no daemon is running, since nothing is dispatched then.
 
-### Committing the depot's files
+### One page sets the depot up
 
-yardr reads a depot's roles, gate and flow from its base branch, not from the
-files in the checkout, so the step is done only once `.yardr/` is committed
-there. The page commits when you say yes and the base is the branch checked
-out in the depot.
+Five of the steps are one import, so they have one page between them:
+[`yardr depot init <depot> --pack <pack>`](packs.md#yardr-depot-init---pack)
+with the pack yardr carries for the depot's kind, `starter` for a git depot
+and `dir` for a dir depot. It gives the depot its flow and stage files, the
+groups that build, review and (in a git depot) land, the two groups of
+people the flow names, and a route for each stage. The roles, the flow and
+the assembly's `merge-local` are the pack's, installed under
+`<home>/packs/<pack>/` and `<home>/flows/`; nothing of them goes into the
+repository.
 
-Answer no to commit by hand: the files stay in the checkout, the page prints
-the command, and the setup waits at this step. Read the files, edit the gate
-(`.yardr/check` is a guess from the repository), commit, and `yardr setup`
-goes on. When the base is not the branch checked out (a remote's branch such
-as `origin/main`, or another local branch), the page does not offer to commit
-and says where the files have to get to.
+The command prints its plan first: every file, group, flow and route it
+would write. Then it asks what [`yardr pack apply`](packs.md#yardr-pack-apply)
+asks:
 
-### How approved beads land
+- for each group of agents, the agent, the model and the permissions (it
+  starts at the yard's `default_kind`, with the flags that keep it from
+  stopping to ask);
+- for each group of people, who is in it (empty for anyone);
+- which crew member takes the pack's yardmaster, when the yard has more than
+  one;
+- `Apply pack <pack> to depot <depot>?`. Nothing is written before this yes.
 
-**An assembly** is one answer. The page writes `merge-local`, as this yardr
-was built with it, to `<home>/scripts/merge-local` (mode 0755) and adds the
-group:
+A yard where part of this was done by hand gets the same page for the rest,
+under the title of the first step not done. The plan says what the import
+would change there: a group that exists under the pack's name is changed,
+and a role the depot has under `.yardr/roles/` is named as shadowed
+([packs.md](packs.md#how-a-pack-maps-to-the-yard)). A step counts as done by its
+route alone, so a group that was added and never routed is not a group that
+builds yet. To finish such a yard by hand instead, add the routes
+(`yardr route add --stage <stage> --depot <depot> --group <group>`) and the
+steps turn done.
 
-```sh
-yardr group add <depot>/assembly --runner exec \
-  --set cmd=<home>/scripts/merge-local --set log=<home>/logs/assembly.log
-```
+The pack's assembly lands on local branches only. When the depot's base is
+not one (a remote's branch such as `origin/main`), the page says so before
+the import runs: every approved bead would be held
+([pipeline.md](pipeline.md#4-approved-the-assembly-lands-it-on-main)).
 
-A `merge-local` already there is kept as it is, this build's or not. The
-group pushes nothing; put `YARDR_PUSH=origin` in front of its `cmd` to push
-the base after each landing ([pipeline.md](pipeline.md#4-approved-the-assembly-lands-it-on-main)).
-merge-local lands on local branches only: when the depot's base is not one, the
-question starts at "by hand" and says so.
+### Committing the gate
 
-**By hand** asks who merges (it starts at you) and runs two commands, the
-group and its route, since a group of people shows as landing only once it is
-routed:
+In a git depot with no gate, the import writes one into the checkout:
+`.yardr/check`, a guess from the repository. yardr reads the gate from the
+depot's base branch, not from the checkout, so the page then asks "Commit the
+gate on `<base>`?". Yes commits that one file, whatever else is staged.
 
-```sh
-yardr group add <depot>/mergers --runner manual --members <them>
-yardr route add --stage approved --depot <depot> --group <depot>/mergers
-```
+No, or leaving the question, keeps the file uncommitted and prints the
+command. The depot is set up either way and the setup goes on, but until
+`.yardr/check` is on the base the depot has no gate and no bead of it lands:
+`yardr depot check <depot>` fails with "no gate". When the base is not the
+branch checked out (a remote's branch, or another local branch), the page
+does not offer to commit and says where the file has to get to. A gate that
+was there already is kept and not asked about, and a dir depot gets none.
 
 ## After each page
 
@@ -144,17 +153,13 @@ on; `yardr peer pair` in a terminal opens the form at any time.
 
 A page that is cancelled (ctrl+c, or no at its last question) has run none
 of its commands: the yard is as the finished pages made it, and
-`yardr setup` goes on from the same step. One thing is left behind by a
-cancelled page: `yardr depot init` writes the depot's files into the checkout
-before the question whether to commit them. They stay there, uncommitted, and
-depot init never overwrites a file, so the page can be taken again.
+`yardr setup` goes on from the same step. Leaving the import, at any of its
+questions or with a no at the last, has written nothing: no group, no file
+under the home, no gate. The forms then stop and print the step and its
+command rather than ask again.
 
 A command that fails ends the run with its error; what the page ran before
 it stays done.
-
-When a page's answers leave its step undone (a builders' group whose prompt
-is not `roles/builder.md`, which is how the step is told), the forms stop and
-print the step and its command rather than ask again.
 
 ## Where no form runs
 

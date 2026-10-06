@@ -254,17 +254,17 @@ func TestDoctorSetUpYard(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// A group does a stage's work once it is routed for it, whatever its role.
 	group("web/builders", "herdr", map[string]any{"kind": "claude", "prompt": "roles/builder.md"})
+	next(stepBuilders)
+	route("new", "web/builders")
 	next(stepReviewers)
 	group("web/reviewers", "herdr", map[string]any{"kind": "claude", "prompt": "roles/reviewer.md"})
+	route("review", "web/reviewers")
 	next(stepLanding)
-	// People who land are known as such by their route.
 	group("web/mergers", "manual", nil)
 	next(stepLanding)
 	route("approved", "web/mergers")
-	next(stepRoutes)
-	route("new", "web/builders")
-	route("review", "web/reviewers")
 	next(stepFirstBead)
 
 	b, err := st.CreateBead(ctx, store.NewBead{Title: "first", Depot: depot.Name}, "me")
@@ -642,7 +642,7 @@ func TestSetupStepsDirDepot(t *testing.T) {
 	if !slices.Equal(keys, []string{stepDepot, stepDepotFiles, stepBuilders, stepReviewers, stepRoutes, stepFirstBead, stepMerged}) {
 		t.Fatalf("keys = %v", keys)
 	}
-	if n := nextStep(steps); n.Key != stepDepotFiles || n.Next != "yardr depot init docs" {
+	if n := nextStep(steps); n.Key != stepDepotFiles || n.Next != "yardr depot init docs --pack dir" {
 		t.Fatalf("next = %+v", n)
 	}
 	if _, err := depotInit(depot, "Jo", "yardmaster", false); err != nil {

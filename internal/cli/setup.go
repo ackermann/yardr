@@ -22,10 +22,6 @@ type setupStep struct {
 	Next string `json:"next,omitempty"`
 	// Depot is the depot the step's command names, once the yard has one.
 	Depot string `json:"depot,omitempty"`
-	// args are the yardr command lines that do the step, when they follow
-	// from the store alone with nothing left to ask: what the guided setup
-	// shows and runs for it (yardr setup).
-	args [][]string
 }
 
 // The setup steps' keys, in their order.
@@ -43,7 +39,6 @@ const (
 // setupState is what the setup steps are read from.
 type setupState struct {
 	depots []store.Depot
-	groups []store.Group
 	routes []store.Route
 	beads  []store.Bead // closed ones too
 	// flows are the flows on each depot's base (in a dir depot's directory), by
@@ -65,9 +60,6 @@ func setupSteps(ctx context.Context, st store.API) ([]setupStep, error) {
 	var s setupState
 	var err error
 	if s.depots, err = st.Depots(ctx); err != nil {
-		return nil, err
-	}
-	if s.groups, err = st.Groups(ctx); err != nil {
 		return nil, err
 	}
 	if s.routes, err = st.Routes(ctx); err != nil {
@@ -128,10 +120,8 @@ func (s setupState) steps() []setupStep {
 	}
 	out := []setupStep{s.depotStep(), s.filesStep()}
 	out = append(out,
-		s.groupStep(stepBuilders, "a group that builds", "new",
-			fmt.Sprintf("yardr group add %s/builders --runner herdr --limit 2 --set prompt=roles/builder.md", depot)),
-		s.groupStep(stepReviewers, "a group that reviews", "review",
-			fmt.Sprintf("yardr group add %s/reviewers --runner herdr --set prompt=roles/reviewer.md", depot)))
+		s.groupStep(stepBuilders, "a group that builds", "new", s.packNext(depot)),
+		s.groupStep(stepReviewers, "a group that reviews", "review", s.packNext(depot)))
 	if lands {
 		// Beads land in a git depot: the first of them is the one its command names.
 		landDepot := depot
@@ -141,9 +131,7 @@ func (s setupState) steps() []setupStep {
 				break
 			}
 		}
-		step := s.groupStep(stepLanding, "a group or person that lands approved beads", "approved",
-			fmt.Sprintf("an assembly (an exec group running merge-local, which yardr setup installs in a terminal; see docs/pipeline.md), or people: "+
-				"yardr group add %s/mergers --runner manual --members <them>", landDepot))
+		step := s.groupStep(stepLanding, "a group or person that lands approved beads", "approved", s.packNext(landDepot))
 		if len(s.depots) > 0 {
 			step.Depot = landDepot
 		}
@@ -156,6 +144,20 @@ func (s setupState) steps() []setupStep {
 		}
 	}
 	return out
+}
+
+// packNext is the command that sets depot up from a pack: the one command
+// for the depot's flow, its groups and their routes, so every step between
+// the depot and the first bead names it. The pack is the one yardr carries
+// for the depot's kind (setupPack).
+func (s setupState) packNext(depot string) string {
+	pack := setupPack(store.Depot{})
+	for _, r := range s.depots {
+		if r.Name == depot {
+			pack = setupPack(r)
+		}
+	}
+	return fmt.Sprintf("yardr depot init %s --pack %s", depot, pack)
 }
 
 func (s setupState) depotStep() setupStep {
@@ -173,25 +175,22 @@ func (s setupState) depotStep() setupStep {
 	return step
 }
 
-// filesStep is done when every depot has a flow where yardr reads it: under
-// .yardr/flows/ on its base (in a dir depot's directory), or in the store
-// when the depot points at one there, as a pack's import makes it. The flow
-// stands for the depot's files: depot init writes it with the roles and the
-// gate, and it is the one of them the store reads.
+// filesStep is done when every depot has a flow where yardr reads it: in the
+// store when the depot points at one there, as a pack's import makes it, or
+// under .yardr/flows/ on its base (in a dir depot's directory), where depot
+// init without a pack writes it and a depot set up by hand keeps it.
 func (s setupState) filesStep() setupStep {
 	step := setupStep{Key: stepDepotFiles, Title: "the depot's .yardr files on its base",
-		Detail: "there is no depot yet", Next: "yardr depot init <depot>, then commit .yardr/ on its base"}
+		Detail: "there is no depot yet", Next: s.packNext("<depot>")}
 	if len(s.depots) == 0 {
 		return step
 	}
 	var have, lack []string
 	step.Next = ""
 	for _, r := range s.depots {
-		where, next := "on its base "+or(r.Base, "origin/main"), ""
+		where := "on its base " + or(r.Base, "origin/main")
 		if r.IsDir() {
 			where = "in " + r.Path
-		} else {
-			next = ", then commit .yardr/ " + where
 		}
 		switch {
 		case s.pointed[r.Name] != "":
@@ -200,13 +199,13 @@ func (s setupState) filesStep() setupStep {
 		case s.flowErr[r.Name] != "":
 			lack = append(lack, s.flowErr[r.Name])
 		case s.flows[r.Name] == 0:
-			lack = append(lack, fmt.Sprintf("depot %s has no flow under .yardr/flows/ %s", r.Name, where))
+			lack = append(lack, fmt.Sprintf("depot %s follows no flow of a pack, and has none under .yardr/flows/ %s", r.Name, where))
 		default:
 			have = append(have, fmt.Sprintf("%s has its flow %s", r.Name, where))
 			continue
 		}
 		if step.Next == "" {
-			step.Next, step.Depot = "yardr depot init "+r.Name+next, r.Name
+			step.Next, step.Depot = s.packNext(r.Name), r.Name
 		}
 	}
 	if len(lack) > 0 {
@@ -217,30 +216,14 @@ func (s setupState) filesStep() setupStep {
 	return step
 }
 
-// stageRoles are the stages the setup routes, each with the role file of
-// the group that works it.
-var stageRoles = map[string]string{"new": "builder.md", "review": "reviewer.md", "approved": "merger.md"}
-
-// doing are the groups that do the work of stage: one whose prompt is the
-// stage's role file, then one routed for the stage. An exec group whose
-// command merges lands too (an assembly not yet routed).
+// doing are the groups that do the work of stage: the ones a route sends its
+// beads to. A route is what a pack's import and a setup by hand both end in,
+// and it says who works a stage without a word about the group's role.
 func (s setupState) doing(stage string) []string {
 	var names []string
-	add := func(name string) {
-		if !slices.Contains(names, name) {
-			names = append(names, name)
-		}
-	}
-	for _, g := range s.groups {
-		prompt, _ := g.Config["prompt"].(string)
-		cmd, _ := g.Config["cmd"].(string)
-		if roleFile(prompt) == stageRoles[stage] || (stage == "approved" && g.Runner == "exec" && strings.Contains(cmd, "merge")) {
-			add(g.Name)
-		}
-	}
 	for _, r := range s.routes {
-		if r.Stage == stage {
-			add(r.Group)
+		if r.Stage == stage && !slices.Contains(names, r.Group) {
+			names = append(names, r.Group)
 		}
 	}
 	return names
@@ -251,7 +234,7 @@ func (s setupState) groupStep(key, title, stage, next string) setupStep {
 	step := setupStep{Key: key, Title: title}
 	names := s.doing(stage)
 	if len(names) == 0 {
-		step.Detail = fmt.Sprintf("no group has the role %s or a route for stage %s", strings.TrimSuffix(stageRoles[stage], ".md"), stage)
+		step.Detail = fmt.Sprintf("no group is routed for stage %s", stage)
 		step.Next = next
 		return step
 	}
@@ -284,18 +267,7 @@ func (s setupState) routesStep(depot string, lands bool) setupStep {
 		return step
 	}
 	step.Detail = "no route for " + list(lack)
-	// A stage's route goes to the group that does its work, when the yard
-	// has one: then the command is whole, and the guided setup runs it.
-	for _, stage := range lack {
-		group := "<group>"
-		if names := s.doing(stage); len(names) > 0 {
-			group = names[0]
-			step.args = append(step.args, []string{"route", "add", "--stage", stage, "--depot", depot, "--group", group})
-		}
-		if step.Next == "" {
-			step.Next = fmt.Sprintf("yardr route add --stage %s --depot %s --group %s", stage, depot, group)
-		}
-	}
+	step.Next = s.packNext(depot)
 	return step
 }
 

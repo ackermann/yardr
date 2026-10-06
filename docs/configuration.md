@@ -1158,7 +1158,7 @@ they stop, so the home goes last.
 | sessions working beads | a herdr workspace per bead | `yardr session list`, `herdr workspace list` | `herdr workspace close <id>` for each that is left. Look at the bead's worktree first (the home, below) |
 | the daemon | a process holding `<home>/daemon.lock` | `yardr daemon status` | `yardr daemon stop` |
 | the server | a process; `<home>/server.pid`, `yard.sock` | `yardr server status` | `yardr server stop`. Any yardr command after it starts a server again, so run none before the home is gone. A server or daemon still running when the home is removed stops by itself within a minute ([above](#yardrs-own-state)) |
-| the home | `~/.yardr`, or what `YARDR_HOME` names: the store, the roles, the logs, `scripts/merge-local` and `logs/` (an assembly's, from `yardr setup`), `worktrees/`, `depots/` | `ls -a <home>` | `rm -rf <home>`, typed by you with the path. Read the next paragraph first |
+| the home | `~/.yardr`, or what `YARDR_HOME` names: the store, the roles, the logs, `packs/` and `flows/` (an imported pack's roles, scripts and stage files; the assembly's `merge-local` is one of them), `worktrees/`, `depots/` | `ls -a <home>` | `rm -rf <home>`, typed by you with the path. Read the next paragraph first |
 | a depot's `.yardr` files | in the repository, committed on its base branch: `.yardr/roles/`, `.yardr/check`, `.yardr/flows/` | `git -C <repo> ls-files .yardr` | keep them: a new yard that adds the repository as a depot reads them as they are. To start the depot's configuration over too: `git -C <repo> rm -r .yardr`, and commit |
 
 **Before the home is removed**, look at two directories in it, because they
@@ -1637,10 +1637,9 @@ in `<home>/logs/refinery.log`, a pack's is still `<depot>-refinery`, and
 the yard that builds yardr still lands through `yardr-refinery`; routes,
 sessions and the events that name the group as their actor are as they
 were. `yardr setup` and `yardr doctor` find what lands approved beads by
-what a group does (an exec group whose command merges, or a route for
-`approved`), not by its name, so neither offers a second one. A new group
-from `yardr setup` is `<depot>/assembly` with `<home>/logs/assembly.log`,
-and a first import of the starter pack makes `<depot>-assembly`. To have
+its route for `approved`, not by its name, so neither offers a second one.
+A first import of the starter pack makes `<depot>-assembly`, and that
+import is what `yardr setup` runs. To have
 the new name on a yard you already run, add the group under it with the
 same `cmd`, point the route for `approved` at it and remove the old one;
 nothing needs it.

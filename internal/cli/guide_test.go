@@ -1,9 +1,9 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,7 +15,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 
-	"yardr.dev/yardr/contrib/assembly"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -206,36 +205,34 @@ func yardSnapshot(t *testing.T, st store.API) string {
 
 // The forms alone, every page accepted, take an initialized yard to a first
 // bead in stage new: each page shows its command line and runs that
-// command, and asks how to go on after every page.
+// command, and asks how to go on after every page. One page sets the depot
+// up from the pack: the flow, the groups and the routes are its import's.
 func TestSetupForms(t *testing.T) {
 	f := &former{answers: map[string]any{"title": "Say hello", "goal": "HELLO.md says hello. Done when it is committed."},
-		goes: []string{goHere, goHere, goHere, goHere, goHere, goHere, goHere}}
+		goes: []string{goHere, goHere, goHere}}
 	home, st, repo := setupYard(t, f)
 	ctx := context.Background()
+	// Something else staged in the checkout is not swept into the gate's commit.
+	if err := os.WriteFile(filepath.Join(repo, "wip.txt"), []byte("wip\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, repo, "add", "wip.txt")
 	out := setup(t, st)
 
 	yardr := "yardr --home " + home
-	script := filepath.Join(home, "scripts", "merge-local")
 	quoted := shellQuote(repo)
 	lines := []string{
 		"  todo   a depot: no repository is a depot of this yard yet",
 		"Setup: a depot",
 		"$ " + yardr + " depot add web-app " + quoted + " --base main",
 		"Setup: the depot's .yardr files on its base",
-		"$ " + yardr + " depot init web-app",
-		"The gate passes everything until its TODO is filled in.",
-		"$ git -C " + quoted + " add .yardr && git -C " + quoted + " commit -m 'yardr: starter roles, gate, flow and stage files' -- .yardr",
-		"Setup: a group that builds",
-		"$ " + yardr + " group add web-app/builders --runner herdr --limit 2 --set 'args=[\"--permission-mode\",\"auto\"]' --set kind=claude --set prompt=roles/builder.md",
-		"Setup: a group that reviews",
-		"$ " + yardr + " group add web-app/reviewers --runner herdr --set 'args=[\"--permission-mode\",\"auto\"]' --set kind=claude --set prompt=roles/reviewer.md",
-		"Setup: a group or person that lands approved beads",
-		"merge-local installed: " + script,
-		"$ " + yardr + " group add web-app/assembly --runner exec --set cmd=" + script + " --set log=" + filepath.Join(home, "logs", "assembly.log"),
-		"Setup: routes for new, review and approved",
-		"$ " + yardr + " route add --stage new --depot web-app --group web-app/builders",
-		"$ " + yardr + " route add --stage review --depot web-app --group web-app/reviewers",
-		"$ " + yardr + " route add --stage approved --depot web-app --group web-app/assembly",
+		"This sets depot web-app up from the pack starter",
+		"$ " + yardr + " depot init web-app --pack starter",
+		"pack starter (",
+		"  create           web-app-builders\n",
+		"applied pack starter to depot web-app: ",
+		"gate: wrote .yardr/check in " + repo + ": it passes everything until its TODO is filled in",
+		"$ git -C " + quoted + " add .yardr/check && git -C " + quoted + " commit -m 'yardr: gate' -- .yardr/check",
 		"Setup: a first bead",
 		"$ " + yardr + " bead create 'Say hello' --depot web-app -b 'HELLO.md says hello. Done when it is committed.'",
 		"--to new",
@@ -251,42 +248,40 @@ func TestSetupForms(t *testing.T) {
 		}
 		rest = rest[i+len(l):]
 	}
+	// One page did what five did: no page of its own for a group or a route.
+	if n := strings.Count(out, "\nSetup: "); n != 3 {
+		t.Errorf("%d pages, want 3:\n%s", n, out)
+	}
 
 	depot, err := st.GetDepot(ctx, "web-app")
 	if err != nil || resolve(depot.Path) != resolve(repo) || depot.Base != "main" || depot.IsDir() {
 		t.Fatalf("depot = %+v, %v", depot, err)
 	}
-	// Committed on the base, and nothing else with it.
-	if got := gitIn(t, repo, "log", "-1", "--format=%s"); got != starterCommit {
+	// The gate is committed on the base, alone: the checkout holds nothing
+	// else of yardr's, and what was staged is staged still.
+	if got := gitIn(t, repo, "log", "-1", "--format=%s"); got != gateCommit {
 		t.Errorf("last commit = %q", got)
 	}
-	if got := gitIn(t, repo, "status", "--porcelain"); got != "" {
-		t.Errorf("the checkout is not clean:\n%s", got)
+	if got := gitIn(t, repo, "show", "--name-only", "--format=", "HEAD"); got != ".yardr/check" {
+		t.Errorf("the commit holds %q", got)
 	}
-	want := map[string]store.Group{
-		"web-app/builders": {Runner: "herdr", Limit: 2, Config: map[string]any{"kind": "claude", "prompt": "roles/builder.md",
-			"args": []any{"--permission-mode", "auto"}}},
-		"web-app/reviewers": {Runner: "herdr", Limit: 1, Config: map[string]any{"kind": "claude", "prompt": "roles/reviewer.md",
-			"args": []any{"--permission-mode", "auto"}}},
-		"web-app/assembly": {Runner: "exec", Limit: 1, Config: map[string]any{"cmd": script,
-			"log": filepath.Join(home, "logs", "assembly.log")}},
+	if got := gitIn(t, repo, "status", "--porcelain"); got != "A  wip.txt" {
+		t.Errorf("status after the commit: %q", got)
 	}
-	for name, w := range want {
+	// The groups are the pack's, with its roles and its script under the home.
+	roles := filepath.Join(home, "packs", "starter", "roles")
+	for name, prompt := range map[string]string{"web-app-builders": "builder.md", "web-app-reviewers": "reviewer.md"} {
 		g, err := st.GetGroup(ctx, name)
-		if err != nil || g.Runner != w.Runner || g.Limit != w.Limit || !reflect.DeepEqual(g.Config, w.Config) {
+		if err != nil || g.Runner != "herdr" || g.Config["kind"] != "claude" || g.Config["prompt"] != filepath.Join(roles, prompt) {
 			t.Errorf("group %s = %+v, %v", name, g, err)
 		}
 	}
-	// The assembly's script is this build's, executable, and its log has a
-	// directory to be in.
-	if b, err := os.ReadFile(script); err != nil || !bytes.Equal(b, assembly.MergeLocal) {
-		t.Errorf("merge-local: %v", err)
+	script := filepath.Join(home, "packs", "starter", "scripts", "merge-local")
+	if g, err := st.GetGroup(ctx, "web-app-assembly"); err != nil || g.Runner != "exec" || !strings.Contains(fmt.Sprint(g.Config["cmd"]), script) {
+		t.Errorf("assembly = %+v, %v", g, err)
 	}
 	if info, err := os.Stat(script); err != nil || info.Mode().Perm() != 0o755 {
 		t.Errorf("merge-local mode: %v %v", info, err)
-	}
-	if _, err := os.Stat(filepath.Join(home, "logs")); err != nil {
-		t.Error(err)
 	}
 	routes, _ := st.Routes(ctx)
 	var got []string
@@ -294,8 +289,13 @@ func TestSetupForms(t *testing.T) {
 		got = append(got, r.Stage+" "+deref(r.Depot)+" "+r.Group)
 	}
 	slices.Sort(got)
-	if w := []string{"approved web-app web-app/assembly", "new web-app web-app/builders", "review web-app web-app/reviewers"}; !slices.Equal(got, w) {
-		t.Errorf("routes = %v", got)
+	for _, w := range []string{"approved web-app web-app-assembly", "new web-app web-app-builders", "review web-app web-app-reviewers"} {
+		if !slices.Contains(got, w) {
+			t.Errorf("routes = %v, without %q", got, w)
+		}
+	}
+	if ptrs, err := st.FlowPointers(ctx); err != nil || len(ptrs) != 1 || ptrs[0].Depot != "web-app" || ptrs[0].Flow != "starter.default" {
+		t.Errorf("flow pointers = %+v, %v", ptrs, err)
 	}
 	beads, _ := st.ListBeads(ctx, store.BeadFilter{Depot: "web-app"})
 	if len(beads) != 1 || beads[0].Title != "Say hello" || beads[0].Stage != "new" || !strings.Contains(beads[0].Body, "HELLO.md") {
@@ -306,8 +306,8 @@ func TestSetupForms(t *testing.T) {
 	}
 	// How to go on was asked after every page, including the first bead;
 	// keeping going from that page prints how to watch it.
-	if n := len(slices.DeleteFunc(slices.Clone(f.asked), func(k string) bool { return k != "go" })); n != 7 || len(f.goes) != 0 {
-		t.Errorf("asked how to go on %d times, want 7: %v", n, f.asked)
+	if n := len(slices.DeleteFunc(slices.Clone(f.asked), func(k string) bool { return k != "go" })); n != 3 || len(f.goes) != 0 {
+		t.Errorf("asked how to go on %d times, want 3: %v", n, f.asked)
 	}
 
 	// Run again, there is no page left: it says where the bead is.
@@ -318,53 +318,32 @@ func TestSetupForms(t *testing.T) {
 }
 
 // The setup goes on where the yard stands: stopped after every page and run
-// again, each run takes exactly the next step's page and none before it,
-// whoever did the steps before (here the form, and for one a command).
+// again, each run takes exactly the next step's page and none before it.
 func TestSetupGoesOnWhereTheYardStands(t *testing.T) {
 	f := &former{answers: map[string]any{"name": "web", "title": "Say hello", "goal": "HELLO.md says hello."}}
 	home, st, _ := setupYard(t, f)
-	ctx := context.Background()
 	for _, tc := range []struct {
 		step  string
 		asked []string // the page's keyed fields, then how to go on
 		next  string
 	}{
 		{stepDepot, []string{"path", "name", "base", "go"}, stepDepotFiles},
-		{stepDepotFiles, []string{"commit", "go"}, stepBuilders},
-		{stepBuilders, []string{"go"}, stepReviewers},
-		{stepReviewers, nil, stepLanding}, // by a command, below
-		{stepLanding, []string{"landing", "go"}, stepRoutes},
-		{stepRoutes, []string{"routes"}, stepFirstBead},
+		{stepDepotFiles, []string{"commit", "go"}, stepFirstBead},
 		{stepFirstBead, []string{"title", "goal", "go"}, stepMerged},
 	} {
 		if got := todo(t, st); got != tc.step {
 			t.Fatalf("next step = %q, want %q", got, tc.step)
 		}
-		if tc.step == stepReviewers {
-			// Someone on the command line, or the yardmaster.
-			if _, err := run(t, (&app{st: st}).rootCmd(), "group", "add", "web/reviewers", "--runner", "herdr", "--set", "prompt=roles/reviewer.md"); err != nil {
-				t.Fatal(err)
-			}
-			continue
-		}
 		f.asked = nil
-		if tc.step == stepRoutes {
-			f.goes = []string{goHere} // on to the bead's page, which is cancelled
-			f.abort = func(fld huh.Field) bool { return fld.GetKey() == "title" }
-		}
 		if tc.step == stepFirstBead {
 			f.goes = []string{goHere} // after the last form page, show how to watch the bead
 		}
 		out := setup(t, st)
-		f.abort = nil
 		keyed := slices.DeleteFunc(slices.Clone(f.asked), func(k string) bool { return k == "" })
-		if tc.step == stepRoutes {
-			keyed = keyed[:1] // then how to go on, and the bead's title
-		}
 		if !slices.Equal(keyed, tc.asked) {
 			t.Fatalf("%s: asked %v, want %v\n%s", tc.step, keyed, tc.asked, out)
 		}
-		if n := strings.Count(out, "\nSetup: "); n != 1 && tc.step != stepRoutes {
+		if n := strings.Count(out, "\nSetup: "); n != 1 {
 			t.Fatalf("%s: %d pages in one run:\n%s", tc.step, n, out)
 		}
 		if tc.next != stepMerged && !strings.Contains(out, "`yardr --home "+home+" setup` goes on from here") {
@@ -374,32 +353,84 @@ func TestSetupGoesOnWhereTheYardStands(t *testing.T) {
 			t.Fatalf("after %s the next step = %q, want %q\n%s", tc.step, got, tc.next, out)
 		}
 	}
-	if g, err := st.GetGroup(ctx, "web/builders"); err != nil || g.Limit != 2 {
-		t.Fatalf("builders = %+v, %v", g, err)
+}
+
+// A depot someone started by hand (depot init without a pack, committed; a
+// builders' group, not routed) gets the same page for what is left: a group
+// counts once it is routed, and the import's plan names the depot's own
+// role as shadowed. The gate that is there is kept, and not asked about.
+func TestSetupAfterAStartByHand(t *testing.T) {
+	f := &former{}
+	home, st, _ := setupYard(t, f)
+	ctx := context.Background()
+	depot := gitDepot(t, st)
+	commitDepot(t, depot)
+	if err := st.PutGroup(ctx, store.Group{Name: "web/builders", Runner: "herdr", Config: map[string]any{"prompt": "roles/builder.md"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := todo(t, st); got != stepBuilders {
+		t.Fatalf("next step = %q", got)
+	}
+	out := setup(t, st)
+	wantText(t, out, "  done   the depot's .yardr files on its base: web has its flow on its base main",
+		"  todo   a group that builds: no group is routed for stage new",
+		"Setup: a group that builds", "$ yardr --home "+home+" depot init web --pack starter",
+		"shadows .yardr/roles/builder.md", "gate: .yardr/check in "+depot.Path+" is already there, kept")
+	if slices.Contains(f.asked, "commit") {
+		t.Errorf("asked to commit a gate that was there: %v", f.asked)
+	}
+	if got := todo(t, st); got != stepFirstBead {
+		t.Fatalf("next step = %q\n%s", got, out)
+	}
+	if got := gitIn(t, depot.Path, "status", "--porcelain"); got != "" {
+		t.Errorf("the checkout changed:\n%s", got)
+	}
+}
+
+// A directory that is no checkout becomes a dir depot, and its page sets it
+// up from the pack for one: no gate, no commit, nothing to land.
+func TestSetupDirDepot(t *testing.T) {
+	dir := filepath.Join(shortDir(t, "docs"), "notes")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f := &former{answers: map[string]any{"path": dir}, goes: []string{goHere}}
+	home, st, _ := setupYard(t, f)
+	out := setup(t, st)
+	wantText(t, out, "$ yardr --home "+home+" depot init notes --pack dir", "applied pack dir to depot notes: ", "gate: none written.")
+	if slices.Contains(f.asked, "commit") {
+		t.Errorf("asked to commit in a directory: %v", f.asked)
+	}
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
+		t.Errorf("the directory holds %v, %v", entries, err)
+	}
+	if got := todo(t, st); got != stepFirstBead {
+		t.Fatalf("next step = %q\n%s", got, out)
+	}
+	if _, err := st.GetGroup(context.Background(), "notes-assembly"); err == nil {
+		t.Error("a dir depot got an assembly")
 	}
 }
 
 // Cancelling on any page leaves the yard as the finished pages made it: no
-// command of the cancelled page has run. The depot's files are the one thing
-// a cancelled page leaves behind, in the checkout and uncommitted.
+// command of the cancelled page has run. Leaving the import at its last
+// question has written nothing, the gate included.
 func TestSetupCancelled(t *testing.T) {
 	f := &former{answers: map[string]any{"name": "web", "title": "Say hello", "goal": "HELLO.md says hello."}}
-	_, st, repo := setupYard(t, f)
-	lastConfirm := func(fld huh.Field) bool { _, ok := fld.(*huh.Confirm); return ok }
+	home, st, repo := setupYard(t, f)
 	key := func(k string) func(huh.Field) bool {
 		return func(fld huh.Field) bool { return fld.GetKey() == k }
 	}
 	for _, tc := range []struct {
 		step  string
 		abort func(huh.Field) bool // at the page's last question
+		says  string
 	}{
-		{stepDepot, key("base")},
-		{stepDepotFiles, key("commit")},
-		{stepBuilders, lastConfirm},
-		{stepReviewers, lastConfirm},
-		{stepLanding, key("landing")},
-		{stepRoutes, key("routes")},
-		{stepFirstBead, key("goal")},
+		{stepDepot, key("base"), "Cancelled at: a depot."},
+		// The import's own confirmation, which is the command's and has no key.
+		{stepDepotFiles, func(fld huh.Field) bool { _, ok := fld.(*huh.Confirm); return ok },
+			"Still to do: the depot's .yardr files on its base: depot web follows no flow of a pack, and has none under .yardr/flows/ on its base main.\n  yardr --home " + home + " depot init web --pack starter"},
+		{stepFirstBead, key("goal"), "Cancelled at: a first bead."},
 	} {
 		if got := todo(t, st); got != tc.step {
 			t.Fatalf("next step = %q, want %q", got, tc.step)
@@ -407,15 +438,17 @@ func TestSetupCancelled(t *testing.T) {
 		before := yardSnapshot(t, st)
 		f.abort = tc.abort
 		out := setup(t, st)
-		if !strings.Contains(out, "Cancelled at: ") || strings.Contains(out, "$ YARDR_HOME") && tc.step != stepDepotFiles {
-			t.Errorf("%s cancelled:\n%s", tc.step, out)
-		}
+		wantText(t, out, tc.says)
 		if after := yardSnapshot(t, st); after != before {
 			t.Errorf("%s cancelled changed the yard:\n%s\n%s", tc.step, before, after)
 		}
+		if got := gitIn(t, repo, "status", "--porcelain"); got != "" {
+			t.Errorf("%s cancelled left in the checkout: %q", tc.step, got)
+		}
 		if tc.step == stepDepotFiles {
-			if got := gitIn(t, repo, "status", "--porcelain"); got != "?? .yardr/" {
-				t.Errorf("after depot init, cancelled at the commit: %q", got)
+			wantText(t, out, "cancelled; nothing was changed")
+			if _, err := os.Stat(filepath.Join(home, "packs")); err == nil {
+				t.Error("a cancelled import installed the pack's files")
 			}
 		}
 		// The page again, finished, then stop.
@@ -427,126 +460,56 @@ func TestSetupCancelled(t *testing.T) {
 	}
 }
 
-// "No" to the commit leaves the files uncommitted and the setup waiting
-// there, with the command to commit them by hand; the page again, with yes,
-// commits them, depot init keeping what it wrote. A base that is not the
-// branch checked out is never committed on.
-func TestSetupCommitByHand(t *testing.T) {
-	f := &former{answers: map[string]any{"name": "web", "commit": false}, goes: []string{goHere}}
+// "No" to the commit, and leaving the question, leave the gate uncommitted
+// with the command that commits it and what the depot lacks until then. The
+// depot is set up all the same, so the setup goes on to the first bead.
+func TestSetupGateCommittedByHand(t *testing.T) {
+	for name, f := range map[string]*former{
+		"no":   {answers: map[string]any{"name": "web", "commit": false}, goes: []string{goHere}},
+		"left": {answers: map[string]any{"name": "web"}, goes: []string{goHere}, abort: func(fld huh.Field) bool { return fld.GetKey() == "commit" }},
+	} {
+		t.Run(name, func(t *testing.T) {
+			home, st, repo := setupYard(t, f)
+			out := setup(t, st)
+			wantText(t, out, "Not committed. Until .yardr/check is on main the depot has no gate, and no bead of it lands: `yardr --home "+home+" depot check web` fails with \"no gate\".",
+				"git -C "+shellQuote(repo)+" add .yardr/check && git -C "+shellQuote(repo)+" commit -m 'yardr: gate' -- .yardr/check")
+			if strings.Contains(out, "Cancelled at: ") {
+				t.Errorf("an import that was applied is called cancelled:\n%s", out)
+			}
+			if got := todo(t, st); got != stepFirstBead {
+				t.Fatalf("next step = %q\n%s", got, out)
+			}
+			if got := gitIn(t, repo, "log", "--format=%s"); got != "first" {
+				t.Fatalf("committed: %s", got)
+			}
+			if got := gitIn(t, repo, "status", "--porcelain"); got != "?? .yardr/" {
+				t.Errorf("status = %q", got)
+			}
+		})
+	}
+}
+
+// A base that is not the branch checked out is never committed on, and one
+// that is no local branch is named before the import as one the pack's
+// assembly cannot land on.
+func TestSetupGateOffTheBase(t *testing.T) {
+	f := &former{answers: map[string]any{"name": "web"}, goes: []string{goHere}}
 	_, st, repo := setupYard(t, f)
+	// A tag resolves as a base and is no branch an assembly could land on.
+	gitIn(t, repo, "tag", "v1")
+	f.answers["base"] = "v1"
 	out := setup(t, st)
-	wantText(t, out, "Not committed. The files are in "+repo+"/.yardr; to commit them:",
-		"git -C "+shellQuote(repo)+" add .yardr && git -C "+shellQuote(repo)+" commit -m '"+starterCommit+"' -- .yardr",
-		"The setup waits at: the depot's .yardr files on its base.")
-	if got := todo(t, st); got != stepDepotFiles {
-		t.Fatalf("next step = %q", got)
+	wantText(t, out, "The base of web, v1, is not a local branch: the pack's assembly lands on local branches only",
+		"The base, v1, is not the branch checked out in "+repo+" (main), so this form does not commit there.",
+		"Get .yardr/check onto v1 yourself", "Until .yardr/check is on v1 the depot has no gate")
+	if slices.Contains(f.asked, "commit") {
+		t.Fatalf("asked to commit off the base: %v\n%s", f.asked, out)
 	}
 	if got := gitIn(t, repo, "log", "--format=%s"); got != "first" {
 		t.Fatalf("committed: %s", got)
 	}
-
-	gitIn(t, repo, "checkout", "-q", "-b", "work")
-	f.asked = nil
-	out = setup(t, st)
-	wantText(t, out, "The base, main, is not the branch checked out in "+repo+" (work), so this form does not commit there.")
-	if slices.Contains(f.asked, "commit") || todo(t, st) != stepDepotFiles {
-		t.Fatalf("asked to commit off the base: %v\n%s", f.asked, out)
-	}
-
-	gitIn(t, repo, "checkout", "-q", "main")
-	// Something else staged in the checkout is not swept into the commit.
-	if err := os.WriteFile(filepath.Join(repo, "wip.txt"), []byte("wip\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	gitIn(t, repo, "add", "wip.txt")
-	f.answers["commit"] = true
-	out = setup(t, st)
-	wantText(t, out, "nothing written, every file is already in "+repo)
-	if got := todo(t, st); got != stepBuilders {
-		t.Fatalf("next step = %q\n%s", got, out)
-	}
-	if got := gitIn(t, repo, "status", "--porcelain"); got != "A  wip.txt" {
-		t.Errorf("status after the commit: %q", got)
-	}
-}
-
-// By hand is a manual group of the people named, routed for approved in the
-// same page, so the step shows done; the routes page then has two left. A
-// base that is no local branch starts the question at by hand and says why.
-func TestSetupLandsByHand(t *testing.T) {
-	f := &former{answers: map[string]any{"members": "jo, sam"}, goes: []string{goHere}}
-	home, st, _ := setupYard(t, f)
-	ctx := context.Background()
-	depot := gitDepot(t, st)
-	commitDepot(t, depot)
-	// A tag resolves as a base and is no branch an assembly could land on.
-	gitIn(t, depot.Path, "tag", "v1")
-	depot.Base = "v1"
-	if err := st.PutDepot(ctx, depot, "me"); err != nil {
-		t.Fatal(err)
-	}
-	for _, role := range []string{"builder", "reviewer"} {
-		if err := st.PutGroup(ctx, store.Group{Name: "web/" + role + "s", Runner: "herdr", Config: map[string]any{"prompt": "roles/" + role + ".md"}}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	var desc string
-	f.abort = func(fld huh.Field) bool {
-		if fld.GetKey() == "landing" {
-			desc = fld.View()
-		}
-		return false
-	}
-	out := setup(t, st)
-	yardr := "yardr --home " + home
-	wantText(t, out, "$ "+yardr+" group add web/mergers --runner manual --members jo,sam",
-		"$ "+yardr+" route add --stage approved --depot web --group web/mergers",
-		"$ "+yardr+" route add --stage new --depot web --group web/builders",
-		"$ "+yardr+" route add --stage review --depot web --group web/reviewers")
-	if strings.Count(out, "--stage approved") != 1 {
-		t.Errorf("approved routed twice:\n%s", out)
-	}
-	if !strings.Contains(desc, "is not a local branch") {
-		t.Errorf("the question does not say why by hand:\n%s", desc)
-	}
-	g, err := st.GetGroup(ctx, "web/mergers")
-	if err != nil || g.Runner != "manual" || !slices.Equal(g.Members, []string{"jo", "sam"}) {
-		t.Fatalf("mergers = %+v, %v", g, err)
-	}
-	if _, err := os.Stat(filepath.Join(home, "scripts", "merge-local")); err == nil {
-		t.Error("merge-local installed for a yard that lands by hand")
-	}
-	if got := todo(t, st); got != stepFirstBead {
-		t.Fatalf("next step = %q\n%s", got, out)
-	}
-}
-
-// A merge-local already in the home's scripts is kept as it is.
-func TestSetupKeepsAnInstalledMergeLocal(t *testing.T) {
-	f := &former{}
-	home, st, _ := setupYard(t, f)
-	depot := gitDepot(t, st)
-	commitDepot(t, depot)
-	ctx := context.Background()
-	for _, role := range []string{"builder", "reviewer"} {
-		if err := st.PutGroup(ctx, store.Group{Name: "web/" + role + "s", Runner: "herdr", Config: map[string]any{"prompt": "roles/" + role + ".md"}}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	script := filepath.Join(home, "scripts", "merge-local")
-	if err := os.MkdirAll(filepath.Dir(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(script, []byte("#!/bin/sh\n# the yard's own\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	out := setup(t, st)
-	wantText(t, out, "differs from this build's: "+script+" is kept as it is")
-	if b, _ := os.ReadFile(script); string(b) != "#!/bin/sh\n# the yard's own\n" {
-		t.Errorf("merge-local replaced:\n%s", b)
-	}
-	if got := todo(t, st); got != stepRoutes {
-		t.Fatalf("next step = %q\n%s", got, out)
+	if strings.Index(out, "is not a local branch") > strings.Index(out, "depot init web --pack starter") {
+		t.Errorf("the base is named after the import ran:\n%s", out)
 	}
 }
 
@@ -556,7 +519,7 @@ func TestSetupKeepsAnInstalledMergeLocal(t *testing.T) {
 // chat: it says what yardr doctor says of the yardmaster, and how to start
 // the yard.
 func TestSetupTalkToTheYardmaster(t *testing.T) {
-	f := &former{answers: map[string]any{"name": "web"}, goes: []string{goYardmaster}}
+	f := &former{answers: map[string]any{"name": "app", "title": "Say hello", "goal": "HELLO.md says hello."}, goes: []string{goYardmaster}}
 	home, st, _ := setupYard(t, f)
 	mustAs(t, st, "Jo", "user", "add", "me")
 	focused := stubFocus(t)
@@ -592,11 +555,13 @@ func TestSetupTalkToTheYardmaster(t *testing.T) {
 	if strings.Contains(out, "yardmaster is running, in herdr:") {
 		t.Errorf("the chat was opened, and the pane is named all the same:\n%s", out)
 	}
-	if len(*focused) != 0 || !slices.Equal(*chats, []string{"yardmaster, expecting yardmaster"}) || todo(t, st) != stepReviewers {
+	if len(*focused) != 0 || !slices.Equal(*chats, []string{"yardmaster, expecting yardmaster"}) || todo(t, st) != stepMerged {
 		t.Fatalf("focused %v, chats %v, next %s\n%s", *focused, *chats, todo(t, st), out)
 	}
 
-	// --no-chat: the pane, as before there was a chat.
+	// --no-chat: the pane, as before there was a chat. A second depot gives
+	// the forms a page to ask after.
+	gitDepot(t, st)
 	f.goes = []string{goYardmaster}
 	out = setup(t, st, "--actor", "me", "--no-chat")
 	wantText(t, out, "yardmaster is running, in herdr:", "agent      y-yardmaster", "herdr agent attach y-yardmaster", "herdr shows yardmaster now.",
@@ -666,31 +631,6 @@ func TestOnboardingKeepsGoing(t *testing.T) {
 	}
 }
 
-// groupArgs is the command line that stores the group: given back to
-// yardr group add it stores the same, whatever the config's types.
-func TestGroupArgsRoundTrip(t *testing.T) {
-	newHome(t)
-	st := storetest.New(t)
-	ctx := context.Background()
-	if err := st.SetSetting(ctx, "default_kind", "claude", "me"); err != nil {
-		t.Fatal(err)
-	}
-	for _, g := range []store.Group{
-		{Name: "a", Runner: "herdr", Limit: 3, Config: map[string]any{"kind": "codex", "model": "5", "prompt": "roles/builder.md",
-			"args": []any{"--ask", "never"}, "env": map[string]any{"A": "b c"}}},
-		{Name: "b", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "YARDR_PUSH=origin '/a b/merge-local'", "log": "/l/r.log"}},
-		{Name: "c", Runner: "manual", Limit: 1, Members: []string{"jo", "sam"}, Config: map[string]any{"notify": true, "note": "true"}},
-	} {
-		if _, err := run(t, (&app{st: st}).rootCmd(), groupArgs(g)...); err != nil {
-			t.Fatalf("%v: %v", groupArgs(g), err)
-		}
-		got, err := st.GetGroup(ctx, g.Name)
-		if err != nil || got.Runner != g.Runner || got.Limit != g.Limit || !slices.Equal(got.Members, g.Members) || !reflect.DeepEqual(got.Config, g.Config) {
-			t.Errorf("%v\nstored %+v, want %+v (%v)", groupArgs(g), got, g, err)
-		}
-	}
-}
-
 func TestDepotNameFor(t *testing.T) {
 	for dir, want := range map[string]string{"/a/Web App": "web-app", "/a/yardr": "yardr", "/a/_x.Y_": "x.y", "/a/über": "ber"} {
 		if got := depotNameFor(dir); got != want {
@@ -699,17 +639,41 @@ func TestDepotNameFor(t *testing.T) {
 	}
 }
 
-// The step for routes names the group each stage goes to once the yard has
-// one, so its command can be run as it is printed.
-func TestRoutesStepNamesTheGroup(t *testing.T) {
-	s := setupState{depots: []store.Depot{{Name: "web", Kind: store.DepotGit}},
-		groups: []store.Group{{Name: "web/builders", Runner: "herdr", Config: map[string]any{"prompt": "roles/builder.md"}}}}
-	step := s.routesStep("web", true)
-	if step.Next != "yardr route add --stage new --depot web --group web/builders" || len(step.args) != 1 {
-		t.Fatalf("step = %+v", step)
+// A group does a stage's work once a route sends the stage to it, whatever
+// its prompt: the steps name no role. Every step the import does names the
+// one command, with the pack for the depot's kind.
+func TestStepsGoByRoutes(t *testing.T) {
+	s := setupState{depots: []store.Depot{{Name: "docs", Kind: store.DepotDir}, {Name: "web", Kind: store.DepotGit}},
+		pointed: map[string]string{"docs": "dir.default", "web": "starter.default"}}
+	byKey := func() map[string]setupStep {
+		m := map[string]setupStep{}
+		for _, step := range s.steps() {
+			m[step.Key] = step
+		}
+		return m
 	}
-	s.routes = []store.Route{{Stage: "new", Group: "web/builders"}}
-	if step = s.routesStep("web", true); step.Next != "yardr route add --stage review --depot web --group <group>" || len(step.args) != 0 {
-		t.Fatalf("step = %+v", step)
+	steps := byKey()
+	for key, next := range map[string]string{stepBuilders: "yardr depot init docs --pack dir", stepReviewers: "yardr depot init docs --pack dir",
+		stepLanding: "yardr depot init web --pack starter", stepRoutes: "yardr depot init docs --pack dir"} {
+		if step := steps[key]; step.Done || step.Next != next {
+			t.Errorf("%s = %+v, want todo with %q", key, step, next)
+		}
+	}
+	if step := steps[stepLanding]; step.Depot != "web" || step.Detail != "no group is routed for stage approved" {
+		t.Errorf("landing = %+v", step)
+	}
+	s.routes = []store.Route{{Stage: "new", Group: "anyone"}, {Stage: "new", Group: "anyone"}, {Stage: "approved", Group: "people"}}
+	steps = byKey()
+	if step := steps[stepBuilders]; !step.Done || step.Detail != "anyone" {
+		t.Errorf("builders = %+v", step)
+	}
+	if step := steps[stepLanding]; !step.Done || step.Detail != "people" {
+		t.Errorf("landing = %+v", step)
+	}
+	if step := steps[stepRoutes]; step.Done || step.Detail != "no route for review" {
+		t.Errorf("routes = %+v", step)
+	}
+	if none := noSetup(); none[1].Next != "yardr depot init <depot> --pack starter" || none[2].Next != none[1].Next {
+		t.Errorf("no yard: %+v", none)
 	}
 }

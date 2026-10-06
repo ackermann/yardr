@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/huh"
-
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -259,25 +257,14 @@ func TestSettingsSetChangesThePrimes(t *testing.T) {
 }
 
 // With operator_style guide the setup's pages run their commands and show no
-// command line: not yardr's, not git's, and the routes are asked in words.
-// With any other style they show them (TestSetupForms has no style at all).
+// command line: not yardr's, not git's. With any other style they show them
+// (TestSetupForms has no style at all).
 func TestSetupGuideShowsNoCommands(t *testing.T) {
 	for _, style := range []string{"guide", "work"} {
 		t.Run(style, func(t *testing.T) {
-			var routes string
 			f := &former{answers: map[string]any{"title": "Say hello", "goal": "HELLO.md says hello."},
-				goes: []string{goHere, goHere, goHere, goHere, goHere, goHere, goHere}}
+				goes: []string{goHere, goHere, goHere}}
 			_, st, _ := setupYard(t, f)
-			base := f.ask
-			stubAsk(t, func(fields ...huh.Field) error {
-				for _, fld := range fields {
-					if fld.GetKey() == "routes" {
-						fld.Focus()
-						routes = fld.View()
-					}
-				}
-				return base(fields...)
-			})
 			if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "settings", "set", styleSetting, style); err != nil {
 				t.Fatal(err)
 			}
@@ -285,12 +272,8 @@ func TestSetupGuideShowsNoCommands(t *testing.T) {
 			if next := todo(t, st); next != stepMerged {
 				t.Fatalf("next step = %q, want the merged bead:\n%s", next, out)
 			}
-			shown := strings.Contains(out, "$ ") || strings.Contains(routes, "yardr route add")
-			if shown != (style != "guide") {
-				t.Errorf("style %s: command lines shown = %v\n%s\n%s", style, shown, out, routes)
-			}
-			if style == "guide" {
-				wantText(t, routes, "stage new of web-app goes to web-app/builders")
+			if shown := strings.Contains(out, "$ "); shown != (style != "guide") {
+				t.Errorf("style %s: command lines shown = %v\n%s", style, shown, out)
 			}
 		})
 	}

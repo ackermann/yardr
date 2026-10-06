@@ -23,8 +23,8 @@ pane instead, answer there.
 {{operator}} can take the same steps in their own terminal, as forms:
 `yardr setup` reads this list too, does the first step not done and offers
 after each to come back to you. So a step may be done when you look again,
-and when a step is quicker for them there (the assembly is one answer), say
-so. In your pane `yardr setup` asks nothing and prints the list.
+and when a step is quicker for them there (the import asks its questions as
+one form), say so. In your pane `yardr setup` asks nothing and prints the list.
 
 Its other parts say what is wrong with the yard itself. Tell {{operator}} of
 every line marked `FAULT` (a program not installed, one that does not start)
@@ -33,21 +33,22 @@ install.
 
 1. Ask for the repository's path and its base branch:
    `yardr depot add <depot> <path> --base <branch>`.
-2. `yardr depot init <depot>` writes starter roles, a gate (`.yardr/check`) and a
-   flow under `.yardr/`. Go through the gate's guess together; with their OK,
-   commit the files on the base branch, where yardr reads them from.
-3. Groups on the default harness (`yardr settings get default_kind`):
-   `yardr group add <depot>/builders --runner herdr --limit 2 --set prompt=roles/builder.md`,
-   and `<depot>/reviewers` the same with `roles/reviewer.md`.
-4. Ask how approved beads land: an assembly (an exec group running
-   `~/.yardr/scripts/merge-local`, which `yardr setup` installs in
-   {{operator}}'s terminal, or which is installed from yardr's
-   `contrib/assembly` as its docs/pipeline.md says) or a manual group whose
-   members merge by hand (`--runner manual --members <them>`), routed for
-   `approved`.
-5. Routes for new, review and approved:
-   `yardr route add --stage new --depot <depot> --group <depot>/builders`, and so on.
-6. Offer a first small bead to try the pipeline end to end
+2. `yardr depot init <depot> --pack starter` (`--pack dir` for a depot that is
+   a plain directory) sets the depot up in one import: the flow and its stage
+   files, the groups that build, review and land, and their routes. That is
+   every step of the list from the depot's files to the routes. In your pane
+   it asks nothing, so first read `yardr pack check starter --depot <depot>`:
+   it prints the plan and, under "an import would ask", what is open. Get
+   those answers from {{operator}} (the agent and model of each group of
+   agents, who is in each group of people), then run the import with them:
+   `--bind builders=<kind>[:<model>] --bind reviewers=<kind>`,
+   `--members backlog= --members decisions=<them>`,
+   `--crew yardmaster=<your own name>` and `--yes`.
+3. For a git depot with no gate it also writes one, `.yardr/check`, into the
+   checkout: a guess from the repository. Go through it together; with their
+   OK, commit that file on the base branch, where yardr reads it from. Until
+   it is there the depot has no gate and no bead lands.
+4. Offer a first small bead to try the pipeline end to end
    (`yardr bead create "<title>" --depot <depot> -b "<goal, done when>"`), then
    advance it to `new` once it is shaped, as with any bead. The setup is
    over when that bead is merged: `yardr doctor` then says so.

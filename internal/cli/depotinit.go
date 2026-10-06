@@ -299,6 +299,23 @@ func packFits(p *pack.Pack, depot store.Depot) error {
 	return nil
 }
 
+// setupPack is the pack yardr setup sets depot up from: of the two yardr
+// carries, the one written for the depot's kind (packFits).
+func setupPack(depot store.Depot) string {
+	if depot.IsDir() {
+		return packs.Dir
+	}
+	return packs.Starter
+}
+
+// gateCommand is the command line that commits the gate depot init --pack
+// wrote in the checkout at path. The one file by name: a depot may hold
+// other things under .yardr/ that are not this command's to commit.
+func gateCommand(path string) string {
+	return fmt.Sprintf("git -C %s add %s && git -C %s commit -m %s -- %s",
+		shellQuote(path), rigcheck.RepoPath, shellQuote(path), shellQuote(gateCommit), rigcheck.RepoPath)
+}
+
 func (g *gateResult) print() {
 	fmt.Println()
 	switch {
@@ -318,10 +335,7 @@ func (g *gateResult) print() {
 	default:
 		fmt.Printf("gate: wrote %s in %s: it passes everything until its TODO is filled in\n", g.File, g.Path)
 	}
-	// The one file by name: a depot may hold other things under .yardr/
-	// that are not this command's to commit.
-	fmt.Printf("Nothing is committed. yardr reads the gate from %s:\n  git -C %s add %s && git -C %s commit -m %s -- %s\n",
-		g.Base, shellQuote(g.Path), g.File, shellQuote(g.Path), shellQuote(gateCommit), g.File)
+	fmt.Printf("Nothing is committed. yardr reads the gate from %s:\n  %s\n", g.Base, gateCommand(g.Path))
 }
 
 // yardOperator is the yard's operator setting, or who it defaults to.

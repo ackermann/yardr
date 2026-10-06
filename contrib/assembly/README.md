@@ -4,8 +4,9 @@ Four shell scripts, each run as the `cmd` of an `exec` group with `--limit 1`
 (one bead at a time). They are how depot yard lands work; the flow they sit in
 is described in [docs/pipeline.md](../../docs/pipeline.md), sections 4 and
 Trains. Install them from `main`, not a checkout, so a branch cannot change
-how it is landed. merge-local is also built into yardr: `yardr setup`
-writes it to `~/.yardr/scripts/` for a yard set up without a checkout
+how it is landed. The starter pack carries a copy of merge-local: a yard set
+up from it (`yardr setup`, `yardr depot init --pack starter`) runs
+`~/.yardr/packs/starter/scripts/merge-local`, with no checkout of yardr
 (docs/setup.md).
 
 Until this release the directory was `contrib/refinery`. The scripts are
