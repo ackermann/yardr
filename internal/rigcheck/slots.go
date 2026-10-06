@@ -232,7 +232,18 @@ func (s Slots) try() (*os.File, error) {
 func (s Slots) held(f *os.File) func() {
 	_ = f.Truncate(0)
 	_, _ = f.WriteAt([]byte(fmt.Sprintf("pid %d since %s %s\n", os.Getpid(), time.Now().Format(time.RFC3339), s.Holder)), 0)
-	return func() { f.Close() }
+	return func() { unlockClose(f) }
+}
+
+// unlockClose gives up the flock on f and closes it. Closing alone is not
+// enough: a child this process forks has a copy of every descriptor until it
+// execs, and the lock is the open file's, not the descriptor's, so the file
+// would stay locked after the close for as long as a child forked meanwhile
+// takes to exec. A slot would count as running after its release returned,
+// and a run that asked who holds one would keep the next from taking it.
+func unlockClose(f *os.File) {
+	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	f.Close()
 }
 
 // holdNew creates path and holds an exclusive flock on it. Whoever counts
@@ -272,7 +283,7 @@ func isHeld(path string, reap bool) bool {
 	if err != nil {
 		return false
 	}
-	defer f.Close()
+	defer unlockClose(f)
 	lock := syscall.LOCK_SH
 	if reap {
 		// Reapers must exclude each other. With shared locks, two readers

@@ -330,6 +330,40 @@ func TestSlotFirst(t *testing.T) {
 	}
 }
 
+// A released slot is free when the release returns, also while a child the
+// process forked has not yet exec'd and still has its copy of the slot's
+// descriptor: the copy made here stands for that one. With the lock given up
+// only by closing, the slot stayed taken until the child's exec, and a count
+// right after the release said a gate was running (TestSlotFirst failed so,
+// with the package's other tests starting their checks beside it).
+func TestSlotFreeAtReleaseWhileAForkedChildHasItsDescriptor(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	s := Slots{Dir: dir, Limit: 1}
+	if err := os.MkdirAll(waitingDir(dir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f, err := s.try()
+	if err != nil || f == nil {
+		t.Fatalf("taking a free slot: %v, %v", f, err)
+	}
+	child, err := syscall.Dup(int(f.Fd()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	syscall.CloseOnExec(child)
+	defer syscall.Close(child)
+	release := s.held(f)
+	if c, _ := Count(dir); c != (SlotCount{Running: 1}) {
+		t.Fatalf("while held: %+v", c)
+	}
+	release()
+	if c, _ := Count(dir); c != (SlotCount{}) {
+		t.Errorf("after the release: %+v", c)
+	}
+	take(t, dir, 1)
+}
+
 // Yards with different limits share the lower slots.
 func TestSlotLimitsShareTheDirectory(t *testing.T) {
 	t.Parallel()
