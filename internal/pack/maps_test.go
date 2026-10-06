@@ -206,7 +206,7 @@ func TestStageMapWaitsForTheYardsHook(t *testing.T) {
 	if n := need(t, m, "identity"); n.Status != "ok" {
 		t.Fatalf("identity: %+v", n)
 	}
-	if n := need(t, m, store.SetState); n.Status != "missing" || !strings.Contains(n.Detail, "The import does not grant it: the operator allows it with --set set_state=linear on yardr resident add boss") {
+	if n := need(t, m, store.SetState); n.Status != "missing" || !strings.Contains(n.Detail, "The import does not grant it: the operator allows it with yardr resident set boss set_state=linear") {
 		t.Fatalf("set_state: %+v", n)
 	}
 	res := apply(t, st, plan, nil)

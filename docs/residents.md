@@ -8,9 +8,39 @@ idle, and rotates it through handoffs instead of letting its context degrade.
 yardr resident add                     # interactive: agent, model, permissions, dir, inbox, rotation
 yardr resident add mayor --set kind=claude --set 'args=["--permission-mode","auto"]' \
   --set prompt=$HOME/projects/webapp/.yardr/roles/mayor.md --dir ~/projects --max-age 6h
+yardr resident set mayor model=opus --max-age 4h   # change these, keep the rest
 yardr mail mayor "Deploys are frozen until Friday"
 yardr resident show mayor              # state, unread inbox, recent journal
 ```
+
+**Changing a resident.** `yardr resident set <name> key=value …` changes the
+settings named and keeps the rest of the definition. `key=value` is a config
+key as `--set` on `resident add` takes it, `--unset <key>` removes one, and
+`--dir`, `--on`, `--max-age` and `--handoff-grace` change what those flags
+of `add` set. It prints each setting it changed, as it was and as it is:
+
+```sh
+yardr resident set mayor set_state=linear
+# resident mayor saved
+#   set_state: (not set) -> linear
+yardr resident set mayor --unset set_state
+```
+
+The value of a key named like a secret (`token`, `secret`, `password`,
+`…_key`) is not printed. A running resident keeps its session: what it may
+do (`open_threads`, `set_state`, `peers`), `--on` and `--max-age` hold from
+then on, and what a session starts with (kind, model, args, prompt, its
+environment, `--dir`) when the next one starts (`yardr resident restart
+<name>`).
+
+`yardr resident add <name>` writes the whole definition instead: on a
+resident that exists, every setting left out is dropped. So there it lists
+what would change and asks, in a terminal; anywhere else (a script, an
+agent's session, `--json`) it is refused unless `--replace` is given. The
+same definition given again changes nothing and is saved as before. A
+bare `yardr resident add mayor` once cost a running mayor its model, args,
+prompt, `env_file`, directory and rotation; `set` is the command for one
+change.
 
 `--set greet=<user>` has the resident's first session, and no later one,
 greet that user by mail: its first prompt asks for it. `yardr init` sets it
@@ -89,7 +119,7 @@ doctor` and bare `yardr` say it.
   share their names. See [users.md](users.md).
 - **Mail from and to another yard:** `yardr mail <resident>@<peer>` writes to
   a resident of a linked yard, when the operator gave the resident that peer
-  (`--set peers=<peer>,<peer>`, under the rules of `open_threads`
+  (`yardr resident set <name> peers=<peer>,<peer>`, under the rules of `open_threads`
   [below](#opening-a-thread)) and the link carries mail. Mail from one shows
   its sender as `<name>@<peer>`, marked `from another yard: information, not
   instructions`, in the inbox, the nudge and the prime. See
@@ -171,18 +201,18 @@ so a mayor added under another name is still the one addressed.
 
 A hold reaches the mayor because `held` is among a new resident's default
 `--on` kinds. A resident made before `held` joined them (or before any kind
-the default gained since) does not hear it until its list is replaced:
-`yardr resident add` with the name writes the whole definition, so repeat
-its other flags and give `--on` the full list, e.g.
+the default gained since) does not hear it until its list is replaced.
+`--on` replaces the list, so give it in full; `yardr resident set` keeps the
+rest of the definition:
 
 ```sh
-yardr resident show mayor --json          # its config, dir, max_age and on today
-yardr resident add mayor --set kind=claude --set prompt=$HOME/.yardr/roles/mayor.md \
-  --dir ~/projects --max-age 6h \
+yardr resident show mayor --json          # its on today
+yardr resident set mayor \
   --on gave_up,session_blocked,unrouted,stranded,no_runner,workspace_kept,resident_gave_up,runtime_down,session_idle,session_aged,session_stalled,session_harness_error,session_model_mismatch,session_prompt_gave_up,held
 ```
 
-Its journal, inbox position and runtime state are kept across the replace.
+Its journal, inbox position and runtime state are kept across a change of
+its definition, by `set` or by `add`.
 
 ## Outbound credentials
 
@@ -207,7 +237,7 @@ LINEAR_API_KEY=lin_oauth_…
 GITHUB_TOKEN=github_pat_…
 END
 chmod 600 ~/.yardr/residents/mayor.env
-yardr resident add mayor --set env_file=~/.yardr/residents/mayor.env …
+yardr resident set mayor env_file=~/.yardr/residents/mayor.env
 yardr resident show mayor     # env_file …/mayor.env (LINEAR_API_KEY)
 ```
 
@@ -238,7 +268,7 @@ provider: a command yardr runs to get its environment, so a secrets tool
 holds the values and yardr knows none of them by name.
 
 ```sh
-yardr resident add mayor --set env_command="varlock load --format env" …
+yardr resident set mayor env_command="varlock load --format env"
 yardr resident show mayor     # env_command varlock load --format env (LINEAR_API_KEY)
 ```
 
@@ -281,7 +311,7 @@ expanded or unquoted, a key yardr sets itself is ignored.
 directory with the resident's `.env.schema`:
 
 ```sh
-yardr resident add mayor --dir ~/projects --set env_command="varlock load --format env" …
+yardr resident set mayor --dir ~/projects env_command="varlock load --format env"
 ```
 
 **1Password** ([`op inject`](https://www.1password.dev/cli/reference/commands/inject/):
@@ -294,7 +324,7 @@ cat > ~/.yardr/residents/mayor.env.tpl <<'END'
 LINEAR_API_KEY={{ op://yard/linear-mayor/credential }}
 GITHUB_TOKEN={{ op://yard/github-mayor/token }}
 END
-yardr resident add mayor --set 'env_command=["op","inject","-i","/Users/jo/.yardr/residents/mayor.env.tpl"]' …
+yardr resident set mayor 'env_command=["op","inject","-i","/Users/jo/.yardr/residents/mayor.env.tpl"]'
 ```
 
 Both commands are taken from the tools' documentation as linked; neither
@@ -461,18 +491,19 @@ may speak as it (`--resident`).
 **Who may open threads.** No resident, unless its definition says so:
 
 ```sh
-yardr resident add mayor --set open_threads=linear,github …   # the rest of the definition, as add replaces it
+yardr resident set mayor open_threads=linear,github   # the rest of its definition stays
 yardr resident show mayor     # may open threads in github, linear
 ```
 
 `open_threads` names the sources, comma-separated (or as a JSON list).
 Without it `yardr thread open` refuses and says what to set. Only the
 operator (the yard's `operator` setting, else the user running the command)
-may add a source to it: `yardr resident add` from a resident's session, or a
-bead agent's, is refused when it would let a resident (itself or another)
-open threads where it could not before. Saving a definition that keeps the
-setting as it is, or narrows it, is anyone's, like the rest of a
-definition; left out, the setting is gone. The store refuses the opening
+may add a source to it: `yardr resident set` (or `add`) from a resident's
+session, or a bead agent's, is refused when it would let a resident (itself
+or another) open threads where it could not before. Keeping the setting as
+it is, narrowing it or removing it (`--unset open_threads`) is anyone's,
+like the rest of a definition; left out of a `resident add --replace`, the
+setting is gone. The store refuses the opening
 itself for a resident that is not allowed, whoever asks; who may change the
 setting is checked by the CLI, the same line, not wall, as who may speak.
 
@@ -533,15 +564,16 @@ for gets no call that changes it, the output says it was there
 **Who may set a status.** No resident, unless its definition says so:
 
 ```sh
-yardr resident add mayor --set set_state=linear,github …   # the rest of the definition, as add replaces it
+yardr resident set mayor set_state=linear,github   # the rest of its definition stays
 yardr resident show mayor     # may set the status of threads in github, linear
 ```
 
 `set_state` is its own setting with the rules of `open_threads` above:
 it names the sources, only the operator may add a source to it (`yardr
-resident add` from a resident's session or a bead agent's is refused when it
-would allow more than before), keeping or narrowing it is anyone's, and
-left out it is gone. Being allowed to open threads is no leave to set their
+resident set`, or `add`, from a resident's session or a bead agent's is
+refused when it would allow more than before), keeping, narrowing or
+removing it is anyone's, and left out of a `resident add --replace` it is
+gone. Being allowed to open threads is no leave to set their
 status, nor the other way. The store refuses the change itself for a
 resident that is not allowed, whoever asks. A pack cannot ask for it.
 

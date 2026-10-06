@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -42,15 +43,21 @@ func (a *app) residentCmd() *cobra.Command {
 
 	var def store.Resident
 	var sets []string
+	var replace bool
 	add := &cobra.Command{
 		Use:   "add [<name>]",
-		Short: "Create or replace a resident (no name: an interactive form)",
+		Short: "Create a resident, or replace one's whole definition (no name: an interactive form)",
 		Long: `A resident is an always-on agent session, such as a mayor. The daemon keeps
 it running in its directory, nudges it when its inbox has something new and it
 is idle, and rotates it: at --max-age it is asked to write a handoff, and its
 next session starts from that handoff (forced after --handoff-grace).
 
 Without --set kind, a herdr resident gets the yard's default_kind.
+
+Add writes the whole definition: on a resident that exists, every setting
+left out is dropped. So there it lists what would change and asks, in a
+terminal; anywhere else it is refused unless --replace is given. To change
+some settings and keep the rest, use yardr resident set.
 
 --set env_file=<path> names a file of KEY=VALUE lines (mode 0600) that join
 the session's environment: its credentials. --set env_command="<command>"
@@ -102,17 +109,50 @@ for its links (yardr peer list).`,
 			if def.Dir, err = absDir(def.Dir); err != nil {
 				return err
 			}
-			if err := a.mayDefine(c.Context(), st, def); err != nil {
+			if err := a.mayDefine(c.Context(), st, def, false); err != nil {
 				return err
+			}
+			// Add writes the whole definition, so on a resident that is there
+			// every flag left out is a setting lost: it says which, and saves
+			// only once someone has said that is meant.
+			var changes []defChange
+			switch have, err := st.GetResident(c.Context(), def.Name); {
+			case err == nil:
+				changes = defChanges(*have, def)
+			case !errors.Is(err, store.ErrNotFound):
+				return err
+			}
+			if len(changes) > 0 && !replace {
+				if a.json || !interactive() || agentSession() {
+					return fmt.Errorf("resident %s exists, and add replaces its whole definition. This one would change:\n%s\n"+
+						"To change some settings and keep the rest: yardr resident set %s key=value. To save this definition as given: --replace",
+						def.Name, changeLines(changes), def.Name)
+				}
+				ok := false
+				if err := ask(huh.NewConfirm().Title(fmt.Sprintf("Replace the definition of %s?", def.Name)).
+					Description(changeLines(changes) + "\nyardr resident set " + def.Name + " key=value changes some settings and keeps the rest.").
+					Affirmative("Replace").Negative("No").Value(&ok)); err != nil && !errors.Is(err, huh.ErrUserAborted) {
+					return err
+				}
+				if !ok {
+					fmt.Printf("resident %s not changed\n", def.Name)
+					return nil
+				}
 			}
 			r, err := st.PutResident(c.Context(), def, a.who())
 			if err != nil {
 				return err
 			}
-			return a.out(r, func() { fmt.Printf("resident %s saved; journal %s\n", r.Name, r.Journal) })
+			return a.out(r, func() {
+				fmt.Printf("resident %s saved; journal %s\n", r.Name, r.Journal)
+				if len(changes) > 0 {
+					fmt.Println(changeLines(changes))
+				}
+			})
 		},
 	}
 	f := add.Flags()
+	f.BoolVar(&replace, "replace", false, "the resident exists: save this definition in its place without asking (settings left out are dropped)")
 	f.StringVar(&def.Runner, "runner", "herdr", "runner (herdr)")
 	f.StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable): kind, model, args, prompt, env_file, env_command, open_threads, set_state, peers")
 	f.StringVar(&def.Dir, "dir", "", "directory the resident works in (default: the yard home)")
@@ -307,8 +347,249 @@ for its links (yardr peer list).`,
 	journal := entry(store.NoteJournal, "Keep a decision or piece of context in the journal (≤4 KB)")
 	handoff := entry(store.NoteHandoff, "End this session: write where things stand; the next session starts from it (≤16 KB)")
 
-	cmd.AddCommand(add, list, show, rm, start, stop, restart, journal, handoff, a.identityCmd())
+	cmd.AddCommand(add, a.residentSetCmd(), list, show, rm, start, stop, restart, journal, handoff, a.identityCmd())
 	return cmd
+}
+
+// residentSetCmd is yardr resident set: some settings of a definition
+// changed, the rest kept. Resident add cannot do that, as it writes the
+// whole definition, and a grant of one permission made with it cost a
+// running resident everything that was not retyped.
+func (a *app) residentSetCmd() *cobra.Command {
+	var unset, on []string
+	var dir, maxAge, grace, rev string
+	cmd := &cobra.Command{
+		Use:   "set <name> [key=value ...]",
+		Short: "Change some settings of a resident and keep the rest",
+		Long: `Changes the settings named and keeps the rest of the resident's definition.
+key=value is a runner config key, as --set on yardr resident add takes it
+(kind, model, args, prompt, env_file, env_command, open_threads, set_state,
+peers); --unset <key> removes one. --dir, --on, --max-age and --handoff-grace
+change what the same flags of add set.
+
+It prints each setting changed, as it was and as it is. The value of a key
+named like a secret (token, secret, password, key) is not printed.
+
+open_threads, set_state and peers follow the rule of add: only the operator
+(the yard's operator setting, else the user running the command) may allow
+a resident a source or a peer it was not allowed before. Narrowing one, or
+removing it with --unset, is anyone's.
+
+A running resident keeps its session. What it may do (open_threads,
+set_state, peers), --on and --max-age hold from the next time they are
+looked at; what a session starts with (kind, model, args, prompt, its
+environment, --dir) is read when the next one starts: yardr resident
+restart <name>.`,
+		Example: `  yardr resident set mayor set_state=linear
+  yardr resident set mayor model=opus 'args=["--permission-mode","auto"]' --max-age 6h
+  yardr resident set mayor --unset open_threads`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			ctx := c.Context()
+			st, err := a.store(ctx)
+			if err != nil {
+				return err
+			}
+			name := args[0]
+			// parseSets would speak of --set, which this command has not.
+			for _, kv := range args[1:] {
+				if k, _, ok := strings.Cut(kv, "="); !ok || k == "" {
+					return fmt.Errorf("%q: want key=value (--unset <key> removes a setting)", kv)
+				}
+			}
+			sets, err := parseSets(args[1:])
+			if err != nil {
+				return err
+			}
+			fl := c.Flags()
+			if len(sets) == 0 && len(unset) == 0 && !fl.Changed("dir") && !fl.Changed("on") && !fl.Changed("max-age") && !fl.Changed("handoff-grace") {
+				return fmt.Errorf("nothing to set: give key=value, --unset <key>, --dir, --on, --max-age or --handoff-grace")
+			}
+			for _, k := range unset {
+				if _, both := sets[k]; both {
+					return fmt.Errorf("%s is both set and unset", k)
+				}
+			}
+			if fl.Changed("dir") {
+				if dir, err = absDir(dir); err != nil {
+					return err
+				}
+			}
+			// The operator rule looks at what this command sets, not at
+			// the settings it keeps: those were checked when they were saved.
+			if err := a.mayDefine(ctx, st, store.Resident{Name: name, Config: sets}, true); err != nil {
+				return err
+			}
+			var r *store.Resident
+			var changes []defChange
+			// The daemon's bookkeeping re-mints a running resident's revision
+			// between the read and the write now and then. Without --revision
+			// that is no reason to refuse: read again and apply the same
+			// change. With it, the caller asked to be refused.
+			for try := 0; ; try++ {
+				have, err := st.GetResident(ctx, name)
+				if err != nil {
+					return err
+				}
+				def := *have
+				def.Config = map[string]any{}
+				for k, v := range have.Config {
+					def.Config[k] = v
+				}
+				for _, k := range unset {
+					if _, is := def.Config[k]; !is {
+						return fmt.Errorf("--unset %s: %s has no such setting (it has: %s)", k, name, or(strings.Join(sortedKeys(have.Config), ", "), "none"))
+					}
+					delete(def.Config, k)
+				}
+				for k, v := range sets {
+					def.Config[k] = v
+				}
+				if fl.Changed("dir") {
+					def.Dir = dir
+				}
+				if fl.Changed("on") {
+					def.On = on
+				}
+				if fl.Changed("max-age") {
+					def.MaxAge = maxAge
+				}
+				if fl.Changed("handoff-grace") {
+					def.HandoffGrace = grace
+				}
+				if changes = defChanges(*have, def); len(changes) == 0 {
+					r = have
+					break
+				}
+				def.Revision = or(rev, have.Revision)
+				if r, err = st.PutResident(ctx, def, a.who()); err == nil {
+					break
+				}
+				if rev != "" || try == 4 || !errors.Is(err, store.ErrConflict) {
+					return err
+				}
+			}
+			return a.out(r, func() {
+				if len(changes) == 0 {
+					fmt.Printf("resident %s unchanged: it is set so already\n", name)
+					return
+				}
+				fmt.Printf("resident %s saved\n%s\n", name, changeLines(changes))
+				var atStart []string
+				for _, ch := range changes {
+					if !slices.Contains([]string{store.OpenThreads, store.SetState, store.MailPeers, "--on", "--max-age", "--handoff-grace"}, ch.Key) {
+						atStart = append(atStart, ch.Key)
+					}
+				}
+				if r.Live() && len(atStart) > 0 {
+					fmt.Printf("%s is running and keeps its session: %s holds when its next one starts (yardr resident restart %s)\n",
+						name, strings.Join(atStart, ", "), name)
+				}
+			})
+		},
+	}
+	f := cmd.Flags()
+	f.StringArrayVar(&unset, "unset", nil, "remove this runner config key (repeatable)")
+	f.StringVar(&dir, "dir", "", "directory the resident works in (empty: the yard home)")
+	f.StringSliceVar(&on, "on", nil, "event kinds delivered to its inbox; replaces the list, so name every kind wanted")
+	f.StringVar(&maxAge, "max-age", "", "ask for a handoff after this long, e.g. 6h (empty: never)")
+	f.StringVar(&grace, "handoff-grace", "", "how long a requested handoff may take before a forced restart")
+	f.StringVar(&rev, "revision", "", "refuse unless the resident is still at this revision (from resident show --json)")
+	return cmd
+}
+
+// defChange is one setting of a resident's definition that a write changes:
+// a runner config key, or the flag of a field (--dir). Old and New are the
+// values as printed, "" for none.
+type defChange struct{ Key, Old, New string }
+
+// defChanges lists what saving def over old changes, the fields first and
+// the config keys by name. The order of --on is not a change.
+func defChanges(old, def store.Resident) []defChange {
+	var out []defChange
+	add := func(key, was, is string) {
+		if was != is {
+			out = append(out, defChange{key, was, is})
+		}
+	}
+	kinds := func(on []string) string {
+		on = slices.Clone(on)
+		slices.Sort(on)
+		return strings.Join(on, ",")
+	}
+	add("--runner", old.Runner, def.Runner)
+	add("--dir", old.Dir, def.Dir)
+	add("--on", kinds(old.On), kinds(def.On))
+	add("--max-age", old.MaxAge, def.MaxAge)
+	add("--handoff-grace", old.HandoffGrace, def.HandoffGrace)
+	keys := sortedKeys(old.Config)
+	for _, k := range sortedKeys(def.Config) {
+		if _, had := old.Config[k]; !had {
+			keys = append(keys, k)
+		}
+	}
+	slices.Sort(keys)
+	for _, k := range keys {
+		was, had := old.Config[k]
+		is, has := def.Config[k]
+		// Compared as printed, which is how a value reads after the store:
+		// a list given as []string and read back as []any is the same list.
+		a, b := settingText(was, had), settingText(is, has)
+		if had != has || a != b {
+			if secretSetting(k) {
+				a, b = hidden(had), hidden(has)
+			}
+			out = append(out, defChange{k, a, b})
+		}
+	}
+	return out
+}
+
+// settingText is a config value as a change prints it: a string as it is,
+// anything else as JSON.
+func settingText(v any, set bool) string {
+	if !set {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprint(v)
+	}
+	return string(b)
+}
+
+// secretSetting reports whether a config key is named like one that holds
+// a secret. No setting yardr reads does (env_file names a file, and
+// env_command is stored to be shown), but a definition takes any key, and
+// what a change prints ends up in a terminal's scrollback and an agent's
+// transcript.
+func secretSetting(key string) bool {
+	k := strings.ToLower(key)
+	for _, part := range []string{"token", "secret", "password", "passwd", "credential", "apikey", "api_key"} {
+		if strings.Contains(k, part) {
+			return true
+		}
+	}
+	return k == "key" || strings.HasSuffix(k, "_key")
+}
+
+func hidden(set bool) string {
+	if !set {
+		return ""
+	}
+	return "(a value, not shown)"
+}
+
+// changeLines prints changes one to a line, indented: "model: opus -> sonnet".
+func changeLines(changes []defChange) string {
+	lines := make([]string, len(changes))
+	for i, ch := range changes {
+		lines[i] = fmt.Sprintf("  %s: %s -> %s", ch.Key, or(ch.Old, "(not set)"), or(ch.New, "(dropped)"))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // mayAllowOpening refuses a definition that lets its resident open threads
@@ -318,20 +599,20 @@ for its links (yardr peer list).`,
 // would make the setting mean nothing. A definition that keeps or narrows
 // what was allowed is anyone's to save, as the rest of it is. Like
 // maySpeakAs this is a line, not a wall.
-func (a *app) mayAllowOpening(ctx context.Context, st store.API, def store.Resident) error {
-	return a.mayAllow(ctx, st, def, sourceSetting{key: store.OpenThreads, does: "open threads", may: store.Resident.MayOpen, able: hooks.Openable})
+func (a *app) mayAllowOpening(ctx context.Context, st store.API, def store.Resident, set bool) error {
+	return a.mayAllow(ctx, st, def, sourceSetting{set: set, key: store.OpenThreads, does: "open threads", may: store.Resident.MayOpen, able: hooks.Openable})
 }
 
 // mayAllowState is mayAllowOpening for store.SetState: moving an issue
 // others work from is the operator's to grant as well.
-func (a *app) mayAllowState(ctx context.Context, st store.API, def store.Resident) error {
-	return a.mayAllow(ctx, st, def, sourceSetting{key: store.SetState, does: "set the status of threads", may: store.Resident.MaySetState, able: hooks.Stateable})
+func (a *app) mayAllowState(ctx context.Context, st store.API, def store.Resident, set bool) error {
+	return a.mayAllow(ctx, st, def, sourceSetting{set: set, key: store.SetState, does: "set the status of threads", may: store.Resident.MaySetState, able: hooks.Stateable})
 }
 
 // mayAllowMail is mayAllowOpening for store.MailPeers: which other yards a
 // resident writes to is the operator's to grant too, and a peer it names
 // must be one of this yard's.
-func (a *app) mayAllowMail(ctx context.Context, st store.API, def store.Resident) error {
+func (a *app) mayAllowMail(ctx context.Context, st store.API, def store.Resident, set bool) error {
 	if _, given := def.Config[store.MailPeers]; !given {
 		return nil
 	}
@@ -343,31 +624,34 @@ func (a *app) mayAllowMail(ctx context.Context, st store.API, def store.Resident
 	for i, p := range ps {
 		names[i] = p.Name
 	}
-	return a.mayAllow(ctx, st, def, sourceSetting{key: store.MailPeers, does: "mail residents", may: store.Resident.MayMail,
+	return a.mayAllow(ctx, st, def, sourceSetting{set: set, key: store.MailPeers, does: "mail residents", may: store.Resident.MayMail,
 		able: func() []string { return names }, peers: true})
 }
 
 // mayDefine is every check a resident's definition passes before it is
-// saved.
-func (a *app) mayDefine(ctx context.Context, st store.API, def store.Resident) error {
-	if err := a.mayAllowOpening(ctx, st, def); err != nil {
+// saved. With set, def holds only the settings yardr resident set was given,
+// and the refusals name them as that command takes them.
+func (a *app) mayDefine(ctx context.Context, st store.API, def store.Resident, set bool) error {
+	if err := a.mayAllowOpening(ctx, st, def, set); err != nil {
 		return err
 	}
-	if err := a.mayAllowState(ctx, st, def); err != nil {
+	if err := a.mayAllowState(ctx, st, def, set); err != nil {
 		return err
 	}
-	return a.mayAllowMail(ctx, st, def)
+	return a.mayAllowMail(ctx, st, def, set)
 }
 
 // sourceSetting is a resident setting that names the sources it may do
 // something in: its key, what it lets the resident do, how a definition
 // reads it and the sources yardr can do it in. With peers it names linked
-// yards instead, and able is the yard's peers.
+// yards instead, and able is the yard's peers. set says the command is
+// yardr resident set, which takes the key bare and removes it with --unset.
 type sourceSetting struct {
 	key, does string
 	may       func(store.Resident) []string
 	able      func() []string
 	peers     bool
+	set       bool
 }
 
 func (a *app) mayAllow(ctx context.Context, st store.API, def store.Resident, set sourceSetting) error {
@@ -376,15 +660,19 @@ func (a *app) mayAllow(ctx context.Context, st store.API, def store.Resident, se
 	if set.peers {
 		what, in = "peers", "of"
 	}
+	flag, none := "--set "+set.key, "leave it out"
+	if set.set {
+		flag, none = set.key, "--unset "+set.key
+	}
 	if _, given := def.Config[set.key]; given && len(may) == 0 {
-		return fmt.Errorf("--set %s: want %s, comma-separated (%s); leave it out to allow none",
-			set.key, what, strings.Join(able, ","))
+		return fmt.Errorf("%s: want %s, comma-separated (%s); %s to allow none",
+			flag, what, strings.Join(able, ","), none)
 	}
 	for _, src := range may {
 		if !slices.Contains(able, src) && set.peers {
-			return fmt.Errorf("--set %s: this yard has no peer %q (it has: %s)", set.key, src, or(strings.Join(able, ", "), "none"))
+			return fmt.Errorf("%s: this yard has no peer %q (it has: %s)", flag, src, or(strings.Join(able, ", "), "none"))
 		} else if !slices.Contains(able, src) {
-			return fmt.Errorf("--set %s: yardr cannot %s in %q (it can in %s)", set.key, set.does, src,
+			return fmt.Errorf("%s: yardr cannot %s in %q (it can in %s)", flag, set.does, src,
 				strings.Join(able, ", "))
 		}
 	}
@@ -403,8 +691,8 @@ func (a *app) mayAllow(ctx context.Context, st store.API, def store.Resident, se
 	if err != nil || is {
 		return err
 	}
-	return fmt.Errorf("--set %s: only the operator (%s) may let %s %s %s %s; this is %s",
-		set.key, operator, def.Name, set.does, in, strings.Join(added, ", "), a.who())
+	return fmt.Errorf("%s: only the operator (%s) may let %s %s %s %s; this is %s",
+		flag, operator, def.Name, set.does, in, strings.Join(added, ", "), a.who())
 }
 
 func residentAgent(r store.Resident) string {
@@ -703,7 +991,7 @@ for the link (yardr peer list). That mail (up to 16 KB) is queued for the peer
 and the daemon delivers it, so the command returns before it has arrived:
 yardr peer show <peer> lists what still waits. The link must carry mail out
 (yardr peer allow <peer> --send mail) and a resident must be allowed the peer
-(--set peers=<peer> on yardr resident add, the operator's to give). Anyone
+(yardr resident set <resident> peers=<peer>, the operator's to give). Anyone
 else must be the operator. Mail the other yard does not take comes back to a
 resident's inbox as mail from the yard that says why.
 
@@ -781,7 +1069,7 @@ func (a *app) mayMailPeer(ctx context.Context, st store.API, peer string) error 
 	if err != nil || is {
 		return err
 	}
-	return fmt.Errorf("only a resident allowed %s (--set %s=%s on yardr resident add) or the operator (%s) may mail another yard; this is %s",
+	return fmt.Errorf("only a resident allowed %s (yardr resident set <resident> %s=%s) or the operator (%s) may mail another yard; this is %s",
 		peer, store.MailPeers, peer, operator, a.who())
 }
 
@@ -1103,7 +1391,7 @@ func (a *app) residentForm(ctx context.Context, st store.API) error {
 		fmt.Println("not saved")
 		return nil
 	}
-	if err := a.mayDefine(ctx, st, def); err != nil {
+	if err := a.mayDefine(ctx, st, def, false); err != nil {
 		return err
 	}
 	r, err := st.PutResident(ctx, def, a.who())

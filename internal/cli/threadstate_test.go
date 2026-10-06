@@ -417,7 +417,7 @@ func TestThreadStateRefusals(t *testing.T) {
 	// Without the setting for the source, however the thread is named.
 	for _, args := range [][]string{{linear, "started"}, {linearIssue1, "started"}, {"--source", "linear", linearIssue1, "started"}} {
 		refused("resident mayor may not set the status of threads in linear", args...)
-		refused("--set set_state=github,linear on yardr resident add mayor", args...)
+		refused("yardr resident set mayor set_state=github,linear", args...)
 	}
 	// Allowed in the source, but no part in the thread.
 	refused("resident mayor takes no part in github thread Acme/webapp#8", elsewhere, "done")
@@ -469,7 +469,7 @@ func TestSetStateIsTheOperatorsToSet(t *testing.T) {
 	}
 	add := func(name string, sets ...string) error {
 		t.Helper()
-		args := []string{"add", name, "--dir", t.TempDir()}
+		args := []string{"add", name, "--replace", "--dir", t.TempDir()}
 		for _, s := range sets {
 			args = append(args, "--set", s)
 		}

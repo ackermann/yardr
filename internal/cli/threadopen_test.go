@@ -341,7 +341,7 @@ func TestThreadOpenRefusals(t *testing.T) {
 		}
 	}
 	refused("resident mayor may not open threads in linear", "linear", "--in", "YRD", "Epic")
-	refused("--set open_threads=github,linear on yardr resident add mayor", "linear", "--in", "YRD", "Epic")
+	refused("yardr resident set mayor open_threads=github,linear", "linear", "--in", "YRD", "Epic")
 	refused("yardr cannot open threads in token (it can in github, linear)", "token", "--in", "x", "Epic")
 	refused("--in is required: the repository to open the thread in", "github", "Epic")
 	refused("the title is empty", "github", "--in", "Acme/webapp", "  ")
@@ -381,7 +381,7 @@ func TestOpenThreadsIsTheOperatorsToSet(t *testing.T) {
 	}
 	add := func(name string, sets ...string) error {
 		t.Helper()
-		args := []string{"add", name, "--dir", t.TempDir()}
+		args := []string{"add", name, "--replace", "--dir", t.TempDir()}
 		for _, s := range sets {
 			args = append(args, "--set", s)
 		}

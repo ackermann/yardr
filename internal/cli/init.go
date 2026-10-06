@@ -887,7 +887,7 @@ func (r *initResult) printYard() {
 			fmt.Printf("           runs with %s so it does not stop to ask\n", strings.Join(r.Args, " "))
 		} else {
 			fmt.Printf("           runs with no unattended flags: %s may stop to ask; give it its own with\n"+
-				"           %s resident add %s --set 'args=[...]' (see yardr group add --help)\n", r.Harness, yardr, r.Mayor)
+				"           %s resident set %s 'args=[...]' (see yardr group add --help)\n", r.Harness, yardr, r.Mayor)
 		}
 	}
 	fmt.Printf("  roles    %s", r.Roles)

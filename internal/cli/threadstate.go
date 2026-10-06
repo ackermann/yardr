@@ -84,8 +84,8 @@ session or the operator may speak as the resident (--resident, default
 $YARDR_RESIDENT).
 
 A resident may set a status only in the sources its definition allows:
---set set_state=linear,github on yardr resident add, which only the operator
-may add a source to. It is off unless set. And only in a thread it takes
+yardr resident set <resident> set_state=linear,github, which only the
+operator may add a source to. It is off unless set. And only in a thread it takes
 part in (yardr thread list): yardr thread follow makes it a participant.
 
 A thread_state event is logged with the word asked and the status set. The

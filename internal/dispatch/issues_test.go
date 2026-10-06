@@ -272,7 +272,7 @@ func TestIssueNeedsSetState(t *testing.T) {
 	e := y.skipped(t, "yard-a")
 	detail, _ := e.Data["detail"].(string)
 	if e.Data["reason"] != store.SkipNoGrant || !strings.Contains(detail, "resident mayor may not set the status of threads in linear") ||
-		!strings.Contains(detail, "--set set_state=github,linear on yardr resident add mayor") {
+		!strings.Contains(detail, "yardr resident set mayor set_state=github,linear") {
 		t.Fatalf("skipped %+v", e)
 	}
 	want(t, "moves left", len(y.pending(t)), 0)

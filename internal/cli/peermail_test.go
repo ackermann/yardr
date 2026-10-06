@@ -20,7 +20,7 @@ func TestOnlyTheOperatorAllowsMailingAPeer(t *testing.T) {
 	a, st, ctx := north.a, north.st, context.Background()
 	add := func(name string, sets ...string) error {
 		t.Helper()
-		args := []string{"add", name, "--dir", t.TempDir()}
+		args := []string{"add", name, "--replace", "--dir", t.TempDir()}
 		for _, s := range sets {
 			args = append(args, "--set", s)
 		}
@@ -107,7 +107,7 @@ func TestMailToAPeersResident(t *testing.T) {
 			}
 		}
 	}
-	if _, err := run(t, north.a.residentCmd(), "add", "mayor", "--dir", t.TempDir(), "--set", "peers=south"); err != nil {
+	if _, err := run(t, north.a.residentCmd(), "set", "mayor", "peers=south"); err != nil {
 		t.Fatal(err)
 	}
 	mail := func(y *cliYard, as string, args ...string) (string, error) {
@@ -126,7 +126,7 @@ func TestMailToAPeersResident(t *testing.T) {
 
 	for as, want := range map[string]string{
 		"clerk":       "resident clerk may not mail residents of south",
-		"yard-10-new": "only a resident allowed south (--set peers=south on yardr resident add) or the operator (jo) may mail another yard; this is yard-10-new",
+		"yard-10-new": "only a resident allowed south (yardr resident set <resident> peers=south) or the operator (jo) may mail another yard; this is yard-10-new",
 	} {
 		if _, err := mail(north, as, "mayor@south", "hello"); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("mail as %s = %v, want %q", as, err, want)
@@ -180,7 +180,7 @@ func TestMailToAPeersResident(t *testing.T) {
 	if _, err := mail(south, "mayor", "mayor@up-north", "thanks"); err == nil || !strings.Contains(err.Error(), "may not mail residents of up-north") {
 		t.Fatalf("south's mayor answering unasked = %v", err)
 	}
-	if _, err := run(t, south.a.residentCmd(), "add", "mayor", "--dir", t.TempDir(), "--set", "peers=up-north"); err != nil {
+	if _, err := run(t, south.a.residentCmd(), "set", "mayor", "peers=up-north"); err != nil {
 		t.Fatal(err)
 	}
 	south.must(t, "allow", "up-north", "--send", "mail")

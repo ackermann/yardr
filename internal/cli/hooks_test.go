@@ -180,7 +180,7 @@ func TestHookAddMap(t *testing.T) {
 		"--map", "task:merged=done", "--map", "epic:open=started", "--map", "epic:done=done")
 	lines := "epic:done=done epic:open=started task:merged=done task:new=started task:review=review"
 	if err != nil || !strings.Contains(out, "moves tracked linear issues as mayor: "+lines+"\n") ||
-		!strings.Contains(out, "note: mayor may not set a status in linear yet, so nothing is moved: the operator allows it with --set set_state=linear on yardr resident add mayor") {
+		!strings.Contains(out, "note: mayor may not set a status in linear yet, so nothing is moved: the operator allows it with yardr resident set mayor set_state=linear") {
 		t.Fatalf("add: %q, %v", out, err)
 	}
 	h, err := st.GetHook(ctx, "linear")

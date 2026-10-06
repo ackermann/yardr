@@ -106,7 +106,7 @@ told then. The session is left as it is, and unlike `session_stalled` the
 group goes on starting sessions: whether to wait, to get the agent going in
 its pane or to end the session (`yardr bead release
 <bead>`) is the mayor's to decide. It is in a new resident's default
-`--on`; a resident from before it was gets it with `yardr resident add ...
+`--on`; a resident from before it was gets it with `yardr resident set <name>
 --on` naming every kind wanted ([residents.md](residents.md)).
 
 The lines known, as each harness prints them (a mark its TUI draws before a

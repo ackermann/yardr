@@ -421,8 +421,8 @@ func TestIssueMoveNeedsTheGrant(t *testing.T) {
 	id := ms[0].ID
 	ts := store.ThreadState{Status: "In Progress"}
 	for _, c := range []struct{ sources, want string }{
-		{"", "--set set_state=linear on yardr resident add mayor"},
-		{"github", "--set set_state=github,linear on yardr resident add mayor"},
+		{"", "yardr resident set mayor set_state=linear"},
+		{"github", "yardr resident set mayor set_state=github,linear"},
 	} {
 		moveMayor(t, s, c.sources)
 		head, _ := s.Head(ctx)

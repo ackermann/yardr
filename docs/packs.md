@@ -380,7 +380,7 @@ stage map of source linear, as resident yardmaster
   would be set on hook linear, which has none
   ok       hook         hook linear
   ok       identity     resident yardmaster has an identity in linear
-  missing  set state    resident yardmaster may not set a status in linear, so no issue is moved. The import does not grant it: the operator allows it with --set set_state=linear on yardr resident add yardmaster
+  missing  set state    resident yardmaster may not set a status in linear, so no issue is moved. The import does not grant it: the operator allows it with yardr resident set yardmaster set_state=linear
 ```
 
 | the plan says | meaning |
@@ -520,7 +520,7 @@ gets the pack's.
   <file>, then apply the pack again`). The next apply sets it.
 - It grants nothing. While the resident lacks `set_state` for the source the
   output ends with a `note:` naming the command the operator grants it with
-  (`--set set_state=linear on yardr resident add <resident>`), on every
+  (`yardr resident set <resident> set_state=linear`), on every
   apply until it is granted.
 - A hook that acts as a resident speaks as it. So, as `yardr hook add --as`
   does, the import sets the map only when run by the operator or from that

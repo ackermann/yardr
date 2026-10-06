@@ -197,7 +197,7 @@ that source; a hook that has another map gets the pack's, and the plan shows
 both. It never makes a hook: without one the import goes through, sets
 nothing for that source and names the command, and the next apply sets it.
 It never lets the resident set a status either: until the operator has
-(--set set_state=<source> on yardr resident add), the map moves nothing, and
+(yardr resident set <resident> set_state=<source>), the map moves nothing, and
 the plan and the output say so. As with yardr hook add --as, only the
 operator or that resident's own session may have a hook act as a resident:
 run by anyone else the import does the rest and sets no map.

@@ -1433,8 +1433,8 @@ func (b *planner) maps() error {
 		if slices.Contains(r.MaySetState(), sm.Source) {
 			mp.Needs = append(mp.Needs, Need{store.SetState, ok, "resident " + as + " may set a status in " + sm.Source})
 		} else {
-			mp.Needs = append(mp.Needs, Need{store.SetState, missing, fmt.Sprintf("resident %s may not set a status in %s, so no issue is moved. The import does not grant it: the operator allows it with --set %s=%s on yardr resident add %s",
-				as, sm.Source, store.SetState, strings.Join(append(r.MaySetState(), sm.Source), ","), as)})
+			mp.Needs = append(mp.Needs, Need{store.SetState, missing, fmt.Sprintf("resident %s may not set a status in %s, so no issue is moved. The import does not grant it: the operator allows it with yardr resident set %s %s=%s",
+				as, sm.Source, as, store.SetState, strings.Join(append(r.MaySetState(), sm.Source), ","))})
 		}
 		if mp.Hook != "" && identified {
 			h := of[0]

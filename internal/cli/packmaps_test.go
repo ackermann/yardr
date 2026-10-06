@@ -53,7 +53,7 @@ func linearHook(t *testing.T, a *app) store.Hook {
 func TestPackApplySetsTheStageMapOnTheYardsHook(t *testing.T) {
 	a := mapApp(t, "linear")
 	ctx := context.Background()
-	const grant = "resident boss may not set a status in linear, so no issue is moved. The import does not grant it: the operator allows it with --set set_state=linear on yardr resident add boss\n"
+	const grant = "resident boss may not set a status in linear, so no issue is moved. The import does not grant it: the operator allows it with yardr resident set boss set_state=linear\n"
 
 	out, err := run(t, a.packCmd(), "check", "../../packs/starter", "--rig", "web", "--resident", "mayor=boss")
 	if err != nil {

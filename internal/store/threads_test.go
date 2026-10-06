@@ -283,7 +283,7 @@ func TestOpening(t *testing.T) {
 
 	_, err := s.Opening(ctx, "inv", "linear", "YRD", "Web view", "body")
 	if err == nil || !strings.Contains(err.Error(), "may not open threads in linear") ||
-		!strings.Contains(err.Error(), "--set open_threads=linear on yardr resident add inv") {
+		!strings.Contains(err.Error(), "yardr resident set inv open_threads=linear") {
 		t.Fatalf("not allowed: %v", err)
 	}
 	if now, _ := s.Head(ctx); now != head {
@@ -298,7 +298,7 @@ func TestOpening(t *testing.T) {
 	// Allowed in another source only: still refused, and told what to set.
 	allow("github")
 	if _, err := s.Opening(ctx, "inv", "linear", "YRD", "Web view", "body"); err == nil ||
-		!strings.Contains(err.Error(), "--set open_threads=github,linear ") {
+		!strings.Contains(err.Error(), "yardr resident set inv open_threads=github,linear") {
 		t.Fatalf("allowed elsewhere: %v", err)
 	}
 	for _, v := range []any{"linear", " github , linear", []any{"linear", "github"}} {
@@ -471,7 +471,7 @@ func TestSettingState(t *testing.T) {
 	// Off unless set, and the refusal says what to set.
 	err := refused("linear", "T")
 	if !strings.Contains(err.Error(), "resident inv may not set the status of threads in linear") ||
-		!strings.Contains(err.Error(), "--set set_state=linear on yardr resident add inv") {
+		!strings.Contains(err.Error(), "yardr resident set inv set_state=linear") {
 		t.Fatalf("not allowed: %v", err)
 	}
 	// Opening threads is another setting, and another source no help.
@@ -481,7 +481,7 @@ func TestSettingState(t *testing.T) {
 		t.Fatal(err)
 	}
 	head, _ = s.Head(ctx)
-	if err := refused("linear", "T"); !strings.Contains(err.Error(), "--set set_state=github,linear ") {
+	if err := refused("linear", "T"); !strings.Contains(err.Error(), "yardr resident set inv set_state=github,linear") {
 		t.Fatalf("allowed elsewhere: %v", err)
 	}
 	if r, _ := s.GetResident(ctx, "inv"); !reflect.DeepEqual(r.MaySetState(), []string{"github"}) || !reflect.DeepEqual(r.MayOpen(), []string{"linear"}) {

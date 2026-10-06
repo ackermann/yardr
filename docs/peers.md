@@ -336,14 +336,14 @@ yardr --home $T/b peer ping a
 ```
 
 Mail between the two mayors, which `yardr init` made and the daemons
-start as agents. Each `resident add` repeats the mayor's definition (`yardr
-resident show mayor --json`), since add replaces it:
+start as agents. `resident set` adds the peer to each mayor's definition
+and keeps the rest of it:
 
 ```sh
 yardr --home $T/a peer allow b --send mail --receive mail
 yardr --home $T/b peer allow a --send mail --receive mail
-yardr --home $T/a resident add mayor --set kind=claude --set prompt=$T/a/roles/mayor.md --dir $T/a --set peers=b
-yardr --home $T/b resident add mayor --set kind=claude --set prompt=$T/b/roles/mayor.md --dir $T/b --set peers=a
+yardr --home $T/a resident set mayor peers=b
+yardr --home $T/b resident set mayor peers=a
 
 # as a's mayor runs it in its pane, where YARDR_ACTOR names it
 YARDR_ACTOR=mayor yardr --home $T/a mail mayor@b "the webapp rig is on Go 1.25 now"
@@ -355,7 +355,7 @@ yardr --home $T/a inbox --resident mayor
 YARDR_ACTOR=mayor yardr --home $T/a mail clerk@b "anyone?"       # b has no clerk
 yardr --home $T/a inbox --resident mayor
 #   25 10-05 12:11  mail from yard: your mail to clerk@b of 10-05 12:11 was not delivered: refused by the peer: it has no such resident
-YARDR_ACTOR=web-12-new yardr --home $T/a resident add mayor --set kind=claude --set peers=b   # refused: only the operator
+YARDR_ACTOR=web-12-new yardr --home $T/a resident set mayor open_threads=linear   # refused: only the operator
 ```
 
 The same crosses with b as a yard that cannot be called (below): a's mail
@@ -426,8 +426,8 @@ mayor@north`) until the peer has it.
 **Who may send.** Two things must hold:
 
 - the link carries mail out: `yardr peer allow north --send mail`;
-- the resident is allowed the peer: `--set peers=north` on `yardr resident
-  add`, comma-separated for more than one (`yardr resident show` then says
+- the resident is allowed the peer: `yardr resident set <name>
+  peers=north`, comma-separated for more than one (`yardr resident show` then says
   `may mail residents of north`). It is off unless set and follows the rules
   of `open_threads` ([residents.md](residents.md#opening-a-thread)): only
   the operator adds a peer to it, a resident's or a bead agent's session is
@@ -630,6 +630,6 @@ error of each, and `yardr doctor` has a `peers` line
 | `answered 401, not signed with its key` | the other yard has not added this one, the clocks are more than five minutes apart, or something between the two answered |
 | `the link does not carry ping out` | `yardr peer allow <name> --send ping` here |
 | `refused by the peer: its link does not carry ping in` | `yardr peer allow <name> --receive ping` there |
-| `resident mayor may not mail residents of north` | the operator: `yardr resident add mayor --set peers=north …`, with the rest of the definition |
+| `resident mayor may not mail residents of north` | the operator: `yardr resident set mayor peers=north` |
 | `mail from yard: your mail to … was not delivered: …` | the other yard refused it, or it was given up; the reason follows ([above](#mail-between-residents)) |
 | the ping waits to be asked for | the peer has no URL here, so its daemon must run and it must have this yard's URL |

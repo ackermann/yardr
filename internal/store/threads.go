@@ -347,8 +347,8 @@ func (s *Store) Opening(ctx context.Context, name, source, in, title, body strin
 	var out *Reply
 	err := s.changeResident(name, func(w *wtx, r *Resident) error {
 		if !slices.Contains(r.MayOpen(), source) {
-			return fmt.Errorf("resident %s may not open threads in %s: its definition does not allow it. The operator allows it with --set %s=%s on yardr resident add %s (add replaces the definition, so give the rest of it too)",
-				name, source, OpenThreads, strings.Join(append(r.MayOpen(), source), ","), name)
+			return fmt.Errorf("resident %s may not open threads in %s: its definition does not allow it. The operator allows it with yardr resident set %s %s=%s",
+				name, source, name, OpenThreads, strings.Join(append(r.MayOpen(), source), ","))
 		}
 		out = nil
 		err := each(w.Tx, bReplies, name+"\x00", func(_ []byte, rp *Reply) error {
@@ -415,8 +415,8 @@ func mayState(tx *bolt.Tx, r *Resident, source, thread string) (*Participation, 
 		return nil, fmt.Errorf("thread state: source and thread are required")
 	}
 	if !slices.Contains(r.MaySetState(), source) {
-		return nil, fmt.Errorf("resident %s may not set the status of threads in %s: its definition does not allow it. The operator allows it with --set %s=%s on yardr resident add %s (add replaces the definition, so give the rest of it too)",
-			r.Name, source, SetState, strings.Join(append(r.MaySetState(), source), ","), r.Name)
+		return nil, fmt.Errorf("resident %s may not set the status of threads in %s: its definition does not allow it. The operator allows it with yardr resident set %s %s=%s",
+			r.Name, source, r.Name, SetState, strings.Join(append(r.MaySetState(), source), ","))
 	}
 	var p Participation
 	ok, err := get(tx, bThreads, threadKey(r.Name, source, thread), &p)

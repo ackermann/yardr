@@ -333,7 +333,7 @@ func TestInitSummaryNamesTheHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	yardr := "yardr --home " + home
-	for _, s := range []string{"\n  " + yardr + " daemon\n", yardr + " resident add mayor",
+	for _, s := range []string{"\n  " + yardr + " daemon\n", yardr + " resident set mayor 'args=[...]'",
 		"every yardr command for it needs\n--home " + home + ", or YARDR_HOME exported"} {
 		if !strings.Contains(out, s) {
 			t.Errorf("summary lacks %q:\n%s", s, out)
@@ -349,7 +349,7 @@ func TestInitSummaryNamesTheHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(out, "YARDR_HOME") || strings.Contains(out, "--home") || !strings.Contains(out, "\n  yardr daemon\n") ||
-		!strings.Contains(out, " yardr resident add mayor") {
+		!strings.Contains(out, " yardr resident set mayor 'args=[...]'") {
 		t.Errorf("default home summary:\n%s", out)
 	}
 	if got := (notInitialized{filepath.Join(user, ".yardr")}).Error(); strings.Contains(got, "YARDR_HOME") || strings.Contains(got, "--home") {

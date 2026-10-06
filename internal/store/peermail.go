@@ -127,8 +127,8 @@ func (s *Store) MailPeer(ctx context.Context, to, peer, text, actor string) (*Pe
 		if ok, err := get(w.Tx, bResidents, actor, &r); err != nil {
 			return err
 		} else if ok && !slices.Contains(r.MayMail(), peer) {
-			return fmt.Errorf("resident %s may not mail residents of %s: its definition does not allow it. The operator allows it with --set %s=%s on yardr resident add %s (add replaces the definition, so give the rest of it too)",
-				actor, peer, MailPeers, strings.Join(append(r.MayMail(), peer), ","), actor)
+			return fmt.Errorf("resident %s may not mail residents of %s: its definition does not allow it. The operator allows it with yardr resident set %s %s=%s",
+				actor, peer, actor, MailPeers, strings.Join(append(r.MayMail(), peer), ","))
 		}
 		if out, err = w.queuePeer(p, m, actor); err != nil || out == nil {
 			return err

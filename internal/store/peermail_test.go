@@ -61,7 +61,7 @@ func TestMailPeer(t *testing.T) {
 	// A resident without the peer in its setting is refused, the link's
 	// permission or not.
 	if _, err := y.api.MailPeer(y.ctx, "mayor", "north", "hello", "clerk"); err == nil || !strings.Contains(err.Error(), "resident clerk may not mail residents of north") ||
-		!strings.Contains(err.Error(), "--set peers=north") {
+		!strings.Contains(err.Error(), "yardr resident set clerk peers=north") {
 		t.Fatalf("mail from a resident without peers = %v", err)
 	}
 	if _, err := y.api.MailPeer(y.ctx, "mayor", "nobody", "hello", "mayor"); !errors.Is(err, store.ErrNotFound) {

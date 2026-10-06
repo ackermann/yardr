@@ -50,8 +50,8 @@ the issue of this hook's source it tracks goes to started, review or done, as
 yardr thread state names them; --as names the resident it is done as. No
 agent takes part: the daemon makes the call with that resident's credential,
 from its env_file, and only where the resident's definition allows it
-(--set set_state=<source> on yardr resident add, which only the operator may
-grant), so a map does nothing until the operator has allowed it. An issue is
+(yardr resident set <resident> set_state=<source>, which only the operator
+may grant), so a map does nothing until the operator has allowed it. An issue is
 only ever moved forward: one that stands at or past the status is left
 alone. See docs/links.md.
 
@@ -98,8 +98,8 @@ identity), which keeps the source's delivery of the change out of its inbox.`,
 				if len(saved.Map) > 0 {
 					fmt.Printf("moves tracked %s issues as %s: %s\n", saved.Source, saved.As, strings.Join(mapLines(saved.Map), " "))
 					if r, err := st.GetResident(c.Context(), saved.As); err == nil && !slices.Contains(r.MaySetState(), saved.Source) {
-						fmt.Printf("note: %s may not set a status in %s yet, so nothing is moved: the operator allows it with --set %s=%s on yardr resident add %s\n",
-							saved.As, saved.Source, store.SetState, strings.Join(append(r.MaySetState(), saved.Source), ","), saved.As)
+						fmt.Printf("note: %s may not set a status in %s yet, so nothing is moved: the operator allows it with yardr resident set %s %s=%s\n",
+							saved.As, saved.Source, saved.As, store.SetState, strings.Join(append(r.MaySetState(), saved.Source), ","))
 					}
 				}
 				if a.cfg == nil {

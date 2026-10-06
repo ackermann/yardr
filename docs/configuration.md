@@ -153,7 +153,7 @@ with or without a grace.
 These events, `runtime_down` (below) and `held` (a stuck agent holds its
 bead for the mayor) are in a new resident's default `--on`, so the mayor's
 inbox gets them; a resident made before one of them joined the default needs
-it added to its `--on`, which `yardr resident add` replaces as a whole
+it added to its `--on`, which `yardr resident set <name> --on` replaces as a whole
 ([residents.md](residents.md)). `runtime_down` is about no bead, so a `yardr`
 subscription does not deliver it.
 
@@ -1177,7 +1177,7 @@ process of the yard was left, `yardr doctor` reported no yard, and
 
 Starting over is seldom needed for what the onboarding asked: the harness,
 your name and the mayor's are `yardr settings set`, the mayor's directory
-and model are `yardr resident add <mayor>` again, a role prompt comes back as
+and model are `yardr resident set <mayor> --dir … model=…`, a role prompt comes back as
 this build's when its file is deleted and `yardr init` runs, and a setup that
 failed is finished by the next run ([above](#a-run-that-did-not-finish)).
 

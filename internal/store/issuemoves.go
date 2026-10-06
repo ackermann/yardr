@@ -207,8 +207,8 @@ func mayMove(tx *bolt.Tx, m *IssueMove) (string, error) {
 		return fmt.Sprintf("resident %s, which hook %s acts as, is gone", m.As, m.Hook), nil
 	}
 	if !slices.Contains(r.MaySetState(), m.Source) {
-		return fmt.Sprintf("resident %s may not set the status of threads in %s: its definition does not allow it. The operator allows it with --set %s=%s on yardr resident add %s (add replaces the definition, so give the rest of it too)",
-			m.As, m.Source, SetState, strings.Join(append(r.MaySetState(), m.Source), ","), m.As), nil
+		return fmt.Sprintf("resident %s may not set the status of threads in %s: its definition does not allow it. The operator allows it with yardr resident set %s %s=%s",
+			m.As, m.Source, m.As, SetState, strings.Join(append(r.MaySetState(), m.Source), ",")), nil
 	}
 	return "", nil
 }

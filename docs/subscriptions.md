@@ -9,7 +9,7 @@ user's inbox, kept apart from the mail ([below](#users-as-subscribers)):
 |---|---|---|
 | a hook source (`github`, `linear`, `token`) | webhook deliveries taken by `yardr hook` | `yardr subscribe <name> linear …` |
 | `yardr` | yardr's own bead events: created, advanced, noted, closed, … | `yardr subscribe <name> yardr …`, `yardr bead watch` |
-| `--on` on the resident | event kinds, every bead, and events not about a bead | `yardr resident add --on …` |
+| `--on` on the resident | event kinds, every bead, and events not about a bead | `yardr resident add --on …`, `yardr resident set <name> --on …` |
 
 Every subscription has the same shape: a **source**, a **scope** (`all`,
 `mentions`, `involved`) and **where** filters (exact matches, all of which
@@ -302,7 +302,7 @@ What runs today, from nothing to a resident answering in Linear:
    then the resident speaks as that person.
 2. **The token in its env_file**, never in the store:
    `LINEAR_API_KEY=…` in `~/.yardr/residents/<name>.env`, `chmod
-   600`, `yardr resident add <name> --set env_file=…` (see
+   600`, `yardr resident set <name> env_file=…` (see
    [residents.md](residents.md#outbound-credentials)). Restart the resident
    after changing it.
 3. **Its identity**: the app user's id and profile key, so mentions,

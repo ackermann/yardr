@@ -29,7 +29,7 @@ session or the operator may speak as the resident (--resident, default
 $YARDR_RESIDENT).
 
 A resident may open threads only in the sources its definition allows:
---set open_threads=linear,github on yardr resident add, which only the
+yardr resident set <resident> open_threads=linear,github, which only the
 operator may add a source to. It is off unless set, and the command then
 refuses and says so.
 
