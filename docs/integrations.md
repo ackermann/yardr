@@ -324,9 +324,9 @@ marked *(in Linear)*.
 `hook_addr` setting, and reads it when it starts:
 
 ```sh
-yardr settings set hook_addr 127.0.0.1:8790
+yardr settings set hook_addr 127.0.0.1:65207
 yardr server stop        # the next command starts it again, on the address
-yardr doctor             # … note  hooks: the server takes webhooks on 127.0.0.1:8790 (the hook_addr setting)
+yardr doctor             # … note  hooks: the server takes webhooks on 127.0.0.1:65207 (the hook_addr setting)
 ```
 
 The listener serves `POST /hooks/<name>` and the yard's peers, and nothing
@@ -463,7 +463,7 @@ secret, and a `webhookTimestamp` of now in the body.
 ```sh
 body='{"action":"create","type":"Issue","actor":{"id":"aacdca22-6266-4c0a-ab3c-8fa70a26765c","name":"Jane Doe"},"url":"https://linear.app/acme/issue/YRD-1/web-view-shows-links","data":{"id":"539068e2-ae88-4d09-bd75-22eb4a59612f","title":"Web view shows links","description":"The bead page should list the issue it tracks.","identifier":"YRD-1","url":"https://linear.app/acme/issue/YRD-1/web-view-shows-links","team":{"key":"YRD","name":"Yardr"},"labels":[{"name":"ui"}]},"webhookTimestamp":'$(($(date +%s) * 1000))'}'
 sig=$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$(cat ~/.yardr/linear.secret)" | sed 's/^.* //')
-curl -s -X POST http://127.0.0.1:8790/hooks/linear \
+curl -s -X POST http://127.0.0.1:65207/hooks/linear \
     -H "Linear-Signature: $sig" -H "Linear-Delivery: $(uuidgen)" \
     -H 'Content-Type: application/json' --data-binary "$body"
 # {"seq":16}
