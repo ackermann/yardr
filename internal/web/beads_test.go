@@ -706,3 +706,129 @@ func TestEventsSeq(t *testing.T) {
 		t.Errorf("format=cards: status %d, want 400", r.status)
 	}
 }
+
+// A bead a manual group has claimed is a person's turn: its card has no
+// working dot and says no "working" on /flows, on /beads, on its own page
+// and as a child of its epic, as JSON and as the page, and its session is
+// listed as claimed, not running. A bead an agent's session has claimed is
+// working everywhere, as before.
+func TestManualClaimIsNotWorking(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	idea := backlogYard(t, f, 1)[0]
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
+	door, err := f.st.CreateBead(ctx, store.NewBead{Title: "a door", Stage: "new", Rig: "line"}, "me")
+	must(t, err)
+	sess, err := f.st.Claim(ctx, door.ID, "builders", "new", "yard")
+	must(t, err)
+	must(t, f.st.MarkRunning(ctx, sess.ID, map[string]any{"agent": "door-new"}))
+	epic, err := f.st.CreateBead(ctx, store.NewBead{Title: "the gate", Type: store.TypeEpic, Stage: "new", Rig: "line"}, "me")
+	must(t, err)
+	must(t, f.st.AddDep(ctx, epic.ID, idea.ID, store.DepParent, "me"))
+	must(t, f.st.AddDep(ctx, epic.ID, door.ID, store.DepParent, "me"))
+
+	// working is what cards say of the two beads, by title.
+	working := func(cs []web.Card) map[string]bool {
+		out := map[string]bool{}
+		for _, c := range cs {
+			if c.ID == idea.ID || c.ID == door.ID {
+				out[c.Title] = c.Working
+			}
+		}
+		return out
+	}
+	want := map[string]bool{"idea a": false, "a door": true}
+	var flows web.Flows
+	f.getJSON("/flows", &flows)
+	if got := working(flows.Rigs[0].Elsewhere); !reflect.DeepEqual(got, want) {
+		t.Errorf("/flows: working %v, want %v", got, want)
+	}
+	var beads web.Beads
+	f.getJSON("/beads", &beads)
+	if got := working(beads.Beads); !reflect.DeepEqual(got, want) {
+		t.Errorf("/beads: working %v, want %v", got, want)
+	}
+	var ep, claimed, built web.BeadPage
+	f.getJSON("/beads/"+epic.ID, &ep)
+	if got := working(ep.Children); !reflect.DeepEqual(got, want) {
+		t.Errorf("the epic's children: working %v, want %v", got, want)
+	}
+	f.getJSON("/beads/"+idea.ID, &claimed)
+	f.getJSON("/beads/"+door.ID, &built)
+	if claimed.Working || !built.Working {
+		t.Errorf("the beads' pages: working %v for the manual claim, %v for the agent's, want false and true", claimed.Working, built.Working)
+	}
+	if r := f.get("/beads/"+idea.ID, "Accept", "application/json"); !strings.Contains(r.body, `"working": false`) {
+		t.Errorf("the manual claim's page as JSON lacks \"working\":false: %s", r.body)
+	}
+
+	// cardOf is the bead's card on a page, "" when the page has none.
+	cardOf := func(body, id string) string {
+		at := strings.Index(body, `<article class="card" id="bead/`+id+`"`)
+		if at < 0 {
+			return ""
+		}
+		return body[at : at+strings.Index(body[at:], "</article>")]
+	}
+	for _, page := range []string{"/flows", "/beads", "/beads/" + epic.ID} {
+		body := f.get(page).body
+		if c := cardOf(body, idea.ID); c == "" || strings.Contains(c, "working") || !strings.Contains(c, `<span class="dot"></span>`) {
+			t.Errorf("%s: the manual claim's card: %q", page, c)
+		}
+		if c := cardOf(body, door.ID); !strings.Contains(c, `<span class="dot working"></span>`) || !strings.Contains(c, "· working") {
+			t.Errorf("%s: the agent's bead's card: %q", page, c)
+		}
+	}
+	body := squash(f.get("/beads/" + idea.ID).body)
+	for _, want := range []string{
+		`<span class="dot"></span>task · stage backlog · open`,
+		`backlog · stage backlog · manual</span>`,
+		`<p><span class="dot"></span>claimed <span class="faint">`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the manual claim's page lacks %s", want)
+		}
+	}
+	// The right column has a working dot of its own, for its count.
+	if bead, _, _ := strings.Cut(body[strings.Index(body, `<div id="bead"`):], `<aside`); strings.Contains(bead, "dot working") {
+		t.Errorf("the manual claim's page has a working dot: %s", bead)
+	}
+	body = squash(f.get("/beads/" + door.ID).body)
+	for _, want := range []string{
+		`<span class="dot working"></span>task · stage new · open`,
+		`<p><span class="dot working"></span>running <span class="faint">`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the agent's bead's page lacks %s", want)
+		}
+	}
+}
+
+// The card stream places a bead a manual group claims as not working, and
+// one an agent's session claims as working: what a reload shows.
+func TestFlowsStreamManualClaim(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	must(t, f.st.PutRig(ctx, store.Rig{Name: "line", Base: "origin/main"}, "me"))
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "backlog", Runner: "manual"}))
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake"}))
+	idea, err := f.st.CreateBead(ctx, store.NewBead{Title: "an idea", Stage: "backlog", Rig: "line"}, "me")
+	must(t, err)
+	door, err := f.st.CreateBead(ctx, store.NewBead{Title: "a door", Stage: "new", Rig: "line"}, "me")
+	must(t, err)
+	head, err := f.st.Head(ctx)
+	must(t, err)
+	s := f.stream(t, fmt.Sprintf("/events?after=%d&format=card", head))
+
+	_, err = f.st.Claim(ctx, idea.ID, "backlog", "backlog", "yard")
+	must(t, err)
+	if c := put(s.next(t)); !strings.Contains(c, `id="bead/`+idea.ID+`"`) || strings.Contains(c, "working") {
+		t.Errorf("the manual claim's card: %s", c)
+	}
+	_, err = f.st.Claim(ctx, door.ID, "builders", "new", "yard")
+	must(t, err)
+	if c := put(s.next(t)); !strings.Contains(c, `id="bead/`+door.ID+`"`) || !strings.Contains(c, `<span class="dot working"></span>`) || !strings.Contains(c, "· working") {
+		t.Errorf("the agent's bead's card: %s", c)
+	}
+	s.quiet(t)
+}

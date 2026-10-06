@@ -65,12 +65,7 @@ func (s *Server) overview(ctx context.Context) (*Home, error) {
 		return nil, err
 	}
 	out := &Home{Yard: s.yardName(ctx), Rigs: []HomeRig{}, sessions: sessions}
-	manual := map[string]bool{}
-	for _, sess := range sessions {
-		if isManual(sess) {
-			manual[sess.ID] = true
-		}
-	}
+	manual := manualClaims(sessions)
 	for _, rig := range rigs {
 		beads, err := s.st.ListBeads(ctx, store.BeadFilter{Rig: rig.Name})
 		if err != nil {
@@ -102,7 +97,7 @@ func (s *Server) overview(ctx context.Context) (*Home, error) {
 		}
 		for _, b := range beads {
 			hr.Open++
-			if b.Session != nil && !manual[*b.Session] {
+			if working(&b, manual) {
 				hr.Working++
 			}
 			if b.Hold {

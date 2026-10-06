@@ -10,7 +10,7 @@
     <header class="item-head">
       <h2>{{.Title}}</h2>
     </header>
-    <p class="label"><span class="dot{{if .Hold}} held{{else if .Session}} working{{end}}"></span>{{.Type}} · stage {{.Stage}} · {{.Status}}{{with .CloseReason}}: {{.}}{{end}} · P{{.Priority}}{{if .Hold}} · <span class="held">held</span>{{end}}</p>
+    <p class="label"><span class="dot{{if .Hold}} held{{else if $.Data.Working}} working{{end}}"></span>{{.Type}} · stage {{.Stage}} · {{.Status}}{{with .CloseReason}}: {{.}}{{end}} · P{{.Priority}}{{if .Hold}} · <span class="held">held</span>{{end}}</p>
   </article>
   {{- end}}
   {{- range .Warnings}}
@@ -102,9 +102,13 @@
   <section class="item" id="sessions">
     <h3 class="label">sessions</h3>
     {{- range .Sessions}}
+    {{- /* A manual group's claim runs nothing: the store keeps it as a
+           running session, the page says claimed, as /sessions does. */}}
+    {{- $live := or (eq .State "starting") (eq .State "running")}}
+    {{- $claim := and .Manual $live}}
     <article class="note">
       <header class="entry-head"><span class="label">{{.Group}} · stage {{.Stage}}{{with .Runner}} · {{.}}{{end}}</span><time class="label" datetime="{{.StartedAt.UTC.Format "2006-01-02T15:04:05Z"}}">{{clock .StartedAt}}</time></header>
-      <p><span class="dot{{if or (eq .State "starting") (eq .State "running")}} working{{else if or (eq .State "died") (eq .State "failed") (eq .State "held") (eq .State "aborted")}} held{{end}}"></span>{{.State}}{{with .EndedAt}} <span class="faint">at {{clock .}}</span>{{end}} <span class="faint">{{.ID}}</span></p>
+      <p><span class="dot{{if $claim}}{{else if $live}} working{{else if or (eq .State "died") (eq .State "failed") (eq .State "held") (eq .State "aborted")}} held{{end}}"></span>{{if $claim}}claimed{{else}}{{.State}}{{end}}{{with .EndedAt}} <span class="faint">at {{clock .}}</span>{{end}} <span class="faint">{{.ID}}</span></p>
       {{- with .Error}}
       <pre class="text held">{{.}}</pre>
       {{- end}}

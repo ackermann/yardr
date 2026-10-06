@@ -23,7 +23,9 @@ type Card struct {
 	// an epic's children may be either.
 	Status string `json:"status"`
 	Rig    string `json:"rig,omitempty"`
-	// Held is a bead on hold; Working one a session has claimed.
+	// Held is a bead on hold; Working one an agent's or a command's session
+	// has claimed. A manual group's claim is a person's turn and no work in
+	// progress, as on Home and the line.
 	Held    bool   `json:"held,omitempty"`
 	Working bool   `json:"working,omitempty"`
 	Group   string `json:"group,omitempty"`
@@ -47,9 +49,29 @@ func (c Card) DOM() string { return domID("bead", c.ID) }
 // Clock is when the bead last changed, as the feed writes a time.
 func (c Card) Clock() string { return clock(c.UpdatedAt) }
 
-func card(b *store.Bead) Card {
+// manualClaims are the ids of the sessions among sessions that are a manual
+// group's claim.
+func manualClaims(sessions []store.Session) map[string]bool {
+	manual := map[string]bool{}
+	for _, sess := range sessions {
+		if isManual(sess) {
+			manual[sess.ID] = true
+		}
+	}
+	return manual
+}
+
+// working reports whether b is being worked: a session has claimed it, and
+// not one of manual, the claims of manual groups.
+func working(b *store.Bead, manual map[string]bool) bool {
+	return b.Session != nil && !manual[*b.Session]
+}
+
+// card is b as a list shows it; manual are the manual groups' claims, which
+// the bead alone does not tell from an agent's session.
+func card(b *store.Bead, manual map[string]bool) Card {
 	c := Card{ID: b.ID, Title: b.Title, Type: b.Type, Stage: b.Stage, Status: b.Status, Held: b.Hold,
-		Working: b.Session != nil, Epic: b.Epic, UpdatedAt: b.UpdatedAt}
+		Working: working(b, manual), Epic: b.Epic, UpdatedAt: b.UpdatedAt}
 	if b.Rig != nil {
 		c.Rig = *b.Rig
 	}
@@ -192,6 +214,11 @@ func (s *Server) flows(ctx context.Context) (*Flows, error) {
 	if err != nil {
 		return nil, err
 	}
+	sessions, err := s.st.Sessions(ctx, false)
+	if err != nil {
+		return nil, err
+	}
+	manual := manualClaims(sessions)
 	out := &Flows{Rigs: []FlowsRig{}, Head: head}
 	for _, rig := range rigs {
 		beads, err := s.st.ListBeads(ctx, store.BeadFilter{Rig: rig.Name})
@@ -240,7 +267,7 @@ func (s *Server) flows(ctx context.Context) (*Flows, error) {
 		}
 		p := placer{rig: rig.Name, flows: rfs}
 		for _, b := range beads {
-			c := card(&b)
+			c := card(&b, manual)
 			dst, ok := sections[p.section(&b)]
 			if c.Live, c.Placed = true, ok; !ok {
 				dst = &fr.Elsewhere
@@ -290,7 +317,15 @@ func (s *Server) place(ctx context.Context, e store.Event) (p placement, ok bool
 	if err != nil {
 		return p, false
 	}
-	p.Card = card(b)
+	// The bead's own session says whether its claim is a manual group's;
+	// one that cannot be read is taken for an agent's.
+	manual := map[string]bool{}
+	if b.Session != nil {
+		if sess, err := s.st.GetSession(ctx, *b.Session); err == nil && isManual(*sess) {
+			manual[sess.ID] = true
+		}
+	}
+	p.Card = card(b, manual)
 	if b.Status == "open" && b.Rig != nil && !store.NotWork[b.Type] {
 		// A rig whose flows cannot be read has every bead in Elsewhere.
 		rfs, _ := s.st.RigFlows(ctx, *b.Rig)
@@ -377,10 +412,16 @@ func (s *Server) handleBeads(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	live, err := s.st.Sessions(ctx, false)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	manual := manualClaims(live)
 	for _, b := range beads {
 		d.Stages = append(d.Stages, b.Stage)
 		if d.Stage == "" || b.Stage == d.Stage {
-			d.Beads = append(d.Beads, card(&b))
+			d.Beads = append(d.Beads, card(&b, manual))
 		}
 	}
 	slices.Sort(d.Stages)
@@ -393,6 +434,9 @@ func (s *Server) handleBeads(w http.ResponseWriter, r *http.Request) {
 // person.
 type BeadPage struct {
 	Bead *store.Bead `json:"bead"`
+	// Working says an agent's or a command's session has claimed the bead:
+	// a manual group's claim is a person's turn.
+	Working bool `json:"working"`
 	// Flow is the flow that governs the bead, absent when none does: the
 	// bead may then move to any stage.
 	Flow *BeadFlow `json:"flow,omitempty"`
@@ -461,12 +505,21 @@ func (s *Server) handleBead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.Bead = b
+	// Every session, ended ones too: the bead's own are listed, and the
+	// manual groups' claims among them say which bead is not being worked.
+	sessions, err := s.st.Sessions(ctx, true)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	manual := manualClaims(sessions)
+	d.Working = working(b, manual)
 	// A card for each bead this one names; one that is gone is left out.
 	cards := func(ids []string) []Card {
 		var out []Card
 		for _, id := range ids {
 			if o, err := s.st.GetBead(ctx, id); err == nil {
-				out = append(out, card(o))
+				out = append(out, card(o, manual))
 			}
 		}
 		return out
@@ -528,11 +581,6 @@ func (s *Server) handleBead(w http.ResponseWriter, r *http.Request) {
 	}
 	slices.SortStableFunc(notes, func(a, b store.Note) int { return cmp.Compare(a.Seq, b.Seq) })
 	d.Notes = append(d.Notes, notes...)
-	sessions, err := s.st.Sessions(ctx, true)
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
 	for _, se := range sessions {
 		if se.Bead == b.ID {
 			d.Sessions = append(d.Sessions, se)
