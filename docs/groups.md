@@ -36,7 +36,6 @@ own session file, found by the session id herdr reports for the pane:
 |---|---|
 | `claude` | `~/.claude/projects/<dir>/<session id>.jsonl` (or under `CLAUDE_CONFIG_DIR`): the `model` of the first assistant message, which is what the API answered with |
 | `codex` | `~/.codex/sessions/<y>/<m>/<d>/rollout-<time>-<session id>.jsonl` (or under `CODEX_HOME`): the `model` of the first `turn_context` |
-| `kimi` | `Error: [provider.overloaded] …` | `Error: [provider.auth_error] 403 You've reached …` (a usage limit: `… your 5-hour usage limit. …`), `Error: [provider.rate_limit] …` | `Error: [auth.login_required] …`, `[auth.token_missing]`, `[auth.token_unauthorized]`, any other `Error: [provider.auth_error] …` | none |
 | any other | none known: nothing is recorded and nothing compared |
 
 The daemon must run as the user whose agents these are, on their machine,
