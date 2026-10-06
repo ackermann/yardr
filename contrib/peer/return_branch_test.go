@@ -239,6 +239,23 @@ func TestReturnBranchWritesNoCredentials(t *testing.T) {
 	}
 }
 
+func TestReturnBranchWritesNoScpLogin(t *testing.T) {
+	y := newYard(t)
+	y.git(y.repo, "config", "url."+y.remote+".pushInsteadOf", "git@github.example.com:acme/web.git")
+	y.git(y.repo, "config", "remote.origin.url", "git@github.example.com:acme/web.git")
+	y.returns("YARDR_PUSH=origin", nil)
+	b := y.bead()
+	if got := y.remoteAt("yard/r-1"); got != y.commit || b.Stage != "returned" {
+		t.Fatalf("the remote's yard/r-1 is at %q, bead %+v", got, b)
+	}
+	if got := b.Metadata[store.MetaResultRemote]; got != "ssh://github.example.com/acme/web.git" {
+		t.Fatalf("remote on bead = %q, want ssh URL without login", got)
+	}
+	if raw, _ := json.Marshal(b.Metadata); strings.Contains(string(raw), "git@") || strings.Contains(y.notes(), "git@") {
+		t.Fatalf("a scp-style login is on the bead: %s", raw)
+	}
+}
+
 // A push that fails reports failed with git's words, and nothing is
 // written on the bead: the flow sends it back to who can mend it.
 func TestReturnBranchPushFails(t *testing.T) {
