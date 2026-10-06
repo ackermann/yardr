@@ -177,8 +177,8 @@ func TestDoctorFreshYard(t *testing.T) {
 	}
 }
 
-// gitDepot makes a repository with depot init's files committed on main and
-// adds it as depot web.
+// gitDepot makes a repository that keeps its own .yardr files
+// (ownDepotFiles) and adds it as depot web.
 func gitDepot(t *testing.T, st store.API) store.Depot {
 	t.Helper()
 	dir := t.TempDir()
@@ -191,9 +191,7 @@ func gitDepot(t *testing.T, st store.API) store.Depot {
 		}
 	}
 	git("init", "-q", "-b", "main")
-	if _, err := depotInit(depot, "Jo", "yardmaster", true); err != nil {
-		t.Fatal(err)
-	}
+	ownDepotFiles(t, depot)
 	if err := st.PutDepot(context.Background(), depot, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -645,9 +643,7 @@ func TestSetupStepsDirDepot(t *testing.T) {
 	if n := nextStep(steps); n.Key != stepDepotFiles || n.Next != "yardr depot init docs" {
 		t.Fatalf("next = %+v", n)
 	}
-	if _, err := depotInit(depot, "Jo", "yardmaster", false); err != nil {
-		t.Fatal(err)
-	}
+	ownDepotFiles(t, depot)
 	steps, err = setupSteps(ctx, st)
 	if err != nil {
 		t.Fatal(err)

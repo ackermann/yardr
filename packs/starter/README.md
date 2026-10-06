@@ -1,11 +1,11 @@
 # yardr starter pack
 
 The pack yardr ships: the way of working of the yard that builds yardr
-itself, in a git depot. Its roles are copies of `roles/*.md`, less their
-section for a directory depot (the [dir pack](../dir) says that), and its
-`scripts/merge-local` of `contrib/assembly/merge-local`, and its stage files of `roles/stages/git/default/*.md`, which `yardr depot
-init` wrote into a git depot before it took a pack; a test fails when they
-drift. It is the default pack of a yard that names none: `yardr depot init
+itself, in a git depot. Its roles and stage files are here and nowhere
+else in yardr: no code names one, and what a directory depot asks of a role
+is the [dir pack](../dir)'s to say. Its `scripts/merge-local` is a copy of
+`contrib/assembly/merge-local`; a test fails when the two drift. It is the
+default pack of a yard that names none: `yardr depot init
 <depot>` sets a git depot up from it, and `yardr init` takes the
 yardmaster's role from it. Where they say `{{operator}}` and `{{yardmaster}}`, an
 import puts the yard's operator and the crew member that takes `yardmaster`. The

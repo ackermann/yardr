@@ -17,59 +17,34 @@ import (
 	"yardr.dev/yardr/packs"
 )
 
-// dirYard is a yard whose operator is Jo, with two dir depots that hold
-// nothing: "old" and "invoices".
-func dirYard(t *testing.T) (a *app, old, invoices store.Depot) {
+// dirYard is a yard whose operator is Jo, with a dir depot that holds
+// nothing, "invoices".
+func dirYard(t *testing.T) (a *app, invoices store.Depot) {
 	t.Helper()
 	st := storetest.New(t)
 	ctx := context.Background()
-	old = store.Depot{Name: "old", Path: t.TempDir(), Kind: store.DepotDir}
 	invoices = store.Depot{Name: "invoices", Path: t.TempDir(), Kind: store.DepotDir}
-	for _, d := range []store.Depot{old, invoices} {
-		if err := st.PutDepot(ctx, d, "me"); err != nil {
-			t.Fatal(err)
-		}
+	if err := st.PutDepot(ctx, invoices, "me"); err != nil {
+		t.Fatal(err)
 	}
 	if err := st.SetSetting(ctx, "operator", "Jo", "me"); err != nil {
 		t.Fatal(err)
 	}
-	return &app{st: st, actor: "me", cfg: &config.Config{Home: t.TempDir()}}, old, invoices
+	return &app{st: st, actor: "me", cfg: &config.Config{Home: t.TempDir()}}, invoices
 }
 
 var dirFlags = []string{"--bind", "builders=claude:opus", "--bind", "reviewers=codex", "--members", "backlog=", "--members", "decisions=me"}
 
-// rules are a flow file's lines that say something: its rules, without the
-// comments above them.
-func rules(flow string) string {
-	var out []string
-	for _, l := range strings.Split(flow, "\n") {
-		if l != "" && !strings.HasPrefix(l, "#") {
-			out = append(out, l)
-		}
-	}
-	return strings.Join(out, "\n") + "\n"
-}
-
-// A dir depot set up from the dir pack is worked as one depot init seeded:
-// the same two flows govern its tasks and its trains, every stage has the
-// same stage text, and the routes are the ones depot init tells the
-// operator to add (new to builders, review to reviewers, a train's open to
-// the reviewers). Where they differ is where it is kept: the pack's under
-// the yard's home and in the store, depot init's in the directory, which
-// --pack leaves as it was, with no gate.
-//
-// They differ in two routes as well, on purpose (yardr-bv0x): depot init
-// gives backlog and decide no route, so a bead waiting there is reported as
-// unrouted, and the pack routes them to the yard's two people groups,
-// backlog and decisions, the starter pack's, where a person finds it in
-// yardr review.
-func TestDirPackIsWhatDepotInitGivesADirDepot(t *testing.T) {
-	a, old, invoices := dirYard(t)
+// A dir depot is set up from the dir pack: two flows in the store govern
+// its tasks and its trains, every stage a bead waits in has its stage file
+// under the yard's home, and the routes hand new to the builders, review
+// and a train's open to the reviewers, and backlog and decide to the yard's
+// two people groups, so no bead there is unrouted (yardr-bv0x). Nothing is
+// written into the directory, and it gets no gate.
+func TestDepotInitSetsADirDepotUpFromTheDirPack(t *testing.T) {
+	a, invoices := dirYard(t)
 	setInteractive(t, false)
 	ctx := context.Background()
-	if _, err := depotInit(old, "Jo", "yardmaster", false); err != nil {
-		t.Fatal(err)
-	}
 	args := append([]string{"init", "invoices", "--pack", "dir", "--yes"}, dirFlags...)
 	out, err := run(t, a.depotCmd(), args...)
 	if err != nil {
@@ -91,64 +66,36 @@ func TestDirPackIsWhatDepotInitGivesADirDepot(t *testing.T) {
 		t.Errorf("depot init --pack wrote into the directory: %v", left)
 	}
 
-	// The flows: depot init's rules, for a task and for a train, each
-	// governing from where its depot keeps it.
-	for typ, f := range map[string]struct{ file, text, flow string }{
-		"task":          {"default", dirFlow, "dir.default"},
-		store.TypeTrain: {"type/train", dirTrainFlow, "dir.train"},
-	} {
-		var got [2]*store.NextStages
-		for i, depot := range []string{"old", "invoices"} {
-			b, err := a.st.CreateBead(ctx, store.NewBead{Title: typ, Depot: depot, Type: typ, Stage: "backlog"}, "me")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got[i], err = a.st.NextStages(ctx, b.ID); err != nil || got[i].Flow == nil {
-				t.Fatalf("%s in %s: %+v, %v", typ, depot, got[i], err)
-			}
+	// The flows: one for a task and one for a train, both from the store,
+	// with a stage file for every stage a bead is worked or waits in.
+	for typ, flow := range map[string]string{"task": "dir.default", store.TypeTrain: "dir.train"} {
+		b, err := a.st.CreateBead(ctx, store.NewBead{Title: typ, Depot: "invoices", Type: typ, Stage: "backlog"}, "me")
+		if err != nil {
+			t.Fatal(err)
 		}
-		if got[0].Flow.Name != f.file || got[1].Flow.Name != f.flow || got[1].Source.Kind != "store" {
-			t.Errorf("%s: governed by %s (%s) and %s (%s)", typ, got[0].Flow.Name, got[0].Source, got[1].Flow.Name, got[1].Source)
+		next, err := a.st.NextStages(ctx, b.ID)
+		if err != nil || next.Flow == nil || next.Flow.Name != flow || next.Source.Kind != "store" {
+			t.Fatalf("%s: governed by %+v, %v; want %s from the store", typ, next, err, flow)
 		}
-		// A flow read from a file lists its stages as the rules first name
-		// them, the pack's as it declares them: the same rules in another
-		// order.
-		sorted := func(f *store.Flow) string {
-			lines := strings.Split(f.String(), "\n")
-			slices.Sort(lines)
-			return strings.Join(lines, "\n")
-		}
-		if got[1].Flow.String() != rules(f.text) || sorted(got[1].Flow) != sorted(got[0].Flow) {
-			t.Errorf("%s: the pack's flow is\n%s\ndepot init's\n%s", typ, got[1].Flow, got[0].Flow)
-		}
-		if got[0].Flow.Stages[0] != got[1].Flow.Stages[0] {
-			t.Errorf("%s starts in %s by the pack, in %s by depot init", typ, got[1].Flow.Stages[0], got[0].Flow.Stages[0])
-		}
-		// The stage texts, for every stage a bead is worked or waits in.
 		n := 0
-		for _, stage := range got[0].Flow.Stages {
-			if got[0].Flow.IsTerminal(stage) {
+		for _, stage := range next.Flow.Stages {
+			if next.Flow.IsTerminal(stage) {
 				continue
 			}
 			n++
-			want, err := os.ReadFile(filepath.Join(old.Path, ".yardr", "flows", filepath.FromSlash(f.file), stage+".md"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			sf, err := store.HomeStageFile(a.cfg.Home, f.flow, stage)
-			if err != nil || sf == nil || sf.Text != string(want) {
-				t.Errorf("%s stage %s: the pack's stage file is %+v, %v; depot init's:\n%s", typ, stage, sf, err, want)
+			if sf, err := store.HomeStageFile(a.cfg.Home, flow, stage); err != nil || sf == nil || strings.TrimSpace(sf.Text) == "" {
+				t.Errorf("%s stage %s: the pack's stage file is %+v, %v", typ, stage, sf, err)
 			}
 		}
 		if n != 4 {
-			t.Errorf("%s: %d stage texts compared, want 4", typ, n)
+			t.Errorf("%s: %d stages with a stage file, want 4", typ, n)
 		}
 	}
 	if strings.Contains(string(mustRead(t, filepath.Join(a.cfg.Home, "flows", "dir.default", "decide.md"))), "{{") {
 		t.Error("a stage file was installed with a placeholder in it")
 	}
 
-	// The groups and routes: what depot init prints for the operator to add.
+	// The groups and routes.
 	groups, err := a.st.Groups(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -251,11 +198,11 @@ func mustRead(t *testing.T, path string) []byte {
 	return b
 }
 
-// A bead and a train walk the dir pack's flows in a depot set up from it,
-// as they walk depot init's (TestDirDepotFlowsWalk): built, reviewed, sent
-// back, asked about, and done, which closes them. No stage lands anything.
+// A bead and a train walk the dir pack's flows in a depot set up from it:
+// built, reviewed, sent back, asked about, and done, which closes them. No
+// stage lands anything.
 func TestDirPackFlowsWalk(t *testing.T) {
-	a, _, _ := dirYard(t)
+	a, _ := dirYard(t)
 	setInteractive(t, false)
 	ctx := context.Background()
 	if out, err := run(t, a.depotCmd(), append([]string{"init", "invoices", "--pack", "dir", "--yes"}, dirFlags...)...); err != nil {
@@ -308,7 +255,7 @@ func TestDirPackFlowsWalk(t *testing.T) {
 // group, so the plan noted four stages routed to nobody and every bead
 // waiting there was reported as unrouted (yardr-bv0x).
 func TestDirPackSharesTheYardsPeopleGroups(t *testing.T) {
-	a, _, _ := dirYard(t)
+	a, _ := dirYard(t)
 	setInteractive(t, false)
 	ctx := context.Background()
 	for _, g := range []store.Group{

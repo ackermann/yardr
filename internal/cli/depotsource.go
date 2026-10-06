@@ -107,9 +107,9 @@ func roleLine(lines []depotSource, name string) *depotSource {
 	return nil
 }
 
-// roleFile is the file name of the role a prompt names (builder.md):
-// <name>.md alone or in a directory roles, wherever that is: the depot's, the
-// home's, a pack's installed copy. "" for a prompt that is no role.
+// roleFile is the file name of the role a prompt names: <name>.md alone or
+// in a directory roles, wherever that is: the depot's, the home's, a pack's
+// installed copy. "" for a prompt that is no role.
 func roleFile(prompt string) string {
 	dir, name := filepath.Split(filepath.Clean(prompt))
 	if filepath.Ext(name) != ".md" || (dir != "" && filepath.Base(dir) != "roles") {

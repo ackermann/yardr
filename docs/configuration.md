@@ -631,12 +631,11 @@ is compiled in like one. A changed `_test.go` file runs its own package
 only, as nobody imports it. Every package is tested when `go.mod` or
 `go.sum` changed.
 
-A file a test reads by path (`os.ReadFile("../../roles/builder.md")`) is in
-nothing `go list` prints, so the script starts with a table of them: a
+A file a test reads by path (`os.ReadFile("../../packs/starter/pack.yaml")`)
+is in nothing `go list` prints, so the script starts with a table of them: a
 path, then the packages whose tests read it, or `-` when none does.
 
 ```text
-roles/                         internal/pack
 packs/starter/                 internal/pack internal/cli
 internal/hooks/testdata/       internal/hooks internal/dispatch
 docs/                          -
@@ -651,7 +650,10 @@ tests every package: `light gate: contrib/x.txt is read by no known
 package: testing everything`. So a missing row costs time, and a new test
 that reads a file by path gets a row; a `-` row (docs, the depot's own roles,
 CI's workflows) is a promise that no test reads the path. A row naming a
-directory that is no package fails the gate. `YARDR_CHECK_PLAN=1` makes the
+directory that is no package fails the gate. A package may be `.`, the
+root: its test reads every `.go` file of the repository for the name of a
+role's file (`main_test.go`), so the rows for `contrib/`, whose programs
+the binary does not import, name it. `YARDR_CHECK_PLAN=1` makes the
 script say what it would test and stop, which is how
 `internal/rigcheck`'s test of the table runs it.
 
@@ -661,9 +663,9 @@ takes well under a minute; a change in a package nearly everything imports
 right, and is then close to the full gate without its second run of three
 suites over the socket. In this repository `internal/cli` imports almost
 every package, so most changes to non-test Go code run its tests. The table
-adds little to that: a change under `roles/` already runs `internal/cli`
-(it imports the embedded roles), and its row adds `internal/pack`, about 6
-seconds with the race detector.
+adds little to that: a change under `packs/starter/` already runs
+`internal/cli` (it imports the embedded packs), and its row adds
+`internal/pack`, about 6 seconds with the race detector.
 
 ## Briefs are not config
 

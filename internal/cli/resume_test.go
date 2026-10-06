@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -174,34 +173,6 @@ func TestInitFinishesAfterAFailedRun(t *testing.T) {
 			}
 			wholeYard(t, st, home, "codex", tc.operator, "boss")
 		})
-	}
-}
-
-// A prompt is written whole or not at all, and recorded once written: a
-// run that fails among the roles leaves the ones it wrote in the manifest,
-// so the next run, told another name, refreshes them.
-func TestRolesOfAFailedRunAreRecorded(t *testing.T) {
-	dir := filepath.Join(shortDir(t, "yr"), "roles")
-	if err := os.MkdirAll(filepath.Join(dir, "reviewer.md"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := installRoles(dir, "Jo", "yardmaster", true); err == nil {
-		t.Fatal("a directory in a prompt's place did not fail the install")
-	}
-	manifest := map[string]string{}
-	b, err := os.ReadFile(filepath.Join(dir, shippedManifest))
-	if err != nil || json.Unmarshal(b, &manifest) != nil || len(manifest) != 2 || manifest["builder.md"] == "" || manifest["merger.md"] == "" {
-		t.Fatalf("manifest after the failed run: %v %v", manifest, err)
-	}
-	os.Remove(filepath.Join(dir, "reviewer.md"))
-	res, err := installRoles(dir, "Kim", "yardmaster", true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// builder.md names the operator and is refreshed; merger.md names nobody
-	// and is this build's already.
-	if len(res.Refreshed) != 1 || len(res.Current) != 1 || len(res.Written) != 2 || len(res.Kept) != 0 {
-		t.Fatalf("second run: %+v", res)
 	}
 }
 

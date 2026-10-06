@@ -16,7 +16,7 @@
 # build or test. internal/rigcheck's test of this script runs it so.
 set -e
 # Files a test reads by path. go list knows what a package imports and
-# embeds, not what its tests open (os.ReadFile("../../roles/builder.md")),
+# embeds, not what its tests open (os.ReadFile("../../packs/starter/pack.yaml")),
 # so that is written down here: a path, then the directories of the packages
 # whose tests read it, or - when no test does. A path ending in / is
 # everything under that directory; any other is that one file. Every row a
@@ -29,8 +29,10 @@ set -e
 # package, so a missing row costs time, not a fault found late; a row that
 # leaves a reader out is what lets one through. A - row is a promise that no
 # test reads the path: check before adding one.
+# The . on the contrib rows is the root package, whose test reads every .go
+# file of the repository (main_test.go): a package the binary imports runs
+# it as an importer does, and contrib's programs are imported by nothing.
 reads='
-roles/                         internal/pack
 packs/starter/                 internal/pack internal/cli
 .yardr/flows/                  internal/cli internal/dispatch internal/store contrib/assembly
 .yardr/check-light             internal/rigcheck
@@ -38,11 +40,11 @@ internal/hooks/testdata/       internal/hooks internal/dispatch
 internal/cli/testdata/         internal/cli
 internal/web/assets/README.md  internal/web
 contrib/assembly/merge-local   internal/pack
-contrib/assembly/              contrib/assembly contrib/refinery
-contrib/refinery/              contrib/refinery contrib/assembly
-contrib/peer/                  contrib/peer
-contrib/isolated-yard/         contrib/isolated-yard
-contrib/release/               contrib/release
+contrib/assembly/              contrib/assembly contrib/refinery .
+contrib/refinery/              contrib/refinery contrib/assembly .
+contrib/peer/                  contrib/peer .
+contrib/isolated-yard/         contrib/isolated-yard .
+contrib/release/               contrib/release .
 README.md                      contrib/release
 docs/                          -
 .yardr/roles/                  -

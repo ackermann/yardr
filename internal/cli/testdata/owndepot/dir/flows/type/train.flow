@@ -1,0 +1,6 @@
+# The flow of the trains of a directory depot that keeps its own.
+backlog -> open
+open -> review on done | backlog
+review -> done on done | open on changes | decide on question
+decide -> open | backlog
+done terminal

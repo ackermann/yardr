@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -75,14 +74,6 @@ func TestTheMayorsFlagsAndSettingStillWork(t *testing.T) {
 	}
 }
 
-// A role template a yard keeps of its own may still say {{mayor}}.
-func TestFillRoleFillsTheOldPlaceholder(t *testing.T) {
-	got := fillRole([]byte("{{operator}}: mail {{mayor}}, or {{yardmaster}}"), "Jo", "boss")
-	if string(got) != "Jo: mail boss, or boss" {
-		t.Fatalf("filled = %q", got)
-	}
-}
-
 // A yard set up before the rename, and before a yard had a default pack,
 // has its yardmaster's role in <home>/roles/mayor.md, and its crew member's
 // prompt is that path. Init again leaves all of it as it is: the role is
@@ -100,8 +91,10 @@ func TestInitKeepsAYardsMayor(t *testing.T) {
 		t.Fatal(err)
 	}
 	old := []byte("# Mayor\n\nThe build before wrote this for Jo.\n")
-	manifest, _ := json.Marshal(map[string]string{"mayor.md": digest(old)})
-	for name, body := range map[string][]byte{"mayor.md": old, shippedManifest: manifest} {
+	// .shipped.json is where that build recorded the hash of each role it
+	// wrote, to tell an edited one from its own.
+	manifest := []byte(`{"mayor.md": "sha256:0000"}`)
+	for name, body := range map[string][]byte{"mayor.md": old, ".shipped.json": manifest} {
 		if err := os.WriteFile(filepath.Join(dir, name), body, 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -138,7 +131,7 @@ func TestInitKeepsAYardsMayor(t *testing.T) {
 	for p := range snapshot(t, home) {
 		files = append(files, strings.TrimPrefix(p, home+"/"))
 	}
-	if slices.Sort(files); !slices.Equal(files, []string{"roles/" + shippedManifest, "roles/mayor.md"}) {
+	if slices.Sort(files); !slices.Equal(files, []string{"roles/.shipped.json", "roles/mayor.md"}) {
 		t.Errorf("init again wrote into the home: %v", files)
 	}
 }

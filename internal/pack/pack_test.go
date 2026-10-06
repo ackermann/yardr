@@ -307,80 +307,26 @@ func TestNoPackFile(t *testing.T) {
 	}
 }
 
-// The starter's roles and its merge-local are copies of the roles yardr
-// embeds (roles/*.md, less what they say of a directory depot) and of the
-// reference assembly, and its stage files of
-// the ones depot init writes for a git depot, placeholders included: an import
-// fills them as depot init does. Until one is read from the other, a change to
-// either must be made to both.
-func TestStarterMatchesItsSources(t *testing.T) {
-	pairs := map[string]string{"scripts/merge-local": "../../contrib/assembly/merge-local"}
-	roles, err := filepath.Glob("../../roles/*.md")
-	if err != nil || len(roles) == 0 {
-		t.Fatalf("no roles/*.md: %v", err)
+// The starter's merge-local is a copy of the reference assembly
+// (contrib/assembly/merge-local), which a yard set up by hand installs from
+// there: a change to either must be made to both. An embedded file has no
+// mode, so that it is executable in the source is held here.
+func TestStarterMergeLocalIsTheReferenceAssembly(t *testing.T) {
+	got, err := os.ReadFile(filepath.Join(starter, "scripts", "merge-local"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, r := range roles {
-		pairs["roles/"+filepath.Base(r)] = r
+	want, err := os.ReadFile("../../contrib/assembly/merge-local")
+	if err != nil {
+		t.Fatal(err)
 	}
-	for in, source := range pairs {
-		got, err := os.ReadFile(filepath.Join(starter, filepath.FromSlash(in)))
-		if err != nil {
-			t.Errorf("the starter pack lacks %s, a copy of %s: %v", in, source, err)
-			continue
-		}
-		want, err := os.ReadFile(source)
-		if err != nil {
-			t.Fatal(err)
-		}
-		// What a role says of a directory depot is the dir pack's
-		// (packs/dir/roles/). roles/ keeps its section until depot init
-		// stops writing these roles into a dir depot.
-		if string(got) != withoutDirSection(string(want)) {
-			t.Errorf("packs/starter/%s differs from %s (less its \"In a directory depot\" section): change both", in, strings.TrimPrefix(source, "../../"))
-		}
-	}
-	stages, err := filepath.Glob("../../roles/stages/git/default/*.md")
-	if err != nil || len(stages) == 0 {
-		t.Fatalf("no roles/stages/git/default/*.md: %v", err)
-	}
-	for _, source := range stages {
-		in := "flows/default/" + filepath.Base(source)
-		got, _ := os.ReadFile(filepath.Join(starter, filepath.FromSlash(in)))
-		want, err := os.ReadFile(source)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(got) != string(want) {
-			t.Errorf("packs/starter/%s differs from %s: change both", in, strings.TrimPrefix(source, "../../"))
-		}
-	}
-	if have, _ := filepath.Glob(filepath.Join(starter, "flows", "default", "*.md")); len(have) != len(stages) {
-		t.Errorf("packs/starter/flows/default has %d stage files, roles/stages/git/default has %d", len(have), len(stages))
-	}
-	have, _ := filepath.Glob(filepath.Join(starter, "roles", "*.md"))
-	if len(have) != len(roles) {
-		t.Errorf("packs/starter/roles has %d roles, roles/ has %d", len(have), len(roles))
+	if string(got) != string(want) {
+		t.Error("packs/starter/scripts/merge-local differs from contrib/assembly/merge-local: change both")
 	}
 	info, err := os.Stat(filepath.Join(starter, "scripts", "merge-local"))
 	if err != nil || info.Mode().Perm()&0o111 == 0 {
 		t.Errorf("packs/starter/scripts/merge-local must be executable: %v", err)
 	}
-}
-
-// withoutDirSection is a role of roles/ as the starter pack carries it:
-// without its section for a directory depot, which is one heading and one
-// paragraph.
-func withoutDirSection(role string) string {
-	const heading = "## In a directory depot\n\n"
-	i := strings.Index(role, heading)
-	if i < 0 {
-		return role
-	}
-	rest := role[i+len(heading):]
-	if j := strings.Index(rest, "\n\n"); j >= 0 {
-		return role[:i] + rest[j+2:]
-	}
-	return strings.TrimRight(role[:i], "\n") + "\n"
 }
 
 // A stage's file is read as the pack's other paths are: relative to its

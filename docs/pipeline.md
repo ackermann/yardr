@@ -135,8 +135,8 @@ see:
 - a test that reads a file by path, when the table in `.yardr/check-light`
   leaves it out. `go list` knows what a package imports and embeds, not
   what its tests open, so the script has a table of path to packages
-  (`roles/` and the starter pack run `internal/pack`, which compares them;
-  `.yardr/flows/` runs the four packages that read the repository's own
+  (the starter pack runs `internal/pack` and `internal/cli`, whose tests
+  read it; `.yardr/flows/` runs the four packages that read the repository's own
   flows), and a changed file that is neither Go, embedded nor in the table
   runs every package. What is left is a row that names too few packages;
 - a test that reaches code by building the binary instead of importing it

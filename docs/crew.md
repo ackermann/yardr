@@ -660,7 +660,8 @@ command, send the outbound calls (replies and status changes too) to
 another endpoint: a stand-in when trying yardr out, or a GitHub Enterprise
 API (`https://<host>/api/v3`).
 
-What to say, and whether to, is the crew member's role: see the generic
-[roles/yardmaster.md](../roles/yardmaster.md) that `yardr init` installs.
+What to say, and whether to, is the crew member's role: see the starter
+pack's [yardmaster.md](../packs/starter/roles/yardmaster.md), which `yardr
+init` installs.
 Setting a source up end to end is in
 [subscriptions.md](subscriptions.md#setting-up-linear).

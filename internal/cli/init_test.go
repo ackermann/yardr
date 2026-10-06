@@ -3,10 +3,8 @@ package cli
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,7 +21,6 @@ import (
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 	"yardr.dev/yardr/packs"
-	"yardr.dev/yardr/roles"
 )
 
 // shortDir is a temp directory a yard's socket path fits in: a unix socket
@@ -738,108 +735,4 @@ func stubLookPath(t *testing.T, found ...string) {
 		return "", exec.ErrNotFound
 	}
 	t.Cleanup(func() { lookPath = old })
-}
-
-// A refreshing install replaces a role nobody touched with this build's
-// template and keeps an edited one, telling which: the manifest holds the
-// hash of each file as it was written. A file from before the manifest is
-// kept unless it already reads as this build's. No command installs so
-// since init takes the yardmaster's role from the default pack; the function
-// stays until the copies it reads are deleted.
-func TestInstallRolesRefreshesUntouchedRoles(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "roles")
-	if _, err := installRoles(dir, "Jo", "yardmaster", true); err != nil {
-		t.Fatal(err)
-	}
-	manifest := func() map[string]string {
-		t.Helper()
-		b, err := os.ReadFile(filepath.Join(dir, shippedManifest))
-		if err != nil {
-			t.Fatal(err)
-		}
-		m := map[string]string{}
-		if err := json.Unmarshal(b, &m); err != nil {
-			t.Fatalf("%s: %v\n%s", shippedManifest, err, b)
-		}
-		return m
-	}
-	m := manifest()
-	for _, name := range []string{"yardmaster.md", "builder.md", "merger.md", "reviewer.md"} {
-		b, _ := os.ReadFile(filepath.Join(dir, name))
-		if m[name] != digest(b) {
-			t.Fatalf("manifest %s = %q, file hashes to %q", name, m[name], digest(b))
-		}
-	}
-
-	// builder.md: as an older install wrote it (the manifest agrees with the
-	// file), so it is refreshed. yardmaster.md: edited, kept. merger.md: from
-	// before the manifest and not this build's, kept. reviewer.md: from
-	// before the manifest but already this build's, tracked from now on.
-	old := []byte("# Builder\n\nAn older template.\n")
-	if err := os.WriteFile(filepath.Join(dir, "builder.md"), old, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	m["builder.md"] = digest(old)
-	if err := os.WriteFile(filepath.Join(dir, "yardmaster.md"), []byte("mine"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "merger.md"), []byte("theirs"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	delete(m, "merger.md")
-	delete(m, "reviewer.md")
-	mb, _ := json.Marshal(m)
-	if err := os.WriteFile(filepath.Join(dir, shippedManifest), mb, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	res, err := installRoles(dir, "Jo", "yardmaster", true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := res.summary(); got != "builder.md refreshed to this build's; merger.md, yardmaster.md edited, kept" {
-		t.Fatalf("summary does not say which: %s", got)
-	}
-	tmpl, _ := roles.FS.ReadFile("builder.md")
-	if b, _ := os.ReadFile(filepath.Join(dir, "builder.md")); !bytes.Equal(b, fillRole(tmpl, "Jo", "yardmaster")) {
-		t.Fatalf("builder.md not refreshed:\n%s", b)
-	}
-	for name, want := range map[string]string{"yardmaster.md": "mine", "merger.md": "theirs"} {
-		if b, _ := os.ReadFile(filepath.Join(dir, name)); string(b) != want {
-			t.Fatalf("%s overwritten: %q", name, b)
-		}
-	}
-	m = manifest()
-	tmpl, _ = roles.FS.ReadFile("reviewer.md")
-	if m["reviewer.md"] != digest(fillRole(tmpl, "Jo", "yardmaster")) || m["merger.md"] != "" || m["yardmaster.md"] == digest([]byte("mine")) {
-		t.Fatalf("manifest after refresh = %v", m)
-	}
-	if res, err = installRoles(dir, "Jo", "yardmaster", true); err != nil || len(res.Refreshed) != 0 || len(res.Kept) != 2 || len(res.Current) != 2 {
-		t.Fatalf("third install: %+v, %v", res, err)
-	}
-}
-
-// A depot's .yardr/roles/ is never refreshed: the files are committed, and the
-// seeding writes no manifest there.
-func TestDepotInitWritesNoManifest(t *testing.T) {
-	st := storetest.New(t)
-	dir := t.TempDir()
-	if err := st.PutDepot(context.Background(), store.Depot{Name: "web", Path: dir, Base: "main"}, "me"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := seedDepot(t, st, "web", "", "", false); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, ".yardr", "roles", shippedManifest)); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("depot init wrote a manifest: %v", err)
-	}
-	old := []byte("older template, untouched")
-	if err := os.WriteFile(filepath.Join(dir, ".yardr", "roles", "builder.md"), old, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := seedDepot(t, st, "web", "", "", false); err != nil {
-		t.Fatal(err)
-	}
-	if b, _ := os.ReadFile(filepath.Join(dir, ".yardr", "roles", "builder.md")); !bytes.Equal(b, old) {
-		t.Fatalf("depot init refreshed a committed role:\n%s", b)
-	}
 }

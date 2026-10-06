@@ -1,11 +1,7 @@
 package cli
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -31,7 +27,6 @@ import (
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/packs"
-	"yardr.dev/yardr/roles"
 )
 
 // A yard is initialized once yardr init (or the onboarding) has stored its
@@ -785,187 +780,13 @@ func defaultOperator() string {
 	return fallbackOperator
 }
 
-// shippedManifest, in the home's roles directory, records the sha256 of
-// each role as init wrote it. Init again (after an upgrade, say) compares
-// each installed file with it: one still as written is an untouched copy of
-// an older template, and is refreshed to this build's; one that differs was
-// edited, and is kept. A file from before the manifest is kept too unless
-// it already reads as this build's, which is when it starts being tracked.
-// A depot's .yardr/roles/ gets no manifest: depot init never overwrites, and
-// those files are committed, not refreshed.
-const shippedManifest = ".shipped.json"
-
-// roleInstall is what installRoles did with each embedded role, by path.
-type roleInstall struct {
-	Written   []string `json:"written"`             // not there before, installed now
-	Refreshed []string `json:"refreshed,omitempty"` // untouched since installed, now this build's
-	Current   []string `json:"current,omitempty"`   // already this build's text
-	Kept      []string `json:"kept"`                // edited (or untracked), left as they are
-}
-
-// summary says what happened to the roles already there, for the init
-// summary; "" when there were none.
-func (r *roleInstall) summary() string {
-	var parts []string
-	if len(r.Refreshed) > 0 {
-		parts = append(parts, strings.Join(bases(r.Refreshed), ", ")+" refreshed to this build's")
-	}
-	if len(r.Kept) > 0 {
-		parts = append(parts, strings.Join(bases(r.Kept), ", ")+" edited, kept")
-	}
-	if len(parts) == 0 && len(r.Current) > 0 {
-		parts = append(parts, "already this build's")
-	}
-	return strings.Join(parts, "; ")
-}
-
+// bases are the file names of paths.
 func bases(paths []string) []string {
 	out := make([]string, len(paths))
 	for i, p := range paths {
 		out[i] = filepath.Base(p)
 	}
 	return out
-}
-
-// installRoles writes the embedded role prompts into dir, naming operator
-// where the templates say {{operator}} and yardmaster where they say
-// {{yardmaster}}. A file already there is kept, except that with refresh one
-// the manifest says was never edited is replaced with this build's (see
-// shippedManifest). With only, it writes just those files (e.g.
-// "builder.md").
-//
-// Each file is written whole or not at all, and the manifest is saved after
-// every one: a run that fails among them leaves no half a prompt, and none
-// it wrote that the next run would take for an edited one and keep, naming
-// whoever the failed run was told.
-func installRoles(dir, operator, yardmaster string, refresh bool, only ...string) (*roleInstall, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
-	}
-	files, err := fs.ReadDir(roles.FS, ".")
-	if err != nil {
-		return nil, err
-	}
-	manifest := map[string]string{}
-	mpath := filepath.Join(dir, shippedManifest)
-	if refresh {
-		if b, err := os.ReadFile(mpath); err == nil {
-			if err := json.Unmarshal(b, &manifest); err != nil {
-				return nil, fmt.Errorf("%s: %w", mpath, err)
-			}
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			return nil, err
-		}
-	}
-	save := func() error {
-		if !refresh {
-			return nil
-		}
-		b, err := json.MarshalIndent(manifest, "", "  ")
-		if err != nil {
-			return err
-		}
-		return writeWhole(mpath, append(b, '\n'))
-	}
-	res := &roleInstall{}
-	for _, f := range files {
-		if len(only) > 0 && !slices.Contains(only, f.Name()) {
-			continue
-		}
-		body, err := roles.FS.ReadFile(f.Name())
-		if err != nil {
-			return nil, err
-		}
-		want := fillRole(body, operator, yardmaster)
-		name := roleFileIn(dir, f.Name())
-		path := filepath.Join(dir, name)
-		have, err := os.ReadFile(path)
-		switch {
-		case errors.Is(err, fs.ErrNotExist):
-			res.Written = append(res.Written, path)
-		case err != nil:
-			return nil, err
-		case !refresh:
-			res.Kept = append(res.Kept, path)
-			continue
-		case bytes.Equal(have, want):
-			res.Current = append(res.Current, path)
-			manifest[name] = digest(want)
-			continue
-		case manifest[name] == digest(have):
-			res.Refreshed = append(res.Refreshed, path)
-		default:
-			res.Kept = append(res.Kept, path)
-			continue
-		}
-		if err := writeWhole(path, want); err != nil {
-			return nil, err
-		}
-		manifest[name] = digest(want)
-		if err := save(); err != nil {
-			return nil, err
-		}
-	}
-	if err := save(); err != nil {
-		return nil, err
-	}
-	return res, nil
-}
-
-// oldYardmasterRole is the file name the yardmaster's role had until this
-// release, when the crew member was called the mayor.
-const oldYardmasterRole = "mayor.md"
-
-// roleFileIn is the name the embedded role called name has in dir: its own,
-// except that a directory holding mayor.md and no yardmaster.md keeps the
-// yardmaster's role under the old name, where the crew of a yard set up
-// before the rename read it (their prompt is that path).
-func roleFileIn(dir, name string) string {
-	if name != "yardmaster.md" {
-		return name
-	}
-	if _, err := os.Stat(filepath.Join(dir, name)); errors.Is(err, fs.ErrNotExist) {
-		if _, err := os.Stat(filepath.Join(dir, oldYardmasterRole)); err == nil {
-			return oldYardmasterRole
-		}
-	}
-	return name
-}
-
-// writeWhole writes a file under its name only once it is complete: a
-// write cut short leaves the file that was there, or none.
-func writeWhole(path string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Chmod(0o644); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
-}
-
-// digest is the manifest's hash of a role file's bytes.
-func digest(b []byte) string {
-	sum := sha256.Sum256(b)
-	return "sha256:" + hex.EncodeToString(sum[:])
-}
-
-// fillRole puts the names into a role template's placeholders. {{mayor}} is
-// what {{yardmaster}} was called until this release, and is still filled.
-func fillRole(body []byte, operator, yardmaster string) []byte {
-	body = bytes.ReplaceAll(body, []byte("{{operator}}"), []byte(operator))
-	body = bytes.ReplaceAll(body, []byte("{{mayor}}"), []byte(yardmaster))
-	return bytes.ReplaceAll(body, []byte("{{yardmaster}}"), []byte(yardmaster))
 }
 
 // oldFlag keeps a flag's earlier name working for this release: the same
@@ -1174,8 +995,8 @@ func onboardForm(home string, part *partYard) (initOptions, error) {
 	}
 	style, _ := styleOf(o.Style)
 	create := true
-	summary := fmt.Sprintf("harness %s\nyardmaster %s in %s\nmodel %s\noperator %s, with whom agents work in the style %s (%q)\nroles %s (starting points; a depot's own go in its repo's .yardr/roles/)",
-		o.Harness, o.Yardmaster, o.Dir, or(o.Model, "the harness's default"), or(o.Operator, defaultOperator()), style.key, style.label, filepath.Join(home, "roles"))
+	summary := fmt.Sprintf("harness %s\nyardmaster %s in %s\nmodel %s\noperator %s, with whom agents work in the style %s (%q)\nroles under %s, from the yard's default pack (a depot's own go in its repo's .yardr/roles/)",
+		o.Harness, o.Yardmaster, o.Dir, or(o.Model, "the harness's default"), or(o.Operator, defaultOperator()), style.key, style.label, filepath.Join(home, "packs"))
 	if err := ask(huh.NewConfirm().Title("Create this yard?").Description(summary).Value(&create)); err != nil {
 		return o, err
 	}

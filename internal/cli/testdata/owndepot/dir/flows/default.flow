@@ -1,0 +1,6 @@
+# The flow of a directory depot that keeps its own.
+backlog -> new | decide
+new -> review on done | decide on question | backlog
+review -> done on done | new on changes | decide on question
+decide -> backlog | new
+done terminal

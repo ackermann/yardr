@@ -94,7 +94,7 @@ linked yards (yardr bead unhold), under the same rule. Without it only a
 user releases such a bead (yardr peer intake).`,
 		Example: `  yardr crew add                       # interactive
   yardr crew add yardmaster --set kind=claude --set model=opus \
-    --set 'args=["--permission-mode","auto"]' --set prompt=$HOME/.yardr/roles/yardmaster.md \
+    --set 'args=["--permission-mode","auto"]' --set prompt=$HOME/.yardr/packs/starter/roles/yardmaster.md \
     --dir ~/projects --max-age 6h`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {

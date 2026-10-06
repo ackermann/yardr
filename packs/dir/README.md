@@ -21,9 +21,7 @@ maps to a yard are in [docs/packs.md](../../docs/packs.md).
   every file by path, and the gate is the depot's own `.yardr/check` if it
   has one.
 - `flows/default/`, `flows/train/`: a stage file for every stage a bead or a
-  train is worked or waits in. They are held equal to the copies in `roles/stages/dir/`, which
-  `yardr depot init` wrote into a dir depot before it took a pack; a test
-  fails when they drift.
+  train is worked or waits in.
 
 The stages `backlog` and `decide` are routed to the people groups `backlog`
 and `decisions`, in both flows: a bead there waits for whoever shapes or

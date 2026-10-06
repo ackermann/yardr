@@ -374,8 +374,7 @@ internal/peer       unix-socket peer identity for the store and exec runner
 internal/yards      messages between this yard and its peers
 internal/otel       trace context for a bead's work; the event log as OTLP
 main.go             the yardr binary
-roles/              the default role prompts yardr init installs
-packs/starter       a starter pack
+packs/starter       the starter pack: the default roles, flow and stage files, embedded in the binary
 packs/dir           the pack for a depot that is a plain directory
 docs/               the documentation (docs/README.md is its index)
 conformance/bdp     runs BDP's own Read conformance suite against yardr bdp serve

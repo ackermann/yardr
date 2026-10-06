@@ -404,8 +404,8 @@ func lookPrompt(p string, depot *store.Depot, home string) ([]byte, PromptSource
 }
 
 // DepotRole reports whether the depot has its own role prompt called name
-// (builder.md): .yardr/roles/<name> where readPrompt looks for it, at the
-// tip of the depot's base. A pack's import asks: it names the file its role
+// (a file name, <role>.md): .yardr/roles/<name> where readPrompt looks for
+// it, at the tip of the depot's base. A pack's import asks: it names the file its role
 // shadows, or keeps the depot's role when told to.
 func DepotRole(depot *store.Depot, name string) (bool, error) {
 	if depot == nil || depot.Path == "" {

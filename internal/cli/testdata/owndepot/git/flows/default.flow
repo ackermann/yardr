@@ -1,0 +1,7 @@
+# The flow of a depot that keeps its own.
+backlog -> new | decide
+new -> review on done | decide on question | backlog
+review -> approved on done | new on changes | decide on question
+approved -> merged on done | new on failed | decide on question
+decide -> backlog | new
+merged terminal

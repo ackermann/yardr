@@ -171,7 +171,7 @@ msg="integrated $BR at $sha onto $BASE; gate passed. Review $BASE..$BR."
 # push may replace the remote's branch, but only when everything there is in
 # what was integrated: in $BR as it was before this rebase, or in a tip a
 # merger started from. A merger rebases the branch in its worktree without
-# pushing it (see roles/merger.md), so the remote still has the tip it
+# pushing it (the merger's role says so), so the remote still has the tip it
 # started from, which the conflict note above and the merger's own note
 # record as "old tip: <sha>"; those commits are in the branch as rebased.
 # Anything else on the remote is someone's commits: never forced over.

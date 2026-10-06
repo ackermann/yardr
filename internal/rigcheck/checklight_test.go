@@ -129,8 +129,7 @@ func TestCheckLightSelects(t *testing.T) {
 		{"the starter pack", []string{"packs/starter/roles/builder.md"}, []string{
 			"light gate: packs/starter/roles/builder.md changed: read by the tests of internal/pack internal/cli",
 			tested + " m.test/m/internal/cli m.test/m/internal/pack"}},
-		{"a role and its starter copy", []string{"roles/builder.md", "packs/starter/roles/builder.md", "packs/starter/pack.yaml"}, []string{
-			"light gate: roles/builder.md changed: read by the tests of internal/pack",
+		{"two files of the starter pack", []string{"packs/starter/roles/builder.md", "packs/starter/pack.yaml"}, []string{
 			"light gate: packs/starter/pack.yaml and 1 more under packs/starter/ changed: read by the tests of internal/pack internal/cli",
 			tested + " m.test/m/internal/cli m.test/m/internal/pack"}},
 		{"another package's testdata", []string{"internal/hooks/testdata/github/ping.json"}, []string{
