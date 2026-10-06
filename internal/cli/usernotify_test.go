@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -170,5 +171,80 @@ func TestUserSetAndSourceCheckUser(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), `"user_set"`) || !strings.Contains(string(raw), `"env_file":"`+env+`"`) {
 		t.Fatalf("user_set does not say which file: %s", raw)
+	}
+}
+
+// yardr user show says how the last message to a user outside the yard
+// ended, and yardr doctor notes a user whose last one was not taken, until
+// a later one is.
+func TestUserShowAndDoctorSayTheLastPush(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	if err := st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	jo := &app{st: st, actor: "jo"}
+	if _, err := run(t, jo.userCmd(), "add", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	text, _ := os.ReadFile("testdata/pushover.yaml")
+	if _, err := st.PutSource(ctx, "pushover.yaml", string(text), "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SetUser(ctx, "ada", map[string]string{store.UserNotify: "pushover"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	notes := func() string {
+		t.Helper()
+		out, err := partyNotes(ctx, st, nil, nil, "yardr")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(out, "\n")
+	}
+	if out, err := run(t, jo.userCmd(), "show", "ada"); err != nil || strings.Contains(out, "last told") || notes() != "" {
+		t.Fatalf("before any message: %q %v, doctor: %q", out, err, notes())
+	}
+	seq := func() []uint64 {
+		t.Helper()
+		if err := st.Mail(ctx, "ada", "the gate is green", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		ps, err := st.Pushes(ctx)
+		if err != nil || len(ps) != 1 {
+			t.Fatalf("pushes = %+v, %v", ps, err)
+		}
+		return []uint64{ps[0].Seq}
+	}
+	at := time.Date(2026, 10, 7, 12, 0, 0, 0, time.Local)
+	when := at.Format("2006-01-02 15:04")
+	if err := st.PushTried(ctx, "ada", seq(), store.PushResult{At: at, Source: "pushover", Reason: store.PushRefused, Status: 400, Error: "pushover answered 400", Tries: 1}); err != nil {
+		t.Fatal(err)
+	}
+	line := when + " through pushover, not sent: refused (pushover answered 400, 1 of the inbox in one message)"
+	if out, err := run(t, jo.userCmd(), "show", "ada"); err != nil || !strings.Contains(out, "  last told: "+line+"\n") {
+		t.Fatalf("show after a refusal: %q %v", out, err)
+	}
+	if got, want := notes(), "user ada was not told outside the yard: "+line+". Their inbox has it all the same; yardr source check pushover --user ada sends one test message"; got != want {
+		t.Fatalf("doctor:\n%s\nwant\n%s", got, want)
+	}
+	// One that is still tried says when, and is noted too.
+	retry := at.Add(30 * time.Second)
+	again := seq()
+	if err := st.PushTried(ctx, "ada", again, store.PushResult{At: at, Source: "pushover", Reason: store.PushRetry, Status: 500, Error: "pushover answered 500", Tries: 1, RetryAt: &retry}); err != nil {
+		t.Fatal(err)
+	}
+	line = when + " through pushover, failed (pushover answered 500, 1 of the inbox in one message); next try 12:00:30"
+	if out, err := run(t, jo.userCmd(), "show", "ada"); err != nil || !strings.Contains(out, "  last told: "+line+"\n") || !strings.Contains(notes(), line) {
+		t.Fatalf("show while it is tried again: %q %v, doctor: %q", out, err, notes())
+	}
+	if err := st.PushTried(ctx, "ada", again, store.PushResult{At: at, Source: "pushover", Status: 200, Tries: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PushTried(ctx, "ada", seq(), store.PushResult{At: at, Source: "pushover", Status: 200, Tries: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := run(t, jo.userCmd(), "show", "ada"); err != nil || !strings.Contains(out, "  last told: "+when+" through pushover, taken (status 200, 1 of the inbox in one message)\n") || notes() != "" {
+		t.Fatalf("show after a message was taken: %q %v, doctor: %q", out, err, notes())
 	}
 }

@@ -25,6 +25,14 @@
 //
 // in its env_file, and its comments are by <-github-app-slug>[bot].
 //
+// It also takes messages for a person, as Pushover does, for a declared
+// source whose file has `base: http://A/1`, a call that POSTs
+// /messages.json with a JSON body (token, user, title, message), and a
+// notify key naming it. -push-token is the application token it takes.
+//
+//	curl http://A/messages                          # the messages taken, and how many were asked for
+//	curl -d status=500 http://A/messages/answer     # fail from now on; status=200 takes them again
+//
 //	curl -d '{"source":"linear","id":"uuid-1","key":"YRD-1","title":"Web view","status":"Todo"}' http://A/issues
 //	curl http://A/issues                 # the issues, and every call made
 //	curl -d source=linear -d key=YRD-1 -d status=Done http://A/status   # a person moves it
@@ -45,12 +53,13 @@ func main() {
 	state := flag.String("state", "", "file the issues are kept in across restarts")
 	linear := flag.String("linear-key", "lin_api_standin", "the Linear credential taken")
 	github := flag.String("github-token", "gh-standin", "the GitHub credential taken")
+	push := flag.String("push-token", "push-standin", "the application token a message is taken with")
 	appKey := flag.String("github-app-key", "", "file to write a GitHub App's throwaway private key to; without it there is no App")
 	appID := flag.String("github-app-id", "12345", "the App's id, the issuer of its JWTs")
 	appSlug := flag.String("github-app-slug", "yardr", "the App's slug: it comments as <slug>[bot]")
 	appRepos := flag.String("github-app-repos", "", "owner/repo the App is installed on, comma-separated")
 	flag.Parse()
-	s := &standin.Server{LinearKey: *linear, GitHubToken: *github, File: *state}
+	s := &standin.Server{LinearKey: *linear, GitHubToken: *github, File: *state, PushToken: *push}
 	if *appKey != "" {
 		app, err := standin.NewApp(*appID, *appSlug, *appKey, strings.FieldsFunc(*appRepos, func(r rune) bool { return r == ',' })...)
 		if err != nil {
@@ -67,6 +76,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("stand-in for Linear (/graphql) and GitHub (/repos/) on %s", ln.Addr())
+	log.Printf("stand-in for Linear (/graphql), GitHub (/repos/) and a service that takes messages (/1/messages.json) on %s", ln.Addr())
 	log.Fatal(http.Serve(ln, s.Handler()))
 }

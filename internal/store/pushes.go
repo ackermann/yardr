@@ -1,0 +1,296 @@
+package store
+
+import (
+	"context"
+	"fmt"
+	"slices"
+	"strings"
+	"time"
+
+	bolt "go.etcd.io/bbolt"
+)
+
+// bPushes holds what is still to be told outside the yard: <user>\x00<seq>.
+var bPushes = []byte("pushes")
+
+func init() { allBuckets = append(allBuckets, bPushes) }
+
+// The parts of a user's inbox a push is for.
+const (
+	PushMail         = "mail"
+	PushNotification = "notification"
+)
+
+const (
+	// PushGrace is how long what landed in a user's inbox waits before it
+	// is told outside the yard. What the user acknowledged meanwhile (a
+	// conversation open in yardr chat, yardr inbox --ack) is not told.
+	PushGrace = 20 * time.Second
+	// PushesPerHour is the most messages one user is sent in an hour. What
+	// is over it waits in the queue, and goes as one message when the hour
+	// has room again.
+	PushesPerHour = 20
+)
+
+// MaxNotificationText is the most runes a notification's text has before
+// the URL of a hook delivery: the event's row, then ` on "<title>"`
+// (Notification.line). A title with a quote in it is a few runes longer
+// written out, so whoever sizes by this cuts to it.
+const MaxNotificationText = maxNotificationLine + len(` on ""`) + maxNotificationTitle
+
+// Push is something in a user's inbox that is still to be told outside the
+// yard, through the source the user names (User.Notify). It is written with
+// the mail or the notification, in the same transaction, so nothing that
+// lands in the inbox is missed and nothing is told twice, and the inbox
+// never waits for a source: the call is made afterwards by the daemon. The
+// record is gone once PushTried has said how the send ended, or DropPushes
+// that there was nothing to send. Until then it survives any restart.
+//
+// What is stored is the part and the event's seq, and how the tries went.
+// The mail or notification itself is read when the pushes are listed.
+type Push struct {
+	User string `json:"user"`
+	Seq  uint64 `json:"seq"`  // of the mail event, or of the event the notification tells of
+	Part string `json:"part"` // PushMail or PushNotification
+	// At is when it landed in the inbox.
+	At time.Time `json:"at"`
+	// Attempts counts the sends that failed, Error is what the last one
+	// came to, and RetryAt when the next is due.
+	Attempts int        `json:"attempts,omitempty"`
+	Error    string     `json:"error,omitempty"`
+	RetryAt  *time.Time `json:"retry_at,omitempty"`
+
+	// Mail or Note is what it is about, as Pushes found it in the inbox,
+	// with whether the user has acknowledged it. Neither is set for one
+	// that is no longer there (the log was pruned, the notifications went
+	// over their bound): there is nothing left to tell of.
+	Mail *Letter       `json:"mail,omitempty"`
+	Note *Notification `json:"note,omitempty"`
+}
+
+// Unread reports whether p is still in the user's inbox and not
+// acknowledged: what is told outside the yard.
+func (p *Push) Unread() bool {
+	return (p.Mail != nil && !p.Mail.Read) || (p.Note != nil && !p.Note.Read)
+}
+
+// How a send ended, as PushResult.Reason and the push_failed event name
+// it. A send the source took has none.
+const (
+	PushRetry    = "trying_again" // it failed and is tried again: no event
+	PushNotSetUp = "not_set_up"   // the user, their env file or the source is not set up to tell them
+	PushRefused  = "refused"      // the source answered that it will not take it
+	PushGaveUp   = "gave_up"      // it failed as often as it is tried
+	PushExpired  = "expired"      // it waited longer than a push is worth
+)
+
+// PushResult is how a send to a user ended: what the user's record keeps of
+// the last one (User.LastPush) for yardr user show and yardr doctor. It
+// never holds the address, a credential, or anything of what was sent.
+type PushResult struct {
+	At     time.Time `json:"at"`
+	Source string    `json:"source,omitempty"`
+	// Reason is "" for a message the source took, else one of the Push*
+	// reasons.
+	Reason string `json:"reason,omitempty"`
+	// Status is what the source answered, 0 when it did not.
+	Status int    `json:"status,omitempty"`
+	Error  string `json:"error,omitempty"`
+	// Count is how many items of the inbox the message was for, and Tries
+	// how many sends it took or had failed.
+	Count int `json:"count,omitempty"`
+	Tries int `json:"tries,omitempty"`
+	// RetryAt is when it is tried again (PushRetry).
+	RetryAt *time.Time `json:"retry_at,omitempty"`
+}
+
+// OK reports whether the source took the message.
+func (r *PushResult) OK() bool { return r.Reason == "" }
+
+// queuePush writes the push for what the event seq put in the inbox of the
+// user name, when a source tells that user outside the yard. It is called
+// in the write that fills the inbox, at its two places: a mail event to a
+// user (wtx.event) and a notification (wtx.notify).
+func (w *wtx) queuePush(name, part string, seq uint64) error {
+	var u User
+	if ok, err := get(w.Tx, bUsers, name, &u); err != nil || !ok || u.Notify == "" {
+		return err
+	}
+	return put(w.Tx, bPushes, join(name, seqKey(seq)), Push{User: name, Seq: seq, Part: part, At: now()})
+}
+
+// dropPushes forgets what was still to be told the user name.
+func dropPushes(tx *bolt.Tx, name string) error {
+	for _, k := range keys(tx, bPushes, name+"\x00") {
+		if err := tx.Bucket(bPushes).Delete([]byte(k)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Pushes lists what is still to be told outside the yard, by user and then
+// oldest first, each with the mail or notification it is about and whether
+// the user has acknowledged it.
+func (s *Store) Pushes(ctx context.Context) ([]Push, error) {
+	out := []Push{}
+	err := s.read(func(tx *bolt.Tx) error {
+		users := map[string]*User{}
+		rd := &readers{tx: tx}
+		return each(tx, bPushes, "", func(_ []byte, p *Push) error {
+			p.Mail, p.Note = nil, nil
+			u, ok := users[p.User]
+			if !ok {
+				u = new(User)
+				if found, err := get(tx, bUsers, p.User, u); err != nil {
+					return err
+				} else if !found {
+					u = nil
+				}
+				users[p.User] = u
+			}
+			if u == nil {
+				return nil // DeleteUser took its pushes along: none is left behind
+			}
+			switch p.Part {
+			case PushMail:
+				var e Event
+				if found, err := get(tx, bEvents, seqKey(p.Seq), &e); err != nil {
+					return err
+				} else if found && toUser(e) && mailReceiver(e) == p.User {
+					l, err := rd.letter(e)
+					if err != nil {
+						return err
+					}
+					p.Mail = &l
+				}
+			case PushNotification:
+				var n Notification
+				if found, err := get(tx, bNotifications, join(p.User, seqKey(p.Seq)), &n); err != nil {
+					return err
+				} else if found {
+					n.Read = n.Seq <= u.NotificationCursor
+					p.Note = &n
+				}
+			}
+			out = append(out, *p)
+			return nil
+		})
+	})
+	return out, err
+}
+
+// changePushes reads the user and those of their pushes seqs names that are
+// still there for fn, and writes the user back. keep is whether the pushes
+// stay, as fn changed them, or go.
+func (s *Store) changePushes(name string, seqs []uint64, keep bool, fn func(w *wtx, u *User, ps []*Push) error) error {
+	return s.write(func(w *wtx) error {
+		u, err := getUser(w.Tx, name)
+		if err != nil {
+			return err
+		}
+		var ps []*Push
+		for _, seq := range seqs {
+			p := new(Push)
+			if ok, err := get(w.Tx, bPushes, join(name, seqKey(seq)), p); err != nil {
+				return err
+			} else if ok {
+				ps = append(ps, p)
+			}
+		}
+		if err := fn(w, u, ps); err != nil {
+			return err
+		}
+		for _, p := range ps {
+			key := join(name, seqKey(p.Seq))
+			if keep {
+				err = put(w.Tx, bPushes, key, p)
+			} else {
+				err = w.Bucket(bPushes).Delete([]byte(key))
+			}
+			if err != nil {
+				return err
+			}
+		}
+		return put(w.Tx, bUsers, name, u)
+	})
+}
+
+// DropPushes ends the user's pushes seqs without a word: the user
+// acknowledged what they were about before it was told, or it is no longer
+// in the inbox.
+func (s *Store) DropPushes(ctx context.Context, name string, seqs []uint64) error {
+	return s.changePushes(name, seqs, false, func(*wtx, *User, []*Push) error { return nil })
+}
+
+// PushTried records how a send for the user's pushes seqs ended, and keeps
+// it as the last result on the user's record.
+//
+// A message the source took (res.OK) ends them, and its time counts
+// towards PushesPerHour. No event says so: the inbox has what was told, and
+// the record when. PushRetry leaves them for another try at res.RetryAt,
+// as IssueMoveFailed does, also without an event. Any other reason ends
+// them and logs push_failed, about no bead: the user, the source, the
+// reason, the status and the last error, the seqs it was for and the tries.
+// Never the address, a credential, or the title and text. One cause that
+// stands (PushNotSetUp with the same words as the last result) is logged
+// once, not with every mail that meets it.
+func (s *Store) PushTried(ctx context.Context, name string, seqs []uint64, res PushResult) error {
+	if !slices.Contains([]string{"", PushRetry, PushNotSetUp, PushRefused, PushGaveUp, PushExpired}, res.Reason) {
+		return fmt.Errorf("push to %s: %q is no way a send ends", name, res.Reason)
+	}
+	if res.Reason == PushRetry && res.RetryAt == nil {
+		return fmt.Errorf("push to %s: when it is tried again is required", name)
+	}
+	res.At = res.At.UTC()
+	return s.changePushes(name, seqs, res.Reason == PushRetry, func(w *wtx, u *User, ps []*Push) error {
+		if len(ps) == 0 {
+			return nil // dropped meanwhile: the user is told nowhere now
+		}
+		was := u.LastPush
+		res.Count = len(ps)
+		u.LastPush = &res
+		switch res.Reason {
+		case "":
+			u.Pushed = append(u.Pushed, res.At)
+			u.Pushed = u.Pushed[max(0, len(u.Pushed)-PushesPerHour):]
+			return nil
+		case PushRetry:
+			at := res.RetryAt.UTC()
+			res.RetryAt = &at
+			for _, p := range ps {
+				p.Attempts, p.Error, p.RetryAt = p.Attempts+1, res.Error, &at
+			}
+			return nil
+		case PushNotSetUp:
+			if was != nil && was.Reason == PushNotSetUp && was.Error == res.Error {
+				return nil
+			}
+		}
+		data := map[string]any{"user": name, "reason": res.Reason, "tries": res.Tries}
+		told := make([]uint64, len(ps))
+		for i, p := range ps {
+			told[i] = p.Seq
+		}
+		data["seqs"] = told
+		if res.Source != "" {
+			data["source"] = res.Source
+		}
+		if res.Status != 0 {
+			data["status"] = res.Status
+		}
+		if res.Error != "" {
+			data["error"] = res.Error
+		}
+		return w.event("", "push_failed", "yard", data)
+	})
+}
+
+// Said is the notification's text without the URL of a hook delivery,
+// which line puts after it: what is told of it where no link is sent.
+func (n Notification) Said() string {
+	if n.URL == "" {
+		return n.Text
+	}
+	return strings.TrimSuffix(n.Text, "  "+oneLine(n.URL))
+}

@@ -87,7 +87,9 @@ yardr user set <name> notify=<source> env_file=<file>.
 
 Adding, setting and removing a source is the operator's, and is refused from
 the pane of an agent: a source is where a credential of the yard is sent.
-Nothing in the yard calls a declared source yet but yardr source check.`,
+What calls a declared source is yardr source check, and the daemon for a
+source a user names as their notify: it sends the user what landed in their
+inbox (yardr user set --help).`,
 	}
 
 	add := &cobra.Command{

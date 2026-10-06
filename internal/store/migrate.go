@@ -13,7 +13,16 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// schemaVersion 14 has users that are told outside the yard: a user's
+// schemaVersion 15 has what lands in a user's inbox told outside the yard:
+// with a mail to a user and with a notification, a push is queued for the
+// daemon to send (the bucket pushes, see Push), and the user's record holds
+// how the last send ended and when the last ones went (User.LastPush,
+// User.Pushed). A build before it would fill the inbox and queue nothing,
+// so the person would not be told and nothing would say so, and it would
+// drop the two fields from a record it rewrites, and with them the count
+// that bounds an hour's messages. Nothing is migrated: what was in an inbox
+// before is not told afterwards.
+// Version 14 has users that are told outside the yard: a user's
 // record holds the source that tells them and the path of the file their
 // address is read from (User.Notify, User.EnvFile), which a build before it
 // would drop from a record it rewrites, as it does when the user
@@ -80,7 +89,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 14
+const schemaVersion = 15
 
 var (
 	kSchema   = []byte("schema")

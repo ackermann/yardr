@@ -128,8 +128,9 @@ func (w *wtx) maySubscribe(name, actor string) error {
 	return fmt.Errorf("%s does not decide what %s is told: %s subscribes themselves, or %s does it for them", or(actor, "nobody"), name, name, who)
 }
 
-// notify writes the notification n for each of users (user -> reason), and
-// drops what is over the bound. n's text is its row with the place of the
+// notify writes the notification n for each of users (user -> reason), with
+// the push that tells it outside the yard (queuePush), and drops what is
+// over the bound. n's text is its row with the place of the
 // reason left open (reasonSlot).
 func (w *wtx) notify(n Notification, users map[string]any) error {
 	row := n.Text
@@ -137,6 +138,9 @@ func (w *wtx) notify(n Notification, users map[string]any) error {
 		n.Reason, _ = users[name].(string)
 		n.Text = n.line(row)
 		if err := put(w.Tx, bNotifications, join(name, seqKey(n.Seq)), n); err != nil {
+			return err
+		}
+		if err := w.queuePush(name, PushNotification, n.Seq); err != nil {
 			return err
 		}
 		ks := keys(w.Tx, bNotifications, name+"\x00")

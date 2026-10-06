@@ -10,6 +10,9 @@ import (
 // elapse without waiting for it.
 func SetClock(d *Dispatcher, clock func() time.Time) { d.clock = clock }
 
+// PushReady is when a message for what landed from oldest to newest may go.
+var PushReady = pushReady
+
 // GhCI is the CI read that asks gh, for a test with a gh of its own on PATH.
 var GhCI = ghCI
 

@@ -413,6 +413,13 @@ func (w *wtx) event(bead, kind, actor string, data map[string]any) error {
 	if err := index(w.Tx, e); err != nil {
 		return err
 	}
+	// Mail to a user, whoever wrote it (Mail, a fired timer): told outside
+	// the yard too, when a source tells that user.
+	if toUser(e) {
+		if err := w.queuePush(mailReceiver(e), PushMail, seq); err != nil {
+			return err
+		}
+	}
 	return put(w.Tx, bEvents, seqKey(seq), e)
 }
 

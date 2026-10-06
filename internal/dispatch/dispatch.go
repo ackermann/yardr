@@ -157,6 +157,11 @@ type Dispatcher struct {
 	// issueWait is source -> when it is asked again after a call that
 	// failed, so its other moves do not each wait out a timeout.
 	issueWait map[string]time.Time
+	// pushWait is the same for the sources that tell users outside the
+	// yard, and pushDue when the next push is due between passes. See
+	// pushes.go.
+	pushWait map[string]time.Time
+	pushDue  *time.Time
 	// peerCalls is whether any peer can be called, as of the last pass.
 	// peerWait is peer -> when it is called again after a request that
 	// failed. peerErr and peerKeyErr are the last errors said, so each is
@@ -495,6 +500,9 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 		if d.promptDue != nil && (next == nil || d.promptDue.Before(*next)) {
 			next = d.promptDue
 		}
+		if d.pushDue != nil && (next == nil || d.pushDue.Before(*next)) {
+			next = d.pushDue
+		}
 		if next != nil {
 			timer = time.NewTimer(max(next.Sub(d.now()), time.Second))
 			due = timer.C
@@ -594,11 +602,11 @@ func (d *Dispatcher) noteReplaced(ctx context.Context) {
 
 // Reconcile performs one idempotent pass: reap dead sessions, tear down
 // finished ones, apply the github rules to new hook events, read the CI of
-// trains in in-pr, move the issues beads track, route and start unowned
-// ready beads.
+// trains in in-pr, move the issues beads track, tell users outside the yard
+// of what landed in their inboxes, route and start unowned ready beads.
 func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	d.defaults()
-	d.promptDue = nil
+	d.promptDue, d.pushDue = nil, nil
 	d.gating, d.gatingRead = nil, false
 	groups, err := d.Store.Groups(ctx)
 	if err != nil {
@@ -633,6 +641,9 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 		return err
 	}
 	if err := d.issues(ctx); err != nil {
+		return err
+	}
+	if err := d.pushes(ctx); err != nil {
 		return err
 	}
 	// Before anything is started: what a bead from a peer starts from is

@@ -12,6 +12,10 @@
 // authenticates with: GET /repos/{owner}/{repo}/installation and POST
 // /app/installations/{id}/access_tokens, both as the App (a JWT signed
 // with its key), and an installation token on every other call.
+//
+// It is also a service that takes a message for a person, as Pushover's
+// POST /1/messages.json does, for a declared source with a notify key: see
+// Message.
 package standin
 
 import (
@@ -201,12 +205,84 @@ type Server struct {
 	App *App
 	// File, when set, keeps the issues across a restart.
 	File string
+	// PushToken is the application token a message is taken with; "" takes
+	// any.
+	PushToken string
 
-	mu     sync.Mutex
-	issues []*Issue
-	calls  []string
-	tokens map[string]installationToken
-	minted int
+	mu       sync.Mutex
+	issues   []*Issue
+	calls    []string
+	tokens   map[string]installationToken
+	minted   int
+	messages []Message
+	asked    int // requests to /1/messages.json, taken or not
+	answer   int // what one is answered with, 0 for 200
+}
+
+// Message is a message the stand-in took at POST /1/messages.json, whose
+// JSON body has what Pushover's has: token, user, title, message, url. The
+// token is checked and not kept.
+type Message struct {
+	User  string `json:"user"`
+	Title string `json:"title,omitempty"`
+	Text  string `json:"message"`
+	URL   string `json:"url,omitempty"`
+}
+
+// Messages are the messages taken, in order, and Asked how many requests
+// there were for one, taken or refused.
+func (s *Server) Messages() []Message {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]Message{}, s.messages...)
+}
+
+func (s *Server) Asked() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.asked
+}
+
+// Answer has every message from now on answered with status and not taken,
+// as a service that is failing (500) or refuses (400) does; 200 takes them
+// again.
+func (s *Server) Answer(status int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.answer = status
+}
+
+// message takes one message. As Pushover, it answers 400 for a token that
+// is not the application's and for a message without a user or a text.
+func (s *Server) message(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Token string `json:"token"`
+		Message
+	}
+	err := json.NewDecoder(r.Body).Decode(&body)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.asked++
+	answer := func(status int, v map[string]any) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(v)
+	}
+	switch {
+	case r.Method != http.MethodPost:
+		answer(http.StatusMethodNotAllowed, map[string]any{"status": 0, "errors": []string{"POST a message"}})
+	case s.answer != 0 && s.answer != http.StatusOK:
+		answer(s.answer, map[string]any{"status": 0, "errors": []string{"the stand-in was told to answer this"}})
+	case err != nil:
+		answer(http.StatusBadRequest, map[string]any{"status": 0, "errors": []string{"the body is no JSON"}})
+	case s.PushToken != "" && body.Token != s.PushToken:
+		answer(http.StatusBadRequest, map[string]any{"status": 0, "token": "invalid", "errors": []string{"application token is invalid"}})
+	case body.User == "" || body.Text == "":
+		answer(http.StatusBadRequest, map[string]any{"status": 0, "errors": []string{"user and message are required"}})
+	default:
+		s.messages = append(s.messages, body.Message)
+		answer(http.StatusOK, map[string]any{"status": 1, "request": fmt.Sprintf("standin-%d", len(s.messages))})
+	}
 }
 
 // Add adds an issue, or replaces the one with its source and key.
@@ -288,9 +364,25 @@ func (s *Server) save() {
 // Handler serves Linear's GraphQL endpoint at /graphql, GitHub's REST API
 // at /repos/, and, for whoever runs a trial, GET /issues (the issues and
 // the calls made), POST /issues (add or replace one) and POST /status
-// (source, key, status: a person moving an issue by hand).
+// (source, key, status: a person moving an issue by hand). It takes a
+// message for a person at POST /1/messages.json, and for a trial GET
+// /messages (the messages taken, and how many were asked for) and POST
+// /messages/answer (status: what the next ones are answered with).
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/1/messages.json", s.message)
+	mux.HandleFunc("/messages", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"messages": s.Messages(), "asked": s.Asked()})
+	})
+	mux.HandleFunc("/messages/answer", func(w http.ResponseWriter, r *http.Request) {
+		status, err := strconv.Atoi(r.FormValue("status"))
+		if err != nil || status < 200 || status > 599 {
+			http.Error(w, "want status=<an HTTP status>", http.StatusBadRequest)
+			return
+		}
+		s.Answer(status)
+		fmt.Fprintf(w, "messages are answered %d\n", status)
+	})
 	mux.HandleFunc("/graphql", s.linear)
 	mux.HandleFunc("/repos/", s.github)
 	mux.HandleFunc("/app/installations/", s.appToken)

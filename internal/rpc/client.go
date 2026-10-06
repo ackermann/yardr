@@ -604,6 +604,15 @@ func (c *Client) SetSource(ctx context.Context, name, key, value, actor string) 
 func (c *Client) DeleteSource(ctx context.Context, name, actor string) error {
 	return c.call(ctx, "DeleteSource", nil, name, actor)
 }
+func (c *Client) Pushes(ctx context.Context) ([]store.Push, error) {
+	return callV[[]store.Push](c, ctx, "Pushes")
+}
+func (c *Client) DropPushes(ctx context.Context, name string, seqs []uint64) error {
+	return c.call(ctx, "DropPushes", nil, name, seqs)
+}
+func (c *Client) PushTried(ctx context.Context, name string, seqs []uint64, res store.PushResult) error {
+	return c.call(ctx, "PushTried", nil, name, seqs, res)
+}
 func (c *Client) IssueMoves(ctx context.Context) ([]store.IssueMove, error) {
 	return callV[[]store.IssueMove](c, ctx, "IssueMoves")
 }

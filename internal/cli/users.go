@@ -79,6 +79,12 @@ yardr user set <name> notify=<source>.`}
 	}
 	show := &cobra.Command{
 		Use: "show <name>", Short: "Show a user: what waits in their inbox, and what they subscribe to", Args: cobra.ExactArgs(1),
+		Long: `For a user who is told outside the yard (yardr user set <name>
+notify=<source>), "last told" is how the last message through that source
+ended: when, whether the source took it, and how many items of the inbox it
+was for. One that failed is tried again by the daemon for up to six hours;
+one given up is a push_failed event (yardr events). The inbox has
+everything either way.`,
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -118,6 +124,9 @@ yardr user set <name> notify=<source>.`}
 				if v.Told != "" {
 					fmt.Printf("  told outside the yard: %s\n", v.Told)
 				}
+				if last := lastPush(&v.User); last != "" {
+					fmt.Printf("  last told: %s\n", last)
+				}
 				printTimers(v.Timers, v.Name, "  ")
 			})
 		},
@@ -155,7 +164,18 @@ others or does not set the name is refused here.
 
 The user sets their own, or the operator does it for them. It is refused
 from the pane of an agent, whoever the command says it is: what lands in a
-person's inbox goes where these point.`,
+person's inbox goes where these point.
+
+What is told: mail to the user (their own too, and a timer they set) and
+the notifications of their subscriptions, by the daemon, once each is 20
+seconds old and still unread. What was acknowledged by then (yardr chat
+showing it, yardr inbox --ack) is not told. All that is due goes as one
+message: who it is from or which bead, what happened, and the start of the
+text; several are counted and named. At most 20 messages an hour; what is
+over waits and goes as one. A send that fails is tried again for up to 8
+tries and 6 hours, then given up as a push_failed event; yardr user show
+has how the last one ended. The inbox is filled first and never waits for
+the source. notify= drops what was still to be told.`,
 		Example: `  printf 'PUSHOVER_USER=%s\n' '<your user key>' > ~/.yardr/users/mckean.env
   chmod 600 ~/.yardr/users/mckean.env
   yardr user set mckean notify=pushover env_file=~/.yardr/users/mckean.env
@@ -232,6 +252,30 @@ func told(ctx context.Context, st store.API, u *store.User) string {
 		return "through " + u.Notify + ", which is not set up: " + err.Error()
 	}
 	return "through " + u.Notify + " (" + state + ")"
+}
+
+// lastPush says in a line how the last message to a user outside the yard
+// ended, "" for a user none was sent to: when, through which source, and
+// whether the source took it. It is what the user's record keeps
+// (store.PushResult), which has nothing of the message.
+func lastPush(u *store.User) string {
+	l := u.LastPush
+	if l == nil {
+		return ""
+	}
+	out := l.At.Local().Format("2006-01-02 15:04") + " through " + or(l.Source, "no source")
+	what := fmt.Sprintf("%d of the inbox in one message", l.Count)
+	switch {
+	case l.OK():
+		return fmt.Sprintf("%s, taken (status %d, %s)", out, l.Status, what)
+	case l.Reason == store.PushRetry:
+		out += fmt.Sprintf(", failed (%s, %s)", l.Error, what)
+		if l.RetryAt != nil {
+			out += "; next try " + l.RetryAt.Local().Format("15:04:05")
+		}
+		return out
+	}
+	return fmt.Sprintf("%s, not sent: %s (%s, %s)", out, l.Reason, l.Error, what)
 }
 
 // userView is a user as yardr user list and show print one.
@@ -551,10 +595,16 @@ func partyNotes(ctx context.Context, st store.API, crew []store.CrewMember, grou
 		return nil, err
 	}
 	known := map[string]bool{}
+	notes := []string{}
 	for _, u := range users {
 		known[u.Name] = true
+		// The last message, while the user is still told through a source:
+		// a failure that a later message made good is gone from the record.
+		if u.Notify != "" && u.LastPush != nil && !u.LastPush.OK() {
+			notes = append(notes, fmt.Sprintf("user %s was not told outside the yard: %s. Their inbox has it all the same; "+
+				"%s source check %s --user %s sends one test message", u.Name, lastPush(&u), yardr, u.Notify, u.Name))
+		}
 	}
-	notes := []string{}
 	for _, r := range crew {
 		known[r.Name] = true
 		if r.Name == all[store.OperatorSetting] {

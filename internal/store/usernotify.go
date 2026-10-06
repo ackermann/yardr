@@ -119,6 +119,13 @@ func (s *Store) SetUser(ctx context.Context, name string, set map[string]string,
 					return fmt.Errorf("user %s: %w", name, err)
 				}
 				u.Notify = v
+				if v == "" {
+					// Told nowhere: what waited to be told is not kept for
+					// a source named later.
+					if err := dropPushes(w.Tx, name); err != nil {
+						return err
+					}
+				}
 			case UserEnvFile:
 				u.EnvFile = v
 			}

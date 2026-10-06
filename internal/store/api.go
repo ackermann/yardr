@@ -151,6 +151,9 @@ type API interface {
 	GetSource(ctx context.Context, name string) (*Source, error)
 	SetSource(ctx context.Context, name, key, value, actor string) (*Source, error)
 	DeleteSource(ctx context.Context, name, actor string) error
+	Pushes(ctx context.Context) ([]Push, error)
+	DropPushes(ctx context.Context, name string, seqs []uint64) error
+	PushTried(ctx context.Context, name string, seqs []uint64, res PushResult) error
 	IssueMoves(ctx context.Context) ([]IssueMove, error)
 	IssueMoveAllowed(ctx context.Context, id string) (string, error)
 	IssueMoveFailed(ctx context.Context, id, reason string, retryAt time.Time) error

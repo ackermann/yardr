@@ -173,6 +173,7 @@ Not printed on a home with no yard.
 | `note mail <N> unread from <names> for <user>: yardr inbox reads them, --ack marks them read` | no fault: nothing nudges a person, so this line and bare `yardr` are where they learn of mail |
 | `note names group <group>: <names> are neither a user nor a crew member, so nobody of that name can be mailed (yardr user add <name>)` | no fault: members of a group are names, taken as given |
 | `note names crew member <name> has the operator's name, so the operator has no user and no inbox: mail to <name> is the crew member's. Rename one of the two: yardr settings set operator <name> gives the operator a name of their own and adds their user` | no fault: a yard from before crew members and users shared their names |
+| `note names user <name> was not told outside the yard: <when> through <source>, not sent: <reason> (<error>, <n> of the inbox in one message). Their inbox has it all the same; yardr source check <source> --user <name> sends one test message` | no fault: the last message to a user through the source they name (`yardr user set <name> notify=<source>`) was not taken. `failed (…); next try <time>` while the daemon still tries it. The reasons: `not_set_up` (the user's env file or the source's), `refused` (the source answered 4xx), `gave_up` (8 tries), `expired` (older than 6 hours). Gone with the next message the source takes |
 
 ### Setup
 

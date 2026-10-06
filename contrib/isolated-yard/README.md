@@ -48,7 +48,11 @@ and hooks in the yard. With `-github-app-key D/app.pem` it is a GitHub App
 too: it writes a throwaway private key there and gives installation tokens
 for the repositories of `-github-app-repos`, so a crew member whose env_file
 has `GITHUB_APP_ID=12345` and `GITHUB_APP_PRIVATE_KEY_FILE=D/app.pem`
-answers as `yardr[bot]`.
+answers as `yardr[bot]`. It also takes messages for a person at
+`/1/messages.json`, as Pushover does, for a declared source that tells a
+user outside the yard (`yardr user set <name> notify=<source>`): `GET
+/messages` lists what it took, and `POST /messages/answer` with `status=500`
+makes it fail.
 
 ## What `down` stops
 

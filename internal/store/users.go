@@ -54,6 +54,11 @@ type User struct {
 	// path and never what is in the file. See SetUser.
 	Notify  string `json:"notify,omitempty"`
 	EnvFile string `json:"env_file,omitempty"`
+	// LastPush is how the last send through that source ended, and Pushed
+	// when the last messages it took were sent, the newest PushesPerHour of
+	// them: what the bound on an hour's messages is counted from. See Push.
+	LastPush *PushResult `json:"last_push,omitempty"`
+	Pushed   []time.Time `json:"pushed,omitempty"`
 }
 
 // Letter is one mail as a conversation and a user's inbox show it.
@@ -195,8 +200,9 @@ func (s *Store) GetUser(ctx context.Context, name string) (*User, error) {
 	return u, err
 }
 
-// DeleteUser removes the user, with their subscriptions and notifications;
-// the mail to and from them stays in the log.
+// DeleteUser removes the user, with their subscriptions and notifications
+// and what was still to be told them outside the yard; the mail to and from
+// them stays in the log.
 // The operator's user is not removed: the setting names someone else
 // first.
 func (s *Store) DeleteUser(ctx context.Context, name, actor string) error {
@@ -213,6 +219,9 @@ func (s *Store) DeleteUser(ctx context.Context, name, actor string) error {
 			return err
 		}
 		if err := dropNotifications(w.Tx, name); err != nil {
+			return err
+		}
+		if err := dropPushes(w.Tx, name); err != nil {
 			return err
 		}
 		return w.event("", "user_removed", actor, map[string]any{"user": name})
