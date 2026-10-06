@@ -82,15 +82,16 @@ func strs(cfg map[string]any, key string) []string {
 	return config.StringList(cfg[key])
 }
 
-// ConfigError reports why a group of the named runner with config cfg could
-// not run a session: a setting the runner must have is missing, or one it
+// ConfigError reports why subject ("group tick", "crew member clerk") of the
+// named runner with config cfg could not run a session: a setting the runner must have is missing, or one it
 // reads as a string (str) or as a list of words (strs) was stored as
 // something else, which the runner would take as not set. `--set cmd=true`
 // stores the JSON boolean, since a --set value is read as JSON first, so the
 // error says what was stored and how to write the string. `yardr group add`
-// asks before it stores the group; Exec.Start asks again for a group that
-// came another way. A runner it does not know has nothing to say.
-func ConfigError(group, runner string, cfg map[string]any) error {
+// asks before it stores the group, as `yardr crew add` and `yardr crew set`
+// do for a crew member; Exec.Start asks again for a group that came another
+// way. A runner it does not know has nothing to say.
+func ConfigError(subject, runner string, cfg map[string]any) error {
 	var text, words []string
 	switch runner {
 	case "exec":
@@ -104,8 +105,8 @@ func ConfigError(group, runner string, cfg map[string]any) error {
 		if !set || ok(v) {
 			return nil
 		}
-		return fmt.Errorf("group %s: %s runner needs config.%s as %s, got the JSON %s; write --set '%s=%s'",
-			group, runner, key, want, jsonKind(v), key, quoted(v))
+		return fmt.Errorf("%s: %s runner needs config.%s as %s, got the JSON %s; write --set '%s=%s'",
+			subject, runner, key, want, jsonKind(v), key, quoted(v))
 	}
 	isString := func(v any) bool { _, ok := v.(string); return ok }
 	for _, key := range text {
@@ -122,7 +123,7 @@ func ConfigError(group, runner string, cfg map[string]any) error {
 		}
 	}
 	if runner == "exec" && str(cfg, "cmd", "") == "" {
-		return fmt.Errorf("group %s: exec runner needs config.cmd", group)
+		return fmt.Errorf("%s: exec runner needs config.cmd", subject)
 	}
 	return nil
 }

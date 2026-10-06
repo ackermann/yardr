@@ -983,7 +983,7 @@ yardmaster):
 			g.Name = args[0]
 			// Asked before anything is stored: a group the runner cannot
 			// run would fail every session it is given.
-			if err := runner.ConfigError(g.Name, g.Runner, g.Config); err != nil {
+			if err := runner.ConfigError("group "+g.Name, g.Runner, g.Config); err != nil {
 				return err
 			}
 			withDefaultKind(c.Context(), st, g.Runner, g.Config)

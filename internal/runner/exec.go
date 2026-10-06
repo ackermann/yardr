@@ -52,7 +52,7 @@ type Exec struct {
 func NewExec() *Exec { return &Exec{} }
 
 func (e *Exec) Start(ctx context.Context, job dispatch.Job) (map[string]any, error) {
-	if err := ConfigError(job.Group.Name, "exec", job.Group.Config); err != nil {
+	if err := ConfigError("group "+job.Group.Name, "exec", job.Group.Config); err != nil {
 		return nil, err
 	}
 	cmdline := str(job.Group.Config, "cmd", "")

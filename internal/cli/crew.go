@@ -19,6 +19,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -115,6 +116,12 @@ user releases such a bead (yardr peer intake).`,
 			}
 			def.Name = args[0]
 			if def.Config, err = parseSets(sets); err != nil {
+				return err
+			}
+			// Asked before anything is stored: a setting the runner takes as
+			// not set (env_command=true is the boolean) would start the crew
+			// member without it, and say nothing.
+			if err := runner.ConfigError("crew member "+def.Name, def.Runner, def.Config); err != nil {
 				return err
 			}
 			withDefaultKind(c.Context(), st, def.Runner, def.Config)
@@ -266,6 +273,19 @@ user releases such a bead (yardr peer intake).`,
 				}
 				for _, src := range sortedKeys(creds) {
 					fmt.Printf("  %s credential: %s\n", src, creds[src])
+				}
+				// As --set takes it back, so the string "true" and the boolean
+				// can be told apart; a value named like a secret stays out
+				// of the scrollback, as in what crew set prints.
+				if len(r.Config) > 0 {
+					shown := map[string]any{}
+					for k, v := range r.Config {
+						if secretSetting(k) {
+							v = hidden(true)
+						}
+						shown[k] = v
+					}
+					fmt.Printf("  config %s\n", fmtSets(shown))
 				}
 				fmt.Printf("  inbox %d unread · on %s\n", inbox.Total, strings.Join(r.On, ","))
 				if may := r.MayOpen(); len(may) > 0 {
@@ -446,6 +466,12 @@ restart <name>.`,
 				have, err := st.GetCrew(ctx, name)
 				if err != nil {
 					return err
+				}
+				// As crew add asks, and of what this command sets only: a
+				// setting it keeps is not this command's to refuse. The
+				// runner's hint is --set's, which this command has not.
+				if err := runner.ConfigError("crew member "+name, have.Runner, sets); err != nil {
+					return errors.New(strings.Replace(err.Error(), "write --set '", "write '", 1))
 				}
 				def := *have
 				def.Config = map[string]any{}

@@ -133,7 +133,7 @@ func TestExecSaysWhatCmdIsWhenItIsNoString(t *testing.T) {
 	}
 	// A runner with nothing it must have, and one ConfigError does not know.
 	for _, r := range []string{"manual", "peer", "other"} {
-		if err := ConfigError("g", r, map[string]any{"cmd": true, "prompt": 1.0}); err != nil {
+		if err := ConfigError("group g", r, map[string]any{"cmd": true, "prompt": 1.0}); err != nil {
 			t.Errorf("ConfigError(%s) = %v", r, err)
 		}
 	}

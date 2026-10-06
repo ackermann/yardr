@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -306,5 +307,65 @@ func TestCrewSetReadsAgainWhenTheCrewMoved(t *testing.T) {
 	refusedAs(t, m, "jo", "read it again", "crew", "set", "clerk", "model=opus", "--revision", r.Revision)
 	if got := member(t, st, "clerk"); got.Config["model"] != "sonnet" {
 		t.Fatalf("a set at a stale revision wrote: %+v", got)
+	}
+}
+
+// A --set value is read as JSON first, so env_command=true is the boolean,
+// which the herdr runner takes as not set: the crew member was stored and
+// started without the credentials the command was to print, with no error
+// (yardr-d0ps). crew add and crew set ask the runner before they store
+// anything, as group add does, and say how the string is written.
+func TestCrewRefusesASettingTheRunnerCannotRead(t *testing.T) {
+	st, was := clerkYard(t)
+	ctx := context.Background()
+
+	for want, set := range map[string]string{
+		`crew member x: herdr runner needs config.env_command as a string or a list, got the JSON boolean true; write --set 'env_command="true"'`: "env_command=true",
+		`crew member x: herdr runner needs config.prompt as a string, got the JSON boolean false; write --set 'prompt="false"'`:                   "prompt=false",
+		`crew member x: herdr runner needs config.model as a string, got the JSON number 5; write --set 'model="5"'`:                              "model=5",
+		`crew member x: herdr runner needs config.env_file as a string, got the JSON null; write --set 'env_file="null"'`:                         "env_file=null",
+		`crew member x: herdr runner needs config.kind as a string, got the JSON list ["claude"]; write --set 'kind="..."'`:                       `kind=["claude"]`,
+	} {
+		refusedAs(t, st, "jo", want, "crew", "add", "x", "--set", set)
+	}
+	if _, err := st.GetCrew(ctx, "x"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a refused crew member was stored: %v", err)
+	}
+	if out, err := as(t, st, "jo", "crew", "show", "x"); err == nil {
+		t.Fatalf("crew show lists a refused crew member:\n%s", out)
+	}
+	// Replacing one that exists is refused the same, before it is asked about.
+	refusedAs(t, st, "jo", `crew member clerk: herdr runner needs config.env_command as a string or a list`,
+		"crew", "add", "clerk", "--replace", "--set", "env_command=true")
+
+	// crew set takes the key bare, so its hint has no --set.
+	mustAs(t, st, "jo", "crew", "set", "clerk", "env_command=op inject -i env.tpl")
+	for want, set := range map[string]string{
+		`crew member clerk: herdr runner needs config.env_command as a string or a list, got the JSON boolean true; write 'env_command="true"'`: "env_command=true",
+		`crew member clerk: herdr runner needs config.model as a string, got the JSON number 5; write 'model="5"'`:                              "model=5",
+	} {
+		refusedAs(t, st, "jo", want, "crew", "set", "clerk", set, "set_state=linear")
+	}
+	r := member(t, st, "clerk")
+	sameDefinition(t, r, was, "env_command")
+	if r.Config["env_command"] != "op inject -i env.tpl" || len(r.MaySetState()) != 0 {
+		t.Fatalf("a refused crew set changed the definition: %+v", r.Config)
+	}
+
+	// The JSON string is the string, and a list of words is still one.
+	mustAs(t, st, "jo", "crew", "set", "clerk", `model="5"`, `env_command=["op","inject"]`)
+	mustAs(t, st, "jo", "crew", "add", "x", "--set", `env_command="true"`, "--set", "api_token=s3cret")
+	if x := member(t, st, "x"); x.Config["env_command"] != "true" {
+		t.Fatalf("x = %+v; want the string true as its env_command", x.Config)
+	}
+
+	// crew show prints the config as --set takes it back, and no value of
+	// a key named like a secret.
+	out := mustAs(t, st, "jo", "crew", "show", "x")
+	if want := `  config api_token=(a value, not shown) env_command="true" kind=claude` + "\n"; !strings.Contains(out, want) || strings.Contains(out, "s3cret") {
+		t.Fatalf("crew show x has no %q:\n%s", want, out)
+	}
+	if out := mustAs(t, st, "jo", "crew", "show", "clerk"); !strings.Contains(out, `env_command=["op","inject"]`) || !strings.Contains(out, ` model="5"`) {
+		t.Fatalf("crew show clerk:\n%s", out)
 	}
 }
