@@ -455,6 +455,47 @@ func install(op *FileOp, text []byte) error {
 	return os.Rename(tmp.Name(), op.To)
 }
 
+// InstallRole writes the role of the pack's crew member named member under
+// home, where an import installs it and with the names an import fills in:
+// operator, and takes for the member itself, the yard's crew member that
+// takes it. It is for a crew member the yard has before its first depot
+// (yardr init's yardmaster), which no import has reached yet: the first
+// import that maps member to takes finds the file as it would write it. A
+// file already there is kept unless replace says it is nobody's yet and may
+// be written again. The path is "" when the pack has no such crew member or
+// gives it no role, and wrote is false when the file already read so.
+func InstallRole(p *Pack, home, member, takes, operator string, replace bool) (path string, wrote bool, err error) {
+	i := slices.IndexFunc(p.Crew, func(r CrewMember) bool { return r.Name == member })
+	if i < 0 || p.Crew[i].Role == "" {
+		return "", false, nil
+	}
+	rel := p.Crew[i].Role
+	fill := map[string]string{}
+	for _, r := range p.Crew {
+		fill[r.Name] = r.Name
+	}
+	fill[member] = takes
+	// Last, as in a plan (planner.names).
+	fill[Operator] = operator
+	text, err := fs.ReadFile(p.fsys, rel)
+	if err != nil {
+		return "", false, err
+	}
+	text = Fill(text, fill)
+	path = filepath.Join(home, "packs", p.Name, filepath.FromSlash(rel))
+	have, err := os.ReadFile(path)
+	switch {
+	case err == nil && (!replace || bytes.Equal(have, text)):
+		return path, false, nil
+	case err != nil && !errors.Is(err, fs.ErrNotExist):
+		return "", false, err
+	}
+	if err := install(&FileOp{To: path}, text); err != nil {
+		return "", false, err
+	}
+	return path, true, nil
+}
+
 // pruneOrder is the order dropped objects are removed in: a route before
 // the group it leads to, a pointer before the flow it points at, a flow
 // before its stage files.

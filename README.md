@@ -81,10 +81,10 @@ that coordinates the yard), the directory its shell lives in, its model
 me" (the default), "Work with me" or "Just report", with a line of anything
 they should know about you. Every agent reads that answer when its session
 starts ([configuration.md](docs/configuration.md#how-agents-work-with-you)).
-It installs generic role prompts in `~/.yardr/roles/` (yardmaster, builder,
-merger, reviewer, naming you as the one who decides), stores the harness as
-the yard's `default_kind` and your name as its `operator`, and adds the
-yardmaster. Before its first page it says so when git or herdr is not on PATH,
+It stores the harness as the yard's `default_kind` and your name as its
+`operator`, and adds the yardmaster, with its role from the yard's default
+pack (`starter`, which yardr carries) installed under `~/.yardr/packs/` and
+naming you as the one who decides. Before its first page it says so when git or herdr is not on PATH,
 what each is needed for and where to get it; you stop there or go on.
 
 Its last question is "Start the yard now?" (yes by default). Yes first offers
@@ -123,9 +123,10 @@ and waits for the yardmaster again. To remove a yard and start over, see
 
 The yardmaster's first job is the setup, as a conversation with you: it asks for
 the repository and its base branch, registers the depot, sets it up from the
-starter pack with `yardr depot init --pack` (the flow, the groups that build,
-review and land, and their routes; in the repository only a gate,
-`.yardr/check`, which you commit on the base branch), and offers a first
+yard's default pack with `yardr depot init` (the flow, the groups that build,
+review and land, their roles and their routes, all kept in the yard; in the
+repository only a gate, `.yardr/check`, which you commit on the base
+branch), and offers a first
 bead to try the pipeline. It asks before anything outward, such as a commit.
 
 "Keep going here" is the same setup as forms, and `yardr setup` runs them at
@@ -134,8 +135,8 @@ is not done, whoever did the ones before, and each page ends in the command
 you would type, shown before it runs:
 
 1. the repository and its base branch (`yardr depot add`);
-2. the depot's way of working, from the pack: `yardr depot init --pack`
-   prints what it would write, asks for the agent of each group and who is
+2. the depot's way of working, from the yard's default pack: `yardr depot
+   init` prints what it would write, asks for the agent of each group and who is
    in each group of people, and writes nothing before a yes; then the page
    asks before it commits the gate the command guessed on the base branch;
 3. a first small bead, created and advanced to `new`, and how to watch it.
@@ -182,32 +183,22 @@ Scripts skip the forms and the yardmaster's conversation (`yardr init --help`):
 
 ```sh
 yardr init --harness claude [--yardmaster yardmaster] [--dir ~/projects] [--model opus] [--operator Jo] [--style show] [--about "..."]
-yardr depot add webapp ~/projects/webapp --base origin/main
-yardr depot init webapp                 # .yardr/roles, .yardr/check, .yardr/flows/default.flow and its stage files; commit them
-                                        # on the base: with origin/main that is a commit and a push
+yardr depot add webapp ~/projects/webapp --base main
 
-# role prompts: prompt=roles/<name>.md reads the depot's own .yardr/roles/<name>.md
-# (as on its base branch), else the generic ~/.yardr/roles/<name>.md
-
-# who does the work (--set kind defaults to the yard's default_kind)
-yardr group add webapp/builders  --runner herdr --limit 2 --set prompt=roles/builder.md
-yardr group add webapp/reviewers --runner herdr --set kind=codex --set prompt=roles/reviewer.md
-yardr group add webapp/merger    --runner exec  --set cmd='scripts/merge-bead.sh'
-yardr group add mckean           --runner manual
-
-# which stage goes where
-yardr route add --stage new      --depot webapp --group webapp/builders
-yardr route add --stage review   --depot webapp --group webapp/reviewers
-yardr route add --stage approved --depot webapp --group webapp/merger
-yardr route add --stage decide   --group mckean
+# the depot's way of working, from the yard's default pack (starter, unless
+# yardr settings set default_pack names another): the groups that build, review
+# and land, their roles, the flow and the routes go into the yard, and the gate
+# alone into the repository, to be committed on the base
+yardr depot init webapp --yes --bind builders=claude:opus --bind reviewers=codex \
+  --members backlog= --members decisions=jo
+git -C ~/projects/webapp add .yardr/check && git -C ~/projects/webapp commit -m 'yardr: gate' -- .yardr/check
 
 yardr daemon &                          # routes and supervises; starts the yardmaster (or: yardr init --start)
 yardr watch                             # live event stream
 yardr session list --running            # what agents and scripts work on now; without the flag, also the beads a manual group holds for a person
 
 yardr bead create "Add login page" --depot webapp -t feature -b "Use the OAuth flow"
-# it starts in the flow's first stage, backlog (new while the depot's flow is not on its base);
-# the yardmaster shapes it and advances it to new
+# it starts in the flow's first stage, backlog; the yardmaster shapes it and advances it to new
 ```
 
 The yardr server starts on first use, in the background, and owns
@@ -263,10 +254,11 @@ yardr depot rm legacy                                          # store only; the
 ```
 
 Bead branches (`yard/<bead>`) start from the depot's base, fetched before each
-new worktree. Give beads a depot with `--depot`; routes can match on it, and
-a group's `prompt=roles/<name>.md` reads the depot's `.yardr/roles/<name>.md`
-from its base, then `~/.yardr/roles/<name>.md`
-([details](docs/configuration.md#role-prompts)). Depot names, like
+new worktree. Give beads a depot with `--depot`; routes can match on it. A
+depot set up by `yardr depot init` gets groups whose roles are its pack's,
+installed in the yard's home; a group set by hand with
+`prompt=roles/<name>.md` reads the depot's `.yardr/roles/<name>.md` from its
+base ([details](docs/configuration.md#role-prompts)). Depot names, like
 bead types and dependency kinds, are lowercase letters, digits, `.`, `_` and
 `-`. `depot rm` removes a depot with its routes and flow pointers, and is refused
 while the depot has open beads or live sessions; it touches nothing on disk.
@@ -321,7 +313,8 @@ The rest of the documentation is in [docs/](docs/README.md):
   (who, where and how: groups, runners, routes, crew members), which wins, and
   where yardr keeps its own state.
 - **[Flows](docs/flows.md):** bead lifecycles. Named flows depots and types
-  point at, flows in the repo's `.yardr/flows/` read from the base branch,
+  point at (a pack's, for a depot set up by `yardr depot init`), a depot's
+  own flows in the repo's `.yardr/flows/` read from the base branch,
   which stages a bead may move to next, and terminal stages that close it.
   Edges may carry outcomes (`new -> review on done | decide on question`):
   agents finish with `yardr bead done <id> [--outcome <o>]` and the flow

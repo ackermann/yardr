@@ -49,9 +49,10 @@ on the yardmaster, to the operator, because the onboarding ends in
 [`yardr chat`](chat.md#from-the-onboarding).
 
 A crew member has no depot, so its `prompt` is an absolute path (a relative one is
-read from its `--dir`): a depot's own `.yardr/roles/yardmaster.md`, or the
-generic `~/.yardr/roles/yardmaster.md` that `yardr init` installs and points
-the yardmaster at.
+read from its `--dir`): the yardmaster's is
+`~/.yardr/packs/<pack>/roles/yardmaster.md`, the role of the yard's default
+pack, which `yardr init` installs and points the yardmaster at; a depot's own
+`.yardr/roles/yardmaster.md` is another.
 
 In herdr a crew member's agent is `<yard>-<name>` (`yardr-yardmaster` for a yard
 in `~/.yardr`, `y1-yardmaster` for one in `/tmp/y1`) and its workspace is

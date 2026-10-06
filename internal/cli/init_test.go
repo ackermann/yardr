@@ -19,8 +19,10 @@ import (
 	"github.com/charmbracelet/huh"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
+	"yardr.dev/yardr/packs"
 	"yardr.dev/yardr/roles"
 )
 
@@ -51,6 +53,18 @@ func newHome(t *testing.T) string {
 	return home
 }
 
+// packRole is the role file rel of the pack yardr embeds as name, as an
+// import installs it: naming operator, and yardmaster as the crew member
+// that takes the pack's.
+func packRole(t *testing.T, name, rel, operator, yardmaster string) []byte {
+	t.Helper()
+	tmpl, err := packs.FS.ReadFile(name + "/" + rel)
+	if err != nil {
+		t.Fatalf("pack %s: %v", name, err)
+	}
+	return pack.Fill(tmpl, map[string]string{pack.Operator: operator, "yardmaster": yardmaster})
+}
+
 func TestInitHarnessClaude(t *testing.T) {
 	home := newHome(t)
 	st := storetest.New(t)
@@ -61,23 +75,22 @@ func TestInitHarnessClaude(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The default roles, as embedded, naming the operator.
-	for _, name := range []string{"yardmaster.md", "builder.md", "merger.md", "reviewer.md"} {
-		tmpl, err := roles.FS.ReadFile(name)
-		if err != nil {
-			t.Fatalf("%s not embedded: %v", name, err)
-		}
-		want := fillRole(tmpl, "Jo", "yardmaster")
-		got, err := os.ReadFile(filepath.Join(home, "roles", name))
-		if err != nil || !bytes.Equal(got, want) {
-			t.Fatalf("%s installed: %v", name, err)
-		}
-		if bytes.Contains(got, []byte("{{")) {
-			t.Errorf("%s keeps a placeholder:\n%s", name, got)
-		}
+	// The yardmaster's role alone, from the default pack and where an
+	// import of it installs its roles, naming the operator. No <home>/roles.
+	prompt := filepath.Join(home, "packs", "starter", "roles", "yardmaster.md")
+	got, err := os.ReadFile(prompt)
+	if err != nil || !bytes.Equal(got, packRole(t, "starter", "roles/yardmaster.md", "Jo", "yardmaster")) {
+		t.Fatalf("yardmaster.md installed: %v\n%s", err, got)
 	}
-	if b, _ := os.ReadFile(filepath.Join(home, "roles", "yardmaster.md")); !bytes.Contains(b, []byte("bring to Jo")) {
-		t.Errorf("yardmaster.md does not name Jo:\n%s", b)
+	if bytes.Contains(got, []byte("{{")) || !bytes.Contains(got, []byte("bring to Jo")) {
+		t.Errorf("yardmaster.md keeps a placeholder, or does not name Jo:\n%s", got)
+	}
+	var files []string
+	for p := range snapshot(t, home) {
+		files = append(files, strings.TrimPrefix(p, home+"/"))
+	}
+	if !slices.Equal(files, []string{"packs/starter/roles/yardmaster.md"}) {
+		t.Fatalf("init wrote into the home: %v; want the yardmaster's role alone", files)
 	}
 	// The yardmaster, on the harness with its unattended flags.
 	r, err := st.GetCrew(ctx, "yardmaster")
@@ -85,7 +98,7 @@ func TestInitHarnessClaude(t *testing.T) {
 		t.Fatal(err)
 	}
 	// greet: its first session writes to the operator by mail (yardr-8j3n).
-	want := map[string]any{"kind": "claude", "prompt": filepath.Join(home, "roles", "yardmaster.md"),
+	want := map[string]any{"kind": "claude", "prompt": prompt,
 		"args": []any{"--permission-mode", "auto"}, "greet": "Jo"}
 	if !reflect.DeepEqual(r.Config, want) || r.Runner != "herdr" || r.MaxAge != "6h" ||
 		r.Dir != filepath.Dir(home) || !reflect.DeepEqual(r.On, defaultOn) {
@@ -106,7 +119,7 @@ func TestInitHarnessClaude(t *testing.T) {
 		t.Fatalf("settings = %v", got)
 	}
 	// The yardmaster takes it from here; the commands are in init --help.
-	for _, s := range []string{"harness    claude", "naming Jo", ".yardr/roles/", here("yardr daemon"), "\n  " + here("yardr chat") + "\n  " + here("yardr setup") + "\n"} {
+	for _, s := range []string{"harness    claude", "naming Jo", "roles      " + filepath.Dir(prompt) + " (pack starter, the yard's default)", here("yardr daemon"), "\n  " + here("yardr chat") + "\n  " + here("yardr setup") + "\n"} {
 		if !strings.Contains(out, s) {
 			t.Errorf("summary lacks %q:\n%s", s, out)
 		}
@@ -114,14 +127,15 @@ func TestInitHarnessClaude(t *testing.T) {
 	if strings.Contains(out, "route add") {
 		t.Errorf("summary still lists the setup commands:\n%s", out)
 	}
-	if help, _ := run(t, a.rootCmd(), "init", "--help"); !strings.Contains(help, "yardr depot init webapp") ||
-		!strings.Contains(help, "yardr route add") {
+	if help, _ := run(t, a.rootCmd(), "init", "--help"); !strings.Contains(help, "yardr depot init webapp --yes") ||
+		!strings.Contains(help, "yardr depot add webapp") {
 		t.Errorf("init --help lacks the commands for scripts:\n%s", help)
 	}
 
-	// Again: init is idempotent; the yardmaster is not replaced, and roles the
-	// operator edited are kept.
-	yardmaster := filepath.Join(home, "roles", "yardmaster.md")
+	// Again: init is idempotent; the yardmaster is not replaced, and its role
+	// is not written again, edited or not: a yard's prompts are not init's
+	// to change.
+	yardmaster := prompt
 	if err := os.WriteFile(yardmaster, []byte("mine"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -135,6 +149,8 @@ func TestInitHarnessClaude(t *testing.T) {
 	if _, err := run(t, a.rootCmd(), "init", "--harness", "kimi", "--yardmaster", "boss", "--model", "k2", "--dir", home); err != nil {
 		t.Fatal(err)
 	}
+	// A second crew member by init finds the role there and leaves it: the
+	// first one reads it.
 	if b, _ := os.ReadFile(yardmaster); string(b) != "mine" {
 		t.Fatalf("edited yardmaster.md overwritten: %q", b)
 	}
@@ -142,7 +158,7 @@ func TestInitHarnessClaude(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if boss.Config["model"] != "k2" || boss.Dir != home || !reflect.DeepEqual(boss.Config["args"], []any{"--yolo"}) {
+	if boss.Config["prompt"] != prompt || boss.Config["model"] != "k2" || boss.Dir != home || !reflect.DeepEqual(boss.Config["args"], []any{"--yolo"}) {
 		t.Fatalf("boss = %+v", boss)
 	}
 
@@ -222,15 +238,15 @@ func TestInitAgainKeepsSettings(t *testing.T) {
 	settings("refused")
 }
 
-// Without --operator the roles name the login user.
+// Without --operator the role names the login user.
 func TestInitOperatorDefaultsToUser(t *testing.T) {
 	home := newHome(t)
 	t.Setenv("USER", "kim")
 	if _, err := run(t, (&app{st: storetest.New(t)}).rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
-	if b, _ := os.ReadFile(filepath.Join(home, "roles", "builder.md")); !bytes.Contains(b, []byte("never kim's own session")) {
-		t.Fatalf("builder.md does not name $USER:\n%s", b)
+	if b, _ := os.ReadFile(filepath.Join(home, "packs", "starter", "roles", "yardmaster.md")); !bytes.Contains(b, []byte("bring to kim")) {
+		t.Fatalf("yardmaster.md does not name $USER:\n%s", b)
 	}
 }
 
@@ -290,8 +306,8 @@ func TestInitWithoutLoginName(t *testing.T) {
 	if err != nil || len(users) != 1 || users[0].Name != "operator" {
 		t.Fatalf("users = %+v, %v", users, err)
 	}
-	if b, _ := os.ReadFile(filepath.Join(home, "roles", "builder.md")); !bytes.Contains(b, []byte("never operator's own session")) {
-		t.Fatalf("builder.md does not name the operator:\n%s", b)
+	if b, _ := os.ReadFile(filepath.Join(home, "packs", "starter", "roles", "yardmaster.md")); !bytes.Contains(b, []byte("bring to operator")) {
+		t.Fatalf("yardmaster.md does not name the operator:\n%s", b)
 	}
 	if got := yardOperator(ctx, st); got != "operator" {
 		t.Errorf("yardOperator = %q", got)
@@ -724,17 +740,17 @@ func stubLookPath(t *testing.T, found ...string) {
 	t.Cleanup(func() { lookPath = old })
 }
 
-// Init again refreshes a role the operator never touched to this build's
+// A refreshing install replaces a role nobody touched with this build's
 // template and keeps an edited one, telling which: the manifest holds the
-// hash of each file as init wrote it. A file from before the manifest is
-// kept unless it already reads as this build's.
-func TestInitRefreshesUntouchedRoles(t *testing.T) {
-	home := newHome(t)
-	a := &app{st: storetest.New(t), actor: "me"}
-	if _, err := run(t, a.rootCmd(), "init", "--harness", "claude", "--operator", "Jo"); err != nil {
+// hash of each file as it was written. A file from before the manifest is
+// kept unless it already reads as this build's. No command installs so
+// since init takes the yardmaster's role from the default pack; the function
+// stays until the copies it reads are deleted.
+func TestInstallRolesRefreshesUntouchedRoles(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "roles")
+	if _, err := installRoles(dir, "Jo", "yardmaster", true); err != nil {
 		t.Fatal(err)
 	}
-	dir := filepath.Join(home, "roles")
 	manifest := func() map[string]string {
 		t.Helper()
 		b, err := os.ReadFile(filepath.Join(dir, shippedManifest))
@@ -755,7 +771,7 @@ func TestInitRefreshesUntouchedRoles(t *testing.T) {
 		}
 	}
 
-	// builder.md: as an older init wrote it (the manifest agrees with the
+	// builder.md: as an older install wrote it (the manifest agrees with the
 	// file), so it is refreshed. yardmaster.md: edited, kept. merger.md: from
 	// before the manifest and not this build's, kept. reviewer.md: from
 	// before the manifest but already this build's, tracked from now on.
@@ -776,12 +792,12 @@ func TestInitRefreshesUntouchedRoles(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, shippedManifest), mb, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, err := run(t, a.rootCmd(), "init", "--harness", "claude", "--operator", "Jo")
+	res, err := installRoles(dir, "Jo", "yardmaster", true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "builder.md refreshed to this build's; merger.md, yardmaster.md edited, kept") {
-		t.Fatalf("summary does not say which:\n%s", out)
+	if got := res.summary(); got != "builder.md refreshed to this build's; merger.md, yardmaster.md edited, kept" {
+		t.Fatalf("summary does not say which: %s", got)
 	}
 	tmpl, _ := roles.FS.ReadFile("builder.md")
 	if b, _ := os.ReadFile(filepath.Join(dir, "builder.md")); !bytes.Equal(b, fillRole(tmpl, "Jo", "yardmaster")) {
@@ -797,34 +813,20 @@ func TestInitRefreshesUntouchedRoles(t *testing.T) {
 	if m["reviewer.md"] != digest(fillRole(tmpl, "Jo", "yardmaster")) || m["merger.md"] != "" || m["yardmaster.md"] == digest([]byte("mine")) {
 		t.Fatalf("manifest after refresh = %v", m)
 	}
-	// --json names them too.
-	var res struct {
-		Refreshed []string `json:"refreshed"`
-		Kept      []string `json:"kept"`
-		Current   []string `json:"current"`
-	}
-	js, err := run(t, a.rootCmd(), "--json", "init", "--harness", "claude", "--operator", "Jo")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal([]byte(js), &res); err != nil {
-		t.Fatalf("%v\n%s", err, js)
-	}
-	if len(res.Refreshed) != 0 || len(res.Kept) != 2 || len(res.Current) != 2 {
-		t.Fatalf("third init: %+v", res)
+	if res, err = installRoles(dir, "Jo", "yardmaster", true); err != nil || len(res.Refreshed) != 0 || len(res.Kept) != 2 || len(res.Current) != 2 {
+		t.Fatalf("third install: %+v, %v", res, err)
 	}
 }
 
-// A depot's .yardr/roles/ is never refreshed: the files are committed, and depot
-// init writes no manifest there.
+// A depot's .yardr/roles/ is never refreshed: the files are committed, and the
+// seeding writes no manifest there.
 func TestDepotInitWritesNoManifest(t *testing.T) {
 	st := storetest.New(t)
 	dir := t.TempDir()
 	if err := st.PutDepot(context.Background(), store.Depot{Name: "web", Path: dir, Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	a := &app{st: st, actor: "me"}
-	if _, err := run(t, a.depotCmd(), "init", "web"); err != nil {
+	if _, err := seedDepot(t, st, "web", "", "", false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".yardr", "roles", shippedManifest)); !errors.Is(err, fs.ErrNotExist) {
@@ -834,7 +836,7 @@ func TestDepotInitWritesNoManifest(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, ".yardr", "roles", "builder.md"), old, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := run(t, a.depotCmd(), "init", "web"); err != nil {
+	if _, err := seedDepot(t, st, "web", "", "", false); err != nil {
 		t.Fatal(err)
 	}
 	if b, _ := os.ReadFile(filepath.Join(dir, ".yardr", "roles", "builder.md")); !bytes.Equal(b, old) {

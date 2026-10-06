@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,7 +15,6 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
-	"yardr.dev/yardr/roles"
 )
 
 // failing is a store whose write named by on fails: "setting <key>" or
@@ -59,8 +59,8 @@ func startsYardmaster(t *testing.T, st store.API, name string, handle map[string
 }
 
 // wholeYard fails unless the home holds the yard a clean init makes: the
-// three settings, the yardmaster on the harness, the four roles naming the
-// operator and the yardmaster, each in the manifest.
+// three settings, the yardmaster on the harness, and its role from the
+// default pack, naming the operator and the yardmaster, as its prompt.
 func wholeYard(t *testing.T, st store.API, home, harness, operator, yardmaster string) {
 	t.Helper()
 	ctx := context.Background()
@@ -68,29 +68,22 @@ func wholeYard(t *testing.T, st store.API, home, harness, operator, yardmaster s
 	if got["default_kind"] != harness || got["operator"] != operator || got["yardmaster"] != yardmaster {
 		t.Errorf("settings = %v", got)
 	}
+	dir := filepath.Join(home, "packs", "starter", "roles")
 	rs, _ := st.Crew(ctx)
-	if len(rs) != 1 || rs[0].Name != yardmaster || rs[0].Config["kind"] != harness {
+	if len(rs) != 1 || rs[0].Name != yardmaster || rs[0].Config["kind"] != harness || rs[0].Config["prompt"] != filepath.Join(dir, "yardmaster.md") {
 		t.Errorf("crew members = %+v", rs)
 	}
-	manifest := map[string]string{}
-	b, _ := os.ReadFile(filepath.Join(home, "roles", shippedManifest))
-	_ = json.Unmarshal(b, &manifest)
-	for _, name := range []string{"builder.md", "merger.md", "reviewer.md", "yardmaster.md"} {
-		have, err := os.ReadFile(filepath.Join(home, "roles", name))
-		if err != nil {
-			t.Errorf("%s: %v", name, err)
-			continue
-		}
-		tmpl, _ := roles.FS.ReadFile(name)
-		if !bytes.Equal(have, fillRole(tmpl, operator, yardmaster)) {
-			t.Errorf("%s does not name %s and %s", name, operator, yardmaster)
-		}
-		if manifest[name] != digest(have) {
-			t.Errorf("%s is not in the manifest as written", name)
-		}
+	have, err := os.ReadFile(filepath.Join(dir, "yardmaster.md"))
+	if err != nil {
+		t.Errorf("yardmaster.md: %v", err)
+	} else if !bytes.Equal(have, packRole(t, "starter", "roles/yardmaster.md", operator, yardmaster)) {
+		t.Errorf("yardmaster.md does not name %s and %s", operator, yardmaster)
 	}
-	if left, _ := filepath.Glob(filepath.Join(home, "roles", ".*.md.*")); len(left) > 0 {
+	if left, _ := filepath.Glob(filepath.Join(dir, ".*")); len(left) > 0 {
 		t.Errorf("temporary files left: %v", left)
+	}
+	if _, err := os.Stat(filepath.Join(home, "roles")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("init made %s: %v", filepath.Join(home, "roles"), err)
 	}
 }
 
@@ -101,8 +94,8 @@ func TestInitFinishesAfterAFailedRun(t *testing.T) {
 	first := []string{"init", "--harness", "codex", "--operator", "Jo", "--yardmaster", "boss"}
 	for _, tc := range []struct {
 		name string
-		// on is the store's write that fails; "" for the roles, where a
-		// directory in a prompt's place fails the read of it.
+		// on is the store's write that fails; "" for the role, where a
+		// directory in the prompt's place fails the read of it.
 		on    string
 		again []string
 		// setUp: the home counts as a yard after the failed run.
@@ -110,14 +103,16 @@ func TestInitFinishesAfterAFailedRun(t *testing.T) {
 		operator     string
 		found, added []string
 	}{
-		{name: "among the roles", again: []string{"init", "--harness", "codex", "--operator", "Kim", "--yardmaster", "boss"}, operator: "Kim",
-			found: []string{"the role prompts builder.md and merger.md in"},
-			added: []string{"the role prompts reviewer.md and yardmaster.md", "the operator and yardmaster settings", "the crew member boss", "the default_kind setting"}},
-		{name: "after the roles", on: "setting operator", again: first, operator: "Jo",
-			found: []string{"the role prompts builder.md, merger.md, reviewer.md and yardmaster.md in"},
+		// The role the failed run wrote names Jo and is nobody's prompt yet:
+		// the next run, told Kim, writes it again.
+		{name: "after the role, told another operator", on: "setting operator", again: []string{"init", "--harness", "codex", "--operator", "Kim", "--yardmaster", "boss"}, operator: "Kim",
+			found: []string{"the role prompt packs/starter/roles/yardmaster.md in"},
+			added: []string{"the role prompt yardmaster.md", "the operator and yardmaster settings", "the crew member boss", "the default_kind setting"}},
+		{name: "after the role", on: "setting operator", again: first, operator: "Jo",
+			found: []string{"the role prompt packs/starter/roles/yardmaster.md in"},
 			added: []string{"the operator and yardmaster settings", "the crew member boss", "the default_kind setting"}},
 		{name: "after the operator setting", on: "setting yardmaster", again: []string{"init", "--harness", "codex", "--yardmaster", "boss"}, operator: "Jo",
-			found: []string{"the setting operator Jo"},
+			found: []string{"the role prompt packs/starter/roles/yardmaster.md in", "the setting operator Jo"},
 			added: []string{"the operator and yardmaster settings", "the crew member boss"}},
 		{name: "after the settings", on: "crew", again: []string{"init", "--harness", "codex"}, operator: "Jo",
 			found: []string{"the settings operator Jo and yardmaster boss"},
@@ -134,15 +129,9 @@ func TestInitFinishesAfterAFailedRun(t *testing.T) {
 			st := &failing{API: storetest.New(t), on: tc.on}
 			a := &app{st: st, actor: "me"}
 			ctx := context.Background()
-			block := filepath.Join(home, "roles", "reviewer.md")
-			if tc.on == "" {
-				if err := os.MkdirAll(block, 0o755); err != nil {
-					t.Fatal(err)
-				}
-			}
 			if out, err := run(t, a.rootCmd(), first...); err == nil {
 				t.Fatalf("the first run did not fail:\n%s", out)
-			} else if tc.on != "" && !errors.Is(err, errCut) {
+			} else if !errors.Is(err, errCut) {
 				t.Fatal(err)
 			}
 			if got, _ := st.Settings(ctx); got["default_kind"] != "" {
@@ -156,9 +145,6 @@ func TestInitFinishesAfterAFailedRun(t *testing.T) {
 				t.Fatalf("initialized = %v %v", ok, err)
 			}
 			st.on = ""
-			if tc.on == "" {
-				os.Remove(block)
-			}
 
 			out, err := run(t, a.rootCmd(), tc.again...)
 			if err != nil {
@@ -181,11 +167,6 @@ func TestInitFinishesAfterAFailedRun(t *testing.T) {
 					}
 				}
 			}
-			// Nothing the failed run wrote counts as edited by hand.
-			if strings.Contains(out, "edited, kept") {
-				t.Errorf("a prompt of the failed run was kept as edited:\n%s", out)
-			}
-
 			// And once more: a yard, set up again, nothing found or added.
 			out, err = run(t, a.rootCmd(), "init")
 			if err != nil || !strings.Contains(out, "set up again") || strings.Contains(out, "  found ") {
@@ -268,7 +249,7 @@ func TestOnboardingAfterAFailedRun(t *testing.T) {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	wholeYard(t, st, home, "claude", "Jo", "boss")
-	for _, s := range []string{"An earlier setup of this home did not reach its end. It left the role prompts",
+	for _, s := range []string{"An earlier setup of this home did not reach its end. It left the role prompt packs/starter/roles/yardmaster.md",
 		"the settings operator Jo and yardmaster boss", "finished: part of it was there", "  added      the crew member boss",
 		"boss is running, in herdr"} {
 		if !strings.Contains(out, s) {

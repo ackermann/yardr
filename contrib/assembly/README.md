@@ -5,7 +5,7 @@ Four shell scripts, each run as the `cmd` of an `exec` group with `--limit 1`
 is described in [docs/pipeline.md](../../docs/pipeline.md), sections 4 and
 Trains. Install them from `main`, not a checkout, so a branch cannot change
 how it is landed. The starter pack carries a copy of merge-local: a yard set
-up from it (`yardr setup`, `yardr depot init --pack starter`) runs
+up from it (`yardr setup`, `yardr depot init`) runs
 `~/.yardr/packs/starter/scripts/merge-local`, with no checkout of yardr
 (docs/setup.md).
 

@@ -288,7 +288,8 @@ func prChecks(dir, url string) string {
 // it is worked, next to .yardr/flows and .yardr/check), the depot's
 // roles/<name>.md (the older place, still read, with a warning), then the
 // yard's home, ~/.yardr/roles/<name>.md: the generic roles `yardr init`
-// installed, so a new depot works until it commits its own.
+// installed there before a yard's roles came from a pack, which a yard that
+// has them still works from.
 //
 // A depot's roles are read like its gate: from the tip of the depot's base and
 // from nowhere else in the depot, so a bead cannot rewrite the prompt of the

@@ -642,7 +642,7 @@ func TestSetupStepsDirDepot(t *testing.T) {
 	if !slices.Equal(keys, []string{stepDepot, stepDepotFiles, stepBuilders, stepReviewers, stepRoutes, stepFirstBead, stepMerged}) {
 		t.Fatalf("keys = %v", keys)
 	}
-	if n := nextStep(steps); n.Key != stepDepotFiles || n.Next != "yardr depot init docs --pack dir" {
+	if n := nextStep(steps); n.Key != stepDepotFiles || n.Next != "yardr depot init docs" {
 		t.Fatalf("next = %+v", n)
 	}
 	if _, err := depotInit(depot, "Jo", "yardmaster", false); err != nil {

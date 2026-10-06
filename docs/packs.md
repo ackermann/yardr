@@ -9,21 +9,24 @@ person, secret or identity, which are the yard's and stay in it.
 
 `yardr pack check` reads a pack and shows what importing it would change;
 `yardr pack apply` imports it; `yardr pack list` shows what the yard
-imported. Fetching a pack from a git URL is **planned**; until then a pack
-is a directory on this machine, or one yardr carries in its binary.
+imported. `yardr depot init` sets a new depot up from the yard's
+[default pack](#the-default-pack). Fetching a pack from a git URL is
+**planned**; until then a pack is a directory on this machine, or one yardr
+carries in its binary.
 
-The pack yardr ships is [`packs/starter`](../packs/starter): the flow `yardr
-depot init` writes with its stage files, the roles yardr embeds and the
-reference assembly, as one pack. It is in the binary, so `starter` names it
-with no checkout at hand ([Naming a pack](#naming-a-pack)).
+The pack yardr ships is [`packs/starter`](../packs/starter): a flow from
+backlog to merged with its stage files, the roles of a builder, a reviewer
+and the yardmaster, and the reference assembly, as one pack. It is in the
+binary, so `starter` names it with no checkout at hand
+([Naming a pack](#naming-a-pack)), and it is the default pack of a yard that
+names none.
 
 It is written for a git depot. For a depot that is a plain directory yardr
-carries a second pack, [`packs/dir`](../packs/dir), named `dir`: the two
-flows `yardr depot init` writes into a dir depot (the depot's, and its
-trains') with their stage files, a builders and a reviewers group whose
+carries a second pack, [`packs/dir`](../packs/dir), named `dir`: two flows
+(the depot's, and its trains') with their stage files, a builders and a reviewers group whose
 roles are written for a directory, the starter's two people groups for
 `backlog` and `decide`, no group that lands anything and no crew
-([dir-depots.md](dir-depots.md#from-the-dir-pack)).
+([dir-depots.md](dir-depots.md#1-register-the-folder-and-set-it-up)).
 
 ```
 packs/starter/
@@ -174,7 +177,8 @@ them has.
 ## Naming a pack
 
 `yardr pack check` and `yardr pack apply` take the pack as their argument,
-and `yardr depot init` as its `--pack`, which is one of:
+`yardr depot init` as its `--pack`, and the `default_pack` setting as its
+value (a directory there is absolute). It is one of:
 
 | written | is |
 |---|---|
@@ -696,9 +700,9 @@ refuses (a flow an open bead still pins) does not undo the rest: what could
 be removed is, the record keeps the object so the next `--prune` tries
 again, and the command exits 1 naming it.
 
-## yardr depot init --pack
+## yardr depot init
 
-`yardr depot init <depot> --pack <pack>` is the import above for a depot
+`yardr depot init <depot> [--pack <pack>]` is the import above for a depot
 that is new to the yard, with the one thing a pack cannot carry: the depot's
 gate. It writes `.yardr/check` into the checkout, guessed from the
 repository, when the depot has no gate (no such file in the checkout, no
@@ -718,7 +722,57 @@ depot (its flow lands a bead on a base branch through an assembly, and
 nothing merges in a directory), and `dir` on a git depot (its roles commit
 nothing and its flow closes a bead at review). A pack of another name is
 yours to judge: nothing in a pack says which kind of depot it is for.
-[configuration.md](configuration.md#from-a-pack---pack) has the details.
+[configuration.md](configuration.md#seeding-a-depot-yardr-depot-init) has
+the details.
+
+### The default pack
+
+Without `--pack`, `depot init` takes the yard's default pack: the
+`default_pack` setting, a pack's name or its directory as an absolute path.
+
+```sh
+yardr settings set default_pack ~/packs/research   # every depot set up from now on
+yardr settings set default_pack ""                 # unset: yardr's own again
+```
+
+Unset, the default is one of the two packs in the binary, by the depot's
+kind: `starter` for a git depot, `dir` for a dir depot. A setting applies to
+both kinds, so a yard with dir depots and `default_pack` set names the pack
+for the other kind with `--pack`. Changing the setting moves no depot: it is
+read when a depot is set up, and a depot stays on the pack it was set up
+from until `yardr pack apply` or `depot init` is run on it.
+
+`yardr init` reads the same setting for the one crew member a yard has
+before its first depot. It takes the role of the default pack's crew member
+called `yardmaster`, installs that file under `<home>/packs/<pack>/roles/`
+filled as an import fills it, and makes it the yardmaster's prompt; the
+first import of the pack finds the file as it would write it. A default pack
+with no crew member of that name gets the yard no yardmaster. Init reads no
+pack on a yard that has its yardmaster
+([configuration.md](configuration.md#creating-a-yard-the-onboarding-and-yardr-init)).
+
+### Two packs in one yard
+
+A depot's groups, routes and flow are its own, named for it
+(`web-builders`, `notes-builders`), so a second depot set up from another
+pack leaves the first untouched: its groups go on reading
+`<home>/packs/<first>/`. A crew member is the yard's, and there is one
+yardmaster. When both packs have a crew member `yardmaster`, each import
+sets the yardmaster's prompt to its own pack's role, so the last import
+wins, and the plan shows it before anything is written:
+
+```
+$ yardr depot init notes --pack ~/packs/research
+…
+crew
+  change           yardmaster
+                     prompt: /Users/jo/.yardr/packs/starter/roles/yardmaster.md -> /Users/jo/.yardr/packs/research/roles/yardmaster.md
+```
+
+To keep the yardmaster on the first pack's role, the second pack names no
+crew, or the import maps its member to another crew member of the yard
+(`--crew yardmaster=<other>`). A running crew member keeps its session when
+its role changes; the output names the restart.
 
 ## The plan as data
 

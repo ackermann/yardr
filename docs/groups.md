@@ -223,11 +223,12 @@ whose harness stopped on an error is reported sooner, as
 ### The prompt
 
 A herdr group's `prompt` is the role its agents start from, at the head of
-their brief. `--set prompt=roles/builder.md` reads the depot's own
+their brief. A group of a depot set up from a pack has the absolute path of
+the pack's installed role, `~/.yardr/packs/<pack>/roles/builder.md`, read as
+is. `--set prompt=roles/builder.md` reads the depot's own
 `.yardr/roles/builder.md` as it is on the depot's base branch (a bead cannot
-change its own reviewer's prompt), else the generic
-`~/.yardr/roles/builder.md` that `yardr init` installed; an absolute path is
-read as is. The order and the older depot-root `roles/` are in
+change its own reviewer's prompt), else `~/.yardr/roles/builder.md` in a
+yard that has it from an earlier yardr. The order and the older depot-root `roles/` are in
 [configuration.md](configuration.md#role-prompts).
 
 ### Role file or stage file

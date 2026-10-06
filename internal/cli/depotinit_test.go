@@ -18,7 +18,27 @@ import (
 	"yardr.dev/yardr/roles"
 )
 
-// depot init seeds a Go repo with the roles naming the yard's operator, a gate
+// seedDepot sets the depot called name up the way depot init did before it
+// took a pack, writing the roles, the gate, the flow and its stage files
+// into the checkout (depotInit), and returns what the command printed. An
+// empty operator or yardmaster is the yard's, as the command's flags
+// defaulted. The tests below hold that seeding for the depots that have it
+// and for the tests that build one, until it is deleted.
+func seedDepot(t *testing.T, st store.API, name, operator, yardmaster string, withYardmaster bool) (string, error) {
+	t.Helper()
+	ctx := context.Background()
+	depot, err := st.GetDepot(ctx, name)
+	if err != nil {
+		return "", err
+	}
+	res, err := depotInit(*depot, or(operator, yardOperator(ctx, st)), or(yardmaster, yardmasterOf(ctx, st)), withYardmaster)
+	if err != nil {
+		return "", err
+	}
+	return capture(t, res.print), nil
+}
+
+// The seeding gives a Go repo the roles naming the yard's operator, a gate
 // guessed from go.mod and the starter flow; a second run changes nothing.
 func TestDepotInit(t *testing.T) {
 	st := storetest.New(t)
@@ -38,8 +58,7 @@ func TestDepotInit(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	a := &app{st: st, actor: "me"}
-	out, err := run(t, a.depotCmd(), "init", "web")
+	out, err := seedDepot(t, st, "web", "", "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,31 +112,27 @@ func TestDepotInit(t *testing.T) {
 		t.Fatal(err)
 	}
 	snap := snapshot(t, dir)
-	out, err = run(t, a.depotCmd(), "init", "web", "--operator", "Kim")
+	out, err = seedDepot(t, st, "web", "Kim", "", false)
 	if err != nil || !strings.Contains(out, "nothing written") {
 		t.Fatalf("second run: %v\n%s", err, out)
 	}
 	if again := snapshot(t, dir); !maps.Equal(snap, again) {
 		t.Fatal("second run changed files")
 	}
-
-	if _, err := run(t, a.depotCmd(), "init", "nope"); exitCode(err) != 3 {
-		t.Fatalf("unknown depot: %v", err)
-	}
 }
 
-// --operator names who the roles bring decisions to; without it or the
+// The operator names who the roles bring decisions to; without one or the
 // setting, the login user.
 func TestDepotInitOperator(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	t.Setenv("USER", "kim")
-	for name, args := range map[string][]string{"kim": nil, "Ana": {"--operator", "Ana"}} {
+	for name, operator := range map[string]string{"kim": "", "Ana": "Ana"} {
 		dir := t.TempDir()
 		if err := st.PutDepot(ctx, store.Depot{Name: "r" + strings.ToLower(name), Path: dir, Base: "main"}, "me"); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := run(t, (&app{st: st}).depotCmd(), append([]string{"init", "r" + strings.ToLower(name)}, args...)...); err != nil {
+		if _, err := seedDepot(t, st, "r"+strings.ToLower(name), operator, "", false); err != nil {
 			t.Fatal(err)
 		}
 		if b, _ := os.ReadFile(filepath.Join(dir, ".yardr", "roles", "yardmaster.md")); !bytes.Contains(b, []byte("bring to "+name)) {
@@ -126,7 +141,7 @@ func TestDepotInitOperator(t *testing.T) {
 	}
 }
 
-// The yardmaster the roles tell agents to mail is the yard's: --yardmaster,
+// The yardmaster the roles tell agents to mail is the yard's: the one named,
 // else the yardmaster setting yardr init stores, else the one crew member of a
 // yard from before the setting, else init's default name. A yard with several
 // crew members and no setting does not guess among them.
@@ -145,40 +160,40 @@ func TestDepotInitYardmaster(t *testing.T) {
 		}
 		return strings.Fields(after)[0]
 	}
-	initDepot := func(t *testing.T, name string, args ...string) string {
+	initDepot := func(t *testing.T, name, yardmaster string) string {
 		t.Helper()
 		dir := t.TempDir()
 		if err := st.PutDepot(ctx, store.Depot{Name: name, Path: dir, Base: "main"}, "me"); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := run(t, (&app{st: st}).depotCmd(), append([]string{"init", name}, args...)...); err != nil {
+		if _, err := seedDepot(t, st, name, "", yardmaster, false); err != nil {
 			t.Fatal(err)
 		}
 		return dir
 	}
-	if got := mailTo(t, initDepot(t, "empty")); got != "yardmaster" {
+	if got := mailTo(t, initDepot(t, "empty", "")); got != "yardmaster" {
 		t.Errorf("empty yard: mail %s, want yardmaster", got)
 	}
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "manual"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if got := mailTo(t, initDepot(t, "one")); got != "boss" {
+	if got := mailTo(t, initDepot(t, "one", "")); got != "boss" {
 		t.Errorf("one crew member: mail %s, want boss", got)
 	}
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "scribe", Runner: "manual"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if got := mailTo(t, initDepot(t, "two")); got != "yardmaster" {
+	if got := mailTo(t, initDepot(t, "two", "")); got != "yardmaster" {
 		t.Errorf("two crew members, no setting: mail %s, want yardmaster", got)
 	}
 	if _, err := run(t, (&app{st: st}).settingsCmd(), "set", "yardmaster", "boss"); err != nil {
 		t.Fatal(err)
 	}
-	if got := mailTo(t, initDepot(t, "set")); got != "boss" {
+	if got := mailTo(t, initDepot(t, "set", "")); got != "boss" {
 		t.Errorf("yardmaster setting: mail %s, want boss", got)
 	}
-	if got := mailTo(t, initDepot(t, "flag", "--yardmaster", "boss")); got != "boss" {
-		t.Errorf("--yardmaster: mail %s, want boss", got)
+	if got := mailTo(t, initDepot(t, "flag", "boss")); got != "boss" {
+		t.Errorf("named: mail %s, want boss", got)
 	}
 	if _, err := run(t, (&app{st: st}).settingsCmd(), "set", "yardmaster", "no spaces"); err == nil {
 		t.Error("settings set yardmaster accepted a name a crew member cannot have")
@@ -240,10 +255,9 @@ func snapshot(t *testing.T, dir string) map[string]string {
 	return m
 }
 
-// depot init on a dir depot writes the builder and reviewer roles, no merger, no
+// The seeding of a dir depot writes the builder and reviewer roles, no merger, no
 // check, and the dir flows, which govern the depot's tasks and trains from the
-// directory without a pointer; the yardmaster's role only with
-// --with-yardmaster.
+// directory without a pointer; the yardmaster's role only when asked.
 func TestDepotInitDir(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
@@ -251,8 +265,7 @@ func TestDepotInitDir(t *testing.T) {
 	if err := st.PutDepot(ctx, store.Depot{Name: "invoices", Path: dir, Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	a := &app{st: st, actor: "me"}
-	out, err := run(t, a.depotCmd(), "init", "invoices", "--operator", "Jo")
+	out, err := seedDepot(t, st, "invoices", "Jo", "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,16 +318,16 @@ func TestDepotInitDir(t *testing.T) {
 		}
 	}
 
-	// --with-yardmaster adds the yardmaster's role and keeps the rest.
-	out, err = run(t, a.depotCmd(), "init", "invoices", "--with-yardmaster")
+	// Asked for, the yardmaster's role is added and the rest kept.
+	out, err = seedDepot(t, st, "invoices", "", "", true)
 	if err != nil || !strings.Contains(out, ".yardr/roles/yardmaster.md\n") || !strings.Contains(out, "builder.md (already there, kept)") {
-		t.Fatalf("--with-yardmaster: %v\n%s", err, out)
+		t.Fatalf("with the yardmaster's role: %v\n%s", err, out)
 	}
 	snap := snapshot(t, dir)
 	if _, ok := snap[filepath.Join(dir, ".yardr/roles/merger.md")]; ok {
 		t.Fatal("a dir depot got the merger's role")
 	}
-	out, err = run(t, a.depotCmd(), "init", "invoices", "--with-yardmaster")
+	out, err = seedDepot(t, st, "invoices", "", "", true)
 	if err != nil || !strings.Contains(out, "nothing written") || !maps.Equal(snap, snapshot(t, dir)) {
 		t.Fatalf("third run: %v\n%s", err, out)
 	}
@@ -401,12 +414,11 @@ func TestDepotInitStageFiles(t *testing.T) {
 		"dir": {"default/backlog.md", "default/decide.md", "default/new.md", "default/review.md",
 			"type/train/backlog.md", "type/train/decide.md", "type/train/open.md", "type/train/review.md"},
 	}
-	a := &app{st: st, actor: "me"}
 	for kind, depot := range depots {
 		if err := st.PutDepot(ctx, depot, "me"); err != nil {
 			t.Fatal(err)
 		}
-		out, err := run(t, a.depotCmd(), "init", depot.Name, "--operator", "Jo")
+		out, err := seedDepot(t, st, depot.Name, "Jo", "", false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -547,8 +559,7 @@ func TestDepotInitDirKeepsTheOldTrainFlow(t *testing.T) {
 	if err := st.PutDepot(ctx, store.Depot{Name: "invoices", Path: dir, Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	a := &app{st: st, actor: "me"}
-	if _, err := run(t, a.depotCmd(), "init", "invoices", "--operator", "Jo"); err != nil {
+	if _, err := seedDepot(t, st, "invoices", "Jo", "", false); err != nil {
 		t.Fatal(err)
 	}
 	if text, err := os.ReadFile(old); err != nil || string(text) != own {

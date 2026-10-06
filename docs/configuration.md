@@ -2,10 +2,16 @@
 
 yardr reads its configuration from two places:
 
-- **the depot's repository**, under `.yardr/`: what the work is. Versioned
-  with the code it describes and changed through review.
+- **the depot's repository**, under `.yardr/`: what the code must pass. The
+  gate, versioned with the code it checks and changed through the depot's
+  review. A depot that keeps a flow or roles of its own keeps them here too.
 - **the store** (`yard.db`, owned by the yardr server): who works it, where
   and how. Live state, changed with `yardr` commands, no commit needed.
+
+A depot's way of working (its flow, the stage files and the roles of its
+groups) comes from a [pack](packs.md): `yardr depot init` imports the yard's
+default pack into the store and the yard's home, and writes the gate alone
+into the repository ([below](#seeding-a-depot-yardr-depot-init)).
 
 The split was decided in yard-17 (2026-10-02). Both sides are built: flows
 in yard-9cza, the merge gate in yard-p2y7.
@@ -14,31 +20,53 @@ in yard-9cza, the merge gate in yard-p2y7.
 
 | | repo `.yardr/` (what the work is) | store (who / where / how) |
 |---|---|---|
-| flows | the depot's default and type flows, named flows: `.yardr/flows/` (built) | named flows, and depot and type pointers to them (built) |
+| flows | a depot's own default and type flows, named flows: `.yardr/flows/` (built); none in a depot set up from a pack | named flows, a pack's among them (`<pack>.<flow>`), and depot and type pointers to them (built): where the flow of a depot set up by `yardr depot init` is |
 | stage files | a repository flow's: `.yardr/flows/<name>/<stage>.md`, read from the base (built) | none in the store: a store flow's are files in the yard's home, `~/.yardr/flows/<name>/<stage>.md` (built; [flows.md](flows.md#stage-files-what-a-stage-is-for)) |
 | merge gate | `.yardr/check` (built) | a per-depot override, `depot add --check` (built) |
 | light gate | `.yardr/check-light` (built) | a per-depot override, `depot add --check-light` (built) |
 | which lines of a red gate's output say what failed | `.yardr/check-fail-pattern` (built) | none; a red gate's whole output is a file in the yard's home, `~/.yardr/gates/<depot>/` (built) |
-| roles | the depot's own role prompts: `.yardr/roles/<name>.md`, read from the base (built) | the generic roles `yardr init` installed in `~/.yardr/roles/`, the fallback; crew members' prompts, by absolute path (built) |
+| roles | a depot's own role prompts: `.yardr/roles/<name>.md`, read from the base (built); none in a depot set up from a pack | each group's and crew member's `prompt`: for a depot set up from a pack the absolute path of the pack's role as installed in the home, `~/.yardr/packs/<pack>/roles/<name>.md` (built). `~/.yardr/roles/`, in a yard that has it from an earlier yardr, is the fallback of a relative `prompt` |
 | groups | | runner, limit, members, subscriptions (manual), agent kind, model, args, cmd, worktree settings (built) |
 | routes | | which group works which stage, by depot, type, label (built) |
 | depots | | path, kind (`git` or `dir`), clone, base branch; `depot add` registers, `depot rm` removes (built) |
 | crew members | | agent, directory, inbox kinds, rotation, subscriptions, identities (built) |
-| settings | | the yard's defaults: `default_kind`, `operator`, `yardmaster`, `name`, `hook_addr`, and how agents work with the operator: `operator_style`, `operator_note`, and the bounds of its timers: `timer_limit`, `timer_min_every` (built) |
+| settings | | the yard's defaults: `default_kind`, `default_pack`, `operator`, `yardmaster`, `name`, `hook_addr`, and how agents work with the operator: `operator_style`, `operator_note`, and the bounds of its timers: `timer_limit`, `timer_min_every` (built) |
 
 ### Why the repo holds what the work is
 
-A flow, a check and a role prompt describe the codebase: which stages a change
-passes, what "green" means for this code, how to work in it. They change
-when the code changes, so they belong next to it:
+The gate describes the codebase: what "green" means for this code. It
+changes when the code changes, so it belongs next to it:
 
-- **Versioned.** A flow or a gate is tied to the code it applies to. Check
-  out an old commit and you get the gate that applied then.
-- **Reviewed.** Changing `.yardr/` is a code change like any other; it goes
-  through the depot's review and lands on the base branch. Nobody lowers a
-  bar without someone seeing it.
-- **Portable.** Anyone who runs yardr on the repo gets the same lifecycle
-  and the same gate, without copying store state.
+- **Versioned.** A gate is tied to the code it applies to. Check out an old
+  commit and you get the gate that applied then.
+- **Reviewed.** Changing `.yardr/check` is a code change like any other; it
+  goes through the depot's review and lands on the base branch. Nobody lowers
+  the bar without someone seeing it.
+- **Portable.** Anyone who runs yardr on the repo gets the same gate,
+  without copying store state.
+
+The flow and the roles describe a way of working: which stages a change
+passes, who works each, how a builder or a reviewer goes about it. That is
+the same for every depot worked that way, so it is a [pack's](packs.md), and
+`yardr depot init` writes no flow, stage file or role into a repository. A
+copy in each depot was a copy that fell behind the day the wording changed.
+
+- **Where it is reviewed.** A change to a pack's flow or role is reviewed
+  where the pack is kept, a repository of its own for a pack of yours, and
+  reaches the yard when the operator runs `yardr pack apply`, which shows
+  every change before it writes one ([packs.md](packs.md#yardr-pack-apply)).
+  The import records the pack's commit. It is no longer a commit on the
+  depot's base.
+- **A depot that keeps its own flow keeps the review.** Commit
+  `.yardr/flows/default.flow` and its stage files on the base and run
+  `yardr depot source <depot> flow depot`
+  ([below](#switching-one-of-them)): the flow is then the repository's,
+  read from the base, and a change to it lands through the depot's review
+  like the gate. The same holds for a role: `.yardr/roles/<name>.md` on the
+  base and `yardr depot source <depot> role <group> depot`.
+- **Never from a bead's branch.** Either way a prompt, a flow and the gate
+  are read from the base or from the yard's home, so a bead cannot change
+  what judges it.
 
 ### Why the store holds who, where and how
 
@@ -55,13 +83,13 @@ describe one installation, not the codebase:
 - **Live.** Pausing a group, adding a member, rerouting a stage or switching
   a model happen while beads are in flight, without a commit or a merge.
 
-A role prompt says how a depot is worked (its language, its tools, its gate,
-who decides), so a depot's own roles live in its repo, in `.yardr/roles/` next
-to `.yardr/flows/` and `.yardr/check`, and a group names them by role:
-`--set prompt=roles/builder.md`. The roles built into yardr (the repo's
-`roles/`, which `yardr init` installs in `~/.yardr/roles/`) are generic
-starting points that name no person, depot or language; a depot without its own
-works from them.
+A role prompt says how a group works, so it is a pack's: the import installs
+it under the yard's home and gives the group its absolute path as `prompt`.
+The roles of the packs yardr carries name no person, depot or language. A
+depot that is worked in a way of its own (its language, its tools, who
+decides) keeps a role in its repo, in `.yardr/roles/` next to `.yardr/check`,
+and a group names it by role: `--set prompt=roles/builder.md`, or `yardr
+depot source <depot> role <group> depot` for a group a pack made.
 
 ### Role prompts
 
@@ -85,15 +113,24 @@ depot's, and the home's copy serves until the edit has landed. Only a depot that
 is not a git checkout, or whose base does not resolve, is read from its
 working tree.
 
-So a fresh depot works from the generic roles in `~/.yardr/roles/` until it
-commits its own, and committing one overrides the home copy for that depot
-only. A prompt found nowhere fails the session start with every path tried in
-the error (the depot's as `<base>:.yardr/roles/<name>.md`); three such failures
+A depot set up by `yardr depot init` needs none of this lookup: its groups'
+prompts are absolute paths into `~/.yardr/packs/<pack>/roles/`, which no
+commit in the depot changes. Committing `.yardr/roles/<name>.md` there does
+not take a group over; `yardr depot sources <depot>` shows the file as
+shadowed until `yardr depot source <depot> role <group> depot` makes it the
+group's ([below](#switching-one-of-them)). The lookup serves a group set by
+hand with `--set prompt=roles/<name>.md`, and yards from before `depot init`
+took a pack: there the depot's committed role wins over the home's copy, for
+that depot only. `yardr init` no longer writes `~/.yardr/roles/`; a yard that
+has the directory keeps it, and it is read as the last place as before. A
+prompt found nowhere fails the session start with every path tried in the
+error (the depot's as `<base>:.yardr/roles/<name>.md`); three such failures
 hold the bead.
 
-Crew members have no depot: give a crew member's `prompt` as an absolute path (a
-relative one is read from its directory), e.g. a depot's
-`/path/to/repo/.yardr/roles/yardmaster.md`.
+Crew members have no depot: a crew member's `prompt` is an absolute path (a
+relative one is read from its directory). The yardmaster's is the role of
+the default pack's crew member called `yardmaster`, which `yardr init`
+installs as `~/.yardr/packs/<pack>/roles/yardmaster.md`.
 
 ## Session limits and outages
 
@@ -351,9 +388,13 @@ from its directory (see [Depot kinds](#depot-kinds-git-and-dir)).
 yardr reads `.yardr/` from the tip of the depot's base branch
 (`git show <base>:.yardr/...`), never from the bead's branch or worktree
 (built). A bead therefore cannot lower its own bar: a builder who edits
-`.yardr/check` or a flow on `yard/<bead>` changes nothing for that bead. The edit takes effect only once it has been reviewed
+`.yardr/check` on `yard/<bead>` changes nothing for that bead. The edit takes effect only once it has been reviewed
 and landed on the base, like any other code, and then applies to every bead
-after it. yardr resolves the base on every check and re-reads the files
+after it. The same holds for the flow and the roles of a depot that keeps
+its own under `.yardr/`. A depot set up from a pack has neither there: its
+flow is in the store and its roles in the yard's home, where no branch
+reaches them, and they change when the operator applies the pack again
+([why](#why-the-repo-holds-what-the-work-is)). yardr resolves the base on every check and re-reads the files
 when its commit moves.
 
 For the gate, "the base" is the remote's copy when there is one. Refs are
@@ -655,7 +696,9 @@ Everything yardr keeps for itself lives in one directory, the yard's
 | `webviews/` | a record per running web view, held by it while it serves, which `yardr status` and `yardr doctor` read ([web.md](web.md#where-it-runs)) |
 | `worktrees/<depot>/<bead>` | herdr bead worktrees |
 | `depots/<name>` | depots registered with `depot add --clone`; `depot rm` leaves the clone here |
-| `roles/` | the generic role prompts `yardr init` installed (yardmaster, builder, merger, reviewer), the fallback for depots without their own; yours to edit. `.shipped.json` there records each file's hash as init wrote it, so init again can tell an edited prompt (kept) from an untouched one (refreshed) |
+| `packs/<pack>/` | a pack's roles and scripts as an import installed them, filled with the yard's names ([packs.md](packs.md#how-a-pack-maps-to-the-yard)): what the groups and crew members of a depot set up from the pack read. `yardr init` installs the yardmaster's role here, from the default pack, before any depot |
+| `flows/<pack>.<flow>/` | the stage files of a pack's flow, installed the same way |
+| `roles/` | only in a yard from before `yardr init` took the yardmaster's role from a pack: the generic role prompts that init installed (yardmaster, builder, merger, reviewer). Still the last place a group's relative `prompt` is looked up, yours to edit, and no longer written or refreshed; `.shipped.json` there is no longer read |
 | `linear.secret`, `github.secret`, `crew/<name>.env`, `groups/<group>.env` | credential files, if you keep them here as the examples do ([crew.md](crew.md#outbound-credentials)): yours, yardr creates none of them and reads only the paths a hook, crew member or group names |
 
 `--home <dir>` is a flag of every command, and runs it on the yard in that
@@ -766,27 +809,25 @@ does the same without the form, for scripts and tests; `--harness` is required
 to create a yard, and nothing is started unless `--start` says so. Either way
 yardr:
 
-1. writes the default role prompts, built into the binary from this repo's
-   `roles/`, to `<home>/roles/`. A file already there is kept when it was
-   edited (the yardmaster edits its own copy) and replaced with this build's
-   when it still reads as init wrote it: `<home>/roles/.shipped.json` holds
-   the hash of each file as written, so init again after an upgrade refreshes
-   the untouched templates and the summary says which were refreshed and which
-   kept (`--json`: `written`, `refreshed`, `current`, `kept`). A file from
-   before the manifest counts as edited unless it already matches this
-   build's, which is when it starts being tracked; delete one to get this
-   build's copy. They are generic: where they say `{{operator}}`, the person
-   agents bring decisions to, init writes the operator's name (the form's
-   "Your name", `--operator`, default the login name, or `operator` where
-   there is none), and where they say `{{yardmaster}}`, the crew member builders
-   and reviewers mail about what blocks them, the yardmaster's name. A depot's
-   own roles go in its repo under `.yardr/roles/`
-   ([role prompts](#role-prompts));
+1. installs the yardmaster's role: the one the yard's default pack gives its
+   crew member called `yardmaster`. The default pack is the `default_pack`
+   setting, and `starter`, the pack in the binary, on a new yard. That one
+   file goes to `<home>/packs/<pack>/roles/`, where an import of the pack
+   installs its roles, so the first depot set up from the pack finds it
+   there. Where the role says `{{operator}}`, the person the yardmaster
+   brings decisions to, init writes the operator's name (the form's "Your
+   name", `--operator`, default the login name, or `operator` where there is
+   none), and where it says `{{yardmaster}}`, the yardmaster's. The other
+   roles of the pack are installed when a depot is set up from it
+   ([below](#seeding-a-depot-yardr-depot-init)). A default pack with no crew
+   member called `yardmaster` gets the yard none: init says so, and step 3
+   adds nothing. `<home>/roles/`, which init wrote before a yard had a
+   default pack, is not written;
 2. sets `operator` to the operator's name and `yardmaster` to the
    yardmaster's, and `operator_style` and `operator_note` when they were said
    (the form's answers, `--style`, `--about`);
 3. adds the yardmaster crew member: `kind=<harness>`,
-   `prompt=<home>/roles/yardmaster.md`, the model if given, the harness's
+   `prompt=<home>/packs/<pack>/roles/yardmaster.md`, the model if given, the harness's
    unattended flags as `args`, rotating every 6h. A crew member of that name
    already there is kept as it is, so init runs again on a yard without harm;
 4. sets `default_kind` to the harness, which marks the yard set up.
@@ -798,8 +839,11 @@ reset to the flags' defaults (the login name, `yardmaster`); `operator_style`
 and `operator_note` are kept the same way, changed only by `--style` and
 `--about`. The summary lists what was kept
 (`kept default_kind claude, operator Jo, yardmaster yardmaster, as set before`).
-A crew member of the yardmaster's name is kept as it is, and so are the role
-files already in `<home>/roles/`. What a run that failed leaves, and how the
+A crew member of the yardmaster's name is kept as it is, and init then reads
+no pack and writes no role: an installed role is brought to a newer pack's
+by `yardr pack apply`, which shows the change first, and a yard's
+`<home>/roles/` from an earlier yardr is left as it is
+([upgrading](#upgrading)). What a run that failed leaves, and how the
 next one finishes it, is [below](#a-run-that-did-not-finish).
 
 #### How agents work with you
@@ -851,9 +895,9 @@ setup steps say what is done, and goes on from the first one that is not, with
 the operator, by mail in `yardr chat` when the onboarding took them there
 ([chat.md](chat.md#from-the-onboarding)) and in its pane otherwise: the
 repository and its base branch (`yardr depot add`), `yardr depot init`
-([below](#seeding-a-depot-yardr-depot-init)), the builder and reviewer groups on
-the default harness, how approved beads land (an assembly or a manual group),
-routes for `new`, `review` and `approved`, and a first bead to try the
+([below](#seeding-a-depot-yardr-depot-init)), which sets the depot up from
+the yard's default pack (its groups that build, review and land, and the
+routes for `new`, `review` and `approved`), and a first bead to try the
 pipeline. `yardr init --help` lists the same as commands, for scripts.
 
 The unattended flags keep an agent nobody watches from stopping at a
@@ -1094,8 +1138,8 @@ yardr's tests load nothing into launchd, so it is not reproduced by them.
 
 #### A run that did not finish
 
-The onboarding and `yardr init` do their steps in one order: the roles, the
-`operator` and `yardmaster` settings, the yardmaster crew member, `default_kind`,
+The onboarding and `yardr init` do their steps in one order: the yardmaster's
+role, the `operator` and `yardmaster` settings, the yardmaster crew member, `default_kind`,
 and then, when asked to, the daemon and the wait for the yardmaster. A run
 that fails leaves what the steps before the failure made. The next run
 finishes from that: it does not start again from nothing, and it says what it
@@ -1103,23 +1147,18 @@ found.
 
 | the run stopped | what the home holds | the next run |
 |---|---|---|
-| among the roles | some of the prompts, each whole and recorded in `.shipped.json` as written | `yardr init --harness <kind>` again, or `yardr` in a terminal for the form. Prompts the failed run wrote are refreshed to the names this run is given; none counts as edited by hand |
-| after the roles | the four prompts | the same |
-| after `operator`, or after `yardmaster` | the prompts and the settings stored so far | the same. The stored settings stand in for `--operator` and `--yardmaster` when they are not given, and are what the form's "Yardmaster" and "Your name" start at |
+| after the role | the yardmaster's prompt, `packs/<pack>/roles/yardmaster.md` | `yardr init --harness <kind>` again, or `yardr` in a terminal for the form. The prompt the failed run wrote is written again with the names this run is given |
+| after `operator`, or after `yardmaster` | the prompt and the settings stored so far | the same. The stored settings stand in for `--operator` and `--yardmaster` when they are not given, and are what the form's "Yardmaster" and "Your name" start at |
 | after the yardmaster was added | all but `default_kind`. With a crew member the home counts as a yard, so no form runs | `yardr init`, with no flag: the harness is the yardmaster's. Or `yardr` in a terminal, below |
 | the daemon could not be started, or the yardmaster did not come up | a yard that is set up and does not run | `yardr init --start`, which starts the daemon unless one runs and waits again. Or `yardr` in a terminal, below |
 
 Init then prints `yard in <home> finished: part of it was there`, with a
-`found` line (the prompts, settings and crew member that were there) and an
+`found` line (the prompt, settings and crew member that were there) and an
 `added` line (what this run added); `--json` has the same as `found` and
 `added`, which are absent on a new home and on a yard that was set up. A
 setting stored with `yardr settings set` before any init is found the same
-way. Each role prompt is written to a temporary file and renamed, so a run
-that is killed leaves the prompt that was there or none, never half of one;
-`.shipped.json` is saved after every prompt. One case is left: a run killed
-between a prompt and the manifest's save leaves one prompt unrecorded, and a
-next run given another operator or yardmaster keeps that file as edited.
-Delete it to get this build's copy.
+way. The role prompt is written to a temporary file and renamed, so a run
+that is killed leaves the prompt that was there or none, never half of one.
 
 **Bare `yardr` in a terminal** takes the onboarding up where a yard has no depot
 yet and any of this holds: `default_kind` is not set, the yardmaster crew member
@@ -1191,79 +1230,74 @@ role prompt comes back as this build's when its file is deleted and
 
 ### Seeding a depot: `yardr depot init`
 
-`yardr depot init <depot> [--operator <name>] [--yardmaster <name>] [--with-yardmaster]`
-writes a registered depot's starting configuration into its checkout:
-
-| file | content |
-|---|---|
-| `.yardr/roles/{yardmaster,builder,reviewer,merger}.md` | the generic roles, `{{operator}}` filled with `--operator`, default the yard's `operator` setting, else the login name, else `operator`; `{{yardmaster}}` with `--yardmaster`, default the yard's `yardmaster` setting, else its one crew member, else `yardmaster` |
-| `.yardr/check` | the merge gate, executable, with a comment saying so; its command is a guess from the repo: `go.mod` gives `go vet ./... && go test ./...`, a `package.json` with a real `test` script gives `npm test` (`pnpm`/`yarn` by lockfile), anything else `exit 0` with a TODO |
-| `.yardr/flows/default.flow` | the standard stages: backlog, new, review, approved, merged (terminal), decide, with the outcomes `done`, `question`, `changes` and `failed` |
-| `.yardr/flows/default/<stage>.md` | a starter [stage file](flows.md#stage-files-what-a-stage-is-for) for each stage but `merged`: what the stage is for, what must be true to leave it, when each outcome applies; the placeholders filled as in the roles |
-
-The flow is `default.flow`, not a named one, so it governs the depot without a
-pointer (a store pointer, as `yardr depot flow` sets, still wins).
-
-A dir depot (`--kind dir`) gets builder and reviewer roles only (no merger, as
-nothing merges; the yardmaster's with `--with-yardmaster`), no `.yardr/check`
-(a dir depot has no gate until one adds it), and two flows: `default.flow`
-(backlog, new, review, done, decide) and `type/train.flow` (the same with
-`open` for `new`), each with a stage file for every stage but `done`. They
-apply at once, read from the directory; [dir-depots.md](dir-depots.md) walks
-through them.
-
-It never overwrites a file that is there, so a second run changes nothing, and
-it commits nothing. Stage files are written only beside a flow it writes: a
-flow that was there is the depot's own, and a starter file for a stage it lacks
-would fail `yardr depot check`. A freshly seeded depot's check names no stage
-without a stage file. In a git depot roles, the gate, flows and stage files are
-read from the base branch, so they take effect once the operator (or the
-yardmaster, with their OK) commits them there. It prints what it wrote and the
-commit to make.
-
-#### From a pack: `--pack`
-
-`yardr depot init <depot> --pack <pack>` sets the depot up from a
-[pack](packs.md) instead. It writes none of the files above but the gate:
+`yardr depot init <depot> [--pack <pack>]` sets a registered depot up from a
+[pack](packs.md): the yard's default pack, or the one `--pack` names.
 
 | what | where |
 |---|---|
-| `.yardr/check` | the checkout, guessed as above, and only when the depot has no gate: no `.yardr/check` in the checkout and no `--check` in the store. It prints the commit that puts that one file on the base |
 | the pack's roles, scripts and stage files; the depot's groups, routes and flow pointer | the yard's home and store, exactly as `yardr pack apply <pack> --depot <depot>` writes them ([packs.md](packs.md#yardr-pack-apply)) |
+| `.yardr/check` | the checkout: the merge gate, executable, with a comment saying so, and only when the depot has no gate (no `.yardr/check` in the checkout, no `--check` in the store). Its command is a guess from the repo: `go.mod` gives `go vet ./... && go test ./...`, a `package.json` with a real `test` script gives `npm test` (`pnpm`/`yarn` by lockfile), anything else `exit 0` with a TODO. It prints the commit that puts that one file on the base, where yardr reads it |
 
-`<pack>` is named as for `yardr pack apply`
-([packs.md](packs.md#naming-a-pack)): a directory, or a name such as
-`starter`, the pack in the binary. The plan is printed first and the import
-asks what `pack apply` asks, answered by the same flags (`--bind`,
-`--members`, `--crew`, `--flow`, `--open-threads`, `--depot-roles`). Nothing
-is written, the gate included, before a yes in the terminal or `--yes`.
+Nothing else goes into the depot: no roles, no flow, no stage files. They are
+the pack's, changed in the pack and brought to the yard by `yardr pack
+apply` ([why](#why-the-repo-holds-what-the-work-is)).
+
+**Which pack.** Without `--pack` it is the yard's `default_pack`
+[setting](#settings). Unset, it is one of the two packs in the binary, by the
+depot's kind: `starter` for a git depot, `dir` for a dir depot. `<pack>` and
+the setting name a pack as `yardr pack apply` does
+([packs.md](packs.md#naming-a-pack)): a directory, or a name. When the pack
+is the setting's, the command says so first (`pack <pack>: the yard's
+default_pack setting`, on stderr).
+
+The plan is printed first and the import asks what `pack apply` asks,
+answered by the same flags (`--bind`, `--members`, `--crew`, `--flow`,
+`--open-threads`, `--depot-roles`). Nothing is written, the gate included,
+before a yes in the terminal or `--yes`. A second run changes nothing and
+keeps the gate that is there. To apply the pack again after it changed, use
+`yardr pack apply`, which never writes a gate.
 
 A depot that already has `.yardr/roles/` keeps the files, and the pack's
 roles win: the plan names each one a group or crew member would have read as
 `shadows .yardr/roles/<name>.md` before anything is written, and
 `yardr depot sources <depot>` shows it afterwards. `--depot-roles` keeps the
-depot's own instead.
+depot's own instead. A depot that already has `.yardr/flows/` keeps those
+files too, shadowed by the pointer to the pack's flow; `yardr depot source
+<depot> flow depot` makes the depot's flow govern again
+([switching](#switching-one-of-them)). `depot init` moves a depot only when
+someone runs it: a depot set up before it took a pack works as it did until
+then ([upgrading](#upgrading)).
 
-`--operator`, `--yardmaster` and `--with-yardmaster` do not go with `--pack`:
-a pack's roles name the yard's `operator` setting and the crew member `--crew`
-gives. A dir depot takes `--pack dir`, the pack in the binary for a plain
-directory, and gets no gate ([dir-depots.md](dir-depots.md#from-the-dir-pack));
-`starter` is refused there, since its flow lands a bead on a base branch
-through an assembly and nothing merges in a directory, and `dir` is refused
-on a git depot. To apply the pack
-again after it changed, use `yardr pack apply`, which never writes a gate.
+A dir depot gets no gate ([dir-depots.md](dir-depots.md#1-register-the-folder-and-set-it-up)):
+nothing is written into the directory. `starter` is refused there, since its
+flow lands a bead on a base branch through an assembly and nothing merges in
+a directory, and `dir` is refused on a git depot, whether `--pack` or the
+setting named it.
+
+`--operator`, `--yardmaster` and `--with-yardmaster` are from when `depot
+init` wrote role files into the depot. They are accepted and ignored, each
+with one line on stderr saying what says the same now:
+
+| flag | instead |
+|---|---|
+| `--operator <name>` | a pack's roles name the yard's `operator` setting: `yardr settings set operator <name>` |
+| `--yardmaster <name>` | `--crew yardmaster=<name>` says which crew member takes the pack's `yardmaster` |
+| `--with-yardmaster` | a dir depot's roles are its pack's, installed under the yard's home; none is written into the directory |
 
 ```
 $ yardr depot add web ~/src/web --base main
-$ yardr depot init web --pack starter --yes --crew yardmaster=yardmaster \
+$ yardr depot init web --yes \
     --bind builders=claude --bind reviewers=claude --members backlog= --members decisions=jo
 …the plan, then:
-applied pack starter to depot web: 24 created, 1 changed, 0 unchanged
+applied pack starter to depot web: 23 created, 0 changed, 2 unchanged
 
 gate: wrote .yardr/check in /Users/jo/src/web: go vet ./... && go test ./... (a guess from the repo: check it)
 Nothing is committed. yardr reads the gate from main:
   git -C /Users/jo/src/web add .yardr/check && git -C /Users/jo/src/web commit -m 'yardr: gate' -- .yardr/check
 ```
+
+The two unchanged are the yardmaster and its role, which `yardr init` made.
+A yard whose yardmaster has another name gives `--crew yardmaster=<name>`.
 
 ### Settings
 
@@ -1273,10 +1307,11 @@ value unsets) keep the yard's own defaults in the store:
 | key | meaning |
 |---|---|
 | `default_kind` | the agent kind a herdr group or crew member gets when `group add` or `crew add` is given no `--set kind`; also the kind their forms start at. One of the kinds herdr starts. Its presence marks the yard set up. |
-| `operator` | the person the role prompts name, agents bring decisions to; `yardr init` stores it (`--operator`, the form's "Your name") and `yardr depot init` fills roles with it. The operator is a user ([users.md](users.md)): setting a name adds the user when there is none, a crew member's name is refused, and only the operator adds and removes other users. |
+| `default_pack` | the pack `yardr depot init` sets a depot up from when it is given no `--pack`, and the pack `yardr init` takes the yardmaster's role from: a pack's name (one the yard has imported, or one in the binary) or its directory as an absolute path ([packs.md](packs.md#naming-a-pack)). Unset, `starter`, and `dir` for a dir depot. A relative directory is refused, since the setting is read wherever `depot init` is run, and so is a directory with no `pack.yaml`. Changing it moves nothing: it is read when a depot is set up. |
+| `operator` | the person the role prompts name, agents bring decisions to; `yardr init` stores it (`--operator`, the form's "Your name") and an import fills a pack's roles with it. The operator is a user ([users.md](users.md)): setting a name adds the user when there is none, a crew member's name is refused, and only the operator adds and removes other users. |
 | `operator_style` | how agents should work with the operator: `guide`, `show`, `work` or `report` ([what each tells an agent](#how-agents-work-with-you)). `yardr init` stores it (`--style`, the form's "How should agents work with you?"); both primes print it as instructions, so a change reaches the next session that starts. Unset, the primes say nothing about it. |
 | `operator_note` | one line agents should know about the operator (`--about`, the form's "Anything agents should know about you?"), printed by the primes with the style, or alone. |
-| `yardmaster` | the yardmaster crew member's name, whom the builder and reviewer roles tell agents to mail about what blocks them ([crew.md](crew.md#findings-from-builders-and-reviewers)); `yardr init` stores it (`--yardmaster`) and `yardr depot init` fills roles with it. A yard from before the setting has none: `depot init` then takes its one crew member, else `yardmaster`. |
+| `yardmaster` | the yardmaster crew member's name, whom the builder and reviewer roles tell agents to mail about what blocks them ([crew.md](crew.md#findings-from-builders-and-reviewers)); `yardr init` stores it (`--yardmaster`). Which crew member takes a pack's `yardmaster`, and so whom its roles name, is the import's `--crew yardmaster=<name>`. |
 | `hook_addr` | the TCP address the server takes webhooks on, `127.0.0.1:8790` say ([subscriptions.md](subscriptions.md)). The server reads it when it starts, so a change takes its next start: `yardr server stop`, and the next command starts it again; `settings set` says so. `YARDR_HOOK_ADDR`, set where the server starts, is used instead of it. An address that is not `host:port` with a port from 1 to 65535 is refused (`:8790` is every interface). The server writes what it listens on to `hooks.state` in the home, and `yardr doctor` reports it: the address and whether it is the variable's or the setting's. A server that cannot listen there (another yard has the address) keeps serving its yard, logs a `hook_listener_failed` event, and doctor says so with what to change. |
 | `gate_slots` | how many full gates (`yardr depot check`) run at once on the machine, counting every yard of the user; the others wait for a [slot](#gate-slots-how-many-gates-run-at-once). A whole number, default 2; `0` is no limit. |
 | `name` | the yard's name, which its crew's herdr agents and workspaces carry (`<name>-yardmaster`, labelled `<name> yardmaster`), so two yards on one machine, whose agents herdr lists together, are told apart. Unset, the home's directory name: `yardr` for `~/.yardr`, `y1` for `/tmp/y1`. Changing it renames crew members started from then on. |
@@ -1391,11 +1426,37 @@ same revision and commit time as a `go install` of its commit, and those,
 not the tag `yardr version` prints, decide whether it is newer; so archives
 and `go install`s replace each other by commit time.
 
-The generic role prompts in `~/.yardr/roles/` are files, not code: a new
-build does not touch them. Run `yardr init` again (with the same `--harness`,
-`--operator` and `--yardmaster`, since init stores the last two) to refresh the
-ones nobody edited to the new build's templates; edited ones are kept, and
-the summary says which ([above](#creating-a-yard-the-onboarding-and-yardr-init)).
+A new build changes nothing in a yard that is set up: no prompt, group,
+route or flow moves until the operator runs `yardr depot init` or `yardr
+pack apply`.
+
+- **A yard and its depots from before `depot init` took a pack** work as
+  they did. A depot's `.yardr/roles/`, `.yardr/flows/` and stage files on
+  its base are read as before, a group whose `prompt` is `roles/<name>.md`
+  is looked up as before ([role prompts](#role-prompts)), and `yardr depot
+  sources <depot>` prints what it printed.
+- **`~/.yardr/roles/`** is no longer written. `yardr init` again leaves
+  every file there as it is and refreshes none, edited or not: the
+  directory is yours from then on, and stays the last place a relative
+  `prompt` is looked up. `.shipped.json` in it is no longer read.
+- **Roles installed from a pack** (`~/.yardr/packs/<pack>/`) are files, not
+  code: a build with a newer `starter` does not touch them. `yardr pack
+  apply starter --depot <depot>` brings them to the build's, showing each as
+  `change content: sha256 … -> …` first, and refuses to overwrite one edited
+  by hand without `--yes`.
+- **Moving an existing depot to a pack** is `yardr depot init <depot>`, when
+  you want it: `yardr pack check <pack> --depot <depot>` prints the plan and
+  writes nothing. Read it first. The import gives the depot groups of its
+  own (`<depot>-builders`), points its routes at them, sets the yardmaster's
+  prompt to the pack's role, and names every file of the depot it shadows
+  ([seeding a depot](#seeding-a-depot-yardr-depot-init)). The shadowed files
+  are then removed from the repository by an ordinary commit, or made the
+  source again with `yardr depot source`. A depot shaped by hand can stay
+  as it is.
+- **Scripts** that ran `yardr depot init <depot>` to write `.yardr/roles/`
+  and `.yardr/flows/` into a checkout now get an import instead, which needs
+  `--yes` and the answers an import asks without a terminal; `--operator`,
+  `--yardmaster` and `--with-yardmaster` are accepted and ignored.
 
 The store is stamped with its schema version on open, and a yardr whose schema
 is older than the store's refuses to open it
@@ -1432,11 +1493,11 @@ and files now.
 
 | the old word | still read as |
 |---|---|
-| `yardr init --mayor <name>`, `yardr depot init --mayor <name>` and `--with-mayor` | `--yardmaster`, `--with-yardmaster`; help lists only these |
+| `yardr init --mayor <name>`, `yardr depot init --mayor <name>` and `--with-mayor` | `--yardmaster`, `--with-yardmaster`; help lists only these. `depot init` accepts and ignores both under either name ([seeding a depot](#seeding-a-depot-yardr-depot-init)) |
 | the setting `mayor` (`yardr settings get mayor`, `set mayor <name>`) | the setting `yardmaster`. The stored one is renamed by schema 9 |
 | `{{mayor}}` in a role or stage file of a pack whose crew member is `yardmaster`, and in yardr's own templates | `{{yardmaster}}` |
 | `--crew mayor=<name>` of `yardr pack check` and `apply`, and the record of an import from when the starter pack's crew member was `mayor` | the pack's crew member `yardmaster`. A pack that still has a crew member `mayor` of its own is read as it stands |
-| `mayor.md`, the yardmaster's role file | `yardmaster.md`. A roles directory (`~/.yardr/roles/`, a depot's `.yardr/roles/`) that has `mayor.md` and no `yardmaster.md` keeps its file: `yardr init` refreshes it there and `yardr depot init` adds no second one. A prompt that names either file reads the other when the one it names is not there, so a crew member's `prompt=…/mayor.md` keeps working, also after the file is renamed |
+| `mayor.md`, the yardmaster's role file | `yardmaster.md`. A roles directory (`~/.yardr/roles/`, a depot's `.yardr/roles/`) that has `mayor.md` and no `yardmaster.md` keeps its file: `yardr init` leaves it as it is and writes no second one. A prompt that names either file reads the other when the one it names is not there, so a crew member's `prompt=…/mayor.md` keeps working, also after the file is renamed |
 
 What does not change: a crew member's name is the operator's, so a yard whose
 crew member is called `mayor` keeps it. Its `yardmaster` setting says `mayor`
@@ -1446,7 +1507,7 @@ crew member is called `yardmaster` by default.
 
 What is printed has the new word at once, with no old spelling beside it:
 `yardr doctor`'s line `yardmaster`, the `yardmaster` and `yardmaster_kept`
-fields of `yardr init --json`, `yardr depot init --json` and `yardr doctor
+fields of `yardr init --json` and `yardr doctor
 --json` (they were `mayor` and `mayor_kept`), and `yardmaster` in the list
 `skipped` of `yardr doctor --json`. `merge-local` and `integrate-train` mail
 the yard's `yardmaster` setting when `YARDR_NOTIFY` is unset; a copy
@@ -1467,7 +1528,7 @@ the light gate ([pipeline.md](pipeline.md#trains)).
 | `--where epic=<bead>` of `yardr subscribe` and `unsubscribe`, on the `yardr` and `github` sources | `--where train=<bead>`. Stored subscriptions are renamed |
 | `--where kind=epic_branched`, `kind=bad_epic` and `kind=part_without_epic` | `train_branched`, `bad_train` and `wagon_without_train`, the kinds new events carry. Events already in the log keep the kind they were logged with |
 | `--map epic:<stage>=<state>` and `part:<stage>=<state>` of `yardr hook add`, and `hears:` under `epic:` or `part:` and `type: epic` in a pack | `train:` and `wagon:` |
-| `.yardr/flows/type/epic.flow` and `type/part.flow` in a depot, with their stage files in `type/epic/` and `type/part/` | the flows of the depot's trains and wagons, where the depot has no `type/train.flow` or `type/wagon.flow`. `yardr depot init` writes no second file beside one. Rename them with `git mv` when it suits |
+| `.yardr/flows/type/epic.flow` and `type/part.flow` in a depot, with their stage files in `type/epic/` and `type/part/` | the flows of the depot's trains and wagons, where the depot has no `type/train.flow` or `type/wagon.flow`. Rename them with `git mv` when it suits |
 | a flow named for a type, `<name>.epic` or `<name>.part`, in a pointer (`yardr depot flow`) or a pin (`--meta flow=`) | that flow, or `<name>.train` and `<name>.wagon` when there is none of the old name, and the other way round: a repository can rename `web.epic.flow` to `web.train.flow` before or after the depot is pointed at the new name |
 | `YARDR_EPIC` in the environment of an exec group's command | `YARDR_TRAIN`. Both are set. `merge-local` reads either, and `YARDR_TYPE=part` as `wagon` |
 | `contrib/refinery/integrate-epic` and `pr-epic` | `integrate-train` and `pr-train`, now in `contrib/assembly/` ([below](#words-that-changed)). The old files run the new ones, so a group's `cmd` that names one keeps working from a checkout |

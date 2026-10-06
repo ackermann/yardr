@@ -240,10 +240,10 @@ func TestDepotInitPackGateAlone(t *testing.T) {
 	}
 }
 
-// What depot init --pack refuses, each saying why and writing nothing: a
-// flag for the files it does not write, and without --pack a flag that
-// answers an import. (A pack for the other kind of depot:
-// TestDepotInitPackIsForTheDepotsKind.)
+// What depot init refuses writes nothing: a pack that is not there, and an
+// import nobody said yes to, whatever flags it was given. (A pack for the
+// other kind of depot: TestDepotInitPackIsForTheDepotsKind. The flags it
+// had for the files it wrote: TestDepotInitIgnoresTheSeedingFlags.)
 func TestDepotInitPackRefusals(t *testing.T) {
 	a, repo := packYard(t, nil)
 	setInteractive(t, false)
@@ -256,12 +256,9 @@ func TestDepotInitPackRefusals(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"init", "web", "--pack", "starter", "--operator", "Jo"}, "--operator does not go with --pack: a pack's roles name the yard's operator setting"},
-		{[]string{"init", "web", "--pack", "starter", "--yardmaster", "boss"}, "--yardmaster does not go with --pack: --crew yardmaster=<name>"},
-		{[]string{"init", "web", "--pack", "starter", "--mayor", "boss"}, "--yardmaster does not go with --pack"},
-		{[]string{"init", "web", "--pack", "starter", "--with-yardmaster"}, "--with-yardmaster does not go with --pack"},
-		{[]string{"init", "web", "--bind", "builders=claude"}, "--bind answers a pack's import: it needs --pack <pack>"},
-		{[]string{"init", "web", "--yes"}, "--yes answers a pack's import: it needs --pack <pack>"},
+		{[]string{"init", "web"}, "depot init cannot ask without a terminal"},
+		{[]string{"init", "web", "--operator", "Jo", "--bind", "builders=claude"}, "depot init cannot ask without a terminal"},
+		{[]string{"init", "notes"}, "depot init cannot ask without a terminal"},
 		{[]string{"init", "web", "--pack", "nosuch", "--yes"}, `no pack named "nosuch"`},
 	} {
 		out, err := run(t, a.depotCmd(), tc.args...)

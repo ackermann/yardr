@@ -288,7 +288,7 @@ would be `yardr-assembly`.
 
 The script is installed from `main` rather than run from a checkout: a bead
 branch must not change how it is landed. Without a checkout of yardr, the
-starter pack carries the same script: `yardr depot init <depot> --pack starter`,
+starter pack carries the same script: `yardr depot init <depot>`,
 which is what `yardr setup` runs, installs it as
 `~/.yardr/packs/starter/scripts/merge-local` and adds the group
 `<depot>-assembly`, without `YARDR_PUSH` ([setup.md](setup.md)). The flow gains `merged`:

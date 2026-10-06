@@ -227,7 +227,7 @@ func TestSetupForms(t *testing.T) {
 		"$ " + yardr + " depot add web-app " + quoted + " --base main",
 		"Setup: the depot's .yardr files on its base",
 		"This sets depot web-app up from the pack starter",
-		"$ " + yardr + " depot init web-app --pack starter",
+		"$ " + yardr + " depot init web-app",
 		"pack starter (",
 		"  create           web-app-builders\n",
 		"applied pack starter to depot web-app: ",
@@ -374,7 +374,7 @@ func TestSetupAfterAStartByHand(t *testing.T) {
 	out := setup(t, st)
 	wantText(t, out, "  done   the depot's .yardr files on its base: web has its flow on its base main",
 		"  todo   a group that builds: no group is routed for stage new",
-		"Setup: a group that builds", "$ yardr --home "+home+" depot init web --pack starter",
+		"Setup: a group that builds", "$ yardr --home "+home+" depot init web",
 		"shadows .yardr/roles/builder.md", "gate: .yardr/check in "+depot.Path+" is already there, kept")
 	if slices.Contains(f.asked, "commit") {
 		t.Errorf("asked to commit a gate that was there: %v", f.asked)
@@ -397,7 +397,7 @@ func TestSetupDirDepot(t *testing.T) {
 	f := &former{answers: map[string]any{"path": dir}, goes: []string{goHere}}
 	home, st, _ := setupYard(t, f)
 	out := setup(t, st)
-	wantText(t, out, "$ yardr --home "+home+" depot init notes --pack dir", "applied pack dir to depot notes: ", "gate: none written.")
+	wantText(t, out, "$ yardr --home "+home+" depot init notes", "applied pack dir to depot notes: ", "gate: none written.")
 	if slices.Contains(f.asked, "commit") {
 		t.Errorf("asked to commit in a directory: %v", f.asked)
 	}
@@ -429,7 +429,7 @@ func TestSetupCancelled(t *testing.T) {
 		{stepDepot, key("base"), "Cancelled at: a depot."},
 		// The import's own confirmation, which is the command's and has no key.
 		{stepDepotFiles, func(fld huh.Field) bool { _, ok := fld.(*huh.Confirm); return ok },
-			"Still to do: the depot's .yardr files on its base: depot web follows no flow of a pack, and has none under .yardr/flows/ on its base main.\n  yardr --home " + home + " depot init web --pack starter"},
+			"Still to do: the depot's .yardr files on its base: depot web follows no flow of a pack, and has none under .yardr/flows/ on its base main.\n  yardr --home " + home + " depot init web"},
 		{stepFirstBead, key("goal"), "Cancelled at: a first bead."},
 	} {
 		if got := todo(t, st); got != tc.step {
@@ -447,8 +447,13 @@ func TestSetupCancelled(t *testing.T) {
 		}
 		if tc.step == stepDepotFiles {
 			wantText(t, out, "cancelled; nothing was changed")
-			if _, err := os.Stat(filepath.Join(home, "packs")); err == nil {
-				t.Error("a cancelled import installed the pack's files")
+			// The yardmaster's role is init's, there before the import.
+			var files []string
+			for p := range snapshot(t, filepath.Join(home, "packs")) {
+				files = append(files, strings.TrimPrefix(p, home+"/"))
+			}
+			if !slices.Equal(files, []string{"packs/starter/roles/yardmaster.md"}) {
+				t.Errorf("a cancelled import installed the pack's files: %v", files)
 			}
 		}
 		// The page again, finished, then stop.
@@ -508,7 +513,7 @@ func TestSetupGateOffTheBase(t *testing.T) {
 	if got := gitIn(t, repo, "log", "--format=%s"); got != "first" {
 		t.Fatalf("committed: %s", got)
 	}
-	if strings.Index(out, "is not a local branch") > strings.Index(out, "depot init web --pack starter") {
+	if strings.Index(out, "is not a local branch") > strings.Index(out, "depot init web") {
 		t.Errorf("the base is named after the import ran:\n%s", out)
 	}
 }
@@ -653,8 +658,8 @@ func TestStepsGoByRoutes(t *testing.T) {
 		return m
 	}
 	steps := byKey()
-	for key, next := range map[string]string{stepBuilders: "yardr depot init docs --pack dir", stepReviewers: "yardr depot init docs --pack dir",
-		stepLanding: "yardr depot init web --pack starter", stepRoutes: "yardr depot init docs --pack dir"} {
+	for key, next := range map[string]string{stepBuilders: "yardr depot init docs", stepReviewers: "yardr depot init docs",
+		stepLanding: "yardr depot init web", stepRoutes: "yardr depot init docs"} {
 		if step := steps[key]; step.Done || step.Next != next {
 			t.Errorf("%s = %+v, want todo with %q", key, step, next)
 		}
@@ -673,7 +678,7 @@ func TestStepsGoByRoutes(t *testing.T) {
 	if step := steps[stepRoutes]; step.Done || step.Detail != "no route for review" {
 		t.Errorf("routes = %+v", step)
 	}
-	if none := noSetup(); none[1].Next != "yardr depot init <depot> --pack starter" || none[2].Next != none[1].Next {
+	if none := noSetup(); none[1].Next != "yardr depot init <depot>" || none[2].Next != none[1].Next {
 		t.Errorf("no yard: %+v", none)
 	}
 }

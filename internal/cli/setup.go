@@ -148,16 +148,10 @@ func (s setupState) steps() []setupStep {
 
 // packNext is the command that sets depot up from a pack: the one command
 // for the depot's flow, its groups and their routes, so every step between
-// the depot and the first bead names it. The pack is the one yardr carries
-// for the depot's kind (setupPack).
+// the depot and the first bead names it. It names no pack: the depot gets
+// the yard's default (defaultPack).
 func (s setupState) packNext(depot string) string {
-	pack := setupPack(store.Depot{})
-	for _, r := range s.depots {
-		if r.Name == depot {
-			pack = setupPack(r)
-		}
-	}
-	return fmt.Sprintf("yardr depot init %s --pack %s", depot, pack)
+	return "yardr depot init " + depot
 }
 
 func (s setupState) depotStep() setupStep {
@@ -177,8 +171,8 @@ func (s setupState) depotStep() setupStep {
 
 // filesStep is done when every depot has a flow where yardr reads it: in the
 // store when the depot points at one there, as a pack's import makes it, or
-// under .yardr/flows/ on its base (in a dir depot's directory), where depot
-// init without a pack writes it and a depot set up by hand keeps it.
+// under .yardr/flows/ on its base (in a dir depot's directory), where a depot
+// that keeps its own flow has it.
 func (s setupState) filesStep() setupStep {
 	step := setupStep{Key: stepDepotFiles, Title: "the depot's .yardr files on its base",
 		Detail: "there is no depot yet", Next: s.packNext("<depot>")}

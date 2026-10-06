@@ -118,7 +118,11 @@ yardr reads them from the tip of the depot's **base branch**
 (`git cat-file blob <base>:.yardr/flows/...`), never from a bead's branch
 or the checkout's working tree: a builder who edits a flow on `yard/<bead>`
 changes nothing for that bead. The edit applies once it has been reviewed
-and landed on the base. yardr resolves the base on every check and re-reads
+and landed on the base. That review is a depot's that keeps its flow in its
+repository; a depot set up by `yardr depot init` follows a pack's flow in
+the store ([below](#named-flows-and-pointers)), which is reviewed where the
+pack is kept and changes when the operator applies the pack again
+([configuration.md](configuration.md#why-the-repo-holds-what-the-work-is)). yardr resolves the base on every check and re-reads
 the files when its commit moves (it caches them by commit). A depot without a
 path, or whose base does not exist in its checkout (`git rev-parse --verify
 --quiet` finds nothing), has no repo flows. Any other git failure, such as a
@@ -367,8 +371,9 @@ Where it shows:
   `yardr depot check` names each shadowed file in a note.
 
 What goes in a stage file and what in a role prompt is in
-[groups.md](groups.md#role-file-or-stage-file). `yardr depot init` writes a
-starter stage file for every stage of the flows it seeds
+[groups.md](groups.md#role-file-or-stage-file). The packs yardr carries have a
+stage file for every stage of their flows, which `yardr depot init` installs
+in the yard's home
 ([configuration.md](configuration.md#seeding-a-depot-yardr-depot-init)), and depot
 yardr has one for every stage of both its flows
 ([`.yardr/flows/default/`](../.yardr/flows/default),

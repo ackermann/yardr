@@ -49,8 +49,9 @@ Every page ends in a command that exists, and shows its command line before
 it runs:
 
   a depot                 the repository and its base branch: yardr depot add
-  the depot's way of    yardr depot init --pack, with the pack yardr carries
-  working               for the depot's kind (starter, or dir for a dir
+  the depot's way of    yardr depot init, with the yard's default pack (the
+  working               default_pack setting, else the one yardr carries
+                        for the depot's kind: starter, or dir for a dir
                         depot): one import for the flow, the groups that
                         build, review and land, and their routes. It prints
                         its plan, asks what yardr pack apply asks (each
@@ -486,10 +487,10 @@ func (g *guide) depotPage(ctx context.Context, _ setupStep) (bool, error) {
 	return true, g.do(ctx, args...)
 }
 
-// packPage sets the step's depot up from a pack with yardr depot init
-// --pack: one import for the depot's flow and stage files, its groups and
-// their routes, which the setup did by hand before, a page each. The pack is
-// the one yardr carries for the depot's kind. The command prints its plan,
+// packPage sets the step's depot up from a pack with yardr depot init: one
+// import for the depot's flow and stage files, its groups and their routes,
+// which the setup did by hand before, a page each. The pack is the yard's
+// default (defaultPack). The command prints its plan,
 // asks what an import asks and for a yes; the page adds the one thing the
 // command leaves to a person, the commit of the gate it wrote.
 func (g *guide) packPage(ctx context.Context, step setupStep) (bool, error) {
@@ -497,11 +498,18 @@ func (g *guide) packPage(ctx context.Context, step setupStep) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	pack := setupPack(*depot)
-	fmt.Printf("This sets depot %s up from the pack %s, which yardr carries: its groups, the routes that send each\n"+
+	pack, set, err := defaultPack(ctx, g.st, *depot)
+	if err != nil {
+		return false, err
+	}
+	whose := "which yardr carries"
+	if set {
+		whose = "the yard's " + defaultPackSetting + " setting"
+	}
+	fmt.Printf("This sets depot %s up from the pack %s, %s: its groups, the routes that send each\n"+
 		"stage to its group, and the flow with its stage files, in one import. The plan below names each.\n"+
 		"It asks for the agent, model and permissions of each group of agents and for who is in each group\n"+
-		"of people, and writes nothing before a yes at its last question.\n", depot.Name, pack)
+		"of people, and writes nothing before a yes at its last question.\n", depot.Name, pack, whose)
 	gate := filepath.Join(depot.Path, rigcheck.RepoPath)
 	had := true // a dir depot is written no gate
 	if !depot.IsDir() {
@@ -514,7 +522,7 @@ func (g *guide) packPage(ctx context.Context, step setupStep) (bool, error) {
 		_, err := os.Lstat(gate)
 		had = err == nil
 	}
-	if err := g.do(ctx, "depot", "init", depot.Name, "--pack", pack); err != nil {
+	if err := g.do(ctx, "depot", "init", depot.Name); err != nil {
 		return false, err
 	}
 	// The gate is there now and was not before: the import was confirmed,
@@ -526,7 +534,7 @@ func (g *guide) packPage(ctx context.Context, step setupStep) (bool, error) {
 	return true, g.commitGate(ctx, *depot)
 }
 
-// commitGate asks whether to commit the gate depot init --pack wrote, and
+// commitGate asks whether to commit the gate depot init wrote, and
 // commits it. It commits only where that is plain: the base is the branch
 // checked out in the depot. Anywhere else, and after a no, the commit is the
 // person's, and it says what the depot lacks until then. The depot is set up

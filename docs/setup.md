@@ -42,7 +42,7 @@ the pages show them.
 | step | the page asks | and runs |
 |---|---|---|
 | a depot | the repository's path (it starts at the directory you are in, when that is a checkout's top), the depot's name (the directory's, in lowercase), the base branch (the branch checked out) | `yardr depot add <depot> <path> --base <branch>`. A directory that is no git checkout is asked for no base and becomes a dir depot |
-| the depot's `.yardr` files on its base; a group that builds; a group that reviews; a group or person that lands approved beads; routes for new, review and approved | what the import asks (below), then whether to commit the gate | `yardr depot init <depot> --pack starter`, or `--pack dir` for a dir depot; then `git -C <path> add .yardr/check && git -C <path> commit -m 'yardr: gate' -- .yardr/check` |
+| the depot's `.yardr` files on its base; a group that builds; a group that reviews; a group or person that lands approved beads; routes for new, review and approved | what the import asks (below), then whether to commit the gate | `yardr depot init <depot>`, which takes the yard's default pack; then `git -C <path> add .yardr/check && git -C <path> commit -m 'yardr: gate' -- .yardr/check` |
 | a first bead | its title and its goal | `yardr bead create "<title>" --depot <depot> -b "<goal>"`, then `yardr bead advance <id> --to new` |
 
 The last step, a first merged bead, has no page: it is the pipeline's to do.
@@ -55,9 +55,10 @@ so when no daemon is running, since nothing is dispatched then.
 ### One page sets the depot up
 
 Five of the steps are one import, so they have one page between them:
-[`yardr depot init <depot> --pack <pack>`](packs.md#yardr-depot-init---pack)
-with the pack yardr carries for the depot's kind, `starter` for a git depot
-and `dir` for a dir depot. It gives the depot its flow and stage files, the
+[`yardr depot init <depot>`](packs.md#yardr-depot-init)
+with the yard's default pack: the `default_pack` setting, else the pack
+yardr carries for the depot's kind, `starter` for a git depot and `dir` for
+a dir depot ([packs.md](packs.md#the-default-pack)). It gives the depot its flow and stage files, the
 groups that build, review and (in a git depot) land, the two groups of
 people the flow names, and a route for each stage. The roles, the flow and
 the assembly's `merge-local` are the pack's, installed under

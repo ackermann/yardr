@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
-	"yardr.dev/yardr/roles"
 )
 
 // The yardmaster was the mayor until this release. What a script typed then
@@ -54,14 +54,17 @@ func TestTheMayorsFlagsAndSettingStillWork(t *testing.T) {
 	if err := st.PutDepot(ctx, store.Depot{Name: "notes", Path: dir, Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := run(t, a.depotCmd(), "init", "notes", "--mayor", "lead", "--with-mayor"); err != nil {
+	// depot init takes them still and does nothing with either, as under
+	// their new names: the roles are a pack's now.
+	errs := captureStderr(t)
+	if out, err := run(t, a.depotCmd(), append([]string{"init", "notes", "--mayor", "lead", "--with-mayor", "--yes"}, dirFlags...)...); err != nil {
 		t.Fatalf("depot init --mayor --with-mayor: %v\n%s", err, out)
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".yardr", "roles", "yardmaster.md")); err != nil {
-		t.Errorf("--with-mayor wrote no yardmaster.md: %v", err)
+	if got := errs.String(); !strings.Contains(got, "--yardmaster is ignored: ") || !strings.Contains(got, "--with-yardmaster is ignored: ") {
+		t.Errorf("depot init --mayor --with-mayor does not say they are ignored:\n%s", got)
 	}
-	if b, _ := os.ReadFile(filepath.Join(dir, ".yardr", "roles", "builder.md")); !strings.Contains(string(b), "yardr mail lead ") {
-		t.Errorf("--mayor lead is not whom the builder mails:\n%s", b)
+	if files := snapshot(t, dir); len(files) != 0 {
+		t.Errorf("depot init wrote into the directory: %v", files)
 	}
 
 	for _, args := range [][]string{{"init", "--help"}, {"depot", "init", "--help"}} {
@@ -80,11 +83,12 @@ func TestFillRoleFillsTheOldPlaceholder(t *testing.T) {
 	}
 }
 
-// A yard set up before the rename has its yardmaster's role in mayor.md,
-// and its crew member's prompt is that path. Init again keeps the role there:
-// refreshed in place when it was never edited, with no yardmaster.md beside
-// it that nothing would read. The crew member keeps its name, which the
-// operator gave it.
+// A yard set up before the rename, and before a yard had a default pack,
+// has its yardmaster's role in <home>/roles/mayor.md, and its crew member's
+// prompt is that path. Init again leaves all of it as it is: the role is
+// not refreshed, though never edited, no yardmaster.md is written beside it
+// and nothing of a pack is installed. The crew member keeps its name and
+// its prompt.
 func TestInitKeepsAYardsMayor(t *testing.T) {
 	home := newHome(t)
 	st := storetest.New(t)
@@ -118,7 +122,7 @@ func TestInitKeepsAYardsMayor(t *testing.T) {
 		t.Fatalf("init again: %v\n%s", err, out)
 	}
 	for _, want := range []string{"yardmaster mayor, as set before", "  yardmaster mayor, already a crew member: kept as it was",
-		"mayor.md refreshed to this build's", "the yardmaster's prompt is mayor.md."} {
+		"  roles      " + dir + ", from an earlier yardr, is read as before", "init no longer writes or refreshes it"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the summary lacks %q:\n%s", want, out)
 		}
@@ -127,14 +131,14 @@ func TestInitKeepsAYardsMayor(t *testing.T) {
 	if err != nil || len(rs) != 1 || rs[0].Name != "mayor" || rs[0].Config["prompt"] != prompt {
 		t.Fatalf("crew members = %+v %v", rs, err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "yardmaster.md")); err == nil {
-		t.Error("yardmaster.md was written beside the mayor.md the crew member reads")
+	if b, _ := os.ReadFile(prompt); !bytes.Equal(b, old) {
+		t.Errorf("mayor.md was rewritten:\n%s", b)
 	}
-	tmpl, _ := roles.FS.ReadFile("yardmaster.md")
-	if b, _ := os.ReadFile(prompt); !bytes.Equal(b, fillRole(tmpl, "Jo", "mayor")) {
-		t.Errorf("mayor.md is not this build's yardmaster role:\n%s", b)
+	var files []string
+	for p := range snapshot(t, home) {
+		files = append(files, strings.TrimPrefix(p, home+"/"))
 	}
-	if b, _ := os.ReadFile(filepath.Join(dir, "builder.md")); !strings.Contains(string(b), "yardr mail mayor ") {
-		t.Errorf("the builder is not told to mail the crew member mayor:\n%s", b)
+	if slices.Sort(files); !slices.Equal(files, []string{"roles/" + shippedManifest, "roles/mayor.md"}) {
+		t.Errorf("init again wrote into the home: %v", files)
 	}
 }

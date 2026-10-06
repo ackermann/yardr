@@ -182,7 +182,7 @@ the server is not running`, and no next step is named.
 The steps from a yard to a first merged bead, in the order they are taken.
 Each line is `done` or `todo`, the step, and what in the store shows it done
 or what is lacking. The steps are read from the store and nothing else (the
-store reads a depot's flow from its base branch), by one function: the
+store reads a depot's own flow from its base branch), by one function: the
 yardmaster's first run uses it through this command, and `yardr setup` takes
 the first step not done as a form ([setup.md](setup.md)), so whoever walks you
 through the setup can take over from anyone else.
@@ -190,7 +190,7 @@ through the setup can take over from anyone else.
 | step (`key` in JSON) | done when |
 |---|---|
 | `a depot` (`depot`) | the yard has a depot |
-| `the depot's .yardr files on its base` (`depot_files`) | every depot has a flow where yardr reads it: in the store when the depot follows a pack's flow (`yardr depot init <depot> --pack <pack>`), under `.yardr/flows/` on its base branch (written by `yardr depot init` without a pack and committed), or in a dir depot's directory |
+| `the depot's .yardr files on its base` (`depot_files`) | every depot has a flow where yardr reads it: in the store when the depot follows a pack's flow (`yardr depot init <depot>`), under `.yardr/flows/` on its base branch for a depot that keeps its own, or in a dir depot's directory |
 | `a group that builds` (`builders`) | a route sends stage `new` to a group |
 | `a group that reviews` (`reviewers`) | the same for stage `review` |
 | `a group or person that lands approved beads` (`landing`) | the same for stage `approved`: an assembly or people who merge by hand, either counts once it is routed |
@@ -201,8 +201,8 @@ through the setup can take over from anyone else.
 A group is told by its route and not by its role or its name, so the list
 reads the same for a yard set up from a pack and for one set up by hand. The
 command named for each of the five steps above while it is `todo` is the
-import that does them all, `yardr depot init <depot> --pack starter`
-(`--pack dir` for a dir depot): [`yardr setup`](setup.md) runs it as one page.
+import that does them all, `yardr depot init <depot>`, from the yard's
+default pack: [`yardr setup`](setup.md) runs it as one page.
 
 A yard whose depots are all dir depots lands nothing: it has no landing step, its
 routes are `new and review`, and its last step reads `a first bead through to

@@ -26,9 +26,11 @@ import (
 	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/packs"
 	"yardr.dev/yardr/roles"
 )
 
@@ -85,13 +87,16 @@ func (a *app) storeIfAny(ctx context.Context, cfg *config.Config) (store.API, er
 
 // partYard is what a home that init never marked set up (no default_kind)
 // holds of a yard all the same: what an init cut short left there. Init
-// writes the roles, then the operator and yardmaster settings, then the
-// yardmaster crew member, and default_kind last, so a run that failed in between
-// leaves the ones before it. The next run finishes from them and says so.
+// writes the yardmaster's role, then the operator and yardmaster settings, then
+// the yardmaster crew member, and default_kind last, so a run that failed in
+// between leaves the ones before it. The next run finishes from them and says so.
 type partYard struct {
-	roles                []string // the role prompts in <home>/roles
-	operator, yardmaster string   // the settings
-	style, note          string   // operator_style and operator_note, for the form to start at
+	// roles are the role prompts in the home, by their path under it: the
+	// yardmaster's under packs/<pack>/roles, and under roles what an init
+	// before the default pack wrote there.
+	roles                []string
+	operator, yardmaster string // the settings
+	style, note          string // operator_style and operator_note, for the form to start at
 	crew                 []string
 }
 
@@ -100,10 +105,11 @@ type partYard struct {
 // groups or beads of work (a yard from before the onboarding, in use).
 func (a *app) partYard(ctx context.Context, cfg *config.Config) (*partYard, error) {
 	p := &partYard{}
-	if files, err := os.ReadDir(filepath.Join(cfg.Home, "roles")); err == nil {
+	for _, glob := range []string{filepath.Join("packs", "*", "roles", "*.md"), filepath.Join("roles", "*.md")} {
+		files, _ := filepath.Glob(filepath.Join(cfg.Home, glob))
 		for _, f := range files {
-			if strings.HasSuffix(f.Name(), ".md") {
-				p.roles = append(p.roles, f.Name())
+			if rel, err := filepath.Rel(cfg.Home, f); err == nil {
+				p.roles = append(p.roles, rel)
 			}
 		}
 	}
@@ -156,8 +162,12 @@ func (p *partYard) found(home string) []string {
 		return nil
 	}
 	var out []string
-	if len(p.roles) > 0 {
-		out = append(out, fmt.Sprintf("the role prompts %s in %s", list(p.roles), filepath.Join(home, "roles")))
+	switch len(p.roles) {
+	case 0:
+	case 1:
+		out = append(out, fmt.Sprintf("the role prompt %s in %s", p.roles[0], home))
+	default:
+		out = append(out, fmt.Sprintf("the role prompts %s in %s", list(p.roles), home))
 	}
 	var set []string
 	for _, kv := range [][2]string{{"operator", p.operator}, {"yardmaster", p.yardmaster}} {
@@ -406,7 +416,10 @@ func (a *app) report(ctx context.Context, cfg *config.Config, res *initResult, o
 		// what is there (resume); the summary would say it again.
 		res.printYard()
 	}
-	if o.Start {
+	if o.Start && res.NoYardmaster {
+		// To stderr: --json's output stays the result alone.
+		fmt.Fprintf(stderr, "--start: nothing is started, since the yard has no yardmaster to wait for; %s daemon starts the yard\n", yardrAt(res.Home))
+	} else if o.Start {
 		st, err := a.store(ctx)
 		if err != nil {
 			return err
@@ -474,9 +487,23 @@ type initResult struct {
 	Style string   `json:"operator_style,omitempty"`
 	Note  string   `json:"operator_note,omitempty"`
 	Args  []string `json:"args"`
-	Roles string   `json:"roles"`
-	*roleInstall
-	Daemon bool `json:"daemon"` // a daemon runs on this home
+	// Pack is the yard's default pack, which the yardmaster's role is taken
+	// from, and Roles where its roles are installed in the home; Prompt is
+	// the yardmaster's, "" when the pack gives its yardmaster no role. All
+	// three are absent when the yardmaster was there already: init reads no
+	// pack then.
+	Pack   string `json:"pack,omitempty"`
+	Roles  string `json:"roles,omitempty"`
+	Prompt string `json:"prompt,omitempty"`
+	// Written is the role prompt this init installed, when it did.
+	Written []string `json:"written"`
+	// NoYardmaster: the default pack has no crew member called yardmaster, so
+	// init added none.
+	NoYardmaster bool `json:"no_yardmaster,omitempty"`
+	// OldRoles is <home>/roles when the home has it, from an init before
+	// the default pack: read as before, and no longer written.
+	OldRoles string `json:"old_roles,omitempty"`
+	Daemon   bool   `json:"daemon"` // a daemon runs on this home
 	// YardmasterKept: a crew member of the yardmaster's name was there already
 	// and is left as it was.
 	YardmasterKept bool `json:"yardmaster_kept"`
@@ -492,17 +519,20 @@ type initResult struct {
 	Start *startResult `json:"start,omitempty"`
 }
 
-// initYard creates the yard: the store, the default roles in the home, the
-// operator and default_kind settings and the yardmaster crew member. Inputs are
-// checked before anything is created; roles already installed are kept when
-// edited (the yardmaster edits its own) and refreshed to this build's when not,
-// and an existing crew member of the yardmaster's name is never replaced, so init
-// runs again on a yard without harm, and is how an upgrade reaches the
-// templates. The settings stored before stand in for the flags not given
-// (keepSettings): init again changes only what its flags say.
+// initYard creates the yard: the store, the operator and default_kind
+// settings and the yardmaster crew member, with its role from the yard's
+// default pack installed in the home (yardmasterRole). Inputs are checked
+// before anything is created. An existing crew member of the yardmaster's
+// name is never replaced, and then no pack is read and no role written, so
+// init runs again on a yard without harm and changes no prompt in it: an
+// installed role is brought to a newer pack's by yardr pack apply, which
+// shows the change first. <home>/roles, which init wrote before there was
+// a default pack, is left as it is. The settings stored before stand in for
+// the flags not given (keepSettings): init again changes only what its
+// flags say.
 //
-// A run that fails leaves what it wrote before (the order is roles, operator
-// and yardmaster, the yardmaster crew member, default_kind), and the next run
+// A run that fails leaves what it wrote before (the order is the yardmaster's
+// role, operator and yardmaster, the yardmaster crew member, default_kind), and the next run
 // finishes from it: the same steps skip or keep what is there, the stored
 // settings and the yardmaster's kind stand in for flags not given, and the
 // result says what was found and what was added (partYard).
@@ -553,12 +583,18 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 	yardmasterKept := err == nil
 	res := &initResult{Home: cfg.Home, Harness: o.Harness, Yardmaster: o.Yardmaster, Dir: dir,
 		Operator: or(o.Operator, defaultOperator()), Style: o.Style, Note: o.About,
-		Args: agents.UnattendedArgs(o.Harness), Roles: filepath.Join(cfg.Home, "roles")}
-	if res.roleInstall, err = installRoles(res.Roles, res.Operator, o.Yardmaster, true); err != nil {
-		return nil, err
-	}
+		Args: agents.UnattendedArgs(o.Harness), Written: []string{}}
 	res.YardmasterKept, res.SettingsKept = yardmasterKept, kept
-	// operator and yardmaster are what depot init fills the roles with later.
+	if old := filepath.Join(cfg.Home, "roles"); isDir(old) {
+		res.OldRoles = old
+	}
+	if !yardmasterKept {
+		if err := yardmasterRole(ctx, st, cfg.Home, o.Yardmaster, part != nil, res); err != nil {
+			return nil, err
+		}
+	}
+	// operator is who a pack's roles name at an import later, and yardmaster
+	// the crew member a session is told to mail.
 	for _, kv := range [][2]string{{"operator", res.Operator}, {"yardmaster", o.Yardmaster}} {
 		if err := st.SetSetting(ctx, kv[0], kv[1], a.who()); err != nil {
 			return nil, err
@@ -584,12 +620,12 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 	}
 	if res.Found = part.found(cfg.Home); len(res.Found) > 0 {
 		if len(res.Written) > 0 {
-			res.Added = append(res.Added, "the role prompts "+list(bases(res.Written)))
+			res.Added = append(res.Added, "the role prompt "+list(bases(res.Written)))
 		}
 		if part.operator == "" || part.yardmaster == "" {
 			res.Added = append(res.Added, "the operator and yardmaster settings")
 		}
-		if !yardmasterKept {
+		if !yardmasterKept && !res.NoYardmaster {
 			res.Added = append(res.Added, "the crew member "+o.Yardmaster)
 		}
 		res.Added = append(res.Added, "the default_kind setting, which marks the yard set up")
@@ -635,14 +671,75 @@ func (a *app) keepSettings(ctx context.Context, cfg *config.Config, o initOption
 	return o, kept, nil
 }
 
-// putYardmaster adds the yardmaster crew member res describes, unless one is kept.
+// packYardmaster is the name of the crew member in a pack whose role the
+// yard's yardmaster takes: a crew member's name, and no role's. The yard may
+// call its own otherwise (yardr init --yardmaster).
+const packYardmaster = "yardmaster"
+
+// yardPack is the pack a yard uses where none is named and no depot says
+// which kind it is for: its default_pack setting, else the starter.
+func yardPack(ctx context.Context, st store.API) (string, error) {
+	all, err := st.Settings(ctx)
+	if err != nil {
+		return "", err
+	}
+	return or(all[defaultPackSetting], packs.Starter), nil
+}
+
+// yardmasterRole installs the role of the yardmaster init is about to add,
+// and notes it in res: the role the yard's default pack gives its crew
+// member called yardmaster, written where an import of the pack installs it
+// (pack.InstallRole), so the first depot set up from the pack finds it
+// there. The yardmaster exists before any depot, and an import needs one:
+// this is the one file of a pack that init installs. A default pack with
+// no such crew member gets the yard none (res.NoYardmaster).
+//
+// A file already there is kept as it is, since a crew member or an import
+// may have it: a yard that is set up has no prompt changed by init. unfinished
+// says the home is an init's that was cut short, and the file then that
+// run's, naming whoever it was told: it is written again.
+func yardmasterRole(ctx context.Context, st store.API, home, yardmaster string, unfinished bool, res *initResult) error {
+	arg, err := yardPack(ctx, st)
+	if err != nil {
+		return err
+	}
+	p, err := resolvePack(ctx, st, arg, "")
+	if err != nil {
+		return fmt.Errorf("the yard's default pack, %s (yardr settings get %s): %w", arg, defaultPackSetting, err)
+	}
+	res.Pack, res.Roles = p.Name, filepath.Join(home, "packs", p.Name, "roles")
+	if !slices.ContainsFunc(p.Crew, func(r pack.CrewMember) bool { return r.Name == packYardmaster }) {
+		res.NoYardmaster = true
+		return nil
+	}
+	path, wrote, err := pack.InstallRole(p, home, packYardmaster, yardmaster, res.Operator, unfinished)
+	if err != nil {
+		return err
+	}
+	if res.Prompt = path; wrote {
+		res.Written = append(res.Written, path)
+	}
+	return nil
+}
+
+// isDir reports whether path is a directory.
+func isDir(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+// putYardmaster adds the yardmaster crew member res describes, unless one is
+// kept or the default pack has none.
 func (a *app) putYardmaster(ctx context.Context, st store.API, o initOptions, res *initResult) error {
-	if res.YardmasterKept {
+	if res.YardmasterKept || res.NoYardmaster {
 		return nil
 	}
 	// greet: its first session writes to the operator by mail, which is
 	// where the onboarding takes them (yardr chat).
-	conf := map[string]any{"kind": o.Harness, "prompt": filepath.Join(res.Roles, roleFileIn(res.Roles, "yardmaster.md")), runner.GreetKey: res.Operator}
+	conf := map[string]any{"kind": o.Harness, runner.GreetKey: res.Operator}
+	if res.Prompt != "" {
+		conf["prompt"] = res.Prompt
+	}
 	if o.Model != "" {
 		conf["model"] = o.Model
 	}
@@ -937,6 +1034,9 @@ func (r *initResult) printYard() {
 	}
 	if r.YardmasterKept {
 		fmt.Printf("  yardmaster %s, already a crew member: kept as it was\n", r.Yardmaster)
+	} else if r.NoYardmaster {
+		fmt.Printf("  yardmaster none: the yard's default pack, %s, has no crew member called %s. One is added with\n"+
+			"             %s crew add %s\n", r.Pack, packYardmaster, yardr, r.Yardmaster)
 	} else {
 		fmt.Printf("  yardmaster %s, working in %s, rotating every 6h\n", r.Yardmaster, r.Dir)
 		if len(r.Args) > 0 {
@@ -946,13 +1046,18 @@ func (r *initResult) printYard() {
 				"             %s crew set %s 'args=[...]' (see yardr group add --help)\n", r.Harness, yardr, r.Yardmaster)
 		}
 	}
-	fmt.Printf("  roles      %s", r.Roles)
-	if s := r.summary(); s != "" {
-		fmt.Printf(" (%s)", s)
+	if r.Prompt != "" {
+		fmt.Printf("  roles      %s (pack %s, the yard's default)\n"+
+			"             the yardmaster's prompt is %s there, naming %s. A depot's builders and\n"+
+			"             reviewers get theirs beside it when the depot is set up (%s depot init <depot>);\n"+
+			"             the pack is where a role is changed, and %s pack apply brings the change here.\n",
+			r.Roles, r.Pack, filepath.Base(r.Prompt), r.Operator, yardr, yardr)
 	}
-	fmt.Printf("\n             starting points naming %s: edit them to fit your yard; the yardmaster's prompt is %s.\n"+
-		"             A depot's own roles go in its repo under .yardr/roles/, which a group's\n"+
-		"             prompt=roles/<name>.md reads first (from the depot's base branch).\n\n", r.Operator, roleFileIn(r.Roles, "yardmaster.md"))
+	if r.OldRoles != "" {
+		fmt.Printf("  roles      %s, from an earlier yardr, is read as before by a group whose prompt is\n"+
+			"             roles/<name>.md, and is yours: init no longer writes or refreshes it.\n", r.OldRoles)
+	}
+	fmt.Println()
 	if !config.IsDefaultHome(r.Home) {
 		// Not the default home: without the flag a command goes to
 		// ~/.yardr, the daemon's first of all (yard-0wys).
@@ -965,6 +1070,10 @@ func (r *initResult) printYard() {
 // when init started the yard, else how to start it.
 func (r *initResult) printNext() {
 	yardr := yardrAt(r.Home)
+	if r.NoYardmaster {
+		fmt.Printf("Start the daemon in a terminal pane of its own: %s daemon. The steps from here to a first bead: %s setup\n", yardr, yardr)
+		return
+	}
 	switch {
 	case r.Start != nil:
 		r.Start.print(r.Yardmaster)
@@ -1103,18 +1212,27 @@ func (a *app) initCmd() *cobra.Command {
 	var o initOptions
 	cmd := &cobra.Command{
 		Use:   "init [--harness <kind>]",
-		Short: "Create the yard: default harness, roles and the yardmaster (what the onboarding does)",
+		Short: "Create the yard: default harness and the yardmaster, with its role from the default pack (what the onboarding does)",
 		Long: `Create the yard in --home (else YARDR_HOME, default ~/.yardr) without the onboarding form,
-for scripts and tests. It writes the default role prompts to <home>/roles/,
-naming --operator as the person they bring decisions to and --yardmaster as
-the crew member they mail about what blocks them. A prompt already there is kept
-when it was edited, and replaced with this build's when it still reads as init
-wrote it (<home>/roles/.shipped.json records what was written), so init again
-after an upgrade refreshes the templates; the summary says which. They are
-generic starting points: a depot's own roles belong in its repo under
-.yardr/roles/, which groups find first. It stores --harness as the yard's
-default_kind, and adds the yardmaster crew member on that harness with its
-unattended flags, rotating every 6h. The daemon starts the yardmaster.
+for scripts and tests. It stores --harness as the yard's default_kind, and
+adds the yardmaster crew member on that harness with its unattended flags,
+rotating every 6h. The daemon starts the yardmaster.
+
+The yardmaster's role is a pack's: the one the yard's default pack (the
+default_pack setting, else starter, which yardr carries) gives its crew
+member called yardmaster. Init installs that one file under
+<home>/packs/<pack>/roles/, naming --operator as the person the yardmaster
+brings decisions to, and makes it the yardmaster's prompt. A depot's builders
+and reviewers get their roles beside it when the depot is set up (yardr
+depot init). A default pack with no crew member called yardmaster gets the
+yard none. Init again on a yard that has its yardmaster reads no pack and
+writes no role: a role installed from a pack is changed in the pack and
+brought to the yard by yardr pack apply, which shows the change first.
+
+<home>/roles/, which init wrote before a yard had a default pack, is no
+longer written. A yard that has it keeps it: a group whose prompt is
+roles/<name>.md reads it as before (docs/configuration.md, "Role prompts"),
+and init leaves every file there as it is.
 
 Init does not start the daemon unless told to: --start starts one in the
 background (none is started when one runs on the home already), logging to
@@ -1160,7 +1278,7 @@ the primes say nothing about it; init again keeps both. The styles:
 ` + styleHelp() + `
 
 A run that failed leaves what it made before the failure (the order is: the
-roles, the operator and yardmaster settings, the yardmaster, default_kind), and init
+yardmaster's role, the operator and yardmaster settings, the yardmaster, default_kind), and init
 again finishes from it. The settings stored stand in for the flags not given,
 and the yardmaster's kind for --harness once the yardmaster is there; the summary then
 says "finished", with what it found and what it added (--json: found, added).
@@ -1173,10 +1291,14 @@ over.
 After init the yardmaster sets up the rest in conversation, or yardr setup does in
 a terminal, as forms. For scripts, the same by hand:
 
-  yardr depot add webapp ~/projects/webapp --base origin/main
-  yardr depot init webapp        # starter roles, gate and flow; commit them on the base
-  yardr group add webapp/builders --runner herdr --limit 2 --set prompt=roles/builder.md
-  yardr route add --stage new --depot webapp --group webapp/builders
+  yardr depot add webapp ~/projects/webapp --base main
+  yardr depot init webapp --yes --bind builders=claude --bind reviewers=claude \
+    --members backlog= --members decisions=jo
+  git -C ~/projects/webapp add .yardr/check && git -C ~/projects/webapp commit -m 'yardr: gate' -- .yardr/check
+
+depot init sets the depot up from the yard's default pack: its groups, their
+roles, the flow and the routes go into the yard, and the gate alone into the
+repository, to be committed on the base (yardr depot init --help).
 
 Unattended flags per harness:
 ` + agents.UnattendedHelp(),
@@ -1242,14 +1364,38 @@ func styleHelp() string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
+// defaultPackSetting names the pack a depot is set up from when depot init
+// is given none (defaultPack), and the one init takes the yardmaster's role
+// from (yardPack).
+const defaultPackSetting = "default_pack"
+
+// checkDefaultPack takes what names a pack wherever a later command runs:
+// a name, or a directory written absolute. A relative directory would mean
+// another pack in every directory depot init is run from.
+func checkDefaultPack(v string) error {
+	if !packDir(v) {
+		if !groupName.MatchString(v) {
+			return fmt.Errorf("%s %q: a pack's name, or its directory as an absolute path", defaultPackSetting, v)
+		}
+		return nil
+	}
+	if !filepath.IsAbs(v) {
+		return fmt.Errorf("%s %q: a directory is given as an absolute path, since the setting is read wherever yardr depot init is run", defaultPackSetting, v)
+	}
+	if _, err := os.Stat(filepath.Join(v, pack.File)); err != nil {
+		return fmt.Errorf("%s %q: no pack there: %w", defaultPackSetting, v, err)
+	}
+	return nil
+}
+
 // settings are the yard's settings: what each means and what it accepts.
 var settings = map[string]struct {
 	help  string
 	check func(string) error
 }{
-	"operator": {"who the role prompts name, the person agents bring decisions to (yardr depot init's default)",
+	"operator": {"who the role prompts name, the person agents bring decisions to (a pack's roles are installed naming them)",
 		func(string) error { return nil }},
-	store.YardmasterSetting: {"the yardmaster crew member's name, whom the role prompts tell agents to mail (yardr depot init's default)", func(v string) error {
+	store.YardmasterSetting: {"the yardmaster crew member's name, whom the role prompts tell agents to mail", func(v string) error {
 		if !groupName.MatchString(v) {
 			return fmt.Errorf("yardmaster name %q: letters, digits, '.', '_', '-', '/'", v)
 		}
@@ -1264,6 +1410,8 @@ var settings = map[string]struct {
 		}
 		return nil
 	}},
+	defaultPackSetting: {"the pack a depot is set up from when yardr depot init names none, and the pack yardr init takes the yardmaster's role from: " +
+		"a pack's name (one the yard has imported, or one yardr carries) or its directory, absolute; default: starter, and dir for a directory depot", checkDefaultPack},
 	hooks.FromSetting: {"the address the server takes webhooks on, such as 127.0.0.1:8790, when YARDR_HOOK_ADDR is not set where it starts; " +
 		"the server reads it when it starts", hooks.CheckAddr},
 	store.TimerLimitSetting: {fmt.Sprintf("how many live timers one crew member or user may have set (yardr timer); default %d", store.DefaultTimerLimit),
@@ -1284,7 +1432,7 @@ var settings = map[string]struct {
 }
 
 func (a *app) settingsCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "settings", Short: "The yard's own defaults (default_kind, gate_slots, hook_addr, yardmaster, name, operator, operator_style, operator_note, timer_limit, timer_min_every)",
+	cmd := &cobra.Command{Use: "settings", Short: "The yard's own defaults (default_kind, default_pack, gate_slots, hook_addr, yardmaster, name, operator, operator_style, operator_note, timer_limit, timer_min_every)",
 		Long: `The yard's own defaults. yardr settings get lists them with what each means.
 
 hook_addr is the address the server takes webhooks on (yardr hook --help).
@@ -1304,6 +1452,13 @@ nothing. The styles:
 gate_slots is how many full gates run at once on the machine (yardr depot
 check --help): the limit is the machine's, shared by every yard of the user,
 and a gate that finds no slot free waits. 0 is no limit.
+
+default_pack is the pack yardr depot init sets a depot up from when it is
+given no --pack: a name (of a pack the yard has imported, or of one yardr
+carries) or a pack's directory as an absolute path. Unset, a git depot gets
+starter and a directory depot dir, the two packs yardr carries. yardr init
+takes the yardmaster's role from it. Changing it moves nothing: it is read
+when a depot is set up (docs/packs.md).
 
 timer_limit and timer_min_every bound the yard's timers (yardr timer): how
 many live ones one crew member or user may have set, and the shortest period of
@@ -1355,6 +1510,7 @@ a recurring one. They hold for timers set from then on.`}
 		Use:   "set <key> <value>",
 		Short: "Change a setting; an empty value unsets it",
 		Example: `  yardr settings set default_kind codex
+  yardr settings set default_pack ~/packs/research
   yardr settings set operator_style report
   yardr settings set hook_addr 127.0.0.1:8790
   yardr settings set operator_note ""        # unset`,

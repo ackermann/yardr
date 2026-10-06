@@ -33,11 +33,13 @@ install.
 
 1. Ask for the repository's path and its base branch:
    `yardr depot add <depot> <path> --base <branch>`.
-2. `yardr depot init <depot> --pack starter` (`--pack dir` for a depot that is
-   a plain directory) sets the depot up in one import: the flow and its stage
-   files, the groups that build, review and land, and their routes. That is
-   every step of the list from the depot's files to the routes. In your pane
-   it asks nothing, so first read `yardr pack check starter --depot <depot>`:
+2. `yardr depot init <depot>` sets the depot up in one import, from
+   the yard's default pack: the flow and its stage files, the groups that
+   build, review and land, and their routes. That is every step of the list
+   from the depot's files to the routes. The default pack is the setting
+   `default_pack` (`yardr settings get`); unset, it is `starter`, and `dir`
+   for a depot that is a plain directory. In your pane the import asks
+   nothing, so first read `yardr pack check <that pack> --depot <depot>`:
    it prints the plan and, under "an import would ask", what is open. Get
    those answers from {{operator}} (the agent and model of each group of
    agents, who is in each group of people), then run the import with them:

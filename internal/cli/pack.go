@@ -42,7 +42,7 @@ func (f *packFlags) register(c *cobra.Command, verb string) {
 }
 
 // registerShape registers what shapes an import's plan wherever the depot
-// comes from: depot init --pack takes these and has the depot as its
+// comes from: depot init takes these and has the depot as its
 // argument.
 func (f *packFlags) registerShape(c *cobra.Command) {
 	c.Flags().StringVar(&f.opts.Flow, "flow", "", "the pack's flow the depot follows (default: the one it was given by the last import, else the pack's first flow without a type)")
@@ -204,7 +204,7 @@ func (a *app) packOptions(ctx context.Context, f *packFlags) (store.API, *config
 		}
 	}
 	f.opts.Home = cfg.Home
-	// Whom yardr init and depot init name in the roles they write.
+	// Whom yardr init names in the yardmaster's role it installs.
 	f.opts.Operator = yardOperator(ctx, st)
 	return st, cfg, nil
 }
@@ -400,7 +400,7 @@ type plannedImport struct {
 }
 
 // planImport is an import up to the writing, as pack apply and depot init
-// --pack both run it: it reads the pack arg names, prints the plan with
+// both run it: it reads the pack arg names, prints the plan with
 // the flags' answers filled in, asks for what is open and for the
 // confirmation. cmd is the command's name in what it says. also names what
 // cmd writes besides the import once it is confirmed (depot init's gate),
