@@ -553,7 +553,7 @@ func TestIssueLinks(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	const lin, gh, other = "https://linear.app/acme/issue/YRD-1", "https://github.com/acme/webapp/issues/7", "https://linear.app/acme/issue/YRD-2"
-	one, two := f.bead("API", "task"), f.bead("UI", "epic")
+	one, two := f.bead("API", "task"), f.bead("UI", store.TypeTrain)
 	journal := f.bead("yardmaster's journal", store.TypeJournal)
 	for _, l := range []struct {
 		bead string

@@ -1434,7 +1434,10 @@ Copy `integrate-train` and `pr-train` there and name them in the groups'
 copy of `merge-local` installed before reads `YARDR_TYPE=part` only, so
 until this build's `contrib/refinery/merge-local` is copied over it a car
 gets the full gate where it would have had the light one: slower, and
-nothing lands that should not.
+nothing lands that should not. The role and stage files an earlier
+`yardr rig init` wrote under a rig's `.yardr/` are the rig's own too and
+still say epic and part; the commands they name are read as above, so edit
+them when it suits.
 
 What is printed has the new words at once: the `TRAIN` column of
 `yardr bead list`, `yardr ready` and `yardr session list`, the field `train`

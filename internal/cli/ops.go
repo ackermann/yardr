@@ -342,7 +342,8 @@ them under the flow they follow now, or pin them to it (yardr bead update
 			if err := st.SetFlowPointer(c.Context(), args[0], flowType, name, a.who()); err != nil {
 				return err
 			}
-			who := store.FlowPointer{Rig: args[0], Type: flowType}.String()
+			// The type as the store holds it: --type epic points the trains.
+			who := store.FlowPointer{Rig: args[0], Type: store.BeadType(flowType)}.String()
 			if clear {
 				fmt.Printf("%s points at no flow now; it follows %s\n", who, rigFlow(c.Context(), st, args[0]))
 				return nil

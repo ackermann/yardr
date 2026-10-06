@@ -485,3 +485,29 @@ func TestBlockedByRefusesAnOlderServer(t *testing.T) {
 		t.Fatal("the bead was created without its blockers")
 	}
 }
+
+// rig flow --type epic points the rig's trains, and says so in the word
+// the type has now: yardr answers an old word with the new one.
+func TestRigFlowAnswersTheOldTypeWithTheNew(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	if err := st.PutRig(ctx, store.Rig{Name: "web"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	f, err := store.ParseFlow("backlog -> open\nopen -> merged on done\nmerged terminal\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Name = "web.epic"
+	if _, err := st.PutFlow(ctx, *f, "me"); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, actor: "me"}
+	out, err := run(t, a.rigCmd(), "flow", "web", "--type", "epic", "web.epic")
+	if err != nil || out != "rig web type train → flow web.epic\n" {
+		t.Fatalf("rig flow --type epic: %q, %v", out, err)
+	}
+	if out, err = run(t, a.rigCmd(), "flow", "web", "--type", "epic", "--clear"); err != nil || !strings.HasPrefix(out, "rig web type train points at no flow now") {
+		t.Fatalf("rig flow --type epic --clear: %q, %v", out, err)
+	}
+}
