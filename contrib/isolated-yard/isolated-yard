@@ -30,6 +30,14 @@
 #     the real one. An agent kind "the machine does not have" is no
 #     protection: it may be installed tomorrow.
 #
+# What it does not isolate is TCP: D/e keeps environment and sockets under D,
+# but a port is the machine's. A server a trial starts takes a free loopback
+# port (listen on 127.0.0.1:0 and read the port back), never a fixed one:
+# 8791 is yardr web's and 8790 the hooks'. A listener on 127.0.0.1 takes the
+# loopback's connections from one bound to all addresses, so a stand-in on
+# 8791 stands in front of the caller's web view, and what the trial sends
+# there once the stand-in has stopped reaches the real one (yardr-9z02).
+#
 # `up` then checks, in a pane of the isolated herdr, that `command -v claude`
 # is D/bin/claude and that the isolated agent list is empty, and prints both.
 # If either fails it tears the yard down and exits 1.

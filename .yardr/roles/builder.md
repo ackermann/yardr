@@ -34,7 +34,11 @@ branch yard/<bead>.
    `D/e <command>` (`D/e yardr ...`, `D/e herdr ...`), never bare: `D/e` is
    `env -i`, so your session's HERDR_SOCKET_PATH and YARDR_* cannot reach the
    real herdr or yard. Agents are kind `claude` only: `D/bin/claude` is a
-   stand-in, and D/agents.log shows what each was started with. Afterwards
+   stand-in, and D/agents.log shows what each was started with. `D/e`
+   isolates environment and sockets, not TCP ports: a server a trial starts
+   takes a free loopback port (127.0.0.1:0), never a fixed one. 8791 is
+   yardr web's and 8790 the hooks', and a listener on 127.0.0.1 stands in
+   front of the real one on all addresses. Afterwards
    `contrib/isolated-yard/isolated-yard down D` stops everything by pid and
    removes D. Never pkill -f.
 5. Commit on your branch. Do not merge. Do not push unless your brief says

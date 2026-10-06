@@ -30,6 +30,10 @@ You implement one bead, in its own worktree on branch `yard/<bead>`.
      a login shell rebuilds PATH and finds the real agent first.
    - Before the run, prove it: in a pane, `command -v <agent>` prints the
      stand-in, and the isolated agent list has none of {{operator}}'s agents.
+   - A server you start takes a free loopback port (127.0.0.1:0), never a
+     fixed one: `env -i` isolates environment and sockets, not TCP ports,
+     and 8791 is `yardr web`'s, 8790 the hook listener's. A listener on
+     127.0.0.1 stands in front of {{operator}}'s own on all addresses.
    - Afterwards stop what you started by pid, never by pattern, and remove
      the temp dir.
 5. Commit on your branch. Do not merge. Do not push unless your brief says
