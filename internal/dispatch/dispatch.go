@@ -629,8 +629,12 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	if err := d.route(ctx, byName, active); err != nil {
 		return err
 	}
-	// Last: a peer that does not answer holds up nothing of this yard's.
-	return d.peers(ctx)
+	// Last: a peer that does not answer holds up nothing of this yard's,
+	// and neither does a remote. What a peer's return brought in this pass
+	// is fetched in it.
+	err = d.peers(ctx)
+	d.fetches(ctx)
+	return err
 }
 
 // timers fires the timers that are due and drops those whose awaited

@@ -1,17 +1,21 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	peerscripts "yardr.dev/yardr/contrib/peer"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
@@ -525,6 +529,13 @@ of the yard's or the flow does not resolve for it.`,
 					return
 				}
 				fmt.Printf("peer %s: %s\n", p.Name, intakeLine(*p))
+				// The code of a bead worked in a repository goes back by a
+				// push, which is a stage of the flow and a script's: said
+				// here, where the operator decides what the peer's beads
+				// become.
+				if rig, err := st.GetRig(ctx, p.Intake.Rig); err == nil && !rig.IsDir() {
+					a.returnBranchHint(p.Intake.Flow, rig.Name)
+				}
 			})
 		},
 	}
@@ -536,6 +547,38 @@ of the yard's or the flow does not resolve for it.`,
 	f.StringVar(&in.HoldFor, "hold-for", "", fmt.Sprintf("how long a held bead waits to be released before it goes back as refused, such as 12h or 7d (default %s; 0 for never)", store.Span(store.PeerHoldFor)))
 	f.BoolVar(&none, "none", false, "remove the intake: every bead it sends is refused")
 	return cmd
+}
+
+// returnBranchHint installs this build's return-branch in the home's
+// scripts, as yardr setup installs merge-local, and says how a stage of
+// the intake's flow runs it. One already there is kept as it is: it may be
+// the yard's own. A script that cannot be written is said and stops
+// nothing: the intake is set.
+func (a *app) returnBranchHint(flow, rig string) {
+	cfg, err := a.config()
+	if err != nil {
+		return
+	}
+	path := filepath.Join(cfg.Home, "scripts", "return-branch")
+	have, err := os.ReadFile(path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		if _, err := writeNew(path, string(peerscripts.ReturnBranch), 0o755); err != nil {
+			fmt.Printf("return-branch could not be installed (%v): it is contrib/peer/return-branch of yardr\n", err)
+			return
+		}
+		fmt.Printf("return-branch installed: %s (this build's contrib/peer/return-branch)\n", path)
+	case err != nil:
+		fmt.Printf("return-branch could not be read (%v)\n", err)
+		return
+	case !bytes.Equal(have, peerscripts.ReturnBranch):
+		fmt.Printf("return-branch is there already and differs from this build's: %s is kept as it is\n", path)
+	}
+	fmt.Printf("Its beads' code goes back when a stage of flow %s pushes their branch (docs/peers.md, \"Code that comes back\"):\n"+
+		"  yardr group add %s/return --runner exec --limit 1 --set cmd=%s\n"+
+		"  yardr route add --stage push --rig %s --group %s/return\n"+
+		"Without such a stage the outcome and the notes go back, and no code.\n",
+		flow, rig, shellQuote("YARDR_PUSH=origin "+shellQuote(path)), rig, rig)
 }
 
 // intakeLine says where a peer's beads go and how they arrive, or that

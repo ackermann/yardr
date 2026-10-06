@@ -647,6 +647,15 @@ func (c *Client) PeerBeadSend(ctx context.Context, session string) (*store.BeadP
 func (c *Client) SettlePeerBeads(ctx context.Context) error {
 	return c.call(ctx, "SettlePeerBeads", nil)
 }
+func (c *Client) PeerFetches(ctx context.Context) ([]store.PeerFetch, error) {
+	return callV[[]store.PeerFetch](c, ctx, "PeerFetches")
+}
+func (c *Client) PeerFetched(ctx context.Context, bead, message, notTaken string) error {
+	return c.call(ctx, "PeerFetched", nil, bead, message, notTaken)
+}
+func (c *Client) PeerFetchFailed(ctx context.Context, bead, message, reason string, retryAt time.Time, final bool) error {
+	return c.call(ctx, "PeerFetchFailed", nil, bead, message, reason, retryAt, final)
+}
 func (c *Client) ExpirePeerBeads(ctx context.Context, at time.Time) error {
 	return c.call(ctx, "ExpirePeerBeads", nil, at)
 }

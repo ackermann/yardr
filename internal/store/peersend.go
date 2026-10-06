@@ -98,6 +98,20 @@ type peerSent struct {
 	Notes        []PeerNote `json:"notes,omitempty"`
 	NotesLeftOut int        `json:"notes_left_out,omitempty"`
 	EndedAt      *time.Time `json:"ended_at,omitempty"`
+	// Git is where the return says the result is: a branch, its commit and
+	// the remote it was pushed to. The outcome is not applied before the
+	// daemon has taken the branch (Fetched) or found that it is not for
+	// this yard to take (NotTaken, with why): see PeerFetches. Attempts
+	// counts the fetches that failed, Error is what the last said and
+	// RetryAt when the next is due; GaveUp is when the bead was held over
+	// it, after which nothing is tried until someone lifts that hold.
+	Git      *PeerGit   `json:"git,omitempty"`
+	Fetched  *time.Time `json:"fetched,omitempty"`
+	NotTaken string     `json:"not_taken,omitempty"`
+	Attempts int        `json:"attempts,omitempty"`
+	Error    string     `json:"error,omitempty"`
+	RetryAt  *time.Time `json:"retry_at,omitempty"`
+	GaveUp   *time.Time `json:"gave_up,omitempty"`
 	// Settled is when the outcome was applied to the bead, or found to be
 	// for a stay the bead had left (settleSent).
 	Settled *time.Time `json:"settled,omitempty"`
@@ -137,6 +151,12 @@ func (g Group) peerTries() int {
 	return PeerBeadTries
 }
 
+// peerRemote is the remote of the rig a branch the group's peer returns is
+// fetched from.
+func (g Group) peerRemote() string {
+	return or(setting(g.Config[GroupRemote]), PeerRemote)
+}
+
 // checkPeerGroup refuses a group of the peer runner that could send
 // nothing: it names no peer, one this yard is not linked with, or one
 // whose link carries no beads out.
@@ -152,6 +172,9 @@ func checkPeerGroup(tx *bolt.Tx, g *Group) error {
 		if n, err := strconv.Atoi(setting(v)); err != nil || n < 1 {
 			return fmt.Errorf("group %s: %s is how often a bead is posted to %s before it is given up, at least 1 (unset: %d)", g.Name, GroupTries, name, PeerBeadTries)
 		}
+	}
+	if v, set := g.Config[GroupRemote]; set && !gitRemoteName.MatchString(setting(v)) {
+		return fmt.Errorf("group %s: %s is the name of the remote a branch %s returns is fetched from, as git remote lists it (unset: %s)", g.Name, GroupRemote, name, PeerRemote)
 	}
 	p, err := loadPeer(tx, name)
 	if err != nil {
@@ -281,6 +304,22 @@ func (s *Store) PeerBeadSend(ctx context.Context, session string) (*BeadPeer, er
 		return nil, err
 	}
 	own := s.yardKey()
+	// What the work starts from, for a bead of a repository whose base has
+	// a remote: read now, since git does not run inside the write.
+	var from *PeerGit
+	if pre.Rig != nil {
+		rig, err := s.GetRig(ctx, *pre.Rig)
+		if err != nil {
+			return nil, err
+		}
+		fam, err := s.Family(ctx, pre.UUID)
+		if err != nil {
+			return nil, err
+		}
+		gctx, cancel := context.WithTimeout(ctx, peerFetchTimeout)
+		from = baseOf(gctx, *rig, fam.Base)
+		cancel()
+	}
 	err = s.write(func(w *wtx) error {
 		row, err := w.loadBead(pre.UUID)
 		if err != nil {
@@ -311,6 +350,11 @@ func (s *Store) PeerBeadSend(ctx context.Context, session string) (*BeadPeer, er
 		}
 		if old != nil && old.Entered == entered && old.Stage == row.Stage {
 			switch {
+			case old.awaitsFetch():
+				// The stay has its answer, and the branch that came with it
+				// is still being fetched: the bead waits for that, and is
+				// not sent out again from under it.
+				return nil
 			case old.EndedAt == nil && old.Was == "":
 				// Sent already in this stay: the claim is a second one. The
 				// message is queued again only when it is neither there nor
@@ -371,8 +415,14 @@ func (s *Store) PeerBeadSend(ctx context.Context, session string) (*BeadPeer, er
 			if len(msg.Path) == 0 {
 				msg.Path = []string{in.Key}
 			}
+			// Sent on, it starts where it started here, under the name
+			// the yard it came from had for that.
+			if from != nil && in.Git != nil && from.BaseCommit == in.Git.BaseCommit {
+				from.Base = in.Git.Base
+			}
 		}
 		msg.Path = append(msg.Path, own)
+		msg.Git = from
 		links, err := beadLinks(w.Tx, row.UUID)
 		if err != nil {
 			return err
@@ -414,6 +464,9 @@ func (s *Store) PeerBeadSend(ctx context.Context, session string) (*BeadPeer, er
 		}
 		if len(msg.Path) > 1 {
 			data["yards_before"] = len(msg.Path) - 1
+		}
+		if from != nil {
+			data["base"], data["base_commit"], data["remote"] = from.Base, from.BaseCommit, from.Remote
 		}
 		return w.event(row.UUID, "peer_bead_sent", "yard", data)
 	})
@@ -571,6 +624,16 @@ func (w *wtx) returnedBead(p *Peer, m PeerMessage, way string) (string, error) {
 	if rec.NotesLeftOut > 0 {
 		data["notes_left_out"] = rec.NotesLeftOut
 	}
+	// A result in git: kept as the peer's word, cut to what a line shows.
+	// Whether it is taken is the daemon's to find (PeerFetches).
+	if g := r.Git; g != nil && (g.Branch != "" || g.Commit != "") {
+		word := func(s string) string {
+			s = cleanTitle(s)
+			return s[:min(len(s), 256)]
+		}
+		rec.Git = &PeerGit{Branch: word(g.Branch), Commit: word(g.Commit), Remote: or(RemoteForm(g.Remote), word(g.Remote))}
+		data["branch"], data["commit"], data["remote"] = rec.Git.Branch, rec.Git.Commit, rec.Git.Remote
+	}
 	delete(data, "outcome") // endSent says it
 	return "", w.endSent(rec, p.Name, r.Outcome, "", actor, data)
 }
@@ -679,6 +742,13 @@ func (s *Store) settleSent(ctx context.Context, uuid string) error {
 		if err != nil || rec == nil || rec.EndedAt == nil || rec.Settled != nil {
 			return nil, err
 		}
+		// A branch came back and is not here yet: the outcome waits for it
+		// (PeerFetched), unless the bead has left the stage meanwhile.
+		if rec.awaitsFetch() {
+			if left, err := leftStay(tx, rec); err != nil || !left {
+				return nil, err
+			}
+		}
 		return rec, nil
 	}
 	var rec *peerSent
@@ -763,6 +833,17 @@ func (s *Store) settleSent(ctx context.Context, uuid string) error {
 			note = append(note, fmt.Sprintf("This bead did not reach the yard %s: %s. Sending it again is moving it back into the stage: yardr bead advance %s --to %s",
 				name, strings.TrimSuffix(rec.Detail, "."), row.ID, rec.Stage))
 		}
+		// The code that came with it, or did not: whoever works the next
+		// stage reads the notes, and is to know whose the branch is.
+		switch g := rec.Git; {
+		case g == nil:
+		case rec.Fetched != nil:
+			note = append(note, fmt.Sprintf("The yard %s returned its branch %s at %s, which is %s here now. The work on it is that yard's, and so is any gate line in its notes: this yard's gate has not run on it.",
+				name, g.Branch, short(g.Commit), Branch(row.ID)))
+		default:
+			note = append(note, fmt.Sprintf("The yard %s returned a branch (%s at %s) that this yard did not take: %s. What came back is the outcome and the notes.",
+				name, g.Branch, short(g.Commit), strings.TrimSuffix(rec.NotTaken, ".")))
+		}
 		if to == "" {
 			names := "no outcomes"
 			if len(named) > 0 {
@@ -797,6 +878,195 @@ func (s *Store) settleSent(ctx context.Context, uuid string) error {
 		})
 		return err
 	})
+}
+
+// awaitsFetch reports whether the stay ended with a branch that is neither
+// taken nor found not to be this yard's to take.
+func (rec *peerSent) awaitsFetch() bool {
+	return rec.EndedAt != nil && rec.Settled == nil && rec.Git != nil && rec.Fetched == nil && rec.NotTaken == ""
+}
+
+// leftStay reports whether the bead is no longer in the stay at a peer
+// that rec is of: closed, moved out of the stage, or back in it anew.
+func leftStay(tx *bolt.Tx, rec *peerSent) (bool, error) {
+	var row beadRow
+	if ok, err := get(tx, bBeads, rec.Bead, &row); err != nil || !ok {
+		return true, err
+	}
+	entered, _, err := stayOf(tx, rec.Bead)
+	return row.Status != "open" || row.Stage != rec.Stage || entered != rec.Entered, err
+}
+
+// PeerFetch is a branch a peer returned for a bead of this yard, to be
+// taken before the bead's outcome is applied: Git as the return names it,
+// from Remote of Rig (the bead's group's GroupRemote), into the bead's own
+// branch Into. Attempts counts the fetches that failed, of the Tries its
+// group allows, with Error the last one's and RetryAt when the next is due.
+type PeerFetch struct {
+	Bead     string     `json:"bead"`
+	Message  string     `json:"message"`
+	Peer     string     `json:"peer"`
+	Rig      Rig        `json:"rig"`
+	Remote   string     `json:"remote"`
+	Into     string     `json:"into"`
+	Git      PeerGit    `json:"git"`
+	Attempts int        `json:"attempts,omitempty"`
+	Tries    int        `json:"tries"`
+	Error    string     `json:"error,omitempty"`
+	RetryAt  *time.Time `json:"retry_at,omitempty"`
+}
+
+// PeerFetches are the branches that came back from peers and are not taken
+// yet, for the daemon to take (TakePeerBranch) and report (PeerFetched,
+// PeerFetchFailed). One whose bead was held when its fetch was given up is
+// not among them while that hold lasts: lifting it is how a person says
+// try again.
+func (s *Store) PeerFetches(ctx context.Context) ([]PeerFetch, error) {
+	var out []PeerFetch
+	err := s.read(func(tx *bolt.Tx) error {
+		h := handlesIn(tx)
+		return each(tx, bPeerSent, "", func(_ []byte, rec *peerSent) error {
+			if !rec.awaitsFetch() {
+				return nil
+			}
+			if left, err := leftStay(tx, rec); err != nil || left {
+				return err // settled as stale on the daemon's pass
+			}
+			var row beadRow
+			if _, err := get(tx, bBeads, rec.Bead, &row); err != nil {
+				return err
+			}
+			if rec.GaveUp != nil && row.Hold {
+				return nil
+			}
+			f := PeerFetch{Bead: h.of(rec.Bead), Message: rec.Message, Peer: rec.Was, Into: Branch(row.ID), Git: *rec.Git,
+				Attempts: rec.Attempts, Error: rec.Error, RetryAt: rec.RetryAt, Remote: PeerRemote, Tries: PeerBeadTries}
+			if rec.GaveUp != nil {
+				// Released since: a round of its own.
+				f.Attempts, f.RetryAt = 0, nil
+			}
+			if p, err := peerByKey(tx, rec.Key); err != nil {
+				return err
+			} else if p != nil && rec.Was == "" {
+				f.Peer = p.Name
+			}
+			var g Group
+			if ok, err := get(tx, bGroups, rec.Group, &g); err != nil {
+				return err
+			} else if ok {
+				f.Remote, f.Tries = g.peerRemote(), g.peerTries()
+			}
+			if row.Rig != nil {
+				if _, err := get(tx, bRigs, *row.Rig, &f.Rig); err != nil {
+					return err
+				}
+			}
+			if f.Rig.Name == "" {
+				// A bead of no rig has no repository: said as a directory.
+				f.Rig.Kind = RigDir
+			}
+			out = append(out, f)
+			return nil
+		})
+	})
+	return out, err
+}
+
+// fetching is the record of the fetch the daemon reports on: of the bead,
+// for the message its return answered, and still waited for.
+func fetching(w *wtx, bead, message string) (*peerSent, *beadRow, error) {
+	row, err := w.loadBead(bead)
+	if err != nil {
+		return nil, nil, err
+	}
+	rec, err := peerSentOf(w.Tx, row.UUID)
+	if err != nil || rec == nil || rec.Message != message || !rec.awaitsFetch() {
+		return nil, nil, err
+	}
+	return rec, row, nil
+}
+
+// PeerFetched records that the branch the peer returned for the bead is
+// its own branch now, or with notTaken why it is not this yard's to take
+// (a directory rig, another remote): either way the outcome of the return
+// is applied next (settleSent), with a note that says which.
+func (s *Store) PeerFetched(ctx context.Context, bead, message, notTaken string) error {
+	return s.write(func(w *wtx) error {
+		rec, row, err := fetching(w, bead, message)
+		if err != nil || rec == nil {
+			return err
+		}
+		name := peerNamed(w.Tx, rec.Key, rec.Was)
+		at := now()
+		data := map[string]any{"peer": name, "branch": rec.Git.Branch, "commit": rec.Git.Commit, "remote": rec.Git.Remote}
+		kind := "peer_bead_fetched"
+		if notTaken = strings.TrimSpace(notTaken); notTaken != "" {
+			rec.NotTaken = notTaken
+			kind, data["reason"] = "peer_bead_not_fetched", notTaken
+		} else {
+			rec.Fetched = &at
+			data["into"] = Branch(row.ID)
+		}
+		rec.Error, rec.RetryAt, rec.GaveUp = "", nil, nil
+		if err := put(w.Tx, bPeerSent, rec.Bead, rec); err != nil {
+			return err
+		}
+		w.settle = append(w.settle, rec.Bead)
+		return w.event(rec.Bead, kind, "yard", data)
+	})
+}
+
+// PeerFetchFailed records a try to take the bead's returned branch that
+// failed, for reason, and when the next is due. With final it is the last:
+// the bead is held, with a note that says what failed and that lifting the
+// hold tries again, and its outcome stays unapplied. The bead stays at the
+// peer's group meanwhile, so nothing sends it out again.
+func (s *Store) PeerFetchFailed(ctx context.Context, bead, message, reason string, retryAt time.Time, final bool) error {
+	return s.write(func(w *wtx) error {
+		rec, row, err := fetching(w, bead, message)
+		if err != nil || rec == nil {
+			return err
+		}
+		if rec.GaveUp != nil {
+			rec.Attempts, rec.GaveUp = 0, nil
+		}
+		at := retryAt.UTC()
+		rec.Attempts, rec.Error, rec.RetryAt = rec.Attempts+1, reason, &at
+		if !final {
+			return put(w.Tx, bPeerSent, rec.Bead, rec)
+		}
+		t := now()
+		rec.GaveUp, rec.RetryAt = &t, nil
+		if err := put(w.Tx, bPeerSent, rec.Bead, rec); err != nil {
+			return err
+		}
+		name := peerNamed(w.Tx, rec.Key, rec.Was)
+		if err := w.event(rec.Bead, "peer_bead_not_fetched", "yard", map[string]any{"peer": name, "branch": rec.Git.Branch, "commit": rec.Git.Commit,
+			"remote": rec.Git.Remote, "reason": reason, "attempts": rec.Attempts, "held": true}); err != nil {
+			return err
+		}
+		note := fmt.Sprintf("The yard %s returned this bead as %s with its branch %s at %s, and this yard could not take the branch (%d tries): %s. The outcome is not applied before the branch is here, so the bead is held. yardr bead unhold %s tries again; yardr bead advance %s --to <stage> moves it on without the code.",
+			name, rec.Outcome, rec.Git.Branch, short(rec.Git.Commit), rec.Attempts, strings.TrimSuffix(reason, "."), row.ID, row.ID)
+		if err := w.addNote(rec.Bead, NoteNote, note, "yard"); err != nil {
+			return err
+		}
+		_, err = w.changeBead(rec.Bead, "yard", func(_ *wtx, b *beadRow) (string, map[string]any, error) {
+			b.Hold = true
+			return "held", map[string]any{"peer": name, "reason": "the branch " + name + " returned could not be fetched"}, nil
+		})
+		return err
+	})
+}
+
+// peerNamed is the name of the peer whose key is key, or was when its link
+// was removed.
+func peerNamed(tx *bolt.Tx, key, was string) string {
+	if was == "" {
+		if p, err := peerByKey(tx, key); err == nil && p != nil {
+			return p.Name
+		}
+	}
+	return was
 }
 
 // keepNotes cuts each of notes to what one may be and keeps the newest

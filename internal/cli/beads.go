@@ -93,13 +93,21 @@ func (a *app) printBeadFlow(b *store.Bead, next *store.NextStages, flowErr error
 // last heard from, or how its stay there ended.
 func printBeadPeer(b *store.Bead) {
 	if away := b.Away(); away != nil {
-		defer fmt.Printf("  %s\n", away.Line())
+		defer func() {
+			fmt.Printf("  %s\n", away.Line())
+			if code := away.CodeLine(b.ID); code != "" {
+				fmt.Printf("  %s\n", code)
+			}
+		}()
 	}
 	p := b.From()
 	if p == nil {
 		return
 	}
 	fmt.Printf("  %s\n", p.Line())
+	if code := p.CodeLine(b.ID); code != "" {
+		fmt.Printf("  %s\n", code)
+	}
 	// Above the text it is about, in bead show and in a prime alike.
 	fmt.Printf("  %s\n", p.Marking())
 	if len(p.Outcomes) > 0 {

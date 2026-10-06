@@ -182,6 +182,11 @@ type PeerBeadMessage struct {
 	// sends a bead on to a yard that sends it back would never end. None,
 	// from a yardr before it was said, is the sender alone.
 	Path []string `json:"path,omitempty"`
+	// Git says what the work starts from, when the sender's rig is a
+	// repository whose base has a remote: Base, BaseCommit and Remote. A
+	// yard whose intake's rig is that repository starts there, and one
+	// that cannot refuses the bead (RefusedBaseUnknown).
+	Git *PeerGit `json:"git,omitempty"`
 }
 
 // PeerReturnMessage is the body of a message of kind PeerBeadReturn, which
@@ -194,6 +199,9 @@ type PeerReturnMessage struct {
 	Outcome      string     `json:"outcome"`
 	Notes        []PeerNote `json:"notes,omitempty"`
 	NotesLeftOut int        `json:"notes_left_out,omitempty"`
+	// Git says where the result is, when the receiver pushed its bead's
+	// branch (contrib/peer/return-branch): Branch, Commit and Remote.
+	Git *PeerGit `json:"git,omitempty"`
 }
 
 // peerBead is the record of a bead that came from a peer.
@@ -215,6 +223,11 @@ type peerBead struct {
 	// Path is where the bead had been when it arrived (PeerBeadMessage.Path),
 	// the peer it came from last: what it is sent on with.
 	Path []string `json:"path,omitempty"`
+	// Git is what the bead's work starts from, as its message said and
+	// this yard found it could (checkBase): the bead's branch is made from
+	// BaseCommit, wherever this yard's base is (familyOf). nil for a bead
+	// that came with words only.
+	Git *PeerGit `json:"git,omitempty"`
 	// Notes is the last note written when the bead had arrived: what came
 	// with it. The notes after it are this yard's, and are what returns.
 	Notes uint64 `json:"notes,omitempty"`
@@ -274,9 +287,50 @@ type BeadPeer struct {
 	DeliveredAt *time.Time `json:"delivered_at,omitempty"`
 	Detail      string     `json:"detail,omitempty"`
 	HeardAt     *time.Time `json:"heard_at,omitempty"`
+	// Git is the code that crossed with the bead. Of one that came: what
+	// its work starts from (Base, BaseCommit, Remote). Of one sent out: the
+	// branch its return named (Branch, Commit, Remote), which is this
+	// bead's own branch since FetchedAt, or was not taken, for NotTaken.
+	// While it is neither, FetchTries counts the fetches that failed,
+	// FetchError is the last one's word and FetchRetryAt when the next is
+	// due; FetchGaveUp is when the bead was held over it.
+	Git          *PeerGit   `json:"git,omitempty"`
+	FetchedAt    *time.Time `json:"fetched_at,omitempty"`
+	NotTaken     string     `json:"not_taken,omitempty"`
+	FetchTries   int        `json:"fetch_tries,omitempty"`
+	FetchError   string     `json:"fetch_error,omitempty"`
+	FetchRetryAt *time.Time `json:"fetch_retry_at,omitempty"`
+	FetchGaveUp  *time.Time `json:"fetch_gave_up,omitempty"`
 	// Onward is where a bead that came from one yard was sent on to: the
 	// record of the other direction, for a bead that has both.
 	Onward *BeadPeer `json:"onward,omitempty"`
+}
+
+// CodeLine is how yardr bead show says what code crossed with the bead
+// whose handle is bead, "" when none did: for one that came from a yard,
+// where its work starts; for one sent out, whose branch its branch is, or
+// why the branch that came back is not here.
+func (p BeadPeer) CodeLine(bead string) string {
+	g := p.Git
+	switch {
+	case g == nil:
+		return ""
+	case p.Direction != "out":
+		return fmt.Sprintf("its work starts from %s at %s (%s), as %s said", or(g.Base, "the commit"), short(g.BaseCommit), g.Remote, p.Yard())
+	case p.FetchedAt != nil:
+		return fmt.Sprintf("branch %s came from %s: its %s at %s, fetched %s from %s. No gate of this yard has run on it",
+			Branch(bead), p.Yard(), g.Branch, short(g.Commit), stamp(*p.FetchedAt), g.Remote)
+	case p.NotTaken != "":
+		return fmt.Sprintf("the branch %s returned (%s at %s) was not taken: %s", p.Yard(), g.Branch, short(g.Commit), p.NotTaken)
+	}
+	line := fmt.Sprintf("the branch %s returned (%s at %s) is not fetched yet, and its outcome %s waits for it", p.Yard(), g.Branch, short(g.Commit), p.Outcome)
+	switch {
+	case p.FetchGaveUp != nil:
+		line += fmt.Sprintf(": given up after %d tries (%s); yardr bead unhold %s tries again", p.FetchTries, p.FetchError, bead)
+	case p.FetchTries > 0 && p.FetchRetryAt != nil:
+		line += fmt.Sprintf(": tried %d times, next at %s (%s)", p.FetchTries, p.FetchRetryAt.Local().Format("15:04:05"), p.FetchError)
+	}
+	return line
 }
 
 // From is the yard the bead came from, nil for a bead of this yard's own.
@@ -475,7 +529,7 @@ func withPeer(tx *bolt.Tx, b *Bead) error {
 	}
 	if rec != nil {
 		b.Peer = &BeadPeer{Direction: rec.Direction, Bead: rec.Theirs, Stage: rec.Stage, Outcomes: rec.Outcomes, Message: rec.Message, At: rec.At,
-			Held: rec.Held, ReleasedBy: rec.ReleasedBy, ReleasedAt: rec.ReleasedAt, Outcome: rec.Outcome, ReturnedAt: rec.ReturnedAt}
+			Held: rec.Held, ReleasedBy: rec.ReleasedBy, ReleasedAt: rec.ReleasedAt, Outcome: rec.Outcome, ReturnedAt: rec.ReturnedAt, Git: rec.Git}
 		if err := named(b.Peer, rec.Key, rec.Was); err != nil {
 			return err
 		}
@@ -485,7 +539,9 @@ func withPeer(tx *bolt.Tx, b *Bead) error {
 		return err
 	}
 	out := &BeadPeer{Direction: "out", Bead: sent.Theirs, Stage: sent.Stage, Message: sent.Message, At: sent.At,
-		Outcome: sent.Outcome, ReturnedAt: sent.EndedAt, DeliveredAt: sent.Delivered, Detail: sent.Detail}
+		Outcome: sent.Outcome, ReturnedAt: sent.EndedAt, DeliveredAt: sent.Delivered, Detail: sent.Detail,
+		Git: sent.Git, FetchedAt: sent.Fetched, NotTaken: sent.NotTaken, FetchTries: sent.Attempts, FetchError: sent.Error,
+		FetchRetryAt: sent.RetryAt, FetchGaveUp: sent.GaveUp}
 	if err := named(out, sent.Key, sent.Was); err != nil {
 		return err
 	}
@@ -582,27 +638,63 @@ func intakeStage(tx *bolt.Tx, in *PeerIntake, repo *RepoFlows) (*Flow, string, e
 	return f, stage, checkCreateStage(f, stage)
 }
 
-// intakeRepo reads the repository flows of the rig the peer name's intake
-// names, when taking a bead of msgs depends on them: git does not run
-// inside a write. nil when nothing does. What cannot be read is not an
-// error here: the bead is then refused, with the reason, where it is
-// taken.
-func (s *Store) intakeRepo(ctx context.Context, name string, msgs []PeerMessage) *RepoFlows {
+// taking is what taking the beads of a batch of messages needs of the rig
+// their peer's intake names, read before the write: git does not run
+// inside one.
+type taking struct {
+	// repo are the rig's repository flows, when the intake's flow is one.
+	repo *RepoFlows
+	// rig is the rig that was looked at, and bases says of each bead
+	// message that names what its work starts from, by its id, why the
+	// work cannot start there in that rig: "" when it can (checkBase). A
+	// message that names none, and every message when the rig is a
+	// directory, is not in it.
+	rig   string
+	bases map[string]string
+}
+
+// taking reads what taking the beads among msgs from the peer name depends
+// on. What cannot be read is not an error here: the bead is then refused,
+// with the reason, where it is taken.
+func (s *Store) taking(ctx context.Context, name string, msgs []PeerMessage) *taking {
+	tk := &taking{}
 	if !slices.ContainsFunc(msgs, func(m PeerMessage) bool { return m.Kind == PeerBead }) {
-		return nil
+		return tk
 	}
 	var in *PeerIntake
 	_ = s.read(func(tx *bolt.Tx) error {
-		if p, err := loadPeer(tx, name); err == nil {
+		// A link that takes no beads has nothing fetched for it.
+		if p, err := loadPeer(tx, name); err == nil && p.carries(PeerBead, true) {
 			in = p.Intake
 		}
 		return nil
 	})
 	if in == nil {
-		return nil
+		return tk
 	}
-	repo, _ := s.repoFor(ctx, &in.Rig, peerBeadTypes[0], in.Flow)
-	return repo
+	tk.repo, _ = s.repoFor(ctx, &in.Rig, peerBeadTypes[0], in.Flow)
+	rig, err := s.GetRig(ctx, in.Rig)
+	if err != nil || rig.IsDir() {
+		return tk
+	}
+	tk.rig, tk.bases = rig.Name, map[string]string{}
+	checked := map[PeerGit]string{}
+	for _, m := range msgs {
+		var b struct {
+			Git *PeerGit `json:"git"`
+		}
+		if m.Kind != PeerBead || json.Unmarshal(m.Body, &b) != nil || b.Git == nil {
+			continue
+		}
+		g := PeerGit{Base: b.Git.Base, BaseCommit: b.Git.BaseCommit, Remote: b.Git.Remote}
+		why, ok := checked[g]
+		if !ok {
+			why = checkBase(ctx, *rig, g)
+			checked[g] = why
+		}
+		tk.bases[m.ID] = why
+	}
+	return tk
 }
 
 // arrival is a bead message that is taken: what it says, cut to what this
@@ -610,6 +702,8 @@ func (s *Store) intakeRepo(ctx context.Context, name string, msgs []PeerMessage)
 type arrival struct {
 	msg   PeerBeadMessage
 	stage string
+	// git is what the bead's work starts from, nil for words only.
+	git *PeerGit
 }
 
 // cleanTitle makes a peer's title one line of text: it is printed in tables and
@@ -628,7 +722,7 @@ func cleanTitle(s string) string {
 // the arrival, or why not. Nothing of a bead that is refused is kept, and
 // the refusal is logged as peer_message_refused. It changes p (the build
 // its message names).
-func (w *wtx) checkBead(p *Peer, m PeerMessage, way string, repo *RepoFlows, own string) (*arrival, string, error) {
+func (w *wtx) checkBead(p *Peer, m PeerMessage, way string, tk *taking, own string) (*arrival, string, error) {
 	extra := map[string]any{"direction": "in", "way": way}
 	refuse := func(reason string) (*arrival, string, error) {
 		extra["reason"] = reason
@@ -679,7 +773,7 @@ func (w *wtx) checkBead(p *Peer, m PeerMessage, way string, repo *RepoFlows, own
 	if p.Intake == nil {
 		return refuse(RefusedNoIntake)
 	}
-	_, stage, err := intakeStage(w.Tx, p.Intake, repo)
+	_, stage, err := intakeStage(w.Tx, p.Intake, tk.repo)
 	if err != nil {
 		// The intake was good when it was set: its rig or its flow has
 		// gone since. That is this yard's to mend, and the peer's bead
@@ -697,6 +791,26 @@ func (w *wtx) checkBead(p *Peer, m PeerMessage, way string, repo *RepoFlows, own
 	}
 	if len(b.Title) > MaxPeerBeadTitle || len(b.Body) > MaxPeerBeadBody || notes > MaxPeerNotes {
 		return refuse(RefusedTooLarge)
+	}
+	// Where the work starts: in a repository, a bead that names its base
+	// starts there or is not taken. A directory has no base to be wrong
+	// about, and takes the words.
+	var from *PeerGit
+	var rig Rig
+	if _, err := get(w.Tx, bRigs, p.Intake.Rig, &rig); err != nil {
+		return nil, "", err
+	}
+	if b.Git != nil && !rig.IsDir() {
+		why, checked := tk.bases[m.ID]
+		if !checked || tk.rig != rig.Name {
+			why = "the intake changed while the bead was taken; sent again it is looked at anew"
+		}
+		if why != "" {
+			extra["detail"] = why
+			return refuse(RefusedBaseUnknown)
+		}
+		from = &PeerGit{Base: cleanTitle(b.Git.Base), BaseCommit: b.Git.BaseCommit, Remote: RemoteForm(b.Git.Remote)}
+		extra["base"], extra["base_commit"] = from.Base, from.BaseCommit
 	}
 	open, err := openFrom(w.Tx, p.Key)
 	if err != nil {
@@ -718,7 +832,7 @@ func (w *wtx) checkBead(p *Peer, m PeerMessage, way string, repo *RepoFlows, own
 	b.Priority = min(max(b.Priority, 0), 4)
 	b.Outcomes = slices.DeleteFunc(dedupeOrdered(b.Outcomes), func(o string) bool { return !peerStage.MatchString(o) })
 	b.Outcomes = b.Outcomes[:min(len(b.Outcomes), 32)]
-	return &arrival{msg: b, stage: stage}, "", nil
+	return &arrival{msg: b, stage: stage, git: from}, "", nil
 }
 
 // arriveBead makes this yard's bead of the one a brings from p: in the
@@ -765,13 +879,16 @@ func (w *wtx) arriveBead(p *Peer, m PeerMessage, a *arrival, way string) error {
 		linked = append(linked, nl.URL)
 	}
 	rec := peerBead{Bead: row.UUID, Key: p.Key, Direction: "in", Theirs: b.Bead, Stage: b.Stage, Outcomes: b.Outcomes,
-		Message: m.ID, At: now(), Path: b.Path, Notes: last, Held: !in.Auto}
+		Message: m.ID, At: now(), Path: b.Path, Git: a.git, Notes: last, Held: !in.Auto}
 	if err := put(w.Tx, bPeerBeads, row.UUID, rec); err != nil {
 		return err
 	}
 	data := map[string]any{"peer": p.Name, "id": m.ID, "from": b.Bead, "stage": b.Stage, "held": rec.Held, "way": way, "rig": in.Rig, "flow": in.Flow}
 	if b.NotesLeftOut > 0 {
 		data["notes_left_out"] = b.NotesLeftOut
+	}
+	if a.git != nil {
+		data["base"], data["base_commit"] = a.git.Base, a.git.BaseCommit
 	}
 	return w.event(row.UUID, "peer_bead_arrived", actor, data)
 }
@@ -845,7 +962,17 @@ func (w *wtx) returnPeerBead(b *Bead, outcome string, closed *string, actor stri
 	if closed != nil {
 		notes = append(notes, PeerNote{Author: actor, At: now(), Text: or(strings.TrimSpace(*closed), "closed without a reason")})
 	}
-	body, left := returnBody(PeerReturnMessage{V: PeerBeadVersion, Bead: b.ID, Outcome: outcome}, notes)
+	// Where the result is, when a stage of the flow pushed the bead's
+	// branch and wrote it on the bead: all three, or words only.
+	ret := PeerReturnMessage{V: PeerBeadVersion, Bead: b.ID, Outcome: outcome}
+	meta := func(k string) string {
+		v, _ := b.Metadata[k].(string)
+		return strings.TrimSpace(v)
+	}
+	if g := (PeerGit{Branch: meta(MetaResultBranch), Commit: meta(MetaResultCommit), Remote: RemoteForm(meta(MetaResultRemote))}); g.Branch != "" && g.Commit != "" && g.Remote != "" {
+		ret.Git = &g
+	}
+	body, left := returnBody(ret, notes)
 	m := PeerMessage{ID: newPeerMessageID(), Kind: PeerBeadReturn, Re: rec.Message, Body: body}
 	if err := m.check(); err != nil {
 		return err
@@ -864,6 +991,9 @@ func (w *wtx) returnPeerBead(b *Bead, outcome string, closed *string, actor stri
 	data := map[string]any{"peer": p.Name, "id": m.ID, "re": rec.Message, "to": rec.Theirs, "outcome": outcome, "notes": len(notes) - left}
 	if left > 0 {
 		data["notes_left_out"] = left
+	}
+	if ret.Git != nil {
+		data["branch"], data["commit"], data["remote"] = ret.Git.Branch, ret.Git.Commit, ret.Git.Remote
 	}
 	return w.event(b.UUID, "peer_bead_returned", actor, data)
 }

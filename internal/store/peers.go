@@ -850,15 +850,15 @@ func (s *Store) PeerHandOver(ctx context.Context, name, key string, after uint64
 // no message at all fails a post whole, and is passed by in a pull. A ping is
 // answered here, in the same write, with a pong in the outbox for the peer,
 // and mail is put in its resident's inbox, or refused (checkMail). A bead
-// becomes a bead of this yard, or is refused (checkBead); repo is what
-// that needs of its intake's rig (intakeRepo) and own this yard's key,
+// becomes a bead of this yard, or is refused (checkBead); tk is what
+// that needs of its intake's rig (taking) and own this yard's key,
 // which a bead that has been here before names. The return of a bead ends
 // the stay of this yard's bead at the peer (returnedBead). No other body is
 // kept: what a peer sends is data.
 //
 // It changes p (the count of its mail, the build a bead names), which the
 // caller saves.
-func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string, repo *RepoFlows, own string) ([]PeerTaken, error) {
+func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string, tk *taking, own string) ([]PeerTaken, error) {
 	out := make([]PeerTaken, 0, len(msgs))
 	actor := "peer:" + p.Name
 	seen := w.Bucket(bPeerSeen)
@@ -903,7 +903,7 @@ func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string, repo *RepoFlo
 			case PeerMail:
 				mail, t.Refused, err = w.checkMail(p, m, way)
 			case PeerBead:
-				bead, t.Refused, err = w.checkBead(p, m, way, repo, own)
+				bead, t.Refused, err = w.checkBead(p, m, way, tk, own)
 			case PeerBeadReturn:
 				t.Refused, err = w.returnedBead(p, m, way)
 			}
@@ -950,13 +950,13 @@ func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string, repo *RepoFlo
 // has checked whose they are, so no client can hand in one of its own.
 func (s *Store) PeerReceive(ctx context.Context, name, key string, msgs []PeerMessage) ([]PeerTaken, error) {
 	var out []PeerTaken
-	repo, own := s.intakeRepo(ctx, name, msgs), s.yardKey()
+	tk, own := s.taking(ctx, name, msgs), s.yardKey()
 	err := s.write(func(w *wtx) error {
 		p, err := loadPeerOf(w.Tx, name, key)
 		if err != nil {
 			return err
 		}
-		if out, err = w.receivePeer(p, msgs, PeerPush, repo, own); err != nil {
+		if out, err = w.receivePeer(p, msgs, PeerPush, tk, own); err != nil {
 			return err
 		}
 		return put(w.Tx, bPeers, name, p)
@@ -1085,7 +1085,7 @@ func (s *Store) PeerPulled(ctx context.Context, name string, b PeerBatch) (*Peer
 	if len(page.Messages) == 0 && !told && !said {
 		return res, nil
 	}
-	repo, own := s.intakeRepo(ctx, name, page.Messages), s.yardKey()
+	tk, own := s.taking(ctx, name, page.Messages), s.yardKey()
 	err = s.write(func(w *wtx) error {
 		// Checked again in the write: the peer may have been removed, or
 		// added anew with another key, between the two.
@@ -1093,7 +1093,7 @@ func (s *Store) PeerPulled(ctx context.Context, name string, b PeerBatch) (*Peer
 		if err != nil {
 			return err
 		}
-		if res.Taken, err = w.receivePeer(p, page.Messages, PeerPull, repo, own); err != nil {
+		if res.Taken, err = w.receivePeer(p, page.Messages, PeerPull, tk, own); err != nil {
 			return err
 		}
 		for _, seq := range b.Told {

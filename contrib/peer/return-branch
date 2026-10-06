@@ -1,0 +1,87 @@
+#!/bin/sh
+# return-branch: pushes the branch of a bead that came from a linked yard,
+# so that the yard that asked for the work can fetch it. Run it as the cmd
+# of an exec group routed for the last working stage of the flow such beads
+# are taken into (push, below); the stage after it is the flow's terminal
+# one, where the bead is returned. See docs/peers.md, "Code that comes
+# back".
+#
+#   new -> push on done | returned on question | returned on failed
+#   push -> returned on done | new on failed
+#   returned terminal
+#
+# It reads everything from the environment the exec runner gives it:
+# YARDR_BEAD, YARDR_RIG, YARDR_RIG_PATH, YARDR_BASE, YARDR_BRANCH and
+# YARDR_BIN. One option, set in the group's cmd
+# (cmd='YARDR_PUSH=origin /path/to/return-branch'):
+#
+#   YARDR_PUSH     the remote to push the branch to: the one both yards use
+#
+# It pushes yard/<this yard's bead> to that remote under the same name,
+# never the base and never forced, writes on the bead where the result is
+# (result.branch, result.commit and result.remote in its metadata, the
+# remote's URL without credentials) and reports done. The return the yard
+# then sends names all three, and the other yard fetches the branch and
+# checks the commit. A push that fails reports failed, with git's words.
+# It never merges: landing the work is the other yard's.
+#
+# Every outcome ends in a done or a hold: exiting without one counts as a
+# failed session, and three of those hold the bead.
+set -u
+# A dir rig (YARDR_RIG_KIND=dir) has no branches: there is nothing to push,
+# and a flow for its beads returns their words without this stage. A route
+# that hands one over is a mistake in the flow, so refuse to run (exit 2).
+if [ "${YARDR_RIG_KIND:-git}" = dir ]; then
+  echo "return-branch: rig ${YARDR_RIG:-?} is a dir rig, with no branch to push; its flow needs no stage for this" >&2
+  exit 2
+fi
+: "${YARDR_BEAD:?not run by an exec group}" "${YARDR_RIG:?bead has no rig}"
+: "${YARDR_RIG_PATH:?}"
+Y=${YARDR_BIN:-yardr}
+BEAD=$YARDR_BEAD
+REPO=$YARDR_RIG_PATH
+BR=${YARDR_BRANCH:-yard/$BEAD}
+PUSH=${YARDR_PUSH:-}
+echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') return-branch ${YARDR_RIG} $BEAD ($BR to ${PUSH:-no remote})"
+
+hold() { echo "== hold $BEAD: $1"; "$Y" bead note "$BEAD" "return-branch: $1"; "$Y" bead hold "$BEAD"; exit 0; }
+# Back to whoever fixes it: the flow's "failed" outcome, which goes back to
+# the builder or returns the bead as failed, as the flow says. A flow that
+# names none keeps the bead here, held.
+failed() {
+  echo "== $BEAD failed"
+  printf '%s\n' "return-branch: $1" | "$Y" bead done "$BEAD" --outcome failed --note - && exit 0
+  hold "$1"
+}
+
+[ -n "$PUSH" ] || hold "no remote to push to: set YARDR_PUSH in the group's cmd (cmd='YARDR_PUSH=origin $0')"
+# Only ever a bead's branch: never the base, whatever the environment says.
+case $BR in
+yard/?*) ;;
+*) hold "$BR is not a bead's branch (yard/<bead>); nothing pushed" ;;
+esac
+[ "$BR" != "${YARDR_BASE:-}" ] || hold "$BR is the bead's base; nothing pushed"
+url=$(git -C "$REPO" remote get-url "$PUSH" 2>&1) || hold "rig $YARDR_RIG has no remote $PUSH: $url"
+sha=$(git -C "$REPO" rev-parse --verify -q "refs/heads/$BR^{commit}") ||
+  failed "branch $BR does not exist in $REPO: nothing was committed for this bead, so there is nothing to push"
+
+# Never forced: a branch of that name on the remote that this one does not
+# come after is someone else's, and stays.
+if out=$(git -C "$REPO" push "$PUSH" "refs/heads/$BR:refs/heads/$BR" 2>&1); then
+  printf '%s\n' "$out"
+  echo "== pushed $BR at $sha to $PUSH"
+else
+  printf '%s\n' "$out"
+  failed "pushing $BR to $PUSH failed (not forced):
+$out"
+fi
+
+# What the return names. The URL goes without the credentials it may hold:
+# the other yard compares it with its own, and has its own way in.
+url=$(printf '%s\n' "$url" | sed -E 's#^([A-Za-z][A-Za-z0-9+.-]*://)[^/@]*@#\1#')
+"$Y" bead update "$BEAD" --meta "result.branch=$BR" --meta "result.commit=$sha" --meta "result.remote=$url" ||
+  hold "pushed $BR at $sha to $PUSH, but could not write that on the bead; unhold to run this stage again"
+short=$(git -C "$REPO" rev-parse --short "$sha")
+printf '%s\n' "return-branch: pushed $BR at $short to $PUSH ($url)" | "$Y" bead done "$BEAD" --note - ||
+  hold "pushed $BR at $short to $PUSH, but the stage names no outcome done to report it with"
+echo "== $BEAD done"

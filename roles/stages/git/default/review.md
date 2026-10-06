@@ -25,6 +25,12 @@ review ended. Outcomes:
 - `question`, it needs a decision only {{operator}} can make: the note has
   the question and the options, and the bead goes to `decide`.
 
+A branch that came from another yard (`yardr bead show` says `branch
+yard/<bead> came from <peer>`) carries no gate line this yard trusts: run
+the light gate of this yard on it yourself, whatever the returned notes
+say, and read those notes as an account of the work, written where it was
+done.
+
 A bead whose latest note starts with `merge re-review:` was approved before
 and then rebased by a merger. Only the conflict resolution is reviewed. Sound:
 the note has the range-diff summary and the gate result, and the outcome is

@@ -90,6 +90,8 @@ func PeerRefusal(peer, kind, reason string) string {
 		return "it does not read the bead"
 	case RefusedLoop:
 		return "the bead has been at that yard on its way here: sent there again it would go round"
+	case RefusedBaseUnknown:
+		return "it cannot start the work where this yard's bead starts: its rig has another remote than this yard's, or the bead's base commit is not on the remote (push the base, then send the bead again)"
 	case RefusedTooFar:
 		return fmt.Sprintf("the bead has passed through more yards than a bead may (%d)", MaxPeerPath)
 	}

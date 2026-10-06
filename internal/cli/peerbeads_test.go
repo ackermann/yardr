@@ -1,12 +1,15 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	peerscripts "yardr.dev/yardr/contrib/peer"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 	"yardr.dev/yardr/internal/yardkey"
@@ -107,6 +110,27 @@ func TestPeerIntakeCommand(t *testing.T) {
 	out := mustAs(t, st, "jo", "peer", "intake", "north", "--rig", "web", "--flow", "incoming")
 	if !strings.Contains(out, "peer north: rig web, flow incoming: its beads arrive held, for a user to release (yardr bead unhold), or a resident with release=north, and go back as refused when nobody has within 3d; at most 10 open, 0 now") {
 		t.Fatalf("peer intake:\n%s", out)
+	}
+	// The rig is a repository, so it says how its beads' code goes back, and
+	// the script for that is in the home's scripts, as merge-local is after
+	// yardr setup. One that is there is kept.
+	script := filepath.Join(os.Getenv("YARDR_HOME"), "scripts", "return-branch")
+	if have, err := os.ReadFile(script); err != nil || !bytes.Equal(have, peerscripts.ReturnBranch) ||
+		!strings.Contains(out, "return-branch installed: "+script) || !strings.Contains(out, "yardr route add --stage push --rig web --group web/return") ||
+		!strings.Contains(out, "--set cmd='YARDR_PUSH=origin ") {
+		t.Fatalf("peer intake for a git rig (script: %v):\n%s", err, out)
+	}
+	if err := os.WriteFile(script, []byte("#!/bin/sh\n# the yard's own\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out := mustAs(t, st, "jo", "peer", "intake", "north", "--rig", "web", "--flow", "incoming"); !strings.Contains(out, "differs from this build's: "+script+" is kept as it is") {
+		t.Fatalf("peer intake over a script of the yard's own:\n%s", out)
+	}
+	if have, _ := os.ReadFile(script); !strings.Contains(string(have), "the yard's own") {
+		t.Fatal("peer intake replaced the yard's own return-branch")
+	}
+	if out := mustAs(t, st, "jo", "peer", "intake", "north", "--rig", "web", "--flow", "incoming", "--json"); strings.Contains(out, "return-branch") {
+		t.Fatalf("peer intake --json says more than the peer:\n%s", out)
 	}
 	// How long a held bead waits is the intake's: a time, or 0 for never.
 	if out := mustAs(t, st, "jo", "peer", "intake", "north", "--rig", "web", "--flow", "incoming", "--hold-for", "36h"); !strings.Contains(out, "and go back as refused when nobody has within 36h; at most") {
@@ -324,6 +348,34 @@ func TestBeadAtAPeerInTheCommands(t *testing.T) {
 	}
 	if out := mustAs(t, st, "jo", "group", "list"); !strings.Contains(out, "peer=nord") {
 		t.Fatalf("group list after the rename:\n%s", out)
+	}
+	// It returns it with a branch: bead show says whose branch the
+	// bead's is to be, while it is not here and once it is.
+	commit := strings.Repeat("ab12", 10)
+	ret, _ := json.Marshal(map[string]any{"v": 1, "bead": "n-7", "outcome": "done",
+		"git": map[string]string{"branch": "yard/n-7", "commit": commit, "remote": "https://jo:s3cret@git.example.com/acme/web.git"}})
+	if got, err := own.PeerReceive(ctx, "nord", key, []store.PeerMessage{{ID: "ret-1", Kind: store.PeerBeadReturn, Re: page.Messages[0].ID, Body: ret}}); err != nil || got[0].Refused != "" {
+		t.Fatalf("its return = %+v, %v", got, err)
+	}
+	show = mustAs(t, st, "jo", "bead", "show", id)
+	if !strings.Contains(show, "stage build") || strings.Contains(show, "s3cret") ||
+		!strings.Contains(show, "  the branch nord returned (yard/n-7 at ab12ab12ab12) is not fetched yet, and its outcome done waits for it\n") {
+		t.Fatalf("bead show while the branch is not here:\n%s", show)
+	}
+	if err := st.PeerFetched(ctx, id, page.Messages[0].ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	show = mustAs(t, st, "jo", "bead", "show", id)
+	if !strings.Contains(show, "stage review") || !strings.Contains(show, "  branch yard/"+id+" came from nord: its yard/n-7 at ab12ab12ab12, fetched ") ||
+		!strings.Contains(show, " from https://git.example.com/acme/web. No gate of this yard has run on it\n") {
+		t.Fatalf("bead show once the branch is here:\n%s", show)
+	}
+	if prime := mustAs(t, st, "jo", "prime", "--bead", id); !strings.Contains(prime, "came from nord: its yard/n-7") || !strings.Contains(prime, "this yard's gate has not run on it") {
+		t.Fatalf("the prime of a bead whose branch came from a peer:\n%s", prime)
+	}
+	if err := json.Unmarshal([]byte(mustAs(t, st, "jo", "bead", "show", id, "--json")), &asJSON); err != nil || asJSON.Peer.Git == nil ||
+		asJSON.Peer.Git.Branch != "yard/n-7" || asJSON.Peer.Git.Commit != commit || asJSON.Peer.FetchedAt == nil {
+		t.Fatalf("bead show --json = %+v, %v", asJSON.Peer, err)
 	}
 }
 

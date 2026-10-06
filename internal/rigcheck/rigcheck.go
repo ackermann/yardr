@@ -300,43 +300,11 @@ func BaseRef(ctx context.Context, rig store.Rig) (ref, from string, err error) {
 }
 
 // remoteOf names the remote and branch the rig's base tracks, or "" when it
-// has none.
+// has none (store.BaseRemote: a bead sent to a linked yard names the same).
 func remoteOf(ctx context.Context, rig store.Rig) (remote, branch string) {
-	out, err := git(ctx, rig.Path, "remote")
-	if err != nil {
-		return "", ""
-	}
-	remotes := strings.Fields(out)
-	has := func(r string) bool {
-		for _, x := range remotes {
-			if x == r {
-				return true
-			}
-		}
-		return false
-	}
-	// A remote-tracking base: origin/main.
-	if r, b, ok := strings.Cut(rig.Base, "/"); ok && has(r) {
-		return r, b
-	}
-	// A local branch: its upstream's remote, else origin.
-	if _, err := git(ctx, rig.Path, "rev-parse", "--verify", "--quiet", "refs/heads/"+rig.Base); err != nil {
-		return "", ""
-	}
-	if out, err := git(ctx, rig.Path, "config", "--get", "branch."+rig.Base+".remote"); err == nil {
-		r := strings.TrimSpace(out)
-		b := rig.Base
-		if m, err := git(ctx, rig.Path, "config", "--get", "branch."+rig.Base+".merge"); err == nil {
-			b = strings.TrimPrefix(strings.TrimSpace(m), "refs/heads/")
-		}
-		if has(r) {
-			return r, b
-		}
-	}
-	if has("origin") {
-		return "origin", rig.Base
-	}
-	return "", ""
+	ctx, cancel := context.WithTimeout(ctx, GitTimeout)
+	defer cancel()
+	return store.BaseRemote(ctx, rig)
 }
 
 func fetch(ctx context.Context, repo, remote, refspec string) error {

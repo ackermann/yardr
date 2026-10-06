@@ -63,9 +63,10 @@ type Family struct {
 	// Epic is the handle of the epic the bead is a child of; "" for none.
 	Epic string `json:"epic,omitempty"`
 	// Base is BaseOf(bead): what its branch starts from and lands on.
-	// Branch(Epic) for a child of an epic; for everything else, the epic
-	// itself included, the rig's base ("" without a rig, and always "" in
-	// a dir rig, which has no branches).
+	// Branch(Epic) for a child of an epic; the commit a linked yard named
+	// for a bead that came from it (PeerGit.BaseCommit); for everything
+	// else, the epic itself included, the rig's base ("" without a rig,
+	// and always "" in a dir rig, which has no branches).
 	Base string `json:"base,omitempty"`
 	// Children are an epic's children, oldest edge first by CreatedAt, then id.
 	Children []string `json:"children,omitempty"`
@@ -110,6 +111,13 @@ func familyOf(tx *bolt.Tx, row *beadRow) (*Family, error) {
 		f.Epic, f.Base = epic.ID, Branch(epic.ID)
 	default:
 		f.Base = r.Base
+		// A bead that came from a yard which said where its work starts
+		// starts there: this yard's base may be anywhere by now.
+		if rec, err := peerBeadOf(tx, row.UUID); err != nil {
+			return nil, err
+		} else if rec != nil && rec.Git != nil && rec.Git.BaseCommit != "" {
+			f.Base = rec.Git.BaseCommit
+		}
 	}
 	if row.Type == TypeEpic {
 		for _, d := range edges(tx, bDepFrom, row.UUID, DepParent) {
