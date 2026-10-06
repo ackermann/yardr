@@ -343,7 +343,7 @@ func onSubscription(kind string) store.Subscription {
 func subscriptionMatrix(crew []store.CrewMember, users []store.User, groups []store.Group) subMatrix {
 	m := subMatrix{Subscribers: []subColumn{}, Rows: []subRow{}, ReachesNoOne: []string{}}
 	rows := map[string]*subRow{}
-	mark := func(sub store.Subscription, name, how string, inbox bool) {
+	mark := func(sub store.Subscription, column, how, inbox string) {
 		row := rows[sub.String()]
 		if row == nil {
 			row = &subRow{Subscription: sub, Marks: map[string][]string{}, Reaches: []string{}}
@@ -352,28 +352,30 @@ func subscriptionMatrix(crew []store.CrewMember, users []store.User, groups []st
 			}
 			rows[sub.String()] = row
 		}
-		if !slices.Contains(row.Marks[name], how) {
-			row.Marks[name] = append(row.Marks[name], how)
+		if !slices.Contains(row.Marks[column], how) {
+			row.Marks[column] = append(row.Marks[column], how)
 		}
-		if inbox && !slices.Contains(row.Reaches, name) {
-			row.Reaches = append(row.Reaches, name)
+		if inbox != "" && !slices.Contains(row.Reaches, inbox) {
+			row.Reaches = append(row.Reaches, inbox)
 		}
 	}
 	isCrew := map[string]bool{}
 	for _, r := range crew {
 		isCrew[r.Name] = true
-		m.Subscribers = append(m.Subscribers, subColumn{Name: r.Name, Kind: "crew"})
+		col := subColumn{Name: r.Name, Kind: "crew"}
+		m.Subscribers = append(m.Subscribers, col)
 		for _, k := range r.On {
-			mark(onSubscription(k), r.Name, markOn, true)
+			mark(onSubscription(k), col.String(), markOn, r.Name)
 		}
 		for _, sub := range r.Subscriptions {
-			mark(sub, r.Name, markSub, true)
+			mark(sub, col.String(), markSub, r.Name)
 		}
 	}
 	for _, u := range users {
-		m.Subscribers = append(m.Subscribers, subColumn{Name: u.Name, Kind: "user"})
+		col := subColumn{Name: u.Name, Kind: "user"}
+		m.Subscribers = append(m.Subscribers, col)
 		for _, sub := range u.Subscriptions {
-			mark(sub, u.Name, markSub, true)
+			mark(sub, col.String(), markSub, u.Name)
 		}
 	}
 	for _, g := range groups {
@@ -390,9 +392,9 @@ func subscriptionMatrix(crew []store.CrewMember, users []store.User, groups []st
 		}
 		m.Subscribers = append(m.Subscribers, col)
 		for _, sub := range g.Subscriptions {
-			mark(sub, g.Name, markSub, false)
+			mark(sub, col.String(), markSub, "")
 			for _, member := range col.Reaches {
-				mark(sub, member, "via "+g.Name, true)
+				mark(sub, member, "via "+g.Name, member)
 			}
 		}
 	}
@@ -446,7 +448,7 @@ func (a *app) showSubscriptionMatrix(c *cobra.Command) error {
 		for _, row := range m.Rows {
 			cells := []string{row.Subscription.String(), strconv.Itoa(len(row.Reaches))}
 			for _, col := range m.Subscribers {
-				cells = append(cells, or(strings.Join(row.Marks[col.Name], "+"), "-"))
+				cells = append(cells, or(strings.Join(row.Marks[col.String()], "+"), "-"))
 			}
 			rows = append(rows, cells)
 		}

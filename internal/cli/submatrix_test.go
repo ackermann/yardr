@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"yardr.dev/yardr/internal/store"
 )
 
 // matrixYard is a yard with two crew members, a user (jo) and a manual
@@ -60,12 +62,12 @@ func TestSubscribeMatrix(t *testing.T) {
 		return strings.Join(out, " ")
 	}
 	for _, tc := range []struct{ sub, marks, reaches string }{
-		{"yardr all state=done", "approvers=sub clerk=via approvers jo=sub yardmaster=sub", "clerk,jo,yardmaster"},
+		{"yardr all state=done", "approvers (group)=sub clerk=via approvers jo (user)=sub yardmaster=sub", "clerk,jo,yardmaster"},
 		{"linear involved", "yardmaster=sub", "yardmaster"},
-		{"yardr all stage=approved", "approvers=sub clerk=via approvers", "clerk"},
+		{"yardr all stage=approved", "approvers (group)=sub clerk=via approvers", "clerk"},
 		{"yardr all kind=held", "clerk=on yardmaster=on+sub", "clerk,yardmaster"},
 		{"yardr all kind=gave_up", "yardmaster=on", "yardmaster"},
-		{"yardr all kind=move_refused", "jo=sub", "jo"},
+		{"yardr all kind=move_refused", "jo (user)=sub", "jo"},
 	} {
 		r := row(tc.sub)
 		if got := marks(r); got != tc.marks {
@@ -141,5 +143,29 @@ func TestSubscribeBareTakesNoFlags(t *testing.T) {
 	st := userYard(t)
 	for _, args := range [][]string{{"--done"}, {"--source", "yardr"}, {"--where", "kind=held"}, {"--scope", "all"}} {
 		refusedAs(t, st, "jo", "name who subscribes", append([]string{"subscribe"}, args...)...)
+	}
+}
+
+// A group and crew member may share a name. Their marks must stay in their
+// own columns even though the group also delivers to that crew member.
+func TestSubscribeMatrixSameNameGroupAndCrew(t *testing.T) {
+	crew := []store.CrewMember{{Name: "reviewers"}}
+	groups := []store.Group{{
+		Name: "reviewers", Runner: "manual", Members: []string{"reviewers"},
+		Subscriptions: []store.Subscription{{Source: store.SourceYardr, Scope: store.ScopeAll, Where: map[string]string{"kind": "held"}}},
+	}}
+	m := subscriptionMatrix(crew, nil, groups)
+	if len(m.Rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(m.Rows))
+	}
+	row := m.Rows[0]
+	if got := strings.Join(row.Marks["reviewers"], "+"); got != "via reviewers" {
+		t.Errorf("crew column mark = %q, want via reviewers", got)
+	}
+	if got := strings.Join(row.Marks["reviewers (group)"], "+"); got != "sub" {
+		t.Errorf("group column mark = %q, want sub", got)
+	}
+	if !slices.Equal(row.Reaches, []string{"reviewers"}) {
+		t.Errorf("reaches = %v, want [reviewers]", row.Reaches)
 	}
 }
