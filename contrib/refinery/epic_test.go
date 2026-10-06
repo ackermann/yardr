@@ -297,8 +297,8 @@ func TestEpicPushRefusesForeignRemoteCommits(t *testing.T) {
 	if !strings.Contains(notes, "did not have before the rebase") || !strings.Contains(notes, "not forced") {
 		t.Fatalf("no note on the refused push:\n%s", notes)
 	}
-	if mail := y.yardr("resident", "show", "lead"); !strings.Contains(mail, "integrator: r-e integrated at") {
-		t.Fatalf("the yardmaster was not mailed:\n%s", mail)
+	if lead := y.yardr("resident", "show", "lead"); !strings.Contains(lead, "inbox 1 unread") {
+		t.Fatalf("the yardmaster was not mailed:\n%s", lead)
 	}
 }
 
