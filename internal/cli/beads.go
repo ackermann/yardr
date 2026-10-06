@@ -56,6 +56,9 @@ func (a *app) printBeadFlow(b *store.Bead, next *store.NextStages, flowErr error
 		if b.Rig != nil {
 			fmt.Printf("  rig %s\n", *b.Rig)
 		}
+		if b.Peer != nil {
+			printBeadPeer(b)
+		}
 		if flowErr != nil {
 			fmt.Printf("  flow error: %v\n", flowErr)
 		} else if next != nil && next.Flow != nil {
@@ -81,6 +84,27 @@ func (a *app) printBeadFlow(b *store.Bead, next *store.NextStages, flowErr error
 			fmt.Printf("\n%s\n", b.Body)
 		}
 	})
+}
+
+// printBeadPeer adds to bead show's text where a bead that came from
+// another yard came from, and what stands between it and that yard: the
+// hold it arrived with, or the outcome that went back.
+func printBeadPeer(b *store.Bead) {
+	p := b.Peer
+	fmt.Printf("  %s\n", p.Line())
+	// Above the text it is about, in bead show and in a prime alike.
+	fmt.Printf("  %s\n", p.Marking())
+	if len(p.Outcomes) > 0 {
+		fmt.Printf("  that stage names the outcomes %s\n", strings.Join(p.Outcomes, ", "))
+	}
+	switch {
+	case p.ReturnedAt != nil:
+		fmt.Printf("  returned to it as %s (%s)\n", p.Outcome, p.ReturnedAt.Local().Format("01-02 15:04"))
+	case p.Held && b.Status == "open":
+		fmt.Printf("  held as it arrived: a user releases it (yardr bead unhold %s), or a resident allowed to\n", b.ID)
+	case p.ReleasedBy != "":
+		fmt.Printf("  released by %s (%s)\n", p.ReleasedBy, p.ReleasedAt.Local().Format("01-02 15:04"))
+	}
 }
 
 // printFamily adds where a bead stands among epics to bead show's text:

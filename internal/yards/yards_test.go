@@ -627,3 +627,90 @@ func TestReceiverPeerRenamedAndNameGivenAway(t *testing.T) {
 		}
 	})
 }
+
+// A bead a linked yard posts is taken under the intake the operator set:
+// answered 403 with the reason while the link does not take beads or has
+// no intake, then taken once, as a held bead of this yard.
+func TestReceiverTakesABead(t *testing.T) {
+	a, b := newYard(t), newYard(t)
+	b.add(t, "a", a, true, nil, nil)
+	ctx := context.Background()
+	if err := b.api.PutRig(ctx, store.Rig{Name: "web", Base: "origin/main"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	f, err := store.ParseFlow("arrived -> returned on done\nreturned terminal\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Name = "incoming"
+	if _, err := b.api.PutFlow(ctx, *f, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	bead := func(id string, v int) []byte {
+		body, _ := json.Marshal(map[string]any{"v": v, "bead": "web-k3f9", "stage": "build", "title": "Add the export"})
+		m, _ := json.Marshal(store.PeerMessage{ID: id, Kind: store.PeerBead, Body: body})
+		return m
+	}
+	post := func(msg []byte, want int) map[string]any {
+		t.Helper()
+		r := signed(a, b, "POST", yards.Path, msg)
+		resp, body := r.send(t, b)
+		if resp.StatusCode != want {
+			t.Fatalf("status %d (%s), want %d", resp.StatusCode, body, want)
+		}
+		if err := yardkey.VerifyResponse(b.pub(), resp.StatusCode, r.sig, resp.Header.Get(yardkey.HeaderSig), body); err != nil {
+			t.Fatalf("the %d answer is not b's: %v", resp.StatusCode, err)
+		}
+		var v map[string]any
+		if err := json.Unmarshal(body, &v); err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	beads := func() []store.Bead {
+		t.Helper()
+		bs, err := b.api.ListBeads(ctx, store.BeadFilter{All: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return bs
+	}
+	if got := post(bead("b1", 1), http.StatusForbidden); got["refused"] != "kind_not_allowed" {
+		t.Fatalf("a bead over a link that takes none = %v", got)
+	}
+	if _, err := b.api.AllowPeer(ctx, "a", store.PeerAllow{Receive: []string{"bead"}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if got := post(bead("b1", 1), http.StatusForbidden); got["refused"] != "no_intake" {
+		t.Fatalf("a bead with no intake = %v", got)
+	}
+	if _, err := b.api.SetPeerIntake(ctx, "a", &store.PeerIntake{Rig: "web", Flow: "incoming"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if got := post(bead("b0", 7), http.StatusForbidden); got["refused"] != "version" {
+		t.Fatalf("a bead of a version this yard does not know = %v", got)
+	}
+	if n := len(beads()); n != 0 {
+		t.Fatalf("%d beads after refusals only", n)
+	}
+	if got := post(bead("b1", 1), http.StatusOK); got["taken"] != true {
+		t.Fatalf("the bead with an intake = %v", got)
+	}
+	b.now = b.now.Add(time.Minute)
+	if got := post(bead("b1", 1), http.StatusOK); got["duplicate"] != true {
+		t.Fatalf("the same bead message again = %v", got)
+	}
+	if got := post(bead("b2", 1), http.StatusForbidden); got["refused"] != "already_here" {
+		t.Fatalf("the sender's bead under another message id = %v", got)
+	}
+	bs := beads()
+	if len(bs) != 1 || !bs[0].Hold || bs[0].Stage != "arrived" || bs[0].Peer == nil || bs[0].Peer.Line() != "from web-k3f9@a, for its stage build" {
+		t.Fatalf("the beads of b = %+v", bs)
+	}
+	if ev := b.events(t, "peer_bead_arrived"); len(ev) != 1 || ev[0].Data["way"] != "push" || ev[0].Data["held"] != true {
+		t.Fatalf("peer_bead_arrived = %+v", ev)
+	}
+	if got := b.rc.Rejected(); got["refused"] != 4 || got["duplicate"] != 1 {
+		t.Fatalf("rejected = %v", got)
+	}
+}

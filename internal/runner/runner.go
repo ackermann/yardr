@@ -121,6 +121,11 @@ func Brief(job dispatch.Job, actor, workdir, home string) (string, error) {
 	case bead.Type == store.TypeEpic:
 		writeEpic(&b, job)
 	}
+	// Before the text it is about: what follows was written in another
+	// yard, and is read by an agent with this yard's permissions.
+	if bead.Peer != nil {
+		fmt.Fprintf(&b, "%s\n\n", bead.Peer.Marking())
+	}
 	fmt.Fprintf(&b, "## %s\n\n%s\n\n", bead.Title, strings.TrimSpace(bead.Body))
 	advance := "- When your part is done, hand the bead to the next stage: `yardr bead advance " + bead.ID + " --to <stage>`\n"
 	ends := "Advancing, closing or holding ends your session; nothing else does."

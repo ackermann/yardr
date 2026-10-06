@@ -42,8 +42,9 @@ const MaxPeerBody = 256 << 10
 const PeerPing = "ping"
 
 // PeerKinds are the kinds of messages a link can be allowed to carry.
-// PeerMail is in peermail.go.
-var PeerKinds = []string{PeerMail, PeerPing}
+// PeerMail is in peermail.go and PeerBead, which allows the answer to a
+// bead too, in peerbeads.go.
+var PeerKinds = []string{PeerBead, PeerMail, PeerPing}
 
 // The ways a message crosses a link, as its events name them: posted by the
 // sender, or asked for by the receiver.
@@ -93,6 +94,15 @@ type Peer struct {
 	MailSince   *time.Time `json:"mail_since,omitempty"`
 	Mails       int        `json:"mails,omitempty"`
 	MailLimited bool       `json:"mail_limited,omitempty"`
+	// Intake is where the beads it sends go; nil, and each is refused
+	// (peerbeads.go). Build is the yardr its last bead said it runs: its
+	// own word, kept to show the operator.
+	Intake *PeerIntake `json:"intake,omitempty"`
+	Build  string      `json:"build,omitempty"`
+	// Beads counts the open beads that came from it, on a peer read by its
+	// name (GetPeer): a listing, which the daemon asks for on every pass,
+	// does not count them. Read only.
+	Beads int `json:"beads"`
 	// Waiting and Failed count the outbox for it, and Error is what the
 	// last try of its oldest waiting message said. Read only.
 	Waiting int    `json:"waiting"`
@@ -166,7 +176,7 @@ type PeerTaken struct {
 	Duplicate bool `json:"duplicate,omitempty"`
 	// Refused is why the message was not taken ("" when it was): the link
 	// does not carry its kind this way (RefusedKind), or one of the reasons
-	// mail is refused for (peermail.go).
+	// mail (peermail.go) or a bead (peerbeads.go) is refused for.
 	Refused string `json:"refused,omitempty"`
 }
 
@@ -306,7 +316,10 @@ func (s *Store) GetPeer(ctx context.Context, name string) (*Peer, error) {
 		if p, err = loadPeer(tx, name); err != nil {
 			return err
 		}
-		return outboxOf(tx, p)
+		if err := outboxOf(tx, p); err != nil {
+			return err
+		}
+		return beadsOf(tx, p)
 	})
 	if err != nil {
 		return nil, err
@@ -336,7 +349,8 @@ func (s *Store) PeerByKey(ctx context.Context, key string) (*Peer, error) {
 // to it. What waited for it is dropped, and peer_removed says how many.
 func (s *Store) DeletePeer(ctx context.Context, name, actor string) error {
 	return s.write(func(w *wtx) error {
-		if _, err := loadPeer(w.Tx, name); err != nil {
+		p, err := loadPeer(w.Tx, name)
+		if err != nil {
 			return err
 		}
 		if err := w.Bucket(bPeers).Delete([]byte(name)); err != nil {
@@ -357,12 +371,25 @@ func (s *Store) DeletePeer(ctx context.Context, name, actor string) error {
 				return err
 			}
 		}
-		// And no resident may mail it: whoever is added under the name
-		// next is another yard, which the operator has not allowed anyone.
-		if lost, err := dropMailPeer(w.Tx, name); err != nil {
+		// And no resident may mail it, or release its beads: whoever is
+		// added under the name next is another yard, which the operator
+		// has not allowed anyone.
+		lost, err := dropPeerSettings(w.Tx, name)
+		if err != nil {
 			return err
-		} else if len(lost) > 0 {
-			data["residents"] = lost
+		}
+		if len(lost[MailPeers]) > 0 {
+			data["residents"] = lost[MailPeers]
+		}
+		if len(lost[ReleasePeers]) > 0 {
+			data["releasers"] = lost[ReleasePeers]
+		}
+		// The beads it sent stay, and say whose they were; nothing is
+		// returned for them.
+		if n, err := unlinkPeerBeads(w.Tx, p); err != nil {
+			return err
+		} else if n > 0 {
+			data["beads"] = n
 		}
 		return w.event("", "peer_removed", actor, data)
 	})
@@ -419,7 +446,7 @@ func peerEvent(peer string, m PeerMessage, extra map[string]any) map[string]any 
 // queue puts m in the outbox for p, or logs it as refused when the link
 // does not carry its kind out, and says which.
 func (w *wtx) queuePeer(p *Peer, m PeerMessage, actor string) (*PeerOut, error) {
-	if !slices.Contains(p.Send, m.Kind) {
+	if !p.carries(m.Kind, false) {
 		return nil, w.event("", "peer_message_refused", actor, peerEvent(p.Name, m, map[string]any{"direction": "out", "reason": RefusedKind}))
 	}
 	seq, err := w.Bucket(bPeerOut).NextSequence()
@@ -436,9 +463,14 @@ func (w *wtx) queuePeer(p *Peer, m PeerMessage, actor string) (*PeerOut, error) 
 // the link does not carry out is refused, and logged as
 // peer_message_refused.
 func (s *Store) PeerSend(ctx context.Context, name, kind string, body json.RawMessage, actor string) (*PeerOut, error) {
-	if kind == PeerMail {
+	switch kind {
+	case PeerMail:
 		// MailPeer is what checks that the sender may mail the peer.
 		return nil, fmt.Errorf("mail goes to a peer's resident with yardr mail <resident>@%s", name)
+	case PeerBead, PeerBeadReturn:
+		// Either would be a word about a bead from whoever can reach the
+		// socket: the yard says both itself, from its own beads.
+		return nil, fmt.Errorf("a %s message is the yard's own to send: a bead goes to %s by the stage it is in, and comes back when its flow there ends", kind, name)
 	}
 	if len(body) == 0 {
 		body = json.RawMessage("{}")
@@ -636,11 +668,14 @@ func (s *Store) PeerHandOver(ctx context.Context, name, key string, after uint64
 // and logged, and every other is logged as peer_message_received. What is
 // no message at all fails a post whole, and is passed by in a pull. A ping is
 // answered here, in the same write, with a pong in the outbox for the peer,
-// and mail is put in its resident's inbox, or refused (takeMail). No other
-// body is kept: what a peer sends is data.
+// and mail is put in its resident's inbox, or refused (checkMail). A bead
+// becomes a bead of this yard, or is refused (checkBead); repo is what
+// that needs of its intake's rig (intakeRepo). No other body is kept: what
+// a peer sends is data.
 //
-// It changes p (the count of its mail), which the caller saves.
-func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string) ([]PeerTaken, error) {
+// It changes p (the count of its mail, the build a bead names), which the
+// caller saves.
+func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string, repo *RepoFlows) ([]PeerTaken, error) {
 	out := make([]PeerTaken, 0, len(msgs))
 	actor := "peer:" + p.Name
 	seen := w.Bucket(bPeerSeen)
@@ -664,20 +699,25 @@ func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string) ([]PeerTaken,
 		switch {
 		case seen.Get(key) != nil:
 			t.Duplicate = true
-		case !slices.Contains(p.Receive, m.Kind):
+		case !p.carries(m.Kind, true):
 			t.Refused = RefusedKind
 			if err := w.event("", "peer_message_refused", actor, peerEvent(p.Name, m, map[string]any{"direction": "in", "reason": t.Refused, "way": way})); err != nil {
 				return nil, err
 			}
 		default:
 			var mail *peerMail
-			if m.Kind == PeerMail {
-				var err error
-				if mail, t.Refused, err = w.checkMail(p, m, way); err != nil {
-					return nil, err
-				} else if t.Refused != "" {
-					break
-				}
+			var bead *arrival
+			var err error
+			switch m.Kind {
+			case PeerMail:
+				mail, t.Refused, err = w.checkMail(p, m, way)
+			case PeerBead:
+				bead, t.Refused, err = w.checkBead(p, m, way, repo)
+			}
+			if err != nil {
+				return nil, err
+			} else if t.Refused != "" {
+				break
 			}
 			at := make([]byte, 8)
 			binary.BigEndian.PutUint64(at, uint64(now().Unix()))
@@ -700,6 +740,11 @@ func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string) ([]PeerTaken,
 					return nil, err
 				}
 			}
+			if bead != nil {
+				if err := w.arriveBead(p, m, bead, way); err != nil {
+					return nil, err
+				}
+			}
 		}
 		out = append(out, t)
 	}
@@ -712,12 +757,13 @@ func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string) ([]PeerTaken,
 // has checked whose they are, so no client can hand in one of its own.
 func (s *Store) PeerReceive(ctx context.Context, name, key string, msgs []PeerMessage) ([]PeerTaken, error) {
 	var out []PeerTaken
+	repo := s.intakeRepo(ctx, name, msgs)
 	err := s.write(func(w *wtx) error {
 		p, err := loadPeerOf(w.Tx, name, key)
 		if err != nil {
 			return err
 		}
-		if out, err = w.receivePeer(p, msgs, PeerPush); err != nil {
+		if out, err = w.receivePeer(p, msgs, PeerPush, repo); err != nil {
 			return err
 		}
 		return put(w.Tx, bPeers, name, p)
@@ -773,6 +819,7 @@ func (s *Store) PeerPulled(ctx context.Context, name string, b PeerBatch) (*Peer
 	if len(page.Messages) == 0 && !told {
 		return res, nil
 	}
+	repo := s.intakeRepo(ctx, name, page.Messages)
 	err = s.write(func(w *wtx) error {
 		// Checked again in the write: the peer may have been removed, or
 		// added anew with another key, between the two.
@@ -780,7 +827,7 @@ func (s *Store) PeerPulled(ctx context.Context, name string, b PeerBatch) (*Peer
 		if err != nil {
 			return err
 		}
-		if res.Taken, err = w.receivePeer(p, page.Messages, PeerPull); err != nil {
+		if res.Taken, err = w.receivePeer(p, page.Messages, PeerPull, repo); err != nil {
 			return err
 		}
 		for _, seq := range b.Told {

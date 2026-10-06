@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -14,8 +13,9 @@ import (
 // A peer's name is this yard's own label for the link (docs/peers.md): the
 // other yard is known by its key and hears nothing of the name. So the name
 // can change, and everything this yard keys by it moves in the write that
-// changes it: the record, the outbox, the ids taken, and every resident's
-// MailPeers.
+// changes it: the record, the outbox, the ids taken, every resident
+// setting that names peers (peerSettings), and the label of the open beads
+// it sent.
 //
 // The event log is not rewritten: an event keeps the name the peer had
 // when it was logged. The peer's record says which names it had and until
@@ -137,12 +137,21 @@ func (s *Store) RenamePeer(ctx context.Context, name, to, actor string) (*Peer, 
 				return err
 			}
 		}
-		residents, err := renameMailPeer(w.Tx, name, to)
+		had, err := renamePeerSettings(w.Tx, name, to)
 		if err != nil {
 			return err
 		}
+		residents := had[MailPeers]
 		if len(residents) > 0 {
 			data["residents"] = residents
+		}
+		if len(had[ReleasePeers]) > 0 {
+			data["releasers"] = had[ReleasePeers]
+		}
+		// The beads it sent say where they came from by its key, so their
+		// line follows unasked; their label is a name, and is changed.
+		if err := w.relabelPeerBeads(p, name, to, actor); err != nil {
+			return err
 		}
 		if err := w.event("", "peer_renamed", actor, data); err != nil {
 			return err
@@ -167,33 +176,6 @@ func (s *Store) RenamePeer(ctx context.Context, name, to, actor string) (*Peer, 
 		return nil, err
 	}
 	return p, nil
-}
-
-// renameMailPeer puts the peer's new name in place of the old in every
-// resident's MailPeers, and returns the residents that had it. It is the
-// grant they had, for the yard they had it for, so nobody is asked.
-func renameMailPeer(tx *bolt.Tx, name, to string) ([]string, error) {
-	var had []Resident
-	err := each(tx, bResidents, "", func(_ []byte, r *Resident) error {
-		if slices.Contains(r.MayMail(), name) {
-			had = append(had, *r)
-		}
-		return nil
-	})
-	names := []string{}
-	for _, r := range had {
-		if err != nil {
-			break
-		}
-		may := r.MayMail()
-		may[slices.Index(may, name)] = to
-		slices.Sort(may)
-		r.Config[MailPeers] = strings.Join(may, ",")
-		r.Revision = newRevision()
-		names = append(names, r.Name)
-		err = put(tx, bResidents, r.Name, r)
-	}
-	return names, err
 }
 
 // peersToday gives mail from another yard in evs the name its peer has

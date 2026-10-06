@@ -45,6 +45,11 @@ type Bead struct {
 	// derived from the parent edges, never stored; "" for no epic, and on a
 	// bead returned by anything other than a listing.
 	Epic string `json:"epic,omitempty"`
+	// Peer is the bead's counterpart in a linked yard, for a bead that came
+	// from one (peerbeads.go): read from its record where a bead is read
+	// (GetBead and the listings), never stored on the bead, and nil on a
+	// bead returned by a write.
+	Peer *BeadPeer `json:"peer,omitempty"`
 }
 
 // beadRow is what the beads bucket holds: the bead plus bookkeeping that is
@@ -146,7 +151,7 @@ func (w *wtx) mintBead(row *beadRow, actor string) error {
 	row.Revision = newRevision()
 	row.UpdatedAt = now()
 	row.LastActor = actor
-	row.Epic = "" // derived on listing, never stored
+	row.Epic, row.Peer = "", nil // derived on reading, never stored
 	return put(w.Tx, bBeads, row.UUID, row)
 }
 
@@ -303,10 +308,11 @@ func (s *Store) GetBead(ctx context.Context, ref string) (*Bead, error) {
 	var b *Bead
 	err := s.read(func(tx *bolt.Tx) error {
 		row, err := loadBead(tx, ref)
-		if err == nil {
-			b = &row.Bead
+		if err != nil {
+			return err
 		}
-		return err
+		b = &row.Bead
+		return withPeer(tx, b)
 	})
 	return b, err
 }
@@ -432,6 +438,9 @@ func (s *Store) beadsWhere(match func(*bolt.Tx, *Bead) bool) ([]Bead, error) {
 	err := s.read(func(tx *bolt.Tx) error {
 		return each(tx, bBeads, "", func(_ []byte, r *beadRow) error {
 			r.Epic = epicOf(tx, r.UUID)
+			if err := withPeer(tx, &r.Bead); err != nil {
+				return err
+			}
 			if match(tx, &r.Bead) {
 				out = append(out, r.Bead)
 			}
@@ -663,7 +672,7 @@ func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor 
 				return err
 			}
 		}
-		var stage string
+		var stage, outcome string
 		var terminal bool
 		b, err := w.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
 			f, _, err := resolveFlow(w.Tx, b.Rig, b.Type, PinnedFlow(&b.Bead), repo)
@@ -675,6 +684,7 @@ func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor 
 				return "", nil, refuse(RefusedNotAllowed, err)
 			}
 			data["to"] = stage
+			outcome, _ = data["outcome"].(string)
 			if err := checkPart(w.Tx, f, b, stage); err != nil {
 				return "", nil, refuse(RefusedNotAllowed, err)
 			}
@@ -696,21 +706,34 @@ func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor 
 		if err != nil || !terminal {
 			return err
 		}
-		result, err = w.changeBead(b.UUID, actor, closeWith(stage))
-		return err
+		if result, err = w.changeBead(b.UUID, actor, closeWith(stage)); err != nil {
+			return err
+		}
+		// A bead of another yard's ends here: what its flow came to goes
+		// back in this write. A move that named no outcome is told by the
+		// stage it ended in.
+		return w.returnPeerBead(result, or(outcome, stage), nil, actor)
 	})
 	return result, err
 }
 
 // CloseBead closes the bead, ending its session. A stale exp refuses it
-// (see Expect).
+// (see Expect). A bead that came from another yard is returned to it as
+// refused, with the reason: it left its flow without an outcome of it.
 func (s *Store) CloseBead(ctx context.Context, id, reason string, exp Expect, actor string) (*Bead, error) {
 	close := closeWith(reason)
-	b, err := s.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
-		if err := w.check(ctx, exp, b); err != nil {
-			return "", nil, err
+	var b *Bead
+	err := s.write(func(w *wtx) (err error) {
+		b, err = w.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
+			if err := w.check(ctx, exp, b); err != nil {
+				return "", nil, err
+			}
+			return close(w, b)
+		})
+		if err != nil || b.Status != "closed" {
+			return err
 		}
-		return close(w, b)
+		return w.returnPeerBead(b, OutcomeRefused, &reason, actor)
 	})
 	return b, s.refused(ctx, id, "yardr bead close "+id, exp, actor, err)
 }
@@ -865,20 +888,29 @@ func (s *Store) Reopen(ctx context.Context, id string, exp Expect, actor string)
 // a held bead waits on a human, and a session kept for it would only hold a
 // slot other beads could use. Unholding routes it again from its stage with
 // fresh attempts (its failure count starts over). A stale exp refuses it
-// (see Expect).
+// (see Expect), and a bead that arrived held from another yard is released
+// only by who may (releasePeerBead).
 func (s *Store) SetHold(ctx context.Context, id string, hold bool, exp Expect, actor string) (*Bead, error) {
 	b, err := s.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
 		if err := w.check(ctx, exp, b); err != nil {
 			return "", nil, err
 		}
-		b.Hold = hold
 		if hold {
+			b.Hold = true
 			var data map[string]any
 			if b.Session != nil {
 				data = map[string]any{"session": *b.Session}
 			}
 			return "held", data, w.endSession(b, "held")
 		}
+		// A bead held as it arrived from another yard is not everyone's to
+		// release.
+		if b.Hold {
+			if err := w.releasePeerBead(ctx, exp, b, actor); err != nil {
+				return "", nil, err
+			}
+		}
+		b.Hold = false
 		b.Failures = 0
 		return "unheld", nil, nil
 	})

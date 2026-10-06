@@ -8,8 +8,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-
-	bolt "go.etcd.io/bbolt"
 )
 
 // Mail between residents of two linked yards (docs/peers.md) is a message
@@ -57,15 +55,32 @@ const (
 func PeerRefusal(kind, reason string) string {
 	switch reason {
 	case RefusedKind:
+		if kind == PeerBeadReturn {
+			// No kind of its own to allow: it goes with the bead's.
+			return "its link sends this yard no beads, so it takes no return of one"
+		}
 		return fmt.Sprintf("its link does not carry %s in", kind)
 	case RefusedNoResident:
 		return "it has no such resident"
 	case RefusedTooLarge:
+		if kind == PeerBead {
+			return "the bead is larger than it takes"
+		}
 		return "the text is larger than it takes"
 	case RefusedRate:
 		return "it has taken as much mail from this yard as it takes in an hour"
 	case RefusedNotMail:
 		return "it does not read the mail"
+	case RefusedNoIntake:
+		return "it has no intake for this yard's beads"
+	case RefusedBusy:
+		return "it has as many open beads of this yard as it keeps"
+	case RefusedAlreadyHere:
+		return "it has the bead already, open"
+	case RefusedVersion:
+		return "it does not know this version of the message"
+	case RefusedNotBead:
+		return "it does not read the bead"
 	}
 	return "it does not say why in words this yard knows"
 }
@@ -208,30 +223,4 @@ func (w *wtx) undelivered(m *PeerOut, reason string) error {
 	reason = strings.TrimPrefix(reason, "peer "+m.Peer+": ")
 	return w.event("", "mail", "yard", map[string]any{"to": mail.From, "undelivered": m.ID,
 		"text": fmt.Sprintf("your mail to %s@%s of %s was not delivered: %s", mail.To, m.Peer, m.At.Local().Format("01-02 15:04"), reason)})
-}
-
-// dropMailPeer takes the peer out of every resident's MailPeers, and
-// returns the residents that had it.
-func dropMailPeer(tx *bolt.Tx, peer string) ([]string, error) {
-	var had []Resident
-	err := each(tx, bResidents, "", func(_ []byte, r *Resident) error {
-		if slices.Contains(r.MayMail(), peer) {
-			had = append(had, *r)
-		}
-		return nil
-	})
-	names := []string{}
-	for _, r := range had {
-		if err != nil {
-			break
-		}
-		rest := slices.DeleteFunc(r.MayMail(), func(p string) bool { return p == peer })
-		if delete(r.Config, MailPeers); len(rest) > 0 {
-			r.Config[MailPeers] = strings.Join(rest, ",")
-		}
-		r.Revision = newRevision()
-		names = append(names, r.Name)
-		err = put(tx, bResidents, r.Name, r)
-	}
-	return names, err
 }

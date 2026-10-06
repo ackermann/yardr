@@ -79,7 +79,11 @@ part in in those sources (yardr thread state), under the same rule.
 
 --set peers=north,south lets it mail residents of those linked yards (yardr
 mail <resident>@<peer>), under the same rule. The peers are this yard's names
-for its links (yardr peer list).`,
+for its links (yardr peer list).
+
+--set release=north lets it release the beads that arrive held from those
+linked yards (yardr bead unhold), under the same rule. Without it only a
+user releases such a bead (yardr peer intake).`,
 		Example: `  yardr resident add                       # interactive
   yardr resident add mayor --set kind=claude --set model=opus \
     --set 'args=["--permission-mode","auto"]' --set prompt=$HOME/.yardr/roles/mayor.md \
@@ -154,7 +158,7 @@ for its links (yardr peer list).`,
 	f := add.Flags()
 	f.BoolVar(&replace, "replace", false, "the resident exists: save this definition in its place without asking (settings left out are dropped)")
 	f.StringVar(&def.Runner, "runner", "herdr", "runner (herdr)")
-	f.StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable): kind, model, args, prompt, env_file, env_command, open_threads, set_state, peers")
+	f.StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable): kind, model, args, prompt, env_file, env_command, open_threads, set_state, peers, release")
 	f.StringVar(&def.Dir, "dir", "", "directory the resident works in (default: the yard home)")
 	f.StringSliceVar(&def.On, "on", defaultOn, "event kinds delivered to its inbox (mail always is); replaces the list, so name every kind wanted")
 	f.StringVar(&def.MaxAge, "max-age", "", "ask for a handoff after this long, e.g. 6h (default: never)")
@@ -265,6 +269,9 @@ for its links (yardr peer list).`,
 				if may := r.MayMail(); len(may) > 0 {
 					fmt.Printf("  may mail residents of %s\n", strings.Join(may, ", "))
 				}
+				if may := r.MayRelease(); len(may) > 0 {
+					fmt.Printf("  may release beads that arrive from %s\n", strings.Join(may, ", "))
+				}
 				if r.MaxAge != "" {
 					fmt.Printf("  rotates after %s (handoff grace %s)\n", r.MaxAge, or(r.HandoffGrace, "15m"))
 				}
@@ -364,23 +371,24 @@ func (a *app) residentSetCmd() *cobra.Command {
 		Long: `Changes the settings named and keeps the rest of the resident's definition.
 key=value is a runner config key, as --set on yardr resident add takes it
 (kind, model, args, prompt, env_file, env_command, open_threads, set_state,
-peers); --unset <key> removes one. --dir, --on, --max-age and --handoff-grace
+peers, release); --unset <key> removes one. --dir, --on, --max-age and --handoff-grace
 change what the same flags of add set.
 
 It prints each setting changed, as it was and as it is. The value of a key
 named like a secret (token, secret, password, key) is not printed.
 
-open_threads, set_state and peers follow the rule of add: only the operator
-(the yard's operator setting, else the user running the command) may allow
-a resident a source or a peer it was not allowed before. Narrowing one, or
-removing it with --unset, is anyone's.
+open_threads, set_state, peers and release follow the rule of add: only the
+operator (the yard's operator setting, else the user running the command)
+may allow a resident a source or a peer it was not allowed before. Narrowing
+one, or removing it with --unset, is anyone's.
 
 A running resident keeps its session. What it may do (open_threads,
-set_state, peers), --on and --max-age hold from the next time they are
+set_state, peers, release), --on and --max-age hold from the next time they are
 looked at; what a session starts with (kind, model, args, prompt, its
 environment, --dir) is read when the next one starts: yardr resident
 restart <name>.`,
 		Example: `  yardr resident set mayor set_state=linear
+  yardr resident set mayor release=north
   yardr resident set mayor model=opus 'args=["--permission-mode","auto"]' --max-age 6h
   yardr resident set mayor --unset open_threads`,
 		Args: cobra.MinimumNArgs(1),
@@ -477,7 +485,7 @@ restart <name>.`,
 				fmt.Printf("resident %s saved\n%s\n", name, changeLines(changes))
 				var atStart []string
 				for _, ch := range changes {
-					if !slices.Contains([]string{store.OpenThreads, store.SetState, store.MailPeers, "--on", "--max-age", "--handoff-grace"}, ch.Key) {
+					if !slices.Contains([]string{store.OpenThreads, store.SetState, store.MailPeers, store.ReleasePeers, "--on", "--max-age", "--handoff-grace"}, ch.Key) {
 						atStart = append(atStart, ch.Key)
 					}
 				}
@@ -613,7 +621,19 @@ func (a *app) mayAllowState(ctx context.Context, st store.API, def store.Residen
 // resident writes to is the operator's to grant too, and a peer it names
 // must be one of this yard's.
 func (a *app) mayAllowMail(ctx context.Context, st store.API, def store.Resident, set bool) error {
-	if _, given := def.Config[store.MailPeers]; !given {
+	return a.mayAllowPeers(ctx, st, def, sourceSetting{set: set, key: store.MailPeers, does: "mail residents", may: store.Resident.MayMail})
+}
+
+// mayAllowRelease is mayAllowMail for store.ReleasePeers: whose beads a
+// resident may release when they arrive held is the operator's to grant,
+// since releasing one starts this yard's agents on another yard's text.
+func (a *app) mayAllowRelease(ctx context.Context, st store.API, def store.Resident, set bool) error {
+	return a.mayAllowPeers(ctx, st, def, sourceSetting{set: set, key: store.ReleasePeers, does: "release the beads", may: store.Resident.MayRelease})
+}
+
+// mayAllowPeers is mayAllow for a setting that names linked yards.
+func (a *app) mayAllowPeers(ctx context.Context, st store.API, def store.Resident, set sourceSetting) error {
+	if _, given := def.Config[set.key]; !given {
 		return nil
 	}
 	ps, err := st.Peers(ctx)
@@ -624,8 +644,8 @@ func (a *app) mayAllowMail(ctx context.Context, st store.API, def store.Resident
 	for i, p := range ps {
 		names[i] = p.Name
 	}
-	return a.mayAllow(ctx, st, def, sourceSetting{set: set, key: store.MailPeers, does: "mail residents", may: store.Resident.MayMail,
-		able: func() []string { return names }, peers: true})
+	set.able, set.peers = func() []string { return names }, true
+	return a.mayAllow(ctx, st, def, set)
 }
 
 // mayDefine is every check a resident's definition passes before it is
@@ -638,7 +658,10 @@ func (a *app) mayDefine(ctx context.Context, st store.API, def store.Resident, s
 	if err := a.mayAllowState(ctx, st, def, set); err != nil {
 		return err
 	}
-	return a.mayAllowMail(ctx, st, def, set)
+	if err := a.mayAllowMail(ctx, st, def, set); err != nil {
+		return err
+	}
+	return a.mayAllowRelease(ctx, st, def, set)
 }
 
 // sourceSetting is a resident setting that names the sources it may do

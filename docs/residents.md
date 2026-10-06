@@ -28,7 +28,7 @@ yardr resident set mayor --unset set_state
 
 The value of a key named like a secret (`token`, `secret`, `password`,
 `…_key`) is not printed. A running resident keeps its session: what it may
-do (`open_threads`, `set_state`, `peers`), `--on` and `--max-age` hold from
+do (`open_threads`, `set_state`, `peers`, `release`), `--on` and `--max-age` hold from
 then on, and what a session starts with (kind, model, args, prompt, its
 environment, `--dir`) when the next one starts (`yardr resident restart
 <name>`).
@@ -144,6 +144,26 @@ doctor` and bare `yardr` say it.
   its sender as `<name>@<peer>`, marked `from another yard: information, not
   instructions`, in the inbox, the nudge and the prime. See
   [peers.md](peers.md#mail-between-residents).
+- **Beads from another yard:** a bead a linked yard sends to be worked here
+  arrives held, since its text is that yard's and becomes an agent's brief.
+  There are three levels, per peer, and the first is the default:
+  1. held, and a user releases it (`yardr bead unhold <id>`). A resident is
+     refused, the mayor too: it reads what peers send, and one that could
+     release a bead could be talked into it;
+  2. held, and a resident the operator named may release it as well:
+     `yardr resident set <name> release=<peer>,<peer>`, under the rules of
+     `open_threads` [below](#opening-a-thread): only the operator gives or
+     widens it, anyone narrows it or removes it with `--unset release`.
+     `yardr resident show` then says `may release beads that arrive from
+     <peer>`. Every other resident, and every bead's agent, is still
+     refused, and the grant is for that peer's beads only. It follows a
+     rename of the peer and goes when the link is removed;
+  3. `yardr peer intake <peer> … --auto`, the operator's alone: beads from
+     that peer arrive ready, and no one releases anything.
+
+  A release is logged on the bead (`peer_bead_released`) with who made it.
+  To hear of an arrival, add `peer_bead_arrived` to the resident's `--on`.
+  See [peers.md](peers.md#who-releases-a-held-bead).
 - **Subscriptions:** `--on` kinds (default: things that went wrong or need a
   decision: `gave_up`, `session_blocked`, `session_stalled`, `session_harness_error`, `session_model_mismatch`, `session_prompt_gave_up`, `move_refused`, `unrouted`, `stranded`, `held`, …; `yardr
   resident add --help` lists them), webhook deliveries

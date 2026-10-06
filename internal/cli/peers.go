@@ -41,6 +41,9 @@ The way by hand, when no code can be passed, or for scripts:
   yardr peer allow <name> --send ping --receive ping
   yardr peer ping <name>               prove the link, both ways
   yardr peer rename <old> <new>        change the name this yard has for a link
+  yardr peer intake <name> --rig <rig> --flow <flow>
+                                       where the beads it sends go (with
+                                       yardr peer allow <name> --receive bead)
 
 The other yard's requests come in on the server's hook listener, under
 /peers/, beside /hooks/ (yardr settings set hook_addr <host:port>): a yard
@@ -238,6 +241,12 @@ remove the peer first to replace it.`,
 				}
 				fmt.Printf("  send     %s\n", or(strings.Join(p.Send, ", "), "nothing"))
 				fmt.Printf("  receive  %s\n", or(strings.Join(p.Receive, ", "), "nothing"))
+				if line := intakeLine(*p); line != "" {
+					fmt.Printf("  intake   %s\n", line)
+				}
+				if p.Build != "" {
+					fmt.Printf("  build    yardr %s, as its last bead said\n", p.Build)
+				}
 				fmt.Printf("  incoming %s\n", in)
 				if p.Failed > 0 {
 					fmt.Printf("  %d messages for it were given up (peer_message_failed in yardr events)\n", p.Failed)
@@ -260,7 +269,10 @@ remove the peer first to replace it.`,
 		Use: "rm <name>", Short: "Remove a peer: nothing more is taken from it or sent to it", Args: cobra.ExactArgs(1),
 		Long: `Removes the link on this side. What waited for the peer is dropped. The other
 yard still has this one as a peer until its operator removes it there; its
-requests are refused here from now on.`,
+requests are refused here from now on.
+
+The beads it sent stay as they are, and say that their link is removed: an
+open one is still worked or closed here, and nothing is returned for it.`,
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -283,7 +295,10 @@ Everything that names the peer follows, in the same write:
   - mail that waits for it is delivered, and what was taken from it is still
     known as taken;
   - a resident that may mail it (its peers setting) may still, under the new
-    name, and is told of it by mail from the yard;
+    name, and is told of it by mail from the yard; one that may release its
+    beads (its release setting) may still;
+  - a bead it sent says it came from <new> (yardr bead show), and an open
+    one is labelled from-<new>;
   - yardr inbox shows mail it sent before as from <name>@<new>, and yardr mail
     --with <name>@<new> prints the mail from before and after as one
     conversation.
@@ -348,9 +363,16 @@ comes in is answered 403 and logged (peer_message_refused). The kinds:
   mail   yardr mail <resident>@<peer>: mail between residents of the two
          yards. --send lets this yard's residents write (each needs the peer
          in its peers setting too), --receive puts the peer's mail in the
-         inbox of the resident it names.`,
+         inbox of the resident it names.
+  bead   a bead of one yard worked by the other. --receive lets this yard
+         take the peer's beads, each as a bead of its own, and send back how
+         it ended; where they go is yardr peer intake, and without one each
+         is refused. --send lets this yard send the peer beads and take
+         what comes back. One word covers the bead and its answer, so a yard
+         that only receives can be sent work and can send none.`,
 		Example: `  yardr peer allow north --send ping --receive ping
   yardr peer allow north --send mail --receive mail
+  yardr peer allow north --receive bead
   yardr peer allow north --no-receive ping`,
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()
@@ -409,8 +431,108 @@ both yards must allow ping both ways.`,
 	}
 	ping.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "how long to wait for the pong")
 
-	cmd.AddCommand(a.pairCmd(), key, invite, add, list, show, rm, rename, allow, ping)
+	cmd.AddCommand(a.pairCmd(), key, invite, add, list, show, rm, rename, allow, a.peerIntakeCmd(), ping)
 	return cmd
+}
+
+func (a *app) peerIntakeCmd() *cobra.Command {
+	var in store.PeerIntake
+	var none bool
+	cmd := &cobra.Command{
+		Use: "intake <name>", Short: "Say where the beads a peer sends go: the rig and the flow", Args: cobra.ExactArgs(1),
+		Long: `A linked yard can send this one a bead to work (yardr peer allow <name>
+--receive bead). The intake says where such a bead goes: it becomes a bead of
+this yard in --rig, pinned to --flow, in that flow's first stage, labelled
+from-<name>. When the flow ends it (a terminal stage), the outcome and the
+notes written here go back. Without an intake every bead the peer sends is
+refused (no_intake).
+
+The flow is this yard's choice, never the sender's: a flow of the store
+(yardr flow add) or of the rig's repository. What stands between arrival and
+the end is its shape: a first stage a person works, or one routed to builders.
+
+A bead arrives held: its text is another yard's, and it becomes the brief of
+an agent that runs with this yard's permissions. Three levels, per peer:
+  - held, and a user releases it with yardr bead unhold (the default);
+  - held, and a resident the operator named may release it too
+    (yardr resident set <resident> release=<name>);
+  - --auto: it arrives ready, and the flow's routes start on it unseen. That
+    lets the operator of the other yard start agents here.
+
+--limit is how many open beads from the peer this yard keeps at once (10
+unless set): the next is refused (busy) until one ends.
+
+Only the operator may set an intake, as only the operator allows what a link
+carries. --none removes it, which anyone may. Refused when the rig is none
+of the yard's or the flow does not resolve for it.`,
+		Example: `  yardr peer allow north --receive bead
+  yardr peer intake north --rig web --flow incoming
+  yardr peer intake north --rig web --flow incoming --auto
+  yardr peer intake north --none`,
+		RunE: func(c *cobra.Command, args []string) error {
+			ctx := c.Context()
+			set := in.Rig != "" || in.Flow != "" || in.Auto || c.Flags().Changed("limit")
+			switch {
+			case none && set:
+				return errors.New("--none removes the intake: it goes with no other flag")
+			case !none && (in.Rig == "" || in.Flow == ""):
+				return errors.New("say where its beads go: --rig <rig> --flow <flow> (--auto to let them arrive ready), or --none")
+			case c.Flags().Changed("limit") && in.Limit < 1:
+				return errors.New("--limit: a number of open beads, at least 1")
+			}
+			st, err := a.store(ctx)
+			if err != nil {
+				return err
+			}
+			var want *store.PeerIntake
+			if !none {
+				if err := a.operatorOnly(ctx, st, "say where a peer's beads go"); err != nil {
+					return err
+				}
+				want = &in
+			}
+			p, err := st.SetPeerIntake(ctx, args[0], want, a.who())
+			if err != nil {
+				return err
+			}
+			return a.out(p, func() {
+				if p.Intake == nil {
+					fmt.Printf("peer %s: no intake; a bead it sends is refused\n", p.Name)
+					return
+				}
+				fmt.Printf("peer %s: %s\n", p.Name, intakeLine(*p))
+			})
+		},
+	}
+	f := cmd.Flags()
+	f.StringVar(&in.Rig, "rig", "", "the rig its beads become beads of")
+	f.StringVar(&in.Flow, "flow", "", "the flow each is pinned to, and starts in the first stage of")
+	f.BoolVar(&in.Auto, "auto", false, "let its beads arrive ready, not held: the other yard's operator can then start agents here")
+	f.IntVar(&in.Limit, "limit", 0, fmt.Sprintf("open beads from it this yard keeps at once (default %d)", store.PeerIntakeLimit))
+	f.BoolVar(&none, "none", false, "remove the intake: every bead it sends is refused")
+	return cmd
+}
+
+// intakeLine says where a peer's beads go and how they arrive, or that
+// they are refused when the link takes them and no intake says where; ""
+// when the link takes none and nothing is set.
+func intakeLine(p store.Peer) string {
+	takes := slices.Contains(p.Receive, store.PeerBead)
+	if p.Intake == nil {
+		if !takes {
+			return ""
+		}
+		return fmt.Sprintf("none: a bead it sends is refused (yardr peer intake %s --rig <rig> --flow <flow>)", p.Name)
+	}
+	how := fmt.Sprintf("its beads arrive held, for a user to release (yardr bead unhold), or a resident with release=%s", p.Name)
+	if p.Intake.Auto {
+		how = "its beads arrive ready (--auto): the flow's routes start on them unseen"
+	}
+	line := fmt.Sprintf("rig %s, flow %s: %s; at most %d open, %d now", p.Intake.Rig, p.Intake.Flow, how, p.Intake.Most(), p.Beads)
+	if !takes {
+		line += fmt.Sprintf(". The link does not take its beads yet: yardr peer allow %s --receive bead", p.Name)
+	}
+	return line
 }
 
 // invite is this yard's invite: its name, its public key (made now if it

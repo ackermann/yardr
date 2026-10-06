@@ -11,7 +11,13 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// schemaVersion 5 has peers that can be renamed: a peer's record holds the
+// schemaVersion 6 has peers that send beads: a peer's record holds the
+// intake its operator set for them (PeerIntake), which a build before it
+// would drop from a record it rewrites, as it does with every message it
+// takes from the peer. The beads would then be refused until the operator
+// noticed. Nothing is migrated: the records of the beads themselves are in
+// a bucket of their own (peer_beads), which an older build never opens.
+// Version 5 has peers that can be renamed: a peer's record holds the
 // names it had and the event it was added after (migratePeerSince), which
 // a build before it would drop from a record it rewrites, and with them
 // the mail from before a rename. Version 4 has users that subscribe: a
@@ -25,7 +31,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 5
+const schemaVersion = 6
 
 var (
 	kSchema   = []byte("schema")
