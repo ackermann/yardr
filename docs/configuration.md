@@ -1460,8 +1460,8 @@ On a link to another yard a bead's type is sent with it. A train and a wagon
 are still sent as `epic` and `part` in this release, and a yard takes either
 for a task, as it did, so a yard and its peers can be upgraded in any
 order. What yardr serves over [BDP](bdp.md) gives a train the reference
-type `epic`, as before; its `issue_type` property and a wagon's minted type
-say `train` and `wagon`.
+type `epic`, as before, and its `issue_type` property says `epic` too; a
+wagon's minted type and its `issue_type` say `wagon`.
 
 **resident is now crew**: the ones who are always in the yard are its crew,
 and one of them is a crew member ([crew.md](crew.md)).

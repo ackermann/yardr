@@ -16,7 +16,9 @@ yardr bdp serve --addr :8765 --scope https://beads.example/team/
 - Bead properties are bd's JSON row (dependencies, counts, `created_by`, …)
   plus yardr's own fields; a held bead reads as `deferred`. Types use BDP's
   reference vocabulary (`https://work.example/types/task`, `…/blocks`) where
-  names match, else `<scope>types/<name>`.
+  names match, else `<scope>types/<name>`. A train is published as BDP's
+  and bd's epic, in its Type (`https://work.example/types/epic`) and in
+  `issue_type` (`"epic"`).
 - A `discovered-from` edge (`yardr bead create --discovered-from <origin>`)
   is a Link of Type `<scope>types/discovered-from`: BDP's reference
   vocabulary has none. Its source is the found bead and its target the

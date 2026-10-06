@@ -159,22 +159,25 @@ func TestBeadRecordAndHTTPRules(t *testing.T) {
 		t.Fatalf("record = %v", rec)
 	}
 	// A train is the reference vocabulary's epic, as it was served when
-	// yardr called it one.
+	// yardr called it one, and bd's: issue_type says the same word, so a
+	// client that groups on it finds a yard's trains.
 	train := f.bead("the feature", store.TypeTrain)
-	if rec := f.get("beads/" + train.ID).json(t); rec["type"] != "https://work.example/types/epic" {
+	if rec := f.get("beads/" + train.ID).json(t); rec["type"] != "https://work.example/types/epic" ||
+		rec["properties"].(map[string]any)["issue_type"] != "epic" {
 		t.Fatalf("a train's record = %v", rec)
 	}
 	// A wagon is no reference type: it has one this yard mints, under the
 	// word yardr calls it.
 	wagon := f.bead("a piece of it", store.TypeWagon)
-	if rec := f.get("beads/" + wagon.ID).json(t); rec["type"] != scope+"types/wagon" {
+	if rec := f.get("beads/" + wagon.ID).json(t); rec["type"] != scope+"types/wagon" ||
+		rec["properties"].(map[string]any)["issue_type"] != "wagon" {
 		t.Fatalf("a wagon's record = %v", rec)
 	}
 	if a := rec["attribution"].(map[string]any); a["principal"] != "tester" || a["status"] != "claimed" {
 		t.Fatalf("attribution = %v", a)
 	}
 	props := rec["properties"].(map[string]any)
-	if props["status"] != "open" || props["title"] != "Write the spec" || !strings.HasSuffix(props["created_at"].(string), "Z") {
+	if props["status"] != "open" || props["issue_type"] != "task" || props["title"] != "Write the spec" || !strings.HasSuffix(props["created_at"].(string), "Z") {
 		t.Fatalf("properties = %v", props)
 	}
 	if props["comment_count"] != float64(0) || props["dependency_count"] != float64(0) {

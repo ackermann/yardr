@@ -236,12 +236,19 @@ func BuildGraph(scope string, snap *store.Snapshot) *Graph {
 	return g
 }
 
-func (g *Graph) beadType(t string, seen map[string]TypeSummary) string {
-	// A train is what the reference vocabulary calls an epic, and was
-	// published as one when yardr called it that too.
+// publishedType is the word a bead's type is published under, in its
+// record's Type and in issue_type alike. A train is what the reference
+// vocabulary and bd call an epic, and was published as one when yardr called
+// it that too; every other type keeps yardr's word.
+func publishedType(t string) string {
 	if t == store.TypeTrain {
-		t = "epic"
+		return "epic"
 	}
+	return t
+}
+
+func (g *Graph) beadType(t string, seen map[string]TypeSummary) string {
+	t = publishedType(t)
 	if name, ok := referenceBeadTypes[t]; ok {
 		id := workTypes + t
 		seen[id] = TypeSummary{ID: id, Name: name, Describes: "bead"}
@@ -364,7 +371,7 @@ func beadProperties(b *store.Bead) map[string]any {
 		"title":      b.Title,
 		"status":     status(b),
 		"priority":   b.Priority,
-		"issue_type": b.Type,
+		"issue_type": publishedType(b.Type),
 		"stage":      b.Stage,
 		"labels":     nonNil(b.Labels),
 		"hold":       b.Hold,
