@@ -120,6 +120,9 @@ fi
 # lands on the rig's base, so it gets the full gate, as does anything run by
 # a yardr that does not say the type and the epic. A rig with no light gate
 # runs its full one under --light, and says so in the output.
+# rig check finds the part from the branch $WT is on and compares its light
+# gate with the epic's branch, which the part was just rebased onto, not
+# with the rig's base: what is tested is what this part changed.
 LIGHT= GATE="the gate"
 if [ "${YARDR_TYPE:-}" = part ] && [ -n "${YARDR_EPIC:-}" ] && [ "$BASE" = "yard/$YARDR_EPIC" ]; then
   LIGHT=--light GATE="the light gate"

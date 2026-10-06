@@ -526,12 +526,33 @@ Both gates get `YARDR_CHECK_BASE` in their environment: the commit the
 repository's gate was read at, which is the tip of the rig's base as
 fetched. A check can so look at what the branch changed, from where it left
 the base: `git diff --name-only "$(git merge-base "$YARDR_CHECK_BASE" HEAD)"`.
-It is the rig's base and not the epic's branch, so for a part the range
-holds the epic's earlier parts too, and a package two parts share is tested
-with both. Under a store override it is the rig's base as it resolves
-locally (nothing is fetched for an override); it is unset when that does not
-resolve, and for a dir rig, which has no base. A check that needs it must
-fail without it: rig yardr's does.
+Under a store override it is the rig's base as it resolves locally (nothing
+is fetched for an override); it is unset when that does not resolve, and for
+a dir rig, which has no base. A check that needs it must fail without it:
+rig yardr's does.
+
+The light gate of a **part of an epic** is compared with the epic's branch
+instead: `YARDR_CHECK_BASE` is the tip of `yard/<epic>`. From the rig's base
+the range would hold the epic's earlier parts, so after one part touched a
+package nearly everything imports, every later part's light gate would test
+nearly everything again. `rig check --light` finds the part by itself: when
+`--dir` is on branch `yard/<bead>`, and that bead is a part of the rig and a
+child of an epic, it reads the epic's branch as `--dir`'s repository has it.
+So a builder's run in its worktree compares with the epic's branch as it is
+there, and merge-local's with the branch it has just rebased the part onto,
+with no flag for either to forget. Only what the gate is compared with
+changes: the gate itself is still read from the rig's base, and the epic's
+full gate runs everything before the base moves. Everything else is compared
+with the rig's base as before: the full gate always (the one run under
+`--light` for want of a light gate too), and the light gate of a bead with
+no epic, of a child of an epic that is not a part (it lands under the full
+gate), of an epic whose branch is not there, and of a run in the rig itself
+or on a branch that is no bead's.
+
+A light gate's output starts with what it is compared with:
+`light gate, changes since yard/<epic> at <sha>`, or
+`light gate, changes since origin/main at <sha>` (`base_ref` and `base` in
+`--json`).
 
 Rig yardr's [`.yardr/check-light`](../.yardr/check-light) runs `gofmt -l`,
 `go vet ./...` and `go build ./...` on everything, then `go test -race` on

@@ -8,10 +8,11 @@ This is the default builder's stage with two differences:
 
 1. The light gate (`yardr rig check yardr --light --dir <worktree>`) is the
    only gate, here and where the part lands. It formats, vets and builds
-   everything and tests, with the race detector, only the packages the
-   branch changed and the packages that import them: seconds for a leaf
-   package, close to the full gate for one nearly everything imports
-   (`store`, `config`). Do not run the full gate (`yardr rig check yardr`
+   everything and tests, with the race detector, only the packages your
+   part changed (since the epic's branch, not `main`: its first line says
+   `light gate, changes since yard/<epic> at <sha>`) and the packages that
+   import them: seconds for a leaf package, close to the full gate for one
+   nearly everything imports (`store`, `config`). Do not run the full gate (`yardr rig check yardr`
    without `--light`), even for a change the light one cannot see: it runs
    once, on the whole epic, before `main` moves. Say in your report what the
    light gate did not run.

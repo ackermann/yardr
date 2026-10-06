@@ -43,6 +43,14 @@
 // base with it). Under a store override it is the rig's base as it resolves
 // locally, and it is unset when that does not resolve and for a dir rig: a
 // check that needs it must fail without it.
+//
+// The light gate of a part of an epic is compared with the epic's branch
+// instead (Options.Since): the range from the rig's base holds the epic's
+// earlier parts, so every part after one that touched a widely imported
+// package would test nearly everything again. Only what the gate is compared
+// with changes: the gate is still read from the base, and the epic's own
+// full gate runs everything before the base moves. The full gate, the one
+// run for want of a light one included, is always compared with the base.
 package rigcheck
 
 import (
@@ -100,8 +108,9 @@ type Check struct {
 	// File is a dir rig's .yardr/check, run where it is.
 	File string `json:"file,omitempty"`
 	// Base is the commit the check is compared with (BaseVar); "" when
-	// there is none.
-	Base string `json:"base,omitempty"`
+	// there is none. BaseRef names it: the ref it is the tip of.
+	Base    string `json:"base,omitempty"`
+	BaseRef string `json:"base_ref,omitempty"`
 	// Light: this is the rig's light gate. Fallback says, when the light
 	// gate was asked for and the rig has none, why this is the full one.
 	Light    bool   `json:"light,omitempty"`
@@ -132,12 +141,14 @@ func resolve(ctx context.Context, rig store.Rig, light bool) (*Check, error) {
 	switch {
 	case light && rig.CheckLight != "":
 		c := &Check{Source: "store", Cmd: rig.CheckLight, Base: localBase(ctx, rig), Light: true}
+		c.nameBase(rig.Base)
 		c.FailPattern = failPattern(ctx, rig, c.Base)
 		return c, nil
 	case rig.Check != "":
 		// The pattern is still the repository's, at the base as it is
 		// locally: the store has no setting for it, and it lowers no bar.
 		c := &Check{Source: "store", Cmd: rig.Check, Base: localBase(ctx, rig)}
+		c.nameBase(rig.Base)
 		c.FailPattern = failPattern(ctx, rig, c.Base)
 		if light {
 			// The operator took the gate out of the repo's hands: a light
@@ -175,6 +186,7 @@ func resolve(ctx context.Context, rig store.Rig, light bool) (*Check, error) {
 			return nil, err
 		}
 		c := &Check{Source: "repo@" + sha[:min(12, len(sha))], From: from, Script: []byte(script), Base: sha, Light: path == LightPath}
+		c.nameBase(strings.TrimPrefix(ref, "refs/remotes/"))
 		c.FailPattern = failPattern(ctx, rig, sha)
 		if light && !c.Light {
 			c.Fallback = fmt.Sprintf("rig %s has no light gate (no --check-light, no %s on %s): running the full gate", rig.Name, LightPath, from)
@@ -182,6 +194,28 @@ func resolve(ctx context.Context, rig store.Rig, light bool) (*Check, error) {
 		return c, nil
 	}
 	return &Check{From: from}, nil
+}
+
+// nameBase names the commit the check is compared with, when it has one.
+func (c *Check) nameBase(ref string) {
+	if c.Base != "" {
+		c.BaseRef = ref
+	}
+}
+
+// since compares a light gate with the tip of branch, as it is in dir's
+// repository, instead of the rig's base. A full gate keeps its base, and so
+// does a light one whose branch does not resolve there: the wider range
+// tests more, never less.
+func (c *Check) since(ctx context.Context, dir, branch string) {
+	if branch == "" || !c.Light {
+		return
+	}
+	sha, err := git(ctx, dir, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch+"^{commit}")
+	if err != nil {
+		return
+	}
+	c.Base, c.BaseRef = strings.TrimSpace(sha), branch
 }
 
 // localBase is the rig's base as it resolves in the rig's checkout, with no
@@ -324,8 +358,11 @@ type Result struct {
 	// has none, and the full gate ran instead; the line says so.
 	Light    bool   `json:"light,omitempty"`
 	Fallback string `json:"light_fallback,omitempty"`
-	// Base is the commit the check was given to compare with (BaseVar).
-	Base string `json:"base,omitempty"`
+	// Base is the commit the check was given to compare with (BaseVar), and
+	// BaseRef the ref it is the tip of: the rig's base, or, for the light
+	// gate of a part of an epic, the epic's branch (Options.Since).
+	Base    string `json:"base,omitempty"`
+	BaseRef string `json:"base_ref,omitempty"`
 	// SlotWaited is how long the run waited for a slot of the machine, in
 	// seconds; 0 when one was free, or it took none.
 	SlotWaited float64 `json:"slot_waited_seconds,omitempty"`
@@ -397,6 +434,12 @@ func RunLight(ctx context.Context, rig store.Rig, dir string) (*Result, error) {
 type Options struct {
 	// Light asks for the rig's light gate (RunLight).
 	Light bool
+	// Since is a branch the light gate is compared with instead of the rig's
+	// base: the epic's, for a part of one (see the package comment). The
+	// caller finds it: this package has no store. It is read in the
+	// directory the check runs in, and changes nothing for a full gate, a
+	// dir rig, or a branch that is not there.
+	Since string
 	// Timeout bounds the check itself, from when it starts: finding the gate
 	// and waiting for a slot are not counted. 0 leaves ctx's deadline alone.
 	Timeout time.Duration
@@ -422,8 +465,11 @@ func run(ctx context.Context, rig store.Rig, dir string, o Options) (*Result, er
 	if err != nil {
 		return nil, err
 	}
+	if !rig.IsDir() {
+		c.since(ctx, dir, o.Since)
+	}
 	res := &Result{Rig: rig.Name, Kind: rig.Kind, Dir: dir, Source: c.Source, From: c.From,
-		Light: c.Light, Fallback: c.Fallback, Base: c.Base}
+		Light: c.Light, Fallback: c.Fallback, Base: c.Base, BaseRef: c.BaseRef}
 	if c.None() {
 		res.Pass = rig.AllowNoCheck || rig.IsDir()
 		if !res.Pass {

@@ -492,3 +492,52 @@ func TestLightDirRig(t *testing.T) {
 		t.Fatalf("dir rig with a light check: %+v %v", res, err)
 	}
 }
+
+// Options.Since compares the light gate with another branch's tip, as the
+// directory it runs in has it; the gate is still the base's. The full gate
+// keeps the base, the one run for want of a light one too, and so does a
+// light gate whose branch is not there.
+func TestLightGateSinceABranch(t *testing.T) {
+	ctx := context.Background()
+	say := "#!/bin/sh\necho base=${" + BaseVar + "-unset}\n"
+	rig, wt := rigWithBead(t, say)
+	main := gitT(t, rig.Path, "rev-parse", "main")
+	// The epic's branch is a commit ahead of main: an earlier part's.
+	gitT(t, wt, "commit", "-q", "--allow-empty", "-m", "an earlier part")
+	gitT(t, rig.Path, "branch", "yard/e", "yard/b1")
+	epic := gitT(t, rig.Path, "rev-parse", "yard/e")
+	gitT(t, wt, "commit", "-q", "--allow-empty", "-m", "this part")
+	run := func(o Options) *Result {
+		t.Helper()
+		res, err := RunWith(ctx, rig, wt, o)
+		if err != nil || !res.Pass || !strings.Contains(res.Output, "base="+res.Base+"\n") {
+			t.Fatalf("%+v: %+v %v", o, res, err)
+		}
+		return res
+	}
+
+	// No light gate yet: the full one runs under --light, with the base.
+	if res := run(Options{Light: true, Since: "yard/e"}); res.Base != main || res.BaseRef != "main" || res.Fallback == "" {
+		t.Fatalf("full gate for want of a light one: base %s (%s), want main %s", res.Base, res.BaseRef, main)
+	}
+	commitLight(t, rig.Path, say)
+	main = gitT(t, rig.Path, "rev-parse", "main")
+	if res := run(Options{Light: true, Since: "yard/e"}); res.Base != epic || res.BaseRef != "yard/e" || res.Source != "repo@"+main[:12] {
+		t.Fatalf("light gate since yard/e: base %s (%s) read at %s, want %s, read at main", res.Base, res.BaseRef, res.Source, epic)
+	}
+	if res := run(Options{Light: true}); res.Base != main || res.BaseRef != "main" {
+		t.Fatalf("light gate: base %s (%s), want main %s", res.Base, res.BaseRef, main)
+	}
+	if res := run(Options{Since: "yard/e"}); res.Base != main || res.BaseRef != "main" {
+		t.Fatalf("full gate: base %s (%s), want main %s", res.Base, res.BaseRef, main)
+	}
+	if res := run(Options{Light: true, Since: "yard/nope"}); res.Base != main || res.BaseRef != "main" {
+		t.Fatalf("light gate since a branch that is not there: base %s (%s), want main %s", res.Base, res.BaseRef, main)
+	}
+
+	// A store override's light gate is compared the same way.
+	rig.Check, rig.CheckLight = "exit 1", "echo base=${"+BaseVar+"-unset}"
+	if res := run(Options{Light: true, Since: "yard/e"}); res.Base != epic || res.BaseRef != "yard/e" {
+		t.Fatalf("store light gate since yard/e: base %s (%s), want %s", res.Base, res.BaseRef, epic)
+	}
+}

@@ -429,6 +429,16 @@ can look at what the branch changed against it. Under a store override it is
 the rig's base as it resolves locally; it is unset when that does not
 resolve, and for a dir rig.
 
+The light gate of a part of an epic is compared with the epic's branch
+instead, so it tests what the part changed and not the epic's earlier parts
+again: when --dir is on branch yard/<bead>, that bead is a part of this rig
+and a child of an epic, ` + rigcheck.BaseVar + ` is the tip of yard/<epic> as it is
+in --dir's repository. The gate is still read from the rig's base, and the
+epic's full gate runs everything before the base moves. The full gate is
+always compared with the rig's base, as is the light gate of anything else.
+A light gate's output starts with what it is compared with:
+"light gate, changes since yard/<epic> at <sha>".
+
 The check is killed, with everything it started, once it has run for
 --timeout, which fails the gate; each git call that finds the gate is bounded
 too.
@@ -509,6 +519,11 @@ them; yardr rig sources <rig> shows every source.`,
 				// First, so nobody reads the full gate's output as the light one's.
 				if res.Fallback != "" {
 					fmt.Println(res.Fallback)
+				}
+				// And what a light gate looked at: a part's is not the range
+				// its reader would guess from the rig's base.
+				if res.Light && res.Base != "" {
+					fmt.Printf("light gate, changes since %s at %s\n", res.BaseRef, res.Base[:min(12, len(res.Base))])
 				}
 				// What failed first, where the rig says how to tell: in a long
 				// run it is far above the tail.
@@ -661,8 +676,14 @@ func (a *app) runRigCheck(ctx context.Context, rigName, dir string, timeout time
 	if err != nil {
 		return nil, err
 	}
+	var since string
+	if light {
+		if since, err = partBase(ctx, st, *rig, dir); err != nil {
+			return nil, err
+		}
+	}
 	// The timeout is the check's own: the wait for a slot does not eat it.
-	res, err := rigcheck.RunWith(ctx, *rig, dir, rigcheck.Options{Light: light, Timeout: timeout, Slots: &slots})
+	res, err := rigcheck.RunWith(ctx, *rig, dir, rigcheck.Options{Light: light, Since: since, Timeout: timeout, Slots: &slots})
 	if err != nil {
 		return nil, err
 	}
@@ -689,6 +710,46 @@ func (a *app) runRigCheck(ctx context.Context, rigName, dir string, timeout time
 		res.StrayHomeStageFiles, res.Pass = strayHome, false
 	}
 	return res, nil
+}
+
+// partBase is the branch the light gate in dir is compared with instead of
+// the rig's base (rigcheck.Options.Since), or "": the epic's branch, when dir
+// is the worktree of a part of rig that is a child of an epic. The bead is
+// found by the branch dir is on (store.Branch), so a builder's own run in its
+// worktree and the refinery's are compared with the same thing, with no flag
+// either could forget. Everything else keeps the rig's base: the rig itself,
+// a detached checkout, a branch that is no bead's, a part with no epic, and
+// a child of another type, which lands on the epic's branch under the full
+// gate (merge-local).
+func partBase(ctx context.Context, st store.API, rig store.Rig, dir string) (string, error) {
+	if dir == "" || rig.IsDir() {
+		return "", nil
+	}
+	out, err := exec.CommandContext(ctx, "git", "-C", dir, "symbolic-ref", "--quiet", "--short", "HEAD").Output()
+	if err != nil {
+		return "", nil
+	}
+	handle, ok := strings.CutPrefix(strings.TrimSpace(string(out)), store.Branch(""))
+	if !ok || handle == "" {
+		return "", nil
+	}
+	b, err := st.GetBead(ctx, handle)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		return "", nil
+	case err != nil:
+		return "", err
+	case b.Type != store.TypePart || b.Rig == nil || *b.Rig != rig.Name:
+		return "", nil
+	}
+	f, err := st.Family(ctx, b.ID)
+	if err != nil {
+		return "", err
+	}
+	if f.Epic == "" {
+		return "", nil
+	}
+	return store.Branch(f.Epic), nil
 }
 
 // stageFileFindings looks at the stage files of the flows governing rig.

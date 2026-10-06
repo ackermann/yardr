@@ -140,3 +140,37 @@ func TestMergeLocalPartInARigWithoutALightGate(t *testing.T) {
 		t.Fatalf("the note does not say the full gate ran for want of a light one:\n%s", notes)
 	}
 }
+
+// A part's light gate is compared with its epic's branch as the part was
+// just rebased onto it, not with the rig's base: the second part to land is
+// gated on its own change, not on the first part's again.
+func TestMergeLocalPartLightGateIsComparedWithTheEpic(t *testing.T) {
+	y := newEpicYard(t, "true")
+	seen := filepath.Join(y.home, "seen")
+	// What the gate is compared with, and what changed since.
+	y.gates("exit 1", `echo "$YARDR_CHECK_BASE $(git diff --name-only "$(git merge-base "$YARDR_CHECK_BASE" HEAD)" | tr '\n' ' ')" >>`+seen, true)
+	y.yardr("bead", "update", "r-1", "--type", "part")
+	y.yardr("bead", "update", "r-2", "--type", "part")
+	base := y.git(y.repo, "rev-parse", "main")
+
+	y.exec("merge-local", "refinery", "r-1")
+	epic := y.git(y.repo, "rev-parse", "yard/r-e")
+	y.exec("merge-local", "refinery", "r-2")
+
+	for _, id := range []string{"r-1", "r-2"} {
+		if b := y.beadOf(id); b.Stage != "merged" || b.Status != "closed" {
+			t.Fatalf("part %s is %s/%s, want merged and closed", id, b.Stage, b.Status)
+		}
+	}
+	if epic == base {
+		t.Fatal("the first part did not move the epic's branch")
+	}
+	b, err := os.ReadFile(seen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The epic's branch was at the rig's base when the first part was gated.
+	if want := base + " child1.txt \n" + epic + " child2.txt \n"; string(b) != want {
+		t.Fatalf("the light gates saw (base, then what changed):\n%swant:\n%s", b, want)
+	}
+}

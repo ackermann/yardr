@@ -20,11 +20,12 @@ if [ -n "$out" ]; then
 fi
 go vet ./...
 go build ./...
-# What the branch changed: against the commit the gate was read at, which
-# yardr gives (the tip of main as fetched), from where the branch left it.
-# For a part that is its epic's earlier parts too, so a package two parts
-# share is tested with both. Without the base nothing can be told apart,
-# which must not read as "nothing changed".
+# What the branch changed: against the commit yardr gives, from where the
+# branch left it. That is the commit the gate was read at (the tip of main
+# as fetched), and for a part of an epic the tip of its epic's branch, so a
+# part is tested for what it changed, not for the epic's earlier parts
+# again. Without the base nothing can be told apart, which must not read as
+# "nothing changed".
 : "${YARDR_CHECK_BASE:?not set: run this through yardr rig check yardr --light}"
 from=$(git merge-base "$YARDR_CHECK_BASE" HEAD)
 changed=$(git diff --name-only "$from")

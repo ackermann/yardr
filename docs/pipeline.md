@@ -481,6 +481,16 @@ yardr dep add <epic> <part> -k parent
   import them. The builder runs it before `done`, as the builder of any
   bead does; merge-local runs it again on exactly what lands, where any
   other bead gets the full gate.
+- **What a part's light gate is compared with.** Its epic's branch, not the
+  rig's base: "what the branch changed" is what this part changed, not the
+  epic's earlier parts again. `rig check --light` finds the part from the
+  branch its `--dir` is on (`yard/<part>`) and gives the gate the tip of
+  `yard/<epic>`, for the builder as that branch is locally, for merge-local
+  as it has just rebased the part onto it; the first line of the output
+  says so (`light gate, changes since yard/<epic> at <sha>`). The gate is
+  still read from the rig's base, and the epic's full gate runs everything
+  before main moves
+  ([configuration.md](configuration.md#the-light-gate-yardrcheck-light)).
 - **Which gate merge-local runs.** The exec runner tells a script the
   bead's type and its epic (`YARDR_TYPE`, `YARDR_EPIC`, the latter empty for
   a bead with no epic). merge-local runs `rig check --light` only when all
