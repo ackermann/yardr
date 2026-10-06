@@ -268,3 +268,43 @@ func TestResidentAddOnAnExistingResident(t *testing.T) {
 		t.Fatalf("a new resident: %q", out)
 	}
 }
+
+// movingStore refuses the first PutResident that names a revision, as the
+// store does when the daemon's bookkeeping wrote the resident in between.
+type movingStore struct {
+	store.API
+	moved int
+}
+
+func (m *movingStore) PutResident(ctx context.Context, def store.Resident, actor string) (*store.Resident, error) {
+	if def.Revision != "" && m.moved == 0 {
+		m.moved++
+		// What the daemon does to a running resident: a write of its own.
+		if err := m.API.SetResidentEnabled(ctx, def.Name, true, "", "yardr"); err != nil {
+			return nil, err
+		}
+	}
+	return m.API.PutResident(ctx, def, actor)
+}
+
+// A resident written between resident set's read and its write (a running
+// one's revision moves with the daemon's bookkeeping) is read again and
+// set, not refused and not overwritten blind; with --revision the caller
+// asked for the refusal.
+func TestResidentSetReadsAgainWhenTheResidentMoved(t *testing.T) {
+	st, was := clerkYard(t)
+	m := &movingStore{API: st}
+	if out := mustAs(t, m, "jo", "resident", "set", "clerk", "model=sonnet"); m.moved != 1 || !strings.Contains(out, "  model: opus -> sonnet\n") {
+		t.Fatalf("set over a moved resident (%d): %q", m.moved, out)
+	}
+	r := resident(t, st, "clerk")
+	sameDefinition(t, r, was, "model")
+	if r.Config["model"] != "sonnet" {
+		t.Fatalf("after the second try: %+v", r)
+	}
+	m.moved = 0
+	refusedAs(t, m, "jo", "read it again", "resident", "set", "clerk", "model=opus", "--revision", r.Revision)
+	if got := resident(t, st, "clerk"); got.Config["model"] != "sonnet" {
+		t.Fatalf("a set at a stale revision wrote: %+v", got)
+	}
+}

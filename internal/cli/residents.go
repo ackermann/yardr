@@ -482,7 +482,7 @@ restart <name>.`,
 					}
 				}
 				if r.Live() && len(atStart) > 0 {
-					fmt.Printf("%s is running and keeps its session: %s holds when its next one starts (yardr resident restart %s)\n",
+					fmt.Printf("%s is running and keeps its session: its next one starts with the new %s (yardr resident restart %s)\n",
 						name, strings.Join(atStart, ", "), name)
 				}
 			})
