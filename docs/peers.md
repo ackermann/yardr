@@ -1612,9 +1612,14 @@ by agents this yard did not start, under a gate this yard did not run:
 **A bead sent on.** Each pair of yards does all of this between themselves:
 b takes c's branch into its own bead's branch, its `return-branch` pushes
 that under b's name, and a takes b's. The bead b sends on names the commit
-a named, so c starts where a's bead starts. Where two of the yards share no
-remote, words come back over that hop, and that is not an error: the yard
-before it has the outcome and the notes, and nothing to push.
+a named, so c starts where a's bead starts. Where two of the yards have no
+remote in common, words come back over that hop, and that is not an error:
+the taking yard's rig is a directory, the asking yard's rig has no remote
+to name, or the branch was pushed to a remote the asking yard's rig does
+not have. The yard before it then has the outcome and the notes, and
+nothing to push. (A taking yard whose rig is a repository with another
+remote than the bead names is the one case that refuses, as
+`base_unknown`: its work would start somewhere else.)
 
 **Beads meant to travel** name files by their path in the repository, not
 by a path on the machine that wrote them: `internal/store/peers.go`, never

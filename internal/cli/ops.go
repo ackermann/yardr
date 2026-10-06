@@ -924,8 +924,10 @@ link carries bead out: yardr peer allow <name> --send bead). The bead waits in
 its stage until that yard returns it, with the outcome its flow there came to.
 --limit is how many beads may be there at once, --set tries=<n> how often the
 bead is posted before it is given up as undelivered (5), and --set max_age how
-long one is away before the mayor hears (24h). See docs/peers.md, "Beads, the
-sending side".
+long one is away before the mayor hears (24h). A branch that yard returns is
+fetched from the bead's rig's remote origin, or --set remote=<name>, before
+the outcome moves the bead. See docs/peers.md, "Beads, the sending side" and
+"Code that comes back".
 
 An agent nobody watches stops at every permission prompt. These flags keep it
 going (pass them as --set 'args=[...]'; yardr init gives them to the mayor):
