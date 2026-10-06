@@ -286,9 +286,17 @@ for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`
 - **A first prompt that gets lost.** herdr reports a prompt as sent, not as
   taken: an agent that is still coming up can drop the keys. After sending
   the first prompt yardr looks for it in the agent's pane for up to ten
-  seconds (an agent that is working took it). A prompt that does not show is
+  seconds. A prompt that does not show is
   kept on the session (`pending_prompt` on its handle) and sent again once
-  the agent is idle, unless it has shown up in the pane by then. So is the
+  the agent is idle, unless it has shown up in the pane by then. Only the
+  prompt showing ends that look for good: an agent herdr reports working is
+  taken to have it, and so is one whose pane could not be read, but one
+  reading can be wrong, so that prompt stays on the handle too
+  (`prompt_unconfirmed: true`) until the daemon's next pass has looked
+  again. What the look saw, and at which try, is `prompt_look` on the
+  handle (`shown, look 1`; `typed, look 11`; `working`, `unreadable`,
+  `absent`), in the `started` event and in a `session_stalled` or
+  `session_idle` after it. So is the
   prompt of an agent that was not ready at its start, such as one you had to
   answer a question for: the daemon delivers it once the agent has been
   idle for three seconds (it has just left a dialog and may still be drawing

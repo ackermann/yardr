@@ -203,6 +203,13 @@ type promptPass struct {
 // as a lost prompt is delivered and as far apart; then the session is
 // reported in the same way, Enter being all it needs.
 //
+// Found live (yardr-myyv): two builders sat idle on a prompt in their
+// input that was on no handle, the runner having taken it as arrived at
+// one look. A prompt the runner sent and did not see taken comes here as
+// PromptUnconfirmed and counts as sent: an agent still working, or a pane
+// that still cannot be read, ends the wait, and text in the input of an
+// idle agent is submitted as above.
+//
 // A runner that cannot look (no PromptWatcher, a pane that cannot be read)
 // tells nothing: what was sent is then taken as arrived, as it was before
 // yardr looked.
@@ -214,8 +221,10 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 	if sub != nil && known && !shown {
 		typed, _ = sub.PromptTyped(ctx, handle, p)
 	}
-	// Typed text was sent by someone, as a delivery of the dispatcher's was.
-	if shown || ((pass.sends > 0 || typed) && status == "working") || (pass.sends > 0 && !known) {
+	// Typed text was sent by someone, as a delivery of the dispatcher's was,
+	// and as the runner's own was that it could not confirm.
+	sent := pass.sends > 0 || handle[PromptUnconfirmed] == true
+	if shown || ((sent || typed) && status == "working") || (sent && !known) {
 		delete(d.promptIdle, key)
 		delete(d.drafts, key)
 		pass.arrived, pass.shown, pass.handle = true, shown, withoutPending(handle)
@@ -413,7 +422,7 @@ func withoutPending(h map[string]any) map[string]any {
 	out := make(map[string]any, len(h))
 	for k, v := range h {
 		switch k {
-		case PendingPrompt, promptSends, promptSentAt, promptLost, promptSubmits, promptSubmitAt:
+		case PendingPrompt, PromptUnconfirmed, promptSends, promptSentAt, promptLost, promptSubmits, promptSubmitAt:
 		default:
 			out[k] = v
 		}

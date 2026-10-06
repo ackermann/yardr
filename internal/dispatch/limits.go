@@ -112,6 +112,9 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 				if read {
 					extra["tail"] = tail
 				}
+				if look := s.Handle[PromptLook]; look != nil {
+					extra[PromptLook] = look
+				}
 				d.limitEvent(ctx, *s, "session_idle", "idle", idleFor, idle, grace, stops, extra)
 			}
 			if idleOn && stops && idleFor >= idle+grace {

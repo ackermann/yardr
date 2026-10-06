@@ -330,6 +330,19 @@ func (d *Dispatcher) defaults() {
 // arrived (see pendingPrompt).
 const PendingPrompt = "pending_prompt"
 
+// PromptUnconfirmed is a handle key next to PendingPrompt: the runner sent
+// the prompt and took it as arrived on a sign that can be wrong (the agent
+// was reported working, or its pane could not be read) without seeing it
+// taken. The dispatcher counts it as sent and looks again (see
+// pendingPrompt).
+const PromptUnconfirmed = "prompt_unconfirmed"
+
+// PromptLook is a handle key: what the runner saw of the first prompt it
+// sent and at which of its looks ("typed, look 11"). It stays on the handle
+// so the started event, and a session_stalled or session_idle after it, say
+// why the prompt was or was not left pending.
+const PromptLook = "prompt_look"
+
 // Statuser is implemented by runners that can tell more than alive/dead.
 // A session whose status turns "blocked" (the agent waits on a permission
 // prompt or a question) gets a session_blocked event so a human can step in.

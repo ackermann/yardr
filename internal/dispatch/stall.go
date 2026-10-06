@@ -100,6 +100,9 @@ func (d *Dispatcher) stall(ctx context.Context, r Runner, s *store.Session, g st
 		"hint": "the agent did nothing with its first prompt; its pane's last lines are in tail. " +
 			"The group starts no further session with this model until this one is ended " +
 			"(`yardr bead release " + s.Bead + "`) or the group's model changes"}
+	if look := s.Handle[PromptLook]; look != nil {
+		data[PromptLook] = look
+	}
 	if err := d.Store.LogDispatch(ctx, s.Bead, "session_stalled", actor, data); err != nil {
 		d.Log.Warn("session_stalled event", "session", s.ID, "err", err)
 	}

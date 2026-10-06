@@ -387,6 +387,9 @@ type nudgeRunner struct {
 	submits int  // times Enter was sent
 
 	input string // what is in the agent's input, not sent
+
+	unconfirmed bool // Start sent the prompt itself and took it as arrived without seeing it taken
+	blind       bool // the pane cannot be read
 }
 
 func (n *nudgeRunner) InputText(context.Context, map[string]any) (string, bool, error) {
@@ -406,6 +409,9 @@ func (n *nudgeRunner) SubmitPrompt(context.Context, map[string]any) error {
 }
 
 func (n *nudgeRunner) PromptShown(context.Context, map[string]any, string) (bool, error) {
+	if n.blind {
+		return false, errors.New("pane read failed")
+	}
 	return n.shown, nil
 }
 
@@ -413,6 +419,9 @@ func (n *nudgeRunner) Start(ctx context.Context, j dispatch.Job) (map[string]any
 	h, err := n.fakeRunner.Start(ctx, j)
 	if h != nil {
 		h[dispatch.PendingPrompt] = "read your brief"
+		if n.unconfirmed {
+			h[dispatch.PromptUnconfirmed] = true
+		}
 	}
 	return h, err
 }
@@ -750,6 +759,57 @@ func TestPendingPromptTypedByAWorkingAgentArrived(t *testing.T) {
 	}
 	if n := len(eventKinds(t, s, b.ID, "session_prompted")); n != 1 {
 		t.Fatalf("session_prompted logged %d times", n)
+	}
+}
+
+// Found live (yardr-myyv): two builders sat idle with their first prompt
+// in their input, and nothing was pending on their handles: the runner had
+// taken the prompt as arrived at one look, on a sign other than its echo,
+// and with the prompt off the handle nobody looked again. Such a prompt is
+// left pending as unconfirmed, and the look is taken again on a pass, by
+// whichever daemon makes it: here one made anew after the start. Text in
+// the input of an idle agent gets its Enter; an agent that is still
+// working, or a pane that still cannot be read, is what the runner went
+// by, and the prompt is then not sent a second time.
+func TestUnconfirmedPromptIsLookedAtAgain(t *testing.T) {
+	for _, c := range []struct {
+		name, status             string
+		typed, blind             bool
+		submits, typedEv, nudges int
+	}{
+		{"in the input of an idle agent", "idle", true, false, 1, 1, 0},
+		{"the agent is working", "working", false, false, 0, 0, 0},
+		{"the pane cannot be read", "idle", false, true, 0, 0, 0},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := storetest.New(t)
+			r := &nudgeRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: c.status,
+				typed: c.typed, blind: c.blind, unconfirmed: true}
+			ctx := context.Background()
+			must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}))
+			_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+			b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
+			starter := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, PromptSettle: -1, PromptWait: -1}
+			must(t, starter.Reconcile(ctx))
+			if h := handleOf(t, s, b.ID); h[dispatch.PendingPrompt] == nil || h[dispatch.PromptUnconfirmed] != true {
+				t.Fatalf("handle after the start: %v", h)
+			}
+			// The daemon replaced itself: what it knows is on the handle.
+			d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, PromptSettle: -1, PromptWait: -1}
+			for range 4 {
+				must(t, d.Reconcile(ctx))
+			}
+			if h := handleOf(t, s, b.ID); r.submits != c.submits || len(r.nudges) != c.nudges || len(h) != 1 {
+				t.Fatalf("Enter sent %d times, prompt typed again %d times, handle %v; want %d, %d and nothing pending",
+					r.submits, len(r.nudges), h, c.submits, c.nudges)
+			}
+			if n := len(eventKinds(t, s, b.ID, "session_prompt_typed")); n != c.typedEv {
+				t.Fatalf("session_prompt_typed logged %d times, want %d", n, c.typedEv)
+			}
+			if n := len(eventKinds(t, s, b.ID, "session_prompted")); n != 1 {
+				t.Fatalf("session_prompted logged %d times", n)
+			}
+		})
 	}
 }
 

@@ -18,6 +18,15 @@ type agentRunner struct {
 	*statusRunner
 	tail   string
 	worked bool
+	look   string // what Start's look at the first prompt saw, for the handle
+}
+
+func (a *agentRunner) Start(ctx context.Context, j dispatch.Job) (map[string]any, error) {
+	h, err := a.statusRunner.Start(ctx, j)
+	if h != nil && a.look != "" {
+		h[dispatch.PromptLook] = a.look
+	}
+	return h, err
 }
 
 func (a *agentRunner) Tail(context.Context, map[string]any, int) (string, error) {
@@ -57,9 +66,12 @@ func stallSetup(t *testing.T, status string, cfg map[string]any) (store.API, *ag
 // reported as session_stalled on the first pass after the group's stall
 // limit, once, with the pane's last lines, and the group starts no further
 // session with that model until the stalled one is released or the model
-// changes.
+// changes. The event says what the runner saw of the first prompt when it
+// sent it (yardr-myyv: two stalled on a prompt that was never submitted,
+// and nothing said why it had counted as arrived).
 func TestStalledSessionIsReportedOnceWithItsPane(t *testing.T) {
 	s, r, d := stallSetup(t, "idle", nil)
+	r.look = "working, look 1"
 	ctx := context.Background()
 	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
 
@@ -77,7 +89,7 @@ func TestStalledSessionIsReportedOnceWithItsPane(t *testing.T) {
 	got, _ := s.GetBead(ctx, b.ID)
 	data := evs[0].Data
 	if data["session"] != *got.Session || data["group"] != "g" || data["model"] != "claude-nope-9" ||
-		!strings.Contains(data["tail"].(string), modelError) {
+		!strings.Contains(data["tail"].(string), modelError) || data[dispatch.PromptLook] != "working, look 1" {
 		t.Fatalf("session_stalled data = %v", data)
 	}
 
