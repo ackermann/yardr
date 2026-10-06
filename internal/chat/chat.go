@@ -443,6 +443,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.input.SetWidth(max(msg.Width, 10))
+		// The input has the rows a resident's layout gives it at this
+		// height, whichever row is selected now: the yard's has no input.
+		m.input.SetHeight(max(layoutOf(m.height, m.narrow(), false).input, 1))
 		m.clamp()
 		return m, nil
 	case tea.KeyMsg:

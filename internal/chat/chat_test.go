@@ -460,8 +460,96 @@ func TestLayout(t *testing.T) {
 		t.Fatalf("a column below %d columns", Wide)
 	}
 
+	// Lower than all its rows, folded and wide: still the terminal's size,
+	// under the title.
+	for _, size := range [][2]int{{30, 9}, {30, 6}, {120, 5}} {
+		v.send(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+		v.fits(size[0], size[1])
+		v.shows("yardr chat")
+	}
+
 	if n := ansi.StringWidth(Keys); n >= 80 {
 		t.Fatalf("the keys are %d columns: more than a terminal of 80 shows", n)
+	}
+}
+
+// rows is the view as a letter for each of its lines: T the title, F the
+// residents' line, R a rule, I a row of the input, K the keys, and a dot
+// for a line of the conversation or the line of notices.
+func (v *view) rows() string {
+	var out strings.Builder
+	for _, l := range strings.Split(v.screen(), "\n") {
+		switch {
+		case strings.HasPrefix(l, "yardr chat"):
+			out.WriteByte('T')
+		case strings.Contains(l, " │ "):
+			out.WriteByte('.')
+		case strings.Contains(l, "[mayor ") || strings.Contains(l, "[yard]"):
+			out.WriteByte('F')
+		case strings.HasPrefix(l, "─"):
+			out.WriteByte('R')
+		case strings.HasPrefix(l, ">"):
+			out.WriteByte('I')
+		case strings.HasPrefix(l, "enter send") || strings.HasPrefix(l, "tab next"):
+			out.WriteByte('K')
+		default:
+			out.WriteByte('.')
+		}
+	}
+	return out.String()
+}
+
+// A terminal lower than the view's rows gives them up in order: the keys,
+// the line of notices, the rows of the input down to one, the rules, the
+// residents' line. The view is never taller than the terminal while that
+// has two rows, for the title and a line of the conversation.
+func TestLowTerminal(t *testing.T) {
+	st := yard(t)
+	must(t, st.Mail(context.Background(), me, "a word", "mayor")) // its text is the conversation's last line
+
+	for _, c := range []struct {
+		name  string
+		width int
+		yard  bool
+		rows  []string // by height, from 1
+	}{
+		{"folded", 30, false, []string{"T.", "T.", "T.I", "TF.I", "TFR.I", "TFR.RI", "TFR.RII", "TFR.RIII", "TFR.RIII.", "TFR.RIII.K", "TFR..RIII.K"}},
+		{"wide", 120, false, []string{"T.", "T.", "T.I", "T.RI", "T.RII", "T.RIII", "T.RIII.", "T.RIII.K", "T..RIII.K"}},
+		{"folded, the yard's row", 30, true, []string{"T.", "T.", "TF.", "TFR.", "TFR.R", "TFR.R.", "TFR.R.K", "TFR..R.K"}},
+		{"wide, the yard's row", 120, true, []string{"T.", "T.", "T.R", "T.R.", "T.R.K", "T..R.K"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			v := open(t, st, "mayor", c.width, 24)
+			if c.yard {
+				v.key(tea.KeyShiftTab)
+			} else {
+				// More lines typed than the input keeps rows for.
+				for _, line := range []string{"one", "two", "three", "four"} {
+					v.typed(line)
+					v.key(tea.KeyCtrlJ)
+				}
+			}
+			// Down to one row and up again: a row given up comes back.
+			heights := []int{}
+			for h := len(c.rows); h >= 1; h-- {
+				heights = append(heights, h)
+			}
+			for h := 2; h <= len(c.rows); h++ {
+				heights = append(heights, h)
+			}
+			for _, h := range heights {
+				v.send(tea.WindowSizeMsg{Width: c.width, Height: h})
+				if got := v.rows(); got != c.rows[h-1] {
+					t.Fatalf("at %d rows the view is %s, want %s:\n%s", h, got, c.rows[h-1], v.screen())
+				}
+				if h >= 2 {
+					v.fits(c.width, h)
+				}
+				if !c.yard {
+					v.shows("  a word")
+				}
+			}
+		})
 	}
 }
 
@@ -1005,6 +1093,8 @@ func TestWaitingNotice(t *testing.T) {
 	v.fits(30, 12)
 	v.send(tea.WindowSizeMsg{Width: 30, Height: 10})
 	v.fits(30, 10)
+	v.send(tea.WindowSizeMsg{Width: 30, Height: 5})
+	v.fits(30, 5)
 	v.send(tea.WindowSizeMsg{Width: 160, Height: 40})
 
 	// In herdr the key goes to the pane itself.

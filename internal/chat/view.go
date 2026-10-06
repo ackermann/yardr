@@ -55,19 +55,69 @@ func keysLine(keys [][2]string, key, word lipgloss.Style) string {
 // narrow reports whether the residents are folded into a line.
 func (m *Model) narrow() bool { return m.width < Wide }
 
+// layout is which of the view's rows a terminal has the height for. One
+// too low for them all gives them up in this order until the view fits:
+// the keys, the line of notices, the rows of the input down to one, the
+// rule above the input, the rule under the residents' line and that line
+// last. The title and one line of the conversation stay, and the input's
+// last row goes only where there is room for nothing but those two.
+type layout struct {
+	keys, notice bool
+	input        int  // the rows of the line to type in
+	rule         bool // the rule above the input, on the yard's row under the notifications
+	foldRule     bool // the rule under the residents' line
+	fold         bool // the residents' line
+}
+
+// fixed is the rows of the layout that are not the conversation's, the
+// title among them.
+func (l layout) fixed() int {
+	n := 1 + l.input
+	for _, has := range []bool{l.keys, l.notice, l.rule, l.foldRule, l.fold} {
+		if has {
+			n++
+		}
+	}
+	return n
+}
+
+// layoutOf is the layout of a terminal of height rows, the residents
+// folded or not, on the yard's row or a resident's. The yard's row has no
+// input.
+func layoutOf(height int, folded, yard bool) layout {
+	l := layout{keys: true, notice: true, input: inputRows, rule: true, foldRule: folded, fold: folded}
+	if yard {
+		l.input = 0
+	}
+	for l.fixed()+1 > height {
+		switch {
+		case l.keys:
+			l.keys = false
+		case l.notice:
+			l.notice = false
+		case l.input > 1:
+			l.input--
+		case l.rule:
+			l.rule = false
+		case l.foldRule:
+			l.foldRule = false
+		case l.fold:
+			l.fold = false
+		case l.input > 0:
+			l.input = 0
+		default:
+			return l // the title and the conversation's line: never given up
+		}
+	}
+	return l
+}
+
+func (m *Model) layout() layout { return layoutOf(m.height, m.narrow(), m.yard) }
+
 // areaRows is the height between the title and the input: the terminal's
-// less the title, the rule and the input, the line of notices and the
-// keys, and, folded, the residents' line and its rule. The yard's row has
-// no input, and its notifications have those lines too.
+// less the rows of the layout that are not the conversation's.
 func (m *Model) areaRows() int {
-	fixed := 1 + 1 + inputRows + 1 + 1
-	if m.yard {
-		fixed -= inputRows
-	}
-	if m.narrow() {
-		fixed += 2
-	}
-	return max(m.height-fixed, 1)
+	return max(m.height-m.layout().fixed(), 1)
 }
 
 // bodyRows is the height the conversation has: the area's, less the
@@ -334,7 +384,8 @@ func (m *Model) count() string {
 // View is the screen: the title, the residents, the conversation with the
 // newest mail in view, the line to type in, a line of notices and the
 // keys. On the yard's row the notifications stand for the conversation,
-// and there is no line to type in.
+// and there is no line to type in. A terminal too low for all of it has
+// what its layout keeps.
 func (m *Model) View() string {
 	if m.width == 0 || m.height == 0 {
 		return "" // no size yet
@@ -355,8 +406,14 @@ func (m *Model) View() string {
 	copy(body, all[max(0, end-rows):end])
 	body = append(body, m.waits(bw)...)
 	rows = len(body)
+	lay := m.layout()
 	if m.narrow() {
-		out = append(out, m.folded(w), rule(w, ""))
+		if lay.fold {
+			out = append(out, m.folded(w))
+		}
+		if lay.foldRule {
+			out = append(out, rule(w, ""))
+		}
 		out = append(out, body...)
 	} else {
 		col := m.column()
@@ -374,17 +431,30 @@ func (m *Model) View() string {
 
 	keys := keys
 	if m.yard {
-		out, keys = append(out, rule(w, "")), yardKeys
-	} else {
-		out = append(out, rule(w, m.count()), m.input.View())
+		keys = yardKeys
+	}
+	if lay.rule {
+		text := ""
+		if !m.yard {
+			text = m.count()
+		}
+		out = append(out, rule(w, text))
+	}
+	if lay.input > 0 {
+		out = append(out, m.input.View())
 	}
 
-	note := m.notice
-	if note == "" {
-		if n, from := m.others(); n > 0 {
-			note = fmt.Sprintf("%d unread from %s, no resident: %s inbox", n, strings.Join(from, ", "), m.opt.Yardr)
+	if lay.notice {
+		note := m.notice
+		if note == "" {
+			if n, from := m.others(); n > 0 {
+				note = fmt.Sprintf("%d unread from %s, no resident: %s inbox", n, strings.Join(from, ", "), m.opt.Yardr)
+			}
 		}
+		out = append(out, fit(note, w))
 	}
-	out = append(out, fit(note, w), fit(keysLine(keys, look.key, look.word), w))
+	if lay.keys {
+		out = append(out, fit(keysLine(keys, look.key, look.word), w))
+	}
 	return strings.Join(out, "\n")
 }
