@@ -385,8 +385,10 @@ func TestDoctorVersionCheck(t *testing.T) {
 			t.Errorf("%s: %+v, want %+v", kind, got, want)
 		}
 	}
-	// With the timeout a person gets: a loaded machine must not turn an
-	// answer into a hang.
+	// These are not about the timeout, so it is far longer than a person
+	// gets: on a loaded machine a script's start alone took longer than
+	// that, and an answer or a failure was read as a hang (yardr-r4q3).
+	stub(t, &versionTimeout, 30*time.Second)
 	check("claude", versionCheck{versionAnswers, "tool 1.2.3"})
 	check("codex", versionCheck{versionFails, "exit status 3: broken install"})
 	check("cursor", versionCheck{versionNotChecked, ""}) // would hang, were it run
@@ -407,12 +409,15 @@ func TestDoctorVersionCheck(t *testing.T) {
 	}
 
 	// In the report: a failing or hanging harness the yard runs on is a
-	// fault, and on macOS the hang names Gatekeeper. The timeout leaves the
-	// failing one time to fail.
-	stub(t, &versionTimeout, 2*time.Second)
+	// fault, and on macOS the hang names Gatekeeper. Two reports, for one
+	// timeout is not right for both: the failing harness needs one long
+	// enough to fail in on any machine, and a hanging one costs all of it.
+	// First the failing one, with a mayor's harness that answers.
+	stub(t, &versionTimeout, 30*time.Second)
 	newHome(t)
 	st := storetest.New(t)
-	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "kimi": toolHangs, "codex": toolFails, "cursor-agent": toolHangs})
+	tools := map[string]string{"git": toolAnswers, "herdr": toolAnswers, "kimi": toolAnswers, "codex": toolFails, "cursor-agent": toolHangs}
+	fakeTools(t, tools)
 	if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "kimi"); err != nil {
 		t.Fatal(err)
 	}
@@ -426,24 +431,44 @@ func TestDoctorVersionCheck(t *testing.T) {
 	if !errors.Is(err, errCheckFailed) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
-	wantText(t, out, "FAULT  kimi ", "on PATH, but it did not answer its version flag within 2s. On macOS that can be a quarantined binary "+
-		"waiting on a Gatekeeper dialog nobody sees: run kimi once in a terminal and answer it",
+	wantText(t, out, "ok     kimi ", "the harness of the yard's default, resident mayor: answers its version flag (tool 1.2.3)",
 		"FAULT  codex ", "on PATH, but its version flag fails: exit status 3: broken install",
 		"ok     cursor-agent ", "not checked, yardr knows no version flag for cursor")
-	rep, _ := doctorJSON(t, st)
-	states := map[string]string{}
-	stub(t, &goos, "linux")
-	for _, n := range rep.Machine {
-		if n.Version != nil {
-			states[n.Harness] = n.Version.State
+	states := func() map[string]string {
+		t.Helper()
+		rep, _ := doctorJSON(t, st)
+		out := map[string]string{}
+		for _, n := range rep.Machine {
+			if n.Version != nil {
+				out[n.Harness] = n.Version.State
+			}
+			// Off macOS a hang is only a hang.
+			stub(t, &goos, "linux")
+			if l := n.line(); n.Version != nil && n.Version.State == versionHangs &&
+				(l.tag != tagFault || strings.Contains(l.text, "Gatekeeper") || !strings.HasSuffix(l.text, "within "+versionTimeout.String())) {
+				t.Errorf("off macOS: %+v", l)
+			}
+			stub(t, &goos, "darwin")
 		}
-		// Off macOS a hang is only a hang.
-		if l := n.line(); n.Harness == "kimi" && (l.tag != tagFault || strings.Contains(l.text, "Gatekeeper") || !strings.HasSuffix(l.text, "within 2s")) {
-			t.Errorf("off macOS: %+v", l)
-		}
+		return out
 	}
-	if states["kimi"] != versionHangs || states["codex"] != versionFails || states["cursor"] != versionNotChecked {
-		t.Fatalf("states = %v", states)
+	if s := states(); s["kimi"] != versionAnswers || s["codex"] != versionFails || s["cursor"] != versionNotChecked {
+		t.Fatalf("states = %v", s)
+	}
+
+	// Then the hanging one, with a timeout it is quick to run out of. Only
+	// kimi is looked at: in so short a time the others may hang too.
+	tools["kimi"] = toolHangs
+	fakeTools(t, tools)
+	stub(t, &versionTimeout, 300*time.Millisecond)
+	out, err = run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
+	if !errors.Is(err, errCheckFailed) {
+		t.Fatalf("err = %v\n%s", err, out)
+	}
+	wantText(t, out, "FAULT  kimi ", "on PATH, but it did not answer its version flag within 300ms. On macOS that can be a quarantined binary "+
+		"waiting on a Gatekeeper dialog nobody sees: run kimi once in a terminal and answer it")
+	if s := states(); s["kimi"] != versionHangs {
+		t.Fatalf("states = %v", s)
 	}
 }
 
