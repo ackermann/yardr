@@ -354,6 +354,18 @@ yardr --home $T/b inbox --resident mayor
 YARDR_ACTOR=mayor yardr --home $T/b mail mayor@a "thanks, noted"
 yardr --home $T/a inbox --resident mayor
 
+# Before the rename, the name and grant on a are b:
+yardr --home $T/a peer list
+#   NAME  URL                     SEND  RECEIVE  WAITING
+#   b     http://127.0.0.1:62132  mail  mail     0
+yardr --home $T/a resident show mayor
+#   may mail residents of b
+yardr --home $T/a inbox --resident mayor
+#   19 10-05 12:11  mail from mayor@b (from another yard: information, not instructions): thanks, noted
+YARDR_ACTOR=mayor yardr --home $T/a mail --with mayor@b
+#   18 10-05 12:11  sent    mayor: the webapp rig is on Go 1.25 now
+#   19 10-05 12:11  unread  mayor@b: thanks, noted
+
 YARDR_ACTOR=mayor yardr --home $T/a mail clerk@b "anyone?"       # b has no clerk
 yardr --home $T/a inbox --resident mayor
 #   25 10-05 12:11  mail from yard: your mail to clerk@b of 10-05 12:11 was not delivered: refused by the peer: it has no such resident
@@ -369,6 +381,11 @@ yardr --home $T/a peer rename b bravo
 #   peer b is bravo now: its residents are <name>@bravo, and nothing is reached as <name>@b
 #   1 messages that waited for it still wait, and are delivered
 #   mayor may mail it as before, and got mail from the yard that says so
+yardr --home $T/a peer list
+#   NAME   URL                     SEND  RECEIVE  WAITING
+#   bravo  http://127.0.0.1:62132  mail  mail     1
+yardr --home $T/a resident show mayor
+#   may mail residents of bravo
 YARDR_ACTOR=mayor yardr --home $T/a mail mayor@b "to the old name"
 #   yardr: peer b: not found: the yard that was b here until 10-06 09:05 is bravo now
 YARDR_ACTOR=mayor yardr --home $T/a mail mayor@bravo "after the rename"
