@@ -30,7 +30,7 @@ shasum -a 256 --ignore-missing -c checksums.txt      # Linux: sha256sum --ignore
 # unpack, and put the binary on PATH
 tar -xzf "yardr_${version}_$target.tar.gz" yardr
 mv yardr ~/.local/bin/     # any directory on your PATH
-yardr --version            # v1.2.3 (<revision>); yardr version prints the same
+yardr --version            # the release's tag and revision; yardr version prints the same
 ```
 
 `checksums.txt` comes from the same release as the archive, so it shows that
