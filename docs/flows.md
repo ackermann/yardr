@@ -118,8 +118,8 @@ yardr reads them from the tip of the depot's **base branch**
 (`git cat-file blob <base>:.yardr/flows/...`), never from a bead's branch
 or the checkout's working tree: a builder who edits a flow on `yard/<bead>`
 changes nothing for that bead. The edit applies once it has been reviewed
-and landed on the base. That review is a depot's that keeps its flow in its
-repository; a depot set up by `yardr depot init` follows a pack's flow in
+and landed on the base. That review applies to a depot that keeps its flow
+in its repository; a depot set up by `yardr depot init` follows a pack's flow in
 the store ([below](#named-flows-and-pointers)), which is reviewed where the
 pack is kept and changes when the operator applies the pack again
 ([configuration.md](configuration.md#why-the-repo-holds-what-the-work-is)). yardr resolves the base on every check and re-reads
