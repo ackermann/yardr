@@ -11,7 +11,13 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// schemaVersion 7 has beads that are sent on from yard to yard: the record
+// schemaVersion 8 has an end to a held bead's wait: a peer's intake says
+// how long a bead it sent waits to be released (PeerIntake.HoldFor), which
+// a build before it would drop from a record it rewrites, as it does with
+// every message it takes from the peer. An intake set to hold for ever
+// would then hold for the default, and its beads go back refused. Nothing
+// is migrated: an intake without it holds for PeerHoldFor.
+// Version 7 has beads that are sent on from yard to yard: the record
 // of a bead that came from a peer holds the yards it had passed through
 // (peerBead.Path), which a build before it would drop from a record it
 // rewrites, when the bead is released, say. Sent on after that, the bead
@@ -39,7 +45,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 7
+const schemaVersion = 8
 
 var (
 	kSchema   = []byte("schema")

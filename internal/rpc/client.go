@@ -647,6 +647,9 @@ func (c *Client) PeerBeadSend(ctx context.Context, session string) (*store.BeadP
 func (c *Client) SettlePeerBeads(ctx context.Context) error {
 	return c.call(ctx, "SettlePeerBeads", nil)
 }
+func (c *Client) ExpirePeerBeads(ctx context.Context, at time.Time) error {
+	return c.call(ctx, "ExpirePeerBeads", nil, at)
+}
 func (c *Client) PeerPulled(ctx context.Context, name string, b store.PeerBatch) (*store.PeerPulled, error) {
 	return callV[*store.PeerPulled](c, ctx, "PeerPulled", name, b)
 }

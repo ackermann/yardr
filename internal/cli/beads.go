@@ -110,6 +110,9 @@ func printBeadPeer(b *store.Bead) {
 		fmt.Printf("  returned to it as %s (%s)\n", p.Outcome, p.ReturnedAt.Local().Format("01-02 15:04"))
 	case p.Held && b.Status == "open":
 		fmt.Printf("  held as it arrived: a user releases it (yardr bead unhold %s), or a resident allowed to\n", b.ID)
+		if p.Expires != nil {
+			fmt.Printf("  not released by %s, it goes back to %s as refused\n", p.Expires.Local().Format("01-02 15:04"), p.Yard())
+		}
 	case p.ReleasedBy != "":
 		fmt.Printf("  released by %s (%s)\n", p.ReleasedBy, p.ReleasedAt.Local().Format("01-02 15:04"))
 	}

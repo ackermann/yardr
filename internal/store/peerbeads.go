@@ -54,6 +54,16 @@ const (
 // its intake does not say: the next is refused as busy.
 const PeerIntakeLimit = 10
 
+// PeerHoldFor is how long a bead that arrived held from a peer waits to be
+// released when the intake does not say: after it the yard returns the
+// bead as refused (ExpirePeerBeads). A flow of the sender's can route on a
+// refusal, and on silence it cannot.
+const PeerHoldFor = 3 * 24 * time.Hour
+
+// PeerHoldNever is the PeerIntake.HoldFor of an intake whose held beads
+// wait for as long as nobody releases them.
+const PeerHoldNever = "0"
+
 // Why a bead that came in was not taken, as the sender is told, beside
 // RefusedKind and RefusedTooLarge.
 const (
@@ -102,6 +112,10 @@ type PeerIntake struct {
 	// Limit is how many open beads from the peer this yard keeps at once;
 	// 0 is PeerIntakeLimit.
 	Limit int `json:"limit,omitempty"`
+	// HoldFor is how long a bead that arrived held waits to be released
+	// before it goes back as refused, as ParseSpan reads it ("3d", "12h");
+	// "" is PeerHoldFor and PeerHoldNever never.
+	HoldFor string `json:"hold_for,omitempty"`
 }
 
 // Most is the intake's limit as it holds.
@@ -110,6 +124,23 @@ func (in PeerIntake) Most() int {
 		return in.Limit
 	}
 	return PeerIntakeLimit
+}
+
+// Hold is how long a held bead of the intake waits as it holds, 0 for
+// never. A nil intake (removed since the bead arrived) holds for
+// PeerHoldFor: the beads it left still need an end.
+func (in *PeerIntake) Hold() time.Duration {
+	switch {
+	case in == nil || in.HoldFor == "":
+		return PeerHoldFor
+	case in.HoldFor == PeerHoldNever:
+		return 0
+	}
+	// Checked when it was set; one that reads no more counts as unset.
+	if d, err := ParseSpan(in.HoldFor); err == nil {
+		return d
+	}
+	return PeerHoldFor
 }
 
 // PeerNote is a note as it crosses a link.
@@ -192,6 +223,8 @@ type peerBead struct {
 	Held       bool       `json:"held,omitempty"`
 	ReleasedBy string     `json:"released_by,omitempty"`
 	ReleasedAt *time.Time `json:"released_at,omitempty"`
+	// Warned is when peer_bead_expiring was logged for it: once.
+	Warned *time.Time `json:"warned_at,omitempty"`
 	// Outcome is what was returned, at ReturnedAt, as the message Return.
 	Outcome    string     `json:"outcome,omitempty"`
 	ReturnedAt *time.Time `json:"returned_at,omitempty"`
@@ -229,6 +262,9 @@ type BeadPeer struct {
 	Held       bool       `json:"held,omitempty"`
 	ReleasedBy string     `json:"released_by,omitempty"`
 	ReleasedAt *time.Time `json:"released_at,omitempty"`
+	// Expires is when a bead still held as it arrived goes back as refused
+	// unless it is released (PeerIntake.HoldFor), nil when it never does.
+	Expires    *time.Time `json:"expires_at,omitempty"`
 	Outcome    string     `json:"outcome,omitempty"`
 	ReturnedAt *time.Time `json:"returned_at,omitempty"`
 	// Of a bead sent out: when the peer had the message (nil while it
@@ -427,6 +463,9 @@ func withPeer(tx *bolt.Tx, b *Bead) error {
 		v.Peer = p.Name
 		if v.Direction == "out" {
 			v.HeardAt = p.HeardAt
+		} else if hold := p.Intake.Hold(); v.Held && v.ReturnedAt == nil && hold > 0 {
+			at := v.At.Add(hold)
+			v.Expires = &at
 		}
 		return nil
 	}
@@ -465,12 +504,20 @@ func withPeer(tx *bolt.Tx, b *Bead) error {
 func (s *Store) SetPeerIntake(ctx context.Context, name string, in *PeerIntake, actor string) (*Peer, error) {
 	var repo *RepoFlows
 	if in != nil {
-		in = &PeerIntake{Rig: strings.TrimSpace(in.Rig), Flow: strings.TrimSpace(in.Flow), Auto: in.Auto, Limit: in.Limit}
+		in = &PeerIntake{Rig: strings.TrimSpace(in.Rig), Flow: strings.TrimSpace(in.Flow), Auto: in.Auto, Limit: in.Limit, HoldFor: strings.TrimSpace(in.HoldFor)}
 		switch {
 		case in.Rig == "" || in.Flow == "":
 			return nil, fmt.Errorf("an intake names a rig and a flow")
 		case in.Limit < 0:
 			return nil, fmt.Errorf("an intake's limit is a number of open beads, at least 1 (unset: %d)", PeerIntakeLimit)
+		}
+		if in.HoldFor != "" && in.HoldFor != PeerHoldNever {
+			d, err := ParseSpan(in.HoldFor)
+			if err != nil {
+				return nil, fmt.Errorf("how long an intake holds a bead: %w, or %s for never (unset: %s)", err, PeerHoldNever, Span(PeerHoldFor))
+			}
+			// Kept as it is shown, so 72h and 3d are one setting.
+			in.HoldFor = Span(d)
 		}
 		if _, err := s.GetRig(ctx, in.Rig); err != nil {
 			return nil, err
@@ -493,6 +540,10 @@ func (s *Store) SetPeerIntake(ctx context.Context, name string, in *PeerIntake, 
 				return changedMeanwhile(err)
 			}
 			data["rig"], data["flow"], data["auto"], data["limit"] = in.Rig, in.Flow, in.Auto, in.Most()
+			data["hold_for"] = PeerHoldNever
+			if hold := in.Hold(); hold > 0 {
+				data["hold_for"] = Span(hold)
+			}
 		}
 		p.Intake = in
 		if err := put(w.Tx, bPeers, name, p); err != nil {
@@ -874,6 +925,96 @@ func (w *wtx) releasePeerBead(ctx context.Context, exp Expect, b *beadRow, actor
 		return err
 	}
 	return w.event(b.UUID, "peer_bead_released", actor, map[string]any{"peer": name, "by": actor})
+}
+
+// ExpirePeerBeads ends the wait of every bead that arrived held from a
+// peer and that nobody released: one held for as long as its peer's intake
+// says (PeerIntake.Hold), at at, is closed by the yard, which returns it as
+// refused with a note that says so, and the sender's flow routes on that.
+// Before it, a day ahead or at half the time when that is shorter than two
+// days, peer_bead_expiring is logged on the bead, once. The daemon calls it
+// on every pass, with its clock; a bead whose time passed while none ran
+// goes at the next one's first.
+//
+// A bead that was released is not touched, however it is held since, nor
+// one whose link is removed: nothing is returned for it. The intake is read
+// as it is at the pass, so a time set later holds for the beads that wait.
+func (s *Store) ExpirePeerBeads(ctx context.Context, at time.Time) error {
+	// waits says how long a record's bead still waits, false for one this
+	// is not for: checked here to find them and again in the write.
+	waits := func(tx *bolt.Tx, rec *peerBead) (*Peer, time.Duration, bool, error) {
+		if rec.Direction != "in" || !rec.Held || rec.ReturnedAt != nil || rec.Was != "" {
+			return nil, 0, false, nil
+		}
+		var row beadRow
+		if ok, err := get(tx, bBeads, rec.Bead, &row); err != nil || !ok || row.Status != "open" {
+			return nil, 0, false, err
+		}
+		p, err := peerByKey(tx, rec.Key)
+		if err != nil || p == nil || p.Intake.Hold() == 0 {
+			return nil, 0, false, err
+		}
+		return p, p.Intake.Hold(), true, nil
+	}
+	// due says what the pass owes the bead: its end, its warning, or nothing.
+	due := func(rec *peerBead, hold time.Duration) (expire, warn bool) {
+		ahead := 24 * time.Hour
+		if hold < 2*ahead {
+			ahead = hold / 2
+		}
+		ends := rec.At.Add(hold)
+		return !at.Before(ends), rec.Warned == nil && !at.Before(ends.Add(-ahead))
+	}
+	var pending []string
+	err := s.read(func(tx *bolt.Tx) error {
+		return each(tx, bPeerBeads, "", func(_ []byte, rec *peerBead) error {
+			_, hold, ok, err := waits(tx, rec)
+			if err != nil || !ok {
+				return err
+			}
+			if expire, warn := due(rec, hold); expire || warn {
+				pending = append(pending, rec.Bead)
+			}
+			return nil
+		})
+	})
+	for _, uuid := range pending {
+		// A write for each: one bead that cannot be closed keeps no other.
+		err = errors.Join(err, s.write(func(w *wtx) error {
+			rec, err := peerBeadOf(w.Tx, uuid)
+			if err != nil || rec == nil {
+				return err
+			}
+			p, hold, ok, err := waits(w.Tx, rec)
+			if err != nil || !ok {
+				return err
+			}
+			expire, warn := due(rec, hold)
+			switch {
+			case expire:
+				here := "the other yard"
+				var name string
+				if ok, _ := get(w.Tx, bSettings, "name", &name); ok && strings.TrimSpace(name) != "" {
+					here = strings.TrimSpace(name)
+				}
+				reason := fmt.Sprintf("not released within %s at %s", Span(hold), here)
+				b, err := w.changeBead(uuid, "yard", closeWith(reason))
+				if err != nil || b.Status != "closed" {
+					return err
+				}
+				return w.returnPeerBead(b, OutcomeRefused, &reason, "yard")
+			case warn:
+				now := now()
+				rec.Warned = &now
+				if err := put(w.Tx, bPeerBeads, rec.Bead, rec); err != nil {
+					return err
+				}
+				return w.event(uuid, "peer_bead_expiring", "yard", map[string]any{"peer": p.Name, "hold_for": Span(hold), "expires": rec.At.Add(hold)})
+			}
+			return nil
+		}))
+	}
+	return err
 }
 
 // mayRelease refuses the release of b, held as it arrived from the peer

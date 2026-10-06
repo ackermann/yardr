@@ -477,16 +477,25 @@ an agent that runs with this yard's permissions. Three levels, per peer:
 --limit is how many open beads from the peer this yard keeps at once (10
 unless set): the next is refused (busy) until one ends.
 
+--hold-for is how long a held bead waits to be released (3d unless set, as
+40m, 12h or 7d). One that nobody released by then is closed by the yard and
+goes back as refused, with a note that says so, and the sender's flow routes
+on it. A day before, or at half the time when it is shorter than two days,
+peer_bead_expiring is logged on the bead (yardr subscribe <name> yardr
+--where kind=peer_bead_expiring). --hold-for 0 keeps a bead for as long as
+nobody releases it. It holds for the beads that wait already.
+
 Only the operator may set an intake, as only the operator allows what a link
 carries. --none removes it, which anyone may. Refused when the rig is none
 of the yard's or the flow does not resolve for it.`,
 		Example: `  yardr peer allow north --receive bead
   yardr peer intake north --rig web --flow incoming
   yardr peer intake north --rig web --flow incoming --auto
+  yardr peer intake north --rig web --flow incoming --hold-for 7d
   yardr peer intake north --none`,
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()
-			set := in.Rig != "" || in.Flow != "" || in.Auto || c.Flags().Changed("limit")
+			set := in.Rig != "" || in.Flow != "" || in.Auto || c.Flags().Changed("limit") || c.Flags().Changed("hold-for")
 			switch {
 			case none && set:
 				return errors.New("--none removes the intake: it goes with no other flag")
@@ -524,6 +533,7 @@ of the yard's or the flow does not resolve for it.`,
 	f.StringVar(&in.Flow, "flow", "", "the flow each is pinned to, and starts in the first stage of")
 	f.BoolVar(&in.Auto, "auto", false, "let its beads arrive ready, not held: the other yard's operator can then start agents here")
 	f.IntVar(&in.Limit, "limit", 0, fmt.Sprintf("open beads from it this yard keeps at once (default %d)", store.PeerIntakeLimit))
+	f.StringVar(&in.HoldFor, "hold-for", "", fmt.Sprintf("how long a held bead waits to be released before it goes back as refused, such as 12h or 7d (default %s; 0 for never)", store.Span(store.PeerHoldFor)))
 	f.BoolVar(&none, "none", false, "remove the intake: every bead it sends is refused")
 	return cmd
 }
@@ -539,7 +549,12 @@ func intakeLine(p store.Peer) string {
 		}
 		return fmt.Sprintf("none: a bead it sends is refused (yardr peer intake %s --rig <rig> --flow <flow>)", p.Name)
 	}
-	how := fmt.Sprintf("its beads arrive held, for a user to release (yardr bead unhold), or a resident with release=%s", p.Name)
+	how := fmt.Sprintf("its beads arrive held, for a user to release (yardr bead unhold), or a resident with release=%s, ", p.Name)
+	if hold := p.Intake.Hold(); hold > 0 {
+		how += fmt.Sprintf("and go back as refused when nobody has within %s", store.Span(hold))
+	} else {
+		how += "and wait for as long as nobody has (--hold-for 0)"
+	}
 	if p.Intake.Auto {
 		how = "its beads arrive ready (--auto): the flow's routes start on them unseen"
 	}

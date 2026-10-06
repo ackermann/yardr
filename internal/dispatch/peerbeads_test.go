@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -721,6 +722,80 @@ func TestPeerBeadWaitsPastItsAge(t *testing.T) {
 			}
 			if got := a.get(t, mine.ID); got.Stage != "build" || got.Group == nil || len(a.beadEvents(t, mine.ID, "peer_bead_sent")) != 1 {
 				t.Fatalf("a's bead after its age = %+v", got)
+			}
+		})
+	}
+}
+
+// A bead b took held and nobody released goes back when the time b's
+// intake gives has passed: b's daemon closes it and posts the return, and
+// a's flow routes its bead on refused, with b's note. A daemon of b made
+// anew after the time (the one before was down through it) does the same
+// on its first pass, and no later pass returns it again. A bead of the
+// same intake that was released stays.
+func TestPeerBeadNobodyReleased(t *testing.T) {
+	for name, anew := range map[string]bool{"the daemon that took it": false, "a daemon made anew": true} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			clock := newClock()
+			a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
+			link(t, a, b, true, true)
+			a.sends(t, "b", nil)
+			b.takes(t, "a", "web", false)
+			_, err := b.api.SetPeerIntake(ctx, "a", &store.PeerIntake{Rig: "web", Flow: "taking", HoldFor: "6h"}, "jo")
+			must(t, err)
+			kept, mine := a.bead(t, "Add the import"), a.bead(t, "Add the export")
+			a.pass(t)
+			b.pass(t)
+			bs, err := b.api.ListBeads(ctx, store.BeadFilter{Label: "from-a"})
+			must(t, err)
+			if len(bs) != 2 {
+				t.Fatalf("b has %d beads from a, want two", len(bs))
+			}
+			var theirs, released *store.Bead
+			for i := range bs {
+				if bs[i].Title == "Add the export" {
+					theirs = &bs[i]
+				} else {
+					released = &bs[i]
+				}
+			}
+			_, err = b.api.SetHold(ctx, released.ID, false, store.Expect{}, "jo")
+			must(t, err)
+			// The store's clock is the machine's: the bead arrived just now.
+			clock.now = time.Now().Add(3*time.Hour + time.Minute)
+			b.pass(t)
+			b.pass(t)
+			if ev := b.beadEvents(t, theirs.ID, "peer_bead_expiring"); len(ev) != 1 || ev[0].Data["peer"] != "a" || b.get(t, theirs.ID).Status != "open" {
+				t.Fatalf("b's peer_bead_expiring at half the time = %+v", ev)
+			}
+			clock.now = time.Now().Add(7 * time.Hour)
+			if anew {
+				b.d = &dispatch.Dispatcher{Store: b.api, Runners: b.d.Runners, PeerKey: b.d.PeerKey}
+				dispatch.SetClock(b.d, func() time.Time { return clock.now })
+			}
+			for i := 0; i < 3; i++ {
+				b.pass(t)
+				a.pass(t)
+			}
+			if got := b.get(t, theirs.ID); got.Status != "closed" || got.From().Outcome != "refused" || len(b.beadEvents(t, theirs.ID, "peer_bead_returned")) != 1 {
+				t.Fatalf("b's bead after its time = %+v", got)
+			}
+			if got := b.get(t, released.ID); got.Status != "open" || len(b.beadEvents(t, released.ID, "peer_bead_expiring")) != 0 {
+				t.Fatalf("b's bead that was released = %+v", got)
+			}
+			got := a.get(t, mine.ID)
+			if got.Stage != "decide" || got.Hold {
+				t.Fatalf("a's bead after b let its time pass = %+v", got)
+			}
+			if adv := a.beadEvents(t, mine.ID, "advanced"); len(adv) != 1 || adv[0].Data["outcome"] != "refused" || adv[0].Actor != "peer:b" {
+				t.Fatalf("a's advanced = %+v", adv)
+			}
+			if ns := a.notes(t, mine.ID); len(ns) != 1 || ns[0].Author != "yard@b" || ns[0].Text != "not released within 6h at the other yard" {
+				t.Fatalf("a's note of it = %+v", ns)
+			}
+			if got := a.get(t, kept.ID); got.Stage != "build" || len(a.beadEvents(t, kept.ID, "advanced")) != 0 {
+				t.Fatalf("a's bead that b released = %+v", got)
 			}
 		})
 	}

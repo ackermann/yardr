@@ -45,6 +45,12 @@ func (d *Dispatcher) peers(ctx context.Context) error {
 	if err := d.Store.SettlePeerBeads(ctx); err != nil {
 		d.Log.Warn("peers: moving on a bead whose stay at a peer ended", "err", err)
 	}
+	// A bead a peer sent that nobody here released in the time its intake
+	// gives goes back as refused, before the outbox is posted: the return
+	// leaves in this pass.
+	if err := d.Store.ExpirePeerBeads(ctx, d.now()); err != nil {
+		d.Log.Warn("peers: returning a bead nobody released", "err", err)
+	}
 	ps, err := d.Store.Peers(ctx)
 	if err != nil {
 		return err

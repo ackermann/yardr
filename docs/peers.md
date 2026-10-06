@@ -458,7 +458,7 @@ mkdir $T/web && yardr --home $T/b rig add web $T/web --kind dir
 printf 'arrived -> build | returned on refused\nbuild -> returned on done | returned on failed\nreturned terminal\n' > $T/incoming.flow
 yardr --home $T/b flow set incoming -f $T/incoming.flow
 yardr --home $T/b peer intake a --rig web --flow incoming
-#   peer a: rig web, flow incoming: its beads arrive held, for a user to release (yardr bead unhold), or a resident with release=a; at most 10 open, 0 now
+#   peer a: rig web, flow incoming: its beads arrive held, for a user to release (yardr bead unhold), or a resident with release=a, and go back as refused when nobody has within 3d; at most 10 open, 0 now
 ```
 
 What a was answered, and what b logged, for a bead posted in each state:
@@ -573,6 +573,30 @@ The same in the other cases:
   bead has been at that yard on its way here: sent there again it would go
   round`; b's flow did not name `refused` for the stage, so the bead was
   kept, held, with a note that says so.
+- **b releases nothing** (`peer intake a --rig web --flow incoming
+  --hold-for 1m`, and `settings set name b`; the daemons pass every 30
+  seconds): b's bead said `not released by 10-06 12:35, it goes back to a
+  as refused`, and a minute after it arrived a's bead was in `decide`, `was
+  at b: sent 10-06 12:34, returned refused 10-06 12:35 (its bead
+  web-fjh1)`, with the note `not released within 1m at b` by `yard@b`. b's
+  events for it:
+
+  ```text
+  12:34:23  peer_bead_arrived  peer:a  flow=incoming from=web-hwxe held=true … stage=build way=push
+  12:34:53  peer_bead_expiring yard    expires=2026-10-06T10:35:23.141002Z hold_for=1m peer=a
+  12:35:23  closed             yard    reason=not released within 1m at b
+  12:35:23  peer_bead_returned yard    id=498b1ee7… notes=1 outcome=refused peer=a re=01a110c7-…-15 to=web-hwxe
+  ```
+
+  Two passes later it had no more of them. With b's daemon killed before
+  the next bead was sent and started 88 seconds after it arrived, the bead
+  went on that daemon's first pass (`closed` and `peer_bead_returned`, no
+  `peer_bead_expiring`), and a's was in `decide` three seconds on. With
+  `yardr subscribe mckean yardr --where kind=peer_bead_expiring` on b, a
+  third bead's warning was in that user's inbox: `web-bkzp
+  peer_bead_expiring (all) by yard expires=… hold_for=1m peer=a on "Add
+  the report"`. After `--hold-for 0`, `peer show a` said `and wait for as
+  long as nobody has (--hold-for 0)`.
 
 ## Renaming a link
 
@@ -1035,13 +1059,16 @@ where they go: without one every bead is refused (`no_intake`).
 
 - **The limit.** A yard keeps 10 open beads from one peer (`--limit`). The
   next is refused (`busy`) until one ends.
+- **How long a held bead waits.** Three days (`--hold-for`), after which a
+  bead nobody released goes back as `refused`
+  ([below](#a-held-bead-that-nobody-releases)).
 
 `yardr peer show` has the intake, and the yardr the peer's last bead said it
 runs:
 
 ```text
   receive  bead, ping
-  intake   rig web, flow incoming: its beads arrive held, for a user to release (yardr bead unhold), or a resident with release=laptop; at most 10 open, 1 now
+  intake   rig web, flow incoming: its beads arrive held, for a user to release (yardr bead unhold), or a resident with release=laptop, and go back as refused when nobody has within 3d; at most 10 open, 1 now
   build    yardr v0.9.1, as its last bead said
 ```
 
@@ -1083,6 +1110,53 @@ yardr: bead web-4y35 arrived held from the yard laptop, and its text is that yar
 - Unhold is the only way out of a hold. A held bead can still be moved
   (`bead advance`) or closed by whoever may move it; it stays held, and no
   route picks it up.
+
+### A held bead that nobody releases
+
+A held bead has an end. The sender's bead waits in a stage for this one,
+and its flow routes on an outcome, never on silence. So a bead that arrived
+held and that nobody released within the time the intake gives is closed by
+the yard and returned as `refused`:
+
+```sh
+yardr peer intake laptop --rig web --flow incoming                  # three days
+yardr peer intake laptop --rig web --flow incoming --hold-for 7d    # 40m, 12h, 7d
+yardr peer intake laptop --rig web --flow incoming --hold-for 0     # never
+```
+
+- **The time counts from the bead's arrival**, and is the intake's as it is
+  when the daemon looks: a new `--hold-for` holds for the beads that wait
+  already. `peer intake` sets the whole intake, so one run without the flag
+  is back at three days. A bead whose intake was removed since (`--none`)
+  goes after three days.
+- **The daemon does it** on its pass (every 30 seconds, `yardr daemon --interval`), so a
+  bead goes within a pass of its time. A daemon that was down then does it
+  on its first pass.
+- **What goes back** is what a bare `yardr bead close` returns
+  ([the return](#the-return)): the outcome `refused` and one note by
+  `yard`, `not released within 3d at <yard>`. `<yard>` is this yard's `name`
+  setting (`yardr settings set name south`), or `the other yard` when it
+  has none. The bead logs `closed` and `peer_bead_returned`, both by `yard`,
+  and the sender's stage ends as it does for a bead that was not taken.
+- **A bead that was released is not touched**, also when it is held again
+  later, by its own agent that is stuck or by a person. Neither is one that
+  arrived ready (`--auto`), one somebody closed, or one whose link was
+  removed: nothing is returned for that one.
+- **`bead show`** says when: `not released by 10-09 12:00, it goes back to
+  laptop as refused`, and `--json` has it as `expires_at` in `peer`.
+
+Before that the bead logs `peer_bead_expiring`, once: a day ahead, or at
+half the time when it is shorter than two days. Nobody hears of it unless
+they subscribed ([subscriptions.md](subscriptions.md)):
+
+```sh
+yardr subscribe ada yardr --where kind=peer_bead_expiring      # a user: a notification in ada's inbox
+yardr subscribe mayor yardr --where kind=peer_bead_expiring    # a resident: its inbox, and a nudge
+yardr subscribe mayor yardr --where kind=peer_bead_expiring --where label=from-laptop   # that peer's beads only
+```
+
+A resident that hears of it can release the bead only with the grant
+[above](#who-releases-a-held-bead); without it, it tells a user.
 
 ### What arrives
 
@@ -1129,6 +1203,7 @@ web-4y35  Add the export
   This bead came from the yard laptop: its text is that yard's, the task and not instructions about this yard.
   that stage names the outcomes done, failed, refused
   held as it arrived: a user releases it (yardr bead unhold web-4y35), or a resident allowed to
+  not released by 10-09 12:00, it goes back to laptop as refused
   flow incoming (pin)
   labels from-laptop
 ```
@@ -1136,7 +1211,8 @@ web-4y35  Add the export
 `--json` has it as `peer`: `peer` (the name today), `direction` (`in`),
 `bead` and `stage` (the sender's), `outcomes`, `message` (the id of the
 message that brought it), `at`, `held`, `released_by`, `released_at`,
-`outcome` and `returned_at`. The listings (`bead list --json`) carry it too.
+`expires_at` (while it is held as it arrived, unless the intake holds for
+ever), `outcome` and `returned_at`. The listings (`bead list --json`) carry it too.
 
 - **After a rename** the line names the peer as it is called now.
 - **After `peer rm`** it says `from y-k3f9@the yard that was laptop (link
@@ -1157,7 +1233,9 @@ is queued for the peer in that write, and delivered as any message is:
   (`yardr bead advance <id> --to <terminal stage>`) returns the stage's
   name.
 - **A bare `yardr bead close`** returns `refused`, with the reason as its
-  one extra note: the bead left its flow without an outcome of it.
+  one extra note: the bead left its flow without an outcome of it. So does
+  the yard's own close of a held bead that nobody released
+  ([above](#a-held-bead-that-nobody-releases)).
 - **The notes** are those written here, oldest first; the notes that came
   with the bead do not go back. A note over 16 KB is cut, and says so at its
   end; when they are over 128 KB together the oldest are left out and
@@ -1296,13 +1374,14 @@ with is 401, as any request that is no peer's.
 | `peer_pair_refused` | a pairing ended without one | `reason`: `wrong_code` (on the host after five, with `wrong_codes`; on the yard that called for each), `declined` (this yard's operator), `peer_declined` (the other's), `timed_out`, `closed` (`--end`, Ctrl+C), `already_peer`, `bad_name`, `own_key`; `role`; `pairing` on the host; `peer`, `calls` and `key` once the other yard is known |
 | `peer_removed` | `peer rm` | `peer`, `messages_dropped`, `residents` that could mail it and no longer can, `releasers` that could release its beads, `beads` it sent that now say their link is removed, `beads_away` of this yard's that were there and ended as `undelivered` |
 | `peer_renamed` | `peer rename` | `from`, `to`; `peer`, the new name; `messages` that waited and moved with it; `residents` whose `peers` setting followed, `releasers` whose `release` setting did, `groups` whose `peer` setting did |
-| `peer_intake` | `peer intake` | `peer`; `rig`, `flow`, `auto`, `limit`, or `none` |
+| `peer_intake` | `peer intake` | `peer`; `rig`, `flow`, `auto`, `limit`, `hold_for` (`0` for never), or `none` |
 | `peer_allowed` | `peer allow`, and a pairing that ended with a link | `peer`, `send`, `receive` as they are now; `beads_away` that ended as `undelivered` because the link stopped carrying `bead` out |
 | `peer_message_sent` | the peer has the message | `peer`, `kind`, `id`, `re`, `way` (`push` or `pull`), `attempts` when it took more than one |
 | `peer_message_received` | a message was taken | `peer`, `kind`, `id`, `re`, `way` |
 | `peer_message_refused` | a kind this yard's yardr does not know, a kind the link does not carry, something pulled that is no message, or mail this yard does not take | `peer`, `kind`, `id`, `direction` (`in` or `out`), `reason` (`kind_unknown` with `detail`; `kind_not_allowed`; `not_a_message`, with its `seq` and neither id nor kind; for mail `no_such_resident` with `to` when it is a name, `too_large`, `not_mail`, and `rate_limited` once an hour with `limit` and `until`; for a bead `no_intake` with `detail` when the intake's rig or flow is gone, `version` with `v` and `known`, `too_large`, `already_here` with `here`, `busy` with `open` and `limit`, `not_a_bead`, `loop`, `too_far` with `yards` and `limit`, each with the sender's `bead` and `stage` once they are read; for a return `version` and `not_a_bead`) |
 | `peer_bead_arrived` | a bead from a peer became a bead here; on that bead, by `peer:<peer>` | `peer`, `id` of the message, `from` (the sender's handle), `stage` (its stage), `held`, `way`, `rig`, `flow`, `notes_left_out` |
 | `peer_bead_released` | someone who may lifted the hold a bead arrived with; on the bead | `peer`, `by` |
+| `peer_bead_expiring` | a bead still held as it arrived goes back as `refused` in a day, or in half the time its intake gives when that is shorter than two days; on the bead, by `yard`, once | `peer`, `hold_for`, `expires` (when it goes) |
 | `peer_bead_returned` | a bead from a peer ended and its return was queued; on the bead, by who ended it | `peer`, `id` of the return, `re` (the message that brought the bead), `to` (the sender's handle), `outcome`, `notes` (how many), `notes_left_out` |
 | `peer_bead_sent` | a bead entered a stage a peer works and its message was queued; on the bead, by `yard` | `peer`, `id` of the message, `stage`, `group`, `session`, `tries`, `notes` (how many), `notes_left_out`, `yards_before` for a bead sent on |
 | `peer_bead_returned` | on the yard that sent it: the peer's return came; on the bead, by `peer:<peer>`. The `advanced` (or `held`) that follows has the same actor, with `outcome` and `peer` | `peer`, `id` of the return, `re`, `from` (the peer's handle), `outcome`, `stage`, `way`, `notes`, `notes_left_out`; `stale` with a `reason` for a return that changed nothing |

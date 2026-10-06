@@ -1350,7 +1350,9 @@ the summary says which ([above](#creating-a-yard-the-onboarding-and-yardr-init))
 The store is stamped with its schema version on open, and a yardr whose
 schema is older than the store's refuses to open it (`store schema is newer
 than this yardr knows`) rather than run its migrations over it. The schema
-is 7: version 7 keeps, with a bead that came from a linked yard, the yards
+is 8: version 8 keeps, in a peer's intake, how long a bead it sent waits to
+be released ([peers.md](peers.md#a-held-bead-that-nobody-releases));
+version 7 keeps, with a bead that came from a linked yard, the yards
 it had passed through, and version 6 a peer's intake
 ([peers.md](peers.md#beads-the-receiving-side)); version 5 keeps, in a
 peer's record, the names it had before a rename
