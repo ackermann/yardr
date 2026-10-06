@@ -186,9 +186,9 @@ What differs from a resident:
 
 - A user is not told of what they did themselves, as a resident is not.
 - In a hook source a user has no identity and takes part in no thread, so
-  only `--scope all` reaches them there. Say it: a hook source's default
-  scope is `involved`, and a user's `mentions` or `involved` subscription
-  to one is stored and matches nothing. In the yardr source every scope
+  only `--scope all` reaches them there. It is the default for a user, and
+  a user's `mentions` or `involved` subscription to a hook source is
+  refused (above). In the yardr source every scope
   works: `@ada` in a note mentions the user `ada`, and `involved` adds the
   beads they created, advanced or noted.
 - There is no `--on` for a user, so yardr's events that are not about a
@@ -433,11 +433,12 @@ and `mentions`, so a resident's github identity is its login in lowercase.
 Where keys, besides `type`, `action`, `repo` and `label`: `event`, `number`,
 `state` (the issue's or pull request's, or the review's), `merged`,
 `conclusion`, `workflow` (a run's workflow, or a check suite's app),
-`head_branch`, `head_sha`, `head_repo` (owner/name of the repository the
-head branch is in: a fork's for a fork's pull request or workflow run),
-`base`, and `epic`: the yardr epic
+`head_branch`, `head_sha`, `base`, and `epic`: the yardr epic
 when the head branch is `yard/<epic>`, so `--where epic=yardr-sv6b` follows an
-epic's pull request and CI without parsing branch names.
+epic's pull request and CI without parsing branch names. The event's
+`fields` also carry `head_repo` (owner/name of the repository the head
+branch is in: a fork's for a fork's pull request or workflow run); it is
+not a where key, and `--where head_repo=…` is refused.
 
 ### Redeliveries
 

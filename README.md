@@ -325,6 +325,9 @@ The rest of the documentation is in [docs/](docs/README.md):
   user something later, once or recurring, unless an awaited bead moved first.
 - **[Links](docs/links.md):** `yardr link`, the outside issue (Linear, GitHub) a bead
   tracks or relates to, and the hook's map that moves it when the bead changes stage.
+- **[Integrations](docs/integrations.md):** what a service outside the yard (Linear,
+  GitHub) is made of in yardr, how one is set up step by step, what adding a
+  service takes and what is missing.
 - **[Peers](docs/peers.md):** `yardr peer`, linking two yards by their keys, from a
   short code one operator reads to the other (`yardr peer pair`) or by hand: signed
   messages both ways, pushed or pulled, proved with a ping, and mail between
