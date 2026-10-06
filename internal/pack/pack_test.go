@@ -66,7 +66,7 @@ func smallFiles(yaml string) map[string]string {
 }
 
 func TestStarterPackLoads(t *testing.T) {
-	p, err := pack.Load(starter)
+	p, err := pack.LoadDir(starter)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestStarterPackLoads(t *testing.T) {
 // The starter's flow, as the store would keep it, is the flow yardr depot
 // init writes: the same rules, written in the pack's format.
 func TestStarterFlowIsTheDepotInitFlow(t *testing.T) {
-	p, err := pack.Load(starter)
+	p, err := pack.LoadDir(starter)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ flows:
       alpha: { manual: [zulu] }
       bravo: { end: true }
 `})
-	p, err := pack.Load(dir)
+	p, err := pack.LoadDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +228,7 @@ func TestStrictness(t *testing.T) {
 				}
 			}
 			dir := writePack(t, files)
-			_, err := pack.Load(dir)
+			_, err := pack.LoadDir(dir)
 			var errs pack.Errors
 			if !errors.As(err, &errs) {
 				t.Fatalf("Load = %v, want the pack's errors", err)
@@ -252,7 +252,7 @@ func TestStrictness(t *testing.T) {
 // outcome "yes" can.
 func TestQuotedBooleanWordIsAName(t *testing.T) {
 	text := strings.Replace(small, "outcomes: { done: merged }", `outcomes: { "yes": merged }`, 1)
-	p, err := pack.Load(writePack(t, smallFiles(text)))
+	p, err := pack.LoadDir(writePack(t, smallFiles(text)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,20 +264,23 @@ func TestQuotedBooleanWordIsAName(t *testing.T) {
 // Every mistake is named in one run, in file order.
 func TestAllErrorsAreReported(t *testing.T) {
 	text := strings.NewReplacer("group: assembly", "group: refiners", "linear: involved", "slack: involved").Replace(small)
-	_, err := pack.Load(writePack(t, smallFiles(text)))
+	_, err := pack.LoadDir(writePack(t, smallFiles(text)))
 	var errs pack.Errors
 	if !errors.As(err, &errs) || len(errs) != 2 || errs[0].Line > errs[1].Line {
 		t.Fatalf("errors = %v", err)
 	}
 }
 
-func TestScriptMustBeExecutable(t *testing.T) {
+// A script is installed executable because a run: group names it, whatever
+// its mode in the pack: a pack yardr embeds has no modes, and a checkout
+// may have lost them.
+func TestScriptNeedNotBeExecutableInThePack(t *testing.T) {
 	dir := writePack(t, smallFiles(small))
 	if err := os.Chmod(filepath.Join(dir, "scripts", "land"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pack.Load(dir); err == nil || !strings.Contains(err.Error(), "groups.assembly.run: script scripts/land is not executable") {
-		t.Fatalf("Load = %v", err)
+	if _, err := pack.LoadDir(dir); err != nil {
+		t.Fatalf("LoadDir = %v", err)
 	}
 }
 
@@ -293,13 +296,13 @@ func TestRoleMustBeARegularFile(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(dir, "roles", "builder.md")); err != nil {
 		t.Skip(err)
 	}
-	if _, err := pack.Load(dir); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+	if _, err := pack.LoadDir(dir); err == nil || !strings.Contains(err.Error(), "not a regular file") {
 		t.Fatalf("Load = %v", err)
 	}
 }
 
 func TestNoPackFile(t *testing.T) {
-	if _, err := pack.Load(t.TempDir()); err == nil || !strings.Contains(err.Error(), "a pack is a directory with a pack.yaml") {
+	if _, err := pack.LoadDir(t.TempDir()); err == nil || !strings.Contains(err.Error(), "a pack is a directory with a pack.yaml") {
 		t.Fatalf("Load = %v", err)
 	}
 }
@@ -365,7 +368,7 @@ func TestStarterMatchesItsSources(t *testing.T) {
 func TestStageFileIsRead(t *testing.T) {
 	files := smallFiles(strings.Replace(small, "review: { group: assembly,", "review: { group: assembly, file: ./flows/review.md,", 1))
 	files["flows/review.md"] = "review it\n"
-	p, err := pack.Load(writePack(t, files))
+	p, err := pack.LoadDir(writePack(t, files))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -390,14 +393,14 @@ func TestUnknownPlaceholderIsRefused(t *testing.T) {
 	files["flows/new.md"] = "{{operator}} decides\n"
 	files["scripts/land"] = "#!/bin/sh\necho {{.Branch}} {{lead}}\n"
 	dir := writePack(t, files)
-	if _, err := pack.Load(dir); err != nil {
+	if _, err := pack.LoadDir(dir); err != nil {
 		t.Fatalf("a pack using only its own placeholders: %v", err)
 	}
 
 	files["roles/builder.md"] = "ask {{operator}}\nmail {{lead}}, or {{ operator }}\n"
 	files["flows/new.md"] = "one\ntwo\n{{boss}} decides\n"
 	dir = writePack(t, files)
-	_, err := pack.Load(dir)
+	_, err := pack.LoadDir(dir)
 	var errs pack.Errors
 	if !errors.As(err, &errs) || len(errs) != 3 {
 		t.Fatalf("Load = %v, want three errors", err)
@@ -419,7 +422,7 @@ func TestUnknownPlaceholderIsRefused(t *testing.T) {
 // The starter uses the placeholders it may: its roles name the operator and
 // its crew member, which is what an import fills.
 func TestStarterNamesItsPlaceholders(t *testing.T) {
-	p, err := pack.Load(starter)
+	p, err := pack.LoadDir(starter)
 	if err != nil {
 		t.Fatal(err)
 	}

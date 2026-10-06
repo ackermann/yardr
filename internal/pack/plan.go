@@ -68,6 +68,8 @@ type Plan struct {
 	Pack  string `json:"pack"`
 	Dir   string `json:"dir"`
 	Depot string `json:"depot"`
+	// src is the pack's directory, which Apply reads the files from again.
+	src fs.FS
 	// Flow is the pack's flow the depot would follow, by the pack's name.
 	Flow string `json:"flow,omitempty"`
 	// DepotRoles says a depot's own role is kept where it has one, instead of
@@ -364,7 +366,7 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 		return nil, err
 	}
 	b := &planner{ctx: ctx, st: st, p: p, o: o, depot: depot, plan: &Plan{
-		Pack: p.Name, Dir: p.Dir, Depot: o.Depot, Install: filepath.Join(o.Home, "packs", p.Name), StageFiles: filepath.Join(o.Home, "flows"),
+		Pack: p.Name, Dir: p.Dir, src: p.fsys, Depot: o.Depot, Install: filepath.Join(o.Home, "packs", p.Name), StageFiles: filepath.Join(o.Home, "flows"),
 		Groups: map[string]string{}, Crew: map[string]string{}, Fill: map[string]string{},
 		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, OpenThreads: []OpenThreads{}, Maps: []MapPlan{}, Notes: []string{}, Refused: []string{},
 	}}
@@ -580,19 +582,17 @@ func stageFileName(flow, rel string) string {
 // differs from what an import wrote.
 func (b *planner) file(rel string, op *FileOp) error {
 	op.From = filepath.Join(b.p.Dir, filepath.FromSlash(rel))
-	text, err := os.ReadFile(op.From)
+	text, err := fs.ReadFile(b.p.fsys, rel)
 	if err != nil {
 		return err
 	}
 	if op.Fill {
 		text = Fill(text, b.plan.Fill)
 	}
-	info, err := os.Stat(op.From)
-	if err != nil {
-		return err
-	}
 	op.Mode, op.SHA256 = "0644", sum(text)
-	if info.Mode().Perm()&0o111 != 0 {
+	// A script, by the pack's saying so and not by its mode in the source
+	// (Pack.Filled).
+	if !b.p.Filled(rel) {
 		op.Mode = "0755"
 	}
 	var changes []Diff

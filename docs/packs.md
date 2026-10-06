@@ -10,11 +10,12 @@ person, secret or identity, which are the yard's and stay in it.
 `yardr pack check` reads a pack and shows what importing it would change;
 `yardr pack apply` imports it; `yardr pack list` shows what the yard
 imported. Fetching a pack from a git URL is **planned**; until then a pack
-is a directory on this machine.
+is a directory on this machine, or one yardr carries in its binary.
 
 The pack yardr ships is [`packs/starter`](../packs/starter): the flow `yardr
 depot init` writes with its stage files, the roles yardr embeds and the
-reference assembly, as one pack.
+reference assembly, as one pack. It is in the binary, so `starter` names it
+with no checkout at hand ([Naming a pack](#naming-a-pack)).
 
 ```
 packs/starter/
@@ -94,8 +95,9 @@ rule for a stage without outcomes holds here too: with exactly one way out
 **Paths.** A role, script or stage file is always relative to the pack's
 directory, so a pack works wherever it is cloned. An absolute path, a path
 leaving the directory (`..`) and a file that is not a regular file there (a
-link) are errors, a script must be executable, and a stage file must have
-something in it. Where a stage file is in the pack is the pack's choice, and
+link) are errors, and a stage file must have something in it. A script is
+installed executable because a `run:` group names it, whatever its mode in
+the pack: an embedded pack's files have no mode. Where a stage file is in the pack is the pack's choice, and
 two stages may name the same one; the starter keeps them as
 `flows/<flow>/<stage>.md`, the layout a depot's repository and the yard's home
 use.
@@ -139,7 +141,7 @@ packs/mine/pack.yaml:7: flows.default.stages.decide.group: no group deciders is 
   a way out;
 - a group that is not exactly one of agent, script, people;
 - a role, script or stage file that is missing, absolute or outside the
-  pack, a script that is not executable, or a stage file that is empty;
+  pack, or a stage file that is empty;
 - a placeholder in a role or stage file that an import does not fill
   ([Placeholders](#packyaml)), named by that file and its line:
   `packs/mine/roles/builder.md:44: placeholder {{lead}}: an import fills
@@ -161,10 +163,29 @@ flow a depot could follow, since a depot's flow governs every type that has
 none of its own. A pack with several such flows may name a stage any of
 them has.
 
+## Naming a pack
+
+`yardr pack check` and `yardr pack apply` take the pack as their argument,
+which is one of:
+
+| written | is |
+|---|---|
+| with a path separator: `packs/starter`, `./mine`, `~/packs/team` (also `.` and `..`) | the pack's directory |
+| a bare word: `starter`, `team` | a name: of a pack this yard has imported (`yardr pack list`), read again from the directory that import recorded; else of a pack in the binary (`starter`) |
+
+A bare word is never tried as a directory, so what `starter` means does not
+depend on where the command is run: in a directory that holds `starter/` it
+is still the name, and `./starter` is the directory. An imported pack comes
+before an embedded one of its name; when it was imported into several depots
+the import into `--depot` says where it is, else the latest. If the recorded
+directory is gone the command stops and names it: give the directory the
+pack is in now. A word that names no pack is an error listing the packs the
+yard has imported and the ones yardr embeds.
+
 ## yardr pack check
 
 ```sh
-yardr pack check <dir> --depot <depot> [--crew <pack's>=<yard's>]… [--flow <flow>] [--depot-roles] [--json]
+yardr pack check <pack> --depot <depot> [--crew <pack's>=<yard's>]… [--flow <flow>] [--depot-roles] [--json]
 ```
 
 It prints what an import into the depot would do, object by object, and
@@ -411,7 +432,7 @@ the yard has and lacks to hear it and answer in it:
 ## yardr pack apply
 
 ```sh
-yardr pack apply <dir> --depot <depot> [--yes] [--prune]
+yardr pack apply <pack> --depot <depot> [--yes] [--prune]
     [--bind <group>=<kind>[:<model>][,<preset>]]… [--members <group>=a,b]…
     [--crew <pack's>=<yard's>]… [--open-threads <pack's>=<source>,…|none]…
     [--flow <flow>] [--depot-roles] [--json]
@@ -610,8 +631,8 @@ starter in depot web  2026-10-03 18:40 by mckean
 | field (`--json`) | meaning |
 |---|---|
 | `pack`, `depot` | what was imported into which depot |
-| `source` | the directory it was read from |
-| `commit`, `dirty` | that directory's git commit when it is in a repository, and whether it held changes the commit does not |
+| `source` | the directory it was read from; for a pack in the binary, `embedded in yardr <build>`, the build as `yardr version` names it |
+| `commit`, `dirty` | that directory's git commit when it is in a repository, and whether it held changes the commit does not; absent for an embedded pack, whose source names the build |
 | `at`, `by` | when, and the actor who applied it |
 | `flow` | the pack's flow the depot follows |
 | `depot_roles` | `true` when the import was given `--depot-roles`; absent when the pack's roles were set |

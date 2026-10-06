@@ -103,7 +103,7 @@ func TestStageMapRefusals(t *testing.T) {
 				text = strings.Replace(text, c.pairs[i], c.pairs[i+1], 1)
 			}
 			dir := writePack(t, smallFiles(text))
-			_, err := pack.Load(dir)
+			_, err := pack.LoadDir(dir)
 			var errs pack.Errors
 			if !errors.As(err, &errs) || len(errs) != 1 {
 				t.Fatalf("errors = %v, want one", err)
@@ -120,7 +120,7 @@ func TestStageMapRefusals(t *testing.T) {
 // on yardr hook add --map.
 func TestStageMapWordTheSourceHasNoStatusFor(t *testing.T) {
 	text := strings.Replace(smallSources, "  linear:\n    as", "  github:\n    as", 1)
-	_, err := pack.Load(writePack(t, smallFiles(text)))
+	_, err := pack.LoadDir(writePack(t, smallFiles(text)))
 	var errs pack.Errors
 	if !errors.As(err, &errs) || len(errs) == 0 {
 		t.Fatalf("a github map with review loads: %v", err)

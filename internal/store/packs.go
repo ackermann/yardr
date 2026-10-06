@@ -26,7 +26,8 @@ type PackImport struct {
 	Depot string `json:"depot"`
 	// Source is the directory the pack was read from; Commit its git commit
 	// when it is (in) a repository, Dirty whether it then had changes the
-	// commit does not hold.
+	// commit does not hold. A pack yardr embeds is in no directory: Source
+	// then says embedded and the build, and there is no commit.
 	Source string `json:"source"`
 	Commit string `json:"commit,omitempty"`
 	Dirty  bool   `json:"dirty,omitempty"`

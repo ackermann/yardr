@@ -8,8 +8,10 @@ fails when they drift. Where they say `{{operator}}` and `{{yardmaster}}`, an
 import puts the yard's operator and the crew member that takes `yardmaster`. The
 format and how a pack maps to a yard are in [docs/packs.md](../../docs/packs.md).
 
-`yardr pack check packs/starter --depot <depot>` shows what importing it would
-change, and `yardr pack apply packs/starter --depot <depot>` imports it.
+`yardr pack check starter --depot <depot>` shows what importing it would
+change, and `yardr pack apply starter --depot <depot>` imports it. yardr
+carries this pack in its binary, so the name is enough; `packs/starter`, with
+the separator, is this directory in a checkout.
 
 - `pack.yaml`: the flows (stages), the groups that work them, and the crew.
 - `roles/`: the prompts.

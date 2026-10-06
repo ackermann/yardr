@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"os/exec"
@@ -164,12 +165,12 @@ func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result,
 	}
 	pruned := prune(ctx, st, p, o, res)
 
-	dir := p.Dir
-	if abs, err := filepath.Abs(dir); err == nil {
-		dir = abs
+	rec := store.PackImport{Pack: p.Pack, Depot: p.Depot, Source: p.Dir, Flow: p.Flow, DepotRoles: p.DepotRoles, Groups: p.Groups, Crew: p.Crew}
+	// A pack in no directory (one yardr embeds) has no commit of its own:
+	// its source names the build it came in.
+	if filepath.IsAbs(p.Dir) {
+		rec.Commit, rec.Dirty = Commit(p.Dir)
 	}
-	rec := store.PackImport{Pack: p.Pack, Depot: p.Depot, Source: dir, Flow: p.Flow, DepotRoles: p.DepotRoles, Groups: p.Groups, Crew: p.Crew}
-	rec.Commit, rec.Dirty = Commit(dir)
 	rec.OpenThreads = p.openAnswers(o.OpenThreads)
 	for _, obj := range p.Objects {
 		po, ok := Ident(obj)
@@ -263,7 +264,7 @@ func check(p *Plan, o ApplyOptions) (map[string][]byte, error) {
 			}
 		case obj.Action != Create && obj.Action != Change:
 		case obj.Kind == "file":
-			text, err := os.ReadFile(obj.File.From)
+			text, err := p.read(obj.File)
 			if obj.File.Fill {
 				text = Fill(text, p.Fill)
 			}
@@ -297,6 +298,19 @@ func check(p *Plan, o ApplyOptions) (map[string][]byte, error) {
 		return nil, fmt.Errorf("nothing was changed: %s", strings.Join(problems, "; "))
 	}
 	return files, nil
+}
+
+// read is the pack's file op copies, as the pack has it now. Only a plan
+// Build made knows the pack's directory: one read back from JSON does not.
+func (p *Plan) read(op *FileOp) ([]byte, error) {
+	rel, err := filepath.Rel(p.Dir, op.From)
+	if err != nil {
+		return nil, err
+	}
+	if p.src == nil {
+		return nil, fmt.Errorf("%s: the plan no longer has its pack: make it again", op.From)
+	}
+	return fs.ReadFile(p.src, filepath.ToSlash(rel))
 }
 
 // write does one object of the plan.

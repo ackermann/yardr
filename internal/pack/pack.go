@@ -1,6 +1,7 @@
 // Package pack reads a pack, a directory holding one yard's way of working
 // (pack.yaml, roles/, scripts/, flows/), and plans what importing it into a yard
-// would change. It writes nothing: see docs/packs.md.
+// would change. It writes nothing: see docs/packs.md. The directory is read
+// as an fs.FS, so it may as well be one yardr embeds (package packs).
 package pack
 
 import (
@@ -29,7 +30,9 @@ const File = "pack.yaml"
 // keeps it: flows, a flow's stages (the first is where a bead starts), a
 // stage's outcomes, groups and crew members.
 type Pack struct {
-	Dir    string       `json:"dir"` // absolute
+	// Dir is where the pack was read from: a directory, absolute, or for a
+	// pack in no directory what Load was told it is from.
+	Dir    string       `json:"dir"`
 	Name   string       `json:"name"`
 	Flows  []Flow       `json:"flows"`
 	Groups []Group      `json:"groups"`
@@ -37,6 +40,9 @@ type Pack struct {
 	// Sources are the outside sources whose issues hear the pack's flows, in
 	// file order.
 	Sources []StageMap `json:"sources,omitempty"`
+	// fsys is the pack's directory: every path in the pack is a slash path
+	// in it.
+	fsys fs.FS
 }
 
 // StageMap says which status an issue of an outside source goes to when the
@@ -148,27 +154,39 @@ func booleanLike(n *yaml.Node) bool {
 // Scopes are how much of an outside source a crew member may hear.
 var Scopes = []string{store.ScopeInvolved, store.ScopeMentions, store.ScopeAll}
 
-// Load reads and checks the pack in dir. A pack with anything wrong is not
-// returned: the error is an Errors naming each mistake.
-func Load(dir string) (*Pack, error) {
+// LoadDir reads and checks the pack in the directory dir.
+func LoadDir(dir string) (*Pack, error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, err
 	}
+	p, err := Load(os.DirFS(abs), dir)
+	if p != nil {
+		p.Dir = abs
+	}
+	return p, err
+}
+
+// Load reads and checks the pack that fsys is the directory of. dir says
+// where that is: it is how an error names a file of the pack, and for a pack
+// in no directory (one yardr embeds) what its plan and the record of its
+// import give as the source. A pack with anything wrong is not returned: the
+// error is an Errors naming each mistake.
+func Load(fsys fs.FS, dir string) (*Pack, error) {
 	file := filepath.Join(dir, File)
-	text, err := os.ReadFile(file)
+	text, err := fs.ReadFile(fsys, File)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, Errors{{File: file, Msg: "not found: a pack is a directory with a " + File}}
 		}
 		return nil, Errors{{File: file, Msg: err.Error()}}
 	}
-	r := &reader{file: file, dir: abs}
+	r := &reader{file: file, dir: dir, fsys: fsys}
 	var doc yaml.Node
 	if err := yaml.Unmarshal(text, &doc); err != nil {
 		return nil, Errors{{File: file, Msg: err.Error()}}
 	}
-	p := &Pack{Dir: abs}
+	p := &Pack{Dir: dir, fsys: fsys}
 	if len(doc.Content) == 0 {
 		r.errs = append(r.errs, Error{File: file, Msg: "empty: a pack has at least a name"})
 	} else {
@@ -248,7 +266,9 @@ func Fill(text []byte, names map[string]string) []byte {
 
 // Filled reports whether the import fills the placeholders of the pack's
 // file rel: it does for a role and a stage file, and copies a script as it
-// is, where braces are the shell's or a template's own.
+// is, where braces are the shell's or a template's own. A script is what a
+// run: group names, and that also makes its copy executable: the file's own
+// mode says nothing, since a pack yardr embeds has none.
 func (p *Pack) Filled(rel string) bool {
 	return !slices.ContainsFunc(p.Groups, func(g Group) bool { return g.Run == rel })
 }
@@ -287,7 +307,7 @@ func (p *Pack) placeholderErrors() Errors {
 			continue
 		}
 		file := filepath.Join(p.Dir, filepath.FromSlash(rel))
-		text, err := os.ReadFile(file)
+		text, err := fs.ReadFile(p.fsys, rel)
 		if err != nil {
 			errs = append(errs, Error{File: file, Msg: err.Error()})
 			continue
@@ -305,7 +325,8 @@ func (p *Pack) placeholderErrors() Errors {
 
 type reader struct {
 	file string
-	dir  string
+	dir  string // as given: how an error names a file of the pack
+	fsys fs.FS
 	errs Errors
 }
 
@@ -611,10 +632,10 @@ func (r *reader) group(e entry) Group {
 		switch f.key {
 		case "agent":
 			kinds = append(kinds, f.key)
-			g.Agent = r.rel(f.v, f.path, "role", false)
+			g.Agent = r.rel(f.v, f.path, "role")
 		case "run":
 			kinds = append(kinds, f.key)
-			g.Run = r.rel(f.v, f.path, "script", true)
+			g.Run = r.rel(f.v, f.path, "script")
 		case "people":
 			// A value that is no boolean has its own error; it still counts
 			// as the kind, so the group is not also said to have none.
@@ -645,7 +666,7 @@ func (r *reader) group(e entry) Group {
 // to the pack's directory and inside it, since a pack must work wherever
 // it is cloned, and a regular file there. The path is returned with
 // slashes, cleaned.
-func (r *reader) rel(n *yaml.Node, key, what string, executable bool) string {
+func (r *reader) rel(n *yaml.Node, key, what string) string {
 	s, ok := r.str(n, key)
 	if !ok {
 		return ""
@@ -662,7 +683,7 @@ func (r *reader) rel(n *yaml.Node, key, what string, executable bool) string {
 	full := filepath.Join(r.dir, filepath.FromSlash(clean))
 	// Lstat: a link could name a file outside the pack, which a clone
 	// elsewhere would not have.
-	info, err := os.Lstat(full)
+	info, err := fs.Lstat(r.fsys, clean)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		r.errf(n, key, "%s %s is missing (looked for %s)", what, s, full)
@@ -670,8 +691,6 @@ func (r *reader) rel(n *yaml.Node, key, what string, executable bool) string {
 		r.errf(n, key, "%s %s: %v", what, s, err)
 	case !info.Mode().IsRegular():
 		r.errf(n, key, "%s %s is not a regular file", what, s)
-	case executable && info.Mode().Perm()&0o111 == 0:
-		r.errf(n, key, "script %s is not executable (chmod +x)", s)
 	default:
 		return clean
 	}
@@ -682,11 +701,11 @@ func (r *reader) rel(n *yaml.Node, key, what string, executable bool) string {
 // nothing in it: the yard reads such a file as no stage file at all, so the
 // pack would name one and the stage would have none.
 func (r *reader) stageFile(n *yaml.Node, key string) string {
-	clean := r.rel(n, key, "stage file", false)
+	clean := r.rel(n, key, "stage file")
 	if clean == "" {
 		return ""
 	}
-	text, err := os.ReadFile(filepath.Join(r.dir, filepath.FromSlash(clean)))
+	text, err := fs.ReadFile(r.fsys, clean)
 	switch {
 	case err != nil:
 		r.errf(n, key, "stage file %s: %v", clean, err)
@@ -796,7 +815,7 @@ func (r *reader) member(e entry, flows []Flow) CrewMember {
 	for _, k := range r.entries(e.v, e.path, "role", "hears", "subscribe", "open_threads") {
 		switch k.key {
 		case "role":
-			res.Role = r.rel(k.v, k.path, "role", false)
+			res.Role = r.rel(k.v, k.path, "role")
 		case "hears":
 			for _, h := range r.entries(k.v, k.path, "events", "stages", "done") {
 				switch h.key {

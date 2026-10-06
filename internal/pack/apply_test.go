@@ -1268,7 +1268,7 @@ func TestThePacksMayorIsItsYardmaster(t *testing.T) {
 	if err := os.WriteFile(manifest, []byte(own), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pack.Load(dir); err == nil || !strings.Contains(err.Error(), "placeholder {{yardmaster}}") {
+	if _, err := pack.LoadDir(dir); err == nil || !strings.Contains(err.Error(), "placeholder {{yardmaster}}") {
 		t.Fatalf("a pack with a crew member mayor fills {{yardmaster}}: %v", err)
 	}
 }

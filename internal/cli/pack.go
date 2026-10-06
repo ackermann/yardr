@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -18,6 +19,8 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/version"
+	"yardr.dev/yardr/packs"
 )
 
 // packFlags are what pack check and pack apply both take: where the pack
@@ -40,11 +43,11 @@ func (f *packFlags) register(c *cobra.Command, verb string) {
 	_ = c.MarkFlagRequired("depot")
 }
 
-// loadPack reads the pack in dir. With --json an invalid pack's mistakes
-// are printed as data, and the error is the exit code alone: Execute adds
-// nothing to what a red check has printed.
-func (a *app) loadPack(dir string) (*pack.Pack, error) {
-	p, err := pack.Load(dir)
+// loadPack reads the pack arg names (resolvePack). With --json an invalid
+// pack's mistakes are printed as data, and the error is the exit code alone:
+// Execute adds nothing to what a red check has printed.
+func (a *app) loadPack(ctx context.Context, st store.API, arg, depot string) (*pack.Pack, error) {
+	p, err := resolvePack(ctx, st, arg, depot)
 	var errs pack.Errors
 	if a.json && errors.As(err, &errs) {
 		enc := json.NewEncoder(os.Stdout)
@@ -53,6 +56,70 @@ func (a *app) loadPack(dir string) (*pack.Pack, error) {
 		return nil, errCheckFailed
 	}
 	return p, err
+}
+
+// resolvePack reads the pack a command was given as arg. With a path
+// separator in it, arg is the pack's directory. A bare word is a name: of a
+// pack this yard has imported, read again from where the import recorded it
+// was (the import into depot when there are several, else the latest), and
+// otherwise of a pack yardr embeds. A name is never tried as a directory,
+// so what `starter` means does not depend on where the command is run:
+// ./starter is the directory.
+func resolvePack(ctx context.Context, st store.API, arg, depot string) (*pack.Pack, error) {
+	// . and .. have no separator and can be no pack's name.
+	if strings.ContainsRune(arg, filepath.Separator) || strings.Contains(arg, "/") || arg == "." || arg == ".." {
+		return pack.LoadDir(arg)
+	}
+	recs, err := st.Packs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var rec *store.PackImport
+	for i, r := range recs {
+		if r.Pack == arg && (rec == nil || r.Depot == depot || (rec.Depot != depot && r.At.After(rec.At))) {
+			rec = &recs[i]
+		}
+	}
+	if rec != nil && !fromEmbedded(rec.Source) {
+		if _, err := os.Stat(filepath.Join(rec.Source, pack.File)); err != nil {
+			return nil, fmt.Errorf("pack %s was imported into depot %s from %s, which is gone (%v): give the directory the pack is in now", arg, rec.Depot, rec.Source, err)
+		}
+		p, err := pack.LoadDir(rec.Source)
+		if err == nil && p.Name != arg {
+			return nil, fmt.Errorf("pack %s was imported into depot %s from %s, which now holds pack %s: give the directory pack %s is in now", arg, rec.Depot, rec.Source, p.Name, arg)
+		}
+		return p, err
+	}
+	if _, err := fs.Stat(packs.FS, arg+"/"+pack.File); err == nil {
+		sub, err := fs.Sub(packs.FS, arg)
+		if err != nil {
+			return nil, err
+		}
+		return pack.Load(sub, packs.Embedded+" in yardr "+version.Describe())
+	}
+	var imported, embedded []string
+	for _, r := range recs {
+		if !slices.Contains(imported, r.Pack) {
+			imported = append(imported, r.Pack)
+		}
+	}
+	if entries, err := fs.ReadDir(packs.FS, "."); err == nil {
+		for _, e := range entries {
+			embedded = append(embedded, e.Name())
+		}
+	}
+	slices.Sort(imported)
+	hint := "a pack's directory is written with a path separator"
+	if info, err := os.Stat(arg); err == nil && info.IsDir() {
+		hint = fmt.Sprintf("for the directory %s here, write ./%s", arg, arg)
+	}
+	return nil, fmt.Errorf("no pack named %q: this yard has imported %s, yardr embeds %s; %s", arg, or(strings.Join(imported, ", "), "none"), or(strings.Join(embedded, ", "), "none"), hint)
+}
+
+// fromEmbedded reports whether source, as an import recorded it, is a pack
+// yardr embeds and no directory.
+func fromEmbedded(source string) bool {
+	return source == packs.Embedded || strings.HasPrefix(source, packs.Embedded+" ")
 }
 
 // packOptions completes f's options for this yard and returns its store
@@ -89,11 +156,20 @@ func (a *app) packOptions(ctx context.Context, f *packFlags) (store.API, *config
 func (a *app) packCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "pack", Short: "A yard's way of working as a directory: flows, groups, roles, crew members"}
 
+	// What check and apply take for the pack, said once in each one's help.
+	const naming = `
+<pack> is the pack's directory when it has a path separator in it
+(packs/starter, ./mine, ~/packs/team). A bare word is a name: of a pack this
+yard has imported (yardr pack list), read again from where it was imported
+from, else of a pack yardr carries in the binary (starter). A name is never
+tried as a directory: write ./starter for a directory of that name.
+`
+
 	var cf packFlags
 	check := &cobra.Command{
-		Use:   "check <dir> --depot <depot>",
+		Use:   "check <pack> --depot <depot>",
 		Short: "Read a pack and show what importing it into a depot would change",
-		Long: `Reads the pack in <dir> (pack.yaml, roles/, scripts/), checks it, and prints
+		Long: `Reads the pack (pack.yaml, roles/, scripts/), checks it, and prints
 what importing it into the depot would do to this yard, object by object:
 create, change (field: old -> new), unchanged, not in the pack (the yard
 has it, the pack does not, and an import leaves it alone), or no longer in
@@ -118,16 +194,17 @@ crew member of the pack; any other {{...}} in one makes the pack invalid.
 
 It exits 1 on a pack that is not valid, naming every mistake by file, line
 and key, and on a plan an import would refuse (open beads in a stage the
-pack's flow lacks). --json prints the plan as data. See docs/packs.md.`,
-		Example: `  yardr pack check packs/starter --depot yardr
+pack's flow lacks). --json prints the plan as data. See docs/packs.md.
+` + naming,
+		Example: `  yardr pack check starter --depot yardr
   yardr pack check ~/packs/starter --depot yardr --crew yardmaster=boss`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			p, err := a.loadPack(args[0])
+			st, _, err := a.packOptions(c.Context(), &cf)
 			if err != nil {
 				return err
 			}
-			st, _, err := a.packOptions(c.Context(), &cf)
+			p, err := a.loadPack(c.Context(), st, args[0], cf.opts.Depot)
 			if err != nil {
 				return err
 			}
@@ -155,7 +232,7 @@ pack's flow lacks). --json prints the plan as data. See docs/packs.md.`,
 		prune   bool
 	)
 	apply := &cobra.Command{
-		Use:   "apply <dir> --depot <depot>",
+		Use:   "apply <pack> --depot <depot>",
 		Short: "Import a pack into a depot: set the yard to what the pack says",
 		Long: `Does what pack check shows: prints the plan, with what the flags answer
 filled in, asks for what a pack cannot say, then sets the yard to the pack's
@@ -218,18 +295,19 @@ Refused, changing nothing, while open beads sit in a stage the pack's flow
 lacks; the message names them. Objects an earlier import brought and the
 pack has dropped since are listed, and removed only with --prune. A running
 crew member whose role or subscriptions change is not restarted; the output
-says so. The import is recorded (yardr pack list). See docs/packs.md.`,
-		Example: `  yardr pack apply packs/starter --depot web
+says so. The import is recorded (yardr pack list). See docs/packs.md.
+` + naming,
+		Example: `  yardr pack apply starter --depot web
   yardr pack apply packs/starter --depot web --yes --crew yardmaster=boss \
     --bind builders=claude:opus --bind reviewers=codex,approve-for-me --members backlog= --members decisions=mckean`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()
-			p, err := a.loadPack(args[0])
+			st, cfg, err := a.packOptions(ctx, &af)
 			if err != nil {
 				return err
 			}
-			st, cfg, err := a.packOptions(ctx, &af)
+			p, err := a.loadPack(ctx, st, args[0], af.opts.Depot)
 			if err != nil {
 				return err
 			}

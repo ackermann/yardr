@@ -31,7 +31,7 @@ func yard(t *testing.T) (store.API, pack.Options) {
 
 func load(t *testing.T, dir string) *pack.Pack {
 	t.Helper()
-	p, err := pack.Load(dir)
+	p, err := pack.LoadDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
