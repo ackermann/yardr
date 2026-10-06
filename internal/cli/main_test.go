@@ -55,6 +55,17 @@ func TestMain(m *testing.M) {
 	for _, name := range []string{"SESSION", "BEAD", "CREW", "ACTOR"} {
 		config.Unsetenv(name)
 	}
+	// The pane may be a crew member's, with the credentials of its env_file,
+	// and a command that speaks to a source reads them: the thread tests set
+	// GITHUB_TOKEN and left the GitHub App of the pane, which goes first
+	// (yardr-6avw). So the credentials are ones no test wants, an App id
+	// that is none and a key file that is not there, and a call made with
+	// what the environment happens to hold fails in every pane; a test sets
+	// the credential it is about (noGitHubCredential, t.Setenv).
+	os.Setenv("GITHUB_TOKEN", "ghp_not_this_tests")
+	os.Setenv("GITHUB_APP_ID", "not this test's")
+	os.Setenv("GITHUB_APP_PRIVATE_KEY_FILE", "/nonexistent/not-this-tests.pem")
+	os.Setenv("LINEAR_API_KEY", "lin_api_not_this_tests")
 	// Nor does a command reach the yard of this machine. The gate runs in a
 	// pane of that yard, with its YARDR_HOME, and its server answers: a
 	// command that asked for a store no test gave it got the operator's
@@ -231,4 +242,13 @@ func cwd(pid int) string {
 		}
 	}
 	return "an unknown directory"
+}
+
+// noGitHubCredential leaves the test's environment with neither a GitHub
+// App nor a token; the test sets the one it is about.
+func noGitHubCredential(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{"GITHUB_TOKEN", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY_FILE"} {
+		t.Setenv(name, "")
+	}
 }

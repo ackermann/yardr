@@ -154,6 +154,8 @@ func openYard(t *testing.T, allowed string) (*app, store.API, *store.Store) {
 		}
 	}
 	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
+	// The token alone: an App in the environment goes before it.
+	noGitHubCredential(t)
 	t.Setenv("GITHUB_TOKEN", "gh-yardmaster")
 	t.Setenv("YARDR_CREW", "yardmaster")
 	return &app{st: st, actor: "yardmaster"}, st, own
