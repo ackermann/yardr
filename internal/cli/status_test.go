@@ -428,7 +428,9 @@ func TestStatusStaleWebView(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantText(t, out, "web view   "+here("not running: yardr web serve")+"\n")
-	if strings.Contains(out, "9000") {
+	// The address, not its port: the output names the home, and a temp
+	// directory's random digits can hold "9000".
+	if strings.Contains(out, "127.0.0.1:9000") {
 		t.Errorf("a view that has ended is listed:\n%s", out)
 	}
 	if rep := statusJSON(t, a()); len(rep.Web.Views) != 0 {
