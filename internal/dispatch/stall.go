@@ -31,7 +31,8 @@ const (
 	StalledModel = "stalled_model"
 )
 
-// stallTail is how many lines of the pane a session_stalled event carries.
+// stallTail is how many lines of the pane a session_stalled event carries,
+// and a session_idle and a session_harness_error with it.
 const stallTail = 20
 
 // Tailer is implemented by runners that can show what a session's agent
@@ -91,12 +92,7 @@ func (d *Dispatcher) stall(ctx context.Context, r Runner, s *store.Session, g st
 	if b, err := d.Store.GetBead(ctx, s.Bead); err == nil {
 		model = modelFor(g, *b)
 	}
-	tail := ""
-	if t, ok := r.(Tailer); ok {
-		if tail, err = t.Tail(ctx, s.Handle, stallTail); err != nil {
-			tail = "(pane not readable: " + err.Error() + ")"
-		}
-	}
+	tail, _ := d.paneTail(ctx, r, *s)
 	d.Log.Warn("session stalled: idle since its first prompt, nothing done", "session", s.ID, "bead", s.Bead,
 		"group", s.Group, "model", model)
 	data := map[string]any{"session": s.ID, "group": s.Group, "stage": s.Stage, "model": model,

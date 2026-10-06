@@ -4,7 +4,8 @@
 // as an idle agent, so a session reaches `running`, and it appends what it
 // was started with and every line it is sent to agents.log beside its bin
 // directory. Started with -p it answers "ok" and exits, or fails, and with a
-// file login-needed it waits at a login screen first (see main). A first
+// file login-needed it waits at a login screen first, and with a file answer
+// it says that file's text to every prompt it takes (see main). A first
 // prompt that asks for a greeting by mail gets one.
 package main
 
@@ -136,6 +137,15 @@ func main() {
 				out, err := exec.Command(m[1], "mail", m[2], "Hello, this is the stand-in mayor: logged in and ready.").CombinedOutput()
 				logf("greeted %s: %v %s", m[2], err, strings.TrimSpace(string(out)))
 				fmt.Printf("⏺ Greeted %s by mail.\n", m[2])
+			}
+			// With a file answer beside agents.log it says that file's text
+			// to what it took, as a harness says the error it stops on (a
+			// model at capacity, a limit hit), and waits for input again.
+			if say, err := os.ReadFile(filepath.Join(filepath.Dir(filepath.Dir(exe)), "answer")); err == nil {
+				for _, l := range strings.Split(strings.TrimSpace(string(say)), "\n") {
+					fmt.Printf("⏺ %s\n", l)
+				}
+				logf("answered")
 			}
 		}
 		box()

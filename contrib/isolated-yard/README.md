@@ -29,7 +29,10 @@ stand-in prints `ok` and exits; with a file
 With a file `D/login-needed` a stand-in started in a pane sits at a login
 screen (`Not logged in · Run /login`, no prompt box) and takes what it is
 sent without showing it, holding its first prompt until it is ready; removing
-the file is the login, and the prompt box and held prompt come. The box
+the file is the login, and the prompt box and held prompt come. With a file
+`D/answer` a stand-in says that file's text (as `⏺ <line>`) to every prompt
+it takes and waits for input again, as a harness does that stops on an error
+of its own (`API Error: Repeated 529 Overloaded errors`). The box
 leaves the cursor after its `❯`, so text sent to the pane and not yet
 submitted shows on that line, where yardr reads an agent's input. A stand-in
 whose first prompt asks it to greet a user by mail, as the mayor's does,

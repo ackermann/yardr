@@ -450,9 +450,20 @@ func printBeadDelivery(e store.Event, resident string) {
 			data[k] = v
 		}
 	}
-	extra := ""
+	// A harness's error leads with what it is: among the event's fields in
+	// the order of their names, the reason comes after a hint of three lines.
+	lead := ""
+	if e.Kind == "session_harness_error" {
+		for _, k := range []string{"reason", "line"} {
+			if v, ok := data[k]; ok {
+				lead += k + "=" + show(v) + " "
+				delete(data, k)
+			}
+		}
+	}
+	extra := strings.TrimSuffix(lead, " ")
 	if len(data) > 0 {
-		extra = fmtConfig(data)
+		extra = lead + fmtConfig(data)
 	}
 	fmt.Printf("%6d %s  %-8s %s (%s) by %s %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), deref(e.Bead), e.Kind,
 		or(store.Reason(e, resident), "on"), e.Actor, extra)

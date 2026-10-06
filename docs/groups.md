@@ -75,6 +75,62 @@ that someone got going in its pane lifts the hold as well. `--set
 stall=off` turns the check off for a group. Only bead sessions are judged,
 not a resident's.
 
+### A harness that stopped on an error
+
+`session_stalled` is about a session's first prompt. A harness can stop
+later as well, on an error of its own, after the agent has worked: the
+model is at capacity, a usage limit is hit, the login ran out. It prints
+the error and waits for input, which herdr reports as `idle`: to the yard
+that is an agent waiting on a human, and without more the mayor would hear
+of it at the `idle` limit, as of any idle agent.
+
+**`session_harness_error`.** The pane says what herdr's status cannot. On
+each pass in the first 2 minutes of an idle spell (status `idle` or `done`,
+and no gate running for the bead) the daemon reads the end of the agent's
+pane, and a line among its last 12 that is a known error of the group's
+`kind` raises one event on the bead, at once and not at the `idle` limit:
+
+| field | |
+|---|---|
+| `reason` | `at_capacity` (the model or the API has no room: try later, or another model), `not_logged_in` (log in in its pane, or fix the group's `env_file`), `rate_limited` (a usage or rate limit: it says when it resets), `other` (an error line that stops the harness and is none of these: a model it may not use, no credit, an API error) |
+| `line` | the error line, as the harness printed it |
+| `tail` | the last 20 lines of the pane that say anything, as `session_stalled` carries them |
+| `kind`, `session`, `group`, `stage`, `hint` | which harness, whose session, and what can be done |
+
+It is raised once per idle spell: when the agent is seen working again the
+spell is over, and an error it stops on after that is told again. The mark
+is on the session's handle (`harness_error`, in `yardr session list
+--json`), so a daemon that replaced itself does not tell twice. The pane is
+read once more when `session_idle` is raised, so an error drawn late is
+told then. The session is left as it is, and unlike `session_stalled` the
+group goes on starting sessions: whether to wait, to get the agent going in
+its pane or to end the session (`yardr bead release
+<bead>`) is the mayor's to decide. It is in a new resident's default
+`--on`; a resident from before it was gets it with `yardr resident add ...
+--on` naming every kind wanted ([residents.md](residents.md)).
+
+The lines known, as each harness prints them (a mark its TUI draws before a
+message, `⏺ ⎿ ■ •`, aside):
+
+| kind | `at_capacity` | `rate_limited` | `not_logged_in` | `other` |
+|---|---|---|---|---|
+| `claude` | `API Error: … 529 …` or `… Overloaded …`, `Repeated 529 Overloaded errors` | `You've hit your …`, `Usage` / `5-hour` / `Weekly` / `Session` / `Fable` / `Opus` / `Sonnet` / `Fast` `limit reached`, `API Error: … 429 …` or `… rate_limit_error …` | `Not logged in`, `You are not logged in`, `Invalid API key`, `Please run /login`, `Session expired. Please run /login`, `API Error: … Please run /login` or `… authentication_error …` | `There's an issue with the selected model`, `Credit balance is too low`, any other `API Error` |
+| `codex` | `Selected model is at capacity`, `Flex capacity unavailable` | `You've hit your usage limit`, `exceeded retry limit, last status: 429` | `Not logged in`, `Sign in with ChatGPT`, `Your access token could not be refreshed`, `… Please sign in again.`, `exceeded retry limit, last status: 401`, `unexpected status 401` | `Quota exceeded`, `stream disconnected before completion`, any other `exceeded retry limit` or `unexpected status <n>` |
+| any other | none known: nothing is reported, and `session_idle` with its `tail` is what there is |
+
+A line counts when it begins with one of these, so an agent that writes
+about an error in a sentence is not taken for a harness that stopped on it.
+An agent whose last message begins with such a line, quoted, is: the event
+is a reading of the pane, and `tail` is there to check it. The table is
+`harnessErrors` in `internal/dispatch/harness.go`, which says how to add a
+line; a harness's error that is not in it yet shows as a `session_idle`
+whose `tail` ends in it.
+
+**`session_idle` says what the pane shows.** It carries the same `tail`, so
+the mayor reads why an agent sits there (it asks its human something, it
+waits for an answer, its harness says something no pattern knows) without
+`herdr agent read`.
+
 ## Runners
 
 | runner | starts | config |
@@ -117,6 +173,10 @@ A session whose bead has a gate running (`yardr rig check` in its worktree)
 is not idle, however long the gate takes: no `session_idle` is raised for it
 until the gate has ended and `idle` has passed again, and `yardr session
 list` says `gating 6m (light)` in its `GATE` column meanwhile.
+`session_idle` carries the end of the agent's pane as `tail`, and an agent
+whose harness stopped on an error is reported sooner, as
+`session_harness_error`
+([above](#a-harness-that-stopped-on-an-error)).
 
 ### The prompt
 

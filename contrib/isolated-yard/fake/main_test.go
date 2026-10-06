@@ -218,3 +218,19 @@ func TestWrappedRows(t *testing.T) {
 		}
 	}
 }
+
+// With a file answer the stand-in says its text to a prompt it takes, above
+// a new box: how a test has a harness stop on an error of its own.
+func TestAnswerIsSaidToAPromptTaken(t *testing.T) {
+	s := start(t, false)
+	s.draw(boxEnd)
+	if err := os.WriteFile(filepath.Join(s.d, "answer"), []byte("API Error: Repeated 529 Overloaded errors\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.scr.write("go\r\n")
+	if _, err := io.WriteString(s.in, "go\n"); err != nil {
+		t.Fatal(err)
+	}
+	s.draw(boxEnd)
+	s.want("answered", rule, "❯ go", "⏺ API Error: Repeated 529 Overloaded errors", rule, "❯", rule)
+}

@@ -140,6 +140,8 @@ func TestFeedOtherWords(t *testing.T) {
 	must(t, own.LogEvent(ctx, b.ID, "started", "yard", map[string]any{"session": "s1", "handle": map[string]any{"agent": "window-new"}}))
 	must(t, own.LogEvent(ctx, b.ID, "session_failed", "yard", map[string]any{"session": "s1", "reason": "the pane died"}))
 	must(t, api.LogDispatch(ctx, b.ID, "session_idle", "yard", map[string]any{"session": "s1"}))
+	must(t, api.LogDispatch(ctx, b.ID, "session_harness_error", "yard", map[string]any{"session": "s1", "reason": "at_capacity",
+		"line": "■ Selected model is at capacity.", "hint": "a long hint", "tail": "› \n■ Selected model is at capacity."}))
 	_, err = api.CloseBead(ctx, b.ID, "dropped", store.Expect{}, "me")
 	must(t, err)
 	must(t, api.SetSetting(ctx, "name", "north", "me"))
@@ -150,10 +152,12 @@ func TestFeedOtherWords(t *testing.T) {
 		got[e.Kind] = e
 	}
 	for kind, want := range map[string]web.Entry{
-		"held":            {Text: "held", Tone: "held"},
-		"started":         {Text: "session started: window-new"},
-		"session_failed":  {Text: "session ended: failed", Note: "the pane died", Tone: "held"},
-		"session_idle":    {Text: "session idle", Note: "session s1"},
+		"held":           {Text: "held", Tone: "held"},
+		"started":        {Text: "session started: window-new"},
+		"session_failed": {Text: "session ended: failed", Note: "the pane died", Tone: "held"},
+		"session_idle":   {Text: "session idle", Note: "session s1"},
+		"session_harness_error": {Text: "harness stopped on an error: at capacity", Note: "■ Selected model is at capacity.",
+			Tone: "held"},
 		"closed":          {Text: "closed: dropped"},
 		"setting_changed": {Text: "setting changed", Note: "key name · value north"},
 	} {

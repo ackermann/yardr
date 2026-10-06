@@ -216,7 +216,7 @@ would carry.
 ## `--on`
 
 A resident's `--on` kinds (default: `gave_up`, `session_blocked`,
-`session_stalled`, `session_model_mismatch`, `unrouted`, …) keep working, as **implicit `yardr all kind=<k>`
+`session_stalled`, `session_harness_error`, `session_model_mismatch`, `unrouted`, …) keep working, as **implicit `yardr all kind=<k>`
 subscriptions**. They are not migrated into stored subscriptions. They are
 checked when the inbox is read, not when the event is logged, so changing
 `--on` also changes which unread events are in the inbox. Unlike the yardr
@@ -232,6 +232,14 @@ and the group starts no further session with that model meanwhile.
 (`reported`) than it was asked for (`asked`). Both are bead events, so a
 bead subscription hears them too (`yardr subscribe <name> yardr --where
 kind=session_stalled`).
+
+`session_harness_error`: a session whose agent's harness stopped on an
+error of its own and sits idle. Its `reason` is `at_capacity`,
+`not_logged_in`, `rate_limited` or `other`, `line` is the error as the
+harness printed it and `tail` the end of the pane
+([groups.md](groups.md#a-harness-that-stopped-on-an-error)). `session_idle`
+carries the same `tail`, so the inbox shows what an idle agent's pane ends
+in.
 
 `session_prompt_gave_up`: a session whose agent never took its first prompt
 ([groups.md](groups.md#herdr-setup)). Its `hint` is the command that

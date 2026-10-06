@@ -100,7 +100,7 @@ func TestStarterPackLoads(t *testing.T) {
 	}
 	m := p.Residents[0]
 	if m.Name != "mayor" || m.Role != "roles/mayor.md" || !m.Done || !reflect.DeepEqual(m.Stages, []string{"decide"}) ||
-		!reflect.DeepEqual(m.Subscribe, []pack.Source{{Name: "linear", Scope: "involved"}}) || len(m.Events) != 14 {
+		!reflect.DeepEqual(m.Subscribe, []pack.Source{{Name: "linear", Scope: "involved"}}) || len(m.Events) != 15 {
 		t.Fatalf("mayor = %+v", m)
 	}
 	// It asks for what its role tells the mayor to do: open a thread in the

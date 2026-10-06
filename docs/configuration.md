@@ -102,7 +102,7 @@ with `yardr group add <name> ... --set key=value`:
 
 | key | default | meaning |
 |---|---|---|
-| `idle` | `30m` | the agent sat idle (herdr status `idle` or `done`) this long: a `session_idle` event, once per idle spell |
+| `idle` | `30m` | the agent sat idle (herdr status `idle` or `done`) this long: a `session_idle` event, once per idle spell, with the end of its pane as `tail` (the 20 lines `session_stalled` carries) |
 | `max_age` | `4h` | the session ran this long: a `session_aged` event, once per session |
 | `stall` | `2m` | the agent sat idle this long after its first prompt and did nothing (no note, no commit, no change in its worktree): a `session_stalled` event with the end of its pane, once per session, and the group starts no further session with that model meanwhile ([groups.md](groups.md#models)) |
 | `grace` | unset | when set, a session still idle (or still running) this long past its limit is stopped and counted as a failed session; `0` stops it at once. Unset, the defaults below apply |
@@ -127,7 +127,16 @@ clock starts again at the daemon's first pass after the gate has ended.
 | whose gate | the bead whose worktree `--dir` is (the branch `yard/<bead>` it is on); with no `--dir`, the one whose worktree the command was run from; else `YARDR_BEAD`, the bead the session was started for (a dir rig's bead works in the rig itself). A run for no bead (the mayor's, in the rig) is not recorded. |
 | where | a file per run in `<home>/gating`, holding the bead, the rig, light or full, since when, and whether it still waits for a [gate slot](#gate-slots-how-many-gates-run-at-once). The run holds a lock on it, which the kernel drops when the process ends, however it ends: a gate that was killed is not a gate that runs. It is in the yard's home, not with the machine's slots, since a bead is one yard's and a light gate takes no slot. |
 | who sees it | `yardr session list` has a column `GATE`: `gating 6m (light)`, or `waiting 2m (full)` for a run that waits for a slot (it counts as running here); `--json` has `gate` on the session. `yardr status` names the yard's beads in its `gates` line. |
-| what it does not see | an agent that is idle for another reason while no gate runs: a harness stopped on an error in its pane looks the same to herdr, and gets its `session_idle` as before. |
+| what it does not see | an agent that is idle for another reason while no gate runs: it gets its `session_idle` as before, which carries the end of its pane. A harness stopped on an error looks the same to herdr and is told apart by that pane, at the start of the spell: `session_harness_error`, below. |
+
+**A harness that stopped on an error is not just idle.** A harness that
+prints `Selected model is at capacity` and waits for input is idle to herdr.
+The daemon reads the end of an idle agent's pane at the start of each idle
+spell, whatever `idle` is set to (`off` too), and a known error line of the
+group's `kind` raises `session_harness_error` at once, with a `reason`
+(`at_capacity`, `not_logged_in`, `rate_limited`, `other`): see
+[groups.md](groups.md#a-harness-that-stopped-on-an-error). No key turns it
+off; it stops nothing and holds nothing back.
 
 **Defaults without a grace.** An idle session is only reported: an agent
 waiting on a human (a permission prompt, a question) is idle too, and

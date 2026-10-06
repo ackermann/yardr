@@ -240,6 +240,10 @@ func (r *reader) entry(ctx context.Context, e store.Event) Entry {
 		// A session that ends well ends with its bead's move, which has an
 		// entry of its own: one that ends here did not.
 		out.Text, out.Note, out.Tone = "session ended: "+strings.TrimPrefix(e.Kind, "session_"), str("reason"), "held"
+	case e.Kind == "session_harness_error":
+		// The reason and the harness's own line, not everything the event
+		// carries: its hint and the pane's end would be all an entry shows.
+		out.Text, out.Note, out.Tone = "harness stopped on an error: "+strings.ReplaceAll(str("reason"), "_", " "), str("line"), "held"
 	case e.Kind == "timer":
 		out.Text, out.Note = fmt.Sprintf("timer of %s for %s", str("by"), str("to")), strings.TrimPrefix(str("text"), "timer: ")
 		if str("by") == str("to") {

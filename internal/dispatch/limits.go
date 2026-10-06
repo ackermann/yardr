@@ -15,7 +15,11 @@ import (
 // its group's slot forever without anyone noticing.
 //
 //	idle     how long the agent may sit idle (herdr status idle or done)
-//	         before a session_idle event; default 30m. An agent whose
+//	         before a session_idle event, which carries the end of its
+//	         pane as `tail`; default 30m. An agent whose harness stopped
+//	         on an error is told apart sooner, at the start of the spell
+//	         and whatever idle is set to (session_harness_error, see
+//	         harness.go). An agent whose
 //	         bead has a gate running (yardr rig check) is not idle but
 //	         waiting for it: the count starts when the gate has ended
 //	max_age  how long a session may run before a session_aged event;
@@ -72,7 +76,7 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 		delete(d.fresh, s.ID) // it got going
 	}
 
-	if idleOn && agent {
+	if agent {
 		st := d.status[s.ID]
 		idleNow := st == "idle" || st == "done"
 		if _, gating := d.gateOf(s.Bead); idleNow && gating {
@@ -91,12 +95,26 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 				d.idleSince[s.ID] = now
 			}
 			idleFor := now.Sub(since)
-			if idleFor >= idle && !d.idleTold[s.ID] {
+			tell := idleOn && idleFor >= idle && !d.idleTold[s.ID]
+			// The pane says why an agent is idle, where a status cannot: it
+			// is read while the spell is young, for a harness that stopped
+			// on an error (harness.go), and once more for session_idle.
+			tail, read := "", false
+			if tell || (idleFor <= harnessLook && s.Handle[HarnessErrorKey] == nil) {
+				if tail, read = d.paneTail(ctx, r, *s); read {
+					d.harnessError(ctx, s, g, tail)
+				}
+			}
+			if tell {
 				d.idleTold[s.ID] = true
 				d.Log.Warn("session idle", "session", s.ID, "bead", s.Bead, "idle", round(idleFor))
-				d.limitEvent(ctx, *s, "session_idle", "idle", idleFor, idle, grace, stops)
+				extra := map[string]any{}
+				if read {
+					extra["tail"] = tail
+				}
+				d.limitEvent(ctx, *s, "session_idle", "idle", idleFor, idle, grace, stops, extra)
 			}
-			if stops && idleFor >= idle+grace {
+			if idleOn && stops && idleFor >= idle+grace {
 				d.end(ctx, *s, "failed", fmt.Sprintf("idle for %s (limit %s, grace %s)",
 					round(idleFor), idle, grace))
 				return false
@@ -104,6 +122,7 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 		} else {
 			delete(d.idleSince, s.ID)
 			delete(d.idleTold, s.ID)
+			d.harnessOver(ctx, s)
 		}
 	}
 
@@ -118,7 +137,7 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 			if !stops {
 				stopAfter = hardCap - age
 			}
-			d.limitEvent(ctx, *s, "session_aged", "age", ranFor, age, stopAfter, true)
+			d.limitEvent(ctx, *s, "session_aged", "age", ranFor, age, stopAfter, true, nil)
 			h := maps.Clone(s.Handle)
 			if h == nil {
 				h = map[string]any{}
@@ -167,9 +186,12 @@ func (d *Dispatcher) gateOf(bead string) (rigcheck.Gate, bool) {
 	return rigcheck.GateOf(d.gating, bead)
 }
 
-func (d *Dispatcher) limitEvent(ctx context.Context, s store.Session, kind, key string, got, lim, grace time.Duration, stops bool) {
+// limitEvent logs a limit's event; extra is what this one carries beside
+// what every limit's does (session_idle: the end of the agent's pane).
+func (d *Dispatcher) limitEvent(ctx context.Context, s store.Session, kind, key string, got, lim, grace time.Duration, stops bool, extra map[string]any) {
 	data := map[string]any{"session": s.ID, "group": s.Group, "stage": s.Stage,
 		key: round(got).String(), "limit": lim.String()}
+	maps.Copy(data, extra)
 	if stops {
 		data["stop_after"] = grace.String()
 	}

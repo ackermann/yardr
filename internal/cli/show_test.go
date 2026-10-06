@@ -40,6 +40,23 @@ func TestHookDeliveryLine(t *testing.T) {
 	}
 }
 
+// The inbox row of a harness's error begins with its reason and the line the
+// harness printed, before the rest of what the event carries.
+func TestHarnessErrorLineLeadsWithItsReason(t *testing.T) {
+	bead := "yardr-hk53"
+	e := store.Event{Seq: 14, Kind: "session_harness_error", Actor: "yard", Bead: &bead,
+		At: time.Date(2026, 10, 6, 3, 5, 0, 0, time.Local), Data: map[string]any{
+			"reason": "at_capacity", "line": "■ Selected model is at capacity.", "group": "reviewers",
+			"hint": "get it going", "session": "s1", "tail": "› ",
+		}}
+	got := capture(t, func() { printInboxEvent(e, "mayor") })
+	want := "    14 10-06 03:05  yardr-hk53 session_harness_error (on) by yard reason=at_capacity line=■ Selected model is at capacity. " +
+		"group=reviewers hint=get it going session=s1 tail=› \n"
+	if got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+}
+
 // capture returns what fn prints to stdout.
 func capture(t *testing.T, fn func()) string {
 	t.Helper()

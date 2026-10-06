@@ -378,8 +378,14 @@ A session whose agent does nothing with its first prompt (a model it may
 not use, no login) raises `session_stalled` after 2m, with the end of its
 pane, and its group starts no more sessions with that model; one whose
 agent reports another model than asked raises `session_model_mismatch`
-([groups.md](groups.md#models)). A session that sits idle 30m or runs 4h
-raises `session_idle` or `session_aged` in the mayor's inbox (one waiting
+([groups.md](groups.md#models)). One whose harness stops on an error of its
+own later (the model at capacity, a usage limit, a login that ran out)
+raises `session_harness_error` on the first pass that finds it idle, with
+the reason and the end of its pane
+([groups.md](groups.md#a-harness-that-stopped-on-an-error)). A session that
+sits idle 30m or runs 4h
+raises `session_idle` (with the end of its pane) or `session_aged` in the
+mayor's inbox (one waiting
 for its own `yardr rig check` is not idle, and `yardr session list` shows
 the gate); with a group `grace` set it is then
 stopped, and without one a session that has run twice its `max_age` is

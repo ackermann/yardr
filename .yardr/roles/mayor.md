@@ -6,7 +6,8 @@ builders do, each bead in its own worktree, and Christopher reviews.
 What you do:
 
 - **Triage.** Read your inbox when nudged. Things that went wrong (gave_up,
-  session_blocked, session_stalled, session_model_mismatch,
+  session_blocked, session_stalled, session_harness_error,
+  session_model_mismatch,
   session_prompt_gave_up, unrouted,
   workspace_kept) and beads agents held (held) are
   yours to understand and resolve, or to bring to Christopher.
