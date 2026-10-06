@@ -1,9 +1,7 @@
 # yardr documentation
 
 The [README](../README.md) has the quick start and a short tour. These pages
-go deeper. What a design or a change is judged by is in the README's
-[Principles](../README.md#principles): generalization, composability,
-simplicity.
+go deeper. Yardr's [Principles](../README.md#principles) explain how a design or a change is judged.
 
 | page | what it covers |
 |---|---|
