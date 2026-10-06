@@ -787,6 +787,15 @@ func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt stri
 // A variable so tests can shorten it.
 var promptWait = 10 * time.Second
 
+// promptNow and promptSleep are the clock arrived waits by. Variables so a
+// test can count its waits instead of timing them: a bound on the real time
+// a look took failed on a loaded machine, where the fake herdr's forks alone
+// ran past it (yardr-1ph9).
+var (
+	promptNow   = time.Now
+	promptSleep = time.Sleep
+)
+
 // promptScan is how far back in a pane a first prompt is looked for.
 const promptScan = 200
 
@@ -808,7 +817,7 @@ func (h *Herdr) arrived(ctx context.Context, handle map[string]any, prompt strin
 		return true
 	}
 	var typedSince time.Time
-	for deadline := time.Now().Add(promptWait); ; {
+	for deadline := promptNow().Add(promptWait); ; {
 		text, err := h.readPane(ctx, pane, "recent-unwrapped", promptScan)
 		if err != nil {
 			return true
@@ -820,7 +829,7 @@ func (h *Herdr) arrived(ctx context.Context, handle map[string]any, prompt strin
 		if s, err := h.Status(ctx, handle); err == nil && s == "working" {
 			return true
 		}
-		now := time.Now()
+		now := promptNow()
 		switch {
 		case !typed:
 			typedSince = time.Time{}
@@ -834,7 +843,7 @@ func (h *Herdr) arrived(ctx context.Context, handle map[string]any, prompt strin
 		if now.After(deadline) || ctx.Err() != nil {
 			return false
 		}
-		time.Sleep(promptWait / 40)
+		promptSleep(promptWait / 40)
 	}
 }
 

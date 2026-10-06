@@ -402,39 +402,62 @@ func TestPromptLeftInTheInputIsSubmitted(t *testing.T) {
 	}
 }
 
+// fakePromptClock puts arrived on a clock that only its own sleeps move, and
+// returns how long it has slept: what a look waited is then the same on a
+// machine of any speed.
+func fakePromptClock(t *testing.T) (waited func() time.Duration) {
+	t.Helper()
+	now, sleep := promptNow, promptSleep
+	t.Cleanup(func() { promptNow, promptSleep = now, sleep })
+	begun := time.Now()
+	var slept time.Duration
+	promptNow = func() time.Time { return begun.Add(slept) }
+	promptSleep = func(d time.Duration) { slept += d }
+	return func() time.Duration { return slept }
+}
+
 // startAgent's own look: text in the input of an idle agent is pending, and
 // is not waited on for all of promptWait; the same text with the agent
-// working, or echoed above an empty input, arrived.
+// working, or echoed above an empty input, arrived, and is told at the first
+// look. The waits are counted on a fake clock, not timed: the forks of the
+// fake herdr take as long as the machine lets them (yardr-1ph9).
 func TestStartAgentTellsTypedFromTaken(t *testing.T) {
 	prompt := "Read /wt/brief-1.md and follow it."
 	for _, c := range []struct {
 		name, pane, status string
 		pending            bool
+		waited             time.Duration
 	}{
-		{"typed, idle", "────\n❯ " + prompt + "\n────", "idle", true},
-		{"typed, working", "────\n❯ " + prompt + "\n────", "working", false},
-		{"echoed, idle", "❯ " + prompt + "\n────\n❯ \n────", "idle", false},
+		{"typed, idle", "────\n❯ " + prompt + "\n────", "idle", true, promptWait / 4},
+		{"typed, working", "────\n❯ " + prompt + "\n────", "working", false, 0},
+		{"echoed, idle", "❯ " + prompt + "\n────\n❯ \n────", "idle", false, 0},
 	} {
-		old := promptWait
-		promptWait = 4 * time.Second
-		h := &Herdr{Bin: deafHerdrBin(t, `case "$1 $2" in
+		t.Run(c.name, func(t *testing.T) {
+			waited := fakePromptClock(t)
+			bin := deafHerdrBin(t, `printf '%s\n' "$1 $2" >> "$0.calls"
+case "$1 $2" in
   "pane read") printf '%s\n' '`+c.pane+`' ;;
   "agent get") echo '{"result":{"agent":{"agent_status":"`+c.status+`"}}}' ;;
   *) echo '{"result":{"type":"ok"}}' ;;
-esac`)}
-		begun := time.Now()
-		handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", prompt,
-			map[string]any{"agent": "b1", "pane": "w1:p1"}, true)
-		promptWait = old
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := handle[dispatch.PendingPrompt] != nil; got != c.pending {
-			t.Errorf("%s: pending = %v, want %v (%v)", c.name, got, c.pending, handle)
-		}
-		if took := time.Since(begun); took > 3*time.Second {
-			t.Errorf("%s: waited %s on a pane that told at once", c.name, took)
-		}
+esac`)
+			h := &Herdr{Bin: bin}
+			handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", prompt,
+				map[string]any{"agent": "b1", "pane": "w1:p1"}, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := handle[dispatch.PendingPrompt] != nil; got != c.pending {
+				t.Errorf("pending = %v, want %v (%v)", got, c.pending, handle)
+			}
+			if got := waited(); got != c.waited {
+				t.Errorf("waited %s of a promptWait of %s, want %s", got, promptWait, c.waited)
+			}
+			// One look, and one more after each wait.
+			calls := readCalls(t, bin+".calls")
+			if got, want := strings.Count(calls, "pane read"), 1+int(c.waited/(promptWait/40)); got != want {
+				t.Errorf("the pane was read %d times, want %d:\n%s", got, want, calls)
+			}
+		})
 	}
 }
 
