@@ -58,11 +58,11 @@ archives, not inside them. The archives need a login while the repository is
 private, so download with `gh`:
 
 ```sh
-gh release download v0.2.0 --repo McKean/yardr \
-  --pattern 'yardr_0.2.0_darwin_arm64.tar.gz' --pattern checksums.txt
+gh release download --repo McKean/yardr \
+  --pattern 'yardr_*_darwin_arm64.tar.gz' --pattern checksums.txt   # no tag: the latest release
 shasum -a 256 --ignore-missing -c checksums.txt   # must say OK; Linux: sha256sum --ignore-missing -c checksums.txt
-tar -xzf yardr_0.2.0_darwin_arm64.tar.gz yardr && mv yardr ~/.local/bin/
-yardr --version                                   # v0.2.0 (<revision>); yardr version prints the same
+tar -xzf yardr_*_darwin_arm64.tar.gz yardr && mv yardr ~/.local/bin/
+yardr --version                                   # the release's tag and revision; yardr version prints the same
 ```
 
 Either way yardr still needs git, herdr and an agent harness (claude, codex,
