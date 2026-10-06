@@ -10,6 +10,7 @@ herdr, a shell command, or nobody — a human). Whoever works the bead advances
 it to the next stage or closes it, and the next route takes over. Roles are
 not built in: "builder" or "reviewer" is just a group plus a prompt file.
 A **depot** is where a bead is worked: a git repository, or a plain directory.
+[docs/glossary.md](docs/glossary.md) sets these words beside Gas Town's and an issue tracker's.
 
 The yard lives in one file (`~/.yardr/yard.db`, bbolt) owned by one process,
 the yardr server, which every other yardr process reaches over a unix socket.

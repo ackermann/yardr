@@ -5,6 +5,7 @@ go deeper. Yardr's [Principles](../README.md#principles) explain how a design or
 
 | page | what it covers |
 |---|---|
+| [glossary.md](glossary.md) | yardr's words in one table, each beside Gas Town's word and the usual tracker word (a train is an epic, a depot a rig), and the words that do not carry over (convoy, hook, crew) |
 | [install.md](install.md) | getting the binary: a release archive (download, verify, put on PATH) or `go install`; macOS and a downloaded binary; what `yardr doctor` still asks for; herdr's server; a server without a desktop, in order; making a release |
 | [agents.md](agents.md) | for an agent that installs or sets up yardr for a person: the loop over `yardr doctor`, what to ask the person, commands and their wrong guesses, what each command does without a terminal, where things are |
 | [setup.md](setup.md) | `yardr setup`: the setup after the onboarding as forms, one page per step, each ending in the command it shows; changing over to the yardmaster and back |
