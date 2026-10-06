@@ -25,7 +25,7 @@ import (
 // as the onboarding and yardr doctor say it when one is not on PATH, and
 // where to get it. Nothing here is run by yardr: the text is for the person.
 var requirements = []struct{ exe, need, get string }{
-	{"herdr", "it starts every agent in a pane of its own, the mayor first: without it nothing runs",
+	{"herdr", "it starts every agent in a pane of its own, the yardmaster first: without it nothing runs",
 		"https://herdr.dev"},
 	{"git", "a rig is a git repository: beads are worked on branches, in worktrees",
 		"https://git-scm.com/downloads (on macOS: xcode-select --install)"},

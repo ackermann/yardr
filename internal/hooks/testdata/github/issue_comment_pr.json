@@ -19,7 +19,7 @@
  },
  "comment": {
   "id": 9,
-  "body": "@yard-11-new rebase please, then @mayor merges.",
+  "body": "@yard-11-new rebase please, then @yardmaster merges.",
   "html_url": "https://github.com/acme/yardr/pull/17#issuecomment-9",
   "user": {
    "login": "jane-doe",

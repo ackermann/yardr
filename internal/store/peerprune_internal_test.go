@@ -148,11 +148,11 @@ func TestPruneOfPeersAloneIsLogged(t *testing.T) {
 	y.at = y.at.Add(8 * day)
 	// A running resident holds the whole log back, so no event goes.
 	ctx := context.Background()
-	if _, err := y.PutResident(ctx, Resident{Name: "mayor", Runner: "herdr"}, "jo"); err != nil {
+	if _, err := y.PutResident(ctx, Resident{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	y.at = y.at.Add(-9 * day)
-	if err := y.ResidentStarted(ctx, "mayor", nil); err != nil {
+	if err := y.ResidentStarted(ctx, "yardmaster", nil); err != nil {
 		t.Fatal(err)
 	}
 	y.at = y.at.Add(9 * day)
@@ -249,15 +249,15 @@ func TestPruneForgetsSeenPeerIDsInBatches(t *testing.T) {
 func TestMailGivenUpReadsFailedAfterThePrune(t *testing.T) {
 	y := newPruneYard(t)
 	ctx := context.Background()
-	if _, err := y.PutResident(ctx, Resident{Name: "mayor", Runner: "herdr", Config: map[string]any{MailPeers: "north"}}, "jo"); err != nil {
+	if _, err := y.PutResident(ctx, Resident{Name: "yardmaster", Runner: "herdr", Config: map[string]any{MailPeers: "north"}}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	// Running, it holds the log back to its start.
-	if err := y.ResidentStarted(ctx, "mayor", nil); err != nil {
+	if err := y.ResidentStarted(ctx, "yardmaster", nil); err != nil {
 		t.Fatal(err)
 	}
 	y.at = y.at.Add(time.Minute)
-	m, err := y.MailPeer(ctx, "clerk", "north", "are you there", "mayor")
+	m, err := y.MailPeer(ctx, "clerk", "north", "are you there", "yardmaster")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +268,7 @@ func TestMailGivenUpReadsFailedAfterThePrune(t *testing.T) {
 	if res := y.prune(t, day); res.Peers["north"].Failed != 1 || res.Events != 0 {
 		t.Fatalf("pruned %+v, want the mail given up and no event", res)
 	}
-	ls, err := y.Conversation(ctx, "mayor", "clerk@north", 0)
+	ls, err := y.Conversation(ctx, "yardmaster", "clerk@north", 0)
 	if err != nil || len(ls) != 1 || ls[0].Delivery != MailFailed {
 		t.Fatalf("the conversation = %+v, %v; want one letter, failed", ls, err)
 	}

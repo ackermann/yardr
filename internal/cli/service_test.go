@@ -558,14 +558,14 @@ func TestWebStart(t *testing.T) {
 }
 
 // onboardTo runs the onboarding to its end with the answers given, on a
-// yard whose mayor comes up. It returns the output and the keys asked.
+// yard whose yardmaster comes up. It returns the output and the keys asked.
 func onboardTo(t *testing.T, st store.API, answers map[string]any) (string, []string) {
 	t.Helper()
 	setInteractive(t, true)
 	stubLookPath(t, "claude", "git", "herdr")
-	f := &former{t: t, answers: answers, goes: []string{goMayor}}
+	f := &former{t: t, answers: answers, goes: []string{goYardmaster}}
 	stubAsk(t, f.ask)
-	stubStart(t, st, mayorHandle())
+	stubStart(t, st, yardmasterHandle())
 	stubPane(t, answeredPane)
 	stubFocus(t)
 	out, err := run(t, (&app{st: st}).rootCmd())
@@ -617,7 +617,7 @@ func TestOnboardingInstallsTheDaemonAndStartsTheWebView(t *testing.T) {
 		t.Fatalf("written %v, started %v", left, *started)
 	}
 	wantText(t, out, here("yardr daemon install"), "launchd has started the daemon and starts it at every login",
-		here("yardr web start"), "The web view: http://127.0.0.1:8791/", "mayor is running, in herdr")
+		here("yardr web start"), "The web view: http://127.0.0.1:8791/", "yardmaster is running, in herdr")
 }
 
 // Yes to "and at login?" installs the web view as a service instead, which
@@ -628,10 +628,10 @@ func TestOnboardingInstallsTheWebView(t *testing.T) {
 	stubLookPath(t, "claude", "git", "herdr", "systemctl")
 	started := stubWeb(t)
 	setInteractive(t, true)
-	f := &former{t: t, answers: map[string]any{"web": true, "web_login": true}, goes: []string{goMayor}}
+	f := &former{t: t, answers: map[string]any{"web": true, "web_login": true}, goes: []string{goYardmaster}}
 	stubAsk(t, f.ask)
 	st := storetest.New(t)
-	stubStart(t, st, mayorHandle())
+	stubStart(t, st, yardmasterHandle())
 	stubPane(t, answeredPane)
 	stubFocus(t)
 	out, err := run(t, (&app{st: st}).rootCmd())
@@ -655,5 +655,5 @@ func TestOnboardingWithoutAServiceManager(t *testing.T) {
 	if !slices.Equal(keys, []string{"style", "about", "try", "web", "link", "go"}) {
 		t.Fatalf("asked %q\n%s", keys, out)
 	}
-	wantText(t, out, "yardr: tests start no web view", "The yard runs without it", "mayor is running, in herdr")
+	wantText(t, out, "yardr: tests start no web view", "The yard runs without it", "yardmaster is running, in herdr")
 }

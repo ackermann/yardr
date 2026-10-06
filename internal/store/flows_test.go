@@ -292,8 +292,8 @@ func TestFlowCreateStage(t *testing.T) {
 	if _, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard", Stage: "backlog"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	// No stage: the flow's first, where the mayor shapes it; without a flow,
-	// new, as before flows.
+	// No stage: the flow's first, where the yardmaster shapes it; without a
+	// flow, new, as before flows.
 	if b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Rig: "yard"}, "me"); err != nil || b.Stage != "backlog" {
 		t.Fatalf("created without a stage = %+v, %v; want the flow's first stage", b, err)
 	}

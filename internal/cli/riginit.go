@@ -17,7 +17,7 @@ import (
 	"yardr.dev/yardr/roles"
 )
 
-// starterFlow is the flow rig init seeds: the stages the mayor's setup
+// starterFlow is the flow rig init seeds: the stages the yardmaster's setup
 // routes (new, review, approved), with backlog before them and decide for
 // what a person must answer. A merge-local refinery whose rebase conflicts
 // reports failed in a flow without a merge stage, so approved needs no more.
@@ -69,26 +69,26 @@ func commitCommand(path string) string {
 
 // rigInitResult is what rig init wrote into a rig's checkout.
 type rigInitResult struct {
-	Rig      string   `json:"rig"`
-	Path     string   `json:"path"`
-	Kind     string   `json:"kind"`
-	Base     string   `json:"base"`
-	Operator string   `json:"operator"`
-	Mayor    string   `json:"mayor"`   // the resident the roles tell agents to mail
-	Gate     string   `json:"gate"`    // the guessed check command
-	Written  []string `json:"written"` // relative to Path
-	Kept     []string `json:"kept"`    // already there, left as they were
+	Rig        string   `json:"rig"`
+	Path       string   `json:"path"`
+	Kind       string   `json:"kind"`
+	Base       string   `json:"base"`
+	Operator   string   `json:"operator"`
+	Yardmaster string   `json:"yardmaster"` // the resident the roles tell agents to mail
+	Gate       string   `json:"gate"`       // the guessed check command
+	Written    []string `json:"written"`    // relative to Path
+	Kept       []string `json:"kept"`       // already there, left as they were
 }
 
 func (a *app) rigInitCmd() *cobra.Command {
-	var operator, mayor string
-	var withMayor bool
+	var operator, yardmaster string
+	var withYardmaster bool
 	cmd := &cobra.Command{
-		Use:   "init <rig> [--operator <name>] [--mayor <name>] [--with-mayor]",
+		Use:   "init <rig> [--operator <name>] [--yardmaster <name>] [--with-yardmaster]",
 		Short: "Seed a rig's repo with starter roles, a gate, a flow and its stage files under .yardr/",
 		Long: `Write a rig's starting configuration into its checkout:
 
-  .yardr/roles/{mayor,builder,reviewer,merger}.md   the generic roles, naming --operator and --mayor
+  .yardr/roles/{yardmaster,builder,reviewer,merger}.md   the generic roles, naming --operator and --yardmaster
   ` + rigcheck.RepoPath + `                                       the merge gate, guessed from the repo
   .yardr/flows/default.flow                         backlog, new, review, approved, merged, decide
   .yardr/flows/default/<stage>.md                   a stage file for each stage but merged
@@ -96,10 +96,11 @@ func (a *app) rigInitCmd() *cobra.Command {
 A stage file says what its stage is for, what must be true to leave it and
 when each outcome applies (docs/flows.md); the roles say how a group works.
 
---operator defaults to the yard's operator setting and --mayor to its mayor
-setting (yardr init stores both), else to the yard's one resident. The
-gate is a guess: go.mod runs go vet and go test, a package.json with a test
-script runs it, anything else passes with a TODO. Read it before relying on it.
+--operator defaults to the yard's operator setting and --yardmaster to its
+yardmaster setting (yardr init stores both), else to the yard's one resident.
+The gate is a guess: go.mod runs go vet and go test, a package.json with a
+test script runs it, anything else passes with a TODO. Read it before relying
+on it.
 
 A file already there is never overwritten, and a flow already there gets no
 stage files: they are written for the flows rig init writes, whose stages
@@ -109,7 +110,7 @@ there before they take effect.
 
 A dir rig gets less, since nothing merges there (see docs/dir-rigs.md):
 
-  .yardr/roles/{builder,reviewer}.md                plus mayor.md with --with-mayor
+  .yardr/roles/{builder,reviewer}.md                plus yardmaster.md with --with-yardmaster
   .yardr/flows/default.flow                         backlog, new, review, done, decide
   .yardr/flows/type/epic.flow                       the epics': backlog, open, review, done, decide
   .yardr/flows/{default,type/epic}/<stage>.md       a stage file for each stage but done
@@ -117,9 +118,9 @@ A dir rig gets less, since nothing merges there (see docs/dir-rigs.md):
 and no check: a dir rig has no gate unless one adds .yardr/check. The files
 apply at once, as yardr reads a dir rig's .yardr/ from the directory.`,
 		Example: `  yardr rig init webapp
-  yardr rig init webapp --operator Jo --mayor boss
+  yardr rig init webapp --operator Jo --yardmaster boss
   yardr rig init invoices          # a dir rig
-  yardr rig init invoices --with-mayor`,
+  yardr rig init invoices --with-yardmaster`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
@@ -133,10 +134,10 @@ apply at once, as yardr reads a dir rig's .yardr/ from the directory.`,
 			if operator == "" {
 				operator = yardOperator(c.Context(), st)
 			}
-			if mayor == "" {
-				mayor = yardMayor(c.Context(), st)
+			if yardmaster == "" {
+				yardmaster = yardmasterOf(c.Context(), st)
 			}
-			res, err := rigInit(*rig, operator, mayor, withMayor)
+			res, err := rigInit(*rig, operator, yardmaster, withYardmaster)
 			if err != nil {
 				return err
 			}
@@ -144,8 +145,10 @@ apply at once, as yardr reads a dir rig's .yardr/ from the directory.`,
 		},
 	}
 	cmd.Flags().StringVar(&operator, "operator", "", "who the roles name (default: the yard's operator setting, else your login name)")
-	cmd.Flags().StringVar(&mayor, "mayor", "", "the mayor the roles tell agents to mail (default: the yard's mayor setting, else its one resident, else mayor)")
-	cmd.Flags().BoolVar(&withMayor, "with-mayor", false, "dir rigs: write mayor.md too (a git rig always gets it)")
+	cmd.Flags().StringVar(&yardmaster, "yardmaster", "", "the yardmaster the roles tell agents to mail (default: the yard's yardmaster setting, else its one resident, else yardmaster)")
+	cmd.Flags().BoolVar(&withYardmaster, "with-yardmaster", false, "dir rigs: write yardmaster.md too (a git rig always gets it)")
+	oldFlag(cmd, "mayor", "yardmaster")
+	oldFlag(cmd, "with-mayor", "with-yardmaster")
 	return cmd
 }
 
@@ -158,24 +161,24 @@ func yardOperator(ctx context.Context, st store.API) string {
 	return or(all["operator"], defaultOperator())
 }
 
-// yardMayor is the mayor resident the roles tell agents to mail: the yard's
-// mayor setting, else the one resident of a yard from before the setting,
-// else init's default name.
-func yardMayor(ctx context.Context, st store.API) string {
-	if all, err := st.Settings(ctx); err == nil && all["mayor"] != "" {
-		return all["mayor"]
+// yardmasterOf is the yardmaster resident the roles tell agents to mail: the
+// yard's yardmaster setting, else the one resident of a yard from before the
+// setting, else init's default name.
+func yardmasterOf(ctx context.Context, st store.API) string {
+	if all, err := st.Settings(ctx); err == nil && all[store.YardmasterSetting] != "" {
+		return all[store.YardmasterSetting]
 	}
 	if rs, err := st.Residents(ctx); err == nil && len(rs) == 1 {
 		return rs[0].Name
 	}
-	return "mayor"
+	return "yardmaster"
 }
 
 // rigInit writes the starter files into rig's checkout, keeping any already
-// there. A dir rig gets no merger, the mayor's role only when asked
-// (withMayor), no check and the dir flows.
-func rigInit(rig store.Rig, operator, mayor string, withMayor bool) (*rigInitResult, error) {
-	res := &rigInitResult{Rig: rig.Name, Path: rig.Path, Kind: rig.Kind, Base: rig.Base, Operator: operator, Mayor: mayor}
+// there. A dir rig gets no merger, the yardmaster's role only when asked
+// (withYardmaster), no check and the dir flows.
+func rigInit(rig store.Rig, operator, yardmaster string, withYardmaster bool) (*rigInitResult, error) {
+	res := &rigInitResult{Rig: rig.Name, Path: rig.Path, Kind: rig.Kind, Base: rig.Base, Operator: operator, Yardmaster: yardmaster}
 	type file struct {
 		path string
 		body string
@@ -188,8 +191,8 @@ func rigInit(rig store.Rig, operator, mayor string, withMayor bool) (*rigInitRes
 	var files []file
 	if rig.IsDir() {
 		only = []string{"builder.md", "reviewer.md"}
-		if withMayor {
-			only = append(only, "mayor.md")
+		if withYardmaster {
+			only = append(only, "yardmaster.md")
 		}
 		files = []file{
 			{filepath.Join(".yardr", "flows", "default.flow"), dirFlow, 0o644, "default"},
@@ -204,7 +207,7 @@ func rigInit(rig store.Rig, operator, mayor string, withMayor bool) (*rigInitRes
 		}
 	}
 	// refresh is false: a rig's roles are the checkout's own, never rewritten.
-	inst, err := installRoles(filepath.Join(rig.Path, ".yardr", "roles"), operator, mayor, false, only...)
+	inst, err := installRoles(filepath.Join(rig.Path, ".yardr", "roles"), operator, yardmaster, false, only...)
 	if err != nil {
 		return nil, err
 	}
@@ -224,7 +227,7 @@ func rigInit(rig store.Rig, operator, mayor string, withMayor bool) (*rigInitRes
 		}
 		// Only beside a flow written now: a flow already there is the rig's
 		// own, and a file for a stage it lacks would fail the rig's check.
-		stages, err := starterStageFiles(rig, f.flow, f.body, operator, mayor)
+		stages, err := starterStageFiles(rig, f.flow, f.body, operator, yardmaster)
 		if err != nil {
 			return nil, err
 		}
@@ -254,7 +257,7 @@ type starterStage struct {
 // flow named flow, whose text is body: one for every stage that is not
 // terminal, in the order the flow first names them. A stage without a template is a bug in this
 // build, not the rig's, and an error.
-func starterStageFiles(rig store.Rig, flow, body, operator, mayor string) ([]starterStage, error) {
+func starterStageFiles(rig store.Rig, flow, body, operator, yardmaster string) ([]starterStage, error) {
 	f, err := store.ParseFlow(body)
 	if err != nil {
 		return nil, fmt.Errorf("starter flow %s: %w", flow, err)
@@ -275,7 +278,7 @@ func starterStageFiles(rig store.Rig, flow, body, operator, mayor string) ([]sta
 		if err != nil {
 			return nil, fmt.Errorf("starter flow %s has no stage file for %s: %w", flow, s, err)
 		}
-		out = append(out, starterStage{filepath.FromSlash(store.StageFilePath(flow, s)), string(fillRole(tmpl, operator, mayor))})
+		out = append(out, starterStage{filepath.FromSlash(store.StageFilePath(flow, s)), string(fillRole(tmpl, operator, yardmaster))})
 	}
 	return out, nil
 }
@@ -372,7 +375,7 @@ func (r *rigInitResult) print() {
 		r.printDir()
 		return
 	}
-	fmt.Printf("\nThe roles name %s, and %s as the mayor.", r.Operator, r.Mayor)
+	fmt.Printf("\nThe roles name %s, and %s as the yardmaster.", r.Operator, r.Yardmaster)
 	if r.Gate != "" {
 		fmt.Printf(" The gate runs %s (a guess from the repo: check it).\n", r.Gate)
 	} else {
@@ -380,13 +383,13 @@ func (r *rigInitResult) print() {
 	}
 	fmt.Printf("\nNothing is committed. yardr reads roles, the gate, the flow and its stage\n"+
 		"files from %s,\n"+
-		"so the operator (or the mayor, with their OK) commits them there:\n\n"+
+		"so the operator (or the yardmaster, with their OK) commits them there:\n\n"+
 		"  %s\n", r.Base, commitCommand(r.Path))
 }
 
 func (r *rigInitResult) printDir() {
-	fmt.Printf("\nThe roles name %s, and %s as the mayor. A dir rig has no gate unless one adds %s:\n"+
-		"until then yardr rig check passes with \"no gate\", as nothing merges.\n", r.Operator, r.Mayor, rigcheck.RepoPath)
+	fmt.Printf("\nThe roles name %s, and %s as the yardmaster. A dir rig has no gate unless one adds %s:\n"+
+		"until then yardr rig check passes with \"no gate\", as nothing merges.\n", r.Operator, r.Yardmaster, rigcheck.RepoPath)
 	fmt.Printf("\nThey apply as they are: yardr reads a dir rig's .yardr/ from %s.\n"+
 		"Route new to the builders and review to the reviewers (or a manual group,\n"+
 		"for yardr review); for epics, route open --type epic to the reviewers.\n"+

@@ -172,7 +172,7 @@ func residentSetup(t *testing.T, def store.Resident) (store.API, *residentRunner
 	// No waits: a pending prompt is delivered on the first pass that finds
 	// the agent idle and judged on the next, unless a test sets them.
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f}, PromptSettle: -1, PromptWait: -1}
-	def.Name, def.Runner = "mayor", "fake"
+	def.Name, def.Runner = "yardmaster", "fake"
 	if _, err := s.PutResident(context.Background(), def, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func residentSetup(t *testing.T, def store.Resident) (store.API, *residentRunner
 }
 
 func agentOf(t *testing.T, s store.API) string {
-	r, err := s.GetResident(context.Background(), "mayor")
+	r, err := s.GetResident(context.Background(), "yardmaster")
 	if err != nil || !r.Live() {
 		t.Fatalf("resident not running: %+v %v", r, err)
 	}
@@ -199,7 +199,7 @@ func TestResidentKeptAliveAndInboxNudgedWhenIdle(t *testing.T) {
 
 	// Busy: mail waits.
 	f.set(agent, "working")
-	must(t, s.Mail(ctx, "mayor", "deploy freeze", "chris"))
+	must(t, s.Mail(ctx, "yardmaster", "deploy freeze", "chris"))
 	must(t, d.Reconcile(ctx))
 	if len(f.nudges) != 0 {
 		t.Fatalf("nudged a busy agent: %v", f.nudges)
@@ -235,7 +235,7 @@ func TestHandoffRestartsWhenIdle(t *testing.T) {
 	must(t, d.Reconcile(ctx))
 	agent := agentOf(t, s)
 	f.set(agent, "working") // still writing its handoff turn
-	must(t, s.Journal(ctx, "mayor", store.NoteHandoff, "Next: review webapp-3", agent))
+	must(t, s.Journal(ctx, "yardmaster", store.NoteHandoff, "Next: review webapp-3", agent))
 	must(t, d.Reconcile(ctx))
 	if f.n != 1 {
 		t.Fatal("restarted mid-turn")
@@ -245,7 +245,7 @@ func TestHandoffRestartsWhenIdle(t *testing.T) {
 	if f.n != 2 || f.stops != 1 {
 		t.Fatalf("starts %d stops %d", f.n, f.stops)
 	}
-	p, err := s.ResidentPrime(ctx, "mayor")
+	p, err := s.ResidentPrime(ctx, "yardmaster")
 	if err != nil || p.Handoff == nil || p.Handoff.Text != "Next: review webapp-3" || p.NoHandoff {
 		t.Fatalf("prime after handoff: %+v %v", p, err)
 	}
@@ -266,7 +266,7 @@ func TestRotationAsksThenForces(t *testing.T) {
 	if f.n != 2 {
 		t.Fatalf("starts %d, want a forced rotation", f.n)
 	}
-	p, _ := s.ResidentPrime(ctx, "mayor")
+	p, _ := s.ResidentPrime(ctx, "yardmaster")
 	if !p.NoHandoff {
 		t.Fatal("the forced rotation left no handoff; the prime must fall back")
 	}
@@ -278,16 +278,16 @@ func TestResidentStartFailureBacksOffAndDisableStops(t *testing.T) {
 	f.failNext = errors.New("herdr down")
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx)) // within backoff: no retry
-	r, _ := s.GetResident(ctx, "mayor")
+	r, _ := s.GetResident(ctx, "yardmaster")
 	if f.n != 0 || r.Failures != 1 || r.RetryAfter == nil {
 		t.Fatalf("starts %d resident %+v", f.n, r)
 	}
-	must(t, s.SetResidentEnabled(ctx, "mayor", true, "", "me")) // clears the backoff
+	must(t, s.SetResidentEnabled(ctx, "yardmaster", true, "", "me")) // clears the backoff
 	must(t, d.Reconcile(ctx))
 	agentOf(t, s)
-	must(t, s.SetResidentEnabled(ctx, "mayor", false, "", "me"))
+	must(t, s.SetResidentEnabled(ctx, "yardmaster", false, "", "me"))
 	must(t, d.Reconcile(ctx))
-	if r, _ = s.GetResident(ctx, "mayor"); r.Live() || f.stops != 1 {
+	if r, _ = s.GetResident(ctx, "yardmaster"); r.Live() || f.stops != 1 {
 		t.Fatalf("disable did not stop it: %+v stops %d", r, f.stops)
 	}
 }
@@ -302,7 +302,7 @@ func TestBlockedStartWaitsForHumanThenPrompts(t *testing.T) {
 	f.blocked = true
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
-	r, _ := s.GetResident(ctx, "mayor")
+	r, _ := s.GetResident(ctx, "yardmaster")
 	if !r.Live() || f.stops != 0 || f.n != 1 || r.Failures != 0 {
 		t.Fatalf("blocked start was not kept: %+v stops %d starts %d", r, f.stops, f.n)
 	}
@@ -326,7 +326,7 @@ func TestBlockedStartWaitsForHumanThenPrompts(t *testing.T) {
 	if len(f.nudges) != 1 || !strings.HasSuffix(f.nudges[0], "prime yourself") {
 		t.Fatalf("pending prompt delivered %v", f.nudges)
 	}
-	if r, _ = s.GetResident(ctx, "mayor"); r.Handle[dispatch.PendingPrompt] != nil {
+	if r, _ = s.GetResident(ctx, "yardmaster"); r.Handle[dispatch.PendingPrompt] != nil {
 		t.Fatal("pending prompt not cleared")
 	}
 }
@@ -346,7 +346,7 @@ func TestPendingPromptThatShowsIsNotSentAgain(t *testing.T) {
 	f.set(agentOf(t, s), "idle")
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
-	r, _ := s.GetResident(ctx, "mayor")
+	r, _ := s.GetResident(ctx, "yardmaster")
 	if len(f.nudges) != 0 || r.Handle[dispatch.PendingPrompt] != nil {
 		t.Fatalf("nudges %v, handle %v", f.nudges, r.Handle)
 	}
@@ -367,7 +367,7 @@ func TestPendingPromptThatDidNotShowIsSentOnce(t *testing.T) {
 	for range 4 {
 		must(t, d.Reconcile(ctx))
 	}
-	r, _ := s.GetResident(ctx, "mayor")
+	r, _ := s.GetResident(ctx, "yardmaster")
 	if len(f.nudges) != 1 || !strings.HasSuffix(f.nudges[0], "prime yourself") || r.Handle[dispatch.PendingPrompt] != nil {
 		t.Fatalf("nudges %v, handle %v", f.nudges, r.Handle)
 	}
@@ -525,7 +525,7 @@ func handleOf(t *testing.T, s store.API, bead string) map[string]any {
 // Found live (yardr-85jy): a Codex was given its pending prompt in the
 // second its trust dialog was answered and dropped the keys. The prompt was
 // cleared as delivered, session_prompted said so, and the session sat at an
-// empty input until the mayor typed the prompt by hand. A delivery that
+// empty input until the yardmaster typed the prompt by hand. A delivery that
 // does not show is sent again, and session_prompted is the arrival.
 func TestPendingPromptDroppedOnceIsDeliveredAgain(t *testing.T) {
 	s, r, d, b := nudgeSetup(t)
@@ -828,7 +828,7 @@ func TestResidentPromptTypedAndNotSubmittedIsSubmitted(t *testing.T) {
 		for range 10 {
 			must(t, d.Reconcile(ctx))
 		}
-		r, _ := s.GetResident(ctx, "mayor")
+		r, _ := s.GetResident(ctx, "yardmaster")
 		if f.submits != c.submits || len(f.nudges) != 0 || (r.Handle[dispatch.PendingPrompt] == nil) != (c.prompted == 1) {
 			t.Fatalf("deaf %v: submits %d, nudges %v, handle %v", c.deaf, f.submits, f.nudges, r.Handle)
 		}
@@ -837,7 +837,7 @@ func TestResidentPromptTypedAndNotSubmittedIsSubmitted(t *testing.T) {
 			if len(evs) != want {
 				t.Fatalf("deaf %v: %s logged %d times, want %d", c.deaf, kind, len(evs), want)
 			}
-			if want > 0 && evs[0].Data["resident"] != "mayor" {
+			if want > 0 && evs[0].Data["resident"] != "yardmaster" {
 				t.Fatalf("deaf %v: %s does not name the resident: %+v", c.deaf, kind, evs[0])
 			}
 		}
@@ -860,7 +860,7 @@ func TestResidentPendingPromptIsCheckedForArrival(t *testing.T) {
 		for range 10 {
 			must(t, d.Reconcile(ctx))
 		}
-		r, _ := s.GetResident(ctx, "mayor")
+		r, _ := s.GetResident(ctx, "yardmaster")
 		if len(f.nudges) != c.nudges || (r.Handle[dispatch.PendingPrompt] == nil) != (c.prompted == 1) {
 			t.Fatalf("drop %d: nudges %v, handle %v", c.drop, f.nudges, r.Handle)
 		}
@@ -869,7 +869,7 @@ func TestResidentPendingPromptIsCheckedForArrival(t *testing.T) {
 			if len(evs) != want {
 				t.Fatalf("drop %d: %s logged %d times, want %d", c.drop, kind, len(evs), want)
 			}
-			if want > 0 && evs[0].Data["resident"] != "mayor" {
+			if want > 0 && evs[0].Data["resident"] != "yardmaster" {
 				t.Fatalf("drop %d: %s does not name the resident: %+v", c.drop, kind, evs[0])
 			}
 		}
@@ -885,25 +885,25 @@ func TestPendingPromptWithAnUnreadablePaneIsSentOnce(t *testing.T) {
 	for range 4 {
 		must(t, d.Reconcile(ctx))
 	}
-	r, _ := s.GetResident(ctx, "mayor")
+	r, _ := s.GetResident(ctx, "yardmaster")
 	if len(f.nudges) != 1 || r.Handle[dispatch.PendingPrompt] != nil {
 		t.Fatalf("nudges %v, handle %v", f.nudges, r.Handle)
 	}
 }
 
 // A resident whose env_file is refused (missing, open to others) does not
-// start, and resident_blocked tells the mayor why, once while the reason
+// start, and resident_blocked tells the yardmaster why, once while the reason
 // stays the same.
 func TestResidentBlockedByItsConfig(t *testing.T) {
 	s, f, d := residentSetup(t, store.Resident{})
 	ctx := context.Background()
-	refuse := dispatch.Blocked(errors.New("resident mayor: env_file /x/mayor.env is open to others (mode 0644); chmod 600 it"))
+	refuse := dispatch.Blocked(errors.New("resident yardmaster: env_file /x/yardmaster.env is open to others (mode 0644); chmod 600 it"))
 	for range 2 {
 		f.failNext = refuse
-		must(t, s.SetResidentEnabled(ctx, "mayor", true, "", "me")) // clears the backoff
+		must(t, s.SetResidentEnabled(ctx, "yardmaster", true, "", "me")) // clears the backoff
 		must(t, d.Reconcile(ctx))
 	}
-	r, _ := s.GetResident(ctx, "mayor")
+	r, _ := s.GetResident(ctx, "yardmaster")
 	if r.Live() || f.n != 0 {
 		t.Fatalf("blocked resident started: %+v", r)
 	}
@@ -919,7 +919,7 @@ func TestResidentBlockedByItsConfig(t *testing.T) {
 	}
 	// An ordinary failure is not a block.
 	f.failNext = errors.New("herdr down")
-	must(t, s.SetResidentEnabled(ctx, "mayor", true, "", "me"))
+	must(t, s.SetResidentEnabled(ctx, "yardmaster", true, "", "me"))
 	must(t, d.Reconcile(ctx))
 	if evs, _ = s.Events(ctx, r.Journal, 100); slices.ContainsFunc(evs[len(evs)-1:], func(e store.Event) bool {
 		return e.Kind == "resident_blocked"
@@ -938,7 +938,7 @@ func TestResidentNotStartedBesideALiveAgent(t *testing.T) {
 	s, f, d := residentSetup(t, store.Resident{})
 	ctx := context.Background()
 	blocked := func() (reasons []string) {
-		evs, _ := s.Events(ctx, "mayor-journal", 100)
+		evs, _ := s.Events(ctx, "yardmaster-journal", 100)
 		for _, e := range evs {
 			if e.Kind == "resident_blocked" {
 				reasons = append(reasons, fmt.Sprint(e.Data["reason"]))
@@ -946,37 +946,37 @@ func TestResidentNotStartedBesideALiveAgent(t *testing.T) {
 		}
 		return reasons
 	}
-	f.foreign = &dispatch.LiveAgent{Name: "mayor", Pane: "w1:p1"}
+	f.foreign = &dispatch.LiveAgent{Name: "yardmaster", Pane: "w1:p1"}
 	for range 3 {
 		must(t, d.Reconcile(ctx))
 	}
-	r, _ := s.GetResident(ctx, "mayor")
+	r, _ := s.GetResident(ctx, "yardmaster")
 	if r.Live() || f.n != 0 || r.Failures != 0 || r.RetryAfter != nil {
 		t.Fatalf("started, or counted as a failure: %+v starts %d", r, f.n)
 	}
-	if got := blocked(); len(got) != 1 || !strings.Contains(got[0], `"mayor"`) || !strings.Contains(got[0], "w1:p1") {
+	if got := blocked(); len(got) != 1 || !strings.Contains(got[0], `"yardmaster"`) || !strings.Contains(got[0], "w1:p1") {
 		t.Fatalf("resident_blocked = %q, want one naming agent and pane", got)
 	}
 	// Another agent in its place is news.
-	f.foreign = &dispatch.LiveAgent{Name: "yardr-mayor", Pane: "w2:p1"}
+	f.foreign = &dispatch.LiveAgent{Name: "yardr-yardmaster", Pane: "w2:p1"}
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
-	if got := blocked(); len(got) != 2 || !strings.Contains(got[1], "yardr-mayor") || !strings.Contains(got[1], "w2:p1") {
+	if got := blocked(); len(got) != 2 || !strings.Contains(got[1], "yardr-yardmaster") || !strings.Contains(got[1], "w2:p1") {
 		t.Fatalf("resident_blocked = %q, want a second for the other agent", got)
 	}
 	// The human ends it: the next pass starts the resident.
 	f.foreign = nil
 	must(t, d.Reconcile(ctx))
-	if r, _ = s.GetResident(ctx, "mayor"); !r.Live() || f.n != 1 {
+	if r, _ = s.GetResident(ctx, "yardmaster"); !r.Live() || f.n != 1 {
 		t.Fatalf("not started once the agent was gone: %+v starts %d", r, f.n)
 	}
 	// It dies, long enough after its start to be no failed start, while
 	// another agent is it again: said again, not restarted.
 	dispatch.SetClock(d, func() time.Time { return time.Now().Add(2 * store.MinSessionLife) })
 	f.set(agentOf(t, s), "")
-	f.foreign = &dispatch.LiveAgent{Name: "mayor", Pane: "w1:p1"}
+	f.foreign = &dispatch.LiveAgent{Name: "yardmaster", Pane: "w1:p1"}
 	must(t, d.Reconcile(ctx))
-	if r, _ = s.GetResident(ctx, "mayor"); r.Live() || f.n != 1 || len(blocked()) != 3 {
+	if r, _ = s.GetResident(ctx, "yardmaster"); r.Live() || f.n != 1 || len(blocked()) != 3 {
 		t.Fatalf("restarted beside a live agent: %+v starts %d blocked %q", r, f.n, blocked())
 	}
 }
@@ -989,7 +989,7 @@ func TestResidentAgentListUnreadableIsAFailedStart(t *testing.T) {
 	ctx := context.Background()
 	f.findErr = errors.New("herdr: connection refused")
 	must(t, d.Reconcile(ctx))
-	r, _ := s.GetResident(ctx, "mayor")
+	r, _ := s.GetResident(ctx, "yardmaster")
 	if r.Live() || f.n != 0 || r.Failures != 1 || r.RetryAfter == nil {
 		t.Fatalf("resident after an unreadable agent list: %+v starts %d", r, f.n)
 	}
@@ -1028,7 +1028,7 @@ func TestResidentSessionGoneAtOnceIsAFailedStart(t *testing.T) {
 		at(time.Second)
 		must(t, d.Reconcile(ctx))
 		must(t, d.Reconcile(ctx)) // within the wait: no start
-		r, _ := s.GetResident(ctx, "mayor")
+		r, _ := s.GetResident(ctx, "yardmaster")
 		if r.Live() || f.n != n || r.Failures != n || r.RetryAfter == nil || r.Handle != nil {
 			t.Fatalf("round %d: starts %d resident %+v", n, f.n, r)
 		}
@@ -1055,7 +1055,7 @@ func TestResidentSessionGoneAtOnceIsAFailedStart(t *testing.T) {
 	if f.n != store.MaxStartFails {
 		t.Fatalf("started again after giving up: %d sessions", f.n)
 	}
-	evs, _ := s.Events(ctx, "mayor-journal", 100)
+	evs, _ := s.Events(ctx, "yardmaster-journal", 100)
 	kinds := map[string]int{}
 	reason := ""
 	for _, e := range evs {
@@ -1086,12 +1086,12 @@ func TestResidentSessionsGoneLeaveOneWorkspace(t *testing.T) {
 		f.set(agentOf(t, s), "") // the harness exits; the pane's shell stays
 		at(time.Second)
 		must(t, d.Reconcile(ctx))
-		r, _ := s.GetResident(ctx, "mayor")
+		r, _ := s.GetResident(ctx, "yardmaster")
 		// Gone, and nothing started since: the one before it is still open
 		// too, and no more than that, however many went before.
-		want := fmt.Sprintf("mayor-%d", n)
+		want := fmt.Sprintf("yardmaster-%d", n)
 		if n > 1 {
-			want = fmt.Sprintf("mayor-%d mayor-%d", n-1, n)
+			want = fmt.Sprintf("yardmaster-%d yardmaster-%d", n-1, n)
 		}
 		if got := f.workspaces(); got != want || len(r.Left) != len(strings.Fields(want)) {
 			t.Fatalf("after %d sessions gone: workspaces %q, left %v; want %q", n, got, r.Left, want)
@@ -1101,24 +1101,24 @@ func TestResidentSessionsGoneLeaveOneWorkspace(t *testing.T) {
 			must(t, d.Reconcile(ctx))
 		}
 	}
-	if r, _ := s.GetResident(ctx, "mayor"); r.State != "failed" || f.n != store.MaxStartFails {
+	if r, _ := s.GetResident(ctx, "yardmaster"); r.State != "failed" || f.n != store.MaxStartFails {
 		t.Fatalf("state %s after %d sessions", r.State, f.n)
 	}
 	// Five sessions gone; the next start leaves the last one's workspace
 	// beside its own.
-	must(t, s.SetResidentEnabled(ctx, "mayor", true, "", "me"))
+	must(t, s.SetResidentEnabled(ctx, "yardmaster", true, "", "me"))
 	must(t, d.Reconcile(ctx))
-	r, _ := s.GetResident(ctx, "mayor")
-	if got := f.workspaces(); got != "mayor-5 mayor-6" || !r.Live() || len(r.Left) != 1 || r.Left[0]["agent"] != "mayor-5" {
+	r, _ := s.GetResident(ctx, "yardmaster")
+	if got := f.workspaces(); got != "yardmaster-5 yardmaster-6" || !r.Live() || len(r.Left) != 1 || r.Left[0]["agent"] != "yardmaster-5" {
 		t.Fatalf("after the next start: workspaces %q, resident %+v", got, r)
 	}
 	// A session ended by yardr (here a restart) is stopped, which closes
 	// what it ran in: nothing of it is kept, and the latest that was gone
 	// stays.
-	must(t, s.RequestRestart(ctx, "mayor", "test", "", "me"))
+	must(t, s.RequestRestart(ctx, "yardmaster", "test", "", "me"))
 	must(t, d.Reconcile(ctx))
-	r, _ = s.GetResident(ctx, "mayor")
-	if got := f.workspaces(); got != "mayor-5 mayor-7" || len(r.Left) != 1 {
+	r, _ = s.GetResident(ctx, "yardmaster")
+	if got := f.workspaces(); got != "yardmaster-5 yardmaster-7" || len(r.Left) != 1 {
 		t.Fatalf("after a restart: workspaces %q, left %v", got, r.Left)
 	}
 }
@@ -1136,24 +1136,24 @@ func TestResidentWorkspaceLeftWithAnAgentIsKept(t *testing.T) {
 	}
 	must(t, d.Reconcile(ctx))
 	at(2 * store.MinSessionLife)
-	f.busy = map[string]bool{"mayor-1": true}
+	f.busy = map[string]bool{"yardmaster-1": true}
 	gone()
 	gone()
 	gone()
-	r, _ := s.GetResident(ctx, "mayor")
-	if got := f.workspaces(); got != "mayor-1 mayor-3 mayor-4" || len(r.Left) != 2 || r.Left[0]["agent"] != "mayor-1" {
+	r, _ := s.GetResident(ctx, "yardmaster")
+	if got := f.workspaces(); got != "yardmaster-1 yardmaster-3 yardmaster-4" || len(r.Left) != 2 || r.Left[0]["agent"] != "yardmaster-1" {
 		t.Fatalf("with an agent in the first: workspaces %q, left %v", got, r.Left)
 	}
 	f.busy, f.closeErr = nil, errors.New("herdr is down")
 	gone()
-	r, _ = s.GetResident(ctx, "mayor")
-	if got := f.workspaces(); got != "mayor-1 mayor-3 mayor-4 mayor-5" || len(r.Left) != 3 {
+	r, _ = s.GetResident(ctx, "yardmaster")
+	if got := f.workspaces(); got != "yardmaster-1 yardmaster-3 yardmaster-4 yardmaster-5" || len(r.Left) != 3 {
 		t.Fatalf("herdr could not close: workspaces %q, left %v", got, r.Left)
 	}
 	f.closeErr = nil
 	gone()
-	r, _ = s.GetResident(ctx, "mayor")
-	if got := f.workspaces(); got != "mayor-5 mayor-6" || len(r.Left) != 1 || r.Left[0]["agent"] != "mayor-5" {
+	r, _ = s.GetResident(ctx, "yardmaster")
+	if got := f.workspaces(); got != "yardmaster-5 yardmaster-6" || len(r.Left) != 1 || r.Left[0]["agent"] != "yardmaster-5" {
 		t.Fatalf("once it can be closed: workspaces %q, left %v", got, r.Left)
 	}
 }
@@ -1165,7 +1165,7 @@ func TestResidentSessionThatLivesResetsFailedStarts(t *testing.T) {
 	s, f, d, at := shortLived(t)
 	ctx := context.Background()
 	failures := func() int {
-		r, _ := s.GetResident(ctx, "mayor")
+		r, _ := s.GetResident(ctx, "yardmaster")
 		return r.Failures
 	}
 	early := func() { // the running session exits a second after its start, and the next is started
@@ -1199,7 +1199,7 @@ func TestResidentSessionThatLivesResetsFailedStarts(t *testing.T) {
 	f.set(agentOf(t, s), "")
 	at(store.MinSessionLife + time.Second)
 	must(t, d.Reconcile(ctx))
-	if r, _ := s.GetResident(ctx, "mayor"); !r.Live() || r.Failures != 0 || r.RetryAfter != nil || f.n != n+1 {
+	if r, _ := s.GetResident(ctx, "yardmaster"); !r.Live() || r.Failures != 0 || r.RetryAfter != nil || f.n != n+1 {
 		t.Fatalf("a session gone after the limit: starts %d (was %d) resident %+v", f.n, n, r)
 	}
 }
@@ -1215,24 +1215,24 @@ func TestResidentWantedEndingsAreNoFailedStarts(t *testing.T) {
 	restarted := func(what string, n int) {
 		t.Helper()
 		must(t, d.Reconcile(ctx))
-		r, _ := s.GetResident(ctx, "mayor")
+		r, _ := s.GetResident(ctx, "yardmaster")
 		if !r.Live() || r.Failures != 0 || r.RetryAfter != nil || f.n != n {
 			t.Fatalf("%s: starts %d, want %d; resident %+v", what, f.n, n, r)
 		}
 	}
-	must(t, s.Journal(ctx, "mayor", store.NoteHandoff, "all quiet", "mayor"))
+	must(t, s.Journal(ctx, "yardmaster", store.NoteHandoff, "all quiet", "yardmaster"))
 	restarted("handoff", 2)
-	must(t, s.RequestRestart(ctx, "mayor", "requested by me", "", "me"))
+	must(t, s.RequestRestart(ctx, "yardmaster", "requested by me", "", "me"))
 	restarted("restart", 3)
-	must(t, s.RequestRestart(ctx, "mayor", "requested by me", "", "me"))
+	must(t, s.RequestRestart(ctx, "yardmaster", "requested by me", "", "me"))
 	f.set(agentOf(t, s), "") // it exits by itself before the daemon stops it
 	restarted("restart of a session that left", 4)
-	must(t, s.SetResidentEnabled(ctx, "mayor", false, "", "me"))
+	must(t, s.SetResidentEnabled(ctx, "yardmaster", false, "", "me"))
 	must(t, d.Reconcile(ctx))
-	if r, _ := s.GetResident(ctx, "mayor"); r.Live() || r.Failures != 0 || r.RetryAfter != nil {
+	if r, _ := s.GetResident(ctx, "yardmaster"); r.Live() || r.Failures != 0 || r.RetryAfter != nil {
 		t.Fatalf("stop counted as a failed start: %+v", r)
 	}
-	evs, _ := s.Events(ctx, "mayor-journal", 100)
+	evs, _ := s.Events(ctx, "yardmaster-journal", 100)
 	if slices.ContainsFunc(evs, func(e store.Event) bool { return e.Kind == "resident_start_failed" }) {
 		t.Fatal("a wanted ending logged resident_start_failed")
 	}
@@ -1251,7 +1251,7 @@ func TestResidentStatusIsRecorded(t *testing.T) {
 	} {
 		f.set(agent, c.runtime)
 		must(t, d.Reconcile(ctx))
-		r, err := s.GetResident(ctx, "mayor")
+		r, err := s.GetResident(ctx, "yardmaster")
 		if err != nil || r.Status != c.want {
 			t.Fatalf("runtime says %s: status %q, want %q (%v)", c.runtime, r.Status, c.want, err)
 		}

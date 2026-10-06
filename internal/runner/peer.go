@@ -14,7 +14,7 @@ import (
 	"yardr.dev/yardr/internal/yardkey"
 )
 
-// PeerWait is how long a bead is at another yard before the mayor hears of
+// PeerWait is how long a bead is at another yard before the yardmaster hears of
 // it (session_aged), when its group sets no max_age: a laptop that sleeps
 // for a night is no news.
 const PeerWait = 24 * time.Hour

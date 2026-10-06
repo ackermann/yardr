@@ -56,7 +56,7 @@ func (f *fakeLinearStates) serve(t *testing.T) {
 			Variables map[string]any `json:"variables"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
-		if r.Header.Get("Authorization") != "lin_api_mayor" {
+		if r.Header.Get("Authorization") != "lin_api_yardmaster" {
 			gqlError(w, "Authentication required")
 			return
 		}
@@ -115,7 +115,7 @@ func TestLinearSetState(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			f := &fakeLinearStates{states: linearTeamStates(c.review), state: c.from}
 			f.serve(t)
-			got, err := hooks.Linear{}.SetState(ctx, "issue-1", c.state, "lin_api_mayor")
+			got, err := hooks.Linear{}.SetState(ctx, "issue-1", c.state, "lin_api_yardmaster")
 			want := hooks.Stated{Thread: hooks.Thread{ID: "issue-1", Title: "Web view", URL: "https://linear.app/acme/issue/YRD-1"},
 				Status: c.status, Was: c.was, Changed: true, Instead: c.instead}
 			if err != nil || !reflect.DeepEqual(got, want) {
@@ -127,7 +127,7 @@ func TestLinearSetState(t *testing.T) {
 			}
 
 			// Asked again, the issue is there: nothing is sent to change it.
-			again, err := hooks.Linear{}.SetState(ctx, "issue-1", c.state, "lin_api_mayor")
+			again, err := hooks.Linear{}.SetState(ctx, "issue-1", c.state, "lin_api_yardmaster")
 			want.Changed, want.Was = false, c.status
 			if err != nil || !reflect.DeepEqual(again, want) {
 				t.Fatalf("again %+v, %v\nwant %+v", again, err, want)
@@ -144,10 +144,10 @@ func TestLinearSetStateRefusals(t *testing.T) {
 	f := &fakeLinearStates{states: linearTeamStates(true), state: "s-todo"}
 	f.serve(t)
 	for _, c := range []struct{ thread, state, cred, want string }{
-		{"issue-1", "closed", "lin_api_mayor", `"closed" is no state: want started, review, done`},
-		{"issue-1", "", "lin_api_mayor", "is no state"},
-		{"", "done", "lin_api_mayor", "no issue to set the status of"},
-		{"issue-9", "done", "lin_api_mayor", "Entity not found"},
+		{"issue-1", "closed", "lin_api_yardmaster", `"closed" is no state: want started, review, done`},
+		{"issue-1", "", "lin_api_yardmaster", "is no state"},
+		{"", "done", "lin_api_yardmaster", "no issue to set the status of"},
+		{"issue-9", "done", "lin_api_yardmaster", "Entity not found"},
 		{"issue-1", "done", "lin_api_other", "Authentication required"},
 	} {
 		if _, err := (hooks.Linear{}).SetState(ctx, c.thread, c.state, c.cred); err == nil || !strings.Contains(err.Error(), c.want) {
@@ -160,7 +160,7 @@ func TestLinearSetStateRefusals(t *testing.T) {
 	}
 	// A team with no status of the type has nowhere to put the issue.
 	f.states = []map[string]any{status("s-todo", "Todo", "unstarted", 1), status("s-prog", "In Progress", "started", 2)}
-	if _, err := (hooks.Linear{}).SetState(ctx, "issue-1", "done", "lin_api_mayor"); err == nil ||
+	if _, err := (hooks.Linear{}).SetState(ctx, "issue-1", "done", "lin_api_yardmaster"); err == nil ||
 		!strings.Contains(err.Error(), "no status of type completed") || len(f.updates) != 0 {
 		t.Fatalf("no completed status: %v, %v", err, f.updates)
 	}
@@ -178,7 +178,7 @@ type fakeGitHubIssue struct {
 func (f *fakeGitHubIssue) serve(t *testing.T) {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer gh-mayor" {
+		if r.Header.Get("Authorization") != "Bearer gh-yardmaster" {
 			http.Error(w, `{"message":"Bad credentials"}`, http.StatusUnauthorized)
 			return
 		}
@@ -242,7 +242,7 @@ func TestGitHubSetState(t *testing.T) {
 			f := &fakeGitHubIssue{state: c.from, reason: c.reason}
 			f.serve(t)
 			// The thread as typed, the answer as GitHub spells it.
-			got, err := hooks.GitHub{}.SetState(ctx, "acme/webapp#7", c.state, "gh-mayor")
+			got, err := hooks.GitHub{}.SetState(ctx, "acme/webapp#7", c.state, "gh-yardmaster")
 			want := hooks.Stated{Thread: thread, Status: c.status, Was: c.was, Changed: c.patch != ""}
 			if err != nil || !reflect.DeepEqual(got, want) {
 				t.Fatalf("got %+v, %v\nwant %+v", got, err, want)
@@ -253,7 +253,7 @@ func TestGitHubSetState(t *testing.T) {
 			if f.reason != c.reasons {
 				t.Fatalf("state_reason %q, want %q", f.reason, c.reasons)
 			}
-			if _, err := (hooks.GitHub{}).SetState(ctx, "Acme/webapp#7", c.state, "gh-mayor"); err != nil || len(f.patches) > 1 ||
+			if _, err := (hooks.GitHub{}).SetState(ctx, "Acme/webapp#7", c.state, "gh-yardmaster"); err != nil || len(f.patches) > 1 ||
 				c.patch == "" && len(f.patches) != 0 {
 				t.Fatalf("again: %v, patches %q", err, f.patches)
 			}
@@ -267,12 +267,12 @@ func TestGitHubSetStateRefusals(t *testing.T) {
 	f.serve(t)
 	for _, c := range []struct{ thread, state, cred, want string }{
 		// The words GitHub has are named, and nothing is asked of it.
-		{"Acme/webapp#7", "review", "gh-mayor", "an issue has no review status: the states it has are started and done"},
-		{"Acme/webapp#7", "closed", "gh-mayor", `"closed" is no state`},
-		{"Acme/webapp", "done", "gh-mayor", "want owner/repo#number"},
-		{"Acme/webapp#", "done", "gh-mayor", "want owner/repo#number"},
-		{"Acme/webapp#7/comments", "done", "gh-mayor", "want owner/repo#number"},
-		{"../orgs/acme#7", "done", "gh-mayor", "want owner/repo#number"},
+		{"Acme/webapp#7", "review", "gh-yardmaster", "an issue has no review status: the states it has are started and done"},
+		{"Acme/webapp#7", "closed", "gh-yardmaster", `"closed" is no state`},
+		{"Acme/webapp", "done", "gh-yardmaster", "want owner/repo#number"},
+		{"Acme/webapp#", "done", "gh-yardmaster", "want owner/repo#number"},
+		{"Acme/webapp#7/comments", "done", "gh-yardmaster", "want owner/repo#number"},
+		{"../orgs/acme#7", "done", "gh-yardmaster", "want owner/repo#number"},
 	} {
 		if _, err := (hooks.GitHub{}).SetState(ctx, c.thread, c.state, c.cred); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Fatalf("%+v: %v", c, err)
@@ -282,7 +282,7 @@ func TestGitHubSetStateRefusals(t *testing.T) {
 		t.Fatalf("a refusal reached GitHub: %d gets, patches %q", f.gets, f.patches)
 	}
 	for _, c := range []struct{ thread, cred, want string }{
-		{"Acme/webapp#8", "gh-mayor", "404"},
+		{"Acme/webapp#8", "gh-yardmaster", "404"},
 		{"Acme/webapp#7", "gh-other", "401"},
 	} {
 		if _, err := (hooks.GitHub{}).SetState(ctx, c.thread, "done", c.cred); err == nil || !strings.Contains(err.Error(), c.want) {
@@ -291,7 +291,7 @@ func TestGitHubSetStateRefusals(t *testing.T) {
 	}
 	// The issues endpoint would close a pull request unmerged.
 	f.pull = true
-	if _, err := (hooks.GitHub{}).SetState(ctx, "Acme/webapp#7", "done", "gh-mayor"); err == nil ||
+	if _, err := (hooks.GitHub{}).SetState(ctx, "Acme/webapp#7", "done", "gh-yardmaster"); err == nil ||
 		!strings.Contains(err.Error(), "is a pull request") || len(f.patches) != 0 {
 		t.Fatalf("a pull request: %v, patches %q", err, f.patches)
 	}

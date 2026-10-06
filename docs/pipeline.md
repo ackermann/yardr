@@ -5,21 +5,21 @@ This page follows a bead through the pipeline yardr itself is built with
 (rig yardr, as of 2026-10-03). Its flows are in [flows.md](flows.md#worked-example-rig-yardr).
 
 ```
-backlog ──mayor shapes──▶ new ──builder──▶ review ──Codex──▶ approved ──refinery──▶ merged on main
+backlog ──yardmaster shapes──▶ new ──builder──▶ review ──Codex──▶ approved ──refinery──▶ merged on main
    ▲                       ▲                 │                  │
    │                       └──── changes ────┘                  │
    │                       └────────── red check or conflict ───┘
    └──────── decide (Christopher) ◀── a question from backlog, new, review or approved
 ```
 
-## 1. Backlog: the mayor shapes the bead
+## 1. Backlog: the yardmaster shapes the bead
 
 New ideas land in stage `backlog`, routed to the manual group `backlog`. The
-mayor (the resident `yardmaster`, see [residents.md](residents.md), prompt this repo's
-`.yardr/roles/mayor.md`) reads them and shapes each one until a builder could finish
-it without asking: a goal, where to look, what "done" means and how to test
-it. Large beads are split, and `yardr dep add` orders them: a bead is only
-ready once its blockers are closed.
+yardmaster (see [residents.md](residents.md), prompt this repo's
+`.yardr/roles/yardmaster.md`) reads them and shapes each one until a builder
+could finish it without asking: a goal, where to look, what "done" means and
+how to test it. Large beads are split, and `yardr dep add` orders them: a bead
+is only ready once its blockers are closed.
 
 A shaped bead is advanced to `new` (`yardr bead advance <id> --to new`).
 Christopher can do the same from `yardr review -g backlog`.
@@ -99,7 +99,7 @@ and at most once per bead, session and reason, so an agent that retries
 says it once. A person's or a resident's refused command logs nothing (they
 are in no session and read the error where they typed it), nor does a
 manual group's claim. It is in a new resident's default `--on`, so the
-mayor hears it; `yardr inbox` leads its row with `reason`, `command` and
+yardmaster hears it; `yardr inbox` leads its row with `reason`, `command` and
 `error`.
 
 What never reaches the store is not logged: a command `yardr` itself
@@ -185,7 +185,7 @@ review (the full gate is the refinery's), and then:
 - **sends back**: concrete findings, then `--outcome changes` (to `new`);
   the bead returns to
   the builders, in the same worktree. After two send-backs it holds the bead
-  instead of a third, so the mayor looks;
+  instead of a third, so the yardmaster looks;
 - **asks**: a question only Christopher can answer goes to `decide`
   (`--outcome question`).
 
@@ -263,7 +263,8 @@ the session and the daemon stops the script, so it is the script's last step.
    nowhere and a dirty checkout never blocks the queue;
 4. pushes the base if `YARDR_PUSH` names a remote (off by default, never
    forced). A failed push leaves the bead merged; the next landing's push
-   carries it, and `YARDR_NOTIFY` (default `mayor`) is mailed;
+   carries it, and `YARDR_NOTIFY` (default the yard's `yardmaster` setting, else
+   `yardmaster`) is mailed;
 5. advances to the terminal stage `merged` with the note `merged <sha>`,
    which closes the bead; in a flow without `merged` it closes the bead with
    that reason.
@@ -360,7 +361,7 @@ its placement on `main`, needs work.
 
 ### Setup
 
-The mayor would wire this in the store; nothing in `~/.yardr` is versioned:
+The yardmaster would wire this in the store; nothing in `~/.yardr` is versioned:
 
 ```sh
 yardr group add mergers --runner herdr --limit 1 \
@@ -397,7 +398,7 @@ the next ready bead at once; the worktree and its branch stay. Beads get held:
 - by the refinery, when it cannot land without touching a dirty tree (the
   base checked out with uncommitted changes, or the bead's worktree dirty).
 
-The mayor watches held beads, finds out why, and either fixes the cause and
+The yardmaster watches held beads, finds out why, and either fixes the cause and
 unholds, reshapes the bead, or sends it to `decide`.
 
 Not every failure is the bead's. If herdr is missing or down, no bead is
@@ -416,7 +417,7 @@ move the yard refused raises `move_refused`, with the command and why
 ([above](#2-new-a-builder-implements-it)). A session that
 sits idle 30m or runs 4h
 raises `session_idle` (with the end of its pane) or `session_aged` in the
-mayor's inbox (one waiting
+yardmaster's inbox (one waiting
 for its own `yardr rig check` is not idle, and `yardr session list` shows
 the gate); with a group `grace` set it is then
 stopped, and without one a session that has run twice its `max_age` is
@@ -566,7 +567,7 @@ As of 2026-10-03 rig yardr has the flow but not the groups for it: `open`,
 human until the [setup below](#setup-2) is done. The steps describe the
 path with that setup:
 
-1. **backlog**: the mayor shapes the epic and adds its children, then
+1. **backlog**: the yardmaster shapes the epic and adds its children, then
    advances it to `open`.
 2. **open**: the epic waits while any child is open (they block it). When
    the last child closes it is ready, and the route for type `epic` in
@@ -756,13 +757,13 @@ is held, and is read when it is un-held.
    Merged by hand, the checkout catches up at the next fetch. **PR closed
    unmerged** (`pr_closed`): an epic in `in-pr` or `review` goes to `decide`
    with the question "PR closed unmerged: reopen, or drop the epic?".
-4. **Changes requested** (`changes_requested`): a `pull_request_review`
-   with state `changes_requested` by a human (a login ending in `[bot]` is
-   not one; the yard posts no reviews, as pr-epic writes its review into the
-   PR's body), epic in `review`, `approved`, `in-pr` or `land` (with no session):
-   the review goes into a note and the epic to `open`, where the mayor files
-   the fix as a child. Comments (`issue_comment`) are not the daemon's: a
-   resident subscribed to github with `--scope mentions` gets them.
+4. **Changes requested** (`changes_requested`): a `pull_request_review` with
+   state `changes_requested` by a human (a login ending in `[bot]` is not one;
+   the yard posts no reviews, as pr-epic writes its review into the PR's
+   body), epic in `review`, `approved`, `in-pr` or `land` (with no session):
+   the review goes into a note and the epic to `open`, where the yardmaster
+   files the fix as a child. Comments (`issue_comment`) are not the daemon's:
+   a resident subscribed to github with `--scope mentions` gets them.
 
 For `ci_red`, the head commit is the one the last `pull_request` event
 (opened, synchronize, ...) or review for the epic carried, kept in the

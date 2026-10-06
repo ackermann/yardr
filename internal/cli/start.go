@@ -22,20 +22,20 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// mayorWait is how long the onboarding waits for the mayor before it says
-// what it knows instead. A start takes seconds; the rest is room for
-// a harness that is slow to come up or a first failed try (the daemon
-// retries after 30s). A variable so a test of the form, which has no
-// --wait, need not sit it out.
-var mayorWait = 2 * time.Minute
+// yardmasterWait is how long the onboarding waits for the yardmaster before
+// it says what it knows instead. A start takes seconds; the rest is room for
+// a harness that is slow to come up or a first failed try (the daemon retries
+// after 30s). A variable so a test of the form, which has no --wait, need not
+// sit it out.
+var yardmasterWait = 2 * time.Minute
 
-// pollEvery is how often the wait looks at the mayor; tests shorten it.
+// pollEvery is how often the wait looks at the yardmaster; tests shorten it.
 var pollEvery = 500 * time.Millisecond
 
 // preflight runs before the form's first page: it names what is not on
 // PATH and what it is needed for (basicNeeds, as yardr doctor does), and lets
 // the user stop or go on. The answer starts at "go on" only when herdr is
-// there: without herdr the yard this form creates cannot start its mayor.
+// there: without herdr the yard this form creates cannot start its yardmaster.
 func preflight() error {
 	var gone []string
 	goOn := true
@@ -64,8 +64,8 @@ func preflight() error {
 	return nil
 }
 
-// mayorPlace is where the mayor's session runs, as herdr names it.
-type mayorPlace struct {
+// yardmasterPlace is where the yardmaster's session runs, as herdr names it.
+type yardmasterPlace struct {
 	Agent       string `json:"agent"`        // herdr agent list's name
 	Workspace   string `json:"workspace"`    // the workspace's label
 	WorkspaceID string `json:"workspace_id"` // and its id, the tab's and the pane's
@@ -73,29 +73,29 @@ type mayorPlace struct {
 	Pane        string `json:"pane"`
 }
 
-// startResult is what starting the yard came to: the daemon, and the mayor's
-// place once its session runs or, when it does not, what is known and how
-// to go on.
+// startResult is what starting the yard came to: the daemon, and the
+// yardmaster's place once its session runs or, when it does not, what is
+// known and how to go on.
 type startResult struct {
 	DaemonStarted bool   `json:"daemon_started"`       // by this run; false when one ran already
 	DaemonLog     string `json:"daemon_log,omitempty"` // where the one this run started logs
-	// Running: the mayor's session runs and it answered its first prompt
-	// (see waitMayor).
+	// Running: the yardmaster's session runs and it answered its first prompt
+	// (see waitYardmaster).
 	Running bool `json:"running"`
-	// Mayor is where the session is, once there is one, up or not.
-	Mayor *mayorPlace `json:"mayor,omitempty"`
-	// Pane is the last lines of the mayor's pane when it did not come up:
+	// Yardmaster is where the session is, once there is one, up or not.
+	Yardmaster *yardmasterPlace `json:"yardmaster,omitempty"`
+	// Pane is the last lines of the yardmaster's pane when it did not come up:
 	// where a harness says why it does nothing.
 	Pane string `json:"pane,omitempty"`
-	// Chat is the command for the conversation with the mayor, once it is
+	// Chat is the command for the conversation with the yardmaster, once it is
 	// up: where its first message goes, and where a terminal is taken.
 	Chat    string   `json:"chat,omitempty"`
 	Problem string   `json:"problem,omitempty"`
 	Known   []string `json:"known,omitempty"`
 	Next    []string `json:"next,omitempty"`
-	// said: the daemon's line was printed already, before the question
-	// that offers the mayor's pane (offerPane), and for a mayor that is not
-	// up the problem and its pane with it; print does not say them twice.
+	// said: the daemon's line was printed already, before the question that
+	// offers the yardmaster's pane (offerPane), and for a yardmaster that is
+	// not up the problem and its pane with it; print does not say them twice.
 	said bool
 }
 
@@ -188,16 +188,16 @@ var agentStatus = func(ctx context.Context, handle map[string]any) (string, erro
 }
 
 const (
-	// paneLines is how much of the mayor's pane a failed wait quotes.
+	// paneLines is how much of the yardmaster's pane a failed wait quotes.
 	paneLines = 6
 	// paneScan is how far back the wait looks for the first prompt.
 	paneScan = 200
 )
 
-// startYard starts the daemon in the background, unless one runs on the
-// home already, and waits up to wait for the mayor (waitMayor). It never
+// startYard starts the daemon in the background, unless one runs on the home
+// already, and waits up to wait for the yardmaster (waitYardmaster). It never
 // fails: what went wrong is in the result, in words for the person reading.
-func (a *app) startYard(ctx context.Context, cfg *config.Config, st store.API, mayor string, wait time.Duration) *startResult {
+func (a *app) startYard(ctx context.Context, cfg *config.Config, st store.API, yardmaster string, wait time.Duration) *startResult {
 	res := &startResult{}
 	var exited <-chan error
 	if !daemonRunning(cfg.DaemonLock()) {
@@ -209,35 +209,36 @@ func (a *app) startYard(ctx context.Context, cfg *config.Config, st store.API, m
 		}
 		res.DaemonStarted, res.DaemonLog = true, cfg.DaemonLog()
 	}
-	a.awaitMayor(ctx, cfg, st, mayor, wait, exited, res)
+	a.awaitYardmaster(ctx, cfg, st, yardmaster, wait, exited, res)
 	return res
 }
 
-// awaitMayor waits up to wait for the mayor (waitMayor) and writes into res
-// how that ended: where the mayor is, and for one that is not up the
-// problem, its pane's last lines, what is known and how to go on.
-func (a *app) awaitMayor(ctx context.Context, cfg *config.Config, st store.API, mayor string, wait time.Duration, exited <-chan error, res *startResult) {
-	r, problem := waitMayor(ctx, cfg, st, mayor, wait, exited)
-	res.describe(ctx, cfg, st, r, mayor, problem)
+// awaitYardmaster waits up to wait for the yardmaster (waitYardmaster) and
+// writes into res how that ended: where the yardmaster is, and for one that
+// is not up the problem, its pane's last lines, what is known and how to go
+// on.
+func (a *app) awaitYardmaster(ctx context.Context, cfg *config.Config, st store.API, yardmaster string, wait time.Duration, exited <-chan error, res *startResult) {
+	r, problem := waitYardmaster(ctx, cfg, st, yardmaster, wait, exited)
+	res.describe(ctx, cfg, st, r, yardmaster, problem)
 }
 
-// describe writes into s what is known of the mayor as last read (r, nil
+// describe writes into s what is known of the yardmaster as last read (r, nil
 // when it was not): up when problem is "", else not up for that reason.
-func (s *startResult) describe(ctx context.Context, cfg *config.Config, st store.API, r *store.Resident, mayor, problem string) {
-	s.Running, s.Mayor, s.Chat, s.Problem, s.Pane, s.Known, s.Next = false, nil, "", "", "", nil, nil
+func (s *startResult) describe(ctx context.Context, cfg *config.Config, st store.API, r *store.Resident, yardmaster, problem string) {
+	s.Running, s.Yardmaster, s.Chat, s.Problem, s.Pane, s.Known, s.Next = false, nil, "", "", "", nil, nil
 	if r != nil && r.Live() {
 		all, _ := st.Settings(ctx)
-		s.Mayor = placeOf(*r, runner.YardName(cfg.Home, all))
+		s.Yardmaster = placeOf(*r, runner.YardName(cfg.Home, all))
 	}
 	if problem == "" {
 		s.Running, s.Chat = true, yardrAt(cfg.Home)+" chat"
 		return
 	}
 	s.Problem = problem
-	if s.Mayor != nil {
+	if s.Yardmaster != nil {
 		s.Pane, _ = paneTail(ctx, r.Handle, paneLines)
 	}
-	s.Known, s.Next = diagnose(ctx, cfg, st, r, mayor, s)
+	s.Known, s.Next = diagnose(ctx, cfg, st, r, yardmaster, s)
 }
 
 // How the question after a harness that did not answer is answered.
@@ -247,7 +248,7 @@ const (
 	tryStop  = "stop"
 )
 
-// askHarness is the question before the mayor is started: whether to ask
+// askHarness is the question before the yardmaster is started: whether to ask
 // its harness for one real answer first, outside a pane (tryHarnessCall,
 // the call yardr doctor --try makes). A harness that is not logged in then
 // says so here, with what it printed, before a session sits at a screen
@@ -256,17 +257,17 @@ const (
 // stops here: it reports false for that last one, and a form left with
 // ctrl+c is the same answer.
 //
-// It asks only a person at a terminal, and only when the start is this
-// run's to make or leave: no daemon runs yet (one that does starts the mayor
-// whatever is answered here), and the mayor is enabled, has no session and
-// was not given up on. A kind with no one-shot form, and a harness that is
-// not on PATH (the start says so), are not asked about. The call costs a model call, so it is made on a yes
-// only.
-func (a *app) askHarness(ctx context.Context, cfg *config.Config, st store.API, mayor string) (goOn bool, err error) {
+// It asks only a person at a terminal, and only when the start is this run's
+// to make or leave: no daemon runs yet (one that does starts the yardmaster
+// whatever is answered here), and the yardmaster is enabled, has no session
+// and was not given up on. A kind with no one-shot form, and a harness that
+// is not on PATH (the start says so), are not asked about. The call costs a
+// model call, so it is made on a yes only.
+func (a *app) askHarness(ctx context.Context, cfg *config.Config, st store.API, yardmaster string) (goOn bool, err error) {
 	if a.json || !interactive() || agentSession() || daemonRunning(cfg.DaemonLock()) {
 		return true, nil
 	}
-	r, err := st.GetResident(ctx, mayor)
+	r, err := st.GetResident(ctx, yardmaster)
 	if err != nil || !r.Enabled || r.Live() || r.State == "failed" {
 		return true, nil // the wait says what is wrong with it
 	}
@@ -284,11 +285,11 @@ func (a *app) askHarness(ctx context.Context, cfg *config.Config, st store.API, 
 	fmt.Println()
 	err = ask(huh.NewConfirm().Key("try").Title("Check that " + kind + " answers?").
 		Description(fmt.Sprintf("It makes one real call (it costs a model call), outside a pane: a %s that is not logged in\n"+
-			"says so here, before %s is started on it.", kind, mayor)).
+			"says so here, before %s is started on it.", kind, yardmaster)).
 		Affirmative("Check").Negative("Skip").Value(&check))
 	switch {
 	case errors.Is(err, huh.ErrUserAborted):
-		stoppedBefore(cfg, mayor, kind)
+		stoppedBefore(cfg, yardmaster, kind)
 		return false, nil
 	case err != nil:
 		return false, err
@@ -310,13 +311,13 @@ func (a *app) askHarness(ctx context.Context, cfg *config.Config, st store.API, 
 		pick := tryAgain
 		fmt.Println()
 		err := ask(huh.NewSelect[string]().Key("tried").Title(kind+" did not answer").
-			Description(fmt.Sprintf("%s runs on it: started now, it would likely sit in its pane the same way.", mayor)).
+			Description(fmt.Sprintf("%s runs on it: started now, it would likely sit in its pane the same way.", yardmaster)).
 			Options(huh.NewOption("Try again: once you have set it right in another terminal", tryAgain),
-				huh.NewOption("Go on anyway: start "+mayor+" on it", tryGoOn),
+				huh.NewOption("Go on anyway: start "+yardmaster+" on it", tryGoOn),
 				huh.NewOption("Stop here: the yard stays, and nothing is started on it", tryStop)).Value(&pick))
 		switch {
 		case errors.Is(err, huh.ErrUserAborted) || (err == nil && pick == tryStop):
-			stoppedBefore(cfg, mayor, kind)
+			stoppedBefore(cfg, yardmaster, kind)
 			return false, nil
 		case err != nil:
 			return false, err
@@ -383,46 +384,46 @@ func (t tryCheck) means(kind, exe string) string {
 
 // stoppedBefore says, after "Stop here", what is there and how to come
 // back.
-func stoppedBefore(cfg *config.Config, mayor, kind string) {
+func stoppedBefore(cfg *config.Config, yardmaster, kind string) {
 	yardr := yardrAt(cfg.Home)
 	fmt.Printf("Stopped before %s was started. The yard is there, and nothing runs on it.\n"+
 		"Once %s answers (`%s doctor --try` asks it again, for a model call), this starts the yard\n"+
 		"and waits for %s:\n\n  %s init --start\n\n"+
 		"%s in a terminal does the same and goes on from here. `%s setup` takes the rest of\n"+
-		"the setup as forms, with %s or without.\n", mayor, kind, yardr, mayor, yardr, yardr, yardr, mayor)
+		"the setup as forms, with %s or without.\n", yardmaster, kind, yardr, yardmaster, yardr, yardr, yardr, yardmaster)
 }
 
-// How the question that offers the mayor's pane is answered.
+// How the question that offers the yardmaster's pane is answered.
 const (
 	paneOpen  = "open"
 	paneLater = "later"
 )
 
-// offerPane is the way to a mayor that is live but not up, and back: its
+// offerPane is the way to a yardmaster that is live but not up, and back: its
 // harness waits at something yardr does not answer (a login, a dialog, a
 // question), and only the person can, in its pane. It says what is known,
-// shows the pane's last lines and asks; "Open the mayor's pane" attaches to
-// the pane in this terminal and, once the person has left it, waits for
-// the mayor as the start does and writes into res how that ended. Still not
-// up, it asks again. It returns when the mayor is up, has no session any
-// more, or the answer is "Not now": res says which, and the caller goes on
-// as it does after a start.
+// shows the pane's last lines and asks; "Open the yardmaster's pane" attaches
+// to the pane in this terminal and, once the person has left it, waits for
+// the yardmaster as the start does and writes into res how that ended. Still
+// not up, it asks again. It returns when the yardmaster is up, has no session
+// any more, or the answer is "Not now": res says which, and the caller goes
+// on as it does after a start.
 //
 // It asks only where a chat could open (chats), since that is where it
 // leads. yardr types nothing into the pane: what the harness asks there is
 // the person's to answer.
-func (a *app) offerPane(ctx context.Context, cfg *config.Config, st store.API, mayor string, wait time.Duration, res *startResult) error {
-	for a.chats() && !res.Running && res.Mayor != nil && res.Mayor.Agent != "" && ctx.Err() == nil {
+func (a *app) offerPane(ctx context.Context, cfg *config.Config, st store.API, yardmaster string, wait time.Duration, res *startResult) error {
+	for a.chats() && !res.Running && res.Yardmaster != nil && res.Yardmaster.Agent != "" && ctx.Err() == nil {
 		res.printHead()
-		agent, pick := res.Mayor.Agent, paneOpen
+		agent, pick := res.Yardmaster.Agent, paneOpen
 		known := "its harness may wait at a login, a question or a system dialog"
 		if len(res.Known) > 0 {
 			known = res.Known[0]
 		}
 		fmt.Println()
-		err := ask(huh.NewSelect[string]().Key("pane").Title("Open "+mayor+"'s pane?").
+		err := ask(huh.NewSelect[string]().Key("pane").Title("Open "+yardmaster+"'s pane?").
 			Description(known+".\nOnly you can answer it there; yardr types nothing into the pane.").
-			Options(huh.NewOption("Open the mayor's pane", paneOpen), huh.NewOption("Not now", paneLater)).Value(&pick))
+			Options(huh.NewOption("Open the yardmaster's pane", paneOpen), huh.NewOption("Not now", paneLater)).Value(&pick))
 		switch {
 		case errors.Is(err, huh.ErrUserAborted) || (err == nil && pick != paneOpen):
 			return nil
@@ -431,28 +432,28 @@ func (a *app) offerPane(ctx context.Context, cfg *config.Config, st store.API, m
 		}
 		if os.Getenv("HERDR_ENV") != "" {
 			// In a pane of herdr there is nothing to attach: herdr shows the
-			// mayor's pane in place of this one, as yardr chat's key for it
-			// does, and this run waits behind it.
+			// yardmaster's pane in place of this one, as yardr chat's key for
+			// it does, and this run waits behind it.
 			if err := focusAgent(ctx, agent); err != nil {
-				fmt.Printf("%s's pane could not be brought to the front: %v\n", mayor, err)
+				fmt.Printf("%s's pane could not be brought to the front: %v\n", yardmaster, err)
 				return nil
 			}
 			fmt.Printf("herdr shows %s's pane now. To come back to this one: %s opens herdr's list of panes.\n"+
-				"This pane waits for %s meanwhile, and opens the chat once it is up.\n", mayor, gotoKeys, mayor)
+				"This pane waits for %s meanwhile, and opens the chat once it is up.\n", yardmaster, gotoKeys, yardmaster)
 		} else {
 			fmt.Printf("Opening %s's pane here. To come back: %s (press ctrl+b, release, then q).\n"+
-				"Leaving that way stops nothing: %s keeps running, and this goes on.\n", mayor, detachKeys, mayor)
+				"Leaving that way stops nothing: %s keeps running, and this goes on.\n", yardmaster, detachKeys, yardmaster)
 			if err := attachAgent(ctx, agent); err != nil {
-				fmt.Printf("\n%s's pane could not be opened: %v\n", mayor, err)
+				fmt.Printf("\n%s's pane could not be opened: %v\n", yardmaster, err)
 				return nil
 			}
-			fmt.Printf("\nBack from %s's pane.\n", mayor)
+			fmt.Printf("\nBack from %s's pane.\n", yardmaster)
 		}
-		fmt.Printf("Waiting for %s to answer its first prompt (up to %s).\n", mayor, wait)
+		fmt.Printf("Waiting for %s to answer its first prompt (up to %s).\n", yardmaster, wait)
 		again := &startResult{DaemonStarted: res.DaemonStarted, DaemonLog: res.DaemonLog}
-		a.awaitMayor(ctx, cfg, st, mayor, wait, nil, again)
+		a.awaitYardmaster(ctx, cfg, st, yardmaster, wait, nil, again)
 		*res = *again
-		// The daemon's line stands above; a mayor still not up is said
+		// The daemon's line stands above; a yardmaster still not up is said
 		// anew, with its pane as it is now.
 		res.said = true
 		if !res.Running {
@@ -462,18 +463,18 @@ func (a *app) offerPane(ctx context.Context, cfg *config.Config, st store.API, m
 	return nil
 }
 
-// waitMayor polls the mayor until it is up, and returns "" then. Up is more
-// than a session that exists: a harness on PATH can sit dead in a running
-// session (a quarantined binary behind a dialog nobody sees, a CLI at "Not
-// logged in"), and herdr reads any process of the harness's name that
-// printed something as an idle agent. So the wait is for the mayor's first
-// output: what its pane shows after its first prompt (see up).
+// waitYardmaster polls the yardmaster until it is up, and returns "" then. Up
+// is more than a session that exists: a harness on PATH can sit dead in a
+// running session (a quarantined binary behind a dialog nobody sees, a CLI at
+// "Not logged in"), and herdr reads any process of the harness's name that
+// printed something as an idle agent. So the wait is for the yardmaster's
+// first output: what its pane shows after its first prompt (see up).
 //
 // Otherwise it returns why the wait ended: the time is up, the daemon is
-// gone, yardr gave up on the mayor, or a start failed for want of a program
-// that waiting will not bring. Progress goes to stderr: a line that counts
-// on a terminal, one line otherwise.
-func waitMayor(ctx context.Context, cfg *config.Config, st store.API, mayor string, wait time.Duration, exited <-chan error) (*store.Resident, string) {
+// gone, yardr gave up on the yardmaster, or a start failed for want of a
+// program that waiting will not bring. Progress goes to stderr: a line that
+// counts on a terminal, one line otherwise.
+func waitYardmaster(ctx context.Context, cfg *config.Config, st store.API, yardmaster string, wait time.Duration, exited <-chan error) (*store.Resident, string) {
 	tty := false
 	if f, ok := stderr.(*os.File); ok {
 		tty = term.IsTerminal(int(f.Fd()))
@@ -483,41 +484,41 @@ func waitMayor(ctx context.Context, cfg *config.Config, st store.API, mayor stri
 		// says how it ended.
 		defer fmt.Fprint(stderr, "\r\033[K")
 	} else {
-		fmt.Fprintf(stderr, "waiting for %s to start (up to %s)\n", mayor, wait)
+		fmt.Fprintf(stderr, "waiting for %s to start (up to %s)\n", yardmaster, wait)
 	}
 	began := time.Now()
 	var r *store.Resident
 	for {
 		var err error
-		if r, err = st.GetResident(ctx, mayor); err != nil {
-			return nil, fmt.Sprintf("%s could not be read: %v", mayor, err)
+		if r, err = st.GetResident(ctx, yardmaster); err != nil {
+			return nil, fmt.Sprintf("%s could not be read: %v", yardmaster, err)
 		}
 		elapsed := time.Since(began)
 		if tty {
-			fmt.Fprintf(stderr, "\rWaiting for %s to start… %ds ", mayor, int(elapsed.Seconds()))
+			fmt.Fprintf(stderr, "\rWaiting for %s to start… %ds ", yardmaster, int(elapsed.Seconds()))
 		}
 		switch {
 		case r.Live() && up(ctx, *r):
 			return r, ""
 		case r.Live() && elapsed >= wait:
-			return r, fmt.Sprintf("%s's session is running, but it has not answered its first prompt within %s.", mayor, wait)
+			return r, fmt.Sprintf("%s's session is running, but it has not answered its first prompt within %s.", yardmaster, wait)
 		case r.Live():
 			// Its harness is still coming up, or sits at something.
 		case !r.Enabled:
-			return r, fmt.Sprintf("%s is stopped (disabled), so the daemon does not start it.", mayor)
+			return r, fmt.Sprintf("%s is stopped (disabled), so the daemon does not start it.", yardmaster)
 		case r.State == "failed":
-			return r, fmt.Sprintf("%s could not be started: the daemon gave up after %d tries.", mayor, r.Failures)
+			return r, fmt.Sprintf("%s could not be started: the daemon gave up after %d tries.", yardmaster, r.Failures)
 		case r.Failures > 0 && len(absent(*r)) > 0:
-			return r, fmt.Sprintf("%s cannot start: %s not on PATH.", mayor, strings.Join(absent(*r), " and ")+isAre(absent(*r)))
+			return r, fmt.Sprintf("%s cannot start: %s not on PATH.", yardmaster, strings.Join(absent(*r), " and ")+isAre(absent(*r)))
 		case elapsed >= wait:
-			return r, fmt.Sprintf("%s did not start within %s.", mayor, wait)
+			return r, fmt.Sprintf("%s did not start within %s.", yardmaster, wait)
 		}
 		select {
 		case <-ctx.Done():
-			return r, "interrupted while waiting for " + mayor + "."
+			return r, "interrupted while waiting for " + yardmaster + "."
 		case <-exited:
 			// A daemon that lost the lock to another is no failure: that
-			// other one starts the mayor.
+			// other one starts the yardmaster.
 			exited = nil
 			if !daemonRunning(cfg.DaemonLock()) {
 				return r, "the daemon stopped right after it started."
@@ -583,14 +584,14 @@ func absent(r store.Resident) []string {
 
 // placeOf reads where a running resident is from the handle the runner
 // recorded; the workspace's label is the one the runner gave it.
-func placeOf(r store.Resident, yard string) *mayorPlace {
-	return &mayorPlace{Agent: show(r.Handle["agent"]), Workspace: runner.ResidentLabel(yard, r.Name),
+func placeOf(r store.Resident, yard string) *yardmasterPlace {
+	return &yardmasterPlace{Agent: show(r.Handle["agent"]), Workspace: runner.ResidentLabel(yard, r.Name),
 		WorkspaceID: show(r.Handle["workspace"]), Tab: show(r.Handle["tab"]), Pane: show(r.Handle["pane"])}
 }
 
-// diagnose says what is known about a mayor that did not start, and how to
-// go on, in plain words. r is the mayor as last read, nil when it was not.
-func diagnose(ctx context.Context, cfg *config.Config, st store.API, r *store.Resident, mayor string, res *startResult) (known, next []string) {
+// diagnose says what is known about a yardmaster that did not start, and how to
+// go on, in plain words. r is the yardmaster as last read, nil when it was not.
+func diagnose(ctx context.Context, cfg *config.Config, st store.API, r *store.Resident, yardmaster string, res *startResult) (known, next []string) {
 	yardr := yardrAt(cfg.Home)
 	gaveUp, started := false, res.DaemonStarted
 	// ask is the harness to ask for one real answer: of a session that sits
@@ -611,15 +612,15 @@ func diagnose(ctx context.Context, cfg *config.Config, st store.API, r *store.Re
 			known = append(known, "its pane shows nothing")
 		}
 		ask = kind
-		p := res.Mayor
+		p := res.Yardmaster
 		next = append(next,
 			fmt.Sprintf("look at its pane (agent %s, workspace %q, pane %s): herdr agent focus %s in herdr, "+
 				"herdr agent attach %s from any other terminal (%s leaves it again, and stops nothing)", p.Agent, p.Workspace, p.Pane, p.Agent, p.Agent, detachKeys))
 		if r.Handle[dispatch.PendingPrompt] != nil {
-			next = append(next, fmt.Sprintf("answer what it asks there, or log %s in; the daemon gives %s its first prompt once %s is ready", kind, mayor, kind))
+			next = append(next, fmt.Sprintf("answer what it asks there, or log %s in; the daemon gives %s its first prompt once %s is ready", kind, yardmaster, kind))
 		} else {
 			next = append(next, fmt.Sprintf("set right what it shows there (log %s in, say), then have the daemon start %s afresh: %s resident restart %s",
-				kind, mayor, yardr, mayor))
+				kind, yardmaster, yardr, yardmaster))
 		}
 	} else if r != nil {
 		gaveUp = r.State == "failed"
@@ -628,7 +629,7 @@ func diagnose(ctx context.Context, cfg *config.Config, st store.API, r *store.Re
 			if exe == "herdr" {
 				known = append(known, "herdr is not on PATH: it starts every agent, so nothing runs until it is installed")
 			} else {
-				known = append(known, fmt.Sprintf("%s is not on PATH: it is the harness %s runs on (%s)", exe, mayor, kind))
+				known = append(known, fmt.Sprintf("%s is not on PATH: it is the harness %s runs on (%s)", exe, yardmaster, kind))
 			}
 		}
 		if reason := lastStartFailure(ctx, st, *r); reason != "" {
@@ -655,14 +656,14 @@ func diagnose(ctx context.Context, cfg *config.Config, st store.API, r *store.Re
 	switch {
 	case r != nil && r.Live():
 	case r != nil && !r.Enabled:
-		next = append(next, fmt.Sprintf("let it run again: %s resident start %s", yardr, mayor))
+		next = append(next, fmt.Sprintf("let it run again: %s resident start %s", yardr, yardmaster))
 	case gaveUp:
-		next = append(next, fmt.Sprintf("once that is fixed, have the daemon try again: %s resident start %s", yardr, mayor))
+		next = append(next, fmt.Sprintf("once that is fixed, have the daemon try again: %s resident start %s", yardr, yardmaster))
 	case r != nil && len(absent(*r)) > 0:
 		next = append(next, fmt.Sprintf("install %s where PATH finds it; the daemon looks again on the PATH it was started with, "+
-			"every try, and %s resident list shows when %s runs", strings.Join(absent(*r), " and "), yardr, mayor))
+			"every try, and %s resident list shows when %s runs", strings.Join(absent(*r), " and "), yardr, yardmaster))
 	default:
-		next = append(next, fmt.Sprintf("the daemon keeps trying; see whether %s runs: %s resident list", mayor, yardr))
+		next = append(next, fmt.Sprintf("the daemon keeps trying; see whether %s runs: %s resident list", yardmaster, yardr))
 	}
 	if ask != "" {
 		next = append(next, tryHint(yardr, ask))
@@ -698,9 +699,9 @@ func lastStartFailure(ctx context.Context, st store.API, r store.Resident) strin
 	return reason
 }
 
-// print says how the start ended: where the mayor is and how to get there,
+// print says how the start ended: where the yardmaster is and how to get there,
 // or what is known and how to go on.
-func (s *startResult) print(mayor string) {
+func (s *startResult) print(yardmaster string) {
 	s.printHead()
 	if !s.Running {
 		if len(s.Known) > 0 {
@@ -718,10 +719,10 @@ func (s *startResult) print(mayor string) {
 		return
 	}
 	fmt.Println()
-	s.Mayor.print(mayor)
+	s.Yardmaster.print(yardmaster)
 }
 
-// printHead says, once, what print starts with: the daemon, and of a mayor
+// printHead says, once, what print starts with: the daemon, and of a yardmaster
 // that is not up the problem and the last lines of its pane.
 func (s *startResult) printHead() {
 	if s.said {
@@ -738,7 +739,7 @@ func (s *startResult) printHead() {
 	}
 }
 
-// printProblem says why the mayor is not up, with the last lines of its
+// printProblem says why the yardmaster is not up, with the last lines of its
 // pane.
 func (s *startResult) printProblem() {
 	fmt.Printf("\n%s\n", s.Problem)
@@ -750,30 +751,30 @@ func (s *startResult) printProblem() {
 	}
 }
 
-// print says where the running mayor is, as herdr names it, and how to get
+// print says where the running yardmaster is, as herdr names it, and how to get
 // there.
-func (p *mayorPlace) print(mayor string) {
+func (p *yardmasterPlace) print(yardmaster string) {
 	fmt.Printf("%s is running, in herdr:\n\n"+
 		"  agent      %s\n"+
 		"  workspace  %q (%s), tab %s, pane %s\n\n"+
 		"To get there:\n\n"+
 		"  herdr agent focus %s     # in herdr: brings its pane to the front\n"+
 		"  herdr agent attach %s    # from any other terminal: opens its pane there\n",
-		mayor, p.Agent, p.Workspace, p.WorkspaceID, p.Tab, p.Pane, p.Agent, p.Agent)
+		yardmaster, p.Agent, p.Workspace, p.WorkspaceID, p.Tab, p.Pane, p.Agent, p.Agent)
 }
 
-// openMayor brings the mayor's pane to the front. herdr focuses a pane for
-// any process that asks over its socket; what the person then sees depends
-// on where they sit, which the answer says.
-func openMayor(ctx context.Context, mayor string, p *mayorPlace) {
+// openYardmaster brings the yardmaster's pane to the front. herdr focuses a
+// pane for any process that asks over its socket; what the person then sees
+// depends on where they sit, which the answer says.
+func openYardmaster(ctx context.Context, yardmaster string, p *yardmasterPlace) {
 	if err := focusAgent(ctx, p.Agent); err != nil {
-		fmt.Printf("%s's pane could not be brought to the front: %v\n", mayor, err)
+		fmt.Printf("%s's pane could not be brought to the front: %v\n", yardmaster, err)
 		return
 	}
 	if os.Getenv("HERDR_ENV") != "" {
-		fmt.Printf("herdr shows %s now.\n", mayor)
+		fmt.Printf("herdr shows %s now.\n", yardmaster)
 	} else {
 		fmt.Printf("%s is in front in herdr; this terminal is not in herdr, so open it with `herdr`,\n"+
-			"or `herdr agent attach %s` for its pane alone.\n", mayor, p.Agent)
+			"or `herdr agent attach %s` for its pane alone.\n", yardmaster, p.Agent)
 	}
 }

@@ -192,7 +192,7 @@ itself was started with come first, then those of the group's `env_file`
 (herdr groups, [groups.md](groups.md)), then the bead's. `TRACEPARENT` is
 always the session's; an `env_file` cannot replace it.
 
-Residents (a mayor) work no single bead and get neither.
+Residents (a yardmaster) work no single bead and get neither.
 
 A program that reads `TRACEPARENT` sends its spans as children of the
 session's span, which `yardr otel export` sends when the session ends. One

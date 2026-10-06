@@ -66,7 +66,7 @@ func announce(t *testing.T, home, addr string, unsafe bool) {
 
 // A yard with nothing but its server: status says what is there and what
 // does not run, has no line for hooks or peers, exits 0, and names doctor
-// for the faults doctor reports (no daemon, no mayor) without saying them.
+// for the faults doctor reports (no daemon, no yardmaster) without saying them.
 func TestStatusServerOnly(t *testing.T) {
 	home, _, a := statusYard(t, "abcdef123456")
 	out, err := run(t, a().rootCmd(), "status")
@@ -80,7 +80,7 @@ func TestStatusServerOnly(t *testing.T) {
 		"           this yardr is build unknown\n",
 		"daemon     not running\n",
 		"           login service: not installed\n",
-		"residents  mayor  not running\n",
+		"residents  yardmaster  not running\n",
 		"web view   "+here("not running: yardr web serve")+"\n",
 		"work       0 sessions running; 0 held\n",
 		"\n"+here("yardr doctor reports 2 faults, and says what they are.")+"\n")
@@ -222,10 +222,10 @@ func TestStatusRunningYard(t *testing.T) {
 	home, st, a := statusYard(t, "abcdef123456")
 	ctx := context.Background()
 	holdDaemon(t, home)
-	if err := st.ResidentStarted(ctx, "mayor", mayorHandle()); err != nil {
+	if err := st.ResidentStarted(ctx, "yardmaster", yardmasterHandle()); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.ResidentStatus(ctx, "mayor", "idle"); err != nil {
+	if err := st.ResidentStatus(ctx, "yardmaster", "idle"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.PutResident(ctx, store.Resident{Name: "refinery", Enabled: true}, "me"); err != nil {
@@ -278,8 +278,8 @@ func TestStatusRunningYard(t *testing.T) {
 	me := strconv.Itoa(os.Getpid())
 	wantText(t, out,
 		"daemon     running (pid "+me+")\n",
-		"residents  mayor     idle         herdr agent y-mayor\n",
-		"           refinery  not running\n",
+		"residents  refinery    not running\n",
+		"           yardmaster  idle         herdr agent y-yardmaster\n",
 		"web view   http://127.0.0.1:9000/    pid "+me+"  build unknown  this machine only\n",
 		"           http://192.168.7.7:9001/  pid "+me+"  build unknown  open to the network (--unsafe), no login\n",
 		"           http://[::1]:9002/        pid "+me+"  build unknown  this machine only\n",
@@ -297,7 +297,7 @@ func TestStatusRunningYard(t *testing.T) {
 	if rep.Name != "y" || rep.Operator != "Jo" || !rep.Daemon.Running || rep.Daemon.PID != os.Getpid() || rep.Faults == nil || *rep.Faults != 0 {
 		t.Fatalf("json: %+v", rep)
 	}
-	if len(rep.Residents) != 2 || rep.Residents[0] != (residentStatus{"mayor", "idle", "y-mayor"}) || rep.Residents[1].Agent != "" {
+	if len(rep.Residents) != 2 || rep.Residents[1] != (residentStatus{"yardmaster", "idle", "y-yardmaster"}) || rep.Residents[0].Agent != "" {
 		t.Fatalf("residents: %+v", rep.Residents)
 	}
 	if v := rep.Web.Views; len(v) != 3 || v[0].Open || v[0].URL != "http://127.0.0.1:9000/" || !v[1].Open || !v[1].Unsafe ||
@@ -494,7 +494,7 @@ func TestStatusUnreachableServer(t *testing.T) {
 func TestDoctorWebView(t *testing.T) {
 	home, st, a := statusYard(t, "abcdef123456")
 	holdDaemon(t, home)
-	if err := st.ResidentStarted(context.Background(), "mayor", mayorHandle()); err != nil {
+	if err := st.ResidentStarted(context.Background(), "yardmaster", yardmasterHandle()); err != nil {
 		t.Fatal(err)
 	}
 	stubServices(t, "darwin")

@@ -51,7 +51,7 @@ func TestOperatorUserOfAnOlderYard(t *testing.T) {
 	}
 
 	t.Run("gets the user", func(t *testing.T) {
-		path := older(t, "jo", "mayor")
+		path := older(t, "jo", "yardmaster")
 		s, err := Open(path)
 		if err != nil {
 			t.Fatal(err)
@@ -60,7 +60,7 @@ func TestOperatorUserOfAnOlderYard(t *testing.T) {
 		if err != nil || len(us) != 1 || us[0].Name != "jo" || us[0].CreatedBy != "yardr" {
 			t.Fatalf("users = %+v, %v", us, err)
 		}
-		if err := s.Mail(ctx, "jo", "hello", "mayor"); err != nil {
+		if err := s.Mail(ctx, "jo", "hello", "yardmaster"); err != nil {
 			t.Fatal(err)
 		}
 		head, _ := s.Head(ctx)
@@ -75,20 +75,20 @@ func TestOperatorUserOfAnOlderYard(t *testing.T) {
 		}
 	})
 	t.Run("a resident named as the operator stays", func(t *testing.T) {
-		s := open(t, older(t, "mayor", "mayor"))
+		s := open(t, older(t, "yardmaster", "yardmaster"))
 		if us, err := s.Users(ctx); err != nil || len(us) != 0 {
 			t.Fatalf("users = %+v, %v", us, err)
 		}
 		// Mail to the name is the resident's.
-		if err := s.Mail(ctx, "mayor", "hello", "clerk"); err != nil {
+		if err := s.Mail(ctx, "yardmaster", "hello", "clerk"); err != nil {
 			t.Fatal(err)
 		}
-		if page, err := s.Inbox(ctx, "mayor", 0); err != nil || page.Total != 1 {
+		if page, err := s.Inbox(ctx, "yardmaster", 0); err != nil || page.Total != 1 {
 			t.Fatalf("the resident's inbox = %+v, %v", page, err)
 		}
 		// The setting is kept as it is, and a new name gives the operator
 		// their user.
-		if err := s.SetSetting(ctx, OperatorSetting, "mayor", "jo"); err != nil {
+		if err := s.SetSetting(ctx, OperatorSetting, "yardmaster", "jo"); err != nil {
 			t.Fatalf("setting the operator it has: %v", err)
 		}
 		if err := s.SetSetting(ctx, OperatorSetting, "jo", "jo"); err != nil {

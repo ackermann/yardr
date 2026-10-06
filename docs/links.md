@@ -59,14 +59,14 @@ the map names, the issue it tracks in the hook's source goes to that status.
 No agent takes part: the yard does it, as a resident the hook names.
 
 ```sh
-# Once, by the operator: the mayor may set a status in Linear, and its
+# Once, by the operator: the yardmaster may set a status in Linear, and its
 # credential is in its env_file (LINEAR_API_KEY; for GitHub a GitHub App's
 # two lines or GITHUB_TOKEN, see residents.md "As a GitHub App").
-yardr resident set mayor set_state=linear env_file=~/.yardr/residents/mayor.env   # the rest of its definition stays
-yardr resident identity mayor --source linear --id <its Linear user id>
+yardr resident set yardmaster set_state=linear env_file=~/.yardr/residents/yardmaster.env   # the rest of its definition stays
+yardr resident identity yardmaster --source linear --id <its Linear user id>
 
 # The hook of the source, with the map and whom it acts as.
-yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret --as mayor \
+yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret --as yardmaster \
     --map task:new=started --map task:review=review --map task:merged=done \
     --map epic:open=started --map epic:done=done
 
@@ -76,7 +76,7 @@ yardr bead done webapp-k3f9                # into review: In Progress -> In Revi
 #   … approved is not in the map: nothing
 #   … merged: In Review -> Done
 
-yardr hook list                 # the MOVES ISSUES column: as mayor: task:new=started …
+yardr hook list                 # the MOVES ISSUES column: as yardmaster: task:new=started …
 yardr hook show linear          # the definition, and the moves still to make
 yardr events --bead webapp-k3f9 # thread_state, thread_state_skipped
 ```

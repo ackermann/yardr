@@ -117,7 +117,7 @@ It exits 1 on a pack that is not valid, naming every mistake by file, line
 and key, and on a plan an import would refuse (open beads in a stage the
 pack's flow lacks). --json prints the plan as data. See docs/packs.md.`,
 		Example: `  yardr pack check packs/starter --rig yardr
-  yardr pack check ~/packs/starter --rig yardr --resident mayor=yardmaster`,
+  yardr pack check ~/packs/starter --rig yardr --resident yardmaster=boss`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			p, err := a.loadPack(args[0])
@@ -217,7 +217,7 @@ pack has dropped since are listed, and removed only with --prune. A running
 resident whose role or subscriptions change is not restarted; the output
 says so. The import is recorded (yardr pack list). See docs/packs.md.`,
 		Example: `  yardr pack apply packs/starter --rig web
-  yardr pack apply packs/starter --rig web --yes --resident mayor=yardmaster \
+  yardr pack apply packs/starter --rig web --yes --resident yardmaster=boss \
     --bind builders=claude:opus --bind reviewers=codex,approve-for-me --members backlog= --members decisions=mckean`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
@@ -712,7 +712,7 @@ func (a *app) askAnswers(ctx context.Context, st store.API, plan *pack.Plan, ans
 		}
 		if open("members") {
 			var v string
-			if err := ask(huh.NewInput().Title("Members of group " + o.Name).Placeholder("mckean, mayor").
+			if err := ask(huh.NewInput().Title("Members of group " + o.Name).Placeholder("mckean, yardmaster").
 				Description("Optional, comma-separated actors (YARDR_ACTOR). If set, only they may advance beads out of this group's stages.").
 				Value(&v)); err != nil {
 				return err

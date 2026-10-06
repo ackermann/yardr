@@ -34,7 +34,7 @@ const (
 // start the next one on every pass and never give up.
 const MinSessionLife = 60 * time.Second
 
-// Resident is an always-on session not tied to a bead, such as a mayor.
+// Resident is an always-on session not tied to a bead, such as a yardmaster.
 // The daemon keeps it running, delivers its inbox when it is idle, and
 // rotates it through handoffs written to its journal bead.
 type Resident struct {

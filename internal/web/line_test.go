@@ -567,16 +567,16 @@ func TestResidents(t *testing.T) {
 		t.Error("the page of a yard with no resident does not say so")
 	}
 
-	for _, name := range []string{"mayor", "night"} {
+	for _, name := range []string{"yardmaster", "zed"} {
 		_, err := f.st.PutResident(ctx, store.Resident{Name: name, Runner: "herdr", Enabled: true,
 			Config: map[string]any{"kind": "claude", "model": "opus"}}, "me")
 		must(t, err)
 	}
-	must(t, f.st.ResidentStarted(ctx, "mayor", map[string]any{"agent": "mayor"}))
-	must(t, f.st.Mail(ctx, "mayor", "the gate is red", "builder"))
-	must(t, f.st.Mail(ctx, "mayor", "and still red", "builder"))
-	must(t, f.st.Journal(ctx, "mayor", store.NoteJournal, "dear diary", "mayor"))
-	must(t, f.st.SetResidentEnabled(ctx, "night", false, "", "me"))
+	must(t, f.st.ResidentStarted(ctx, "yardmaster", map[string]any{"agent": "yardmaster"}))
+	must(t, f.st.Mail(ctx, "yardmaster", "the gate is red", "builder"))
+	must(t, f.st.Mail(ctx, "yardmaster", "and still red", "builder"))
+	must(t, f.st.Journal(ctx, "yardmaster", store.NoteJournal, "dear diary", "yardmaster"))
+	must(t, f.st.SetResidentEnabled(ctx, "zed", false, "", "me"))
 
 	var got web.Residents
 	r = f.get("/residents", "Accept", "application/json")
@@ -588,16 +588,16 @@ func TestResidents(t *testing.T) {
 	}
 	got.Residents[0].Since, got.Residents[0].Up = nil, ""
 	want := web.Residents{Residents: []web.ResidentRow{
-		{Name: "mayor", State: "running", Running: true, Enabled: true, Agent: "herdr · claude · opus", Unread: 2},
-		{Name: "night", State: "stopped", Agent: "herdr · claude · opus"},
+		{Name: "yardmaster", State: "running", Running: true, Enabled: true, Agent: "herdr · claude · opus", Unread: 2},
+		{Name: "zed", State: "stopped", Agent: "herdr · claude · opus"},
 	}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("residents\n got %+v\nwant %+v", got, want)
 	}
 	text := squash(f.get("/residents").body)
 	for _, part := range []string{
-		`<h2>mayor</h2><span class="state"><span class="dot running"></span><span>running</span></span><span class="item-count">2 unread</span>`,
-		`<h2>night</h2><span class="state"><span>stopped</span> · disabled</span><span class="item-count"><span class="zero">0 unread</span></span>`,
+		`<h2>yardmaster</h2><span class="state"><span class="dot running"></span><span>running</span></span><span class="item-count">2 unread</span>`,
+		`<h2>zed</h2><span class="state"><span>stopped</span> · disabled</span><span class="item-count"><span class="zero">0 unread</span></span>`,
 		`<dt>agent</dt><dd>herdr · claude · opus</dd>`,
 		`<dt>running since</dt><dd><time datetime="`,
 		`<a href="/residents" aria-current="page">Residents</a>`,
@@ -616,11 +616,11 @@ func TestResidents(t *testing.T) {
 	}
 
 	// Reading the inbox takes the count down.
-	page, err := f.st.Inbox(ctx, "mayor", 0)
+	page, err := f.st.Inbox(ctx, "yardmaster", 0)
 	must(t, err)
-	must(t, f.st.AckInbox(ctx, "mayor", page.Last))
-	if text := squash(f.get("/residents").body); !strings.Contains(text, `<h2>mayor</h2>`) || strings.Contains(text, "2 unread") {
-		t.Error("the mayor read its inbox, and the page still counts 2 unread")
+	must(t, f.st.AckInbox(ctx, "yardmaster", page.Last))
+	if text := squash(f.get("/residents").body); !strings.Contains(text, `<h2>yardmaster</h2>`) || strings.Contains(text, "2 unread") {
+		t.Error("the yardmaster read its inbox, and the page still counts 2 unread")
 	}
 }
 

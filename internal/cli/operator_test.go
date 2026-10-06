@@ -35,10 +35,10 @@ func styledYard(t *testing.T, args ...string) (*app, store.API, string) {
 	return a, st, b.ID
 }
 
-// primes are what yardr prime prints for the bead and for the mayor.
+// primes are what yardr prime prints for the bead and for the yardmaster.
 func primes(t *testing.T, st store.API, id string, asJSON bool) (bead, resident string) {
 	t.Helper()
-	for i, args := range [][]string{{"--bead", id}, {"--resident", "mayor"}} {
+	for i, args := range [][]string{{"--bead", id}, {"--resident", "yardmaster"}} {
 		out, err := run(t, (&app{st: st, actor: "me", json: asJSON}).primeCmd(), args...)
 		if err != nil {
 			t.Fatalf("prime %v: %v\n%s", args, err, out)

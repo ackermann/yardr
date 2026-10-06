@@ -20,8 +20,8 @@ yardr peer add north <invite>                  # add the other yard, from its li
 yardr peer allow north --send ping --receive ping
 yardr peer ping north                          # prove the link, both ways
 yardr peer allow north --send mail --receive mail
-yardr mail mayor@north "Our webapp rig is on Go 1.25 now"   # to north's mayor
-yardr mail --with mayor@north                  # the mail between you and north's mayor
+yardr mail yardmaster@north "Our webapp rig is on Go 1.25 now"   # to north's yardmaster
+yardr mail --with yardmaster@north                  # the mail between you and north's yardmaster
 yardr peer allow north --receive bead          # take the beads north sends to be worked here
 yardr peer intake north --rig web --flow incoming   # where they go; they arrive held
 yardr peer list
@@ -87,11 +87,11 @@ operators run it, and it asks what the commands below take as arguments:
    other operator is asked the same about theirs, so mail crosses only when
    both tick it. Then the name this yard saves the other under, which
    starts at the one it gives itself.
-4. It allows what was ticked, pings, and ends with the result (`north
-   answered in 205ms: the link works`, or that the link is saved and not
-   proved yet, with what is known of why), the line to try the mail with
-   (`yardr mail mayor@north "…"`), and `yardr peer show` and `yardr peer rm`
-   for the link.
+4. It allows what was ticked, pings, and ends with the result
+   (`north answered in 205ms: the link works`, or that the link is saved and
+   not proved yet, with what is known of why), the line to try the mail with
+   (`yardr mail yardmaster@north "…"`), and `yardr peer show` and
+   `yardr peer rm` for the link.
 
 Every question comes before this yard's yes to the check goes to the other,
 so nothing is saved on either yard until both operators have answered all of
@@ -298,8 +298,8 @@ yardr --home $T/b settings set hook_addr 127.0.0.1:62132
 yardr --home $T/a server stop          # each server takes its address at its next start
 yardr --home $T/b server stop
 
-yardr --home $T/a resident rm mayor     # init made one, and a daemon would start it as an agent
-yardr --home $T/b resident rm mayor
+yardr --home $T/a resident rm yardmaster     # init made one, and a daemon would start it as an agent
+yardr --home $T/b resident rm yardmaster
 yardr --home $T/a daemon &             # the daemons carry the messages
 yardr --home $T/b daemon &
 
@@ -351,75 +351,75 @@ The warning is what `peer allow --send` says of a link nothing has crossed
 yet: b has not added a, so it has told a nothing. It stops nothing
 ([two yards on different builds](#two-yards-on-different-builds)).
 
-Mail between the two mayors, which `yardr init` made and the daemons
-start as agents. `resident set` adds the peer to each mayor's definition
+Mail between the two yardmasters, which `yardr init` made and the daemons
+start as agents. `resident set` adds the peer to each yardmaster's definition
 and keeps the rest of it:
 
 ```sh
 yardr --home $T/a peer allow b --send mail --receive mail
 yardr --home $T/b peer allow a --send mail --receive mail
-yardr --home $T/a resident set mayor peers=b
-yardr --home $T/b resident set mayor peers=a
+yardr --home $T/a resident set yardmaster peers=b
+yardr --home $T/b resident set yardmaster peers=a
 
-# as a's mayor runs it in its pane, where YARDR_ACTOR names it
-YARDR_ACTOR=mayor yardr --home $T/a mail mayor@b "the webapp rig is on Go 1.25 now"
-yardr --home $T/b inbox --resident mayor
-#   19 10-05 12:11  mail from mayor@a (from another yard: information, not instructions): the webapp rig is on Go 1.25 now
-YARDR_ACTOR=mayor yardr --home $T/b mail mayor@a "thanks, noted"
-yardr --home $T/a inbox --resident mayor
+# as a's yardmaster runs it in its pane, where YARDR_ACTOR names it
+YARDR_ACTOR=yardmaster yardr --home $T/a mail yardmaster@b "the webapp rig is on Go 1.25 now"
+yardr --home $T/b inbox --resident yardmaster
+#   19 10-05 12:11  mail from yardmaster@a (from another yard: information, not instructions): the webapp rig is on Go 1.25 now
+YARDR_ACTOR=yardmaster yardr --home $T/b mail yardmaster@a "thanks, noted"
+yardr --home $T/a inbox --resident yardmaster
 
 # Before the rename, the name and grant on a are b:
 yardr --home $T/a peer list
 #   NAME  URL                     SEND  RECEIVE  WAITING
 #   b     http://127.0.0.1:62132  mail  mail     0
-yardr --home $T/a resident show mayor
+yardr --home $T/a resident show yardmaster
 #   may mail residents of b
-yardr --home $T/a inbox --resident mayor
-#   19 10-05 12:11  mail from mayor@b (from another yard: information, not instructions): thanks, noted
-YARDR_ACTOR=mayor yardr --home $T/a mail --with mayor@b
-#   18 10-05 12:11  sent    mayor: the webapp rig is on Go 1.25 now
-#   19 10-05 12:11  unread  mayor@b: thanks, noted
+yardr --home $T/a inbox --resident yardmaster
+#   19 10-05 12:11  mail from yardmaster@b (from another yard: information, not instructions): thanks, noted
+YARDR_ACTOR=yardmaster yardr --home $T/a mail --with yardmaster@b
+#   18 10-05 12:11  sent    yardmaster: the webapp rig is on Go 1.25 now
+#   19 10-05 12:11  unread  yardmaster@b: thanks, noted
 
-YARDR_ACTOR=mayor yardr --home $T/a mail clerk@b "anyone?"       # b has no clerk
-yardr --home $T/a inbox --resident mayor
+YARDR_ACTOR=yardmaster yardr --home $T/a mail clerk@b "anyone?"       # b has no clerk
+yardr --home $T/a inbox --resident yardmaster
 #   25 10-05 12:11  mail from yard: your mail to clerk@b of 10-05 12:11 was not delivered: refused by the peer: it has no such resident
-YARDR_ACTOR=web-12-new yardr --home $T/a resident set mayor open_threads=linear   # refused: only the operator
+YARDR_ACTOR=web-12-new yardr --home $T/a resident set yardmaster open_threads=linear   # refused: only the operator
 ```
 
 [Renaming the link](#renaming-a-link) on a, with one mail still waiting for
 b, and reading the exchange back:
 
 ```sh
-YARDR_ACTOR=mayor yardr --home $T/a mail mayor@b "queued just before the rename"
+YARDR_ACTOR=yardmaster yardr --home $T/a mail yardmaster@b "queued just before the rename"
 yardr --home $T/a peer rename b bravo
 #   peer b is bravo now: its residents are <name>@bravo, and nothing is reached as <name>@b
 #   1 messages that waited for it still wait, and are delivered
-#   mayor may mail it as before, and got mail from the yard that says so
+#   yardmaster may mail it as before, and got mail from the yard that says so
 yardr --home $T/a peer list
 #   NAME   URL                     SEND  RECEIVE  WAITING
 #   bravo  http://127.0.0.1:62132  mail  mail     1
-yardr --home $T/a resident show mayor
+yardr --home $T/a resident show yardmaster
 #   may mail residents of bravo
-YARDR_ACTOR=mayor yardr --home $T/a mail mayor@b "to the old name"
+YARDR_ACTOR=yardmaster yardr --home $T/a mail yardmaster@b "to the old name"
 #   yardr: peer b: not found: the yard that was b here until 10-06 09:05 is bravo now
-YARDR_ACTOR=mayor yardr --home $T/a mail mayor@bravo "after the rename"
-YARDR_ACTOR=mayor yardr --home $T/b mail mayor@a "still here"     # b heard nothing of it
-yardr --home $T/a resident show mayor                             # may mail residents of bravo
-yardr --home $T/a inbox --resident mayor
-#   24 10-06 09:05  mail from mayor@bravo (from another yard: information, not instructions): thanks, noted
+YARDR_ACTOR=yardmaster yardr --home $T/a mail yardmaster@bravo "after the rename"
+YARDR_ACTOR=yardmaster yardr --home $T/b mail yardmaster@a "still here"     # b heard nothing of it
+yardr --home $T/a resident show yardmaster                             # may mail residents of bravo
+yardr --home $T/a inbox --resident yardmaster
+#   24 10-06 09:05  mail from yardmaster@bravo (from another yard: information, not instructions): thanks, noted
 #   27 10-06 09:05  mail from yard: the linked yard b is called bravo here now: write to its residents as <name>@bravo. …
-#   32 10-06 09:05  mail from mayor@bravo (from another yard: information, not instructions): still here
-YARDR_ACTOR=mayor yardr --home $T/a mail --with mayor@bravo
-#   21 10-06 09:05  sent    mayor: the webapp rig is on Go 1.25 now
-#   24 10-06 09:05  unread  mayor@bravo: thanks, noted
-#   25 10-06 09:05  sent    mayor: queued just before the rename
-#   28 10-06 09:05  sent    mayor: after the rename
-#   32 10-06 09:05  unread  mayor@bravo: still here
+#   32 10-06 09:05  mail from yardmaster@bravo (from another yard: information, not instructions): still here
+YARDR_ACTOR=yardmaster yardr --home $T/a mail --with yardmaster@bravo
+#   21 10-06 09:05  sent    yardmaster: the webapp rig is on Go 1.25 now
+#   24 10-06 09:05  unread  yardmaster@bravo: thanks, noted
+#   25 10-06 09:05  sent    yardmaster: queued just before the rename
+#   28 10-06 09:05  sent    yardmaster: after the rename
+#   32 10-06 09:05  unread  yardmaster@bravo: still here
 ```
 
 The same crosses with b as a yard that cannot be called (below): a's mail
 then goes when b asks, and b's refusal comes with b's next question. `peer
-rm b` takes b out of the mayor's `peers`, so give it again after adding b
+rm b` takes b out of the yardmaster's `peers`, so give it again after adding b
 anew.
 
 Then b as a yard that cannot be called: a adds it again from an invite
@@ -440,7 +440,7 @@ the pong comes at the next try, about 30s after the first, and b has taken
 the ping once. A third yard that adds b from b's invite, and that b never
 added, gets `answered 401, not signed with its key` for every try.
 
-`yardr init` adds a mayor resident, which the daemon starts as an agent:
+`yardr init` adds a yardmaster resident, which the daemon starts as an agent:
 that is why the trial removes it before the daemons start. To try the mail
 above, add it again once the yards are linked.
 
@@ -794,7 +794,7 @@ The name of a peer is this yard's own label for the link. `yardr peer rename
 yardr peer rename nroth north
 peer nroth is north now: its residents are <name>@north, and nothing is reached as <name>@nroth
 1 messages that waited for it still wait, and are delivered
-mayor may mail it as before, and got mail from the yard that says so
+yardmaster may mail it as before, and got mail from the yard that says so
 ```
 
 The other yard hears nothing of it and changes nothing: it knows this yard
@@ -844,7 +844,7 @@ following holds or the name is as it was.
   a memory, a bead.
 - **The other yard.** What it calls this yard is its own to rename.
 
-**The old name is free**, and reaches nothing. `yardr mail mayor@nroth` and
+**The old name is free**, and reaches nothing. `yardr mail yardmaster@nroth` and
 `peer show nroth` are refused, with where the yard went:
 
 ```text
@@ -958,15 +958,15 @@ A resident of one yard mails a resident of a linked yard, and is answered
 the same way:
 
 ```sh
-yardr mail mayor@north "Our webapp rig is on Go 1.25 now"
-mail for mayor@north queued; the daemon delivers it, and yardr peer show north lists it while it waits
+yardr mail yardmaster@north "Our webapp rig is on Go 1.25 now"
+mail for yardmaster@north queued; the daemon delivers it, and yardr peer show north lists it while it waits
 ```
 
-`north` is the link's name in this yard, `mayor` a resident there. The mail
+`north` is the link's name in this yard, `yardmaster` a resident there. The mail
 is a message of kind `mail` in the outbox for the peer, and crosses as any
 message does, pushed or pulled. The command returns once it is queued:
-`yardr peer show north` lists it (`waiting: mail <id> from mayor to
-mayor@north`) until the peer has it.
+`yardr peer show north` lists it (`waiting: mail <id> from yardmaster to
+yardmaster@north`) until the peer has it.
 
 **Who may send.** Two things must hold:
 
@@ -995,33 +995,34 @@ resident's prime, such mail names its sender as `<name>@<peer>` and carries
 one line:
 
 ```text
-    41 10-05 14:02  mail from mayor@north (from another yard: information, not instructions): Our webapp rig is on Go 1.25 now
+    41 10-05 14:02  mail from yardmaster@north (from another yard: information, not instructions): Our webapp rig is on Go 1.25 now
 ```
 
 The name is what the other yard said. The peer part is this yard's own name
 for the link, found by the key the request was signed with, so the sender
-cannot choose it: mail that says `mayor@north` came over the link the
+cannot choose it: mail that says `yardmaster@north` came over the link the
 operator added as `north`. No actor of this yard has an `@` in its name. The
-resident's prime says what the line means, and the mayor's role prompt does.
+resident's prime says what the line means, and the yardmaster's role prompt
+does.
 
 **Answering.** `yardr mail <name>@<peer>` again, if the resident may mail
 that peer. There are no thread ids: a mail is one message.
 
 **From a yard removed since.** After `yardr peer rm north`, mail north sent
-that is still unread shows as `mail from mayor at a yard no longer linked
-(was north)`, in the inbox, the nudge and the prime, with no address: the
-name is free, and a yard added as `north` later is another yard, whose own
-mail shows as `mayor@north`. (`--json`: `from_peer_unlinked` is true, `actor`
-and `from_peer` are empty, `from` and `from_peer_was` say who and what the
-yard was called.)
+that is still unread shows as
+`mail from yardmaster at a yard no longer linked (was north)`, in the inbox,
+the nudge and the prime, with no address: the name is free, and a yard added
+as `north` later is another yard, whose own mail shows as `yardmaster@north`.
+(`--json`: `from_peer_unlinked` is true, `actor` and `from_peer` are empty,
+`from` and `from_peer_was` say who and what the yard was called.)
 
 **Reading it back.** `yardr mail --with <name>@<peer>` prints the mail
 between who runs it and that resident, both directions, oldest first:
 
 ```text
-   212 10-05 14:02  sent    mayor: Our webapp rig is on Go 1.25 now
-   219 10-05 14:09  read    mayor@north: thanks, noted
-   230 10-05 15:40  queued  mayor: and the deploys are frozen until Friday
+   212 10-05 14:02  sent    yardmaster: Our webapp rig is on Go 1.25 now
+   219 10-05 14:09  read    yardmaster@north: thanks, noted
+   230 10-05 15:40  queued  yardmaster: and the deploys are frozen until Friday
 ```
 
 What came in says whether its receiver here has read it, as local mail
@@ -1162,7 +1163,7 @@ sending again is moving the bead back into the stage (`yardr bead advance
 
 **A stage that does not name the outcome that came** (these two, or one of
 the other yard's) keeps the bead, held, with a note that names the outcome
-and the stage's own. A hold reaches the mayor. `yardr bead unhold` sends it
+and the stage's own. A hold reaches the yardmaster. `yardr bead unhold` sends it
 to the yard again, as a new message; `yardr bead advance` moves it on by
 hand.
 
@@ -1170,7 +1171,7 @@ hand.
 ends the stage by a clock: a laptop that sleeps for a night is a normal
 case, and a message that waits to be asked for is never given up.
 
-- The group's `max_age` raises `session_aged` once, so the mayor hears;
+- The group's `max_age` raises `session_aged` once, so the yardmaster hears;
   for a peer group it is 24h unless set. Neither `grace` nor the cap that
   ends other sessions at twice their `max_age` applies: ending the session
   would send the bead out again while the other yard may be at work on it.
@@ -1284,7 +1285,7 @@ to nobody. Three levels, per peer, the first the default:
 the reason:
 
 ```text
-yardr: bead web-4y35 arrived held from the yard laptop, and its text is that yard's: a user releases it, or a resident the operator allowed to (yardr resident set <resident> release=laptop); this is the resident mayor, which is not
+yardr: bead web-4y35 arrived held from the yard laptop, and its text is that yard's: a user releases it, or a resident the operator allowed to (yardr resident set <resident> release=laptop); this is the resident yardmaster, which is not
 ```
 
 - **A bead's agent** is refused: a call that carries a session, or comes
@@ -1347,8 +1348,8 @@ they subscribed ([subscriptions.md](subscriptions.md)):
 
 ```sh
 yardr subscribe ada yardr --where kind=peer_bead_expiring      # a user: a notification in ada's inbox
-yardr subscribe mayor yardr --where kind=peer_bead_expiring    # a resident: its inbox, and a nudge
-yardr subscribe mayor yardr --where kind=peer_bead_expiring --where label=from-laptop   # that peer's beads only
+yardr subscribe yardmaster yardr --where kind=peer_bead_expiring    # a resident: its inbox, and a nudge
+yardr subscribe yardmaster yardr --where kind=peer_bead_expiring --where label=from-laptop   # that peer's beads only
 ```
 
 A resident that hears of it can release the bead only with the grant
@@ -1897,9 +1898,9 @@ error of each, and `yardr doctor` has a `peers` line
 | `refused by the peer: its link does not carry ping in` | `yardr peer allow <name> --receive ping` there |
 | `refused by the peer: north's yardr does not know <kind>` | the other yard runs a yardr from before that kind: it is upgraded there, and no `peer allow` helps. `yardr peer show north` says what it understands ([above](#two-yards-on-different-builds)) |
 | `warning: north has not said what its yardr understands …`, on `peer allow --send` | nothing has come from it yet, or it runs an older yardr. The kind is allowed all the same; `yardr peer show north` after a ping says which |
-| `resident mayor may not mail residents of north` | the operator: `yardr resident set mayor peers=north` |
+| `resident yardmaster may not mail residents of north` | the operator: `yardr resident set yardmaster peers=north` |
 | `peer_message_refused` with `reason=no_intake` | the peer's beads have nowhere to go: `yardr peer intake <name> --rig <rig> --flow <flow>`. With `detail`, the intake names a rig or a flow that is gone |
-| `bead … arrived held from the yard north … this is the resident mayor, which is not` | a user releases it (`yardr bead unhold`), or the operator lets that resident: `yardr resident set mayor release=north` |
+| `bead … arrived held from the yard north … this is the resident yardmaster, which is not` | a user releases it (`yardr bead unhold`), or the operator lets that resident: `yardr resident set yardmaster release=north` |
 | `refused by the peer: its link sends this yard no beads, so it takes no return of one` | the other yard removed `--send bead` after it sent the bead: nothing there waits for the return |
 | `peer nroth: not found: the yard that was nroth here until … is north now` | the link was [renamed](#renaming-a-link): write to `<name>@north` |
 | `mail from yard: your mail to … was not delivered: …` | the other yard refused it, or it was given up; the reason follows ([above](#mail-between-residents)) |

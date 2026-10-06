@@ -84,8 +84,8 @@ func TestStaleMovesRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, err = s.CloseBead(ctx, b.ID, "dropped", store.Expect{}, "mayor"); err != nil || got.Status != "closed" {
-		t.Fatalf("mayor's close = %+v, %v", got, err)
+	if got, err = s.CloseBead(ctx, b.ID, "dropped", store.Expect{}, "yardmaster"); err != nil || got.Status != "closed" {
+		t.Fatalf("yardmaster's close = %+v, %v", got, err)
 	}
 	if sess, _ := s.GetSession(ctx, third.ID); sess.EndedAt == nil {
 		t.Fatal("close did not end the owning session")
@@ -226,7 +226,7 @@ func TestPaneIsFoundUpTheProcessTree(t *testing.T) {
 
 // The session check is for the bead the session was started for: another
 // bead moved from the same pane (a reviewer advancing a follow-up it filed,
-// the mayor from its own pane) is checked as the actor's, like a person at
+// the yardmaster from its own pane) is checked as the actor's, like a person at
 // a shell, except that one owned by a live session is refused rather than
 // taken from under its agent.
 func TestSessionCheckIsForTheSessionsOwnBead(t *testing.T) {

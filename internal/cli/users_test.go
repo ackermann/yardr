@@ -13,7 +13,7 @@ import (
 )
 
 // userYard is a yard as yardr init leaves it, with operator jo and the
-// mayor, and nothing of the test's own session in the environment.
+// yardmaster, and nothing of the test's own session in the environment.
 func userYard(t *testing.T) store.API {
 	t.Helper()
 	newHome(t)
@@ -74,7 +74,7 @@ func TestUserCommands(t *testing.T) {
 
 	// A resident's session, another user and a bead's agent: none of them
 	// says who is a party of the yard.
-	for _, who := range []string{"mayor", "ada", "yard-10-new"} {
+	for _, who := range []string{"yardmaster", "ada", "yard-10-new"} {
 		refusedAs(t, st, who, "only the operator (jo) adds users; this is "+who, "user", "add", "grace")
 		refusedAs(t, st, who, "only the operator (jo) removes users; this is "+who, "user", "rm", "ada")
 	}
@@ -84,14 +84,14 @@ func TestUserCommands(t *testing.T) {
 	refusedAs(t, st, "jo", "is the yard's operator and is not removed", "user", "rm", "jo")
 
 	// One name, one party, both ways.
-	refusedAs(t, st, "jo", "that is a resident's name", "user", "add", "mayor")
+	refusedAs(t, st, "jo", "that is a resident's name", "user", "add", "yardmaster")
 	refusedAs(t, st, "jo", "resident ada: that is a user's name", "resident", "add", "ada", "--dir", t.TempDir(), "--set", "kind=claude")
-	refusedAs(t, st, "jo", "that is a resident's name", "settings", "set", "operator", "mayor")
+	refusedAs(t, st, "jo", "that is a resident's name", "settings", "set", "operator", "yardmaster")
 
-	if err := st.Mail(ctx, "ada", "hello", "mayor"); err != nil {
+	if err := st.Mail(ctx, "ada", "hello", "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
-	if out := mustAs(t, st, "jo", "user", "show", "ada"); !strings.Contains(out, "inbox: 1 unread from mayor") || strings.Contains(out, "operator") {
+	if out := mustAs(t, st, "jo", "user", "show", "ada"); !strings.Contains(out, "inbox: 1 unread from yardmaster") || strings.Contains(out, "operator") {
 		t.Fatalf("show ada:\n%s", out)
 	}
 	if out := mustAs(t, st, "jo", "user", "show", "jo"); !strings.Contains(out, "the yard's operator") || !strings.Contains(out, "inbox: nothing unread") {
@@ -119,15 +119,15 @@ func TestMailAUser(t *testing.T) {
 	st := userYard(t)
 	mustAs(t, st, "jo", "user", "add", "ada")
 
-	mustAs(t, st, "jo", "mail", "mayor", "deploys are frozen")
-	t.Setenv("YARDR_RESIDENT", "mayor")
-	if out := mustAs(t, st, "mayor", "mail", "jo", "noted, until when?"); out != "mail sent to jo\n" {
+	mustAs(t, st, "jo", "mail", "yardmaster", "deploys are frozen")
+	t.Setenv("YARDR_RESIDENT", "yardmaster")
+	if out := mustAs(t, st, "yardmaster", "mail", "jo", "noted, until when?"); out != "mail sent to jo\n" {
 		t.Fatalf("mail to a user: %q", out)
 	}
-	mustAs(t, st, "mayor", "mail", "ada", "welcome")
-	// In the mayor's session yardr inbox is the mayor's, as before.
-	if out := mustAs(t, st, "mayor", "inbox"); !strings.Contains(out, "mail from jo: deploys are frozen") || strings.Contains(out, "welcome") {
-		t.Fatalf("the mayor's inbox:\n%s", out)
+	mustAs(t, st, "yardmaster", "mail", "ada", "welcome")
+	// In the yardmaster's session yardr inbox is the yardmaster's, as before.
+	if out := mustAs(t, st, "yardmaster", "inbox"); !strings.Contains(out, "mail from jo: deploys are frozen") || strings.Contains(out, "welcome") {
+		t.Fatalf("the yardmaster's inbox:\n%s", out)
 	}
 	t.Setenv("YARDR_RESIDENT", "")
 	mustAs(t, st, "ada", "mail", "jo", "from one user to another")
@@ -139,24 +139,24 @@ func TestMailAUser(t *testing.T) {
 	for _, want := range []string{"an agent working a bead does not mail a user", "yardr bead note yard-10", "yardr bead done yard-10 --outcome question"} {
 		refusedAs(t, st, "yard-10-new", want, "mail", "jo", "may I?")
 	}
-	mustAs(t, st, "yard-10-new", "mail", "mayor", "yard-10: the gate is red on main")
+	mustAs(t, st, "yard-10-new", "mail", "yardmaster", "yard-10: the gate is red on main")
 	t.Setenv("YARDR_BEAD", "")
 	t.Setenv("YARDR_SESSION", "")
 	refusedAs(t, st, "jo", "not found", "mail", "nobody", "hi")
 
 	// Each user's inbox holds their own mail only.
 	jo := mustAs(t, st, "jo", "inbox")
-	if !strings.Contains(jo, "mail from mayor: noted, until when?") || !strings.Contains(jo, "mail from ada: from one user to another") ||
+	if !strings.Contains(jo, "mail from yardmaster: noted, until when?") || !strings.Contains(jo, "mail from ada: from one user to another") ||
 		strings.Contains(jo, "welcome") || strings.Contains(jo, "may I?") || strings.Contains(jo, "(read)") {
 		t.Fatalf("jo's inbox:\n%s", jo)
 	}
-	if ada := mustAs(t, st, "ada", "inbox"); !strings.Contains(ada, "mail from mayor: welcome") || strings.Contains(ada, "noted") {
+	if ada := mustAs(t, st, "ada", "inbox"); !strings.Contains(ada, "mail from yardmaster: welcome") || strings.Contains(ada, "noted") {
 		t.Fatalf("ada's inbox:\n%s", ada)
 	}
 	refusedAs(t, st, "pat", "pat is no user", "inbox")
 	// Named with --resident it is that resident's, whoever asks.
-	if out := mustAs(t, st, "jo", "inbox", "--resident", "mayor"); !strings.Contains(out, "mail from jo: deploys are frozen") {
-		t.Fatalf("inbox --resident mayor:\n%s", out)
+	if out := mustAs(t, st, "jo", "inbox", "--resident", "yardmaster"); !strings.Contains(out, "mail from jo: deploys are frozen") {
+		t.Fatalf("inbox --resident yardmaster:\n%s", out)
 	}
 
 	// --ack marks what is shown: the first of two, then the rest.
@@ -166,7 +166,7 @@ func TestMailAUser(t *testing.T) {
 	}
 	// Unread first, then what was read.
 	out := mustAs(t, st, "jo", "inbox")
-	unread, read := strings.Index(out, "mail from ada: from one user"), strings.Index(out, "mail from mayor (read): noted")
+	unread, read := strings.Index(out, "mail from ada: from one user"), strings.Index(out, "mail from yardmaster (read): noted")
 	if unread < 0 || read < unread {
 		t.Fatalf("unread is not first:\n%s", out)
 	}
@@ -187,32 +187,32 @@ func TestMailAUser(t *testing.T) {
 // with the read state; --json and --after are what a view reads it with.
 func TestMailWith(t *testing.T) {
 	st := userYard(t)
-	for _, m := range [][3]string{{"jo", "mayor", "deploys are frozen"}, {"mayor", "jo", "until when?"}, {"jo", "mayor", "friday"}} {
+	for _, m := range [][3]string{{"jo", "yardmaster", "deploys are frozen"}, {"yardmaster", "jo", "until when?"}, {"jo", "yardmaster", "friday"}} {
 		mustAs(t, st, m[0], "mail", m[1], m[2])
 	}
-	// The mayor acknowledges the first mail, jo theirs.
-	t.Setenv("YARDR_RESIDENT", "mayor")
-	mustAs(t, st, "mayor", "inbox", "-n", "1", "--ack")
+	// The yardmaster acknowledges the first mail, jo theirs.
+	t.Setenv("YARDR_RESIDENT", "yardmaster")
+	mustAs(t, st, "yardmaster", "inbox", "-n", "1", "--ack")
 	t.Setenv("YARDR_RESIDENT", "")
 	mustAs(t, st, "jo", "inbox", "--ack")
 
-	out := mustAs(t, st, "jo", "mail", "--with", "mayor")
+	out := mustAs(t, st, "jo", "mail", "--with", "yardmaster")
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	if len(lines) != 3 {
-		t.Fatalf("mail --with mayor:\n%s", out)
+		t.Fatalf("mail --with yardmaster:\n%s", out)
 	}
-	for i, want := range []string{"read    jo: deploys are frozen", "read    mayor: until when?", "unread  jo: friday"} {
+	for i, want := range []string{"read    jo: deploys are frozen", "read    yardmaster: until when?", "unread  jo: friday"} {
 		if !strings.HasSuffix(lines[i], want) {
 			t.Errorf("line %d = %q, want it to end in %q", i, lines[i], want)
 		}
 	}
-	// The mayor's session asks with the user's name and reads the same.
-	if theirs := mustAs(t, st, "mayor", "mail", "--with", "jo"); theirs != out {
-		t.Fatalf("from the mayor's side:\n%s\nfrom jo's:\n%s", theirs, out)
+	// The yardmaster's session asks with the user's name and reads the same.
+	if theirs := mustAs(t, st, "yardmaster", "mail", "--with", "jo"); theirs != out {
+		t.Fatalf("from the yardmaster's side:\n%s\nfrom jo's:\n%s", theirs, out)
 	}
 
 	var raw []map[string]any
-	if err := json.Unmarshal([]byte(mustAs(t, st, "jo", "mail", "--with", "mayor", "--json")), &raw); err != nil || len(raw) != 3 {
+	if err := json.Unmarshal([]byte(mustAs(t, st, "jo", "mail", "--with", "yardmaster", "--json")), &raw); err != nil || len(raw) != 3 {
 		t.Fatalf("--json: %v, %v", raw, err)
 	}
 	for _, k := range []string{"seq", "at", "from", "to", "text", "read"} {
@@ -220,19 +220,19 @@ func TestMailWith(t *testing.T) {
 			t.Errorf("--json lacks %q: %v", k, raw[1])
 		}
 	}
-	if len(raw[1]) != 6 || raw[1]["from"] != "mayor" || raw[1]["to"] != "jo" || raw[1]["read"] != true || raw[2]["read"] != false {
+	if len(raw[1]) != 6 || raw[1]["from"] != "yardmaster" || raw[1]["to"] != "jo" || raw[1]["read"] != true || raw[2]["read"] != false {
 		t.Fatalf("--json = %v", raw)
 	}
 	seq := fmt.Sprint(uint64(raw[1]["seq"].(float64)))
-	after := mustAs(t, st, "jo", "mail", "--with", "mayor", "--after", seq)
+	after := mustAs(t, st, "jo", "mail", "--with", "yardmaster", "--after", seq)
 	if !strings.Contains(after, "jo: friday") || strings.Contains(after, "until when?") {
 		t.Fatalf("--after %v:\n%s", seq, after)
 	}
 	var none []store.Letter
-	if err := json.Unmarshal([]byte(mustAs(t, st, "jo", "mail", "--with", "mayor", "--after", "99999", "--json")), &none); err != nil || none == nil || len(none) != 0 {
+	if err := json.Unmarshal([]byte(mustAs(t, st, "jo", "mail", "--with", "yardmaster", "--after", "99999", "--json")), &none); err != nil || none == nil || len(none) != 0 {
 		t.Fatalf("--after the last, --json = %v, %v", none, err)
 	}
-	if out := mustAs(t, st, "jo", "mail", "--with", "mayor", "--after", "99999"); !strings.Contains(out, "no mail between jo and mayor after 99999") {
+	if out := mustAs(t, st, "jo", "mail", "--with", "yardmaster", "--after", "99999"); !strings.Contains(out, "no mail between jo and yardmaster after 99999") {
 		t.Fatalf("nothing newer: %q", out)
 	}
 
@@ -241,13 +241,13 @@ func TestMailWith(t *testing.T) {
 	}
 	// A resident of another yard is read back by its link (peerrename_test.go),
 	// and a yard this one is not linked with has none.
-	if _, err := as(t, st, "jo", "mail", "--with", "mayor@north"); exitCode(err) != 3 || !strings.Contains(err.Error(), "--with mayor@north: peer north: not found") {
+	if _, err := as(t, st, "jo", "mail", "--with", "yardmaster@north"); exitCode(err) != 3 || !strings.Contains(err.Error(), "--with yardmaster@north: peer north: not found") {
 		t.Fatalf("--with a resident of no peer: %v", err)
 	}
-	if _, err := as(t, st, "jo", "mail", "--with", "mayor", "and", "text"); err == nil {
+	if _, err := as(t, st, "jo", "mail", "--with", "yardmaster", "and", "text"); err == nil {
 		t.Fatal("--with took a text to send")
 	}
-	if _, err := as(t, st, "jo", "mail", "mayor"); err == nil {
+	if _, err := as(t, st, "jo", "mail", "yardmaster"); err == nil {
 		t.Fatal("mail without a text and without --with was taken")
 	}
 }
@@ -272,19 +272,19 @@ func TestUnreadMailIsSaid(t *testing.T) {
 		return out, rep
 	}
 	out, rep := doctor("jo")
-	wantText(t, out, "ok     mail       nothing unread for jo")
+	wantText(t, out, "ok     mail        nothing unread for jo")
 	if rep.State.Mail == nil || rep.State.Mail.User != "jo" || rep.State.Mail.Unread != 0 {
 		t.Fatalf("mail = %+v", rep.State.Mail)
 	}
-	for _, m := range [][2]string{{"mayor", "one"}, {"ada", "two"}, {"mayor", "three"}} {
+	for _, m := range [][2]string{{"yardmaster", "one"}, {"ada", "two"}, {"yardmaster", "three"}} {
 		if err := st.Mail(ctx, "jo", m[1], m[0]); err != nil {
 			t.Fatal(err)
 		}
 	}
 	before, _ := st.Head(ctx)
 	out, rep = doctor("jo")
-	wantText(t, out, "note   mail       3 unread from mayor, ada for jo: ", " inbox reads them, --ack marks them read")
-	if m := rep.State.Mail; m == nil || m.Unread != 3 || strings.Join(m.From, ",") != "mayor,ada" {
+	wantText(t, out, "note   mail        3 unread from yardmaster, ada for jo: ", " inbox reads them, --ack marks them read")
+	if m := rep.State.Mail; m == nil || m.Unread != 3 || strings.Join(m.From, ",") != "yardmaster,ada" {
 		t.Fatalf("mail = %+v", rep.State.Mail)
 	}
 	// Unread mail is no fault.
@@ -297,15 +297,15 @@ func TestUnreadMailIsSaid(t *testing.T) {
 	if out, rep = doctor("ada"); !strings.Contains(out, "nothing unread for ada") || rep.State.Mail.User != "ada" {
 		t.Fatalf("ada's doctor:\n%s", out)
 	}
-	if out, rep = doctor("mayor"); strings.Contains(out, "  mail  ") || rep.State.Mail != nil {
-		t.Fatalf("the mayor's doctor speaks of a user's mail:\n%s", out)
+	if out, rep = doctor("yardmaster"); strings.Contains(out, "  mail  ") || rep.State.Mail != nil {
+		t.Fatalf("the yardmaster's doctor speaks of a user's mail:\n%s", out)
 	}
 
 	bare := mustAs(t, st, "jo")
-	if !strings.Contains(bare, "Usage:") || !strings.HasSuffix(bare, "\nMail for jo: 3 unread from mayor, ada (yardr inbox).\n") {
+	if !strings.Contains(bare, "Usage:") || !strings.HasSuffix(bare, "\nMail for jo: 3 unread from yardmaster, ada (yardr inbox).\n") {
 		t.Fatalf("bare yardr:\n%s", bare)
 	}
-	for _, who := range []string{"ada", "mayor", "pat"} {
+	for _, who := range []string{"ada", "yardmaster", "pat"} {
 		if out := mustAs(t, st, who); strings.Contains(out, "unread") {
 			t.Fatalf("bare yardr as %s:\n%s", who, out)
 		}
@@ -348,10 +348,10 @@ func TestDoctorNotesNames(t *testing.T) {
 		t.Fatalf("a fresh yard has a note on names: %v\n%s", err, out)
 	}
 	// Members are taken as they are named.
-	mustAs(t, st, "jo", "group", "add", "humans", "--runner", "manual", "--members", "jo,mayor,pat,sam")
+	mustAs(t, st, "jo", "group", "add", "humans", "--runner", "manual", "--members", "jo,yardmaster,pat,sam")
 	mustAs(t, st, "jo", "group", "add", "mergers", "--runner", "manual", "--members", "jo")
 	out, _ = as(t, st, "jo", "doctor")
-	wantText(t, out, "note   names      group humans: pat, sam are neither a user nor a resident, so nobody of that name can be mailed (",
+	wantText(t, out, "note   names       group humans: pat, sam are neither a user nor a resident, so nobody of that name can be mailed (",
 		" user add <name>)")
 	if strings.Contains(out, "group mergers") {
 		t.Fatalf("a group of users is noted:\n%s", out)
@@ -371,7 +371,7 @@ func TestDoctorNotesNames(t *testing.T) {
 		t.Fatalf("after adding pat:\n%s", out)
 	}
 
-	out, _ = as(t, operatorNamed{st, "mayor"}, "jo", "doctor")
-	wantText(t, out, "note   names      resident mayor has the operator's name, so the operator has no user and no inbox: mail to mayor is the resident's. Rename one of the two: ",
+	out, _ = as(t, operatorNamed{st, "yardmaster"}, "jo", "doctor")
+	wantText(t, out, "note   names       resident yardmaster has the operator's name, so the operator has no user and no inbox: mail to yardmaster is the resident's. Rename one of the two: ",
 		" settings set operator <name>")
 }

@@ -41,7 +41,7 @@ func newGHRig(t *testing.T, members ...string) *ghRig {
 	must(t, err)
 	must(t, api.SetFlowPointer(ctx, "yard", store.TypeEpic, "yard.epic", "me"))
 	if members == nil {
-		members = []string{"mckean", "mayor", "yard"}
+		members = []string{"mckean", "yardmaster", "yard"}
 	}
 	must(t, api.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Limit: 50, Members: members}))
 	rig, epic := "yard", store.TypeEpic
@@ -250,7 +250,7 @@ func TestGitHubCIRedNeedsThePRHead(t *testing.T) {
 // The yard must be allowed out of in-pr: with members that leave it out,
 // the refusal is logged and the epic stays for a human.
 func TestGitHubRuleRefusedByMembers(t *testing.T) {
-	r := newGHRig(t, "mckean", "mayor")
+	r := newGHRig(t, "mckean", "yardmaster")
 	r.epic(t, "yard-a", "in-pr")
 	r.reviewed(t, "yard-a", fixtureSHA)
 	r.ci = checks([]string{"build"}, ck("build", "completed", "success"))
@@ -456,7 +456,7 @@ func TestGitHubChangesRequested(t *testing.T) {
 	}
 	body, err := os.ReadFile("../hooks/testdata/github/pull_request_review_changes_requested.json")
 	must(t, err)
-	bot := strings.ReplaceAll(strings.ReplaceAll(string(body), "yard-sv6b", "yard-c"), `"login": "mayor"`, `"login": "ci-helper[bot]"`)
+	bot := strings.ReplaceAll(strings.ReplaceAll(string(body), "yard-sv6b", "yard-c"), `"login": "yardmaster"`, `"login": "ci-helper[bot]"`)
 	h := http.Header{}
 	h.Set("X-GitHub-Event", "pull_request_review")
 	env, err := hooks.GitHub{}.Normalize(h, []byte(bot))
@@ -468,7 +468,7 @@ func TestGitHubChangesRequested(t *testing.T) {
 	if st := r.stageOf(t, "yard-a"); st != "open" {
 		t.Fatalf("yard-a in %s, want open", st)
 	}
-	if n := r.lastNote(t, "yard-a"); !strings.Contains(n, "Changes requested on the PR by mayor") ||
+	if n := r.lastNote(t, "yard-a"); !strings.Contains(n, "Changes requested on the PR by yardmaster") ||
 		!strings.Contains(n, "the gate is red, see the race") {
 		t.Fatalf("note %q", n)
 	}

@@ -54,13 +54,13 @@ only reporting it. `<base>` below is the rig's base (`yardr rig list`).
    it and carry on, never fix it on your branch. `yardr bead create "<title>"
    --rig <rig> --stage backlog -b - --discovered-from <your bead>`, with what
    you saw, where, and how to reproduce. The new bead names the bead it was
-   found from. The mayor shapes it from backlog.
+   found from. The yardmaster shapes it from backlog.
 2. It blocks you but is no question about the bead (the gate is red on the
-   base, a tool is missing, the base moved under you): file it as above,
-   then mail the mayor: `yardr mail {{mayor}} "<bead id>: <one line>"`. If
-   you cannot finish without it, `yardr bead note <id> "blocked by <bead
-   id>" && yardr bead hold <id>`; the mayor orders the two with
-   `yardr dep add`.
+   base, a tool is missing, the base moved under you): file it as above, then
+   mail the yardmaster: `yardr mail {{yardmaster}} "<bead id>: <one line>"`.
+   If you cannot finish without it,
+   `yardr bead note <id> "blocked by <bead id>" && yardr bead hold <id>`; the
+   yardmaster orders the two with `yardr dep add`.
 3. It is a question about the bead itself (an unclear goal, a design
    choice): that is for the stage's outcomes, not for a new bead. Your brief
    says which outcome takes a question.
@@ -111,7 +111,7 @@ Each child was reviewed when it landed on the epic branch; your job is the sum.
 3. Fix forward as for any bead, in commits starting `review:`, and run the
    gate after your changes.
 4. Note and advance as usual. `--outcome changes` sends the epic back to
-   open; the fix is then a new child the mayor files, so make the finding
+   open; the fix is then a new child the yardmaster files, so make the finding
    concrete enough to be a bead.
 
 When the brief has a "Pull request" section, the review happens on that PR:

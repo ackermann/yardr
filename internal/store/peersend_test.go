@@ -124,7 +124,7 @@ func TestPeerBeadSend(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, text := range []string{"first", "second"} {
-		if err := y.api.AddNote(y.ctx, b.ID, text, "mayor"); err != nil {
+		if err := y.api.AddNote(y.ctx, b.ID, text, "yardmaster"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -139,7 +139,7 @@ func TestPeerBeadSend(t *testing.T) {
 	}
 	if m.V != 1 || m.Yardr != "v0.9.2" || m.Bead != b.ID || m.Stage != "build" || m.Title != "Add the export" || m.Body != "As a CSV." || m.Type != "feature" ||
 		m.Priority != 1 || !slices.Equal(m.Outcomes, []string{"done", "refused", "undelivered"}) || !slices.Equal(m.Path, []string{own}) ||
-		len(m.Notes) != 2 || m.Notes[0].Text != "first" || m.Notes[0].Author != "mayor" || m.Notes[1].Text != "second" || m.NotesLeftOut != 0 ||
+		len(m.Notes) != 2 || m.Notes[0].Text != "first" || m.Notes[0].Author != "yardmaster" || m.Notes[1].Text != "second" || m.NotesLeftOut != 0 ||
 		len(m.Links) != 1 || m.Links[0].URL != "https://linear.app/x/issue/YRD-1" || m.Links[0].Kind != "tracks" {
 		t.Fatalf("the bead message = %+v", m)
 	}
@@ -210,7 +210,7 @@ func TestPeerBeadTooLargeToSend(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 10; i++ {
-		if err := y.api.AddNote(y.ctx, b.ID, fmt.Sprintf("%d %s", i, strings.Repeat("n", store.MaxPeerNoteBytes)), "mayor"); err != nil {
+		if err := y.api.AddNote(y.ctx, b.ID, fmt.Sprintf("%d %s", i, strings.Repeat("n", store.MaxPeerNoteBytes)), "yardmaster"); err != nil {
 			t.Fatal(err)
 		}
 	}

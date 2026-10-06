@@ -129,12 +129,12 @@ func main() {
 			// As Claude Code echoes a message it took, above its input: that
 			// is where yardr looks for a first prompt that arrived.
 			fmt.Printf("❯ %s\n", line)
-			// A mayor's first prompt asks it to greet its operator by mail
+			// A yardmaster's first prompt asks it to greet its operator by mail
 			// (runner.Greets): the stand-in does, so a chat opened on it
 			// gets a first message.
 			if m := greet.FindStringSubmatch(line); m != nil && !greeted {
 				greeted = true
-				out, err := exec.Command(m[1], "mail", m[2], "Hello, this is the stand-in mayor: logged in and ready.").CombinedOutput()
+				out, err := exec.Command(m[1], "mail", m[2], "Hello, this is the stand-in yardmaster: logged in and ready.").CombinedOutput()
 				logf("greeted %s: %v %s", m[2], err, strings.TrimSpace(string(out)))
 				fmt.Printf("⏺ Greeted %s by mail.\n", m[2])
 			}

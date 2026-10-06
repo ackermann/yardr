@@ -140,7 +140,7 @@ func TestResidentSetKeepsTheRest(t *testing.T) {
 // everything else is anyone's.
 func TestResidentSetIsTheOperatorsForPermissions(t *testing.T) {
 	st, was := clerkYard(t)
-	for _, actor := range []string{"mayor", "clerk", "yard-10-new"} {
+	for _, actor := range []string{"yardmaster", "clerk", "yard-10-new"} {
 		refusedAs(t, st, actor, "set_state: only the operator (jo) may let clerk set the status of threads in linear; this is "+actor,
 			"resident", "set", "clerk", "set_state=linear")
 		refusedAs(t, st, actor, "open_threads: only the operator (jo) may let clerk open threads in github; this is "+actor,
@@ -162,14 +162,14 @@ func TestResidentSetIsTheOperatorsForPermissions(t *testing.T) {
 	mustAs(t, st, "jo", "resident", "set", "clerk", "set_state=linear,github")
 	// Keeping a grant while changing something else, narrowing it and
 	// removing it are anyone's: the rule is about what is added.
-	mustAs(t, st, "mayor", "resident", "set", "clerk", "model=sonnet")
-	mustAs(t, st, "mayor", "resident", "set", "clerk", "set_state=github,linear")
+	mustAs(t, st, "yardmaster", "resident", "set", "clerk", "model=sonnet")
+	mustAs(t, st, "yardmaster", "resident", "set", "clerk", "set_state=github,linear")
 	mustAs(t, st, "yard-10-new", "resident", "set", "clerk", "set_state=linear")
 	if r := resident(t, st, "clerk"); !reflect.DeepEqual(r.MaySetState(), []string{"linear"}) || r.Config["model"] != "sonnet" {
 		t.Fatalf("after narrowing: %+v", r)
 	}
-	refusedAs(t, st, "mayor", "may let clerk set the status of threads in github; this is mayor", "resident", "set", "clerk", "set_state=linear,github")
-	mustAs(t, st, "mayor", "resident", "set", "clerk", "--unset", "set_state")
+	refusedAs(t, st, "yardmaster", "may let clerk set the status of threads in github; this is yardmaster", "resident", "set", "clerk", "set_state=linear,github")
+	mustAs(t, st, "yardmaster", "resident", "set", "clerk", "--unset", "set_state")
 	if r := resident(t, st, "clerk"); len(r.MaySetState()) != 0 {
 		t.Fatalf("after --unset: %+v", r)
 	}

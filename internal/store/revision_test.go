@@ -141,7 +141,7 @@ func TestClaimRespectsGroupLimit(t *testing.T) {
 // checked, but moves the revision.
 func TestResidentRevision(t *testing.T) {
 	s, ctx := flowRig(t)
-	r, err := s.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr"}, "me")
+	r, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,22 +149,22 @@ func TestResidentRevision(t *testing.T) {
 		t.Fatal("a new resident has no revision")
 	}
 	read := r.Revision
-	if err := s.MarkNotified(ctx, "mayor", 7); err != nil {
+	if err := s.MarkNotified(ctx, "yardmaster", 7); err != nil {
 		t.Fatal(err)
 	}
-	now, _ := s.GetResident(ctx, "mayor")
+	now, _ := s.GetResident(ctx, "yardmaster")
 	if now.Revision == read {
 		t.Fatal("a write kept the resident's revision")
 	}
 
 	stale := map[string]func() error{
 		"put": func() error {
-			_, err := s.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr", MaxAge: "1h", Revision: read}, "me")
+			_, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr", MaxAge: "1h", Revision: read}, "me")
 			return err
 		},
-		"enable":  func() error { return s.SetResidentEnabled(ctx, "mayor", false, read, "me") },
-		"restart": func() error { return s.RequestRestart(ctx, "mayor", "why", read, "me") },
-		"delete":  func() error { return s.DeleteResident(ctx, "mayor", read, "me") },
+		"enable":  func() error { return s.SetResidentEnabled(ctx, "yardmaster", false, read, "me") },
+		"restart": func() error { return s.RequestRestart(ctx, "yardmaster", "why", read, "me") },
+		"delete":  func() error { return s.DeleteResident(ctx, "yardmaster", read, "me") },
 		// Expecting a revision of a resident that does not exist yet.
 		"put new": func() error {
 			_, err := s.PutResident(ctx, store.Resident{Name: "clerk", Runner: "herdr", Revision: read}, "me")
@@ -176,18 +176,18 @@ func TestResidentRevision(t *testing.T) {
 			t.Errorf("%s at a stale revision: %v, want a conflict", name, err)
 		}
 	}
-	if got, _ := s.GetResident(ctx, "mayor"); got.Revision != now.Revision || !got.Enabled || got.MaxAge != "" || got.RestartRequested != "" {
+	if got, _ := s.GetResident(ctx, "yardmaster"); got.Revision != now.Revision || !got.Enabled || got.MaxAge != "" || got.RestartRequested != "" {
 		t.Fatalf("a refused write changed the resident: %+v", got)
 	}
 	if _, err := s.GetResident(ctx, "clerk"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("a refused put created a resident: %v", err)
 	}
 
-	if err := s.SetResidentEnabled(ctx, "mayor", false, now.Revision, "me"); err != nil {
+	if err := s.SetResidentEnabled(ctx, "yardmaster", false, now.Revision, "me"); err != nil {
 		t.Fatalf("disable at the current revision: %v", err)
 	}
-	got, _ := s.GetResident(ctx, "mayor")
-	if _, err := s.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr", MaxAge: "1h", Revision: got.Revision}, "me"); err != nil {
+	got, _ := s.GetResident(ctx, "yardmaster")
+	if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr", MaxAge: "1h", Revision: got.Revision}, "me"); err != nil {
 		t.Fatalf("put at the current revision: %v", err)
 	}
 }

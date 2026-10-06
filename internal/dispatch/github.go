@@ -23,7 +23,7 @@ import (
 //	ci_red             a run or suite on the PR head failed or timed out, epic in review: a fix child
 //	pr_merged          the PR was merged: land (or in-pr, approved) to merged
 //	pr_closed          the PR was closed unmerged: in-pr or review to decide
-//	changes_requested  a human asked for changes: to open, for the mayor to file the fix
+//	changes_requested  a human asked for changes: to open, for the yardmaster to file the fix
 //
 // No rule takes CI's result from an event for an epic in in-pr: there a
 // run or suite, whatever its conclusion, and any event about the pull

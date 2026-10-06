@@ -1,5 +1,5 @@
-New beads wait here, where `yardr bead create` puts them, until the mayor has
-shaped them. No agent works this stage.
+New beads wait here, where `yardr bead create` puts them, until the yardmaster
+has shaped them. No agent works this stage.
 
 A bead leaves for `new` when it is specified well enough for a builder to
 finish it without asking: a clear goal, where to look, what done means, how

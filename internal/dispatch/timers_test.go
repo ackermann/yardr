@@ -24,10 +24,10 @@ func TestPassFiresTimers(t *testing.T) {
 	must(t, d.Reconcile(ctx))
 	agent := agentOf(t, s)
 
-	if _, err := s.AddTimer(ctx, store.NewTimer{To: "jo", Reason: "web-1 is stuck", Due: now.Add(10 * time.Minute)}, "mayor"); err != nil {
+	if _, err := s.AddTimer(ctx, store.NewTimer{To: "jo", Reason: "web-1 is stuck", Due: now.Add(10 * time.Minute)}, "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AddTimer(ctx, store.NewTimer{Reason: "look at the deploy", Due: now.Add(20 * time.Minute)}, "mayor"); err != nil {
+	if _, err := s.AddTimer(ctx, store.NewTimer{Reason: "look at the deploy", Due: now.Add(20 * time.Minute)}, "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
 	must(t, d.Reconcile(ctx))
@@ -40,7 +40,7 @@ func TestPassFiresTimers(t *testing.T) {
 	now = now.Add(10 * time.Minute)
 	must(t, d.Reconcile(ctx))
 	box, err := s.UserInbox(ctx, "jo", 0)
-	if err != nil || box.Unread != 1 || box.Mail[0].From != "mayor" || !strings.HasPrefix(box.Mail[0].Text, "timer: web-1 is stuck") {
+	if err != nil || box.Unread != 1 || box.Mail[0].From != "yardmaster" || !strings.HasPrefix(box.Mail[0].Text, "timer: web-1 is stuck") {
 		t.Fatalf("jo's inbox = %+v, %v", box, err)
 	}
 	if len(f.nudges) != 0 {
@@ -50,15 +50,15 @@ func TestPassFiresTimers(t *testing.T) {
 	// The resident's own is due: in its inbox, and it is nudged for it.
 	now = now.Add(10 * time.Minute)
 	must(t, d.Reconcile(ctx))
-	page, err := s.Inbox(ctx, "mayor", 0)
+	page, err := s.Inbox(ctx, "yardmaster", 0)
 	if err != nil || page.Total != 1 || page.Events[0].Kind != "timer" {
-		t.Fatalf("mayor's inbox = %+v, %v", page, err)
+		t.Fatalf("yardmaster's inbox = %+v, %v", page, err)
 	}
 	if len(f.nudges) != 1 || !strings.HasPrefix(f.nudges[0], agent+": yardr: 1 new in your inbox (timer)") {
 		t.Fatalf("nudges = %v", f.nudges)
 	}
 	must(t, d.Reconcile(ctx))
-	if page, _ := s.Inbox(ctx, "mayor", 0); page.Total != 1 || len(f.nudges) != 1 {
+	if page, _ := s.Inbox(ctx, "yardmaster", 0); page.Total != 1 || len(f.nudges) != 1 {
 		t.Fatalf("fired or nudged again: %d in the inbox, nudges %v", page.Total, f.nudges)
 	}
 }

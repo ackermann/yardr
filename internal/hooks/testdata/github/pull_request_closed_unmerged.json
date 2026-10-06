@@ -8,13 +8,13 @@
   "state": "closed",
   "draft": false,
   "merged": false,
-  "body": "Lands the epic. @Mayor please review; cc @jane-doe and @acme/core. Mail ops@example.com.",
+  "body": "Lands the epic. @Yardmaster please review; cc @jane-doe and @acme/core. Mail ops@example.com.",
   "user": {
    "login": "Jane-Doe",
    "type": "User"
   },
   "assignee": {
-   "login": "Mayor",
+   "login": "Yardmaster",
    "type": "User"
   },
   "labels": [

@@ -13,7 +13,7 @@ import (
 
 // A yardr rig check run for a bead is known to the yard while it runs: an
 // agent that has committed and waits for its gate is idle to herdr, and
-// without this the idle watch tells the mayor of every one of them (a gate
+// without this the idle watch tells the yardmaster of every one of them (a gate
 // takes five to ten minutes, a builders' idle limit is five).
 //
 // Each such run holds an exclusive flock on a file of its own in

@@ -35,11 +35,11 @@ func TestWithoutColour(t *testing.T) {
 	must(t, st.Mail(ctx, me, "landed", "refinery"))
 	for _, size := range [][2]int{{80, 24}, {Wide - 1, 24}, {Wide, 24}, {140, 30}} {
 		w, h := size[0], size[1]
-		v := open(t, st, "mayor", w, h)
+		v := open(t, st, "chief", w, h)
 		v.typed("deploys are frozen")
 		v.key(tea.KeyEnter)
-		must(t, st.Mail(ctx, me, "noted", "mayor"))
-		must(t, st.ResidentStatus(ctx, "mayor", "blocked"))
+		must(t, st.Mail(ctx, me, "noted", "chief"))
+		must(t, st.ResidentStatus(ctx, "chief", "blocked"))
 		v.stream()
 		v.typed("until Friday")
 		v.key(tea.KeyEnter)
@@ -81,12 +81,12 @@ func TestKeysLine(t *testing.T) {
 // user's name from a resident's, and the three ways a sent mail stands.
 func TestColoursTellApart(t *testing.T) {
 	blocked := yard(t)
-	must(t, blocked.ResidentStatus(context.Background(), "mayor", "blocked"))
+	must(t, blocked.ResidentStatus(context.Background(), "chief", "blocked"))
 	rs, err := blocked.Residents(context.Background())
 	must(t, err)
-	mayor, refinery := &rs[0], &rs[1]
-	if StateOf(*mayor) != Blocked || StateOf(*refinery) != Idle {
-		t.Fatalf("mayor is %s, refinery %s", StateOf(*mayor), StateOf(*refinery))
+	chief, refinery := &rs[0], &rs[1]
+	if StateOf(*chief) != Blocked || StateOf(*refinery) != Idle {
+		t.Fatalf("chief is %s, refinery %s", StateOf(*chief), StateOf(*refinery))
 	}
 	for _, dark := range []bool{true, false} {
 		profile(t, termenv.TrueColor, dark)
@@ -110,8 +110,8 @@ func TestColoursTellApart(t *testing.T) {
 		differ("the selected resident and another", look.selected, lipgloss.NewStyle())
 		differ("the user's name and a resident's", look.own, look.resident)
 		differ("read and sent", look.standing(true, refinery), look.standing(false, refinery))
-		differ("sent and cannot be read", look.standing(false, refinery), look.standing(false, mayor))
-		differ("read and cannot be read", look.standing(true, mayor), look.standing(false, mayor))
+		differ("sent and cannot be read", look.standing(false, refinery), look.standing(false, chief))
+		differ("read and cannot be read", look.standing(true, chief), look.standing(false, chief))
 		if in(look.standing(false, nil)) != in(look.standing(false, refinery)) {
 			t.Errorf("dark %v: mail to a resident that is gone does not stand as sent", dark)
 		}

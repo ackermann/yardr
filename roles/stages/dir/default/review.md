@@ -18,6 +18,6 @@ ended. Outcomes:
   missing. The note gives concrete, actionable findings, and the bead goes
   back to `new`. If the notes show the bead has already come back from review
   twice, do not send it back a third time: note why and `yardr bead hold <id>`
-  so the mayor looks at it.
+  so the yardmaster looks at it.
 - `question`, it needs a decision only {{operator}} can make: the note has
   the question and the options, and the bead goes to `decide`.

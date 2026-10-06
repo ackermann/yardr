@@ -123,7 +123,7 @@ func TestOlderYardrIsStillHeard(t *testing.T) {
 	ctx := context.Background()
 	both := []string{"ping", "mail"}
 	b.add(t, "old", old, false, both, both)
-	if _, err := b.api.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr"}, "jo"); err != nil {
+	if _, err := b.api.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	// It said once, on a newer build it has since left.
@@ -138,11 +138,11 @@ func TestOlderYardrIsStillHeard(t *testing.T) {
 	if got := said(t, b, "old"); got != nil {
 		t.Fatalf("a yard that says nothing is kept as having said %+v", got)
 	}
-	resp, body = signed(old, b, "POST", yards.Path, []byte(`{"id":"l1","kind":"mail","body":{"to":"mayor","from":"mayor","text":"hello from before"}}`)).send(t, b)
+	resp, body = signed(old, b, "POST", yards.Path, []byte(`{"id":"l1","kind":"mail","body":{"to":"yardmaster","from":"yardmaster","text":"hello from before"}}`)).send(t, b)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("an older yardr's mail = %d %s", resp.StatusCode, body)
 	}
-	if mail := b.events(t, "mail"); len(mail) != 1 || mail[0].Data["text"] != "hello from before" || mail[0].Actor != "mayor@old" {
+	if mail := b.events(t, "mail"); len(mail) != 1 || mail[0].Data["text"] != "hello from before" || mail[0].Actor != "yardmaster@old" {
 		t.Fatalf("b's mail = %+v", mail)
 	}
 	// Its question, as it asks it: after and nothing more. It is handed the
@@ -214,7 +214,7 @@ func TestOlderYardrIsStillCalled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mail := json.RawMessage(`{"to":"mayor","from":"mayor","text":"hello"}`)
+	mail := json.RawMessage(`{"to":"yardmaster","from":"yardmaster","text":"hello"}`)
 	for _, m := range []store.PeerMessage{{ID: "m1", Kind: "ping", Body: json.RawMessage(`{}`)}, {ID: "m2", Kind: "mail", Body: mail}} {
 		if err := a.caller().Push(ctx, *toOld, m); err != nil {
 			t.Fatalf("a %s posted to an older yardr = %v", m.Kind, err)

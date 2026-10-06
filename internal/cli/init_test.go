@@ -62,12 +62,12 @@ func TestInitHarnessClaude(t *testing.T) {
 	}
 
 	// The default roles, as embedded, naming the operator.
-	for _, name := range []string{"mayor.md", "builder.md", "merger.md", "reviewer.md"} {
+	for _, name := range []string{"yardmaster.md", "builder.md", "merger.md", "reviewer.md"} {
 		tmpl, err := roles.FS.ReadFile(name)
 		if err != nil {
 			t.Fatalf("%s not embedded: %v", name, err)
 		}
-		want := fillRole(tmpl, "Jo", "mayor")
+		want := fillRole(tmpl, "Jo", "yardmaster")
 		got, err := os.ReadFile(filepath.Join(home, "roles", name))
 		if err != nil || !bytes.Equal(got, want) {
 			t.Fatalf("%s installed: %v", name, err)
@@ -76,36 +76,37 @@ func TestInitHarnessClaude(t *testing.T) {
 			t.Errorf("%s keeps a placeholder:\n%s", name, got)
 		}
 	}
-	if b, _ := os.ReadFile(filepath.Join(home, "roles", "mayor.md")); !bytes.Contains(b, []byte("bring to Jo")) {
-		t.Errorf("mayor.md does not name Jo:\n%s", b)
+	if b, _ := os.ReadFile(filepath.Join(home, "roles", "yardmaster.md")); !bytes.Contains(b, []byte("bring to Jo")) {
+		t.Errorf("yardmaster.md does not name Jo:\n%s", b)
 	}
-	// The mayor, on the harness with its unattended flags.
-	r, err := st.GetResident(ctx, "mayor")
+	// The yardmaster, on the harness with its unattended flags.
+	r, err := st.GetResident(ctx, "yardmaster")
 	if err != nil {
 		t.Fatal(err)
 	}
 	// greet: its first session writes to the operator by mail (yardr-8j3n).
-	want := map[string]any{"kind": "claude", "prompt": filepath.Join(home, "roles", "mayor.md"),
+	want := map[string]any{"kind": "claude", "prompt": filepath.Join(home, "roles", "yardmaster.md"),
 		"args": []any{"--permission-mode", "auto"}, "greet": "Jo"}
 	if !reflect.DeepEqual(r.Config, want) || r.Runner != "herdr" || r.MaxAge != "6h" ||
 		r.Dir != filepath.Dir(home) || !reflect.DeepEqual(r.On, defaultOn) {
-		t.Fatalf("mayor = %+v", r)
+		t.Fatalf("yardmaster = %+v", r)
 	}
-	// The roles tell a stuck agent that a hold reaches the mayor's inbox, so
-	// the mayor must hear held, whatever else the default list carries.
+	// The roles tell a stuck agent that a hold reaches the yardmaster's
+	// inbox, so the yardmaster must hear held, whatever else the default list
+	// carries.
 	if !slices.Contains(r.On, "held") {
-		t.Fatalf("mayor does not hear held: on = %v", r.On)
+		t.Fatalf("yardmaster does not hear held: on = %v", r.On)
 	}
-	// A bead stranded by a flow change is routed to nobody: the mayor is
+	// A bead stranded by a flow change is routed to nobody: the yardmaster is
 	// the one who must hear of it, and the form must offer the kind.
 	if !slices.Contains(r.On, "stranded") || !slices.Contains(knownKinds, "stranded") || !slices.Contains(store.DispatchKinds, "stranded") {
 		t.Fatalf("stranded is not heard: on = %v", r.On)
 	}
-	if got, _ := st.Settings(ctx); got["default_kind"] != "claude" || got["operator"] != "Jo" || got["mayor"] != "mayor" {
+	if got, _ := st.Settings(ctx); got["default_kind"] != "claude" || got["operator"] != "Jo" || got["yardmaster"] != "yardmaster" {
 		t.Fatalf("settings = %v", got)
 	}
-	// The mayor takes it from here; the commands are in init --help.
-	for _, s := range []string{"harness  claude", "naming Jo", ".yardr/roles/", here("yardr daemon"), "\n  " + here("yardr chat") + "\n  " + here("yardr setup") + "\n"} {
+	// The yardmaster takes it from here; the commands are in init --help.
+	for _, s := range []string{"harness    claude", "naming Jo", ".yardr/roles/", here("yardr daemon"), "\n  " + here("yardr chat") + "\n  " + here("yardr setup") + "\n"} {
 		if !strings.Contains(out, s) {
 			t.Errorf("summary lacks %q:\n%s", s, out)
 		}
@@ -118,24 +119,24 @@ func TestInitHarnessClaude(t *testing.T) {
 		t.Errorf("init --help lacks the commands for scripts:\n%s", help)
 	}
 
-	// Again: init is idempotent; the mayor is not replaced, and roles the
+	// Again: init is idempotent; the yardmaster is not replaced, and roles the
 	// operator edited are kept.
-	mayor := filepath.Join(home, "roles", "mayor.md")
-	if err := os.WriteFile(mayor, []byte("mine"), 0o644); err != nil {
+	yardmaster := filepath.Join(home, "roles", "yardmaster.md")
+	if err := os.WriteFile(yardmaster, []byte("mine"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if out, err := run(t, a.rootCmd(), "init", "--harness", "claude", "--operator", "Jo"); err != nil ||
 		!strings.Contains(out, "already a resident: kept") {
 		t.Fatalf("second init: %v\n%s", err, out)
 	}
-	if again, _ := st.GetResident(ctx, "mayor"); !reflect.DeepEqual(again, r) {
-		t.Fatalf("second init changed the mayor:\n%+v\n%+v", again, r)
+	if again, _ := st.GetResident(ctx, "yardmaster"); !reflect.DeepEqual(again, r) {
+		t.Fatalf("second init changed the yardmaster:\n%+v\n%+v", again, r)
 	}
-	if _, err := run(t, a.rootCmd(), "init", "--harness", "kimi", "--mayor", "boss", "--model", "k2", "--dir", home); err != nil {
+	if _, err := run(t, a.rootCmd(), "init", "--harness", "kimi", "--yardmaster", "boss", "--model", "k2", "--dir", home); err != nil {
 		t.Fatal(err)
 	}
-	if b, _ := os.ReadFile(mayor); string(b) != "mine" {
-		t.Fatalf("edited mayor.md overwritten: %q", b)
+	if b, _ := os.ReadFile(yardmaster); string(b) != "mine" {
+		t.Fatalf("edited yardmaster.md overwritten: %q", b)
 	}
 	boss, err := st.GetResident(ctx, "boss")
 	if err != nil {
@@ -147,9 +148,9 @@ func TestInitHarnessClaude(t *testing.T) {
 
 	// Bad input is refused before anything is written.
 	for _, args := range [][]string{
-		{"init", "--harness", "nope", "--mayor", "x"},
-		{"init", "--harness", "pi", "--mayor", "x", "--dir", filepath.Join(home, "missing")},
-		{"init", "--harness", "pi", "--mayor", "bad name"},
+		{"init", "--harness", "nope", "--yardmaster", "x"},
+		{"init", "--harness", "pi", "--yardmaster", "x", "--dir", filepath.Join(home, "missing")},
+		{"init", "--harness", "pi", "--yardmaster", "bad name"},
 	} {
 		if _, err := run(t, a.rootCmd(), args...); err == nil {
 			t.Errorf("%v accepted", args)
@@ -160,8 +161,8 @@ func TestInitHarnessClaude(t *testing.T) {
 	}
 }
 
-// Init again on a set-up yard keeps default_kind, operator and mayor unless
-// the flags say otherwise, and says so; --harness is required only to
+// Init again on a set-up yard keeps default_kind, operator and yardmaster
+// unless the flags say otherwise, and says so; --harness is required only to
 // create a yard.
 func TestInitAgainKeepsSettings(t *testing.T) {
 	newHome(t)
@@ -172,10 +173,10 @@ func TestInitAgainKeepsSettings(t *testing.T) {
 	if _, err := run(t, a.rootCmd(), "init"); err == nil || !strings.Contains(err.Error(), "--harness") {
 		t.Fatalf("init without --harness on a fresh home: %v", err)
 	}
-	if _, err := run(t, a.rootCmd(), "init", "--harness", "codex", "--operator", "Jo", "--mayor", "boss"); err != nil {
+	if _, err := run(t, a.rootCmd(), "init", "--harness", "codex", "--operator", "Jo", "--yardmaster", "boss"); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]string{"default_kind": "codex", "operator": "Jo", "mayor": "boss"}
+	want := map[string]string{"default_kind": "codex", "operator": "Jo", "yardmaster": "boss"}
 	settings := func(step string) {
 		t.Helper()
 		got, _ := st.Settings(ctx)
@@ -190,8 +191,8 @@ func TestInitAgainKeepsSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	settings("init again")
-	if !strings.Contains(out, "  kept     default_kind codex, operator Jo, mayor boss, as set before") ||
-		!strings.Contains(out, "harness  codex") || !strings.Contains(out, "boss, already a resident: kept") {
+	if !strings.Contains(out, "  kept       default_kind codex, operator Jo, yardmaster boss, as set before") ||
+		!strings.Contains(out, "harness    codex") || !strings.Contains(out, "boss, already a resident: kept") {
 		t.Errorf("init again does not say what it kept:\n%s", out)
 	}
 	if rs, _ := st.Residents(ctx); len(rs) != 1 {
@@ -203,7 +204,7 @@ func TestInitAgainKeepsSettings(t *testing.T) {
 	}
 	want["operator"] = "Kim"
 	settings("--operator")
-	if !strings.Contains(out, "  kept     default_kind codex, mayor boss, as set before") {
+	if !strings.Contains(out, "  kept       default_kind codex, yardmaster boss, as set before") {
 		t.Errorf("--operator:\n%s", out)
 	}
 	if out, err = run(t, a.rootCmd(), "init", "--harness", "kimi"); err != nil {
@@ -211,7 +212,7 @@ func TestInitAgainKeepsSettings(t *testing.T) {
 	}
 	want["default_kind"] = "kimi"
 	settings("--harness")
-	if !strings.Contains(out, "  kept     operator Kim, mayor boss, as set before") {
+	if !strings.Contains(out, "  kept       operator Kim, yardmaster boss, as set before") {
 		t.Errorf("--harness:\n%s", out)
 	}
 	// A bad harness is refused on a set-up yard as on a fresh one.
@@ -315,9 +316,9 @@ func TestInitHarnessWithoutUnattendedFlags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, _ := st.GetResident(context.Background(), "mayor")
+	r, _ := st.GetResident(context.Background(), "yardmaster")
 	if _, ok := r.Config["args"]; ok || r.Config["kind"] != "gemini" {
-		t.Fatalf("mayor config = %v", r.Config)
+		t.Fatalf("yardmaster config = %v", r.Config)
 	}
 	if !strings.Contains(out, "gemini may stop to ask") {
 		t.Fatalf("summary:\n%s", out)
@@ -333,7 +334,7 @@ func TestInitSummaryNamesTheHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	yardr := "yardr --home " + home
-	for _, s := range []string{"\n  " + yardr + " daemon\n", yardr + " resident set mayor 'args=[...]'",
+	for _, s := range []string{"\n  " + yardr + " daemon\n", yardr + " resident set yardmaster 'args=[...]'",
 		"every yardr command for it needs\n--home " + home + ", or YARDR_HOME exported"} {
 		if !strings.Contains(out, s) {
 			t.Errorf("summary lacks %q:\n%s", s, out)
@@ -349,7 +350,7 @@ func TestInitSummaryNamesTheHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(out, "YARDR_HOME") || strings.Contains(out, "--home") || !strings.Contains(out, "\n  yardr daemon\n") ||
-		!strings.Contains(out, " yardr resident set mayor 'args=[...]'") {
+		!strings.Contains(out, " yardr resident set yardmaster 'args=[...]'") {
 		t.Errorf("default home summary:\n%s", out)
 	}
 	if got := (notInitialized{filepath.Join(user, ".yardr")}).Error(); strings.Contains(got, "YARDR_HOME") || strings.Contains(got, "--home") {
@@ -532,7 +533,7 @@ func TestBareYardr(t *testing.T) {
 
 	// --help on a home that would onboard: help, nothing asked.
 	st := storetest.New(t)
-	stubStart(t, st, mayorHandle())
+	stubStart(t, st, yardmasterHandle())
 	stubPane(t, answeredPane)
 	stubFocus(t)
 	for _, h := range []string{"--help", "-h"} {
@@ -551,8 +552,8 @@ func TestBareYardr(t *testing.T) {
 	if asked != 10 || !strings.Contains(out, "yard created") || strings.Contains(out, "Usage:") {
 		t.Fatalf("store without default_kind: asked %d\n%s", asked, out)
 	}
-	if _, err := st.GetResident(ctx, "mayor"); err != nil {
-		t.Fatalf("no mayor: %v", err)
+	if _, err := st.GetResident(ctx, "yardmaster"); err != nil {
+		t.Fatalf("no yardmaster: %v", err)
 	}
 
 	// The daemon the onboarding started runs.
@@ -583,7 +584,7 @@ func TestOnboardingForm(t *testing.T) {
 	asked := 0
 	stubAsk(t, func(...huh.Field) error { asked++; return nil })
 	st := storetest.New(t)
-	stubStart(t, st, mayorHandle())
+	stubStart(t, st, yardmasterHandle())
 	stubPane(t, answeredPane)
 	stubFocus(t)
 	ctx := context.Background()
@@ -595,13 +596,13 @@ func TestOnboardingForm(t *testing.T) {
 	if asked != 10 {
 		t.Fatalf("%d form pages", asked)
 	}
-	r, err := st.GetResident(ctx, "mayor")
+	r, err := st.GetResident(ctx, "yardmaster")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if r.Config["kind"] != "codex" || r.Dir != filepath.Dir(home) ||
 		!reflect.DeepEqual(r.Config["args"], []any{"--dangerously-bypass-approvals-and-sandbox"}) {
-		t.Fatalf("mayor = %+v", r)
+		t.Fatalf("yardmaster = %+v", r)
 	}
 	if got, _ := st.Settings(ctx); got["default_kind"] != "codex" {
 		t.Fatalf("settings = %v", got)
@@ -747,7 +748,7 @@ func TestInitRefreshesUntouchedRoles(t *testing.T) {
 		return m
 	}
 	m := manifest()
-	for _, name := range []string{"mayor.md", "builder.md", "merger.md", "reviewer.md"} {
+	for _, name := range []string{"yardmaster.md", "builder.md", "merger.md", "reviewer.md"} {
 		b, _ := os.ReadFile(filepath.Join(dir, name))
 		if m[name] != digest(b) {
 			t.Fatalf("manifest %s = %q, file hashes to %q", name, m[name], digest(b))
@@ -755,7 +756,7 @@ func TestInitRefreshesUntouchedRoles(t *testing.T) {
 	}
 
 	// builder.md: as an older init wrote it (the manifest agrees with the
-	// file), so it is refreshed. mayor.md: edited, kept. merger.md: from
+	// file), so it is refreshed. yardmaster.md: edited, kept. merger.md: from
 	// before the manifest and not this build's, kept. reviewer.md: from
 	// before the manifest but already this build's, tracked from now on.
 	old := []byte("# Builder\n\nAn older template.\n")
@@ -763,7 +764,7 @@ func TestInitRefreshesUntouchedRoles(t *testing.T) {
 		t.Fatal(err)
 	}
 	m["builder.md"] = digest(old)
-	if err := os.WriteFile(filepath.Join(dir, "mayor.md"), []byte("mine"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "yardmaster.md"), []byte("mine"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "merger.md"), []byte("theirs"), 0o644); err != nil {
@@ -779,21 +780,21 @@ func TestInitRefreshesUntouchedRoles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "builder.md refreshed to this build's; mayor.md, merger.md edited, kept") {
+	if !strings.Contains(out, "builder.md refreshed to this build's; merger.md, yardmaster.md edited, kept") {
 		t.Fatalf("summary does not say which:\n%s", out)
 	}
 	tmpl, _ := roles.FS.ReadFile("builder.md")
-	if b, _ := os.ReadFile(filepath.Join(dir, "builder.md")); !bytes.Equal(b, fillRole(tmpl, "Jo", "mayor")) {
+	if b, _ := os.ReadFile(filepath.Join(dir, "builder.md")); !bytes.Equal(b, fillRole(tmpl, "Jo", "yardmaster")) {
 		t.Fatalf("builder.md not refreshed:\n%s", b)
 	}
-	for name, want := range map[string]string{"mayor.md": "mine", "merger.md": "theirs"} {
+	for name, want := range map[string]string{"yardmaster.md": "mine", "merger.md": "theirs"} {
 		if b, _ := os.ReadFile(filepath.Join(dir, name)); string(b) != want {
 			t.Fatalf("%s overwritten: %q", name, b)
 		}
 	}
 	m = manifest()
 	tmpl, _ = roles.FS.ReadFile("reviewer.md")
-	if m["reviewer.md"] != digest(fillRole(tmpl, "Jo", "mayor")) || m["merger.md"] != "" || m["mayor.md"] == digest([]byte("mine")) {
+	if m["reviewer.md"] != digest(fillRole(tmpl, "Jo", "yardmaster")) || m["merger.md"] != "" || m["yardmaster.md"] == digest([]byte("mine")) {
 		t.Fatalf("manifest after refresh = %v", m)
 	}
 	// --json names them too.

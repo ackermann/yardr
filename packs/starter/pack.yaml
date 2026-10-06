@@ -51,8 +51,8 @@ groups:
 #               import puts the question to the yard's operator, and only for
 #               a source the yard is set up for
 residents:
-  mayor:
-    role: roles/mayor.md
+  yardmaster:
+    role: roles/yardmaster.md
     hears:
       events: [gave_up, session_blocked, unrouted, stranded, no_runner, workspace_kept, resident_gave_up, runtime_down, session_idle, session_aged, session_stalled, session_harness_error, session_model_mismatch, session_prompt_gave_up, move_refused, held]
       stages: [decide]
@@ -73,6 +73,6 @@ residents:
 # (set_state), and until then nothing is moved.
 sources:
   linear:
-    as: mayor
+    as: yardmaster
     hears:
       task: { new: started, review: review, merged: done }

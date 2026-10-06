@@ -262,7 +262,7 @@ func TestEpicRebaseConflictGoesToTheMergers(t *testing.T) {
 // on it was in the branch before the rebase or in a tip a merger noted.
 // Commits on the remote that are in neither (someone pushed to the epic's
 // branch) are never forced over: the branch is integrated, the push is
-// refused with a note and the mayor is mailed.
+// refused with a note and the yardmaster is mailed.
 func TestEpicPushRefusesForeignRemoteCommits(t *testing.T) {
 	y := newEpicYard(t, "test ! -e RED")
 	y.exec("merge-local", "refinery", "r-1")

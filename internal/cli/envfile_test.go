@@ -14,7 +14,7 @@ import (
 // summaryT is resident show's reading of cfg's environment, as its JSON
 // has it: the fields of each source, by setting.
 func summaryT(cfg map[string]any) map[string]map[string]any {
-	env, _ := residentEnvSummary(context.Background(), store.Resident{Name: "mayor", Config: cfg}, "")
+	env, _ := residentEnvSummary(context.Background(), store.Resident{Name: "yardmaster", Config: cfg}, "")
 	out := map[string]map[string]any{}
 	for _, e := range env {
 		out[e.Setting] = e.fields()
@@ -25,7 +25,7 @@ func summaryT(cfg map[string]any) map[string]map[string]any {
 // resident show lists the env_file's key names, never its values, and says
 // why a runner would refuse the file.
 func TestEnvFileSummaryShowsKeysNotValues(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "mayor.env")
+	p := filepath.Join(t.TempDir(), "yardmaster.env")
 	if err := os.WriteFile(p, []byte("LINEAR_API_KEY=lin_api_s3cret\nGH_TOKEN=ghp_s3cret\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}

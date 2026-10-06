@@ -34,7 +34,7 @@ as it stands; follow its order, not a list from the beginning. See
 | create a yard without a form | `yardr init --harness <kind> --operator <name> --start` | bare `yardr`; `yardr init` without `--harness` |
 | use another yard directory | `--home <dir>` | inventing a yard variable |
 | install yardr's service | `yardr daemon install` from a login shell | treating it as herdr's service; `--file-only` starts nothing |
-| message the mayor | `yardr mail mayor "<text>"`; read with `yardr mail --with mayor` | `yardr chat` without a terminal |
+| message the yardmaster | `yardr mail yardmaster "<text>"`; read with `yardr mail --with yardmaster` | `yardr chat` without a terminal |
 
 Herdr's service is separate: follow [install.md](install.md#herdrs-server).
 Check a flag with `--help` before using it.
@@ -43,7 +43,7 @@ Check a flag with `--help` before using it.
 
 `yardr setup` prints the steps and next command instead of opening its forms.
 `yardr init` does not open a form; with `--start` it starts and waits for the
-mayor but does not open chat. `yardr chat` exits with guidance to use
+yardmaster but does not open chat. `yardr chat` exits with guidance to use
 `yardr mail`. Bare `yardr` shows help in a yard, and without a yard exits 2
 with the `yardr init --harness <kind>` command. `yardr group add` and
 `yardr resident add` need names and flags instead of opening forms;
@@ -54,8 +54,8 @@ example `codex exec … < /dev/null`.
 
 The yard is `--home <dir>`, else `$YARDR_HOME`, else `~/.yardr`; its store is
 `<home>/yard.db` (read it through yardr). Logs are `<home>/server.log` and
-`<home>/daemon.log`. Use `yardr resident show mayor` and `yardr resident
-list` for the mayor's state and failed starts; `yardr events` for the event
+`<home>/daemon.log`. Use `yardr resident show yardmaster` and `yardr resident
+list` for the yardmaster's state and failed starts; `yardr events` for the event
 history (`-n <count>`, `--bead <id>` filter it). `herdr agent attach
 <agent>` attaches to its pane in a terminal; `herdr agent list` names agents.
 `yardr daemon status` shows the service file and state.

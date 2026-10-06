@@ -13,10 +13,11 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// sources points both APIs at a stand-in that takes the mayor's credentials.
+// sources points both APIs at a stand-in that takes the yardmaster's
+// credentials.
 func sources(t *testing.T) *standin.Server {
 	t.Helper()
-	s := &standin.Server{LinearKey: "lin_api_mayor", GitHubToken: "gh-mayor"}
+	s := &standin.Server{LinearKey: "lin_api_yardmaster", GitHubToken: "gh-yardmaster"}
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(srv.Close)
 	oldL, oldG := hooks.LinearAPI, hooks.GitHubAPI
@@ -64,7 +65,7 @@ func TestLinearForward(t *testing.T) {
 			s := sources(t)
 			s.Add(standin.Issue{Source: "linear", ID: "uuid-1", Key: "YRD-1", Title: "Web view", Status: c.from})
 			// By its identifier, as a link made from the URL names it.
-			got, err := hooks.Linear{}.Forward(ctx, "YRD-1", c.state, "lin_api_mayor")
+			got, err := hooks.Linear{}.Forward(ctx, "YRD-1", c.state, "lin_api_yardmaster")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -95,19 +96,19 @@ func TestLinearForwardWithoutReviewStatus(t *testing.T) {
 	ctx := context.Background()
 	f := &fakeLinearStates{states: linearTeamStates(false), state: "s-prog"}
 	f.serve(t)
-	got, err := hooks.Linear{}.Forward(ctx, "issue-1", "review", "lin_api_mayor")
+	got, err := hooks.Linear{}.Forward(ctx, "issue-1", "review", "lin_api_yardmaster")
 	if err != nil || got.Changed || got.Stood != "started" || got.Instead != "started" || len(f.updates) != 0 {
 		t.Fatalf("in progress: %+v, %v, updates %v", got, err, f.updates)
 	}
 	f.state = "s-todo"
-	got, err = hooks.Linear{}.Forward(ctx, "issue-1", "review", "lin_api_mayor")
+	got, err = hooks.Linear{}.Forward(ctx, "issue-1", "review", "lin_api_yardmaster")
 	if err != nil || !got.Changed || got.Status != "In Progress" || got.Instead != "started" || f.state != "s-prog" {
 		t.Fatalf("todo: %+v, %v, now %s", got, err, f.state)
 	}
 	// With one, a started status the team put after it is past review.
 	f = &fakeLinearStates{states: linearTeamStates(true), state: "s-qa"}
 	f.serve(t)
-	got, err = hooks.Linear{}.Forward(ctx, "issue-1", "review", "lin_api_mayor")
+	got, err = hooks.Linear{}.Forward(ctx, "issue-1", "review", "lin_api_yardmaster")
 	if err != nil || got.Changed || got.Stood != "review" || len(f.updates) != 0 {
 		t.Fatalf("qa: %+v, %v, updates %v", got, err, f.updates)
 	}
@@ -131,7 +132,7 @@ func TestGitHubForward(t *testing.T) {
 		t.Run(c.from+" to "+c.state, func(t *testing.T) {
 			s := sources(t)
 			s.Add(standin.Issue{Source: "github", Key: "acme/webapp#7", Title: "Retries", Status: c.from})
-			got, err := hooks.GitHub{}.Forward(ctx, "acme/webapp#7", c.state, "gh-mayor")
+			got, err := hooks.GitHub{}.Forward(ctx, "acme/webapp#7", c.state, "gh-yardmaster")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -162,28 +163,30 @@ func TestForwardRefusals(t *testing.T) {
 		final bool
 	}{
 		{"github review", func() (hooks.Forwarded, error) {
-			return hooks.GitHub{}.Forward(ctx, "acme/webapp#7", "review", "gh-mayor")
+			return hooks.GitHub{}.Forward(ctx, "acme/webapp#7", "review", "gh-yardmaster")
 		}, "no review status", true},
 		{"github pull request", func() (hooks.Forwarded, error) {
-			return hooks.GitHub{}.Forward(ctx, "acme/webapp#8", "done", "gh-mayor")
+			return hooks.GitHub{}.Forward(ctx, "acme/webapp#8", "done", "gh-yardmaster")
 		}, "is a pull request", true},
 		{"github no state", func() (hooks.Forwarded, error) {
-			return hooks.GitHub{}.Forward(ctx, "acme/webapp#7", "closed", "gh-mayor")
+			return hooks.GitHub{}.Forward(ctx, "acme/webapp#7", "closed", "gh-yardmaster")
 		}, "is no state", true},
-		{"github bad thread", func() (hooks.Forwarded, error) { return hooks.GitHub{}.Forward(ctx, "webapp", "done", "gh-mayor") }, "want owner/repo#number", true},
+		{"github bad thread", func() (hooks.Forwarded, error) { return hooks.GitHub{}.Forward(ctx, "webapp", "done", "gh-yardmaster") }, "want owner/repo#number", true},
 		{"github credential", func() (hooks.Forwarded, error) { return hooks.GitHub{}.Forward(ctx, "acme/webapp#7", "done", "other") }, "Bad credentials", false},
 		{"github no issue", func() (hooks.Forwarded, error) {
-			return hooks.GitHub{}.Forward(ctx, "acme/webapp#9", "done", "gh-mayor")
+			return hooks.GitHub{}.Forward(ctx, "acme/webapp#9", "done", "gh-yardmaster")
 		}, "Not Found", false},
 		{"linear no state", func() (hooks.Forwarded, error) {
-			return hooks.Linear{}.Forward(ctx, "YRD-1", "backlog", "lin_api_mayor")
+			return hooks.Linear{}.Forward(ctx, "YRD-1", "backlog", "lin_api_yardmaster")
 		}, "is no state", true},
 		{"linear before", func() (hooks.Forwarded, error) {
-			return hooks.Linear{}.Forward(ctx, "YRD-1", "before", "lin_api_mayor")
+			return hooks.Linear{}.Forward(ctx, "YRD-1", "before", "lin_api_yardmaster")
 		}, "is no state", true},
-		{"linear no thread", func() (hooks.Forwarded, error) { return hooks.Linear{}.Forward(ctx, "", "done", "lin_api_mayor") }, "no issue", true},
+		{"linear no thread", func() (hooks.Forwarded, error) { return hooks.Linear{}.Forward(ctx, "", "done", "lin_api_yardmaster") }, "no issue", true},
 		{"linear credential", func() (hooks.Forwarded, error) { return hooks.Linear{}.Forward(ctx, "YRD-1", "done", "other") }, "Authentication required", false},
-		{"linear no issue", func() (hooks.Forwarded, error) { return hooks.Linear{}.Forward(ctx, "YRD-2", "done", "lin_api_mayor") }, "Entity not found", false},
+		{"linear no issue", func() (hooks.Forwarded, error) {
+			return hooks.Linear{}.Forward(ctx, "YRD-2", "done", "lin_api_yardmaster")
+		}, "Entity not found", false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			_, err := c.call()

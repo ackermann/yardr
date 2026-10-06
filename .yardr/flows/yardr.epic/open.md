@@ -18,8 +18,8 @@ Outcomes:
   the conflicting files and records the tip as `old tip: <sha>`, and the epic
   goes to `merge`.
 
-The edge back to `backlog` has no outcome: the mayor takes the epic back with
-`yardr bead advance <epic> --to backlog` to reshape it.
+The edge back to `backlog` has no outcome: the yardmaster takes the epic back
+with `yardr bead advance <epic> --to backlog` to reshape it.
 
 An epic is held instead, with a note, when nothing in the flow can fix it:
 the gate could not run at all, or the branch is missing, dirty or has nothing

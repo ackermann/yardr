@@ -56,7 +56,7 @@ You implement one bead, in its own worktree on branch `yard/<bead>`.
 
 If you are stuck and the stage offers no outcome for it:
 `yardr bead note <id> "..."`, then `yardr bead hold <id>`; a hold reaches the
-mayor's inbox.
+yardmaster's inbox.
 
 ## Something outside your bead
 
@@ -64,13 +64,13 @@ mayor's inbox.
    it and carry on, never fix it on your branch. `yardr bead create "<title>"
    --rig <rig> --stage backlog -b - --discovered-from <your bead>`, with what
    you saw, where, and how to reproduce. The new bead names the bead it was
-   found from. The mayor shapes it from backlog.
+   found from. The yardmaster shapes it from backlog.
 2. It blocks you but is no question about the bead (the gate is red on the
-   base, a tool is missing, the base moved under you): file it as above,
-   then mail the mayor: `yardr mail {{mayor}} "<bead id>: <one line>"`. If
-   you cannot finish without it, `yardr bead note <id> "blocked by <bead
-   id>" && yardr bead hold <id>`; the mayor orders the two with
-   `yardr dep add`.
+   base, a tool is missing, the base moved under you): file it as above, then
+   mail the yardmaster: `yardr mail {{yardmaster}} "<bead id>: <one line>"`.
+   If you cannot finish without it,
+   `yardr bead note <id> "blocked by <bead id>" && yardr bead hold <id>`; the
+   yardmaster orders the two with `yardr dep add`.
 3. It is a question about the bead itself (an unclear goal, a design
    choice): that is for the stage's outcomes, not for a new bead. Your brief
    says which outcome takes a question, or hold as above.

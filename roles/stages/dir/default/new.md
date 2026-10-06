@@ -18,5 +18,5 @@ Outcomes:
   a choice only a person can make). Note the question on the bead first; it
   goes to `decide`, to a human.
 
-The edge back to `backlog` has no outcome: the mayor takes a bead back with
+The edge back to `backlog` has no outcome: the yardmaster takes a bead back with
 `yardr bead advance <id> --to backlog` when it has to be reshaped.

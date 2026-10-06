@@ -147,7 +147,7 @@ func TestHomeFlagOnboards(t *testing.T) {
 	asked := 0
 	stubAsk(t, func(...huh.Field) error { asked++; return nil })
 	st := storetest.New(t)
-	stubStart(t, st, mayorHandle())
+	stubStart(t, st, yardmasterHandle())
 	stubPane(t, answeredPane)
 	stubFocus(t)
 
@@ -158,9 +158,9 @@ func TestHomeFlagOnboards(t *testing.T) {
 	if asked == 0 {
 		t.Fatal("no form was asked")
 	}
-	r, err := st.GetResident(context.Background(), "mayor")
+	r, err := st.GetResident(context.Background(), "yardmaster")
 	if err != nil || r.Dir != user {
-		t.Fatalf("mayor = %+v, %v", r, err)
+		t.Fatalf("yardmaster = %+v, %v", r, err)
 	}
 	wantText(t, out, "yard created in "+home, "every yardr command for it needs\n--home "+home, "yardr --home "+home+" setup")
 	if _, err := os.Stat(filepath.Join(user, ".yardr")); err == nil {

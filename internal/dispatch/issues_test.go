@@ -37,9 +37,9 @@ merged terminal
 `
 )
 
-// issueYard is a yard with a stand-in for Linear and GitHub, resident mayor
-// whose env_file holds the credentials the stand-in takes, and a hook per
-// source that maps as the mayor.
+// issueYard is a yard with a stand-in for Linear and GitHub, resident
+// yardmaster whose env_file holds the credentials the stand-in takes, and a
+// hook per source that maps as the yardmaster.
 type issueYard struct {
 	api   store.API
 	d     *dispatch.Dispatcher
@@ -47,7 +47,7 @@ type issueYard struct {
 	down  atomic.Bool  // the stand-in answers 503
 	asked atomic.Int64 // requests that reached the stand-in or its outage
 	now   time.Time
-	env   string // the mayor's env_file
+	env   string // the yardmaster's env_file
 }
 
 func newIssueYard(t *testing.T) *issueYard {
@@ -55,8 +55,8 @@ func newIssueYard(t *testing.T) *issueYard {
 	api := storetest.New(t)
 	ctx := context.Background()
 	y := &issueYard{api: api, now: time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC),
-		src: &standin.Server{LinearKey: "lin_api_mayor", GitHubToken: "gh-mayor"},
-		env: filepath.Join(t.TempDir(), "mayor.env")}
+		src: &standin.Server{LinearKey: "lin_api_yardmaster", GitHubToken: "gh-yardmaster"},
+		env: filepath.Join(t.TempDir(), "yardmaster.env")}
 	inner := y.src.Handler()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		y.asked.Add(1)
@@ -74,7 +74,7 @@ func newIssueYard(t *testing.T) *issueYard {
 	y.src.Add(standin.Issue{Source: "linear", ID: "uuid-2", Key: "YRD-2", Title: "Links", Status: "Backlog"})
 	y.src.Add(standin.Issue{Source: "github", Key: "acme/webapp#7", Title: "Retries", Status: "open"})
 
-	must(t, os.WriteFile(y.env, []byte("LINEAR_API_KEY=lin_api_mayor\nGITHUB_TOKEN=gh-mayor\n"), 0o600))
+	must(t, os.WriteFile(y.env, []byte("LINEAR_API_KEY=lin_api_yardmaster\nGITHUB_TOKEN=gh-yardmaster\n"), 0o600))
 	must(t, api.PutRig(ctx, store.Rig{Name: "yard", Base: "main"}, "me"))
 	flow, err := store.ParseFlow(issueFlow)
 	must(t, err)
@@ -82,14 +82,14 @@ func newIssueYard(t *testing.T) *issueYard {
 	_, err = api.PutFlow(ctx, *flow, "me")
 	must(t, err)
 	must(t, api.SetFlowPointer(ctx, "yard", "", "yard", "me"))
-	y.mayor(t, "linear,github")
+	y.yardmaster(t, "linear,github")
 	for _, source := range []string{"linear", "github"} {
-		must(t, api.SetIdentity(ctx, "mayor", source, store.Identity{ID: "u-mayor"}, "me"))
+		must(t, api.SetIdentity(ctx, "yardmaster", source, store.Identity{ID: "u-yardmaster"}, "me"))
 	}
-	_, err = api.PutHook(ctx, store.Hook{Name: "linear", Source: "linear", SecretFile: "/s", As: "mayor",
+	_, err = api.PutHook(ctx, store.Hook{Name: "linear", Source: "linear", SecretFile: "/s", As: "yardmaster",
 		Map: map[string]string{"task:new": "started", "task:review": "review", "task:merged": "done"}}, "me")
 	must(t, err)
-	_, err = api.PutHook(ctx, store.Hook{Name: "gh", Source: "github", SecretFile: "/s", As: "mayor",
+	_, err = api.PutHook(ctx, store.Hook{Name: "gh", Source: "github", SecretFile: "/s", As: "yardmaster",
 		Map: map[string]string{"task:new": "started", "task:merged": "done"}}, "me")
 	must(t, err)
 	y.d = y.daemon()
@@ -103,10 +103,10 @@ func (y *issueYard) daemon() *dispatch.Dispatcher {
 	return d
 }
 
-// mayor defines the mayor with set_state for sources ("": none).
-func (y *issueYard) mayor(t *testing.T, sources string) {
+// yardmaster defines the yardmaster with set_state for sources ("": none).
+func (y *issueYard) yardmaster(t *testing.T, sources string) {
 	t.Helper()
-	def := store.Resident{Name: "mayor", Runner: "fake", Config: map[string]any{"env_file": y.env}}
+	def := store.Resident{Name: "yardmaster", Runner: "fake", Config: map[string]any{"env_file": y.env}}
 	if sources != "" {
 		def.Config[store.SetState] = sources
 	}
@@ -187,7 +187,7 @@ func want[T any](t *testing.T, what string, got, want T) {
 }
 
 // The bead goes new, review, merged and the issue it tracks, linked by its
-// URL alone, goes started, review, done, as the mayor.
+// URL alone, goes started, review, done, as the yardmaster.
 func TestIssueFollowsItsBead(t *testing.T) {
 	y := newIssueYard(t)
 	y.bead(t, "yard-a", issueA+"/web-view")
@@ -214,7 +214,7 @@ func TestIssueFollowsItsBead(t *testing.T) {
 		}
 	}
 	// The hook is the cause; the thread's id and title are the source's.
-	if state.Actor != "hook:linear" || state.Data["hook"] != "linear" || state.Data["resident"] != "mayor" || state.Data["stage"] != "review" ||
+	if state.Actor != "hook:linear" || state.Data["hook"] != "linear" || state.Data["resident"] != "yardmaster" || state.Data["stage"] != "review" ||
 		state.Data["source"] != "linear" || state.Data["url"] != issueA || state.Data["thread"] != "uuid-1" || state.Data["title"] != "Web view" ||
 		fmt.Sprint(state.Data["cause"]) != fmt.Sprint(adv.Seq) || state.Seq < adv.Seq {
 		t.Fatalf("thread_state %+v for advanced %+v", state, adv)
@@ -237,7 +237,7 @@ func TestIssueOnlyMovesForward(t *testing.T) {
 	want(t, "the issue of a bead sent back", y.src.Status("linear", "YRD-1"), "In Review")
 	e := y.skipped(t, "yard-a")
 	if e.Actor != "hook:linear" || e.Data["reason"] != store.SkipPast || e.Data["status"] != "In Review" || e.Data["state"] != "started" ||
-		e.Data["stage"] != "new" || e.Data["resident"] != "mayor" || e.Data["detail"] != "the issue is In Review, which is at or past started" {
+		e.Data["stage"] != "new" || e.Data["resident"] != "yardmaster" || e.Data["detail"] != "the issue is In Review, which is at or past started" {
 		t.Fatalf("skipped %+v", e)
 	}
 	// Review again: it is there.
@@ -264,20 +264,20 @@ func TestIssueOnlyMovesForward(t *testing.T) {
 // the setting. Once the operator allows it, the next stage moves the issue.
 func TestIssueNeedsSetState(t *testing.T) {
 	y := newIssueYard(t)
-	y.mayor(t, "github")
+	y.yardmaster(t, "github")
 	y.bead(t, "yard-a", issueA)
 	y.to(t, "yard-a", "new")
 	want(t, "requests", y.asked.Load(), int64(0))
 	want(t, "the issue", y.src.Status("linear", "YRD-1"), "Todo")
 	e := y.skipped(t, "yard-a")
 	detail, _ := e.Data["detail"].(string)
-	if e.Data["reason"] != store.SkipNoGrant || !strings.Contains(detail, "resident mayor may not set the status of threads in linear") ||
-		!strings.Contains(detail, "yardr resident set mayor set_state=github,linear") {
+	if e.Data["reason"] != store.SkipNoGrant || !strings.Contains(detail, "resident yardmaster may not set the status of threads in linear") ||
+		!strings.Contains(detail, "yardr resident set yardmaster set_state=github,linear") {
 		t.Fatalf("skipped %+v", e)
 	}
 	want(t, "moves left", len(y.pending(t)), 0)
 
-	y.mayor(t, "github,linear")
+	y.yardmaster(t, "github,linear")
 	y.to(t, "yard-a", "review")
 	want(t, "the issue once allowed", y.src.Status("linear", "YRD-1"), "In Review")
 	want(t, "events", y.said(t, "yard-a"), []string{"started skipped: no_grant", "review: In Review (was Todo)"})
@@ -355,7 +355,7 @@ func TestIssueMoveRefusedForGood(t *testing.T) {
 	ctx := context.Background()
 	// The CLI refuses review for GitHub; a map written past it is still
 	// not acted on.
-	_, err := y.api.PutHook(ctx, store.Hook{Name: "gh", Source: "github", SecretFile: "/s", As: "mayor",
+	_, err := y.api.PutHook(ctx, store.Hook{Name: "gh", Source: "github", SecretFile: "/s", As: "yardmaster",
 		Map: map[string]string{"task:review": "review", "task:merged": "done"}}, "me")
 	must(t, err)
 	y.src.Add(standin.Issue{Source: "github", Key: "acme/webapp#7", Title: "A change", Status: "open", Pull: true})
@@ -391,7 +391,7 @@ func TestIssueMoveAsAGitHubApp(t *testing.T) {
 	y.src.Add(standin.Issue{Source: "github", Key: "acme/webapp#8", Title: "Timeouts", Status: "open"})
 	y.src.Add(standin.Issue{Source: "github", Key: "other/repo#1", Title: "Elsewhere", Status: "open"})
 	// GITHUB_TOKEN is there too: the App is who acts.
-	must(t, os.WriteFile(y.env, []byte("GITHUB_TOKEN=gh-mayor\nGITHUB_APP_ID=4242\nGITHUB_APP_PRIVATE_KEY_FILE="+key+"\n"), 0o600))
+	must(t, os.WriteFile(y.env, []byte("GITHUB_TOKEN=gh-yardmaster\nGITHUB_APP_ID=4242\nGITHUB_APP_PRIVATE_KEY_FILE="+key+"\n"), 0o600))
 	var logged bytes.Buffer
 	y.d.Log = slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
@@ -458,8 +458,8 @@ func TestIssueMoveAsAGitHubApp(t *testing.T) {
 // file has it.
 func TestIssueMoveUsesTheResidentsCredential(t *testing.T) {
 	y := newIssueYard(t)
-	t.Setenv("LINEAR_API_KEY", "lin_api_mayor") // the daemon's own environment is not the resident's
-	must(t, os.WriteFile(y.env, []byte("GITHUB_TOKEN=gh-mayor\n"), 0o600))
+	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster") // the daemon's own environment is not the resident's
+	must(t, os.WriteFile(y.env, []byte("GITHUB_TOKEN=gh-yardmaster\n"), 0o600))
 	y.bead(t, "yard-a", issueA)
 	y.to(t, "yard-a", "new")
 	want(t, "requests", y.asked.Load(), int64(0))
@@ -475,22 +475,22 @@ func TestIssueMoveUsesTheResidentsCredential(t *testing.T) {
 	if ms = y.pending(t); len(ms) != 1 || ms[0].Attempts != 2 || !strings.Contains(ms[0].Error, "Authentication required") || strings.Contains(ms[0].Error, "lin_api") {
 		t.Fatalf("moves %+v", ms)
 	}
-	must(t, os.WriteFile(y.env, []byte("LINEAR_API_KEY=lin_api_mayor\n"), 0o600))
+	must(t, os.WriteFile(y.env, []byte("LINEAR_API_KEY=lin_api_yardmaster\n"), 0o600))
 	y.now = y.now.Add(time.Hour)
 	y.pass(t)
 	want(t, "the issue", y.src.Status("linear", "YRD-1"), "In Progress")
 
 	// No env_file at all.
-	_, err := y.api.PutResident(context.Background(), store.Resident{Name: "mayor", Runner: "fake",
+	_, err := y.api.PutResident(context.Background(), store.Resident{Name: "yardmaster", Runner: "fake",
 		Config: map[string]any{store.SetState: "linear"}}, "me")
 	must(t, err)
 	y.to(t, "yard-a", "review")
-	if ms = y.pending(t); len(ms) != 1 || !strings.Contains(ms[0].Error, "resident mayor has no env_file") {
+	if ms = y.pending(t); len(ms) != 1 || !strings.Contains(ms[0].Error, "resident yardmaster has no env_file") {
 		t.Fatalf("moves %+v", ms)
 	}
 	// The hook removed: what it had still to do is not done.
 	must(t, y.api.DeleteHook(context.Background(), "linear", "me"))
-	y.mayor(t, "linear")
+	y.yardmaster(t, "linear")
 	y.now = y.now.Add(time.Hour)
 	y.pass(t)
 	want(t, "the issue after the hook was removed", y.src.Status("linear", "YRD-1"), "In Progress")
@@ -530,28 +530,28 @@ func TestIssueMoveUsesTheResidentsEnvCommand(t *testing.T) {
 		t.Helper()
 		must(t, os.WriteFile(cmd, []byte("#!/bin/sh\necho \"$YARDR_RESIDENT in $YARDR_HOME\" >> "+runs+"\n"+body+"\n"), 0o700))
 	}
-	mayor := func(cfg map[string]any) {
+	yardmaster := func(cfg map[string]any) {
 		t.Helper()
 		cfg[store.SetState] = "linear,github"
-		_, err := y.api.PutResident(context.Background(), store.Resident{Name: "mayor", Runner: "fake", Config: cfg}, "me")
+		_, err := y.api.PutResident(context.Background(), store.Resident{Name: "yardmaster", Runner: "fake", Config: cfg}, "me")
 		must(t, err)
 	}
 	y.d.Home = dir
 
 	// The provider alone.
-	provider(`echo "LINEAR_API_KEY=lin_api_mayor"`)
-	mayor(map[string]any{"env_command": cmd})
+	provider(`echo "LINEAR_API_KEY=lin_api_yardmaster"`)
+	yardmaster(map[string]any{"env_command": cmd})
 	y.bead(t, "yard-a", issueA)
 	y.to(t, "yard-a", "new")
 	want(t, "the issue", y.src.Status("linear", "YRD-1"), "In Progress")
 	raw, err := os.ReadFile(runs)
 	must(t, err)
-	want(t, "the provider's runs", string(raw), "mayor in "+dir+"\n")
+	want(t, "the provider's runs", string(raw), "yardmaster in "+dir+"\n")
 
 	// With an env_file whose key the source refuses: the provider's wins,
 	// and the file's other key is still the resident's.
-	must(t, os.WriteFile(y.env, []byte("LINEAR_API_KEY=lin_api_other\nGITHUB_TOKEN=gh-mayor\n"), 0o600))
-	mayor(map[string]any{"env_file": y.env, "env_command": cmd})
+	must(t, os.WriteFile(y.env, []byte("LINEAR_API_KEY=lin_api_other\nGITHUB_TOKEN=gh-yardmaster\n"), 0o600))
+	yardmaster(map[string]any{"env_file": y.env, "env_command": cmd})
 	y.to(t, "yard-a", "review")
 	want(t, "the issue", y.src.Status("linear", "YRD-1"), "In Review")
 	y.bead(t, "yard-g", issueGH)
@@ -559,7 +559,7 @@ func TestIssueMoveUsesTheResidentsEnvCommand(t *testing.T) {
 	want(t, "moves left", len(y.pending(t)), 0)
 
 	// The provider fails: the move waits, the source is not asked.
-	provider(`echo "LINEAR_API_KEY=lin_api_mayor"; echo "vault is locked" >&2; exit 3`)
+	provider(`echo "LINEAR_API_KEY=lin_api_yardmaster"; echo "vault is locked" >&2; exit 3`)
 	asked := y.asked.Load()
 	y.to(t, "yard-a", "merged")
 	ms := y.pending(t)
@@ -572,15 +572,15 @@ func TestIssueMoveUsesTheResidentsEnvCommand(t *testing.T) {
 		}
 	}
 	// It does not set the name: said as such, with where it was looked for.
-	provider(`echo "OTHER=lin_api_mayor"`)
-	mayor(map[string]any{"env_command": cmd})
+	provider(`echo "OTHER=lin_api_yardmaster"`)
+	yardmaster(map[string]any{"env_command": cmd})
 	y.now = y.now.Add(time.Minute)
 	y.pass(t)
-	if ms = y.pending(t); len(ms) != 1 || !strings.Contains(ms[0].Error, "resident mayor's env_command "+cmd+" does not set LINEAR_API_KEY") {
+	if ms = y.pending(t); len(ms) != 1 || !strings.Contains(ms[0].Error, "resident yardmaster's env_command "+cmd+" does not set LINEAR_API_KEY") {
 		t.Fatalf("moves %+v", ms)
 	}
 	// It answers again: the move is made.
-	provider(`echo "LINEAR_API_KEY=lin_api_mayor"`)
+	provider(`echo "LINEAR_API_KEY=lin_api_yardmaster"`)
 	y.now = y.now.Add(time.Hour)
 	y.pass(t)
 	want(t, "the issue", y.src.Status("linear", "YRD-1"), "Done")
@@ -589,7 +589,7 @@ func TestIssueMoveUsesTheResidentsEnvCommand(t *testing.T) {
 	must(t, err)
 	all, err := json.Marshal(evs)
 	must(t, err)
-	for _, s := range []string{"lin_api_mayor", "lin_api_other", "gh-mayor"} {
+	for _, s := range []string{"lin_api_yardmaster", "lin_api_other", "gh-yardmaster"} {
 		if strings.Contains(string(all), s) || strings.Contains(logged.String(), s) {
 			t.Fatalf("%s shows in the events or the log:\n%s", s, logged.String())
 		}

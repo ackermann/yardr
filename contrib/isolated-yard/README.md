@@ -35,7 +35,7 @@ it takes and waits for input again, as a harness does that stops on an error
 of its own (`API Error: Repeated 529 Overloaded errors`). The box
 leaves the cursor after its `❯`, so text sent to the pane and not yet
 submitted shows on that line, where yardr reads an agent's input. A stand-in
-whose first prompt asks it to greet a user by mail, as the mayor's does,
+whose first prompt asks it to greet a user by mail, as the yardmaster's does,
 sends that mail. The script's header says why each of these holds.
 
 `isolated-yard bare` makes the same yard without a herdr server and prints D

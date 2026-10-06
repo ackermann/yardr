@@ -190,7 +190,7 @@ func TestHoldFreesTheSlot(t *testing.T) {
 
 	_, err = s.CloseBead(ctx, b.ID, "done", store.Expect{}, "me")
 	must(t, err)
-	_, err = s.SetHold(ctx, a.ID, false, store.Expect{}, "mayor")
+	_, err = s.SetHold(ctx, a.ID, false, store.Expect{}, "yardmaster")
 	must(t, err)
 	must(t, d.Reconcile(ctx))
 	if got := f.starts(); !slices.Equal(got, []string{a.ID, b.ID, a.ID}) {
@@ -327,7 +327,7 @@ func TestAgedSessionIsReportedOnce(t *testing.T) {
 
 // With no grace set, a session that has run twice its max_age is stopped
 // anyway (failed, so repeats still hold the bead), and the bead is released
-// with a note saying why, so the next agent and the mayor see it.
+// with a note saying why, so the next agent and the yardmaster see it.
 func TestAgedSessionIsCappedWithoutGrace(t *testing.T) {
 	s, _, d := setup(t)
 	d.Backoff = time.Hour // keep the bead released, not restarted, for the checks

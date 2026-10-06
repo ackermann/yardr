@@ -47,8 +47,8 @@ groups:
   decisions: { people: true }
 
 residents:
-  mayor:
-    role: roles/mayor.md
+  yardmaster:
+    role: roles/yardmaster.md
     hears:
       events: [gave_up, session_blocked, unrouted, stranded, no_runner, workspace_kept, resident_gave_up, runtime_down, session_idle, session_aged, session_stalled, session_harness_error, session_model_mismatch, session_prompt_gave_up, move_refused, held]
       stages: [decide]
@@ -59,7 +59,7 @@ residents:
 
 sources:
   linear:
-    as: mayor
+    as: yardmaster
     hears:
       task: { new: started, review: review, merged: done }
 ```
@@ -107,10 +107,10 @@ puts the yard's names there:
 | placeholder | filled with |
 |---|---|
 | `{{operator}}` | the yard's operator: its `operator` setting, the name `yardr init` and `yardr rig init` put in the roles they write |
-| `{{<resident>}}`, for a key of `residents` | the yard's resident that takes it: `{{mayor}}` reads `yardmaster` under `--resident mayor=yardmaster`. A pack whose resident is called `lead` writes `{{lead}}` |
+| `{{<resident>}}`, for a key of `residents` | the yard's resident that takes it: `{{yardmaster}}` reads `boss` under `--resident yardmaster=boss`. A pack whose resident is called `lead` writes `{{lead}}` |
 
-So the starter's builder is told to run ``yardr mail {{mayor}} "…"`` and an
-agent prompted from the installed copy reads `yardr mail yardmaster "…"`.
+So the starter's builder is told to run ``yardr mail {{yardmaster}} "…"`` and an
+agent prompted from the installed copy reads `yardr mail boss "…"`.
 Nothing else is filled: any other `{{…}}` in a role or stage file the pack
 names, `{{ operator }}` with spaces included, is a mistake of the pack that
 `pack check` names by file and line. `{{operator}}` is the operator also in
@@ -143,7 +143,7 @@ packs/mine/pack.yaml:7: flows.default.stages.decide.group: no group deciders is 
 - a placeholder in a role or stage file that an import does not fill
   ([Placeholders](#packyaml)), named by that file and its line:
   `packs/mine/roles/builder.md:44: placeholder {{lead}}: an import fills
-  {{operator}}, {{mayor}} (the operator and the pack's residents) and
+  {{operator}}, {{yardmaster}} (the operator and the pack's residents) and
   nothing else`;
 - `hears.stages` naming a stage no flow of the pack has;
 - a `subscribe` source this yardr has no adapter for, or an unknown scope;
@@ -203,10 +203,10 @@ A role is installed with its placeholders filled ([above](#packyaml)), so
 the copy differs from the pack's file where that names the operator or a
 resident; a script is copied byte for byte. The plan says what it would
 fill in (`in its roles and stage files {{operator}} would read Jo,
-{{mayor}} would read yardmaster`), and compares, hashes and records the
+{{yardmaster}} would read boss`), and compares, hashes and records the
 filled text: a fresh import shows no change. The rigs a pack is imported
 into share its copies, so when another resident takes one of the pack's
-(`--resident mayor=boss`), the files naming it show as `change` and are
+(`--resident yardmaster=boss`), the files naming it show as `change` and are
 written again.
 
 **Stage files.** A flow of the pack is a flow in the store, and a store
@@ -313,7 +313,7 @@ route's priority is kept when a stage has a group. Routes with a label, and
 routes for stages the pack lacks, are left alone.
 
 **Residents.** A resident of the pack is taken by a resident of the yard:
-`--resident mayor=yardmaster`. Without the flag it is the yard's resident
+`--resident yardmaster=boss`. Without the flag it is the yard's resident
 of the same name, else whoever took it at the last import, else a question.
 The pack sets three things and nothing
 else (identity, `env_file`, args, model, directory and rotation are the
@@ -337,12 +337,12 @@ sources the pack names, per resident, and the import asks the operator
 about what is left:
 
 ```
-open threads, for resident yardmaster
+open threads, for resident boss
   the pack asks for linear, github
   asks      linear: the operator is asked, and the answer without one is no
   the pack wants github, this yard lacks hook and credential: nothing is asked or granted
     missing  hook         no hook receives github: yardr hook add github --source github --secret-file <file>
-    missing  credential   GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, or GITHUB_TOKEN, in resident yardmaster's env_file, to answer in github: …
+    missing  credential   GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, or GITHUB_TOKEN, in resident boss's env_file, to answer in github: …
 ```
 
 | the plan says | meaning |
@@ -366,21 +366,21 @@ hook of that source, as `yardr hook add --as <resident> --map
 
 | pack | hook |
 |---|---|
-| `as: mayor` | acts as the yard's resident that takes `mayor` (`--resident mayor=yardmaster`) |
+| `as: yardmaster` | acts as the yard's resident that takes `yardmaster` (`--resident yardmaster=boss`) |
 | `hears.task.review: review` | the map line `task:review=review` |
 
 The plan says, per source, what it would do and what the yard has for it:
 
 ```
 stage maps
-  create           hook linear as yardmaster
+  create           hook linear as boss
 
-stage map of source linear, as resident yardmaster
+stage map of source linear, as resident boss
   the pack says task:merged=done task:new=started task:review=review
   would be set on hook linear, which has none
   ok       hook         hook linear
-  ok       identity     resident yardmaster has an identity in linear
-  missing  set state    resident yardmaster may not set a status in linear, so no issue is moved. The import does not grant it: the operator allows it with yardr resident set yardmaster set_state=linear
+  ok       identity     resident boss has an identity in linear
+  missing  set state    resident boss may not set a status in linear, so no issue is moved. The import does not grant it: the operator allows it with yardr resident set boss set_state=linear
 ```
 
 | the plan says | meaning |
@@ -466,7 +466,7 @@ agent group or resident the import creates is given some:
   permission list of the group form (`yardr group add`), the kind's
   unattended arguments preselected.
 - Without a terminal, or with `--yes`, it gets the kind's unattended
-  arguments, the ones `yardr init` gives the mayor: claude
+  arguments, the ones `yardr init` gives the yardmaster: claude
   `--permission-mode auto`, codex
   `--dangerously-bypass-approvals-and-sandbox`, kimi `--yolo`.
 - `--bind` may name another preset after a comma, by the label the group
@@ -491,13 +491,13 @@ touched, whatever `--bind` says.
 source under `asks` in the plan:
 
 - In a terminal the import asks once per resident, after its other
-  questions and the confirmation: `Let yardmaster open threads in linear?`
+  questions and the confirmation: `Let boss open threads in linear?`
   The default is no, and the one answer is for every source in the
   question.
 - Without a terminal, with `--json` or with `--yes`, nothing is asked and
-  the flag answers: `--open-threads mayor=linear,github` lets the resident
-  that takes the pack's `mayor` open threads in those and says no to the
-  other sources in the question; `--open-threads mayor=none` says no to
+  the flag answers: `--open-threads yardmaster=linear,github` lets the resident
+  that takes the pack's `yardmaster` open threads in those and says no to the
+  other sources in the question; `--open-threads yardmaster=none` says no to
   all. A no changes nothing in the yard, and the output says it is on
   record. Without the flag nothing is granted, the rest is imported, and the
   output names the flag. The safe answer exists here, and it is no, which
@@ -537,7 +537,7 @@ gets the pack's.
   no map, records none and prints the refusal; `--json` has it under
   `maps_refused`, by source.
 - What it set is printed as `hook linear now moves tracked linear issues as
-  yardmaster: …` and logged as the store logs any `hook_added`.
+  boss: …` and logged as the store logs any `hook_added`.
 
 **Twice is once.** Applying a pack that is already applied writes no object
 and logs one event, `pack_unchanged`. A hook that has the pack's map and
@@ -603,7 +603,7 @@ starter in rig web  2026-10-03 18:40 by mckean
   flow       default (stored as starter.default)
   roles      the pack's
   groups     backlog -> backlog, builders -> web-builders, decisions -> decisions, refinery -> web-refinery, reviewers -> web-reviewers
-  residents  mayor -> yardmaster
+  residents  yardmaster -> boss
   objects    9 files, 5 groups, 1 flows, 1 flow pointers, 5 routes, 3 subscriptions
 ```
 
@@ -617,7 +617,7 @@ starter in rig web  2026-10-03 18:40 by mckean
 | `rig_roles` | `true` when the import was given `--rig-roles`; absent when the pack's roles were set |
 | `groups`, `residents` | pack name -> yard name |
 | `objects` | the files, groups, flows, pointers, routes, subscriptions and stage maps that are the pack's; a file with the `sha256` of its content as installed, placeholders filled; a stage map (`kind: map`) with the hook's `name`, the `resident` it acts as and the `map` as the import set it |
-| `open_threads` | the answers about opening threads: yard's resident -> source -> `true` or `false`; absent when nothing was answered. `yardr pack list` prints them as `may open   yardmaster: github no, linear yes` |
+| `open_threads` | the answers about opening threads: yard's resident -> source -> `true` or `false`; absent when nothing was answered. `yardr pack list` prints them as `may open   boss: github no, linear yes` |
 
 An import that changes nothing leaves the record as it is, its commit and
 time included: it is the record of the last import that did something. The
@@ -682,8 +682,8 @@ run set no stage map for it, and `result.mapped` the maps it set, each with
 ```json
 {
   "pack": "starter", "dir": "/…/packs/starter", "rig": "yardr",
-  "flow": "default", "rig_roles": false, "groups": {"builders": "yardr-builders"}, "residents": {"mayor": "yardmaster"},
-  "fill": {"operator": "Jo", "mayor": "yardmaster"},
+  "flow": "default", "rig_roles": false, "groups": {"builders": "yardr-builders"}, "residents": {"yardmaster": "boss"},
+  "fill": {"operator": "Jo", "yardmaster": "boss"},
   "install": "/Users/me/.yardr/packs/starter", "stage_files": "/Users/me/.yardr/flows",
   "objects": [
     {"kind": "group", "name": "yardr-builders", "action": "change", "shadows": [".yardr/roles/builder.md"],
@@ -692,10 +692,10 @@ run set no stage map for it, and `result.mapped` the maps it set, each with
   ],
   "questions": [{"id": "group.web-builders.kind", "object": "group web-builders", "field": "kind", "ask": "…", "default": "claude"}],
   "governs": [{"flow": "starter.default", "source": "store", "now": "default (repo@77a3a8f)", "in_pack": true}],
-  "sources": [{"source": "linear", "resident": "yardmaster", "needs": [{"what": "hook", "status": "ok", "detail": "…"}]}],
-  "open_threads": [{"pack": "mayor", "resident": "yardmaster", "wants": ["linear", "github"], "has": [], "asks": ["linear"], "declined": [],
+  "sources": [{"source": "linear", "resident": "boss", "needs": [{"what": "hook", "status": "ok", "detail": "…"}]}],
+  "open_threads": [{"pack": "yardmaster", "resident": "boss", "wants": ["linear", "github"], "has": [], "asks": ["linear"], "declined": [],
     "lacks": [{"source": "github", "missing": [{"what": "hook", "status": "missing", "detail": "…"}]}]}],
-  "maps": [{"source": "linear", "pack": "mayor", "as": "yardmaster", "map": {"task:new": "started", "task:review": "review", "task:merged": "done"},
+  "maps": [{"source": "linear", "pack": "yardmaster", "as": "boss", "map": {"task:new": "started", "task:review": "review", "task:merged": "done"},
     "hook": "linear", "action": "create", "needs": [{"what": "set_state", "status": "missing", "detail": "…"}]}],
   "notes": [], "refused": []
 }

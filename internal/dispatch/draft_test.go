@@ -23,32 +23,32 @@ func kindCount(t *testing.T, s store.API, bead, kind string) (n int, last store.
 	return n, last
 }
 
-// Found live (yardr-ps05): a person was typing in the mayor's pane ("some
-// creative..") when the mayor was nudged about its inbox, and the mayor got
-// "some creative..yardr: 1 new in your inbox ..." as one message. A nudge
-// is not typed into an input that holds text: it stays due, and is typed
-// once, with the inbox as it then is, when the input is empty.
+// Found live (yardr-ps05): a person was typing in the yardmaster's pane
+// ("some creative..") when the yardmaster was nudged about its inbox, and the
+// yardmaster got "some creative..yardr: 1 new in your inbox ..." as one
+// message. A nudge is not typed into an input that holds text: it stays due,
+// and is typed once, with the inbox as it then is, when the input is empty.
 func TestNudgeWaitsForTextInTheInput(t *testing.T) {
 	s, f, d := residentSetup(t, store.Resident{})
 	ctx := context.Background()
 	must(t, d.Reconcile(ctx))
-	before, err := s.GetResident(ctx, "mayor")
+	before, err := s.GetResident(ctx, "yardmaster")
 	must(t, err)
 
 	f.input = "some creative.."
-	must(t, s.Mail(ctx, "mayor", "deploy freeze", "chris"))
+	must(t, s.Mail(ctx, "yardmaster", "deploy freeze", "chris"))
 	for range 3 {
 		must(t, d.Reconcile(ctx))
 	}
 	if len(f.nudges) != 0 || f.submits != 0 {
 		t.Fatalf("typed into an input that holds text: nudges %v, Enter sent %d times", f.nudges, f.submits)
 	}
-	if r, _ := s.GetResident(ctx, "mayor"); r.Notified != before.Notified {
+	if r, _ := s.GetResident(ctx, "yardmaster"); r.Notified != before.Notified {
 		t.Fatalf("a nudge that was not typed is recorded as said: notified %d -> %d", before.Notified, r.Notified)
 	}
 
 	// More mail while it waits: the nudge counts the inbox when it is typed.
-	must(t, s.Mail(ctx, "mayor", "and a second thing", "chris"))
+	must(t, s.Mail(ctx, "yardmaster", "and a second thing", "chris"))
 	must(t, d.Reconcile(ctx))
 	f.input = ""
 	for range 3 {
@@ -73,7 +73,7 @@ func TestNudgeIsTypedWhenTheInputCannotBeTold(t *testing.T) {
 			must(t, d.Reconcile(ctx))
 			f.input = "whatever the pane ends with"
 			set(f)
-			must(t, s.Mail(ctx, "mayor", "deploy freeze", "chris"))
+			must(t, s.Mail(ctx, "yardmaster", "deploy freeze", "chris"))
 			must(t, d.Reconcile(ctx))
 			must(t, d.Reconcile(ctx))
 			if len(f.nudges) != 1 {
@@ -92,11 +92,11 @@ func TestTextLeftInTheInputIsSaidOnceAndNeverTypedAfter(t *testing.T) {
 	now := time.Now()
 	dispatch.SetClock(d, func() time.Time { return now })
 	must(t, d.Reconcile(ctx))
-	r, err := s.GetResident(ctx, "mayor")
+	r, err := s.GetResident(ctx, "yardmaster")
 	must(t, err)
 
 	f.input = "some creative.."
-	must(t, s.Mail(ctx, "mayor", "deploy freeze", "chris"))
+	must(t, s.Mail(ctx, "yardmaster", "deploy freeze", "chris"))
 	must(t, d.Reconcile(ctx))
 	now = now.Add(9 * time.Minute)
 	must(t, d.Reconcile(ctx))
@@ -108,7 +108,7 @@ func TestTextLeftInTheInputIsSaidOnceAndNeverTypedAfter(t *testing.T) {
 		must(t, d.Reconcile(ctx))
 	}
 	n, ev := kindCount(t, s, r.Journal, "nudge_held")
-	if n != 1 || ev.Data["resident"] != "mayor" || ev.Data["reason"] == nil {
+	if n != 1 || ev.Data["resident"] != "yardmaster" || ev.Data["reason"] == nil {
 		t.Fatalf("nudge_held logged %d times, want once, naming the resident: %+v", n, ev)
 	}
 	if len(f.nudges) != 0 || f.submits != 0 || f.input != "some creative.." {
@@ -122,7 +122,7 @@ func TestTextLeftInTheInputIsSaidOnceAndNeverTypedAfter(t *testing.T) {
 	}
 	// A new wait says so again, counted from its own start.
 	f.input = "another thought"
-	must(t, s.Mail(ctx, "mayor", "second", "chris"))
+	must(t, s.Mail(ctx, "yardmaster", "second", "chris"))
 	must(t, d.Reconcile(ctx))
 	if n, _ := kindCount(t, s, r.Journal, "nudge_held"); n != 1 {
 		t.Fatalf("a new draft was said at once: nudge_held logged %d times", n)
@@ -142,7 +142,7 @@ func TestNudgeLeftInTheInputIsSubmitted(t *testing.T) {
 	s, f, d := residentSetup(t, store.Resident{})
 	ctx := context.Background()
 	must(t, d.Reconcile(ctx))
-	must(t, s.Mail(ctx, "mayor", "deploy freeze", "chris"))
+	must(t, s.Mail(ctx, "yardmaster", "deploy freeze", "chris"))
 	must(t, d.Reconcile(ctx))
 	if len(f.nudges) != 1 {
 		t.Fatalf("nudges = %q", f.nudges)
@@ -151,7 +151,7 @@ func TestNudgeLeftInTheInputIsSubmitted(t *testing.T) {
 	nudge := strings.TrimPrefix(f.nudges[0], agentOf(t, s)+": ")
 	f.input = nudge[:40] + "\n" + nudge[40:]
 	f.deaf = true
-	must(t, s.Mail(ctx, "mayor", "second", "chris"))
+	must(t, s.Mail(ctx, "yardmaster", "second", "chris"))
 	for range 3 {
 		must(t, d.Reconcile(ctx))
 	}
@@ -166,7 +166,7 @@ func TestNudgeLeftInTheInputIsSubmitted(t *testing.T) {
 
 	// With a person's words after it, it is theirs: no Enter.
 	f.input = strings.TrimPrefix(f.nudges[1], agentOf(t, s)+": ") + " and what is this?"
-	must(t, s.Mail(ctx, "mayor", "third", "chris"))
+	must(t, s.Mail(ctx, "yardmaster", "third", "chris"))
 	for range 3 {
 		must(t, d.Reconcile(ctx))
 	}
@@ -183,7 +183,7 @@ func TestOldNudgeTextIsNotSubmitted(t *testing.T) {
 	now := time.Now()
 	dispatch.SetClock(d, func() time.Time { return now })
 	must(t, d.Reconcile(ctx))
-	must(t, s.Mail(ctx, "mayor", "first", "chris"))
+	must(t, s.Mail(ctx, "yardmaster", "first", "chris"))
 	must(t, d.Reconcile(ctx))
 	if len(f.nudges) != 1 {
 		t.Fatalf("first nudge = %q", f.nudges)
@@ -194,7 +194,7 @@ func TestOldNudgeTextIsNotSubmitted(t *testing.T) {
 	now = now.Add(3 * d.Interval)
 	f.input = strings.TrimPrefix(f.nudges[0], agentOf(t, s)+": ")
 	f.deaf = true
-	must(t, s.Mail(ctx, "mayor", "second", "chris"))
+	must(t, s.Mail(ctx, "yardmaster", "second", "chris"))
 	must(t, d.Reconcile(ctx))
 	if f.submits != 0 || len(f.nudges) != 1 || f.input == "" {
 		t.Fatalf("old nudge text was treated as yardr's: Enter %d, nudges %q, input %q", f.submits, f.nudges, f.input)
@@ -213,7 +213,7 @@ func TestRotationIsNotAskedIntoTextInTheInput(t *testing.T) {
 		must(t, d.Reconcile(ctx))
 		time.Sleep(2 * time.Millisecond)
 	}
-	r, err := s.GetResident(ctx, "mayor")
+	r, err := s.GetResident(ctx, "yardmaster")
 	must(t, err)
 	if len(f.nudges) != 0 || r.RotationAskedAt != nil || r.RestartRequested != "" || f.n != 1 {
 		t.Fatalf("rotation asked into a draft: nudges %q, asked %v, restart %q, starts %d",

@@ -26,9 +26,10 @@ epic leaves, one note on it says how the review ended. Outcomes:
 - `done`, approved: the note says what you checked, what you fixed (commits),
   the check results, and any remaining risk. The epic goes to `approved`.
 - `changes`: the epic goes back to `open`; the fix is then a new child the
-  mayor files, so make the finding concrete enough to be a bead. If the notes
-  show the epic has already come back from review twice, do not send it back
-  a third time: note why and `yardr bead hold <id>` so the mayor looks at it.
+  yardmaster files, so make the finding concrete enough to be a bead. If the
+  notes show the epic has already come back from review twice, do not send it
+  back a third time: note why and `yardr bead hold <id>` so the yardmaster
+  looks at it.
 - `question`, it needs a decision only Christopher can make: the note has the
   question and the options, and the epic goes to `decide`.
 

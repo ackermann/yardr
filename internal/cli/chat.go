@@ -31,7 +31,7 @@ blocked, failed to start) and how much mail from it you have not seen, the
 mail between you and the selected one, and a line to type. Enter sends the
 line as mail to the selected resident, as yardr mail does.
 
-The resident named is selected first, else the mayor. New mail and a
+The resident named is selected first, else the yardmaster. New mail and a
 resident's state appear as they change, from the yard's event stream.
 Opening a conversation marks your unread mail in it as read.
 
@@ -71,7 +71,7 @@ Without one, yardr mail <resident> <text> sends and yardr mail --with
 				return fmt.Errorf("yardr chat is for a user of the yard, and %s is none: the operator (%s) adds one with yardr user add %s",
 					a.who(), operator, a.who())
 			}
-			first := yardMayor(ctx, st)
+			first := yardmasterOf(ctx, st)
 			if len(args) == 1 {
 				if _, err := st.GetResident(ctx, args[0]); err != nil {
 					return err
@@ -94,7 +94,7 @@ func (a *app) chatOn(ctx context.Context, st store.API, me, first, expect string
 		return err
 	}
 	if len(state.Residents) == 0 {
-		return errors.New("the yard has no residents to talk with: yardr resident add adds one, yardr init the mayor")
+		return errors.New("the yard has no residents to talk with: yardr resident add adds one, yardr init the yardmaster")
 	}
 	m := chat.New(ctx, st, chat.Options{Me: me, Select: first, Yardr: "yardr", Expect: expect,
 		InHerdr: os.Getenv("HERDR_ENV") != "", Focus: focusAgent, Tail: paneTail, Refresh: paneRefresh}, state)
@@ -108,15 +108,15 @@ func (a *app) chats() bool {
 	return !a.json && !a.noChat && interactive() && !agentSession()
 }
 
-// toChat is the hand-over to the mayor: it opens the chat on it for the
+// toChat is the hand-over to the yardmaster: it opens the chat on it for the
 // user this run acts as and, once they leave the view, says how to come
-// back. A mayor in the session that was asked to greet (runner.Greeted) is
+// back. A yardmaster in the session that was asked to greet (runner.Greeted) is
 // expected to write first, and the view says so until it has.
 //
 // It reports false, having said why and opened nothing, when who acts is no
 // user of the yard: the operator was given another name than the one this
-// terminal acts under, and the mayor's mail goes to the operator.
-func (a *app) toChat(ctx context.Context, cfg *config.Config, st store.API, mayor string) (bool, error) {
+// terminal acts under, and the yardmaster's mail goes to the operator.
+func (a *app) toChat(ctx context.Context, cfg *config.Config, st store.API, yardmaster string) (bool, error) {
 	yardr := yardrAt(cfg.Home)
 	me, err := a.actingUser(ctx, st)
 	if err != nil {
@@ -130,19 +130,19 @@ func (a *app) toChat(ctx context.Context, cfg *config.Config, st store.API, mayo
 		fmt.Printf("\n%s chat is for a user of the yard, and this terminal acts as %s, who is none: the operator is %s,\n"+
 			"and %s writes to them. As the operator: %s --actor %s chat (or YARDR_ACTOR=%s). As yourself, once\n"+
 			"added: %s --actor %s user add %s\n",
-			yardr, a.who(), operator, mayor, yardr, operator, operator, yardr, operator, a.who())
+			yardr, a.who(), operator, yardmaster, yardr, operator, operator, yardr, operator, a.who())
 		return false, nil
 	}
 	expect := ""
-	if r, err := st.GetResident(ctx, mayor); err != nil {
+	if r, err := st.GetResident(ctx, yardmaster); err != nil {
 		return false, err
 	} else if runner.Greeted(*r) {
-		expect = mayor
+		expect = yardmaster
 	}
-	if err := a.chatOn(ctx, st, me.Name, mayor, expect); err != nil {
+	if err := a.chatOn(ctx, st, me.Name, yardmaster, expect); err != nil {
 		return false, err
 	}
-	fmt.Printf("\nYou left the chat; %s keeps running. To come back: %s chat\n", mayor, yardr)
+	fmt.Printf("\nYou left the chat; %s keeps running. To come back: %s chat\n", yardmaster, yardr)
 	return true, nil
 }
 

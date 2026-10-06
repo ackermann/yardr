@@ -24,7 +24,7 @@ import (
 
 // defaultOn are the events a new resident hears about: work that needs a
 // decision, anything that went wrong, and beads held: the roles tell a
-// stuck agent to hold its bead for the mayor, so the hold must reach it.
+// stuck agent to hold its bead for the yardmaster, so the hold must reach it.
 // A resident from before a kind joined this list does not get it: resident
 // add --on replaces the list, so name every kind wanted (docs/residents.md).
 var defaultOn = []string{"gave_up", "session_blocked", "unrouted", "stranded", "no_runner", "workspace_kept",
@@ -39,7 +39,7 @@ var knownKinds = []string{"gave_up", "session_blocked", "session_died", "session
 	"held", "released", "noted", "dep_added", "hook_rejected"}
 
 func (a *app) residentCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "resident", Short: "Always-on sessions not tied to a bead (a mayor)"}
+	cmd := &cobra.Command{Use: "resident", Short: "Always-on sessions not tied to a bead (a yardmaster)"}
 
 	var def store.Resident
 	var sets []string
@@ -47,7 +47,7 @@ func (a *app) residentCmd() *cobra.Command {
 	add := &cobra.Command{
 		Use:   "add [<name>]",
 		Short: "Create a resident, or replace one's whole definition (no name: an interactive form)",
-		Long: `A resident is an always-on agent session, such as a mayor. The daemon keeps
+		Long: `A resident is an always-on agent session, such as a yardmaster. The daemon keeps
 it running in its directory, nudges it when its inbox has something new and it
 is idle, and rotates it: at --max-age it is asked to write a handoff, and its
 next session starts from that handoff (forced after --handoff-grace).
@@ -85,8 +85,8 @@ for its links (yardr peer list).
 linked yards (yardr bead unhold), under the same rule. Without it only a
 user releases such a bead (yardr peer intake).`,
 		Example: `  yardr resident add                       # interactive
-  yardr resident add mayor --set kind=claude --set model=opus \
-    --set 'args=["--permission-mode","auto"]' --set prompt=$HOME/.yardr/roles/mayor.md \
+  yardr resident add yardmaster --set kind=claude --set model=opus \
+    --set 'args=["--permission-mode","auto"]' --set prompt=$HOME/.yardr/roles/yardmaster.md \
     --dir ~/projects --max-age 6h`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
@@ -387,10 +387,10 @@ set_state, peers, release), --on and --max-age hold from the next time they are
 looked at; what a session starts with (kind, model, args, prompt, its
 environment, --dir) is read when the next one starts: yardr resident
 restart <name>.`,
-		Example: `  yardr resident set mayor set_state=linear
-  yardr resident set mayor release=north
-  yardr resident set mayor model=opus 'args=["--permission-mode","auto"]' --max-age 6h
-  yardr resident set mayor --unset open_threads`,
+		Example: `  yardr resident set yardmaster set_state=linear
+  yardr resident set yardmaster release=north
+  yardr resident set yardmaster model=opus 'args=["--permission-mode","auto"]' --max-age 6h
+  yardr resident set yardmaster --unset open_threads`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()
@@ -1017,12 +1017,12 @@ Mail from another yard is shown as from <name>@<peer> and marked "` + store.Outs
 Answer it with yardr mail <name>@<peer>. Mail from a yard that is linked no
 more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
 <peer>)", with no address: a yard added under that name later is another yard.`,
-		Example: `  yardr mail mayor "Deploys are frozen until Friday"
+		Example: `  yardr mail yardmaster "Deploys are frozen until Friday"
   yardr mail mckean "The refinery is red on main: yardr-1a2b"
-  yardr mail --with mayor
-  yardr mail --with mayor --after 412 --json
-  yardr mail mayor@north "Our webapp rig is on Go 1.25 now"
-  yardr mail --with mayor@north`,
+  yardr mail --with yardmaster
+  yardr mail --with yardmaster --after 412 --json
+  yardr mail yardmaster@north "Our webapp rig is on Go 1.25 now"
+  yardr mail --with yardmaster@north`,
 		Args: func(c *cobra.Command, args []string) error {
 			if with != "" {
 				return cobra.NoArgs(c, args)
@@ -1353,7 +1353,7 @@ func (a *app) residentForm(ctx context.Context, st store.API) error {
 		}
 	}
 	if !editing {
-		if err := ask(huh.NewInput().Title("Name").Placeholder("mayor").Value(&def.Name).
+		if err := ask(huh.NewInput().Title("Name").Placeholder("yardmaster").Value(&def.Name).
 			Validate(func(s string) error {
 				if !groupName.MatchString(s) {
 					return errors.New("letters, digits, '.', '_', '-', '/'")

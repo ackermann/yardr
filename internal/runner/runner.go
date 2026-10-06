@@ -334,7 +334,39 @@ func LocatePrompt(p string, rig *store.Rig, home string) (PromptSource, error) {
 	return src, err
 }
 
+// yardmasterRoles are the file names of the yardmaster's role: yardmaster.md,
+// and mayor.md, as it was called until this release.
+var yardmasterRoles = [2]string{"yardmaster.md", "mayor.md"}
+
+// findPrompt is lookPrompt, and for the yardmaster's role under one of its
+// two names, when no file has that name, the other: a yard set up before
+// the rename has mayor.md where a prompt now says yardmaster.md, and a rig
+// that renamed its file is still named by a resident's prompt=…/mayor.md.
+// For this release only.
 func findPrompt(p string, rig *store.Rig, home string) ([]byte, PromptSource, error) {
+	text, src, err := lookPrompt(p, rig, home)
+	if err == nil {
+		return text, src, nil
+	}
+	dir, file := filepath.Split(p)
+	for i, name := range yardmasterRoles {
+		if file != name {
+			continue
+		}
+		// A file that is there and cannot be read is the error to report;
+		// only one that nobody has under this name is looked up under the
+		// other.
+		if filepath.IsAbs(p) && !errors.Is(err, fs.ErrNotExist) {
+			break
+		}
+		if text, src, err2 := lookPrompt(dir+yardmasterRoles[1-i], rig, home); err2 == nil {
+			return text, src, nil
+		}
+	}
+	return text, src, err
+}
+
+func lookPrompt(p string, rig *store.Rig, home string) ([]byte, PromptSource, error) {
 	if filepath.IsAbs(p) {
 		text, err := os.ReadFile(p)
 		return text, PromptSource{Kind: PromptFile, Path: p}, err

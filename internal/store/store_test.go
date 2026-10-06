@@ -407,7 +407,7 @@ func TestDeleteGroupReleasesClaimedBeads(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	n, err := s.DeleteGroup(ctx, "gone", "mayor")
+	n, err := s.DeleteGroup(ctx, "gone", "yardmaster")
 	if err != nil || n != 1 {
 		t.Fatalf("DeleteGroup = %d, %v; want 1", n, err)
 	}
@@ -430,7 +430,7 @@ func TestDeleteGroupReleasesClaimedBeads(t *testing.T) {
 	}
 	evs, _ := s.Events(ctx, a.ID, 100)
 	last := evs[len(evs)-1]
-	if last.Kind != "released" || last.Actor != "mayor" || last.Data["reason"] != "group gone deleted" {
+	if last.Kind != "released" || last.Actor != "yardmaster" || last.Data["reason"] != "group gone deleted" {
 		t.Fatalf("last event = %+v", last)
 	}
 
@@ -441,7 +441,7 @@ func TestDeleteGroupReleasesClaimedBeads(t *testing.T) {
 	}
 
 	// Deleting a group with nothing claimed releases nothing.
-	if n, err := s.DeleteGroup(ctx, "gone", "mayor"); err != nil || n != 0 {
+	if n, err := s.DeleteGroup(ctx, "gone", "yardmaster"); err != nil || n != 0 {
 		t.Fatalf("second DeleteGroup = %d, %v", n, err)
 	}
 }

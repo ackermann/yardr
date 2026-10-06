@@ -766,11 +766,11 @@ func TestStartAgentKeepsNotReadyAgents(t *testing.T) {
 	log := filepath.Join(t.TempDir(), "calls")
 	h := &Herdr{Bin: fakeHerdrBin(t, `echo "$@" >> `+log+`
 case "$1 $2" in
-  "agent start") echo '{"error":{"code":"agent_not_ready","message":"agent mayor is blocked during startup and is not ready for prompts"},"id":"x"}' >&2; exit 1 ;;
+  "agent start") echo '{"error":{"code":"agent_not_ready","message":"agent yardmaster is blocked during startup and is not ready for prompts"},"id":"x"}' >&2; exit 1 ;;
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)}
-	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "mayor"}, "mayor", "prime yourself",
-		map[string]any{"agent": "mayor"}, false)
+	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "yardmaster"}, "yardmaster", "prime yourself",
+		map[string]any{"agent": "yardmaster"}, false)
 	if err != nil {
 		t.Fatalf("not-ready agent treated as a failure: %v", err)
 	}

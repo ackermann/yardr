@@ -63,7 +63,7 @@ nudge wakes the resident for it when it is idle
 ([residents.md](residents.md)):
 
 ```
-   512 10-05 14:40  timer: look at the deploy again (set 10-05 14:00 by mayor).
+   512 10-05 14:40  timer: look at the deploy again (set 10-05 14:00 by yardmaster).
 ```
 
 **To a user** it is mail from whoever set it, whose text begins `timer:`. It

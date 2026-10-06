@@ -8,7 +8,7 @@
     "updatedAt": "2026-10-02T08:00:00.000Z",
     "number": 42,
     "title": "Webhook receiver drops retries",
-    "description": "Retries from the sender arrive after the window.\n\nhttps://linear.app/company/profiles/mayor owns triage.",
+    "description": "Retries from the sender arrive after the window.\n\nhttps://linear.app/company/profiles/yardmaster owns triage.",
     "priority": 2,
     "priorityLabel": "High",
     "identifier": "ENG-42",
@@ -23,7 +23,7 @@
     "team": {"id": "72b2a2dc-6f4f-4423-9d34-24b5bd10634a", "key": "ENG", "name": "Engineering"},
     "project": {"id": "5b1d9a0e-2c3f-4d5e-8f60-71829304a5b6", "name": "Webhooks"},
     "labels": [{"id": "0c9a5b0e-7a4b-4b38-a0a1-5c5b1c9f6e01", "name": "Bug", "color": "#eb5757"}],
-    "assignee": {"id": "4d3a2b1c-0000-4000-8000-00000000mayr", "name": "mayor"}
+    "assignee": {"id": "4d3a2b1c-0000-4000-8000-00000000mayr", "name": "yardmaster"}
   },
   "type": "Issue",
   "url": "https://linear.app/company/issue/ENG-42/webhook-receiver-drops-retries",

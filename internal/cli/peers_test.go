@@ -115,10 +115,10 @@ func TestPeerAddAndAllowAreTheOperators(t *testing.T) {
 	invite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
 	ctx := context.Background()
 
-	for _, who := range []string{"mayor", "yard-10-new"} {
+	for _, who := range []string{"yardmaster", "yard-10-new"} {
 		north.a.actor = who
-		if who == "mayor" {
-			t.Setenv("YARDR_RESIDENT", "mayor")
+		if who == "yardmaster" {
+			t.Setenv("YARDR_RESIDENT", "yardmaster")
 		} else {
 			t.Setenv("YARDR_RESIDENT", "")
 		}
@@ -137,7 +137,7 @@ func TestPeerAddAndAllowAreTheOperators(t *testing.T) {
 		t.Fatalf("south as added = %+v, %v", p, err)
 	}
 
-	for _, who := range []string{"mayor", "yard-10-new"} {
+	for _, who := range []string{"yardmaster", "yard-10-new"} {
 		north.a.actor = who
 		for _, flag := range []string{"--send", "--receive"} {
 			if _, err := north.peer(t, "allow", "south", flag, "ping"); err == nil || !strings.Contains(err.Error(), "only the operator (jo) may allow a peer's messages; this is "+who) {
@@ -153,7 +153,7 @@ func TestPeerAddAndAllowAreTheOperators(t *testing.T) {
 		t.Fatalf("allow printed %q", out)
 	}
 	// Narrowing is anyone's, as it is in a resident's definition.
-	north.a.actor = "mayor"
+	north.a.actor = "yardmaster"
 	if out := north.must(t, "allow", "south", "--no-receive", "ping"); !strings.Contains(out, "send ping; receive nothing") {
 		t.Fatalf("allow --no-receive printed %q", out)
 	}
@@ -183,7 +183,7 @@ func TestPeerAddAndAllowAreTheOperators(t *testing.T) {
 	show := north.must(t, "show", "south")
 	wantText(t, show, "south  (it calls itself south)", "key      "+p.Key, "url      "+south.srv.URL, "send     ping", "receive  nothing",
 		"incoming nothing can be posted to this yard, so it gets this peer's messages by asking it")
-	north.a.actor = "mayor"
+	north.a.actor = "yardmaster"
 	if out := north.must(t, "rm", "south"); !strings.Contains(out, "south: removed") {
 		t.Fatalf("rm printed %q", out)
 	}

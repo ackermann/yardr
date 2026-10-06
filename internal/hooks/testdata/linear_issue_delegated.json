@@ -24,7 +24,7 @@
     "team": {"id": "72b2a2dc-6f4f-4423-9d34-24b5bd10634a", "key": "ENG", "name": "Engineering"},
     "labels": [],
     "assignee": {"id": "aacdca22-6266-4c0a-ab3c-8fa70a26765c", "name": "Jane Doe", "email": "jane@company.com", "url": "https://linear.app/company/profiles/jane.doe"},
-    "delegate": {"id": "4d3a2b1c-0000-4000-8000-00000000mayr", "name": "mayor", "email": "27a5c7aa-0000-4000-8000-000000000000@oauthapp.linear.app", "url": "https://linear.app/company/profiles/mayor"}
+    "delegate": {"id": "4d3a2b1c-0000-4000-8000-00000000mayr", "name": "yardmaster", "email": "27a5c7aa-0000-4000-8000-000000000000@oauthapp.linear.app", "url": "https://linear.app/company/profiles/yardmaster"}
   },
   "type": "Issue",
   "url": "https://linear.app/company/issue/ENG-14/notify-the-agent-an-issue-is-handed-to",

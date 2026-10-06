@@ -179,6 +179,9 @@ func Open(path string) (*Store, error) {
 		if err := migratePeerSince(tx, stampedSchema(tx)); err != nil {
 			return err
 		}
+		if err := migrateYardmaster(tx, stampedSchema(tx)); err != nil {
+			return err
+		}
 		return setSchema(tx)
 	})
 	if err != nil {

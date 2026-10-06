@@ -92,7 +92,7 @@ func (f *fakeLinear) serve(t *testing.T) {
 					comment("c3", "", "", "2026-10-03T11:00:00Z", "separately"),
 				}, true)
 			} else {
-				data = issueComments([]any{comment("c1", "", "Ann", "2026-10-03T10:00:00Z", "@mayor look?")}, false)
+				data = issueComments([]any{comment("c1", "", "Ann", "2026-10-03T10:00:00Z", "@yardmaster look?")}, false)
 			}
 		default:
 			t.Errorf("unexpected query %s", req.Query)
@@ -114,7 +114,7 @@ func comment(id, parent, user, at, body string) map[string]any {
 	if user != "" {
 		c["user"] = map[string]any{"id": "u-" + strings.ToLower(user), "name": user}
 	} else {
-		c["botActor"] = map[string]any{"id": "bot", "name": "Mayor (app)"}
+		c["botActor"] = map[string]any{"id": "bot", "name": "Yardmaster (app)"}
 	}
 	return c
 }
@@ -260,11 +260,11 @@ func TestLinearThread(t *testing.T) {
 	}
 	at := func(s string) time.Time { v, _ := time.Parse(time.RFC3339, s); return v }
 	want := []hooks.Message{
-		{ID: "c1", Author: hooks.Party{ID: "u-ann", Name: "Ann"}, At: at("2026-10-03T10:00:00Z"), Body: "@mayor look?",
+		{ID: "c1", Author: hooks.Party{ID: "u-ann", Name: "Ann"}, At: at("2026-10-03T10:00:00Z"), Body: "@yardmaster look?",
 			URL: "https://linear.app/x/issue/ENG-1#comment-c1"},
 		{ID: "c2", Parent: "c1", Author: hooks.Party{ID: "u-jane", Name: "Jane"}, At: at("2026-10-03T10:05:00Z"), Body: "on it",
 			URL: "https://linear.app/x/issue/ENG-1#comment-c2"},
-		{ID: "c3", Author: hooks.Party{ID: "bot", Name: "Mayor (app)"}, At: at("2026-10-03T11:00:00Z"), Body: "separately",
+		{ID: "c3", Author: hooks.Party{ID: "bot", Name: "Yardmaster (app)"}, At: at("2026-10-03T11:00:00Z"), Body: "separately",
 			URL: "https://linear.app/x/issue/ENG-1#comment-c3"},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -292,7 +292,7 @@ func fakeGitHub(t *testing.T, comments *[]map[string]any) {
 			json.NewDecoder(r.Body).Decode(&in)
 			id := 100 + len(*comments)
 			c := map[string]any{"id": id, "body": in.Body, "created_at": "2026-10-03T12:00:00Z",
-				"html_url": fmt.Sprint("https://github.com/acme/yardr/issues/23#issuecomment-", id), "user": map[string]any{"login": "Mayor"}}
+				"html_url": fmt.Sprint("https://github.com/acme/yardr/issues/23#issuecomment-", id), "user": map[string]any{"login": "Yardmaster"}}
 			*comments = append(*comments, c)
 			w.WriteHeader(http.StatusCreated)
 			json.NewEncoder(w).Encode(c)

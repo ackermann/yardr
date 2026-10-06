@@ -18,11 +18,11 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// appYard is a yard whose mayor speaks on GitHub as the App yardr: a
+// appYard is a yard whose yardmaster speaks on GitHub as the App yardr: a
 // stand-in for GitHub that knows the App (installed on acme/webapp), the
-// mayor's env_file with the App's two lines, and deliveries from a thread
+// yardmaster's env_file with the App's two lines, and deliveries from a thread
 // where the App is installed and from one where it is not. The environment
-// is the mayor's pane's: YARDR_RESIDENT and what the env_file sets.
+// is the yardmaster's pane's: YARDR_RESIDENT and what the env_file sets.
 type appYard struct {
 	a       *app
 	st      store.API
@@ -58,12 +58,12 @@ func newAppYard(t *testing.T) *appYard {
 	hooks.GitHubAPI = srv.URL
 	t.Cleanup(func() { hooks.GitHubAPI = old })
 
-	envFile := filepath.Join(dir, "mayor.env")
+	envFile := filepath.Join(dir, "yardmaster.env")
 	lines := "GITHUB_APP_ID=4242\nGITHUB_APP_PRIVATE_KEY_FILE=" + y.keyFile + "\n"
 	if err := os.WriteFile(envFile, []byte(lines), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	def := store.Resident{Name: "mayor", Runner: "herdr",
+	def := store.Resident{Name: "yardmaster", Runner: "herdr",
 		Config: map[string]any{"env_file": envFile, store.SetState: "github", store.OpenThreads: "github"}}
 	if _, err := st.PutResident(ctx, def, "jo"); err != nil {
 		t.Fatal(err)
@@ -85,8 +85,8 @@ func newAppYard(t *testing.T) *appYard {
 	}
 	t.Setenv("GITHUB_APP_ID", "4242")
 	t.Setenv("GITHUB_APP_PRIVATE_KEY_FILE", y.keyFile)
-	t.Setenv("YARDR_RESIDENT", "mayor")
-	y.a = &app{st: st, actor: "mayor"}
+	t.Setenv("YARDR_RESIDENT", "yardmaster")
+	y.a = &app{st: st, actor: "yardmaster"}
 	return y
 }
 
@@ -148,7 +148,7 @@ func TestSpeakingAsAGitHubApp(t *testing.T) {
 	if got := y.src.Calls(); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("calls:\n  %s", strings.Join(got, "\n  "))
 	}
-	show, err := run(t, y.a.residentCmd(), "show", "mayor")
+	show, err := run(t, y.a.residentCmd(), "show", "yardmaster")
 	if err != nil || !strings.Contains(show, "  github credential: GitHub App (GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY_FILE)\n") {
 		t.Fatalf("resident show: %v\n%s", err, show)
 	}
@@ -183,7 +183,7 @@ func TestResidentWithoutGitHubCredentialIsRefused(t *testing.T) {
 	if err == nil {
 		t.Fatal("posted")
 	}
-	for _, want := range []string{"resident mayor has no GitHub credential", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY_FILE", "GITHUB_TOKEN"} {
+	for _, want := range []string{"resident yardmaster has no GitHub credential", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY_FILE", "GITHUB_TOKEN"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("refusal %q does not say %q", err, want)
 		}
@@ -199,18 +199,18 @@ func TestResidentWithoutGitHubCredentialIsRefused(t *testing.T) {
 	// to answer there with. The bot's login is kept in lowercase, as
 	// deliveries carry it.
 	y.a.actor = "jo"
-	if out, err := run(t, y.a.residentCmd(), "identity", "mayor", "--source", "github", "--key", "Yardr[bot]"); err != nil || !strings.Contains(out, "yardr[bot]") {
+	if out, err := run(t, y.a.residentCmd(), "identity", "yardmaster", "--source", "github", "--key", "Yardr[bot]"); err != nil || !strings.Contains(out, "yardr[bot]") {
 		t.Fatalf("identity: %q, %v", out, err)
 	}
-	y.a.actor = "mayor"
-	r, err := y.st.GetResident(context.Background(), "mayor")
+	y.a.actor = "yardmaster"
+	r, err := y.st.GetResident(context.Background(), "yardmaster")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(r.Config["env_file"].(string), []byte("GITHUB_APP_ID=4242\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	show, err := run(t, y.a.residentCmd(), "show", "mayor")
+	show, err := run(t, y.a.residentCmd(), "show", "yardmaster")
 	if err != nil || !strings.Contains(show, "  github credential: none (GITHUB_APP_ID): it takes GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, or GITHUB_TOKEN\n") ||
 		!strings.Contains(show, "github identity: yardr[bot]") {
 		t.Fatalf("resident show: %v\n%s", err, show)
@@ -218,14 +218,14 @@ func TestResidentWithoutGitHubCredentialIsRefused(t *testing.T) {
 	if err := os.WriteFile(r.Config["env_file"].(string), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if show, err = run(t, y.a.residentCmd(), "show", "mayor"); err != nil || !strings.Contains(show, "  github credential: none: it cannot answer in github until its env_file or env_command sets ") {
+	if show, err = run(t, y.a.residentCmd(), "show", "yardmaster"); err != nil || !strings.Contains(show, "  github credential: none: it cannot answer in github until its env_file or env_command sets ") {
 		t.Fatalf("resident show: %v\n%s", err, show)
 	}
 
 	// The operator's own shell: no YARDR_RESIDENT, acting as themselves.
 	t.Setenv("YARDR_RESIDENT", "")
 	y.a.actor = "jo"
-	out, err := run(t, y.a.replyCmd(), y.seqs["installed"], "On it.", "--resident", "mayor")
+	out, err := run(t, y.a.replyCmd(), y.seqs["installed"], "On it.", "--resident", "yardmaster")
 	if err != nil || !strings.Contains(out, "#issuecomment-") {
 		t.Fatalf("the operator's reply: %q, %v", out, err)
 	}

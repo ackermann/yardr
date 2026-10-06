@@ -32,7 +32,7 @@ func TestRigInit(t *testing.T) {
 	if err := st.PutRig(ctx, store.Rig{Name: "web", Path: dir, Base: "origin/main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	for k, v := range map[string]string{"operator": "Jo", "mayor": "boss"} {
+	for k, v := range map[string]string{"operator": "Jo", "yardmaster": "boss"} {
 		if err := st.SetSetting(ctx, k, v, "me"); err != nil {
 			t.Fatal(err)
 		}
@@ -43,7 +43,7 @@ func TestRigInit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	files := []string{".yardr/roles/builder.md", ".yardr/roles/mayor.md", ".yardr/roles/merger.md",
+	files := []string{".yardr/roles/builder.md", ".yardr/roles/yardmaster.md", ".yardr/roles/merger.md",
 		".yardr/roles/reviewer.md", ".yardr/check", ".yardr/flows/default.flow",
 		".yardr/flows/default/backlog.md", ".yardr/flows/default/new.md", ".yardr/flows/default/review.md",
 		".yardr/flows/default/approved.md", ".yardr/flows/default/decide.md"}
@@ -57,7 +57,7 @@ func TestRigInit(t *testing.T) {
 			t.Errorf("output lacks %q:\n%s", s, out)
 		}
 	}
-	for _, name := range []string{"mayor.md", "builder.md", "merger.md", "reviewer.md"} {
+	for _, name := range []string{"yardmaster.md", "builder.md", "merger.md", "reviewer.md"} {
 		tmpl, _ := roles.FS.ReadFile(name)
 		got, err := os.ReadFile(filepath.Join(dir, ".yardr", "roles", name))
 		if err != nil || !bytes.Equal(got, fillRole(tmpl, "Jo", "boss")) {
@@ -119,17 +119,17 @@ func TestRigInitOperator(t *testing.T) {
 		if _, err := run(t, (&app{st: st}).rigCmd(), append([]string{"init", "r" + strings.ToLower(name)}, args...)...); err != nil {
 			t.Fatal(err)
 		}
-		if b, _ := os.ReadFile(filepath.Join(dir, ".yardr", "roles", "mayor.md")); !bytes.Contains(b, []byte("bring to "+name)) {
-			t.Errorf("mayor.md does not name %s", name)
+		if b, _ := os.ReadFile(filepath.Join(dir, ".yardr", "roles", "yardmaster.md")); !bytes.Contains(b, []byte("bring to "+name)) {
+			t.Errorf("yardmaster.md does not name %s", name)
 		}
 	}
 }
 
-// The mayor the roles tell agents to mail is the yard's: --mayor, else the
-// mayor setting yardr init stores, else the one resident of a yard from
-// before the setting, else init's default name. A yard with several
+// The yardmaster the roles tell agents to mail is the yard's: --yardmaster,
+// else the yardmaster setting yardr init stores, else the one resident of a
+// yard from before the setting, else init's default name. A yard with several
 // residents and no setting does not guess among them.
-func TestRigInitMayor(t *testing.T) {
+func TestRigInitYardmaster(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
 	mailTo := func(t *testing.T, dir string) string {
@@ -140,7 +140,7 @@ func TestRigInitMayor(t *testing.T) {
 		}
 		_, after, ok := strings.Cut(string(b), "yardr mail ")
 		if !ok {
-			t.Fatalf("builder.md does not mail the mayor:\n%s", b)
+			t.Fatalf("builder.md does not mail the yardmaster:\n%s", b)
 		}
 		return strings.Fields(after)[0]
 	}
@@ -155,32 +155,32 @@ func TestRigInitMayor(t *testing.T) {
 		}
 		return dir
 	}
-	if got := mailTo(t, initRig(t, "empty")); got != "mayor" {
-		t.Errorf("empty yard: mail %s, want mayor", got)
+	if got := mailTo(t, initRig(t, "empty")); got != "yardmaster" {
+		t.Errorf("empty yard: mail %s, want yardmaster", got)
 	}
-	if _, err := st.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "manual"}, "me"); err != nil {
+	if _, err := st.PutResident(ctx, store.Resident{Name: "boss", Runner: "manual"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if got := mailTo(t, initRig(t, "one")); got != "yardmaster" {
-		t.Errorf("one resident: mail %s, want yardmaster", got)
+	if got := mailTo(t, initRig(t, "one")); got != "boss" {
+		t.Errorf("one resident: mail %s, want boss", got)
 	}
 	if _, err := st.PutResident(ctx, store.Resident{Name: "scribe", Runner: "manual"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if got := mailTo(t, initRig(t, "two")); got != "mayor" {
-		t.Errorf("two residents, no setting: mail %s, want mayor", got)
+	if got := mailTo(t, initRig(t, "two")); got != "yardmaster" {
+		t.Errorf("two residents, no setting: mail %s, want yardmaster", got)
 	}
-	if _, err := run(t, (&app{st: st}).settingsCmd(), "set", "mayor", "yardmaster"); err != nil {
+	if _, err := run(t, (&app{st: st}).settingsCmd(), "set", "yardmaster", "boss"); err != nil {
 		t.Fatal(err)
 	}
-	if got := mailTo(t, initRig(t, "set")); got != "yardmaster" {
-		t.Errorf("mayor setting: mail %s, want yardmaster", got)
+	if got := mailTo(t, initRig(t, "set")); got != "boss" {
+		t.Errorf("yardmaster setting: mail %s, want boss", got)
 	}
-	if got := mailTo(t, initRig(t, "flag", "--mayor", "boss")); got != "boss" {
-		t.Errorf("--mayor: mail %s, want boss", got)
+	if got := mailTo(t, initRig(t, "flag", "--yardmaster", "boss")); got != "boss" {
+		t.Errorf("--yardmaster: mail %s, want boss", got)
 	}
-	if _, err := run(t, (&app{st: st}).settingsCmd(), "set", "mayor", "no spaces"); err == nil {
-		t.Error("settings set mayor accepted a name a resident cannot have")
+	if _, err := run(t, (&app{st: st}).settingsCmd(), "set", "yardmaster", "no spaces"); err == nil {
+		t.Error("settings set yardmaster accepted a name a resident cannot have")
 	}
 }
 
@@ -241,7 +241,8 @@ func snapshot(t *testing.T, dir string) map[string]string {
 
 // rig init on a dir rig writes the builder and reviewer roles, no merger, no
 // check, and the dir flows, which govern the rig's tasks and epics from the
-// directory without a pointer; the mayor's role only with --with-mayor.
+// directory without a pointer; the yardmaster's role only with
+// --with-yardmaster.
 func TestRigInitDir(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
@@ -275,7 +276,7 @@ func TestRigInitDir(t *testing.T) {
 		t.Errorf("a dir rig has nothing to commit:\n%s", out)
 	}
 	tmpl, _ := roles.FS.ReadFile("builder.md")
-	if got, _ := os.ReadFile(filepath.Join(dir, ".yardr", "roles", "builder.md")); !bytes.Equal(got, fillRole(tmpl, "Jo", "mayor")) {
+	if got, _ := os.ReadFile(filepath.Join(dir, ".yardr", "roles", "builder.md")); !bytes.Equal(got, fillRole(tmpl, "Jo", "yardmaster")) {
 		t.Fatalf("builder.md:\n%s", got)
 	}
 	for path, body := range map[string]string{"default.flow": dirFlow, "type/epic.flow": dirEpicFlow} {
@@ -303,16 +304,16 @@ func TestRigInitDir(t *testing.T) {
 		}
 	}
 
-	// --with-mayor adds the mayor's role and keeps the rest.
-	out, err = run(t, a.rigCmd(), "init", "invoices", "--with-mayor")
-	if err != nil || !strings.Contains(out, ".yardr/roles/mayor.md\n") || !strings.Contains(out, "builder.md (already there, kept)") {
-		t.Fatalf("--with-mayor: %v\n%s", err, out)
+	// --with-yardmaster adds the yardmaster's role and keeps the rest.
+	out, err = run(t, a.rigCmd(), "init", "invoices", "--with-yardmaster")
+	if err != nil || !strings.Contains(out, ".yardr/roles/yardmaster.md\n") || !strings.Contains(out, "builder.md (already there, kept)") {
+		t.Fatalf("--with-yardmaster: %v\n%s", err, out)
 	}
 	snap := snapshot(t, dir)
 	if _, ok := snap[filepath.Join(dir, ".yardr/roles/merger.md")]; ok {
 		t.Fatal("a dir rig got the merger's role")
 	}
-	out, err = run(t, a.rigCmd(), "init", "invoices", "--with-mayor")
+	out, err = run(t, a.rigCmd(), "init", "invoices", "--with-yardmaster")
 	if err != nil || !strings.Contains(out, "nothing written") || !maps.Equal(snap, snapshot(t, dir)) {
 		t.Fatalf("third run: %v\n%s", err, out)
 	}

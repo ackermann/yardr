@@ -21,7 +21,7 @@ import (
 // and the pane's last lines.
 //
 // The session is left as it is: whether to wait, to get the agent going in
-// its pane or to end the session is the mayor's to decide.
+// its pane or to end the session is the yardmaster's to decide.
 
 // Reasons a session_harness_error gives. ReasonOther is an error line that
 // is known to stop the harness and is none of the others (a model it may
@@ -35,7 +35,7 @@ const (
 
 // HarnessErrorKey is a handle key: the reason of the session_harness_error
 // raised in the session's current idle spell. It is kept on the handle, not
-// in memory, so a daemon that replaces itself does not tell the mayor
+// in memory, so a daemon that replaces itself does not tell the yardmaster
 // again, and it is taken off when the agent is seen doing something.
 const HarnessErrorKey = "harness_error"
 

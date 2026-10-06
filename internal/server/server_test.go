@@ -707,7 +707,7 @@ func TestCallDuringReplaceLandsOnTheNewBuild(t *testing.T) {
 // resident's pane, the starter's identity, the shell's own.
 func TestServerEnv(t *testing.T) {
 	got := ServerEnv([]string{"PATH=/bin", "HOME=/Users/jo", "GITHUB_TOKEN=ghp_x", "LINEAR_API_KEY=lin_x",
-		"YARDR_HOME=y1", "YARD_HOME=y1", "YARDR_ACTOR=mayor", "YARDR_RESIDENT=mayor", "YARD_BEAD=web-3",
+		"YARDR_HOME=y1", "YARD_HOME=y1", "YARDR_ACTOR=yardmaster", "YARDR_RESIDENT=yardmaster", "YARD_BEAD=web-3",
 		"YARDR_SESSION=s1", "YARDR_STAGE=new", "YARDR_GROUP=g", "YARDR_BIN=/bin/yardr",
 		"YARDR_HOOK_ADDR=127.0.0.1:1", "YARD_EVENT_RETENTION=1d", "YARDR_TEST_RPC=1", "YARDR_BASE=main",
 		"YARDR_HOOK_PAYLOAD_RETENTION=2d", "SHELL=/bin/zsh", "TERM=xterm"}, "/y1")
@@ -735,8 +735,8 @@ func TestStartGivesTheServerItsOwnEnvAndDir(t *testing.T) {
 	executable = func() (string, error) { return script, nil }
 	t.Cleanup(func() { executable = old })
 	t.Setenv("GITHUB_TOKEN", "ghp_secret")
-	t.Setenv("YARDR_ACTOR", "mayor")
-	t.Setenv("YARD_RESIDENT", "mayor")
+	t.Setenv("YARDR_ACTOR", "yardmaster")
+	t.Setenv("YARD_RESIDENT", "yardmaster")
 	t.Setenv("YARDR_HOME", "elsewhere")
 	// The settings the server reads are the operator's to give it where
 	// they start it: a session or a gate is started without them

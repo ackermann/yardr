@@ -52,10 +52,10 @@ func texts(page *store.NotificationPage) []string {
 // user's inbox: yardr's own line about the event with the bead's title,
 // and no mail. A resident subscribed to the same hears of it as before.
 func TestUserSubscriptionNotifies(t *testing.T) {
-	s, ctx, b := yardrRig(t, "mayor")
+	s, ctx, b := yardrRig(t, "yardmaster")
 	user(t, s, "ada", yardrSub(store.ScopeAll, "state=done"), yardrSub(store.ScopeMentions))
 	user(t, s, "bob")
-	subscribe(t, s, "mayor", yardrSub(store.ScopeAll, "state=done"))
+	subscribe(t, s, "yardmaster", yardrSub(store.ScopeAll, "state=done"))
 	if u, err := s.GetUser(ctx, "ada"); err != nil || len(u.Subscriptions) != 2 || u.Subscriptions[0].String() != "yardr all state=done" {
 		t.Fatalf("ada = %+v, %v", u, err)
 	}
@@ -104,19 +104,19 @@ func TestUserSubscriptionNotifies(t *testing.T) {
 			t.Fatalf("a notification was mailed: %+v", e)
 		}
 		if e.Seq == closed.Seq && (store.Notified(e, "ada") != store.ReasonDone || store.Reason(e, "ada") != "" ||
-			store.Reason(e, "mayor") != store.ReasonDone || store.Notified(e, "mayor") != "") {
+			store.Reason(e, "yardmaster") != store.ReasonDone || store.Notified(e, "yardmaster") != "") {
 			t.Fatalf("closed event names its receivers as %v", e.Data)
 		}
 	}
 	// The resident's inbox holds its own delivery and nothing of ada's.
-	if in, err := s.Inbox(ctx, "mayor", 0); err != nil || in.Total != 1 || in.Events[0].Seq != closed.Seq {
-		t.Fatalf("mayor's inbox = %+v, %v", in, err)
+	if in, err := s.Inbox(ctx, "yardmaster", 0); err != nil || in.Total != 1 || in.Events[0].Seq != closed.Seq {
+		t.Fatalf("yardmaster's inbox = %+v, %v", in, err)
 	}
 	// A user with no subscription is told nothing.
 	if page := notifications(t, s, "bob", 0); len(page.Notifications) != 0 {
 		t.Fatalf("bob was notified: %+v", page)
 	}
-	if _, err := s.UserNotifications(ctx, "mayor", 0); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.UserNotifications(ctx, "yardmaster", 0); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("a resident's notifications = %v", err)
 	}
 }
@@ -189,7 +189,7 @@ func TestHookNotificationStaysOnOneSafeLine(t *testing.T) {
 // a resident may neither subscribe a user nor remove what a user
 // subscribes to, and is told why.
 func TestResidentMayNotSubscribeAUser(t *testing.T) {
-	s, ctx, b := yardrRig(t, "mayor")
+	s, ctx, b := yardrRig(t, "yardmaster")
 	if err := s.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
 		t.Fatal(err)
 	}
@@ -197,8 +197,8 @@ func TestResidentMayNotSubscribeAUser(t *testing.T) {
 	user(t, s, "bob")
 	done := yardrSub(store.ScopeAll, "state=done")
 	const refusal = "a resident does not decide what a person is told"
-	if err := s.AddSubscription(ctx, "ada", done, "mayor"); err == nil || !strings.Contains(err.Error(), refusal) ||
-		!strings.Contains(err.Error(), "mayor is a resident") || !strings.Contains(err.Error(), "the operator (jo)") {
+	if err := s.AddSubscription(ctx, "ada", done, "yardmaster"); err == nil || !strings.Contains(err.Error(), refusal) ||
+		!strings.Contains(err.Error(), "yardmaster is a resident") || !strings.Contains(err.Error(), "the operator (jo)") {
 		t.Fatalf("a resident subscribing a user = %v", err)
 	}
 	// Nor another user, nor a session that is no resident.
@@ -229,10 +229,10 @@ func TestResidentMayNotSubscribeAUser(t *testing.T) {
 		t.Fatal("a filter on an unknown key accepted for a user")
 	}
 
-	if _, err := s.RemoveSubscriptions(ctx, "ada", store.SourceYardr, "", nil, "mayor"); err == nil || !strings.Contains(err.Error(), refusal) {
+	if _, err := s.RemoveSubscriptions(ctx, "ada", store.SourceYardr, "", nil, "yardmaster"); err == nil || !strings.Contains(err.Error(), refusal) {
 		t.Fatalf("a resident unsubscribing a user = %v", err)
 	}
-	if _, err := s.Unwatch(ctx, "ada", b.ID, "mayor"); err == nil || !strings.Contains(err.Error(), refusal) {
+	if _, err := s.Unwatch(ctx, "ada", b.ID, "yardmaster"); err == nil || !strings.Contains(err.Error(), refusal) {
 		t.Fatalf("a resident ending a user's watch = %v", err)
 	}
 	if n, err := s.Unwatch(ctx, "ada", b.ID, "ada"); err != nil || n != 1 {
@@ -245,7 +245,7 @@ func TestResidentMayNotSubscribeAUser(t *testing.T) {
 		t.Fatalf("unsubscribing from nothing = %v", err)
 	}
 	// A resident still subscribes itself and other residents.
-	if err := s.AddSubscription(ctx, "mayor", done, "mayor"); err != nil {
+	if err := s.AddSubscription(ctx, "yardmaster", done, "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -274,7 +274,7 @@ func TestUserWatchEndsOnClose(t *testing.T) {
 // own unread and is acknowledged by itself: reading the one leaves the
 // other as it was.
 func TestUserInboxPartsAckApart(t *testing.T) {
-	s, ctx, b := yardrRig(t, "mayor")
+	s, ctx, b := yardrRig(t, "yardmaster")
 	user(t, s, "ada", yardrSub(store.ScopeAll, "kind=noted"))
 	note := func(text string) {
 		t.Helper()
@@ -284,7 +284,7 @@ func TestUserInboxPartsAckApart(t *testing.T) {
 	}
 	mail := func(text string) {
 		t.Helper()
-		if err := s.Mail(ctx, "ada", text, "mayor"); err != nil {
+		if err := s.Mail(ctx, "ada", text, "yardmaster"); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -43,8 +43,8 @@ A design or a change to yardr is judged by three things.
 go install .        # 1. one static binary, yardr; it needs git and herdr on PATH
                     #    (or a release archive, without Go: see Install below)
 yardr               # 2. the onboarding: answer the form; it starts the yard
-                    #    and the mayor
-                    # 3. talk to the mayor, in the chat the form ends in
+                    #    and the yardmaster
+                    # 3. talk to the yardmaster, in the chat the form ends in
                     #    (yardr chat), or keep going with forms (yardr setup):
                     #    either sets up the rest
 ```
@@ -74,54 +74,53 @@ install on a server without a desktop
 installs or sets up yardr for you reads [docs/agents.md](docs/agents.md).
 
 The onboarding asks for the agent harness yardr starts by default (each herdr
-kind, marked installed or not), the mayor's name (the always-on resident that
-coordinates the yard), the directory its shell lives in, its model (optional),
-your name, and how
-agents should work with you: "Guide me", "Show me" (the default), "Work with
-me" or "Just report", with a line of anything they should know about you.
-Every agent reads that answer when its session starts
-([configuration.md](docs/configuration.md#how-agents-work-with-you)). It
-installs generic role prompts in `~/.yardr/roles/` (mayor, builder, merger,
-reviewer, naming you as the one who decides), stores the harness as the
-yard's `default_kind` and your name as its `operator`, and adds the mayor.
-Before its first page it says so when git or herdr is not on PATH, what
-each is needed for and where to get it; you stop there or go on.
+kind, marked installed or not), the yardmaster's name (the always-on resident
+that coordinates the yard), the directory its shell lives in, its model
+(optional), your name, and how agents should work with you: "Guide me", "Show
+me" (the default), "Work with me" or "Just report", with a line of anything
+they should know about you. Every agent reads that answer when its session
+starts ([configuration.md](docs/configuration.md#how-agents-work-with-you)).
+It installs generic role prompts in `~/.yardr/roles/` (yardmaster, builder,
+merger, reviewer, naming you as the one who decides), stores the harness as
+the yard's `default_kind` and your name as its `operator`, and adds the
+yardmaster. Before its first page it says so when git or herdr is not on PATH,
+what each is needed for and where to get it; you stop there or go on.
 
 Its last question is "Start the yard now?" (yes by default). Yes first offers
 to check that the harness answers, with one real call to it (a model call; you
 can skip it): a harness that is not logged in is named there, with what it
-printed, and you set it right and try again. Then it starts the
-daemon in the background, logging to `~/.yardr/daemon.log`, and waits up to
-two minutes, counting, for the mayor: its session running and its first
-output in its pane. Then it prints where the mayor is, as herdr names it
-(agent, workspace, tab, pane), how to get there (`herdr agent focus <agent>`
-in herdr, `herdr agent attach <agent>` from any other terminal), and asks how
-to go on with the rest of the setup: "Talk to the mayor", which opens
-`yardr chat` on the mayor in the same terminal, or "Keep going here", a short
-run of forms. The mayor's first session is asked to greet you by mail, so its
+printed, and you set it right and try again. Then it starts the daemon in the
+background, logging to `~/.yardr/daemon.log`, and waits up to two minutes,
+counting, for the yardmaster: its session running and its first output in its
+pane. Then it prints where the yardmaster is, as herdr names it (agent,
+workspace, tab, pane), how to get there (`herdr agent focus <agent>` in herdr,
+`herdr agent attach <agent>` from any other terminal), and asks how to go on
+with the rest of the setup: "Talk to the yardmaster", which opens `yardr chat`
+on the yardmaster in the same terminal, or "Keep going here", a short run of
+forms. The yardmaster's first session is asked to greet you by mail, so its
 first message is in the chat or arrives there while you watch; you answer in
 the line under it, and leaving the chat (ctrl+c) stops nothing
-([chat.md](docs/chat.md#from-the-onboarding)). Before
-that it asks three things, all no by default: whether to start the daemon at
-login (`yardr daemon install`: a launchd agent on macOS, a systemd user unit
-on Linux), whether to start the web view now, and at login
-(`yardr web start`, `yardr web install`), and whether to link the yard with
-another (`yardr peer pair`, as a form: [docs/peers.md](docs/peers.md#the-form)). When the
-mayor does not come up it says what is known instead (herdr or the harness
-not on PATH, the last failed start, the last lines of the mayor's pane, where
-the daemon logs), what `yardr doctor` says of it, and how to go on; it opens
-no chat with nobody in it. No leaves the start to you: `yardr daemon`
-in a pane of its own, where you watch what it does, or `yardr init --start`,
-which starts and waits the same way without a terminal and, on a running
-yard, tells you where the mayor is.
+([chat.md](docs/chat.md#from-the-onboarding)). Before that it asks three
+things, all no by default: whether to start the daemon at login
+(`yardr daemon install`: a launchd agent on macOS, a systemd user unit on
+Linux), whether to start the web view now, and at login (`yardr web start`,
+`yardr web install`), and whether to link the yard with another
+(`yardr peer pair`, as a form: [docs/peers.md](docs/peers.md#the-form)). When
+the yardmaster does not come up it says what is known instead (herdr or the
+harness not on PATH, the last failed start, the last lines of the yardmaster's
+pane, where the daemon logs), what `yardr doctor` says of it, and how to go
+on; it opens no chat with nobody in it. No leaves the start to you:
+`yardr daemon` in a pane of its own, where you watch what it does, or
+`yardr init --start`, which starts and waits the same way without a terminal
+and, on a running yard, tells you where the yardmaster is.
 
 A setup that failed halfway is finished by the next run: `yardr` in a
 terminal, or `yardr init`, says what the earlier run left and adds what is
 missing, and on a yard that is set up and does not run it starts the daemon
-and waits for the mayor again. To remove a yard and start over, see
+and waits for the yardmaster again. To remove a yard and start over, see
 [docs/configuration.md](docs/configuration.md#starting-over).
 
-The mayor's first job is the setup, as a conversation with you: it asks for
+The yardmaster's first job is the setup, as a conversation with you: it asks for
 the repository and its base branch, registers the rig, seeds it with
 `yardr rig init` (starter roles, gate, flow and stage files under `.yardr/`, which you
 commit on the base branch), creates the groups and routes, and offers a first
@@ -143,17 +142,17 @@ you would type, shown before it runs:
    groups: shown, confirmed;
 5. a first small bead, created and advanced to `new`, and how to watch it.
 
-After each page it asks again: keep going, talk to the mayor, or stop here.
-The mayor and the forms read one list of steps, the one `yardr doctor`
+After each page it asks again: keep going, talk to the yardmaster, or stop here.
+The yardmaster and the forms read one list of steps, the one `yardr doctor`
 prints, so you can change over after any step. A cancelled page has run no
 command.
 
 `yardr doctor` says at any time what the yard has and what it lacks: git,
 herdr and each harness in use (on PATH, and answering its version flag),
-whether the server, the daemon and the mayor run, and the setup steps, each
+whether the server, the daemon and the yardmaster run, and the setup steps, each
 done or todo, with the command for the next one. It is read-only, runs on a
 home with no yard too, and exits 1 when something the yard needs is missing
-([docs/doctor.md](docs/doctor.md)). The mayor reads it to know where the
+([docs/doctor.md](docs/doctor.md)). The yardmaster reads it to know where the
 setup stands.
 
 `yardr status` says what runs right now and where to reach it: the server
@@ -181,10 +180,10 @@ bead list`), and what yardr prints for it carries the flag. Several yards on
 one machine are several homes
 ([docs/configuration.md](docs/configuration.md#yardrs-own-state)).
 
-Scripts skip the forms and the mayor's conversation (`yardr init --help`):
+Scripts skip the forms and the yardmaster's conversation (`yardr init --help`):
 
 ```sh
-yardr init --harness claude [--mayor mayor] [--dir ~/projects] [--model opus] [--operator Jo] [--style show] [--about "..."]
+yardr init --harness claude [--yardmaster yardmaster] [--dir ~/projects] [--model opus] [--operator Jo] [--style show] [--about "..."]
 yardr rig add webapp ~/projects/webapp --base origin/main
 yardr rig init webapp                   # .yardr/roles, .yardr/check, .yardr/flows/default.flow and its stage files; commit them
                                         # on the base: with origin/main that is a commit and a push
@@ -204,13 +203,13 @@ yardr route add --stage review   --rig webapp --group webapp/reviewers
 yardr route add --stage approved --rig webapp --group webapp/merger
 yardr route add --stage decide   --group mckean
 
-yardr daemon &                          # routes and supervises; starts the mayor (or: yardr init --start)
+yardr daemon &                          # routes and supervises; starts the yardmaster (or: yardr init --start)
 yardr watch                             # live event stream
 yardr session list --running            # what agents and scripts work on now; without the flag, also the beads a manual group holds for a person
 
 yardr bead create "Add login page" --rig webapp -t feature -b "Use the OAuth flow"
 # it starts in the flow's first stage, backlog (new while the rig's flow is not on its base);
-# the mayor shapes it and advances it to new
+# the yardmaster shapes it and advances it to new
 ```
 
 The yardr server starts on first use, in the background, and owns
@@ -329,11 +328,11 @@ The rest of the documentation is in [docs/](docs/README.md):
 - **[Groups and runners](docs/groups.md):** `manual`, `exec` and `herdr`
   runners, the interactive `group add`, and setting up herdr agents.
 - **[Review](docs/review.md):** `yardr review`, a form for beads waiting on you.
-- **[Residents](docs/residents.md):** always-on sessions such as a mayor, with
-  inbox, webhook subscriptions, journal, handoffs and memories.
+- **[Residents](docs/residents.md):** always-on sessions such as a yardmaster,
+  with inbox, webhook subscriptions, journal, handoffs and memories.
 - **[Users](docs/users.md):** `yardr user`, people with an inbox of their own: residents
   mail a user, the user reads it with `yardr inbox` and a whole exchange with
-  `yardr mail --with mayor`.
+  `yardr mail --with yardmaster`.
 - **[Chat](docs/chat.md):** `yardr chat`, the residents and your conversation with each
   in one terminal view: what each is doing, where what you sent stands, a line to type.
 - **[Subscriptions](docs/subscriptions.md):** what reaches a resident's inbox:
@@ -348,7 +347,7 @@ The rest of the documentation is in [docs/](docs/README.md):
 - **[Peers](docs/peers.md):** `yardr peer`, linking two yards by their keys, from a
   short code one operator reads to the other (`yardr peer pair`) or by hand: signed
   messages both ways, pushed or pulled, proved with a ping, and mail between
-  their residents (`yardr mail mayor@north "…"`).
+  their residents (`yardr mail yardmaster@north "…"`).
 - **[Packs](docs/packs.md):** `yardr pack`, a yard's way of working as one directory
   (flows, groups, roles, residents) that another yard imports.
 - **[BDP](docs/bdp.md):** `yardr bdp serve`, serving the yard over the Bead Protocol.
@@ -417,7 +416,7 @@ and owes them its ideas and its vocabulary:
   work with dependencies that agents and people share, comes from there.
 - [Gas Town](https://github.com/steveyegge/gastown), by Steve Yegge, and
   [Gas City](https://github.com/gastownhall/gascity): the town of agents
-  with a mayor and roles. yardr's mayor and its rigs have their names from
-  Gas Town.
+  with a mayor and roles. yardr's rigs have their name from Gas Town, and
+  its yardmaster was called the mayor after Gas Town's.
 
 Thank you to everyone who built them.

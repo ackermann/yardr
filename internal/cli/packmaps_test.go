@@ -55,7 +55,7 @@ func TestPackApplySetsTheStageMapOnTheYardsHook(t *testing.T) {
 	ctx := context.Background()
 	const grant = "resident boss may not set a status in linear, so no issue is moved. The import does not grant it: the operator allows it with yardr resident set boss set_state=linear\n"
 
-	out, err := run(t, a.packCmd(), "check", "../../packs/starter", "--rig", "web", "--resident", "mayor=boss")
+	out, err := run(t, a.packCmd(), "check", "../../packs/starter", "--rig", "web", "--resident", "yardmaster=boss")
 	if err != nil {
 		t.Fatal(err)
 	}

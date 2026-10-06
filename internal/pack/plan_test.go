@@ -114,15 +114,15 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 
 	install := filepath.Join(o.Home, "packs", "starter")
 	want := []string{
-		"file roles/builder.md", "file roles/mayor.md", "file roles/reviewer.md", "file scripts/merge-local",
+		"file roles/builder.md", "file roles/reviewer.md", "file roles/yardmaster.md", "file scripts/merge-local",
 		"file flows/default/backlog.md", "file flows/default/new.md", "file flows/default/review.md", "file flows/default/approved.md", "file flows/default/decide.md",
 		"group web-builders", "group web-reviewers", "group web-refinery", "group backlog", "group decisions",
 		"flow starter.default",
 		"pointer rig web -> starter.default",
 		"route rig web stage backlog -> backlog", "route rig web stage new -> web-builders", "route rig web stage review -> web-reviewers",
 		"route rig web stage approved -> web-refinery", "route rig web stage decide -> decisions",
-		"resident mayor",
-		"subscription mayor yardr all rig=web stage=decide", "subscription mayor yardr all rig=web state=done", "subscription mayor linear involved",
+		"resident yardmaster",
+		"subscription yardmaster yardr all rig=web stage=decide", "subscription yardmaster yardr all rig=web state=done", "subscription yardmaster linear involved",
 	}
 	if got := actions(plan, pack.Create); !reflect.DeepEqual(got, want) {
 		t.Fatalf("create =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -139,7 +139,7 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 		"group.web-builders.kind", "group.web-builders.model", "group.web-builders.args",
 		"group.web-reviewers.kind", "group.web-reviewers.model", "group.web-reviewers.args",
 		"group.backlog.members", "group.decisions.members",
-		"resident.mayor.resident", "resident.mayor.kind", "resident.mayor.model", "resident.mayor.args", "resident.mayor.dir",
+		"resident.yardmaster.resident", "resident.yardmaster.kind", "resident.yardmaster.model", "resident.yardmaster.args", "resident.yardmaster.dir",
 	}
 	if !reflect.DeepEqual(ids, wantQ) {
 		t.Fatalf("questions = %v\nwant %v", ids, wantQ)
@@ -168,9 +168,9 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 	if got := find(t, plan, "flow", "starter.default").Flow.Stages; got[0] != "backlog" || got[5] != "merged" {
 		t.Fatalf("flow stages = %v", got)
 	}
-	m := find(t, plan, "resident", "mayor").Resident
-	if m.Prompt != filepath.Join(install, "roles", "mayor.md") || len(m.On) != 16 {
-		t.Fatalf("mayor = %+v", m)
+	m := find(t, plan, "resident", "yardmaster").Resident
+	if m.Prompt != filepath.Join(install, "roles", "yardmaster.md") || len(m.On) != 16 {
+		t.Fatalf("yardmaster = %+v", m)
 	}
 	if len(plan.Governs) != 1 || plan.Governs[0].Flow != "starter.default" || plan.Governs[0].Now != "none" || plan.Governs[0].Type != "" {
 		t.Fatalf("governs = %+v", plan.Governs)
@@ -180,7 +180,7 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 	}
 
 	// What linear lacks in a yard that has nothing.
-	if len(plan.Sources) != 1 || plan.Sources[0].Source != "linear" || plan.Sources[0].Resident != "mayor" {
+	if len(plan.Sources) != 1 || plan.Sources[0].Source != "linear" || plan.Sources[0].Resident != "yardmaster" {
 		t.Fatalf("sources = %+v", plan.Sources)
 	}
 	status := map[string]string{}
@@ -233,7 +233,7 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 var answers = map[string]string{
 	"group.web-builders.kind": "claude", "group.web-builders.model": "opus",
 	"group.web-reviewers.kind": "codex", "group.web-reviewers.model": "luna",
-	"group.backlog.members": "ann,mayor",
+	"group.backlog.members": "ann,yardmaster",
 }
 
 // Importing twice changes nothing the second time; then a changed limit
@@ -258,7 +258,7 @@ func TestSecondImportChangesNothing(t *testing.T) {
 	if b.Config["kind"] != "claude" || b.Config["model"] != "opus" {
 		t.Fatalf("web-builders = %+v", b)
 	}
-	if g := find(t, plan, "group", "backlog").Group; !reflect.DeepEqual(g.Members, []string{"ann", "mayor"}) {
+	if g := find(t, plan, "group", "backlog").Group; !reflect.DeepEqual(g.Members, []string{"ann", "yardmaster"}) {
 		t.Fatalf("backlog = %+v", g)
 	}
 	routes, _ := st.Routes(ctx)
@@ -326,14 +326,14 @@ func TestYardSetUpByHand(t *testing.T) {
 		must(err)
 	}
 	_, err := st.PutResident(ctx, store.Resident{Name: "boss", Runner: "herdr", Dir: "/home/boss", MaxAge: "6h",
-		Config: map[string]any{"kind": "claude", "prompt": "/old/roles/mayor.md", "env_file": "/nowhere.env"},
+		Config: map[string]any{"kind": "claude", "prompt": "/old/roles/yardmaster.md", "env_file": "/nowhere.env"},
 		On: []string{"held", "gave_up", "session_blocked", "unrouted", "stranded", "session_idle", "session_stalled",
 			"no_runner", "workspace_kept", "resident_gave_up", "runtime_down", "session_aged", "session_harness_error", "session_model_mismatch", "session_prompt_gave_up", "move_refused"}}, "me")
 	must(err)
 	must(st.AddSubscription(ctx, "boss", store.Subscription{Source: "linear", Scope: "all"}, "me"))
 	must(st.AddSubscription(ctx, "boss", store.Subscription{Source: "yardr", Scope: "all", Where: map[string]string{"label": "ui"}}, "me"))
 
-	o.Residents = map[string]string{"mayor": "boss"}
+	o.Residents = map[string]string{"yardmaster": "boss"}
 	plan := build(t, st, load(t, starter), o)
 	install := filepath.Join(o.Home, "packs", "starter")
 
@@ -371,7 +371,7 @@ func TestYardSetUpByHand(t *testing.T) {
 		t.Fatalf("route new = %+v %+v", rt, rt.Route)
 	}
 	res := find(t, plan, "resident", "boss")
-	if len(res.Changes) != 1 || res.Changes[0].Field != "prompt" || res.Resident.Pack != "mayor" || len(res.Asks) != 0 {
+	if len(res.Changes) != 1 || res.Changes[0].Field != "prompt" || res.Resident.Pack != "yardmaster" || len(res.Asks) != 0 {
 		t.Fatalf("boss = %+v (the same kinds in another order are no change)", res)
 	}
 	sub := find(t, plan, "subscription", "boss linear involved")

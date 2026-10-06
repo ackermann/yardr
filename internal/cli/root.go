@@ -37,7 +37,8 @@ type app struct {
 	// with another (offerLink).
 	linkAsked bool
 	// noChat is --no-chat: this run ends where it ended before there was a
-	// chat, with the mayor's place printed, and opens no view (see toChat).
+	// chat, with the yardmaster's place printed, and opens no view (see
+	// toChat).
 	noChat bool
 	// self is who this run acts as, once asked (see identity).
 	self *resolved

@@ -13,11 +13,11 @@ func TestGroupMembersOnlyOnManual(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "only for manual groups") {
 		t.Fatalf("herdr group with members err = %v", err)
 	}
-	if err := s.PutGroup(ctx, store.Group{Name: "humans", Runner: "manual", Members: []string{" mckean", "mayor", "mckean", ""}}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "humans", Runner: "manual", Members: []string{" mckean", "yardmaster", "mckean", ""}}); err != nil {
 		t.Fatal(err)
 	}
 	g, err := s.GetGroup(ctx, "humans")
-	if err != nil || strings.Join(g.Members, ",") != "mckean,mayor" {
+	if err != nil || strings.Join(g.Members, ",") != "mckean,yardmaster" {
 		t.Fatalf("members = %v, %v", g.Members, err)
 	}
 }
@@ -31,7 +31,7 @@ func TestAdvanceMembers(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(s.PutGroup(ctx, store.Group{Name: "approvers", Runner: "manual", Limit: 5, Members: []string{"mckean", "mayor"}}))
+	must(s.PutGroup(ctx, store.Group{Name: "approvers", Runner: "manual", Limit: 5, Members: []string{"mckean", "yardmaster"}}))
 	must(s.PutGroup(ctx, store.Group{Name: "deciders", Runner: "manual"}))
 	_, err := s.AddRoute(ctx, store.Route{Stage: "approved", Group: "approvers"})
 	must(err)
@@ -51,14 +51,14 @@ func TestAdvanceMembers(t *testing.T) {
 	// left as it was.
 	b := claimed("approved", "approvers")
 	_, err = s.Advance(ctx, b.ID, "merged", store.Expect{}, "yard-19-new")
-	if err == nil || !strings.Contains(err.Error(), "mckean, mayor") || !strings.Contains(err.Error(), "approvers") {
+	if err == nil || !strings.Contains(err.Error(), "mckean, yardmaster") || !strings.Contains(err.Error(), "approvers") {
 		t.Fatalf("non-member advance err = %v", err)
 	}
 	if got, _ := s.GetBead(ctx, b.ID); got.Revision != b.Revision || got.Group == nil {
 		t.Fatalf("refused advance changed the bead: %+v", got)
 	}
 	// A member may.
-	if got, err := s.Advance(ctx, b.ID, "new", store.Expect{}, "mayor"); err != nil || got.Stage != "new" {
+	if got, err := s.Advance(ctx, b.ID, "new", store.Expect{}, "yardmaster"); err != nil || got.Stage != "new" {
 		t.Fatalf("member advance: %v %+v", err, got)
 	}
 

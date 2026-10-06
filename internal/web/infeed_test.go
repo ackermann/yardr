@@ -12,7 +12,7 @@ import (
 // timer firing, and nothing else of a timer.
 func TestFeedLeavesOutTurnsAndReading(t *testing.T) {
 	status := func(was, now string) store.Event {
-		return store.Event{Kind: "resident_status", Data: map[string]any{"resident": "mayor", "status": now, "was": was}}
+		return store.Event{Kind: "resident_status", Data: map[string]any{"resident": "yardmaster", "status": now, "was": was}}
 	}
 	for _, c := range []struct {
 		e    store.Event

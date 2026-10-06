@@ -33,7 +33,7 @@ type view struct {
 
 const me = "ada"
 
-// yard is a store with the user ada and the residents mayor and refinery,
+// yard is a store with the user ada and the residents chief and refinery,
 // both running and idle.
 func yard(t *testing.T) store.API {
 	t.Helper()
@@ -42,7 +42,7 @@ func yard(t *testing.T) store.API {
 	if _, err := st.AddUser(ctx, me, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"mayor", "refinery"} {
+	for _, name := range []string{"chief", "refinery"} {
 		if _, err := st.PutResident(ctx, store.Resident{Name: name, Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "jo"); err != nil {
 			t.Fatal(err)
 		}
@@ -174,27 +174,27 @@ func head(t *testing.T, st store.API) uint64 {
 func TestSelection(t *testing.T) {
 	st := yard(t)
 	ctx := context.Background()
-	must(t, st.Mail(ctx, "mayor", "to the mayor", me))
+	must(t, st.Mail(ctx, "chief", "to the chief", me))
 	must(t, st.Mail(ctx, "refinery", "to the refinery", me))
 
 	if got := open(t, st, "refinery", 120, 24).m.Selected(); got != "refinery" {
 		t.Fatalf("named refinery, selected %q", got)
 	}
-	if got := open(t, st, "nobody", 120, 24).m.Selected(); got != "mayor" {
+	if got := open(t, st, "nobody", 120, 24).m.Selected(); got != "chief" {
 		t.Fatalf("named a resident the yard does not have, selected %q", got)
 	}
-	v := open(t, st, "mayor", 120, 24)
-	v.shows("> mayor", "to the mayor")
+	v := open(t, st, "chief", 120, 24)
+	v.shows("> chief", "to the chief")
 	v.hides("to the refinery")
 	v.key(tea.KeyTab)
 	v.shows("> refinery", "to the refinery", "Write to refinery")
-	v.hides("to the mayor", "> mayor")
+	v.hides("to the chief", "> chief")
 	v.key(tea.KeyTab)
 	if !v.m.OnYard() || v.m.Selected() != "" {
 		t.Fatalf("tab past the last resident selected %q, the yard's row %v", v.m.Selected(), v.m.OnYard())
 	}
 	v.key(tea.KeyTab)
-	if v.m.Selected() != "mayor" || v.m.OnYard() {
+	if v.m.Selected() != "chief" || v.m.OnYard() {
 		t.Fatalf("tab past the end selected %q, the yard's row %v", v.m.Selected(), v.m.OnYard())
 	}
 	v.key(tea.KeyShiftTab)
@@ -206,7 +206,7 @@ func TestSelection(t *testing.T) {
 	// The selected resident is removed: the first is selected.
 	must(t, st.DeleteResident(ctx, "refinery", "", "jo"))
 	v.stream()
-	if v.m.Selected() != "mayor" {
+	if v.m.Selected() != "chief" {
 		t.Fatalf("after the selected resident was removed, selected %q", v.m.Selected())
 	}
 	v.hides("refinery")
@@ -219,15 +219,15 @@ func TestSelection(t *testing.T) {
 func TestMailArrives(t *testing.T) {
 	st := yard(t)
 	ctx := context.Background()
-	must(t, st.Mail(ctx, me, "waiting for you", "mayor")) // before the view opens
+	must(t, st.Mail(ctx, me, "waiting for you", "chief")) // before the view opens
 	first := head(t, st)
-	v := open(t, st, "mayor", 120, 24)
+	v := open(t, st, "chief", 120, 24)
 	v.shows("waiting for you")
-	if v.cursor() != first || v.m.Unread("mayor") != 0 {
-		t.Fatalf("opening the conversation acknowledged through %d, want %d (unread %d)", v.cursor(), first, v.m.Unread("mayor"))
+	if v.cursor() != first || v.m.Unread("chief") != 0 {
+		t.Fatalf("opening the conversation acknowledged through %d, want %d (unread %d)", v.cursor(), first, v.m.Unread("chief"))
 	}
 
-	must(t, st.Mail(ctx, me, "the gate is green", "mayor"))
+	must(t, st.Mail(ctx, me, "the gate is green", "chief"))
 	second := head(t, st)
 	v.hides("the gate is green") // nothing reads the store by itself
 	v.stream()
@@ -238,18 +238,18 @@ func TestMailArrives(t *testing.T) {
 
 	must(t, st.Mail(ctx, me, "landed yardr-1a2b", "refinery"))
 	other := head(t, st)
-	must(t, st.Mail(ctx, me, "and one more", "mayor"))
+	must(t, st.Mail(ctx, me, "and one more", "chief"))
 	newest := head(t, st)
 	v.stream()
 	v.shows("and one more")
 	v.hides("landed yardr-1a2b")
-	if v.m.Unread("refinery") != 1 || v.m.Unread("mayor") != 0 {
-		t.Fatalf("unread: refinery %d, mayor %d", v.m.Unread("refinery"), v.m.Unread("mayor"))
+	if v.m.Unread("refinery") != 1 || v.m.Unread("chief") != 0 {
+		t.Fatalf("unread: refinery %d, chief %d", v.m.Unread("refinery"), v.m.Unread("chief"))
 	}
 	if !strings.Contains(v.screen(), "refinery    idle            1") {
 		t.Fatalf("the list does not count refinery's mail:\n%s", v.screen())
 	}
-	// The mayor's later mail was seen, but refinery's before it was not:
+	// The chief's later mail was seen, but refinery's before it was not:
 	// the user's one inbox position stays short of it.
 	if got := v.cursor(); got >= other {
 		t.Fatalf("mail of a conversation not opened was acknowledged: cursor %d, its seq %d", got, other)
@@ -272,8 +272,8 @@ func TestMailArrives(t *testing.T) {
 	if n := strings.Count(v.screen(), "landed yardr-1a2b"); n != 1 {
 		t.Fatalf("a mail the stream gave twice is shown %d times:\n%s", n, v.screen())
 	}
-	if v.m.Unread("refinery") != 0 || v.m.Unread("mayor") != 0 {
-		t.Fatalf("replayed mail counts as unread again: refinery %d, mayor %d", v.m.Unread("refinery"), v.m.Unread("mayor"))
+	if v.m.Unread("refinery") != 0 || v.m.Unread("chief") != 0 {
+		t.Fatalf("replayed mail counts as unread again: refinery %d, chief %d", v.m.Unread("refinery"), v.m.Unread("chief"))
 	}
 }
 
@@ -286,7 +286,7 @@ func TestUnreadElsewhere(t *testing.T) {
 	if _, err := st.AddUser(ctx, "grace", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	v := open(t, st, "mayor", 80, 24)
+	v := open(t, st, "chief", 80, 24)
 	must(t, st.Mail(ctx, me, "landed", "refinery"))
 	must(t, st.Mail(ctx, me, "lunch?", "grace"))
 	v.stream()
@@ -302,21 +302,21 @@ func TestUnreadElsewhere(t *testing.T) {
 func TestStanding(t *testing.T) {
 	st := yard(t)
 	ctx := context.Background()
-	v := open(t, st, "mayor", 120, 30)
-	v.shows("No mail between you and mayor yet.")
+	v := open(t, st, "chief", 120, 30)
+	v.shows("No mail between you and chief yet.")
 	v.typed("deploys are frozen")
 	v.key(tea.KeyEnter)
-	v.shows("deploys are frozen", "· sent; mayor is idle")
+	v.shows("deploys are frozen", "· sent; chief is idle")
 	sent := head(t, st)
 	v.stream() // the same mail, now from the stream
 
 	for _, c := range []struct{ status, list, line string }{
-		{"working", "mayor       working", "· sent; mayor is working and reads mail when idle"},
-		{"blocked", "mayor       blocked", "· mayor waits at a prompt in its pane and cannot read mail (ctrl+g goes there)"},
-		{"unknown", "mayor       running", "· sent"},
-		{"idle", "mayor       idle", "· sent; mayor is idle"},
+		{"working", "chief       working", "· sent; chief is working and reads mail when idle"},
+		{"blocked", "chief       blocked", "· chief waits at a prompt in its pane and cannot read mail (ctrl+g goes there)"},
+		{"unknown", "chief       running", "· sent"},
+		{"idle", "chief       idle", "· sent; chief is idle"},
 	} {
-		must(t, st.ResidentStatus(ctx, "mayor", c.status))
+		must(t, st.ResidentStatus(ctx, "chief", c.status))
 		v.stream()
 		v.shows(c.list, c.line)
 	}
@@ -325,19 +325,19 @@ func TestStanding(t *testing.T) {
 	v.typed("until Friday")
 	v.key(tea.KeyEnter)
 	v.stream()
-	if n := strings.Count(v.screen(), "· sent; mayor is idle"); n != 1 {
+	if n := strings.Count(v.screen(), "· sent; chief is idle"); n != 1 {
 		t.Fatalf("two waiting mails have %d lines of where they stand:\n%s", n, v.screen())
 	}
 
-	// The mayor reads the first: "read" under it, the second still waits.
-	must(t, st.AckInbox(ctx, "mayor", sent))
+	// The chief reads the first: "read" under it, the second still waits.
+	must(t, st.AckInbox(ctx, "chief", sent))
 	v.stream()
-	v.shows("· read", "· sent; mayor is idle")
+	v.shows("· read", "· sent; chief is idle")
 	screen := v.screen()
 	if strings.Index(screen, "· read") > strings.Index(screen, "until Friday") {
 		t.Fatalf("read is not under the mail that was read:\n%s", screen)
 	}
-	must(t, st.AckInbox(ctx, "mayor", head(t, st)))
+	must(t, st.AckInbox(ctx, "chief", head(t, st)))
 	v.stream()
 	v.hides("· sent")
 	if n := strings.Count(v.screen(), "· read"); n != 1 {
@@ -345,22 +345,22 @@ func TestStanding(t *testing.T) {
 	}
 
 	// Its session ends, and a third mail has nobody to read it.
-	must(t, st.SetResidentEnabled(ctx, "mayor", false, "", "jo"))
-	must(t, st.ResidentStopped(ctx, "mayor", "disabled"))
+	must(t, st.SetResidentEnabled(ctx, "chief", false, "", "jo"))
+	must(t, st.ResidentStopped(ctx, "chief", "disabled"))
 	v.typed("anyone?")
 	v.key(tea.KeyEnter)
 	v.stream()
-	v.shows("mayor       not running", "· mayor is not running: yardr resident start mayor")
+	v.shows("chief       not running", "· chief is not running: yardr resident start chief")
 
 	// Started again and failing: the list and the line say so.
-	must(t, st.SetResidentEnabled(ctx, "mayor", true, "", "jo"))
-	must(t, st.ResidentStartFailed(ctx, "mayor", "claude: command not found", time.Minute))
+	must(t, st.SetResidentEnabled(ctx, "chief", true, "", "jo"))
+	must(t, st.ResidentStartFailed(ctx, "chief", "claude: command not found", time.Minute))
 	v.stream()
-	v.shows("mayor       failed to start", "· mayor failed to start: yardr resident show mayor")
+	v.shows("chief       failed to start", "· chief failed to start: yardr resident show chief")
 
 	// A view opened now reads the same from the store.
-	again := open(t, st, "mayor", 120, 30)
-	again.shows("mayor       failed to start", "· read", "· mayor failed to start: yardr resident show mayor")
+	again := open(t, st, "chief", 120, 30)
+	again.shows("chief       failed to start", "· read", "· chief failed to start: yardr resident show chief")
 }
 
 func TestStateOf(t *testing.T) {
@@ -413,14 +413,14 @@ func TestLayout(t *testing.T) {
 	ctx := context.Background()
 	long := strings.Repeat("a long line that has to be wrapped at the width of the view ", 4)
 	for i := range 30 {
-		must(t, st.Mail(ctx, me, fmt.Sprintf("mail %d %s", i, long), "mayor"))
+		must(t, st.Mail(ctx, me, fmt.Sprintf("mail %d %s", i, long), "chief"))
 	}
 	must(t, st.Mail(ctx, me, "landed", "refinery"))
 
-	v := open(t, st, "mayor", 80, 24)
+	v := open(t, st, "chief", 80, 24)
 	v.fits(80, 24)
 	lines := strings.Split(v.screen(), "\n")
-	if lines[1] != "yard  [mayor idle]  refinery idle (1)" {
+	if lines[1] != "yard  [chief idle]  refinery idle (1)" {
 		t.Fatalf("the residents' line at 80 columns is %q", lines[1])
 	}
 	if strings.Contains(v.screen(), "│") {
@@ -446,7 +446,7 @@ func TestLayout(t *testing.T) {
 	// The same view made wide: a column, with the selection marked.
 	v.send(tea.WindowSizeMsg{Width: 160, Height: 40})
 	v.fits(160, 40)
-	v.shows("> mayor       idle", "  refinery    idle            1", " │ ", "mail 29")
+	v.shows("> chief       idle", "  refinery    idle            1", " │ ", "mail 29")
 	if lines := strings.Split(v.screen(), "\n"); lines[len(lines)-1] != Keys {
 		t.Fatalf("the last line is %q", lines[len(lines)-1])
 	}
@@ -484,7 +484,7 @@ func (v *view) rows() string {
 			out.WriteByte('T')
 		case strings.Contains(l, " │ "):
 			out.WriteByte('.')
-		case strings.Contains(l, "[mayor ") || strings.Contains(l, "[yard]"):
+		case strings.Contains(l, "[chief ") || strings.Contains(l, "[yard]"):
 			out.WriteByte('F')
 		case strings.HasPrefix(l, "─"):
 			out.WriteByte('R')
@@ -505,7 +505,7 @@ func (v *view) rows() string {
 // has two rows, for the title and a line of the conversation.
 func TestLowTerminal(t *testing.T) {
 	st := yard(t)
-	must(t, st.Mail(context.Background(), me, "a word", "mayor")) // its text is the conversation's last line
+	must(t, st.Mail(context.Background(), me, "a word", "chief")) // its text is the conversation's last line
 
 	for _, c := range []struct {
 		name  string
@@ -519,7 +519,7 @@ func TestLowTerminal(t *testing.T) {
 		{"wide, the yard's row", 120, true, []string{"T.", "T.", "T.R", "T.R.", "T.R.K", "T..R.K"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			v := open(t, st, "mayor", c.width, 24)
+			v := open(t, st, "chief", c.width, 24)
 			if c.yard {
 				v.key(tea.KeyShiftTab)
 			} else {
@@ -591,19 +591,19 @@ func TestSend(t *testing.T) {
 		t.Fatalf("the line still holds %q after sending", v.m.input.Value())
 	}
 	v.shows("first line", "second line", "· sent; refinery is idle")
-	if in, _ := st.Inbox(ctx, "mayor", 0); in.Total != 0 {
-		t.Fatalf("the mail reached the mayor too: %+v", in)
+	if in, _ := st.Inbox(ctx, "chief", 0); in.Total != 0 {
+		t.Fatalf("the mail reached the chief too: %+v", in)
 	}
 }
 
 // A mail that cannot be sent leaves what was typed in the line.
 func TestSendFails(t *testing.T) {
 	st := yard(t)
-	v := open(t, st, "mayor", 80, 24)
-	must(t, st.DeleteResident(context.Background(), "mayor", "", "jo")) // gone before the view hears of it
+	v := open(t, st, "chief", 80, 24)
+	must(t, st.DeleteResident(context.Background(), "chief", "", "jo")) // gone before the view hears of it
 	v.typed("are you there?")
 	v.key(tea.KeyEnter)
-	v.shows("not sent to mayor", "are you there?")
+	v.shows("not sent to chief", "are you there?")
 	if v.m.input.Value() != "are you there?" {
 		t.Fatalf("the line holds %q after a failed send", v.m.input.Value())
 	}
@@ -614,7 +614,7 @@ func TestSendFails(t *testing.T) {
 // mails a text is sent as is not taken.
 func TestSizeLimit(t *testing.T) {
 	st := yard(t)
-	v := open(t, st, "mayor", 80, 24)
+	v := open(t, st, "chief", 80, 24)
 	v.typed(strings.Repeat("x", warnAt-1))
 	v.hides("bytes")
 	v.typed("x")
@@ -646,7 +646,7 @@ func TestSizeLimit(t *testing.T) {
 	v.fits(80, 24)
 	v.key(tea.KeyEnter)
 	v.hides("not sent", "went to")
-	letters, err := st.Conversation(context.Background(), me, "mayor", 0)
+	letters, err := st.Conversation(context.Background(), me, "chief", 0)
 	if err != nil || len(letters) != MaxParts {
 		t.Fatalf("%d mails of %d were sent, %v", len(letters), MaxParts, err)
 	}
@@ -658,12 +658,12 @@ func TestSizeLimit(t *testing.T) {
 // A text of one mail's size is sent as it is, as one mail.
 func TestSendOneMail(t *testing.T) {
 	st := yard(t)
-	v := open(t, st, "mayor", 80, 24)
+	v := open(t, st, "chief", 80, 24)
 	text := "(1/2) is what a part begins with\n\n" + strings.Repeat("x", store.MaxMailBytes)
 	text = text[:store.MaxMailBytes]
 	v.typed(text)
 	v.key(tea.KeyEnter)
-	letters, err := st.Conversation(context.Background(), me, "mayor", 0)
+	letters, err := st.Conversation(context.Background(), me, "chief", 0)
 	if err != nil || len(letters) != 1 || letters[0].Text != text {
 		t.Fatalf("a text of one mail's size: %d mails, %v", len(letters), err)
 	}
@@ -744,7 +744,7 @@ func TestSplit(t *testing.T) {
 // shows them as the mails they are, with one line for where they stand.
 func TestSendLong(t *testing.T) {
 	st := yard(t)
-	v := open(t, st, "mayor", 80, 24)
+	v := open(t, st, "chief", 80, 24)
 	text := prose(5 * store.MaxMailBytes / 2)
 	v.typed("  " + text + "\n")
 	v.shows(fmt.Sprintf("%d bytes, sent as 3 mails", len(text)))
@@ -752,7 +752,7 @@ func TestSendLong(t *testing.T) {
 	if v.m.input.Value() != "" {
 		t.Fatalf("the line still holds %d bytes after sending", len(v.m.input.Value()))
 	}
-	letters, err := st.Conversation(context.Background(), me, "mayor", 0)
+	letters, err := st.Conversation(context.Background(), me, "chief", 0)
 	if err != nil || len(letters) != 3 {
 		t.Fatalf("%d mails, %v", len(letters), err)
 	}
@@ -768,7 +768,7 @@ func TestSendLong(t *testing.T) {
 		t.Fatal("the mails do not make the text again")
 	}
 	all := ansi.Strip(strings.Join(v.m.lines(80), "\n"))
-	if n := strings.Count(all, "· sent; mayor is idle"); n != 1 {
+	if n := strings.Count(all, "· sent; chief is idle"); n != 1 {
 		t.Fatalf("%d lines say where the three mails stand", n)
 	}
 	for _, mark := range []string{"  (1/3)\n", "  (2/3)\n", "  (3/3)\n"} {
@@ -797,16 +797,16 @@ func (f *failing) Mail(ctx context.Context, to, text, actor string) error {
 func TestSendLongFails(t *testing.T) {
 	st := &failing{API: yard(t), n: 1}
 	ctx := context.Background()
-	v := open(t, st, "mayor", 80, 24)
+	v := open(t, st, "chief", 80, 24)
 	text := prose(5 * store.MaxMailBytes / 2)
 	parts := split(text)
 	v.typed(text)
 	v.key(tea.KeyEnter)
-	v.shows("1 of 3 mails went to mayor, the rest is in the line: the store is away")
+	v.shows("1 of 3 mails went to chief, the rest is in the line: the store is away")
 	if got := v.m.input.Value(); got != text[parts[1].at:] {
 		t.Fatalf("the line holds %d bytes, parts 2 and 3 are %d", len(got), len(text)-parts[1].at)
 	}
-	letters, err := st.Conversation(ctx, me, "mayor", 0)
+	letters, err := st.Conversation(ctx, me, "chief", 0)
 	if err != nil || len(letters) != 1 || letters[0].Text != "(1/3)\n"+parts[0].text {
 		t.Fatalf("%d mails after the failure, %v", len(letters), err)
 	}
@@ -818,7 +818,7 @@ func TestSendLongFails(t *testing.T) {
 	st.n = 2
 	v.key(tea.KeyEnter)
 	v.hides("went to")
-	letters, err = st.Conversation(ctx, me, "mayor", 0)
+	letters, err = st.Conversation(ctx, me, "chief", 0)
 	if err != nil || len(letters) != 3 || letters[1].Text != "(1/2)\n"+parts[1].text || letters[2].Text != "(2/2)\n"+parts[2].text {
 		t.Fatalf("%d mails after sending the rest, %v", len(letters), err)
 	}
@@ -829,7 +829,7 @@ func TestSendLongFails(t *testing.T) {
 	cmd := v.m.send()
 	v.typed("typed since")
 	v.do(cmd)
-	v.shows("0 of 3 mails went to mayor")
+	v.shows("0 of 3 mails went to chief")
 	if got := v.m.input.Value(); got != text+"\n\ntyped since" {
 		t.Fatalf("the line holds %d bytes after a failed send and a line typed", len(got))
 	}
@@ -840,12 +840,12 @@ func TestSendLongFails(t *testing.T) {
 func TestPaneKey(t *testing.T) {
 	st := yard(t)
 	ctx := context.Background()
-	in := open(t, st, "mayor", 120, 24, func(o *Options) { o.InHerdr = true })
+	in := open(t, st, "chief", 120, 24, func(o *Options) { o.InHerdr = true })
 	in.key(tea.KeyCtrlG)
-	if len(in.focused) != 1 || in.focused[0] != "yard-mayor" {
+	if len(in.focused) != 1 || in.focused[0] != "yard-chief" {
 		t.Fatalf("focused %v", in.focused)
 	}
-	in.shows("herdr shows mayor now")
+	in.shows("herdr shows chief now")
 
 	out := open(t, st, "refinery", 120, 24)
 	out.key(tea.KeyCtrlG)
@@ -854,22 +854,22 @@ func TestPaneKey(t *testing.T) {
 	}
 	out.shows("refinery's pane: herdr agent attach yard-refinery (in herdr: herdr agent focus yard-refinery)")
 
-	failing := open(t, st, "mayor", 120, 24, func(o *Options) {
+	failing := open(t, st, "chief", 120, 24, func(o *Options) {
 		o.InHerdr = true
 		o.Focus = func(context.Context, string) error {
-			return errors.New("herdr agent focus yard-mayor: agent_not_found")
+			return errors.New("herdr agent focus yard-chief: agent_not_found")
 		}
 	})
 	failing.key(tea.KeyCtrlG)
-	failing.shows("herdr agent focus yard-mayor: agent_not_found")
+	failing.shows("herdr agent focus yard-chief: agent_not_found")
 
-	must(t, st.ResidentStopped(ctx, "mayor", "gone"))
+	must(t, st.ResidentStopped(ctx, "chief", "gone"))
 	in.stream()
 	in.key(tea.KeyCtrlG)
 	if len(in.focused) != 1 {
 		t.Fatalf("a pane was focused for a resident that does not run: %v", in.focused)
 	}
-	in.shows("mayor has no pane, it is not running: yardr resident start mayor")
+	in.shows("chief has no pane, it is not running: yardr resident start chief")
 }
 
 // A list of the residents read before a status the stream told of does
@@ -877,20 +877,20 @@ func TestPaneKey(t *testing.T) {
 func TestOlderListKeepsNewerStatus(t *testing.T) {
 	st := yard(t)
 	ctx := context.Background()
-	v := open(t, st, "mayor", 120, 24)
+	v := open(t, st, "chief", 120, 24)
 	before := head(t, st)
 	stale, err := st.Residents(ctx)
 	must(t, err)
-	must(t, st.ResidentStatus(ctx, "mayor", "working"))
+	must(t, st.ResidentStatus(ctx, "chief", "working"))
 	v.stream()
 	v.send(residentsMsg{head: before, residents: stale})
-	v.shows("mayor       working")
+	v.shows("chief       working")
 	// One read after it is taken as it is.
-	must(t, st.ResidentStatus(ctx, "mayor", "idle"))
+	must(t, st.ResidentStatus(ctx, "chief", "idle"))
 	fresh, err := st.Residents(ctx)
 	must(t, err)
 	v.send(residentsMsg{head: head(t, st), residents: fresh})
-	v.shows("mayor       idle")
+	v.shows("chief       idle")
 }
 
 // dropping is a stream that ends after each batch: the yardr server going
@@ -960,11 +960,11 @@ func TestFollowResumesAfterTheLastEvent(t *testing.T) {
 // missed arrive and the notice goes.
 func TestStreamLost(t *testing.T) {
 	st := yard(t)
-	v := open(t, st, "mayor", 80, 24)
+	v := open(t, st, "chief", 80, 24)
 	v.send(StreamMsg{Up: false})
 	v.shows("the yardr server is away")
 	v.fits(80, 24)
-	must(t, st.Mail(context.Background(), me, "said while you were away", "mayor"))
+	must(t, st.Mail(context.Background(), me, "said while you were away", "chief"))
 	v.send(StreamMsg{Up: true})
 	v.stream()
 	v.hides("the yardr server is away")
@@ -978,10 +978,10 @@ func TestFollowTheStore(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	after := head(t, st)
-	must(t, st.Mail(ctx, me, "before", "mayor"))
+	must(t, st.Mail(ctx, me, "before", "chief"))
 	got := make(chan store.Event, 16)
 	go Follow(ctx, st, after, time.Millisecond, func(e store.Event) { got <- e }, func(bool) {})
-	must(t, st.Mail(ctx, me, "after", "mayor"))
+	must(t, st.Mail(ctx, me, "after", "chief"))
 	for _, want := range []string{"before", "after"} {
 		select {
 		case e := <-got:
@@ -994,19 +994,19 @@ func TestFollowTheStore(t *testing.T) {
 	}
 }
 
-// The onboarding opens the view on a mayor that was asked to greet and may
-// not have yet: its empty conversation says it is starting, the first mail
-// replaces that when the stream brings it, and no other resident's
-// conversation claims the same.
+// The onboarding opens the view on a yardmaster (here: chief) that was asked
+// to greet and may not have yet: its empty conversation says it is starting,
+// the first mail replaces that when the stream brings it, and no other
+// resident's conversation claims the same.
 func TestExpectedFirstMail(t *testing.T) {
 	st := yard(t)
-	v := open(t, st, "mayor", 80, 24, func(o *Options) { o.Expect = "mayor" })
-	v.shows("mayor is starting: it reads its role first, and its first message appears here.", "You can write to it already.")
-	v.hides("No mail between you and mayor yet.")
-	must(t, st.Mail(context.Background(), me, "hello ada, which repository?", "mayor"))
+	v := open(t, st, "chief", 80, 24, func(o *Options) { o.Expect = "chief" })
+	v.shows("chief is starting: it reads its role first, and its first message appears here.", "You can write to it already.")
+	v.hides("No mail between you and chief yet.")
+	must(t, st.Mail(context.Background(), me, "hello ada, which repository?", "chief"))
 	v.stream()
 	v.shows("hello ada, which repository?")
-	v.hides("mayor is starting")
+	v.hides("chief is starting")
 	v.send(tea.KeyMsg{Type: tea.KeyTab})
 	v.shows("No mail between you and refinery yet.")
 }
@@ -1038,16 +1038,16 @@ const trust = "sh$ claude\n\n one\n two\n three\n Do you trust the files in this
 func TestWaitingNotice(t *testing.T) {
 	st := yard(t)
 	ctx := context.Background()
-	p := &panes{text: map[string]string{"yard-mayor": trust}}
-	known := "! mayor waits at a prompt in its pane: claude may wait at a login, a question or a system dialog"
+	p := &panes{text: map[string]string{"yard-chief": trust}}
+	known := "! chief waits at a prompt in its pane: claude may wait at a login, a question or a system dialog"
 	back := "; answer there and come back"
 
-	v := open(t, st, "mayor", 160, 40, p.option)
+	v := open(t, st, "chief", 160, 40, p.option)
 	v.hides("may wait at", "Do you trust", back)
 	if p.reads != 0 {
 		t.Fatalf("the pane of an idle resident was read %d times", p.reads)
 	}
-	must(t, st.ResidentStatus(ctx, "mayor", "blocked"))
+	must(t, st.ResidentStatus(ctx, "chief", "blocked"))
 	v.stream()
 	v.shows(known, "  │  three", "  │  Do you trust the files in this folder?", "  │  ❯ 1. Yes, proceed", "  │    2. No, exit",
 		"  │  Enter to confirm", "ctrl+g names the command that opens its pane"+back)
@@ -1069,12 +1069,12 @@ func TestWaitingNotice(t *testing.T) {
 	v.typed("deploys are frozen")
 	v.key(tea.KeyEnter)
 	v.stream()
-	v.shows("deploys are frozen", "· mayor waits at a prompt in its pane and cannot read mail (ctrl+g goes there)", known)
-	if c, err := st.Conversation(ctx, me, "mayor", 0); err != nil || len(c) != 1 {
+	v.shows("deploys are frozen", "· chief waits at a prompt in its pane and cannot read mail (ctrl+g goes there)", known)
+	if c, err := st.Conversation(ctx, me, "chief", 0); err != nil || len(c) != 1 {
 		t.Fatalf("the conversation has %d mails, %v: the notice is none, and what was typed is one", len(c), err)
 	}
 
-	// Another resident has none; back on the mayor it is there again.
+	// Another resident has none; back on the chief it is there again.
 	v.key(tea.KeyTab)
 	v.hides("may wait at", "Do you trust", back)
 	v.key(tea.KeyShiftTab)
@@ -1084,10 +1084,10 @@ func TestWaitingNotice(t *testing.T) {
 	// size: the pane's lines give way first, the oldest of them first.
 	v.send(tea.WindowSizeMsg{Width: 80, Height: 24})
 	v.fits(80, 24)
-	v.shows("! mayor waits at a prompt in its pane: claude may wait at a login", "  │  Enter to confirm", back)
+	v.shows("! chief waits at a prompt in its pane: claude may wait at a login", "  │  Enter to confirm", back)
 	v.send(tea.WindowSizeMsg{Width: 80, Height: 16})
 	v.fits(80, 16)
-	v.shows("! mayor waits at a prompt", "  │  Enter to confirm", back, "· mayor waits at a prompt")
+	v.shows("! chief waits at a prompt", "  │  Enter to confirm", back, "· chief waits at a prompt")
 	v.hides("  │  three")
 	v.send(tea.WindowSizeMsg{Width: 30, Height: 12})
 	v.fits(30, 12)
@@ -1098,14 +1098,14 @@ func TestWaitingNotice(t *testing.T) {
 	v.send(tea.WindowSizeMsg{Width: 160, Height: 40})
 
 	// In herdr the key goes to the pane itself.
-	in := open(t, st, "mayor", 160, 40, p.option, func(o *Options) { o.InHerdr = true })
+	in := open(t, st, "chief", 160, 40, p.option, func(o *Options) { o.InHerdr = true })
 	in.shows(known, "ctrl+g opens its pane"+back)
 
 	// The resident goes on: the notice is gone with the event that says so.
-	must(t, st.ResidentStatus(ctx, "mayor", "idle"))
+	must(t, st.ResidentStatus(ctx, "chief", "idle"))
 	v.stream()
 	v.hides("may wait at", "Do you trust", back)
-	v.shows("· sent; mayor is idle")
+	v.shows("· sent; chief is idle")
 	v.fits(160, 40)
 	// What comes back late for the watch that is over changes nothing.
 	v.send(tailMsg{gen: v.m.watched.gen - 1, text: "a late answer"})
@@ -1116,11 +1116,11 @@ func TestWaitingNotice(t *testing.T) {
 // so does a view that was given nothing to read panes with.
 func TestWaitingNoticeWithoutPane(t *testing.T) {
 	st := yard(t)
-	must(t, st.ResidentStatus(context.Background(), "mayor", "blocked"))
-	p := &panes{err: errors.New("herdr pane read: pane_not_found"), text: map[string]string{"yard-mayor": trust}}
+	must(t, st.ResidentStatus(context.Background(), "chief", "blocked"))
+	p := &panes{err: errors.New("herdr pane read: pane_not_found"), text: map[string]string{"yard-chief": trust}}
 	for name, opt := range map[string]func(*Options){"unreadable": p.option, "no reader": func(*Options) {}} {
-		v := open(t, st, "mayor", 80, 24, opt)
-		v.shows("! mayor waits at a prompt in its pane: claude may wait at a login", "; answer there and come back")
+		v := open(t, st, "chief", 80, 24, opt)
+		v.shows("! chief waits at a prompt in its pane: claude may wait at a login", "; answer there and come back")
 		v.hides("│", "Do you trust", "pane_not_found")
 		v.fits(80, 24)
 		if name == "unreadable" && p.reads == 0 {
@@ -1128,9 +1128,9 @@ func TestWaitingNoticeWithoutPane(t *testing.T) {
 		}
 	}
 	// A pane that shows nothing is the same.
-	p.err, p.text = nil, map[string]string{"yard-mayor": "\n  \n"}
-	v := open(t, st, "mayor", 80, 24, p.option)
-	v.shows("! mayor waits at a prompt")
+	p.err, p.text = nil, map[string]string{"yard-chief": "\n  \n"}
+	v := open(t, st, "chief", 80, 24, p.option)
+	v.shows("! chief waits at a prompt")
 	v.hides("│")
 }
 
@@ -1160,11 +1160,11 @@ func TestPaneLinesAreInert(t *testing.T) {
 	}
 
 	st := yard(t)
-	must(t, st.ResidentStatus(context.Background(), "mayor", "blocked"))
-	p := &panes{text: map[string]string{"yard-mayor": hostile}}
+	must(t, st.ResidentStatus(context.Background(), "chief", "blocked"))
+	p := &panes{text: map[string]string{"yard-chief": hostile}}
 	for _, colour := range []termenv.Profile{termenv.Ascii, termenv.TrueColor} {
 		profile(t, colour, true)
-		v := open(t, st, "mayor", 80, 24, p.option)
+		v := open(t, st, "chief", 80, 24, p.option)
 		v.shows("  │ Do you trust this folder?", "  │ after the title", "  │ turned round")
 		raw := v.m.View()
 		for _, bad := range []string{"\x1b[31m", "\x1b[2J", "\x1b[H", "\x1b]", "\x07", "\x08", "\x7f", "\x00", "\r", "\t", "\u009b", "\u202e", "\u2066", "a title", "ZXZpbA"} {
@@ -1180,7 +1180,7 @@ func TestPaneLinesAreInert(t *testing.T) {
 
 // A resident whose first prompt is still to be delivered waits as a
 // blocked one does, whatever its runtime reads it as, and says what the
-// onboarding says of such a mayor. Once the prompt arrived, which no
+// onboarding says of such a yardmaster. Once the prompt arrived, which no
 // status tells, the notice is gone.
 func TestFirstPromptPending(t *testing.T) {
 	st := yard(t)
@@ -1233,9 +1233,9 @@ func TestFirstPromptPending(t *testing.T) {
 func TestPaneIsReadAgain(t *testing.T) {
 	st := yard(t)
 	ctx := context.Background()
-	must(t, st.ResidentStatus(ctx, "mayor", "blocked"))
-	p := &panes{text: map[string]string{"yard-mayor": "Do you trust this folder?", "yard-refinery": "Select login method:"}}
-	v := open(t, st, "mayor", 80, 24, p.option, func(o *Options) { o.Refresh = time.Millisecond })
+	must(t, st.ResidentStatus(ctx, "chief", "blocked"))
+	p := &panes{text: map[string]string{"yard-chief": "Do you trust this folder?", "yard-refinery": "Select login method:"}}
+	v := open(t, st, "chief", 80, 24, p.option, func(o *Options) { o.Refresh = time.Millisecond })
 	v.shows("  │ Do you trust this folder?")
 	if p.reads != 1 {
 		t.Fatalf("the pane was read %d times on opening, want 1", p.reads)
@@ -1247,7 +1247,7 @@ func TestPaneIsReadAgain(t *testing.T) {
 	if p.reads != 1 {
 		t.Fatalf("the pane was read %d times between two refreshes, want 1", p.reads)
 	}
-	p.text["yard-mayor"] = "Allow claude to run git push?"
+	p.text["yard-chief"] = "Allow claude to run git push?"
 	v.send(refreshMsg{gen: v.m.watched.gen})
 	v.shows("  │ Allow claude to run git push?")
 	v.hides("Do you trust")

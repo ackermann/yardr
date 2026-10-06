@@ -27,11 +27,11 @@ func TestTimerCommands(t *testing.T) {
 	st := timerUserYard(t)
 	ctx := context.Background()
 
-	out := mustAs(t, st, "mayor", "timer", "add", "--in", "40m", "look at the deploy")
+	out := mustAs(t, st, "yardmaster", "timer", "add", "--in", "40m", "look at the deploy")
 	if !strings.HasPrefix(out, "timer t1 set: ") || !strings.Contains(out, "(in 40m): look at the deploy") {
 		t.Fatalf("add: %q", out)
 	}
-	out = mustAs(t, st, "mayor", "timer", "add", "--in", "2h", "--to", "jo", "the refinery is red")
+	out = mustAs(t, st, "yardmaster", "timer", "add", "--in", "2h", "--to", "jo", "the refinery is red")
 	if !strings.Contains(out, "timer t2 set: tells jo ") {
 		t.Fatalf("add --to: %q", out)
 	}
@@ -41,15 +41,15 @@ func TestTimerCommands(t *testing.T) {
 		t.Fatalf("add --json = %+v, %v", set, err)
 	}
 
-	refusedAs(t, st, "mayor", "nobody sets a timer for another resident: mail it", "timer", "add", "--in", "1h", "--to", "clerk", "x")
+	refusedAs(t, st, "yardmaster", "nobody sets a timer for another resident: mail it", "timer", "add", "--in", "1h", "--to", "clerk", "x")
 	refusedAs(t, st, "jo", "a user sets timers for themselves", "timer", "add", "--in", "1h", "--to", "ada", "x")
 	refusedAs(t, st, "yard-10-new", "neither a resident nor a user", "timer", "add", "--in", "1h", "x")
-	refusedAs(t, st, "mayor", "one of --in <duration>, --at <time> or --every <duration>", "timer", "add", "x")
-	refusedAs(t, st, "mayor", "one of --in <duration>, --at <time> or --every <duration>", "timer", "add", "--in", "1h", "--at", "09:00", "x")
-	refusedAs(t, st, "mayor", `--in: bad duration "soon"`, "timer", "add", "--in", "soon", "x")
-	refusedAs(t, st, "mayor", "--every 10m is shorter than the yard allows (timer_min_every 1h)", "timer", "add", "--every", "10m", "x")
-	refusedAs(t, st, "mayor", "the keys are bead and stage", "timer", "add", "--in", "1h", "--unless", "epic=x", "x")
-	if _, err := as(t, st, "mayor", "timer", "add", "--in", "1h"); err == nil {
+	refusedAs(t, st, "yardmaster", "one of --in <duration>, --at <time> or --every <duration>", "timer", "add", "x")
+	refusedAs(t, st, "yardmaster", "one of --in <duration>, --at <time> or --every <duration>", "timer", "add", "--in", "1h", "--at", "09:00", "x")
+	refusedAs(t, st, "yardmaster", `--in: bad duration "soon"`, "timer", "add", "--in", "soon", "x")
+	refusedAs(t, st, "yardmaster", "--every 10m is shorter than the yard allows (timer_min_every 1h)", "timer", "add", "--every", "10m", "x")
+	refusedAs(t, st, "yardmaster", "the keys are bead and stage", "timer", "add", "--in", "1h", "--unless", "epic=x", "x")
+	if _, err := as(t, st, "yardmaster", "timer", "add", "--in", "1h"); err == nil {
 		t.Fatal("a timer without a reason was taken")
 	}
 
@@ -66,8 +66,8 @@ func TestTimerCommands(t *testing.T) {
 		}
 		return strings.Join(ids, " ")
 	}
-	if got := rows("mayor"); got != "t1 t2" {
-		t.Fatalf("mayor's = %q", got)
+	if got := rows("yardmaster"); got != "t1 t2" {
+		t.Fatalf("yardmaster's = %q", got)
 	}
 	if got := rows("jo"); got != "t2" {
 		t.Fatalf("jo's = %q", got)
@@ -78,14 +78,14 @@ func TestTimerCommands(t *testing.T) {
 	if got := rows("jo", "--all"); got != "t1 t2 t3" {
 		t.Fatalf("--all = %q", got)
 	}
-	refusedAs(t, st, "mayor", "only the operator (jo) may list everyone's timers; this is mayor", "timer", "list", "--all")
-	if out := mustAs(t, st, "mayor", "timer", "list"); !strings.Contains(out, "REASON") || !strings.Contains(out, "the refinery is red") {
+	refusedAs(t, st, "yardmaster", "only the operator (jo) may list everyone's timers; this is yardmaster", "timer", "list", "--all")
+	if out := mustAs(t, st, "yardmaster", "timer", "list"); !strings.Contains(out, "REASON") || !strings.Contains(out, "the refinery is red") {
 		t.Fatalf("list:\n%s", out)
 	}
 
-	refusedAs(t, st, "clerk", "was set by mayor for mayor: they remove it, or the operator; this is clerk", "timer", "rm", "t1")
-	refusedAs(t, st, "ada", "was set by mayor for jo", "timer", "rm", "t2")
-	if _, err := as(t, st, "mayor", "timer", "rm", "t9"); exitCode(err) != 3 {
+	refusedAs(t, st, "clerk", "was set by yardmaster for yardmaster: they remove it, or the operator; this is clerk", "timer", "rm", "t1")
+	refusedAs(t, st, "ada", "was set by yardmaster for jo", "timer", "rm", "t2")
+	if _, err := as(t, st, "yardmaster", "timer", "rm", "t9"); exitCode(err) != 3 {
 		t.Fatalf("rm of none: %v", err)
 	}
 	// The one told removes theirs, and the operator anyone's.
@@ -93,7 +93,7 @@ func TestTimerCommands(t *testing.T) {
 		t.Fatalf("rm: %q", out)
 	}
 	mustAs(t, st, "jo", "timer", "rm", "t3")
-	mustAs(t, st, "mayor", "timer", "rm", "t1")
+	mustAs(t, st, "yardmaster", "timer", "rm", "t1")
 	if ts, _ := st.Timers(ctx, ""); len(ts) != 0 {
 		t.Fatalf("left: %+v", ts)
 	}
@@ -107,8 +107,8 @@ func TestTimerSettings(t *testing.T) {
 	refusedAs(t, st, "jo", "timer_min_every: bad duration", "settings", "set", "timer_min_every", "often")
 	mustAs(t, st, "jo", "settings", "set", "timer_limit", "1")
 	mustAs(t, st, "jo", "settings", "set", "timer_min_every", "2s")
-	mustAs(t, st, "mayor", "timer", "add", "--every", "2s", "--for", "1m", "x")
-	refusedAs(t, st, "mayor", "mayor has 1 live timers, the most the yard allows one setter (timer_limit)", "timer", "add", "--in", "1h", "x")
+	mustAs(t, st, "yardmaster", "timer", "add", "--every", "2s", "--for", "1m", "x")
+	refusedAs(t, st, "yardmaster", "yardmaster has 1 live timers, the most the yard allows one setter (timer_limit)", "timer", "add", "--in", "1h", "x")
 	if out := mustAs(t, st, "jo", "settings", "get"); !strings.Contains(out, "timer_limit") || !strings.Contains(out, "timer_min_every") {
 		t.Fatalf("settings get:\n%s", out)
 	}
@@ -119,23 +119,23 @@ func TestTimerSettings(t *testing.T) {
 func TestTimerFiringIsRead(t *testing.T) {
 	st := timerUserYard(t)
 	ctx := context.Background()
-	mustAs(t, st, "mayor", "timer", "add", "--in", "10m", "look at the deploy")
-	mustAs(t, st, "mayor", "timer", "add", "--in", "10m", "--to", "jo", "the refinery is red")
+	mustAs(t, st, "yardmaster", "timer", "add", "--in", "10m", "look at the deploy")
+	mustAs(t, st, "yardmaster", "timer", "add", "--in", "10m", "--to", "jo", "the refinery is red")
 	if pass, err := st.FireTimers(ctx, time.Now().Add(10*time.Minute+time.Second)); err != nil || pass.Fired != 2 {
 		t.Fatalf("pass = %+v, %v", pass, err)
 	}
-	if out := mustAs(t, st, "jo", "inbox", "--resident", "mayor"); !strings.Contains(out, "  timer: look at the deploy (set ") ||
-		!strings.Contains(out, " by mayor).") || strings.Contains(out, "refinery") {
-		t.Fatalf("the mayor's inbox:\n%s", out)
+	if out := mustAs(t, st, "jo", "inbox", "--resident", "yardmaster"); !strings.Contains(out, "  timer: look at the deploy (set ") ||
+		!strings.Contains(out, " by yardmaster).") || strings.Contains(out, "refinery") {
+		t.Fatalf("the yardmaster's inbox:\n%s", out)
 	}
-	if out := mustAs(t, st, "jo", "inbox"); !strings.Contains(out, "mail from mayor: timer: the refinery is red (set ") {
+	if out := mustAs(t, st, "jo", "inbox"); !strings.Contains(out, "mail from yardmaster: timer: the refinery is red (set ") {
 		t.Fatalf("jo's inbox:\n%s", out)
 	}
-	if out := mustAs(t, st, "jo", "mail", "--with", "mayor"); !strings.Contains(out, "mayor: timer: the refinery is red") {
+	if out := mustAs(t, st, "jo", "mail", "--with", "yardmaster"); !strings.Contains(out, "yardmaster: timer: the refinery is red") {
 		t.Fatalf("the conversation:\n%s", out)
 	}
 	var letters []store.Letter
-	if err := json.Unmarshal([]byte(mustAs(t, st, "jo", "mail", "--with", "mayor", "--json")), &letters); err != nil ||
+	if err := json.Unmarshal([]byte(mustAs(t, st, "jo", "mail", "--with", "yardmaster", "--json")), &letters); err != nil ||
 		len(letters) != 1 || letters[0].Timer != "t2" {
 		t.Fatalf("--json = %+v, %v", letters, err)
 	}
@@ -146,11 +146,11 @@ func TestTimerFiringIsRead(t *testing.T) {
 // right tool.
 func TestTimersAreSeen(t *testing.T) {
 	st := timerUserYard(t)
-	mustAs(t, st, "mayor", "timer", "add", "--in", "40m", "look at the deploy")
-	mustAs(t, st, "mayor", "timer", "add", "--every", "1d", "--to", "jo", "the refinery is red")
+	mustAs(t, st, "yardmaster", "timer", "add", "--in", "40m", "look at the deploy")
+	mustAs(t, st, "yardmaster", "timer", "add", "--every", "1d", "--to", "jo", "the refinery is red")
 	mustAs(t, st, "clerk", "timer", "add", "--in", "1h", "the clerk's own")
 
-	prime := mustAs(t, st, "mayor", "prime", "--resident", "mayor")
+	prime := mustAs(t, st, "yardmaster", "prime", "--resident", "yardmaster")
 	for _, want := range []string{
 		"## Timers: 2 live (yardr timer list, yardr timer rm <id>)",
 		"(in 40m): look at the deploy",
@@ -163,7 +163,7 @@ func TestTimersAreSeen(t *testing.T) {
 		}
 	}
 	if strings.Contains(prime, "the clerk's own") {
-		t.Error("the mayor's prime lists the clerk's timer")
+		t.Error("the yardmaster's prime lists the clerk's timer")
 	}
 	if t.Failed() {
 		t.Logf("prime:\n%s", prime)
@@ -177,17 +177,17 @@ func TestTimersAreSeen(t *testing.T) {
 		t.Fatalf("a prime without timers has their section:\n%s", out)
 	}
 
-	if out := mustAs(t, st, "jo", "resident", "show", "mayor"); !strings.Contains(out, "  timer t1 ") ||
+	if out := mustAs(t, st, "jo", "resident", "show", "yardmaster"); !strings.Contains(out, "  timer t1 ") ||
 		!strings.Contains(out, "  timer t2 tells jo ") || strings.Contains(out, "clerk's own") {
 		t.Fatalf("resident show:\n%s", out)
 	}
 	var shown struct {
 		Timers []store.Timer `json:"timers"`
 	}
-	if err := json.Unmarshal([]byte(mustAs(t, st, "jo", "resident", "show", "mayor", "--json")), &shown); err != nil || len(shown.Timers) != 2 {
+	if err := json.Unmarshal([]byte(mustAs(t, st, "jo", "resident", "show", "yardmaster", "--json")), &shown); err != nil || len(shown.Timers) != 2 {
 		t.Fatalf("resident show --json timers = %+v, %v", shown.Timers, err)
 	}
-	if out := mustAs(t, st, "jo", "user", "show", "jo"); !strings.Contains(out, "  timer t2 set by mayor, tells you ") {
+	if out := mustAs(t, st, "jo", "user", "show", "jo"); !strings.Contains(out, "  timer t2 set by yardmaster, tells you ") {
 		t.Fatalf("user show:\n%s", out)
 	}
 	if out := mustAs(t, st, "jo", "user", "show", "pat"); strings.Contains(out, "timer") {

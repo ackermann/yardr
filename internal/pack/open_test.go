@@ -86,14 +86,14 @@ func mayOpen(t *testing.T, st store.API, resident string) string {
 // operator. Building it grants nothing.
 func TestPlanSortsWhatThePackAsksToOpen(t *testing.T) {
 	st, o := yard(t)
-	o.Residents = map[string]string{"mayor": "boss"}
+	o.Residents = map[string]string{"yardmaster": "boss"}
 	dir := copyStarter(t)
 	edit(t, dir, "open_threads: [linear]", "open_threads: [linear, github]")
 
 	// A resident the import would create has no credential yet, and the
 	// yard no hook: nothing can be asked.
 	ot := open(t, build(t, st, load(t, dir), o), "boss")
-	if ot.Pack != "mayor" || !reflect.DeepEqual(ot.Wants, []string{"linear", "github"}) || len(ot.Has)+len(ot.Asks)+len(ot.Declined) != 0 || len(ot.Lacks) != 2 {
+	if ot.Pack != "yardmaster" || !reflect.DeepEqual(ot.Wants, []string{"linear", "github"}) || len(ot.Has)+len(ot.Asks)+len(ot.Declined) != 0 || len(ot.Lacks) != 2 {
 		t.Fatalf("into an empty yard: %+v", ot)
 	}
 	what := func(l pack.Lack) string {
@@ -221,7 +221,7 @@ func TestPlanSortsWhatThePackAsksToOpen(t *testing.T) {
 // and a source the pack asks for later is the only new question.
 func TestApplyGrantsWhatTheOperatorAnswered(t *testing.T) {
 	st, o := yard(t)
-	o.Residents = map[string]string{"mayor": "boss"}
+	o.Residents = map[string]string{"yardmaster": "boss"}
 	dir := copyStarter(t)
 	has(t, st, "boss", "linear", "github")
 	if _, err := st.AllowOpening(ctx, "boss", []string{"github"}, "", "jo"); err != nil {
@@ -321,7 +321,7 @@ func TestApplyGrantsWhatTheOperatorAnswered(t *testing.T) {
 // refused before anything is written.
 func TestApplyRefusesAnAnswerThePlanDidNotAsk(t *testing.T) {
 	st, o := yard(t)
-	o.Residents = map[string]string{"mayor": "boss"}
+	o.Residents = map[string]string{"yardmaster": "boss"}
 	dir := copyStarter(t)
 	edit(t, dir, "open_threads: [linear]", "open_threads: [linear, github]")
 	has(t, st, "boss", "linear")

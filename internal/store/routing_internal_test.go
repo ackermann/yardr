@@ -34,7 +34,7 @@ func TestDeleteGroupCountsOnceWhenBatchRetries(t *testing.T) {
 	}
 	done := make(chan res, 1)
 	go func() {
-		n, err := s.DeleteGroup(ctx, "gone", "mayor")
+		n, err := s.DeleteGroup(ctx, "gone", "yardmaster")
 		done <- res{n, err}
 	}()
 	time.Sleep(100 * time.Millisecond)

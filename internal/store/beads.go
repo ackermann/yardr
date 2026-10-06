@@ -212,7 +212,7 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 			return changedMeanwhile(err)
 		}
 		// Without a stage the bead starts where its flow starts (backlog
-		// in the starter flow, where the mayor shapes it), so create works
+		// in the starter flow, where the yardmaster shapes it), so create works
 		// for any flow, an epic's too; "new" is only for beads no flow
 		// governs.
 		stage := or(nb.Stage, firstStage(f))
@@ -755,7 +755,7 @@ func (s *Store) CloseBead(ctx context.Context, id, reason string, exp Expect, ac
 // the bead now, a review form opened before someone else decided cannot
 // apply its decision on top, and two writers that read the same revision
 // cannot both apply what they read it for (compare-and-swap). An empty
-// field expects nothing: a person acting outside any session (the mayor,
+// field expects nothing: a person acting outside any session (the yardmaster,
 // Christopher at a shell) is not checked.
 //
 // Session names the session the caller runs in ($YARDR_SESSION). It must be

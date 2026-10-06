@@ -67,24 +67,24 @@ func TestYardRow(t *testing.T) {
 	second, newest := landed(t, st, "the second")
 	must(t, st.Mail(ctx, me, "a word with you", "refinery"))
 
-	v := open(t, st, "mayor", 120, 24)
+	v := open(t, st, "chief", 120, 24)
 	if got, want := v.row(YardRow), fmt.Sprintf("  %-11s %-15s %d", YardRow, "", 4); got != want {
 		t.Fatalf("the yard's row is %q, want %q", got, want)
 	}
 	lines := strings.Split(v.screen(), "\n")
-	if !strings.HasPrefix(lines[1], "  yard ") || !strings.HasPrefix(lines[2], "> mayor ") {
+	if !strings.HasPrefix(lines[1], "  yard ") || !strings.HasPrefix(lines[2], "> chief ") {
 		t.Fatalf("the yard's row is not above the residents:\n%s", v.screen())
 	}
 	// Four notifications, and the residents' rows say nothing of them:
-	// the mayor has none, the refinery its one mail.
-	if got := v.row("mayor"); got != "> mayor       idle" {
-		t.Fatalf("the mayor's row is %q", got)
+	// the chief has none, the refinery its one mail.
+	if got := v.row("chief"); got != "> chief       idle" {
+		t.Fatalf("the chief's row is %q", got)
 	}
 	if got := v.row("refinery"); got != "  refinery    idle            1" {
 		t.Fatalf("the refinery's row is %q", got)
 	}
-	if v.m.Notifications() != 4 || v.m.Unread("mayor") != 0 || v.m.Unread("refinery") != 1 {
-		t.Fatalf("unread: yard %d, mayor %d, refinery %d", v.m.Notifications(), v.m.Unread("mayor"), v.m.Unread("refinery"))
+	if v.m.Notifications() != 4 || v.m.Unread("chief") != 0 || v.m.Unread("refinery") != 1 {
+		t.Fatalf("unread: yard %d, chief %d, refinery %d", v.m.Notifications(), v.m.Unread("chief"), v.m.Unread("refinery"))
 	}
 	v.hides(first, second) // in no conversation
 	if v.noteCursor() != 0 {
@@ -135,22 +135,22 @@ func TestYardRow(t *testing.T) {
 	fourth, newest := landed(t, st, "the fourth")
 	v.stream()
 	v.hides(fourth)
-	if got := v.row(YardRow); !strings.HasSuffix(got, " 2") || v.row("mayor") != "> mayor       idle" || v.noteCursor() >= newest {
-		t.Fatalf("after one more: the yard's row %q, the mayor's %q, cursor %d of %d", got, v.row("mayor"), v.noteCursor(), newest)
+	if got := v.row(YardRow); !strings.HasSuffix(got, " 2") || v.row("chief") != "> chief       idle" || v.noteCursor() >= newest {
+		t.Fatalf("after one more: the yard's row %q, the chief's %q, cursor %d of %d", got, v.row("chief"), v.noteCursor(), newest)
 	}
 	v.send(tea.WindowSizeMsg{Width: 80, Height: 24})
 	v.fits(80, 24)
-	if got := strings.Split(v.screen(), "\n")[1]; got != "yard (2)  [mayor idle]  refinery idle (1)" {
+	if got := strings.Split(v.screen(), "\n")[1]; got != "yard (2)  [chief idle]  refinery idle (1)" {
 		t.Fatalf("the folded line is %q", got)
 	}
 	must(t, st.AckUserNotifications(ctx, me, newest))
 	v.stream()
-	if got := strings.Split(v.screen(), "\n")[1]; got != "yard  [mayor idle]  refinery idle (1)" {
+	if got := strings.Split(v.screen(), "\n")[1]; got != "yard  [chief idle]  refinery idle (1)" {
 		t.Fatalf("the folded line after an ack elsewhere is %q", got)
 	}
 	v.key(tea.KeyShiftTab)
 	v.fits(80, 24)
-	v.shows("[yard]  mayor idle  refinery idle (1)", fourth)
+	v.shows("[yard]  chief idle  refinery idle (1)", fourth)
 }
 
 func TestYardRowDoesNotCollideWithResidentName(t *testing.T) {
@@ -159,7 +159,7 @@ func TestYardRowDoesNotCollideWithResidentName(t *testing.T) {
 	if _, err := st.PutResident(ctx, store.Resident{Name: YardRow, Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	v := open(t, st, "mayor", 120, 24)
+	v := open(t, st, "chief", 120, 24)
 	s := v.screen()
 	if !strings.Contains(s, "yard-notify") || !strings.Contains(s, "  yard        not running") {
 		t.Fatalf("the system row and resident named yard are not distinct:\n%s", s)
@@ -173,8 +173,8 @@ func TestYardRowTakesNoAnswer(t *testing.T) {
 		st := yard(t)
 		told(t, st)
 		landed(t, st, "work")
-		v := open(t, st, "mayor", w, 24)
-		v.shows("Write to mayor", "enter send")
+		v := open(t, st, "chief", w, 24)
+		v.shows("Write to chief", "enter send")
 		v.key(tea.KeyShiftTab)
 		v.fits(w, 24)
 		v.hides("Write to", "enter send", "new line", "^g")
@@ -202,10 +202,10 @@ func TestYardRowTakesNoAnswer(t *testing.T) {
 		v.shows("nobody to answer here")
 		v.hides("to nobody")
 		v.key(tea.KeyTab)
-		if v.m.Selected() != "mayor" || v.m.input.Value() != "" {
+		if v.m.Selected() != "chief" || v.m.input.Value() != "" {
 			t.Fatalf("back on %q the line holds %q", v.m.Selected(), v.m.input.Value())
 		}
-		v.shows("Write to mayor")
+		v.shows("Write to chief")
 		v.hides("nobody to answer here")
 	}
 	if YardKeys != "tab next resident  pgup/pgdn scroll  ^c quit" {
@@ -216,7 +216,7 @@ func TestYardRowTakesNoAnswer(t *testing.T) {
 // Without notifications the row says what would be here; a yard without
 // residents has the row all the same, and tab reaches it.
 func TestYardRowEmpty(t *testing.T) {
-	v := open(t, yard(t), "mayor", 120, 24)
+	v := open(t, yard(t), "chief", 120, 24)
 	if got := v.row(YardRow); got != "  yard" {
 		t.Fatalf("the yard's row without notifications is %q", got)
 	}
@@ -225,7 +225,7 @@ func TestYardRowEmpty(t *testing.T) {
 
 	st := yard(t)
 	ctx := context.Background()
-	must(t, st.DeleteResident(ctx, "mayor", "", "jo"))
+	must(t, st.DeleteResident(ctx, "chief", "", "jo"))
 	must(t, st.DeleteResident(ctx, "refinery", "", "jo"))
 	told(t, st)
 	id, _ := landed(t, st, "work")
@@ -241,7 +241,7 @@ func TestYardRowEmpty(t *testing.T) {
 // in view first; one about no bead names its source, and what a source
 // wrote reaches the terminal as text only.
 func TestYardRowLines(t *testing.T) {
-	v := open(t, yard(t), "mayor", 80, 16)
+	v := open(t, yard(t), "chief", 80, 16)
 	var notes []store.Notification
 	for i := range 30 {
 		id := fmt.Sprintf("yard-%04d", i)
@@ -289,7 +289,7 @@ func TestYardRowAckFails(t *testing.T) {
 	st := yard(t)
 	told(t, st)
 	landed(t, st, "work")
-	v := open(t, noAck{st}, "mayor", 120, 24)
+	v := open(t, noAck{st}, "chief", 120, 24)
 	v.key(tea.KeyShiftTab)
 	v.shows("your notifications could not be marked read: the store is away")
 	if v.m.Notifications() != 2 {
@@ -304,7 +304,7 @@ func TestYardRowWithoutColour(t *testing.T) {
 	told(t, st)
 	landed(t, st, "work")
 	for _, w := range []int{80, 140} {
-		v := open(t, st, "mayor", w, 24)
+		v := open(t, st, "chief", w, 24)
 		v.key(tea.KeyShiftTab)
 		profile(t, termenv.Ascii, true)
 		plain := v.m.View()

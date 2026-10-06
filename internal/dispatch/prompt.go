@@ -75,11 +75,11 @@ type ownNudge struct {
 // in the dispatcher's memory. waited is not zero on the one pass of a wait
 // that is to say so: the text has then been there for DraftWait.
 //
-// Found live (yardr-ps05): a person was typing in the mayor's pane when the
-// mayor was nudged about its inbox. The nudge was typed after their words
-// and its Enter sent both as one message; what they had still meant to
-// write was lost. Text in an input is someone's, so yardr types nothing
-// after it and looks again on the next pass: what it had to say stays due.
+// Found live (yardr-ps05): a person was typing in the yardmaster's pane when
+// the yardmaster was nudged about its inbox. The nudge was typed after their
+// words and its Enter sent both as one message; what they had still meant to
+// write was lost. Text in an input is someone's, so yardr types nothing after
+// it and looks again on the next pass: what it had to say stays due.
 //
 // Text that stays is a draft someone left. It is never cleared and never
 // typed after, however long it sits: both would send or destroy words a

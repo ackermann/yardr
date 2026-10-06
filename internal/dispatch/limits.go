@@ -11,7 +11,7 @@ import (
 )
 
 // Group config for how long a bead session may sit idle or run at all
-// before the mayor hears of it. A stuck agent otherwise holds its bead and
+// before the yardmaster hears of it. A stuck agent otherwise holds its bead and
 // its group's slot forever without anyone noticing.
 //
 //	idle     how long the agent may sit idle (herdr status idle or done)
@@ -51,7 +51,7 @@ const (
 
 // AgedAt is a handle key: when session_aged was raised for the session. It
 // is kept on the handle, not in memory, so a daemon that replaces itself
-// does not tell the mayor again.
+// does not tell the yardmaster again.
 const AgedAt = "aged_at"
 
 // limits applies g's idle and age limits to the live session s, raising
@@ -92,7 +92,7 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 		idleNow := st == "idle" || st == "done"
 		if _, gating := d.gateOf(s.Bead); idleNow && gating {
 			// It waits for its gate, which takes longer than a builders'
-			// limit: nothing to tell the mayor, and nothing to stop. The
+			// limit: nothing to tell the yardmaster, and nothing to stop. The
 			// spell is forgotten, so the count starts again at the first pass
 			// that finds the gate gone.
 			delete(d.idleSince, s.ID)
@@ -169,7 +169,7 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 		if !stops && !waits && ranFor >= hardCap {
 			// No grace to say when a long run becomes a stuck one, so a
 			// generous default does: the note tells the next agent (or the
-			// mayor, reading the bead) why its predecessor stopped.
+			// yardmaster, reading the bead) why its predecessor stopped.
 			reason := fmt.Sprintf("ran for %s, past the hard cap of %s (%d x max_age %s, no grace set)",
 				round(ranFor), hardCap, AgeCapFactor, age)
 			d.end(ctx, *s, "failed", reason)

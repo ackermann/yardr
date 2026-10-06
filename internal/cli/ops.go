@@ -692,7 +692,7 @@ func (a *app) runRigCheck(ctx context.Context, rigName, dir string, timeout time
 	}
 	// The yard knows of the gate while it runs: the idle watch leaves the
 	// bead's session alone, and yardr session list shows it. A record that
-	// cannot be made costs the mayor a nudge, not the bead its gate.
+	// cannot be made costs the yardmaster a nudge, not the bead its gate.
 	gate, err := rigcheck.MarkRunning(a.home(), rigcheck.Gate{Bead: gateBead(ctx, st, dir), Rig: rig.Name, Light: light,
 		Since: time.Now(), Dir: or(dir, rig.Path)})
 	if err != nil {
@@ -924,19 +924,20 @@ link carries bead out: yardr peer allow <name> --send bead). The bead waits in
 its stage until that yard returns it, with the outcome its flow there came to.
 --limit is how many beads may be there at once, --set tries=<n> how often the
 bead is posted before it is given up as undelivered (5), and --set max_age how
-long one is away before the mayor hears (24h). A branch that yard returns is
-fetched from the bead's rig's remote origin, or --set remote=<name>, before
+long one is away before the yardmaster hears (24h). A branch that yard returns
+is fetched from the bead's rig's remote origin, or --set remote=<name>, before
 the outcome moves the bead. See docs/peers.md, "Beads, the sending side" and
 "Code that comes back".
 
 An agent nobody watches stops at every permission prompt. These flags keep it
-going (pass them as --set 'args=[...]'; yardr init gives them to the mayor):
+going (pass them as --set 'args=[...]'; yardr init gives them to the
+yardmaster):
 ` + agents.UnattendedHelp(),
 		Example: `  yardr group add                     # interactive
   yardr group add webapp/builders --runner herdr --limit 2 --set kind=claude --set prompt=roles/builder.md
   yardr group add webapp/merger --runner exec --set cmd='make merge-bead'
   yardr group add humans --runner manual --set notify=true   # herdr notification per waiting bead
-  yardr group add approvers --runner manual --members mckean,mayor   # only they may advance beads it holds
+  yardr group add approvers --runner manual --members mckean,yardmaster   # only they may advance beads it holds
   yardr group add at-north --runner peer --set peer=north --limit 3   # the linked yard north works its beads`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {

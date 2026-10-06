@@ -88,8 +88,8 @@ what yours adds (`~/.local/bin`, where claude and codex install themselves).
 Doctor asks your login shell and names the directory when that finds it.
 
 Then run `yardr` for the onboarding ([the README](../README.md#quick-start)).
-It ends in [`yardr chat`](chat.md#from-the-onboarding), talking to the mayor
-in the terminal you ran it in.
+It ends in [`yardr chat`](chat.md#from-the-onboarding), talking to the
+yardmaster in the terminal you ran it in.
 
 ## herdr's server
 
@@ -170,7 +170,7 @@ someone reads [agents.md](agents.md) first.
    is `codex exec --skip-git-repo-check 'Reply ok' < /dev/null`
    ([the call for each kind](doctor.md#--try-one-real-call-to-each-harness)).
    It does not find a harness too old for the flags herdr starts it with:
-   that shows when the mayor's start fails. `yardr init --start` then
+   that shows when the yardmaster's start fails. `yardr init --start` then
    prints the last lines of its pane, and `yardr doctor` the reason of the
    last failed start. Update the harness then.
 
@@ -187,16 +187,16 @@ someone reads [agents.md](agents.md) first.
    unit, and names the programs that PATH lacks. Run it again after the PATH
    changes ([configuration.md](configuration.md#login-services)).
 
-6. **Look at the mayor.** `yardr init --start` and `yardr doctor` print its
-   herdr agent (`<yard>-mayor`, `yardr-mayor` for `~/.yardr`):
+6. **Look at the yardmaster.** `yardr init --start` and `yardr doctor` print its
+   herdr agent (`<yard>-yardmaster`, `yardr-yardmaster` for `~/.yardr`):
 
    ```sh
-   herdr agent attach yardr-mayor     # its pane in this terminal; ctrl+b q detaches
+   herdr agent attach yardr-yardmaster     # its pane in this terminal; ctrl+b q detaches
    yardr chat                         # or talk to it by mail, in one view
    ```
 
-   Both need a terminal: `ssh -t host herdr agent attach yardr-mayor` for one
-   command over ssh.
+   Both need a terminal: `ssh -t host herdr agent attach yardr-yardmaster` for
+   one command over ssh.
 
 On Linux the checksum line of [the download](#from-a-release-archive) is
 `sha256sum --ignore-missing -c checksums.txt`. Without `--ignore-missing` it

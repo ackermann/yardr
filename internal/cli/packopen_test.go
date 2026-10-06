@@ -16,7 +16,7 @@ import (
 )
 
 // openPack is the starter pack in a directory of the test's, asking that
-// its mayor may open threads in sources.
+// its yardmaster may open threads in sources.
 func openPack(t *testing.T, sources string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -159,7 +159,7 @@ func TestPackApplyAsksTheOperatorAboutOpeningThreads(t *testing.T) {
 	asked := answerForms(t, &say)
 	args := append([]string{"apply", dir, "--rig", "web"}, starterFlags...)
 
-	out, err := run(t, a.packCmd(), "check", dir, "--rig", "web", "--resident", "mayor=boss")
+	out, err := run(t, a.packCmd(), "check", dir, "--rig", "web", "--resident", "yardmaster=boss")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestPackApplyAsksTheOperatorAboutOpeningThreads(t *testing.T) {
 		"  the pack wants github, this yard lacks hook and credential: nothing is asked or granted\n    missing  hook         no hook receives github",
 		"    missing  credential   GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, or GITHUB_TOKEN, in resident boss's env_file",
 		"\nan import would ask\n",
-		"  the operator: let boss open threads in linear (--open-threads mayor=linear, or =none)? [no]\n",
+		"  the operator: let boss open threads in linear (--open-threads yardmaster=linear, or =none)? [no]\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("pack check lacks %q:\n%s", want, out)
@@ -228,13 +228,13 @@ func TestPackApplyAsksTheOperatorAboutOpeningThreads(t *testing.T) {
 	if got := openRecord(t, a); bossMayOpen(t, a) != "linear" || got["boss"]["github"] || len(got["boss"]) != 2 {
 		t.Fatalf("after a no: boss may open %q, record %v", bossMayOpen(t, a), got)
 	}
-	if !strings.Contains(out, "resident boss was not let open threads in github: the no is recorded and not asked again (--open-threads mayor=github grants it after all)\n") {
+	if !strings.Contains(out, "resident boss was not let open threads in github: the no is recorded and not asked again (--open-threads yardmaster=github grants it after all)\n") {
 		t.Errorf("a no is not said to be recorded:\n%s", out)
 	}
 	*asked = nil
 	head, _ = a.st.Head(ctx)
 	if out, err = run(t, a.packCmd(), args...); err != nil || len(*asked) != 0 ||
-		!strings.Contains(out, "  declined  github: an earlier import was told no (--open-threads mayor=<source> grants it)\n") {
+		!strings.Contains(out, "  declined  github: an earlier import was told no (--open-threads yardmaster=<source> grants it)\n") {
 		t.Fatalf("after a no, again: %v, asked %q\n%s", err, *asked, out)
 	}
 	if evs, _ := a.st.EventsSince(ctx, head, 0); len(evs) != 1 || evs[0].Kind != "pack_unchanged" {
@@ -253,7 +253,7 @@ func TestPackApplyOpenThreadsFlag(t *testing.T) {
 	ctx := context.Background()
 	dir := openPack(t, "linear, github")
 	args := append([]string{"apply", dir, "--rig", "web", "--yes"}, starterFlags...)
-	const names = "resident boss was not let open threads in linear: nothing is asked here, and the answer without a flag is no. --open-threads mayor=linear grants it, --open-threads mayor=none says no for good"
+	const names = "resident boss was not let open threads in linear: nothing is asked here, and the answer without a flag is no. --open-threads yardmaster=linear grants it, --open-threads yardmaster=none says no for good"
 
 	t.Run("no flag", func(t *testing.T) {
 		a := openApp(t, "linear")
@@ -293,18 +293,18 @@ func TestPackApplyOpenThreadsFlag(t *testing.T) {
 		a := openApp(t, "linear")
 		setInteractive(t, false)
 		// Without --yes a grant is a change like any other.
-		noYes := append([]string{"apply", dir, "--rig", "web", "--open-threads", "mayor=linear"}, starterFlags...)
+		noYes := append([]string{"apply", dir, "--rig", "web", "--open-threads", "yardmaster=linear"}, starterFlags...)
 		if _, err := run(t, a.packCmd(), noYes...); err == nil || !strings.Contains(err.Error(), "give --yes") {
 			t.Fatalf("without --yes: %v", err)
 		}
-		out, err := run(t, a.packCmd(), append(args, "--open-threads", "mayor=linear,github")...)
+		out, err := run(t, a.packCmd(), append(args, "--open-threads", "yardmaster=linear,github")...)
 		if err != nil {
 			t.Fatalf("%v\n%s", err, out)
 		}
 		for _, want := range []string{
 			"  grants    linear: --open-threads says so\n",
 			"\nresident boss may now open threads in linear\n",
-			"--open-threads mayor=github grants nothing: the pack wants github, this yard lacks hook and credential",
+			"--open-threads yardmaster=github grants nothing: the pack wants github, this yard lacks hook and credential",
 		} {
 			if !strings.Contains(out, want) {
 				t.Errorf("output lacks %q:\n%s", want, out)
@@ -318,7 +318,7 @@ func TestPackApplyOpenThreadsFlag(t *testing.T) {
 		}
 		// The same command again is no error and changes nothing.
 		head, _ := a.st.Head(ctx)
-		if out, err = run(t, a.packCmd(), append(args, "--open-threads", "mayor=linear,github")...); err != nil || !strings.Contains(out, "nothing changed") {
+		if out, err = run(t, a.packCmd(), append(args, "--open-threads", "yardmaster=linear,github")...); err != nil || !strings.Contains(out, "nothing changed") {
 			t.Fatalf("again: %v\n%s", err, out)
 		}
 		if evs, _ := a.st.EventsSince(ctx, head, 0); len(evs) != 1 || evs[0].Kind != "pack_unchanged" {
@@ -327,18 +327,18 @@ func TestPackApplyOpenThreadsFlag(t *testing.T) {
 		// github was not recorded as answered: with the yard set up for it,
 		// an import names the flag for it.
 		yardHas(t, a, "github")
-		if out, err = run(t, a.packCmd(), args...); err != nil || !strings.Contains(out, "--open-threads mayor=github grants it") {
+		if out, err = run(t, a.packCmd(), args...); err != nil || !strings.Contains(out, "--open-threads yardmaster=github grants it") {
 			t.Fatalf("with github set up: %v\n%s", err, out)
 		}
 		// A flag that leaves a source out says no to it.
-		if out, err = run(t, a.packCmd(), append(args, "--open-threads", "mayor=linear")...); err != nil || !strings.Contains(out, "  declines  github: --open-threads leaves it out\n") {
+		if out, err = run(t, a.packCmd(), append(args, "--open-threads", "yardmaster=linear")...); err != nil || !strings.Contains(out, "  declines  github: --open-threads leaves it out\n") {
 			t.Fatalf("leaving github out: %v\n%s", err, out)
 		}
 		if got := openRecord(t, a); bossMayOpen(t, a) != "linear" || got["boss"]["github"] || len(got["boss"]) != 2 {
 			t.Fatalf("boss may open %q, record %v", bossMayOpen(t, a), got)
 		}
 		// And the flag grants what an earlier import was told no for.
-		if out, err = run(t, a.packCmd(), append(args, "--open-threads", "mayor=github")...); err != nil || bossMayOpen(t, a) != "github,linear" {
+		if out, err = run(t, a.packCmd(), append(args, "--open-threads", "yardmaster=github")...); err != nil || bossMayOpen(t, a) != "github,linear" {
 			t.Fatalf("yes after a no: %v, may open %q\n%s", err, bossMayOpen(t, a), out)
 		}
 	})
@@ -346,7 +346,7 @@ func TestPackApplyOpenThreadsFlag(t *testing.T) {
 	t.Run("none", func(t *testing.T) {
 		a := openApp(t, "linear", "github")
 		setInteractive(t, false)
-		out, err := run(t, a.packCmd(), append(args, "--open-threads", "mayor=none")...)
+		out, err := run(t, a.packCmd(), append(args, "--open-threads", "yardmaster=none")...)
 		if err != nil || strings.Contains(out, "nothing is asked here") || !strings.Contains(out, "was not let open threads in github, linear: the no is recorded") {
 			t.Fatalf("%v\n%s", err, out)
 		}
@@ -355,7 +355,7 @@ func TestPackApplyOpenThreadsFlag(t *testing.T) {
 			t.Fatalf("boss may open %q, record %v", bossMayOpen(t, a), got)
 		}
 		// Answered: the next import, flag or none, has nothing to say.
-		if out, err = run(t, a.packCmd(), args...); err != nil || !strings.Contains(out, "nothing changed") || strings.Contains(out, "--open-threads mayor=linear") {
+		if out, err = run(t, a.packCmd(), args...); err != nil || !strings.Contains(out, "nothing changed") || strings.Contains(out, "--open-threads yardmaster=linear") {
 			t.Fatalf("after none: %v\n%s", err, out)
 		}
 	})
@@ -364,24 +364,24 @@ func TestPackApplyOpenThreadsFlag(t *testing.T) {
 		a := openApp(t, "linear")
 		setInteractive(t, false)
 		for flag, want := range map[string]string{
-			"scout=linear":  "the pack has no resident scout (it has: mayor)",
-			"mayor=token":   `the pack does not ask that mayor may open threads in "token" (it asks for: linear, github)`,
-			"mayor":         "want <pack's resident>=<source>[,<source>], or =none",
-			"mayor=":        "want <pack's resident>=<source>[,<source>], or =none",
-			"mayor=linear,": `may open threads in ""`,
+			"scout=linear":       "the pack has no resident scout (it has: yardmaster)",
+			"yardmaster=token":   `the pack does not ask that yardmaster may open threads in "token" (it asks for: linear, github)`,
+			"yardmaster":         "want <pack's resident>=<source>[,<source>], or =none",
+			"yardmaster=":        "want <pack's resident>=<source>[,<source>], or =none",
+			"yardmaster=linear,": `may open threads in ""`,
 		} {
 			_, err := run(t, a.packCmd(), append(args, "--open-threads", flag)...)
 			if err == nil || !strings.Contains(err.Error(), want) {
 				t.Errorf("--open-threads %s: %v, want %q", flag, err, want)
 			}
 		}
-		if _, err := run(t, a.packCmd(), append(args, "--open-threads", "mayor=linear", "--open-threads", "mayor=none")...); err == nil || !strings.Contains(err.Error(), "answered twice") {
+		if _, err := run(t, a.packCmd(), append(args, "--open-threads", "yardmaster=linear", "--open-threads", "yardmaster=none")...); err == nil || !strings.Contains(err.Error(), "answered twice") {
 			t.Errorf("the flag twice for one resident: %v", err)
 		}
 		// A pack that asks for nothing takes no answer.
 		plain := openPack(t, "")
-		_, err := run(t, a.packCmd(), append([]string{"apply", plain, "--rig", "web", "--yes", "--open-threads", "mayor=linear"}, starterFlags...)...)
-		if err == nil || !strings.Contains(err.Error(), "the pack asks for no source its resident mayor may open threads in") {
+		_, err := run(t, a.packCmd(), append([]string{"apply", plain, "--rig", "web", "--yes", "--open-threads", "yardmaster=linear"}, starterFlags...)...)
+		if err == nil || !strings.Contains(err.Error(), "the pack asks for no source its resident yardmaster may open threads in") {
 			t.Errorf("a pack without the key: %v", err)
 		}
 		if groups, _ := a.st.Groups(ctx); len(groups) != 0 || bossMayOpen(t, a) != "" {
@@ -404,7 +404,7 @@ func TestPackApplyOnlyTheOperatorGrants(t *testing.T) {
 	const says = "resident boss was not let open threads in linear: only the operator (me) may grant that, and this is boss."
 
 	setInteractive(t, false)
-	out, err := run(t, a.packCmd(), append(args, "--open-threads", "mayor=linear")...)
+	out, err := run(t, a.packCmd(), append(args, "--open-threads", "yardmaster=linear")...)
 	if err != nil || !strings.Contains(out, "applied pack starter to rig web: ") || !strings.Contains(out, says) || strings.Contains(out, "may now open") {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -415,7 +415,7 @@ func TestPackApplyOnlyTheOperatorGrants(t *testing.T) {
 		t.Fatalf("boss may open %q, record %v", bossMayOpen(t, a), openRecord(t, a))
 	}
 	// Nor may it say no for the operator.
-	if out, err = run(t, a.packCmd(), append(args, "--open-threads", "mayor=none")...); err != nil || !strings.Contains(out, says) || openRecord(t, a) != nil {
+	if out, err = run(t, a.packCmd(), append(args, "--open-threads", "yardmaster=none")...); err != nil || !strings.Contains(out, says) || openRecord(t, a) != nil {
 		t.Fatalf("none from a resident: %v, record %v\n%s", err, openRecord(t, a), out)
 	}
 	// In a terminal it is not asked, and is told the same.
@@ -453,10 +453,10 @@ func TestPackApplyOnlyAddsToOpenThreads(t *testing.T) {
 		t.Fatalf("a pack without the key: %v, may open %q\n%s", err, bossMayOpen(t, a), out)
 	}
 	dir := openPack(t, "linear")
-	if out, err := run(t, a.packCmd(), append([]string{"apply", dir, "--open-threads", "mayor=none"}, flags...)...); err != nil || bossMayOpen(t, a) != "github" {
+	if out, err := run(t, a.packCmd(), append([]string{"apply", dir, "--open-threads", "yardmaster=none"}, flags...)...); err != nil || bossMayOpen(t, a) != "github" {
 		t.Fatalf("no: %v, may open %q\n%s", err, bossMayOpen(t, a), out)
 	}
-	if out, err := run(t, a.packCmd(), append([]string{"apply", dir, "--open-threads", "mayor=linear"}, flags...)...); err != nil || bossMayOpen(t, a) != "github,linear" {
+	if out, err := run(t, a.packCmd(), append([]string{"apply", dir, "--open-threads", "yardmaster=linear"}, flags...)...); err != nil || bossMayOpen(t, a) != "github,linear" {
 		t.Fatalf("yes: %v, may open %q\n%s", err, bossMayOpen(t, a), out)
 	}
 }

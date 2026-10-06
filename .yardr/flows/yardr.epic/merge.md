@@ -25,7 +25,7 @@ Outcomes:
   on, or the two changes contradict each other), or the conflict is too large
   to judge with confidence. The rebase is aborted and the note says what
   conflicts and why it cannot be merged mechanically. The epic goes back to
-  `open`; the rework is a new child the mayor files, so make the note
+  `open`; the rework is a new child the yardmaster files, so make the note
   concrete enough to be a bead.
 - `question`: the resolution needs a real design choice, which a person must
   make. The rebase is aborted, the note has the question and the options, and

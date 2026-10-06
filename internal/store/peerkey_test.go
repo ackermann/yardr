@@ -16,7 +16,7 @@ import (
 func renamedAndAddedAnew(t *testing.T) (y *peerYard, second string, forUp, forNorth *store.PeerOut) {
 	t.Helper()
 	y = newPeerYard(t, "")
-	y.resident(t, "mayor", "")
+	y.resident(t, "yardmaster", "")
 	both := store.PeerAllow{Send: []string{"ping"}, Receive: []string{"ping", "mail"}}
 	y.allow(t, both)
 	forUp, err := y.api.PeerSend(y.ctx, "north", "ping", nil, "jo")
@@ -42,7 +42,7 @@ func renamedAndAddedAnew(t *testing.T) (y *peerYard, second string, forUp, forNo
 // messages are taken under the name their sender has.
 func TestPeerReceiveUnderANameThatIsAnothersNow(t *testing.T) {
 	y, second, _, _ := renamedAndAddedAnew(t)
-	msgs := []store.PeerMessage{mail("m1", "mayor", "clerk", "from the first north"), ping("p1")}
+	msgs := []store.PeerMessage{mail("m1", "yardmaster", "clerk", "from the first north"), ping("p1")}
 	before, err := y.api.GetPeer(y.ctx, "north")
 	if err != nil {
 		t.Fatal(err)
@@ -55,8 +55,8 @@ func TestPeerReceiveUnderANameThatIsAnothersNow(t *testing.T) {
 	if after, _ := y.api.GetPeer(y.ctx, "north"); !reflect.DeepEqual(before, after) {
 		t.Fatalf("the yard that has the name = %+v, was %+v", after, before)
 	}
-	if in := y.inbox(t, "mayor"); len(in) != 0 {
-		t.Fatalf("mayor's inbox = %+v", in)
+	if in := y.inbox(t, "yardmaster"); len(in) != 0 {
+		t.Fatalf("yardmaster's inbox = %+v", in)
 	}
 	if evs := peerEvents(t, y.api, "peer_message_received"); len(evs) != 0 {
 		t.Fatalf("peer_message_received = %+v", evs)
@@ -67,8 +67,8 @@ func TestPeerReceiveUnderANameThatIsAnothersNow(t *testing.T) {
 	if err != nil || len(got) != 2 || got[0].Refused != "" || got[0].Duplicate || got[1].Refused != "" || got[1].Duplicate {
 		t.Fatalf("PeerReceive under the sender's name = %+v, %v", got, err)
 	}
-	if in := y.inbox(t, "mayor"); len(in) != 1 || in[0].Actor != "clerk@up" {
-		t.Fatalf("mayor's inbox = %+v", in)
+	if in := y.inbox(t, "yardmaster"); len(in) != 1 || in[0].Actor != "clerk@up" {
+		t.Fatalf("yardmaster's inbox = %+v", in)
 	}
 	// The ids the other yard has sent are its own: none was marked seen.
 	got, err = y.own.PeerReceive(y.ctx, "north", second, msgs)

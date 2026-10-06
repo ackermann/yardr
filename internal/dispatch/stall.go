@@ -132,7 +132,7 @@ func (d *Dispatcher) worked(ctx context.Context, r Runner, s store.Session) (boo
 			continue
 		}
 		// A runner that names its agent tells its events from a human's or
-		// the mayor's on the same bead; otherwise anyone's count.
+		// the yardmaster's on the same bead; otherwise anyone's count.
 		if agent == "" || e.Actor == agent {
 			return true, nil
 		}

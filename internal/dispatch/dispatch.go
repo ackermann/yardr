@@ -363,7 +363,7 @@ type Statuser interface {
 
 // Waiter is implemented by a runner whose session is a wait for work done
 // elsewhere (another yard's): WaitLimit is its max_age when the group sets
-// none, at which session_aged is raised once so the mayor hears. Nothing
+// none, at which session_aged is raised once so the yardmaster hears. Nothing
 // stops such a session by its age: ending it would send the work out
 // again while the other side may still be at it.
 type Waiter interface {
@@ -394,7 +394,7 @@ type Waker interface {
 func (d *Dispatcher) Run(ctx context.Context) error {
 	d.defaults()
 	if d.Binary != nil {
-		// The mayor sees in events why a build installed over ours was not
+		// The yardmaster sees in events why a build installed over ours was not
 		// taken.
 		d.Binary.Skipped = func(rev, reason string) {
 			d.Log.Warn("not replacing the yardr daemon", "candidate", version.Show(rev), "reason", reason)
@@ -1097,9 +1097,9 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 }
 
 // runtimeDown notes that g's runtime could not start anything. The first
-// failure of an outage is logged as runtime_down for the group, so the mayor
-// hears of it once; later ones only lengthen the wait, doubling up to
-// RuntimeBackoffMax.
+// failure of an outage is logged as runtime_down for the group, so the
+// yardmaster hears of it once; later ones only lengthen the wait, doubling up
+// to RuntimeBackoffMax.
 func (d *Dispatcher) runtimeDown(ctx context.Context, g store.Group, err error) {
 	o := d.down[g.Name]
 	if o == nil {

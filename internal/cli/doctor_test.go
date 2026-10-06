@@ -130,7 +130,7 @@ func TestDoctorEmptyHome(t *testing.T) {
 	}
 }
 
-// After init and before anything else: the daemon and the mayor are what
+// After init and before anything else: the daemon and the yardmaster are what
 // is missing (exit 1), no step is done, and the next one is the rig. The
 // store is as it was.
 func TestDoctorFreshYard(t *testing.T) {
@@ -150,8 +150,8 @@ func TestDoctorFreshYard(t *testing.T) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
 	wantText(t, out, "yardr doctor: the yard in ", "Needed on this machine", "The yard", "Setup", "Optional",
-		"the harness of the yard's default, resident mayor: answers its version flag (tool 1.2.3)",
-		"FAULT  daemon ", here("yardr init --start"), "FAULT  mayor ", "mayor is not running: the daemon starts it",
+		"the harness of the yard's default, resident yardmaster: answers its version flag (tool 1.2.3)",
+		"FAULT  daemon ", here("yardr init --start"), "FAULT  yardmaster  ", "yardmaster is not running: the daemon starts it",
 		"ok     residents ", "ok     held ", "todo   a rig: no repository is a rig of this yard yet",
 		"todo   routes for new, review and approved: no route for new, review and approved",
 		"not configured  web view: ", "not configured  hooks: ", "not configured  packs: ", "not configured  login service: ",
@@ -160,8 +160,8 @@ func TestDoctorFreshYard(t *testing.T) {
 		t.Errorf("a step is done on a fresh yard:\n%s", out)
 	}
 	rep, err := doctorJSON(t, st)
-	if !errors.Is(err, errCheckFailed) || !rep.Yard || rep.State == nil || rep.State.Daemon || rep.State.Mayor == nil ||
-		!rep.State.Mayor.Resident || rep.State.Mayor.Running || rep.Next == nil || rep.Next.Key != stepRig || len(rep.Optional) != 5 {
+	if !errors.Is(err, errCheckFailed) || !rep.Yard || rep.State == nil || rep.State.Daemon || rep.State.Yardmaster == nil ||
+		!rep.State.Yardmaster.Resident || rep.State.Yardmaster.Running || rep.Next == nil || rep.Next.Key != stepRig || len(rep.Optional) != 5 {
 		t.Fatalf("json: %v %+v", err, rep)
 	}
 	// For a home that is not the default, the next step's command names it
@@ -191,7 +191,7 @@ func gitRig(t *testing.T, st store.API) store.Rig {
 		}
 	}
 	git("init", "-q", "-b", "main")
-	if _, err := rigInit(rig, "Jo", "mayor", true); err != nil {
+	if _, err := rigInit(rig, "Jo", "yardmaster", true); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.PutRig(context.Background(), rig, "me"); err != nil {
@@ -212,7 +212,7 @@ func commitRig(t *testing.T, rig store.Rig) {
 }
 
 // A yard set up step by step: each step turns done as the store shows it,
-// the next step follows, and with the daemon and the mayor running and a
+// the next step follows, and with the daemon and the yardmaster running and a
 // bead merged there is nothing left: exit 0.
 func TestDoctorSetUpYard(t *testing.T) {
 	home := newHome(t)
@@ -287,21 +287,21 @@ func TestDoctorSetUpYard(t *testing.T) {
 	}
 	next("complete")
 
-	// The yard runs: a daemon holds the lock, the mayor has a session.
+	// The yard runs: a daemon holds the lock, the yardmaster has a session.
 	unlock, err := lockDaemon(filepath.Join(home, "daemon.lock"), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer unlock()
-	if err := st.ResidentStarted(ctx, "mayor", mayorHandle()); err != nil {
+	if err := st.ResidentStarted(ctx, "yardmaster", yardmasterHandle()); err != nil {
 		t.Fatal(err)
 	}
 	out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
-	wantText(t, out, "ok     server     running", "ok     daemon     running", "mayor is running (herdr agent y-mayor)",
-		"the harness of the yard's default, resident mayor, group web/builders, group web/reviewers",
+	wantText(t, out, "ok     server      running", "ok     daemon      running", "yardmaster is running (herdr agent y-yardmaster)",
+		"the harness of the yard's default, resident yardmaster, group web/builders, group web/reviewers",
 		"done   a rig: web", "done   the rig's .yardr files on its base: web has its flow on its base main",
 		"done   a group that builds: web/builders", "done   a group that reviews: web/reviewers",
 		"done   a group or person that lands approved beads: web/mergers",
@@ -312,11 +312,11 @@ func TestDoctorSetUpYard(t *testing.T) {
 		t.Errorf("a set-up yard lacks something:\n%s", out)
 	}
 	rep, err := doctorJSON(t, st)
-	if err != nil || rep.Next != nil || len(rep.Faults) != 0 || !rep.State.Daemon || !rep.State.Mayor.Running {
+	if err != nil || rep.Next != nil || len(rep.Faults) != 0 || !rep.State.Daemon || !rep.State.Yardmaster.Running {
 		t.Fatalf("json: %v %+v", err, rep)
 	}
 
-	// What is no fault: a held bead, a mayor stopped on purpose.
+	// What is no fault: a held bead, a yardmaster stopped on purpose.
 	held, err := st.CreateBead(ctx, store.NewBead{Title: "second", Rig: rig.Name}, "me")
 	if err != nil {
 		t.Fatal(err)
@@ -324,17 +324,17 @@ func TestDoctorSetUpYard(t *testing.T) {
 	if _, err := st.SetHold(ctx, held.ID, true, store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.ResidentStopped(ctx, "mayor", "test"); err != nil {
+	if err := st.ResidentStopped(ctx, "yardmaster", "test"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetResidentEnabled(ctx, "mayor", false, "", "me"); err != nil {
+	if err := st.SetResidentEnabled(ctx, "yardmaster", false, "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	out, err = run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
-	wantText(t, out, "note   held       1 held, waiting for someone: "+held.ID, "note   mayor      mayor is stopped (disabled)")
+	wantText(t, out, "note   held        1 held, waiting for someone: "+held.ID, "note   yardmaster  yardmaster is stopped (disabled)")
 }
 
 // A program the yard needs and the machine lacks is a fault with where to
@@ -361,8 +361,8 @@ func TestDoctorMissingDependency(t *testing.T) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
 	wantText(t, out,
-		"FAULT  git        not on PATH: a rig is a git repository: beads are worked on branches, in worktrees. Get it: https://git-scm.com/downloads",
-		"FAULT  codex      not on PATH: the harness of group b. Get it: npm install -g @openai/codex",
+		"FAULT  git         not on PATH: a rig is a git repository: beads are worked on branches, in worktrees. Get it: https://git-scm.com/downloads",
+		"FAULT  codex       not on PATH: the harness of group b. Get it: npm install -g @openai/codex",
 		"FAULT  cursor-agent  not on PATH: the harness of group c. Get it: see cursor's own documentation; it must be on PATH as cursor-agent")
 	if strings.Contains(out, "kimi") {
 		t.Errorf("a manual group's kind is no harness the yard needs:\n%s", out)
@@ -435,7 +435,7 @@ func TestDoctorVersionCheck(t *testing.T) {
 	// fault, and on macOS the hang names Gatekeeper. Two reports, for one
 	// timeout is not right for both: the failing harness needs one long
 	// enough to fail in on any machine, and a hanging one costs all of it.
-	// First the failing one, with a mayor's harness that answers.
+	// First the failing one, with a yardmaster's harness that answers.
 	newHome(t)
 	st := storetest.New(t)
 	tools := map[string]string{"git": toolAnswers, "herdr": toolAnswers, "kimi": toolAnswers, "codex": toolFails, "cursor-agent": toolHangs}
@@ -453,7 +453,7 @@ func TestDoctorVersionCheck(t *testing.T) {
 	if !errors.Is(err, errCheckFailed) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
-	wantText(t, out, "ok     kimi ", "the harness of the yard's default, resident mayor: answers its version flag (tool 1.2.3)",
+	wantText(t, out, "ok     kimi ", "the harness of the yard's default, resident yardmaster: answers its version flag (tool 1.2.3)",
 		"FAULT  codex ", "on PATH, but its version flag fails: exit status 3: broken install",
 		"ok     cursor-agent ", "not checked, yardr knows no version flag for cursor")
 	states := func() map[string]string {
@@ -509,7 +509,7 @@ func TestDoctorFailingResident(t *testing.T) {
 	if err := st.SetResidentEnabled(ctx, "scribe", true, "", "me"); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"scribe", "mayor"} {
+	for _, name := range []string{"scribe", "yardmaster"} {
 		if err := st.ResidentStartFailed(ctx, name, "no workspace", time.Minute); err != nil {
 			t.Fatal(err)
 		}
@@ -518,19 +518,19 @@ func TestDoctorFailingResident(t *testing.T) {
 	if !errors.Is(err, errCheckFailed) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
-	wantText(t, out, "FAULT  resident   scribe is not running: 1 failed starts so far, the last with: no workspace",
-		"FAULT  mayor      mayor is not running: 1 failed starts so far, the last with: no workspace",
+	wantText(t, out, "FAULT  resident    scribe is not running: 1 failed starts so far, the last with: no workspace",
+		"FAULT  yardmaster  yardmaster is not running: 1 failed starts so far, the last with: no workspace",
 		here("yardr resident start scribe"))
 	if strings.Contains(out, "none failing") {
 		t.Errorf("output:\n%s", out)
 	}
 }
 
-// Found live (yardr-05dd): a mayor whose harness exits at once is given up
+// Found live (yardr-05dd): a yardmaster whose harness exits at once is given up
 // like any resident, but it is the one who hears resident_gave_up, so doctor
 // is where it is said, with how long the last session lived; resident list
 // and show give the count, and the next try while there is one.
-func TestDoctorMayorGivenUpAfterSessionsGoneAtOnce(t *testing.T) {
+func TestDoctorYardmasterGivenUpAfterSessionsGoneAtOnce(t *testing.T) {
 	newHome(t)
 	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
 	st := storetest.New(t)
@@ -547,13 +547,13 @@ func TestDoctorMayorGivenUpAfterSessionsGoneAtOnce(t *testing.T) {
 	const reason = "the session ended 4s after its start (gone within 1m0s counts as a failed start)"
 	gone := func() {
 		t.Helper()
-		if err := st.ResidentStarted(ctx, "mayor", mayorHandle()); err != nil {
+		if err := st.ResidentStarted(ctx, "yardmaster", yardmasterHandle()); err != nil {
 			t.Fatal(err)
 		}
-		if err := st.ResidentStopped(ctx, "mayor", "the session is gone"); err != nil {
+		if err := st.ResidentStopped(ctx, "yardmaster", "the session is gone"); err != nil {
 			t.Fatal(err)
 		}
-		if err := st.ResidentStartFailed(ctx, "mayor", reason, 2*time.Minute); err != nil {
+		if err := st.ResidentStartFailed(ctx, "yardmaster", reason, 2*time.Minute); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -562,16 +562,16 @@ func TestDoctorMayorGivenUpAfterSessionsGoneAtOnce(t *testing.T) {
 	gone() // the start in between did not clear the count
 	// The wait itself is a second or so under the two minutes by now.
 	wantText(t, cmd("resident", "list"), "stopped (2 failed starts, next try in ")
-	wantText(t, cmd("resident", "show", "mayor"), "  2 failed starts, next try in ", "s, the last with: "+reason,
+	wantText(t, cmd("resident", "show", "yardmaster"), "  2 failed starts, next try in ", "s, the last with: "+reason,
 		"  yardr doctor --try asks its harness for one real answer")
-	wantText(t, cmd("doctor"), "FAULT  mayor      mayor is not running: 2 failed starts so far, the last with: "+reason,
-		"note   harness    on PATH is not \"works\"", here("yardr doctor --try")+" makes one real call to each")
+	wantText(t, cmd("doctor"), "FAULT  yardmaster  yardmaster is not running: 2 failed starts so far, the last with: "+reason,
+		"note   harness     on PATH is not \"works\"", here("yardr doctor --try")+" makes one real call to each")
 	for i := 2; i < store.MaxStartFails; i++ {
 		gone()
 	}
-	wantText(t, cmd("resident", "list"), "failed (gave up after 5 failed starts; yardr resident start mayor tries again)")
-	wantText(t, cmd("resident", "show", "mayor"), "gave up after 5 failed starts; yardr resident start mayor tries again, the last with: "+reason)
-	wantText(t, cmd("doctor"), "FAULT  mayor      mayor is not running: the daemon gave up after 5 tries, the last with: "+reason)
+	wantText(t, cmd("resident", "list"), "failed (gave up after 5 failed starts; yardr resident start yardmaster tries again)")
+	wantText(t, cmd("resident", "show", "yardmaster"), "gave up after 5 failed starts; yardr resident start yardmaster tries again, the last with: "+reason)
+	wantText(t, cmd("doctor"), "FAULT  yardmaster  yardmaster is not running: the daemon gave up after 5 tries, the last with: "+reason)
 }
 
 // The rigs a launchd agent cannot read are named once the daemon runs as a
@@ -645,7 +645,7 @@ func TestSetupStepsDirRig(t *testing.T) {
 	if n := nextStep(steps); n.Key != stepRigFiles || n.Next != "yardr rig init docs" {
 		t.Fatalf("next = %+v", n)
 	}
-	if _, err := rigInit(rig, "Jo", "mayor", false); err != nil {
+	if _, err := rigInit(rig, "Jo", "yardmaster", false); err != nil {
 		t.Fatal(err)
 	}
 	steps, err = setupSteps(ctx, st)
@@ -697,7 +697,7 @@ func TestDoctorUnreachableServer(t *testing.T) {
 	if !errors.Is(err, errCheckFailed) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
-	wantText(t, out, "ok     git ", "FAULT  server     cannot be reached: server gone", "1 fault")
+	wantText(t, out, "ok     git ", "FAULT  server      cannot be reached: server gone", "1 fault")
 	if strings.Contains(out, "Setup") || strings.Contains(out, "daemon") {
 		t.Errorf("nothing else of the yard is known:\n%s", out)
 	}
@@ -737,11 +737,11 @@ func TestDoctorLeavesAStoppedServerStopped(t *testing.T) {
 		"claude, a harness on this machine; which ones the yard runs on is not known while its server is not running: answers its version flag",
 		// A harness that does not work may be one the yard does not run on.
 		"  note   grok ",
-		"\nThe yard\n  note   server     not running ("+here("yardr server start")+", or any command but status and doctor, starts it)\n"+
-			"  ok     daemon     running\n"+
-			"  note   mayor      skipped: the server is not running\n"+
-			"  note   residents  skipped: the server is not running\n"+
-			"  note   held       skipped: the server is not running\n",
+		"\nThe yard\n  note   server      not running ("+here("yardr server start")+", or any command but status and doctor, starts it)\n"+
+			"  ok     daemon      running\n"+
+			"  note   yardmaster  skipped: the server is not running\n"+
+			"  note   residents   skipped: the server is not running\n"+
+			"  note   held        skipped: the server is not running\n",
 		"\nSetup\n  note   skipped: the server is not running\n",
 		"  not configured  web view: not running",
 		"  skipped         hooks: the server is not running\n",
@@ -756,7 +756,7 @@ func TestDoctorLeavesAStoppedServerStopped(t *testing.T) {
 	}
 
 	rep, err := doctorJSON(t, nil)
-	if err != nil || !rep.Yard || rep.State == nil || rep.State.Server != "not_running" || !rep.State.Daemon || rep.State.Mayor != nil ||
+	if err != nil || !rep.Yard || rep.State == nil || rep.State.Server != "not_running" || !rep.State.Daemon || rep.State.Yardmaster != nil ||
 		len(rep.Faults) != 0 || len(rep.Steps) != 0 || rep.Next != nil || !slices.Equal(rep.Skipped, storeChecks) {
 		t.Fatalf("json: %v %+v", err, rep)
 	}
@@ -803,7 +803,7 @@ func TestDoctorLeavesAStoppedServerStopped(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("no daemon: exit %d:\n%s", code, out)
 	}
-	wantText(t, out, "  note   server     not running", "  FAULT  daemon     not running", "\n1 fault: ")
+	wantText(t, out, "  note   server      not running", "  FAULT  daemon      not running", "\n1 fault: ")
 }
 
 // Stand-ins for herdr, by what `herdr agent list` does in each: a server
@@ -816,7 +816,7 @@ const (
 )
 
 // Found live (yardr-aa7y): herdr was installed and its server was not
-// running, doctor said `ok herdr`, and the mayor failed with herdr's
+// running, doctor said `ok herdr`, and the yardmaster failed with herdr's
 // server_not_running. herdr on PATH with no server is a fault that says how
 // to start one; a herdr that cannot be asked is a note, not a fault.
 func TestDoctorHerdrServer(t *testing.T) {
@@ -832,7 +832,7 @@ func TestDoctorHerdrServer(t *testing.T) {
 	if !errors.Is(err, errCheckFailed) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
-	wantText(t, out, "FAULT  herdr      "+herdr+": on PATH, but its server is not running (server_not_running: no herdr server is running): "+
+	wantText(t, out, "FAULT  herdr       "+herdr+": on PATH, but its server is not running (server_not_running: no herdr server is running): "+
 		"the daemon cannot start agents until it is. Start it: run herdr in a terminal (ctrl+b q detaches, the server stays); "+
 		"on a machine without a desktop, run `herdr server`, its headless server, as a service (docs/install.md, \"herdr's server\")")
 	rep, _ := doctorJSON(t, st)
@@ -853,14 +853,14 @@ func TestDoctorHerdrServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, _ = run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
-	wantText(t, out, "ok     herdr      "+herdr+", its server is running")
+	wantText(t, out, "ok     herdr       "+herdr+", its server is running")
 
 	// Anything else is not known to be a server that is down.
 	if err := os.WriteFile(herdr, []byte(herdrBroken), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	out, _ = run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
-	wantText(t, out, "note   herdr      "+herdr+": on PATH; whether its server is running could not be asked: ", "config.toml: bad key")
+	wantText(t, out, "note   herdr       "+herdr+": on PATH; whether its server is running could not be asked: ", "config.toml: bad key")
 	if strings.Contains(out, "FAULT  herdr") {
 		t.Errorf("a herdr that cannot be asked is no fault:\n%s", out)
 	}
@@ -877,7 +877,7 @@ func tryTool(called, real string) string {
 
 // Found live (yardr-aa7y): Codex was on PATH, answered its version flag and
 // said it was logged in, and a real call failed on a spent token, so the
-// mayor sat at a login screen. doctor --try makes that call and says what
+// yardmaster sat at a login screen. doctor --try makes that call and says what
 // the harness printed; without --try no harness is called, and one line
 // says so.
 func TestDoctorTry(t *testing.T) {
@@ -921,7 +921,7 @@ func TestDoctorTry(t *testing.T) {
 	// Without --try: nothing is called, and the report says what it did
 	// not do.
 	out, _ := run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
-	wantText(t, out, "note   harness    on PATH is not \"works\": no harness was asked for an answer. "+
+	wantText(t, out, "note   harness     on PATH is not \"works\": no harness was asked for an answer. "+
 		here("yardr doctor --try")+" makes one real call to each (it costs a model call per harness)")
 	if strings.Contains(out, "tried") {
 		t.Errorf("without --try nothing is tried:\n%s", out)
@@ -941,11 +941,11 @@ func TestDoctorTry(t *testing.T) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
 	wantText(t, out,
-		"ok     claude     tried: one real call answered (ok)",
-		"FAULT  codex      tried: one real call failed: exit status 1: model: gpt / ERROR: refresh token was already used / Please log out and sign in again.",
-		"ok     kimi       tried: one real call answered (ok)",
+		"ok     claude      tried: one real call answered (ok)",
+		"FAULT  codex       tried: one real call failed: exit status 1: model: gpt / ERROR: refresh token was already used / Please log out and sign in again.",
+		"ok     kimi        tried: one real call answered (ok)",
 		"note   cursor-agent  not tried: yardr knows no one-shot call for cursor",
-		"FAULT  pi         tried: one real call failed: exit status 3: broken install")
+		"FAULT  pi          tried: one real call failed: exit status 3: broken install")
 	if strings.Contains(out, "no harness was asked") {
 		t.Errorf("with --try the harnesses were asked:\n%s", out)
 	}
@@ -1003,7 +1003,7 @@ func TestDoctorTry(t *testing.T) {
 	if !errors.Is(err, errCheckFailed) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
-	wantText(t, out, "FAULT  kimi       tried: one real call did not end within 2s")
+	wantText(t, out, "FAULT  kimi        tried: one real call did not end within 2s")
 	rep, _ = doctorJSON(t, st, "--try")
 	if !slices.ContainsFunc(rep.Machine, func(n need) bool { return n.Harness == "kimi" && n.Try != nil && n.Try.State == tryHangs }) {
 		t.Fatalf("kimi's call is not one that hangs: %+v", rep.Machine)
@@ -1055,13 +1055,13 @@ func TestDoctorLoginShellFinds(t *testing.T) {
 		}
 		return out
 	}
-	const plain = "FAULT  codex      not on PATH: the harness of group b. Get it: npm install -g @openai/codex"
+	const plain = "FAULT  codex       not on PATH: the harness of group b. Get it: npm install -g @openai/codex"
 
 	// A profile that prints as it likes does not confuse it.
 	sh := loginShellStub(t, called, local, "echo 'Welcome back'; echo /etc/motd")
 	stub(t, &loginShell, func() string { return sh })
 	out := doctor()
-	wantText(t, out, "FAULT  codex      not on PATH: the harness of group b. Found at "+local+"/codex by your login shell, "+
+	wantText(t, out, "FAULT  codex       not on PATH: the harness of group b. Found at "+local+"/codex by your login shell, "+
 		"which this shell's PATH does not have: add "+local+" to PATH here, or for the daemon's service run `yardr daemon install` from a login shell")
 	if strings.Contains(out, "Get it: npm") {
 		t.Errorf("what is installed is not to get:\n%s", out)
@@ -1100,7 +1100,7 @@ func TestDoctorLoginShellFinds(t *testing.T) {
 	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers, "codex": toolAnswers})
 	stub(t, &loginShell, func() string { return sh })
 	if out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor"); !errors.Is(err, errCheckFailed) {
-		t.Fatalf("err = %v\n%s", err, out) // the daemon and the mayor are still missing
+		t.Fatalf("err = %v\n%s", err, out) // the daemon and the yardmaster are still missing
 	}
 	if b, err := os.ReadFile(called); err == nil {
 		t.Errorf("the login shell was run with nothing missing:\n%s", b)
@@ -1124,7 +1124,7 @@ func TestDoctorLoginShellFindsHarnessForNewYard(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
-	wantText(t, out, "FAULT  codex      not on PATH: a harness a yard can be created on. Found at "+local+"/codex by your login shell", "1 fault")
+	wantText(t, out, "FAULT  codex       not on PATH: a harness a yard can be created on. Found at "+local+"/codex by your login shell", "1 fault")
 	if strings.Contains(out, "FAULT  a harness") {
 		t.Errorf("a harness is installed:\n%s", out)
 	}
@@ -1162,7 +1162,7 @@ func TestDoctorBlockerCycle(t *testing.T) {
 
 	before, _ := doctorJSON(t, st)
 	out, _ := run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
-	wantText(t, out, "note   cycle      y-a blocks y-b blocks y-a: these beads wait on each other and are never ready. "+
+	wantText(t, out, "note   cycle       y-a blocks y-b blocks y-a: these beads wait on each other and are never ready. "+
 		"Remove the edge that is wrong: "+here("yardr dep rm <blocker> <bead>"))
 	if len(before.State.Cycles) != 1 || slices.ContainsFunc(before.Faults, func(f string) bool { return strings.Contains(f, "cycle") }) {
 		t.Fatalf("json: cycles %v, faults %v", before.State.Cycles, before.Faults)

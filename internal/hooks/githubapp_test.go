@@ -35,7 +35,7 @@ func newAppYard(t *testing.T) *appYard {
 		t.Fatal(err)
 	}
 	app.Now = func() time.Time { return y.now }
-	y.src = &standin.Server{GitHubToken: "gh-mayor", GitHubLogin: "Mayor", App: app}
+	y.src = &standin.Server{GitHubToken: "gh-yardmaster", GitHubLogin: "Yardmaster", App: app}
 	y.src.Add(standin.Issue{Source: "github", Key: "acme/webapp#7", Title: "Retries", Status: "open"})
 	y.src.Add(standin.Issue{Source: "github", Key: "acme/site#2", Title: "Docs", Status: "open"})
 	y.src.Add(standin.Issue{Source: "github", Key: "other/repo#1", Title: "Elsewhere", Status: "open"})
@@ -259,7 +259,7 @@ func TestGitHubAppRefusals(t *testing.T) {
 		file map[string]string
 		want string
 	}{
-		{map[string]string{"GITHUB_APP_ID": "4242", "GITHUB_TOKEN": "gh-mayor"}, "GITHUB_APP_ID is set without GITHUB_APP_PRIVATE_KEY_FILE"},
+		{map[string]string{"GITHUB_APP_ID": "4242", "GITHUB_TOKEN": "gh-yardmaster"}, "GITHUB_APP_ID is set without GITHUB_APP_PRIVATE_KEY_FILE"},
 		{map[string]string{"GITHUB_APP_PRIVATE_KEY_FILE": y.keyFile}, "GITHUB_APP_PRIVATE_KEY_FILE is set without GITHUB_APP_ID"},
 		{map[string]string{"GITHUB_APP_ID": "4242", "GITHUB_APP_PRIVATE_KEY_FILE": "keys/yardr.pem"}, "want an absolute path"},
 		{map[string]string{"GITHUB_APP_ID": "42:42", "GITHUB_APP_PRIVATE_KEY_FILE": y.keyFile}, "is not an App's id"},
@@ -303,20 +303,20 @@ func TestGitHubAppOpenAndState(t *testing.T) {
 // of an App, and the comment is the token's owner's.
 func TestGitHubTokenAlone(t *testing.T) {
 	y := newAppYard(t)
-	file := map[string]string{"GITHUB_TOKEN": "gh-mayor"}
+	file := map[string]string{"GITHUB_TOKEN": "gh-yardmaster"}
 	cred, err := hooks.GitHub{}.CredentialFrom(func(name string) string { return file[name] })
-	if err != nil || cred != "gh-mayor" {
+	if err != nil || cred != "gh-yardmaster" {
 		t.Fatalf("credential %q, %v", cred, err)
 	}
 	m, err := hooks.GitHub{}.Reply(context.Background(), githubEnv("acme/webapp#7"), "", "On it.", "", cred)
-	if err != nil || m.Author.ID != "mayor" {
+	if err != nil || m.Author.ID != "yardmaster" {
 		t.Fatalf("reply %+v, %v", m, err)
 	}
-	wantCalls(t, y.src.Calls(), "github comment acme/webapp#7 by Mayor")
+	wantCalls(t, y.src.Calls(), "github comment acme/webapp#7 by Yardmaster")
 	// With both in the file the App is who answers.
 	file["GITHUB_APP_ID"], file["GITHUB_APP_PRIVATE_KEY_FILE"] = "4242", y.keyFile
 	cred, err = hooks.GitHub{}.CredentialFrom(func(name string) string { return file[name] })
-	if err != nil || cred == "gh-mayor" {
+	if err != nil || cred == "gh-yardmaster" {
 		t.Fatalf("credential with both: %q, %v", cred, err)
 	}
 	if m, err = (hooks.GitHub{}).Reply(context.Background(), githubEnv("acme/webapp#7"), "", "As the App.", "", cred); err != nil || m.Author.ID != "yardr[bot]" {
@@ -340,12 +340,12 @@ func TestGitHubCredentialOfAResident(t *testing.T) {
 	for _, name := range []string{"GITHUB_TOKEN", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY_FILE", "YARD_RESIDENT"} {
 		t.Setenv(name, "")
 	}
-	t.Setenv("YARDR_RESIDENT", "mayor")
+	t.Setenv("YARDR_RESIDENT", "yardmaster")
 	_, err := hooks.GitHub{}.Credential(ctx)
 	if err == nil {
 		t.Fatal("a resident with no GitHub credential got one")
 	}
-	for _, want := range []string{"resident mayor", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY_FILE", "GITHUB_TOKEN", "env_file"} {
+	for _, want := range []string{"resident yardmaster", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY_FILE", "GITHUB_TOKEN", "env_file"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("refusal %q does not name %s", err, want)
 		}
@@ -357,8 +357,8 @@ func TestGitHubCredentialOfAResident(t *testing.T) {
 		t.Error("gh was asked for a resident")
 	}
 	// Its own credential is used, and gh still is not asked.
-	t.Setenv("GITHUB_TOKEN", "github_pat_mayor")
-	if c, err := (hooks.GitHub{}).Credential(ctx); err != nil || c != "github_pat_mayor" {
+	t.Setenv("GITHUB_TOKEN", "github_pat_yardmaster")
+	if c, err := (hooks.GitHub{}).Credential(ctx); err != nil || c != "github_pat_yardmaster" {
 		t.Errorf("token: %q, %v", c, err)
 	}
 	t.Setenv("GITHUB_TOKEN", "")

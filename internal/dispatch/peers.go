@@ -176,7 +176,8 @@ func (d *Dispatcher) push(ctx context.Context, c *yards.Caller, p store.Peer) bo
 		default:
 			tries := m.Attempts + 1
 			// A bead is given up sooner than mail: its group says after how
-			// many tries the mayor is to hear that the yard is not reached.
+			// many tries the yardmaster is to hear that the yard is not
+			// reached.
 			final := tries >= d.PeerTries || m.Tries > 0 && tries >= m.Tries
 			if m.Attempts == 0 || final {
 				d.Log.Warn("message not sent to peer", "peer", p.Name, "kind", m.Kind, "id", m.ID, "tries", tries, "given_up", final, "err", err)

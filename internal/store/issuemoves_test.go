@@ -33,7 +33,7 @@ done terminal
 var linearMap = map[string]string{"task:new": "started", "task:review": "review", "task:merged": "done",
 	"epic:open": "started", "epic:done": "done"}
 
-// moveYard is a yard whose rig follows moveFlow, with resident mayor, who
+// moveYard is a yard whose rig follows moveFlow, with resident yardmaster, who
 // has an identity in both sources and may set a status in them, and a
 // linear hook that maps as it.
 func moveYard(t *testing.T) (store.API, *store.Store, context.Context) {
@@ -45,21 +45,21 @@ func moveYard(t *testing.T) (store.API, *store.Store, context.Context) {
 	}
 	putFlow(t, s, "yard", "", moveFlow)
 	putFlow(t, s, "yard", "epic", moveEpicFlow)
-	moveMayor(t, s, "linear,github")
+	moveYardmaster(t, s, "linear,github")
 	for _, src := range []string{"linear", "github"} {
-		if err := s.SetIdentity(ctx, "mayor", src, store.Identity{ID: "u-mayor"}, "me"); err != nil {
+		if err := s.SetIdentity(ctx, "yardmaster", src, store.Identity{ID: "u-yardmaster"}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	putHook(t, s, store.Hook{Name: "linear", Source: "linear", SecretFile: "/s", As: "mayor", Map: linearMap})
+	putHook(t, s, store.Hook{Name: "linear", Source: "linear", SecretFile: "/s", As: "yardmaster", Map: linearMap})
 	return s, own, ctx
 }
 
-// moveMayor creates or redefines resident mayor with set_state for sources ("":
-// none).
-func moveMayor(t *testing.T, s store.API, sources string) {
+// moveYardmaster creates or redefines resident yardmaster with set_state for
+// sources ("": none).
+func moveYardmaster(t *testing.T, s store.API, sources string) {
 	t.Helper()
-	def := store.Resident{Name: "mayor", Runner: "herdr", Config: map[string]any{}}
+	def := store.Resident{Name: "yardmaster", Runner: "herdr", Config: map[string]any{}}
 	if sources != "" {
 		def.Config[store.SetState] = sources
 	}
@@ -126,7 +126,7 @@ func lastEvent(t *testing.T, s store.API, bead string) store.Event {
 func TestHookMapRefusals(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
-	moveMayor(t, s, "linear")
+	moveYardmaster(t, s, "linear")
 	head, _ := s.Head(ctx)
 	hook := func(as string, m map[string]string) store.Hook {
 		return store.Hook{Name: "linear", Source: "linear", SecretFile: "/s", As: as, Map: m}
@@ -137,12 +137,12 @@ func TestHookMapRefusals(t *testing.T) {
 		want string
 	}{
 		{"no resident to act as", hook("", map[string]string{"task:new": "started"}), "needs the resident it acts as"},
-		{"unknown word", hook("mayor", map[string]string{"task:new": "closed"}), `"closed" is no state: want started, review, done`},
-		{"no stage", hook("mayor", map[string]string{"task": "started"}), "want <bead type>:<stage>=<state>"},
-		{"bad type", hook("mayor", map[string]string{"Task:new": "started"}), "bead type"},
-		{"bad stage", hook("mayor", map[string]string{"task:in review": "review"}), "stage"},
+		{"unknown word", hook("yardmaster", map[string]string{"task:new": "closed"}), `"closed" is no state: want started, review, done`},
+		{"no stage", hook("yardmaster", map[string]string{"task": "started"}), "want <bead type>:<stage>=<state>"},
+		{"bad type", hook("yardmaster", map[string]string{"Task:new": "started"}), "bead type"},
+		{"bad stage", hook("yardmaster", map[string]string{"task:in review": "review"}), "stage"},
 		{"no such resident", hook("deputy", map[string]string{"task:new": "started"}), "resident deputy"},
-		{"no identity in the source", hook("mayor", map[string]string{"task:new": "started"}), "has no identity in linear"},
+		{"no identity in the source", hook("yardmaster", map[string]string{"task:new": "started"}), "has no identity in linear"},
 	} {
 		_, err := s.PutHook(ctx, c.h, "me")
 		if err == nil || !strings.Contains(err.Error(), c.want) {
@@ -159,25 +159,25 @@ func TestHookMapRefusals(t *testing.T) {
 		t.Fatalf("a refused hook was saved: %v", err)
 	}
 	// An identity in another source does not count.
-	if err := s.SetIdentity(ctx, "mayor", "github", store.Identity{Key: "mayor-bot"}, "me"); err != nil {
+	if err := s.SetIdentity(ctx, "yardmaster", "github", store.Identity{Key: "yardmaster-bot"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.PutHook(ctx, hook("mayor", linearMap), "me"); err == nil || !strings.Contains(err.Error(), "yardr resident identity mayor --source linear") {
+	if _, err := s.PutHook(ctx, hook("yardmaster", linearMap), "me"); err == nil || !strings.Contains(err.Error(), "yardr resident identity yardmaster --source linear") {
 		t.Fatalf("identity elsewhere: %v", err)
 	}
-	if err := s.SetIdentity(ctx, "mayor", "linear", store.Identity{ID: "u-mayor"}, "me"); err != nil {
+	if err := s.SetIdentity(ctx, "yardmaster", "linear", store.Identity{ID: "u-yardmaster"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	saved, err := s.PutHook(ctx, hook("mayor", linearMap), "me")
-	if err != nil || saved.As != "mayor" || !reflect.DeepEqual(saved.Map, linearMap) {
+	saved, err := s.PutHook(ctx, hook("yardmaster", linearMap), "me")
+	if err != nil || saved.As != "yardmaster" || !reflect.DeepEqual(saved.Map, linearMap) {
 		t.Fatalf("saved %+v, %v", saved, err)
 	}
 	got, err := s.GetHook(ctx, "linear")
-	if err != nil || got.As != "mayor" || !reflect.DeepEqual(got.Map, linearMap) {
+	if err != nil || got.As != "yardmaster" || !reflect.DeepEqual(got.Map, linearMap) {
 		t.Fatalf("read back %+v, %v", got, err)
 	}
 	evs, _ := s.Events(ctx, "", 1)
-	if e := evs[0]; e.Kind != "hook_added" || e.Data["as"] != "mayor" || len(e.Data["map"].(map[string]any)) != len(linearMap) {
+	if e := evs[0]; e.Kind != "hook_added" || e.Data["as"] != "yardmaster" || len(e.Data["map"].(map[string]any)) != len(linearMap) {
 		t.Fatalf("event %+v", e)
 	}
 	// add replaces: a hook saved without them has neither.
@@ -200,7 +200,7 @@ func TestStageQueuesIssueMove(t *testing.T) {
 	wantMoves(t, s, "yard-a linear "+linA+" started@new")
 	ms, _ := s.IssueMoves(ctx)
 	adv := lastEvent(t, s, "yard-a")
-	if m := ms[0]; adv.Kind != "advanced" || m.Seq != adv.Seq || m.ID != fmt.Sprintf("%d/linear", adv.Seq) || m.As != "mayor" ||
+	if m := ms[0]; adv.Kind != "advanced" || m.Seq != adv.Seq || m.ID != fmt.Sprintf("%d/linear", adv.Seq) || m.As != "yardmaster" ||
 		m.Type != "task" || m.Source != "linear" || m.Thread != "" || m.At.IsZero() || m.Attempts != 0 || m.RetryAt != nil {
 		t.Fatalf("move %+v for event %+v", m, adv)
 	}
@@ -272,7 +272,7 @@ func TestStageQueuesNothing(t *testing.T) {
 // issue in each source moves both, each through its source's hook.
 func TestEpicAndTwoSources(t *testing.T) {
 	s, _, ctx := moveYard(t)
-	putHook(t, s, store.Hook{Name: "gh", Source: "github", SecretFile: "/s", As: "mayor",
+	putHook(t, s, store.Hook{Name: "gh", Source: "github", SecretFile: "/s", As: "yardmaster",
 		Map: map[string]string{"task:new": "started", "task:merged": "done"}})
 	tracked(t, s, "yard-epic", "epic", "open", linA)
 	wantMoves(t, s, "yard-epic linear "+linA+" started@open")
@@ -355,7 +355,7 @@ func TestIssueMoveEnds(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := lastEvent(t, s, "yard-a")
-	want := map[string]any{"hook": "linear", "resident": "mayor", "source": "linear", "url": linA, "stage": "new", "state": "started",
+	want := map[string]any{"hook": "linear", "resident": "yardmaster", "source": "linear", "url": linA, "stage": "new", "state": "started",
 		"thread": "uuid-1", "title": "Web view", "status": "In Progress", "was": "Todo", "instead": "started"}
 	if e.Kind != "thread_state" || e.Actor != "hook:linear" || fmt.Sprint(e.Data["cause"]) != fmt.Sprint(started.Seq) {
 		t.Fatalf("event %+v", e)
@@ -392,7 +392,7 @@ func TestIssueMoveEnds(t *testing.T) {
 	}
 	e = lastEvent(t, s, "yard-a")
 	if e.Kind != "thread_state_skipped" || e.Actor != "hook:linear" || e.Data["reason"] != "failed" || e.Data["detail"] != skip.Detail ||
-		e.Data["stage"] != "review" || e.Data["state"] != "review" || e.Data["resident"] != "mayor" || e.Data["url"] != linA ||
+		e.Data["stage"] != "review" || e.Data["state"] != "review" || e.Data["resident"] != "yardmaster" || e.Data["url"] != linA ||
 		fmt.Sprint(e.Data["attempts"]) != "1" || fmt.Sprint(e.Data["cause"]) != fmt.Sprint(review.Seq) {
 		t.Fatalf("event %+v", e)
 	}
@@ -421,13 +421,13 @@ func TestIssueMoveNeedsTheGrant(t *testing.T) {
 	id := ms[0].ID
 	ts := store.ThreadState{Status: "In Progress"}
 	for _, c := range []struct{ sources, want string }{
-		{"", "yardr resident set mayor set_state=linear"},
-		{"github", "yardr resident set mayor set_state=github,linear"},
+		{"", "yardr resident set yardmaster set_state=linear"},
+		{"github", "yardr resident set yardmaster set_state=github,linear"},
 	} {
-		moveMayor(t, s, c.sources)
+		moveYardmaster(t, s, c.sources)
 		head, _ := s.Head(ctx)
 		why, err := s.IssueMoveAllowed(ctx, id)
-		if err != nil || !strings.Contains(why, "resident mayor may not set the status of threads in linear") || !strings.Contains(why, c.want) {
+		if err != nil || !strings.Contains(why, "resident yardmaster may not set the status of threads in linear") || !strings.Contains(why, c.want) {
 			t.Fatalf("set_state %q: %q, %v", c.sources, why, err)
 		}
 		if err := s.IssueMoved(ctx, id, ts); err == nil || !strings.Contains(err.Error(), c.want) {
@@ -438,10 +438,10 @@ func TestIssueMoveNeedsTheGrant(t *testing.T) {
 		}
 	}
 	wantMoves(t, s, "yard-a linear "+linA+" started@new")
-	if err := s.DeleteResident(ctx, "mayor", "", "me"); err != nil {
+	if err := s.DeleteResident(ctx, "yardmaster", "", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if why, err := s.IssueMoveAllowed(ctx, id); err != nil || why != "resident mayor, which hook linear acts as, is gone" {
+	if why, err := s.IssueMoveAllowed(ctx, id); err != nil || why != "resident yardmaster, which hook linear acts as, is gone" {
 		t.Fatalf("gone: %q, %v", why, err)
 	}
 	if err := s.IssueMoveSkipped(ctx, id, store.IssueSkip{Reason: store.SkipNoGrant, Detail: "x"}); err != nil {
@@ -457,7 +457,7 @@ func TestIssueMoveNeedsTheGrant(t *testing.T) {
 func TestIssueMoveDoesNotEcho(t *testing.T) {
 	s, own, ctx := moveYard(t)
 	all := store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll}
-	for _, name := range []string{"mayor", "deputy"} {
+	for _, name := range []string{"yardmaster", "deputy"} {
 		if name == "deputy" {
 			resident(t, s, name, false)
 		}
@@ -481,7 +481,7 @@ func TestIssueMoveDoesNotEcho(t *testing.T) {
 	reached := func(e store.Event) string {
 		d, _ := e.Data["deliveries"].(map[string]any)
 		out := []string{}
-		for _, name := range []string{"deputy", "mayor"} {
+		for _, name := range []string{"deputy", "yardmaster"} {
 			if _, ok := d[name]; ok {
 				out = append(out, name)
 			}
@@ -491,15 +491,16 @@ func TestIssueMoveDoesNotEcho(t *testing.T) {
 	if e := lastEvent(t, s, "yard-a"); e.Kind != "thread_state" || reached(e) != "deputy" {
 		t.Fatalf("thread_state reached %q: %+v", reached(e), e)
 	}
-	// Nothing was done as the mayor when a move is skipped: it hears of it.
+	// Nothing was done as the yardmaster when a move is skipped: it hears of
+	// it.
 	if err := s.IssueMoveSkipped(ctx, ms[1].ID, store.IssueSkip{Reason: store.SkipNoGrant, Detail: "x"}); err != nil {
 		t.Fatal(err)
 	}
-	if e := lastEvent(t, s, "yard-a"); e.Kind != "thread_state_skipped" || reached(e) != "deputy,mayor" {
+	if e := lastEvent(t, s, "yard-a"); e.Kind != "thread_state_skipped" || reached(e) != "deputy,yardmaster" {
 		t.Fatalf("thread_state_skipped reached %q: %+v", reached(e), e)
 	}
-	// Linear's delivery of the change, made by the mayor's identity there.
-	env := hooks.Envelope{Source: "linear", Type: "Issue", Action: "update", Actor: hooks.Party{ID: "u-mayor"},
+	// Linear's delivery of the change, made by the yardmaster's identity there.
+	env := hooks.Envelope{Source: "linear", Type: "Issue", Action: "update", Actor: hooks.Party{ID: "u-yardmaster"},
 		Thread: hooks.Thread{ID: "uuid-1", URL: linA}}
 	seq, dup, err := own.RecordHook(ctx, "linear", env.Map(), []byte("{}"), nil)
 	if err != nil || dup {
@@ -523,11 +524,11 @@ func TestIssueMoveSurvivesRestart(t *testing.T) {
 	if err := s.PutRig(ctx, store.Rig{Name: "yard", Base: "origin/main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	moveMayor(t, s, "linear")
-	if err := s.SetIdentity(ctx, "mayor", "linear", store.Identity{ID: "u-mayor"}, "me"); err != nil {
+	moveYardmaster(t, s, "linear")
+	if err := s.SetIdentity(ctx, "yardmaster", "linear", store.Identity{ID: "u-yardmaster"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	putHook(t, s, store.Hook{Name: "linear", Source: "linear", SecretFile: "/s", As: "mayor", Map: linearMap})
+	putHook(t, s, store.Hook{Name: "linear", Source: "linear", SecretFile: "/s", As: "yardmaster", Map: linearMap})
 	tracked(t, s, "yard-a", "task", "new", linA)
 	if err := s.IssueMoveFailed(ctx, moves0(t, s).ID, "linear: connection refused", time.Now().Add(time.Minute)); err != nil {
 		t.Fatal(err)

@@ -36,8 +36,8 @@ func actAsOperator(t *testing.T) {
 	t.Setenv("USER", config.Actor())
 }
 
-// yardr init --start ends in the chat with the mayor where a person sits at
-// a terminal, and nowhere else: without a terminal, as JSON, in an agent's
+// yardr init --start ends in the chat with the yardmaster where a person sits
+// at a terminal, and nowhere else: without a terminal, as JSON, in an agent's
 // own pane and with --no-chat it opens nothing, and what it prints names
 // yardr chat.
 func TestInitStartEndsInTheChatInATerminalOnly(t *testing.T) {
@@ -45,7 +45,7 @@ func TestInitStartEndsInTheChatInATerminalOnly(t *testing.T) {
 	actAsOperator(t)
 	stubLookPath(t, "claude", "git", "herdr")
 	st := storetest.New(t)
-	stubStart(t, st, mayorHandle())
+	stubStart(t, st, yardmasterHandle())
 	stubPane(t, answeredPane)
 	captureStderr(t)
 	chats := stubChat(t)
@@ -60,7 +60,7 @@ func TestInitStartEndsInTheChatInATerminalOnly(t *testing.T) {
 	names := "Talk to it in any terminal, or take\nthe same steps yourself as a short run of forms:\n\n  yardr --home " + home + " chat\n"
 
 	setInteractive(t, false)
-	wantText(t, start(), "mayor is running, in herdr", names)
+	wantText(t, start(), "yardmaster is running, in herdr", names)
 	if len(*chats) != 0 {
 		t.Fatalf("a chat opened without a terminal: %v", *chats)
 	}
@@ -73,33 +73,33 @@ func TestInitStartEndsInTheChatInATerminalOnly(t *testing.T) {
 		t.Fatalf("--json: start = %+v, %v", res.Start, err)
 	}
 	wantText(t, start("--no-chat"), names)
-	t.Setenv("YARDR_RESIDENT", "mayor")
+	t.Setenv("YARDR_RESIDENT", "yardmaster")
 	wantText(t, start(), names)
 	t.Setenv("YARDR_RESIDENT", "")
 	if len(*chats) != 0 {
 		t.Fatalf("a chat opened with --json, --no-chat or in an agent's pane: %v", *chats)
 	}
 
-	// The mayor was started more than once by now: it is not in the
+	// The yardmaster was started more than once by now: it is not in the
 	// session that was asked to greet, and the view expects no first mail.
 	out := start()
-	wantText(t, out, names, "You left the chat; mayor keeps running. To come back: yardr --home "+home+" chat\n")
-	if !slices.Equal(*chats, []string{"mayor, expecting "}) {
+	wantText(t, out, names, "You left the chat; yardmaster keeps running. To come back: yardr --home "+home+" chat\n")
+	if !slices.Equal(*chats, []string{"yardmaster, expecting "}) {
 		t.Fatalf("chats %v\n%s", *chats, out)
 	}
 }
 
-// A mayor that does not come up leaves nobody to talk to: the form opens
+// A yardmaster that does not come up leaves nobody to talk to: the form opens
 // no chat, and says of it what yardr doctor says, the FAULT line of the
-// mayor with why its starts fail.
-func TestOnboardingWithoutAMayorSaysWhatDoctorSays(t *testing.T) {
+// yardmaster with why its starts fail.
+func TestOnboardingWithoutAYardmasterSaysWhatDoctorSays(t *testing.T) {
 	home, f := resumeYard(t, nil)
 	actAsOperator(t)
 	chats := stubChat(t)
 	st := storetest.New(t)
 	stub(t, &spawnDaemon, func(*config.Config) (<-chan error, error) {
 		for range store.MaxStartFails {
-			if err := st.ResidentStartFailed(context.Background(), "mayor", "claude: not logged in", time.Minute); err != nil {
+			if err := st.ResidentStartFailed(context.Background(), "yardmaster", "claude: not logged in", time.Minute); err != nil {
 				t.Error(err)
 			}
 		}
@@ -109,75 +109,75 @@ func TestOnboardingWithoutAMayorSaysWhatDoctorSays(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	wantText(t, out, "mayor could not be started: the daemon gave up after",
+	wantText(t, out, "yardmaster could not be started: the daemon gave up after",
 		"`yardr --home "+home+" doctor` says of it:",
-		"  FAULT  mayor      mayor is not running: the daemon gave up after", "the last with: claude: not logged in. Once that is fixed: yardr --home "+home+" resident start mayor",
+		"  FAULT  yardmaster  yardmaster is not running: the daemon gave up after", "the last with: claude: not logged in. Once that is fixed: yardr --home "+home+" resident start yardmaster",
 		"Once that is set right, run yardr --home "+home+" in this terminal again")
 	doc, _ := run(t, (&app{st: st}).rootCmd(), "doctor")
 	for _, l := range strings.Split(doc, "\n") {
-		if strings.HasPrefix(l, "  FAULT  mayor") && !strings.Contains(out, l) {
+		if strings.HasPrefix(l, "  FAULT  yardmaster") && !strings.Contains(out, l) {
 			t.Errorf("the form does not say doctor's line %q:\n%s", l, out)
 		}
 	}
 	if len(*chats) != 0 || slices.Contains(keysOf(f), "go") || slices.Contains(keysOf(f), "pane") {
-		t.Fatalf("chats %v, asked %q after a mayor that is not up", *chats, keysOf(f))
+		t.Fatalf("chats %v, asked %q after a yardmaster that is not up", *chats, keysOf(f))
 	}
 }
 
-// A mayor whose session runs and that never answered its first prompt (a
+// A yardmaster whose session runs and that never answered its first prompt (a
 // harness at a login screen) is not up either: no chat, and doctor's lines
 // with the one doctor cannot know, since it reads no pane.
-func TestOnboardingWithASilentMayorOpensNoChat(t *testing.T) {
+func TestOnboardingWithASilentYardmasterOpensNoChat(t *testing.T) {
 	home := newHome(t)
 	actAsOperator(t)
 	setInteractive(t, true)
 	stubLookPath(t, "claude", "git", "herdr")
-	stubAsk(t, (&former{t: t, goes: []string{goMayor}}).ask)
+	stubAsk(t, (&former{t: t, goes: []string{goYardmaster}}).ask)
 	captureStderr(t)
 	chats := stubChat(t)
 	st := storetest.New(t)
-	stubStart(t, st, mayorHandle())
+	stubStart(t, st, yardmasterHandle())
 	stubPane(t, "Not logged in · Run /login")
-	stub(t, &mayorWait, 50*time.Millisecond)
+	stub(t, &yardmasterWait, 50*time.Millisecond)
 	out, err := run(t, (&app{st: st}).rootCmd())
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	wantText(t, out, "it has not answered its first prompt within", "  | Not logged in · Run /login",
-		"`yardr --home "+home+" doctor` says of it:", "  ok     mayor      mayor is running (herdr agent y-mayor)",
-		"  note   mayor      mayor's session runs, and it has not answered its first prompt")
+		"`yardr --home "+home+" doctor` says of it:", "  ok     yardmaster  yardmaster is running (herdr agent y-yardmaster)",
+		"  note   yardmaster  yardmaster's session runs, and it has not answered its first prompt")
 	if len(*chats) != 0 {
-		t.Fatalf("a chat opened on a mayor that is not up: %v", *chats)
+		t.Fatalf("a chat opened on a yardmaster that is not up: %v", *chats)
 	}
 }
 
 // The operator was given another name than this terminal acts under: the
-// mayor writes to the operator, so a chat as anyone else would stay empty.
+// yardmaster writes to the operator, so a chat as anyone else would stay empty.
 // None opens; it says who the chat is for and how to get there, and the
 // hand-over is the pane, as before.
 func TestHandOverAsSomeoneWhoIsNoUser(t *testing.T) {
-	f := &former{answers: map[string]any{"name": "web"}, goes: []string{goMayor}}
+	f := &former{answers: map[string]any{"name": "web"}, goes: []string{goYardmaster}}
 	home, st, _ := setupYard(t, f)
 	focused := stubFocus(t)
 	chats := stubChat(t)
-	if err := st.ResidentStarted(context.Background(), "mayor", mayorHandle()); err != nil {
+	if err := st.ResidentStarted(context.Background(), "yardmaster", yardmasterHandle()); err != nil {
 		t.Fatal(err)
 	}
 	stubPane(t, answeredPane)
 	out := setup(t, st, "--actor", "eve")
 	wantText(t, out, "this terminal acts as eve, who is none: the operator is Jo",
-		"yardr --home "+home+" --actor Jo chat", "yardr --home "+home+" --actor Jo user add eve", "mayor is running, in herdr:")
-	if len(*chats) != 0 || !slices.Equal(*focused, []string{"y-mayor"}) {
+		"yardr --home "+home+" --actor Jo chat", "yardr --home "+home+" --actor Jo user add eve", "yardmaster is running, in herdr:")
+	if len(*chats) != 0 || !slices.Equal(*focused, []string{"y-yardmaster"}) {
 		t.Fatalf("chats %v, focused %v\n%s", *chats, *focused, out)
 	}
 }
 
 // The view's own failure ends the hand-over with it, and claims no chat.
 func TestHandOverReportsAViewThatFails(t *testing.T) {
-	f := &former{answers: map[string]any{"name": "web"}, goes: []string{goMayor}}
+	f := &former{answers: map[string]any{"name": "web"}, goes: []string{goYardmaster}}
 	_, st, _ := setupYard(t, f)
 	mustAs(t, st, "Jo", "user", "add", "me")
-	if err := st.ResidentStarted(context.Background(), "mayor", mayorHandle()); err != nil {
+	if err := st.ResidentStarted(context.Background(), "yardmaster", yardmasterHandle()); err != nil {
 		t.Fatal(err)
 	}
 	stubPane(t, answeredPane)

@@ -11,5 +11,5 @@ Outcomes:
 - `done`: the above holds. The epic goes to review, where what the children
   produced is looked at as a whole.
 
-The edge back to `backlog` has no outcome: the mayor takes the epic back with
-`yardr bead advance <epic> --to backlog` to reshape it or add children.
+The edge back to `backlog` has no outcome: the yardmaster takes the epic back
+with `yardr bead advance <epic> --to backlog` to reshape it or add children.

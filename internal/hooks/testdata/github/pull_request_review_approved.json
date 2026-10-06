@@ -6,7 +6,7 @@
   "body": "Looks good.",
   "html_url": "https://github.com/acme/yardr/pull/17#pullrequestreview-1",
   "user": {
-   "login": "mayor",
+   "login": "yardmaster",
    "type": "User"
   },
   "commit_id": "4f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b"
@@ -18,13 +18,13 @@
   "state": "open",
   "draft": false,
   "merged": false,
-  "body": "Lands the epic. @Mayor please review; cc @jane-doe and @acme/core. Mail ops@example.com.",
+  "body": "Lands the epic. @Yardmaster please review; cc @jane-doe and @acme/core. Mail ops@example.com.",
   "user": {
    "login": "Jane-Doe",
    "type": "User"
   },
   "assignee": {
-   "login": "Mayor",
+   "login": "Yardmaster",
    "type": "User"
   },
   "labels": [
@@ -49,7 +49,7 @@
   "html_url": "https://github.com/acme/yardr"
  },
  "sender": {
-  "login": "mayor",
+  "login": "yardmaster",
   "type": "User"
  }
 }

@@ -105,14 +105,14 @@ func TestRigSourceRoleOfAResident(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	refused(t, a, []string{"web", "role", "boss", "rig"}, "rig web has no .yardr/roles/mayor.md in its checkout")
+	refused(t, a, []string{"web", "role", "boss", "rig"}, "rig web has no .yardr/roles/yardmaster.md in its checkout")
 
-	writeFile(t, filepath.Join(rig.Path, ".yardr", "roles", "mayor.md"), "the rig's mayor\n")
+	writeFile(t, filepath.Join(rig.Path, ".yardr", "roles", "yardmaster.md"), "the rig's yardmaster\n")
 	out, err := run(t, a.rigSourceCmd(), "web", "role", "boss", "rig")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "role boss rig (.yardr/roles/mayor.md) pack starter has a copy"
+	want := "role boss rig (.yardr/roles/yardmaster.md) pack starter has a copy"
 	if got := sourceLines(t, out); got[0] != want || !strings.Contains(out, "unless given --rig-roles") {
 		t.Errorf("to the rig's:\n%s", out)
 	}
@@ -122,7 +122,7 @@ func TestRigSourceRoleOfAResident(t *testing.T) {
 	if out, err = run(t, a.rigSourceCmd(), "web", "role", "boss", "pack"); err != nil {
 		t.Fatal(err)
 	}
-	want = "role boss pack starter (" + filepath.Join(home, "packs", "starter", "roles", "mayor.md") + ")"
+	want = "role boss pack starter (" + filepath.Join(home, "packs", "starter", "roles", "yardmaster.md") + ")"
 	if got := sourcesLine(t, a, "role boss"); !strings.HasPrefix(got, want) || !strings.HasPrefix(sourceLines(t, out)[0], want) {
 		t.Errorf("back to the pack's: %s\n%s", got, out)
 	}

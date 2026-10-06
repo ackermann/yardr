@@ -57,16 +57,16 @@ const skippedWhy = "the server is not running"
 
 // storeChecks are the checks that read the store, as Skipped names them:
 // the lines of the yard's part, the setup steps, and the optional parts.
-var storeChecks = []string{"mayor", "residents", "held", "cycles", "mail", "names", "steps", "hooks", "peers", "packs"}
+var storeChecks = []string{"yardmaster", "residents", "held", "cycles", "mail", "names", "steps", "hooks", "peers", "packs"}
 
 // yardState is the second part: what of the yard runs.
 type yardState struct {
 	// Server is "running", "not_running" (nothing else of the yard is read
 	// then but the daemon, which the home says) or "unreachable".
-	Server      string      `json:"server"`
-	ServerError string      `json:"server_error,omitempty"`
-	Daemon      bool        `json:"daemon"`
-	Mayor       *mayorState `json:"mayor,omitempty"`
+	Server      string           `json:"server"`
+	ServerError string           `json:"server_error,omitempty"`
+	Daemon      bool             `json:"daemon"`
+	Yardmaster  *yardmasterState `json:"yardmaster,omitempty"`
 	// Residents is how many the yard has; Failing those that do not start.
 	Residents int               `json:"residents"`
 	Failing   []failingResident `json:"failing"`
@@ -89,8 +89,9 @@ type yardState struct {
 	open      []store.Bead
 }
 
-// mayorState is the mayor: whether the resident exists, and its session.
-type mayorState struct {
+// yardmasterState is the yardmaster: whether the resident exists, and its
+// session.
+type yardmasterState struct {
 	Name     string `json:"name"`
 	Resident bool   `json:"resident"`
 	Enabled  bool   `json:"enabled"`
@@ -155,7 +156,7 @@ func (a *app) doctorCmd() *cobra.Command {
                           its server runs. A harness that is found is run
                           with its version flag: on PATH is not "works", and
                           a version is not an answer (--try).
-  The yard                the server, the daemon, the mayor and its session,
+  The yard                the server, the daemon, the yardmaster and its session,
                           residents whose starts fail, held beads.
   Setup                   the steps from a yard to a first merged bead, each
                           done or todo, and the command for the first one
@@ -168,7 +169,7 @@ never runs that), changes nothing in the store and starts no daemon and no
 server. It runs each harness's version flag, for up to ` + versionTimeout.String() + ` each; a kind
 yardr knows no version flag for is not run. On a yard whose server is not
 running it says so, checks the machine and the daemon, and lists what only
-the store knows (the mayor, the residents, held beads, the setup steps,
+the store knows (the yardmaster, the residents, held beads, the setup steps,
 hooks, peers, packs) as skipped: that is a note, not a fault. On a home with
 no yard it says so, checks the machine and creates nothing. For a program
 that is not on PATH it runs your login shell ($SHELL -l -c) once, to ask
@@ -184,8 +185,8 @@ is not running --try is refused: which harnesses the yard runs on is in its
 store.
 
 The exit status is 1 when something the yard needs is missing or not working
-(the lines marked FAULT), 0 otherwise. A step not done, a held bead, a
-stopped mayor and anything not configured are no fault. docs/doctor.md lists
+(the lines marked FAULT), 0 otherwise. A step not done, a held bead, a stopped
+yardmaster and anything not configured are no fault. docs/doctor.md lists
 every line.`,
 		Example: `  yardr doctor
   yardr doctor --try                           # and one real call to each harness (costs a model call)
@@ -329,26 +330,26 @@ func (a *app) examine(ctx context.Context, cfg *config.Config, try, set bool, er
 }
 
 // readState is the second part, read from a yard whose server answers: the
-// daemon, the mayor and its session, the residents whose starts fail, the
+// daemon, the yardmaster and its session, the residents whose starts fail, the
 // held beads, and the beads that block each other in a circle. It is what
 // doctor prints, and what bare yardr goes by to tell
 // a yard whose onboarding is to finish (resume).
 func readState(ctx context.Context, cfg *config.Config, st store.API, residents []store.Resident) (*yardState, error) {
 	state := &yardState{Server: serverUp, Daemon: daemonRunning(cfg.DaemonLock()), Residents: len(residents),
 		Failing: []failingResident{}, Held: []string{}, residents: residents}
-	mayor := yardMayor(ctx, st)
-	state.Mayor = &mayorState{Name: mayor}
+	yardmaster := yardmasterOf(ctx, st)
+	state.Yardmaster = &yardmasterState{Name: yardmaster}
 	for _, r := range residents {
 		reason := ""
 		failing := r.State == "failed" || (r.Enabled && !r.Live() && r.Failures > 0)
 		if failing {
 			reason = lastStartFailure(ctx, st, r)
 		}
-		if r.Name == mayor {
-			state.Mayor = &mayorState{Name: mayor, Resident: true, Enabled: r.Enabled, Running: r.Live(), State: r.State,
+		if r.Name == yardmaster {
+			state.Yardmaster = &yardmasterState{Name: yardmaster, Resident: true, Enabled: r.Enabled, Running: r.Live(), State: r.State,
 				Agent: show(r.Handle["agent"]), Failures: r.Failures, Reason: reason}
 			if !r.Live() {
-				state.Mayor.Agent = ""
+				state.Yardmaster.Agent = ""
 			}
 		} else if failing {
 			state.Failing = append(state.Failing, failingResident{r.Name, r.State, r.Failures, reason})
@@ -600,26 +601,26 @@ func (s *yardState) lines(home string) []docLine {
 	}
 	if s.Server == serverStopped {
 		// The lines every report has, so that its shape stays the same.
-		for _, name := range []string{"mayor", "residents", "held"} {
+		for _, name := range []string{"yardmaster", "residents", "held"} {
 			out = append(out, docLine{tagNote, name, "skipped: " + skippedWhy})
 		}
 		return out
 	}
-	switch m := s.Mayor; {
+	switch m := s.Yardmaster; {
 	case m == nil:
 	case !m.Resident:
-		out = append(out, docLine{tagFault, "mayor", fmt.Sprintf("no resident %s: %s init adds it", m.Name, yardr)})
+		out = append(out, docLine{tagFault, "yardmaster", fmt.Sprintf("no resident %s: %s init adds it", m.Name, yardr)})
 	case m.Running:
-		out = append(out, docLine{tagOK, "mayor", fmt.Sprintf("%s is running (herdr agent %s)", m.Name, or(m.Agent, "unknown"))})
+		out = append(out, docLine{tagOK, "yardmaster", fmt.Sprintf("%s is running (herdr agent %s)", m.Name, or(m.Agent, "unknown"))})
 	case !m.Enabled:
-		out = append(out, docLine{tagNote, "mayor", fmt.Sprintf("%s is stopped (disabled). Let it run again: %s resident start %s", m.Name, yardr, m.Name)})
+		out = append(out, docLine{tagNote, "yardmaster", fmt.Sprintf("%s is stopped (disabled). Let it run again: %s resident start %s", m.Name, yardr, m.Name)})
 	case m.Failures > 0 || m.State == "failed":
-		out = append(out, docLine{tagFault, "mayor", fmt.Sprintf("%s is not running: %s. Once that is fixed: %s resident start %s",
+		out = append(out, docLine{tagFault, "yardmaster", fmt.Sprintf("%s is not running: %s. Once that is fixed: %s resident start %s",
 			m.Name, failed(m.State, m.Failures, m.Reason), yardr, m.Name)})
 	case !s.Daemon:
-		out = append(out, docLine{tagFault, "mayor", m.Name + " is not running: the daemon starts it"})
+		out = append(out, docLine{tagFault, "yardmaster", m.Name + " is not running: the daemon starts it"})
 	default:
-		out = append(out, docLine{tagFault, "mayor", fmt.Sprintf("%s is not running, and no start has failed: the daemon may still be at it (%s resident list)", m.Name, yardr)})
+		out = append(out, docLine{tagFault, "yardmaster", fmt.Sprintf("%s is not running, and no start has failed: the daemon may still be at it (%s resident list)", m.Name, yardr)})
 	}
 	for _, f := range s.Failing {
 		out = append(out, docLine{tagFault, "resident", fmt.Sprintf("%s is not running: %s. Once that is fixed: %s resident start %s",
@@ -674,15 +675,15 @@ func (r *doctorReport) lines() []docLine {
 	return lines
 }
 
-// silentMayor is the line for a mayor whose session runs and that is not up
-// (see up): doctor itself reads no pane, so the onboarding adds it.
-func silentMayor(mayor string) docLine {
-	return docLine{tagNote, "mayor", mayor + "'s session runs, and it has not answered its first prompt"}
+// silentYardmaster is the line for a yardmaster whose session runs and that
+// is not up (see up): doctor itself reads no pane, so the onboarding adds it.
+func silentYardmaster(yardmaster string) docLine {
+	return docLine{tagNote, "yardmaster", yardmaster + "'s session runs, and it has not answered its first prompt"}
 }
 
 // doctorSays prints what yardr doctor says is wrong with the yard, for an
-// onboarding that could not get to the mayor: the report's FAULT lines and
-// the mayor's own line, as doctor prints them, and how to read the rest.
+// onboarding that could not get to the yardmaster: the report's FAULT lines and
+// the yardmaster's own line, as doctor prints them, and how to read the rest.
 func (a *app) doctorSays(ctx context.Context, cfg *config.Config) error {
 	rep, err := a.doctor(ctx, cfg, false)
 	if err != nil {
@@ -690,17 +691,17 @@ func (a *app) doctorSays(ctx context.Context, cfg *config.Config) error {
 	}
 	var say []docLine
 	for _, l := range rep.lines() {
-		if l.tag == tagFault || l.name == "mayor" {
+		if l.tag == tagFault || l.name == "yardmaster" {
 			say = append(say, l)
 		}
 	}
-	if m := rep.State; m != nil && m.Mayor != nil && m.Mayor.Running {
+	if m := rep.State; m != nil && m.Yardmaster != nil && m.Yardmaster.Running {
 		st, err := a.store(ctx)
 		if err != nil {
 			return err
 		}
-		if r, err := st.GetResident(ctx, m.Mayor.Name); err == nil && r.Live() && !up(ctx, *r) {
-			say = append(say, silentMayor(r.Name))
+		if r, err := st.GetResident(ctx, m.Yardmaster.Name); err == nil && r.Live() && !up(ctx, *r) {
+			say = append(say, silentYardmaster(r.Name))
 		}
 	}
 	yardr := yardrAt(cfg.Home)
@@ -721,7 +722,7 @@ func (r *doctorReport) faults() {
 
 func printLines(lines []docLine) {
 	for _, l := range lines {
-		fmt.Printf("  %-5s  %-9s  %s\n", l.tag, l.name, l.text)
+		fmt.Printf("  %-5s  %-10s  %s\n", l.tag, l.name, l.text)
 	}
 }
 

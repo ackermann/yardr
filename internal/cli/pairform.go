@@ -76,7 +76,7 @@ func (a *app) pairForm(ctx context.Context, cfg *config.Config, st store.API) er
 	yardr := yardrAt(cfg.Home)
 	fmt.Print("\nLinking this yard with another\n\n" +
 		"Two linked yards send each other messages: a ping, which shows the other is there, and mail\n" +
-		"between their residents (the agents that live in a yard, such as the mayor). They share nothing\n" +
+		"between their residents (the agents that live in a yard, such as the yardmaster). They share nothing\n" +
 		"else, and each operator decides what their own yard takes.\n\n" +
 		"You and the other yard's operator each run this form. One of you shows a code and reads it to\n" +
 		"the other, who enters it.\n\n")
@@ -396,7 +396,7 @@ func (f *pairChoice) ask(calls string, free func(name string) error) (string, er
 			return nil
 		}),
 		huh.NewInput().Key("pair_name").Title("This yard's name for the other one").
-			Description(fmt.Sprintf("How you name it here, as in `yardr mail mayor@<name>`. It calls itself %s.", calls)).
+			Description(fmt.Sprintf("How you name it here, as in `yardr mail yardmaster@<name>`. It calls itself %s.", calls)).
 			Value(&name).Validate(func(s string) error { return free(strings.TrimSpace(s)) }),
 	)
 	if err != nil {
@@ -463,7 +463,7 @@ func (a *app) formDone(ctx context.Context, cfg *config.Config, st store.API, p 
 		fmt.Printf("The link is saved, and not proved yet: %s\n`%s peer ping %s` asks again.\n", noPong, yardr, p.Name)
 	}
 	if opt.form.mail {
-		fmt.Printf("\nTo try the mail, write to %s's mayor:\n\n  %s mail mayor@%s \"hello from the other yard\"\n\n"+
+		fmt.Printf("\nTo try the mail, write to %s's yardmaster:\n\n  %s mail yardmaster@%s \"hello from the other yard\"\n\n"+
 			"It arrives if the other operator ticked mail too. A resident of this yard may write there once\n"+
 			"you have allowed it that yard by name: docs/peers.md, \"Mail between residents\".\n", p.Name, yardr, p.Name)
 	}

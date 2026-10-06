@@ -155,7 +155,7 @@ func (l rigSource) aside() string {
 }
 
 // tilde writes a path under the user's home directory with ~, as the docs
-// do (~/.yardr/roles/mayor.md).
+// do (~/.yardr/roles/yardmaster.md).
 func tilde(p string) string {
 	if dir, err := os.UserHomeDir(); err == nil && dir != "" && filepath.IsAbs(p) {
 		if rel, err := filepath.Rel(dir, p); err == nil && filepath.IsLocal(rel) {

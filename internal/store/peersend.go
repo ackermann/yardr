@@ -44,7 +44,7 @@ const (
 	GroupPeer  = "peer"
 	GroupTries = "tries"
 	// PeerBeadTries posts, with the daemon's backoff, are about a quarter
-	// of an hour: a yard that is down for longer is the mayor's to hear
+	// of an hour: a yard that is down for longer is the yardmaster's to hear
 	// of, not the outbox's to wait out.
 	PeerBeadTries = 5
 
@@ -735,7 +735,7 @@ func (s *Store) SettlePeerBeads(ctx context.Context) error {
 // peer's own and by the yard for refused and undelivered, with a note that
 // says why. A stage that does not name the outcome keeps the bead, held,
 // with a note naming the outcome and the stage's own: a hold reaches the
-// mayor. A bead that has left the stage meanwhile is left alone.
+// yardmaster. A bead that has left the stage meanwhile is left alone.
 func (s *Store) settleSent(ctx context.Context, uuid string) error {
 	pending := func(tx *bolt.Tx) (*peerSent, error) {
 		rec, err := peerSentOf(tx, uuid)

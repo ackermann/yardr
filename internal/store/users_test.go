@@ -111,8 +111,8 @@ func TestOperatorIsAUser(t *testing.T) {
 func TestOneNameOneParty(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
-	party(t, s, "mayor")
-	if _, err := s.AddUser(ctx, "mayor", "jo"); err == nil || !strings.Contains(err.Error(), "that is a resident's name") {
+	party(t, s, "yardmaster")
+	if _, err := s.AddUser(ctx, "yardmaster", "jo"); err == nil || !strings.Contains(err.Error(), "that is a resident's name") {
 		t.Fatalf("user with a resident's name = %v", err)
 	}
 	if _, err := s.AddUser(ctx, "ada", "jo"); err != nil {
@@ -124,14 +124,14 @@ func TestOneNameOneParty(t *testing.T) {
 	if _, err := s.GetResident(ctx, "ada"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("the refused resident exists: %v", err)
 	}
-	if err := s.SetSetting(ctx, "operator", "mayor", "jo"); err == nil || !strings.Contains(err.Error(), "that is a resident's name") {
+	if err := s.SetSetting(ctx, "operator", "yardmaster", "jo"); err == nil || !strings.Contains(err.Error(), "that is a resident's name") {
 		t.Fatalf("operator with a resident's name = %v", err)
 	}
 	if all, _ := s.Settings(ctx); all["operator"] != "" || userNames(t, s) != "ada" {
 		t.Fatalf("the refused setting was stored: %v, users %q", all, userNames(t, s))
 	}
 	// A resident that is there is still redefined.
-	if _, err := s.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr", MaxAge: "1h"}, "jo"); err != nil {
+	if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr", MaxAge: "1h"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -153,25 +153,25 @@ func letters(ls []store.Letter) string {
 func TestUserInbox(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
-	party(t, s, "mayor")
+	party(t, s, "yardmaster")
 	party(t, s, "clerk")
 	for _, u := range []string{"jo", "ada"} {
 		if _, err := s.AddUser(ctx, u, "jo"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, m := range [][3]string{{"jo", "one", "mayor"}, {"ada", "for ada", "mayor"}, {"jo", "two", "clerk"}, {"jo", "three", "mayor"}} {
+	for _, m := range [][3]string{{"jo", "one", "yardmaster"}, {"ada", "for ada", "yardmaster"}, {"jo", "two", "clerk"}, {"jo", "three", "yardmaster"}} {
 		if err := s.Mail(ctx, m[0], m[1], m[2]); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := s.Mail(ctx, "jo", strings.Repeat("x", store.MaxMailBytes+1), "mayor"); err == nil {
+	if err := s.Mail(ctx, "jo", strings.Repeat("x", store.MaxMailBytes+1), "yardmaster"); err == nil {
 		t.Fatal("mail over the limit to a user accepted")
 	}
-	if err := s.Mail(ctx, "nobody", "hi", "mayor"); !errors.Is(err, store.ErrNotFound) {
+	if err := s.Mail(ctx, "nobody", "hi", "yardmaster"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("mail to nobody = %v", err)
 	}
-	if _, err := s.UserInbox(ctx, "mayor", 0); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.UserInbox(ctx, "yardmaster", 0); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("a resident read as a user = %v", err)
 	}
 
@@ -179,14 +179,14 @@ func TestUserInbox(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := letters(box.Mail); got != "mayor>jo one unread | clerk>jo two unread | mayor>jo three unread" ||
-		box.Unread != 3 || strings.Join(box.From, ",") != "mayor,clerk" || box.Last != box.Mail[2].Seq {
+	if got := letters(box.Mail); got != "yardmaster>jo one unread | clerk>jo two unread | yardmaster>jo three unread" ||
+		box.Unread != 3 || strings.Join(box.From, ",") != "yardmaster,clerk" || box.Last != box.Mail[2].Seq {
 		t.Fatalf("jo's inbox = %s (%+v)", got, box)
 	}
-	if ada, _ := s.UserInbox(ctx, "ada", 0); letters(ada.Mail) != "mayor>ada for ada unread" {
+	if ada, _ := s.UserInbox(ctx, "ada", 0); letters(ada.Mail) != "yardmaster>ada for ada unread" {
 		t.Fatalf("ada's inbox = %s", letters(ada.Mail))
 	}
-	for _, r := range []string{"mayor", "clerk"} {
+	for _, r := range []string{"yardmaster", "clerk"} {
 		if page, _ := s.Inbox(ctx, r, 0); page.Total != 0 {
 			t.Fatalf("%s's inbox has mail to a user: %+v", r, page.Events)
 		}
@@ -198,11 +198,11 @@ func TestUserInbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	box, _ = s.UserInbox(ctx, "jo", 0)
-	if got := letters(box.Mail); got != "mayor>jo three unread | clerk>jo two read | mayor>jo one read" ||
-		box.Unread != 1 || strings.Join(box.From, ",") != "mayor" {
+	if got := letters(box.Mail); got != "yardmaster>jo three unread | clerk>jo two read | yardmaster>jo one read" ||
+		box.Unread != 1 || strings.Join(box.From, ",") != "yardmaster" {
 		t.Fatalf("after the ack = %s (%+v)", got, box)
 	}
-	if two, _ := s.UserInbox(ctx, "jo", 2); letters(two.Mail) != "mayor>jo three unread | clerk>jo two read" || two.Unread != 1 {
+	if two, _ := s.UserInbox(ctx, "jo", 2); letters(two.Mail) != "yardmaster>jo three unread | clerk>jo two read" || two.Unread != 1 {
 		t.Fatalf("limit 2 = %s", letters(two.Mail))
 	}
 	if ada, _ := s.UserInbox(ctx, "ada", 0); ada.Unread != 1 {
@@ -226,55 +226,55 @@ func TestUserInbox(t *testing.T) {
 func TestConversation(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
-	party(t, s, "mayor")
+	party(t, s, "yardmaster")
 	party(t, s, "clerk")
 	if err := s.SetSetting(ctx, "operator", "jo", "jo"); err != nil {
 		t.Fatal(err)
 	}
 	for _, m := range [][3]string{
-		{"mayor", "freeze", "jo"}, {"clerk", "not this", "jo"}, {"jo", "noted", "mayor"}, {"jo", "not this either", "clerk"},
-		{"mayor", "lifted", "jo"}, {"clerk", "between residents", "mayor"}, {"jo", "ok", "mayor"},
+		{"yardmaster", "freeze", "jo"}, {"clerk", "not this", "jo"}, {"jo", "noted", "yardmaster"}, {"jo", "not this either", "clerk"},
+		{"yardmaster", "lifted", "jo"}, {"clerk", "between residents", "yardmaster"}, {"jo", "ok", "yardmaster"},
 	} {
 		if err := s.Mail(ctx, m[0], m[1], m[2]); err != nil {
 			t.Fatal(err)
 		}
 	}
-	const all = "jo>mayor freeze unread | mayor>jo noted unread | jo>mayor lifted unread | mayor>jo ok unread"
-	conv, err := s.Conversation(ctx, "jo", "mayor", 0)
+	const all = "jo>yardmaster freeze unread | yardmaster>jo noted unread | jo>yardmaster lifted unread | yardmaster>jo ok unread"
+	conv, err := s.Conversation(ctx, "jo", "yardmaster", 0)
 	if err != nil || letters(conv) != all {
 		t.Fatalf("conversation = %s, %v", letters(conv), err)
 	}
 	// The same from the other side.
-	if rev, _ := s.Conversation(ctx, "mayor", "jo", 0); letters(rev) != all {
-		t.Fatalf("from the mayor's side = %s", letters(rev))
+	if rev, _ := s.Conversation(ctx, "yardmaster", "jo", 0); letters(rev) != all {
+		t.Fatalf("from the yardmaster's side = %s", letters(rev))
 	}
-	if rr, _ := s.Conversation(ctx, "mayor", "clerk", 0); letters(rr) != "mayor>clerk between residents unread" {
+	if rr, _ := s.Conversation(ctx, "yardmaster", "clerk", 0); letters(rr) != "yardmaster>clerk between residents unread" {
 		t.Fatalf("between residents = %s", letters(rr))
 	}
-	if after, _ := s.Conversation(ctx, "jo", "mayor", conv[1].Seq); letters(after) != "jo>mayor lifted unread | mayor>jo ok unread" {
+	if after, _ := s.Conversation(ctx, "jo", "yardmaster", conv[1].Seq); letters(after) != "jo>yardmaster lifted unread | yardmaster>jo ok unread" {
 		t.Fatalf("after %d = %s", conv[1].Seq, letters(after))
 	}
-	if none, err := s.Conversation(ctx, "jo", "mayor", conv[3].Seq); err != nil || none == nil || len(none) != 0 {
+	if none, err := s.Conversation(ctx, "jo", "yardmaster", conv[3].Seq); err != nil || none == nil || len(none) != 0 {
 		t.Fatalf("after the last = %v, %v", none, err)
 	}
 
-	// The mayor acknowledges its inbox through the first mail: that one is
+	// The yardmaster acknowledges its inbox through the first mail: that one is
 	// read. jo acknowledges all of theirs.
-	if err := s.AckInbox(ctx, "mayor", conv[0].Seq); err != nil {
+	if err := s.AckInbox(ctx, "yardmaster", conv[0].Seq); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AckUserInbox(ctx, "jo", conv[3].Seq); err != nil {
 		t.Fatal(err)
 	}
-	conv, _ = s.Conversation(ctx, "jo", "mayor", 0)
-	if got := letters(conv); got != "jo>mayor freeze read | mayor>jo noted read | jo>mayor lifted unread | mayor>jo ok read" {
+	conv, _ = s.Conversation(ctx, "jo", "yardmaster", 0)
+	if got := letters(conv); got != "jo>yardmaster freeze read | yardmaster>jo noted read | jo>yardmaster lifted unread | yardmaster>jo ok read" {
 		t.Fatalf("read state = %s", got)
 	}
-	if err := s.AckInbox(ctx, "mayor", conv[2].Seq); err != nil {
+	if err := s.AckInbox(ctx, "yardmaster", conv[2].Seq); err != nil {
 		t.Fatal(err)
 	}
-	if conv, _ = s.Conversation(ctx, "jo", "mayor", 0); !conv[2].Read {
-		t.Fatalf("the mayor's ack did not read it: %s", letters(conv))
+	if conv, _ = s.Conversation(ctx, "jo", "yardmaster", 0); !conv[2].Read {
+		t.Fatalf("the yardmaster's ack did not read it: %s", letters(conv))
 	}
 }
 
@@ -283,11 +283,11 @@ func TestConversation(t *testing.T) {
 func TestUserNameReused(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
-	party(t, s, "mayor")
+	party(t, s, "yardmaster")
 	if _, err := s.AddUser(ctx, "ada", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Mail(ctx, "ada", "to the first ada", "mayor"); err != nil {
+	if err := s.Mail(ctx, "ada", "to the first ada", "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.DeleteUser(ctx, "ada", "jo"); err != nil {
@@ -303,7 +303,7 @@ func TestUserNameReused(t *testing.T) {
 		t.Fatal(err)
 	}
 	party(t, s, "ada")
-	if err := s.Mail(ctx, "ada", "to the resident", "mayor"); err != nil {
+	if err := s.Mail(ctx, "ada", "to the resident", "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
 	if page, _ := s.Inbox(ctx, "ada", 0); page.Total != 1 || page.Events[0].Data["text"] != "to the resident" {
@@ -328,7 +328,7 @@ func kindsAfter(t *testing.T, s store.API, after uint64) []store.Event {
 func TestMailReadIsAnEvent(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
-	party(t, s, "mayor")
+	party(t, s, "yardmaster")
 	if _, err := s.AddUser(ctx, "ada", "jo"); err != nil {
 		t.Fatal(err)
 	}
@@ -342,7 +342,7 @@ func TestMailReadIsAnEvent(t *testing.T) {
 
 	// Nothing to read: no event.
 	at := head()
-	if err := s.AckInbox(ctx, "mayor", at); err != nil {
+	if err := s.AckInbox(ctx, "yardmaster", at); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AckUserInbox(ctx, "ada", at); err != nil {
@@ -352,28 +352,28 @@ func TestMailReadIsAnEvent(t *testing.T) {
 		t.Fatalf("acknowledging no mail logged %+v", evs)
 	}
 
-	if err := s.Mail(ctx, "mayor", "freeze", "ada"); err != nil {
+	if err := s.Mail(ctx, "yardmaster", "freeze", "ada"); err != nil {
 		t.Fatal(err)
 	}
 	mail := head()
-	if err := s.AckInbox(ctx, "mayor", mail); err != nil {
+	if err := s.AckInbox(ctx, "yardmaster", mail); err != nil {
 		t.Fatal(err)
 	}
 	evs := kindsAfter(t, s, mail)
-	if len(evs) != 1 || evs[0].Kind != "mail_read" || evs[0].Actor != "mayor" ||
-		evs[0].Data["reader"] != "mayor" || fmt.Sprint(evs[0].Data["through"]) != fmt.Sprint(mail) {
+	if len(evs) != 1 || evs[0].Kind != "mail_read" || evs[0].Actor != "yardmaster" ||
+		evs[0].Data["reader"] != "yardmaster" || fmt.Sprint(evs[0].Data["through"]) != fmt.Sprint(mail) {
 		t.Fatalf("after the resident's ack: %+v", evs)
 	}
 	// The same again reads nothing new.
 	at = head()
-	if err := s.AckInbox(ctx, "mayor", mail); err != nil {
+	if err := s.AckInbox(ctx, "yardmaster", mail); err != nil {
 		t.Fatal(err)
 	}
 	if evs := kindsAfter(t, s, at); len(evs) != 0 {
 		t.Fatalf("a second ack logged %+v", evs)
 	}
 
-	if err := s.Mail(ctx, "ada", "until when?", "mayor"); err != nil {
+	if err := s.Mail(ctx, "ada", "until when?", "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
 	mail = head()
@@ -398,36 +398,36 @@ func TestMailReadIsAnEvent(t *testing.T) {
 func TestResidentStatus(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
-	party(t, s, "mayor")
-	if err := s.ResidentStatus(ctx, "mayor", "napping"); err == nil {
+	party(t, s, "yardmaster")
+	if err := s.ResidentStatus(ctx, "yardmaster", "napping"); err == nil {
 		t.Fatal("a status nobody knows was taken")
 	}
 	if err := s.ResidentStatus(ctx, "nobody", "idle"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("status of no resident = %v", err)
 	}
 	status := func() string {
-		r, err := s.GetResident(ctx, "mayor")
+		r, err := s.GetResident(ctx, "yardmaster")
 		if err != nil {
 			t.Fatal(err)
 		}
 		return r.Status
 	}
 	// Not running: nothing is doing anything.
-	if err := s.ResidentStatus(ctx, "mayor", "idle"); err != nil || status() != "" {
+	if err := s.ResidentStatus(ctx, "yardmaster", "idle"); err != nil || status() != "" {
 		t.Fatalf("status of a stopped resident = %q, %v", status(), err)
 	}
-	if err := s.ResidentStarted(ctx, "mayor", map[string]any{"agent": "a"}); err != nil {
+	if err := s.ResidentStarted(ctx, "yardmaster", map[string]any{"agent": "a"}); err != nil {
 		t.Fatal(err)
 	}
 	at, _ := s.Head(ctx)
 	for _, st := range []string{"working", "working", "blocked", "idle"} {
-		if err := s.ResidentStatus(ctx, "mayor", st); err != nil || status() != st {
+		if err := s.ResidentStatus(ctx, "yardmaster", st); err != nil || status() != st {
 			t.Fatalf("status %s = %q, %v", st, status(), err)
 		}
 	}
 	var got []string
 	for _, e := range kindsAfter(t, s, at) {
-		if e.Kind != "resident_status" || e.Data["resident"] != "mayor" || e.Bead != nil {
+		if e.Kind != "resident_status" || e.Data["resident"] != "yardmaster" || e.Bead != nil {
 			t.Fatalf("event %+v", e)
 		}
 		got = append(got, fmt.Sprintf("%v>%v", e.Data["was"], e.Data["status"]))
@@ -435,7 +435,7 @@ func TestResidentStatus(t *testing.T) {
 	if strings.Join(got, " ") != ">working working>blocked blocked>idle" {
 		t.Fatalf("status events = %v", got)
 	}
-	if err := s.ResidentStopped(ctx, "mayor", "gone"); err != nil || status() != "" {
+	if err := s.ResidentStopped(ctx, "yardmaster", "gone"); err != nil || status() != "" {
 		t.Fatalf("status after the stop = %q, %v", status(), err)
 	}
 }

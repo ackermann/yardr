@@ -24,7 +24,7 @@ in yard-9cza, the merge gate in yard-p2y7.
 | routes | | which group works which stage, by rig, type, label (built) |
 | rigs | | path, kind (`git` or `dir`), clone, base branch; `rig add` registers, `rig rm` removes (built) |
 | residents | | agent, directory, inbox kinds, rotation, subscriptions, identities (built) |
-| settings | | the yard's defaults: `default_kind`, `operator`, `mayor`, `name`, `hook_addr`, and how agents work with the operator: `operator_style`, `operator_note`, and the bounds of its timers: `timer_limit`, `timer_min_every` (built) |
+| settings | | the yard's defaults: `default_kind`, `operator`, `yardmaster`, `name`, `hook_addr`, and how agents work with the operator: `operator_style`, `operator_note`, and the bounds of its timers: `timer_limit`, `timer_min_every` (built) |
 
 ### Why the repo holds what the work is
 
@@ -93,7 +93,7 @@ hold the bead.
 
 Residents have no rig: give a resident's `prompt` as an absolute path (a
 relative one is read from its directory), e.g. a rig's
-`/path/to/repo/.yardr/roles/mayor.md`.
+`/path/to/repo/.yardr/roles/yardmaster.md`.
 
 ## Session limits and outages
 
@@ -124,7 +124,7 @@ clock starts again at the daemon's first pass after the gate has ended.
 
 | | |
 |---|---|
-| whose gate | the bead whose worktree `--dir` is (the branch `yard/<bead>` it is on); with no `--dir`, the one whose worktree the command was run from; else `YARDR_BEAD`, the bead the session was started for (a dir rig's bead works in the rig itself). A run for no bead (the mayor's, in the rig) is not recorded. |
+| whose gate | the bead whose worktree `--dir` is (the branch `yard/<bead>` it is on); with no `--dir`, the one whose worktree the command was run from; else `YARDR_BEAD`, the bead the session was started for (a dir rig's bead works in the rig itself). A run for no bead (the yardmaster's, in the rig) is not recorded. |
 | where | a file per run in `<home>/gating`, holding the bead, the rig, light or full, since when, and whether it still waits for a [gate slot](#gate-slots-how-many-gates-run-at-once). The run holds a lock on it, which the kernel drops when the process ends, however it ends: a gate that was killed is not a gate that runs. It is in the yard's home, not with the machine's slots, since a bead is one yard's and a light gate takes no slot. |
 | who sees it | `yardr session list` has a column `GATE`: `gating 6m (light)`, or `waiting 2m (full)` for a run that waits for a slot (it counts as running here); `--json` has `gate` on the session. `yardr status` names the yard's beads in its `gates` line. |
 | what it does not see | an agent that is idle for another reason while no gate runs: it gets its `session_idle` as before, which carries the end of its pane. A harness stopped on an error looks the same to herdr and is told apart by that pane, at the start of the spell: `session_harness_error`, below. An agent that is idle because the yard refused its `yardr bead done` has `move_refused` on its bead ([pipeline.md](pipeline.md#2-new-a-builder-implements-it)). |
@@ -146,16 +146,16 @@ bead needs takes that long, so a session still running is stuck. The stop
 counts as a failed session, so a bead whose agents keep running into the cap
 is held after three like any other repeat failure, and the bead is released
 with a note naming the session, the cap and the fix (raise the group's
-`max_age`), so the next agent and the mayor see why. The `session_aged`
+`max_age`), so the next agent and the yardmaster see why. The `session_aged`
 event's `stop_after` says how long after the event the session is stopped,
 with or without a grace.
 
-These events, `runtime_down` (below) and `held` (a stuck agent holds its
-bead for the mayor) are in a new resident's default `--on`, so the mayor's
-inbox gets them; a resident made before one of them joined the default needs
-it added to its `--on`, which `yardr resident set <name> --on` replaces as a whole
-([residents.md](residents.md)). `runtime_down` is about no bead, so a `yardr`
-subscription does not deliver it.
+These events, `runtime_down` (below) and `held` (a stuck agent holds its bead
+for the yardmaster) are in a new resident's default `--on`, so the
+yardmaster's inbox gets them; a resident made before one of them joined the
+default needs it added to its `--on`, which `yardr resident set <name> --on`
+replaces as a whole ([residents.md](residents.md)). `runtime_down` is about no
+bead, so a `yardr` subscription does not deliver it.
 
 **Outages are not failures.** When a runner cannot start anything at all
 (herdr missing from `PATH`, herdr down, `sh` not found), the session is
@@ -248,7 +248,7 @@ stage  review          pack starter (~/.yardr/flows/starter.default/review.md)  
 stage  decide          pack starter (~/.yardr/flows/starter.default/decide.md)
 role   yardr-builders  rig (.yardr/roles/builder.md@add63e5)                    pack starter has a copy
 role   yardr-reviewers pack starter (~/.yardr/packs/starter/roles/reviewer.md)  shadows .yardr/roles/reviewer.md
-role   yardmaster      home (~/.yardr/roles/mayor.md)
+role   yardmaster      home (~/.yardr/roles/yardmaster.md)
 ```
 
 - **flow**: each flow governing the rig, as `yardr flow show <rig>` resolves
@@ -655,7 +655,7 @@ Everything yardr keeps for itself lives in one directory, the yard's
 | `webviews/` | a record per running web view, held by it while it serves, which `yardr status` and `yardr doctor` read ([web.md](web.md#where-it-runs)) |
 | `worktrees/<rig>/<bead>` | herdr bead worktrees |
 | `rigs/<name>` | rigs registered with `rig add --clone`; `rig rm` leaves the clone here |
-| `roles/` | the generic role prompts `yardr init` installed (mayor, builder, merger, reviewer), the fallback for rigs without their own; yours to edit. `.shipped.json` there records each file's hash as init wrote it, so init again can tell an edited prompt (kept) from an untouched one (refreshed) |
+| `roles/` | the generic role prompts `yardr init` installed (yardmaster, builder, merger, reviewer), the fallback for rigs without their own; yours to edit. `.shipped.json` there records each file's hash as init wrote it, so init again can tell an edited prompt (kept) from an untouched one (refreshed) |
 | `linear.secret`, `github.secret`, `residents/<name>.env`, `groups/<group>.env` | credential files, if you keep them here as the examples do ([residents.md](residents.md#outbound-credentials)): yours, yardr creates none of them and reads only the paths a hook, resident or group names |
 
 `--home <dir>` is a flag of every command, and runs it on the yard in that
@@ -738,71 +738,69 @@ writes last, or once it has any rig, group, resident or bead: a yard from
 before the onboarding is in use, and onboarding it would refuse its agents'
 commands. Opening such a store writes `default_kind` for it, from the first
 herdr group's kind, else the first herdr resident's, else `claude`, with the
-event `settings_migrated` (the `operator` and `mayor` settings stay unset; installed role
-prompts keep the name they have). Opening a store whose `operator` setting
-names nobody's user adds that user ([users.md](users.md)), unless a
-resident has the name. Only an empty store onboards. The store
-file alone is no marker: the server creates `yard.db` on the first command
-that connects, whatever it was, so a home can hold an empty store nobody set
-up. Any yardr command on a home that is not set
-up, bare `yardr` included (help otherwise; `--help` is always help), runs the
-onboarding when it has a terminal: the default harness (every kind herdr starts, marked
-installed when its executable is on PATH, the first installed one
-preselected), the mayor's name (default `mayor`), the directory its shell
-lives in (default the home's parent, so `~` for `~/.yardr`), and an optional
-model, and your name for the role prompts, then "How should agents work
-with you?" and "Anything agents should know about you?"
-([below](#how-agents-work-with-you)), then "Create this yard?" and
-"Start the yard now?" ([below](#starting-the-yard)). Before the first page,
-when `git` or `herdr` is not on PATH, it names each and what it is needed for
-(herdr starts every agent, the mayor first; a rig is a git repository) and
-asks whether to go on: the answer starts at stop when herdr is missing, and
-stopping creates nothing. Without a terminal it prints how
-to initialize and exits 2.
+event `settings_migrated` (the `operator` and `yardmaster` settings stay
+unset; installed role prompts keep the name they have). Opening a store whose
+`operator` setting names nobody's user adds that user ([users.md](users.md)),
+unless a resident has the name. Only an empty store onboards. The store file
+alone is no marker: the server creates `yard.db` on the first command that
+connects, whatever it was, so a home can hold an empty store nobody set up.
+Any yardr command on a home that is not set up, bare `yardr` included (help
+otherwise; `--help` is always help), runs the onboarding when it has a
+terminal: the default harness (every kind herdr starts, marked installed when
+its executable is on PATH, the first installed one preselected), the
+yardmaster's name (default `yardmaster`), the directory its shell lives in
+(default the home's parent, so `~` for `~/.yardr`), and an optional model, and
+your name for the role prompts, then "How should agents work with you?" and
+"Anything agents should know about you?" ([below](#how-agents-work-with-you)),
+then "Create this yard?" and "Start the yard now?"
+([below](#starting-the-yard)). Before the first page, when `git` or `herdr` is
+not on PATH, it names each and what it is needed for (herdr starts every
+agent, the yardmaster first; a rig is a git repository) and asks whether to go
+on: the answer starts at stop when herdr is missing, and stopping creates
+nothing. Without a terminal it prints how to initialize and exits 2.
 `yardr server`, `yardr init`, `yardr daemon`, `yardr settings` and
 `yardr help` never ask.
 
-`yardr init [--harness <kind>] [--mayor <name>] [--dir <path>] [--model <m>]
-[--operator <name>] [--style <choice>] [--about <text>]
-[--start [--wait <duration>]]` does the same without the
-form, for scripts and tests; `--harness` is required to create a yard, and
-nothing is started unless `--start` says so. Either way yardr:
+`yardr init [--harness <kind>] [--yardmaster <name>] [--dir <path>] [--model <m>] [--operator <name>] [--style <choice>] [--about <text>] [--start [--wait <duration>]]`
+does the same without the form, for scripts and tests; `--harness` is required
+to create a yard, and nothing is started unless `--start` says so. Either way
+yardr:
 
 1. writes the default role prompts, built into the binary from this repo's
    `roles/`, to `<home>/roles/`. A file already there is kept when it was
-   edited (the mayor edits its own copy) and replaced with this build's when
-   it still reads as init wrote it: `<home>/roles/.shipped.json` holds the
-   hash of each file as written, so init again after an upgrade refreshes
-   the untouched templates and the summary says which were refreshed and
-   which kept (`--json`: `written`, `refreshed`, `current`, `kept`). A file
-   from before the manifest counts as edited unless it already matches this
+   edited (the yardmaster edits its own copy) and replaced with this build's
+   when it still reads as init wrote it: `<home>/roles/.shipped.json` holds
+   the hash of each file as written, so init again after an upgrade refreshes
+   the untouched templates and the summary says which were refreshed and which
+   kept (`--json`: `written`, `refreshed`, `current`, `kept`). A file from
+   before the manifest counts as edited unless it already matches this
    build's, which is when it starts being tracked; delete one to get this
-   build's copy. They are generic: where they say `{{operator}}`, the
-   person agents bring decisions to, init writes the operator's name (the
-   form's "Your name", `--operator`, default the login name, or `operator`
-   where there is none), and where they say
-   `{{mayor}}`, the resident builders and reviewers mail about what blocks
-   them, the mayor's name. A rig's own roles go in its repo under
-   `.yardr/roles/` ([role prompts](#role-prompts));
-2. sets `operator` to the operator's name and `mayor` to the mayor's, and
-   `operator_style` and `operator_note` when they were said (the form's
-   answers, `--style`, `--about`);
-3. adds the mayor resident: `kind=<harness>`, `prompt=<home>/roles/mayor.md`,
-   the model if given, the harness's unattended flags as `args`, rotating
-   every 6h. A resident of that name already there is kept as it is, so
-   init runs again on a yard without harm;
+   build's copy. They are generic: where they say `{{operator}}`, the person
+   agents bring decisions to, init writes the operator's name (the form's
+   "Your name", `--operator`, default the login name, or `operator` where
+   there is none), and where they say `{{yardmaster}}`, the resident builders
+   and reviewers mail about what blocks them, the yardmaster's name. A rig's
+   own roles go in its repo under `.yardr/roles/`
+   ([role prompts](#role-prompts));
+2. sets `operator` to the operator's name and `yardmaster` to the
+   yardmaster's, and `operator_style` and `operator_note` when they were said
+   (the form's answers, `--style`, `--about`);
+3. adds the yardmaster resident: `kind=<harness>`,
+   `prompt=<home>/roles/yardmaster.md`, the model if given, the harness's
+   unattended flags as `args`, rotating every 6h. A resident of that name
+   already there is kept as it is, so init runs again on a yard without harm;
 4. sets `default_kind` to the harness, which marks the yard set up.
 
 Init again on a yard that is set up changes only what its flags say: the
-`default_kind`, `operator` and `mayor` settings stand in for `--harness`,
-`--operator` and `--mayor` when those are not given, rather than being
-reset to the flags' defaults (the login name, `mayor`); `operator_style` and
-`operator_note` are kept the same way, changed only by `--style` and
-`--about`. The summary
-lists what was kept (`kept default_kind claude, operator Jo, mayor mayor, as
-set before`). A resident of the mayor's name is kept as it is, and so are
-the role files already in `<home>/roles/`. What a run that failed leaves,
-and how the next one finishes it, is [below](#a-run-that-did-not-finish).
+`default_kind`, `operator` and `yardmaster` settings stand in for `--harness`,
+`--operator` and `--yardmaster` when those are not given, rather than being
+reset to the flags' defaults (the login name, `yardmaster`); `operator_style`
+and `operator_note` are kept the same way, changed only by `--style` and
+`--about`. The summary lists what was kept
+(`kept default_kind claude, operator Jo, yardmaster yardmaster, as set before`).
+A resident of the yardmaster's name is kept as it is, and so are the role
+files already in `<home>/roles/`. What a run that failed leaves, and how the
+next one finishes it, is [below](#a-run-that-did-not-finish).
 
 #### How agents work with you
 
@@ -846,17 +844,17 @@ as it did: no section, and no style assumed. With only the note set the
 section has the note and no style. `yardr setup` uses the style in one way:
 with `guide` its pages print no command lines ([setup.md](setup.md#the-pages)).
 
-The summary ends with the way to the mayor ([starting the
-yard](#starting-the-yard)), whose role begins with
-a first-run checklist. The mayor reads `yardr doctor` ([doctor.md](doctor.md)),
-whose setup steps say what is done, and goes on from the first one that is
-not, with the operator, by mail in `yardr chat` when the onboarding took them
-there ([chat.md](chat.md#from-the-onboarding)) and in its pane otherwise: the repository and its base branch
-(`yardr rig add`), `yardr rig init` ([below](#seeding-a-rig-yardr-rig-init)),
-the builder and reviewer groups on the default harness, how approved beads
-land (a refinery or a manual group), routes for `new`, `review` and
-`approved`, and a first bead to try the pipeline. `yardr init --help` lists
-the same as commands, for scripts.
+The summary ends with the way to the yardmaster
+([starting the yard](#starting-the-yard)), whose role begins with a first-run
+checklist. The yardmaster reads `yardr doctor` ([doctor.md](doctor.md)), whose
+setup steps say what is done, and goes on from the first one that is not, with
+the operator, by mail in `yardr chat` when the onboarding took them there
+([chat.md](chat.md#from-the-onboarding)) and in its pane otherwise: the
+repository and its base branch (`yardr rig add`), `yardr rig init`
+([below](#seeding-a-rig-yardr-rig-init)), the builder and reviewer groups on
+the default harness, how approved beads land (a refinery or a manual group),
+routes for `new`, `review` and `approved`, and a first bead to try the
+pipeline. `yardr init --help` lists the same as commands, for scripts.
 
 The unattended flags keep an agent nobody watches from stopping at a
 permission prompt: claude `--permission-mode auto`, codex
@@ -865,7 +863,7 @@ gets none and may ask (`yardr group add --help` lists them too).
 
 #### Starting the yard
 
-The daemon starts the mayor. There are four ways to a running daemon:
+The daemon starts the yardmaster. There are four ways to a running daemon:
 
 - the form's last question, "Start the yard now?", yes by default;
 - `yardr init --start`, the same without a terminal, on a new yard or one
@@ -893,7 +891,7 @@ runs again. `yardr daemon status` says whether one runs, with its pid, and
 whether the login service is installed and loaded.
 
 Before they start the daemon, in a terminal, they ask "Check that <harness>
-answers?", with the mayor's harness: "Check" (the answer it starts at) or
+answers?", with the yardmaster's harness: "Check" (the answer it starts at) or
 "Skip". Check makes one real call to the harness outside a pane, the one
 `yardr doctor --try` makes ([doctor.md](doctor.md)); it costs a model call on
 your account with the harness, which is why it asks. A harness that answers
@@ -911,89 +909,91 @@ it does not know a flag yardr calls it with). Then:
 
 Skip makes no call. Nothing is asked without a terminal, with `--json` and
 in an agent's session, for a kind yardr knows no one-shot call for (doctor's
-"not tried"), for a harness that is not on PATH, for a mayor that runs
+"not tried"), for a harness that is not on PATH, for a yardmaster that runs
 already or is stopped, and when a daemon runs already, since that one starts
-the mayor whatever would be answered. `yardr setup` does not ask: it starts
-no mayor.
+the yardmaster whatever would be answered. `yardr setup` does not ask: it starts
+no yardmaster.
 
-They then wait for the mayor, up to `--wait` (default 2m; the form always
+They then wait for the yardmaster, up to `--wait` (default 2m; the form always
 waits that long), with a line that counts on a terminal and one line on
 stderr otherwise. A session that exists is not enough: a harness can be on
 PATH and sit dead in a running session (a binary behind a system dialog
 nobody sees, a CLI at "Not logged in"), and herdr reads any process of the
-harness's name as an idle agent. The mayor counts as up once its first
+harness's name as an idle agent. The yardmaster counts as up once its first
 prompt was delivered and it answered: herdr reports the agent working, or
 the pane shows output below the prompt.
 
-When the mayor is up, yardr prints where it is, as `herdr agent list` and
-`yardr resident show <mayor> --json` name it: the agent (`<yard>-<mayor>`),
-the workspace's label (`<yard> <mayor>`) and id, the tab and the pane; and
-how to get there: `herdr agent focus <agent>` brings its pane to the front
-in herdr, `herdr agent attach <agent>` opens it from any other terminal.
-The form then asks how to go on with the rest of the setup: "Talk to the
-mayor" or "Keep going here" ([setup.md](setup.md)). The first opens
-`yardr chat` on the mayor in the same terminal
+When the yardmaster is up, yardr prints where it is, as `herdr agent list` and
+`yardr resident show <yardmaster> --json` name it: the agent
+(`<yard>-<yardmaster>`), the workspace's label (`<yard> <yardmaster>`) and id,
+the tab and the pane; and how to get there: `herdr agent focus <agent>` brings
+its pane to the front in herdr, `herdr agent attach <agent>` opens it from any
+other terminal. The form then asks how to go on with the rest of the setup:
+"Talk to the yardmaster" or "Keep going here" ([setup.md](setup.md)). The
+first opens `yardr chat` on the yardmaster in the same terminal
 ([chat.md](chat.md#from-the-onboarding)); the second is `yardr setup`, in the
-same run. `yardr init --start` in a terminal does not ask that and opens the chat.
+same run. `yardr init --start` in a terminal does not ask that and opens the
+chat.
 
-The mayor `yardr init` adds has `greet=<operator>` in its config. The first
+The yardmaster `yardr init` adds has `greet=<operator>` in its config. The first
 prompt of a resident with that key, in its first session only, asks it to
 greet that user by mail (`yardr mail <operator> "…"`) and to say what it
 needs for the next setup step, before it points at the prime as every
 resident's first prompt does. The chat shows mail and nothing of a pane, so
-this is how the mayor's first word gets there. A later session (a rotation,
+this is how the yardmaster's first word gets there. A later session (a rotation,
 a restart) is asked for no greeting.
 
 No chat opens without a terminal, with `--json`, in an agent's own session
 (`YARDR_SESSION` or `YARDR_RESIDENT` is set) and with `--no-chat`: yardr then
-ends where the mayor's place is printed, and the lines after it name
+ends where the yardmaster's place is printed, and the lines after it name
 `yardr chat`. Nor does one open when who runs the command is no user of the
-yard (the operator was given another name than the login name): the mayor's
+yard (the operator was given another name than the login name): the yardmaster's
 mail goes to the operator, so yardr says who the chat is for and how to open
-it as them (`--actor <operator>`), and the form's "Talk to the mayor" then
-brings the mayor's pane to the front as `--no-chat` does: herdr focuses a
+it as them (`--actor <operator>`), and the form's "Talk to the yardmaster" then
+brings the yardmaster's pane to the front as `--no-chat` does: herdr focuses a
 pane for any process that asks over its socket, and in a terminal outside
 herdr yardr adds that herdr has to be opened to see it.
 
-When the mayor is not up, yardr says why the wait ended (the time is up; the
-daemon gave up after five failed starts; a start failed with herdr or the
-harness not on PATH, which no waiting brings; the daemon ended; the mayor is
-disabled), what is known (which program is missing, the reason of the last
-failed start, the last lines of the mayor's pane, where the daemon logs) and
-how to go on. `yardr init --start` then exits 1. The form opens no chat,
+When the yardmaster is not up, yardr says why the wait ended (the time is up;
+the daemon gave up after five failed starts; a start failed with herdr or the
+harness not on PATH, which no waiting brings; the daemon ended; the yardmaster
+is disabled), what is known (which program is missing, the reason of the last
+failed start, the last lines of the yardmaster's pane, where the daemon logs)
+and how to go on. `yardr init --start` then exits 1. The form opens no chat,
 since nobody is there to answer in it: it prints what
 [`yardr doctor`](doctor.md) says of the yard (its `FAULT` lines and the
-mayor's own line, and for a session that runs without an answer the note
-`<mayor>'s session runs, and it has not answered its first prompt`), and
+yardmaster's own line, and for a session that runs without an answer the note
+`<yardmaster>'s session runs, and it has not answered its first prompt`), and
 goes on to the command it was started for. `--json` carries the same under
-`start`: `daemon_started`, `daemon_log`, `running`, `mayor` (`agent`,
+`start`: `daemon_started`, `daemon_log`, `running`, `yardmaster` (`agent`,
 `workspace`, `workspace_id`, `tab`, `pane`), `pane`, `chat` (the command for
-the conversation with the mayor, once it is up), `problem`, `known`, `next`.
+the conversation with the yardmaster, once it is up), `problem`, `known`,
+`next`.
 
-A mayor whose session runs and that has not answered its first prompt may
+A yardmaster whose session runs and that has not answered its first prompt may
 have a harness that waits at something yardr does not answer: a login, a
 dialog, a question. Where a chat would open (a terminal, no `--json`, no
 `--no-chat`, not an agent's session), yardr then says why the wait ended,
-shows the last lines of the mayor's pane and asks "Open the mayor's pane" or
-"Not now", before anything else of the above. "Open the mayor's pane" runs
-`herdr agent attach <agent>` in the same terminal, after a line that says
-how to come back: `ctrl+b q`, herdr's keys for leaving a pane it attached,
-which stop nothing. Back from the pane, yardr waits for the mayor again, for
-as long as the start did. A mayor that is up now is one the start found up:
-the chat opens, or the form goes on. One that is still not up is said so,
-with its pane as it is now, and the question is asked again. "Not now" (or
-ctrl+c) ends as a start that asks nothing does, with what is known and how
-to go on. In a pane of herdr there is nothing to attach: herdr shows the
-mayor's pane in place of yardr's, yardr says how to come back to its own
-(`ctrl+b g`, herdr's list of panes) and waits there meanwhile. "Talk to the
-mayor" in [`yardr setup`](setup.md) asks the same of a mayor it finds that
-way. yardr types nothing into the pane: it answers Claude Code's question
-about trusting the folder when the session starts
-([groups.md](groups.md)), and nothing else a harness asks. A mayor without a
-session (a start that failed, a program that is missing) has no pane, and
-nothing is asked.
+shows the last lines of the yardmaster's pane and asks "Open the yardmaster's
+pane" or "Not now", before anything else of the above. "Open the yardmaster's
+pane" runs `herdr agent attach <agent>` in the same terminal, after a line
+that says how to come back: `ctrl+b q`, herdr's keys for leaving a pane it
+attached, which stop nothing. Back from the pane, yardr waits for the
+yardmaster again, for as long as the start did. A yardmaster that is up now is
+one the start found up: the chat opens, or the form goes on. One that is still
+not up is said so, with its pane as it is now, and the question is asked
+again. "Not now" (or ctrl+c) ends as a start that asks nothing does, with what
+is known and how to go on. In a pane of herdr there is nothing to attach:
+herdr shows the yardmaster's pane in place of yardr's, yardr says how to come
+back to its own (`ctrl+b g`, herdr's list of panes) and waits there meanwhile.
+"Talk to the yardmaster" in [`yardr setup`](setup.md) asks the same of a
+yardmaster it finds that way. yardr types nothing into the pane: it answers
+Claude Code's question about trusting the folder when the session starts
+([groups.md](groups.md)), and nothing else a harness asks. A yardmaster
+without a session (a start that failed, a program that is missing) has no
+pane, and nothing is asked.
 
-Once the mayor is up, the form asks three more questions before the rest of
+Once the yardmaster is up, the form asks three more questions before the rest of
 the setup, each starting at **no**: "Start the daemon at login?", which runs
 `yardr daemon install`, "Start the web view now?", followed on a yes by
 "And at login?": yes runs `yardr web install`, no `yardr web start`, and
@@ -1071,7 +1071,7 @@ a systemd unit that is not enabled is not started at all.
 **After a reboot.** Nothing of the yard runs: no server, no daemon, and the
 panes of the sessions went with herdr. When you log in, the manager starts
 the daemon. The daemon's first call starts the server, and its first pass
-finds the mayor and the sessions it had without their panes and starts them
+finds the yardmaster and the sessions it had without their panes and starts them
 again. That needs herdr, as any start does; while herdr cannot be reached
 the daemon logs it once and tries again every pass. With the web view
 installed too, the manager starts it at the same login, at the address it
@@ -1095,18 +1095,19 @@ yardr's tests load nothing into launchd, so it is not reproduced by them.
 #### A run that did not finish
 
 The onboarding and `yardr init` do their steps in one order: the roles, the
-`operator` and `mayor` settings, the mayor resident, `default_kind`, and then,
-when asked to, the daemon and the wait for the mayor. A run that fails leaves
-what the steps before the failure made. The next run finishes from that: it
-does not start again from nothing, and it says what it found.
+`operator` and `yardmaster` settings, the yardmaster resident, `default_kind`,
+and then, when asked to, the daemon and the wait for the yardmaster. A run
+that fails leaves what the steps before the failure made. The next run
+finishes from that: it does not start again from nothing, and it says what it
+found.
 
 | the run stopped | what the home holds | the next run |
 |---|---|---|
 | among the roles | some of the prompts, each whole and recorded in `.shipped.json` as written | `yardr init --harness <kind>` again, or `yardr` in a terminal for the form. Prompts the failed run wrote are refreshed to the names this run is given; none counts as edited by hand |
 | after the roles | the four prompts | the same |
-| after `operator`, or after `mayor` | the prompts and the settings stored so far | the same. The stored settings stand in for `--operator` and `--mayor` when they are not given, and are what the form's "Mayor" and "Your name" start at |
-| after the mayor was added | all but `default_kind`. With a resident the home counts as a yard, so no form runs | `yardr init`, with no flag: the harness is the mayor's. Or `yardr` in a terminal, below |
-| the daemon could not be started, or the mayor did not come up | a yard that is set up and does not run | `yardr init --start`, which starts the daemon unless one runs and waits again. Or `yardr` in a terminal, below |
+| after `operator`, or after `yardmaster` | the prompts and the settings stored so far | the same. The stored settings stand in for `--operator` and `--yardmaster` when they are not given, and are what the form's "Yardmaster" and "Your name" start at |
+| after the yardmaster was added | all but `default_kind`. With a resident the home counts as a yard, so no form runs | `yardr init`, with no flag: the harness is the yardmaster's. Or `yardr` in a terminal, below |
+| the daemon could not be started, or the yardmaster did not come up | a yard that is set up and does not run | `yardr init --start`, which starts the daemon unless one runs and waits again. Or `yardr` in a terminal, below |
 
 Init then prints `yard in <home> finished: part of it was there`, with a
 `found` line (the prompts, settings and resident that were there) and an
@@ -1117,28 +1118,30 @@ way. Each role prompt is written to a temporary file and renamed, so a run
 that is killed leaves the prompt that was there or none, never half of one;
 `.shipped.json` is saved after every prompt. One case is left: a run killed
 between a prompt and the manifest's save leaves one prompt unrecorded, and a
-next run given another operator or mayor keeps that file as edited. Delete it
-to get this build's copy.
+next run given another operator or yardmaster keeps that file as edited.
+Delete it to get this build's copy.
 
-**Bare `yardr` in a terminal** takes the onboarding up where a yard has no
-rig yet and any of this holds: `default_kind` is not set, the mayor resident
-is missing, no daemon runs, or the mayor is not up (its session is not
+**Bare `yardr` in a terminal** takes the onboarding up where a yard has no rig
+yet and any of this holds: `default_kind` is not set, the yardmaster resident
+is missing, no daemon runs, or the yardmaster is not up (its session is not
 running, or runs and has not answered its first prompt). It prints what is
 there, in the lines [`yardr doctor`](doctor.md#the-yard) prints for the yard,
 and asks "Finish the setup now?". Yes runs `yardr init --start` (which adds
 only what is missing, starts the daemon unless one runs, and waits for the
-mayor) and then goes on as the form does: the two services, and "Talk to the
-mayor" or "Keep going here". The summary of the yard is left out when
+yardmaster) and then goes on as the form does: the two services, and "Talk to
+the yardmaster" or "Keep going here". The summary of the yard is left out when
 nothing had to be added. No, or ctrl+c, changes nothing and prints the
-command. It goes by the yard as it is, not by a record of the earlier run,
-so a yard made with `yardr init` and never started is taken up the same way.
+command. It goes by the yard as it is, not by a record of the earlier run, so
+a yard made with `yardr init` and never started is taken up the same way.
 
-On any other yard bare `yardr` is help, as before (with a last line, `Mail for <user>: N unread from <names>`, when the user who runs it has unread mail, [users.md](users.md)): one with a rig (its setup
-is `yardr setup`'s, or the mayor's), one that runs, one whose mayor was
-stopped with `yardr resident stop` while its daemon runs. It is help too
-without a terminal, with `--json`, and in an agent's session. When the form's
-own start ends with a mayor that is not up, its last line says to run `yardr`
-in the terminal again once that is set right.
+On any other yard bare `yardr` is help, as before (with a last line,
+`Mail for <user>: N unread from <names>`, when the user who runs it has unread
+mail, [users.md](users.md)): one with a rig (its setup is `yardr setup`'s, or
+the yardmaster's), one that runs, one whose yardmaster was stopped with
+`yardr resident stop` while its daemon runs. It is help too without a
+terminal, with `--json`, and in an agent's session. When the form's own start
+ends with a yardmaster that is not up, its last line says to run `yardr` in
+the terminal again once that is set right.
 
 #### Starting over
 
@@ -1151,7 +1154,7 @@ they stop, so the home goes last.
 |---|---|---|---|
 | the login services | `~/Library/LaunchAgents/dev.yardr.{daemon,web}.<home>.plist`, or `~/.config/systemd/user/yardr-{daemon,web}-<home>.service` | `yardr doctor`, under Optional; `yardr daemon status` | `yardr web uninstall`, `yardr daemon uninstall`. Each unloads its service, which stops what it ran, and deletes the file |
 | a web view started with `yardr web start` | a process; it logs to `<home>/web.log` | `yardr status`, under `web view` | `kill <pid>` |
-| the mayor's session, and any other resident's | a herdr workspace labelled `<yard> <resident>`, agent `<yard>-<resident>` | `yardr resident list`, `herdr workspace list` | `yardr resident stop <name>`: the daemon closes the session's tab, and its workspace with it, on its next pass (30s at most). It needs the daemon running |
+| the yardmaster's session, and any other resident's | a herdr workspace labelled `<yard> <resident>`, agent `<yard>-<resident>` | `yardr resident list`, `herdr workspace list` | `yardr resident stop <name>`: the daemon closes the session's tab, and its workspace with it, on its next pass (30s at most). It needs the daemon running |
 | sessions working beads | a herdr workspace per bead | `yardr session list`, `herdr workspace list` | `herdr workspace close <id>` for each that is left. Look at the bead's worktree first (the home, below) |
 | the daemon | a process holding `<home>/daemon.lock` | `yardr daemon status` | `yardr daemon stop` |
 | the server | a process; `<home>/server.pid`, `yard.sock` | `yardr server status` | `yardr server stop`. Any yardr command after it starts a server again, so run none before the home is gone. A server or daemon still running when the home is removed stops by itself within a minute ([above](#yardrs-own-state)) |
@@ -1177,22 +1180,23 @@ for you to delete or keep. Nothing else in a repository is yardr's.
 Then `yardr`, or `yardr init --harness <kind>`, creates a yard in the empty
 home as on the first day. Tried in an isolated yard: after these steps no
 process of the yard was left, `yardr doctor` reported no yard, and
-`yardr init --harness claude --start` brought a new mayor up.
+`yardr init --harness claude --start` brought a new yardmaster up.
 
 Starting over is seldom needed for what the onboarding asked: the harness,
-your name and the mayor's are `yardr settings set`, the mayor's directory
-and model are `yardr resident set <mayor> --dir … model=…`, a role prompt comes back as
-this build's when its file is deleted and `yardr init` runs, and a setup that
-failed is finished by the next run ([above](#a-run-that-did-not-finish)).
+your name and the yardmaster's are `yardr settings set`, the yardmaster's
+directory and model are `yardr resident set <yardmaster> --dir … model=…`, a
+role prompt comes back as this build's when its file is deleted and
+`yardr init` runs, and a setup that failed is finished by the next run
+([above](#a-run-that-did-not-finish)).
 
 ### Seeding a rig: `yardr rig init`
 
-`yardr rig init <rig> [--operator <name>] [--mayor <name>] [--with-mayor]` writes a
-registered rig's starting configuration into its checkout:
+`yardr rig init <rig> [--operator <name>] [--yardmaster <name>] [--with-yardmaster]`
+writes a registered rig's starting configuration into its checkout:
 
 | file | content |
 |---|---|
-| `.yardr/roles/{mayor,builder,reviewer,merger}.md` | the generic roles, `{{operator}}` filled with `--operator`, default the yard's `operator` setting, else the login name, else `operator`; `{{mayor}}` with `--mayor`, default the yard's `mayor` setting, else its one resident, else `mayor` |
+| `.yardr/roles/{yardmaster,builder,reviewer,merger}.md` | the generic roles, `{{operator}}` filled with `--operator`, default the yard's `operator` setting, else the login name, else `operator`; `{{yardmaster}}` with `--yardmaster`, default the yard's `yardmaster` setting, else its one resident, else `yardmaster` |
 | `.yardr/check` | the merge gate, executable, with a comment saying so; its command is a guess from the repo: `go.mod` gives `go vet ./... && go test ./...`, a `package.json` with a real `test` script gives `npm test` (`pnpm`/`yarn` by lockfile), anything else `exit 0` with a TODO |
 | `.yardr/flows/default.flow` | the standard stages: backlog, new, review, approved, merged (terminal), decide, with the outcomes `done`, `question`, `changes` and `failed` |
 | `.yardr/flows/default/<stage>.md` | a starter [stage file](flows.md#stage-files-what-a-stage-is-for) for each stage but `merged`: what the stage is for, what must be true to leave it, when each outcome applies; the placeholders filled as in the roles |
@@ -1200,20 +1204,22 @@ registered rig's starting configuration into its checkout:
 The flow is `default.flow`, not a named one, so it governs the rig without a
 pointer (a store pointer, as `yardr rig flow` sets, still wins).
 
-A dir rig (`--kind dir`) gets builder and reviewer roles only (no merger, as nothing merges;
-the mayor's with `--with-mayor`), no `.yardr/check` (a dir rig has no gate until one
-adds it), and two flows: `default.flow` (backlog, new, review, done, decide)
-and `type/epic.flow` (the same with `open` for `new`), each with a stage file
-for every stage but `done`. They apply at once,
-read from the directory; [dir-rigs.md](dir-rigs.md) walks through them.
+A dir rig (`--kind dir`) gets builder and reviewer roles only (no merger, as
+nothing merges; the yardmaster's with `--with-yardmaster`), no `.yardr/check`
+(a dir rig has no gate until one adds it), and two flows: `default.flow`
+(backlog, new, review, done, decide) and `type/epic.flow` (the same with
+`open` for `new`), each with a stage file for every stage but `done`. They
+apply at once, read from the directory; [dir-rigs.md](dir-rigs.md) walks
+through them.
 
 It never overwrites a file that is there, so a second run changes nothing, and
 it commits nothing. Stage files are written only beside a flow it writes: a
 flow that was there is the rig's own, and a starter file for a stage it lacks
 would fail `yardr rig check`. A freshly seeded rig's check names no stage
-without a stage file. In a git rig roles, the gate, flows and stage files are read from the
-base branch, so they take effect once the operator (or the mayor, with their OK)
-commits them there. It prints what it wrote and the commit to make.
+without a stage file. In a git rig roles, the gate, flows and stage files are
+read from the base branch, so they take effect once the operator (or the
+yardmaster, with their OK) commits them there. It prints what it wrote and the
+commit to make.
 
 ### Settings
 
@@ -1226,10 +1232,10 @@ value unsets) keep the yard's own defaults in the store:
 | `operator` | the person the role prompts name, agents bring decisions to; `yardr init` stores it (`--operator`, the form's "Your name") and `yardr rig init` fills roles with it. The operator is a user ([users.md](users.md)): setting a name adds the user when there is none, a resident's name is refused, and only the operator adds and removes other users. |
 | `operator_style` | how agents should work with the operator: `guide`, `show`, `work` or `report` ([what each tells an agent](#how-agents-work-with-you)). `yardr init` stores it (`--style`, the form's "How should agents work with you?"); both primes print it as instructions, so a change reaches the next session that starts. Unset, the primes say nothing about it. |
 | `operator_note` | one line agents should know about the operator (`--about`, the form's "Anything agents should know about you?"), printed by the primes with the style, or alone. |
-| `mayor` | the mayor resident's name, whom the builder and reviewer roles tell agents to mail about what blocks them ([residents.md](residents.md#findings-from-builders-and-reviewers)); `yardr init` stores it (`--mayor`) and `yardr rig init` fills roles with it. A yard from before the setting has none: `rig init` then takes its one resident, else `mayor`. |
+| `yardmaster` | the yardmaster resident's name, whom the builder and reviewer roles tell agents to mail about what blocks them ([residents.md](residents.md#findings-from-builders-and-reviewers)); `yardr init` stores it (`--yardmaster`) and `yardr rig init` fills roles with it. A yard from before the setting has none: `rig init` then takes its one resident, else `yardmaster`. |
 | `hook_addr` | the TCP address the server takes webhooks on, `127.0.0.1:8790` say ([subscriptions.md](subscriptions.md)). The server reads it when it starts, so a change takes its next start: `yardr server stop`, and the next command starts it again; `settings set` says so. `YARDR_HOOK_ADDR`, set where the server starts, is used instead of it. An address that is not `host:port` with a port from 1 to 65535 is refused (`:8790` is every interface). The server writes what it listens on to `hooks.state` in the home, and `yardr doctor` reports it: the address and whether it is the variable's or the setting's. A server that cannot listen there (another yard has the address) keeps serving its yard, logs a `hook_listener_failed` event, and doctor says so with what to change. |
 | `gate_slots` | how many full gates (`yardr rig check`) run at once on the machine, counting every yard of the user; the others wait for a [slot](#gate-slots-how-many-gates-run-at-once). A whole number, default 2; `0` is no limit. |
-| `name` | the yard's name, which its residents' herdr agents and workspaces carry (`<name>-mayor`, labelled `<name> mayor`), so two yards on one machine, whose agents herdr lists together, are told apart. Unset, the home's directory name: `yardr` for `~/.yardr`, `y1` for `/tmp/y1`. Changing it renames residents started from then on. |
+| `name` | the yard's name, which its residents' herdr agents and workspaces carry (`<name>-yardmaster`, labelled `<name> yardmaster`), so two yards on one machine, whose agents herdr lists together, are told apart. Unset, the home's directory name: `yardr` for `~/.yardr`, `y1` for `/tmp/y1`. Changing it renames residents started from then on. |
 | `timer_limit` | how many live timers one resident or user may have set ([timers.md](timers.md#limits)); a whole number from 1, default 5. |
 | `timer_min_every` | the shortest period of a recurring timer (`yardr timer add --every`): a duration such as `30m` or `1d`, default `1h`. |
 
@@ -1332,7 +1338,7 @@ Any other build installed over the binary (older, the same commit, a
 reinstall) is skipped once per install, logged and recorded as a
 `replace_skipped` event with the `running` and `candidate` revisions and the
 `reason`; stop the server (`yardr server stop`) to run it anyway. Builders
-never `go install` from their worktrees; the mayor installs after merge.
+never `go install` from their worktrees; the yardmaster installs after merge.
 
 A binary from a [release archive](install.md) upgrades the same way: unpack
 the newer archive and move `yardr` over the old one (`tar` itself also
@@ -1343,25 +1349,63 @@ and `go install`s replace each other by commit time.
 
 The generic role prompts in `~/.yardr/roles/` are files, not code: a new
 build does not touch them. Run `yardr init` again (with the same `--harness`,
-`--operator` and `--mayor`, since init stores the last two) to refresh the
+`--operator` and `--yardmaster`, since init stores the last two) to refresh the
 ones nobody edited to the new build's templates; edited ones are kept, and
 the summary says which ([above](#creating-a-yard-the-onboarding-and-yardr-init)).
 
-The store is stamped with its schema version on open, and a yardr whose
-schema is older than the store's refuses to open it (`store schema is newer
-than this yardr knows`) rather than run its migrations over it. The schema
-is 8: version 8 keeps, in a peer's intake, how long a bead it sent waits to
-be released ([peers.md](peers.md#a-held-bead-that-nobody-releases));
-version 7 keeps, with a bead that came from a linked yard, the yards
-it had passed through, and version 6 a peer's intake
-([peers.md](peers.md#beads-the-receiving-side)); version 5 keeps, in a
-peer's record, the names it had before a rename
-and the event it was added after ([peers.md](peers.md#renaming-a-link));
-version 4 gave users subscriptions and a second cursor
-([users.md](users.md)); version 3 added the inbox and kind indexes, which every event is
-written with, so a store at 2 is reindexed in full the first time a newer
-build opens it (and a build without the indexes can no longer append to it
-unindexed); version 2 keyed beads by UUID.
+The store is stamped with its schema version on open, and a yardr whose schema
+is older than the store's refuses to open it
+(`store schema is newer than this yardr knows`) rather than run its migrations
+over it. The schema is 9: version 9 stores the setting `mayor` as `yardmaster`
+([below](#words-that-changed)); version 8 keeps, in a peer's intake, how long
+a bead it sent waits to be released
+([peers.md](peers.md#a-held-bead-that-nobody-releases)); version 7 keeps, with
+a bead that came from a linked yard, the yards it had passed through, and
+version 6 a peer's intake ([peers.md](peers.md#beads-the-receiving-side));
+version 5 keeps, in a peer's record, the names it had before a rename and the
+event it was added after ([peers.md](peers.md#renaming-a-link)); version 4
+gave users subscriptions and a second cursor ([users.md](users.md)); version 3
+added the inbox and kind indexes, which every event is written with, so a
+store at 2 is reindexed in full the first time a newer build opens it (and a
+build without the indexes can no longer append to it unindexed); version 2
+keyed beads by UUID.
+
+#### Words that changed
+
+yardr names its things with the yard, and some of them had other names. For
+one release an old word is still read wherever a person, a script or a file
+of the yard's own may give it, and yardr answers with the new one; what the
+store holds under an old word is renamed when the new build first opens it
+(`settings_migrated` in the events says what was). The release after drops
+the old words below, so change scripts and files now.
+
+**mayor is now yardmaster**: the resident that coordinates a yard.
+
+| the old word | still read as |
+|---|---|
+| `yardr init --mayor <name>`, `yardr rig init --mayor <name>` and `--with-mayor` | `--yardmaster`, `--with-yardmaster`; help lists only these |
+| the setting `mayor` (`yardr settings get mayor`, `set mayor <name>`) | the setting `yardmaster`. The stored one is renamed by schema 9 |
+| `{{mayor}}` in a role or stage file of a pack whose resident is `yardmaster`, and in yardr's own templates | `{{yardmaster}}` |
+| `--resident mayor=<name>` of `yardr pack check` and `apply`, and the record of an import from when the starter pack's resident was `mayor` | the pack's resident `yardmaster`. A pack that still has a resident `mayor` of its own is read as it stands |
+| `mayor.md`, the yardmaster's role file | `yardmaster.md`. A roles directory (`~/.yardr/roles/`, a rig's `.yardr/roles/`) that has `mayor.md` and no `yardmaster.md` keeps its file: `yardr init` refreshes it there and `yardr rig init` adds no second one. A prompt that names either file reads the other when the one it names is not there, so a resident's `prompt=…/mayor.md` keeps working, also after the file is renamed |
+
+What does not change: a resident's name is the operator's, so a yard whose
+resident is called `mayor` keeps it. Its `yardmaster` setting says `mayor`
+(the upgrade sets it where it was unset), and that is whom the roles tell
+agents to mail and whom `yardr doctor` reports on. Only a new yard's
+resident is called `yardmaster` by default.
+
+What is printed has the new word at once, with no old spelling beside it:
+`yardr doctor`'s line `yardmaster`, the `yardmaster` and `yardmaster_kept`
+fields of `yardr init --json`, `yardr rig init --json` and `yardr doctor
+--json` (they were `mayor` and `mayor_kept`), and `yardmaster` in the list
+`skipped` of `yardr doctor --json`. `merge-local` and `integrate-epic` mail
+the yard's `yardmaster` setting when `YARDR_NOTIFY` is unset; a copy
+installed before still mails `mayor`.
+
+Nothing on a link to another yard carried the word, so a yard and its
+peers can be upgraded in any order. No event kind and no environment
+variable carried it either.
 
 How a newer build takes over:
 

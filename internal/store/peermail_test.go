@@ -45,40 +45,40 @@ func mail(id, to, from, text string) store.PeerMessage {
 // link's permission only.
 func TestMailPeer(t *testing.T) {
 	y := newPeerYard(t, "http://north.test")
-	y.resident(t, "mayor", "north")
+	y.resident(t, "yardmaster", "north")
 	y.resident(t, "clerk", "")
 
 	// The link carries nothing yet: refused, and logged.
-	if _, err := y.api.MailPeer(y.ctx, "mayor", "north", "hello", "mayor"); err == nil || !strings.Contains(err.Error(), "does not carry mail out") ||
+	if _, err := y.api.MailPeer(y.ctx, "yardmaster", "north", "hello", "yardmaster"); err == nil || !strings.Contains(err.Error(), "does not carry mail out") ||
 		!strings.Contains(err.Error(), "yardr peer allow north --send mail") {
 		t.Fatalf("mail over a link that carries none = %v", err)
 	}
-	if ref := peerEvents(t, y.api, "peer_message_refused"); len(ref) != 1 || ref[0].Data["direction"] != "out" || ref[0].Data["kind"] != "mail" || ref[0].Actor != "mayor" {
+	if ref := peerEvents(t, y.api, "peer_message_refused"); len(ref) != 1 || ref[0].Data["direction"] != "out" || ref[0].Data["kind"] != "mail" || ref[0].Actor != "yardmaster" {
 		t.Fatalf("peer_message_refused = %+v", ref)
 	}
 	y.allow(t, store.PeerAllow{Send: []string{"mail"}})
 
 	// A resident without the peer in its setting is refused, the link's
 	// permission or not.
-	if _, err := y.api.MailPeer(y.ctx, "mayor", "north", "hello", "clerk"); err == nil || !strings.Contains(err.Error(), "resident clerk may not mail residents of north") ||
+	if _, err := y.api.MailPeer(y.ctx, "yardmaster", "north", "hello", "clerk"); err == nil || !strings.Contains(err.Error(), "resident clerk may not mail residents of north") ||
 		!strings.Contains(err.Error(), "yardr resident set clerk peers=north") {
 		t.Fatalf("mail from a resident without peers = %v", err)
 	}
-	if _, err := y.api.MailPeer(y.ctx, "mayor", "nobody", "hello", "mayor"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := y.api.MailPeer(y.ctx, "yardmaster", "nobody", "hello", "yardmaster"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("mail to no peer = %v", err)
 	}
 	for name, args := range map[string][2]string{
-		"must be 1..16384 bytes": {"mayor", strings.Repeat("x", store.MaxPeerMailBytes+1)},
-		"must be 1..":            {"mayor", "  "},
+		"must be 1..16384 bytes": {"yardmaster", strings.Repeat("x", store.MaxPeerMailBytes+1)},
+		"must be 1..":            {"yardmaster", "  "},
 		"no resident's name":     {"may or", "hello"},
-		"that is no resident":    {"mayor@north", "hello"},
+		"that is no resident":    {"yardmaster@north", "hello"},
 	} {
-		if _, err := y.api.MailPeer(y.ctx, args[0], "north", args[1], "mayor"); err == nil || !strings.Contains(err.Error(), name) {
+		if _, err := y.api.MailPeer(y.ctx, args[0], "north", args[1], "yardmaster"); err == nil || !strings.Contains(err.Error(), name) {
 			t.Errorf("MailPeer(%q, %d bytes) = %v, want %q", args[0], len(args[1]), err, name)
 		}
 	}
 	// PeerSend is no way around the resident's setting.
-	if _, err := y.api.PeerSend(y.ctx, "north", "mail", json.RawMessage(`{"to":"mayor","from":"clerk","text":"x"}`), "clerk"); err == nil || !strings.Contains(err.Error(), "yardr mail <resident>@north") {
+	if _, err := y.api.PeerSend(y.ctx, "north", "mail", json.RawMessage(`{"to":"yardmaster","from":"clerk","text":"x"}`), "clerk"); err == nil || !strings.Contains(err.Error(), "yardr mail <resident>@north") {
 		t.Fatalf("PeerSend of kind mail = %v", err)
 	}
 	if p, _ := y.api.GetPeer(y.ctx, "north"); p.Waiting != 0 {
@@ -87,7 +87,7 @@ func TestMailPeer(t *testing.T) {
 
 	// The resident, with text of exactly the limit, and the operator.
 	big := strings.Repeat("é", store.MaxPeerMailBytes/2)
-	m, err := y.api.MailPeer(y.ctx, "mayor", "north", big, "mayor")
+	m, err := y.api.MailPeer(y.ctx, "yardmaster", "north", big, "yardmaster")
 	if err != nil || m.Kind != "mail" || m.Peer != "north" {
 		t.Fatalf("MailPeer = %+v, %v", m, err)
 	}
@@ -96,17 +96,17 @@ func TestMailPeer(t *testing.T) {
 	}
 	out, _ := y.api.PeerOutbox(y.ctx, "north", 0)
 	var body struct{ To, From, Text string }
-	if len(out) != 2 || json.Unmarshal(out[0].Body, &body) != nil || body.To != "mayor" || body.From != "mayor" || body.Text != big {
+	if len(out) != 2 || json.Unmarshal(out[0].Body, &body) != nil || body.To != "yardmaster" || body.From != "yardmaster" || body.Text != big {
 		t.Fatalf("the outbox = %+v", out)
 	}
 	sent := peerEvents(t, y.api, "mail")
-	if len(sent) != 2 || sent[0].Actor != "mayor" || sent[0].Data["to"] != "mayor" || sent[0].Data["to_peer"] != "north" ||
+	if len(sent) != 2 || sent[0].Actor != "yardmaster" || sent[0].Data["to"] != "yardmaster" || sent[0].Data["to_peer"] != "north" ||
 		sent[0].Data["text"] != big || sent[0].Data["id"] != m.ID || sent[0].Data["from_peer"] != nil || sent[1].Actor != "jo" {
 		t.Fatalf("mail events = %+v", sent)
 	}
-	// Mail for north's mayor and north's clerk is in no inbox here, though
+	// Mail for north's yardmaster and north's clerk is in no inbox here, though
 	// this yard has residents of both names.
-	if got := append(y.inbox(t, "mayor"), y.inbox(t, "clerk")...); len(got) != 0 {
+	if got := append(y.inbox(t, "yardmaster"), y.inbox(t, "clerk")...); len(got) != 0 {
 		t.Fatalf("mail that left is in an inbox here: %+v", got)
 	}
 }
@@ -116,7 +116,7 @@ func TestMailPeer(t *testing.T) {
 // with a reason and logged.
 func TestPeerMailReceive(t *testing.T) {
 	y := newPeerYard(t, "http://north.test")
-	y.resident(t, "mayor", "")
+	y.resident(t, "yardmaster", "")
 	receive := func(m store.PeerMessage) store.PeerTaken {
 		t.Helper()
 		got, err := y.own.PeerReceive(y.ctx, "north", y.key, []store.PeerMessage{m})
@@ -125,24 +125,24 @@ func TestPeerMailReceive(t *testing.T) {
 		}
 		return got[0]
 	}
-	if got := receive(mail("m0", "mayor", "mayor", "hi")); got.Refused != store.RefusedKind {
+	if got := receive(mail("m0", "yardmaster", "yardmaster", "hi")); got.Refused != store.RefusedKind {
 		t.Fatalf("mail over a link that takes none = %+v", got)
 	}
-	if got := y.inbox(t, "mayor"); len(got) != 0 {
+	if got := y.inbox(t, "yardmaster"); len(got) != 0 {
 		t.Fatalf("refused mail is in the inbox: %+v", got)
 	}
 	y.allow(t, store.PeerAllow{Receive: []string{"mail"}})
 
-	// The sender's mayor writes to this yard's mayor: the same name, and
-	// not the resident's own doing.
+	// The sender's yardmaster writes to this yard's yardmaster: the same
+	// name, and not the resident's own doing.
 	for i := 0; i < 2; i++ {
-		if got := receive(mail("m1", "mayor", "mayor", "the build is green")); got.Refused != "" || got.Duplicate != (i == 1) {
+		if got := receive(mail("m1", "yardmaster", "yardmaster", "the build is green")); got.Refused != "" || got.Duplicate != (i == 1) {
 			t.Fatalf("mail, time %d = %+v", i, got)
 		}
 	}
-	got := y.inbox(t, "mayor")
-	if len(got) != 1 || got[0].Actor != "mayor@north" || got[0].Data["from"] != "mayor" || got[0].Data["from_peer"] != "north" ||
-		got[0].Data["to"] != "mayor" || got[0].Data["text"] != "the build is green" || got[0].Data["id"] != "m1" || got[0].Data["to_peer"] != nil {
+	got := y.inbox(t, "yardmaster")
+	if len(got) != 1 || got[0].Actor != "yardmaster@north" || got[0].Data["from"] != "yardmaster" || got[0].Data["from_peer"] != "north" ||
+		got[0].Data["to"] != "yardmaster" || got[0].Data["text"] != "the build is green" || got[0].Data["id"] != "m1" || got[0].Data["to_peer"] != nil {
 		t.Fatalf("the inbox = %+v", got)
 	}
 	if rec := peerEvents(t, y.api, "peer_message_received"); len(rec) != 1 || rec[0].Data["kind"] != "mail" || rec[0].Data["text"] != nil {
@@ -157,14 +157,14 @@ func TestPeerMailReceive(t *testing.T) {
 		m    store.PeerMessage
 		want string
 	}{
-		{mail("r1", "nobody", "mayor", "hi"), store.RefusedNoResident},
-		{mail("r2", "../mayor", "mayor", "hi"), store.RefusedNoResident},
-		{mail("r3", "mayor", "mayor", strings.Repeat("x", store.MaxPeerMailBytes+1)), store.RefusedTooLarge},
-		{mail("r4", "mayor", "mayor", " "), store.RefusedNotMail},
+		{mail("r1", "nobody", "yardmaster", "hi"), store.RefusedNoResident},
+		{mail("r2", "../yardmaster", "yardmaster", "hi"), store.RefusedNoResident},
+		{mail("r3", "yardmaster", "yardmaster", strings.Repeat("x", store.MaxPeerMailBytes+1)), store.RefusedTooLarge},
+		{mail("r4", "yardmaster", "yardmaster", " "), store.RefusedNotMail},
 		// A name with an @ would read as another yard's.
-		{mail("r5", "mayor", "root@south", "hi"), store.RefusedNotMail},
-		{mail("r6", "mayor", "", "hi"), store.RefusedNotMail},
-		{raw("r7", `["mayor"]`), store.RefusedNotMail},
+		{mail("r5", "yardmaster", "root@south", "hi"), store.RefusedNotMail},
+		{mail("r6", "yardmaster", "", "hi"), store.RefusedNotMail},
+		{raw("r7", `["yardmaster"]`), store.RefusedNotMail},
 	}
 	for _, r := range refusals {
 		if got := receive(r.m); got.Refused != r.want {
@@ -176,12 +176,12 @@ func TestPeerMailReceive(t *testing.T) {
 		ref[0].Actor != "peer:north" || ref[0].Data["direction"] != "in" {
 		t.Fatalf("peer_message_refused = %+v", ref)
 	}
-	if got := y.inbox(t, "mayor"); len(got) != 1 {
+	if got := y.inbox(t, "yardmaster"); len(got) != 1 {
 		t.Fatalf("refused mail reached the inbox: %+v", got)
 	}
 	// What the sender is told names no resident of this yard.
-	for _, reason := range []string{store.RefusedKind, store.RefusedNoResident, store.RefusedTooLarge, store.RefusedRate, store.RefusedNotMail, "mayor, clerk"} {
-		if said := store.PeerRefusal("north", "mail", reason); strings.Contains(said, "mayor") || said == "" {
+	for _, reason := range []string{store.RefusedKind, store.RefusedNoResident, store.RefusedTooLarge, store.RefusedRate, store.RefusedNotMail, "yardmaster, clerk"} {
+		if said := store.PeerRefusal("north", "mail", reason); strings.Contains(said, "yardmaster") || said == "" {
 			t.Errorf("PeerRefusal(%q) = %q", reason, said)
 		}
 	}
@@ -191,7 +191,7 @@ func TestPeerMailReceive(t *testing.T) {
 // question, and forgotten once it has been.
 func TestPeerMailPulledRefusal(t *testing.T) {
 	y := newPeerYard(t, "http://north.test")
-	y.resident(t, "mayor", "")
+	y.resident(t, "yardmaster", "")
 	y.allow(t, store.PeerAllow{Receive: []string{"mail"}})
 	batch := func(told []uint64, ms ...store.PeerMessage) store.PeerBatch {
 		body, err := json.Marshal(store.PeerPage{Messages: ms})
@@ -200,7 +200,7 @@ func TestPeerMailPulledRefusal(t *testing.T) {
 		}
 		return store.PeerBatch{RequestSig: "req-1", Signature: yardkey.SignResponse(y.north, 200, "req-1", body), Body: body, Told: told}
 	}
-	good, bad := mail("p1", "mayor", "mayor", "hi"), mail("p2", "nobody", "mayor", "hi")
+	good, bad := mail("p1", "yardmaster", "yardmaster", "hi"), mail("p2", "nobody", "yardmaster", "hi")
 	good.Seq, bad.Seq = 3, 4
 	res, err := y.api.PeerPulled(y.ctx, "north", batch(nil, good, bad))
 	if err != nil || res.Taken[0].Refused != "" || res.Taken[1].Refused != store.RefusedNoResident {
@@ -210,7 +210,7 @@ func TestPeerMailPulledRefusal(t *testing.T) {
 	if p.Pulled != 4 || len(p.Refused) != 1 || p.Refused[4] != store.RefusedNoResident {
 		t.Fatalf("after the pull: %+v", p)
 	}
-	if got := y.inbox(t, "mayor"); len(got) != 1 || got[0].Actor != "mayor@north" {
+	if got := y.inbox(t, "yardmaster"); len(got) != 1 || got[0].Actor != "yardmaster@north" {
 		t.Fatalf("the inbox = %+v", got)
 	}
 	// An empty answer to the question that told of it.
@@ -232,11 +232,11 @@ func TestPeerMailPulledRefusal(t *testing.T) {
 // yard. Mail the peer took does not.
 func TestPeerMailUndelivered(t *testing.T) {
 	y := newPeerYard(t, "") // north asks for its mail
-	y.resident(t, "mayor", "north")
+	y.resident(t, "yardmaster", "north")
 	y.allow(t, store.PeerAllow{Send: []string{"mail"}})
 	var seqs []uint64
-	for _, to := range []string{"mayor", "nobody", "clerk"} {
-		m, err := y.api.MailPeer(y.ctx, to, "north", "hello "+to, "mayor")
+	for _, to := range []string{"yardmaster", "nobody", "clerk"} {
+		m, err := y.api.MailPeer(y.ctx, to, "north", "hello "+to, "yardmaster")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -262,7 +262,7 @@ func TestPeerMailUndelivered(t *testing.T) {
 	if len(failed) != 1 || failed[0].Data["reason"] != "refused by the peer: it has no such resident" || failed[0].Data["way"] != "pull" || failed[0].Data["text"] != nil {
 		t.Fatalf("peer_message_failed = %+v", failed)
 	}
-	got := y.inbox(t, "mayor")
+	got := y.inbox(t, "yardmaster")
 	text, _ := got[0].Data["text"].(string)
 	if len(got) != 1 || got[0].Actor != "yard" || !strings.HasPrefix(text, "your mail to nobody@north of ") ||
 		!strings.HasSuffix(text, " was not delivered: refused by the peer: it has no such resident") {
@@ -273,7 +273,7 @@ func TestPeerMailUndelivered(t *testing.T) {
 	if err := y.api.PeerSendFailed(y.ctx, "north", seqs[2], "peer north: refused by the peer: it does not say why in words this yard knows", time.Now(), true); err != nil {
 		t.Fatal(err)
 	}
-	if got := y.inbox(t, "mayor"); len(got) != 2 || !strings.Contains(got[1].Data["text"].(string), "your mail to clerk@north") {
+	if got := y.inbox(t, "yardmaster"); len(got) != 2 || !strings.Contains(got[1].Data["text"].(string), "your mail to clerk@north") {
 		t.Fatalf("the sender's inbox = %+v", got)
 	}
 }
@@ -282,13 +282,13 @@ func TestPeerMailUndelivered(t *testing.T) {
 // added under the name is one nobody was allowed to mail.
 func TestPeerRemovedLeavesNoResidentItsMail(t *testing.T) {
 	y := newPeerYard(t, "http://north.test")
-	y.resident(t, "mayor", "north,south")
+	y.resident(t, "yardmaster", "north,south")
 	y.resident(t, "clerk", "north")
 	y.resident(t, "scout", "south")
 	if err := y.api.DeletePeer(y.ctx, "north", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	for name, want := range map[string]string{"mayor": "south", "clerk": "", "scout": "south"} {
+	for name, want := range map[string]string{"yardmaster": "south", "clerk": "", "scout": "south"} {
 		r, err := y.api.GetResident(y.ctx, name)
 		if err != nil || strings.Join(r.MayMail(), ",") != want {
 			t.Errorf("%s may mail %v, %v; want %q", name, r.MayMail(), err, want)

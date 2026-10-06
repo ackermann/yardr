@@ -203,23 +203,23 @@ func TestYardrInvolved(t *testing.T) {
 }
 
 func TestBeadWatchEndsOnClose(t *testing.T) {
-	s, ctx, b := yardrRig(t, "mayor")
-	subscribe(t, s, "mayor", yardrSub(store.ScopeAll, "bead="+b.UUID)) // stored as the handle
-	subscribe(t, s, "mayor", yardrSub(store.ScopeAll, "bead="+b.ID, "state=done"))
-	subscribe(t, s, "mayor", yardrSub(store.ScopeAll, "kind=closed"))
-	r, err := s.GetResident(ctx, "mayor")
+	s, ctx, b := yardrRig(t, "yardmaster")
+	subscribe(t, s, "yardmaster", yardrSub(store.ScopeAll, "bead="+b.UUID)) // stored as the handle
+	subscribe(t, s, "yardmaster", yardrSub(store.ScopeAll, "bead="+b.ID, "state=done"))
+	subscribe(t, s, "yardmaster", yardrSub(store.ScopeAll, "kind=closed"))
+	r, err := s.GetResident(ctx, "yardmaster")
 	if err != nil || r.Subscriptions[0].Where["bead"] != b.ID {
 		t.Fatalf("subscriptions = %v, %v", r.Subscriptions, err)
 	}
 	if _, err := s.CloseBead(ctx, b.ID, "done", store.Expect{}, "jane"); err != nil {
 		t.Fatal(err)
 	}
-	wantHeard(t, s, b.ID, "mayor", "closed:done")
+	wantHeard(t, s, b.ID, "yardmaster", "closed:done")
 	evs, _ := s.Events(ctx, b.ID, 1)
 	if ended := evs[0].Data["watches_ended"]; ended == nil {
 		t.Fatalf("closed event %v names no ended watches", evs[0].Data)
 	}
-	r, _ = s.GetResident(ctx, "mayor")
+	r, _ = s.GetResident(ctx, "yardmaster")
 	if len(r.Subscriptions) != 1 || r.Subscriptions[0].Where["kind"] != "closed" {
 		t.Fatalf("after close: %v", r.Subscriptions)
 	}
@@ -230,32 +230,32 @@ func TestBeadWatchEndsOnClose(t *testing.T) {
 	if err := s.AddNote(ctx, b.ID, "back", "jane"); err != nil {
 		t.Fatal(err)
 	}
-	wantHeard(t, s, b.ID, "mayor", "closed:done")
+	wantHeard(t, s, b.ID, "yardmaster", "closed:done")
 
-	subscribe(t, s, "mayor", yardrSub(store.ScopeAll, "bead="+b.ID, "kind=noted"))
-	if n, err := s.Unwatch(ctx, "mayor", b.ID, "me"); err != nil || n != 1 {
+	subscribe(t, s, "yardmaster", yardrSub(store.ScopeAll, "bead="+b.ID, "kind=noted"))
+	if n, err := s.Unwatch(ctx, "yardmaster", b.ID, "me"); err != nil || n != 1 {
 		t.Fatalf("unwatch = %d, %v", n, err)
 	}
-	if _, err := s.Unwatch(ctx, "mayor", b.ID, "me"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.Unwatch(ctx, "yardmaster", b.ID, "me"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("second unwatch err = %v", err)
 	}
 }
 
 // A watch on a bead that is already closed would end before it began.
 func TestWatchOnClosedBeadRefused(t *testing.T) {
-	s, ctx, b := yardrRig(t, "mayor")
+	s, ctx, b := yardrRig(t, "yardmaster")
 	if _, err := s.CloseBead(ctx, b.ID, "done", store.Expect{}, "jane"); err != nil {
 		t.Fatal(err)
 	}
-	err := s.AddSubscription(ctx, "mayor", yardrSub(store.ScopeAll, "bead="+b.ID, "state=done"), "me")
+	err := s.AddSubscription(ctx, "yardmaster", yardrSub(store.ScopeAll, "bead="+b.ID, "state=done"), "me")
 	if err == nil || !strings.Contains(err.Error(), "closed") {
 		t.Fatalf("watch on closed bead err = %v", err)
 	}
-	if r, _ := s.GetResident(ctx, "mayor"); len(r.Subscriptions) != 0 {
+	if r, _ := s.GetResident(ctx, "yardmaster"); len(r.Subscriptions) != 0 {
 		t.Fatalf("subscriptions = %v", r.Subscriptions)
 	}
 	// An epic filter is not a watch: a closed epic still gathers its children.
-	subscribe(t, s, "mayor", yardrSub(store.ScopeAll, "epic="+b.ID))
+	subscribe(t, s, "yardmaster", yardrSub(store.ScopeAll, "epic="+b.ID))
 }
 
 // deliveredTo counts the events in the whole log that reached resident
@@ -335,54 +335,54 @@ func TestYardrMemoryOutOfSource(t *testing.T) {
 // even when it subscribes to its journal or has the kind in --on.
 func TestResidentDoesNotHearOfItself(t *testing.T) {
 	s, ctx, _ := yardrRig(t, "other")
-	if _, err := s.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr",
+	if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr",
 		On: []string{"resident_started", "resident_stopped"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	for _, r := range []string{"mayor", "other"} {
+	for _, r := range []string{"yardmaster", "other"} {
 		subscribe(t, s, r, yardrSub(store.ScopeAll, "type="+store.TypeJournal))
 	}
-	subscribe(t, s, "mayor", yardrSub(store.ScopeAll, "bead=mayor-journal"))
-	if err := s.ResidentStarted(ctx, "mayor", map[string]any{"pane": "p1"}); err != nil {
+	subscribe(t, s, "yardmaster", yardrSub(store.ScopeAll, "bead=yardmaster-journal"))
+	if err := s.ResidentStarted(ctx, "yardmaster", map[string]any{"pane": "p1"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Journal(ctx, "mayor", store.NoteJournal, "starting on the queue", "mayor-session"); err != nil {
+	if err := s.Journal(ctx, "yardmaster", store.NoteJournal, "starting on the queue", "yardmaster-session"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ResidentStopped(ctx, "mayor", "test"); err != nil {
+	if err := s.ResidentStopped(ctx, "yardmaster", "test"); err != nil {
 		t.Fatal(err)
 	}
-	wantHeard(t, s, "mayor-journal", "mayor")
-	wantHeard(t, s, "mayor-journal", "other", "subscribed:all", "resident_started:all", "journal:all", "resident_stopped:all")
+	wantHeard(t, s, "yardmaster-journal", "yardmaster")
+	wantHeard(t, s, "yardmaster-journal", "other", "subscribed:all", "resident_started:all", "journal:all", "resident_stopped:all")
 	ownJournal := func() []string {
 		t.Helper()
-		page, err := s.Inbox(ctx, "mayor", 0)
+		page, err := s.Inbox(ctx, "yardmaster", 0)
 		if err != nil {
 			t.Fatal(err)
 		}
 		var kinds []string
 		for _, e := range page.Events {
-			if e.Bead != nil && *e.Bead == "mayor-journal" {
+			if e.Bead != nil && *e.Bead == "yardmaster-journal" {
 				kinds = append(kinds, e.Kind)
 			}
 		}
 		return kinds
 	}
 	if got := ownJournal(); len(got) != 0 {
-		t.Fatalf("mayor's inbox has %v from its own journal", got)
+		t.Fatalf("yardmaster's inbox has %v from its own journal", got)
 	}
 	// Someone else noting on its journal still reaches it.
-	if err := s.AddNote(ctx, "mayor-journal", "@mayor see yard-1", "jane"); err != nil {
+	if err := s.AddNote(ctx, "yardmaster-journal", "@yardmaster see yard-1", "jane"); err != nil {
 		t.Fatal(err)
 	}
 	if got := ownJournal(); !slices.Equal(got, []string{"noted"}) {
-		t.Fatalf("mayor's inbox after a note has %v from its journal", got)
+		t.Fatalf("yardmaster's inbox after a note has %v from its journal", got)
 	}
 }
 
 func TestGroupSubscriptionDeliversToMemberResidents(t *testing.T) {
-	s, ctx, b := yardrRig(t, "mayor", "outsider")
-	if err := s.PutGroup(ctx, store.Group{Name: "approvers", Runner: "manual", Members: []string{"mckean", "mayor"}}); err != nil {
+	s, ctx, b := yardrRig(t, "yardmaster", "outsider")
+	if err := s.PutGroup(ctx, store.Group{Name: "approvers", Runner: "manual", Members: []string{"mckean", "yardmaster"}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}); err != nil {
@@ -393,10 +393,10 @@ func TestGroupSubscriptionDeliversToMemberResidents(t *testing.T) {
 		t.Fatalf("herdr group subscribe err = %v", err)
 	}
 	subscribe(t, s, "approvers", yardrSub(store.ScopeAll, "state=done"))
-	subscribe(t, s, "mayor", yardrSub(store.ScopeAll, "kind=closed"))
+	subscribe(t, s, "yardmaster", yardrSub(store.ScopeAll, "kind=closed"))
 
 	// Redefining the group keeps its subscriptions.
-	if err := s.PutGroup(ctx, store.Group{Name: "approvers", Runner: "manual", Limit: 3, Members: []string{"mckean", "mayor"}}); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "approvers", Runner: "manual", Limit: 3, Members: []string{"mckean", "yardmaster"}}); err != nil {
 		t.Fatal(err)
 	}
 	if g, _ := s.GetGroup(ctx, "approvers"); len(g.Subscriptions) != 1 {
@@ -405,11 +405,11 @@ func TestGroupSubscriptionDeliversToMemberResidents(t *testing.T) {
 	if _, err := s.CloseBead(ctx, b.ID, "done", store.Expect{}, "jane"); err != nil {
 		t.Fatal(err)
 	}
-	wantHeard(t, s, b.ID, "mayor", "closed:done via approvers")
+	wantHeard(t, s, b.ID, "yardmaster", "closed:done via approvers")
 	wantHeard(t, s, b.ID, "outsider")
-	page, err := s.Inbox(ctx, "mayor", 0)
+	page, err := s.Inbox(ctx, "yardmaster", 0)
 	if err != nil || page.Total != 1 {
-		t.Fatalf("mayor inbox = %+v, %v", page, err)
+		t.Fatalf("yardmaster inbox = %+v, %v", page, err)
 	}
 	if n, err := s.RemoveSubscriptions(ctx, "approvers", store.SourceYardr, "", nil, "me"); err != nil || n != 1 {
 		t.Fatalf("group unsubscribe = %d, %v", n, err)

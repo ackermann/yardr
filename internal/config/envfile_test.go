@@ -62,7 +62,7 @@ func TestReadEnvFileRefuses(t *testing.T) {
 
 func TestExpandPath(t *testing.T) {
 	home, _ := os.UserHomeDir()
-	if got, _ := ExpandPath("~/.yardr/residents/mayor.env"); got != filepath.Join(home, ".yardr/residents/mayor.env") {
+	if got, _ := ExpandPath("~/.yardr/residents/yardmaster.env"); got != filepath.Join(home, ".yardr/residents/yardmaster.env") {
 		t.Fatalf("~ not expanded: %s", got)
 	}
 }

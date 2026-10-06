@@ -132,7 +132,7 @@ func TestPeerBeadRoundTrip(t *testing.T) {
 			b.takes(t, "a", "web", false)
 			ctx := context.Background()
 			mine := a.bead(t, "Add the export")
-			must(t, a.api.AddNote(ctx, mine.ID, "the columns are in the issue", "mayor"))
+			must(t, a.api.AddNote(ctx, mine.ID, "the columns are in the issue", "yardmaster"))
 
 			a.pass(t)
 			sent := a.beadEvents(t, mine.ID, "peer_bead_sent")
@@ -153,7 +153,7 @@ func TestPeerBeadRoundTrip(t *testing.T) {
 				!slices.Equal(theirs.Peer.Outcomes, []string{"done", "question", "failed", "refused", "undelivered"}) {
 				t.Fatalf("the bead as it arrived at b = %+v, peer %+v", theirs, theirs.Peer)
 			}
-			if ns := b.notes(t, theirs.ID); len(ns) != 1 || ns[0].Author != "mayor@a" || ns[0].Text != "the columns are in the issue" {
+			if ns := b.notes(t, theirs.ID); len(ns) != 1 || ns[0].Author != "yardmaster@a" || ns[0].Text != "the columns are in the issue" {
 				t.Fatalf("the notes that came with it = %+v", ns)
 			}
 			away := a.get(t, mine.ID).Away()
@@ -330,9 +330,9 @@ func TestPeerBeadUndelivered(t *testing.T) {
 	link(t, a, b, true, true)
 	a.sends(t, "b", nil)
 	b.takes(t, "a", "web", true)
-	a.mayor(t, "b")
+	a.yardmaster(t, "b")
 	ctx := context.Background()
-	_, err := a.api.MailPeer(ctx, "mayor", "b", "are you there", "mayor")
+	_, err := a.api.MailPeer(ctx, "yardmaster", "b", "are you there", "yardmaster")
 	must(t, err)
 	b.down.Store(true)
 	mine := a.bead(t, "Add the export")

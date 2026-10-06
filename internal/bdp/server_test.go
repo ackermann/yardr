@@ -359,7 +359,7 @@ func TestJournalsAndMemoriesAreNotServed(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	work := f.bead("real work", "task")
-	journal := f.bead("Journal of mayor", store.TypeJournal)
+	journal := f.bead("Journal of yardmaster", store.TypeJournal)
 	memory := f.bead("how we deploy", store.TypeMemory)
 	if err := f.st.AddDep(ctx, work.ID, memory.ID, "related", "tester"); err != nil {
 		t.Fatal(err)
@@ -548,7 +548,7 @@ func TestIssueLinks(t *testing.T) {
 	ctx := context.Background()
 	const lin, gh, other = "https://linear.app/acme/issue/YRD-1", "https://github.com/acme/webapp/issues/7", "https://linear.app/acme/issue/YRD-2"
 	one, two := f.bead("API", "task"), f.bead("UI", "epic")
-	journal := f.bead("mayor's journal", store.TypeJournal)
+	journal := f.bead("yardmaster's journal", store.TypeJournal)
 	for _, l := range []struct {
 		bead string
 		nl   store.NewLink

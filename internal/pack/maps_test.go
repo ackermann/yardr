@@ -19,7 +19,7 @@ var starterMap = map[string]string{"task:new": "started", "task:review": "review
 // cases each break in one place.
 const smallSources = small + `sources:
   linear:
-    as: mayor
+    as: yardmaster
     hears:
       task: { new: started, review: review, merged: done }
 `
@@ -28,7 +28,7 @@ const smallSources = small + `sources:
 // is one of the flow a task follows.
 func TestStarterCarriesTheLinearStageMap(t *testing.T) {
 	p := load(t, starter)
-	if len(p.Sources) != 1 || p.Sources[0].Source != "linear" || p.Sources[0].As != "mayor" || !maps.Equal(p.Sources[0].Map, starterMap) {
+	if len(p.Sources) != 1 || p.Sources[0].Source != "linear" || p.Sources[0].As != "yardmaster" || !maps.Equal(p.Sources[0].Map, starterMap) {
 		t.Fatalf("sources = %+v", p.Sources)
 	}
 	for key := range p.Sources[0].Map {
@@ -63,17 +63,17 @@ func TestStageMapRefusals(t *testing.T) {
 	}{
 		{name: "source without an adapter", pairs: []string{"  linear:\n    as", "  slack:\n    as"}, key: "sources.slack", msg: "no adapter for source slack", line: 23},
 		{name: "source yardr cannot set a status in", pairs: []string{"  linear:\n    as", "  token:\n    as"}, key: "sources.token", msg: "yardr cannot set a status in token (it can in ", line: 23, alsoMentioned: "linear"},
-		{name: "as naming no resident of the pack", pairs: []string{"as: mayor", "as: boss"}, key: "sources.linear.as", msg: "no resident boss is declared under residents", line: 24},
+		{name: "as naming no resident of the pack", pairs: []string{"as: yardmaster", "as: boss"}, key: "sources.linear.as", msg: "no resident boss is declared under residents", line: 24},
 		{name: "type no flow of the pack is for", pairs: []string{"  default:\n", "  default:\n    type: epic\n"}, key: "sources.linear.hears.task", msg: "no flow of this pack is for beads of type task", line: 27},
 		{name: "stage the flow lacks", pairs: []string{"merged: done }\n", "merged: done, approved: done }\n"}, key: "sources.linear.hears.task.approved", msg: "flow default has no stage approved (stages: new, review, decide, merged)", line: 26},
 		{name: "stage the type's own flow lacks", pairs: []string{"groups:\n", epics, "      task: { new: started, review: review, merged: done }\n", "      epic: { new: started }\n"},
 			key: "sources.linear.hears.epic.new", msg: "flow epics has no stage new (stages: open, done)", line: 31},
 		{name: "unknown word", pairs: []string{"review: review, merged", "review: reviewing, merged"}, key: "sources.linear.hears.task.review", msg: `"reviewing" is no state: one of started, review, done`, line: 26},
 		{name: "status by its name in the source", pairs: []string{"merged: done }", `merged: "Done" }`}, key: "sources.linear.hears.task.merged", msg: `"Done" is no state`, line: 26},
-		{name: "no as", pairs: []string{"    as: mayor\n", ""}, key: "sources.linear.as", msg: "missing", line: 23},
+		{name: "no as", pairs: []string{"    as: yardmaster\n", ""}, key: "sources.linear.as", msg: "missing", line: 23},
 		{name: "no hears", pairs: []string{"    hears:\n      task: { new: started, review: review, merged: done }\n", ""}, key: "sources.linear.hears", msg: "missing", line: 23},
 		{name: "empty hears", pairs: []string{"    hears:\n      task: { new: started, review: review, merged: done }\n", "    hears: {}\n"}, key: "sources.linear.hears", msg: "empty", line: 25},
-		{name: "unknown key", pairs: []string{"    as: mayor\n", "    as: mayor\n    comment: true\n"}, key: "sources.linear.comment", msg: "unknown key", line: 25},
+		{name: "unknown key", pairs: []string{"    as: yardmaster\n", "    as: yardmaster\n    comment: true\n"}, key: "sources.linear.comment", msg: "unknown key", line: 25},
 		{name: "type given twice", pairs: []string{"merged: done }\n", "merged: done }\n      task: { new: done }\n"}, key: "sources.linear.hears.task", msg: "given twice", line: 27},
 	}
 	for _, c := range cases {
@@ -191,13 +191,13 @@ func mapObjects(p *pack.Plan) []string {
 // the map and the resident on it, and the one after changes nothing.
 func TestStageMapWaitsForTheYardsHook(t *testing.T) {
 	st, o := yard(t)
-	o.Residents = map[string]string{"mayor": "boss"}
+	o.Residents = map[string]string{"yardmaster": "boss"}
 	resident(t, st, "boss", true, nil)
 	p := load(t, starter)
 
 	plan := build(t, st, p, o)
 	m := mapPlan(t, plan, "linear")
-	if m.Pack != "mayor" || m.As != "boss" || !maps.Equal(m.Map, starterMap) || m.Hook != "" || m.Action != pack.NotSet || len(mapObjects(plan)) != 0 {
+	if m.Pack != "yardmaster" || m.As != "boss" || !maps.Equal(m.Map, starterMap) || m.Hook != "" || m.Action != pack.NotSet || len(mapObjects(plan)) != 0 {
 		t.Fatalf("into a yard without a hook: %+v, objects %v", m, mapObjects(plan))
 	}
 	if n := need(t, m, "hook"); n.Status != "missing" || !strings.Contains(n.Detail, "yardr hook add linear --source linear --secret-file <file>") || !strings.Contains(n.Detail, "the import makes none") {
@@ -259,7 +259,7 @@ func TestStageMapWaitsForTheYardsHook(t *testing.T) {
 // A hook that has another map gets the pack's, and the plan shows both.
 func TestStageMapReplacesTheHooksAndThePlanShowsBoth(t *testing.T) {
 	st, o := yard(t)
-	o.Residents = map[string]string{"mayor": "boss"}
+	o.Residents = map[string]string{"yardmaster": "boss"}
 	resident(t, st, "boss", true, map[string]any{store.SetState: "linear"})
 	resident(t, st, "clerk", true, nil)
 	old := map[string]string{"task:review": "done", "epic:open": "started"}
@@ -290,10 +290,10 @@ func TestStageMapReplacesTheHooksAndThePlanShowsBoth(t *testing.T) {
 	}
 	// Who takes the pack's resident is the import's to say: another one
 	// changes whom the hook acts as, and the map stays.
-	o.Residents = map[string]string{"mayor": "clerk"}
+	o.Residents = map[string]string{"yardmaster": "clerk"}
 	plan = build(t, st, load(t, starter), o)
 	if obj := find(t, plan, "map", "hook linear as clerk"); obj.Action != pack.Change || !slices.Equal(obj.Changes, []pack.Diff{{Field: "as", Old: "boss", New: "clerk"}}) {
-		t.Fatalf("under --resident mayor=clerk: %+v", obj)
+		t.Fatalf("under --resident yardmaster=clerk: %+v", obj)
 	}
 }
 
@@ -307,10 +307,10 @@ func TestStageMapNeedsTheResidentsIdentity(t *testing.T) {
 
 	plan := build(t, st, p, o)
 	m := mapPlan(t, plan, "linear")
-	if m.As != "mayor" || m.Action != pack.NotSet || len(mapObjects(plan)) != 0 {
+	if m.As != "yardmaster" || m.Action != pack.NotSet || len(mapObjects(plan)) != 0 {
 		t.Fatalf("for a resident the import makes: %+v", m)
 	}
-	if n := need(t, m, "identity"); n.Status != "missing" || !strings.Contains(n.Detail, "yardr resident identity mayor --source linear --id <its id there>") {
+	if n := need(t, m, "identity"); n.Status != "missing" || !strings.Contains(n.Detail, "yardr resident identity yardmaster --source linear --id <its id there>") {
 		t.Fatalf("identity: %+v", n)
 	}
 	if n := need(t, m, "hook"); n.Status != "ok" {
@@ -321,7 +321,7 @@ func TestStageMapNeedsTheResidentsIdentity(t *testing.T) {
 		t.Fatalf("hook = %+v", h)
 	}
 
-	if err := st.SetIdentity(ctx, "mayor", "linear", store.Identity{ID: "u-1"}, "me"); err != nil {
+	if err := st.SetIdentity(ctx, "yardmaster", "linear", store.Identity{ID: "u-1"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	plan = build(t, st, p, o)
@@ -329,7 +329,7 @@ func TestStageMapNeedsTheResidentsIdentity(t *testing.T) {
 		t.Fatalf("with an identity: %+v", m)
 	}
 	apply(t, st, plan, nil)
-	if h := getHook(t, st, "linear"); h.As != "mayor" || !maps.Equal(h.Map, starterMap) {
+	if h := getHook(t, st, "linear"); h.As != "yardmaster" || !maps.Equal(h.Map, starterMap) {
 		t.Fatalf("hook = %+v", h)
 	}
 }
@@ -339,7 +339,7 @@ func TestStageMapNeedsTheResidentsIdentity(t *testing.T) {
 // operator's next apply sets it.
 func TestStageMapRefusedLeavesTheRestOfTheImport(t *testing.T) {
 	st, o := yard(t)
-	o.Residents = map[string]string{"mayor": "boss"}
+	o.Residents = map[string]string{"yardmaster": "boss"}
 	resident(t, st, "boss", true, nil)
 	hook(t, st, store.Hook{Name: "linear", Source: "linear"})
 	p := load(t, starter)
@@ -378,7 +378,7 @@ func TestStageMapRefusedLeavesTheRestOfTheImport(t *testing.T) {
 // and keeps the hook. A map changed by hand since the import is the yard's.
 func TestDroppedStageMapIsPrunedOnlyWhenAsked(t *testing.T) {
 	st, o := yard(t)
-	o.Residents = map[string]string{"mayor": "boss"}
+	o.Residents = map[string]string{"yardmaster": "boss"}
 	resident(t, st, "boss", true, nil)
 	hook(t, st, store.Hook{Name: "linear", Source: "linear"})
 	dir := copyStarter(t)
@@ -386,7 +386,7 @@ func TestDroppedStageMapIsPrunedOnlyWhenAsked(t *testing.T) {
 	if h := getHook(t, st, "linear"); h.As != "boss" {
 		t.Fatalf("hook = %+v", h)
 	}
-	edit(t, dir, "sources:\n  linear:\n    as: mayor\n    hears:\n      task: { new: started, review: review, merged: done }\n", "")
+	edit(t, dir, "sources:\n  linear:\n    as: yardmaster\n    hears:\n      task: { new: started, review: review, merged: done }\n", "")
 
 	plan := build(t, st, load(t, dir), o)
 	if got := actions(plan, pack.Dropped); !slices.Equal(got, []string{"map hook linear as boss"}) || len(plan.Maps) != 0 {
@@ -413,13 +413,13 @@ func TestDroppedStageMapIsPrunedOnlyWhenAsked(t *testing.T) {
 
 	// Set by hand since the import: not the pack's to remove.
 	st2, o2 := yard(t)
-	o2.Residents = map[string]string{"mayor": "boss"}
+	o2.Residents = map[string]string{"yardmaster": "boss"}
 	resident(t, st2, "boss", true, nil)
 	hook(t, st2, store.Hook{Name: "linear", Source: "linear"})
 	dir = copyStarter(t)
 	apply(t, st2, build(t, st2, load(t, dir), o2), nil)
 	hook(t, st2, store.Hook{Name: "linear", Source: "linear", As: "boss", Map: map[string]string{"task:new": "done"}})
-	edit(t, dir, "sources:\n  linear:\n    as: mayor\n    hears:\n      task: { new: started, review: review, merged: done }\n", "")
+	edit(t, dir, "sources:\n  linear:\n    as: yardmaster\n    hears:\n      task: { new: started, review: review, merged: done }\n", "")
 	if got := actions(build(t, st2, load(t, dir), o2), pack.Dropped); len(got) != 0 {
 		t.Fatalf("a map set by hand is dropped: %v", got)
 	}
@@ -429,7 +429,7 @@ func TestDroppedStageMapIsPrunedOnlyWhenAsked(t *testing.T) {
 // which: every hook with a map would move the issue.
 func TestStageMapGoesOnOneHookOfTheSource(t *testing.T) {
 	st, o := yard(t)
-	o.Residents = map[string]string{"mayor": "boss"}
+	o.Residents = map[string]string{"yardmaster": "boss"}
 	resident(t, st, "boss", true, nil)
 	hook(t, st, store.Hook{Name: "b-linear", Source: "linear"})
 	hook(t, st, store.Hook{Name: "a-linear", Source: "linear"})
@@ -451,7 +451,7 @@ func TestStageMapGoesOnOneHookOfTheSource(t *testing.T) {
 // Building a plan sets nothing on the hook.
 func TestStageMapPlanWritesNothing(t *testing.T) {
 	st, o := yard(t)
-	o.Residents = map[string]string{"mayor": "boss"}
+	o.Residents = map[string]string{"yardmaster": "boss"}
 	resident(t, st, "boss", true, nil)
 	hook(t, st, store.Hook{Name: "linear", Source: "linear"})
 	at := head(t, st)

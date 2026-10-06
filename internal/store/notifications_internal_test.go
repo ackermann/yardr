@@ -20,14 +20,14 @@ func TestUserCursorOfAnOlderStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.PutResident(ctx, Resident{Name: "mayor", Runner: "herdr"}, "jo"); err != nil {
+	if _, err := s.PutResident(ctx, Resident{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.AddUser(ctx, "ada", "jo"); err != nil {
 		t.Fatal(err)
 	}
 	for _, text := range []string{"one", "two", "three"} {
-		if err := s.Mail(ctx, "ada", text, "mayor"); err != nil {
+		if err := s.Mail(ctx, "ada", text, "yardmaster"); err != nil {
 			t.Fatal(err)
 		}
 	}

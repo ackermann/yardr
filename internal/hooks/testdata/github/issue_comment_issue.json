@@ -5,7 +5,7 @@
   "title": "Hook listener logs the secret path",
   "html_url": "https://github.com/acme/yardr/issues/23",
   "state": "open",
-  "body": "Seen on startup. @mayor can you look?",
+  "body": "Seen on startup. @yardmaster can you look?",
   "user": {
    "login": "jane-doe",
    "type": "User"
@@ -19,10 +19,10 @@
  },
  "comment": {
   "id": 10,
-  "body": "Reproduced. `@mayor` is on it.",
+  "body": "Reproduced. `@yardmaster` is on it.",
   "html_url": "https://github.com/acme/yardr/issues/23#issuecomment-10",
   "user": {
-   "login": "Mayor",
+   "login": "Yardmaster",
    "type": "User"
   }
  },
@@ -31,7 +31,7 @@
   "html_url": "https://github.com/acme/yardr"
  },
  "sender": {
-  "login": "Mayor",
+  "login": "Yardmaster",
   "type": "User"
  }
 }

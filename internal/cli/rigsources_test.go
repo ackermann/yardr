@@ -129,7 +129,7 @@ func TestRigSourcesAppliedPack(t *testing.T) {
 		"stage decide pack starter ("+filepath.Join(stages, "decide.md")+")",
 		"role web-builders pack starter ("+filepath.Join(packs, "builder.md")+") shadows .yardr/roles/builder.md",
 		"role web-reviewers pack starter ("+filepath.Join(packs, "reviewer.md")+") shadows .yardr/roles/reviewer.md",
-		"role boss pack starter ("+filepath.Join(packs, "mayor.md")+")",
+		"role boss pack starter ("+filepath.Join(packs, "yardmaster.md")+")",
 	)
 
 	a.json = true
@@ -188,7 +188,7 @@ func TestRigSourcesPackFlowRigRoles(t *testing.T) {
 		"stage decide pack starter ("+filepath.Join(stages, "decide.md")+")",
 		"role web-builders rig (.yardr/roles/builder.md@"+sha+") pack starter has a copy",
 		"role web-reviewers rig (.yardr/roles/reviewer.md@"+sha+") pack starter has a copy",
-		"role boss pack starter ("+filepath.Join(home, "packs", "starter", "roles", "mayor.md")+")",
+		"role boss pack starter ("+filepath.Join(home, "packs", "starter", "roles", "yardmaster.md")+")",
 	)
 
 	if err := a.st.SetFlowPointer(context.Background(), "web", "", "", "me"); err != nil {

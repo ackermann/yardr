@@ -239,7 +239,7 @@ func uniq(in []string) []string {
 
 // unattended are the flags an agent yardr starts runs with by default, so
 // it does not stop at a prompt nobody is watching: what `yardr init` gives
-// the mayor and what `group add --help` suggests. A kind not listed runs
+// the yardmaster and what `group add --help` suggests. A kind not listed runs
 // with none and may ask; its own permission flags are the operator's call.
 var unattended = map[string][]string{
 	"claude": {"--permission-mode", "auto"},

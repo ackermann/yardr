@@ -219,24 +219,24 @@ func TestHookDeliveryInInbox(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	// "hook" in On must not widen delivery past the subscriptions.
-	if _, err := s.PutResident(ctx, store.Resident{Name: "mayor", On: []string{"hook"}}, "me"); err != nil {
+	if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", On: []string{"hook"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	resident(t, s, "other", false, store.Subscription{Source: "linear", Scope: store.ScopeAll})
-	if err := s.SetIdentity(ctx, "mayor", "linear", store.Identity{ID: "mayr-id", Key: "mayor"}, "me"); err != nil {
+	if err := s.SetIdentity(ctx, "yardmaster", "linear", store.Identity{ID: "mayr-id", Key: "yardmaster"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddSubscription(ctx, "mayor", store.Subscription{Source: "linear", Scope: store.ScopeMentions}, "me"); err != nil {
+	if err := s.AddSubscription(ctx, "yardmaster", store.Subscription{Source: "linear", Scope: store.ScopeMentions}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	record(t, own, hooks.Envelope{Source: "linear", Type: "comment", Text: "unrelated"})
 	seq := record(t, own, hooks.Envelope{Source: "linear", Type: "comment",
-		Mentions: []string{"mayor"}, Text: "can you look?"})
-	page, err := s.Inbox(ctx, "mayor", 0)
+		Mentions: []string{"yardmaster"}, Text: "can you look?"})
+	page, err := s.Inbox(ctx, "yardmaster", 0)
 	if err != nil || page.Total != 1 || page.Events[0].Seq != seq || page.Last != seq {
 		t.Fatalf("inbox: %+v %v", page, err)
 	}
-	if why := store.Reason(page.Events[0], "mayor"); why != store.ReasonMentioned {
+	if why := store.Reason(page.Events[0], "yardmaster"); why != store.ReasonMentioned {
 		t.Fatalf("reason %q", why)
 	}
 	if page, _ := s.Inbox(ctx, "other", 0); page.Total != 2 {
@@ -245,10 +245,10 @@ func TestHookDeliveryInInbox(t *testing.T) {
 
 	// A subscription applies from when it is made: earlier deliveries were
 	// decided at ingest.
-	if err := s.AddSubscription(ctx, "mayor", store.Subscription{Source: "linear", Scope: store.ScopeAll}, "me"); err != nil {
+	if err := s.AddSubscription(ctx, "yardmaster", store.Subscription{Source: "linear", Scope: store.ScopeAll}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if page, _ := s.Inbox(ctx, "mayor", 0); page.Total != 1 {
+	if page, _ := s.Inbox(ctx, "yardmaster", 0); page.Total != 1 {
 		t.Fatalf("subscription applied to history: %+v", page)
 	}
 }
@@ -294,11 +294,11 @@ func TestHookDeliveryToAGitHubApp(t *testing.T) {
 func TestIdentitiesAndSubscriptions(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
-	mayor(t, s)
-	if err := s.SetIdentity(ctx, "mayor", "linear", store.Identity{ID: "u1"}, "me"); err != nil {
+	yardmaster(t, s)
+	if err := s.SetIdentity(ctx, "yardmaster", "linear", store.Identity{ID: "u1"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetIdentity(ctx, "mayor", "linear", store.Identity{ID: "u2", Key: "mayor"}, "me"); err != nil {
+	if err := s.SetIdentity(ctx, "yardmaster", "linear", store.Identity{ID: "u2", Key: "yardmaster"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetIdentity(ctx, "ghost", "linear", store.Identity{ID: "u"}, "me"); !errors.Is(err, store.ErrNotFound) {
@@ -307,40 +307,40 @@ func TestIdentitiesAndSubscriptions(t *testing.T) {
 	all := store.Subscription{Source: "linear", Scope: store.ScopeAll}
 	eng := store.Subscription{Source: "linear", Scope: store.ScopeAll, Where: map[string]string{"team": "ENG"}}
 	for _, sub := range []store.Subscription{all, all, eng, {Source: "token", Scope: store.ScopeMentions}} {
-		if err := s.AddSubscription(ctx, "mayor", sub, "me"); err != nil {
+		if err := s.AddSubscription(ctx, "yardmaster", sub, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for _, bad := range []store.Subscription{{Source: "linear", Scope: "some"}, {Scope: "all"}} {
-		if err := s.AddSubscription(ctx, "mayor", bad, "me"); err == nil {
+		if err := s.AddSubscription(ctx, "yardmaster", bad, "me"); err == nil {
 			t.Errorf("accepted %+v", bad)
 		}
 	}
 	// Redefining the resident keeps who it is and what it hears.
-	if _, err := s.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr"}, "me"); err != nil {
+	if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	r, _ := s.GetResident(ctx, "mayor")
-	if r.Identities["linear"] != (store.Identity{ID: "u2", Key: "mayor"}) || len(r.Subscriptions) != 3 {
+	r, _ := s.GetResident(ctx, "yardmaster")
+	if r.Identities["linear"] != (store.Identity{ID: "u2", Key: "yardmaster"}) || len(r.Subscriptions) != 3 {
 		t.Fatalf("after redefine: %+v %+v", r.Identities, r.Subscriptions)
 	}
 
-	if n, err := s.RemoveSubscriptions(ctx, "mayor", "linear", "", map[string]string{"team": "ENG"}, "me"); err != nil || n != 1 {
+	if n, err := s.RemoveSubscriptions(ctx, "yardmaster", "linear", "", map[string]string{"team": "ENG"}, "me"); err != nil || n != 1 {
 		t.Fatalf("unsubscribe where: %d %v", n, err)
 	}
-	if n, err := s.RemoveSubscriptions(ctx, "mayor", "linear", "mentions", nil, "me"); !errors.Is(err, store.ErrNotFound) {
+	if n, err := s.RemoveSubscriptions(ctx, "yardmaster", "linear", "mentions", nil, "me"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("unsubscribe other scope: %d %v", n, err)
 	}
-	if n, err := s.RemoveSubscriptions(ctx, "mayor", "linear", "", nil, "me"); err != nil || n != 1 {
+	if n, err := s.RemoveSubscriptions(ctx, "yardmaster", "linear", "", nil, "me"); err != nil || n != 1 {
 		t.Fatalf("unsubscribe source: %d %v", n, err)
 	}
-	if err := s.SetIdentity(ctx, "mayor", "linear", store.Identity{}, "me"); err != nil {
+	if err := s.SetIdentity(ctx, "yardmaster", "linear", store.Identity{}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetIdentity(ctx, "mayor", "linear", store.Identity{}, "me"); !errors.Is(err, store.ErrNotFound) {
+	if err := s.SetIdentity(ctx, "yardmaster", "linear", store.Identity{}, "me"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("remove twice: %v", err)
 	}
-	r, _ = s.GetResident(ctx, "mayor")
+	r, _ = s.GetResident(ctx, "yardmaster")
 	if len(r.Identities) != 0 || len(r.Subscriptions) != 1 || r.Subscriptions[0].Source != "token" {
 		t.Fatalf("after removal: %+v %+v", r.Identities, r.Subscriptions)
 	}

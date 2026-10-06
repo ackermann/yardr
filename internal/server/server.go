@@ -170,7 +170,7 @@ func (r *runner) serve(ctx context.Context) (string, error) {
 	}
 
 	if r.bin != nil {
-		// Both the backstop and a client's skew land here; the mayor sees
+		// Both the backstop and a client's skew land here; the yardmaster sees
 		// in events why a build installed over ours was not taken.
 		r.bin.Skipped = func(rev, reason string) {
 			log.Warn("not replacing the yardr server", "candidate", version.Show(rev), "reason", reason)

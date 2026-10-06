@@ -97,10 +97,10 @@ esac`)}
 	return h, func() string { return readCalls(t, log) }, screen
 }
 
-// Found live (yardr-ps05): a person was typing in the mayor's pane when the
-// yard nudged the mayor, and their half sentence went out with the nudge as
-// one message. With text in the input no key is sent and the nudge stays
-// due; when the input is empty it is typed, once. A placeholder is not
+// Found live (yardr-ps05): a person was typing in the yardmaster's pane when
+// the yard nudged the yardmaster, and their half sentence went out with the
+// nudge as one message. With text in the input no key is sent and the nudge
+// stays due; when the input is empty it is typed, once. A placeholder is not
 // text, and a harness whose input cannot be told is nudged as before.
 func TestNudgeIsNotTypedIntoAnInputThatHoldsText(t *testing.T) {
 	for name, c := range map[string]struct {
@@ -119,7 +119,7 @@ func TestNudgeIsNotTypedIntoAnInputThatHoldsText(t *testing.T) {
 			ctx := context.Background()
 			s := storetest.New(t)
 			d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": h}, PromptSettle: -1, PromptWait: -1}
-			if _, err := s.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
+			if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
 				t.Fatal(err)
 			}
 			pass := func() {
@@ -131,14 +131,14 @@ func TestNudgeIsNotTypedIntoAnInputThatHoldsText(t *testing.T) {
 				}
 			}
 			pass()
-			if r, err := s.GetResident(ctx, "mayor"); err != nil || !r.Live() || r.Handle[dispatch.PendingPrompt] != nil {
+			if r, err := s.GetResident(ctx, "yardmaster"); err != nil || !r.Live() || r.Handle[dispatch.PendingPrompt] != nil {
 				t.Fatalf("resident = %+v %v", r, err)
 			}
 			typed := func() int { return strings.Count(calls(), "agent prompt") - 1 } // less its first prompt
 			keys := func() int { return strings.Count(calls(), "send-") }
 
 			screen(c.screen)
-			if err := s.Mail(ctx, "mayor", "deploy freeze", "chris"); err != nil {
+			if err := s.Mail(ctx, "yardmaster", "deploy freeze", "chris"); err != nil {
 				t.Fatal(err)
 			}
 			pass()

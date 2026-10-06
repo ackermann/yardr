@@ -61,7 +61,7 @@ The resident must exist and have an identity in the source (yardr resident
 identity), which keeps the source's delivery of the change out of its inbox.`,
 		Example: `  yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret
   yardr hook add gh --source github --secret-file ~/.yardr/github.secret
-  yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret --as mayor \
+  yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret --as yardmaster \
       --map task:new=started --map task:review=review --map task:merged=done \
       --map epic:open=started --map epic:done=done`,
 		Args: cobra.ExactArgs(1),

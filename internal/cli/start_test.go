@@ -20,14 +20,14 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// mayorHandle is what the herdr runner records for a started mayor.
-func mayorHandle() map[string]any {
-	return map[string]any{"agent": "y-mayor", "workspace": "w2", "tab": "w2:t1", "pane": "w2:p1"}
+// yardmasterHandle is what the herdr runner records for a started yardmaster.
+func yardmasterHandle() map[string]any {
+	return map[string]any{"agent": "y-yardmaster", "workspace": "w2", "tab": "w2:t1", "pane": "w2:p1"}
 }
 
 // stubStart replaces the daemon's start with one that counts and, given a
-// handle, records the mayor's session as the daemon would; nil leaves the
-// mayor stopped. It returns the count.
+// handle, records the yardmaster's session as the daemon would; nil leaves the
+// yardmaster stopped. It returns the count.
 func stubStart(t *testing.T, st store.API, handle map[string]any) *int {
 	t.Helper()
 	n := 0
@@ -35,8 +35,8 @@ func stubStart(t *testing.T, st store.API, handle map[string]any) *int {
 	spawnDaemon = func(*config.Config) (<-chan error, error) {
 		n++
 		if handle != nil {
-			if err := st.ResidentStarted(context.Background(), "mayor", handle); err != nil {
-				t.Errorf("mayor not started: %v", err)
+			if err := st.ResidentStarted(context.Background(), "yardmaster", handle); err != nil {
+				t.Errorf("yardmaster not started: %v", err)
 			}
 		}
 		return nil, nil
@@ -47,7 +47,7 @@ func stubStart(t *testing.T, st store.API, handle map[string]any) *int {
 
 // answeredPane is a pane whose agent printed something after its first
 // prompt.
-const answeredPane = "sh$ claude\n❯ You are the yardr resident \"mayor\". Run `yardr prime --resident mayor` and follow it.\n⏺ Reading my prime.\n❯"
+const answeredPane = "sh$ claude\n❯ You are the yardr resident \"yardmaster\". Run `yardr prime --resident yardmaster` and follow it.\n⏺ Reading my prime.\n❯"
 
 // stubPane makes every pane read give text.
 func stubPane(t *testing.T, text string) {
@@ -76,10 +76,11 @@ func answerNo(fields ...huh.Field) {
 }
 
 // The form, accepted with its defaults, starts the daemon, waits for the
-// mayor and prints where it is; "Talk to the mayor", the answer its last
-// question starts at, opens the chat on the mayor in the same terminal
-// (yardr-8j3n; it brought the mayor's pane to the front before). The mayor
-// is in the session that was asked to greet, so the view expects its mail.
+// yardmaster and prints where it is; "Talk to the yardmaster", the answer its
+// last question starts at, opens the chat on the yardmaster in the same
+// terminal (yardr-8j3n; it brought the yardmaster's pane to the front
+// before). The yardmaster is in the session that was asked to greet, so the
+// view expects its mail.
 func TestOnboardingStartsTheYard(t *testing.T) {
 	home := newHome(t)
 	actAsOperator(t)
@@ -89,7 +90,7 @@ func TestOnboardingStartsTheYard(t *testing.T) {
 	asked := 0
 	stubAsk(t, func(...huh.Field) error { asked++; return nil })
 	st := storetest.New(t)
-	started := stubStart(t, st, mayorHandle())
+	started := stubStart(t, st, yardmasterHandle())
 	stubPane(t, answeredPane)
 	focused := stubFocus(t)
 	t.Setenv("HERDR_ENV", "")
@@ -98,17 +99,17 @@ func TestOnboardingStartsTheYard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Harness, the mayor's page, create, start, whether to ask the harness
+	// Harness, the yardmaster's page, create, start, whether to ask the harness
 	// first, the daemon at login, the web view, a link with another yard,
 	// open: no page for what is missing.
 	if asked != 10 || *started != 1 {
 		t.Fatalf("%d pages, %d daemons started\n%s", asked, *started, out)
 	}
 	for _, s := range []string{"yard created", "The daemon is started, in the background; it logs to " + home + "/daemon.log",
-		"mayor is running, in herdr", "agent      y-mayor", `workspace  "y mayor" (w2), tab w2:t1, pane w2:p1`,
-		"herdr agent focus y-mayor", "herdr agent attach y-mayor",
+		"yardmaster is running, in herdr", "agent      y-yardmaster", `workspace  "y yardmaster" (w2), tab w2:t1, pane w2:p1`,
+		"herdr agent focus y-yardmaster", "herdr agent attach y-yardmaster",
 		"Talk to it in any terminal", "\n  " + here("yardr chat") + "\n  " + here("yardr setup") + "\n",
-		"You left the chat; mayor keeps running. To come back: " + here("yardr chat") + "\n"} {
+		"You left the chat; yardmaster keeps running. To come back: " + here("yardr chat") + "\n"} {
 		if !strings.Contains(out, s) {
 			t.Errorf("output lacks %q:\n%s", s, out)
 		}
@@ -116,11 +117,11 @@ func TestOnboardingStartsTheYard(t *testing.T) {
 	if strings.Contains(out, "Start the daemon in a terminal pane") {
 		t.Errorf("still told to start the daemon:\n%s", out)
 	}
-	if len(*focused) != 0 || !slices.Equal(*chats, []string{"mayor, expecting mayor"}) {
+	if len(*focused) != 0 || !slices.Equal(*chats, []string{"yardmaster, expecting yardmaster"}) {
 		t.Fatalf("focused %v, chats %v\n%s", *focused, *chats, out)
 	}
-	if r, err := st.GetResident(context.Background(), "mayor"); err != nil || runner.Greets(*r) != "" || r.Config[runner.GreetKey] != config.Actor() {
-		t.Fatalf("the mayor, once started, greets %q again (config %v): %v", runner.Greets(*r), r.Config, err)
+	if r, err := st.GetResident(context.Background(), "yardmaster"); err != nil || runner.Greets(*r) != "" || r.Config[runner.GreetKey] != config.Actor() {
+		t.Fatalf("the yardmaster, once started, greets %q again (config %v): %v", runner.Greets(*r), r.Config, err)
 	}
 }
 
@@ -137,7 +138,7 @@ func TestOnboardingNoStart(t *testing.T) {
 		return nil
 	})
 	st := storetest.New(t)
-	started := stubStart(t, st, mayorHandle())
+	started := stubStart(t, st, yardmasterHandle())
 
 	out, err := run(t, (&app{st: st}).rootCmd())
 	if err != nil {
@@ -146,8 +147,8 @@ func TestOnboardingNoStart(t *testing.T) {
 	if asked != 5 || *started != 0 {
 		t.Fatalf("%d pages, %d daemons started\n%s", asked, *started, out)
 	}
-	if r, _ := st.GetResident(context.Background(), "mayor"); r == nil || r.Live() {
-		t.Fatalf("mayor = %+v", r)
+	if r, _ := st.GetResident(context.Background(), "yardmaster"); r == nil || r.Live() {
+		t.Fatalf("yardmaster = %+v", r)
 	}
 	if !strings.Contains(out, "Start the daemon in a terminal pane of its own") || !strings.Contains(out, here("yardr init --start")) ||
 		strings.Contains(out, "is running, in herdr") {
@@ -165,7 +166,7 @@ func TestOnboardingPreflight(t *testing.T) {
 	asked := 0
 	stubAsk(t, func(...huh.Field) error { asked++; return nil })
 	st := storetest.New(t)
-	started := stubStart(t, st, mayorHandle())
+	started := stubStart(t, st, yardmasterHandle())
 
 	_, err := run(t, (&app{st: st}).rootCmd())
 	if err == nil || !strings.Contains(err.Error(), "nothing was created") || asked != 1 || *started != 0 {
@@ -189,12 +190,12 @@ func TestOnboardingPreflight(t *testing.T) {
 }
 
 // yardr init starts nothing by default; --start starts the daemon, waits
-// and prints the mayor's place, as JSON too.
+// and prints the yardmaster's place, as JSON too.
 func TestInitStart(t *testing.T) {
 	newHome(t)
 	stubLookPath(t, "claude", "git", "herdr")
 	st := storetest.New(t)
-	started := stubStart(t, st, mayorHandle())
+	started := stubStart(t, st, yardmasterHandle())
 	stubPane(t, answeredPane)
 	a := &app{st: st, actor: "me"}
 
@@ -207,11 +208,11 @@ func TestInitStart(t *testing.T) {
 	if err != nil || *started != 1 {
 		t.Fatalf("--start: %d started, %v\n%s", *started, err, out)
 	}
-	if !strings.Contains(out, "mayor is running, in herdr") || !strings.Contains(out, "pane w2:p1") {
+	if !strings.Contains(out, "yardmaster is running, in herdr") || !strings.Contains(out, "pane w2:p1") {
 		t.Fatalf("output:\n%s", out)
 	}
 	// No terminal: the progress is one line, on stderr.
-	if got := errs.String(); got != "waiting for mayor to start (up to 2m0s)\n" {
+	if got := errs.String(); got != "waiting for yardmaster to start (up to 2m0s)\n" {
 		t.Fatalf("progress = %q", got)
 	}
 
@@ -226,20 +227,20 @@ func TestInitStart(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &res); err != nil {
 		t.Fatalf("%v:\n%s", err, out)
 	}
-	if res.Start == nil || !res.Start.Running || res.Start.Mayor == nil || res.Start.Mayor.Agent != "y-mayor" ||
-		res.Start.Mayor.Workspace != "y mayor" || res.Start.Mayor.Pane != "w2:p1" {
+	if res.Start == nil || !res.Start.Running || res.Start.Yardmaster == nil || res.Start.Yardmaster.Agent != "y-yardmaster" ||
+		res.Start.Yardmaster.Workspace != "y yardmaster" || res.Start.Yardmaster.Pane != "w2:p1" {
 		t.Fatalf("start = %+v", res.Start)
 	}
 }
 
-// A daemon running on the home is left alone: none is started beside it.
-// The mayor it never starts (this one only holds the lock) ends the wait on
+// A daemon running on the home is left alone: none is started beside it. The
+// yardmaster it never starts (this one only holds the lock) ends the wait on
 // the timeout, with what is known and how to go on, and exit 1.
 func TestInitStartWithRunningDaemon(t *testing.T) {
 	home := newHome(t)
 	stubLookPath(t, "claude", "git", "herdr")
 	st := storetest.New(t)
-	started := stubStart(t, st, mayorHandle())
+	started := stubStart(t, st, yardmasterHandle())
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -254,25 +255,25 @@ func TestInitStartWithRunningDaemon(t *testing.T) {
 	if *started != 0 {
 		t.Fatalf("%d daemons started beside the running one", *started)
 	}
-	if err == nil || err.Error() != "mayor is not up" {
+	if err == nil || err.Error() != "yardmaster is not up" {
 		t.Fatalf("err = %v", err)
 	}
-	for _, s := range []string{"The daemon was running already.", "mayor did not start within 30ms.",
+	for _, s := range []string{"The daemon was running already.", "yardmaster did not start within 30ms.",
 		"no start has failed so far", here("yardr resident list"), here("yardr init --start")} {
 		if !strings.Contains(out, s) {
 			t.Errorf("output lacks %q:\n%s", s, out)
 		}
 	}
 	if strings.Contains(out, "sets up the rest with you") {
-		t.Errorf("a mayor that is not there sets up nothing:\n%s", out)
+		t.Errorf("a yardmaster that is not there sets up nothing:\n%s", out)
 	}
 }
 
-// The wait is for the mayor's own output, not for a session that exists: a
+// The wait is for the yardmaster's own output, not for a session that exists: a
 // session whose harness never took its first prompt, or whose pane stays
 // blank, ends on the timeout, and the message quotes the pane's last lines.
-func TestWaitForTheMayorsOutput(t *testing.T) {
-	const prompt = "You are the yardr resident \"mayor\". Run `/bin/yardr prime --resident mayor` and follow it."
+func TestWaitForTheYardmastersOutput(t *testing.T) {
+	const prompt = "You are the yardr resident \"yardmaster\". Run `/bin/yardr prime --resident yardmaster` and follow it."
 	for _, c := range []struct {
 		name    string
 		pending bool
@@ -285,23 +286,23 @@ func TestWaitForTheMayorsOutput(t *testing.T) {
 		{name: "working", status: "working", pane: "", up: true},
 		// herdr calls this one idle, and its session runs.
 		{name: "not logged in", status: "idle", pane: "sh$ claude\nWelcome\nNot logged in · Run /login\n" + prompt,
-			want: []string{"mayor's session is running, but it has not answered its first prompt within 30ms.",
+			want: []string{"yardmaster's session is running, but it has not answered its first prompt within 30ms.",
 				"The last lines of its pane:", "  | Not logged in · Run /login",
 				"the first prompt went into the pane, and claude printed nothing after it",
-				"herdr agent focus y-mayor", "yardr resident restart mayor"}},
+				"herdr agent focus y-yardmaster", "yardr resident restart yardmaster"}},
 		{name: "prompt not taken", pending: true, pane: "sh$ claude\nDo you trust this folder?",
 			want: []string{"has not answered its first prompt within 30ms.", "  | Do you trust this folder?",
 				"claude was started in the pane but is not ready for its first prompt"}},
 		{name: "login screen without the prompt", pane: "Select login method:",
 			want: []string{"has not answered its first prompt", "  | Select login method:"}},
 		{name: "blank pane", pane: "",
-			want: []string{"has not answered its first prompt", "its pane shows nothing", "herdr agent attach y-mayor"}},
+			want: []string{"has not answered its first prompt", "its pane shows nothing", "herdr agent attach y-yardmaster"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			newHome(t)
 			stubLookPath(t, "claude", "git", "herdr")
 			st := storetest.New(t)
-			handle := mayorHandle()
+			handle := yardmasterHandle()
 			if c.pending {
 				handle[dispatch.PendingPrompt] = prompt
 			}
@@ -321,7 +322,7 @@ func TestWaitForTheMayorsOutput(t *testing.T) {
 				}
 			}
 			if !c.up && strings.Contains(out, "is running, in herdr") {
-				t.Errorf("a silent mayor is reported as up:\n%s", out)
+				t.Errorf("a silent yardmaster is reported as up:\n%s", out)
 			}
 		})
 	}
@@ -332,7 +333,7 @@ func TestWaitEndsOnFirstOutput(t *testing.T) {
 	newHome(t)
 	stubLookPath(t, "claude", "git", "herdr")
 	st := storetest.New(t)
-	stubStart(t, st, mayorHandle())
+	stubStart(t, st, yardmasterHandle())
 	reads := 0
 	old := paneTail
 	paneTail = func(context.Context, map[string]any, int) (string, error) {
@@ -344,13 +345,13 @@ func TestWaitEndsOnFirstOutput(t *testing.T) {
 	t.Cleanup(func() { paneTail = old })
 	captureStderr(t)
 	out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "claude", "--start")
-	if err != nil || reads < 4 || !strings.Contains(out, "mayor is running, in herdr") {
+	if err != nil || reads < 4 || !strings.Contains(out, "yardmaster is running, in herdr") {
 		t.Fatalf("%d reads, %v\n%s", reads, err, out)
 	}
 }
 
-// What cannot come by waiting ends the wait at once: a start that failed
-// with herdr or the harness not on PATH, and a mayor yardr gave up on. Each
+// What cannot come by waiting ends the wait at once: a start that failed with
+// herdr or the harness not on PATH, and a yardmaster yardr gave up on. Each
 // says what is known, the last failure's reason among it.
 func TestWaitEndsOnAFailedStart(t *testing.T) {
 	ctx := context.Background()
@@ -371,23 +372,23 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 		if unlock, err = lockDaemon(cfg.DaemonLock(), 0); err != nil {
 			return nil, err
 		}
-		return nil, st.ResidentStartFailed(ctx, "mayor", `herdr workspace.create: exec: "herdr": executable file not found in $PATH`, time.Minute)
+		return nil, st.ResidentStartFailed(ctx, "yardmaster", `herdr workspace.create: exec: "herdr": executable file not found in $PATH`, time.Minute)
 	}
 	t.Cleanup(func() { spawnDaemon = old })
 	captureStderr(t)
 
 	stubLookPath(t, "git")
 	began := time.Now()
-	res := a.startYard(ctx, cfg, st, "mayor", time.Minute)
+	res := a.startYard(ctx, cfg, st, "yardmaster", time.Minute)
 	unlock()
-	if res.Running || time.Since(began) > 10*time.Second || res.Problem != "mayor cannot start: herdr and claude are not on PATH." {
+	if res.Running || time.Since(began) > 10*time.Second || res.Problem != "yardmaster cannot start: herdr and claude are not on PATH." {
 		t.Fatalf("after %v: %+v", time.Since(began), res)
 	}
 	if next := strings.Join(res.Next, "\n"); strings.Contains(next, "doctor --try") {
 		t.Errorf("a harness that is not there is not one to try:\n%s", next)
 	}
 	known := strings.Join(res.Known, "\n")
-	for _, s := range []string{"herdr is not on PATH: it starts every agent", "claude is not on PATH: it is the harness mayor runs on",
+	for _, s := range []string{"herdr is not on PATH: it starts every agent", "claude is not on PATH: it is the harness yardmaster runs on",
 		"the last start failed with: herdr workspace.create", "logs to " + home + "/daemon.log"} {
 		if !strings.Contains(known, s) {
 			t.Errorf("known lacks %q:\n%s", s, known)
@@ -398,15 +399,15 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 	stubLookPath(t, "claude", "git", "herdr")
 	spawnDaemon = func(*config.Config) (<-chan error, error) {
 		for i := 0; i < store.MaxStartFails; i++ {
-			if err := st.ResidentStartFailed(ctx, "mayor", "herdr agent start: boom", time.Minute); err != nil {
+			if err := st.ResidentStartFailed(ctx, "yardmaster", "herdr agent start: boom", time.Minute); err != nil {
 				return nil, err
 			}
 		}
 		return nil, nil
 	}
-	res = a.startYard(ctx, cfg, st, "mayor", time.Minute)
+	res = a.startYard(ctx, cfg, st, "yardmaster", time.Minute)
 	if res.Running || !strings.Contains(res.Problem, "the daemon gave up after") ||
-		!strings.Contains(strings.Join(res.Next, "\n"), here("yardr resident start mayor")) ||
+		!strings.Contains(strings.Join(res.Next, "\n"), here("yardr resident start yardmaster")) ||
 		!strings.Contains(strings.Join(res.Known, "\n"), "the last start failed with: herdr agent start: boom") {
 		t.Fatalf("%+v", res)
 	}
@@ -419,18 +420,18 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 
 	// A start that failed because herdr has no server says nothing of the
 	// harness, which was never started: doctor's herdr line is what helps.
-	if err := st.ResidentStartFailed(ctx, "mayor", "server_not_running: no herdr server is running", time.Minute); err != nil {
+	if err := st.ResidentStartFailed(ctx, "yardmaster", "server_not_running: no herdr server is running", time.Minute); err != nil {
 		t.Fatal(err)
 	}
 	spawnDaemon = func(*config.Config) (<-chan error, error) { return nil, nil }
-	res = a.startYard(ctx, cfg, st, "mayor", time.Minute)
+	res = a.startYard(ctx, cfg, st, "yardmaster", time.Minute)
 	if next := strings.Join(res.Next, "\n"); res.Running || strings.Contains(next, "doctor --try") {
 		t.Errorf("herdr's outage is no reason to try the harness: %+v", res)
 	}
 
 	// A daemon that cannot be started at all.
 	spawnDaemon = func(*config.Config) (<-chan error, error) { return nil, errors.New("fork: no") }
-	if res = a.startYard(ctx, cfg, st, "mayor", time.Minute); res.DaemonStarted ||
+	if res = a.startYard(ctx, cfg, st, "yardmaster", time.Minute); res.DaemonStarted ||
 		res.Problem != "the daemon could not be started: fork: no" || !strings.Contains(res.Next[0], here("yardr daemon")) {
 		t.Fatalf("%+v", res)
 	}
@@ -439,9 +440,9 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 	spawnDaemon = func(*config.Config) (<-chan error, error) {
 		ch := make(chan error, 1)
 		ch <- errors.New("exit status 1")
-		return ch, st.SetResidentEnabled(ctx, "mayor", true, "", "me")
+		return ch, st.SetResidentEnabled(ctx, "yardmaster", true, "", "me")
 	}
-	if res = a.startYard(ctx, cfg, st, "mayor", time.Minute); res.Problem != "the daemon stopped right after it started." ||
+	if res = a.startYard(ctx, cfg, st, "yardmaster", time.Minute); res.Problem != "the daemon stopped right after it started." ||
 		!strings.Contains(strings.Join(res.Known, "\n"), "no daemon is running on this yard") {
 		t.Fatalf("%+v", res)
 	}

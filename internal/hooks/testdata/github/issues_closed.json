@@ -5,7 +5,7 @@
   "title": "Hook listener logs the secret path",
   "html_url": "https://github.com/acme/yardr/issues/23",
   "state": "closed",
-  "body": "Seen on startup. @mayor can you look?",
+  "body": "Seen on startup. @yardmaster can you look?",
   "user": {
    "login": "jane-doe",
    "type": "User"

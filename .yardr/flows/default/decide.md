@@ -7,7 +7,7 @@ the person answering moves it (`yardr review -g decisions`, or
 `yardr bead advance <id> --to <stage>`):
 
 - to `new`, when a builder can now finish it;
-- to `backlog`, when the answer changes what the bead is and the mayor must
+- to `backlog`, when the answer changes what the bead is and the yardmaster must
   reshape it.
 
 A decision that is not about one piece of code is a bead created straight

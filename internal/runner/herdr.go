@@ -176,8 +176,8 @@ func AgentName(bead, stage string) string { return agentName(bead + "-" + stage)
 
 // ResidentAgentName is the herdr agent name of a yard's resident,
 // "<yard>-<resident>": herdr lists every yard on the machine's agents
-// together and refuses a second of one name, so two yards' mayors must not
-// both be "mayor". Without a yard name it is the resident's.
+// together and refuses a second of one name, so two yards' yardmasters must not
+// both be "yardmaster". Without a yard name it is the resident's.
 func ResidentAgentName(yard, resident string) string { return agentName(yard + "-" + resident) }
 
 // ResidentLabel is the herdr label of a resident's workspace, "<yard>
@@ -965,10 +965,10 @@ func promptPlace(text, prompt string) (taken, typed bool) {
 // says the pane could not be read; either way nothing is known about the
 // input.
 //
-// Found live (yardr-ps05): a person was typing in the mayor's pane when the
-// yard nudged the mayor. The nudge went into the same input, and its Enter
-// sent their half sentence and the nudge as one message. So what types into
-// an input looks here first.
+// Found live (yardr-ps05): a person was typing in the yardmaster's pane when
+// the yard nudged the yardmaster. The nudge went into the same input, and its
+// Enter sent their half sentence and the nudge as one message. So what types
+// into an input looks here first.
 func (h *Herdr) InputText(ctx context.Context, handle map[string]any) (text string, known bool, err error) {
 	pane, _ := handle["pane"].(string)
 	if pane == "" {
@@ -1435,9 +1435,9 @@ const (
 )
 
 // GreetKey is the resident config key that names the user its first session
-// greets by mail. yardr init sets it on the mayor it adds, to the operator:
-// the onboarding ends in yardr chat, which shows mail and no pane, so the
-// mayor's first word has to be mail.
+// greets by mail. yardr init sets it on the yardmaster it adds, to the
+// operator: the onboarding ends in yardr chat, which shows mail and no pane,
+// so the yardmaster's first word has to be mail.
 const GreetKey = "greet"
 
 // Greets is the user r's next session is asked to greet: the one its config
@@ -1522,7 +1522,7 @@ func (h *Herdr) StartResident(ctx context.Context, r store.Resident) (map[string
 }
 
 // envFile reads the env_file cfg names, if any, for the pane environment of
-// who ("resident mayor", "group builders"). A file that is missing, not a
+// who ("resident yardmaster", "group builders"). A file that is missing, not a
 // regular file or open to others is refused as Blocked: the session must
 // not start without its credentials, nor with credentials others can read.
 // Only key names are logged.

@@ -4,13 +4,13 @@
   "createdAt": "2026-10-02T09:20:00.000Z",
   "data": {
     "id": "8f1e0c55-1b6f-4a1e-9e7a-2d4c1f0b9a10",
-    "body": "@mayor please check",
-    "bodyData": "{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"suggestion_userMentions\",\"attrs\":{\"id\":\"4d3a2b1c-0000-4000-8000-00000000mayr\",\"label\":\"mayor\"}},{\"type\":\"text\",\"text\":\" please check\"}]}]}",
+    "body": "@yardmaster please check",
+    "bodyData": "{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"suggestion_userMentions\",\"attrs\":{\"id\":\"4d3a2b1c-0000-4000-8000-00000000mayr\",\"label\":\"yardmaster\"}},{\"type\":\"text\",\"text\":\" please check\"}]}]}",
     "issueId": "539068e2-ae88-4d09-bd75-22eb4a59612f",
     "parentId": "2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9",
     "userId": "aacdca22-6266-4c0a-ab3c-8fa70a26765c"
   },
-  "updatedFrom": {"body": "@mayor check", "updatedAt": "2026-10-02T09:19:00.000Z"},
+  "updatedFrom": {"body": "@yardmaster check", "updatedAt": "2026-10-02T09:19:00.000Z"},
   "type": "Comment",
   "url": "https://linear.app/company/issue/ENG-42#comment-8f1e0c55",
   "organizationId": "dc844923-f9a4-40a3-825c-dea7747e57d6",

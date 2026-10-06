@@ -54,7 +54,7 @@ func fakeStateAPIs(t *testing.T) *fakeStates {
 			Variables map[string]any `json:"variables"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
-		if r.Header.Get("Authorization") != "lin_api_mayor" {
+		if r.Header.Get("Authorization") != "lin_api_yardmaster" {
 			gqlError(w, "Authentication required")
 			return
 		}
@@ -83,7 +83,7 @@ func fakeStateAPIs(t *testing.T) *fakeStates {
 	}))
 	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.calls++
-		if r.Header.Get("Authorization") != "Bearer gh-mayor" {
+		if r.Header.Get("Authorization") != "Bearer gh-yardmaster" {
 			http.Error(w, `{"message":"Bad credentials"}`, http.StatusUnauthorized)
 			return
 		}
@@ -108,14 +108,14 @@ func fakeStateAPIs(t *testing.T) *fakeStates {
 	return f
 }
 
-// stateYard is openYard for yardr thread state: allowed is the mayor's
+// stateYard is openYard for yardr thread state: allowed is the yardmaster's
 // set_state setting, it is someone in both sources, and it takes part in
 // the Linear issue and the GitHub issue the fake holds.
 func stateYard(t *testing.T, allowed string) (*app, store.API, *store.Store) {
 	t.Helper()
 	st, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	def := store.Resident{Name: "mayor", Runner: "herdr", Config: map[string]any{}}
+	def := store.Resident{Name: "yardmaster", Runner: "herdr", Config: map[string]any{}}
 	if allowed != "" {
 		def.Config[store.SetState] = allowed
 	}
@@ -125,23 +125,23 @@ func stateYard(t *testing.T, allowed string) (*app, store.API, *store.Store) {
 	if err := st.SetSetting(ctx, "operator", "jo", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	for src, id := range map[string]store.Identity{"linear": {ID: "u-mayor", Key: "mayor"}, "github": {ID: "mayor-bot"}} {
-		if err := st.AddSubscription(ctx, "mayor", store.Subscription{Source: src, Scope: store.ScopeInvolved}, "jo"); err != nil {
+	for src, id := range map[string]store.Identity{"linear": {ID: "u-yardmaster", Key: "yardmaster"}, "github": {ID: "yardmaster-bot"}} {
+		if err := st.AddSubscription(ctx, "yardmaster", store.Subscription{Source: src, Scope: store.ScopeInvolved}, "jo"); err != nil {
 			t.Fatal(err)
 		}
-		if err := st.SetIdentity(ctx, "mayor", src, id, "jo"); err != nil {
+		if err := st.SetIdentity(ctx, "yardmaster", src, id, "jo"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for src, thread := range map[string]string{"linear": linearIssue1, "github": "Acme/webapp#7"} {
-		if err := st.FollowThread(ctx, "mayor", src, thread, "jo"); err != nil {
+		if err := st.FollowThread(ctx, "yardmaster", src, thread, "jo"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	t.Setenv("LINEAR_API_KEY", "lin_api_mayor")
-	t.Setenv("GITHUB_TOKEN", "gh-mayor")
-	t.Setenv("YARDR_RESIDENT", "mayor")
-	return &app{st: st, actor: "mayor"}, st, own
+	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
+	t.Setenv("GITHUB_TOKEN", "gh-yardmaster")
+	t.Setenv("YARDR_RESIDENT", "yardmaster")
+	return &app{st: st, actor: "yardmaster"}, st, own
 }
 
 // state runs yardr thread state and returns what it printed and what it
@@ -185,7 +185,7 @@ func TestThreadStateLinear(t *testing.T) {
 	}
 	inbox := func() int {
 		t.Helper()
-		page, err := st.Inbox(ctx, "mayor", 0)
+		page, err := st.Inbox(ctx, "yardmaster", 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -212,9 +212,9 @@ func TestThreadStateLinear(t *testing.T) {
 			t.Fatalf("%v: linear is %s after %v", c.args, f.linear, f.changes)
 		}
 		e := lastEvent(t, st, "thread_state")
-		want := map[string]any{"resident": "mayor", "source": "linear", "thread": linearIssue1, "state": word, "status": c.status,
+		want := map[string]any{"resident": "yardmaster", "source": "linear", "thread": linearIssue1, "state": word, "status": c.status,
 			"was": c.was, "title": "Web view", "url": "https://linear.app/acme/issue/YRD-1"}
-		if e.Actor != "mayor" || !reflect.DeepEqual(e.Data, want) {
+		if e.Actor != "yardmaster" || !reflect.DeepEqual(e.Data, want) {
 			t.Fatalf("%v: event by %s: %v\nwant %v", c.args, e.Actor, e.Data, want)
 		}
 
@@ -232,7 +232,7 @@ func TestThreadStateLinear(t *testing.T) {
 
 		// Linear tells of the change, made by the resident's own user: it
 		// does not reach the resident, as a change by someone else does.
-		change := hooks.Envelope{Source: "linear", Type: "issue", Action: "update", Actor: hooks.Party{ID: "u-mayor", Name: "Mayor"},
+		change := hooks.Envelope{Source: "linear", Type: "issue", Action: "update", Actor: hooks.Party{ID: "u-yardmaster", Name: "Yardmaster"},
 			Thread: hooks.Thread{ID: linearIssue1, Title: "Web view"}, Text: "changed stateId", Entity: linearIssue1}
 		if _, _, err := own.RecordHook(ctx, "linear", change.Map(), []byte("{}"), nil); err != nil {
 			t.Fatal(err)
@@ -271,9 +271,9 @@ func TestThreadStateLinear(t *testing.T) {
 	a.json, a.actor = true, "jo"
 	t.Setenv("YARDR_RESIDENT", "")
 	for _, changed := range []bool{true, false} {
-		out, _, err = state(t, a, linearIssue1, "done", "--resident", "mayor")
+		out, _, err = state(t, a, linearIssue1, "done", "--resident", "yardmaster")
 		var res map[string]any
-		want := map[string]any{"resident": "mayor", "source": "linear", "thread": linearIssue1, "state": "done", "status": "Done",
+		want := map[string]any{"resident": "yardmaster", "source": "linear", "thread": linearIssue1, "state": "done", "status": "Done",
 			"actor": "jo", "changed": changed, "title": "Web view", "url": "https://linear.app/acme/issue/YRD-1"}
 		if changed {
 			want["was"] = "In Progress"
@@ -282,21 +282,21 @@ func TestThreadStateLinear(t *testing.T) {
 			t.Fatalf("json: %q, %v\nwant %v", out, err, want)
 		}
 	}
-	if e := lastEvent(t, st, "thread_state"); e.Actor != "jo" || e.Data["resident"] != "mayor" {
+	if e := lastEvent(t, st, "thread_state"); e.Actor != "jo" || e.Data["resident"] != "yardmaster" {
 		t.Fatalf("the operator's event: %+v", e)
 	}
 	a.json = false
 
 	// Without an identity in the source yardr cannot tell the delivery of
 	// the change from someone else's, and says so when it changes something.
-	if err := st.SetIdentity(ctx, "mayor", "linear", store.Identity{}, "jo"); err != nil {
+	if err := st.SetIdentity(ctx, "yardmaster", "linear", store.Identity{}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	_, warned, err := state(t, a, linearIssue1, "started", "--resident", "mayor")
-	if err != nil || !strings.Contains(warned, "mayor has no linear identity, so the delivery of this change may reach its own inbox: yardr resident identity mayor --source linear") {
+	_, warned, err := state(t, a, linearIssue1, "started", "--resident", "yardmaster")
+	if err != nil || !strings.Contains(warned, "yardmaster has no linear identity, so the delivery of this change may reach its own inbox: yardr resident identity yardmaster --source linear") {
 		t.Fatalf("no identity: %q, %v", warned, err)
 	}
-	if _, warned, err = state(t, a, linearIssue1, "started", "--resident", "mayor"); err != nil || warned != "" {
+	if _, warned, err = state(t, a, linearIssue1, "started", "--resident", "yardmaster"); err != nil || warned != "" {
 		t.Fatalf("no identity, nothing changed: %q, %v", warned, err)
 	}
 }
@@ -335,9 +335,9 @@ func TestThreadStateGitHub(t *testing.T) {
 			t.Fatalf("%v: changes %q", c.args, f.changes)
 		}
 		e := lastEvent(t, st, "thread_state")
-		want := map[string]any{"resident": "mayor", "source": "github", "thread": "Acme/webapp#7", "state": c.args[len(c.args)-1],
+		want := map[string]any{"resident": "yardmaster", "source": "github", "thread": "Acme/webapp#7", "state": c.args[len(c.args)-1],
 			"status": c.status, "was": c.was, "title": "Retries", "url": "https://github.com/Acme/webapp/issues/7"}
-		if e.Actor != "mayor" || !reflect.DeepEqual(e.Data, want) {
+		if e.Actor != "yardmaster" || !reflect.DeepEqual(e.Data, want) {
 			t.Fatalf("%v: event %v\nwant %v", c.args, e.Data, want)
 		}
 		head, _ := st.Head(ctx)
@@ -349,11 +349,11 @@ func TestThreadStateGitHub(t *testing.T) {
 		}
 		// GitHub tells of it; the resident's own login is the sender.
 		change := hooks.Envelope{Source: "github", Type: "issues", Action: map[string]string{"closed": "closed", "open": "reopened"}[c.status],
-			Actor: hooks.Party{ID: "mayor-bot", Name: "Mayor-Bot"}, Thread: hooks.Thread{ID: "Acme/webapp#7", Title: "Retries"}}
+			Actor: hooks.Party{ID: "yardmaster-bot", Name: "Yardmaster-Bot"}, Thread: hooks.Thread{ID: "Acme/webapp#7", Title: "Retries"}}
 		if _, _, err := own.RecordHook(ctx, "github", change.Map(), []byte("{}"), nil); err != nil {
 			t.Fatal(err)
 		}
-		if page, err := st.Inbox(ctx, "mayor", 0); err != nil || len(page.Events) != 1 {
+		if page, err := st.Inbox(ctx, "yardmaster", 0); err != nil || len(page.Events) != 1 {
 			t.Fatalf("%v: the delivery of its own change reached its inbox: %+v, %v", c.args, page, err)
 		}
 	}
@@ -389,13 +389,13 @@ func TestThreadStateRefusals(t *testing.T) {
 	linear := record(hooks.Envelope{Source: "linear", Type: "comment", Action: "create", Actor: hooks.Party{ID: "u-jane"},
 		Thread: hooks.Thread{ID: linearIssue1}, Message: "c1"})
 	token := record(hooks.Envelope{Source: "token", Type: "backup", Actor: hooks.Party{ID: "cron"}, Thread: hooks.Thread{ID: "nightly"}})
-	if err := st.FollowThread(ctx, "mayor", "linear", "Acme/webapp#7", "jo"); err != nil {
+	if err := st.FollowThread(ctx, "yardmaster", "linear", "Acme/webapp#7", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.FollowThread(ctx, "mayor", "token", "nightly", "jo"); err != nil {
+	if err := st.FollowThread(ctx, "yardmaster", "token", "nightly", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Mail(ctx, "mayor", "hello", "jo"); err != nil {
+	if err := st.Mail(ctx, "yardmaster", "hello", "jo"); err != nil {
 		t.Fatal(err)
 	}
 	mail, _ := st.Head(ctx)
@@ -416,15 +416,15 @@ func TestThreadStateRefusals(t *testing.T) {
 	}
 	// Without the setting for the source, however the thread is named.
 	for _, args := range [][]string{{linear, "started"}, {linearIssue1, "started"}, {"--source", "linear", linearIssue1, "started"}} {
-		refused("resident mayor may not set the status of threads in linear", args...)
-		refused("yardr resident set mayor set_state=github,linear", args...)
+		refused("resident yardmaster may not set the status of threads in linear", args...)
+		refused("yardr resident set yardmaster set_state=github,linear", args...)
 	}
 	// Allowed in the source, but no part in the thread.
-	refused("resident mayor takes no part in github thread Acme/webapp#8", elsewhere, "done")
-	refused("yardr thread follow mayor --source github Acme/webapp#8", elsewhere, "done")
-	refused("yardr thread follow mayor --source github Acme/webapp#9", "--source", "github", "Acme/webapp#9", "done")
-	refused("resident mayor takes no part in a thread Acme/webapp#9", "Acme/webapp#9", "done")
-	refused("yardr thread follow mayor --source <source> Acme/webapp#9", "Acme/webapp#9", "done")
+	refused("resident yardmaster takes no part in github thread Acme/webapp#8", elsewhere, "done")
+	refused("yardr thread follow yardmaster --source github Acme/webapp#8", elsewhere, "done")
+	refused("yardr thread follow yardmaster --source github Acme/webapp#9", "--source", "github", "Acme/webapp#9", "done")
+	refused("resident yardmaster takes no part in a thread Acme/webapp#9", "Acme/webapp#9", "done")
+	refused("yardr thread follow yardmaster --source <source> Acme/webapp#9", "Acme/webapp#9", "done")
 	// An id it follows in two sources needs its source.
 	refused("takes part in a thread Acme/webapp#7 in github and linear: say which with --source", "Acme/webapp#7", "done")
 	// What is no state, no thread, no source with statuses.
@@ -439,21 +439,21 @@ func TestThreadStateRefusals(t *testing.T) {
 	// A bead's agent, or another resident, naming it with --resident.
 	t.Setenv("YARDR_RESIDENT", "")
 	a.actor = "yard-10-new"
-	refused("only mayor's own session or the operator (jo) may speak as mayor; this is yard-10-new",
-		"--source", "github", "Acme/webapp#7", "done", "--resident", "mayor")
+	refused("only yardmaster's own session or the operator (jo) may speak as yardmaster; this is yard-10-new",
+		"--source", "github", "Acme/webapp#7", "done", "--resident", "yardmaster")
 	refused("--resident is required", "--source", "github", "Acme/webapp#7", "done")
 
 	// Without its credential nothing changes.
-	a.actor = "mayor"
+	a.actor = "yardmaster"
 	t.Setenv("GITHUB_TOKEN", "wrong")
-	if _, _, err := state(t, a, "--source", "github", "Acme/webapp#7", "done", "--resident", "mayor"); err == nil ||
+	if _, _, err := state(t, a, "--source", "github", "Acme/webapp#7", "done", "--resident", "yardmaster"); err == nil ||
 		!strings.Contains(err.Error(), "401") || len(f.changes) != 0 || kinds(t, st, "thread_state") != 0 {
 		t.Fatalf("wrong credential: %v, %v", err, f.changes)
 	}
 	// The operator may speak as it.
-	t.Setenv("GITHUB_TOKEN", "gh-mayor")
+	t.Setenv("GITHUB_TOKEN", "gh-yardmaster")
 	a.actor = "jo"
-	if _, _, err := state(t, a, "--source", "github", "Acme/webapp#7", "done", "--resident", "mayor"); err != nil || f.github != "closed" {
+	if _, _, err := state(t, a, "--source", "github", "Acme/webapp#7", "done", "--resident", "yardmaster"); err != nil || f.github != "closed" {
 		t.Fatalf("the operator: %v, github %s", err, f.github)
 	}
 }
@@ -485,29 +485,29 @@ func TestSetStateIsTheOperatorsToSet(t *testing.T) {
 		return strings.Join(r.MaySetState(), ",")
 	}
 
-	// mayor's own session, for itself, for another resident and for one
+	// yardmaster's own session, for itself, for another resident and for one
 	// that does not exist yet.
-	for _, name := range []string{"mayor", "scout", "fresh"} {
+	for _, name := range []string{"yardmaster", "scout", "fresh"} {
 		err := add(name, "kind=claude", "set_state=linear")
-		if err == nil || !strings.Contains(err.Error(), "only the operator (jo) may let "+name+" set the status of threads in linear; this is mayor") {
-			t.Fatalf("mayor's session allowing %s: %v", name, err)
+		if err == nil || !strings.Contains(err.Error(), "only the operator (jo) may let "+name+" set the status of threads in linear; this is yardmaster") {
+			t.Fatalf("yardmaster's session allowing %s: %v", name, err)
 		}
 	}
-	if _, err := st.GetResident(ctx, "fresh"); err == nil || may("mayor") != "" || may("scout") != "" {
-		t.Fatalf("a refused definition was saved: mayor %q, scout %q", may("mayor"), may("scout"))
+	if _, err := st.GetResident(ctx, "fresh"); err == nil || may("yardmaster") != "" || may("scout") != "" {
+		t.Fatalf("a refused definition was saved: yardmaster %q, scout %q", may("yardmaster"), may("scout"))
 	}
 	// A bead's agent is no operator either.
 	a.actor = "yard-10-new"
-	if err := add("mayor", "kind=claude", `set_state=["github"]`); err == nil {
+	if err := add("yardmaster", "kind=claude", `set_state=["github"]`); err == nil {
 		t.Fatal("a bead's agent allowed it")
 	}
 
 	a.actor = "jo"
-	if err := add("mayor", "kind=claude", "set_state=linear"); err != nil || may("mayor") != "linear" {
-		t.Fatalf("the operator: %v, %q", err, may("mayor"))
+	if err := add("yardmaster", "kind=claude", "set_state=linear"); err != nil || may("yardmaster") != "linear" {
+		t.Fatalf("the operator: %v, %q", err, may("yardmaster"))
 	}
 	for _, bad := range []string{"set_state=token", "set_state=linear,slack", "set_state=", "set_state=true"} {
-		if err := add("mayor", "kind=claude", bad); err == nil || !strings.Contains(err.Error(), "--set set_state") {
+		if err := add("yardmaster", "kind=claude", bad); err == nil || !strings.Contains(err.Error(), "--set set_state") {
 			t.Fatalf("%s: %v", bad, err)
 		}
 	}
@@ -515,29 +515,29 @@ func TestSetStateIsTheOperatorsToSet(t *testing.T) {
 	// The resident saves its definition with what it already has, but not
 	// with more; without the setting, it has given it up. Being allowed to
 	// open threads is no leave to set their status, nor the other way.
-	a.actor = "mayor"
-	if err := add("mayor", "kind=claude", "model=opus", "set_state=linear"); err != nil || may("mayor") != "linear" {
-		t.Fatalf("keeping it: %v, %q", err, may("mayor"))
+	a.actor = "yardmaster"
+	if err := add("yardmaster", "kind=claude", "model=opus", "set_state=linear"); err != nil || may("yardmaster") != "linear" {
+		t.Fatalf("keeping it: %v, %q", err, may("yardmaster"))
 	}
-	if err := add("mayor", "kind=claude", "set_state=linear,github"); err == nil || !strings.Contains(err.Error(), "set the status of threads in github;") {
+	if err := add("yardmaster", "kind=claude", "set_state=linear,github"); err == nil || !strings.Contains(err.Error(), "set the status of threads in github;") {
 		t.Fatalf("widening it: %v", err)
 	}
-	if err := add("mayor", "kind=claude", "set_state=linear", "open_threads=linear"); err == nil || !strings.Contains(err.Error(), "open threads in linear;") {
+	if err := add("yardmaster", "kind=claude", "set_state=linear", "open_threads=linear"); err == nil || !strings.Contains(err.Error(), "open threads in linear;") {
 		t.Fatalf("taking the other setting: %v", err)
 	}
-	if err := add("mayor", "kind=claude"); err != nil || may("mayor") != "" {
-		t.Fatalf("dropping it: %v, %q", err, may("mayor"))
+	if err := add("yardmaster", "kind=claude"); err != nil || may("yardmaster") != "" {
+		t.Fatalf("dropping it: %v, %q", err, may("yardmaster"))
 	}
-	if err := add("mayor", "kind=claude", "set_state=linear"); err == nil {
+	if err := add("yardmaster", "kind=claude", "set_state=linear"); err == nil {
 		t.Fatal("taking it back after dropping it")
 	}
 
 	// resident show says what is allowed.
 	a.actor = "jo"
-	if err := add("mayor", "kind=claude", "set_state=github,linear"); err != nil {
+	if err := add("yardmaster", "kind=claude", "set_state=github,linear"); err != nil {
 		t.Fatal(err)
 	}
-	out, err := run(t, a.residentCmd(), "show", "mayor")
+	out, err := run(t, a.residentCmd(), "show", "yardmaster")
 	if err != nil || !strings.Contains(out, "may set the status of threads in github, linear\n") || strings.Contains(out, "may open threads") {
 		t.Fatalf("show: %q, %v", out, err)
 	}

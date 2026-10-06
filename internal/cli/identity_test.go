@@ -188,15 +188,15 @@ func TestWorktreeLeavesTheBeadsOwnEnvironmentAlone(t *testing.T) {
 		t.Fatalf("done from the builder left open: %v, want %q", err, want)
 	}
 
-	t.Setenv("YARDR_ACTOR", "mayor")
+	t.Setenv("YARDR_ACTOR", "yardmaster")
 	t.Setenv("YARDR_SESSION", "")
 	t.Setenv("YARDR_BEAD", "")
 	if _, err := run(t, (&app{st: st}).beadCmd(), "note", b.ID, "looked in"); err != nil {
 		t.Fatal(err)
 	}
 	notes, _ := st.Notes(ctx, b.ID)
-	if len(notes) != 1 || notes[0].Author != "mayor" {
-		t.Fatalf("the note is not the mayor's: %+v", notes)
+	if len(notes) != 1 || notes[0].Author != "yardmaster" {
+		t.Fatalf("the note is not the yardmaster's: %+v", notes)
 	}
 	if errs.Len() != 0 {
 		t.Fatalf("stderr = %q", errs.String())

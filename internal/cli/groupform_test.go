@@ -48,9 +48,9 @@ func TestGroupFormNotify(t *testing.T) {
 }
 
 func TestGroupFormMembers(t *testing.T) {
-	g := store.Group{Name: "humans", Runner: "manual", Limit: 1, Config: map[string]any{}, Members: []string{"mckean", "mayor"}}
+	g := store.Group{Name: "humans", Runner: "manual", Limit: 1, Config: map[string]any{}, Members: []string{"mckean", "yardmaster"}}
 	a := answersFrom(g)
-	if a.Members != "mckean, mayor" {
+	if a.Members != "mckean, yardmaster" {
 		t.Fatalf("members answer = %q", a.Members)
 	}
 	if back := a.group(); !reflect.DeepEqual(back, g) {
@@ -61,7 +61,7 @@ func TestGroupFormMembers(t *testing.T) {
 	if back := a.group(); back.Members != nil {
 		t.Fatalf("herdr group kept members %v", back.Members)
 	}
-	if got := describe(g); got != "manual · members mckean,mayor · limit 1" {
+	if got := describe(g); got != "manual · members mckean,yardmaster · limit 1" {
 		t.Fatalf("describe = %q", got)
 	}
 }

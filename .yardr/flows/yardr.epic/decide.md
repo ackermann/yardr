@@ -8,5 +8,5 @@ outcomes; the person answering moves it (`yardr review -g decisions`, or
 
 - to `open`, when the epic can go on: with no child open it is integrated
   again, and an answer that needs work is a new child, added first;
-- to `backlog`, when the answer changes what the epic is and the mayor must
+- to `backlog`, when the answer changes what the epic is and the yardmaster must
   reshape it.

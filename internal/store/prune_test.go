@@ -29,7 +29,7 @@ func head(t *testing.T, s store.API) uint64 {
 func TestInboxReadsOnlyTheResidentsEntries(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	if _, err := s.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr", On: []string{"gave_up"}}, "me"); err != nil {
+	if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr", On: []string{"gave_up"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 10; i++ {
@@ -40,11 +40,11 @@ func TestInboxReadsOnlyTheResidentsEntries(t *testing.T) {
 			if err := own.LogEvent(ctx, "", "gave_up", "yard", nil); err != nil {
 				t.Fatal(err)
 			}
-		} else if err := s.Mail(ctx, "mayor", "hello", "me"); err != nil {
+		} else if err := s.Mail(ctx, "yardmaster", "hello", "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	// Mail to someone else and the mayor's own actions stay out.
+	// Mail to someone else and the yardmaster's own actions stay out.
 	if _, err := s.PutResident(ctx, store.Resident{Name: "other", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestInboxReadsOnlyTheResidentsEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := own.InboxReads()
-	page, err := s.Inbox(ctx, "mayor", 3)
+	page, err := s.Inbox(ctx, "yardmaster", 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,10 +75,10 @@ func TestInboxIndexBuiltForOldStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	if _, err := s.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr"}, "me"); err != nil {
+	if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Mail(ctx, "mayor", "kept across the upgrade", "me"); err != nil {
+	if err := s.Mail(ctx, "yardmaster", "kept across the upgrade", "me"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.DropIndexes(); err != nil {
@@ -86,7 +86,7 @@ func TestInboxIndexBuiltForOldStore(t *testing.T) {
 	}
 	s.Close(ctx)
 	s = storetest.Open(t, path)
-	page, err := s.Inbox(ctx, "mayor", 0)
+	page, err := s.Inbox(ctx, "yardmaster", 0)
 	if err != nil || page.Total != 1 || page.Events[0].Data["text"] != "kept across the upgrade" {
 		t.Fatalf("inbox after reopen = %+v %v", page, err)
 	}
@@ -194,23 +194,23 @@ func TestPruneRemovesOldEventsButTheHead(t *testing.T) {
 func TestPruneKeepsWhatAResidentHasNotRead(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	if _, err := s.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr"}, "me"); err != nil {
+	if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ResidentStarted(ctx, "mayor", map[string]any{"agent": "a1"}); err != nil {
+	if err := s.ResidentStarted(ctx, "yardmaster", map[string]any{"agent": "a1"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := own.BulkEvents(100, "noise", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Mail(ctx, "mayor", "read me", "me"); err != nil {
+	if err := s.Mail(ctx, "yardmaster", "read me", "me"); err != nil {
 		t.Fatal(err)
 	}
 	mail := head(t, s)
 	if err := own.BulkEvents(100, "noise", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AckInbox(ctx, "mayor", mail-1); err != nil {
+	if err := s.AckInbox(ctx, "yardmaster", mail-1); err != nil {
 		t.Fatal(err)
 	}
 	if err := own.Backdate(1, head(t, s), time.Now().Add(-100*24*time.Hour)); err != nil {
@@ -220,15 +220,15 @@ func TestPruneKeepsWhatAResidentHasNotRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Events != int(mail-1) || !strings.Contains(res.HeldBy, "resident mayor") {
-		t.Fatalf("pruned %+v, want %d events held by the mayor", res, mail-1)
+	if res.Events != int(mail-1) || !strings.Contains(res.HeldBy, "resident yardmaster") {
+		t.Fatalf("pruned %+v, want %d events held by the yardmaster", res, mail-1)
 	}
-	page, err := s.Inbox(ctx, "mayor", 0)
+	page, err := s.Inbox(ctx, "yardmaster", 0)
 	if err != nil || page.Total != 1 || page.Events[0].Data["text"] != "read me" {
 		t.Fatalf("inbox = %+v %v", page, err)
 	}
 	// Once read, it may go.
-	if err := s.AckInbox(ctx, "mayor", page.Last); err != nil {
+	if err := s.AckInbox(ctx, "yardmaster", page.Last); err != nil {
 		t.Fatal(err)
 	}
 	if res, err := s.Prune(ctx, keep90, "me"); err != nil || res.Events != 101 {
@@ -263,15 +263,15 @@ func journalEvents(t *testing.T, s store.API, resident, kind string) []store.Eve
 func TestPruneIgnoresAStoppedResidentsInbox(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	r, err := s.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr"}, "me")
+	r, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetResidentEnabled(ctx, "mayor", false, r.Revision, "me"); err != nil {
+	if err := s.SetResidentEnabled(ctx, "yardmaster", false, r.Revision, "me"); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 3; i++ {
-		if err := s.Mail(ctx, "mayor", "never read", "me"); err != nil {
+		if err := s.Mail(ctx, "yardmaster", "never read", "me"); err != nil {
 			t.Fatal(err)
 		}
 		if err := own.BulkEvents(100, "noise", nil); err != nil {
@@ -286,21 +286,21 @@ func TestPruneIgnoresAStoppedResidentsInbox(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Events != int(h-1) || res.HeldBy != "" || res.Expired["mayor"] != 3 {
-		t.Fatalf("pruned %+v, want %d events, nothing held, 3 expired for the mayor", res, h-1)
+	if res.Events != int(h-1) || res.HeldBy != "" || res.Expired["yardmaster"] != 3 {
+		t.Fatalf("pruned %+v, want %d events, nothing held, 3 expired for the yardmaster", res, h-1)
 	}
-	if page, err := s.Inbox(ctx, "mayor", 0); err != nil || page.Total != 0 {
+	if page, err := s.Inbox(ctx, "yardmaster", 0); err != nil || page.Total != 0 {
 		t.Fatalf("inbox after prune = %+v %v, want empty", page, err)
 	}
-	evs := journalEvents(t, s, "mayor", "inbox_expired")
-	if len(evs) != 1 || evs[0].Data["events"] != float64(3) || evs[0].Data["resident"] != "mayor" {
+	evs := journalEvents(t, s, "yardmaster", "inbox_expired")
+	if len(evs) != 1 || evs[0].Data["events"] != float64(3) || evs[0].Data["resident"] != "yardmaster" {
 		t.Fatalf("inbox_expired on the journal = %+v, want one for 3 events", evs)
 	}
 	// Nothing more to say once it is gone.
 	if res, err := s.Prune(ctx, keep90, "me"); err != nil || res.Expired != nil {
 		t.Fatalf("second prune = %+v %v", res, err)
 	}
-	if n := len(journalEvents(t, s, "mayor", "inbox_expired")); n != 1 {
+	if n := len(journalEvents(t, s, "yardmaster", "inbox_expired")); n != 1 {
 		t.Fatalf("inbox_expired events = %d after a prune that dropped nothing", n)
 	}
 }
@@ -310,20 +310,20 @@ func TestPruneIgnoresAStoppedResidentsInbox(t *testing.T) {
 func TestPruneDropsUnreadPastTheInboxRetention(t *testing.T) {
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	if _, err := s.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr"}, "me"); err != nil {
+	if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ResidentStarted(ctx, "mayor", map[string]any{"agent": "a1"}); err != nil {
+	if err := s.ResidentStarted(ctx, "yardmaster", map[string]any{"agent": "a1"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Mail(ctx, "mayor", "forgotten", "me"); err != nil {
+	if err := s.Mail(ctx, "yardmaster", "forgotten", "me"); err != nil {
 		t.Fatal(err)
 	}
 	if err := own.BulkEvents(100, "noise", nil); err != nil {
 		t.Fatal(err)
 	}
 	old := head(t, s)
-	if err := s.Mail(ctx, "mayor", "still pending", "me"); err != nil {
+	if err := s.Mail(ctx, "yardmaster", "still pending", "me"); err != nil {
 		t.Fatal(err)
 	}
 	pending := head(t, s)
@@ -338,10 +338,10 @@ func TestPruneDropsUnreadPastTheInboxRetention(t *testing.T) {
 	}
 	// With no bound the oldest unread mail pins everything from it on.
 	res, err := s.Prune(ctx, keep90, "me")
-	if err != nil || res.Events >= int(old) || !strings.Contains(res.HeldBy, "resident mayor") {
-		t.Fatalf("unbounded prune = %+v %v, want only what came before the mail pruned, held by the mayor", res, err)
+	if err != nil || res.Events >= int(old) || !strings.Contains(res.HeldBy, "resident yardmaster") {
+		t.Fatalf("unbounded prune = %+v %v, want only what came before the mail pruned, held by the yardmaster", res, err)
 	}
-	if page, err := s.Inbox(ctx, "mayor", 0); err != nil || page.Total != 2 {
+	if page, err := s.Inbox(ctx, "yardmaster", 0); err != nil || page.Total != 2 {
 		t.Fatalf("inbox after the unbounded prune = %+v %v, want both mails", page, err)
 	}
 	keep := store.Retention{Events: 90 * 24 * time.Hour, Inbox: 180 * 24 * time.Hour}
@@ -349,13 +349,13 @@ func TestPruneDropsUnreadPastTheInboxRetention(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Events == 0 || res.Expired["mayor"] != 1 || !strings.Contains(res.HeldBy, "resident mayor") {
+	if res.Events == 0 || res.Expired["yardmaster"] != 1 || !strings.Contains(res.HeldBy, "resident yardmaster") {
 		t.Fatalf("pruned %+v, want the forgotten mail and what followed it gone, held by the pending mail", res)
 	}
 	if evs, err := s.EventsSince(ctx, 0, 1); err != nil || len(evs) != 1 || evs[0].Seq != pending {
 		t.Fatalf("oldest event left = %+v %v, want the pending mail %d", evs, err, pending)
 	}
-	page, err := s.Inbox(ctx, "mayor", 0)
+	page, err := s.Inbox(ctx, "yardmaster", 0)
 	if err != nil || page.Total != 1 || page.Events[0].Data["text"] != "still pending" {
 		t.Fatalf("inbox = %+v %v", page, err)
 	}

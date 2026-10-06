@@ -64,7 +64,7 @@ func edit(t *testing.T, dir string, pairs ...string) {
 // one event saying so.
 func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 	st, o := yard(t)
-	o.Residents = map[string]string{"mayor": "boss"}
+	o.Residents = map[string]string{"yardmaster": "boss"}
 	res := apply(t, st, build(t, st, load(t, starter), o), answers)
 	if res.Created != 25 || res.Changed != 0 || res.Unchanged != 0 || !res.Recorded || !res.Wrote() {
 		t.Fatalf("first import = %+v", res)
@@ -77,7 +77,7 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 		g.Config["prompt"] != filepath.Join(o.Home, "packs", "starter", "roles", "builder.md") {
 		t.Fatalf("web-builders = %+v", g)
 	}
-	if g, _ := st.GetGroup(ctx, "backlog"); g == nil || !slices.Equal(g.Members, []string{"ann", "mayor"}) {
+	if g, _ := st.GetGroup(ctx, "backlog"); g == nil || !slices.Equal(g.Members, []string{"ann", "yardmaster"}) {
 		t.Fatalf("backlog = %+v", g)
 	}
 	if info, err := os.Stat(filepath.Join(o.Home, "packs", "starter", "scripts", "merge-local")); err != nil || info.Mode().Perm() != 0o755 {
@@ -87,8 +87,8 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 	if err != nil || len(boss.On) != 16 || len(boss.Subscriptions) != 3 || boss.Config["kind"] != "claude" || boss.Dir == "" {
 		t.Fatalf("boss = %+v, %v", boss, err)
 	}
-	if _, err := st.GetResident(ctx, "mayor"); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("a resident mayor exists beside boss: %v", err)
+	if _, err := st.GetResident(ctx, "yardmaster"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a resident yardmaster exists beside boss: %v", err)
 	}
 
 	recs, err := st.Packs(ctx)
@@ -98,7 +98,7 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 	rec := recs[0]
 	abs, _ := filepath.Abs(starter)
 	if rec.Pack != "starter" || rec.Rig != "web" || rec.Source != abs || rec.By != "me" || rec.At.IsZero() || rec.Flow != "default" ||
-		rec.Groups["builders"] != "web-builders" || rec.Groups["backlog"] != "backlog" || !reflect.DeepEqual(rec.Residents, map[string]string{"mayor": "boss"}) {
+		rec.Groups["builders"] != "web-builders" || rec.Groups["backlog"] != "backlog" || !reflect.DeepEqual(rec.Residents, map[string]string{"yardmaster": "boss"}) {
 		t.Fatalf("record = %+v", rec)
 	}
 	// The starter pack is in this repository, so its commit is known.
@@ -110,7 +110,7 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 		t.Fatalf("%d objects recorded: %+v", len(rec.Objects), rec.Objects)
 	}
 
-	// Again, with no flag: the record says who took mayor.
+	// Again, with no flag: the record says who took yardmaster.
 	before := head(t, st)
 	o.Residents = nil
 	plan := build(t, st, load(t, starter), o)
@@ -157,7 +157,7 @@ func TestApplyOverAYardSetUpByHand(t *testing.T) {
 		must(err)
 	}
 	_, err := st.PutResident(ctx, store.Resident{Name: "boss", Runner: "herdr", Dir: "/home/boss", MaxAge: "6h",
-		Config: map[string]any{"kind": "codex", "prompt": "/old/mayor.md", "env_file": "/boss.env"}, On: []string{"held"}}, "me")
+		Config: map[string]any{"kind": "codex", "prompt": "/old/yardmaster.md", "env_file": "/boss.env"}, On: []string{"held"}}, "me")
 	must(err)
 	must(st.SetIdentity(ctx, "boss", "linear", store.Identity{ID: "u1", Key: "boss"}, "me"))
 	must(st.AddSubscription(ctx, "boss", store.Subscription{Source: "linear", Scope: "all"}, "me"))
@@ -165,7 +165,7 @@ func TestApplyOverAYardSetUpByHand(t *testing.T) {
 	// replacing the unfiltered one must leave it.
 	must(st.AddSubscription(ctx, "boss", store.Subscription{Source: "linear", Scope: "all", Where: map[string]string{"team": "ENG"}}, "me"))
 
-	o.Residents = map[string]string{"mayor": "boss"}
+	o.Residents = map[string]string{"yardmaster": "boss"}
 	res := apply(t, st, build(t, st, load(t, starter), o), nil)
 	if !res.Wrote() {
 		t.Fatalf("result = %+v", res)
@@ -203,7 +203,7 @@ func TestApplyOverAYardSetUpByHand(t *testing.T) {
 	boss, err := st.GetResident(ctx, "boss")
 	must(err)
 	if boss.Dir != "/home/boss" || boss.MaxAge != "6h" || boss.Config["kind"] != "codex" || boss.Config["env_file"] != "/boss.env" ||
-		boss.Identities["linear"].ID != "u1" || boss.Config["prompt"] != filepath.Join(install, "roles", "mayor.md") || len(boss.On) != 16 {
+		boss.Identities["linear"].ID != "u1" || boss.Config["prompt"] != filepath.Join(install, "roles", "yardmaster.md") || len(boss.On) != 16 {
 		t.Fatalf("boss = %+v", boss)
 	}
 	var subs []string
@@ -401,8 +401,8 @@ func TestApplyChecksBeforeItWrites(t *testing.T) {
 			full[q.ID] = "claude"
 		}
 	}
-	fails(full, "resident mayor needs a directory")
-	full["resident.mayor.dir"] = t.TempDir()
+	fails(full, "resident yardmaster needs a directory")
+	full["resident.yardmaster.dir"] = t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "roles", "builder.md"), []byte("changed under the plan\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -467,24 +467,24 @@ func TestApplyAgainFinishesAnImportThatFailedHalfway(t *testing.T) {
 // needs no restart.
 func TestRunningResidentIsNotRestarted(t *testing.T) {
 	st, o := yard(t)
-	if _, err := st.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr", Config: map[string]any{"kind": "claude"}, On: []string{"held"}}, "me"); err != nil {
+	if _, err := st.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr", Config: map[string]any{"kind": "claude"}, On: []string{"held"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.ResidentStarted(ctx, "mayor", map[string]any{"pane": "p1"}); err != nil {
+	if err := st.ResidentStarted(ctx, "yardmaster", map[string]any{"pane": "p1"}); err != nil {
 		t.Fatal(err)
 	}
 	plan := build(t, st, load(t, starter), o)
-	if !find(t, plan, "resident", "mayor").Resident.Restart ||
-		!slices.ContainsFunc(plan.Notes, func(n string) bool { return strings.Contains(n, "yardr resident restart mayor") }) {
-		t.Fatalf("plan: %+v, notes %v", find(t, plan, "resident", "mayor").Resident, plan.Notes)
+	if !find(t, plan, "resident", "yardmaster").Resident.Restart ||
+		!slices.ContainsFunc(plan.Notes, func(n string) bool { return strings.Contains(n, "yardr resident restart yardmaster") }) {
+		t.Fatalf("plan: %+v, notes %v", find(t, plan, "resident", "yardmaster").Resident, plan.Notes)
 	}
 	res := apply(t, st, plan, answers)
-	if !slices.Equal(res.Restart, []string{"mayor"}) {
+	if !slices.Equal(res.Restart, []string{"yardmaster"}) {
 		t.Fatalf("restart = %v", res.Restart)
 	}
-	r, err := st.GetResident(ctx, "mayor")
+	r, err := st.GetResident(ctx, "yardmaster")
 	if err != nil || !r.Live() || r.RestartRequested != "" {
-		t.Fatalf("mayor = %+v, %v: the import must not restart it", r, err)
+		t.Fatalf("yardmaster = %+v, %v: the import must not restart it", r, err)
 	}
 	res = apply(t, st, build(t, st, load(t, starter), o), nil)
 	if len(res.Restart) != 0 {
@@ -493,15 +493,15 @@ func TestRunningResidentIsNotRestarted(t *testing.T) {
 }
 
 // rigWithRoles is the yard's rig web as a directory that has its own
-// builder.md and mayor.md, a builders group and a mayor prompted as a yard
-// set up by hand has them.
+// builder.md and yardmaster.md, a builders group and a yardmaster prompted as
+// a yard set up by hand has them.
 func rigWithRoles(t *testing.T, st store.API) {
 	t.Helper()
 	rigDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(rigDir, ".yardr", "roles"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"builder.md", "mayor.md"} {
+	for _, name := range []string{"builder.md", "yardmaster.md"} {
 		if err := os.WriteFile(filepath.Join(rigDir, ".yardr", "roles", name), []byte("the rig's own\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -512,7 +512,7 @@ func rigWithRoles(t *testing.T, st store.API) {
 	if err := st.PutGroup(ctx, store.Group{Name: "web-builders", Runner: "herdr", Config: map[string]any{"kind": "claude", "prompt": "roles/builder.md"}, Limit: 5}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr", Config: map[string]any{"kind": "claude", "prompt": "/home/roles/mayor.md"}}, "me"); err != nil {
+	if _, err := st.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr", Config: map[string]any{"kind": "claude", "prompt": "/home/roles/yardmaster.md"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -546,16 +546,16 @@ func TestPacksRolesWinOverTheRigsOwn(t *testing.T) {
 	if r := find(t, plan, "group", "web-reviewers"); len(r.Shadows) != 0 || r.Group.Config["prompt"] != filepath.Join(install, "roles", "reviewer.md") {
 		t.Fatalf("web-reviewers = %+v", r)
 	}
-	m := find(t, plan, "resident", "mayor")
-	want = []pack.Diff{{Field: "prompt", Old: "/home/roles/mayor.md", New: filepath.Join(install, "roles", "mayor.md")}}
-	if m.Action != pack.Change || !slices.Equal(m.Shadows, []string{".yardr/roles/mayor.md"}) || len(m.Keeps) != 0 || !reflect.DeepEqual(m.Changes[:1], want) {
-		t.Fatalf("mayor = %+v", m)
+	m := find(t, plan, "resident", "yardmaster")
+	want = []pack.Diff{{Field: "prompt", Old: "/home/roles/yardmaster.md", New: filepath.Join(install, "roles", "yardmaster.md")}}
+	if m.Action != pack.Change || !slices.Equal(m.Shadows, []string{".yardr/roles/yardmaster.md"}) || len(m.Keeps) != 0 || !reflect.DeepEqual(m.Changes[:1], want) {
+		t.Fatalf("yardmaster = %+v", m)
 	}
 	apply(t, st, plan, nil)
 	g, _ := st.GetGroup(ctx, "web-builders")
-	r, _ := st.GetResident(ctx, "mayor")
-	if g.Config["prompt"] != filepath.Join(install, "roles", "builder.md") || r.Config["prompt"] != filepath.Join(install, "roles", "mayor.md") {
-		t.Fatalf("after the import: builders %v, mayor %v", g.Config["prompt"], r.Config["prompt"])
+	r, _ := st.GetResident(ctx, "yardmaster")
+	if g.Config["prompt"] != filepath.Join(install, "roles", "builder.md") || r.Config["prompt"] != filepath.Join(install, "roles", "yardmaster.md") {
+		t.Fatalf("after the import: builders %v, yardmaster %v", g.Config["prompt"], r.Config["prompt"])
 	}
 	if rec := record(t, st); rec.RigRoles {
 		t.Fatalf("the record says the rig's roles were kept: %+v", rec)
@@ -598,9 +598,9 @@ func TestRigRolesKeepsTheRigsOwnAndIsRemembered(t *testing.T) {
 	if r := find(t, plan, "group", "web-reviewers"); len(r.Keeps) != 0 || r.Group.Config["prompt"] != filepath.Join(install, "roles", "reviewer.md") {
 		t.Fatalf("web-reviewers = %+v", r)
 	}
-	m := find(t, plan, "resident", "mayor")
-	if m.Resident.Prompt != "/home/roles/mayor.md" || len(m.Keeps) != 1 || len(m.Shadows) != 0 || slices.ContainsFunc(m.Changes, func(d pack.Diff) bool { return d.Field == "prompt" }) {
-		t.Fatalf("mayor = %+v", m)
+	m := find(t, plan, "resident", "yardmaster")
+	if m.Resident.Prompt != "/home/roles/yardmaster.md" || len(m.Keeps) != 1 || len(m.Shadows) != 0 || slices.ContainsFunc(m.Changes, func(d pack.Diff) bool { return d.Field == "prompt" }) {
+		t.Fatalf("yardmaster = %+v", m)
 	}
 	// Installed all the same, for rigs without their own.
 	if f := find(t, plan, "file", "roles/builder.md"); f.Action != pack.Create {
@@ -608,9 +608,9 @@ func TestRigRolesKeepsTheRigsOwnAndIsRemembered(t *testing.T) {
 	}
 	apply(t, st, plan, nil)
 	g, _ := st.GetGroup(ctx, "web-builders")
-	r, _ := st.GetResident(ctx, "mayor")
-	if g.Config["prompt"] != "roles/builder.md" || r.Config["prompt"] != "/home/roles/mayor.md" {
-		t.Fatalf("after the import: builders %v, mayor %v", g.Config["prompt"], r.Config["prompt"])
+	r, _ := st.GetResident(ctx, "yardmaster")
+	if g.Config["prompt"] != "roles/builder.md" || r.Config["prompt"] != "/home/roles/yardmaster.md" {
+		t.Fatalf("after the import: builders %v, yardmaster %v", g.Config["prompt"], r.Config["prompt"])
 	}
 	if rec := record(t, st); !rec.RigRoles {
 		t.Fatalf("the record does not say the rig's roles were kept: %+v", rec)
@@ -634,8 +634,8 @@ func TestRigRolesKeepsTheRigsOwnAndIsRemembered(t *testing.T) {
 	if plan.RigRoles || len(b.Keeps) != 0 || !reflect.DeepEqual(b.Changes, want) || !slices.Equal(b.Shadows, []string{".yardr/roles/builder.md"}) {
 		t.Fatalf("with PackRoles: %+v", b)
 	}
-	if m := find(t, plan, "resident", "mayor"); m.Resident.Prompt != filepath.Join(install, "roles", "mayor.md") {
-		t.Fatalf("with PackRoles: mayor %+v", m.Resident)
+	if m := find(t, plan, "resident", "yardmaster"); m.Resident.Prompt != filepath.Join(install, "roles", "yardmaster.md") {
+		t.Fatalf("with PackRoles: yardmaster %+v", m.Resident)
 	}
 	apply(t, st, plan, nil)
 	if rec := record(t, st); rec.RigRoles {
@@ -855,7 +855,7 @@ func TestApplyGivesNewAgentsTheirArguments(t *testing.T) {
 			t.Fatalf("asks %s of a group the yard has", q.ID)
 		}
 	}
-	apply(t, st, plan, map[string]string{"group.web-builders.args": "--permission-mode  auto", "resident.mayor.args": ""})
+	apply(t, st, plan, map[string]string{"group.web-builders.args": "--permission-mode  auto", "resident.yardmaster.args": ""})
 	args := func(cfg map[string]any) string {
 		if cfg["args"] == nil {
 			return ""
@@ -868,8 +868,8 @@ func TestApplyGivesNewAgentsTheirArguments(t *testing.T) {
 	if g, err := st.GetGroup(ctx, "web-reviewers"); err != nil || args(g.Config) != "[--mine]" {
 		t.Fatalf("web-reviewers = %+v, %v", g, err)
 	}
-	if r, err := st.GetResident(ctx, "mayor"); err != nil || args(r.Config) != "" {
-		t.Fatalf("mayor = %+v, %v", r, err)
+	if r, err := st.GetResident(ctx, "yardmaster"); err != nil || args(r.Config) != "" {
+		t.Fatalf("yardmaster = %+v, %v", r, err)
 	}
 	// Twice is once: the arguments are the yard's now.
 	plan = build(t, st, load(t, copyStarter(t)), o)
@@ -964,7 +964,7 @@ func TestPackWithoutStageFilesBringsNone(t *testing.T) {
 			files = append(files, obj.Name)
 		}
 	}
-	if want := []string{"roles/builder.md", "roles/mayor.md", "scripts/land"}; !slices.Equal(files, want) {
+	if want := []string{"roles/builder.md", "roles/yardmaster.md", "scripts/land"}; !slices.Equal(files, want) {
 		t.Fatalf("files = %v, want %v", files, want)
 	}
 	apply(t, st, plan, nil)
@@ -1095,7 +1095,7 @@ func TestPruneLeavesTheStageFilesOfAFlowItCouldNotRemove(t *testing.T) {
 // hand edit of the filled copy is refused.
 func TestImportFillsThePlaceholders(t *testing.T) {
 	st, o := yard(t)
-	o.Operator, o.Residents = "Jo", map[string]string{"mayor": "yardmaster"}
+	o.Operator, o.Residents = "Jo", map[string]string{"yardmaster": "boss"}
 	dir := copyStarter(t)
 	script := filepath.Join(dir, "scripts", "merge-local")
 	text, _ := os.ReadFile(script)
@@ -1103,7 +1103,7 @@ func TestImportFillsThePlaceholders(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan := build(t, st, load(t, dir), o)
-	if want := map[string]string{"operator": "Jo", "mayor": "yardmaster"}; !reflect.DeepEqual(plan.Fill, want) {
+	if want := map[string]string{"operator": "Jo", "yardmaster": "boss"}; !reflect.DeepEqual(plan.Fill, want) {
 		t.Fatalf("fill = %v, want %v", plan.Fill, want)
 	}
 	if f := find(t, plan, "file", "roles/builder.md"); !f.File.Fill || find(t, plan, "file", "scripts/merge-local").File.Fill {
@@ -1113,7 +1113,7 @@ func TestImportFillsThePlaceholders(t *testing.T) {
 
 	builder := filepath.Join(o.Home, "packs", "starter", "roles", "builder.md")
 	got, _ := os.ReadFile(builder)
-	for _, want := range []string{"never Jo's own session", "`yardr mail yardmaster \"<bead id>: <one line>\"`"} {
+	for _, want := range []string{"never Jo's own session", "`yardr mail boss \"<bead id>: <one line>\"`"} {
 		if !strings.Contains(string(got), want) {
 			t.Errorf("the installed builder.md lacks %q", want)
 		}
@@ -1149,15 +1149,15 @@ func TestImportFillsThePlaceholders(t *testing.T) {
 		t.Fatalf("the second import wrote: %+v", res)
 	}
 
-	// Another resident takes mayor: the files that name it change, and that
-	// is no hand edit.
-	o.Residents = map[string]string{"mayor": "boss"}
+	// Another resident takes yardmaster: the files that name it change, and
+	// that is no hand edit.
+	o.Residents = map[string]string{"yardmaster": "chief"}
 	moved := build(t, st, load(t, dir), o)
 	if f := find(t, moved, "file", "roles/builder.md"); f.Action != pack.Change || f.Edited {
 		t.Fatalf("builder.md under another resident = %+v", f)
 	}
-	if f := find(t, moved, "file", "roles/mayor.md"); f.Action != pack.Unchanged {
-		t.Fatalf("mayor.md names no resident, yet = %+v", f)
+	if f := find(t, moved, "file", "roles/yardmaster.md"); f.Action != pack.Unchanged {
+		t.Fatalf("yardmaster.md names no resident, yet = %+v", f)
 	}
 	if len(moved.EditedFiles()) != 0 {
 		t.Fatalf("a changed mapping counts as a hand edit: %v", moved.EditedFiles())
@@ -1207,5 +1207,68 @@ func TestFilledFileChangedSinceThePlanIsRefused(t *testing.T) {
 	}
 	if _, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: a, Actor: "me"}); err == nil || !strings.Contains(err.Error(), from+" changed since the plan was made") {
 		t.Fatalf("applying a plan whose source changed: %v", err)
+	}
+}
+
+// The starter pack's resident was called mayor until it became yardmaster.
+// For this release what was written with the old name still means that
+// resident: --resident mayor=<name>, the record of an import made before,
+// and {{mayor}} in a role a yard edited. A pack that still has a resident
+// mayor of its own is read as it stands.
+func TestThePacksMayorIsItsYardmaster(t *testing.T) {
+	st, o := yard(t)
+	o.Operator, o.Residents = "Jo", map[string]string{"mayor": "boss"}
+	dir := copyStarter(t)
+	builder := filepath.Join(dir, "roles", "builder.md")
+	text, _ := os.ReadFile(builder)
+	if err := os.WriteFile(builder, append(text, "Or ask {{mayor}}.\n"...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := build(t, st, load(t, dir), o)
+	if want := map[string]string{"yardmaster": "boss"}; !reflect.DeepEqual(plan.Residents, want) {
+		t.Fatalf("residents = %v, want %v", plan.Residents, want)
+	}
+	apply(t, st, plan, answers)
+	got, _ := os.ReadFile(filepath.Join(o.Home, "packs", "starter", "roles", "builder.md"))
+	for _, want := range []string{"`yardr mail boss \"<bead id>: <one line>\"`", "Or ask boss.\n"} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("the installed builder.md lacks %q", want)
+		}
+	}
+
+	// The record as an import before the rename wrote it.
+	rec := record(t, st)
+	rec.Residents = map[string]string{"mayor": "boss"}
+	if _, err := st.RecordPack(ctx, rec, true, "me"); err != nil {
+		t.Fatal(err)
+	}
+	again := build(t, st, load(t, dir), pack.Options{Rig: o.Rig, Home: o.Home, Operator: "Jo"})
+	if want := map[string]string{"yardmaster": "boss"}; !reflect.DeepEqual(again.Residents, want) {
+		t.Fatalf("residents from the old record = %v, want %v", again.Residents, want)
+	}
+	if got := append(actions(again, pack.Create), actions(again, pack.Change)...); len(got) != 0 {
+		t.Fatalf("an import over the old record would write %v", got)
+	}
+	for _, n := range again.Notes {
+		if strings.Contains(n, "no longer does") {
+			t.Errorf("the old record reads as another resident: %s", n)
+		}
+	}
+
+	// A name the pack never had is still refused.
+	o.Residents = map[string]string{"sheriff": "boss"}
+	if _, err := pack.Build(ctx, st, load(t, dir), o); err == nil || !strings.Contains(err.Error(), "the pack has no resident sheriff") {
+		t.Fatalf("--resident sheriff=boss: %v", err)
+	}
+
+	// A pack of a yard's own that still calls its resident mayor.
+	manifest := filepath.Join(dir, "pack.yaml")
+	text, _ = os.ReadFile(manifest)
+	own := strings.NewReplacer("  yardmaster:\n", "  mayor:\n", "as: yardmaster", "as: mayor").Replace(string(text))
+	if err := os.WriteFile(manifest, []byte(own), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pack.Load(dir); err == nil || !strings.Contains(err.Error(), "placeholder {{yardmaster}}") {
+		t.Fatalf("a pack with a resident mayor fills {{yardmaster}}: %v", err)
 	}
 }

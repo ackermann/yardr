@@ -37,7 +37,7 @@ func fakeLinearAPI(t *testing.T) *fakeLinear {
 			Variables map[string]any `json:"variables"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
-		if r.Header.Get("Authorization") != "lin_api_mayor" {
+		if r.Header.Get("Authorization") != "lin_api_yardmaster" {
 			_ = json.NewEncoder(w).Encode(map[string]any{"errors": []any{map[string]any{"message": "Authentication required"}}})
 			return
 		}
@@ -74,7 +74,7 @@ func fakeLinearAPI(t *testing.T) *fakeLinear {
 		case strings.Contains(req.Query, "comments("):
 			data = map[string]any{"issue": map[string]any{"comments": map[string]any{
 				"nodes": []any{
-					map[string]any{"id": "c1", "body": "@mayor can you look?\nit drops retries", "createdAt": "2026-10-03T10:00:00Z",
+					map[string]any{"id": "c1", "body": "@yardmaster can you look?\nit drops retries", "createdAt": "2026-10-03T10:00:00Z",
 						"url": "https://linear.app/acme/issue/ENG-1#comment-c1", "user": map[string]any{"id": "u-jane", "name": "Jane"}},
 					map[string]any{"id": "c2", "body": "ping", "createdAt": "2026-10-03T10:05:00Z",
 						"url":    "https://linear.app/acme/issue/ENG-1#comment-c2",
@@ -91,13 +91,13 @@ func fakeLinearAPI(t *testing.T) *fakeLinear {
 	return f
 }
 
-// replyYard is a store with resident mayor and three events to answer: a
-// Linear reply c2 (under c1), a token message, and mayor's own creation.
+// replyYard is a store with resident yardmaster and three events to answer: a
+// Linear reply c2 (under c1), a token message, and yardmaster's own creation.
 func replyYard(t *testing.T) (*app, store.API, map[string]string) {
 	t.Helper()
 	st, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	if _, err := st.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr"}, "me"); err != nil {
+	if _, err := st.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	record := func(name string, env hooks.Envelope) string {
@@ -136,8 +136,8 @@ func TestReply(t *testing.T) {
 	f := fakeLinearAPI(t)
 	a, st, seqs := replyYard(t)
 	ctx := context.Background()
-	t.Setenv("LINEAR_API_KEY", "lin_api_mayor")
-	t.Setenv("YARDR_RESIDENT", "mayor")
+	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
+	t.Setenv("YARDR_RESIDENT", "yardmaster")
 
 	out, err := run(t, a.replyCmd(), seqs["linear"], "Filed as yard-k3f9.")
 	if err != nil {
@@ -157,13 +157,13 @@ func TestReply(t *testing.T) {
 	if out != url+"\n" {
 		t.Fatalf("output %q", out)
 	}
-	ps, err := st.Threads(ctx, "mayor")
+	ps, err := st.Threads(ctx, "yardmaster")
 	if err != nil || len(ps) != 1 || ps[0].Thread != "issue-1" || ps[0].How != store.ParticipantReplied || ps[0].Title != "Retries" {
 		t.Fatalf("threads %+v %v", ps, err)
 	}
 	evs, _ := st.EventsSince(ctx, 0, 0)
 	last := evs[len(evs)-1]
-	if last.Kind != "replied" || last.Actor != "mayor" || last.Data["source"] != "linear" || last.Data["thread"] != "issue-1" ||
+	if last.Kind != "replied" || last.Actor != "yardmaster" || last.Data["source"] != "linear" || last.Data["thread"] != "issue-1" ||
 		last.Data["url"] != url || last.Data["message"] != key || fmt.Sprint(last.Data["seq"]) != seqs["linear"] {
 		t.Fatalf("last event %+v", last)
 	}
@@ -183,7 +183,7 @@ func TestReply(t *testing.T) {
 	}
 	var res map[string]any
 	if json.Unmarshal([]byte(out), &res) != nil || res["url"] != "https://linear.app/acme/issue/ENG-1#comment-"+fmt.Sprint(f.created[1]["id"]) ||
-		res["resident"] != "mayor" || res["message"] != f.created[1]["id"] || res["repeated"] != false {
+		res["resident"] != "yardmaster" || res["message"] != f.created[1]["id"] || res["repeated"] != false {
 		t.Fatalf("json %q", out)
 	}
 }
@@ -197,8 +197,8 @@ func TestReplyRetryDoesNotPostTwice(t *testing.T) {
 	f := fakeLinearAPI(t)
 	a, st, seqs := replyYard(t)
 	ctx := context.Background()
-	t.Setenv("LINEAR_API_KEY", "lin_api_mayor")
-	t.Setenv("YARDR_RESIDENT", "mayor")
+	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
+	t.Setenv("YARDR_RESIDENT", "yardmaster")
 	replied := func() int {
 		t.Helper()
 		evs, err := st.EventsSince(ctx, 0, 0)
@@ -270,12 +270,12 @@ func TestReplyOnlyByTheResidentOrOperator(t *testing.T) {
 	f := fakeLinearAPI(t)
 	a, st, seqs := replyYard(t) // acting as yard-10-new, a bead's agent
 	ctx := context.Background()
-	t.Setenv("LINEAR_API_KEY", "lin_api_mayor")
+	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
 	t.Setenv("YARDR_RESIDENT", "")
 	head, _ := st.Head(ctx)
 
-	_, err := run(t, a.replyCmd(), seqs["linear"], "x", "--resident", "mayor")
-	if err == nil || !strings.Contains(err.Error(), "only mayor's own session or the operator") || !strings.Contains(err.Error(), "this is yard-10-new") {
+	_, err := run(t, a.replyCmd(), seqs["linear"], "x", "--resident", "yardmaster")
+	if err == nil || !strings.Contains(err.Error(), "only yardmaster's own session or the operator") || !strings.Contains(err.Error(), "this is yard-10-new") {
 		t.Fatalf("a bead's agent: %v", err)
 	}
 	if len(f.created) != 0 {
@@ -288,24 +288,24 @@ func TestReplyOnlyByTheResidentOrOperator(t *testing.T) {
 	if err := st.SetSetting(ctx, "operator", "yard-10-new", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := run(t, a.replyCmd(), seqs["linear"], "x", "--resident", "mayor"); err != nil {
+	if _, err := run(t, a.replyCmd(), seqs["linear"], "x", "--resident", "yardmaster"); err != nil {
 		t.Fatalf("the operator: %v", err)
 	}
 	if err := st.SetSetting(ctx, "operator", "jo", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := run(t, a.replyCmd(), seqs["linear"], "y", "--resident", "mayor"); err == nil {
+	if _, err := run(t, a.replyCmd(), seqs["linear"], "y", "--resident", "yardmaster"); err == nil {
 		t.Fatal("no longer the operator, still allowed")
 	}
 	// The resident's own session: the pane names it in YARDR_RESIDENT, and
 	// acts as it.
-	t.Setenv("YARDR_RESIDENT", "mayor")
+	t.Setenv("YARDR_RESIDENT", "yardmaster")
 	if _, err := run(t, a.replyCmd(), seqs["linear"], "y"); err != nil {
 		t.Fatalf("its own session: %v", err)
 	}
 	t.Setenv("YARDR_RESIDENT", "")
-	a.actor = "mayor"
-	if _, err := run(t, a.replyCmd(), seqs["linear"], "z", "--resident", "mayor"); err != nil {
+	a.actor = "yardmaster"
+	if _, err := run(t, a.replyCmd(), seqs["linear"], "z", "--resident", "yardmaster"); err != nil {
 		t.Fatalf("acting as the resident: %v", err)
 	}
 	if len(f.created) != 3 {
@@ -320,8 +320,8 @@ func TestReplyOnlyByTheResidentOrOperator(t *testing.T) {
 func TestReplyPlacement(t *testing.T) {
 	f := fakeLinearAPI(t)
 	a, _, seqs := replyYard(t)
-	t.Setenv("LINEAR_API_KEY", "lin_api_mayor")
-	t.Setenv("YARDR_RESIDENT", "mayor")
+	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
+	t.Setenv("YARDR_RESIDENT", "yardmaster")
 	for _, c := range []struct {
 		event string
 		want  any
@@ -350,8 +350,8 @@ func TestReplyRefusals(t *testing.T) {
 	f := fakeLinearAPI(t)
 	a, st, seqs := replyYard(t)
 	ctx := context.Background()
-	t.Setenv("LINEAR_API_KEY", "lin_api_mayor")
-	t.Setenv("YARDR_RESIDENT", "mayor")
+	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
+	t.Setenv("YARDR_RESIDENT", "yardmaster")
 	head, _ := st.Head(ctx)
 
 	for _, c := range []struct {
@@ -383,13 +383,13 @@ func TestReplyRefusals(t *testing.T) {
 		t.Errorf("no key: %v", err)
 	}
 	// Nor without a resident to reply as.
-	t.Setenv("LINEAR_API_KEY", "lin_api_mayor")
+	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
 	t.Setenv("YARDR_RESIDENT", "")
 	if _, err := run(t, a.replyCmd(), seqs["linear"], "x"); err == nil || !strings.Contains(err.Error(), "--resident is required") {
 		t.Errorf("no resident: %v", err)
 	}
 	// What the source refuses is the error, and nothing is recorded.
-	t.Setenv("YARDR_RESIDENT", "mayor")
+	t.Setenv("YARDR_RESIDENT", "yardmaster")
 	t.Setenv("LINEAR_API_KEY", "lin_api_other")
 	if _, err := run(t, a.replyCmd(), seqs["linear"], "x"); err == nil || !strings.Contains(err.Error(), "Authentication required") {
 		t.Errorf("refused by linear: %v", err)
@@ -401,7 +401,7 @@ func TestReplyRefusals(t *testing.T) {
 	if now, _ := st.Head(ctx); now != head {
 		t.Fatalf("refusals logged %d events", now-head)
 	}
-	if ps, _ := st.Threads(ctx, "mayor"); len(ps) != 0 {
+	if ps, _ := st.Threads(ctx, "yardmaster"); len(ps) != 0 {
 		t.Fatalf("threads %v", ps)
 	}
 }
@@ -409,7 +409,7 @@ func TestReplyRefusals(t *testing.T) {
 func TestThreadShow(t *testing.T) {
 	fakeLinearAPI(t)
 	a, _, seqs := replyYard(t)
-	t.Setenv("LINEAR_API_KEY", "lin_api_mayor")
+	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
 
 	out, err := run(t, a.threadCmd(), "show", seqs["linear"])
 	if err != nil {
@@ -418,7 +418,7 @@ func TestThreadShow(t *testing.T) {
 	for _, want := range []string{
 		`linear thread issue-1 "Retries"  https://linear.app/acme/issue/ENG-1`,
 		"2 message(s)",
-		"  c1  ", "Jane (u-jane)", "    @mayor can you look?\n    it drops retries\n",
+		"  c1  ", "Jane (u-jane)", "    @yardmaster can you look?\n    it drops retries\n",
 		"* c2  ", "Ann (u-ann)  reply to c1\n    ping\n",
 	} {
 		if !strings.Contains(out, want) {
@@ -448,7 +448,7 @@ func TestThreadShow(t *testing.T) {
 	}
 	// An event recorded before envelopes carried the comment's id marks
 	// the comment its URL names.
-	t.Setenv("LINEAR_API_KEY", "lin_api_mayor")
+	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
 	a.json = false
 	out, err = run(t, a.threadCmd(), "show", seqs["old"])
 	if err != nil || !strings.Contains(out, "* c2  ") || strings.Contains(out, "* c1") {

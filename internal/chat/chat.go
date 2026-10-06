@@ -70,7 +70,7 @@ type Options struct {
 	// state changes and not in between.
 	Refresh time.Duration
 	// Expect is a resident whose first mail is on its way: its session was
-	// asked to greet the user when it started (the onboarding's mayor).
+	// asked to greet the user when it started (the onboarding's yardmaster).
 	// Until there is mail between the two, its conversation says so.
 	Expect string
 }

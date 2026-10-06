@@ -62,14 +62,14 @@ func TestUserSubscribes(t *testing.T) {
 	}
 
 	// The store's refusal, as it is.
-	const resident = "mayor is a resident, and a resident does not decide what a person is told: " +
+	const resident = "yardmaster is a resident, and a resident does not decide what a person is told: " +
 		"ada subscribes themselves, or the operator (jo) does it for them"
 	for _, args := range [][]string{
 		{"subscribe", "ada", "yardr", "--done"},
 		{"unsubscribe", "ada", "yardr"},
 	} {
-		if _, err := as(t, st, "mayor", args...); err == nil || err.Error() != resident {
-			t.Fatalf("mayor: yardr %s = %v\nwant %s", strings.Join(args, " "), err, resident)
+		if _, err := as(t, st, "yardmaster", args...); err == nil || err.Error() != resident {
+			t.Fatalf("yardmaster: yardr %s = %v\nwant %s", strings.Join(args, " "), err, resident)
 		}
 	}
 	refusedAs(t, st, "ada", "ada does not decide what jo is told: jo subscribes themselves, or the operator does it for them",
@@ -116,7 +116,7 @@ func TestUserInboxParts(t *testing.T) {
 		note(text)
 	}
 	for _, text := range []string{"hello", "are you there?"} {
-		if err := st.Mail(ctx, "jo", text, "mayor"); err != nil {
+		if err := st.Mail(ctx, "jo", text, "yardmaster"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -131,7 +131,7 @@ func TestUserInboxParts(t *testing.T) {
 
 	out := mustAs(t, st, "jo", "inbox")
 	row := id + ` noted (all) by jane note=`
-	wantText(t, out, "Mail: 2 unread\n", "mail from mayor: hello\n", "mail from mayor: are you there?\n",
+	wantText(t, out, "Mail: 2 unread\n", "mail from yardmaster: hello\n", "mail from yardmaster: are you there?\n",
 		"\nNotifications: 3 unread\n", row+"1 on \"work\"\n", row+"2 on \"work\"\n", row+"3 on \"work\"\n")
 	if strings.Contains(out, "(read)") || strings.Contains(out, "acknowledged") {
 		t.Fatalf("inbox:\n%s", out)
@@ -179,7 +179,7 @@ func TestUserInboxParts(t *testing.T) {
 		t.Fatalf("after --mail --ack: %d mail, %d notifications unread", m, n)
 	}
 	out = mustAs(t, st, "jo", "inbox")
-	wantText(t, out, "Mail: nothing unread; the latest read:\n", "mail from mayor (read): hello\n",
+	wantText(t, out, "Mail: nothing unread; the latest read:\n", "mail from yardmaster (read): hello\n",
 		"\nNotifications: 1 unread\n", "(read) "+row+"3 on", row+"4 on")
 	// Both parts in one order: the unread over the read, the latest read
 	// first, as the mail is listed.
@@ -189,7 +189,7 @@ func TestUserInboxParts(t *testing.T) {
 	}
 
 	// Neither flag is both parts, for --ack too.
-	if err := st.Mail(ctx, "jo", "still there?", "mayor"); err != nil {
+	if err := st.Mail(ctx, "jo", "still there?", "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
 	out = mustAs(t, st, "jo", "inbox", "--ack")
@@ -205,7 +205,7 @@ func TestUserInboxParts(t *testing.T) {
 	}
 
 	// A resident's inbox has no parts.
-	refusedAs(t, st, "jo", "--mail and --notifications are the parts of a user's inbox", "inbox", "--resident", "mayor", "--mail")
+	refusedAs(t, st, "jo", "--mail and --notifications are the parts of a user's inbox", "inbox", "--resident", "yardmaster", "--mail")
 }
 
 // Bare yardr counts the mail as mail, and says the notifications after it
@@ -223,29 +223,29 @@ func TestBareYardrSaysNotifications(t *testing.T) {
 		t.Fatalf("bare yardr, one notification and no mail:\n%s", bare)
 	}
 	note("two")
-	for _, from := range []string{"mayor", "ada", "mayor"} {
+	for _, from := range []string{"yardmaster", "ada", "yardmaster"} {
 		if err := st.Mail(ctx, "jo", "hi", from); err != nil {
 			t.Fatal(err)
 		}
 	}
 	before, _ := st.Head(ctx)
-	if bare := mustAs(t, st, "jo"); !strings.HasSuffix(bare, "\nMail for jo: 3 unread from mayor, ada, and 2 notifications (yardr inbox).\n") {
+	if bare := mustAs(t, st, "jo"); !strings.HasSuffix(bare, "\nMail for jo: 3 unread from yardmaster, ada, and 2 notifications (yardr inbox).\n") {
 		t.Fatalf("bare yardr:\n%s", bare)
 	}
 	if after, _ := st.Head(ctx); after != before {
 		t.Fatalf("reading wrote to the store: head %d, was %d", after, before)
 	}
-	if show := mustAs(t, st, "ada", "user", "show", "jo"); !strings.Contains(show, "  inbox: 3 unread from mayor, ada\n  2 notifications unread\n") {
+	if show := mustAs(t, st, "ada", "user", "show", "jo"); !strings.Contains(show, "  inbox: 3 unread from yardmaster, ada\n  2 notifications unread\n") {
 		t.Fatalf("user show:\n%s", show)
 	}
 	// Another user's, and a resident's, say nothing of jo's.
-	for _, who := range []string{"ada", "mayor"} {
+	for _, who := range []string{"ada", "yardmaster"} {
 		if out := mustAs(t, st, who); strings.Contains(out, "for jo") || strings.Contains(out, "(yardr inbox)") {
 			t.Fatalf("bare yardr as %s:\n%s", who, out)
 		}
 	}
 	mustAs(t, st, "jo", "inbox", "--notifications", "--ack")
-	if bare := mustAs(t, st, "jo"); !strings.HasSuffix(bare, "\nMail for jo: 3 unread from mayor, ada (yardr inbox).\n") {
+	if bare := mustAs(t, st, "jo"); !strings.HasSuffix(bare, "\nMail for jo: 3 unread from yardmaster, ada (yardr inbox).\n") {
 		t.Fatalf("bare yardr after the notifications were read:\n%s", bare)
 	}
 	mustAs(t, st, "jo", "inbox", "--mail", "--ack")
@@ -283,7 +283,7 @@ func TestSetupOffersToBeToldOfLandedBeads(t *testing.T) {
 	// subscription is a user's own.
 	cfg := &config.Config{Home: home}
 	f.answers["landed"] = false
-	for who, asked := range map[string]bool{"Jo": true, "mayor": false, "pat": false} {
+	for who, asked := range map[string]bool{"Jo": true, "yardmaster": false, "pat": false} {
 		f.asked = nil
 		g := &guide{a: &app{st: st, actor: who}, cfg: cfg, st: st}
 		if err := g.offerLanded(ctx); err != nil || slices.Contains(keysOf(f), "landed") != asked {

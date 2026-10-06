@@ -41,7 +41,7 @@ writes, never overwriting a file that is there:
 
 | file | content |
 |---|---|
-| `.yardr/roles/builder.md`, `reviewer.md` | the generic roles, naming the yard's operator and mayor; each has a paragraph for dir rigs: no branches, no commits. No merger (nothing merges); the mayor's role only with `--with-mayor` |
+| `.yardr/roles/builder.md`, `reviewer.md` | the generic roles, naming the yard's operator and yardmaster; each has a paragraph for dir rigs: no branches, no commits. No merger (nothing merges); the yardmaster's role only with `--with-yardmaster` |
 | `.yardr/flows/default.flow` | the flow of the rig's beads, below |
 | `.yardr/flows/type/epic.flow` | the flow of its epics, below |
 | `.yardr/flows/default/<stage>.md`, `type/epic/<stage>.md` | a [stage file](flows.md#stage-files-what-a-stage-is-for) for each stage but `done`: what the stage asks before a bead leaves it (name your outputs, in `new`) and when each outcome applies |
@@ -123,13 +123,12 @@ yardr bead create "Summarize each PDF in 2025-09/ into 2025-09/summary.md" -r in
 What happens, with the daemon running (`yardr daemon`):
 
 1. The bead is created in `new` (`-s new`; without it a bead starts in the
-   flow's first stage, `backlog`, where the mayor shapes it and advances it);
-   the route sends it to `invoices/workers`,
-   and the herdr runner starts an agent with its working directory set to
-   `~/Documents/invoices` itself. There is no worktree or branch. The brief is
-   written under `~/Documents/invoices/.yardr/briefs/` and removed when the
-   bead closes. The agent's environment has no `YARDR_BASE` or
-   `YARDR_BRANCH`.
+   flow's first stage, `backlog`, where the yardmaster shapes it and advances
+   it); the route sends it to `invoices/workers`, and the herdr runner starts
+   an agent with its working directory set to `~/Documents/invoices` itself.
+   There is no worktree or branch. The brief is written under
+   `~/Documents/invoices/.yardr/briefs/` and removed when the bead closes. The
+   agent's environment has no `YARDR_BASE` or `YARDR_BRANCH`.
 2. The agent reads the bead (`yardr prime --bead <id>`), reads the PDFs in
    `2025-09/`, writes `2025-09/summary.md`, and leaves a note naming what it
    produced:

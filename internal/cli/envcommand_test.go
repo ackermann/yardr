@@ -30,7 +30,7 @@ func TestResidentAnswersWithAProvidersCredential(t *testing.T) {
 		}
 	}
 	body("")
-	def := store.Resident{Name: "mayor", Runner: "herdr",
+	def := store.Resident{Name: "yardmaster", Runner: "herdr",
 		Config: map[string]any{"env_command": provider + " --env", store.SetState: "github", store.OpenThreads: "github"}}
 	if _, err := y.st.PutResident(ctx, def, "jo"); err != nil {
 		t.Fatal(err)
@@ -40,7 +40,7 @@ func TestResidentAnswersWithAProvidersCredential(t *testing.T) {
 	// runner's TestStartResidentLoadsEnvCommand has it reach the pane).
 	t.Setenv("GITHUB_APP_ID", "")
 	t.Setenv("GITHUB_APP_PRIVATE_KEY_FILE", "")
-	env, err := config.ReadResidentEnv(ctx, "mayor", "", "", def.Config)
+	env, err := config.ReadResidentEnv(ctx, "yardmaster", "", "", def.Config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestResidentAnswersWithAProvidersCredential(t *testing.T) {
 		t.Fatalf("calls: %v", got)
 	}
 
-	show, err := run(t, y.a.residentCmd(), "show", "mayor")
+	show, err := run(t, y.a.residentCmd(), "show", "yardmaster")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestResidentAnswersWithAProvidersCredential(t *testing.T) {
 	y.clean(t, out, show)
 
 	body("echo GITHUB_TOKEN=gh-pr0vided; echo 'vault is locked' >&2; exit 3")
-	if show, err = run(t, y.a.residentCmd(), "show", "mayor"); err != nil {
+	if show, err = run(t, y.a.residentCmd(), "show", "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
 	wantText(t, show, "  env_command "+provider+" --env: env_command "+provider+" --env: exit status 3; its stderr ended: vault is locked\n")

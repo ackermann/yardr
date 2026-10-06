@@ -12,7 +12,7 @@ import (
 
 // Identity is who a resident is in a source, so a delivery can tell when it
 // is mentioned, assigned, or the one acting. A source may name people two
-// ways: Linear's markdown mentions carry a profile key ("mayor"), its
+// ways: Linear's markdown mentions carry a profile key ("yardmaster"), its
 // rich-text, assignee and delegate fields a user id; either matches a
 // mention.
 type Identity struct {
@@ -23,7 +23,7 @@ type Identity struct {
 func (i Identity) zero() bool { return i.ID == "" && i.Key == "" }
 
 // is reports whether v names this identity. Keys are names people type
-// (@Mayor is @mayor), so they match in any case; ids match exactly.
+// (@Yardmaster is @yardmaster), so they match in any case; ids match exactly.
 func (i Identity) is(v string) bool {
 	return v != "" && (v == i.ID || strings.EqualFold(v, i.Key))
 }

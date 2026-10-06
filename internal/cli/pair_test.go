@@ -287,13 +287,13 @@ func TestPeerPairWithoutATerminal(t *testing.T) {
 	north.a.json = false
 
 	for _, y := range []*cliYard{north, laptop} {
-		y.a.actor = "mayor"
-		t.Setenv("YARDR_RESIDENT", "mayor")
+		y.a.actor = "yardmaster"
+		t.Setenv("YARDR_RESIDENT", "yardmaster")
 		args := []string{"pair", "--yes"}
 		if y == laptop {
 			args = []string{"pair", north.srv.URL, "K7QM-2XPD", "--yes"}
 		}
-		if _, err := y.peer(t, args...); err == nil || !strings.Contains(err.Error(), "only the operator (jo) may pair this yard with another; this is mayor") {
+		if _, err := y.peer(t, args...); err == nil || !strings.Contains(err.Error(), "only the operator (jo) may pair this yard with another; this is yardmaster") {
 			t.Errorf("a resident pairing = %v", err)
 		}
 		y.a.actor = "jo"

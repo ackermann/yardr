@@ -227,7 +227,7 @@ func TestPairForm(t *testing.T) {
 		"This one knows the other as desk, and the link carries ping and mail, each way.",
 		"This one knows the other as up-north, and the link carries ping and mail, each way.",
 		"desk answered in ", "up-north answered in ", ": the link works.",
-		`mail mayor@desk "hello from the other yard"`, `mail mayor@up-north "hello from the other yard"`,
+		`mail yardmaster@desk "hello from the other yard"`, `mail yardmaster@up-north "hello from the other yard"`,
 		"peer show desk", "peer rm desk", "peer show up-north", "peer rm up-north")
 	// The check is on both screens, the same, large and small.
 	check := regexp.MustCompile(`\n    (\d{3} \d{3})\n`).FindAllStringSubmatch(out, -1)
@@ -278,8 +278,8 @@ func TestPairFormWithoutMail(t *testing.T) {
 	if len(onNorth) != 1 || carries(onNorth[0]) != "mail,ping / mail,ping" || len(onLaptop) != 1 || carries(onLaptop[0]) != "ping / ping" {
 		t.Fatalf("peers: north %+v, laptop %+v\n%s", onNorth, onLaptop, out)
 	}
-	wantText(t, out, "This one knows the other as north, and the link carries ping, each way.", "mail mayor@laptop ")
-	if strings.Contains(out, "mail mayor@north") {
+	wantText(t, out, "This one knows the other as north, and the link carries ping, each way.", "mail yardmaster@laptop ")
+	if strings.Contains(out, "mail yardmaster@north") {
 		t.Errorf("mail is offered on a link without it:\n%s", out)
 	}
 }

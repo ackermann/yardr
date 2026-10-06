@@ -11,7 +11,11 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// schemaVersion 8 has an end to a held bead's wait: a peer's intake says
+// schemaVersion 9 calls the resident that coordinates a yard its yardmaster:
+// the setting that names it is yardmaster, where it was mayor
+// (migrateYardmaster). A build before it reads the old key only, so it would
+// not find the name and would write a second one beside it.
+// Version 8 has an end to a held bead's wait: a peer's intake says
 // how long a bead it sent waits to be released (PeerIntake.HoldFor), which
 // a build before it would drop from a record it rewrites, as it does with
 // every message it takes from the peer. An intake set to hold for ever
@@ -45,7 +49,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 8
+const schemaVersion = 9
 
 var (
 	kSchema   = []byte("schema")
@@ -424,4 +428,36 @@ func migrateSettings(tx *bolt.Tx) error {
 	}
 	return (&wtx{Tx: tx}).event("", "settings_migrated", "yardr",
 		map[string]any{"default_kind": kind, "from": from})
+}
+
+// migrateYardmaster renames the setting that names the yard's coordinating
+// resident, mayor until schema 9, to yardmaster. The resident keeps its name,
+// which is the operator's to give: a yard from before the setting whose
+// resident is called mayor gets the setting, so what defaulted to that name
+// still finds it now that the default is yardmaster.
+func migrateYardmaster(tx *bolt.Tx, from uint64) error {
+	if from >= 9 {
+		return nil
+	}
+	var name string
+	had, err := get(tx, bSettings, oldYardmasterSetting, &name)
+	if err != nil {
+		return err
+	}
+	source := "setting " + oldYardmasterSetting
+	if had {
+		if err := tx.Bucket(bSettings).Delete([]byte(oldYardmasterSetting)); err != nil {
+			return err
+		}
+	} else if tx.Bucket(bResidents).Get([]byte(oldYardmasterSetting)) != nil {
+		name, source = oldYardmasterSetting, "resident "+oldYardmasterSetting
+	}
+	if name == "" || tx.Bucket(bSettings).Get([]byte(YardmasterSetting)) != nil {
+		return nil
+	}
+	if err := put(tx, bSettings, YardmasterSetting, name); err != nil {
+		return err
+	}
+	return (&wtx{Tx: tx}).event("", "settings_migrated", "yardr",
+		map[string]any{YardmasterSetting: name, "from": source})
 }

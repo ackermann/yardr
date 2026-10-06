@@ -136,7 +136,7 @@ and `delegate`. The store compares them with the identity each resident has
 in the source:
 
 ```sh
-yardr resident identity mayor --source linear --id <user id> --key <profile key>
+yardr resident identity yardmaster --source linear --id <user id> --key <profile key>
 ```
 
 An identity is an `id`, a `key`, or both. An id matches exactly; a key is a
@@ -308,7 +308,7 @@ the service, on the desktop or in a chat (*planned, yardr-1481*).
 
 ## How one becomes part of a yard
 
-The steps as they are today, with Linear, for a resident called `mayor`.
+The steps as they are today, with Linear, for a resident called `yardmaster`.
 "Anyone" is anyone who runs yardr on the yard's home; "the operator" is the
 yard's `operator` setting, else the user running the command.
 
@@ -366,17 +366,17 @@ ACCEPTED until a delivery came.
 speaks with goes in an env file of its own, never in the store:
 
 ```sh
-echo 'LINEAR_API_KEY=<token>' > ~/.yardr/residents/mayor.env
-chmod 600 ~/.yardr/residents/mayor.env
-yardr resident set mayor env_file=~/.yardr/residents/mayor.env
-yardr resident show mayor
-#   env_file …/residents/mayor.env (LINEAR_API_KEY)
+echo 'LINEAR_API_KEY=<token>' > ~/.yardr/residents/yardmaster.env
+chmod 600 ~/.yardr/residents/yardmaster.env
+yardr resident set yardmaster env_file=~/.yardr/residents/yardmaster.env
+yardr resident show yardmaster
+#   env_file …/residents/yardmaster.env (LINEAR_API_KEY)
 #   linear credential: API key (LINEAR_API_KEY)
 ```
 
 `env_command` names a command that prints the environment in place of a
 file ([residents.md](residents.md#secrets-from-a-provider)). The file is
-read when the resident starts: `yardr resident restart mayor` after a
+read when the resident starts: `yardr resident restart yardmaster` after a
 change.
 
 *(in Linear)* The token is that of a Linear OAuth application made for the
@@ -391,7 +391,7 @@ reads the names in the file, not whether the service takes the value.
 *Anyone.* The id and the profile key of the user the token acts as:
 
 ```sh
-yardr resident identity mayor --source linear --id <user id> --key <profile key>
+yardr resident identity yardmaster --source linear --id <user id> --key <profile key>
 # SOURCE  ID                                    KEY
 # linear  11111111-2222-4333-8444-555555555555  yardr
 ```
@@ -405,12 +405,12 @@ service who a token is.
 their status do, and the stage map of step 7 needs `set_state`:
 
 ```sh
-yardr resident set mayor open_threads=linear set_state=linear
+yardr resident set yardmaster open_threads=linear set_state=linear
 #   open_threads: (not set) -> linear
 #   set_state: (not set) -> linear
 ```
 
-From anyone else: `open_threads: only the operator (jo) may let mayor open
+From anyone else: `open_threads: only the operator (jo) may let yardmaster open
 threads in linear; this is mckean`.
 
 ### 6. Subscriptions
@@ -418,11 +418,11 @@ threads in linear; this is mckean`.
 *Anyone, for a resident.* What of the source reaches the resident's inbox:
 
 ```sh
-yardr subscribe mayor linear --scope involved      # mentions, what is assigned or delegated to it, its threads
-yardr subscribe mayor linear --scope all --where type=issue --where action=create --where team=YRD
+yardr subscribe yardmaster linear --scope involved      # mentions, what is assigned or delegated to it, its threads
+yardr subscribe yardmaster linear --scope all --where type=issue --where action=create --where team=YRD
 ```
 
-The second is "a new issue of team YRD reaches the mayor", whoever it
+The second is "a new issue of team YRD reaches the yardmaster", whoever it
 mentions. The where keys of a hook source are `type`, `action`, `team`,
 `project`, `repo`, `label`; GitHub has more
 ([subscriptions.md](subscriptions.md#github)). Linear's deliveries carry
@@ -436,14 +436,14 @@ status is set on the hook, with the resident the yard acts as. `hook add`
 replaces the definition, so the source and the secret file are given again:
 
 ```sh
-yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret --as mayor \
+yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret --as yardmaster \
     --map task:new=started --map task:review=review --map task:merged=done
 # hook linear saved: POST /hooks/linear (linear)
-# moves tracked linear issues as mayor: task:merged=done task:new=started task:review=review
+# moves tracked linear issues as yardmaster: task:merged=done task:new=started task:review=review
 yardr hook show linear
 # linear  linear  POST /hooks/linear
 #   secret file …/linear.secret
-#   acts as mayor
+#   acts as yardmaster
 #   map task:merged=done
 #   map task:new=started
 #   map task:review=review
@@ -472,10 +472,10 @@ curl -s -X POST http://127.0.0.1:65207/hooks/linear \
 `yardr events` then has the delivery, with whom it reached and why:
 
 ```
-    16 10-06 11:00:27  -        hook           hook:linear  action=create actor={id=aacdca22-6266-4c0a-ab3c-8fa70a26765c name=Jane Doe} deliveries={mayor=all} delivery=52C4DEDF-79AF-41ED-82C4-B38CBB085A37 entity=539068e2-ae88-4d09-bd75-22eb4a59612f fields={label=[ui] team=[YRD Yardr]} hook=linear mentions=[] new_mentions=[] source=linear text=The bead page should list the issue it tracks. thread={id=539068e2-ae88-4d09-bd75-22eb4a59612f title=Web view shows links url=https://linear.app/acme/issue/YRD-1/web-view-shows-links} type=issue url=https://linear.app/acme/issue/YRD-1/web-view-shows-links
+    16 10-06 11:00:27  -        hook           hook:linear  action=create actor={id=aacdca22-6266-4c0a-ab3c-8fa70a26765c name=Jane Doe} deliveries={yardmaster=all} delivery=52C4DEDF-79AF-41ED-82C4-B38CBB085A37 entity=539068e2-ae88-4d09-bd75-22eb4a59612f fields={label=[ui] team=[YRD Yardr]} hook=linear mentions=[] new_mentions=[] source=linear text=The bead page should list the issue it tracks. thread={id=539068e2-ae88-4d09-bd75-22eb4a59612f title=Web view shows links url=https://linear.app/acme/issue/YRD-1/web-view-shows-links} type=issue url=https://linear.app/acme/issue/YRD-1/web-view-shows-links
 ```
 
-and the resident's inbox has it as a line (`yardr inbox --resident mayor`):
+and the resident's inbox has it as a line (`yardr inbox --resident yardmaster`):
 
 ```
     16 10-06 11:00  hook (all) linear issue create by Jane Doe on "Web view shows links": The bead page should list the issue it tracks.  https://linear.app/acme/issue/YRD-1/web-view-shows-links
@@ -493,7 +493,7 @@ yard's server saw: then the delivery went elsewhere or was not sent, and
 the service's own delivery log says which. `yardr hook show 16` prints the
 raw body.
 
-### 9. The mayor answers, and a merged bead closes the issue
+### 9. The yardmaster answers, and a merged bead closes the issue
 
 *The resident's own session, or the operator, for the answer; anyone for
 the bead and the link.*
@@ -507,12 +507,11 @@ yardr thread show 16                                      # (in Linear) the issu
 yardr reply 16 "Filed as work-h6ef; I will post here when it lands."   # (in Linear)
 ```
 
-The last two call Linear with the credential of step 3, from the
-resident's pane; the operator runs `yardr reply` with `--resident mayor`
-and the credential in the command's environment. From anyone else: `reply
---resident mayor: only mayor's own session or the operator (jo) may speak
-as mayor; this is mckean`. The stand-in does not know comments, so the
-post itself was not made there.
+The last two call Linear with the credential of step 3, from the resident's
+pane; the operator runs `yardr reply` with `--resident yardmaster` and the
+credential in the command's environment. From anyone else:
+`reply --resident yardmaster: only yardmaster's own session or the operator (jo) may speak as yardmaster; this is mckean`.
+The stand-in does not know comments, so the post itself was not made there.
 
 The link is the issue's fixed form, without the title the delivery's URL
 had. A bead created into a mapped stage moves the issue at once, and each
@@ -521,8 +520,8 @@ later stage does as the map says:
 ```sh
 yardr bead advance work-h6ef --to merged
 yardr events --bead work-h6ef
-#   21 … work-h6ef thread_state  hook:linear  cause=18 hook=linear resident=mayor source=linear stage=new state=started status=In Progress … was=Todo
-#   24 … work-h6ef thread_state  hook:linear  cause=23 hook=linear resident=mayor source=linear stage=merged state=done status=Done … was=In Progress
+#   21 … work-h6ef thread_state  hook:linear  cause=18 hook=linear resident=yardmaster source=linear stage=new state=started status=In Progress … was=Todo
+#   24 … work-h6ef thread_state  hook:linear  cause=23 hook=linear resident=yardmaster source=linear stage=merged state=done status=Done … was=In Progress
 ```
 
 In a yard with a flow the bead reaches `merged` through review and the
@@ -548,7 +547,7 @@ The same steps, with these differences:
   ([subscriptions.md](subscriptions.md#as-a-github-app),
   [residents.md](residents.md#as-a-github-app)).
 - **The identity** is a key only: the login in lowercase, `yardr resident
-  identity mayor --source github --key <login>`; for an App `--key
+  identity yardmaster --source github --key <login>`; for an App `--key
   '<slug>[bot]'`.
 - **The states.** An issue is open or closed, so a map may say `started`
   and `done`; `review` is refused (`github: an issue has no review status:
@@ -565,7 +564,7 @@ A signed GitHub comment that mentions the resident's login, sent to the
 isolated yard, was recorded as
 
 ```
-    34 10-06 11:01:17  -        hook           hook:gh      action=created actor={id=jane name=Jane} deliveries={mayor=mentioned} … fields={action=[created] event=[issue_comment] label=[bug] number=[7] repo=[acme/webapp] state=[open]} hook=gh mentions=[mayor-bot] message=991 new_mentions=[mayor-bot] source=github text=@mayor-bot can you look? thread={id=acme/webapp#7 title=Retries drop the last attempt url=https://github.com/acme/webapp/issues/7} type=issue_comment …
+    34 10-06 11:01:17  -        hook           hook:gh      action=created actor={id=jane name=Jane} deliveries={yardmaster=mentioned} … fields={action=[created] event=[issue_comment] label=[bug] number=[7] repo=[acme/webapp] state=[open]} hook=gh mentions=[yardmaster-bot] message=991 new_mentions=[yardmaster-bot] source=github text=@yardmaster-bot can you look? thread={id=acme/webapp#7 title=Retries drop the last attempt url=https://github.com/acme/webapp/issues/7} type=issue_comment …
 ```
 
 ### The checks, in one place

@@ -227,8 +227,8 @@ With a flow in place:
   stage as close reason (`closed: merged`).
 - `yardr bead create -s <stage>` must name a non-terminal stage of the flow.
   Without `-s` a bead starts in the flow's first stage (`backlog` in the
-  example and in the starter flow, where the mayor shapes it before advancing
-  it to `new`); a bead no flow governs starts in `new`.
+  example and in the starter flow, where the yardmaster shapes it before
+  advancing it to `new`); a bead no flow governs starts in `new`.
 - A bead in a stage the flow has no way out of (a stage the flow does not
   know, or a terminal stage after `yardr bead reopen`) may move only to the
   flow's first stage (`backlog` in the example), so it is never stuck but
@@ -266,7 +266,7 @@ the same write). The `advanced` event records the outcome (`"outcome":
   that names its outcome (`approved -> new on failed`) offers only that one.
 - **Bare edges** (no `on`) are not outcomes: `review -> backlog` or
   `approved -> merged` above are reachable only by an explicit
-  `yardr bead advance --to`, for humans and the mayor. `advance --to` still
+  `yardr bead advance --to`, for humans and the yardmaster. `advance --to` still
   works for every edge and is still checked against the flow.
 - **Unique per stage.** A stage may name each outcome once (two outcomes may
   lead to the same stage); `flow set`, and a repo flow, refuse duplicates and
@@ -385,7 +385,7 @@ reads:
 
 ```
 FLOW default · 6 stages (context: your stage's file below says what you must do)
-  backlog    people   New beads wait here, where `yardr bead create` puts them, until the mayor has shaped them.
+  backlog    people   New beads wait here, where `yardr bead create` puts them, until the yardmaster has shaped them.
 > new        agents   A builder implements the bead here, on branch `yard/<bead>` in the bead's own worktree.   <- you are here
   decide     people   A bead here waits for a person: Christopher decides.
   review     agents   The finished bead is reviewed against its goal; what the reviewer can fix is fixed, not sent back.
@@ -508,11 +508,11 @@ merged terminal
 
 | stage | group | runner |
 |---|---|---|
-| backlog | `backlog` | manual (Christopher and the mayor, `yardmaster`, who shapes beads here) |
+| backlog | `backlog` | manual (Christopher and the yardmaster, who shapes beads here) |
 | new | `yardr-builders` | herdr, Claude Code, limit 5, `prompt=roles/builder.md` |
 | review | `yardr-reviewers` | herdr, Codex, limit 3, `prompt=roles/reviewer.md` |
 | approved | `yardr-refinery` | exec, limit 1, [`contrib/refinery/merge-local`](../contrib/refinery/merge-local) |
-| decide | `decisions` | manual (Christopher and the mayor) |
+| decide | `decisions` | manual (Christopher and the yardmaster) |
 
 The refinery lands an approved bead and advances it to `merged`, which
 closes it; a red gate sends it back to `new`. The flow has no `merge`
@@ -555,7 +555,7 @@ the table that the rig lacks are the ones
 
 | stage | group | runner |
 |---|---|---|
-| backlog | `backlog` | manual (the mayor adds children, then advances to open) |
+| backlog | `backlog` | manual (the yardmaster adds children, then advances to open) |
 | open | none yet; `yardr-integrators` (route `--type epic`, priority 10) | exec, limit 1, [`contrib/refinery/integrate-epic`](../contrib/refinery/integrate-epic) |
 | review | `yardr-reviewers` | as for any bead; the brief says it is an epic and gives the range |
 | approved | `yardr-refinery` | merge-local, as for any bead; on the PR path `yardr-pr` (route `--type epic`, priority 10): exec, limit 1, [`contrib/refinery/pr-epic`](../contrib/refinery/pr-epic) with `YARDR_PR=1` |

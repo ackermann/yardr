@@ -36,5 +36,5 @@ Outcomes:
   a design choice). Note the question on the bead first; it goes to `decide`,
   to a human.
 
-The edge back to `backlog` has no outcome: the mayor takes a part back with
+The edge back to `backlog` has no outcome: the yardmaster takes a part back with
 `yardr bead advance <id> --to backlog` when it has to be reshaped.

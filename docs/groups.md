@@ -49,7 +49,7 @@ punctuation aside, and match when all of one name's are among the other's:
 `claude-opus-5-5` matches `Opus 5.5` and `claude-opus-5-5-20260801`, an
 alias such as `opus` (or `opus[1m]`) matches any Opus, and `claude-opus-5-5`
 does not match `claude-fable-5-1` or `claude-opus-5-1`. The session is left
-running: the mayor decides whether the work of the other model stands.
+running: the yardmaster decides whether the work of the other model stands.
 
 **`session_stalled`.** An agent that was given its
 first prompt, was idle every time the daemon looked since, and has left
@@ -58,7 +58,7 @@ worktree) for the group's `stall` (default `2m`) is reported at once, not at
 the `idle` limit: one `session_stalled` event per session, on the bead,
 with `model`, `group`, `stage` and `tail`, the last 20 lines of the agent's
 pane that say anything, where its error is. It is in a new resident's
-default `--on`, as `session_model_mismatch` is, so both reach the mayor's
+default `--on`, as `session_model_mismatch` is, so both reach the yardmaster's
 inbox ([subscriptions.md](subscriptions.md#--on)). An agent seen working or
 blocked since its prompt is not judged, however long it idles later, and a
 prompt held back by a startup question counts from its delivery. Only the
@@ -81,7 +81,7 @@ not a resident's.
 later as well, on an error of its own, after the agent has worked: the
 model is at capacity, a usage limit is hit, the login ran out. It prints
 the error and waits for input, which herdr reports as `idle`: to the yard
-that is an agent waiting on a human, and without more the mayor would hear
+that is an agent waiting on a human, and without more the yardmaster would hear
 of it at the `idle` limit, as of any idle agent.
 
 **`session_harness_error`.** The pane says what herdr's status cannot. On
@@ -105,7 +105,7 @@ read once more when `session_idle` is raised, so an error drawn late is
 told then. The session is left as it is, and unlike `session_stalled` the
 group goes on starting sessions: whether to wait, to get the agent going in
 its pane or to end the session (`yardr bead release
-<bead>`) is the mayor's to decide. It is in a new resident's default
+<bead>`) is the yardmaster's to decide. It is in a new resident's default
 `--on`; a resident from before it was gets it with `yardr resident set <name>
 --on` naming every kind wanted ([residents.md](residents.md)).
 
@@ -127,7 +127,7 @@ line; a harness's error that is not in it yet shows as a `session_idle`
 whose `tail` ends in it.
 
 **`session_idle` says what the pane shows.** It carries the same `tail`, so
-the mayor reads why an agent sits there (it asks its human something, it
+the yardmaster reads why an agent sits there (it asks its human something, it
 waits for an answer, its harness says something no pattern knows) without
 `herdr agent read`.
 
@@ -345,7 +345,7 @@ for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`
   its screen), and keeps it until it arrived, which is when it shows in the
   pane or the agent is working. A delivery that has done neither after ten
   seconds was lost (`session_prompt_lost`) and is made again, three times in
-  all; after the third, `session_prompt_gave_up` tells the mayor, its `hint`
+  all; after the third, `session_prompt_gave_up` tells the yardmaster, its `hint`
   being the command that gives the prompt by hand (`herdr agent prompt
   <agent> '<text>'`), and the session is left as it is. A prompt given by
   hand ends the wait like any other that shows. A prompt whose text is in

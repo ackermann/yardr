@@ -44,11 +44,11 @@ echo "ARGS=$#:$1:$2"
 echo "STDIN=$(cat | wc -c | tr -d ' ')"
 echo "noise" >&2`)
 	for name, cmd := range map[string]any{"string": p + " one $HOME", "list": []any{p, "one", "$HOME"}} {
-		env, err := ReadResidentEnv(context.Background(), "mayor", dir, "/y", map[string]any{"env_command": cmd})
+		env, err := ReadResidentEnv(context.Background(), "yardmaster", dir, "/y", map[string]any{"env_command": cmd})
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		for k, want := range map[string]string{"LINEAR_API_KEY": provided, "WHO": "mayor mayor", "HOME_OF": "/y",
+		for k, want := range map[string]string{"LINEAR_API_KEY": provided, "WHO": "yardmaster yardmaster", "HOME_OF": "/y",
 			"PWD_OF": dir, "ARGS": "2:one:$HOME", "STDIN": "0"} {
 			if got := env.Get(k); got != want {
 				t.Errorf("%s: %s = %q, want %q", name, k, got, want)
@@ -60,12 +60,12 @@ echo "noise" >&2`)
 		}
 	}
 	// A resident without a directory is asked for in the yard's home.
-	env, err := ReadResidentEnv(context.Background(), "mayor", "", dir, map[string]any{"env_command": p})
+	env, err := ReadResidentEnv(context.Background(), "yardmaster", "", dir, map[string]any{"env_command": p})
 	if err != nil || env.Get("PWD_OF") != dir {
 		t.Fatalf("in the home: %v, %v", env, err)
 	}
 	// Neither setting: nothing, and no error.
-	if env, err := ReadResidentEnv(context.Background(), "mayor", dir, "/y", map[string]any{}); err != nil || env.Set() || len(env.Env) != 0 {
+	if env, err := ReadResidentEnv(context.Background(), "yardmaster", dir, "/y", map[string]any{}); err != nil || env.Set() || len(env.Env) != 0 {
 		t.Fatalf("no setting: %+v, %v", env, err)
 	}
 }
@@ -73,12 +73,12 @@ echo "noise" >&2`)
 // With an env_file too both are read, and a key in both has the command's
 // value: once, so the pane's environment and the daemon's lookup agree.
 func TestResidentEnvCommandWinsOverFile(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "mayor.env")
+	file := filepath.Join(t.TempDir(), "yardmaster.env")
 	if err := os.WriteFile(file, []byte("LINEAR_API_KEY=from-the-file\nGITHUB_TOKEN=gh-file\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg := map[string]any{"env_file": file, "env_command": providerT(t, `echo "LINEAR_API_KEY=`+provided+`"; echo OTHER=x`)}
-	env, err := ReadResidentEnv(context.Background(), "mayor", "", "", cfg)
+	env, err := ReadResidentEnv(context.Background(), "yardmaster", "", "", cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestResidentEnvCommandWinsOverFile(t *testing.T) {
 	if err := os.Chmod(file, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	env, err = ReadResidentEnv(context.Background(), "mayor", "", "", cfg)
+	env, err = ReadResidentEnv(context.Background(), "yardmaster", "", "", cfg)
 	if err == nil || !strings.Contains(err.Error(), "chmod 600") || len(env.Env) != 0 || env.FileErr == nil || env.CommandErr != nil {
 		t.Fatalf("refused file: %+v, %v", env, err)
 	}
@@ -168,7 +168,7 @@ func TestResidentEnvCommandFailures(t *testing.T) {
 			}()
 		}
 		start := time.Now()
-		env, err := ReadResidentEnv(ctx, "mayor", "", "", map[string]any{"env_command": tc.cmd})
+		env, err := ReadResidentEnv(ctx, "yardmaster", "", "", map[string]any{"env_command": tc.cmd})
 		if err == nil {
 			t.Errorf("%s: no error", name)
 			continue
@@ -201,7 +201,7 @@ func TestResidentEnvCommandTimeout(t *testing.T) {
 	t.Cleanup(func() { EnvCommandTimeout = old })
 	p := providerT(t, `echo "LINEAR_API_KEY=`+provided+`"; sleep 300`)
 	start := time.Now()
-	env, err := ReadResidentEnv(context.Background(), "mayor", "", "", map[string]any{"env_command": p})
+	env, err := ReadResidentEnv(context.Background(), "yardmaster", "", "", map[string]any{"env_command": p})
 	if err == nil || !strings.Contains(err.Error(), "env_command "+p+": no answer within 50ms") || strings.Contains(err.Error(), provided) {
 		t.Fatalf("err = %v", err)
 	}
@@ -260,7 +260,7 @@ func TestResidentEnvCommandKillsChildForkedAtTheLimit(t *testing.T) {
 			}
 			timeUp()
 		}()
-		_, err := ReadResidentEnv(ctx, "mayor", "", "", map[string]any{"env_command": p})
+		_, err := ReadResidentEnv(ctx, "yardmaster", "", "", map[string]any{"env_command": p})
 		if err == nil || !strings.Contains(err.Error(), "no answer within 1h0m0s") {
 			t.Fatalf("round %d: err = %v", round, err)
 		}

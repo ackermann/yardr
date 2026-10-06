@@ -31,9 +31,9 @@ func TestHookDeliveryLine(t *testing.T) {
 		"source": "linear", "type": "comment", "action": "create",
 		"actor":  map[string]any{"id": "u1", "name": "Jane"},
 		"thread": map[string]any{"title": "Retries"}, "text": "can you look?", "url": "https://x/1",
-		"deliveries": map[string]any{"mayor": "mentioned"},
+		"deliveries": map[string]any{"yardmaster": "mentioned"},
 	}}
-	got := capture(t, func() { printInboxEvent(e, "mayor") })
+	got := capture(t, func() { printInboxEvent(e, "yardmaster") })
 	want := "     7 10-02 09:14  hook (mentioned) linear comment create by Jane on \"Retries\": can you look?  https://x/1\n"
 	if got != want {
 		t.Errorf("got  %q\nwant %q", got, want)
@@ -49,7 +49,7 @@ func TestHarnessErrorLineLeadsWithItsReason(t *testing.T) {
 			"reason": "at_capacity", "line": "■ Selected model is at capacity.", "group": "reviewers",
 			"hint": "get it going", "session": "s1", "tail": "› ",
 		}}
-	got := capture(t, func() { printInboxEvent(e, "mayor") })
+	got := capture(t, func() { printInboxEvent(e, "yardmaster") })
 	want := "    14 10-06 03:05  yardr-hk53 session_harness_error (on) by yard reason=at_capacity line=■ Selected model is at capacity. " +
 		"group=reviewers hint=get it going session=s1 tail=› \n"
 	if got != want {
@@ -66,7 +66,7 @@ func TestMoveRefusedLineLeadsWithTheCommand(t *testing.T) {
 			"reason": "stale", "command": "yardr bead done yardr-87dd", "error": "stale: bead yardr-87dd is now in review",
 			"agent": "yardr-87dd-new", "hint": "it did not move", "session": "s1",
 		}}
-	got := capture(t, func() { printInboxEvent(e, "mayor") })
+	got := capture(t, func() { printInboxEvent(e, "yardmaster") })
 	want := "    15 10-06 09:05  yardr-87dd move_refused (on) by yard reason=stale command=yardr bead done yardr-87dd " +
 		"error=stale: bead yardr-87dd is now in review agent=yardr-87dd-new hint=it did not move session=s1\n"
 	if got != want {

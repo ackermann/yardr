@@ -451,22 +451,22 @@ func TestMailRefusedWithAReason(t *testing.T) {
 	mail := []string{"mail"}
 	toB := a.add(t, "b", b, true, mail, mail)
 	b.add(t, "a", a, false, mail, mail)
-	if _, err := b.api.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr"}, "jo"); err != nil {
+	if _, err := b.api.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	post := func(id, to, text string) error {
-		body, _ := json.Marshal(map[string]string{"to": to, "from": "mayor", "text": text})
+		body, _ := json.Marshal(map[string]string{"to": to, "from": "yardmaster", "text": text})
 		return a.caller().Push(ctx, toB, store.PeerMessage{ID: id, Kind: "mail", Body: body})
 	}
-	if err := post("m1", "mayor", "hi"); err != nil {
-		t.Fatalf("mail for b's mayor = %v", err)
+	if err := post("m1", "yardmaster", "hi"); err != nil {
+		t.Fatalf("mail for b's yardmaster = %v", err)
 	}
 	for want, m := range map[string][2]string{
 		"it has no such resident":          {"clerk", "hi"},
-		"the text is larger than it takes": {"mayor", strings.Repeat("x", store.MaxPeerMailBytes+1)},
-		"it does not read the mail":        {"mayor", ""},
+		"the text is larger than it takes": {"yardmaster", strings.Repeat("x", store.MaxPeerMailBytes+1)},
+		"it does not read the mail":        {"yardmaster", ""},
 	} {
-		if err := post("r-"+m[0]+strings.Repeat("x", len(m[1])%7), m[0], m[1]); !errors.Is(err, yards.ErrRefused) || !strings.HasSuffix(err.Error(), want) || strings.Contains(err.Error(), "mayor") {
+		if err := post("r-"+m[0]+strings.Repeat("x", len(m[1])%7), m[0], m[1]); !errors.Is(err, yards.ErrRefused) || !strings.HasSuffix(err.Error(), want) || strings.Contains(err.Error(), "yardmaster") {
 			t.Errorf("mail to %s of %d bytes = %v, want %q", m[0], len(m[1]), err, want)
 		}
 	}
@@ -476,10 +476,10 @@ func TestMailRefusedWithAReason(t *testing.T) {
 
 	// b's mail for a waits to be asked for. a takes the first and refuses
 	// the second, and says so with its next question.
-	if _, err := a.api.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr"}, "jo"); err != nil {
+	if _, err := a.api.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	for _, to := range []string{"mayor", "clerk"} {
+	for _, to := range []string{"yardmaster", "clerk"} {
 		if _, err := b.api.MailPeer(ctx, to, "a", "hello", "jo"); err != nil {
 			t.Fatal(err)
 		}

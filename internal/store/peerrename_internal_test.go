@@ -20,7 +20,7 @@ func TestMigratePeerSince(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.PutResident(ctx, Resident{Name: "mayor", Runner: "herdr"}, "jo"); err != nil {
+	if _, err := s.PutResident(ctx, Resident{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	// Two yards, one after the other, were north; the first sent mail.
@@ -32,7 +32,7 @@ func TestMigratePeerSince(t *testing.T) {
 	if _, err := s.AllowPeer(ctx, "north", PeerAllow{Receive: []string{PeerMail}}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	old := PeerMessage{ID: "m1", Kind: PeerMail, Body: []byte(`{"to":"mayor","from":"clerk","text":"from the first north"}`)}
+	old := PeerMessage{ID: "m1", Kind: PeerMail, Body: []byte(`{"to":"yardmaster","from":"clerk","text":"from the first north"}`)}
 	if got, err := s.PeerReceive(ctx, "north", first.Key, []PeerMessage{old}); err != nil || got[0].Refused != "" {
 		t.Fatalf("PeerReceive = %+v, %v", got, err)
 	}
@@ -73,7 +73,7 @@ func TestMigratePeerSince(t *testing.T) {
 	if err != nil || p.Since == 0 || p.Since != added.Since || p.Key != second.Key {
 		t.Fatalf("the migrated peer = %+v, %v; want since %d", p, err, added.Since)
 	}
-	if ls, err := s.Conversation(ctx, "mayor", "clerk@north", 0); err != nil || len(ls) != 0 {
+	if ls, err := s.Conversation(ctx, "yardmaster", "clerk@north", 0); err != nil || len(ls) != 0 {
 		t.Fatalf("the second north's conversation = %+v, %v; want none of the first's", ls, err)
 	}
 	// Opened again, nothing is migrated twice.

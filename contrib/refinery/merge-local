@@ -11,7 +11,8 @@
 # (cmd='YARDR_PUSH=origin /path/to/merge-local'):
 #
 #   YARDR_PUSH     a remote to push the base to after landing; off when empty
-#   YARDR_NOTIFY   resident mailed when that push fails (default mayor)
+#   YARDR_NOTIFY   resident mailed when that push fails (default: the yard's
+#                  yardmaster setting, else yardmaster)
 #
 # For each bead it rebases the branch onto the base if the base moved, runs
 # the rig's gate on exactly what will land, fast-forwards the base to the
@@ -48,7 +49,7 @@ BASE=$YARDR_BASE
 BR=${YARDR_BRANCH:-yard/$BEAD}
 WT=${YARDR_WORKTREE:-${YARDR_HOME:-$HOME/.yardr}/worktrees/$RIG/$BEAD}
 PUSH=${YARDR_PUSH:-}
-NOTIFY=${YARDR_NOTIFY:-mayor}
+NOTIFY=${YARDR_NOTIFY:-}
 TAIL=200
 echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') refinery $RIG $BEAD ($BR onto $BASE)"
 
@@ -193,6 +194,9 @@ if [ -n "$PUSH" ]; then
     echo "== pushed $BASE to $PUSH"
   else
     msg="$msg; pushing $BASE to $PUSH failed (not forced)"
+    # Asked only now: a yard names its yardmaster as it likes (a yard from
+    # before the rename has a mayor), and most landings mail nobody.
+    [ -n "$NOTIFY" ] || NOTIFY=$("$Y" settings get yardmaster 2>/dev/null) || NOTIFY=yardmaster
     "$Y" mail "$NOTIFY" "refinery: merged $BEAD at $sha but pushing $BASE to $PUSH failed. Not forced; check whether $PUSH/$BASE moved." ||
       echo "== could not mail $NOTIFY"
   fi

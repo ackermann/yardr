@@ -30,7 +30,7 @@ type former struct {
 	// goes are the answers to "how to go on", one per time it is asked;
 	// past its end the answer is stop.
 	goes []string
-	// panes are the answers to "open the mayor's pane?", one per time it
+	// panes are the answers to "open the yardmaster's pane?", one per time it
 	// is asked; past its end the answer is not now.
 	panes []string
 	// tries are the answers to "<harness> did not answer", one per time it
@@ -341,7 +341,7 @@ func TestSetupGoesOnWhereTheYardStands(t *testing.T) {
 			t.Fatalf("next step = %q, want %q", got, tc.step)
 		}
 		if tc.step == stepReviewers {
-			// Someone on the command line, or the mayor.
+			// Someone on the command line, or the yardmaster.
 			if _, err := run(t, (&app{st: st}).rootCmd(), "group", "add", "web/reviewers", "--runner", "herdr", "--set", "prompt=roles/reviewer.md"); err != nil {
 				t.Fatal(err)
 			}
@@ -550,57 +550,58 @@ func TestSetupKeepsAnInstalledMergeLocal(t *testing.T) {
 	}
 }
 
-// "Talk to the mayor" after a page opens the chat on the mayor (yardr-8j3n;
-// it printed where the mayor's pane is before, and with --no-chat it still
-// does). With no mayor running it opens no empty chat: it says what yardr
-// doctor says of the mayor, and how to start the yard.
-func TestSetupTalkToTheMayor(t *testing.T) {
-	f := &former{answers: map[string]any{"name": "web"}, goes: []string{goMayor}}
+// "Talk to the yardmaster" after a page opens the chat on the yardmaster
+// (yardr-8j3n; it printed where the yardmaster's pane is before, and with
+// --no-chat it still does). With no yardmaster running it opens no empty
+// chat: it says what yardr doctor says of the yardmaster, and how to start
+// the yard.
+func TestSetupTalkToTheYardmaster(t *testing.T) {
+	f := &former{answers: map[string]any{"name": "web"}, goes: []string{goYardmaster}}
 	home, st, _ := setupYard(t, f)
 	mustAs(t, st, "Jo", "user", "add", "me")
 	focused := stubFocus(t)
 	chats := stubChat(t)
 	t.Setenv("HERDR_ENV", "1")
 	out := setup(t, st, "--actor", "me")
-	wantText(t, out, "mayor is not running, so there is nobody to talk to yet.", "`yardr --home "+home+" doctor` says of it:",
-		"  FAULT  mayor      mayor is not running: the daemon starts it", "yardr --home "+home+" init --start")
+	wantText(t, out, "yardmaster is not running, so there is nobody to talk to yet.", "`yardr --home "+home+" doctor` says of it:",
+		"  FAULT  yardmaster  yardmaster is not running: the daemon starts it", "yardr --home "+home+" init --start")
 	if len(*focused) != 0 || len(*chats) != 0 || todo(t, st) != stepRigFiles {
 		t.Fatalf("focused %v, chats %v, next %s\n%s", *focused, *chats, todo(t, st), out)
 	}
 
-	if err := st.ResidentStarted(context.Background(), "mayor", mayorHandle()); err != nil {
+	if err := st.ResidentStarted(context.Background(), "yardmaster", yardmasterHandle()); err != nil {
 		t.Fatal(err)
 	}
 	// A live pane at a login prompt has not answered the onboarding prompt:
 	// say what doctor knows and do not open an empty chat.
 	stubPane(t, "Not logged in · Run /login")
-	f.goes = []string{goMayor}
+	f.goes = []string{goYardmaster}
 	out = setup(t, st, "--actor", "me")
 	wantText(t, out, "has not answered its first prompt", "`yardr --home "+home+" doctor` says of it:",
-		"  ok     mayor      mayor is running (herdr agent y-mayor)",
-		"  note   mayor      mayor's session runs, and it has not answered its first prompt")
+		"  ok     yardmaster  yardmaster is running (herdr agent y-yardmaster)",
+		"  note   yardmaster  yardmaster's session runs, and it has not answered its first prompt")
 	if len(*chats) != 0 || len(*focused) != 0 {
-		t.Fatalf("a chat or focus was opened for a silent mayor: chats %v, focused %v\n%s", *chats, *focused, out)
+		t.Fatalf("a chat or focus was opened for a silent yardmaster: chats %v, focused %v\n%s", *chats, *focused, out)
 	}
 
 	// This session has answered its first prompt; it is ready for a chat.
 	stubPane(t, answeredPane)
-	f.goes = []string{goMayor}
+	f.goes = []string{goYardmaster}
 	out = setup(t, st, "--actor", "me")
-	wantText(t, out, "You left the chat; mayor keeps running. To come back: yardr --home "+home+" chat\n")
-	if strings.Contains(out, "mayor is running, in herdr:") {
+	wantText(t, out, "You left the chat; yardmaster keeps running. To come back: yardr --home "+home+" chat\n")
+	if strings.Contains(out, "yardmaster is running, in herdr:") {
 		t.Errorf("the chat was opened, and the pane is named all the same:\n%s", out)
 	}
-	if len(*focused) != 0 || !slices.Equal(*chats, []string{"mayor, expecting mayor"}) || todo(t, st) != stepReviewers {
+	if len(*focused) != 0 || !slices.Equal(*chats, []string{"yardmaster, expecting yardmaster"}) || todo(t, st) != stepReviewers {
 		t.Fatalf("focused %v, chats %v, next %s\n%s", *focused, *chats, todo(t, st), out)
 	}
 
 	// --no-chat: the pane, as before there was a chat.
-	f.goes = []string{goMayor}
+	f.goes = []string{goYardmaster}
 	out = setup(t, st, "--actor", "me", "--no-chat")
-	wantText(t, out, "mayor is running, in herdr:", "agent      y-mayor", "herdr agent attach y-mayor", "herdr shows mayor now.",
-		"mayor goes on from the step that is next: it reads `yardr --home "+home+" doctor`")
-	if !slices.Equal(*focused, []string{"y-mayor"}) || len(*chats) != 1 {
+	wantText(t, out, "yardmaster is running, in herdr:", "agent      y-yardmaster", "herdr agent attach y-yardmaster", "herdr shows yardmaster now.",
+		"yardmaster goes on from the step that is next: it reads `yardr --home "+home+" doctor`")
+	if !slices.Equal(*focused, []string{"y-yardmaster"}) || len(*chats) != 1 {
 		t.Fatalf("focused %v, chats %v\n%s", *focused, *chats, out)
 	}
 }
@@ -620,7 +621,7 @@ func TestSetupWithoutForms(t *testing.T) {
 	setInteractive(t, false)
 	check(setup(t, st))
 	setInteractive(t, true)
-	t.Setenv("YARDR_RESIDENT", "mayor")
+	t.Setenv("YARDR_RESIDENT", "yardmaster")
 	check(setup(t, st))
 	t.Setenv("YARDR_RESIDENT", "")
 
@@ -633,8 +634,8 @@ func TestSetupWithoutForms(t *testing.T) {
 	}
 }
 
-// The onboarding ends in the same forms: once the mayor is up it asks
-// whether to talk to the mayor or keep going here, and "here" is the first
+// The onboarding ends in the same forms: once the yardmaster is up it asks
+// whether to talk to the yardmaster or keep going here, and "here" is the first
 // page of the setup. Run for yardr setup itself, the command asks no second
 // time.
 func TestOnboardingKeepsGoing(t *testing.T) {
@@ -642,7 +643,7 @@ func TestOnboardingKeepsGoing(t *testing.T) {
 	setInteractive(t, true)
 	stubLookPath(t, "claude", "git", "herdr")
 	st := storetest.New(t)
-	stubStart(t, st, mayorHandle())
+	stubStart(t, st, yardmasterHandle())
 	stubPane(t, answeredPane)
 	focused := stubFocus(t)
 	f := &former{t: t, goes: []string{goHere}, abort: func(fld huh.Field) bool { return fld.GetKey() == "path" }}
@@ -652,7 +653,7 @@ func TestOnboardingKeepsGoing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantText(t, out, "yard created", "mayor is running, in herdr", "Setup: a rig",
+	wantText(t, out, "yard created", "yardmaster is running, in herdr", "Setup: a rig",
 		"Cancelled at: a rig.", "`yardr --home "+home+" setup` goes on from here")
 	if len(*focused) != 0 {
 		t.Errorf("focused %v for an answer of here", *focused)

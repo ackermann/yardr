@@ -43,12 +43,12 @@ func landing(t *testing.T, st store.API) *store.Bead {
 	_, err = st.PutFlow(ctx, *fl, "me")
 	must(t, err)
 	must(t, st.SetFlowPointer(ctx, "line", "", "code", "me"))
-	_, err = st.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr"}, "me")
+	_, err = st.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me")
 	must(t, err)
 	b, err := st.CreateBead(ctx, store.NewBead{Title: "a door", Stage: "new", Rig: "line"}, "me")
 	must(t, err)
 	must(t, st.AddNote(ctx, b.ID, "someone else's remark", "passer"))
-	must(t, st.Journal(ctx, "mayor", store.NoteJournal, "dear diary", "mayor"))
+	must(t, st.Journal(ctx, "yardmaster", store.NoteJournal, "dear diary", "yardmaster"))
 	must(t, st.AddNote(ctx, b.ID, "the hinge is missing", "builder"))
 	_, err = st.SetHold(ctx, b.ID, true, store.Expect{}, "builder")
 	must(t, err)
@@ -56,7 +56,7 @@ func landing(t *testing.T, st store.API) *store.Bead {
 	must(t, err)
 	_, err = st.Done(ctx, b.ID, "done", "", store.Expect{}, "builder")
 	must(t, err)
-	must(t, st.Journal(ctx, "mayor", store.NoteHandoff, "over to you", "mayor"))
+	must(t, st.Journal(ctx, "yardmaster", store.NoteHandoff, "over to you", "yardmaster"))
 	_, err = st.AdvanceNote(ctx, b.ID, "merged", "refinery: merged 70dabcd", store.Expect{}, "refinery")
 	must(t, err)
 	return b
@@ -182,7 +182,7 @@ func TestFeedOtherWords(t *testing.T) {
 func TestFeedPages(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	_, err := f.st.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr"}, "me")
+	_, err := f.st.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me")
 	must(t, err)
 	for i := range 130 {
 		_, err := f.st.CreateBead(ctx, store.NewBead{Title: fmt.Sprint("bead ", i), Stage: "new"}, "me")
@@ -190,7 +190,7 @@ func TestFeedPages(t *testing.T) {
 		// A run of journal entries longer than one page of the feed.
 		if i == 100 {
 			for range 230 {
-				must(t, f.st.Journal(ctx, "mayor", store.NoteJournal, "dear diary", "mayor"))
+				must(t, f.st.Journal(ctx, "yardmaster", store.NoteJournal, "dear diary", "yardmaster"))
 			}
 		}
 	}
@@ -420,10 +420,10 @@ func bead(t *testing.T, st store.API, title string) *store.Bead {
 func TestEventsJSON(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	_, err := f.st.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr"}, "me")
+	_, err := f.st.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me")
 	must(t, err)
 	bead(t, f.st, "one")
-	must(t, f.st.Journal(ctx, "mayor", store.NoteJournal, "dear diary", "mayor"))
+	must(t, f.st.Journal(ctx, "yardmaster", store.NoteJournal, "dear diary", "yardmaster"))
 	bead(t, f.st, "two")
 	want, err := f.st.EventsSince(ctx, 0, 0)
 	must(t, err)
@@ -476,13 +476,13 @@ func TestEventsJSON(t *testing.T) {
 func TestEventsHTML(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	_, err := f.st.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr"}, "me")
+	_, err := f.st.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me")
 	must(t, err)
 	head, err := f.st.Head(ctx)
 	must(t, err)
 	s := f.stream(t, fmt.Sprintf("/events?after=%d", head))
 	b := bead(t, f.st, "a door")
-	must(t, f.st.Journal(ctx, "mayor", store.NoteJournal, "dear diary", "mayor"))
+	must(t, f.st.Journal(ctx, "yardmaster", store.NoteJournal, "dear diary", "yardmaster"))
 	must(t, f.st.AddNote(ctx, b.ID, "two\nlines", "me"))
 
 	fr := s.next(t)
@@ -725,12 +725,12 @@ func TestFeedTimers(t *testing.T) {
 	ctx := context.Background()
 	_, err = api.AddUser(ctx, "jo", "me")
 	must(t, err)
-	_, err = api.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr"}, "me")
+	_, err = api.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me")
 	must(t, err)
 	due := time.Now().Add(time.Hour)
-	_, err = api.AddTimer(ctx, store.NewTimer{Reason: "look at the deploy", Due: due}, "mayor")
+	_, err = api.AddTimer(ctx, store.NewTimer{Reason: "look at the deploy", Due: due}, "yardmaster")
 	must(t, err)
-	_, err = api.AddTimer(ctx, store.NewTimer{To: "jo", Reason: "the refinery is red", Due: due}, "mayor")
+	_, err = api.AddTimer(ctx, store.NewTimer{To: "jo", Reason: "the refinery is red", Due: due}, "yardmaster")
 	must(t, err)
 	pass, err := api.FireTimers(ctx, due)
 	must(t, err)
@@ -748,8 +748,8 @@ func TestFeedTimers(t *testing.T) {
 		}
 	}
 	slices.Sort(texts)
-	if len(texts) != 2 || !strings.HasPrefix(texts[0], "timer of mayor for jo: the refinery is red (set ") ||
-		!strings.HasPrefix(texts[1], "timer of mayor: look at the deploy (set ") {
+	if len(texts) != 2 || !strings.HasPrefix(texts[0], "timer of yardmaster for jo: the refinery is red (set ") ||
+		!strings.HasPrefix(texts[1], "timer of yardmaster: look at the deploy (set ") {
 		t.Fatalf("timer entries = %q", texts)
 	}
 }

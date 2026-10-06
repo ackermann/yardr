@@ -22,13 +22,13 @@ handoffs, its subscriptions changing), whoever logged it; a plain note
 someone else leaves on its journal still reaches it.
 
 ```sh
-yardr subscribe mayor yardr --done                         # every bead that becomes done
-yardr subscribe mayor yardr --done --where rig=yardr --where label=ui
-yardr subscribe mayor yardr --scope involved               # beads it created, advanced or noted, and events @mentioning it
-yardr bead watch yardr-k3f9 --resident mayor --done         # this one bead, until it closes
-yardr subscribe mayor linear --scope involved              # Linear issues it is mentioned in, assigned, or works on
-yardr resident show mayor                                  # lists its subscriptions
-yardr unsubscribe mayor yardr [--scope …] [--where …]
+yardr subscribe yardmaster yardr --done                         # every bead that becomes done
+yardr subscribe yardmaster yardr --done --where rig=yardr --where label=ui
+yardr subscribe yardmaster yardr --scope involved               # beads it created, advanced or noted, and events @mentioning it
+yardr bead watch yardr-k3f9 --resident yardmaster --done         # this one bead, until it closes
+yardr subscribe yardmaster linear --scope involved              # Linear issues it is mentioned in, assigned, or works on
+yardr resident show yardmaster                                  # lists its subscriptions
+yardr unsubscribe yardmaster yardr [--scope …] [--where …]
 ```
 
 The source can be the second argument or `--source`.
@@ -70,7 +70,7 @@ anywhere on the bead (body or any note) counts.
 
 **Journals and memories are out of the source** unless a subscription names
 them with `bead=` or `type=` (`--where type=journal`, `--where
-bead=mayor-journal`). A resident subscribed to `all` does not hear every
+bead=yardmaster-journal`). A resident subscribed to `all` does not hear every
 other resident's journal entries; a mention of it in one still reaches it.
 
 Where keys:
@@ -153,7 +153,7 @@ resident: a resident deciding what a person is told is what notifications
 are there to end, and the refusal says so:
 
 ```
-mayor is a resident, and a resident does not decide what a person is told: bo subscribes themselves, or the operator (jo) does it for them
+yardmaster is a resident, and a resident does not decide what a person is told: bo subscribes themselves, or the operator (jo) does it for them
 ```
 
 Another user is refused as `bo does not decide what jo is told: …`.
@@ -169,8 +169,8 @@ inbox` shows a resident for the same delivery, with the bead's title after
 it where there is a bead:
 
 ```
-web-3cps closed (done) by mayor reason=merged 1a2b3c4 on "Chat: a row for the yard"
-web-hk7z advanced (all) by mayor from=new to=decide on "Which port for the hook listener"
+web-3cps closed (done) by yardmaster reason=merged 1a2b3c4 on "Chat: a row for the yard"
+web-hk7z advanced (all) by yardmaster from=new to=decide on "Which port for the hook listener"
 hook (all) github workflow_run completed by jane on "Fix the gate": ci failure on main  https://github.com/…
 ```
 
@@ -272,11 +272,11 @@ normalized envelope. Who it reaches depends on the resident's identity in the
 source:
 
 ```sh
-yardr resident identity mayor --source linear --id <user id> --key <profile key>
-yardr subscribe mayor linear --scope involved
+yardr resident identity yardmaster --source linear --id <user id> --key <profile key>
+yardr subscribe yardmaster linear --scope involved
 yardr subscribe triage linear --scope all --where type=issue --where action=create --where team=ENG
-yardr thread follow mayor --source linear <issue id>    # participate without having acted
-yardr thread list mayor
+yardr thread follow yardmaster --source linear <issue id>    # participate without having acted
+yardr thread list yardmaster
 ```
 
 Where keys: `type`, `action` (the envelope), and `team`, `project`, `repo`,
@@ -299,21 +299,21 @@ definition.
 An issue's description is re-sent whole with every update, so a mention there
 counts once: yardr keeps who each issue's description mentioned and treats
 only newly added names as mentions. A status or label change on an issue that
-still mentions `@mayor` does not reach `mayor` as `mentioned` again (it can
-still reach it as `assigned`, `participant` or `all`). The event keeps the
-full list in `mentions`; `new_mentions` is what routing used. A comment is
+still mentions `@yardmaster` does not reach `yardmaster` as `mentioned` again
+(it can still reach it as `assigned`, `participant` or `all`). The event keeps
+the full list in `mentions`; `new_mentions` is what routing used. A comment is
 the same: its creation counts every mention in it, an edit (Linear `update`,
-GitHub `edited`) only the names it adds, and a deletion (`remove`,
-`deleted`) tells no one and forgets the comment. The envelope's `entity`
-names what is diffed: the issue or pull request, the comment, or a review.
+GitHub `edited`) only the names it adds, and a deletion (`remove`, `deleted`)
+tells no one and forgets the comment. The envelope's `entity` names what is
+diffed: the issue or pull request, the comment, or a review.
 
 ### Setting up Linear
 
 What runs today, from nothing to a resident answering in Linear:
 
 1. **The resident's own Linear user.** Create a Linear OAuth application for
-   the resident and take its developer token: the token acts as the app's
-   own user (the mayor's is called Yardr). A personal API key works too, but
+   the resident and take its developer token: the token acts as the app's own
+   user (the yardmaster's is called Yardr). A personal API key works too, but
    then the resident speaks as that person.
 2. **The token in its env_file**, never in the store:
    `LINEAR_API_KEY=…` in `~/.yardr/residents/<name>.env`, `chmod
@@ -347,9 +347,9 @@ login as identity and the webhook below.
 
 ```sh
 yardr hook add gh --source github --secret-file ~/.yardr/github.secret
-yardr resident identity mayor --source github --key mayor   # its login, lowercase
-yardr subscribe mayor github --scope involved
-yardr subscribe mayor github --scope all --where epic=yardr-sv6b --where conclusion=failure
+yardr resident identity yardmaster --source github --key yardmaster   # its login, lowercase
+yardr subscribe yardmaster github --scope involved
+yardr subscribe yardmaster github --scope all --where epic=yardr-sv6b --where conclusion=failure
 ```
 
 On GitHub, in the repository's **Settings → Webhooks → Add webhook**:
@@ -397,7 +397,7 @@ and give the resident the key and its identity:
 GITHUB_APP_ID=1234567            # the App ID, or its Client ID
 GITHUB_APP_PRIVATE_KEY_FILE=~/.yardr/residents/yardr-app.pem   # mode 0600
 
-yardr resident identity mayor --source github --key 'yardr[bot]'   # <slug>[bot], lowercase
+yardr resident identity yardmaster --source github --key 'yardr[bot]'   # <slug>[bot], lowercase
 ```
 
 [residents.md](residents.md#as-a-github-app) has the steps and what yardr

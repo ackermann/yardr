@@ -150,19 +150,19 @@ func TestBeadRevisionFlag(t *testing.T) {
 func TestResidentRemoveStaleRevisionDoesNotDelete(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
-	r, err := st.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr"}, "me")
+	r, err := st.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.MarkNotified(ctx, "mayor", 1); err != nil {
+	if err := st.MarkNotified(ctx, "yardmaster", 1); err != nil {
 		t.Fatal(err)
 	}
 	a := &app{st: st, actor: "me"}
-	_, err = run(t, a.residentCmd(), "rm", "mayor", "--revision", r.Revision)
+	_, err = run(t, a.residentCmd(), "rm", "yardmaster", "--revision", r.Revision)
 	if !errors.Is(err, store.ErrConflict) {
 		t.Fatalf("stale resident rm: %v, want a conflict", err)
 	}
-	if _, err := st.GetResident(ctx, "mayor"); err != nil {
+	if _, err := st.GetResident(ctx, "yardmaster"); err != nil {
 		t.Fatalf("stale resident rm deleted resident: %v", err)
 	}
 }

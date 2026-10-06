@@ -35,7 +35,7 @@ func (f *fakeLinearTeams) serve(t *testing.T) {
 			Variables map[string]any `json:"variables"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
-		if r.Header.Get("Authorization") != "lin_api_mayor" {
+		if r.Header.Get("Authorization") != "lin_api_yardmaster" {
 			_ = json.NewEncoder(w).Encode(map[string]any{"errors": []any{map[string]any{"message": "Authentication required"}}})
 			return
 		}
@@ -90,10 +90,10 @@ func TestLinearOpen(t *testing.T) {
 		t.Fatal("linear opens no threads")
 	}
 
-	if got, err := o.Opened(ctx, "YRD", openKey, "lin_api_mayor", time.Now()); err != nil || got != nil {
+	if got, err := o.Opened(ctx, "YRD", openKey, "lin_api_yardmaster", time.Now()); err != nil || got != nil {
 		t.Fatalf("before it is opened: %+v, %v", got, err)
 	}
-	th, err := o.Open(ctx, "yrd", "Web view", "The epic.", openKey, "lin_api_mayor")
+	th, err := o.Open(ctx, "yrd", "Web view", "The epic.", openKey, "lin_api_yardmaster")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,20 +104,20 @@ func TestLinearOpen(t *testing.T) {
 	if in["teamId"] != "team-yrd" || in["id"] != openKey || in["title"] != "Web view" || in["description"] != "The epic." {
 		t.Fatalf("issueCreate input: %v", in)
 	}
-	got, err := o.Opened(ctx, "YRD", openKey, "lin_api_mayor", time.Now())
+	got, err := o.Opened(ctx, "YRD", openKey, "lin_api_yardmaster", time.Now())
 	if err != nil || got == nil || *got != th {
 		t.Fatalf("found again: %+v, %v", got, err)
 	}
 	// Linear refuses the id a second time: nothing is opened twice even
 	// by a caller that does not look first.
-	if _, err := o.Open(ctx, "YRD", "Web view", "The epic.", openKey, "lin_api_mayor"); err == nil {
+	if _, err := o.Open(ctx, "YRD", "Web view", "The epic.", openKey, "lin_api_yardmaster"); err == nil {
 		t.Fatal("the same id twice")
 	}
 
 	// A key wins over another team's name; a name works when one team has
 	// it; an empty body is no description.
 	for in, team := range map[string]string{"engineering": "team-eng2", "Platform": "team-eng2", "ENG": "team-eng"} {
-		if _, err := o.Open(ctx, in, "t", "", "", "lin_api_mayor"); err != nil {
+		if _, err := o.Open(ctx, in, "t", "", "", "lin_api_yardmaster"); err != nil {
 			t.Fatalf("--in %s: %v", in, err)
 		}
 		last := f.created[len(f.created)-1]
@@ -128,7 +128,7 @@ func TestLinearOpen(t *testing.T) {
 	}
 	n := len(f.created)
 	for in, want := range map[string]string{"Yard": "2 teams are named", "nope": "no team with key or name \"nope\""} {
-		if _, err := o.Open(ctx, in, "t", "", "", "lin_api_mayor"); err == nil || !strings.Contains(err.Error(), want) {
+		if _, err := o.Open(ctx, in, "t", "", "", "lin_api_yardmaster"); err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("--in %s: %v", in, err)
 		}
 	}

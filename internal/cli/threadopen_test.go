@@ -39,7 +39,7 @@ func fakeSourceAPIs(t *testing.T) *fakeSources {
 			Variables map[string]any `json:"variables"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
-		if r.Header.Get("Authorization") != "lin_api_mayor" {
+		if r.Header.Get("Authorization") != "lin_api_yardmaster" {
 			gqlError(w, "Authentication required")
 			return
 		}
@@ -83,7 +83,7 @@ func fakeSourceAPIs(t *testing.T) *fakeSources {
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
 	}))
 	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer gh-mayor" {
+		if r.Header.Get("Authorization") != "Bearer gh-yardmaster" {
 			http.Error(w, `{"message":"Bad credentials"}`, http.StatusUnauthorized)
 			return
 		}
@@ -118,7 +118,7 @@ func fakeSourceAPIs(t *testing.T) *fakeSources {
 			f.comments = append(f.comments, fmt.Sprintf("Acme/webapp#%s: %s", n, in.Body))
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": 7, "body": in.Body,
-				"html_url": "https://github.com/Acme/webapp/issues/" + n + "#issuecomment-7", "user": map[string]any{"login": "mayor-bot"}})
+				"html_url": "https://github.com/Acme/webapp/issues/" + n + "#issuecomment-7", "user": map[string]any{"login": "yardmaster-bot"}})
 		default:
 			http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
 		}
@@ -131,14 +131,14 @@ func fakeSourceAPIs(t *testing.T) *fakeSources {
 	return f
 }
 
-// openYard is a store with the operator jo, a resident mayor that hears of
+// openYard is a store with the operator jo, a resident yardmaster that hears of
 // what it is involved in in both sources, and its session: the pane names
 // it, and holds its credentials. allowed is its open_threads setting.
 func openYard(t *testing.T, allowed string) (*app, store.API, *store.Store) {
 	t.Helper()
 	st, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	def := store.Resident{Name: "mayor", Runner: "herdr", Config: map[string]any{}}
+	def := store.Resident{Name: "yardmaster", Runner: "herdr", Config: map[string]any{}}
 	if allowed != "" {
 		def.Config[store.OpenThreads] = allowed
 	}
@@ -149,14 +149,14 @@ func openYard(t *testing.T, allowed string) (*app, store.API, *store.Store) {
 		t.Fatal(err)
 	}
 	for _, src := range []string{"linear", "github"} {
-		if err := st.AddSubscription(ctx, "mayor", store.Subscription{Source: src, Scope: store.ScopeInvolved}, "jo"); err != nil {
+		if err := st.AddSubscription(ctx, "yardmaster", store.Subscription{Source: src, Scope: store.ScopeInvolved}, "jo"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	t.Setenv("LINEAR_API_KEY", "lin_api_mayor")
-	t.Setenv("GITHUB_TOKEN", "gh-mayor")
-	t.Setenv("YARDR_RESIDENT", "mayor")
-	return &app{st: st, actor: "mayor"}, st, own
+	t.Setenv("LINEAR_API_KEY", "lin_api_yardmaster")
+	t.Setenv("GITHUB_TOKEN", "gh-yardmaster")
+	t.Setenv("YARDR_RESIDENT", "yardmaster")
+	return &app{st: st, actor: "yardmaster"}, st, own
 }
 
 // kinds counts the events of a kind.
@@ -206,7 +206,7 @@ func TestThreadOpen(t *testing.T) {
 			t.Fatalf("%s: out %q", c.source, out)
 		}
 		thread := c.thread()
-		ps, err := st.Threads(ctx, "mayor")
+		ps, err := st.Threads(ctx, "yardmaster")
 		if err != nil || len(ps) != i+1 {
 			t.Fatalf("%s: threads %+v, %v", c.source, ps, err)
 		}
@@ -233,8 +233,8 @@ func TestThreadOpen(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		page, err := st.Inbox(ctx, "mayor", 0)
-		if err != nil || len(page.Events) != i+1 || page.Events[i].Seq != seq || store.Reason(page.Events[i], "mayor") != store.ReasonParticipant {
+		page, err := st.Inbox(ctx, "yardmaster", 0)
+		if err != nil || len(page.Events) != i+1 || page.Events[i].Seq != seq || store.Reason(page.Events[i], "yardmaster") != store.ReasonParticipant {
 			t.Fatalf("%s: inbox %+v, %v", c.source, page, err)
 		}
 		if _, err := run(t, a.replyCmd(), strconv.FormatUint(seq, 10), "The next one."); err != nil {
@@ -289,7 +289,7 @@ func TestThreadOpenRetryDoesNotOpenTwice(t *testing.T) {
 				t.Fatalf("lost answer: %v", err)
 			}
 			f.lose = false
-			ps, _ := st.Threads(context.Background(), "mayor")
+			ps, _ := st.Threads(context.Background(), "yardmaster")
 			if issues() != 1 || kinds(t, st, "thread_opened") != 0 || len(ps) != 0 {
 				t.Fatalf("after the lost answer: %d issues, %d events, threads %v", issues(), kinds(t, st, "thread_opened"), ps)
 			}
@@ -297,7 +297,7 @@ func TestThreadOpenRetryDoesNotOpenTwice(t *testing.T) {
 			if err != nil || out != c.url+"\n" {
 				t.Fatalf("retry: %q, %v", out, err)
 			}
-			ps, _ = st.Threads(context.Background(), "mayor")
+			ps, _ = st.Threads(context.Background(), "yardmaster")
 			if issues() != 1 || kinds(t, st, "thread_opened") != 1 || len(ps) != 1 || ps[0].How != store.ParticipantOpened || ps[0].Title != "Epic" {
 				t.Fatalf("after the retry: %d issues, %d events, threads %+v", issues(), kinds(t, st, "thread_opened"), ps)
 			}
@@ -340,8 +340,8 @@ func TestThreadOpenRefusals(t *testing.T) {
 			t.Fatalf("%v: the refusal logged %d events", args, now-head)
 		}
 	}
-	refused("resident mayor may not open threads in linear", "linear", "--in", "YRD", "Epic")
-	refused("yardr resident set mayor open_threads=github,linear", "linear", "--in", "YRD", "Epic")
+	refused("resident yardmaster may not open threads in linear", "linear", "--in", "YRD", "Epic")
+	refused("yardr resident set yardmaster open_threads=github,linear", "linear", "--in", "YRD", "Epic")
 	refused("yardr cannot open threads in token (it can in github, linear)", "token", "--in", "x", "Epic")
 	refused("--in is required: the repository to open the thread in", "github", "Epic")
 	refused("the title is empty", "github", "--in", "Acme/webapp", "  ")
@@ -352,20 +352,20 @@ func TestThreadOpenRefusals(t *testing.T) {
 	// A bead's agent, or another resident, naming it with --resident.
 	t.Setenv("YARDR_RESIDENT", "")
 	a.actor = "yard-10-new"
-	refused("only mayor's own session or the operator (jo) may speak as mayor; this is yard-10-new",
-		"github", "--in", "Acme/webapp", "Epic", "--resident", "mayor")
+	refused("only yardmaster's own session or the operator (jo) may speak as yardmaster; this is yard-10-new",
+		"github", "--in", "Acme/webapp", "Epic", "--resident", "yardmaster")
 	refused("--resident is required", "github", "--in", "Acme/webapp", "Epic")
 	// Without its credential nothing is posted.
-	a.actor = "mayor"
+	a.actor = "yardmaster"
 	t.Setenv("GITHUB_TOKEN", "wrong")
-	if _, err := run(t, a.threadOpenCmd(), "github", "--in", "Acme/webapp", "Epic", "--resident", "mayor"); err == nil ||
+	if _, err := run(t, a.threadOpenCmd(), "github", "--in", "Acme/webapp", "Epic", "--resident", "yardmaster"); err == nil ||
 		!strings.Contains(err.Error(), "401") || len(f.github) != 0 {
 		t.Fatalf("wrong credential: %v, %v", err, f.github)
 	}
 	// The operator may speak as it.
-	t.Setenv("GITHUB_TOKEN", "gh-mayor")
+	t.Setenv("GITHUB_TOKEN", "gh-yardmaster")
 	a.actor = "jo"
-	if _, err := run(t, a.threadOpenCmd(), "github", "--in", "Acme/webapp", "Epic", "--resident", "mayor"); err != nil || len(f.github) != 1 {
+	if _, err := run(t, a.threadOpenCmd(), "github", "--in", "Acme/webapp", "Epic", "--resident", "yardmaster"); err != nil || len(f.github) != 1 {
 		t.Fatalf("the operator: %v, %v", err, f.github)
 	}
 }
@@ -397,55 +397,55 @@ func TestOpenThreadsIsTheOperatorsToSet(t *testing.T) {
 		return strings.Join(r.MayOpen(), ",")
 	}
 
-	// mayor's own session, for itself, for another resident and for one
+	// yardmaster's own session, for itself, for another resident and for one
 	// that does not exist yet.
-	for _, name := range []string{"mayor", "scout", "fresh"} {
+	for _, name := range []string{"yardmaster", "scout", "fresh"} {
 		err := add(name, "kind=claude", "open_threads=linear")
-		if err == nil || !strings.Contains(err.Error(), "only the operator (jo) may let "+name+" open threads in linear; this is mayor") {
-			t.Fatalf("mayor's session allowing %s: %v", name, err)
+		if err == nil || !strings.Contains(err.Error(), "only the operator (jo) may let "+name+" open threads in linear; this is yardmaster") {
+			t.Fatalf("yardmaster's session allowing %s: %v", name, err)
 		}
 	}
-	if _, err := st.GetResident(ctx, "fresh"); err == nil || may("mayor") != "" || may("scout") != "" {
-		t.Fatalf("a refused definition was saved: mayor %q, scout %q", may("mayor"), may("scout"))
+	if _, err := st.GetResident(ctx, "fresh"); err == nil || may("yardmaster") != "" || may("scout") != "" {
+		t.Fatalf("a refused definition was saved: yardmaster %q, scout %q", may("yardmaster"), may("scout"))
 	}
 	// A bead's agent is no operator either.
 	a.actor = "yard-10-new"
-	if err := add("mayor", "kind=claude", `open_threads=["github"]`); err == nil {
+	if err := add("yardmaster", "kind=claude", `open_threads=["github"]`); err == nil {
 		t.Fatal("a bead's agent allowed it")
 	}
 
 	a.actor = "jo"
-	if err := add("mayor", "kind=claude", "open_threads=linear"); err != nil || may("mayor") != "linear" {
-		t.Fatalf("the operator: %v, %q", err, may("mayor"))
+	if err := add("yardmaster", "kind=claude", "open_threads=linear"); err != nil || may("yardmaster") != "linear" {
+		t.Fatalf("the operator: %v, %q", err, may("yardmaster"))
 	}
 	for _, bad := range []string{"open_threads=token", "open_threads=linear,slack", "open_threads=", "open_threads=true"} {
-		if err := add("mayor", "kind=claude", bad); err == nil || !strings.Contains(err.Error(), "--set open_threads") {
+		if err := add("yardmaster", "kind=claude", bad); err == nil || !strings.Contains(err.Error(), "--set open_threads") {
 			t.Fatalf("%s: %v", bad, err)
 		}
 	}
 
 	// The resident saves its definition with what it already has, but not
 	// with more; without the setting, it has given it up.
-	a.actor = "mayor"
-	if err := add("mayor", "kind=claude", "model=opus", "open_threads=linear"); err != nil || may("mayor") != "linear" {
-		t.Fatalf("keeping it: %v, %q", err, may("mayor"))
+	a.actor = "yardmaster"
+	if err := add("yardmaster", "kind=claude", "model=opus", "open_threads=linear"); err != nil || may("yardmaster") != "linear" {
+		t.Fatalf("keeping it: %v, %q", err, may("yardmaster"))
 	}
-	if err := add("mayor", "kind=claude", "open_threads=linear,github"); err == nil || !strings.Contains(err.Error(), "open threads in github;") {
+	if err := add("yardmaster", "kind=claude", "open_threads=linear,github"); err == nil || !strings.Contains(err.Error(), "open threads in github;") {
 		t.Fatalf("widening it: %v", err)
 	}
-	if err := add("mayor", "kind=claude"); err != nil || may("mayor") != "" {
-		t.Fatalf("dropping it: %v, %q", err, may("mayor"))
+	if err := add("yardmaster", "kind=claude"); err != nil || may("yardmaster") != "" {
+		t.Fatalf("dropping it: %v, %q", err, may("yardmaster"))
 	}
-	if err := add("mayor", "kind=claude", "open_threads=linear"); err == nil {
+	if err := add("yardmaster", "kind=claude", "open_threads=linear"); err == nil {
 		t.Fatal("taking it back after dropping it")
 	}
 
 	// resident show says what is allowed.
 	a.actor = "jo"
-	if err := add("mayor", "kind=claude", "open_threads=github,linear"); err != nil {
+	if err := add("yardmaster", "kind=claude", "open_threads=github,linear"); err != nil {
 		t.Fatal(err)
 	}
-	out, err := run(t, a.residentCmd(), "show", "mayor")
+	out, err := run(t, a.residentCmd(), "show", "yardmaster")
 	if err != nil || !strings.Contains(out, "may open threads in github, linear\n") {
 		t.Fatalf("show: %q, %v", out, err)
 	}

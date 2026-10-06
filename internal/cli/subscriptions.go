@@ -37,10 +37,10 @@ In Linear, --id is the user id and --key the profile URL key
 In GitHub, --key is the login, in any case. A resident that speaks as a
 GitHub App has the App's bot as its login, <slug>[bot]: what the bot does
 is then its own, and @<slug> in a comment mentions it.`,
-		Example: `  yardr resident identity mayor --source linear --id 4d3a2b1c-... --key mayor
-  yardr resident identity mayor --source github --key 'yardr[bot]'
-  yardr resident identity mayor
-  yardr resident identity mayor --source linear --rm`,
+		Example: `  yardr resident identity yardmaster --source linear --id 4d3a2b1c-... --key yardmaster
+  yardr resident identity yardmaster --source github --key 'yardr[bot]'
+  yardr resident identity yardmaster
+  yardr resident identity yardmaster --source linear --rm`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
@@ -178,11 +178,11 @@ the user's inbox, a line the yard writes, apart from the mail (yardr inbox
 for them; a resident does not decide what a person is told. A user has no
 identity in a hook source, so of a hook source only --scope all reaches
 them.`,
-		Example: `  yardr subscribe mayor linear --scope involved
+		Example: `  yardr subscribe yardmaster linear --scope involved
   yardr subscribe triage linear --scope all --where type=issue --where action=create --where team=ENG
-  yardr subscribe mayor github --scope all --where epic=yard-sv6b --where conclusion=failure
-  yardr subscribe mayor yardr --done
-  yardr subscribe mayor yardr --done --where rig=yard --where label=ui
+  yardr subscribe yardmaster github --scope all --where epic=yard-sv6b --where conclusion=failure
+  yardr subscribe yardmaster yardr --done
+  yardr subscribe yardmaster yardr --done --where rig=yard --where label=ui
   yardr subscribe approvers yardr --where stage=approved
   yardr subscribe jo yardr --done --where rig=yard     # jo, a user, is told when a bead lands`,
 		Args: cobra.RangeArgs(1, 2),
@@ -378,7 +378,7 @@ yardr thread state sets the status of a thread the resident takes part in.`,
 	follow := &cobra.Command{
 		Use:     "follow <resident> <thread-id>",
 		Short:   "Make a resident a participant in a thread",
-		Example: `  yardr thread follow mayor --source linear 539068e2-ae88-4d09-bd75-22eb4a59612f`,
+		Example: `  yardr thread follow yardmaster --source linear 539068e2-ae88-4d09-bd75-22eb4a59612f`,
 		Args:    threadArgs(&source),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
@@ -485,7 +485,7 @@ yardr subscribe <resident> yardr --where bead=<id>, narrowed by --stage (the
 stage it enters), --kind and --done (it closes, by a terminal stage or a
 close). The watch ends when the bead closes, after the close is delivered.`,
 		Example: `  yardr bead watch yard-k3f9 --done
-  yardr bead watch yard-k3f9 --resident mayor --stage review`,
+  yardr bead watch yard-k3f9 --resident yardmaster --stage review`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			name, err := currentResident(resident)

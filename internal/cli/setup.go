@@ -55,11 +55,11 @@ type setupState struct {
 	pointed map[string]string
 }
 
-// setupSteps are the steps of a yard's setup, each done or not, in the
-// order they are taken. They are read from the store and nothing else (the
-// store reads a rig's files from its base), so everything that walks a
-// person through the setup sees the same list and can take over from any
-// other: yardr doctor, the mayor on its first run, a guided form. The first
+// setupSteps are the steps of a yard's setup, each done or not, in the order
+// they are taken. They are read from the store and nothing else (the store
+// reads a rig's files from its base), so everything that walks a person
+// through the setup sees the same list and can take over from any other:
+// yardr doctor, the yardmaster on its first run, a guided form. The first
 // step not done is where the setup goes on (nextStep).
 func setupSteps(ctx context.Context, st store.API) ([]setupStep, error) {
 	var s setupState

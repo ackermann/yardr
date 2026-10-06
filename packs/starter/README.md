@@ -4,8 +4,8 @@ The pack yardr ships: the way of working of the yard that builds yardr
 itself. Its roles are copies of `roles/*.md` and its `scripts/merge-local`
 of `contrib/refinery/merge-local`, and its stage files are the ones `yardr
 rig init` writes for a git rig (`roles/stages/git/default/*.md`); a test
-fails when they drift. Where they say `{{operator}}` and `{{mayor}}`, an
-import puts the yard's operator and the resident that takes `mayor`. The
+fails when they drift. Where they say `{{operator}}` and `{{yardmaster}}`, an
+import puts the yard's operator and the resident that takes `yardmaster`. The
 format and how a pack maps to a yard are in [docs/packs.md](../../docs/packs.md).
 
 `yardr pack check packs/starter --rig <rig>` shows what importing it would
@@ -24,15 +24,15 @@ Importing sets the yard to this state: what exists under the same name is
 overwritten, nothing is added twice, and what the yard chose locally (agent,
 model, arguments, members, env file) is left alone.
 
-One thing it asks for and does not set: that the mayor may open threads in
+One thing it asks for and does not set: that the yardmaster may open threads in
 Linear (`open_threads`). The import puts that to the yard's operator, once
-the yard has a Linear hook and the mayor a credential, and a no leaves the
-mayor as it is.
+the yard has a Linear hook and the yardmaster a credential, and a no leaves the
+yardmaster as it is.
 
 One thing it sets only where the yard is ready for it: the stage map for
 Linear (`sources.linear`), which moves the issue a task tracks to started,
 in review and done as the task enters `new`, `review` and `merged`. The
 import puts it on the yard's Linear hook, acting as the resident that takes
-`mayor`. It makes no hook and does not let that resident set a status
+`yardmaster`. It makes no hook and does not let that resident set a status
 (`set_state`): the plan names the command for each, and the next import
 sets the map once the hook is there.

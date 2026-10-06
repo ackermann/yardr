@@ -51,8 +51,8 @@ groups:
   refinery: { run: scripts/land }
   people:   { people: true }
 residents:
-  mayor:
-    role: roles/mayor.md
+  yardmaster:
+    role: roles/yardmaster.md
     hears:
       events: [held]
       stages: [decide]
@@ -62,7 +62,7 @@ residents:
 `
 
 func smallFiles(yaml string) map[string]string {
-	return map[string]string{"pack.yaml": yaml, "roles/builder.md": "build\n", "roles/mayor.md": "mayor\n", "scripts/land": "#!/bin/sh\n"}
+	return map[string]string{"pack.yaml": yaml, "roles/builder.md": "build\n", "roles/yardmaster.md": "yardmaster\n", "scripts/land": "#!/bin/sh\n"}
 }
 
 func TestStarterPackLoads(t *testing.T) {
@@ -85,7 +85,7 @@ func TestStarterPackLoads(t *testing.T) {
 	if want := []store.Outcome{{Name: "done", To: "approved"}, {Name: "changes", To: "new"}, {Name: "question", To: "decide"}}; !reflect.DeepEqual(review.Outcomes, want) {
 		t.Fatalf("review outcomes = %v, want the file's order %v", review.Outcomes, want)
 	}
-	if want := []string{"roles/builder.md", "roles/mayor.md", "roles/reviewer.md", "scripts/merge-local"}; !reflect.DeepEqual(p.Files(), want) {
+	if want := []string{"roles/builder.md", "roles/reviewer.md", "roles/yardmaster.md", "scripts/merge-local"}; !reflect.DeepEqual(p.Files(), want) {
 		t.Fatalf("files = %v, want %v", p.Files(), want)
 	}
 	// Every stage a bead is worked in has its stage file.
@@ -99,19 +99,19 @@ func TestStarterPackLoads(t *testing.T) {
 		}
 	}
 	m := p.Residents[0]
-	if m.Name != "mayor" || m.Role != "roles/mayor.md" || !m.Done || !reflect.DeepEqual(m.Stages, []string{"decide"}) ||
+	if m.Name != "yardmaster" || m.Role != "roles/yardmaster.md" || !m.Done || !reflect.DeepEqual(m.Stages, []string{"decide"}) ||
 		!reflect.DeepEqual(m.Subscribe, []pack.Source{{Name: "linear", Scope: "involved"}}) || len(m.Events) != 16 {
-		t.Fatalf("mayor = %+v", m)
+		t.Fatalf("yardmaster = %+v", m)
 	}
-	// It asks for what its role tells the mayor to do: open a thread in the
-	// source it subscribes to.
+	// It asks for what its role tells the yardmaster to do: open a thread in
+	// the source it subscribes to.
 	if !reflect.DeepEqual(m.OpenThreads, []string{"linear"}) {
-		t.Fatalf("the starter's mayor asks to open threads in %v", m.OpenThreads)
+		t.Fatalf("the starter's yardmaster asks to open threads in %v", m.OpenThreads)
 	}
 	// hears.events replaces the list, so a trouble kind the pack leaves out
-	// never reaches the mayor: a bead stranded by a flow change must.
+	// never reaches the yardmaster: a bead stranded by a flow change must.
 	if !slices.Contains(m.Events, "stranded") {
-		t.Fatalf("the starter's mayor does not hear stranded: %v", m.Events)
+		t.Fatalf("the starter's yardmaster does not hear stranded: %v", m.Events)
 	}
 }
 
@@ -176,12 +176,12 @@ func TestStrictness(t *testing.T) {
 		{name: "unknown top-level key", old: "groups:", new: "model: opus\ngroups:", key: "model", msg: "unknown key", line: 9},
 		{name: "unknown stage key", old: "merged: { end: true }", new: "merged: { end: true, colour: red }", key: "flows.default.stages.merged.colour", msg: "unknown key", line: 8},
 		{name: "unknown group key", old: "limit: 2", new: "limit: 2, model: opus", key: "groups.builders.model", msg: "unknown key", line: 10},
-		{name: "unknown resident key", old: "    role: roles/mayor.md", new: "    role: roles/mayor.md\n    identity: x", key: "residents.mayor.identity", msg: "unknown key", line: 16},
+		{name: "unknown resident key", old: "    role: roles/yardmaster.md", new: "    role: roles/yardmaster.md\n    identity: x", key: "residents.yardmaster.identity", msg: "unknown key", line: 16},
 		// The sketch's own mistake: "on" for outcomes and for what a
 		// resident hears.
 		{name: "boolean key on", old: "outcomes: { done: merged }", new: "on: { done: merged }", key: "flows.default.stages.review.on", msg: "reads the bare key on as a boolean", line: 6},
 		{name: "boolean key yes as an outcome", old: "outcomes: { done: merged }", new: "outcomes: { yes: merged }", key: "flows.default.stages.review.outcomes.yes", msg: "as a boolean", line: 6},
-		{name: "boolean key true", old: "    hears:", new: "    true:", key: "residents.mayor.true", msg: "as a boolean", line: 16},
+		{name: "boolean key true", old: "    hears:", new: "    true:", key: "residents.yardmaster.true", msg: "as a boolean", line: 16},
 		{name: "boolean word as a stage", old: "manual: [new]", new: "manual: [no]", key: "flows.default.stages.decide.manual", msg: "reads the bare word no as a boolean", line: 7},
 		{name: "yes is not true", old: "end: true", new: "end: yes", key: "flows.default.stages.merged.end", msg: "want true or false", line: 8},
 		{name: "undeclared group", old: "group: refinery", new: "group: refiners", key: "flows.default.stages.review.group", msg: "no group refiners is declared", line: 6},
@@ -194,19 +194,19 @@ func TestStrictness(t *testing.T) {
 		{name: "people false is no kind", old: "people:   { people: true }", new: "people:   { people: false }", key: "groups.people", msg: "this one has none", line: 12},
 		{name: "limit below one", old: "limit: 2", new: "limit: 0", key: "groups.builders.limit", msg: "1 or more", line: 10},
 		{name: "missing role", files: map[string]string{"roles/builder.md": ""}, key: "groups.builders.agent", msg: "role roles/builder.md is missing", line: 10},
-		{name: "missing resident role", files: map[string]string{"roles/mayor.md": ""}, key: "residents.mayor.role", msg: "role roles/mayor.md is missing", line: 15},
+		{name: "missing resident role", files: map[string]string{"roles/yardmaster.md": ""}, key: "residents.yardmaster.role", msg: "role roles/yardmaster.md is missing", line: 15},
 		{name: "missing script", files: map[string]string{"scripts/land": ""}, key: "groups.refinery.run", msg: "script scripts/land is missing", line: 11},
 		{name: "absolute path", old: "agent: roles/builder.md", new: "agent: /etc/passwd", key: "groups.builders.agent", msg: "relative to its directory, not absolute", line: 10},
 		{name: "path leaving the pack", old: "agent: roles/builder.md", new: "agent: roles/../../builder.md", key: "groups.builders.agent", msg: "leaves the pack's directory", line: 10},
 		{name: "missing stage file", old: "review: { group: refinery,", new: "review: { group: refinery, file: flows/review.md,", key: "flows.default.stages.review.file", msg: "stage file flows/review.md is missing", line: 6},
 		{name: "empty stage file", old: "review: { group: refinery,", new: "review: { group: refinery, file: flows/review.md,", files: map[string]string{"flows/review.md": " \n"}, key: "flows.default.stages.review.file", msg: "stage file flows/review.md is empty", line: 6},
 		{name: "stage file outside the pack", old: "review: { group: refinery,", new: "review: { group: refinery, file: ../review.md,", key: "flows.default.stages.review.file", msg: "leaves the pack's directory", line: 6},
-		{name: "stage file of an end stage", old: "merged: { end: true }", new: "merged: { end: true, file: roles/mayor.md }", key: "flows.default.stages.merged", msg: "so it has no file", line: 8},
-		{name: "stage no flow has", old: "stages: [decide]", new: "stages: [triage]", key: "residents.mayor.hears.stages", msg: "no flow of this pack has a stage triage", line: 18},
-		{name: "source without an adapter", old: "linear: involved", new: "slack: involved", key: "residents.mayor.subscribe.slack", msg: "no adapter for source slack", line: 21},
-		{name: "unknown scope", old: "linear: involved", new: "linear: everything", key: "residents.mayor.subscribe.linear", msg: "one of involved, mentions, all", line: 21},
-		{name: "a source no thread can be opened in", old: "    role: roles/mayor.md", new: "    role: roles/mayor.md\n    open_threads: [linear, token]", key: "residents.mayor.open_threads", msg: "yardr cannot open threads in token (it can in github, linear)", line: 16},
-		{name: "open_threads is a list", old: "    role: roles/mayor.md", new: "    role: roles/mayor.md\n    open_threads: linear", key: "residents.mayor.open_threads", msg: "want a list", line: 16},
+		{name: "stage file of an end stage", old: "merged: { end: true }", new: "merged: { end: true, file: roles/yardmaster.md }", key: "flows.default.stages.merged", msg: "so it has no file", line: 8},
+		{name: "stage no flow has", old: "stages: [decide]", new: "stages: [triage]", key: "residents.yardmaster.hears.stages", msg: "no flow of this pack has a stage triage", line: 18},
+		{name: "source without an adapter", old: "linear: involved", new: "slack: involved", key: "residents.yardmaster.subscribe.slack", msg: "no adapter for source slack", line: 21},
+		{name: "unknown scope", old: "linear: involved", new: "linear: everything", key: "residents.yardmaster.subscribe.linear", msg: "one of involved, mentions, all", line: 21},
+		{name: "a source no thread can be opened in", old: "    role: roles/yardmaster.md", new: "    role: roles/yardmaster.md\n    open_threads: [linear, token]", key: "residents.yardmaster.open_threads", msg: "yardr cannot open threads in token (it can in github, linear)", line: 16},
+		{name: "open_threads is a list", old: "    role: roles/yardmaster.md", new: "    role: roles/yardmaster.md\n    open_threads: linear", key: "residents.yardmaster.open_threads", msg: "want a list", line: 16},
 		{name: "key given twice", old: "groups:\n", new: "groups:\n  people: { people: true }\n", key: "groups.people", msg: "given twice", line: 13},
 		{name: "no name", old: "name: small\n", new: "", key: "name", msg: "missing", line: 1},
 	}
@@ -386,7 +386,7 @@ func TestStageFileIsRead(t *testing.T) {
 // line. A script is copied as it is, so its braces are its own.
 func TestUnknownPlaceholderIsRefused(t *testing.T) {
 	files := smallFiles(strings.Replace(small, "new:    { group: builders,", "new:    { group: builders, file: flows/new.md,", 1))
-	files["roles/builder.md"] = "ask {{operator}}\nmail {{mayor}}\n"
+	files["roles/builder.md"] = "ask {{operator}}\nmail {{yardmaster}}\n"
 	files["flows/new.md"] = "{{operator}} decides\n"
 	files["scripts/land"] = "#!/bin/sh\necho {{.Branch}} {{lead}}\n"
 	dir := writePack(t, files)
@@ -403,9 +403,9 @@ func TestUnknownPlaceholderIsRefused(t *testing.T) {
 		t.Fatalf("Load = %v, want three errors", err)
 	}
 	for i, want := range []pack.Error{
-		{File: filepath.Join(dir, "roles", "builder.md"), Line: 2, Msg: "placeholder {{lead}}: an import fills {{operator}}, {{mayor}} (the operator and the pack's residents) and nothing else"},
-		{File: filepath.Join(dir, "roles", "builder.md"), Line: 2, Msg: "placeholder {{ operator }}: an import fills {{operator}}, {{mayor}} (the operator and the pack's residents) and nothing else"},
-		{File: filepath.Join(dir, "flows", "new.md"), Line: 3, Msg: "placeholder {{boss}}: an import fills {{operator}}, {{mayor}} (the operator and the pack's residents) and nothing else"},
+		{File: filepath.Join(dir, "roles", "builder.md"), Line: 2, Msg: "placeholder {{lead}}: an import fills {{operator}}, {{yardmaster}} (the operator and the pack's residents) and nothing else"},
+		{File: filepath.Join(dir, "roles", "builder.md"), Line: 2, Msg: "placeholder {{ operator }}: an import fills {{operator}}, {{yardmaster}} (the operator and the pack's residents) and nothing else"},
+		{File: filepath.Join(dir, "flows", "new.md"), Line: 3, Msg: "placeholder {{boss}}: an import fills {{operator}}, {{yardmaster}} (the operator and the pack's residents) and nothing else"},
 	} {
 		if errs[i] != want {
 			t.Errorf("error %d = %+v\nwant      %+v", i, errs[i], want)
@@ -423,11 +423,11 @@ func TestStarterNamesItsPlaceholders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := p.Placeholders(), []string{"operator", "mayor"}; !slices.Equal(got, want) {
+	if got, want := p.Placeholders(), []string{"operator", "yardmaster"}; !slices.Equal(got, want) {
 		t.Fatalf("placeholders = %v, want %v", got, want)
 	}
 	text, _ := os.ReadFile(filepath.Join(starter, "roles", "builder.md"))
-	if !strings.Contains(string(text), "{{operator}}") || !strings.Contains(string(text), "yardr mail {{mayor}} ") {
-		t.Fatal("packs/starter/roles/builder.md no longer names {{operator}} and {{mayor}}")
+	if !strings.Contains(string(text), "{{operator}}") || !strings.Contains(string(text), "yardr mail {{yardmaster}} ") {
+		t.Fatal("packs/starter/roles/builder.md no longer names {{operator}} and {{yardmaster}}")
 	}
 }

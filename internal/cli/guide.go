@@ -30,7 +30,7 @@ import (
 // as a form page that ends in the command a person would type for it. It
 // keeps no state of its own: before every page it reads the steps from the
 // store (setupSteps) and takes the first one not done, so it goes on where
-// the yard stands, whoever did the earlier steps: this form, the mayor in
+// the yard stands, whoever did the earlier steps: this form, the yardmaster in
 // its pane, or a person on the command line.
 
 // setupReport is what yardr setup prints where it runs no form.
@@ -48,7 +48,7 @@ func (a *app) setupCmd() *cobra.Command {
 		Long: `Print the setup steps, each done or todo, and take the first one not done as
 a form. The steps are the ones yardr doctor lists, read from the store: the
 setup goes on where the yard stands, whoever did the earlier steps (this
-form, the mayor in its pane, a person on the command line), and can be run
+form, the yardmaster in its pane, a person on the command line), and can be run
 again at any time.
 
 Every page ends in a command that exists, and shows its command line before
@@ -68,15 +68,16 @@ it runs:
   a first bead          its title and goal: yardr bead create, then
                         yardr bead advance --to new; and how to watch it
 
-After each page it asks how to go on: keep going here, talk to the mayor
-(opens yardr chat on the mayor in this terminal; the mayor goes on from the
-same steps), or stop here. With --no-chat that choice prints where the
-mayor's pane is and brings it to the front instead. When the mayor is not
-running it opens nothing and prints what yardr doctor says of it. A page that is cancelled (ctrl+c, or
-no at its last question) has run no command: the yard is as the finished
-pages made it. The one exception is the rig's files, which yardr rig init
-has written into the checkout before the question whether to commit them;
-they stay there, and rig init never overwrites a file.
+After each page it asks how to go on: keep going here, talk to the yardmaster
+(opens yardr chat on the yardmaster in this terminal; the yardmaster goes on
+from the same steps), or stop here. With --no-chat that choice prints where
+the yardmaster's pane is and brings it to the front instead. When the
+yardmaster is not running it opens nothing and prints what yardr doctor says
+of it. A page that is cancelled (ctrl+c, or no at its last question) has run
+no command: the yard is as the finished pages made it. The one exception is
+the rig's files, which yardr rig init has written into the checkout before the
+question whether to commit them; they stay there, and rig init never
+overwrites a file.
 
 Where the forms end it asks a user whether to be told when beads land: a
 yes is yardr subscribe <you> yardr --done --where rig=<rig>, and each bead
@@ -118,7 +119,7 @@ it prints the steps and the command for the next one.`,
 			return a.guide(c.Context(), cfg, st)
 		},
 	}
-	cmd.Flags().BoolVar(&a.noChat, "no-chat", false, "\"talk to the mayor\" prints where its pane is instead of opening yardr chat")
+	cmd.Flags().BoolVar(&a.noChat, "no-chat", false, "\"talk to the yardmaster\" prints where its pane is instead of opening yardr chat")
 	return cmd
 }
 
@@ -148,20 +149,20 @@ func printNextStep(home string, next *setupStep) {
 
 // How to go on after a page.
 const (
-	goHere  = "here"
-	goMayor = "mayor"
-	goStop  = "stop"
+	goHere       = "here"
+	goYardmaster = "yardmaster"
+	goStop       = "stop"
 )
 
-// handOff is the onboarding's last question, once the mayor is up: talk to
-// the mayor, or keep going in this terminal. Both go by the same steps, so
-// the answer is not final: the forms offer the mayor again after each page,
-// and the mayor reads where the forms left the yard.
+// handOff is the onboarding's last question, once the yardmaster is up: talk
+// to the yardmaster, or keep going in this terminal. Both go by the same
+// steps, so the answer is not final: the forms offer the yardmaster again
+// after each page, and the yardmaster reads where the forms left the yard.
 //
-// Talking to the mayor is yardr chat, opened here on the mayor (toChat):
-// the person is in the conversation in the window the form ran in. Where
-// no chat can open it is the mayor's pane, brought to the front.
-func (a *app) handOff(ctx context.Context, cfg *config.Config, mayor string, place *mayorPlace) error {
+// Talking to the yardmaster is yardr chat, opened here on the yardmaster
+// (toChat): the person is in the conversation in the window the form ran in.
+// Where no chat can open it is the yardmaster's pane, brought to the front.
+func (a *app) handOff(ctx context.Context, cfg *config.Config, yardmaster string, place *yardmasterPlace) error {
 	st, err := a.store(ctx)
 	if err != nil {
 		return err
@@ -171,12 +172,12 @@ func (a *app) handOff(ctx context.Context, cfg *config.Config, mayor string, pla
 		return err
 	}
 	a.guided = true
-	pick := goMayor
-	talk := "Talk to the mayor: opens the chat with " + mayor + " here"
+	pick := goYardmaster
+	talk := "Talk to the yardmaster: opens the chat with " + yardmaster + " here"
 	if !a.chats() {
-		talk = "Talk to the mayor: brings " + mayor + "'s pane to the front in herdr"
+		talk = "Talk to the yardmaster: brings " + yardmaster + "'s pane to the front in herdr"
 	}
-	opts := []huh.Option[string]{huh.NewOption(talk, goMayor)}
+	opts := []huh.Option[string]{huh.NewOption(talk, goYardmaster)}
 	if next := nextStep(steps); next != nil {
 		opts = append(opts, huh.NewOption("Keep going here: a short run of forms, next "+next.Title, goHere))
 	}
@@ -184,7 +185,7 @@ func (a *app) handOff(ctx context.Context, cfg *config.Config, mayor string, pla
 	err = ask(huh.NewSelect[string]().Key("go").Title("The rest of the setup").
 		Description(fmt.Sprintf("A repository to work in, who builds and reviews, how work lands, a first bead.\n"+
 			"%s does it with you as a conversation, or this terminal as forms. Both go by the\n"+
-			"same steps (yardr doctor lists them), so you can change over after any of them.", mayor)).
+			"same steps (yardr doctor lists them), so you can change over after any of them.", yardmaster)).
 		Options(opts...).Value(&pick))
 	switch {
 	case errors.Is(err, huh.ErrUserAborted):
@@ -195,11 +196,11 @@ func (a *app) handOff(ctx context.Context, cfg *config.Config, mayor string, pla
 		return a.guide(ctx, cfg, st)
 	}
 	if a.chats() {
-		if opened, err := a.toChat(ctx, cfg, st, mayor); err != nil || opened {
+		if opened, err := a.toChat(ctx, cfg, st, yardmaster); err != nil || opened {
 			return err
 		}
 	}
-	openMayor(ctx, mayor, place)
+	openYardmaster(ctx, yardmaster, place)
 	return nil
 }
 
@@ -231,7 +232,7 @@ func (g *guide) pages() map[string]page {
 
 // guide takes the steps not done one page at a time, asking after each how
 // to go on, until none is left, a page is left undone, or the person stops
-// or goes to the mayor.
+// or goes to the yardmaster.
 func (a *app) guide(ctx context.Context, cfg *config.Config, st store.API) error {
 	g := &guide{a: a, cfg: cfg, st: st}
 	yardr := yardrAt(cfg.Home)
@@ -286,8 +287,8 @@ func (a *app) guide(ctx context.Context, cfg *config.Config, st store.API) error
 			return nil
 		case err != nil:
 			return err
-		case pick == goMayor:
-			return g.toMayor(ctx)
+		case pick == goYardmaster:
+			return g.toYardmaster(ctx)
 		case g.pages()[after.Key] == nil:
 			return g.watch(ctx)
 		}
@@ -296,34 +297,35 @@ func (a *app) guide(ctx context.Context, cfg *config.Config, st store.API) error
 
 // goOn asks, after a page, how to go on with the step that is next.
 func (g *guide) goOn(ctx context.Context, next setupStep) (string, error) {
-	mayor := yardMayor(ctx, g.st)
+	yardmaster := yardmasterOf(ctx, g.st)
 	pick := goHere
 	err := ask(huh.NewSelect[string]().Key("go").Title("Next: "+next.Title).Options(
 		huh.NewOption("Keep going here", goHere),
-		huh.NewOption("Talk to the mayor: "+mayor+" goes on from this step, in "+g.mayorAt(), goMayor),
+		huh.NewOption("Talk to the yardmaster: "+yardmaster+" goes on from this step, in "+g.yardmasterAt(), goYardmaster),
 		huh.NewOption("Stop here: yardr setup goes on from this step later", goStop),
 	).Value(&pick))
 	return pick, err
 }
 
-// mayorAt is where "talk to the mayor" leads: the chat, or its pane.
-func (g *guide) mayorAt() string {
+// yardmasterAt is where "talk to the yardmaster" leads: the chat, or its pane.
+func (g *guide) yardmasterAt() string {
 	if g.a.chats() {
 		return "yardr chat"
 	}
 	return "its pane"
 }
 
-// toMayor opens the chat on the mayor, as the onboarding does once the
-// mayor is up; with --no-chat it prints where the mayor is and brings its
-// pane to the front. The mayor needs no word of what the forms did: its
-// first run reads the same steps. A mayor that is not running is no one to
-// talk to: it says what yardr doctor says of it, and opens no empty chat.
-// One whose session runs without an answer is offered as its pane first.
-func (g *guide) toMayor(ctx context.Context) error {
+// toYardmaster opens the chat on the yardmaster, as the onboarding does once
+// the yardmaster is up; with --no-chat it prints where the yardmaster is and
+// brings its pane to the front. The yardmaster needs no word of what the
+// forms did: its first run reads the same steps. A yardmaster that is not
+// running is no one to talk to: it says what yardr doctor says of it, and
+// opens no empty chat. One whose session runs without an answer is offered as
+// its pane first.
+func (g *guide) toYardmaster(ctx context.Context) error {
 	yardr := yardrAt(g.cfg.Home)
-	mayor := yardMayor(ctx, g.st)
-	r, err := g.st.GetResident(ctx, mayor)
+	yardmaster := yardmasterOf(ctx, g.st)
+	r, err := g.st.GetResident(ctx, yardmaster)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return err
 	}
@@ -332,39 +334,39 @@ func (g *guide) toMayor(ctx context.Context) error {
 		// Its harness may wait at something in its pane: the way there and
 		// back, as after a start (offerPane).
 		res := &startResult{said: true}
-		res.describe(ctx, g.cfg, g.st, r, mayor, fmt.Sprintf("%s has not answered its first prompt, so there is nobody to talk to yet.", mayor))
+		res.describe(ctx, g.cfg, g.st, r, yardmaster, fmt.Sprintf("%s has not answered its first prompt, so there is nobody to talk to yet.", yardmaster))
 		res.printProblem()
-		if err := g.a.offerPane(ctx, g.cfg, g.st, mayor, mayorWait, res); err != nil {
+		if err := g.a.offerPane(ctx, g.cfg, g.st, yardmaster, yardmasterWait, res); err != nil {
 			return err
 		}
 		if silent = !res.Running; !silent {
-			if r, err = g.st.GetResident(ctx, mayor); err != nil {
+			if r, err = g.st.GetResident(ctx, yardmaster); err != nil {
 				return err
 			}
 		}
 	}
 	if err != nil || !r.Live() || silent {
 		if err != nil || !r.Live() {
-			fmt.Printf("\n%s is not running, so there is nobody to talk to yet.\n", mayor)
+			fmt.Printf("\n%s is not running, so there is nobody to talk to yet.\n", yardmaster)
 		}
 		if err := g.a.doctorSays(ctx, g.cfg); err != nil {
 			return err
 		}
-		fmt.Printf("\nThis starts the yard, waits for %s and opens the chat with it:\n\n  %s init --start\n", mayor, yardr)
+		fmt.Printf("\nThis starts the yard, waits for %s and opens the chat with it:\n\n  %s init --start\n", yardmaster, yardr)
 		return nil
 	}
 	if g.a.chats() {
-		if opened, err := g.a.toChat(ctx, g.cfg, g.st, mayor); err != nil || opened {
+		if opened, err := g.a.toChat(ctx, g.cfg, g.st, yardmaster); err != nil || opened {
 			return err
 		}
 	}
 	all, _ := g.st.Settings(ctx)
 	place := placeOf(*r, runner.YardName(g.cfg.Home, all))
 	fmt.Println()
-	place.print(mayor)
+	place.print(yardmaster)
 	fmt.Println()
-	openMayor(ctx, mayor, place)
-	fmt.Printf("%s goes on from the step that is next: it reads `%s doctor`. Write to it there.\n", mayor, yardr)
+	openYardmaster(ctx, yardmaster, place)
+	fmt.Printf("%s goes on from the step that is next: it reads `%s doctor`. Write to it there.\n", yardmaster, yardr)
 	return nil
 }
 

@@ -15,6 +15,23 @@ var bSettings = []byte("settings")
 
 func init() { allBuckets = append(allBuckets, bSettings) }
 
+// YardmasterSetting names the resident that coordinates the yard, whom the
+// role prompts tell agents to mail. Until schema 9 the key was mayor
+// (migrateYardmaster), and SettingKey still reads that for this release.
+const (
+	YardmasterSetting    = "yardmaster"
+	oldYardmasterSetting = "mayor"
+)
+
+// SettingKey is the key a setting is stored under: key itself, or the key
+// that replaced it when it is one an earlier release used.
+func SettingKey(key string) string {
+	if key == oldYardmasterSetting {
+		return YardmasterSetting
+	}
+	return key
+}
+
 // Settings returns every setting.
 func (s *Store) Settings(ctx context.Context) (map[string]string, error) {
 	out := map[string]string{}
@@ -27,11 +44,13 @@ func (s *Store) Settings(ctx context.Context) (map[string]string, error) {
 	return out, err
 }
 
-// SetSetting sets key to value; an empty value removes it. The operator is
+// SetSetting sets key to value; an empty value removes it. A key an earlier
+// release used sets the one that replaced it (SettingKey). The operator is
 // a user (see User), so naming one adds the user when there is none. A
 // resident's name is refused: mail to a name reaches one party. A yard that
 // has a resident named as its operator already keeps its setting as it is.
 func (s *Store) SetSetting(ctx context.Context, key, value, actor string) error {
+	key = SettingKey(key)
 	if err := checkName("setting", key); err != nil {
 		return err
 	}

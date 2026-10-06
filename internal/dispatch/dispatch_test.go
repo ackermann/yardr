@@ -590,7 +590,7 @@ func TestGroupRmReleasesClaimedBeadsToTheNewRoute(t *testing.T) {
 		t.Fatalf("re-route took a claimed bead: %+v", got)
 	}
 
-	n, err := s.DeleteGroup(ctx, "approvers", "mayor")
+	n, err := s.DeleteGroup(ctx, "approvers", "yardmaster")
 	must(t, err)
 	if n != 1 {
 		t.Fatalf("released = %d, want 1", n)

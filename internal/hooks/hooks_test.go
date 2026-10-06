@@ -294,8 +294,8 @@ func TestIssueUpdateDeliversOnlyNewMentions(t *testing.T) {
 	r := newRig(t)
 	ctx := context.Background()
 	for name, id := range map[string]store.Identity{
-		"mayor": {ID: "4d3a2b1c-0000-4000-8000-00000000mayr", Key: "mayor"},
-		"jane":  {ID: "jane-id", Key: "jane.doe"},
+		"yardmaster": {ID: "4d3a2b1c-0000-4000-8000-00000000mayr", Key: "yardmaster"},
+		"jane":       {ID: "jane-id", Key: "jane.doe"},
 	} {
 		if _, err := r.st.PutResident(ctx, store.Resident{Name: name}, "me"); err != nil {
 			t.Fatal(err)
@@ -334,11 +334,11 @@ func TestIssueUpdateDeliversOnlyNewMentions(t *testing.T) {
 		return page.Total
 	}
 	for i, c := range []struct {
-		body        []byte
-		mayor, jane int
+		body             []byte
+		yardmaster, jane int
 	}{
-		{create, 1, 0},        // mentions @mayor
-		{update(1, ""), 1, 0}, // status change, still mentions @mayor
+		{create, 1, 0},        // mentions @yardmaster
+		{update(1, ""), 1, 0}, // status change, still mentions @yardmaster
 		{update(2, desc+" cc https://linear.app/company/profiles/jane.doe"), 1, 1}, // adds @jane
 		{update(3, ""), 1, 1}, // both still mentioned
 	} {
@@ -346,14 +346,14 @@ func TestIssueUpdateDeliversOnlyNewMentions(t *testing.T) {
 		if code := r.linear(t, c.body, secret, fmt.Sprint("i-", i)); code != http.StatusOK {
 			t.Fatalf("delivery %d: %d", i, code)
 		}
-		if m, j := inbox("mayor"), inbox("jane"); m != c.mayor || j != c.jane {
-			t.Fatalf("after delivery %d: mayor %d, jane %d; want %d, %d", i, m, j, c.mayor, c.jane)
+		if m, j := inbox("yardmaster"), inbox("jane"); m != c.yardmaster || j != c.jane {
+			t.Fatalf("after delivery %d: yardmaster %d, jane %d; want %d, %d", i, m, j, c.yardmaster, c.jane)
 		}
 	}
 	// The event still carries everyone the description mentions.
 	evs := r.hookEvents(t)
 	last := evs[len(evs)-1].Data
-	if len(evs) != 4 || fmt.Sprint(last["mentions"]) != "[mayor jane.doe]" || fmt.Sprint(last["new_mentions"]) != "[]" {
+	if len(evs) != 4 || fmt.Sprint(last["mentions"]) != "[yardmaster jane.doe]" || fmt.Sprint(last["new_mentions"]) != "[]" {
 		t.Fatalf("last event: mentions %v, new %v (%d events)", last["mentions"], last["new_mentions"], len(evs))
 	}
 }
@@ -364,7 +364,7 @@ func TestIssueUpdateDeliversOnlyNewMentions(t *testing.T) {
 func TestCommentEditDeliversOnlyNewMentions(t *testing.T) {
 	r := newRig(t)
 	ctx := context.Background()
-	for name, id := range map[string]store.Identity{"mayor": {ID: "u-mayor", Key: "mayor"}, "jane": {ID: "u-jane", Key: "jane.doe"}} {
+	for name, id := range map[string]store.Identity{"yardmaster": {ID: "u-yardmaster", Key: "yardmaster"}, "jane": {ID: "u-jane", Key: "jane.doe"}} {
 		if _, err := r.st.PutResident(ctx, store.Resident{Name: name}, "me"); err != nil {
 			t.Fatal(err)
 		}
@@ -394,27 +394,27 @@ func TestCommentEditDeliversOnlyNewMentions(t *testing.T) {
 		return page.Total
 	}
 	for i, c := range []struct {
-		body        []byte
-		mayor, jane int
+		body             []byte
+		yardmaster, jane int
 	}{
-		{comment(0, "create", "@mayor look?"), 1, 0},
-		{comment(1, "update", "@mayor look? (typo fixed)"), 1, 0}, // edited: still mentions mayor
-		{comment(2, "update", "@mayor look? cc @jane.doe"), 1, 1}, // adds jane
-		{comment(3, "remove", "@mayor look? cc @jane.doe"), 1, 1}, // removed: no one told
-		{comment(4, "update", "@mayor look? cc @jane.doe"), 2, 2}, // forgotten: nothing held against the id
-		{comment(5, "update", "@mayor look? cc @jane.doe"), 2, 2}, // and remembered again
+		{comment(0, "create", "@yardmaster look?"), 1, 0},
+		{comment(1, "update", "@yardmaster look? (typo fixed)"), 1, 0}, // edited: still mentions yardmaster
+		{comment(2, "update", "@yardmaster look? cc @jane.doe"), 1, 1}, // adds jane
+		{comment(3, "remove", "@yardmaster look? cc @jane.doe"), 1, 1}, // removed: no one told
+		{comment(4, "update", "@yardmaster look? cc @jane.doe"), 2, 2}, // forgotten: nothing held against the id
+		{comment(5, "update", "@yardmaster look? cc @jane.doe"), 2, 2}, // and remembered again
 	} {
 		r.now = sentAt(t, c.body)
 		if code := r.linear(t, c.body, secret, fmt.Sprint("c-", i)); code != http.StatusOK {
 			t.Fatalf("delivery %d: %d", i, code)
 		}
-		if m, j := inbox("mayor"), inbox("jane"); m != c.mayor || j != c.jane {
-			t.Fatalf("after delivery %d: mayor %d, jane %d; want %d, %d", i, m, j, c.mayor, c.jane)
+		if m, j := inbox("yardmaster"), inbox("jane"); m != c.yardmaster || j != c.jane {
+			t.Fatalf("after delivery %d: yardmaster %d, jane %d; want %d, %d", i, m, j, c.yardmaster, c.jane)
 		}
 	}
 	evs := r.hookEvents(t)
 	last := evs[len(evs)-1].Data
-	if len(evs) != 6 || last["entity"] != "cm-1" || fmt.Sprint(last["mentions"]) != "[mayor jane.doe]" || fmt.Sprint(last["new_mentions"]) != "[]" {
+	if len(evs) != 6 || last["entity"] != "cm-1" || fmt.Sprint(last["mentions"]) != "[yardmaster jane.doe]" || fmt.Sprint(last["new_mentions"]) != "[]" {
 		t.Fatalf("last event: entity %v, mentions %v, new %v (%d events)", last["entity"], last["mentions"], last["new_mentions"], len(evs))
 	}
 }
@@ -538,9 +538,9 @@ func TestLinearNormalize(t *testing.T) {
 			Actor: hooks.Party{ID: "b5ea5f1f-8adc-4f52-b4bd-ab4e84cf51ba", Name: "Linear Orbit"},
 			Thread: hooks.Thread{ID: "539068e2-ae88-4d09-bd75-22eb4a59612f", Title: "Webhook receiver drops retries",
 				URL: "https://linear.app/company/issue/ENG-42/webhook-receiver-drops-retries"},
-			Mentions: []string{"mayor", "jane.doe"},
-			Text: "https://linear.app/company/profiles/mayor can you take a look? Also cc https://linear.app/company/profiles/jane.doe, " +
-				"and again https://linear.app/company/profiles/mayor.",
+			Mentions: []string{"yardmaster", "jane.doe"},
+			Text: "https://linear.app/company/profiles/yardmaster can you take a look? Also cc https://linear.app/company/profiles/jane.doe, " +
+				"and again https://linear.app/company/profiles/yardmaster.",
 			URL:     "https://linear.app/company/issue/ENG-42/webhook-receiver-drops-retries#comment-2174add1",
 			Message: "2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9",
 			Entity:  "2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9",
@@ -551,8 +551,8 @@ func TestLinearNormalize(t *testing.T) {
 			Actor: hooks.Party{ID: "aacdca22-6266-4c0a-ab3c-8fa70a26765c", Name: "Jane Doe"},
 			Thread: hooks.Thread{ID: "539068e2-ae88-4d09-bd75-22eb4a59612f",
 				URL: "https://linear.app/company/issue/ENG-42"},
-			Mentions: []string{"4d3a2b1c-0000-4000-8000-00000000mayr", "mayor"},
-			Text:     "@mayor please check",
+			Mentions: []string{"4d3a2b1c-0000-4000-8000-00000000mayr", "yardmaster"},
+			Text:     "@yardmaster please check",
 			URL:      "https://linear.app/company/issue/ENG-42#comment-8f1e0c55",
 			Message:  "8f1e0c55-1b6f-4a1e-9e7a-2d4c1f0b9a10",
 			Parent:   "2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9",
@@ -563,8 +563,8 @@ func TestLinearNormalize(t *testing.T) {
 			Actor: hooks.Party{ID: "aacdca22-6266-4c0a-ab3c-8fa70a26765c", Name: "Jane Doe"},
 			Thread: hooks.Thread{ID: "b3f17ab3-91e6-4c9a-b083-358fd8c98b19", Title: "Testing local yardr setup",
 				URL: "https://linear.app/company/issue/ENG-498/testing-local-yardr-setup"},
-			Mentions: []string{"mayor"},
-			Text:     "testing @mayor hello",
+			Mentions: []string{"yardmaster"},
+			Text:     "testing @yardmaster hello",
 			URL:      "https://linear.app/company/issue/ENG-498/testing-local-yardr-setup#comment-3a486010",
 			Message:  "3a486010-d638-49dc-bcc0-800c16e08441",
 			Entity:   "3a486010-d638-49dc-bcc0-800c16e08441",
@@ -575,9 +575,9 @@ func TestLinearNormalize(t *testing.T) {
 			Actor: hooks.Party{ID: "aacdca22-6266-4c0a-ab3c-8fa70a26765c", Name: "Jane Doe"},
 			Thread: hooks.Thread{ID: "539068e2-ae88-4d09-bd75-22eb4a59612f", Title: "Webhook receiver drops retries",
 				URL: "https://linear.app/company/issue/ENG-42/webhook-receiver-drops-retries"},
-			Mentions: []string{"mayor"},
+			Mentions: []string{"yardmaster"},
 			Assignee: "4d3a2b1c-0000-4000-8000-00000000mayr",
-			Text:     "Retries from the sender arrive after the window. https://linear.app/company/profiles/mayor owns triage.",
+			Text:     "Retries from the sender arrive after the window. https://linear.app/company/profiles/yardmaster owns triage.",
 			URL:      "https://linear.app/company/issue/ENG-42/webhook-receiver-drops-retries",
 			Fields: map[string][]string{"team": {"ENG", "Engineering"}, "project": {"Webhooks"},
 				"label": {"Bug"}},
@@ -642,19 +642,19 @@ func TestLinearPlainMentions(t *testing.T) {
 		body string
 		want []string
 	}{
-		{"@mayor can you look?", []string{"mayor"}},
-		{"testing @mayor hello", []string{"mayor"}},
-		{"over to @mayor", []string{"mayor"}},
-		{"thanks @mayor.", []string{"mayor"}},
-		{"@mayor, @jane.doe: and @mayor!", []string{"mayor", "jane.doe"}},
-		{"(@mayor?)\n@ops_bot;", []string{"mayor", "ops_bot"}},
-		{"ask @Mayor", []string{"mayor"}},
-		{"mail x@mayor.com", []string{}},
-		{"see https://example.com/@mayor/posts", []string{}},
-		{"run `yardr ask @mayor` or\n```\n@mayor\n```", []string{}},
+		{"@yardmaster can you look?", []string{"yardmaster"}},
+		{"testing @yardmaster hello", []string{"yardmaster"}},
+		{"over to @yardmaster", []string{"yardmaster"}},
+		{"thanks @yardmaster.", []string{"yardmaster"}},
+		{"@yardmaster, @jane.doe: and @yardmaster!", []string{"yardmaster", "jane.doe"}},
+		{"(@yardmaster?)\n@ops_bot;", []string{"yardmaster", "ops_bot"}},
+		{"ask @Yardmaster", []string{"yardmaster"}},
+		{"mail x@yardmaster.com", []string{}},
+		{"see https://example.com/@yardmaster/posts", []string{}},
+		{"run `yardr ask @yardmaster` or\n```\n@yardmaster\n```", []string{}},
 		{"a lone @ sign, @-dash and @.dot", []string{}},
-		{"https://linear.app/company/profiles/mayor and @mayor", []string{"mayor"}},
-		{"https://linear.app/company/profiles/Mayor and @mayor", []string{"mayor"}},
+		{"https://linear.app/company/profiles/yardmaster and @yardmaster", []string{"yardmaster"}},
+		{"https://linear.app/company/profiles/Yardmaster and @yardmaster", []string{"yardmaster"}},
 	} {
 		body, _ := json.Marshal(map[string]any{"type": "Comment", "action": "create", "data": map[string]any{"body": c.body}})
 		e, err := hooks.Linear{}.Normalize(nil, body)
@@ -685,14 +685,14 @@ func TestTextIsTruncated(t *testing.T) {
 func TestLinearMentionReachesInbox(t *testing.T) {
 	r := newRig(t)
 	ctx := context.Background()
-	if _, err := r.st.PutResident(ctx, store.Resident{Name: "mayor"}, "me"); err != nil {
+	if _, err := r.st.PutResident(ctx, store.Resident{Name: "yardmaster"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.st.SetIdentity(ctx, "mayor", "linear",
-		store.Identity{ID: "4d3a2b1c-0000-4000-8000-00000000mayr", Key: "mayor"}, "me"); err != nil {
+	if err := r.st.SetIdentity(ctx, "yardmaster", "linear",
+		store.Identity{ID: "4d3a2b1c-0000-4000-8000-00000000mayr", Key: "yardmaster"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.st.AddSubscription(ctx, "mayor", store.Subscription{Source: "linear", Scope: store.ScopeMentions,
+	if err := r.st.AddSubscription(ctx, "yardmaster", store.Subscription{Source: "linear", Scope: store.ScopeMentions,
 		Where: map[string]string{"type": "comment"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -704,12 +704,12 @@ func TestLinearMentionReachesInbox(t *testing.T) {
 			t.Fatalf("%s: %d", f, code)
 		}
 	}
-	page, err := r.st.Inbox(ctx, "mayor", 0)
+	page, err := r.st.Inbox(ctx, "yardmaster", 0)
 	if err != nil || page.Total != 3 {
 		t.Fatalf("inbox: %+v %v", page, err)
 	}
 	for _, e := range page.Events {
-		if why := store.Reason(e, "mayor"); why != store.ReasonMentioned || e.Data["type"] != "comment" {
+		if why := store.Reason(e, "yardmaster"); why != store.ReasonMentioned || e.Data["type"] != "comment" {
 			t.Errorf("event %d: %s, reason %q", e.Seq, e.Data["type"], why)
 		}
 	}
@@ -721,22 +721,22 @@ func TestLinearMentionReachesInbox(t *testing.T) {
 // is set later, each once, a redelivery included. One delegated to someone
 // else does not.
 func TestLinearDelegateReachesInbox(t *testing.T) {
-	const mayor, other = "4d3a2b1c-0000-4000-8000-00000000mayr", "9e8d7c6b-0000-4000-8000-0000000other"
+	const yardmaster, other = "4d3a2b1c-0000-4000-8000-00000000mayr", "9e8d7c6b-0000-4000-8000-0000000other"
 	inbox := func(t *testing.T, delegate string, files ...string) []store.Event {
 		t.Helper()
 		r := newRig(t)
 		ctx := context.Background()
-		if _, err := r.st.PutResident(ctx, store.Resident{Name: "mayor"}, "me"); err != nil {
+		if _, err := r.st.PutResident(ctx, store.Resident{Name: "yardmaster"}, "me"); err != nil {
 			t.Fatal(err)
 		}
-		if err := r.st.SetIdentity(ctx, "mayor", "linear", store.Identity{ID: mayor, Key: "mayor"}, "me"); err != nil {
+		if err := r.st.SetIdentity(ctx, "yardmaster", "linear", store.Identity{ID: yardmaster, Key: "yardmaster"}, "me"); err != nil {
 			t.Fatal(err)
 		}
-		if err := r.st.AddSubscription(ctx, "mayor", store.Subscription{Source: "linear", Scope: store.ScopeInvolved}, "me"); err != nil {
+		if err := r.st.AddSubscription(ctx, "yardmaster", store.Subscription{Source: "linear", Scope: store.ScopeInvolved}, "me"); err != nil {
 			t.Fatal(err)
 		}
 		for _, f := range files {
-			body := []byte(strings.ReplaceAll(string(fixture(t, f)), mayor, delegate))
+			body := []byte(strings.ReplaceAll(string(fixture(t, f)), yardmaster, delegate))
 			r.now = sentAt(t, body)
 			// Linear retries a delivery it got no answer to: the second
 			// post is that, and must not be a second inbox entry.
@@ -746,7 +746,7 @@ func TestLinearDelegateReachesInbox(t *testing.T) {
 				}
 			}
 		}
-		page, err := r.st.Inbox(ctx, "mayor", 0)
+		page, err := r.st.Inbox(ctx, "yardmaster", 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -757,9 +757,9 @@ func TestLinearDelegateReachesInbox(t *testing.T) {
 		files          []string
 		want           []string // action of each inbox entry
 	}{
-		{"created delegated to it", mayor, []string{"linear_issue_delegated.json"}, []string{"create"}},
+		{"created delegated to it", yardmaster, []string{"linear_issue_delegated.json"}, []string{"create"}},
 		{"created delegated to another", other, []string{"linear_issue_delegated.json"}, nil},
-		{"delegate set by an update", mayor, []string{"linear_issue_delegate_set.json"}, []string{"update"}},
+		{"delegate set by an update", yardmaster, []string{"linear_issue_delegate_set.json"}, []string{"update"}},
 		{"update sets another delegate", other, []string{"linear_issue_delegate_set.json"}, nil},
 	} {
 		got := inbox(t, c.delegate, c.files...)
@@ -767,7 +767,7 @@ func TestLinearDelegateReachesInbox(t *testing.T) {
 		for _, e := range got {
 			a, _ := e.Data["action"].(string)
 			actions = append(actions, a)
-			if why := store.Reason(e, "mayor"); why != store.ReasonAssigned {
+			if why := store.Reason(e, "yardmaster"); why != store.ReasonAssigned {
 				t.Errorf("%s: event %d: reason %q, want assigned", c.name, e.Seq, why)
 			}
 			if d, _ := e.Data["delegate"].(string); d != c.delegate {

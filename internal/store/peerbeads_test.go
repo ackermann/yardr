@@ -95,7 +95,7 @@ func TestPeerBeadArrivesHeld(t *testing.T) {
 		b["title"] = "Add the export\nheld: no"
 		b["unknown_field"] = map[string]any{"x": 1}
 		b["notes"] = []map[string]any{
-			{"author": "mayor", "at": at.Add(time.Hour), "text": "second"},
+			{"author": "yardmaster", "at": at.Add(time.Hour), "text": "second"},
 			{"author": "builder one", "at": at, "text": "first"},
 		}
 		b["notes_left_out"] = 3
@@ -136,7 +136,7 @@ func TestPeerBeadArrivesHeld(t *testing.T) {
 	}
 	notes, _ := y.api.Notes(y.ctx, b.ID)
 	if len(notes) != 2 || notes[0].Text != "first" || notes[0].Author != "someone@north" || !notes[0].At.Equal(at) ||
-		notes[1].Text != "second" || notes[1].Author != "mayor@north" {
+		notes[1].Text != "second" || notes[1].Author != "yardmaster@north" {
 		t.Fatalf("the notes that came with it = %+v", notes)
 	}
 	links, _ := y.api.Links(y.ctx, b.ID)
@@ -387,7 +387,7 @@ func TestPeerBeadRelease(t *testing.T) {
 	if _, err := y.api.AddPeer(y.ctx, store.Peer{Name: "south", Key: yardkey.Public(south)}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	y.resident(t, "mayor", "")
+	y.resident(t, "yardmaster", "")
 	for name, release := range map[string]string{"clerk": "south", "warden": "north,south"} {
 		if _, err := y.api.PutResident(y.ctx, store.Resident{Name: name, Runner: "herdr", Config: map[string]any{store.ReleasePeers: release}}, "jo"); err != nil {
 			t.Fatal(err)
@@ -413,7 +413,7 @@ func TestPeerBeadRelease(t *testing.T) {
 		actor string
 	}{
 		"the session " + sess.ID + " of a bead's agent": {store.Expect{Session: sess.ID}, "jo"},
-		"the resident mayor, which is not":              {store.Expect{}, "mayor"},
+		"the resident yardmaster, which is not":         {store.Expect{}, "yardmaster"},
 		"the resident clerk, which is not":              {store.Expect{}, "clerk"},
 		"this is stranger, who is no user":              {store.Expect{}, "stranger"},
 	} {
@@ -440,10 +440,10 @@ func TestPeerBeadRelease(t *testing.T) {
 		t.Fatalf("peer_bead_released = %+v", ev)
 	}
 	// Held again by whoever works it, it is a held bead like any other.
-	if _, err := y.api.SetHold(y.ctx, b.ID, true, store.Expect{}, "mayor"); err != nil {
+	if _, err := y.api.SetHold(y.ctx, b.ID, true, store.Expect{}, "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.api.SetHold(y.ctx, b.ID, false, store.Expect{}, "mayor"); err != nil {
+	if _, err := y.api.SetHold(y.ctx, b.ID, false, store.Expect{}, "yardmaster"); err != nil {
 		t.Fatalf("unhold of a bead released before: %v", err)
 	}
 	if len(peerEvents(t, y.api, "peer_bead_released")) != 1 {
@@ -493,7 +493,7 @@ func (y *peerYard) returned(t *testing.T) (store.PeerOut, store.PeerReturnMessag
 func TestPeerBeadReturn(t *testing.T) {
 	y := newBeadYard(t, true)
 	y.take(t, beadMsg("b1", "web-k3f9", func(b map[string]any) {
-		b["notes"] = []map[string]any{{"author": "mayor", "at": time.Now().Add(-time.Hour), "text": "theirs"}}
+		b["notes"] = []map[string]any{{"author": "yardmaster", "at": time.Now().Add(-time.Hour), "text": "theirs"}}
 	}))
 	b := y.arrived(t)
 	if _, err := y.api.Advance(y.ctx, b.ID, "build", store.Expect{}, "jo"); err != nil {
@@ -757,7 +757,7 @@ func TestPeerBeadPulled(t *testing.T) {
 // recorded for the resident's tab.
 func TestPeerBeadReleaseFromAResidentsPane(t *testing.T) {
 	y := newBeadYard(t, false)
-	y.resident(t, "mayor", "")
+	y.resident(t, "yardmaster", "")
 	y.take(t, beadMsg("b1", "web-1", nil))
 	b := y.arrived(t)
 	me := os.Getpid()
@@ -765,15 +765,15 @@ func TestPeerBeadReleaseFromAResidentsPane(t *testing.T) {
 	if err != nil {
 		t.Skipf("this process cannot be described: %v", err)
 	}
-	if err := y.api.ResidentStarted(y.ctx, "mayor", map[string]any{"shell_pid": me, "shell_start": st.Start}); err != nil {
+	if err := y.api.ResidentStarted(y.ctx, "yardmaster", map[string]any{"shell_pid": me, "shell_start": st.Start}); err != nil {
 		t.Fatal(err)
 	}
 	pane := store.WithCaller(y.ctx, me)
-	if _, err := y.own.SetHold(pane, b.ID, false, store.Expect{}, "jo"); err == nil || !strings.Contains(err.Error(), "this is the resident mayor, which is not") {
-		t.Fatalf("a release from the mayor's pane as jo = %v", err)
+	if _, err := y.own.SetHold(pane, b.ID, false, store.Expect{}, "jo"); err == nil || !strings.Contains(err.Error(), "this is the resident yardmaster, which is not") {
+		t.Fatalf("a release from the yardmaster's pane as jo = %v", err)
 	}
 	// The shell is gone, and its pid someone else's: jo is jo again.
-	if err := y.api.ResidentStarted(y.ctx, "mayor", map[string]any{"shell_pid": me, "shell_start": st.Start + 1}); err != nil {
+	if err := y.api.ResidentStarted(y.ctx, "yardmaster", map[string]any{"shell_pid": me, "shell_start": st.Start + 1}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := y.own.SetHold(pane, b.ID, false, store.Expect{}, "jo"); err != nil {

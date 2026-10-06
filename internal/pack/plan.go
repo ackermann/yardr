@@ -381,6 +381,9 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 	b.plan.RigRoles = o.RigRoles || (!o.PackRoles && b.rec != nil && b.rec.RigRoles)
 	for name := range o.Residents {
 		if !slices.ContainsFunc(p.Residents, func(r Resident) bool { return r.Name == name }) {
+			if _, ok := p.Renamed(name); ok {
+				continue
+			}
 			return nil, fmt.Errorf("--resident %s=%s: the pack has no resident %s", name, o.Residents[name], name)
 		}
 	}
@@ -413,10 +416,10 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 func (b *planner) names() error {
 	b.told = map[string]bool{}
 	for _, pr := range b.p.Residents {
-		name, told := b.o.Residents[pr.Name]
+		name, told := b.took(b.o.Residents, pr.Name)
 		if !told && b.rec != nil {
 			// Whoever took it at the last import, unless told anew.
-			name, told = b.rec.Residents[pr.Name]
+			name, told = b.took(b.rec.Residents, pr.Name)
 		}
 		if !told {
 			name = pr.Name
@@ -438,6 +441,22 @@ func (b *planner) names() error {
 	// that name.
 	b.plan.Fill[Operator] = operator
 	return nil
+}
+
+// took is the yard's resident that m says takes the pack's resident name:
+// under that name, else under the one the pack's resident had in an earlier
+// release (Renamed), as a command written then or the last import's record
+// has it.
+func (b *planner) took(m map[string]string, name string) (string, bool) {
+	if v, ok := m[name]; ok {
+		return v, true
+	}
+	for old, v := range m {
+		if now, ok := b.p.Renamed(old); ok && now == name {
+			return v, true
+		}
+	}
+	return "", false
 }
 
 // installed is where a pack's file would be in the yard: an absolute path
@@ -1526,6 +1545,9 @@ func (b *planner) dropped() error {
 		}
 	}
 	for pk, name := range b.rec.Residents {
+		if renamed, ok := b.p.Renamed(pk); ok {
+			pk = renamed
+		}
 		if now, ok := b.plan.Residents[pk]; !ok || now != name {
 			b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("resident %s took the pack's %s at the last import and no longer does: it is the yard's, so its role and the event kinds it hears stay as that import left them", name, pk))
 		}

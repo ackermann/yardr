@@ -35,7 +35,7 @@ func reviewYard(t *testing.T, rigPath string) (store.API, context.Context) {
 	must(st.PutRig(ctx, store.Rig{Name: "yard", Path: rigPath, Base: "main"}, "me"))
 	must(st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}))
 	must(st.PutGroup(ctx, store.Group{Name: "approved", Runner: "manual", Limit: 1}))
-	must(st.PutGroup(ctx, store.Group{Name: "deciders", Runner: "manual", Members: []string{"mckean", "mayor"}}))
+	must(st.PutGroup(ctx, store.Group{Name: "deciders", Runner: "manual", Members: []string{"mckean", "yardmaster"}}))
 	for stage, group := range map[string]string{"new": "builders", "approved": "approved", "decide": "deciders"} {
 		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Group: group})
 		must(err)
@@ -91,7 +91,7 @@ func TestReviewQueue(t *testing.T) {
 	if got, want := ids(items), []string{question.ID, approvedOld.ID, approvedNew.ID}; !slices.Equal(got, want) {
 		t.Fatalf("mckean's queue = %v, want %v", got, want)
 	}
-	if items[0].Group != "deciders" || !slices.Equal(items[0].Members, []string{"mckean", "mayor"}) || items[1].Group != "approved" {
+	if items[0].Group != "deciders" || !slices.Equal(items[0].Members, []string{"mckean", "yardmaster"}) || items[1].Group != "approved" {
 		t.Errorf("groups = %+v", items)
 	}
 	// Anyone else only sees the member-less group's beads.

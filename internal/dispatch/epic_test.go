@@ -268,10 +268,10 @@ func TestPartWithoutEpicIsNotStarted(t *testing.T) {
 	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}))
 	people := &fakeRunner{dead: map[string]bool{}}
 	d.Runners["manual"] = people
-	must(t, s.PutGroup(ctx, store.Group{Name: "mayor", Runner: "manual", Limit: 5}))
+	must(t, s.PutGroup(ctx, store.Group{Name: "yardmaster", Runner: "manual", Limit: 5}))
 	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"})
 	must(t, err)
-	_, err = s.AddRoute(ctx, store.Route{Stage: "backlog", Group: "mayor"})
+	_, err = s.AddRoute(ctx, store.Route{Stage: "backlog", Group: "yardmaster"})
 	must(t, err)
 	for _, nb := range []store.NewBead{
 		{ID: "yard-e", Title: "epic", Type: store.TypeEpic, Rig: "yard", Stage: "open"},

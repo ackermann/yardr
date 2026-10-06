@@ -190,16 +190,40 @@ func Load(dir string) (*Pack, error) {
 // a yard, so these are how its prose refers to them.
 const Operator = "operator"
 
+// oldNames are the names an earlier release gave what a pack names, each
+// with the name it has now: the starter pack's resident was mayor until it
+// became yardmaster. For this release a yard's own files and commands may
+// still say the old name where the pack has only the new one.
+var oldNames = map[string]string{"mayor": "yardmaster"}
+
+// Renamed is the pack's resident that old named in an earlier release: a
+// pack that still has a resident called old has renamed nothing.
+func (p *Pack) Renamed(old string) (string, bool) {
+	name, ok := oldNames[old]
+	has := func(n string) bool {
+		return slices.ContainsFunc(p.Residents, func(r Resident) bool { return r.Name == n })
+	}
+	if !ok || has(old) || !has(name) {
+		return "", false
+	}
+	return name, true
+}
+
 // placeholder is anything between double braces on one line. A name the
 // import does not fill is an error of the pack, so what is installed never
 // carries one.
 var placeholder = regexp.MustCompile(`\{\{[^{}\n]*\}\}`)
 
 // Fill puts names where text has their placeholders: {{<key>}} becomes the
-// key's value. A placeholder without a key in names is left as it is.
+// key's value, and a key's earlier name (oldNames) is read as the key. A
+// placeholder without a key in names is left as it is.
 func Fill(text []byte, names map[string]string) []byte {
 	return placeholder.ReplaceAllFunc(text, func(m []byte) []byte {
-		if v, ok := names[string(m[2:len(m)-2])]; ok {
+		key := string(m[2 : len(m)-2])
+		if v, ok := names[key]; ok {
+			return []byte(v)
+		}
+		if v, ok := names[oldNames[key]]; ok {
 			return []byte(v)
 		}
 		return m
@@ -254,7 +278,7 @@ func (p *Pack) placeholderErrors() Errors {
 		}
 		for i, line := range strings.Split(string(text), "\n") {
 			for _, m := range placeholder.FindAllString(line, -1) {
-				if !slices.Contains(known, m[2:len(m)-2]) {
+				if name := m[2 : len(m)-2]; !slices.Contains(known, name) && !slices.Contains(known, oldNames[name]) {
 					errs = append(errs, Error{File: file, Line: i + 1, Msg: fmt.Sprintf("placeholder %s: an import fills %s (the operator and the pack's residents) and nothing else", m, strings.Join(may, ", "))})
 				}
 			}

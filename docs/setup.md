@@ -1,29 +1,31 @@
 # yardr setup
 
 `yardr setup` takes a yard from its onboarding to a first bead in work, as a
-short run of forms in the terminal. It is the same setup the mayor does with
-you in conversation, and you can change from one to the other after any step.
+short run of forms in the terminal. It is the same setup the yardmaster does
+with you in conversation, and you can change from one to the other after any
+step.
 
 ```sh
 yardr setup
 yardr setup --json | jq -r '.next.next'   # the command for the next step, no form
 ```
 
-The onboarding ends in one of the two: once the mayor is up, its last
-question is "Talk to the mayor" or "Keep going here". "Talk to the mayor"
-opens [`yardr chat`](chat.md#from-the-onboarding) on the mayor in the same
-terminal, and "Keep going here" is `yardr setup` in the same run.
+The onboarding ends in one of the two: once the yardmaster is up, its last
+question is "Talk to the yardmaster" or "Keep going here". "Talk to the
+yardmaster" opens [`yardr chat`](chat.md#from-the-onboarding) on the
+yardmaster in the same terminal, and "Keep going here" is `yardr setup` in the
+same run.
 
 ## One list of steps
 
 The steps are the ones [`yardr doctor`](doctor.md#setup) prints, read from
 the store by one function. `yardr setup` prints them, each `done` or `todo`,
 and takes the first one not done. It keeps no state of its own, so it goes on
-where the yard stands, whoever did the steps before: these forms, the mayor
+where the yard stands, whoever did the steps before: these forms, the yardmaster
 in conversation with you, or you on the command line. Run it again at any time.
 
-The mayor's first run reads the same list through `yardr doctor`. There is no
-second list to keep in step with it.
+The yardmaster's first run reads the same list through `yardr doctor`. There
+is no second list to keep in step with it.
 
 ## The pages
 
@@ -100,17 +102,17 @@ yardr route add --stage approved --rig <rig> --group <rig>/mergers
 It asks how to go on with the step that is next:
 
 - **Keep going here**: the next page.
-- **Talk to the mayor**: opens [`yardr chat`](chat.md) on the mayor in this
-  terminal. The mayor goes on from the same step: write to it what you want
-  next. Leaving the chat (ctrl+c) ends the run with one line, how to come
-  back (`yardr chat`) and that the mayor keeps running.
-  With `yardr setup --no-chat`, and when who runs it is no user of the yard
-  (the chat is a user's; it says so, and how to open it as the operator), it
-  prints where the mayor is in herdr (agent, workspace, tab, pane) and
-  brings its pane to the front instead.
-  When the mayor is not running it opens no chat: it prints what
-  [`yardr doctor`](doctor.md) says of the yard (the `FAULT` lines and the
-  mayor's line) and how to start it (`yardr init --start`).
+- **Talk to the yardmaster**: opens [`yardr chat`](chat.md) on the yardmaster
+  in this terminal. The yardmaster goes on from the same step: write to it
+  what you want next. Leaving the chat (ctrl+c) ends the run with one line,
+  how to come back (`yardr chat`) and that the yardmaster keeps running. With
+  `yardr setup --no-chat`, and when who runs it is no user of the yard (the
+  chat is a user's; it says so, and how to open it as the operator), it prints
+  where the yardmaster is in herdr (agent, workspace, tab, pane) and brings
+  its pane to the front instead. When the yardmaster is not running it opens
+  no chat: it prints what [`yardr doctor`](doctor.md) says of the yard (the
+  `FAULT` lines and the yardmaster's line) and how to start it
+  (`yardr init --start`).
 - **Stop here**: ends; `yardr setup` goes on from that step later.
 
 ## Being told when beads land
@@ -129,9 +131,9 @@ no user of the yard. The onboarding does not ask it.
 Not a step: a yard is complete without it. Where the forms end (every step
 done, or the first bead on its way) `yardr setup` asks "Link with another
 yard?", which starts at no. Yes opens the form of `yardr peer pair`
-([peers.md](peers.md#the-form)): one yard shows a code, the other enters
-it, both operators compare a number, and each says what the link may carry.
-The onboarding asks the same once the mayor is up, after the daemon at login
+([peers.md](peers.md#the-form)): one yard shows a code, the other enters it,
+both operators compare a number, and each says what the link may carry. The
+onboarding asks the same once the yardmaster is up, after the daemon at login
 and the web view.
 
 It is asked once a run, of the operator (only the operator pairs), and not
@@ -157,7 +159,7 @@ print the step and its command rather than ask again.
 ## Where no form runs
 
 Without a terminal, with `--json`, and in an agent's own session
-(`YARDR_SESSION` or `YARDR_RESIDENT` is set: the mayor's pane is a terminal
+(`YARDR_SESSION` or `YARDR_RESIDENT` is set: the yardmaster's pane is a terminal
 too) `yardr setup` asks nothing. It prints the steps and the command for the
 next one; `--json` prints `home`, `steps` and `next`, as
 [`yardr doctor --json`](doctor.md#json) names them.

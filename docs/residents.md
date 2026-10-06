@@ -1,4 +1,4 @@
-# Residents: always-on sessions (a mayor)
+# Residents: always-on sessions (a yardmaster)
 
 A resident is an agent session that is not tied to a bead. The daemon keeps it
 running in its directory, nudges it when its inbox has something new and it is
@@ -6,11 +6,11 @@ idle, and rotates it through handoffs instead of letting its context degrade.
 
 ```sh
 yardr resident add                     # interactive: agent, model, permissions, dir, inbox, rotation
-yardr resident add mayor --set kind=claude --set 'args=["--permission-mode","auto"]' \
-  --set prompt=$HOME/projects/webapp/.yardr/roles/mayor.md --dir ~/projects --max-age 6h
-yardr resident set mayor model=opus --max-age 4h   # change these, keep the rest
-yardr mail mayor "Deploys are frozen until Friday"
-yardr resident show mayor              # state, unread inbox, recent journal
+yardr resident add yardmaster --set kind=claude --set 'args=["--permission-mode","auto"]' \
+  --set prompt=$HOME/projects/webapp/.yardr/roles/yardmaster.md --dir ~/projects --max-age 6h
+yardr resident set yardmaster model=opus --max-age 4h   # change these, keep the rest
+yardr mail yardmaster "Deploys are frozen until Friday"
+yardr resident show yardmaster              # state, unread inbox, recent journal
 ```
 
 **Changing a resident.** `yardr resident set <name> key=value …` changes the
@@ -20,10 +20,10 @@ key as `--set` on `resident add` takes it, `--unset <key>` removes one, and
 of `add` set. It prints each setting it changed, as it was and as it is:
 
 ```sh
-yardr resident set mayor set_state=linear
-# resident mayor saved
+yardr resident set yardmaster set_state=linear
+# resident yardmaster saved
 #   set_state: (not set) -> linear
-yardr resident set mayor --unset set_state
+yardr resident set yardmaster --unset set_state
 ```
 
 The value of a key named like a secret (`token`, `secret`, `password`,
@@ -33,36 +33,37 @@ then on, and what a session starts with (kind, model, args, prompt, its
 environment, `--dir`) when the next one starts (`yardr resident restart
 <name>`).
 
-`yardr resident add <name>` writes the whole definition instead: on a
-resident that exists, every setting left out is dropped. So there it lists
-what would change and asks, in a terminal; anywhere else (a script, an
-agent's session, `--json`) it is refused unless `--replace` is given. The
-same definition given again changes nothing and is saved as before. A
-bare `yardr resident add mayor` once cost a running mayor its model, args,
-prompt, `env_file`, directory and rotation; `set` is the command for one
+`yardr resident add <name>` writes the whole definition instead: on a resident
+that exists, every setting left out is dropped. So there it lists what would
+change and asks, in a terminal; anywhere else (a script, an agent's session,
+`--json`) it is refused unless `--replace` is given. The same definition given
+again changes nothing and is saved as before. A bare
+`yardr resident add yardmaster` once cost a running yardmaster its model,
+args, prompt, `env_file`, directory and rotation; `set` is the command for one
 change.
 
 `--set greet=<user>` has the resident's first session, and no later one,
 greet that user by mail: its first prompt asks for it. `yardr init` sets it
-on the mayor, to the operator, because the onboarding ends in
+on the yardmaster, to the operator, because the onboarding ends in
 [`yardr chat`](chat.md#from-the-onboarding).
 
 A resident has no rig, so its `prompt` is an absolute path (a relative one is
-read from its `--dir`): a rig's own `.yardr/roles/mayor.md`, or the generic
-`~/.yardr/roles/mayor.md` that `yardr init` installs and points the mayor at.
+read from its `--dir`): a rig's own `.yardr/roles/yardmaster.md`, or the
+generic `~/.yardr/roles/yardmaster.md` that `yardr init` installs and points
+the yardmaster at.
 
-In herdr a resident's agent is `<yard>-<name>` (`yardr-mayor` for a yard in
-`~/.yardr`, `y1-mayor` for one in `/tmp/y1`) and its workspace is labelled
-`<yard> <name>`: herdr lists every yard on the machine's agents together and
-refuses a second of one name, so two yards' mayors cannot both be `mayor`.
-The yard is its `name` setting, else the home's directory name
-([configuration.md](configuration.md#settings)).
+In herdr a resident's agent is `<yard>-<name>` (`yardr-yardmaster` for a yard
+in `~/.yardr`, `y1-yardmaster` for one in `/tmp/y1`) and its workspace is
+labelled `<yard> <name>`: herdr lists every yard on the machine's agents
+together and refuses a second of one name, so two yards' yardmasters cannot
+both be `yardmaster`. The yard is its `name` setting, else the home's
+directory name ([configuration.md](configuration.md#settings)).
 
 **One session per resident.** Before it starts a resident, yardr asks herdr
 for its agents. If one of them already is that resident, nothing is started:
 no workspace, no second agent. An agent is the resident when it is not the
 session yardr itself recorded and either its name is `<yard>-<name>`, or its
-name is the resident's bare name (`mayor`) and it runs in the resident's
+name is the resident's bare name (`yardmaster`) and it runs in the resident's
 directory, which is what a pane you started by hand before defining the
 resident looks like. Two sessions under one name would each act as the
 resident without knowing of the other: one gets the nudges, you talk to the
@@ -72,8 +73,8 @@ The resident stays `stopped` and a `resident_blocked` event on its journal
 names the agent and its pane, once for as long as it is the same agent:
 
 ```sh
-yardr resident list                  # mayor  stopped  …
-yardr events --bead mayor-journal    # … resident_blocked yard  agent=mayor pane=w1:p1 reason=agent "mayor" in pane w1:p1 already is this resident; end it and the resident starts
+yardr resident list                  # yardmaster  stopped  …
+yardr events --bead yardmaster-journal    # … resident_blocked yard  agent=yardmaster pane=w1:p1 reason=agent "yardmaster" in pane w1:p1 already is this resident; end it and the resident starts
 ```
 
 To clear it, end that agent: close its pane in herdr (`herdr pane close
@@ -85,9 +86,9 @@ up. yardr does not adopt the pane it found and does not end it for you.
 **A start that fails.** The daemon waits before it tries again, longer each
 time (30s, 1m, 2m, 4m), and gives up after five failed starts in a row: the
 resident is `failed`, a `resident_gave_up` event is on its journal (in every
-default `--on`, so the mayor hears of another resident's) and nothing starts
-it until `yardr resident start <name>`, which also clears the count. Each
-failed start is a `resident_start_failed` event with the reason.
+default `--on`, so the yardmaster hears of another resident's) and nothing
+starts it until `yardr resident start <name>`, which also clears the count.
+Each failed start is a `resident_start_failed` event with the reason.
 
 A session that is gone within 60 seconds of its start is a failed start too,
 with the reason `the session ended 4s after its start (…)`: a harness that
@@ -119,13 +120,13 @@ leaves nothing. The workspaces of a resident that is deleted, or never
 started again, stay until you close them (`herdr workspace close <id>`).
 
 ```sh
-yardr resident list          # mayor  stopped (2 failed starts, next try in 48s)  …
-yardr resident show mayor    # 2 failed starts, next try in 48s, the last with: <reason>
-yardr doctor                 # FAULT mayor mayor is not running: the daemon gave up after 5 tries, the last with: <reason>
+yardr resident list          # yardmaster  stopped (2 failed starts, next try in 48s)  …
+yardr resident show yardmaster    # 2 failed starts, next try in 48s, the last with: <reason>
+yardr doctor                 # FAULT yardmaster yardmaster is not running: the daemon gave up after 5 tries, the last with: <reason>
 yardr doctor --try           # one real call to each harness: does it answer at all? (costs a model call)
 ```
 
-When the resident that gave up is the mayor itself, nobody is told: `yardr
+When the resident that gave up is the yardmaster itself, nobody is told: `yardr
 doctor` and bare `yardr` say it.
 
 - **Inbox:** mail, plus what its subscriptions deliver. Read with `yardr
@@ -148,7 +149,7 @@ doctor` and bare `yardr` say it.
   arrives held, since its text is that yard's and becomes an agent's brief.
   There are three levels, per peer, and the first is the default:
   1. held, and a user releases it (`yardr bead unhold <id>`). A resident is
-     refused, the mayor too: it reads what peers send, and one that could
+     refused, the yardmaster too: it reads what peers send, and one that could
      release a bead could be talked into it;
   2. held, and a resident the operator named may release it as well:
      `yardr resident set <name> release=<peer>,<peer>`, under the rules of
@@ -228,26 +229,27 @@ with `nudge_held` on the bead.
 
 ## Findings from builders and reviewers
 
-What an agent finds outside its bead reaches the mayor on two channels, as
-the builder and reviewer roles say ("Something outside your bead"). A finding
-that does not block the agent (a bug in another package, a stale doc, a flaky
-test) arrives as a bead in stage `backlog`, for the mayor to shape or close
-like any other. One that blocks it (a red gate on the base, a missing tool)
-arrives as that bead plus mail from the agent, `<bead id>: <one line>`, and
-the agent's own bead is held with a note naming the blocker when it cannot
-finish; the mayor orders the two with `yardr dep add <blocker> <bead>` and
-unholds. The roles mail the yard's `mayor` setting ([configuration.md](configuration.md#settings)),
-so a mayor added under another name is still the one addressed.
+What an agent finds outside its bead reaches the yardmaster on two channels,
+as the builder and reviewer roles say ("Something outside your bead"). A
+finding that does not block the agent (a bug in another package, a stale doc,
+a flaky test) arrives as a bead in stage `backlog`, for the yardmaster to
+shape or close like any other. One that blocks it (a red gate on the base, a
+missing tool) arrives as that bead plus mail from the agent,
+`<bead id>: <one line>`, and the agent's own bead is held with a note naming
+the blocker when it cannot finish; the yardmaster orders the two with
+`yardr dep add <blocker> <bead>` and unholds. The roles mail the yard's
+`yardmaster` setting ([configuration.md](configuration.md#settings)), so a
+yardmaster added under another name is still the one addressed.
 
-A hold reaches the mayor because `held` is among a new resident's default
+A hold reaches the yardmaster because `held` is among a new resident's default
 `--on` kinds. A resident made before `held` joined them (or before any kind
 the default gained since) does not hear it until its list is replaced.
 `--on` replaces the list, so give it in full; `yardr resident set` keeps the
 rest of the definition:
 
 ```sh
-yardr resident show mayor --json          # its on today
-yardr resident set mayor \
+yardr resident show yardmaster --json          # its on today
+yardr resident set yardmaster \
   --on gave_up,session_blocked,unrouted,stranded,no_runner,workspace_kept,resident_gave_up,runtime_down,session_idle,session_aged,session_stalled,session_harness_error,session_model_mismatch,session_prompt_gave_up,move_refused,held
 ```
 
@@ -263,7 +265,7 @@ its definition, by `set` or by `add`.
 
 ## Outbound credentials
 
-What a resident uses to act outside the yard (the mayor's Linear developer
+What a resident uses to act outside the yard (the yardmaster's Linear developer
 token, a GitHub token) goes in an env file of its own, never in
 the store: BDP serves the store, backups copy it and every builder can read
 it. That is the one rule. The examples keep such files in the yard's home
@@ -276,16 +278,16 @@ resident.
 
 ```sh
 mkdir -p ~/.yardr/residents
-cat > ~/.yardr/residents/mayor.env <<'END'
-# Linear, as the mayor: its app's developer token (or a personal API key)
+cat > ~/.yardr/residents/yardmaster.env <<'END'
+# Linear, as the yardmaster: its app's developer token (or a personal API key)
 LINEAR_API_KEY=lin_oauth_…
-# GitHub, as the mayor: a personal token of its account, or the two lines
+# GitHub, as the yardmaster: a personal token of its account, or the two lines
 # of a GitHub App (below) in its place
 GITHUB_TOKEN=github_pat_…
 END
-chmod 600 ~/.yardr/residents/mayor.env
-yardr resident set mayor env_file=~/.yardr/residents/mayor.env
-yardr resident show mayor     # env_file …/mayor.env (LINEAR_API_KEY)
+chmod 600 ~/.yardr/residents/yardmaster.env
+yardr resident set yardmaster env_file=~/.yardr/residents/yardmaster.env
+yardr resident show yardmaster     # env_file …/yardmaster.env (LINEAR_API_KEY)
 ```
 
 - Lines are `KEY=VALUE`; blank lines and `#` comments are skipped. Nothing is
@@ -305,7 +307,7 @@ yardr resident show mayor     # env_file …/mayor.env (LINEAR_API_KEY)
   as any failed start) and a `resident_blocked` event in its journal says
   so, once per reason.
 - The file is read at each start, so a new token takes effect on the next
-  restart (`yardr resident restart mayor`). Values are never logged, put on
+  restart (`yardr resident restart yardmaster`). Values are never logged, put on
   the session's handle or shown; `yardr resident show` lists the key names.
 
 ### Secrets from a provider
@@ -315,8 +317,8 @@ provider: a command yardr runs to get its environment, so a secrets tool
 holds the values and yardr knows none of them by name.
 
 ```sh
-yardr resident set mayor env_command="varlock load --format env"
-yardr resident show mayor     # env_command varlock load --format env (LINEAR_API_KEY)
+yardr resident set yardmaster env_command="varlock load --format env"
+yardr resident show yardmaster     # env_command varlock load --format env (LINEAR_API_KEY)
 ```
 
 The contract is one line: **the command prints `KEY=VALUE` lines on its
@@ -358,7 +360,7 @@ expanded or unquoted, a key yardr sets itself is ignored.
 directory with the resident's `.env.schema`:
 
 ```sh
-yardr resident set mayor --dir ~/projects env_command="varlock load --format env"
+yardr resident set yardmaster --dir ~/projects env_command="varlock load --format env"
 ```
 
 **1Password** ([`op inject`](https://www.1password.dev/cli/reference/commands/inject/):
@@ -367,16 +369,16 @@ without `--out-file`, writes the result to stdout). The template holds
 names and references, no values:
 
 ```sh
-cat > ~/.yardr/residents/mayor.env.tpl <<'END'
-LINEAR_API_KEY={{ op://yard/linear-mayor/credential }}
-GITHUB_TOKEN={{ op://yard/github-mayor/token }}
+cat > ~/.yardr/residents/yardmaster.env.tpl <<'END'
+LINEAR_API_KEY={{ op://yard/linear-yardmaster/credential }}
+GITHUB_TOKEN={{ op://yard/github-yardmaster/token }}
 END
-yardr resident set mayor 'env_command=["op","inject","-i","/Users/jo/.yardr/residents/mayor.env.tpl"]'
+yardr resident set yardmaster 'env_command=["op","inject","-i","/Users/jo/.yardr/residents/yardmaster.env.tpl"]'
 ```
 
 Both commands are taken from the tools' documentation as linked; neither
 was run against a real varlock or a real 1Password vault for this page.
-Check yours with `yardr resident show mayor`, which lists the names it got
+Check yours with `yardr resident show yardmaster`, which lists the names it got
 or says why it got none. If a tool quotes its values, the quotes are part
 of the value yardr passes on: have it print them raw. Not checked at all:
 sops, the macOS keychain, any other tool. For those, and for anything that
@@ -384,8 +386,8 @@ needs a shell, the provider is a script of yours that keeps the contract:
 
 ```sh
 #!/bin/sh
-# ~/.yardr/residents/mayor-env: prints the mayor's environment
-printf 'LINEAR_API_KEY=%s\n' "$(your-secrets-tool get linear-mayor)"
+# ~/.yardr/residents/yardmaster-env: prints the yardmaster's environment
+printf 'LINEAR_API_KEY=%s\n' "$(your-secrets-tool get linear-yardmaster)"
 ```
 
 What this does and does not do. The values are no longer plain text under
@@ -440,9 +442,9 @@ to one machine. App names are global; if the name you want is taken, try
    its inbox and `@<slug>` reaches it:
 
    ```sh
-   yardr resident identity mayor --source github --key 'yardr[bot]'
-   yardr resident restart mayor
-   yardr resident show mayor     # github credential: GitHub App (GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY_FILE)
+   yardr resident identity yardmaster --source github --key 'yardr[bot]'
+   yardr resident restart yardmaster
+   yardr resident show yardmaster     # github credential: GitHub App (GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY_FILE)
    ```
 
 For each call yardr signs a token as the App (a JWT, RS256, good for nine
@@ -458,7 +460,7 @@ When both the App's lines and `GITHUB_TOKEN` are set, the App answers. One
 of the two lines without the other is an error, not a reason to use the
 token. With neither, a resident is refused: it does not fall back to `gh
 auth token`, which is the login of whoever runs the yard. A person at their
-own shell (the operator's `yardr reply --resident mayor`) still speaks as
+own shell (the operator's `yardr reply --resident yardmaster`) still speaks as
 `gh` has them logged in.
 
 The refinery's scripts and the daemon's reads of pull requests and CI call
@@ -471,7 +473,7 @@ A resident answers what reached its inbox where it came from, as itself
 (and may [open a thread](#opening-a-thread) when the operator allowed it):
 
 ```sh
-yardr inbox                                   #   4211 10-03 09:14  hook (mentioned) linear comment create by Jane on "Retries": @mayor can you look?
+yardr inbox                                   #   4211 10-03 09:14  hook (mentioned) linear comment create by Jane on "Retries": @yardmaster can you look?
 yardr thread show 4211                        # the whole thread, read from Linear: ids, parents, authors, times, bodies
 yardr reply 4211 "Filed as yardr-k3f9; I'll post here when it lands."
 yardr reply 4211 --to <message id> - < answer.md   # under another conversation of the thread
@@ -538,8 +540,8 @@ may speak as it (`--resident`).
 **Who may open threads.** No resident, unless its definition says so:
 
 ```sh
-yardr resident set mayor open_threads=linear,github   # the rest of its definition stays
-yardr resident show mayor     # may open threads in github, linear
+yardr resident set yardmaster open_threads=linear,github   # the rest of its definition stays
+yardr resident show yardmaster     # may open threads in github, linear
 ```
 
 `open_threads` names the sources, comma-separated (or as a JSON list).
@@ -556,8 +558,8 @@ setting is checked by the CLI, the same line, not wall, as who may speak.
 
 A pack can ask for it: `open_threads: [linear]` under a resident in
 `pack.yaml`. That sets nothing by itself. `yardr pack apply` asks the
-operator, `Let mayor open threads in linear?` with no as the default (or
-takes `--open-threads mayor=linear`), only for a source the yard has a hook
+operator, `Let yardmaster open threads in linear?` with no as the default (or
+takes `--open-threads yardmaster=linear`), only for a source the yard has a hook
 and the resident a credential for, and only when the operator is the one
 applying. A yes adds the source to the setting, keeps what is there, and is
 logged as `open_threads_granted`
@@ -611,8 +613,8 @@ for gets no call that changes it, the output says it was there
 **Who may set a status.** No resident, unless its definition says so:
 
 ```sh
-yardr resident set mayor set_state=linear,github   # the rest of its definition stays
-yardr resident show mayor     # may set the status of threads in github, linear
+yardr resident set yardmaster set_state=linear,github   # the rest of its definition stays
+yardr resident show yardmaster     # may set the status of threads in github, linear
 ```
 
 `set_state` is its own setting with the rules of `open_threads` above:
@@ -657,5 +659,6 @@ another endpoint: a stand-in when trying yardr out, or a GitHub Enterprise
 API (`https://<host>/api/v3`).
 
 What to say, and whether to, is the resident's role: see the generic
-[roles/mayor.md](../roles/mayor.md) that `yardr init` installs. Setting a source up end to end is in
+[roles/yardmaster.md](../roles/yardmaster.md) that `yardr init` installs.
+Setting a source up end to end is in
 [subscriptions.md](subscriptions.md#setting-up-linear).

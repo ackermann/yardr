@@ -70,13 +70,13 @@ func TestLostFirstPromptIsDeliveredAgainOnce(t *testing.T) {
 	ctx := context.Background()
 	s := storetest.New(t)
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": h}, PromptSettle: -1, PromptWait: -1}
-	if _, err := s.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
+	if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if err := d.Reconcile(ctx); err != nil {
 		t.Fatal(err)
 	}
-	r, err := s.GetResident(ctx, "mayor")
+	r, err := s.GetResident(ctx, "yardmaster")
 	if err != nil || !r.Live() {
 		t.Fatalf("resident not running: %+v %v", r, err)
 	}
@@ -89,7 +89,7 @@ func TestLostFirstPromptIsDeliveredAgainOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if r, _ = s.GetResident(ctx, "mayor"); r.Handle[dispatch.PendingPrompt] != nil {
+	if r, _ = s.GetResident(ctx, "yardmaster"); r.Handle[dispatch.PendingPrompt] != nil {
 		t.Fatalf("still pending: %v", r.Handle)
 	}
 	if n := strings.Count(calls(), "agent prompt"); n != 2 {
@@ -107,7 +107,7 @@ func TestFirstPromptThatShowsIsSentOnce(t *testing.T) {
 	ctx := context.Background()
 	s := storetest.New(t)
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": h}}
-	if _, err := s.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
+	if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	for range 3 {
@@ -115,7 +115,7 @@ func TestFirstPromptThatShowsIsSentOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	r, err := s.GetResident(ctx, "mayor")
+	r, err := s.GetResident(ctx, "yardmaster")
 	if err != nil || !r.Live() || r.Handle[dispatch.PendingPrompt] != nil {
 		t.Fatalf("resident = %+v %v", r, err)
 	}
@@ -201,24 +201,24 @@ func TestShowsPrompt(t *testing.T) {
 	}
 }
 
-// The mayor yardr init adds greets the operator by mail in its first
+// The yardmaster yardr init adds greets the operator by mail in its first
 // session: the onboarding ends in yardr chat, which shows mail and no pane.
 // The prompt still begins and ends as every resident's does, which is what
 // the pane is searched for, and a later session is asked for no greeting.
 func TestFirstPromptAsksForAGreetingByMail(t *testing.T) {
-	r := store.Resident{Name: "mayor", Config: map[string]any{GreetKey: "ada"}}
+	r := store.Resident{Name: "yardmaster", Config: map[string]any{GreetKey: "ada"}}
 	got := residentPrompt("yardr --home /y", r)
 	for _, want := range []string{"`yardr --home /y mail ada \"<text>\"`", "`yardr --home /y chat`", "the next setup step",
-		"`yardr --home /y prime --resident mayor` " + ResidentPromptEnd} {
+		"`yardr --home /y prime --resident yardmaster` " + ResidentPromptEnd} {
 		if !strings.Contains(got, want) {
 			t.Errorf("prompt lacks %q:\n%s", want, got)
 		}
 	}
-	plain := residentPrompt("yardr", store.Resident{Name: "mayor"})
-	if plain != "You are the yardr resident \"mayor\". Run `yardr prime --resident mayor` and follow it." {
+	plain := residentPrompt("yardr", store.Resident{Name: "yardmaster"})
+	if plain != "You are the yardr resident \"yardmaster\". Run `yardr prime --resident yardmaster` and follow it." {
 		t.Errorf("a resident that greets nobody got %q", plain)
 	}
-	if !strings.HasPrefix(got, ResidentPromptLead+` "mayor". `) || !strings.HasSuffix(got, ResidentPromptEnd) ||
+	if !strings.HasPrefix(got, ResidentPromptLead+` "yardmaster". `) || !strings.HasSuffix(got, ResidentPromptEnd) ||
 		!showsPrompt("❯ "+got, got) {
 		t.Errorf("the greeting's prompt does not begin and end as a resident's:\n%s", got)
 	}
@@ -261,13 +261,13 @@ func TestDispatchersDeliveryIsCheckedForArrival(t *testing.T) {
 			ctx := context.Background()
 			s := storetest.New(t)
 			d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": h}, PromptSettle: -1, PromptWait: -1}
-			if _, err := s.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
+			if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
 				t.Fatal(err)
 			}
 			if err := d.Reconcile(ctx); err != nil {
 				t.Fatal(err)
 			}
-			r, err := s.GetResident(ctx, "mayor")
+			r, err := s.GetResident(ctx, "yardmaster")
 			if err != nil || !r.Live() {
 				t.Fatalf("resident not running: %+v %v", r, err)
 			}
@@ -283,7 +283,7 @@ func TestDispatchersDeliveryIsCheckedForArrival(t *testing.T) {
 			if n := strings.Count(calls(), "agent prompt"); n != c.sent {
 				t.Fatalf("prompt sent %d times, want %d:\n%s", n, c.sent, calls())
 			}
-			r, _ = s.GetResident(ctx, "mayor")
+			r, _ = s.GetResident(ctx, "yardmaster")
 			if pending := r.Handle[dispatch.PendingPrompt] != nil; pending != (c.prompted == 0) {
 				t.Fatalf("pending = %v: handle %v", pending, r.Handle)
 			}
@@ -367,13 +367,13 @@ func TestPromptLeftInTheInputIsSubmitted(t *testing.T) {
 			ctx := context.Background()
 			s := storetest.New(t)
 			d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": h}, PromptSettle: -1, PromptWait: -1}
-			if _, err := s.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
+			if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
 				t.Fatal(err)
 			}
 			if err := d.Reconcile(ctx); err != nil {
 				t.Fatal(err)
 			}
-			r, err := s.GetResident(ctx, "mayor")
+			r, err := s.GetResident(ctx, "yardmaster")
 			if err != nil || !r.Live() {
 				t.Fatalf("resident not running: %+v %v", r, err)
 			}
@@ -393,7 +393,7 @@ func TestPromptLeftInTheInputIsSubmitted(t *testing.T) {
 			if n := strings.Count(calls(), "pane send-keys "+pane+" enter"); pane == "" || n != c.enters {
 				t.Fatalf("Enter sent %d times to pane %q, want %d:\n%s", n, pane, c.enters, calls())
 			}
-			r, _ = s.GetResident(ctx, "mayor")
+			r, _ = s.GetResident(ctx, "yardmaster")
 			if pending := r.Handle[dispatch.PendingPrompt] != nil; pending != (c.prompted == 0) {
 				t.Fatalf("pending = %v: handle %v", pending, r.Handle)
 			}
@@ -469,7 +469,7 @@ func TestPromptTypedBehindAWrongFirstLookIsSubmitted(t *testing.T) {
 			ctx := context.Background()
 			s := storetest.New(t)
 			d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": h}, PromptSettle: -1, PromptWait: -1}
-			if _, err := s.PutResident(ctx, store.Resident{Name: "mayor", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
+			if _, err := s.PutResident(ctx, store.Resident{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir()}, "me"); err != nil {
 				t.Fatal(err)
 			}
 			for range 4 {
@@ -477,7 +477,7 @@ func TestPromptTypedBehindAWrongFirstLookIsSubmitted(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			r, err := s.GetResident(ctx, "mayor")
+			r, err := s.GetResident(ctx, "yardmaster")
 			if err != nil || !r.Live() {
 				t.Fatalf("resident not running: %+v %v", r, err)
 			}

@@ -47,7 +47,7 @@ branch yard/<bead>.
    you may (it never does for a bead of this rig: the refinery lands your
    branch from your worktree). Never run `go install`
    or otherwise install yardr from a worktree: the running server and daemon
-   replace themselves with what is installed, so the mayor installs after
+   replace themselves with what is installed, so the yardmaster installs after
    merge. Test with `go build -o` into a temp dir, or `go test`.
 6. Finish as the stage asks. Your brief's "Stage" section says what must be
    true before the bead leaves the stage and when each outcome applies, and
@@ -62,7 +62,7 @@ branch yard/<bead>.
 
 If you are stuck and the stage offers no outcome for it:
 `yardr bead note <id> "..."`, then `yardr bead hold <id>`; a hold reaches the
-mayor's inbox.
+yardmaster's inbox.
 
 ## Something outside your bead
 
@@ -70,12 +70,12 @@ mayor's inbox.
    it and carry on, never fix it on your branch. `yardr bead create "<title>"
    --rig yardr --stage backlog -b - --discovered-from <your bead>`, with what
    you saw, where, and how to reproduce. The new bead names the bead it was
-   found from. The mayor shapes it from backlog.
+   found from. The yardmaster shapes it from backlog.
 2. It blocks you but is no question about the bead (the gate is red on
    main, a tool is missing, the base moved under you): file it as above,
-   then mail the mayor: `yardr mail yardmaster "<bead id>: <one line>"`. If
+   then mail the yardmaster: `yardr mail yardmaster "<bead id>: <one line>"`. If
    you cannot finish without it, `yardr bead note <id> "blocked by <bead
-   id>" && yardr bead hold <id>`; the mayor orders the two with
+   id>" && yardr bead hold <id>`; the yardmaster orders the two with
    `yardr dep add`.
 3. It is a question about the bead itself (an unclear goal, a design
    choice): that is for the stage's outcomes, not for a new bead. Your brief

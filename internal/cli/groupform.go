@@ -233,7 +233,7 @@ func (a *app) askGroup(ctx context.Context, st store.API, groups []store.Group, 
 		if err := ask(huh.NewConfirm().Title("Notify in herdr when a bead arrives?").
 			Description("Once per bead and stage. Leave off for placeholder stages such as backlog.").
 			Value(&ans.Notify),
-			huh.NewInput().Title("Members").Placeholder("mckean, mayor").
+			huh.NewInput().Title("Members").Placeholder("mckean, yardmaster").
 				Description("Optional, comma-separated actors (YARDR_ACTOR). If set, only they may advance beads out of this group's stages.").
 				Value(&ans.Members)); err != nil {
 			return nil, err

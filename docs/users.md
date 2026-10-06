@@ -16,8 +16,8 @@ yardr mail mckean "The refinery is red on main: yardr-1a2b"   # a resident's ses
 yardr inbox                              # as a user: Mail and Notifications, each with its unread
 yardr inbox --mail --ack                 # one part, and mark what it shows as read
 yardr subscribe ada yardr --done         # ada is told of every bead that becomes done
-yardr mail --with mayor                  # the exchange with the mayor, both directions
-yardr mail --with mayor --after 412 --json
+yardr mail --with yardmaster                  # the exchange with the yardmaster, both directions
+yardr mail --with yardmaster --after 412 --json
 ```
 
 ## The record
@@ -67,7 +67,7 @@ user who runs them. That count is of mail alone; bare `yardr` adds `and N
 notifications` after it when there are unread ones:
 
 ```
-Mail for jo: 1 unread from mayor, and 2 notifications (yardr inbox).
+Mail for jo: 1 unread from yardmaster, and 2 notifications (yardr inbox).
 ```
 
 Without unread mail bare `yardr` prints no such line, whatever the
@@ -103,13 +103,13 @@ of them first, marked `(read)`; `-n` bounds how many in each. `--mail` and
 
 ```
 Mail: nothing unread; the latest read:
-    50 10-06 01:02  mail from mayor (read): One question on web-hk7z when you have a minute.
-    39 10-06 01:00  mail from mayor (read): Shall I add a reviewer group?
+    50 10-06 01:02  mail from yardmaster (read): One question on web-hk7z when you have a minute.
+    39 10-06 01:00  mail from yardmaster (read): Shall I add a reviewer group?
 
 Notifications: 2 unread
-    51 10-06 01:02  web-hk7z advanced (all) by mayor from=new to=decide on "Which port for the hook listener"
-    53 10-06 01:02  web-3cps closed (done) by mayor reason=merged 1a2b3c4 on "Chat: a row for the yard"
-    43 10-06 01:00  (read) web-wh4c closed (done) by mayor reason=merged 1234567 on "Narrow one"
+    51 10-06 01:02  web-hk7z advanced (all) by yardmaster from=new to=decide on "Which port for the hook listener"
+    53 10-06 01:02  web-3cps closed (done) by yardmaster reason=merged 1a2b3c4 on "Chat: a row for the yard"
+    43 10-06 01:00  (read) web-wh4c closed (done) by yardmaster reason=merged 1234567 on "Narrow one"
 ```
 
 A part with nothing in it is `Mail: none` or `Notifications: none`. The
@@ -138,7 +138,7 @@ runs it and that resident or user, both directions, oldest first:
 
 ```
    412 10-05 14:02  read    mckean: deploys are frozen until Friday
-   415 10-05 14:03  read    mayor: noted. Until when on Friday?
+   415 10-05 14:03  read    yardmaster: noted. Until when on Friday?
    431 10-05 16:40  unread  mckean: until the release is tagged
 ```
 

@@ -32,7 +32,7 @@ const notLoggedIn = "Not logged in · Please run /login"
 // asker is a terminal on a fresh home whose claude is the stand-in: it
 // answers a one-shot call with "ok", or fails it with notLoggedIn while the
 // file fails exists, and records every call. The form's questions are
-// answered by f; the daemon, once started, brings the mayor up.
+// answered by f; the daemon, once started, brings the yardmaster up.
 type asker struct {
 	t       *testing.T
 	st      store.API
@@ -90,7 +90,7 @@ func newAsker(t *testing.T, f *former) *asker {
 	captureStderr(t)
 	t.Setenv("HERDR_ENV", "")
 	stubAsk(t, f.ask)
-	a.started = stubStart(t, a.st, mayorHandle())
+	a.started = stubStart(t, a.st, yardmasterHandle())
 	stubPane(t, answeredPane)
 	a.chats = stubChat(t)
 	return a
@@ -124,16 +124,17 @@ func (a *asker) onboard() string {
 	return out
 }
 
-// The form asks, before it starts the mayor, whether to ask the harness for
-// one real answer (yardr-hd59; before, a harness without a login was found
-// only by a mayor that sat silent in its pane). Check makes the call doctor
-// --try makes, says what it answered above the start, and the mayor starts.
+// The form asks, before it starts the yardmaster, whether to ask the harness
+// for one real answer (yardr-hd59; before, a harness without a login was
+// found only by a yardmaster that sat silent in its pane). Check makes the
+// call doctor --try makes, says what it answered above the start, and the
+// yardmaster starts.
 func TestOnboardingAsksTheHarnessFirst(t *testing.T) {
-	a := newAsker(t, &former{answers: map[string]any{"try": true}, goes: []string{goMayor}})
+	a := newAsker(t, &former{answers: map[string]any{"try": true}, goes: []string{goYardmaster}})
 	out := a.onboard()
 	wantText(t, out, "Asking claude for one answer (up to 45s).\nclaude answers (ok).\n\nThe daemon is started, in the background",
-		"mayor is running, in herdr")
-	if a.calls() != 1 || *a.started != 1 || !slices.Equal(*a.chats, []string{"mayor, expecting mayor"}) {
+		"yardmaster is running, in herdr")
+	if a.calls() != 1 || *a.started != 1 || !slices.Equal(*a.chats, []string{"yardmaster, expecting yardmaster"}) {
 		t.Fatalf("%d calls, %d daemons started, chats %v\n%s", a.calls(), *a.started, *a.chats, out)
 	}
 	if keys := keysOf(a.f); !slices.Contains(keys, "try") || slices.Contains(keys, "tried") {
@@ -146,13 +147,13 @@ func TestOnboardingAsksTheHarnessFirst(t *testing.T) {
 
 // Skip makes no call, and the start goes on as it did before the question.
 func TestOnboardingSkipsTheCall(t *testing.T) {
-	a := newAsker(t, &former{answers: map[string]any{"try": false}, goes: []string{goMayor}})
+	a := newAsker(t, &former{answers: map[string]any{"try": false}, goes: []string{goYardmaster}})
 	a.fails() // a call would say so
 	out := a.onboard()
 	if a.calls() != 0 || *a.started != 1 || strings.Contains(out, "Asking claude") || strings.Contains(out, "did not answer") {
 		t.Fatalf("%d calls, %d daemons started\n%s", a.calls(), *a.started, out)
 	}
-	wantText(t, out, "mayor is running, in herdr")
+	wantText(t, out, "yardmaster is running, in herdr")
 	if !slices.Contains(keysOf(a.f), "try") {
 		t.Fatalf("asked %q", keysOf(a.f))
 	}
@@ -160,9 +161,9 @@ func TestOnboardingSkipsTheCall(t *testing.T) {
 
 // A harness that does not answer is named before any pane exists: how the
 // call ended, the last lines it printed and what they usually mean. "Try
-// again", once it is set right, asks it again, and the mayor starts.
+// again", once it is set right, asks it again, and the yardmaster starts.
 func TestOnboardingTriesTheHarnessAgain(t *testing.T) {
-	a := newAsker(t, &former{answers: map[string]any{"try": true}, goes: []string{goMayor}, tries: []string{tryAgain, tryAgain}})
+	a := newAsker(t, &former{answers: map[string]any{"try": true}, goes: []string{goYardmaster}, tries: []string{tryAgain, tryAgain}})
 	a.fails()
 	// The person logs in before the second "Try again".
 	asked := 0
@@ -180,7 +181,7 @@ func TestOnboardingTriesTheHarnessAgain(t *testing.T) {
 	out := a.onboard()
 	fault := "\nclaude did not answer: the call failed (exit status 1).\n\nThe last lines it printed:\n\n  | claude 2.1\n  | " + notLoggedIn + "\n\n" +
 		"That usually means claude is not logged in, or its login has run out: run claude in another terminal\nand log in there.\n"
-	wantText(t, out, fault, "claude answers (ok).\n\nThe daemon is started", "mayor is running, in herdr")
+	wantText(t, out, fault, "claude answers (ok).\n\nThe daemon is started", "yardmaster is running, in herdr")
 	if n := strings.Count(out, fault); n != 2 {
 		t.Errorf("the fault is said %d times, want 2:\n%s", n, out)
 	}
@@ -189,12 +190,12 @@ func TestOnboardingTriesTheHarnessAgain(t *testing.T) {
 	}
 }
 
-// "Go on anyway" starts the mayor on the harness as it is, after one call.
+// "Go on anyway" starts the yardmaster on the harness as it is, after one call.
 func TestOnboardingGoesOnWithoutAnAnswer(t *testing.T) {
-	a := newAsker(t, &former{answers: map[string]any{"try": true}, goes: []string{goMayor}, tries: []string{tryGoOn}})
+	a := newAsker(t, &former{answers: map[string]any{"try": true}, goes: []string{goYardmaster}, tries: []string{tryGoOn}})
 	a.fails()
 	out := a.onboard()
-	wantText(t, out, "claude did not answer: the call failed (exit status 1).", "  | "+notLoggedIn, "The daemon is started", "mayor is running, in herdr")
+	wantText(t, out, "claude did not answer: the call failed (exit status 1).", "  | "+notLoggedIn, "The daemon is started", "yardmaster is running, in herdr")
 	if a.calls() != 1 || *a.started != 1 {
 		t.Fatalf("%d calls, %d daemons started\n%s", a.calls(), *a.started, out)
 	}
@@ -202,15 +203,15 @@ func TestOnboardingGoesOnWithoutAnAnswer(t *testing.T) {
 
 // "Stop here" starts nothing and says how to come back; so does a form left
 // with ctrl+c, at either question. The yard is there, and bare yardr takes
-// it up: the question again, and with a harness that answers the mayor.
-func TestOnboardingStopsBeforeTheMayor(t *testing.T) {
+// it up: the question again, and with a harness that answers the yardmaster.
+func TestOnboardingStopsBeforeTheYardmaster(t *testing.T) {
 	stopped := func(a *asker, out string, calls int) {
 		t.Helper()
-		wantText(t, out, "\nStopped before mayor was started. The yard is there, and nothing runs on it.\n"+
+		wantText(t, out, "\nStopped before yardmaster was started. The yard is there, and nothing runs on it.\n"+
 			"Once claude answers (`"+here("yardr doctor --try")+"` asks it again, for a model call), this starts the yard\n"+
-			"and waits for mayor:\n\n  "+here("yardr init --start")+"\n\n"+
+			"and waits for yardmaster:\n\n  "+here("yardr init --start")+"\n\n"+
 			here("yardr")+" in a terminal does the same and goes on from here. `"+here("yardr setup")+"` takes the rest of\n"+
-			"the setup as forms, with mayor or without.\n")
+			"the setup as forms, with yardmaster or without.\n")
 		if strings.Contains(out, "\n\n\nStopped") {
 			t.Errorf("two blank lines above the stop:\n%s", out)
 		}
@@ -226,7 +227,7 @@ func TestOnboardingStopsBeforeTheMayor(t *testing.T) {
 			t.Errorf("the yard is not there after a stop")
 		}
 	}
-	a := newAsker(t, &former{answers: map[string]any{"try": true}, goes: []string{goMayor}})
+	a := newAsker(t, &former{answers: map[string]any{"try": true}, goes: []string{goYardmaster}})
 	a.fails()
 	out := a.onboard()
 	wantText(t, out, "  | "+notLoggedIn)
@@ -236,7 +237,7 @@ func TestOnboardingStopsBeforeTheMayor(t *testing.T) {
 	a.login()
 	a.f.asked = nil
 	out = a.onboard()
-	wantText(t, out, "has no rig yet, and its onboarding did not reach its end", "claude answers (ok).", "mayor is running, in herdr")
+	wantText(t, out, "has no rig yet, and its onboarding did not reach its end", "claude answers (ok).", "yardmaster is running, in herdr")
 	if got := keysOf(a.f); !slices.Equal(got, []string{"finish", "try", "login", "web", "link", "go"}) || a.calls() != 2 || *a.started != 1 {
 		t.Fatalf("asked %q, %d calls, %d daemons started\n%s", got, a.calls(), *a.started, out)
 	}
@@ -257,9 +258,9 @@ func TestInitStartAsksTheHarnessInATerminalOnly(t *testing.T) {
 	a.fails()
 	start := func(args ...string) string {
 		t.Helper()
-		// Each start is the first: no session of the mayor from the last.
-		if _, err := a.st.GetResident(context.Background(), "mayor"); err == nil {
-			if err := a.st.ResidentStopped(context.Background(), "mayor", "test"); err != nil {
+		// Each start is the first: no session of the yardmaster from the last.
+		if _, err := a.st.GetResident(context.Background(), "yardmaster"); err == nil {
+			if err := a.st.ResidentStopped(context.Background(), "yardmaster", "test"); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -270,11 +271,11 @@ func TestInitStartAsksTheHarnessInATerminalOnly(t *testing.T) {
 		return out
 	}
 	setInteractive(t, false)
-	wantText(t, start(), "mayor is running, in herdr")
+	wantText(t, start(), "yardmaster is running, in herdr")
 	setInteractive(t, true)
 	wantText(t, start("--json"), `"running": true`)
 	t.Setenv("YARDR_SESSION", "s1")
-	wantText(t, start(), "mayor is running, in herdr")
+	wantText(t, start(), "yardmaster is running, in herdr")
 	t.Setenv("YARDR_SESSION", "")
 	if a.calls() != 0 || len(keysOf(a.f)) != 0 {
 		t.Fatalf("%d calls, asked %q where no form runs", a.calls(), keysOf(a.f))
@@ -282,16 +283,16 @@ func TestInitStartAsksTheHarnessInATerminalOnly(t *testing.T) {
 
 	// In a terminal: the question, the call, and "Stop here" by default.
 	out := start()
-	wantText(t, out, "  | "+notLoggedIn, "Stopped before mayor was started.")
+	wantText(t, out, "  | "+notLoggedIn, "Stopped before yardmaster was started.")
 	if a.calls() != 1 || !slices.Equal(keysOf(a.f), []string{"try", "tried"}) {
 		t.Fatalf("%d calls, asked %q\n%s", a.calls(), keysOf(a.f), out)
 	}
 }
 
 // Nothing is asked where no call can be made or no start is this run's: a
-// kind with no one-shot form (doctor's "not tried"), a harness that is not
-// on PATH, a mayor that runs or is stopped, and a daemon that runs already,
-// which starts the mayor whatever would be answered.
+// kind with no one-shot form (doctor's "not tried"), a harness that is not on
+// PATH, a yardmaster that runs or is stopped, and a daemon that runs already,
+// which starts the yardmaster whatever would be answered.
 func TestNoQuestionWithoutACallOrAStart(t *testing.T) {
 	start := func(a *asker, harness string) {
 		t.Helper()
@@ -312,19 +313,19 @@ func TestNoQuestionWithoutACallOrAStart(t *testing.T) {
 		stubLookPath(t, "git", "herdr")
 		start(a, "claude")
 	})
-	t.Run("the mayor runs", func(t *testing.T) {
+	t.Run("the yardmaster runs", func(t *testing.T) {
 		a := newAsker(t, &former{answers: map[string]any{"try": true}})
 		setInteractive(t, false)
 		start(a, "claude")
 		setInteractive(t, true)
 		start(a, "claude")
 	})
-	t.Run("the mayor is stopped", func(t *testing.T) {
+	t.Run("the yardmaster is stopped", func(t *testing.T) {
 		a := newAsker(t, &former{answers: map[string]any{"try": true}})
 		if _, err := run(t, (&app{st: a.st}).rootCmd(), "init", "--harness", "claude"); err != nil {
 			t.Fatal(err)
 		}
-		if err := a.st.SetResidentEnabled(context.Background(), "mayor", false, "", "me"); err != nil {
+		if err := a.st.SetResidentEnabled(context.Background(), "yardmaster", false, "", "me"); err != nil {
 			t.Fatal(err)
 		}
 		start(a, "claude")

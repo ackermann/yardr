@@ -16,6 +16,6 @@ review ended. Outcomes:
 - `done`, approved: the note says what you checked, every file you changed,
   the gate result, and any remaining risk. The epic is closed.
 - `changes`: the epic goes back to `open`; the fix is then a new child the
-  mayor files, so make the finding concrete enough to be a bead.
+  yardmaster files, so make the finding concrete enough to be a bead.
 - `question`, it needs a decision only {{operator}} can make: the note has
   the question and the options, and the epic goes to `decide`.

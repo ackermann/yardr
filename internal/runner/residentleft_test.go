@@ -47,34 +47,34 @@ esac
 // agent in it.
 func TestCloseLeft(t *testing.T) {
 	const shell = `{"pane_id":"w3:p1","workspace_id":"w3"}`
-	handle := map[string]any{"agent": "y1-mayor", "workspace": "w3", "tab": "w3:t1", "pane": "w3:p1"}
+	handle := map[string]any{"agent": "y1-yardmaster", "workspace": "w3", "tab": "w3:t1", "pane": "w3:p1"}
 	for name, tc := range map[string]struct {
 		handle                map[string]any
 		label, panes, agents  string
 		wantKept, wantClosed  bool
 		mustNotAsk, wantError string
 	}{
-		"the shell the harness left": {handle: handle, label: "y1 mayor", panes: shell, wantClosed: true},
+		"the shell the harness left": {handle: handle, label: "y1 yardmaster", panes: shell, wantClosed: true},
 		"closed by hand":             {handle: handle, panes: shell, mustNotAsk: "pane list"},
-		"an agent in its pane": {handle: handle, label: "y1 mayor",
+		"an agent in its pane": {handle: handle, label: "y1 yardmaster",
 			panes: `{"pane_id":"w3:p1","workspace_id":"w3","agent":"claude"}`, wantKept: true},
-		"an agent in a pane beside it": {handle: handle, label: "y1 mayor",
+		"an agent in a pane beside it": {handle: handle, label: "y1 yardmaster",
 			panes: shell + `,{"pane_id":"w3:p2","workspace_id":"w3","agent":"codex"}`, wantKept: true},
-		"a named agent herdr detects no harness for": {handle: handle, label: "y1 mayor", panes: shell,
+		"a named agent herdr detects no harness for": {handle: handle, label: "y1 yardmaster", panes: shell,
 			agents: `{"name":"mine","workspace_id":"w3"}`, wantKept: true},
-		"an agent in another workspace": {handle: handle, label: "y1 mayor",
+		"an agent in another workspace": {handle: handle, label: "y1 yardmaster",
 			panes:  shell + `,{"pane_id":"w4:p1","workspace_id":"w4","agent":"claude"}`,
-			agents: `{"name":"y1-mayor","workspace_id":"w4"}`, wantClosed: true},
+			agents: `{"name":"y1-yardmaster","workspace_id":"w4"}`, wantClosed: true},
 		"relabelled since":         {handle: handle, label: "scratch", panes: shell, mustNotAsk: "pane list"},
-		"another yard's label":     {handle: handle, label: "y2 mayor", panes: shell},
-		"the id names other panes": {handle: handle, label: "y1 mayor", panes: `{"pane_id":"w3:p7","workspace_id":"w3"}`},
-		"a handle with no workspace": {handle: map[string]any{"agent": "y1-mayor"}, label: "y1 mayor", panes: shell,
+		"another yard's label":     {handle: handle, label: "y2 yardmaster", panes: shell},
+		"the id names other panes": {handle: handle, label: "y1 yardmaster", panes: `{"pane_id":"w3:p7","workspace_id":"w3"}`},
+		"a handle with no workspace": {handle: map[string]any{"agent": "y1-yardmaster"}, label: "y1 yardmaster", panes: shell,
 			mustNotAsk: "workspace get"},
-		"a handle with no pane": {handle: map[string]any{"workspace": "w3"}, label: "y1 mayor", panes: shell,
+		"a handle with no pane": {handle: map[string]any{"workspace": "w3"}, label: "y1 yardmaster", panes: shell,
 			mustNotAsk: "workspace get"},
 	} {
 		h, calls := leftHerdr(t, tc.label, tc.panes, tc.agents)
-		kept, err := h.CloseLeft(context.Background(), store.Resident{Name: "mayor"}, tc.handle)
+		kept, err := h.CloseLeft(context.Background(), store.Resident{Name: "yardmaster"}, tc.handle)
 		if err != nil || kept != tc.wantKept {
 			t.Errorf("%s: kept %v, %v; want kept %v", name, kept, err, tc.wantKept)
 		}
@@ -89,7 +89,7 @@ func TestCloseLeft(t *testing.T) {
 	}
 	// herdr down: an error, so the handle is kept, and nothing closed.
 	down := &Herdr{Bin: deafHerdrBin(t, `echo '{"error":{"code":"server_not_running","message":"no herdr server"}}' >&2; exit 1`)}
-	if kept, err := down.CloseLeft(context.Background(), store.Resident{Name: "mayor"}, handle); err == nil || kept {
+	if kept, err := down.CloseLeft(context.Background(), store.Resident{Name: "yardmaster"}, handle); err == nil || kept {
 		t.Errorf("herdr down: kept %v, %v; want an error", kept, err)
 	}
 }

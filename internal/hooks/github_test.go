@@ -172,13 +172,13 @@ func TestGitHubNormalize(t *testing.T) {
 		repo   = "acme/yardr"
 		pr     = "acme/yardr#17"
 		prURL  = "https://github.com/acme/yardr/pull/17"
-		prBody = "Lands the epic. @Mayor please review; cc @jane-doe and @acme/core. Mail ops@example.com."
+		prBody = "Lands the epic. @Yardmaster please review; cc @jane-doe and @acme/core. Mail ops@example.com."
 		sha    = "4f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b"
 		iss    = "acme/yardr#23"
 		issURL = "https://github.com/acme/yardr/issues/23"
 	)
 	jane := hooks.Party{ID: "jane-doe", Name: "jane-doe"}
-	mayor := hooks.Party{ID: "mayor", Name: "mayor"}
+	yardmaster := hooks.Party{ID: "yardmaster", Name: "yardmaster"}
 	prThread := hooks.Thread{ID: pr, Title: "PR flow: open, review and land epics", URL: prURL}
 	issThread := hooks.Thread{ID: iss, Title: "Hook listener logs the secret path", URL: issURL}
 	prFields := func(action, state, merged string, extra ...string) map[string][]string {
@@ -192,7 +192,7 @@ func TestGitHubNormalize(t *testing.T) {
 	}
 	prEnv := func(action string, actor hooks.Party, state, merged string) hooks.Envelope {
 		return hooks.Envelope{Source: "github", Type: "pull_request", Action: action,
-			Actor: actor, Thread: prThread, Mentions: []string{"mayor", "jane-doe"}, Assignee: "mayor",
+			Actor: actor, Thread: prThread, Mentions: []string{"yardmaster", "jane-doe"}, Assignee: "yardmaster",
 			Text: prBody, URL: prURL, Entity: pr, Fields: prFields(action, state, merged)}
 	}
 	review := func(state, text string, mentions ...string) hooks.Envelope {
@@ -202,12 +202,12 @@ func TestGitHubNormalize(t *testing.T) {
 		f := prFields("submitted", state, "false")
 		f["event"] = []string{"pull_request_review"}
 		return hooks.Envelope{Source: "github", Type: "pull_request_review", Action: "submitted",
-			Actor: mayor, Thread: prThread, Mentions: mentions, Assignee: "mayor", Text: text,
+			Actor: yardmaster, Thread: prThread, Mentions: mentions, Assignee: "yardmaster", Text: text,
 			URL: prURL + "#pullrequestreview-1", Entity: "pullrequestreview-1", Fields: f}
 	}
 	issue := func(action, state string) hooks.Envelope {
 		return hooks.Envelope{Source: "github", Type: "issues", Action: action, Actor: jane, Thread: issThread,
-			Mentions: []string{"mayor"}, Text: "Seen on startup. @mayor can you look?", URL: issURL, Entity: iss,
+			Mentions: []string{"yardmaster"}, Text: "Seen on startup. @yardmaster can you look?", URL: issURL, Entity: iss,
 			Fields: map[string][]string{"event": {"issues"}, "action": {action}, "repo": {repo}, "number": {"23"},
 				"state": {state}, "label": {"bug"}}}
 	}
@@ -235,20 +235,20 @@ func TestGitHubNormalize(t *testing.T) {
 		{"pull_request_synchronize", "pull_request", prEnv("synchronize", janeCased, "open", "false")},
 		{"pull_request_reopened", "pull_request", prEnv("reopened", janeCased, "open", "false")},
 		{"pull_request_ready_for_review", "pull_request", prEnv("ready_for_review", janeCased, "open", "false")},
-		{"pull_request_closed_merged", "pull_request", prEnv("closed", mayor, "closed", "true")},
+		{"pull_request_closed_merged", "pull_request", prEnv("closed", yardmaster, "closed", "true")},
 		{"pull_request_closed_unmerged", "pull_request", prEnv("closed", janeCased, "closed", "false")},
 		{"pull_request_review_approved", "pull_request_review", review("approved", "Looks good.")},
 		{"pull_request_review_changes_requested", "pull_request_review",
 			review("changes_requested", "@jane-doe the gate is red, see the race.", "jane-doe")},
 		{"pull_request_review_commented", "pull_request_review", review("commented", "")},
 		{"issue_comment_pr", "issue_comment", hooks.Envelope{Source: "github", Type: "issue_comment", Action: "created",
-			Actor: jane, Thread: prThread, Mentions: []string{"yard-11-new", "mayor"},
-			Text: "@yard-11-new rebase please, then @mayor merges.", URL: prURL + "#issuecomment-9", Message: "9", Entity: "issuecomment-9",
+			Actor: jane, Thread: prThread, Mentions: []string{"yard-11-new", "yardmaster"},
+			Text: "@yard-11-new rebase please, then @yardmaster merges.", URL: prURL + "#issuecomment-9", Message: "9", Entity: "issuecomment-9",
 			Fields: map[string][]string{"event": {"issue_comment"}, "action": {"created"}, "repo": {repo},
 				"number": {"17"}, "state": {"open"}}}},
 		{"issue_comment_issue", "issue_comment", hooks.Envelope{Source: "github", Type: "issue_comment", Action: "created",
-			Actor: hooks.Party{ID: "mayor", Name: "Mayor"}, Thread: issThread, Mentions: []string{},
-			Text: "Reproduced. `@mayor` is on it.", URL: issURL + "#issuecomment-10", Message: "10", Entity: "issuecomment-10",
+			Actor: hooks.Party{ID: "yardmaster", Name: "Yardmaster"}, Thread: issThread, Mentions: []string{},
+			Text: "Reproduced. `@yardmaster` is on it.", URL: issURL + "#issuecomment-10", Message: "10", Entity: "issuecomment-10",
 			Fields: map[string][]string{"event": {"issue_comment"}, "action": {"created"}, "repo": {repo},
 				"number": {"23"}, "state": {"open"}, "label": {"bug"}}}},
 		{"issues_opened", "issues", issue("opened", "open")},
@@ -261,7 +261,7 @@ func TestGitHubNormalize(t *testing.T) {
 		{"check_suite_cancelled", "check_suite", suite("check_suite", "GitHub Actions", "cancelled",
 			"GitHub Actions cancelled on yard/yard-sv6b", "https://github.com/acme/yardr/commit/"+sha, "17")},
 		// Other events carry what every delivery has, and no thread.
-		{"push", "push", hooks.Envelope{Source: "github", Type: "push", Actor: mayor, Mentions: []string{},
+		{"push", "push", hooks.Envelope{Source: "github", Type: "push", Actor: yardmaster, Mentions: []string{},
 			Fields: map[string][]string{"event": {"push"}, "repo": {repo}}}},
 		{"ping", "ping", hooks.Envelope{Source: "github", Type: "ping", Actor: jane, Mentions: []string{},
 			Fields: map[string][]string{"event": {"ping"}, "repo": {repo}}}},
@@ -278,11 +278,11 @@ func TestGitHubNormalize(t *testing.T) {
 
 func TestGitHubMentions(t *testing.T) {
 	for body, want := range map[string][]string{
-		"@Mayor, @mayor and (@jane-doe).":                 {"mayor", "jane-doe"},
-		"mail ops@example.com or see a/@b":                {},
-		"@acme/core and @-x and @x- end":                  {"x"},
-		"```\n@mayor in a block\n``` but `@jane` in code": {},
-		"@" + strings.Repeat("a", 40):                     {},
+		"@Yardmaster, @yardmaster and (@jane-doe).":            {"yardmaster", "jane-doe"},
+		"mail ops@example.com or see a/@b":                     {},
+		"@acme/core and @-x and @x- end":                       {"x"},
+		"```\n@yardmaster in a block\n``` but `@jane` in code": {},
+		"@" + strings.Repeat("a", 40):                          {},
 		// An App is mentioned by its slug; its bot's login, written out,
 		// names the same slug (the store matches it to a [bot] identity).
 		"@yardr can you look? cc @Yardr[bot]": {"yardr"},
@@ -306,25 +306,25 @@ func TestGitHubMentionReachesInbox(t *testing.T) {
 	r := newRig(t)
 	r.now = time.Now()
 	ctx := context.Background()
-	if _, err := r.st.PutResident(ctx, store.Resident{Name: "mayor"}, "me"); err != nil {
+	if _, err := r.st.PutResident(ctx, store.Resident{Name: "yardmaster"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.st.SetIdentity(ctx, "mayor", "github", store.Identity{Key: "mayor"}, "me"); err != nil {
+	if err := r.st.SetIdentity(ctx, "yardmaster", "github", store.Identity{Key: "yardmaster"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	for _, sub := range []store.Subscription{
 		{Source: "github", Scope: store.ScopeMentions},
 		{Source: "github", Scope: store.ScopeAll, Where: map[string]string{"epic": "yard-sv6b", "conclusion": "failure"}},
 	} {
-		if err := r.st.AddSubscription(ctx, "mayor", sub, "me"); err != nil {
+		if err := r.st.AddSubscription(ctx, "yardmaster", sub, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for i, d := range []struct{ event, file string }{
-		{"pull_request", "pull_request_opened"},      // mentions @Mayor: mentioned
+		{"pull_request", "pull_request_opened"},      // mentions @Yardmaster: mentioned
 		{"pull_request", "pull_request_synchronize"}, // same description: not again
-		{"issue_comment", "issue_comment_pr"},        // mentions @mayor: mentioned
-		{"issue_comment", "issue_comment_issue"},     // by Mayor itself, in code anyway
+		{"issue_comment", "issue_comment_pr"},        // mentions @yardmaster: mentioned
+		{"issue_comment", "issue_comment_issue"},     // by Yardmaster itself, in code anyway
 		{"workflow_run", "workflow_run_failure"},     // the epic's CI failed: all
 		{"workflow_run", "workflow_run_success"},     // not a failure
 	} {
@@ -332,13 +332,13 @@ func TestGitHubMentionReachesInbox(t *testing.T) {
 			t.Fatalf("%d %s: %d", i, d.file, code)
 		}
 	}
-	page, err := r.st.Inbox(ctx, "mayor", 0)
+	page, err := r.st.Inbox(ctx, "yardmaster", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var got []string
 	for _, e := range page.Events {
-		got = append(got, e.Data["type"].(string)+" "+store.Reason(e, "mayor"))
+		got = append(got, e.Data["type"].(string)+" "+store.Reason(e, "yardmaster"))
 	}
 	want := []string{"pull_request mentioned", "issue_comment mentioned", "workflow_run all"}
 	if !reflect.DeepEqual(got, want) {
@@ -352,7 +352,7 @@ func TestGitHubMentionReachesInbox(t *testing.T) {
 func TestGitHubCommentEditDeliversOnlyNewMentions(t *testing.T) {
 	r := newRig(t)
 	ctx := context.Background()
-	for _, name := range []string{"mayor", "ops"} {
+	for _, name := range []string{"yardmaster", "ops"} {
 		if _, err := r.st.PutResident(ctx, store.Resident{Name: name}, "me"); err != nil {
 			t.Fatal(err)
 		}
@@ -383,19 +383,19 @@ func TestGitHubCommentEditDeliversOnlyNewMentions(t *testing.T) {
 		return page.Total
 	}
 	for i, c := range []struct {
-		body       []byte
-		mayor, ops int
+		body            []byte
+		yardmaster, ops int
 	}{
-		{comment("created", "@mayor merges."), 1, 0},
-		{comment("edited", "@mayor merges, please."), 1, 0},        // edited: still mentions mayor
-		{comment("edited", "@mayor merges; @ops deploys."), 1, 1},  // adds ops
-		{comment("deleted", "@mayor merges; @ops deploys."), 1, 1}, // deleted: no one told
+		{comment("created", "@yardmaster merges."), 1, 0},
+		{comment("edited", "@yardmaster merges, please."), 1, 0},        // edited: still mentions yardmaster
+		{comment("edited", "@yardmaster merges; @ops deploys."), 1, 1},  // adds ops
+		{comment("deleted", "@yardmaster merges; @ops deploys."), 1, 1}, // deleted: no one told
 	} {
 		if code := r.github(t, "issue_comment", c.body, secret, fmt.Sprint("ic-", i)); code != http.StatusOK {
 			t.Fatalf("delivery %d: %d", i, code)
 		}
-		if m, o := inbox("mayor"), inbox("ops"); m != c.mayor || o != c.ops {
-			t.Fatalf("after delivery %d: mayor %d, ops %d; want %d, %d", i, m, o, c.mayor, c.ops)
+		if m, o := inbox("yardmaster"), inbox("ops"); m != c.yardmaster || o != c.ops {
+			t.Fatalf("after delivery %d: yardmaster %d, ops %d; want %d, %d", i, m, o, c.yardmaster, c.ops)
 		}
 	}
 	evs := r.hookEvents(t)

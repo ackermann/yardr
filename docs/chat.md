@@ -6,7 +6,7 @@ resident runs, and you do not have to find the resident's pane to say
 something to it.
 
 ```sh
-yardr chat             # opens on the mayor
+yardr chat             # opens on the yardmaster
 yardr chat refinery    # opens on the resident named
 ```
 
@@ -19,44 +19,44 @@ your notifications, is in no conversation: it has a row of its own,
 
 ## From the onboarding
 
-The onboarding ends here. Once the form has started the yard and the mayor
-is up, "Talk to the mayor" (the answer its last question starts at) opens
-this view on the mayor, in the terminal the form ran in.
+The onboarding ends here. Once the form has started the yard and the yardmaster
+is up, "Talk to the yardmaster" (the answer its last question starts at) opens
+this view on the yardmaster, in the terminal the form ran in.
 `yardr init --start` in a terminal does the same without the question, and
-so does "Talk to the mayor" after a page of [`yardr setup`](setup.md).
+so does "Talk to the yardmaster" after a page of [`yardr setup`](setup.md).
 
-The mayor that `yardr init` adds is asked, in the first prompt of its first
+The yardmaster that `yardr init` adds is asked, in the first prompt of its first
 session, to greet the operator by mail and to say what it needs for the next
 setup step ([configuration.md](configuration.md#starting-the-yard)). So its
 first message is there when the view opens, or arrives while you watch:
 until there is mail between you, the conversation says
 
 ```
-mayor is starting: it reads its role first, and its first message appears here.
+yardmaster is starting: it reads its role first, and its first message appears here.
 You can write to it already.
 ```
 
-What you type goes to the mayor as mail, and it answers by mail: its role
+What you type goes to the yardmaster as mail, and it answers by mail: its role
 says the setup conversation stays by mail when it began there. What the
-mayor does in between is in its pane (`ctrl+g`).
+yardmaster does in between is in its pane (`ctrl+g`).
 
 Leaving the view prints one line and stops nothing:
 
 ```
-You left the chat; mayor keeps running. To come back: yardr chat
+You left the chat; yardmaster keeps running. To come back: yardr chat
 ```
 
 It does not open from the onboarding:
 
 - without a terminal, with `--json`, in an agent's own session, and with
   `--no-chat` (`yardr init --start --no-chat`, `yardr setup --no-chat`):
-  yardr then prints where the mayor's pane is, as it did before there was a
+  yardr then prints where the yardmaster's pane is, as it did before there was a
   chat, and names `yardr chat`;
-- when the mayor did not come up (not logged in, a harness that exits):
+- when the yardmaster did not come up (not logged in, a harness that exits):
   nobody would answer, so the form prints what [`yardr doctor`](doctor.md)
   says of the yard instead, and how the onboarding is taken up again;
 - when who runs the command is no user of the yard, which is the case when
-  the form's "Your name" is another name than your login name: the mayor
+  the form's "Your name" is another name than your login name: the yardmaster
   writes to the operator, so yardr says so and how to open the chat as them
   (`yardr --actor <operator> chat`).
 
@@ -81,20 +81,20 @@ At 80 columns:
 
 ```
 yardr chat · ada
-yard (2)  [mayor blocked]  refinery idle (1)
+yard (2)  [yardmaster blocked]  refinery idle (1)
 ────────────────────────────────────────────────────────────────────────────────
 10-05 13:20  ada
   deploys are frozen until Friday
   · read
 
-10-05 13:20  mayor
+10-05 13:20  yardmaster
   noted. Until when on Friday?
 
 10-05 13:20  ada
   until the release is tagged
-  · mayor waits at a prompt in its pane and cannot read mail (ctrl+g goes there)
+  · yardmaster waits at a prompt in its pane and cannot read mail (ctrl+g goes there)
 
-! mayor waits at a prompt in its pane: claude may wait at a login, a question or
+! yardmaster waits at a prompt in its pane: claude may wait at a login, a question or
   a system dialog
   │    git push origin main
   │  Do you want to proceed?
@@ -103,7 +103,7 @@ yard (2)  [mayor blocked]  refinery idle (1)
   │  Esc to cancel · Enter to confirm
   ctrl+g names the command that opens its pane; answer there and come back
 ────────────────────────────────────────────────────────────────────────────────
-> Write to mayor
+> Write to yardmaster
 >
 >
 
@@ -164,7 +164,7 @@ you type in:
   not been able to deliver, whatever state it is listed with: `<harness> was
   started in the pane but is not ready for its first prompt: it may wait at
   a login, a question or a system dialog`, the sentence `yardr init --start`
-  prints for a mayor in that place. A harness at a login screen is often
+  prints for a yardmaster in that place. A harness at a login screen is often
   listed `idle`: its runtime cannot tell the two apart, the daemon can,
   because the prompt it sent never showed;
 - up to six of the last lines of its pane that say something, behind `│`:
@@ -199,24 +199,24 @@ Selecting it shows the notifications in place of a conversation: oldest at
 the top and the newest last, plain. Each is laid out as a mail is: a line
 with its time and, where a sender's name would stand, the bead's id, then
 the yard's text under it, less the id it would begin with. At 80 columns,
-with one unread mail from the mayor:
+with one unread mail from the yardmaster:
 
 ```
 yardr chat · jo
-[yard]  ada idle  mayor idle (1)
+[yard]  ada idle  yardmaster idle (1)
 ────────────────────────────────────────────────────────────────────────────────
 10-06 01:00  web-f1qx
-  closed (done) by mayor reason=merged 5e6f7a8 on "Cache the avatar lookups"
+  closed (done) by yardmaster reason=merged 5e6f7a8 on "Cache the avatar lookups"
 
 10-06 01:00  web-wh4c
-  closed (done) by mayor reason=merged 1234567 on "Narrow one"
+  closed (done) by yardmaster reason=merged 1234567 on "Narrow one"
 
 10-06 01:02  web-hk7z
-  advanced (all) by mayor from=new to=decide on "Which port for the hook
+  advanced (all) by yardmaster from=new to=decide on "Which port for the hook
   listener"
 
 10-06 01:02  web-3cps
-  closed (done) by mayor reason=merged 1a2b3c4 on "Chat: a row for the yard"
+  closed (done) by yardmaster reason=merged 1a2b3c4 on "Chat: a row for the yard"
 ────────────────────────────────────────────────────────────────────────────────
 
 tab next resident  pgup/pgdn scroll  ^c quit
@@ -309,7 +309,7 @@ a mail is cut at the limit, between two characters. The break itself is not
 sent.
 
 If one of the mails is not taken, those after it are not sent: the line
-above the keys says how many went (`1 of 3 mails went to mayor, the rest is
+above the keys says how many went (`1 of 3 mails went to yardmaster, the rest is
 in the line: …`), and the text from that mail on is in the line again. Sent
 from there it is a text of its own, numbered from 1.
 
