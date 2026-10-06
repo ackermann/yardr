@@ -602,13 +602,14 @@ The same in the other cases:
 
 Then with a shared remote, in two bare isolated yards
 (`contrib/isolated-yard/isolated-yard bare`: a server and a daemon each, no
-agents) on free loopback ports. One bare repository, of which each yard has
-a clone as its rig `web` with the base `main`:
+agents) on free loopback ports, linked by hand with a URL each way. One
+bare repository, of which each yard has a clone as its rig `web` with the
+base `main`:
 
 ```sh
-git init --bare $T/remote.git
-git clone $T/remote.git $A/web          # one commit on main, pushed
-git clone $T/remote.git $B/web
+git init --bare $A/remote.git
+git clone $A/remote.git $A/web          # one commit on main, pushed
+git clone $A/remote.git $B/web
 yardr --home $A/y rig add web $A/web --base main
 yardr --home $B/y rig add web $B/web --base main
 ```
@@ -616,18 +617,19 @@ yardr --home $B/y rig add web $B/web --base main
 On a, the flow and the peer group
 [as before](#beads-the-sending-side), with `--set tries=2`, and an exec
 group for `review` that stands in for a reviewer: it opens the bead's
-worktree on its branch and notes where that is. On b, the flow for beads
-that bring code back, a stand-in builder for `new` (one commit on
-`$YARDR_BRANCH`, made from `$YARDR_BASE`, with a note that ends in a gate
-line), and `return-branch` for `push`:
+worktree on its branch (`git worktree add $YARDR_WORKTREE $YARDR_BRANCH`),
+notes where that is, and holds the bead so that it stays in `review`. On b,
+the flow for beads that bring code back, a stand-in builder for `new` (one
+commit on `$YARDR_BRANCH`, made from `$YARDR_BASE`, and a note that ends in
+a gate line), and `return-branch` for `push`:
 
 ```sh
 yardr --home $B/y flow set incoming -f incoming.flow    # new -> push -> returned
 yardr --home $B/y peer intake a --rig web --flow incoming --auto
 #   peer a: rig web, flow incoming: its beads arrive ready (--auto): the flow's routes start on them unseen; at most 10 open, 0 now
-#   return-branch installed: /tmp/iy.BbkR0i/y/scripts/return-branch (this build's contrib/peer/return-branch)
+#   return-branch installed: /tmp/iy.4Kpdr4/y/scripts/return-branch (this build's contrib/peer/return-branch)
 #   Its beads' code goes back when a stage of flow incoming pushes their branch (docs/peers.md, "Code that comes back"):
-#     yardr group add web/return --runner exec --limit 1 --set cmd='YARDR_PUSH=origin /tmp/iy.BbkR0i/y/scripts/return-branch'
+#     yardr group add web/return --runner exec --limit 1 --set cmd='YARDR_PUSH=origin /tmp/iy.4Kpdr4/y/scripts/return-branch'
 #     yardr route add --stage push --rig web --group web/return
 #   Without such a stage the outcome and the notes go back, and no code.
 yardr --home $B/y group add web/builders --runner exec --limit 1 --set cmd=$B/builder
@@ -636,125 +638,143 @@ yardr --home $B/y group add web/return --runner exec --limit 1 --set cmd="YARDR_
 yardr --home $B/y route add --stage push --rig web --group web/return
 ```
 
-**The whole way.** a's `main` got a second commit, `73569b2`, pushed; b's
-clone was still at the first, `568af5c`, and was not fetched by hand.
+**The whole way.** a's `main` got a second commit, `6edc665`, pushed; b's
+clone was still at the first, `c79f164`, and was not fetched by hand.
 
 ```sh
 yardr --home $A/y bead create "Add the export" --rig web --stage build -b "As a CSV, one row per order."
-#   web-1bq6
+#   web-5fwc
 ```
 
-Two seconds later, a's bead and the worktree its review stage opened:
+A second later a's bead was in `review`, on b's commit:
 
 ```text
-web-1bq6  Add the export
+web-5fwc  Add the export
   type task · stage review · open · P2 · HELD
   rig web
-  was at b: sent 10-06 13:07, returned done 10-06 13:07 (its bead web-s43g)
-  branch yard/web-1bq6 came from b: its yard/web-s43g at 2db68ec122ab, fetched 10-06 13:07 from file:///private/tmp/iy.815S1k/remote. No gate of this yard has run on it
-
+  was at b: sent 10-06 13:18, returned done 10-06 13:18 (its bead web-vm4t)
+  branch yard/web-5fwc came from b: its yard/web-vm4t at 5923c1394cf6, fetched 10-06 13:18 from file:///private/tmp/iy.0Mp4Tg/remote. No gate of this yard has run on it
+  flow sending (store)
 Notes:
-  [2026-10-06 13:07 web/builders@b]
-  exported as RFC 4180, from base 73569b224d797e75a33594df7ef148610a616512; gate: yardr rig check web --light @ 2db68ec: pass
-  [2026-10-06 13:07 web/return@b]
-  return-branch: pushed yard/web-s43g at 2db68ec to origin (/tmp/iy.815S1k/remote.git)
-  [2026-10-06 13:07 yard]
-  The yard b returned its branch yard/web-s43g at 2db68ec122ab, which is yard/web-1bq6 here now. The work on it is that yard's, and so is any gate line in its notes: this yard's gate has not run on it.
-  [2026-10-06 13:07 web/reviewers]
-  review: worktree /tmp/iy.815S1k/y/worktrees/web/web-1bq6 on yard/web-1bq6 is at 2db68ec122ab00f3994aa21857af24a08d920703
+  [2026-10-06 13:18 web/builders@b]
+  built from base 6edc665da94d3acae796e2b5fb1ed548ee316ead; gate: yardr rig check web --light @ 5923c13: pass
 
-$ git -C $B/web rev-parse yard/web-s43g          # b's builder's commit
-2db68ec122ab00f3994aa21857af24a08d920703
-$ git -C $A/y/worktrees/web/web-1bq6 log --oneline
-2db68ec Add the export
-73569b2 b.txt
-568af5c a.txt
+  [2026-10-06 13:18 web/return@b]
+  return-branch: pushed yard/web-vm4t at 5923c13 to origin (/tmp/iy.0Mp4Tg/remote.git)
+
+  [2026-10-06 13:18 yard]
+  The yard b returned its branch yard/web-vm4t at 5923c1394cf6, which is yard/web-5fwc here now. The work on it is that yard's, and so is any gate line in its notes: this yard's gate has not run on it.
+
+  [2026-10-06 13:18 web/reviewers]
+  review: worktree /tmp/iy.0Mp4Tg/y/worktrees/web/web-5fwc on yard/web-5fwc is at 5923c1394cf68736803cf625bd87a389a386a661
+
+$ git -C $B/web rev-parse yard/web-vm4t          # the commit b's builder made
+5923c1394cf68736803cf625bd87a389a386a661
+$ git -C $A/y/worktrees/web/web-5fwc log --oneline
+5923c13 The work of web-vm4t
+6edc665 b.txt
+c79f164 a.txt
+$ git -C $B/web rev-parse main                   # b's own base, where it was
+c79f164d7f192ca078408182c5164c22d2d4bf8e
+$ git -C $A/web for-each-ref --format='%(objectname:short) %(refname)'
+6edc665 refs/heads/main
+5923c13 refs/heads/yard/web-5fwc
+6edc665 refs/remotes/origin/main
 ```
 
-(The bead is held because the stand-in reviewer holds it, to stay in
-`review`.) a's events for the bead, and b's for its own:
+a's events for the bead, and b's for its own:
 
 ```text
-13:07:21  web-1bq6 peer_bead_sent     yard    base=main base_commit=73569b22… group=at-b id=01a110e5-…-18 peer=b remote=file:///private/tmp/iy.815S1k/remote stage=build tries=2
-13:07:22  web-1bq6 peer_bead_returned peer:b  branch=yard/web-s43g commit=2db68ec1… from=web-s43g notes=2 outcome=done peer=b re=01a110e5-…-18 remote=file:///private/tmp/iy.815S1k/remote stage=build way=push
-13:07:23  web-1bq6 peer_bead_fetched  yard    branch=yard/web-s43g commit=2db68ec1… into=yard/web-1bq6 peer=b remote=file:///private/tmp/iy.815S1k/remote
-13:07:23  web-1bq6 advanced           peer:b  from=build group=at-b outcome=done peer=b to=review
-13:07:23  web-1bq6 claimed            yard    group=web/reviewers stage=review
+13:18:04  web-5fwc peer_bead_sent     yard    base=main base_commit=6edc665da94d3acae796e2b5fb1ed548ee316ead group=at-b id=01a110ef-…-18 notes=0 peer=b remote=file:///private/tmp/iy.0Mp4Tg/remote stage=build tries=2
+13:18:05  web-5fwc peer_bead_returned peer:b  branch=yard/web-vm4t commit=5923c1394cf68736803cf625bd87a389a386a661 from=web-vm4t notes=2 outcome=done peer=b re=01a110ef-…-18 remote=file:///private/tmp/iy.0Mp4Tg/remote stage=build way=push
+13:18:05  web-5fwc peer_bead_fetched  yard    branch=yard/web-vm4t commit=5923c1394cf68736803cf625bd87a389a386a661 into=yard/web-5fwc peer=b remote=file:///private/tmp/iy.0Mp4Tg/remote
+13:18:05  web-5fwc advanced           peer:b  from=build group=at-b outcome=done peer=b to=review
+13:18:05  web-5fwc claimed            yard    group=web/reviewers stage=review
 
-13:07:21  web-s43g peer_bead_arrived  peer:a       base=main base_commit=73569b22… flow=incoming from=web-1bq6 held=false peer=a rig=web stage=build way=push
-13:07:22  web-s43g advanced           web/builders from=new outcome=done to=push
-13:07:22  web-s43g updated            web/return   metadata={result.branch=yard/web-s43g result.commit=2db68ec1… result.remote=/tmp/iy.815S1k/remote.git}
-13:07:22  web-s43g advanced           web/return   from=push outcome=done to=returned
-13:07:22  web-s43g peer_bead_returned web/return   branch=yard/web-s43g commit=2db68ec1… outcome=done peer=a remote=file:///private/tmp/iy.815S1k/remote to=web-1bq6
+13:18:04  web-vm4t peer_bead_arrived  peer:a       base=main base_commit=6edc665da94d3acae796e2b5fb1ed548ee316ead flow=incoming from=web-5fwc held=false peer=a rig=web stage=build way=push
+13:18:04  web-vm4t advanced           web/builders from=new group=web/builders outcome=done to=push
+13:18:05  web-vm4t updated            web/return   metadata={result.branch=yard/web-vm4t result.commit=5923c1394cf68736803cf625bd87a389a386a661 result.remote=/tmp/iy.0Mp4Tg/remote.git}
+13:18:05  web-vm4t advanced           web/return   from=push group=web/return outcome=done to=returned
+13:18:05  web-vm4t peer_bead_returned web/return   branch=yard/web-vm4t commit=5923c1394cf68736803cf625bd87a389a386a661 notes=2 outcome=done peer=a remote=file:///private/tmp/iy.0Mp4Tg/remote to=web-5fwc
 ```
-
-b's `main` was still `568af5c` afterwards: its builder started from a's
-commit, which b fetched when the bead arrived.
 
 The other cases:
 
 - **b with a different remote** (`git -C $B/web remote set-url origin
-  $B/other.git`): a's next bead went to `decide` at once, `was at b: sent
-  10-06 13:07, refused 10-06 13:07: it cannot start the work where this
-  yard's bead starts: its rig has another remote than this yard's, or the
-  bead's base commit is not on the remote (push the base, then send the
-  bead again)`, with a note that says the same. b made no bead and logged:
+  $B/other.git`): a's next bead went to `decide` at once, with a note that
+  says the same as its line, and b made no bead:
 
   ```text
-  peer_message_refused peer:a  bead=web-5mq3 detail=the remote origin of rig web is file:///private/tmp/iy.BbkR0i/other here, and the bead starts from file:///private/tmp/iy.815S1k/remote direction=in kind=bead peer=a reason=base_unknown stage=build way=push
+    type task · stage decide · open · P2
+    was at b: sent 10-06 13:18, refused 10-06 13:18: it cannot start the work where this yard's bead starts: its rig has another remote than this yard's, or the bead's base commit is not on the remote (push the base, then send the bead again)
+
+  b:  peer_message_refused peer:a  bead=web-n3g7 detail=the remote origin of rig web is file:///private/tmp/iy.4Kpdr4/other here, and the bead starts from file:///private/tmp/iy.0Mp4Tg/remote direction=in id=01a110ef-…-32 kind=bead peer=a reason=base_unknown stage=build way=push
   ```
 
-- **The remote taken away before a's fetch.** a's daemon was stopped once
-  the bead was sent, b built, pushed and returned (a's server took the
-  return), the remote was moved aside (`mv $T/remote.git
-  $T/remote.git.away`), and a's daemon was started at 13:08:41. Six seconds
-  on the bead was in `build`, not held, with the line shown
-  [above](#code-that-comes-back) (`1 try so far, the next at 13:09:12`). At
-  13:09:12, after the second try:
+- **The remote taken away before a's fetch.** So that a's fetch came when
+  the trial said: b's daemon was stopped, the bead created (a posted it, b's
+  server took it), a's daemon stopped, b's started (b built, pushed and
+  returned, and a's server took the return). Then the remote was moved
+  aside (`mv $A/remote.git $A/remote.git.away`) and a's daemon started, at
+  13:18:39. At 13:18:45:
+
+  ```text
+    type task · stage build · open · P2
+    was at b: sent 10-06 13:18, returned done 10-06 13:18 (its bead web-jfnk)
+    the branch b returned (yard/web-jfnk at f5d376a28fef) is not fetched yet, and its outcome done waits for it: 1 try so far, the next at 13:19:09 (fetching yard/web-jfnk from origin: git fetch: exit status 128: fatal: '/tmp/iy.0Mp4Tg/remote.git' does not appear to be a git repository; fatal: Could not read from remote repository.)
+  ```
+
+  and at 13:19:17, after the second try:
 
   ```text
     type task · stage build · open · P2 · HELD
-    was at b: sent 10-06 13:08, returned done 10-06 13:08 (its bead web-aqhq)
-    the branch b returned (yard/web-aqhq at 327aff08fa0f) is not fetched yet, and its outcome done waits for it: given up after 2 tries (fetching yard/web-aqhq from origin: git fetch: exit status 128: fatal: '/tmp/iy.815S1k/remote.git' does not appear to be a git repository; fatal: Could not read from remote repository.); yardr bead unhold web-xh3m tries again
+    was at b: sent 10-06 13:18, returned done 10-06 13:18 (its bead web-jfnk)
+    the branch b returned (yard/web-jfnk at f5d376a28fef) is not fetched yet, and its outcome done waits for it: given up after 2 tries (fetching yard/web-jfnk from origin: git fetch: exit status 128: fatal: '/tmp/iy.0Mp4Tg/remote.git' does not appear to be a git repository; fatal: Could not read from remote repository.); yardr bead unhold web-qvne tries again
+    [2026-10-06 13:19 yard]
+    The yard b returned this bead as done with its branch yard/web-jfnk at f5d376a28fef, and this yard could not take the branch (2 tries): fetching yard/web-jfnk from origin: git fetch: exit status 128: fatal: '/tmp/iy.0Mp4Tg/remote.git' does not appear to be a git repository; fatal: Could not read from remote repository. The outcome is not applied before the branch is here, so the bead is held. yardr bead unhold web-qvne tries again; yardr bead advance web-qvne --to <stage> moves it on without the code.
 
   ID                    BEAD      EPIC  STAGE  GROUP  STATE    RUNNER  STARTED      GATE
-  d2g6r5qar1w7pbx8maps  web-xh3m        build  at-b   running  peer    10-06 13:08  -
+  z9y1q66t86dydg4hy7jm  web-qvne        build  at-b   running  peer    10-06 13:18  -
   ```
 
-  with a note by `yard` that ends `The outcome is not applied before the
-  branch is here, so the bead is held. yardr bead unhold web-xh3m tries
-  again; yardr bead advance web-xh3m --to <stage> moves it on without the
-  code.` The remote was moved back; two passes later the bead was still
-  held, in `build`, and a had no `yard/web-xh3m`. Then `yardr --home $A/y
-  bead unhold web-xh3m`, and a's events for the bead:
+  The remote was moved back. Two passes later the bead was still held, in
+  `build`, and a had no `yard/web-qvne`. Then `yardr --home $A/y bead unhold
+  web-qvne`:
 
   ```text
-  13:09:12  web-xh3m peer_bead_not_fetched yard    attempts=2 branch=yard/web-aqhq commit=327aff08… held=true peer=b reason=fetching yard/web-aqhq from origin: …
-  13:09:12  web-xh3m held                  yard    peer=b reason=the branch b returned was not taken
-  13:09:40  web-xh3m unheld                jo
-  13:09:40  web-xh3m peer_bead_fetched     yard    branch=yard/web-aqhq commit=327aff08… into=yard/web-xh3m peer=b
-  13:09:40  web-xh3m advanced              peer:b  from=build group=at-b outcome=done peer=b to=review
+    type task · stage review · open · P2 · HELD
+    was at b: sent 10-06 13:18, returned done 10-06 13:18 (its bead web-jfnk)
+    branch yard/web-qvne came from b: its yard/web-jfnk at f5d376a28fef, fetched 10-06 13:19 from file:///private/tmp/iy.0Mp4Tg/remote. No gate of this yard has run on it
+
+  13:19:14  web-qvne peer_bead_not_fetched yard    attempts=2 branch=yard/web-jfnk commit=f5d376a28fef4e1ebeb10f8e7365fe96f32cde9f held=true peer=b reason=fetching yard/web-jfnk from origin: git fetch: exit status 128: …
+  13:19:14  web-qvne held                  yard    peer=b reason=the branch b returned was not taken
+  13:19:29  web-qvne unheld                jo
+  13:19:29  web-qvne peer_bead_fetched     yard    branch=yard/web-jfnk commit=f5d376a28fef4e1ebeb10f8e7365fe96f32cde9f into=yard/web-qvne peer=b remote=file:///private/tmp/iy.0Mp4Tg/remote
+  13:19:29  web-qvne advanced              peer:b  from=build group=at-b outcome=done peer=b to=review
   ```
 
-  The review's worktree was at `327aff08fa0f0f14679b46672635bd9a710bce6d`,
-  b's commit, and b had one bead for it throughout: nothing was sent again.
+  The review's worktree was at `f5d376a28fef4e1ebeb10f8e7365fe96f32cde9f`,
+  which is b's `yard/web-jfnk`, and b had one bead for it throughout:
+  nothing was sent again. (The last hold is the stand-in reviewer's.)
 
 - **A commit that is not the one the return names.** As the case before,
   but in place of moving the remote, one more commit was pushed onto
-  `yard/web-rpw0` after b's return had named `81790bb`. a's daemon, started,
-  held the bead on its first look:
+  `yard/web-qwz8` after b's return had named `11b9d74`, so that the remote
+  had it at `b73d177`. a's daemon, started, held the bead on its first
+  look:
 
   ```text
     type task · stage build · open · P2 · HELD
-    the branch b returned (yard/web-rpw0 at 81790bbcc09d) is not fetched yet, and its outcome done waits for it: given up after 1 try (yard/web-rpw0 is at 49b13aafcf50 on origin, and the return names 81790bbcc09d: not taken); yardr bead unhold web-69yt tries again
+    was at b: sent 10-06 13:19, returned done 10-06 13:19 (its bead web-qwz8)
+    the branch b returned (yard/web-qwz8 at 11b9d74d67fc) is not fetched yet, and its outcome done waits for it: given up after 1 try (yard/web-qwz8 is at b73d17717d88 on origin, and the return names 11b9d74d67fc: not taken); yardr bead unhold web-8wk5 tries again
+
+  13:19:55  web-8wk5 peer_bead_not_fetched yard    attempts=1 branch=yard/web-qwz8 commit=11b9d74d67fc0719195ecf89aed0107cde008661 held=true peer=b reason=yard/web-qwz8 is at b73d17717d88 on origin, and the return names 11b9d74d67fc: not taken remote=file:///private/tmp/iy.0Mp4Tg/remote
+  13:19:55  web-8wk5 held                  yard    peer=b reason=the branch b returned was not taken
   ```
 
-  a's rig had no `yard/web-69yt` and no ref of the fetch
-  (`git for-each-ref`).
-
-The trial ran on the build before two changes of wording, which the lines
-above have as they are now: a try count of one reads `1 try`, and git's
-words are its `fatal:` lines on one line. The tests cover both.
+  a's rig had no `yard/web-8wk5` and no ref of the fetch: `git
+  for-each-ref` listed `main`, the two branches taken before and
+  `origin/main`.
 
 herdr's part was checked apart, in an isolated yard with a herdr of its own
 and the stand-in agent: a bead whose branch `yard/web-4mzk` was already
@@ -1476,10 +1496,10 @@ Either failing refuses the bead as `base_unknown`
 `yard/<bead>` is made from that commit, and `yardr bead show` says so:
 
 ```text
-  from web-1bq6@a, for its stage build
-  its work starts from main at 73569b224d79 (file:///private/tmp/iy.815S1k/remote), as a said
+  from web-5fwc@a, for its stage build
+  its work starts from main at 6edc665da94d (file:///private/tmp/iy.0Mp4Tg/remote), as a said
   …
-  base 73569b224d797e75a33594df7ef148610a616512
+  base 6edc665da94d3acae796e2b5fb1ed548ee316ead
 ```
 
 A dir rig as the intake's rig takes the bead with its words only, whatever
@@ -1558,8 +1578,8 @@ tries. `yardr bead advance <id> --to <stage>` moves it on without the code;
 the return is then logged as `stale`. `bead show` while it waits:
 
 ```text
-  was at b: sent 10-06 13:08, returned done 10-06 13:08 (its bead web-aqhq)
-  the branch b returned (yard/web-aqhq at 327aff08fa0f) is not fetched yet, and its outcome done waits for it: 1 try so far, the next at 13:09:12 (fetching yard/web-aqhq from origin: git fetch: exit status 128: fatal: '/tmp/iy.815S1k/remote.git' does not appear to be a git repository; fatal: Could not read from remote repository.)
+  was at b: sent 10-06 13:18, returned done 10-06 13:18 (its bead web-jfnk)
+  the branch b returned (yard/web-jfnk at f5d376a28fef) is not fetched yet, and its outcome done waits for it: 1 try so far, the next at 13:19:09 (fetching yard/web-jfnk from origin: git fetch: exit status 128: fatal: '/tmp/iy.0Mp4Tg/remote.git' does not appear to be a git repository; fatal: Could not read from remote repository.)
 ```
 
 **Code that is not this yard's to take** is no error. The outcome is
@@ -1577,8 +1597,8 @@ words that is all there is to take.
 by agents this yard did not start, under a gate this yard did not run:
 
 ```text
-  was at b: sent 10-06 13:07, returned done 10-06 13:07 (its bead web-s43g)
-  branch yard/web-1bq6 came from b: its yard/web-s43g at 2db68ec122ab, fetched 10-06 13:07 from file:///private/tmp/iy.815S1k/remote. No gate of this yard has run on it
+  was at b: sent 10-06 13:18, returned done 10-06 13:18 (its bead web-vm4t)
+  branch yard/web-5fwc came from b: its yard/web-vm4t at 5923c1394cf6, fetched 10-06 13:18 from file:///private/tmp/iy.0Mp4Tg/remote. No gate of this yard has run on it
 ```
 
 - The notes written there arrive under `<author>@<peer>`, as always, and a
