@@ -313,6 +313,12 @@ yardr --home $T/b peer pair http://127.0.0.1:62131 K7QM-2XPD --name a
 
 yardr --home $T/a peer ping b          # ... the ping went by pull, the pong came by push
 yardr --home $T/b peer ping a          # ... the ping went by push, the pong came by pull
+
+# each has heard what the other's yardr understands, on both sides
+yardr --home $T/a peer show b
+#   understands: bead, mail, ping (yardr 1814ddd2c9fa, said 2026-10-06 11:27)
+yardr --home $T/b peer show a
+#   understands: bead, mail, ping (yardr 1814ddd2c9fa, said 2026-10-06 11:27)
 ```
 
 Pairing saves b on a without a URL, as the yard that called, so a's
@@ -335,10 +341,15 @@ B=$(yardr --home $T/b peer invite --url http://127.0.0.1:62132)
 yardr --home $T/a peer add b $B
 yardr --home $T/b peer add a $A
 yardr --home $T/a peer allow b --send ping --receive ping
+#   warning: b has not said what its yardr understands (an older yardr, or nothing has come from it yet): a ping sent to it may be refused there
 yardr --home $T/b peer allow a --send ping --receive ping
 yardr --home $T/a peer ping b          # ... the ping went by push, the pong came by push
 yardr --home $T/b peer ping a
 ```
+
+The warning is what `peer allow --send` says of a link nothing has crossed
+yet: b has not added a, so it has told a nothing. It stops nothing
+([two yards on different builds](#two-yards-on-different-builds)).
 
 Mail between the two mayors, which `yardr init` made and the daemons
 start as agents. `resident set` adds the peer to each mayor's definition
@@ -634,6 +645,14 @@ and what the answer to its own question said when the store has checked that
 the answer is the peer's. The kinds and the build are the peer's text: kinds
 are held to a kind's plain characters and the build to a version's, and
 anything else is left out.
+
+This was tried with a third yard, c, on the yardr from just before this
+(`9503a5df2261`), linked by hand with b, each with the other's URL. Ping
+crossed both ways and mail both ways (each to a resident the other does not
+have, so each came back `refused by the peer: it has no such resident`). On
+b, `peer show c` said `has not said what it understands (an older yardr, or
+nothing has come from it yet)` after the pings, and `peer allow c --send
+bead` warned and allowed it; c's `peer show b` has no such line.
 
 ## Mail between residents
 
