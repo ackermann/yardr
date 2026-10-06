@@ -50,6 +50,37 @@ func (s *Store) LiveIndex() (ids []string) {
 	return ids
 }
 
+// BeadReads is how many beads the listings have decoded.
+func (s *Store) BeadReads() int64 { return s.beadReads.Load() }
+
+// DropOpenIndex removes the index of open beads, as a store from before it
+// lacks it.
+func (s *Store) DropOpenIndex() error {
+	return s.db.Update(func(tx *bolt.Tx) error { return tx.DeleteBucket(bBeadOpen) })
+}
+
+// OpenIndex lists the UUIDs in the index of open beads, and OpenWalk those
+// of the beads a walk of every bead finds open.
+func (s *Store) OpenIndex() (ids []string) {
+	_ = s.db.View(func(tx *bolt.Tx) error {
+		ids = keys(tx, bBeadOpen, "")
+		return nil
+	})
+	return ids
+}
+
+func (s *Store) OpenWalk() (ids []string) {
+	_ = s.db.View(func(tx *bolt.Tx) error {
+		return each(tx, bBeads, "", func(k []byte, r *beadRow) error {
+			if r.Status == "open" {
+				ids = append(ids, string(k))
+			}
+			return nil
+		})
+	})
+	return ids
+}
+
 // BulkEvents logs n events of kind in a few large transactions, for tests
 // that need a long log quickly.
 func (s *Store) BulkEvents(n int, kind string, data map[string]any) error {

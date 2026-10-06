@@ -66,6 +66,7 @@ var (
 
 var (
 	bBeads    = []byte("beads")
+	bBeadOpen = []byte("beads_open") // <uuid>: the beads that are open
 	bDeps     = []byte("deps")
 	bDepFrom  = []byte("dep_from") // <from>\x00<dep id>
 	bDepTo    = []byte("dep_to")   // <to>\x00<dep id>
@@ -88,7 +89,7 @@ var (
 // package comment) and deleted on open.
 var bVersions = []byte("versions")
 
-var allBuckets = [][]byte{bBeads, bHandles, bDeps, bDepFrom, bDepTo, bNotes, bEvents, bEventsBy, bInbox, bEventsKd,
+var allBuckets = [][]byte{bBeads, bBeadOpen, bHandles, bDeps, bDepFrom, bDepTo, bNotes, bEvents, bEventsBy, bInbox, bEventsKd,
 	bSessions, bSessLive, bGroups, bRoutes, bDepots, bFlows, bFlowPtrs, bMeta}
 
 type Store struct {
@@ -104,6 +105,9 @@ type Store struct {
 	// sessionReads counts the sessions read through the live index, so a
 	// test can tell Claim never looked at an ended one.
 	sessionReads atomic.Int64
+	// beadReads counts the beads a listing decoded, so a test can tell one
+	// of open beads never looked at a closed one.
+	beadReads atomic.Int64
 	// pair is the pairing this yard has open with another (pairing.go):
 	// in memory only, so a code is never in the file.
 	pair pairings
@@ -182,6 +186,9 @@ func Open(path string) (*Store, error) {
 			return err
 		}
 		if err := indexSessions(tx); err != nil {
+			return err
+		}
+		if err := indexOpenBeads(tx); err != nil {
 			return err
 		}
 		for _, b := range allBuckets {

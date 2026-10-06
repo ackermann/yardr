@@ -187,6 +187,11 @@ func upgrade(db *bolt.DB, path string) error {
 		if err := migrateToUUIDs(tx); err != nil {
 			return err
 		}
+		// The loop above made the open index, empty, so Open finds one and
+		// builds none: it is filled here, by the keys the beads have now.
+		if err := fillOpenBeads(tx); err != nil {
+			return err
+		}
 		return setSchema(tx)
 	})
 }

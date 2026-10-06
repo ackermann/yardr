@@ -171,6 +171,13 @@ func TestMigrateCounterIDs(t *testing.T) {
 	if err != nil || !slices.Equal(ids(all), []string{"yard-1", "yard-2", "yard-10"}) {
 		t.Fatalf("beads in creation order = %v %v", ids(all), err)
 	}
+	// The open index is filled by the keys the migration gave the beads.
+	if index, walk := s.OpenIndex(), s.OpenWalk(); len(index) == 0 || !slices.Equal(index, walk) {
+		t.Fatalf("open index after the migration = %v, a walk finds %v", index, walk)
+	}
+	if open, err := s.ListBeads(ctx, store.BeadFilter{}); err != nil || !slices.Equal(ids(open), ids(all)) {
+		t.Fatalf("open beads = %v %v, want %v", ids(open), err, ids(all))
+	}
 
 	deps, err := s.Deps(ctx, "yard-2")
 	if err != nil || len(deps) != 1 || deps[0].From != "yard-1" || deps[0].To != "yard-2" || deps[0].Kind != "blocks" {

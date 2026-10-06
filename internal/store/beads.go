@@ -148,12 +148,52 @@ func (w *wtx) saveBead(old, row *beadRow, actor string) (bool, error) {
 	return true, w.mintBead(row, actor)
 }
 
+// mintBead writes row under a fresh revision and keeps it in, or out of,
+// the open index. Every write of a bead by a running store goes through
+// here, so the index is exact; what writes the beads bucket without it (the
+// migrations on open) changes no bead's status or key, but for the move to
+// UUIDs, which fills the index itself.
 func (w *wtx) mintBead(row *beadRow, actor string) error {
 	row.Revision = newRevision()
 	row.UpdatedAt = now()
 	row.LastActor = actor
 	row.Train, row.Peer = "", nil // derived on reading, never stored
-	return put(w.Tx, bBeads, row.UUID, row)
+	if err := put(w.Tx, bBeads, row.UUID, row); err != nil {
+		return err
+	}
+	// Most mints leave the status as it was: the index is written only
+	// when it changes, so they dirty no page of it.
+	idx, key := w.Bucket(bBeadOpen), []byte(row.UUID)
+	switch in := idx.Get(key) != nil; {
+	case row.open() && !in:
+		return idx.Put(key, []byte{})
+	case !row.open() && in:
+		return idx.Delete(key)
+	}
+	return nil
+}
+
+func (b Bead) open() bool { return b.Status == "open" }
+
+// indexOpenBeads builds the open index, once, for a store from before it.
+func indexOpenBeads(tx *bolt.Tx) error {
+	if tx.Bucket(bBeadOpen) != nil || tx.Bucket(bBeads) == nil {
+		return nil
+	}
+	if _, err := tx.CreateBucket(bBeadOpen); err != nil {
+		return err
+	}
+	return fillOpenBeads(tx)
+}
+
+// fillOpenBeads puts every open bead in the open index.
+func fillOpenBeads(tx *bolt.Tx) error {
+	return each(tx, bBeads, "", func(k []byte, r *beadRow) error {
+		if !r.open() {
+			return nil
+		}
+		return tx.Bucket(bBeadOpen).Put(k, []byte{})
+	})
 }
 
 // mintTouched re-mints a bead whose representation changed through another
@@ -369,8 +409,8 @@ func (s *Store) ListBeads(ctx context.Context, f BeadFilter) ([]Bead, error) {
 		}
 	}
 	f.Type = BeadType(f.Type)
-	bs, err := s.beadsWhere(func(tx *bolt.Tx, b *Bead) bool {
-		return (f.All || b.Status == "open") &&
+	bs, err := s.beadsWhere(!f.All, func(tx *bolt.Tx, b *Bead) bool {
+		return (f.All || b.open()) &&
 			(train == "" || b.ID == train || b.Train == train) &&
 			(found == nil || found[b.UUID]) &&
 			(f.Stage == "" || b.Stage == f.Stage) &&
@@ -394,12 +434,12 @@ func (s *Store) ListBeads(ctx context.Context, f BeadFilter) ([]Bead, error) {
 
 // Ready lists open, unheld beads whose blockers are all closed, assigned or not.
 func (s *Store) Ready(ctx context.Context) ([]Bead, error) {
-	return s.beadsWhere(ready)
+	return s.beadsWhere(true, ready)
 }
 
 // Dispatchable lists ready beads that no group owns yet.
 func (s *Store) Dispatchable(ctx context.Context) ([]Bead, error) {
-	return s.beadsWhere(func(tx *bolt.Tx, b *Bead) bool { return b.Group == nil && ready(tx, b) })
+	return s.beadsWhere(true, func(tx *bolt.Tx, b *Bead) bool { return b.Group == nil && ready(tx, b) })
 }
 
 // NotWork lists bead types that carry knowledge, not work: they are never
@@ -412,7 +452,7 @@ const (
 )
 
 func ready(tx *bolt.Tx, b *Bead) bool {
-	return !NotWork[b.Type] && b.Status == "open" && !b.Hold && len(openBlockers(tx, b.UUID)) == 0
+	return !NotWork[b.Type] && b.open() && !b.Hold && len(openBlockers(tx, b.UUID)) == 0
 }
 
 // openBlockers lists the UUIDs of beads that block the bead with UUID u
@@ -433,12 +473,18 @@ func openBlockers(tx *bolt.Tx, u string) []string {
 }
 
 // beadsWhere returns matching beads by priority, then creation time: the
-// order of the beads bucket, whose UUIDv7 keys start with it. match sees
-// each bead with its Train set.
-func (s *Store) beadsWhere(match func(*bolt.Tx, *Bead) bool) ([]Bead, error) {
+// order of the beads bucket, whose UUIDv7 keys start with it, and of the
+// open index, which has the same keys. match sees each bead with its Train
+// set. With open, match keeps no closed bead, and only the open ones are
+// read, through the index: the store keeps every bead, and most are closed,
+// so a listing of open beads should not scale with them.
+func (s *Store) beadsWhere(open bool, match func(*bolt.Tx, *Bead) bool) ([]Bead, error) {
 	out := []Bead{}
 	err := s.read(func(tx *bolt.Tx) error {
-		return each(tx, bBeads, "", func(_ []byte, r *beadRow) error {
+		n := 0
+		defer func() { s.beadReads.Add(int64(n)) }()
+		see := func(_ []byte, r *beadRow) error {
+			n++
 			r.Train = trainOf(tx, r.UUID)
 			if err := withPeer(tx, &r.Bead); err != nil {
 				return err
@@ -447,7 +493,22 @@ func (s *Store) beadsWhere(match func(*bolt.Tx, *Bead) bool) ([]Bead, error) {
 				out = append(out, r.Bead)
 			}
 			return nil
-		})
+		}
+		if !open {
+			return each(tx, bBeads, "", see)
+		}
+		for _, u := range keys(tx, bBeadOpen, "") {
+			r := new(beadRow)
+			if ok, err := get(tx, bBeads, u, r); err != nil {
+				return err
+			} else if !ok {
+				continue
+			}
+			if err := see(nil, r); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Priority < out[j].Priority })
 	return out, err
