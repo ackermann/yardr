@@ -1,3 +1,5 @@
+summary: The finished bead is reviewed in the rig's directory; what the reviewer can fix is fixed in place.
+
 The finished bead is reviewed here, in the rig's directory: the outputs the
 builder's note names, against the bead (its goal, its "done when"). There is
 no branch and no diff against a base. The review is forward: what the

@@ -5,6 +5,9 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"unicode/utf8"
+
+	"yardr.dev/yardr/internal/store"
 )
 
 // Every yard installs these, so they must not carry one yard's person, rig,
@@ -124,5 +127,46 @@ func TestTemplatesAreGeneric(t *testing.T) {
 				t.Errorf("%s lacks %q", name, want)
 			}
 		}
+	}
+}
+
+// A starter stage file's one line on the map of the flow (yardr prime
+// --bead, the brief) is its `summary:` line, else its first sentence, and
+// the map cuts it at store.SummaryMax characters. Every yard rig init seeds
+// shows these lines, so none may be cut, with the longest name an operator
+// may have filled in.
+func TestStarterStageFilesFitTheFlowMap(t *testing.T) {
+	operator := strings.Repeat("o", 32)
+	var n int
+	if err := fs.WalkDir(Stages, "stages", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		n++
+		body, err := Stages.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		text := strings.ReplaceAll(string(body), "{{operator}}", operator)
+		sf := &store.StageFile{Path: p, Text: text}
+		line := sf.Summary()
+		switch {
+		case line == "":
+			t.Errorf("%s has no line for the map", p)
+		case strings.HasSuffix(line, "…"):
+			t.Errorf("%s: its line on the map is cut, so it needs a `summary:` first line of at most %d characters: %s", p, store.SummaryMax, line)
+		case utf8.RuneCountInString(line) > store.SummaryMax:
+			t.Errorf("%s: its line on the map has %d characters, over %d: %s", p, utf8.RuneCountInString(line), store.SummaryMax, line)
+		case strings.Contains(line, "{{"):
+			t.Errorf("%s: its line on the map keeps a placeholder: %s", p, line)
+		}
+		// The line is for the map alone: what the stage's worker reads
+		// starts with the text, not with a blank or the line again.
+		if b := sf.Body(); strings.TrimSpace(b) == "" || b != strings.TrimLeft(b, "\r\n") || strings.HasPrefix(b, "summary:") {
+			t.Errorf("%s: without its summary line the file is empty or does not start with its text:\n%s", p, b)
+		}
+		return nil
+	}); err != nil || n == 0 {
+		t.Fatalf("%d embedded stage files, %v", n, err)
 	}
 }

@@ -1,3 +1,5 @@
+summary: An epic is shaped here: its goal, its "done when" and its children.
+
 An epic is shaped here: its goal and "done when" are written and its children
 added (`yardr dep add <epic> <child> -k parent`, which also makes each child
 block the epic). No agent works this stage.

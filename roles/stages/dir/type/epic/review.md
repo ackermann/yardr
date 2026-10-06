@@ -1,3 +1,5 @@
+summary: The whole of an epic is reviewed here: the sum of what its children produced in the rig's directory.
+
 The whole of an epic is reviewed here: what its children produced in the
 rig's directory, as a whole. Each child was reviewed when it was done; the
 job here is the sum.

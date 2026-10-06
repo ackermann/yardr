@@ -1,3 +1,5 @@
+summary: A builder does the bead's work here, in the rig's directory itself, which other beads may share.
+
 A builder does the bead's work here, in the rig's directory itself: a
 directory rig has no branches and no commits, and other beads may be at work
 in the same directory.
