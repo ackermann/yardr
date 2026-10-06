@@ -510,3 +510,120 @@ func TestMailRefusedWithAReason(t *testing.T) {
 		t.Fatalf("a question with refusals that are none: %d", resp.StatusCode)
 	}
 }
+
+// between is the yard's store with something done to it after a request's
+// peer is found by its key and before the request is taken: the two are
+// separate transactions, and the operator may act in between.
+type between struct {
+	*store.Store
+	do func()
+}
+
+func (s *between) PeerByKey(ctx context.Context, key string) (*store.Peer, error) {
+	p, err := s.Store.PeerByKey(ctx, key)
+	if do := s.do; do != nil {
+		s.do = nil
+		do()
+	}
+	return p, err
+}
+
+// A peer renamed, and its name given to another yard, while its request is
+// under way: the request is answered as one of no peer, unsigned, and
+// nothing is taken or ended under the name, which is the other yard's. The
+// sender keeps its message and its next try is taken under the new name.
+func TestReceiverPeerRenamedAndNameGivenAway(t *testing.T) {
+	ctx := context.Background()
+	// b's peer a becomes b2 and c becomes a, once, inside the next request.
+	yards3 := func(t *testing.T) (a, b, c *yard, toB store.Peer, st *between) {
+		t.Helper()
+		a, b, c = newYard(t), newYard(t), newYard(t)
+		toB = a.add(t, "b", b, true, ping, ping)
+		b.add(t, "a", a, false, ping, ping)
+		st = &between{Store: b.own}
+		b.srv.Close()
+		b.rc = yards.NewReceiver(st, b.keyFile, nil)
+		b.rc.SetClock(func() time.Time { return b.now })
+		b.srv = httptest.NewServer(b.rc.Handler())
+		t.Cleanup(b.srv.Close)
+		toB.URL = b.srv.URL
+		st.do = func() {
+			if _, err := b.api.RenamePeer(ctx, "a", "b2", "jo"); err != nil {
+				t.Error(err)
+			}
+			b.add(t, "a", c, false, ping, ping)
+		}
+		return a, b, c, toB, st
+	}
+	unknown := func(t *testing.T, b *yard, err error) {
+		t.Helper()
+		if err == nil || errors.Is(err, yards.ErrRefused) || !strings.Contains(err.Error(), "answered 401, not signed with its key") {
+			t.Fatalf("the request under way = %v", err)
+		}
+		if got := b.rc.Rejected(); got["unknown_peer"] != 1 || len(got) != 1 {
+			t.Fatalf("rejected = %v", got)
+		}
+	}
+
+	t.Run("post", func(t *testing.T) {
+		a, b, c, toB, _ := yards3(t)
+		m := store.PeerMessage{ID: "m1", Kind: "ping", Body: json.RawMessage(`{}`)}
+		unknown(t, b, a.caller().Push(ctx, toB, m))
+		if evs := append(b.events(t, "peer_message_received"), b.events(t, "peer_message_refused")...); len(evs) != 0 {
+			t.Fatalf("b took or refused %+v", evs)
+		}
+		for _, name := range []string{"a", "b2"} { // no pong waits for either
+			if p, err := b.api.GetPeer(ctx, name); err != nil || p.Waiting != 0 {
+				t.Fatalf("peer %s = %+v, %v", name, p, err)
+			}
+		}
+		// The sender was told nothing it can end the message on, tries
+		// again, and is taken as b2.
+		if err := a.caller().Push(ctx, toB, m); err != nil {
+			t.Fatalf("the next try = %v", err)
+		}
+		// The id is not one c has sent: its own m1 is taken, not dropped.
+		resp, body := signed(c, b, "POST", yards.Path, message("m1")).send(t, b)
+		if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"taken":true`) {
+			t.Fatalf("m1 from the yard that has the name = %d %s", resp.StatusCode, body)
+		}
+		evs := b.events(t, "peer_message_received")
+		if len(evs) != 2 || evs[0].Data["peer"] != "b2" || evs[1].Data["peer"] != "a" {
+			t.Fatalf("peer_message_received = %+v", evs)
+		}
+	})
+
+	t.Run("get", func(t *testing.T) {
+		a, b, _, toB, st := yards3(t)
+		forA, err := b.api.PeerSend(ctx, "a", "ping", nil, "jo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var forC *store.PeerOut
+		swap := st.do
+		st.do = func() {
+			swap()
+			if forC, err = b.api.PeerSend(ctx, "a", "ping", nil, "jo"); err != nil {
+				t.Error(err)
+			}
+		}
+		// a says it has everything: under the name a that would end c's.
+		_, err = a.caller().Pull(ctx, toB, 1<<32)
+		unknown(t, b, err)
+		if evs := b.events(t, "peer_message_sent"); len(evs) != 0 {
+			t.Fatalf("peer_message_sent = %+v", evs)
+		}
+		if out, err := b.api.PeerOutbox(ctx, "a", 0); err != nil || len(out) != 1 || out[0].ID != forC.ID {
+			t.Fatalf("what waits for the yard that has the name = %+v, %v", out, err)
+		}
+		// Asked again, a gets its own.
+		batch, err := a.caller().Pull(ctx, toB, 0)
+		if err != nil {
+			t.Fatalf("the next question = %v", err)
+		}
+		var page store.PeerPage
+		if err := json.Unmarshal(batch.Body, &page); err != nil || len(page.Messages) != 1 || page.Messages[0].ID != forA.ID {
+			t.Fatalf("the next question's page = %s, %v", batch.Body, err)
+		}
+	})
+}

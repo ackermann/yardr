@@ -39,11 +39,14 @@ const maxRefusals = 32
 const maxRequest = store.MaxPeerBody + 4<<10
 
 // Store is what the receiver needs of the yard: the store itself, in the
-// process that owns it. None of the three is on the socket.
+// process that owns it. None of the three is on the socket. The two that
+// take a request are given the key its signature was checked against, with
+// the name PeerByKey found for it: the name alone may be another yard's by
+// then.
 type Store interface {
 	PeerByKey(ctx context.Context, key string) (*store.Peer, error)
-	PeerReceive(ctx context.Context, name string, msgs []store.PeerMessage) ([]store.PeerTaken, error)
-	PeerHandOver(ctx context.Context, name string, after uint64, refused map[uint64]string) (*store.PeerPage, error)
+	PeerReceive(ctx context.Context, name, key string, msgs []store.PeerMessage) ([]store.PeerTaken, error)
+	PeerHandOver(ctx context.Context, name, key string, after uint64, refused map[uint64]string) (*store.PeerPage, error)
 }
 
 // Receiver serves Path and nothing else.
@@ -157,9 +160,9 @@ func (rc *Receiver) post(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m.Seq = 0 // the sender's own; a posted message has no place here
-	taken, err := rc.st.PeerReceive(r.Context(), f.peer.Name, []store.PeerMessage{m})
+	taken, err := rc.st.PeerReceive(r.Context(), f.peer.Name, f.peer.Key, []store.PeerMessage{m})
 	switch {
-	case errors.Is(err, store.ErrNotFound): // removed since verify
+	case errors.Is(err, store.ErrNotFound): // removed since verify, or its name another yard's
 		rc.reject(w, f.peer.Name, "unknown_peer", http.StatusUnauthorized, err)
 	case err != nil:
 		// The store refuses only what is no message; its words name
@@ -187,7 +190,7 @@ func (rc *Receiver) get(w http.ResponseWriter, r *http.Request) {
 		rc.answer(w, f, "bad_request", http.StatusBadRequest, map[string]any{"error": "after wants a sequence number"})
 		return
 	}
-	page, err := rc.st.PeerHandOver(r.Context(), f.peer.Name, after, refusals(r.URL.Query().Get("refused")))
+	page, err := rc.st.PeerHandOver(r.Context(), f.peer.Name, f.peer.Key, after, refusals(r.URL.Query().Get("refused")))
 	if errors.Is(err, store.ErrNotFound) {
 		rc.reject(w, f.peer.Name, "unknown_peer", http.StatusUnauthorized, err)
 		return

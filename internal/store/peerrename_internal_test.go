@@ -33,7 +33,7 @@ func TestMigratePeerSince(t *testing.T) {
 		t.Fatal(err)
 	}
 	old := PeerMessage{ID: "m1", Kind: PeerMail, Body: []byte(`{"to":"mayor","from":"clerk","text":"from the first north"}`)}
-	if got, err := s.PeerReceive(ctx, "north", []PeerMessage{old}); err != nil || got[0].Refused != "" {
+	if got, err := s.PeerReceive(ctx, "north", first.Key, []PeerMessage{old}); err != nil || got[0].Refused != "" {
 		t.Fatalf("PeerReceive = %+v, %v", got, err)
 	}
 	if err := s.DeletePeer(ctx, "north", "jo"); err != nil {

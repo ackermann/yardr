@@ -221,6 +221,23 @@ func loadPeer(tx *bolt.Tx, name string) (*Peer, error) {
 	return p, nil
 }
 
+// loadPeerOf is the peer name when its key is key, the one a request's
+// signature was checked against. The receiver finds the peer by its key in
+// one read and takes the request in another transaction: between the two
+// the name may have been given to another yard (a rename or a removal, then
+// an add), and what one yard signed is never taken as the other's. A name
+// whose key is another's is no peer to the one who asks.
+func loadPeerOf(tx *bolt.Tx, name, key string) (*Peer, error) {
+	p, err := loadPeer(tx, name)
+	if err != nil {
+		return nil, err
+	}
+	if p.Key != key {
+		return nil, fmt.Errorf("peer %s: %w: it is not the yard the request is signed by", name, ErrNotFound)
+	}
+	return p, nil
+}
+
 // AddPeer records another yard as a peer. The link carries nothing until
 // AllowPeer says what. A name or a key that is a peer already is refused
 // (peerFree).
@@ -536,7 +553,8 @@ func (m *PeerOut) giveUp(w *wtx, reason string, extra map[string]any) error {
 	return w.undelivered(m, reason)
 }
 
-// PeerHandOver answers a pull by the peer name: what it says it has (up to
+// PeerHandOver answers a pull by the peer name, whose question was signed
+// with key (loadPeerOf): what it says it has (up to
 // after) is ended as sent, and the next of what waits for it is handed
 // over. A peer this yard calls gets nothing this way, only the word that
 // it is posted to: one message would otherwise cross twice.
@@ -551,12 +569,12 @@ func (m *PeerOut) giveUp(w *wtx, reason string, extra map[string]any) error {
 //
 // It is not on the API: only the receiver, which has checked the peer's
 // signature on the question, may end a message as sent by pull.
-func (s *Store) PeerHandOver(ctx context.Context, name string, after uint64, refused map[uint64]string) (*PeerPage, error) {
+func (s *Store) PeerHandOver(ctx context.Context, name, key string, after uint64, refused map[uint64]string) (*PeerPage, error) {
 	var page *PeerPage
 	var taken []PeerOut
 	hand := func(tx *bolt.Tx) error {
 		page, taken = &PeerPage{Messages: []PeerMessage{}}, nil // a batched write may run this twice
-		p, err := loadPeer(tx, name)
+		p, err := loadPeerOf(tx, name, key)
 		if err != nil {
 			return err
 		}
@@ -580,7 +598,8 @@ func (s *Store) PeerHandOver(ctx context.Context, name string, after uint64, ref
 	if err := s.read(hand); err != nil || len(taken) == 0 {
 		return page, err
 	}
-	// Read again in the write: the outbox may have changed between the two.
+	// Read again in the write: the outbox may have changed between the two,
+	// and the name may be another yard's.
 	err := s.write(func(w *wtx) error {
 		if err := hand(w.Tx); err != nil {
 			return err
@@ -683,13 +702,14 @@ func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string) ([]PeerTaken,
 	return out, nil
 }
 
-// PeerReceive takes messages the peer name posted (see receivePeer). It is
+// PeerReceive takes messages the peer name posted (see receivePeer), signed
+// with key: the name is taken only while it is that key's (loadPeerOf). It is
 // not on the API: only the receiver, in the process that owns the store,
 // has checked whose they are, so no client can hand in one of its own.
-func (s *Store) PeerReceive(ctx context.Context, name string, msgs []PeerMessage) ([]PeerTaken, error) {
+func (s *Store) PeerReceive(ctx context.Context, name, key string, msgs []PeerMessage) ([]PeerTaken, error) {
 	var out []PeerTaken
 	err := s.write(func(w *wtx) error {
-		p, err := loadPeer(w.Tx, name)
+		p, err := loadPeerOf(w.Tx, name, key)
 		if err != nil {
 			return err
 		}

@@ -119,7 +119,7 @@ func TestPeerMailReceive(t *testing.T) {
 	y.resident(t, "mayor", "")
 	receive := func(m store.PeerMessage) store.PeerTaken {
 		t.Helper()
-		got, err := y.own.PeerReceive(y.ctx, "north", []store.PeerMessage{m})
+		got, err := y.own.PeerReceive(y.ctx, "north", y.key, []store.PeerMessage{m})
 		if err != nil || len(got) != 1 {
 			t.Fatalf("PeerReceive = %+v, %v", got, err)
 		}
@@ -242,13 +242,13 @@ func TestPeerMailUndelivered(t *testing.T) {
 		}
 		seqs = append(seqs, m.Seq)
 	}
-	page, err := y.own.PeerHandOver(y.ctx, "north", 0, nil)
+	page, err := y.own.PeerHandOver(y.ctx, "north", y.key, 0, nil)
 	if err != nil || len(page.Messages) != 3 {
 		t.Fatalf("PeerHandOver = %+v, %v", page, err)
 	}
 	// North has the first two, and did not take the second. A reason this
 	// yard does not know is not repeated.
-	if _, err := y.own.PeerHandOver(y.ctx, "north", seqs[1], map[uint64]string{seqs[1]: store.RefusedNoResident, 99: "x"}); err != nil {
+	if _, err := y.own.PeerHandOver(y.ctx, "north", y.key, seqs[1], map[uint64]string{seqs[1]: store.RefusedNoResident, 99: "x"}); err != nil {
 		t.Fatal(err)
 	}
 	p, _ := y.api.GetPeer(y.ctx, "north")

@@ -43,7 +43,7 @@ func TestPeerMailLimit(t *testing.T) {
 		t.Helper()
 		n++
 		body, _ := json.Marshal(peerMail{To: to, From: "mayor", Text: "hi"})
-		got, err := s.PeerReceive(ctx, "north", []PeerMessage{{ID: fmt.Sprintf("m%d", n), Kind: PeerMail, Body: body}})
+		got, err := s.PeerReceive(ctx, "north", yardkey.Public(k), []PeerMessage{{ID: fmt.Sprintf("m%d", n), Kind: PeerMail, Body: body}})
 		if err != nil {
 			t.Fatal(err)
 		}
