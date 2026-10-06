@@ -217,13 +217,13 @@ func (a *app) status(ctx context.Context, cfg *config.Config) (*statusReport, er
 	if err == nil && !set {
 		return nil, notInitialized{cfg.Home}
 	}
-	doc, err := a.examine(ctx, cfg, false, true, set, err)
+	doc, err := a.examine(ctx, cfg, false, set, err)
 	if err != nil {
 		return nil, err
 	}
 	faults := len(doc.Faults)
 	rep.Faults = &faults
-	if doc.State.Server == "unreachable" {
+	if doc.State.Server == serverUnreachable {
 		rep.Server.Error = doc.State.ServerError
 		return rep, nil
 	}

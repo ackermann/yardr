@@ -3,7 +3,9 @@ package cli
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +14,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
 )
@@ -35,12 +38,31 @@ type doctorReport struct {
 	// Tried is whether each harness was given one real call (--try): the
 	// machine's `try` says what each came to.
 	Tried bool `json:"tried"`
+	// Skipped are the checks that were not made, by name, on a yard whose
+	// server is not running: what they ask is in the store, and doctor
+	// starts no server to read it.
+	Skipped []string `json:"skipped,omitempty"`
 }
+
+// The states of a yard's server, as doctor reports them.
+const (
+	serverUp          = "running"
+	serverStopped     = "not_running"
+	serverUnreachable = "unreachable"
+)
+
+// skippedWhy is what stands for a check on a yard whose server is not
+// running.
+const skippedWhy = "the server is not running"
+
+// storeChecks are the checks that read the store, as Skipped names them:
+// the lines of the yard's part, the setup steps, and the optional parts.
+var storeChecks = []string{"mayor", "residents", "held", "cycles", "mail", "names", "steps", "hooks", "peers", "packs"}
 
 // yardState is the second part: what of the yard runs.
 type yardState struct {
-	// Server is "running", "started" (it was not running, and this command
-	// started it as the first command on a yard does) or "unreachable".
+	// Server is "running", "not_running" (nothing else of the yard is read
+	// then but the daemon, which the home says) or "unreachable".
 	Server      string      `json:"server"`
 	ServerError string      `json:"server_error,omitempty"`
 	Daemon      bool        `json:"daemon"`
@@ -94,6 +116,9 @@ type optionalPart struct {
 	Title      string `json:"title"`
 	Configured bool   `json:"configured"`
 	Detail     string `json:"detail"`
+	// Skipped is whether it was not looked at, on a yard whose server is
+	// not running: Detail says so, and Configured says nothing.
+	Skipped bool `json:"skipped,omitempty"`
 	// Notes are what to know about it as it is configured.
 	Notes []string `json:"notes,omitempty"`
 	// Views are the web views that run now, on the web view's part only.
@@ -139,19 +164,24 @@ func (a *app) doctorCmd() *cobra.Command {
                           peers, packs, the daemon as a login service.
 
 It is read-only: it installs nothing (it prints where to get a program and
-never runs that), changes nothing in the store and starts no daemon. It runs
-each harness's version flag, for up to ` + versionTimeout.String() + ` each; a kind yardr knows no
-version flag for is not run. On a yard whose server is not running it starts
-the server, as any command does. On a home with no yard it says so, checks
-the machine and creates nothing. For a program that is not on PATH it runs
-your login shell ($SHELL -l -c) once, to ask where that finds it.
+never runs that), changes nothing in the store and starts no daemon and no
+server. It runs each harness's version flag, for up to ` + versionTimeout.String() + ` each; a kind
+yardr knows no version flag for is not run. On a yard whose server is not
+running it says so, checks the machine and the daemon, and lists what only
+the store knows (the mayor, the residents, held beads, the setup steps,
+hooks, peers, packs) as skipped: that is a note, not a fault. On a home with
+no yard it says so, checks the machine and creates nothing. For a program
+that is not on PATH it runs your login shell ($SHELL -l -c) once, to ask
+where that finds it.
 
 --try makes one real call to each harness: its one-shot form (claude -p,
 codex exec, ...) with a prompt that asks for one word, stdin closed, for up
 to ` + tryTimeout.String() + ` each. It says what the harness printed when that fails: a login
 that is needed, a flag it does not know. It costs a model call per harness,
 on your account with it, so doctor never makes it unasked. A kind yardr
-knows no one-shot form for is reported as not tried.
+knows no one-shot form for is reported as not tried. On a yard whose server
+is not running --try is refused: which harnesses the yard runs on is in its
+store.
 
 The exit status is 1 when something the yard needs is missing or not working
 (the lines marked FAULT), 0 otherwise. A step not done, a held bead, a
@@ -186,25 +216,72 @@ every line.`,
 // doctor reads the three parts. It fails only on what stops it from reading
 // at all; everything it finds wrong is in the report. With try it makes one
 // real call to each harness (see try).
+//
+// It starts no server (yardr-sb74): a command asked what is wrong changes
+// nothing of what runs to answer. As yardr status does, it asks the home
+// whether it holds a store, then whether a server answers, and only one that
+// answers is asked about the yard. A store in hand already (the onboarding's)
+// is a server that answered.
 func (a *app) doctor(ctx context.Context, cfg *config.Config, try bool) (*doctorReport, error) {
-	// Before the store is asked: connecting starts a server that is not
-	// running.
-	was := serverRunning(ctx, cfg)
+	if a.st == nil {
+		if _, err := os.Stat(cfg.DBPath()); errors.Is(err, fs.ErrNotExist) {
+			return a.examine(ctx, cfg, try, false, nil)
+		}
+		if !serverRunning(ctx, cfg) {
+			if try {
+				yardr := yardrAt(cfg.Home)
+				return nil, fmt.Errorf("doctor --try needs the yard's server, which is not running: which harnesses the yard runs on "+
+					"is in its store, and doctor starts no server. Start it (%s server start) and run it again; "+
+					"%s doctor without --try says what it can without one", yardr, yardr)
+			}
+			return stoppedYard(ctx, cfg), nil
+		}
+		// A client of the server that answered, not a.store: that one
+		// starts a server when this one has stopped in between.
+		a.st, a.cfg = rpc.NewClient(cfg.Socket()), cfg
+	}
 	set, err := a.initialized(ctx, cfg)
-	return a.examine(ctx, cfg, try, was, set, err)
+	return a.examine(ctx, cfg, try, set, err)
+}
+
+// forStoppedYard is what a harness on this machine is listed for while the
+// yard's server is not running: none is known to be needed, so none is a
+// fault.
+const forStoppedYard = "a harness on this machine; which ones the yard runs on is not known while its server is not running"
+
+// stoppedYard is the report on a yard whose server is not running: what the
+// machine and the home say without the store, and every check that needs
+// the store as skipped. Whether the store was ever set up is not known
+// then; as for yardr status, it is reported as the yard it most likely is.
+func stoppedYard(ctx context.Context, cfg *config.Config) *doctorReport {
+	rep := &doctorReport{Home: cfg.Home, Yard: true, Faults: []string{}, Steps: []setupStep{}, Skipped: storeChecks}
+	rep.Machine = machineNeeds(ctx, nil, false)
+	for i, n := range rep.Machine {
+		if n.Harness != "" && n.For == forNewYard {
+			rep.Machine[i].For = forStoppedYard
+		}
+	}
+	rep.State = &yardState{Server: serverStopped, Daemon: daemonRunning(cfg.DaemonLock()), Failing: []failingResident{}, Held: []string{}}
+	skip := func(key, title string) optionalPart {
+		return optionalPart{Key: key, Title: title, Skipped: true, Detail: skippedWhy}
+	}
+	// The login service's notes on its rigs are the store's too, and left
+	// out.
+	rep.Optional = []optionalPart{webPart(cfg), skip("hooks", "hooks"), skip("peers", "peers"), skip("packs", "packs"), servicePart(cfg)}
+	rep.faults()
+	return rep
 }
 
 // examine is doctor for a home already asked whether it holds a yard (set,
-// or err when its server cannot be reached) and whether its server was
-// running before that (was).
-func (a *app) examine(ctx context.Context, cfg *config.Config, try, was, set bool, err error) (*doctorReport, error) {
+// or err when its server cannot be reached).
+func (a *app) examine(ctx context.Context, cfg *config.Config, try, set bool, err error) (*doctorReport, error) {
 	rep := &doctorReport{Home: cfg.Home, Faults: []string{}, Tried: try}
 	if err != nil {
 		// A yard whose server cannot be reached: the machine's part still
 		// says something, and the fault is the server's.
 		rep.Yard = true
 		rep.Machine = machineNeeds(ctx, nil, try)
-		rep.State = &yardState{Server: "unreachable", ServerError: err.Error(), Daemon: daemonRunning(cfg.DaemonLock()),
+		rep.State = &yardState{Server: serverUnreachable, ServerError: err.Error(), Daemon: daemonRunning(cfg.DaemonLock()),
 			Failing: []failingResident{}, Held: []string{}}
 		rep.Steps = []setupStep{}
 		rep.faults()
@@ -234,9 +311,6 @@ func (a *app) examine(ctx context.Context, cfg *config.Config, try, was, set boo
 	if rep.State, err = readState(ctx, cfg, st, residents); err != nil {
 		return nil, err
 	}
-	if !was {
-		rep.State.Server = "started"
-	}
 	if rep.State.Mail, err = a.readMail(ctx, st); err != nil {
 		return nil, err
 	}
@@ -260,7 +334,7 @@ func (a *app) examine(ctx context.Context, cfg *config.Config, try, was, set boo
 // doctor prints, and what bare yardr goes by to tell
 // a yard whose onboarding is to finish (resume).
 func readState(ctx context.Context, cfg *config.Config, st store.API, residents []store.Resident) (*yardState, error) {
-	state := &yardState{Server: "running", Daemon: daemonRunning(cfg.DaemonLock()), Residents: len(residents),
+	state := &yardState{Server: serverUp, Daemon: daemonRunning(cfg.DaemonLock()), Residents: len(residents),
 		Failing: []failingResident{}, Held: []string{}, residents: residents}
 	mayor := yardMayor(ctx, st)
 	state.Mayor = &mayorState{Name: mayor}
@@ -342,11 +416,8 @@ func optionalParts(ctx context.Context, cfg *config.Config, st store.API) ([]opt
 		}
 		pack.Configured, pack.Detail = true, strings.Join(names, ", ")
 	}
-	svc := optionalPart{Key: "login_service", Title: "login service",
-		Detail: fmt.Sprintf("the daemon runs while its terminal or the session that started it does (%s daemon, %s init --start); "+
-			"it does not come back after a reboot; %s daemon install starts it at login", yardr, yardr, yardr)}
-	if loginService(cfg) {
-		svc.Configured, svc.Detail = true, "the daemon starts at login"+fileOf(cfg, svcDaemon)
+	svc := servicePart(cfg)
+	if svc.Configured {
 		rigs, err := st.Rigs(ctx)
 		if err != nil {
 			return nil, err
@@ -364,6 +435,19 @@ func optionalParts(ctx context.Context, cfg *config.Config, st store.API) ([]opt
 		return nil, err
 	}
 	return []optionalPart{web, hook, peers, pack, svc}, nil
+}
+
+// servicePart is the daemon's login service as the home says it is,
+// without the notes on the yard's rigs.
+func servicePart(cfg *config.Config) optionalPart {
+	yardr := yardrAt(cfg.Home)
+	if loginService(cfg) {
+		return optionalPart{Key: "login_service", Title: "login service", Configured: true,
+			Detail: "the daemon starts at login" + fileOf(cfg, svcDaemon)}
+	}
+	return optionalPart{Key: "login_service", Title: "login service",
+		Detail: fmt.Sprintf("the daemon runs while its terminal or the session that started it does (%s daemon, %s init --start); "+
+			"it does not come back after a reboot; %s daemon install starts it at login", yardr, yardr, yardr)}
 }
 
 // at is " at http://<addr>/" for a web view's address, "" for none.
@@ -483,7 +567,8 @@ func (r *doctorReport) machineLines() []docLine {
 		lines = append(lines, n.lines()...)
 		harness = harness || n.Harness != "" && n.Found
 	}
-	if harness && !r.Tried {
+	// Not on a yard whose server is not running: --try is refused there.
+	if harness && !r.Tried && len(r.Skipped) == 0 {
 		lines = append(lines, docLine{tagNote, "harness", fmt.Sprintf("on PATH is not \"works\": no harness was asked for an answer. "+
 			"%s doctor --try makes one real call to each (it costs a model call per harness)", yardrAt(r.Home))})
 	}
@@ -495,10 +580,12 @@ func (s *yardState) lines(home string) []docLine {
 	yardr := yardrAt(home)
 	var out []docLine
 	switch s.Server {
-	case "unreachable":
+	case serverUnreachable:
 		return append(out, docLine{tagFault, "server", "cannot be reached: " + s.ServerError})
-	case "started":
-		out = append(out, docLine{tagOK, "server", "was not running; this command started it, as the first command on a yard does"})
+	case serverStopped:
+		// A note: a stopped yard is a state a yard can be in, and nothing
+		// is wrong with it.
+		out = append(out, docLine{tagNote, "server", fmt.Sprintf("not running (%s server start, or any command but status and doctor, starts it)", yardr)})
 	default:
 		out = append(out, docLine{tagOK, "server", "running"})
 	}
@@ -507,6 +594,13 @@ func (s *yardState) lines(home string) []docLine {
 	} else {
 		out = append(out, docLine{tagFault, "daemon", fmt.Sprintf("not running: no bead is dispatched and no resident starts. "+
 			"Start it in a pane of its own (%s daemon) or in the background (%s init --start)", yardr, yardr)})
+	}
+	if s.Server == serverStopped {
+		// The lines every report has, so that its shape stays the same.
+		for _, name := range []string{"mayor", "residents", "held"} {
+			out = append(out, docLine{tagNote, name, "skipped: " + skippedWhy})
+		}
+		return out
 	}
 	switch m := s.Mayor; {
 	case m == nil:
@@ -647,6 +741,8 @@ func (r *doctorReport) print() {
 	if len(r.Steps) > 0 {
 		fmt.Println("\nSetup")
 		printSteps(r.Steps)
+	} else if len(r.Skipped) > 0 {
+		fmt.Printf("\nSetup\n  %-5s  skipped: %s\n", tagNote, skippedWhy)
 	}
 	if len(r.Optional) > 0 {
 		fmt.Println("\nOptional")
@@ -654,6 +750,9 @@ func (r *doctorReport) print() {
 			state := "not configured"
 			if p.Configured {
 				state = "configured"
+			}
+			if p.Skipped {
+				state = "skipped"
 			}
 			fmt.Printf("  %-14s  %s: %s\n", state, p.Title, p.Detail)
 			for _, n := range p.Notes {
@@ -664,6 +763,10 @@ func (r *doctorReport) print() {
 	fmt.Println()
 	switch len(r.Faults) {
 	case 0:
+		if len(r.Skipped) > 0 {
+			fmt.Println("Nothing that was checked is missing; what the yard's store holds was not checked (skipped above).")
+			break
+		}
 		fmt.Println("Nothing the yard needs is missing.")
 	case 1:
 		fmt.Println("1 fault: something the yard needs is missing or not working (FAULT above).")

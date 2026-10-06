@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/huh"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -286,7 +287,6 @@ func TestDoctorSetUpYard(t *testing.T) {
 	if err := st.ResidentStarted(ctx, "mayor", mayorHandle()); err != nil {
 		t.Fatal(err)
 	}
-	stub(t, &serverRunning, func(context.Context, *config.Config) bool { return true })
 	out, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "doctor")
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, out)
@@ -679,6 +679,109 @@ func TestDoctorUnreachableServer(t *testing.T) {
 	if strings.Contains(out, "Setup") || strings.Contains(out, "daemon") {
 		t.Errorf("nothing else of the yard is known:\n%s", out)
 	}
+}
+
+// doctor says what is wrong and starts nothing (yardr-sb74): it started a
+// stopped server to read the yard, and reported that as ok. On a yard whose
+// server is stopped it leaves it stopped and says so as a note, checks the
+// machine and the daemon, lists what only the store knows as skipped, and
+// exits 0 when nothing it could check is wrong. --try is refused: which
+// harnesses the yard runs on is in the store.
+func TestDoctorLeavesAStoppedServerStopped(t *testing.T) {
+	home := newHome(t)
+	cfg := &config.Config{Home: home}
+	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers, "grok": toolFails})
+	// The store of a yard, which nobody serves, and its daemon.
+	holdDaemon(t, home)
+	if err := os.WriteFile(cfg.DBPath(), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stub(t, &connect, func(context.Context, *config.Config) (store.API, error) {
+		t.Error("doctor connected to the store, which starts a server")
+		return nil, errors.New("no server in this test")
+	})
+	before, err := os.ReadDir(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var code int
+	out := capture(t, func() { code = execute(&app{}, []string{"doctor"}) })
+	if code != 0 {
+		t.Fatalf("a stopped server is no fault: exit %d:\n%s", code, out)
+	}
+	wantText(t, out, "yardr doctor: the yard in "+home+"\n",
+		"  ok     git ", "  ok     herdr ",
+		"claude, a harness on this machine; which ones the yard runs on is not known while its server is not running: answers its version flag",
+		// A harness that does not work may be one the yard does not run on.
+		"  note   grok ",
+		"\nThe yard\n  note   server     not running ("+here("yardr server start")+", or any command but status and doctor, starts it)\n"+
+			"  ok     daemon     running\n"+
+			"  note   mayor      skipped: the server is not running\n"+
+			"  note   residents  skipped: the server is not running\n"+
+			"  note   held       skipped: the server is not running\n",
+		"\nSetup\n  note   skipped: the server is not running\n",
+		"  not configured  web view: not running",
+		"  skipped         hooks: the server is not running\n",
+		"  skipped         peers: the server is not running\n",
+		"  skipped         packs: the server is not running\n",
+		"  not configured  login service: ",
+		"\nNothing that was checked is missing; what the yard's store holds was not checked (skipped above).\n")
+	for _, not := range []string{"FAULT", "this command started", "Next step", "The setup is complete", "--try", "Nothing the yard needs"} {
+		if strings.Contains(out, not) {
+			t.Errorf("doctor says %q:\n%s", not, out)
+		}
+	}
+
+	rep, err := doctorJSON(t, nil)
+	if err != nil || !rep.Yard || rep.State == nil || rep.State.Server != "not_running" || !rep.State.Daemon || rep.State.Mayor != nil ||
+		len(rep.Faults) != 0 || len(rep.Steps) != 0 || rep.Next != nil || !slices.Equal(rep.Skipped, storeChecks) {
+		t.Fatalf("json: %v %+v", err, rep)
+	}
+	for _, p := range rep.Optional {
+		if store := slices.Contains([]string{"hooks", "peers", "packs"}, p.Key); p.Skipped != store {
+			t.Errorf("optional %s: skipped = %v", p.Key, p.Skipped)
+		}
+	}
+
+	// --try needs the store: refused with why, nothing tried.
+	out = capture(t, func() { code = execute(&app{}, []string{"doctor", "--try", "--json"}) })
+	if code != 1 || !strings.Contains(out, "doctor --try needs the yard's server, which is not running") ||
+		!strings.Contains(out, here("yardr server start")) || strings.Contains(out, "tried") {
+		t.Fatalf("--try: exit %d:\n%s", code, out)
+	}
+
+	// No server afterwards: no socket, no pidfile, no log, nothing new in
+	// the home at all.
+	for _, p := range []string{cfg.Socket(), cfg.PIDFile(), cfg.LogFile()} {
+		if _, err := os.Stat(p); err == nil {
+			t.Errorf("doctor left %s: a server was started", p)
+		}
+	}
+	after, err := os.ReadDir(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Errorf("the home changed: %v, was %v", after, before)
+	}
+	if server.Running(context.Background(), cfg) {
+		t.Error("a server answers on the home")
+	}
+
+	// What is wrong without the store is still a fault: no daemon.
+	other := newHome(t)
+	if err := os.MkdirAll(other, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile((&config.Config{Home: other}).DBPath(), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out = capture(t, func() { code = execute(&app{}, []string{"doctor"}) })
+	if code != 1 {
+		t.Fatalf("no daemon: exit %d:\n%s", code, out)
+	}
+	wantText(t, out, "  note   server     not running", "  FAULT  daemon     not running", "\n1 fault: ")
 }
 
 // Stand-ins for herdr, by what `herdr agent list` does in each: a server

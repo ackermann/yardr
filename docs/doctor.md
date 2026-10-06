@@ -19,7 +19,7 @@ part is reached, and exits 0 on any yard.
 
 Doctor installs nothing and changes nothing in the store. Where a program is
 missing it prints where to get it and never runs that. It starts no daemon,
-and no herdr server. What it does do:
+no yardr server and no herdr server. What it does do:
 
 - It runs each harness it finds with its version flag (`claude --version`),
   for up to 5 seconds each, side by side. That runs a program and changes
@@ -30,8 +30,34 @@ and no herdr server. What it does do:
   -l -c 'command -v <program>'`, stdin closed, up to 5 seconds) to ask where
   that finds it. With no `SHELL`, or a shell that does not answer, it says
   nothing of it.
-- On a yard whose server is not running, it starts the server, as the first
-  command on a yard always does. It says so.
+
+## A server that is not running
+
+Every other command that needs the yard starts its server. Doctor does not,
+and neither does [`yardr status`](#yardr-status): a command asked what is
+wrong changes nothing of what runs to answer. On a yard whose server is
+stopped it says so, as a note, and reports what the machine and the home say
+without the store:
+
+- the machine's part, with every harness it finds listed as `a harness on
+  this machine`: which ones the yard runs on is in the store, so one that
+  does not work is a note there, not a fault;
+- the daemon, and of the optional parts the web view and the login service
+  (without its notes on rigs);
+- the mayor, the residents, the held beads, the setup steps, hooks, peers
+  and packs as `skipped: the server is not running`, each on the line it
+  always has. Cycles, mail and names, which have a line only when there is
+  something to say, are skipped without one.
+
+A stopped server is a state a yard can be in, not a fault: the exit status
+is 0 unless something else is wrong. A daemon that does not run is, as on
+any yard: a yard stopped as a whole (`yardr daemon stop`, `yardr server
+stop`) exits 1 for its daemon.
+
+`yardr doctor --try` is refused there, with exit status 1 and nothing
+tried: which harnesses to call is in the store. A home counts as a yard here
+when it holds a store (`yard.db`): whether that store was ever set up is
+known only to its server.
 
 ## --try: one real call to each harness
 
@@ -114,7 +140,7 @@ created on; they are then never a fault.
 | `FAULT <harness> <path>, the harness of <who>: on PATH, but it did not answer its version flag within 5s` | found, and it hangs. On macOS the line goes on: `On macOS that can be a quarantined binary waiting on a Gatekeeper dialog nobody sees: run <harness> once in a terminal and answer it` |
 | `ok <harness> <path>, the harness of <who>: not checked, yardr knows no version flag for <kind>` | found, and not run: the flag is known for claude, codex, grok, kimi, opencode and pi |
 | `note <harness> …` | the two failing lines above, for a harness nothing runs on yet (a home with no yard) |
-| `note harness on PATH is not "works": no harness was asked for an answer. yardr doctor --try makes one real call to each (it costs a model call per harness)` | without `--try`, when a harness was found |
+| `note harness on PATH is not "works": no harness was asked for an answer. yardr doctor --try makes one real call to each (it costs a model call per harness)` | without `--try`, when a harness was found. Not printed on a yard whose server is not running, where `--try` is refused |
 | `ok <harness> tried: one real call answered (<the last line of its answer>)` | `--try`: the harness ended with status 0 |
 | `FAULT <harness> tried: one real call failed: <error>: <the last three lines it printed>` | `--try`: it ended with another status. The lines are the end of what it printed, stdout and stderr as they came, joined with ` / `: where a harness says that a login is needed or which flag it does not know |
 | `FAULT <harness> tried: one real call did not end within 45s; it printed: <the last three lines>` | `--try`: it hung, at a question or a login screen as a rule |
@@ -128,7 +154,7 @@ Not printed on a home with no yard.
 | line | meaning |
 |---|---|
 | `ok server running` | |
-| `ok server was not running; this command started it, as the first command on a yard does` | |
+| `note server not running (yardr server start, or any command but status and doctor, starts it)` | no fault. Doctor starts none ([above](#a-server-that-is-not-running)): the daemon's line follows, then `note mayor skipped: the server is not running` and the same for `residents` and `held`, and the block ends |
 | `FAULT server cannot be reached: <error>` | nothing else of the yard can be read; the block ends here and there are no steps |
 | `ok daemon running` | a daemon holds the home's lock |
 | `FAULT daemon not running: no bead is dispatched and no resident starts. Start it in a pane of its own (yardr daemon) or in the background (yardr init --start)` | |
@@ -149,6 +175,9 @@ Not printed on a home with no yard.
 | `note names resident <name> has the operator's name, so the operator has no user and no inbox: mail to <name> is the resident's. Rename one of the two: yardr settings set operator <name> gives the operator a name of their own and adds their user` | no fault: a yard from before residents and users shared their names |
 
 ### Setup
+
+On a yard whose server is not running the block is one line, `note skipped:
+the server is not running`, and no next step is named.
 
 The steps from a yard to a first merged bead, in the order they are taken.
 Each line is `done` or `todo`, the step, and what in the store shows it done
@@ -180,6 +209,7 @@ never a fault. Not printed on a home with no yard.
 
 | line | meaning |
 |---|---|
+| `skipped hooks: the server is not running` | the yard's server is not running; the same for `peers` and `packs` |
 | `not configured web view: not running, and nothing keeps it running; yardr web serve shows the yard in a browser while it runs, yardr web install keeps it running from login on (docs/web.md)` | no web view runs, and no login service for one is installed for this home |
 | `not configured web view: running at <URL> (pid <pid>, this machine only), …; nothing keeps it running: yardr web install keeps it running from login on (docs/web.md)` | a view started by hand (`yardr web serve`, `yardr web start`) runs, each with the URL to open; no login service is installed. `not configured` is about the service alone. A view that is `open to the network (--unsafe), no login` says that in place of `this machine only` |
 | `configured web view: kept running as a login service at http://<addr>/ (<file>); running at <URL> (pid <pid>, this machine only), …` | `yardr web install` wrote `<file>` ([web.md](web.md#keeping-it-running)), and these views run now, the service's or others; whether the service manager has it loaded is not asked |
@@ -212,6 +242,7 @@ never a fault. Not printed on a home with no yard.
 | line | when |
 |---|---|
 | `Nothing the yard needs is missing.` | no fault |
+| `Nothing that was checked is missing; what the yard's store holds was not checked (skipped above).` | no fault, on a yard whose server is not running |
 | `1 fault: something the yard needs is missing or not working (FAULT above).` | |
 | `<N> faults: things the yard needs are missing or not working (FAULT above).` | |
 | `Next step: <step>.` and, below it, the command | a yard, and a step is not done |
@@ -229,10 +260,11 @@ For a home other than the default, every command doctor prints is `yardr
 | `home`, `yard` | the home; whether a yard is set up in it |
 | `machine` | the programs: `program`, `for`, `found`, `path`, `get` (when missing), `login_shell_path` (where the login shell finds one that is missing), `harness` (the kind, for a harness), `optional` (a harness nothing runs on yet), `version` with `state` (`answers`, `fails`, `hangs`, `not_checked`) and `output`; for herdr, `server` with `state` (`running`, `not_running`, `unknown`) and `output` (what herdr said); under `--try`, for a harness, `try` with `state` (`ok`, `fails`, `hangs`, `not_tried`) and `output` (the answer's last line, what it printed, or why it was not tried) |
 | `tried` | whether `--try` was given |
-| `state` | `server` (`running`, `started`, `unreachable`), `server_error`, `daemon`, `mayor` (`name`, `resident`, `enabled`, `running`, `state`, `agent`, `failures`, `reason`), `residents`, `failing`, `held`, `cycles` (each a list of ids in blocking order, the first repeated at the end; absent when there is none), `mail` (`user`, `unread`, `from`; only when who runs it is a user), `parties` (the `names` notes); absent with no yard |
+| `state` | `server` (`running`, `not_running`, `unreachable`), `server_error`, `daemon`, `mayor` (`name`, `resident`, `enabled`, `running`, `state`, `agent`, `failures`, `reason`), `residents`, `failing`, `held`, `cycles` (each a list of ids in blocking order, the first repeated at the end; absent when there is none), `mail` (`user`, `unread`, `from`; only when who runs it is a user), `parties` (the `names` notes); absent with no yard |
 | `steps` | each `key`, `title`, `done`, `detail`, `next` (the command) when not done, and `rig` (the rig the command names) once the yard has one |
 | `next` | the first step not done; absent when all are |
-| `optional` | each `key` (`web`, `hooks`, `peers`, `packs`, `login_service`), `title`, `configured`, `detail`, `notes`; on `web`, `views`: the views that run, as `yardr status --json` lists them |
+| `optional` | each `key` (`web`, `hooks`, `peers`, `packs`, `login_service`), `title`, `configured`, `detail`, `notes`; `skipped` (true on a part that was not looked at, whose `configured` then says nothing); on `web`, `views`: the views that run, as `yardr status --json` lists them |
+| `skipped` | the checks that were not made, on a yard whose server is not running: `mayor`, `residents`, `held`, `cycles`, `mail`, `names`, `steps`, `hooks`, `peers`, `packs`. `state` then holds `server` and `daemon` and nothing that was read, and `steps` is empty. Absent otherwise |
 | `faults` | the `FAULT` lines, one string each; empty when the exit status is 0 |
 
 ## yardr status
@@ -287,8 +319,9 @@ one object: `home`, `name`, `operator`, `server` (`running`, `error`, `pid`,
 ### A server that is not running
 
 Every other command that needs the yard starts its server. `yardr status`
-does not: it says what runs, and a server it started would be one that did
-not. On a yard whose server is stopped it prints what the home and the
+does not, nor does doctor
+([above](#a-server-that-is-not-running)): it says what runs, and a server it
+started would be one that did not. On a yard whose server is stopped it prints what the home and the
 machine say without the store, and exits 0:
 
 ```
@@ -307,4 +340,4 @@ left out, and so is the line about doctor's faults. In the JSON
 `server.running` is `false` and `name`, `operator`, `residents`, `hooks`,
 `peers`, `work` and `faults` are absent. A home counts as a yard here when
 it holds a store (`yard.db`): whether that store was ever set up is known
-only to its server. `yardr doctor` does start the server, and says so.
+only to its server.
