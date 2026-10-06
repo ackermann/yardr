@@ -17,7 +17,7 @@ import (
 )
 
 func (a *app) bdpCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "bdp", Short: "Serve the yard over the Beads Protocol (BDP)"}
+	cmd := &cobra.Command{Use: "bdp", Short: "Serve the yard over the Bead Protocol (BDP)"}
 	var addr, scope string
 	serve := &cobra.Command{
 		Use:   "serve",

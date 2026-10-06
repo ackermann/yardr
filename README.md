@@ -383,9 +383,8 @@ through it. A bead's worktree is opened as a herdr workspace with a tab per
 stage and the agent started in it, and yardr reads its agents' state and
 panes from herdr.
 
-**Implemented.** [BDP](https://github.com/gastownhall/bdp), the Bead Data
-Protocol (called the Bead Protocol on its project page), is an HTTP protocol
-for beads and the links between them.
+**Implemented.** [BDP](https://github.com/gastownhall/bdp), the Bead
+Protocol, is an HTTP protocol for beads and the links between them.
 `yardr bdp serve` serves the yard over its Read profile
 ([docs/bdp.md](docs/bdp.md)), and `conformance/bdp` runs BDP's own
 conformance suite against it.

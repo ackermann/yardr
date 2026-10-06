@@ -1,4 +1,4 @@
-# BDP (Beads Protocol)
+# BDP (Bead Protocol)
 
 `yardr bdp serve` serves the yard over the [BDP](https://github.com/gastownhall/bdp)
 Read profile, so any BDP client reads yardr's beads, dependency links and

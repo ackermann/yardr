@@ -23,7 +23,7 @@ go deeper.
 | [subscriptions.md](subscriptions.md) | subscriptions and notifications: hook sources, yardr's own bead events, `--done`, bead watch, groups, a user as subscriber (who may, the notification's text, the bound of 500), `--on` |
 | [links.md](links.md) | `yardr link`: the outside issue (Linear, GitHub) a bead tracks or relates to; one tracking bead per issue, one tracked issue per source, `link move`; the one form of an issue's URL; a hook's map (`hook add --as --map`) that moves the tracked issue when its bead enters a stage |
 | [peers.md](peers.md) | `yardr peer`: linking two yards by their keys; pairing with a short code (`peer pair`) and what it rests on, invites, what a link is allowed to carry, push and pull, the signed requests, `peer ping`; mail between residents of two yards (`yardr mail <resident>@<peer>`, the `peers` setting, what is refused); what the signature proves and that it hides nothing |
-| [bdp.md](bdp.md) | serving the yard over the Beads Protocol |
+| [bdp.md](bdp.md) | serving the yard over the Bead Protocol |
 | [web.md](web.md) | `yardr web serve`: the yard in a browser, read-only; its pages and their JSON, the layout, the look's tokens, adding a page |
 | [otel.md](otel.md) | OpenTelemetry: `yardr otel export` (the event log as OTLP traces and logs), how beads, stages and sessions map to traces and spans, `TRACEPARENT` and `OTEL_RESOURCE_ATTRIBUTES` in every session, Claude Code and Codex, a Grafana example |
 

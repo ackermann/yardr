@@ -1,4 +1,4 @@
-// Package bdp serves yard over the Beads Protocol (BDP) Read profile.
+// Package bdp serves yard over the Bead Protocol (BDP) Read profile.
 //
 // The mapping from yard to BDP:
 //
