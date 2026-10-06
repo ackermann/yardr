@@ -353,6 +353,15 @@ func TestInitWithADefaultPackWithoutAYardmaster(t *testing.T) {
 	if got, _ := st.Settings(ctx); got["default_kind"] != "claude" {
 		t.Errorf("the yard is not marked set up: %v", got)
 	}
+	// --start has nobody to wait for: it says so and starts nothing.
+	errs := captureStderr(t)
+	out, err = run(t, a.rootCmd(), "init", "--start")
+	if err != nil || !strings.Contains(errs.String(), "--start: nothing is started, since the yard has no yardmaster to wait for") {
+		t.Errorf("init --start without a yardmaster: %v\n%s%s", err, out, errs)
+	}
+	if rs, _ := st.Crew(ctx); len(rs) != 0 || daemonRunning(filepath.Join(home, "daemon.lock")) {
+		t.Errorf("init --start without a yardmaster added one (%+v) or started a daemon", rs)
+	}
 	// A default pack that is gone is named with the setting, before
 	// anything is written.
 	st2 := storetest.New(t)
