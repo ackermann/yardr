@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"yardr.dev/yardr/internal/store"
 )
 
 // Linker is a source whose issues a bead can link to (yardr link). Nothing
@@ -66,6 +68,34 @@ func IssueIn(source, raw string) (string, error) {
 		return "", fmt.Errorf("%s is on %s, not on %s: no %s issue", raw, u.Hostname(), l.IssueHost(), source)
 	}
 	return l.Issue(u)
+}
+
+// The store brings every link's URL to its fixed form through this, so one
+// issue is one link whoever names it; it cannot call Issue itself, since
+// this package imports it.
+func init() { store.IssueForm(storedIssue) }
+
+// storedIssue is the fixed form of raw for the store (store.IssueForm):
+// as an issue of source, or with no source of the one whose host it is on.
+// A source that links no issues, or a host no source has issues on, has no
+// fixed form, and raw is kept as it is.
+func storedIssue(source, raw string) (string, error) {
+	if source != "" {
+		if _, ok := Adapters[source].(Linker); !ok {
+			return raw, nil
+		}
+		return IssueIn(source, raw)
+	}
+	u, err := issueURL(raw)
+	if err != nil {
+		return "", err
+	}
+	for _, name := range LinkSources() {
+		if l := Adapters[name].(Linker); strings.EqualFold(u.Hostname(), l.IssueHost()) {
+			return l.Issue(u)
+		}
+	}
+	return raw, nil
 }
 
 func issueURL(raw string) (*url.URL, error) {

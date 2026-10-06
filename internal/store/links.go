@@ -33,9 +33,9 @@ type Link struct {
 	Bead   string `json:"bead"` // stored as the UUID, returned as the handle
 	Kind   string `json:"kind"`
 	Source string `json:"source"`
-	// URL is the issue in its source's fixed form (hooks.Issue): the store
-	// takes two links to be to the same issue exactly when their URLs are
-	// equal, and never looks inside one.
+	// URL is the issue in its source's fixed form (hooks.Issue, which the
+	// store reaches through IssueForm): the store takes two links to be to
+	// the same issue exactly when their URLs are equal.
 	URL string `json:"url"`
 	// Thread is the issue's thread id in the source, as its deliveries name
 	// it; empty until a link to the issue was made from a delivery.
@@ -44,7 +44,8 @@ type Link struct {
 	CreatedBy string    `json:"created_by,omitempty"`
 }
 
-// NewLink is a link to make. URL is already in the source's fixed form.
+// NewLink is a link to make. URL is the issue's in any spelling: the store
+// brings it to the source's fixed form (IssueForm).
 type NewLink struct {
 	Kind   string
 	Source string
@@ -77,13 +78,44 @@ type LinkChange struct {
 	From string `json:"from,omitempty"`
 }
 
-func checkLink(nl NewLink) error {
+// issueForm turns an issue's URL into its source's fixed form. Until
+// IssueForm sets it, every URL is its own fixed form.
+var issueForm = func(source, raw string) (string, error) { return raw, nil }
+
+// IssueForm sets the function that brings an issue's URL to the one
+// spelling its source stores and compares, so a caller that did not fix the
+// URL itself (any client of the socket but the CLI) cannot link one issue
+// under two. The sources are in internal/hooks, which imports this package
+// and so registers the function here, from its init: a process that serves
+// a store links internal/hooks. f is given the link's source, or "" where
+// only the URL is known and the source is told by its host; it returns raw
+// as it is for a source, or a host, that has no fixed form.
+func IssueForm(f func(source, raw string) (string, error)) { issueForm = f }
+
+// fixedIssue is the issue raw names in its fixed form, for finding the
+// links to it. What has no fixed form is looked up as given: it matches
+// nothing made since IssueForm, and a link from before it can still be
+// found and removed.
+func fixedIssue(raw string) string {
+	if fixed, err := issueForm("", raw); err == nil {
+		return fixed
+	}
+	return raw
+}
+
+// checkLink checks the link and brings its URL to the source's fixed form.
+func checkLink(nl *NewLink) error {
 	if nl.Kind != LinkTracks && nl.Kind != LinkRelates {
 		return fmt.Errorf("link kind %q is neither %s nor %s", nl.Kind, LinkTracks, LinkRelates)
 	}
 	if err := checkName("link source", nl.Source); err != nil {
 		return err
 	}
+	fixed, err := issueForm(nl.Source, nl.URL)
+	if err != nil {
+		return err
+	}
+	nl.URL = fixed
 	return checkIssueURL(nl.URL)
 }
 
@@ -103,7 +135,7 @@ func checkIssueURL(raw string) error {
 // tracks an issue of the source, and an issue another bead tracks. The
 // bead's representation lists its links, so it is re-minted, as by an edge.
 func (s *Store) AddLink(ctx context.Context, ref string, nl NewLink, actor string) (*LinkChange, error) {
-	if err := checkLink(nl); err != nil {
+	if err := checkLink(&nl); err != nil {
 		return nil, err
 	}
 	var out *LinkChange
@@ -238,6 +270,7 @@ func (w *wtx) dropLink(l *linkRow) error {
 // RemoveLink deletes the bead's link to the issue, of either kind; the
 // unlinked event is its record.
 func (s *Store) RemoveLink(ctx context.Context, ref, issue, actor string) error {
+	issue = fixedIssue(issue)
 	return s.write(func(w *wtx) error {
 		row, err := w.loadBead(ref)
 		if err != nil {
@@ -271,6 +304,7 @@ func (s *Store) RemoveLink(ctx context.Context, ref, issue, actor string) error 
 // and, as AddLink does, a bead that already tracks another issue of the
 // source.
 func (s *Store) MoveLink(ctx context.Context, issue, toRef, actor string) (*LinkChange, error) {
+	issue = fixedIssue(issue)
 	var out *LinkChange
 	err := s.write(func(w *wtx) error {
 		to, err := w.loadBead(toRef)
@@ -336,6 +370,7 @@ func (s *Store) Links(ctx context.Context, ref string) ([]Link, error) {
 // IssueLinks lists the links to an issue, the tracking bead's first, then
 // oldest first.
 func (s *Store) IssueLinks(ctx context.Context, issue string) ([]Link, error) {
+	issue = fixedIssue(issue)
 	out := []Link{}
 	err := s.read(func(tx *bolt.Tx) error {
 		ls, err := issueLinks(tx, issue)

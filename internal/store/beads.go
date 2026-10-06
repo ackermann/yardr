@@ -184,8 +184,10 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 	if nb.Rig != "" {
 		rig = &nb.Rig
 	}
-	for _, nl := range nb.Links {
-		if err := checkLink(nl); err != nil {
+	// The links are fixed in a copy: the slice is the caller's.
+	nb.Links = slices.Clone(nb.Links)
+	for i := range nb.Links {
+		if err := checkLink(&nb.Links[i]); err != nil {
 			return nil, err
 		}
 	}
