@@ -6,6 +6,7 @@ import (
 	"maps"
 	"time"
 
+	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -14,7 +15,9 @@ import (
 // its group's slot forever without anyone noticing.
 //
 //	idle     how long the agent may sit idle (herdr status idle or done)
-//	         before a session_idle event; default 30m
+//	         before a session_idle event; default 30m. An agent whose
+//	         bead has a gate running (yardr rig check) is not idle but
+//	         waiting for it: the count starts when the gate has ended
 //	max_age  how long a session may run before a session_aged event;
 //	         default 4h
 //	grace    when set, a session still idle (or still running) this long
@@ -70,7 +73,16 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 	}
 
 	if idleOn && agent {
-		if st := d.status[s.ID]; st == "idle" || st == "done" {
+		st := d.status[s.ID]
+		idleNow := st == "idle" || st == "done"
+		if _, gating := d.gateOf(s.Bead); idleNow && gating {
+			// It waits for its gate, which takes longer than a builders'
+			// limit: nothing to tell the mayor, and nothing to stop. The
+			// spell is forgotten, so the count starts again at the first pass
+			// that finds the gate gone.
+			delete(d.idleSince, s.ID)
+			delete(d.idleTold, s.ID)
+		} else if idleNow {
 			since, ok := d.idleSince[s.ID]
 			if !ok {
 				// Counted from the first pass that saw it idle; a restarted
@@ -137,6 +149,22 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 		}
 	}
 	return true
+}
+
+// gateOf is the gate running for bead, if one is: a yardr rig check in its
+// worktree, as the yard's home records it (rigcheck.Gates). The home is read
+// once a pass, and only when a session is idle. One that cannot be read has
+// no gates: the idle watch then goes on as it did without them.
+func (d *Dispatcher) gateOf(bead string) (rigcheck.Gate, bool) {
+	if !d.gatingRead {
+		d.gatingRead = true
+		gates, err := rigcheck.Gates(d.Home)
+		if err != nil {
+			d.Log.Warn("read the running gates", "home", d.Home, "err", err)
+		}
+		d.gating = gates
+	}
+	return rigcheck.GateOf(d.gating, bead)
 }
 
 func (d *Dispatcher) limitEvent(ctx context.Context, s store.Session, kind, key string, got, lim, grace time.Duration, stops bool) {

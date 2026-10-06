@@ -461,6 +461,14 @@ The slots are lock files in ` + slotDirHelp + `
 (YARDR_GATE_DIR names another directory), held by this process: the kernel
 frees one when its process ends. yardr status counts them.
 
+A run for a bead is known to the yard while it runs, the wait for a slot
+included: the bead whose worktree --dir is (its branch, yard/<bead>), or
+the one whose worktree the command is run from, else YARDR_BEAD. yardr
+session list shows it in its GATE column and yardr status names the bead,
+and the daemon raises no session_idle for the bead's session meanwhile: an
+agent waiting for its gate is not idle. The record is a file in
+<home>/gating that this process holds a lock on, gone when it ends.
+
 Exits 0 when the gate passes, 1 when it fails (including no gate and a
 timeout), 2 when it could not be run at all (unknown rig, base that does not
 resolve, git failing, no slot within --slot-wait), so a merge script can tell a red branch from a broken
@@ -682,6 +690,16 @@ func (a *app) runRigCheck(ctx context.Context, rigName, dir string, timeout time
 			return nil, err
 		}
 	}
+	// The yard knows of the gate while it runs: the idle watch leaves the
+	// bead's session alone, and yardr session list shows it. A record that
+	// cannot be made costs the mayor a nudge, not the bead its gate.
+	gate, err := rigcheck.MarkRunning(a.home(), rigcheck.Gate{Bead: gateBead(ctx, st, dir), Rig: rig.Name, Light: light,
+		Since: time.Now(), Dir: or(dir, rig.Path)})
+	if err != nil {
+		fmt.Fprintf(stderr, "yardr: the gate is not recorded as running (yardr session list will not show it): %v\n", err)
+	}
+	defer gate.End()
+	slots.Waiting = gate.SetWaiting
 	// The timeout is the check's own: the wait for a slot does not eat it.
 	res, err := rigcheck.RunWith(ctx, *rig, dir, rigcheck.Options{Light: light, Since: since, Timeout: timeout, Slots: &slots})
 	if err != nil {
@@ -725,21 +743,11 @@ func partBase(ctx context.Context, st store.API, rig store.Rig, dir string) (str
 	if dir == "" || rig.IsDir() {
 		return "", nil
 	}
-	out, err := exec.CommandContext(ctx, "git", "-C", dir, "symbolic-ref", "--quiet", "--short", "HEAD").Output()
-	if err != nil {
-		return "", nil
-	}
-	handle, ok := strings.CutPrefix(strings.TrimSpace(string(out)), store.Branch(""))
-	if !ok || handle == "" {
-		return "", nil
-	}
-	b, err := st.GetBead(ctx, handle)
+	b, err := worktreeBead(ctx, st, dir)
 	switch {
-	case errors.Is(err, store.ErrNotFound):
-		return "", nil
 	case err != nil:
 		return "", err
-	case b.Type != store.TypePart || b.Rig == nil || *b.Rig != rig.Name:
+	case b == nil || b.Type != store.TypePart || b.Rig == nil || *b.Rig != rig.Name:
 		return "", nil
 	}
 	f, err := st.Family(ctx, b.ID)
@@ -750,6 +758,47 @@ func partBase(ctx context.Context, st store.API, rig store.Rig, dir string) (str
 		return "", nil
 	}
 	return store.Branch(f.Epic), nil
+}
+
+// worktreeBead is the bead whose worktree dir is: the one named by the
+// branch dir is on (store.Branch), or nil when dir is no repository, is
+// detached, or is on a branch that is no bead's.
+func worktreeBead(ctx context.Context, st store.API, dir string) (*store.Bead, error) {
+	out, err := exec.CommandContext(ctx, "git", "-C", dir, "symbolic-ref", "--quiet", "--short", "HEAD").Output()
+	if err != nil {
+		return nil, nil
+	}
+	handle, ok := strings.CutPrefix(strings.TrimSpace(string(out)), store.Branch(""))
+	if !ok || handle == "" {
+		return nil, nil
+	}
+	b, err := st.GetBead(ctx, handle)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, nil
+	}
+	return b, err
+}
+
+// gateBead is the bead a rig check in dir is run for, or "": the bead whose
+// worktree dir is, or, with no --dir, the one whose worktree the command was
+// run from, since an agent that runs the gate from its pane waits for it
+// either way. A directory that is no bead's worktree (a dir rig's bead works
+// in the rig itself) leaves the bead the session was started for,
+// YARDR_BEAD. A store that does not answer names none: the gate runs
+// unrecorded.
+func gateBead(ctx context.Context, st store.API, dir string) string {
+	if dir == "" {
+		dir = "."
+	}
+	if b, err := worktreeBead(ctx, st, dir); err == nil && b != nil {
+		return b.ID
+	}
+	if id := config.Getenv("BEAD"); id != "" {
+		if b, err := st.GetBead(ctx, id); err == nil {
+			return b.ID
+		}
+	}
+	return ""
 }
 
 // stageFileFindings looks at the stage files of the flows governing rig.
@@ -1119,7 +1168,15 @@ func (a *app) sessionCmd() *cobra.Command {
 
 A manual group's claim is among them, though nothing runs in it: the bead
 waits for a person. --running leaves those out, so the list is what an
-agent (herdr) or a script (exec) is working on now.`,
+agent (herdr) or a script (exec) is working on now.
+
+GATE says that a yardr rig check runs for the session's bead, in its
+worktree or from it: "gating 6m (light)", the light or the full gate and for
+how long, or "waiting 2m (full)" while it waits for a gate slot of the
+machine (yardr rig check --help). The agent of such a session is idle to
+herdr, and waiting, not stuck: the daemon raises no session_idle for it
+until the gate has ended and the group's idle limit has passed again.
+--json has it as gate: bead, rig, light, waiting, since, dir, pid.`,
 		RunE: func(c *cobra.Command, _ []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -1134,9 +1191,23 @@ agent (herdr) or a script (exec) is working on now.`,
 				// nothing running behind it (yardr-7r3h).
 				ss = slices.DeleteFunc(ss, store.Session.Manual)
 			}
-			return a.out(ss, func() {
+			// A session whose bead has a gate running is waiting for it,
+			// whatever herdr calls its agent.
+			gates, err := rigcheck.Gates(a.home())
+			if err != nil {
+				return err
+			}
+			listed := make([]listedSession, len(ss))
+			for i, s := range ss {
+				listed[i].Session = s
+				if g, ok := rigcheck.GateOf(gates, s.Bead); ok && !s.Manual() && s.EndedAt == nil {
+					listed[i].Gate = &g
+				}
+			}
+			now := time.Now()
+			return a.out(listed, func() {
 				rows := [][]string{}
-				for _, s := range ss {
+				for _, s := range listed {
 					// Which runner owns it, and what it is running there.
 					runner := s.Runner
 					if s.Manual() {
@@ -1147,10 +1218,15 @@ agent (herdr) or a script (exec) is working on now.`,
 					} else if v, ok := s.Handle["pid"]; ok {
 						runner = strings.TrimSpace(or(runner, "exec") + " pid " + show(v))
 					}
+					gate := "-"
+					if s.Gate != nil {
+						gate = s.Gate.Show(now)
+					}
 					rows = append(rows, []string{s.ID, s.Bead, s.Epic, s.Stage, s.Group, s.State, or(runner, "-"),
-						s.StartedAt.Local().Format("01-02 15:04")})
+						s.StartedAt.Local().Format("01-02 15:04"), gate})
 				}
-				table("ID\tBEAD\tEPIC\tSTAGE\tGROUP\tSTATE\tRUNNER\tSTARTED", rows)
+				// The gate last: it is the one column with spaces in it.
+				table("ID\tBEAD\tEPIC\tSTAGE\tGROUP\tSTATE\tRUNNER\tSTARTED\tGATE", rows)
 			})
 		},
 	}
@@ -1158,6 +1234,13 @@ agent (herdr) or a script (exec) is working on now.`,
 	list.Flags().BoolVar(&running, "running", false, "only sessions an agent or a script is behind: leave out the beads a manual group holds for a person")
 	cmd.AddCommand(list)
 	return cmd
+}
+
+// listedSession is a session as yardr session list shows it: with the gate
+// running for its bead, when one is.
+type listedSession struct {
+	store.Session
+	Gate *rigcheck.Gate `json:"gate,omitempty"`
 }
 
 func printEvent(e store.Event) {

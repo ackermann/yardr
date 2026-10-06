@@ -71,6 +71,10 @@ type Slots struct {
 	// Notify is told, in one line each, that the run waits and that it got
 	// its slot. It may be nil.
 	Notify func(line string)
+	// Waiting is told true when the run starts to wait for a slot and false
+	// when it has one: what the yard shows of a gate (running.go). It may be
+	// nil.
+	Waiting func(waiting bool)
 	// Holder is written into the slot file, for a person who looks.
 	Holder string
 }
@@ -152,6 +156,9 @@ func (s Slots) Acquire(ctx context.Context) (release func(), waited time.Duratio
 		bound = DefaultSlotWait
 	}
 	start := time.Now()
+	if s.Waiting != nil {
+		s.Waiting(true)
+	}
 	c, _ := Count(s.Dir)
 	if c.Running >= s.Limit {
 		s.notify("%s running on this machine; waiting for a slot", gates(c.Running))
@@ -173,6 +180,9 @@ func (s Slots) Acquire(ctx context.Context) (release func(), waited time.Duratio
 		if f != nil {
 			waited = time.Since(start)
 			s.notify("got a slot after waiting %s", waited.Round(time.Second))
+			if s.Waiting != nil {
+				s.Waiting(false)
+			}
 			return s.held(f), waited, nil
 		}
 		if time.Since(start) >= bound {

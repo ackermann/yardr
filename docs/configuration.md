@@ -114,6 +114,21 @@ sets applies, and `idle` never does, since they cannot tell idle from busy.
 The idle clock is the daemon's: one that replaces itself starts it again,
 while the age is counted from the session's start and reported only once.
 
+**Waiting for its gate is not idle.** An agent that has committed and waits
+for `yardr rig check` is idle to herdr for as long as the gate takes, which
+is longer than a builders' `idle` of a few minutes. So a `yardr rig check`
+run for a bead is known to the yard while it runs, and the daemon raises no
+`session_idle` for that bead's session, nor stops it under `grace`: the idle
+clock starts again at the daemon's first pass after the gate has ended.
+`max_age` and `stall` go on as they do.
+
+| | |
+|---|---|
+| whose gate | the bead whose worktree `--dir` is (the branch `yard/<bead>` it is on); with no `--dir`, the one whose worktree the command was run from; else `YARDR_BEAD`, the bead the session was started for (a dir rig's bead works in the rig itself). A run for no bead (the mayor's, in the rig) is not recorded. |
+| where | a file per run in `<home>/gating`, holding the bead, the rig, light or full, since when, and whether it still waits for a [gate slot](#gate-slots-how-many-gates-run-at-once). The run holds a lock on it, which the kernel drops when the process ends, however it ends: a gate that was killed is not a gate that runs. It is in the yard's home, not with the machine's slots, since a bead is one yard's and a light gate takes no slot. |
+| who sees it | `yardr session list` has a column `GATE`: `gating 6m (light)`, or `waiting 2m (full)` for a run that waits for a slot (it counts as running here); `--json` has `gate` on the session. `yardr status` names the yard's beads in its `gates` line. |
+| what it does not see | an agent that is idle for another reason while no gate runs: a harness stopped on an error in its pane looks the same to herdr, and gets its `session_idle` as before. |
+
 **Defaults without a grace.** An idle session is only reported: an agent
 waiting on a human (a permission prompt, a question) is idle too, and
 stopping it would lose the answer. An aged session is reported at `max_age`
@@ -478,7 +493,7 @@ yardr: got a slot after waiting 3m12s
 | who goes first | `--first` (or `YARDR_GATE_FIRST=1`, which the refinery scripts set): the runs already waiting, and one that only arrives, stand back for it. Among the others no order is kept; each looks five times a second. |
 | the light gate | takes no slot: it is meant to be cheap. `yardr rig add --light-slot` says a rig's light gate takes one. The full gate run under `--light` for want of a light one takes one. |
 | a gate inside a gate | a check under a slot has `YARDR_GATE_SLOT=1` in its environment, and a `yardr rig check` started with it takes none: a gate whose tests run gates would otherwise wait on itself. |
-| who sees it | `yardr status` has a line `gates  2 running, 1 waiting (limit 2)` while any gate of the machine runs or waits and the yard has a limit; `rig check --json` has `slot_waited_seconds`. |
+| who sees it | `yardr status` has a line `gates  2 running, 1 waiting (limit 2)` while any gate of the machine runs or waits and the yard has a limit, followed by the yard's own beads with a gate, light ones too: `; of this yard: yardr-k3f9 gating 6m (full), yardr-2abc waiting 1m (full)` ([whose they are](#session-limits-and-outages)). `rig check --json` has `slot_waited_seconds`. |
 
 Yards with different limits share the lower slots: a run with limit N takes
 one of the first N, so the highest limit among them is what holds for the

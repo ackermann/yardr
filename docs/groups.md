@@ -113,6 +113,10 @@ A runner that cannot start anything (herdr missing or down) is an outage, not
 a failure of the bead: the group backs off and logs `runtime_down` once.
 Groups can also limit how long a session sits idle or runs (`idle`,
 `max_age`, `grace`; [configuration.md](configuration.md#session-limits-and-outages)).
+A session whose bead has a gate running (`yardr rig check` in its worktree)
+is not idle, however long the gate takes: no `session_idle` is raised for it
+until the gate has ended and `idle` has passed again, and `yardr session
+list` says `gating 6m (light)` in its `GATE` column meanwhile.
 
 ### The prompt
 

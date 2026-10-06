@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -450,5 +451,59 @@ func TestUnheldBeadSurvivesPruningTheUnheldEvent(t *testing.T) {
 	}
 	if n, _ := s.FailureCount(ctx, b.ID, "new"); n != 0 {
 		t.Fatalf("failures after unhold and prune = %d, want 0", n)
+	}
+}
+
+// An agent that waits for its bead's gate (yardr rig check) is idle to
+// herdr and not to the yard: no session_idle while the gate runs, however
+// long, and none under a grace either. The idle clock starts again when the
+// gate has ended, so the event comes once the limit has passed after that.
+func TestSessionWaitingForItsGateIsNotIdle(t *testing.T) {
+	s := storetest.New(t)
+	r := &statusRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "working"}
+	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, Backoff: time.Hour, Home: t.TempDir()}
+	ctx := context.Background()
+	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: map[string]any{"idle": "30ms", "grace": "0"}}))
+	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"})
+	b, _ := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
+	other, _ := s.CreateBead(ctx, store.NewBead{Title: "another bead's gate is not this one's", Stage: "elsewhere"}, "me")
+	idle := func() int { t.Helper(); return len(eventKinds(t, s, b.ID, "session_idle")) }
+
+	must(t, d.Reconcile(ctx)) // start
+	// Another bead's gate runs throughout, and excuses nobody else.
+	otherGate, err := rigcheck.MarkRunning(d.Home, rigcheck.Gate{Bead: other.ID, Rig: "r", Since: time.Now()})
+	must(t, err)
+	defer otherGate.End()
+	// The agent has committed and started its gate, waiting for a slot at
+	// first, and sits idle.
+	gate, err := rigcheck.MarkRunning(d.Home, rigcheck.Gate{Bead: b.ID, Rig: "r", Light: true, Waiting: true, Since: time.Now()})
+	must(t, err)
+	r.mu.Lock()
+	r.status = "idle"
+	r.mu.Unlock()
+	must(t, d.Reconcile(ctx))
+	time.Sleep(40 * time.Millisecond)
+	must(t, d.Reconcile(ctx))
+	gate.SetWaiting(false)
+	time.Sleep(40 * time.Millisecond)
+	must(t, d.Reconcile(ctx))
+	if n := idle(); n != 0 {
+		t.Fatalf("session_idle while the gate runs: %d", n)
+	}
+	if got, _ := s.GetBead(ctx, b.ID); got.Session == nil {
+		t.Fatal("the session was stopped as idle while its gate ran")
+	}
+
+	// The gate ends: the clock starts at the first pass that finds it gone,
+	// not when the agent went idle.
+	gate.End()
+	must(t, d.Reconcile(ctx))
+	if n := idle(); n != 0 {
+		t.Fatalf("session_idle at once after the gate, before the limit passed again: %d", n)
+	}
+	time.Sleep(40 * time.Millisecond)
+	must(t, d.Reconcile(ctx))
+	if n := idle(); n != 1 {
+		t.Fatalf("session_idle events after the gate ended and the limit passed = %d, want 1", n)
 	}
 }

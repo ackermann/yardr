@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/rigcheck"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/version"
 )
@@ -192,6 +193,10 @@ type Dispatcher struct {
 	down       map[string]*outage // group -> its runtime's current outage
 	idleSince  map[string]time.Time
 	idleTold   map[string]bool // session -> session_idle raised this idle spell
+	// gating are the gates running for the yard's beads, read at most once
+	// a pass (see gateOf); gatingRead says this pass has read them.
+	gating     []rigcheck.Gate
+	gatingRead bool
 	// fresh is session -> when its agent got its first prompt, for the
 	// sessions seen idle on every pass since (see stall).
 	fresh map[string]time.Time
@@ -559,6 +564,7 @@ func (d *Dispatcher) noteReplaced(ctx context.Context) {
 func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	d.defaults()
 	d.promptDue = nil
+	d.gating, d.gatingRead = nil, false
 	groups, err := d.Store.Groups(ctx)
 	if err != nil {
 		return err

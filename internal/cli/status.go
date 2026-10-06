@@ -117,6 +117,26 @@ type workCounts struct {
 type gateStatus struct {
 	rigcheck.SlotCount
 	Limit int `json:"limit"`
+	// Beads are the gates running for this yard's beads, light ones too,
+	// which take no slot: the counts are the machine's, these are the yard's.
+	Beads []rigcheck.Gate `json:"beads,omitempty"`
+}
+
+// line is the gates in one line: the machine's counts when the yard has a
+// limit, then this yard's beads with a gate, each with its kind and how long.
+func (g gateStatus) line(now time.Time) string {
+	var parts []string
+	if g.Limit > 0 {
+		parts = append(parts, fmt.Sprintf("%d running, %d waiting (limit %d)", g.Running, g.Waiting, g.Limit))
+	}
+	if len(g.Beads) > 0 {
+		var beads []string
+		for _, b := range g.Beads {
+			beads = append(beads, b.Bead+" "+b.Show(now))
+		}
+		parts = append(parts, "of this yard: "+strings.Join(beads, ", "))
+	}
+	return strings.Join(parts, "; ")
 }
 
 // serverInfo asks the home's server which process and build it is; tests
@@ -145,7 +165,10 @@ func (a *app) statusCmd() *cobra.Command {
              a person in each manual group, and how many beads are held
   gates      how many full gates (yardr rig check) run on the machine now and
              how many wait for a slot, with the yard's limit (gate_slots);
-             they are the machine's, so another yard's gates are counted
+             they are the machine's, so another yard's gates are counted.
+             Then this yard's beads with a gate running, the light gate
+             too: "of this yard: yard-12 gating 6m (full)", or "waiting"
+             for one that waits for a slot
 
 A part the yard does not have (hooks, peers) has no line, nor have the gates
 while none runs or waits. It is read-only
@@ -274,10 +297,16 @@ func (a *app) status(ctx context.Context, cfg *config.Config) (*statusReport, er
 		}
 	}
 	// A limit that does not read is rig check's to say, not status's.
+	var gates gateStatus
 	if limit, err := rigcheck.SlotLimit(all); err == nil && limit > 0 {
 		if c, err := rigcheck.Count(rigcheck.SlotDir()); err == nil && c.Running+c.Waiting > 0 {
-			rep.Gates = &gateStatus{SlotCount: c, Limit: limit}
+			gates.SlotCount, gates.Limit = c, limit
 		}
+	}
+	// Whose they are, as far as the yard knows: the gates run for its beads.
+	gates.Beads, _ = rigcheck.Gates(cfg.Home)
+	if gates.Limit > 0 || len(gates.Beads) > 0 {
+		rep.Gates = &gates
 	}
 	return rep, nil
 }
@@ -448,7 +477,7 @@ func (r *statusReport) parts() []statusPart {
 		parts = append(parts, statusPart{"work", []string{line}})
 	}
 	if g := r.Gates; g != nil {
-		parts = append(parts, statusPart{"gates", []string{fmt.Sprintf("%d running, %d waiting (limit %d)", g.Running, g.Waiting, g.Limit)}})
+		parts = append(parts, statusPart{"gates", []string{g.line(time.Now())}})
 	}
 	return parts
 }
