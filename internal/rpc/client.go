@@ -586,6 +586,21 @@ func (c *Client) DeleteHook(ctx context.Context, name, actor string) error {
 func (c *Client) HookPayload(ctx context.Context, seq uint64) ([]byte, error) {
 	return callV[[]byte](c, ctx, "HookPayload", seq)
 }
+func (c *Client) PutSource(ctx context.Context, file, text, actor string) (*store.Source, error) {
+	return callV[*store.Source](c, ctx, "PutSource", file, text, actor)
+}
+func (c *Client) Sources(ctx context.Context) ([]store.Source, error) {
+	return callV[[]store.Source](c, ctx, "Sources")
+}
+func (c *Client) GetSource(ctx context.Context, name string) (*store.Source, error) {
+	return callV[*store.Source](c, ctx, "GetSource", name)
+}
+func (c *Client) SetSource(ctx context.Context, name, key, value, actor string) (*store.Source, error) {
+	return callV[*store.Source](c, ctx, "SetSource", name, key, value, actor)
+}
+func (c *Client) DeleteSource(ctx context.Context, name, actor string) error {
+	return c.call(ctx, "DeleteSource", nil, name, actor)
+}
 func (c *Client) IssueMoves(ctx context.Context) ([]store.IssueMove, error) {
 	return callV[[]store.IssueMove](c, ctx, "IssueMoves")
 }

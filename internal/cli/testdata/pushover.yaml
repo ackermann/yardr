@@ -1,0 +1,24 @@
+name: pushover
+about: A push to a person's phone through Pushover.
+base: https://api.pushover.net/1
+credential:
+  env: PUSHOVER_TOKEN                 # the application's token: the name, never the value
+calls:
+  message:
+    kind: update
+    about: One push to one person
+    params:
+      user:  { type: string, pattern: "^[A-Za-z0-9]{30}$" }
+      title: { type: string, max: 250 }
+      text:  { type: string, max: 1024 }
+      link:  { type: string, max: 512, optional: true }
+    request:
+      method: POST
+      path: /messages.json
+      body: { token: "{credential}", user: "{user}", title: "{title}", message: "{text}", url: "{link}" }
+notify:
+  call: message
+  address: { param: user, env: PUSHOVER_USER }   # the person's own key, read from the user's env_file
+  title: title                                   # yardr's value -> the call's parameter
+  text: text
+  link: link

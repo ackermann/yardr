@@ -145,6 +145,11 @@ type API interface {
 	GetHook(ctx context.Context, name string) (*Hook, error)
 	DeleteHook(ctx context.Context, name, actor string) error
 	HookPayload(ctx context.Context, seq uint64) ([]byte, error)
+	PutSource(ctx context.Context, file, text, actor string) (*Source, error)
+	Sources(ctx context.Context) ([]Source, error)
+	GetSource(ctx context.Context, name string) (*Source, error)
+	SetSource(ctx context.Context, name, key, value, actor string) (*Source, error)
+	DeleteSource(ctx context.Context, name, actor string) error
 	IssueMoves(ctx context.Context) ([]IssueMove, error)
 	IssueMoveAllowed(ctx context.Context, id string) (string, error)
 	IssueMoveFailed(ctx context.Context, id, reason string, retryAt time.Time) error

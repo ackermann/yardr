@@ -1,0 +1,239 @@
+package source
+
+import (
+	"errors"
+	"strings"
+	"testing"
+)
+
+// pushover is the file of the design this package was built for
+// (yardr-1481), whole: the notify key is the next step's, kept and not read.
+const pushover = `name: pushover
+about: A push to a person's phone through Pushover.
+base: https://api.pushover.net/1
+credential:
+  env: PUSHOVER_TOKEN                 # the application's token: the name, never the value
+calls:
+  message:
+    kind: update
+    about: One push to one person
+    params:
+      user:  { type: string, pattern: "^[A-Za-z0-9]{30}$" }
+      title: { type: string, max: 250 }
+      text:  { type: string, max: 1024 }
+      link:  { type: string, max: 512, optional: true }
+    request:
+      method: POST
+      path: /messages.json
+      body: { token: "{credential}", user: "{user}", title: "{title}", message: "{text}", url: "{link}" }
+notify:
+  call: message
+  address: { param: user, env: PUSHOVER_USER }   # the person's own key, read from the user's env_file
+  title: title                                   # yardr's value -> the call's parameter
+  text: text
+  link: link
+`
+
+// crm is the worked example of the declaration format (yardr-3e8x).
+const crm = `name: crm
+about: The customer system. Customers by id; notes on a customer.
+base: https://crm.example.com/api/v2
+credential:
+  env: CRM_TOKEN                                  # the name, never the value
+  header: "Authorization: Bearer {credential}"
+check: ping                                       # a read call without parameters, for source check
+calls:
+  ping:     { kind: read, request: { method: GET, path: /me } }
+  customer:
+    kind: read
+    about: Look a customer up by id
+    params: { id: { type: string, pattern: "^[0-9]{1,12}$" } }
+    request: { method: GET, path: "/customers/{id}" }
+    answer: { select: [id, name, plan, owner, open_tickets] }
+  note:
+    kind: update
+    about: Add a note to a customer
+    params: { id: { type: string, pattern: "^[0-9]{1,12}$" }, text: { type: string, max: 2000 } }
+    request: { method: POST, path: "/customers/{id}/notes", body: { text: "{text}" } }
+`
+
+func TestParsePushover(t *testing.T) {
+	d, err := Parse("pushover.yaml", []byte(pushover))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Name != "pushover" || d.Base != "https://api.pushover.net/1" || d.Credential == nil || d.Credential.Env != "PUSHOVER_TOKEN" || d.Credential.Header != "" || d.Check != "" {
+		t.Fatalf("declaration = %+v", d)
+	}
+	if len(d.Unread) != 1 || d.Unread[0] != "notify" {
+		t.Fatalf("unread = %v, want notify: the key is the next step's and is kept", d.Unread)
+	}
+	c, ok := d.Call("message")
+	if !ok || len(d.Calls) != 1 || c.Kind != Update || c.Request.Line() != "POST /messages.json" || c.Answer.Max != AnswerMax {
+		t.Fatalf("call = %+v", c)
+	}
+	if len(c.Params) != 4 || c.Params[0].Name != "user" || c.Params[0].Pattern == "" || c.Params[1].Max != 250 || !c.Params[3].Optional || c.Params[2].Optional {
+		t.Fatalf("params = %+v", c.Params)
+	}
+	body, _ := c.Request.Body.(map[string]any)
+	if body["token"] != CredentialMark || body["message"] != "{text}" || len(body) != 5 {
+		t.Fatalf("body = %v", c.Request.Body)
+	}
+}
+
+func TestParseCRM(t *testing.T) {
+	d, err := Parse("crm.yaml", []byte(crm))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Check != "ping" || d.Credential.Header != "Authorization: Bearer {credential}" || len(d.Calls) != 3 {
+		t.Fatalf("declaration = %+v", d)
+	}
+	if c, _ := d.Call("customer"); c.Kind != Read || len(c.Answer.Select) != 5 || c.Request.Path != "/customers/{id}" {
+		t.Fatalf("customer = %+v", c)
+	}
+	if d.Calls[0].Name != "ping" || d.Calls[2].Name != "note" {
+		t.Fatalf("calls are not in file order: %+v", d.Calls)
+	}
+}
+
+// Every refusal of a declaration, each with a message that names the
+// cause, at the key and the line it is on.
+func TestParseRefuses(t *testing.T) {
+	// with is the CRM file with one line replaced.
+	with := func(old, new string) string {
+		if !strings.Contains(crm, old) {
+			t.Fatalf("the CRM file has no %q", old)
+		}
+		return strings.Replace(crm, old, new, 1)
+	}
+	for _, tc := range []struct {
+		name, text, key, want string
+	}{
+		{"the credential in a path", with(`path: "/customers/{id}" }`, `path: "/customers/{id}/{credential}" }`),
+			"calls.customer.request.path", "{credential} in a path: a credential there is in the logs of every server on the way"},
+		{"the credential in a query", with(`path: "/customers/{id}" }`, `path: "/customers/{id}", query: { key: "{credential}" } }`),
+			"calls.customer.request.query.key", "{credential} in a query"},
+		{"the credential as a part of a body's value", with(`body: { text: "{text}" }`, `body: { text: "{text}", auth: "Bearer {credential}" }`),
+			"calls.note.request.body.auth", "{credential} is a whole value of a body"},
+		{"the credential in a body of a file that names none", strings.Replace(with(`body: { text: "{text}" }`, `body: { text: "{text}", auth: "{credential}" }`),
+			"credential:\n  env: CRM_TOKEN                                  # the name, never the value\n  header: \"Authorization: Bearer {credential}\"\n", "", 1),
+			"calls.note.request.body.auth", "the file names no credential"},
+		{"a parameter in the credential's header", with(`header: "Authorization: Bearer {credential}"`, `header: "Authorization: Bearer {credential} {id}"`),
+			"credential.header", "a parameter never reaches a header"},
+		{"a credential written into the file", with("env: CRM_TOKEN ", "env: s3cr3t-value "),
+			"credential.env", "never the credential"},
+		{"plain http to another machine", with("base: https://crm.example.com/api/v2", "base: http://crm.example.com/api/v2"),
+			"base", "http:// is for a stand-in on this machine only"},
+		{"no http at all", with("base: https://crm.example.com/api/v2", "base: ftp://crm.example.com/api/v2"),
+			"base", "ftp:// is not https://"},
+		{"a password in the base", with("base: https://crm.example.com/api/v2", "base: https://me:pw@crm.example.com/api/v2"),
+			"base", "the credential is named under credential"},
+		{"a path that is an address", with(`path: "/customers/{id}" }`, `path: "https://elsewhere.example.com/{id}" }`),
+			"calls.customer.request.path", "is an address, not a path"},
+		{"a path of another host", with(`path: "/customers/{id}" }`, `path: "//elsewhere.example.com/{id}" }`),
+			"calls.customer.request.path", "is an address, not a path"},
+		{"a path that leaves the base", with(`path: "/customers/{id}" }`, `path: "/../admin/{id}" }`),
+			"calls.customer.request.path", "leaves the source's base"},
+		{"a query written into the path", with(`path: "/customers/{id}" }`, `path: "/customers?id={id}" }`),
+			"calls.customer.request.path", "a query is under query"},
+		{"a parameter that is not declared", with(`path: "/customers/{id}" }`, `path: "/customers/{id}/{other}" }`),
+			"calls.customer.request.path", "{other} is no parameter of the call customer"},
+		{"a parameter that is not declared, in a body", with(`body: { text: "{text}" }`, `body: { text: "{text}", by: [ "{who}" ] }`),
+			"calls.note.request.body.by", "{who} is no parameter of the call note"},
+		{"a read call that deletes", with("ping:     { kind: read, request: { method: GET, path: /me } }", "ping:     { kind: read, request: { method: DELETE, path: /me } }"),
+			"calls.ping.request.method", "DELETE in a call of kind read"},
+		{"a name yardr has built in", with("name: crm", "name: linear"),
+			"name", "linear is a source yardr has built in"},
+		{"events in", crm + "events: { verify: hmac }\n",
+			"events", "not read yet"},
+		{"a key it does not know", crm + "retries: 3\n",
+			"retries", "unknown key"},
+		{"a check that is an update", with("check: ping ", "check: note "),
+			"check", "note is an update"},
+		{"a check that needs a parameter", with("check: ping ", "check: customer "),
+			"check", "customer needs a parameter"},
+		{"a pattern that is none", with(`pattern: "^[0-9]{1,12}$" } }`+"\n    request: { method: GET", `pattern: "^[0-9" } }`+"\n    request: { method: GET"),
+			"calls.customer.params.id.pattern", "error parsing regexp"},
+		{"a call named as every read call", with("  ping:     {", "  read:     {"),
+			"calls.read", "stands for every read call"},
+		{"no calls", "name: x\nbase: https://x.example.com\n", "calls", "missing"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, err := Parse("crm.yaml", []byte(tc.text))
+			var errs Errors
+			if !errors.As(err, &errs) || d != nil {
+				t.Fatalf("Parse = %+v, %v; want it refused", d, err)
+			}
+			for _, e := range errs {
+				if e.Key == tc.key && strings.Contains(e.Msg, tc.want) {
+					if e.File != "crm.yaml" || e.Line == 0 {
+						t.Fatalf("the error names no file and line: %+v", e)
+					}
+					return
+				}
+			}
+			t.Fatalf("no error at %s with %q in:\n%v", tc.key, tc.want, err)
+		})
+	}
+}
+
+// An optional parameter is a whole value, which can be left out: not a
+// segment of a path, nor a part of a text.
+func TestParseRefusesAnOptionalParameterThatCannotBeLeftOut(t *testing.T) {
+	const file = `name: x
+base: https://x.example.com
+calls:
+  get:
+    kind: read
+    params: { id: { type: string, optional: true } }
+    request: { method: GET, path: "%s", query: { q: "%s" }, body: { v: "%s" } }
+`
+	for _, tc := range []struct{ path, query, body, want string }{
+		{"/a/{id}", "{id}", "{id}", "a path has no place for a value that is not given"},
+		{"/a", "id-{id}", "{id}", "it stands alone as a value"},
+		{"/a", "{id}", "id {id}", "it stands alone as a value"},
+	} {
+		text := strings.Replace(file, "%s", tc.path, 1)
+		text = strings.Replace(text, "%s", tc.query, 1)
+		text = strings.Replace(text, "%s", tc.body, 1)
+		if _, err := Parse("x.yaml", []byte(text)); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%+v: err = %v", tc, err)
+		}
+	}
+	text := strings.Replace(strings.Replace(strings.Replace(file, "%s", "/a", 1), "%s", "{id}", 1), "%s", "{id}", 1)
+	if _, err := Parse("x.yaml", []byte(text)); err != nil {
+		t.Fatalf("an optional parameter as a whole value: %v", err)
+	}
+}
+
+// A file is read to its end: one run names every mistake, in file order.
+func TestParseNamesEveryMistake(t *testing.T) {
+	text := strings.NewReplacer("name: crm", "name: github", "base: https://crm.example.com/api/v2", "base: http://crm.example.com", "method: POST", "method: POSTED").Replace(crm)
+	_, err := Parse("crm.yaml", []byte(text))
+	var errs Errors
+	if !errors.As(err, &errs) || len(errs) != 3 {
+		t.Fatalf("errors = %v", err)
+	}
+	if errs[0].Line != 1 || errs[1].Line != 3 || errs[2].Line <= errs[1].Line {
+		t.Fatalf("not in file order: %v", err)
+	}
+	if got := errs[0].Error(); !strings.HasPrefix(got, "crm.yaml:1: name: github is a source yardr has built in") {
+		t.Fatalf("error text = %q", got)
+	}
+}
+
+// Plain http is for a stand-in on this machine: the loopback by address or
+// by the name every system gives it.
+func TestParseTakesHTTPToTheLoopback(t *testing.T) {
+	for _, base := range []string{"http://127.0.0.1:8080", "http://[::1]:8080/api", "http://localhost:8080"} {
+		if _, err := Parse("x.yaml", []byte(strings.Replace(crm, "https://crm.example.com/api/v2", base, 1))); err != nil {
+			t.Errorf("%s: %v", base, err)
+		}
+	}
+	for _, base := range []string{"http://127.0.0.1.example.com", "http://192.168.1.4:8080", "http://localhost.example.com"} {
+		if _, err := Parse("x.yaml", []byte(strings.Replace(crm, "https://crm.example.com/api/v2", base, 1))); err == nil {
+			t.Errorf("%s was taken", base)
+		}
+	}
+}
