@@ -125,15 +125,18 @@ yardr depot init invoices --pack dir
 ```
 
 It prints the plan and asks which agent, model and permissions the two new
-groups run with (`--bind builders=claude --bind reviewers=claude --yes`
-answers without a terminal), then makes:
+agent groups run with and, in a yard that lacks the groups `backlog` and
+`decisions`, who their members are (`--bind builders=claude --bind
+reviewers=claude --members backlog= --members decisions=jo --yes` answers
+without a terminal; an empty list is anyone), then makes:
 
 | what | where |
 |---|---|
 | groups `invoices-builders` and `invoices-reviewers`, agents with the pack's roles | the store; the roles under `<home>/packs/dir/roles/` |
+| groups `backlog` and `decisions`, of people, where the yard lacks them | the store |
 | the two flows above, as `dir.default` and `dir.train`, and the depot's pointers to them | the store |
 | their stage files, the same texts | `<home>/flows/dir.default/`, `<home>/flows/dir.train/` |
-| routes: `new` to the builders, `review` to the reviewers, and a train's `open` and `review` to the reviewers | the store |
+| routes: `new` to the builders, `review` to the reviewers, a train's `open` and `review` to the reviewers, and `backlog` and `decide` of both flows to `backlog` and `decisions` | the store |
 
 Nothing is written into the directory, and no gate: `.yardr/check` stays
 yours to add. The roles are written for a directory (no branches, no
@@ -146,10 +149,13 @@ What differs from the two steps above:
   would set it back.
 - A new group works one bead at a time. The pack gives no limit, so one you
   set later stays through the next import.
-- `backlog` and `decide` are routed to nobody, as in the steps above: a bead
-  there waits to be moved by hand, and the yard reports it as unrouted. Give
-  either a route to a manual group if someone should find it in `yardr
-  review`.
+- `backlog` and `decide` are routed, to the people groups `backlog` and
+  `decisions`, where the steps above leave them to nobody: a bead there
+  still waits to be moved by hand, but it is in `yardr review` (`-g
+  decisions` for what waits for an answer) and the yard does not report it
+  as unrouted. The two groups are the yard's, the ones the starter pack
+  makes, with no depot in their names: a yard that has them keeps them as
+  they are, members included, and its depots share them.
 - The pack has no crew: its roles name no yardmaster, and a held bead waits
   for whoever runs the yard.
 

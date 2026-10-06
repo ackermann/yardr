@@ -149,7 +149,8 @@ on, and dir on a git depot. See docs/packs.md and docs/dir-depots.md.`,
   yardr depot init webapp --pack starter
   yardr depot init webapp --pack starter --yes --crew yardmaster=boss \
     --bind builders=claude:opus --bind reviewers=codex --members backlog= --members decisions=jo
-  yardr depot init invoices --pack dir --yes --bind builders=claude --bind reviewers=claude`,
+  yardr depot init invoices --pack dir --yes --bind builders=claude --bind reviewers=claude \
+    --members backlog= --members decisions=jo`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			if err := packOrSeed(c, packArg != ""); err != nil {

@@ -36,7 +36,7 @@ func dirYard(t *testing.T) (a *app, old, invoices store.Depot) {
 	return &app{st: st, actor: "me", cfg: &config.Config{Home: t.TempDir()}}, old, invoices
 }
 
-var dirFlags = []string{"--bind", "builders=claude:opus", "--bind", "reviewers=codex"}
+var dirFlags = []string{"--bind", "builders=claude:opus", "--bind", "reviewers=codex", "--members", "backlog=", "--members", "decisions=me"}
 
 // rules are a flow file's lines that say something: its rules, without the
 // comments above them.
@@ -57,6 +57,12 @@ func rules(flow string) string {
 // the reviewers). Where they differ is where it is kept: the pack's under
 // the yard's home and in the store, depot init's in the directory, which
 // --pack leaves as it was, with no gate.
+//
+// They differ in two routes as well, on purpose (yardr-bv0x): depot init
+// gives backlog and decide no route, so a bead waiting there is reported as
+// unrouted, and the pack routes them to the yard's two people groups,
+// backlog and decisions, the starter pack's, where a person finds it in
+// yardr review.
 func TestDirPackIsWhatDepotInitGivesADirDepot(t *testing.T) {
 	a, old, invoices := dirYard(t)
 	setInteractive(t, false)
@@ -69,11 +75,14 @@ func TestDirPackIsWhatDepotInitGivesADirDepot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	for _, want := range []string{"pack dir (", "  create           invoices-builders\n", "\napplied pack dir to depot invoices: ",
+	for _, want := range []string{"pack dir (", "  create           invoices-builders\n", "  create           decisions\n", "\napplied pack dir to depot invoices: ",
 		"\ngate: none written. Depot invoices is a directory depot: its gate is .yardr/check in " + invoices.Path + " when it has one, and without one yardr depot check passes with \"no gate\"\n"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "names no group") {
+		t.Errorf("the dir pack routes a stage to nobody:\n%s", out)
 	}
 	if strings.Contains(out, "git -C") || strings.Contains(out, "Nothing is committed") || strings.Contains(out, "base") {
 		t.Errorf("a dir depot has no base and nothing to commit:\n%s", out)
@@ -147,12 +156,15 @@ func TestDirPackIsWhatDepotInitGivesADirDepot(t *testing.T) {
 	var names []string
 	for _, g := range groups {
 		names = append(names, g.Name+" "+g.Runner)
+		if g.Runner == "manual" {
+			continue
+		}
 		if want := filepath.Join(a.cfg.Home, "packs", "dir", "roles", strings.TrimPrefix(strings.TrimSuffix(g.Name, "s"), "invoices-")+".md"); g.Config["prompt"] != want {
 			t.Errorf("group %s reads %v, want %s", g.Name, g.Config["prompt"], want)
 		}
 	}
-	if want := []string{"invoices-builders herdr", "invoices-reviewers herdr"}; !slices.Equal(names, want) {
-		t.Errorf("groups = %v, want %v: no landing group, none of people", names, want)
+	if want := []string{"backlog manual", "decisions manual", "invoices-builders herdr", "invoices-reviewers herdr"}; !slices.Equal(names, want) {
+		t.Errorf("groups = %v, want %v: no landing group, and the yard's two of people under their own names", names, want)
 	}
 	routes, err := a.st.Routes(ctx)
 	if err != nil {
@@ -171,7 +183,10 @@ func TestDirPackIsWhatDepotInitGivesADirDepot(t *testing.T) {
 		got = append(got, *r.Depot+" "+r.Stage+typ+" -> "+r.Group)
 	}
 	slices.Sort(got)
-	if want := []string{"invoices new -> invoices-builders", "invoices open train -> invoices-reviewers",
+	// Every stage a bead or a train waits in has a group: none is unrouted.
+	if want := []string{"invoices backlog -> backlog", "invoices backlog train -> backlog",
+		"invoices decide -> decisions", "invoices decide train -> decisions",
+		"invoices new -> invoices-builders", "invoices open train -> invoices-reviewers",
 		"invoices review -> invoices-reviewers", "invoices review train -> invoices-reviewers"}; !slices.Equal(got, want) {
 		t.Errorf("routes = %v\nwant %v", got, want)
 	}
@@ -283,6 +298,76 @@ func TestDirPackFlowsWalk(t *testing.T) {
 	}
 	if _, err := a.st.Advance(ctx, b.ID, "approved", store.Expect{}, "me"); err == nil {
 		t.Fatal("a dir depot's task reached approved")
+	}
+}
+
+// The dir pack's two people groups are the yard's, the starter pack's: a
+// yard that has them is asked nothing about them and keeps them as they
+// are, members included, and a bead that waits for a person in the dir
+// depot is in a person's group. Its backlog and decide used to name no
+// group, so the plan noted four stages routed to nobody and every bead
+// waiting there was reported as unrouted (yardr-bv0x).
+func TestDirPackSharesTheYardsPeopleGroups(t *testing.T) {
+	a, _, _ := dirYard(t)
+	setInteractive(t, false)
+	ctx := context.Background()
+	for _, g := range []store.Group{
+		{Name: "backlog", Runner: "manual", Limit: 4},
+		{Name: "decisions", Runner: "manual", Members: []string{"ann", "me"}},
+	} {
+		if err := a.st.PutGroup(ctx, g); err != nil {
+			t.Fatal(err)
+		}
+	}
+	people := func() string {
+		t.Helper()
+		var out []string
+		for _, name := range []string{"backlog", "decisions"} {
+			g, err := a.st.GetGroup(ctx, name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, _ := json.Marshal(g)
+			out = append(out, string(b))
+		}
+		return strings.Join(out, "\n")
+	}
+	before := people()
+	out, err := run(t, a.packCmd(), "check", "dir", "--depot", "invoices")
+	if err != nil || strings.Contains(out, "names no group") {
+		t.Fatalf("pack check dir: %v\n%s", err, out)
+	}
+	// No --members: the groups are there, so there is nothing to ask.
+	out, err = run(t, a.depotCmd(), "init", "invoices", "--pack", "dir", "--yes", "--bind", "builders=claude", "--bind", "reviewers=claude")
+	if err != nil || strings.Contains(out, "names no group") {
+		t.Fatalf("depot init --pack dir: %v\n%s", err, out)
+	}
+	if got := people(); got != before {
+		t.Errorf("the import changed the yard's people groups:\n%s\nwere\n%s", got, before)
+	}
+	for typ, work := range map[string]string{"task": "new", store.TypeTrain: "open"} {
+		b, err := a.st.CreateBead(ctx, store.NewBead{Title: "which " + typ, Depot: "invoices", Type: typ}, "me")
+		if err != nil || b.Stage != "backlog" {
+			t.Fatalf("%s: %+v, %v", typ, b, err)
+		}
+		if out, err = run(t, a.reviewCmd(), "-g", "backlog"); err != nil || !strings.Contains(out, b.ID) {
+			t.Errorf("a %s in backlog is not in review -g backlog: %v\n%s", typ, err, out)
+		}
+		if _, err = a.st.Advance(ctx, b.ID, work, store.Expect{}, "me"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = a.st.Done(ctx, b.ID, "done", "", store.Expect{}, "me"); err != nil {
+			t.Fatal(err)
+		}
+		if b, err = a.st.Done(ctx, b.ID, "question", "", store.Expect{}, "me"); err != nil || b.Stage != "decide" {
+			t.Fatalf("%s: %+v, %v", typ, b, err)
+		}
+		if out, err = run(t, a.reviewCmd(), "-g", "decisions"); err != nil || !strings.Contains(out, b.ID) {
+			t.Errorf("a %s in decide is not in review -g decisions: %v\n%s", typ, err, out)
+		}
+		if out, err = run(t, a.reviewCmd(), "-g", "backlog"); err != nil || strings.Contains(out, b.ID) {
+			t.Errorf("a %s in decide is in review -g backlog: %v\n%s", typ, err, out)
+		}
 	}
 }
 

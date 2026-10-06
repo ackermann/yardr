@@ -21,7 +21,8 @@ It is written for a git depot. For a depot that is a plain directory yardr
 carries a second pack, [`packs/dir`](../packs/dir), named `dir`: the two
 flows `yardr depot init` writes into a dir depot (the depot's, and its
 trains') with their stage files, a builders and a reviewers group whose
-roles are written for a directory, no group that lands anything and no crew
+roles are written for a directory, the starter's two people groups for
+`backlog` and `decide`, no group that lands anything and no crew
 ([dir-depots.md](dir-depots.md#from-the-dir-pack)).
 
 ```

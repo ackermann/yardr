@@ -8,16 +8,17 @@
 
 name: dir
 
-# Two flows: the depot's own, and its trains'. A stage without a group is
-# worked by nobody: a bead waits there for whoever shapes it or answers it,
-# and is moved on by hand.
+# Two flows: the depot's own, and its trains'. No agent works backlog or
+# decide: a bead waits there for a person, in the starter's two people groups
+# (packs/starter/pack.yaml), so it shows in `yardr review` and nothing reports
+# it as unrouted. It is moved on by hand.
 flows:
   default:
     stages:
-      backlog: { file: flows/default/backlog.md, manual: [new, decide] }
+      backlog: { group: backlog,   file: flows/default/backlog.md, manual: [new, decide] }
       new:     { group: builders,  file: flows/default/new.md,    outcomes: { done: review, question: decide }, manual: [backlog] }
       review:  { group: reviewers, file: flows/default/review.md, outcomes: { done: done, changes: new, question: decide } }
-      decide:  { file: flows/default/decide.md, manual: [backlog, new] }
+      decide:  { group: decisions, file: flows/default/decide.md,  manual: [backlog, new] }
       done:    { end: true }
 
   # A train only groups its children here, which work in the same directory:
@@ -26,10 +27,10 @@ flows:
   train:
     type: train
     stages:
-      backlog: { file: flows/train/backlog.md, manual: [open] }
+      backlog: { group: backlog,   file: flows/train/backlog.md, manual: [open] }
       open:    { group: reviewers, file: flows/train/open.md,   outcomes: { done: review }, manual: [backlog] }
       review:  { group: reviewers, file: flows/train/review.md, outcomes: { done: done, changes: open, question: decide } }
-      decide:  { file: flows/train/decide.md, manual: [open, backlog] }
+      decide:  { group: decisions, file: flows/train/decide.md,  manual: [open, backlog] }
       done:    { end: true }
 
 # Beads share the one directory, and a group's limit is the only thing that
@@ -37,6 +38,12 @@ flows:
 # new group works one bead at a time and a limit the yard sets later stays
 # through the next import: raise the builders' only where beads touch
 # separate files. No group lands anything, and the pack has no crew.
+#
+# The two people groups are the yard's, not the depot's: they keep their
+# names, and a yard that has them (from the starter pack, say) keeps them as
+# they are, members included.
 groups:
   builders:  { agent: roles/builder.md }
   reviewers: { agent: roles/reviewer.md }
+  backlog:   { people: true }
+  decisions: { people: true }
