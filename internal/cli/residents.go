@@ -942,8 +942,8 @@ yardr doctor and bare yardr say what waits.`,
 func printInboxEvent(e store.Event, resident string) {
 	switch e.Kind {
 	case "mail":
-		from := e.Actor
-		if outsideMail(e) != "" {
+		from := store.MailSender(e)
+		if store.FromOutside(e) {
 			from += " (" + store.OutsideMail + ")"
 		}
 		fmt.Printf("%6d %s  mail from %s: %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), from, show(e.Data["text"]))
@@ -955,15 +955,6 @@ func printInboxEvent(e store.Event, resident string) {
 	default:
 		printBeadDelivery(e, resident)
 	}
-}
-
-// outsideMail is who mail from another yard is from, <name>@<peer>: "" for
-// any other event. The peer part is this yard's name for the link.
-func outsideMail(e store.Event) string {
-	if peer, _ := e.Data["from_peer"].(string); e.Kind != "mail" || peer == "" {
-		return ""
-	}
-	return e.Actor
 }
 
 func (a *app) mailCmd() *cobra.Command {
@@ -1000,7 +991,9 @@ else must be the operator. Mail the other yard does not take comes back to a
 resident's inbox as mail from the yard that says why.
 
 Mail from another yard is shown as from <name>@<peer> and marked "` + store.OutsideMail + `".
-Answer it with yardr mail <name>@<peer>.`,
+Answer it with yardr mail <name>@<peer>. Mail from a yard that is linked no
+more (yardr peer rm) is shown as from "<name> at a yard no longer linked (was
+<peer>)", with no address: a yard added under that name later is another yard.`,
 		Example: `  yardr mail mayor "Deploys are frozen until Friday"
   yardr mail mckean "The refinery is red on main: yardr-1a2b"
   yardr mail --with mayor

@@ -200,7 +200,13 @@ func renameMailPeer(tx *bolt.Tx, name, to string) ([]string, error) {
 // now, where the peer was renamed since: the sender is <name>@<peer>, and
 // an address that reaches nothing, or in time another yard, is not what a
 // resident is to answer. The name the event was logged with is kept as
-// from_peer_was. Mail from a yard that is no peer any more stays as it is.
+// from_peer_was.
+//
+// Mail from a yard that is no peer any more has no address at all: its
+// name is free, and a yard added under it later is another yard, which an
+// answer to <name>@<peer> would reach. The actor and from_peer are empty
+// then, from_peer_unlinked says why, and from_peer_was keeps the name for
+// a reader (MailSender).
 func peersToday(tx *bolt.Tx, evs []Event) error {
 	var ps peerNames
 	for i, e := range evs {
@@ -214,13 +220,45 @@ func peersToday(tx *bolt.Tx, evs []Event) error {
 				return err
 			}
 		}
-		if is := ps.now(was, e.Seq); is != "" && is != was {
+		switch is := ps.now(was, e.Seq); {
+		case is == "":
+			evs[i].Actor = ""
+			evs[i].Data["from_peer"], evs[i].Data["from_peer_was"], evs[i].Data["from_peer_unlinked"] = "", was, true
+		case is != was:
 			from, _ := e.Data["from"].(string)
 			evs[i].Actor = from + "@" + is
 			evs[i].Data["from_peer"], evs[i].Data["from_peer_was"] = is, was
 		}
 	}
 	return nil
+}
+
+// FromOutside is whether e is mail that came from another yard, linked
+// still or not: what carries OutsideMail where a resident reads it.
+func FromOutside(e Event) bool {
+	if e.Kind != "mail" {
+		return false
+	}
+	peer, _ := e.Data["from_peer"].(string)
+	return peer != "" || unlinked(e)
+}
+
+func unlinked(e Event) bool {
+	gone, _ := e.Data["from_peer_unlinked"].(bool)
+	return gone
+}
+
+// MailSender is who the mail e of an inbox is from, as its reader is
+// told: the actor, <name>@<peer> for mail from a linked yard. Mail from a
+// yard that is linked no more names no address, since none reaches its
+// sender: the name the sender gave, and what the yard was called here.
+func MailSender(e Event) string {
+	if !unlinked(e) {
+		return e.Actor
+	}
+	from, _ := e.Data["from"].(string)
+	was, _ := e.Data["from_peer_was"].(string)
+	return fmt.Sprintf("%s at a yard no longer linked (was %s)", from, was)
 }
 
 // Delivery of mail to another yard's resident (Letter.Delivery).

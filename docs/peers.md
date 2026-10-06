@@ -575,6 +575,14 @@ resident's prime says what the line means, and the mayor's role prompt does.
 **Answering.** `yardr mail <name>@<peer>` again, if the resident may mail
 that peer. There are no thread ids: a mail is one message.
 
+**From a yard removed since.** After `yardr peer rm north`, mail north sent
+that is still unread shows as `mail from mayor at a yard no longer linked
+(was north)`, in the inbox, the nudge and the prime, with no address: the
+name is free, and a yard added as `north` later is another yard, whose own
+mail shows as `mayor@north`. (`--json`: `from_peer_unlinked` is true, `actor`
+and `from_peer` are empty, `from` and `from_peer_was` say who and what the
+yard was called.)
+
 **Reading it back.** `yardr mail --with <name>@<peer>` prints the mail
 between who runs it and that resident, both directions, oldest first:
 

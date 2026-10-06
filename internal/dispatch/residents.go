@@ -311,10 +311,11 @@ func (d *Dispatcher) residentRunning(ctx context.Context, runner Runner, r store
 	var kinds, outside []string
 	for _, e := range page.Events {
 		kind := e.Kind
-		if peer, _ := e.Data["from_peer"].(string); e.Kind == "mail" && peer != "" {
-			kind = "mail from " + e.Actor
-			if !slices.Contains(outside, e.Actor) {
-				outside = append(outside, e.Actor)
+		if store.FromOutside(e) {
+			from := store.MailSender(e)
+			kind = "mail from " + from
+			if !slices.Contains(outside, from) {
+				outside = append(outside, from)
 			}
 		}
 		if !slices.Contains(kinds, kind) {

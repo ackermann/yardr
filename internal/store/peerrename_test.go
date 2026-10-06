@@ -242,3 +242,70 @@ func TestPeerRenamePull(t *testing.T) {
 		t.Fatalf("still waiting: %+v", p)
 	}
 }
+
+// Mail from a yard that was removed names no address in the inbox: its
+// name is free, and a yard added under it later is another yard. The row
+// says the yard is linked no more and what it was called; mail of the yard
+// that has the name now is that yard's, under the name.
+func TestMailFromRemovedPeer(t *testing.T) {
+	y := newPeerYard(t, "http://north.test")
+	y.resident(t, "mayor", "north")
+	y.resident(t, "clerk", "")
+	y.allow(t, store.PeerAllow{Send: []string{"mail"}, Receive: []string{"mail"}})
+	if got, err := y.own.PeerReceive(y.ctx, "north", y.key, []store.PeerMessage{mail("m1", "mayor", "clerk", "from the first north")}); err != nil || got[0].Refused != "" {
+		t.Fatalf("PeerReceive = %+v, %v", got, err)
+	}
+	if in := y.inbox(t, "mayor"); len(in) != 1 || in[0].Actor != "clerk@north" || !store.FromOutside(in[0]) || store.MailSender(in[0]) != "clerk@north" {
+		t.Fatalf("mayor's inbox while north is linked = %+v", in)
+	}
+	if err := y.api.DeletePeer(y.ctx, "north", "jo"); err != nil {
+		t.Fatal(err)
+	}
+
+	gone := func(when string) {
+		t.Helper()
+		in := y.inbox(t, "mayor")
+		if len(in) == 0 {
+			t.Fatalf("%s: mayor's inbox is empty", when)
+		}
+		e := in[0]
+		if e.Actor != "" || e.Data["from_peer"] != "" || e.Data["from_peer_unlinked"] != true || e.Data["from_peer_was"] != "north" || e.Data["from"] != "clerk" {
+			t.Fatalf("%s: mail of the removed yard = %+v", when, e)
+		}
+		if got := store.MailSender(e); got != "clerk at a yard no longer linked (was north)" || !store.FromOutside(e) {
+			t.Fatalf("%s: its sender reads %q, from outside %v", when, got, store.FromOutside(e))
+		}
+	}
+	gone("no yard has the name")
+	if _, err := y.api.Conversation(y.ctx, "mayor", "clerk@north", 0); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("the conversation with a removed yard = %v", err)
+	}
+
+	// Another yard under the name: the old mail is not its own.
+	second := otherKey(t)
+	if _, err := y.api.AddPeer(y.ctx, store.Peer{Name: "north", Key: second}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	y.allow(t, store.PeerAllow{Receive: []string{"mail"}})
+	gone("another yard has the name")
+	if got := y.conversation(t, "mayor", "clerk@north"); len(got) != 0 {
+		t.Fatalf("the new yard's conversation has the removed yard's mail: %q", got)
+	}
+	if got, err := y.own.PeerReceive(y.ctx, "north", second, []store.PeerMessage{mail("m1", "mayor", "clerk", "from the second north")}); err != nil || got[0].Refused != "" {
+		t.Fatalf("PeerReceive from the second north = %+v, %v", got, err)
+	}
+	gone("the yard that has the name wrote")
+	in := y.inbox(t, "mayor")
+	if len(in) != 2 || in[1].Actor != "clerk@north" || in[1].Data["from_peer"] != "north" || in[1].Data["from_peer_unlinked"] != nil ||
+		in[1].Data["from_peer_was"] != nil || store.MailSender(in[1]) != "clerk@north" {
+		t.Fatalf("mail of the yard that has the name now = %+v", in)
+	}
+	if got := y.conversation(t, "mayor", "clerk@north"); !slices.Equal(got, []string{"clerk@north>mayor : from the second north"}) {
+		t.Fatalf("the new yard's conversation = %q", got)
+	}
+
+	// The log keeps what it said.
+	if evs := peerEvents(t, y.api, "mail"); len(evs) != 2 || evs[0].Actor != "clerk@north" || evs[0].Data["from_peer"] != "north" || evs[0].Data["from_peer_unlinked"] != nil {
+		t.Fatalf("the log's mail events = %+v", evs)
+	}
+}
