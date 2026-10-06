@@ -67,6 +67,7 @@ import (
 	"syscall"
 	"time"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -75,6 +76,18 @@ const RepoPath = ".yardr/check"
 
 // LightPath is where a rig keeps its light check, beside the full one.
 const LightPath = ".yardr/check-light"
+
+// checkEnv is what a check's command inherits of environ. An outer check's
+// base (a gate whose tests run a gate) is not this one's: it is dropped,
+// and set only when this check has one. The settings of the yard's server
+// are dropped too: a gate's tests start servers of their own, and one that
+// read this yard's webhook address would listen on it
+// (config.WithoutServerSettings).
+func checkEnv(environ []string) []string {
+	return slices.DeleteFunc(config.WithoutServerSettings(environ), func(kv string) bool {
+		return strings.HasPrefix(kv, BaseVar+"=")
+	})
+}
 
 // BaseVar names the commit a check is compared with, in its environment.
 const BaseVar = "YARDR_CHECK_BASE"
@@ -522,10 +535,7 @@ func run(ctx context.Context, rig store.Rig, dir string, o Options) (*Result, er
 	var out bytes.Buffer
 	cmd.Dir = dir
 	cmd.Stdout, cmd.Stderr = &out, &out
-	// An outer check's base (a gate whose tests run a gate) is not this
-	// one's: it is dropped, and set only when this check has one.
-	cmd.Env = append(slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, BaseVar+"=") }),
-		"YARDR_RIG="+rig.Name)
+	cmd.Env = append(checkEnv(os.Environ()), "YARDR_RIG="+rig.Name)
 	if c.Base != "" {
 		cmd.Env = append(cmd.Env, BaseVar+"="+c.Base)
 	}

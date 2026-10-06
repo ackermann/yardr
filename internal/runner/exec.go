@@ -94,11 +94,13 @@ func (e *Exec) Start(ctx context.Context, job dispatch.Job) (map[string]any, err
 	return h, nil
 }
 
-// inherited is this process's environment as the command inherits it. For
-// a dir rig's bead, which has no base, branch or worktree, any the daemon
-// was itself started with are dropped, so they cannot read as the bead's.
+// inherited is this process's environment as the command inherits it:
+// without the settings of the yard's server, which are not the work's
+// (config.WithoutServerSettings). For a dir rig's bead, which has no base,
+// branch or worktree, any the daemon was itself started with are dropped
+// too, so they cannot read as the bead's.
 func inherited(job dispatch.Job) []string {
-	env := os.Environ()
+	env := config.WithoutServerSettings(os.Environ())
 	if job.Rig == nil || !job.Rig.IsDir() {
 		return env
 	}

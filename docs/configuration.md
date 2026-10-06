@@ -697,7 +697,11 @@ the server reads (`YARDR_HOOK_ADDR`, `YARDR_EVENT_RETENTION`,
 `YARDR_HOME` set to the home it serves, and runs in that home. So
 `YARDR_HOOK_ADDR` reaches the server only from the environment of the
 command that happened to start it; the `hook_addr` setting is the yard's
-own and needs no such luck. The daemon
+own and needs no such luck. What the yard starts for work does not inherit
+those three settings: a session (an exec group's command, an agent's pane)
+and a gate's command (`yardr rig check`) are started without them, so a
+server started from one, by a test or a trial, does not listen on the
+yard's webhook address. The daemon
 is not started this way: it runs in a pane of its own with that pane's
 environment, or in the background, started by the onboarding or
 `yardr init --start` ([below](#starting-the-yard)), with the environment of
@@ -1237,7 +1241,7 @@ Environment variables yardr reads:
 | `YARDR_ACTOR` | who is acting, for the event log (default: the OS user). A command whose actor is a user's name acts as that user ([users.md](users.md)); nothing checks who is at the keyboard |
 | `YARDR_BEAD`, `YARDR_RESIDENT` | defaults for `prime` and resident commands; set for the sessions yardr starts |
 | `YARDR_SESSION` | the session yardr started this process for; every bead move (`bead done`, `advance`, `close`, `hold`, `release`, `reopen`) sends it, and the store refuses to move the session's own bead once the session no longer owns it, and any other bead a live session owns. A call from the session's pane is checked as it even with the variable unset ([pipeline.md](pipeline.md#2-new-a-builder-implements-it)). In a bead's worktree, an environment naming another bead gives way to the worktree's session ([groups.md](groups.md#codex)) |
-| `YARDR_HOOK_ADDR` | TCP address the server takes webhooks on, e.g. `127.0.0.1:8790`, read where the server starts; set, it is used instead of the `hook_addr` setting ([above](#settings)) |
+| `YARDR_HOOK_ADDR` | TCP address the server takes webhooks on, e.g. `127.0.0.1:8790`, read where the server starts; set, it is used instead of the `hook_addr` setting ([above](#settings)). Sessions and gates do not inherit it |
 | `YARDR_LINEAR_API`, `YARDR_GITHUB_API` | where `yardr reply`, `yardr thread open` and `yardr thread state` send their calls, read by the command that makes them, and where the daemon sends a hook's issue moves ([links.md](links.md#a-beads-stage-moves-the-issue)), read when it starts (default: Linear's GraphQL endpoint, `https://api.github.com`) |
 | `YARDR_EVENT_RETENTION`, `YARDR_HOOK_PAYLOAD_RETENTION`, `YARDR_INBOX_RETENTION` | how long the daemon and `yardr store prune` keep events, ended sessions and webhook bodies, and how long an unread inbox event holds the log back ([below](#retention-keeping-yarddb-bounded)) |
 | `YARDR_GATE_SLOTS` | how many full gates run at once on the machine, used instead of the `gate_slots` setting when set; `0` is no limit ([gate slots](#gate-slots-how-many-gates-run-at-once)) |

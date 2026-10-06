@@ -52,6 +52,37 @@ func IsVar(key string, names ...string) bool {
 	return len(names) == 0 || slices.Contains(names, name)
 }
 
+// ServerSettings are the yardr variables the yard's server reads where it
+// starts: the address it takes webhooks on and how long it keeps events and
+// webhook bodies. They are the yard's, set by whoever starts its server by
+// hand, and never the work's (see WithoutServerSettings).
+var ServerSettings = []string{"HOOK_ADDR", "EVENT_RETENTION", "HOOK_PAYLOAD_RETENTION"}
+
+// WithoutServerSettings is environ without the ServerSettings, under the
+// new names and the old: the environment of what a yard starts for work (a
+// session, a gate). A server started from there, by a test of the gate's or
+// an agent's trial, would otherwise listen on this yard's webhook address,
+// and on macOS a listener on 127.0.0.1 takes the loopback deliveries of
+// one on all addresses.
+func WithoutServerSettings(environ []string) []string {
+	return slices.DeleteFunc(slices.Clone(environ), func(kv string) bool {
+		k, _, _ := strings.Cut(kv, "=")
+		return IsVar(k, ServerSettings...)
+	})
+}
+
+// BlankServerSettings is the ServerSettings set to nothing, which reads as
+// unset (see Getenv), for an environment yardr can only add to: a herdr
+// pane starts with herdr's own, and that may be the shell's the yard's
+// server was started from.
+func BlankServerSettings() []string {
+	var env []string
+	for _, name := range ServerSettings {
+		env = append(env, Env(name, "")...)
+	}
+	return env
+}
+
 // Unsetenv removes YARDR_<name> and the old YARD_<name>, so children do not
 // inherit a value meant only for this process.
 func Unsetenv(name string) {

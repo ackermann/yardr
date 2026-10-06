@@ -541,3 +541,33 @@ func TestLightGateSinceABranch(t *testing.T) {
 		t.Fatalf("store light gate since yard/e: base %s (%s), want %s", res.Base, res.BaseRef, epic)
 	}
 }
+
+// A gate's command does not get the settings of the yard's server from
+// whoever ran the gate (the daemon's refinery, an agent, a shell they were
+// exported in): its tests start servers, and one that read this yard's
+// YARDR_HOOK_ADDR listened on the yard's webhook address and answered its
+// deliveries with 404 (yardr-t9n1). What else the starter had still reaches it.
+func TestCheckDoesNotInheritServerSettings(t *testing.T) {
+	names := []string{"YARDR_HOOK_ADDR", "YARD_HOOK_ADDR", "YARDR_EVENT_RETENTION", "YARD_EVENT_RETENTION",
+		"YARDR_HOOK_PAYLOAD_RETENTION", "YARD_HOOK_PAYLOAD_RETENTION"}
+	for _, n := range names {
+		t.Setenv(n, "the-yards")
+	}
+	t.Setenv("YARDR_T9N1_KEPT", "kept")
+	rig, wt := rigWithBead(t, "")
+	rig.Check, rig.CheckLight = "env", "env"
+	for _, runIt := range []func(context.Context, store.Rig, string) (*Result, error){Run, RunLight} {
+		res, err := runIt(context.Background(), rig, wt)
+		if err != nil || !res.Pass {
+			t.Fatalf("%+v %v", res, err)
+		}
+		for _, n := range names {
+			if strings.Contains(res.Output, n+"=") {
+				t.Errorf("the gate's command got %s:\n%s", n, res.Output)
+			}
+		}
+		if !strings.Contains(res.Output, "YARDR_T9N1_KEPT=kept\n") || !strings.Contains(res.Output, "YARDR_RIG="+rig.Name+"\n") {
+			t.Errorf("the gate's command lost the rest of its environment:\n%s", res.Output)
+		}
+	}
+}

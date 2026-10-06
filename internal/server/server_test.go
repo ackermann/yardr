@@ -710,9 +710,9 @@ func TestServerEnv(t *testing.T) {
 		"YARDR_HOME=y1", "YARD_HOME=y1", "YARDR_ACTOR=mayor", "YARDR_RESIDENT=mayor", "YARD_BEAD=web-3",
 		"YARDR_SESSION=s1", "YARDR_STAGE=new", "YARDR_GROUP=g", "YARDR_BIN=/bin/yardr",
 		"YARDR_HOOK_ADDR=127.0.0.1:1", "YARD_EVENT_RETENTION=1d", "YARDR_TEST_RPC=1", "YARDR_BASE=main",
-		"SHELL=/bin/zsh", "TERM=xterm"}, "/y1")
+		"YARDR_HOOK_PAYLOAD_RETENTION=2d", "SHELL=/bin/zsh", "TERM=xterm"}, "/y1")
 	want := []string{"PATH=/bin", "HOME=/Users/jo", "YARDR_HOOK_ADDR=127.0.0.1:1", "YARD_EVENT_RETENTION=1d",
-		"YARDR_HOME=/y1", "YARD_HOME=/y1"}
+		"YARDR_HOOK_PAYLOAD_RETENTION=2d", "YARDR_HOME=/y1", "YARD_HOME=/y1"}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("ServerEnv =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
@@ -738,7 +738,12 @@ func TestStartGivesTheServerItsOwnEnvAndDir(t *testing.T) {
 	t.Setenv("YARDR_ACTOR", "mayor")
 	t.Setenv("YARD_RESIDENT", "mayor")
 	t.Setenv("YARDR_HOME", "elsewhere")
+	// The settings the server reads are the operator's to give it where
+	// they start it: a session or a gate is started without them
+	// (config.WithoutServerSettings), the yard's own server is not.
 	t.Setenv("YARDR_HOOK_ADDR", "127.0.0.1:1")
+	t.Setenv("YARDR_EVENT_RETENTION", "1d")
+	t.Setenv("YARD_HOOK_PAYLOAD_RETENTION", "2d")
 	t.Chdir(t.TempDir())
 	if err := Start(context.Background(), c); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -763,12 +768,14 @@ func TestStartGivesTheServerItsOwnEnvAndDir(t *testing.T) {
 		k, _, _ := strings.Cut(kv, "=")
 		switch k {
 		case "PATH", "HOME", "YARDR_HOME", "YARD_HOME", "YARDR_HOOK_ADDR", "YARD_HOOK_ADDR",
+			"YARDR_EVENT_RETENTION", "YARD_EVENT_RETENTION", "YARDR_HOOK_PAYLOAD_RETENTION", "YARD_HOOK_PAYLOAD_RETENTION",
 			"PWD", "OLDPWD", "SHLVL", "_": // the shell's own
 		default:
 			t.Errorf("server got %s", kv)
 		}
 	}
-	for _, kv := range []string{"YARDR_HOME=" + c.Home, "YARD_HOME=" + c.Home, "YARDR_HOOK_ADDR=127.0.0.1:1"} {
+	for _, kv := range []string{"YARDR_HOME=" + c.Home, "YARD_HOME=" + c.Home, "YARDR_HOOK_ADDR=127.0.0.1:1",
+		"YARDR_EVENT_RETENTION=1d", "YARD_HOOK_PAYLOAD_RETENTION=2d"} {
 		if !slices.Contains(env, kv) {
 			t.Errorf("server lacks %s:\n%s", kv, strings.Join(env, "\n"))
 		}

@@ -615,7 +615,10 @@ func (h *Herdr) agentEnv(job dispatch.Job, name string) []string {
 	if h.YardBin != "" {
 		env = append(env, config.Env("BIN", h.YardBin)...)
 	}
-	return env
+	// The pane starts with herdr's environment, not the daemon's, so the
+	// settings of the yard's server cannot be left out of it, only blanked;
+	// set here, they are not the env file's to give either (withEnvFile).
+	return append(env, config.BlankServerSettings()...)
 }
 
 // shellOn puts the pid of pane's shell on handle. The shell is what the
@@ -1451,7 +1454,9 @@ func (h *Herdr) StartResident(ctx context.Context, r store.Resident) (map[string
 	}
 	yard := h.yardName(ctx)
 	name := ResidentAgentName(yard, r.Name)
-	env := slices.Concat(config.Env("RESIDENT", r.Name), config.Env("ACTOR", r.Name))
+	// The settings of the yard's server are blanked, as for a bead's agent
+	// (agentEnv).
+	env := slices.Concat(config.Env("RESIDENT", r.Name), config.Env("ACTOR", r.Name), config.BlankServerSettings())
 	if h.YardHome != "" {
 		env = append(env, config.Env("HOME", h.YardHome)...)
 	}

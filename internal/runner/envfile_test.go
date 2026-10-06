@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
@@ -311,6 +312,100 @@ func TestResidentNotStartedBesideALiveHerdrAgent(t *testing.T) {
 		r, _ = st.GetResident(ctx, "mayor")
 		if got := readCalls(t, calls); !r.Live() || r.Handle["agent"] != "y1-mayor" || !strings.Contains(got, "workspace.create") {
 			t.Fatalf("%s: not started once it was gone: %+v\n%s", agent, r, got)
+		}
+	}
+}
+
+// serverSettingNames are the settings of the yard's server, under both names.
+var serverSettingNames = []string{"YARDR_HOOK_ADDR", "YARD_HOOK_ADDR", "YARDR_EVENT_RETENTION", "YARD_EVENT_RETENTION",
+	"YARDR_HOOK_PAYLOAD_RETENTION", "YARD_HOOK_PAYLOAD_RETENTION"}
+
+// A herdr session never has the settings of the yard's server: not from the
+// daemon's environment, not from an env file, and not from herdr's own,
+// which a pane starts with and yardr can only set over. So each is on the
+// request that opens the pane, set to nothing, which reads as unset: an
+// agent's trial server, or a gate it runs, does not listen on this yard's
+// webhook address (yardr-t9n1).
+func TestHerdrSessionsGetNoServerSettings(t *testing.T) {
+	for _, n := range serverSettingNames {
+		t.Setenv(n, "the-daemons")
+	}
+	envFile := filepath.Join(t.TempDir(), "group.env")
+	if err := os.WriteFile(envFile, []byte("LINEAR_API_KEY="+envSecret+"\nYARDR_HOOK_ADDR=127.0.0.1:1\nYARD_EVENT_RETENTION=1d\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	check := func(calls, paneCall string) {
+		t.Helper()
+		env := envOf(apiCall(t, calls, paneCall))
+		for _, n := range serverSettingNames {
+			if v, set := env[n]; !set || v != "" {
+				t.Errorf("%s env has %s=%q (set %v), want it set to nothing: %v", paneCall, n, v, set, env)
+			}
+		}
+		if env["LINEAR_API_KEY"] != envSecret {
+			t.Errorf("%s lost the env file's other entry: %v", paneCall, env)
+		}
+	}
+
+	wt := t.TempDir()
+	gitT(t, wt, "init", "-q", "-b", "main")
+	h, calls, _ := envHerdr(t, wt)
+	job := dispatch.Job{
+		Bead:    store.Bead{ID: "yard-13", Stage: "new"},
+		Group:   store.Group{Name: "yard-builders", Config: map[string]any{"env_file": envFile}},
+		Rig:     &store.Rig{Name: "yard", Path: t.TempDir(), Base: "main"},
+		Session: store.Session{ID: "s1"},
+	}
+	if _, err := h.Start(context.Background(), job); err != nil {
+		t.Fatal(err)
+	}
+	check(readCalls(t, calls), "tab.create")
+
+	h, calls, _ = envHerdr(t, "")
+	r := store.Resident{Name: "mayor", Dir: t.TempDir(), Config: map[string]any{"env_file": envFile}}
+	if _, err := h.StartResident(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	check(readCalls(t, calls), "workspace.create")
+}
+
+// An exec session's command inherits the daemon's environment, but not the
+// settings of the yard's server: the refinery's gate ran with the daemon's
+// YARDR_HOOK_ADDR, and a server its tests started listened there
+// (yardr-t9n1). A dir rig's bead, whose inherited environment is cut
+// further, is no exception.
+func TestExecSessionsGetNoServerSettings(t *testing.T) {
+	for _, n := range serverSettingNames {
+		t.Setenv(n, "the-daemons")
+	}
+	t.Setenv("YARDR_T9N1_KEPT", "kept")
+	dir := t.TempDir()
+	for name, rig := range map[string]*store.Rig{
+		"git": {Name: "web", Path: dir, Base: "main"},
+		"dir": {Name: "docs", Path: dir, Kind: store.RigDir},
+	} {
+		out := filepath.Join(dir, name+".env")
+		job := dispatch.Job{
+			Bead:    store.Bead{ID: "yd-7", Stage: "approved"},
+			Group:   store.Group{Name: "refinery", Config: map[string]any{"cmd": "env > " + out + ".tmp && mv " + out + ".tmp " + out}},
+			Rig:     rig,
+			Session: store.Session{ID: "s1"},
+		}
+		if _, err := (&Exec{Home: "/yh", Bin: "/bin/yardr"}).Start(context.Background(), job); err != nil {
+			t.Fatal(err)
+		}
+		var got string
+		for deadline := time.Now().Add(5 * time.Second); got == "" && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+			b, _ := os.ReadFile(out)
+			got = string(b)
+		}
+		if !strings.Contains(got, "YARDR_T9N1_KEPT=kept\n") || !strings.Contains(got, "YARDR_BEAD=yd-7\n") {
+			t.Fatalf("%s rig: the command's environment lacks what it should have:\n%s", name, got)
+		}
+		for _, n := range serverSettingNames {
+			if strings.Contains(got, n+"=") {
+				t.Errorf("%s rig: the command got %s:\n%s", name, n, got)
+			}
 		}
 	}
 }

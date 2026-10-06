@@ -225,3 +225,39 @@ func TestUseHome(t *testing.T) {
 		t.Fatalf("UseHome(\"\") = %v, home %s", err, os.Getenv("YARDR_HOME"))
 	}
 }
+
+// What a yard starts for work is started without the settings of the
+// yard's server, under either name, and with everything else it had;
+// where the environment can only be added to, they are set to nothing,
+// which Getenv reads as unset.
+func TestWithoutServerSettings(t *testing.T) {
+	environ := []string{"PATH=/bin", "YARDR_HOOK_ADDR=127.0.0.1:1", "YARD_HOOK_ADDR=127.0.0.1:2", "YARDR_BEAD=web-3",
+		"YARDR_EVENT_RETENTION=1d", "YARD_EVENT_RETENTION=2d", "YARDR_HOOK_PAYLOAD_RETENTION=3d",
+		"YARD_HOOK_PAYLOAD_RETENTION=4d", "YARDR_INBOX_RETENTION=5d", "YARDR_HOOK_ADDRESS=x"}
+	before := slices.Clone(environ)
+	got := WithoutServerSettings(environ)
+	if want := []string{"PATH=/bin", "YARDR_BEAD=web-3", "YARDR_INBOX_RETENTION=5d", "YARDR_HOOK_ADDRESS=x"}; !slices.Equal(got, want) {
+		t.Fatalf("WithoutServerSettings = %v, want %v", got, want)
+	}
+	if !slices.Equal(environ, before) {
+		t.Fatalf("the caller's environ was changed: %v", environ)
+	}
+
+	blank := BlankServerSettings()
+	if len(blank) != 2*len(ServerSettings) {
+		t.Fatalf("BlankServerSettings = %v", blank)
+	}
+	for _, kv := range blank {
+		k, v, _ := strings.Cut(kv, "=")
+		if !IsVar(k, ServerSettings...) || v != "" {
+			t.Errorf("BlankServerSettings has %q", kv)
+		}
+	}
+	for _, name := range ServerSettings {
+		t.Setenv(prefix+name, "")
+		t.Setenv(oldPrefix+name, "")
+		if got := Getenv(name); got != "" {
+			t.Errorf("a blank %s reads as %q", name, got)
+		}
+	}
+}

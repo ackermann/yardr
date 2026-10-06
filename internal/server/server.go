@@ -498,21 +498,19 @@ func Start(ctx context.Context, c *config.Config) error {
 	return fmt.Errorf("yardr server did not answer within 10s; see %s", c.LogFile())
 }
 
-// serverSettings are the yardr variables the server reads, passed on from
-// the starter's environment (under the old names too, while those are
-// read). Everything else that names the starter (its actor, bead, session,
-// branch) is the starter's, not the server's.
-var serverSettings = []string{"HOOK_ADDR", "EVENT_RETENTION", "HOOK_PAYLOAD_RETENTION"}
-
 // ServerEnv is the environment a detached server starts with, from the
 // starter's environ: PATH and HOME (git, which reads the rigs' .yardr/ from
-// their base, needs both), the serverSettings, and the home it serves,
-// under both names, in place of whatever YARDR_HOME said. Nothing else: no
-// credential, no identity, no agent's settings.
+// their base, needs both), the settings the server reads
+// (config.ServerSettings, under the old names too, while those are read),
+// and the home it serves, under both names, in place of whatever YARDR_HOME
+// said. Nothing else: no credential, no identity (the starter's actor,
+// bead, session and branch are the starter's, not the server's), no agent's
+// settings. The settings reach it from an operator's shell only: a session
+// or a gate is started without them (config.WithoutServerSettings).
 func ServerEnv(environ []string, home string) []string {
 	var env []string
 	for _, kv := range environ {
-		if k, _, _ := strings.Cut(kv, "="); k == "PATH" || k == "HOME" || config.IsVar(k, serverSettings...) {
+		if k, _, _ := strings.Cut(kv, "="); k == "PATH" || k == "HOME" || config.IsVar(k, config.ServerSettings...) {
 			env = append(env, kv)
 		}
 	}

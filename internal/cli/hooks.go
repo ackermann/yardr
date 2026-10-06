@@ -29,7 +29,8 @@ func (a *app) hookCmd() *cobra.Command {
 which runs when the yard has an address for it: yardr settings set hook_addr
 127.0.0.1:8790, or YARDR_HOOK_ADDR in the environment the server starts in,
 which is used instead of the setting. The server reads the address when it
-starts. The listener serves POST /hooks/<name>, the yard's peers under
+starts. A session the yard starts and a gate (yardr rig check) do not inherit
+YARDR_HOOK_ADDR, so a server started from one does not listen there. The listener serves POST /hooks/<name>, the yard's peers under
 /peers/ (yardr peer --help), and nothing else. Each verified delivery becomes one 'hook' event; its raw body is
 kept for 'yardr hook show <seq>'. A redelivery (the same Linear or GitHub body,
 or a repeated Linear-Delivery, X-GitHub-Delivery or Yard-Delivery id) is
